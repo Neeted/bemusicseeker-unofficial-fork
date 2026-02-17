@@ -2452,14 +2452,15 @@ public class BMSLibrary : NotificationObject
         {
             bmsFiles = BMSFiles;
         }
-        if (bmsFiles.Count() == 0)
+        List<BMSFile> targetFiles = bmsFiles.Where((BMSFile f) => f != null && !string.IsNullOrWhiteSpace(f.path)).GroupBy((BMSFile f) => f.path, StringComparer.OrdinalIgnoreCase).Select((IGrouping<string, BMSFile> g) => g.First()).ToList();
+        if (targetFiles.Count == 0)
         {
             return;
         }
         using (rwlockBMSFiles.GetWriterGuard())
         {
-            BMSFiles.Where((BMSFile f) => f.notes == 0).ToList();
-            List<BMSFile> source = BMSFiles.Where((BMSFile f) => !f.notes.HasValue && File.Exists(f.path)).ToList();
+            targetFiles.Where((BMSFile f) => f.notes == 0).ToList();
+            List<BMSFile> source = targetFiles.Where((BMSFile f) => !f.notes.HasValue && File.Exists(f.path)).ToList();
             source = source.AsParallel().Where(delegate (BMSFile f)
             {
                 try
