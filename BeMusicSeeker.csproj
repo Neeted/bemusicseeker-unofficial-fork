@@ -4,10 +4,12 @@
     <GenerateAssemblyInfo>False</GenerateAssemblyInfo>
     <OutputType>WinExe</OutputType>
     <UseWPF>True</UseWPF>
-    <TargetFramework>net45</TargetFramework>
+    <UseWindowsForms>True</UseWindowsForms>
+    <TargetFramework>net472</TargetFramework>
+    <GenerateResourceUsePreserializedResources>true</GenerateResourceUsePreserializedResources>
   </PropertyGroup>
   <PropertyGroup>
-    <LangVersion>14.0</LangVersion>
+    <LangVersion>latest</LangVersion>
     <AllowUnsafeBlocks>True</AllowUnsafeBlocks>
     <CheckForOverflowUnderflow>False</CheckForOverflowUnderflow>
   </PropertyGroup>
@@ -16,6 +18,11 @@
     <RootNamespace />
   </PropertyGroup>
   <ItemGroup>
+    <None Remove="BeMusicSeeker.App.xaml" />
+    <ApplicationDefinition Include="BeMusicSeeker.App.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </ApplicationDefinition>
     <None Remove="icon_and_logo.ico" />
     <None Remove="resources\default_image.jpg" />
     <None Remove="resources\sovjetboxbd_v0_9.otf" />
@@ -24,7 +31,7 @@
     <None Remove="resources\imageres_5328.ico" />
     <None Remove="resources\commodore-20rounded-20v1.2.ttf" />
     <EmbeddedResource Include="icon_and_logo.ico" LogicalName="icon_and_logo.ico" />
-    <EmbeddedResource Include="resources\default_image.jpg" LogicalName="resources/default_image.jpg" />
+    <Resource Include="resources\default_image.jpg" />
     <EmbeddedResource Include="resources\sovjetboxbd_v0_9.otf" LogicalName="resources/sovjetboxbd_v0_9.otf" />
     <EmbeddedResource Include="resources\icon_and_logo.png" LogicalName="resources/icon_and_logo.png" />
     <EmbeddedResource Include="resources\ligaturesymbols-2.11.otf" LogicalName="resources/ligaturesymbols-2.11.otf" />
@@ -37,6 +44,12 @@
     <Reference Include="System.Deployment" />
     <Reference Include="Livet">
       <HintPath>libs\Livet.dll</HintPath>
+    </Reference>
+    <Reference Include="System.Windows.Interactivity">
+      <HintPath>libs\System.Windows.Interactivity.dll</HintPath>
+    </Reference>
+    <Reference Include="Microsoft.Expression.Interactions">
+      <HintPath>libs\Microsoft.Expression.Interactions.dll</HintPath>
     </Reference>
     <Reference Include="WindowsFormsIntegration" />
     <Reference Include="System.Core" />
@@ -77,5 +90,6 @@
     <Reference Include="SevenZipExtractor">
       <HintPath>libs\SevenZipExtractor.dll</HintPath>
     </Reference>
+    <PackageReference Include="System.Resources.Extensions" Version="8.0.0" />
   </ItemGroup>
 </Project>

@@ -6,25 +6,21 @@ namespace BeMusicSeeker.Views;
 
 internal class dateTimeToDateStringConverter : IValueConverter
 {
-	public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
-	{
-		if (value == null)
-		{
-			return string.Empty;
-		}
-		if (value is DateTime? dateTime)
-		{
-			if (dateTime.HasValue)
-			{
-				return ((DateTime)value).ToShortDateString();
-			}
-			return string.Empty;
-		}
-		return Binding.DoNothing;
-	}
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+    {
+        if (value == null)
+        {
+            return string.Empty;
+        }
+        if (value is DateTime dateTime)
+        {
+            return dateTime.ToShortDateString();
+        }
+        return Binding.DoNothing;
+    }
 
-	public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
-	{
-		throw new NotImplementedException();
-	}
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+    {
+        throw new NotImplementedException();
+    }
 }

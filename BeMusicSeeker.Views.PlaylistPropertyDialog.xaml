@@ -93,7 +93,7 @@
                   <ListBox Name="foldersListBox" DockPanel.Dock="Left" Width="300" SelectionMode="Extended" ItemsSource="{Binding playlistPropertyDialog.folder_order}">
                     <ItemsControl.ItemTemplate>
                       <DataTemplate>
-                        <ContentPresenter Content="{qc:Binding String.IsNullOrWhiteSpace($P) ? '(フォルダ名なし)' : $P, P={Binding}}" />
+                        <ContentPresenter Content="{qc:Binding 'String.IsNullOrWhiteSpace($P) ? \'(フォルダ名なし)\' : $P', P={Binding}}" />
                       </DataTemplate>
                     </ItemsControl.ItemTemplate>
                   </ListBox>
@@ -121,7 +121,7 @@
                 <DockPanel>
                   <UniformGrid ScrollViewer.VerticalScrollBarVisibility="Disabled" UseLayoutRounding="False" Columns="2" Margin="10,0,10,0" DockPanel.Dock="Top" VerticalAlignment="Center" Height="95">
                     <CheckBox VerticalAlignment="Center" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_user, Mode=OneWay}" IsChecked="{Binding playlistPropertyDialog.ignore_folder_output, ConverterParameter=UserFolder, Converter={StaticResource customfolderOutputCheckBoxConverter}}" />
-                    <CheckBox VerticalAlignment="Center" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_level, Mode=OneWay}" IsEnabled="{qc:Binding $P == 'ファイル' || $P == 'File' , P={Binding SelectedValue, ElementName=comboBox}}" IsChecked="{Binding playlistPropertyDialog.ignore_folder_output, ConverterParameter=LevelFolder, Converter={StaticResource customfolderOutputCheckBoxConverter}}" />
+                    <CheckBox VerticalAlignment="Center" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_level, Mode=OneWay}" IsEnabled="{qc:Binding '$P == \'ファイル\' || $P == \'File\'', P={Binding SelectedValue, ElementName=comboBox}}" IsChecked="{Binding playlistPropertyDialog.ignore_folder_output, ConverterParameter=LevelFolder, Converter={StaticResource customfolderOutputCheckBoxConverter}}" />
                     <CheckBox VerticalAlignment="Center" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_alphabet, Mode=OneWay}" IsChecked="{Binding playlistPropertyDialog.ignore_folder_output, ConverterParameter=AlphabetFolder, Converter={StaticResource customfolderOutputCheckBoxConverter}}" />
                     <CheckBox VerticalAlignment="Center" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_clear, Mode=OneWay}" IsChecked="{Binding playlistPropertyDialog.ignore_folder_output, ConverterParameter=ClearFolder, Converter={StaticResource customfolderOutputCheckBoxConverter}}" />
                     <CheckBox VerticalAlignment="Center" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistProp_ftype_djlevel, Mode=OneWay}" IsChecked="{Binding playlistPropertyDialog.ignore_folder_output, ConverterParameter=DJLevelFolder, Converter={StaticResource customfolderOutputCheckBoxConverter}}" />

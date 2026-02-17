@@ -1,8 +1,14 @@
 {
   "version": 2,
-  "dgSpecHash": "xpJtXu/WsAo=",
+  "dgSpecHash": "W3O7ezvazUw=",
   "success": true,
-  "projectFilePath": "D:\\work\\BeMusicSeeker-decomp\\ILSpy\\BeMusicSeeker.csproj",
-  "expectedPackageFiles": [],
+  "projectFilePath": "d:\\work\\BeMusicSeeker-decomp\\BeMusicSeeker.csproj",
+  "expectedPackageFiles": [
+    "C:\\Users\\kazuk\\.nuget\\packages\\system.buffers\\4.5.1\\system.buffers.4.5.1.nupkg.sha512",
+    "C:\\Users\\kazuk\\.nuget\\packages\\system.memory\\4.5.5\\system.memory.4.5.5.nupkg.sha512",
+    "C:\\Users\\kazuk\\.nuget\\packages\\system.numerics.vectors\\4.5.0\\system.numerics.vectors.4.5.0.nupkg.sha512",
+    "C:\\Users\\kazuk\\.nuget\\packages\\system.resources.extensions\\8.0.0\\system.resources.extensions.8.0.0.nupkg.sha512",
+    "C:\\Users\\kazuk\\.nuget\\packages\\system.runtime.compilerservices.unsafe\\4.5.3\\system.runtime.compilerservices.unsafe.4.5.3.nupkg.sha512"
+  ],
   "logs": []
 }

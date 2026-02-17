@@ -8,27 +8,8 @@
 // </auto-generated>
 //------------------------------------------------------------------------------
 
-using BeMusicSeeker;
-using BeMusicSeeker.Models.LR2;
-using BeMusicSeeker.Properties;
-using BeMusicSeeker.ViewModels;
-using BeMusicSeeker.Views;
-using Livet;
-using Livet.Behaviors;
-using Livet.Behaviors.ControlBinding;
-using Livet.Behaviors.ControlBinding.OneWay;
-using Livet.Behaviors.Messaging;
-using Livet.Behaviors.Messaging.IO;
-using Livet.Behaviors.Messaging.Windows;
-using Livet.Commands;
-using Livet.Converters;
-using Livet.Messaging;
-using Livet.Messaging.IO;
-using Livet.Messaging.Windows;
-using OutlineFont;
 using Parago.Windows;
 using Parago.Windows.Controls;
-using QuickConverter;
 using System;
 using System.Diagnostics;
 using System.Windows;
@@ -38,11 +19,9 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Controls.Ribbon;
 using System.Windows.Data;
 using System.Windows.Documents;
-using System.Windows.Forms;
 using System.Windows.Forms.Integration;
 using System.Windows.Ink;
 using System.Windows.Input;
-using System.Windows.Interactivity;
 using System.Windows.Markup;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
