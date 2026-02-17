@@ -515,6 +515,14 @@ public class BMSLibrary : NotificationObject
 
     private object lockParentFolderList = new object();
 
+    private object lockBMSHashIndex = new object();
+
+    private Dictionary<string, int> bmsHashRefCount = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+    private HashSet<string> bmsHashIndex = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+    private bool bmsHashIndexInitialized;
+
     private ReaderWriterLockSlimWrapper rwlockBMSFilesInitializedAll = new ReaderWriterLockSlimWrapper();
 
     private ReaderWriterLockSlimWrapper rwlockBMSFilesInitializedMin = new ReaderWriterLockSlimWrapper();
@@ -600,6 +608,7 @@ public class BMSLibrary : NotificationObject
             if (_BMSFiles != value)
             {
                 _BMSFiles = value;
+                InvalidateBMSHashIndex();
                 BMSFilesDuplicated = null;
                 Task.Run(delegate
                 {
@@ -1252,6 +1261,7 @@ public class BMSLibrary : NotificationObject
                         }
                     }
                     lR2SongDBExtended.Commit();
+                    InvalidateBMSHashIndex();
                 }
                 List<string> keys = bmsFolderAllFileList.Keys;
                 foreach (BMSFile item7 in BMSFiles.Where((BMSFile f) => !string.IsNullOrWhiteSpace(f.instl_dst)))
@@ -1311,7 +1321,7 @@ public class BMSLibrary : NotificationObject
                         pkg.BMSFiles.AsParallel().ForAll(delegate (BMSFile bmsFile)
                         {
                             bmsFile.SetHealthStatus(null, forceUpdate: false, memClear: false);
-                            if (BMSFiles.Select((BMSFile x) => x.hash).Contains(bmsFile.hash))
+                            if (ContainsBMSHashUnsafe(bmsFile.hash))
                             {
                                 bmsFile.warning = "インストールされています";
                             }
@@ -1327,6 +1337,10 @@ public class BMSLibrary : NotificationObject
                     });
                 }
             }
+        }
+        using (rwlockBMSFiles.GetReaderGuard())
+        {
+            RebuildBMSHashIndexUnsafe(BMSFiles);
         }
         if (!maintenanceTblCheck)
         {
@@ -1372,6 +1386,112 @@ public class BMSLibrary : NotificationObject
             }
         }
         return SearchTargets.Where((string d) => Directory.Exists(d)).ToList();
+    }
+
+    private static bool IsBMSHashAvailable(string hash)
+    {
+        return !string.IsNullOrWhiteSpace(hash);
+    }
+
+    private static bool IsBMSHashAvailable(BMSFile bmsFile)
+    {
+        if (bmsFile == null)
+        {
+            return false;
+        }
+        return IsBMSHashAvailable(bmsFile.hash);
+    }
+
+    private void InvalidateBMSHashIndex()
+    {
+        lock (lockBMSHashIndex)
+        {
+            bmsHashRefCount.Clear();
+            bmsHashIndex.Clear();
+            bmsHashIndexInitialized = false;
+        }
+    }
+
+    private void RebuildBMSHashIndexUnsafe(IEnumerable<BMSFile> bmsFiles)
+    {
+        lock (lockBMSHashIndex)
+        {
+            bmsHashRefCount.Clear();
+            bmsHashIndex.Clear();
+            if (bmsFiles != null)
+            {
+                foreach (BMSFile bmsFile in bmsFiles)
+                {
+                    if (!IsBMSHashAvailable(bmsFile))
+                    {
+                        continue;
+                    }
+                    if (!bmsHashRefCount.TryGetValue(bmsFile.hash, out var value))
+                    {
+                        value = 0;
+                    }
+                    bmsHashRefCount[bmsFile.hash] = value + 1;
+                }
+                bmsHashIndex = new HashSet<string>(bmsHashRefCount.Keys, StringComparer.OrdinalIgnoreCase);
+            }
+            bmsHashIndexInitialized = true;
+        }
+    }
+
+    private void EnsureBMSHashIndexBuiltUnsafe()
+    {
+        if (!bmsHashIndexInitialized)
+        {
+            RebuildBMSHashIndexUnsafe(BMSFiles);
+        }
+    }
+
+    private bool ContainsBMSHashUnsafe(string hash)
+    {
+        if (!IsBMSHashAvailable(hash))
+        {
+            return false;
+        }
+        EnsureBMSHashIndexBuiltUnsafe();
+        lock (lockBMSHashIndex)
+        {
+            return bmsHashIndex.Contains(hash);
+        }
+    }
+
+    private HashSet<string> CreateBMSHashSnapshotExcludingUnsafe(IEnumerable<BMSFile> excluded)
+    {
+        EnsureBMSHashIndexBuiltUnsafe();
+        Dictionary<string, int> excludedHashCount = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        if (excluded != null)
+        {
+            foreach (BMSFile item in excluded)
+            {
+                if (!IsBMSHashAvailable(item))
+                {
+                    continue;
+                }
+                if (!excludedHashCount.TryGetValue(item.hash, out var value))
+                {
+                    value = 0;
+                }
+                excludedHashCount[item.hash] = value + 1;
+            }
+        }
+        HashSet<string> hashSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        lock (lockBMSHashIndex)
+        {
+            foreach (KeyValuePair<string, int> item2 in bmsHashRefCount)
+            {
+                int num = 0;
+                excludedHashCount.TryGetValue(item2.Key, out num);
+                if (item2.Value > num)
+                {
+                    hashSet.Add(item2.Key);
+                }
+            }
+        }
+        return hashSet;
     }
 
     public void SetBMSScore(IEnumerable<BMSFile> bmsFiles)
@@ -2693,7 +2813,7 @@ public class BMSLibrary : NotificationObject
         return list;
     }
 
-    private bool moveBMSPackageFiles(BMSPackage pkg, string installationDirectory, bool showMessageBoxOnInstallFail = true, bool deleteAllContents = false)
+    private bool moveBMSPackageFiles(BMSPackage pkg, string installationDirectory, bool showMessageBoxOnInstallFail = true, bool deleteAllContents = false, HashSet<string> existingHashes = null)
     {
         string path = pkg.path;
         string dirname = string.Empty;
@@ -2717,19 +2837,19 @@ public class BMSLibrary : NotificationObject
             installComponentFiles = Directory.EnumerateFileSystemEntries(path).ToList();
             flag2 = string.IsNullOrWhiteSpace(installationDirectory);
         }
-        installBMSFiles = pkg.BMSFiles.Where((BMSFile f) => installComponentFiles.Contains(f.path, StringComparer.OrdinalIgnoreCase)).ToList();
-        installComponentFiles = installComponentFiles.Except(installBMSFiles.Select((BMSFile f) => f.path), StringComparer.OrdinalIgnoreCase).ToList();
+        HashSet<string> installComponentPathSet = new HashSet<string>(installComponentFiles, StringComparer.OrdinalIgnoreCase);
+        installBMSFiles = pkg.BMSFiles.Where((BMSFile f) => installComponentPathSet.Contains(f.path)).ToList();
+        HashSet<string> installBMSPathSet = new HashSet<string>(installBMSFiles.Select((BMSFile f) => f.path), StringComparer.OrdinalIgnoreCase);
+        installComponentFiles = installComponentFiles.Where((string p) => !installBMSPathSet.Contains(p)).ToList();
         if (!string.IsNullOrWhiteSpace(installationDirectory))
         {
-            list = installBMSFiles.Where((BMSFile bmsFile) => (from x in BMSFiles.Except(installBMSFiles)
-                                                               select x.hash).Contains(bmsFile.hash)).ToList();
+            HashSet<string> hashSet = existingHashes ?? CreateBMSHashSnapshotExcludingUnsafe(installBMSFiles);
+            list = installBMSFiles.Where((BMSFile bmsFile) => IsBMSHashAvailable(bmsFile.hash) && hashSet.Contains(bmsFile.hash)).ToList();
             if (list.Count != 0)
             {
-                installBMSFiles = installBMSFiles.Except(list).ToList();
-                foreach (BMSFile item in list)
-                {
-                    pkg.BMSFiles.Remove(item);
-                }
+                HashSet<string> skipPathSet = new HashSet<string>(list.Select((BMSFile f) => f.path), StringComparer.OrdinalIgnoreCase);
+                installBMSFiles = installBMSFiles.Where((BMSFile f) => !skipPathSet.Contains(f.path)).ToList();
+                pkg.BMSFiles.RemoveAll((BMSFile f) => skipPathSet.Contains(f.path));
             }
         }
         try
@@ -2895,7 +3015,8 @@ public class BMSLibrary : NotificationObject
         setMaintenanceInfo(bmsFilesToBeAdded, forceUpdate: true);
         setZeroNoteAndCommitToDB(bmsFilesToBeAdded);
         SetBMSScore(bmsFilesToBeAdded);
-        BMSFiles = BMSFiles.Where((BMSFile f) => !bmsFilesToBeAdded.Select((BMSFile ff) => ff.path).Contains(f.path, StringComparer.OrdinalIgnoreCase)).Concat(bmsFilesToBeAdded).ToList();
+        HashSet<string> addedPathSet = new HashSet<string>(bmsFilesToBeAdded.Select((BMSFile ff) => ff.path), StringComparer.OrdinalIgnoreCase);
+        BMSFiles = BMSFiles.Where((BMSFile f) => !addedPathSet.Contains(f.path)).Concat(bmsFilesToBeAdded).ToList();
         bmsFilesToBeAdded.Select((BMSFile bmsInfo) => DirectoryExt.GetDirectoryNameSimple(bmsInfo.path)).Distinct().AsParallel()
             .ForAll(delegate (string dir)
             {
@@ -2921,7 +3042,7 @@ public class BMSLibrary : NotificationObject
                         bmsFile.status |= BMSFile.BMSFileStatus.SEARCHING;
                     }
                     BMSFile targetBMSInfo = (from bmsFile in bmsFiles
-                                             where bmsFile != null && (fixMode || !BMSFiles.Select((BMSFile i) => i.hash).Contains(bmsFile.hash))
+                                             where bmsFile != null && (fixMode || !ContainsBMSHashUnsafe(bmsFile.hash))
                                              where fixMode || bmsFile.maintenanceInfo == null || bmsFile.maintenanceInfo.GetWAVHealth() <= innerWavHealthThreshForNormalBMSFile
                                              select bmsFile).OrderByDescending(delegate (BMSFile bmsFile)
                                          {
@@ -3539,7 +3660,8 @@ public class BMSLibrary : NotificationObject
                     }
                     List<BMSFile> bmsFiles2 = repackage.BMSFiles.Concat(BMSFiles.Where((BMSFile f) => f.path.StartsWith(dst + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))).ToList();
                     setMaintenanceInfo(bmsFiles2, forceUpdate: true);
-                    BMSFiles = BMSFiles.Where((BMSFile f) => !repackage.BMSFiles.Select((BMSFile ff) => ff.path).Contains(f.path, StringComparer.OrdinalIgnoreCase)).Concat(repackage.BMSFiles).ToList();
+                    HashSet<string> repackagePathSet = new HashSet<string>(repackage.BMSFiles.Select((BMSFile ff) => ff.path), StringComparer.OrdinalIgnoreCase);
+                    BMSFiles = BMSFiles.Where((BMSFile f) => !repackagePathSet.Contains(f.path)).Concat(repackage.BMSFiles).ToList();
                 }
             }
         }
@@ -3556,6 +3678,7 @@ public class BMSLibrary : NotificationObject
             using (rwlockBMSFiles.GetWriterGuard())
             {
                 List<BMSFile> files = bmsFiles.Where((BMSFile f) => f != null && !string.IsNullOrWhiteSpace(f.instl_dst)).ToList();
+                HashSet<string> existingHashes = CreateBMSHashSnapshotExcludingUnsafe(files);
                 int i;
                 for (i = 0; i < files.Count; i++)
                 {
@@ -3564,7 +3687,7 @@ public class BMSLibrary : NotificationObject
                         delete_parent = false
                     };
                     string path = files[i].path;
-                    if (!moveBMSPackageFiles(bMSPackage, bMSPackage.BMSFiles[0].instl_dst))
+                    if (!moveBMSPackageFiles(bMSPackage, bMSPackage.BMSFiles[0].instl_dst, showMessageBoxOnInstallFail: true, deleteAllContents: false, existingHashes: existingHashes))
                     {
                         continue;
                     }
