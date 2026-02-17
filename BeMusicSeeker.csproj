@@ -1,0 +1,81 @@
+<Project Sdk="Microsoft.NET.Sdk.WindowsDesktop">
+  <PropertyGroup>
+    <AssemblyName>BeMusicSeeker</AssemblyName>
+    <GenerateAssemblyInfo>False</GenerateAssemblyInfo>
+    <OutputType>WinExe</OutputType>
+    <UseWPF>True</UseWPF>
+    <TargetFramework>net45</TargetFramework>
+  </PropertyGroup>
+  <PropertyGroup>
+    <LangVersion>14.0</LangVersion>
+    <AllowUnsafeBlocks>True</AllowUnsafeBlocks>
+    <CheckForOverflowUnderflow>False</CheckForOverflowUnderflow>
+  </PropertyGroup>
+  <PropertyGroup>
+    <ApplicationIcon>app.ico</ApplicationIcon>
+    <RootNamespace />
+  </PropertyGroup>
+  <ItemGroup>
+    <None Remove="icon_and_logo.ico" />
+    <None Remove="resources\default_image.jpg" />
+    <None Remove="resources\sovjetboxbd_v0_9.otf" />
+    <None Remove="resources\icon_and_logo.png" />
+    <None Remove="resources\ligaturesymbols-2.11.otf" />
+    <None Remove="resources\imageres_5328.ico" />
+    <None Remove="resources\commodore-20rounded-20v1.2.ttf" />
+    <EmbeddedResource Include="icon_and_logo.ico" LogicalName="icon_and_logo.ico" />
+    <EmbeddedResource Include="resources\default_image.jpg" LogicalName="resources/default_image.jpg" />
+    <EmbeddedResource Include="resources\sovjetboxbd_v0_9.otf" LogicalName="resources/sovjetboxbd_v0_9.otf" />
+    <EmbeddedResource Include="resources\icon_and_logo.png" LogicalName="resources/icon_and_logo.png" />
+    <EmbeddedResource Include="resources\ligaturesymbols-2.11.otf" LogicalName="resources/ligaturesymbols-2.11.otf" />
+    <EmbeddedResource Include="resources\imageres_5328.ico" LogicalName="resources/imageres_5328.ico" />
+    <EmbeddedResource Include="resources\commodore-20rounded-20v1.2.ttf" LogicalName="resources/commodore%20rounded%20v1.2.ttf" />
+  </ItemGroup>
+  <ItemGroup>
+    <Reference Include="WindowsBase" />
+    <Reference Include="PresentationCore" />
+    <Reference Include="System.Deployment" />
+    <Reference Include="Livet">
+      <HintPath>libs\Livet.dll</HintPath>
+    </Reference>
+    <Reference Include="WindowsFormsIntegration" />
+    <Reference Include="System.Core" />
+    <Reference Include="Livet.Extensions">
+      <HintPath>libs\Livet.Extensions.dll</HintPath>
+    </Reference>
+    <Reference Include="System.Xml.Linq" />
+    <Reference Include="IniLibrary">
+      <HintPath>libs\IniLibrary.dll</HintPath>
+    </Reference>
+    <Reference Include="NLog">
+      <HintPath>libs\NLog.dll</HintPath>
+    </Reference>
+    <Reference Include="sqlite.net">
+      <HintPath>libs\sqlite.net.dll</HintPath>
+    </Reference>
+    <Reference Include="Bass.Net">
+      <HintPath>libs\Bass.Net.dll</HintPath>
+    </Reference>
+    <Reference Include="System.Collections.Immutable">
+      <HintPath>libs\System.Collections.Immutable.dll</HintPath>
+    </Reference>
+    <Reference Include="QuickConverter">
+      <HintPath>libs\QuickConverter.dll</HintPath>
+    </Reference>
+    <Reference Include="System.Xml" />
+    <Reference Include="Microsoft.WindowsAPICodePack.Shell">
+      <HintPath>libs\Microsoft.WindowsAPICodePack.Shell.dll</HintPath>
+    </Reference>
+    <Reference Include="Microsoft.VisualBasic" />
+    <Reference Include="Microsoft.CSharp" />
+    <Reference Include="DynamicJson">
+      <HintPath>libs\DynamicJson.dll</HintPath>
+    </Reference>
+    <Reference Include="SgmlReaderDll">
+      <HintPath>libs\SgmlReaderDll.dll</HintPath>
+    </Reference>
+    <Reference Include="SevenZipExtractor">
+      <HintPath>libs\SevenZipExtractor.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+</Project>
