@@ -20,6 +20,7 @@ using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using Livet;
 using NLog;
+using NLog.Config;
 using NLog.Targets;
 using QuickConverter;
 using Ribbit.Logging;
@@ -29,6 +30,8 @@ namespace BeMusicSeeker;
 public partial class App : System.Windows.Application
 {
 	private const string MutexName = "a601b8c6-41c3-4182-950b-b96a0f0c8b0c";
+
+	private const string InstallPerformanceLogArg = "--perf-log";
 
 	private static Mutex _mutex = null;
 
@@ -70,6 +73,7 @@ public partial class App : System.Windows.Application
 			Address = "http://www.ribbit.xyz/bms/tools/bemusicseeker/report.cgi"
 		}, LogLevel.Error, asDefault: false);
 		NLogWrapper.SetDefaultConfigurationMinLogLevel(LogLevel.Info);
+		ConfigureInstallPerformanceLoggingIfEnabled();
 		try
 		{
 			new AutoUpdater().Execute();
@@ -114,6 +118,30 @@ public partial class App : System.Windows.Application
 			Settings.Default.Lang = "ja-JP";
 		}
 		BeMusicSeeker.Properties.Resources.Culture = CultureInfo.GetCultureInfo(Settings.Default.Lang);
+	}
+
+	private static bool IsInstallPerformanceLoggingEnabled()
+	{
+		return Environment.GetCommandLineArgs().Any((string arg) => string.Equals(arg, InstallPerformanceLogArg, StringComparison.OrdinalIgnoreCase));
+	}
+
+	private static void ConfigureInstallPerformanceLoggingIfEnabled()
+	{
+		if (!IsInstallPerformanceLoggingEnabled())
+		{
+			return;
+		}
+		string path = Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location), "install-performance.log");
+		FileTarget target = new FileTarget
+		{
+			Name = "InstallPerformanceFileTarget",
+			FileName = path,
+			Layout = NLogWrapper.DefaultLayout
+		};
+		LogManager.Configuration?.AddTarget(target);
+		LogManager.Configuration?.LoggingRules.Insert(0, new LoggingRule("InstallPerformance*", LogLevel.Info, target));
+		LogManager.ReconfigExistingLoggers();
+		NLogWrapper.TraceLogger?.Info("Install performance logging enabled: " + path);
 	}
 
 	private void Application_Startup(object sender, StartupEventArgs e)
