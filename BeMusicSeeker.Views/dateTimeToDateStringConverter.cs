@@ -12,9 +12,17 @@ internal class dateTimeToDateStringConverter : IValueConverter
         {
             return string.Empty;
         }
-        if (value is DateTime dateTime)
+        // 元のデコンパイルコードのロジックを維持:
+        // value が DateTime? (Nullable<DateTime>) として扱える場合、
+        // HasValue なら日付文字列を返し、そうでなければ空文字列を返す。
+        if (value is DateTime || value is DateTime?)
         {
-            return dateTime.ToShortDateString();
+            DateTime? dateTime = value as DateTime?;
+            if (dateTime.HasValue)
+            {
+                return dateTime.Value.ToShortDateString();
+            }
+            return string.Empty;
         }
         return Binding.DoNothing;
     }

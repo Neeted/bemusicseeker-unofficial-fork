@@ -346,9 +346,9 @@
         <Separator />
         <MenuItem Style="{StaticResource styleContextMenuLeftAlignment}" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Init_column_setting, Mode=OneWay}" Click="dataGridInitializeColumnSetting" />
       </ContextMenu>
-      <FontFamily x:Key="LigatureSymbols">/BeMusicSeeker;component/Resources/#LigatureSymbols</FontFamily>
-      <FontFamily x:Key="SovjetBox">/BeMusicSeeker;component/Resources/#Sovjet Box</FontFamily>
-      <FontFamily x:Key="Commodore">/BeMusicSeeker;component/Resources/#Commodore 64 Rounded</FontFamily>
+      <FontFamily x:Key="LigatureSymbols">/BeMusicSeeker;component/resources/#LigatureSymbols</FontFamily>
+      <FontFamily x:Key="SovjetBox">/BeMusicSeeker;component/resources/#Sovjet Box</FontFamily>
+      <FontFamily x:Key="Commodore">/BeMusicSeeker;component/resources/#Commodore 64 Rounded</FontFamily>
       <ControlTemplate x:Key="tempalteToggleButtonBMSPlayControls" TargetType="{x:Type ToggleButton}">
         <Grid Background="#00FFFFFF">
           <Border Name="borderTemplateToggleButtonBMSPlayControls" BorderBrush="#FF1976D2" Background="#FF4492F0" BorderThickness="0,0,2,2" HorizontalAlignment="Left" Height="22" VerticalAlignment="Top" Width="22" CornerRadius="2">
@@ -776,6 +776,9 @@
       <l:LivetCallMethodAction MethodName="gridBMSPlayerControlsRotatePanelStateButtonClicked" MethodTarget="{Binding ElementName=window, Mode=OneWay}" />
     </l:InteractionMessageTrigger>
   </i:Interaction.Triggers>
+  <i:Interaction.Behaviors>
+    <behaviors:MetroChromeBehavior behaviors:MetroChromeBehavior.ActiveBrush="#FF4169E1" behaviors:MetroChromeBehavior.InactiveBrush="#FF404040" xmlns:behaviors="clr-namespace:MetroRadiance.Chrome.Behaviors;assembly=MetroRadiance.Chrome" behaviors:MetroChromeBehavior.Mode="VisualStudio2013" />
+  </i:Interaction.Behaviors>
 
   <Border Name="windowBorder" BorderThickness="0" Margin="0" BorderBrush="#FF4169E1">
     <Grid>
@@ -1305,7 +1308,7 @@
                             <Viewbox Height="20" Width="20">
                               <Grid Height="100" Width="100">
                                 <Ellipse Fill="#A0FFFFFF" HorizontalAlignment="Left" Height="50" VerticalAlignment="Top" Width="50" Margin="5,12.5,0,0" />
-                                <Ellipse Stroke="#FF727272" StrokeThickness="8" Margin="0,8.25,40,31.75" Width="60" Height="60" />
+                                <shapes:Arc xmlns:shapes="clr-namespace:Microsoft.Expression.Shapes;assembly=Microsoft.Expression.Drawing" shapes:Arc.ArcThickness="8" shapes:Arc.ArcThicknessUnit="Pixel" shapes:Arc.EndAngle="360" Shape.Fill="#FF727272" Shape.Stretch="None" shapes:Arc.StartAngle="0" FrameworkElement.Margin="0,8.25,40,31.75" />
                                 <Rectangle Fill="#FF727272" HorizontalAlignment="Left" Height="42.5" VerticalAlignment="Top" Width="9.849" Margin="58.013,49.937,0,0" RenderTransformOrigin="0.5,0.5">
                                   <UIElement.RenderTransform>
                                     <TransformGroup>

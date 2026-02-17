@@ -32,11 +32,11 @@
     <None Remove="resources\commodore-20rounded-20v1.2.ttf" />
     <EmbeddedResource Include="icon_and_logo.ico" LogicalName="icon_and_logo.ico" />
     <Resource Include="resources\default_image.jpg" />
-    <EmbeddedResource Include="resources\sovjetboxbd_v0_9.otf" LogicalName="resources/sovjetboxbd_v0_9.otf" />
+    <Resource Include="resources\sovjetboxbd_v0_9.otf" />
     <EmbeddedResource Include="resources\icon_and_logo.png" LogicalName="resources/icon_and_logo.png" />
-    <EmbeddedResource Include="resources\ligaturesymbols-2.11.otf" LogicalName="resources/ligaturesymbols-2.11.otf" />
+    <Resource Include="resources\ligaturesymbols-2.11.otf" />
     <EmbeddedResource Include="resources\imageres_5328.ico" LogicalName="resources/imageres_5328.ico" />
-    <EmbeddedResource Include="resources\commodore-20rounded-20v1.2.ttf" LogicalName="resources/commodore%20rounded%20v1.2.ttf" />
+    <Resource Include="resources\commodore-20rounded-20v1.2.ttf" />
   </ItemGroup>
   <ItemGroup>
     <Reference Include="WindowsBase" />
@@ -50,6 +50,21 @@
     </Reference>
     <Reference Include="Microsoft.Expression.Interactions">
       <HintPath>libs\Microsoft.Expression.Interactions.dll</HintPath>
+    </Reference>
+    <Reference Include="MetroRadiance">
+      <HintPath>libs\MetroRadiance.dll</HintPath>
+    </Reference>
+    <Reference Include="MetroRadiance.Core">
+      <HintPath>libs\MetroRadiance.Core.dll</HintPath>
+    </Reference>
+    <Reference Include="MetroRadiance.Chrome">
+      <HintPath>libs\MetroRadiance.Chrome.dll</HintPath>
+    </Reference>
+    <Reference Include="Microsoft.Expression.Drawing">
+      <HintPath>libs\Microsoft.Expression.Drawing.dll</HintPath>
+    </Reference>
+    <Reference Include="Microsoft.Expression.Effects">
+      <HintPath>libs\Microsoft.Expression.Effects.dll</HintPath>
     </Reference>
     <Reference Include="WindowsFormsIntegration" />
     <Reference Include="System.Core" />
@@ -78,6 +93,9 @@
     <Reference Include="System.Xml" />
     <Reference Include="Microsoft.WindowsAPICodePack.Shell">
       <HintPath>libs\Microsoft.WindowsAPICodePack.Shell.dll</HintPath>
+    </Reference>
+    <Reference Include="Microsoft.WindowsAPICodePack">
+      <HintPath>libs\Microsoft.WindowsAPICodePack.dll</HintPath>
     </Reference>
     <Reference Include="Microsoft.VisualBasic" />
     <Reference Include="Microsoft.CSharp" />
