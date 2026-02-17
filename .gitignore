@@ -43,3 +43,5 @@ $RECYCLE.BIN/
 # so we assume source files are tracked.
 
 # We keep 'libs' as it contains required dependencies not restored via NuGet.
+
+.tmp/
