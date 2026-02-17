@@ -3173,9 +3173,12 @@ public class BMSLibrary : NotificationObject
         }
     }
 
-    public void InstallBMSPackageToEstimatedDir(BMSPackage package)
+    public void InstallBMSPackagesToEstimatedDir(IEnumerable<BMSPackage> packages)
     {
-        List<BMSFile> list = new List<BMSFile>();
+        if (packages == null)
+        {
+            throw new ArgumentNullException("packages");
+        }
         using (rwlockBMSFilesInitializedAll.GetReaderGuard())
         {
             using (rwlockBMSFilesPendingInstall.GetWriterGuard())
@@ -3184,43 +3187,86 @@ public class BMSLibrary : NotificationObject
                 {
                     using (rwlockSongDBInstall.GetWriterGuard())
                     {
-                        if (!BMSPackagesPending.Contains(package) || BMSFiles == null)
+                        if (BMSFiles == null)
                         {
                             return;
                         }
-                        list = package.BMSFiles;
-                        if (list.Any((BMSFile bmsInfo) => string.IsNullOrWhiteSpace(bmsInfo.instl_dst)) || list.Select(delegate (BMSFile bmsInfo)
+                        List<BMSPackage> list = packages.Where((BMSPackage pkg) => pkg != null && BMSPackagesPending.Contains(pkg)).Distinct().ToList();
+                        if (list.Count == 0)
                         {
-                            if (BMSFiles.Select((BMSFile x) => x.hash).Contains(bmsInfo.hash))
+                            return;
+                        }
+                        Dictionary<string, List<BMSPackage>> dictionary = new Dictionary<string, List<BMSPackage>>(StringComparer.OrdinalIgnoreCase);
+                        foreach (BMSPackage item in list)
+                        {
+                            List<BMSFile> list2 = item.BMSFiles;
+                            if (list2.Any((BMSFile bmsInfo) => string.IsNullOrWhiteSpace(bmsInfo.instl_dst)))
                             {
-                                bmsInfo.warning = "インストールされています";
-                                return true;
+                                continue;
                             }
-                            return false;
-                        }).ToList().All((bool b) => b))
-                        {
-                            return;
+                            string text = list2.Select((BMSFile bmsInfo) => bmsInfo.instl_dst).FirstOrDefault();
+                            if (string.IsNullOrWhiteSpace(text) || list2.Any((BMSFile bmsInfo) => !string.Equals(bmsInfo.instl_dst, text, StringComparison.OrdinalIgnoreCase)))
+                            {
+                                continue;
+                            }
+                            if (list2.Select(delegate (BMSFile bmsInfo)
+                                {
+                                    if (ContainsBMSHashUnsafe(bmsInfo.hash))
+                                    {
+                                        bmsInfo.warning = "インストールされています";
+                                        return true;
+                                    }
+                                    return false;
+                                }).All((bool b) => b))
+                            {
+                                continue;
+                            }
+                            if (!dictionary.TryGetValue(text, out var value))
+                            {
+                                value = new List<BMSPackage>();
+                                dictionary[text] = value;
+                            }
+                            value.Add(item);
                         }
-                        string installationDirectory = list.Select((BMSFile bmsInfo) => bmsInfo.instl_dst).First();
-                        string path = package.path;
-                        if (installBMSPackages(new BMSPackage[1] { package }, installationDirectory).Count() == 0)
+                        foreach (var item2 in dictionary)
                         {
+                            List<BMSPackage> value2 = item2.Value;
+                            List<BMSPackage> list3 = installBMSPackages(value2, item2.Key);
+                            HashSet<BMSPackage> hashSet = new HashSet<BMSPackage>(list3);
                             using (LR2SongDBExtended lR2SongDBExtended = new LR2SongDBExtended(lr2SongDBPath))
                             {
                                 lR2SongDBExtended.BeginTransaction();
-                                lR2SongDBExtended.Delete<LR2SongDBExtended.install>(path);
+                                foreach (BMSPackage item3 in value2)
+                                {
+                                    if (!hashSet.Contains(item3))
+                                    {
+                                        lR2SongDBExtended.Delete<LR2SongDBExtended.install>(item3.path);
+                                        foreach (BMSFile bMSFile in item3.BMSFiles)
+                                        {
+                                            bMSFile.instl_dst = null;
+                                        }
+                                    }
+                                }
                                 lR2SongDBExtended.Commit();
                             }
-                            foreach (BMSFile bMSFile in package.BMSFiles)
+                            foreach (BMSPackage item4 in value2)
                             {
-                                bMSFile.instl_dst = null;
+                                BMSPackagesPending.RemoveExt(item4);
                             }
                         }
-                        BMSPackagesPending.RemoveExt(package);
                     }
                 }
             }
         }
+    }
+
+    public void InstallBMSPackageToEstimatedDir(BMSPackage package)
+    {
+        if (package == null)
+        {
+            throw new ArgumentNullException("package");
+        }
+        InstallBMSPackagesToEstimatedDir(new BMSPackage[1] { package });
     }
 
     public void RemoveBMSPackagesInstalled(IEnumerable<BMSPackage> packages)

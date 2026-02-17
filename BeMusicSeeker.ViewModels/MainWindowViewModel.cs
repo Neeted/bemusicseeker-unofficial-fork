@@ -5592,10 +5592,7 @@ public class MainWindowViewModel : ViewModel
 		lock (lockCopyFile)
 		{
 			stopPlayingBMSFile(packages.SelectMany((BMSPackage p) => p.BMSFiles));
-			for (int num = 0; num < list.Count; num++)
-			{
-				files.InstallBMSPackageToEstimatedDir(list[num]);
-			}
+			files.InstallBMSPackagesToEstimatedDir(list);
 		}
 	}
 
