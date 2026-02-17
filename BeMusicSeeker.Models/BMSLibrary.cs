@@ -2987,7 +2987,7 @@ public class BMSLibrary : NotificationObject
         return true;
     }
 
-    private List<BMSPackage> installBMSPackages(IEnumerable<BMSPackage> bmsPackagesInstall, string installationDirectory = null)
+    private List<BMSPackage> installBMSPackages(IEnumerable<BMSPackage> bmsPackagesInstall, string installationDirectory = null, List<BMSFile> deferredMaintenanceTargets = null)
     {
         List<BMSFile> bmsFilesToBeAdded = new List<BMSFile>();
         List<BMSPackage> list = new List<BMSPackage>();
@@ -3012,7 +3012,14 @@ public class BMSLibrary : NotificationObject
             }
             lR2SongDBExtended.Commit();
         }
-        setMaintenanceInfo(bmsFilesToBeAdded, forceUpdate: true);
+        if (deferredMaintenanceTargets != null)
+        {
+            deferredMaintenanceTargets.AddRange(bmsFilesToBeAdded);
+        }
+        else
+        {
+            setMaintenanceInfo(bmsFilesToBeAdded, forceUpdate: true);
+        }
         setZeroNoteAndCommitToDB(bmsFilesToBeAdded);
         SetBMSScore(bmsFilesToBeAdded);
         HashSet<string> addedPathSet = new HashSet<string>(bmsFilesToBeAdded.Select((BMSFile ff) => ff.path), StringComparer.OrdinalIgnoreCase);
@@ -3228,10 +3235,11 @@ public class BMSLibrary : NotificationObject
                             }
                             value.Add(item);
                         }
+                        List<BMSFile> deferredMaintenanceTargets = new List<BMSFile>();
                         foreach (var item2 in dictionary)
                         {
                             List<BMSPackage> value2 = item2.Value;
-                            List<BMSPackage> list3 = installBMSPackages(value2, item2.Key);
+                            List<BMSPackage> list3 = installBMSPackages(value2, item2.Key, deferredMaintenanceTargets);
                             HashSet<BMSPackage> hashSet = new HashSet<BMSPackage>(list3);
                             using (LR2SongDBExtended lR2SongDBExtended = new LR2SongDBExtended(lr2SongDBPath))
                             {
@@ -3253,6 +3261,10 @@ public class BMSLibrary : NotificationObject
                             {
                                 BMSPackagesPending.RemoveExt(item4);
                             }
+                        }
+                        if (deferredMaintenanceTargets.Count > 0)
+                        {
+                            setMaintenanceInfo(deferredMaintenanceTargets, forceUpdate: true);
                         }
                     }
                 }
@@ -3725,6 +3737,7 @@ public class BMSLibrary : NotificationObject
             {
                 List<BMSFile> files = bmsFiles.Where((BMSFile f) => f != null && !string.IsNullOrWhiteSpace(f.instl_dst)).ToList();
                 HashSet<string> existingHashes = CreateBMSHashSnapshotExcludingUnsafe(files);
+                List<BMSFile> movedFiles = new List<BMSFile>();
                 int i;
                 for (i = 0; i < files.Count; i++)
                 {
@@ -3747,10 +3760,12 @@ public class BMSLibrary : NotificationObject
                         continue;
                     }
                     files[i].instl_dst = null;
-                    files[i].SetHealthStatus(bmsFolderAllFileList, forceUpdate: true);
-                    checkBMSFileNeedToBeFixedAndSetWarnings(files[i]);
                     replaceBMSFilePath(files[i], files[i].path, path);
-                    RaisePropertyChanged(() => BMSFilesNeedToBeFixed);
+                    movedFiles.Add(files[i]);
+                }
+                if (movedFiles.Count > 0)
+                {
+                    setMaintenanceInfo(movedFiles, forceUpdate: true);
                 }
             }
         }
