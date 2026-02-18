@@ -23,8 +23,8 @@ public static class BmsScanResultComparer
 	{
 		HashSet<string> ewBms = everything?.BmsFilePaths ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 		HashSet<string> fastBms = fast?.BmsFilePaths ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-		Dictionary<string, List<string>> ewDirs = everything?.FilesByDirectory ?? new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
-		Dictionary<string, List<string>> fastDirs = fast?.FilesByDirectory ?? new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+		Dictionary<string, HashSet<uint>> ewDirs = ToHashDirectoryMap(everything);
+		Dictionary<string, HashSet<uint>> fastDirs = ToHashDirectoryMap(fast);
 		BmsScanDiffReport report = new BmsScanDiffReport();
 		int bmsDiff = ewBms.Except(fastBms, StringComparer.OrdinalIgnoreCase).Count() + fastBms.Except(ewBms, StringComparer.OrdinalIgnoreCase).Count();
 		report.BmsPathDiffCount = bmsDiff;
@@ -43,21 +43,49 @@ public static class BmsScanResultComparer
 				}
 				continue;
 			}
-			HashSet<string> ewSet = new HashSet<string>(ewFiles ?? new List<string>(), StringComparer.OrdinalIgnoreCase);
-			HashSet<string> fastSet = new HashSet<string>(fastFiles ?? new List<string>(), StringComparer.OrdinalIgnoreCase);
-			List<string> missingInEverything = fastSet.Except(ewSet, StringComparer.OrdinalIgnoreCase).Take(5).ToList();
-			List<string> extraInEverything = ewSet.Except(fastSet, StringComparer.OrdinalIgnoreCase).Take(5).ToList();
-			int fileDiff = missingInEverything.Count + extraInEverything.Count;
+			List<uint> missingInEverything = fastFiles.Except(ewFiles).Take(5).ToList();
+			List<uint> extraInEverything = ewFiles.Except(fastFiles).Take(5).ToList();
+			int fileDiff = fastFiles.Except(ewFiles).Count() + ewFiles.Except(fastFiles).Count();
 			if (fileDiff > 0)
 			{
 				report.FileDiffCount += fileDiff;
 				if (report.Samples.Count < maxSamples)
 				{
-					report.Samples.Add("dir=" + dir + " missing_in_everything=[" + string.Join(",", missingInEverything) + "] extra_in_everything=[" + string.Join(",", extraInEverything) + "]");
+					report.Samples.Add("dir=" + dir + " missing_hashes_in_everything=[" + string.Join(",", missingInEverything.Select((uint h) => h.ToString("x8"))) + "] extra_hashes_in_everything=[" + string.Join(",", extraInEverything.Select((uint h) => h.ToString("x8"))) + "]");
 				}
 			}
 		}
 		report.IsMatch = report.BmsPathDiffCount == 0 && report.DirectoryDiffCount == 0 && report.FileDiffCount == 0;
 		return report;
+	}
+
+	private static Dictionary<string, HashSet<uint>> ToHashDirectoryMap(BmsScanResult result)
+	{
+		Dictionary<string, HashSet<uint>> dictionary = new Dictionary<string, HashSet<uint>>(StringComparer.OrdinalIgnoreCase);
+		if (result?.FileNameHashesByDirectory != null && result.FileNameHashesByDirectory.Count > 0)
+		{
+			foreach (KeyValuePair<string, uint[]> item in result.FileNameHashesByDirectory)
+			{
+				dictionary[item.Key] = new HashSet<uint>(item.Value ?? Array.Empty<uint>());
+			}
+			return dictionary;
+		}
+		if (result?.FilesByDirectory == null || result.FilesByDirectory.Count == 0)
+		{
+			return dictionary;
+		}
+		foreach (KeyValuePair<string, List<string>> item2 in result.FilesByDirectory)
+		{
+			HashSet<uint> hashSet = new HashSet<uint>();
+			if (item2.Value != null)
+			{
+				foreach (string item3 in item2.Value)
+				{
+					hashSet.Add(BMSDirectoryFileNameHash.GetFileNameHash(item3));
+				}
+			}
+			dictionary[item2.Key] = hashSet;
+		}
+		return dictionary;
 	}
 }

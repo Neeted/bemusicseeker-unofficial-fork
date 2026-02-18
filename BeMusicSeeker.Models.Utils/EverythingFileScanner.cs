@@ -11,13 +11,10 @@ public class EverythingFileScanner : IBmsFileScanner
 {
 	private static readonly Logger logger = LogManager.GetLogger("InstallPerformance.EverythingScanner");
 
-	private static readonly bool verifyEnabled = CommandLineSwitches.IsEverythingVerifyEnabled;
-
 	public BmsScanExecutionResult Scan(IEnumerable<string> rootDirectories, IEnumerable<string> bmsExtensions, bool verboseLog = false)
 	{
 		List<string> roots = (rootDirectories ?? Enumerable.Empty<string>()).Where((string p) => !string.IsNullOrWhiteSpace(p) && Directory.Exists(p)).Select(Path.GetFullPath).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 		string[] exts = (bmsExtensions ?? Enumerable.Empty<string>()).Where((string e) => !string.IsNullOrWhiteSpace(e)).Select((string e) => e.TrimStart('.')).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
-		string[] extsWithDot = exts.Select((string e) => "." + e).ToArray();
 		if (roots.Count == 0 || exts.Length == 0)
 		{
 			return new BmsScanExecutionResult
@@ -26,7 +23,7 @@ public class EverythingFileScanner : IBmsFileScanner
 				Result = new BmsScanResult()
 			};
 		}
-		if (!EverythingNative.EnsureLoaded(out var reason))
+		if (!EverythingNative.EnsureBridgeAvailable(out var reason))
 		{
 			return new BmsScanExecutionResult
 			{
@@ -41,7 +38,7 @@ public class EverythingFileScanner : IBmsFileScanner
 			logger.Info("everything_scan start roots={0} ext={1} bmsQuery={2} siblingQuery={3}", roots.Count, string.Join(";", exts), bmsQuery, siblingQuery);
 		}
 		Stopwatch stopwatch = Stopwatch.StartNew();
-		BmsScanExecutionResult result = EverythingNative.ExecuteScan(bmsQuery, siblingQuery, extsWithDot, verboseLog, verifyEnabled);
+		BmsScanExecutionResult result = EverythingNative.ExecuteScan(bmsQuery, siblingQuery);
 		if (!result.Success)
 		{
 			if (verboseLog)
