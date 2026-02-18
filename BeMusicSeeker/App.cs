@@ -33,6 +33,10 @@ public partial class App : System.Windows.Application
 
 	private const string InstallPerformanceLogArg = "--perf-log";
 
+	private const string EverythingVerifyLogArg = "--everything-verify";
+
+	private const string EverythingDebugLogArg = "--everything-log";
+
 	private static Mutex _mutex = null;
 
 	public bool forceReinitializationCustomFolders { get; set; }
@@ -122,7 +126,7 @@ public partial class App : System.Windows.Application
 
 	private static bool IsInstallPerformanceLoggingEnabled()
 	{
-		return Environment.GetCommandLineArgs().Any((string arg) => string.Equals(arg, InstallPerformanceLogArg, StringComparison.OrdinalIgnoreCase));
+		return Environment.GetCommandLineArgs().Any((string arg) => string.Equals(arg, InstallPerformanceLogArg, StringComparison.OrdinalIgnoreCase) || string.Equals(arg, EverythingVerifyLogArg, StringComparison.OrdinalIgnoreCase) || string.Equals(arg, EverythingDebugLogArg, StringComparison.OrdinalIgnoreCase));
 	}
 
 	private static void ConfigureInstallPerformanceLoggingIfEnabled()

@@ -32,11 +32,23 @@ public class BMSLibrary : NotificationObject
 {
     private static readonly Logger installPerformanceLogger = LogManager.GetLogger("InstallPerformance.BMSLibrary");
 
-    private static readonly bool installPerformanceLoggingEnabled = Environment.GetCommandLineArgs().Any((string arg) => string.Equals(arg, "--perf-log", StringComparison.OrdinalIgnoreCase));
+    private static readonly bool installPerformanceLoggingEnabled = CommandLineSwitches.IsInstallPerformanceLogEnabled;
+
+    private static readonly bool everythingVerifyEnabled = CommandLineSwitches.IsEverythingVerifyEnabled;
+
+    private static readonly bool everythingScanLoggingEnabled = CommandLineSwitches.IsEverythingLogEnabled || everythingVerifyEnabled || installPerformanceLoggingEnabled;
 
     private static void LogInstallPerformance(string message)
     {
         if (installPerformanceLoggingEnabled)
+        {
+            installPerformanceLogger.Info(message);
+        }
+    }
+
+    private static void LogEverythingScan(string message)
+    {
+        if (everythingScanLoggingEnabled)
         {
             installPerformanceLogger.Info(message);
         }
@@ -1224,8 +1236,44 @@ public class BMSLibrary : NotificationObject
         {
             using (rwlockBMSFiles.GetWriterGuard())
             {
+                Stopwatch stopwatchScan = Stopwatch.StartNew();
+                IBmsFileScanner fallbackScanner = new FastDirectoryFileScanner();
+                IBmsFileScanner scanner = new EverythingFileScanner();
+                BmsScanExecutionResult scanResult = scanner.Scan(bMSDirectories, BMSFile.bmsExtensions, everythingScanLoggingEnabled);
+                if (!scanResult.Success || scanResult.Result == null)
+                {
+                    LogEverythingScan("BMS file scan fallback reason=" + (scanResult?.ErrorReason ?? "unknown"));
+                    scanResult = fallbackScanner.Scan(bMSDirectories, BMSFile.bmsExtensions, everythingScanLoggingEnabled);
+                }
+                if (scanResult?.Result == null)
+                {
+                    throw new InvalidOperationException("BMS file scan failed");
+                }
+                if (everythingVerifyEnabled)
+                {
+                    Stopwatch stopwatchVerify = Stopwatch.StartNew();
+                    BmsScanExecutionResult fastScanResult = fallbackScanner.Scan(bMSDirectories, BMSFile.bmsExtensions, everythingScanLoggingEnabled);
+                    stopwatchVerify.Stop();
+                    if (fastScanResult.Success && fastScanResult.Result != null)
+                    {
+                        BmsScanDiffReport report = BmsScanResultComparer.Compare(scanResult.Result, fastScanResult.Result);
+                        LogEverythingScan("everything_verify comparedMs=" + stopwatchVerify.ElapsedMilliseconds + " bmsDiff=" + report.BmsPathDiffCount + " dirDiff=" + report.DirectoryDiffCount + " fileDiff=" + report.FileDiffCount + " match=" + report.IsMatch.ToString().ToLowerInvariant());
+                        foreach (string sample in report.Samples.Take(10))
+                        {
+                            LogEverythingScan("everything_verify sample " + sample);
+                        }
+                    }
+                    else
+                    {
+                        LogEverythingScan("everything_verify fast_scan_failed reason=" + (fastScanResult?.ErrorReason ?? "unknown"));
+                    }
+                }
                 bmsFolderAllFileList = new BMSDirectoryFileNameHash();
-                HashSet<string> hashSet = new HashSet<string>(bMSDirectories.AsParallel().SelectMany((string dir) => FastDirectoryEnumerator.GetFilePathsAsParallel(dir, bmsFolderAllFileList, BMSFile.bmsExtensions, System.IO.SearchOption.AllDirectories)), StringComparer.OrdinalIgnoreCase);
+                foreach (KeyValuePair<string, List<string>> item4 in scanResult.Result.FilesByDirectory)
+                {
+                    bmsFolderAllFileList.AddDir(item4.Key, item4.Value);
+                }
+                HashSet<string> hashSet = new HashSet<string>(scanResult.Result.BmsFilePaths ?? new HashSet<string>(), StringComparer.OrdinalIgnoreCase);
                 HashSet<string> hashSet2 = new HashSet<string>(BMSFiles.Select((BMSFile x) => x.path), StringComparer.OrdinalIgnoreCase);
                 HashSet<string> bmsFilesDeletedPaths = new HashSet<string>(hashSet2.Except(hashSet), StringComparer.OrdinalIgnoreCase);
                 List<string> list4 = hashSet.Except(hashSet2).ToList();
@@ -1286,6 +1334,8 @@ public class BMSLibrary : NotificationObject
                         item7.instl_dst = null;
                     }
                 }
+                stopwatchScan.Stop();
+                LogEverythingScan("bms_scan totalMs=" + stopwatchScan.ElapsedMilliseconds + " bmsPaths=" + hashSet.Count + " dirs=" + bmsFolderAllFileList.Keys.Count);
             }
         }
         if (setMainteInfo)

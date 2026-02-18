@@ -18,6 +18,9 @@
     <RootNamespace />
   </PropertyGroup>
   <ItemGroup>
+    <None Include="native\Everything3_x64.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
     <None Remove="BeMusicSeeker.App.xaml" />
     <ApplicationDefinition Include="BeMusicSeeker.App.xaml">
       <Generator>MSBuild:Compile</Generator>
