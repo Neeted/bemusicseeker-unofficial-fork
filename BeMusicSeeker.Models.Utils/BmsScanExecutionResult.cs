@@ -24,6 +24,18 @@ public class BmsScanExecutionResult
 
 	public long BuildResultMs { get; set; }
 
+	public long HashBuildMs { get; set; }
+
+	public ulong HashDirCount { get; set; }
+
+	public ulong HashEntryCount { get; set; }
+
+	public bool NativeBridgeUsed { get; set; }
+
+	public long NativeBridgeMs { get; set; }
+
+	public string NativeBridgeReason { get; set; }
+
 	public ulong BmsQueryHitCount { get; set; }
 
 	public ulong SiblingQueryHitCount { get; set; }

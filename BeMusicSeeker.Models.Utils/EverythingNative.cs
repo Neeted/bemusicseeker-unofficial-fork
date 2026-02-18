@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
@@ -12,15 +13,28 @@ internal static class EverythingNative
 {
 	private const string DllName = "Everything3_x64.dll";
 
+	private const string BridgeDllName = "EverythingBridge_x64.dll";
+
 	private const uint EverythingPropertyIdName = 0u;
 
 	private const uint EverythingPropertyIdPath = 1u;
 
 	private static IntPtr loadedModule = IntPtr.Zero;
 
+	private static IntPtr loadedBridgeModule = IntPtr.Zero;
+
+	private static bool bridgeExportsChecked;
+
+	private static bool bridgeExportsAvailable;
+
 	internal static string GetExpectedDllPath()
 	{
 		return Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "native", DllName);
+	}
+
+	internal static string GetExpectedBridgeDllPath()
+	{
+		return Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "native", BridgeDllName);
 	}
 
 	internal static bool EnsureLoaded(out string reason)
@@ -35,109 +49,179 @@ internal static class EverythingNative
 		{
 			return true;
 		}
-		string path = GetExpectedDllPath();
-		if (!File.Exists(path))
+		string expectedDllPath = GetExpectedDllPath();
+		if (!File.Exists(expectedDllPath))
 		{
-			reason = "dll_not_found:" + path;
+			reason = "dll_not_found:" + expectedDllPath;
 			return false;
 		}
-		IntPtr module = LoadLibraryW(path);
-		if (module == IntPtr.Zero)
+		IntPtr intPtr = LoadLibraryW(expectedDllPath);
+		if (intPtr == IntPtr.Zero)
 		{
 			reason = "dll_load_failed:" + Marshal.GetLastWin32Error();
 			return false;
 		}
-		loadedModule = module;
+		loadedModule = intPtr;
+		return true;
+	}
+
+	private static bool EnsureBridgeLoaded(out string reason)
+	{
+		reason = null;
+		if (IntPtr.Size != 8)
+		{
+			reason = "unsupported_architecture";
+			return false;
+		}
+		if (loadedBridgeModule == IntPtr.Zero)
+		{
+			string expectedBridgeDllPath = GetExpectedBridgeDllPath();
+			if (!File.Exists(expectedBridgeDllPath))
+			{
+				reason = "bridge_dll_not_found:" + expectedBridgeDllPath;
+				return false;
+			}
+			IntPtr intPtr = LoadLibraryW(expectedBridgeDllPath);
+			if (intPtr == IntPtr.Zero)
+			{
+				reason = "bridge_dll_load_failed:" + Marshal.GetLastWin32Error();
+				return false;
+			}
+			loadedBridgeModule = intPtr;
+		}
+		if (!bridgeExportsChecked)
+		{
+			bridgeExportsAvailable = GetProcAddress(loadedBridgeModule, "EBridge_Scan") != IntPtr.Zero && GetProcAddress(loadedBridgeModule, "EBridge_FreeResult") != IntPtr.Zero;
+			bridgeExportsChecked = true;
+		}
+		if (!bridgeExportsAvailable)
+		{
+			reason = "bridge_export_missing";
+			return false;
+		}
 		return true;
 	}
 
 	internal static string BuildBmsFilesQuery(string[] roots, string[] extensions)
 	{
-		string extList = string.Join(";", extensions);
-		string rootGroup = "<" + string.Join("|", Array.ConvertAll(roots, (string root) => "path:" + QuotePath(PathWithTrailingSeparator(root)))) + ">";
-		return "file: " + rootGroup + " <ext:" + extList + ">";
+		string str = string.Join(";", extensions);
+		string str2 = "<" + string.Join("|", Array.ConvertAll(roots, (string root) => "path:" + QuotePath(PathWithTrailingSeparator(root)))) + ">";
+		return "file: " + str2 + " <ext:" + str + ">";
 	}
 
 	internal static string BuildSiblingFilesQuery(string[] roots, string[] extensions)
 	{
-		string extList = string.Join(";", extensions);
-		string rootGroup = "<" + string.Join("|", Array.ConvertAll(roots, (string root) => "path:" + QuotePath(PathWithTrailingSeparator(root)))) + ">";
-		return "file: " + rootGroup + " sibling:<ext:" + extList + ">";
+		string str = string.Join(";", extensions);
+		string str2 = "<" + string.Join("|", Array.ConvertAll(roots, (string root) => "path:" + QuotePath(PathWithTrailingSeparator(root)))) + ">";
+		return "file: " + str2 + " sibling:<ext:" + str + ">";
 	}
 
-	internal static BmsScanExecutionResult ExecuteScan(string bmsQuery, string siblingQuery, string[] bmsExtensions, bool verboseLog = false)
+	internal static BmsScanExecutionResult ExecuteScan(string bmsQuery, string siblingQuery, string[] bmsExtensions, bool verboseLog = false, bool collectDetailedFiles = false)
 	{
 		_ = bmsExtensions;
 		_ = verboseLog;
-		IntPtr client = IntPtr.Zero;
+		string text = "not_attempted";
+		long num = 0L;
+		if (!collectDetailedFiles && TryExecuteBridgeScan(bmsQuery, siblingQuery, out var result, out text, out num))
+		{
+			if (result != null && result.Success && result.Result != null && result.Result.BmsFilePaths.Count > 0)
+			{
+				return result;
+			}
+			text = "bridge_empty_result";
+		}
+		if (collectDetailedFiles)
+		{
+			text = "disabled_for_verify";
+		}
+		IntPtr intPtr = IntPtr.Zero;
 		try
 		{
-			Stopwatch stopwatchConnect = Stopwatch.StartNew();
-			client = TryConnect(out var connectInfo);
-			stopwatchConnect.Stop();
-			if (client == IntPtr.Zero)
+			Stopwatch stopwatch = Stopwatch.StartNew();
+			intPtr = TryConnect(out var connectInfo);
+			stopwatch.Stop();
+			if (intPtr == IntPtr.Zero)
 			{
 				return Failed("connect_failed:" + connectInfo);
 			}
-
-			HashSet<string> bmsSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-			Dictionary<string, List<string>> map = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
-
-			if (!TryExecuteQuery(client, bmsQuery, out var bmsQueryMs, out var bmsSearchMs, out var bmsReadMs, out var bmsHitCount, out var bmsQueryErrorReason, delegate(string dir, string name)
+			HashSet<string> hashSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+			HashSet<string> hashSet2 = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+			Dictionary<string, HashSet<uint>> dictionary = new Dictionary<string, HashSet<uint>>(StringComparer.OrdinalIgnoreCase);
+			Dictionary<string, HashSet<string>> dictionary2 = (collectDetailedFiles ? new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase) : null);
+			if (!TryExecuteQuery(intPtr, bmsQuery, out var elapsedMs, out var searchMs, out var readMs, out var hitCount, out var errorReason, delegate(string dir, string name)
 			{
-				if (string.IsNullOrWhiteSpace(dir) || string.IsNullOrWhiteSpace(name))
+				if (!string.IsNullOrWhiteSpace(dir) && !string.IsNullOrWhiteSpace(name))
 				{
-					return;
+					hashSet.Add(CombinePathAndName(dir, name));
+					hashSet2.Add(dir);
+					AddFileNameHash(dictionary, dir, name);
+					if (collectDetailedFiles)
+					{
+						AddDetailedFileName(dictionary2, dir, name);
+					}
 				}
-				if (!map.TryGetValue(dir, out var bmsNames))
-				{
-					bmsNames = new List<string>();
-					map[dir] = bmsNames;
-				}
-				bmsNames.Add(name);
-				bmsSet.Add(CombinePathAndName(dir, name));
 			}))
 			{
-				return Failed(bmsQueryErrorReason);
+				return Failed(errorReason);
 			}
-
-			if (!TryExecuteQuery(client, siblingQuery, out var siblingQueryMs, out var siblingSearchMs, out var siblingReadMs, out var siblingHitCount, out var siblingQueryErrorReason, delegate(string dir, string name)
+			if (!TryExecuteQuery(intPtr, siblingQuery, out var elapsedMs2, out var searchMs2, out var readMs2, out var hitCount2, out var errorReason2, delegate(string dir, string name)
 			{
-				if (string.IsNullOrWhiteSpace(dir) || string.IsNullOrWhiteSpace(name))
+				if (!string.IsNullOrWhiteSpace(dir) && !string.IsNullOrWhiteSpace(name) && hashSet2.Contains(dir))
 				{
-					return;
+					AddFileNameHash(dictionary, dir, name);
+					if (collectDetailedFiles)
+					{
+						AddDetailedFileName(dictionary2, dir, name);
+					}
 				}
-				if (!map.TryGetValue(dir, out var siblingNames))
-				{
-					return;
-				}
-				siblingNames.Add(name);
 			}))
 			{
-				return Failed(siblingQueryErrorReason);
+				return Failed(errorReason2);
 			}
-
-			Stopwatch stopwatchBuild = Stopwatch.StartNew();
-			Dictionary<string, List<string>> filesByDirectory = map;
-			stopwatchBuild.Stop();
-
+			Stopwatch stopwatch2 = Stopwatch.StartNew();
+			Dictionary<string, uint[]> dictionary3 = new Dictionary<string, uint[]>(dictionary.Count, StringComparer.OrdinalIgnoreCase);
+			ulong num2 = 0uL;
+			foreach (KeyValuePair<string, HashSet<uint>> item in dictionary)
+			{
+				uint[] array = item.Value.ToArray();
+				dictionary3[item.Key] = array;
+				num2 += (ulong)array.Length;
+			}
+			stopwatch2.Stop();
+			Stopwatch stopwatch3 = Stopwatch.StartNew();
+			Dictionary<string, List<string>> dictionary4 = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+			if (collectDetailedFiles && dictionary2 != null)
+			{
+				foreach (KeyValuePair<string, HashSet<string>> item2 in dictionary2)
+				{
+					dictionary4[item2.Key] = item2.Value.ToList();
+				}
+			}
+			stopwatch3.Stop();
 			return new BmsScanExecutionResult
 			{
 				Success = true,
-				ConnectMs = stopwatchConnect.ElapsedMilliseconds,
-				BmsQueryMs = bmsQueryMs,
-				BmsSearchMs = bmsSearchMs,
-				BmsReadMs = bmsReadMs,
-				SiblingQueryMs = siblingQueryMs,
-				SiblingSearchMs = siblingSearchMs,
-				SiblingReadMs = siblingReadMs,
-				BuildResultMs = stopwatchBuild.ElapsedMilliseconds,
-				BmsQueryHitCount = bmsHitCount,
-				SiblingQueryHitCount = siblingHitCount,
+				NativeBridgeUsed = false,
+				NativeBridgeMs = num,
+				NativeBridgeReason = text,
+				ConnectMs = stopwatch.ElapsedMilliseconds,
+				BmsQueryMs = elapsedMs,
+				BmsSearchMs = searchMs,
+				BmsReadMs = readMs,
+				SiblingQueryMs = elapsedMs2,
+				SiblingSearchMs = searchMs2,
+				SiblingReadMs = readMs2,
+				BuildResultMs = stopwatch3.ElapsedMilliseconds,
+				HashBuildMs = stopwatch2.ElapsedMilliseconds,
+				HashDirCount = (ulong)dictionary3.Count,
+				HashEntryCount = num2,
+				BmsQueryHitCount = hitCount,
+				SiblingQueryHitCount = hitCount2,
 				Result = new BmsScanResult
 				{
-					BmsFilePaths = bmsSet,
-					FilesByDirectory = filesByDirectory
+					BmsFilePaths = hashSet,
+					FilesByDirectory = dictionary4,
+					FileNameHashesByDirectory = dictionary3
 				}
 			};
 		}
@@ -147,11 +231,31 @@ internal static class EverythingNative
 		}
 		finally
 		{
-			if (client != IntPtr.Zero)
+			if (intPtr != IntPtr.Zero)
 			{
-				Everything3_DestroyClient(client);
+				Everything3_DestroyClient(intPtr);
 			}
 		}
+	}
+
+	private static void AddFileNameHash(Dictionary<string, HashSet<uint>> hashesByDirectory, string directoryPath, string fileName)
+	{
+		if (!hashesByDirectory.TryGetValue(directoryPath, out var value))
+		{
+			value = new HashSet<uint>();
+			hashesByDirectory[directoryPath] = value;
+		}
+		value.Add(BMSDirectoryFileNameHash.GetFileNameHash(fileName));
+	}
+
+	private static void AddDetailedFileName(Dictionary<string, HashSet<string>> filesByDirectory, string directoryPath, string fileName)
+	{
+		if (!filesByDirectory.TryGetValue(directoryPath, out var value))
+		{
+			value = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+			filesByDirectory[directoryPath] = value;
+		}
+		value.Add(fileName);
 	}
 
 	private static string PathWithTrailingSeparator(string path)
@@ -160,7 +264,11 @@ internal static class EverythingNative
 		{
 			return path;
 		}
-		return path.EndsWith(Path.DirectorySeparatorChar.ToString(), StringComparison.Ordinal) ? path : path + Path.DirectorySeparatorChar;
+		if (!path.EndsWith(Path.DirectorySeparatorChar.ToString(), StringComparison.Ordinal))
+		{
+			return path + Path.DirectorySeparatorChar;
+		}
+		return path;
 	}
 
 	private static string QuotePath(string path)
@@ -188,14 +296,13 @@ internal static class EverythingNative
 		for (int i = 0; i < 4; i++)
 		{
 			buffer.Length = 0;
-			UIntPtr size = new UIntPtr((uint)buffer.Capacity);
-			UIntPtr len = Everything3_GetResultPathW(resultList, index, buffer, size);
-			ulong value = len.ToUInt64();
-			if (value == 0)
+			UIntPtr wbuf_size_in_wchars = new UIntPtr((uint)buffer.Capacity);
+			ulong num = Everything3_GetResultPathW(resultList, index, buffer, wbuf_size_in_wchars).ToUInt64();
+			if (num == 0)
 			{
 				return false;
 			}
-			if (value < (ulong)buffer.Capacity)
+			if (num < (ulong)buffer.Capacity)
 			{
 				path = buffer.ToString();
 				return true;
@@ -211,14 +318,13 @@ internal static class EverythingNative
 		for (int i = 0; i < 4; i++)
 		{
 			buffer.Length = 0;
-			UIntPtr size = new UIntPtr((uint)buffer.Capacity);
-			UIntPtr len = Everything3_GetResultNameW(resultList, index, buffer, size);
-			ulong value = len.ToUInt64();
-			if (value == 0)
+			UIntPtr wbuf_size_in_wchars = new UIntPtr((uint)buffer.Capacity);
+			ulong num = Everything3_GetResultNameW(resultList, index, buffer, wbuf_size_in_wchars).ToUInt64();
+			if (num == 0)
 			{
 				return false;
 			}
-			if (value < (ulong)buffer.Capacity)
+			if (num < (ulong)buffer.Capacity)
 			{
 				name = buffer.ToString();
 				return true;
@@ -235,62 +341,55 @@ internal static class EverythingNative
 		readMs = 0L;
 		hitCount = 0uL;
 		errorReason = null;
-		IntPtr state = IntPtr.Zero;
-		IntPtr result = IntPtr.Zero;
-		Stopwatch stopwatchTotal = Stopwatch.StartNew();
-		Stopwatch stopwatchSearch = new Stopwatch();
-		Stopwatch stopwatchRead = new Stopwatch();
+		IntPtr intPtr = IntPtr.Zero;
+		IntPtr intPtr2 = IntPtr.Zero;
+		Stopwatch stopwatch = Stopwatch.StartNew();
+		Stopwatch stopwatch2 = new Stopwatch();
+		Stopwatch stopwatch3 = new Stopwatch();
 		try
 		{
-			state = Everything3_CreateSearchState();
-			if (state == IntPtr.Zero)
+			intPtr = Everything3_CreateSearchState();
+			if (intPtr == IntPtr.Zero)
 			{
 				errorReason = "create_search_state_failed:" + Everything3_GetLastError();
 				return false;
 			}
-			if (!Everything3_SetSearchTextW(state, query))
+			if (!Everything3_SetSearchTextW(intPtr, query))
 			{
 				errorReason = "set_search_text_failed:" + Everything3_GetLastError();
 				return false;
 			}
-			Everything3_ClearSearchPropertyRequests(state);
-			Everything3_AddSearchPropertyRequest(state, EverythingPropertyIdPath);
-			Everything3_AddSearchPropertyRequest(state, EverythingPropertyIdName);
-			Everything3_SetSearchViewportOffset(state, UIntPtr.Zero);
-			Everything3_SetSearchViewportCount(state, new UIntPtr(ulong.MaxValue));
-
-			stopwatchSearch.Start();
-			result = Everything3_Search(client, state);
-			stopwatchSearch.Stop();
-			if (result == IntPtr.Zero)
+			Everything3_ClearSearchPropertyRequests(intPtr);
+			Everything3_AddSearchPropertyRequest(intPtr, EverythingPropertyIdPath);
+			Everything3_AddSearchPropertyRequest(intPtr, EverythingPropertyIdName);
+			Everything3_SetSearchViewportOffset(intPtr, UIntPtr.Zero);
+			Everything3_SetSearchViewportCount(intPtr, new UIntPtr(ulong.MaxValue));
+			stopwatch2.Start();
+			intPtr2 = Everything3_Search(client, intPtr);
+			stopwatch2.Stop();
+			if (intPtr2 == IntPtr.Zero)
 			{
 				errorReason = "search_failed:" + Everything3_GetLastError();
 				return false;
 			}
-			uint err = Everything3_GetLastError();
-			if (err != 0)
+			uint num = Everything3_GetLastError();
+			if (num != 0)
 			{
-				errorReason = "search_error:" + err;
+				errorReason = "search_error:" + num;
 				return false;
 			}
-
-			hitCount = Everything3_GetResultListViewportCount(result).ToUInt64();
-			StringBuilder pathBuffer = new StringBuilder(1024);
-			StringBuilder nameBuffer = new StringBuilder(512);
-			stopwatchRead.Start();
-			for (ulong i = 0; i < hitCount; i++)
+			hitCount = Everything3_GetResultListViewportCount(intPtr2).ToUInt64();
+			StringBuilder stringBuilder = new StringBuilder(1024);
+			StringBuilder stringBuilder2 = new StringBuilder(512);
+			stopwatch3.Start();
+			for (ulong i = 0uL; i < hitCount; i += 1)
 			{
-				if (!TryGetResultPath(result, new UIntPtr(i), pathBuffer, out var path))
+				if (TryGetResultPath(intPtr2, new UIntPtr(i), stringBuilder, out var path) && TryGetResultName(intPtr2, new UIntPtr(i), stringBuilder2, out var name))
 				{
-					continue;
+					onResult?.Invoke(path, name);
 				}
-				if (!TryGetResultName(result, new UIntPtr(i), nameBuffer, out var name))
-				{
-					continue;
-				}
-				onResult?.Invoke(path, name);
 			}
-			stopwatchRead.Stop();
+			stopwatch3.Stop();
 			return true;
 		}
 		catch (Exception ex)
@@ -300,19 +399,127 @@ internal static class EverythingNative
 		}
 		finally
 		{
-			stopwatchTotal.Stop();
-			elapsedMs = stopwatchTotal.ElapsedMilliseconds;
-			searchMs = stopwatchSearch.ElapsedMilliseconds;
-			readMs = stopwatchRead.ElapsedMilliseconds;
-			if (result != IntPtr.Zero)
+			stopwatch.Stop();
+			elapsedMs = stopwatch.ElapsedMilliseconds;
+			searchMs = stopwatch2.ElapsedMilliseconds;
+			readMs = stopwatch3.ElapsedMilliseconds;
+			if (intPtr2 != IntPtr.Zero)
 			{
-				Everything3_DestroyResultList(result);
+				Everything3_DestroyResultList(intPtr2);
 			}
-			if (state != IntPtr.Zero)
+			if (intPtr != IntPtr.Zero)
 			{
-				Everything3_DestroySearchState(state);
+				Everything3_DestroySearchState(intPtr);
 			}
 		}
+	}
+
+	private static bool TryExecuteBridgeScan(string bmsQuery, string siblingQuery, out BmsScanExecutionResult result, out string reason, out long elapsedMs)
+	{
+		result = null;
+		elapsedMs = 0L;
+		Stopwatch stopwatch = Stopwatch.StartNew();
+		IntPtr intPtr = IntPtr.Zero;
+		try
+		{
+			if (!EnsureBridgeLoaded(out reason))
+			{
+				return false;
+			}
+			int num = EBridge_Scan(bmsQuery, siblingQuery, out intPtr);
+			if (num != 0)
+			{
+				reason = "bridge_scan_failed:" + num;
+				return false;
+			}
+			if (intPtr == IntPtr.Zero)
+			{
+				reason = "bridge_scan_empty_result";
+				return false;
+			}
+			EBridgeResultHeader eBridgeResultHeader = Marshal.PtrToStructure<EBridgeResultHeader>(intPtr);
+			if (eBridgeResultHeader.status != 0)
+			{
+				reason = "bridge_status_failed:" + eBridgeResultHeader.error_code;
+				return false;
+			}
+			HashSet<string> hashSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+			Dictionary<string, uint[]> dictionary = new Dictionary<string, uint[]>((int)eBridgeResultHeader.dir_count, StringComparer.OrdinalIgnoreCase);
+			ulong num2 = 0uL;
+			for (ulong i = 0uL; i < eBridgeResultHeader.bms_count; i += 1)
+			{
+				uint byteOffset = (uint)Marshal.ReadInt32(eBridgeResultHeader.bms_offsets, checked((int)(i * 4)));
+				string text = ReadUtf16FromBlob(eBridgeResultHeader.bms_blob, byteOffset);
+				if (!string.IsNullOrWhiteSpace(text))
+				{
+					hashSet.Add(text);
+				}
+			}
+			for (ulong j = 0uL; j < eBridgeResultHeader.dir_count; j += 1)
+			{
+				uint byteOffset2 = (uint)Marshal.ReadInt32(eBridgeResultHeader.dir_offsets, checked((int)(j * 4)));
+				string text2 = ReadUtf16FromBlob(eBridgeResultHeader.dir_blob, byteOffset2);
+				uint num3 = (uint)Marshal.ReadInt32(eBridgeResultHeader.dir_hash_offsets, checked((int)(j * 4)));
+				uint num4 = (uint)Marshal.ReadInt32(eBridgeResultHeader.dir_hash_lengths, checked((int)(j * 4)));
+				if (string.IsNullOrWhiteSpace(text2) || num4 == 0)
+				{
+					continue;
+				}
+				int[] array = new int[checked((int)num4)];
+				Marshal.Copy(IntPtr.Add(eBridgeResultHeader.hashes_blob, checked((int)num3)), array, 0, array.Length);
+				uint[] array2 = new uint[array.Length];
+				Buffer.BlockCopy(array, 0, array2, 0, array.Length * 4);
+				dictionary[text2] = array2;
+				num2 += (ulong)array2.Length;
+			}
+			result = new BmsScanExecutionResult
+			{
+				Success = true,
+				NativeBridgeUsed = true,
+				NativeBridgeMs = stopwatch.ElapsedMilliseconds,
+				NativeBridgeReason = "ok",
+				HashBuildMs = 0L,
+				HashDirCount = (ulong)dictionary.Count,
+				HashEntryCount = num2,
+				Result = new BmsScanResult
+				{
+					BmsFilePaths = hashSet,
+					FilesByDirectory = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase),
+					FileNameHashesByDirectory = dictionary
+				}
+			};
+			reason = "ok";
+			return true;
+		}
+		catch (Exception ex)
+		{
+			reason = "bridge_exception:" + ex.Message;
+			return false;
+		}
+		finally
+		{
+			stopwatch.Stop();
+			elapsedMs = stopwatch.ElapsedMilliseconds;
+			if (intPtr != IntPtr.Zero)
+			{
+				try
+				{
+					EBridge_FreeResult(intPtr);
+				}
+				catch
+				{
+				}
+			}
+		}
+	}
+
+	private static string ReadUtf16FromBlob(IntPtr blobBase, uint byteOffset)
+	{
+		if (blobBase == IntPtr.Zero)
+		{
+			return null;
+		}
+		return Marshal.PtrToStringUni(IntPtr.Add(blobBase, checked((int)byteOffset)));
 	}
 
 	private static BmsScanExecutionResult Failed(string reason)
@@ -327,20 +534,20 @@ internal static class EverythingNative
 	private static IntPtr TryConnect(out string connectInfo)
 	{
 		connectInfo = "no_instance_tried";
-		string[] instances = new string[2] { "1.5a", null };
-		foreach (string instanceName in instances)
+		string[] array = new string[2] { "1.5a", null };
+		foreach (string text in array)
 		{
-			for (int attempt = 0; attempt < 20; attempt++)
+			for (int i = 0; i < 20; i++)
 			{
-				IntPtr client = Everything3_ConnectW(instanceName);
-				if (client != IntPtr.Zero)
+				IntPtr intPtr = Everything3_ConnectW(text);
+				if (intPtr != IntPtr.Zero)
 				{
-					connectInfo = "instance=" + (instanceName ?? "(default)") + " attempt=" + (attempt + 1);
-					return client;
+					connectInfo = "instance=" + (text ?? "(default)") + " attempt=" + (i + 1);
+					return intPtr;
 				}
-				uint error = Everything3_GetLastError();
-				connectInfo = "instance=" + (instanceName ?? "(default)") + " error=" + error + " attempt=" + (attempt + 1);
-				if (error != 3758096386u)
+				uint lastError = Everything3_GetLastError();
+				connectInfo = "instance=" + (text ?? "(default)") + " error=" + lastError + " attempt=" + (i + 1);
+				if (lastError != 3758096386u)
 				{
 					break;
 				}
@@ -352,6 +559,9 @@ internal static class EverythingNative
 
 	[DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
 	private static extern IntPtr LoadLibraryW(string lpFileName);
+
+	[DllImport("kernel32.dll", CharSet = CharSet.Ansi, SetLastError = true)]
+	private static extern IntPtr GetProcAddress(IntPtr hModule, string procName);
 
 	[DllImport(DllName, CharSet = CharSet.Unicode, CallingConvention = CallingConvention.StdCall)]
 	internal static extern IntPtr Everything3_ConnectW(string instance_name);
@@ -397,4 +607,38 @@ internal static class EverythingNative
 
 	[DllImport(DllName, CharSet = CharSet.Unicode, CallingConvention = CallingConvention.StdCall)]
 	internal static extern UIntPtr Everything3_GetResultNameW(IntPtr result_list, UIntPtr result_index, StringBuilder out_wbuf, UIntPtr wbuf_size_in_wchars);
+
+	[DllImport(BridgeDllName, CharSet = CharSet.Unicode, CallingConvention = CallingConvention.Cdecl, EntryPoint = "EBridge_Scan")]
+	private static extern int EBridge_Scan(string bmsQuery, string siblingQuery, out IntPtr outResult);
+
+	[DllImport(BridgeDllName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "EBridge_FreeResult")]
+	private static extern void EBridge_FreeResult(IntPtr result);
+
+	[StructLayout(LayoutKind.Sequential)]
+	private struct EBridgeResultHeader
+	{
+		public int status;
+
+		public int error_code;
+
+		public ulong bms_count;
+
+		public IntPtr bms_offsets;
+
+		public IntPtr bms_blob;
+
+		public ulong dir_count;
+
+		public IntPtr dir_offsets;
+
+		public IntPtr dir_blob;
+
+		public IntPtr dir_hash_offsets;
+
+		public IntPtr dir_hash_lengths;
+
+		public IntPtr hashes_blob;
+
+		public ulong raw_buffer_size;
+	}
 }

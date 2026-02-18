@@ -16,10 +16,12 @@ public class FastDirectoryFileScanner : IBmsFileScanner
 			BMSDirectoryFileNameHash dirCache = new BMSDirectoryFileNameHash();
 			HashSet<string> bmsPaths = new HashSet<string>(roots.AsParallel().SelectMany((string dir) => FastDirectoryEnumerator.GetFilePathsAsParallel(dir, dirCache, ext, SearchOption.AllDirectories)), StringComparer.OrdinalIgnoreCase);
 			Dictionary<string, List<string>> filesByDirectory = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+			Dictionary<string, uint[]> fileHashesByDirectory = new Dictionary<string, uint[]>(StringComparer.OrdinalIgnoreCase);
 			foreach (string key in dirCache.Keys)
 			{
 				List<string> fileNames = FastDirectoryEnumerator.GetFileNames(key).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 				filesByDirectory[key] = fileNames;
+				fileHashesByDirectory[key] = BMSDirectoryFileNameHash.GetFileNameHashArray(fileNames);
 			}
 			return new BmsScanExecutionResult
 			{
@@ -27,7 +29,8 @@ public class FastDirectoryFileScanner : IBmsFileScanner
 				Result = new BmsScanResult
 				{
 					BmsFilePaths = bmsPaths,
-					FilesByDirectory = filesByDirectory
+					FilesByDirectory = filesByDirectory,
+					FileNameHashesByDirectory = fileHashesByDirectory
 				}
 			};
 		}

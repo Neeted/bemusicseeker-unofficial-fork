@@ -33,7 +33,12 @@ public class BMSDirectoryFileNameHash
 
 	public static uint[] GetFileNameHashArray(IEnumerable<string> list)
 	{
-		return list.Select((string s) => xxHash32.CalculateHash(extensionNormalizer(s.ToUpperInvariant()))).ToArray();
+		return list.Select(GetFileNameHash).ToArray();
+	}
+
+	public static uint GetFileNameHash(string fileName)
+	{
+		return xxHash32.CalculateHash(extensionNormalizer((fileName ?? string.Empty).ToUpperInvariant()));
 	}
 
 	private static string extensionNormalizer(string str)
@@ -90,6 +95,14 @@ public class BMSDirectoryFileNameHash
 		using (new WriterGuard(rwlock))
 		{
 			allFileList[path] = fileNameHashArray;
+		}
+	}
+
+	public void AddDirHashed(string path, uint[] fileNameHashes)
+	{
+		using (new WriterGuard(rwlock))
+		{
+			allFileList[path] = fileNameHashes ?? Array.Empty<uint>();
 		}
 	}
 

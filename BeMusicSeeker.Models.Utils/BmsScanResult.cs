@@ -8,4 +8,6 @@ public class BmsScanResult
 	public HashSet<string> BmsFilePaths { get; set; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
 	public Dictionary<string, List<string>> FilesByDirectory { get; set; } = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+
+	public Dictionary<string, uint[]> FileNameHashesByDirectory { get; set; } = new Dictionary<string, uint[]>(StringComparer.OrdinalIgnoreCase);
 }

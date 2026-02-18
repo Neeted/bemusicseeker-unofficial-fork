@@ -1269,9 +1269,19 @@ public class BMSLibrary : NotificationObject
                     }
                 }
                 bmsFolderAllFileList = new BMSDirectoryFileNameHash();
-                foreach (KeyValuePair<string, List<string>> item4 in scanResult.Result.FilesByDirectory)
+                if (scanResult.Result.FileNameHashesByDirectory != null && scanResult.Result.FileNameHashesByDirectory.Count > 0)
                 {
-                    bmsFolderAllFileList.AddDir(item4.Key, item4.Value);
+                    foreach (KeyValuePair<string, uint[]> item4 in scanResult.Result.FileNameHashesByDirectory)
+                    {
+                        bmsFolderAllFileList.AddDirHashed(item4.Key, item4.Value);
+                    }
+                }
+                else
+                {
+                    foreach (KeyValuePair<string, List<string>> item5 in scanResult.Result.FilesByDirectory)
+                    {
+                        bmsFolderAllFileList.AddDir(item5.Key, item5.Value);
+                    }
                 }
                 HashSet<string> hashSet = new HashSet<string>(scanResult.Result.BmsFilePaths ?? new HashSet<string>(), StringComparer.OrdinalIgnoreCase);
                 HashSet<string> hashSet2 = new HashSet<string>(BMSFiles.Select((BMSFile x) => x.path), StringComparer.OrdinalIgnoreCase);
@@ -1311,27 +1321,27 @@ public class BMSLibrary : NotificationObject
                     lR2SongDBExtended.BeginTransaction();
                     if (bmsFilesDeletedPaths.Count > 0)
                     {
-                        foreach (string item5 in bmsFilesDeletedPaths)
+                        foreach (string item6 in bmsFilesDeletedPaths)
                         {
-                            lR2SongDBExtended.Delete<LR2SongDB.song>(item5);
+                            lR2SongDBExtended.Delete<LR2SongDB.song>(item6);
                         }
                     }
                     if (list5.Count > 0)
                     {
-                        foreach (BMSFile item6 in list5)
+                        foreach (BMSFile item7 in list5)
                         {
-                            lR2SongDBExtended.InsertOrReplace(item6, typeof(LR2SongDB.song));
+                            lR2SongDBExtended.InsertOrReplace(item7, typeof(LR2SongDB.song));
                         }
                     }
                     lR2SongDBExtended.Commit();
                     InvalidateBMSHashIndex();
                 }
                 List<string> keys = bmsFolderAllFileList.Keys;
-                foreach (BMSFile item7 in BMSFiles.Where((BMSFile f) => !string.IsNullOrWhiteSpace(f.instl_dst)))
+                foreach (BMSFile item8 in BMSFiles.Where((BMSFile f) => !string.IsNullOrWhiteSpace(f.instl_dst)))
                 {
-                    if (!keys.Contains(item7.instl_dst, StringComparer.OrdinalIgnoreCase))
+                    if (!keys.Contains(item8.instl_dst, StringComparer.OrdinalIgnoreCase))
                     {
-                        item7.instl_dst = null;
+                        item8.instl_dst = null;
                     }
                 }
                 stopwatchScan.Stop();
