@@ -3134,6 +3134,16 @@ public class MainWindowViewModel : ViewModel
 
 	private object lockInstallUiSuppression = new object();
 
+	private int suppressInitLibraryUiUpdateCount;
+
+	private bool pendingInitLibraryUiRefreshRequested;
+
+	private object lockInitLibraryUiSuppression = new object();
+
+	private Dictionary<string, Func<BeMusicSeeker.Models.BMSFile, string>> sortKeySelectorCache = new Dictionary<string, Func<BeMusicSeeker.Models.BMSFile, string>>(StringComparer.Ordinal);
+
+	private object lockSortKeySelectorCache = new object();
+
 	private string _WindowTitle = "BeMusicSeeker - ";
 
 	private IEnumerable<BeMusicSeeker.Models.BMSFile> BMSFilesFolderView;
@@ -3214,6 +3224,8 @@ public class MainWindowViewModel : ViewModel
 
 	private bool IsInstallUiUpdateSuppressed => Volatile.Read(ref suppressInstallUiUpdateCount) > 0;
 
+	private bool IsInitLibraryUiUpdateSuppressed => Volatile.Read(ref suppressInitLibraryUiUpdateCount) > 0;
+
 	private void BeginInstallUiUpdateSuppression()
 	{
 		Interlocked.Increment(ref suppressInstallUiUpdateCount);
@@ -3252,6 +3264,52 @@ public class MainWindowViewModel : ViewModel
 			RaisePropertyChanged(() => BMSPackagesInstalled);
 			RaisePropertyChanged(() => BMSPackagesPending);
 			if (treeViewFilterTypeSelected == viewUpdateMode.NewlyInstalledFolderSelected || treeViewFilterTypeSelected == viewUpdateMode.PendingInstallFolderSelected)
+			{
+				makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
+			}
+		});
+	}
+
+	private void BeginInitLibraryUiUpdateSuppression()
+	{
+		Interlocked.Increment(ref suppressInitLibraryUiUpdateCount);
+	}
+
+	private void RequestInitLibraryUiRefreshIfSuppressed()
+	{
+		if (!IsInitLibraryUiUpdateSuppressed)
+		{
+			return;
+		}
+		lock (lockInitLibraryUiSuppression)
+		{
+			pendingInitLibraryUiRefreshRequested = true;
+		}
+	}
+
+	private void EndInitLibraryUiUpdateSuppression()
+	{
+		if (Interlocked.Decrement(ref suppressInitLibraryUiUpdateCount) > 0)
+		{
+			return;
+		}
+		bool refreshRequired;
+		lock (lockInitLibraryUiSuppression)
+		{
+			refreshRequired = pendingInitLibraryUiRefreshRequested;
+			pendingInitLibraryUiRefreshRequested = false;
+		}
+		if (!refreshRequired)
+		{
+			return;
+		}
+		DispatcherHelper.UIDispatcher.BeginInvoke((Action)delegate
+		{
+			if (Enum.IsDefined(typeof(MaintenanceFilterType), (int)treeViewFilterTypeSelected))
+			{
+				ExecMaintenanceFilter((MaintenanceFilterType)treeViewFilterTypeSelected, treeViewFilterParameterSelected);
+			}
+			else
 			{
 				makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
 			}
@@ -4227,28 +4285,49 @@ public class MainWindowViewModel : ViewModel
 		listenerForBMSPlaylistBMSTablesCollection = new CollectionChangedEventListener(tables.BMSTables);
 		listenerForBMSLibrary.RegisterHandler(() => files.BMSFiles, delegate
 		{
-			if (Enum.IsDefined(typeof(MaintenanceFilterType), (int)treeViewFilterTypeSelected))
+			if (IsInitLibraryUiUpdateSuppressed)
 			{
-				MaintenanceFilterType type = (MaintenanceFilterType)treeViewFilterTypeSelected;
-				ExecMaintenanceFilter(type);
+				RequestInitLibraryUiRefreshIfSuppressed();
 			}
 			else
 			{
-				makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
+				if (Enum.IsDefined(typeof(MaintenanceFilterType), (int)treeViewFilterTypeSelected))
+				{
+					MaintenanceFilterType type = (MaintenanceFilterType)treeViewFilterTypeSelected;
+					ExecMaintenanceFilter(type);
+				}
+				else
+				{
+					makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
+				}
 			}
 		});
 		listenerForBMSLibrary.RegisterHandler(() => files.BMSFilesNeedToBeFixed, delegate
 		{
 			if (treeViewFilterTypeSelected == viewUpdateMode.FileMissingFilterSelected)
 			{
-				makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
+				if (IsInitLibraryUiUpdateSuppressed)
+				{
+					RequestInitLibraryUiRefreshIfSuppressed();
+				}
+				else
+				{
+					makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
+				}
 			}
 		});
 		listenerForBMSLibrary.RegisterHandler(() => files.BMSFilesNeedToBeFixedIgnored, delegate
 		{
 			if (treeViewFilterTypeSelected == viewUpdateMode.FileMissingIgnoredFilterSelected)
 			{
-				makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
+				if (IsInitLibraryUiUpdateSuppressed)
+				{
+					RequestInitLibraryUiRefreshIfSuppressed();
+				}
+				else
+				{
+					makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
+				}
 			}
 		});
 		listenerForBMSLibrary.RegisterHandler(() => files.BMSFilesDuplicated, delegate
@@ -4256,35 +4335,70 @@ public class MainWindowViewModel : ViewModel
 			RaisePropertyChanged(() => BMSFilesDuplicated);
 			if (treeViewFilterTypeSelected == viewUpdateMode.DuplicateFilterSelected)
 			{
-				makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
+				if (IsInitLibraryUiUpdateSuppressed)
+				{
+					RequestInitLibraryUiRefreshIfSuppressed();
+				}
+				else
+				{
+					makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
+				}
 			}
 		});
 		listenerForBMSLibrary.RegisterHandler(() => files.BMSFilesGarbled, delegate
 		{
 			if (treeViewFilterTypeSelected == viewUpdateMode.GarbledFilterSelected)
 			{
-				makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
+				if (IsInitLibraryUiUpdateSuppressed)
+				{
+					RequestInitLibraryUiRefreshIfSuppressed();
+				}
+				else
+				{
+					makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
+				}
 			}
 		});
 		listenerForBMSLibrary.RegisterHandler(() => files.BMSFilesGarbledFixed, delegate
 		{
 			if (treeViewFilterTypeSelected == viewUpdateMode.GarbleFixedFilterSelected)
 			{
-				makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
+				if (IsInitLibraryUiUpdateSuppressed)
+				{
+					RequestInitLibraryUiRefreshIfSuppressed();
+				}
+				else
+				{
+					makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
+				}
 			}
 		});
 		listenerForBMSLibrary.RegisterHandler(() => files.BMSFilesUnregistered, delegate
 		{
 			if (treeViewFilterTypeSelected == viewUpdateMode.UnregisteredFilterSelected)
 			{
-				makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
+				if (IsInitLibraryUiUpdateSuppressed)
+				{
+					RequestInitLibraryUiRefreshIfSuppressed();
+				}
+				else
+				{
+					makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
+				}
 			}
 		});
 		listenerForBMSLibrary.RegisterHandler(() => files.BMSFilesZeroNote, delegate
 		{
 			if (treeViewFilterTypeSelected == viewUpdateMode.ZeroNoteFilterSelected)
 			{
-				makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
+				if (IsInitLibraryUiUpdateSuppressed)
+				{
+					RequestInitLibraryUiRefreshIfSuppressed();
+				}
+				else
+				{
+					makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
+				}
 			}
 		});
 		listenerForBMSLibrary.RegisterHandler(() => files.BMSPackagesInstalled, delegate
@@ -4488,10 +4602,18 @@ public class MainWindowViewModel : ViewModel
 			}
 		};
 		Thread.Yield();
-		await Task.Run(delegate
+		BeginInitLibraryUiUpdateSuppression();
+		try
 		{
-			files.Initialize(new List<Action> { taskAdd1, taskAdd2 }, semaphore);
-		}).Logging("Initialize", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\ViewModels\\MainWindowViewModel.cs", 503);
+			await Task.Run(delegate
+			{
+				files.Initialize(new List<Action> { taskAdd1, taskAdd2 }, semaphore);
+			}).Logging("Initialize", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\ViewModels\\MainWindowViewModel.cs", 503);
+		}
+		finally
+		{
+			EndInitLibraryUiUpdateSuppression();
+		}
 		if (((App)System.Windows.Application.Current).firstStartup)
 		{
 			((App)System.Windows.Application.Current).firstStartup = false;
@@ -5305,15 +5427,11 @@ public class MainWindowViewModel : ViewModel
 			{
 				ListSortDirection direction = SortParameters.Direction;
 				string columnName = SortParameters.ColumnsName;
-				Func<BeMusicSeeker.Models.BMSFile, string> keySelector = delegate(BeMusicSeeker.Models.BMSFile r)
+				if (string.Equals(columnName, nameof(BeMusicSeeker.Models.BMSFile.rank), StringComparison.Ordinal))
 				{
-					if (columnName == r.GetName((BeMusicSeeker.Models.BMSFile e) => e.rank))
-					{
-						columnName = r.GetName((BeMusicSeeker.Models.BMSFile e) => e.rateDouble);
-					}
-					PropertyInfo property = r.GetType().GetProperty(columnName);
-					return property.PropertyType.IsEnum ? ((int)property.GetValue(r)).ToString() : (property.GetValue(r) ?? string.Empty).ToString();
-				};
+					columnName = nameof(BeMusicSeeker.Models.BMSFile.rateDouble);
+				}
+				Func<BeMusicSeeker.Models.BMSFile, string> keySelector = GetSortKeySelector(columnName);
 				if (direction == ListSortDirection.Ascending)
 				{
 					BMSFilesView = BMSFilesModeFilterView.OrderBy(keySelector, new NaturalComparer<string>()).ThenBy((BeMusicSeeker.Models.BMSFile r) => r.Title ?? string.Empty, new NaturalComparer<string>()).ToList();
@@ -5334,6 +5452,41 @@ public class MainWindowViewModel : ViewModel
 		}
 		loadColumnSetting((mode < viewUpdateMode.KeywordFilterUpdated) ? mode : treeViewFilterTypeSelected);
 		base.Messenger.Raise(new InteractionMessage("CallbackExecSort"));
+	}
+
+	private Func<BeMusicSeeker.Models.BMSFile, string> GetSortKeySelector(string columnName)
+	{
+		if (string.IsNullOrWhiteSpace(columnName))
+		{
+			return (BeMusicSeeker.Models.BMSFile _) => string.Empty;
+		}
+		lock (lockSortKeySelectorCache)
+		{
+			if (sortKeySelectorCache.TryGetValue(columnName, out var value))
+			{
+				return value;
+			}
+			PropertyInfo property = typeof(BeMusicSeeker.Models.BMSFile).GetProperty(columnName);
+			Func<BeMusicSeeker.Models.BMSFile, string> func = delegate(BeMusicSeeker.Models.BMSFile r)
+			{
+				if (r == null || property == null)
+				{
+					return string.Empty;
+				}
+				object value2 = property.GetValue(r);
+				if (value2 == null)
+				{
+					return string.Empty;
+				}
+				if (property.PropertyType.IsEnum)
+				{
+					return ((int)value2).ToString();
+				}
+				return value2.ToString();
+			};
+			sortKeySelectorCache[columnName] = func;
+			return func;
+		}
 	}
 
 	public void LoadColumnSetting()
