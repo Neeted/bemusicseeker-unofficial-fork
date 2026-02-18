@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
@@ -2136,6 +2137,7 @@ public class BMSLibrary : NotificationObject
         using (rwlockBMSFiles.GetReaderGuard())
         {
             List<BMSFile> list = (forceUpdate ? bmsFiles.ToList() : bmsFiles.Where((BMSFile f) => !f.maintenanceInfo.IsInformationChecked() || string.IsNullOrWhiteSpace(f.maintenanceInfo.encoding)).ToList());
+            bool maintenanceInfoUpdated = false;
             if (list.Count > 0)
             {
                 foreach (IEnumerable<BMSFile> item in list.Section(1000))
@@ -2195,27 +2197,19 @@ public class BMSLibrary : NotificationObject
                             }
                             lR2SongDBExtended.Commit();
                         }
-                        Task.Run(delegate
-                        {
-                            RaisePropertyChanged(() => BMSFilesNeedToBeFixed);
-                        }).Logging("setMaintenanceInfo", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Models\\BMSLibrary.cs", 1912);
-                        Task.Run(delegate
-                        {
-                            RaisePropertyChanged(() => BMSFilesNeedToBeFixedIgnored);
-                        }).Logging("setMaintenanceInfo", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Models\\BMSLibrary.cs", 1913);
-                        Task.Run(delegate
-                        {
-                            RaisePropertyChanged(() => BMSFilesGarbled);
-                        }).Logging("setMaintenanceInfo", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Models\\BMSLibrary.cs", 1914);
-                        Task.Run(delegate
-                        {
-                            RaisePropertyChanged(() => BMSFilesGarbledFixed);
-                        }).Logging("setMaintenanceInfo", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Models\\BMSLibrary.cs", 1915);
-                        NLogWrapper.DebuggerLogger?.Trace(GC.GetTotalMemory(forceFullCollection: false));
-                        GC.Collect();
-                        NLogWrapper.DebuggerLogger?.Trace(GC.GetTotalMemory(forceFullCollection: false));
+                        maintenanceInfoUpdated = true;
                     }
                 }
+            }
+            if (maintenanceInfoUpdated)
+            {
+                Task.Run(delegate
+                {
+                    RaisePropertyChanged(() => BMSFilesNeedToBeFixed);
+                    RaisePropertyChanged(() => BMSFilesNeedToBeFixedIgnored);
+                    RaisePropertyChanged(() => BMSFilesGarbled);
+                    RaisePropertyChanged(() => BMSFilesGarbledFixed);
+                }).Logging("setMaintenanceInfo", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Models\\BMSLibrary.cs", 1912);
             }
             foreach (BMSFile bmsFile in bmsFiles)
             {
@@ -3002,7 +2996,7 @@ public class BMSLibrary : NotificationObject
         return true;
     }
 
-    private List<BMSPackage> installBMSPackages(IEnumerable<BMSPackage> bmsPackagesInstall, string installationDirectory = null, List<BMSFile> deferredMaintenanceTargets = null)
+    private List<BMSPackage> installBMSPackages(IEnumerable<BMSPackage> bmsPackagesInstall, string installationDirectory = null, List<BMSFile> deferredMaintenanceTargets = null, List<BMSPackage> deferredInstalledPackages = null)
     {
         Stopwatch stopwatchTotal = Stopwatch.StartNew();
         List<BMSFile> bmsFilesToBeAdded = new List<BMSFile>();
@@ -3013,7 +3007,14 @@ public class BMSLibrary : NotificationObject
             if (moveBMSPackageFiles(item, installationDirectory))
             {
                 bmsFilesToBeAdded.AddRange(item.BMSFiles);
-                BMSPackagesInstalled.Add(item);
+                if (deferredInstalledPackages != null)
+                {
+                    deferredInstalledPackages.Add(item);
+                }
+                else
+                {
+                    BMSPackagesInstalled.Add(item);
+                }
             }
             else if (File.Exists(item.path) || Directory.Exists(item.path))
             {
@@ -3231,8 +3232,10 @@ public class BMSLibrary : NotificationObject
                             LogInstallPerformance("InstallBMSPackagesToEstimatedDir skipped reason=BMSFiles_null totalMs=" + stopwatchTotal.ElapsedMilliseconds);
                             return;
                         }
+                        List<BMSPackage> pendingSnapshot = BMSPackagesPending.Where((BMSPackage pkg) => pkg != null).ToList();
+                        HashSet<BMSPackage> pendingSet = new HashSet<BMSPackage>(pendingSnapshot);
                         Stopwatch stopwatchFilter = Stopwatch.StartNew();
-                        List<BMSPackage> list = packages.Where((BMSPackage pkg) => pkg != null && BMSPackagesPending.Contains(pkg)).Distinct().ToList();
+                        List<BMSPackage> list = packages.Where((BMSPackage pkg) => pkg != null && pendingSet.Contains(pkg)).Distinct().ToList();
                         stopwatchFilter.Stop();
                         if (list.Count == 0)
                         {
@@ -3276,12 +3279,14 @@ public class BMSLibrary : NotificationObject
                         stopwatchGroupBuild.Stop();
                         LogInstallPerformance("InstallBMSPackagesToEstimatedDir start selected=" + list.Count + " groups=" + dictionary.Count + " filterMs=" + stopwatchFilter.ElapsedMilliseconds + " groupBuildMs=" + stopwatchGroupBuild.ElapsedMilliseconds);
                         List<BMSFile> deferredMaintenanceTargets = new List<BMSFile>();
+                        List<BMSPackage> deferredInstalledPackages = new List<BMSPackage>();
+                        HashSet<BMSPackage> pendingPackagesToRemove = new HashSet<BMSPackage>();
                         foreach (var item2 in dictionary)
                         {
                             Stopwatch stopwatchGroup = Stopwatch.StartNew();
                             List<BMSPackage> value2 = item2.Value;
                             Stopwatch stopwatchInstall = Stopwatch.StartNew();
-                            List<BMSPackage> list3 = installBMSPackages(value2, item2.Key, deferredMaintenanceTargets);
+                            List<BMSPackage> list3 = installBMSPackages(value2, item2.Key, deferredMaintenanceTargets, deferredInstalledPackages);
                             stopwatchInstall.Stop();
                             HashSet<BMSPackage> hashSet = new HashSet<BMSPackage>(list3);
                             Stopwatch stopwatchInstallDb = Stopwatch.StartNew();
@@ -3302,15 +3307,51 @@ public class BMSLibrary : NotificationObject
                                 lR2SongDBExtended.Commit();
                             }
                             stopwatchInstallDb.Stop();
-                            Stopwatch stopwatchPendingRemove = Stopwatch.StartNew();
+                            Stopwatch stopwatchPendingMark = Stopwatch.StartNew();
+                            int pendingCountBeforeRemove = BMSPackagesPending.Count;
+                            int bmsFilesCountBeforeRemove = ((BMSFiles != null) ? BMSFiles.Count : (-1));
+                            int removedPendingCount = 0;
                             foreach (BMSPackage item4 in value2)
                             {
-                                BMSPackagesPending.RemoveExt(item4);
+                                if (pendingPackagesToRemove.Add(item4))
+                                {
+                                    removedPendingCount++;
+                                }
                             }
-                            stopwatchPendingRemove.Stop();
+                            int pendingCountAfterRemove = BMSPackagesPending.Count;
+                            int bmsFilesCountAfterRemove = ((BMSFiles != null) ? BMSFiles.Count : (-1));
+                            stopwatchPendingMark.Stop();
                             stopwatchGroup.Stop();
-                            LogInstallPerformance("InstallBMSPackagesToEstimatedDir group dst=" + item2.Key + " packages=" + value2.Count + " failedPackages=" + list3.Count + " installMs=" + stopwatchInstall.ElapsedMilliseconds + " installDbMs=" + stopwatchInstallDb.ElapsedMilliseconds + " pendingRemoveMs=" + stopwatchPendingRemove.ElapsedMilliseconds + " totalGroupMs=" + stopwatchGroup.ElapsedMilliseconds);
+                            LogInstallPerformance("InstallBMSPackagesToEstimatedDir group dst=" + item2.Key + " packages=" + value2.Count + " failedPackages=" + list3.Count + " installMs=" + stopwatchInstall.ElapsedMilliseconds + " installDbMs=" + stopwatchInstallDb.ElapsedMilliseconds + " pendingMarkMs=" + stopwatchPendingMark.ElapsedMilliseconds + " pendingBefore=" + pendingCountBeforeRemove + " pendingMarked=" + removedPendingCount + " pendingAfter=" + pendingCountAfterRemove + " bmsFilesBefore=" + bmsFilesCountBeforeRemove + " bmsFilesAfter=" + bmsFilesCountAfterRemove + " totalGroupMs=" + stopwatchGroup.ElapsedMilliseconds);
                         }
+                        Stopwatch stopwatchPendingApply = Stopwatch.StartNew();
+                        int pendingCountBeforeApply = BMSPackagesPending.Count;
+                        int pendingRemovedTotal = pendingPackagesToRemove.Count;
+                        if (pendingRemovedTotal > 0)
+                        {
+                            List<BMSPackage> remainingPending = BMSPackagesPending.Where((BMSPackage pkg) => pkg != null && !pendingPackagesToRemove.Contains(pkg)).ToList();
+                            BMSPackagesPending = new DispatcherCollection<BMSPackage>(new ObservableCollection<BMSPackage>(remainingPending), DispatcherHelper.UIDispatcher);
+                        }
+                        int pendingCountAfterApply = BMSPackagesPending.Count;
+                        stopwatchPendingApply.Stop();
+                        Stopwatch stopwatchInstalledApply = Stopwatch.StartNew();
+                        int installedCountBeforeApply = BMSPackagesInstalled.Count;
+                        int installedAddedTotal = deferredInstalledPackages.Count;
+                        if (installedAddedTotal > 0)
+                        {
+                            HashSet<BMSPackage> installedSet = new HashSet<BMSPackage>(BMSPackagesInstalled.Where((BMSPackage pkg) => pkg != null));
+                            List<BMSPackage> mergedInstalled = BMSPackagesInstalled.Where((BMSPackage pkg) => pkg != null).ToList();
+                            foreach (BMSPackage item5 in deferredInstalledPackages)
+                            {
+                                if (item5 != null && installedSet.Add(item5))
+                                {
+                                    mergedInstalled.Add(item5);
+                                }
+                            }
+                            BMSPackagesInstalled = new DispatcherCollection<BMSPackage>(new ObservableCollection<BMSPackage>(mergedInstalled), DispatcherHelper.UIDispatcher);
+                        }
+                        int installedCountAfterApply = BMSPackagesInstalled.Count;
+                        stopwatchInstalledApply.Stop();
                         Stopwatch stopwatchMaintenance = Stopwatch.StartNew();
                         if (deferredMaintenanceTargets.Count > 0)
                         {
@@ -3318,7 +3359,7 @@ public class BMSLibrary : NotificationObject
                         }
                         stopwatchMaintenance.Stop();
                         stopwatchTotal.Stop();
-                        LogInstallPerformance("InstallBMSPackagesToEstimatedDir end maintenanceTargets=" + deferredMaintenanceTargets.Count + " maintenanceMs=" + stopwatchMaintenance.ElapsedMilliseconds + " totalMs=" + stopwatchTotal.ElapsedMilliseconds);
+                        LogInstallPerformance("InstallBMSPackagesToEstimatedDir end pendingApplyMs=" + stopwatchPendingApply.ElapsedMilliseconds + " pendingBeforeApply=" + pendingCountBeforeApply + " pendingRemovedTotal=" + pendingRemovedTotal + " pendingAfterApply=" + pendingCountAfterApply + " installedApplyMs=" + stopwatchInstalledApply.ElapsedMilliseconds + " installedBeforeApply=" + installedCountBeforeApply + " installedAddedTotal=" + installedAddedTotal + " installedAfterApply=" + installedCountAfterApply + " maintenanceTargets=" + deferredMaintenanceTargets.Count + " maintenanceMs=" + stopwatchMaintenance.ElapsedMilliseconds + " totalMs=" + stopwatchTotal.ElapsedMilliseconds);
                     }
                 }
             }

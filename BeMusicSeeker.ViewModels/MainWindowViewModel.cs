@@ -3128,6 +3128,12 @@ public class MainWindowViewModel : ViewModel
 
 	private object lockCopyFile = new object();
 
+	private int suppressInstallUiUpdateCount;
+
+	private bool pendingInstallUiRefreshRequested;
+
+	private object lockInstallUiSuppression = new object();
+
 	private string _WindowTitle = "BeMusicSeeker - ";
 
 	private IEnumerable<BeMusicSeeker.Models.BMSFile> BMSFilesFolderView;
@@ -3205,6 +3211,52 @@ public class MainWindowViewModel : ViewModel
 	private static string scoreViewUrl = "https://bms-score-viewer.pages.dev/view?md5=";
 
 	public SettingDialogViewModel settingDialog { get; private set; }
+
+	private bool IsInstallUiUpdateSuppressed => Volatile.Read(ref suppressInstallUiUpdateCount) > 0;
+
+	private void BeginInstallUiUpdateSuppression()
+	{
+		Interlocked.Increment(ref suppressInstallUiUpdateCount);
+	}
+
+	private void RequestInstallUiRefreshIfSuppressed()
+	{
+		if (!IsInstallUiUpdateSuppressed)
+		{
+			return;
+		}
+		lock (lockInstallUiSuppression)
+		{
+			pendingInstallUiRefreshRequested = true;
+		}
+	}
+
+	private void EndInstallUiUpdateSuppression()
+	{
+		if (Interlocked.Decrement(ref suppressInstallUiUpdateCount) > 0)
+		{
+			return;
+		}
+		bool refreshRequired;
+		lock (lockInstallUiSuppression)
+		{
+			refreshRequired = pendingInstallUiRefreshRequested;
+			pendingInstallUiRefreshRequested = false;
+		}
+		if (!refreshRequired)
+		{
+			return;
+		}
+		DispatcherHelper.UIDispatcher.BeginInvoke((Action)delegate
+		{
+			RaisePropertyChanged(() => BMSPackagesInstalled);
+			RaisePropertyChanged(() => BMSPackagesPending);
+			if (treeViewFilterTypeSelected == viewUpdateMode.NewlyInstalledFolderSelected || treeViewFilterTypeSelected == viewUpdateMode.PendingInstallFolderSelected)
+			{
+				makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
+			}
+		});
+	}
 
 	public PlaylistPropertyDialogViewModel playlistPropertyDialog
 	{
@@ -4237,6 +4289,11 @@ public class MainWindowViewModel : ViewModel
 		});
 		listenerForBMSLibrary.RegisterHandler(() => files.BMSPackagesInstalled, delegate
 		{
+			if (IsInstallUiUpdateSuppressed)
+			{
+				RequestInstallUiRefreshIfSuppressed();
+				return;
+			}
 			if (treeViewFilterTypeSelected == viewUpdateMode.NewlyInstalledFolderSelected)
 			{
 				makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
@@ -4245,6 +4302,11 @@ public class MainWindowViewModel : ViewModel
 		});
 		listenerForBMSLibrary.RegisterHandler(() => files.BMSPackagesPending, delegate
 		{
+			if (IsInstallUiUpdateSuppressed)
+			{
+				RequestInstallUiRefreshIfSuppressed();
+				return;
+			}
 			if (treeViewFilterTypeSelected == viewUpdateMode.PendingInstallFolderSelected)
 			{
 				makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
@@ -4253,6 +4315,11 @@ public class MainWindowViewModel : ViewModel
 		});
 		listenerForBMSLibraryBMSPackagesInstalledCollection.RegisterHandler(delegate
 		{
+			if (IsInstallUiUpdateSuppressed)
+			{
+				RequestInstallUiRefreshIfSuppressed();
+				return;
+			}
 			if (treeViewFilterTypeSelected == viewUpdateMode.NewlyInstalledFolderSelected)
 			{
 				makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
@@ -4261,6 +4328,11 @@ public class MainWindowViewModel : ViewModel
 		});
 		listenerForBMSLibraryBMSPackagesPendingCollection.RegisterHandler(delegate
 		{
+			if (IsInstallUiUpdateSuppressed)
+			{
+				RequestInstallUiRefreshIfSuppressed();
+				return;
+			}
 			if (treeViewFilterTypeSelected == viewUpdateMode.PendingInstallFolderSelected)
 			{
 				makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
@@ -5591,8 +5663,16 @@ public class MainWindowViewModel : ViewModel
 		List<BMSPackage> list = packages.Where((BMSPackage pkg) => pkg != null).ToList();
 		lock (lockCopyFile)
 		{
-			stopPlayingBMSFile(packages.SelectMany((BMSPackage p) => p.BMSFiles));
-			files.InstallBMSPackagesToEstimatedDir(list);
+			BeginInstallUiUpdateSuppression();
+			try
+			{
+				stopPlayingBMSFile(packages.SelectMany((BMSPackage p) => p.BMSFiles));
+				files.InstallBMSPackagesToEstimatedDir(list);
+			}
+			finally
+			{
+				EndInstallUiUpdateSuppression();
+			}
 		}
 	}
 
