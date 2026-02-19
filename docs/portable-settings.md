@@ -13,10 +13,20 @@ On startup, before `Settings.Default` is first used, the app runs migration logi
 1. If `config/user.config` already exists, migration is skipped.
 2. Otherwise, it searches:
    - `%LOCALAPPDATA%\\BeMusicSeeker\\BeMusicSeeker.exe_Url_*\\*\\user.config`
-3. It selects one source by:
+3. It sorts candidates by:
    - latest `LastWriteTimeUtc`
    - then path ascending (stable tie-break)
-4. It copies the selected file to `config/user.config`.
+4. It validates candidates in order and skips invalid ones:
+   - XML must be readable (`invalid_xml` is skipped)
+   - `configuration/userSettings/BeMusicSeeker.Properties.Settings` must exist
+   - "default-equivalent" configs are skipped:
+     - missing/empty `AssemblyVersion`
+     - missing/empty `TableListURL`
+     - missing/empty `BMSInstallDir`
+     - if `OperationModeLR2DB=True`, missing/empty `LR2SongDBPath` or `LR2ConfigXmlPath`
+     - if `OperationModeLR2DB=False`, missing/empty `BMSRootPath`
+5. The first valid candidate is copied to `config/user.config`.
+6. If no valid candidate is found, migration is skipped and startup falls back to defaults.
 
 After migration, the portable file becomes the only settings source.
 
@@ -28,6 +38,8 @@ After migration, the portable file becomes the only settings source.
 ## Logging
 Migration emits trace logs:
 
+- `portable_settings_migration candidates count=...`
+- `portable_settings_migration candidate_skip source=... reason=...`
 - `portable_settings_migration skip reason=...`
 - `portable_settings_migration success ...`
 - `portable_settings_migration failed`
