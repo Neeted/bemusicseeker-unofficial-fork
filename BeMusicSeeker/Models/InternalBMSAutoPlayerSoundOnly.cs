@@ -584,7 +584,7 @@ public class InternalBMSAutoPlayerSoundOnly : NotificationObject, IBMSPlayer, IN
 			_onExitEvent = onExitEventHandler;
 			if (_infloopTask == null)
 			{
-				_infloopTask = Task.Run(_playbackThreadAction).Logging("PlayStart", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Models\\BMSPlayer.cs", 1530);
+				_infloopTask = Task.Run(_playbackThreadAction).Logging("PlayStart");
 			}
 		}
 		try

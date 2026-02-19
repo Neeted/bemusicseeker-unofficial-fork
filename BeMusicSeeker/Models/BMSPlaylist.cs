@@ -1637,7 +1637,7 @@ public class BMSPlaylist : NotificationObject
                         stopwatchCallbacks.Stop();
                         Interlocked.Add(ref updateCallbacksTicks, stopwatchCallbacks.ElapsedTicks);
                     }
-                }).Logging("UpdateBMSTables", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Models\\BMSPlaylist.cs", 1484);
+                }).Logging("UpdateBMSTables");
             }).ToArray());
             stopwatchUpdateTablesTotal.Stop();
             long num = (long)TimeSpan.FromTicks(Interlocked.Read(ref updateExternalSyncTicks)).TotalMilliseconds;

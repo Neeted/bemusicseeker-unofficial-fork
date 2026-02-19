@@ -2088,7 +2088,7 @@ public class MainWindowViewModel : ViewModel
 						lr2config.SetBMSSearchDirectories(bMSSearchDirectories);
 						lr2config.Save();
 					}
-				}).Logging("necessaryStepsAfterSaved", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\ViewModels\\SettingDialogViewModel.cs", 1752);
+				}).Logging("necessaryStepsAfterSaved");
 			}
 			if ((!Settings.Default.UsePlayeruBMplay && tempUsePlayeruBMplay != Settings.Default.UsePlayeruBMplay) || (!Settings.Default.UsePlayerBMIIDXView && tempUsePlayerBMIIDXView != Settings.Default.UsePlayerBMIIDXView) || (!Settings.Default.UsePlayerLR2body && tempUsePlayerLR2body != Settings.Default.UsePlayerLR2body))
 			{
@@ -3707,7 +3707,7 @@ public class MainWindowViewModel : ViewModel
 					}
 				}
 			}
-		}).Logging("ScheduleDeferredPlaylistReferenceApply", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\ViewModels\\MainWindowViewModel.cs", 0);
+		}).Logging("ScheduleDeferredPlaylistReferenceApply");
 	}
 
 	public PlaylistPropertyDialogViewModel playlistPropertyDialog
@@ -4532,7 +4532,7 @@ public class MainWindowViewModel : ViewModel
 				Task.Run(delegate
 				{
 					uBMplayVolumeChanged();
-				}).Logging("PlayerVolume", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\ViewModels\\MainWindowViewModel.cs", 1337);
+				}).Logging("PlayerVolume");
 			}
 		}
 	}
@@ -4569,7 +4569,7 @@ public class MainWindowViewModel : ViewModel
 			await Task.Run(delegate
 			{
 				files.Initialize(new List<Action> { taskAdd1 }, semaphore, true);
-			}).Logging("ReloadTables", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\ViewModels\\MainWindowViewModel.cs", 111);
+			}).Logging("ReloadTables");
 		}
 		catch
 		{
@@ -4597,7 +4597,7 @@ public class MainWindowViewModel : ViewModel
 			await Task.Run(delegate
 			{
 				files.Initialize(null, null, false);
-			}).Logging("ReloadFiles", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\ViewModels\\MainWindowViewModel.cs", 134);
+			}).Logging("ReloadFiles");
 			LogInitStage("files_initialize_done", "ReloadFiles");
 			scheduleDeferredPlaylistRef = true;
 			if (!TrySuppress(UiRefreshChannel.LibraryFolderTree))
@@ -4972,7 +4972,7 @@ public class MainWindowViewModel : ViewModel
 						{
 						}
 					}
-				}).Logging("Initialize", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\ViewModels\\MainWindowViewModel.cs", 467);
+				}).Logging("Initialize");
 			}
 		}
 		SemaphoreSlim semaphore = new SemaphoreSlim(1, 1);
@@ -5033,7 +5033,7 @@ public class MainWindowViewModel : ViewModel
 			await Task.Run(delegate
 			{
 				files.Initialize(new List<Action> { taskAdd1, taskAdd2 }, semaphore);
-			}).Logging("Initialize", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\ViewModels\\MainWindowViewModel.cs", 503);
+			}).Logging("Initialize");
 			LogInitStage("files_initialize_done", "Initialize");
 			TryLogStartupReadyData();
 			scheduleDeferredPlaylistRef = true;

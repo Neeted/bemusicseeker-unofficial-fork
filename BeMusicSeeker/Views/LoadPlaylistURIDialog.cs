@@ -45,7 +45,7 @@ public partial class LoadPlaylistURIDialog : UserControl, IComponentConnector
 			await Task.Run(delegate
 			{
 				viewModel.RegistrateExternalPlaylistBMSTable(targetURI);
-			}).Logging("SaveAndClose", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Views\\LoadPlaylistURIDialog.xaml.cs", 62);
+			}).Logging("SaveAndClose");
 		}
 	}
 

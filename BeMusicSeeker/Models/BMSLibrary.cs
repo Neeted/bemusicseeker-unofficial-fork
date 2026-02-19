@@ -682,7 +682,7 @@ public class BMSLibrary : NotificationObject
                 Task.Run(delegate
                 {
                     RaisePropertyChanged("BMSFiles");
-                }).Logging("BMSFiles", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Models\\BMSLibrary.cs", 166);
+                }).Logging("BMSFiles");
                 RaisePropertyChanged(() => BMSParentFolderList);
             }
         }
@@ -708,7 +708,7 @@ public class BMSLibrary : NotificationObject
                 Task.Run(delegate
                 {
                     RaisePropertyChanged("BMSFilesDuplicated");
-                }).Logging("BMSFilesDuplicated", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Models\\BMSLibrary.cs", 203);
+                }).Logging("BMSFilesDuplicated");
             }
         }
     }
@@ -1209,7 +1209,7 @@ public class BMSLibrary : NotificationObject
             {
                 for (int i = 0; i < tasksContinuation.Count; i++)
                 {
-                    list.Add(Task.Run(tasksContinuation[i]).Logging("Initialize", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Models\\BMSLibrary.cs", 447));
+                    list.Add(Task.Run(tasksContinuation[i]).Logging("Initialize"));
                 }
             }
             Thread.Yield();
@@ -1823,7 +1823,7 @@ public class BMSLibrary : NotificationObject
                 List<LR2IRScore> scoreTable = updateLR2IRScoreTable();
                 updateBMSScores(scoreTable);
                 setRankingScore();
-            }).Logging("_initialize", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Models\\BMSLibrary.cs", 892);
+            }).Logging("_initialize");
         }
         if (installTblCheck)
         {
@@ -2796,7 +2796,7 @@ public class BMSLibrary : NotificationObject
                     RaisePropertyChanged(() => BMSFilesNeedToBeFixedIgnored);
                     RaisePropertyChanged(() => BMSFilesGarbled);
                     RaisePropertyChanged(() => BMSFilesGarbledFixed);
-                }).Logging("setMaintenanceInfo", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Models\\BMSLibrary.cs", 1912);
+                }).Logging("setMaintenanceInfo");
             }
             foreach (BMSFile bmsFile in bmsFiles)
             {
@@ -3088,7 +3088,7 @@ public class BMSLibrary : NotificationObject
             Task.Run(delegate
             {
                 RaisePropertyChanged(() => BMSFilesZeroNote);
-            }).Logging("setZeroNoteAndCommitToDB", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Models\\BMSLibrary.cs", 2239);
+            }).Logging("setZeroNoteAndCommitToDB");
         }
     }
 

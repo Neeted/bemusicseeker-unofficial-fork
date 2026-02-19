@@ -264,7 +264,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         await Task.Run(delegate
         {
             viewModel.ExecSort(name, newDir);
-        }).Logging("dataGridSorting", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Views\\MainWindow.xaml.cs", 203);
+        }).Logging("dataGridSorting");
     }
 
     public void renewSortIcon(DataGrid dataGrid)
@@ -402,7 +402,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             await Task.Run(delegate
             {
                 viewModel.PlayStartBMSfile();
-            }).Logging("dataGridRowDoubleClicked", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Views\\MainWindow.xaml.cs", 345);
+            }).Logging("dataGridRowDoubleClicked");
         }
     }
 
@@ -625,7 +625,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 await Task.Run(delegate
                 {
                     viewModel.CommitBMSFile(vbmsFile);
-                }).Logging("dataGridCellEditEnding", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Views\\MainWindow.xaml.cs", 595);
+                }).Logging("dataGridCellEditEnding");
             }, DispatcherPriority.Background);
         }
         else if (bmsFile != null && e.EditAction == DataGridEditAction.Commit && path == bmsFile.GetName((BMSFile f) => f.Folder))
@@ -635,7 +635,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             Task.Run(delegate
             {
                 viewModel.RenameBMSFolder(bmsFile, newFolder);
-            }).Logging("dataGridCellEditEnding", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Views\\MainWindow.xaml.cs", 610);
+            }).Logging("dataGridCellEditEnding");
         }
     }
 
@@ -699,7 +699,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             Task.Run(delegate
             {
                 viewModel.ExecPlaylistFilter(null);
-            }).Logging("playlistRootSelect", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Views\\MainWindow.xaml.cs", 684);
+            }).Logging("playlistRootSelect");
         }
     }
 
@@ -761,7 +761,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             Task.Run(delegate
             {
                 viewModel.RenameFolderBMSTable(bmsTable, nameBefore, nameAfter);
-            }).Logging("playlistTableFolderNameChanged", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Views\\MainWindow.xaml.cs", 741);
+            }).Logging("playlistTableFolderNameChanged");
         }
     }
 
@@ -803,7 +803,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         Task.Run(delegate
         {
             viewModel.ExecPlaylistFilter(bmsTable, folderName, type);
-        }).Logging("playlistTableSelected", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Views\\MainWindow.xaml.cs", 781);
+        }).Logging("playlistTableSelected");
     }
 
     private void treeViewItemOnRightClick(object sender, MouseButtonEventArgs e)
@@ -866,7 +866,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             await Task.Run(delegate
             {
                 viewModel.ExecMaintenanceFilter(MainWindowViewModel.MaintenanceFilterType.FileMissingFilter);
-            }).Logging("fullScanCheckFolderSelect", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Views\\MainWindow.xaml.cs", 856);
+            }).Logging("fullScanCheckFolderSelect");
             treeRoot.IsExpanded = true;
         }
     }
@@ -881,7 +881,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             await Task.Run(delegate
             {
                 viewModel.ExecMaintenanceFilter(MainWindowViewModel.MaintenanceFilterType.FileMissingIgnoredFilter);
-            }).Logging("fullScanCheckIgnoredFolderSelect", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Views\\MainWindow.xaml.cs", 866);
+            }).Logging("fullScanCheckIgnoredFolderSelect");
         }
     }
 
@@ -900,7 +900,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             await Task.Run(delegate
             {
                 viewModel.ExecMaintenanceFilter(MainWindowViewModel.MaintenanceFilterType.DuplicateFilter);
-            }).Logging("dupulicateFileCheckFolderSelect", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Views\\MainWindow.xaml.cs", 879);
+            }).Logging("dupulicateFileCheckFolderSelect");
             treeRoot.IsExpanded = true;
             return;
         }
@@ -920,7 +920,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         await Task.Run(delegate
         {
             viewModel.ExecMaintenanceFilter(MainWindowViewModel.MaintenanceFilterType.DuplicateFilter, parameter);
-        }).Logging("dupulicateFileCheckFolderSelect", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Views\\MainWindow.xaml.cs", 891);
+        }).Logging("dupulicateFileCheckFolderSelect");
     }
 
     private async void garbledCheckFolderSelect(object sender, RoutedEventArgs e)
@@ -933,7 +933,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             await Task.Run(delegate
             {
                 viewModel.ExecMaintenanceFilter(MainWindowViewModel.MaintenanceFilterType.GarbledFilter);
-            }).Logging("garbledCheckFolderSelect", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Views\\MainWindow.xaml.cs", 901);
+            }).Logging("garbledCheckFolderSelect");
             treeRoot.IsExpanded = true;
         }
     }
@@ -948,7 +948,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             await Task.Run(delegate
             {
                 viewModel.ExecMaintenanceFilter(MainWindowViewModel.MaintenanceFilterType.GarbleFixedFilter);
-            }).Logging("garbleFixedFolderSelect", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Views\\MainWindow.xaml.cs", 912);
+            }).Logging("garbleFixedFolderSelect");
             treeRoot.IsExpanded = true;
         }
     }
@@ -960,7 +960,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         await Task.Run(delegate
         {
             viewModel.ExecMaintenanceFilter(MainWindowViewModel.MaintenanceFilterType.UnregisteredFilter);
-        }).Logging("unregisteredToDBFolderSelect", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Views\\MainWindow.xaml.cs", 920);
+        }).Logging("unregisteredToDBFolderSelect");
     }
 
     private async void zeronoteFolderSelect(object sender, RoutedEventArgs e)
@@ -970,7 +970,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         await Task.Run(delegate
         {
             viewModel.ExecMaintenanceFilter(MainWindowViewModel.MaintenanceFilterType.ZeroNoteFilter);
-        }).Logging("zeronoteFolderSelect", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Views\\MainWindow.xaml.cs", 926);
+        }).Logging("zeronoteFolderSelect");
     }
 
     private async void newlyInstalledFolderSelect(object sender, RoutedEventArgs e)
@@ -988,7 +988,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             await Task.Run(delegate
             {
                 viewModel.ExecInstallFilter(MainWindowViewModel.InstallFilterType.NewlyInstalledFilter);
-            }).Logging("newlyInstalledFolderSelect", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Views\\MainWindow.xaml.cs", 938);
+            }).Logging("newlyInstalledFolderSelect");
             treeRoot.IsExpanded = true;
             return;
         }
@@ -998,7 +998,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             await Task.Run(delegate
             {
                 viewModel.ExecInstallFilter(MainWindowViewModel.InstallFilterType.NewlyInstalledFilter, package);
-            }).Logging("newlyInstalledFolderSelect", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Views\\MainWindow.xaml.cs", 945);
+            }).Logging("newlyInstalledFolderSelect");
         }
     }
 
@@ -1017,7 +1017,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             await Task.Run(delegate
             {
                 viewModel.ExecInstallFilter(MainWindowViewModel.InstallFilterType.PendingInstallFilter);
-            }).Logging("pendingInstallFolderSelect", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Views\\MainWindow.xaml.cs", 958);
+            }).Logging("pendingInstallFolderSelect");
             treeRoot.IsExpanded = true;
             return;
         }
@@ -1027,7 +1027,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             await Task.Run(delegate
             {
                 viewModel.ExecInstallFilter(MainWindowViewModel.InstallFilterType.PendingInstallFilter, package);
-            }).Logging("pendingInstallFolderSelect", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Views\\MainWindow.xaml.cs", 965);
+            }).Logging("pendingInstallFolderSelect");
         }
     }
 
@@ -1095,7 +1095,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         try
         {
-            BMSTable bMSTable = await Task.Run(() => viewModel.CreateBMSTable()).Logging("treeViewPlaylistRootContextMenuItemCreateNewPlaylistClick", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Views\\MainWindow.xaml.cs", 1033);
+            BMSTable bMSTable = await Task.Run(() => viewModel.CreateBMSTable()).Logging("treeViewPlaylistRootContextMenuItemCreateNewPlaylistClick");
             if (bMSTable != null)
             {
                 viewModel.playlistPropertyDialog = new MainWindowViewModel.PlaylistPropertyDialogViewModel(viewModel, bMSTable, _isForNewTable: true);
@@ -1128,7 +1128,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             await Task.Run(delegate
             {
                 viewModel.RegistrateExternalPlaylistBMSTable(dataContext.url);
-            }).Logging("treeViewPlaylistRootContextMenuItemLoadPlaylistCollectionClick", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Views\\MainWindow.xaml.cs", 1064);
+            }).Logging("treeViewPlaylistRootContextMenuItemLoadPlaylistCollectionClick");
         }
     }
 
@@ -1141,7 +1141,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             await Task.Run(delegate
             {
                 viewModel.RegistrateExternalPlaylistBMSTable(uri);
-            }).Logging("treeViewPlaylistRootContextMenuItemLoadWalkureTableClick", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Views\\MainWindow.xaml.cs", 1072);
+            }).Logging("treeViewPlaylistRootContextMenuItemLoadWalkureTableClick");
         }
     }
 
@@ -1172,7 +1172,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         await Task.Run(delegate
         {
             viewModel.RegistrateExternalPlaylistBMSTable(uri);
-        }).Logging("treeViewPlaylistRootContextMenuItemLoadWalkureTableRecommendedClick", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Views\\MainWindow.xaml.cs", 1121);
+        }).Logging("treeViewPlaylistRootContextMenuItemLoadWalkureTableRecommendedClick");
     }
 
     private void treeViewPlaylistTableContextMenuOpend(object sender, RoutedEventArgs e)
@@ -1264,7 +1264,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             await Task.Run(delegate
             {
                 viewModel.CreateNewFolderBMSTable(bmsTable);
-            }).Logging("treeViewPlaylistTableContextMenuItemCreateNewFolderClick", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Views\\MainWindow.xaml.cs", 1222);
+            }).Logging("treeViewPlaylistTableContextMenuItemCreateNewFolderClick");
         }
     }
 
@@ -1294,7 +1294,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             await Task.Run(delegate
             {
                 viewModel.ExportBMSTable(bmsTable, fileDialogHeader.FileName, fileDialogData.FileName);
-            }).Logging("treeViewPlaylistTableContextMenuItemExportTableClick", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Views\\MainWindow.xaml.cs", 1244);
+            }).Logging("treeViewPlaylistTableContextMenuItemExportTableClick");
         }
     }
 
@@ -1319,7 +1319,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             Task.Run(delegate
             {
                 viewModel.ReplaceBMSFileLevelByTableEntryLevel(bmsTable);
-            }).Logging("treeViewPlaylistTableContextMenuItemOverwriteLevelClick", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Views\\MainWindow.xaml.cs", 1279);
+            }).Logging("treeViewPlaylistTableContextMenuItemOverwriteLevelClick");
         }
     }
 
@@ -1354,13 +1354,13 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         await Task.Run(delegate
         {
             viewModel.RemoveBMSTable(bmsTable);
-        }).Logging("treeViewPlaylistTableContextMenuItemRemoveTableClick", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Views\\MainWindow.xaml.cs", 1321);
+        }).Logging("treeViewPlaylistTableContextMenuItemRemoveTableClick");
         if (treeViewItemPlaylist.IsSelected && treeViewItemPlaylist.Items.Count == 0)
         {
             await Task.Run(delegate
             {
                 viewModel.ExecPlaylistFilter(null);
-            }).Logging("treeViewPlaylistTableContextMenuItemRemoveTableClick", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Views\\MainWindow.xaml.cs", 1326);
+            }).Logging("treeViewPlaylistTableContextMenuItemRemoveTableClick");
         }
     }
 
@@ -1495,7 +1495,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             await Task.Run(delegate
             {
                 viewModel.RemoveFolderBMSTable(bmsTable, folderNameDelete);
-            }).Logging("treeViewPlaylistTableFolderContextMenuItemDeleteFolderClick", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Views\\MainWindow.xaml.cs", 1444);
+            }).Logging("treeViewPlaylistTableFolderContextMenuItemDeleteFolderClick");
         }
     }
 
@@ -1545,7 +1545,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             Task.Run(delegate
             {
                 viewModel.RemoveBMSDirectoryFromRootFolderAndSave(path);
-            }).Logging("treeViewLibraryFolderContextMenuItemUnregisterRootFolder", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Views\\MainWindow.xaml.cs", 1490);
+            }).Logging("treeViewLibraryFolderContextMenuItemUnregisterRootFolder");
         }
     }
 
@@ -1562,7 +1562,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             Task.Run(delegate
             {
                 viewModel.AutoRenameAllBMSFolder(path);
-            }).Logging("treeViewLibraryFolderContextMenuItemAutoRenameAllFoldersClick", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Views\\MainWindow.xaml.cs", 1511);
+            }).Logging("treeViewLibraryFolderContextMenuItemAutoRenameAllFoldersClick");
         }
     }
 
@@ -1574,7 +1574,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             Task.Run(delegate
             {
                 viewModel.RemoveBMSPackagesInstalledAll();
-            }).Logging("treeViewInstalledContextMenuClearAllClick", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Views\\MainWindow.xaml.cs", 1528);
+            }).Logging("treeViewInstalledContextMenuClearAllClick");
         }
     }
 
@@ -1586,7 +1586,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             Task.Run(delegate
             {
                 viewModel.RemoveBMSPackagesPendingAll();
-            }).Logging("treeViewInstallPendingContextMenuClearAllClick", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Views\\MainWindow.xaml.cs", 1542);
+            }).Logging("treeViewInstallPendingContextMenuClearAllClick");
         }
     }
 
@@ -1656,13 +1656,13 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         await Task.Run(delegate
         {
             viewModel.RemoveBMSPackagesPending(new BMSPackage[1] { pkg });
-        }).Logging("treeViewInstallPackageContextMenuClearFolderClick", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Views\\MainWindow.xaml.cs", 1605);
+        }).Logging("treeViewInstallPackageContextMenuClearFolderClick");
         if (treeViewItemInstallPending.IsSelected && treeViewItemInstallPending.Items.Count == 0)
         {
             await Task.Run(delegate
             {
                 viewModel.ExecInstallFilter(MainWindowViewModel.InstallFilterType.PendingInstallFilter);
-            }).Logging("treeViewInstallPackageContextMenuClearFolderClick", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Views\\MainWindow.xaml.cs", 1610);
+            }).Logging("treeViewInstallPackageContextMenuClearFolderClick");
         }
     }
 
@@ -1701,13 +1701,13 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         await Task.Run(delegate
         {
             viewModel.RemoveBMSPackagesInstalled(new BMSPackage[1] { pkg });
-        }).Logging("treeViewInstalledFolderContextMenuClearFolderClick", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Views\\MainWindow.xaml.cs", 1641);
+        }).Logging("treeViewInstalledFolderContextMenuClearFolderClick");
         if (newlyInstalledTreeViewItem.IsSelected && newlyInstalledTreeViewItem.Items.Count == 0)
         {
             await Task.Run(delegate
             {
                 viewModel.ExecInstallFilter(MainWindowViewModel.InstallFilterType.NewlyInstalledFilter);
-            }).Logging("treeViewInstalledFolderContextMenuClearFolderClick", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Views\\MainWindow.xaml.cs", 1646);
+            }).Logging("treeViewInstalledFolderContextMenuClearFolderClick");
         }
     }
 
@@ -1728,7 +1728,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             Task.Run(delegate
             {
                 viewModel.RemoveInstallDestination(new BMSPackage[1] { pkg });
-            }).Logging("treeViewInstallPackageContextMenuRemoveInstallDestinationClick", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Views\\MainWindow.xaml.cs", 1656);
+            }).Logging("treeViewInstallPackageContextMenuRemoveInstallDestinationClick");
         }
     }
 
@@ -1767,13 +1767,13 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         await Task.Run(delegate
         {
             viewModel.ForceInstallBMSFiles(new BMSPackage[1] { pkg });
-        }).Logging("treeViewInstallPackageContextMenuForceInstallClick", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Views\\MainWindow.xaml.cs", 1686);
+        }).Logging("treeViewInstallPackageContextMenuForceInstallClick");
         if (treeViewItemInstallPending.IsSelected && treeViewItemInstallPending.Items.Count == 0)
         {
             await Task.Run(delegate
             {
                 viewModel.ExecInstallFilter(MainWindowViewModel.InstallFilterType.PendingInstallFilter);
-            }).Logging("treeViewInstallPackageContextMenuForceInstallClick", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Views\\MainWindow.xaml.cs", 1691);
+            }).Logging("treeViewInstallPackageContextMenuForceInstallClick");
         }
     }
 
@@ -1812,13 +1812,13 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         await Task.Run(delegate
         {
             viewModel.ManualInstallBMSFiles(new BMSPackage[1] { pkg });
-        }).Logging("treeViewInstallPackageContextMenuManualInstallClick", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Views\\MainWindow.xaml.cs", 1733);
+        }).Logging("treeViewInstallPackageContextMenuManualInstallClick");
         if (treeViewItemInstallPending.IsSelected && treeViewItemInstallPending.Items.Count == 0)
         {
             await Task.Run(delegate
             {
                 viewModel.ExecInstallFilter(MainWindowViewModel.InstallFilterType.PendingInstallFilter);
-            }).Logging("treeViewInstallPackageContextMenuManualInstallClick", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Views\\MainWindow.xaml.cs", 1738);
+            }).Logging("treeViewInstallPackageContextMenuManualInstallClick");
         }
     }
 
@@ -1839,7 +1839,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             Task.Run(delegate
             {
                 viewModel.SearchInstallationDirectoryBMSFiles(new BMSPackage[1] { pkg });
-            }).Logging("treeViewInstallPackageContextMenuSearchInstallationDirectoryClick", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Views\\MainWindow.xaml.cs", 1748);
+            }).Logging("treeViewInstallPackageContextMenuSearchInstallationDirectoryClick");
         }
     }
 
@@ -1918,7 +1918,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             Task.Run(delegate
             {
                 viewModel.MergeBMSDirectory(srcPath, dstPath);
-            }).Logging("treeViewDuplicateFolderContextMenuItemMergeIntoTargetClick", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Views\\MainWindow.xaml.cs", 1825);
+            }).Logging("treeViewDuplicateFolderContextMenuItemMergeIntoTargetClick");
         }
     }
 
@@ -2174,7 +2174,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                             }
                         });
                     }
-                }, dataGridContextMenuTaskTokenSource.Token).Logging("dataGridContextMenuOpened", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Views\\MainWindow.xaml.cs", 2070);
+                }, dataGridContextMenuTaskTokenSource.Token).Logging("dataGridContextMenuOpened");
             }
             else
             {
@@ -2526,7 +2526,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                     });
                 }
             }
-        }, dataGridContextMenuTaskTokenSource.Token).Logging("dataGridContextMenuOpenVideoSubmenuOpened", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Views\\MainWindow.xaml.cs", 2414);
+        }, dataGridContextMenuTaskTokenSource.Token).Logging("dataGridContextMenuOpenVideoSubmenuOpened");
     }
 
     private void dataGridContextMenuItemOpenVideoSubmenuClick(object sender, RoutedEventArgs e)
@@ -2810,7 +2810,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                     });
                 }
             }
-        }, dataGridContextMenuTaskTokenSource.Token).Logging("dataGridContextMenuSearchLinkOpened", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Views\\MainWindow.xaml.cs", 2694);
+        }, dataGridContextMenuTaskTokenSource.Token).Logging("dataGridContextMenuSearchLinkOpened");
     }
 
     private async Task<bool> downloadAndInstall(Uri uri)
@@ -2869,7 +2869,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                     failNum++;
                 }
             });
-        }, cancelTokenSource.Token).Logging("installBMSFiles", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Views\\MainWindow.xaml.cs", 2771);
+        }, cancelTokenSource.Token).Logging("installBMSFiles");
         if (total == 1)
         {
             await task;
@@ -2944,7 +2944,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             Task.Run(delegate
             {
                 viewModel.GetLR2IRCacheBMSFiles(bmsFiles);
-            }).Logging("dataGridContextMenuItemUpdateRankingDataClick", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Views\\MainWindow.xaml.cs", 2839);
+            }).Logging("dataGridContextMenuItemUpdateRankingDataClick");
             e.Handled = true;
         }
     }
@@ -2979,7 +2979,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             catch
             {
             }
-        }).Logging("dataGridContextMenuItemRegisterBMSFileToScoreViwer", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Views\\MainWindow.xaml.cs", 2868);
+        }).Logging("dataGridContextMenuItemRegisterBMSFileToScoreViwer");
     }
 
     private void dataGridContextMenuItemForceFileScanCheckSelectedBMS(object sender, RoutedEventArgs e)
@@ -2996,7 +2996,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             Task.Run(delegate
             {
                 viewModel.ForceFileScanCheckBMSFiles(bmsFiles);
-            }).Logging("dataGridContextMenuItemForceFileScanCheckSelectedBMS", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Views\\MainWindow.xaml.cs", 2881);
+            }).Logging("dataGridContextMenuItemForceFileScanCheckSelectedBMS");
             e.Handled = true;
         }
     }
@@ -3016,7 +3016,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             Task.Run(delegate
             {
                 viewModel.RemoveInstallDestination(bmsFiles);
-            }).Logging("dataGridContextMenuRemoveInstallDestinationClick", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Views\\MainWindow.xaml.cs", 2895);
+            }).Logging("dataGridContextMenuRemoveInstallDestinationClick");
         }
     }
 
@@ -3034,7 +3034,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             Task.Run(delegate
             {
                 viewModel.SearchCorrectInstallationDirectoryBMSFiles(bmsFiles);
-            }).Logging("dataGridContextMenuSearchCorrectInstallationDirectoryClick", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Views\\MainWindow.xaml.cs", 2908);
+            }).Logging("dataGridContextMenuSearchCorrectInstallationDirectoryClick");
             e.Handled = true;
         }
     }
@@ -3062,7 +3062,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             Task.Run(delegate
             {
                 viewModel.FixInstallationDirectoryBMSFiles(bmsFiles);
-            }).Logging("dataGridContextMenuFixInstallationDirectoryClick", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Views\\MainWindow.xaml.cs", 2945);
+            }).Logging("dataGridContextMenuFixInstallationDirectoryClick");
         }
     }
 
@@ -3083,7 +3083,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             Task.Run(delegate
             {
                 viewModel.DeleteBMSTableEntries(enGrp.AsEnumerable(), enGrp.Key);
-            }).Logging("dataGridContextMenuItemDeleteEntryClick", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Views\\MainWindow.xaml.cs", 2961);
+            }).Logging("dataGridContextMenuItemDeleteEntryClick");
         }
     }
 
@@ -3098,7 +3098,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             Task.Run(delegate
             {
                 viewModel.AutoRenameBMSFolder(bmsFiles);
-            }).Logging("dataGridContextMenuItemAutoRenameFolderClick", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Views\\MainWindow.xaml.cs", 2974);
+            }).Logging("dataGridContextMenuItemAutoRenameFolderClick");
         }
     }
 
@@ -3124,7 +3124,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             {
                 viewModel.RenameBMSFilesExtensions(list2, ".pmx");
             }
-        }).Logging("dataGridContextMenuItemRenameBMSFileClick", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Views\\MainWindow.xaml.cs", 3001);
+        }).Logging("dataGridContextMenuItemRenameBMSFileClick");
     }
 
     private void dataGridContextMenuItemRemoveBMSFileClick(object sender, RoutedEventArgs e)
@@ -3138,7 +3138,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             Task.Run(delegate
             {
                 viewModel.RemoveBMSFiles(bmsFiles);
-            }).Logging("dataGridContextMenuItemRemoveBMSFileClick", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Views\\MainWindow.xaml.cs", 3025);
+            }).Logging("dataGridContextMenuItemRemoveBMSFileClick");
         }
     }
 
@@ -3159,7 +3159,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             await Task.Run(delegate
             {
                 viewModel.MoveBMSFolder(bmsFiles, dstDir);
-            }).Logging("dataGridContextMenuItemMoveFileClick", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Views\\MainWindow.xaml.cs", 3051);
+            }).Logging("dataGridContextMenuItemMoveFileClick");
         }
     }
 
@@ -3261,7 +3261,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         await Task.Run(delegate
         {
             viewModel.ForceInstallBMSFiles(bmsFiles);
-        }).Logging("forceInstallSelectedBMS", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Views\\MainWindow.xaml.cs", 3148);
+        }).Logging("forceInstallSelectedBMS");
     }
 
     private async void manualInstallSelectedBMS(object sender, RoutedEventArgs e)
@@ -3311,7 +3311,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         await Task.Run(delegate
         {
             viewModel.ManualInstallBMSFiles(bmsFiles);
-        }).Logging("manualInstallSelectedBMS", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Views\\MainWindow.xaml.cs", 3199);
+        }).Logging("manualInstallSelectedBMS");
     }
 
     private async void searchInstallationDirectorySelectedBMS(object sender, RoutedEventArgs e)
@@ -3328,7 +3328,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             await Task.Run(delegate
             {
                 viewModel.SearchInstallationDirectoryBMSFiles(bmsFiles);
-            }).Logging("searchInstallationDirectorySelectedBMS", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Views\\MainWindow.xaml.cs", 3213);
+            }).Logging("searchInstallationDirectorySelectedBMS");
         }
     }
 
@@ -3365,7 +3365,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                     failNum++;
                 }
             });
-        }, cancelTokenSource.Token).Logging("dataGridContextMenuItemConvertToAudioFileClick", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Views\\MainWindow.xaml.cs", 3236);
+        }, cancelTokenSource.Token).Logging("dataGridContextMenuItemConvertToAudioFileClick");
         ProgressDialog.Execute(this, BeMusicSeeker.Properties.Resources.Converting, viewModel.settingDialog.EncoderNames[(int)Settings.Default.Encoder] + " - " + BeMusicSeeker.Properties.Resources.Sampling_rate + ":" + viewModel.settingDialog.PlayerSampleRateNames[Settings.Default.EncoderSampleRate] + " " + BeMusicSeeker.Properties.Resources.Sampling_format + ":" + viewModel.settingDialog.PlayerFormatNames[Settings.Default.EncoderFormat], delegate
         {
             while (task.Status != TaskStatus.RanToCompletion)
@@ -3443,7 +3443,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         Task.Run(delegate
         {
             viewModel.AddEntriesToFolderBMSTable(bmsFiles, table, folderName);
-        }).Logging("playlistTableDrop", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Views\\MainWindow.xaml.cs", 3309);
+        }).Logging("playlistTableDrop");
     }
 
     private void playlistTableDragOver(object sender, DragEventArgs e)
@@ -3523,7 +3523,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             await Task.Run(delegate
             {
                 viewModel.PlayNextBMSfile();
-            }).Logging("gridBMSPlayerControlsNextButtonClicked", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Views\\MainWindow.xaml.cs", 3385);
+            }).Logging("gridBMSPlayerControlsNextButtonClicked");
         }
     }
 
@@ -3545,7 +3545,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             await Task.Run(delegate
             {
                 viewModel.PlayPreviousBMSfile();
-            }).Logging("gridBMSPlayerControlsPreviousButtonClicked", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Views\\MainWindow.xaml.cs", 3402);
+            }).Logging("gridBMSPlayerControlsPreviousButtonClicked");
         }
         else
         {
@@ -3562,7 +3562,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             await Task.Run(delegate
             {
                 viewModel.RestartPlayingBMSfileStart();
-            }).Logging("gridBMSPlayerControlsPreviousButtonSingleClicked", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Views\\MainWindow.xaml.cs", 3414);
+            }).Logging("gridBMSPlayerControlsPreviousButtonSingleClicked");
         }
     }
 
@@ -3579,7 +3579,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             await Task.Run(delegate
             {
                 viewModel.PlayStartBMSfile(forceNewPlay: false);
-            }).Logging("gridBMSPlayerControlsPlayStartButtonClicked", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Views\\MainWindow.xaml.cs", 3421);
+            }).Logging("gridBMSPlayerControlsPlayStartButtonClicked");
         }
     }
 
@@ -3592,7 +3592,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             await Task.Run(delegate
             {
                 viewModel.PlayEndBMSFile(closeProcess: true);
-            }).Logging("gridBMSPlayerControlsPlayStopButtonClicked", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Views\\MainWindow.xaml.cs", 3427);
+            }).Logging("gridBMSPlayerControlsPlayStopButtonClicked");
         }
     }
 
@@ -3604,7 +3604,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             await Task.Run(delegate
             {
                 viewModel.FastForwardPlayingBMSfileStart();
-            }).Logging("gridBMSPlayerControlsFastForwardButtonClicked", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Views\\MainWindow.xaml.cs", 3432);
+            }).Logging("gridBMSPlayerControlsFastForwardButtonClicked");
         }
     }
 
@@ -3614,7 +3614,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         await Task.Run(delegate
         {
             viewModel.FastForwardPlayingBMSfileEnd();
-        }).Logging("gridBMSPlayerControlsFastForwardButtonReleased", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Views\\MainWindow.xaml.cs", 3437);
+        }).Logging("gridBMSPlayerControlsFastForwardButtonReleased");
     }
 
     private async void gridBMSPlayerControlsFastForwardButtonReleased(object sender, MouseEventArgs e)
@@ -3629,7 +3629,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             await Task.Run(delegate
             {
                 viewModel.FastForwardPlayingBMSfileEnd();
-            }).Logging("gridBMSPlayerControlsFastForwardButtonReleased", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Views\\MainWindow.xaml.cs", 3443);
+            }).Logging("gridBMSPlayerControlsFastForwardButtonReleased");
         }
     }
 
@@ -3641,7 +3641,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             await Task.Run(delegate
             {
                 viewModel.FastBackwardPlayingBMSfileStart();
-            }).Logging("gridBMSPlayerControlsFastBackwardButtonClicked", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Views\\MainWindow.xaml.cs", 3448);
+            }).Logging("gridBMSPlayerControlsFastBackwardButtonClicked");
         }
     }
 
@@ -3653,7 +3653,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             await Task.Run(delegate
             {
                 viewModel.FastBackwardPlayingBMSfileEnd();
-            }).Logging("gridBMSPlayerControlsFastBackwardButtonReleased", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Views\\MainWindow.xaml.cs", 3453);
+            }).Logging("gridBMSPlayerControlsFastBackwardButtonReleased");
         }
     }
 
@@ -3669,7 +3669,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             await Task.Run(delegate
             {
                 viewModel.FastBackwardPlayingBMSfileEnd();
-            }).Logging("gridBMSPlayerControlsFastBackwardButtonReleased", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Views\\MainWindow.xaml.cs", 3459);
+            }).Logging("gridBMSPlayerControlsFastBackwardButtonReleased");
         }
     }
 
@@ -3683,7 +3683,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 await Task.Run(delegate
                 {
                     viewModel.uBMplayShowInfo();
-                }).Logging("gridBMSPlayerControlsShowInfoButtonClicked", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Views\\MainWindow.xaml.cs", 3466);
+                }).Logging("gridBMSPlayerControlsShowInfoButtonClicked");
             }
         }
         else
@@ -3700,7 +3700,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             await Task.Run(delegate
             {
                 viewModel.uBMplayShowEffect();
-            }).Logging("gridBMSPlayerControlsShowEffectButtonClicked", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Views\\MainWindow.xaml.cs", 3476);
+            }).Logging("gridBMSPlayerControlsShowEffectButtonClicked");
         }
     }
 
@@ -3712,7 +3712,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             await Task.Run(delegate
             {
                 viewModel.uBMplayChangePlayside();
-            }).Logging("gridBMSPlayerControlsChangePlaysideButtonClicked", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Views\\MainWindow.xaml.cs", 3481);
+            }).Logging("gridBMSPlayerControlsChangePlaysideButtonClicked");
         }
     }
 
@@ -3725,7 +3725,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             await Task.Run(delegate
             {
                 viewModel.uBMplayIncreaseHighSpeed();
-            }).Logging("gridBMSPlayerControlsIncreaseHighSpeedButtonClicked", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Views\\MainWindow.xaml.cs", 3487);
+            }).Logging("gridBMSPlayerControlsIncreaseHighSpeedButtonClicked");
         }
     }
 
@@ -3738,7 +3738,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             await Task.Run(delegate
             {
                 viewModel.uBMplayDecreaseHighSpeed();
-            }).Logging("gridBMSPlayerControlsDecreaseHighSpeedButtonClicked", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Views\\MainWindow.xaml.cs", 3493);
+            }).Logging("gridBMSPlayerControlsDecreaseHighSpeedButtonClicked");
         }
     }
 
@@ -3774,7 +3774,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                         await Task.Run(delegate
                         {
                             viewModel.PlayStartBMSfile();
-                        }).Logging("dataGridKeyDown", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Views\\MainWindow.xaml.cs", 3515);
+                        }).Logging("dataGridKeyDown");
                     }
                     break;
                 }
@@ -3990,7 +3990,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             await Task.Run(delegate
             {
                 viewModel.PlayStartBMSfile(forceNewPlay: false);
-            }).Logging("sliderPlayerMouseMove", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Views\\MainWindow.xaml.cs", 3778);
+            }).Logging("sliderPlayerMouseMove");
         }
     }
 
@@ -4007,7 +4007,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             await Task.Run(delegate
             {
                 viewModel.PlayStartBMSfile(forceNewPlay: false);
-            }).Logging("sliderPlayerMouseLeftButtonUp", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Views\\MainWindow.xaml.cs", 3789);
+            }).Logging("sliderPlayerMouseLeftButtonUp");
         }
     }
 
@@ -4028,7 +4028,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             await Task.Run(delegate
             {
                 viewModel.PlayStartBMSfile(forceNewPlay: false);
-            }).Logging("sliderPlayerMouseLeave", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Views\\MainWindow.xaml.cs", 3800);
+            }).Logging("sliderPlayerMouseLeave");
         }
     }
 

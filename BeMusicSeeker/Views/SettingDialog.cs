@@ -114,7 +114,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
 			await Task.Run(delegate
 			{
 				viewModel.BackupBMSTables(fileDialog.FileName);
-			}).Logging("detailTabItemBackupButtonClicked", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Views\\SettingDialog.xaml.cs", 138);
+			}).Logging("detailTabItemBackupButtonClicked");
 			settingDialogRootGrid.IsEnabled = true;
 		}
 	}
@@ -136,7 +136,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
 			await Task.Run(delegate
 			{
 				viewModel.RestoreBMSTables(fileDialog.FileName);
-			}).Logging("detailTabItemRestoreButtonClicked", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Views\\SettingDialog.xaml.cs", 168);
+			}).Logging("detailTabItemRestoreButtonClicked");
 			await base.Dispatcher.BeginInvoke((Action)delegate
 			{
 				MessageBox.Show(Application.Current.MainWindow, "アプリケーションを終了します。", "確認", MessageBoxButton.OK, MessageBoxImage.Question, MessageBoxResult.OK);
@@ -153,7 +153,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
 			await Task.Run(delegate
 			{
 				viewModel.UninstallAllData();
-			}).Logging("detailTabItemUninstallButtonClicked", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Views\\SettingDialog.xaml.cs", 199);
+			}).Logging("detailTabItemUninstallButtonClicked");
 			await base.Dispatcher.BeginInvoke((Action)delegate
 			{
 				MessageBox.Show(Application.Current.MainWindow, "アプリケーションを終了します。", "確認", MessageBoxButton.OK, MessageBoxImage.Question, MessageBoxResult.OK);
