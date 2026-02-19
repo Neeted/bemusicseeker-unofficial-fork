@@ -19,12 +19,17 @@
 
 ## 3. 起動引数
 
-- `--perf-log`  
-  性能ログ出力を有効化
-- `--everything-log`  
-  Everythingスキャン詳細ログを有効化
+- `--log-level=Info|Warn|Error`  
+  通常ログの最小レベルを指定（既定: `Warn`）
+  `Info` の場合は性能ログも有効化
 - `--everything-verify`  
   Everything結果と Fast結果を比較検証（重い）
+
+出力先:
+
+- `application.log`（通常ログ）
+- `install-performance.log`（`--log-level=Info` 時の `InstallPerformance*`）
+- `everything-verify.log`（`--everything-verify` 時の verify 専用）
 
 ## 4. verifyモードの注意
 

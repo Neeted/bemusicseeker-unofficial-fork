@@ -3205,7 +3205,7 @@ public class MainWindowViewModel : ViewModel
 
 	private static readonly Logger installPerformanceLogger = LogManager.GetLogger("InstallPerformance.MainWindowViewModel");
 
-	private static readonly bool installPerformanceLoggingEnabled = CommandLineSwitches.IsInstallPerformanceLogEnabled;
+	private static readonly bool installPerformanceLoggingEnabled = CommandLineSwitches.IsInfoLoggingEnabled;
 
 	private int suppressUiUpdateDepth;
 

@@ -38,7 +38,7 @@ public class BMSPlaylist : NotificationObject
 
     private static readonly Logger installPerformanceLogger = LogManager.GetLogger("InstallPerformance.BMSPlaylist");
 
-    private static readonly bool installPerformanceLoggingEnabled = CommandLineSwitches.IsInstallPerformanceLogEnabled;
+    private static readonly bool installPerformanceLoggingEnabled = CommandLineSwitches.IsInfoLoggingEnabled;
 
     private static void LogPlaylistPerformance(string message)
     {

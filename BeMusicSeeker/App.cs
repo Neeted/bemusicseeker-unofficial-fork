@@ -31,12 +31,6 @@ public partial class App : System.Windows.Application
 {
 	private const string MutexName = "a601b8c6-41c3-4182-950b-b96a0f0c8b0c";
 
-	private const string InstallPerformanceLogArg = "--perf-log";
-
-	private const string EverythingVerifyLogArg = "--everything-verify";
-
-	private const string EverythingDebugLogArg = "--everything-log";
-
 	private static Mutex _mutex = null;
 
 	public bool forceReinitializationCustomFolders { get; set; }
@@ -68,16 +62,17 @@ public partial class App : System.Windows.Application
 	{
 		ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls | SecurityProtocolType.Tls11 | SecurityProtocolType.Tls12;
 		ThreadPool.SetMinThreads(200, 200);
+		LogLevel defaultFileLogLevel = ConvertToNLogLevel(CommandLineSwitches.LogLevel);
 		NLogWrapper.AddTarget(new FileTarget
 		{
 			FileName = Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location), "application.log")
-		}, LogLevel.Error);
+		}, defaultFileLogLevel);
 		NLogWrapper.AddTarget(new NetworkTarget
 		{
 			Address = "http://www.ribbit.xyz/bms/tools/bemusicseeker/report.cgi"
 		}, LogLevel.Error, asDefault: false);
-		NLogWrapper.SetDefaultConfigurationMinLogLevel(LogLevel.Info);
-		ConfigureInstallPerformanceLoggingIfEnabled();
+		NLogWrapper.SetDefaultConfigurationMinLogLevel(defaultFileLogLevel);
+		ConfigureExtraLogging();
 		LegacyUserConfigMigrator.MigrateIfNeeded();
 		try
 		{
@@ -125,17 +120,23 @@ public partial class App : System.Windows.Application
 		BeMusicSeeker.Properties.Resources.Culture = CultureInfo.GetCultureInfo(Settings.Default.Lang);
 	}
 
-	private static bool IsInstallPerformanceLoggingEnabled()
+	private static LogLevel ConvertToNLogLevel(NormalLogLevel level)
 	{
-		return Environment.GetCommandLineArgs().Any((string arg) => string.Equals(arg, InstallPerformanceLogArg, StringComparison.OrdinalIgnoreCase) || string.Equals(arg, EverythingVerifyLogArg, StringComparison.OrdinalIgnoreCase) || string.Equals(arg, EverythingDebugLogArg, StringComparison.OrdinalIgnoreCase));
+		switch (level)
+		{
+		case NormalLogLevel.Info:
+			return LogLevel.Info;
+		case NormalLogLevel.Error:
+			return LogLevel.Error;
+		default:
+			return LogLevel.Warn;
+		}
 	}
 
-	private static void ConfigureInstallPerformanceLoggingIfEnabled()
+	private static void ConfigureExtraLogging()
 	{
-		if (!IsInstallPerformanceLoggingEnabled())
+		if (CommandLineSwitches.IsInfoLoggingEnabled)
 		{
-			return;
-		}
 		string path = Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location), "install-performance.log");
 		FileTarget target = new FileTarget
 		{
@@ -144,9 +145,31 @@ public partial class App : System.Windows.Application
 			Layout = NLogWrapper.DefaultLayout
 		};
 		LogManager.Configuration?.AddTarget(target);
-		LogManager.Configuration?.LoggingRules.Insert(0, new LoggingRule("InstallPerformance*", LogLevel.Info, target));
+		LogManager.Configuration?.LoggingRules.Insert(0, new LoggingRule("InstallPerformance*", LogLevel.Info, target)
+		{
+			Final = true
+		});
 		LogManager.ReconfigExistingLoggers();
 		NLogWrapper.TraceLogger?.Info("Install performance logging enabled: " + path);
+		}
+		if (!CommandLineSwitches.IsEverythingVerifyEnabled)
+		{
+			return;
+		}
+		string path2 = Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location), "everything-verify.log");
+		FileTarget target2 = new FileTarget
+		{
+			Name = "EverythingVerifyFileTarget",
+			FileName = path2,
+			Layout = NLogWrapper.DefaultLayout
+		};
+		LogManager.Configuration?.AddTarget(target2);
+		LogManager.Configuration?.LoggingRules.Insert(0, new LoggingRule("Verify.Everything", LogLevel.Info, target2)
+		{
+			Final = true
+		});
+		LogManager.ReconfigExistingLoggers();
+		NLogWrapper.TraceLogger?.Info("Everything verify logging enabled: " + path2);
 	}
 
 	private void Application_Startup(object sender, StartupEventArgs e)

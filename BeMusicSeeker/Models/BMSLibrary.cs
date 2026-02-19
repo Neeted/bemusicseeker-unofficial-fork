@@ -42,11 +42,13 @@ public class BMSLibrary : NotificationObject
 
     private static readonly Logger installPerformanceLogger = LogManager.GetLogger("InstallPerformance.BMSLibrary");
 
-    private static readonly bool installPerformanceLoggingEnabled = CommandLineSwitches.IsInstallPerformanceLogEnabled;
+    private static readonly Logger everythingVerifyLogger = LogManager.GetLogger("Verify.Everything");
+
+    private static readonly bool installPerformanceLoggingEnabled = CommandLineSwitches.IsInfoLoggingEnabled;
 
     private static readonly bool everythingVerifyEnabled = CommandLineSwitches.IsEverythingVerifyEnabled;
 
-    private static readonly bool everythingScanLoggingEnabled = CommandLineSwitches.IsEverythingLogEnabled || everythingVerifyEnabled || installPerformanceLoggingEnabled;
+    private static readonly bool everythingScanLoggingEnabled = installPerformanceLoggingEnabled;
 
     private const int playlistReferenceApplyChunkSize = 1024;
 
@@ -72,6 +74,14 @@ public class BMSLibrary : NotificationObject
         if (everythingScanLoggingEnabled)
         {
             installPerformanceLogger.Info(message);
+        }
+    }
+
+    private static void LogEverythingVerify(string message)
+    {
+        if (everythingVerifyEnabled)
+        {
+            everythingVerifyLogger.Info(message);
         }
     }
 
@@ -1122,20 +1132,20 @@ public class BMSLibrary : NotificationObject
         if (everythingVerifyEnabled)
         {
             Stopwatch stopwatchVerify = Stopwatch.StartNew();
-            BmsScanExecutionResult fastScanResult = fallbackScanner.Scan(bmsDirectories, BMSFile.bmsExtensions, everythingScanLoggingEnabled);
+            BmsScanExecutionResult fastScanResult = fallbackScanner.Scan(bmsDirectories, BMSFile.bmsExtensions, everythingVerifyEnabled);
             stopwatchVerify.Stop();
             if (fastScanResult.Success && fastScanResult.Result != null)
             {
                 BmsScanDiffReport report = BmsScanResultComparer.Compare(scanResult.Result, fastScanResult.Result);
-                LogEverythingScan("everything_verify comparedMs=" + stopwatchVerify.ElapsedMilliseconds + " bmsDiff=" + report.BmsPathDiffCount + " dirDiff=" + report.DirectoryDiffCount + " fileDiff=" + report.FileDiffCount + " match=" + report.IsMatch.ToString().ToLowerInvariant());
+                LogEverythingVerify("everything_verify comparedMs=" + stopwatchVerify.ElapsedMilliseconds + " bmsDiff=" + report.BmsPathDiffCount + " dirDiff=" + report.DirectoryDiffCount + " fileDiff=" + report.FileDiffCount + " match=" + report.IsMatch.ToString().ToLowerInvariant());
                 foreach (string sample in report.Samples.Take(10))
                 {
-                    LogEverythingScan("everything_verify sample " + sample);
+                    LogEverythingVerify("everything_verify sample " + sample);
                 }
             }
             else
             {
-                LogEverythingScan("everything_verify fast_scan_failed reason=" + (fastScanResult?.ErrorReason ?? "unknown"));
+                LogEverythingVerify("everything_verify fast_scan_failed reason=" + (fastScanResult?.ErrorReason ?? "unknown"));
             }
         }
         return scanResult;

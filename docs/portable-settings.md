@@ -44,6 +44,11 @@ Migration emits trace logs:
 - `portable_settings_migration success ...`
 - `portable_settings_migration failed`
 
+Note:
+
+- `Info` logs are written when started with `--log-level=Info`.
+- `Error` logs are written to `application.log` regardless of this migration flow.
+
 ## Operational Notes
 - For portable usage, run from a writable location.
 - Running under restricted folders (for example, `Program Files`) can block config writes.
