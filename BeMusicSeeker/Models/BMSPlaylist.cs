@@ -40,12 +40,24 @@ public class BMSPlaylist : NotificationObject
 
     private static readonly bool installPerformanceLoggingEnabled = CommandLineSwitches.IsInfoLoggingEnabled;
 
+    private const int PlaylistWebTimeoutMs = 300000;
+
     private static void LogPlaylistPerformance(string message)
     {
         if (installPerformanceLoggingEnabled)
         {
             installPerformanceLogger.Info(message);
         }
+    }
+
+    private static GZipWebClient CreatePlaylistWebClient()
+    {
+        return new GZipWebClient
+        {
+            Encoding = Encoding.UTF8,
+            RequestTimeoutMs = PlaylistWebTimeoutMs,
+            ReadWriteTimeoutMs = PlaylistWebTimeoutMs
+        };
     }
 
     private string lr2SongDBPath;
@@ -624,10 +636,7 @@ public class BMSPlaylist : NotificationObject
 
     private void setEstimationTable()
     {
-        string input = new GZipWebClient
-        {
-            Encoding = Encoding.UTF8
-        }.DownloadString(estimationJsonUri);
+        string input = CreatePlaylistWebClient().DownloadString(estimationJsonUri);
         input = workAroundRegex.Replace(input, "\"key${id}\":{");
         dynamic data_json = DynamicJson.Parse(input);
         BMSTable insane = insaneTable;
@@ -827,10 +836,7 @@ public class BMSPlaylist : NotificationObject
             }
         }
         Uri address = new Uri(recommendJsonUriStr + lr2id, UriKind.Absolute);
-        dynamic val = DynamicJson.Parse(new GZipWebClient
-        {
-            Encoding = Encoding.UTF8
-        }.DownloadString(address));
+        dynamic val = DynamicJson.Parse(CreatePlaylistWebClient().DownloadString(address));
         if ((string)val.status != "success")
         {
             DispatcherMessageBox.Show("リコメンドの取得に失敗しました" + Environment.NewLine + (string)val.message, "警告", MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
@@ -995,7 +1001,7 @@ public class BMSPlaylist : NotificationObject
         }
         IEnumerable<string> values = from e in lampsBMS.Concat(lampsGrade)
                                      select e.bmsid + "-" + e.lamp;
-        new GZipWebClient().UploadValues(data: new NameValueCollection
+        CreatePlaylistWebClient().UploadValues(data: new NameValueCollection
         {
             { "name", name },
             {
@@ -1854,10 +1860,7 @@ public class BMSPlaylist : NotificationObject
                 string input;
                 try
                 {
-                    input = ((!pageUri.IsFile) ? new GZipWebClient
-                    {
-                        Encoding = Encoding.UTF8
-                    }.DownloadString(pageUri.AbsoluteUri) : File.ReadAllText(pageUri.LocalPath, Encoding.UTF8));
+                    input = ((!pageUri.IsFile) ? CreatePlaylistWebClient().DownloadString(pageUri.AbsoluteUri) : File.ReadAllText(pageUri.LocalPath, Encoding.UTF8));
                 }
                 catch
                 {
@@ -1880,10 +1883,7 @@ public class BMSPlaylist : NotificationObject
         string header_json;
         try
         {
-            header_json = ((!uri2.IsFile) ? new GZipWebClient
-            {
-                Encoding = Encoding.UTF8
-            }.DownloadString(uri2) : File.ReadAllText(uri2.LocalPath, Encoding.UTF8));
+            header_json = ((!uri2.IsFile) ? CreatePlaylistWebClient().DownloadString(uri2) : File.ReadAllText(uri2.LocalPath, Encoding.UTF8));
         }
         catch
         {
@@ -1908,10 +1908,7 @@ public class BMSPlaylist : NotificationObject
         string data_json;
         try
         {
-            data_json = new GZipWebClient
-            {
-                Encoding = Encoding.UTF8
-            }.DownloadString(bMSTable.GetAbsoluteDataUrl());
+            data_json = CreatePlaylistWebClient().DownloadString(bMSTable.GetAbsoluteDataUrl());
         }
         catch
         {
@@ -2128,10 +2125,7 @@ public class BMSPlaylist : NotificationObject
         string json;
         try
         {
-            json = new GZipWebClient
-            {
-                Encoding = Encoding.UTF8
-            }.DownloadString(tableinfoUri);
+            json = CreatePlaylistWebClient().DownloadString(tableinfoUri);
         }
         catch
         {
