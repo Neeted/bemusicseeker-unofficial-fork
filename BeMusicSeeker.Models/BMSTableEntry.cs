@@ -11,11 +11,61 @@ public class BMSTableEntry : LR2SongDBExtended.playlist_entry
 {
 	protected BMSFile _bmsfile;
 
+	private static readonly object bulkLoadParseSuppressionLock = new object();
+
+	private static int bulkLoadParseSuppressionCount = 0;
+
+	private string deferredUrlRaw;
+
+	private string deferredUrlDiffRaw;
+
+	private string deferredOrgMd5Raw;
+
 	public const string DUMMY_MD5_FOR_EMPTY_FOLDER = "00000000000000000000000000000000";
 
 	private static Regex numParseRegex = new Regex("([+-]?\\d+(?:\\.\\d*)?|\\.\\d+)", RegexOptions.Compiled);
 
 	private static Regex dateparseRegex = new Regex("((?:\\d{4}|\\d{2})[^\\d]\\d{2}[^\\d]\\d{2})(?:[^\\d].*(\\d{2}[^\\d]\\d{2}[^\\d]\\d{2,3}))?", RegexOptions.Compiled);
+
+	private static bool IsBulkLoadParseSuppressed
+	{
+		get
+		{
+			lock (bulkLoadParseSuppressionLock)
+			{
+				return bulkLoadParseSuppressionCount > 0;
+			}
+		}
+	}
+
+	public static IDisposable BeginBulkLoadParseSuppression()
+	{
+		lock (bulkLoadParseSuppressionLock)
+		{
+			bulkLoadParseSuppressionCount++;
+		}
+		return new BulkLoadParseSuppressionScope();
+	}
+
+	private sealed class BulkLoadParseSuppressionScope : IDisposable
+	{
+		private bool disposed;
+
+		public void Dispose()
+		{
+			if (!disposed)
+			{
+				lock (bulkLoadParseSuppressionLock)
+				{
+					if (bulkLoadParseSuppressionCount > 0)
+					{
+						bulkLoadParseSuppressionCount--;
+					}
+				}
+				disposed = true;
+			}
+		}
+	}
 
 	public BMSTable parent { get; set; }
 
@@ -121,6 +171,7 @@ public class BMSTableEntry : LR2SongDBExtended.playlist_entry
 	{
 		get
 		{
+			ensureDeferredUrlParsed(isDiff: false);
 			if (!(Url == null) && !string.IsNullOrWhiteSpace(Url.ToString()) && Url.IsAbsoluteUri)
 			{
 				return Url.AbsoluteUri;
@@ -129,28 +180,17 @@ public class BMSTableEntry : LR2SongDBExtended.playlist_entry
 		}
 		protected set
 		{
+			if (IsBulkLoadParseSuppressed)
+			{
+				deferredUrlRaw = value;
+				return;
+			}
+			deferredUrlRaw = null;
 			if (value == null || string.IsNullOrWhiteSpace(value))
 			{
 				return;
 			}
-			try
-			{
-				if (new Uri(value, UriKind.RelativeOrAbsolute).IsAbsoluteUri)
-				{
-					Url = new Uri(value, UriKind.Absolute);
-				}
-				else if (parent != null)
-				{
-					Uri absoluteDataUrl = parent.GetAbsoluteDataUrl();
-					if (absoluteDataUrl != null)
-					{
-						Url = new Uri(absoluteDataUrl, value);
-					}
-				}
-			}
-			catch
-			{
-			}
+			tryApplyUriValue(value, isDiff: false);
 		}
 	}
 
@@ -160,6 +200,7 @@ public class BMSTableEntry : LR2SongDBExtended.playlist_entry
 	{
 		get
 		{
+			ensureDeferredUrlParsed(isDiff: true);
 			if (!(Url_diff == null) && !string.IsNullOrWhiteSpace(Url_diff.ToString()) && Url_diff.IsAbsoluteUri)
 			{
 				return Url_diff.AbsoluteUri;
@@ -168,28 +209,17 @@ public class BMSTableEntry : LR2SongDBExtended.playlist_entry
 		}
 		protected set
 		{
+			if (IsBulkLoadParseSuppressed)
+			{
+				deferredUrlDiffRaw = value;
+				return;
+			}
+			deferredUrlDiffRaw = null;
 			if (value == null || string.IsNullOrWhiteSpace(value))
 			{
 				return;
 			}
-			try
-			{
-				if (new Uri(value, UriKind.RelativeOrAbsolute).IsAbsoluteUri)
-				{
-					Url_diff = new Uri(value, UriKind.Absolute);
-				}
-				else if (parent != null)
-				{
-					Uri absoluteDataUrl = parent.GetAbsoluteDataUrl();
-					if (absoluteDataUrl != null)
-					{
-						Url_diff = new Uri(absoluteDataUrl, value);
-					}
-				}
-			}
-			catch
-			{
-			}
+			tryApplyUriValue(value, isDiff: true);
 		}
 	}
 
@@ -199,22 +229,22 @@ public class BMSTableEntry : LR2SongDBExtended.playlist_entry
 	{
 		get
 		{
+			ensureDeferredOrgMd5Parsed();
 			return DynamicJson.Serialize(Org_md5);
 		}
 		protected set
 		{
+			if (IsBulkLoadParseSuppressed)
+			{
+				deferredOrgMd5Raw = value;
+				return;
+			}
+			deferredOrgMd5Raw = null;
 			if (value == null || string.IsNullOrWhiteSpace(value))
 			{
 				return;
 			}
-			try
-			{
-				dynamic val = DynamicJson.Parse(value);
-				Org_md5 = ((object[])val).Select((object e) => e.ToString()).Cast<string>().ToList();
-			}
-			catch
-			{
-			}
+			Org_md5 = parseOrgMd5(value);
 		}
 	}
 
@@ -378,6 +408,7 @@ public class BMSTableEntry : LR2SongDBExtended.playlist_entry
 
 	public dynamic ToDynamicJson()
 	{
+		ensureDeferredOrgMd5Parsed();
 		dynamic val = new DynamicJson();
 		val.md5 = md5;
 		val.org_level = base.level;
@@ -394,6 +425,86 @@ public class BMSTableEntry : LR2SongDBExtended.playlist_entry
 		val.comment = base.comment ?? string.Empty;
 		val.adddate = base.adddate.ToShortDateString();
 		return val;
+	}
+
+	private void ensureDeferredUrlParsed(bool isDiff)
+	{
+		string text = isDiff ? deferredUrlDiffRaw : deferredUrlRaw;
+		if (string.IsNullOrWhiteSpace(text))
+		{
+			return;
+		}
+		if (isDiff)
+		{
+			deferredUrlDiffRaw = null;
+		}
+		else
+		{
+			deferredUrlRaw = null;
+		}
+		tryApplyUriValue(text, isDiff);
+	}
+
+	private void tryApplyUriValue(string value, bool isDiff)
+	{
+		try
+		{
+			if (new Uri(value, UriKind.RelativeOrAbsolute).IsAbsoluteUri)
+			{
+				if (isDiff)
+				{
+					Url_diff = new Uri(value, UriKind.Absolute);
+				}
+				else
+				{
+					Url = new Uri(value, UriKind.Absolute);
+				}
+			}
+			else if (parent != null)
+			{
+				Uri absoluteDataUrl = parent.GetAbsoluteDataUrl();
+				if (absoluteDataUrl != null)
+				{
+					if (isDiff)
+					{
+						Url_diff = new Uri(absoluteDataUrl, value);
+					}
+					else
+					{
+						Url = new Uri(absoluteDataUrl, value);
+					}
+				}
+			}
+		}
+		catch
+		{
+		}
+	}
+
+	private void ensureDeferredOrgMd5Parsed()
+	{
+		if (string.IsNullOrWhiteSpace(deferredOrgMd5Raw))
+		{
+			return;
+		}
+		if (Org_md5.Count == 0)
+		{
+			Org_md5 = parseOrgMd5(deferredOrgMd5Raw);
+		}
+		deferredOrgMd5Raw = null;
+	}
+
+	private static List<string> parseOrgMd5(string value)
+	{
+		try
+		{
+			dynamic val = DynamicJson.Parse(value);
+			return ((object[])val).Select((object e) => e.ToString()).Cast<string>().ToList();
+		}
+		catch
+		{
+			return new List<string>();
+		}
 	}
 
 	public string ToJson()

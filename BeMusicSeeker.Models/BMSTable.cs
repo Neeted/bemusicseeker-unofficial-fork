@@ -134,15 +134,16 @@ public class BMSTable : LR2SongDBExtended.playlist
 		}
 		internal set
 		{
+			if (value == null)
+			{
+				_entries = new List<BMSTableEntry>();
+				return;
+			}
 			foreach (BMSTableEntry item in value)
 			{
 				item.parent = this;
 			}
-			foreach (string item2 in value.Select((BMSTableEntry e) => e.folder).Distinct().ToList())
-			{
-				value = rebuildFolder(item2, value);
-			}
-			_entries = value;
+			_entries = normalizeEntries(value);
 		}
 	}
 
@@ -587,6 +588,100 @@ public class BMSTable : LR2SongDBExtended.playlist
 			second2 = list.Where((BMSTableEntry e) => e.md5 == "00000000000000000000000000000000").ToList();
 		}
 		return inputEntries.Except(second).Except(second2).ToList();
+	}
+
+	private List<BMSTableEntry> normalizeEntries(List<BMSTableEntry> inputEntries)
+	{
+		if (inputEntries.Count == 0)
+		{
+			return inputEntries;
+		}
+		Dictionary<string, FolderNormalizeState> dictionary = new Dictionary<string, FolderNormalizeState>(StringComparer.Ordinal);
+		FolderNormalizeState folderNormalizeState = null;
+		HashSet<BMSTableEntry> hashSet = null;
+		foreach (BMSTableEntry inputEntry in inputEntries)
+		{
+			FolderNormalizeState value;
+			if (inputEntry.folder == null)
+			{
+				if (folderNormalizeState == null)
+				{
+					folderNormalizeState = new FolderNormalizeState();
+				}
+				value = folderNormalizeState;
+			}
+			else if (!dictionary.TryGetValue(inputEntry.folder, out value))
+			{
+				value = new FolderNormalizeState();
+				dictionary[inputEntry.folder] = value;
+			}
+			value.Count++;
+			if (!value.SeenKeys.Add(getEntryIdentityKey(inputEntry)))
+			{
+				hashSet = hashSet ?? new HashSet<BMSTableEntry>();
+				hashSet.Add(inputEntry);
+			}
+			if (inputEntry.md5 == BMSTableEntry.DUMMY_MD5_FOR_EMPTY_FOLDER)
+			{
+				value.DummyEntries.Add(inputEntry);
+			}
+		}
+		addDummyRemovalTargets(dictionary, ref hashSet);
+		if (folderNormalizeState != null && folderNormalizeState.DummyEntries.Count > 0 && folderNormalizeState.Count > 1)
+		{
+			hashSet = hashSet ?? new HashSet<BMSTableEntry>();
+			foreach (BMSTableEntry dummyEntry in folderNormalizeState.DummyEntries)
+			{
+				hashSet.Add(dummyEntry);
+			}
+		}
+		if (hashSet == null || hashSet.Count == 0)
+		{
+			return inputEntries;
+		}
+		return inputEntries.Where((BMSTableEntry e) => !hashSet.Contains(e)).ToList();
+	}
+
+	private static void addDummyRemovalTargets(Dictionary<string, FolderNormalizeState> statesByFolder, ref HashSet<BMSTableEntry> removalSet)
+	{
+		foreach (KeyValuePair<string, FolderNormalizeState> item in statesByFolder)
+		{
+			FolderNormalizeState value = item.Value;
+			if (value.DummyEntries.Count > 0 && (value.Count > 1 || item.Key == string.Empty))
+			{
+				removalSet = removalSet ?? new HashSet<BMSTableEntry>();
+				foreach (BMSTableEntry dummyEntry in value.DummyEntries)
+				{
+					removalSet.Add(dummyEntry);
+				}
+			}
+		}
+	}
+
+	private static string getEntryIdentityKey(BMSTableEntry entry)
+	{
+		if (!string.IsNullOrWhiteSpace(entry.md5))
+		{
+			return entry.md5;
+		}
+		if (!string.IsNullOrWhiteSpace(entry.lr2_bmsid))
+		{
+			return entry.lr2_bmsid;
+		}
+		if (!string.IsNullOrWhiteSpace(entry.title))
+		{
+			return entry.title;
+		}
+		return string.Empty;
+	}
+
+	private sealed class FolderNormalizeState
+	{
+		public readonly HashSet<string> SeenKeys = new HashSet<string>(StringComparer.Ordinal);
+
+		public readonly List<BMSTableEntry> DummyEntries = new List<BMSTableEntry>();
+
+		public int Count;
 	}
 
 	public string ConvertCompatibleLevelNameToFolderName(string levelValue)

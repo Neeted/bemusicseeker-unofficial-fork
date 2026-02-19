@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Deployment.Application;
 using System.IO;
 using System.Linq;
@@ -3157,6 +3158,12 @@ public class MainWindowViewModel : ViewModel
 
 	private object lockDeferredPlaylistRef = new object();
 
+	private bool deferredLibraryFolderTreeRefreshQueued;
+
+	private object lockDeferredLibraryFolderTreeRefresh = new object();
+
+	private Stopwatch startupReadyInstallStopwatch;
+
 	private Dictionary<string, Func<BeMusicSeeker.Models.BMSFile, string>> sortKeySelectorCache = new Dictionary<string, Func<BeMusicSeeker.Models.BMSFile, string>>(StringComparer.Ordinal);
 
 	private object lockSortKeySelectorCache = new object();
@@ -3255,6 +3262,14 @@ public class MainWindowViewModel : ViewModel
 		}
 	}
 
+	private static void LogInitStage(string stage, string scope)
+	{
+		if (installPerformanceLoggingEnabled)
+		{
+			installPerformanceLogger.Info("init_stage " + stage + " scope=" + scope);
+		}
+	}
+
 	private void BeginUiUpdateSuppression(UiRefreshChannel mask)
 	{
 		if (mask == UiRefreshChannel.None)
@@ -3336,12 +3351,30 @@ public class MainWindowViewModel : ViewModel
 		LogUiSuppression("ui_suppress end depth=" + suppressDepth + " flush=" + uiRefreshChannel);
 		if (uiRefreshChannel == UiRefreshChannel.None)
 		{
+			startupReadyInstallStopwatch = null;
+		}
+		if (uiRefreshChannel == UiRefreshChannel.None)
+		{
 			return;
 		}
 		DispatcherHelper.UIDispatcher.BeginInvoke((Action)delegate
 		{
 			FlushPendingUiRefresh(uiRefreshChannel);
 		});
+	}
+
+	private void TryLogStartupReadyInstall(UiRefreshChannel mask)
+	{
+		if ((mask & UiRefreshChannel.InstallTree) == 0 || (mask & UiRefreshChannel.LibraryMainView) == 0)
+		{
+			return;
+		}
+		if (startupReadyInstallStopwatch == null)
+		{
+			return;
+		}
+		LogUiSuppression("startup_ready_install elapsedMs=" + startupReadyInstallStopwatch.ElapsedMilliseconds);
+		startupReadyInstallStopwatch = null;
 	}
 
 	private void RefreshLibraryMainViewForCurrentFilter()
@@ -3356,29 +3389,89 @@ public class MainWindowViewModel : ViewModel
 		}
 	}
 
+	private void ScheduleDeferredLibraryFolderTreeRefresh()
+	{
+		bool shouldSchedule = false;
+		lock (lockDeferredLibraryFolderTreeRefresh)
+		{
+			if (!deferredLibraryFolderTreeRefreshQueued)
+			{
+				deferredLibraryFolderTreeRefreshQueued = true;
+				shouldSchedule = true;
+			}
+		}
+		if (!shouldSchedule)
+		{
+			return;
+		}
+		DispatcherHelper.UIDispatcher.BeginInvoke(DispatcherPriority.Background, (Action)delegate
+		{
+			Stopwatch stopwatch = Stopwatch.StartNew();
+			try
+			{
+				RaisePropertyChanged(() => BMSParentFolderList);
+			}
+			finally
+			{
+				stopwatch.Stop();
+				LogUiSuppression("ui_suppress flush_library_folder_tree_deferred_ms=" + stopwatch.ElapsedMilliseconds);
+				lock (lockDeferredLibraryFolderTreeRefresh)
+				{
+					deferredLibraryFolderTreeRefreshQueued = false;
+				}
+			}
+		});
+	}
+
 	private void FlushPendingUiRefresh(UiRefreshChannel mask)
 	{
 		LogUiSuppression("ui_suppress flush mask=" + mask);
+		Stopwatch stopwatchTotal = Stopwatch.StartNew();
+		long num = 0L;
+		long num2 = 0L;
+		long num3 = 0L;
+		long num4 = 0L;
+		long num5 = 0L;
+		bool flag = false;
 		if ((mask & UiRefreshChannel.InstallTree) != 0)
 		{
+			Stopwatch stopwatch = Stopwatch.StartNew();
 			RaisePropertyChanged(() => BMSPackagesInstalled);
 			RaisePropertyChanged(() => BMSPackagesPending);
+			stopwatch.Stop();
+			num = stopwatch.ElapsedMilliseconds;
 		}
 		if ((mask & UiRefreshChannel.PlaylistTree) != 0)
 		{
+			Stopwatch stopwatch2 = Stopwatch.StartNew();
 			RaisePropertyChanged(() => BMSTables);
+			stopwatch2.Stop();
+			num2 = stopwatch2.ElapsedMilliseconds;
 		}
 		if ((mask & UiRefreshChannel.LibraryFolderTree) != 0)
 		{
-			RaisePropertyChanged(() => BMSParentFolderList);
+			flag = true;
 		}
 		if ((mask & UiRefreshChannel.DuplicateTree) != 0)
 		{
+			Stopwatch stopwatch4 = Stopwatch.StartNew();
 			RaisePropertyChanged(() => BMSFilesDuplicated);
+			stopwatch4.Stop();
+			num4 = stopwatch4.ElapsedMilliseconds;
 		}
 		if ((mask & UiRefreshChannel.LibraryMainView) != 0)
 		{
+			Stopwatch stopwatch5 = Stopwatch.StartNew();
 			RefreshLibraryMainViewForCurrentFilter();
+			stopwatch5.Stop();
+			num5 = stopwatch5.ElapsedMilliseconds;
+		}
+		stopwatchTotal.Stop();
+		LogUiSuppression("ui_suppress flush_install_tree_ms=" + num + " flush_playlist_tree_ms=" + num2 + " flush_library_folder_tree_ms=" + num3 + " flush_duplicate_tree_ms=" + num4 + " flush_library_main_view_ms=" + num5 + " flush_total_ms=" + stopwatchTotal.ElapsedMilliseconds + " deferred_library_folder_tree=" + flag);
+		TryLogStartupReadyInstall(mask);
+		if (flag)
+		{
+			ScheduleDeferredLibraryFolderTreeRefresh();
 		}
 	}
 
@@ -4308,6 +4401,7 @@ public class MainWindowViewModel : ViewModel
 		{
 			return;
 		}
+		LogInitStage("start", "ReloadFiles");
 		bool scheduleDeferredPlaylistRef = false;
 		await _semaphore.WaitAsync();
 		try
@@ -4317,6 +4411,7 @@ public class MainWindowViewModel : ViewModel
 			{
 				files.Initialize(null, null, false);
 			}).Logging("ReloadFiles", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\ViewModels\\MainWindowViewModel.cs", 134);
+			LogInitStage("files_initialize_done", "ReloadFiles");
 			scheduleDeferredPlaylistRef = true;
 			if (!TrySuppress(UiRefreshChannel.LibraryFolderTree))
 			{
@@ -4330,17 +4425,20 @@ public class MainWindowViewModel : ViewModel
 		finally
 		{
 			EndUiUpdateSuppression();
+			LogInitStage("ui_suppress_end_called", "ReloadFiles");
 			_semaphore.Release();
 		}
 		if (scheduleDeferredPlaylistRef)
 		{
 			ScheduleDeferredPlaylistReferenceApply("ReloadFiles");
+			LogInitStage("deferred_playlist_ref_queued", "ReloadFiles");
 		}
 	}
 
 	public async void Initialize()
 	{
 		await _semaphore.WaitAsync();
+		LogInitStage("start", "Initialize");
 		initializationCompleted = false;
 		_ = string.Empty;
 		string text = ((!(Settings.Default.PublishVersion == null)) ? Settings.Default.PublishVersion.ToString() : string.Concat("for developers (", Assembly.GetEntryAssembly().GetName().Version, ")"));
@@ -4738,6 +4836,7 @@ public class MainWindowViewModel : ViewModel
 		};
 		bool scheduleDeferredPlaylistRef = false;
 		Thread.Yield();
+		startupReadyInstallStopwatch = Stopwatch.StartNew();
 		BeginUiUpdateSuppression(UiRefreshChannel.LibraryMainView | UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.InstallTree | UiRefreshChannel.PlaylistTree | UiRefreshChannel.DuplicateTree);
 		try
 		{
@@ -4745,11 +4844,13 @@ public class MainWindowViewModel : ViewModel
 			{
 				files.Initialize(new List<Action> { taskAdd1, taskAdd2 }, semaphore);
 			}).Logging("Initialize", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\ViewModels\\MainWindowViewModel.cs", 503);
+			LogInitStage("files_initialize_done", "Initialize");
 			scheduleDeferredPlaylistRef = true;
 		}
 		finally
 		{
 			EndUiUpdateSuppression();
+			LogInitStage("ui_suppress_end_called", "Initialize");
 		}
 		if (((App)System.Windows.Application.Current).firstStartup)
 		{
@@ -4761,6 +4862,7 @@ public class MainWindowViewModel : ViewModel
 		if (scheduleDeferredPlaylistRef)
 		{
 			ScheduleDeferredPlaylistReferenceApply("Initialize");
+			LogInitStage("deferred_playlist_ref_queued", "Initialize");
 		}
 	}
 

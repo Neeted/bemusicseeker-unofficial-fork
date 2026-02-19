@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Linq.Expressions;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -16,6 +17,49 @@ namespace BeMusicSeeker.Models;
 
 public class BMSFile : LR2SongDB.song
 {
+    private sealed class BulkLoadNotificationScope : IDisposable
+    {
+        private bool disposed;
+
+        public void Dispose()
+        {
+            if (!disposed)
+            {
+                disposed = true;
+                if (suppressPropertyChangedDepth.Value > 0)
+                {
+                    suppressPropertyChangedDepth.Value--;
+                }
+            }
+        }
+    }
+
+    private static readonly AsyncLocal<int> suppressPropertyChangedDepth = new AsyncLocal<int>();
+
+    private static bool IsPropertyChangedSuppressed => suppressPropertyChangedDepth.Value > 0;
+
+    public static IDisposable SuppressPropertyChangedScope()
+    {
+        suppressPropertyChangedDepth.Value++;
+        return new BulkLoadNotificationScope();
+    }
+
+    protected new void RaisePropertyChanged(string propertyName)
+    {
+        if (!IsPropertyChangedSuppressed)
+        {
+            base.RaisePropertyChanged(propertyName);
+        }
+    }
+
+    protected new void RaisePropertyChanged<T>(Expression<Func<T>> propertyExpression)
+    {
+        if (!IsPropertyChangedSuppressed)
+        {
+            base.RaisePropertyChanged(propertyExpression);
+        }
+    }
+
     [Flags]
     public enum BMSFileStatus
     {
@@ -549,21 +593,42 @@ public class BMSFile : LR2SongDB.song
         }
         set
         {
-            if (value == null)
-            {
-                value = new BMSFileMaintenanceInfo(this);
-            }
-            if (_maintenanceInfo != value)
-            {
-                if (value.hash != hash)
-                {
-                    throw new ArgumentException("maintenanceInfo の MD5 が一致しません。");
-                }
-                _maintenanceInfo = value;
-                registrateMaintenanceInfoPropertyChangedEventHandlers();
-                RaisePropertyChanged("maintenanceInfo");
-            }
+            SetMaintenanceInfo(value, suppressPropertyChanged: false, registerEventHandlers: true);
         }
+    }
+
+    public void SetMaintenanceInfo(BMSFileMaintenanceInfo value, bool suppressPropertyChanged = false, bool registerEventHandlers = true)
+    {
+        if (value == null)
+        {
+            value = new BMSFileMaintenanceInfo(this);
+        }
+        if (_maintenanceInfo == value)
+        {
+            return;
+        }
+        if (value.hash != hash)
+        {
+            throw new ArgumentException("maintenanceInfo の MD5 が一致しません。");
+        }
+        _maintenanceInfo = value;
+        if (registerEventHandlers)
+        {
+            registrateMaintenanceInfoPropertyChangedEventHandlers();
+        }
+        if (!suppressPropertyChanged)
+        {
+            RaisePropertyChanged("maintenanceInfo");
+        }
+    }
+
+    public bool HasMaintenanceInfoHash(string expectedHash)
+    {
+        if (_maintenanceInfo == null || string.IsNullOrWhiteSpace(expectedHash))
+        {
+            return false;
+        }
+        return string.Equals(_maintenanceInfo.hash, expectedHash, StringComparison.OrdinalIgnoreCase);
     }
 
     public virtual string RefTablesSymbols

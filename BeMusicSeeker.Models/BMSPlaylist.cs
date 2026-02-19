@@ -405,6 +405,9 @@ public class BMSPlaylist : NotificationObject
 
     public void Initialize(bool reloadExtPlaylist = true, Action<BMSTable, bool, BMSTable> updateCallbackAction = null, SemaphoreSlim semaphore = null)
     {
+        Stopwatch stopwatchInitialize = Stopwatch.StartNew();
+        long updateTablesMs = 0L;
+        long lr2configSyncMs = 0L;
         if (semaphore != null)
         {
             initSemaphore = semaphore;
@@ -431,7 +434,10 @@ public class BMSPlaylist : NotificationObject
                                     select t).ToList();
                             stopwatchLoadTables.Stop();
                             stopwatchLoadEntries.Start();
-                            source = lR2SongDBExtended.Table<BMSTableEntry>().ToList();
+                            using (BMSTableEntry.BeginBulkLoadParseSuppression())
+                            {
+                                source = lR2SongDBExtended.Table<BMSTableEntry>().ToList();
+                            }
                             stopwatchLoadEntries.Stop();
                         }
                         stopwatchGroupEntries.Start();
@@ -452,15 +458,15 @@ public class BMSPlaylist : NotificationObject
                         }
                         stopwatchGroupEntries.Stop();
                         stopwatchAssignEntries.Start();
-                        foreach (BMSTable table in list)
-                        {
-                            if (table.playlist_id.HasValue && entriesByPlaylistId.TryGetValue(table.playlist_id.Value, out List<BMSTableEntry> value2))
-                            {
-                                table.entries = value2.ToList();
-                            }
-                            else
-                            {
-                                table.entries = new List<BMSTableEntry>();
+						foreach (BMSTable table in list)
+						{
+							if (table.playlist_id.HasValue && entriesByPlaylistId.TryGetValue(table.playlist_id.Value, out List<BMSTableEntry> value2))
+							{
+								table.entries = value2;
+							}
+							else
+							{
+								table.entries = new List<BMSTableEntry>();
                             }
                         }
                         stopwatchAssignEntries.Stop();
@@ -501,7 +507,11 @@ public class BMSPlaylist : NotificationObject
                     }
                 }
             };
+            Stopwatch stopwatchUpdateTables = Stopwatch.StartNew();
             UpdateBMSTables(reloadExtPlaylist, new List<Action<BMSTable, bool, BMSTable>> { item, updateCallbackAction });
+            stopwatchUpdateTables.Stop();
+            updateTablesMs = stopwatchUpdateTables.ElapsedMilliseconds;
+            Stopwatch stopwatchLr2configSync = Stopwatch.StartNew();
             using (rwlockBMSTables.GetReaderGuard())
             {
                 if (Settings.Default.OperationModeLR2DB)
@@ -514,7 +524,11 @@ public class BMSPlaylist : NotificationObject
                     lr2config().Save();
                 }
             }
+            stopwatchLr2configSync.Stop();
+            lr2configSyncMs = stopwatchLr2configSync.ElapsedMilliseconds;
         }
+        stopwatchInitialize.Stop();
+        LogPlaylistPerformance("playlist_init update_tables_ms=" + updateTablesMs + " lr2config_sync_ms=" + lr2configSyncMs + " total_ms=" + stopwatchInitialize.ElapsedMilliseconds);
         initSemaphore = null;
     }
 
@@ -1556,6 +1570,10 @@ public class BMSPlaylist : NotificationObject
 
     public List<BMSTable> UpdateBMSTables(bool reloadExtPlaylist = true, List<Action<BMSTable, bool, BMSTable>> updateCallbackActions = null)
     {
+        Stopwatch stopwatchUpdateTablesTotal = Stopwatch.StartNew();
+        long updateExternalSyncTicks = 0L;
+        long updateCallbacksTicks = 0L;
+        long updateCommitTicks = 0L;
         List<BMSTable> updatedTables = new List<BMSTable>();
         using (rwlockBMSTables.GetWriterGuard())
         {
@@ -1569,6 +1587,7 @@ public class BMSPlaylist : NotificationObject
                     bool arg = false;
                     if (reloadExtPlaylist && table.is_external_sync && uri != null && uri.IsAbsoluteUri)
                     {
+                        Stopwatch stopwatchExternalSync = Stopwatch.StartNew();
                         try
                         {
                             using (table.ReaderWriterLock.GetWriterGuard())
@@ -1585,14 +1604,20 @@ public class BMSPlaylist : NotificationObject
                                             updatedTables.Add(newTable);
                                         }
                                     }
+                                    Stopwatch stopwatchCommit = Stopwatch.StartNew();
                                     CommitBMSTable(newTable);
+                                    stopwatchCommit.Stop();
+                                    Interlocked.Add(ref updateCommitTicks, stopwatchCommit.ElapsedTicks);
                                 }
                             }
                         }
                         catch
                         {
                         }
+                        stopwatchExternalSync.Stop();
+                        Interlocked.Add(ref updateExternalSyncTicks, stopwatchExternalSync.ElapsedTicks);
                     }
+                    Stopwatch stopwatchCallbacks = Stopwatch.StartNew();
                     try
                     {
                         if (updateCallbackActions != null)
@@ -1607,8 +1632,18 @@ public class BMSPlaylist : NotificationObject
                     catch
                     {
                     }
+                    finally
+                    {
+                        stopwatchCallbacks.Stop();
+                        Interlocked.Add(ref updateCallbacksTicks, stopwatchCallbacks.ElapsedTicks);
+                    }
                 }).Logging("UpdateBMSTables", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\Models\\BMSPlaylist.cs", 1484);
             }).ToArray());
+            stopwatchUpdateTablesTotal.Stop();
+            long num = (long)TimeSpan.FromTicks(Interlocked.Read(ref updateExternalSyncTicks)).TotalMilliseconds;
+            long num2 = (long)TimeSpan.FromTicks(Interlocked.Read(ref updateCallbacksTicks)).TotalMilliseconds;
+            long num3 = (long)TimeSpan.FromTicks(Interlocked.Read(ref updateCommitTicks)).TotalMilliseconds;
+            LogPlaylistPerformance("playlist_update update_external_sync_ms=" + num + " update_callbacks_ms=" + num2 + " update_commit_ms=" + num3 + " table_count=" + BMSTables.Count + " updated_count=" + updatedTables.Count + " total_ms=" + stopwatchUpdateTablesTotal.ElapsedMilliseconds);
             return updatedTables;
         }
     }

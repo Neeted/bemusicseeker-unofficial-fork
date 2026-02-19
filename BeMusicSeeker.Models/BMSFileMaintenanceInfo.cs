@@ -1,10 +1,38 @@
 using System;
+using System.Threading;
 using BeMusicSeeker.Models.LR2;
 
 namespace BeMusicSeeker.Models;
 
 public class BMSFileMaintenanceInfo : LR2SongDBExtended.maintenance
 {
+	private sealed class BulkLoadNotificationScope : IDisposable
+	{
+		private bool disposed;
+
+		public void Dispose()
+		{
+			if (!disposed)
+			{
+				disposed = true;
+				if (suppressPropertyChangedDepth.Value > 0)
+				{
+					suppressPropertyChangedDepth.Value--;
+				}
+			}
+		}
+	}
+
+	private static readonly AsyncLocal<int> suppressPropertyChangedDepth = new AsyncLocal<int>();
+
+	private static bool IsPropertyChangedSuppressed => suppressPropertyChangedDepth.Value > 0;
+
+	public static IDisposable SuppressPropertyChangedScope()
+	{
+		suppressPropertyChangedDepth.Value++;
+		return new BulkLoadNotificationScope();
+	}
+
 	public override string encoding
 	{
 		get
@@ -14,7 +42,10 @@ public class BMSFileMaintenanceInfo : LR2SongDBExtended.maintenance
 		set
 		{
 			base.encoding = value;
-			RaisePropertyChanged("encoding");
+			if (!IsPropertyChangedSuppressed)
+			{
+				RaisePropertyChanged("encoding");
+			}
 		}
 	}
 
@@ -27,7 +58,10 @@ public class BMSFileMaintenanceInfo : LR2SongDBExtended.maintenance
 		set
 		{
 			base.wav_files_existing = value;
-			RaisePropertyChanged(() => WAVHealth);
+			if (!IsPropertyChangedSuppressed)
+			{
+				RaisePropertyChanged(() => WAVHealth);
+			}
 		}
 	}
 
@@ -40,7 +74,10 @@ public class BMSFileMaintenanceInfo : LR2SongDBExtended.maintenance
 		set
 		{
 			base.wav_files_defined = value;
-			RaisePropertyChanged(() => WAVHealth);
+			if (!IsPropertyChangedSuppressed)
+			{
+				RaisePropertyChanged(() => WAVHealth);
+			}
 		}
 	}
 
@@ -53,7 +90,10 @@ public class BMSFileMaintenanceInfo : LR2SongDBExtended.maintenance
 		set
 		{
 			base.bga_files_existing = value;
-			RaisePropertyChanged(() => BGAHealth);
+			if (!IsPropertyChangedSuppressed)
+			{
+				RaisePropertyChanged(() => BGAHealth);
+			}
 		}
 	}
 
@@ -66,7 +106,10 @@ public class BMSFileMaintenanceInfo : LR2SongDBExtended.maintenance
 		set
 		{
 			base.bga_files_defined = value;
-			RaisePropertyChanged(() => BGAHealth);
+			if (!IsPropertyChangedSuppressed)
+			{
+				RaisePropertyChanged(() => BGAHealth);
+			}
 		}
 	}
 
@@ -79,7 +122,10 @@ public class BMSFileMaintenanceInfo : LR2SongDBExtended.maintenance
 		set
 		{
 			base.movie_files_existing = value;
-			RaisePropertyChanged(() => MovieHealth);
+			if (!IsPropertyChangedSuppressed)
+			{
+				RaisePropertyChanged(() => MovieHealth);
+			}
 		}
 	}
 
@@ -92,7 +138,10 @@ public class BMSFileMaintenanceInfo : LR2SongDBExtended.maintenance
 		set
 		{
 			base.movie_files_defined = value;
-			RaisePropertyChanged(() => MovieHealth);
+			if (!IsPropertyChangedSuppressed)
+			{
+				RaisePropertyChanged(() => MovieHealth);
+			}
 		}
 	}
 
@@ -105,7 +154,10 @@ public class BMSFileMaintenanceInfo : LR2SongDBExtended.maintenance
 		set
 		{
 			base.is_stagefile_existing = value;
-			RaisePropertyChanged(() => StagefileHealth);
+			if (!IsPropertyChangedSuppressed)
+			{
+				RaisePropertyChanged(() => StagefileHealth);
+			}
 		}
 	}
 
@@ -118,7 +170,10 @@ public class BMSFileMaintenanceInfo : LR2SongDBExtended.maintenance
 		set
 		{
 			base.is_stagefile_defined = value;
-			RaisePropertyChanged(() => StagefileHealth);
+			if (!IsPropertyChangedSuppressed)
+			{
+				RaisePropertyChanged(() => StagefileHealth);
+			}
 		}
 	}
 
@@ -131,7 +186,10 @@ public class BMSFileMaintenanceInfo : LR2SongDBExtended.maintenance
 		set
 		{
 			base.is_banner_existing = value;
-			RaisePropertyChanged(() => BannerHealth);
+			if (!IsPropertyChangedSuppressed)
+			{
+				RaisePropertyChanged(() => BannerHealth);
+			}
 		}
 	}
 
@@ -144,7 +202,10 @@ public class BMSFileMaintenanceInfo : LR2SongDBExtended.maintenance
 		set
 		{
 			base.is_banner_defined = value;
-			RaisePropertyChanged(() => BannerHealth);
+			if (!IsPropertyChangedSuppressed)
+			{
+				RaisePropertyChanged(() => BannerHealth);
+			}
 		}
 	}
 
@@ -157,7 +218,10 @@ public class BMSFileMaintenanceInfo : LR2SongDBExtended.maintenance
 		set
 		{
 			base.is_backbmp_existing = value;
-			RaisePropertyChanged(() => BackbmpHealth);
+			if (!IsPropertyChangedSuppressed)
+			{
+				RaisePropertyChanged(() => BackbmpHealth);
+			}
 		}
 	}
 
@@ -170,7 +234,10 @@ public class BMSFileMaintenanceInfo : LR2SongDBExtended.maintenance
 		set
 		{
 			base.is_backbmp_defined = value;
-			RaisePropertyChanged(() => BackbmpHealth);
+			if (!IsPropertyChangedSuppressed)
+			{
+				RaisePropertyChanged(() => BackbmpHealth);
+			}
 		}
 	}
 
