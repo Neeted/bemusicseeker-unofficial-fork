@@ -3547,65 +3547,112 @@ public class BMSLibrary : NotificationObject
         }
     }
 
-    public void AddReferenceBMSTables(BMSTable table, IEnumerable<BMSTableEntry> entries = null)
+    public void AddReferenceBMSTables(BMSTable table, IEnumerable<BMSTableEntry> entries = null, bool suppressFilePropertyChanged = false)
     {
-        if (entries == null)
-        {
-            entries = table.entries;
-        }
-        if (BMSFiles != null && BMSFiles.Count > 0)
-        {
-            using (rwlockBMSFiles.GetReaderGuard())
-            {
-                addReferenceBMSTables(table, entries, BMSFiles);
-            }
-        }
-        if (BMSPackagesPending == null || BMSPackagesPending.Count <= 0)
+        if (table == null)
         {
             return;
         }
-        using (rwlockBMSFilesPendingInstall.GetReaderGuard())
+        Stopwatch stopwatchBuildMap = Stopwatch.StartNew();
+        IEnumerable<BMSTableEntry> sourceEntries = entries;
+        if (sourceEntries == null)
         {
-            addReferenceBMSTables(table, entries, BMSPackagesPending.SelectMany((BMSPackage pkg) => pkg.BMSFiles));
+            using (table.ReaderWriterLock.GetReaderGuard())
+            {
+                sourceEntries = table.entries.ToList();
+            }
         }
+        else
+        {
+            sourceEntries = sourceEntries.ToList();
+        }
+        Dictionary<string, BMSTable[]> md5ToTablesMap = BuildMd5ToTablesMap(table, sourceEntries);
+        stopwatchBuildMap.Stop();
+        int matchedSongFiles = 0;
+        int matchedPendingFiles = 0;
+        int addedSongRefs = 0;
+        int addedPendingRefs = 0;
+        Stopwatch stopwatchApplySong = Stopwatch.StartNew();
+        if (md5ToTablesMap.Count > 0 && BMSFiles != null && BMSFiles.Count > 0)
+        {
+            using (rwlockBMSFiles.GetReaderGuard())
+            {
+                addedSongRefs = ApplyReferenceMap(BMSFiles, md5ToTablesMap, out matchedSongFiles, suppressFilePropertyChanged);
+            }
+        }
+        stopwatchApplySong.Stop();
+        Stopwatch stopwatchApplyPending = Stopwatch.StartNew();
+        if (md5ToTablesMap.Count > 0 && BMSPackagesPending != null && BMSPackagesPending.Count > 0)
+        {
+            using (rwlockBMSFilesPendingInstall.GetReaderGuard())
+            {
+                addedPendingRefs = ApplyReferenceMap(BMSPackagesPending.SelectMany((BMSPackage pkg) => pkg.BMSFiles), md5ToTablesMap, out matchedPendingFiles, suppressFilePropertyChanged);
+            }
+        }
+        stopwatchApplyPending.Stop();
+        LogInstallPerformance("playlist_ref_batch buildMapMs=" + stopwatchBuildMap.ElapsedMilliseconds + " applySongMs=" + stopwatchApplySong.ElapsedMilliseconds + " applyPendingMs=" + stopwatchApplyPending.ElapsedMilliseconds + " mapMd5Count=" + md5ToTablesMap.Count + " tableCount=1 matchedSongFiles=" + matchedSongFiles + " addSongCalls=" + addedSongRefs + " matchedPendingFiles=" + matchedPendingFiles + " addPendingCalls=" + addedPendingRefs + " suppressNotify=" + suppressFilePropertyChanged);
     }
 
-    public void AddReferenceBMSTables(IEnumerable<BMSTable> tables, IEnumerable<BMSFile> files = null)
+    public void AddReferenceBMSTables(IEnumerable<BMSTable> tables, IEnumerable<BMSFile> files = null, bool suppressFilePropertyChanged = false)
     {
-        Action<IEnumerable<BMSFile>> action = delegate (IEnumerable<BMSFile> l)
+        if (tables == null)
         {
-            tables.AsParallel().ForAll(delegate (BMSTable table)
-            {
-                addReferenceBMSTables(table, table.entries, l);
-            });
-        };
-        if (files == null)
-        {
-            NLogWrapper.DebuggerLogger?.Trace("ReferenceBMSTableStart");
-            if (BMSFiles != null && BMSFiles.Count > 0)
-            {
-                using (rwlockBMSFiles.GetReaderGuard())
-                {
-                    action(BMSFiles);
-                }
-            }
-            if (BMSPackagesPending != null && BMSPackagesPending.Count > 0)
-            {
-                using (rwlockBMSFilesPendingInstall.GetReaderGuard())
-                {
-                    action(BMSPackagesPending.SelectMany((BMSPackage pkg) => pkg.BMSFiles));
-                }
-            }
-            NLogWrapper.DebuggerLogger?.Trace("ReferenceBMSTableEnd");
             return;
         }
-        using (rwlockBMSFilesPendingInstall.GetReaderGuard())
+        List<BMSTable> list = tables.Where((BMSTable t) => t != null).ToList();
+        if (list.Count == 0)
         {
-            using (rwlockBMSFiles.GetReaderGuard())
+            return;
+        }
+        Stopwatch stopwatchBuildMap = Stopwatch.StartNew();
+        Dictionary<string, BMSTable[]> md5ToTablesMap = BuildMd5ToTablesMap(list);
+        stopwatchBuildMap.Stop();
+        long applySongMs = 0L;
+        long applyPendingMs = 0L;
+        int matchedSongFiles = 0;
+        int matchedPendingFiles = 0;
+        int addedSongRefs = 0;
+        int addedPendingRefs = 0;
+        if (md5ToTablesMap.Count > 0)
+        {
+            if (files == null)
             {
-                action(files);
+                Stopwatch stopwatchApplySong = Stopwatch.StartNew();
+                if (BMSFiles != null && BMSFiles.Count > 0)
+                {
+                    using (rwlockBMSFiles.GetReaderGuard())
+                    {
+                        addedSongRefs = ApplyReferenceMap(BMSFiles, md5ToTablesMap, out matchedSongFiles, suppressFilePropertyChanged);
+                    }
+                }
+                stopwatchApplySong.Stop();
+                applySongMs = stopwatchApplySong.ElapsedMilliseconds;
+                Stopwatch stopwatchApplyPending = Stopwatch.StartNew();
+                if (BMSPackagesPending != null && BMSPackagesPending.Count > 0)
+                {
+                    using (rwlockBMSFilesPendingInstall.GetReaderGuard())
+                    {
+                        addedPendingRefs = ApplyReferenceMap(BMSPackagesPending.SelectMany((BMSPackage pkg) => pkg.BMSFiles), md5ToTablesMap, out matchedPendingFiles, suppressFilePropertyChanged);
+                    }
+                }
+                stopwatchApplyPending.Stop();
+                applyPendingMs = stopwatchApplyPending.ElapsedMilliseconds;
+            }
+            else
+            {
+                Stopwatch stopwatchApplySong = Stopwatch.StartNew();
+                using (rwlockBMSFilesPendingInstall.GetReaderGuard())
+                {
+                    using (rwlockBMSFiles.GetReaderGuard())
+                    {
+                        addedSongRefs = ApplyReferenceMap(files, md5ToTablesMap, out matchedSongFiles, suppressFilePropertyChanged);
+                    }
+                }
+                stopwatchApplySong.Stop();
+                applySongMs = stopwatchApplySong.ElapsedMilliseconds;
             }
         }
+        LogInstallPerformance("playlist_ref_batch buildMapMs=" + stopwatchBuildMap.ElapsedMilliseconds + " applySongMs=" + applySongMs + " applyPendingMs=" + applyPendingMs + " mapMd5Count=" + md5ToTablesMap.Count + " tableCount=" + list.Count + " matchedSongFiles=" + matchedSongFiles + " addSongCalls=" + addedSongRefs + " matchedPendingFiles=" + matchedPendingFiles + " addPendingCalls=" + addedPendingRefs + " suppressNotify=" + suppressFilePropertyChanged);
     }
 
     public void AddReferenceBMSTables(BMSTable table, IEnumerable<BMSFile> files)
@@ -3620,16 +3667,65 @@ public class BMSLibrary : NotificationObject
         }
     }
 
-    private void addReferenceBMSTables(BMSTable table, IEnumerable<BMSTableEntry> entries, IEnumerable<BMSFile> files)
+    private Dictionary<string, BMSTable[]> BuildMd5ToTablesMap(BMSTable table, IEnumerable<BMSTableEntry> entries)
     {
-        using (table.ReaderWriterLock.GetReaderGuard())
+        Dictionary<string, HashSet<BMSTable>> dictionary = new Dictionary<string, HashSet<BMSTable>>(StringComparer.OrdinalIgnoreCase);
+        AddEntriesToMd5ToTablesMap(dictionary, table, entries);
+        return dictionary.ToDictionary((KeyValuePair<string, HashSet<BMSTable>> kvp) => kvp.Key, (KeyValuePair<string, HashSet<BMSTable>> kvp) => kvp.Value.ToArray(), StringComparer.OrdinalIgnoreCase);
+    }
+
+    private Dictionary<string, BMSTable[]> BuildMd5ToTablesMap(IEnumerable<BMSTable> tables)
+    {
+        Dictionary<string, HashSet<BMSTable>> dictionary = new Dictionary<string, HashSet<BMSTable>>(StringComparer.OrdinalIgnoreCase);
+        foreach (BMSTable table in tables)
         {
-            AddReferenceBMSTables(table, from f in files
-                                         join t in from e in table.entries
-                                                   where !string.IsNullOrWhiteSpace(e.md5) && !e.is_removed
-                                                   select e on f.hash equals t.md5
-                                         select f);
+            List<BMSTableEntry> entries = null;
+            using (table.ReaderWriterLock.GetReaderGuard())
+            {
+                entries = table.entries.ToList();
+            }
+            AddEntriesToMd5ToTablesMap(dictionary, table, entries);
         }
+        return dictionary.ToDictionary((KeyValuePair<string, HashSet<BMSTable>> kvp) => kvp.Key, (KeyValuePair<string, HashSet<BMSTable>> kvp) => kvp.Value.ToArray(), StringComparer.OrdinalIgnoreCase);
+    }
+
+    private void AddEntriesToMd5ToTablesMap(Dictionary<string, HashSet<BMSTable>> dictionary, BMSTable table, IEnumerable<BMSTableEntry> entries)
+    {
+        if (table == null || entries == null)
+        {
+            return;
+        }
+        foreach (BMSTableEntry entry in entries)
+        {
+            if (entry != null && !entry.is_removed && !string.IsNullOrWhiteSpace(entry.md5))
+            {
+                if (!dictionary.TryGetValue(entry.md5, out HashSet<BMSTable> value))
+                {
+                    value = new HashSet<BMSTable>();
+                    dictionary[entry.md5] = value;
+                }
+                value.Add(table);
+            }
+        }
+    }
+
+    private int ApplyReferenceMap(IEnumerable<BMSFile> files, Dictionary<string, BMSTable[]> md5ToTablesMap, out int matchedFiles, bool suppressFilePropertyChanged = false)
+    {
+        matchedFiles = 0;
+        if (files == null || md5ToTablesMap == null || md5ToTablesMap.Count == 0)
+        {
+            return 0;
+        }
+        int addCalls = 0;
+        foreach (BMSFile file in files)
+        {
+            if (file != null && !string.IsNullOrWhiteSpace(file.hash) && md5ToTablesMap.TryGetValue(file.hash, out BMSTable[] value))
+            {
+                matchedFiles++;
+                addCalls += file.AddRefTables(value, suppressFilePropertyChanged);
+            }
+        }
+        return addCalls;
     }
 
     public void RemoveReferenceBMSTables(BMSTable table, IEnumerable<BMSTableEntry> entries = null)

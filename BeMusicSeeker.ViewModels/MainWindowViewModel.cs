@@ -3098,6 +3098,17 @@ public class MainWindowViewModel : ViewModel
 		PendingInstallFilter
 	}
 
+	[Flags]
+	private enum UiRefreshChannel
+	{
+		None = 0,
+		LibraryMainView = 1,
+		LibraryFolderTree = 2,
+		InstallTree = 4,
+		PlaylistTree = 8,
+		DuplicateTree = 16
+	}
+
 	private PlaylistPropertyDialogViewModel _playlistPropertyDialog;
 
 	private bool initializationCompleted;
@@ -3128,17 +3139,23 @@ public class MainWindowViewModel : ViewModel
 
 	private object lockCopyFile = new object();
 
-	private int suppressInstallUiUpdateCount;
+	private static readonly Logger installPerformanceLogger = LogManager.GetLogger("InstallPerformance.MainWindowViewModel");
 
-	private bool pendingInstallUiRefreshRequested;
+	private static readonly bool installPerformanceLoggingEnabled = CommandLineSwitches.IsInstallPerformanceLogEnabled;
 
-	private object lockInstallUiSuppression = new object();
+	private int suppressUiUpdateDepth;
 
-	private int suppressInitLibraryUiUpdateCount;
+	private UiRefreshChannel suppressedUiRefreshMask = UiRefreshChannel.None;
 
-	private bool pendingInitLibraryUiRefreshRequested;
+	private UiRefreshChannel pendingUiRefreshMask = UiRefreshChannel.None;
 
-	private object lockInitLibraryUiSuppression = new object();
+	private object lockUiSuppression = new object();
+
+	private int deferredPlaylistRefRequestedVersion;
+
+	private bool deferredPlaylistRefRunning;
+
+	private object lockDeferredPlaylistRef = new object();
 
 	private Dictionary<string, Func<BeMusicSeeker.Models.BMSFile, string>> sortKeySelectorCache = new Dictionary<string, Func<BeMusicSeeker.Models.BMSFile, string>>(StringComparer.Ordinal);
 
@@ -3222,98 +3239,212 @@ public class MainWindowViewModel : ViewModel
 
 	public SettingDialogViewModel settingDialog { get; private set; }
 
-	private bool IsInstallUiUpdateSuppressed => Volatile.Read(ref suppressInstallUiUpdateCount) > 0;
-
-	private bool IsInitLibraryUiUpdateSuppressed => Volatile.Read(ref suppressInitLibraryUiUpdateCount) > 0;
-
-	private void BeginInstallUiUpdateSuppression()
+	private static void LogUiSuppression(string message)
 	{
-		Interlocked.Increment(ref suppressInstallUiUpdateCount);
-	}
-
-	private void RequestInstallUiRefreshIfSuppressed()
-	{
-		if (!IsInstallUiUpdateSuppressed)
+		if (installPerformanceLoggingEnabled)
 		{
-			return;
-		}
-		lock (lockInstallUiSuppression)
-		{
-			pendingInstallUiRefreshRequested = true;
+			installPerformanceLogger.Info(message);
 		}
 	}
 
-	private void EndInstallUiUpdateSuppression()
+	private static void LogDeferredPlaylistReference(string message)
 	{
-		if (Interlocked.Decrement(ref suppressInstallUiUpdateCount) > 0)
+		if (installPerformanceLoggingEnabled)
+		{
+			installPerformanceLogger.Info(message);
+		}
+	}
+
+	private void BeginUiUpdateSuppression(UiRefreshChannel mask)
+	{
+		if (mask == UiRefreshChannel.None)
 		{
 			return;
 		}
-		bool refreshRequired;
-		lock (lockInstallUiSuppression)
+		int suppressDepth;
+		UiRefreshChannel suppressedMask;
+		lock (lockUiSuppression)
 		{
-			refreshRequired = pendingInstallUiRefreshRequested;
-			pendingInstallUiRefreshRequested = false;
+			if (suppressUiUpdateDepth == 0)
+			{
+				pendingUiRefreshMask = UiRefreshChannel.None;
+			}
+			suppressUiUpdateDepth++;
+			suppressedUiRefreshMask |= mask;
+			suppressDepth = suppressUiUpdateDepth;
+			suppressedMask = suppressedUiRefreshMask;
 		}
-		if (!refreshRequired)
+		LogUiSuppression("ui_suppress begin depth=" + suppressDepth + " mask=" + mask + " suppressed=" + suppressedMask);
+	}
+
+	private void RequestUiRefresh(UiRefreshChannel channel)
+	{
+		TrySuppress(channel);
+	}
+
+	private bool TrySuppress(UiRefreshChannel channel)
+	{
+		if (channel == UiRefreshChannel.None)
+		{
+			return false;
+		}
+		bool suppressed = false;
+		bool pendingChanged = false;
+		int suppressDepth = 0;
+		UiRefreshChannel pendingMask = UiRefreshChannel.None;
+		lock (lockUiSuppression)
+		{
+			if (suppressUiUpdateDepth > 0 && (suppressedUiRefreshMask & channel) != 0)
+			{
+				suppressed = true;
+				UiRefreshChannel uiRefreshChannel = pendingUiRefreshMask;
+				pendingUiRefreshMask |= channel;
+				pendingChanged = uiRefreshChannel != pendingUiRefreshMask;
+				suppressDepth = suppressUiUpdateDepth;
+				pendingMask = pendingUiRefreshMask;
+			}
+		}
+		if (pendingChanged)
+		{
+			LogUiSuppression("ui_suppress pending depth=" + suppressDepth + " channel=" + channel + " pending=" + pendingMask);
+		}
+		return suppressed;
+	}
+
+	private void EndUiUpdateSuppression()
+	{
+		UiRefreshChannel uiRefreshChannel = UiRefreshChannel.None;
+		int suppressDepth = 0;
+		lock (lockUiSuppression)
+		{
+			if (suppressUiUpdateDepth <= 0)
+			{
+				suppressUiUpdateDepth = 0;
+				suppressedUiRefreshMask = UiRefreshChannel.None;
+				pendingUiRefreshMask = UiRefreshChannel.None;
+				return;
+			}
+			suppressUiUpdateDepth--;
+			suppressDepth = suppressUiUpdateDepth;
+			if (suppressUiUpdateDepth == 0)
+			{
+				uiRefreshChannel = pendingUiRefreshMask;
+				pendingUiRefreshMask = UiRefreshChannel.None;
+				suppressedUiRefreshMask = UiRefreshChannel.None;
+			}
+		}
+		LogUiSuppression("ui_suppress end depth=" + suppressDepth + " flush=" + uiRefreshChannel);
+		if (uiRefreshChannel == UiRefreshChannel.None)
 		{
 			return;
 		}
 		DispatcherHelper.UIDispatcher.BeginInvoke((Action)delegate
+		{
+			FlushPendingUiRefresh(uiRefreshChannel);
+		});
+	}
+
+	private void RefreshLibraryMainViewForCurrentFilter()
+	{
+		if (Enum.IsDefined(typeof(MaintenanceFilterType), (int)treeViewFilterTypeSelected))
+		{
+			ExecMaintenanceFilter((MaintenanceFilterType)treeViewFilterTypeSelected, treeViewFilterParameterSelected);
+		}
+		else
+		{
+			makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
+		}
+	}
+
+	private void FlushPendingUiRefresh(UiRefreshChannel mask)
+	{
+		LogUiSuppression("ui_suppress flush mask=" + mask);
+		if ((mask & UiRefreshChannel.InstallTree) != 0)
 		{
 			RaisePropertyChanged(() => BMSPackagesInstalled);
 			RaisePropertyChanged(() => BMSPackagesPending);
-			if (treeViewFilterTypeSelected == viewUpdateMode.NewlyInstalledFolderSelected || treeViewFilterTypeSelected == viewUpdateMode.PendingInstallFolderSelected)
-			{
-				makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
-			}
-		});
-	}
-
-	private void BeginInitLibraryUiUpdateSuppression()
-	{
-		Interlocked.Increment(ref suppressInitLibraryUiUpdateCount);
-	}
-
-	private void RequestInitLibraryUiRefreshIfSuppressed()
-	{
-		if (!IsInitLibraryUiUpdateSuppressed)
-		{
-			return;
 		}
-		lock (lockInitLibraryUiSuppression)
+		if ((mask & UiRefreshChannel.PlaylistTree) != 0)
 		{
-			pendingInitLibraryUiRefreshRequested = true;
+			RaisePropertyChanged(() => BMSTables);
+		}
+		if ((mask & UiRefreshChannel.LibraryFolderTree) != 0)
+		{
+			RaisePropertyChanged(() => BMSParentFolderList);
+		}
+		if ((mask & UiRefreshChannel.DuplicateTree) != 0)
+		{
+			RaisePropertyChanged(() => BMSFilesDuplicated);
+		}
+		if ((mask & UiRefreshChannel.LibraryMainView) != 0)
+		{
+			RefreshLibraryMainViewForCurrentFilter();
 		}
 	}
 
-	private void EndInitLibraryUiUpdateSuppression()
+	private void ScheduleDeferredPlaylistReferenceApply(string reason)
 	{
-		if (Interlocked.Decrement(ref suppressInitLibraryUiUpdateCount) > 0)
+		int version = 0;
+		bool shouldStartWorker = false;
+		lock (lockDeferredPlaylistRef)
+		{
+			deferredPlaylistRefRequestedVersion++;
+			version = deferredPlaylistRefRequestedVersion;
+			if (!deferredPlaylistRefRunning)
+			{
+				deferredPlaylistRefRunning = true;
+				shouldStartWorker = true;
+			}
+		}
+		LogDeferredPlaylistReference("playlist_ref_deferred queue reason=" + reason + " version=" + version);
+		if (!shouldStartWorker)
 		{
 			return;
 		}
-		bool refreshRequired;
-		lock (lockInitLibraryUiSuppression)
+		Task.Run(delegate
 		{
-			refreshRequired = pendingInitLibraryUiRefreshRequested;
-			pendingInitLibraryUiRefreshRequested = false;
-		}
-		if (!refreshRequired)
-		{
-			return;
-		}
-		DispatcherHelper.UIDispatcher.BeginInvoke((Action)delegate
-		{
-			if (Enum.IsDefined(typeof(MaintenanceFilterType), (int)treeViewFilterTypeSelected))
+			while (true)
 			{
-				ExecMaintenanceFilter((MaintenanceFilterType)treeViewFilterTypeSelected, treeViewFilterParameterSelected);
+				int requestVersion = 0;
+				lock (lockDeferredPlaylistRef)
+				{
+					requestVersion = deferredPlaylistRefRequestedVersion;
+				}
+				DateTime startedAt = DateTime.UtcNow;
+				try
+				{
+					List<BMSTable> list = new List<BMSTable>();
+					tables.AcquireReaderLockBMSTables();
+					try
+					{
+						list = BMSTables.Where((BMSTable t) => t != null).ToList();
+					}
+					finally
+					{
+						tables.FreeReaderLockBMSTables();
+					}
+					LogDeferredPlaylistReference("playlist_ref_deferred run version=" + requestVersion + " tableCount=" + list.Count);
+					files.AddReferenceBMSTables(list, null, suppressFilePropertyChanged: true);
+					DispatcherHelper.UIDispatcher.BeginInvoke((Action)delegate
+					{
+						makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
+					});
+					LogDeferredPlaylistReference("playlist_ref_deferred done version=" + requestVersion + " elapsedMs=" + (long)(DateTime.UtcNow - startedAt).TotalMilliseconds + " refreshed=true");
+				}
+				catch (Exception ex)
+				{
+					LogDeferredPlaylistReference("playlist_ref_deferred failed version=" + requestVersion + " elapsedMs=" + (long)(DateTime.UtcNow - startedAt).TotalMilliseconds + " message=" + ex.Message);
+				}
+				lock (lockDeferredPlaylistRef)
+				{
+					if (deferredPlaylistRefRequestedVersion == requestVersion)
+					{
+						deferredPlaylistRefRunning = false;
+						break;
+					}
+				}
 			}
-			else
-			{
-				makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
-			}
-		});
+		}).Logging("ScheduleDeferredPlaylistReferenceApply", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\ViewModels\\MainWindowViewModel.cs", 0);
 	}
 
 	public PlaylistPropertyDialogViewModel playlistPropertyDialog
@@ -4141,6 +4272,7 @@ public class MainWindowViewModel : ViewModel
 		await _semaphore.WaitAsync();
 		try
 		{
+			BeginUiUpdateSuppression(UiRefreshChannel.LibraryMainView | UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.InstallTree | UiRefreshChannel.PlaylistTree | UiRefreshChannel.DuplicateTree);
 			SemaphoreSlim semaphore = new SemaphoreSlim(1, 1);
 			Action taskAdd1 = delegate
 			{
@@ -4165,6 +4297,7 @@ public class MainWindowViewModel : ViewModel
 		}
 		finally
 		{
+			EndUiUpdateSuppression();
 			_semaphore.Release();
 		}
 	}
@@ -4175,18 +4308,20 @@ public class MainWindowViewModel : ViewModel
 		{
 			return;
 		}
+		bool scheduleDeferredPlaylistRef = false;
 		await _semaphore.WaitAsync();
 		try
 		{
+			BeginUiUpdateSuppression(UiRefreshChannel.LibraryMainView | UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.InstallTree | UiRefreshChannel.DuplicateTree);
 			await Task.Run(delegate
 			{
 				files.Initialize(null, null, false);
 			}).Logging("ReloadFiles", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\ViewModels\\MainWindowViewModel.cs", 134);
-			BMSTables.Where((BMSTable t) => t != null).AsParallel().ForAll(delegate(BMSTable bmsTable)
+			scheduleDeferredPlaylistRef = true;
+			if (!TrySuppress(UiRefreshChannel.LibraryFolderTree))
 			{
-				files.AddReferenceBMSTables(bmsTable);
-			});
-			RaisePropertyChanged(() => BMSParentFolderList);
+				RaisePropertyChanged(() => BMSParentFolderList);
+			}
 		}
 		catch
 		{
@@ -4194,7 +4329,12 @@ public class MainWindowViewModel : ViewModel
 		}
 		finally
 		{
+			EndUiUpdateSuppression();
 			_semaphore.Release();
+		}
+		if (scheduleDeferredPlaylistRef)
+		{
+			ScheduleDeferredPlaylistReferenceApply("ReloadFiles");
 		}
 	}
 
@@ -4285,184 +4425,183 @@ public class MainWindowViewModel : ViewModel
 		listenerForBMSPlaylistBMSTablesCollection = new CollectionChangedEventListener(tables.BMSTables);
 		listenerForBMSLibrary.RegisterHandler(() => files.BMSFiles, delegate
 		{
-			if (IsInitLibraryUiUpdateSuppressed)
+			if (TrySuppress(UiRefreshChannel.LibraryMainView))
 			{
-				RequestInitLibraryUiRefreshIfSuppressed();
+				return;
+			}
+			if (Enum.IsDefined(typeof(MaintenanceFilterType), (int)treeViewFilterTypeSelected))
+			{
+				MaintenanceFilterType type = (MaintenanceFilterType)treeViewFilterTypeSelected;
+				ExecMaintenanceFilter(type);
 			}
 			else
 			{
-				if (Enum.IsDefined(typeof(MaintenanceFilterType), (int)treeViewFilterTypeSelected))
-				{
-					MaintenanceFilterType type = (MaintenanceFilterType)treeViewFilterTypeSelected;
-					ExecMaintenanceFilter(type);
-				}
-				else
-				{
-					makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
-				}
+				makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
 			}
 		});
 		listenerForBMSLibrary.RegisterHandler(() => files.BMSFilesNeedToBeFixed, delegate
 		{
 			if (treeViewFilterTypeSelected == viewUpdateMode.FileMissingFilterSelected)
 			{
-				if (IsInitLibraryUiUpdateSuppressed)
+				if (TrySuppress(UiRefreshChannel.LibraryMainView))
 				{
-					RequestInitLibraryUiRefreshIfSuppressed();
+					return;
 				}
-				else
-				{
-					makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
-				}
+				makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
 			}
 		});
 		listenerForBMSLibrary.RegisterHandler(() => files.BMSFilesNeedToBeFixedIgnored, delegate
 		{
 			if (treeViewFilterTypeSelected == viewUpdateMode.FileMissingIgnoredFilterSelected)
 			{
-				if (IsInitLibraryUiUpdateSuppressed)
+				if (TrySuppress(UiRefreshChannel.LibraryMainView))
 				{
-					RequestInitLibraryUiRefreshIfSuppressed();
+					return;
 				}
-				else
-				{
-					makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
-				}
+				makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
 			}
 		});
 		listenerForBMSLibrary.RegisterHandler(() => files.BMSFilesDuplicated, delegate
 		{
-			RaisePropertyChanged(() => BMSFilesDuplicated);
+			if (!TrySuppress(UiRefreshChannel.DuplicateTree))
+			{
+				RaisePropertyChanged(() => BMSFilesDuplicated);
+			}
 			if (treeViewFilterTypeSelected == viewUpdateMode.DuplicateFilterSelected)
 			{
-				if (IsInitLibraryUiUpdateSuppressed)
+				if (TrySuppress(UiRefreshChannel.LibraryMainView))
 				{
-					RequestInitLibraryUiRefreshIfSuppressed();
+					return;
 				}
-				else
-				{
-					makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
-				}
+				makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
 			}
 		});
 		listenerForBMSLibrary.RegisterHandler(() => files.BMSFilesGarbled, delegate
 		{
 			if (treeViewFilterTypeSelected == viewUpdateMode.GarbledFilterSelected)
 			{
-				if (IsInitLibraryUiUpdateSuppressed)
+				if (TrySuppress(UiRefreshChannel.LibraryMainView))
 				{
-					RequestInitLibraryUiRefreshIfSuppressed();
+					return;
 				}
-				else
-				{
-					makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
-				}
+				makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
 			}
 		});
 		listenerForBMSLibrary.RegisterHandler(() => files.BMSFilesGarbledFixed, delegate
 		{
 			if (treeViewFilterTypeSelected == viewUpdateMode.GarbleFixedFilterSelected)
 			{
-				if (IsInitLibraryUiUpdateSuppressed)
+				if (TrySuppress(UiRefreshChannel.LibraryMainView))
 				{
-					RequestInitLibraryUiRefreshIfSuppressed();
+					return;
 				}
-				else
-				{
-					makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
-				}
+				makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
 			}
 		});
 		listenerForBMSLibrary.RegisterHandler(() => files.BMSFilesUnregistered, delegate
 		{
 			if (treeViewFilterTypeSelected == viewUpdateMode.UnregisteredFilterSelected)
 			{
-				if (IsInitLibraryUiUpdateSuppressed)
+				if (TrySuppress(UiRefreshChannel.LibraryMainView))
 				{
-					RequestInitLibraryUiRefreshIfSuppressed();
+					return;
 				}
-				else
-				{
-					makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
-				}
+				makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
 			}
 		});
 		listenerForBMSLibrary.RegisterHandler(() => files.BMSFilesZeroNote, delegate
 		{
 			if (treeViewFilterTypeSelected == viewUpdateMode.ZeroNoteFilterSelected)
 			{
-				if (IsInitLibraryUiUpdateSuppressed)
+				if (TrySuppress(UiRefreshChannel.LibraryMainView))
 				{
-					RequestInitLibraryUiRefreshIfSuppressed();
+					return;
 				}
-				else
-				{
-					makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
-				}
+				makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
 			}
 		});
 		listenerForBMSLibrary.RegisterHandler(() => files.BMSPackagesInstalled, delegate
 		{
-			if (IsInstallUiUpdateSuppressed)
-			{
-				RequestInstallUiRefreshIfSuppressed();
-				return;
-			}
 			if (treeViewFilterTypeSelected == viewUpdateMode.NewlyInstalledFolderSelected)
 			{
-				makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
+				if (!TrySuppress(UiRefreshChannel.LibraryMainView))
+				{
+					makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
+				}
+			}
+			if (TrySuppress(UiRefreshChannel.InstallTree))
+			{
+				return;
 			}
 			RaisePropertyChanged(() => BMSPackagesInstalled);
 		});
 		listenerForBMSLibrary.RegisterHandler(() => files.BMSPackagesPending, delegate
 		{
-			if (IsInstallUiUpdateSuppressed)
-			{
-				RequestInstallUiRefreshIfSuppressed();
-				return;
-			}
 			if (treeViewFilterTypeSelected == viewUpdateMode.PendingInstallFolderSelected)
 			{
-				makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
+				if (!TrySuppress(UiRefreshChannel.LibraryMainView))
+				{
+					makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
+				}
+			}
+			if (TrySuppress(UiRefreshChannel.InstallTree))
+			{
+				return;
 			}
 			RaisePropertyChanged(() => BMSPackagesPending);
 		});
 		listenerForBMSLibraryBMSPackagesInstalledCollection.RegisterHandler(delegate
 		{
-			if (IsInstallUiUpdateSuppressed)
-			{
-				RequestInstallUiRefreshIfSuppressed();
-				return;
-			}
 			if (treeViewFilterTypeSelected == viewUpdateMode.NewlyInstalledFolderSelected)
 			{
-				makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
+				if (!TrySuppress(UiRefreshChannel.LibraryMainView))
+				{
+					makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
+				}
+			}
+			if (TrySuppress(UiRefreshChannel.InstallTree))
+			{
+				return;
 			}
 			RaisePropertyChanged(() => BMSPackagesInstalled);
 		});
 		listenerForBMSLibraryBMSPackagesPendingCollection.RegisterHandler(delegate
 		{
-			if (IsInstallUiUpdateSuppressed)
-			{
-				RequestInstallUiRefreshIfSuppressed();
-				return;
-			}
 			if (treeViewFilterTypeSelected == viewUpdateMode.PendingInstallFolderSelected)
 			{
-				makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
+				if (!TrySuppress(UiRefreshChannel.LibraryMainView))
+				{
+					makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
+				}
+			}
+			if (TrySuppress(UiRefreshChannel.InstallTree))
+			{
+				return;
 			}
 			RaisePropertyChanged(() => BMSPackagesPending);
 		});
 		listenerForBMSLibrary.RegisterHandler(() => files.BMSParentFolderList, delegate
 		{
+			if (TrySuppress(UiRefreshChannel.LibraryFolderTree))
+			{
+				return;
+			}
 			RaisePropertyChanged(() => BMSParentFolderList);
 		});
 		listenerForBMSPlaylist.RegisterHandler(() => tables.BMSTables, delegate
 		{
+			if (TrySuppress(UiRefreshChannel.PlaylistTree))
+			{
+				return;
+			}
 			RaisePropertyChanged(() => BMSTables);
 		});
 		listenerForBMSPlaylistBMSTablesCollection.RegisterHandler(delegate
 		{
+			if (TrySuppress(UiRefreshChannel.PlaylistTree))
+			{
+				return;
+			}
 			RaisePropertyChanged(() => BMSTables);
 		});
 		listenerForBMSLibrary.RegisterHandler(() => files.IsWriteLockHeldInitializeBMSFiles, delegate
@@ -4554,11 +4693,7 @@ public class MainWindowViewModel : ViewModel
 		SemaphoreSlim semaphore = new SemaphoreSlim(1, 1);
 		Action taskAdd1 = delegate
 		{
-			Action<BMSTable, bool, BMSTable> updateCallbackAction = delegate(BMSTable bmsTable, bool updated, BMSTable oldTable)
-			{
-				files.AddReferenceBMSTables(bmsTable);
-			};
-			tables.Initialize(!Settings.Default.SkipInitPlaylistLoad, updateCallbackAction, semaphore);
+			tables.Initialize(!Settings.Default.SkipInitPlaylistLoad, null, semaphore);
 		};
 		Action taskAdd2 = delegate
 		{
@@ -4601,18 +4736,20 @@ public class MainWindowViewModel : ViewModel
 			{
 			}
 		};
+		bool scheduleDeferredPlaylistRef = false;
 		Thread.Yield();
-		BeginInitLibraryUiUpdateSuppression();
+		BeginUiUpdateSuppression(UiRefreshChannel.LibraryMainView | UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.InstallTree | UiRefreshChannel.PlaylistTree | UiRefreshChannel.DuplicateTree);
 		try
 		{
 			await Task.Run(delegate
 			{
 				files.Initialize(new List<Action> { taskAdd1, taskAdd2 }, semaphore);
 			}).Logging("Initialize", "D:\\Sync\\Repository\\BeMusicSeeker\\BeMusicSeeker\\ViewModels\\MainWindowViewModel.cs", 503);
+			scheduleDeferredPlaylistRef = true;
 		}
 		finally
 		{
-			EndInitLibraryUiUpdateSuppression();
+			EndUiUpdateSuppression();
 		}
 		if (((App)System.Windows.Application.Current).firstStartup)
 		{
@@ -4621,6 +4758,10 @@ public class MainWindowViewModel : ViewModel
 		}
 		initializationCompleted = true;
 		_semaphore.Release();
+		if (scheduleDeferredPlaylistRef)
+		{
+			ScheduleDeferredPlaylistReferenceApply("Initialize");
+		}
 	}
 
 	public void SetuBMplayPanel()
@@ -5816,7 +5957,7 @@ public class MainWindowViewModel : ViewModel
 		List<BMSPackage> list = packages.Where((BMSPackage pkg) => pkg != null).ToList();
 		lock (lockCopyFile)
 		{
-			BeginInstallUiUpdateSuppression();
+			BeginUiUpdateSuppression(UiRefreshChannel.LibraryMainView | UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.InstallTree | UiRefreshChannel.DuplicateTree);
 			try
 			{
 				stopPlayingBMSFile(packages.SelectMany((BMSPackage p) => p.BMSFiles));
@@ -5824,7 +5965,7 @@ public class MainWindowViewModel : ViewModel
 			}
 			finally
 			{
-				EndInstallUiUpdateSuppression();
+				EndUiUpdateSuppression();
 			}
 		}
 	}

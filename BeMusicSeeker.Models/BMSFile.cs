@@ -666,41 +666,57 @@ public class BMSFile : LR2SongDB.song
 
     public void AddRefTable(BMSTable table)
     {
-        if (table == null)
+        AddRefTables(new BMSTable[1] { table });
+    }
+
+    public int AddRefTables(IEnumerable<BMSTable> tables, bool suppressPropertyChanged = false)
+    {
+        if (tables == null)
         {
-            return;
+            return 0;
         }
+        bool changed = false;
+        int addedCount = 0;
         using (new WriterGuard(rwlockRefTablesEventListeners))
         {
-            if (RefTables.Contains(table))
+            foreach (BMSTable item in tables)
             {
-                return;
-            }
-            try
-            {
-                PropertyChangedEventListener propertyChangedEventListener = new PropertyChangedEventListener(table);
-                propertyChangedEventListener.RegisterHandler(() => table.symbol, delegate
+                if (item == null || refTablesEventListeners.ContainsKey(item))
                 {
-                    RaisePropertyChanged(() => RefTablesSymbols);
-                });
-                propertyChangedEventListener.RegisterHandler(() => table.name, delegate
+                    continue;
+                }
+                BMSTable table = item;
+                try
                 {
-                    RaisePropertyChanged(() => RefTablesNames);
-                });
-                refTablesEventListeners.Add(table, propertyChangedEventListener);
-            }
-            catch (ArgumentException)
-            {
-                return;
-            }
-            catch (Exception)
-            {
-                throw;
+                    PropertyChangedEventListener propertyChangedEventListener = new PropertyChangedEventListener(table);
+                    propertyChangedEventListener.RegisterHandler(() => table.symbol, delegate
+                    {
+                        RaisePropertyChanged(() => RefTablesSymbols);
+                    });
+                    propertyChangedEventListener.RegisterHandler(() => table.name, delegate
+                    {
+                        RaisePropertyChanged(() => RefTablesNames);
+                    });
+                    refTablesEventListeners.Add(table, propertyChangedEventListener);
+                    addedCount++;
+                    changed = true;
+                }
+                catch (ArgumentException)
+                {
+                }
+                catch (Exception)
+                {
+                    throw;
+                }
             }
         }
-        RaisePropertyChanged(() => RefTablesSymbols);
-        RaisePropertyChanged(() => RefTablesNames);
-        RaisePropertyChanged(() => RefTables);
+        if (changed && !suppressPropertyChanged)
+        {
+            RaisePropertyChanged(() => RefTablesSymbols);
+            RaisePropertyChanged(() => RefTablesNames);
+            RaisePropertyChanged(() => RefTables);
+        }
+        return addedCount;
     }
 
     public void RemoveRefTable(BMSTable table)

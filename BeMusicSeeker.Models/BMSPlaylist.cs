@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.Specialized;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Runtime.ExceptionServices;
@@ -17,6 +18,7 @@ using Codeplex.Data;
 using Livet;
 using Livet.EventListeners;
 using Microsoft.VisualBasic.FileIO;
+using NLog;
 using Ribbit.Net;
 using Ribbit.Util;
 using Ribbit.Util.Extensions;
@@ -32,6 +34,18 @@ public class BMSPlaylist : NotificationObject
         normal,
         hard,
         fc
+    }
+
+    private static readonly Logger installPerformanceLogger = LogManager.GetLogger("InstallPerformance.BMSPlaylist");
+
+    private static readonly bool installPerformanceLoggingEnabled = CommandLineSwitches.IsInstallPerformanceLogEnabled;
+
+    private static void LogPlaylistPerformance(string message)
+    {
+        if (installPerformanceLoggingEnabled)
+        {
+            installPerformanceLogger.Info(message);
+        }
     }
 
     private string lr2SongDBPath;
@@ -405,17 +419,52 @@ public class BMSPlaylist : NotificationObject
                     {
                         List<BMSTable> list;
                         List<BMSTableEntry> source;
+                        Stopwatch stopwatchLoadTables = new Stopwatch();
+                        Stopwatch stopwatchLoadEntries = new Stopwatch();
+                        Stopwatch stopwatchGroupEntries = new Stopwatch();
+                        Stopwatch stopwatchAssignEntries = new Stopwatch();
                         using (LR2SongDBExtended lR2SongDBExtended = new LR2SongDBExtended(lr2SongDBPath))
                         {
+                            stopwatchLoadTables.Start();
                             list = (from t in lR2SongDBExtended.Table<BMSTable>()
                                     orderby t.name
                                     select t).ToList();
+                            stopwatchLoadTables.Stop();
+                            stopwatchLoadEntries.Start();
                             source = lR2SongDBExtended.Table<BMSTableEntry>().ToList();
+                            stopwatchLoadEntries.Stop();
                         }
+                        stopwatchGroupEntries.Start();
+                        Dictionary<int, List<BMSTableEntry>> entriesByPlaylistId = new Dictionary<int, List<BMSTableEntry>>();
+                        foreach (BMSTableEntry entryItem in source)
+                        {
+                            if (!entryItem.playlist_id.HasValue)
+                            {
+                                continue;
+                            }
+                            int key = entryItem.playlist_id.Value;
+                            if (!entriesByPlaylistId.TryGetValue(key, out List<BMSTableEntry> value))
+                            {
+                                value = new List<BMSTableEntry>();
+                                entriesByPlaylistId[key] = value;
+                            }
+                            value.Add(entryItem);
+                        }
+                        stopwatchGroupEntries.Stop();
+                        stopwatchAssignEntries.Start();
                         foreach (BMSTable table in list)
                         {
-                            table.entries = source.Where((BMSTableEntry e) => e.playlist_id == table.playlist_id).ToList();
+                            if (table.playlist_id.HasValue && entriesByPlaylistId.TryGetValue(table.playlist_id.Value, out List<BMSTableEntry> value2))
+                            {
+                                table.entries = value2.ToList();
+                            }
+                            else
+                            {
+                                table.entries = new List<BMSTableEntry>();
+                            }
                         }
+                        stopwatchAssignEntries.Stop();
+                        LogPlaylistPerformance("playlist_init loadTablesMs=" + stopwatchLoadTables.ElapsedMilliseconds + " loadEntriesMs=" + stopwatchLoadEntries.ElapsedMilliseconds + " groupEntriesMs=" + stopwatchGroupEntries.ElapsedMilliseconds + " assignEntriesMs=" + stopwatchAssignEntries.ElapsedMilliseconds + " tableCount=" + list.Count + " entryCount=" + source.Count);
                         BMSTables.AddRange(list);
                     }
                 }
