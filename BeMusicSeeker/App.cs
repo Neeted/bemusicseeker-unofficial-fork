@@ -72,6 +72,10 @@ public partial class App : System.Windows.Application
 			Address = "http://www.ribbit.xyz/bms/tools/bemusicseeker/report.cgi"
 		}, LogLevel.Error, asDefault: false);
 		NLogWrapper.SetDefaultConfigurationMinLogLevel(defaultFileLogLevel);
+		if (CommandLineSwitches.HasInvalidLogLevelValue)
+		{
+			NLogWrapper.TraceLogger?.Warn("Invalid --log-level value '" + CommandLineSwitches.InvalidLogLevelValue + "'. Fallback to Warn.");
+		}
 		ConfigureExtraLogging();
 		LegacyUserConfigMigrator.MigrateIfNeeded();
 		try

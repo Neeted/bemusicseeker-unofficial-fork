@@ -14,11 +14,15 @@ public static class CommandLineSwitches
 {
 	private static readonly string[] args = Environment.GetCommandLineArgs();
 
-	private static readonly NormalLogLevel parsedLogLevel = ParseLogLevel();
+	private static readonly (NormalLogLevel Level, string InvalidValue) parsedLogLevelResult = ParseLogLevel();
 
-	public static NormalLogLevel LogLevel => parsedLogLevel;
+	public static NormalLogLevel LogLevel => parsedLogLevelResult.Level;
 
-	public static bool IsInfoLoggingEnabled => parsedLogLevel == NormalLogLevel.Info;
+	public static bool IsInfoLoggingEnabled => parsedLogLevelResult.Level == NormalLogLevel.Info;
+
+	public static bool HasInvalidLogLevelValue => !string.IsNullOrWhiteSpace(parsedLogLevelResult.InvalidValue);
+
+	public static string InvalidLogLevelValue => parsedLogLevelResult.InvalidValue ?? string.Empty;
 
 	public static bool IsEverythingVerifyEnabled => HasArg("--everything-verify");
 
@@ -27,22 +31,26 @@ public static class CommandLineSwitches
 		return args.Any((string x) => string.Equals(x, arg, StringComparison.OrdinalIgnoreCase));
 	}
 
-	private static NormalLogLevel ParseLogLevel()
+	private static (NormalLogLevel Level, string InvalidValue) ParseLogLevel()
 	{
 		string[] source = args.Where((string x) => x.StartsWith("--log-level=", StringComparison.OrdinalIgnoreCase)).ToArray();
 		if (source.Length == 0)
 		{
-			return NormalLogLevel.Warn;
+			return (NormalLogLevel.Warn, null);
 		}
 		string text = source[source.Length - 1].Substring("--log-level=".Length);
 		if (string.Equals(text, "info", StringComparison.OrdinalIgnoreCase))
 		{
-			return NormalLogLevel.Info;
+			return (NormalLogLevel.Info, null);
 		}
 		if (string.Equals(text, "error", StringComparison.OrdinalIgnoreCase))
 		{
-			return NormalLogLevel.Error;
+			return (NormalLogLevel.Error, null);
 		}
-		return NormalLogLevel.Warn;
+		if (string.Equals(text, "warn", StringComparison.OrdinalIgnoreCase) || string.Equals(text, "warning", StringComparison.OrdinalIgnoreCase))
+		{
+			return (NormalLogLevel.Warn, null);
+		}
+		return (NormalLogLevel.Warn, text);
 	}
 }
