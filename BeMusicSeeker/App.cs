@@ -78,8 +78,9 @@ public partial class App : System.Windows.Application
 		{
 			new AutoUpdater().Execute();
 		}
-		catch
+		catch (Exception ex)
 		{
+			NLogWrapper.TraceLogger?.Warn(ex, "AutoUpdater execution failed");
 		}
 		EquationTokenizer.AddNamespace(typeof(object));
 		EquationTokenizer.AddNamespace(typeof(Visibility));
@@ -103,15 +104,17 @@ public partial class App : System.Windows.Application
 				{
 					Settings.Default.PublishVersion = new SerializableVersion(ApplicationDeployment.CurrentDeployment.CurrentVersion);
 				}
-				catch
+				catch (Exception ex)
 				{
+					NLogWrapper.TraceLogger?.Warn(ex, "PublishVersion acquisition failed");
 					Settings.Default.PublishVersion = null;
 				}
 				Settings.Default.Save();
 			}
 		}
-		catch (Exception)
+		catch (Exception ex)
 		{
+			NLogWrapper.TraceLogger?.Warn(ex, "Settings upgrade/migration failed");
 		}
 		if (!AvailableCultures.Values.Contains(Settings.Default.Lang))
 		{
@@ -137,20 +140,20 @@ public partial class App : System.Windows.Application
 	{
 		if (CommandLineSwitches.IsInfoLoggingEnabled)
 		{
-		string path = Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location), "install-performance.log");
-		FileTarget target = new FileTarget
-		{
-			Name = "InstallPerformanceFileTarget",
-			FileName = path,
-			Layout = NLogWrapper.DefaultLayout
-		};
-		LogManager.Configuration?.AddTarget(target);
-		LogManager.Configuration?.LoggingRules.Insert(0, new LoggingRule("InstallPerformance*", LogLevel.Info, target)
-		{
-			Final = true
-		});
-		LogManager.ReconfigExistingLoggers();
-		NLogWrapper.TraceLogger?.Info("Install performance logging enabled: " + path);
+			string path = Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location), "install-performance.log");
+			FileTarget target = new FileTarget
+			{
+				Name = "InstallPerformanceFileTarget",
+				FileName = path,
+				Layout = NLogWrapper.DefaultLayout
+			};
+			LogManager.Configuration?.AddTarget(target);
+			LogManager.Configuration?.LoggingRules.Insert(0, new LoggingRule("InstallPerformance*", LogLevel.Info, target)
+			{
+				Final = true
+			});
+			LogManager.ReconfigExistingLoggers();
+			NLogWrapper.TraceLogger?.Info("Install performance logging enabled: " + path);
 		}
 		if (!CommandLineSwitches.IsEverythingVerifyEnabled)
 		{
@@ -283,8 +286,9 @@ public partial class App : System.Windows.Application
 		{
 			text = ApplicationDeployment.CurrentDeployment.CurrentVersion.ToString() + "/";
 		}
-		catch
+		catch (Exception logEx)
 		{
+			NLogWrapper.TraceLogger?.Warn(logEx, "ApplicationDeployment version lookup failed");
 		}
 		empty = Assembly.GetEntryAssembly().GetName().Version.ToString();
 		if (showMessage)
@@ -341,8 +345,9 @@ public partial class App : System.Windows.Application
 				}
 			}
 		}
-		catch
+		catch (Exception ex)
 		{
+			NLogWrapper.TraceLogger?.Warn(ex, "LR2RootPath migration failed");
 		}
 		if (Settings.Default.AssemblyVersion == null || Settings.Default.AssemblyVersion <= new SerializableVersion(0, 1, 6654, 30787))
 		{
@@ -362,8 +367,9 @@ public partial class App : System.Windows.Application
 				}
 			}
 		}
-		catch
+		catch (Exception ex)
 		{
+			NLogWrapper.TraceLogger?.Warn(ex, "Version up message evaluation failed");
 		}
 		if (Settings.Default.AssemblyVersion == null)
 		{

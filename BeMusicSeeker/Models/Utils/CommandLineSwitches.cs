@@ -14,9 +14,11 @@ public static class CommandLineSwitches
 {
 	private static readonly string[] args = Environment.GetCommandLineArgs();
 
-	public static NormalLogLevel LogLevel => ParseLogLevel();
+	private static readonly NormalLogLevel parsedLogLevel = ParseLogLevel();
 
-	public static bool IsInfoLoggingEnabled => LogLevel == NormalLogLevel.Info;
+	public static NormalLogLevel LogLevel => parsedLogLevel;
+
+	public static bool IsInfoLoggingEnabled => parsedLogLevel == NormalLogLevel.Info;
 
 	public static bool IsEverythingVerifyEnabled => HasArg("--everything-verify");
 
