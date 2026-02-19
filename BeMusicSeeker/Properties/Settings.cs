@@ -17,6 +17,7 @@ namespace BeMusicSeeker.Properties;
 
 [CompilerGenerated]
 [GeneratedCode("Microsoft.VisualStudio.Editors.SettingsDesigner.SettingsSingleFileGenerator", "15.3.0.0")]
+[SettingsProvider(typeof(PortableSettingsProvider))]
 internal sealed class Settings : ApplicationSettingsBase
 {
 	private static Settings defaultInstance = (Settings)SettingsBase.Synchronized(new Settings());

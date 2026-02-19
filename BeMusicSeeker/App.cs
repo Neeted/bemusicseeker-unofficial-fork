@@ -78,6 +78,7 @@ public partial class App : System.Windows.Application
 		}, LogLevel.Error, asDefault: false);
 		NLogWrapper.SetDefaultConfigurationMinLogLevel(LogLevel.Info);
 		ConfigureInstallPerformanceLoggingIfEnabled();
+		LegacyUserConfigMigrator.MigrateIfNeeded();
 		try
 		{
 			new AutoUpdater().Execute();
