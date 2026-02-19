@@ -1308,6 +1308,8 @@ public class BMSLibrary : NotificationObject
                 LR2SongDBExtended lr2Song = new LR2SongDBExtended(lr2SongDBPath);
                 try
                 {
+                    List<string> pragmaLogs = lr2Song.TryApplyReadOptimizedPragmas(Settings.Default.EnableReadOptimizedPragmas);
+                    LogInstallPerformance("db_read_pragmas scope=song_tbl_load " + string.Join(" ", pragmaLogs));
                     long songTableLoadMs = 0L;
                     long songNormalizeLoopMs = 0L;
                     long folderTableLoadMs = 0L;
@@ -1318,7 +1320,8 @@ public class BMSLibrary : NotificationObject
                     long maintenanceApplyMs = 0L;
                     long bmsFilesAssignMs = 0L;
                     long commitMs = 0L;
-                    lr2Song.BeginTransaction();
+                    bool dbWriteRequired = false;
+                    long dbWriteMs = 0L;
                     Stopwatch stopwatchSongTableLoad = Stopwatch.StartNew();
                     List<BMSFile> list;
                     using (BMSFile.SuppressPropertyChangedScope())
@@ -1470,21 +1473,33 @@ public class BMSLibrary : NotificationObject
                         stopwatchFolderNormalizeLoop.Stop();
                         folderNormalizeLoopMs = stopwatchFolderNormalizeLoop.ElapsedMilliseconds;
                         Stopwatch stopwatchFixApply = Stopwatch.StartNew();
-                        foreach (string item in deletePaths)
+                        dbWriteRequired = deletePaths.Count > 0 || list2.Count > 0 || deleteFolders.Count > 0 || list3.Count > 0;
+                        if (dbWriteRequired)
                         {
-                            lr2Song.Delete<LR2SongDB.song>(item);
-                        }
-                        foreach (BMSFile item2 in list2)
-                        {
-                            lr2Song.InsertOrReplace(item2, typeof(LR2SongDB.song));
-                        }
-                        foreach (string item3 in deleteFolders)
-                        {
-                            lr2Song.Delete<LR2SongDB.folder>(item3);
-                        }
-                        foreach (LR2SongDB.folder item4 in list3)
-                        {
-                            lr2Song.InsertOrReplace(item4, typeof(LR2SongDB.folder));
+                            Stopwatch stopwatchDbWrite = Stopwatch.StartNew();
+                            lr2Song.BeginTransaction();
+                            foreach (string item in deletePaths)
+                            {
+                                lr2Song.Delete<LR2SongDB.song>(item);
+                            }
+                            foreach (BMSFile item2 in list2)
+                            {
+                                lr2Song.InsertOrReplace(item2, typeof(LR2SongDB.song));
+                            }
+                            foreach (string item3 in deleteFolders)
+                            {
+                                lr2Song.Delete<LR2SongDB.folder>(item3);
+                            }
+                            foreach (LR2SongDB.folder item4 in list3)
+                            {
+                                lr2Song.InsertOrReplace(item4, typeof(LR2SongDB.folder));
+                            }
+                            Stopwatch stopwatchCommit = Stopwatch.StartNew();
+                            lr2Song.Commit();
+                            stopwatchCommit.Stop();
+                            commitMs = stopwatchCommit.ElapsedMilliseconds;
+                            stopwatchDbWrite.Stop();
+                            dbWriteMs = stopwatchDbWrite.ElapsedMilliseconds;
                         }
                         if (leapYearDetected)
                         {
@@ -1547,10 +1562,7 @@ public class BMSLibrary : NotificationObject
                     stopwatchBmsFilesAssign.Stop();
                     bmsFilesAssignMs = stopwatchBmsFilesAssign.ElapsedMilliseconds;
                     LogInstallPerformance("song_tbl_load_maintenance_detail bmsCount=" + list5.Count + " maintenanceCount=" + list4.Count + " maintenanceKeyCount=" + dictionary.Count);
-                    Stopwatch stopwatchCommit = Stopwatch.StartNew();
-                    lr2Song.Commit();
-                    stopwatchCommit.Stop();
-                    commitMs = stopwatchCommit.ElapsedMilliseconds;
+                    LogInstallPerformance("song_tbl_load_io song_read_ms=" + songTableLoadMs + " maintenance_read_ms=" + maintenanceTableLoadMs + " folder_read_ms=" + folderTableLoadMs + " db_write_required=" + dbWriteRequired.ToString().ToLowerInvariant() + " db_write_ms=" + dbWriteMs);
                     LogInstallPerformance("song_tbl_load_breakdown song_table_load_ms=" + songTableLoadMs + " song_normalize_loop_ms=" + songNormalizeLoopMs + " folder_table_load_ms=" + folderTableLoadMs + " folder_normalize_loop_ms=" + folderNormalizeLoopMs + " fix_apply_ms=" + fixApplyMs + " maintenance_table_load_ms=" + maintenanceTableLoadMs + " maintenance_map_build_ms=" + maintenanceMapBuildMs + " maintenance_apply_ms=" + maintenanceApplyMs + " bmsfiles_assign_ms=" + bmsFilesAssignMs + " commit_ms=" + commitMs);
                 }
                 finally
@@ -1598,107 +1610,137 @@ public class BMSLibrary : NotificationObject
         if (songTblFileCheck)
         {
             Stopwatch stopwatchSongTblFileCheck = Stopwatch.StartNew();
+            long scanElapsedMs = 0L;
+            long dirhashBuildMs = 0L;
+            long diffMs = 0L;
+            long newfileParseMs = 0L;
+            long applyMs = 0L;
+            long dbCommitMs = 0L;
+            long instlDstCleanupMs = 0L;
+            bool prefetchedScanUsed = false;
+            long prefetchedScanElapsedMs = 0L;
+            BmsScanExecutionResult scanResult = null;
+            Stopwatch stopwatchScan = Stopwatch.StartNew();
+            if (bmsScanPrefetchInfo != null && bmsScanPrefetchInfo.ScanResult != null && bmsScanPrefetchInfo.ScanResult.Result != null)
+            {
+                scanResult = bmsScanPrefetchInfo.ScanResult;
+                prefetchedScanElapsedMs = bmsScanPrefetchInfo.ElapsedMs;
+                prefetchedScanUsed = true;
+            }
+            else
+            {
+                scanResult = ExecuteBmsScanWithFallback(bMSDirectories);
+            }
+            stopwatchScan.Stop();
+            scanElapsedMs = stopwatchScan.ElapsedMilliseconds + (prefetchedScanUsed ? prefetchedScanElapsedMs : 0L);
+            BMSDirectoryFileNameHash nextFolderAllFileList = new BMSDirectoryFileNameHash();
+            Stopwatch stopwatchDirhashBuild = Stopwatch.StartNew();
+            if (scanResult.Result.FileNameHashesByDirectory != null && scanResult.Result.FileNameHashesByDirectory.Count > 0)
+            {
+                foreach (KeyValuePair<string, uint[]> item4 in scanResult.Result.FileNameHashesByDirectory)
+                {
+                    nextFolderAllFileList.AddDirHashed(item4.Key, item4.Value);
+                }
+            }
+            else
+            {
+                foreach (KeyValuePair<string, List<string>> item5 in scanResult.Result.FilesByDirectory)
+                {
+                    nextFolderAllFileList.AddDir(item5.Key, item5.Value);
+                }
+            }
+            stopwatchDirhashBuild.Stop();
+            dirhashBuildMs = stopwatchDirhashBuild.ElapsedMilliseconds;
+            HashSet<string> hashSet = new HashSet<string>(scanResult.Result.BmsFilePaths ?? new HashSet<string>(), StringComparer.OrdinalIgnoreCase);
+            HashSet<string> hashSet2;
+            Stopwatch stopwatchDiff = Stopwatch.StartNew();
+            using (rwlockBMSFiles.GetReaderGuard())
+            {
+                hashSet2 = new HashSet<string>(BMSFiles.Select((BMSFile x) => x.path), StringComparer.OrdinalIgnoreCase);
+            }
+            HashSet<string> bmsFilesDeletedPaths = new HashSet<string>(hashSet2.Except(hashSet), StringComparer.OrdinalIgnoreCase);
+            List<string> list4 = hashSet.Except(hashSet2).ToList();
+            stopwatchDiff.Stop();
+            diffMs = stopwatchDiff.ElapsedMilliseconds;
+            Stopwatch stopwatchNewFileParse = Stopwatch.StartNew();
+            List<BMSFile> list5 = ((list4.Count <= 0) ? new List<BMSFile>() : (from x in list4.AsParallel().Select(delegate (string l)
+                {
+                    BMSFile bMSFile = null;
+                    try
+                    {
+                        bMSFile = BMSFile.CreateBMSFileFromFile(l);
+                    }
+                    catch (IOException ex2)
+                    {
+                        DispatcherMessageBox.Show("初期化中に下記のエラーが発生しました。" + Environment.NewLine + "ファイルへのアクセスが可能か確認して下さい。" + Environment.NewLine + "対象ファイル: " + l + Environment.NewLine + Environment.NewLine + "アプリケーションの動作が不安定になる場合があります。" + Environment.NewLine + Environment.NewLine + ex2.Message, "エラー", MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+                        bMSFile = null;
+                    }
+                    return new
+                    {
+                        path = l,
+                        file = bMSFile
+                    };
+                })
+                                                                               where x.file != null
+                                                                               select x.file).ToList());
+            stopwatchNewFileParse.Stop();
+            newfileParseMs = stopwatchNewFileParse.ElapsedMilliseconds;
+            bool hasDbDiff = bmsFilesDeletedPaths.Count > 0 || list5.Count > 0;
+            Stopwatch stopwatchApply = Stopwatch.StartNew();
             using (rwlockBMSFiles.GetWriterGuard())
             {
-                Stopwatch stopwatchScan = Stopwatch.StartNew();
-                bool prefetchedScanUsed = false;
-                long prefetchedScanElapsedMs = 0L;
-                BmsScanExecutionResult scanResult = null;
-                if (bmsScanPrefetchInfo != null && bmsScanPrefetchInfo.ScanResult != null && bmsScanPrefetchInfo.ScanResult.Result != null)
+                if (bmsFilesDeletedPaths.Count > 0)
                 {
-                    scanResult = bmsScanPrefetchInfo.ScanResult;
-                    prefetchedScanElapsedMs = bmsScanPrefetchInfo.ElapsedMs;
-                    prefetchedScanUsed = true;
+                    BMSFiles.RemoveAll((BMSFile f) => bmsFilesDeletedPaths.Contains(f.path));
                 }
-                else
+                if (list5.Count > 0)
                 {
-                    scanResult = ExecuteBmsScanWithFallback(bMSDirectories);
+                    BMSFiles.AddRange(list5);
                 }
-                bmsFolderAllFileList = new BMSDirectoryFileNameHash();
-                if (scanResult.Result.FileNameHashesByDirectory != null && scanResult.Result.FileNameHashesByDirectory.Count > 0)
+                bmsFolderAllFileList = nextFolderAllFileList;
+                Stopwatch stopwatchInstlDstCleanup = Stopwatch.StartNew();
+                HashSet<string> directoryKeys = new HashSet<string>(bmsFolderAllFileList.Keys, StringComparer.OrdinalIgnoreCase);
+                foreach (BMSFile item6 in BMSFiles.Where((BMSFile f) => !string.IsNullOrWhiteSpace(f.instl_dst)))
                 {
-                    foreach (KeyValuePair<string, uint[]> item4 in scanResult.Result.FileNameHashesByDirectory)
+                    if (!directoryKeys.Contains(item6.instl_dst))
                     {
-                        bmsFolderAllFileList.AddDirHashed(item4.Key, item4.Value);
+                        item6.instl_dst = null;
                     }
                 }
-                else
-                {
-                    foreach (KeyValuePair<string, List<string>> item5 in scanResult.Result.FilesByDirectory)
-                    {
-                        bmsFolderAllFileList.AddDir(item5.Key, item5.Value);
-                    }
-                }
-                HashSet<string> hashSet = new HashSet<string>(scanResult.Result.BmsFilePaths ?? new HashSet<string>(), StringComparer.OrdinalIgnoreCase);
-                HashSet<string> hashSet2 = new HashSet<string>(BMSFiles.Select((BMSFile x) => x.path), StringComparer.OrdinalIgnoreCase);
-                HashSet<string> bmsFilesDeletedPaths = new HashSet<string>(hashSet2.Except(hashSet), StringComparer.OrdinalIgnoreCase);
-                List<string> list4 = hashSet.Except(hashSet2).ToList();
-                List<BMSFile> list5 = ((list4.Count <= 0) ? new List<BMSFile>() : (from x in list4.AsParallel().Select(delegate (string l)
-                    {
-                        BMSFile bMSFile = null;
-                        try
-                        {
-                            bMSFile = BMSFile.CreateBMSFileFromFile(l);
-                        }
-                        catch (IOException ex2)
-                        {
-                            DispatcherMessageBox.Show("初期化中に下記のエラーが発生しました。" + Environment.NewLine + "ファイルへのアクセスが可能か確認して下さい。" + Environment.NewLine + "対象ファイル: " + l + Environment.NewLine + Environment.NewLine + "アプリケーションの動作が不安定になる場合があります。" + Environment.NewLine + Environment.NewLine + ex2.Message, "エラー", MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
-                            bMSFile = null;
-                        }
-                        return new
-                        {
-                            path = l,
-                            file = bMSFile
-                        };
-                    })
-                                                                                   where x.file != null
-                                                                                   select x.file).ToList());
-                if (bmsFilesDeletedPaths.Count > 0 || list5.Count > 0)
-                {
-                    if (bmsFilesDeletedPaths.Count > 0)
-                    {
-                        BMSFiles.RemoveAll((BMSFile f) => bmsFilesDeletedPaths.Contains(f.path));
-                    }
-                    if (list5.Count > 0)
-                    {
-                        BMSFiles.AddRange(list5);
-                    }
-                    using LR2SongDBExtended lR2SongDBExtended = new LR2SongDBExtended(lr2SongDBPath);
-                    lR2SongDBExtended.BeginTransaction();
-                    if (bmsFilesDeletedPaths.Count > 0)
-                    {
-                        foreach (string item6 in bmsFilesDeletedPaths)
-                        {
-                            lR2SongDBExtended.Delete<LR2SongDB.song>(item6);
-                        }
-                    }
-                    if (list5.Count > 0)
-                    {
-                        foreach (BMSFile item7 in list5)
-                        {
-                            lR2SongDBExtended.InsertOrReplace(item7, typeof(LR2SongDB.song));
-                        }
-                    }
-                    lR2SongDBExtended.Commit();
-                    InvalidateBMSHashIndex();
-                    InvalidateBMSParentFolderListCache();
-                }
-                List<string> keys = bmsFolderAllFileList.Keys;
-                foreach (BMSFile item8 in BMSFiles.Where((BMSFile f) => !string.IsNullOrWhiteSpace(f.instl_dst)))
-                {
-                    if (!keys.Contains(item8.instl_dst, StringComparer.OrdinalIgnoreCase))
-                    {
-                        item8.instl_dst = null;
-                    }
-                }
-                stopwatchScan.Stop();
-                long scanElapsedMs = stopwatchScan.ElapsedMilliseconds;
-                if (prefetchedScanUsed)
-                {
-                    scanElapsedMs += prefetchedScanElapsedMs;
-                }
-                LogEverythingScan("bms_scan totalMs=" + scanElapsedMs + " bmsPaths=" + hashSet.Count + " dirs=" + bmsFolderAllFileList.Keys.Count + " prefetched=" + prefetchedScanUsed.ToString().ToLowerInvariant());
+                stopwatchInstlDstCleanup.Stop();
+                instlDstCleanupMs = stopwatchInstlDstCleanup.ElapsedMilliseconds;
             }
+            stopwatchApply.Stop();
+            applyMs = stopwatchApply.ElapsedMilliseconds;
+            if (hasDbDiff)
+            {
+                Stopwatch stopwatchDbCommit = Stopwatch.StartNew();
+                using LR2SongDBExtended lR2SongDBExtended = new LR2SongDBExtended(lr2SongDBPath);
+                List<string> pragmaLogs = lR2SongDBExtended.TryApplyReadOptimizedPragmas(Settings.Default.EnableReadOptimizedPragmas);
+                LogInstallPerformance("db_read_pragmas scope=song_tbl_file_check " + string.Join(" ", pragmaLogs));
+                lR2SongDBExtended.BeginTransaction();
+                if (bmsFilesDeletedPaths.Count > 0)
+                {
+                    foreach (string item7 in bmsFilesDeletedPaths)
+                    {
+                        lR2SongDBExtended.Delete<LR2SongDB.song>(item7);
+                    }
+                }
+                if (list5.Count > 0)
+                {
+                    foreach (BMSFile item8 in list5)
+                    {
+                        lR2SongDBExtended.InsertOrReplace(item8, typeof(LR2SongDB.song));
+                    }
+                }
+                lR2SongDBExtended.Commit();
+                stopwatchDbCommit.Stop();
+                dbCommitMs = stopwatchDbCommit.ElapsedMilliseconds;
+                InvalidateBMSHashIndex();
+                InvalidateBMSParentFolderListCache();
+            }
+            LogInstallPerformance("song_tbl_file_check_breakdown scan_ms=" + scanElapsedMs + " dirhash_build_ms=" + dirhashBuildMs + " diff_ms=" + diffMs + " deleted_count=" + bmsFilesDeletedPaths.Count + " added_count=" + list5.Count + " newfile_parse_ms=" + newfileParseMs + " apply_ms=" + applyMs + " db_commit_ms=" + dbCommitMs + " instl_dst_cleanup_ms=" + instlDstCleanupMs);
+            LogEverythingScan("bms_scan totalMs=" + scanElapsedMs + " bmsPaths=" + hashSet.Count + " dirs=" + bmsFolderAllFileList.Keys.Count + " prefetched=" + prefetchedScanUsed.ToString().ToLowerInvariant());
             stopwatchSongTblFileCheck.Stop();
             songTblFileCheckMs = stopwatchSongTblFileCheck.ElapsedMilliseconds;
         }

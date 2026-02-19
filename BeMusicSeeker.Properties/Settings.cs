@@ -752,6 +752,21 @@ internal sealed class Settings : ApplicationSettingsBase
 
 	[UserScopedSetting]
 	[DebuggerNonUserCode]
+	[DefaultSettingValue("True")]
+	public bool EnableReadOptimizedPragmas
+	{
+		get
+		{
+			return (bool)this["EnableReadOptimizedPragmas"];
+		}
+		set
+		{
+			this["EnableReadOptimizedPragmas"] = value;
+		}
+	}
+
+	[UserScopedSetting]
+	[DebuggerNonUserCode]
 	[DefaultSettingValue("False")]
 	public bool SkipEstimateOfflineScoreRanking
 	{

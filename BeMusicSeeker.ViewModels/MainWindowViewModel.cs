@@ -169,6 +169,8 @@ public class MainWindowViewModel : ViewModel
 
 		private bool tempStartupExpandPlaylistTree;
 
+		private bool tempEnableReadOptimizedPragmas;
+
 		private bool tempSkipEstimateOfflineScoreRanking;
 
 		private bool tempEnableAutoInstall;
@@ -932,6 +934,22 @@ public class MainWindowViewModel : ViewModel
 				{
 					Settings.Default.StartupExpandPlaylistTree = value;
 					RaisePropertyChanged("StartupExpandPlaylistTree");
+				}
+			}
+		}
+
+		public bool EnableReadOptimizedPragmas
+		{
+			get
+			{
+				return Settings.Default.EnableReadOptimizedPragmas;
+			}
+			set
+			{
+				if (Settings.Default.EnableReadOptimizedPragmas != value)
+				{
+					Settings.Default.EnableReadOptimizedPragmas = value;
+					RaisePropertyChanged("EnableReadOptimizedPragmas");
 				}
 			}
 		}
@@ -2013,6 +2031,7 @@ public class MainWindowViewModel : ViewModel
 			tempSkipInitPlaylistLoad = Settings.Default.SkipInitPlaylistLoad;
 			tempStartupSelectInstallPending = Settings.Default.StartupSelectInstallPending;
 			tempStartupExpandPlaylistTree = Settings.Default.StartupExpandPlaylistTree;
+			tempEnableReadOptimizedPragmas = Settings.Default.EnableReadOptimizedPragmas;
 			tempSkipEstimateOfflineScoreRanking = Settings.Default.SkipEstimateOfflineScoreRanking;
 			tempEnableAutoInstall = Settings.Default.AutoInstall;
 			tempEncoderSampleRate = Settings.Default.EncoderSampleRate;
@@ -2256,6 +2275,7 @@ public class MainWindowViewModel : ViewModel
 			Settings.Default.SkipInitPlaylistLoad = tempSkipInitPlaylistLoad;
 			Settings.Default.StartupSelectInstallPending = tempStartupSelectInstallPending;
 			Settings.Default.StartupExpandPlaylistTree = tempStartupExpandPlaylistTree;
+			Settings.Default.EnableReadOptimizedPragmas = tempEnableReadOptimizedPragmas;
 			Settings.Default.SkipEstimateOfflineScoreRanking = tempSkipEstimateOfflineScoreRanking;
 			Settings.Default.SkipInitFileCheck = tempSkipInitFileCheck;
 			Settings.Default.EncoderSampleRate = tempEncoderSampleRate;
@@ -2318,6 +2338,7 @@ public class MainWindowViewModel : ViewModel
 			RaisePropertyChanged(() => SkipInitPlaylistLoad);
 			RaisePropertyChanged(() => StartupSelectInstallPending);
 			RaisePropertyChanged(() => StartupExpandPlaylistTree);
+			RaisePropertyChanged(() => EnableReadOptimizedPragmas);
 			RaisePropertyChanged(() => SkipEstimateOfflineScoreRanking);
 			RaisePropertyChanged(() => EncoderSampleRate);
 			RaisePropertyChanged(() => EncoderIndex);

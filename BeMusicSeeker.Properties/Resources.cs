@@ -127,6 +127,8 @@ public class Resources
 
 	public static string Details_test_notcheck_playlists => ResourceManager.GetString("Details_test_notcheck_playlists", resourceCulture);
 
+	public static string Details_test_db_read_optimized_pragmas => ResourceManager.GetString("Details_test_db_read_optimized_pragmas", resourceCulture);
+
 	public static string Details_test_startup_expand_playlist_tree => ResourceManager.GetString("Details_test_startup_expand_playlist_tree", resourceCulture);
 
 	public static string Details_test_startup_select_install_pending => ResourceManager.GetString("Details_test_startup_select_install_pending", resourceCulture);
