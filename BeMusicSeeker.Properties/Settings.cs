@@ -738,6 +738,21 @@ internal sealed class Settings : ApplicationSettingsBase
 	[UserScopedSetting]
 	[DebuggerNonUserCode]
 	[DefaultSettingValue("False")]
+	public bool StartupExpandPlaylistTree
+	{
+		get
+		{
+			return (bool)this["StartupExpandPlaylistTree"];
+		}
+		set
+		{
+			this["StartupExpandPlaylistTree"] = value;
+		}
+	}
+
+	[UserScopedSetting]
+	[DebuggerNonUserCode]
+	[DefaultSettingValue("False")]
 	public bool SkipEstimateOfflineScoreRanking
 	{
 		get

@@ -35,6 +35,7 @@
   <data name="Information" xml:space="preserve"><value>情報</value></data>
   <data name="Details_test_notcheck_playlists" xml:space="preserve"><value>[テスト中] 起動時にプレイリストの更新チェックを行わない</value></data>
   <data name="Details_test_startup_select_install_pending" xml:space="preserve"><value>[テスト中] 起動時の初期選択を インストール &gt; 保留 にする</value></data>
+  <data name="Details_test_startup_expand_playlist_tree" xml:space="preserve"><value>[テスト中] 起動時にプレイリストを自動展開する</value></data>
   <data name="Msg_failed_remove_playlist_entry" xml:space="preserve"><value>プレイリストが外部同期モードになっているため
 エントリーを削除することが出来ません。</value></data>
   <data name="Record_setting_encoder_dir" xml:space="preserve"><value>実行ファイル検索先: </value></data>

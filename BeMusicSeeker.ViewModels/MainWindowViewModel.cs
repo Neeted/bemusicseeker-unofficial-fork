@@ -167,6 +167,8 @@ public class MainWindowViewModel : ViewModel
 
 		private bool tempStartupSelectInstallPending;
 
+		private bool tempStartupExpandPlaylistTree;
+
 		private bool tempSkipEstimateOfflineScoreRanking;
 
 		private bool tempEnableAutoInstall;
@@ -914,6 +916,22 @@ public class MainWindowViewModel : ViewModel
 				{
 					Settings.Default.StartupSelectInstallPending = value;
 					RaisePropertyChanged("StartupSelectInstallPending");
+				}
+			}
+		}
+
+		public bool StartupExpandPlaylistTree
+		{
+			get
+			{
+				return Settings.Default.StartupExpandPlaylistTree;
+			}
+			set
+			{
+				if (Settings.Default.StartupExpandPlaylistTree != value)
+				{
+					Settings.Default.StartupExpandPlaylistTree = value;
+					RaisePropertyChanged("StartupExpandPlaylistTree");
 				}
 			}
 		}
@@ -1994,6 +2012,7 @@ public class MainWindowViewModel : ViewModel
 			tempSkipInitFileCheck = Settings.Default.SkipInitFileCheck;
 			tempSkipInitPlaylistLoad = Settings.Default.SkipInitPlaylistLoad;
 			tempStartupSelectInstallPending = Settings.Default.StartupSelectInstallPending;
+			tempStartupExpandPlaylistTree = Settings.Default.StartupExpandPlaylistTree;
 			tempSkipEstimateOfflineScoreRanking = Settings.Default.SkipEstimateOfflineScoreRanking;
 			tempEnableAutoInstall = Settings.Default.AutoInstall;
 			tempEncoderSampleRate = Settings.Default.EncoderSampleRate;
@@ -2236,6 +2255,7 @@ public class MainWindowViewModel : ViewModel
 			Settings.Default.SkipInitFileCheck = tempSkipInitFileCheck;
 			Settings.Default.SkipInitPlaylistLoad = tempSkipInitPlaylistLoad;
 			Settings.Default.StartupSelectInstallPending = tempStartupSelectInstallPending;
+			Settings.Default.StartupExpandPlaylistTree = tempStartupExpandPlaylistTree;
 			Settings.Default.SkipEstimateOfflineScoreRanking = tempSkipEstimateOfflineScoreRanking;
 			Settings.Default.SkipInitFileCheck = tempSkipInitFileCheck;
 			Settings.Default.EncoderSampleRate = tempEncoderSampleRate;
@@ -2297,6 +2317,7 @@ public class MainWindowViewModel : ViewModel
 			RaisePropertyChanged(() => SkipInitFileCheck);
 			RaisePropertyChanged(() => SkipInitPlaylistLoad);
 			RaisePropertyChanged(() => StartupSelectInstallPending);
+			RaisePropertyChanged(() => StartupExpandPlaylistTree);
 			RaisePropertyChanged(() => SkipEstimateOfflineScoreRanking);
 			RaisePropertyChanged(() => EncoderSampleRate);
 			RaisePropertyChanged(() => EncoderIndex);
@@ -4497,6 +4518,7 @@ public class MainWindowViewModel : ViewModel
 
 	public MainWindowViewModel()
 	{
+		_IsPlaylistTreeExpanded = Settings.Default.StartupExpandPlaylistTree;
 		settingDialog = new SettingDialogViewModel(this);
 	}
 

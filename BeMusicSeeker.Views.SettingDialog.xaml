@@ -565,6 +565,7 @@
                     <CheckBox IsChecked="{Binding settingDialog.SkipInitFileCheck}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_test_notscan, Mode=OneWay}" />
                     <CheckBox IsChecked="{Binding settingDialog.SkipInitPlaylistLoad}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_test_notcheck_playlists, Mode=OneWay}" />
                     <CheckBox IsChecked="{Binding settingDialog.StartupSelectInstallPending}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_test_startup_select_install_pending, Mode=OneWay}" />
+                    <CheckBox IsChecked="{Binding settingDialog.StartupExpandPlaylistTree}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_test_startup_expand_playlist_tree, Mode=OneWay}" />
                     <CheckBox IsChecked="{Binding settingDialog.SkipEstimateOfflineScoreRanking}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_test_notcalc_offrank, Mode=OneWay}" />
                     <CheckBox IsChecked="{Binding settingDialog.EnableAutoInstall}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_test_download_and_install, Mode=OneWay}" />
                   </StackPanel>
