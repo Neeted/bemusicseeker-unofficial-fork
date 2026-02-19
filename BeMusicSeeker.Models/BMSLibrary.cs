@@ -1322,12 +1322,33 @@ public class BMSLibrary : NotificationObject
                     long commitMs = 0L;
                     bool dbWriteRequired = false;
                     long dbWriteMs = 0L;
+                    long songCountMs = 0L;
+                    long songMaterializeMs = 0L;
+                    long maintenanceCountMs = 0L;
+                    long maintenanceMaterializeMs = 0L;
                     Stopwatch stopwatchSongTableLoad = Stopwatch.StartNew();
-                    List<BMSFile> list;
+                    long songTableCount = 0L;
+                    Stopwatch stopwatchSongCount = Stopwatch.StartNew();
+                    try
+                    {
+                        songTableCount = Math.Max(0L, lr2Song.ExecuteScalar<long>("SELECT COUNT(1) FROM song;"));
+                    }
+                    catch
+                    {
+                    }
+                    stopwatchSongCount.Stop();
+                    songCountMs = stopwatchSongCount.ElapsedMilliseconds;
+                    List<BMSFile> list = (songTableCount > 0 && songTableCount <= int.MaxValue) ? new List<BMSFile>((int)songTableCount) : new List<BMSFile>();
+                    Stopwatch stopwatchSongMaterialize = Stopwatch.StartNew();
                     using (BMSFile.SuppressPropertyChangedScope())
                     {
-                        list = lr2Song.Table<BMSFile>().ToList();
+                        foreach (BMSFile item in lr2Song.Table<BMSFile>())
+                        {
+                            list.Add(item);
+                        }
                     }
+                    stopwatchSongMaterialize.Stop();
+                    songMaterializeMs = stopwatchSongMaterialize.ElapsedMilliseconds;
                     stopwatchSongTableLoad.Stop();
                     songTableLoadMs = stopwatchSongTableLoad.ElapsedMilliseconds;
                     List<BMSFile> deleteFiles = new List<BMSFile>();
@@ -1511,11 +1532,28 @@ public class BMSLibrary : NotificationObject
                     }
                     NLogWrapper.DebuggerLogger?.Trace("relative path check end");
                     Stopwatch stopwatchMaintenanceTableLoad = Stopwatch.StartNew();
-                    List<BMSFileMaintenanceInfo> list4;
+                    long maintenanceTableCount = 0L;
+                    Stopwatch stopwatchMaintenanceCount = Stopwatch.StartNew();
+                    try
+                    {
+                        maintenanceTableCount = Math.Max(0L, lr2Song.ExecuteScalar<long>("SELECT COUNT(1) FROM maintenance;"));
+                    }
+                    catch
+                    {
+                    }
+                    stopwatchMaintenanceCount.Stop();
+                    maintenanceCountMs = stopwatchMaintenanceCount.ElapsedMilliseconds;
+                    List<BMSFileMaintenanceInfo> list4 = (maintenanceTableCount > 0 && maintenanceTableCount <= int.MaxValue) ? new List<BMSFileMaintenanceInfo>((int)maintenanceTableCount) : new List<BMSFileMaintenanceInfo>();
+                    Stopwatch stopwatchMaintenanceMaterialize = Stopwatch.StartNew();
                     using (BMSFileMaintenanceInfo.SuppressPropertyChangedScope())
                     {
-                        list4 = lr2Song.Table<BMSFileMaintenanceInfo>().ToList();
+                        foreach (BMSFileMaintenanceInfo item in lr2Song.Table<BMSFileMaintenanceInfo>())
+                        {
+                            list4.Add(item);
+                        }
                     }
+                    stopwatchMaintenanceMaterialize.Stop();
+                    maintenanceMaterializeMs = stopwatchMaintenanceMaterialize.ElapsedMilliseconds;
                     stopwatchMaintenanceTableLoad.Stop();
                     maintenanceTableLoadMs = stopwatchMaintenanceTableLoad.ElapsedMilliseconds;
                     Stopwatch stopwatchMaintenanceMapBuild = Stopwatch.StartNew();
@@ -1562,7 +1600,7 @@ public class BMSLibrary : NotificationObject
                     stopwatchBmsFilesAssign.Stop();
                     bmsFilesAssignMs = stopwatchBmsFilesAssign.ElapsedMilliseconds;
                     LogInstallPerformance("song_tbl_load_maintenance_detail bmsCount=" + list5.Count + " maintenanceCount=" + list4.Count + " maintenanceKeyCount=" + dictionary.Count);
-                    LogInstallPerformance("song_tbl_load_io song_read_ms=" + songTableLoadMs + " maintenance_read_ms=" + maintenanceTableLoadMs + " folder_read_ms=" + folderTableLoadMs + " db_write_required=" + dbWriteRequired.ToString().ToLowerInvariant() + " db_write_ms=" + dbWriteMs);
+                    LogInstallPerformance("song_tbl_load_io song_read_ms=" + songTableLoadMs + " song_count_ms=" + songCountMs + " song_materialize_ms=" + songMaterializeMs + " song_count=" + songTableCount + " maintenance_read_ms=" + maintenanceTableLoadMs + " maintenance_count_ms=" + maintenanceCountMs + " maintenance_materialize_ms=" + maintenanceMaterializeMs + " maintenance_count=" + maintenanceTableCount + " folder_read_ms=" + folderTableLoadMs + " db_write_required=" + dbWriteRequired.ToString().ToLowerInvariant() + " db_write_ms=" + dbWriteMs);
                     LogInstallPerformance("song_tbl_load_breakdown song_table_load_ms=" + songTableLoadMs + " song_normalize_loop_ms=" + songNormalizeLoopMs + " folder_table_load_ms=" + folderTableLoadMs + " folder_normalize_loop_ms=" + folderNormalizeLoopMs + " fix_apply_ms=" + fixApplyMs + " maintenance_table_load_ms=" + maintenanceTableLoadMs + " maintenance_map_build_ms=" + maintenanceMapBuildMs + " maintenance_apply_ms=" + maintenanceApplyMs + " bmsfiles_assign_ms=" + bmsFilesAssignMs + " commit_ms=" + commitMs);
                 }
                 finally

@@ -1,5 +1,4 @@
 using System;
-using System.Threading;
 using BeMusicSeeker.Models.LR2;
 
 namespace BeMusicSeeker.Models;
@@ -15,21 +14,22 @@ public class BMSFileMaintenanceInfo : LR2SongDBExtended.maintenance
 			if (!disposed)
 			{
 				disposed = true;
-				if (suppressPropertyChangedDepth.Value > 0)
+				if (suppressPropertyChangedDepth > 0)
 				{
-					suppressPropertyChangedDepth.Value--;
+					suppressPropertyChangedDepth--;
 				}
 			}
 		}
 	}
 
-	private static readonly AsyncLocal<int> suppressPropertyChangedDepth = new AsyncLocal<int>();
+	[ThreadStatic]
+	private static int suppressPropertyChangedDepth;
 
-	private static bool IsPropertyChangedSuppressed => suppressPropertyChangedDepth.Value > 0;
+	private static bool IsPropertyChangedSuppressed => suppressPropertyChangedDepth > 0;
 
 	public static IDisposable SuppressPropertyChangedScope()
 	{
-		suppressPropertyChangedDepth.Value++;
+		suppressPropertyChangedDepth++;
 		return new BulkLoadNotificationScope();
 	}
 
