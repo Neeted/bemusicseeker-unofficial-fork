@@ -754,6 +754,7 @@
   <i:Interaction.Triggers>
     <i:EventTrigger EventName="ContentRendered">
       <l:LivetCallMethodAction MethodName="Initialize" MethodTarget="{Binding}" />
+      <l:LivetCallMethodAction MethodName="ApplyStartupInitialSelectionRequest" MethodTarget="{Binding ElementName=window, Mode=OneWay}" />
     </i:EventTrigger>
     <i:EventTrigger EventName="Closed">
       <l:LivetCallMethodAction MethodName="CloseProcess" MethodTarget="{Binding}" />
@@ -1864,7 +1865,7 @@
                 </Storyboard>
               </ResourceDictionary>
             </FrameworkElement.Resources>
-            <TreeViewItem Name="treeViewItemPlaylist" IsExpanded="True" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist, Mode=OneWay}" ItemsSource="{Binding BMSTables}" ContextMenu="{StaticResource ResourceKey=treeViewPlaylistRootContextMenu}" Selected="playlistRootSelect">
+            <TreeViewItem Name="treeViewItemPlaylist" IsExpanded="{Binding IsPlaylistTreeExpanded, Mode=TwoWay}" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist, Mode=OneWay}" ItemsSource="{Binding BMSTables}" ContextMenu="{StaticResource ResourceKey=treeViewPlaylistRootContextMenu}" Selected="playlistRootSelect">
               <FrameworkElement.Resources>
                 <ResourceDictionary>
                   <v:playlistTableFolderListConverter x:Key="playlistTableFolderListConverter" />

@@ -30,6 +30,15 @@ namespace BeMusicSeeker.Models;
 
 public class BMSLibrary : NotificationObject
 {
+    public sealed class ParentFolderListCacheSnapshot
+    {
+        public int Version { get; set; }
+
+        public long RebuildMs { get; set; }
+
+        public List<string> ParentFolders { get; set; }
+    }
+
     private static readonly Logger installPerformanceLogger = LogManager.GetLogger("InstallPerformance.BMSLibrary");
 
     private static readonly bool installPerformanceLoggingEnabled = CommandLineSwitches.IsInstallPerformanceLogEnabled;
@@ -544,6 +553,8 @@ public class BMSLibrary : NotificationObject
 
     private bool bmsParentFolderListDirty = true;
 
+    private int bmsParentFolderListDirtyVersion;
+
     private object lockBMSHashIndex = new object();
 
     private Dictionary<string, int> bmsHashRefCount = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
@@ -735,19 +746,30 @@ public class BMSLibrary : NotificationObject
         lock (lockParentFolderList)
         {
             bmsParentFolderListDirty = true;
+            bmsParentFolderListDirtyVersion++;
         }
     }
 
-    private void RefreshBMSParentFolderListCacheUnsafe()
+    public bool IsBMSParentFolderListCacheDirty()
     {
-        if (!bmsParentFolderListDirty)
+        lock (lockParentFolderList)
         {
-            return;
+            return bmsParentFolderListDirty;
         }
-        Stopwatch stopwatch = Stopwatch.StartNew();
-        IEnumerable<string> enumerable = getBMSDirectories().Where(delegate (string d)
+    }
+
+    private List<string> BuildBMSParentFolderCandidates(List<BMSFile> bmsFilesSnapshot)
+    {
+        return getBMSDirectories().Where(delegate (string d)
         {
-            if (BMSFiles.Any((BMSFile f) => f.path.StartsWith(d + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)))
+            if (bmsFilesSnapshot.Any(delegate (BMSFile f)
+            {
+                if (f != null && !string.IsNullOrWhiteSpace(f.path))
+                {
+                    return f.path.StartsWith(d + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+                }
+                return false;
+            }))
             {
                 return true;
             }
@@ -771,7 +793,76 @@ public class BMSLibrary : NotificationObject
                 }
             }
             throw new NotImplementedException();
-        });
+        }).ToList();
+    }
+
+    public ParentFolderListCacheSnapshot BuildBMSParentFolderListCacheSnapshot()
+    {
+        int version = 0;
+        lock (lockParentFolderList)
+        {
+            if (!bmsParentFolderListDirty)
+            {
+                return null;
+            }
+            version = bmsParentFolderListDirtyVersion;
+        }
+        List<BMSFile> bmsFilesSnapshot;
+        using (rwlockBMSFiles.GetReaderGuard())
+        {
+            bmsFilesSnapshot = BMSFiles.ToList();
+        }
+        Stopwatch stopwatch = Stopwatch.StartNew();
+        List<string> parentFolders = BuildBMSParentFolderCandidates(bmsFilesSnapshot);
+        stopwatch.Stop();
+        return new ParentFolderListCacheSnapshot
+        {
+            Version = version,
+            RebuildMs = stopwatch.ElapsedMilliseconds,
+            ParentFolders = parentFolders
+        };
+    }
+
+    public bool TryApplyBMSParentFolderListCacheSnapshot(ParentFolderListCacheSnapshot snapshot)
+    {
+        if (snapshot == null)
+        {
+            return false;
+        }
+        lock (lockParentFolderList)
+        {
+            if (!bmsParentFolderListDirty)
+            {
+                return false;
+            }
+            if (snapshot.Version != bmsParentFolderListDirtyVersion)
+            {
+                return false;
+            }
+            IEnumerable<string> enumerable = snapshot.ParentFolders ?? Enumerable.Empty<string>();
+            List<string> items = enumerable.Except(_BMSParentFolderList).ToList();
+            List<string> items2 = _BMSParentFolderList.Except(enumerable).ToList();
+            _BMSParentFolderList.AddRange(items);
+            _BMSParentFolderList.Remove(items2);
+            bmsParentFolderListDirty = false;
+            LogInstallPerformance("parent_folder_cache rebuildMs=" + snapshot.RebuildMs + " added=" + items.Count + " removed=" + items2.Count + " total=" + _BMSParentFolderList.Count);
+            return true;
+        }
+    }
+
+    private void RefreshBMSParentFolderListCacheUnsafe()
+    {
+        if (!bmsParentFolderListDirty)
+        {
+            return;
+        }
+        List<BMSFile> bmsFilesSnapshot;
+        using (rwlockBMSFiles.GetReaderGuard())
+        {
+            bmsFilesSnapshot = BMSFiles.ToList();
+        }
+        Stopwatch stopwatch = Stopwatch.StartNew();
+        IEnumerable<string> enumerable = BuildBMSParentFolderCandidates(bmsFilesSnapshot);
         List<string> items = enumerable.Except(_BMSParentFolderList).ToList();
         List<string> items2 = _BMSParentFolderList.Except(enumerable).ToList();
         _BMSParentFolderList.AddRange(items);

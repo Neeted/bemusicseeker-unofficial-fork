@@ -722,6 +722,21 @@ internal sealed class Settings : ApplicationSettingsBase
 
 	[UserScopedSetting]
 	[DebuggerNonUserCode]
+	[DefaultSettingValue("True")]
+	public bool StartupSelectInstallPending
+	{
+		get
+		{
+			return (bool)this["StartupSelectInstallPending"];
+		}
+		set
+		{
+			this["StartupSelectInstallPending"] = value;
+		}
+	}
+
+	[UserScopedSetting]
+	[DebuggerNonUserCode]
 	[DefaultSettingValue("False")]
 	public bool SkipEstimateOfflineScoreRanking
 	{

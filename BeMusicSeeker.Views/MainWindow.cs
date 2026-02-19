@@ -67,6 +67,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private BitmapSource _panelImage;
 
+    private bool startupInitialSelectionApplied;
+
     private BitmapSource panelImage
     {
         get
@@ -133,6 +135,31 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             _panelImage = null;
         });
         gridBMSPlayerImage.Source = panelImage;
+    }
+
+    public void ApplyStartupInitialSelectionRequest()
+    {
+        if (startupInitialSelectionApplied)
+        {
+            return;
+        }
+        startupInitialSelectionApplied = true;
+        if (!Settings.Default.StartupSelectInstallPending)
+        {
+            return;
+        }
+        Dispatcher.BeginInvoke(DispatcherPriority.ContextIdle, (Action)delegate
+        {
+            if (treeViewItemInstall != null)
+            {
+                treeViewItemInstall.IsExpanded = true;
+            }
+            if (treeViewItemInstallPending != null)
+            {
+                treeViewItemInstallPending.IsExpanded = true;
+                treeViewItemInstallPending.IsSelected = true;
+            }
+        });
     }
 
     private void CloseWindow(object sender, ExecutedRoutedEventArgs e)
