@@ -3703,40 +3703,106 @@ public class BMSLibrary : NotificationObject
                     }
                     ParallelQuery<string> source = (asParallel ? bmsFolderAllFileList.Keys.AsParallel() : bmsFolderAllFileList.Keys.AsParallel().WithDegreeOfParallelism(1));
                     uint[] curDirFileNameHash = (fixMode ? null : BMSDirectoryFileNameHash.GetFileNameHashArray(Path.GetDirectoryName(targetBMSInfo.path)));
+                    string targetDir = Path.GetDirectoryName(targetBMSInfo.path);
 
-                    // 【ステップ2】事前フィルタリングのための依存ファイル名ハッシュ（WAV/BGA/画像等）の抽出
+                    // 高速化のための事前候補絞り込み用ハッシュを作る。
+                    // 回帰防止のため、相対パス付き参照が含まれる場合は従来どおり全候補評価にフォールバックする。
                     HashSet<uint> targetFileHashes = new HashSet<uint>();
+                    bool hasNonLocalReference = false;
+                    Action<string, IEnumerable<string>> addTargetFileHashes = delegate (string fileName, IEnumerable<string> fallbackExtensions)
+                    {
+                        if (string.IsNullOrWhiteSpace(fileName))
+                        {
+                            return;
+                        }
+                        string text = fileName.Replace('/', Path.DirectorySeparatorChar).Trim();
+                        if (text.IndexOf(Path.DirectorySeparatorChar) >= 0 || text.IndexOf(Path.AltDirectorySeparatorChar) >= 0)
+                        {
+                            hasNonLocalReference = true;
+                        }
+                        text = text.TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                        string fileName2;
+                        try
+                        {
+                            fileName2 = Path.GetFileName(text);
+                        }
+                        catch
+                        {
+                            return;
+                        }
+                        if (string.IsNullOrWhiteSpace(fileName2))
+                        {
+                            return;
+                        }
+                        targetFileHashes.Add(BMSDirectoryFileNameHash.GetFileNameHash(fileName2));
+                        if (string.IsNullOrWhiteSpace(Path.GetExtension(fileName2)) && fallbackExtensions != null)
+                        {
+                            foreach (string extension in fallbackExtensions)
+                            {
+                                if (!string.IsNullOrWhiteSpace(extension))
+                                {
+                                    targetFileHashes.Add(BMSDirectoryFileNameHash.GetFileNameHash(fileName2 + extension));
+                                }
+                            }
+                        }
+                    };
                     if (targetBMSInfo.WAVfiles != null)
                     {
-                        foreach (string wav in targetBMSInfo.WAVfiles)
+                        foreach (string wAVfile in targetBMSInfo.WAVfiles)
                         {
-                            if (!string.IsNullOrWhiteSpace(wav)) targetFileHashes.Add(BMSDirectoryFileNameHash.GetFileNameHash(wav));
+                            addTargetFileHashes(wAVfile, BMSFile.wavExtensions);
                         }
                     }
                     if (targetBMSInfo.BGAfiles != null)
                     {
-                        foreach (string bga in targetBMSInfo.BGAfiles)
+                        foreach (string bGAfile in targetBMSInfo.BGAfiles)
                         {
-                            if (!string.IsNullOrWhiteSpace(bga)) targetFileHashes.Add(BMSDirectoryFileNameHash.GetFileNameHash(bga));
+                            addTargetFileHashes(bGAfile, BMSFile.bgaAllExtensions);
                         }
                     }
-                    if (!string.IsNullOrWhiteSpace(targetBMSInfo.backbmp)) targetFileHashes.Add(BMSDirectoryFileNameHash.GetFileNameHash(targetBMSInfo.backbmp));
-                    if (!string.IsNullOrWhiteSpace(targetBMSInfo.banner)) targetFileHashes.Add(BMSDirectoryFileNameHash.GetFileNameHash(targetBMSInfo.banner));
-                    if (!string.IsNullOrWhiteSpace(targetBMSInfo.stagefile)) targetFileHashes.Add(BMSDirectoryFileNameHash.GetFileNameHash(targetBMSInfo.stagefile));
+                    addTargetFileHashes(targetBMSInfo.backbmp, BMSFile.bgaImageExtensions);
+                    addTargetFileHashes(targetBMSInfo.banner, BMSFile.bgaImageExtensions);
+                    addTargetFileHashes(targetBMSInfo.stagefile, BMSFile.bgaImageExtensions);
 
-                    // 【ステップ3】既存の全BMSフォルダ群から、抽出したファイル名ハッシュを少なくとも1つ以上含むフォルダのみに候補を絞り込む（高速化の要）
-                    var sourceNew = source.Where((string dir) =>
+                    // 安全策:
+                    // 1) 非local参照（サブフォルダ指定）がある場合は事前フィルタを使わない
+                    // 2) 事前フィルタ結果が0件なら従来同等の全候補評価に戻す
+                    // これにより、推定精度の回帰を防ぎつつ、絞り込み可能なケースだけ高速化を適用する。
+                    List<string> candidateDirList;
+                    if (!hasNonLocalReference && targetFileHashes.Count > 0)
                     {
-                        if (dir.Equals(Path.GetDirectoryName(targetBMSInfo.path), StringComparison.OrdinalIgnoreCase)) return false;
-                        if (targetFileHashes.Count == 0) return true; // 依存ファイルが一切ない場合は全検索
-                        uint[] dirHashes = bmsFolderAllFileList.GetFileNameHashArray(dir);
-                        if (dirHashes == null || dirHashes.Length == 0) return false;
-                        for (int i = 0; i < dirHashes.Length; i++)
+                        candidateDirList = source.Where(delegate (string dir)
                         {
-                            if (targetFileHashes.Contains(dirHashes[i])) return true;
+                            if (dir.Equals(targetDir, StringComparison.OrdinalIgnoreCase))
+                            {
+                                return false;
+                            }
+                            uint[] fileNameHashArray = bmsFolderAllFileList.GetFileNameHashArray(dir);
+                            if (fileNameHashArray == null || fileNameHashArray.Length == 0)
+                            {
+                                return false;
+                            }
+                            for (int i = 0; i < fileNameHashArray.Length; i++)
+                            {
+                                if (targetFileHashes.Contains(fileNameHashArray[i]))
+                                {
+                                    return true;
+                                }
+                            }
+                            return false;
+                        }).ToList();
+                        // 絞り込み候補が空なら従来どおり全フォルダ評価へ戻し、推定不能化の回帰を防ぐ。
+                        if (candidateDirList.Count == 0)
+                        {
+                            candidateDirList = source.Where((string dir) => !dir.Equals(targetDir, StringComparison.OrdinalIgnoreCase)).ToList();
                         }
-                        return false;
-                    });
+                    }
+                    else
+                    {
+                        // 非local参照を含む場合は従来同等の探索にフォールバックする。
+                        candidateDirList = source.Where((string dir) => !dir.Equals(targetDir, StringComparison.OrdinalIgnoreCase)).ToList();
+                    }
+                    ParallelQuery<string> sourceNew = (asParallel ? candidateDirList.AsParallel() : candidateDirList.AsParallel().WithDegreeOfParallelism(1));
 
 
                     // 【ステップ4】事前フィルタリングされたBMSフォルダ候補群に対して、仮想配置シミュレーションを実施する。
