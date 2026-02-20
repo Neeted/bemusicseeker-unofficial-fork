@@ -3672,21 +3672,24 @@ public class BMSLibrary : NotificationObject
         {
             using (rwlockBMSFiles.GetReaderGuard())
             {
+                List<BMSFile> targetBmsFiles = null;
                 try
                 {
-                    if (bmsFiles.Count() == 0 || bmsFiles.Any((BMSFile bmsInfo) => !string.IsNullOrWhiteSpace(bmsInfo.instl_dst)))
+                    // 多重列挙を避けるため、最初に対象を確定する。
+                    targetBmsFiles = ((bmsFiles != null) ? bmsFiles.Where((BMSFile bmsInfo) => bmsInfo != null).ToList() : new List<BMSFile>());
+                    if (targetBmsFiles.Count == 0 || targetBmsFiles.Any((BMSFile bmsInfo) => !string.IsNullOrWhiteSpace(bmsInfo.instl_dst)))
                     {
                         return;
                     }
-                    foreach (BMSFile bmsFile in bmsFiles)
+                    foreach (BMSFile targetBmsFile in targetBmsFiles)
                     {
-                        bmsFile.status |= BMSFile.BMSFileStatus.SEARCHING;
+                        targetBmsFile.status |= BMSFile.BMSFileStatus.SEARCHING;
                     }
                     // 【ステップ1】パッケージ内から推定の「基準」となる代表BMSファイルを1つ選出する。
                     // 既にハッシュ登録済みのファイルや、単体でWAVが十分に揃っている（差分ではなく本体の可能性が高い）ファイルは除外。
                     // WAVやBGA、その他参照画像（BackBMP等）の定義数（要求ファイル数）が多いBMSほど、
                     // スコア（Health）の計算基準が多くマッチング精度が高くなるため、優先的に代表として選定する。
-                    BMSFile targetBMSInfo = (from bmsFile in bmsFiles
+                    BMSFile targetBMSInfo = (from bmsFile in targetBmsFiles
                                              where bmsFile != null && (fixMode || !ContainsBMSHashUnsafe(bmsFile.hash))
                                              where fixMode || bmsFile.maintenanceInfo == null || bmsFile.maintenanceInfo.GetWAVHealth() <= innerWavHealthThreshForNormalBMSFile
                                              select bmsFile).OrderByDescending(delegate (BMSFile bmsFile)
@@ -3701,9 +3704,13 @@ public class BMSLibrary : NotificationObject
                     {
                         return;
                     }
-                    ParallelQuery<string> source = (asParallel ? bmsFolderAllFileList.Keys.AsParallel() : bmsFolderAllFileList.Keys.AsParallel().WithDegreeOfParallelism(1));
-                    uint[] curDirFileNameHash = (fixMode ? null : BMSDirectoryFileNameHash.GetFileNameHashArray(Path.GetDirectoryName(targetBMSInfo.path)));
                     string targetDir = Path.GetDirectoryName(targetBMSInfo.path);
+                    uint[] curDirFileNameHash = (fixMode ? null : BMSDirectoryFileNameHash.GetFileNameHashArray(targetDir));
+                    List<string> allCandidateDirs = bmsFolderAllFileList.Keys.Where((string dir) => !dir.Equals(targetDir, StringComparison.OrdinalIgnoreCase)).ToList();
+                    if (allCandidateDirs.Count == 0)
+                    {
+                        return;
+                    }
 
                     // 高速化のための事前候補絞り込み用ハッシュを作る。
                     // 回帰防止のため、相対パス付き参照が含まれる場合は従来どおり全候補評価にフォールバックする。
@@ -3771,12 +3778,9 @@ public class BMSLibrary : NotificationObject
                     List<string> candidateDirList;
                     if (!hasNonLocalReference && targetFileHashes.Count > 0)
                     {
-                        candidateDirList = source.Where(delegate (string dir)
+                        ParallelQuery<string> filterSource = (asParallel ? allCandidateDirs.AsParallel() : allCandidateDirs.AsParallel().WithDegreeOfParallelism(1));
+                        candidateDirList = filterSource.Where(delegate (string dir)
                         {
-                            if (dir.Equals(targetDir, StringComparison.OrdinalIgnoreCase))
-                            {
-                                return false;
-                            }
                             uint[] fileNameHashArray = bmsFolderAllFileList.GetFileNameHashArray(dir);
                             if (fileNameHashArray == null || fileNameHashArray.Length == 0)
                             {
@@ -3794,13 +3798,13 @@ public class BMSLibrary : NotificationObject
                         // 絞り込み候補が空なら従来どおり全フォルダ評価へ戻し、推定不能化の回帰を防ぐ。
                         if (candidateDirList.Count == 0)
                         {
-                            candidateDirList = source.Where((string dir) => !dir.Equals(targetDir, StringComparison.OrdinalIgnoreCase)).ToList();
+                            candidateDirList = allCandidateDirs;
                         }
                     }
                     else
                     {
                         // 非local参照を含む場合は従来同等の探索にフォールバックする。
-                        candidateDirList = source.Where((string dir) => !dir.Equals(targetDir, StringComparison.OrdinalIgnoreCase)).ToList();
+                        candidateDirList = allCandidateDirs;
                     }
                     ParallelQuery<string> sourceNew = (asParallel ? candidateDirList.AsParallel() : candidateDirList.AsParallel().WithDegreeOfParallelism(1));
 
@@ -3810,33 +3814,59 @@ public class BMSLibrary : NotificationObject
                     // 2. 結果としてWAVの健康度が最低閾値（本体判定）を上回り、かつ現状の配置よりも改善する（または同等以上の）フォルダのみをリストアップする。
                     // 3. 最後に評価軸（WAV健康度 -> BGA健康度 -> Movie -> OptIMG）の順に降順ソートし、最も状態が良くなるフォルダを特定する。
                     //    同率の場合は、そのフォルダに存在するWAVファイルの絶対総数が多い方を優先する（音源が豊富なディレクトリを正解としやすいヒューリスティック）。
-
-                    List<BMSFileMaintenanceInfo> source2 = (from m in (from m in sourceNew.Select(delegate (string altdir)
+                    List<BMSFileMaintenanceInfo> source2 = (from m in sourceNew.Select(delegate (string altdir)
+                        {
+                            BMSFileMaintenanceInfo bMSFileMaintenanceInfo = new BMSFileMaintenanceInfo(targetBMSInfo)
                             {
-                                BMSFileMaintenanceInfo bMSFileMaintenanceInfo = new BMSFileMaintenanceInfo(targetBMSInfo)
-                                {
-                                    path = Path.Combine(altdir, Path.GetFileName(targetBMSInfo.path))
-                                };
-                                targetBMSInfo.SetHealthStatus(bmsFolderAllFileList, forceUpdate: false, memClear: false, bMSFileMaintenanceInfo, altdir, curDirFileNameHash);
-                                return bMSFileMaintenanceInfo;
-                            })
-                                                                       where m.GetWAVHealth() > innerWavHealthThreshForNormalBMSFile && (!fixMode || m.GetBGAHealth() >= targetBMSInfo.maintenanceInfo.GetBGAHealth())
-                                                                       select m).ToList().Concat(new BMSFileMaintenanceInfo[1] { targetBMSInfo.maintenanceInfo }).Distinct()
-                                                            orderby m.GetWAVHealth() descending, m.GetBGAHealth() descending, m.GetMovieHealth() descending, m.GetOptIMGHealth() descending, (from file in FastDirectoryEnumerator.GetFileNames(DirectoryExt.GetDirectoryNameSimple(m.path))
-                                                                                                                                                                                              where BMSFile.wavExtensions.Any((string ext) => file.EndsWith(ext, StringComparison.OrdinalIgnoreCase))
-                                                                                                                                                                                              select file).Count(), (m == targetBMSInfo.maintenanceInfo) ? 1 : 0 descending
-                                                            select m).ToList();
-
-                    if (source2.Count() > 0)
+                                path = Path.Combine(altdir, Path.GetFileName(targetBMSInfo.path))
+                            };
+                            targetBMSInfo.SetHealthStatus(bmsFolderAllFileList, forceUpdate: false, memClear: false, bMSFileMaintenanceInfo, altdir, curDirFileNameHash);
+                            return bMSFileMaintenanceInfo;
+                        })
+                                                           where m.GetWAVHealth() > innerWavHealthThreshForNormalBMSFile && (!fixMode || m.GetBGAHealth() >= targetBMSInfo.maintenanceInfo.GetBGAHealth())
+                                                           select m).ToList();
+                    source2 = source2.Concat(new BMSFileMaintenanceInfo[1] { targetBMSInfo.maintenanceInfo }).Distinct().ToList();
+                    if (source2.Count > 0)
                     {
-                        BMSFileMaintenanceInfo candidate = source2.First();
+                        List<BMSFileMaintenanceInfo> list = (from m in source2
+                                                             orderby m.GetWAVHealth() descending, m.GetBGAHealth() descending, m.GetMovieHealth() descending, m.GetOptIMGHealth() descending
+                                                             select m).ToList();
+                        int? wAVHealth = list[0].GetWAVHealth();
+                        int? bGAHealth = list[0].GetBGAHealth();
+                        int? movieHealth = list[0].GetMovieHealth();
+                        bool? optIMGHealth = list[0].GetOptIMGHealth();
+                        List<BMSFileMaintenanceInfo> list2 = list.Where((BMSFileMaintenanceInfo m) => m.GetWAVHealth() == wAVHealth && m.GetBGAHealth() == bGAHealth && m.GetMovieHealth() == movieHealth && m.GetOptIMGHealth() == optIMGHealth).ToList();
+                        // 同率候補に対してのみ追加I/O（ディレクトリ内WAV総数）を実施し、旧来ヒューリスティックを維持したまま負荷を下げる。
+                        Dictionary<string, int> dictionary = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                        Func<string, int> func = delegate (string dir)
+                        {
+                            if (dictionary.TryGetValue(dir, out var value))
+                            {
+                                return value;
+                            }
+                            int num = 0;
+                            try
+                            {
+                                num = FastDirectoryEnumerator.GetFileNames(dir).Count((string file) => BMSFile.wavExtensions.Any((string ext) => file.EndsWith(ext, StringComparison.OrdinalIgnoreCase)));
+                            }
+                            catch
+                            {
+                            }
+                            dictionary[dir] = num;
+                            return num;
+                        };
+                        int num2 = list2.Max((BMSFileMaintenanceInfo m) => func(DirectoryExt.GetDirectoryNameSimple(m.path)));
+                        BMSFileMaintenanceInfo candidate = list2.Where((BMSFileMaintenanceInfo m) => func(DirectoryExt.GetDirectoryNameSimple(m.path)) == num2)
+                            .OrderByDescending((BMSFileMaintenanceInfo m) => (m == targetBMSInfo.maintenanceInfo) ? 1 : 0)
+                            .First();
                         if (candidate == targetBMSInfo.maintenanceInfo)
                         {
                             return;
                         }
                         try
                         {
-                            string directoryNameSimple = DirectoryExt.GetDirectoryNameSimple(BMSFiles.First((BMSFile i) => DirectoryExt.GetDirectoryNameSimple(candidate.path).Equals(DirectoryExt.GetDirectoryNameSimple(i.path), StringComparison.OrdinalIgnoreCase)).path);
+                            // candidate.path 自体が推定先ディレクトリ配下の仮想パスなので、全体走査せず直接取り出す。
+                            string directoryNameSimple = DirectoryExt.GetDirectoryNameSimple(candidate.path);
                             targetBMSInfo.instl_dst = directoryNameSimple;
                         }
                         catch (Exception)
@@ -3845,7 +3875,7 @@ public class BMSLibrary : NotificationObject
                     }
                     if (!string.IsNullOrWhiteSpace(targetBMSInfo.instl_dst))
                     {
-                        bmsFiles.ToList().ForEach(delegate (BMSFile bmsFile)
+                        targetBmsFiles.ForEach(delegate (BMSFile bmsFile)
                         {
                             bmsFile.instl_dst = targetBMSInfo.instl_dst;
                         });
@@ -3853,7 +3883,7 @@ public class BMSLibrary : NotificationObject
                 }
                 finally
                 {
-                    foreach (BMSFile bmsFile2 in bmsFiles)
+                    foreach (BMSFile bmsFile2 in (targetBmsFiles ?? Enumerable.Empty<BMSFile>()))
                     {
                         bmsFile2.status &= ~BMSFile.BMSFileStatus.SEARCHING;
                     }
@@ -3871,16 +3901,27 @@ public class BMSLibrary : NotificationObject
     {
         if (BMSPackagesPending.Contains(package))
         {
-            List<BMSFile> bMSFiles = package.BMSFiles;
-            if (!bMSFiles.Select(delegate (BMSFile bmsInfo)
+            List<BMSFile> bMSFiles = package.BMSFiles ?? new List<BMSFile>();
+            IEnumerable<BMSFile> installedFiles = BMSFiles ?? new List<BMSFile>();
+            HashSet<string> hashSet = new HashSet<string>(installedFiles.Where((BMSFile x) => x != null).Select((BMSFile x) => x.hash), StringComparer.OrdinalIgnoreCase);
+            bool flag = true;
+            foreach (BMSFile bMSFile in bMSFiles)
             {
-                if (BMSFiles.Select((BMSFile x) => x.hash).Contains(bmsInfo.hash))
+                if (bMSFile == null)
                 {
-                    bmsInfo.warning = "インストールされています";
-                    return true;
+                    flag = false;
+                    continue;
                 }
-                return false;
-            }).ToList().All((bool b) => b))
+                if (hashSet.Contains(bMSFile.hash))
+                {
+                    bMSFile.warning = "インストールされています";
+                }
+                else
+                {
+                    flag = false;
+                }
+            }
+            if (!flag)
             {
                 searchEstimatedInstallationDirectory(bMSFiles);
             }
