@@ -3797,7 +3797,7 @@ public class BMSLibrary : NotificationObject
         return true;
     }
 
-    private List<BMSPackage> installBMSPackages(IEnumerable<BMSPackage> bmsPackagesInstall, string installationDirectory = null, List<BMSFile> deferredMaintenanceTargets = null, List<BMSPackage> deferredInstalledPackages = null, Dictionary<BMSPackage, HashSet<string>> excludedComponentPathsByPackage = null)
+    private List<BMSPackage> installBMSPackages(IEnumerable<BMSPackage> bmsPackagesInstall, string installationDirectory = null, List<BMSFile> deferredMaintenanceTargets = null, List<BMSPackage> deferredInstalledPackages = null, Dictionary<BMSPackage, HashSet<string>> excludedComponentPathsByPackage = null, HashSet<string> existingHashes = null)
     {
         Stopwatch stopwatchTotal = Stopwatch.StartNew();
         List<BMSFile> bmsFilesToBeAdded = new List<BMSFile>();
@@ -3807,9 +3807,20 @@ public class BMSLibrary : NotificationObject
         {
             HashSet<string> value = null;
             excludedComponentPathsByPackage?.TryGetValue(item, out value);
-            if (moveBMSPackageFiles(item, installationDirectory, showMessageBoxOnInstallFail: true, deleteAllContents: false, existingHashes: null, excludedComponentPaths: value))
+            if (moveBMSPackageFiles(item, installationDirectory, showMessageBoxOnInstallFail: true, deleteAllContents: false, existingHashes: existingHashes, excludedComponentPaths: value))
             {
                 bmsFilesToBeAdded.AddRange(item.BMSFiles);
+                if (existingHashes != null)
+                {
+                    // 一括導入中に追加済みハッシュを即時予約し、後続パッケージでの重複導入を防ぐ。
+                    foreach (BMSFile bmsFile in item.BMSFiles)
+                    {
+                        if (IsBMSHashAvailable(bmsFile.hash))
+                        {
+                            existingHashes.Add(bmsFile.hash);
+                        }
+                    }
+                }
                 if (deferredInstalledPackages != null)
                 {
                     deferredInstalledPackages.Add(item);
@@ -4123,6 +4134,30 @@ public class BMSLibrary : NotificationObject
         }
     }
 
+    private void ApplyBatchDuplicateWarnings(IEnumerable<BMSFile> files)
+    {
+        if (files == null)
+        {
+            return;
+        }
+        foreach (BMSFile file in files)
+        {
+            if (file != null)
+            {
+                file.warning = "インストールされています";
+            }
+        }
+    }
+
+    private bool TryAddBatchReservation(HashSet<string> reservedHashes, BMSFile file)
+    {
+        if (reservedHashes == null || file == null || !IsBMSHashAvailable(file.hash))
+        {
+            return false;
+        }
+        return reservedHashes.Add(file.hash);
+    }
+
     private Dictionary<string, List<string>> BuildInstalledHashToDirectoryMap()
     {
         Dictionary<string, HashSet<string>> dictionary = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
@@ -4350,7 +4385,7 @@ public class BMSLibrary : NotificationObject
         {
             throw new ArgumentNullException("packages");
         }
-        Stopwatch stopwatchTotal = Stopwatch.StartNew();
+        Stopwatch totalStopwatch = Stopwatch.StartNew();
         using (rwlockBMSFilesInitializedAll.GetReaderGuard())
         {
             using (rwlockBMSFilesPendingInstall.GetWriterGuard())
@@ -4361,129 +4396,165 @@ public class BMSLibrary : NotificationObject
                     {
                         if (BMSFiles == null)
                         {
-                            stopwatchTotal.Stop();
-                            LogInstallPerformance("InstallBMSPackagesToEstimatedDir skipped reason=BMSFiles_null totalMs=" + stopwatchTotal.ElapsedMilliseconds);
+                            totalStopwatch.Stop();
+                            LogInstallPerformance("InstallBMSPackagesToEstimatedDir skipped reason=BMSFiles_null totalMs=" + totalStopwatch.ElapsedMilliseconds);
                             return;
                         }
-                        List<BMSPackage> pendingSnapshot = BMSPackagesPending.Where((BMSPackage pkg) => pkg != null).ToList();
-                        HashSet<BMSPackage> pendingSet = new HashSet<BMSPackage>(pendingSnapshot);
-                        Stopwatch stopwatchFilter = Stopwatch.StartNew();
-                        List<BMSPackage> list = packages.Where((BMSPackage pkg) => pkg != null && pendingSet.Contains(pkg)).Distinct().ToList();
-                        stopwatchFilter.Stop();
-                        if (list.Count == 0)
+                        List<BMSPackage> pendingPackagesSnapshot = BMSPackagesPending.Where((BMSPackage pkg) => pkg != null).ToList();
+                        HashSet<BMSPackage> pendingPackageSet = new HashSet<BMSPackage>(pendingPackagesSnapshot);
+                        Stopwatch filterStopwatch = Stopwatch.StartNew();
+                        List<BMSPackage> selectedPendingPackages = packages.Where((BMSPackage pkg) => pkg != null && pendingPackageSet.Contains(pkg)).Distinct().ToList();
+                        filterStopwatch.Stop();
+                        if (selectedPendingPackages.Count == 0)
                         {
-                            stopwatchTotal.Stop();
-                            LogInstallPerformance("InstallBMSPackagesToEstimatedDir skipped reason=no_pending_target filterMs=" + stopwatchFilter.ElapsedMilliseconds + " totalMs=" + stopwatchTotal.ElapsedMilliseconds);
+                            totalStopwatch.Stop();
+                            LogInstallPerformance("InstallBMSPackagesToEstimatedDir skipped reason=no_pending_target filterMs=" + filterStopwatch.ElapsedMilliseconds + " totalMs=" + totalStopwatch.ElapsedMilliseconds);
                             return;
                         }
-                        Stopwatch stopwatchGroupBuild = Stopwatch.StartNew();
+                        Stopwatch groupBuildStopwatch = Stopwatch.StartNew();
                         // 実パッケージ全体ではなく「今回導入する未所持譜面集合」を単位にグルーピングする。
-                        Dictionary<string, List<BMSPackage>> dictionary = new Dictionary<string, List<BMSPackage>>(StringComparer.OrdinalIgnoreCase);
-                        Dictionary<BMSPackage, BMSPackage> installWorkByOriginal = new Dictionary<BMSPackage, BMSPackage>();
-                        Dictionary<BMSPackage, BMSPackage> originalByInstallWork = new Dictionary<BMSPackage, BMSPackage>();
-                        Dictionary<BMSPackage, HashSet<string>> excludedComponentPathsByInstallWork = new Dictionary<BMSPackage, HashSet<string>>();
-                        int installTargetFiles = 0;
-                        foreach (BMSPackage item in list)
+                        Dictionary<string, List<BMSPackage>> packagesByDestination = new Dictionary<string, List<BMSPackage>>(StringComparer.OrdinalIgnoreCase);
+                        Dictionary<BMSPackage, BMSPackage> installWorkPackageByOriginal = new Dictionary<BMSPackage, BMSPackage>();
+                        Dictionary<BMSPackage, BMSPackage> originalPackageByInstallWorkPackage = new Dictionary<BMSPackage, BMSPackage>();
+                        Dictionary<BMSPackage, HashSet<string>> excludedComponentPathsByWorkPackage = new Dictionary<BMSPackage, HashSet<string>>();
+                        // 判定用は「既存 + バッチ内予約済み」を持つ。
+                        // 実移動ガード用は「既存 + 移動成功分のみ」を持ち、自己スキップを防ぐ。
+                        HashSet<string> moveGuardHashes = CreateBMSHashSnapshotExcludingUnsafe(null);
+                        HashSet<string> reservedHashesForBatch = new HashSet<string>(moveGuardHashes, StringComparer.OrdinalIgnoreCase);
+                        int installTargetFileCount = 0;
+                        foreach (BMSPackage originalPackage in selectedPendingPackages)
                         {
-                            List<BMSFile> list2 = (item.BMSFiles ?? new List<BMSFile>()).Where((BMSFile bmsInfo) => bmsInfo != null).ToList();
-                            if (list2.Count == 0)
+                            List<BMSFile> packageFiles = (originalPackage.BMSFiles ?? new List<BMSFile>()).Where((BMSFile bmsInfo) => bmsInfo != null).ToList();
+                            if (packageFiles.Count == 0)
                             {
                                 continue;
                             }
-                            List<BMSFile> list3 = list2.Where((BMSFile bmsInfo) => IsBMSHashAvailable(bmsInfo.hash) && ContainsBMSHashUnsafe(bmsInfo.hash)).ToList();
-                            ApplyPackageMixedInstallWarnings(list3);
-                            List<BMSFile> list4 = list2.Where((BMSFile bmsInfo) => !IsBMSHashAvailable(bmsInfo.hash) || !ContainsBMSHashUnsafe(bmsInfo.hash)).ToList();
-                            if (list4.Count == 0)
+                            List<BMSFile> installedInLibraryFiles = new List<BMSFile>();
+                            List<BMSFile> installTargetPackageFiles = new List<BMSFile>();
+                            List<BMSFile> duplicateInBatchFiles = new List<BMSFile>();
+                            foreach (BMSFile bmsInfo in packageFiles)
                             {
-                                continue;
-                            }
-                            if (list4.Any((BMSFile bmsInfo) => string.IsNullOrWhiteSpace(bmsInfo.instl_dst)))
-                            {
-                                LogInstallPerformance("estimated_install_skip reason=missing_instl_dst package=" + item.path + " installTargets=" + list4.Count);
-                                continue;
-                            }
-                            string text = list4.Select((BMSFile bmsInfo) => bmsInfo.instl_dst).FirstOrDefault();
-                            if (string.IsNullOrWhiteSpace(text) || list4.Any((BMSFile bmsInfo) => !string.Equals(bmsInfo.instl_dst, text, StringComparison.OrdinalIgnoreCase)))
-                            {
-                                LogInstallPerformance("estimated_install_skip reason=multi_dst package=" + item.path + " installTargets=" + list4.Count);
-                                continue;
-                            }
-                            // install用ワークパッケージ: 未所持譜面のみ保持し、既所持譜面は移動対象から除外する。
-                            BMSPackage bMSPackage = new BMSPackage(list4)
-                            {
-                                path = item.path,
-                                delete_parent = item.delete_parent
-                            };
-                            installWorkByOriginal[item] = bMSPackage;
-                            originalByInstallWork[bMSPackage] = item;
-                            if (list3.Count > 0)
-                            {
-                                HashSet<string> hashSet = new HashSet<string>(list3.Select((BMSFile f) => f.path), StringComparer.OrdinalIgnoreCase);
-                                if (hashSet.Count > 0)
+                                if (!IsBMSHashAvailable(bmsInfo.hash))
                                 {
-                                    excludedComponentPathsByInstallWork[bMSPackage] = hashSet;
+                                    installTargetPackageFiles.Add(bmsInfo);
+                                }
+                                else if (ContainsBMSHashUnsafe(bmsInfo.hash))
+                                {
+                                    installedInLibraryFiles.Add(bmsInfo);
+                                }
+                                else if (!TryAddBatchReservation(reservedHashesForBatch, bmsInfo))
+                                {
+                                    duplicateInBatchFiles.Add(bmsInfo);
+                                }
+                                else
+                                {
+                                    installTargetPackageFiles.Add(bmsInfo);
                                 }
                             }
-                            if (!dictionary.TryGetValue(text, out var value))
+                            ApplyPackageMixedInstallWarnings(installedInLibraryFiles);
+                            ApplyBatchDuplicateWarnings(duplicateInBatchFiles);
+                            if (duplicateInBatchFiles.Count > 0)
                             {
-                                value = new List<BMSPackage>();
-                                dictionary[text] = value;
+                                LogInstallPerformance("estimated_install_batch_duplicate package=" + originalPackage.path + " duplicates=" + duplicateInBatchFiles.Count);
                             }
-                            value.Add(item);
-                            installTargetFiles += list4.Count;
-                            LogInstallPerformance("estimated_install_targets package=" + item.path + " total=" + list2.Count + " installTargets=" + list4.Count + " installed=" + list3.Count + " dst=" + text);
+                            if (installTargetPackageFiles.Count == 0)
+                            {
+                                continue;
+                            }
+                            if (installTargetPackageFiles.Any((BMSFile bmsInfo) => string.IsNullOrWhiteSpace(bmsInfo.instl_dst)))
+                            {
+                                LogInstallPerformance("estimated_install_skip reason=missing_instl_dst package=" + originalPackage.path + " installTargets=" + installTargetPackageFiles.Count);
+                                continue;
+                            }
+                            string destinationDirectory = installTargetPackageFiles.Select((BMSFile bmsInfo) => bmsInfo.instl_dst).FirstOrDefault();
+                            if (string.IsNullOrWhiteSpace(destinationDirectory) || installTargetPackageFiles.Any((BMSFile bmsInfo) => !string.Equals(bmsInfo.instl_dst, destinationDirectory, StringComparison.OrdinalIgnoreCase)))
+                            {
+                                LogInstallPerformance("estimated_install_skip reason=multi_dst package=" + originalPackage.path + " installTargets=" + installTargetPackageFiles.Count);
+                                continue;
+                            }
+                            // install用ワークパッケージ: 未所持譜面のみ保持し、既所持/重複譜面は移動対象から除外する。
+                            BMSPackage installWorkPackage = new BMSPackage(installTargetPackageFiles)
+                            {
+                                path = originalPackage.path,
+                                delete_parent = originalPackage.delete_parent
+                            };
+                            installWorkPackageByOriginal[originalPackage] = installWorkPackage;
+                            originalPackageByInstallWorkPackage[installWorkPackage] = originalPackage;
+                            if (installedInLibraryFiles.Count > 0 || duplicateInBatchFiles.Count > 0)
+                            {
+                                HashSet<string> excludedPaths = new HashSet<string>(installedInLibraryFiles.Select((BMSFile f) => f.path), StringComparer.OrdinalIgnoreCase);
+                                foreach (BMSFile duplicateFile in duplicateInBatchFiles)
+                                {
+                                    if (!string.IsNullOrWhiteSpace(duplicateFile?.path))
+                                    {
+                                        excludedPaths.Add(duplicateFile.path);
+                                    }
+                                }
+                                if (excludedPaths.Count > 0)
+                                {
+                                    excludedComponentPathsByWorkPackage[installWorkPackage] = excludedPaths;
+                                }
+                            }
+                            if (!packagesByDestination.TryGetValue(destinationDirectory, out var packagesInDestination))
+                            {
+                                packagesInDestination = new List<BMSPackage>();
+                                packagesByDestination[destinationDirectory] = packagesInDestination;
+                            }
+                            packagesInDestination.Add(originalPackage);
+                            installTargetFileCount += installTargetPackageFiles.Count;
+                            LogInstallPerformance("estimated_install_targets package=" + originalPackage.path + " total=" + packageFiles.Count + " installTargets=" + installTargetPackageFiles.Count + " installed=" + installedInLibraryFiles.Count + " dst=" + destinationDirectory);
                         }
-                        stopwatchGroupBuild.Stop();
-                        LogInstallPerformance("InstallBMSPackagesToEstimatedDir start selected=" + list.Count + " groups=" + dictionary.Count + " installTargets=" + installTargetFiles + " filterMs=" + stopwatchFilter.ElapsedMilliseconds + " groupBuildMs=" + stopwatchGroupBuild.ElapsedMilliseconds);
+                        groupBuildStopwatch.Stop();
+                        LogInstallPerformance("InstallBMSPackagesToEstimatedDir start selected=" + selectedPendingPackages.Count + " groups=" + packagesByDestination.Count + " installTargets=" + installTargetFileCount + " filterMs=" + filterStopwatch.ElapsedMilliseconds + " groupBuildMs=" + groupBuildStopwatch.ElapsedMilliseconds);
                         List<BMSFile> deferredMaintenanceTargets = new List<BMSFile>();
                         List<BMSPackage> deferredInstalledPackages = new List<BMSPackage>();
                         HashSet<BMSPackage> pendingPackagesToRemove = new HashSet<BMSPackage>();
-                        foreach (var item2 in dictionary)
+                        foreach (var groupEntry in packagesByDestination)
                         {
-                            Stopwatch stopwatchGroup = Stopwatch.StartNew();
-                            List<BMSPackage> value2 = item2.Value;
-                            List<BMSPackage> list5 = value2.Where((BMSPackage pkg) => installWorkByOriginal.ContainsKey(pkg)).Select((BMSPackage pkg) => installWorkByOriginal[pkg]).ToList();
-                            Stopwatch stopwatchInstall = Stopwatch.StartNew();
+                            Stopwatch groupStopwatch = Stopwatch.StartNew();
+                            List<BMSPackage> destinationPackages = groupEntry.Value;
+                            List<BMSPackage> installWorkPackages = destinationPackages.Where((BMSPackage pkg) => installWorkPackageByOriginal.ContainsKey(pkg)).Select((BMSPackage pkg) => installWorkPackageByOriginal[pkg]).ToList();
+                            Stopwatch installStopwatch = Stopwatch.StartNew();
                             // 既所持BMSの元パスを除外して、コンポーネント移動に巻き込まないようにする。
-                            List<BMSPackage> list6 = installBMSPackages(list5, item2.Key, deferredMaintenanceTargets, deferredInstalledPackages, excludedComponentPathsByInstallWork);
-                            stopwatchInstall.Stop();
-                            HashSet<BMSPackage> hashSet = new HashSet<BMSPackage>(list6.Select((BMSPackage workPkg) => originalByInstallWork[workPkg]));
-                            Stopwatch stopwatchInstallDb = Stopwatch.StartNew();
+                            List<BMSPackage> failedInstallWorkPackages = installBMSPackages(installWorkPackages, groupEntry.Key, deferredMaintenanceTargets, deferredInstalledPackages, excludedComponentPathsByWorkPackage, moveGuardHashes);
+                            installStopwatch.Stop();
+                            HashSet<BMSPackage> failedOriginalPackages = new HashSet<BMSPackage>(failedInstallWorkPackages.Select((BMSPackage workPkg) => originalPackageByInstallWorkPackage[workPkg]));
+                            Stopwatch installDbStopwatch = Stopwatch.StartNew();
                             using (LR2SongDBExtended lR2SongDBExtended = new LR2SongDBExtended(lr2SongDBPath))
                             {
                                 lR2SongDBExtended.BeginTransaction();
-                                foreach (BMSPackage item3 in value2)
+                                foreach (BMSPackage originalPackageInGroup in destinationPackages)
                                 {
-                                    if (!hashSet.Contains(item3))
+                                    if (!failedOriginalPackages.Contains(originalPackageInGroup))
                                     {
-                                        lR2SongDBExtended.Delete<LR2SongDBExtended.install>(item3.path);
-                                        foreach (BMSFile bMSFile in item3.BMSFiles)
+                                        lR2SongDBExtended.Delete<LR2SongDBExtended.install>(originalPackageInGroup.path);
+                                        foreach (BMSFile packageFile in originalPackageInGroup.BMSFiles)
                                         {
-                                            bMSFile.instl_dst = null;
+                                            packageFile.instl_dst = null;
                                         }
                                     }
                                 }
                                 lR2SongDBExtended.Commit();
                             }
-                            stopwatchInstallDb.Stop();
-                            Stopwatch stopwatchPendingMark = Stopwatch.StartNew();
+                            installDbStopwatch.Stop();
+                            Stopwatch pendingMarkStopwatch = Stopwatch.StartNew();
                             int pendingCountBeforeRemove = BMSPackagesPending.Count;
                             int bmsFilesCountBeforeRemove = ((BMSFiles != null) ? BMSFiles.Count : (-1));
                             int removedPendingCount = 0;
-                            foreach (BMSPackage item4 in value2)
+                            foreach (BMSPackage pendingPackage in destinationPackages)
                             {
-                                if (pendingPackagesToRemove.Add(item4))
+                                if (pendingPackagesToRemove.Add(pendingPackage))
                                 {
                                     removedPendingCount++;
                                 }
                             }
                             int pendingCountAfterRemove = BMSPackagesPending.Count;
                             int bmsFilesCountAfterRemove = ((BMSFiles != null) ? BMSFiles.Count : (-1));
-                            stopwatchPendingMark.Stop();
-                            stopwatchGroup.Stop();
-                            LogInstallPerformance("InstallBMSPackagesToEstimatedDir group dst=" + item2.Key + " packages=" + value2.Count + " workPackages=" + list5.Count + " failedPackages=" + list6.Count + " installMs=" + stopwatchInstall.ElapsedMilliseconds + " installDbMs=" + stopwatchInstallDb.ElapsedMilliseconds + " pendingMarkMs=" + stopwatchPendingMark.ElapsedMilliseconds + " pendingBefore=" + pendingCountBeforeRemove + " pendingMarked=" + removedPendingCount + " pendingAfter=" + pendingCountAfterRemove + " bmsFilesBefore=" + bmsFilesCountBeforeRemove + " bmsFilesAfter=" + bmsFilesCountAfterRemove + " totalGroupMs=" + stopwatchGroup.ElapsedMilliseconds);
+                            pendingMarkStopwatch.Stop();
+                            groupStopwatch.Stop();
+                            LogInstallPerformance("InstallBMSPackagesToEstimatedDir group dst=" + groupEntry.Key + " packages=" + destinationPackages.Count + " workPackages=" + installWorkPackages.Count + " failedPackages=" + failedInstallWorkPackages.Count + " installMs=" + installStopwatch.ElapsedMilliseconds + " installDbMs=" + installDbStopwatch.ElapsedMilliseconds + " pendingMarkMs=" + pendingMarkStopwatch.ElapsedMilliseconds + " pendingBefore=" + pendingCountBeforeRemove + " pendingMarked=" + removedPendingCount + " pendingAfter=" + pendingCountAfterRemove + " bmsFilesBefore=" + bmsFilesCountBeforeRemove + " bmsFilesAfter=" + bmsFilesCountAfterRemove + " totalGroupMs=" + groupStopwatch.ElapsedMilliseconds);
                         }
-                        Stopwatch stopwatchPendingApply = Stopwatch.StartNew();
+                        Stopwatch pendingApplyStopwatch = Stopwatch.StartNew();
                         int pendingCountBeforeApply = BMSPackagesPending.Count;
                         int pendingRemovedTotal = pendingPackagesToRemove.Count;
                         if (pendingRemovedTotal > 0)
@@ -4492,33 +4563,33 @@ public class BMSLibrary : NotificationObject
                             BMSPackagesPending = new DispatcherCollection<BMSPackage>(new ObservableCollection<BMSPackage>(remainingPending), DispatcherHelper.UIDispatcher);
                         }
                         int pendingCountAfterApply = BMSPackagesPending.Count;
-                        stopwatchPendingApply.Stop();
-                        Stopwatch stopwatchInstalledApply = Stopwatch.StartNew();
+                        pendingApplyStopwatch.Stop();
+                        Stopwatch installedApplyStopwatch = Stopwatch.StartNew();
                         int installedCountBeforeApply = BMSPackagesInstalled.Count;
                         int installedAddedTotal = deferredInstalledPackages.Count;
                         if (installedAddedTotal > 0)
                         {
                             HashSet<BMSPackage> installedSet = new HashSet<BMSPackage>(BMSPackagesInstalled.Where((BMSPackage pkg) => pkg != null));
                             List<BMSPackage> mergedInstalled = BMSPackagesInstalled.Where((BMSPackage pkg) => pkg != null).ToList();
-                            foreach (BMSPackage item5 in deferredInstalledPackages)
+                            foreach (BMSPackage installedPackage in deferredInstalledPackages)
                             {
-                                if (item5 != null && installedSet.Add(item5))
+                                if (installedPackage != null && installedSet.Add(installedPackage))
                                 {
-                                    mergedInstalled.Add(item5);
+                                    mergedInstalled.Add(installedPackage);
                                 }
                             }
                             BMSPackagesInstalled = new DispatcherCollection<BMSPackage>(new ObservableCollection<BMSPackage>(mergedInstalled), DispatcherHelper.UIDispatcher);
                         }
                         int installedCountAfterApply = BMSPackagesInstalled.Count;
-                        stopwatchInstalledApply.Stop();
-                        Stopwatch stopwatchMaintenance = Stopwatch.StartNew();
+                        installedApplyStopwatch.Stop();
+                        Stopwatch maintenanceStopwatch = Stopwatch.StartNew();
                         if (deferredMaintenanceTargets.Count > 0)
                         {
                             setMaintenanceInfo(deferredMaintenanceTargets, forceUpdate: true);
                         }
-                        stopwatchMaintenance.Stop();
-                        stopwatchTotal.Stop();
-                        LogInstallPerformance("InstallBMSPackagesToEstimatedDir end pendingApplyMs=" + stopwatchPendingApply.ElapsedMilliseconds + " pendingBeforeApply=" + pendingCountBeforeApply + " pendingRemovedTotal=" + pendingRemovedTotal + " pendingAfterApply=" + pendingCountAfterApply + " installedApplyMs=" + stopwatchInstalledApply.ElapsedMilliseconds + " installedBeforeApply=" + installedCountBeforeApply + " installedAddedTotal=" + installedAddedTotal + " installedAfterApply=" + installedCountAfterApply + " maintenanceTargets=" + deferredMaintenanceTargets.Count + " maintenanceMs=" + stopwatchMaintenance.ElapsedMilliseconds + " totalMs=" + stopwatchTotal.ElapsedMilliseconds);
+                        maintenanceStopwatch.Stop();
+                        totalStopwatch.Stop();
+                        LogInstallPerformance("InstallBMSPackagesToEstimatedDir end pendingApplyMs=" + pendingApplyStopwatch.ElapsedMilliseconds + " pendingBeforeApply=" + pendingCountBeforeApply + " pendingRemovedTotal=" + pendingRemovedTotal + " pendingAfterApply=" + pendingCountAfterApply + " installedApplyMs=" + installedApplyStopwatch.ElapsedMilliseconds + " installedBeforeApply=" + installedCountBeforeApply + " installedAddedTotal=" + installedAddedTotal + " installedAfterApply=" + installedCountAfterApply + " maintenanceTargets=" + deferredMaintenanceTargets.Count + " maintenanceMs=" + maintenanceStopwatch.ElapsedMilliseconds + " totalMs=" + totalStopwatch.ElapsedMilliseconds);
                     }
                 }
             }
