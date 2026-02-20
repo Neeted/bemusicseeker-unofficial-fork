@@ -2558,7 +2558,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         if (menuItem15 != null)
         {
-            bool flag9 = !flag4 && !flag3;
+            bool flag9 = !flag4;
             menuItem15.Visibility = ((!flag9) ? Visibility.Collapsed : Visibility.Visible);
             menuItem15.IsEnabled = flag9;
         }
@@ -3431,6 +3431,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                                   where !(f is VirtualBMSFile)
                                   select f).ToList();
         MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
+        bool isPendingSelected = _isTreeViewItemSelectedInclChildren(treeViewItemInstallPending);
         if (bmsFiles.Count <= 0 || MessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_rename_to_invalid, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) == MessageBoxResult.Cancel)
         {
             return;
@@ -3441,11 +3442,25 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             List<BMSFile> list2 = bmsFiles.Where((BMSFile f) => Path.GetExtension(f.path).StartsWith(".p", StringComparison.OrdinalIgnoreCase)).ToList();
             if (list.Count > 0)
             {
-                viewModel.RenameBMSFilesExtensions(list, ".bmx");
+                if (isPendingSelected)
+                {
+                    viewModel.RenamePendingBMSFilesExtensions(list, ".bmx");
+                }
+                else
+                {
+                    viewModel.RenameBMSFilesExtensions(list, ".bmx");
+                }
             }
             if (list2.Count > 0)
             {
-                viewModel.RenameBMSFilesExtensions(list2, ".pmx");
+                if (isPendingSelected)
+                {
+                    viewModel.RenamePendingBMSFilesExtensions(list2, ".pmx");
+                }
+                else
+                {
+                    viewModel.RenameBMSFilesExtensions(list2, ".pmx");
+                }
             }
         }).Logging("dataGridContextMenuItemRenameBMSFileClick");
     }
@@ -3456,11 +3471,19 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         List<VirtualBMSFile> second = bmsFiles.Where((BMSFile f) => f is VirtualBMSFile).Cast<VirtualBMSFile>().ToList();
         bmsFiles = bmsFiles.Except(second).ToList();
         MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
+        bool isPendingSelected = _isTreeViewItemSelectedInclChildren(treeViewItemInstallPending);
         if (bmsFiles.Count > 0 && MessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_move_to_recycle, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) != MessageBoxResult.Cancel)
         {
             Task.Run(delegate
             {
-                viewModel.RemoveBMSFiles(bmsFiles);
+                if (isPendingSelected)
+                {
+                    viewModel.RemovePendingBMSFiles(bmsFiles);
+                }
+                else
+                {
+                    viewModel.RemoveBMSFiles(bmsFiles);
+                }
             }).Logging("dataGridContextMenuItemRemoveBMSFileClick");
         }
     }

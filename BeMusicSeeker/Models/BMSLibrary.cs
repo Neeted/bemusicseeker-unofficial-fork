@@ -5536,6 +5536,43 @@ public class BMSLibrary : NotificationObject
         }
     }
 
+    public void RenamePendingBMSFilesExtensions(IEnumerable<BMSFile> bmsFiles, string newExt)
+    {
+        if (bmsFiles == null)
+        {
+            throw new ArgumentNullException("bmsFiles");
+        }
+        using (rwlockBMSFilesInitializedMin.GetReaderGuard())
+        {
+            using (rwlockBMSFilesPendingInstall.GetWriterGuard())
+            {
+                using (rwlockSongDBInstall.GetWriterGuard())
+                {
+                    List<BMSFile> renamedFiles = new List<BMSFile>();
+                    foreach (BMSFile item in bmsFiles.Where((BMSFile f) => f != null && File.Exists(f.path)).ToList())
+                    {
+                        string text = Path.Combine(Path.GetDirectoryName(item.path), Path.GetFileNameWithoutExtension(item.path) + newExt);
+                        if (File.Exists(text) || Directory.Exists(text))
+                        {
+                            DispatcherMessageBox.Show("変更先ファイルが既に存在するため中止しました。" + Environment.NewLine + "変更元: " + item.path + Environment.NewLine + "変更先: " + text, "警告", MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
+                            continue;
+                        }
+                        try
+                        {
+                            FileSystem.MoveFile(item.path, text);
+                            renamedFiles.Add(item);
+                        }
+                        catch (Exception ex)
+                        {
+                            DispatcherMessageBox.Show("BMSファイルの移動に失敗しました。" + Environment.NewLine + "正常にアクセスできるか確認して下さい。" + Environment.NewLine + "移動元: " + item.path + Environment.NewLine + "移動先: " + text + Environment.NewLine + Environment.NewLine + ex.Message, "エラー", MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+                        }
+                    }
+                    RemovePendingFilesFromPendingPackagesAndInstallRows(renamedFiles);
+                }
+            }
+        }
+    }
+
     public void RemoveBMSFiles(IEnumerable<BMSFile> bmsFiles, bool sendToRecycleBin = true)
     {
         using (rwlockBMSFilesInitializedMin.GetReaderGuard())
@@ -5602,24 +5639,143 @@ public class BMSLibrary : NotificationObject
         }
     }
 
+    public void RemovePendingBMSFiles(IEnumerable<BMSFile> bmsFiles, bool sendToRecycleBin = true)
+    {
+        if (bmsFiles == null)
+        {
+            throw new ArgumentNullException("bmsFiles");
+        }
+        using (rwlockBMSFilesInitializedMin.GetReaderGuard())
+        {
+            using (rwlockBMSFilesPendingInstall.GetWriterGuard())
+            {
+                using (rwlockSongDBInstall.GetWriterGuard())
+                {
+                    List<BMSFile> removedFiles = new List<BMSFile>();
+                    foreach (BMSFile item in bmsFiles.Where((BMSFile f) => f != null).ToList())
+                    {
+                        try
+                        {
+                            if (File.Exists(item.path))
+                            {
+                                FileSystem.DeleteFile(item.path, UIOption.OnlyErrorDialogs, sendToRecycleBin ? RecycleOption.SendToRecycleBin : RecycleOption.DeletePermanently);
+                                removedFiles.Add(item);
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            DispatcherMessageBox.Show("BMSファイルの削除またはごみ箱への移動に失敗しました。" + Environment.NewLine + "正常にアクセスできるか確認して下さい。" + Environment.NewLine + item.path + Environment.NewLine + Environment.NewLine + ex.Message, "エラー", MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+                        }
+                    }
+                    RemovePendingFilesFromPendingPackagesAndInstallRows(removedFiles);
+                }
+            }
+        }
+    }
+
+    private void RemovePendingFilesFromPendingPackagesAndInstallRows(IEnumerable<BMSFile> bmsFiles)
+    {
+        List<BMSFile> list = bmsFiles.Where((BMSFile f) => f != null).ToList();
+        if (list.Count == 0)
+        {
+            return;
+        }
+        HashSet<string> removedPaths = new HashSet<string>(list.Where((BMSFile f) => !string.IsNullOrWhiteSpace(f.path)).Select((BMSFile f) => f.path), StringComparer.OrdinalIgnoreCase);
+        HashSet<string> removedHashes = new HashSet<string>(list.Where((BMSFile f) => IsBMSHashAvailable(f.hash)).Select((BMSFile f) => f.hash), StringComparer.OrdinalIgnoreCase);
+        bool changed = false;
+        List<BMSPackage> list2 = new List<BMSPackage>();
+        foreach (BMSPackage item in BMSPackagesPending.Where((BMSPackage pkg) => pkg != null).ToList())
+        {
+            int count = item.BMSFiles.Count;
+            item.BMSFiles.RemoveAll((BMSFile f) => IsMatchedRemovedFile(f, removedPaths, removedHashes));
+            if (item.BMSFiles.Count != count)
+            {
+                changed = true;
+                if (item.BMSFiles.Count == 0)
+                {
+                    list2.Add(item);
+                }
+            }
+        }
+        if (list2.Count > 0)
+        {
+            changed = true;
+            BMSPackagesPending.Remove(list2);
+            using LR2SongDBExtended lR2SongDBExtended = new LR2SongDBExtended(lr2SongDBPath);
+            lR2SongDBExtended.BeginTransaction();
+            foreach (BMSPackage item2 in list2)
+            {
+                lR2SongDBExtended.Delete<LR2SongDBExtended.install>(item2.path);
+            }
+            lR2SongDBExtended.Commit();
+        }
+        if (changed)
+        {
+            RaisePropertyChanged(() => BMSPackagesPending);
+        }
+    }
+
     private void unregisterBMSFiles(List<BMSFile> bmsFiles)
     {
         if (bmsFiles == null)
         {
             throw new ArgumentNullException("bmsFile");
         }
-        BMSFiles = BMSFiles.Except(bmsFiles).ToList();
+        List<BMSFile> list = bmsFiles.Where((BMSFile f) => f != null).ToList();
+        if (list.Count == 0)
+        {
+            return;
+        }
+        BMSFiles = BMSFiles.Except(list).ToList();
         using (rwlockSongDBMaintenance.GetWriterGuard())
         {
             using LR2SongDBExtended lR2SongDBExtended = new LR2SongDBExtended(lr2SongDBPath);
             lR2SongDBExtended.BeginTransaction();
-            foreach (BMSFile bmsFile in bmsFiles)
+            foreach (BMSFile item2 in list)
             {
-                lR2SongDBExtended.Delete<LR2SongDB.song>(bmsFile.path);
-                lR2SongDBExtended.Delete<LR2SongDBExtended.maintenance>(bmsFile.path);
+                lR2SongDBExtended.Delete<LR2SongDB.song>(item2.path);
+                lR2SongDBExtended.Delete<LR2SongDBExtended.maintenance>(item2.path);
             }
             lR2SongDBExtended.Commit();
         }
+        HashSet<string> removedPaths = new HashSet<string>(list.Where((BMSFile f) => !string.IsNullOrWhiteSpace(f.path)).Select((BMSFile f) => f.path), StringComparer.OrdinalIgnoreCase);
+        HashSet<string> removedHashes = new HashSet<string>(list.Where((BMSFile f) => IsBMSHashAvailable(f.hash)).Select((BMSFile f) => f.hash), StringComparer.OrdinalIgnoreCase);
+        bool changed = false;
+        List<BMSPackage> list2 = new List<BMSPackage>();
+        foreach (BMSPackage item3 in BMSPackagesInstalled.Where((BMSPackage pkg) => pkg != null).ToList())
+        {
+            int count = item3.BMSFiles.Count;
+            item3.BMSFiles.RemoveAll((BMSFile f) => IsMatchedRemovedFile(f, removedPaths, removedHashes));
+            if (item3.BMSFiles.Count != count)
+            {
+                changed = true;
+                if (item3.BMSFiles.Count == 0)
+                {
+                    list2.Add(item3);
+                }
+            }
+        }
+        if (list2.Count > 0)
+        {
+            BMSPackagesInstalled.Remove(list2);
+        }
+        if (changed)
+        {
+            RaisePropertyChanged(() => BMSPackagesInstalled);
+        }
+    }
+
+    private static bool IsMatchedRemovedFile(BMSFile file, HashSet<string> removedPaths, HashSet<string> removedHashes)
+    {
+        if (file == null)
+        {
+            return false;
+        }
+        if (!string.IsNullOrWhiteSpace(file.path) && removedPaths.Contains(file.path))
+        {
+            return true;
+        }
+        return IsBMSHashAvailable(file.hash) && removedHashes.Contains(file.hash);
     }
 
     private void replaceBMSFilePath(BMSFile bmsFile, string newPath, string oldPath = null, bool calcFolderParent = true)

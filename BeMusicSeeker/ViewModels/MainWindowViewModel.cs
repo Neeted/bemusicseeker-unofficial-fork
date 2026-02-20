@@ -7213,12 +7213,30 @@ public class MainWindowViewModel : ViewModel
 		}
 	}
 
+	public void RemovePendingBMSFiles(IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles)
+	{
+		lock (lockCopyFile)
+		{
+			stopPlayingBMSFile(bmsFiles);
+			files.RemovePendingBMSFiles(bmsFiles);
+		}
+	}
+
 	public void RenameBMSFilesExtensions(IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles, string newExt)
 	{
 		lock (lockCopyFile)
 		{
 			stopPlayingBMSFile(bmsFiles);
 			files.RenameBMSFilesExtensions(bmsFiles, newExt, true);
+		}
+	}
+
+	public void RenamePendingBMSFilesExtensions(IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles, string newExt)
+	{
+		lock (lockCopyFile)
+		{
+			stopPlayingBMSFile(bmsFiles);
+			files.RenamePendingBMSFilesExtensions(bmsFiles, newExt);
 		}
 	}
 
