@@ -133,6 +133,8 @@ public class Resources
 
 	public static string Details_test_startup_select_install_pending => ResourceManager.GetString("Details_test_startup_select_install_pending", resourceCulture);
 
+	public static string Details_test_smart_component_overwrite => ResourceManager.GetString("Details_test_smart_component_overwrite", resourceCulture);
+
 	public static string Details_test_notscan => ResourceManager.GetString("Details_test_notscan", resourceCulture);
 
 	public static string Device => ResourceManager.GetString("Device", resourceCulture);

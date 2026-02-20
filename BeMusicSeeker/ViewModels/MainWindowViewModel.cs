@@ -175,6 +175,8 @@ public class MainWindowViewModel : ViewModel
 
 		private bool tempEnableAutoInstall;
 
+		private bool tempEnableSmartComponentOverwrite;
+
 		private string tempStagefilePath;
 
 		private static string defaultFolderNameFormat = "[%ARTIST%] %TITLE%";
@@ -992,6 +994,22 @@ public class MainWindowViewModel : ViewModel
 				{
 					Settings.Default.AutoInstall = value;
 					RaisePropertyChanged("EnableAutoInstall");
+				}
+			}
+		}
+
+		public bool EnableSmartComponentOverwrite
+		{
+			get
+			{
+				return Settings.Default.EnableSmartComponentOverwrite;
+			}
+			set
+			{
+				if (Settings.Default.EnableSmartComponentOverwrite != value)
+				{
+					Settings.Default.EnableSmartComponentOverwrite = value;
+					RaisePropertyChanged("EnableSmartComponentOverwrite");
 				}
 			}
 		}
@@ -2034,6 +2052,7 @@ public class MainWindowViewModel : ViewModel
 			tempEnableReadOptimizedPragmas = Settings.Default.EnableReadOptimizedPragmas;
 			tempSkipEstimateOfflineScoreRanking = Settings.Default.SkipEstimateOfflineScoreRanking;
 			tempEnableAutoInstall = Settings.Default.AutoInstall;
+			tempEnableSmartComponentOverwrite = Settings.Default.EnableSmartComponentOverwrite;
 			tempEncoderSampleRate = Settings.Default.EncoderSampleRate;
 			tempEncoderIndex = (int)Settings.Default.Encoder;
 			tempEncoderFormat = Settings.Default.EncoderFormat;
@@ -2277,6 +2296,7 @@ public class MainWindowViewModel : ViewModel
 			Settings.Default.StartupExpandPlaylistTree = tempStartupExpandPlaylistTree;
 			Settings.Default.EnableReadOptimizedPragmas = tempEnableReadOptimizedPragmas;
 			Settings.Default.SkipEstimateOfflineScoreRanking = tempSkipEstimateOfflineScoreRanking;
+			Settings.Default.EnableSmartComponentOverwrite = tempEnableSmartComponentOverwrite;
 			Settings.Default.SkipInitFileCheck = tempSkipInitFileCheck;
 			Settings.Default.EncoderSampleRate = tempEncoderSampleRate;
 			Settings.Default.Encoder = (EncoderType)tempEncoderIndex;
@@ -2340,6 +2360,7 @@ public class MainWindowViewModel : ViewModel
 			RaisePropertyChanged(() => StartupExpandPlaylistTree);
 			RaisePropertyChanged(() => EnableReadOptimizedPragmas);
 			RaisePropertyChanged(() => SkipEstimateOfflineScoreRanking);
+			RaisePropertyChanged(() => EnableSmartComponentOverwrite);
 			RaisePropertyChanged(() => EncoderSampleRate);
 			RaisePropertyChanged(() => EncoderIndex);
 			RaisePropertyChanged(() => EncoderNormalization);

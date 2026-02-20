@@ -1050,6 +1050,21 @@ internal sealed class Settings : ApplicationSettingsBase
 		}
 	}
 
+	[UserScopedSetting]
+	[DebuggerNonUserCode]
+	[DefaultSettingValue("False")]
+	public bool EnableSmartComponentOverwrite
+	{
+		get
+		{
+			return (bool)this["EnableSmartComponentOverwrite"];
+		}
+		set
+		{
+			this["EnableSmartComponentOverwrite"] = value;
+		}
+	}
+
 	public Settings()
 	{
 		base.SettingsLoaded += SettingsLoadedEventHandler;

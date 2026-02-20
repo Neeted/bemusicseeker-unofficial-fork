@@ -569,6 +569,7 @@
                     <CheckBox IsChecked="{Binding settingDialog.EnableReadOptimizedPragmas}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_test_db_read_optimized_pragmas, Mode=OneWay}" />
                     <CheckBox IsChecked="{Binding settingDialog.SkipEstimateOfflineScoreRanking}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_test_notcalc_offrank, Mode=OneWay}" />
                     <CheckBox IsChecked="{Binding settingDialog.EnableAutoInstall}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_test_download_and_install, Mode=OneWay}" />
+                    <CheckBox IsChecked="{Binding settingDialog.EnableSmartComponentOverwrite}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_test_smart_component_overwrite, Mode=OneWay}" />
                   </StackPanel>
                 </GroupBox>
                 <GroupBox Padding="5,5,5,0" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Language, Mode=OneWay}">

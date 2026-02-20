@@ -3409,6 +3409,160 @@ public class BMSLibrary : NotificationObject
         return list;
     }
 
+    private enum ComponentMoveDecision
+    {
+        Move,
+        Overwrite,
+        SkipSame,
+        SkipOlderOrEqual
+    }
+
+    private sealed class ComponentMovePlanItem
+    {
+        public string SourcePath { get; set; }
+
+        public string DestinationPath { get; set; }
+    }
+
+    private sealed class ComponentMoveSummary
+    {
+        public int Total { get; set; }
+
+        public int Moved { get; set; }
+
+        public int Overwritten { get; set; }
+
+        public int SkippedSame { get; set; }
+
+        public int SkippedOlder { get; set; }
+
+        public int DeletedAfterSkip { get; set; }
+    }
+
+    private static readonly TimeSpan smartComponentOverwriteTimeTolerance = TimeSpan.FromSeconds(2.0);
+
+    private static bool IsSmartComponentOverwriteEnabled()
+    {
+        return Settings.Default.EnableSmartComponentOverwrite;
+    }
+
+    private static ComponentMoveDecision DecideComponentMove(string srcFilePath, string dstFilePath)
+    {
+        if (!File.Exists(dstFilePath))
+        {
+            return ComponentMoveDecision.Move;
+        }
+        FileInfo fileInfo = new FileInfo(srcFilePath);
+        FileInfo fileInfo2 = new FileInfo(dstFilePath);
+        DateTime lastWriteTimeUtc = fileInfo.LastWriteTimeUtc;
+        DateTime lastWriteTimeUtc2 = fileInfo2.LastWriteTimeUtc;
+        if (fileInfo.Length == fileInfo2.Length && Math.Abs((lastWriteTimeUtc - lastWriteTimeUtc2).TotalSeconds) <= smartComponentOverwriteTimeTolerance.TotalSeconds)
+        {
+            return ComponentMoveDecision.SkipSame;
+        }
+        if (lastWriteTimeUtc > lastWriteTimeUtc2)
+        {
+            return ComponentMoveDecision.Overwrite;
+        }
+        return ComponentMoveDecision.SkipOlderOrEqual;
+    }
+
+    private static bool IsSamePath(string path1, string path2)
+    {
+        try
+        {
+            return string.Equals(Path.GetFullPath(path1), Path.GetFullPath(path2), StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return string.Equals(path1, path2, StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    private static string GetRelativePathFromDirectory(string rootDirectory, string targetPath)
+    {
+        if (string.IsNullOrWhiteSpace(rootDirectory))
+        {
+            return Path.GetFileName(targetPath);
+        }
+        string text = rootDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
+        if (!targetPath.StartsWith(text, StringComparison.OrdinalIgnoreCase))
+        {
+            return Path.GetFileName(targetPath);
+        }
+        return targetPath.Substring(text.Length);
+    }
+
+    private static List<ComponentMovePlanItem> BuildComponentMovePlan(IEnumerable<string> installComponentFiles, string destinationDirectory, ISet<string> excludedComponentPaths)
+    {
+        List<ComponentMovePlanItem> list = new List<ComponentMovePlanItem>();
+        HashSet<string> hashSet = ((excludedComponentPaths != null && excludedComponentPaths.Count > 0) ? new HashSet<string>(excludedComponentPaths, StringComparer.OrdinalIgnoreCase) : null);
+        foreach (string installComponentFile in installComponentFiles)
+        {
+            if (File.Exists(installComponentFile))
+            {
+                if (hashSet != null && hashSet.Contains(installComponentFile))
+                {
+                    continue;
+                }
+                list.Add(new ComponentMovePlanItem
+                {
+                    SourcePath = installComponentFile,
+                    DestinationPath = Path.Combine(destinationDirectory, Path.GetFileName(installComponentFile))
+                });
+                continue;
+            }
+            if (!Directory.Exists(installComponentFile))
+            {
+                throw new FileNotFoundException("ファイルが見つかりませんでした", installComponentFile);
+            }
+            string text = Path.Combine(destinationDirectory, Path.GetFileName(installComponentFile));
+            foreach (string item in Directory.EnumerateFiles(installComponentFile, "*", System.IO.SearchOption.AllDirectories))
+            {
+                if (hashSet != null && hashSet.Contains(item))
+                {
+                    continue;
+                }
+                list.Add(new ComponentMovePlanItem
+                {
+                    SourcePath = item,
+                    DestinationPath = Path.Combine(text, GetRelativePathFromDirectory(installComponentFile, item))
+                });
+            }
+        }
+        return list;
+    }
+
+    private static void CleanupEmptyComponentDirectories(IEnumerable<string> installComponentFiles)
+    {
+        foreach (string item in installComponentFiles.Where((string p) => Directory.Exists(p)).OrderByDescending((string p) => p.Length))
+        {
+            TryDeleteEmptyDirectoryTree(item);
+        }
+    }
+
+    private static void TryDeleteEmptyDirectoryTree(string rootDirectory)
+    {
+        try
+        {
+            if (!Directory.Exists(rootDirectory))
+            {
+                return;
+            }
+            foreach (string item in Directory.EnumerateDirectories(rootDirectory).ToList())
+            {
+                TryDeleteEmptyDirectoryTree(item);
+            }
+            if (!Directory.EnumerateFileSystemEntries(rootDirectory).Any())
+            {
+                Directory.Delete(rootDirectory, recursive: false);
+            }
+        }
+        catch
+        {
+        }
+    }
+
     private bool moveBMSPackageFiles(BMSPackage pkg, string installationDirectory, bool showMessageBoxOnInstallFail = true, bool deleteAllContents = false, HashSet<string> existingHashes = null, ISet<string> excludedComponentPaths = null)
     {
         string path = pkg.path;
@@ -3490,36 +3644,91 @@ public class BMSLibrary : NotificationObject
             }
             else
             {
-                installComponentFiles.AsParallel().ForAll(delegate (string file)
+                if (IsSmartComponentOverwriteEnabled())
                 {
-                    string text3 = Path.Combine(dirname, Path.GetFileName(file));
-                    if (File.Exists(file))
+                    ComponentMoveSummary componentMoveSummary = new ComponentMoveSummary();
+                    List<ComponentMovePlanItem> list2 = BuildComponentMovePlan(installComponentFiles, dirname, excludedComponentPaths);
+                    componentMoveSummary.Total = list2.Count;
+                    foreach (ComponentMovePlanItem item2 in list2)
                     {
-                        FileSystem.MoveFile(file, text3, overwrite: true);
-                    }
-                    else
-                    {
-                        if (!Directory.Exists(file))
+                        string sourcePath = item2.SourcePath;
+                        string destinationPath = item2.DestinationPath;
+                        if (!File.Exists(sourcePath))
                         {
-                            throw new FileNotFoundException("ファイルが見つかりませんでした", file);
+                            throw new FileNotFoundException("ファイルが見つかりませんでした", sourcePath);
                         }
-                        FileSystem.MoveDirectory(file, text3, overwrite: true);
+                        if (IsSamePath(sourcePath, destinationPath))
+                        {
+                            // 同一パスは自己上書きになるため安全側でスキップする。
+                            componentMoveSummary.SkippedSame++;
+                            continue;
+                        }
+                        string directoryName = Path.GetDirectoryName(destinationPath);
+                        if (!string.IsNullOrWhiteSpace(directoryName))
+                        {
+                            Directory.CreateDirectory(directoryName);
+                        }
+                        ComponentMoveDecision componentMoveDecision = DecideComponentMove(sourcePath, destinationPath);
+                        switch (componentMoveDecision)
+                        {
+                        case ComponentMoveDecision.Move:
+                            FileSystem.MoveFile(sourcePath, destinationPath, overwrite: true);
+                            componentMoveSummary.Moved++;
+                            break;
+                        case ComponentMoveDecision.Overwrite:
+                            FileSystem.MoveFile(sourcePath, destinationPath, overwrite: true);
+                            componentMoveSummary.Moved++;
+                            componentMoveSummary.Overwritten++;
+                            break;
+                        case ComponentMoveDecision.SkipSame:
+                            File.Delete(sourcePath);
+                            componentMoveSummary.SkippedSame++;
+                            componentMoveSummary.DeletedAfterSkip++;
+                            break;
+                        default:
+                            File.Delete(sourcePath);
+                            componentMoveSummary.SkippedOlder++;
+                            componentMoveSummary.DeletedAfterSkip++;
+                            break;
+                        }
                     }
-                });
-                foreach (BMSFile item2 in installBMSFiles)
+                    // スキップ後の空ディレクトリを掃除して、後段のフォルダ削除を成功しやすくする。
+                    CleanupEmptyComponentDirectories(installComponentFiles);
+                    LogInstallPerformance("component_move_summary package=" + pkg.path + " total=" + componentMoveSummary.Total + " moved=" + componentMoveSummary.Moved + " overwritten=" + componentMoveSummary.Overwritten + " skipped_same=" + componentMoveSummary.SkippedSame + " skipped_older=" + componentMoveSummary.SkippedOlder + " deleted_after_skip=" + componentMoveSummary.DeletedAfterSkip);
+                }
+                else
                 {
-                    string text2 = Path.Combine(dirname, Path.GetFileName(item2.path));
+                    installComponentFiles.AsParallel().ForAll(delegate (string file)
+                    {
+                        string text3 = Path.Combine(dirname, Path.GetFileName(file));
+                        if (File.Exists(file))
+                        {
+                            FileSystem.MoveFile(file, text3, overwrite: true);
+                        }
+                        else
+                        {
+                            if (!Directory.Exists(file))
+                            {
+                                throw new FileNotFoundException("ファイルが見つかりませんでした", file);
+                            }
+                            FileSystem.MoveDirectory(file, text3, overwrite: true);
+                        }
+                    });
+                }
+                foreach (BMSFile item3 in installBMSFiles)
+                {
+                    string text2 = Path.Combine(dirname, Path.GetFileName(item3.path));
                     while (File.Exists(text2) || Directory.Exists(text2))
                     {
                         string path2 = Path.GetFileNameWithoutExtension(text2) + "_" + Path.GetExtension(text2);
                         text2 = Path.Combine(dirname, Path.GetFileName(path2));
                     }
-                    if (!File.Exists(item2.path))
+                    if (!File.Exists(item3.path))
                     {
-                        throw new FileNotFoundException("ファイルが見つかりませんでした", item2.path);
+                        throw new FileNotFoundException("ファイルが見つかりませんでした", item3.path);
                     }
-                    FileSystem.MoveFile(item2.path, text2, overwrite: true);
-                    item2.path = item2.path.ReplaceFromEnd(Path.GetFileName(item2.path), Path.GetFileName(text2), isIgnoreCase: true);
+                    FileSystem.MoveFile(item3.path, text2, overwrite: true);
+                    item3.path = item3.path.ReplaceFromEnd(Path.GetFileName(item3.path), Path.GetFileName(text2), isIgnoreCase: true);
                 }
             }
         }
