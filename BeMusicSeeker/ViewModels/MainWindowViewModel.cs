@@ -3109,6 +3109,13 @@ public class MainWindowViewModel : ViewModel
 		All = 0x1F
 	}
 
+	public enum PlaylistSummaryOwnedFilterType
+	{
+		All,
+		OwnedComplete,
+		OwnedIncomplete
+	}
+
 	private enum viewUpdateMode
 	{
 		TreeViewFilterNotChanged = 0,
@@ -3276,6 +3283,10 @@ public class MainWindowViewModel : ViewModel
 	private ModeFilterType _ModeFilter = ModeFilterType.All;
 
 	private string _KeywordFilter;
+
+	private string _PlaylistSummaryKeywordFilter = string.Empty;
+
+	private PlaylistSummaryOwnedFilterType _PlaylistSummaryOwnedFilter = PlaylistSummaryOwnedFilterType.All;
 
 	private Func<BeMusicSeeker.Models.BMSFile, bool> _FolderFilter;
 
@@ -4175,6 +4186,47 @@ public class MainWindowViewModel : ViewModel
 				_KeywordFilter = value;
 				RaisePropertyChanged("KeywordFilter");
 				makeBMSFilesView(viewUpdateMode.KeywordFilterUpdated);
+			}
+		}
+	}
+
+	public string PlaylistSummaryKeywordFilter
+	{
+		get
+		{
+			return _PlaylistSummaryKeywordFilter;
+		}
+		set
+		{
+			string text = value ?? string.Empty;
+			if (!(_PlaylistSummaryKeywordFilter == text))
+			{
+				_PlaylistSummaryKeywordFilter = text;
+				RaisePropertyChanged("PlaylistSummaryKeywordFilter");
+				if (IsPlaylistSummaryMode)
+				{
+					RefreshPlaylistSummaryIfVisible();
+				}
+			}
+		}
+	}
+
+	public PlaylistSummaryOwnedFilterType PlaylistSummaryOwnedFilter
+	{
+		get
+		{
+			return _PlaylistSummaryOwnedFilter;
+		}
+		set
+		{
+			if (_PlaylistSummaryOwnedFilter != value)
+			{
+				_PlaylistSummaryOwnedFilter = value;
+				RaisePropertyChanged("PlaylistSummaryOwnedFilter");
+				if (IsPlaylistSummaryMode)
+				{
+					RefreshPlaylistSummaryIfVisible();
+				}
 			}
 		}
 	}
@@ -6428,7 +6480,7 @@ public class MainWindowViewModel : ViewModel
 	{
 		Action action = delegate
 		{
-			List<PlaylistSummaryRow> rows = new List<PlaylistSummaryRow>();
+			List<PlaylistSummaryRow> list = new List<PlaylistSummaryRow>();
 			HashSet<string> ownedHashes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 			IEnumerable<BeMusicSeeker.Models.BMSFile> bMSFiles = BMSFiles;
 			if (bMSFiles != null)
@@ -6441,20 +6493,20 @@ public class MainWindowViewModel : ViewModel
 					}
 				}
 			}
-			List<BMSTable> list = new List<BMSTable>();
+			List<BMSTable> list2 = new List<BMSTable>();
 			if (tables != null)
 			{
 				tables.AcquireReaderLockBMSTables();
 				try
 				{
-					list = BMSTables.Where((BMSTable t) => t != null).OrderBy((BMSTable t) => t.name ?? string.Empty).ToList();
+					list2 = BMSTables.Where((BMSTable t) => t != null).OrderBy((BMSTable t) => t.name ?? string.Empty).ToList();
 				}
 				finally
 				{
 					tables.FreeReaderLockBMSTables();
 				}
 			}
-			foreach (BMSTable item2 in list)
+			foreach (BMSTable item2 in list2)
 			{
 				HashSet<string> hashSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 				foreach (BMSTableEntry item3 in item2.GetEntriesExceptDummy())
@@ -6466,7 +6518,7 @@ public class MainWindowViewModel : ViewModel
 				}
 				int count = hashSet.Count;
 				int num = hashSet.Count((string m) => ownedHashes.Contains(m));
-				rows.Add(new PlaylistSummaryRow
+				list.Add(new PlaylistSummaryRow
 				{
 					PlaylistId = item2.playlist_id,
 					Name = item2.name ?? string.Empty,
@@ -6482,6 +6534,7 @@ public class MainWindowViewModel : ViewModel
 					TableRef = item2
 				});
 			}
+			List<PlaylistSummaryRow> rows = ApplyPlaylistSummaryFilters(list).ToList();
 			Action reflect = delegate
 			{
 				PlaylistSummaryView = new ObservableCollection<PlaylistSummaryRow>(rows);
@@ -6503,6 +6556,47 @@ public class MainWindowViewModel : ViewModel
 		else
 		{
 			Task.Run(action).Logging("RebuildPlaylistSummaryView");
+		}
+	}
+
+	private IEnumerable<PlaylistSummaryRow> ApplyPlaylistSummaryFilters(IEnumerable<PlaylistSummaryRow> rows)
+	{
+		IEnumerable<PlaylistSummaryRow> source = rows ?? Enumerable.Empty<PlaylistSummaryRow>();
+		string text = (PlaylistSummaryKeywordFilter ?? string.Empty).Trim();
+		if (!string.IsNullOrWhiteSpace(text))
+		{
+			string keywordUpper = text.ToUpperInvariant();
+			source = source.Where((PlaylistSummaryRow row) => IsPlaylistSummaryRowMatchedKeyword(row, keywordUpper));
+		}
+		return source.Where(IsPlaylistSummaryRowMatchedOwnedFilter);
+	}
+
+	private bool IsPlaylistSummaryRowMatchedKeyword(PlaylistSummaryRow row, string keywordUpper)
+	{
+		if (row == null)
+		{
+			return false;
+		}
+		string text = row.PlaylistId?.ToString() ?? string.Empty;
+		string text2 = row.Name ?? string.Empty;
+		string text3 = row.Symbol ?? string.Empty;
+		return text.ToUpperInvariant().Contains(keywordUpper) || text2.ToUpperInvariant().Contains(keywordUpper) || text3.ToUpperInvariant().Contains(keywordUpper);
+	}
+
+	private bool IsPlaylistSummaryRowMatchedOwnedFilter(PlaylistSummaryRow row)
+	{
+		if (row == null)
+		{
+			return false;
+		}
+		switch (PlaylistSummaryOwnedFilter)
+		{
+		case PlaylistSummaryOwnedFilterType.OwnedComplete:
+			return row.TotalCharts > 0 && row.OwnedCharts == row.TotalCharts;
+		case PlaylistSummaryOwnedFilterType.OwnedIncomplete:
+			return row.TotalCharts == 0 || row.OwnedCharts < row.TotalCharts;
+		default:
+			return true;
 		}
 	}
 

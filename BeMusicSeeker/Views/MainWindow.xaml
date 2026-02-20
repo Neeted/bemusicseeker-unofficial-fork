@@ -19,6 +19,7 @@
       <v:notOperatorBoolConverter x:Key="notOperatorBoolConverter" />
       <v:IconToImageSourceConverter x:Key="IconToImageSourceConverter" />
       <v:modeFilterConverter x:Key="modeFilterConverter" />
+      <v:playlistSummaryOwnedFilterConverter x:Key="playlistSummaryOwnedFilterConverter" />
       <v:dataGridLengthConverter x:Key="dataGridLengthConverter" />
       <v:dataGridLengthConverterForURL1 x:Key="dataGridLengthConverterForURL1" />
       <v:dataGridLengthConverterForURL2 x:Key="dataGridLengthConverterForURL2" />
@@ -1326,7 +1327,7 @@
           </Grid>
           <Border BorderBrush="#FF828790" BorderThickness="1,0,0,0" Grid.Row="1" Grid.ColumnSpan="1" Grid.Column="1" Background="#FFF0F0F0">
             <DockPanel>
-              <Border DockPanel.Dock="Right" CornerRadius="6" BorderThickness="1" BorderBrush="#FF000000" Width="Auto" Margin="0,0,2,0" VerticalAlignment="Center" FlowDirection="LeftToRight" Background="{Binding Text, ElementName=KeywordSearchBox, Mode=OneWay, Converter={qc:QuickConverter '$P == \'\' ? \'White\' : \'LightPink\''}}">
+              <Border DockPanel.Dock="Right" CornerRadius="6" BorderThickness="1" BorderBrush="#FF000000" Width="Auto" Margin="0,0,2,0" VerticalAlignment="Center" FlowDirection="LeftToRight" Background="{Binding Text, ElementName=KeywordSearchBox, Mode=OneWay, Converter={qc:QuickConverter '$P == \'\' ? \'White\' : \'LightPink\''}}" Visibility="{Binding IsPlaylistSummaryMode, Converter={qc:QuickConverter '$P ? Visibility.Collapsed : Visibility.Visible'}}">
                 <StackPanel VerticalAlignment="Center" HorizontalAlignment="Right" Orientation="Horizontal">
                   <v:DropDownMenuButton Width="20" Height="20" Template="{DynamicResource templateDropmenuButtonLoupe}" Margin="2,0,0,0">
                     <FrameworkElement.Resources>
@@ -1366,6 +1367,46 @@
                   </v:DropDownMenuButton>
                   <TextBox Name="KeywordSearchBox" Width="156" BorderThickness="0" HorizontalAlignment="Left" Margin="0,0,0,0" VerticalAlignment="Center" Background="#00FFFFFF" VerticalContentAlignment="Center" Text="{Binding KeywordFilter, Delay=500, UpdateSourceTrigger=PropertyChanged}" />
                   <TextBlock FontFamily="{StaticResource LigatureSymbols}" VerticalAlignment="Center" FontSize="16" Text="close" Margin="0,0,3,0.5" Foreground="#FF6495ED" Cursor="Hand" Visibility="{Binding Text, ElementName=KeywordSearchBox, Mode=OneWay, Converter={qc:QuickConverter 'String.IsNullOrWhiteSpace($P) ? Visibility.Hidden : Visibility.Visible'}}" MouseLeftButtonDown="{qc:QuickEvent '$KeywordSearchBox.Text = String.Empty'}" />
+                </StackPanel>
+              </Border>
+              <Border DockPanel.Dock="Right" CornerRadius="6" BorderThickness="1" BorderBrush="#FF000000" Width="Auto" Margin="0,0,2,0" VerticalAlignment="Center" FlowDirection="LeftToRight" Background="{Binding Text, ElementName=KeywordSearchBoxPlaylistSummary, Mode=OneWay, Converter={qc:QuickConverter '$P == \'\' ? \'White\' : \'LightPink\''}}" Visibility="{Binding IsPlaylistSummaryMode, Converter={qc:QuickConverter '$P ? Visibility.Visible : Visibility.Collapsed'}}">
+                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Right" Orientation="Horizontal">
+                  <v:DropDownMenuButton Width="20" Height="20" Template="{DynamicResource templateDropmenuButtonLoupe}" Margin="2,0,0,0">
+                    <FrameworkElement.Resources>
+                      <ResourceDictionary>
+                        <ControlTemplate x:Key="templateDropmenuButtonLoupe" TargetType="{x:Type ToggleButton}">
+                          <Grid Background="#00FFFFFF">
+                            <Viewbox Height="20" Width="20">
+                              <Grid Height="100" Width="100">
+                                <Ellipse Fill="#A0FFFFFF" HorizontalAlignment="Left" Height="50" VerticalAlignment="Top" Width="50" Margin="5,12.5,0,0" />
+                                <shapes:Arc xmlns:shapes="clr-namespace:Microsoft.Expression.Shapes;assembly=Microsoft.Expression.Drawing" shapes:Arc.ArcThickness="8" shapes:Arc.ArcThicknessUnit="Pixel" shapes:Arc.EndAngle="360" Shape.Fill="#FF727272" Shape.Stretch="None" shapes:Arc.StartAngle="0" FrameworkElement.Margin="0,8.25,40,31.75" />
+                                <Rectangle Fill="#FF727272" HorizontalAlignment="Left" Height="42.5" VerticalAlignment="Top" Width="9.849" Margin="58.013,49.937,0,0" RenderTransformOrigin="0.5,0.5">
+                                  <UIElement.RenderTransform>
+                                    <TransformGroup>
+                                      <ScaleTransform />
+                                      <SkewTransform />
+                                      <RotateTransform Angle="-45" />
+                                      <TranslateTransform />
+                                    </TransformGroup>
+                                  </UIElement.RenderTransform>
+                                </Rectangle>
+                              </Grid>
+                            </Viewbox>
+                            <Path Width="6" Height="5" Margin="13,0,0,0" Stretch="Fill" Data="F1 M57.5692,88 L99.1384,16 L16,16 L57.5692,88" Fill="{Binding Path=Foreground, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type v:DropDownMenuButton}}}" />
+                          </Grid>
+                        </ControlTemplate>
+                      </ResourceDictionary>
+                    </FrameworkElement.Resources>
+                    <v:DropDownMenuButton.DropDownContextMenu>
+                      <ContextMenu>
+                        <MenuItem StaysOpenOnClick="True" IsCheckable="True" Header="All" IsChecked="{Binding PlaylistSummaryOwnedFilter, ConverterParameter=All, Converter={StaticResource playlistSummaryOwnedFilterConverter}}" />
+                        <MenuItem StaysOpenOnClick="True" IsCheckable="True" Header="OWNED=100%" IsChecked="{Binding PlaylistSummaryOwnedFilter, ConverterParameter=OwnedComplete, Converter={StaticResource playlistSummaryOwnedFilterConverter}}" />
+                        <MenuItem StaysOpenOnClick="True" IsCheckable="True" Header="OWNED&lt;100%" IsChecked="{Binding PlaylistSummaryOwnedFilter, ConverterParameter=OwnedIncomplete, Converter={StaticResource playlistSummaryOwnedFilterConverter}}" />
+                      </ContextMenu>
+                    </v:DropDownMenuButton.DropDownContextMenu>
+                  </v:DropDownMenuButton>
+                  <TextBox Name="KeywordSearchBoxPlaylistSummary" Width="156" BorderThickness="0" HorizontalAlignment="Left" Margin="0,0,0,0" VerticalAlignment="Center" Background="#00FFFFFF" VerticalContentAlignment="Center" Text="{Binding PlaylistSummaryKeywordFilter, Delay=500, UpdateSourceTrigger=PropertyChanged}" />
+                  <TextBlock FontFamily="{StaticResource LigatureSymbols}" VerticalAlignment="Center" FontSize="16" Text="close" Margin="0,0,3,0.5" Foreground="#FF6495ED" Cursor="Hand" Visibility="{Binding Text, ElementName=KeywordSearchBoxPlaylistSummary, Mode=OneWay, Converter={qc:QuickConverter 'String.IsNullOrWhiteSpace($P) ? Visibility.Hidden : Visibility.Visible'}}" MouseLeftButtonDown="{qc:QuickEvent '$KeywordSearchBoxPlaylistSummary.Text = String.Empty'}" />
                 </StackPanel>
               </Border>
               <TextBlock DockPanel.Dock="Right" FontFamily="Meiryo" FontSize="12" VerticalAlignment="Bottom" Margin="10,0,5,0" Foreground="#FF202020" HorizontalAlignment="Left" Visibility="{Binding IsPlaylistSummaryMode, Converter={qc:QuickConverter '$P ? Visibility.Collapsed : Visibility.Visible'}}" Text="{Binding BMSFilesView, Converter={StaticResource BMSFilesViewToSummaryTextConverter}}" />
