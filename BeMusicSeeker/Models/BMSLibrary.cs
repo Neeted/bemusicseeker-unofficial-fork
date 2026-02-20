@@ -3650,6 +3650,22 @@ public class BMSLibrary : NotificationObject
         return list;
     }
 
+    /// <summary>
+    /// BMSファイルの差分譜面導入先（インストール先ディレクトリ）を推定します。
+    /// </summary>
+    /// <param name="bmsFiles">インストール対象のBMSファイルリスト（通常は同一パッケージ内のファイル群）</param>
+    /// <param name="asParallel">既存フォルダの走査（各フォルダとのマッチング評価）を並列実行するかどうか</param>
+    /// <param name="fixMode">手動修正モードフラグ（登録済みのファイルでも強制的に再推定を実施するかどうか）</param>
+    /// <remarks>
+    /// 【設計意図・背景】
+    /// 差分BMSパッケージ（追加の譜面データや難易度変更ファイル等）は、音源（WAV/OGGやBGA等）の実体を含まないことが多いため、
+    /// そのまま独立してインストールしてもゲームプレイ時に音が鳴らないなどの不具合が生じます。
+    /// ユーザーが手動で適切なベースとなる楽曲フォルダを探して統合する手間を省くべく、本ロジックでは
+    /// 対象差分BMSファイルが必要とする依存ファイルのハッシュ群をキーとして、既存の全楽曲フォルダを事前フィルタリングし、
+    /// 関連性が疑われるフォルダに対してのみ「仮想的にBMSを配置したシミュレーション(SetHealthStatus)」を行います。
+    /// 全てのフォルダを計算すると重すぎるため、事前のハッシュマッチで候補を絞り込むことで劇的な高速化を図りつつ、
+    /// 根本的には旧来と同じく、最もファイルの依存関係が解決される（健康度/Health が高まる）フォルダを自動算出して提案します。
+    /// </remarks>
     private void searchEstimatedInstallationDirectory(IEnumerable<BMSFile> bmsFiles, bool asParallel = true, bool fixMode = false)
     {
         using (rwlockBMSFilesInitializedAll.GetReaderGuard())
@@ -3666,6 +3682,10 @@ public class BMSLibrary : NotificationObject
                     {
                         bmsFile.status |= BMSFile.BMSFileStatus.SEARCHING;
                     }
+                    // 【ステップ1】パッケージ内から推定の「基準」となる代表BMSファイルを1つ選出する。
+                    // 既にハッシュ登録済みのファイルや、単体でWAVが十分に揃っている（差分ではなく本体の可能性が高い）ファイルは除外。
+                    // WAVやBGA、その他参照画像（BackBMP等）の定義数（要求ファイル数）が多いBMSほど、
+                    // スコア（Health）の計算基準が多くマッチング精度が高くなるため、優先的に代表として選定する。
                     BMSFile targetBMSInfo = (from bmsFile in bmsFiles
                                              where bmsFile != null && (fixMode || !ContainsBMSHashUnsafe(bmsFile.hash))
                                              where fixMode || bmsFile.maintenanceInfo == null || bmsFile.maintenanceInfo.GetWAVHealth() <= innerWavHealthThreshForNormalBMSFile
@@ -3683,7 +3703,49 @@ public class BMSLibrary : NotificationObject
                     }
                     ParallelQuery<string> source = (asParallel ? bmsFolderAllFileList.Keys.AsParallel() : bmsFolderAllFileList.Keys.AsParallel().WithDegreeOfParallelism(1));
                     uint[] curDirFileNameHash = (fixMode ? null : BMSDirectoryFileNameHash.GetFileNameHashArray(Path.GetDirectoryName(targetBMSInfo.path)));
-                    List<BMSFileMaintenanceInfo> source2 = (from m in (from m in source.Where((string dir) => !dir.Equals(Path.GetDirectoryName(targetBMSInfo.path), StringComparison.OrdinalIgnoreCase)).Select(delegate (string altdir)
+
+                    // 【ステップ2】事前フィルタリングのための依存ファイル名ハッシュ（WAV/BGA/画像等）の抽出
+                    HashSet<uint> targetFileHashes = new HashSet<uint>();
+                    if (targetBMSInfo.WAVfiles != null)
+                    {
+                        foreach (string wav in targetBMSInfo.WAVfiles)
+                        {
+                            if (!string.IsNullOrWhiteSpace(wav)) targetFileHashes.Add(BMSDirectoryFileNameHash.GetFileNameHash(wav));
+                        }
+                    }
+                    if (targetBMSInfo.BGAfiles != null)
+                    {
+                        foreach (string bga in targetBMSInfo.BGAfiles)
+                        {
+                            if (!string.IsNullOrWhiteSpace(bga)) targetFileHashes.Add(BMSDirectoryFileNameHash.GetFileNameHash(bga));
+                        }
+                    }
+                    if (!string.IsNullOrWhiteSpace(targetBMSInfo.backbmp)) targetFileHashes.Add(BMSDirectoryFileNameHash.GetFileNameHash(targetBMSInfo.backbmp));
+                    if (!string.IsNullOrWhiteSpace(targetBMSInfo.banner)) targetFileHashes.Add(BMSDirectoryFileNameHash.GetFileNameHash(targetBMSInfo.banner));
+                    if (!string.IsNullOrWhiteSpace(targetBMSInfo.stagefile)) targetFileHashes.Add(BMSDirectoryFileNameHash.GetFileNameHash(targetBMSInfo.stagefile));
+
+                    // 【ステップ3】既存の全BMSフォルダ群から、抽出したファイル名ハッシュを少なくとも1つ以上含むフォルダのみに候補を絞り込む（高速化の要）
+                    var sourceNew = source.Where((string dir) =>
+                    {
+                        if (dir.Equals(Path.GetDirectoryName(targetBMSInfo.path), StringComparison.OrdinalIgnoreCase)) return false;
+                        if (targetFileHashes.Count == 0) return true; // 依存ファイルが一切ない場合は全検索
+                        uint[] dirHashes = bmsFolderAllFileList.GetFileNameHashArray(dir);
+                        if (dirHashes == null || dirHashes.Length == 0) return false;
+                        for (int i = 0; i < dirHashes.Length; i++)
+                        {
+                            if (targetFileHashes.Contains(dirHashes[i])) return true;
+                        }
+                        return false;
+                    });
+
+
+                    // 【ステップ4】事前フィルタリングされたBMSフォルダ候補群に対して、仮想配置シミュレーションを実施する。
+                    // 1. 各候補フォルダ (altdir) に代表BMS (targetBMSInfo) を置いたと仮定し、SetHealthStatus で依存ファイルの充足度（健康度）を算出する。
+                    // 2. 結果としてWAVの健康度が最低閾値（本体判定）を上回り、かつ現状の配置よりも改善する（または同等以上の）フォルダのみをリストアップする。
+                    // 3. 最後に評価軸（WAV健康度 -> BGA健康度 -> Movie -> OptIMG）の順に降順ソートし、最も状態が良くなるフォルダを特定する。
+                    //    同率の場合は、そのフォルダに存在するWAVファイルの絶対総数が多い方を優先する（音源が豊富なディレクトリを正解としやすいヒューリスティック）。
+
+                    List<BMSFileMaintenanceInfo> source2 = (from m in (from m in sourceNew.Select(delegate (string altdir)
                             {
                                 BMSFileMaintenanceInfo bMSFileMaintenanceInfo = new BMSFileMaintenanceInfo(targetBMSInfo)
                                 {
@@ -3698,6 +3760,7 @@ public class BMSLibrary : NotificationObject
                                                                                                                                                                                               where BMSFile.wavExtensions.Any((string ext) => file.EndsWith(ext, StringComparison.OrdinalIgnoreCase))
                                                                                                                                                                                               select file).Count(), (m == targetBMSInfo.maintenanceInfo) ? 1 : 0 descending
                                                             select m).ToList();
+
                     if (source2.Count() > 0)
                     {
                         BMSFileMaintenanceInfo candidate = source2.First();
@@ -3733,6 +3796,11 @@ public class BMSLibrary : NotificationObject
         }
     }
 
+    /// <summary>
+    /// 指定されたBMSパッケージに対して、最適な導入先ディレクトリへの推論処理をキューイングします。
+    /// （UIからのドラッグ＆ドロップ登録時などに呼び出されます）
+    /// </summary>
+    /// <param name="package">推定を行うBMS差分パッケージオブジェクト</param>
     public void SearchEstimatedInstallationDirectory(BMSPackage package)
     {
         if (BMSPackagesPending.Contains(package))
