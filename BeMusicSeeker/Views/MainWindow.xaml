@@ -1370,11 +1370,19 @@
               </Border>
               <TextBlock DockPanel.Dock="Right" FontFamily="Meiryo" FontSize="12" VerticalAlignment="Bottom" Margin="10,0,5,0" Foreground="#FF202020" HorizontalAlignment="Left" Visibility="{Binding IsPlaylistSummaryMode, Converter={qc:QuickConverter '$P ? Visibility.Collapsed : Visibility.Visible'}}" Text="{Binding BMSFilesView, Converter={StaticResource BMSFilesViewToSummaryTextConverter}}" />
               <TextBlock DockPanel.Dock="Right" FontFamily="Meiryo" FontSize="12" VerticalAlignment="Bottom" Margin="10,0,5,0" Foreground="#FF202020" HorizontalAlignment="Left" Visibility="{Binding IsPlaylistSummaryMode, Converter={qc:QuickConverter '$P ? Visibility.Visible : Visibility.Collapsed'}}" Text="{Binding GridSummaryText}" />
-              <TextBlock Name="gridBMSPlayerControlsFolderPath" DockPanel.Dock="Left" FontFamily="Meiryo" FontSize="14" VerticalAlignment="Center" Margin="5,0" Foreground="#FF202020" TextTrimming="CharacterEllipsis" Visibility="{Binding IsPlaylistSummaryMode, Converter={qc:QuickConverter '$P ? Visibility.Collapsed : Visibility.Visible'}}">
+              <TextBlock Name="gridBMSPlayerControlsFolderPath" DockPanel.Dock="Left" FontFamily="Meiryo" FontSize="14" VerticalAlignment="Center" Margin="5,0" Foreground="#FF202020" TextTrimming="CharacterEllipsis" Visibility="{qc:MultiBinding '(!$P0 &amp;&amp; $P1 != Visibility.Visible) ? Visibility.Visible : Visibility.Collapsed', P0={Binding IsPlaylistSummaryMode}, P1={Binding ColumnSettingsVisibilityForPlaylist}}">
                 <TextBlock.Text>
                   <MultiBinding Converter="{StaticResource treeViewItemToAncestorsStringConverter}">
                     <Binding Path="SelectedItem" ElementName="treeView" />
                     <Binding ElementName="treeView" />
+                  </MultiBinding>
+                </TextBlock.Text>
+              </TextBlock>
+              <TextBlock DockPanel.Dock="Left" FontFamily="Meiryo" FontSize="14" VerticalAlignment="Center" Margin="5,0" Foreground="#FF202020" TextTrimming="CharacterEllipsis" Visibility="{qc:MultiBinding '(!$P0 &amp;&amp; $P1 == Visibility.Visible) ? Visibility.Visible : Visibility.Collapsed', P0={Binding IsPlaylistSummaryMode}, P1={Binding ColumnSettingsVisibilityForPlaylist}}">
+                <TextBlock.Text>
+                  <MultiBinding Converter="{StaticResource treeViewItemToAncestorsStringConverter}">
+                    <Binding Path="SelectedItem" ElementName="treeViewPlaylist" />
+                    <Binding ElementName="treeViewPlaylist" />
                   </MultiBinding>
                 </TextBlock.Text>
               </TextBlock>
@@ -1992,7 +2000,7 @@
     <RowDefinition Height="*" />
   </Grid.RowDefinitions>
   <Border Grid.RowSpan="3" BorderThickness="0,0,1,0" BorderBrush="#FF828790" IsHitTestVisible="False" />
-  <TreeView Name="treeViewPlaylist" Grid.Row="0" ScrollViewer.HorizontalScrollBarVisibility="Disabled" BorderThickness="0,0,1,0" Padding="1,5" ItemContainerStyle="{DynamicResource TreeViewItemFullWidthStyle}" MouseRightButtonDown="treeViewItemOnRightClick" MouseDown="treeViewLeftClick" SelectedItemChanged="treeViewSelectedItemChanged">
+  <TreeView Name="treeViewPlaylist" Grid.Row="0" ScrollViewer.HorizontalScrollBarVisibility="Disabled" BorderThickness="0,0,1,0" Padding="1,5" ItemContainerStyle="{DynamicResource TreeViewItemFullWidthStyle}" MouseRightButtonDown="treeViewItemOnRightClick" PreviewMouseLeftButtonDown="treeViewLeftClick" SelectedItemChanged="treeViewSelectedItemChanged">
 <TreeViewItem Name="treeViewItemPlaylist" IsExpanded="{Binding IsPlaylistTreeExpanded, Mode=TwoWay}" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist, Mode=OneWay}" ItemsSource="{Binding BMSTables}" ContextMenu="{StaticResource ResourceKey=treeViewPlaylistRootContextMenu}" Selected="playlistRootSelect">
               <FrameworkElement.Resources>
                 <ResourceDictionary>
@@ -2078,7 +2086,7 @@
             </TreeViewItem>
   </TreeView>
   <GridSplitter Name="gridSplitterTree" Grid.Row="1" Height="5" HorizontalAlignment="Stretch" VerticalAlignment="Center" ResizeDirection="Rows" ResizeBehavior="PreviousAndNext" Margin="0,0,1,0" />
-  <TreeView Name="treeView" Grid.Row="2" ScrollViewer.HorizontalScrollBarVisibility="Disabled" BorderThickness="0,0,1,0" Padding="1,5" ItemContainerStyle="{DynamicResource TreeViewItemFullWidthStyle}" MouseRightButtonDown="treeViewItemOnRightClick" MouseDown="treeViewLeftClick" SelectedItemChanged="treeViewSelectedItemChanged">
+  <TreeView Name="treeView" Grid.Row="2" ScrollViewer.HorizontalScrollBarVisibility="Disabled" BorderThickness="0,0,1,0" Padding="1,5" ItemContainerStyle="{DynamicResource TreeViewItemFullWidthStyle}" MouseRightButtonDown="treeViewItemOnRightClick" PreviewMouseLeftButtonDown="treeViewLeftClick" SelectedItemChanged="treeViewSelectedItemChanged">
 <TreeViewItem IsExpanded="True" IsSelected="True" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Library, Mode=OneWay}" Selected="rootFolderSelect">
               <FrameworkElement.Resources>
                 <ResourceDictionary>

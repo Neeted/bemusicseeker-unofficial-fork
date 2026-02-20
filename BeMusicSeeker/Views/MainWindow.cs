@@ -706,10 +706,156 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void treeViewLeftClick(object sender, MouseButtonEventArgs e)
     {
-        if (sender is TreeView treeView)
+        if (!(sender is TreeView treeViewControl))
         {
-            treeView.Focus();
+            return;
         }
+        treeViewControl.Focus();
+        if (e.ChangedButton != MouseButton.Left)
+        {
+            return;
+        }
+        TreeViewItem treeViewItem = FindAncestor<TreeViewItem>(e.OriginalSource as DependencyObject);
+        if (treeViewItem == null)
+        {
+            treeViewItem = GetSelectedTreeViewItem(treeViewControl);
+        }
+        if (treeViewItem == null || !treeViewItem.IsSelected)
+        {
+            return;
+        }
+        if (treeViewControl == treeViewPlaylist)
+        {
+            ForceRefreshPlaylistTreeSelection(treeViewItem);
+        }
+        else if (treeViewControl == this.treeView)
+        {
+            ForceRefreshMainTreeSelection(treeViewItem);
+        }
+    }
+
+    private static T FindAncestor<T>(DependencyObject current) where T : DependencyObject
+    {
+        while (current != null)
+        {
+            if (current is T result)
+            {
+                return result;
+            }
+            current = GetParentObject(current);
+        }
+        return null;
+    }
+
+    private static DependencyObject GetParentObject(DependencyObject current)
+    {
+        if (current == null)
+        {
+            return null;
+        }
+        if (current is FrameworkContentElement frameworkContentElement)
+        {
+            return frameworkContentElement.Parent;
+        }
+        if (current is ContentElement)
+        {
+            return LogicalTreeHelper.GetParent(current);
+        }
+        try
+        {
+            return VisualTreeHelper.GetParent(current);
+        }
+        catch
+        {
+            return LogicalTreeHelper.GetParent(current);
+        }
+    }
+
+    private static TreeViewItem GetSelectedTreeViewItem(ItemsControl parent)
+    {
+        if (parent == null)
+        {
+            return null;
+        }
+        for (int i = 0; i < parent.Items.Count; i++)
+        {
+            TreeViewItem treeViewItem = parent.ItemContainerGenerator.ContainerFromIndex(i) as TreeViewItem;
+            if (treeViewItem == null)
+            {
+                continue;
+            }
+            if (treeViewItem.IsSelected)
+            {
+                return treeViewItem;
+            }
+            TreeViewItem selectedTreeViewItem = GetSelectedTreeViewItem(treeViewItem);
+            if (selectedTreeViewItem != null)
+            {
+                return selectedTreeViewItem;
+            }
+        }
+        return null;
+    }
+
+    private void ForceRefreshPlaylistTreeSelection(TreeViewItem selectedItem)
+    {
+        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
+        if (viewModel == null || selectedItem == null)
+        {
+            return;
+        }
+        if (selectedItem == treeViewItemPlaylist)
+        {
+            Task.Run(delegate
+            {
+                viewModel.SelectPlaylistSummary();
+            }).Logging("ForceRefreshPlaylistTreeSelection");
+            return;
+        }
+        BMSTable bmsTable = null;
+        string folderName = null;
+        MainWindowViewModel.PlaylistFilterType type = MainWindowViewModel.PlaylistFilterType.PlaylistFilter;
+        if (selectedItem.DataContext is BMSTable bMSTable2)
+        {
+            bmsTable = bMSTable2;
+        }
+        else
+        {
+            if (!(selectedItem.DataContext is Tuple<string, bool> tuple))
+            {
+                return;
+            }
+            folderName = tuple.Item1;
+            if (tuple.Item2)
+            {
+                type = PlaylistTableHeaderSpecialFolderExt.FromDisplayName(folderName).ToPlaylistFilterType();
+            }
+            TreeViewItem ancestor = FindAncestor<TreeViewItem>(VisualTreeHelper.GetParent(selectedItem));
+            while (ancestor != null && !(ancestor.DataContext is BMSTable))
+            {
+                ancestor = FindAncestor<TreeViewItem>(VisualTreeHelper.GetParent(ancestor));
+            }
+            bmsTable = ancestor?.DataContext as BMSTable;
+        }
+        if (bmsTable != null)
+        {
+            Task.Run(delegate
+            {
+                viewModel.ExecPlaylistFilter(bmsTable, folderName, type);
+            }).Logging("ForceRefreshPlaylistTreeSelection");
+        }
+    }
+
+    private void ForceRefreshMainTreeSelection(TreeViewItem selectedItem)
+    {
+        if (selectedItem == null)
+        {
+            return;
+        }
+
+        // 下段ツリーはノード種別ごとの Selected ハンドラを再利用して更新する
+        // (ライブラリ/インストール/メンテナンスを一律にカバーする)
+        selectedItem.RaiseEvent(new RoutedEventArgs(TreeViewItem.SelectedEvent, selectedItem));
     }
 
     private void playlistTableFolderkeyDown(object sender, KeyEventArgs e)
