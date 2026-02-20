@@ -3215,6 +3215,8 @@ public class MainWindowViewModel : ViewModel
 
 	private object lockUiSuppression = new object();
 
+	private bool deferredPlaylistSummaryRefreshRequested;
+
 	private int deferredPlaylistRefRequestedVersion;
 
 	private bool deferredPlaylistRefRunning;
@@ -3260,6 +3262,14 @@ public class MainWindowViewModel : ViewModel
 	private dataGridColumnsSettings _ColumnsSettingsBMSFilesView;
 
 	private Visibility _ColumnSettingsVisibilityForPlaylist = Visibility.Collapsed;
+
+	private ObservableCollection<PlaylistSummaryRow> _PlaylistSummaryView = new ObservableCollection<PlaylistSummaryRow>();
+
+	private bool _IsPlaylistSummaryMode;
+
+	private string _GridHeaderText = string.Empty;
+
+	private string _GridSummaryText = string.Empty;
 
 	private bool _IsPlaylistTreeExpanded = true;
 
@@ -3403,6 +3413,32 @@ public class MainWindowViewModel : ViewModel
 			LogUiSuppression("ui_suppress pending depth=" + suppressDepth + " channel=" + channel + " pending=" + pendingMask);
 		}
 		return suppressed;
+	}
+
+	private bool IsUiUpdateSuppressed()
+	{
+		lock (lockUiSuppression)
+		{
+			return suppressUiUpdateDepth > 0;
+		}
+	}
+
+	private void RequestDeferredPlaylistSummaryRefresh()
+	{
+		lock (lockUiSuppression)
+		{
+			deferredPlaylistSummaryRefreshRequested = true;
+		}
+	}
+
+	private bool ConsumeDeferredPlaylistSummaryRefresh()
+	{
+		lock (lockUiSuppression)
+		{
+			bool result = deferredPlaylistSummaryRefreshRequested;
+			deferredPlaylistSummaryRefreshRequested = false;
+			return result;
+		}
 	}
 
 	private void EndUiUpdateSuppression()
@@ -3633,6 +3669,10 @@ public class MainWindowViewModel : ViewModel
 		}
 		stopwatchTotal.Stop();
 		LogUiSuppression("ui_suppress flush_install_tree_ms=" + num + " flush_playlist_tree_ms=" + num2 + " flush_library_folder_tree_ms=" + num3 + " flush_duplicate_tree_ms=" + num4 + " flush_library_main_view_ms=" + num5 + " flush_total_ms=" + stopwatchTotal.ElapsedMilliseconds + " deferred_library_folder_tree=" + flag);
+		if (IsPlaylistSummaryMode && (((mask & (UiRefreshChannel.PlaylistTree | UiRefreshChannel.LibraryMainView)) != 0) || ConsumeDeferredPlaylistSummaryRefresh()))
+		{
+			RebuildPlaylistSummaryView();
+		}
 		TryLogStartupReadyUi(mask);
 		TryLogStartupReadyInstall(mask);
 		if (flag)
@@ -4004,6 +4044,82 @@ public class MainWindowViewModel : ViewModel
 				_ColumnSettingsVisibilityForPlaylist = value;
 				RaisePropertyChanged("ColumnSettingsVisibilityForPlaylist");
 			}
+		}
+	}
+
+	public ObservableCollection<PlaylistSummaryRow> PlaylistSummaryView
+	{
+		get
+		{
+			return _PlaylistSummaryView;
+		}
+		set
+		{
+			if (_PlaylistSummaryView != value)
+			{
+				_PlaylistSummaryView = value ?? new ObservableCollection<PlaylistSummaryRow>();
+				RaisePropertyChanged("PlaylistSummaryView");
+			}
+		}
+	}
+
+	public bool IsPlaylistSummaryMode
+	{
+		get
+		{
+			return _IsPlaylistSummaryMode;
+		}
+		set
+		{
+			if (_IsPlaylistSummaryMode != value)
+			{
+				_IsPlaylistSummaryMode = value;
+				RaisePropertyChanged("IsPlaylistSummaryMode");
+			}
+		}
+	}
+
+	public string GridHeaderText
+	{
+		get
+		{
+			return _GridHeaderText;
+		}
+		set
+		{
+			if (!(_GridHeaderText == value))
+			{
+				_GridHeaderText = value ?? string.Empty;
+				RaisePropertyChanged("GridHeaderText");
+			}
+		}
+	}
+
+	public string GridSummaryText
+	{
+		get
+		{
+			return _GridSummaryText;
+		}
+		set
+		{
+			if (!(_GridSummaryText == value))
+			{
+				_GridSummaryText = value ?? string.Empty;
+				RaisePropertyChanged("GridSummaryText");
+			}
+		}
+	}
+
+	public PlaylistSummaryColumnSettings PlaylistSummaryColumnsSettings
+	{
+		get
+		{
+			if (Settings.Default.PlaylistSummaryColumnsSettings == null)
+			{
+				Settings.Default.PlaylistSummaryColumnsSettings = new PlaylistSummaryColumnSettings();
+			}
+			return Settings.Default.PlaylistSummaryColumnsSettings;
 		}
 	}
 
@@ -4712,6 +4828,7 @@ public class MainWindowViewModel : ViewModel
 		{
 			if (TrySuppress(UiRefreshChannel.LibraryMainView))
 			{
+				RefreshPlaylistSummaryIfVisible();
 				return;
 			}
 			if (Enum.IsDefined(typeof(MaintenanceFilterType), (int)treeViewFilterTypeSelected))
@@ -4723,6 +4840,7 @@ public class MainWindowViewModel : ViewModel
 			{
 				makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
 			}
+			RefreshPlaylistSummaryIfVisible();
 		});
 		listenerForBMSLibrary.RegisterHandler(() => files.BMSFilesNeedToBeFixed, delegate
 		{
@@ -4877,17 +4995,21 @@ public class MainWindowViewModel : ViewModel
 		{
 			if (TrySuppress(UiRefreshChannel.PlaylistTree))
 			{
+				RefreshPlaylistSummaryIfVisible();
 				return;
 			}
 			RaisePropertyChanged(() => BMSTables);
+			RefreshPlaylistSummaryIfVisible();
 		});
 		listenerForBMSPlaylistBMSTablesCollection.RegisterHandler(delegate
 		{
 			if (TrySuppress(UiRefreshChannel.PlaylistTree))
 			{
+				RefreshPlaylistSummaryIfVisible();
 				return;
 			}
 			RaisePropertyChanged(() => BMSTables);
+			RefreshPlaylistSummaryIfVisible();
 		});
 		listenerForBMSLibrary.RegisterHandler(() => files.IsWriteLockHeldInitializeBMSFiles, delegate
 		{
@@ -6004,6 +6126,7 @@ public class MainWindowViewModel : ViewModel
 
 	public void ExecFolderFilter(FolderFilterType type, string filterKey = null)
 	{
+		SetPlaylistSummaryMode(enabled: false);
 		if (!string.IsNullOrWhiteSpace(filterKey))
 		{
 			switch (type)
@@ -6025,6 +6148,7 @@ public class MainWindowViewModel : ViewModel
 
 	public void ExecPlaylistFilter(BMSTable bmsTable, string folderName = null, PlaylistFilterType type = PlaylistFilterType.PlaylistFilter)
 	{
+		SetPlaylistSummaryMode(enabled: false);
 		switch (type)
 		{
 		case PlaylistFilterType.PlaylistFilter:
@@ -6038,6 +6162,7 @@ public class MainWindowViewModel : ViewModel
 
 	public void ExecMaintenanceFilter(MaintenanceFilterType type, object parameter = null)
 	{
+		SetPlaylistSummaryMode(enabled: false);
 		if (files != null)
 		{
 			if (type == MaintenanceFilterType.DuplicateFilter)
@@ -6053,6 +6178,7 @@ public class MainWindowViewModel : ViewModel
 
 	public void ExecInstallFilter(InstallFilterType type, object parameter = null)
 	{
+		SetPlaylistSummaryMode(enabled: false);
 		switch (type)
 		{
 		case InstallFilterType.NewlyInstalledFilter:
@@ -6261,6 +6387,214 @@ public class MainWindowViewModel : ViewModel
 				EndUiUpdateSuppression();
 			}
 		}
+	}
+
+	private void SetPlaylistSummaryMode(bool enabled)
+	{
+		IsPlaylistSummaryMode = enabled;
+		if (enabled)
+		{
+			GridHeaderText = "プレイリストサマリー";
+		}
+		else
+		{
+			GridHeaderText = string.Empty;
+			GridSummaryText = string.Empty;
+			ConsumeDeferredPlaylistSummaryRefresh();
+		}
+	}
+
+	private void RefreshPlaylistSummaryIfVisible()
+	{
+		if (!IsPlaylistSummaryMode)
+		{
+			return;
+		}
+		if (IsUiUpdateSuppressed())
+		{
+			RequestDeferredPlaylistSummaryRefresh();
+			return;
+		}
+		RebuildPlaylistSummaryView();
+	}
+
+	public void SelectPlaylistSummary()
+	{
+		SetPlaylistSummaryMode(enabled: true);
+		RefreshPlaylistSummaryIfVisible();
+	}
+
+	public void RebuildPlaylistSummaryView(bool runAsync = true)
+	{
+		Action action = delegate
+		{
+			List<PlaylistSummaryRow> rows = new List<PlaylistSummaryRow>();
+			HashSet<string> ownedHashes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+			IEnumerable<BeMusicSeeker.Models.BMSFile> bMSFiles = BMSFiles;
+			if (bMSFiles != null)
+			{
+				foreach (BeMusicSeeker.Models.BMSFile item in bMSFiles)
+				{
+					if (!string.IsNullOrWhiteSpace(item?.hash))
+					{
+						ownedHashes.Add(item.hash);
+					}
+				}
+			}
+			List<BMSTable> list = new List<BMSTable>();
+			if (tables != null)
+			{
+				tables.AcquireReaderLockBMSTables();
+				try
+				{
+					list = BMSTables.Where((BMSTable t) => t != null).OrderBy((BMSTable t) => t.name ?? string.Empty).ToList();
+				}
+				finally
+				{
+					tables.FreeReaderLockBMSTables();
+				}
+			}
+			foreach (BMSTable item2 in list)
+			{
+				HashSet<string> hashSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+				foreach (BMSTableEntry item3 in item2.GetEntriesExceptDummy())
+				{
+					if (!item3.is_removed && !string.IsNullOrWhiteSpace(item3.md5))
+					{
+						hashSet.Add(item3.md5);
+					}
+				}
+				int count = hashSet.Count;
+				int num = hashSet.Count((string m) => ownedHashes.Contains(m));
+				rows.Add(new PlaylistSummaryRow
+				{
+					PlaylistId = item2.playlist_id,
+					Name = item2.name ?? string.Empty,
+					Symbol = item2.symbol ?? string.Empty,
+					LastUpdate = item2.last_update,
+					TotalCharts = count,
+					OwnedCharts = num,
+					MissingCharts = count - num,
+					OwnedRatio = ((count == 0) ? 0.0 : ((double)num * 100.0 / (double)count)),
+					LinkUri = item2.Page_url ?? item2.GetAbsoluteHeaderUrl(),
+					IsExternalSync = item2.is_external_sync,
+					IsRootFolder = item2.is_root_folder,
+					TableRef = item2
+				});
+			}
+			Action reflect = delegate
+			{
+				PlaylistSummaryView = new ObservableCollection<PlaylistSummaryRow>(rows);
+				GridSummaryText = "[" + rows.Sum((PlaylistSummaryRow r) => r.TotalCharts) + "譜面 / " + rows.Count + "プレイリスト]";
+			};
+			if (DispatcherHelper.UIDispatcher == null || DispatcherHelper.UIDispatcher.CheckAccess())
+			{
+				reflect();
+			}
+			else
+			{
+				DispatcherHelper.UIDispatcher.BeginInvoke(reflect);
+			}
+		};
+		if (!runAsync)
+		{
+			action();
+		}
+		else
+		{
+			Task.Run(action).Logging("RebuildPlaylistSummaryView");
+		}
+	}
+
+	public void ApplyPlaylistSummaryFlags(IEnumerable<PlaylistSummaryRow> rows, bool? isExternalSync = null, bool? isRootFolder = null)
+	{
+		if (rows == null || tables == null)
+		{
+			return;
+		}
+		List<PlaylistSummaryRow> list = rows.Where((PlaylistSummaryRow r) => r?.TableRef != null).GroupBy((PlaylistSummaryRow r) => r.TableRef).Select((IGrouping<BMSTable, PlaylistSummaryRow> g) => g.First()).ToList();
+		if (list.Count == 0)
+		{
+			return;
+		}
+		bool flag = false;
+		foreach (PlaylistSummaryRow item in list)
+		{
+			BMSTable tableRef = item.TableRef;
+			bool flag2 = false;
+			bool? nullable = null;
+			if (isExternalSync.HasValue)
+			{
+				bool flag3 = tableRef.is_external_sync != isExternalSync.Value;
+				if (isExternalSync.Value)
+				{
+					tableRef.EnableExternalSync();
+				}
+				else
+				{
+					tableRef.DisableExternalSync();
+				}
+				flag2 = flag2 || flag3;
+			}
+			if (isRootFolder.HasValue && tableRef.is_root_folder != isRootFolder.Value)
+			{
+				tableRef.is_root_folder = isRootFolder.Value;
+				nullable = isRootFolder;
+				flag2 = true;
+			}
+			if (!flag2)
+			{
+				continue;
+			}
+			tables.ReOutputCustomFolderAndCommitToDB(tableRef);
+			if (Settings.Default.OperationModeLR2DB && nullable.HasValue && lr2config != null && !string.IsNullOrWhiteSpace(tableRef.Output_dir))
+			{
+				string customFolderOutputDirectory = BMSPlaylist.GetCustomFolderOutputDirectory(tableRef);
+				List<string> bMSSearchDirectories = lr2config.GetBMSSearchDirectories();
+				if (nullable.Value)
+				{
+					lr2config.SetBMSSearchDirectories(bMSSearchDirectories.Union(new string[1] { customFolderOutputDirectory }).Distinct(StringComparer.OrdinalIgnoreCase));
+				}
+				else
+				{
+					lr2config.SetBMSSearchDirectories(bMSSearchDirectories.Except(new string[1] { customFolderOutputDirectory }, StringComparer.OrdinalIgnoreCase));
+				}
+				lr2config.Save();
+			}
+			flag = true;
+		}
+		if (flag)
+		{
+			RefreshPlaylistSummaryIfVisible();
+		}
+	}
+
+	public void ResyncPlaylists(IEnumerable<PlaylistSummaryRow> rows)
+	{
+		if (rows == null || tables == null || files == null)
+		{
+			return;
+		}
+		List<PlaylistSummaryRow> list = rows.Where((PlaylistSummaryRow r) => r?.TableRef != null).GroupBy((PlaylistSummaryRow r) => r.TableRef).Select((IGrouping<BMSTable, PlaylistSummaryRow> g) => g.First()).ToList();
+		foreach (PlaylistSummaryRow item in list)
+		{
+			BMSTable tableRef = item.TableRef;
+			Uri uri = tableRef.Page_url ?? tableRef.Header_url;
+			if (uri == null || !uri.IsAbsoluteUri)
+			{
+				continue;
+			}
+			try
+			{
+				BMSTable bMSTable = tables.ResetBMSTable(tableRef, uri);
+				files.RemoveReferenceBMSTables(tableRef);
+				files.AddReferenceBMSTables(bMSTable);
+			}
+			catch
+			{
+			}
+		}
+		RefreshPlaylistSummaryIfVisible();
 	}
 
 	public void ManualInstallBMSFiles(IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles)
@@ -6587,6 +6921,7 @@ public class MainWindowViewModel : ViewModel
 
 	private void updateBMSFilesViewForPlaylist(BMSTable bmsTableUpdated)
 	{
+		RefreshPlaylistSummaryIfVisible();
 		BMSTable bMSTable = null;
 		if (treeViewFilterTypeSelected == viewUpdateMode.PlaylistFilterSelected)
 		{

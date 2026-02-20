@@ -346,6 +346,33 @@
         <Separator />
         <MenuItem Style="{StaticResource styleContextMenuLeftAlignment}" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Init_column_setting, Mode=OneWay}" Click="dataGridInitializeColumnSetting" />
       </ContextMenu>
+      <ContextMenu x:Key="playlistSummaryColumnHeaderContextMenu">
+        <FrameworkElement.Resources>
+          <ResourceDictionary>
+            <Style x:Key="stylePlaylistSummaryContextMenuLeftAlignment" TargetType="{x:Type MenuItem}">
+              <Setter Property="TextBlock.TextAlignment" Value="left" />
+            </Style>
+          </ResourceDictionary>
+        </FrameworkElement.Resources>
+        <MenuItem Header="ID" IsCheckable="True" Style="{StaticResource stylePlaylistSummaryContextMenuLeftAlignment}" IsChecked="{Binding PlaylistSummaryColumnsSettings.PlaylistId.Visibility, Source={StaticResource vm}, Converter={qc:QuickConverter '$P == Visibility.Visible ? true : false', ConvertBack='$value ? Visibility.Visible : Visibility.Hidden'}}" />
+        <MenuItem Header="NAME" IsCheckable="True" Style="{StaticResource stylePlaylistSummaryContextMenuLeftAlignment}" IsChecked="{Binding PlaylistSummaryColumnsSettings.Name.Visibility, Source={StaticResource vm}, Converter={qc:QuickConverter '$P == Visibility.Visible ? true : false', ConvertBack='$value ? Visibility.Visible : Visibility.Hidden'}}" />
+        <MenuItem Header="SYMBOL" IsCheckable="True" Style="{StaticResource stylePlaylistSummaryContextMenuLeftAlignment}" IsChecked="{Binding PlaylistSummaryColumnsSettings.Symbol.Visibility, Source={StaticResource vm}, Converter={qc:QuickConverter '$P == Visibility.Visible ? true : false', ConvertBack='$value ? Visibility.Visible : Visibility.Hidden'}}" />
+        <MenuItem Header="LAST UPDATE" IsCheckable="True" Style="{StaticResource stylePlaylistSummaryContextMenuLeftAlignment}" IsChecked="{Binding PlaylistSummaryColumnsSettings.LastUpdate.Visibility, Source={StaticResource vm}, Converter={qc:QuickConverter '$P == Visibility.Visible ? true : false', ConvertBack='$value ? Visibility.Visible : Visibility.Hidden'}}" />
+        <MenuItem Header="TOTAL" IsCheckable="True" Style="{StaticResource stylePlaylistSummaryContextMenuLeftAlignment}" IsChecked="{Binding PlaylistSummaryColumnsSettings.TotalCharts.Visibility, Source={StaticResource vm}, Converter={qc:QuickConverter '$P == Visibility.Visible ? true : false', ConvertBack='$value ? Visibility.Visible : Visibility.Hidden'}}" />
+        <MenuItem Header="OWNED" IsCheckable="True" Style="{StaticResource stylePlaylistSummaryContextMenuLeftAlignment}" IsChecked="{Binding PlaylistSummaryColumnsSettings.OwnedCharts.Visibility, Source={StaticResource vm}, Converter={qc:QuickConverter '$P == Visibility.Visible ? true : false', ConvertBack='$value ? Visibility.Visible : Visibility.Hidden'}}" />
+        <MenuItem Header="MISSING" IsCheckable="True" Style="{StaticResource stylePlaylistSummaryContextMenuLeftAlignment}" IsChecked="{Binding PlaylistSummaryColumnsSettings.MissingCharts.Visibility, Source={StaticResource vm}, Converter={qc:QuickConverter '$P == Visibility.Visible ? true : false', ConvertBack='$value ? Visibility.Visible : Visibility.Hidden'}}" />
+        <MenuItem Header="OWNED %" IsCheckable="True" Style="{StaticResource stylePlaylistSummaryContextMenuLeftAlignment}" IsChecked="{Binding PlaylistSummaryColumnsSettings.OwnedRatio.Visibility, Source={StaticResource vm}, Converter={qc:QuickConverter '$P == Visibility.Visible ? true : false', ConvertBack='$value ? Visibility.Visible : Visibility.Hidden'}}" />
+        <MenuItem Header="LINK" IsCheckable="True" Style="{StaticResource stylePlaylistSummaryContextMenuLeftAlignment}" IsChecked="{Binding PlaylistSummaryColumnsSettings.Link.Visibility, Source={StaticResource vm}, Converter={qc:QuickConverter '$P == Visibility.Visible ? true : false', ConvertBack='$value ? Visibility.Visible : Visibility.Hidden'}}" />
+        <MenuItem Header="SYNC" IsCheckable="True" Style="{StaticResource stylePlaylistSummaryContextMenuLeftAlignment}" IsChecked="{Binding PlaylistSummaryColumnsSettings.IsExternalSync.Visibility, Source={StaticResource vm}, Converter={qc:QuickConverter '$P == Visibility.Visible ? true : false', ConvertBack='$value ? Visibility.Visible : Visibility.Hidden'}}" />
+        <MenuItem Header="ROOT" IsCheckable="True" Style="{StaticResource stylePlaylistSummaryContextMenuLeftAlignment}" IsChecked="{Binding PlaylistSummaryColumnsSettings.IsRootFolder.Visibility, Source={StaticResource vm}, Converter={qc:QuickConverter '$P == Visibility.Visible ? true : false', ConvertBack='$value ? Visibility.Visible : Visibility.Hidden'}}" />
+      </ContextMenu>
+      <ContextMenu x:Key="playlistSummaryContextMenu" HasDropShadow="True">
+        <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Reload, Mode=OneWay}" Click="playlistSummaryContextMenuResyncClick" />
+        <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_page, Mode=OneWay}" Click="playlistSummaryContextMenuOpenPageClick" />
+        <Separator />
+        <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Property, Mode=OneWay}" Click="playlistSummaryContextMenuOpenPropertyClick" />
+        <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Remove_playlist, Mode=OneWay}" Click="playlistSummaryContextMenuRemoveClick" />
+      </ContextMenu>
       <FontFamily x:Key="LigatureSymbols">/BeMusicSeeker;component/resources/#LigatureSymbols</FontFamily>
       <FontFamily x:Key="SovjetBox">/BeMusicSeeker;component/resources/#Sovjet Box</FontFamily>
       <FontFamily x:Key="Commodore">/BeMusicSeeker;component/resources/#Commodore 64 Rounded</FontFamily>
@@ -1341,8 +1368,9 @@
                   <TextBlock FontFamily="{StaticResource LigatureSymbols}" VerticalAlignment="Center" FontSize="16" Text="close" Margin="0,0,3,0.5" Foreground="#FF6495ED" Cursor="Hand" Visibility="{Binding Text, ElementName=KeywordSearchBox, Mode=OneWay, Converter={qc:QuickConverter 'String.IsNullOrWhiteSpace($P) ? Visibility.Hidden : Visibility.Visible'}}" MouseLeftButtonDown="{qc:QuickEvent '$KeywordSearchBox.Text = String.Empty'}" />
                 </StackPanel>
               </Border>
-              <TextBlock DockPanel.Dock="Right" FontFamily="Meiryo" FontSize="12" VerticalAlignment="Bottom" Margin="10,0,5,0" Foreground="#FF202020" HorizontalAlignment="Left" Text="{Binding BMSFilesView, Converter={StaticResource BMSFilesViewToSummaryTextConverter}}" />
-              <TextBlock Name="gridBMSPlayerControlsFolderPath" DockPanel.Dock="Left" FontFamily="Meiryo" FontSize="14" VerticalAlignment="Center" Margin="5,0" Foreground="#FF202020" TextTrimming="CharacterEllipsis">
+              <TextBlock DockPanel.Dock="Right" FontFamily="Meiryo" FontSize="12" VerticalAlignment="Bottom" Margin="10,0,5,0" Foreground="#FF202020" HorizontalAlignment="Left" Visibility="{Binding IsPlaylistSummaryMode, Converter={qc:QuickConverter '$P ? Visibility.Collapsed : Visibility.Visible'}}" Text="{Binding BMSFilesView, Converter={StaticResource BMSFilesViewToSummaryTextConverter}}" />
+              <TextBlock DockPanel.Dock="Right" FontFamily="Meiryo" FontSize="12" VerticalAlignment="Bottom" Margin="10,0,5,0" Foreground="#FF202020" HorizontalAlignment="Left" Visibility="{Binding IsPlaylistSummaryMode, Converter={qc:QuickConverter '$P ? Visibility.Visible : Visibility.Collapsed'}}" Text="{Binding GridSummaryText}" />
+              <TextBlock Name="gridBMSPlayerControlsFolderPath" DockPanel.Dock="Left" FontFamily="Meiryo" FontSize="14" VerticalAlignment="Center" Margin="5,0" Foreground="#FF202020" TextTrimming="CharacterEllipsis" Visibility="{Binding IsPlaylistSummaryMode, Converter={qc:QuickConverter '$P ? Visibility.Collapsed : Visibility.Visible'}}">
                 <TextBlock.Text>
                   <MultiBinding Converter="{StaticResource treeViewItemToAncestorsStringConverter}">
                     <Binding Path="SelectedItem" ElementName="treeView" />
@@ -1350,9 +1378,10 @@
                   </MultiBinding>
                 </TextBlock.Text>
               </TextBlock>
+              <TextBlock DockPanel.Dock="Left" FontFamily="Meiryo" FontSize="14" VerticalAlignment="Center" Margin="5,0" Foreground="#FF202020" TextTrimming="CharacterEllipsis" Visibility="{Binding IsPlaylistSummaryMode, Converter={qc:QuickConverter '$P ? Visibility.Visible : Visibility.Collapsed'}}" Text="{Binding GridHeaderText}" />
             </DockPanel>
           </Border>
-          <DataGrid Name="dataGrid" Grid.Row="2" Grid.ColumnSpan="1" Margin="0,0,0,0" Grid.Column="1" IsReadOnly="False" SelectionMode="Single" CanUserResizeRows="False" EnableColumnVirtualization="False" EnableRowVirtualization="True" AutoGenerateColumns="False" CanUserAddRows="False" CanUserDeleteRows="False" HeadersVisibility="Column" GridLinesVisibility="None" BorderBrush="#FF828790" BorderThickness="1,1,0,0" ItemsSource="{Binding BMSFilesView, IsAsync=True, Mode=OneWay}" SelectedIndex="{Binding SelectedIndexBMSFilesView, Mode=TwoWay}" Sorting="dataGridSorting" ColumnReordered="setDisplayIndices" BeginningEdit="dataGridCellBeginningEdit" CellEditEnding="dataGridCellEditEnding" PreviewKeyDown="dataGridKeyDown">
+          <DataGrid Name="dataGrid" Grid.Row="2" Grid.ColumnSpan="1" Margin="0,0,0,0" Grid.Column="1" IsReadOnly="False" SelectionMode="Single" CanUserResizeRows="False" EnableColumnVirtualization="False" EnableRowVirtualization="True" AutoGenerateColumns="False" CanUserAddRows="False" CanUserDeleteRows="False" HeadersVisibility="Column" GridLinesVisibility="None" BorderBrush="#FF828790" BorderThickness="1,1,0,0" ItemsSource="{Binding BMSFilesView, IsAsync=True, Mode=OneWay}" SelectedIndex="{Binding SelectedIndexBMSFilesView, Mode=TwoWay}" Sorting="dataGridSorting" ColumnReordered="setDisplayIndices" BeginningEdit="dataGridCellBeginningEdit" CellEditEnding="dataGridCellEditEnding" PreviewKeyDown="dataGridKeyDown" Visibility="{Binding IsPlaylistSummaryMode, Converter={qc:QuickConverter '$P ? Visibility.Collapsed : Visibility.Visible'}}">
             <i:Interaction.Triggers>
               <l:InteractionMessageTrigger MessageKey="CallbackPlayStartBMSfile" Messenger="{Binding Messenger}">
                 <l:LivetCallMethodAction MethodName="_renewBMSPlayerControlInfo" MethodTarget="{Binding ElementName=window, Mode=OneWay}" />
@@ -1816,6 +1845,98 @@
               <DataGridTextColumn Header="ΔMAX" MinWidth="50" IsReadOnly="True" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCellRightAlignment}" HeaderStyle="{StaticResource styleDataGridColumnHeaderCenter}" Binding="{Binding scoreDifficulty, StringFormat={}{0:F2}}" Width="{Binding ColumnsSettingsBMSFilesView.ScoreDifficulty.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding ColumnsSettingsBMSFilesView.ScoreDifficulty.Visibility, Source={StaticResource vm}, Mode=TwoWay}" />
               <DataGridTemplateColumn x:Name="dataGridColumnDummyFill" Visibility="Visible" MinWidth="1" MaxWidth="9000" Width="*" CanUserResize="True" CanUserSort="False" CanUserReorder="False" DisplayIndex="31" CellStyle="{StaticResource styleDataGridCellDummy}" HeaderStyle="{StaticResource styleDataGridColumnHeaderDefault}" />
               <DataGridTemplateColumn x:Name="dataGridColumnDummyLast" Visibility="Collapsed" MinWidth="0" Width="0" CanUserResize="False" CanUserSort="False" CanUserReorder="False" DisplayIndex="32" />
+            </DataGrid.Columns>
+          </DataGrid>
+          <DataGrid Name="dataGridPlaylistSummary" Grid.Row="2" Grid.ColumnSpan="1" Margin="0,0,0,0" Grid.Column="1" IsReadOnly="False" SelectionMode="Extended" CanUserResizeRows="False" EnableColumnVirtualization="False" EnableRowVirtualization="True" AutoGenerateColumns="False" CanUserAddRows="False" CanUserDeleteRows="False" HeadersVisibility="Column" GridLinesVisibility="None" BorderBrush="#FF828790" BorderThickness="1,1,0,0" ItemsSource="{Binding PlaylistSummaryView, IsAsync=True, Mode=OneWay}" Visibility="{Binding IsPlaylistSummaryMode, Converter={qc:QuickConverter '$P ? Visibility.Visible : Visibility.Collapsed'}}">
+            <FrameworkElement.Resources>
+              <ResourceDictionary>
+                <Style x:Key="styleDataGridCellNonFocusable" TargetType="{x:Type DataGridCell}">
+                  <Setter Property="BorderThickness" Value="0,0,1,0" />
+                  <Setter Property="BorderBrush" Value="#E7E9EC" />
+                  <Setter Property="FrameworkElement.FocusVisualStyle" Value="{x:Null}" />
+                  <Style.Triggers>
+                    <Trigger Property="DataGridCell.IsSelected" Value="True">
+                      <Setter Property="BorderThickness" Value="0" />
+                      <Setter Property="Margin" Value="0,0,-1,0" />
+                      <Setter Property="BorderBrush" Value="{x:Null}" />
+                    </Trigger>
+                  </Style.Triggers>
+                </Style>
+                <Style x:Key="styleDataGridNotEditingCell" TargetType="{x:Type TextBlock}">
+                  <Setter Property="Padding" Value="2,0,2,0" />
+                  <Setter Property="VerticalAlignment" Value="Center" />
+                </Style>
+                <Style x:Key="styleDataGridNotEditingCellRightAlignment" BasedOn="{StaticResource styleDataGridNotEditingCell}" TargetType="{x:Type TextBlock}">
+                  <Setter Property="TextAlignment" Value="Right" />
+                </Style>
+                <Style x:Key="styleDataGridNotEditingCellCenterAlignment" BasedOn="{StaticResource styleDataGridNotEditingCell}" TargetType="{x:Type TextBlock}">
+                  <Setter Property="TextAlignment" Value="Center" />
+                </Style>
+                <Style x:Key="stylePlaylistSummaryColumnHeaderDefault" TargetType="{x:Type DataGridColumnHeader}">
+                  <Setter Property="FrameworkElement.ContextMenu" Value="{StaticResource playlistSummaryColumnHeaderContextMenu}" />
+                </Style>
+                <Style x:Key="stylePlaylistSummaryColumnHeaderCenter" BasedOn="{StaticResource stylePlaylistSummaryColumnHeaderDefault}" TargetType="{x:Type DataGridColumnHeader}">
+                  <Setter Property="TextBlock.TextAlignment" Value="Center" />
+                  <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                </Style>
+              </ResourceDictionary>
+            </FrameworkElement.Resources>
+            <DataGrid.AlternatingRowBackground>
+              <SolidColorBrush Color="#F1F4F7" />
+            </DataGrid.AlternatingRowBackground>
+            <DataGrid.RowStyle>
+              <Style TargetType="{x:Type DataGridRow}">
+                <Style.Triggers>
+                  <Trigger Property="DataGridRow.IsSelected" Value="True">
+                    <Setter Property="BorderThickness" Value="0" />
+                    <Setter Property="Margin" Value="0,0,0,-1" />
+                    <Setter Property="BorderBrush" Value="{x:Null}" />
+                  </Trigger>
+                </Style.Triggers>
+                <Setter Property="FrameworkElement.ContextMenu" Value="{StaticResource playlistSummaryContextMenu}" />
+                <Setter Property="BorderThickness" Value="0,0,0,1" />
+                <Setter Property="BorderBrush" Value="#E7E9EC" />
+              </Style>
+            </DataGrid.RowStyle>
+            <DataGrid.Columns>
+              <DataGridTextColumn Header="ID" IsReadOnly="True" MinWidth="50" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCellRightAlignment}" HeaderStyle="{StaticResource stylePlaylistSummaryColumnHeaderCenter}" SortMemberPath="PlaylistId" Binding="{Binding PlaylistId}" Width="{Binding PlaylistSummaryColumnsSettings.PlaylistId.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding PlaylistSummaryColumnsSettings.PlaylistId.Visibility, Source={StaticResource vm}, Mode=TwoWay}" />
+              <DataGridTextColumn Header="NAME" IsReadOnly="True" MinWidth="100" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCell}" HeaderStyle="{StaticResource stylePlaylistSummaryColumnHeaderDefault}" SortMemberPath="Name" Binding="{Binding Name}" Width="{Binding PlaylistSummaryColumnsSettings.Name.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding PlaylistSummaryColumnsSettings.Name.Visibility, Source={StaticResource vm}, Mode=TwoWay}" />
+              <DataGridTextColumn Header="SYMBOL" IsReadOnly="True" MinWidth="55" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCellCenterAlignment}" HeaderStyle="{StaticResource stylePlaylistSummaryColumnHeaderCenter}" SortMemberPath="Symbol" Binding="{Binding Symbol}" Width="{Binding PlaylistSummaryColumnsSettings.Symbol.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding PlaylistSummaryColumnsSettings.Symbol.Visibility, Source={StaticResource vm}, Mode=TwoWay}" />
+              <DataGridTextColumn Header="LAST UPDATE" IsReadOnly="True" MinWidth="120" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCellCenterAlignment}" HeaderStyle="{StaticResource stylePlaylistSummaryColumnHeaderCenter}" SortMemberPath="LastUpdate" Binding="{Binding LastUpdate, StringFormat={}{0:yyyy/MM/dd HH:mm:ss}}" Width="{Binding PlaylistSummaryColumnsSettings.LastUpdate.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding PlaylistSummaryColumnsSettings.LastUpdate.Visibility, Source={StaticResource vm}, Mode=TwoWay}" />
+              <DataGridTextColumn Header="TOTAL" IsReadOnly="True" MinWidth="55" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCellRightAlignment}" HeaderStyle="{StaticResource stylePlaylistSummaryColumnHeaderCenter}" SortMemberPath="TotalCharts" Binding="{Binding TotalCharts}" Width="{Binding PlaylistSummaryColumnsSettings.TotalCharts.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding PlaylistSummaryColumnsSettings.TotalCharts.Visibility, Source={StaticResource vm}, Mode=TwoWay}" />
+              <DataGridTextColumn Header="OWNED" IsReadOnly="True" MinWidth="55" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCellRightAlignment}" HeaderStyle="{StaticResource stylePlaylistSummaryColumnHeaderCenter}" SortMemberPath="OwnedCharts" Binding="{Binding OwnedCharts}" Width="{Binding PlaylistSummaryColumnsSettings.OwnedCharts.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding PlaylistSummaryColumnsSettings.OwnedCharts.Visibility, Source={StaticResource vm}, Mode=TwoWay}" />
+              <DataGridTextColumn Header="MISSING" IsReadOnly="True" MinWidth="60" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCellRightAlignment}" HeaderStyle="{StaticResource stylePlaylistSummaryColumnHeaderCenter}" SortMemberPath="MissingCharts" Binding="{Binding MissingCharts}" Width="{Binding PlaylistSummaryColumnsSettings.MissingCharts.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding PlaylistSummaryColumnsSettings.MissingCharts.Visibility, Source={StaticResource vm}, Mode=TwoWay}" />
+              <DataGridTextColumn Header="OWNED %" IsReadOnly="True" MinWidth="70" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCellRightAlignment}" HeaderStyle="{StaticResource stylePlaylistSummaryColumnHeaderCenter}" SortMemberPath="OwnedRatio" Binding="{Binding OwnedRatio, StringFormat={}{0:F1}%}" Width="{Binding PlaylistSummaryColumnsSettings.OwnedRatio.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding PlaylistSummaryColumnsSettings.OwnedRatio.Visibility, Source={StaticResource vm}, Mode=TwoWay}" />
+              <DataGridTemplateColumn Header="LINK" MinWidth="55" HeaderStyle="{StaticResource stylePlaylistSummaryColumnHeaderCenter}" Width="{Binding PlaylistSummaryColumnsSettings.Link.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding PlaylistSummaryColumnsSettings.Link.Visibility, Source={StaticResource vm}, Mode=TwoWay}">
+                <DataGridTemplateColumn.CellStyle>
+                  <Style TargetType="{x:Type DataGridCell}" BasedOn="{StaticResource styleDataGridCellNonFocusable}" />
+                </DataGridTemplateColumn.CellStyle>
+                <DataGridTemplateColumn.CellTemplate>
+                  <DataTemplate>
+                    <Button Content="Open" Padding="2,0" Click="playlistSummaryLinkClick" IsEnabled="{qc:Binding '$P != null', P={Binding LinkUri}}" />
+                  </DataTemplate>
+                </DataGridTemplateColumn.CellTemplate>
+              </DataGridTemplateColumn>
+              <DataGridTemplateColumn Header="SYNC" MinWidth="50" HeaderStyle="{StaticResource stylePlaylistSummaryColumnHeaderCenter}" SortMemberPath="IsExternalSync" Width="{Binding PlaylistSummaryColumnsSettings.IsExternalSync.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding PlaylistSummaryColumnsSettings.IsExternalSync.Visibility, Source={StaticResource vm}, Mode=TwoWay}">
+                <DataGridTemplateColumn.CellStyle>
+                  <Style TargetType="{x:Type DataGridCell}" BasedOn="{StaticResource styleDataGridCellNonFocusable}" />
+                </DataGridTemplateColumn.CellStyle>
+                <DataGridTemplateColumn.CellTemplate>
+                  <DataTemplate>
+                    <CheckBox IsChecked="{Binding IsExternalSync}" HorizontalAlignment="Center" VerticalAlignment="Center" Click="playlistSummarySyncCheckBoxClick" />
+                  </DataTemplate>
+                </DataGridTemplateColumn.CellTemplate>
+              </DataGridTemplateColumn>
+              <DataGridTemplateColumn Header="ROOT" MinWidth="50" HeaderStyle="{StaticResource stylePlaylistSummaryColumnHeaderCenter}" SortMemberPath="IsRootFolder" Width="{Binding PlaylistSummaryColumnsSettings.IsRootFolder.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding PlaylistSummaryColumnsSettings.IsRootFolder.Visibility, Source={StaticResource vm}, Mode=TwoWay}">
+                <DataGridTemplateColumn.CellStyle>
+                  <Style TargetType="{x:Type DataGridCell}" BasedOn="{StaticResource styleDataGridCellNonFocusable}" />
+                </DataGridTemplateColumn.CellStyle>
+                <DataGridTemplateColumn.CellTemplate>
+                  <DataTemplate>
+                    <CheckBox IsChecked="{Binding IsRootFolder}" HorizontalAlignment="Center" VerticalAlignment="Center" Click="playlistSummaryRootCheckBoxClick" />
+                  </DataTemplate>
+                </DataGridTemplateColumn.CellTemplate>
+              </DataGridTemplateColumn>
             </DataGrid.Columns>
           </DataGrid>
           <Grid Name="gridTreePane" Margin="0,0,5,0" Grid.Row="1" Grid.RowSpan="2">

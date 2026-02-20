@@ -723,6 +723,20 @@ internal sealed class Settings : ApplicationSettingsBase
 
 	[UserScopedSetting]
 	[DebuggerNonUserCode]
+	public PlaylistSummaryColumnSettings PlaylistSummaryColumnsSettings
+	{
+		get
+		{
+			return (PlaylistSummaryColumnSettings)this["PlaylistSummaryColumnsSettings"];
+		}
+		set
+		{
+			this["PlaylistSummaryColumnsSettings"] = value;
+		}
+	}
+
+	[UserScopedSetting]
+	[DebuggerNonUserCode]
 	[DefaultSettingValue("True")]
 	public bool StartupSelectInstallPending
 	{
@@ -1074,6 +1088,10 @@ internal sealed class Settings : ApplicationSettingsBase
 		if (((Settings)sender).InstallColumnsSettings == null)
 		{
 			((Settings)sender).InstallColumnsSettings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.INSTALL);
+		}
+		if (((Settings)sender).PlaylistSummaryColumnsSettings == null)
+		{
+			((Settings)sender).PlaylistSummaryColumnsSettings = new PlaylistSummaryColumnSettings();
 		}
 		if (((Settings)sender).WindowPlacement.NormalPosition.Left >= ((Settings)sender).WindowPlacement.NormalPosition.Right || ((Settings)sender).WindowPlacement.NormalPosition.Top >= ((Settings)sender).WindowPlacement.NormalPosition.Bottom)
 		{

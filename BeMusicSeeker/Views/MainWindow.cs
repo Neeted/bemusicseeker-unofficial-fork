@@ -28,6 +28,7 @@ using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using Livet.EventListeners;
+using Livet.Messaging;
 using Microsoft.Win32;
 using Microsoft.WindowsAPICodePack.Dialogs;
 using Parago.Windows;
@@ -693,12 +694,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     private void playlistRootSelect(object sender, RoutedEventArgs e)
     {
         e.Handled = true;
-        if (e.Source is TreeViewItem && treeViewItemPlaylist.Items.Count == 0)
+        if (e.Source is TreeViewItem)
         {
             MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
             Task.Run(delegate
             {
-                viewModel.ExecPlaylistFilter(null);
+                viewModel.SelectPlaylistSummary();
             }).Logging("playlistRootSelect");
         }
     }
@@ -853,6 +854,182 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         if (e.OriginalSource is TreeViewItem)
         {
             (base.DataContext as MainWindowViewModel).ExecFolderFilter(MainWindowViewModel.FolderFilterType.FilterNone);
+        }
+    }
+
+    private List<PlaylistSummaryRow> getSelectedPlaylistSummaryRows(PlaylistSummaryRow fallback = null)
+    {
+        List<PlaylistSummaryRow> list = new List<PlaylistSummaryRow>();
+        if (dataGridPlaylistSummary != null && dataGridPlaylistSummary.SelectedItems != null)
+        {
+            list = dataGridPlaylistSummary.SelectedItems.Cast<PlaylistSummaryRow>().Where((PlaylistSummaryRow r) => r != null).ToList();
+        }
+        if ((list == null || list.Count == 0) && fallback != null)
+        {
+            list = new List<PlaylistSummaryRow> { fallback };
+        }
+        return list ?? new List<PlaylistSummaryRow>();
+    }
+
+    private PlaylistSummaryRow resolvePlaylistSummaryRowFromSender(object sender)
+    {
+        PlaylistSummaryRow playlistSummaryRow = (sender as FrameworkElement)?.DataContext as PlaylistSummaryRow;
+        if (playlistSummaryRow != null)
+        {
+            return playlistSummaryRow;
+        }
+        return getSelectedPlaylistSummaryRows().FirstOrDefault();
+    }
+
+    private async void playlistSummaryLinkClick(object sender, RoutedEventArgs e)
+    {
+        if (!(sender is Button { DataContext: PlaylistSummaryRow playlistSummaryRow }) || playlistSummaryRow.LinkUri == null)
+        {
+            return;
+        }
+        await Task.Run(delegate
+        {
+            try
+            {
+                Process.Start(playlistSummaryRow.LinkUri.ToString());
+            }
+            catch
+            {
+            }
+        }).Logging("playlistSummaryLinkClick");
+    }
+
+    private async void playlistSummarySyncCheckBoxClick(object sender, RoutedEventArgs e)
+    {
+        if (!(sender is CheckBox { DataContext: PlaylistSummaryRow playlistSummaryRow } checkBox))
+        {
+            return;
+        }
+        bool flag = checkBox.IsChecked == true;
+        List<PlaylistSummaryRow> selectedPlaylistSummaryRows = getSelectedPlaylistSummaryRows(playlistSummaryRow);
+        if (selectedPlaylistSummaryRows.Count == 0)
+        {
+            return;
+        }
+        ConfirmationMessage confirmationMessage = new ConfirmationMessage((!flag) ? ("同期モードを解除するとリモートの変更が反映されなくなります。" + Environment.NewLine + "よろしいですか？") : ("同期モードに設定するとローカルの変更が失われます。" + Environment.NewLine + "よろしいですか？"), "警告", MessageBoxImage.Exclamation, MessageBoxButton.OKCancel, "ConfirmationDialog");
+        (base.DataContext as MainWindowViewModel)?.Messenger.Raise(confirmationMessage);
+        if (!confirmationMessage.Response.HasValue || !confirmationMessage.Response.Value)
+        {
+            checkBox.IsChecked = !flag;
+            return;
+        }
+        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
+        if (viewModel != null)
+        {
+            await Task.Run(delegate
+            {
+                viewModel.ApplyPlaylistSummaryFlags(selectedPlaylistSummaryRows, flag, null);
+            }).Logging("playlistSummarySyncCheckBoxClick");
+        }
+        e.Handled = true;
+    }
+
+    private async void playlistSummaryRootCheckBoxClick(object sender, RoutedEventArgs e)
+    {
+        if (!(sender is CheckBox { DataContext: PlaylistSummaryRow playlistSummaryRow } checkBox))
+        {
+            return;
+        }
+        bool flag = checkBox.IsChecked == true;
+        List<PlaylistSummaryRow> selectedPlaylistSummaryRows = getSelectedPlaylistSummaryRows(playlistSummaryRow);
+        if (selectedPlaylistSummaryRows.Count == 0)
+        {
+            return;
+        }
+        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
+        if (viewModel != null)
+        {
+            await Task.Run(delegate
+            {
+                viewModel.ApplyPlaylistSummaryFlags(selectedPlaylistSummaryRows, null, flag);
+            }).Logging("playlistSummaryRootCheckBoxClick");
+        }
+        e.Handled = true;
+    }
+
+    private async void playlistSummaryContextMenuResyncClick(object sender, RoutedEventArgs e)
+    {
+        PlaylistSummaryRow playlistSummaryRow = resolvePlaylistSummaryRowFromSender(sender);
+        if (playlistSummaryRow == null)
+        {
+            return;
+        }
+        List<PlaylistSummaryRow> selectedPlaylistSummaryRows = getSelectedPlaylistSummaryRows(playlistSummaryRow);
+        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
+        if (viewModel != null && selectedPlaylistSummaryRows.Count > 0)
+        {
+            await Task.Run(delegate
+            {
+                viewModel.ResyncPlaylists(selectedPlaylistSummaryRows);
+            }).Logging("playlistSummaryContextMenuResyncClick");
+        }
+    }
+
+    private void playlistSummaryContextMenuOpenPageClick(object sender, RoutedEventArgs e)
+    {
+        PlaylistSummaryRow playlistSummaryRow = resolvePlaylistSummaryRowFromSender(sender);
+        if (playlistSummaryRow?.LinkUri != null)
+        {
+            try
+            {
+                Process.Start(playlistSummaryRow.LinkUri.ToString());
+            }
+            catch
+            {
+            }
+        }
+    }
+
+    private void playlistSummaryContextMenuOpenPropertyClick(object sender, RoutedEventArgs e)
+    {
+        PlaylistSummaryRow playlistSummaryRow = resolvePlaylistSummaryRowFromSender(sender);
+        if (playlistSummaryRow?.TableRef == null)
+        {
+            return;
+        }
+        MainWindowViewModel mainWindowViewModel = base.DataContext as MainWindowViewModel;
+        if (mainWindowViewModel != null && !mainWindowViewModel.IsWriteLockHeldBMSTablesInitializeMin && !mainWindowViewModel.IsWriteLockHeldBMSTables && !mainWindowViewModel.IsWriteLockHeldAnyBMSTable)
+        {
+            mainWindowViewModel.playlistPropertyDialog = new MainWindowViewModel.PlaylistPropertyDialogViewModel(mainWindowViewModel, playlistSummaryRow.TableRef);
+            playlistPropertyDialog.Visibility = Visibility.Visible;
+        }
+    }
+
+    private async void playlistSummaryContextMenuRemoveClick(object sender, RoutedEventArgs e)
+    {
+        PlaylistSummaryRow playlistSummaryRow = resolvePlaylistSummaryRowFromSender(sender);
+        if (playlistSummaryRow == null)
+        {
+            return;
+        }
+        List<PlaylistSummaryRow> selectedPlaylistSummaryRows = getSelectedPlaylistSummaryRows(playlistSummaryRow);
+        if (selectedPlaylistSummaryRows.Count == 0)
+        {
+            return;
+        }
+        if (MessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_remove_playlist, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) == MessageBoxResult.Cancel)
+        {
+            return;
+        }
+        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
+        if (viewModel != null)
+        {
+            await Task.Run(delegate
+            {
+                foreach (PlaylistSummaryRow item in selectedPlaylistSummaryRows)
+                {
+                    if (item?.TableRef != null)
+                    {
+                        viewModel.RemoveBMSTable(item.TableRef);
+                    }
+                }
+                viewModel.RebuildPlaylistSummaryView(runAsync: false);
+            }).Logging("playlistSummaryContextMenuRemoveClick");
         }
     }
 
