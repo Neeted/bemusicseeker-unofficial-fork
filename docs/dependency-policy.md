@@ -1,34 +1,34 @@
-# Dependency Policy
+# 依存関係ポリシー
 
-## Purpose
+## 目的
 
-This project keeps dependency resolution reproducible and auditable.
+このプロジェクトでは、依存関係の解決を再現可能で監査可能に保ちます。
 
-## Rules
+## ルール
 
-1. No implicit upgrades in this task.
-- Only same-version and same-identity replacements are allowed.
-- Functional upgrades are handled in a separate task.
+1. 本タスクでは暗黙のアップグレードを行わない
+- 同一バージョンかつ同等の識別子を持つ置き換えのみが許可されます。
+- 機能的なアップグレードは別のタスクで扱います。
 
-2. Prefer PackageReference when identity parity is verified.
-- Required checks: AssemblyName, AssemblyVersion, PublicKeyToken.
-- FileVersion and SHA256 are recorded for traceability.
+2. 同一性が検証された場合は PackageReference を優先する
+- 必須チェック項目: AssemblyName, AssemblyVersion, PublicKeyToken
+- 追跡可能性のために FileVersion と SHA256 を記録します。
 
-3. Keep libs\*.dll only when needed.
-- If no reliable NuGet equivalent exists, keep HintPath reference.
-- Document the reason in dependency inventory.
+3. 必要な場合のみ libs\*.dll を保持する
+- 信頼できる NuGet の代替手段が存在しない場合は、HintPath による参照を維持します。
+- 依存関係インベントリにその理由をドキュメント化します。
 
-4. Native runtime DLLs are vendored in-repo.
-- Use `vendor/native/x86` and `vendor/native/x64`.
-- Build output must include these folders without external install dependency.
+4. ネイティブランタイムDLLはリポジトリ内にベンダーリングする
+- `vendor/native/x86` と `vendor/native/x64` を使用します。
+- ビルド出力には、外部インストールの依存なしでこれらのフォルダが含まれる必要があります。
 
-5. Lock package graph.
-- Use `packages.lock.json`.
-- Keep lock file updated and committed.
+5. パッケージグラフをロックする
+- `packages.lock.json` を使用します。
+- ロックファイルを最新の状態に保ち、コミットします。
 
-## Validation
+## 検証
 
-Run:
+実行:
 
 ```powershell
 pwsh scripts/deps/inventory.ps1

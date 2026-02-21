@@ -1,0 +1,115 @@
+BeMusicSeeker Third-Party Notices
+
+This software uses the following third-party dependencies, libraries, and components.
+All copyrights and licenses remain the property of their respective owners.
+
+--------------------------------------------------------------------------------
+1. BASS Audio Library
+--------------------------------------------------------------------------------
+Component: bass.dll, bass_fx.dll, bassasio.dll, bassenc.dll, bassmix.dll, basswasapi.dll, Bass.Net.dll
+Author: un4seen developments
+License: Proprietary / Freeware (Non-commercial)
+URL: https://www.un4seen.com/
+
+Note: BASS is free for non-commercial use. If you intend to use this software
+for commercial purposes, you MUST acquire a commercial BASS license from un4seen.
+
+--------------------------------------------------------------------------------
+2. 7-Zip / SevenZipExtractor
+--------------------------------------------------------------------------------
+Component: 7z.dll, SevenZipExtractor.dll
+Author: Igor Pavlov
+License: GNU LGPL (with unRAR restriction)
+URL: https://www.7-zip.org/
+
+--------------------------------------------------------------------------------
+3. Livet
+--------------------------------------------------------------------------------
+Component: Livet.dll, Livet.Extensions.dll
+Author: Livet Project
+License: zlib/libpng License
+URL: https://github.com/runceel/Livet
+
+--------------------------------------------------------------------------------
+4. Metro Radiance
+--------------------------------------------------------------------------------
+Component: MetroRadiance.dll, MetroRadiance.Core.dll, MetroRadiance.Chrome.dll
+Author: Manato KAMEYA (Grabacr07)
+License: MIT License
+URL: https://github.com/Grabacr07/MetroRadiance
+
+--------------------------------------------------------------------------------
+5. DynamicJson
+--------------------------------------------------------------------------------
+Component: DynamicJson.dll
+Author: neuecc
+License: Microsoft Public License (MS-PL)
+URL: https://github.com/neuecc/DynamicJson
+
+--------------------------------------------------------------------------------
+6. QuickConverter
+--------------------------------------------------------------------------------
+Component: QuickConverter.dll
+Author: Johannes Moersch (joshuafeist)
+License: MIT License
+URL: https://github.com/joshuafeist/QuickConverter
+
+--------------------------------------------------------------------------------
+7. SgmlReader
+--------------------------------------------------------------------------------
+Component: SgmlReaderDll.dll
+Author: Microsoft / Chris Lovett
+License: Apache License 2.0 / MS-PL
+URL: https://github.com/MindTouch/SGMLReader
+
+--------------------------------------------------------------------------------
+8. Windows API Code Pack
+--------------------------------------------------------------------------------
+Component: Microsoft.WindowsAPICodePack.dll, Microsoft.WindowsAPICodePack.Shell.dll
+Author: Microsoft Corporation
+License: Microsoft Public License (MS-PL)
+
+--------------------------------------------------------------------------------
+9. SQLite
+--------------------------------------------------------------------------------
+Component: sqlite3.dll, sqlite.net.dll
+Author: D. Richard Hipp, et al.
+License: Public Domain
+URL: https://www.sqlite.org/
+
+--------------------------------------------------------------------------------
+10. NLog
+--------------------------------------------------------------------------------
+Component: NLog (NuGet)
+Author: Jaroslaw Kowalski, Kim Christensen, Julian Verdurmen
+License: BSD 3-Clause License
+URL: https://github.com/NLog/NLog
+
+--------------------------------------------------------------------------------
+11. Everything SDK
+--------------------------------------------------------------------------------
+Component: Everything3_x64.dll
+Author: David Carpenter (voidtools)
+License: MIT License / Public Domain
+URL: https://www.voidtools.com/
+
+--------------------------------------------------------------------------------
+12. Ligature Symbols Font
+--------------------------------------------------------------------------------
+Component: ligaturesymbols-2.11.otf
+Author: Kazuki Ujiie (kudakurage)
+License: SIL Open Font License (OFL)
+URL: https://kudakurage.com/ligature_symbols/
+
+--------------------------------------------------------------------------------
+13. Sovjet Box Font
+--------------------------------------------------------------------------------
+Component: sovjetboxbd_v0_9.otf
+License: SIL Open Font License (OFL)
+
+--------------------------------------------------------------------------------
+14. Commodore Rounded Font
+--------------------------------------------------------------------------------
+Component: commodore-20rounded-20v1.2.ttf
+Author: Devin Cook
+License: Freeware (Free for personal and commercial use)
