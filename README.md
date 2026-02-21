@@ -1,4 +1,4 @@
-# BeMusicSeeker-decomp
+# BeMusicSeeker Unofficial Fork
 
 This repository is published under the MIT License for first-party source code.
 
