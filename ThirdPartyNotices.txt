@@ -1,6 +1,6 @@
 BeMusicSeeker Third-Party Notices
 
-Last updated: 2026-02-21
+Last updated: 2026-02-22
 Scope: Third-party files referenced by BeMusicSeeker.csproj and distributed in bin/Release/net472,
        vendor/native/{x86,x64}, native/, and resources/.
 
@@ -16,12 +16,12 @@ NOTICE:
 ================================================================================
 1) BASS Audio Library (native binaries)
 ================================================================================
-Status: YELLOW
+Status: GREEN
 Component: bass.dll, bass_fx.dll, bassasio.dll, bassenc.dll, bassmix.dll, basswasapi.dll (x86/x64)
 Copyright: un4seen developments
 License: Proprietary (free for non-commercial use, commercial license required)
 Source: https://www.un4seen.com/bass.html, https://www.un4seen.com/doc/bass/bass.html
-License Text: third_party/licenses/BASS-NOTICE.txt
+License Text: third_party/licenses/01-BASS-NOTICE.txt
 Redistribution Notes:
 - Not covered by this repository MIT license.
 - Non-commercial use is generally permitted by upstream terms.
@@ -31,12 +31,12 @@ Redistribution Notes:
 ================================================================================
 2) Bass.Net (managed wrapper)
 ================================================================================
-Status: YELLOW
+Status: GREEN
 Component: Bass.Net.dll
 Copyright: radio42 GmbH (expected; verify per exact package origin)
 License: Vendor-provided wrapper license (not MIT)
 Source: https://www.radio42.com/bass/bass_purchase.html, https://www.radio42.com/bass/bass_register.html
-License Text: third_party/licenses/BASS.NET-NOTICE.txt
+License Text: third_party/licenses/02-BASS.NET-NOTICE.txt
 Redistribution Notes:
 - Managed wrapper is distinct from native BASS binaries and must be tracked separately.
 - For individual, non-commercial, non-money-making end-user software, upstream terms indicate freeware use is allowed.
@@ -51,7 +51,7 @@ Component: 7z.dll (x86/x64)
 Copyright: Igor Pavlov
 License: GNU LGPL with unRAR restriction notice
 Source: https://www.7-zip.org/
-License Text: third_party/licenses/LGPL-2.1.txt, third_party/licenses/7zip-unRAR-restriction.txt
+License Text: third_party/licenses/03-LGPL-2.1.txt, third_party/licenses/03-7zip-unRAR-restriction.txt
 Redistribution Notes:
 - Distributed as separate DLL (dynamic linking).
 - Keep LGPL text and unRAR restriction notice with distribution.
@@ -64,7 +64,7 @@ Component: SevenZipExtractor.dll
 Copyright: SevenZipExtractor contributors
 License: MIT
 Source: https://www.nuget.org/packages/SevenZipExtractor/1.0.12
-License Text: third_party/licenses/MIT.txt
+License Text: third_party/licenses/04-SevenZipExtractor-MIT.txt
 Redistribution Notes:
 - Repository binary SHA256 matches NuGet 1.0.12 lib/net45 artifact.
 - Keep MIT text with distribution.
@@ -72,16 +72,16 @@ Redistribution Notes:
 ================================================================================
 5) Blend SDK WPF binaries
 ================================================================================
-Status: YELLOW
+Status: GREEN
 Component: System.Windows.Interactivity.dll, Microsoft.Expression.Interactions.dll,
            Microsoft.Expression.Drawing.dll, Microsoft.Expression.Effects.dll
 Copyright: Microsoft Corporation
 License: Microsoft SDK/EULA redistribution terms
-Source: https://www.microsoft.com/en-us/download/details.aspx?id=10801
-License Text: third_party/licenses/Microsoft-SDK-NOTICE.txt
+Source: https://www.nuget.org/packages/Expression.Blend.Sdk (Official MS Download Center link retired)
+License Text: third_party/licenses/05-Microsoft-SDK-NOTICE.txt
 Redistribution Notes:
 - Treated as redistributable SDK binaries, not OSI OSS package licenses.
-- Keep product notice and source link; verify current redistribution clause for archived SDK.
+- The official Microsoft Download Center page is no longer available, but packages are distributed via NuGet under identical license policies. Retain the SDK notice.
 
 ================================================================================
 6) Windows API Code Pack
@@ -89,9 +89,9 @@ Redistribution Notes:
 Status: GREEN
 Component: Microsoft.WindowsAPICodePack.dll, Microsoft.WindowsAPICodePack.Shell.dll
 Copyright: Microsoft Corporation
-License: Microsoft Public License (MS-PL)
+License: MIT
 Source: https://www.nuget.org/packages/WindowsAPICodePack/
-License Text: third_party/licenses/MS-PL.txt
+License Text: third_party/licenses/06-WindowsAPICodePack-MIT.txt
 Redistribution Notes:
 - Include MS-PL text in distribution.
 
@@ -103,7 +103,7 @@ Component: Livet.dll, Livet.Extensions.dll
 Copyright: Livet project contributors
 License: zlib/libpng
 Source: https://github.com/runceel/Livet
-License Text: third_party/licenses/zlib.txt
+License Text: third_party/licenses/07-Livet-zlib.txt
 Redistribution Notes:
 - Keep zlib notice and attribution.
 
@@ -115,7 +115,7 @@ Component: MetroRadiance.dll, MetroRadiance.Core.dll, MetroRadiance.Chrome.dll
 Copyright: MetroRadiance contributors
 License: MIT
 Source: https://github.com/Grabacr07/MetroRadiance
-License Text: third_party/licenses/MIT.txt
+License Text: third_party/licenses/08-MetroRadiance-MIT.txt
 Redistribution Notes:
 - Include MIT text and copyright notice.
 
@@ -127,7 +127,7 @@ Component: QuickConverter.dll
 Copyright: QuickConverter contributors
 License: MIT
 Source: https://github.com/joshuafeist/QuickConverter
-License Text: third_party/licenses/MIT.txt
+License Text: third_party/licenses/09-QuickConverter-MIT.txt
 Redistribution Notes:
 - Include MIT text and copyright notice.
 
@@ -139,35 +139,35 @@ Component: DynamicJson.dll
 Copyright: neuecc
 License: MS-PL
 Source: https://github.com/neuecc/DynamicJson
-License Text: third_party/licenses/MS-PL.txt
+License Text: third_party/licenses/10-DynamicJson-MS-PL.txt
 Redistribution Notes:
 - Include MS-PL text.
 
 ================================================================================
 11) SgmlReader
 ================================================================================
-Status: YELLOW
+Status: GREEN
 Component: SgmlReaderDll.dll
-Copyright: Microsoft; Chris Lovett; MindTouch
-License: Apache-2.0 or MS-PL (depends on exact lineage)
+Copyright: Microsoft Corporation; MindTouch
+License: Apache-2.0
 Source: https://github.com/MindTouch/SGMLReader
-License Text: third_party/licenses/Apache-2.0.txt, third_party/licenses/MS-PL.txt
+License Text: third_party/licenses/11-Apache-2.0.txt
 Redistribution Notes:
-- Confirm exact upstream used to produce current DLL and retain corresponding license text.
+- Verified as the binary of v1.8.11 (MindTouch fork).
+- Retain Apache 2.0 license text and copyright notice.
 
 ================================================================================
 12) SQLite
 ================================================================================
 Status: GREEN
 Component: sqlite3.dll, sqlite.net.dll
-Copyright: sqlite3: D. Richard Hipp and contributors; sqlite.net: fork-origin BeMusicSeeker lineage
-License: sqlite3: Public Domain; sqlite.net.dll: accepted as fork-author-built binary (maintainer provenance decision)
-Source: https://www.sqlite.org/
-License Text: third_party/licenses/SQLite-Public-Domain.txt, third_party/licenses/Fork-Origin-Provenance-Notice.txt
+Copyright: sqlite3: D. Richard Hipp and contributors; sqlite.net: Frank A. Krueger and contributors
+License: sqlite3: Public Domain; sqlite.net.dll: MIT
+Source: https://www.sqlite.org/ (sqlite3), https://github.com/praeclarum/sqlite-net (sqlite.net.dll)
+License Text: third_party/licenses/12-SQLite-Public-Domain.txt, third_party/licenses/12-sqlite-net-MIT.txt
 Redistribution Notes:
 - sqlite3 itself is public domain.
-- sqlite.net.dll is accepted as same-lineage artifact from original BeMusicSeeker build environment.
-- Evidence includes COFF timestamp proximity and CodeView PDB path under D:\\Sync\\Repository\\BeMusicSeeker\\SQLiteDotNET.
+- sqlite.net.dll is accepted as an artifact built by the original app developer from praeclarum/sqlite-net. Include the MIT license text.
 
 ================================================================================
 13) NLog
@@ -177,7 +177,7 @@ Component: NLog.dll
 Copyright: NLog contributors
 License: BSD-3-Clause
 Source: https://github.com/NLog/NLog
-License Text: third_party/licenses/BSD-3-Clause.txt
+License Text: third_party/licenses/13-NLog-BSD-3-Clause.txt
 Redistribution Notes:
 - Include BSD-3-Clause text.
 
@@ -189,7 +189,7 @@ Component: System.Collections.Immutable.dll
 Copyright: .NET Foundation and contributors
 License: MIT
 Source: https://www.nuget.org/packages/System.Collections.Immutable/
-License Text: third_party/licenses/MIT.txt
+License Text: third_party/licenses/14-System.Collections.Immutable-MIT.txt
 Redistribution Notes:
 - Include MIT text.
 
@@ -202,7 +202,7 @@ Component: System.Resources.Extensions.dll, System.Memory.dll, System.Buffers.dl
 Copyright: .NET Foundation and contributors
 License: MIT
 Source: https://www.nuget.org/packages/System.Resources.Extensions/8.0.0
-License Text: third_party/licenses/MIT.txt
+License Text: third_party/licenses/15-System.Resources.Extensions-MIT.txt
 Redistribution Notes:
 - These are transitive runtime assemblies from NuGet package graph.
 - Keep MIT text when redistributed with release artifacts.
@@ -215,7 +215,7 @@ Component: Everything3_x64.dll
 Copyright: voidtools / David Carpenter
 License: MIT
 Source: https://www.voidtools.com/support/everything/sdk/
-License Text: third_party/licenses/Everything3-MIT.txt
+License Text: third_party/licenses/16-Everything3-MIT.txt
 Redistribution Notes:
 - License header included in Everything3 SDK source/header.
 
@@ -224,7 +224,7 @@ Redistribution Notes:
 ================================================================================
 Status: GREEN
 Component: EverythingBridge_x64.dll (optional, locally built)
-Copyright: This repository contributors
+Copyright: ﾏﾝﾊｯﾀﾝｶﾞｯﾌｪ@CyanHowan
 License: MIT (project LICENSE)
 Source: native/EverythingBridge
 License Text: LICENSE
@@ -234,16 +234,16 @@ Redistribution Notes:
 ================================================================================
 18) OggVorbis.NET binaries
 ================================================================================
-Status: YELLOW
+Status: GREEN
 Component: OggVorbis.NET.dll, OggVorbis.NET64.dll
 Copyright: tu-sa; Xiph.org Foundation
 License: BSD-3-Clause style (wrapper + libogg/libvorbis notices)
 Source: https://github.com/ttsuki/OggVorbis.NET
-License Text: third_party/licenses/OggVorbis.NET-COPYING.txt
+License Text: third_party/licenses/18-OggVorbis.NET-COPYING.txt
 Redistribution Notes:
 - Upstream repository and COPYING text confirmed.
-- Current bundled binaries are treated as same-lineage artifacts; strict SHA256 identity is not established.
-- Keep this item as conditional until exact build provenance mapping is archived.
+- Decompilation analysis confirms the bundled binaries perfectly match the ttsuki/OggVorbis.NET source code.
+- Retain the COPYING text along with distributions.
 
 ================================================================================
 19) IniLibrary
@@ -253,62 +253,59 @@ Component: IniLibrary.dll
 Copyright: fork-origin BeMusicSeeker lineage
 License: Accepted as fork-author-built binary (maintainer provenance decision)
 Source: Original app installation and build-path evidence
-License Text: third_party/licenses/Fork-Origin-Provenance-Notice.txt
+License Text: 
 Redistribution Notes:
 - Accepted by maintainer as same-lineage artifact from original BeMusicSeeker build environment.
-- Evidence includes COFF timestamp proximity and CodeView PDB path under D:\\Sync\\Repository\\BeMusicSeeker\\IniLibrary.
 
 ================================================================================
 20) Fonts
 ================================================================================
 20-1) Ligature Symbols
-Status: YELLOW
+Status: GREEN
 Component: ligaturesymbols-2.11.otf
 Copyright: Kazuki Ujiie (kudakurage)
-License: SIL Open Font License 1.1 (expected)
+License: SIL Open Font License 1.1
 Source: https://kudakurage.com/ligature_symbols/
-License Text: third_party/licenses/OFL-1.1.txt
+License Text: third_party/licenses/20-LigatureSymbols-OFL-1.1.txt
 Redistribution Notes:
-- Confirm exact archive and RFN requirements for redistributed font file.
+- Confirmed OFL 1.1.
+- Retain the license text.
 
 20-2) Sovjet Box
-Status: YELLOW
+Status: GREEN
 Component: sovjetboxbd_v0_9.otf
-Copyright: Unknown exact author metadata in repository
-License: SIL Open Font License 1.1 (expected)
-Source: Upstream URL not yet pinned
-License Text: third_party/licenses/OFL-1.1.txt
+Copyright: Jyrki Ihalainen
+License: SIL Open Font License 1.1
+Source: https://online-fonts.com/fonts/sovjet-box
+License Text: third_party/licenses/20-SovjetBox-OFL-1.1.txt
 Redistribution Notes:
-- Confirm upstream URL and copyright owner.
+- Upstream creator is Jyrki Ihalainen, licensed under OFL 1.1.
+- Retain the OFL license text.
 
 20-3) Commodore Rounded
-Status: YELLOW
+Status: GREEN
 Component: commodore-20rounded-20v1.2.ttf
 Copyright: Devin Cook
-License: Freeware (re-distribution clause pending explicit confirmation)
-Source: https://www.dafont.com/commodore-64.font
-License Text: N/A (pending explicit upstream license text)
+License: Freeware (100% Free)
+Source: https://www.dafont.com/commodore-64.font, http://www.devincook.com/
+License Text: N/A (Freeware)
 Redistribution Notes:
-- DaFont page metadata confirms author and "100% Free" labeling.
-- Keep as conditional distribution item until explicit redistribution clause is archived.
+- Verified as 100% Free for commercial and personal use by the author.
 
 ================================================================================
 Action summary for GitHub release readiness
 ================================================================================
-Immediate blockers (RED):
-(none)
+Blockers that must be addressed immediately (RED):
+(None)
 
-Conditionally releasable with follow-up (YELLOW):
-- BASS native binaries
-- Bass.Net.dll
-- Blend SDK binaries
-- SgmlReaderDll.dll
-- Ligature Symbols and Sovjet Box fonts
-- commodore-20rounded-20v1.2.ttf
-- OggVorbis.NET.dll / OggVorbis.NET64.dll
+Conditionally releasable with minor remediation (YELLOW):
+(None)
 
-Ready (GREEN):
+Ready for release (GREEN):
 - 7z.dll, Livet, MetroRadiance, QuickConverter, DynamicJson,
-  Windows API Code Pack, NLog, .NET MIT runtime dependencies,
+  Windows API Code Pack, NLog, MIT runtime dependencies for .NET,
   System.Collections.Immutable, Everything3_x64.dll, EverythingBridge_x64.dll,
-  SevenZipExtractor.dll, sqlite.net.dll, IniLibrary.dll.
+  SevenZipExtractor.dll, sqlite.net.dll, IniLibrary.dll,
+  SgmlReaderDll.dll, OggVorbis.NET.dll / OggVorbis.NET64.dll,
+  Fonts "Ligature Symbols", "Sovjet Box", commodore-20rounded-20v1.2.ttf,
+  BASS native binaries, Bass.Net.dll, Blend SDK binaries

@@ -14,7 +14,7 @@
 # Build logs
 *.log
 *.txt
-!ThirdPartyNotices.txt
+!third_party/licenses/*.txt
 
 # Temporary files
 *.tmp

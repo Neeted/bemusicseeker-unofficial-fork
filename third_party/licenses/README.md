@@ -1,23 +1,9 @@
 # Third-party license texts
 
-This directory contains license texts and notice summaries referenced from `ThirdPartyNotices.txt`.
+This directory contains license texts and notice summaries referenced from `ThirdPartyNotices.txt` and `ThirdPartyNotices.ja.txt`.
 
-Files:
-- `MIT.txt`
-- `BSD-3-Clause.txt`
-- `Apache-2.0.txt`
-- `LGPL-2.1.txt`
-- `MS-PL.txt`
-- `zlib.txt`
-- `OFL-1.1.txt`
-- `SQLite-Public-Domain.txt`
-- `Everything3-MIT.txt`
-- `OggVorbis.NET-COPYING.txt`
-- `Fork-Origin-Provenance-Notice.txt`
-- `BASS-NOTICE.txt`
-- `BASS.NET-NOTICE.txt`
-- `Microsoft-SDK-NOTICE.txt`
-- `7zip-unRAR-restriction.txt`
+Files are prefixed with numbers corresponding to their respective entries in the notice documents, ensuring clear traceability between the component and its license clause.
 
-Some files are legal notices (NOT full licenses) where the exact upstream license artifact
-must still be pinned in future audit work.
+Some files are legal notices (NOT full open-source licenses). These notices document specific usage or redistribution conditions for proprietary or conditionally free binaries, such as the BASS Audio Library and Microsoft Expression SDK. Wait for specific upstream authorizations for commercial usage when encountering these files.
+
+Please refer to `ThirdPartyNotices.txt` (or the Japanese translation `ThirdPartyNotices.ja.txt`) for a complete summary, component status, and specific distribution obligations.
