@@ -21,21 +21,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
---------------------------------------------------------------------------------
-EXCEPTIONS AND THIRD-PARTY COMPONENTS
---------------------------------------------------------------------------------
-The above license applies only to the source code of this project.
-This project uses several third-party libraries, binaries, and components that
-are distributed under their respective licenses.
-
-NOTABLY: BASS Audio Library (un4seen developments)
-The BASS Audio Engine (bass.dll, Bass.Net.dll, etc.) bundled and used by this
-software is NOT covered by the MIT License. It is proprietary software.
-Non-commercial use and distribution are permitted free of charge. However, for
-ANY COMMERCIAL USE of this software, you MUST obtain a commercial license for
-BASS directly from un4seen developments (https://www.un4seen.com/).
-
-For a complete list of third-party dependencies, their copyrights, and licensing
-information, please refer to the `ThirdPartyNotices.txt` file included in this
-repository.
