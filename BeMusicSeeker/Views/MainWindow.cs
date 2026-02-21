@@ -557,9 +557,17 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 e.Cancel = true;
             }
         }
-        else if (bMSFile != null && path == bMSFile.GetName((BMSFile f) => f.Folder) && _isTreeViewItemSelectedInclChildren(treeViewItemInstallPending))
+        else if (bMSFile != null)
         {
-            e.Cancel = true;
+            bool isPendingSelected = _isTreeViewItemSelectedInclChildren(treeViewItemInstallPending);
+            if (path == bMSFile.GetName((BMSFile f) => f.Folder) && isPendingSelected)
+            {
+                e.Cancel = true;
+            }
+            else if (path == bMSFile.GetName((BMSFile f) => f.instl_dst) && !isPendingSelected)
+            {
+                e.Cancel = true;
+            }
         }
     }
 
@@ -629,14 +637,31 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 }).Logging("dataGridCellEditEnding");
             }, DispatcherPriority.Background);
         }
-        else if (bmsFile != null && e.EditAction == DataGridEditAction.Commit && path == bmsFile.GetName((BMSFile f) => f.Folder))
+        else if (bmsFile != null && e.EditAction == DataGridEditAction.Commit)
         {
-            string newFolder = textBox.Text;
-            dataGrid.CancelEdit();
-            Task.Run(delegate
+            bool isPendingSelected = _isTreeViewItemSelectedInclChildren(treeViewItemInstallPending);
+            if (path == bmsFile.GetName((BMSFile f) => f.Folder))
             {
-                viewModel.RenameBMSFolder(bmsFile, newFolder);
-            }).Logging("dataGridCellEditEnding");
+                string newFolder = textBox.Text;
+                dataGrid.CancelEdit();
+                Task.Run(delegate
+                {
+                    viewModel.RenameBMSFolder(bmsFile, newFolder);
+                }).Logging("dataGridCellEditEnding");
+            }
+            else if (path == bmsFile.GetName((BMSFile f) => f.instl_dst) && isPendingSelected)
+            {
+                string destinationDirectory = textBox.Text;
+                dataGrid.CancelEdit();
+                Task.Run(delegate
+                {
+                    viewModel.SetPendingInstallDestination(bmsFile, destinationDirectory);
+                }).Logging("dataGridCellEditEnding");
+            }
+            else if (path == bmsFile.GetName((BMSFile f) => f.instl_dst))
+            {
+                bindingExpression.UpdateTarget();
+            }
         }
     }
 

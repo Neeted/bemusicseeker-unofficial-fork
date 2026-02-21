@@ -4717,6 +4717,69 @@ public class BMSLibrary : NotificationObject
         }
     }
 
+    public bool SetPendingInstallDestination(BMSFile bmsFile, string destinationDirectory)
+    {
+        if (bmsFile == null)
+        {
+            throw new ArgumentNullException("bmsFile");
+        }
+        using (rwlockBMSFilesInitializedAll.GetReaderGuard())
+        {
+            using (rwlockBMSFilesPendingInstall.GetWriterGuard())
+            {
+                BMSPackage bMSPackage = BMSPackagesPending.FirstOrDefault((BMSPackage pkg) => pkg != null && pkg.BMSFiles.Any((BMSFile f) => f != null && (ReferenceEquals(f, bmsFile) || (!string.IsNullOrWhiteSpace(f.path) && !string.IsNullOrWhiteSpace(bmsFile.path) && f.path.Equals(bmsFile.path, StringComparison.OrdinalIgnoreCase)))));
+                if (bMSPackage == null)
+                {
+                    DispatcherMessageBox.Show("選択した譜面が保留パッケージに見つかりませんでした。", "警告", MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
+                    return false;
+                }
+                if (string.IsNullOrWhiteSpace(destinationDirectory))
+                {
+                    foreach (BMSFile item in bMSPackage.BMSFiles.Where((BMSFile f) => f != null))
+                    {
+                        item.instl_dst = null;
+                    }
+                    return true;
+                }
+                string text;
+                string normalizedInput;
+                try
+                {
+                    normalizedInput = Path.GetFullPath(destinationDirectory.Trim().Trim('"'));
+                }
+                catch (Exception ex)
+                {
+                    DispatcherMessageBox.Show("インストール先のパスが不正です。" + Environment.NewLine + destinationDirectory + Environment.NewLine + Environment.NewLine + ex.Message, "警告", MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
+                    return false;
+                }
+                if (File.Exists(normalizedInput))
+                {
+                    text = DirectoryExt.GetDirectoryNameSimple(normalizedInput);
+                }
+                else
+                {
+                    text = normalizedInput.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                }
+                if (!Directory.Exists(text))
+                {
+                    DispatcherMessageBox.Show("インストール先のフォルダが見つかりません。" + Environment.NewLine + text, "警告", MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
+                    return false;
+                }
+                HashSet<string> hashSet = new HashSet<string>(bmsFolderAllFileList.Keys, StringComparer.OrdinalIgnoreCase);
+                if (!hashSet.Contains(text))
+                {
+                    DispatcherMessageBox.Show("インストール先には既存BMSが存在するフォルダのみ指定できます。" + Environment.NewLine + text, "警告", MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
+                    return false;
+                }
+                foreach (BMSFile item in bMSPackage.BMSFiles.Where((BMSFile f) => f != null))
+                {
+                    item.instl_dst = text;
+                }
+                return true;
+            }
+        }
+    }
+
     public void AddReferenceBMSTables(BMSTable table, IEnumerable<BMSTableEntry> entries = null, bool suppressFilePropertyChanged = false)
     {
         if (table == null)

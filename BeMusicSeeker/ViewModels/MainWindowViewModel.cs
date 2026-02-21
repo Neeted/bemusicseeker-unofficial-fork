@@ -6830,6 +6830,22 @@ public class MainWindowViewModel : ViewModel
 		}
 	}
 
+	public bool SetPendingInstallDestination(BeMusicSeeker.Models.BMSFile bmsFile, string destinationDirectory)
+	{
+		if (files == null)
+		{
+			return false;
+		}
+		if (bmsFile == null)
+		{
+			throw new ArgumentNullException("bmsFile");
+		}
+		lock (lockCopyFile)
+		{
+			return files.SetPendingInstallDestination(bmsFile, destinationDirectory);
+		}
+	}
+
 	internal void RegistrateExternalPlaylistBMSTable(Uri uri)
 	{
 		BMSTable table;
