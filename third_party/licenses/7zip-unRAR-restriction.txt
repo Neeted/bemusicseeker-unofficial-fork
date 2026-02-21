@@ -1,0 +1,10 @@
+7-Zip unRAR restriction notice
+
+Source: https://www.7-zip.org/license.txt
+Retrieved: 2026-02-21
+
+The unRAR sources in 7-Zip are subject to a special restriction.
+The restriction states that unRAR code must not be used to re-create
+RAR compression capability.
+
+Keep this notice together with LGPL text when redistributing 7z.dll.

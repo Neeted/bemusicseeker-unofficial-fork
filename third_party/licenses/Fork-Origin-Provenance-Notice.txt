@@ -1,0 +1,29 @@
+Fork-origin provenance notice for IniLibrary.dll and sqlite.net.dll
+
+Recorded: 2026-02-21
+
+Scope:
+- IniLibrary.dll
+- sqlite.net.dll
+
+Maintainer decision:
+- These binaries are treated as same-lineage artifacts built by the original
+  BeMusicSeeker author environment and accepted for this repository's release
+  process under maintainer responsibility.
+
+Technical evidence recorded from original installation:
+- Base executable:
+  C:\Users\kazuk\AppData\Local\Programs\BeMusicSeeker\BeMusicSeeker.exe
+  COFF timestamp (UTC): 2020/03/09 17:54:22
+
+- IniLibrary.dll:
+  COFF timestamp (UTC): 2020/03/09 17:47:42
+  CodeView path:
+  D:\Sync\Repository\BeMusicSeeker\IniLibrary\obj\Release\IniLibrary.pdb
+
+- sqlite.net.dll:
+  COFF timestamp (UTC): 2020/03/09 17:47:42
+  CodeView path:
+  D:\Sync\Repository\BeMusicSeeker\SQLiteDotNET\obj\Release\sqlite.net.pdb
+
+This file is a project audit record and does not constitute legal advice.

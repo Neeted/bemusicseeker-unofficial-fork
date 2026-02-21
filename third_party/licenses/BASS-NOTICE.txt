@@ -1,0 +1,11 @@
+BASS licensing notice
+
+Source: https://www.un4seen.com/
+Retrieved: 2026-02-21
+
+BASS is proprietary software by un4seen developments.
+The library is generally free for non-commercial use.
+Commercial use requires obtaining an appropriate license from un4seen.
+
+This file is a notice summary for distribution packaging.
+Refer to the official BASS license pages for authoritative terms.
