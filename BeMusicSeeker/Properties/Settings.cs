@@ -1052,7 +1052,7 @@ internal sealed class Settings : ApplicationSettingsBase
 
 	[UserScopedSetting]
 	[DebuggerNonUserCode]
-	[DefaultSettingValue("False")]
+	[DefaultSettingValue("True")]
 	public bool EnableSmartComponentOverwrite
 	{
 		get
