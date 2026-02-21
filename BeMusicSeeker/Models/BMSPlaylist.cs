@@ -90,9 +90,9 @@ public class BMSPlaylist : NotificationObject
 
     private static Uri walkureUpdateUri = new Uri("http://walkure.net/hakkyou/mle.cgi", UriKind.Absolute);
 
-    private static Uri insaneUri = new Uri("http://www.ribbit.xyz/bms/tables/insane.html");
+    private static Uri insaneUri = new Uri("https://darksabun.club/table/archive/insane1/");
 
-    private static Uri overjoyUri = new Uri("http://www.ribbit.xyz/bms/tables/overjoy.html");
+    private static Uri overjoyUri = new Uri("https://darksabun.club/table/archive/old-overjoy/");
 
     private object insaneTableLock = new object();
 
