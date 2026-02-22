@@ -6742,23 +6742,32 @@ public class MainWindowViewModel : ViewModel
 
 	public void ResyncPlaylists(IEnumerable<PlaylistSummaryRow> rows)
 	{
-		if (rows == null || tables == null || files == null)
+		if (rows == null)
 		{
 			return;
 		}
-		List<PlaylistSummaryRow> list = rows.Where((PlaylistSummaryRow r) => r?.TableRef != null).GroupBy((PlaylistSummaryRow r) => r.TableRef).Select((IGrouping<BMSTable, PlaylistSummaryRow> g) => g.First()).ToList();
-		foreach (PlaylistSummaryRow item in list)
+		List<BMSTable> tablesToResync = rows.Where((PlaylistSummaryRow r) => r?.TableRef != null).Select((PlaylistSummaryRow r) => r.TableRef).Distinct().ToList();
+		ResyncPlaylists(tablesToResync);
+	}
+
+	public void ResyncPlaylists(IEnumerable<BMSTable> tablesToResync)
+	{
+		if (tablesToResync == null || tables == null || files == null)
 		{
-			BMSTable tableRef = item.TableRef;
-			Uri uri = tableRef.Page_url ?? tableRef.Header_url;
+			return;
+		}
+		List<BMSTable> list = tablesToResync.Where((BMSTable t) => t != null).Distinct().ToList();
+		foreach (BMSTable item in list)
+		{
+			Uri uri = item.Page_url ?? item.Header_url;
 			if (uri == null || !uri.IsAbsoluteUri)
 			{
 				continue;
 			}
 			try
 			{
-				BMSTable bMSTable = tables.ResetBMSTable(tableRef, uri);
-				files.RemoveReferenceBMSTables(tableRef);
+				BMSTable bMSTable = tables.ResetBMSTable(item, uri);
+				files.RemoveReferenceBMSTables(item);
 				files.AddReferenceBMSTables(bMSTable);
 			}
 			catch

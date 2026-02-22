@@ -231,6 +231,7 @@
         </MenuItem>
       </ContextMenu>
       <ContextMenu x:Key="treeViewPlaylistTableContextMenu" HasDropShadow="True" Opened="treeViewPlaylistTableContextMenuOpend">
+        <MenuItem Name="treeViewPlaylistTableContextMenuItemReload" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Reload, Mode=OneWay}" Click="treeViewPlaylistTableContextMenuItemReloadClick" />
         <MenuItem Name="treeViewPlaylistTableContextMenuItemOpenPageURI" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_page, Mode=OneWay}" Click="treeViewPlaylistTableContextMenuItemOpenPageURIClick" />
         <MenuItem Name="treeViewPlaylistTableContextMenuItemOpenClearLamp" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_clear_lamp, Mode=OneWay}" Click="treeViewPlaylistTableContextMenuItemOpenClearLampClick" />
         <Separator />

@@ -1535,10 +1535,14 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         MenuItem menuItem4 = null;
         MenuItem menuItem5 = null;
         MenuItem menuItem6 = null;
+        MenuItem menuItem7 = null;
         foreach (Control item in (IEnumerable)contextMenu.Items)
         {
             switch (item.Name)
             {
+                case "treeViewPlaylistTableContextMenuItemReload":
+                    menuItem7 = item as MenuItem;
+                    break;
                 case "treeViewPlaylistTableContextMenuItemOpenPageURI":
                     menuItem = item as MenuItem;
                     break;
@@ -1559,12 +1563,28 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                     break;
             }
         }
+        Uri uri = dataContext.Page_url ?? dataContext.Header_url;
+        bool flag = uri != null && uri.IsAbsoluteUri;
+        menuItem7.IsEnabled = flag;
         menuItem.IsEnabled = dataContext.Page_url != null || dataContext.GetAbsoluteHeaderUrl() != null;
         menuItem2.IsEnabled = dataContext.Page_url != null && dataContext.Page_url.Scheme != "bmseeker" && dataContext.is_external_sync && mainWindowViewModel.LR2ID != 0;
         menuItem4.IsEnabled = !dataContext.is_external_sync;
         menuItem3.IsEnabled = true;
         menuItem5.IsEnabled = true;
         menuItem6.IsEnabled = !mainWindowViewModel.IsWriteLockHeldBMSTablesInitializeMin && !mainWindowViewModel.IsWriteLockHeldBMSTables && !mainWindowViewModel.IsWriteLockHeldAnyBMSTable;
+    }
+
+    private async void treeViewPlaylistTableContextMenuItemReloadClick(object sender, RoutedEventArgs e)
+    {
+        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
+        if (viewModel == null || !(sender is MenuItem { DataContext: BMSTable table }))
+        {
+            return;
+        }
+        await Task.Run(delegate
+        {
+            viewModel.ResyncPlaylists(new BMSTable[1] { table });
+        }).Logging("treeViewPlaylistTableContextMenuItemReloadClick");
     }
 
     private void treeViewPlaylistTableContextMenuItemOpenPageURIClick(object sender, RoutedEventArgs e)
