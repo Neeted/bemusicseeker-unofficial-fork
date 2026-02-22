@@ -3424,6 +3424,13 @@ public class BMSLibrary : NotificationObject
         public string DestinationPath { get; set; }
     }
 
+    private sealed class ComponentMovePlanBuildResult
+    {
+        public List<ComponentMovePlanItem> PlanItems { get; } = new List<ComponentMovePlanItem>();
+
+        public int SkippedByExclusion { get; set; }
+    }
+
     private sealed class ComponentMoveSummary
     {
         public int Total { get; set; }
@@ -3437,6 +3444,12 @@ public class BMSLibrary : NotificationObject
         public int SkippedOlder { get; set; }
 
         public int DeletedAfterSkip { get; set; }
+
+        public int SkippedByExclusion { get; set; }
+
+        public int SkippedSamePath { get; set; }
+
+        public int Failed { get; set; }
     }
 
     private static readonly TimeSpan smartComponentOverwriteTimeTolerance = TimeSpan.FromSeconds(2.0);
@@ -3493,9 +3506,9 @@ public class BMSLibrary : NotificationObject
         return targetPath.Substring(text.Length);
     }
 
-    private static List<ComponentMovePlanItem> BuildComponentMovePlan(IEnumerable<string> installComponentFiles, string destinationDirectory, ISet<string> excludedComponentPaths)
+    private static ComponentMovePlanBuildResult BuildComponentMovePlan(IEnumerable<string> installComponentFiles, string destinationDirectory, ISet<string> excludedComponentPaths)
     {
-        List<ComponentMovePlanItem> list = new List<ComponentMovePlanItem>();
+        ComponentMovePlanBuildResult componentMovePlanBuildResult = new ComponentMovePlanBuildResult();
         HashSet<string> hashSet = ((excludedComponentPaths != null && excludedComponentPaths.Count > 0) ? new HashSet<string>(excludedComponentPaths, StringComparer.OrdinalIgnoreCase) : null);
         foreach (string installComponentFile in installComponentFiles)
         {
@@ -3503,9 +3516,10 @@ public class BMSLibrary : NotificationObject
             {
                 if (hashSet != null && hashSet.Contains(installComponentFile))
                 {
+                    componentMovePlanBuildResult.SkippedByExclusion++;
                     continue;
                 }
-                list.Add(new ComponentMovePlanItem
+                componentMovePlanBuildResult.PlanItems.Add(new ComponentMovePlanItem
                 {
                     SourcePath = installComponentFile,
                     DestinationPath = Path.Combine(destinationDirectory, Path.GetFileName(installComponentFile))
@@ -3521,16 +3535,17 @@ public class BMSLibrary : NotificationObject
             {
                 if (hashSet != null && hashSet.Contains(item))
                 {
+                    componentMovePlanBuildResult.SkippedByExclusion++;
                     continue;
                 }
-                list.Add(new ComponentMovePlanItem
+                componentMovePlanBuildResult.PlanItems.Add(new ComponentMovePlanItem
                 {
                     SourcePath = item,
                     DestinationPath = Path.Combine(text, GetRelativePathFromDirectory(installComponentFile, item))
                 });
             }
         }
-        return list;
+        return componentMovePlanBuildResult;
     }
 
     private static void CleanupEmptyComponentDirectories(IEnumerable<string> installComponentFiles)
@@ -3647,8 +3662,10 @@ public class BMSLibrary : NotificationObject
                 if (IsSmartComponentOverwriteEnabled())
                 {
                     ComponentMoveSummary componentMoveSummary = new ComponentMoveSummary();
-                    List<ComponentMovePlanItem> list2 = BuildComponentMovePlan(installComponentFiles, dirname, excludedComponentPaths);
+                    ComponentMovePlanBuildResult componentMovePlanBuildResult = BuildComponentMovePlan(installComponentFiles, dirname, excludedComponentPaths);
+                    List<ComponentMovePlanItem> list2 = componentMovePlanBuildResult.PlanItems;
                     componentMoveSummary.Total = list2.Count;
+                    componentMoveSummary.SkippedByExclusion = componentMovePlanBuildResult.SkippedByExclusion;
                     foreach (ComponentMovePlanItem item2 in list2)
                     {
                         string sourcePath = item2.SourcePath;
@@ -3661,6 +3678,7 @@ public class BMSLibrary : NotificationObject
                         {
                             // 同一パスは自己上書きになるため安全側でスキップする。
                             componentMoveSummary.SkippedSame++;
+                            componentMoveSummary.SkippedSamePath++;
                             continue;
                         }
                         string directoryName = Path.GetDirectoryName(destinationPath);
@@ -3694,7 +3712,8 @@ public class BMSLibrary : NotificationObject
                     }
                     // スキップ後の空ディレクトリを掃除して、後段のフォルダ削除を成功しやすくする。
                     CleanupEmptyComponentDirectories(installComponentFiles);
-                    LogInstallPerformance("component_move_summary package=" + pkg.path + " total=" + componentMoveSummary.Total + " moved=" + componentMoveSummary.Moved + " overwritten=" + componentMoveSummary.Overwritten + " skipped_same=" + componentMoveSummary.SkippedSame + " skipped_older=" + componentMoveSummary.SkippedOlder + " deleted_after_skip=" + componentMoveSummary.DeletedAfterSkip);
+                    int num2 = Math.Max(0, componentMoveSummary.Moved - componentMoveSummary.Overwritten);
+                    LogInstallPerformance("component_move_summary package=" + pkg.path + " total=" + componentMoveSummary.Total + " moved=" + componentMoveSummary.Moved + " moved_new=" + num2 + " overwritten=" + componentMoveSummary.Overwritten + " skipped_same=" + componentMoveSummary.SkippedSame + " skipped_same_path=" + componentMoveSummary.SkippedSamePath + " skipped_older=" + componentMoveSummary.SkippedOlder + " skipped_by_exclusion=" + componentMoveSummary.SkippedByExclusion + " deleted_after_skip=" + componentMoveSummary.DeletedAfterSkip + " failed=" + componentMoveSummary.Failed);
                 }
                 else
                 {
