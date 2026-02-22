@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
-using System.Deployment.Application;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -4840,7 +4839,7 @@ public class MainWindowViewModel : ViewModel
 		LogInitStage("start", "Initialize");
 		initializationCompleted = false;
 		_ = string.Empty;
-		string text = ((!(Settings.Default.PublishVersion == null)) ? Settings.Default.PublishVersion.ToString() : string.Concat("for developers (", Assembly.GetEntryAssembly().GetName().Version, ")"));
+		string text = Assembly.GetEntryAssembly().GetName().Version.ToString();
 		WindowTitle = "BeMusicSeeker Unofficial Fork - " + text;
 		if (!settingDialog.CheckValidation())
 		{
@@ -4855,10 +4854,6 @@ public class MainWindowViewModel : ViewModel
 			_semaphore.Release();
 			base.Messenger.Raise(new InteractionMessage("InitializationException"));
 			return;
-		}
-		if (((App)System.Windows.Application.Current).showVersionUpMessage)
-		{
-			base.Messenger.Raise(new InteractionMessage("VersionUpCompleted"));
 		}
 		try
 		{
@@ -4899,17 +4894,8 @@ public class MainWindowViewModel : ViewModel
 		{
 			DispatcherMessageBox.Show(BeMusicSeeker.Properties.Resources.Msg_error_unexpected + Environment.NewLine + ex.ToString(), BeMusicSeeker.Properties.Resources.Error, MessageBoxButton.OK, MessageBoxImage.Hand);
 			Logger currentClassLogger = LogManager.GetCurrentClassLogger();
-			string text3 = string.Empty;
-			_ = string.Empty;
-			try
-			{
-				text3 = ApplicationDeployment.CurrentDeployment.CurrentVersion.ToString() + "/";
-			}
-			catch
-			{
-			}
-			string text4 = Assembly.GetEntryAssembly().GetName().Version.ToString();
-			currentClassLogger.Error(ex, text3 + text4 + " - " + Environment.NewLine + ex.ToString(), null);
+			string text3 = Assembly.GetEntryAssembly().GetName().Version.ToString();
+			currentClassLogger.Error(ex, text3 + " - " + Environment.NewLine + ex.ToString(), null);
 			_semaphore.Release();
 			base.Messenger.Raise(new InteractionMessage("InitializationException"));
 			return;

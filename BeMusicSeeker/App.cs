@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.Deployment.Application;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
@@ -34,8 +33,6 @@ public partial class App : System.Windows.Application
 	private static Mutex _mutex = null;
 
 	public bool forceReinitializationCustomFolders { get; set; }
-
-	public bool showVersionUpMessage { get; set; }
 
 	public bool firstStartup { get; set; }
 
@@ -79,14 +76,6 @@ public partial class App : System.Windows.Application
 		}
 		ConfigureExtraLogging();
 		LegacyUserConfigMigrator.MigrateIfNeeded();
-		try
-		{
-			new AutoUpdater().Execute();
-		}
-		catch (Exception ex)
-		{
-			NLogWrapper.TraceLogger?.Warn(ex, "AutoUpdater execution failed");
-		}
 		EquationTokenizer.AddNamespace(typeof(object));
 		EquationTokenizer.AddNamespace(typeof(Visibility));
 		EquationTokenizer.AddNamespace(typeof(DataGridLength));
@@ -105,15 +94,6 @@ public partial class App : System.Windows.Application
 				Settings.Default.Upgrade();
 				MigrateApplicationSettings();
 				Settings.Default.AssemblyVersion = serializableVersion;
-				try
-				{
-					Settings.Default.PublishVersion = new SerializableVersion(ApplicationDeployment.CurrentDeployment.CurrentVersion);
-				}
-				catch (Exception ex)
-				{
-					NLogWrapper.TraceLogger?.Warn(ex, "PublishVersion acquisition failed");
-					Settings.Default.PublishVersion = null;
-				}
 				Settings.Default.Save();
 			}
 		}
@@ -285,16 +265,7 @@ public partial class App : System.Windows.Application
 		Logger fileLogger = NLogWrapper.FileLogger;
 		Logger networkLogger = NLogWrapper.NetworkLogger;
 		Logger logger = fileLogger;
-		string text = string.Empty;
 		string empty = string.Empty;
-		try
-		{
-			text = ApplicationDeployment.CurrentDeployment.CurrentVersion.ToString() + "/";
-		}
-		catch (Exception logEx)
-		{
-			NLogWrapper.TraceLogger?.Warn(logEx, "ApplicationDeployment version lookup failed");
-		}
 		empty = Assembly.GetEntryAssembly().GetName().Version.ToString();
 		if (showMessage)
 		{
@@ -307,7 +278,7 @@ public partial class App : System.Windows.Application
 		}
 		try
 		{
-			logger?.Error(ex, text + empty + " - UNKNOWN" + ((!showMessage) ? " IGNORED" : string.Empty) + Environment.NewLine + ex.ToString());
+			logger?.Error(ex, empty + " - UNKNOWN" + ((!showMessage) ? " IGNORED" : string.Empty) + Environment.NewLine + ex.ToString());
 		}
 		catch
 		{
@@ -358,23 +329,6 @@ public partial class App : System.Windows.Application
 		{
 			string name = CultureInfo.CurrentCulture.Name;
 			Settings.Default.Lang = (AvailableCultures.Keys.Contains(name) ? name : "en-US");
-		}
-		showVersionUpMessage = false;
-		try
-		{
-			if (Settings.Default.PublishVersion != null)
-			{
-				SerializableVersion publishVersion = Settings.Default.PublishVersion;
-				Version currentVersion = ApplicationDeployment.CurrentDeployment.CurrentVersion;
-				if (publishVersion.Major < currentVersion.Major || publishVersion.Minor < currentVersion.Minor || publishVersion.Build < currentVersion.Build)
-				{
-					showVersionUpMessage = true;
-				}
-			}
-		}
-		catch (Exception ex)
-		{
-			NLogWrapper.TraceLogger?.Warn(ex, "Version up message evaluation failed");
 		}
 		if (Settings.Default.AssemblyVersion == null)
 		{

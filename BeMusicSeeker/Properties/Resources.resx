@@ -11987,6 +11987,7 @@ wgE5/8MBMM/DgQAAwAEAAMABAADgAQAA8AkAAP/9AAAL</value></data><data name="Record_se
   <data name="FilePath_configXml" xml:space="preserve"><value>config.xml パス: </value></data>
   <data name="Ignore_list" xml:space="preserve"><value>無視リスト</value></data>
   <data name="Backup_restore_playlist" xml:space="preserve"><value>プレイリストの復元</value></data>
+  <data name="Update_history_v1000_1" xml:space="preserve"><value>Unofficial Fork, Initial Release.</value></data>
   <data name="Update_history_v0353_1" xml:space="preserve"><value>フランス語翻訳を追加 (thank to @LeElementaires)</value></data>
   <data name="Update_history_v0350_1" xml:space="preserve"><value>アーカイブファイルのD&amp;Dに対応 (7z, zip, rar, lzh)</value></data>
   <data name="Update_history_v0350_3" xml:space="preserve"><value>[テスト中] ダウンロード実行後に自動的にインストールを試みる (詳細設定)</value></data>

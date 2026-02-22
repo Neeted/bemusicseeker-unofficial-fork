@@ -191,21 +191,6 @@ internal sealed class Settings : ApplicationSettingsBase
 
 	[UserScopedSetting]
 	[DebuggerNonUserCode]
-	[DefaultSettingValue(null)]
-	public SerializableVersion PublishVersion
-	{
-		get
-		{
-			return (SerializableVersion)this["PublishVersion"];
-		}
-		set
-		{
-			this["PublishVersion"] = value;
-		}
-	}
-
-	[UserScopedSetting]
-	[DebuggerNonUserCode]
 	[DefaultSettingValue("50")]
 	public int uBMplayVolume
 	{

@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
-using System.Deployment.Application;
 using System.Linq;
+using System.Reflection;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using Codeplex.Data;
@@ -261,14 +261,7 @@ public class BMSTable : LR2SongDBExtended.playlist
 		val.compat_prefix = base.compat_prefix;
 		val.last_update = base.last_update.ToShortDateString();
 		val.editor_name = "BeMusicSeeker";
-		try
-		{
-			val.editor_version = ApplicationDeployment.CurrentDeployment.CurrentVersion.ToString();
-		}
-		catch
-		{
-			val.editor_version = string.Empty;
-		}
+		val.editor_version = Assembly.GetEntryAssembly()?.GetName().Version?.ToString() ?? string.Empty;
 		val.output_date = DateTime.Now.ToShortDateString();
 		return val;
 	}

@@ -704,6 +704,7 @@ public class Resources
 	public static string Update_history_v0350_3 => ResourceManager.GetString("Update_history_v0350_3", resourceCulture);
 
 	public static string Update_history_v0353_1 => ResourceManager.GetString("Update_history_v0353_1", resourceCulture);
+	public static string Update_history_v1000_1 => ResourceManager.GetString("Update_history_v1000_1", resourceCulture);
 
 	public static string Update_ranking_data => ResourceManager.GetString("Update_ranking_data", resourceCulture);
 

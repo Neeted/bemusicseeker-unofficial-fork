@@ -799,9 +799,6 @@
     <l:InteractionMessageTrigger MessageKey="ConfirmationDialog" Messenger="{Binding Messenger}">
       <l:ConfirmationDialogInteractionMessageAction />
     </l:InteractionMessageTrigger>
-    <l:InteractionMessageTrigger MessageKey="VersionUpCompleted" Messenger="{Binding Messenger}">
-      <ei:ChangePropertyAction PropertyName="Visibility" Value="Visible" TargetObject="{Binding ElementName=settingDialog, Mode=OneWay}" />
-    </l:InteractionMessageTrigger>
     <l:InteractionMessageTrigger MessageKey="InitializationException" Messenger="{Binding Messenger}">
       <ei:ChangePropertyAction PropertyName="Visibility" Value="Visible" TargetObject="{Binding ElementName=settingDialog, Mode=OneWay}" />
     </l:InteractionMessageTrigger>

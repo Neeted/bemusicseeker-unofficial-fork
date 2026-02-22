@@ -26,16 +26,11 @@ public partial class SettingDialog : UserControl, IComponentConnector
 	public SettingDialog()
 	{
 		InitializeComponent();
-		_ = string.Empty;
-		if (Settings.Default.PublishVersion == null)
-		{
-			textBlockVerNum.Text = "";
-		}
-		else
-		{
-			textBlockVerNum.Text = Settings.Default.PublishVersion.ToString();
-		}
-		textBlockBuildNum.Text = "Build: " + Assembly.GetEntryAssembly().GetName().Version;
+		Assembly entryAssembly = Assembly.GetEntryAssembly();
+		string text = entryAssembly?.GetName().Version?.ToString() ?? string.Empty;
+		string text2 = entryAssembly?.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
+		textBlockVerNum.Text = string.IsNullOrWhiteSpace(text2) ? text : text2;
+		textBlockBuildNum.Text = "Build: " + text;
 	}
 
 	private void CancelAndClose(object sender, RoutedEventArgs e)
@@ -68,11 +63,6 @@ public partial class SettingDialog : UserControl, IComponentConnector
 		if (settingDialogViewModel.CheckValidation(out var errMsg))
 		{
 			await settingDialogViewModel.SaveSettings();
-			if (((App)Application.Current).showVersionUpMessage && tabItemVersionInfo.IsSelected)
-			{
-				((App)Application.Current).showVersionUpMessage = false;
-				tabItemGeneral.IsSelected = true;
-			}
 			if (((App)Application.Current).firstStartup && !firstStartupInitializationStarted)
 			{
 				firstStartupInitializationStarted = true;

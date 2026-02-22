@@ -1,5 +1,4 @@
 using System;
-using System.Deployment.Application;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -55,23 +54,14 @@ public static class TaskEx
 			}
 		}
 		Logger logger = loggerLocal;
-		string text = string.Empty;
-		string empty = string.Empty;
-		try
-		{
-			text = ApplicationDeployment.CurrentDeployment.CurrentVersion.ToString() + "/";
-		}
-		catch
-		{
-		}
-		empty = Assembly.GetEntryAssembly().GetName().Version.ToString();
+		string text = Assembly.GetEntryAssembly().GetName().Version.ToString();
 		if (DispatcherMessageBox.Show("予期しないエラーが発生しました。" + Environment.NewLine + Environment.NewLine + "エラーの発生状況を開発者に送信してもよろしいでしょうか?" + Environment.NewLine + "送信される情報は発生箇所の特定に使用され、" + Environment.NewLine + "個人の情報は含まれません。" + Environment.NewLine + Environment.NewLine + "エラー概要:" + Environment.NewLine + string.Join(Environment.NewLine, x.Exception.Flatten().InnerExceptions.Select((Exception e) => e.Message)), "エラー", MessageBoxButton.YesNo, MessageBoxImage.Hand, MessageBoxResult.Yes) == MessageBoxResult.Yes)
 		{
 			logger = loggerPost;
 		}
 		try
 		{
-			logger?.Error(x.Exception, text + empty + " - " + memberName + Environment.NewLine + x.Exception.ToString());
+			logger?.Error(x.Exception, text + " - " + memberName + Environment.NewLine + x.Exception.ToString());
 		}
 		catch
 		{
