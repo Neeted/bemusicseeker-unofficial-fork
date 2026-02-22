@@ -1,5 +1,9 @@
 # BeMusicSeeker Unofficial Fork
 
+[![Japanese](https://img.shields.io/badge/lang-Japanese-blue.svg)](README.ja.md)
+[![English](https://img.shields.io/badge/lang-English-red.svg)](README.md)
+![header](docs/img/header.jpg)
+
 ## 概要
 
 本プロジェクトは `Sayaka / 黒皇帝` 氏の [BeMusicSeeker-installer](https://github.com/SayakaIsBaka/BeMusicSeeker-installer) に同梱されている `BeMusicSeeker.exe` を `ILSpy` にてデコンパイルし、改修・再構築を施した非公式版です。
@@ -12,7 +16,7 @@
 
 ## 変更概要
 
-**（※最も危惧しているのはBMS関連のデータベースやファイルの破壊です。導入・利用は自己責任にてお願いいたします。）**
+**※ 最も危惧しているのはBMS関連のデータベースやファイルの破壊です。導入・利用は自己責任にてお願いいたします。**
 
 1. **初期化高速化**
     - `Everything 1.5a` 必須（元のファイル列挙もかなり高速でしたが、1000万ファイル級の環境に対応するためEverythingによる検索を採用）
@@ -44,6 +48,8 @@
     - 初回起動時、既存のBeMusicSeekerがシステムにインストール済みの場合は、その設定ファイルを自動的に引き継ぐようにしました
 13. **推定難易度表/リコメンド表（自動更新含む）の復活**
     - 難易度表情報の取得先・依存先を [DARKSABUN](https://darksabun.club/) へ変更（※更新されない前提であればローカル保持でも良かったかも）
+14. **「インストール先を開く」機能追加**
+    - 保留画面のツリーや明細右クリックメニューに推定先や既所持の導入先を直接開ける機能を追加しました
 
 ## TODO
 
@@ -75,10 +81,12 @@
 - 条項が競合する場合、そのコンポーネントについては提供元のライセンス・注意情報が優先されます。
 
 **監査台帳とサードパーティ条項の詳細について：**
+
 - `ThirdPartyNotices.ja.txt` （各依存コンポーネントごとの注意事項や法的リスク状態のリスト）
 - `docs/dependency-licenses.md` （監査台帳、Green/Yellow/Red の判定基準）
 - `third_party/licenses/` （同梱されている、プロプライエタリなコンポーネントやフォント等の利用許諾条項の原文ファイル）
 
 ### BASSに関する重要事項
+
 本プロジェクトのリリースパッケージには、MITライセンスの適用範囲外となる `BASS` 関連のオーディオコンポーネントが含まれています。
 これらのバイナリ群はオープンソースではなく、商用利用を行う場合には提供元（un4seen等）からの適切な商用ライセンスの取得が義務付けられています。非商用かつ個人利用の範囲であればフリーウェアとして許可される場合がありますが、利用の際は常にネイティブ版BASSおよび `Bass.Net` ラッパーの公式ライセンス条項を遵守してください。

@@ -1,5 +1,9 @@
 # BeMusicSeeker Unofficial Fork
 
+[![Japanese](https://img.shields.io/badge/lang-Japanese-blue.svg)](README.ja.md)
+[![English](https://img.shields.io/badge/lang-English-red.svg)](README.md)
+![header](docs/img/header.jpg)
+
 ## Overview
 
 This project is an unofficial fork, reverse-engineered and reconstructed by decompiling `BeMusicSeeker.exe`—originally bundled in `Sayaka / 黒皇帝`'s [BeMusicSeeker-installer](https://github.com/SayakaIsBaka/BeMusicSeeker-installer)—using `ILSpy`.
