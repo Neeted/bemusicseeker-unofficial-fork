@@ -3273,6 +3273,12 @@ public class MainWindowViewModel : ViewModel
 
 	private object lockDeferredPlaylistRef = new object();
 
+	private int deferredExternalSyncRequestedVersion;
+
+	private bool deferredExternalSyncRunning;
+
+	private object lockDeferredExternalSync = new object();
+
 	private bool deferredLibraryFolderTreeRefreshQueued;
 
 	private object lockDeferredLibraryFolderTreeRefresh = new object();
@@ -3398,6 +3404,14 @@ public class MainWindowViewModel : ViewModel
 	}
 
 	private static void LogDeferredPlaylistReference(string message)
+	{
+		if (installPerformanceLoggingEnabled)
+		{
+			installPerformanceLogger.Info(message);
+		}
+	}
+
+	private static void LogDeferredExternalSync(string message)
 	{
 		if (installPerformanceLoggingEnabled)
 		{
@@ -3802,6 +3816,68 @@ public class MainWindowViewModel : ViewModel
 				}
 			}
 		}).Logging("ScheduleDeferredPlaylistReferenceApply");
+	}
+
+	private void StartDeferredExternalPlaylistSync(string reason, bool fromReloadTables, Action<BMSTable, bool, BMSTable> updateCallbackAction = null)
+	{
+		if (tables == null)
+		{
+			return;
+		}
+		int version = 0;
+		bool shouldStartWorker = false;
+		lock (lockDeferredExternalSync)
+		{
+			deferredExternalSyncRequestedVersion++;
+			version = deferredExternalSyncRequestedVersion;
+			if (!deferredExternalSyncRunning)
+			{
+				deferredExternalSyncRunning = true;
+				shouldStartWorker = true;
+			}
+		}
+		LogDeferredExternalSync("deferred_external_sync queue reason=" + reason + " fromReloadTables=" + fromReloadTables.ToString().ToLowerInvariant() + " version=" + version);
+		if (!shouldStartWorker)
+		{
+			return;
+		}
+		Task.Run(delegate
+		{
+			while (true)
+			{
+				int requestVersion = 0;
+				lock (lockDeferredExternalSync)
+				{
+					requestVersion = deferredExternalSyncRequestedVersion;
+				}
+				DateTime startedAt = DateTime.UtcNow;
+				try
+				{
+					LogDeferredExternalSync("deferred_external_sync run reason=" + reason + " fromReloadTables=" + fromReloadTables.ToString().ToLowerInvariant() + " version=" + requestVersion);
+					List<Action<BMSTable, bool, BMSTable>> updateCallbackActions = null;
+					if (updateCallbackAction != null)
+					{
+						updateCallbackActions = new List<Action<BMSTable, bool, BMSTable>> { updateCallbackAction };
+					}
+					List<BMSTable> list = tables.UpdateBMSTables(reloadExtPlaylist: true, updateCallbackActions);
+					int num = list?.Count ?? 0;
+					ScheduleDeferredPlaylistReferenceApply("DeferredExternalSync:" + reason);
+					LogDeferredExternalSync("deferred_external_sync done reason=" + reason + " fromReloadTables=" + fromReloadTables.ToString().ToLowerInvariant() + " version=" + requestVersion + " elapsedMs=" + (long)(DateTime.UtcNow - startedAt).TotalMilliseconds + " updatedCount=" + num);
+				}
+				catch (Exception ex)
+				{
+					LogDeferredExternalSync("deferred_external_sync failed reason=" + reason + " fromReloadTables=" + fromReloadTables.ToString().ToLowerInvariant() + " version=" + requestVersion + " elapsedMs=" + (long)(DateTime.UtcNow - startedAt).TotalMilliseconds + " message=" + ex.Message);
+				}
+				lock (lockDeferredExternalSync)
+				{
+					if (deferredExternalSyncRequestedVersion == requestVersion)
+					{
+						deferredExternalSyncRunning = false;
+						break;
+					}
+				}
+			}
+		}).Logging("StartDeferredExternalPlaylistSync");
 	}
 
 	public PlaylistPropertyDialogViewModel playlistPropertyDialog
@@ -4761,26 +4837,28 @@ public class MainWindowViewModel : ViewModel
 			return;
 		}
 		await _semaphore.WaitAsync();
+		Action<BMSTable, bool, BMSTable> updateCallbackAction = delegate(BMSTable bmsTable, bool updated, BMSTable oldTable)
+		{
+			if (updated)
+			{
+				files.RemoveReferenceBMSTables(oldTable);
+				files.AddReferenceBMSTables(bmsTable);
+			}
+		};
+		bool scheduleDeferredExternalSync = false;
 		try
 		{
 			BeginUiUpdateSuppression(UiRefreshChannel.LibraryMainView | UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.InstallTree | UiRefreshChannel.PlaylistTree | UiRefreshChannel.DuplicateTree);
 			SemaphoreSlim semaphore = new SemaphoreSlim(1, 1);
 			Action taskAdd1 = delegate
 			{
-				Action<BMSTable, bool, BMSTable> updateCallbackAction = delegate(BMSTable bmsTable, bool updated, BMSTable oldTable)
-				{
-					if (updated)
-					{
-						files.RemoveReferenceBMSTables(oldTable);
-						files.AddReferenceBMSTables(bmsTable);
-					}
-				};
-				tables.Initialize(reloadExtPlaylist: true, updateCallbackAction, semaphore);
+				tables.Initialize(reloadExtPlaylist: false, updateCallbackAction, semaphore);
 			};
 			await Task.Run(delegate
 			{
 				files.Initialize(new List<Action> { taskAdd1 }, semaphore, true);
 			}).Logging("ReloadTables");
+			scheduleDeferredExternalSync = true;
 		}
 		catch
 		{
@@ -4790,6 +4868,10 @@ public class MainWindowViewModel : ViewModel
 		{
 			EndUiUpdateSuppression();
 			_semaphore.Release();
+		}
+		if (scheduleDeferredExternalSync)
+		{
+			StartDeferredExternalPlaylistSync("ReloadTables", fromReloadTables: true, updateCallbackAction);
 		}
 	}
 
@@ -5182,7 +5264,7 @@ public class MainWindowViewModel : ViewModel
 		SemaphoreSlim semaphore = new SemaphoreSlim(1, 1);
 		Action taskAdd1 = delegate
 		{
-			tables.Initialize(!Settings.Default.SkipInitPlaylistLoad, null, semaphore);
+			tables.Initialize(reloadExtPlaylist: false, null, semaphore);
 		};
 		Action taskAdd2 = delegate
 		{
@@ -5258,6 +5340,10 @@ public class MainWindowViewModel : ViewModel
 		{
 			ScheduleDeferredPlaylistReferenceApply("Initialize");
 			LogInitStage("deferred_playlist_ref_queued", "Initialize");
+		}
+		if (!Settings.Default.SkipInitPlaylistLoad)
+		{
+			StartDeferredExternalPlaylistSync("Initialize", fromReloadTables: false, null);
 		}
 	}
 
