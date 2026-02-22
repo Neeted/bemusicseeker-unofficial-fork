@@ -123,6 +123,8 @@ public class Resources
 
 	public static string Details_test_download_and_install => ResourceManager.GetString("Details_test_download_and_install", resourceCulture);
 
+	public static string Details_test_keep_installable_pending => ResourceManager.GetString("Details_test_keep_installable_pending", resourceCulture);
+
 	public static string Details_test_notcalc_offrank => ResourceManager.GetString("Details_test_notcalc_offrank", resourceCulture);
 
 	public static string Details_test_notcheck_playlists => ResourceManager.GetString("Details_test_notcheck_playlists", resourceCulture);
@@ -176,6 +178,8 @@ public class Resources
 	public static string Error => ResourceManager.GetString("Error", resourceCulture);
 
 	public static string Estimate_install_loc => ResourceManager.GetString("Estimate_install_loc", resourceCulture);
+
+	public static string Estimate_merge_loc => ResourceManager.GetString("Estimate_merge_loc", resourceCulture);
 
 	public static string Estimate_reinstall_loc => ResourceManager.GetString("Estimate_reinstall_loc", resourceCulture);
 
@@ -364,6 +368,8 @@ public class Resources
 	public static string Msg_load_recommended_tables_update_mode => ResourceManager.GetString("Msg_load_recommended_tables_update_mode", resourceCulture);
 
 	public static string Msg_manual_installation => ResourceManager.GetString("Msg_manual_installation", resourceCulture);
+
+	public static string Msg_estimate_merge_confirm => ResourceManager.GetString("Msg_estimate_merge_confirm", resourceCulture);
 
 	public static string Msg_merge_bms_destination => ResourceManager.GetString("Msg_merge_bms_destination", resourceCulture);
 

@@ -168,6 +168,7 @@
         </MenuItem>
         <MenuItem Name="dataGridContextMenuItemInstall" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Install, Mode=OneWay}">
           <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Estimate_install_loc, Mode=OneWay}" Click="searchInstallationDirectorySelectedBMS" />
+          <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Estimate_merge_loc, Mode=OneWay}" Click="searchMergeDestinationSelectedBMS" />
           <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Install_to_estimation, Mode=OneWay}" Click="manualInstallSelectedBMS" />
           <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Force_install, Mode=OneWay}" Click="forceInstallSelectedBMS" />
           <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Clear_estimation, Mode=OneWay}" Click="dataGridContextMenuRemoveInstallDestinationClick" />
@@ -262,6 +263,7 @@
         <Separator />
         <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Install, Mode=OneWay}">
           <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Estimate_install_loc, Mode=OneWay}" Click="treeViewInstallPackageContextMenuSearchInstallationDirectoryClick" />
+          <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Estimate_merge_loc, Mode=OneWay}" Click="treeViewInstallPackageContextMenuSearchMergeDestinationClick" />
           <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Install_to_estimation, Mode=OneWay}" Click="treeViewInstallPackageContextMenuManualInstallClick" />
           <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Force_install, Mode=OneWay}" Click="treeViewInstallPackageContextMenuForceInstallClick" />
           <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Clear_estimation, Mode=OneWay}" Click="treeViewInstallPackageContextMenuRemoveInstallDestinationClick" />

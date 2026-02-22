@@ -1052,6 +1052,21 @@ internal sealed class Settings : ApplicationSettingsBase
 
 	[UserScopedSetting]
 	[DebuggerNonUserCode]
+	[DefaultSettingValue("False")]
+	public bool KeepInstallablePackagesPending
+	{
+		get
+		{
+			return (bool)this["KeepInstallablePackagesPending"];
+		}
+		set
+		{
+			this["KeepInstallablePackagesPending"] = value;
+		}
+	}
+
+	[UserScopedSetting]
+	[DebuggerNonUserCode]
 	[DefaultSettingValue("True")]
 	public bool EnableSmartComponentOverwrite
 	{

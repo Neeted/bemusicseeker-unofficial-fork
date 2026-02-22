@@ -12047,5 +12047,10 @@ wgE5/8MBMM/DgQAAwAEAAMABAADgAQAA8AkAAP/9AAAL</value></data><data name="Record_se
 推定先が未設定か、既所持譜面から導入先を逆引きできません。</value></data>
   <data name="Msg_open_install_destination_not_found" xml:space="preserve"><value>インストール先フォルダが見つかりません。
 {0}</value></data>
+  <data name="Estimate_merge_loc" xml:space="preserve"><value>マージ先を推定</value></data>
+  <data name="Msg_estimate_merge_confirm" xml:space="preserve"><value>元フォルダ補正を使わずにインストール先を再推定します。
+既存の推定先は上書きされます。
+続行しますか？</value></data>
+  <data name="Details_test_keep_installable_pending" xml:space="preserve"><value>[テスト中] 新規判定でも自動インストールせず保留に追加する</value></data>
   <data name="Success" xml:space="preserve"><value>成功</value></data>
   </root>

@@ -2191,6 +2191,27 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
     }
 
+    private void treeViewInstallPackageContextMenuSearchMergeDestinationClick(object sender, RoutedEventArgs e)
+    {
+        if (!(e.Source is MenuItem menuItem) || !((menuItem.Parent as MenuItem).Parent is ContextMenu { PlacementTarget: TreeViewItem placementTarget }))
+        {
+            return;
+        }
+        BMSPackage pkg = placementTarget.DataContext as BMSPackage;
+        if (pkg == null || !ConfirmMergeDestinationSearch())
+        {
+            return;
+        }
+        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
+        if (viewModel != null)
+        {
+            Task.Run(delegate
+            {
+                viewModel.SearchMergeDestinationBMSFiles(new BMSPackage[1] { pkg });
+            }).Logging("treeViewInstallPackageContextMenuSearchMergeDestinationClick");
+        }
+    }
+
     private void treeViewDuplicateFolderContextMenuOpened(object sender, RoutedEventArgs e)
     {
         if (!(sender is ContextMenu { PlacementTarget: TreeViewItem { DataContext: string dataContext } placementTarget } contextMenu))
@@ -3815,6 +3836,30 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 viewModel.SearchInstallationDirectoryBMSFiles(bmsFiles);
             }).Logging("searchInstallationDirectorySelectedBMS");
         }
+    }
+
+    private async void searchMergeDestinationSelectedBMS(object sender, RoutedEventArgs e)
+    {
+        if (!(e.Source is MenuItem menuItem) || !(((menuItem.Parent as MenuItem).Parent as ContextMenu).PlacementTarget is DataGridRow))
+        {
+            return;
+        }
+        List<BMSFile> bmsFiles = dataGrid.SelectedItems.Cast<BMSFile>().ToList();
+        if (bmsFiles == null || bmsFiles.Count == 0 || !ConfirmMergeDestinationSearch())
+        {
+            return;
+        }
+        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
+        e.Handled = true;
+        await Task.Run(delegate
+        {
+            viewModel.SearchMergeDestinationBMSFiles(bmsFiles);
+        }).Logging("searchMergeDestinationSelectedBMS");
+    }
+
+    private bool ConfirmMergeDestinationSearch()
+    {
+        return MessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_estimate_merge_confirm, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Asterisk) == MessageBoxResult.OK;
     }
 
     private void dataGridContextMenuItemConvertToAudioFileClick(object sender, RoutedEventArgs e)

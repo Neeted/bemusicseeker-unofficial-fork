@@ -175,6 +175,8 @@ public class MainWindowViewModel : ViewModel
 
 		private bool tempEnableAutoInstall;
 
+		private bool tempKeepInstallablePackagesPending;
+
 		private bool tempEnableSmartComponentOverwrite;
 
 		private string tempStagefilePath;
@@ -994,6 +996,22 @@ public class MainWindowViewModel : ViewModel
 				{
 					Settings.Default.AutoInstall = value;
 					RaisePropertyChanged("EnableAutoInstall");
+				}
+			}
+		}
+
+		public bool KeepInstallablePackagesPending
+		{
+			get
+			{
+				return Settings.Default.KeepInstallablePackagesPending;
+			}
+			set
+			{
+				if (Settings.Default.KeepInstallablePackagesPending != value)
+				{
+					Settings.Default.KeepInstallablePackagesPending = value;
+					RaisePropertyChanged("KeepInstallablePackagesPending");
 				}
 			}
 		}
@@ -2052,6 +2070,7 @@ public class MainWindowViewModel : ViewModel
 			tempEnableReadOptimizedPragmas = Settings.Default.EnableReadOptimizedPragmas;
 			tempSkipEstimateOfflineScoreRanking = Settings.Default.SkipEstimateOfflineScoreRanking;
 			tempEnableAutoInstall = Settings.Default.AutoInstall;
+			tempKeepInstallablePackagesPending = Settings.Default.KeepInstallablePackagesPending;
 			tempEnableSmartComponentOverwrite = Settings.Default.EnableSmartComponentOverwrite;
 			tempEncoderSampleRate = Settings.Default.EncoderSampleRate;
 			tempEncoderIndex = (int)Settings.Default.Encoder;
@@ -2296,6 +2315,8 @@ public class MainWindowViewModel : ViewModel
 			Settings.Default.StartupExpandPlaylistTree = tempStartupExpandPlaylistTree;
 			Settings.Default.EnableReadOptimizedPragmas = tempEnableReadOptimizedPragmas;
 			Settings.Default.SkipEstimateOfflineScoreRanking = tempSkipEstimateOfflineScoreRanking;
+			Settings.Default.AutoInstall = tempEnableAutoInstall;
+			Settings.Default.KeepInstallablePackagesPending = tempKeepInstallablePackagesPending;
 			Settings.Default.EnableSmartComponentOverwrite = tempEnableSmartComponentOverwrite;
 			Settings.Default.SkipInitFileCheck = tempSkipInitFileCheck;
 			Settings.Default.EncoderSampleRate = tempEncoderSampleRate;
@@ -2360,6 +2381,8 @@ public class MainWindowViewModel : ViewModel
 			RaisePropertyChanged(() => StartupExpandPlaylistTree);
 			RaisePropertyChanged(() => EnableReadOptimizedPragmas);
 			RaisePropertyChanged(() => SkipEstimateOfflineScoreRanking);
+			RaisePropertyChanged(() => EnableAutoInstall);
+			RaisePropertyChanged(() => KeepInstallablePackagesPending);
 			RaisePropertyChanged(() => EnableSmartComponentOverwrite);
 			RaisePropertyChanged(() => EncoderSampleRate);
 			RaisePropertyChanged(() => EncoderIndex);
@@ -6299,6 +6322,22 @@ public class MainWindowViewModel : ViewModel
 		}
 	}
 
+	public void SearchMergeDestinationBMSFiles(IEnumerable<BMSPackage> packages)
+	{
+		if (packages == null)
+		{
+			throw new ArgumentNullException("packages");
+		}
+		List<BMSPackage> list = packages.Where((BMSPackage pkg) => pkg != null).ToList();
+		lock (lockCopyFile)
+		{
+			for (int num = 0; num < list.Count; num++)
+			{
+				files.SearchMergeDestination(list[num]);
+			}
+		}
+	}
+
 	public void SearchInstallationDirectoryBMSFiles(IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles)
 	{
 		lock (lockCopyFile)
@@ -6312,6 +6351,23 @@ public class MainWindowViewModel : ViewModel
 			for (int num2 = 0; num2 < bmsFiles2.Count; num2++)
 			{
 				files.SearchEstimatedInstallationDirectory(bmsFiles2[num2]);
+			}
+		}
+	}
+
+	public void SearchMergeDestinationBMSFiles(IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles)
+	{
+		lock (lockCopyFile)
+		{
+			List<BeMusicSeeker.Models.BMSFile> bmsFiles2 = bmsFiles.Where((BeMusicSeeker.Models.BMSFile bmsInfo) => bmsInfo != null).ToList();
+			List<BMSPackage> bMSPackages = getBMSPackages(ref bmsFiles2);
+			for (int num = 0; num < bMSPackages.Count; num++)
+			{
+				files.SearchMergeDestination(bMSPackages[num]);
+			}
+			if (bmsFiles2.Count > 0)
+			{
+				files.SearchMergeDestination(bmsFiles2);
 			}
 		}
 	}
