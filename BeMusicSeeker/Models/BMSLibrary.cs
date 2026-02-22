@@ -3140,47 +3140,84 @@ public class BMSLibrary : NotificationObject
                     {
                         return;
                     }
-                    List<List<string>> list = (from file in BMSFiles.AsParallel()
-                                               group file by file.hash into g
-                                               where g.Count() > 1
-                                               select g.Select(delegate (BMSFile bmsInfo)
-                                               {
-                                                   if (!string.IsNullOrWhiteSpace(bmsInfo.warning))
-                                                   {
-                                                       bmsInfo.warning += Environment.NewLine;
-                                                   }
-                                                   bmsInfo.warning += "BMSファイルが重複しています";
-                                                   return DirectoryExt.GetDirectoryNameSimple(bmsInfo.path);
-                                               }).Distinct(StringComparer.OrdinalIgnoreCase).ToList()).ToList();
-                    List<List<string>> list2 = new List<List<string>>();
-                    foreach (List<string> item in list)
+                    List<BMSFile> snapshot = BMSFiles.Where((BMSFile f) => f != null).ToList();
+                    ClearDuplicateState(snapshot);
+                    List<IGrouping<string, BMSFile>> duplicateHashGroups = snapshot.Where((BMSFile file) => !string.IsNullOrWhiteSpace(file.hash)).GroupBy((BMSFile file) => file.hash, StringComparer.OrdinalIgnoreCase).Where((IGrouping<string, BMSFile> group) => group.Count() > 1).ToList();
+                    foreach (IGrouping<string, BMSFile> duplicateHashGroup in duplicateHashGroups)
                     {
-                        bool flag = false;
-                        for (int num = 0; num < list2.Count; num++)
+                        foreach (BMSFile item in duplicateHashGroup)
                         {
-                            List<string> y = list2[num];
-                            flag = item.Any((string i) => y.Contains(i, StringComparer.OrdinalIgnoreCase));
-                            if (flag)
-                            {
-                                y = y.Union(item).ToList();
-                                break;
-                            }
-                        }
-                        if (!flag)
-                        {
-                            list2.Add(item);
+                            item.IsHashDuplicated = true;
+                            SetDuplicateWarning(item);
                         }
                     }
-                    BMSFilesDuplicated = (from source in list2.AsParallel()
-                                          select (from dir in source
-                                                  from bmsInfo in BMSFiles
-                                                  where DirectoryExt.GetDirectoryNameSimple(bmsInfo.path).ToUpperInvariant() == dir.ToUpperInvariant()
-                                                  select bmsInfo).ToList() into l
-                                          orderby l.First().title
-                                          select l).ToList();
+                    List<HashSet<string>> mergedDuplicateDirectorySets = new List<HashSet<string>>();
+                    foreach (IGrouping<string, BMSFile> duplicateHashGroup2 in duplicateHashGroups)
+                    {
+                        HashSet<string> hashSet = new HashSet<string>(duplicateHashGroup2.Select((BMSFile bmsInfo) => DirectoryExt.GetDirectoryNameSimple(bmsInfo.path)).Where((string dir) => !string.IsNullOrWhiteSpace(dir)), StringComparer.OrdinalIgnoreCase);
+                        if (hashSet.Count == 0)
+                        {
+                            continue;
+                        }
+                        for (int num = mergedDuplicateDirectorySets.Count - 1; num >= 0; num--)
+                        {
+                            if (mergedDuplicateDirectorySets[num].Overlaps(hashSet))
+                            {
+                                hashSet.UnionWith(mergedDuplicateDirectorySets[num]);
+                                mergedDuplicateDirectorySets.RemoveAt(num);
+                            }
+                        }
+                        mergedDuplicateDirectorySets.Add(hashSet);
+                    }
+                    BMSFilesDuplicated = mergedDuplicateDirectorySets.Select((HashSet<string> dirs) => snapshot.Where((BMSFile bmsInfo) => dirs.Contains(DirectoryExt.GetDirectoryNameSimple(bmsInfo.path))).ToList()).Where((List<BMSFile> groupedFiles) => groupedFiles.Count > 0).OrderBy((List<BMSFile> groupedFiles) => groupedFiles.First().title).ToList();
                 }
             }
         }
+    }
+
+    private const string DuplicateWarningMessage = "BMSファイルが重複しています";
+
+    private static void ClearDuplicateState(IEnumerable<BMSFile> files)
+    {
+        foreach (BMSFile file in files)
+        {
+            file.IsHashDuplicated = false;
+            file.warning = RemoveDuplicateWarning(file.warning);
+        }
+    }
+
+    private static void SetDuplicateWarning(BMSFile file)
+    {
+        if (file == null)
+        {
+            return;
+        }
+        if (HasDuplicateWarning(file.warning))
+        {
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(file.warning))
+        {
+            file.warning = DuplicateWarningMessage;
+        }
+        else
+        {
+            file.warning = file.warning + Environment.NewLine + DuplicateWarningMessage;
+        }
+    }
+
+    private static bool HasDuplicateWarning(string warning)
+    {
+        return warning?.Split(new char[2] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries).Any((string line) => string.Equals(line.Trim(), DuplicateWarningMessage, StringComparison.Ordinal)) ?? false;
+    }
+
+    private static string RemoveDuplicateWarning(string warning)
+    {
+        if (string.IsNullOrWhiteSpace(warning))
+        {
+            return string.Empty;
+        }
+        return string.Join(Environment.NewLine, warning.Split(new char[2] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries).Select((string line) => line.Trim()).Where((string line) => !string.Equals(line, DuplicateWarningMessage, StringComparison.Ordinal)).ToArray());
     }
 
     public List<BMSPackage> InstallBMSFilesAuto(IEnumerable<string> installPaths)

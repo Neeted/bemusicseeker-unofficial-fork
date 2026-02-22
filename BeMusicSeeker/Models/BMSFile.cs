@@ -81,6 +81,8 @@ public class BMSFile : LR2SongDB.song
 
     private BMSFileStatus _status;
 
+    private bool _isHashDuplicated;
+
     private PropertyChangedEventListener listenerForMaintenanceInfo;
 
     private BMSFileMaintenanceInfo _maintenanceInfo;
@@ -595,6 +597,22 @@ public class BMSFile : LR2SongDB.song
         set
         {
             SetMaintenanceInfo(value, suppressPropertyChanged: false, registerEventHandlers: true);
+        }
+    }
+
+    public virtual bool IsHashDuplicated
+    {
+        get
+        {
+            return _isHashDuplicated;
+        }
+        set
+        {
+            if (_isHashDuplicated != value)
+            {
+                _isHashDuplicated = value;
+                RaisePropertyChanged("IsHashDuplicated");
+            }
         }
     }
 
