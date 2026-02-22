@@ -12041,5 +12041,11 @@ wgE5/8MBMM/DgQAAwAEAAMABAADgAQAA8AkAAP/9AAAL</value></data><data name="Record_se
   <data name="Skip" xml:space="preserve"><value>スキップ</value></data>
   <data name="Size" xml:space="preserve"><value>サイズ</value></data>
   <data name="Record_setting_normalize" xml:space="preserve"><value>音量正規化:</value></data>
+  <data name="Open_install_destination" xml:space="preserve"><value>インストール先を開く</value></data>
+  <data name="Msg_open_install_destination_multiple_selected" xml:space="preserve"><value>複数選択されているため先頭の譜面のみを対象にします。</value></data>
+  <data name="Msg_open_install_destination_missing" xml:space="preserve"><value>インストール先を特定できませんでした。
+推定先が未設定か、既所持譜面から導入先を逆引きできません。</value></data>
+  <data name="Msg_open_install_destination_not_found" xml:space="preserve"><value>インストール先フォルダが見つかりません。
+{0}</value></data>
   <data name="Success" xml:space="preserve"><value>成功</value></data>
   </root>

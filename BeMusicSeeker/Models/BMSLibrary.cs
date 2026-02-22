@@ -4780,6 +4780,33 @@ public class BMSLibrary : NotificationObject
         }
     }
 
+    public bool TryGetInstalledDirectoryByHash(string hash, out string installDir)
+    {
+        installDir = null;
+        if (!IsBMSHashAvailable(hash))
+        {
+            return false;
+        }
+        using (rwlockBMSFilesInitializedAll.GetReaderGuard())
+        {
+            using (rwlockBMSFiles.GetReaderGuard())
+            {
+                string text = BMSFiles.Where((BMSFile f) => f != null && IsBMSHashAvailable(f.hash) && f.hash.Equals(hash, StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(f.path))
+                    .Select((BMSFile f) => DirectoryExt.GetDirectoryNameSimple(f.path))
+                    .Where((string dir) => !string.IsNullOrWhiteSpace(dir) && Directory.Exists(dir))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .OrderBy((string dir) => dir, StringComparer.OrdinalIgnoreCase)
+                    .FirstOrDefault();
+                if (string.IsNullOrWhiteSpace(text))
+                {
+                    return false;
+                }
+                installDir = text;
+                return true;
+            }
+        }
+    }
+
     public void AddReferenceBMSTables(BMSTable table, IEnumerable<BMSTableEntry> entries = null, bool suppressFilePropertyChanged = false)
     {
         if (table == null)

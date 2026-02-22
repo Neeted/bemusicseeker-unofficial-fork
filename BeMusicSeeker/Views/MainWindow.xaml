@@ -133,6 +133,7 @@
         <MenuItem Name="dataGridContextMenuItemOpenURLdiff" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_Url_diff, Mode=OneWay}" Click="dataGridContextMenuItemOpenURLdiffClick" />
         <Separator />
         <MenuItem Name="dataGridContextMenuItemOpenExplorer" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_file_explorer, Mode=OneWay}" Click="dataGridContextMenuItemOpenExplorerClick" />
+        <MenuItem Name="dataGridContextMenuItemOpenInstallDestination" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_install_destination, Mode=OneWay}" Click="dataGridContextMenuItemOpenInstallDestinationClick" />
         <MenuItem Name="dataGridContextMenuItemOpenBMSFile" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_association, Mode=OneWay}" Click="dataGridContextMenuItemOpenBMSFileClick" />
         <MenuItem Name="dataGridContextMenuItemOpenDocument" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_document, Mode=OneWay}">
           <ItemsControl.ItemContainerStyle>
@@ -257,6 +258,7 @@
       </ContextMenu>
       <ContextMenu x:Key="treeViewInstallPackageContextMenu" HasDropShadow="True">
         <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_file_explorer, Mode=OneWay}" Click="treeViewInstallPackageContextMenuOpenExplorerClick" />
+        <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_install_destination, Mode=OneWay}" Click="treeViewInstallPackageContextMenuOpenInstallDestinationClick" />
         <Separator />
         <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Install, Mode=OneWay}">
           <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Estimate_install_loc, Mode=OneWay}" Click="treeViewInstallPackageContextMenuSearchInstallationDirectoryClick" />

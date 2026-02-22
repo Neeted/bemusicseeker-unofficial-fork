@@ -2336,6 +2336,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         MenuItem menuItem15 = null;
         MenuItem menuItem16 = null;
         MenuItem menuItem17 = null;
+        MenuItem menuItemOpenInstallDestination = null;
         MenuItem menuItemOpenDocument = null;
         MenuItem menuItem18 = null;
         Separator separator = null;
@@ -2353,6 +2354,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                     break;
                 case "dataGridContextMenuItemOpenExplorer":
                     menuItem3 = item as MenuItem;
+                    break;
+                case "dataGridContextMenuItemOpenInstallDestination":
+                    menuItemOpenInstallDestination = item as MenuItem;
                     break;
                 case "dataGridContextMenuItemOpenBMSFile":
                     menuItem4 = item as MenuItem;
@@ -2557,59 +2561,65 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         bool flag3 = _isTreeViewItemSelectedInclChildren(treeViewItemInstallPending);
         bool flag4 = _isTreeViewItemSelectedInclChildren(treeViewItemPlaylist);
+        if (menuItemOpenInstallDestination != null)
+        {
+            bool flag5 = flag3 && bmsFile != null && !(bmsFile is VirtualBMSFile);
+            menuItemOpenInstallDestination.Visibility = (flag5 ? Visibility.Visible : Visibility.Collapsed);
+            menuItemOpenInstallDestination.IsEnabled = flag5;
+        }
         if (menuItem8 != null)
         {
-            bool flag5 = flag3;
-            menuItem8.Visibility = ((!flag5) ? Visibility.Collapsed : Visibility.Visible);
-            menuItem8.IsEnabled = flag5;
+            bool flag6 = flag3;
+            menuItem8.Visibility = ((!flag6) ? Visibility.Collapsed : Visibility.Visible);
+            menuItem8.IsEnabled = flag6;
         }
         if (menuItem10 != null)
         {
-            bool flag6 = !flag4;
-            menuItem10.Visibility = ((!flag6) ? Visibility.Collapsed : Visibility.Visible);
-            menuItem10.IsEnabled = flag6;
+            bool flag7 = !flag4;
+            menuItem10.Visibility = ((!flag7) ? Visibility.Collapsed : Visibility.Visible);
+            menuItem10.IsEnabled = flag7;
         }
         if (menuItem13 != null)
         {
-            bool flag7 = !flag3;
-            menuItem13.Visibility = ((!flag7) ? Visibility.Collapsed : Visibility.Visible);
-            menuItem13.IsEnabled = flag7 && list.Any((BMSFile f) => !string.IsNullOrWhiteSpace(f.path) && File.Exists(f.path));
+            bool flag8 = !flag3;
+            menuItem13.Visibility = ((!flag8) ? Visibility.Collapsed : Visibility.Visible);
+            menuItem13.IsEnabled = flag8 && list.Any((BMSFile f) => !string.IsNullOrWhiteSpace(f.path) && File.Exists(f.path));
         }
         if (menuItem14 != null)
         {
-            bool flag8 = flag4;
-            menuItem14.Visibility = ((!flag8) ? Visibility.Collapsed : Visibility.Visible);
-            menuItem14.IsEnabled = flag8;
+            bool flag9 = flag4;
+            menuItem14.Visibility = ((!flag9) ? Visibility.Collapsed : Visibility.Visible);
+            menuItem14.IsEnabled = flag9;
         }
         if (menuItem15 != null)
         {
-            bool flag9 = !flag4;
-            menuItem15.Visibility = ((!flag9) ? Visibility.Collapsed : Visibility.Visible);
-            menuItem15.IsEnabled = flag9;
+            bool flag10 = !flag4;
+            menuItem15.Visibility = ((!flag10) ? Visibility.Collapsed : Visibility.Visible);
+            menuItem15.IsEnabled = flag10;
         }
         if (separator != null)
         {
-            bool flag10 = !flag4 && !flag3;
-            separator.Visibility = ((!flag10) ? Visibility.Collapsed : Visibility.Visible);
-            separator.IsEnabled = flag10;
+            bool flag11 = !flag4 && !flag3;
+            separator.Visibility = ((!flag11) ? Visibility.Collapsed : Visibility.Visible);
+            separator.IsEnabled = flag11;
         }
         if (menuItem16 != null)
         {
-            bool flag11 = !flag4 && !flag3;
-            menuItem16.Visibility = ((!flag11) ? Visibility.Collapsed : Visibility.Visible);
-            menuItem16.IsEnabled = flag11;
+            bool flag12 = !flag4 && !flag3;
+            menuItem16.Visibility = ((!flag12) ? Visibility.Collapsed : Visibility.Visible);
+            menuItem16.IsEnabled = flag12;
         }
         if (menuItem17 != null)
         {
-            bool flag12 = !flag4;
-            menuItem17.Visibility = ((!flag12) ? Visibility.Collapsed : Visibility.Visible);
-            menuItem17.IsEnabled = flag12;
+            bool flag13 = !flag4;
+            menuItem17.Visibility = ((!flag13) ? Visibility.Collapsed : Visibility.Visible);
+            menuItem17.IsEnabled = flag13;
         }
         if (menuItem9 != null)
         {
-            bool flag13 = _isTreeViewItemSelectedInclChildren(treeViewItemFullScanCheck);
-            menuItem9.Visibility = ((!flag13) ? Visibility.Collapsed : Visibility.Visible);
-            menuItem9.IsEnabled = flag13;
+            bool flag14 = _isTreeViewItemSelectedInclChildren(treeViewItemFullScanCheck);
+            menuItem9.Visibility = ((!flag14) ? Visibility.Collapsed : Visibility.Visible);
+            menuItem9.IsEnabled = flag14;
         }
         if (menuItem11 != null)
         {
@@ -2625,12 +2635,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         if (menuItem19 != null && separator2 != null)
         {
-            bool flag14 = !flag3;
+            bool flag15 = !flag3;
             Separator separator3 = separator2;
-            Visibility visibility = (menuItem19.Visibility = ((!flag14) ? Visibility.Collapsed : Visibility.Visible));
+            Visibility visibility = (menuItem19.Visibility = ((!flag15) ? Visibility.Collapsed : Visibility.Visible));
             separator3.Visibility = visibility;
             Separator separator4 = separator2;
-            bool isEnabled = (menuItem19.IsEnabled = flag14);
+            bool isEnabled = (menuItem19.IsEnabled = flag15);
             separator4.IsEnabled = isEnabled;
         }
     }
@@ -2648,6 +2658,110 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         catch
         {
         }
+    }
+
+    private bool TryResolveInstallDestination(BMSFile bmsFile, out string installDir, out string reason)
+    {
+        installDir = null;
+        reason = null;
+        if (bmsFile == null)
+        {
+            reason = BeMusicSeeker.Properties.Resources.Msg_open_install_destination_missing;
+            return false;
+        }
+        if (!string.IsNullOrWhiteSpace(bmsFile.instl_dst))
+        {
+            if (Directory.Exists(bmsFile.instl_dst))
+            {
+                installDir = bmsFile.instl_dst;
+                return true;
+            }
+            reason = string.Format(BeMusicSeeker.Properties.Resources.Msg_open_install_destination_not_found, bmsFile.instl_dst);
+            return false;
+        }
+        MainWindowViewModel mainWindowViewModel = base.DataContext as MainWindowViewModel;
+        if (mainWindowViewModel != null && mainWindowViewModel.TryGetInstalledDirectoryByHash(bmsFile.hash, out var installDir2))
+        {
+            installDir = installDir2;
+            return true;
+        }
+        reason = BeMusicSeeker.Properties.Resources.Msg_open_install_destination_missing;
+        return false;
+    }
+
+    private bool TryResolveInstallDestination(BMSPackage pkg, out string installDir, out string reason)
+    {
+        installDir = null;
+        reason = null;
+        if (pkg == null)
+        {
+            reason = BeMusicSeeker.Properties.Resources.Msg_open_install_destination_missing;
+            return false;
+        }
+        foreach (BMSFile item in pkg.BMSFiles.Where((BMSFile f) => f != null))
+        {
+            if (TryResolveInstallDestination(item, out installDir, out reason))
+            {
+                return true;
+            }
+        }
+        if (string.IsNullOrWhiteSpace(reason))
+        {
+            reason = BeMusicSeeker.Properties.Resources.Msg_open_install_destination_missing;
+        }
+        return false;
+    }
+
+    private void OpenInstallDestinationInExplorer(string installDir)
+    {
+        if (string.IsNullOrWhiteSpace(installDir))
+        {
+            return;
+        }
+        try
+        {
+            Process.Start("EXPLORER.EXE", "\"" + installDir + "\"");
+        }
+        catch
+        {
+        }
+    }
+
+    private void dataGridContextMenuItemOpenInstallDestinationClick(object sender, RoutedEventArgs e)
+    {
+        if (!(base.DataContext is MainWindowViewModel) || !_isTreeViewItemSelectedInclChildren(treeViewItemInstallPending))
+        {
+            return;
+        }
+        List<BMSFile> list = dataGrid.SelectedItems.Cast<BMSFile>().Where((BMSFile f) => !(f is VirtualBMSFile)).ToList();
+        if (list.Count == 0)
+        {
+            return;
+        }
+        if (list.Count > 1)
+        {
+            MessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_open_install_destination_multiple_selected, BeMusicSeeker.Properties.Resources.Information, MessageBoxButton.OK, MessageBoxImage.Information, MessageBoxResult.OK);
+        }
+        if (!TryResolveInstallDestination(list[0], out var installDir, out var reason))
+        {
+            MessageBox.Show(Window.GetWindow(this), reason, BeMusicSeeker.Properties.Resources.Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
+            return;
+        }
+        OpenInstallDestinationInExplorer(installDir);
+    }
+
+    private void treeViewInstallPackageContextMenuOpenInstallDestinationClick(object sender, RoutedEventArgs e)
+    {
+        if (!(e.Source is MenuItem { Parent: ContextMenu { PlacementTarget: TreeViewItem { DataContext: BMSPackage dataContext } } }))
+        {
+            return;
+        }
+        if (!TryResolveInstallDestination(dataContext, out var installDir, out var reason))
+        {
+            MessageBox.Show(Window.GetWindow(this), reason, BeMusicSeeker.Properties.Resources.Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
+            return;
+        }
+        OpenInstallDestinationInExplorer(installDir);
     }
 
     private string _getLR2IRrankingPageURL(string md5_or_bmsid)

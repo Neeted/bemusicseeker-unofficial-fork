@@ -6846,6 +6846,16 @@ public class MainWindowViewModel : ViewModel
 		}
 	}
 
+	public bool TryGetInstalledDirectoryByHash(string hash, out string installDir)
+	{
+		installDir = null;
+		if (files == null)
+		{
+			return false;
+		}
+		return files.TryGetInstalledDirectoryByHash(hash, out installDir);
+	}
+
 	internal void RegistrateExternalPlaylistBMSTable(Uri uri)
 	{
 		BMSTable table;

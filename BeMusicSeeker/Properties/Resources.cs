@@ -367,6 +367,12 @@ public class Resources
 
 	public static string Msg_merge_bms_destination => ResourceManager.GetString("Msg_merge_bms_destination", resourceCulture);
 
+	public static string Msg_open_install_destination_missing => ResourceManager.GetString("Msg_open_install_destination_missing", resourceCulture);
+
+	public static string Msg_open_install_destination_multiple_selected => ResourceManager.GetString("Msg_open_install_destination_multiple_selected", resourceCulture);
+
+	public static string Msg_open_install_destination_not_found => ResourceManager.GetString("Msg_open_install_destination_not_found", resourceCulture);
+
 	public static string Msg_merge_bms_folder => ResourceManager.GetString("Msg_merge_bms_folder", resourceCulture);
 
 	public static string Msg_merge_bms_target => ResourceManager.GetString("Msg_merge_bms_target", resourceCulture);
@@ -446,6 +452,8 @@ public class Resources
 	public static string Open_folder_explorer => ResourceManager.GetString("Open_folder_explorer", resourceCulture);
 
 	public static string Open_image => ResourceManager.GetString("Open_image", resourceCulture);
+
+	public static string Open_install_destination => ResourceManager.GetString("Open_install_destination", resourceCulture);
 
 	public static string Open_lr2ir => ResourceManager.GetString("Open_lr2ir", resourceCulture);
 
