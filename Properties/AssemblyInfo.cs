@@ -6,11 +6,11 @@ using System.Runtime.Versioning;
 using System.Windows;
 using System.Windows.Resources;
 
-[assembly: AssemblyTitle("BeMusicSeeker")]
+[assembly: AssemblyTitle("BeMusicSeeker Unofficial Fork")]
 [assembly: AssemblyDescription("")]
 [assembly: AssemblyConfiguration("")]
 [assembly: AssemblyCompany("")]
-[assembly: AssemblyProduct("BeMusicSeeker")]
+[assembly: AssemblyProduct("BeMusicSeeker Unofficial Fork")]
 [assembly: AssemblyCopyright("Copyright © ribbit.xyz 2017")]
 [assembly: AssemblyTrademark("")]
 [assembly: ComVisible(false)]

@@ -585,7 +585,7 @@
                   <StackPanel Margin="10,0">
                     <DockPanel>
                       <TextBlock Name="textBlockVerNum" DockPanel.Dock="Right" Text="0.0.0.0" VerticalAlignment="Bottom" FontWeight="Bold" />
-                      <TextBlock Text="BeMusicSeeker" FontSize="24" FontWeight="Bold" />
+                      <TextBlock Text="BeMusicSeeker Unofficial Fork" FontSize="24" FontWeight="Bold" />
                     </DockPanel>
                     <TextBlock Name="textBlockBuildNum" Text="Build: 0.0.0.0" HorizontalAlignment="Right" />
                     <TextBlock Margin="0">Copyright © 2018 <Hyperlink NavigateUri="http://tumblr.ribbit.xyz" RequestNavigate="hyperlinkRequestNavigate">ribbit.xyz</Hyperlink></TextBlock>

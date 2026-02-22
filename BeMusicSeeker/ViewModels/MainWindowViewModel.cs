@@ -3290,7 +3290,7 @@ public class MainWindowViewModel : ViewModel
 
 	private object lockSortKeySelectorCache = new object();
 
-	private string _WindowTitle = "BeMusicSeeker - ";
+	private string _WindowTitle = "BeMusicSeeker Unofficial Fork - ";
 
 	private IEnumerable<BeMusicSeeker.Models.BMSFile> BMSFilesFolderView;
 
@@ -4841,7 +4841,7 @@ public class MainWindowViewModel : ViewModel
 		initializationCompleted = false;
 		_ = string.Empty;
 		string text = ((!(Settings.Default.PublishVersion == null)) ? Settings.Default.PublishVersion.ToString() : string.Concat("for developers (", Assembly.GetEntryAssembly().GetName().Version, ")"));
-		WindowTitle = "BeMusicSeeker - " + text;
+		WindowTitle = "BeMusicSeeker Unofficial Fork - " + text;
 		if (!settingDialog.CheckValidation())
 		{
 			if (((App)System.Windows.Application.Current).firstStartup)
