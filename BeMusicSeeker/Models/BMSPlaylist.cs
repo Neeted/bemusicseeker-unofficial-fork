@@ -338,11 +338,11 @@ public class BMSPlaylist : NotificationObject
         }
         if (!File.Exists(_lr2SongDB))
         {
-            throw new ArgumentException("LR2 song DB が見つかりませんでした。パス: " + _lr2SongDB, "_LR2SongDB");
+            throw new ArgumentException(string.Format(Resources.Error_LR2SongDBNotFound, _lr2SongDB), "_LR2SongDB");
         }
         if (_lr2ScoreDB != null && !File.Exists(_lr2ScoreDB))
         {
-            throw new ArgumentException("LR2 score DB が見つかりませんでした。パス: " + _lr2ScoreDB, "_lr2ScoreDB");
+            throw new ArgumentException(string.Format(Resources.Error_LR2ScoreDBNotFound, _lr2ScoreDB), "_lr2ScoreDB");
         }
         lr2SongDBPath = _lr2SongDB;
         lr2ScoreDBPath = _lr2ScoreDB;
@@ -548,7 +548,7 @@ public class BMSPlaylist : NotificationObject
     {
         if (!pageUri.IsAbsoluteUri || pageUri.Scheme != "bmseeker")
         {
-            throw new ArgumentException("Schemeはbmseekerである必要があります", "pageUri");
+            throw new ArgumentException(Resources.Error_SchemeMustBeBemusic, "pageUri");
         }
         BMSTable bMSTable = new BMSTable
         {
@@ -564,7 +564,7 @@ public class BMSPlaylist : NotificationObject
         {
             if (!(absolutePath == "table.recommended"))
             {
-                throw new ArgumentException("非対応のURIです", pageUri.ToString());
+                throw new ArgumentException(Resources.Error_UnsupportedURI, pageUri.ToString());
             }
             string input = Uri.UnescapeDataString(pageUri.Query);
             Regex regex = new Regex("id=(\\d+)");
@@ -621,7 +621,7 @@ public class BMSPlaylist : NotificationObject
                     loadEstimationTable(bMSTable, estimationTableType.fc);
                     break;
                 default:
-                    throw new ArgumentException("非対応のURIです", pageUri.ToString());
+                    throw new ArgumentException(Resources.Error_UnsupportedURI, pageUri.ToString());
             }
         }
         if (baseTable != null)
@@ -748,7 +748,7 @@ public class BMSPlaylist : NotificationObject
             case estimationTableType.easy:
                 {
                     table.entries = easyEntries;
-                    string name = (table.org_name = "発狂BMS難度推定表 EASY");
+                    string name = (table.org_name = Resources.InsaneBMSDiffTable_Easy);
                     table.name = name;
                     name = (table.org_symbol = "E★");
                     table.symbol = name;
@@ -757,7 +757,7 @@ public class BMSPlaylist : NotificationObject
             case estimationTableType.normal:
                 {
                     table.entries = normalEntries;
-                    string name = (table.org_name = "発狂BMS難度推定表 NORMAL");
+                    string name = (table.org_name = Resources.InsaneBMSDiffTable_Normal);
                     table.name = name;
                     name = (table.org_symbol = "N★");
                     table.symbol = name;
@@ -766,7 +766,7 @@ public class BMSPlaylist : NotificationObject
             case estimationTableType.hard:
                 {
                     table.entries = hardEntries;
-                    string name = (table.org_name = "発狂BMS難度推定表 HARD");
+                    string name = (table.org_name = Resources.InsaneBMSDiffTable_Hard);
                     table.name = name;
                     name = (table.org_symbol = "H★");
                     table.symbol = name;
@@ -775,14 +775,14 @@ public class BMSPlaylist : NotificationObject
             case estimationTableType.fc:
                 {
                     table.entries = fcEntries;
-                    string name = (table.org_name = "発狂BMS難度推定表 FC");
+                    string name = (table.org_name = Resources.InsaneBMSDiffTable_FC);
                     table.name = name;
                     name = (table.org_symbol = "F★");
                     table.symbol = name;
                     break;
                 }
             default:
-                throw new ArgumentException("非対応のtypeです " + type, "type");
+                throw new ArgumentException(string.Format(Resources.Error_UnsupportedType, type), "type");
         }
     }
 
@@ -793,7 +793,7 @@ public class BMSPlaylist : NotificationObject
         {
             if (lr2ScoreDBPath == null)
             {
-                throw new InvalidOperationException("スコアDB接続に失敗しました");
+                throw new InvalidOperationException(Resources.Error_ScoreDBConnectionFailed);
             }
             try
             {
@@ -813,7 +813,7 @@ public class BMSPlaylist : NotificationObject
         }
         if (lr2id == 0)
         {
-            throw new InvalidOperationException("LR2IDの取得またはスコアDB接続に失敗しました");
+            throw new InvalidOperationException(Resources.Error_LR2IDOrScoreDBFailed);
         }
         if (mode != "readonly")
         {
@@ -832,15 +832,15 @@ public class BMSPlaylist : NotificationObject
             }
             catch (Exception ex2)
             {
-                DispatcherMessageBox.Show("リコメンドの更新に失敗しました" + Environment.NewLine + ex2.Message, "警告", MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
+                DispatcherMessageBox.Show(string.Format(Resources.Warn_RecommendUpdateFailed, ex2.Message), Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
             }
         }
         Uri address = new Uri(recommendJsonUriStr + lr2id, UriKind.Absolute);
         dynamic val = DynamicJson.Parse(CreatePlaylistWebClient().DownloadString(address));
         if ((string)val.status != "success")
         {
-            DispatcherMessageBox.Show("リコメンドの取得に失敗しました" + Environment.NewLine + (string)val.message, "警告", MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
-            throw new InvalidOperationException("リコメンドの取得に失敗しました");
+            DispatcherMessageBox.Show(string.Format(Resources.Warn_RecommendFetchFailed, (string)val.message), Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
+            throw new InvalidOperationException(Resources.Error_RecommendFetchFailed);
         }
         double num = (double)val.hoshi;
         DateTime dateTime = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc).AddSeconds((int)val.last_modified).ToLocalTime();
@@ -891,7 +891,7 @@ public class BMSPlaylist : NotificationObject
         table.last_update = DateTime.Parse(dateTime.ToString());
         table.ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.LevelFolder | LR2SongDBExtended.playlist.CustomFolderType.AlphabetFolder | LR2SongDBExtended.playlist.CustomFolderType.ClearFolder | LR2SongDBExtended.playlist.CustomFolderType.DJLevelFolder | LR2SongDBExtended.playlist.CustomFolderType.CategoryAllFolder | LR2SongDBExtended.playlist.CustomFolderType.OtherFolder;
         table.Folder_order = new List<string> { "EASY", "NORMAL", "HARD", "FC" };
-        string name2 = (table.org_name = "リコメンド " + (displayName ?? name) + " ★" + num.ToString("F2"));
+        string name2 = (table.org_name = string.Format(Resources.RecommendFormat, displayName ?? name, num.ToString("F2")));
         table.name = name2;
         name2 = (table.org_symbol = "R★");
         table.symbol = name2;
@@ -907,7 +907,7 @@ public class BMSPlaylist : NotificationObject
                 double num2 = double.Parse(match.Groups[1].ToString());
                 if (num2 != num)
                 {
-                    DispatcherMessageBox.Show("あなたの実力: ★" + num.ToString("F2") + (num - num2).ToString(" (+#0.00); (-#0.00);") + Environment.NewLine + "(更新: " + dateTime.ToString() + ")" + Environment.NewLine + Environment.NewLine + "(このメッセージは[Ctrl]+[C]でコピーできます)", "リコメンドが更新されました", MessageBoxButton.OK, MessageBoxImage.Asterisk, MessageBoxResult.OK);
+                    DispatcherMessageBox.Show(string.Format(Resources.Recommend_SkillUpdatedMessage, num.ToString("F2"), (num - num2).ToString(" (+#0.00); (-#0.00);"), dateTime.ToString()), Resources.Recommend_SkillUpdatedTitle, MessageBoxButton.OK, MessageBoxImage.Asterisk, MessageBoxResult.OK);
                 }
             }
         }
@@ -947,7 +947,7 @@ public class BMSPlaylist : NotificationObject
         List<BMSScore> list = bmsScores();
         if (list == null)
         {
-            throw new InvalidOperationException("ローカルスコアデータが取得されていません");
+            throw new InvalidOperationException(Resources.Error_LocalScoreDataNotFetched);
         }
         int thresh = filter switch
         {
@@ -1453,7 +1453,7 @@ public class BMSPlaylist : NotificationObject
         }
         catch
         {
-            DispatcherMessageBox.Show("カスタムフォルダの出力に失敗しました。" + Environment.NewLine + "正常にアクセスできるか確認して下さい。" + Environment.NewLine + "対象: " + bmsTable.name + Environment.NewLine + "出力先: " + outputDir, "警告", MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
+            DispatcherMessageBox.Show(string.Format(Resources.Warn_CustomFolderOutputFailed, bmsTable.name, outputDir), Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
         }
     }
 
@@ -1499,7 +1499,7 @@ public class BMSPlaylist : NotificationObject
         }
         catch
         {
-            DispatcherMessageBox.Show("ファイルまたはディレクトリの削除に失敗しました。" + Environment.NewLine + "読み取り専用属性がついていないか、" + Environment.NewLine + "正常にアクセスできるか確認して下さい。" + Environment.NewLine + targetDir, "警告", MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
+            DispatcherMessageBox.Show(string.Format(Resources.Warn_FileOrDirDeleteFailed, targetDir), Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
         }
         LR2SongDBExtended lr2Song = new LR2SongDBExtended(lr2SongDBPath);
         try
@@ -1555,11 +1555,11 @@ public class BMSPlaylist : NotificationObject
                 }
                 if (BMSTables.Select((BMSTable t) => t.name).Contains(bMSTable.name))
                 {
-                    throw new InvalidOperationException("既に同名のプレイリストが存在します。");
+                    throw new InvalidOperationException(Resources.Error_PlaylistAlreadyExists);
                 }
                 if (string.IsNullOrWhiteSpace(bMSTable.Output_dir))
                 {
-                    throw new InvalidOperationException("出力先ディレクトリ名が空になっています。");
+                    throw new InvalidOperationException(Resources.Error_OutputDirNameEmpty);
                 }
                 CommitBMSTable(bMSTable);
                 BMSTables.Add(bMSTable);
@@ -1826,7 +1826,7 @@ public class BMSPlaylist : NotificationObject
     {
         if (pageUri == null || !pageUri.IsAbsoluteUri)
         {
-            throw new ArgumentException("URIは絶対URIである必要があります", "pageUri");
+            throw new ArgumentException(Resources.Error_URIMustBeAbsolute, "pageUri");
         }
         if (pageUri.Scheme == "bmseeker")
         {
@@ -2100,7 +2100,7 @@ public class BMSPlaylist : NotificationObject
                 string[] source = sql.Split(new string[1] { "\v" + Environment.NewLine }, StringSplitOptions.None);
                 if (source.Count() <= 1)
                 {
-                    throw new InvalidDataException("バックアップデータが不正です");
+                    throw new InvalidDataException(Resources.Error_InvalidBackupData);
                 }
                 foreach (string item in source.Where((string s) => !string.IsNullOrWhiteSpace(s)))
                 {
@@ -2138,7 +2138,7 @@ public class BMSPlaylist : NotificationObject
         }
         catch
         {
-            throw new ArgumentException("パースに失敗しました。", "tableinfoUri");
+            throw new ArgumentException(Resources.Error_ParseFailed, "tableinfoUri");
         }
         return source.Select((dynamic e) => new BMSTableSimple(e)).ToList();
     }
@@ -2165,7 +2165,7 @@ public class BMSPlaylist : NotificationObject
         }
         catch (ArgumentNullException)
         {
-            DispatcherMessageBox.Show("カスタムフォルダ出力先ディレクトリの不正を検出しました。" + Environment.NewLine + "正しく出力先が指定されているか確認して下さい。", "警告", MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
+            DispatcherMessageBox.Show(Resources.Warn_CustomFolderOutputDirInvalid, Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
             throw;
         }
     }

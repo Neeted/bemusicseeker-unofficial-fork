@@ -103,14 +103,14 @@ public class BMSLibrary : NotificationObject
             {
                 if ((!LR2SongDB.md5HashRegex.IsMatch(json.md5.ToString())))
                 {
-                    throw new ArgumentException("md5 hashではありません", "json.md5");
+                    throw new ArgumentException(Resources.Error_NotMd5Hash, "json.md5");
                 }
                 md5 = json.md5.ToString();
                 size = int.Parse(json.size.ToString());
                 lastupdate = DateTime.ParseExact(json.lastupdate.ToString(), "yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
                 return;
             }
-            throw new ArgumentException("無効なJSONオブジェクトです", "json");
+            throw new ArgumentException(Resources.Error_InvalidJsonObject, "json");
         }
     }
 
@@ -232,7 +232,7 @@ public class BMSLibrary : NotificationObject
             }
             catch
             {
-                throw new ArgumentException("無効なJSONオブジェクトです", "json");
+                throw new ArgumentException(Resources.Error_InvalidJsonObject, "json");
             }
             try
             {
@@ -1046,11 +1046,11 @@ public class BMSLibrary : NotificationObject
         }
         if (!File.Exists(_lr2SongDB))
         {
-            throw new ArgumentException("LR2 song DB が見つかりませんでした。パス: " + _lr2SongDB, "_LR2SongDB");
+            throw new ArgumentException(string.Format(Resources.Error_LR2SongDBNotFound, _lr2SongDB), "_LR2SongDB");
         }
         if (_lr2ScoreDB != null && !File.Exists(_lr2ScoreDB))
         {
-            throw new ArgumentException("LR2 score DB が見つかりませんでした。パス: " + _lr2ScoreDB, "_lr2ScoreDB");
+            throw new ArgumentException(string.Format(Resources.Error_LR2ScoreDBNotFound, _lr2ScoreDB), "_lr2ScoreDB");
         }
         lr2SongDBPath = _lr2SongDB;
         lr2ScoreDBPath = _lr2ScoreDB;
@@ -1474,7 +1474,7 @@ public class BMSLibrary : NotificationObject
                                             if ((new DateTime(2012, 2, 29) <= lastWriteTime && lastWriteTime < new DateTime(2012, 3, 2)) || (new DateTime(2016, 2, 29) <= lastWriteTime && lastWriteTime < new DateTime(2016, 3, 2)) || (new DateTime(2020, 2, 29) <= lastWriteTime && lastWriteTime < new DateTime(2020, 3, 2)))
                                             {
                                                 DateTime now = DateTime.Now;
-                                                if (DispatcherMessageBox.Show("LR2で扱えない更新日時のフォルダを検出しました" + Environment.NewLine + "対象のフォルダはLR2において楽曲の認識に不具合が生じる可能性があります" + Environment.NewLine + "フォルダの更新日時を現在の日時で置き換えこの問題を回避しますか？" + Environment.NewLine + Environment.NewLine + "対象: " + text + Environment.NewLine + "更新日時(変更前): " + lastWriteTime.ToShortDateString() + Environment.NewLine + "更新日時(変更後): " + now.ToShortDateString(), "警告", MessageBoxButton.YesNo, MessageBoxImage.Exclamation, MessageBoxResult.No) == MessageBoxResult.Yes)
+                                                if (DispatcherMessageBox.Show(string.Format(Resources.Warn_LR2LeapYearFolderDetected, text, lastWriteTime.ToShortDateString(), now.ToShortDateString()), Resources.MessageBoxTitle_Warning, MessageBoxButton.YesNo, MessageBoxImage.Exclamation, MessageBoxResult.No) == MessageBoxResult.Yes)
                                                 {
                                                     try
                                                     {
@@ -1486,7 +1486,7 @@ public class BMSLibrary : NotificationObject
                                                     }
                                                     catch (Exception ex2)
                                                     {
-                                                        DispatcherMessageBox.Show("更新日時の変更に失敗しました" + Environment.NewLine + ex2.Message, "エラー", MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+                                                        DispatcherMessageBox.Show(string.Format(Resources.Error_FailedToChangeDate, ex2.Message), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
                                                     }
                                                 }
                                             }
@@ -1534,7 +1534,7 @@ public class BMSLibrary : NotificationObject
                         }
                         if (leapYearDetected)
                         {
-                            DispatcherMessageBox.Show("LR2の閏年(2/29)バグを検出しました" + Environment.NewLine + "修正を行ったため一部の楽曲でリロードが発生する場合があります", "警告", MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
+                            DispatcherMessageBox.Show(Resources.Warn_LR2LeapYearBugDetected, Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
                         }
                         stopwatchFixApply.Stop();
                         fixApplyMs = stopwatchFixApply.ElapsedMilliseconds;
@@ -1720,7 +1720,7 @@ public class BMSLibrary : NotificationObject
                     }
                     catch (IOException ex2)
                     {
-                        DispatcherMessageBox.Show("初期化中に下記のエラーが発生しました。" + Environment.NewLine + "ファイルへのアクセスが可能か確認して下さい。" + Environment.NewLine + "対象ファイル: " + l + Environment.NewLine + Environment.NewLine + "アプリケーションの動作が不安定になる場合があります。" + Environment.NewLine + Environment.NewLine + ex2.Message, "エラー", MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+                        DispatcherMessageBox.Show(string.Format(Resources.Error_InitializationFailed, l, ex2.Message), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
                         bMSFile = null;
                     }
                     return new
@@ -1855,11 +1855,11 @@ public class BMSLibrary : NotificationObject
                             bmsFile.SetHealthStatus(null, forceUpdate: false, memClear: false);
                             if (ContainsBMSHashUnsafe(bmsFile.hash))
                             {
-                                bmsFile.warning = "インストールされています";
+                                bmsFile.warning = Resources.Warning_AlreadyInstalled;
                             }
                             else if (!Directory.Exists(pkg.path))
                             {
-                                bmsFile.warning = "BMSファイル単体です";
+                                bmsFile.warning = Resources.Warning_SingleBmsFile;
                             }
                             else
                             {
@@ -2542,7 +2542,7 @@ public class BMSLibrary : NotificationObject
     {
         if (lr2ScoreDBPath == null || LR2ID == 0)
         {
-            throw new InvalidOperationException("LR2スコアDBと接続されていません。");
+            throw new InvalidOperationException(Resources.Error_LR2ScoreDBNotConnected);
         }
         List<string> list = md5s.Where((string md5) => LR2SongDB.md5HashRegex.IsMatch(md5)).ToList();
         dynamic val = new DynamicJson(DynamicJson.JsonType.array);
@@ -2599,7 +2599,7 @@ public class BMSLibrary : NotificationObject
     {
         if (lr2ScoreDBPath == null || LR2ID == 0)
         {
-            throw new InvalidOperationException("LR2スコアDBと接続されていません。");
+            throw new InvalidOperationException(Resources.Error_LR2ScoreDBNotConnected);
         }
         if (cacheInfo == null)
         {
@@ -2608,7 +2608,7 @@ public class BMSLibrary : NotificationObject
         string irCacheDirPath = Path.Combine(Path.GetDirectoryName(lr2ScoreDBPath), "..\\..\\Ir");
         if (!Directory.Exists(irCacheDirPath))
         {
-            throw new DirectoryNotFoundException(irCacheDirPath + "が見つかりませんでした");
+            throw new DirectoryNotFoundException(string.Format(Resources.Error_IRCacheDirNotFound, irCacheDirPath));
         }
         List<IRDataCacheInfo> source = cacheInfo.ToList();
         List<IRDataCacheInfo> failed = new List<IRDataCacheInfo>();
@@ -2744,7 +2744,7 @@ public class BMSLibrary : NotificationObject
                             {
                                 if (ex is DirectoryNotFoundException || ex is FileNotFoundException || ex is IOException || ex is PathTooLongException || ex is SecurityException || ex is UnauthorizedAccessException)
                                 {
-                                    DispatcherMessageBox.Show("BMSファイルの読み込みに失敗しました。" + Environment.NewLine + "このファイルの調査はスキップされます。" + Environment.NewLine + "正常にアクセスできるか確認して下さい。" + Environment.NewLine + f.path + Environment.NewLine + Environment.NewLine + ex.Message, "エラー", MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+                                    DispatcherMessageBox.Show(string.Format(Resources.Error_BmsLoadFailedSkip, f.path, ex.Message), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
                                     return;
                                 }
                                 throw;
@@ -2836,7 +2836,7 @@ public class BMSLibrary : NotificationObject
                 bmsFile.warning += Environment.NewLine;
             }
             BMSFile bMSFile = bmsFile;
-            bMSFile.warning = bMSFile.warning + "[" + $"{wAVHealth,2}" + "%] WAVファイルが見つかりませんでした。(" + (mtInfo.wav_files_defined - mtInfo.wav_files_existing) + "/" + mtInfo.wav_files_defined + ")";
+            bMSFile.warning = bMSFile.warning + string.Format(Resources.Warning_WavFilesNotFound, wAVHealth, mtInfo.wav_files_defined - mtInfo.wav_files_existing, mtInfo.wav_files_defined);
             flag = true;
         }
         int? bGAHealth = mtInfo.GetBGAHealth();
@@ -2847,7 +2847,7 @@ public class BMSLibrary : NotificationObject
                 bmsFile.warning += Environment.NewLine;
             }
             BMSFile bMSFile = bmsFile;
-            bMSFile.warning = bMSFile.warning + "[" + $"{bGAHealth,2}" + "%] BGAファイルが見つかりませんでした。(" + (mtInfo.bga_files_defined - mtInfo.bga_files_existing) + "/" + mtInfo.bga_files_defined + ")";
+            bMSFile.warning = bMSFile.warning + string.Format(Resources.Warning_BgaFilesNotFound, bGAHealth, mtInfo.bga_files_defined - mtInfo.bga_files_existing, mtInfo.bga_files_defined);
             flag2 = true;
         }
         int? movieHealth = mtInfo.GetMovieHealth();
@@ -2858,7 +2858,7 @@ public class BMSLibrary : NotificationObject
                 bmsFile.warning += Environment.NewLine;
             }
             BMSFile bMSFile = bmsFile;
-            bMSFile.warning = bMSFile.warning + "[" + $"{movieHealth,2}" + "%] MOVIEファイルが見つかりませんでした。(" + (mtInfo.movie_files_defined - mtInfo.movie_files_existing) + "/" + mtInfo.movie_files_defined + ")";
+            bMSFile.warning = bMSFile.warning + string.Format(Resources.Warning_MovieFilesNotFound, movieHealth, mtInfo.movie_files_defined - mtInfo.movie_files_existing, mtInfo.movie_files_defined);
             flag3 = true;
         }
         if (mtInfo.GetStagefileHealth() == false)
@@ -2867,7 +2867,7 @@ public class BMSLibrary : NotificationObject
             {
                 bmsFile.warning += Environment.NewLine;
             }
-            bmsFile.warning += "[ 0%] STAGEFILEが見つかりませんでした。(1/1)";
+            bmsFile.warning += Resources.Warning_StagefileNotFound;
             flag4 = true;
         }
         if (mtInfo.GetBackbmpHealth() == false)
@@ -2876,7 +2876,7 @@ public class BMSLibrary : NotificationObject
             {
                 bmsFile.warning += Environment.NewLine;
             }
-            bmsFile.warning += "[ 0%] BACKBMPが見つかりませんでした。(1/1)";
+            bmsFile.warning += Resources.Warning_BackbmpNotFound;
             flag5 = true;
         }
         if (mtInfo.GetBannerHealth() == false)
@@ -2885,7 +2885,7 @@ public class BMSLibrary : NotificationObject
             {
                 bmsFile.warning += Environment.NewLine;
             }
-            bmsFile.warning += "[ 0%] BANNERが見つかりませんでした。(1/1)";
+            bmsFile.warning += Resources.Warning_BannerNotFound;
             flag6 = true;
         }
         return flag || flag2 || flag3 || flag4 || flag5 || flag6;
@@ -3068,7 +3068,7 @@ public class BMSLibrary : NotificationObject
                     {
                         throw;
                     }
-                    DispatcherMessageBox.Show("BMSファイルの読み込みに失敗しました。" + Environment.NewLine + "このファイルの調査はスキップされます。" + Environment.NewLine + "正常にアクセスできるか確認して下さい。" + Environment.NewLine + f.path + Environment.NewLine + Environment.NewLine + ex.Message, "エラー", MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+                    DispatcherMessageBox.Show(string.Format(Resources.Error_BmsLoadFailedSkip, f.path, ex.Message), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
                     return false;
                 }
             }).ToList();
@@ -3175,7 +3175,7 @@ public class BMSLibrary : NotificationObject
         }
     }
 
-    private const string DuplicateWarningMessage = "BMSファイルが重複しています";
+    private static readonly string DuplicateWarningMessage = Resources.Warning_DuplicateBmsFile;
 
     private static void ClearDuplicateState(IEnumerable<BMSFile> files)
     {
@@ -3234,7 +3234,7 @@ public class BMSLibrary : NotificationObject
                     {
                         if (installPaths == null || installPaths.Any((string path) => !Directory.Exists(path) && !File.Exists(path)))
                         {
-                            DispatcherMessageBox.Show("ファイルの一部または全てが見つからなかったため、" + Environment.NewLine + "インストールを中断しました。", "警告", MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+                            DispatcherMessageBox.Show(Resources.Warn_InstallAbortedFilesNotFound, Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
                             return bmsPackages;
                         }
                         string[] exts = new string[4] { ".zip", ".7z", ".rar", "lzh" };
@@ -3333,12 +3333,12 @@ public class BMSLibrary : NotificationObject
                             bmsFile.SetHealthStatus(null, forceUpdate: false, memClear: false);
                             if (BMSFiles.Select((BMSFile x) => x.hash).Contains(bmsFile.hash))
                             {
-                                bmsFile.warning = "インストールされています";
+                                bmsFile.warning = Resources.Warning_AlreadyInstalled;
                                 return true;
                             }
                             if (!Directory.Exists(pkg.path))
                             {
-                                bmsFile.warning = "BMSファイル単体です";
+                                bmsFile.warning = Resources.Warning_SingleBmsFile;
                                 return true;
                             }
                             return checkBMSFileNeedToBeFixedAndSetWarnings(bmsFile, bmsFile.maintenanceInfo, strictCheck: true);
@@ -3565,7 +3565,7 @@ public class BMSLibrary : NotificationObject
             }
             if (!Directory.Exists(installComponentFile))
             {
-                throw new FileNotFoundException("ファイルが見つかりませんでした", installComponentFile);
+                throw new FileNotFoundException(Resources.Error_FileNotFound, installComponentFile);
             }
             string text = Path.Combine(destinationDirectory, Path.GetFileName(installComponentFile));
             foreach (string item in Directory.EnumerateFiles(installComponentFile, "*", System.IO.SearchOption.AllDirectories))
@@ -3690,7 +3690,7 @@ public class BMSLibrary : NotificationObject
             {
                 if (!Directory.Exists(path))
                 {
-                    throw new DirectoryNotFoundException("ディレクトリが見つかりませんでした: " + path);
+                    throw new DirectoryNotFoundException(string.Format(Resources.Error_RenameDestDirNotFound, path));
                 }
                 FileSystem.MoveDirectory(path, dirname, overwrite: true);
             }
@@ -3709,7 +3709,7 @@ public class BMSLibrary : NotificationObject
                         string destinationPath = item2.DestinationPath;
                         if (!File.Exists(sourcePath))
                         {
-                            throw new FileNotFoundException("ファイルが見つかりませんでした", sourcePath);
+                            throw new FileNotFoundException(Resources.Error_FileNotFound, sourcePath);
                         }
                         if (IsSamePath(sourcePath, destinationPath))
                         {
@@ -3765,7 +3765,7 @@ public class BMSLibrary : NotificationObject
                         {
                             if (!Directory.Exists(file))
                             {
-                                throw new FileNotFoundException("ファイルが見つかりませんでした", file);
+                                throw new FileNotFoundException(Resources.Error_FileNotFound, file);
                             }
                             FileSystem.MoveDirectory(file, text3, overwrite: true);
                         }
@@ -3781,7 +3781,7 @@ public class BMSLibrary : NotificationObject
                     }
                     if (!File.Exists(item3.path))
                     {
-                        throw new FileNotFoundException("ファイルが見つかりませんでした", item3.path);
+                        throw new FileNotFoundException(Resources.Error_FileNotFound, item3.path);
                     }
                     FileSystem.MoveFile(item3.path, text2, overwrite: true);
                     item3.path = item3.path.ReplaceFromEnd(Path.GetFileName(item3.path), Path.GetFileName(text2), isIgnoreCase: true);
@@ -3794,7 +3794,7 @@ public class BMSLibrary : NotificationObject
             {
                 return false;
             }
-            DispatcherMessageBox.Show("インストール中に下記のエラーが発生しました。" + Environment.NewLine + "操作は取り消され、インストール一覧からは削除されます。" + Environment.NewLine + Environment.NewLine + "パッケージ及びインストール先を確認して下さい。" + Environment.NewLine + "パッケージ: " + pkg.path + Environment.NewLine + "インストール先: " + dirname + Environment.NewLine + Environment.NewLine + ((ex is AggregateException) ? string.Join(Environment.NewLine, ((AggregateException)ex).Flatten().InnerExceptions.Select((Exception e) => e.Message)) : ex.Message), "エラー", MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+            DispatcherMessageBox.Show(string.Format(Resources.Error_InstallFailed, pkg.path, dirname, (ex is AggregateException) ? string.Join(Environment.NewLine, ((AggregateException)ex).Flatten().InnerExceptions.Select((Exception e) => e.Message)) : ex.Message), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
             return false;
         }
         if (flag)
@@ -3844,7 +3844,7 @@ public class BMSLibrary : NotificationObject
                 }
             }, delegate (Exception ex2)
             {
-                DispatcherMessageBox.Show("フォルダの削除に失敗しました。" + Environment.NewLine + "正常にアクセスできるか確認して下さい。" + Environment.NewLine + dirToBeDeleted + Environment.NewLine + Environment.NewLine + ex2.Message, "エラー", MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+                DispatcherMessageBox.Show(string.Format(Resources.Error_FolderDeleteFailed, dirToBeDeleted, ex2.Message), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
             }, delegate
             {
                 Thread.Sleep(1000);
@@ -4216,7 +4216,7 @@ public class BMSLibrary : NotificationObject
         {
             if (item != null)
             {
-                item.warning = "インストールされています";
+                item.warning = Resources.Warning_AlreadyInstalled;
             }
         }
     }
@@ -4231,7 +4231,7 @@ public class BMSLibrary : NotificationObject
         {
             if (file != null)
             {
-                file.warning = "インストールされています";
+                file.warning = Resources.Warning_AlreadyInstalled;
             }
         }
     }
@@ -4498,7 +4498,7 @@ public class BMSLibrary : NotificationObject
                             return;
                         }
                         List<BMSFile> bMSFiles = package.BMSFiles;
-                        if (bMSFiles.Any((BMSFile bmsInfo) => !string.IsNullOrWhiteSpace(bmsInfo.instl_dst)) && MessageBox.Show("インストール先が推定されていますが、" + Environment.NewLine + "通常インストールを実行しようとしています。" + Environment.NewLine + "インストールは独立したフォルダに行われます。" + Environment.NewLine + "続行しますか？", "通常インストール機能の通知", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.Yes) == MessageBoxResult.No)
+                        if (bMSFiles.Any((BMSFile bmsInfo) => !string.IsNullOrWhiteSpace(bmsInfo.instl_dst)) && MessageBox.Show(Resources.Confirm_NormalInstallOverride, Resources.Confirm_NormalInstallTitle, MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.Yes) == MessageBoxResult.No)
                         {
                             return;
                         }
@@ -5002,7 +5002,7 @@ public class BMSLibrary : NotificationObject
                 BMSPackage bMSPackage = BMSPackagesPending.FirstOrDefault((BMSPackage pkg) => pkg != null && pkg.BMSFiles.Any((BMSFile f) => f != null && (ReferenceEquals(f, bmsFile) || (!string.IsNullOrWhiteSpace(f.path) && !string.IsNullOrWhiteSpace(bmsFile.path) && f.path.Equals(bmsFile.path, StringComparison.OrdinalIgnoreCase)))));
                 if (bMSPackage == null)
                 {
-                    DispatcherMessageBox.Show("選択した譜面が保留パッケージに見つかりませんでした。", "警告", MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
+                    DispatcherMessageBox.Show(Resources.Warn_PendingPackageNotFound, Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
                     return false;
                 }
                 if (string.IsNullOrWhiteSpace(destinationDirectory))
@@ -5021,7 +5021,7 @@ public class BMSLibrary : NotificationObject
                 }
                 catch (Exception ex)
                 {
-                    DispatcherMessageBox.Show("インストール先のパスが不正です。" + Environment.NewLine + destinationDirectory + Environment.NewLine + Environment.NewLine + ex.Message, "警告", MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
+                    DispatcherMessageBox.Show(string.Format(Resources.Warn_InvalidInstallPath, destinationDirectory, ex.Message), Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
                     return false;
                 }
                 if (File.Exists(normalizedInput))
@@ -5034,13 +5034,13 @@ public class BMSLibrary : NotificationObject
                 }
                 if (!Directory.Exists(text))
                 {
-                    DispatcherMessageBox.Show("インストール先のフォルダが見つかりません。" + Environment.NewLine + text, "警告", MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
+                    DispatcherMessageBox.Show(string.Format(Resources.Warn_InstallDirNotFound, text), Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
                     return false;
                 }
                 HashSet<string> hashSet = new HashSet<string>(bmsFolderAllFileList.Keys, StringComparer.OrdinalIgnoreCase);
                 if (!hashSet.Contains(text))
                 {
-                    DispatcherMessageBox.Show("インストール先には既存BMSが存在するフォルダのみ指定できます。" + Environment.NewLine + text, "警告", MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
+                    DispatcherMessageBox.Show(string.Format(Resources.Warn_InstallDirMustContainBms, text), Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
                     return false;
                 }
                 foreach (BMSFile item in bMSPackage.BMSFiles.Where((BMSFile f) => f != null))
@@ -5485,13 +5485,13 @@ public class BMSLibrary : NotificationObject
         s = s.RemoveInvalidFileNameChars();
         if (string.IsNullOrWhiteSpace(s))
         {
-            s = "新しいフォルダー";
+            s = Resources.NewFolderName;
         }
         while (encoding.GetByteCount(parentDir + Path.DirectorySeparatorChar + s + Path.DirectorySeparatorChar + longestFileName) > num || encoding.GetByteCount(s) > num2)
         {
             if (s.Length <= 1)
             {
-                throw new PathTooLongException("パスが長過ぎます: " + Environment.NewLine + parentDir + Path.DirectorySeparatorChar + s + Path.DirectorySeparatorChar + longestFileName);
+                throw new PathTooLongException(string.Format(Resources.Error_PathTooLong, parentDir + Path.DirectorySeparatorChar + s + Path.DirectorySeparatorChar + longestFileName));
             }
             s = s.Substring(0, s.Length - 1);
         }
@@ -5532,7 +5532,7 @@ public class BMSLibrary : NotificationObject
                     };
                     if (!moveBMSPackageFiles(repackage, dst, showMessageBoxOnInstallFail: false, deleteAllContents: true))
                     {
-                        DispatcherMessageBox.Show("BMSフォルダのマージ中にエラーが発生したため中断しました。" + Environment.NewLine + "移動元と移動先のパスに正常にアクセスできるか確認して下さい。" + Environment.NewLine + "移動元: " + src + Environment.NewLine + "移動先: " + dst, "エラー", MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+                        DispatcherMessageBox.Show(string.Format(Resources.Error_BmsFolderMergeFailed, src, dst), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
                         return;
                     }
                     bmsFolderAllFileList.AddDir(dst, update: true);
@@ -5588,8 +5588,8 @@ public class BMSLibrary : NotificationObject
                     }
                     if (bMSPackage.BMSFiles.Count == 0)
                     {
-                        if (DispatcherMessageBox.Show("同一のBMSファイルが既にインストールされているため" + Environment.NewLine + "再インストールがスキップされました。" + Environment.NewLine + "対象のファイルをごみ箱へ移動しますか?" + Environment.NewLine + Environment.NewLine + "再インストール対象: " + Environment.NewLine + files[i].path + Environment.NewLine + Environment.NewLine + "インストール済み: " + Environment.NewLine + string.Join(Environment.NewLine, from x in BMSFiles.Where((BMSFile f) => f.hash == files[i].hash).Except(new BMSFile[1] { files[i] })
-                                                                                                                                                                                                                                                                                                                                                                                                    select x.path) + Environment.NewLine + Environment.NewLine, "確認", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.Yes) == MessageBoxResult.Yes)
+                        if (DispatcherMessageBox.Show(string.Format(Resources.Confirm_DuplicateReinstallSkipped, files[i].path, string.Join(Environment.NewLine, from x in BMSFiles.Where((BMSFile f) => f.hash == files[i].hash).Except(new BMSFile[1] { files[i] })
+                                                                                                                                                                                                                                                                                                                                                                                                    select x.path)), Resources.MessageBoxTitle_Confirm, MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.Yes) == MessageBoxResult.Yes)
                         {
                             RemoveBMSFiles(new BMSFile[1] { files[i] });
                         }
@@ -5633,7 +5633,7 @@ public class BMSLibrary : NotificationObject
                     }
                     if (list.Any((string f) => Path.GetPathRoot(f).Equals(f, StringComparison.OrdinalIgnoreCase)))
                     {
-                        DispatcherMessageBox.Show("ドライブ直下にあるBMSファイルはスキップされます。", "確認", MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
+                        DispatcherMessageBox.Show(Resources.Warn_DriveRootBmsSkipped, Resources.MessageBoxTitle_Confirm, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
                     }
                     foreach (string folder in list)
                     {
@@ -5663,7 +5663,7 @@ public class BMSLibrary : NotificationObject
                         }
                         catch (Exception ex)
                         {
-                            DispatcherMessageBox.Show("リネーム中に下記のエラーが発生しました。" + Environment.NewLine + "操作をスキップします" + Environment.NewLine + Environment.NewLine + "対象: " + folder + Environment.NewLine + ex.Message, "エラー", MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+                            DispatcherMessageBox.Show(string.Format(Resources.Error_RenameFailed, folder, ex.Message), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
                         }
                     }
                 }
@@ -5683,7 +5683,7 @@ public class BMSLibrary : NotificationObject
         }
         if (!renameRootFolder && getBMSDirectories().Contains(srcDir, StringComparer.OrdinalIgnoreCase))
         {
-            DispatcherMessageBox.Show("ルートフォルダをリネームすることは出来ません" + Environment.NewLine + Environment.NewLine + "対象: " + srcDir, "警告", MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
+            DispatcherMessageBox.Show(string.Format(Resources.Warn_CannotRenameRootFolder, srcDir), Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
             return;
         }
         if (Settings.Default.UseOnlyShiftJISChars)
@@ -5697,7 +5697,7 @@ public class BMSLibrary : NotificationObject
         }
         if (!Directory.Exists(srcDir))
         {
-            DispatcherMessageBox.Show("対象のフォルダが存在しないためリネームを中止しました。" + Environment.NewLine + "対象: " + srcDir, "警告", MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
+            DispatcherMessageBox.Show(string.Format(Resources.Warn_RenameFolderNotExists, srcDir), Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
             return;
         }
         using (rwlockBMSFilesInitializedMin.GetReaderGuard())
@@ -5735,7 +5735,7 @@ public class BMSLibrary : NotificationObject
                 {
                     if (!Directory.Exists(dstDir))
                     {
-                        DispatcherMessageBox.Show("移動先ルートフォルダが存在しません。" + Environment.NewLine + dstDir, "エラー", MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+                        DispatcherMessageBox.Show(string.Format(Resources.Error_MoveDestRootNotFound, dstDir), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
                         return;
                     }
                     List<string> list = (from d in bmsFiles.Select((BMSFile f) => DirectoryExt.GetDirectoryNameSimple(f.path)).Distinct(StringComparer.OrdinalIgnoreCase)
@@ -5751,7 +5751,7 @@ public class BMSLibrary : NotificationObject
                     }
                     if (list2.Any((string f) => Path.GetPathRoot(f).Equals(f, StringComparison.OrdinalIgnoreCase)))
                     {
-                        DispatcherMessageBox.Show("ドライブ直下にあるBMSファイルのルートパスを" + Environment.NewLine + "変更することは出来ません。処理はスキップされます。", "確認", MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
+                        DispatcherMessageBox.Show(Resources.Warn_DriveRootCannotChangeRoot, Resources.MessageBoxTitle_Confirm, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
                     }
                     foreach (string item in from f in list2
                                             where !Path.GetPathRoot(f).Equals(f, StringComparison.OrdinalIgnoreCase)
@@ -5778,7 +5778,7 @@ public class BMSLibrary : NotificationObject
         }
         if (File.Exists(dstDir) || Directory.Exists(dstDir))
         {
-            DispatcherMessageBox.Show("移動先フォルダが既に存在するため中止しました。" + Environment.NewLine + "移動元: " + srcDir + Environment.NewLine + "移動先: " + dstDir, "警告", MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
+            DispatcherMessageBox.Show(string.Format(Resources.Warn_MoveDestAlreadyExists, srcDir, dstDir), Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
             return;
         }
         try
@@ -5806,7 +5806,7 @@ public class BMSLibrary : NotificationObject
         }
         catch (Exception ex)
         {
-            DispatcherMessageBox.Show("フォルダの移動に失敗しました。" + Environment.NewLine + "正常にアクセスできるか確認して下さい。" + Environment.NewLine + "移動元: " + srcDir + Environment.NewLine + "移動先: " + dstDir + Environment.NewLine + Environment.NewLine + ex.Message, "エラー", MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+            DispatcherMessageBox.Show(string.Format(Resources.Error_FolderMoveFailed, srcDir, dstDir, ex.Message), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
             return;
         }
         List<BMSFile> list = BMSFiles.Where((BMSFile f) => f.path.StartsWith(srcDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)).ToList();
@@ -5846,7 +5846,7 @@ public class BMSLibrary : NotificationObject
                 }
                 if (File.Exists(dstPath) || Directory.Exists(dstPath))
                 {
-                    DispatcherMessageBox.Show("変更先ファイルが既に存在するため中止しました。" + Environment.NewLine + "変更元: " + bmsFile.path + Environment.NewLine + "変更先: " + dstPath, "警告", MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
+                    DispatcherMessageBox.Show(string.Format(Resources.Warn_RenameDestAlreadyExists, bmsFile.path, dstPath), Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
                     return;
                 }
                 try
@@ -5855,7 +5855,7 @@ public class BMSLibrary : NotificationObject
                 }
                 catch (Exception ex)
                 {
-                    DispatcherMessageBox.Show("BMSファイルの移動に失敗しました。" + Environment.NewLine + "正常にアクセスできるか確認して下さい。" + Environment.NewLine + "移動元: " + bmsFile.path + Environment.NewLine + "移動先: " + dstPath + Environment.NewLine + Environment.NewLine + ex.Message, "エラー", MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+                    DispatcherMessageBox.Show(string.Format(Resources.Error_BmsFileMoveFailed, bmsFile.path, dstPath, ex.Message), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
                     return;
                 }
                 if (unregister == true)
@@ -5883,7 +5883,7 @@ public class BMSLibrary : NotificationObject
                     string text = Path.Combine(Path.GetDirectoryName(item.path), Path.GetFileNameWithoutExtension(item.path) + newExt);
                     if (File.Exists(text) || Directory.Exists(text))
                     {
-                        DispatcherMessageBox.Show("変更先ファイルが既に存在するため中止しました。" + Environment.NewLine + "変更元: " + item.path + Environment.NewLine + "変更先: " + text, "警告", MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
+                        DispatcherMessageBox.Show(string.Format(Resources.Warn_RenameDestAlreadyExists, item.path, text), Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
                     }
                     else
                     {
@@ -5916,7 +5916,7 @@ public class BMSLibrary : NotificationObject
                         string text = Path.Combine(Path.GetDirectoryName(item.path), Path.GetFileNameWithoutExtension(item.path) + newExt);
                         if (File.Exists(text) || Directory.Exists(text))
                         {
-                            DispatcherMessageBox.Show("変更先ファイルが既に存在するため中止しました。" + Environment.NewLine + "変更元: " + item.path + Environment.NewLine + "変更先: " + text, "警告", MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
+                            DispatcherMessageBox.Show(string.Format(Resources.Warn_RenameDestAlreadyExists, item.path, text), Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
                             continue;
                         }
                         try
@@ -5926,7 +5926,7 @@ public class BMSLibrary : NotificationObject
                         }
                         catch (Exception ex)
                         {
-                            DispatcherMessageBox.Show("BMSファイルの移動に失敗しました。" + Environment.NewLine + "正常にアクセスできるか確認して下さい。" + Environment.NewLine + "移動元: " + item.path + Environment.NewLine + "移動先: " + text + Environment.NewLine + Environment.NewLine + ex.Message, "エラー", MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+                            DispatcherMessageBox.Show(string.Format(Resources.Error_BmsFileMoveFailed, item.path, text, ex.Message), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
                         }
                     }
                     RemovePendingFilesFromPendingPackagesAndInstallRows(renamedFiles);
@@ -5948,7 +5948,7 @@ public class BMSLibrary : NotificationObject
                                                                 orderby g.Key.Length descending
                                                                 select g)
                     {
-                        if (BMSFiles.Where((BMSFile f) => f.path.StartsWith(fGrp.Key + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)).Except(list).Count() == fGrp.Count() && DispatcherMessageBox.Show("削除を続行すると対象のフォルダにはBMSファイルが" + Environment.NewLine + "含まれなくなります。フォルダごと削除しますか?" + Environment.NewLine + "(その他のファイルは含まれている場合があります)" + Environment.NewLine + Environment.NewLine + "対象: " + Environment.NewLine + fGrp.Key, "確認", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.Yes) == MessageBoxResult.Yes)
+                        if (BMSFiles.Where((BMSFile f) => f.path.StartsWith(fGrp.Key + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)).Except(list).Count() == fGrp.Count() && DispatcherMessageBox.Show(string.Format(Resources.Confirm_DeleteFolderWithNoBms, fGrp.Key), Resources.MessageBoxTitle_Confirm, MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.Yes) == MessageBoxResult.Yes)
                         {
                             if (!Directory.Exists(fGrp.Key))
                             {
@@ -5973,7 +5973,7 @@ public class BMSLibrary : NotificationObject
                             }
                             catch (Exception ex)
                             {
-                                DispatcherMessageBox.Show("フォルダの削除またはごみ箱への移動に失敗しました。" + Environment.NewLine + "正常にアクセスできるか確認して下さい。" + Environment.NewLine + fGrp.Key + Environment.NewLine + Environment.NewLine + ex.Message, "エラー", MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+                                DispatcherMessageBox.Show(string.Format(Resources.Error_FolderOrTrashDeleteFailed, fGrp.Key, ex.Message), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
                                 continue;
                             }
                             list.AddRange(fGrp);
@@ -5991,7 +5991,7 @@ public class BMSLibrary : NotificationObject
                             }
                             catch (Exception ex2)
                             {
-                                DispatcherMessageBox.Show("BMSファイルの削除またはごみ箱への移動に失敗しました。" + Environment.NewLine + "正常にアクセスできるか確認して下さい。" + Environment.NewLine + item3.path + Environment.NewLine + Environment.NewLine + ex2.Message, "エラー", MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+                                DispatcherMessageBox.Show(string.Format(Resources.Error_BmsFileDeleteFailed, item3.path, ex2.Message), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
                             }
                         }
                     }
@@ -6026,7 +6026,7 @@ public class BMSLibrary : NotificationObject
                         }
                         catch (Exception ex)
                         {
-                            DispatcherMessageBox.Show("BMSファイルの削除またはごみ箱への移動に失敗しました。" + Environment.NewLine + "正常にアクセスできるか確認して下さい。" + Environment.NewLine + item.path + Environment.NewLine + Environment.NewLine + ex.Message, "エラー", MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+                            DispatcherMessageBox.Show(string.Format(Resources.Error_BmsFileDeleteFailed, item.path, ex.Message), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
                         }
                     }
                     RemovePendingFilesFromPendingPackagesAndInstallRows(removedFiles);
@@ -6152,11 +6152,11 @@ public class BMSLibrary : NotificationObject
         }
         if (!File.Exists(newPath))
         {
-            throw new FileNotFoundException("変更先のファイルパスと一致するファイルが見つかりませんでした", newPath);
+            throw new FileNotFoundException(Resources.Error_RenameDestFileNotFound, newPath);
         }
         if (!string.IsNullOrWhiteSpace(oldPath) && !bmsFile.path.Equals(newPath, StringComparison.OrdinalIgnoreCase))
         {
-            throw new InvalidCastException("oldPathが指定されてしますが、bmsFile.pathとnewPathが一致しません");
+            throw new InvalidCastException(Resources.Error_OldPathMismatch);
         }
         using (rwlockBMSFilesInitializedMin.GetReaderGuard())
         {
@@ -6219,7 +6219,7 @@ public class BMSLibrary : NotificationObject
         oldFolderPath = oldFolderPath.TrimEnd(Path.DirectorySeparatorChar);
         if (!Directory.Exists(newFolderPath))
         {
-            throw new DirectoryNotFoundException("変更先のディレクトリが見つかりませんでした: " + newFolderPath);
+            throw new DirectoryNotFoundException(string.Format(Resources.Error_RenameDestDirNotFound, newFolderPath));
         }
         try
         {

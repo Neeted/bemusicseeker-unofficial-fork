@@ -1102,4 +1102,341 @@ BMSファイルが重複しないようにマージします。
   <data name="Playlist_summary_format" xml:space="preserve">
     <value>[{0}譜面 / {1}プレイリスト]</value>
   </data>
+  <data name="MessageBoxTitle_Error" xml:space="preserve">
+    <value>エラー</value>
+  </data>
+  <data name="MessageBoxTitle_Warning" xml:space="preserve">
+    <value>警告</value>
+  </data>
+  <data name="MessageBoxTitle_Confirm" xml:space="preserve">
+    <value>確認</value>
+  </data>
+  <data name="Error_NotMd5Hash" xml:space="preserve">
+    <value>md5 hashではありません</value>
+  </data>
+  <data name="Error_InvalidJsonObject" xml:space="preserve">
+    <value>無効なJSONオブジェクトです</value>
+  </data>
+  <data name="Error_LR2ScoreDBNotConnected" xml:space="preserve">
+    <value>LR2スコアDBと接続されていません。</value>
+  </data>
+  <data name="Warning_AlreadyInstalled" xml:space="preserve">
+    <value>インストールされています</value>
+  </data>
+  <data name="Warning_SingleBmsFile" xml:space="preserve">
+    <value>BMSファイル単体です</value>
+  </data>
+  <data name="Warning_DuplicateBmsFile" xml:space="preserve">
+    <value>BMSファイルが重複しています</value>
+  </data>
+  <data name="Error_FileNotFound" xml:space="preserve">
+    <value>ファイルが見つかりませんでした</value>
+  </data>
+  <data name="Error_DirectoryNotFound" xml:space="preserve">
+    <value>ディレクトリが見つかりませんでした: </value>
+  </data>
+  <data name="NewFolderName" xml:space="preserve">
+    <value>新しいフォルダー</value>
+  </data>
+  <data name="Error_LR2SongDBNotFound" xml:space="preserve">
+    <value>LR2 song DB が見つかりませんでした。パス: {0}</value>
+  </data>
+  <data name="Error_LR2ScoreDBNotFound" xml:space="preserve">
+    <value>LR2 score DB が見つかりませんでした。パス: {0}</value>
+  </data>
+  <data name="Error_IRCacheDirNotFound" xml:space="preserve">
+    <value>{0}が見つかりませんでした</value>
+  </data>
+  <data name="Error_PathTooLong" xml:space="preserve">
+    <value>パスが長過ぎます: {0}</value>
+  </data>
+  <data name="Warn_LR2LeapYearFolderDetected" xml:space="preserve">
+    <value>LR2で扱えない更新日時のフォルダを検出しました
+対象のフォルダはLR2において楽曲の認識に不具合が生じる可能性があります
+フォルダの更新日時を現在の日時で置き換えこの問題を回避しますか？
+
+対象: {0}
+更新日時(変更前): {1}
+更新日時(変更後): {2}</value>
+  </data>
+  <data name="Error_FailedToChangeDate" xml:space="preserve">
+    <value>更新日時の変更に失敗しました
+{0}</value>
+  </data>
+  <data name="Warn_LR2LeapYearBugDetected" xml:space="preserve">
+    <value>LR2の閏年(2/29)バグを検出しました
+修正を行ったため一部の楽曲でリロードが発生する場合があります</value>
+  </data>
+  <data name="Error_InitializationFailed" xml:space="preserve">
+    <value>初期化中に下記のエラーが発生しました。
+ファイルへのアクセスが可能か確認して下さい。
+対象ファイル: {0}
+
+アプリケーションの動作が不安定になる場合があります。
+
+{1}</value>
+  </data>
+  <data name="Error_BmsLoadFailedSkip" xml:space="preserve">
+    <value>BMSファイルの読み込みに失敗しました。
+このファイルの調査はスキップされます。
+正常にアクセスできるか確認して下さい。
+{0}
+
+{1}</value>
+  </data>
+  <data name="Warning_WavFilesNotFound" xml:space="preserve">
+    <value>[{0,2}%] WAVファイルが見つかりませんでした。({1}/{2})</value>
+  </data>
+  <data name="Warning_BgaFilesNotFound" xml:space="preserve">
+    <value>[{0,2}%] BGAファイルが見つかりませんでした。({1}/{2})</value>
+  </data>
+  <data name="Warning_MovieFilesNotFound" xml:space="preserve">
+    <value>[{0,2}%] MOVIEファイルが見つかりませんでした。({1}/{2})</value>
+  </data>
+  <data name="Warning_StagefileNotFound" xml:space="preserve">
+    <value>[ 0%] STAGEFILEが見つかりませんでした。(1/1)</value>
+  </data>
+  <data name="Warning_BackbmpNotFound" xml:space="preserve">
+    <value>[ 0%] BACKBMPが見つかりませんでした。(1/1)</value>
+  </data>
+  <data name="Warning_BannerNotFound" xml:space="preserve">
+    <value>[ 0%] BANNERが見つかりませんでした。(1/1)</value>
+  </data>
+  <data name="Warn_InstallAbortedFilesNotFound" xml:space="preserve">
+    <value>ファイルの一部または全てが見つからなかったため、
+インストールを中断しました。</value>
+  </data>
+  <data name="Error_InstallFailed" xml:space="preserve">
+    <value>インストール中に下記のエラーが発生しました。
+操作は取り消され、インストール一覧からは削除されます。
+
+パッケージ及びインストール先を確認して下さい。
+パッケージ: {0}
+インストール先: {1}
+
+{2}</value>
+  </data>
+  <data name="Error_FolderDeleteFailed" xml:space="preserve">
+    <value>フォルダの削除に失敗しました。
+正常にアクセスできるか確認して下さい。
+{0}
+
+{1}</value>
+  </data>
+  <data name="Confirm_NormalInstallOverride" xml:space="preserve">
+    <value>インストール先が推定されていますが、
+通常インストールを実行しようとしています。
+インストールは独立したフォルダに行われます。
+続行しますか？</value>
+  </data>
+  <data name="Confirm_NormalInstallTitle" xml:space="preserve">
+    <value>通常インストール機能の通知</value>
+  </data>
+  <data name="Warn_PendingPackageNotFound" xml:space="preserve">
+    <value>選択した譜面が保留パッケージに見つかりませんでした。</value>
+  </data>
+  <data name="Warn_InvalidInstallPath" xml:space="preserve">
+    <value>インストール先のパスが不正です。
+{0}
+
+{1}</value>
+  </data>
+  <data name="Warn_InstallDirNotFound" xml:space="preserve">
+    <value>インストール先のフォルダが見つかりません。
+{0}</value>
+  </data>
+  <data name="Warn_InstallDirMustContainBms" xml:space="preserve">
+    <value>インストール先には既存BMSが存在するフォルダのみ指定できます。
+{0}</value>
+  </data>
+  <data name="Error_BmsFolderMergeFailed" xml:space="preserve">
+    <value>BMSフォルダのマージ中にエラーが発生したため中断しました。
+移動元と移動先のパスに正常にアクセスできるか確認して下さい。
+移動元: {0}
+移動先: {1}</value>
+  </data>
+  <data name="Confirm_DuplicateReinstallSkipped" xml:space="preserve">
+    <value>同一のBMSファイルが既にインストールされているため
+再インストールがスキップされました。
+対象のファイルをごみ箱へ移動しますか?
+
+再インストール対象: 
+{0}
+
+インストール済み: 
+{1}
+
+</value>
+  </data>
+  <data name="Warn_DriveRootBmsSkipped" xml:space="preserve">
+    <value>ドライブ直下にあるBMSファイルはスキップされます。</value>
+  </data>
+  <data name="Error_RenameFailed" xml:space="preserve">
+    <value>リネーム中に下記のエラーが発生しました。
+操作をスキップします
+
+対象: {0}
+{1}</value>
+  </data>
+  <data name="Warn_CannotRenameRootFolder" xml:space="preserve">
+    <value>ルートフォルダをリネームすることは出来ません
+
+対象: {0}</value>
+  </data>
+  <data name="Warn_RenameFolderNotExists" xml:space="preserve">
+    <value>対象のフォルダが存在しないためリネームを中止しました。
+対象: {0}</value>
+  </data>
+  <data name="Error_MoveDestRootNotFound" xml:space="preserve">
+    <value>移動先ルートフォルダが存在しません。
+{0}</value>
+  </data>
+  <data name="Warn_DriveRootCannotChangeRoot" xml:space="preserve">
+    <value>ドライブ直下にあるBMSファイルのルートパスを
+変更することは出来ません。処理はスキップされます。</value>
+  </data>
+  <data name="Warn_MoveDestAlreadyExists" xml:space="preserve">
+    <value>移動先フォルダが既に存在するため中止しました。
+移動元: {0}
+移動先: {1}</value>
+  </data>
+  <data name="Error_FolderMoveFailed" xml:space="preserve">
+    <value>フォルダの移動に失敗しました。
+正常にアクセスできるか確認して下さい。
+移動元: {0}
+移動先: {1}
+
+{2}</value>
+  </data>
+  <data name="Warn_RenameDestAlreadyExists" xml:space="preserve">
+    <value>変更先ファイルが既に存在するため中止しました。
+変更元: {0}
+変更先: {1}</value>
+  </data>
+  <data name="Error_BmsFileMoveFailed" xml:space="preserve">
+    <value>BMSファイルの移動に失敗しました。
+正常にアクセスできるか確認して下さい。
+移動元: {0}
+移動先: {1}
+
+{2}</value>
+  </data>
+  <data name="Confirm_DeleteFolderWithNoBms" xml:space="preserve">
+    <value>削除を続行すると対象のフォルダにはBMSファイルが
+含まれなくなります。フォルダごと削除しますか?
+(その他のファイルは含まれている場合があります)
+
+対象: 
+{0}</value>
+  </data>
+  <data name="Error_FolderOrTrashDeleteFailed" xml:space="preserve">
+    <value>フォルダの削除またはごみ箱への移動に失敗しました。
+正常にアクセスできるか確認して下さい。
+{0}
+
+{1}</value>
+  </data>
+  <data name="Error_BmsFileDeleteFailed" xml:space="preserve">
+    <value>BMSファイルの削除またはごみ箱への移動に失敗しました。
+正常にアクセスできるか確認して下さい。
+{0}
+
+{1}</value>
+  </data>
+  <data name="Error_RenameDestFileNotFound" xml:space="preserve">
+    <value>変更先のファイルパスと一致するファイルが見つかりませんでした</value>
+  </data>
+  <data name="Error_OldPathMismatch" xml:space="preserve">
+    <value>oldPathが指定されてしますが、bmsFile.pathとnewPathが一致しません</value>
+  </data>
+  <data name="Error_RenameDestDirNotFound" xml:space="preserve">
+    <value>変更先のディレクトリが見つかりませんでした: {0}</value>
+  </data>
+  <data name="Error_SchemeMustBeBemusic" xml:space="preserve">
+    <value>Schemeはbmseekerである必要があります</value>
+  </data>
+  <data name="Error_UnsupportedURI" xml:space="preserve">
+    <value>非対応のURIです</value>
+  </data>
+  <data name="Error_UnsupportedType" xml:space="preserve">
+    <value>非対応のtypeです {0}</value>
+  </data>
+  <data name="InsaneBMSDiffTable_Easy" xml:space="preserve">
+    <value>発狂BMS難度推定表 EASY</value>
+  </data>
+  <data name="InsaneBMSDiffTable_Normal" xml:space="preserve">
+    <value>発狂BMS難度推定表 NORMAL</value>
+  </data>
+  <data name="InsaneBMSDiffTable_Hard" xml:space="preserve">
+    <value>発狂BMS難度推定表 HARD</value>
+  </data>
+  <data name="InsaneBMSDiffTable_FC" xml:space="preserve">
+    <value>発狂BMS難度推定表 FC</value>
+  </data>
+  <data name="Error_ScoreDBConnectionFailed" xml:space="preserve">
+    <value>スコアDB接続に失敗しました</value>
+  </data>
+  <data name="Error_LR2IDOrScoreDBFailed" xml:space="preserve">
+    <value>LR2IDの取得またはスコアDB接続に失敗しました</value>
+  </data>
+  <data name="Warn_RecommendUpdateFailed" xml:space="preserve">
+    <value>リコメンドの更新に失敗しました
+{0}</value>
+  </data>
+  <data name="Warn_RecommendFetchFailed" xml:space="preserve">
+    <value>リコメンドの取得に失敗しました
+{0}</value>
+  </data>
+  <data name="Error_RecommendFetchFailed" xml:space="preserve">
+    <value>リコメンドの取得に失敗しました</value>
+  </data>
+  <data name="RecommendFormat" xml:space="preserve">
+    <value>リコメンド {0} ★{1}</value>
+  </data>
+  <data name="Recommend_SkillUpdatedMessage" xml:space="preserve">
+    <value>あなたの実力: ★{0}{1}
+(更新: {2})
+
+(このメッセージは[Ctrl]+[C]でコピーできます)</value>
+  </data>
+  <data name="Recommend_SkillUpdatedTitle" xml:space="preserve">
+    <value>リコメンドが更新されました</value>
+  </data>
+  <data name="Error_LocalScoreDataNotFetched" xml:space="preserve">
+    <value>ローカルスコアデータが取得されていません</value>
+  </data>
+  <data name="Warn_CustomFolderOutputFailed" xml:space="preserve">
+    <value>カスタムフォルダの出力に失敗しました。
+正常にアクセスできるか確認して下さい。
+対象: {0}
+出力先: {1}</value>
+  </data>
+  <data name="Warn_FileOrDirDeleteFailed" xml:space="preserve">
+    <value>ファイルまたはディレクトリの削除に失敗しました。
+読み取り専用属性がついていないか、
+正常にアクセスできるか確認して下さい。
+{0}</value>
+  </data>
+  <data name="Error_PlaylistAlreadyExists" xml:space="preserve">
+    <value>既に同名のプレイリストが存在します。</value>
+  </data>
+  <data name="Error_OutputDirNameEmpty" xml:space="preserve">
+    <value>出力先ディレクトリ名が空になっています。</value>
+  </data>
+  <data name="Error_URIMustBeAbsolute" xml:space="preserve">
+    <value>URIは絶対URIである必要があります</value>
+  </data>
+  <data name="Error_InvalidBackupData" xml:space="preserve">
+    <value>バックアップデータが不正です</value>
+  </data>
+  <data name="Error_ParseFailed" xml:space="preserve">
+    <value>パースに失敗しました。</value>
+  </data>
+  <data name="Warn_CustomFolderOutputDirInvalid" xml:space="preserve">
+    <value>カスタムフォルダ出力先ディレクトリの不正を検出しました。
+正しく出力先が指定されているか確認して下さい。</value>
+  </data>
+  <data name="Error_InstallComponentFileNotFound" xml:space="preserve">
+    <value>ファイルが見つかりませんでした</value>
+  </data>
 </root>

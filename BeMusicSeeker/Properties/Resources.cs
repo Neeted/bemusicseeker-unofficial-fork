@@ -701,6 +701,243 @@ public class Resources
 
     public static string Playlist_summary_format => ResourceManager.GetString("Playlist_summary_format", resourceCulture);
 
+    public static string MessageBoxTitle_Error => ResourceManager.GetString("MessageBoxTitle_Error", resourceCulture);
+
+
+    public static string MessageBoxTitle_Warning => ResourceManager.GetString("MessageBoxTitle_Warning", resourceCulture);
+
+
+    public static string MessageBoxTitle_Confirm => ResourceManager.GetString("MessageBoxTitle_Confirm", resourceCulture);
+
+
+    public static string Error_NotMd5Hash => ResourceManager.GetString("Error_NotMd5Hash", resourceCulture);
+
+
+    public static string Error_InvalidJsonObject => ResourceManager.GetString("Error_InvalidJsonObject", resourceCulture);
+
+
+    public static string Error_LR2ScoreDBNotConnected => ResourceManager.GetString("Error_LR2ScoreDBNotConnected", resourceCulture);
+
+
+    public static string Warning_AlreadyInstalled => ResourceManager.GetString("Warning_AlreadyInstalled", resourceCulture);
+
+
+    public static string Warning_SingleBmsFile => ResourceManager.GetString("Warning_SingleBmsFile", resourceCulture);
+
+
+    public static string Warning_DuplicateBmsFile => ResourceManager.GetString("Warning_DuplicateBmsFile", resourceCulture);
+
+
+    public static string Error_FileNotFound => ResourceManager.GetString("Error_FileNotFound", resourceCulture);
+
+
+    public static string Error_DirectoryNotFound => ResourceManager.GetString("Error_DirectoryNotFound", resourceCulture);
+
+
+    public static string NewFolderName => ResourceManager.GetString("NewFolderName", resourceCulture);
+
+
+    public static string Error_LR2SongDBNotFound => ResourceManager.GetString("Error_LR2SongDBNotFound", resourceCulture);
+
+
+    public static string Error_LR2ScoreDBNotFound => ResourceManager.GetString("Error_LR2ScoreDBNotFound", resourceCulture);
+
+
+    public static string Error_IRCacheDirNotFound => ResourceManager.GetString("Error_IRCacheDirNotFound", resourceCulture);
+
+
+    public static string Error_PathTooLong => ResourceManager.GetString("Error_PathTooLong", resourceCulture);
+
+
+    public static string Warn_LR2LeapYearFolderDetected => ResourceManager.GetString("Warn_LR2LeapYearFolderDetected", resourceCulture);
+
+
+    public static string Error_FailedToChangeDate => ResourceManager.GetString("Error_FailedToChangeDate", resourceCulture);
+
+
+    public static string Warn_LR2LeapYearBugDetected => ResourceManager.GetString("Warn_LR2LeapYearBugDetected", resourceCulture);
+
+
+    public static string Error_InitializationFailed => ResourceManager.GetString("Error_InitializationFailed", resourceCulture);
+
+
+    public static string Error_BmsLoadFailedSkip => ResourceManager.GetString("Error_BmsLoadFailedSkip", resourceCulture);
+
+
+    public static string Warning_WavFilesNotFound => ResourceManager.GetString("Warning_WavFilesNotFound", resourceCulture);
+
+
+    public static string Warning_BgaFilesNotFound => ResourceManager.GetString("Warning_BgaFilesNotFound", resourceCulture);
+
+
+    public static string Warning_MovieFilesNotFound => ResourceManager.GetString("Warning_MovieFilesNotFound", resourceCulture);
+
+
+    public static string Warning_StagefileNotFound => ResourceManager.GetString("Warning_StagefileNotFound", resourceCulture);
+
+
+    public static string Warning_BackbmpNotFound => ResourceManager.GetString("Warning_BackbmpNotFound", resourceCulture);
+
+
+    public static string Warning_BannerNotFound => ResourceManager.GetString("Warning_BannerNotFound", resourceCulture);
+
+
+    public static string Warn_InstallAbortedFilesNotFound => ResourceManager.GetString("Warn_InstallAbortedFilesNotFound", resourceCulture);
+
+
+    public static string Error_InstallFailed => ResourceManager.GetString("Error_InstallFailed", resourceCulture);
+
+
+    public static string Error_FolderDeleteFailed => ResourceManager.GetString("Error_FolderDeleteFailed", resourceCulture);
+
+
+    public static string Confirm_NormalInstallOverride => ResourceManager.GetString("Confirm_NormalInstallOverride", resourceCulture);
+
+
+    public static string Confirm_NormalInstallTitle => ResourceManager.GetString("Confirm_NormalInstallTitle", resourceCulture);
+
+
+    public static string Warn_PendingPackageNotFound => ResourceManager.GetString("Warn_PendingPackageNotFound", resourceCulture);
+
+
+    public static string Warn_InvalidInstallPath => ResourceManager.GetString("Warn_InvalidInstallPath", resourceCulture);
+
+
+    public static string Warn_InstallDirNotFound => ResourceManager.GetString("Warn_InstallDirNotFound", resourceCulture);
+
+
+    public static string Warn_InstallDirMustContainBms => ResourceManager.GetString("Warn_InstallDirMustContainBms", resourceCulture);
+
+
+    public static string Error_BmsFolderMergeFailed => ResourceManager.GetString("Error_BmsFolderMergeFailed", resourceCulture);
+
+
+    public static string Confirm_DuplicateReinstallSkipped => ResourceManager.GetString("Confirm_DuplicateReinstallSkipped", resourceCulture);
+
+
+    public static string Warn_DriveRootBmsSkipped => ResourceManager.GetString("Warn_DriveRootBmsSkipped", resourceCulture);
+
+
+    public static string Error_RenameFailed => ResourceManager.GetString("Error_RenameFailed", resourceCulture);
+
+
+    public static string Warn_CannotRenameRootFolder => ResourceManager.GetString("Warn_CannotRenameRootFolder", resourceCulture);
+
+
+    public static string Warn_RenameFolderNotExists => ResourceManager.GetString("Warn_RenameFolderNotExists", resourceCulture);
+
+
+    public static string Error_MoveDestRootNotFound => ResourceManager.GetString("Error_MoveDestRootNotFound", resourceCulture);
+
+
+    public static string Warn_DriveRootCannotChangeRoot => ResourceManager.GetString("Warn_DriveRootCannotChangeRoot", resourceCulture);
+
+
+    public static string Warn_MoveDestAlreadyExists => ResourceManager.GetString("Warn_MoveDestAlreadyExists", resourceCulture);
+
+
+    public static string Error_FolderMoveFailed => ResourceManager.GetString("Error_FolderMoveFailed", resourceCulture);
+
+
+    public static string Warn_RenameDestAlreadyExists => ResourceManager.GetString("Warn_RenameDestAlreadyExists", resourceCulture);
+
+
+    public static string Error_BmsFileMoveFailed => ResourceManager.GetString("Error_BmsFileMoveFailed", resourceCulture);
+
+
+    public static string Confirm_DeleteFolderWithNoBms => ResourceManager.GetString("Confirm_DeleteFolderWithNoBms", resourceCulture);
+
+
+    public static string Error_FolderOrTrashDeleteFailed => ResourceManager.GetString("Error_FolderOrTrashDeleteFailed", resourceCulture);
+
+
+    public static string Error_BmsFileDeleteFailed => ResourceManager.GetString("Error_BmsFileDeleteFailed", resourceCulture);
+
+
+    public static string Error_RenameDestFileNotFound => ResourceManager.GetString("Error_RenameDestFileNotFound", resourceCulture);
+
+
+    public static string Error_OldPathMismatch => ResourceManager.GetString("Error_OldPathMismatch", resourceCulture);
+
+
+    public static string Error_RenameDestDirNotFound => ResourceManager.GetString("Error_RenameDestDirNotFound", resourceCulture);
+
+
+    public static string Error_SchemeMustBeBemusic => ResourceManager.GetString("Error_SchemeMustBeBemusic", resourceCulture);
+
+
+    public static string Error_UnsupportedURI => ResourceManager.GetString("Error_UnsupportedURI", resourceCulture);
+
+
+    public static string Error_UnsupportedType => ResourceManager.GetString("Error_UnsupportedType", resourceCulture);
+
+
+    public static string InsaneBMSDiffTable_Easy => ResourceManager.GetString("InsaneBMSDiffTable_Easy", resourceCulture);
+
+
+    public static string InsaneBMSDiffTable_Normal => ResourceManager.GetString("InsaneBMSDiffTable_Normal", resourceCulture);
+
+
+    public static string InsaneBMSDiffTable_Hard => ResourceManager.GetString("InsaneBMSDiffTable_Hard", resourceCulture);
+
+
+    public static string InsaneBMSDiffTable_FC => ResourceManager.GetString("InsaneBMSDiffTable_FC", resourceCulture);
+
+
+    public static string Error_ScoreDBConnectionFailed => ResourceManager.GetString("Error_ScoreDBConnectionFailed", resourceCulture);
+
+
+    public static string Error_LR2IDOrScoreDBFailed => ResourceManager.GetString("Error_LR2IDOrScoreDBFailed", resourceCulture);
+
+
+    public static string Warn_RecommendUpdateFailed => ResourceManager.GetString("Warn_RecommendUpdateFailed", resourceCulture);
+
+
+    public static string Warn_RecommendFetchFailed => ResourceManager.GetString("Warn_RecommendFetchFailed", resourceCulture);
+
+
+    public static string Error_RecommendFetchFailed => ResourceManager.GetString("Error_RecommendFetchFailed", resourceCulture);
+
+
+    public static string RecommendFormat => ResourceManager.GetString("RecommendFormat", resourceCulture);
+
+
+    public static string Recommend_SkillUpdatedMessage => ResourceManager.GetString("Recommend_SkillUpdatedMessage", resourceCulture);
+
+
+    public static string Recommend_SkillUpdatedTitle => ResourceManager.GetString("Recommend_SkillUpdatedTitle", resourceCulture);
+
+
+    public static string Error_LocalScoreDataNotFetched => ResourceManager.GetString("Error_LocalScoreDataNotFetched", resourceCulture);
+
+
+    public static string Warn_CustomFolderOutputFailed => ResourceManager.GetString("Warn_CustomFolderOutputFailed", resourceCulture);
+
+
+    public static string Warn_FileOrDirDeleteFailed => ResourceManager.GetString("Warn_FileOrDirDeleteFailed", resourceCulture);
+
+
+    public static string Error_PlaylistAlreadyExists => ResourceManager.GetString("Error_PlaylistAlreadyExists", resourceCulture);
+
+
+    public static string Error_OutputDirNameEmpty => ResourceManager.GetString("Error_OutputDirNameEmpty", resourceCulture);
+
+
+    public static string Error_URIMustBeAbsolute => ResourceManager.GetString("Error_URIMustBeAbsolute", resourceCulture);
+
+
+    public static string Error_InvalidBackupData => ResourceManager.GetString("Error_InvalidBackupData", resourceCulture);
+
+
+    public static string Error_ParseFailed => ResourceManager.GetString("Error_ParseFailed", resourceCulture);
+
+
+    public static string Warn_CustomFolderOutputDirInvalid => ResourceManager.GetString("Warn_CustomFolderOutputDirInvalid", resourceCulture);
+
+
+    public static string Error_InstallComponentFileNotFound => ResourceManager.GetString("Error_InstallComponentFileNotFound", resourceCulture);
+
+
     internal Resources()
     {
     }
