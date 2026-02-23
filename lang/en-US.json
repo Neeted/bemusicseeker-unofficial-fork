@@ -327,5 +327,7 @@
   "Msg_open_install_destination_multiple_selected": "Multiple items are selected. Only the first chart will be used.",
   "Msg_open_install_destination_not_found": "Install destination folder not found.\n{0}",
   "Open_install_destination": "Open install destination",
-  "Update_history_v1000_1": "Unofficial Fork, Initial Release."
+  "Update_history_v1000_1": "Unofficial Fork, Initial Release.",
+  "Playlist_summary_header": "Playlist Summary",
+  "Playlist_summary_format": "[{0} charts / {1} playlists]"
 }

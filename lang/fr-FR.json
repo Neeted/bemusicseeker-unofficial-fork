@@ -327,5 +327,7 @@
   "Msg_open_install_destination_multiple_selected": "Plusieurs éléments sont sélectionnés. Seule la première chart sera utilisée.",
   "Msg_open_install_destination_not_found": "Dossier de destination d'installation introuvable.\n{0}",
   "Open_install_destination": "Ouvrir la destination d'installation",
-  "Update_history_v1000_1": "Unofficial Fork, Initial Release."
+  "Update_history_v1000_1": "Unofficial Fork, Initial Release.",
+  "Playlist_summary_header": "Résumé des playlists",
+  "Playlist_summary_format": "[{0} charts / {1} playlists]"
 }
