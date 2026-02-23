@@ -2010,31 +2010,31 @@
                   <Setter Property="VerticalAlignment" Value="Center" />
                 </Style>
                 <Style x:Key="styleTreeViewItemIconLoading" TargetType="{x:Type Image}" BasedOn="{StaticResource styleTreeViewItemIconCommon}">
-                  <Setter Property="Source" Value="{Binding Source={x:Static prop:Resources.imageres_5311}, Converter={StaticResource IconToImageSourceConverter}}" />
+                  <Setter Property="Source" Value="{Binding Source={x:Static prop:Images.imageres_5311}, Converter={StaticResource IconToImageSourceConverter}}" />
                 </Style>
                 <Style x:Key="styleTreeViewItemIconPanel" TargetType="{x:Type Image}" BasedOn="{StaticResource styleTreeViewItemIconCommon}">
-                  <Setter Property="Source" Value="{Binding Source={x:Static prop:Resources.imageres_5342}, Converter={StaticResource IconToImageSourceConverter}}" />
+                  <Setter Property="Source" Value="{Binding Source={x:Static prop:Images.imageres_5342}, Converter={StaticResource IconToImageSourceConverter}}" />
                 </Style>
                 <Style x:Key="styleTreeViewItemIconFolderNote" TargetType="{x:Type Image}" BasedOn="{StaticResource styleTreeViewItemIconCommon}">
-                  <Setter Property="Source" Value="{Binding Source={x:Static prop:Resources.imageres_108}, Converter={StaticResource IconToImageSourceConverter}}" />
+                  <Setter Property="Source" Value="{Binding Source={x:Static prop:Images.imageres_108}, Converter={StaticResource IconToImageSourceConverter}}" />
                 </Style>
                 <Style x:Key="styleTreeViewItemIconFolderLoupe" TargetType="{x:Type Image}" BasedOn="{StaticResource styleTreeViewItemIconCommon}">
-                  <Setter Property="Source" Value="{Binding Source={x:Static prop:Resources.imageres_18}, Converter={StaticResource IconToImageSourceConverter}}" />
+                  <Setter Property="Source" Value="{Binding Source={x:Static prop:Images.imageres_18}, Converter={StaticResource IconToImageSourceConverter}}" />
                 </Style>
                 <Style x:Key="styleTreeViewItemIconLoupe" TargetType="{x:Type Image}" BasedOn="{StaticResource styleTreeViewItemIconCommon}">
-                  <Setter Property="Source" Value="{Binding Source={x:Static prop:Resources.imageres_5332}, Converter={StaticResource IconToImageSourceConverter}}" />
+                  <Setter Property="Source" Value="{Binding Source={x:Static prop:Images.imageres_5332}, Converter={StaticResource IconToImageSourceConverter}}" />
                 </Style>
                 <Style x:Key="styleTreeViewItemIconLoupeObject" TargetType="{x:Type Image}" BasedOn="{StaticResource styleTreeViewItemIconCommon}">
-                  <Setter Property="Source" Value="{Binding Source={x:Static prop:Resources.imageres_8}, Converter={StaticResource IconToImageSourceConverter}}" />
+                  <Setter Property="Source" Value="{Binding Source={x:Static prop:Images.imageres_8}, Converter={StaticResource IconToImageSourceConverter}}" />
                 </Style>
                 <Style x:Key="styleTreeViewItemIconTileNote" TargetType="{x:Type Image}" BasedOn="{StaticResource styleTreeViewItemIconCommon}">
-                  <Setter Property="Source" Value="{Binding Source={x:Static prop:Resources.imageres_1004}, Converter={StaticResource IconToImageSourceConverter}}" />
+                  <Setter Property="Source" Value="{Binding Source={x:Static prop:Images.imageres_1004}, Converter={StaticResource IconToImageSourceConverter}}" />
                 </Style>
                 <Style x:Key="styleTreeViewItemIconCDPlus" TargetType="{x:Type Image}" BasedOn="{StaticResource styleTreeViewItemIconCommon}">
-                  <Setter Property="Source" Value="{Binding Source={x:Static prop:Resources.imageres_180}, Converter={StaticResource IconToImageSourceConverter}}" />
+                  <Setter Property="Source" Value="{Binding Source={x:Static prop:Images.imageres_180}, Converter={StaticResource IconToImageSourceConverter}}" />
                 </Style>
                 <Style x:Key="styleTreeViewItemIconCD" TargetType="{x:Type Image}" BasedOn="{StaticResource styleTreeViewItemIconCommon}">
-                  <Setter Property="Source" Value="{Binding Source={x:Static prop:Resources.imageres_137}, Converter={StaticResource IconToImageSourceConverter}}" />
+                  <Setter Property="Source" Value="{Binding Source={x:Static prop:Images.imageres_137}, Converter={StaticResource IconToImageSourceConverter}}" />
                 </Style>
                 <Storyboard x:Key="storyboardTreeViewItemIconRotation" BeginTime="00:00:00.000" RepeatBehavior="Forever" FillBehavior="Stop">
                   <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(RotateTransform.Angle)" From="0" To="360" BeginTime="00:00:00.000" Duration="00:00:05.000" />
@@ -2061,10 +2061,10 @@
                         <TriggerBase.ExitActions>
                           <StopStoryboard BeginStoryboardName="AnimationBeginStoryboard" />
                         </TriggerBase.ExitActions>
-                        <Setter Property="Source" Value="{Binding Source={x:Static prop:Resources.imageres_5311}, Converter={StaticResource IconToImageSourceConverter}}" />
+                        <Setter Property="Source" Value="{Binding Source={x:Static prop:Images.imageres_5311}, Converter={StaticResource IconToImageSourceConverter}}" />
                       </DataTrigger>
                       <DataTrigger Value="False" Binding="{qc:Binding $P &gt; 0, P={Binding ReaderWriterLock.LockingWriteCount}}">
-                        <Setter Property="Source" Value="{Binding Source={x:Static prop:Resources.imageres_5342}, Converter={StaticResource IconToImageSourceConverter}}" />
+                        <Setter Property="Source" Value="{Binding Source={x:Static prop:Images.imageres_5342}, Converter={StaticResource IconToImageSourceConverter}}" />
                       </DataTrigger>
                     </Style.Triggers>
                   </Style>
@@ -2150,10 +2150,10 @@
                                 <TriggerBase.ExitActions>
                                   <StopStoryboard BeginStoryboardName="AnimationBeginStoryboard" />
                                 </TriggerBase.ExitActions>
-                                <Setter Property="Source" Value="{Binding Source={x:Static prop:Resources.imageres_5311}, Converter={StaticResource IconToImageSourceConverter}}" />
+                                <Setter Property="Source" Value="{Binding Source={x:Static prop:Images.imageres_5311}, Converter={StaticResource IconToImageSourceConverter}}" />
                               </DataTrigger>
                               <DataTrigger Value="False" Binding="{Binding DataContext.IsWriteLockHeldInitializeBMSFiles, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type v:MainWindow}}}">
-                                <Setter Property="Source" Value="{Binding Source={x:Static prop:Resources.imageres_108}, Converter={StaticResource IconToImageSourceConverter}}" />
+                                <Setter Property="Source" Value="{Binding Source={x:Static prop:Images.imageres_108}, Converter={StaticResource IconToImageSourceConverter}}" />
                               </DataTrigger>
                             </Style.Triggers>
                           </Style>
@@ -2219,10 +2219,10 @@
                                 <TriggerBase.ExitActions>
                                   <StopStoryboard BeginStoryboardName="AnimationBeginStoryboard" />
                                 </TriggerBase.ExitActions>
-                                <Setter Property="Source" Value="{Binding Source={x:Static prop:Resources.imageres_5311}, Converter={StaticResource IconToImageSourceConverter}}" />
+                                <Setter Property="Source" Value="{Binding Source={x:Static prop:Images.imageres_5311}, Converter={StaticResource IconToImageSourceConverter}}" />
                               </DataTrigger>
                               <DataTrigger Value="False" Binding="{Binding DataContext.IsWriteLockHeldBMSFilesPendingInstall, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type v:MainWindow}}}">
-                                <Setter Property="Source" Value="{Binding Source={x:Static prop:Resources.imageres_1004}, Converter={StaticResource IconToImageSourceConverter}}" />
+                                <Setter Property="Source" Value="{Binding Source={x:Static prop:Images.imageres_1004}, Converter={StaticResource IconToImageSourceConverter}}" />
                               </DataTrigger>
                             </Style.Triggers>
                           </Style>
@@ -2301,10 +2301,10 @@
                                 <TriggerBase.ExitActions>
                                   <StopStoryboard BeginStoryboardName="AnimationBeginStoryboard" />
                                 </TriggerBase.ExitActions>
-                                <Setter Property="Source" Value="{Binding Source={x:Static prop:Resources.imageres_5311}, Converter={StaticResource IconToImageSourceConverter}}" />
+                                <Setter Property="Source" Value="{Binding Source={x:Static prop:Images.imageres_5311}, Converter={StaticResource IconToImageSourceConverter}}" />
                               </DataTrigger>
                               <DataTrigger Value="False" Binding="{Binding DataContext.IsWriteLockHeldInitializeBMSFilesZeroNote, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type v:MainWindow}}}">
-                                <Setter Property="Source" Value="{Binding Source={x:Static prop:Resources.imageres_5332}, Converter={StaticResource IconToImageSourceConverter}}" />
+                                <Setter Property="Source" Value="{Binding Source={x:Static prop:Images.imageres_5332}, Converter={StaticResource IconToImageSourceConverter}}" />
                               </DataTrigger>
                             </Style.Triggers>
                           </Style>
@@ -2329,10 +2329,10 @@
                                 <TriggerBase.ExitActions>
                                   <StopStoryboard BeginStoryboardName="AnimationBeginStoryboard" />
                                 </TriggerBase.ExitActions>
-                                <Setter Property="Source" Value="{Binding Source={x:Static prop:Resources.imageres_5311}, Converter={StaticResource IconToImageSourceConverter}}" />
+                                <Setter Property="Source" Value="{Binding Source={x:Static prop:Images.imageres_5311}, Converter={StaticResource IconToImageSourceConverter}}" />
                               </DataTrigger>
                               <DataTrigger Value="False" Binding="{Binding DataContext.IsWriteLockHeldInitializdBMSFilesHealthStatus, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type v:MainWindow}}}">
-                                <Setter Property="Source" Value="{Binding Source={x:Static prop:Resources.imageres_5332}, Converter={StaticResource IconToImageSourceConverter}}" />
+                                <Setter Property="Source" Value="{Binding Source={x:Static prop:Images.imageres_5332}, Converter={StaticResource IconToImageSourceConverter}}" />
                               </DataTrigger>
                             </Style.Triggers>
                           </Style>
@@ -2357,10 +2357,10 @@
                                 <TriggerBase.ExitActions>
                                   <StopStoryboard BeginStoryboardName="AnimationBeginStoryboard" />
                                 </TriggerBase.ExitActions>
-                                <Setter Property="Source" Value="{Binding Source={x:Static prop:Resources.imageres_5311}, Converter={StaticResource IconToImageSourceConverter}}" />
+                                <Setter Property="Source" Value="{Binding Source={x:Static prop:Images.imageres_5311}, Converter={StaticResource IconToImageSourceConverter}}" />
                               </DataTrigger>
                               <DataTrigger Value="False" Binding="{Binding DataContext.IsWriteLockHeldInitializeBMSFilesEncodingInfo, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type v:MainWindow}}}">
-                                <Setter Property="Source" Value="{Binding Source={x:Static prop:Resources.imageres_5332}, Converter={StaticResource IconToImageSourceConverter}}" />
+                                <Setter Property="Source" Value="{Binding Source={x:Static prop:Images.imageres_5332}, Converter={StaticResource IconToImageSourceConverter}}" />
                               </DataTrigger>
                             </Style.Triggers>
                           </Style>
@@ -2385,10 +2385,10 @@
                                 <TriggerBase.ExitActions>
                                   <StopStoryboard BeginStoryboardName="AnimationBeginStoryboard" />
                                 </TriggerBase.ExitActions>
-                                <Setter Property="Source" Value="{Binding Source={x:Static prop:Resources.imageres_5311}, Converter={StaticResource IconToImageSourceConverter}}" />
+                                <Setter Property="Source" Value="{Binding Source={x:Static prop:Images.imageres_5311}, Converter={StaticResource IconToImageSourceConverter}}" />
                               </DataTrigger>
                               <DataTrigger Value="False" Binding="{Binding DataContext.IsWriteLockHeldBMSFilesDuplicated, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type v:MainWindow}}}">
-                                <Setter Property="Source" Value="{Binding Source={x:Static prop:Resources.imageres_5332}, Converter={StaticResource IconToImageSourceConverter}}" />
+                                <Setter Property="Source" Value="{Binding Source={x:Static prop:Images.imageres_5332}, Converter={StaticResource IconToImageSourceConverter}}" />
                               </DataTrigger>
                             </Style.Triggers>
                           </Style>

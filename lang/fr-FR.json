@@ -314,7 +314,6 @@
   "Skip": "Skip",
   "Size": "Size",
   "Record_setting_normalize": "Normalize:",
-  "No_name_folder": "No name folder",
   "Success": "Success",
   "Details_test_keep_installable_pending": "[TEST] Ajouter en attente au lieu d'installer automatiquement même pour les nouvelles entrées",
   "Details_test_db_read_optimized_pragmas": "[TEST] Activer les PRAGMAs optimisés pour la lecture de la base de données",

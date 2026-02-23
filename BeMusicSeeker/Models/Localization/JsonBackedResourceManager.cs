@@ -21,15 +21,29 @@ public sealed class JsonBackedResourceManager : ResourceManager
     {
         CultureInfo cultureInfo = culture ?? CultureInfo.CurrentUICulture;
         string cultureName = cultureInfo.Name;
-        if (cultureName != "ja-JP" && App.AvailableCultures.Values.Contains(cultureName))
+
+        // First try to resolve from JSON languages (including user-customized ja-JP.json)
+        if (App.AvailableCultures.Values.Contains(cultureName))
         {
             if (JsonLanguageCatalog.TryGetString(cultureName, name, out var value))
             {
                 return value;
             }
-            return fallbackResourceManager.GetString(name, JaCulture);
         }
-        return fallbackResourceManager.GetString(name, cultureInfo);
+
+        // Fallback 1: Direct resx match for the requested culture (if available)
+        // Fallback 2: Fallback to ja-JP inside resx (default embedded language)
+        try
+        {
+            string resxValue = fallbackResourceManager.GetString(name, cultureInfo);
+            if (!string.IsNullOrEmpty(resxValue))
+            {
+                return resxValue;
+            }
+        }
+        catch { }
+
+        return fallbackResourceManager.GetString(name, JaCulture);
     }
 
     public override object GetObject(string name, CultureInfo culture)

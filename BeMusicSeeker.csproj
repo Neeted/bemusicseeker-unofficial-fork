@@ -49,6 +49,7 @@
     <None Remove="resources\imageres_5328.ico" />
     <None Remove="resources\commodore-20rounded-20v1.2.ttf" />
     <EmbeddedResource Include="icon_and_logo.ico" LogicalName="icon_and_logo.ico" />
+    <EmbeddedResource Update="Properties\Images.resx" />
     <Resource Include="resources\default_image.jpg" />
     <Resource Include="resources\sovjetboxbd_v0_9.otf" />
     <EmbeddedResource Include="resources\icon_and_logo.png" LogicalName="resources/icon_and_logo.png" />
