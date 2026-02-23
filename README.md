@@ -69,6 +69,8 @@ Rather, this repository serves primarily as a **distribution hub for the modded 
     - Fixed an issue where warning messages were displayed across multiple lines if 3 or more duplicates existed, consolidating the warning into a single entry.
     - Duplicate chart rows are now highlighted with a light red background color.
     - *(Note: The Smart Overwrite mode's behavior affects this screen as well. Detailed documentation is recommended in the future.)*
+17. **Enhanced Multi-Language Support**
+    - In addition to strengthening English and French support, Chinese (Simplified), Chinese (Traditional), and Korean are now supported.
 
 ## TODO
 
@@ -91,6 +93,7 @@ Rather, this repository serves primarily as a **distribution hub for the modded 
    - Some columns in the song table might be intentionally left `NULL` (possibly to trigger LR2's chart parsing or to catch parse errors). Even so, filling in values like BPM might be harmless and requires testing.
 9. `bmson` format management.
     - If implemented, it would be much easier to completely decouple this from the LR2 data lineage and use an independent, custom DB.
+    - **At the very least, we'd like to show a warning when bmson files are included when adding to the pending list.**
 10. Fix the issue where interior file modification dates are not restored when drag-and-dropping archives (e.g., zip) for installation.
     - This affects the accuracy of the Smart Overwrite mode, so it needs to be improved.
 11. Warning dialog when integration with Everything 1.5a fails.
