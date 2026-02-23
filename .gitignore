@@ -1,6 +1,7 @@
 # Build results
 [Bb]in/
 [Oo]bj/
+dist
 
 # Visual Studio 2015/2017 cache/options directory
 .vs/

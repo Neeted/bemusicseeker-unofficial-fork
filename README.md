@@ -108,13 +108,10 @@ Rather, this repository serves primarily as a **distribution hub for the modded 
     - Under no circumstances will any feature be implemented that extracts only the specific charts listed on a difficulty table while stripping away the other charts (e.g., different difficulties) originally bundled by the BMS creator. (While this practice was seen in some past 'insane difficulty' unpackaged distributions, it lacks respect for the original creators.)
 16. Refactor local variable names lost during decompilation.
     - Many variables are named meaninglessly, like `list1, list2...` or `item1, item2...`, causing fatal readability issues (including hindering AI code comprehension) that need cleanup.
-17. Enhance multi-language support.
-    - Although the multi-language framework exists, currently only Japanese resources are available.
-    - We should investigate replacing the embedded DLL format with external language files (e.g., JSON) that can be easily edited via a text editor.
-18. Investigate the issue where reloading all playlists (either at startup or manually) while a "Recommend (Auto-update)" table is installed causes the playlist update to hang indefinitely.
+17. Investigate the issue where reloading all playlists (either at startup or manually) while a "Recommend (Auto-update)" table is installed causes the playlist update to hang indefinitely.
     - This issue seems to have stopped reproducing after some initialization code was tweaked. As a temporary countermeasure, `ServicePointManager.DefaultConnectionLimit = 12;` has been set.
     - Fundamentally, migrating from `HttpWebRequest` to `HttpClient` is preferable, but difficult to do immediately given the codebase size.
-19. Review the implementation status of the custom folder export feature.
+18. Review the implementation status of the custom folder export feature.
     - There are no specific improvement ideas yet, but as it's a critical core feature, its operational specifications need to be reconfirmed.
 
 ## License Scope

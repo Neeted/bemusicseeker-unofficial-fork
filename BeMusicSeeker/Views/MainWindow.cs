@@ -145,7 +145,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     {
         try
         {
-            string versionUrl = "https://raw.githubusercontent.com/Neeted/bemusicseeker-unofficial-fork/main/version.txt";
+            // キャッシュバスター: GitHub CDN のキャッシュを回避する
+            string versionUrl = "https://raw.githubusercontent.com/Neeted/bemusicseeker-unofficial-fork/main/version.txt?t=" + DateTimeOffset.UtcNow.ToUnixTimeSeconds();
             using (var client = new System.Net.Http.HttpClient())
             {
                 client.Timeout = TimeSpan.FromSeconds(5);
