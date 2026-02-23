@@ -121,7 +121,7 @@ function Sync-PublicRepo {
     Mirror-Directory "lang"
 
     # 単体ファイルのコピー
-    $files = @("README.md", "README.ja.md", "LICENSE", "ThirdPartyNotices.txt", "ThirdPartyNotices.ja.txt")
+    $files = @("README.md", "README.ja.md", "LICENSE", "ThirdPartyNotices.txt", "ThirdPartyNotices.ja.txt", "version.txt")
     foreach ($f in $files) {
         Copy-Item (Join-Path $devRoot $f) (Join-Path $pubRoot $f) -Force
         Write-Host "  コピー: $f"
