@@ -35,8 +35,7 @@ public static class JsonLanguageCatalog
     {
         try
         {
-            string location = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? ".";
-            string text = Path.Combine(location, "lang", cultureName + ".json");
+            string text = Path.Combine(GetLangDirectory(), cultureName + ".json");
             if (!File.Exists(text))
             {
                 NLogWrapper.TraceLogger?.Warn("lang_json missing path=" + text);
@@ -58,5 +57,75 @@ public static class JsonLanguageCatalog
             NLogWrapper.TraceLogger?.Warn(ex, "lang_json load failed culture=" + cultureName);
             return new Dictionary<string, string>(StringComparer.Ordinal);
         }
+    }
+
+    /// <summary>
+    /// lang/ フォルダ内のJSONファイルをスキャンし、利用可能な言語の辞書を返す。
+    /// キー: 表示名（_language_name の値）、値: カルチャ名（ファイル名から取得）。
+    /// 日本語は常に先頭に含まれる（JSONファイル不要）。
+    /// </summary>
+    public static Dictionary<string, string> DiscoverLanguages()
+    {
+        var result = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            { "Japanese", "ja-JP" }
+        };
+
+        try
+        {
+            string langDir = GetLangDirectory();
+            if (!Directory.Exists(langDir))
+            {
+                NLogWrapper.TraceLogger?.Warn("lang_json discover: lang directory not found path=" + langDir);
+                return result;
+            }
+
+            foreach (string filePath in Directory.GetFiles(langDir, "*.json"))
+            {
+                try
+                {
+                    string cultureName = Path.GetFileNameWithoutExtension(filePath);
+                    // カルチャ名が有効かどうかを検証
+                    System.Globalization.CultureInfo.GetCultureInfo(cultureName);
+
+                    using FileStream stream = File.OpenRead(filePath);
+                    var settings = new DataContractJsonSerializerSettings { UseSimpleDictionaryFormat = true };
+                    var serializer = new DataContractJsonSerializer(typeof(Dictionary<string, string>), settings);
+                    var dictionary = serializer.ReadObject(stream) as Dictionary<string, string>;
+
+                    if (dictionary != null && dictionary.TryGetValue("_language_name", out string displayName) && !string.IsNullOrWhiteSpace(displayName))
+                    {
+                        // 同じ表示名がなければ追加
+                        if (!result.ContainsKey(displayName))
+                        {
+                            result[displayName] = cultureName;
+                        }
+                    }
+                    else
+                    {
+                        NLogWrapper.TraceLogger?.Warn("lang_json discover: _language_name not found in " + filePath);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    NLogWrapper.TraceLogger?.Warn(ex, "lang_json discover: failed to read " + filePath);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            NLogWrapper.TraceLogger?.Warn(ex, "lang_json discover: failed to scan lang directory");
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// lang/ ディレクトリのパスを返す
+    /// </summary>
+    private static string GetLangDirectory()
+    {
+        string location = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? ".";
+        return Path.Combine(location, "lang");
     }
 }
