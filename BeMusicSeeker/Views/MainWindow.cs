@@ -136,6 +136,46 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             _panelImage = null;
         });
         gridBMSPlayerImage.Source = panelImage;
+
+        // Start async update check
+        Task.Run(async () => await CheckForUpdatesAsync());
+    }
+
+    private async Task CheckForUpdatesAsync()
+    {
+        try
+        {
+            string versionUrl = "https://raw.githubusercontent.com/Neeted/bemusicseeker-unofficial-fork/main/version.txt";
+            using (var client = new System.Net.Http.HttpClient())
+            {
+                client.Timeout = TimeSpan.FromSeconds(5);
+                string latestVersionStr = await client.GetStringAsync(versionUrl);
+                latestVersionStr = latestVersionStr?.Trim();
+
+                if (Version.TryParse(latestVersionStr, out Version latestVersion))
+                {
+                    string currentVersionStr = System.Reflection.Assembly.GetExecutingAssembly()
+                        .GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
+                        .OfType<System.Reflection.AssemblyInformationalVersionAttribute>()
+                        .FirstOrDefault()?.InformationalVersion ?? "0.0.0.0";
+                    if (Version.TryParse(currentVersionStr, out Version currentVersion) && latestVersion > currentVersion)
+                    {
+                        base.Dispatcher.Invoke(() =>
+                        {
+                            DispatcherMessageBox.Show(
+                                $"A new version ({latestVersionStr}) is available.\nYour version: {currentVersionStr}\n\nPlease check the repository.",
+                                "Update Available",
+                                MessageBoxButton.OK,
+                                MessageBoxImage.Information);
+                        });
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Ribbit.Logging.NLogWrapper.FileLogger?.Warn("Failed to check for updates: " + ex.Message);
+        }
     }
 
     public void ApplyStartupInitialSelectionRequest()

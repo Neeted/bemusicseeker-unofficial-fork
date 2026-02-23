@@ -110,6 +110,7 @@
       <HintPath>libs\QuickConverter.dll</HintPath>
     </Reference>
     <Reference Include="System.Xml" />
+    <Reference Include="System.Net.Http" />
     <Reference Include="Microsoft.WindowsAPICodePack.Shell">
       <HintPath>libs\Microsoft.WindowsAPICodePack.Shell.dll</HintPath>
     </Reference>
