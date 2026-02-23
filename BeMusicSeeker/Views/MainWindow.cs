@@ -740,11 +740,14 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        TreeViewItem treeViewItem = FindAncestor<TreeViewItem>(e.OriginalSource as DependencyObject);
-        if (treeViewItem == null)
+        // スクロールバーやExpanderトグルのクリックでは更新しない
+        DependencyObject source = e.OriginalSource as DependencyObject;
+        if (FindAncestor<System.Windows.Controls.Primitives.ScrollBar>(source) != null ||
+            FindAncestor<System.Windows.Controls.Primitives.ToggleButton>(source) != null)
         {
-            treeViewItem = GetSelectedTreeViewItem(treeViewControl);
+            return;
         }
+        TreeViewItem treeViewItem = FindAncestor<TreeViewItem>(source);
         if (treeViewItem == null || !treeViewItem.IsSelected)
         {
             return;
