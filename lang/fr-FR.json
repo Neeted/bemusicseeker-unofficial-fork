@@ -314,5 +314,17 @@
   "Size": "Size",
   "Record_setting_normalize": "Normalize:",
   "No_name_folder": "No name folder",
-  "Success": "Success"
+  "Success": "Success",
+  "Details_test_keep_installable_pending": "[TEST] Ajouter en attente au lieu d'installer automatiquement même pour les nouvelles entrées",
+  "Details_test_db_read_optimized_pragmas": "[TEST] Activer les PRAGMAs optimisés pour la lecture de la base de données",
+  "Details_test_startup_expand_playlist_tree": "[TEST] Développer automatiquement l'arborescence des playlists au démarrage",
+  "Details_test_startup_select_install_pending": "[TEST] Définir la sélection initiale sur Installation > En attente au démarrage",
+  "Details_test_smart_component_overwrite": "[TEST] Optimiser l'écrasement des fichiers en comparant la date de modification et la taille lors de l'installation différentielle",
+  "Estimate_merge_loc": "Estimer la destination de fusion",
+  "Msg_estimate_merge_confirm": "Ré-estimer la destination d'installation sans utiliser la correction du dossier d'origine.\nLes estimations existantes seront écrasées.\nVoulez-vous continuer ?",
+  "Msg_open_install_destination_missing": "Impossible de déterminer la destination d'installation.\nLa destination estimée n'est pas définie, ou elle n'a pas pu être trouvée à partir des charts possédées.",
+  "Msg_open_install_destination_multiple_selected": "Plusieurs éléments sont sélectionnés. Seule la première chart sera utilisée.",
+  "Msg_open_install_destination_not_found": "Dossier de destination d'installation introuvable.\n{0}",
+  "Open_install_destination": "Ouvrir la destination d'installation",
+  "Update_history_v1000_1": "Unofficial Fork, Initial Release."
 }
