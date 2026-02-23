@@ -1,0 +1,14 @@
+Microsoft Blend SDK / Expression binaries notice
+
+Source: https://www.microsoft.com/en-us/download/details.aspx?id=10801
+Retrieved: 2026-02-21
+
+The following binaries are distributed under Microsoft SDK/EULA terms:
+- System.Windows.Interactivity.dll
+- Microsoft.Expression.Interactions.dll
+- Microsoft.Expression.Drawing.dll
+- Microsoft.Expression.Effects.dll
+
+Use and redistribution are governed by Microsoft terms for the corresponding SDK.
+This notice is a tracking aid; verify and keep the applicable Microsoft terms
+with final binary distribution.

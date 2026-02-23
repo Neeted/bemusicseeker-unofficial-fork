@@ -1,0 +1,15 @@
+BASS.NET wrapper licensing notice
+
+Source:
+- https://www.radio42.com/bass/bass_purchase.html
+- https://www.radio42.com/bass/bass_register.html
+Retrieved: 2026-02-21
+
+Bass.Net.dll is the managed wrapper and is separate from native BASS binaries.
+Upstream pages indicate freeware use may be allowed for personal,
+non-commercial, non-money-making software, under strict conditions.
+
+Important:
+- You must satisfy BASS.NET wrapper conditions.
+- You must also satisfy native BASS licensing terms from un4seen.
+- Do not treat this summary as a substitute for upstream legal text.

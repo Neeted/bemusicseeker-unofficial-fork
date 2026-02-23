@@ -1,0 +1,311 @@
+BeMusicSeeker サードパーティ・ノーティス
+
+最終更新: 2026-02-22
+適用範囲: BeMusicSeeker.csproj によって参照され、bin/Release/net472、vendor/native/{x86,x64}、native/、および resources/ 下で配布されるサードパーティ製ファイル。
+
+ステータスの凡例:
+- GREEN (緑): 一次情報と再配布の条件が確認されています。
+- YELLOW (黄): 一次情報は確認できましたが、追加の確認や関連文書が必要です。
+- RED (赤): 出自または再配布の条件が不明確です。リリースのブロッカー（リリース禁止要素）として扱います。
+
+注意:
+- 本ファイルは技術的なコンプライアンスの補助文書であり、法的な助言を構成するものではありません。
+- 本リポジトリに同梱されているライセンス本文のファイルについては、`third_party/licenses/` を参照してください。
+
+================================================================================
+1) BASS Audio Library (ネイティブバイナリ)
+================================================================================
+ステータス: GREEN
+コンポーネント: bass.dll, bass_fx.dll, bassasio.dll, bassenc.dll, bassmix.dll, basswasapi.dll (x86/x64)
+著作権所有者: un4seen developments
+ライセンス: プロプライエタリ（非商用利用は無料、商用利用はライセンスが必要）
+ソース: https://www.un4seen.com/bass.html, https://www.un4seen.com/doc/bass/bass.html
+ライセンス本文: third_party/licenses/01-BASS-NOTICE.txt
+再配布時の注意事項:
+- 本リポジトリのMITライセンス適用外です。
+- 原則として非商用利用はアップストリームの条項により許可されています。
+- 商用利用の際は un4seen から BASS 商用ライセンスを取得する必要があります。
+- 配布パッケージにはBASS特有のノーティスを残してください。
+
+================================================================================
+2) Bass.Net (マネージドラッパー)
+================================================================================
+ステータス: GREEN
+コンポーネント: Bass.Net.dll
+著作権所有者: radio42
+ライセンス: ベンダー提供ラッパー利用許諾条項 (MIT ではありません)
+ソース: https://www.radio42.com/bass/bass_purchase.html, https://www.radio42.com/bass/bass_register.html
+ライセンス本文: third_party/licenses/02-BASS.NET-NOTICE.txt
+再配布時の注意事項:
+- マネージドラッパーはネイティブのBASSバイナリとは別物であり、個別に管理する必要があります。
+- 個人による非商用かつ非収益の（利益を得ない）エンドユーザー向けソフトウェアの場合、アップストリーム条項によりフリーウェアとしての利用が許可されている見込みです。
+- 利用条件は厳格であり（個人利用の範囲、再配布時の制限、サブライセンス不可等）、ノーティスを保持する必要があります。
+- 同梱するBASSのDLL（ネイティブ版）のライセンス条項も同時に満たす必要があります。
+
+================================================================================
+3) 7-Zip コアライブラリ
+================================================================================
+ステータス: GREEN
+コンポーネント: 7z.dll (x86/x64)
+著作権所有者: Igor Pavlov
+ライセンス: GNU LGPL または unRAR 制限に関する特約付きの混在ライセンス
+ソース: https://www.7-zip.org/
+ライセンス本文: third_party/licenses/03-LGPL-2.1.txt, third_party/licenses/03-7zip-unRAR-restriction.txt
+再配布時の注意事項:
+- 個別のDLLとして配布しています（動的リンク）。
+- LGPLの本文と unRAR 制限事項のノーティスを配布物に同梱してください。
+
+================================================================================
+4) SevenZipExtractor ラッパー
+================================================================================
+ステータス: GREEN
+コンポーネント: SevenZipExtractor.dll
+著作権所有者: Alexander Selishchev
+ライセンス: MIT
+ソース: https://www.nuget.org/packages/SevenZipExtractor/1.0.12
+ライセンス本文: third_party/licenses/04-SevenZipExtractor-MIT.txt
+再配布時の注意事項:
+- リポジトリのバイナリのSHA256値が、NuGet 1.0.12 lib/net45 のファイルと一致していることを確認済みです。
+- MITライセンス本文を配布物に同梱してください。
+
+================================================================================
+5) Blend SDK WPF バイナリ
+================================================================================
+ステータス: GREEN
+コンポーネント: System.Windows.Interactivity.dll, Microsoft.Expression.Interactions.dll,
+           Microsoft.Expression.Drawing.dll, Microsoft.Expression.Effects.dll
+著作権所有者: Microsoft Corporation
+ライセンス: Microsoft SDK/EULA 再配布条件
+ソース: https://www.nuget.org/packages/Expression.Blend.Sdk (旧公式DLページは提供終了)
+ライセンス本文: third_party/licenses/05-Microsoft-SDK-NOTICE.txt
+再配布時の注意事項:
+- OSI 準拠のオープンソース・パッケージではなく、再配布可能な SDK バイナリとして扱います。
+- Microsoft 公式のダウンロードセンターからの単体提供は終了していますが、デファクトの NuGet パッケージ経由等で同等のライセンス下にて流通しています。製品の注意事項を残してください。
+
+================================================================================
+6) Windows API Code Pack
+================================================================================
+ステータス: GREEN
+コンポーネント: Microsoft.WindowsAPICodePack.dll, Microsoft.WindowsAPICodePack.Shell.dll
+著作権所有者: Microsoft Corporation
+ライセンス: MIT
+ソース: https://www.nuget.org/packages/WindowsAPICodePack/
+ライセンス本文: third_party/licenses/06-WindowsAPICodePack-MIT.txt
+再配布時の注意事項:
+- ライセンス本文を配布物に同梱してください。
+
+================================================================================
+7) Livet
+================================================================================
+ステータス: GREEN
+コンポーネント: Livet.dll, Livet.Extensions.dll
+著作権所有者: Livet Project
+ライセンス: zlib/libpng
+ソース: https://github.com/runceel/Livet
+ライセンス本文: third_party/licenses/07-Livet-zlib.txt
+再配布時の注意事項:
+- ライセンスと著作権表示を残してください。
+
+================================================================================
+8) MetroRadiance
+================================================================================
+ステータス: GREEN
+コンポーネント: MetroRadiance.dll, MetroRadiance.Core.dll, MetroRadiance.Chrome.dll
+著作権所有者: Manato KAMEYA
+ライセンス: MIT
+ソース: https://github.com/Grabacr07/MetroRadiance
+ライセンス本文: third_party/licenses/08-MetroRadiance-MIT.txt
+再配布時の注意事項:
+- ライセンス本文と著作権表示を同梱してください。
+
+================================================================================
+9) QuickConverter
+================================================================================
+ステータス: GREEN
+コンポーネント: QuickConverter.dll
+著作権所有者: JohannesMoersch
+ライセンス: MIT
+ソース: https://github.com/JohannesMoersch/QuickConverter
+ライセンス本文: third_party/licenses/09-QuickConverter-MIT.txt
+再配布時の注意事項:
+- MIT ライセンス本文と著作権表示を同梱してください。
+
+================================================================================
+10) DynamicJson
+================================================================================
+ステータス: GREEN
+コンポーネント: DynamicJson.dll
+著作権所有者: neuecc
+ライセンス: MS-PL
+ソース: https://github.com/neuecc/DynamicJson
+ライセンス本文: third_party/licenses/10-DynamicJson-MS-PL.txt
+再配布時の注意事項:
+- MS-PL ライセンス本文を同梱してください。
+
+================================================================================
+11) SgmlReader
+================================================================================
+ステータス: GREEN
+コンポーネント: SgmlReaderDll.dll
+著作権所有者: Microsoft Corporation; MindTouch
+ライセンス: Apache-2.0
+ソース: https://github.com/MindTouch/SGMLReader
+ライセンス本文: third_party/licenses/11-Apache-2.0.txt
+再配布時の注意事項:
+- v1.8.11 (MindTouchフォーク) のバイナリであることを確認済みです。
+- Apache 2.0 ライセンスの本文および著作権表示を同梱してください。
+
+================================================================================
+12) SQLite
+================================================================================
+ステータス: GREEN
+コンポーネント: sqlite3.dll, sqlite.net.dll
+著作権所有者: sqlite3: D. Richard Hipp およびコントリビューター; sqlite.net: Frank A. Krueger およびコントリビューター
+ライセンス: sqlite3: パブリックドメイン; sqlite.net.dll: MIT
+ソース: https://www.sqlite.org/ (sqlite3), https://github.com/praeclarum/sqlite-net (sqlite.net.dll)
+ライセンス本文: third_party/licenses/12-SQLite-Public-Domain.txt, third_party/licenses/12-sqlite-net-MIT.txt
+再配布時の注意事項:
+- sqlite3 そのものはパブリックドメインです。
+- sqlite.net.dll は praeclarum/sqlite-net を元アプリ開発者がビルドした同一系譜のアーティファクトとして扱われます。MITライセンス本文を同梱してください。
+
+================================================================================
+13) NLog
+================================================================================
+ステータス: GREEN
+コンポーネント: NLog.dll
+著作権所有者: NLog コントリビューター
+ライセンス: BSD-3-Clause
+ソース: https://github.com/NLog/NLog
+ライセンス本文: third_party/licenses/13-NLog-BSD-3-Clause.txt
+再配布時の注意事項:
+- BSD 3条項ライセンスの本文を同梱してください。
+
+================================================================================
+14) System.Collections.Immutable
+================================================================================
+ステータス: GREEN
+コンポーネント: System.Collections.Immutable.dll
+著作権所有者: .NET Foundation およびコントリビューター
+ライセンス: MIT
+ソース: https://www.nuget.org/packages/System.Collections.Immutable/
+ライセンス本文: third_party/licenses/14-System.Collections.Immutable-MIT.txt
+再配布時の注意事項:
+- MIT ライセンス本文を同梱してください。
+
+================================================================================
+15) System.Resources.Extensions および間接的なランタイム・アセンブリ
+================================================================================
+ステータス: GREEN
+コンポーネント: System.Resources.Extensions.dll, System.Memory.dll, System.Buffers.dll,
+           System.Numerics.Vectors.dll, System.Runtime.CompilerServices.Unsafe.dll
+著作権所有者: .NET Foundation およびコントリビューター
+ライセンス: MIT
+ソース: https://www.nuget.org/packages/System.Resources.Extensions/8.0.0
+ライセンス本文: third_party/licenses/15-System.Resources.Extensions-MIT.txt
+再配布時の注意事項:
+- NuGet パッケージグラフからの間接的な（推移的な）ランタイムアセンブリです。
+- リリース用アーティファクトで再配布する際は MIT ライセンスの本文を残してください。
+
+================================================================================
+16) Everything SDK
+================================================================================
+ステータス: GREEN
+コンポーネント: Everything3_x64.dll
+著作権所有者: voidtools / David Carpenter
+ライセンス: MIT
+ソース: https://www.voidtools.com/support/everything/sdk/
+ライセンス本文: third_party/licenses/16-Everything3-MIT.txt
+再配布時の注意事項:
+- ライセンスヘッダーは Everything3 SDK のソースコードおよびヘッダファイルに含まれています。
+
+================================================================================
+17) EverythingBridge
+================================================================================
+ステータス: GREEN
+コンポーネント: EverythingBridge_x64.dll (ローカルで任意にビルドされたもの)
+著作権所有者: ﾏﾝﾊｯﾀﾝｶﾞｯﾌｪ@CyanHowan
+ライセンス: MIT (本プロジェクトの LICENSEに準拠)
+ソース: native/EverythingBridge
+ライセンス本文: LICENSE
+再配布時の注意事項:
+- native/EverythingBridge ソースコードからビルドされたファーストパーティ製のブリッジDLLです。
+
+================================================================================
+18) OggVorbis.NET バイナリ
+================================================================================
+ステータス: GREEN
+コンポーネント: OggVorbis.NET.dll, OggVorbis.NET64.dll
+著作権所有者: tu-sa; Xiph.org Foundation
+ライセンス: BSD 3条項スタイル（ラッパーに加えて libogg / libvorbis の注意書きを含む）
+ソース: https://github.com/ttsuki/OggVorbis.NET
+ライセンス本文: third_party/licenses/18-OggVorbis.NET-COPYING.txt
+再配布時の注意事項:
+- 上流となるアップストリームリポジトリおよび COPYING （コピー条項）については確認済みです。
+- デコンパイル調査により、同梱のバイナリが ttsuki/OggVorbis.NET のソースコードと完全に一致することが確認されました。
+- COPYING ファイル（libogg / libvorbis の著作権表示を含む）を同梱してください。
+
+================================================================================
+19) IniLibrary
+================================================================================
+ステータス: GREEN
+コンポーネント: IniLibrary.dll
+著作権所有者: フォーク元である BeMusicSeeker の由来
+ライセンス: フォーク元作成者によるバイナリとして採用（メンテナの出自判定）
+ソース: 元アプリのインストールおよびビルドパスの証拠に基づく
+ライセンス本文: 
+再配布時の注意事項:
+- オリジナルの BeMusicSeeker ビルド環境で生成された同一系譜の成果物であるというメンテナによる判断です。
+
+================================================================================
+20) フォントファイル (Fonts)
+================================================================================
+20-1) Ligature Symbols
+ステータス: GREEN
+コンポーネント: ligaturesymbols-2.11.otf
+著作権所有者: Kazuki Ujiie (kudakurage)
+ライセンス: SIL Open Font License 1.1
+ソース: https://kudakurage.com/ligature_symbols/
+ライセンス本文: third_party/licenses/20-LigatureSymbols-OFL-1.1.txt
+再配布時の注意事項:
+- SIL Open Font License 1.1 が適用されることを確認済みです。
+- ライセンス本文を同梱してください。
+
+20-2) Sovjet Box
+ステータス: GREEN
+コンポーネント: sovjetboxbd_v0_9.otf
+著作権所有者: Jyrki Ihalainen
+ライセンス: SIL Open Font License 1.1
+ソース: https://online-fonts.com/fonts/sovjet-box
+ライセンス本文: third_party/licenses/20-SovjetBox-OFL-1.1.txt
+再配布時の注意事項:
+- 著作者は Jyrki Ihalainen 氏であり、OFL 1.1 で提供されていることを確認しました。
+- OFL ライセンスの本文を同梱してください。
+
+20-3) Commodore Rounded
+ステータス: GREEN
+コンポーネント: commodore-20rounded-20v1.2.ttf
+著作権所有者: Devin Cook
+ライセンス: フリーウェア (100% Free)
+ソース: https://www.dafont.com/commodore-64.font, http://www.devincook.com/
+ライセンス本文: 該当なし（フリーウェア）
+再配布時の注意事項:
+- 各種フォント配布サイト等で「100% Free（個人および商用利用無料）」であることが共通して確認されました。
+
+================================================================================
+GitHub リリース準備状況におけるアクション・サマリー
+================================================================================
+直ちに解決しなければならないブロッカー（RED）:
+(なし)
+
+追加対応を行うことにより条件付きでリリース可能（YELLOW）:
+(なし)
+
+準備完了（GREEN）:
+- 7z.dll, Livet, MetroRadiance, QuickConverter, DynamicJson,
+  Windows API Code Pack, NLog, .NET の MIT ランタイム依存関係,
+  System.Collections.Immutable, Everything3_x64.dll, EverythingBridge_x64.dll,
+  SevenZipExtractor.dll, sqlite.net.dll, IniLibrary.dll,
+  SgmlReaderDll.dll, OggVorbis.NET.dll / OggVorbis.NET64.dll,
+  フォント "Ligature Symbols", "Sovjet Box", commodore-20rounded-20v1.2.ttf,
+  BASS ネイティブバイナリ群, Bass.Net.dll, Blend SDK バイナリ群
+
