@@ -1,0 +1,44 @@
+# Build results
+[Bb]in/
+[Oo]bj/
+dist
+
+# Visual Studio 2015/2017 cache/options directory
+.vs/
+
+# User-specific files
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# Temporary files
+*.tmp
+*.bak
+*.swp
+
+# Windows image file caches
+Thumbs.db
+ehthumbs.db
+
+# Folder config file
+Desktop.ini
+
+# Recycle Bin used on file shares
+$RECYCLE.BIN/
+
+# VS Code
+.vscode/
+
+# Rider
+.idea/
+
+# Mac
+.DS_Store
+
+# Decompilation artifacts to ignore if desired, but user said "decompilation point as initial commit"
+# so we assume source files are tracked.
+
+# We keep 'libs' as it contains required dependencies not restored via NuGet.
+
+.tmp/
