@@ -25,6 +25,7 @@ Rather, this repository serves primarily as a **distribution hub for the modded 
     - These migrated settings are saved locally to `.\config\user.config` in your extracted folder, so your original BeMusicSeeker installation remains completely unaffected.
 4. **Usage and New Features**
     - Detailed explanations of basic usage are omitted here. Comprehensive documentation for the new features is currently unwritten. Please refer to the "Summary of Changes" below for an overview.
+    - Launching the application via `LaunchWithInfoLog.bat` enables verbose `[INFO]`-level logging in `application.log`, which is useful for troubleshooting and investigating application behavior. For guidance on reading the logs, see the [INFO Log Level Guide](docs/log-level-info-guide.md).
 
 ## Summary of Changes
 
