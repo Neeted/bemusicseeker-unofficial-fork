@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Linq;
+using BeMusicSeeker.Models.Localization;
 using BeMusicSeeker.Properties;
 using Livet;
 
@@ -7,16 +8,18 @@ namespace BeMusicSeeker.ViewModels;
 
 public class ResourceService : ViewModel
 {
-	public static ResourceService Current { get; } = new ResourceService();
+    public static ResourceService Current { get; } = new ResourceService();
 
-	public Resources Resources { get; } = new Resources();
+    public Resources Resources { get; private set; } = new Resources();
 
-	public void ChangeCulture(string name)
-	{
-		if (App.AvailableCultures.Values.Contains(name))
-		{
-			Resources.Culture = CultureInfo.GetCultureInfo(name);
-			RaisePropertyChanged(() => Resources);
-		}
-	}
+    public void ChangeCulture(string name)
+    {
+        if (App.AvailableCultures.Values.Contains(name))
+        {
+            JsonLanguageCatalog.Invalidate(name);
+            BeMusicSeeker.Properties.Resources.Culture = CultureInfo.GetCultureInfo(name);
+            Resources = new Resources();
+            RaisePropertyChanged(() => Resources);
+        }
+    }
 }
