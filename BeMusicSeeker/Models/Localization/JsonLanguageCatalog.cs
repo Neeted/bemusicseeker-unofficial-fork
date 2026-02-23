@@ -68,7 +68,7 @@ public static class JsonLanguageCatalog
     {
         var result = new Dictionary<string, string>(StringComparer.Ordinal)
         {
-            { "Japanese", "ja-JP" }
+            { "Default(日本語)", "ja-JP" }
         };
 
         try
