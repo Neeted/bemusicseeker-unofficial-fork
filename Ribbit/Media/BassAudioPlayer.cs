@@ -830,7 +830,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
 		DeviceList = getDeviceList();
 		try
 		{
-			_oggDecoderType = DllLoader.GetTypes(Path.Combine(Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location), Environment.Is64BitProcess ? "x64" : "x86"), Environment.Is64BitProcess ? "OggVorbis.NET64.dll" : "OggVorbis.NET.dll")).FirstOrDefault((Type t) => t.AssemblyQualifiedName.Contains("OggVorbisDotNet"));
+			_oggDecoderType = DllLoader.GetTypes(Path.Combine(Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location), "libs", Environment.Is64BitProcess ? "x64" : "x86"), Environment.Is64BitProcess ? "OggVorbis.NET64.dll" : "OggVorbis.NET.dll")).FirstOrDefault((Type t) => t.AssemblyQualifiedName.Contains("OggVorbisDotNet"));
 			if (_oggDecoderType == null)
 			{
 				NLogWrapper.NetworkLogger?.Error(string.Concat(new PlatformNotSupportedException(string.Concat("OggVorbisDotNet.OggDecodeStream is not found", Environment.NewLine, Environment.OSVersion, Environment.Is64BitProcess ? " (x64)" : " (x86)")), Environment.NewLine, Environment.StackTrace));

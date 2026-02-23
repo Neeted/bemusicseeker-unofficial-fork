@@ -27,11 +27,11 @@
     </None>
     <None Include="vendor\native\x86\*.dll">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <TargetPath>x86\%(Filename)%(Extension)</TargetPath>
+      <TargetPath>libs\x86\%(Filename)%(Extension)</TargetPath>
     </None>
     <None Include="vendor\native\x64\*.dll">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <TargetPath>x64\%(Filename)%(Extension)</TargetPath>
+      <TargetPath>libs\x64\%(Filename)%(Extension)</TargetPath>
     </None>
     <None Remove="BeMusicSeeker\App.xaml" />
     <ApplicationDefinition Include="BeMusicSeeker\App.xaml">
@@ -126,4 +126,21 @@
     <PackageReference Include="NLog" Version="4.4.3" />
     <PackageReference Include="System.Resources.Extensions" Version="8.0.0" />
   </ItemGroup>
+
+  <Target Name="RelocateManagedDependenciesToLibs" AfterTargets="CopyFilesToOutputDirectory">
+    <ItemGroup>
+      <_ManagedReferenceDllToMove Include="@(ReferenceCopyLocalPaths)"
+                                  Condition="'%(Extension)' == '.dll' and Exists('$(OutDir)%(Filename)%(Extension)')" />
+    </ItemGroup>
+
+    <Copy SourceFiles="@(_ManagedReferenceDllToMove->'$(OutDir)%(Filename)%(Extension)')"
+          DestinationFiles="@(_ManagedReferenceDllToMove->'$(OutDir)libs\\%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
+
+    <Delete Files="@(_ManagedReferenceDllToMove->'$(OutDir)%(Filename)%(Extension)')" />
+  </Target>
+
+  <Target Name="RemoveLegacyNativeOutputDirs" AfterTargets="RelocateManagedDependenciesToLibs">
+    <RemoveDir Directories="$(OutDir)x86;$(OutDir)x64" />
+  </Target>
 </Project>

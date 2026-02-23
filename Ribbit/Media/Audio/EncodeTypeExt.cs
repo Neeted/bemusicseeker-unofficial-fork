@@ -39,6 +39,11 @@ internal static class EncodeTypeExt
 		{
 			return directoryName;
 		}
+		directoryName = Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location), "libs", Environment.Is64BitProcess ? "x64" : "x86");
+		if (File.Exists(Path.Combine(directoryName, encoderFileName)))
+		{
+			return directoryName;
+		}
 		directoryName = Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location), Environment.Is64BitProcess ? "x64" : "x86");
 		if (File.Exists(Path.Combine(directoryName, encoderFileName)))
 		{
