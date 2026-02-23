@@ -16,6 +16,7 @@ dist
 *.log
 *.txt
 !third_party/licenses/*.txt
+!version.txt
 
 # Temporary files
 *.tmp
