@@ -126,6 +126,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     public MainWindow()
     {
         InitializeComponent();
+
+        // Add handler that catches already-handled TreeViewItem.Selected events to synchronize TreeView exclusivity
+        gridTreePane.AddHandler(TreeViewItem.SelectedEvent, new RoutedEventHandler(gridTreePane_TreeViewItemSelected), true);
+
         settingsDefaultEventListnener = new PropertyChangedEventListener(Settings.Default);
         settingsDefaultEventListnener.RegisterHandler(() => Settings.Default.UseExternalPanelImage, delegate
         {
@@ -4563,12 +4567,32 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         NowPanelState = MainWindowViewModel.PanelState.MOVIE_PLAYER;
     }
 
+    private TreeViewItem _lastSelectedTreeViewItem;
+    private bool _isCrossTreeDeselecting = false;
+
+    private void gridTreePane_TreeViewItemSelected(object sender, RoutedEventArgs e)
+    {
+        TreeViewItem tvi = e.OriginalSource as TreeViewItem;
+        if (tvi == null) tvi = e.Source as TreeViewItem;
+
+        if (tvi != null && tvi.IsSelected)
+        {
+            if (_lastSelectedTreeViewItem != null && _lastSelectedTreeViewItem != tvi)
+            {
+                _isCrossTreeDeselecting = true;
+                _lastSelectedTreeViewItem.IsSelected = false;
+                _isCrossTreeDeselecting = false;
+            }
+            _lastSelectedTreeViewItem = tvi;
+        }
+    }
+
     private void treeViewSelectedItemChanged(object sender, RoutedPropertyChangedEventArgs<object> e)
     {
         if (sender is TreeView)
         {
             e.Handled = true;
-            if (e.NewValue == null && e.OldValue != null && e.OldValue is BMSTable)
+            if (!_isCrossTreeDeselecting && e.NewValue == null && e.OldValue != null && e.OldValue is BMSTable)
             {
                 ((TreeView)sender).SelectTreeViewItemSearchedByHeader(((BMSTable)e.OldValue).name);
             }

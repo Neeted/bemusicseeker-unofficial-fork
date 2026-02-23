@@ -604,7 +604,7 @@
                           <Paragraph FontWeight="Bold">1.0.1.0:</Paragraph>
                           <List MarkerStyle="Box">
                             <ListItem>
-                              <Paragraph>右クリックメニュー（削除など）のサブメニュー展開矢印が極稀に消失する不具合を修正</Paragraph>
+                              <Paragraph>右クリックメニュー（削除など）のサブメニュー展開矢印が特定の操作手順で消失する不具合を根本から修正</Paragraph>
                             </ListItem>
                           </List>
                         </ListItem>
