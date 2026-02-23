@@ -5,6 +5,7 @@ using System.Drawing;
 using System.Globalization;
 using System.Resources;
 using System.Runtime.CompilerServices;
+using BeMusicSeeker.Models.Localization;
 
 namespace BeMusicSeeker.Properties;
 
@@ -24,7 +25,7 @@ public class Resources
 		{
 			if (resourceMan == null)
 			{
-				resourceMan = new ResourceManager("BeMusicSeeker.Properties.Resources", typeof(Resources).Assembly);
+				resourceMan = new JsonBackedResourceManager("BeMusicSeeker.Properties.Resources", typeof(Resources).Assembly);
 			}
 			return resourceMan;
 		}
