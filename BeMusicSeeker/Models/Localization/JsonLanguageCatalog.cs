@@ -50,6 +50,7 @@ public static class JsonLanguageCatalog
                 NLogWrapper.TraceLogger?.Warn("lang_json invalid_data path=" + text);
                 return new Dictionary<string, string>(StringComparer.Ordinal);
             }
+            Ribbit.Logging.NLogWrapper.FileLogger?.Info($"[JsonLanguageCatalog] Loaded {dictionary.Count} keys for culture '{cultureName}'");
             return new Dictionary<string, string>(dictionary, StringComparer.Ordinal);
         }
         catch (Exception ex)

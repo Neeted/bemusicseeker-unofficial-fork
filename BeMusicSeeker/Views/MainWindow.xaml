@@ -127,7 +127,7 @@
         </Setter>
         <Setter Property="FrameworkElement.FocusVisualStyle" Value="{x:Null}" />
       </Style>
-      <ContextMenu x:Key="dataGridContextMenu" HasDropShadow="True" Opened="dataGridContextMenuOpened">
+      <ContextMenu x:Key="dataGridContextMenu" x:Shared="False" HasDropShadow="True" Opened="dataGridContextMenuOpened">
         <MenuItem Name="dataGridContextMenuItemOpenLR2IR" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_lr2ir, Mode=OneWay}" Click="dataGridContextMenuItemOpenLR2IRClick" />
         <MenuItem Name="dataGridContextMenuItemOpenURL" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_Url, Mode=OneWay}" Click="dataGridContextMenuItemOpenURLClick" />
         <MenuItem Name="dataGridContextMenuItemOpenURLdiff" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_Url_diff, Mode=OneWay}" Click="dataGridContextMenuItemOpenURLdiffClick" />
@@ -143,43 +143,64 @@
             </Style>
           </ItemsControl.ItemContainerStyle>
         </MenuItem>
-        <MenuItem Name="dataGridContextMenuItemOpenVideo" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_video, Mode=OneWay}" SubmenuOpened="dataGridContextMenuOpenVideoSubmenuOpened">
+        <MenuItem Name="dataGridContextMenuItemOpenVideo" SubmenuOpened="dataGridContextMenuOpenVideoSubmenuOpened">
+          <MenuItem.Header>
+            <TextBlock Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_video, Mode=OneWay}" />
+          </MenuItem.Header>
           <MenuItem Name="dataGridContextMenuItemOpenVideoSubmenuStatus" IsEnabled="False" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Searching, Mode=OneWay}" />
           <MenuItem Name="dataGridContextMenuItemOpenVideoSubmenuYouTube" IsEnabled="False" Visibility="Collapsed" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.YouTube, Mode=OneWay}" Click="dataGridContextMenuItemOpenVideoSubmenuClick" />
           <MenuItem Name="dataGridContextMenuItemOpenVideoSubmenuNiconico" IsEnabled="False" Visibility="Collapsed" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.NicoNico, Mode=OneWay}" Click="dataGridContextMenuItemOpenVideoSubmenuClick" />
         </MenuItem>
-        <MenuItem Name="dataGridContextMenuItemSearchLink" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Search_downalods, Mode=OneWay}" SubmenuOpened="dataGridContextMenuSearchLinkOpened">
+        <MenuItem Name="dataGridContextMenuItemSearchLink" SubmenuOpened="dataGridContextMenuSearchLinkOpened">
+          <MenuItem.Header>
+            <TextBlock Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Search_downalods, Mode=OneWay}" />
+          </MenuItem.Header>
           <MenuItem Name="dummy" Header="" Visibility="Hidden" />
         </MenuItem>
         <MenuItem Name="dataGridContextMenuItemRegisterScore" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_chart_viewer, Mode=OneWay}" Click="dataGridContextMenuItemRegisterBMSFileToScoreViwer" />
         <Separator />
         <MenuItem Name="dataGridContextMenuItemUpdateRankingData" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Update_ranking_data, Mode=OneWay}" Click="dataGridContextMenuItemUpdateRankingDataClick" />
         <Separator />
-        <MenuItem Name="dataGridContextMenuItemFixEncoding" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Fix_character_encoding, Mode=OneWay}">
+        <MenuItem Name="dataGridContextMenuItemFixEncoding">
+          <MenuItem.Header>
+            <TextBlock Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Fix_character_encoding, Mode=OneWay}" />
+          </MenuItem.Header>
           <MenuItem Tag="shift_jis" Header="SjiftJIS" Click="fixEncodingSelectedBMS" />
           <MenuItem Tag="utf-8" Header="UTF-8" Click="fixEncodingSelectedBMS" />
           <MenuItem Tag="ks_c_5601-1987" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Korean, Mode=OneWay}" Click="fixEncodingSelectedBMS" />
           <MenuItem Tag="" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Mark_fixed, Mode=OneWay}" Click="fixEncodingSelectedBMS" />
         </MenuItem>
-        <MenuItem Name="dataGridContextMenuItemFullScanCheck" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.File_scan, Mode=OneWay}">
+        <MenuItem Name="dataGridContextMenuItemFullScanCheck">
+          <MenuItem.Header>
+            <TextBlock Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.File_scan, Mode=OneWay}" />
+          </MenuItem.Header>
           <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Rescan, Mode=OneWay}" Click="dataGridContextMenuItemForceFileScanCheckSelectedBMS" />
           <MenuItem Name="dataGridContextMenuItemIgnoreFileScanCheck" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Add_ignore, Mode=OneWay}" Click="ignoreFileScanCheckSelectedBMS" />
           <MenuItem Name="dataGridContextMenuItemNotIgnoreFileScanCheck" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Remove_ignore, Mode=OneWay}" Click="notIgnoredFileScanCheckSelectedBMS" />
         </MenuItem>
-        <MenuItem Name="dataGridContextMenuItemInstall" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Install, Mode=OneWay}">
+        <MenuItem Name="dataGridContextMenuItemInstall">
+          <MenuItem.Header>
+            <TextBlock Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Install, Mode=OneWay}" />
+          </MenuItem.Header>
           <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Estimate_install_loc, Mode=OneWay}" Click="searchInstallationDirectorySelectedBMS" />
           <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Estimate_merge_loc, Mode=OneWay}" Click="searchMergeDestinationSelectedBMS" />
           <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Install_to_estimation, Mode=OneWay}" Click="manualInstallSelectedBMS" />
           <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Force_install, Mode=OneWay}" Click="forceInstallSelectedBMS" />
           <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Clear_estimation, Mode=OneWay}" Click="dataGridContextMenuRemoveInstallDestinationClick" />
         </MenuItem>
-        <MenuItem Name="dataGridContextMenuItemFixInstall" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Fix_installed_loc, Mode=OneWay}">
+        <MenuItem Name="dataGridContextMenuItemFixInstall">
+          <MenuItem.Header>
+            <TextBlock Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Fix_installed_loc, Mode=OneWay}" />
+          </MenuItem.Header>
           <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Estimate_reinstall_loc, Mode=OneWay}" Click="dataGridContextMenuSearchCorrectInstallationDirectoryClick" />
           <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Reinstall_to_estimation, Mode=OneWay}" Click="dataGridContextMenuFixInstallationDirectoryClick" />
           <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Clear_reinstall_estimation, Mode=OneWay}" Click="dataGridContextMenuRemoveInstallDestinationClick" />
         </MenuItem>
         <Separator Name="dataGridContextMenuSeparatorForFolderview" />
-        <MenuItem Name="dataGridContextMenuItemMoveFile" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Move_to, Mode=OneWay}" ItemsSource="{Binding BMSParentFolderList, Source={StaticResource vm}}">
+        <MenuItem Name="dataGridContextMenuItemMoveFile" ItemsSource="{Binding BMSParentFolderList, Source={StaticResource vm}}">
+          <MenuItem.Header>
+            <TextBlock Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Move_to, Mode=OneWay}" />
+          </MenuItem.Header>
           <ItemsControl.ItemContainerStyle>
             <Style TargetType="{x:Type MenuItem}">
               <EventSetter Event="Click" Handler="dataGridContextMenuItemMoveFileClick" />
@@ -187,7 +208,10 @@
           </ItemsControl.ItemContainerStyle>
         </MenuItem>
         <MenuItem Name="dataGridContextMenuItemDeleteEntry" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Remove, Mode=OneWay}" Click="dataGridContextMenuItemDeleteEntryClick" />
-        <MenuItem Name="dataGridContextMenuItemDeleteFile" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Remove, Mode=OneWay}">
+        <MenuItem Name="dataGridContextMenuItemDeleteFile">
+          <MenuItem.Header>
+            <TextBlock Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Remove, Mode=OneWay}" />
+          </MenuItem.Header>
           <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Rename_invalid_ext, Mode=OneWay}" Click="dataGridContextMenuItemRenameBMSFileClick" />
           <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Move_to_recycle, Mode=OneWay}" Click="dataGridContextMenuItemRemoveBMSFileClick" />
         </MenuItem>
@@ -197,7 +221,10 @@
       </ContextMenu>
       <ContextMenu x:Key="treeViewPlaylistRootContextMenu" HasDropShadow="True" Opened="treeViewPlaylistRootContextMenuOpend">
         <MenuItem Name="treeViewPlaylistRootContextMenuItemCreateNewPlaylist" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Create_new, Mode=OneWay}" Click="treeViewPlaylistRootContextMenuItemCreateNewPlaylistClick" />
-        <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Import, Mode=OneWay}">
+        <MenuItem>
+          <MenuItem.Header>
+            <TextBlock Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Import, Mode=OneWay}" />
+          </MenuItem.Header>
           <MenuItem Name="treeViewPlaylistRootContextMenuItemLoadPlaylistURL" IsEnabled="False" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Load_Url, Mode=OneWay}" Click="treeViewPlaylistRootContextMenuItemLoadPlaylistURLClick" />
           <MenuItem Name="treeViewPlaylistRootContextMenuItemLoadPlaylistCollection" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Load_from_table_list, Mode=OneWay}" ItemsSource="{Binding BMSExternalTableListExt.Children}">
             <ItemsControl.ItemTemplate>
@@ -212,7 +239,10 @@
               </Style>
             </ItemsControl.ItemContainerStyle>
           </MenuItem>
-          <MenuItem Name="treeViewPlaylistRootContextMenuItemLoadWalkureTable" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Load_from_insane_estimation_table, Mode=OneWay}">
+          <MenuItem Name="treeViewPlaylistRootContextMenuItemLoadWalkureTable">
+            <MenuItem.Header>
+              <TextBlock Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Load_from_insane_estimation_table, Mode=OneWay}" />
+            </MenuItem.Header>
             <MenuItem Header="発狂BMS難度推定表 EASY" Tag="bmseeker:table.estimation?type=easy" Click="treeViewPlaylistRootContextMenuItemLoadWalkureTableClick" />
             <MenuItem Header="発狂BMS難度推定表 NORMAL" Tag="bmseeker:table.estimation?type=normal" Click="treeViewPlaylistRootContextMenuItemLoadWalkureTableClick" />
             <MenuItem Header="発狂BMS難度推定表 HARD" Tag="bmseeker:table.estimation?type=hard" Click="treeViewPlaylistRootContextMenuItemLoadWalkureTableClick" />
@@ -262,7 +292,10 @@
         <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_file_explorer, Mode=OneWay}" Click="treeViewInstallPackageContextMenuOpenExplorerClick" />
         <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_install_destination, Mode=OneWay}" Click="treeViewInstallPackageContextMenuOpenInstallDestinationClick" />
         <Separator />
-        <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Install, Mode=OneWay}">
+        <MenuItem>
+          <MenuItem.Header>
+            <TextBlock Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Install, Mode=OneWay}" />
+          </MenuItem.Header>
           <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Estimate_install_loc, Mode=OneWay}" Click="treeViewInstallPackageContextMenuSearchInstallationDirectoryClick" />
           <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Estimate_merge_loc, Mode=OneWay}" Click="treeViewInstallPackageContextMenuSearchMergeDestinationClick" />
           <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Install_to_estimation, Mode=OneWay}" Click="treeViewInstallPackageContextMenuManualInstallClick" />
@@ -278,7 +311,10 @@
       </ContextMenu>
       <ContextMenu x:Key="treeViewDuplicateFolderContextMenu" HasDropShadow="True" Opened="treeViewDuplicateFolderContextMenuOpened">
         <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_file_explorer, Mode=OneWay}" Click="treeViewDuplicateFolderContextMenuOpenExplorerClick" />
-        <MenuItem Name="treeViewDuplicateFolderContextMenuItemMergeInto" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Merge_to, Mode=OneWay}">
+        <MenuItem Name="treeViewDuplicateFolderContextMenuItemMergeInto">
+          <MenuItem.Header>
+            <TextBlock Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Merge_to, Mode=OneWay}" />
+          </MenuItem.Header>
           <ItemsControl.ItemContainerStyle>
             <Style TargetType="{x:Type MenuItem}">
               <Setter Property="Header" Value="{Binding Mode=OneWay, Converter={StaticResource pathAbbreviationConvberter}}" />

@@ -16,6 +16,7 @@ public class ResourceService : ViewModel
     {
         if (App.AvailableCultures.Values.Contains(name))
         {
+            Ribbit.Logging.NLogWrapper.FileLogger?.Info($"[ResourceService] ChangeCulture: switching to '{name}'");
             JsonLanguageCatalog.Invalidate(name);
             BeMusicSeeker.Properties.Resources.Culture = CultureInfo.GetCultureInfo(name);
             Resources = new Resources();
