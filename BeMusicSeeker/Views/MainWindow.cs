@@ -2681,6 +2681,14 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             bool flag10 = !flag4;
             menuItem15.Visibility = ((!flag10) ? Visibility.Collapsed : Visibility.Visible);
             menuItem15.IsEnabled = flag10;
+            // 診断ログ: サブアイテム消失の調査用
+            if (menuItem15.Items.Count == 0)
+            {
+                Ribbit.Logging.NLogWrapper.FileLogger?.Warn(
+                    "dataGridContextMenuItemDeleteFile has lost its child items. " +
+                    "Culture=" + System.Threading.Thread.CurrentThread.CurrentUICulture.Name +
+                    " Lang=" + Settings.Default.Lang);
+            }
         }
         if (separator != null)
         {

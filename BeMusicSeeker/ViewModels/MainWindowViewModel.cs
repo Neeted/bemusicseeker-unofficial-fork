@@ -1569,6 +1569,10 @@ public class MainWindowViewModel : ViewModel
         {
             get
             {
+                // 表示名が保存されている場合はそれを優先（同一カルチャ名の重複対策）
+                string savedDisplayName = Settings.Default.LangDisplayName;
+                if (!string.IsNullOrEmpty(savedDisplayName) && App.AvailableCultures.ContainsKey(savedDisplayName))
+                    return savedDisplayName;
                 return App.AvailableCultures.FirstOrDefault((KeyValuePair<string, string> kv) => kv.Value == Settings.Default.Lang).Key;
             }
             set
@@ -1577,6 +1581,7 @@ public class MainWindowViewModel : ViewModel
                 {
                     string text = App.AvailableCultures[value];
                     Settings.Default.Lang = text;
+                    Settings.Default.LangDisplayName = value;
                     ResourceService.Current.ChangeCulture(text);
                     RaisePropertyChanged("Language");
                 }

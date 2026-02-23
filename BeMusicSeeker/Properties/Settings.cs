@@ -1020,6 +1020,22 @@ internal sealed class Settings : ApplicationSettingsBase
 		}
 	}
 
+	// 言語ドロップダウンの表示名を保持する（同一カルチャ名の重複対策）
+	[UserScopedSetting]
+	[DebuggerNonUserCode]
+	[DefaultSettingValue("")]
+	public string LangDisplayName
+	{
+		get
+		{
+			return (string)this["LangDisplayName"];
+		}
+		set
+		{
+			this["LangDisplayName"] = value;
+		}
+	}
+
 	[UserScopedSetting]
 	[DebuggerNonUserCode]
 	[DefaultSettingValue("False")]
