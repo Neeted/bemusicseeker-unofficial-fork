@@ -21,14 +21,14 @@ BeMusicSeeker を `--log-level=Info` などのオプションを付けて起動�
 
 Everything を利用して BMS ファイルや関連リソースを高速検索・列挙する処理のログです。
 
-### ログ例
+### Everythingスキャンのログ例
 
 ```log
 [INFO] everything_scan start roots=1 ext=bme;bms...
 [INFO] everything_scan success bms=15000 dirs=4000 totalMs=215 ... connectMs=10 bmsQueryMs=45 ...
 ```
 
-### 項目解説
+### スキャンログの項目解説
 
 | パラメータ名                                                                  | 意味 / 何の時間か                                                                                                            |
 | :---------------------------------------------------------------------------- | :--------------------------------------------------------------------------------------------------------------------------- |
@@ -51,13 +51,13 @@ Everything を利用して BMS ファイルや関連リソースを高速検索�
 LR2 の `song.db` および独自のメンテナンス情報の読み込みを行う処理のログです。
 数万〜十数万件の譜面を持つ環境において、ここの時間が起動速度に直結します。
 
-### ログ例
+### DB読み込みのログ例
 
 ```log
 [INFO] song_tbl_load_io song_read_ms=8460 song_count_ms=8 song_materialize_ms=8451 song_count=196713 maintenance_read_ms=3007 ... db_write_ms=0
 ```
 
-### 項目解説
+### DBロードログの項目解説
 
 | パラメータ名                     | 意味 / 何の時間か                                                                                                         |
 | :------------------------------- | :------------------------------------------------------------------------------------------------------------------------ |
@@ -76,14 +76,15 @@ LR2 の `song.db` および独自のメンテナンス情報の読み込みを�
 
 ## 3. アプリケーション初期化の進行度合い
 
-### ログ例
+### 初期化フェーズのログ例
 
 ```log
 [INFO] init_stage start scope=ReloadFiles
 [INFO] init_stage CheckDb scope=Initialize
 ```
 
-### 項目解説
+### 初期化ログの項目解説
+
 - **`init_stage`**
   - アプリケーション起動時の各フェーズ処理状況を示します。
   - **`scope`**: 現在実行中の大枠の処理名（例: `Initialize` = 全体初期化, `ReloadFiles` = 難易度表等の再読み込みタスク）
@@ -91,7 +92,32 @@ LR2 の `song.db` および独自のメンテナンス情報の読み込みを�
 
 ---
 
-## 4. `[WARN]` / `[ERROR]` ログの主な出力内容
+## 4. UI更新抑制状況 (`ui_suppress`) 関連
+
+大量のデータを処理する際、画面の描画更新（UIフリーズや無駄なレンダリング）を抑えて処理速度を向上させるための内部機能のログです。
+
+### `ui_suppress` のログ例
+
+```log
+[INFO] ui_suppress begin depth=1 mask=All suppressed=All
+[INFO] ui_suppress pending depth=1 channel=LibraryFolderTree pending=LibraryFolderTree
+[INFO] ui_suppress flush_install_tree_ms=... flush_total_ms=45 deferred_library_folder_tree=True
+[INFO] ui_suppress end depth=0 flush=All
+```
+
+### `ui_suppress` の項目解説
+
+| パラメータ名 / メッセージ | 意味 / 何の時間か                                                                                                                                                    |
+| :------------------------ | :------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **`begin` / `end`**       | UI更新の抑制を開始 (`begin`) したタイミングと、解除 (`end`) したタイミングを示します。                                                                               |
+| **`depth`**               | 抑制のネスト（重なり）の深さです。`depth=1` 以上でUI更新が止まり、`depth=0` に戻った時点で溜まっていた更新が一斉に放たれます。                                       |
+| **`mask` / `suppressed`** | どの画面要素の更新を止めるかの対象範囲（`LibraryFolderTree`, `LibraryMainView` など）です。                                                                          |
+| **`pending`**             | UI抑制期間中に、裏側で「更新要求」が発生し、保留（Pending）状態になった画面要素のリストです。                                                                        |
+| **`flush_total_ms`**      | UI抑制が解除（`end`）され、保留されていた画面更新（Flush）を実際に描画するのに一気に処理した総時間（ミリ秒）です。各画面ごとの内訳 (`flush_..._ms`) も出力されます。 |
+
+---
+
+## 5. `[WARN]` / `[ERROR]` ログの主な出力内容
 
 エラー（`ERROR`）や警告（`WARN`）レベルのログには、単なるスタックトレースだけでなく、問題解決に役立つ具体的なコンテキスト（ファイル名や行番号など）が付与される場合があります。代表的なものは以下の通りです。
 
