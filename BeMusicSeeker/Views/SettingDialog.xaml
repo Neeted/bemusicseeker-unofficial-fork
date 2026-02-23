@@ -601,6 +601,14 @@
                       </FrameworkContentElement.Resources>
                       <List>
                         <ListItem>
+                          <Paragraph FontWeight="Bold">1.0.1.0:</Paragraph>
+                          <List MarkerStyle="Box">
+                            <ListItem>
+                              <Paragraph>右クリックメニュー（削除など）のサブメニュー展開矢印が極稀に消失する不具合を修正</Paragraph>
+                            </ListItem>
+                          </List>
+                        </ListItem>
+                        <ListItem>
                           <Paragraph FontWeight="Bold">1.0.0.0:</Paragraph>
                           <List MarkerStyle="Box">
                             <ListItem>
