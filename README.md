@@ -72,6 +72,9 @@ Rather, this repository serves primarily as a **distribution hub for the modded 
     - *(Note: The Smart Overwrite mode's behavior affects this screen as well. Detailed documentation is recommended in the future.)*
 17. **Enhanced Multi-Language Support**
     - In addition to strengthening English and French support, Chinese (Simplified), Chinese (Traditional), and Korean are now supported.
+18. **Implemented a Simple App Update Check Feature**
+    - Displays a dialog at startup if a newer version is available in the repository.
+    - *Note: As this is a simple check feature, there is no auto-updater. If the dialog appears, please manually download the latest version and overwrite your files.*
 
 ## TODO
 
@@ -98,24 +101,23 @@ Rather, this repository serves primarily as a **distribution hub for the modded 
 10. Fix the issue where interior file modification dates are not restored when drag-and-dropping archives (e.g., zip) for installation.
     - This affects the accuracy of the Smart Overwrite mode, so it needs to be improved.
 11. Warning dialog when integration with Everything 1.5a fails.
-12. App update check feature.
-13. Enhance 0-notes check behavior.
+12. Enhance 0-notes check behavior.
     - Would it be better to check for 0 notes at the point of differential installation and automatically suggest converting them to `.bmx` extensions?
     - When a name duplication warning occurs during `.bmx` conversion, the entry disappears from the detail list, but the extension is actually left unchanged. A better flow would be verifying the hash: if duplicates match, delete the new duplicate intended for renaming; if they don't, automatically rename it.
     - The existing 0-notes check sometimes flags charts as having 0 notes even when they don't (possibly caused by LN parser logic).
-14. Reorganize UI update timings.
+13. Reorganize UI update timings.
     - Due to the policy of suppressing updates for speed, there are side effects where list details won't refresh unless you switch your tree selection, unlike the old behavior.
-15. Difficulty table package creation feature.
+14. Difficulty table package creation feature.
     - Assuming intellectual property issues are momentarily set aside, having a feature to easily create "bulk packages" of major difficulty tables would significantly lower the barrier to entry for users.
     - It would be nice to have a dedicated working directory for packaging that allows for differential copying.
     - A "patch output feature for package differential updates" is difficult to account for (e.g., syncing when existing resources are deleted), so it's reasonable to stick to just generating a zip file for the entire difficulty table for now.
     - Under no circumstances will any feature be implemented that extracts only the specific charts listed on a difficulty table while stripping away the other charts (e.g., different difficulties) originally bundled by the BMS creator. (While this practice was seen in some past 'insane difficulty' unpackaged distributions, it lacks respect for the original creators.)
-16. Refactor local variable names lost during decompilation.
+15. Refactor local variable names lost during decompilation.
     - Many variables are named meaninglessly, like `list1, list2...` or `item1, item2...`, causing fatal readability issues (including hindering AI code comprehension) that need cleanup.
-17. Investigate the issue where reloading all playlists (either at startup or manually) while a "Recommend (Auto-update)" table is installed causes the playlist update to hang indefinitely.
+16. Investigate the issue where reloading all playlists (either at startup or manually) while a "Recommend (Auto-update)" table is installed causes the playlist update to hang indefinitely.
     - This issue seems to have stopped reproducing after some initialization code was tweaked. As a temporary countermeasure, `ServicePointManager.DefaultConnectionLimit = 12;` has been set.
     - Fundamentally, migrating from `HttpWebRequest` to `HttpClient` is preferable, but difficult to do immediately given the codebase size.
-18. Review the implementation status of the custom folder export feature.
+17. Review the implementation status of the custom folder export feature.
     - There are no specific improvement ideas yet, but as it's a critical core feature, its operational specifications need to be reconfirmed.
 
 ## License Scope
