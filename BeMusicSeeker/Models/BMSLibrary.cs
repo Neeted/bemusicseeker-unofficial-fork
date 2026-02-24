@@ -3247,7 +3247,52 @@ public class BMSLibrary : NotificationObject
                                     string text = TempDirectoryPublisher.Get();
                                     using (ArchiveFile archiveFile = new ArchiveFile(p))
                                     {
+                                        // 1. 一括解凍（ソリッド圧縮などのパフォーマンス向上のため）
                                         archiveFile.Extract(text);
+
+                                        // 2. メタデータの復元とセキュリティチェック
+                                        foreach (Entry entry in archiveFile.Entries)
+                                        {
+                                            string entryPath = entry.FileName.Replace('/', Path.DirectorySeparatorChar);
+                                            string fullPath = Path.GetFullPath(Path.Combine(text, entryPath));
+
+                                            // Zip Slip 対策: 解凍先ディレクトリの中に収まっているか確認
+                                            if (!fullPath.StartsWith(text, StringComparison.OrdinalIgnoreCase))
+                                            {
+                                                continue;
+                                            }
+
+                                            bool isFile = !entry.IsFolder && File.Exists(fullPath);
+                                            bool isDir = entry.IsFolder && Directory.Exists(fullPath);
+
+                                            if (isFile || isDir)
+                                            {
+                                                // メタデータの復元
+                                                try
+                                                {
+                                                    if (entry.LastWriteTime > DateTime.MinValue)
+                                                    {
+                                                        if (isFile) File.SetLastWriteTime(fullPath, entry.LastWriteTime);
+                                                        else Directory.SetLastWriteTime(fullPath, entry.LastWriteTime);
+                                                    }
+                                                    if (entry.CreationTime > DateTime.MinValue)
+                                                    {
+                                                        if (isFile) File.SetCreationTime(fullPath, entry.CreationTime);
+                                                        else Directory.SetCreationTime(fullPath, entry.CreationTime);
+                                                    }
+                                                    if (entry.LastAccessTime > DateTime.MinValue)
+                                                    {
+                                                        if (isFile) File.SetLastAccessTime(fullPath, entry.LastAccessTime);
+                                                        else Directory.SetLastAccessTime(fullPath, entry.LastAccessTime);
+                                                    }
+                                                }
+                                                catch (Exception ex)
+                                                {
+                                                    // 時刻設定の失敗は致命的ではないため無視
+                                                    Ribbit.Logging.NLogWrapper.FileLogger?.Info(ex, "Failed to restore metadata for " + fullPath);
+                                                }
+                                            }
+                                        }
                                     }
                                     return text;
                                 }
@@ -3726,25 +3771,25 @@ public class BMSLibrary : NotificationObject
                         ComponentMoveDecision componentMoveDecision = DecideComponentMove(sourcePath, destinationPath);
                         switch (componentMoveDecision)
                         {
-                        case ComponentMoveDecision.Move:
-                            FileSystem.MoveFile(sourcePath, destinationPath, overwrite: true);
-                            componentMoveSummary.Moved++;
-                            break;
-                        case ComponentMoveDecision.Overwrite:
-                            FileSystem.MoveFile(sourcePath, destinationPath, overwrite: true);
-                            componentMoveSummary.Moved++;
-                            componentMoveSummary.Overwritten++;
-                            break;
-                        case ComponentMoveDecision.SkipSame:
-                            File.Delete(sourcePath);
-                            componentMoveSummary.SkippedSame++;
-                            componentMoveSummary.DeletedAfterSkip++;
-                            break;
-                        default:
-                            File.Delete(sourcePath);
-                            componentMoveSummary.SkippedOlder++;
-                            componentMoveSummary.DeletedAfterSkip++;
-                            break;
+                            case ComponentMoveDecision.Move:
+                                FileSystem.MoveFile(sourcePath, destinationPath, overwrite: true);
+                                componentMoveSummary.Moved++;
+                                break;
+                            case ComponentMoveDecision.Overwrite:
+                                FileSystem.MoveFile(sourcePath, destinationPath, overwrite: true);
+                                componentMoveSummary.Moved++;
+                                componentMoveSummary.Overwritten++;
+                                break;
+                            case ComponentMoveDecision.SkipSame:
+                                File.Delete(sourcePath);
+                                componentMoveSummary.SkippedSame++;
+                                componentMoveSummary.DeletedAfterSkip++;
+                                break;
+                            default:
+                                File.Delete(sourcePath);
+                                componentMoveSummary.SkippedOlder++;
+                                componentMoveSummary.DeletedAfterSkip++;
+                                break;
                         }
                     }
                     // スキップ後の空ディレクトリを掃除して、後段のフォルダ削除を成功しやすくする。
@@ -4128,8 +4173,8 @@ public class BMSLibrary : NotificationObject
                             targetBMSInfo.SetHealthStatus(bmsFolderAllFileList, forceUpdate: false, memClear: false, bMSFileMaintenanceInfo, altdir, curDirFileNameHash);
                             return bMSFileMaintenanceInfo;
                         })
-                                                           where m.GetWAVHealth() > innerWavHealthThreshForNormalBMSFile && (!isFixMode || m.GetBGAHealth() >= targetBMSInfo.maintenanceInfo.GetBGAHealth())
-                                                           select m).ToList();
+                                                            where m.GetWAVHealth() > innerWavHealthThreshForNormalBMSFile && (!isFixMode || m.GetBGAHealth() >= targetBMSInfo.maintenanceInfo.GetBGAHealth())
+                                                            select m).ToList();
                     if (isMergeMode)
                     {
                         // マージ推定では「元フォルダへ留まる」判定を避けるため、比較対象に元フォルダ自身は含めない。
@@ -5589,7 +5634,7 @@ public class BMSLibrary : NotificationObject
                     if (bMSPackage.BMSFiles.Count == 0)
                     {
                         if (DispatcherMessageBox.Show(string.Format(Resources.Confirm_DuplicateReinstallSkipped, files[i].path, string.Join(Environment.NewLine, from x in BMSFiles.Where((BMSFile f) => f.hash == files[i].hash).Except(new BMSFile[1] { files[i] })
-                                                                                                                                                                                                                                                                                                                                                                                                    select x.path)), Resources.MessageBoxTitle_Confirm, MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.Yes) == MessageBoxResult.Yes)
+                                                                                                                                                                 select x.path)), Resources.MessageBoxTitle_Confirm, MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.Yes) == MessageBoxResult.Yes)
                         {
                             RemoveBMSFiles(new BMSFile[1] { files[i] });
                         }
