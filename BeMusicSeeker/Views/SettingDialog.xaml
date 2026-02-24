@@ -601,6 +601,20 @@
                       </FrameworkContentElement.Resources>
                       <List>
                         <ListItem>
+                          <Paragraph FontWeight="Bold">1.0.2.0:</Paragraph>
+                          <List MarkerStyle="Box">
+                            <ListItem>
+                              <Paragraph>マージ処理で重複ハッシュが統合されない問題の修正</Paragraph>
+                            </ListItem>
+                            <ListItem>
+                              <Paragraph>マージ機能（重複ファイルチェック）の高速化</Paragraph>
+                            </ListItem>
+                            <ListItem>
+                              <Paragraph>アーカイブ（zip等）導入時のファイル更新日時復元に対応</Paragraph>
+                            </ListItem>
+                          </List>
+                        </ListItem>
+                        <ListItem>
                           <Paragraph FontWeight="Bold">1.0.1.0:</Paragraph>
                           <List MarkerStyle="Box">
                             <ListItem>
