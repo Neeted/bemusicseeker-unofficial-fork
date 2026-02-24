@@ -138,9 +138,26 @@ public class BMSPlaylist : NotificationObject
 
     private List<BMSTableEntry> _hardEntries;
 
+    private bool _IsPlaylistUpdating;
     private List<BMSTableEntry> _fcEntries;
 
     private Regex workAroundRegex = new Regex("\"(?<id>\\d+)\":{", RegexOptions.Compiled);
+
+    public bool IsPlaylistUpdating
+    {
+        get
+        {
+            return _IsPlaylistUpdating;
+        }
+        set
+        {
+            if (_IsPlaylistUpdating != value)
+            {
+                _IsPlaylistUpdating = value;
+                RaisePropertyChanged("IsPlaylistUpdating");
+            }
+        }
+    }
 
     public DispatcherCollection<BMSTable> BMSTables
     {
@@ -1579,88 +1596,96 @@ public class BMSPlaylist : NotificationObject
 
     public List<BMSTable> UpdateBMSTables(bool reloadExtPlaylist = true, List<Action<BMSTable, bool, BMSTable>> updateCallbackActions = null)
     {
-        Stopwatch stopwatchUpdateTablesTotal = Stopwatch.StartNew();
-        long updateExternalSyncTicks = 0L;
-        long updateCallbacksTicks = 0L;
-        long updateCommitTicks = 0L;
-        List<BMSTable> updatedTables = new List<BMSTable>();
-        List<BMSTable> tableSnapshot;
-        using (rwlockBMSTables.GetReaderGuard())
+        IsPlaylistUpdating = true;
+        try
         {
-            tableSnapshot = BMSTables.ToList();
-        }
-        object lockObject = new object();
-        Task.WaitAll(tableSnapshot.Select(delegate (BMSTable table)
-        {
-            BMSTable newTable = table;
-            return Task.Run(delegate
+            Stopwatch stopwatchUpdateTablesTotal = Stopwatch.StartNew();
+            long updateExternalSyncTicks = 0L;
+            long updateCallbacksTicks = 0L;
+            long updateCommitTicks = 0L;
+            List<BMSTable> updatedTables = new List<BMSTable>();
+            List<BMSTable> tableSnapshot;
+            using (rwlockBMSTables.GetReaderGuard())
             {
-                Uri uri = table.Page_url ?? table.Header_url;
-                bool arg = false;
-                if (reloadExtPlaylist && table.is_external_sync && uri != null && uri.IsAbsoluteUri)
+                tableSnapshot = BMSTables.ToList();
+            }
+            object lockObject = new object();
+            Task.WaitAll(tableSnapshot.Select(delegate (BMSTable table)
+            {
+                BMSTable newTable = table;
+                return Task.Run(delegate
                 {
-                    Stopwatch stopwatchExternalSync = Stopwatch.StartNew();
-                    try
+                    Uri uri = table.Page_url ?? table.Header_url;
+                    bool arg = false;
+                    if (reloadExtPlaylist && table.is_external_sync && uri != null && uri.IsAbsoluteUri)
                     {
-                        using (table.ReaderWriterLock.GetWriterGuard())
+                        Stopwatch stopwatchExternalSync = Stopwatch.StartNew();
+                        try
                         {
-                            newTable = updateBMSTable(table, uri);
-                            Stopwatch stopwatchCommit = Stopwatch.StartNew();
-                            CommitBMSTable(newTable);
-                            stopwatchCommit.Stop();
-                            Interlocked.Add(ref updateCommitTicks, stopwatchCommit.ElapsedTicks);
-                        }
-                        using (rwlockBMSTables.GetWriterGuard())
-                        {
-                            int index = BMSTables.IndexOf(table);
-                            if (index >= 0)
+                            using (table.ReaderWriterLock.GetWriterGuard())
                             {
-                                BMSTables[index] = newTable;
+                                newTable = updateBMSTable(table, uri);
+                                Stopwatch stopwatchCommit = Stopwatch.StartNew();
+                                CommitBMSTable(newTable);
+                                stopwatchCommit.Stop();
+                                Interlocked.Add(ref updateCommitTicks, stopwatchCommit.ElapsedTicks);
                             }
-                            if (newTable.last_update != table.last_update)
+                            using (rwlockBMSTables.GetWriterGuard())
                             {
-                                arg = true;
-                                lock (lockObject)
+                                int index = BMSTables.IndexOf(table);
+                                if (index >= 0)
                                 {
-                                    updatedTables.Add(newTable);
+                                    BMSTables[index] = newTable;
+                                }
+                                if (newTable.last_update != table.last_update)
+                                {
+                                    arg = true;
+                                    lock (lockObject)
+                                    {
+                                        updatedTables.Add(newTable);
+                                    }
                                 }
                             }
+                        }
+                        catch
+                        {
+                        }
+                        stopwatchExternalSync.Stop();
+                        Interlocked.Add(ref updateExternalSyncTicks, stopwatchExternalSync.ElapsedTicks);
+                    }
+                    Stopwatch stopwatchCallbacks = Stopwatch.StartNew();
+                    try
+                    {
+                        if (updateCallbackActions != null)
+                        {
+                            foreach (Action<BMSTable, bool, BMSTable> item in updateCallbackActions.Where((Action<BMSTable, bool, BMSTable> a) => a != null))
+                            {
+                                item(newTable, arg, table);
+                            }
+                            return;
                         }
                     }
                     catch
                     {
                     }
-                    stopwatchExternalSync.Stop();
-                    Interlocked.Add(ref updateExternalSyncTicks, stopwatchExternalSync.ElapsedTicks);
-                }
-                Stopwatch stopwatchCallbacks = Stopwatch.StartNew();
-                try
-                {
-                    if (updateCallbackActions != null)
+                    finally
                     {
-                        foreach (Action<BMSTable, bool, BMSTable> item in updateCallbackActions.Where((Action<BMSTable, bool, BMSTable> a) => a != null))
-                        {
-                            item(newTable, arg, table);
-                        }
-                        return;
+                        stopwatchCallbacks.Stop();
+                        Interlocked.Add(ref updateCallbacksTicks, stopwatchCallbacks.ElapsedTicks);
                     }
-                }
-                catch
-                {
-                }
-                finally
-                {
-                    stopwatchCallbacks.Stop();
-                    Interlocked.Add(ref updateCallbacksTicks, stopwatchCallbacks.ElapsedTicks);
-                }
-            }).Logging("UpdateBMSTables");
-        }).ToArray());
-        stopwatchUpdateTablesTotal.Stop();
-        long num = (long)TimeSpan.FromTicks(Interlocked.Read(ref updateExternalSyncTicks)).TotalMilliseconds;
-        long num2 = (long)TimeSpan.FromTicks(Interlocked.Read(ref updateCallbacksTicks)).TotalMilliseconds;
-        long num3 = (long)TimeSpan.FromTicks(Interlocked.Read(ref updateCommitTicks)).TotalMilliseconds;
-        LogPlaylistPerformance("playlist_update update_external_sync_ms=" + num + " update_callbacks_ms=" + num2 + " update_commit_ms=" + num3 + " table_count=" + tableSnapshot.Count + " updated_count=" + updatedTables.Count + " total_ms=" + stopwatchUpdateTablesTotal.ElapsedMilliseconds);
-        return updatedTables;
+                }).Logging("UpdateBMSTables");
+            }).ToArray());
+            stopwatchUpdateTablesTotal.Stop();
+            long num = (long)TimeSpan.FromTicks(Interlocked.Read(ref updateExternalSyncTicks)).TotalMilliseconds;
+            long num2 = (long)TimeSpan.FromTicks(Interlocked.Read(ref updateCallbacksTicks)).TotalMilliseconds;
+            long num3 = (long)TimeSpan.FromTicks(Interlocked.Read(ref updateCommitTicks)).TotalMilliseconds;
+            LogPlaylistPerformance("playlist_update update_external_sync_ms=" + num + " update_callbacks_ms=" + num2 + " update_commit_ms=" + num3 + " table_count=" + tableSnapshot.Count + " updated_count=" + updatedTables.Count + " total_ms=" + stopwatchUpdateTablesTotal.ElapsedMilliseconds);
+            return updatedTables;
+        }
+        finally
+        {
+            IsPlaylistUpdating = false;
+        }
     }
 
     public BMSTable ResetBMSTable(BMSTable bmsTable, Uri pageUri = null)

@@ -780,15 +780,15 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        treeViewControl.Focus();
-        if (e.ChangedButton != MouseButton.Left)
-        {
-            return;
-        }
-        // スクロールバーやExpanderトグルのクリックでは更新しない
+        // スクロールバーやExpanderトグルのクリックではフォーカス移譲や更新を行わない
         DependencyObject source = e.OriginalSource as DependencyObject;
         if (FindAncestor<System.Windows.Controls.Primitives.ScrollBar>(source) != null ||
             FindAncestor<System.Windows.Controls.Primitives.ToggleButton>(source) != null)
+        {
+            return;
+        }
+        treeViewControl.Focus();
+        if (e.ChangedButton != MouseButton.Left)
         {
             return;
         }
@@ -4592,12 +4592,15 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void treeViewSelectedItemChanged(object sender, RoutedPropertyChangedEventArgs<object> e)
     {
-        if (sender is TreeView)
+        if (sender is TreeView treeView)
         {
             e.Handled = true;
-            if (!_isCrossTreeDeselecting && e.NewValue == null && e.OldValue != null && e.OldValue is BMSTable)
+            MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
+            bool isManualInteraction = treeView.IsKeyboardFocusWithin || treeView.IsMouseOver;
+            if (!_isCrossTreeDeselecting && e.NewValue == null && e.OldValue != null && e.OldValue is BMSTable
+                && (viewModel?.IsPlaylistUpdating ?? false) && !isManualInteraction)
             {
-                ((TreeView)sender).SelectTreeViewItemSearchedByHeader(((BMSTable)e.OldValue).name);
+                treeView.SelectTreeViewItemSearchedByHeader(((BMSTable)e.OldValue).name);
             }
         }
     }

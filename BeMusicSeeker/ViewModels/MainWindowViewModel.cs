@@ -4505,6 +4505,18 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
+    public bool IsPlaylistUpdating
+    {
+        get
+        {
+            if (tables != null)
+            {
+                return tables.IsPlaylistUpdating;
+            }
+            return false;
+        }
+    }
+
     public bool IsLoadingExternalCollectionBMSTables
     {
         get
@@ -5211,6 +5223,10 @@ public class MainWindowViewModel : ViewModel
         listenerForBMSPlaylist.RegisterHandler(() => tables.IsWriteLockHeldBMSTablesInitializeMin, delegate
         {
             RaisePropertyChanged(() => IsWriteLockHeldBMSTablesInitializeMin);
+        });
+        listenerForBMSPlaylist.RegisterHandler(() => tables.IsPlaylistUpdating, delegate
+        {
+            RaisePropertyChanged(() => IsPlaylistUpdating);
         });
         base.Messenger.Raise(new InteractionMessage("InitializationSuccess"));
         if (Settings.Default.OperationModeLR2DB && Settings.Default.IsLR2BackupEnabled)
