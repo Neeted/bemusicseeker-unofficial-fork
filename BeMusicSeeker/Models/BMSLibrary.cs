@@ -3151,30 +3151,97 @@ public class BMSLibrary : NotificationObject
                             SetDuplicateWarning(item);
                         }
                     }
-                    List<HashSet<string>> mergedDuplicateDirectorySets = new List<HashSet<string>>();
+
+                    System.Diagnostics.Stopwatch swNew = System.Diagnostics.Stopwatch.StartNew();
+                    Dictionary<string, int> dirToId = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                    List<string> idToDir = new List<string>();
+                    List<List<int>> groupIndices = new List<List<int>>();
+
                     foreach (IGrouping<string, BMSFile> duplicateHashGroup2 in duplicateHashGroups)
                     {
-                        HashSet<string> hashSet = new HashSet<string>(duplicateHashGroup2.Select((BMSFile bmsInfo) => DirectoryExt.GetDirectoryNameSimple(bmsInfo.path)).Where((string dir) => !string.IsNullOrWhiteSpace(dir)), StringComparer.OrdinalIgnoreCase);
-                        if (hashSet.Count == 0)
+                        List<int> currentGroup = new List<int>();
+                        foreach (BMSFile bmsInfo in duplicateHashGroup2)
                         {
-                            continue;
-                        }
-                        for (int num = mergedDuplicateDirectorySets.Count - 1; num >= 0; num--)
-                        {
-                            if (mergedDuplicateDirectorySets[num].Overlaps(hashSet))
+                            string dir = DirectoryExt.GetDirectoryNameSimple(bmsInfo.path);
+                            if (string.IsNullOrWhiteSpace(dir))
                             {
-                                hashSet.UnionWith(mergedDuplicateDirectorySets[num]);
-                                mergedDuplicateDirectorySets.RemoveAt(num);
+                                continue;
+                            }
+                            if (!dirToId.TryGetValue(dir, out int id))
+                            {
+                                id = idToDir.Count;
+                                dirToId[dir] = id;
+                                idToDir.Add(dir);
+                            }
+                            currentGroup.Add(id);
+                        }
+                        if (currentGroup.Count > 0)
+                        {
+                            groupIndices.Add(currentGroup);
+                        }
+                    }
+
+                    int n = idToDir.Count;
+                    int[] parent = new int[n];
+                    for (int i = 0; i < n; i++)
+                    {
+                        parent[i] = i;
+                    }
+
+                    foreach (List<int> group in groupIndices)
+                    {
+                        if (group.Count > 1)
+                        {
+                            int first = group[0];
+                            for (int i = 1; i < group.Count; i++)
+                            {
+                                int root1 = first;
+                                while (parent[root1] != root1)
+                                {
+                                    parent[root1] = parent[parent[root1]];
+                                    root1 = parent[root1];
+                                }
+                                int root2 = group[i];
+                                while (parent[root2] != root2)
+                                {
+                                    parent[root2] = parent[parent[root2]];
+                                    root2 = parent[root2];
+                                }
+                                if (root1 != root2)
+                                {
+                                    parent[root1] = root2;
+                                }
                             }
                         }
-                        mergedDuplicateDirectorySets.Add(hashSet);
                     }
+
+                    Dictionary<int, HashSet<string>> rootViewToDirs = new Dictionary<int, HashSet<string>>();
+                    for (int i = 0; i < n; i++)
+                    {
+                        int root = i;
+                        while (parent[root] != root)
+                        {
+                            parent[root] = parent[parent[root]];
+                            root = parent[root];
+                        }
+                        if (!rootViewToDirs.TryGetValue(root, out HashSet<string> set))
+                        {
+                            set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                            rootViewToDirs[root] = set;
+                        }
+                        set.Add(idToDir[i]);
+                    }
+
+                    List<HashSet<string>> mergedDuplicateDirectorySets = rootViewToDirs.Values.ToList();
+                    swNew.Stop();
+
+                    LogInstallPerformance($"SearchBMSFilesDuplicated: NewAlgo={swNew.ElapsedMilliseconds}ms, Groups={mergedDuplicateDirectorySets.Count}");
+
                     BMSFilesDuplicated = mergedDuplicateDirectorySets.Select((HashSet<string> dirs) => snapshot.Where((BMSFile bmsInfo) => dirs.Contains(DirectoryExt.GetDirectoryNameSimple(bmsInfo.path))).ToList()).Where((List<BMSFile> groupedFiles) => groupedFiles.Count > 0).OrderBy((List<BMSFile> groupedFiles) => groupedFiles.First().title).ToList();
                 }
             }
         }
     }
-
     private static readonly string DuplicateWarningMessage = Resources.Warning_DuplicateBmsFile;
 
     private static void ClearDuplicateState(IEnumerable<BMSFile> files)
