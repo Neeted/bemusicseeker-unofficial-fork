@@ -5659,6 +5659,7 @@ public class BMSLibrary : NotificationObject
                         return;
                     }
                     List<BMSFile> bmsFiles = BMSFiles.Where((BMSFile f) => f.path.StartsWith(src + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)).ToList();
+                    HashSet<string> snapshot = CreateBMSHashSnapshotExcludingUnsafe(bmsFiles);
                     unregisterBMSFiles(bmsFiles);
                     foreach (string item in bmsFolderAllFileList.Keys.Where((string f) => (f + Path.DirectorySeparatorChar).StartsWith(src + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)))
                     {
@@ -5670,7 +5671,7 @@ public class BMSLibrary : NotificationObject
                         path = src,
                         delete_parent = false
                     };
-                    if (!moveBMSPackageFiles(repackage, dst, showMessageBoxOnInstallFail: false, deleteAllContents: true))
+                    if (!moveBMSPackageFiles(repackage, dst, showMessageBoxOnInstallFail: false, deleteAllContents: true, existingHashes: snapshot))
                     {
                         DispatcherMessageBox.Show(string.Format(Resources.Error_BmsFolderMergeFailed, src, dst), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
                         return;
