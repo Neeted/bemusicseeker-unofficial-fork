@@ -601,6 +601,20 @@
                       </FrameworkContentElement.Resources>
                       <List>
                         <ListItem>
+                          <Paragraph FontWeight="Bold">1.0.3.0:</Paragraph>
+                          <List MarkerStyle="Box">
+                            <ListItem>
+                              <Paragraph>プレイリストツリーの遅延、同期アイコンアニメーションの最適化</Paragraph>
+                            </ListItem>
+                            <ListItem>
+                              <Paragraph>プレイリストツリー展開時の意図しない強制スクロールの抑制</Paragraph>
+                            </ListItem>
+                            <ListItem>
+                              <Paragraph>ポータブル化に伴うXMLプロバイダーの不備（設定がエスケープされる問題）の修正</Paragraph>
+                            </ListItem>
+                          </List>
+                        </ListItem>
+                        <ListItem>
                           <Paragraph FontWeight="Bold">1.0.2.0:</Paragraph>
                           <List MarkerStyle="Box">
                             <ListItem>
