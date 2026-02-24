@@ -31,16 +31,3 @@
 1. **`Properties\AssemblyInfo.cs`**: `AssemblyInformationalVersion` の値を新しいバージョンに書き換える。（※`BeMusicSeeker`フォルダ内ではなくルート直下のProperties）
 2. **`BeMusicSeeker\Views\SettingDialog.xaml`**: `<GroupBox DockPanel.Dock="Bottom" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Update_history, Mode=OneWay}">` のセクション内の中身（更新履歴テキスト）に最新バージョンの情報を書き換える（追加する）。
 3. **`version.txt`**: ファイルの中身を新しいバージョン文字列に書き換える。
-
-## 6. 本プロジェクト特有の実装ルール (UIと多言語連携)
-- **WPF ContextMenu / MenuItem 等のバインディングに関する注意点**: 
-  多言語対応の仕組みとして `ResourceService.ChangeCulture` を動的に呼び出している。この際、子項目（サブメニュー）を持つ親の `MenuItem` に対し、`Header="{Binding ...}"` を直接適用すると、バインディング更新の際に内部 VisualTree の `Role` が破損し、サブメニューが消失・展開不可能になるWPF既知の不具合がある。
-  **【対策】** 親となる `MenuItem` の `Header` は必ず以下のように `<TextBlock>` でラップし、`MenuItem.Header` のオブジェクトインスタンスが差し替わることを防ぐこと。
-  ```xml
-  <MenuItem>
-    <MenuItem.Header>
-      <TextBlock Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Remove, Mode=OneWay}" />
-    </MenuItem.Header>
-    <!-- 子 MenuItem  -->
-  </MenuItem>
-  ```
