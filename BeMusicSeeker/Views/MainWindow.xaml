@@ -2082,27 +2082,11 @@
     <RowDefinition Height="*" />
   </Grid.RowDefinitions>
   <Border Grid.RowSpan="3" BorderThickness="0,0,1,0" BorderBrush="#FF828790" IsHitTestVisible="False" />
-  <TreeView Name="treeViewPlaylist" Grid.Row="0" ScrollViewer.HorizontalScrollBarVisibility="Disabled" BorderThickness="0,0,1,0" Padding="1,5" ItemContainerStyle="{DynamicResource TreeViewItemFullWidthStyle}" MouseRightButtonDown="treeViewItemOnRightClick" PreviewMouseLeftButtonDown="treeViewLeftClick" SelectedItemChanged="treeViewSelectedItemChanged">
+  <TreeView Name="treeViewPlaylist" Grid.Row="0" ScrollViewer.HorizontalScrollBarVisibility="Disabled" VirtualizingStackPanel.IsVirtualizing="True" VirtualizingStackPanel.VirtualizationMode="Standard" BorderThickness="0,0,1,0" Padding="1,5" ItemContainerStyle="{DynamicResource TreeViewItemFullWidthStyle}" MouseRightButtonDown="treeViewItemOnRightClick" PreviewMouseLeftButtonDown="treeViewLeftClick" SelectedItemChanged="treeViewSelectedItemChanged">
 <TreeViewItem Name="treeViewItemPlaylist" IsExpanded="{Binding IsPlaylistTreeExpanded, Mode=TwoWay}" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist, Mode=OneWay}" ItemsSource="{Binding BMSTables}" ContextMenu="{StaticResource ResourceKey=treeViewPlaylistRootContextMenu}" Selected="playlistRootSelect">
               <FrameworkElement.Resources>
                 <ResourceDictionary>
                   <v:playlistTableFolderListConverter x:Key="playlistTableFolderListConverter" />
-                  <Style x:Key="styleTreeViewItemIconPlaylistTable" TargetType="{x:Type Image}" BasedOn="{StaticResource styleTreeViewItemIconCommon}">
-                    <Style.Triggers>
-                      <DataTrigger Value="True" Binding="{qc:Binding $P &gt; 0, P={Binding ReaderWriterLock.LockingWriteCount}}">
-                        <TriggerBase.EnterActions>
-                          <BeginStoryboard Name="AnimationBeginStoryboard" Storyboard="{StaticResource storyboardTreeViewItemIconRotation}" />
-                        </TriggerBase.EnterActions>
-                        <TriggerBase.ExitActions>
-                          <StopStoryboard BeginStoryboardName="AnimationBeginStoryboard" />
-                        </TriggerBase.ExitActions>
-                        <Setter Property="Source" Value="{Binding Source={x:Static prop:Images.imageres_5311}, Converter={StaticResource IconToImageSourceConverter}}" />
-                      </DataTrigger>
-                      <DataTrigger Value="False" Binding="{qc:Binding $P &gt; 0, P={Binding ReaderWriterLock.LockingWriteCount}}">
-                        <Setter Property="Source" Value="{Binding Source={x:Static prop:Images.imageres_5342}, Converter={StaticResource IconToImageSourceConverter}}" />
-                      </DataTrigger>
-                    </Style.Triggers>
-                  </Style>
                   <DataTemplate x:Key="templateTreeViewItemHeaderPlaylistTableFolderNormal">
                     <StackPanel Orientation="Horizontal" DataContext="{Binding DataContext, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type TreeViewItem}}}">
                       <Image Style="{StaticResource styleTreeViewItemIconFolderNote}" />
@@ -2119,11 +2103,44 @@
                   </DataTemplate>
                   <DataTemplate x:Key="templateTreeViewItemHeaderPlaylistTable">
                     <StackPanel Orientation="Horizontal" DataContext="{Binding DataContext, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type TreeViewItem}}}">
-                      <Image Style="{StaticResource styleTreeViewItemIconPlaylistTable}">
-                        <UIElement.RenderTransform>
-                          <RotateTransform />
-                        </UIElement.RenderTransform>
-                      </Image>
+                      <Grid Width="20" Height="20">
+                        <!-- 通常アイコン -->
+                        <Image Source="{Binding Source={x:Static prop:Images.imageres_5342}, Converter={StaticResource IconToImageSourceConverter}}">
+                          <Image.Style>
+                            <Style TargetType="{x:Type Image}" BasedOn="{StaticResource styleTreeViewItemIconCommon}">
+                              <Style.Triggers>
+                                <DataTrigger Binding="{qc:Binding $P > 0, P={Binding ReaderWriterLock.LockingWriteCount}}" Value="True">
+                                  <Setter Property="Visibility" Value="Collapsed" />
+                                </DataTrigger>
+                              </Style.Triggers>
+                            </Style>
+                          </Image.Style>
+                        </Image>
+                        <!-- 同期中アイコン -->
+                        <Image Source="{Binding Source={x:Static prop:Images.imageres_5311}, Converter={StaticResource IconToImageSourceConverter}}">
+                          <Image.RenderTransform>
+                            <RotateTransform />
+                          </Image.RenderTransform>
+                          <Image.Style>
+                            <Style TargetType="{x:Type Image}" BasedOn="{StaticResource styleTreeViewItemIconCommon}">
+                              <Setter Property="Visibility" Value="Collapsed" />
+                              <Style.Triggers>
+                                <DataTrigger Binding="{qc:Binding $P > 0, P={Binding ReaderWriterLock.LockingWriteCount}}" Value="True">
+                                  <Setter Property="Visibility" Value="Visible" />
+                                </DataTrigger>
+                                <Trigger Property="Visibility" Value="Visible">
+                                  <Trigger.EnterActions>
+                                    <BeginStoryboard Name="RotationStoryboard" Storyboard="{StaticResource storyboardTreeViewItemIconRotation}" />
+                                  </Trigger.EnterActions>
+                                  <Trigger.ExitActions>
+                                    <StopStoryboard BeginStoryboardName="RotationStoryboard" />
+                                  </Trigger.ExitActions>
+                                </Trigger>
+                              </Style.Triggers>
+                            </Style>
+                          </Image.Style>
+                        </Image>
+                      </Grid>
                       <TextBlock Style="{StaticResource styleTreeViewItemTextBlockCommon}" Text="{Binding name}" />
                     </StackPanel>
                   </DataTemplate>

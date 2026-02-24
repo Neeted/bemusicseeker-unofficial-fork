@@ -174,7 +174,7 @@ public class BMSPlaylist : NotificationObject
     {
         get
         {
-            if (BMSTables != null && rwlockBMSTablesInitializeMin.LockingWriteCount == 0)
+            if (rwlockBMSTablesInitializeMin.LockingWriteCount == 0)
             {
                 return rwlockBMSTablesInitializeMin.WaitingWriteCount > 0;
             }
@@ -198,9 +198,12 @@ public class BMSPlaylist : NotificationObject
     {
         get
         {
-            if (BMSTables != null)
+            using (rwlockBMSTables.GetReaderGuard())
             {
-                return BMSTables.Any((BMSTable t) => t.ReaderWriterLock.LockingWriteCount != 0 || t.ReaderWriterLock.WaitingWriteCount > 0);
+                if (BMSTables != null)
+                {
+                    return BMSTables.Any((BMSTable t) => t.ReaderWriterLock.LockingWriteCount != 0 || t.ReaderWriterLock.WaitingWriteCount > 0);
+                }
             }
             return true;
         }
@@ -470,15 +473,15 @@ public class BMSPlaylist : NotificationObject
                         }
                         stopwatchGroupEntries.Stop();
                         stopwatchAssignEntries.Start();
-						foreach (BMSTable table in list)
-						{
-							if (table.playlist_id.HasValue && entriesByPlaylistId.TryGetValue(table.playlist_id.Value, out List<BMSTableEntry> value2))
-							{
-								table.entries = value2;
-							}
-							else
-							{
-								table.entries = new List<BMSTableEntry>();
+                        foreach (BMSTable table in list)
+                        {
+                            if (table.playlist_id.HasValue && entriesByPlaylistId.TryGetValue(table.playlist_id.Value, out List<BMSTableEntry> value2))
+                            {
+                                table.entries = value2;
+                            }
+                            else
+                            {
+                                table.entries = new List<BMSTableEntry>();
                             }
                         }
                         stopwatchAssignEntries.Stop();
@@ -1581,77 +1584,83 @@ public class BMSPlaylist : NotificationObject
         long updateCallbacksTicks = 0L;
         long updateCommitTicks = 0L;
         List<BMSTable> updatedTables = new List<BMSTable>();
-        using (rwlockBMSTables.GetWriterGuard())
+        List<BMSTable> tableSnapshot;
+        using (rwlockBMSTables.GetReaderGuard())
         {
-            object lockObject = new object();
-            Task.WaitAll(BMSTables.Select(delegate (BMSTable table)
+            tableSnapshot = BMSTables.ToList();
+        }
+        object lockObject = new object();
+        Task.WaitAll(tableSnapshot.Select(delegate (BMSTable table)
+        {
+            BMSTable newTable = table;
+            return Task.Run(delegate
             {
-                BMSTable newTable = table;
-                return Task.Run(delegate
+                Uri uri = table.Page_url ?? table.Header_url;
+                bool arg = false;
+                if (reloadExtPlaylist && table.is_external_sync && uri != null && uri.IsAbsoluteUri)
                 {
-                    Uri uri = table.Page_url ?? table.Header_url;
-                    bool arg = false;
-                    if (reloadExtPlaylist && table.is_external_sync && uri != null && uri.IsAbsoluteUri)
-                    {
-                        Stopwatch stopwatchExternalSync = Stopwatch.StartNew();
-                        try
-                        {
-                            using (table.ReaderWriterLock.GetWriterGuard())
-                            {
-                                newTable = updateBMSTable(table, uri);
-                                using (newTable.ReaderWriterLock.GetWriterGuard())
-                                {
-                                    lock (lockObject)
-                                    {
-                                        BMSTables[BMSTables.IndexOf(table)] = newTable;
-                                        if (newTable.last_update != table.last_update)
-                                        {
-                                            arg = true;
-                                            updatedTables.Add(newTable);
-                                        }
-                                    }
-                                    Stopwatch stopwatchCommit = Stopwatch.StartNew();
-                                    CommitBMSTable(newTable);
-                                    stopwatchCommit.Stop();
-                                    Interlocked.Add(ref updateCommitTicks, stopwatchCommit.ElapsedTicks);
-                                }
-                            }
-                        }
-                        catch
-                        {
-                        }
-                        stopwatchExternalSync.Stop();
-                        Interlocked.Add(ref updateExternalSyncTicks, stopwatchExternalSync.ElapsedTicks);
-                    }
-                    Stopwatch stopwatchCallbacks = Stopwatch.StartNew();
+                    Stopwatch stopwatchExternalSync = Stopwatch.StartNew();
                     try
                     {
-                        if (updateCallbackActions != null)
+                        using (table.ReaderWriterLock.GetWriterGuard())
                         {
-                            foreach (Action<BMSTable, bool, BMSTable> item in updateCallbackActions.Where((Action<BMSTable, bool, BMSTable> a) => a != null))
+                            newTable = updateBMSTable(table, uri);
+                            Stopwatch stopwatchCommit = Stopwatch.StartNew();
+                            CommitBMSTable(newTable);
+                            stopwatchCommit.Stop();
+                            Interlocked.Add(ref updateCommitTicks, stopwatchCommit.ElapsedTicks);
+                        }
+                        using (rwlockBMSTables.GetWriterGuard())
+                        {
+                            int index = BMSTables.IndexOf(table);
+                            if (index >= 0)
                             {
-                                item(newTable, arg, table);
+                                BMSTables[index] = newTable;
                             }
-                            return;
+                            if (newTable.last_update != table.last_update)
+                            {
+                                arg = true;
+                                lock (lockObject)
+                                {
+                                    updatedTables.Add(newTable);
+                                }
+                            }
                         }
                     }
                     catch
                     {
                     }
-                    finally
+                    stopwatchExternalSync.Stop();
+                    Interlocked.Add(ref updateExternalSyncTicks, stopwatchExternalSync.ElapsedTicks);
+                }
+                Stopwatch stopwatchCallbacks = Stopwatch.StartNew();
+                try
+                {
+                    if (updateCallbackActions != null)
                     {
-                        stopwatchCallbacks.Stop();
-                        Interlocked.Add(ref updateCallbacksTicks, stopwatchCallbacks.ElapsedTicks);
+                        foreach (Action<BMSTable, bool, BMSTable> item in updateCallbackActions.Where((Action<BMSTable, bool, BMSTable> a) => a != null))
+                        {
+                            item(newTable, arg, table);
+                        }
+                        return;
                     }
-                }).Logging("UpdateBMSTables");
-            }).ToArray());
-            stopwatchUpdateTablesTotal.Stop();
-            long num = (long)TimeSpan.FromTicks(Interlocked.Read(ref updateExternalSyncTicks)).TotalMilliseconds;
-            long num2 = (long)TimeSpan.FromTicks(Interlocked.Read(ref updateCallbacksTicks)).TotalMilliseconds;
-            long num3 = (long)TimeSpan.FromTicks(Interlocked.Read(ref updateCommitTicks)).TotalMilliseconds;
-            LogPlaylistPerformance("playlist_update update_external_sync_ms=" + num + " update_callbacks_ms=" + num2 + " update_commit_ms=" + num3 + " table_count=" + BMSTables.Count + " updated_count=" + updatedTables.Count + " total_ms=" + stopwatchUpdateTablesTotal.ElapsedMilliseconds);
-            return updatedTables;
-        }
+                }
+                catch
+                {
+                }
+                finally
+                {
+                    stopwatchCallbacks.Stop();
+                    Interlocked.Add(ref updateCallbacksTicks, stopwatchCallbacks.ElapsedTicks);
+                }
+            }).Logging("UpdateBMSTables");
+        }).ToArray());
+        stopwatchUpdateTablesTotal.Stop();
+        long num = (long)TimeSpan.FromTicks(Interlocked.Read(ref updateExternalSyncTicks)).TotalMilliseconds;
+        long num2 = (long)TimeSpan.FromTicks(Interlocked.Read(ref updateCallbacksTicks)).TotalMilliseconds;
+        long num3 = (long)TimeSpan.FromTicks(Interlocked.Read(ref updateCommitTicks)).TotalMilliseconds;
+        LogPlaylistPerformance("playlist_update update_external_sync_ms=" + num + " update_callbacks_ms=" + num2 + " update_commit_ms=" + num3 + " table_count=" + tableSnapshot.Count + " updated_count=" + updatedTables.Count + " total_ms=" + stopwatchUpdateTablesTotal.ElapsedMilliseconds);
+        return updatedTables;
     }
 
     public BMSTable ResetBMSTable(BMSTable bmsTable, Uri pageUri = null)
@@ -1925,32 +1934,64 @@ public class BMSPlaylist : NotificationObject
             pageUri = oldTable.Page_url ?? oldTable.Header_url;
         }
         BMSTable newTable = reloadBMSTable(oldTable, pageUri);
-        List<BMSTableEntry> list = oldTable.entries.Where(delegate (BMSTableEntry oe)
+
+        // Dictionary for fast lookup of new entries
+        var newEntriesByMd5 = newTable.entries.Where(e => !string.IsNullOrWhiteSpace(e.md5))
+            .GroupBy(e => e.md5).ToDictionary(g => g.Key, g => g.ToList());
+        var newEntriesByBmsId = newTable.entries.Where(e => string.IsNullOrWhiteSpace(e.md5) && !string.IsNullOrWhiteSpace(e.lr2_bmsid))
+            .GroupBy(e => e.lr2_bmsid).ToDictionary(g => g.Key, g => g.ToList());
+        var newEntriesByTitle = newTable.entries.Where(e => string.IsNullOrWhiteSpace(e.md5) && string.IsNullOrWhiteSpace(e.lr2_bmsid) && !string.IsNullOrWhiteSpace(e.title))
+            .GroupBy(e => e.title).ToDictionary(g => g.Key, g => g.ToList());
+
+        List<BMSTableEntry> matchedOldEntries = oldTable.entries.Where(delegate (BMSTableEntry oe)
         {
-            List<BMSTableEntry> source = newTable.entries.Where((BMSTableEntry ne) => (!string.IsNullOrWhiteSpace(ne.md5) && !string.IsNullOrWhiteSpace(oe.md5) && ne.md5 == oe.md5) || (string.IsNullOrWhiteSpace(ne.md5) && string.IsNullOrWhiteSpace(oe.md5) && !string.IsNullOrWhiteSpace(ne.lr2_bmsid) && !string.IsNullOrWhiteSpace(oe.lr2_bmsid) && ne.lr2_bmsid == oe.lr2_bmsid) || (string.IsNullOrWhiteSpace(ne.md5) && string.IsNullOrWhiteSpace(oe.md5) && string.IsNullOrWhiteSpace(ne.lr2_bmsid) && string.IsNullOrWhiteSpace(oe.lr2_bmsid) && !string.IsNullOrWhiteSpace(ne.title) && !string.IsNullOrWhiteSpace(oe.title) && ne.title == oe.title)).ToList();
-            if (source.Count() == 0)
+            List<BMSTableEntry> candidates = null;
+            if (!string.IsNullOrWhiteSpace(oe.md5))
+            {
+                newEntriesByMd5.TryGetValue(oe.md5, out candidates);
+            }
+            else if (!string.IsNullOrWhiteSpace(oe.lr2_bmsid))
+            {
+                newEntriesByBmsId.TryGetValue(oe.lr2_bmsid, out candidates);
+            }
+            else if (!string.IsNullOrWhiteSpace(oe.title))
+            {
+                newEntriesByTitle.TryGetValue(oe.title, out candidates);
+            }
+
+            if (candidates == null || candidates.Count == 0)
             {
                 return false;
             }
-            BMSTableEntry bMSTableEntry;
-            if (source.Count() > 1)
+
+            BMSTableEntry matchedNew;
+            if (candidates.Count > 1)
             {
-                List<BMSTableEntry> source2 = source.Where((BMSTableEntry ne) => ne.folder == oe.folder).ToList();
-                bMSTableEntry = ((source2.Count() <= 0) ? source.OrderByDescending((BMSTableEntry ne) => Math.Abs(((!ne.level.HasValue) ? 0.0 : oe.level.Value) - ((!oe.level.HasValue) ? 0.0 : oe.level.Value))).First() : source2.First());
+                var sameFolder = candidates.Where(ne => ne.folder == oe.folder).ToList();
+                if (sameFolder.Count > 0)
+                {
+                    matchedNew = sameFolder.First();
+                }
+                else
+                {
+                    matchedNew = candidates.OrderByDescending(ne => Math.Abs((ne.level ?? 0.0) - (oe.level ?? 0.0))).First();
+                }
             }
             else
             {
-                bMSTableEntry = source.First();
+                matchedNew = candidates.First();
             }
-            bMSTableEntry.memo = oe.memo;
-            bMSTableEntry.adddate = oe.adddate;
+
+            matchedNew.memo = oe.memo;
+            matchedNew.adddate = oe.adddate;
             return true;
         }).ToList();
+
         if (newTable.last_update == default(DateTime) || newTable.last_update <= oldTable.last_update)
         {
             List<string> folder_list = oldTable.folder_list;
             List<string> folder_list2 = newTable.folder_list;
-            if (newTable.entries.Count != list.Count || list.Count != oldTable.entries.Where((BMSTableEntry e) => !e.is_removed).Count() || folder_list.Except(folder_list2).Any() || folder_list2.Except(folder_list).Any())
+            if (newTable.entries.Count != matchedOldEntries.Count || matchedOldEntries.Count != oldTable.entries.Where((BMSTableEntry e) => !e.is_removed).Count() || folder_list.Except(folder_list2).Any() || folder_list2.Except(folder_list).Any())
             {
                 newTable.last_update = DateTime.Now;
             }
@@ -1959,12 +2000,13 @@ public class BMSPlaylist : NotificationObject
                 newTable.last_update = ((oldTable.last_update == default(DateTime)) ? DateTime.Now : oldTable.last_update);
             }
         }
-        List<BMSTableEntry> list2 = oldTable.entries.Except(list).ToList();
-        foreach (BMSTableEntry item in list2)
+
+        List<BMSTableEntry> removedEntries = oldTable.entries.Except(matchedOldEntries).ToList();
+        foreach (BMSTableEntry item in removedEntries)
         {
             item.is_removed = true;
         }
-        newTable.entries = newTable.entries.Concat(list2).ToList();
+        newTable.entries = newTable.entries.Concat(removedEntries).ToList();
         return newTable;
     }
 
