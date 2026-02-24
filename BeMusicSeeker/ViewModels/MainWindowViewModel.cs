@@ -3953,7 +3953,7 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
-    public List<List<BeMusicSeeker.Models.BMSFile>> BMSFilesDuplicated
+    public List<DuplicateGroup> BMSFilesDuplicated
     {
         get
         {
@@ -5982,6 +5982,10 @@ public class MainWindowViewModel : ViewModel
                     {
                         BMSFilesFolderView = parameter as List<BeMusicSeeker.Models.BMSFile>;
                     }
+                    else if (parameter is DuplicateGroup)
+                    {
+                        BMSFilesFolderView = (parameter as DuplicateGroup).Files;
+                    }
                     else
                     {
                         if (!(parameter is string))
@@ -5991,7 +5995,7 @@ public class MainWindowViewModel : ViewModel
                         string dirname = parameter as string;
                         RetryHelper.RetryIfError(delegate
                         {
-                            BMSFilesFolderView = from f in BMSFilesDuplicated.SelectMany((List<BeMusicSeeker.Models.BMSFile> i) => i)
+                            BMSFilesFolderView = from f in BMSFilesDuplicated.SelectMany((DuplicateGroup g) => g.Files)
                                                  where f.path.StartsWith(dirname + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
                                                  select f;
                         }, delegate (Exception ex)
@@ -6006,7 +6010,7 @@ public class MainWindowViewModel : ViewModel
                 }
                 RetryHelper.RetryIfError(delegate
                 {
-                    BMSFilesFolderView = BMSFilesDuplicated.SelectMany((List<BeMusicSeeker.Models.BMSFile> i) => i);
+                    BMSFilesFolderView = BMSFilesDuplicated.SelectMany((DuplicateGroup g) => g.Files);
                 }, delegate (Exception ex)
                 {
                     ExceptionDispatchInfo.Capture(ex).Throw();

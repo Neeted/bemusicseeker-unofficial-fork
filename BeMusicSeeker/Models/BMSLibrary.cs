@@ -621,7 +621,7 @@ public class BMSLibrary : NotificationObject
 
     private List<BMSFile> _BMSFiles = new List<BMSFile>();
 
-    private List<List<BMSFile>> _BMSFilesDuplicated;
+    private List<DuplicateGroup> _BMSFilesDuplicated;
 
     private DispatcherCollection<BMSPackage> _BMSPackagesPending = new DispatcherCollection<BMSPackage>(DispatcherHelper.UIDispatcher);
 
@@ -694,7 +694,7 @@ public class BMSLibrary : NotificationObject
 
     public IEnumerable<BMSFile> BMSFilesNeedToBeFixedIgnored => GetBMSFilesNeedToBeFixed(BMSFiles, forceUpdate: false, isInIgnoredList: true);
 
-    public List<List<BMSFile>> BMSFilesDuplicated
+    public List<DuplicateGroup> BMSFilesDuplicated
     {
         get
         {
@@ -3233,11 +3233,39 @@ public class BMSLibrary : NotificationObject
                     }
 
                     List<HashSet<string>> mergedDuplicateDirectorySets = rootViewToDirs.Values.ToList();
+                    // 1. 全ファイルをディレクトリごとにバケット化 (O(Files))
+                    Dictionary<string, List<BMSFile>> filesByDir = new Dictionary<string, List<BMSFile>>(StringComparer.OrdinalIgnoreCase);
+                    foreach (BMSFile bms in snapshot)
+                    {
+                        string dir = DirectoryExt.GetDirectoryNameSimple(bms.path);
+                        if (!filesByDir.TryGetValue(dir, out List<BMSFile> list))
+                        {
+                            list = new List<BMSFile>();
+                            filesByDir[dir] = list;
+                        }
+                        list.Add(bms);
+                    }
+
+                    // 2. 重複グループの構築 (O(Groups + FilesInGroups))
+                    BMSFilesDuplicated = mergedDuplicateDirectorySets
+                        .Select((HashSet<string> dirs) =>
+                        {
+                            List<BMSFile> groupFiles = new List<BMSFile>();
+                            foreach (string d in dirs)
+                            {
+                                if (filesByDir.TryGetValue(d, out List<BMSFile> list))
+                                {
+                                    groupFiles.AddRange(list);
+                                }
+                            }
+                            return new DuplicateGroup(groupFiles, dirs.ToList());
+                        })
+                        .Where((DuplicateGroup group) => group.Files.Count > 0)
+                        .OrderBy((DuplicateGroup group) => group.Header)
+                        .ToList();
+
                     swNew.Stop();
-
                     LogInstallPerformance($"SearchBMSFilesDuplicated: NewAlgo={swNew.ElapsedMilliseconds}ms, Groups={mergedDuplicateDirectorySets.Count}");
-
-                    BMSFilesDuplicated = mergedDuplicateDirectorySets.Select((HashSet<string> dirs) => snapshot.Where((BMSFile bmsInfo) => dirs.Contains(DirectoryExt.GetDirectoryNameSimple(bmsInfo.path))).ToList()).Where((List<BMSFile> groupedFiles) => groupedFiles.Count > 0).OrderBy((List<BMSFile> groupedFiles) => groupedFiles.First().title).ToList();
                 }
             }
         }

@@ -31,7 +31,6 @@
       <v:vbmsFileToIsReadOnlyConverterForMemo x:Key="vbmsFileToIsReadOnlyConverterForMemo" />
       <v:addStringToEndConverter x:Key="addStringToEndConverter" />
       <v:pathAbbreviationConvberter x:Key="pathAbbreviationConvberter" />
-      <v:treeViewDuplicateFolderConverter x:Key="treeViewDuplicateFolderConverter" />
       <v:cleartypeToStringConvberter x:Key="cleartypeToStringConvberter" />
       <v:ranktypeToStringConvberter x:Key="ranktypeToStringConvberter" />
       <v:dateTimeToDateStringConverter x:Key="dateTimeToDateStringConverter" />
@@ -2169,7 +2168,7 @@
             </TreeViewItem>
   </TreeView>
   <GridSplitter Name="gridSplitterTree" Grid.Row="1" Height="5" HorizontalAlignment="Stretch" VerticalAlignment="Center" ResizeDirection="Rows" ResizeBehavior="PreviousAndNext" Margin="0,0,1,0" />
-  <TreeView Name="treeView" Grid.Row="2" ScrollViewer.HorizontalScrollBarVisibility="Disabled" BorderThickness="0,0,1,0" Padding="1,5" ItemContainerStyle="{DynamicResource TreeViewItemFullWidthStyle}" MouseRightButtonDown="treeViewItemOnRightClick" PreviewMouseLeftButtonDown="treeViewLeftClick" SelectedItemChanged="treeViewSelectedItemChanged">
+  <TreeView Name="treeView" Grid.Row="2" ScrollViewer.HorizontalScrollBarVisibility="Disabled" VirtualizingStackPanel.IsVirtualizing="True" VirtualizingStackPanel.VirtualizationMode="Recycling" BorderThickness="0,0,1,0" Padding="1,5" ItemContainerStyle="{DynamicResource TreeViewItemFullWidthStyle}" MouseRightButtonDown="treeViewItemOnRightClick" PreviewMouseLeftButtonDown="treeViewLeftClick" SelectedItemChanged="treeViewSelectedItemChanged">
 <TreeViewItem IsExpanded="True" IsSelected="True" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Library, Mode=OneWay}" Selected="rootFolderSelect">
               <FrameworkElement.Resources>
                 <ResourceDictionary>
@@ -2454,16 +2453,16 @@
                     <DataTemplate x:Key="templateTreeViewItemHeaderDuplicateFileCheckFolder">
                       <StackPanel Orientation="Horizontal" DataContext="{Binding DataContext, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type TreeViewItem}}}">
                         <Image Style="{StaticResource styleTreeViewItemIconFolderLoupe}" />
-                        <TextBlock Style="{StaticResource styleTreeViewItemTextBlockCommon}" Text="{qc:Binding $P.Count() &gt; 1 ? $P[0].title : $P[0].Title, P={Binding}}" />
+                        <TextBlock Style="{StaticResource styleTreeViewItemTextBlockCommon}" Text="{Binding Header}" />
                       </StackPanel>
                     </DataTemplate>
                   </ResourceDictionary>
                 </FrameworkElement.Resources>
                 <ItemsControl.ItemContainerStyle>
                   <Style TargetType="{x:Type TreeViewItem}">
-                    <Setter Property="Header" Value="{qc:Binding $P.Count() &gt; 1 ? $P[0].title : $P[0].Title, P={Binding}}" />
+                    <Setter Property="Header" Value="{Binding Header}" />
                     <Setter Property="HeaderTemplate" Value="{StaticResource templateTreeViewItemHeaderDuplicateFileCheckFolder}" />
-                    <Setter Property="ItemsSource" Value="{Binding Mode=OneWay, Converter={StaticResource treeViewDuplicateFolderConverter}}" />
+                    <Setter Property="ItemsSource" Value="{Binding Folders}" />
                     <Setter Property="Template" Value="{StaticResource TreeViewItemFullWidth}" />
                     <Setter Property="ItemContainerStyle">
                       <Setter.Value>

@@ -1305,6 +1305,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             parameter = treeViewItem.DataContext;
         }
+        else if (treeViewItem.DataContext is DuplicateGroup)
+        {
+            parameter = treeViewItem.DataContext;
+        }
         else
         {
             if (!(treeViewItem.DataContext is List<BMSFile>))
@@ -2291,12 +2295,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        IEnumerable<BMSFile> enumerable = null;
-        if (!(treeViewItem.DataContext is List<BMSFile>))
+        DuplicateGroup duplicateGroup = treeViewItem.DataContext as DuplicateGroup;
+        if (duplicateGroup == null)
         {
             return;
         }
-        enumerable = (List<BMSFile>)treeViewItem.DataContext;
         MenuItem menuItem = null;
         foreach (Control item in (IEnumerable)contextMenu.Items)
         {
@@ -2308,7 +2311,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         if (menuItem != null)
         {
-            List<string> list = enumerable.Select((BMSFile f) => DirectoryExt.GetDirectoryNameSimple(f.path)).Distinct(StringComparer.OrdinalIgnoreCase).Except(new string[1] { dataContext }, StringComparer.OrdinalIgnoreCase)
+            List<string> list = duplicateGroup.Folders.Except(new string[1] { dataContext }, StringComparer.OrdinalIgnoreCase)
                 .ToList();
             menuItem.IsEnabled = list.Count > 0;
             if (menuItem.IsEnabled)
