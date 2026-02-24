@@ -367,7 +367,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             foreach (var item in dataGrid.Columns.Where((DataGridColumn col) => BindingOperations.GetBinding(col, DataGridColumn.WidthProperty) != null).OrderBy(delegate (DataGridColumn col)
             {
                 Binding binding = BindingOperations.GetBinding(col, DataGridColumn.WidthProperty);
-                return (int)_getValueOfPropertyPath(binding.Source, binding.Path.Path.Substring(0, binding.Path.Path.LastIndexOf('.')) + ".DisplayIndex");
+                object obj = _getValueOfPropertyPath(binding.Source, binding.Path.Path.Substring(0, binding.Path.Path.LastIndexOf('.')) + ".DisplayIndex");
+                return (obj is int) ? ((int)obj) : 0;
             }).Select((DataGridColumn v, int i) => new { v, i }))
             {
                 item.v.DisplayIndex = item.i;
@@ -377,12 +378,25 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private static object _getValueOfPropertyPath(object value, string path)
     {
+        if (value == null)
+        {
+            return null;
+        }
         Type type = value.GetType();
         string[] array = path.Split('.');
         foreach (string name in array)
         {
             PropertyInfo property = type.GetProperty(name);
+            if (property == null)
+            {
+                Ribbit.Logging.NLogWrapper.FileLogger?.Warn($"Property '{name}' not found on type '{type.Name}' in path '{path}'");
+                return null;
+            }
             value = property.GetValue(value, null);
+            if (value == null)
+            {
+                return null;
+            }
             type = property.PropertyType;
         }
         return value;
@@ -414,8 +428,59 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         });
     }
 
+    private void setDisplayIndicesPlaylistSummary(object sender, DataGridColumnEventArgs e)
+    {
+        setDisplayIndicesPlaylistSummary();
+    }
+
+    private void setDisplayIndicesPlaylistSummary()
+    {
+        base.Dispatcher.BeginInvoke((Action)delegate
+        {
+            foreach (var item in (from c in dataGridPlaylistSummary.Columns
+                                  where c != null
+                                  orderby c.DisplayIndex
+                                  select c).Select((DataGridColumn v, int i) => new { v, i }))
+            {
+                Binding binding = BindingOperations.GetBinding(item.v, DataGridColumn.WidthProperty);
+                if (binding != null)
+                {
+                    _getSetterOfPropertyPath<int>(binding.Source, binding.Path.Path.Substring(0, binding.Path.Path.LastIndexOf('.')) + ".DisplayIndex")(item.i);
+                }
+            }
+        });
+    }
+
+    public void getDisplayIndicesPlaylistSummary()
+    {
+        base.Dispatcher.BeginInvoke((Action)delegate
+        {
+            foreach (var item in dataGridPlaylistSummary.Columns.Where((DataGridColumn col) => BindingOperations.GetBinding(col, DataGridColumn.WidthProperty) != null).OrderBy(delegate (DataGridColumn col)
+            {
+                Binding binding = BindingOperations.GetBinding(col, DataGridColumn.WidthProperty);
+                object obj = _getValueOfPropertyPath(binding.Source, binding.Path.Path.Substring(0, binding.Path.Path.LastIndexOf('.')) + ".DisplayIndex");
+                return (obj is int) ? ((int)obj) : 0;
+            }).Select((DataGridColumn v, int i) => new { v, i }))
+            {
+                item.v.DisplayIndex = item.i;
+            }
+        });
+    }
+
+    private void dataGridPlaylistSummary_IsVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
+    {
+        if ((bool)e.NewValue)
+        {
+            getDisplayIndicesPlaylistSummary();
+        }
+    }
+
     private static Action<T> _getSetterOfPropertyPath<T>(object value, string path)
     {
+        if (value == null)
+        {
+            return (T _) => { };
+        }
         Type type = value.GetType();
         PropertyInfo propertyInfo = null;
         object firstArgument = null;
@@ -423,11 +488,26 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         foreach (string name in array)
         {
             propertyInfo = type.GetProperty(name);
+            if (propertyInfo == null)
+            {
+                Ribbit.Logging.NLogWrapper.FileLogger?.Warn($"Property '{name}' not found on type '{type.Name}' in path '{path}'");
+                return (T _) => { };
+            }
             firstArgument = value;
             value = propertyInfo.GetValue(value, null);
+            if (value == null && name != array.Last())
+            {
+                return (T _) => { };
+            }
             type = propertyInfo.PropertyType;
         }
-        return Delegate.CreateDelegate(typeof(Action<T>), firstArgument, propertyInfo.GetSetMethod()) as Action<T>;
+        MethodInfo setMethod = propertyInfo?.GetSetMethod();
+        if (setMethod == null)
+        {
+            Ribbit.Logging.NLogWrapper.FileLogger?.Warn($"Set method for property '{propertyInfo?.Name}' not found in path '{path}'");
+            return (T _) => { };
+        }
+        return Delegate.CreateDelegate(typeof(Action<T>), firstArgument, setMethod) as Action<T>;
     }
 
     private async void dataGridRowDoubleClicked(object sender, MouseButtonEventArgs e)

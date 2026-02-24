@@ -3322,6 +3322,8 @@ public class MainWindowViewModel : ViewModel
 
     private dataGridColumnsSettings _ColumnsSettingsBMSFilesView;
 
+    private PlaylistSummaryColumnSettings _PlaylistSummaryColumnsSettings;
+
     private Visibility _ColumnSettingsVisibilityForPlaylist = Visibility.Collapsed;
 
     private ObservableCollection<PlaylistSummaryRow> _PlaylistSummaryView = new ObservableCollection<PlaylistSummaryRow>();
@@ -4250,11 +4252,13 @@ public class MainWindowViewModel : ViewModel
     {
         get
         {
-            if (Settings.Default.PlaylistSummaryColumnsSettings == null)
-            {
-                Settings.Default.PlaylistSummaryColumnsSettings = new PlaylistSummaryColumnSettings();
-            }
-            return Settings.Default.PlaylistSummaryColumnsSettings;
+            return _PlaylistSummaryColumnsSettings;
+        }
+        set
+        {
+            _PlaylistSummaryColumnsSettings = value;
+            RaisePropertyChanged("PlaylistSummaryColumnsSettings");
+            base.Messenger.Raise(new InteractionMessage("CallbackColumnsSetingsChanged"));
         }
     }
 
@@ -6254,7 +6258,7 @@ public class MainWindowViewModel : ViewModel
         {
             case viewUpdateMode.PlaylistFilterSelected:
             case viewUpdateMode.PlaylistNotOwnedFilterSelected:
-                if (isInit)
+                if (Settings.Default.PlaylistColumnsSettings == null)
                 {
                     Settings.Default.PlaylistColumnsSettings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.PLAYLIST);
                 }
@@ -6264,7 +6268,7 @@ public class MainWindowViewModel : ViewModel
             case viewUpdateMode.FolderFilterSelected:
             case viewUpdateMode.UnregisteredFilterSelected:
             case viewUpdateMode.ZeroNoteFilterSelected:
-                if (isInit)
+                if (Settings.Default.StandardColumnsSettings == null)
                 {
                     Settings.Default.StandardColumnsSettings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.STANDARD);
                 }
@@ -6273,14 +6277,14 @@ public class MainWindowViewModel : ViewModel
             case viewUpdateMode.FileMissingFilterSelected:
             case viewUpdateMode.FileMissingIgnoredFilterSelected:
             case viewUpdateMode.NewlyInstalledFolderSelected:
-                if (isInit)
+                if (Settings.Default.FullScanColumnsSettings == null)
                 {
                     Settings.Default.FullScanColumnsSettings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.FULLSCAN);
                 }
                 ColumnsSettingsBMSFilesView = Settings.Default.FullScanColumnsSettings;
                 break;
             case viewUpdateMode.DuplicateFilterSelected:
-                if (isInit)
+                if (Settings.Default.DuplicateColumnsSettings == null)
                 {
                     Settings.Default.DuplicateColumnsSettings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.DUPLICATE);
                 }
@@ -6288,20 +6292,25 @@ public class MainWindowViewModel : ViewModel
                 break;
             case viewUpdateMode.GarbledFilterSelected:
             case viewUpdateMode.GarbleFixedFilterSelected:
-                if (isInit)
+                if (Settings.Default.EncodingColumnsSettings == null)
                 {
                     Settings.Default.EncodingColumnsSettings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.ENCODING);
                 }
                 ColumnsSettingsBMSFilesView = Settings.Default.EncodingColumnsSettings;
                 break;
             case viewUpdateMode.PendingInstallFolderSelected:
-                if (isInit)
+                if (Settings.Default.InstallColumnsSettings == null)
                 {
                     Settings.Default.InstallColumnsSettings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.INSTALL);
                 }
                 ColumnsSettingsBMSFilesView = Settings.Default.InstallColumnsSettings;
                 break;
         }
+        if (Settings.Default.PlaylistSummaryColumnsSettings == null)
+        {
+            Settings.Default.PlaylistSummaryColumnsSettings = new PlaylistSummaryColumnSettings();
+        }
+        PlaylistSummaryColumnsSettings = Settings.Default.PlaylistSummaryColumnsSettings;
     }
 
     public void ExecSort(string columnName, ListSortDirection direction)
