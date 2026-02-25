@@ -1,4 +1,4 @@
-{
+﻿{
   "_language_name": "English",
   "Open_Url": "Open URL",
   "Remove_ignore": "Remove from ignored list",
@@ -407,5 +407,7 @@
   "Error_InvalidBackupData": "Backup data is invalid",
   "Error_ParseFailed": "Parsing failed.",
   "Warn_CustomFolderOutputDirInvalid": "An invalid custom folder output directory was detected.\nPlease check if the output directory is correctly specified.",
-  "Error_InstallComponentFileNotFound": "File not found"
+  "Error_InstallComponentFileNotFound": "File not found",
+  "Msg_merge_bms_completed": "Merged \"{0}\" into \"{1}\"",
+  "Msg_cleanup_duplicate_hash": "Clean up duplicate hash BMS files in the same folder.\nKeeps the file with the oldest modification date,\nor the shortest filename if dates are the same.\n{0} file(s) will be moved to the recycle bin.\nContinue?"
 }

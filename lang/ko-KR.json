@@ -1,4 +1,4 @@
-{
+﻿{
   "_language_name": "한국어",
   "Open_Url": "URL 열기",
   "Remove_ignore": "무시 목록에서 제거",
@@ -407,5 +407,7 @@
   "Error_InvalidBackupData": "백업 데이터가 잘못되었습니다",
   "Error_ParseFailed": "파싱에 실패했습니다.",
   "Warn_CustomFolderOutputDirInvalid": "커스텀 폴더 출력 디렉토리의 이상이 감지되었습니다.\n출력 대상이 올바르게 지정되어 있는지 확인해 주세요.",
-  "Error_InstallComponentFileNotFound": "파일을 찾을 수 없습니다"
+  "Error_InstallComponentFileNotFound": "파일을 찾을 수 없습니다",
+  "Msg_merge_bms_completed": "\"{0}\"\uc744(\ub97c) \"{1}\"\uc73c\ub85c \ubcd1\ud569\ud588\uc2b5\ub2c8\ub2e4",
+  "Msg_cleanup_duplicate_hash": "같은 폴더 내 해시 중복 BMS 파일을 정리합니다.\n수정 날짜가 가장 오래된 파일을 유지하고,\n날짜가 같으면 파일명이 짧은 쪽을 유지합니다.\n{0}개의 파일을 휴지통으로 이동합니다.\n계속하시겠습니까?"
 }

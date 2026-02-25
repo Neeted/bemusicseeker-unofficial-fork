@@ -1,4 +1,4 @@
-{
+﻿{
   "_language_name": "繁體中文",
   "Open_Url": "開啟 URL",
   "Remove_ignore": "從忽略清單中移除",
@@ -407,5 +407,7 @@
   "Error_InvalidBackupData": "備份資料無效",
   "Error_ParseFailed": "解析失敗。",
   "Warn_CustomFolderOutputDirInvalid": "偵測到自訂資料夾輸出目錄異常。\n請確認輸出目錄是否正確設定。",
-  "Error_InstallComponentFileNotFound": "找不到檔案"
+  "Error_InstallComponentFileNotFound": "找不到檔案",
+  "Msg_merge_bms_completed": "\u5df2\u5c07\u300c{0}\u300d\u5408\u4f75\u5230\u300c{1}\u300d",
+  "Msg_cleanup_duplicate_hash": "整理同一資料夾內的雜湊重複BMS檔案。\n優先保留修改日期最早的檔案，\n日期相同則保留檔名較短的。\n將{0}個檔案移至資源回收桶。\n是否繼續？"
 }

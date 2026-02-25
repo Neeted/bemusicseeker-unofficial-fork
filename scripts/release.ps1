@@ -19,11 +19,8 @@ Write-Host "=== ステップ 0: 前提条件の確認 ===" -ForegroundColor Cyan
 
 # gh コマンドの確認
 Write-Host "  gh コマンドの認証状態を確認中..."
-try {
-    # 標準出力を捨てて終了コードのみを見る
-    gh auth status 2>&1 | Out-Null
-}
-catch {
+gh auth status 2>&1 | Out-Null
+if ($LASTEXITCODE -ne 0) {
     Write-Host "エラー: gh コマンドがインストールされていないか、認証されていません。" -ForegroundColor Red
     Write-Host "事前に 'gh auth login' を実行してログインしてください。" -ForegroundColor Yellow
     exit 1
@@ -67,7 +64,7 @@ try {
     git add .
 
     # 未コミットの変更があるか確認
-    $hasChanges = (git status --porcelain) -ne $null
+    $hasChanges = $null -ne (git status --porcelain)
     
     if ($hasChanges) {
         Write-Host "  変更をコミットします..."
@@ -101,12 +98,9 @@ try {
     
     # すでにリリースが存在するか確認
     $releaseExists = $false
-    try {
-        gh release view $tag 2>&1 | Out-Null
+    gh release view $tag 2>&1 | Out-Null
+    if ($LASTEXITCODE -eq 0) {
         $releaseExists = $true
-    }
-    catch {
-        # エラーになる（=リリースが存在しない）場合は正常フロー
     }
 
     if ($releaseExists) {

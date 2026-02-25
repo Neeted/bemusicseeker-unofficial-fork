@@ -1,4 +1,4 @@
-{
+﻿{
   "_language_name": "Français",
   "Open_Url": "Ouvrir URL",
   "Remove_ignore": "Remove from ignored list",
@@ -407,5 +407,7 @@
   "Error_InvalidBackupData": "Les données de sauvegarde sont invalides",
   "Error_ParseFailed": "L'analyse a échoué.",
   "Warn_CustomFolderOutputDirInvalid": "Un répertoire de sortie de dossier personnalisé invalide a été détecté.\nVeuillez vérifier si le répertoire de sortie est correctement spécifié.",
-  "Error_InstallComponentFileNotFound": "Fichier introuvable"
+  "Error_InstallComponentFileNotFound": "Fichier introuvable",
+  "Msg_merge_bms_completed": "Fusion de \"{0}\" dans \"{1}\"",
+  "Msg_cleanup_duplicate_hash": "Nettoyer les fichiers BMS en double dans le même dossier.\nConserve le fichier avec la date de modification la plus ancienne,\nou le nom de fichier le plus court si les dates sont identiques.\n{0} fichier(s) seront déplacés vers la corbeille.\nContinuer ?"
 }

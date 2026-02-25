@@ -1,4 +1,4 @@
-{
+﻿{
   "_language_name": "日本語",
   "Open_Url": "本体URLを開く",
   "Remove_ignore": "無視リストから削除",
@@ -407,5 +407,7 @@
   "Error_InvalidBackupData": "バックアップデータが不正です",
   "Error_ParseFailed": "パースに失敗しました。",
   "Warn_CustomFolderOutputDirInvalid": "カスタムフォルダ出力先ディレクトリの不正を検出しました。\n正しく出力先が指定されているか確認して下さい。",
-  "Error_InstallComponentFileNotFound": "ファイルが見つかりませんでした"
+  "Error_InstallComponentFileNotFound": "ファイルが見つかりませんでした",
+  "Msg_merge_bms_completed": "\u300c{0}\u300d\u3092\u300c{1}\u300d\u3078\u30de\u30fc\u30b8\u3057\u307e\u3057\u305f",
+  "Msg_cleanup_duplicate_hash": "同一フォルダ内のハッシュ重複BMSファイルを整理します。\n更新日時が古いファイルを優先的に残し、\n同一日時の場合はファイル名が短い方を残します。\n{0}件のファイルをごみ箱へ移動します。\n続行しますか？"
 }
