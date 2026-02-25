@@ -968,6 +968,74 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         return null;
     }
 
+    // 仮想化で子ノードコンテナが未生成でも、選択遷移が無選択で止まらないようにする。
+    private void SelectNextSiblingOrRoot(TreeViewItem rootTreeViewItem, object currentItem, string logScope)
+    {
+        if (rootTreeViewItem == null)
+        {
+            return;
+        }
+        int count = rootTreeViewItem.Items.Count;
+        if (count == 0)
+        {
+            SelectTreeViewItemWithFocus(rootTreeViewItem);
+            return;
+        }
+        int currentIndex = rootTreeViewItem.Items.IndexOf(currentItem);
+        if (currentIndex == 0 && count == 1)
+        {
+            SelectTreeViewItemWithFocus(rootTreeViewItem);
+            return;
+        }
+        if (currentIndex == -1)
+        {
+            NLogWrapper.FileLogger?.Info(logScope + " selection_fallback reason=current_not_found root=" + rootTreeViewItem.Header);
+            SelectTreeViewItemWithFocus(rootTreeViewItem);
+            return;
+        }
+        int targetIndex = ((count - 1 == currentIndex) ? (currentIndex - 1) : (currentIndex + 1));
+        object targetDataContext = rootTreeViewItem.Items[targetIndex];
+        if (!TrySelectChildTreeViewItemByDataContext(rootTreeViewItem, targetDataContext, logScope))
+        {
+            SelectTreeViewItemWithFocus(rootTreeViewItem);
+        }
+    }
+
+    private bool TrySelectChildTreeViewItemByDataContext(TreeViewItem rootTreeViewItem, object targetDataContext, string logScope)
+    {
+        if (rootTreeViewItem == null || targetDataContext == null)
+        {
+            return false;
+        }
+        TreeViewItem treeViewItem = rootTreeViewItem.ItemContainerGenerator.ContainerFromItem(targetDataContext) as TreeViewItem;
+        if (treeViewItem == null)
+        {
+            rootTreeViewItem.UpdateLayout();
+            treeViewItem = rootTreeViewItem.ItemContainerGenerator.ContainerFromItem(targetDataContext) as TreeViewItem;
+        }
+        if (treeViewItem == null)
+        {
+            treeViewItem = WPFUtil.FindVisualChildSearchedByDataContext<TreeViewItem>(rootTreeViewItem, targetDataContext);
+        }
+        if (treeViewItem == null)
+        {
+            NLogWrapper.FileLogger?.Info(logScope + " selection_fallback reason=container_not_realized root=" + rootTreeViewItem.Header + " target=" + targetDataContext);
+            return false;
+        }
+        SelectTreeViewItemWithFocus(treeViewItem);
+        return true;
+    }
+
+    private static void SelectTreeViewItemWithFocus(TreeViewItem treeViewItem)
+    {
+        if (treeViewItem == null)
+        {
+            return;
+        }
+        treeViewItem.IsSelected = true;
+        treeViewItem.Focus();
+    }
+
     private void ForceRefreshPlaylistTreeSelection(TreeViewItem selectedItem)
     {
         MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
@@ -1853,22 +1921,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        TreeViewItem treeViewItem = null;
-        int num = treeViewItemPlaylist.Items.IndexOf(bmsTable);
-        if (num == 0 && treeViewItemPlaylist.Items.Count == 1)
-        {
-            treeViewItem = treeViewItemPlaylist;
-        }
-        else if (num != -1)
-        {
-            int index = ((treeViewItemPlaylist.Items.Count - 1 == num) ? (num - 1) : (num + 1));
-            treeViewItem = WPFUtil.FindVisualChildSearchedByDataContext<TreeViewItem>(treeViewItemPlaylist, treeViewItemPlaylist.Items[index]);
-        }
-        if (treeViewItem != null)
-        {
-            treeViewItem.IsSelected = true;
-            treeViewItem.Focus();
-        }
+        SelectNextSiblingOrRoot(treeViewItemPlaylist, bmsTable, "treeViewPlaylistTableContextMenuItemRemoveTableClick");
         await Task.Run(delegate
         {
             viewModel.RemoveBMSTable(bmsTable);
@@ -2155,22 +2208,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        TreeViewItem treeViewItem = null;
-        int num = treeViewItemInstallPending.Items.IndexOf(pkg);
-        if (num == 0 && treeViewItemInstallPending.Items.Count == 1)
-        {
-            treeViewItem = treeViewItemInstallPending;
-        }
-        else if (num != -1)
-        {
-            int index = ((treeViewItemInstallPending.Items.Count - 1 == num) ? (num - 1) : (num + 1));
-            treeViewItem = WPFUtil.FindVisualChildSearchedByDataContext<TreeViewItem>(treeViewItemInstallPending, treeViewItemInstallPending.Items[index]);
-        }
-        if (treeViewItem != null)
-        {
-            treeViewItem.IsSelected = true;
-            treeViewItem.Focus();
-        }
+        SelectNextSiblingOrRoot(treeViewItemInstallPending, pkg, "treeViewInstallPackageContextMenuClearFolderClick");
         await Task.Run(delegate
         {
             viewModel.RemoveBMSPackagesPending(new BMSPackage[1] { pkg });
@@ -2200,22 +2238,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        TreeViewItem treeViewItem = null;
-        int num = newlyInstalledTreeViewItem.Items.IndexOf(pkg);
-        if (num == 0 && newlyInstalledTreeViewItem.Items.Count == 1)
-        {
-            treeViewItem = newlyInstalledTreeViewItem;
-        }
-        else if (num != -1)
-        {
-            int index = ((newlyInstalledTreeViewItem.Items.Count - 1 == num) ? (num - 1) : (num + 1));
-            treeViewItem = WPFUtil.FindVisualChildSearchedByDataContext<TreeViewItem>(newlyInstalledTreeViewItem, newlyInstalledTreeViewItem.Items[index]);
-        }
-        if (treeViewItem != null)
-        {
-            treeViewItem.IsSelected = true;
-            treeViewItem.Focus();
-        }
+        SelectNextSiblingOrRoot(newlyInstalledTreeViewItem, pkg, "treeViewInstalledFolderContextMenuClearFolderClick");
         await Task.Run(delegate
         {
             viewModel.RemoveBMSPackagesInstalled(new BMSPackage[1] { pkg });
@@ -2266,22 +2289,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        TreeViewItem treeViewItem = null;
-        int num = treeViewItemInstallPending.Items.IndexOf(pkg);
-        if (num == 0 && treeViewItemInstallPending.Items.Count == 1)
-        {
-            treeViewItem = treeViewItemInstallPending;
-        }
-        else if (num != -1)
-        {
-            int index = ((treeViewItemInstallPending.Items.Count - 1 == num) ? (num - 1) : (num + 1));
-            treeViewItem = WPFUtil.FindVisualChildSearchedByDataContext<TreeViewItem>(treeViewItemInstallPending, treeViewItemInstallPending.Items[index]);
-        }
-        if (treeViewItem != null)
-        {
-            treeViewItem.IsSelected = true;
-            treeViewItem.Focus();
-        }
+        SelectNextSiblingOrRoot(treeViewItemInstallPending, pkg, "treeViewInstallPackageContextMenuForceInstallClick");
         await Task.Run(delegate
         {
             viewModel.ForceInstallBMSFiles(new BMSPackage[1] { pkg });
@@ -2311,22 +2319,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        TreeViewItem treeViewItem = null;
-        int num = treeViewItemInstallPending.Items.IndexOf(pkg);
-        if (num == 0 && treeViewItemInstallPending.Items.Count == 1)
-        {
-            treeViewItem = treeViewItemInstallPending;
-        }
-        else if (num != -1)
-        {
-            int index = ((treeViewItemInstallPending.Items.Count - 1 == num) ? (num - 1) : (num + 1));
-            treeViewItem = WPFUtil.FindVisualChildSearchedByDataContext<TreeViewItem>(treeViewItemInstallPending, treeViewItemInstallPending.Items[index]);
-        }
-        if (treeViewItem != null)
-        {
-            treeViewItem.IsSelected = true;
-            treeViewItem.Focus();
-        }
+        SelectNextSiblingOrRoot(treeViewItemInstallPending, pkg, "treeViewInstallPackageContextMenuManualInstallClick");
         await Task.Run(delegate
         {
             viewModel.ManualInstallBMSFiles(new BMSPackage[1] { pkg });
@@ -4270,22 +4263,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         if (!treeViewItemInstallPending.IsSelected)
         {
-            TreeViewItem treeViewItem = null;
-            int num = treeViewItemInstallPending.Items.IndexOf(treeView.SelectedItem);
-            if (num == 0 && treeViewItemInstallPending.Items.Count == 1)
-            {
-                treeViewItem = treeViewItemInstallPending;
-            }
-            else if (num != -1)
-            {
-                int index = ((treeViewItemInstallPending.Items.Count - 1 == num) ? (num - 1) : (num + 1));
-                treeViewItem = WPFUtil.FindVisualChildSearchedByDataContext<TreeViewItem>(treeViewItemInstallPending, treeViewItemInstallPending.Items[index]);
-            }
-            if (treeViewItem != null)
-            {
-                treeViewItem.IsSelected = true;
-                treeViewItem.Focus();
-            }
+            SelectNextSiblingOrRoot(treeViewItemInstallPending, treeView.SelectedItem, "forceInstallSelectedBMS");
         }
         await Task.Run(delegate
         {
@@ -4320,22 +4298,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         if (!treeViewItemInstallPending.IsSelected)
         {
-            TreeViewItem treeViewItem = null;
-            int num = treeViewItemInstallPending.Items.IndexOf(treeView.SelectedItem);
-            if (num == 0 && treeViewItemInstallPending.Items.Count == 1)
-            {
-                treeViewItem = treeViewItemInstallPending;
-            }
-            else if (num != -1)
-            {
-                int index = ((treeViewItemInstallPending.Items.Count - 1 == num) ? (num - 1) : (num + 1));
-                treeViewItem = WPFUtil.FindVisualChildSearchedByDataContext<TreeViewItem>(treeViewItemInstallPending, treeViewItemInstallPending.Items[index]);
-            }
-            if (treeViewItem != null)
-            {
-                treeViewItem.IsSelected = true;
-                treeViewItem.Focus();
-            }
+            SelectNextSiblingOrRoot(treeViewItemInstallPending, treeView.SelectedItem, "manualInstallSelectedBMS");
         }
         await Task.Run(delegate
         {

@@ -193,12 +193,8 @@ public static class WPFUtil
 							return child as T;
 						}
 					}
-					else
+					else if (child is FrameworkContentElement)
 					{
-						if (!(child is FrameworkContentElement))
-						{
-							return null;
-						}
 						if (((FrameworkContentElement)child).DataContext == x)
 						{
 							return child as T;
