@@ -601,6 +601,23 @@
                       </FrameworkContentElement.Resources>
                       <List>
                         <ListItem>
+                          <Paragraph FontWeight="Bold">1.0.4.0:</Paragraph>
+                          <List MarkerStyle="Box">
+                            <ListItem>
+                              <Paragraph>プレイリストツリーのUI仮想化有効時に、ラベルが消失・入れ替わる不具合を修正</Paragraph>
+                            </ListItem>
+                            <ListItem>
+                              <Paragraph>プレイリスト削除時に発生することがあったクラッシュ（Nullキーエラー）を修正</Paragraph>
+                            </ListItem>
+                            <ListItem>
+                              <Paragraph>BMSのマージ・移動処理の安定性を向上（ファイルロック競合への対策とリトライ強化）</Paragraph>
+                            </ListItem>
+                            <ListItem>
+                              <Paragraph>重複ファイルチェック画面のショートカット(Ctrl+G)を拡張（1フォルダのみのハッシュ重複解消など）</Paragraph>
+                            </ListItem>
+                          </List>
+                        </ListItem>
+                        <ListItem>
                           <Paragraph FontWeight="Bold">1.0.3.0:</Paragraph>
                           <List MarkerStyle="Box">
                             <ListItem>
