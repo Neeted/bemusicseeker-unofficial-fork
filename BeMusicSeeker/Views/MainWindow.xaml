@@ -2092,15 +2092,15 @@
               <FrameworkElement.Resources>
                 <ResourceDictionary>
                   <v:playlistTableFolderListConverter x:Key="playlistTableFolderListConverter" />
-                  <DataTemplate x:Key="templateTreeViewItemHeaderPlaylistTableFolderNormal">
-                    <StackPanel Orientation="Horizontal" DataContext="{Binding DataContext, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type TreeViewItem}}}">
+                   <DataTemplate x:Key="templateTreeViewItemHeaderPlaylistTableFolderNormal">
+                    <StackPanel Orientation="Horizontal">
                       <Image Style="{StaticResource styleTreeViewItemIconFolderNote}" />
                       <v:EditableTextBlock x:Name="etbPlaylistTableFolder" MouseDown="playlistTableFolderClicked" EditModeChanged="playlistTableFolderNameChanged" Text="{Binding Item1, Converter={StaticResource playlistTableFolderNameConverter}}" IsEditable="{qc:Binding !$P, P={Binding DataContext.is_external_sync, RelativeSource={RelativeSource FindAncestor, AncestorLevel=2, AncestorType={x:Type TreeViewItem}}}}" />
                     </StackPanel>
                   </DataTemplate>
                   <DataTemplate x:Key="templateTreeViewItemHeaderPlaylistTableFolderSP">
                     <ContentControl>
-                      <StackPanel Orientation="Horizontal" DataContext="{Binding DataContext, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type TreeViewItem}}}">
+                      <StackPanel Orientation="Horizontal">
                         <Image Style="{StaticResource styleTreeViewItemIconFolderLoupe}" />
                         <v:EditableTextBlock x:Name="etbPlaylistTableFolder" IsEditable="False" Text="{Binding Item1}" />
                       </StackPanel>
@@ -2165,11 +2165,11 @@
                       <Style TargetType="{x:Type TreeViewItem}">
                         <Style.Triggers>
                           <DataTrigger Value="False" Binding="{Binding Item2}">
-                            <Setter Property="Header" Value="{Binding Item1, Converter={StaticResource playlistTableFolderNameConverter}}" />
+                            <Setter Property="Header" Value="{Binding}" />
                             <Setter Property="HeaderTemplate" Value="{StaticResource templateTreeViewItemHeaderPlaylistTableFolderNormal}" />
                           </DataTrigger>
                           <DataTrigger Value="True" Binding="{Binding Item2}">
-                            <Setter Property="Header" Value="{Binding Item1}" />
+                            <Setter Property="Header" Value="{Binding}" />
                             <Setter Property="HeaderTemplate" Value="{StaticResource templateTreeViewItemHeaderPlaylistTableFolderSP}" />
                           </DataTrigger>
                         </Style.Triggers>
