@@ -68,6 +68,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private BitmapSource _panelImage;
 
+    // マージ後に自動選択するDuplicateGroupのHeader（曲名）をキャッシュ
+    private string _pendingDuplicateGroupHeader;
+
     private bool startupInitialSelectionApplied;
 
     private BitmapSource panelImage
@@ -2422,24 +2425,261 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        if (viewModel == null)
-        {
-            return;
-        }
         string srcPath = tag.DataContext as string;
         if (string.IsNullOrWhiteSpace(srcPath))
         {
             return;
         }
         string dstPath = menuItem.DataContext as string;
-        if (!string.IsNullOrWhiteSpace(dstPath) && MessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_merge_bms_folder + Environment.NewLine + Environment.NewLine + BeMusicSeeker.Properties.Resources.Msg_merge_bms_target + ": " + srcPath + Environment.NewLine + BeMusicSeeker.Properties.Resources.Msg_merge_bms_destination + ": " + dstPath, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) != MessageBoxResult.Cancel)
+        if (string.IsNullOrWhiteSpace(dstPath))
         {
-            Task.Run(delegate
-            {
-                viewModel.MergeBMSDirectory(srcPath, dstPath);
-            }).Logging("treeViewDuplicateFolderContextMenuItemMergeIntoTargetClick");
+            return;
         }
+        // 親DuplicateGroupを取得
+        TreeViewItem groupTreeItem = WPFUtil.FindVisualParent<TreeViewItem>(tag);
+        DuplicateGroup duplicateGroup = groupTreeItem?.DataContext as DuplicateGroup;
+        ExecuteDuplicateFolderMerge(srcPath, dstPath, duplicateGroup);
+    }
+
+    /// <summary>
+    /// 重複フォルダのマージ処理を実行する共通メソッド。
+    /// 確認ダイアログ → マージ実行 → マージ後のグループ自動選択を行う。
+    /// </summary>
+    private void ExecuteDuplicateFolderMerge(string srcPath, string dstPath, DuplicateGroup duplicateGroup)
+    {
+        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
+        if (viewModel == null)
+        {
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(srcPath) || string.IsNullOrWhiteSpace(dstPath))
+        {
+            return;
+        }
+
+        // 確認ダイアログ
+        if (MessageBox.Show(Window.GetWindow(this),
+            BeMusicSeeker.Properties.Resources.Msg_merge_bms_folder + Environment.NewLine + Environment.NewLine +
+            BeMusicSeeker.Properties.Resources.Msg_merge_bms_target + ": " + srcPath + Environment.NewLine +
+            BeMusicSeeker.Properties.Resources.Msg_merge_bms_destination + ": " + dstPath,
+            BeMusicSeeker.Properties.Resources.Confirm,
+            MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) == MessageBoxResult.Cancel)
+        {
+            return;
+        }
+
+        // マージ後に自動選択するグループのHeaderをキャッシュ
+        _pendingDuplicateGroupHeader = null;
+        if (duplicateGroup != null && viewModel.BMSFilesDuplicated != null)
+        {
+            int folderCount = duplicateGroup.Folders.Count;
+            if (folderCount == 2)
+            {
+                // フォルダが2つの場合: マージでグループ消滅 → 次のグループを選択
+                int currentIndex = viewModel.BMSFilesDuplicated.IndexOf(duplicateGroup);
+                if (currentIndex >= 0 && currentIndex + 1 < viewModel.BMSFilesDuplicated.Count)
+                {
+                    _pendingDuplicateGroupHeader = viewModel.BMSFilesDuplicated[currentIndex + 1].Header;
+                }
+            }
+            else if (folderCount >= 3)
+            {
+                // フォルダが3つ以上の場合: マージ後もグループが残る → 同じグループを再選択
+                _pendingDuplicateGroupHeader = duplicateGroup.Header;
+            }
+        }
+
+        string srcFolderName = Path.GetFileName(srcPath);
+        string dstFolderName = Path.GetFileName(dstPath);
+
+        Task.Run(delegate
+        {
+            viewModel.MergeBMSDirectory(srcPath, dstPath);
+
+            // マージ完了ログ（将来のステータスバー通知に備える）
+            NLogWrapper.FileLogger?.Info(string.Format(
+                BeMusicSeeker.Properties.Resources.Msg_merge_bms_completed, srcFolderName, dstFolderName));
+
+        }).ContinueWith(t =>
+        {
+            if (t.Exception != null)
+            {
+                return;
+            }
+            // マージ後にBMSFilesDuplicatedの更新を待ってからツリーで自動選択を試みる
+            WaitForDuplicateListUpdateAndSelect(_pendingDuplicateGroupHeader, viewModel);
+        }, TaskScheduler.FromCurrentSynchronizationContext()).Logging("ExecuteDuplicateFolderMerge");
+    }
+
+    /// <summary>
+    /// BMSFilesDuplicatedの更新を待ち、該当グループを自動選択する。
+    /// MergeBMSDirectory完了後、BMSLibrary側でPropertyChangedが発火し、
+    /// ViewModelのFlushPendingUiRefreshを経由してUIに反映される。
+    /// そのタイミングを検知してツリーの選択を行う。
+    /// </summary>
+    private void WaitForDuplicateListUpdateAndSelect(string header, MainWindowViewModel viewModel)
+    {
+        if (string.IsNullOrEmpty(header) || viewModel == null)
+        {
+            return;
+        }
+
+        // BMSFilesDuplicatedの更新完了後にDispatcherで選択処理をスケジュール
+        PropertyChangedEventHandler handler = null;
+        handler = (s, e) =>
+        {
+            if (e.PropertyName != nameof(viewModel.BMSFilesDuplicated))
+            {
+                return;
+            }
+            // 一度きりのリスナーなので解除
+            viewModel.PropertyChanged -= handler;
+
+            NLogWrapper.FileLogger?.Info("BMSFilesDuplicated updated, attempting auto-select for: " + header);
+
+            // Binding更新 → ItemContainerGenerator → VirtualizingStackPanel同期を待つため、
+            // DispatcherPriority.ContextIdle（UIが完全にアイドルになった後）で遅延実行
+            Dispatcher.BeginInvoke(DispatcherPriority.ContextIdle, new Action(() =>
+            {
+                try
+                {
+                    SelectDuplicateGroupByHeader(header, viewModel);
+                }
+                catch (Exception ex)
+                {
+                    NLogWrapper.FileLogger?.Warn("SelectDuplicateGroup failed: " + ex.Message);
+                }
+            }));
+        };
+        viewModel.PropertyChanged += handler;
+    }
+
+    /// <summary>
+    /// 名前付きTreeViewItem「treeViewItemSearchDuplicated」から直接
+    /// DuplicateGroupを検索し選択する。仮想化されたアイテムも
+    /// BringIndexIntoViewPublicでコンテナ生成を強制する。
+    /// </summary>
+    private void SelectDuplicateGroupByHeader(string header, MainWindowViewModel viewModel)
+    {
+        // XAML上で Name="treeViewItemSearchDuplicated" を持つTreeViewItem
+        TreeViewItem duplicateRootItem = treeViewItemSearchDuplicated;
+        if (duplicateRootItem == null)
+        {
+            NLogWrapper.FileLogger?.Warn("SelectDuplicateGroup: treeViewItemSearchDuplicated not found");
+            return;
+        }
+
+        var duplicatedList = viewModel.BMSFilesDuplicated;
+        if (duplicatedList == null)
+        {
+            return;
+        }
+
+        // データリストからターゲットのインデックスを検索
+        int targetIndex = -1;
+        for (int i = 0; i < duplicatedList.Count; i++)
+        {
+            if (duplicatedList[i].Header == header)
+            {
+                targetIndex = i;
+                break;
+            }
+        }
+
+        if (targetIndex < 0)
+        {
+            NLogWrapper.FileLogger?.Warn("SelectDuplicateGroup: group not found in data for header: " + header);
+            return;
+        }
+
+        // 親TreeViewItemが展開されていることを確認
+        duplicateRootItem.IsExpanded = true;
+        duplicateRootItem.UpdateLayout();
+
+        // 仮想化パネルのBringIndexIntoViewPublicでコンテナ生成を強制
+        var panel = WPFUtil.FindVisualChild<VirtualizingStackPanel>(duplicateRootItem);
+        if (panel != null)
+        {
+            try
+            {
+                panel.BringIndexIntoViewPublic(targetIndex);
+                duplicateRootItem.UpdateLayout();
+            }
+            catch (ArgumentOutOfRangeException)
+            {
+                // パネルのアイテム数がデータリストと同期していない場合にスキップ
+                NLogWrapper.FileLogger?.Warn("SelectDuplicateGroup: BringIndexIntoViewPublic out of range at index " + targetIndex);
+            }
+        }
+
+        // コンテナを取得して選択
+        TreeViewItem targetItem = duplicateRootItem.ItemContainerGenerator.ContainerFromIndex(targetIndex) as TreeViewItem;
+        if (targetItem != null)
+        {
+            targetItem.IsSelected = true;
+            targetItem.IsExpanded = true;
+            targetItem.BringIntoView();
+            NLogWrapper.FileLogger?.Info("Auto-selected duplicate group: " + header);
+        }
+        else
+        {
+            NLogWrapper.FileLogger?.Warn("SelectDuplicateGroup: container not found at index " + targetIndex + " for header: " + header);
+        }
+    }
+
+    /// <summary>
+    /// 重複フォルダのキーボードショートカットハンドラ。
+    /// Ctrl+G: フォルダが2つの場合、もう一方のフォルダへマージを実行する。
+    /// </summary>
+    private void duplicateFolderKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.G || Keyboard.Modifiers != ModifierKeys.Control)
+        {
+            return;
+        }
+
+        TreeViewItem folderItem = sender as TreeViewItem;
+        if (folderItem == null)
+        {
+            return;
+        }
+
+        string srcPath = folderItem.DataContext as string;
+        if (string.IsNullOrWhiteSpace(srcPath))
+        {
+            return;
+        }
+
+        // 親TreeViewItemからDuplicateGroupを取得
+        TreeViewItem groupItem = WPFUtil.FindVisualParent<TreeViewItem>(folderItem);
+        DuplicateGroup duplicateGroup = groupItem?.DataContext as DuplicateGroup;
+        if (duplicateGroup == null)
+        {
+            return;
+        }
+
+        int folderCount = duplicateGroup.Folders.Count;
+
+        if (folderCount == 2)
+        {
+            // フォルダが2つの場合: 自分以外の唯一のフォルダへマージ
+            string dstPath = duplicateGroup.Folders
+                .FirstOrDefault(f => !f.Equals(srcPath, StringComparison.OrdinalIgnoreCase));
+            if (!string.IsNullOrWhiteSpace(dstPath))
+            {
+                ExecuteDuplicateFolderMerge(srcPath, dstPath, duplicateGroup);
+            }
+        }
+        else if (folderCount == 1)
+        {
+            // 将来拡張: フォルダが1つの場合の処理
+        }
+        else if (folderCount >= 3)
+        {
+            // 将来拡張: フォルダが3つ以上の場合の処理
+        }
+
+        e.Handled = true;
     }
 
     private void calcelAllContextMenuTasks()

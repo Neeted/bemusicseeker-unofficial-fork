@@ -1439,4 +1439,7 @@ BMSファイルが重複しないようにマージします。
   <data name="Error_InstallComponentFileNotFound" xml:space="preserve">
     <value>ファイルが見つかりませんでした</value>
   </data>
+  <data name="Msg_merge_bms_completed" xml:space="preserve">
+    <value>「{0}」を「{1}」へマージしました</value>
+  </data>
 </root>

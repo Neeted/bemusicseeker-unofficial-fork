@@ -938,6 +938,9 @@ public class Resources
     public static string Error_InstallComponentFileNotFound => ResourceManager.GetString("Error_InstallComponentFileNotFound", resourceCulture);
 
 
+    public static string Msg_merge_bms_completed => ResourceManager.GetString("Msg_merge_bms_completed", resourceCulture);
+
+
     internal Resources()
     {
     }
