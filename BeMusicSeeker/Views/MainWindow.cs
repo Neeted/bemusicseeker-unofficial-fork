@@ -2672,14 +2672,135 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         else if (folderCount == 1)
         {
-            // 将来拡張: フォルダが1つの場合の処理
+            // フォルダが1つの場合: ハッシュ重複BMSファイルの整理
+            ExecuteDuplicateHashCleanup(duplicateGroup, srcPath);
         }
         else if (folderCount >= 3)
         {
-            // 将来拡張: フォルダが3つ以上の場合の処理
+            // フォルダが3つ以上の場合: コンテキストメニューを開いてマージ先を選択
+            OpenDuplicateFolderContextMenu(folderItem);
         }
 
         e.Handled = true;
+    }
+
+    /// <summary>
+    /// フォルダが1つの重複グループで、ハッシュ重複BMSファイルを整理する。
+    /// 各ハッシュグループごとに1つだけ残し、残りをごみ箱へ移動する。
+    /// 保持ルール: 更新日時が最も古いものを優先、同日時ならファイル名が最も短いものを優先。
+    /// </summary>
+    private void ExecuteDuplicateHashCleanup(DuplicateGroup duplicateGroup, string folderPath)
+    {
+        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
+        if (viewModel == null)
+        {
+            return;
+        }
+
+        // フォルダパスに一致するBMSFileをハッシュでグループ化
+        var filesInFolder = duplicateGroup.Files
+            .Where(f => f.path.StartsWith(folderPath + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        if (filesInFolder.Count == 0)
+        {
+            return;
+        }
+
+        // ハッシュでグループ化し、各グループで削除対象を決定
+        var deletionList = new List<BMSFile>();
+        foreach (var hashGroup in filesInFolder.GroupBy(f => f.hash, StringComparer.OrdinalIgnoreCase))
+        {
+            var grouped = hashGroup.ToList();
+            if (grouped.Count <= 1)
+            {
+                continue;
+            }
+
+            // 保持対象: 更新日時が最も古い → ファイル名が最も短い
+            BMSFile keeper = grouped
+                .OrderBy(f =>
+                {
+                    try { return File.GetLastWriteTime(f.path); }
+                    catch { return DateTime.MaxValue; }
+                })
+                .ThenBy(f => Path.GetFileName(f.path).Length)
+                .First();
+
+            deletionList.AddRange(grouped.Where(f => f != keeper));
+        }
+
+        if (deletionList.Count == 0)
+        {
+            return;
+        }
+
+        // 確認ダイアログ
+        if (MessageBox.Show(Window.GetWindow(this),
+            string.Format(BeMusicSeeker.Properties.Resources.Msg_cleanup_duplicate_hash, deletionList.Count),
+            BeMusicSeeker.Properties.Resources.Confirm,
+            MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) == MessageBoxResult.Cancel)
+        {
+            return;
+        }
+
+        // 処理後の自動選択用: フォルダ1つなのでグループは消滅 → 次のグループを自動選択
+        _pendingDuplicateGroupHeader = null;
+        if (viewModel.BMSFilesDuplicated != null)
+        {
+            int currentIndex = viewModel.BMSFilesDuplicated.IndexOf(duplicateGroup);
+            if (currentIndex >= 0 && currentIndex + 1 < viewModel.BMSFilesDuplicated.Count)
+            {
+                _pendingDuplicateGroupHeader = viewModel.BMSFilesDuplicated[currentIndex + 1].Header;
+            }
+        }
+
+        Task.Run(delegate
+        {
+            viewModel.RemoveBMSFiles(deletionList);
+
+            NLogWrapper.FileLogger?.Info(string.Format(
+                "Cleaned up {0} duplicate hash BMS file(s) in folder: {1}",
+                deletionList.Count, Path.GetFileName(folderPath)));
+
+        }).ContinueWith(t =>
+        {
+            if (t.Exception != null)
+            {
+                return;
+            }
+            WaitForDuplicateListUpdateAndSelect(_pendingDuplicateGroupHeader, viewModel);
+        }, TaskScheduler.FromCurrentSynchronizationContext()).Logging("ExecuteDuplicateHashCleanup");
+    }
+
+    /// <summary>
+    /// フォルダが3つ以上の場合にコンテキストメニューをプログラムから開き、
+    /// 「マージ先」サブメニューを展開した状態にする。
+    /// </summary>
+    private void OpenDuplicateFolderContextMenu(TreeViewItem folderItem)
+    {
+        ContextMenu contextMenu = folderItem.ContextMenu;
+        if (contextMenu == null)
+        {
+            return;
+        }
+
+        contextMenu.PlacementTarget = folderItem;
+        contextMenu.IsOpen = true;
+
+        // コンテキストメニューのOpenedイベントでマージ先リストが生成されるため、
+        // メニューが開いた後にサブメニューを展開する
+        Dispatcher.BeginInvoke(DispatcherPriority.Input, new Action(() =>
+        {
+            foreach (Control item in (IEnumerable)contextMenu.Items)
+            {
+                if (item.Name == "treeViewDuplicateFolderContextMenuItemMergeInto" && item is MenuItem mergeMenuItem)
+                {
+                    mergeMenuItem.IsSubmenuOpen = true;
+                    break;
+                }
+            }
+        }));
     }
 
     private void calcelAllContextMenuTasks()

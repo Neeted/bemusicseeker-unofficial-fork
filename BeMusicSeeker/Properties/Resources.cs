@@ -941,6 +941,9 @@ public class Resources
     public static string Msg_merge_bms_completed => ResourceManager.GetString("Msg_merge_bms_completed", resourceCulture);
 
 
+    public static string Msg_cleanup_duplicate_hash => ResourceManager.GetString("Msg_cleanup_duplicate_hash", resourceCulture);
+
+
     internal Resources()
     {
     }
