@@ -2736,18 +2736,29 @@ public class BMSLibrary : NotificationObject
                         item.AsParallel().ForAll(delegate (BMSFile f)
                         {
                             string hash = f.hash;
-                            try
+                            int retryCount = 0;
+                            while (true)
                             {
-                                f.SetHealthStatus(bmsFolderAllFileList, forceUpdate);
-                            }
-                            catch (Exception ex)
-                            {
-                                if (ex is DirectoryNotFoundException || ex is FileNotFoundException || ex is IOException || ex is PathTooLongException || ex is SecurityException || ex is UnauthorizedAccessException)
+                                try
                                 {
-                                    DispatcherMessageBox.Show(string.Format(Resources.Error_BmsLoadFailedSkip, f.path, ex.Message), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
-                                    return;
+                                    f.SetHealthStatus(bmsFolderAllFileList, forceUpdate);
+                                    break;
                                 }
-                                throw;
+                                catch (Exception ex)
+                                {
+                                    if (ex is DirectoryNotFoundException || ex is FileNotFoundException || ex is IOException || ex is PathTooLongException || ex is SecurityException || ex is UnauthorizedAccessException)
+                                    {
+                                        if (retryCount < 3)
+                                        {
+                                            retryCount++;
+                                            Thread.Sleep(200);
+                                            continue;
+                                        }
+                                        DispatcherMessageBox.Show(string.Format(Resources.Error_BmsLoadFailedSkip, f.path, ex.Message), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+                                        return;
+                                    }
+                                    throw;
+                                }
                             }
                             if (forceUpdate || string.IsNullOrWhiteSpace(f.maintenanceInfo.encoding))
                             {
@@ -3755,133 +3766,164 @@ public class BMSLibrary : NotificationObject
         }
     }
 
+    /// <summary>
+    /// BMSパッケージのファイル群を指定ディレクトリに移動し、移動元の空フォルダを削除する。
+    /// マージ処理（MergeBMSDirectory）やインストール処理（installBMSPackages）から呼ばれる共通メソッド。
+    /// </summary>
+    /// <param name="pkg">移動対象のBMSパッケージ</param>
+    /// <param name="installationDirectory">移動先ディレクトリ（nullの場合は自動命名）</param>
+    /// <param name="showMessageBoxOnInstallFail">移動失敗時にエラーダイアログを表示するか</param>
+    /// <param name="deleteAllContents">移動元フォルダを中身ごと強制削除するか（マージ時はtrue）</param>
+    /// <param name="existingHashes">既存BMSハッシュのスナップショット（重複スキップ用）</param>
+    /// <param name="excludedComponentPaths">移動対象外のコンポーネントパス</param>
+    /// <returns>移動成功時true</returns>
     private bool moveBMSPackageFiles(BMSPackage pkg, string installationDirectory, bool showMessageBoxOnInstallFail = true, bool deleteAllContents = false, HashSet<string> existingHashes = null, ISet<string> excludedComponentPaths = null)
     {
-        string path = pkg.path;
-        string dirname = string.Empty;
+        string sourcePath = pkg.path;
+        string destinationDirectory = string.Empty;
         string bMSInstallDir = Settings.Default.BMSInstallDir;
-        bool flag = false;
+        bool isSingleFile = false;
         List<string> installComponentFiles = new List<string>();
         List<BMSFile> installBMSFiles = new List<BMSFile>();
-        List<BMSFile> list = new List<BMSFile>();
-        bool flag2 = false;
-        if (File.Exists(path))
+        List<BMSFile> skippedBMSFiles = new List<BMSFile>();
+        bool isAutoNaming = false;
+
+        // --- ソースの種類判定: 単一ファイル or ディレクトリ ---
+        if (File.Exists(sourcePath))
         {
-            installComponentFiles = new List<string> { path };
-            flag = true;
+            installComponentFiles = new List<string> { sourcePath };
+            isSingleFile = true;
         }
         else
         {
-            if (!Directory.Exists(path))
+            if (!Directory.Exists(sourcePath))
             {
                 return false;
             }
-            installComponentFiles = Directory.EnumerateFileSystemEntries(path).ToList();
-            flag2 = string.IsNullOrWhiteSpace(installationDirectory);
+            installComponentFiles = Directory.EnumerateFileSystemEntries(sourcePath).ToList();
+            // 移動先が未指定の場合はフォルダ名を自動生成する
+            isAutoNaming = string.IsNullOrWhiteSpace(installationDirectory);
         }
+
+        // --- BMSファイルとコンポーネントファイルを分類 ---
         HashSet<string> installComponentPathSet = new HashSet<string>(installComponentFiles, StringComparer.OrdinalIgnoreCase);
         installBMSFiles = pkg.BMSFiles.Where((BMSFile f) => installComponentPathSet.Contains(f.path)).ToList();
         HashSet<string> installBMSPathSet = new HashSet<string>(installBMSFiles.Select((BMSFile f) => f.path), StringComparer.OrdinalIgnoreCase);
+        // コンポーネントファイルからBMSファイルを除外（BMSは個別に移動する）
         installComponentFiles = installComponentFiles.Where((string p) => !installBMSPathSet.Contains(p)).ToList();
         if (excludedComponentPaths != null && excludedComponentPaths.Count > 0)
         {
             // 既所持譜面など「今回の導入対象外BMS」は、コンポーネント側の移動にも巻き込まない。
             installComponentFiles = installComponentFiles.Where((string p) => !excludedComponentPaths.Contains(p)).ToList();
         }
+
+        // --- 既存ハッシュとの重複チェック: 同一ハッシュのBMSはスキップ ---
         if (!string.IsNullOrWhiteSpace(installationDirectory))
         {
-            HashSet<string> hashSet = existingHashes ?? CreateBMSHashSnapshotExcludingUnsafe(installBMSFiles);
-            list = installBMSFiles.Where((BMSFile bmsFile) => IsBMSHashAvailable(bmsFile.hash) && hashSet.Contains(bmsFile.hash)).ToList();
-            if (list.Count != 0)
+            HashSet<string> hashSnapshot = existingHashes ?? CreateBMSHashSnapshotExcludingUnsafe(installBMSFiles);
+            skippedBMSFiles = installBMSFiles.Where((BMSFile bmsFile) => IsBMSHashAvailable(bmsFile.hash) && hashSnapshot.Contains(bmsFile.hash)).ToList();
+            if (skippedBMSFiles.Count != 0)
             {
-                HashSet<string> skipPathSet = new HashSet<string>(list.Select((BMSFile f) => f.path), StringComparer.OrdinalIgnoreCase);
+                HashSet<string> skipPathSet = new HashSet<string>(skippedBMSFiles.Select((BMSFile f) => f.path), StringComparer.OrdinalIgnoreCase);
                 installBMSFiles = installBMSFiles.Where((BMSFile f) => !skipPathSet.Contains(f.path)).ToList();
                 pkg.BMSFiles.RemoveAll((BMSFile f) => skipPathSet.Contains(f.path));
             }
         }
+
+        // --- ファイル移動の実行 ---
         try
         {
+            // 移動先ディレクトリの決定
             if (string.IsNullOrWhiteSpace(installationDirectory))
             {
-                dirname = createBMSFolderPath(pkg.BMSFiles, bMSInstallDir, (from file in installComponentFiles
-                                                                            select Path.GetFileName(file) into f
-                                                                            orderby f.Length descending
-                                                                            select f).FirstOrDefault() ?? string.Empty);
+                destinationDirectory = createBMSFolderPath(pkg.BMSFiles, bMSInstallDir, (from file in installComponentFiles
+                                                                                         select Path.GetFileName(file) into f
+                                                                                         orderby f.Length descending
+                                                                                         select f).FirstOrDefault() ?? string.Empty);
             }
             else
             {
-                dirname = installationDirectory;
+                destinationDirectory = installationDirectory;
             }
+
+            // 自動命名の場合: 重複しないディレクトリ名を生成
             if (string.IsNullOrWhiteSpace(installationDirectory))
             {
-                int num = 1;
-                string text = dirname;
-                while (Directory.Exists(dirname) || File.Exists(dirname))
+                int dirSuffix = 1;
+                string baseDirName = destinationDirectory;
+                while (Directory.Exists(destinationDirectory) || File.Exists(destinationDirectory))
                 {
-                    num++;
-                    dirname = text + "(" + num + ")";
+                    dirSuffix++;
+                    destinationDirectory = baseDirName + "(" + dirSuffix + ")";
                 }
-                if (!flag2)
+                if (!isAutoNaming)
                 {
-                    Directory.CreateDirectory(dirname);
+                    Directory.CreateDirectory(destinationDirectory);
                 }
             }
-            if (flag2)
+
+            // ディレクトリ名変更モード（自動命名 + ソースがディレクトリ）
+            if (isAutoNaming)
             {
-                if (!Directory.Exists(path))
+                if (!Directory.Exists(sourcePath))
                 {
-                    throw new DirectoryNotFoundException(string.Format(Resources.Error_RenameDestDirNotFound, path));
+                    throw new DirectoryNotFoundException(string.Format(Resources.Error_RenameDestDirNotFound, sourcePath));
                 }
-                FileSystem.MoveDirectory(path, dirname, overwrite: true);
+                FileSystem.MoveDirectory(sourcePath, destinationDirectory, overwrite: true);
             }
             else
             {
+                // コンポーネントファイル（音源・画像等）の移動
                 if (IsSmartComponentOverwriteEnabled())
                 {
+                    // スマートコンポーネント上書きモード: 同一ファイルのスキップ、古いファイルの上書き判定
                     ComponentMoveSummary componentMoveSummary = new ComponentMoveSummary();
-                    ComponentMovePlanBuildResult componentMovePlanBuildResult = BuildComponentMovePlan(installComponentFiles, dirname, excludedComponentPaths);
-                    List<ComponentMovePlanItem> list2 = componentMovePlanBuildResult.PlanItems;
-                    componentMoveSummary.Total = list2.Count;
-                    componentMoveSummary.SkippedByExclusion = componentMovePlanBuildResult.SkippedByExclusion;
-                    foreach (ComponentMovePlanItem item2 in list2)
+                    ComponentMovePlanBuildResult movePlanResult = BuildComponentMovePlan(installComponentFiles, destinationDirectory, excludedComponentPaths);
+                    List<ComponentMovePlanItem> movePlanItems = movePlanResult.PlanItems;
+                    componentMoveSummary.Total = movePlanItems.Count;
+                    componentMoveSummary.SkippedByExclusion = movePlanResult.SkippedByExclusion;
+
+                    foreach (ComponentMovePlanItem planItem in movePlanItems)
                     {
-                        string sourcePath = item2.SourcePath;
-                        string destinationPath = item2.DestinationPath;
-                        if (!File.Exists(sourcePath))
+                        string srcFilePath = planItem.SourcePath;
+                        string dstFilePath = planItem.DestinationPath;
+                        if (!File.Exists(srcFilePath))
                         {
-                            throw new FileNotFoundException(Resources.Error_FileNotFound, sourcePath);
+                            throw new FileNotFoundException(Resources.Error_FileNotFound, srcFilePath);
                         }
-                        if (IsSamePath(sourcePath, destinationPath))
+                        if (IsSamePath(srcFilePath, dstFilePath))
                         {
                             // 同一パスは自己上書きになるため安全側でスキップする。
                             componentMoveSummary.SkippedSame++;
                             componentMoveSummary.SkippedSamePath++;
                             continue;
                         }
-                        string directoryName = Path.GetDirectoryName(destinationPath);
-                        if (!string.IsNullOrWhiteSpace(directoryName))
+                        string dstDirPath = Path.GetDirectoryName(dstFilePath);
+                        if (!string.IsNullOrWhiteSpace(dstDirPath))
                         {
-                            Directory.CreateDirectory(directoryName);
+                            Directory.CreateDirectory(dstDirPath);
                         }
-                        ComponentMoveDecision componentMoveDecision = DecideComponentMove(sourcePath, destinationPath);
-                        switch (componentMoveDecision)
+
+                        // 移動判定: Move / Overwrite / SkipSame / SkipOlderOrEqual
+                        ComponentMoveDecision moveDecision = DecideComponentMove(srcFilePath, dstFilePath);
+                        switch (moveDecision)
                         {
                             case ComponentMoveDecision.Move:
-                                FileSystem.MoveFile(sourcePath, destinationPath, overwrite: true);
+                                FileSystem.MoveFile(srcFilePath, dstFilePath, overwrite: true);
                                 componentMoveSummary.Moved++;
                                 break;
                             case ComponentMoveDecision.Overwrite:
-                                FileSystem.MoveFile(sourcePath, destinationPath, overwrite: true);
+                                FileSystem.MoveFile(srcFilePath, dstFilePath, overwrite: true);
                                 componentMoveSummary.Moved++;
                                 componentMoveSummary.Overwritten++;
                                 break;
                             case ComponentMoveDecision.SkipSame:
-                                File.Delete(sourcePath);
+                                File.Delete(srcFilePath);
                                 componentMoveSummary.SkippedSame++;
                                 componentMoveSummary.DeletedAfterSkip++;
                                 break;
                             default:
-                                File.Delete(sourcePath);
+                                File.Delete(srcFilePath);
                                 componentMoveSummary.SkippedOlder++;
                                 componentMoveSummary.DeletedAfterSkip++;
                                 break;
@@ -3889,17 +3931,18 @@ public class BMSLibrary : NotificationObject
                     }
                     // スキップ後の空ディレクトリを掃除して、後段のフォルダ削除を成功しやすくする。
                     CleanupEmptyComponentDirectories(installComponentFiles);
-                    int num2 = Math.Max(0, componentMoveSummary.Moved - componentMoveSummary.Overwritten);
-                    LogInstallPerformance("component_move_summary package=" + pkg.path + " total=" + componentMoveSummary.Total + " moved=" + componentMoveSummary.Moved + " moved_new=" + num2 + " overwritten=" + componentMoveSummary.Overwritten + " skipped_same=" + componentMoveSummary.SkippedSame + " skipped_same_path=" + componentMoveSummary.SkippedSamePath + " skipped_older=" + componentMoveSummary.SkippedOlder + " skipped_by_exclusion=" + componentMoveSummary.SkippedByExclusion + " deleted_after_skip=" + componentMoveSummary.DeletedAfterSkip + " failed=" + componentMoveSummary.Failed);
+                    int movedNewCount = Math.Max(0, componentMoveSummary.Moved - componentMoveSummary.Overwritten);
+                    LogInstallPerformance("component_move_summary package=" + pkg.path + " total=" + componentMoveSummary.Total + " moved=" + componentMoveSummary.Moved + " moved_new=" + movedNewCount + " overwritten=" + componentMoveSummary.Overwritten + " skipped_same=" + componentMoveSummary.SkippedSame + " skipped_same_path=" + componentMoveSummary.SkippedSamePath + " skipped_older=" + componentMoveSummary.SkippedOlder + " skipped_by_exclusion=" + componentMoveSummary.SkippedByExclusion + " deleted_after_skip=" + componentMoveSummary.DeletedAfterSkip + " failed=" + componentMoveSummary.Failed);
                 }
                 else
                 {
+                    // 通常モード: 全コンポーネントを並列に移動
                     installComponentFiles.AsParallel().ForAll(delegate (string file)
                     {
-                        string text3 = Path.Combine(dirname, Path.GetFileName(file));
+                        string componentDstPath = Path.Combine(destinationDirectory, Path.GetFileName(file));
                         if (File.Exists(file))
                         {
-                            FileSystem.MoveFile(file, text3, overwrite: true);
+                            FileSystem.MoveFile(file, componentDstPath, overwrite: true);
                         }
                         else
                         {
@@ -3907,24 +3950,27 @@ public class BMSLibrary : NotificationObject
                             {
                                 throw new FileNotFoundException(Resources.Error_FileNotFound, file);
                             }
-                            FileSystem.MoveDirectory(file, text3, overwrite: true);
+                            FileSystem.MoveDirectory(file, componentDstPath, overwrite: true);
                         }
                     });
                 }
-                foreach (BMSFile item3 in installBMSFiles)
+
+                // BMSファイルの個別移動（ファイル名衝突を回避しつつ移動）
+                foreach (BMSFile bmsFile in installBMSFiles)
                 {
-                    string text2 = Path.Combine(dirname, Path.GetFileName(item3.path));
-                    while (File.Exists(text2) || Directory.Exists(text2))
+                    string destinationBmsPath = Path.Combine(destinationDirectory, Path.GetFileName(bmsFile.path));
+                    // 移動先に同名ファイル/ディレクトリが存在する場合はサフィックスを追加
+                    while (File.Exists(destinationBmsPath) || Directory.Exists(destinationBmsPath))
                     {
-                        string path2 = Path.GetFileNameWithoutExtension(text2) + "_" + Path.GetExtension(text2);
-                        text2 = Path.Combine(dirname, Path.GetFileName(path2));
+                        string renamedFileName = Path.GetFileNameWithoutExtension(destinationBmsPath) + "_" + Path.GetExtension(destinationBmsPath);
+                        destinationBmsPath = Path.Combine(destinationDirectory, Path.GetFileName(renamedFileName));
                     }
-                    if (!File.Exists(item3.path))
+                    if (!File.Exists(bmsFile.path))
                     {
-                        throw new FileNotFoundException(Resources.Error_FileNotFound, item3.path);
+                        throw new FileNotFoundException(Resources.Error_FileNotFound, bmsFile.path);
                     }
-                    FileSystem.MoveFile(item3.path, text2, overwrite: true);
-                    item3.path = item3.path.ReplaceFromEnd(Path.GetFileName(item3.path), Path.GetFileName(text2), isIgnoreCase: true);
+                    FileSystem.MoveFile(bmsFile.path, destinationBmsPath, overwrite: true);
+                    bmsFile.path = bmsFile.path.ReplaceFromEnd(Path.GetFileName(bmsFile.path), Path.GetFileName(destinationBmsPath), isIgnoreCase: true);
                 }
             }
         }
@@ -3934,61 +3980,75 @@ public class BMSLibrary : NotificationObject
             {
                 return false;
             }
-            DispatcherMessageBox.Show(string.Format(Resources.Error_InstallFailed, pkg.path, dirname, (ex is AggregateException) ? string.Join(Environment.NewLine, ((AggregateException)ex).Flatten().InnerExceptions.Select((Exception e) => e.Message)) : ex.Message), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+            DispatcherMessageBox.Show(string.Format(Resources.Error_InstallFailed, pkg.path, destinationDirectory, (ex is AggregateException) ? string.Join(Environment.NewLine, ((AggregateException)ex).Flatten().InnerExceptions.Select((Exception e) => e.Message)) : ex.Message), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
             return false;
         }
-        if (flag)
+
+        // --- パッケージ内のBMSFileパスを移動先に更新 ---
+        if (isSingleFile)
         {
             pkg.BMSFiles.ForEach(delegate (BMSFile bmsInfo)
             {
-                bmsInfo.path = Path.Combine(dirname, Path.GetFileName(bmsInfo.path));
+                bmsInfo.path = Path.Combine(destinationDirectory, Path.GetFileName(bmsInfo.path));
                 bmsInfo.parent = null;
                 bmsInfo.folder = null;
                 bmsInfo.adddate = null;
                 bmsInfo.date = null;
             });
-            pkg.path = Path.Combine(dirname, Path.GetFileName(pkg.path));
+            pkg.path = Path.Combine(destinationDirectory, Path.GetFileName(pkg.path));
         }
         else
         {
-            if (!(Directory.Exists(path) || flag2))
+            if (!(Directory.Exists(sourcePath) || isAutoNaming))
             {
                 return false;
             }
             pkg.BMSFiles.ForEach(delegate (BMSFile bmsInfo)
             {
-                bmsInfo.path = bmsInfo.path.ReplaceFromStart(path + Path.DirectorySeparatorChar, dirname + Path.DirectorySeparatorChar, isIgnoreCase: true);
+                bmsInfo.path = bmsInfo.path.ReplaceFromStart(sourcePath + Path.DirectorySeparatorChar, destinationDirectory + Path.DirectorySeparatorChar, isIgnoreCase: true);
                 bmsInfo.parent = null;
                 bmsInfo.folder = null;
                 bmsInfo.adddate = null;
                 bmsInfo.date = null;
             });
-            pkg.path = dirname;
+            pkg.path = destinationDirectory;
         }
+
+        // --- 移動元フォルダの削除 ---
         string dirToBeDeleted = string.Empty;
         if (pkg.delete_parent)
         {
-            dirToBeDeleted = Path.GetDirectoryName(path);
+            // アーカイブ展開元の親ディレクトリを削除
+            dirToBeDeleted = Path.GetDirectoryName(sourcePath);
         }
-        else if (Directory.Exists(path))
+        else if (Directory.Exists(sourcePath))
         {
-            dirToBeDeleted = path;
+            // ソースディレクトリ自体を削除
+            dirToBeDeleted = sourcePath;
         }
         if (!string.IsNullOrWhiteSpace(dirToBeDeleted) && Directory.Exists(dirToBeDeleted))
         {
-            RetryHelper.RetryIfError(delegate
+            // フォルダの削除を試行する。
+            // 外部プロセス（Search Indexer、アンチウイルス等）がロックしている場合を考慮し、
+            // 30回（約30秒間）のリトライを行う。
+            RetryHelper.RetryIfError(() =>
             {
-                if (deleteAllContents || Directory.GetFileSystemEntries(dirToBeDeleted, "*").Count() == 0)
+                // 全削除モード、またはフォルダが空の場合に削除を実行
+                if (deleteAllContents || !Directory.EnumerateFileSystemEntries(dirToBeDeleted).Any())
                 {
                     FileSystem.DeleteDirectory(dirToBeDeleted, DeleteDirectoryOption.DeleteAllContents);
                 }
-            }, delegate (Exception ex2)
+            }, (Exception deleteEx) =>
             {
-                DispatcherMessageBox.Show(string.Format(Resources.Error_FolderDeleteFailed, dirToBeDeleted, ex2.Message), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
-            }, delegate
+                // リトライ上限に達しても削除できなかった場合はログを出力し、ユーザーに通知する
+                NLogWrapper.FileLogger?.Info(string.Format(
+                    "Folder deletion failed after retries: path={0} error={1}", dirToBeDeleted, deleteEx.Message));
+                DispatcherMessageBox.Show(string.Format(Resources.Error_FolderDeleteFailed, dirToBeDeleted, deleteEx.Message), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+            }, () =>
             {
+                // リトライ前に1秒待機
                 Thread.Sleep(1000);
-            }, 10u);
+            }, 30u);
         }
         return true;
     }

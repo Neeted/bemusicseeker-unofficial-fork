@@ -1307,7 +1307,7 @@ public class BMSFile : LR2SongDB.song
     {
         MD5 mD = MD5.Create();
         byte[] array;
-        using (FileStream inputStream = File.Open(filePath, FileMode.Open, FileAccess.Read))
+        using (FileStream inputStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read))
         {
             array = mD.ComputeHash(inputStream);
         }
