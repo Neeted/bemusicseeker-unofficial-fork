@@ -40,6 +40,21 @@ namespace BeMusicSeeker.Views;
 
 public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 {
+    // NOTE:
+    // TreeView の仮想化 (Recycling) 有効時は、画面外ノードのコンテナが VisualTree から外れる。
+    // そのため「VisualTree を再帰して選択状態を判定する」実装は false negative を起こす。
+    // ここでは最後に確定した選択ノードの所属セクションを保持し、UIコンテナ有無に依存しない判定を行う。
+    private enum TreeSelectionSection
+    {
+        None,
+        Playlist,
+        InstallPending,
+        FullScanCheck,
+        Other
+    }
+
+    private TreeSelectionSection _currentTreeSelectionSection = TreeSelectionSection.None;
+
     private PropertyChangedEventListener settingsDefaultEventListnener;
 
     private static readonly string clearlampUri = "http://xyzzz.net/bms/clearlamp";
@@ -687,7 +702,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         else if (bMSFile != null)
         {
-            bool isPendingSelected = _isTreeViewItemSelectedInclChildren(treeViewItemInstallPending);
+            bool isPendingSelected = _currentTreeSelectionSection == TreeSelectionSection.InstallPending;
             if (path == bMSFile.GetName((BMSFile f) => f.Folder) && isPendingSelected)
             {
                 e.Cancel = true;
@@ -767,7 +782,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         else if (bmsFile != null && e.EditAction == DataGridEditAction.Commit)
         {
-            bool isPendingSelected = _isTreeViewItemSelectedInclChildren(treeViewItemInstallPending);
+            bool isPendingSelected = _currentTreeSelectionSection == TreeSelectionSection.InstallPending;
             if (path == bmsFile.GetName((BMSFile f) => f.Folder))
             {
                 string newFolder = textBox.Text;
@@ -3092,8 +3107,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 menuItem7.IsEnabled = true;
             }
         }
-        bool flag3 = _isTreeViewItemSelectedInclChildren(treeViewItemInstallPending);
-        bool flag4 = _isTreeViewItemSelectedInclChildren(treeViewItemPlaylist);
+        bool flag3 = _currentTreeSelectionSection == TreeSelectionSection.InstallPending;
+        bool flag4 = _currentTreeSelectionSection == TreeSelectionSection.Playlist;
         if (menuItemOpenInstallDestination != null)
         {
             bool flag5 = flag3 && bmsFile != null && !(bmsFile is VirtualBMSFile);
@@ -3162,7 +3177,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         if (menuItem9 != null)
         {
-            bool flag14 = _isTreeViewItemSelectedInclChildren(treeViewItemFullScanCheck);
+            bool flag14 = _currentTreeSelectionSection == TreeSelectionSection.FullScanCheck;
             menuItem9.Visibility = ((!flag14) ? Visibility.Collapsed : Visibility.Visible);
             menuItem9.IsEnabled = flag14;
         }
@@ -3274,7 +3289,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void dataGridContextMenuItemOpenInstallDestinationClick(object sender, RoutedEventArgs e)
     {
-        if (!(base.DataContext is MainWindowViewModel) || !_isTreeViewItemSelectedInclChildren(treeViewItemInstallPending))
+        if (!(base.DataContext is MainWindowViewModel) || _currentTreeSelectionSection != TreeSelectionSection.InstallPending)
         {
             return;
         }
@@ -4115,7 +4130,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                                   where !(f is VirtualBMSFile)
                                   select f).ToList();
         MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        bool isPendingSelected = _isTreeViewItemSelectedInclChildren(treeViewItemInstallPending);
+        bool isPendingSelected = _currentTreeSelectionSection == TreeSelectionSection.InstallPending;
         if (bmsFiles.Count <= 0 || MessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_rename_to_invalid, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) == MessageBoxResult.Cancel)
         {
             return;
@@ -4155,7 +4170,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         List<VirtualBMSFile> second = bmsFiles.Where((BMSFile f) => f is VirtualBMSFile).Cast<VirtualBMSFile>().ToList();
         bmsFiles = bmsFiles.Except(second).ToList();
         MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        bool isPendingSelected = _isTreeViewItemSelectedInclChildren(treeViewItemInstallPending);
+        bool isPendingSelected = _currentTreeSelectionSection == TreeSelectionSection.InstallPending;
         if (bmsFiles.Count > 0 && MessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_move_to_recycle, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) != MessageBoxResult.Cancel)
         {
             Task.Run(delegate
@@ -4191,22 +4206,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 viewModel.MoveBMSFolder(bmsFiles, dstDir);
             }).Logging("dataGridContextMenuItemMoveFileClick");
         }
-    }
-
-    private bool _isTreeViewItemSelectedInclChildren(TreeViewItem treeViewItem)
-    {
-        if (treeViewItem.IsSelected)
-        {
-            return true;
-        }
-        foreach (TreeViewItem visualChild in WPFUtil.GetVisualChildren<TreeViewItem>(treeViewItem))
-        {
-            if (_isTreeViewItemSelectedInclChildren(visualChild))
-            {
-                return true;
-            }
-        }
-        return false;
     }
 
     private void fixEncodingSelectedBMS(object sender, RoutedEventArgs e)
@@ -5028,6 +5027,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 _isCrossTreeDeselecting = false;
             }
             _lastSelectedTreeViewItem = tvi;
+            TreeSelectionSection previousSection = _currentTreeSelectionSection;
+            _currentTreeSelectionSection = ResolveTreeSelectionSection(tvi);
+            if (previousSection != _currentTreeSelectionSection)
+            {
+                Ribbit.Logging.NLogWrapper.FileLogger?.Info("tree_selection_section_changed section=" + _currentTreeSelectionSection + " header=" + tvi.Header);
+            }
         }
     }
 
@@ -5036,6 +5041,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         if (sender is TreeView treeView)
         {
             e.Handled = true;
+            if (e.NewValue == null && !_isCrossTreeDeselecting)
+            {
+                _currentTreeSelectionSection = TreeSelectionSection.None;
+            }
             MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
             bool isManualInteraction = treeView.IsKeyboardFocusWithin || treeView.IsMouseOver;
             if (!_isCrossTreeDeselecting && e.NewValue == null && e.OldValue != null && e.OldValue is BMSTable
@@ -5044,6 +5053,45 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 treeView.SelectTreeViewItemSearchedByHeader(((BMSTable)e.OldValue).name);
             }
         }
+    }
+
+    private TreeSelectionSection ResolveTreeSelectionSection(TreeViewItem selectedTreeViewItem)
+    {
+        if (selectedTreeViewItem == null)
+        {
+            return TreeSelectionSection.None;
+        }
+        if (IsSameOrDescendantOf(selectedTreeViewItem, treeViewItemInstallPending))
+        {
+            return TreeSelectionSection.InstallPending;
+        }
+        if (IsSameOrDescendantOf(selectedTreeViewItem, treeViewItemPlaylist))
+        {
+            return TreeSelectionSection.Playlist;
+        }
+        if (IsSameOrDescendantOf(selectedTreeViewItem, treeViewItemFullScanCheck))
+        {
+            return TreeSelectionSection.FullScanCheck;
+        }
+        return TreeSelectionSection.Other;
+    }
+
+    private static bool IsSameOrDescendantOf(TreeViewItem targetTreeViewItem, TreeViewItem ancestorTreeViewItem)
+    {
+        if (targetTreeViewItem == null || ancestorTreeViewItem == null)
+        {
+            return false;
+        }
+        DependencyObject current = targetTreeViewItem;
+        while (current != null)
+        {
+            if (ReferenceEquals(current, ancestorTreeViewItem))
+            {
+                return true;
+            }
+            current = VisualTreeHelper.GetParent(current) ?? LogicalTreeHelper.GetParent(current);
+        }
+        return false;
     }
 
     private async void sliderPlayerMouseMove(object sender, MouseEventArgs e)
