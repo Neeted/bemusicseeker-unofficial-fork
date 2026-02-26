@@ -85,6 +85,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     // マージ後に自動選択するDuplicateGroupのHeader（曲名）をキャッシュ
     private string _pendingDuplicateGroupHeader;
+    private int _duplicateGroupAutoSelectRequestVersion;
+    private PropertyChangedEventHandler _duplicateGroupAutoSelectHandler;
+    private MainWindowViewModel _duplicateGroupAutoSelectHandlerOwner;
 
     private bool startupInitialSelectionApplied;
 
@@ -2567,10 +2570,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     }
 
     /// <summary>
-    /// BMSFilesDuplicatedの更新を待ち、該当グループを自動選択する。
-    /// MergeBMSDirectory完了後、BMSLibrary側でPropertyChangedが発火し、
-    /// ViewModelのFlushPendingUiRefreshを経由してUIに反映される。
-    /// そのタイミングを検知してツリーの選択を行う。
+    /// BMSFilesDuplicated更新タイミングの競合を吸収しつつ、該当グループを自動選択する。
+    /// 基本はPropertyChanged契機で選択し、通知不達時のみ遅延フォールバックを1回試行する。
     /// </summary>
     private void WaitForDuplicateListUpdateAndSelect(string header, MainWindowViewModel viewModel)
     {
@@ -2578,56 +2579,126 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-
-        // BMSFilesDuplicatedの更新完了後にDispatcherで選択処理をスケジュール
+        if (_duplicateGroupAutoSelectHandler != null && _duplicateGroupAutoSelectHandlerOwner != null)
+        {
+            _duplicateGroupAutoSelectHandlerOwner.PropertyChanged -= _duplicateGroupAutoSelectHandler;
+            _duplicateGroupAutoSelectHandler = null;
+            _duplicateGroupAutoSelectHandlerOwner = null;
+        }
+        int requestVersion = Interlocked.Increment(ref _duplicateGroupAutoSelectRequestVersion);
+        bool completed = false;
         PropertyChangedEventHandler handler = null;
+        Action completeSelection = () =>
+        {
+            if (completed)
+            {
+                return;
+            }
+            completed = true;
+            if (handler != null)
+            {
+                viewModel.PropertyChanged -= handler;
+            }
+            if (ReferenceEquals(_duplicateGroupAutoSelectHandler, handler))
+            {
+                _duplicateGroupAutoSelectHandler = null;
+                _duplicateGroupAutoSelectHandlerOwner = null;
+            }
+        };
+        async Task AttemptAutoSelectAsync(string trigger)
+        {
+            try
+            {
+                if (completed || requestVersion != _duplicateGroupAutoSelectRequestVersion)
+                {
+                    return;
+                }
+                string lastReason = string.Empty;
+                DispatcherPriority[] priorities = new DispatcherPriority[3]
+                {
+                    DispatcherPriority.Loaded,
+                    DispatcherPriority.Render,
+                    DispatcherPriority.ContextIdle
+                };
+                for (int retry = 0; retry < priorities.Length; retry++)
+                {
+                    await Dispatcher.Yield(priorities[retry]);
+                    if (completed || requestVersion != _duplicateGroupAutoSelectRequestVersion)
+                    {
+                        return;
+                    }
+                    if (TrySelectDuplicateGroupByHeader(header, viewModel, out lastReason))
+                    {
+                        NLogWrapper.FileLogger?.Info("duplicate_group_autoselect success trigger=" + trigger + " retry=" + retry + " header=" + header + " request=" + requestVersion);
+                        completeSelection();
+                        return;
+                    }
+                }
+                NLogWrapper.FileLogger?.Warn("duplicate_group_autoselect pending trigger=" + trigger + " header=" + header + " request=" + requestVersion + " reason=" + lastReason);
+            }
+            catch (Exception ex)
+            {
+                NLogWrapper.FileLogger?.Warn("duplicate_group_autoselect failed trigger=" + trigger + " header=" + header + " request=" + requestVersion + " message=" + ex.Message);
+            }
+        }
         handler = (s, e) =>
         {
             if (e.PropertyName != nameof(viewModel.BMSFilesDuplicated))
             {
                 return;
             }
-            // 一度きりのリスナーなので解除
-            viewModel.PropertyChanged -= handler;
-
-            NLogWrapper.FileLogger?.Info("BMSFilesDuplicated updated, attempting auto-select for: " + header);
-
-            // Binding更新 → ItemContainerGenerator → VirtualizingStackPanel同期を待つため、
-            // DispatcherPriority.ContextIdle（UIが完全にアイドルになった後）で遅延実行
-            Dispatcher.BeginInvoke(DispatcherPriority.ContextIdle, new Action(() =>
+            NLogWrapper.FileLogger?.Info("duplicate_group_autoselect trigger=property_changed header=" + header + " request=" + requestVersion);
+            if (Dispatcher.CheckAccess())
             {
-                try
+                _ = AttemptAutoSelectAsync("property_changed");
+            }
+            else
+            {
+                Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(delegate
                 {
-                    SelectDuplicateGroupByHeader(header, viewModel);
-                }
-                catch (Exception ex)
-                {
-                    NLogWrapper.FileLogger?.Warn("SelectDuplicateGroup failed: " + ex.Message);
-                }
-            }));
+                    _ = AttemptAutoSelectAsync("property_changed");
+                }));
+            }
         };
         viewModel.PropertyChanged += handler;
+        _duplicateGroupAutoSelectHandler = handler;
+        _duplicateGroupAutoSelectHandlerOwner = viewModel;
+        NLogWrapper.FileLogger?.Info("duplicate_group_autoselect queued header=" + header + " request=" + requestVersion + " mode=property_changed");
+        Task.Run(async delegate
+        {
+            await Task.Delay(1500).ConfigureAwait(continueOnCapturedContext: false);
+            if (completed || requestVersion != _duplicateGroupAutoSelectRequestVersion)
+            {
+                return;
+            }
+            await Dispatcher.InvokeAsync(async delegate
+            {
+                if (completed || requestVersion != _duplicateGroupAutoSelectRequestVersion)
+                {
+                    return;
+                }
+                NLogWrapper.FileLogger?.Info("duplicate_group_autoselect trigger=timeout_fallback header=" + header + " request=" + requestVersion);
+                await AttemptAutoSelectAsync("timeout_fallback");
+            }, DispatcherPriority.Background);
+        });
     }
 
-    /// <summary>
-    /// 名前付きTreeViewItem「treeViewItemSearchDuplicated」から直接
-    /// DuplicateGroupを検索し選択する。仮想化されたアイテムも
-    /// BringIndexIntoViewPublicでコンテナ生成を強制する。
-    /// </summary>
-    private void SelectDuplicateGroupByHeader(string header, MainWindowViewModel viewModel)
+    private bool TrySelectDuplicateGroupByHeader(string header, MainWindowViewModel viewModel, out string failReason)
     {
+        failReason = string.Empty;
         // XAML上で Name="treeViewItemSearchDuplicated" を持つTreeViewItem
         TreeViewItem duplicateRootItem = treeViewItemSearchDuplicated;
         if (duplicateRootItem == null)
         {
-            NLogWrapper.FileLogger?.Warn("SelectDuplicateGroup: treeViewItemSearchDuplicated not found");
-            return;
+            failReason = "root_not_found";
+            return false;
         }
 
         var duplicatedList = viewModel.BMSFilesDuplicated;
         if (duplicatedList == null)
         {
-            return;
+            failReason = "duplicated_list_null";
+            return false;
         }
 
         // データリストからターゲットのインデックスを検索
@@ -2643,12 +2714,14 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
         if (targetIndex < 0)
         {
-            NLogWrapper.FileLogger?.Warn("SelectDuplicateGroup: group not found in data for header: " + header);
-            return;
+            failReason = "group_not_found";
+            return false;
         }
 
         // 親TreeViewItemが展開されていることを確認
+        treeViewItemFullScanCheck.IsExpanded = true;
         duplicateRootItem.IsExpanded = true;
+        duplicateRootItem.BringIntoView();
         duplicateRootItem.UpdateLayout();
 
         // 仮想化パネルのBringIndexIntoViewPublicでコンテナ生成を強制
@@ -2662,8 +2735,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             }
             catch (ArgumentOutOfRangeException)
             {
-                // パネルのアイテム数がデータリストと同期していない場合にスキップ
-                NLogWrapper.FileLogger?.Warn("SelectDuplicateGroup: BringIndexIntoViewPublic out of range at index " + targetIndex);
+                failReason = "bring_index_out_of_range";
+                return false;
             }
         }
 
@@ -2674,12 +2747,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             targetItem.IsSelected = true;
             targetItem.IsExpanded = true;
             targetItem.BringIntoView();
-            NLogWrapper.FileLogger?.Info("Auto-selected duplicate group: " + header);
+            return true;
         }
-        else
-        {
-            NLogWrapper.FileLogger?.Warn("SelectDuplicateGroup: container not found at index " + targetIndex + " for header: " + header);
-        }
+        failReason = "container_not_realized";
+        return false;
     }
 
     /// <summary>
