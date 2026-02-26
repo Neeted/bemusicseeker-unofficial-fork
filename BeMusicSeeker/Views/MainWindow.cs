@@ -4908,20 +4908,32 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             case Key.Return:
                 {
                     e.Handled = true;
-                    DataGridRow selectedRow = dataGrid.GetSelectedRow();
-                    if (selectedRow == null)
+                    bool hasSelectedRow = dataGrid.TryGetSelectedRowRealized(out DataGridRow selectedRow);
+                    BMSFile selectedBmsFile = dataGrid.SelectedItem as BMSFile;
+                    if (!hasSelectedRow && selectedBmsFile == null)
                     {
                         break;
                     }
-                    if (selectedRow.IsEditing)
+                    if (hasSelectedRow && selectedRow.IsEditing)
                     {
                         dataGrid.CommitEdit();
                         break;
                     }
                     MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-                    if (selectedRow != null && viewModel != null)
+                    if (viewModel != null)
                     {
-                        _renewBMSPlayerControlInfo(selectedRow);
+                        if (hasSelectedRow)
+                        {
+                            _renewBMSPlayerControlInfo(selectedRow);
+                        }
+                        else
+                        {
+                            // NOTE:
+                            // 行仮想化により選択行のコンテナが未実体化でも、SelectedItem が有効なら再生処理は継続する。
+                            // Enter が無反応になるのを防ぐため、BMSFileベースでプレイヤー情報を更新する。
+                            _renewBMSPlayerControlInfo(selectedBmsFile);
+                            NLogWrapper.FileLogger?.Info("datagrid_selected_row_realize_fallback used=True selectedIndex=" + dataGrid.SelectedIndex);
+                        }
                         if ((viewModel.NowPlayingBMS == null || viewModel.NowPlayingBMS.status.HasFlag(BMSFile.BMSFileStatus.PAUSE)) && isPanelStateValid(MainWindowViewModel.PanelState.BMS_PLAYER))
                         {
                             NowPanelState = MainWindowViewModel.PanelState.BMS_PLAYER;
