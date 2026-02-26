@@ -116,7 +116,7 @@ public sealed class BmsSortCompatibilityTests
     private static List<BMSFile> SortByLegacyImplementation(IEnumerable<BMSFile> source, MainWindowViewModel.cSortParameters sortParameters)
     {
         IEnumerable<BMSFile> safeSource = source ?? Enumerable.Empty<BMSFile>();
-        string columnName = sortParameters?.ColumnsName;
+        string? columnName = sortParameters?.ColumnsName;
         ListSortDirection direction = sortParameters?.Direction ?? ListSortDirection.Ascending;
         if (string.IsNullOrWhiteSpace(columnName))
         {
@@ -126,7 +126,7 @@ public sealed class BmsSortCompatibilityTests
         {
             columnName = nameof(BMSFile.rateDouble);
         }
-        PropertyInfo property = typeof(BMSFile).GetProperty(columnName);
+        PropertyInfo? property = typeof(BMSFile).GetProperty(columnName);
         Func<BMSFile, string> keySelector = delegate(BMSFile row)
         {
             if (row == null || property == null)
@@ -175,21 +175,21 @@ public sealed class BmsSortCompatibilityTests
     [Table("song")]
     private sealed class SongSnapshotRow
     {
-        public string path { get; set; }
+        public string? path { get; set; }
 
-        public string hash { get; set; }
+        public string? hash { get; set; }
 
-        public string title { get; set; }
+        public string? title { get; set; }
 
-        public string subtitle { get; set; }
+        public string? subtitle { get; set; }
 
-        public string artist { get; set; }
+        public string? artist { get; set; }
 
-        public string subartist { get; set; }
+        public string? subartist { get; set; }
 
-        public string genre { get; set; }
+        public string? genre { get; set; }
 
-        public string tag { get; set; }
+        public string? tag { get; set; }
 
         public int? level { get; set; }
 
