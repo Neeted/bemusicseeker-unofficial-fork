@@ -3766,6 +3766,289 @@ public class BMSLibrary : NotificationObject
         }
     }
 
+    private const int deleteRetryDelayMs = 150;
+
+    private const int deleteRetryCountOnLock = 4;
+
+    private const int deleteRetryCountOnAccessDenied = 3;
+
+    private const int deleteInitialSettleDelayMs = 0;
+
+    private static Exception GetInnermostException(Exception ex)
+    {
+        Exception ex2 = ex;
+        while (ex2 != null && ex2.InnerException != null)
+        {
+            ex2 = ex2.InnerException;
+        }
+        return ex2 ?? ex;
+    }
+
+    private static int ExtractWin32ErrorCodeFromHResult(Exception ex)
+    {
+        Exception innermostException = GetInnermostException(ex);
+        int hResult = innermostException.HResult;
+        if ((hResult & -65536) == -2147024896)
+        {
+            return hResult & 0xFFFF;
+        }
+        return -1;
+    }
+
+    private static bool IsSharingOrLockViolation(Exception ex)
+    {
+        int num = ExtractWin32ErrorCodeFromHResult(ex);
+        return num == 32 || num == 33;
+    }
+
+    private static bool IsAccessDenied(Exception ex)
+    {
+        if (ex is UnauthorizedAccessException)
+        {
+            return true;
+        }
+        if (ExtractWin32ErrorCodeFromHResult(ex) == 5)
+        {
+            return true;
+        }
+
+        // NOTE:
+        // 一部環境では Directory.Delete のアクセス拒否が IOException(0x80131620) として
+        // 包装され、Win32コードが取得できないことがある。
+        // その場合でも短時間リトライを有効にするため、最深部メッセージでも判定する。
+        string message = GetInnermostException(ex).Message ?? string.Empty;
+        return message.IndexOf("access is denied", StringComparison.OrdinalIgnoreCase) >= 0
+            || message.IndexOf("アクセスが拒否されました", StringComparison.OrdinalIgnoreCase) >= 0;
+    }
+
+    private static bool TryNormalizeDirectoryAttributes(string directoryPath)
+    {
+        try
+        {
+            DirectoryInfo directoryInfo = new DirectoryInfo(directoryPath);
+            if (!directoryInfo.Exists)
+            {
+                return false;
+            }
+            if ((directoryInfo.Attributes & FileAttributes.ReadOnly) != 0)
+            {
+                directoryInfo.Attributes &= ~FileAttributes.ReadOnly;
+                return true;
+            }
+            return false;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// ファイル/ディレクトリのReadOnly属性を解除する。
+    /// </summary>
+    /// <param name="fileSystemPath">対象パス</param>
+    /// <returns>属性を変更した場合はtrue</returns>
+    private static bool TryNormalizeFileSystemReadOnlyAttribute(string fileSystemPath)
+    {
+        try
+        {
+            FileAttributes attributes = File.GetAttributes(fileSystemPath);
+            if ((attributes & FileAttributes.ReadOnly) == 0)
+            {
+                return false;
+            }
+            File.SetAttributes(fileSystemPath, attributes & ~FileAttributes.ReadOnly);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// ルート以下のReadOnly属性を再帰的に解除し、変更件数を返す。
+    /// </summary>
+    /// <param name="rootDirectoryPath">対象ルート</param>
+    /// <param name="includeFiles">ファイルも対象にする場合true</param>
+    /// <returns>実際に属性変更した件数</returns>
+    private static int NormalizeReadOnlyAttributesRecursively(string rootDirectoryPath, bool includeFiles)
+    {
+        if (string.IsNullOrWhiteSpace(rootDirectoryPath) || !Directory.Exists(rootDirectoryPath))
+        {
+            return 0;
+        }
+
+        int changedCount = 0;
+        Queue<string> directoryQueue = new Queue<string>();
+        directoryQueue.Enqueue(rootDirectoryPath);
+
+        while (directoryQueue.Count > 0)
+        {
+            string currentDirectoryPath = directoryQueue.Dequeue();
+
+            if (TryNormalizeDirectoryAttributes(currentDirectoryPath))
+            {
+                changedCount++;
+            }
+
+            string[] childDirectoryPaths = Array.Empty<string>();
+            try
+            {
+                childDirectoryPaths = Directory.GetDirectories(currentDirectoryPath);
+            }
+            catch
+            {
+            }
+            foreach (string childDirectoryPath in childDirectoryPaths)
+            {
+                directoryQueue.Enqueue(childDirectoryPath);
+            }
+
+            if (!includeFiles)
+            {
+                continue;
+            }
+
+            string[] childFilePaths = Array.Empty<string>();
+            try
+            {
+                childFilePaths = Directory.GetFiles(currentDirectoryPath);
+            }
+            catch
+            {
+            }
+            foreach (string childFilePath in childFilePaths)
+            {
+                if (TryNormalizeFileSystemReadOnlyAttribute(childFilePath))
+                {
+                    changedCount++;
+                }
+            }
+        }
+
+        return changedCount;
+    }
+
+    private static string BuildDirectoryDeleteDebugSample(string directoryPath)
+    {
+        try
+        {
+            if (!Directory.Exists(directoryPath))
+            {
+                return "(not_exists)";
+            }
+            return string.Join(" | ", Directory.EnumerateFileSystemEntries(directoryPath).Take(3).Select(Path.GetFileName));
+        }
+        catch (Exception ex)
+        {
+            return "(enumerate_failed:" + ex.GetType().Name + ")";
+        }
+    }
+
+    /// <summary>
+    /// 空ディレクトリ削除を試行し、ロック由来の一時エラーのみ短時間リトライする。
+    /// </summary>
+    /// <remarks>
+    /// 以前は例外種別を問わず長時間リトライしていたため、アクセス拒否時に操作不能時間だけが増える問題があった。
+    /// そのため、共有違反/ロック違反のみ再試行し、アクセス拒否は属性補正を1回だけ試して早期終了する。
+    /// </remarks>
+    private static bool TryDeleteDirectoryWithAdaptiveRetry(string directoryPath, bool deleteAllContents, out Exception finalException, out int attemptCount, out string remainingEntriesSample, out bool wasDeleted, out Exception firstFailureException, out string firstFailureRemainingEntriesSample, out int normalizedReadOnlyCount)
+    {
+        finalException = null;
+        attemptCount = 0;
+        remainingEntriesSample = string.Empty;
+        wasDeleted = false;
+        firstFailureException = null;
+        firstFailureRemainingEntriesSample = string.Empty;
+        normalizedReadOnlyCount = 0;
+        bool accessDeniedAttributeFixTried = false;
+
+        // NOTE:
+        // WindowsのDirectory.ReadOnlyは削除可否に不要だが、環境によりアクセス拒否へ波及することがある。
+        // 削除前に先回りで解除して、初回失敗を減らす。
+        if (deleteAllContents)
+        {
+            normalizedReadOnlyCount += NormalizeReadOnlyAttributesRecursively(directoryPath, includeFiles: true);
+        }
+        else if (TryNormalizeDirectoryAttributes(directoryPath))
+        {
+            normalizedReadOnlyCount++;
+        }
+
+        // NOTE:
+        // 直前まで大量移動を行った直後は、探索インデクサやシェル拡張の短時間ロックに当たりやすい。
+        // 初回だけ短い待機を入れ、同一フォルダでの「毎回2回目成功」パターンを減らせるか検証する。
+        if (deleteAllContents && deleteInitialSettleDelayMs > 0)
+        {
+            Thread.Sleep(deleteInitialSettleDelayMs);
+        }
+
+        while (true)
+        {
+            attemptCount++;
+            try
+            {
+                if (!deleteAllContents && Directory.EnumerateFileSystemEntries(directoryPath).Any())
+                {
+                    // NOTE:
+                    // 空フォルダ削除モード時に中身が残っている場合は「削除不要」として成功扱いにする。
+                    // 呼び出し側で成功ログとスキップログを区別するため、wasDeleted は false のまま返す。
+                    return true;
+                }
+                // NOTE:
+                // ここは内部クリーンアップ用途であり、ごみ箱経由は不要。
+                // FileSystem.DeleteDirectory はアクセス拒否時に汎用IOException(0x80131620)で原因が不明瞭になりやすいため、
+                // 診断しやすい Directory.Delete を優先する。
+                Directory.Delete(directoryPath, deleteAllContents);
+                wasDeleted = true;
+                return true;
+            }
+            catch (Exception ex)
+            {
+                finalException = ex;
+                if (firstFailureException == null)
+                {
+                    firstFailureException = ex;
+                    firstFailureRemainingEntriesSample = BuildDirectoryDeleteDebugSample(directoryPath);
+                }
+                if (!Directory.Exists(directoryPath))
+                {
+                    // 他スレッド/他プロセスで先に消えたケースは成功扱いにする。
+                    wasDeleted = true;
+                    return true;
+                }
+                if (IsAccessDenied(ex) && !accessDeniedAttributeFixTried)
+                {
+                    accessDeniedAttributeFixTried = true;
+                    int recoveredReadOnlyCount = deleteAllContents
+                        ? NormalizeReadOnlyAttributesRecursively(directoryPath, includeFiles: true)
+                        : (TryNormalizeDirectoryAttributes(directoryPath) ? 1 : 0);
+                    normalizedReadOnlyCount += recoveredReadOnlyCount;
+                    if (recoveredReadOnlyCount > 0)
+                    {
+                        continue;
+                    }
+                }
+                if (IsAccessDenied(ex) && attemptCount <= deleteRetryCountOnAccessDenied + 1)
+                {
+                    // NOTE:
+                    // 一部環境では Delete 直後にアクセス拒否が短時間だけ発生し、
+                    // 手動削除は即成功することがあるため、短い回数だけ再試行する。
+                    Thread.Sleep(deleteRetryDelayMs);
+                    continue;
+                }
+                if (IsSharingOrLockViolation(ex) && attemptCount <= deleteRetryCountOnLock + 1)
+                {
+                    Thread.Sleep(deleteRetryDelayMs);
+                    continue;
+                }
+                remainingEntriesSample = BuildDirectoryDeleteDebugSample(directoryPath);
+                return false;
+            }
+        }
+    }
+
     /// <summary>
     /// BMSパッケージのファイル群を指定ディレクトリに移動し、移動元の空フォルダを削除する。
     /// マージ処理（MergeBMSDirectory）やインストール処理（installBMSPackages）から呼ばれる共通メソッド。
@@ -4028,27 +4311,66 @@ public class BMSLibrary : NotificationObject
         }
         if (!string.IsNullOrWhiteSpace(dirToBeDeleted) && Directory.Exists(dirToBeDeleted))
         {
-            // フォルダの削除を試行する。
-            // 外部プロセス（Search Indexer、アンチウイルス等）がロックしている場合を考慮し、
-            // 30回（約30秒間）のリトライを行う。
-            RetryHelper.RetryIfError(() =>
+            Exception ex = null;
+            int attemptCount = 0;
+            string remainingEntriesSample = string.Empty;
+            bool wasDeleted = false;
+            Exception firstFailureException = null;
+            string firstFailureRemainingEntriesSample = string.Empty;
+            int normalizedReadOnlyCount = 0;
+            if (!TryDeleteDirectoryWithAdaptiveRetry(dirToBeDeleted, deleteAllContents, out ex, out attemptCount, out remainingEntriesSample, out wasDeleted, out firstFailureException, out firstFailureRemainingEntriesSample, out normalizedReadOnlyCount))
             {
-                // 全削除モード、またはフォルダが空の場合に削除を実行
-                if (deleteAllContents || !Directory.EnumerateFileSystemEntries(dirToBeDeleted).Any())
-                {
-                    FileSystem.DeleteDirectory(dirToBeDeleted, DeleteDirectoryOption.DeleteAllContents);
-                }
-            }, (Exception deleteEx) =>
-            {
-                // リトライ上限に達しても削除できなかった場合はログを出力し、ユーザーに通知する
+                Exception innermostException = GetInnermostException(ex);
+                int num = ExtractWin32ErrorCodeFromHResult(ex);
                 NLogWrapper.FileLogger?.Info(string.Format(
-                    "Folder deletion failed after retries: path={0} error={1}", dirToBeDeleted, deleteEx.Message));
-                DispatcherMessageBox.Show(string.Format(Resources.Error_FolderDeleteFailed, dirToBeDeleted, deleteEx.Message), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
-            }, () =>
+                    "Folder deletion failed: path={0} attempts={1} normalizedReadOnly={2} exType={3} hresult=0x{4:X8} rootType={5} rootHresult=0x{6:X8} win32={7} remaining={8} error={9}",
+                    dirToBeDeleted,
+                    attemptCount,
+                    normalizedReadOnlyCount,
+                    ex.GetType().FullName,
+                    ex.HResult,
+                    innermostException.GetType().FullName,
+                    innermostException.HResult,
+                    (num >= 0) ? num.ToString() : "n/a",
+                    string.IsNullOrWhiteSpace(remainingEntriesSample) ? "(none)" : remainingEntriesSample,
+                    ex.Message));
+                DispatcherMessageBox.Show(string.Format(Resources.Error_FolderDeleteFailed, dirToBeDeleted, ex.Message), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+            }
+            else
             {
-                // リトライ前に1秒待機
-                Thread.Sleep(1000);
-            }, 30u);
+                if (attemptCount > 1 && firstFailureException != null)
+                {
+                    Exception firstInnermostException = GetInnermostException(firstFailureException);
+                    int firstWin32ErrorCode = ExtractWin32ErrorCodeFromHResult(firstFailureException);
+                    NLogWrapper.FileLogger?.Info(string.Format(
+                        "Folder deletion success: path={0} attempts={1} retried=True deleted={2} deleteAllContents={3} normalizedReadOnly={4} firstExType={5} firstHresult=0x{6:X8} firstRootType={7} firstRootHresult=0x{8:X8} firstWin32={9} firstRemaining={10} firstError={11} initialDelayMs={12}",
+                        dirToBeDeleted,
+                        attemptCount,
+                        wasDeleted.ToString(),
+                        deleteAllContents.ToString(),
+                        normalizedReadOnlyCount,
+                        firstFailureException.GetType().FullName,
+                        firstFailureException.HResult,
+                        firstInnermostException.GetType().FullName,
+                        firstInnermostException.HResult,
+                        (firstWin32ErrorCode >= 0) ? firstWin32ErrorCode.ToString() : "n/a",
+                        string.IsNullOrWhiteSpace(firstFailureRemainingEntriesSample) ? "(none)" : firstFailureRemainingEntriesSample,
+                        firstFailureException.Message,
+                        deleteAllContents ? deleteInitialSettleDelayMs : 0));
+                }
+                else
+                {
+                    NLogWrapper.FileLogger?.Info(string.Format(
+                        "Folder deletion success: path={0} attempts={1} retried={2} deleted={3} deleteAllContents={4} normalizedReadOnly={5} initialDelayMs={6}",
+                        dirToBeDeleted,
+                        attemptCount,
+                        (attemptCount > 1).ToString(),
+                        wasDeleted.ToString(),
+                        deleteAllContents.ToString(),
+                        normalizedReadOnlyCount,
+                        deleteAllContents ? deleteInitialSettleDelayMs : 0));
+                }
+            }
         }
         return true;
     }
