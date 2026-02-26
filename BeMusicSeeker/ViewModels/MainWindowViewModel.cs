@@ -5945,6 +5945,7 @@ public class MainWindowViewModel : ViewModel
         long columnStageMs = 0L;
         long callbackStageMs = 0L;
         bool sortReuse = false;
+        string sortProfile = "not_sorted";
         int folderCount = 0;
         int keywordCount = 0;
         int modeCount = 0;
@@ -6253,10 +6254,11 @@ public class MainWindowViewModel : ViewModel
             {
                 BMSFilesView = folderSortResultSnapshot;
                 sortReuse = true;
+                sortProfile = "reuse";
             }
             else
             {
-                BMSFilesView = BMSFileSortEngine.Sort(BMSFilesModeFilterView, SortParameters);
+                BMSFilesView = BMSFileSortEngine.SortForMainView(BMSFilesModeFilterView, SortParameters, out sortProfile);
                 if (isFolderMode)
                 {
                     folderSortResultSnapshot = BMSFilesView;
@@ -6279,6 +6281,7 @@ public class MainWindowViewModel : ViewModel
         else
         {
             BMSFilesView = BMSFilesModeFilterView.ToList();
+            sortProfile = "bypass";
         }
         sortStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
         viewCount = BMSFilesView.Count();
@@ -6291,7 +6294,7 @@ public class MainWindowViewModel : ViewModel
         string sortColumn = SortParameters?.ColumnsName ?? "(default_title)";
         string sortDirection = SortParameters?.Direction.ToString() ?? "Ascending";
         string parameterType = parameter?.GetType().Name ?? "(null)";
-        LogMainViewBuild("main_view_build mode=" + mode + " requestedMode=" + requestedMode + " parameterType=" + parameterType + " folderMs=" + folderStageMs + " keywordMs=" + keywordStageMs + " modeMs=" + modeStageMs + " sortMs=" + sortStageMs + " sortReuse=" + sortReuse + " columnMs=" + columnStageMs + " callbackMs=" + callbackStageMs + " totalMs=" + viewBuildStopwatch.ElapsedMilliseconds + " folderCount=" + folderCount + " keywordCount=" + keywordCount + " modeCount=" + modeCount + " viewCount=" + viewCount + " sortColumn=" + sortColumn + " sortDirection=" + sortDirection);
+        LogMainViewBuild("main_view_build mode=" + mode + " requestedMode=" + requestedMode + " parameterType=" + parameterType + " folderMs=" + folderStageMs + " keywordMs=" + keywordStageMs + " modeMs=" + modeStageMs + " sortMs=" + sortStageMs + " sortReuse=" + sortReuse + " sortProfile=" + sortProfile + " columnMs=" + columnStageMs + " callbackMs=" + callbackStageMs + " totalMs=" + viewBuildStopwatch.ElapsedMilliseconds + " folderCount=" + folderCount + " keywordCount=" + keywordCount + " modeCount=" + modeCount + " viewCount=" + viewCount + " sortColumn=" + sortColumn + " sortDirection=" + sortDirection);
     }
 
     public void LoadColumnSetting()

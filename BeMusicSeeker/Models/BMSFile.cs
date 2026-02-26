@@ -83,6 +83,12 @@ public class BMSFile : LR2SongDB.song
 
     private bool _isHashDuplicated;
 
+    private string _cachedComposedTitle;
+
+    private string _cachedComposedTitleSource;
+
+    private string _cachedComposedSubtitleSource;
+
     private PropertyChangedEventListener listenerForMaintenanceInfo;
 
     private BMSFileMaintenanceInfo _maintenanceInfo;
@@ -255,7 +261,7 @@ public class BMSFile : LR2SongDB.song
     {
         get
         {
-            return (string.IsNullOrWhiteSpace(_subtitle) ? _title : (_title + " " + _subtitle)) ?? "";
+            return GetComposedTitle();
         }
         protected set
         {
@@ -263,6 +269,9 @@ public class BMSFile : LR2SongDB.song
             {
                 _title = value;
                 _subtitle = "";
+                _cachedComposedTitleSource = _title ?? string.Empty;
+                _cachedComposedSubtitleSource = string.Empty;
+                _cachedComposedTitle = _cachedComposedTitleSource;
                 RaisePropertyChanged("Title");
             }
         }
@@ -283,6 +292,22 @@ public class BMSFile : LR2SongDB.song
                 RaisePropertyChanged("Artist");
             }
         }
+    }
+
+    private string GetComposedTitle()
+    {
+        string currentTitle = _title ?? string.Empty;
+        string currentSubtitle = _subtitle ?? string.Empty;
+        if (_cachedComposedTitle == null || !string.Equals(_cachedComposedTitleSource, currentTitle, StringComparison.Ordinal) || !string.Equals(_cachedComposedSubtitleSource, currentSubtitle, StringComparison.Ordinal))
+        {
+            // NOTE:
+            // 20万件規模の一覧ソートでは Title getter が大量に呼ばれるため、
+            // 毎回の string 連結を避けるために _title/_subtitle の組をキーにキャッシュします。
+            _cachedComposedTitleSource = currentTitle;
+            _cachedComposedSubtitleSource = currentSubtitle;
+            _cachedComposedTitle = string.IsNullOrWhiteSpace(currentSubtitle) ? currentTitle : (currentTitle + " " + currentSubtitle);
+        }
+        return _cachedComposedTitle;
     }
 
     public int? notes

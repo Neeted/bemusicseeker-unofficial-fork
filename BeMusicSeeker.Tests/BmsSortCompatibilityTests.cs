@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -22,8 +23,12 @@ namespace BeMusicSeeker.Tests;
 public sealed class BmsSortCompatibilityTests
 {
     private const int SampleSongCount = 20000;
+    private const int PerfWarmupCount = 1;
+    private const int PerfMeasureCount = 3;
 
     private static readonly string TestSongDbRelativePath = Path.Combine("TestData", "song_snapshot", "song.db");
+
+    public TestContext? TestContext { get; set; }
 
     /// <summary>
     /// 代表カラムの昇順/降順で従来ロジックとの完全一致を検証します。
@@ -71,13 +76,82 @@ public sealed class BmsSortCompatibilityTests
 
                 string legacyDigest = ComputeDigest(legacyResult);
                 string optimizedDigest = ComputeDigest(optimizedResult);
-                Assert.AreEqual(legacyDigest, optimizedDigest, $"Sort order mismatch for {columnName}/{direction}");
+                if (!string.Equals(legacyDigest, optimizedDigest, StringComparison.Ordinal))
+                {
+                    int mismatchIndex = FindFirstMismatchIndex(legacyResult, optimizedResult);
+                    string legacyRow = (mismatchIndex >= 0 && mismatchIndex < legacyResult.Count) ? (legacyResult[mismatchIndex]?.path ?? string.Empty) : "(n/a)";
+                    string optimizedRow = (mismatchIndex >= 0 && mismatchIndex < optimizedResult.Count) ? (optimizedResult[mismatchIndex]?.path ?? string.Empty) : "(n/a)";
+                    Assert.Fail($"Sort order mismatch for {columnName}/{direction} at index={mismatchIndex} legacy={legacyRow} optimized={optimizedRow}");
+                }
             }
         }
         finally
         {
             CultureInfo.CurrentCulture = previousCurrentCulture;
             CultureInfo.CurrentUICulture = previousCurrentUICulture;
+        }
+    }
+
+    /// <summary>
+    /// 旧実装と最適化実装のソート処理時間を比較出力します（参考計測）。
+    /// </summary>
+    [TestMethod]
+    [TestCategory("Performance")]
+    [DoNotParallelize]
+    public void SortPerformance_ReportLegacyVsOptimized_ForRepresentativeColumns()
+    {
+        string testSongDbFullPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, TestSongDbRelativePath);
+        Assert.IsTrue(File.Exists(testSongDbFullPath), "Test song.db not found: " + testSongDbFullPath);
+
+        List<BMSFile> sourceRows = LoadRowsFromSongDb(testSongDbFullPath, SampleSongCount);
+        Assert.IsTrue(sourceRows.Count > 0, "No song rows loaded from test song.db.");
+
+        List<(string columnName, ListSortDirection direction)> sortCases = new List<(string, ListSortDirection)>
+        {
+            (nameof(BMSFile.Level), ListSortDirection.Descending),
+            (nameof(BMSFile.path), ListSortDirection.Ascending),
+            (nameof(BMSFile.totalnotes), ListSortDirection.Descending),
+            (nameof(BMSFile.mode), ListSortDirection.Ascending),
+            (nameof(BMSFile.rate), ListSortDirection.Descending),
+            (nameof(BMSFile.scoreDifficulty), ListSortDirection.Descending),
+            (nameof(BMSFile.rankingLastupdate), ListSortDirection.Descending)
+        };
+
+        foreach ((string columnName, ListSortDirection direction) in sortCases)
+        {
+            MainWindowViewModel.cSortParameters sortParameters = new MainWindowViewModel.cSortParameters
+            {
+                ColumnsName = columnName,
+                Direction = direction
+            };
+
+            for (int warmup = 0; warmup < PerfWarmupCount; warmup++)
+            {
+                _ = SortByLegacyImplementation(sourceRows, sortParameters);
+                _ = BMSFileSortEngine.Sort(sourceRows, sortParameters, out _);
+            }
+
+            List<long> legacyMs = new List<long>(PerfMeasureCount);
+            List<long> optimizedMs = new List<long>(PerfMeasureCount);
+            for (int i = 0; i < PerfMeasureCount; i++)
+            {
+                Stopwatch swLegacy = Stopwatch.StartNew();
+                _ = SortByLegacyImplementation(sourceRows, sortParameters);
+                swLegacy.Stop();
+                legacyMs.Add(swLegacy.ElapsedMilliseconds);
+
+                Stopwatch swOptimized = Stopwatch.StartNew();
+                _ = BMSFileSortEngine.Sort(sourceRows, sortParameters, out string sortProfile);
+                swOptimized.Stop();
+                optimizedMs.Add(swOptimized.ElapsedMilliseconds);
+
+                TestContext?.WriteLine($"sort_perf_iter column={columnName} direction={direction} iter={i + 1} legacyMs={swLegacy.ElapsedMilliseconds} optimizedMs={swOptimized.ElapsedMilliseconds} sortProfile={sortProfile} rows={sourceRows.Count}");
+            }
+
+            long legacyMedian = Median(legacyMs);
+            long optimizedMedian = Median(optimizedMs);
+            double ratio = legacyMedian == 0 ? 0.0 : (double)optimizedMedian / legacyMedian;
+            TestContext?.WriteLine($"sort_perf_summary column={columnName} direction={direction} rows={sourceRows.Count} legacyMedianMs={legacyMedian} optimizedMedianMs={optimizedMedian} ratio={ratio:F3}");
         }
     }
 
@@ -170,6 +244,43 @@ public sealed class BmsSortCompatibilityTests
             hash = sha256.ComputeHash(bytes);
         }
         return Convert.ToBase64String(hash);
+    }
+
+    /// <summary>
+    /// 中央値を返します。
+    /// </summary>
+    /// <param name="values">計測値。</param>
+    /// <returns>中央値。</returns>
+    private static long Median(List<long> values)
+    {
+        if (values == null || values.Count == 0)
+        {
+            return 0L;
+        }
+        List<long> sorted = values.OrderBy((long v) => v).ToList();
+        return sorted[sorted.Count / 2];
+    }
+
+    /// <summary>
+    /// 2つの並び順の最初の差分インデックスを返します。
+    /// </summary>
+    private static int FindFirstMismatchIndex(List<BMSFile> left, List<BMSFile> right)
+    {
+        int count = Math.Min(left.Count, right.Count);
+        for (int i = 0; i < count; i++)
+        {
+            BMSFile l = left[i] ?? throw new InvalidOperationException("Left row is null at index " + i);
+            BMSFile r = right[i] ?? throw new InvalidOperationException("Right row is null at index " + i);
+            if (!string.Equals(l.path, r.path, StringComparison.Ordinal) || !string.Equals(l.hash, r.hash, StringComparison.Ordinal))
+            {
+                return i;
+            }
+        }
+        if (left.Count != right.Count)
+        {
+            return count;
+        }
+        return -1;
     }
 
     [Table("song")]
