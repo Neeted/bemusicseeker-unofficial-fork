@@ -37,3 +37,4 @@ using System.Windows.Resources;
 [assembly: AssemblyAssociatedContentFile("infrastructureassemblies/livet.xml")]
 [assembly: AssemblyInformationalVersion("1.0.4.0")]
 [assembly: AssemblyVersion("0.1.7374.5230")]
+[assembly: InternalsVisibleTo("BeMusicSeeker.Tests")]

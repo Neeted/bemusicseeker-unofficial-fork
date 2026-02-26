@@ -19,6 +19,10 @@
     <RootNamespace />
   </PropertyGroup>
   <ItemGroup>
+    <Compile Remove="BeMusicSeeker.Tests\**\*.cs" />
+    <None Remove="BeMusicSeeker.Tests\**\*" />
+  </ItemGroup>
+  <ItemGroup>
     <None Include="native\Everything3_x64.dll">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>

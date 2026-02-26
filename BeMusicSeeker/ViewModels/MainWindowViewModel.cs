@@ -3296,10 +3296,6 @@ public class MainWindowViewModel : ViewModel
 
     private bool startupReadyUiLogged;
 
-    private Dictionary<string, Func<BeMusicSeeker.Models.BMSFile, string>> sortKeySelectorCache = new Dictionary<string, Func<BeMusicSeeker.Models.BMSFile, string>>(StringComparer.Ordinal);
-
-    private object lockSortKeySelectorCache = new object();
-
     private string _WindowTitle = "BeMusicSeeker Unofficial Fork - ";
 
     private IEnumerable<BeMusicSeeker.Models.BMSFile> BMSFilesFolderView;
@@ -3321,6 +3317,14 @@ public class MainWindowViewModel : ViewModel
     private int _SelectedIndexBMSFilesView;
 
     private dataGridColumnsSettings _ColumnsSettingsBMSFilesView;
+
+    private List<BeMusicSeeker.Models.BMSFile> folderSortSourceSnapshot;
+
+    private List<BeMusicSeeker.Models.BMSFile> folderSortResultSnapshot;
+
+    private string folderSortColumnName;
+
+    private ListSortDirection? folderSortDirection;
 
     private PlaylistSummaryColumnSettings _PlaylistSummaryColumnsSettings;
 
@@ -3432,6 +3436,34 @@ public class MainWindowViewModel : ViewModel
         {
             installPerformanceLogger.Info("init_stage " + stage + " scope=" + scope);
         }
+    }
+
+    private static void LogMainViewBuild(string message)
+    {
+        if (installPerformanceLoggingEnabled)
+        {
+            installPerformanceLogger.Info(message);
+        }
+    }
+
+    private static bool IsSameReferenceSequence(List<BeMusicSeeker.Models.BMSFile> left, List<BeMusicSeeker.Models.BMSFile> right)
+    {
+        if (ReferenceEquals(left, right))
+        {
+            return true;
+        }
+        if (left == null || right == null || left.Count != right.Count)
+        {
+            return false;
+        }
+        for (int i = 0; i < left.Count; i++)
+        {
+            if (!ReferenceEquals(left[i], right[i]))
+            {
+                return false;
+            }
+        }
+        return true;
     }
 
     private void BeginUiUpdateSuppression(UiRefreshChannel mask)
@@ -5904,6 +5936,20 @@ public class MainWindowViewModel : ViewModel
 
     private void makeBMSFilesView(viewUpdateMode mode, object parameter = null)
     {
+        Stopwatch viewBuildStopwatch = Stopwatch.StartNew();
+        long stageStartMs = 0L;
+        long folderStageMs = 0L;
+        long keywordStageMs = 0L;
+        long modeStageMs = 0L;
+        long sortStageMs = 0L;
+        long columnStageMs = 0L;
+        long callbackStageMs = 0L;
+        bool sortReuse = false;
+        int folderCount = 0;
+        int keywordCount = 0;
+        int modeCount = 0;
+        int viewCount = 0;
+        viewUpdateMode requestedMode = mode;
         if (mode == viewUpdateMode.TreeViewFilterNotChanged)
         {
             mode = treeViewFilterTypeSelected;
@@ -6125,6 +6171,9 @@ public class MainWindowViewModel : ViewModel
                 break;
         }
         BMSFilesFolderView = ((BMSFilesFolderView == null) ? new List<BeMusicSeeker.Models.BMSFile>() : BMSFilesFolderView.ToList());
+        folderStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
+        folderCount = BMSFilesFolderView.Count();
+        stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
         if (mode <= viewUpdateMode.KeywordFilterUpdated)
         {
             if (!string.IsNullOrWhiteSpace(KeywordFilter))
@@ -6141,6 +6190,9 @@ public class MainWindowViewModel : ViewModel
             }
         }
         BMSFilesKeywordFilterView = ((BMSFilesKeywordFilterView == null) ? new List<BeMusicSeeker.Models.BMSFile>() : BMSFilesKeywordFilterView.ToList());
+        keywordStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
+        keywordCount = BMSFilesKeywordFilterView.Count();
+        stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
         if (mode <= viewUpdateMode.ModeFilterUpdated)
         {
             if (ModeFilter != ModeFilterType.All)
@@ -6174,72 +6226,72 @@ public class MainWindowViewModel : ViewModel
             }
         }
         BMSFilesModeFilterView = ((BMSFilesModeFilterView == null) ? new List<BeMusicSeeker.Models.BMSFile>() : BMSFilesModeFilterView.ToList());
+        modeStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
+        modeCount = BMSFilesModeFilterView.Count();
+        stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
         if (mode <= viewUpdateMode.SortUpdated)
         {
+            string columnName = nameof(BeMusicSeeker.Models.BMSFile.Title);
+            ListSortDirection direction = ListSortDirection.Ascending;
             if (SortParameters != null)
             {
-                ListSortDirection direction = SortParameters.Direction;
-                string columnName = SortParameters.ColumnsName;
-                if (string.Equals(columnName, nameof(BeMusicSeeker.Models.BMSFile.rank), StringComparison.Ordinal))
-                {
-                    columnName = nameof(BeMusicSeeker.Models.BMSFile.rateDouble);
-                }
-                Func<BeMusicSeeker.Models.BMSFile, string> keySelector = GetSortKeySelector(columnName);
-                if (direction == ListSortDirection.Ascending)
-                {
-                    BMSFilesView = BMSFilesModeFilterView.OrderBy(keySelector, new NaturalComparer<string>()).ThenBy((BeMusicSeeker.Models.BMSFile r) => r.Title ?? string.Empty, new NaturalComparer<string>()).ToList();
-                }
-                else
-                {
-                    BMSFilesView = BMSFilesModeFilterView.OrderByDescending(keySelector, new NaturalComparer<string>(isWhiteSpacePrior: true)).ThenBy((BeMusicSeeker.Models.BMSFile r) => r.Title ?? string.Empty, new NaturalComparer<string>()).ToList();
-                }
+                direction = SortParameters.Direction;
+                columnName = SortParameters.ColumnsName;
+            }
+            if (string.IsNullOrWhiteSpace(columnName))
+            {
+                columnName = nameof(BeMusicSeeker.Models.BMSFile.Title);
+            }
+            if (string.Equals(columnName, nameof(BeMusicSeeker.Models.BMSFile.rank), StringComparison.Ordinal))
+            {
+                columnName = nameof(BeMusicSeeker.Models.BMSFile.rateDouble);
+            }
+            bool isTreeSelectionRequest = requestedMode != viewUpdateMode.TreeViewFilterNotChanged && requestedMode < viewUpdateMode.KeywordFilterUpdated;
+            bool isFolderMode = mode == viewUpdateMode.FolderFilterSelected;
+            List<BeMusicSeeker.Models.BMSFile> modeFilterList = BMSFilesModeFilterView as List<BeMusicSeeker.Models.BMSFile>;
+            if (isFolderMode && isTreeSelectionRequest && modeFilterList != null && folderSortSourceSnapshot != null && folderSortResultSnapshot != null && string.Equals(folderSortColumnName, columnName, StringComparison.Ordinal) && folderSortDirection == direction && IsSameReferenceSequence(modeFilterList, folderSortSourceSnapshot))
+            {
+                BMSFilesView = folderSortResultSnapshot;
+                sortReuse = true;
             }
             else
             {
-                BMSFilesView = BMSFilesModeFilterView.OrderBy((BeMusicSeeker.Models.BMSFile r) => r.Title ?? string.Empty, new NaturalComparer<string>()).ToList();
+                BMSFilesView = BMSFileSortEngine.Sort(BMSFilesModeFilterView, SortParameters);
+                if (isFolderMode)
+                {
+                    folderSortResultSnapshot = BMSFilesView;
+                }
+            }
+            if (isFolderMode)
+            {
+                if (modeFilterList != null)
+                {
+                    folderSortSourceSnapshot = modeFilterList;
+                }
+                else
+                {
+                    folderSortSourceSnapshot = BMSFilesModeFilterView.ToList();
+                }
+                folderSortColumnName = columnName;
+                folderSortDirection = direction;
             }
         }
         else
         {
             BMSFilesView = BMSFilesModeFilterView.ToList();
         }
+        sortStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
+        viewCount = BMSFilesView.Count();
+        stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
         loadColumnSetting((mode < viewUpdateMode.KeywordFilterUpdated) ? mode : treeViewFilterTypeSelected);
+        columnStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
+        stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
         base.Messenger.Raise(new InteractionMessage("CallbackExecSort"));
-    }
-
-    private Func<BeMusicSeeker.Models.BMSFile, string> GetSortKeySelector(string columnName)
-    {
-        if (string.IsNullOrWhiteSpace(columnName))
-        {
-            return (BeMusicSeeker.Models.BMSFile _) => string.Empty;
-        }
-        lock (lockSortKeySelectorCache)
-        {
-            if (sortKeySelectorCache.TryGetValue(columnName, out var value))
-            {
-                return value;
-            }
-            PropertyInfo property = typeof(BeMusicSeeker.Models.BMSFile).GetProperty(columnName);
-            Func<BeMusicSeeker.Models.BMSFile, string> func = delegate (BeMusicSeeker.Models.BMSFile r)
-            {
-                if (r == null || property == null)
-                {
-                    return string.Empty;
-                }
-                object value2 = property.GetValue(r);
-                if (value2 == null)
-                {
-                    return string.Empty;
-                }
-                if (property.PropertyType.IsEnum)
-                {
-                    return ((int)value2).ToString();
-                }
-                return value2.ToString();
-            };
-            sortKeySelectorCache[columnName] = func;
-            return func;
-        }
+        callbackStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
+        string sortColumn = SortParameters?.ColumnsName ?? "(default_title)";
+        string sortDirection = SortParameters?.Direction.ToString() ?? "Ascending";
+        string parameterType = parameter?.GetType().Name ?? "(null)";
+        LogMainViewBuild("main_view_build mode=" + mode + " requestedMode=" + requestedMode + " parameterType=" + parameterType + " folderMs=" + folderStageMs + " keywordMs=" + keywordStageMs + " modeMs=" + modeStageMs + " sortMs=" + sortStageMs + " sortReuse=" + sortReuse + " columnMs=" + columnStageMs + " callbackMs=" + callbackStageMs + " totalMs=" + viewBuildStopwatch.ElapsedMilliseconds + " folderCount=" + folderCount + " keywordCount=" + keywordCount + " modeCount=" + modeCount + " viewCount=" + viewCount + " sortColumn=" + sortColumn + " sortDirection=" + sortDirection);
     }
 
     public void LoadColumnSetting()
