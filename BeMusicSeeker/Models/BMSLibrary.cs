@@ -6575,13 +6575,13 @@ public class BMSLibrary : NotificationObject
             return;
         }
         HashSet<string> removedPaths = new HashSet<string>(list.Where((BMSFile f) => !string.IsNullOrWhiteSpace(f.path)).Select((BMSFile f) => f.path), StringComparer.OrdinalIgnoreCase);
-        HashSet<string> removedHashes = new HashSet<string>(list.Where((BMSFile f) => IsBMSHashAvailable(f.hash)).Select((BMSFile f) => f.hash), StringComparer.OrdinalIgnoreCase);
+        HashSet<BMSFile> removedFiles = new HashSet<BMSFile>(list);
         bool changed = false;
         List<BMSPackage> list2 = new List<BMSPackage>();
         foreach (BMSPackage item in BMSPackagesPending.Where((BMSPackage pkg) => pkg != null).ToList())
         {
             int count = item.BMSFiles.Count;
-            item.BMSFiles.RemoveAll((BMSFile f) => IsMatchedRemovedFile(f, removedPaths, removedHashes));
+            item.BMSFiles.RemoveAll((BMSFile f) => IsMatchedRemovedFile(f, removedPaths, removedFiles));
             if (item.BMSFiles.Count != count)
             {
                 changed = true;
@@ -6633,13 +6633,13 @@ public class BMSLibrary : NotificationObject
             lR2SongDBExtended.Commit();
         }
         HashSet<string> removedPaths = new HashSet<string>(list.Where((BMSFile f) => !string.IsNullOrWhiteSpace(f.path)).Select((BMSFile f) => f.path), StringComparer.OrdinalIgnoreCase);
-        HashSet<string> removedHashes = new HashSet<string>(list.Where((BMSFile f) => IsBMSHashAvailable(f.hash)).Select((BMSFile f) => f.hash), StringComparer.OrdinalIgnoreCase);
+        HashSet<BMSFile> removedFiles = new HashSet<BMSFile>(list);
         bool changed = false;
         List<BMSPackage> list2 = new List<BMSPackage>();
         foreach (BMSPackage item3 in BMSPackagesInstalled.Where((BMSPackage pkg) => pkg != null).ToList())
         {
             int count = item3.BMSFiles.Count;
-            item3.BMSFiles.RemoveAll((BMSFile f) => IsMatchedRemovedFile(f, removedPaths, removedHashes));
+            item3.BMSFiles.RemoveAll((BMSFile f) => IsMatchedRemovedFile(f, removedPaths, removedFiles));
             if (item3.BMSFiles.Count != count)
             {
                 changed = true;
@@ -6659,17 +6659,21 @@ public class BMSLibrary : NotificationObject
         }
     }
 
-    private static bool IsMatchedRemovedFile(BMSFile file, HashSet<string> removedPaths, HashSet<string> removedHashes)
+    private static bool IsMatchedRemovedFile(BMSFile file, HashSet<string> removedPaths, HashSet<BMSFile> removedFiles)
     {
         if (file == null)
         {
             return false;
         }
+        if (removedFiles != null && removedFiles.Contains(file))
+        {
+            return true;
+        }
         if (!string.IsNullOrWhiteSpace(file.path) && removedPaths.Contains(file.path))
         {
             return true;
         }
-        return IsBMSHashAvailable(file.hash) && removedHashes.Contains(file.hash);
+        return false;
     }
 
     private void replaceBMSFilePath(BMSFile bmsFile, string newPath, string oldPath = null, bool calcFolderParent = true)
