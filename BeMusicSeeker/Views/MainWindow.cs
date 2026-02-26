@@ -1803,6 +1803,53 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             viewModel.ResyncPlaylists(new BMSTable[1] { table });
         }).Logging("treeViewPlaylistTableContextMenuItemReloadClick");
+        RestorePlaylistTableSelectionAfterReload(table);
+    }
+
+    private void RestorePlaylistTableSelectionAfterReload(BMSTable tableBeforeReload)
+    {
+        if (tableBeforeReload == null)
+        {
+            return;
+        }
+        BMSTable selectionTarget = FindReloadedPlaylistTable(tableBeforeReload);
+        if (selectionTarget == null)
+        {
+            NLogWrapper.FileLogger?.Info("playlist_selection_restore_single_reload skipped reason=target_not_found");
+            return;
+        }
+        bool restored = treeViewItemPlaylist.SelectChildTreeViewItemSearchedByDataContext(selectionTarget);
+        NLogWrapper.FileLogger?.Info("playlist_selection_restore_single_reload restored=" + restored + " table=" + selectionTarget.name);
+    }
+
+    private BMSTable FindReloadedPlaylistTable(BMSTable tableBeforeReload)
+    {
+        IEnumerable<BMSTable> source = treeViewItemPlaylist.Items.OfType<BMSTable>();
+        if (tableBeforeReload.playlist_id.HasValue)
+        {
+            BMSTable byId = source.FirstOrDefault((BMSTable t) => t != null && t.playlist_id.HasValue && t.playlist_id.Value == tableBeforeReload.playlist_id.Value);
+            if (byId != null)
+            {
+                return byId;
+            }
+        }
+        string pageUrl = tableBeforeReload.Page_url?.AbsoluteUri ?? string.Empty;
+        string headerUrl = tableBeforeReload.GetAbsoluteHeaderUrl()?.AbsoluteUri ?? string.Empty;
+        BMSTable byUrl = source.FirstOrDefault(delegate (BMSTable t)
+        {
+            if (t == null)
+            {
+                return false;
+            }
+            string text = t.Page_url?.AbsoluteUri ?? string.Empty;
+            string text2 = t.GetAbsoluteHeaderUrl()?.AbsoluteUri ?? string.Empty;
+            return string.Equals(text, pageUrl, StringComparison.OrdinalIgnoreCase) && string.Equals(text2, headerUrl, StringComparison.OrdinalIgnoreCase);
+        });
+        if (byUrl != null)
+        {
+            return byUrl;
+        }
+        return source.FirstOrDefault((BMSTable t) => t != null && string.Equals(t.name, tableBeforeReload.name, StringComparison.Ordinal));
     }
 
     private void treeViewPlaylistTableContextMenuItemOpenPageURIClick(object sender, RoutedEventArgs e)
@@ -5013,7 +5060,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             if (!_isCrossTreeDeselecting && e.NewValue == null && e.OldValue != null && e.OldValue is BMSTable
                 && (viewModel?.IsPlaylistUpdating ?? false) && !isManualInteraction)
             {
-                treeView.SelectTreeViewItemSearchedByHeader(((BMSTable)e.OldValue).name);
+                if (!treeView.SelectTreeViewItemSearchedByDataContext(e.OldValue))
+                {
+                    BMSTable table = (BMSTable)e.OldValue;
+                    bool restoredByHeader = treeView.SelectTreeViewItemSearchedByHeader(table.name);
+                    NLogWrapper.FileLogger?.Info("playlist_selection_restore fallback_by_header=" + restoredByHeader + " table=" + table.name);
+                }
             }
         }
     }
