@@ -23,32 +23,44 @@ internal class treeViewItemToAncestorsStringConverter : IMultiValueConverter
 			{
 				throw new InvalidOperationException();
 			}
-			List<object> result = new List<object>();
-			bool flag = false;
-			if (!((!(values[0] is DependencyObject)) ? WPFUtil.FindVisualChildPathSearchedByDataContext((TreeView)values[1], values[0], ref result) : WPFUtil.FindVisualChildPath((TreeView)values[1], (DependencyObject)values[0], ref result)))
+			List<object> visualPathNodes = new List<object>();
+			if (!((!(values[0] is DependencyObject)) ? WPFUtil.FindVisualChildPathSearchedByDataContext((TreeView)values[1], values[0], ref visualPathNodes) : WPFUtil.FindVisualChildPath((TreeView)values[1], (DependencyObject)values[0], ref visualPathNodes)))
 			{
 				return string.Empty;
 			}
-			List<string> list = (from t in result.Where((object o) => o is TreeViewItem).Reverse()
-				select ((TreeViewItem)t).Header.ToString()).ToList();
-			if (list.Count > 1 && list[1] == Resources.Folder)
+			List<string> ancestorHeaders = (from node in visualPathNodes.Where((object o) => o is TreeViewItem).Reverse()
+				select GetTreeViewHeaderDisplayText((TreeViewItem)node)).ToList();
+			if (ancestorHeaders.Count > 1 && ancestorHeaders[1] == Resources.Folder)
 			{
-				list.RemoveAt(1);
+				ancestorHeaders.RemoveAt(1);
 			}
-			else if (list.Count > 1 && list[0] == Resources.Maintenance)
+			else if (ancestorHeaders.Count > 1 && ancestorHeaders[0] == Resources.Maintenance)
 			{
-				list.RemoveAt(0);
+				ancestorHeaders.RemoveAt(0);
 			}
-			else if (list.Count > 1 && list[0] == Resources.Playlist)
+			else if (ancestorHeaders.Count > 1 && ancestorHeaders[0] == Resources.Playlist)
 			{
-				list.RemoveAt(0);
+				ancestorHeaders.RemoveAt(0);
 			}
-			return string.Join(" ≫ ", list);
+			return string.Join(" ≫ ", ancestorHeaders);
 		}
 		catch
 		{
 			return string.Empty;
 		}
+	}
+
+	private static string GetTreeViewHeaderDisplayText(TreeViewItem treeViewItem)
+	{
+		if (treeViewItem?.Header == null)
+		{
+			return string.Empty;
+		}
+		if (treeViewItem.Header is Tuple<string, bool> tupleHeader)
+		{
+			return tupleHeader.Item1 ?? string.Empty;
+		}
+		return treeViewItem.Header.ToString();
 	}
 
 	public object[] ConvertBack(object value, Type[] targetTypes, object parameter, CultureInfo culture)

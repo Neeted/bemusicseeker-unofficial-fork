@@ -106,14 +106,38 @@ public partial class EditableTextBlock : UserControl, IComponentConnector, IStyl
         InitializeComponent();
         base.Focusable = true;
         base.FocusVisualStyle = null;
+        oldText = Text;
+        base.DataContextChanged += EditableTextBlock_DataContextChanged;
+        Unloaded += EditableTextBlock_Unloaded;
     }
 
     private static void OnTextChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
     {
+        if (!(d is EditableTextBlock editableTextBlock))
+        {
+            return;
+        }
+
+        // NOTE:
+        // Recycling有効時は同一コントロールが別DataContextへ再利用されるため、
+        // 非編集状態では oldText を常に最新表示へ追従させ、Esc復元先の取り違えを防ぐ。
+        if (!editableTextBlock.IsInEditMode)
+        {
+            editableTextBlock.oldText = editableTextBlock.Text;
+        }
     }
 
     private static void OnIsEditableChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
     {
+        if (!(d is EditableTextBlock editableTextBlock))
+        {
+            return;
+        }
+        if (!editableTextBlock.IsEditable && editableTextBlock.IsInEditMode)
+        {
+            editableTextBlock.IsInEditMode = false;
+            editableTextBlock.oldText = editableTextBlock.Text;
+        }
     }
 
     private void TextBox_Loaded(object sender, RoutedEventArgs e)
@@ -146,6 +170,28 @@ public partial class EditableTextBlock : UserControl, IComponentConnector, IStyl
     public bool IsTextChanged()
     {
         return oldText != Text;
+    }
+
+    private void EditableTextBlock_DataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
+    {
+        ResetEditStateForRecycling();
+    }
+
+    private void EditableTextBlock_Unloaded(object sender, RoutedEventArgs e)
+    {
+        ResetEditStateForRecycling();
+    }
+
+    private void ResetEditStateForRecycling()
+    {
+        // NOTE:
+        // 仮想化(Recycling)では編集中のコンテナが別行へ再利用されることがある。
+        // そのまま残ると oldText / IsInEditMode が次行へ漏れるため、コンテナ単位で初期化する。
+        if ((bool)GetValue(IsInEditModeProperty))
+        {
+            SetValue(IsInEditModeProperty, false);
+        }
+        oldText = Text;
     }
 
     private void RaiseEditModeChangedEvent()

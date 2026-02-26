@@ -1111,11 +1111,28 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private async void playlistTableFolderClicked(object sender, MouseButtonEventArgs e)
     {
-        if (e.ChangedButton == MouseButton.Left && sender is EditableTextBlock { TemplatedParent: ContentPresenter templatedParent } etb && (templatedParent.TemplatedParent as TreeViewItem).IsSelected)
+        if (!(e.ChangedButton == MouseButton.Left) || !(sender is EditableTextBlock { TemplatedParent: ContentPresenter contentPresenter } editableTextBlock))
         {
-            await Task.Delay(1000);
-            etb.IsInEditMode = true;
+            return;
         }
+        TreeViewItem ownerTreeViewItem = contentPresenter.TemplatedParent as TreeViewItem;
+        if (ownerTreeViewItem == null || !ownerTreeViewItem.IsSelected)
+        {
+            return;
+        }
+
+        object originalEditableDataContext = editableTextBlock.DataContext;
+        object originalHeaderDataContext = contentPresenter.DataContext;
+        await Task.Delay(1000);
+
+        // NOTE:
+        // Recycling有効時は待機中にコンテナ再利用が起きるため、編集開始前に同一対象か再検証する。
+        // 再利用済みなら誤った行の編集開始を避けるため何もしない。
+        if (!ReferenceEquals(editableTextBlock.DataContext, originalEditableDataContext) || !ReferenceEquals(contentPresenter.DataContext, originalHeaderDataContext) || !ownerTreeViewItem.IsSelected)
+        {
+            return;
+        }
+        editableTextBlock.IsInEditMode = true;
     }
 
     private void playlistTableFolderNameChanged(object sender, RoutedEventArgs e)
@@ -1145,7 +1162,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
         if (viewModel != null)
         {
-            string nameBefore = ((Tuple<string, bool>)templatedParent.DataContext).Item1;
+            if (!(templatedParent.DataContext is Tuple<string, bool> tuple))
+            {
+                return;
+            }
+            string nameBefore = tuple.Item1;
             string nameAfter = editableTextBlock.Text;
             Task.Run(delegate
             {
