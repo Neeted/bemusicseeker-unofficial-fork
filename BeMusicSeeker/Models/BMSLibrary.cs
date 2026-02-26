@@ -3997,9 +3997,10 @@ public class BMSLibrary : NotificationObject
                     return true;
                 }
                 // NOTE:
-                // ここは内部クリーンアップ用途であり、ごみ箱経由は不要。
-                // FileSystem.DeleteDirectory はアクセス拒否時に汎用IOException(0x80131620)で原因が不明瞭になりやすいため、
-                // 診断しやすい Directory.Delete を優先する。
+                // ここはマージ後の「空フォルダ後始末」専用経路で、ごみ箱経由は不要。
+                // DataGridの手動削除系は FileSystem.DeleteDirectory（シェル経由）で削除できるケースがある一方、
+                // この内部経路は Directory.Delete（直接削除）なのでReadOnly属性や短時間競合の影響を受けやすい。
+                // その差分を吸収するため、事前のReadOnly解除と診断ログを組み合わせている。
                 Directory.Delete(directoryPath, deleteAllContents);
                 wasDeleted = true;
                 return true;
@@ -6479,6 +6480,14 @@ public class BMSLibrary : NotificationObject
                             }
                             try
                             {
+                                // NOTE:
+                                // DataGrid右クリック削除でも、フォルダ配下にReadOnly属性が残っていると
+                                // アクセス拒否で失敗しやすいため、事前に再帰解除してから削除する。
+                                int normalizedReadOnlyCount = NormalizeReadOnlyAttributesRecursively(fGrp.Key, includeFiles: true);
+                                if (normalizedReadOnlyCount > 0)
+                                {
+                                    NLogWrapper.FileLogger?.Info("RemoveBMSFiles folder_delete_pre_normalize path=" + fGrp.Key + " normalizedReadOnly=" + normalizedReadOnlyCount);
+                                }
                                 FileSystem.DeleteDirectory(fGrp.Key, UIOption.OnlyErrorDialogs, sendToRecycleBin ? RecycleOption.SendToRecycleBin : RecycleOption.DeletePermanently);
                                 foreach (string item in bmsFolderAllFileList.Keys.Where((string f) => (f + Path.DirectorySeparatorChar).StartsWith(fGrp.Key + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)))
                                 {
