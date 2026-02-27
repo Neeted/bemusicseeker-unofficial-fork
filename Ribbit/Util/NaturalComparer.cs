@@ -1,39 +1,29 @@
 using System;
 using System.Collections.Generic;
-using System.Globalization;
+using System.Text.RegularExpressions;
 
 namespace Ribbit.Util;
 
 /// <summary>
 /// 自然順ソートを行う比較器です。
 /// </summary>
-/// <remarks>
-/// 旧実装は比較前に文字列を分割・配列化してキャッシュしていましたが、
-/// 20万件規模のソートで大量アロケーションが発生し GC 負荷が支配的になっていました。
-/// 本実装は比較規則を維持したまま、比較時にトークンを逐次走査して中間配列生成を避けます。
-/// </remarks>
 public class NaturalComparer<T> : Comparer<string>, IDisposable
 {
-	protected struct TokenSlice
-	{
-		public int StartIndex;
+	private static readonly Regex SplitRegex = new Regex("([+-]?[0-9]+(\\.[0-9]*)?)", RegexOptions.Compiled);
 
-		public int Length;
-	}
-
-	protected Dictionary<string, TokenSlice[]> tokenCache;
+	protected Dictionary<string, string[]> table;
 
 	protected bool isWhiteSpacePrior;
 
 	public NaturalComparer(bool isWhiteSpacePrior = false)
 	{
-		tokenCache = new Dictionary<string, TokenSlice[]>();
+		table = new Dictionary<string, string[]>();
 		this.isWhiteSpacePrior = isWhiteSpacePrior;
 	}
 
 	public NaturalComparer(bool isWhiteSpacePrior, int initialCapacity)
 	{
-		tokenCache = ((initialCapacity > 0) ? new Dictionary<string, TokenSlice[]>(initialCapacity) : new Dictionary<string, TokenSlice[]>());
+		table = ((initialCapacity > 0) ? new Dictionary<string, string[]>(initialCapacity) : new Dictionary<string, string[]>());
 		this.isWhiteSpacePrior = isWhiteSpacePrior;
 	}
 
@@ -42,8 +32,8 @@ public class NaturalComparer<T> : Comparer<string>, IDisposable
 	/// </summary>
 	public void Dispose()
 	{
-		tokenCache?.Clear();
-		tokenCache = null;
+		table?.Clear();
+		table = null;
 	}
 
 	/// <summary>
@@ -80,29 +70,28 @@ public class NaturalComparer<T> : Comparer<string>, IDisposable
 				return -1;
 			}
 		}
-
-		TokenSlice[] leftTokens = GetOrCreateTokenSlices(x);
-		TokenSlice[] rightTokens = GetOrCreateTokenSlices(y);
-		int comparableTokenCount = System.Math.Min(leftTokens.Length, rightTokens.Length);
-		for (int tokenIndex = 0; tokenIndex < comparableTokenCount; tokenIndex++)
+		if (!table.TryGetValue(x, out var value))
 		{
-			TokenSlice leftToken = leftTokens[tokenIndex];
-			TokenSlice rightToken = rightTokens[tokenIndex];
-			if (AreTokenTextsEqual(x, leftToken, y, rightToken))
+			value = SplitRegex.Split(x);
+			table.Add(x, value);
+		}
+		if (!table.TryGetValue(y, out var value2))
+		{
+			value2 = SplitRegex.Split(y);
+			table.Add(y, value2);
+		}
+		for (int i = 0; i < value.Length && i < value2.Length; i++)
+		{
+			if (value[i] != value2[i])
 			{
-				continue;
-			}
-			int compareResult = PartCompare(x, leftToken, y, rightToken);
-			if (compareResult != 0)
-			{
-				return compareResult;
+				return PartCompare(value[i], value2[i]);
 			}
 		}
-		if (rightTokens.Length > leftTokens.Length)
+		if (value2.Length > value.Length)
 		{
 			return 1;
 		}
-		if (leftTokens.Length > rightTokens.Length)
+		if (value.Length > value2.Length)
 		{
 			return -1;
 		}
@@ -112,246 +101,19 @@ public class NaturalComparer<T> : Comparer<string>, IDisposable
 	/// <summary>
 	/// トークン同士を従来互換ルールで比較します。
 	/// </summary>
-	/// <param name="leftSource">左辺元文字列。</param>
-	/// <param name="leftToken">左辺トークン。</param>
-	/// <param name="rightSource">右辺元文字列。</param>
-	/// <param name="rightToken">右辺トークン。</param>
+	/// <param name="left">左辺トークン文字列。</param>
+	/// <param name="right">右辺トークン文字列。</param>
 	/// <returns>比較結果。</returns>
-	protected static int PartCompare(string leftSource, TokenSlice leftToken, string rightSource, TokenSlice rightToken)
+	protected static int PartCompare(string left, string right)
 	{
-		if (!LooksNumericToken(leftSource, leftToken) || !LooksNumericToken(rightSource, rightToken))
+		if (!double.TryParse(left, out var result))
 		{
-			return CompareTokenText(leftSource, leftToken, rightSource, rightToken);
+			return left.CompareTo(right);
 		}
-		if (!TryParseNumericToken(leftSource, leftToken, out var leftValue))
+		if (!double.TryParse(right, out var result2))
 		{
-			return CompareTokenText(leftSource, leftToken, rightSource, rightToken);
+			return left.CompareTo(right);
 		}
-		if (!TryParseNumericToken(rightSource, rightToken, out var rightValue))
-		{
-			return CompareTokenText(leftSource, leftToken, rightSource, rightToken);
-		}
-		return leftValue.CompareTo(rightValue);
-	}
-
-	private static int CompareTokenText(string leftSource, TokenSlice leftToken, string rightSource, TokenSlice rightToken)
-	{
-		return CultureInfo.CurrentCulture.CompareInfo.Compare(leftSource, leftToken.StartIndex, leftToken.Length, rightSource, rightToken.StartIndex, rightToken.Length, CompareOptions.None);
-	}
-
-	private static bool AreTokenTextsEqual(string leftSource, TokenSlice leftToken, string rightSource, TokenSlice rightToken)
-	{
-		if (leftToken.Length != rightToken.Length)
-		{
-			return false;
-		}
-		for (int index = 0; index < leftToken.Length; index++)
-		{
-			char leftCharacter = leftSource[leftToken.StartIndex + index];
-			char rightCharacter = rightSource[rightToken.StartIndex + index];
-			if (leftCharacter != rightCharacter)
-			{
-				return false;
-			}
-		}
-		return true;
-	}
-
-	private static bool LooksNumericToken(string source, TokenSlice token)
-	{
-		if (token.Length <= 0)
-		{
-			return false;
-		}
-		char firstCharacter = source[token.StartIndex];
-		if (firstCharacter == '+' || firstCharacter == '-')
-		{
-			return token.Length > 1 && char.IsDigit(source[token.StartIndex + 1]);
-		}
-		return char.IsDigit(firstCharacter);
-	}
-
-	private static bool TryParseNumericToken(string source, TokenSlice token, out double value)
-	{
-		value = 0.0;
-		if (token.Length <= 0)
-		{
-			return false;
-		}
-		int index = token.StartIndex;
-		int endIndex = token.StartIndex + token.Length;
-		bool isNegative = false;
-		char firstCharacter = source[index];
-		if (firstCharacter == '+' || firstCharacter == '-')
-		{
-			isNegative = firstCharacter == '-';
-			index++;
-			if (index >= endIndex || !char.IsDigit(source[index]))
-			{
-				return false;
-			}
-		}
-		else if (!char.IsDigit(firstCharacter))
-		{
-			return false;
-		}
-
-		double integralPart = 0.0;
-		while (index < endIndex && char.IsDigit(source[index]))
-		{
-			integralPart = integralPart * 10.0 + source[index] - '0';
-			index++;
-		}
-
-		double fractionalPart = 0.0;
-		double placeValue = 0.1;
-		if (index < endIndex && source[index] == '.')
-		{
-			// NOTE:
-			// 旧実装は double.TryParse(現在カルチャ)に依存していたため、
-			// 小数点が "." と一致しないカルチャでは数値比較に失敗し文字列比較へフォールバックしていました。
-			// 互換維持のため、この条件を残しています。
-			if (!string.Equals(CultureInfo.CurrentCulture.NumberFormat.NumberDecimalSeparator, ".", StringComparison.Ordinal))
-			{
-				return false;
-			}
-
-			index++;
-			while (index < endIndex && char.IsDigit(source[index]))
-			{
-				fractionalPart += (source[index] - '0') * placeValue;
-				placeValue *= 0.1;
-				index++;
-			}
-		}
-
-		if (index != endIndex)
-		{
-			return false;
-		}
-
-		value = integralPart + fractionalPart;
-		if (isNegative)
-		{
-			value = -value;
-		}
-		return true;
-	}
-
-	private TokenSlice[] GetOrCreateTokenSlices(string source)
-	{
-		if (!tokenCache.TryGetValue(source, out var tokenSlices))
-		{
-			tokenSlices = SplitByNumericTokens(source);
-			tokenCache[source] = tokenSlices;
-		}
-		return tokenSlices;
-	}
-
-	private static TokenSlice[] SplitByNumericTokens(string value)
-	{
-		if (value == null)
-		{
-			return new TokenSlice[1] { CreateSlice(0, 0) };
-		}
-		List<TokenSlice> tokenSlices = new List<TokenSlice>(8);
-		int cursor = 0;
-		int length = value.Length;
-		while (cursor < length)
-		{
-			if (!TryFindNextNumericToken(value, cursor, out int tokenStart, out int tokenEnd, out bool hasFraction, out int fractionStart))
-			{
-				break;
-			}
-			tokenSlices.Add(CreateSlice(cursor, tokenStart - cursor));
-			tokenSlices.Add(CreateSlice(tokenStart, tokenEnd - tokenStart));
-			if (hasFraction)
-			{
-				tokenSlices.Add(CreateSlice(fractionStart, tokenEnd - fractionStart));
-			}
-			cursor = tokenEnd;
-		}
-		tokenSlices.Add(CreateSlice(cursor, value.Length - cursor));
-		return tokenSlices.ToArray();
-	}
-
-	private static TokenSlice CreateSlice(int startIndex, int length)
-	{
-		return new TokenSlice
-		{
-			StartIndex = startIndex,
-			Length = length
-		};
-	}
-
-	private static bool TryFindNextNumericToken(string text, int searchStart, out int tokenStart, out int tokenEnd, out bool hasFraction, out int fractionStart)
-	{
-		int textLength = text.Length;
-		for (int index = searchStart; index < textLength; index++)
-		{
-			if (TryReadNumericToken(text, index, out tokenEnd, out hasFraction, out fractionStart))
-			{
-				tokenStart = index;
-				return true;
-			}
-		}
-		tokenStart = -1;
-		tokenEnd = -1;
-		hasFraction = false;
-		fractionStart = -1;
-		return false;
-	}
-
-	private static bool TryReadNumericToken(string text, int tokenStart, out int tokenEnd, out bool hasFraction, out int fractionStart)
-	{
-		int index = tokenStart;
-		int textLength = text.Length;
-		if (index >= textLength)
-		{
-			tokenEnd = -1;
-			hasFraction = false;
-			fractionStart = -1;
-			return false;
-		}
-		char firstCharacter = text[index];
-		if (firstCharacter == '+' || firstCharacter == '-')
-		{
-			if (index + 1 >= textLength || !char.IsDigit(text[index + 1]))
-			{
-				tokenEnd = -1;
-				hasFraction = false;
-				fractionStart = -1;
-				return false;
-			}
-			index++;
-		}
-		else if (!char.IsDigit(firstCharacter))
-		{
-			tokenEnd = -1;
-			hasFraction = false;
-			fractionStart = -1;
-			return false;
-		}
-
-		while (index < textLength && char.IsDigit(text[index]))
-		{
-			index++;
-		}
-
-		hasFraction = false;
-		fractionStart = -1;
-		if (index < textLength && text[index] == '.')
-		{
-			hasFraction = true;
-			fractionStart = index;
-			index++;
-			while (index < textLength && char.IsDigit(text[index]))
-			{
-				index++;
-			}
-		}
-
-		tokenEnd = index;
-		return true;
+		return result.CompareTo(result2);
 	}
 }

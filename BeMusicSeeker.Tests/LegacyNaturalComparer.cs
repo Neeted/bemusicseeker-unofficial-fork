@@ -18,7 +18,6 @@ public class LegacyNaturalComparer<T> : Comparer<string>, IDisposable
     public void Dispose()
     {
         table.Clear();
-        table = null;
     }
 
     public override int Compare(string x, string y)
