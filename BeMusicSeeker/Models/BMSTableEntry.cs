@@ -21,6 +21,10 @@ public class BMSTableEntry : LR2SongDBExtended.playlist_entry
 
 	private string deferredOrgMd5Raw;
 
+	private Uri _url;
+
+	private Uri _urlDiff;
+
 	public const string DUMMY_MD5_FOR_EMPTY_FOLDER = "00000000000000000000000000000000";
 
 	private static Regex numParseRegex = new Regex("([+-]?\\d+(?:\\.\\d*)?|\\.\\d+)", RegexOptions.Compiled);
@@ -194,7 +198,18 @@ public class BMSTableEntry : LR2SongDBExtended.playlist_entry
 		}
 	}
 
-	public Uri Url { get; set; }
+	public Uri Url
+	{
+		get
+		{
+			ensureDeferredUrlParsed(isDiff: false);
+			return _url;
+		}
+		set
+		{
+			_url = value;
+		}
+	}
 
 	public override string url_diff
 	{
@@ -223,7 +238,18 @@ public class BMSTableEntry : LR2SongDBExtended.playlist_entry
 		}
 	}
 
-	public Uri Url_diff { get; set; }
+	public Uri Url_diff
+	{
+		get
+		{
+			ensureDeferredUrlParsed(isDiff: true);
+			return _urlDiff;
+		}
+		set
+		{
+			_urlDiff = value;
+		}
+	}
 
 	public override string org_md5
 	{
