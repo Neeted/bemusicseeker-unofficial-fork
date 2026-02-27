@@ -193,11 +193,11 @@ public sealed class BmsSortCompatibilityTests
     }
 
     /// <summary>
-    /// FOLDER 列は高速化設定時でも legacy 自然順を利用することを検証します。
+    /// FOLDER 列は通常一覧では高速文字列比較を利用することを検証します。
     /// </summary>
     [TestMethod]
     [TestCategory("SortEngine")]
-    public void Sort_FolderColumn_UsesLegacyNaturalProfileInFastPath()
+    public void Sort_FolderColumn_UsesFastStringProfileInRegularView()
     {
         TestableBmsFile folder10 = new TestableBmsFile();
         folder10.ApplySnapshot(new SongSnapshotRow { path = "z.bms", title = "Z", level = 1, hash = "11111111111111111111111111111111" });
@@ -214,6 +214,33 @@ public sealed class BmsSortCompatibilityTests
         };
 
         List<BMSFile> sorted = BMSFileSortEngine.Sort(new[] { folder10, folder2 }, sortParameters, out string sortProfile);
+
+        CollectionAssert.AreEqual(new[] { "z.bms", "a.bms" }, sorted.Select((BMSFile row) => row.path).ToArray());
+        Assert.AreEqual("string_fast_ordinal_ignore_case", sortProfile);
+    }
+
+    /// <summary>
+    /// FOLDER 列はプレイリスト明細では legacy 自然順を利用することを検証します。
+    /// </summary>
+    [TestMethod]
+    [TestCategory("SortEngine")]
+    public void Sort_FolderColumn_UsesLegacyNaturalProfileInPlaylistDetailView()
+    {
+        TestableBmsFile folder10 = new TestableBmsFile();
+        folder10.ApplySnapshot(new SongSnapshotRow { path = "z.bms", title = "Z", level = 1, hash = "11111111111111111111111111111111" });
+        folder10.SetFolder("folder10");
+
+        TestableBmsFile folder2 = new TestableBmsFile();
+        folder2.ApplySnapshot(new SongSnapshotRow { path = "a.bms", title = "A", level = 1, hash = "22222222222222222222222222222222" });
+        folder2.SetFolder("folder2");
+
+        MainWindowViewModel.cSortParameters sortParameters = new MainWindowViewModel.cSortParameters
+        {
+            ColumnsName = nameof(BMSFile.Folder),
+            Direction = ListSortDirection.Ascending
+        };
+
+        List<BMSFile> sorted = BMSFileSortEngine.Sort(new[] { folder10, folder2 }, sortParameters, isPlaylistDetailView: true, out string sortProfile);
 
         CollectionAssert.AreEqual(new[] { "a.bms", "z.bms" }, sorted.Select((BMSFile row) => row.path).ToArray());
         Assert.AreEqual("folder_natural_legacy", sortProfile);

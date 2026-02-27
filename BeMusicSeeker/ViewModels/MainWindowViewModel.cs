@@ -6278,6 +6278,7 @@ public class MainWindowViewModel : ViewModel
         if (mode <= viewUpdateMode.SortUpdated)
         {
             bool useLegacySortForDataGrid = !Settings.Default.UseFastSortInDataGridExperimental;
+            bool isPlaylistDetailView = mode == viewUpdateMode.PlaylistFilterSelected || mode == viewUpdateMode.PlaylistNotOwnedFilterSelected || treeViewFilterTypeSelected == viewUpdateMode.PlaylistFilterSelected || treeViewFilterTypeSelected == viewUpdateMode.PlaylistNotOwnedFilterSelected;
             string columnName = nameof(BeMusicSeeker.Models.BMSFile.Title);
             ListSortDirection direction = ListSortDirection.Ascending;
             if (SortParameters != null)
@@ -6305,7 +6306,7 @@ public class MainWindowViewModel : ViewModel
             else
             {
                 BMSFileSortEngine.UseLegacySortForDataGrid = useLegacySortForDataGrid;
-                BMSFilesView = BMSFileSortEngine.SortForMainView(BMSFilesModeFilterView, SortParameters, out sortProfile);
+                BMSFilesView = BMSFileSortEngine.SortForMainView(BMSFilesModeFilterView, SortParameters, isPlaylistDetailView, out sortProfile);
                 if (isFolderMode)
                 {
                     folderSortResultSnapshot = BMSFilesView;
@@ -6342,7 +6343,8 @@ public class MainWindowViewModel : ViewModel
         string sortDirection = SortParameters?.Direction.ToString() ?? "Ascending";
         string parameterType = parameter?.GetType().Name ?? "(null)";
         bool fastSortEnabled = Settings.Default.UseFastSortInDataGridExperimental;
-        LogMainViewBuild("main_view_build mode=" + mode + " requestedMode=" + requestedMode + " parameterType=" + parameterType + " folderMs=" + folderStageMs + " keywordMs=" + keywordStageMs + " modeMs=" + modeStageMs + " sortMs=" + sortStageMs + " sortReuse=" + sortReuse + " sortProfile=" + sortProfile + " sortEngine=" + (fastSortEnabled ? "fast" : "legacy") + " fastSortEnabled=" + fastSortEnabled + " columnMs=" + columnStageMs + " callbackMs=" + callbackStageMs + " totalMs=" + viewBuildStopwatch.ElapsedMilliseconds + " folderCount=" + folderCount + " keywordCount=" + keywordCount + " modeCount=" + modeCount + " viewCount=" + viewCount + " sortColumn=" + sortColumn + " sortDirection=" + sortDirection);
+        bool isPlaylistDetailForLog = mode == viewUpdateMode.PlaylistFilterSelected || mode == viewUpdateMode.PlaylistNotOwnedFilterSelected || treeViewFilterTypeSelected == viewUpdateMode.PlaylistFilterSelected || treeViewFilterTypeSelected == viewUpdateMode.PlaylistNotOwnedFilterSelected;
+        LogMainViewBuild("main_view_build mode=" + mode + " requestedMode=" + requestedMode + " parameterType=" + parameterType + " folderMs=" + folderStageMs + " keywordMs=" + keywordStageMs + " modeMs=" + modeStageMs + " sortMs=" + sortStageMs + " sortReuse=" + sortReuse + " sortProfile=" + sortProfile + " sortEngine=" + (fastSortEnabled ? "fast" : "legacy") + " fastSortEnabled=" + fastSortEnabled + " isPlaylistDetailView=" + isPlaylistDetailForLog + " columnMs=" + columnStageMs + " callbackMs=" + callbackStageMs + " totalMs=" + viewBuildStopwatch.ElapsedMilliseconds + " folderCount=" + folderCount + " keywordCount=" + keywordCount + " modeCount=" + modeCount + " viewCount=" + viewCount + " sortColumn=" + sortColumn + " sortDirection=" + sortDirection);
     }
 
     public void LoadColumnSetting()

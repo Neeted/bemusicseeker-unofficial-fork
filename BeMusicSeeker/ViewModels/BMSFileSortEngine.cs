@@ -39,26 +39,7 @@ internal static class BMSFileSortEngine
     /// <returns>ソート済みリスト。</returns>
     internal static List<BMSFile> Sort(IEnumerable<BMSFile> source, MainWindowViewModel.cSortParameters sortParameters)
     {
-        return Sort(source, sortParameters, out _);
-    }
-
-    /// <summary>
-    /// MainView 用のソートを実行します。
-    /// </summary>
-    /// <param name="source">ソート対象。</param>
-    /// <param name="sortParameters">ソート条件。</param>
-    /// <param name="sortProfile">適用したソートプロファイル。</param>
-    /// <returns>ソート済みリスト。</returns>
-    internal static List<BMSFile> SortForMainView(IEnumerable<BMSFile> source, MainWindowViewModel.cSortParameters sortParameters, out string sortProfile)
-    {
-        // NOTE:
-        // 現在は実機比較のため MainView だけ従来実装へ戻しています。
-        // 互換確認後に false へ戻せば最適化実装を再利用できます。
-        if (UseLegacySortForDataGrid)
-        {
-            return SortByLegacyImplementation(source, sortParameters, out sortProfile);
-        }
-        return Sort(source, sortParameters, out sortProfile);
+        return Sort(source, sortParameters, isPlaylistDetailView: false, out _);
     }
 
     /// <summary>
@@ -69,6 +50,37 @@ internal static class BMSFileSortEngine
     /// <param name="sortProfile">適用したソートプロファイル。</param>
     /// <returns>ソート済みリスト。</returns>
     internal static List<BMSFile> Sort(IEnumerable<BMSFile> source, MainWindowViewModel.cSortParameters sortParameters, out string sortProfile)
+    {
+        return Sort(source, sortParameters, isPlaylistDetailView: false, out sortProfile);
+    }
+
+    /// <summary>
+    /// MainView 用のソートを実行します。
+    /// </summary>
+    /// <param name="source">ソート対象。</param>
+    /// <param name="sortParameters">ソート条件。</param>
+    /// <param name="sortProfile">適用したソートプロファイル。</param>
+    /// <returns>ソート済みリスト。</returns>
+    internal static List<BMSFile> SortForMainView(IEnumerable<BMSFile> source, MainWindowViewModel.cSortParameters sortParameters, bool isPlaylistDetailView, out string sortProfile)
+    {
+        // NOTE:
+        // 現在は実機比較のため MainView だけ従来実装へ戻しています。
+        // 互換確認後に false へ戻せば最適化実装を再利用できます。
+        if (UseLegacySortForDataGrid)
+        {
+            return SortByLegacyImplementation(source, sortParameters, out sortProfile);
+        }
+        return Sort(source, sortParameters, isPlaylistDetailView, out sortProfile);
+    }
+
+    /// <summary>
+    /// 指定条件で BMS 一覧をソートします。
+    /// </summary>
+    /// <param name="source">ソート対象。</param>
+    /// <param name="sortParameters">ソート条件。null の場合は Title 昇順。</param>
+    /// <param name="sortProfile">適用したソートプロファイル。</param>
+    /// <returns>ソート済みリスト。</returns>
+    internal static List<BMSFile> Sort(IEnumerable<BMSFile> source, MainWindowViewModel.cSortParameters sortParameters, bool isPlaylistDetailView, out string sortProfile)
     {
         IEnumerable<BMSFile> safeSource = source ?? Enumerable.Empty<BMSFile>();
         string columnName = sortParameters?.ColumnsName;
@@ -101,7 +113,7 @@ internal static class BMSFileSortEngine
         if (nonNullableType == typeof(string))
         {
             Func<BMSFile, string> stringSortKeySelector = GetSortKeySelector(columnName, property);
-            if (string.Equals(columnName, nameof(BMSFile.Folder), StringComparison.Ordinal))
+            if (string.Equals(columnName, nameof(BMSFile.Folder), StringComparison.Ordinal) && isPlaylistDetailView)
             {
                 sortProfile = "folder_natural_legacy";
                 return SortByLegacyNaturalString(safeSource, stringSortKeySelector, direction);
