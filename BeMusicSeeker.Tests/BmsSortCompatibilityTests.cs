@@ -193,6 +193,92 @@ public sealed class BmsSortCompatibilityTests
     }
 
     /// <summary>
+    /// FOLDER 列は高速化設定時でも legacy 自然順を利用することを検証します。
+    /// </summary>
+    [TestMethod]
+    [TestCategory("SortEngine")]
+    public void Sort_FolderColumn_UsesLegacyNaturalProfileInFastPath()
+    {
+        TestableBmsFile folder10 = new TestableBmsFile();
+        folder10.ApplySnapshot(new SongSnapshotRow { path = "z.bms", title = "Z", level = 1, hash = "11111111111111111111111111111111" });
+        folder10.SetFolder("folder10");
+
+        TestableBmsFile folder2 = new TestableBmsFile();
+        folder2.ApplySnapshot(new SongSnapshotRow { path = "a.bms", title = "A", level = 1, hash = "22222222222222222222222222222222" });
+        folder2.SetFolder("folder2");
+
+        MainWindowViewModel.cSortParameters sortParameters = new MainWindowViewModel.cSortParameters
+        {
+            ColumnsName = nameof(BMSFile.Folder),
+            Direction = ListSortDirection.Ascending
+        };
+
+        List<BMSFile> sorted = BMSFileSortEngine.Sort(new[] { folder10, folder2 }, sortParameters, out string sortProfile);
+
+        CollectionAssert.AreEqual(new[] { "a.bms", "z.bms" }, sorted.Select((BMSFile row) => row.path).ToArray());
+        Assert.AreEqual("folder_natural_legacy", sortProfile);
+    }
+
+    /// <summary>
+    /// 主要 string 列は fast 経路で高速比較プロファイルになることを検証します。
+    /// </summary>
+    [TestMethod]
+    [TestCategory("SortEngine")]
+    public void Sort_TitleColumn_UsesFastStringProfile()
+    {
+        TestableBmsFile row1 = new TestableBmsFile();
+        row1.ApplySnapshot(new SongSnapshotRow { path = "b.bms", title = "bbb", level = 1, hash = "33333333333333333333333333333333" });
+
+        TestableBmsFile row2 = new TestableBmsFile();
+        row2.ApplySnapshot(new SongSnapshotRow { path = "a.bms", title = "AAA", level = 1, hash = "44444444444444444444444444444444" });
+
+        MainWindowViewModel.cSortParameters sortParameters = new MainWindowViewModel.cSortParameters
+        {
+            ColumnsName = nameof(BMSFile.Title),
+            Direction = ListSortDirection.Ascending
+        };
+
+        List<BMSFile> sorted = BMSFileSortEngine.Sort(new[] { row1, row2 }, sortParameters, out string sortProfile);
+
+        CollectionAssert.AreEqual(new[] { "a.bms", "b.bms" }, sorted.Select((BMSFile row) => row.path).ToArray());
+        Assert.AreEqual("string_fast_ordinal_ignore_case", sortProfile);
+    }
+
+    /// <summary>
+    /// PlaylistSummary 専用ソートが昇順/降順で正しく切り替わることを検証します。
+    /// </summary>
+    [TestMethod]
+    [TestCategory("SortEngine")]
+    public void PlaylistSummarySortEngine_SortsAscendingAndDescending()
+    {
+        List<PlaylistSummaryRow> rows = new List<PlaylistSummaryRow>
+        {
+            new PlaylistSummaryRow { PlaylistId = 1, Name = "B", TotalCharts = 30 },
+            new PlaylistSummaryRow { PlaylistId = 2, Name = "A", TotalCharts = 10 },
+            new PlaylistSummaryRow { PlaylistId = 3, Name = "C", TotalCharts = 20 }
+        };
+
+        MainWindowViewModel.cSortParameters asc = new MainWindowViewModel.cSortParameters
+        {
+            ColumnsName = nameof(PlaylistSummaryRow.TotalCharts),
+            Direction = ListSortDirection.Ascending
+        };
+        MainWindowViewModel.cSortParameters desc = new MainWindowViewModel.cSortParameters
+        {
+            ColumnsName = nameof(PlaylistSummaryRow.TotalCharts),
+            Direction = ListSortDirection.Descending
+        };
+
+        List<PlaylistSummaryRow> ascSorted = PlaylistSummarySortEngine.Sort(rows, asc, useLegacyStringSort: false, out string ascProfile);
+        List<PlaylistSummaryRow> descSorted = PlaylistSummarySortEngine.Sort(rows, desc, useLegacyStringSort: false, out string descProfile);
+
+        CollectionAssert.AreEqual(new[] { 2, 3, 1 }, ascSorted.Select((PlaylistSummaryRow row) => row.PlaylistId ?? -1).ToArray());
+        CollectionAssert.AreEqual(new[] { 1, 3, 2 }, descSorted.Select((PlaylistSummaryRow row) => row.PlaylistId ?? -1).ToArray());
+        Assert.AreEqual("playlist_summary_numeric_int32", ascProfile);
+        Assert.AreEqual("playlist_summary_numeric_int32", descProfile);
+    }
+
+    /// <summary>
     /// song.db からソート検証に必要な行を読み込みます。
     /// </summary>
     /// <param name="songDbPath">song.db の絶対パス。</param>
@@ -348,6 +434,11 @@ public sealed class BmsSortCompatibilityTests
 
     private sealed class TestableBmsFile : BMSFile
     {
+        public void SetFolder(string folderName)
+        {
+            folder = folderName;
+        }
+
         public void ApplySnapshot(SongSnapshotRow row)
         {
             path = row.path ?? string.Empty;

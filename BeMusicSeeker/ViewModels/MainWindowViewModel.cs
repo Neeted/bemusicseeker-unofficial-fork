@@ -6277,6 +6277,7 @@ public class MainWindowViewModel : ViewModel
         stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
         if (mode <= viewUpdateMode.SortUpdated)
         {
+            bool useLegacySortForDataGrid = !Settings.Default.UseFastSortInDataGridExperimental;
             string columnName = nameof(BeMusicSeeker.Models.BMSFile.Title);
             ListSortDirection direction = ListSortDirection.Ascending;
             if (SortParameters != null)
@@ -6303,7 +6304,7 @@ public class MainWindowViewModel : ViewModel
             }
             else
             {
-                BMSFileSortEngine.UseLegacySortForDataGrid = !Settings.Default.UseFastSortInDataGridExperimental;
+                BMSFileSortEngine.UseLegacySortForDataGrid = useLegacySortForDataGrid;
                 BMSFilesView = BMSFileSortEngine.SortForMainView(BMSFilesModeFilterView, SortParameters, out sortProfile);
                 if (isFolderMode)
                 {
@@ -6340,7 +6341,8 @@ public class MainWindowViewModel : ViewModel
         string sortColumn = SortParameters?.ColumnsName ?? "(default_title)";
         string sortDirection = SortParameters?.Direction.ToString() ?? "Ascending";
         string parameterType = parameter?.GetType().Name ?? "(null)";
-        LogMainViewBuild("main_view_build mode=" + mode + " requestedMode=" + requestedMode + " parameterType=" + parameterType + " folderMs=" + folderStageMs + " keywordMs=" + keywordStageMs + " modeMs=" + modeStageMs + " sortMs=" + sortStageMs + " sortReuse=" + sortReuse + " sortProfile=" + sortProfile + " columnMs=" + columnStageMs + " callbackMs=" + callbackStageMs + " totalMs=" + viewBuildStopwatch.ElapsedMilliseconds + " folderCount=" + folderCount + " keywordCount=" + keywordCount + " modeCount=" + modeCount + " viewCount=" + viewCount + " sortColumn=" + sortColumn + " sortDirection=" + sortDirection);
+        bool fastSortEnabled = Settings.Default.UseFastSortInDataGridExperimental;
+        LogMainViewBuild("main_view_build mode=" + mode + " requestedMode=" + requestedMode + " parameterType=" + parameterType + " folderMs=" + folderStageMs + " keywordMs=" + keywordStageMs + " modeMs=" + modeStageMs + " sortMs=" + sortStageMs + " sortReuse=" + sortReuse + " sortProfile=" + sortProfile + " sortEngine=" + (fastSortEnabled ? "fast" : "legacy") + " fastSortEnabled=" + fastSortEnabled + " columnMs=" + columnStageMs + " callbackMs=" + callbackStageMs + " totalMs=" + viewBuildStopwatch.ElapsedMilliseconds + " folderCount=" + folderCount + " keywordCount=" + keywordCount + " modeCount=" + modeCount + " viewCount=" + viewCount + " sortColumn=" + sortColumn + " sortDirection=" + sortDirection);
     }
 
     public void LoadColumnSetting()
