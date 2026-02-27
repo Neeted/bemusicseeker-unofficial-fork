@@ -390,6 +390,18 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
     }
 
+    private void dataGridTargetUpdated(object sender, DataTransferEventArgs e)
+    {
+        if (!ReferenceEquals(e.Property, ItemsControl.ItemsSourceProperty))
+        {
+            return;
+        }
+        if (sender is DataGrid dataGrid2)
+        {
+            renewSortIcon(dataGrid2);
+        }
+    }
+
     public void renewSortIcon(DataGrid dataGrid)
     {
         long requestId = Interlocked.Increment(ref callbackExecSortRequestId);
@@ -409,34 +421,43 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
         Action applySortIcon = delegate
         {
-            if (signalId != Volatile.Read(ref callbackExecSortSignalId))
-            {
-                installPerformanceLogger?.Info("callback_exec_sort run request=" + requestId + " raiseRequest=" + raiseRequestId + " reason=stale_signal signalId=" + signalId + " latestSignalId=" + Volatile.Read(ref callbackExecSortSignalId));
-                return;
-            }
             long queueMs = queueStopwatch.ElapsedMilliseconds;
             Stopwatch runStopwatch = Stopwatch.StartNew();
             MainWindowViewModel.cSortParameters parameters = mainWindowViewModel?.SortParameters;
             if (parameters != null)
             {
-                DataGridColumn dataGridColumn = dataGrid?.Columns?.FirstOrDefault((DataGridColumn c) => c.SortMemberPath == parameters.ColumnsName);
+                DataGridColumn dataGridColumn = null;
+                if (dataGrid?.Columns != null)
+                {
+                    foreach (DataGridColumn item in dataGrid.Columns)
+                    {
+                        if (item.SortMemberPath == parameters.ColumnsName)
+                        {
+                            dataGridColumn = item;
+                            item.SortDirection = parameters.Direction;
+                        }
+                        else
+                        {
+                            item.SortDirection = null;
+                        }
+                    }
+                }
                 if (dataGridColumn != null)
                 {
-                    dataGridColumn.SortDirection = parameters.Direction;
                     long runMs = runStopwatch.ElapsedMilliseconds;
                     if (queueMs >= CallbackExecSortSlowLogThresholdMs || runMs >= CallbackExecSortSlowLogThresholdMs)
                     {
-                        installPerformanceLogger?.Info("callback_exec_sort run_slow request=" + requestId + " raiseRequest=" + raiseRequestId + " queueMs=" + queueMs + " runMs=" + runMs + " runThreadId=" + Thread.CurrentThread.ManagedThreadId + " column=" + parameters.ColumnsName + " direction=" + parameters.Direction + " thresholdMs=" + CallbackExecSortSlowLogThresholdMs);
+                        installPerformanceLogger?.Info("callback_exec_sort run_slow request=" + requestId + " raiseRequest=" + raiseRequestId + " signalId=" + signalId + " latestSignalId=" + Volatile.Read(ref callbackExecSortSignalId) + " queueMs=" + queueMs + " runMs=" + runMs + " runThreadId=" + Thread.CurrentThread.ManagedThreadId + " column=" + parameters.ColumnsName + " direction=" + parameters.Direction + " thresholdMs=" + CallbackExecSortSlowLogThresholdMs);
                     }
                 }
                 else
                 {
-                    installPerformanceLogger?.Warn("callback_exec_sort run request=" + requestId + " raiseRequest=" + raiseRequestId + " queueMs=" + queueMs + " runMs=" + runStopwatch.ElapsedMilliseconds + " runThreadId=" + Thread.CurrentThread.ManagedThreadId + " reason=column_not_found column=" + parameters.ColumnsName);
+                    installPerformanceLogger?.Warn("callback_exec_sort run request=" + requestId + " raiseRequest=" + raiseRequestId + " signalId=" + signalId + " latestSignalId=" + Volatile.Read(ref callbackExecSortSignalId) + " queueMs=" + queueMs + " runMs=" + runStopwatch.ElapsedMilliseconds + " runThreadId=" + Thread.CurrentThread.ManagedThreadId + " reason=column_not_found column=" + parameters.ColumnsName);
                 }
             }
             else
             {
-                installPerformanceLogger?.Info("callback_exec_sort run request=" + requestId + " raiseRequest=" + raiseRequestId + " queueMs=" + queueMs + " runMs=" + runStopwatch.ElapsedMilliseconds + " runThreadId=" + Thread.CurrentThread.ManagedThreadId + " reason=sort_parameters_null");
+                installPerformanceLogger?.Info("callback_exec_sort run request=" + requestId + " raiseRequest=" + raiseRequestId + " signalId=" + signalId + " latestSignalId=" + Volatile.Read(ref callbackExecSortSignalId) + " queueMs=" + queueMs + " runMs=" + runStopwatch.ElapsedMilliseconds + " runThreadId=" + Thread.CurrentThread.ManagedThreadId + " reason=sort_parameters_null");
             }
         };
 
