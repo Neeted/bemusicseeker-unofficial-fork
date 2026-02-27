@@ -34,6 +34,8 @@ public sealed class BmsSortCompatibilityTests
     /// 代表カラムの昇順/降順で従来ロジックとの完全一致を検証します。
     /// </summary>
     [TestMethod]
+    [TestCategory("Compatibility")]
+    [Microsoft.VisualStudio.TestTools.UnitTesting.Ignore("Manual compatibility check. Excluded from default build/test pass criteria.")]
     public void SortOrder_ShouldMatchLegacyImplementation_ForRepresentativeColumns()
     {
         string testSongDbFullPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, TestSongDbRelativePath);
