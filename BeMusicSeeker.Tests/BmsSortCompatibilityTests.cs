@@ -201,7 +201,7 @@ public sealed class BmsSortCompatibilityTests
             columnName = nameof(BMSFile.rateDouble);
         }
         PropertyInfo? property = typeof(BMSFile).GetProperty(columnName);
-        Func<BMSFile, string> keySelector = delegate(BMSFile row)
+        Func<BMSFile, string> keySelector = delegate (BMSFile row)
         {
             if (row == null || property == null)
             {
@@ -220,9 +220,9 @@ public sealed class BmsSortCompatibilityTests
         };
         if (direction == ListSortDirection.Ascending)
         {
-            return safeSource.OrderBy(keySelector, new NaturalComparer<string>()).ThenBy((BMSFile row) => row?.Title ?? string.Empty, new NaturalComparer<string>()).ToList();
+            return safeSource.OrderBy(keySelector, new LegacyNaturalComparer<string>()).ThenBy((BMSFile row) => row?.Title ?? string.Empty, new LegacyNaturalComparer<string>()).ToList();
         }
-        return safeSource.OrderByDescending(keySelector, new NaturalComparer<string>(isWhiteSpacePrior: true)).ThenBy((BMSFile row) => row?.Title ?? string.Empty, new NaturalComparer<string>()).ToList();
+        return safeSource.OrderByDescending(keySelector, new LegacyNaturalComparer<string>(isWhiteSpacePrior: true)).ThenBy((BMSFile row) => row?.Title ?? string.Empty, new LegacyNaturalComparer<string>()).ToList();
     }
 
     /// <summary>
