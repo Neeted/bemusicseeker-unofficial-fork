@@ -137,6 +137,7 @@
   "Player_LR2_wsize": "LR2body 창 크기:",
   "Details_show_diag_diff_install": "차분 설치 기능 사용 시 확인 대화 상자 표시",
   "Details_test_download_and_install": "[테스트] 다운로드 후 자동으로 설치를 실행하려고 시도",
+  "Details_test_fast_sort_main_view": "[테스트] BMS 목록 화면에서 고속 정렬(비자연 정렬) 사용",
   "Full_scan_check": "전체 스캔 검사",
   "Custom_folder": "사용자 지정 폴더",
   "Player_Internal_desc": "* 환경 설정은 \"장치\" 탭에 있습니다",

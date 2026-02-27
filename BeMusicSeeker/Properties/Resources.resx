@@ -497,6 +497,9 @@ LR2をプレイヤーとして使用すると再生できない場合があり�
   <data name="Details_test_download_and_install" xml:space="preserve">
     <value>[テスト中] ダウンロード実行後に自動的にインストールを試みる</value>
   </data>
+  <data name="Details_test_fast_sort_main_view" xml:space="preserve">
+    <value>[テスト中] BMS一覧画面で高速ソート(非自然順)を使う</value>
+  </data>
   <data name="Full_scan_check" xml:space="preserve">
     <value>構成ファイルフルスキャン</value>
   </data>

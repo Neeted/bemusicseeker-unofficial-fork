@@ -1054,6 +1054,24 @@ internal sealed class Settings : ApplicationSettingsBase
 	[UserScopedSetting]
 	[DebuggerNonUserCode]
 	[DefaultSettingValue("False")]
+	// NOTE:
+	// MainView 限定で高速化ソートを試験導入するための切り替えフラグです。
+	// 既定値は false とし、従来挙動を保持します。
+	public bool UseFastSortInMainViewExperimental
+	{
+		get
+		{
+			return (bool)this["UseFastSortInMainViewExperimental"];
+		}
+		set
+		{
+			this["UseFastSortInMainViewExperimental"] = value;
+		}
+	}
+
+	[UserScopedSetting]
+	[DebuggerNonUserCode]
+	[DefaultSettingValue("False")]
 	public bool KeepInstallablePackagesPending
 	{
 		get

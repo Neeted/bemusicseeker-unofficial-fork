@@ -137,6 +137,7 @@
   "Player_LR2_savewpos": "Sauvegarder position de la fenetre",
   "Details_show_diag_diff_install": "Show confirmation message on diff install",
   "Details_test_download_and_install": "[TEST] Try to run installation automatically after download",
+  "Details_test_fast_sort_main_view": "[TEST] Use fast sort (non-natural) in BMS list view",
   "Full_scan_check": "Verification scan complet",
   "Custom_folder": "Custom folder",
   "Player_Internal_desc": "* Parametres dans onglet \"Device\"",
