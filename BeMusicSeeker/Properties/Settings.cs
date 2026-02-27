@@ -1055,17 +1055,17 @@ internal sealed class Settings : ApplicationSettingsBase
 	[DebuggerNonUserCode]
 	[DefaultSettingValue("False")]
 	// NOTE:
-	// MainView 限定で高速化ソートを試験導入するための切り替えフラグです。
+	// DataGrid 一覧画面で高速化ソートを試験導入するための切り替えフラグです。
 	// 既定値は false とし、従来挙動を保持します。
-	public bool UseFastSortInMainViewExperimental
+	public bool UseFastSortInDataGridExperimental
 	{
 		get
 		{
-			return (bool)this["UseFastSortInMainViewExperimental"];
+			return (bool)this["UseFastSortInDataGridExperimental"];
 		}
 		set
 		{
-			this["UseFastSortInMainViewExperimental"] = value;
+			this["UseFastSortInDataGridExperimental"] = value;
 		}
 	}
 

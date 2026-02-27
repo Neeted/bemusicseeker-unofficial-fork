@@ -174,7 +174,7 @@ public class MainWindowViewModel : ViewModel
 
         private bool tempEnableAutoInstall;
 
-        private bool tempUseFastSortInMainViewExperimental;
+        private bool tempUseFastSortInDataGridExperimental;
 
         private bool tempKeepInstallablePackagesPending;
 
@@ -1007,18 +1007,18 @@ public class MainWindowViewModel : ViewModel
         /// <remarks>
         /// 既定値は false で、従来の自然順ソートを維持します。
         /// </remarks>
-        public bool UseFastSortInMainViewExperimental
+        public bool UseFastSortInDataGridExperimental
         {
             get
             {
-                return Settings.Default.UseFastSortInMainViewExperimental;
+                return Settings.Default.UseFastSortInDataGridExperimental;
             }
             set
             {
-                if (Settings.Default.UseFastSortInMainViewExperimental != value)
+                if (Settings.Default.UseFastSortInDataGridExperimental != value)
                 {
-                    Settings.Default.UseFastSortInMainViewExperimental = value;
-                    RaisePropertyChanged("UseFastSortInMainViewExperimental");
+                    Settings.Default.UseFastSortInDataGridExperimental = value;
+                    RaisePropertyChanged("UseFastSortInDataGridExperimental");
                 }
             }
         }
@@ -2098,7 +2098,7 @@ public class MainWindowViewModel : ViewModel
             tempEnableReadOptimizedPragmas = Settings.Default.EnableReadOptimizedPragmas;
             tempSkipEstimateOfflineScoreRanking = Settings.Default.SkipEstimateOfflineScoreRanking;
             tempEnableAutoInstall = Settings.Default.AutoInstall;
-            tempUseFastSortInMainViewExperimental = Settings.Default.UseFastSortInMainViewExperimental;
+            tempUseFastSortInDataGridExperimental = Settings.Default.UseFastSortInDataGridExperimental;
             tempKeepInstallablePackagesPending = Settings.Default.KeepInstallablePackagesPending;
             tempEnableSmartComponentOverwrite = Settings.Default.EnableSmartComponentOverwrite;
             tempEncoderSampleRate = Settings.Default.EncoderSampleRate;
@@ -2345,7 +2345,7 @@ public class MainWindowViewModel : ViewModel
             Settings.Default.EnableReadOptimizedPragmas = tempEnableReadOptimizedPragmas;
             Settings.Default.SkipEstimateOfflineScoreRanking = tempSkipEstimateOfflineScoreRanking;
             Settings.Default.AutoInstall = tempEnableAutoInstall;
-            Settings.Default.UseFastSortInMainViewExperimental = tempUseFastSortInMainViewExperimental;
+            Settings.Default.UseFastSortInDataGridExperimental = tempUseFastSortInDataGridExperimental;
             Settings.Default.KeepInstallablePackagesPending = tempKeepInstallablePackagesPending;
             Settings.Default.EnableSmartComponentOverwrite = tempEnableSmartComponentOverwrite;
             Settings.Default.SkipInitFileCheck = tempSkipInitFileCheck;
@@ -2412,7 +2412,7 @@ public class MainWindowViewModel : ViewModel
             RaisePropertyChanged(() => EnableReadOptimizedPragmas);
             RaisePropertyChanged(() => SkipEstimateOfflineScoreRanking);
             RaisePropertyChanged(() => EnableAutoInstall);
-            RaisePropertyChanged(() => UseFastSortInMainViewExperimental);
+            RaisePropertyChanged(() => UseFastSortInDataGridExperimental);
             RaisePropertyChanged(() => KeepInstallablePackagesPending);
             RaisePropertyChanged(() => EnableSmartComponentOverwrite);
             RaisePropertyChanged(() => EncoderSampleRate);
@@ -6285,7 +6285,7 @@ public class MainWindowViewModel : ViewModel
             }
             else
             {
-                BMSFileSortEngine.UseLegacySortForMainView = !Settings.Default.UseFastSortInMainViewExperimental;
+                BMSFileSortEngine.UseLegacySortForDataGrid = !Settings.Default.UseFastSortInDataGridExperimental;
                 BMSFilesView = BMSFileSortEngine.SortForMainView(BMSFilesModeFilterView, SortParameters, out sortProfile);
                 if (isFolderMode)
                 {

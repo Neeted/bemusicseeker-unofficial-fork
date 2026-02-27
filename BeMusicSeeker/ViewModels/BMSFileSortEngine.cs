@@ -23,12 +23,12 @@ internal static class BMSFileSortEngine
     private static readonly ConcurrentDictionary<string, Delegate> typedSortKeySelectorCache = new ConcurrentDictionary<string, Delegate>(StringComparer.Ordinal);
 
     /// <summary>
-    /// MainView の実ソートで従来実装を利用するかを示します。
+    /// DataGrid の実ソートで従来実装を利用するかを示します。
     /// </summary>
     /// <remarks>
     /// 実機性能比較のために、最適化実装を残したまま呼び出し経路だけ切り替えられるようにしています。
     /// </remarks>
-    internal static bool UseLegacySortForMainView { get; set; } = true;
+    internal static bool UseLegacySortForDataGrid { get; set; } = true;
 
     /// <summary>
     /// 指定条件で BMS 一覧をソートします。
@@ -53,7 +53,7 @@ internal static class BMSFileSortEngine
         // NOTE:
         // 現在は実機比較のため MainView だけ従来実装へ戻しています。
         // 互換確認後に false へ戻せば最適化実装を再利用できます。
-        if (UseLegacySortForMainView)
+        if (UseLegacySortForDataGrid)
         {
             return SortByLegacyImplementation(source, sortParameters, out sortProfile);
         }

@@ -124,7 +124,7 @@ public class Resources
 
     public static string Details_test_download_and_install => ResourceManager.GetString("Details_test_download_and_install", resourceCulture);
 
-    public static string Details_test_fast_sort_main_view => ResourceManager.GetString("Details_test_fast_sort_main_view", resourceCulture);
+    public static string Details_test_fast_sort_list_view => ResourceManager.GetString("Details_test_fast_sort_list_view", resourceCulture);
 
     public static string Details_test_keep_installable_pending => ResourceManager.GetString("Details_test_keep_installable_pending", resourceCulture);
 

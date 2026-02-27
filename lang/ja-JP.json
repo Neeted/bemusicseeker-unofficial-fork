@@ -141,7 +141,7 @@
   "Player_LR2_savewpos": "Save window position",
   "Details_show_diag_diff_install": "差分インストールの確認メッセージを表示する",
   "Details_test_download_and_install": "[テスト中] ダウンロード実行後に自動的にインストールを試みる",
-  "Details_test_fast_sort_main_view": "[テスト中] BMS一覧画面で高速ソート(非自然順)を使う",
+  "Details_test_fast_sort_list_view": "[テスト中] 一覧画面で高速ソート(非自然順)を使う",
   "Full_scan_check": "構成ファイルフルスキャン",
   "Custom_folder": "カスタムフォルダ",
   "Player_Internal_desc": "※デバイスタブで設定して下さい",

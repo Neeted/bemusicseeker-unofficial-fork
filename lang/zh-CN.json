@@ -137,7 +137,7 @@
   "Player_LR2_wsize": "LR2body 窗口大小：",
   "Details_show_diag_diff_install": "在进行差分安装时显示确认消息",
   "Details_test_download_and_install": "[测试] 下载后尝试自动执行安装",
-  "Details_test_fast_sort_main_view": "[测试] 在 BMS 列表界面使用高速排序（非自然排序）",
+  "Details_test_fast_sort_list_view": "[测试] 在列表界面使用高速排序（非自然排序）",
   "Full_scan_check": "完全扫描检查",
   "Custom_folder": "自定义文件夹",
   "Player_Internal_desc": "* 设置位于“设备”选项卡中",
