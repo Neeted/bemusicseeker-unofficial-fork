@@ -2,6 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Globalization;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
@@ -80,13 +81,18 @@ internal static class BMSFileSortEngine
         {
             columnName = nameof(BMSFile.rateDouble);
         }
+        if (string.Equals(columnName, nameof(BMSFile.Level), StringComparison.Ordinal) || string.Equals(columnName, nameof(BMSFile.level), StringComparison.Ordinal))
+        {
+            sortProfile = "level_mixed_double";
+            return SortByLevelKey(safeSource, direction);
+        }
 
         PropertyInfo property = typeof(BMSFile).GetProperty(columnName);
         if (property == null)
         {
-            sortProfile = "string_fallback";
+            sortProfile = "string_fast_fallback";
             Func<BMSFile, string> sortKeySelectorFallback = (BMSFile _) => string.Empty;
-            return SortByNaturalString(safeSource, sortKeySelectorFallback, direction);
+            return SortByFastString(safeSource, sortKeySelectorFallback, direction);
         }
 
         Type propertyType = property.PropertyType;
@@ -94,8 +100,14 @@ internal static class BMSFileSortEngine
 
         if (nonNullableType == typeof(string))
         {
-            sortProfile = "string_natural";
-            return SortByNaturalString(safeSource, GetSortKeySelector(columnName, property), direction);
+            Func<BMSFile, string> stringSortKeySelector = GetSortKeySelector(columnName, property);
+            if (string.Equals(columnName, nameof(BMSFile.Folder), StringComparison.Ordinal))
+            {
+                sortProfile = "folder_natural_legacy";
+                return SortByLegacyNaturalString(safeSource, stringSortKeySelector, direction);
+            }
+            sortProfile = "string_fast_ordinal_ignore_case";
+            return SortByFastString(safeSource, stringSortKeySelector, direction);
         }
         if (nonNullableType == typeof(DateTime))
         {
@@ -177,8 +189,8 @@ internal static class BMSFileSortEngine
             return SortByTypedKey(safeSource, GetTypedSortKeySelector<int>(columnName, property), direction);
         }
 
-        sortProfile = "string_fallback";
-        return SortByNaturalString(safeSource, GetSortKeySelector(columnName, property), direction);
+        sortProfile = "string_fast_fallback";
+        return SortByFastString(safeSource, GetSortKeySelector(columnName, property), direction);
     }
 
     /// <summary>
@@ -291,28 +303,36 @@ internal static class BMSFileSortEngine
     }
 
     /// <summary>
-    /// 文字列自然順でソートします。
+    /// 文字列を高速比較でソートします。
     /// </summary>
     /// <param name="source">ソート対象。</param>
     /// <param name="keySelector">主ソートキー取得関数。</param>
     /// <param name="direction">ソート方向。</param>
     /// <returns>ソート済みリスト。</returns>
-    private static List<BMSFile> SortByNaturalString(IEnumerable<BMSFile> source, Func<BMSFile, string> keySelector, ListSortDirection direction)
+    private static List<BMSFile> SortByFastString(IEnumerable<BMSFile> source, Func<BMSFile, string> keySelector, ListSortDirection direction)
     {
-        int sourceCount = GetSourceCount(source);
+        StringComparer stringComparer = StringComparer.OrdinalIgnoreCase;
         if (direction == ListSortDirection.Ascending)
         {
-            // NOTE:
-            // 同一ソート内で primary/secondary のキー文字列をキャッシュするため、想定件数を与えて
-            // Dictionary の再ハッシュ回数を減らし、20万件規模の自然順比較を軽量化する。
-            int comparerCapacity = (sourceCount > 0) ? checked(sourceCount * 2) : 0;
-            NaturalComparer<string> comparer = new NaturalComparer<string>(isWhiteSpacePrior: false, comparerCapacity);
-            return source.OrderBy(keySelector, comparer).ThenBy(GetTitleKey, comparer).ToList();
+            return source.OrderBy(keySelector, stringComparer).ThenBy(GetTitleKey, stringComparer).ToList();
         }
-        int descendingCapacity = (sourceCount > 0) ? sourceCount : 0;
-        NaturalComparer<string> sortComparer = new NaturalComparer<string>(isWhiteSpacePrior: true, descendingCapacity);
-        NaturalComparer<string> titleComparer = new NaturalComparer<string>(isWhiteSpacePrior: false, descendingCapacity);
-        return source.OrderByDescending(keySelector, sortComparer).ThenBy(GetTitleKey, titleComparer).ToList();
+        return source.OrderByDescending(keySelector, stringComparer).ThenBy(GetTitleKey, stringComparer).ToList();
+    }
+
+    /// <summary>
+    /// 文字列を従来の自然順比較でソートします。
+    /// </summary>
+    /// <param name="source">ソート対象。</param>
+    /// <param name="keySelector">主ソートキー取得関数。</param>
+    /// <param name="direction">ソート方向。</param>
+    /// <returns>ソート済みリスト。</returns>
+    private static List<BMSFile> SortByLegacyNaturalString(IEnumerable<BMSFile> source, Func<BMSFile, string> keySelector, ListSortDirection direction)
+    {
+        if (direction == ListSortDirection.Ascending)
+        {
+            return source.OrderBy(keySelector, new NaturalComparer<string>()).ThenBy(GetTitleKey, new NaturalComparer<string>()).ToList();
+        }
+        return source.OrderByDescending(keySelector, new NaturalComparer<string>(isWhiteSpacePrior: true)).ThenBy(GetTitleKey, new NaturalComparer<string>()).ToList();
     }
 
     /// <summary>
@@ -325,13 +345,68 @@ internal static class BMSFileSortEngine
     /// <returns>ソート済みリスト。</returns>
     private static List<BMSFile> SortByTypedKey<TKey>(IEnumerable<BMSFile> source, Func<BMSFile, TKey> keySelector, ListSortDirection direction)
     {
-        int sourceCount = GetSourceCount(source);
-        NaturalComparer<string> titleComparer = new NaturalComparer<string>(isWhiteSpacePrior: false, sourceCount);
+        StringComparer titleComparer = StringComparer.OrdinalIgnoreCase;
         if (direction == ListSortDirection.Ascending)
         {
             return source.OrderBy(keySelector, Comparer<TKey>.Default).ThenBy(GetTitleKey, titleComparer).ToList();
         }
         return source.OrderByDescending(keySelector, Comparer<TKey>.Default).ThenBy(GetTitleKey, titleComparer).ToList();
+    }
+
+    /// <summary>
+    /// LEVEL 列を画面横断で同一ルール（double?）でソートします。
+    /// </summary>
+    /// <param name="source">ソート対象。</param>
+    /// <param name="direction">ソート方向。</param>
+    /// <returns>ソート済みリスト。</returns>
+    private static List<BMSFile> SortByLevelKey(IEnumerable<BMSFile> source, ListSortDirection direction)
+    {
+        StringComparer titleComparer = StringComparer.OrdinalIgnoreCase;
+        if (direction == ListSortDirection.Ascending)
+        {
+            return source.OrderBy(GetLevelKey, Comparer<double?>.Default).ThenBy(GetTitleKey, titleComparer).ToList();
+        }
+        return source.OrderByDescending(GetLevelKey, Comparer<double?>.Default).ThenBy(GetTitleKey, titleComparer).ToList();
+    }
+
+    /// <summary>
+    /// LEVEL 列専用の比較キーを返します。
+    /// VirtualBMSFile の場合は BMSTableEntry.level（double?）を優先します。
+    /// </summary>
+    /// <param name="bmsFile">対象譜面。</param>
+    /// <returns>比較キー。</returns>
+    private static double? GetLevelKey(BMSFile bmsFile)
+    {
+        if (bmsFile == null)
+        {
+            return null;
+        }
+        if (bmsFile is VirtualBMSFile virtualBmsFile)
+        {
+            BMSTableEntry entry = virtualBmsFile.ToBMSTableEntry();
+            if (entry?.level.HasValue == true)
+            {
+                return entry.level.Value;
+            }
+        }
+        if (bmsFile.level.HasValue)
+        {
+            return bmsFile.level.Value;
+        }
+        string levelText = bmsFile.Level;
+        if (string.IsNullOrWhiteSpace(levelText))
+        {
+            return null;
+        }
+        if (double.TryParse(levelText, NumberStyles.Float, CultureInfo.CurrentCulture, out double currentCultureValue))
+        {
+            return currentCultureValue;
+        }
+        if (double.TryParse(levelText, NumberStyles.Float, CultureInfo.InvariantCulture, out double invariantCultureValue))
+        {
+            return invariantCultureValue;
+        }
+        return null;
     }
 
     /// <summary>
@@ -363,17 +438,4 @@ internal static class BMSFileSortEngine
         return value.ToString() ?? string.Empty;
     }
 
-    /// <summary>
-    /// ソート対象件数を取得します。件数不明な列挙は 0 を返します。
-    /// </summary>
-    /// <param name="source">ソート対象。</param>
-    /// <returns>件数、または不明時 0。</returns>
-    private static int GetSourceCount(IEnumerable<BMSFile> source)
-    {
-        if (source is ICollection<BMSFile> collection)
-        {
-            return collection.Count;
-        }
-        return 0;
-    }
 }

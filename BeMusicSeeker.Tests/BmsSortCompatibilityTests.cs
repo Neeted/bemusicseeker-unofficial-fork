@@ -158,6 +158,41 @@ public sealed class BmsSortCompatibilityTests
     }
 
     /// <summary>
+    /// LEVEL 列は VirtualBMSFile の double 値を優先し、文字列辞書順ではなく数値順で並ぶことを検証します。
+    /// </summary>
+    [TestMethod]
+    [TestCategory("SortEngine")]
+    public void Sort_LevelColumn_UsesMixedNumericKeyForVirtualAndRegularRows()
+    {
+        TestableBmsFile regularLevel12 = new TestableBmsFile();
+        regularLevel12.ApplySnapshot(new SongSnapshotRow { path = "z_regular_12.bms", title = "Regular12", level = 12, hash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" });
+
+        BMSTableEntry virtualEntry = new BMSTableEntry();
+        VirtualBMSFile virtualLevel25 = new VirtualBMSFile(virtualEntry);
+        virtualLevel25.path = "a_virtual_2_5.bms";
+        virtualLevel25.Level = "2.5";
+
+        TestableBmsFile regularLevel3 = new TestableBmsFile();
+        regularLevel3.ApplySnapshot(new SongSnapshotRow { path = "m_regular_3.bms", title = "Regular3", level = 3, hash = "cccccccccccccccccccccccccccccccc" });
+
+        List<BMSFile> source = new List<BMSFile> { regularLevel12, virtualLevel25, regularLevel3 };
+        MainWindowViewModel.cSortParameters sortParameters = new MainWindowViewModel.cSortParameters
+        {
+            ColumnsName = nameof(BMSFile.Level),
+            Direction = ListSortDirection.Ascending
+        };
+
+        List<BMSFile> sorted = BMSFileSortEngine.Sort(source, sortParameters, out string sortProfile);
+        string[] sortedPaths = sorted.Select((BMSFile row) => row.path).ToArray();
+
+        CollectionAssert.AreEqual(
+            new[] { "a_virtual_2_5.bms", "m_regular_3.bms", "z_regular_12.bms" },
+            sortedPaths,
+            "LEVEL must be sorted numerically using mixed key (Virtual double? + regular int?).");
+        Assert.AreEqual("level_mixed_double", sortProfile);
+    }
+
+    /// <summary>
     /// song.db からソート検証に必要な行を読み込みます。
     /// </summary>
     /// <param name="songDbPath">song.db の絶対パス。</param>
