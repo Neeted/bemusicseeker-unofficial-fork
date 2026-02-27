@@ -3335,6 +3335,8 @@ public class MainWindowViewModel : ViewModel
 
     private cSortParameters _SortParameters;
 
+    private cSortParameters _PlaylistSummarySortParameters;
+
     private BeMusicSeeker.Models.BMSFile _NowPlayingBMS;
 
     private Uri _BrowserSource;
@@ -4145,6 +4147,22 @@ public class MainWindowViewModel : ViewModel
             {
                 _SortParameters = value;
                 RaisePropertyChanged("SortParameters");
+            }
+        }
+    }
+
+    public cSortParameters PlaylistSummarySortParameters
+    {
+        get
+        {
+            return _PlaylistSummarySortParameters;
+        }
+        private set
+        {
+            if (value == null || _PlaylistSummarySortParameters == null || !(_PlaylistSummarySortParameters.ColumnsName == value.ColumnsName) || _PlaylistSummarySortParameters.Direction != value.Direction)
+            {
+                _PlaylistSummarySortParameters = value;
+                RaisePropertyChanged("PlaylistSummarySortParameters");
             }
         }
     }
@@ -6409,6 +6427,23 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
+    public void ExecPlaylistSummarySort(string columnName, ListSortDirection direction)
+    {
+        if (string.IsNullOrWhiteSpace(columnName))
+        {
+            columnName = nameof(PlaylistSummaryRow.Name);
+        }
+        if (PlaylistSummarySortParameters == null || PlaylistSummarySortParameters.ColumnsName != columnName || PlaylistSummarySortParameters.Direction != direction)
+        {
+            PlaylistSummarySortParameters = new cSortParameters
+            {
+                ColumnsName = columnName,
+                Direction = direction
+            };
+            RefreshPlaylistSummaryIfVisible();
+        }
+    }
+
     public void ExecFolderFilter(FolderFilterType type, string filterKey = null)
     {
         SetPlaylistSummaryMode(enabled: false);
@@ -6746,6 +6781,7 @@ public class MainWindowViewModel : ViewModel
     {
         Action action = delegate
         {
+            Stopwatch stopwatch = Stopwatch.StartNew();
             List<PlaylistSummaryRow> list = new List<PlaylistSummaryRow>();
             HashSet<string> ownedHashes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             IEnumerable<BeMusicSeeker.Models.BMSFile> bMSFiles = BMSFiles;
@@ -6800,7 +6836,12 @@ public class MainWindowViewModel : ViewModel
                     TableRef = item2
                 });
             }
-            List<PlaylistSummaryRow> rows = ApplyPlaylistSummaryFilters(list).ToList();
+            long buildMs = stopwatch.ElapsedMilliseconds;
+            List<PlaylistSummaryRow> filteredRows = ApplyPlaylistSummaryFilters(list).ToList();
+            long filterMs = stopwatch.ElapsedMilliseconds - buildMs;
+            bool useLegacySort = !Settings.Default.UseFastSortInDataGridExperimental;
+            List<PlaylistSummaryRow> rows = PlaylistSummarySortEngine.Sort(filteredRows, PlaylistSummarySortParameters, useLegacySort, out string sortProfile);
+            long sortMs = stopwatch.ElapsedMilliseconds - buildMs - filterMs;
             Action reflect = delegate
             {
                 PlaylistSummaryView = new ObservableCollection<PlaylistSummaryRow>(rows);
@@ -6814,6 +6855,9 @@ public class MainWindowViewModel : ViewModel
             {
                 DispatcherHelper.UIDispatcher.BeginInvoke(reflect);
             }
+            string sortColumn = PlaylistSummarySortParameters?.ColumnsName ?? nameof(PlaylistSummaryRow.Name);
+            string sortDirection = PlaylistSummarySortParameters?.Direction.ToString() ?? ListSortDirection.Ascending.ToString();
+            LogMainViewBuild("playlist_summary_build tableCount=" + list2.Count + " rawCount=" + list.Count + " filteredCount=" + filteredRows.Count + " viewCount=" + rows.Count + " buildMs=" + buildMs + " filterMs=" + filterMs + " sortMs=" + sortMs + " totalMs=" + stopwatch.ElapsedMilliseconds + " sortColumn=" + sortColumn + " sortDirection=" + sortDirection + " sortProfile=" + sortProfile + " sortEngine=" + (useLegacySort ? "legacy" : "fast") + " fastSortEnabled=" + Settings.Default.UseFastSortInDataGridExperimental);
         };
         if (!runAsync)
         {

@@ -334,6 +334,35 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }).Logging("dataGridSorting");
     }
 
+    private async void dataGridPlaylistSummarySorting(object sender, DataGridSortingEventArgs e)
+    {
+        e.Handled = true;
+        string sortMemberPath = e.Column.SortMemberPath;
+        if (string.IsNullOrWhiteSpace(sortMemberPath))
+        {
+            return;
+        }
+        ListSortDirection newDirection = ((e.Column.SortDirection == ListSortDirection.Ascending) ? ListSortDirection.Descending : ListSortDirection.Ascending);
+        if (base.DataContext is MainWindowViewModel viewModel)
+        {
+            await Task.Run(delegate
+            {
+                viewModel.ExecPlaylistSummarySort(sortMemberPath, newDirection);
+            }).Logging("dataGridPlaylistSummarySorting");
+            if (sender is DataGrid dataGrid2)
+            {
+                foreach (DataGridColumn item in dataGrid2.Columns)
+                {
+                    if (!ReferenceEquals(item, e.Column))
+                    {
+                        item.SortDirection = null;
+                    }
+                }
+            }
+            e.Column.SortDirection = newDirection;
+        }
+    }
+
     public void renewSortIcon(DataGrid dataGrid)
     {
         base.Dispatcher.BeginInvoke((Action)delegate
