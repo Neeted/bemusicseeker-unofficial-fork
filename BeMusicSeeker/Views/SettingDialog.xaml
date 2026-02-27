@@ -554,6 +554,9 @@
                     <CheckBox IsChecked="{Binding settingDialog.ShowRecommUpdatedMsg}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_show_diag_recommend, Mode=OneWay}" />
                   </StackPanel>
                 </GroupBox>
+                <GroupBox Padding="5,5,5,0" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Language, Mode=OneWay}">
+                  <ComboBox Height="24" IsReadOnly="True" Width="150" MaxDropDownHeight="260" VerticalContentAlignment="Center" HorizontalAlignment="Center" ItemsSource="{Binding settingDialog.Languages, Mode=OneWay}" SelectedItem="{Binding Path=settingDialog.Language}" />
+                </GroupBox>
                 <GroupBox Padding="5,5,5,0" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Advanced_settings, Mode=OneWay}">
                   <StackPanel>
                     <CheckBox IsChecked="{Binding settingDialog.SkipInitFileCheck}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_test_notscan, Mode=OneWay}" />
@@ -564,12 +567,10 @@
                     <CheckBox IsChecked="{Binding settingDialog.SkipEstimateOfflineScoreRanking}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_test_notcalc_offrank, Mode=OneWay}" />
                     <CheckBox IsChecked="{Binding settingDialog.EnableAutoInstall}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_test_download_and_install, Mode=OneWay}" />
                     <CheckBox IsChecked="{Binding settingDialog.UseFastSortInDataGridExperimental}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_test_fast_sort_list_view, Mode=OneWay}" />
+                    <CheckBox IsChecked="{Binding settingDialog.UseDataGridColumnVirtualizationExperimental}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_test_column_virtualization_list_view, Mode=OneWay}" />
                     <CheckBox IsChecked="{Binding settingDialog.KeepInstallablePackagesPending}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_test_keep_installable_pending, Mode=OneWay}" />
                     <CheckBox IsChecked="{Binding settingDialog.EnableSmartComponentOverwrite}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_test_smart_component_overwrite, Mode=OneWay}" />
                   </StackPanel>
-                </GroupBox>
-                <GroupBox Padding="5,5,5,0" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Language, Mode=OneWay}">
-                  <ComboBox Height="24" IsReadOnly="True" Width="150" VerticalContentAlignment="Center" HorizontalAlignment="Center" ItemsSource="{Binding settingDialog.Languages, Mode=OneWay}" SelectedItem="{Binding Path=settingDialog.Language}" />
                 </GroupBox>
               </StackPanel>
             </TabItem>

@@ -126,6 +126,8 @@ public class Resources
 
     public static string Details_test_fast_sort_list_view => ResourceManager.GetString("Details_test_fast_sort_list_view", resourceCulture);
 
+    public static string Details_test_column_virtualization_list_view => ResourceManager.GetString("Details_test_column_virtualization_list_view", resourceCulture);
+
     public static string Details_test_keep_installable_pending => ResourceManager.GetString("Details_test_keep_installable_pending", resourceCulture);
 
     public static string Details_test_notcalc_offrank => ResourceManager.GetString("Details_test_notcalc_offrank", resourceCulture);

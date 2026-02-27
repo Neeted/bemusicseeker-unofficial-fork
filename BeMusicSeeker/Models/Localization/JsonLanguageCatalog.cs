@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Text;
 using System.IO;
 using System.Reflection;
 using System.Runtime.Serialization.Json;
@@ -41,10 +42,7 @@ public static class JsonLanguageCatalog
                 NLogWrapper.TraceLogger?.Warn("lang_json missing path=" + text);
                 return new Dictionary<string, string>(StringComparer.Ordinal);
             }
-            using FileStream stream = File.OpenRead(text);
-            DataContractJsonSerializerSettings settings = new DataContractJsonSerializerSettings { UseSimpleDictionaryFormat = true };
-            DataContractJsonSerializer dataContractJsonSerializer = new DataContractJsonSerializer(typeof(Dictionary<string, string>), settings);
-            Dictionary<string, string> dictionary = dataContractJsonSerializer.ReadObject(stream) as Dictionary<string, string>;
+            Dictionary<string, string> dictionary = ReadLanguageDictionary(text);
             if (dictionary == null)
             {
                 NLogWrapper.TraceLogger?.Warn("lang_json invalid_data path=" + text);
@@ -89,10 +87,7 @@ public static class JsonLanguageCatalog
                     // カルチャ名が有効かどうかを検証
                     System.Globalization.CultureInfo.GetCultureInfo(cultureName);
 
-                    using FileStream stream = File.OpenRead(filePath);
-                    var settings = new DataContractJsonSerializerSettings { UseSimpleDictionaryFormat = true };
-                    var serializer = new DataContractJsonSerializer(typeof(Dictionary<string, string>), settings);
-                    var dictionary = serializer.ReadObject(stream) as Dictionary<string, string>;
+                    var dictionary = ReadLanguageDictionary(filePath);
 
                     if (dictionary != null && dictionary.TryGetValue("_language_name", out string displayName) && !string.IsNullOrWhiteSpace(displayName))
                     {
@@ -119,6 +114,19 @@ public static class JsonLanguageCatalog
         }
 
         return result;
+    }
+
+    private static Dictionary<string, string> ReadLanguageDictionary(string filePath)
+    {
+        string json = File.ReadAllText(filePath, Encoding.UTF8);
+        if (json.Length > 0 && json[0] == '\uFEFF')
+        {
+            json = json.Substring(1);
+        }
+        using MemoryStream memoryStream = new MemoryStream(Encoding.UTF8.GetBytes(json));
+        DataContractJsonSerializerSettings settings = new DataContractJsonSerializerSettings { UseSimpleDictionaryFormat = true };
+        DataContractJsonSerializer serializer = new DataContractJsonSerializer(typeof(Dictionary<string, string>), settings);
+        return serializer.ReadObject(memoryStream) as Dictionary<string, string>;
     }
 
     /// <summary>

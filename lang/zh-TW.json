@@ -138,6 +138,7 @@
   "Details_show_diag_diff_install": "進行差分安裝時顯示確認訊息",
   "Details_test_download_and_install": "[測試] 下載後嘗試自動執行安裝",
   "Details_test_fast_sort_list_view": "[測試] 在清單畫面使用高速排序（非自然排序）",
+  "Details_test_column_virtualization_list_view": "[測試] 在清單畫面啟用欄位虛擬化（不建議：實測沒有變快）",
   "Full_scan_check": "完整掃描檢查",
   "Custom_folder": "自訂資料夾",
   "Player_Internal_desc": "* 設定位於「裝置」分頁中",

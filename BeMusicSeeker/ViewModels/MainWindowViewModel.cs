@@ -176,6 +176,8 @@ public class MainWindowViewModel : ViewModel
 
         private bool tempUseFastSortInDataGridExperimental;
 
+        private bool tempUseDataGridColumnVirtualizationExperimental;
+
         private bool tempKeepInstallablePackagesPending;
 
         private bool tempEnableSmartComponentOverwrite;
@@ -1019,6 +1021,28 @@ public class MainWindowViewModel : ViewModel
                 {
                     Settings.Default.UseFastSortInDataGridExperimental = value;
                     RaisePropertyChanged("UseFastSortInDataGridExperimental");
+                }
+            }
+        }
+
+        /// <summary>
+        /// BMS 一覧画面の DataGrid で列仮想化を試験導入するかどうかを取得または設定します。
+        /// </summary>
+        /// <remarks>
+        /// 既定値は false で、従来の列生成挙動を維持します。
+        /// </remarks>
+        public bool UseDataGridColumnVirtualizationExperimental
+        {
+            get
+            {
+                return Settings.Default.UseDataGridColumnVirtualizationExperimental;
+            }
+            set
+            {
+                if (Settings.Default.UseDataGridColumnVirtualizationExperimental != value)
+                {
+                    Settings.Default.UseDataGridColumnVirtualizationExperimental = value;
+                    RaisePropertyChanged("UseDataGridColumnVirtualizationExperimental");
                 }
             }
         }
@@ -2099,6 +2123,7 @@ public class MainWindowViewModel : ViewModel
             tempSkipEstimateOfflineScoreRanking = Settings.Default.SkipEstimateOfflineScoreRanking;
             tempEnableAutoInstall = Settings.Default.AutoInstall;
             tempUseFastSortInDataGridExperimental = Settings.Default.UseFastSortInDataGridExperimental;
+            tempUseDataGridColumnVirtualizationExperimental = Settings.Default.UseDataGridColumnVirtualizationExperimental;
             tempKeepInstallablePackagesPending = Settings.Default.KeepInstallablePackagesPending;
             tempEnableSmartComponentOverwrite = Settings.Default.EnableSmartComponentOverwrite;
             tempEncoderSampleRate = Settings.Default.EncoderSampleRate;
@@ -2346,6 +2371,7 @@ public class MainWindowViewModel : ViewModel
             Settings.Default.SkipEstimateOfflineScoreRanking = tempSkipEstimateOfflineScoreRanking;
             Settings.Default.AutoInstall = tempEnableAutoInstall;
             Settings.Default.UseFastSortInDataGridExperimental = tempUseFastSortInDataGridExperimental;
+            Settings.Default.UseDataGridColumnVirtualizationExperimental = tempUseDataGridColumnVirtualizationExperimental;
             Settings.Default.KeepInstallablePackagesPending = tempKeepInstallablePackagesPending;
             Settings.Default.EnableSmartComponentOverwrite = tempEnableSmartComponentOverwrite;
             Settings.Default.SkipInitFileCheck = tempSkipInitFileCheck;
@@ -2413,6 +2439,7 @@ public class MainWindowViewModel : ViewModel
             RaisePropertyChanged(() => SkipEstimateOfflineScoreRanking);
             RaisePropertyChanged(() => EnableAutoInstall);
             RaisePropertyChanged(() => UseFastSortInDataGridExperimental);
+            RaisePropertyChanged(() => UseDataGridColumnVirtualizationExperimental);
             RaisePropertyChanged(() => KeepInstallablePackagesPending);
             RaisePropertyChanged(() => EnableSmartComponentOverwrite);
             RaisePropertyChanged(() => EncoderSampleRate);
@@ -3355,6 +3382,18 @@ public class MainWindowViewModel : ViewModel
 
     private ListSortDirection? folderSortDirection;
 
+    private static long callbackExecSortRaiseRequestId;
+
+    private const long CallbackExecSortSlowLogThresholdMs = 100L;
+
+    private const long ColumnSettingSlowLogThresholdMs = 100L;
+
+    private long lastExecSortCallbackRequestId;
+
+    private long lastExecSortCallbackRaiseStartTimestamp;
+
+    private int lastExecSortCallbackRaiseStartThreadId;
+
     private PlaylistSummaryColumnSettings _PlaylistSummaryColumnsSettings;
 
     private Visibility _ColumnSettingsVisibilityForPlaylist = Visibility.Collapsed;
@@ -4167,6 +4206,12 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
+    public long LastExecSortCallbackRequestId => Interlocked.Read(ref lastExecSortCallbackRequestId);
+
+    public long LastExecSortCallbackRaiseStartTimestamp => Interlocked.Read(ref lastExecSortCallbackRaiseStartTimestamp);
+
+    public int LastExecSortCallbackRaiseStartThreadId => Volatile.Read(ref lastExecSortCallbackRaiseStartThreadId);
+
     public BeMusicSeeker.Models.BMSFile NowPlayingBMS
     {
         get
@@ -4239,6 +4284,10 @@ public class MainWindowViewModel : ViewModel
         }
         set
         {
+            if (ReferenceEquals(_ColumnsSettingsBMSFilesView, value))
+            {
+                return;
+            }
             _ColumnsSettingsBMSFilesView = value;
             RaisePropertyChanged("ColumnsSettingsBMSFilesView");
             base.Messenger.Raise(new InteractionMessage("CallbackColumnsSetingsChanged"));
@@ -4333,6 +4382,10 @@ public class MainWindowViewModel : ViewModel
         }
         set
         {
+            if (ReferenceEquals(_PlaylistSummaryColumnsSettings, value))
+            {
+                return;
+            }
             _PlaylistSummaryColumnsSettings = value;
             RaisePropertyChanged("PlaylistSummaryColumnsSettings");
             base.Messenger.Raise(new InteractionMessage("CallbackColumnsSetingsChanged"));
@@ -6337,14 +6390,34 @@ public class MainWindowViewModel : ViewModel
         loadColumnSetting((mode < viewUpdateMode.KeywordFilterUpdated) ? mode : treeViewFilterTypeSelected);
         columnStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
         stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
-        base.Messenger.Raise(new InteractionMessage("CallbackExecSort"));
-        callbackStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
         string sortColumn = SortParameters?.ColumnsName ?? "(default_title)";
         string sortDirection = SortParameters?.Direction.ToString() ?? "Ascending";
+        long callbackRequestId = Interlocked.Increment(ref callbackExecSortRaiseRequestId);
+        long callbackRaiseStartTimestamp = Stopwatch.GetTimestamp();
+        int callbackRaiseStartThreadId = Thread.CurrentThread.ManagedThreadId;
+        Interlocked.Exchange(ref lastExecSortCallbackRequestId, callbackRequestId);
+        Interlocked.Exchange(ref lastExecSortCallbackRaiseStartTimestamp, callbackRaiseStartTimestamp);
+        Volatile.Write(ref lastExecSortCallbackRaiseStartThreadId, callbackRaiseStartThreadId);
+        _ = Task.Run(delegate
+        {
+            Stopwatch dispatchStopwatch = Stopwatch.StartNew();
+            base.Messenger.Raise(new InteractionMessage("CallbackExecSort"));
+            long dispatchElapsedMs = dispatchStopwatch.ElapsedMilliseconds;
+            if (dispatchElapsedMs >= CallbackExecSortSlowLogThresholdMs)
+            {
+                LogMainViewBuild("callback_exec_sort_dispatch slow request=" + callbackRequestId + " elapsedMs=" + dispatchElapsedMs + " mode=" + mode + " sortColumn=" + sortColumn + " sortDirection=" + sortDirection + " threadId=" + Thread.CurrentThread.ManagedThreadId + " thresholdMs=" + CallbackExecSortSlowLogThresholdMs);
+            }
+        }).Logging("callback_exec_sort_dispatch");
+        callbackStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
+        if (callbackStageMs >= CallbackExecSortSlowLogThresholdMs)
+        {
+            LogMainViewBuild("callback_exec_sort_raise slow request=" + callbackRequestId + " callbackMs=" + callbackStageMs + " enqueued=True threadId=" + callbackRaiseStartThreadId + " thresholdMs=" + CallbackExecSortSlowLogThresholdMs);
+        }
         string parameterType = parameter?.GetType().Name ?? "(null)";
         bool fastSortEnabled = Settings.Default.UseFastSortInDataGridExperimental;
+        bool dataGridColumnVirtualizationEnabled = Settings.Default.UseDataGridColumnVirtualizationExperimental;
         bool isPlaylistDetailForLog = mode == viewUpdateMode.PlaylistFilterSelected || mode == viewUpdateMode.PlaylistNotOwnedFilterSelected || treeViewFilterTypeSelected == viewUpdateMode.PlaylistFilterSelected || treeViewFilterTypeSelected == viewUpdateMode.PlaylistNotOwnedFilterSelected;
-        LogMainViewBuild("main_view_build mode=" + mode + " requestedMode=" + requestedMode + " parameterType=" + parameterType + " folderMs=" + folderStageMs + " keywordMs=" + keywordStageMs + " modeMs=" + modeStageMs + " sortMs=" + sortStageMs + " sortReuse=" + sortReuse + " sortProfile=" + sortProfile + " sortEngine=" + (fastSortEnabled ? "fast" : "legacy") + " fastSortEnabled=" + fastSortEnabled + " isPlaylistDetailView=" + isPlaylistDetailForLog + " columnMs=" + columnStageMs + " callbackMs=" + callbackStageMs + " totalMs=" + viewBuildStopwatch.ElapsedMilliseconds + " folderCount=" + folderCount + " keywordCount=" + keywordCount + " modeCount=" + modeCount + " viewCount=" + viewCount + " sortColumn=" + sortColumn + " sortDirection=" + sortDirection);
+        LogMainViewBuild("main_view_build mode=" + mode + " requestedMode=" + requestedMode + " parameterType=" + parameterType + " folderMs=" + folderStageMs + " keywordMs=" + keywordStageMs + " modeMs=" + modeStageMs + " sortMs=" + sortStageMs + " sortReuse=" + sortReuse + " sortProfile=" + sortProfile + " sortEngine=" + (fastSortEnabled ? "fast" : "legacy") + " fastSortEnabled=" + fastSortEnabled + " dataGridColumnVirtualizationEnabled=" + dataGridColumnVirtualizationEnabled + " isPlaylistDetailView=" + isPlaylistDetailForLog + " columnMs=" + columnStageMs + " callbackMs=" + callbackStageMs + " totalMs=" + viewBuildStopwatch.ElapsedMilliseconds + " folderCount=" + folderCount + " keywordCount=" + keywordCount + " modeCount=" + modeCount + " viewCount=" + viewCount + " sortColumn=" + sortColumn + " sortDirection=" + sortDirection);
     }
 
     public void LoadColumnSetting()
@@ -6354,68 +6427,121 @@ public class MainWindowViewModel : ViewModel
 
     private void loadColumnSetting(viewUpdateMode mode, bool isInit = false)
     {
+        Stopwatch stopwatch = Stopwatch.StartNew();
+        long stageStartMs = stopwatch.ElapsedMilliseconds;
+        long normalizeMs = 0L;
+        long visibilityMs = 0L;
+        long caseEnsureMs = 0L;
+        long caseAssignMs = 0L;
+        long playlistSummaryEnsureMs = 0L;
+        long playlistSummaryAssignMs = 0L;
+        string caseLabel = "none";
+
         if (mode == viewUpdateMode.TreeViewFilterNotChanged)
         {
             mode = treeViewFilterTypeSelected;
         }
+        normalizeMs = stopwatch.ElapsedMilliseconds - stageStartMs;
+        stageStartMs = stopwatch.ElapsedMilliseconds;
         ColumnSettingsVisibilityForPlaylist = Visibility.Collapsed;
+        visibilityMs = stopwatch.ElapsedMilliseconds - stageStartMs;
         switch (mode)
         {
             case viewUpdateMode.PlaylistFilterSelected:
             case viewUpdateMode.PlaylistNotOwnedFilterSelected:
+                caseLabel = "playlist";
+                stageStartMs = stopwatch.ElapsedMilliseconds;
                 if (Settings.Default.PlaylistColumnsSettings == null)
                 {
                     Settings.Default.PlaylistColumnsSettings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.PLAYLIST);
                 }
+                caseEnsureMs = stopwatch.ElapsedMilliseconds - stageStartMs;
+                stageStartMs = stopwatch.ElapsedMilliseconds;
                 ColumnsSettingsBMSFilesView = Settings.Default.PlaylistColumnsSettings;
                 ColumnSettingsVisibilityForPlaylist = Visibility.Visible;
+                caseAssignMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 break;
             case viewUpdateMode.FolderFilterSelected:
             case viewUpdateMode.UnregisteredFilterSelected:
             case viewUpdateMode.ZeroNoteFilterSelected:
+                caseLabel = "standard";
+                stageStartMs = stopwatch.ElapsedMilliseconds;
                 if (Settings.Default.StandardColumnsSettings == null)
                 {
                     Settings.Default.StandardColumnsSettings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.STANDARD);
                 }
+                caseEnsureMs = stopwatch.ElapsedMilliseconds - stageStartMs;
+                stageStartMs = stopwatch.ElapsedMilliseconds;
                 ColumnsSettingsBMSFilesView = Settings.Default.StandardColumnsSettings;
+                caseAssignMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 break;
             case viewUpdateMode.FileMissingFilterSelected:
             case viewUpdateMode.FileMissingIgnoredFilterSelected:
             case viewUpdateMode.NewlyInstalledFolderSelected:
+                caseLabel = "fullscan";
+                stageStartMs = stopwatch.ElapsedMilliseconds;
                 if (Settings.Default.FullScanColumnsSettings == null)
                 {
                     Settings.Default.FullScanColumnsSettings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.FULLSCAN);
                 }
+                caseEnsureMs = stopwatch.ElapsedMilliseconds - stageStartMs;
+                stageStartMs = stopwatch.ElapsedMilliseconds;
                 ColumnsSettingsBMSFilesView = Settings.Default.FullScanColumnsSettings;
+                caseAssignMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 break;
             case viewUpdateMode.DuplicateFilterSelected:
+                caseLabel = "duplicate";
+                stageStartMs = stopwatch.ElapsedMilliseconds;
                 if (Settings.Default.DuplicateColumnsSettings == null)
                 {
                     Settings.Default.DuplicateColumnsSettings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.DUPLICATE);
                 }
+                caseEnsureMs = stopwatch.ElapsedMilliseconds - stageStartMs;
+                stageStartMs = stopwatch.ElapsedMilliseconds;
                 ColumnsSettingsBMSFilesView = Settings.Default.DuplicateColumnsSettings;
+                caseAssignMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 break;
             case viewUpdateMode.GarbledFilterSelected:
             case viewUpdateMode.GarbleFixedFilterSelected:
+                caseLabel = "encoding";
+                stageStartMs = stopwatch.ElapsedMilliseconds;
                 if (Settings.Default.EncodingColumnsSettings == null)
                 {
                     Settings.Default.EncodingColumnsSettings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.ENCODING);
                 }
+                caseEnsureMs = stopwatch.ElapsedMilliseconds - stageStartMs;
+                stageStartMs = stopwatch.ElapsedMilliseconds;
                 ColumnsSettingsBMSFilesView = Settings.Default.EncodingColumnsSettings;
+                caseAssignMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 break;
             case viewUpdateMode.PendingInstallFolderSelected:
+                caseLabel = "install";
+                stageStartMs = stopwatch.ElapsedMilliseconds;
                 if (Settings.Default.InstallColumnsSettings == null)
                 {
                     Settings.Default.InstallColumnsSettings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.INSTALL);
                 }
+                caseEnsureMs = stopwatch.ElapsedMilliseconds - stageStartMs;
+                stageStartMs = stopwatch.ElapsedMilliseconds;
                 ColumnsSettingsBMSFilesView = Settings.Default.InstallColumnsSettings;
+                caseAssignMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 break;
         }
+        stageStartMs = stopwatch.ElapsedMilliseconds;
         if (Settings.Default.PlaylistSummaryColumnsSettings == null)
         {
             Settings.Default.PlaylistSummaryColumnsSettings = new PlaylistSummaryColumnSettings();
         }
+        playlistSummaryEnsureMs = stopwatch.ElapsedMilliseconds - stageStartMs;
+        stageStartMs = stopwatch.ElapsedMilliseconds;
         PlaylistSummaryColumnsSettings = Settings.Default.PlaylistSummaryColumnsSettings;
+        playlistSummaryAssignMs = stopwatch.ElapsedMilliseconds - stageStartMs;
+
+        long totalMs = stopwatch.ElapsedMilliseconds;
+        if (totalMs >= ColumnSettingSlowLogThresholdMs)
+        {
+            LogMainViewBuild("column_setting_slow mode=" + mode + " case=" + caseLabel + " isInit=" + isInit + " totalMs=" + totalMs + " normalizeMs=" + normalizeMs + " visibilityMs=" + visibilityMs + " caseEnsureMs=" + caseEnsureMs + " caseAssignMs=" + caseAssignMs + " playlistSummaryEnsureMs=" + playlistSummaryEnsureMs + " playlistSummaryAssignMs=" + playlistSummaryAssignMs + " thresholdMs=" + ColumnSettingSlowLogThresholdMs);
+        }
     }
 
     public void ExecSort(string columnName, ListSortDirection direction)

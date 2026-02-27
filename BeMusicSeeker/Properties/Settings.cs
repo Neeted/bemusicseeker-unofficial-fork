@@ -1072,6 +1072,24 @@ internal sealed class Settings : ApplicationSettingsBase
 	[UserScopedSetting]
 	[DebuggerNonUserCode]
 	[DefaultSettingValue("False")]
+	// NOTE:
+	// DataGrid 一覧画面で列仮想化を試験導入するための切り替えフラグです。
+	// 既定値は false とし、従来挙動を保持します。
+	public bool UseDataGridColumnVirtualizationExperimental
+	{
+		get
+		{
+			return (bool)this["UseDataGridColumnVirtualizationExperimental"];
+		}
+		set
+		{
+			this["UseDataGridColumnVirtualizationExperimental"] = value;
+		}
+	}
+
+	[UserScopedSetting]
+	[DebuggerNonUserCode]
+	[DefaultSettingValue("False")]
 	public bool KeepInstallablePackagesPending
 	{
 		get

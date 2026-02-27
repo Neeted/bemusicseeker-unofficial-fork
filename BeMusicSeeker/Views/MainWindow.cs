@@ -31,6 +31,7 @@ using Livet.EventListeners;
 using Livet.Messaging;
 using Microsoft.Win32;
 using Microsoft.WindowsAPICodePack.Dialogs;
+using NLog;
 using Parago.Windows;
 using Ribbit.Logging;
 using Ribbit.Util.Extensions;
@@ -40,6 +41,14 @@ namespace BeMusicSeeker.Views;
 
 public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 {
+    private static readonly Logger installPerformanceLogger = LogManager.GetLogger("InstallPerformance.MainWindow");
+
+    private static long callbackExecSortRequestId;
+
+    private static long callbackExecSortSignalId;
+
+    private const long CallbackExecSortSlowLogThresholdMs = 100L;
+
     // NOTE:
     // TreeView の仮想化 (Recycling) 有効時は、画面外ノードのコンテナが VisualTree から外れる。
     // そのため「VisualTree を再帰して選択状態を判定する」実装は false negative を起こす。
@@ -325,9 +334,27 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     private async void dataGridSorting(object sender, DataGridSortingEventArgs e)
     {
         e.Handled = true;
-        ListSortDirection newDir = ((e.Column.SortDirection == ListSortDirection.Ascending) ? ListSortDirection.Descending : ListSortDirection.Ascending);
-        string name = e.Column.SortMemberPath;
         MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
+        ListSortDirection? effectiveCurrentDirection = e.Column.SortDirection;
+        if (!effectiveCurrentDirection.HasValue && viewModel?.SortParameters != null && string.Equals(viewModel.SortParameters.ColumnsName, e.Column.SortMemberPath, StringComparison.Ordinal))
+        {
+            effectiveCurrentDirection = viewModel.SortParameters.Direction;
+        }
+        ListSortDirection newDir = ((effectiveCurrentDirection == ListSortDirection.Ascending) ? ListSortDirection.Descending : ListSortDirection.Ascending);
+        string name = e.Column.SortMemberPath;
+
+        if (sender is DataGrid dataGrid)
+        {
+            foreach (DataGridColumn item in dataGrid.Columns)
+            {
+                if (!ReferenceEquals(item, e.Column))
+                {
+                    item.SortDirection = null;
+                }
+            }
+            e.Column.SortDirection = newDir;
+        }
+
         await Task.Run(delegate
         {
             viewModel.ExecSort(name, newDir);
@@ -365,15 +392,62 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     public void renewSortIcon(DataGrid dataGrid)
     {
-        base.Dispatcher.BeginInvoke((Action)delegate
+        long requestId = Interlocked.Increment(ref callbackExecSortRequestId);
+        long signalId = Interlocked.Increment(ref callbackExecSortSignalId);
+        Stopwatch queueStopwatch = Stopwatch.StartNew();
+        MainWindowViewModel mainWindowViewModel = base.DataContext as MainWindowViewModel;
+        long raiseRequestId = mainWindowViewModel?.LastExecSortCallbackRequestId ?? 0L;
+        long raiseStartTimestamp = mainWindowViewModel?.LastExecSortCallbackRaiseStartTimestamp ?? 0L;
+        int raiseStartThreadId = mainWindowViewModel?.LastExecSortCallbackRaiseStartThreadId ?? 0;
+        long raiseToHandlerMs = (raiseStartTimestamp > 0L) ? ((Stopwatch.GetTimestamp() - raiseStartTimestamp) * 1000L / Stopwatch.Frequency) : (-1L);
+        int handlerThreadId = Thread.CurrentThread.ManagedThreadId;
+        bool handlerOnUiThread = base.Dispatcher.CheckAccess();
+        if (raiseToHandlerMs >= CallbackExecSortSlowLogThresholdMs)
         {
-            MainWindowViewModel mainWindowViewModel = base.DataContext as MainWindowViewModel;
-            MainWindowViewModel.cSortParameters parameters = mainWindowViewModel.SortParameters;
+            installPerformanceLogger?.Info("callback_exec_sort handler_slow request=" + requestId + " raiseRequest=" + raiseRequestId + " raiseToHandlerMs=" + raiseToHandlerMs + " handlerThreadId=" + handlerThreadId + " raiseThreadId=" + raiseStartThreadId + " handlerOnUiThread=" + handlerOnUiThread + " columns=" + dataGrid?.Columns?.Count + " thresholdMs=" + CallbackExecSortSlowLogThresholdMs);
+        }
+
+        Action applySortIcon = delegate
+        {
+            if (signalId != Volatile.Read(ref callbackExecSortSignalId))
+            {
+                installPerformanceLogger?.Info("callback_exec_sort run request=" + requestId + " raiseRequest=" + raiseRequestId + " reason=stale_signal signalId=" + signalId + " latestSignalId=" + Volatile.Read(ref callbackExecSortSignalId));
+                return;
+            }
+            long queueMs = queueStopwatch.ElapsedMilliseconds;
+            Stopwatch runStopwatch = Stopwatch.StartNew();
+            MainWindowViewModel.cSortParameters parameters = mainWindowViewModel?.SortParameters;
             if (parameters != null)
             {
-                dataGrid.Columns.First((DataGridColumn c) => c.SortMemberPath == parameters.ColumnsName).SortDirection = parameters.Direction;
+                DataGridColumn dataGridColumn = dataGrid?.Columns?.FirstOrDefault((DataGridColumn c) => c.SortMemberPath == parameters.ColumnsName);
+                if (dataGridColumn != null)
+                {
+                    dataGridColumn.SortDirection = parameters.Direction;
+                    long runMs = runStopwatch.ElapsedMilliseconds;
+                    if (queueMs >= CallbackExecSortSlowLogThresholdMs || runMs >= CallbackExecSortSlowLogThresholdMs)
+                    {
+                        installPerformanceLogger?.Info("callback_exec_sort run_slow request=" + requestId + " raiseRequest=" + raiseRequestId + " queueMs=" + queueMs + " runMs=" + runMs + " runThreadId=" + Thread.CurrentThread.ManagedThreadId + " column=" + parameters.ColumnsName + " direction=" + parameters.Direction + " thresholdMs=" + CallbackExecSortSlowLogThresholdMs);
+                    }
+                }
+                else
+                {
+                    installPerformanceLogger?.Warn("callback_exec_sort run request=" + requestId + " raiseRequest=" + raiseRequestId + " queueMs=" + queueMs + " runMs=" + runStopwatch.ElapsedMilliseconds + " runThreadId=" + Thread.CurrentThread.ManagedThreadId + " reason=column_not_found column=" + parameters.ColumnsName);
+                }
             }
-        }, DispatcherPriority.ContextIdle);
+            else
+            {
+                installPerformanceLogger?.Info("callback_exec_sort run request=" + requestId + " raiseRequest=" + raiseRequestId + " queueMs=" + queueMs + " runMs=" + runStopwatch.ElapsedMilliseconds + " runThreadId=" + Thread.CurrentThread.ManagedThreadId + " reason=sort_parameters_null");
+            }
+        };
+
+        if (base.Dispatcher.CheckAccess())
+        {
+            applySortIcon();
+        }
+        else
+        {
+            base.Dispatcher.BeginInvoke(applySortIcon, DispatcherPriority.ContextIdle);
+        }
     }
 
     private void dataGridInitializeColumnSetting(object sender, RoutedEventArgs e)
