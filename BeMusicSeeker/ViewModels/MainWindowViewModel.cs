@@ -6488,7 +6488,7 @@ public class MainWindowViewModel : ViewModel
             case viewUpdateMode.PlaylistNotOwnedFilterSelected:
                 caseLabel = "playlist";
                 stageStartMs = stopwatch.ElapsedMilliseconds;
-                if (Settings.Default.PlaylistColumnsSettings == null)
+                if (isInit || Settings.Default.PlaylistColumnsSettings == null)
                 {
                     Settings.Default.PlaylistColumnsSettings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.PLAYLIST);
                 }
@@ -6503,7 +6503,7 @@ public class MainWindowViewModel : ViewModel
             case viewUpdateMode.ZeroNoteFilterSelected:
                 caseLabel = "standard";
                 stageStartMs = stopwatch.ElapsedMilliseconds;
-                if (Settings.Default.StandardColumnsSettings == null)
+                if (isInit || Settings.Default.StandardColumnsSettings == null)
                 {
                     Settings.Default.StandardColumnsSettings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.STANDARD);
                 }
@@ -6517,7 +6517,7 @@ public class MainWindowViewModel : ViewModel
             case viewUpdateMode.NewlyInstalledFolderSelected:
                 caseLabel = "fullscan";
                 stageStartMs = stopwatch.ElapsedMilliseconds;
-                if (Settings.Default.FullScanColumnsSettings == null)
+                if (isInit || Settings.Default.FullScanColumnsSettings == null)
                 {
                     Settings.Default.FullScanColumnsSettings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.FULLSCAN);
                 }
@@ -6529,7 +6529,7 @@ public class MainWindowViewModel : ViewModel
             case viewUpdateMode.DuplicateFilterSelected:
                 caseLabel = "duplicate";
                 stageStartMs = stopwatch.ElapsedMilliseconds;
-                if (Settings.Default.DuplicateColumnsSettings == null)
+                if (isInit || Settings.Default.DuplicateColumnsSettings == null)
                 {
                     Settings.Default.DuplicateColumnsSettings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.DUPLICATE);
                 }
@@ -6542,7 +6542,7 @@ public class MainWindowViewModel : ViewModel
             case viewUpdateMode.GarbleFixedFilterSelected:
                 caseLabel = "encoding";
                 stageStartMs = stopwatch.ElapsedMilliseconds;
-                if (Settings.Default.EncodingColumnsSettings == null)
+                if (isInit || Settings.Default.EncodingColumnsSettings == null)
                 {
                     Settings.Default.EncodingColumnsSettings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.ENCODING);
                 }
@@ -6554,7 +6554,7 @@ public class MainWindowViewModel : ViewModel
             case viewUpdateMode.PendingInstallFolderSelected:
                 caseLabel = "install";
                 stageStartMs = stopwatch.ElapsedMilliseconds;
-                if (Settings.Default.InstallColumnsSettings == null)
+                if (isInit || Settings.Default.InstallColumnsSettings == null)
                 {
                     Settings.Default.InstallColumnsSettings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.INSTALL);
                 }
