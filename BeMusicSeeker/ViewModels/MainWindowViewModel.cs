@@ -3394,6 +3394,16 @@ public class MainWindowViewModel : ViewModel
 
     private int lastExecSortCallbackRaiseStartThreadId;
 
+    private static long mainViewBuildRequestIdSeed;
+
+    private long lastMainViewBuildRequestId;
+
+    private long lastMainViewBuildEndTimestamp;
+
+    private int lastMainViewBuildThreadId;
+
+    private int lastMainViewBuildMode;
+
     private PlaylistSummaryColumnSettings _PlaylistSummaryColumnsSettings;
 
     private Visibility _ColumnSettingsVisibilityForPlaylist = Visibility.Collapsed;
@@ -4211,6 +4221,27 @@ public class MainWindowViewModel : ViewModel
     public long LastExecSortCallbackRaiseStartTimestamp => Interlocked.Read(ref lastExecSortCallbackRaiseStartTimestamp);
 
     public int LastExecSortCallbackRaiseStartThreadId => Volatile.Read(ref lastExecSortCallbackRaiseStartThreadId);
+
+    /// <summary>
+    /// 最新の一覧更新要求を識別するIDを返します。
+    /// MainWindow 側の描画遅延計測ログを main_view_build と突き合わせるために使用します。
+    /// </summary>
+    public long LastMainViewBuildRequestId => Interlocked.Read(ref lastMainViewBuildRequestId);
+
+    /// <summary>
+    /// 最新の main_view_build 完了時刻 (Stopwatch タイムスタンプ) を返します。
+    /// </summary>
+    public long LastMainViewBuildEndTimestamp => Interlocked.Read(ref lastMainViewBuildEndTimestamp);
+
+    /// <summary>
+    /// 最新の main_view_build を実行したスレッドIDを返します。
+    /// </summary>
+    public int LastMainViewBuildThreadId => Volatile.Read(ref lastMainViewBuildThreadId);
+
+    /// <summary>
+    /// 最新の main_view_build 実行時モードを int 値で返します。
+    /// </summary>
+    public int LastMainViewBuildMode => Volatile.Read(ref lastMainViewBuildMode);
 
     public BeMusicSeeker.Models.BMSFile NowPlayingBMS
     {
@@ -6417,6 +6448,12 @@ public class MainWindowViewModel : ViewModel
         bool fastSortEnabled = Settings.Default.UseFastSortInDataGridExperimental;
         bool dataGridColumnVirtualizationEnabled = Settings.Default.UseDataGridColumnVirtualizationExperimental;
         bool isPlaylistDetailForLog = mode == viewUpdateMode.PlaylistFilterSelected || mode == viewUpdateMode.PlaylistNotOwnedFilterSelected || treeViewFilterTypeSelected == viewUpdateMode.PlaylistFilterSelected || treeViewFilterTypeSelected == viewUpdateMode.PlaylistNotOwnedFilterSelected;
+        long mainViewBuildRequestId = Interlocked.Increment(ref mainViewBuildRequestIdSeed);
+        long mainViewBuildEndTimestamp = Stopwatch.GetTimestamp();
+        Interlocked.Exchange(ref lastMainViewBuildRequestId, mainViewBuildRequestId);
+        Interlocked.Exchange(ref lastMainViewBuildEndTimestamp, mainViewBuildEndTimestamp);
+        Volatile.Write(ref lastMainViewBuildThreadId, Thread.CurrentThread.ManagedThreadId);
+        Volatile.Write(ref lastMainViewBuildMode, (int)mode);
         LogMainViewBuild("main_view_build mode=" + mode + " requestedMode=" + requestedMode + " parameterType=" + parameterType + " folderMs=" + folderStageMs + " keywordMs=" + keywordStageMs + " modeMs=" + modeStageMs + " sortMs=" + sortStageMs + " sortReuse=" + sortReuse + " sortProfile=" + sortProfile + " sortEngine=" + (fastSortEnabled ? "fast" : "legacy") + " fastSortEnabled=" + fastSortEnabled + " dataGridColumnVirtualizationEnabled=" + dataGridColumnVirtualizationEnabled + " isPlaylistDetailView=" + isPlaylistDetailForLog + " columnMs=" + columnStageMs + " callbackMs=" + callbackStageMs + " totalMs=" + viewBuildStopwatch.ElapsedMilliseconds + " folderCount=" + folderCount + " keywordCount=" + keywordCount + " modeCount=" + modeCount + " viewCount=" + viewCount + " sortColumn=" + sortColumn + " sortDirection=" + sortDirection);
     }
 

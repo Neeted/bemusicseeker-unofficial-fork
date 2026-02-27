@@ -47,6 +47,14 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private static long callbackExecSortSignalId;
 
+    private static long targetUpdatedHandledBuildRequestId;
+
+    private static long targetUpdatedScheduledBuildRequestId;
+
+    private string _lastAppliedSortColumnName;
+
+    private ListSortDirection? _lastAppliedSortDirection;
+
     private const long CallbackExecSortSlowLogThresholdMs = 100L;
 
     // NOTE:
@@ -398,11 +406,90 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         if (sender is DataGrid dataGrid2)
         {
-            renewSortIcon(dataGrid2);
+            MainWindowViewModel mainWindowViewModel = base.DataContext as MainWindowViewModel;
+            long buildRequestId = mainWindowViewModel?.LastMainViewBuildRequestId ?? 0L;
+            MainWindowViewModel.cSortParameters currentSortParameters = mainWindowViewModel?.SortParameters;
+
+            if (currentSortParameters != null &&
+                string.Equals(_lastAppliedSortColumnName, currentSortParameters.ColumnsName, StringComparison.Ordinal) &&
+                _lastAppliedSortDirection == currentSortParameters.Direction)
+            {
+                installPerformanceLogger?.Info("callback_exec_sort target_updated_skip buildRequest=" + buildRequestId + " reason=sort_unchanged column=" + currentSortParameters.ColumnsName + " direction=" + currentSortParameters.Direction + " columns=" + dataGrid2.Columns?.Count);
+                return;
+            }
+
+            if (buildRequestId > 0L)
+            {
+                long previousHandledBuildRequestId = Interlocked.Read(ref targetUpdatedHandledBuildRequestId);
+                long previousScheduledBuildRequestId = Interlocked.Read(ref targetUpdatedScheduledBuildRequestId);
+                if (previousHandledBuildRequestId == buildRequestId || previousScheduledBuildRequestId == buildRequestId)
+                {
+                    installPerformanceLogger?.Info("callback_exec_sort target_updated_skip buildRequest=" + buildRequestId + " reason=duplicate_items_source_update columns=" + dataGrid2.Columns?.Count);
+                    return;
+                }
+                Interlocked.Exchange(ref targetUpdatedScheduledBuildRequestId, buildRequestId);
+            }
+
+            // NOTE:
+            // 通常のソートアイコン同期は CallbackExecSort 側で十分に間に合う。
+            // TargetUpdated は ItemsSource 差し替え由来で複数回発火しやすいため、即時実行ではなく
+            // ContextIdle まで遅延させて「callback で未反映だった場合のみ」フォールバックで実行する。
+            base.Dispatcher.BeginInvoke((Action)delegate
+            {
+                if (buildRequestId > 0L)
+                {
+                    Interlocked.CompareExchange(ref targetUpdatedScheduledBuildRequestId, 0L, buildRequestId);
+                }
+
+                MainWindowViewModel latestViewModel = base.DataContext as MainWindowViewModel;
+                long latestBuildRequestId = latestViewModel?.LastMainViewBuildRequestId ?? 0L;
+                MainWindowViewModel.cSortParameters latestSortParameters = latestViewModel?.SortParameters;
+
+                if (buildRequestId > 0L && latestBuildRequestId != buildRequestId)
+                {
+                    installPerformanceLogger?.Info("callback_exec_sort target_updated_skip buildRequest=" + buildRequestId + " reason=stale_build_request latestBuildRequest=" + latestBuildRequestId + " columns=" + dataGrid2.Columns?.Count);
+                    return;
+                }
+
+                if (latestSortParameters != null &&
+                    string.Equals(_lastAppliedSortColumnName, latestSortParameters.ColumnsName, StringComparison.Ordinal) &&
+                    _lastAppliedSortDirection == latestSortParameters.Direction)
+                {
+                    installPerformanceLogger?.Info("callback_exec_sort target_updated_skip buildRequest=" + buildRequestId + " reason=callback_already_applied column=" + latestSortParameters.ColumnsName + " direction=" + latestSortParameters.Direction + " columns=" + dataGrid2.Columns?.Count);
+                    return;
+                }
+
+                if (buildRequestId > 0L)
+                {
+                    long previousHandledBuildRequestId = Interlocked.Read(ref targetUpdatedHandledBuildRequestId);
+                    if (previousHandledBuildRequestId == buildRequestId)
+                    {
+                        installPerformanceLogger?.Info("callback_exec_sort target_updated_skip buildRequest=" + buildRequestId + " reason=fallback_already_handled columns=" + dataGrid2.Columns?.Count);
+                        return;
+                    }
+                    Interlocked.Exchange(ref targetUpdatedHandledBuildRequestId, buildRequestId);
+                }
+
+                renewSortIcon(dataGrid2, "target_updated_fallback");
+            }, DispatcherPriority.ContextIdle);
         }
     }
 
+    /// <summary>
+    /// Livet の MethodAction 互換のための単引数エントリです。
+    /// </summary>
+    /// <param name="dataGrid">対象 DataGrid。</param>
     public void renewSortIcon(DataGrid dataGrid)
+    {
+        renewSortIcon(dataGrid, "callback");
+    }
+
+    /// <summary>
+    /// DataGrid のソートアイコン同期を行い、必要に応じて遅延計測ログを出力します。
+    /// </summary>
+    /// <param name="dataGrid">対象 DataGrid。</param>
+    /// <param name="trigger">呼び出し契機。ログ相関用。</param>
+    public void renewSortIcon(DataGrid dataGrid, string trigger = "unspecified")
     {
         long requestId = Interlocked.Increment(ref callbackExecSortRequestId);
         long signalId = Interlocked.Increment(ref callbackExecSortSignalId);
@@ -411,18 +498,24 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         long raiseRequestId = mainWindowViewModel?.LastExecSortCallbackRequestId ?? 0L;
         long raiseStartTimestamp = mainWindowViewModel?.LastExecSortCallbackRaiseStartTimestamp ?? 0L;
         int raiseStartThreadId = mainWindowViewModel?.LastExecSortCallbackRaiseStartThreadId ?? 0;
+        long mainViewBuildRequestId = mainWindowViewModel?.LastMainViewBuildRequestId ?? 0L;
+        long mainViewBuildEndTimestamp = mainWindowViewModel?.LastMainViewBuildEndTimestamp ?? 0L;
+        int mainViewBuildThreadId = mainWindowViewModel?.LastMainViewBuildThreadId ?? 0;
+        int mainViewBuildMode = mainWindowViewModel?.LastMainViewBuildMode ?? 0;
         long raiseToHandlerMs = (raiseStartTimestamp > 0L) ? ((Stopwatch.GetTimestamp() - raiseStartTimestamp) * 1000L / Stopwatch.Frequency) : (-1L);
+        long buildToHandlerMs = (mainViewBuildEndTimestamp > 0L) ? ((Stopwatch.GetTimestamp() - mainViewBuildEndTimestamp) * 1000L / Stopwatch.Frequency) : (-1L);
         int handlerThreadId = Thread.CurrentThread.ManagedThreadId;
         bool handlerOnUiThread = base.Dispatcher.CheckAccess();
-        if (raiseToHandlerMs >= CallbackExecSortSlowLogThresholdMs)
+        if (raiseToHandlerMs >= CallbackExecSortSlowLogThresholdMs || buildToHandlerMs >= CallbackExecSortSlowLogThresholdMs)
         {
-            installPerformanceLogger?.Info("callback_exec_sort handler_slow request=" + requestId + " raiseRequest=" + raiseRequestId + " raiseToHandlerMs=" + raiseToHandlerMs + " handlerThreadId=" + handlerThreadId + " raiseThreadId=" + raiseStartThreadId + " handlerOnUiThread=" + handlerOnUiThread + " columns=" + dataGrid?.Columns?.Count + " thresholdMs=" + CallbackExecSortSlowLogThresholdMs);
+            installPerformanceLogger?.Info("callback_exec_sort handler_slow request=" + requestId + " trigger=" + trigger + " raiseRequest=" + raiseRequestId + " raiseToHandlerMs=" + raiseToHandlerMs + " buildRequest=" + mainViewBuildRequestId + " buildToHandlerMs=" + buildToHandlerMs + " handlerThreadId=" + handlerThreadId + " raiseThreadId=" + raiseStartThreadId + " buildThreadId=" + mainViewBuildThreadId + " buildMode=" + mainViewBuildMode + " handlerOnUiThread=" + handlerOnUiThread + " columns=" + dataGrid?.Columns?.Count + " thresholdMs=" + CallbackExecSortSlowLogThresholdMs);
         }
 
         Action applySortIcon = delegate
         {
             long queueMs = queueStopwatch.ElapsedMilliseconds;
             Stopwatch runStopwatch = Stopwatch.StartNew();
+            long applyStartTimestamp = Stopwatch.GetTimestamp();
             MainWindowViewModel.cSortParameters parameters = mainWindowViewModel?.SortParameters;
             if (parameters != null)
             {
@@ -444,21 +537,37 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 }
                 if (dataGridColumn != null)
                 {
+                    _lastAppliedSortColumnName = parameters.ColumnsName;
+                    _lastAppliedSortDirection = parameters.Direction;
                     long runMs = runStopwatch.ElapsedMilliseconds;
                     if (queueMs >= CallbackExecSortSlowLogThresholdMs || runMs >= CallbackExecSortSlowLogThresholdMs)
                     {
-                        installPerformanceLogger?.Info("callback_exec_sort run_slow request=" + requestId + " raiseRequest=" + raiseRequestId + " signalId=" + signalId + " latestSignalId=" + Volatile.Read(ref callbackExecSortSignalId) + " queueMs=" + queueMs + " runMs=" + runMs + " runThreadId=" + Thread.CurrentThread.ManagedThreadId + " column=" + parameters.ColumnsName + " direction=" + parameters.Direction + " thresholdMs=" + CallbackExecSortSlowLogThresholdMs);
+                        installPerformanceLogger?.Info("callback_exec_sort run_slow request=" + requestId + " trigger=" + trigger + " raiseRequest=" + raiseRequestId + " signalId=" + signalId + " latestSignalId=" + Volatile.Read(ref callbackExecSortSignalId) + " queueMs=" + queueMs + " runMs=" + runMs + " runThreadId=" + Thread.CurrentThread.ManagedThreadId + " column=" + parameters.ColumnsName + " direction=" + parameters.Direction + " thresholdMs=" + CallbackExecSortSlowLogThresholdMs);
                     }
                 }
                 else
                 {
-                    installPerformanceLogger?.Warn("callback_exec_sort run request=" + requestId + " raiseRequest=" + raiseRequestId + " signalId=" + signalId + " latestSignalId=" + Volatile.Read(ref callbackExecSortSignalId) + " queueMs=" + queueMs + " runMs=" + runStopwatch.ElapsedMilliseconds + " runThreadId=" + Thread.CurrentThread.ManagedThreadId + " reason=column_not_found column=" + parameters.ColumnsName);
+                    installPerformanceLogger?.Warn("callback_exec_sort run request=" + requestId + " trigger=" + trigger + " raiseRequest=" + raiseRequestId + " signalId=" + signalId + " latestSignalId=" + Volatile.Read(ref callbackExecSortSignalId) + " queueMs=" + queueMs + " runMs=" + runStopwatch.ElapsedMilliseconds + " runThreadId=" + Thread.CurrentThread.ManagedThreadId + " reason=column_not_found column=" + parameters.ColumnsName);
                 }
             }
             else
             {
-                installPerformanceLogger?.Info("callback_exec_sort run request=" + requestId + " raiseRequest=" + raiseRequestId + " signalId=" + signalId + " latestSignalId=" + Volatile.Read(ref callbackExecSortSignalId) + " queueMs=" + queueMs + " runMs=" + runStopwatch.ElapsedMilliseconds + " runThreadId=" + Thread.CurrentThread.ManagedThreadId + " reason=sort_parameters_null");
+                installPerformanceLogger?.Info("callback_exec_sort run request=" + requestId + " trigger=" + trigger + " raiseRequest=" + raiseRequestId + " signalId=" + signalId + " latestSignalId=" + Volatile.Read(ref callbackExecSortSignalId) + " queueMs=" + queueMs + " runMs=" + runStopwatch.ElapsedMilliseconds + " runThreadId=" + Thread.CurrentThread.ManagedThreadId + " reason=sort_parameters_null");
             }
+
+            // NOTE:
+            // Sort icon renewal itself can be cheap while actual UI paint is delayed in the render queue.
+            // This render-priority probe measures "apply -> first render" without changing UI behavior.
+            base.Dispatcher.BeginInvoke((Action)delegate
+            {
+                long applyToRenderMs = (Stopwatch.GetTimestamp() - applyStartTimestamp) * 1000L / Stopwatch.Frequency;
+                long raiseToRenderMs = (raiseStartTimestamp > 0L) ? ((Stopwatch.GetTimestamp() - raiseStartTimestamp) * 1000L / Stopwatch.Frequency) : (-1L);
+                long buildToRenderMs = (mainViewBuildEndTimestamp > 0L) ? ((Stopwatch.GetTimestamp() - mainViewBuildEndTimestamp) * 1000L / Stopwatch.Frequency) : (-1L);
+                if (applyToRenderMs >= CallbackExecSortSlowLogThresholdMs || raiseToRenderMs >= CallbackExecSortSlowLogThresholdMs || buildToRenderMs >= CallbackExecSortSlowLogThresholdMs)
+                {
+                    installPerformanceLogger?.Info("callback_exec_sort render_slow request=" + requestId + " trigger=" + trigger + " raiseRequest=" + raiseRequestId + " buildRequest=" + mainViewBuildRequestId + " applyToRenderMs=" + applyToRenderMs + " raiseToRenderMs=" + raiseToRenderMs + " buildToRenderMs=" + buildToRenderMs + " renderThreadId=" + Thread.CurrentThread.ManagedThreadId + " thresholdMs=" + CallbackExecSortSlowLogThresholdMs);
+                }
+            }, DispatcherPriority.Render);
         };
 
         if (base.Dispatcher.CheckAccess())
