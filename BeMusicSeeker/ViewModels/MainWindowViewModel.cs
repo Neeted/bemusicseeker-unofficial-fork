@@ -36,6 +36,11 @@ using Ribbit.Util.Extensions;
 
 namespace BeMusicSeeker.ViewModels;
 
+/// <summary>
+/// BeMusicSeeker のメイン画面を制御する ViewModel です。
+/// ライブラリ（BMSファイル群）やプレイリストの管理、各ビュー状態の維持、内蔵および外部BMSプレイヤー機能の連携のほか、
+/// UI (MainWindow) とのデータバインディングやルーティングを担います。
+/// </summary>
 public class MainWindowViewModel : ViewModel
 {
     public class SettingDialogViewModel : ViewModel
@@ -4161,6 +4166,10 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
+    /// <summary>
+    /// メインリスト (DataGrid) 上に実際に表示されるBMS楽曲データ群です。
+    /// ツリーでのフォルダ選択や、各種フィルタリング（キーワード検索、モード絞り込みなど）による抽出結果が反映されます。
+    /// </summary>
     public List<BeMusicSeeker.Models.BMSFile> BMSFilesView
     {
         get
@@ -4243,6 +4252,10 @@ public class MainWindowViewModel : ViewModel
     /// </summary>
     public int LastMainViewBuildMode => Volatile.Read(ref lastMainViewBuildMode);
 
+    /// <summary>
+    /// 現在プレビュー再生（または再生準備）中である BMS ファイルを表す状態プロパティです。
+    /// BMSPlayer からのフィードバックやプレビュー指示に応じて操作され、UI上でどの曲が再生中かの表示管理に使われます。
+    /// </summary>
     public BeMusicSeeker.Models.BMSFile NowPlayingBMS
     {
         get
@@ -4341,6 +4354,10 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
+    /// <summary>
+    /// プレイリストサマリー画面 (特定のプレイリスト配下のランプ状況等を集計した表) を構成する行データのコレクションです。
+    /// プレイリストの選択状態に応じて動的に集計・更新されます。
+    /// </summary>
     public ObservableCollection<PlaylistSummaryRow> PlaylistSummaryView
     {
         get
@@ -4534,6 +4551,10 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
+    /// <summary>
+    /// アプリケーション内で認識・ツリー表示されているプレイリスト (BMSTable) 群の Observable なコレクションです。
+    /// カスタムフォルダや難易度表等のプレイリスト階層構造全体を保持します。
+    /// </summary>
     public DispatcherCollection<BMSTable> BMSTables
     {
         get
@@ -5006,6 +5027,10 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
+    /// <summary>
+    /// <see cref="MainWindowViewModel"/> クラスの新しいインスタンスを初期化します。
+    /// 設定情報に基づくプレースホルダーの初期状態設定や、内包される <see cref="SettingDialogViewModel"/> の生成を行います。
+    /// </summary>
     public MainWindowViewModel()
     {
         _IsPlaylistTreeExpanded = Settings.Default.StartupExpandPlaylistTree;
@@ -5097,6 +5122,11 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
+    /// <summary>
+    /// アプリケーション初期起動時に実行される、メイン初期化ルーチンです。非同期で呼び出されます。<br/>
+    /// 設定の妥当性チェック、BMSデータベース (LR2SongDB形式など) との接続、BMSプレイヤーインスタンスの生成、
+    /// およびコレクション更新をフックする各種イベントリスナーの登録を順次行います。
+    /// </summary>
     public async void Initialize()
     {
         await _semaphore.WaitAsync();
