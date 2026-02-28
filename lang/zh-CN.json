@@ -1,4 +1,4 @@
-﻿{
+{
   "_language_name": "简体中文",
   "Open_Url": "打开 URL",
   "Remove_ignore": "从忽略列表中移除",
@@ -137,6 +137,8 @@
   "Player_LR2_wsize": "LR2body 窗口大小：",
   "Details_show_diag_diff_install": "在进行差分安装时显示确认消息",
   "Details_test_download_and_install": "[测试] 下载后尝试自动执行安装",
+  "Details_test_fast_sort_list_view": "[测试] 在列表界面使用高速排序（非自然排序）",
+  "Details_test_column_virtualization_list_view": "[测试] 在列表界面启用列虚拟化（不推荐：实验后无明显提速）",
   "Full_scan_check": "完全扫描检查",
   "Custom_folder": "自定义文件夹",
   "Player_Internal_desc": "* 设置位于“设备”选项卡中",
@@ -408,6 +410,7 @@
   "Error_ParseFailed": "解析失败。",
   "Warn_CustomFolderOutputDirInvalid": "检测到自定义文件夹输出目录异常。\n请确认输出目录是否正确设置。",
   "Error_InstallComponentFileNotFound": "文件未找到",
-  "Msg_merge_bms_completed": "\u5df2\u5c06\u300c{0}\u300d\u5408\u5e76\u5230\u300c{1}\u300d",
+  "Msg_merge_bms_completed": "已将「{0}」合并到「{1}」",
   "Msg_cleanup_duplicate_hash": "整理同一文件夹内的哈希重复BMS文件。\n优先保留修改日期最早的文件，\n日期相同则保留文件名较短的。\n将{0}个文件移至回收站。\n是否继续？"
 }
+

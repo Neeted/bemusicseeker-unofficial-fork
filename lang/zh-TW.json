@@ -137,6 +137,8 @@
   "Player_LR2_wsize": "LR2body 視窗大小：",
   "Details_show_diag_diff_install": "進行差分安裝時顯示確認訊息",
   "Details_test_download_and_install": "[測試] 下載後嘗試自動執行安裝",
+  "Details_test_fast_sort_list_view": "[測試] 在清單畫面使用高速排序（非自然排序）",
+  "Details_test_column_virtualization_list_view": "[測試] 在清單畫面啟用欄位虛擬化（不建議：實測沒有變快）",
   "Full_scan_check": "完整掃描檢查",
   "Custom_folder": "自訂資料夾",
   "Player_Internal_desc": "* 設定位於「裝置」分頁中",
@@ -408,6 +410,6 @@
   "Error_ParseFailed": "解析失敗。",
   "Warn_CustomFolderOutputDirInvalid": "偵測到自訂資料夾輸出目錄異常。\n請確認輸出目錄是否正確設定。",
   "Error_InstallComponentFileNotFound": "找不到檔案",
-  "Msg_merge_bms_completed": "\u5df2\u5c07\u300c{0}\u300d\u5408\u4f75\u5230\u300c{1}\u300d",
+  "Msg_merge_bms_completed": "已將「{0}」合併到「{1}」",
   "Msg_cleanup_duplicate_hash": "整理同一資料夾內的雜湊重複BMS檔案。\n優先保留修改日期最早的檔案，\n日期相同則保留檔名較短的。\n將{0}個檔案移至資源回收桶。\n是否繼續？"
 }

@@ -137,6 +137,8 @@
   "Player_LR2_wsize": "LR2body 창 크기:",
   "Details_show_diag_diff_install": "차분 설치 기능 사용 시 확인 대화 상자 표시",
   "Details_test_download_and_install": "[테스트] 다운로드 후 자동으로 설치를 실행하려고 시도",
+  "Details_test_fast_sort_list_view": "[테스트] 목록 화면에서 고속 정렬(비자연 정렬) 사용",
+  "Details_test_column_virtualization_list_view": "[테스트] 목록 화면에서 열 가상화를 활성화 (비권장: 실험 결과 속도 향상 없음)",
   "Full_scan_check": "전체 스캔 검사",
   "Custom_folder": "사용자 지정 폴더",
   "Player_Internal_desc": "* 환경 설정은 \"장치\" 탭에 있습니다",
@@ -408,6 +410,6 @@
   "Error_ParseFailed": "파싱에 실패했습니다.",
   "Warn_CustomFolderOutputDirInvalid": "커스텀 폴더 출력 디렉토리의 이상이 감지되었습니다.\n출력 대상이 올바르게 지정되어 있는지 확인해 주세요.",
   "Error_InstallComponentFileNotFound": "파일을 찾을 수 없습니다",
-  "Msg_merge_bms_completed": "\"{0}\"\uc744(\ub97c) \"{1}\"\uc73c\ub85c \ubcd1\ud569\ud588\uc2b5\ub2c8\ub2e4",
+  "Msg_merge_bms_completed": "\"{0}\"을(를) \"{1}\"으로 병합했습니다",
   "Msg_cleanup_duplicate_hash": "같은 폴더 내 해시 중복 BMS 파일을 정리합니다.\n수정 날짜가 가장 오래된 파일을 유지하고,\n날짜가 같으면 파일명이 짧은 쪽을 유지합니다.\n{0}개의 파일을 휴지통으로 이동합니다.\n계속하시겠습니까?"
 }

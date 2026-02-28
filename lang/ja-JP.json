@@ -1,4 +1,4 @@
-﻿{
+{
   "_language_name": "日本語",
   "Open_Url": "本体URLを開く",
   "Remove_ignore": "無視リストから削除",
@@ -141,6 +141,8 @@
   "Player_LR2_savewpos": "Save window position",
   "Details_show_diag_diff_install": "差分インストールの確認メッセージを表示する",
   "Details_test_download_and_install": "[テスト中] ダウンロード実行後に自動的にインストールを試みる",
+  "Details_test_fast_sort_list_view": "[テスト中] 一覧画面で高速ソート(非自然順)を使う",
+  "Details_test_column_virtualization_list_view": "[テスト中] 一覧画面で列仮想化を有効にする (非推奨: 実験したが速くならず)",
   "Full_scan_check": "構成ファイルフルスキャン",
   "Custom_folder": "カスタムフォルダ",
   "Player_Internal_desc": "※デバイスタブで設定して下さい",
@@ -408,6 +410,7 @@
   "Error_ParseFailed": "パースに失敗しました。",
   "Warn_CustomFolderOutputDirInvalid": "カスタムフォルダ出力先ディレクトリの不正を検出しました。\n正しく出力先が指定されているか確認して下さい。",
   "Error_InstallComponentFileNotFound": "ファイルが見つかりませんでした",
-  "Msg_merge_bms_completed": "\u300c{0}\u300d\u3092\u300c{1}\u300d\u3078\u30de\u30fc\u30b8\u3057\u307e\u3057\u305f",
+  "Msg_merge_bms_completed": "「{0}」を「{1}」へマージしました",
   "Msg_cleanup_duplicate_hash": "同一フォルダ内のハッシュ重複BMSファイルを整理します。\n更新日時が古いファイルを優先的に残し、\n同一日時の場合はファイル名が短い方を残します。\n{0}件のファイルをごみ箱へ移動します。\n続行しますか？"
 }
+

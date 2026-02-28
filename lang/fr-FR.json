@@ -1,4 +1,4 @@
-﻿{
+{
   "_language_name": "Français",
   "Open_Url": "Ouvrir URL",
   "Remove_ignore": "Remove from ignored list",
@@ -137,6 +137,8 @@
   "Player_LR2_savewpos": "Sauvegarder position de la fenetre",
   "Details_show_diag_diff_install": "Show confirmation message on diff install",
   "Details_test_download_and_install": "[TEST] Try to run installation automatically after download",
+  "Details_test_fast_sort_list_view": "[TEST] Use fast sort (non-natural) in list views",
+  "Details_test_column_virtualization_list_view": "[TEST] Enable column virtualization in list views (Not recommended: tested, no speed gain)",
   "Full_scan_check": "Verification scan complet",
   "Custom_folder": "Custom folder",
   "Player_Internal_desc": "* Parametres dans onglet \"Device\"",
@@ -411,3 +413,4 @@
   "Msg_merge_bms_completed": "Fusion de \"{0}\" dans \"{1}\"",
   "Msg_cleanup_duplicate_hash": "Nettoyer les fichiers BMS en double dans le même dossier.\nConserve le fichier avec la date de modification la plus ancienne,\nou le nom de fichier le plus court si les dates sont identiques.\n{0} fichier(s) seront déplacés vers la corbeille.\nContinuer ?"
 }
+
