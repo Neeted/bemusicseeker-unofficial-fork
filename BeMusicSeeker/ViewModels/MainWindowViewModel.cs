@@ -2242,6 +2242,12 @@ public class MainWindowViewModel : ViewModel
             return CheckValidation(out errMsg);
         }
 
+        /// <summary>
+        /// 現在画面に入力されている各種設定値（パスやオプションなど）が正しいフォーマットであり、
+        /// アプリケーションから正常にアクセス可能かどうかを検証します。
+        /// </summary>
+        /// <param name="errMsg">検証エラーがあった場合、その理由を示すエラーメッセージが格納されます。</param>
+        /// <returns>すべての設定が有効であると判定された場合は <c>true</c>。無効な項目が含まれる場合は <c>false</c>。</returns>
         public bool CheckValidation(out string errMsg)
         {
             bool result = true;
@@ -2327,6 +2333,10 @@ public class MainWindowViewModel : ViewModel
             return result;
         }
 
+        /// <summary>
+        /// 現在の設定ダイアログの入力状態を検証し、問題がなければ `Settings.Default` メモリ領域から
+        /// 実際の永続化記憶域（または構成ファイル）へ保存し、必要な事後処理（バックアップなど）を実行します。
+        /// </summary>
         public async Task SaveSettings()
         {
             if (CheckValidation())
@@ -5809,6 +5819,11 @@ public class MainWindowViewModel : ViewModel
         base.Messenger.Raise(new InteractionMessage("CallbackPlayStartedBMSfile"));
     }
 
+    /// <summary>
+    /// BMSプレイヤーを起動し、現在選択されているBMSファイル（または指定ファイル）のプレビュー再生を開始します。
+    /// 内蔵プレーヤーの場合は状態管理を反映し、外部プレーヤー (uBMPlay, LR2body等) の場合はプロセス起動を中継します。
+    /// </summary>
+    /// <param name="forceNewPlay">強制的に最初から再生し直す場合は <c>true</c>。一時停止の再開等の場合は <c>false</c>。</param>
     public void PlayStartBMSfile(bool forceNewPlay = true)
     {
         lock (lockThis)
@@ -7847,6 +7862,11 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
+    /// <summary>
+    /// 選択された BMS ファイル群について、LR2IR (Lunatic Rave 2 Internet Ranking) サーバーから
+    /// その BMS ファイルのランキングデータ・キャッシュ情報をダウンロード・更新します。
+    /// </summary>
+    /// <param name="bmsFiles">LR2IR キャッシュ取得の対象となる BMS ファイルのリスト。</param>
     public void GetLR2IRCacheBMSFiles(IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles)
     {
         lock (lockCopyFile)
