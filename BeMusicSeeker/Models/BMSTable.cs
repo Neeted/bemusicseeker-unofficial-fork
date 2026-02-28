@@ -48,9 +48,8 @@ public class BMSTable : LR2SongDBExtended.playlist
             if (_Folder_order != value)
             {
                 _Folder_order = value;
-                _cached_folder_list = null;
                 RaisePropertyChanged("Folder_order");
-                RaisePropertyChanged(() => folder_list);
+                NotifyFolderListChanged();
             }
         }
     }
@@ -138,8 +137,7 @@ public class BMSTable : LR2SongDBExtended.playlist
             if (value == null)
             {
                 _entries = new List<BMSTableEntry>();
-                _cached_folder_list = null;
-                RaisePropertyChanged("folder_list");
+                NotifyFolderListChanged();
                 return;
             }
             foreach (BMSTableEntry item in value)
@@ -147,8 +145,7 @@ public class BMSTable : LR2SongDBExtended.playlist
                 item.parent = this;
             }
             _entries = normalizeEntries(value);
-            _cached_folder_list = null;
-            RaisePropertyChanged("folder_list");
+            NotifyFolderListChanged();
         }
     }
 
@@ -189,8 +186,7 @@ public class BMSTable : LR2SongDBExtended.playlist
         }
         set
         {
-            _cached_folder_list = null;
-            RaisePropertyChanged("folder_list");
+            NotifyFolderListChanged();
         }
     }
 
@@ -443,6 +439,24 @@ public class BMSTable : LR2SongDBExtended.playlist
         return enumerable.Concat(list).ToList();
     }
 
+    private void InvalidateFolderListCache()
+    {
+        _cached_folder_list = null;
+    }
+
+    private void NotifyFolderListChanged()
+    {
+        InvalidateFolderListCache();
+        RaisePropertyChanged("folder_list");
+    }
+
+    private HashSet<string> GetExistingFolderNameSet()
+    {
+        return new HashSet<string>(from e in entries
+                                   where !e.is_removed
+                                   select e.folder, StringComparer.Ordinal);
+    }
+
     public bool EnableExternalSync()
     {
         if (Page_url != null && Page_url.Scheme == "bmseeker")
@@ -499,8 +513,9 @@ public class BMSTable : LR2SongDBExtended.playlist
     public string CreateNewFolder(string newName)
     {
         string text = (newName = (string.IsNullOrWhiteSpace(newName) ? "新しいフォルダー" : newName));
+        HashSet<string> existingFolderNames = GetExistingFolderNameSet();
         int num = 1;
-        while (folder_list.Contains(text))
+        while (existingFolderNames.Contains(text))
         {
             num++;
             text = newName + " (" + num + ")";
@@ -510,7 +525,7 @@ public class BMSTable : LR2SongDBExtended.playlist
         bMSTableEntry.folder = text;
         _entries.Add(bMSTableEntry);
         base.last_update = DateTime.Now;
-        RaisePropertyChanged(() => folder_list);
+        NotifyFolderListChanged();
         return text;
     }
 
@@ -522,7 +537,7 @@ public class BMSTable : LR2SongDBExtended.playlist
 
     public void AddBMSTableEntriesToFolder(IEnumerable<BMSTableEntry> bmsEntries, string folderName = "")
     {
-        bool flag = !folder_list.Contains(folderName);
+        bool flag = !GetExistingFolderNameSet().Contains(folderName);
         List<BMSTableEntry> list = bmsEntries.ToList();
         foreach (BMSTableEntry item in list)
         {
@@ -533,7 +548,7 @@ public class BMSTable : LR2SongDBExtended.playlist
         base.last_update = DateTime.Now;
         if (flag)
         {
-            RaisePropertyChanged(() => folder_list);
+            NotifyFolderListChanged();
         }
     }
 
@@ -556,7 +571,7 @@ public class BMSTable : LR2SongDBExtended.playlist
         }
         if (flag)
         {
-            RaisePropertyChanged(() => folder_list);
+            NotifyFolderListChanged();
         }
         base.last_update = DateTime.Now;
     }
