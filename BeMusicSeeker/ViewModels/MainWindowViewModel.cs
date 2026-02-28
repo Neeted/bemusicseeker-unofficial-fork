@@ -5037,6 +5037,10 @@ public class MainWindowViewModel : ViewModel
         settingDialog = new SettingDialogViewModel(this);
     }
 
+    /// <summary>
+    /// データベース側からプレイリスト情報 (BMSTable) を再読み込みし、コレクションを更新します。<br/>
+    /// バックグラウンドで初期化を行い、更新完了後に外部同期などを再スケジュールします。
+    /// </summary>
     public async void ReloadTables()
     {
         if (!initializationCompleted)
@@ -5082,6 +5086,10 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
+    /// <summary>
+    /// データベース側およびファイルシステム上の BMS ファイル情報 (BMSLibrary) を再読み込みし、コレクションを更新します。<br/>
+    /// UI スレッドでの不要な描画を抑制しながらバックグラウンドで処理し、プレイリストの参照解決を再スケジュールします。
+    /// </summary>
     public async void ReloadFiles()
     {
         if (!initializationCompleted)
@@ -6093,6 +6101,13 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
+    /// <summary>
+    /// 指定された更新モードとパラメータに基づいて、メインのBMS一覧（DataGrid表示用コレクション）を生成・更新します。
+    /// ツリーでのフォルダ選択、プレイリストや難易度表の適用、Missingファイル等の保守フィルタ、およびキーワードやキーモードでの絞り込み等を行います。<br/>
+    /// このメソッドの実行には、規模に応じて時間がかかるため内部でタイマー計測し遅延を制御・ロギングする機構が含まれています。
+    /// </summary>
+    /// <param name="mode">更新の契機（どのフィルタや要素が変更されたかを示す更新モード）。</param>
+    /// <param name="parameter">選択されたプレイリスト（BMSTable）やフォルダ名などの追加パラメータ、無い場合は null。</param>
     private void makeBMSFilesView(viewUpdateMode mode, object parameter = null)
     {
         Stopwatch viewBuildStopwatch = Stopwatch.StartNew();
@@ -6728,6 +6743,11 @@ public class MainWindowViewModel : ViewModel
         files.SetBMSFilesToBeFixedIgnored(bmsFiles, unset: true);
     }
 
+    /// <summary>
+    /// リンク切れ等の問題がある BMSPackage (インストーラーまたはアーカイブ単位) について、正しいインストール先のディレクトリをヒューリスティックに探索します。
+    /// 探索結果は内部の BMSLibrary に対して適用されます。
+    /// </summary>
+    /// <param name="packages">探索・復旧対象となるBMSパッケージのコレクション。</param>
     public void SearchInstallationDirectoryBMSFiles(IEnumerable<BMSPackage> packages)
     {
         if (packages == null)
@@ -6760,6 +6780,11 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
+    /// <summary>
+    /// リンク切れ等の問題がある BMSFile (個別ファイル単位) について、正しいインストール先のディレクトリをヒューリスティックに探索します。
+    /// 同一パッケージに属するファイル群はまとめてパッケージ単位で探索が試みられます。
+    /// </summary>
+    /// <param name="bmsFiles">探索・復旧対象となるBMSファイルのコレクション。</param>
     public void SearchInstallationDirectoryBMSFiles(IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles)
     {
         lock (lockCopyFile)
@@ -6825,6 +6850,13 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
+    /// <summary>
+    /// 指定されたパスのBMSファイルやアーカイブ群をBMSLibraryへ自動インストール・登録します。
+    /// 登録完了後、読み込み済みの各プレイリスト (BMSTable) に対しても新規検出されたファイル群のリファレンス追加（参照解決）を試みます。
+    /// </summary>
+    /// <param name="installPaths">インストールの対象となるファイルまたはディレクトリパスのコレクション。</param>
+    /// <param name="token">処理を中止するためのキャンセレーショントークン。</param>
+    /// <param name="onEachCompleted">個別のファイル処理完了ごとに呼ばれるコールバック。</param>
     public void InstallBMSFiles(IEnumerable<string> installPaths, CancellationToken token = default(CancellationToken), Action<bool> onEachCompleted = null)
     {
         if (files == null)
