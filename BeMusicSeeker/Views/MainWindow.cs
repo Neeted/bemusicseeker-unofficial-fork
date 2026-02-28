@@ -45,15 +45,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private static long callbackExecSortRequestId;
 
-    private static long callbackExecSortSignalId;
+    private DispatcherOperation _mainDataGridSortGlyphRefreshOperation;
 
-    private static long targetUpdatedHandledBuildRequestId;
-
-    private static long targetUpdatedScheduledBuildRequestId;
-
-    private string _lastAppliedSortColumnName;
-
-    private ListSortDirection? _lastAppliedSortDirection;
+    private DispatcherOperation _playlistSummarySortGlyphRefreshOperation;
 
     private const long CallbackExecSortSlowLogThresholdMs = 100L;
 
@@ -342,60 +336,63 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     private async void dataGridSorting(object sender, DataGridSortingEventArgs e)
     {
         e.Handled = true;
+        if (!(sender is DataGrid dataGrid))
+        {
+            return;
+        }
         MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
+        if (viewModel == null)
+        {
+            return;
+        }
+        string sortMemberPath = GetSortMemberPath(e.Column);
+        if (string.IsNullOrWhiteSpace(sortMemberPath))
+        {
+            return;
+        }
         ListSortDirection? effectiveCurrentDirection = e.Column.SortDirection;
-        if (!effectiveCurrentDirection.HasValue && viewModel?.SortParameters != null && string.Equals(viewModel.SortParameters.ColumnsName, e.Column.SortMemberPath, StringComparison.Ordinal))
+        if (!effectiveCurrentDirection.HasValue && viewModel.SortParameters != null && string.Equals(viewModel.SortParameters.ColumnsName, sortMemberPath, StringComparison.Ordinal))
         {
             effectiveCurrentDirection = viewModel.SortParameters.Direction;
         }
         ListSortDirection newDir = ((effectiveCurrentDirection == ListSortDirection.Ascending) ? ListSortDirection.Descending : ListSortDirection.Ascending);
-        string name = e.Column.SortMemberPath;
-
-        if (sender is DataGrid dataGrid)
-        {
-            foreach (DataGridColumn item in dataGrid.Columns)
-            {
-                if (!ReferenceEquals(item, e.Column))
-                {
-                    item.SortDirection = null;
-                }
-            }
-            e.Column.SortDirection = newDir;
-        }
+        ApplyImmediateSortGlyph(dataGrid, e.Column, newDir);
 
         await Task.Run(delegate
         {
-            viewModel.ExecSort(name, newDir);
+            viewModel.ExecSort(sortMemberPath, newDir);
         }).Logging("dataGridSorting");
+        RequestSortGlyphRefresh(dataGrid, "sorting");
     }
 
     private async void dataGridPlaylistSummarySorting(object sender, DataGridSortingEventArgs e)
     {
         e.Handled = true;
-        string sortMemberPath = e.Column.SortMemberPath;
+        if (!(sender is DataGrid dataGrid))
+        {
+            return;
+        }
+        if (!(base.DataContext is MainWindowViewModel viewModel))
+        {
+            return;
+        }
+        string sortMemberPath = GetSortMemberPath(e.Column);
         if (string.IsNullOrWhiteSpace(sortMemberPath))
         {
             return;
         }
-        ListSortDirection newDirection = ((e.Column.SortDirection == ListSortDirection.Ascending) ? ListSortDirection.Descending : ListSortDirection.Ascending);
-        if (base.DataContext is MainWindowViewModel viewModel)
+        ListSortDirection? effectiveCurrentDirection = e.Column.SortDirection;
+        if (!effectiveCurrentDirection.HasValue && viewModel.PlaylistSummarySortParameters != null && string.Equals(viewModel.PlaylistSummarySortParameters.ColumnsName, sortMemberPath, StringComparison.Ordinal))
         {
-            await Task.Run(delegate
-            {
-                viewModel.ExecPlaylistSummarySort(sortMemberPath, newDirection);
-            }).Logging("dataGridPlaylistSummarySorting");
-            if (sender is DataGrid dataGrid2)
-            {
-                foreach (DataGridColumn item in dataGrid2.Columns)
-                {
-                    if (!ReferenceEquals(item, e.Column))
-                    {
-                        item.SortDirection = null;
-                    }
-                }
-            }
-            e.Column.SortDirection = newDirection;
+            effectiveCurrentDirection = viewModel.PlaylistSummarySortParameters.Direction;
         }
+        ListSortDirection newDirection = ((effectiveCurrentDirection == ListSortDirection.Ascending) ? ListSortDirection.Descending : ListSortDirection.Ascending);
+        ApplyImmediateSortGlyph(dataGrid, e.Column, newDirection);
+        await Task.Run(delegate
+        {
+            viewModel.ExecPlaylistSummarySort(sortMemberPath, newDirection);
+        }).Logging("dataGridPlaylistSummarySorting");
+        RequestSortGlyphRefresh(dataGrid, "playlist_summary_sorting");
     }
 
     private void dataGridTargetUpdated(object sender, DataTransferEventArgs e)
@@ -406,72 +403,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         if (sender is DataGrid dataGrid2)
         {
-            MainWindowViewModel mainWindowViewModel = base.DataContext as MainWindowViewModel;
-            long buildRequestId = mainWindowViewModel?.LastMainViewBuildRequestId ?? 0L;
-            MainWindowViewModel.cSortParameters currentSortParameters = mainWindowViewModel?.SortParameters;
-
-            if (currentSortParameters != null &&
-                string.Equals(_lastAppliedSortColumnName, currentSortParameters.ColumnsName, StringComparison.Ordinal) &&
-                _lastAppliedSortDirection == currentSortParameters.Direction)
-            {
-                installPerformanceLogger?.Info("callback_exec_sort target_updated_skip buildRequest=" + buildRequestId + " reason=sort_unchanged column=" + currentSortParameters.ColumnsName + " direction=" + currentSortParameters.Direction + " columns=" + dataGrid2.Columns?.Count);
-                return;
-            }
-
-            if (buildRequestId > 0L)
-            {
-                long previousHandledBuildRequestId = Interlocked.Read(ref targetUpdatedHandledBuildRequestId);
-                long previousScheduledBuildRequestId = Interlocked.Read(ref targetUpdatedScheduledBuildRequestId);
-                if (previousHandledBuildRequestId == buildRequestId || previousScheduledBuildRequestId == buildRequestId)
-                {
-                    installPerformanceLogger?.Info("callback_exec_sort target_updated_skip buildRequest=" + buildRequestId + " reason=duplicate_items_source_update columns=" + dataGrid2.Columns?.Count);
-                    return;
-                }
-                Interlocked.Exchange(ref targetUpdatedScheduledBuildRequestId, buildRequestId);
-            }
-
-            // NOTE:
-            // 通常のソートアイコン同期は CallbackExecSort 側で十分に間に合う。
-            // TargetUpdated は ItemsSource 差し替え由来で複数回発火しやすいため、即時実行ではなく
-            // ContextIdle まで遅延させて「callback で未反映だった場合のみ」フォールバックで実行する。
-            base.Dispatcher.BeginInvoke((Action)delegate
-            {
-                if (buildRequestId > 0L)
-                {
-                    Interlocked.CompareExchange(ref targetUpdatedScheduledBuildRequestId, 0L, buildRequestId);
-                }
-
-                MainWindowViewModel latestViewModel = base.DataContext as MainWindowViewModel;
-                long latestBuildRequestId = latestViewModel?.LastMainViewBuildRequestId ?? 0L;
-                MainWindowViewModel.cSortParameters latestSortParameters = latestViewModel?.SortParameters;
-
-                if (buildRequestId > 0L && latestBuildRequestId != buildRequestId)
-                {
-                    installPerformanceLogger?.Info("callback_exec_sort target_updated_skip buildRequest=" + buildRequestId + " reason=stale_build_request latestBuildRequest=" + latestBuildRequestId + " columns=" + dataGrid2.Columns?.Count);
-                    return;
-                }
-
-                if (latestSortParameters != null &&
-                    string.Equals(_lastAppliedSortColumnName, latestSortParameters.ColumnsName, StringComparison.Ordinal) &&
-                    _lastAppliedSortDirection == latestSortParameters.Direction)
-                {
-                    installPerformanceLogger?.Info("callback_exec_sort target_updated_skip buildRequest=" + buildRequestId + " reason=callback_already_applied column=" + latestSortParameters.ColumnsName + " direction=" + latestSortParameters.Direction + " columns=" + dataGrid2.Columns?.Count);
-                    return;
-                }
-
-                if (buildRequestId > 0L)
-                {
-                    long previousHandledBuildRequestId = Interlocked.Read(ref targetUpdatedHandledBuildRequestId);
-                    if (previousHandledBuildRequestId == buildRequestId)
-                    {
-                        installPerformanceLogger?.Info("callback_exec_sort target_updated_skip buildRequest=" + buildRequestId + " reason=fallback_already_handled columns=" + dataGrid2.Columns?.Count);
-                        return;
-                    }
-                    Interlocked.Exchange(ref targetUpdatedHandledBuildRequestId, buildRequestId);
-                }
-
-                renewSortIcon(dataGrid2, "target_updated_fallback");
-            }, DispatcherPriority.ContextIdle);
+            RequestSortGlyphRefresh(dataGrid2, "target_updated");
         }
     }
 
@@ -481,7 +413,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     /// <param name="dataGrid">対象 DataGrid。</param>
     public void renewSortIcon(DataGrid dataGrid)
     {
-        renewSortIcon(dataGrid, "callback");
+        RequestSortGlyphRefresh(dataGrid, "callback");
     }
 
     /// <summary>
@@ -491,93 +423,188 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     /// <param name="trigger">呼び出し契機。ログ相関用。</param>
     public void renewSortIcon(DataGrid dataGrid, string trigger = "unspecified")
     {
-        long requestId = Interlocked.Increment(ref callbackExecSortRequestId);
-        long signalId = Interlocked.Increment(ref callbackExecSortSignalId);
-        Stopwatch queueStopwatch = Stopwatch.StartNew();
-        MainWindowViewModel mainWindowViewModel = base.DataContext as MainWindowViewModel;
-        long raiseRequestId = mainWindowViewModel?.LastExecSortCallbackRequestId ?? 0L;
-        long raiseStartTimestamp = mainWindowViewModel?.LastExecSortCallbackRaiseStartTimestamp ?? 0L;
-        int raiseStartThreadId = mainWindowViewModel?.LastExecSortCallbackRaiseStartThreadId ?? 0;
-        long mainViewBuildRequestId = mainWindowViewModel?.LastMainViewBuildRequestId ?? 0L;
-        long mainViewBuildEndTimestamp = mainWindowViewModel?.LastMainViewBuildEndTimestamp ?? 0L;
-        int mainViewBuildThreadId = mainWindowViewModel?.LastMainViewBuildThreadId ?? 0;
-        int mainViewBuildMode = mainWindowViewModel?.LastMainViewBuildMode ?? 0;
-        long raiseToHandlerMs = (raiseStartTimestamp > 0L) ? ((Stopwatch.GetTimestamp() - raiseStartTimestamp) * 1000L / Stopwatch.Frequency) : (-1L);
-        long buildToHandlerMs = (mainViewBuildEndTimestamp > 0L) ? ((Stopwatch.GetTimestamp() - mainViewBuildEndTimestamp) * 1000L / Stopwatch.Frequency) : (-1L);
-        int handlerThreadId = Thread.CurrentThread.ManagedThreadId;
-        bool handlerOnUiThread = base.Dispatcher.CheckAccess();
-        if (raiseToHandlerMs >= CallbackExecSortSlowLogThresholdMs || buildToHandlerMs >= CallbackExecSortSlowLogThresholdMs)
-        {
-            installPerformanceLogger?.Info("callback_exec_sort handler_slow request=" + requestId + " trigger=" + trigger + " raiseRequest=" + raiseRequestId + " raiseToHandlerMs=" + raiseToHandlerMs + " buildRequest=" + mainViewBuildRequestId + " buildToHandlerMs=" + buildToHandlerMs + " handlerThreadId=" + handlerThreadId + " raiseThreadId=" + raiseStartThreadId + " buildThreadId=" + mainViewBuildThreadId + " buildMode=" + mainViewBuildMode + " handlerOnUiThread=" + handlerOnUiThread + " columns=" + dataGrid?.Columns?.Count + " thresholdMs=" + CallbackExecSortSlowLogThresholdMs);
-        }
+        RequestSortGlyphRefresh(dataGrid, trigger);
+    }
 
-        Action applySortIcon = delegate
+    private void RequestSortGlyphRefresh(DataGrid dataGrid, string trigger)
+    {
+        if (dataGrid == null)
         {
+            return;
+        }
+        if (!base.Dispatcher.CheckAccess())
+        {
+            base.Dispatcher.BeginInvoke((Action)delegate
+            {
+                RequestSortGlyphRefresh(dataGrid, trigger);
+            }, DispatcherPriority.Normal);
+            return;
+        }
+        DispatcherOperation currentOperation = GetSortGlyphRefreshOperation(dataGrid);
+        if (currentOperation != null)
+        {
+            if (currentOperation.Status == DispatcherOperationStatus.Pending || currentOperation.Status == DispatcherOperationStatus.Executing)
+            {
+                return;
+            }
+            SetSortGlyphRefreshOperation(dataGrid, null);
+        }
+        bool isMainDataGrid = !ReferenceEquals(dataGrid, dataGridPlaylistSummary);
+        MainWindowViewModel mainWindowViewModel = base.DataContext as MainWindowViewModel;
+        long requestId = Interlocked.Increment(ref callbackExecSortRequestId);
+        Stopwatch queueStopwatch = Stopwatch.StartNew();
+        long raiseRequestId = isMainDataGrid ? (mainWindowViewModel?.LastExecSortCallbackRequestId ?? 0L) : 0L;
+        long raiseStartTimestamp = isMainDataGrid ? (mainWindowViewModel?.LastExecSortCallbackRaiseStartTimestamp ?? 0L) : 0L;
+        int raiseStartThreadId = isMainDataGrid ? (mainWindowViewModel?.LastExecSortCallbackRaiseStartThreadId ?? 0) : 0;
+        long mainViewBuildRequestId = isMainDataGrid ? (mainWindowViewModel?.LastMainViewBuildRequestId ?? 0L) : 0L;
+        long mainViewBuildEndTimestamp = isMainDataGrid ? (mainWindowViewModel?.LastMainViewBuildEndTimestamp ?? 0L) : 0L;
+        int mainViewBuildThreadId = isMainDataGrid ? (mainWindowViewModel?.LastMainViewBuildThreadId ?? 0) : 0;
+        int mainViewBuildMode = isMainDataGrid ? (mainWindowViewModel?.LastMainViewBuildMode ?? 0) : 0;
+        DispatcherOperation scheduledOperation = null;
+        scheduledOperation = base.Dispatcher.BeginInvoke((Action)delegate
+        {
+            if (ReferenceEquals(GetSortGlyphRefreshOperation(dataGrid), scheduledOperation))
+            {
+                SetSortGlyphRefreshOperation(dataGrid, null);
+            }
+            long raiseToHandlerMs = (raiseStartTimestamp > 0L) ? ((Stopwatch.GetTimestamp() - raiseStartTimestamp) * 1000L / Stopwatch.Frequency) : (-1L);
+            long buildToHandlerMs = (mainViewBuildEndTimestamp > 0L) ? ((Stopwatch.GetTimestamp() - mainViewBuildEndTimestamp) * 1000L / Stopwatch.Frequency) : (-1L);
+            if (raiseToHandlerMs >= CallbackExecSortSlowLogThresholdMs || buildToHandlerMs >= CallbackExecSortSlowLogThresholdMs)
+            {
+                installPerformanceLogger?.Info("callback_exec_sort handler_slow request=" + requestId + " trigger=" + trigger + " raiseRequest=" + raiseRequestId + " raiseToHandlerMs=" + raiseToHandlerMs + " buildRequest=" + mainViewBuildRequestId + " buildToHandlerMs=" + buildToHandlerMs + " handlerThreadId=" + Thread.CurrentThread.ManagedThreadId + " raiseThreadId=" + raiseStartThreadId + " buildThreadId=" + mainViewBuildThreadId + " buildMode=" + mainViewBuildMode + " handlerOnUiThread=" + base.Dispatcher.CheckAccess() + " columns=" + dataGrid.Columns?.Count + " thresholdMs=" + CallbackExecSortSlowLogThresholdMs);
+            }
             long queueMs = queueStopwatch.ElapsedMilliseconds;
             Stopwatch runStopwatch = Stopwatch.StartNew();
             long applyStartTimestamp = Stopwatch.GetTimestamp();
-            MainWindowViewModel.cSortParameters parameters = mainWindowViewModel?.SortParameters;
-            if (parameters != null)
+            bool appliedAtLoaded = ApplySortGlyphNow(dataGrid, requestId, raiseRequestId, trigger, logWhenTargetMissing: false);
+            long runMs = runStopwatch.ElapsedMilliseconds;
+            if (queueMs >= CallbackExecSortSlowLogThresholdMs || runMs >= CallbackExecSortSlowLogThresholdMs)
             {
-                DataGridColumn dataGridColumn = null;
-                if (dataGrid?.Columns != null)
-                {
-                    foreach (DataGridColumn item in dataGrid.Columns)
-                    {
-                        if (item.SortMemberPath == parameters.ColumnsName)
-                        {
-                            dataGridColumn = item;
-                            item.SortDirection = parameters.Direction;
-                        }
-                        else
-                        {
-                            item.SortDirection = null;
-                        }
-                    }
-                }
-                if (dataGridColumn != null)
-                {
-                    _lastAppliedSortColumnName = parameters.ColumnsName;
-                    _lastAppliedSortDirection = parameters.Direction;
-                    long runMs = runStopwatch.ElapsedMilliseconds;
-                    if (queueMs >= CallbackExecSortSlowLogThresholdMs || runMs >= CallbackExecSortSlowLogThresholdMs)
-                    {
-                        installPerformanceLogger?.Info("callback_exec_sort run_slow request=" + requestId + " trigger=" + trigger + " raiseRequest=" + raiseRequestId + " signalId=" + signalId + " latestSignalId=" + Volatile.Read(ref callbackExecSortSignalId) + " queueMs=" + queueMs + " runMs=" + runMs + " runThreadId=" + Thread.CurrentThread.ManagedThreadId + " column=" + parameters.ColumnsName + " direction=" + parameters.Direction + " thresholdMs=" + CallbackExecSortSlowLogThresholdMs);
-                    }
-                }
-                else
-                {
-                    installPerformanceLogger?.Warn("callback_exec_sort run request=" + requestId + " trigger=" + trigger + " raiseRequest=" + raiseRequestId + " signalId=" + signalId + " latestSignalId=" + Volatile.Read(ref callbackExecSortSignalId) + " queueMs=" + queueMs + " runMs=" + runStopwatch.ElapsedMilliseconds + " runThreadId=" + Thread.CurrentThread.ManagedThreadId + " reason=column_not_found column=" + parameters.ColumnsName);
-                }
+                installPerformanceLogger?.Info("callback_exec_sort run_slow request=" + requestId + " trigger=" + trigger + " raiseRequest=" + raiseRequestId + " queueMs=" + queueMs + " runMs=" + runMs + " runThreadId=" + Thread.CurrentThread.ManagedThreadId + " applied=" + appliedAtLoaded + " grid=" + GetSortGlyphGridName(dataGrid) + " thresholdMs=" + CallbackExecSortSlowLogThresholdMs);
             }
-            else
-            {
-                installPerformanceLogger?.Info("callback_exec_sort run request=" + requestId + " trigger=" + trigger + " raiseRequest=" + raiseRequestId + " signalId=" + signalId + " latestSignalId=" + Volatile.Read(ref callbackExecSortSignalId) + " queueMs=" + queueMs + " runMs=" + runStopwatch.ElapsedMilliseconds + " runThreadId=" + Thread.CurrentThread.ManagedThreadId + " reason=sort_parameters_null");
-            }
-
-            // NOTE:
-            // Sort icon renewal itself can be cheap while actual UI paint is delayed in the render queue.
-            // This render-priority probe measures "apply -> first render" without changing UI behavior.
             base.Dispatcher.BeginInvoke((Action)delegate
             {
+                bool appliedAtRender = ApplySortGlyphNow(dataGrid, requestId, raiseRequestId, trigger + "_render", logWhenTargetMissing: true);
                 long applyToRenderMs = (Stopwatch.GetTimestamp() - applyStartTimestamp) * 1000L / Stopwatch.Frequency;
                 long raiseToRenderMs = (raiseStartTimestamp > 0L) ? ((Stopwatch.GetTimestamp() - raiseStartTimestamp) * 1000L / Stopwatch.Frequency) : (-1L);
                 long buildToRenderMs = (mainViewBuildEndTimestamp > 0L) ? ((Stopwatch.GetTimestamp() - mainViewBuildEndTimestamp) * 1000L / Stopwatch.Frequency) : (-1L);
                 if (applyToRenderMs >= CallbackExecSortSlowLogThresholdMs || raiseToRenderMs >= CallbackExecSortSlowLogThresholdMs || buildToRenderMs >= CallbackExecSortSlowLogThresholdMs)
                 {
-                    installPerformanceLogger?.Info("callback_exec_sort render_slow request=" + requestId + " trigger=" + trigger + " raiseRequest=" + raiseRequestId + " buildRequest=" + mainViewBuildRequestId + " applyToRenderMs=" + applyToRenderMs + " raiseToRenderMs=" + raiseToRenderMs + " buildToRenderMs=" + buildToRenderMs + " renderThreadId=" + Thread.CurrentThread.ManagedThreadId + " thresholdMs=" + CallbackExecSortSlowLogThresholdMs);
+                    installPerformanceLogger?.Info("callback_exec_sort render_slow request=" + requestId + " trigger=" + trigger + " raiseRequest=" + raiseRequestId + " buildRequest=" + mainViewBuildRequestId + " applyToRenderMs=" + applyToRenderMs + " raiseToRenderMs=" + raiseToRenderMs + " buildToRenderMs=" + buildToRenderMs + " renderThreadId=" + Thread.CurrentThread.ManagedThreadId + " applied=" + appliedAtRender + " grid=" + GetSortGlyphGridName(dataGrid) + " thresholdMs=" + CallbackExecSortSlowLogThresholdMs);
                 }
             }, DispatcherPriority.Render);
-        };
+        }, DispatcherPriority.Loaded);
+        SetSortGlyphRefreshOperation(dataGrid, scheduledOperation);
+    }
 
-        if (base.Dispatcher.CheckAccess())
+    private static string GetSortMemberPath(DataGridColumn column)
+    {
+        if (column == null)
         {
-            applySortIcon();
+            return null;
+        }
+        if (!string.IsNullOrWhiteSpace(column.SortMemberPath))
+        {
+            return column.SortMemberPath;
+        }
+        if (column is DataGridBoundColumn dataGridBoundColumn && dataGridBoundColumn.Binding is Binding binding && binding.Path != null && !string.IsNullOrWhiteSpace(binding.Path.Path))
+        {
+            return binding.Path.Path;
+        }
+        return null;
+    }
+
+    private void ApplyImmediateSortGlyph(DataGrid dataGrid, DataGridColumn targetColumn, ListSortDirection direction)
+    {
+        if (dataGrid == null || targetColumn == null)
+        {
+            return;
+        }
+        foreach (DataGridColumn column in dataGrid.Columns)
+        {
+            column.SortDirection = ReferenceEquals(column, targetColumn) ? direction : ((ListSortDirection?)null);
+        }
+    }
+
+    private bool ApplySortGlyphNow(DataGrid dataGrid, long requestId, long raiseRequestId, string trigger, bool logWhenTargetMissing)
+    {
+        MainWindowViewModel.cSortParameters sortParameters = GetSortParametersForGrid(dataGrid);
+        if (sortParameters == null)
+        {
+            installPerformanceLogger?.Info("callback_exec_sort run request=" + requestId + " trigger=" + trigger + " raiseRequest=" + raiseRequestId + " runThreadId=" + Thread.CurrentThread.ManagedThreadId + " reason=sort_parameters_null grid=" + GetSortGlyphGridName(dataGrid));
+            return false;
+        }
+        if (!TryFindSortColumn(dataGrid, sortParameters.ColumnsName, out var targetColumn))
+        {
+            if (logWhenTargetMissing)
+            {
+                installPerformanceLogger?.Warn("callback_exec_sort run request=" + requestId + " trigger=" + trigger + " raiseRequest=" + raiseRequestId + " runThreadId=" + Thread.CurrentThread.ManagedThreadId + " reason=column_not_found column=" + sortParameters.ColumnsName + " grid=" + GetSortGlyphGridName(dataGrid));
+            }
+            return false;
+        }
+        foreach (DataGridColumn column in dataGrid.Columns)
+        {
+            column.SortDirection = ReferenceEquals(column, targetColumn) ? sortParameters.Direction : ((ListSortDirection?)null);
+        }
+        return true;
+    }
+
+    private MainWindowViewModel.cSortParameters GetSortParametersForGrid(DataGrid dataGrid)
+    {
+        MainWindowViewModel mainWindowViewModel = base.DataContext as MainWindowViewModel;
+        if (ReferenceEquals(dataGrid, dataGridPlaylistSummary))
+        {
+            return mainWindowViewModel?.PlaylistSummarySortParameters;
+        }
+        return mainWindowViewModel?.SortParameters;
+    }
+
+    private bool TryFindSortColumn(DataGrid dataGrid, string columnName, out DataGridColumn targetColumn)
+    {
+        targetColumn = null;
+        if (dataGrid?.Columns == null || string.IsNullOrWhiteSpace(columnName))
+        {
+            return false;
+        }
+        foreach (DataGridColumn column in dataGrid.Columns)
+        {
+            if (string.Equals(GetSortMemberPath(column), columnName, StringComparison.Ordinal))
+            {
+                targetColumn = column;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private DispatcherOperation GetSortGlyphRefreshOperation(DataGrid dataGrid)
+    {
+        if (ReferenceEquals(dataGrid, dataGridPlaylistSummary))
+        {
+            return _playlistSummarySortGlyphRefreshOperation;
+        }
+        return _mainDataGridSortGlyphRefreshOperation;
+    }
+
+    private void SetSortGlyphRefreshOperation(DataGrid dataGrid, DispatcherOperation operation)
+    {
+        if (ReferenceEquals(dataGrid, dataGridPlaylistSummary))
+        {
+            _playlistSummarySortGlyphRefreshOperation = operation;
         }
         else
         {
-            base.Dispatcher.BeginInvoke(applySortIcon, DispatcherPriority.ContextIdle);
+            _mainDataGridSortGlyphRefreshOperation = operation;
         }
+    }
+
+    private string GetSortGlyphGridName(DataGrid dataGrid)
+    {
+        if (ReferenceEquals(dataGrid, dataGridPlaylistSummary))
+        {
+            return "playlist_summary";
+        }
+        return "main";
     }
 
     private void dataGridInitializeColumnSetting(object sender, RoutedEventArgs e)
@@ -721,11 +748,20 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         });
     }
 
+    private void dataGrid_IsVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
+    {
+        if ((bool)e.NewValue && sender is DataGrid dataGrid2)
+        {
+            RequestSortGlyphRefresh(dataGrid2, "visible_changed");
+        }
+    }
+
     private void dataGridPlaylistSummary_IsVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
     {
-        if ((bool)e.NewValue)
+        if ((bool)e.NewValue && sender is DataGrid dataGrid2)
         {
             getDisplayIndicesPlaylistSummary();
+            RequestSortGlyphRefresh(dataGrid2, "visible_changed");
         }
     }
 

@@ -6472,6 +6472,7 @@ public class MainWindowViewModel : ViewModel
         long caseAssignMs = 0L;
         long playlistSummaryEnsureMs = 0L;
         long playlistSummaryAssignMs = 0L;
+        Visibility targetColumnSettingsVisibilityForPlaylist = Visibility.Collapsed;
         string caseLabel = "none";
 
         if (mode == viewUpdateMode.TreeViewFilterNotChanged)
@@ -6479,9 +6480,6 @@ public class MainWindowViewModel : ViewModel
             mode = treeViewFilterTypeSelected;
         }
         normalizeMs = stopwatch.ElapsedMilliseconds - stageStartMs;
-        stageStartMs = stopwatch.ElapsedMilliseconds;
-        ColumnSettingsVisibilityForPlaylist = Visibility.Collapsed;
-        visibilityMs = stopwatch.ElapsedMilliseconds - stageStartMs;
         switch (mode)
         {
             case viewUpdateMode.PlaylistFilterSelected:
@@ -6495,7 +6493,7 @@ public class MainWindowViewModel : ViewModel
                 caseEnsureMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 stageStartMs = stopwatch.ElapsedMilliseconds;
                 ColumnsSettingsBMSFilesView = Settings.Default.PlaylistColumnsSettings;
-                ColumnSettingsVisibilityForPlaylist = Visibility.Visible;
+                targetColumnSettingsVisibilityForPlaylist = Visibility.Visible;
                 caseAssignMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 break;
             case viewUpdateMode.FolderFilterSelected:
@@ -6564,6 +6562,9 @@ public class MainWindowViewModel : ViewModel
                 caseAssignMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 break;
         }
+        stageStartMs = stopwatch.ElapsedMilliseconds;
+        ColumnSettingsVisibilityForPlaylist = targetColumnSettingsVisibilityForPlaylist;
+        visibilityMs = stopwatch.ElapsedMilliseconds - stageStartMs;
         stageStartMs = stopwatch.ElapsedMilliseconds;
         if (Settings.Default.PlaylistSummaryColumnsSettings == null)
         {
