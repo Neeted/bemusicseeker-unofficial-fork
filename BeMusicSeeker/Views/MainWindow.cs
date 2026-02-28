@@ -1308,6 +1308,34 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         treeViewItem.Focus();
     }
 
+    private static MainWindowViewModel.PlaylistFilterType GetPlaylistFilterType(PlaylistFolderNode folderNode)
+    {
+        if (folderNode == null || !folderNode.IsSpecial)
+        {
+            return MainWindowViewModel.PlaylistFilterType.PlaylistFilter;
+        }
+        return folderNode.SpecialKind switch
+        {
+            PlaylistFolderNodeSpecialKind.NotOwned => MainWindowViewModel.PlaylistFilterType.PlaylistNotOwnedFilterSelected,
+            _ => MainWindowViewModel.PlaylistFilterType.PlaylistFilter
+        };
+    }
+
+    private static string GetPlaylistFolderSelectionKey(PlaylistFolderNode folderNode)
+    {
+        if (folderNode == null)
+        {
+            return null;
+        }
+        return folderNode.IsSpecial ? folderNode.DisplayName : folderNode.FolderName;
+    }
+
+    private static bool TryGetPlaylistFolderNode(object dataContext, out PlaylistFolderNode folderNode)
+    {
+        folderNode = dataContext as PlaylistFolderNode;
+        return folderNode != null;
+    }
+
     private void ForceRefreshPlaylistTreeSelection(TreeViewItem selectedItem)
     {
         MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
@@ -1332,15 +1360,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         else
         {
-            if (!(selectedItem.DataContext is Tuple<string, bool> tuple))
+            if (!TryGetPlaylistFolderNode(selectedItem.DataContext, out PlaylistFolderNode folderNode))
             {
                 return;
             }
-            folderName = tuple.Item1;
-            if (tuple.Item2)
-            {
-                type = PlaylistTableHeaderSpecialFolderExt.FromDisplayName(folderName).ToPlaylistFilterType();
-            }
+            folderName = GetPlaylistFolderSelectionKey(folderNode);
+            type = GetPlaylistFilterType(folderNode);
             TreeViewItem ancestor = FindAncestor<TreeViewItem>(VisualTreeHelper.GetParent(selectedItem));
             while (ancestor != null && !(ancestor.DataContext is BMSTable))
             {
@@ -1373,6 +1398,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     {
         if (e.Key == Key.F2 && sender is TreeViewItem treeViewItem && treeViewItem.Template.FindName("PART_Header", treeViewItem) is ContentPresenter templatedParent && treeViewItem.HeaderTemplate.FindName("etbPlaylistTableFolder", templatedParent) is EditableTextBlock editableTextBlock)
         {
+            if (TryGetPlaylistFolderNode(editableTextBlock.DataContext, out PlaylistFolderNode folderNode) && !folderNode.IsEditable)
+            {
+                return;
+            }
             editableTextBlock.IsInEditMode = true;
             e.Handled = true;
         }
@@ -1389,6 +1418,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
+        if (TryGetPlaylistFolderNode(editableTextBlock.DataContext, out PlaylistFolderNode folderNode) && !folderNode.IsEditable)
+        {
+            return;
+        }
 
         object originalEditableDataContext = editableTextBlock.DataContext;
         object originalHeaderDataContext = contentPresenter.DataContext;
@@ -1398,6 +1431,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         // Recycling有効時は待機中にコンテナ再利用が起きるため、編集開始前に同一対象か再検証する。
         // 再利用済みなら誤った行の編集開始を避けるため何もしない。
         if (!ReferenceEquals(editableTextBlock.DataContext, originalEditableDataContext) || !ReferenceEquals(contentPresenter.DataContext, originalHeaderDataContext) || !ownerTreeViewItem.IsSelected)
+        {
+            return;
+        }
+        if (TryGetPlaylistFolderNode(editableTextBlock.DataContext, out folderNode) && !folderNode.IsEditable)
         {
             return;
         }
@@ -1431,11 +1468,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
         if (viewModel != null)
         {
-            if (!(templatedParent.DataContext is Tuple<string, bool> tuple))
+            if (!TryGetPlaylistFolderNode(templatedParent.DataContext, out PlaylistFolderNode folderNode) || !folderNode.IsEditable)
             {
                 return;
             }
-            string nameBefore = tuple.Item1;
+            string nameBefore = folderNode.FolderName;
             string nameAfter = editableTextBlock.Text;
             Task.Run(delegate
             {
@@ -1468,15 +1505,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         else
         {
-            if (!(treeViewItem3.DataContext is Tuple<string, bool> tuple))
+            if (!TryGetPlaylistFolderNode(treeViewItem3.DataContext, out PlaylistFolderNode folderNode))
             {
                 return;
             }
-            folderName = tuple.Item1;
-            if (tuple.Item2)
-            {
-                type = PlaylistTableHeaderSpecialFolderExt.FromDisplayName(folderName).ToPlaylistFilterType();
-            }
+            folderName = GetPlaylistFolderSelectionKey(folderNode);
+            type = GetPlaylistFilterType(folderNode);
         }
         e.Handled = true;
         Task.Run(delegate
@@ -2315,12 +2349,16 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 }
             }
             else
-            {
+        {
                 menuItem = item as MenuItem;
             }
         }
-        menuItem.IsEnabled = !bMSTable.is_external_sync && !((Tuple<string, bool>)editableTextBlock.DataContext).Item2;
-        menuItem2.IsEnabled = !bMSTable.is_external_sync;
+        if (!TryGetPlaylistFolderNode(editableTextBlock.DataContext, out PlaylistFolderNode folderNode))
+        {
+            return;
+        }
+        menuItem.IsEnabled = !bMSTable.is_external_sync && folderNode.IsEditable;
+        menuItem2.IsEnabled = !bMSTable.is_external_sync && folderNode.IsEditable;
     }
 
     private BMSTable _getUpperBMSTableForContextMenuClickEvent(object sender)
@@ -2391,16 +2429,16 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return;
         }
         EditableTextBlock editableTextBlock = _getETBFromContextMenuClickEvent(sender);
-        if (editableTextBlock == null || ((Tuple<string, bool>)editableTextBlock.DataContext).Item2)
+        if (editableTextBlock == null || !TryGetPlaylistFolderNode(editableTextBlock.DataContext, out PlaylistFolderNode folderNode) || folderNode.IsSpecial)
         {
             return;
         }
         BMSTable bmsTable = _getUpperBMSTableForContextMenuClickEvent(sender);
-        if (bmsTable == null || bmsTable.is_external_sync || ((Tuple<string, bool>)editableTextBlock.DataContext).Item2)
+        if (bmsTable == null || bmsTable.is_external_sync)
         {
             return;
         }
-        string folderNameDelete = editableTextBlock.Text;
+        string folderNameDelete = folderNode.FolderName;
         if (MessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_remove_folder, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) != MessageBoxResult.Cancel)
         {
             await Task.Run(delegate
@@ -2413,7 +2451,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     private void treeViewPlaylistTableFolderContextMenuItemChangeFolderNameClick(object sender, RoutedEventArgs e)
     {
         EditableTextBlock editableTextBlock = _getETBFromContextMenuClickEvent(sender);
-        if (editableTextBlock != null)
+        if (editableTextBlock != null && (!TryGetPlaylistFolderNode(editableTextBlock.DataContext, out PlaylistFolderNode folderNode) || folderNode.IsEditable))
         {
             editableTextBlock.IsInEditMode = true;
         }
@@ -4852,17 +4890,17 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return;
         }
         string folderName;
-        if (!(treeViewItem2.DataContext is Tuple<string, bool> tuple))
+        if (!TryGetPlaylistFolderNode(treeViewItem2.DataContext, out PlaylistFolderNode folderNode))
         {
             folderName = null;
         }
         else
         {
-            if (tuple.Item2)
+            if (folderNode.IsSpecial)
             {
                 return;
             }
-            folderName = tuple.Item1;
+            folderName = folderNode.FolderName;
         }
         Task.Run(delegate
         {
@@ -4876,7 +4914,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             _ = base.DataContext;
             TreeViewItem treeViewItem2 = WPFUtil.FindVisualParent<TreeViewItem>((FrameworkElement)e.OriginalSource);
-            if (treeViewItem2 != null && !(treeViewItem2.DataContext is Tuple<string, bool> { Item2: not false }))
+            if (treeViewItem2 != null && (!TryGetPlaylistFolderNode(treeViewItem2.DataContext, out PlaylistFolderNode folderNode) || !folderNode.IsSpecial))
             {
                 e.Effects = DragDropEffects.Copy;
                 e.Handled = true;
@@ -4897,11 +4935,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        if (!bMSTable.is_external_sync && (!(treeViewItem.DataContext is Tuple<string, bool>) || !((Tuple<string, bool>)treeViewItem.DataContext).Item2))
+        if (!bMSTable.is_external_sync && (!TryGetPlaylistFolderNode(treeViewItem.DataContext, out PlaylistFolderNode folderNode) || !folderNode.IsSpecial))
         {
             treeViewItem.Background = SystemColors.HighlightBrush;
         }
-        if (!(treeViewItem.DataContext is Tuple<string, bool>))
+        if (!TryGetPlaylistFolderNode(treeViewItem.DataContext, out _))
         {
             BooleanAnimationUsingKeyFrames booleanAnimationUsingKeyFrames = new BooleanAnimationUsingKeyFrames();
             Storyboard.SetTargetProperty(booleanAnimationUsingKeyFrames, new PropertyPath(TreeViewItem.IsExpandedProperty));
@@ -4927,11 +4965,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         TreeViewItem treeViewItem2 = WPFUtil.FindVisualParent<TreeViewItem>((FrameworkElement)e.OriginalSource);
         if (treeViewItem2 != null && treeViewItem.DataContext is BMSTable bMSTable)
         {
-            if (!bMSTable.is_external_sync && (!(treeViewItem2.DataContext is Tuple<string, bool>) || !((Tuple<string, bool>)treeViewItem2.DataContext).Item2))
+            if (!bMSTable.is_external_sync && (!TryGetPlaylistFolderNode(treeViewItem2.DataContext, out PlaylistFolderNode folderNode) || !folderNode.IsSpecial))
             {
                 treeViewItem2.Background = Brushes.Transparent;
             }
-            if (!(treeViewItem2.DataContext is Tuple<string, bool>))
+            if (!TryGetPlaylistFolderNode(treeViewItem2.DataContext, out _))
             {
                 treeViewItemInstantStoryBoardPlaylistTable.Stop(this);
                 treeViewItemInstantStoryBoardPlaylistTable.Children.Clear();

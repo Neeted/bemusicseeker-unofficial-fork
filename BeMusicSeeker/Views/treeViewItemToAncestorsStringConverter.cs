@@ -5,6 +5,7 @@ using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
+using BeMusicSeeker.Models;
 using BeMusicSeeker.Properties;
 
 namespace BeMusicSeeker.Views;
@@ -56,10 +57,14 @@ internal class treeViewItemToAncestorsStringConverter : IMultiValueConverter
 		{
 			return string.Empty;
 		}
-		if (treeViewItem.Header is Tuple<string, bool> tupleHeader)
-		{
-			return tupleHeader.Item1 ?? string.Empty;
-		}
+        if (treeViewItem.Header is PlaylistFolderNode folderNode)
+        {
+            return folderNode.DisplayName ?? string.Empty;
+        }
+        if (treeViewItem.Header is Tuple<string, bool> tupleHeader)
+        {
+            return tupleHeader.Item1 ?? string.Empty;
+        }
 		return treeViewItem.Header.ToString();
 	}
 

@@ -49,7 +49,7 @@ public class BMSTable : LR2SongDBExtended.playlist
             {
                 _Folder_order = value;
                 RaisePropertyChanged("Folder_order");
-                NotifyFolderListChanged();
+                RebuildFolderState();
             }
         }
     }
@@ -137,7 +137,7 @@ public class BMSTable : LR2SongDBExtended.playlist
             if (value == null)
             {
                 _entries = new List<BMSTableEntry>();
-                NotifyFolderListChanged();
+                RebuildFolderState();
                 return;
             }
             foreach (BMSTableEntry item in value)
@@ -145,7 +145,7 @@ public class BMSTable : LR2SongDBExtended.playlist
                 item.parent = this;
             }
             _entries = normalizeEntries(value);
-            NotifyFolderListChanged();
+            RebuildFolderState();
         }
     }
 
@@ -174,19 +174,28 @@ public class BMSTable : LR2SongDBExtended.playlist
     }
 
     private List<string> _cached_folder_list;
+
+    private List<PlaylistFolderNode> _cached_folder_nodes;
+
     public List<string> folder_list
     {
         get
         {
-            if (_cached_folder_list == null)
-            {
-                _cached_folder_list = getSortedFolderList();
-            }
+            EnsureFolderStateCache();
             return _cached_folder_list;
         }
         set
         {
-            NotifyFolderListChanged();
+            RebuildFolderState();
+        }
+    }
+
+    public IReadOnlyList<PlaylistFolderNode> FolderNodes
+    {
+        get
+        {
+            EnsureFolderStateCache();
+            return _cached_folder_nodes;
         }
     }
 
@@ -439,15 +448,37 @@ public class BMSTable : LR2SongDBExtended.playlist
         return enumerable.Concat(list).ToList();
     }
 
-    private void InvalidateFolderListCache()
+    private List<PlaylistFolderNode> BuildFolderNodes(List<string> orderedFolderNames)
     {
-        _cached_folder_list = null;
+        List<PlaylistFolderNode> list = (from PlaylistFolderNodeSpecialKind kind in Enum.GetValues(typeof(PlaylistFolderNodeSpecialKind))
+                                         where kind != PlaylistFolderNodeSpecialKind.None
+                                         select PlaylistFolderNode.CreateSpecial(kind)).ToList();
+        list.AddRange(orderedFolderNames.Select((string folderName) => PlaylistFolderNode.CreateFolder(folderName)));
+        return list;
     }
 
-    private void NotifyFolderListChanged()
+    private void InvalidateFolderStateCache()
     {
-        InvalidateFolderListCache();
+        _cached_folder_list = null;
+        _cached_folder_nodes = null;
+    }
+
+    private void EnsureFolderStateCache()
+    {
+        if (_cached_folder_list == null || _cached_folder_nodes == null)
+        {
+            List<string> sortedFolderList = getSortedFolderList();
+            _cached_folder_list = sortedFolderList;
+            _cached_folder_nodes = BuildFolderNodes(sortedFolderList);
+        }
+    }
+
+    private void RebuildFolderState()
+    {
+        InvalidateFolderStateCache();
+        EnsureFolderStateCache();
         RaisePropertyChanged("folder_list");
+        RaisePropertyChanged("FolderNodes");
     }
 
     private HashSet<string> GetExistingFolderNameSet()
@@ -525,7 +556,7 @@ public class BMSTable : LR2SongDBExtended.playlist
         bMSTableEntry.folder = text;
         _entries.Add(bMSTableEntry);
         base.last_update = DateTime.Now;
-        NotifyFolderListChanged();
+        RebuildFolderState();
         return text;
     }
 
@@ -548,7 +579,7 @@ public class BMSTable : LR2SongDBExtended.playlist
         base.last_update = DateTime.Now;
         if (flag)
         {
-            NotifyFolderListChanged();
+            RebuildFolderState();
         }
     }
 
@@ -571,7 +602,7 @@ public class BMSTable : LR2SongDBExtended.playlist
         }
         if (flag)
         {
-            NotifyFolderListChanged();
+            RebuildFolderState();
         }
         base.last_update = DateTime.Now;
     }
