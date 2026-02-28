@@ -44,7 +44,6 @@
       <v:panelStateToVisibilityConverter x:Key="panelStateToVisibilityConverter" />
       <v:combineTitleAndArtistConverter x:Key="combineTitleAndArtistConverter" />
       <v:treeViewItemToAncestorsStringConverter x:Key="treeViewItemToAncestorsStringConverter" />
-      <v:playlistTableFolderNameConverter x:Key="playlistTableFolderNameConverter" />
       <v:nowPlayingBMStoPlayButtonStringComverter x:Key="nowPlayingBMStoPlayButtonStringComverter" />
       <v:currentTimeConverter x:Key="currentTimeConverter" />
       <v:playingBmsInfoConverter x:Key="playingBmsInfoConverter" />
@@ -2091,18 +2090,17 @@
 <TreeViewItem Name="treeViewItemPlaylist" IsExpanded="{Binding IsPlaylistTreeExpanded, Mode=TwoWay}" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist, Mode=OneWay}" ItemsSource="{Binding BMSTables}" ContextMenu="{StaticResource ResourceKey=treeViewPlaylistRootContextMenu}" Selected="playlistRootSelect">
               <FrameworkElement.Resources>
                 <ResourceDictionary>
-                  <v:playlistTableFolderListConverter x:Key="playlistTableFolderListConverter" />
                    <DataTemplate x:Key="templateTreeViewItemHeaderPlaylistTableFolderNormal">
                     <StackPanel Orientation="Horizontal">
                       <Image Style="{StaticResource styleTreeViewItemIconFolderNote}" />
-                      <v:EditableTextBlock x:Name="etbPlaylistTableFolder" MouseDown="playlistTableFolderClicked" EditModeChanged="playlistTableFolderNameChanged" Text="{Binding Item1, Converter={StaticResource playlistTableFolderNameConverter}}" IsEditable="{qc:Binding !$P, P={Binding DataContext.is_external_sync, RelativeSource={RelativeSource FindAncestor, AncestorLevel=2, AncestorType={x:Type TreeViewItem}}}}" />
+                      <v:EditableTextBlock x:Name="etbPlaylistTableFolder" MouseDown="playlistTableFolderClicked" EditModeChanged="playlistTableFolderNameChanged" Text="{Binding DisplayName, Mode=OneWay}" IsEditable="{qc:Binding !$P, P={Binding DataContext.is_external_sync, RelativeSource={RelativeSource FindAncestor, AncestorLevel=2, AncestorType={x:Type TreeViewItem}}}}" />
                     </StackPanel>
                   </DataTemplate>
                   <DataTemplate x:Key="templateTreeViewItemHeaderPlaylistTableFolderSP">
                     <ContentControl>
                       <StackPanel Orientation="Horizontal">
                         <Image Style="{StaticResource styleTreeViewItemIconFolderLoupe}" />
-                        <v:EditableTextBlock x:Name="etbPlaylistTableFolder" IsEditable="False" Text="{Binding Item1}" />
+                        <v:EditableTextBlock x:Name="etbPlaylistTableFolder" IsEditable="False" Text="{Binding DisplayName, Mode=OneWay}" />
                       </StackPanel>
                     </ContentControl>
                   </DataTemplate>
@@ -2156,7 +2154,7 @@
                   <Setter Property="Focusable" Value="True" />
                   <Setter Property="Header" Value="{Binding name}" />
                   <Setter Property="HeaderTemplate" Value="{StaticResource templateTreeViewItemHeaderPlaylistTable}" />
-                  <Setter Property="ItemsSource" Value="{Binding folder_list, Converter={StaticResource playlistTableFolderListConverter}, Mode=OneWay}" />
+                  <Setter Property="ItemsSource" Value="{Binding FolderNodes, Mode=OneWay}" />
                   <Setter Property="FrameworkElement.ContextMenu" Value="{StaticResource treeViewPlaylistTableContextMenu}" />
                   <Setter Property="Template" Value="{StaticResource TreeViewItemFullWidth}" />
                   <Setter Property="UIElement.AllowDrop" Value="True" />
@@ -2164,11 +2162,11 @@
                     <Setter.Value>
                       <Style TargetType="{x:Type TreeViewItem}">
                         <Style.Triggers>
-                          <DataTrigger Value="False" Binding="{Binding Item2}">
+                          <DataTrigger Value="False" Binding="{Binding IsSpecial}">
                             <Setter Property="Header" Value="{Binding}" />
                             <Setter Property="HeaderTemplate" Value="{StaticResource templateTreeViewItemHeaderPlaylistTableFolderNormal}" />
                           </DataTrigger>
-                          <DataTrigger Value="True" Binding="{Binding Item2}">
+                          <DataTrigger Value="True" Binding="{Binding IsSpecial}">
                             <Setter Property="Header" Value="{Binding}" />
                             <Setter Property="HeaderTemplate" Value="{StaticResource templateTreeViewItemHeaderPlaylistTableFolderSP}" />
                           </DataTrigger>
