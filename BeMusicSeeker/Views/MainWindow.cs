@@ -39,6 +39,11 @@ using Ribbit.Windows;
 
 namespace BeMusicSeeker.Views;
 
+/// <summary>
+/// アプリケーションのメインウィンドウを表すクラスです。
+/// UIの初期化、主要なイベントハンドリング（ドラッグ＆ドロップ、ウィンドウ状態の変更、閉じる処理など）、
+/// および非同期のアップデートチェッカー等のグローバルな制御を統括します。
+/// </summary>
 public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 {
     private static readonly Logger installPerformanceLogger = LogManager.GetLogger("InstallPerformance.MainWindow");
@@ -155,6 +160,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
     }
 
+    /// <summary>
+    /// <see cref="MainWindow"/> クラスの新しいインスタンスを初期化します。
+    /// UIコンポーネントの構築、TreeViewのイベントハンドラ登録、
+    /// 設定のプロパティ変更リスナの初期化、および非同期のアップデートチェックを開始します。
+    /// </summary>
     public MainWindow()
     {
         InitializeComponent();
@@ -177,6 +187,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         Task.Run(async () => await CheckForUpdatesAsync());
     }
 
+    /// <summary>
+    /// GitHub上のバージョン情報ファイルを参照し、現在実行中のアプリケーションよりも
+    /// 新しいバージョンがリリースされていないか非同期でチェックします。
+    /// 新しいバージョンが利用可能な場合は、ユーザーにメッセージボックスで通知します。
+    /// </summary>
+    /// <returns>非同期タスクを表す <see cref="Task"/> オブジェクト。</returns>
     private async Task CheckForUpdatesAsync()
     {
         try
@@ -215,6 +231,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
     }
 
+    /// <summary>
+    /// アプリケーション起動時に、設定 (StartupSelectInstallPending) に基づいて
+    /// プレイリストツリーの「インストール待ち（保留）」ノードを自動的に展開・選択します。
+    /// </summary>
     public void ApplyStartupInitialSelectionRequest()
     {
         if (startupInitialSelectionApplied)
@@ -255,6 +275,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         base.WindowState = ((base.WindowState != WindowState.Maximized) ? WindowState.Maximized : WindowState.Normal);
     }
 
+    /// <summary>
+    /// メインウィンドウに対してファイルやフォルダーがドラッグ＆ドロップされた際の完了処理イベント。
+    /// ドロップされたパス一覧を取得し、BMSファイルのインストール処理を開始します。
+    /// </summary>
     private void Window_Drop(object sender, DragEventArgs e)
     {
         if (e.Data.GetData(DataFormats.FileDrop) is string[] filePaths)
@@ -263,7 +287,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             newlyInstalledTreeViewItem.IsExpanded = true;
         }
     }
-
+    /// <summary>
+    /// メインウィンドウ内へファイルをドラッグ中（ホバー中）のイベント。
+    /// ドロップされたデータがファイル(FileDrop)形式である場合のみ、カーソルエフェクトを「Copy（追加）」に変更します。
+    /// </summary>
     private void Window_DragOver(object sender, DragEventArgs e)
     {
         if (e.Data.GetDataPresent(DataFormats.FileDrop, autoConvert: true))
@@ -276,7 +303,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         e.Handled = true;
     }
-
+    /// <summary>
+    /// メインウィンドウ上でマウスの左ボタンが押し込まれた際の処理。
+    /// DataGrid等の特定の操作可能要素以外をクリックしたと判定された場合、
+    /// ウィンドウ全体をドラッグ移動できるようにします (DragMove)。
+    /// </summary>
     private void Window_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
         if (!dataGrid.IsMouseOver)
@@ -284,7 +315,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             DragMove();
         }
     }
-
+    /// <summary>
+    /// ウィンドウの表示状態（最大化、最小化、通常）が変更された際に呼び出され、
+    /// ウィンドウ境界のマージンを調整します（最大化時の見切れ防止）。
+    /// </summary>
     private void Window_StateChanged(object sender, EventArgs e)
     {
         if (((Window)sender).WindowState == WindowState.Maximized)
@@ -297,6 +331,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
     }
 
+    /// <summary>
+    /// ウィンドウの内部リソースとHWNDが初期化された直後に呼び出されます。
+    /// パネル状態の整合性確認、WebBrowserコントロールの設定（サイレント化、ドロップ無効化）、
+    /// および前回終了時のウィンドウ配置（最大化状態や座標）の復元を行います。
+    /// </summary>
+    /// <param name="e">イベントデータ。</param>
     protected override void OnSourceInitialized(EventArgs e)
     {
         base.OnSourceInitialized(e);
@@ -323,6 +363,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
     }
 
+    /// <summary>
+    /// ウィンドウが閉じられる直前に呼び出されます。
+    /// 現在のUI状態（TreeViewの幅、ウィンドウの配置や最大化状態など）を
+    /// ユーザー設定 (Settings.Default) に保存します。
+    /// </summary>
+    /// <param name="e">キャンセル可能なイベントデータ。</param>
     protected override void OnClosing(CancelEventArgs e)
     {
         base.OnClosing(e);
@@ -333,6 +379,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         Settings.Default.Save();
     }
 
+    /// <summary>
+    /// メインプレイリスト一覧 (DataGrid) の列ヘッダクリック時に発生するソート処理をハンドリングします。
+    /// 現在のソート方向を反転（未設定時は昇順）させ、非同期でバックグラウンド実行をリクエストします。
+    /// 一時的にソートアイコン（Glyph）を即反映させ、実際の並び替え完了後にアイコン状態を同期します。
+    /// </summary>
     private async void dataGridSorting(object sender, DataGridSortingEventArgs e)
     {
         e.Handled = true;
@@ -365,6 +416,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         RequestSortGlyphRefresh(dataGrid, "sorting");
     }
 
+    /// <summary>
+    /// プレイリストサマリー一覧 (DataGrid) の列ヘッダクリック時に発生するソート処理をハンドリングします。
+    /// <see cref="dataGridSorting"/> と同様に、ソートの非同期実行とアイコン即時・事後同期を行います。
+    /// </summary>
     private async void dataGridPlaylistSummarySorting(object sender, DataGridSortingEventArgs e)
     {
         e.Handled = true;
@@ -395,6 +450,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         RequestSortGlyphRefresh(dataGrid, "playlist_summary_sorting");
     }
 
+    /// <summary>
+    /// DataGridのItemsSourceなどデータ転送対象が更新された際に実行されます。
+    /// コレクション再生成やアイテム群の大幅変更が発生したと見なし、ソートアイコンの再同期をスケジュールします。
+    /// </summary>
     private void dataGridTargetUpdated(object sender, DataTransferEventArgs e)
     {
         if (!ReferenceEquals(e.Property, ItemsControl.ItemsSourceProperty))
@@ -619,6 +678,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
     }
 
+    /// <summary>
+    /// メインDataGridにおいて、VirtualizingStackPanel等のUI仮想化が有効な環境下で、
+    /// ViewModel上で選択されたBMSファイル（SelectedIndexBMSFilesView）の行が
+    /// 表示領域（Viewport）内に収まるようにスクロール位置を調整します。
+    /// </summary>
     public void scrollIntoView()
     {
         base.Dispatcher.BeginInvoke((Action)delegate
@@ -639,6 +703,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         });
     }
 
+    /// <summary>
+    /// DataGridのカラム表示順序（列入れ替え結果）をViewModelや設定用データソースに書き戻します。
+    /// ウィンドウ終了時などに列の順序状態を永続化するための情報を取得します。
+    /// </summary>
     public void getDisplayIndices()
     {
         base.Dispatcher.BeginInvoke((Action)delegate
@@ -688,6 +756,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         setDisplayIndices();
     }
 
+    /// <summary>
+    /// ViewModelや設定データソースから取得したカラムの表示順序（DisplayIndex）を、
+    /// 現在のDataGridのカラム群に適用してUIレイアウトを復元します。
+    /// 最後に配置すべきダミーカラムなどは固定インデックスで調整します。
+    /// </summary>
     private void setDisplayIndices()
     {
         base.Dispatcher.BeginInvoke((Action)delegate
@@ -830,6 +903,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
     }
 
+    /// <summary>
+    /// 現在 ViewModel で選択されている（再生中の）BMSファイルの情報を取得し、
+    /// BMSPlayerコントロール（プレビュー画像やバナー、曲名などのUI情報）を最新状態に更新します。
+    /// </summary>
     public void _renewBMSPlayerControlInfo()
     {
         if (base.DataContext is MainWindowViewModel { NowPlayingBMS: not null } mainWindowViewModel)
@@ -838,6 +915,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
     }
 
+    /// <summary>
+    /// 指定された DataGridRow にバインドされている BMSFile の情報を用いて、
+    /// BMSPlayerコントロールのUI（画像・付帯情報）を更新します。
+    /// </summary>
+    /// <param name="dataGridRow">対象の BMSFile が存在する DataGridRow。</param>
     private void _renewBMSPlayerControlInfo(DataGridRow dataGridRow)
     {
         if (dataGridRow.DataContext is BMSFile bmsFile)
@@ -846,6 +928,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
     }
 
+    /// <summary>
+    /// 指定された確定的 BMSFile インスタンス情報を用いて、
+    /// BMSPlayerコントロールのUI（バナー画像レイアウト、タイトル文字列等）を同期します。
+    /// </summary>
+    /// <param name="bmsFile">更新対象となる BMS ファイル要素。</param>
     private void _renewBMSPlayerControlInfo(BMSFile bmsFile)
     {
         if (bmsFile == null)
@@ -1144,6 +1231,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
     }
 
+    /// <summary>
+    /// メインツリーやプレイリストツリー上で左クリックが行われた際の処理をハンドリングします。
+    /// Node（TreeViewItem）の選択状態を判定し、クリックされた要素に応じてViewModel側に
+    /// イベント（曲一覧の再生成等）を透過処理します。
+    /// </summary>
     private void treeViewLeftClick(object sender, MouseButtonEventArgs e)
     {
         if (!(sender is TreeView treeViewControl))
@@ -1240,7 +1332,14 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         return null;
     }
 
-    // 仮想化で子ノードコンテナが未生成でも、選択遷移が無選択で止まらないようにする。
+    /// <summary>
+    /// UI仮想化などの影響で対象となる子要素(TreeViewItem)のコンテナが未生成の場合でも、
+    /// ツリーの選択状態が無選択（LostFocus）で停止してしまわないように、最も近い兄弟ノードまたは
+    /// ルートノードへ選択状態をフォールバック遷移させます。
+    /// </summary>
+    /// <param name="rootTreeViewItem">フォールバックの起点となる親（ルート）要素。</param>
+    /// <param name="currentItem">現在選択されていたが削除等により遷移が必要なデータ項目。</param>
+    /// <param name="logScope">ログ出力用のスコープ名。</param>
     private void SelectNextSiblingOrRoot(TreeViewItem rootTreeViewItem, object currentItem, string logScope)
     {
         if (rootTreeViewItem == null)
@@ -1413,6 +1512,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         selectedItem.RaiseEvent(new RoutedEventArgs(TreeViewItem.SelectedEvent, selectedItem));
     }
 
+    /// <summary>
+    /// プレイリストツリー内の「フォルダ」上でキーボード操作が行われた際のイベントハンドラ。
+    /// F2キー押下時に、該当フォルダの名称編集モード (EditableTextBlockの切り替え) を起動します。
+    /// </summary>
     private void playlistTableFolderkeyDown(object sender, KeyEventArgs e)
     {
         if (e.Key == Key.F2 && sender is TreeViewItem treeViewItem && treeViewItem.Template.FindName("PART_Header", treeViewItem) is ContentPresenter templatedParent && treeViewItem.HeaderTemplate.FindName("etbPlaylistTableFolder", templatedParent) is EditableTextBlock editableTextBlock)
@@ -1943,6 +2046,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
     }
 
+    /// <summary>
+    /// プレイリストツリーの「ルート（プレイリスト一覧）」に対するコンテキストメニューが開かれた際の処理。
+    /// 現在の書き込みロック状態やバックグラウンド処理状況（IsWriteLockHeld等）に応じ、
+    /// 新規作成やURL読み込みなどの各種メニュー項目の有効/無効 (IsEnabled) を動的に制御します。
+    /// </summary>
     private void treeViewPlaylistRootContextMenuOpend(object sender, RoutedEventArgs e)
     {
         if (!(sender is ContextMenu contextMenu) || !(base.DataContext is MainWindowViewModel mainWindowViewModel))
@@ -1998,6 +2106,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
     }
 
+    /// <summary>
+    /// プレイリストルートのコンテキストメニュー「新しいプレイリストを作成」がクリックされた際の処理。
+    /// 非同期で空のBMSTable（プレイリスト）を生成し、直後にプロパティ変更ダイアログを表示させます。
+    /// </summary>
     private async void treeViewPlaylistRootContextMenuItemCreateNewPlaylistClick(object sender, RoutedEventArgs e)
     {
         MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
@@ -2019,6 +2131,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
     }
 
+    /// <summary>
+    /// プレイリストルートのコンテキストメニュー「URLからプレイリストを読み込む」がクリックされた際の処理。
+    /// カスタムURL入力用のダイアログ (loadPlaylistURIDialog) を画面に表示します。
+    /// </summary>
     private void treeViewPlaylistRootContextMenuItemLoadPlaylistURLClick(object sender, RoutedEventArgs e)
     {
         if (base.DataContext is MainWindowViewModel { IsWriteLockHeldBMSTablesInitializeMin: false })
@@ -2027,6 +2143,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
     }
 
+    /// <summary>
+    /// プレイリストルートのコンテキストメニュー「プレイリストコレクションを読み込む」がクリックされた際の処理。
+    /// 指定されたコレクションURLをもとに、ViewModelへプレイリスト群の非同期登録を要求します。
+    /// </summary>
     private async void treeViewPlaylistRootContextMenuItemLoadPlaylistCollectionClick(object sender, RoutedEventArgs e)
     {
         MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
@@ -2044,6 +2164,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
     }
 
+    /// <summary>
+    /// プレイリストルートのコンテキストメニュー「Walkure/難易度表を読み込む」に関するメニュー項目（各難易度表単位）のアクション。
+    /// MenuItemのTagプロパティに格納されたURLへアクセスし、プレイリスト情報を非同期で追加・登録します。
+    /// </summary>
     private async void treeViewPlaylistRootContextMenuItemLoadWalkureTableClick(object sender, RoutedEventArgs e)
     {
         MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
@@ -2057,6 +2181,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
     }
 
+    /// <summary>
+    /// プレイリストルートのコンテキストメニューから「Walkureのおすすめフォルダ」関連のテーブル読み込みが選択された場合の処理。
+    /// LR2IDの設定状況のチェックや、更新モード/閲覧モードに応じたユーザー確認ダイアログを挟んだ後、非同期で登録処理へ進みます。
+    /// </summary>
     private async void treeViewPlaylistRootContextMenuItemLoadWalkureTableRecommendedClick(object sender, RoutedEventArgs e)
     {
         MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
@@ -2087,6 +2215,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }).Logging("treeViewPlaylistRootContextMenuItemLoadWalkureTableRecommendedClick");
     }
 
+    /// <summary>
+    /// プレイリスト（難易度表等の直下にある上位階層）のコンテキストメニューが開かれた際の処理。
+    /// 現在の選択要素 (BMSTable) の属性（外部同期するか否か、URLの有無など）や
+    /// アプリ状態に応じて、メニュー各項目の有効化状態 (IsEnabled) を切り替えます。
+    /// </summary>
     private void treeViewPlaylistTableContextMenuOpend(object sender, RoutedEventArgs e)
     {
         if (!(sender is ContextMenu contextMenu) || !(base.DataContext is MainWindowViewModel mainWindowViewModel) || !(contextMenu.PlacementTarget is TreeViewItem { DataContext: BMSTable dataContext }))
@@ -2138,6 +2271,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         menuItem6.IsEnabled = !mainWindowViewModel.IsWriteLockHeldBMSTablesInitializeMin && !mainWindowViewModel.IsWriteLockHeldBMSTables && !mainWindowViewModel.IsWriteLockHeldAnyBMSTable;
     }
 
+    /// <summary>
+    /// テーブル階層コンテキストメニュー「最新の情報に更新（リロード）」実行時の処理。
+    /// 対象プレイリスト単体の同期更新を非同期で実行し、完了後に選択状態の復元を試みます。
+    /// </summary>
     private async void treeViewPlaylistTableContextMenuItemReloadClick(object sender, RoutedEventArgs e)
     {
         MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
@@ -2198,6 +2335,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         return source.FirstOrDefault((BMSTable t) => t != null && string.Equals(t.name, tableBeforeReload.name, StringComparison.Ordinal));
     }
 
+    /// <summary>
+    /// テーブル階層コンテキストメニュー「配布ページを開く」実行時の処理。
+    /// BMSTableに設定されたURL (Page_url または Header_url) を標準ブラウザ等で開きます。
+    /// 特殊スキーム（Walkure難易度表等）の場合は専用のURLへ変換してブラウザ起動します。
+    /// </summary>
     private void treeViewPlaylistTableContextMenuItemOpenPageURIClick(object sender, RoutedEventArgs e)
     {
         if (!(base.DataContext is MainWindowViewModel mainWindowViewModel) || !(sender is MenuItem { DataContext: BMSTable dataContext }))
@@ -2222,6 +2364,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
     }
 
+    /// <summary>
+    /// テーブル階層コンテキストメニュー「クリア状況ページを開く」実行時の処理。
+    /// ユーザーのLR2IDと対象難易度表URLをパラメータにし、外部連携サイト（通常はWalkureのクリアランプページ）を表示します。
+    /// </summary>
     private void treeViewPlaylistTableContextMenuItemOpenClearLampClick(object sender, RoutedEventArgs e)
     {
         if (base.DataContext is MainWindowViewModel mainWindowViewModel && sender is MenuItem { DataContext: BMSTable dataContext } && dataContext.Page_url != null && dataContext.is_external_sync && mainWindowViewModel.LR2ID != 0)
@@ -2230,6 +2376,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
     }
 
+    /// <summary>
+    /// テーブル階層コンテキストメニュー「フォルダを作成」実行時の処理。
+    /// 選択中のプレイリスト配下に新しいサブフォルダ用BMSTable要素を非同期で追加します（自作プレイリスト用）。
+    /// </summary>
     private async void treeViewPlaylistTableContextMenuItemCreateNewFolderClick(object sender, RoutedEventArgs e)
     {
         MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
@@ -2247,6 +2397,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
     }
 
+    /// <summary>
+    /// テーブル階層コンテキストメニュー「一覧をエキスポート (JSON)」実行時の処理。
+    /// 保存用ファイルダイアログを開き、指定されたパスに header.json と data.json 形式で
+    /// プレイリスト情報をファイル書き出し（出力）します。
+    /// </summary>
     private async void treeViewPlaylistTableContextMenuItemExportTableClick(object sender, RoutedEventArgs e)
     {
         MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
@@ -2277,6 +2432,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
     }
 
+    /// <summary>
+    /// テーブル階層コンテキストメニュー「ローカルBMSの難易度をこの表で上書き」実行時の処理。
+    /// ユーザー確認ダイアログ表示後、このプレイリストに登録されている各楽曲のレベル情報を用いて
+    /// メインDB（ローカルの全BMS情報）の同等楽曲のレベル値を書き換えます。
+    /// </summary>
     private void treeViewPlaylistTableContextMenuItemOverwriteLevelClick(object sender, RoutedEventArgs e)
     {
         MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
@@ -2302,6 +2462,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
     }
 
+    /// <summary>
+    /// テーブル階層コンテキストメニュー「この表を削除」実行時の処理。
+    /// ユーザー確認を取った上で選択中のプレイリストをツリーから除外し、非同期でメイン側からも削除・破棄します。
+    /// UI仮想化による選択ロストを防ぐためのフォールバック遷移も併せて行います。
+    /// </summary>
     private async void treeViewPlaylistTableContextMenuItemRemoveTableClick(object sender, RoutedEventArgs e)
     {
         MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
@@ -2328,6 +2493,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
     }
 
+    /// <summary>
+    /// テーブル階層コンテキストメニュー「プロパティ」実行時の処理。
+    /// 選択中の難易度表（BMSTable）の詳細情報や同期URLなどを確認・編集できる専用ダイアログを開きます。
+    /// </summary>
     private void treeViewPlaylistTableCcontextMenuItemOpenPropertyDialogClick(object sender, RoutedEventArgs e)
     {
         MainWindowViewModel mainWindowViewModel = base.DataContext as MainWindowViewModel;
@@ -2339,6 +2508,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
     }
 
+    /// <summary>
+    /// プレイリスト配下の「フォルダ（自作/自動生成）」のコンテキストメニューが開かれた際の処理。
+    /// ツリーのVisualTreeを遡り、現在選択しているアイテムが外部同期中のものかを判別して、
+    /// 「フォルダ名変更」や「削除」といった編集メニューの有効化状態を制御します。
+    /// </summary>
     private void treeViewPlaylistTableFolderContextMenuOpend(object sender, RoutedEventArgs e)
     {
         if (!(sender is ContextMenu contextMenu) || !(base.DataContext is MainWindowViewModel))
@@ -2380,6 +2554,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         menuItem2.IsEnabled = !bMSTable.is_external_sync && folderNode.IsEditable;
     }
 
+    /// <summary>
+    /// 右クリックやコンテキストメニュー操作の起点となった要素から、
+    /// VisualTreeを親方向へ遡及して、所属する上位の <see cref="BMSTable"/>（プレイリスト大枠）を探索して返却します。
+    /// </summary>
+    /// <param name="sender">ContextMenu もしくは MenuItem。</param>
+    /// <returns>該当する上位の <see cref="BMSTable"/> 要素。見つからない場合は null。</returns>
     private BMSTable _getUpperBMSTableForContextMenuClickEvent(object sender)
     {
         ContextMenu contextMenu = ((sender is MenuItem menuItem) ? (menuItem.Parent as ContextMenu) : (sender as ContextMenu));
@@ -2403,6 +2583,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         return (parent as TreeViewItem).DataContext as BMSTable;
     }
 
+    /// <summary>
+    /// 右クリックやコンテキストメニュー操作の起点となったTreeViewItem内から、
+    /// VisualTreeを子方向へ探索し、フォルダ名編集などに用いられる <see cref="EditableTextBlock"/> を取得します。
+    /// </summary>
+    /// <param name="sender">ContextMenu もしくは MenuItem。</param>
+    /// <returns>該当する <see cref="EditableTextBlock"/> コンポーネント。存在しない場合は null。</returns>
     private EditableTextBlock _getETBFromContextMenuClickEvent(object sender)
     {
         ContextMenu contextMenu = ((sender is MenuItem menuItem) ? (menuItem.Parent as ContextMenu) : (sender as ContextMenu));
@@ -2440,6 +2626,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
     }
 
+    /// <summary>
+    /// プレイリストフォルダ階層コンテキストメニュー「フォルダを削除」実行時の処理。
+    /// 指定されたカスタムフォルダ名を持つ仮想要素を、所属するプレイリスト (BMSTable) 内から抹消します。
+    /// </summary>
     private async void treeViewPlaylistTableFolderContextMenuItemDeleteFolderClick(object sender, RoutedEventArgs e)
     {
         MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
@@ -2467,6 +2657,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
     }
 
+    /// <summary>
+    /// プレイリストフォルダ階層コンテキストメニュー「フォルダ名を変更」実行時の処理。
+    /// 該当のTreeViewItem内に存在する EditableTextBlock の編集モードをアクティブ (IsInEditMode = true) にします。
+    /// </summary>
     private void treeViewPlaylistTableFolderContextMenuItemChangeFolderNameClick(object sender, RoutedEventArgs e)
     {
         EditableTextBlock editableTextBlock = _getETBFromContextMenuClickEvent(sender);
@@ -2476,6 +2670,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
     }
 
+    /// <summary>
+    /// メインツリー（ライブラリ/フォルダ等）コンテキストメニュー「エクスプローラで開く」実行時の処理。
+    /// Explorer.exe を介して、選択中のローカルファイルシステム上の絶対パスを開きます。
+    /// </summary>
     private void treeViewLibraryFolderContextMenuItemOpenExplorerClick(object sender, RoutedEventArgs e)
     {
         if (!(e.Source is MenuItem { Parent: ContextMenu { PlacementTarget: TreeViewItem placementTarget } }))
@@ -2496,6 +2694,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
     }
 
+    /// <summary>
+    /// BMS検索フォルダコンテキストメニュー「BMS検索フォルダから除外」実行時の処理。
+    /// ユーザー確認ダイアログ表示後、アプリケーション設定のBMSルートフォルダー一覧から該当のパスを除外して保存します。
+    /// </summary>
     private void treeViewLibraryFolderContextMenuItemUnregisterRootFolder(object sender, RoutedEventArgs e)
     {
         if (!(e.Source is MenuItem { Parent: ContextMenu { PlacementTarget: TreeViewItem placementTarget } }))
@@ -2589,6 +2791,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
     }
 
+    /// <summary>
+    /// インストール関連ツリーのコンテキストメニュー「このフォルダの履歴を消去」実行時の処理。
+    /// 「インストール保留中」などのリストから対象のパッケージ (BMSPackage) を一つ取り除きます。
+    /// </summary>
     private async void treeViewInstallPackageContextMenuClearFolderClick(object sender, RoutedEventArgs e)
     {
         if (!(e.Source is MenuItem { Parent: ContextMenu { PlacementTarget: TreeViewItem placementTarget } }))
@@ -4293,6 +4499,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }, dataGridContextMenuTaskTokenSource.Token).Logging("dataGridContextMenuSearchLinkOpened");
     }
 
+    /// <summary>
+    /// 指定されたURI（ファイルURL等）からBMSの圧縮アーカイブファイルを非同期でダウンロードし、一時フォルダへ保存した上でインストール処理へと繋ぎます。
+    /// ファイルサイズが大きすぎる場合（約500MB超）や非対応フォーマットの場合は処理を中断します。
+    /// </summary>
+    /// <param name="uri">ダウンロード対象のURL。</param>
+    /// <returns>ダウンロードとインストールの起動に成功した場合は true、失敗した場合は false。</returns>
     private async Task<bool> downloadAndInstall(Uri uri)
     {
         string tempDirectory = TempDirectoryPublisher.Get();
@@ -4327,6 +4539,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         return false;
     }
 
+    /// <summary>
+    /// 取得された複数のBMSファイル（またはアーカイブのパス）の一覧をもとに、
+    /// ViewModelのインストールモジュールを非同期で呼び出し、アプリケーションのデータベースやフォルダへ導入します。
+    /// 導入件数が複数の場合は進捗表示付きのポップアップダイアログ (ProgressDialog) を表示します。
+    /// </summary>
+    /// <param name="filePaths">インストール対象の一連のファイルシステムパス群。</param>
     private async void installBMSFiles(IEnumerable<string> filePaths)
     {
         MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
@@ -4996,6 +5214,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
     }
 
+    /// <summary>
+    /// 内蔵プレーヤーの「次の曲へ (Next)」ボタンがクリックされた際のイベントハンドラ。
+    /// リスト内で現在選択されている曲の次の曲を非同期で再生開始します。
+    /// </summary>
     private async void gridBMSPlayerControlsNextButtonClicked(object sender, MouseButtonEventArgs e)
     {
         MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
@@ -5008,6 +5230,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
     }
 
+    /// <summary>
+    /// 内蔵プレーヤーの「前の曲へ (Previous)」ボタンがクリックされた際のイベントハンドラ。
+    /// ダブルクリック時は前の曲へ移動し、シングルクリック時は現在の曲を最初から再生し直します。
+    /// </summary>
     private async void gridBMSPlayerControlsPreviousButtonClicked(object sender, MouseButtonEventArgs e)
     {
         MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
@@ -5047,6 +5273,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
     }
 
+    /// <summary>
+    /// 内蔵プレーヤーの「再生 (Play)」ボタンがクリックされた際のイベントハンドラ。
+    /// 現在の再生状態が停止・一時停止であれば再生を再開または開始します。
+    /// </summary>
     private async void gridBMSPlayerControlsPlayStartButtonClicked(object sender, MouseButtonEventArgs e)
     {
         MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
@@ -5064,6 +5294,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
     }
 
+    /// <summary>
+    /// 内蔵プレーヤーの「停止 (Stop)」ボタンがクリックされた際のイベントハンドラ。
+    /// 実行中の再生プロセスを終了し、再生状態をクリアします。
+    /// </summary>
     private async void gridBMSPlayerControlsPlayStopButtonClicked(object sender, MouseButtonEventArgs e)
     {
         MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
@@ -5223,6 +5457,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
     }
 
+    /// <summary>
+    /// メインリスト (DataGrid) 上でのキー入力イベントを処理します。
+    /// Enterキー押下時に、選択中のBMS楽曲のプレビュー再生（BMSPlayerパネル展開および再生開始）を開始します。
+    /// 編集モード中の場合は変更の確定のみ行います。UI仮想化でコンテナが未生成でも再生可能なフォールバックを含みます。
+    /// </summary>
     private async void dataGridKeyDown(object sender, KeyEventArgs e)
     {
         if (!(sender is DataGrid dataGrid))
