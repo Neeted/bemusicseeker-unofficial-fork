@@ -7868,89 +7868,149 @@ public class MainWindowViewModel : ViewModel
         BrowserHtml = "\r\n<?xml version=\"1.0\" encoding=\"UTF-8\"?>\r\n<!DOCTYPE html\r\n     PUBLIC \"-//W3C//DTD XHTML 1.0 Strict//EN\"\r\n    \"DTD/xhtml1-strict.dtd\">\r\n<html xmlns=\"http://www.w3.org/1999/xhtml\" xml:lang=\"en\" lang=\"en\">\r\n  <head>\r\n  <meta http-equiv=\"X-UA-Compatible\" content=\"IE=edge\"/>\r\n  </head>\r\n  <body style=\"margin:0px;padding:0px;overflow:hidden;\">\r\n    <div style=\"padding:0;background-color:black;margin:0 auto;text-align: center;\"><script type=\"text/javascript\" src=\"http://ext.nicovideo.jp/thumb_watch/" + id + "?h=256\"></script></div>\r\n  </body>\r\n</html>\r\n";
     }
 
+    /// <summary>
+    /// 選択された複数のBMSファイルをスコアビューワー（外部連携サイト、通常は BMS Score Viewer）に登録・アップロードします。
+    /// 既に登録済みの場合はスキップし、未登録の場合はファイルをアップロードして閲覧可能な状態にします。
+    /// 複数ファイルの一括登録時にはユーザーに確認ダイアログを表示します。
+    /// </summary>
+    /// <param name="bmsFiles">登録対象となるBMSファイルのリスト。</param>
+    /// <returns>
+    /// 最後に処理されたファイルが正しく登録（または取得）できた場合、そのスコアビューワーの閲覧用URLを返します。
+    /// キャンセル時や、対象ファイル全てで処理に失敗した場合は null を返します。
+    /// </returns>
     public string RegisterBMSFilesToScoreViewer(List<BeMusicSeeker.Models.BMSFile> bmsFiles)
     {
         if (bmsFiles == null)
         {
-            throw new ArgumentNullException("bmsFiles");
+            throw new ArgumentNullException(nameof(bmsFiles));
         }
-        BeMusicSeeker.Models.BMSFile bMSFile = bmsFiles.Last();
-        bool flag = false;
-        string text = null;
+
+        if (bmsFiles.Count == 0)
+        {
+            return null;
+        }
+
+        BeMusicSeeker.Models.BMSFile lastTargetBmsFile = bmsFiles.Last();
+        bool userConfirmedMultiRegister = false;
+        string resultViewUrl = null;
+
         GZipWebClient gZipWebClient = new GZipWebClient
         {
             Encoding = Encoding.UTF8
         };
+
+        // 複数ファイルの登録時は最初に一括確認ダイアログを出す
         if (bmsFiles.Count > 1)
         {
-            ConfirmationMessage confirmationMessage = new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Msg_register_chart + Environment.NewLine + Environment.NewLine + bmsFiles.Count + " " + BeMusicSeeker.Properties.Resources.Num_chart, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxImage.Asterisk, MessageBoxButton.YesNo, "ConfirmationDialog");
+            ConfirmationMessage confirmationMessage = new ConfirmationMessage(
+                BeMusicSeeker.Properties.Resources.Msg_register_chart + Environment.NewLine + Environment.NewLine + bmsFiles.Count + " " + BeMusicSeeker.Properties.Resources.Num_chart,
+                BeMusicSeeker.Properties.Resources.Confirm,
+                MessageBoxImage.Asterisk,
+                MessageBoxButton.YesNo,
+                "ConfirmationDialog");
+
             base.Messenger.Raise(confirmationMessage);
+
             if (confirmationMessage.Response != true)
             {
                 return null;
             }
-            flag = true;
+            userConfirmedMultiRegister = true;
         }
+
         foreach (BeMusicSeeker.Models.BMSFile bmsFile in bmsFiles)
         {
             try
             {
-                string text2 = bmsFile.hash;
+                string currentFileHash = bmsFile.hash;
                 if (string.IsNullOrWhiteSpace(bmsFile.path) || !File.Exists(bmsFile.path))
                 {
-                    goto IL_048f;
-                }
-                dynamic val = DynamicJson.Parse(gZipWebClient.DownloadString(scoreStatusUrl + bmsFile.hash));
-                if (!((val.status != "OK") ? true : false))
-                {
-                    goto IL_048f;
-                }
-                if (flag || !Settings.Default.ShowScoreViewerRegisterConfirmMsg)
-                {
-                    goto IL_02e3;
-                }
-                ConfirmationMessage confirmationMessage2 = new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Msg_show_chart + Environment.NewLine + Environment.NewLine + bmsFile.Title + Environment.NewLine + "MD5: " + bmsFile.hash + Environment.NewLine + Environment.NewLine + "(" + BeMusicSeeker.Properties.Resources.Msg_hide_message + ")", BeMusicSeeker.Properties.Resources.Confirm, MessageBoxImage.Asterisk, MessageBoxButton.YesNo, "ConfirmationDialog");
-                base.Messenger.Raise(confirmationMessage2);
-                if (confirmationMessage2.Response == true)
-                {
-                    flag = true;
-                    goto IL_02e3;
-                }
-                goto end_IL_00d9;
-            IL_048f:
-                if (bmsFile == bMSFile)
-                {
-                    text = scoreViewUrl + text2;
-                }
-                goto end_IL_00d9;
-            IL_02e3:
-                string json = Encoding.UTF8.GetString(gZipWebClient.UploadFile(scoreRegisterUrl, bmsFile.path));
-                if (bmsFile != bMSFile)
-                {
-                    goto IL_048f;
-                }
-                dynamic val2 = DynamicJson.Parse(json);
-                if (val2.status != "OK")
-                {
+                    // ファイルが実在しない場合はアップロード不可。対象が最後のファイルならURLを生成しておく
+                    if (bmsFile == lastTargetBmsFile)
+                    {
+                        resultViewUrl = scoreViewUrl + currentFileHash;
+                    }
                     continue;
                 }
-                text2 = val2.md5;
-                goto IL_048f;
-            end_IL_00d9:;
+
+                // すでに登録されているかステータスを確認
+                string statusJson = gZipWebClient.DownloadString(scoreStatusUrl + bmsFile.hash);
+                dynamic statusVal = DynamicJson.Parse(statusJson);
+
+                if (statusVal.status == "OK")
+                {
+                    // 登録済みの場合
+                    if (bmsFile == lastTargetBmsFile)
+                    {
+                        resultViewUrl = scoreViewUrl + currentFileHash;
+                    }
+                    continue;
+                }
+
+                // 未登録の場合の処理
+                // まだ確認が取れておらず、かつ1件アップロード設定で確認メッセージが有効な場合
+                if (!userConfirmedMultiRegister && Settings.Default.ShowScoreViewerRegisterConfirmMsg)
+                {
+                    ConfirmationMessage uploadConfirmMessage = new ConfirmationMessage(
+                        BeMusicSeeker.Properties.Resources.Msg_show_chart + Environment.NewLine + Environment.NewLine +
+                        bmsFile.Title + Environment.NewLine + "MD5: " + bmsFile.hash + Environment.NewLine + Environment.NewLine +
+                        "(" + BeMusicSeeker.Properties.Resources.Msg_hide_message + ")",
+                        BeMusicSeeker.Properties.Resources.Confirm,
+                        MessageBoxImage.Asterisk,
+                        MessageBoxButton.YesNo,
+                        "ConfirmationDialog");
+
+                    base.Messenger.Raise(uploadConfirmMessage);
+
+                    if (uploadConfirmMessage.Response == true)
+                    {
+                        userConfirmedMultiRegister = true;
+                    }
+                    else
+                    {
+                        // キャンセルされた場合はこのファイルの処理をスキップ
+                        continue;
+                    }
+                }
+
+                // 実際にファイルをアップロードして登録
+                string registerResponseJson = Encoding.UTF8.GetString(gZipWebClient.UploadFile(scoreRegisterUrl, bmsFile.path));
+
+                if (bmsFile == lastTargetBmsFile)
+                {
+                    dynamic registerResponseVal = DynamicJson.Parse(registerResponseJson);
+                    if (registerResponseVal.status == "OK")
+                    {
+                        currentFileHash = registerResponseVal.md5;
+                    }
+                    resultViewUrl = scoreViewUrl + currentFileHash;
+                }
             }
             catch (Exception)
             {
-                if (bmsFile != bMSFile)
+                // エラー発生時は、途中のファイルならWebClientを開放して作り直す
+                if (bmsFile != lastTargetBmsFile)
                 {
-                    gZipWebClient = new GZipWebClient();
+                    gZipWebClient = new GZipWebClient
+                    {
+                        Encoding = Encoding.UTF8
+                    };
                 }
             }
         }
-        if (flag && !string.IsNullOrWhiteSpace(text))
+
+        // 複数登録や確認ダイアログ経由で1つ以上のアップロード処理を通った場合、成功メッセージを出す
+        if (userConfirmedMultiRegister && !string.IsNullOrWhiteSpace(resultViewUrl))
         {
-            base.Messenger.Raise(new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Msg_success_register_chart, BeMusicSeeker.Properties.Resources.Information, MessageBoxImage.Asterisk, MessageBoxButton.OK, "ConfirmationDialog"));
+            base.Messenger.Raise(new ConfirmationMessage(
+                BeMusicSeeker.Properties.Resources.Msg_success_register_chart,
+                BeMusicSeeker.Properties.Resources.Information,
+                MessageBoxImage.Asterisk,
+                MessageBoxButton.OK,
+                "ConfirmationDialog"));
         }
-        return text;
+
+        return resultViewUrl;
     }
 
     public void ConvertBMSToAudioFiles(IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles, string saveDir, CancellationToken token = default(CancellationToken), Action<bool> onEachCompleted = null)
