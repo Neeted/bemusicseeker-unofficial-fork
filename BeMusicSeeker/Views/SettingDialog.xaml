@@ -603,6 +603,23 @@
                       </FrameworkContentElement.Resources>
                       <List>
                         <ListItem>
+                          <Paragraph FontWeight="Bold">1.0.5.0:</Paragraph>
+                          <List MarkerStyle="Box">
+                            <ListItem>
+                              <Paragraph>一覧画面用の高速ソート設定を追加</Paragraph>
+                            </ListItem>
+                            <ListItem>
+                              <Paragraph>各種UI安定化と表示まわりの不具合を修正</Paragraph>
+                            </ListItem>
+                            <ListItem>
+                              <Paragraph>削除時に読み取り専用属性で失敗しにくいよう改善</Paragraph>
+                            </ListItem>
+                            <ListItem>
+                              <Paragraph>カラム設定を初期化できない不具合を修正</Paragraph>
+                            </ListItem>
+                          </List>
+                        </ListItem>
+                        <ListItem>
                           <Paragraph FontWeight="Bold">1.0.4.0:</Paragraph>
                           <List MarkerStyle="Box">
                             <ListItem>
