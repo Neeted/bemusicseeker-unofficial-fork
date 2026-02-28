@@ -177,6 +177,10 @@ public class BMSTable : LR2SongDBExtended.playlist
 
     private List<PlaylistFolderNode> _cached_folder_nodes;
 
+    /// <summary>
+    /// フォルダ名の並びを取得します。
+    /// UI の直接バインド元ではなく、互換処理や JSON 出力でも利用する派生値です。
+    /// </summary>
     public List<string> folder_list
     {
         get
@@ -190,6 +194,10 @@ public class BMSTable : LR2SongDBExtended.playlist
         }
     }
 
+    /// <summary>
+    /// プレイリストツリー表示用のフォルダノード一覧を取得します。
+    /// 特殊ノードと通常フォルダの両方を含みます。
+    /// </summary>
     public IReadOnlyList<PlaylistFolderNode> FolderNodes
     {
         get
@@ -434,6 +442,11 @@ public class BMSTable : LR2SongDBExtended.playlist
         return base.playlist_id.HasValue;
     }
 
+    /// <summary>
+    /// 現在の <see cref="entries"/> と <see cref="Folder_order"/> から、
+    /// 通常フォルダの表示順を算出します。
+    /// </summary>
+    /// <returns>特殊ノードを含まない、並び順適用後のフォルダ名一覧。</returns>
     private List<string> getSortedFolderList()
     {
         List<string> folderList = (from e in entries
@@ -448,6 +461,12 @@ public class BMSTable : LR2SongDBExtended.playlist
         return enumerable.Concat(list).ToList();
     }
 
+    /// <summary>
+    /// 並び順確定後のフォルダ名一覧から、ツリー表示用ノード一覧を構築します。
+    /// 先頭に特殊ノードを配置し、その後に通常フォルダを並べます。
+    /// </summary>
+    /// <param name="orderedFolderNames">表示順確定後の通常フォルダ名一覧。</param>
+    /// <returns>プレイリストツリー表示用ノード一覧。</returns>
     private List<PlaylistFolderNode> BuildFolderNodes(List<string> orderedFolderNames)
     {
         List<PlaylistFolderNode> list = (from PlaylistFolderNodeSpecialKind kind in Enum.GetValues(typeof(PlaylistFolderNodeSpecialKind))
@@ -457,12 +476,20 @@ public class BMSTable : LR2SongDBExtended.playlist
         return list;
     }
 
+    /// <summary>
+    /// フォルダ状態に関する派生キャッシュを無効化します。
+    /// <see cref="folder_list"/> と <see cref="FolderNodes"/> は必ず同時に無効化します。
+    /// </summary>
     private void InvalidateFolderStateCache()
     {
         _cached_folder_list = null;
         _cached_folder_nodes = null;
     }
 
+    /// <summary>
+    /// フォルダ状態キャッシュが未構築の場合に再計算します。
+    /// <see cref="_cached_folder_list"/> と <see cref="_cached_folder_nodes"/> の整合性をここで揃えます。
+    /// </summary>
     private void EnsureFolderStateCache()
     {
         if (_cached_folder_list == null || _cached_folder_nodes == null)
@@ -473,6 +500,10 @@ public class BMSTable : LR2SongDBExtended.playlist
         }
     }
 
+    /// <summary>
+    /// フォルダ状態の派生値を再構築し、関連プロパティ変更通知を発行します。
+    /// フォルダ構成が変わる更新経路は、このメソッドを通じて状態を同期します。
+    /// </summary>
     private void RebuildFolderState()
     {
         InvalidateFolderStateCache();
@@ -481,6 +512,11 @@ public class BMSTable : LR2SongDBExtended.playlist
         RaisePropertyChanged("FolderNodes");
     }
 
+    /// <summary>
+    /// 現在の <see cref="entries"/> から、削除済みでない実フォルダ名の集合を取得します。
+    /// 新規フォルダ作成時の重複回避判定に使用します。
+    /// </summary>
+    /// <returns>現在の実フォルダ名セット。</returns>
     private HashSet<string> GetExistingFolderNameSet()
     {
         return new HashSet<string>(from e in entries

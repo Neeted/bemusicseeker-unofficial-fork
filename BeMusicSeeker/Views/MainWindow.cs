@@ -1308,6 +1308,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         treeViewItem.Focus();
     }
 
+    /// <summary>
+    /// プレイリストツリー用ノードから、一覧更新に使用するフィルタ種別を解決します。
+    /// 特殊ノードは文字列逆変換ではなく、ノード種別を直接見て分岐します。
+    /// </summary>
+    /// <param name="folderNode">判定対象のプレイリストフォルダノード。</param>
+    /// <returns>対応するプレイリストフィルタ種別。</returns>
     private static MainWindowViewModel.PlaylistFilterType GetPlaylistFilterType(PlaylistFolderNode folderNode)
     {
         if (folderNode == null || !folderNode.IsSpecial)
@@ -1321,6 +1327,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         };
     }
 
+    /// <summary>
+    /// プレイリストツリー選択時に ViewModel へ渡すフォルダ識別子を取得します。
+    /// 通常ノードは論理フォルダ名、特殊ノードは表示名を返します。
+    /// </summary>
+    /// <param name="folderNode">対象ノード。</param>
+    /// <returns>ViewModel 側で解釈するフォルダキー。</returns>
     private static string GetPlaylistFolderSelectionKey(PlaylistFolderNode folderNode)
     {
         if (folderNode == null)
@@ -1330,6 +1342,13 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         return folderNode.IsSpecial ? folderNode.DisplayName : folderNode.FolderName;
     }
 
+    /// <summary>
+    /// プレイリストツリー項目の <c>DataContext</c> を、
+    /// <see cref="PlaylistFolderNode"/> として安全に扱えるか判定します。
+    /// </summary>
+    /// <param name="dataContext">判定対象の DataContext。</param>
+    /// <param name="folderNode">変換に成功した場合のノード。</param>
+    /// <returns><see cref="PlaylistFolderNode"/> として扱える場合は <c>true</c>。</returns>
     private static bool TryGetPlaylistFolderNode(object dataContext, out PlaylistFolderNode folderNode)
     {
         folderNode = dataContext as PlaylistFolderNode;
