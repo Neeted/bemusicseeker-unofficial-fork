@@ -4,9 +4,6 @@ using System.Collections.Specialized;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
-using System.Net;
-using System.Net.Http;
-using System.Reflection;
 using System.Runtime.ExceptionServices;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -74,177 +71,10 @@ public class BMSPlaylist : NotificationObject
     }
 
     /// <summary>
-    /// 段階移行中の互換用として、従来のプレイリスト取得専用 Web クライアントを生成します。
-    /// 本ファイル内では新規呼び出しを行わず、他箇所への波及を避けるため残置しています。
+    /// <see cref="BMSPlaylist"/> 内の HTTP 通信に使う共有クライアントです。
+    /// 外部テーブル同期は応答待ちが長くなりやすいため、既定より長いタイムアウトを設定します。
     /// </summary>
-    /// <returns>UTF-8 と長めのタイムアウトを設定した Web クライアント。</returns>
-    private static GZipWebClient CreatePlaylistWebClient()
-    {
-        return new GZipWebClient
-        {
-            Encoding = Encoding.UTF8,
-            RequestTimeoutMs = PlaylistWebTimeoutMs,
-            ReadWriteTimeoutMs = PlaylistWebTimeoutMs
-        };
-    }
-
-    /// <summary>
-    /// <see cref="BMSPlaylist"/> 内の HTTP 通信に使う共有 <see cref="HttpClient"/> です。
-    /// </summary>
-    private static readonly HttpClient playlistHttpClient = CreatePlaylistHttpClient();
-
-    /// <summary>
-    /// <see cref="BMSPlaylist"/> 専用の <see cref="HttpClient"/> を生成します。
-    /// </summary>
-    /// <returns>gzip 展開と共通タイムアウトを設定した <see cref="HttpClient"/>。</returns>
-    private static HttpClient CreatePlaylistHttpClient()
-    {
-        HttpClientHandler httpClientHandler = new HttpClientHandler
-        {
-            AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate
-        };
-        HttpClient httpClient = new HttpClient(httpClientHandler)
-        {
-            Timeout = TimeSpan.FromMilliseconds(PlaylistWebTimeoutMs)
-        };
-        httpClient.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", BuildPlaylistHttpUserAgent());
-        return httpClient;
-    }
-
-    /// <summary>
-    /// プレイリスト取得時の User-Agent 文字列を構築します。
-    /// </summary>
-    /// <returns>アプリケーション名とバージョンを含む User-Agent。</returns>
-    private static string BuildPlaylistHttpUserAgent()
-    {
-        try
-        {
-            Version version = Assembly.GetEntryAssembly()?.GetName()?.Version ?? Assembly.GetExecutingAssembly()?.GetName()?.Version;
-            if (version != null)
-            {
-                return "BeMusicSeeker/" + version;
-            }
-        }
-        catch
-        {
-        }
-        return "BeMusicSeeker/unknown";
-    }
-
-    /// <summary>
-    /// 指定した HTTP リクエストを送信し、成功レスポンスだけを返します。
-    /// </summary>
-    /// <param name="method">HTTP メソッド。</param>
-    /// <param name="address">送信先 URI。</param>
-    /// <param name="content">POST 等で送る本文。</param>
-    /// <returns>成功した HTTP レスポンス。</returns>
-    private static HttpResponseMessage SendPlaylistRequest(HttpMethod method, Uri address, HttpContent content = null)
-    {
-        using (HttpRequestMessage httpRequestMessage = new HttpRequestMessage(method, address))
-        {
-            httpRequestMessage.Content = content;
-            HttpResponseMessage httpResponseMessage;
-            try
-            {
-                httpResponseMessage = playlistHttpClient.SendAsync(httpRequestMessage).ConfigureAwait(false).GetAwaiter().GetResult();
-            }
-            catch (TaskCanceledException ex)
-            {
-                Ribbit.Logging.NLogWrapper.FileLogger?.Warn(ex, "http_request_failed method=" + method.Method + " url=" + address + " reason=timeout_or_canceled");
-                throw;
-            }
-            catch (HttpRequestException ex)
-            {
-                Ribbit.Logging.NLogWrapper.FileLogger?.Warn(ex, "http_request_failed method=" + method.Method + " url=" + address + " reason=http_request_exception");
-                throw;
-            }
-            catch (Exception ex)
-            {
-                Ribbit.Logging.NLogWrapper.FileLogger?.Warn(ex, "http_request_failed method=" + method.Method + " url=" + address + " reason=unexpected_exception");
-                throw;
-            }
-            if (!httpResponseMessage.IsSuccessStatusCode)
-            {
-                Ribbit.Logging.NLogWrapper.FileLogger?.Warn("http_request_failed method=" + method.Method + " url=" + address + " statusCode=" + (int)httpResponseMessage.StatusCode + " status=" + httpResponseMessage.StatusCode);
-                HttpStatusCode statusCode = httpResponseMessage.StatusCode;
-                httpResponseMessage.Dispose();
-                throw new HttpRequestException("HTTP request failed statusCode=" + (int)statusCode + " status=" + statusCode);
-            }
-            Ribbit.Logging.NLogWrapper.FileLogger?.Info("http_request_succeeded method=" + method.Method + " url=" + address + " statusCode=" + (int)httpResponseMessage.StatusCode + " status=" + httpResponseMessage.StatusCode);
-            return httpResponseMessage;
-        }
-    }
-
-    /// <summary>
-    /// 指定 URI からバイト列を取得します。
-    /// </summary>
-    /// <param name="address">取得元 URI。</param>
-    /// <returns>取得したバイト列。</returns>
-    /// <exception cref="ArgumentNullException"><paramref name="address"/> が <see langword="null"/> の場合。</exception>
-    private static byte[] DownloadPlaylistBytes(Uri address)
-    {
-        if (address == null)
-        {
-            throw new ArgumentNullException("address");
-        }
-        if (address.IsFile)
-        {
-            return File.ReadAllBytes(address.LocalPath);
-        }
-        using (HttpResponseMessage httpResponseMessage = SendPlaylistRequest(HttpMethod.Get, address))
-        {
-            return httpResponseMessage.Content.ReadAsByteArrayAsync().ConfigureAwait(false).GetAwaiter().GetResult();
-        }
-    }
-
-    /// <summary>
-    /// 指定 URI から UTF-8 前提で文字列を取得します。
-    /// </summary>
-    /// <param name="address">取得元 URI。</param>
-    /// <returns>UTF-8 で解釈した文字列。</returns>
-    private static string DownloadPlaylistString(Uri address)
-    {
-        return Encoding.UTF8.GetString(DownloadPlaylistBytes(address));
-    }
-
-    /// <summary>
-    /// 指定 URI へフォームエンコードされた POST を送信します。
-    /// </summary>
-    /// <param name="address">送信先 URI。</param>
-    /// <param name="data">送信するフォーム値。</param>
-    /// <exception cref="ArgumentNullException"><paramref name="address"/> または <paramref name="data"/> が <see langword="null"/> の場合。</exception>
-    private static void PostPlaylistForm(Uri address, NameValueCollection data)
-    {
-        if (address == null)
-        {
-            throw new ArgumentNullException("address");
-        }
-        if (data == null)
-        {
-            throw new ArgumentNullException("data");
-        }
-        List<KeyValuePair<string, string>> list = new List<KeyValuePair<string, string>>();
-        foreach (string allKey in data.AllKeys)
-        {
-            string[] values = data.GetValues(allKey);
-            if (values == null || values.Length == 0)
-            {
-                list.Add(new KeyValuePair<string, string>(allKey ?? string.Empty, string.Empty));
-                continue;
-            }
-            foreach (string value in values)
-            {
-                list.Add(new KeyValuePair<string, string>(allKey ?? string.Empty, value ?? string.Empty));
-            }
-        }
-        using (FormUrlEncodedContent formUrlEncodedContent = new FormUrlEncodedContent(list))
-        {
-            using (HttpResponseMessage httpResponseMessage = SendPlaylistRequest(HttpMethod.Post, address, formUrlEncodedContent))
-            {
-                _ = httpResponseMessage.Content.ReadAsByteArrayAsync().ConfigureAwait(false).GetAwaiter().GetResult();
-            }
-        }
-    }
+    private static readonly AppHttpClient playlistHttpClient = AppHttpClient.Create(PlaylistWebTimeoutMs);
 
     /// <summary>
     /// プレイリストを保存する LR2 Song DB のパスを保持します。
@@ -1018,7 +848,7 @@ public class BMSPlaylist : NotificationObject
     /// <exception cref="InvalidOperationException">基準となる外部テーブルの読み込みに失敗した場合。</exception>
     private void setEstimationTable()
     {
-        string input = DownloadPlaylistString(estimationJsonUri);
+        string input = playlistHttpClient.GetString(estimationJsonUri);
         input = workAroundRegex.Replace(input, "\"key${id}\":{");
         dynamic data_json = DynamicJson.Parse(input);
         BMSTable insane = insaneTable;
@@ -1235,7 +1065,7 @@ public class BMSPlaylist : NotificationObject
             }
         }
         Uri address = new Uri(recommendJsonUriStr + lr2id, UriKind.Absolute);
-        dynamic val = DynamicJson.Parse(DownloadPlaylistString(address));
+        dynamic val = DynamicJson.Parse(playlistHttpClient.GetString(address));
         if ((string)val.status != "success")
         {
             DispatcherMessageBox.Show(string.Format(Resources.Warn_RecommendFetchFailed, (string)val.message), Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
@@ -1409,7 +1239,7 @@ public class BMSPlaylist : NotificationObject
         }
         IEnumerable<string> values = from e in lampsBMS.Concat(lampsGrade)
                                      select e.bmsid + "-" + e.lamp;
-        PostPlaylistForm(walkureUpdateUri, new NameValueCollection
+        _ = playlistHttpClient.PostForm(walkureUpdateUri, new NameValueCollection
         {
             { "name", name },
             {
@@ -2423,7 +2253,7 @@ public class BMSPlaylist : NotificationObject
         Uri uri = null;
         try
         {
-            string input = DownloadPlaylistString(pageUri);
+            string input = playlistHttpClient.GetString(pageUri);
             StringBuilder errorLogBuilder = new StringBuilder();
             try
             {
@@ -2464,7 +2294,7 @@ public class BMSPlaylist : NotificationObject
         string header_json;
         try
         {
-            header_json = DownloadPlaylistString(uri2);
+            header_json = playlistHttpClient.GetString(uri2);
         }
         catch
         {
@@ -2489,7 +2319,7 @@ public class BMSPlaylist : NotificationObject
         string data_json;
         try
         {
-            data_json = DownloadPlaylistString(bMSTable.GetAbsoluteDataUrl());
+            data_json = playlistHttpClient.GetString(bMSTable.GetAbsoluteDataUrl());
         }
         catch
         {
@@ -2847,7 +2677,7 @@ public class BMSPlaylist : NotificationObject
         string json;
         try
         {
-            json = DownloadPlaylistString(tableinfoUri);
+            json = playlistHttpClient.GetString(tableinfoUri);
         }
         catch
         {

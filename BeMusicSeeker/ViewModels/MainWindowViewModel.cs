@@ -7976,11 +7976,6 @@ public class MainWindowViewModel : ViewModel
         bool userConfirmedMultiRegister = false;
         string resultViewUrl = null;
 
-        GZipWebClient gZipWebClient = new GZipWebClient
-        {
-            Encoding = Encoding.UTF8
-        };
-
         // 複数ファイルの登録時は最初に一括確認ダイアログを出す
         if (bmsFiles.Count > 1)
         {
@@ -8016,7 +8011,7 @@ public class MainWindowViewModel : ViewModel
                 }
 
                 // すでに登録されているかステータスを確認
-                string statusJson = gZipWebClient.DownloadString(scoreStatusUrl + bmsFile.hash);
+                string statusJson = AppHttpClient.Shared.GetString(new Uri(scoreStatusUrl + bmsFile.hash), Encoding.UTF8);
                 dynamic statusVal = DynamicJson.Parse(statusJson);
 
                 if (statusVal.status == "OK")
@@ -8056,7 +8051,7 @@ public class MainWindowViewModel : ViewModel
                 }
 
                 // 実際にファイルをアップロードして登録
-                string registerResponseJson = Encoding.UTF8.GetString(gZipWebClient.UploadFile(scoreRegisterUrl, bmsFile.path));
+                string registerResponseJson = AppHttpClient.Shared.PostFile(new Uri(scoreRegisterUrl), bmsFile.path, responseEncoding: Encoding.UTF8);
 
                 if (bmsFile == lastTargetBmsFile)
                 {
@@ -8070,14 +8065,7 @@ public class MainWindowViewModel : ViewModel
             }
             catch (Exception)
             {
-                // エラー発生時は、途中のファイルならWebClientを開放して作り直す
-                if (bmsFile != lastTargetBmsFile)
-                {
-                    gZipWebClient = new GZipWebClient
-                    {
-                        Encoding = Encoding.UTF8
-                    };
-                }
+                // エラー発生時はこのファイルだけ失敗扱いにして次へ進む
             }
         }
 

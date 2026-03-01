@@ -2260,10 +2260,7 @@ public class BMSLibrary : NotificationObject
         try
         {
             Uri uri = new Uri("http://www.dream-pro.info/~lavalse/LR2IR/2/getplayerxml.cgi?id=" + LR2ID);
-            empty = new GZipWebClient
-            {
-                Encoding = Encoding.GetEncoding("shift_jis")
-            }.DownloadString(uri.AbsoluteUri);
+            empty = AppHttpClient.Shared.GetString(uri, Encoding.GetEncoding("shift_jis"));
         }
         catch (Exception)
         {
@@ -2550,11 +2547,10 @@ public class BMSLibrary : NotificationObject
         {
             val[num] = list[num];
         }
-        GZipWebClient gZipWebClient = new GZipWebClient();
-        gZipWebClient.Headers[HttpRequestHeader.ContentType] = "application/json;charset=UTF-8";
-        gZipWebClient.Headers[HttpRequestHeader.Accept] = "application/json";
-        gZipWebClient.Encoding = Encoding.UTF8;
-        dynamic val2 = DynamicJson.Parse((string)(object)gZipWebClient.UploadString(rankingInfoUrl, val.ToString()));
+        dynamic val2 = DynamicJson.Parse(AppHttpClient.Shared.PostString(rankingInfoUrl, val.ToString(), "application/json;charset=UTF-8", Encoding.UTF8, new Dictionary<string, string>
+        {
+            { "Accept", "application/json" }
+        }));
         List<IRDataCacheInfo> outer = (from ri in ((object[])val2).Select(delegate (dynamic i)
             {
                 try
@@ -2618,11 +2614,10 @@ public class BMSLibrary : NotificationObject
         {
             source.AsParallel().WithDegreeOfParallelism(3).ForAll(delegate (IRDataCacheInfo info)
             {
-                GZipWebClient gZipWebClient = new GZipWebClient();
                 try
                 {
                     Uri address = new Uri(rankingDataUrl, "./" + info.md5 + ".xml");
-                    gZipWebClient.DownloadFile(address, Path.Combine(irCacheDirPath, info.md5 + ".xml"));
+                    AppHttpClient.Shared.DownloadFile(address, Path.Combine(irCacheDirPath, info.md5 + ".xml"));
                     LR2IRCache iRCache = getIRCache(Path.Combine(irCacheDirPath, info.md5 + ".xml"));
                     LR2IRData lR2IRData = iRCache.GetLR2IRData(LR2ID);
                     if (lR2IRData != null)
@@ -2671,20 +2666,14 @@ public class BMSLibrary : NotificationObject
                 IRSongInfo info = null;
                 Task task = Task.Run(delegate
                 {
-                    dynamic val2 = DynamicJson.Parse(new GZipWebClient
-                    {
-                        Encoding = Encoding.UTF8
-                    }.DownloadString(new Uri(songInfoUrl, "./" + md5orlr2bmsid)));
+                    dynamic val2 = DynamicJson.Parse(AppHttpClient.Shared.GetString(new Uri(songInfoUrl, "./" + md5orlr2bmsid), Encoding.UTF8));
                     info = new IRSongInfo(val2);
                 });
                 if (seaarchAggressively)
                 {
                     Task.Run(delegate
                     {
-                        dynamic val2 = DynamicJson.Parse(new GZipWebClient
-                        {
-                            Encoding = Encoding.UTF8
-                        }.DownloadString(new Uri("http://www.ribbit.xyz/bms/search/run?search[value]=" + md5orlr2bmsid)));
+                        dynamic val2 = DynamicJson.Parse(AppHttpClient.Shared.GetString(new Uri("http://www.ribbit.xyz/bms/search/run?search[value]=" + md5orlr2bmsid), Encoding.UTF8));
                         search_url = val2.data[0][10].ToString().Trim();
                         search_url_sabun = val2.data[0][11].ToString().Trim();
                     }).Wait();
@@ -2705,10 +2694,7 @@ public class BMSLibrary : NotificationObject
             }
             catch
             {
-                dynamic val = DynamicJson.Parse(new GZipWebClient
-                {
-                    Encoding = Encoding.UTF8
-                }.DownloadString(new Uri(songInfoUrl, "./" + md5orlr2bmsid)));
+                dynamic val = DynamicJson.Parse(AppHttpClient.Shared.GetString(new Uri(songInfoUrl, "./" + md5orlr2bmsid), Encoding.UTF8));
                 return new IRSongInfo(val);
             }
         }
