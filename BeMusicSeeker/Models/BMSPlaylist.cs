@@ -26,8 +26,15 @@ using Sgml;
 
 namespace BeMusicSeeker.Models;
 
+/// <summary>
+/// LR2 のプレイリスト定義、外部テーブル同期、カスタムフォルダ出力を一括管理します。
+/// DB 永続化と外部取得の境界が同居しているため、この型がプレイリスト関連処理の集約点です。
+/// </summary>
 public class BMSPlaylist : NotificationObject
 {
+    /// <summary>
+    /// 推定表の派生種類を識別します。
+    /// </summary>
     private enum estimationTableType
     {
         easy,
@@ -36,12 +43,25 @@ public class BMSPlaylist : NotificationObject
         fc
     }
 
+    /// <summary>
+    /// プレイリスト更新処理の性能ログを出力するロガーです。
+    /// </summary>
     private static readonly Logger installPerformanceLogger = LogManager.GetLogger("InstallPerformance.BMSPlaylist");
 
+    /// <summary>
+    /// 性能ログ出力を有効化するかどうかを保持します。
+    /// </summary>
     private static readonly bool installPerformanceLoggingEnabled = CommandLineSwitches.IsInfoLoggingEnabled;
 
+    /// <summary>
+    /// 外部プレイリスト取得に使う既定のタイムアウト時間（ミリ秒）です。
+    /// </summary>
     private const int PlaylistWebTimeoutMs = 300000;
 
+    /// <summary>
+    /// プレイリスト更新処理の性能ログを、INFO ログが有効な場合のみ出力します。
+    /// </summary>
+    /// <param name="message">出力する性能ログ本文。</param>
     private static void LogPlaylistPerformance(string message)
     {
         if (installPerformanceLoggingEnabled)
@@ -50,6 +70,10 @@ public class BMSPlaylist : NotificationObject
         }
     }
 
+    /// <summary>
+    /// プレイリスト取得専用の Web クライアントを生成します。
+    /// </summary>
+    /// <returns>UTF-8 と長めのタイムアウトを設定した Web クライアント。</returns>
     private static GZipWebClient CreatePlaylistWebClient()
     {
         return new GZipWebClient
@@ -60,48 +84,114 @@ public class BMSPlaylist : NotificationObject
         };
     }
 
+    /// <summary>
+    /// プレイリストを保存する LR2 Song DB のパスを保持します。
+    /// </summary>
     private string lr2SongDBPath;
 
+    /// <summary>
+    /// 推奨表更新時に参照する LR2 Score DB のパスを保持します。
+    /// </summary>
     private string lr2ScoreDBPath;
 
+    /// <summary>
+    /// LR2 設定を取得するための遅延評価デリゲートです。
+    /// </summary>
     private Func<LR2Config> lr2config;
 
+    /// <summary>
+    /// ローカルスコア一覧を取得するための遅延評価デリゲートです。
+    /// </summary>
     private Func<List<BMSScore>> bmsScores;
 
+    /// <summary>
+    /// 初期化処理の連携用に一時保持するセマフォです。
+    /// </summary>
     private SemaphoreSlim initSemaphore;
 
+    /// <summary>
+    /// 全件初期化工程全体を直列化するための書き込みロックです。
+    /// </summary>
     private ReaderWriterLockSlimWrapper rwlockBMSTablesInitializeAll = new ReaderWriterLockSlimWrapper();
 
+    /// <summary>
+    /// 最小限のプレイリスト初期化工程を保護する書き込みロックです。
+    /// </summary>
     private ReaderWriterLockSlimWrapper rwlockBMSTablesInitializeMin = new ReaderWriterLockSlimWrapper();
 
+    /// <summary>
+    /// プレイリスト一覧そのものへの更新を保護する書き込みロックです。
+    /// </summary>
     private ReaderWriterLockSlimWrapper rwlockBMSTables = new ReaderWriterLockSlimWrapper();
 
+    /// <summary>
+    /// 全件初期化ロックの状態変化を監視するリスナーです。
+    /// </summary>
     private PropertyChangedEventListener listenerForRwlockBMSTablesInitializedAll;
 
+    /// <summary>
+    /// 最小初期化ロックの状態変化を監視するリスナーです。
+    /// </summary>
     private PropertyChangedEventListener listenerForRwlockBMSTablesInitializedMin;
 
+    /// <summary>
+    /// プレイリスト一覧ロックの状態変化を監視するリスナーです。
+    /// </summary>
     private PropertyChangedEventListener listenerForRwlockBMSTables;
 
+    /// <summary>
+    /// UI バインディングに公開するプレイリスト一覧を保持します。
+    /// </summary>
     private DispatcherCollection<BMSTable> _BMSTables = new DispatcherCollection<BMSTable>(DispatcherHelper.UIDispatcher);
 
+    /// <summary>
+    /// 発狂難易度推定 JSON の取得先 URI です。
+    /// </summary>
     private static Uri estimationJsonUri = new Uri("http://walkure.net/hakkyou/data/bms.json", UriKind.Absolute);
 
+    /// <summary>
+    /// おすすめ表 JSON API のベース URL です。
+    /// </summary>
     private static string recommendJsonUriStr = "http://walkure.net/hakkyou/recommended_json.cgi?id=";
 
+    /// <summary>
+    /// おすすめ表へクリア状況を送信する更新 API の URI です。
+    /// </summary>
     private static Uri walkureUpdateUri = new Uri("http://walkure.net/hakkyou/mle.cgi", UriKind.Absolute);
 
+    /// <summary>
+    /// 発狂表アーカイブの取得先 URI です。
+    /// </summary>
     private static Uri insaneUri = new Uri("https://darksabun.club/table/archive/insane1/");
 
+    /// <summary>
+    /// Overjoy 表アーカイブの取得先 URI です。
+    /// </summary>
     private static Uri overjoyUri = new Uri("https://darksabun.club/table/archive/old-overjoy/");
 
+    /// <summary>
+    /// 発狂表キャッシュの遅延初期化を直列化するためのロックです。
+    /// </summary>
     private object insaneTableLock = new object();
 
+    /// <summary>
+    /// 読み込み済みの発狂表キャッシュです。
+    /// </summary>
     private BMSTable _insaneTable;
 
+    /// <summary>
+    /// Overjoy 表キャッシュの遅延初期化を直列化するためのロックです。
+    /// </summary>
     private object overjoyTableLock = new object();
 
+    /// <summary>
+    /// 読み込み済みの Overjoy 表キャッシュです。
+    /// </summary>
     private BMSTable _overjoyTable;
 
+    /// <summary>
+    /// 段位課題曲に対応する疑似 BMS ID 変換表です。
+    /// </summary>
     private static readonly Dictionary<int, string> insaneGrade = new Dictionary<int, string>
     {
         { 4934, "0000000000200000000000000000519096a1536917e1f7f12a85d3dd7eb64932c65d0badebb7738e350022a59a1f0637c5605fc262eb9023b82c14d14cc837f8c46a81cb184f5a804c119930d6eba748" },
@@ -130,19 +220,45 @@ public class BMSPlaylist : NotificationObject
         { 11110, "00000000002000000000000000005190f872dd65dd08638b06d80470a3233fb91b72e8f6439a698e78f94be16470b7892371263af3b0d644fba62526c9f494818a8a6c2f3511eb0876a6c9a2027d7bbe" }
     };
 
+    /// <summary>
+    /// 推定表キャッシュの遅延初期化を直列化するためのロックです。
+    /// </summary>
     private object estimationTableLock = new object();
 
+    /// <summary>
+    /// EASY 推定表エントリのキャッシュです。
+    /// </summary>
     private List<BMSTableEntry> _easyEntries;
 
+    /// <summary>
+    /// NORMAL 推定表エントリのキャッシュです。
+    /// </summary>
     private List<BMSTableEntry> _normalEntries;
 
+    /// <summary>
+    /// HARD 推定表エントリのキャッシュです。
+    /// </summary>
     private List<BMSTableEntry> _hardEntries;
 
+    /// <summary>
+    /// プレイリスト同期処理の実行中状態を保持します。
+    /// </summary>
     private bool _IsPlaylistUpdating;
+
+    /// <summary>
+    /// FC 推定表エントリのキャッシュです。
+    /// </summary>
     private List<BMSTableEntry> _fcEntries;
 
+    /// <summary>
+    /// 推定表 JSON の数値キーを DynamicJson で扱いやすい形式へ変換するための正規表現です。
+    /// </summary>
     private Regex workAroundRegex = new Regex("\"(?<id>\\d+)\":{", RegexOptions.Compiled);
 
+    /// <summary>
+    /// プレイリスト同期処理が実行中かどうかを表します。
+    /// </summary>
+    /// <returns>同期処理中であれば <see langword="true"/>。</returns>
     public bool IsPlaylistUpdating
     {
         get
@@ -159,6 +275,10 @@ public class BMSPlaylist : NotificationObject
         }
     }
 
+    /// <summary>
+    /// UI に公開するプレイリスト一覧です。
+    /// </summary>
+    /// <returns>現在のプレイリスト一覧コレクション。</returns>
     public DispatcherCollection<BMSTable> BMSTables
     {
         get
@@ -175,6 +295,10 @@ public class BMSPlaylist : NotificationObject
         }
     }
 
+    /// <summary>
+    /// 全件初期化ロックに書き込み待ち、または書き込み保持があるかを返します。
+    /// </summary>
+    /// <returns>初期化全体が書き込み待ちまたは実行中なら <see langword="true"/>。</returns>
     public bool IsWriteLockHeldBMSTablesInitializeAll
     {
         get
@@ -187,6 +311,10 @@ public class BMSPlaylist : NotificationObject
         }
     }
 
+    /// <summary>
+    /// 最小初期化ロックに書き込み待ち、または書き込み保持があるかを返します。
+    /// </summary>
+    /// <returns>最小初期化が書き込み待ちまたは実行中なら <see langword="true"/>。</returns>
     public bool IsWriteLockHeldBMSTablesInitializeMin
     {
         get
@@ -199,6 +327,10 @@ public class BMSPlaylist : NotificationObject
         }
     }
 
+    /// <summary>
+    /// プレイリスト一覧ロックに書き込み待ち、または書き込み保持があるかを返します。
+    /// </summary>
+    /// <returns>一覧更新が書き込み待ちまたは実行中なら <see langword="true"/>。</returns>
     public bool IsWriteLockHeldBMSTables
     {
         get
@@ -211,6 +343,10 @@ public class BMSPlaylist : NotificationObject
         }
     }
 
+    /// <summary>
+    /// プレイリスト一覧または各プレイリスト本体のいずれかに書き込み待ちがあるかを返します。
+    /// </summary>
+    /// <returns>いずれかのプレイリスト更新が進行中なら <see langword="true"/>。</returns>
     public bool IsWriteLockHeldAnyBMSTable
     {
         get
@@ -226,6 +362,10 @@ public class BMSPlaylist : NotificationObject
         }
     }
 
+    /// <summary>
+    /// 発狂表を必要時に読み込み、以後はキャッシュを返します。
+    /// </summary>
+    /// <returns>読み込み済みの発狂表。取得失敗時は <see langword="null"/>。</returns>
     private BMSTable insaneTable
     {
         get
@@ -248,6 +388,10 @@ public class BMSPlaylist : NotificationObject
         }
     }
 
+    /// <summary>
+    /// Overjoy 表を必要時に読み込み、以後はキャッシュを返します。
+    /// </summary>
+    /// <returns>読み込み済みの Overjoy 表。取得失敗時は <see langword="null"/>。</returns>
     private BMSTable overjoyTable
     {
         get
@@ -270,6 +414,10 @@ public class BMSPlaylist : NotificationObject
         }
     }
 
+    /// <summary>
+    /// EASY 推定表エントリを必要時に生成して返します。
+    /// </summary>
+    /// <returns>EASY 推定表のエントリ一覧。</returns>
     private List<BMSTableEntry> easyEntries
     {
         get
@@ -285,6 +433,10 @@ public class BMSPlaylist : NotificationObject
         }
     }
 
+    /// <summary>
+    /// NORMAL 推定表エントリを必要時に生成して返します。
+    /// </summary>
+    /// <returns>NORMAL 推定表のエントリ一覧。</returns>
     private List<BMSTableEntry> normalEntries
     {
         get
@@ -300,6 +452,10 @@ public class BMSPlaylist : NotificationObject
         }
     }
 
+    /// <summary>
+    /// HARD 推定表エントリを必要時に生成して返します。
+    /// </summary>
+    /// <returns>HARD 推定表のエントリ一覧。</returns>
     private List<BMSTableEntry> hardEntries
     {
         get
@@ -315,6 +471,10 @@ public class BMSPlaylist : NotificationObject
         }
     }
 
+    /// <summary>
+    /// FC 推定表エントリを必要時に生成して返します。
+    /// </summary>
+    /// <returns>FC 推定表のエントリ一覧。</returns>
     private List<BMSTableEntry> fcEntries
     {
         get
@@ -330,26 +490,48 @@ public class BMSPlaylist : NotificationObject
         }
     }
 
+    /// <summary>
+    /// プレイリスト一覧ロックの書き込みロックを取得します。
+    /// </summary>
     public void AcquireWriterLockBMSTables()
     {
         rwlockBMSTables.EnterWriteLock();
     }
 
+    /// <summary>
+    /// プレイリスト一覧ロックの書き込みロックを解放します。
+    /// </summary>
     public void FreeWriterLockBMSTables()
     {
         rwlockBMSTables.ExitWriteLock();
     }
 
+    /// <summary>
+    /// プレイリスト一覧ロックの読み取りロックを取得します。
+    /// </summary>
     public void AcquireReaderLockBMSTables()
     {
         rwlockBMSTables.EnterReadLock();
     }
 
+    /// <summary>
+    /// プレイリスト一覧ロックの読み取りロックを解放します。
+    /// </summary>
     public void FreeReaderLockBMSTables()
     {
         rwlockBMSTables.ExitReadLock();
     }
 
+    /// <summary>
+    /// プレイリスト DB への接続情報と関連取得デリゲートを初期化します。
+    /// 必要なテーブルとインデックスもここで整備します。
+    /// </summary>
+    /// <param name="_lr2SongDB">プレイリスト保存先の LR2 Song DB パス。</param>
+    /// <param name="getLR2Config">LR2 設定を返すデリゲート。</param>
+    /// <param name="_lr2ScoreDB">推奨表更新に使う LR2 Score DB パス。</param>
+    /// <param name="getBMSScores">ローカルスコア一覧を返すデリゲート。</param>
+    /// <exception cref="ArgumentNullException"><paramref name="_lr2SongDB"/> が <see langword="null"/> の場合。</exception>
+    /// <exception cref="ArgumentException">必要な DB ファイルが存在しない場合。</exception>
     public BMSPlaylist(string _lr2SongDB, Func<LR2Config> getLR2Config = null, string _lr2ScoreDB = null, Func<List<BMSScore>> getBMSScores = null)
     {
         if (_lr2SongDB == null)
@@ -435,6 +617,13 @@ public class BMSPlaylist : NotificationObject
         });
     }
 
+    /// <summary>
+    /// DB からプレイリストを読み込み、必要に応じて外部同期とカスタムフォルダ出力まで実行します。
+    /// 初期化済み一覧が空でない場合は、既存一覧を土台に同期処理のみ進めます。
+    /// </summary>
+    /// <param name="reloadExtPlaylist">外部同期対象プレイリストを再取得するかどうか。</param>
+    /// <param name="updateCallbackAction">各プレイリスト更新後に呼ぶ追加コールバック。</param>
+    /// <param name="semaphore">他初期化処理と連携するためのセマフォ。</param>
     public void Initialize(bool reloadExtPlaylist = true, Action<BMSTable, bool, BMSTable> updateCallbackAction = null, SemaphoreSlim semaphore = null)
     {
         Stopwatch stopwatchInitialize = Stopwatch.StartNew();
@@ -564,6 +753,13 @@ public class BMSPlaylist : NotificationObject
         initSemaphore = null;
     }
 
+    /// <summary>
+    /// <c>bmseeker:</c> スキームの Walkure 系テーブル URI を解釈し、対応するプレイリストを構築します。
+    /// </summary>
+    /// <param name="pageUri">Walkure 系テーブルを指す絶対 URI。</param>
+    /// <param name="baseTable">既存プレイリストから引き継ぐ設定値。</param>
+    /// <returns>URI に対応するプレイリスト。</returns>
+    /// <exception cref="ArgumentException">対応していない URI が指定された場合。</exception>
     public BMSTable LoadWalkureTable(Uri pageUri, BMSTable baseTable = null)
     {
         if (!pageUri.IsAbsoluteUri || pageUri.Scheme != "bmseeker")
@@ -654,6 +850,10 @@ public class BMSPlaylist : NotificationObject
         return bMSTable;
     }
 
+    /// <summary>
+    /// 発狂難易度推定 JSON と基準表を読み込み、推定表キャッシュを生成します。
+    /// </summary>
+    /// <exception cref="InvalidOperationException">基準となる外部テーブルの読み込みに失敗した場合。</exception>
     private void setEstimationTable()
     {
         string input = CreatePlaylistWebClient().DownloadString(estimationJsonUri);
@@ -757,6 +957,12 @@ public class BMSPlaylist : NotificationObject
         }).ToList();
     }
 
+    /// <summary>
+    /// 生成済みの推定表キャッシュから指定種類のプレイリストを組み立てます。
+    /// </summary>
+    /// <param name="table">結果を書き込むプレイリスト。</param>
+    /// <param name="type">生成する推定表の種類。</param>
+    /// <exception cref="ArgumentException">未対応の種類が指定された場合。</exception>
     private void loadEstimationTable(BMSTable table, estimationTableType type)
     {
         table.folder_sort_key = LR2SongDBExtended.playlist.CustomFolderSortType.LEVEL;
@@ -806,6 +1012,17 @@ public class BMSPlaylist : NotificationObject
         }
     }
 
+    /// <summary>
+    /// おすすめ表 API を参照し、クリア状況の送信とプレイリスト構築を行います。
+    /// </summary>
+    /// <param name="table">結果を書き込むプレイリスト。</param>
+    /// <param name="baseTable">比較表示や設定引き継ぎに使う既存プレイリスト。</param>
+    /// <param name="mode">API の更新モード。</param>
+    /// <param name="filter">クリア状況送信時のフィルタ。</param>
+    /// <param name="displayName">表示名上書き用の文字列。</param>
+    /// <param name="lr2id">対象プレイヤーの LR2 ID。</param>
+    /// <param name="baseline">送信時の基準モード。</param>
+    /// <exception cref="InvalidOperationException">必要なローカル情報または外部データが取得できない場合。</exception>
     private void loadRecommendedTable(BMSTable table, BMSTable baseTable = null, string mode = null, string filter = null, string displayName = null, int lr2id = 0, string baseline = null)
     {
         string name = string.Empty;
@@ -936,6 +1153,15 @@ public class BMSPlaylist : NotificationObject
         }
     }
 
+    /// <summary>
+    /// おすすめ表更新 API に送るクリア状況データを組み立てて送信します。
+    /// </summary>
+    /// <param name="mode">送信モード。</param>
+    /// <param name="lr2Id">送信対象プレイヤーの LR2 ID。</param>
+    /// <param name="name">送信名義。</param>
+    /// <param name="filter">クリア状態フィルタ。</param>
+    /// <param name="baseline">未クリア扱いを含めるかを表す基準モード。</param>
+    /// <exception cref="InvalidOperationException">必要な基準表やローカルスコアが取得できない場合。</exception>
     private void updatedClearedSongs(string mode, int lr2Id, string name, string filter, string baseline)
     {
         if (string.IsNullOrWhiteSpace(mode) || mode == "readonly")
@@ -1035,6 +1261,11 @@ public class BMSPlaylist : NotificationObject
         }, address: walkureUpdateUri);
     }
 
+    /// <summary>
+    /// 「その他」系カスタムフォルダの LR2 定義文字列を生成します。
+    /// </summary>
+    /// <param name="bmsTable">対象プレイリスト。</param>
+    /// <returns>その他系フォルダ定義の一覧。</returns>
     private List<string> makeCustomFolderTextsOtherFolder(BMSTable bmsTable)
     {
         SQLiteTable<LR2ScoreDB.score>.GetColumnName((LR2ScoreDB.score e) => e.playcount);
@@ -1072,6 +1303,11 @@ public class BMSPlaylist : NotificationObject
         return list;
     }
 
+    /// <summary>
+    /// 「ALL LONG NOTES」などカテゴリ全体フォルダの LR2 定義文字列を生成します。
+    /// </summary>
+    /// <param name="bmsTable">対象プレイリスト。</param>
+    /// <returns>カテゴリ全体フォルダ定義の一覧。</returns>
     private List<string> makeCustomFolderTextsCategoryAllFolder(BMSTable bmsTable)
     {
         string columnName = SQLiteTable<LR2SongDB.song>.GetColumnName((LR2SongDB.song e) => e.longnote);
@@ -1110,6 +1346,11 @@ public class BMSPlaylist : NotificationObject
         return source.Select((string[] a) => getCustomFolderText(((bmsTable.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder) ? "song.folder in (SELECT folder FROM song WHERE hash in (" : "song.hash in (") + "SELECT " + columnNameMD5 + " FROM " + tblNameEntry + " WHERE " + columnNamePlaylistId + " = " + bmsTable.playlist_id + " AND " + columnNameIsRemoved + " = 0)" + ((bmsTable.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder) ? ")" : " ") + "AND (" + a[1] + ")", bmsTable.name, a[0])).ToList();
     }
 
+    /// <summary>
+    /// DJ LEVEL 別カスタムフォルダの LR2 定義文字列を生成します。
+    /// </summary>
+    /// <param name="bmsTable">対象プレイリスト。</param>
+    /// <returns>DJ LEVEL 別フォルダ定義の一覧。</returns>
     private List<string> makeCustomFolderTextsDJLevelFolder(BMSTable bmsTable)
     {
         string columnName = SQLiteTable<LR2ScoreDB.score>.GetColumnName((LR2ScoreDB.score e) => e.rank);
@@ -1167,6 +1408,11 @@ public class BMSPlaylist : NotificationObject
         return source.Select((string[] r) => getCustomFolderText(((bmsTable.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder) ? "song.folder in (SELECT folder FROM song WHERE hash in (" : "song.hash in (") + "SELECT " + columnNameMD5 + " FROM " + tblNameEntry + " WHERE " + columnNamePlaylistId + " = " + bmsTable.playlist_id + " AND " + columnNameIsRemoved + " = 0)" + ((bmsTable.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder) ? ")" : " ") + "AND (" + r[1] + ") ORDER BY " + makeCustomFolderCmdSort(LR2SongDBExtended.playlist.CustomFolderSortType.SCORE, asc: false), bmsTable.name, r[0])).ToList();
     }
 
+    /// <summary>
+    /// クリアランプ別カスタムフォルダの LR2 定義文字列を生成します。
+    /// </summary>
+    /// <param name="bmsTable">対象プレイリスト。</param>
+    /// <returns>クリアランプ別フォルダ定義の一覧。</returns>
     private List<string> makeCustomFolderTextsClearFolder(BMSTable bmsTable)
     {
         string columnName = SQLiteTable<LR2ScoreDB.score>.GetColumnName((LR2ScoreDB.score e) => e.clear);
@@ -1221,6 +1467,11 @@ public class BMSPlaylist : NotificationObject
         return source.Select((string[] c) => getCustomFolderText(((bmsTable.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder) ? "song.folder in (SELECT folder FROM song WHERE hash in (" : "song.hash in (") + "SELECT " + columnNameMD5 + " FROM " + tblNameEntry + " WHERE " + columnNamePlaylistId + " = " + bmsTable.playlist_id + " AND " + columnNameIsRemoved + " = 0)" + ((bmsTable.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder) ? ")" : " ") + "AND (" + c[1] + ") ORDER BY " + makeCustomFolderCmdSort(LR2SongDBExtended.playlist.CustomFolderSortType.MISS, asc: true), bmsTable.name, c[0])).ToList();
     }
 
+    /// <summary>
+    /// タイトル頭文字別カスタムフォルダの LR2 定義文字列を生成します。
+    /// </summary>
+    /// <param name="bmsTable">対象プレイリスト。</param>
+    /// <returns>アルファベット別フォルダ定義の一覧。</returns>
     private List<string> makeCustomFolderTextsAlphabetFolder(BMSTable bmsTable)
     {
         Dictionary<string, char[]> dict = new Dictionary<string, char[]>
@@ -1265,6 +1516,11 @@ public class BMSPlaylist : NotificationObject
         return list;
     }
 
+    /// <summary>
+    /// 譜面レベル別カスタムフォルダの LR2 定義文字列を生成します。
+    /// </summary>
+    /// <param name="bmsTable">対象プレイリスト。</param>
+    /// <returns>レベル別フォルダ定義の一覧。</returns>
     private List<string> makeCustomFolderTextsLevelFolder(BMSTable bmsTable)
     {
         List<int> source = (from e in (from e in bmsTable.entries
@@ -1290,6 +1546,11 @@ public class BMSPlaylist : NotificationObject
         return list;
     }
 
+    /// <summary>
+    /// ユーザー定義フォルダ順に基づくカスタムフォルダの LR2 定義文字列を生成します。
+    /// </summary>
+    /// <param name="bmsTable">対象プレイリスト。</param>
+    /// <returns>ユーザーフォルダ定義の一覧。</returns>
     private List<string> makeCustomFolderTextsUserFolder(BMSTable bmsTable)
     {
         List<string> folder_list = bmsTable.folder_list;
@@ -1303,6 +1564,15 @@ public class BMSPlaylist : NotificationObject
         return folder_list.Select((string f) => getCustomFolderText(((bmsTable.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder) ? "song.folder in (SELECT folder FROM song WHERE hash in (" : "song.hash   in (") + "SELECT " + columnNameMD5 + " FROM " + tblNameEntry + " WHERE " + columnNamePlaylistId + " = " + bmsTable.playlist_id + " AND " + columnNameFolder + " = " + sqlQuote(f) + " AND " + columnNameIsRemoved + " = 0)" + ((bmsTable.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder) ? ")" : " ") + ((sortType == LR2SongDBExtended.playlist.CustomFolderSortType.NONE) ? string.Empty : (" ORDER BY " + makeCustomFolderCmdSort(sortType, sortDirAsc, bmsTable.playlist_id, f))), bmsTable.name, string.IsNullOrWhiteSpace(f) ? bmsTable.name : f)).ToList();
     }
 
+    /// <summary>
+    /// LR2 カスタムフォルダ定義に埋め込む ORDER BY 句を生成します。
+    /// </summary>
+    /// <param name="ftype">ソート種別。</param>
+    /// <param name="asc">昇順であれば <see langword="true"/>。</param>
+    /// <param name="playlist_id">プレイリスト内参照が必要な場合のプレイリスト ID。</param>
+    /// <param name="folder">フォルダ限定参照が必要な場合のフォルダ名。</param>
+    /// <returns>ORDER BY 句に相当する文字列。不要なら空文字列。</returns>
+    /// <exception cref="ArgumentNullException">必要な <paramref name="playlist_id"/> が未指定の場合。</exception>
     private string makeCustomFolderCmdSort(LR2SongDBExtended.playlist.CustomFolderSortType ftype, bool asc, int? playlist_id = null, string folder = null)
     {
         if (ftype == LR2SongDBExtended.playlist.CustomFolderSortType.NONE)
@@ -1342,6 +1612,11 @@ public class BMSPlaylist : NotificationObject
         }
     }
 
+    /// <summary>
+    /// 通常プレイリストのカスタムフォルダ出力先ベースディレクトリ変更を反映します。
+    /// </summary>
+    /// <param name="outputDirBaseBefore">変更前のベースディレクトリ。</param>
+    /// <param name="outputDirBaseAfter">変更後のベースディレクトリ。</param>
     public void ChangeCustomFolderBaseDirectory(string outputDirBaseBefore, string outputDirBaseAfter)
     {
         using (rwlockBMSTables.GetReaderGuard())
@@ -1357,6 +1632,11 @@ public class BMSPlaylist : NotificationObject
         }
     }
 
+    /// <summary>
+    /// ルートプレイリストのカスタムフォルダ出力先ベースディレクトリ変更を反映します。
+    /// </summary>
+    /// <param name="outputDirBaseBefore">変更前のベースディレクトリ。</param>
+    /// <param name="outputDirBaseAfter">変更後のベースディレクトリ。</param>
     public void ChangeCustomFolderBaseDirectoryRoot(string outputDirBaseBefore, string outputDirBaseAfter)
     {
         using (rwlockBMSTables.GetReaderGuard())
@@ -1372,6 +1652,15 @@ public class BMSPlaylist : NotificationObject
         }
     }
 
+    /// <summary>
+    /// プレイリストのカスタムフォルダ出力先変更を DB とファイルシステムの両方へ反映します。
+    /// </summary>
+    /// <param name="bmsTable">移行対象のプレイリスト。</param>
+    /// <param name="outputDirPathBefore">変更前の出力先パス。</param>
+    /// <param name="outputDirPathAfter">変更後の出力先パス。省略時は現設定から算出します。</param>
+    /// <exception cref="InvalidOperationException">LR2DB モードでない場合。</exception>
+    /// <exception cref="ArgumentNullException"><paramref name="bmsTable"/> が <see langword="null"/> の場合。</exception>
+    /// <exception cref="ArgumentException">出力先に必要な情報が不足している場合。</exception>
     public void MigrateCustomFolderOutputDirectory(BMSTable bmsTable, string outputDirPathBefore, string outputDirPathAfter = null)
     {
         if (!Settings.Default.OperationModeLR2DB)
@@ -1401,6 +1690,13 @@ public class BMSPlaylist : NotificationObject
         }
     }
 
+    /// <summary>
+    /// 指定プレイリストのカスタムフォルダ出力を再生成します。
+    /// </summary>
+    /// <param name="bmsTable">再出力対象のプレイリスト。</param>
+    /// <exception cref="InvalidOperationException">LR2DB モードでない場合。</exception>
+    /// <exception cref="ArgumentNullException"><paramref name="bmsTable"/> が <see langword="null"/> の場合。</exception>
+    /// <exception cref="ArgumentException">出力先に必要な情報が不足している場合。</exception>
     public void ReOutputCustomFolder(BMSTable bmsTable)
     {
         if (!Settings.Default.OperationModeLR2DB)
@@ -1426,6 +1722,11 @@ public class BMSPlaylist : NotificationObject
         }
     }
 
+    /// <summary>
+    /// プレイリスト設定に基づき、出力先ディレクトリへ <c>.lr2folder</c> 群を生成します。
+    /// </summary>
+    /// <param name="bmsTable">出力元のプレイリスト。</param>
+    /// <param name="outputDir">出力先ディレクトリ。</param>
     private void createCustomFolder(BMSTable bmsTable, string outputDir)
     {
         List<string> list = new List<string>();
@@ -1477,6 +1778,13 @@ public class BMSPlaylist : NotificationObject
         }
     }
 
+    /// <summary>
+    /// 指定プレイリストに対応するカスタムフォルダ出力を削除します。
+    /// </summary>
+    /// <param name="bmsTable">削除対象のプレイリスト。</param>
+    /// <exception cref="InvalidOperationException">LR2DB モードでない場合。</exception>
+    /// <exception cref="ArgumentNullException"><paramref name="bmsTable"/> が <see langword="null"/> の場合。</exception>
+    /// <exception cref="ArgumentException">出力先に必要な情報が不足している場合。</exception>
     public void RemoveCustomFolder(BMSTable bmsTable)
     {
         if (!Settings.Default.OperationModeLR2DB)
@@ -1500,6 +1808,12 @@ public class BMSPlaylist : NotificationObject
         }
     }
 
+    /// <summary>
+    /// 指定ディレクトリ配下の <c>.lr2folder</c> と LR2 DB 上の対応フォルダ情報を削除します。
+    /// 同階層への移動時は DB のパスだけ新ディレクトリへ付け替えます。
+    /// </summary>
+    /// <param name="targetDir">削除対象ディレクトリ。</param>
+    /// <param name="newDir">同階層移動時の移動先ディレクトリ。</param>
     private void removeCustomFolder(string targetDir, string newDir = null)
     {
         if (!Directory.Exists(targetDir))
@@ -1557,6 +1871,12 @@ public class BMSPlaylist : NotificationObject
         }
     }
 
+    /// <summary>
+    /// 外部プレイリストを読み込み、一覧と DB へ新規登録します。
+    /// </summary>
+    /// <param name="pageUri">登録対象の絶対 URI。</param>
+    /// <returns>登録されたプレイリスト。</returns>
+    /// <exception cref="InvalidOperationException">URI 不正、重複、または登録要件を満たさない場合。</exception>
     public BMSTable RegistrateExternalTable(Uri pageUri)
     {
         if (!pageUri.IsAbsoluteUri)
@@ -1594,6 +1914,12 @@ public class BMSPlaylist : NotificationObject
         return bMSTable;
     }
 
+    /// <summary>
+    /// プレイリスト一覧を走査し、必要な外部同期と後処理コールバックを実行します。
+    /// </summary>
+    /// <param name="reloadExtPlaylist">外部同期対象プレイリストを再取得するかどうか。</param>
+    /// <param name="updateCallbackActions">各プレイリスト処理後に呼ぶコールバック群。</param>
+    /// <returns><c>last_update</c> が変化したプレイリスト一覧。</returns>
     public List<BMSTable> UpdateBMSTables(bool reloadExtPlaylist = true, List<Action<BMSTable, bool, BMSTable>> updateCallbackActions = null)
     {
         IsPlaylistUpdating = true;
@@ -1690,11 +2016,12 @@ public class BMSPlaylist : NotificationObject
 
     /// <summary>
     /// 指定した外部プレイリストを再取得し、既存のローカル状態を維持しながら差分同期結果へ置き換えます。
-    /// `is_external_sync` の有無に関わらず明示指定されたプレイリストを対象にし、`last_update` は実際の構成差分に応じて維持または更新されます。
+    /// <c>is_external_sync</c> の有無に関わらず明示指定されたプレイリストを対象にし、<c>last_update</c> は実際の構成差分に応じて維持または更新されます。
     /// </summary>
     /// <param name="bmsTable">再同期対象のプレイリスト。</param>
     /// <param name="pageUri">再取得に使用する URI。省略時は対象プレイリストに保持された URL を使用します。</param>
     /// <returns>差分統合後のプレイリスト。</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="bmsTable"/> が <see langword="null"/> の場合。</exception>
     public BMSTable ResetBMSTable(BMSTable bmsTable, Uri pageUri = null)
     {
         if (bmsTable == null)
@@ -1716,6 +2043,10 @@ public class BMSPlaylist : NotificationObject
         }
     }
 
+    /// <summary>
+    /// 指定プレイリストを一覧と DB から削除します。
+    /// </summary>
+    /// <param name="bmsTable">削除対象のプレイリスト。</param>
     public void RemoveBMSTable(BMSTable bmsTable)
     {
         using (rwlockBMSTables.GetWriterGuard())
@@ -1728,6 +2059,10 @@ public class BMSPlaylist : NotificationObject
         }
     }
 
+    /// <summary>
+    /// 新規の空プレイリストを生成し、一覧へ追加します。
+    /// </summary>
+    /// <returns>追加された新規プレイリスト。</returns>
     public BMSTable CreateBMSTable()
     {
         BMSTable bMSTable = new BMSTable
@@ -1744,6 +2079,14 @@ public class BMSPlaylist : NotificationObject
         }
     }
 
+    /// <summary>
+    /// プレイリスト内フォルダ名を変更し、必要なら永続化まで行います。
+    /// </summary>
+    /// <param name="bmsTable">対象プレイリスト。</param>
+    /// <param name="foldeNameBefore">変更前フォルダ名。</param>
+    /// <param name="folderNameAfter">変更後フォルダ名。</param>
+    /// <param name="commitFlag">変更後に DB 反映するかどうか。</param>
+    /// <exception cref="ArgumentNullException"><paramref name="bmsTable"/> が <see langword="null"/> の場合。</exception>
     internal void RenameFolderBMSTable(BMSTable bmsTable, string foldeNameBefore, string folderNameAfter, bool commitFlag = true)
     {
         if (bmsTable == null)
@@ -1763,6 +2106,13 @@ public class BMSPlaylist : NotificationObject
         }
     }
 
+    /// <summary>
+    /// プレイリスト内フォルダを削除し、必要なら永続化まで行います。
+    /// </summary>
+    /// <param name="bmsTable">対象プレイリスト。</param>
+    /// <param name="folderNameDelete">削除するフォルダ名。</param>
+    /// <param name="commitFlag">変更後に DB 反映するかどうか。</param>
+    /// <exception cref="ArgumentNullException"><paramref name="bmsTable"/> が <see langword="null"/> の場合。</exception>
     internal void RemoveFolderBMSTable(BMSTable bmsTable, string folderNameDelete, bool commitFlag = true)
     {
         if (bmsTable == null)
@@ -1782,6 +2132,14 @@ public class BMSPlaylist : NotificationObject
         }
     }
 
+    /// <summary>
+    /// プレイリスト内へ新規フォルダを追加し、必要なら永続化まで行います。
+    /// </summary>
+    /// <param name="bmsTable">対象プレイリスト。</param>
+    /// <param name="newfolder">希望する新規フォルダ名。</param>
+    /// <param name="commitFlag">変更後に DB 反映するかどうか。</param>
+    /// <returns>実際に追加されたフォルダ名。対象が一覧に無い場合は <see langword="null"/>。</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="bmsTable"/> が <see langword="null"/> の場合。</exception>
     internal string CreateNewFolderBMSTable(BMSTable bmsTable, string newfolder = null, bool commitFlag = true)
     {
         if (bmsTable == null)
@@ -1803,6 +2161,14 @@ public class BMSPlaylist : NotificationObject
         }
     }
 
+    /// <summary>
+    /// 指定エントリ群をプレイリスト内フォルダへ追加し、必要なら永続化まで行います。
+    /// </summary>
+    /// <param name="bmsEntries">追加するエントリ群。</param>
+    /// <param name="bmsTable">対象プレイリスト。</param>
+    /// <param name="folderName">追加先フォルダ名。</param>
+    /// <param name="commitFlag">変更後に DB 反映するかどうか。</param>
+    /// <exception cref="ArgumentNullException"><paramref name="bmsTable"/> が <see langword="null"/> の場合。</exception>
     internal void AddEntriesToFolderBMSTable(IEnumerable<BMSTableEntry> bmsEntries, BMSTable bmsTable, string folderName, bool commitFlag = true)
     {
         if (bmsTable == null)
@@ -1822,6 +2188,13 @@ public class BMSPlaylist : NotificationObject
         }
     }
 
+    /// <summary>
+    /// 指定エントリ群をプレイリストから除去し、必要なら永続化まで行います。
+    /// </summary>
+    /// <param name="bmsEntries">除去するエントリ群。</param>
+    /// <param name="bmsTable">対象プレイリスト。</param>
+    /// <param name="commitFlag">変更後に DB 反映するかどうか。</param>
+    /// <exception cref="ArgumentNullException"><paramref name="bmsTable"/> が <see langword="null"/> の場合。</exception>
     internal void RemoveEntriesBMSTable(IEnumerable<BMSTableEntry> bmsEntries, BMSTable bmsTable, bool commitFlag = true)
     {
         if (bmsTable == null)
@@ -1841,6 +2214,11 @@ public class BMSPlaylist : NotificationObject
         }
     }
 
+    /// <summary>
+    /// プレイリストを永続化し、LR2DB モード時はカスタムフォルダも再出力します。
+    /// </summary>
+    /// <param name="bmsTable">反映対象のプレイリスト。</param>
+    /// <exception cref="ArgumentNullException"><paramref name="bmsTable"/> が <see langword="null"/> の場合。</exception>
     internal void ReOutputCustomFolderAndCommitToDB(BMSTable bmsTable)
     {
         if (bmsTable == null)
@@ -1863,6 +2241,13 @@ public class BMSPlaylist : NotificationObject
         }
     }
 
+    /// <summary>
+    /// 外部プレイリスト URI を解決し、ヘッダとデータ本体を取得してプレイリストを構築します。
+    /// </summary>
+    /// <param name="pageUri">取得元の絶対 URI。</param>
+    /// <param name="baseTable">設定引き継ぎに使う既存プレイリスト。</param>
+    /// <returns>取得したプレイリスト。</returns>
+    /// <exception cref="ArgumentException">URI が無効な場合。</exception>
     public BMSTable LoadExternalTable(Uri pageUri, BMSTable baseTable = null)
     {
         if (pageUri == null || !pageUri.IsAbsoluteUri)
@@ -1964,7 +2349,7 @@ public class BMSPlaylist : NotificationObject
     /// </summary>
     /// <param name="oldTable">再取得前のプレイリスト。</param>
     /// <param name="pageUri">再取得に使用する URI。省略時は既存プレイリストに保持された URL を使用します。</param>
-    /// <param name="logLastUpdateDecision">`last_update` の補正判断を INFO ログへ出力するか。</param>
+    /// <param name="logLastUpdateDecision"><c>last_update</c> の補正判断を INFO ログへ出力するか。</param>
     /// <returns>差分統合後のプレイリスト。</returns>
     private BMSTable MergeReloadedBMSTableWithExistingState(BMSTable oldTable, Uri pageUri = null, bool logLastUpdateDecision = false)
     {
@@ -1981,8 +2366,9 @@ public class BMSPlaylist : NotificationObject
     /// </summary>
     /// <param name="oldTable">既存プレイリスト。</param>
     /// <param name="reloadedTable">外部から再取得したプレイリスト。</param>
-    /// <param name="logLastUpdateDecision">`last_update` の補正判断を INFO ログへ出力するか。</param>
+    /// <param name="logLastUpdateDecision"><c>last_update</c> の補正判断を INFO ログへ出力するか。</param>
     /// <returns>マージ後のプレイリスト。</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="oldTable"/> または <paramref name="reloadedTable"/> が <see langword="null"/> の場合。</exception>
     internal static BMSTable MergeReloadedBMSTableState(BMSTable oldTable, BMSTable reloadedTable, bool logLastUpdateDecision = false)
     {
         if (oldTable == null)
@@ -2088,6 +2474,7 @@ public class BMSPlaylist : NotificationObject
     /// <param name="newTable">再取得プレイリスト。</param>
     /// <param name="matchedOldEntryCount">新旧で対応付けられた既存エントリ数。</param>
     /// <returns>構成差分があれば <see langword="true"/>。</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="oldTable"/> または <paramref name="newTable"/> が <see langword="null"/> の場合。</exception>
     internal static bool HasPlaylistStructuralChanges(BMSTable oldTable, BMSTable newTable, int matchedOldEntryCount)
     {
         if (oldTable == null)
@@ -2103,6 +2490,12 @@ public class BMSPlaylist : NotificationObject
         return newTable.entries.Count != matchedOldEntryCount || matchedOldEntryCount != oldTable.entries.Where((BMSTableEntry entry) => !entry.is_removed).Count() || oldFolderList.Except(newFolderList).Any() || newFolderList.Except(oldFolderList).Any();
     }
 
+    /// <summary>
+    /// 既存プレイリストの保持設定を引き継いだまま、外部ソースから生の再取得結果を作成します。
+    /// </summary>
+    /// <param name="bmsTable">再取得対象の既存プレイリスト。</param>
+    /// <param name="pageUri">再取得に使う URI。省略時はプレイリスト保持値を使用します。</param>
+    /// <returns>未マージの再取得プレイリスト。</returns>
     private BMSTable reloadBMSTable(BMSTable bmsTable, Uri pageUri = null)
     {
         if (pageUri == null)
@@ -2112,11 +2505,19 @@ public class BMSPlaylist : NotificationObject
         return LoadExternalTable(pageUri, bmsTable);
     }
 
+    /// <summary>
+    /// 単一プレイリストを DB へ保存します。
+    /// </summary>
+    /// <param name="bmsTable">保存対象のプレイリスト。</param>
     private void CommitBMSTable(BMSTable bmsTable)
     {
         CommitBMSTable(new BMSTable[1] { bmsTable });
     }
 
+    /// <summary>
+    /// 複数プレイリストを DB へ保存し、対応するエントリも全置換します。
+    /// </summary>
+    /// <param name="bmsTables">保存対象のプレイリスト群。</param>
     private void CommitBMSTable(IEnumerable<BMSTable> bmsTables)
     {
         try
@@ -2150,6 +2551,10 @@ public class BMSPlaylist : NotificationObject
         }
     }
 
+    /// <summary>
+    /// 単一プレイリストエントリを一意条件で置き換えて保存します。
+    /// </summary>
+    /// <param name="entry">保存対象のエントリ。</param>
     public void CommitBMSTableEntry(BMSTableEntry entry)
     {
         if (!entry.playlist_id.HasValue)
@@ -2170,11 +2575,19 @@ public class BMSPlaylist : NotificationObject
         }
     }
 
+    /// <summary>
+    /// 単一プレイリストを削除するためのラッパーです。
+    /// </summary>
+    /// <param name="bmsTable">削除対象のプレイリスト。</param>
     private void deleteBMSTable(BMSTable bmsTable)
     {
         deleteBMSTable(new BMSTable[1] { bmsTable });
     }
 
+    /// <summary>
+    /// 複数プレイリストと対応エントリを DB から削除します。
+    /// </summary>
+    /// <param name="bmsTables">削除対象のプレイリスト群。</param>
     private void deleteBMSTable(IEnumerable<BMSTable> bmsTables)
     {
         try
@@ -2197,6 +2610,10 @@ public class BMSPlaylist : NotificationObject
         }
     }
 
+    /// <summary>
+    /// プレイリスト本体のヘッダ情報のみを DB へ保存します。
+    /// </summary>
+    /// <param name="bmsTable">保存対象のプレイリスト。</param>
     private void commitBMSTableHeaderOnly(BMSTable bmsTable)
     {
         try
@@ -2212,6 +2629,10 @@ public class BMSPlaylist : NotificationObject
         }
     }
 
+    /// <summary>
+    /// プレイリスト関連テーブルの SQL ダンプ文字列を生成します。
+    /// </summary>
+    /// <returns>バックアップ用の SQL ダンプ文字列。</returns>
     public string GetPlaylistDump()
     {
         using LR2SongDBExtended lR2SongDBExtended = new LR2SongDBExtended(lr2SongDBPath);
@@ -2220,6 +2641,10 @@ public class BMSPlaylist : NotificationObject
                                                                                                                                                                                                  select c.Replace("\v" + Environment.NewLine, Environment.NewLine));
     }
 
+    /// <summary>
+    /// プレイリスト関連テーブルを SQL ダンプから復元します。
+    /// </summary>
+    /// <param name="sql">復元する SQL ダンプ文字列。</param>
     public void LoadPlaylistDump(string sql)
     {
         using LR2SongDBExtended lR2SongDBExtended = new LR2SongDBExtended(lr2SongDBPath);
@@ -2251,6 +2676,13 @@ public class BMSPlaylist : NotificationObject
         }
     }
 
+    /// <summary>
+    /// テーブル一覧 API から簡易プレイリスト情報を取得します。
+    /// </summary>
+    /// <param name="tableinfoUri">一覧 API の絶対 URI。</param>
+    /// <returns>簡易プレイリスト情報の一覧。</returns>
+    /// <exception cref="InvalidOperationException">URI が絶対 URI でない場合。</exception>
+    /// <exception cref="ArgumentException">JSON の解釈に失敗した場合。</exception>
     public static List<BMSTableSimple> GetBMSTableInfo(Uri tableinfoUri)
     {
         if (!tableinfoUri.IsAbsoluteUri)
@@ -2278,6 +2710,11 @@ public class BMSPlaylist : NotificationObject
         return source.Select((dynamic e) => new BMSTableSimple(e)).ToList();
     }
 
+    /// <summary>
+    /// SQL リテラルとして安全に埋め込める単引用符付き文字列へ変換します。
+    /// </summary>
+    /// <param name="str">引用する文字列。</param>
+    /// <returns>単引用符で囲み、必要なエスケープを行った文字列。</returns>
     private static string sqlQuote(string str = null)
     {
         if (!string.IsNullOrWhiteSpace(str))
@@ -2287,11 +2724,24 @@ public class BMSPlaylist : NotificationObject
         return "''";
     }
 
+    /// <summary>
+    /// LR2 の <c>.lr2folder</c> 1 件分のテキストを組み立てます。
+    /// </summary>
+    /// <param name="command">抽出条件コマンド。</param>
+    /// <param name="category">カテゴリ名。</param>
+    /// <param name="title">表示タイトル。</param>
+    /// <param name="maxtracks">最大曲数制限。</param>
+    /// <returns>LR2 が解釈するフォルダ定義テキスト。</returns>
     private static string getCustomFolderText(string command, string category, string title, int maxtracks = 0)
     {
         return "#COMMAND " + command + Environment.NewLine + "#MAXTRACKS " + maxtracks + Environment.NewLine + "#CATEGORY " + category + Environment.NewLine + "#TITLE " + title + Environment.NewLine + "#INFORMATION_A " + Environment.NewLine + "#INFORMATION_B " + Environment.NewLine + Environment.NewLine;
     }
 
+    /// <summary>
+    /// プレイリスト設定からカスタムフォルダ出力先ディレクトリを算出します。
+    /// </summary>
+    /// <param name="bmsTable">対象プレイリスト。</param>
+    /// <returns>算出された出力先ディレクトリ。</returns>
     public static string GetCustomFolderOutputDirectory(BMSTable bmsTable)
     {
         try
@@ -2304,26 +2754,76 @@ public class BMSPlaylist : NotificationObject
             throw;
         }
     }
+    /// <summary>
+    /// 推定表 JSON の 1 レコードを表します。
+    /// </summary>
     internal class EstimationData
     {
+        /// <summary>
+        /// レコード種別です。
+        /// </summary>
         public string type { get; set; }
+
+        /// <summary>
+        /// 楽曲の BMS ID です。
+        /// </summary>
         public string bmsid { get; set; }
+
+        /// <summary>
+        /// 推定難易度セットです。
+        /// </summary>
         public EstimationHoshi hoshi { get; set; }
     }
 
+    /// <summary>
+    /// 推定表が返す難易度セットを表します。
+    /// </summary>
     internal class EstimationHoshi
     {
+        /// <summary>
+        /// EASY 推定値です。
+        /// </summary>
         public double? easy { get; set; }
+
+        /// <summary>
+        /// NORMAL 推定値です。
+        /// </summary>
         public double? normal { get; set; }
+
+        /// <summary>
+        /// HARD 推定値です。
+        /// </summary>
         public double? hard { get; set; }
+
+        /// <summary>
+        /// FC 推定値です。
+        /// </summary>
         public double? fc { get; set; }
     }
 
+    /// <summary>
+    /// おすすめ表 API の 1 レコードを表します。
+    /// </summary>
     internal class RecommendedData
     {
+        /// <summary>
+        /// レコード種別です。
+        /// </summary>
         public string type { get; set; }
+
+        /// <summary>
+        /// 楽曲の BMS ID です。
+        /// </summary>
         public string bmsid { get; set; }
+
+        /// <summary>
+        /// 新しいクリアランプ名です。
+        /// </summary>
         public string new_lamp { get; set; }
+
+        /// <summary>
+        /// おすすめ度の割合です。
+        /// </summary>
         public double? percent { get; set; }
     }
 }
