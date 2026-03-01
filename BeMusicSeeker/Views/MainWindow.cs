@@ -54,6 +54,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private const long DownloadAndInstallSizeLimitBytes = 536870912L;
 
+    private static readonly MethodInfo playlistTreeBringIndexIntoViewMethod = typeof(System.Windows.Controls.VirtualizingStackPanel).GetMethod("BringIndexIntoView", BindingFlags.Instance | BindingFlags.NonPublic) ?? typeof(System.Windows.Controls.VirtualizingPanel).GetMethod("BringIndexIntoView", BindingFlags.Instance | BindingFlags.NonPublic);
+
     private static long callbackExecSortRequestId;
 
     private DispatcherOperation _mainDataGridSortGlyphRefreshOperation;
@@ -1303,6 +1305,43 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         return null;
     }
 
+    /// <summary>
+    /// VisualTree を子方向に探索し、最初に見つかった指定型の要素を返します。
+    /// </summary>
+    /// <typeparam name="T">検索対象の <see cref="DependencyObject"/> 型。</typeparam>
+    /// <param name="parent">探索開始位置。</param>
+    /// <returns>最初に見つかった要素。見つからない場合は <see langword="null"/>。</returns>
+    private static T FindDescendant<T>(DependencyObject parent) where T : DependencyObject
+    {
+        if (parent == null)
+        {
+            return null;
+        }
+        int childCount;
+        try
+        {
+            childCount = VisualTreeHelper.GetChildrenCount(parent);
+        }
+        catch
+        {
+            return null;
+        }
+        for (int childIndex = 0; childIndex < childCount; childIndex++)
+        {
+            DependencyObject child = VisualTreeHelper.GetChild(parent, childIndex);
+            if (child is T result)
+            {
+                return result;
+            }
+            T descendant = FindDescendant<T>(child);
+            if (descendant != null)
+            {
+                return descendant;
+            }
+        }
+        return null;
+    }
+
     private static DependencyObject GetParentObject(DependencyObject current)
     {
         if (current == null)
@@ -1734,6 +1773,225 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return playlistSummaryRow;
         }
         return getSelectedPlaylistSummaryRows().FirstOrDefault();
+    }
+
+    /// <summary>
+    /// プレイリストサマリー行のダブルクリック時に、対応するプレイリストを左ツリーで選択します。
+    /// 既存のツリー選択イベントを再利用し、プレイリスト絞り込み表示への遷移も従来の選択経路に委ねます。
+    /// </summary>
+    /// <param name="sender">ダブルクリックされた <see cref="DataGridRow"/>。</param>
+    /// <param name="e">マウス入力情報。</param>
+    private void playlistSummaryRowDoubleClicked(object sender, MouseButtonEventArgs e)
+    {
+        if (e.ChangedButton != MouseButton.Left || !(sender is DataGridRow { DataContext: PlaylistSummaryRow playlistSummaryRow }) || playlistSummaryRow.TableRef == null)
+        {
+            return;
+        }
+        DependencyObject originalSource = e.OriginalSource as DependencyObject;
+        // NOTE:
+        // サマリー行には Button / CheckBox を含むため、行ダブルクリックがそれらの既存操作を横取りしないように除外します。
+        if (FindAncestor<Button>(originalSource) != null || FindAncestor<CheckBox>(originalSource) != null || FindAncestor<System.Windows.Controls.Primitives.ScrollBar>(originalSource) != null || FindAncestor<System.Windows.Controls.Primitives.DataGridColumnHeader>(originalSource) != null)
+        {
+            return;
+        }
+        e.Handled = true;
+        TrySelectPlaylistTreeItemFromSummary(playlistSummaryRow);
+    }
+
+    /// <summary>
+    /// プレイリストサマリー行に対応するプレイリストをプレイリストツリー上で選択します。
+    /// 再読み込み後に <see cref="PlaylistSummaryRow.TableRef"/> が古い参照になっていても、既存の再選択補助ロジックで解決を試みます。
+    /// </summary>
+    /// <param name="playlistSummaryRow">選択元のプレイリストサマリー行。</param>
+    /// <returns>プレイリストツリー項目の選択に成功した場合は <see langword="true"/>。</returns>
+    private bool TrySelectPlaylistTreeItemFromSummary(PlaylistSummaryRow playlistSummaryRow)
+    {
+        if (playlistSummaryRow?.TableRef == null)
+        {
+            return false;
+        }
+        BMSTable selectionTarget = FindReloadedPlaylistTable(playlistSummaryRow.TableRef);
+        bool restoredByHeader = false;
+        if (selectionTarget == null)
+        {
+            selectionTarget = FindPlaylistTableByName(playlistSummaryRow.Name);
+            restoredByHeader = selectionTarget != null;
+        }
+        string playlistName = selectionTarget?.name ?? playlistSummaryRow.Name ?? string.Empty;
+        string playlistId = playlistSummaryRow.PlaylistId?.ToString() ?? string.Empty;
+        if (selectionTarget == null)
+        {
+            NLogWrapper.FileLogger?.Info("playlist_summary_double_click_select success=false reason=target_not_found table=" + playlistName + " playlistId=" + playlistId + " fallbackByHeader=" + restoredByHeader);
+            return false;
+        }
+        bool usedVirtualizationFallback;
+        bool realizeByIndexAvailable;
+        bool selected = TrySelectPlaylistTreeItem(selectionTarget, out usedVirtualizationFallback, out realizeByIndexAvailable);
+        if (!selected)
+        {
+            NLogWrapper.FileLogger?.Info("playlist_summary_double_click_select success=false reason=container_not_realized table=" + playlistName + " playlistId=" + playlistId + " fallbackByHeader=" + restoredByHeader + " realize_by_index_available=" + realizeByIndexAvailable);
+            return false;
+        }
+        NLogWrapper.FileLogger?.Info("playlist_summary_double_click_select success=true table=" + playlistName + " playlistId=" + playlistId + " fallbackByHeader=" + restoredByHeader + " usedVirtualizationFallback=" + usedVirtualizationFallback + " expanded=true");
+        return true;
+    }
+
+    /// <summary>
+    /// 指定されたプレイリストをプレイリストツリー上で展開・選択します。
+    /// 仮想化で未生成のトップレベル項目については、インデックス指定での実体化を試みます。
+    /// </summary>
+    /// <param name="targetTable">選択対象のトップレベルプレイリスト。</param>
+    /// <param name="usedVirtualizationFallback">仮想化回避の実体化経路を使用した場合は <see langword="true"/>。</param>
+    /// <param name="realizeByIndexAvailable">インデックス指定での実体化 API が利用可能な場合は <see langword="true"/>。</param>
+    /// <returns>プレイリストツリー上で選択できた場合は <see langword="true"/>。</returns>
+    private bool TrySelectPlaylistTreeItem(BMSTable targetTable, out bool usedVirtualizationFallback, out bool realizeByIndexAvailable)
+    {
+        usedVirtualizationFallback = false;
+        realizeByIndexAvailable = true;
+        if (targetTable == null)
+        {
+            return false;
+        }
+        treeViewItemPlaylist.IsExpanded = true;
+        treeViewPlaylist.UpdateLayout();
+        treeViewItemPlaylist.UpdateLayout();
+        TreeViewItem playlistTreeViewItem = TryGetPlaylistTreeViewItem(targetTable, out usedVirtualizationFallback, out realizeByIndexAvailable);
+        if (playlistTreeViewItem == null)
+        {
+            return false;
+        }
+        playlistTreeViewItem.IsExpanded = true;
+        playlistTreeViewItem.UpdateLayout();
+        playlistTreeViewItem.BringIntoView();
+        playlistTreeViewItem.IsSelected = true;
+        playlistTreeViewItem.Focus();
+        return true;
+    }
+
+    /// <summary>
+    /// 指定されたトップレベルプレイリストに対応する <see cref="TreeViewItem"/> を取得します。
+    /// </summary>
+    /// <param name="targetTable">プレイリストツリー直下の <see cref="BMSTable"/>。</param>
+    /// <param name="usedVirtualizationFallback">仮想化回避の実体化経路を使用した場合は <see langword="true"/>。</param>
+    /// <param name="realizeByIndexAvailable">インデックス指定での実体化 API が利用可能な場合は <see langword="true"/>。</param>
+    /// <returns>対応する <see cref="TreeViewItem"/>。取得できない場合は <see langword="null"/>。</returns>
+    private TreeViewItem TryGetPlaylistTreeViewItem(BMSTable targetTable, out bool usedVirtualizationFallback, out bool realizeByIndexAvailable)
+    {
+        usedVirtualizationFallback = false;
+        realizeByIndexAvailable = true;
+        if (targetTable == null)
+        {
+            return null;
+        }
+        int playlistIndex = treeViewItemPlaylist.Items.IndexOf(targetTable);
+        if (playlistIndex < 0)
+        {
+            return null;
+        }
+        return TryGetPlaylistTreeViewItemByIndex(playlistIndex, out usedVirtualizationFallback, out realizeByIndexAvailable);
+    }
+
+    /// <summary>
+    /// 指定インデックスのトップレベルプレイリスト項目コンテナを取得します。
+    /// 画面外で未生成の場合は、仮想化回避の実体化を試みます。
+    /// </summary>
+    /// <param name="playlistIndex">プレイリストルート直下のインデックス。</param>
+    /// <param name="usedVirtualizationFallback">仮想化回避の実体化経路を使用した場合は <see langword="true"/>。</param>
+    /// <param name="realizeByIndexAvailable">インデックス指定での実体化 API が利用可能な場合は <see langword="true"/>。</param>
+    /// <returns>生成済みの <see cref="TreeViewItem"/>。取得できない場合は <see langword="null"/>。</returns>
+    private TreeViewItem TryGetPlaylistTreeViewItemByIndex(int playlistIndex, out bool usedVirtualizationFallback, out bool realizeByIndexAvailable)
+    {
+        usedVirtualizationFallback = false;
+        realizeByIndexAvailable = true;
+        if (playlistIndex < 0)
+        {
+            return null;
+        }
+        TreeViewItem playlistTreeViewItem = treeViewItemPlaylist.ItemContainerGenerator.ContainerFromIndex(playlistIndex) as TreeViewItem;
+        if (playlistTreeViewItem != null)
+        {
+            return playlistTreeViewItem;
+        }
+        usedVirtualizationFallback = TryRealizeVirtualizedPlaylistItem(playlistIndex, out realizeByIndexAvailable);
+        if (!usedVirtualizationFallback)
+        {
+            return null;
+        }
+        treeViewPlaylist.UpdateLayout();
+        treeViewItemPlaylist.UpdateLayout();
+        return treeViewItemPlaylist.ItemContainerGenerator.ContainerFromIndex(playlistIndex) as TreeViewItem;
+    }
+
+    /// <summary>
+    /// 仮想化で未生成のトップレベルプレイリスト項目を、インデックス指定で可視領域へ移動して実体化させます。
+    /// </summary>
+    /// <param name="playlistIndex">実体化したいプレイリストルート直下のインデックス。</param>
+    /// <param name="realizeByIndexAvailable">インデックス指定での実体化 API が利用可能な場合は <see langword="true"/>。</param>
+    /// <returns>可視化要求を実行できた場合は <see langword="true"/>。</returns>
+    private bool TryRealizeVirtualizedPlaylistItem(int playlistIndex, out bool realizeByIndexAvailable)
+    {
+        realizeByIndexAvailable = playlistTreeBringIndexIntoViewMethod != null;
+        if (playlistIndex < 0)
+        {
+            return false;
+        }
+        VirtualizingStackPanel playlistItemsHostPanel = TryGetPlaylistItemsHostPanel();
+        if (playlistItemsHostPanel == null)
+        {
+            NLogWrapper.FileLogger?.Info("playlist_tree_item_realize success=false reason=panel_not_found index=" + playlistIndex);
+            return false;
+        }
+        if (playlistTreeBringIndexIntoViewMethod == null)
+        {
+            NLogWrapper.FileLogger?.Info("playlist_tree_item_realize success=false reason=bring_index_method_not_found index=" + playlistIndex);
+            return false;
+        }
+        try
+        {
+            // NOTE:
+            // TreeView の仮想化が有効だと、画面外のトップレベル項目は ContainerFromIndex で null のままになります。
+            // 公開 API にはインデックス単位で実体化を促す手段がないため、WPF 内部の BringIndexIntoView を局所的に利用します。
+            playlistTreeBringIndexIntoViewMethod.Invoke(playlistItemsHostPanel, new object[1] { playlistIndex });
+            treeViewPlaylist.UpdateLayout();
+            treeViewItemPlaylist.UpdateLayout();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            NLogWrapper.FileLogger?.Info("playlist_tree_item_realize success=false reason=invoke_failed index=" + playlistIndex + " exception=" + ex.GetType().Name);
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// プレイリストルート配下の items host となる <see cref="VirtualizingStackPanel"/> を取得します。
+    /// </summary>
+    /// <returns>プレイリストのトップレベル項目を管理する <see cref="VirtualizingStackPanel"/>。取得できない場合は <see langword="null"/>。</returns>
+    private VirtualizingStackPanel TryGetPlaylistItemsHostPanel()
+    {
+        treeViewItemPlaylist.ApplyTemplate();
+        treeViewItemPlaylist.UpdateLayout();
+        ItemsPresenter playlistItemsPresenter = FindDescendant<ItemsPresenter>(treeViewItemPlaylist);
+        if (playlistItemsPresenter == null)
+        {
+            return null;
+        }
+        playlistItemsPresenter.ApplyTemplate();
+        return FindDescendant<VirtualizingStackPanel>(playlistItemsPresenter);
+    }
+
+    /// <summary>
+    /// 指定されたプレイリスト名に一致するトップレベルプレイリストを検索します。
+    /// </summary>
+    /// <param name="playlistName">検索対象のプレイリスト名。</param>
+    /// <returns>一致する <see cref="BMSTable"/>。見つからない場合は <see langword="null"/>。</returns>
+    private BMSTable FindPlaylistTableByName(string playlistName)
+    {
+        if (string.IsNullOrWhiteSpace(playlistName))
+        {
+            return null;
+        }
+        return treeViewItemPlaylist.Items.OfType<BMSTable>().FirstOrDefault((BMSTable playlistTable) => playlistTable != null && string.Equals(playlistTable.name, playlistName, StringComparison.Ordinal));
     }
 
     private async void playlistSummaryLinkClick(object sender, RoutedEventArgs e)
@@ -2322,8 +2580,15 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             NLogWrapper.FileLogger?.Info("playlist_selection_restore_single_reload skipped reason=target_not_found");
             return;
         }
-        bool restored = treeViewItemPlaylist.SelectChildTreeViewItemSearchedByDataContext(selectionTarget);
-        NLogWrapper.FileLogger?.Info("playlist_selection_restore_single_reload restored=" + restored + " table=" + selectionTarget.name);
+        bool usedVirtualizationFallback;
+        bool realizeByIndexAvailable;
+        bool restored = TrySelectPlaylistTreeItem(selectionTarget, out usedVirtualizationFallback, out realizeByIndexAvailable);
+        if (!restored)
+        {
+            NLogWrapper.FileLogger?.Info("playlist_selection_restore_single_reload restored=false reason=container_not_realized table=" + selectionTarget.name + " realize_by_index_available=" + realizeByIndexAvailable);
+            return;
+        }
+        NLogWrapper.FileLogger?.Info("playlist_selection_restore_single_reload restored=true table=" + selectionTarget.name + " expanded=true usedVirtualizationFallback=" + usedVirtualizationFallback);
     }
 
     private BMSTable FindReloadedPlaylistTable(BMSTable tableBeforeReload)

@@ -1990,6 +1990,7 @@
                 <Setter Property="FrameworkElement.ContextMenu" Value="{StaticResource playlistSummaryContextMenu}" />
                 <Setter Property="BorderThickness" Value="0,0,0,1" />
                 <Setter Property="BorderBrush" Value="#E7E9EC" />
+                <EventSetter Event="MouseDoubleClick" Handler="playlistSummaryRowDoubleClicked" />
               </Style>
             </DataGrid.RowStyle>
             <DataGrid.Columns>
