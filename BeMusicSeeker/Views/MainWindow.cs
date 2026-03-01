@@ -52,6 +52,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private static readonly AppHttpClient updateCheckHttpClient = AppHttpClient.Create(5000);
 
+    private const long DownloadAndInstallSizeLimitBytes = 536870912L;
+
     private static long callbackExecSortRequestId;
 
     private DispatcherOperation _mainDataGridSortGlyphRefreshOperation;
@@ -71,6 +73,13 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         InstallPending,
         FullScanCheck,
         Other
+    }
+
+    private enum DownloadAndInstallResult
+    {
+        Installed,
+        OpenInBrowser,
+        BlockedBySizeLimit
     }
 
     private TreeSelectionSection _currentTreeSelectionSection = TreeSelectionSection.None;
@@ -1177,10 +1186,16 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             try
             {
-                if (!vbmsFile.Url.ToString().EndsWith("/") && !vbmsFile.Url.ToString().EndsWith(".htm") && !vbmsFile.Url.ToString().EndsWith(".html") && await downloadAndInstall(vbmsFile.Url))
+                if (!vbmsFile.Url.ToString().EndsWith("/") && !vbmsFile.Url.ToString().EndsWith(".htm") && !vbmsFile.Url.ToString().EndsWith(".html"))
                 {
-                    newlyInstalledTreeViewItem.IsExpanded = true;
-                    return;
+                    switch (await downloadAndInstall(vbmsFile.Url))
+                    {
+                        case DownloadAndInstallResult.Installed:
+                            newlyInstalledTreeViewItem.IsExpanded = true;
+                            return;
+                        case DownloadAndInstallResult.BlockedBySizeLimit:
+                            return;
+                    }
                 }
             }
             catch
@@ -1200,10 +1215,16 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             try
             {
-                if (!vbmsFile.Url_diff.ToString().EndsWith("/") && !vbmsFile.Url_diff.ToString().EndsWith(".htm") && !vbmsFile.Url_diff.ToString().EndsWith(".html") && await downloadAndInstall(vbmsFile.Url_diff))
+                if (!vbmsFile.Url_diff.ToString().EndsWith("/") && !vbmsFile.Url_diff.ToString().EndsWith(".htm") && !vbmsFile.Url_diff.ToString().EndsWith(".html"))
                 {
-                    newlyInstalledTreeViewItem.IsExpanded = true;
-                    return;
+                    switch (await downloadAndInstall(vbmsFile.Url_diff))
+                    {
+                        case DownloadAndInstallResult.Installed:
+                            newlyInstalledTreeViewItem.IsExpanded = true;
+                            return;
+                        case DownloadAndInstallResult.BlockedBySizeLimit:
+                            return;
+                    }
                 }
             }
             catch
@@ -4295,16 +4316,14 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             urls = (from s in songInfoCache.url.Split(' ')
                     where !string.IsNullOrWhiteSpace(s)
-                    select s).Select(delegate (string s)
-                {
-                    s = dropBoxRegex.Replace(s, "https://dl.dropboxusercontent.com/$1/$2.$3");
-                    s = gdriveRegex.Replace(s, "https://docs.google.com/uc?export=download&id=$2");
-                    s = odriveRegex.Replace(s, "https://onedrive.live.com/download?$1");
-                    return new Uri(s, UriKind.Absolute);
-                }).ToList();
+                    let normalized = NormalizeDownloadUrlString(s)
+                    where !string.IsNullOrWhiteSpace(normalized)
+                    select new Uri(normalized, UriKind.Absolute)).ToList();
             urls_diff = (from s in songInfoCache.url_diff.Split(' ')
                          where !string.IsNullOrWhiteSpace(s)
-                         select new Uri(s, UriKind.Absolute)).ToList();
+                         let normalized = NormalizeDownloadUrlString(s)
+                         where !string.IsNullOrWhiteSpace(normalized)
+                         select new Uri(normalized, UriKind.Absolute)).ToList();
         }
         else
         {
@@ -4313,19 +4332,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         if (original != null && original.IsAbsoluteUri)
         {
-            string input = original.ToString();
-            input = dropBoxRegex.Replace(input, "https://dl.dropboxusercontent.com/$1/$2.$3");
-            input = gdriveRegex.Replace(input, "https://docs.google.com/uc?export=download&id=$2");
-            input = odriveRegex.Replace(input, "https://onedrive.live.com/download?$1");
-            urls.Add(new Uri(input, UriKind.Absolute));
+            urls.Add(NormalizeDownloadUri(original));
         }
         if (diff != null && diff.IsAbsoluteUri)
         {
-            string input2 = diff.ToString();
-            input2 = dropBoxRegex.Replace(input2, "https://dl.dropboxusercontent.com/$1/$2.$3");
-            input2 = gdriveRegex.Replace(input2, "https://docs.google.com/uc?export=download&id=$2");
-            input2 = odriveRegex.Replace(input2, "https://onedrive.live.com/download?$1");
-            urls_diff.Add(new Uri(input2, UriKind.Absolute));
+            urls_diff.Add(NormalizeDownloadUri(diff));
         }
     }
 
@@ -4504,27 +4515,43 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     /// ファイルサイズが大きすぎる場合（約500MB超）や非対応フォーマットの場合は処理を中断します。
     /// </summary>
     /// <param name="uri">ダウンロード対象のURL。</param>
-    /// <returns>ダウンロードとインストールの起動に成功した場合は true、失敗した場合は false。</returns>
-    private async Task<bool> downloadAndInstall(Uri uri)
+    /// <returns>ダウンロード試行結果。</returns>
+    private async Task<DownloadAndInstallResult> downloadAndInstall(Uri uri)
     {
         string tempDirectory = TempDirectoryPublisher.Get();
         string filePath = string.Empty;
+        DownloadAndInstallResult result = DownloadAndInstallResult.OpenInBrowser;
         await Task.Run(delegate
         {
             try
             {
-                using AppHttpResponse response = AppHttpClient.Shared.OpenRead(uri);
-                if (response.ContentLength.HasValue && response.ContentLength.Value > 0 && response.ContentLength.Value <= 536870912)
+                Uri normalizedUri = NormalizeDownloadUri(uri);
+                using AppHttpResponse response = AppHttpClient.Shared.OpenRead(normalizedUri);
+                if (response.ContentLength.HasValue)
                 {
-                    string fileName = ResolveDownloadedArchiveFileName(uri, response);
-                    if (!BMSFile.bmsExtensions.Concat(new string[4] { ".zip", ".7z", ".rar", "lzh" }).All((string e) => !fileName.EndsWith(e, StringComparison.OrdinalIgnoreCase)))
+                    if (response.ContentLength.Value == 0L)
                     {
-                        filePath = Path.Combine(tempDirectory, fileName);
-                        using FileStream destination = File.Create(filePath);
-                        response.ResponseStream.CopyTo(destination);
+                        return;
+                    }
+                    if (response.ContentLength.Value > DownloadAndInstallSizeLimitBytes)
+                    {
+                        result = DownloadAndInstallResult.BlockedBySizeLimit;
                         return;
                     }
                 }
+                string fileName = ResolveDownloadedArchiveFileName(normalizedUri, response);
+                if (BMSFile.bmsExtensions.Concat(new string[4] { ".zip", ".7z", ".rar", "lzh" }).All((string e) => !fileName.EndsWith(e, StringComparison.OrdinalIgnoreCase)))
+                {
+                    return;
+                }
+                filePath = Path.Combine(tempDirectory, fileName);
+                if (!TryCopyStreamToFileWithLimit(response.ResponseStream, filePath, DownloadAndInstallSizeLimitBytes))
+                {
+                    result = DownloadAndInstallResult.BlockedBySizeLimit;
+                    filePath = string.Empty;
+                    return;
+                }
+                result = DownloadAndInstallResult.Installed;
             }
             catch
             {
@@ -4533,9 +4560,77 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         if (!string.IsNullOrWhiteSpace(filePath) && File.Exists(filePath))
         {
             installBMSFiles(new string[1] { filePath });
+            return DownloadAndInstallResult.Installed;
+        }
+        return result;
+    }
+
+    private static string NormalizeDownloadUrlString(string input)
+    {
+        if (string.IsNullOrWhiteSpace(input))
+        {
+            return input;
+        }
+        string text = dropBoxRegex.Replace(input, "https://dl.dropboxusercontent.com/$1/$2.$3");
+        text = gdriveRegex.Replace(text, "https://docs.google.com/uc?export=download&id=$2");
+        text = odriveRegex.Replace(text, "https://onedrive.live.com/download?$1");
+        return text;
+    }
+
+    private static Uri NormalizeDownloadUri(Uri uri)
+    {
+        if (uri == null || !uri.IsAbsoluteUri)
+        {
+            return uri;
+        }
+        try
+        {
+            return new Uri(NormalizeDownloadUrlString(uri.ToString()), UriKind.Absolute);
+        }
+        catch
+        {
+            return uri;
+        }
+    }
+
+    private static bool TryCopyStreamToFileWithLimit(Stream source, string destinationPath, long maxBytes)
+    {
+        const int bufferSize = 81920;
+        byte[] array = new byte[bufferSize];
+        long num = 0L;
+        try
+        {
+            using (FileStream fileStream = File.Create(destinationPath))
+            {
+                int count;
+                while ((count = source.Read(array, 0, array.Length)) > 0)
+                {
+                    num += count;
+                    if (num > maxBytes)
+                    {
+                        return false;
+                    }
+                    fileStream.Write(array, 0, count);
+                }
+            }
             return true;
         }
-        return false;
+        finally
+        {
+            if (num > maxBytes)
+            {
+                try
+                {
+                    if (File.Exists(destinationPath))
+                    {
+                        File.Delete(destinationPath);
+                    }
+                }
+                catch
+                {
+                }
+            }
+        }
     }
 
     private static string ResolveDownloadedArchiveFileName(Uri requestedUri, AppHttpResponse response)
@@ -4638,10 +4733,16 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 try
                 {
                     Uri uri = (Uri)menuItem.Tag;
-                    if (!uri.ToString().EndsWith("/") && !uri.ToString().EndsWith(".htm") && !uri.ToString().EndsWith(".html") && await downloadAndInstall(uri))
+                    if (!uri.ToString().EndsWith("/") && !uri.ToString().EndsWith(".htm") && !uri.ToString().EndsWith(".html"))
                     {
-                        newlyInstalledTreeViewItem.IsExpanded = true;
-                        return;
+                        switch (await downloadAndInstall(uri))
+                        {
+                            case DownloadAndInstallResult.Installed:
+                                newlyInstalledTreeViewItem.IsExpanded = true;
+                                return;
+                            case DownloadAndInstallResult.BlockedBySizeLimit:
+                                return;
+                        }
                     }
                 }
                 catch
