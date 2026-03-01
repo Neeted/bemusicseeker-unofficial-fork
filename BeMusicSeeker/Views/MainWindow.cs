@@ -6,9 +6,10 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
-using System.Net;
+using System.Net.Http.Headers;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
@@ -34,6 +35,7 @@ using Microsoft.WindowsAPICodePack.Dialogs;
 using NLog;
 using Parago.Windows;
 using Ribbit.Logging;
+using Ribbit.Net;
 using Ribbit.Util.Extensions;
 using Ribbit.Windows;
 
@@ -47,6 +49,8 @@ namespace BeMusicSeeker.Views;
 public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 {
     private static readonly Logger installPerformanceLogger = LogManager.GetLogger("InstallPerformance.MainWindow");
+
+    private static readonly AppHttpClient updateCheckHttpClient = AppHttpClient.Create(5000);
 
     private static long callbackExecSortRequestId;
 
@@ -199,29 +203,25 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             // キャッシュバスター: GitHub CDN のキャッシュを回避する
             string versionUrl = "https://raw.githubusercontent.com/Neeted/bemusicseeker-unofficial-fork/main/version.txt?t=" + DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-            using (var client = new System.Net.Http.HttpClient())
-            {
-                client.Timeout = TimeSpan.FromSeconds(5);
-                string latestVersionStr = await client.GetStringAsync(versionUrl);
-                latestVersionStr = latestVersionStr?.Trim();
+            string latestVersionStr = await updateCheckHttpClient.GetStringAsync(new Uri(versionUrl), Encoding.UTF8);
+            latestVersionStr = latestVersionStr?.Trim();
 
-                if (Version.TryParse(latestVersionStr, out Version latestVersion))
+            if (Version.TryParse(latestVersionStr, out Version latestVersion))
+            {
+                string currentVersionStr = System.Reflection.Assembly.GetExecutingAssembly()
+                    .GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
+                    .OfType<System.Reflection.AssemblyInformationalVersionAttribute>()
+                    .FirstOrDefault()?.InformationalVersion ?? "0.0.0.0";
+                if (Version.TryParse(currentVersionStr, out Version currentVersion) && latestVersion > currentVersion)
                 {
-                    string currentVersionStr = System.Reflection.Assembly.GetExecutingAssembly()
-                        .GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
-                        .OfType<System.Reflection.AssemblyInformationalVersionAttribute>()
-                        .FirstOrDefault()?.InformationalVersion ?? "0.0.0.0";
-                    if (Version.TryParse(currentVersionStr, out Version currentVersion) && latestVersion > currentVersion)
+                    base.Dispatcher.Invoke(() =>
                     {
-                        base.Dispatcher.Invoke(() =>
-                        {
-                            DispatcherMessageBox.Show(
-                                $"A new version ({latestVersionStr}) is available.\nYour version: {currentVersionStr}\n\nPlease check the repository.",
-                                "Update Available",
-                                MessageBoxButton.OK,
-                                MessageBoxImage.Information);
-                        });
-                    }
+                        DispatcherMessageBox.Show(
+                            $"A new version ({latestVersionStr}) is available.\nYour version: {currentVersionStr}\n\nPlease check the repository.",
+                            "Update Available",
+                            MessageBoxButton.OK,
+                            MessageBoxImage.Information);
+                    });
                 }
             }
         }
@@ -4513,16 +4513,15 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             try
             {
-                HttpWebResponse httpWebResponse = (HttpWebResponse)((HttpWebRequest)WebRequest.Create(uri.ToString())).GetResponse();
-                using Stream stream = httpWebResponse.GetResponseStream();
-                if (httpWebResponse.ContentLength != 0L && httpWebResponse.ContentLength <= 536870912)
+                using AppHttpResponse response = AppHttpClient.Shared.OpenRead(uri);
+                if (response.ContentLength.HasValue && response.ContentLength.Value > 0 && response.ContentLength.Value <= 536870912)
                 {
-                    string fileName = ((httpWebResponse.Headers["Content-Disposition"] != null) ? Regex.Replace(httpWebResponse.Headers["Content-Disposition"], ".*filename=\"([^\"]+)\".*", "$1") : ((httpWebResponse.Headers["Location"] != null) ? Path.GetFileName(httpWebResponse.Headers["Location"]) : ((Path.GetFileName(uri.ToString()).Contains('?') || Path.GetFileName(uri.ToString()).Contains('=')) ? Path.GetFileName(httpWebResponse.ResponseUri.ToString()) : Path.GetFileName(uri.ToString()))));
+                    string fileName = ResolveDownloadedArchiveFileName(uri, response);
                     if (!BMSFile.bmsExtensions.Concat(new string[4] { ".zip", ".7z", ".rar", "lzh" }).All((string e) => !fileName.EndsWith(e, StringComparison.OrdinalIgnoreCase)))
                     {
                         filePath = Path.Combine(tempDirectory, fileName);
                         using FileStream destination = File.Create(filePath);
-                        stream.CopyTo(destination);
+                        response.ResponseStream.CopyTo(destination);
                         return;
                     }
                 }
@@ -4537,6 +4536,37 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return true;
         }
         return false;
+    }
+
+    private static string ResolveDownloadedArchiveFileName(Uri requestedUri, AppHttpResponse response)
+    {
+        ContentDispositionHeaderValue contentDisposition = response.ContentHeaders?.ContentDisposition;
+        string fileName = contentDisposition?.FileNameStar ?? contentDisposition?.FileName;
+        if (!string.IsNullOrWhiteSpace(fileName))
+        {
+            return fileName.Trim().Trim('"');
+        }
+        if (response.ContentHeaders != null && response.ContentHeaders.TryGetValues("Content-Disposition", out IEnumerable<string> contentDispositionValues))
+        {
+            string rawContentDisposition = contentDispositionValues.FirstOrDefault();
+            if (!string.IsNullOrWhiteSpace(rawContentDisposition))
+            {
+                string parsedFileName = Regex.Replace(rawContentDisposition, ".*filename=\"([^\"]+)\".*", "$1");
+                if (!string.IsNullOrWhiteSpace(parsedFileName) && !string.Equals(parsedFileName, rawContentDisposition, StringComparison.Ordinal))
+                {
+                    return parsedFileName;
+                }
+            }
+        }
+        if (response.Headers?.Location != null)
+        {
+            return Path.GetFileName(response.Headers.Location.ToString());
+        }
+        if (Path.GetFileName(requestedUri.ToString()).Contains('?') || Path.GetFileName(requestedUri.ToString()).Contains('='))
+        {
+            return Path.GetFileName(response.ResponseUri.ToString());
+        }
+        return Path.GetFileName(requestedUri.ToString());
     }
 
     /// <summary>

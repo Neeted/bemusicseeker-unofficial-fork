@@ -7,10 +7,137 @@ using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Reflection;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using Ribbit.Logging;
 
 namespace Ribbit.Net;
+
+/// <summary>
+/// メタデータ付きの HTTP 応答ストリームを表します。
+/// 応答メッセージとストリームの寿命をまとめて管理し、呼び出し側は <see cref="IDisposable"/> として扱えます。
+/// </summary>
+internal sealed class AppHttpResponse : IDisposable
+{
+    /// <summary>
+    /// 元の要求 URI です。
+    /// </summary>
+    internal Uri RequestUri { get; }
+
+    /// <summary>
+    /// リダイレクト後を含む最終的な応答 URI です。
+    /// </summary>
+    internal Uri ResponseUri { get; }
+
+    /// <summary>
+    /// HTTP ステータスコードです。
+    /// </summary>
+    internal HttpStatusCode StatusCode { get; }
+
+    /// <summary>
+    /// 応答の Content-Length です。未設定時は <see langword="null"/> です。
+    /// </summary>
+    internal long? ContentLength { get; }
+
+    /// <summary>
+    /// HTTP レスポンスヘッダーです。
+    /// </summary>
+    internal HttpResponseHeaders Headers { get; }
+
+    /// <summary>
+    /// コンテンツヘッダーです。
+    /// </summary>
+    internal HttpContentHeaders ContentHeaders { get; }
+
+    /// <summary>
+    /// 応答本文ストリームです。
+    /// </summary>
+    internal Stream ResponseStream { get; }
+
+    /// <summary>
+    /// 背後に保持しているレスポンスメッセージです。
+    /// </summary>
+    private readonly HttpResponseMessage httpResponseMessage;
+
+    /// <summary>
+    /// 破棄済みかどうかを保持します。
+    /// </summary>
+    private bool disposed;
+
+    /// <summary>
+    /// HTTP 応答に基づいてハンドルを初期化します。
+    /// </summary>
+    /// <param name="requestUri">元の要求 URI。</param>
+    /// <param name="httpResponseMessage">保持する応答メッセージ。</param>
+    /// <param name="responseStream">保持する応答ストリーム。</param>
+    internal AppHttpResponse(Uri requestUri, HttpResponseMessage httpResponseMessage, Stream responseStream)
+    {
+        if (requestUri == null)
+        {
+            throw new ArgumentNullException(nameof(requestUri));
+        }
+        if (httpResponseMessage == null)
+        {
+            throw new ArgumentNullException(nameof(httpResponseMessage));
+        }
+        if (responseStream == null)
+        {
+            throw new ArgumentNullException(nameof(responseStream));
+        }
+        RequestUri = requestUri;
+        ResponseUri = httpResponseMessage.RequestMessage?.RequestUri ?? requestUri;
+        StatusCode = httpResponseMessage.StatusCode;
+        Headers = httpResponseMessage.Headers;
+        ContentHeaders = httpResponseMessage.Content?.Headers;
+        ContentLength = httpResponseMessage.Content?.Headers?.ContentLength;
+        ResponseStream = responseStream;
+        this.httpResponseMessage = httpResponseMessage;
+    }
+
+    /// <summary>
+    /// ローカルファイル読み取り用のハンドルを初期化します。
+    /// </summary>
+    /// <param name="fileUri">対象ファイル URI。</param>
+    /// <param name="responseStream">保持するファイルストリーム。</param>
+    internal AppHttpResponse(Uri fileUri, Stream responseStream)
+    {
+        if (fileUri == null)
+        {
+            throw new ArgumentNullException(nameof(fileUri));
+        }
+        if (responseStream == null)
+        {
+            throw new ArgumentNullException(nameof(responseStream));
+        }
+        RequestUri = fileUri;
+        ResponseUri = fileUri;
+        StatusCode = HttpStatusCode.OK;
+        Headers = null;
+        ContentHeaders = null;
+        ContentLength = responseStream.CanSeek ? responseStream.Length : null;
+        ResponseStream = responseStream;
+    }
+
+    /// <summary>
+    /// 保持しているストリームとレスポンスを解放します。
+    /// </summary>
+    public void Dispose()
+    {
+        if (disposed)
+        {
+            return;
+        }
+        disposed = true;
+        try
+        {
+            ResponseStream?.Dispose();
+        }
+        finally
+        {
+            httpResponseMessage?.Dispose();
+        }
+    }
+}
 
 /// <summary>
 /// アプリ全体で共有する同期ラッパー付き HTTP クライアントです。
@@ -97,6 +224,32 @@ internal sealed class AppHttpClient
     internal string GetString(Uri uri, Encoding encoding = null)
     {
         return ResolveEncoding(encoding).GetString(GetBytes(uri));
+    }
+
+    /// <summary>
+    /// 指定 URI の内容を非同期に文字列として取得します。
+    /// </summary>
+    /// <param name="uri">取得元 URI。</param>
+    /// <param name="encoding">レスポンスを文字列化する文字コード。省略時は UTF-8。</param>
+    /// <param name="cancellationToken">キャンセル用トークン。</param>
+    /// <returns>指定文字コードで解釈した文字列。</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="uri"/> が <see langword="null"/> の場合。</exception>
+    internal async Task<string> GetStringAsync(Uri uri, Encoding encoding = null, CancellationToken cancellationToken = default(CancellationToken))
+    {
+        if (uri == null)
+        {
+            throw new ArgumentNullException(nameof(uri));
+        }
+        if (uri.IsFile)
+        {
+            byte[] bytes = await Task.Run(() => File.ReadAllBytes(uri.LocalPath), cancellationToken).ConfigureAwait(false);
+            return ResolveEncoding(encoding).GetString(bytes);
+        }
+        using (HttpResponseMessage httpResponseMessage = await SendAsync(HttpMethod.Get, uri, null, null, cancellationToken).ConfigureAwait(false))
+        {
+            byte[] bytes = await httpResponseMessage.Content.ReadAsByteArrayAsync().ConfigureAwait(false);
+            return ResolveEncoding(encoding).GetString(bytes);
+        }
     }
 
     /// <summary>
@@ -254,6 +407,35 @@ internal sealed class AppHttpClient
     }
 
     /// <summary>
+    /// 指定 URI の内容をストリームとして開き、応答メタデータと一緒に返します。
+    /// </summary>
+    /// <param name="uri">取得元 URI。</param>
+    /// <returns>応答メタデータ付きストリーム。</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="uri"/> が <see langword="null"/> の場合。</exception>
+    internal AppHttpResponse OpenRead(Uri uri)
+    {
+        if (uri == null)
+        {
+            throw new ArgumentNullException(nameof(uri));
+        }
+        if (uri.IsFile)
+        {
+            return new AppHttpResponse(uri, File.OpenRead(uri.LocalPath));
+        }
+        HttpResponseMessage httpResponseMessage = Send(HttpMethod.Get, uri);
+        try
+        {
+            Stream stream = httpResponseMessage.Content.ReadAsStreamAsync().ConfigureAwait(false).GetAwaiter().GetResult();
+            return new AppHttpResponse(uri, httpResponseMessage, stream);
+        }
+        catch
+        {
+            httpResponseMessage.Dispose();
+            throw;
+        }
+    }
+
+    /// <summary>
     /// リクエストを送信し、成功レスポンスだけを返します。
     /// </summary>
     /// <param name="method">HTTP メソッド。</param>
@@ -263,6 +445,21 @@ internal sealed class AppHttpClient
     /// <returns>成功レスポンス。</returns>
     /// <exception cref="ArgumentNullException"><paramref name="method"/> または <paramref name="uri"/> が <see langword="null"/> の場合。</exception>
     private HttpResponseMessage Send(HttpMethod method, Uri uri, HttpContent content = null, IDictionary<string, string> headers = null)
+    {
+        return SendAsync(method, uri, content, headers, CancellationToken.None).ConfigureAwait(false).GetAwaiter().GetResult();
+    }
+
+    /// <summary>
+    /// リクエストを非同期送信し、成功レスポンスだけを返します。
+    /// </summary>
+    /// <param name="method">HTTP メソッド。</param>
+    /// <param name="uri">送信先 URI。</param>
+    /// <param name="content">送信本文。</param>
+    /// <param name="headers">追加のリクエストヘッダー。</param>
+    /// <param name="cancellationToken">キャンセル用トークン。</param>
+    /// <returns>成功レスポンス。</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="method"/> または <paramref name="uri"/> が <see langword="null"/> の場合。</exception>
+    private async Task<HttpResponseMessage> SendAsync(HttpMethod method, Uri uri, HttpContent content = null, IDictionary<string, string> headers = null, CancellationToken cancellationToken = default(CancellationToken))
     {
         if (method == null)
         {
@@ -285,7 +482,7 @@ internal sealed class AppHttpClient
             HttpResponseMessage httpResponseMessage;
             try
             {
-                httpResponseMessage = httpClient.SendAsync(httpRequestMessage).ConfigureAwait(false).GetAwaiter().GetResult();
+                httpResponseMessage = await httpClient.SendAsync(httpRequestMessage, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
             }
             catch (TaskCanceledException ex)
             {
