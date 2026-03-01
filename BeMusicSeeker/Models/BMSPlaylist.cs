@@ -1624,7 +1624,7 @@ public class BMSPlaylist : NotificationObject
                         {
                             using (table.ReaderWriterLock.GetWriterGuard())
                             {
-                                newTable = updateBMSTable(table, uri);
+                                newTable = MergeReloadedBMSTableWithExistingState(table, uri);
                                 Stopwatch stopwatchCommit = Stopwatch.StartNew();
                                 CommitBMSTable(newTable);
                                 stopwatchCommit.Stop();
@@ -1688,6 +1688,13 @@ public class BMSPlaylist : NotificationObject
         }
     }
 
+    /// <summary>
+    /// 指定した外部プレイリストを再取得し、既存のローカル状態を維持しながら差分同期結果へ置き換えます。
+    /// `is_external_sync` の有無に関わらず明示指定されたプレイリストを対象にし、`last_update` は実際の構成差分に応じて維持または更新されます。
+    /// </summary>
+    /// <param name="bmsTable">再同期対象のプレイリスト。</param>
+    /// <param name="pageUri">再取得に使用する URI。省略時は対象プレイリストに保持された URL を使用します。</param>
+    /// <returns>差分統合後のプレイリスト。</returns>
     public BMSTable ResetBMSTable(BMSTable bmsTable, Uri pageUri = null)
     {
         if (bmsTable == null)
@@ -1698,7 +1705,7 @@ public class BMSPlaylist : NotificationObject
         {
             using (bmsTable.ReaderWriterLock.GetWriterGuard())
             {
-                BMSTable bMSTable = reloadBMSTable(bmsTable, pageUri);
+                BMSTable bMSTable = MergeReloadedBMSTableWithExistingState(bmsTable, pageUri, logLastUpdateDecision: true);
                 using (bMSTable.ReaderWriterLock.GetWriterGuard())
                 {
                     BMSTables[BMSTables.IndexOf(bmsTable)] = bMSTable;
@@ -1952,13 +1959,42 @@ public class BMSPlaylist : NotificationObject
         return bMSTable;
     }
 
-    private BMSTable updateBMSTable(BMSTable oldTable, Uri pageUri = null)
+    /// <summary>
+    /// 外部テーブルを再取得し、既存プレイリストが持つローカル状態を維持した差分結果を生成します。
+    /// </summary>
+    /// <param name="oldTable">再取得前のプレイリスト。</param>
+    /// <param name="pageUri">再取得に使用する URI。省略時は既存プレイリストに保持された URL を使用します。</param>
+    /// <param name="logLastUpdateDecision">`last_update` の補正判断を INFO ログへ出力するか。</param>
+    /// <returns>差分統合後のプレイリスト。</returns>
+    private BMSTable MergeReloadedBMSTableWithExistingState(BMSTable oldTable, Uri pageUri = null, bool logLastUpdateDecision = false)
     {
         if (pageUri == null)
         {
             pageUri = oldTable.Page_url ?? oldTable.Header_url;
         }
-        BMSTable newTable = reloadBMSTable(oldTable, pageUri);
+        BMSTable reloadedTable = reloadBMSTable(oldTable, pageUri);
+        return MergeReloadedBMSTableState(oldTable, reloadedTable, logLastUpdateDecision);
+    }
+
+    /// <summary>
+    /// 再取得済みプレイリストへ既存ローカル状態をマージします。
+    /// </summary>
+    /// <param name="oldTable">既存プレイリスト。</param>
+    /// <param name="reloadedTable">外部から再取得したプレイリスト。</param>
+    /// <param name="logLastUpdateDecision">`last_update` の補正判断を INFO ログへ出力するか。</param>
+    /// <returns>マージ後のプレイリスト。</returns>
+    internal static BMSTable MergeReloadedBMSTableState(BMSTable oldTable, BMSTable reloadedTable, bool logLastUpdateDecision = false)
+    {
+        if (oldTable == null)
+        {
+            throw new ArgumentNullException("oldTable");
+        }
+        if (reloadedTable == null)
+        {
+            throw new ArgumentNullException("reloadedTable");
+        }
+
+        BMSTable newTable = reloadedTable;
 
         // Dictionary for fast lookup of new entries
         var newEntriesByMd5 = newTable.entries.Where(e => !string.IsNullOrWhiteSpace(e.md5))
@@ -2012,11 +2048,16 @@ public class BMSPlaylist : NotificationObject
             return true;
         }).ToList();
 
+        DateTime oldLastUpdate = oldTable.last_update;
+        DateTime reloadedLastUpdate = newTable.last_update;
+        bool hasStructuralChanges = HasPlaylistStructuralChanges(oldTable, newTable, matchedOldEntries.Count);
+        // NOTE:
+        // 外部ヘッダの last_update は未設定、または古い値のまま配信される場合があります。
+        // ここでその値を盲信するとローカルの更新日時が巻き戻るため、
+        // 構成差分がなければ旧値を維持し、差分があるときだけ現在時刻へ更新します。
         if (newTable.last_update == default(DateTime) || newTable.last_update <= oldTable.last_update)
         {
-            List<string> folder_list = oldTable.folder_list;
-            List<string> folder_list2 = newTable.folder_list;
-            if (newTable.entries.Count != matchedOldEntries.Count || matchedOldEntries.Count != oldTable.entries.Where((BMSTableEntry e) => !e.is_removed).Count() || folder_list.Except(folder_list2).Any() || folder_list2.Except(folder_list).Any())
+            if (hasStructuralChanges)
             {
                 newTable.last_update = DateTime.Now;
             }
@@ -2032,7 +2073,34 @@ public class BMSPlaylist : NotificationObject
             item.is_removed = true;
         }
         newTable.entries = newTable.entries.Concat(removedEntries).ToList();
+        bool lastUpdateChanged = newTable.last_update != oldLastUpdate;
+        if (logLastUpdateDecision)
+        {
+            Ribbit.Logging.NLogWrapper.FileLogger?.Info("playlist_resync last_update_decision table=" + (newTable.name ?? string.Empty) + " changed=" + lastUpdateChanged.ToString().ToLowerInvariant() + " structuralChanges=" + hasStructuralChanges.ToString().ToLowerInvariant() + " old=" + oldLastUpdate.ToString("O") + " reloaded=" + reloadedLastUpdate.ToString("O") + " final=" + newTable.last_update.ToString("O"));
+        }
         return newTable;
+    }
+
+    /// <summary>
+    /// プレイリストの構成差分有無を判定します。
+    /// </summary>
+    /// <param name="oldTable">既存プレイリスト。</param>
+    /// <param name="newTable">再取得プレイリスト。</param>
+    /// <param name="matchedOldEntryCount">新旧で対応付けられた既存エントリ数。</param>
+    /// <returns>構成差分があれば <see langword="true"/>。</returns>
+    internal static bool HasPlaylistStructuralChanges(BMSTable oldTable, BMSTable newTable, int matchedOldEntryCount)
+    {
+        if (oldTable == null)
+        {
+            throw new ArgumentNullException("oldTable");
+        }
+        if (newTable == null)
+        {
+            throw new ArgumentNullException("newTable");
+        }
+        List<string> oldFolderList = oldTable.folder_list;
+        List<string> newFolderList = newTable.folder_list;
+        return newTable.entries.Count != matchedOldEntryCount || matchedOldEntryCount != oldTable.entries.Where((BMSTableEntry entry) => !entry.is_removed).Count() || oldFolderList.Except(newFolderList).Any() || newFolderList.Except(oldFolderList).Any();
     }
 
     private BMSTable reloadBMSTable(BMSTable bmsTable, Uri pageUri = null)
