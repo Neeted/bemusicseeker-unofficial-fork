@@ -75,6 +75,8 @@
   "Msg_fix_installation_warning": "重新安裝目標位置為空。",
   "Msg_download_ranking_cache": "確定要下載 LR2IR 排行榜快取資料嗎？",
   "Msg_clear_pendings": "將下列套件從安裝保留清單中移除。",
+  "Msg_clear_selected_installed": "將所選範圍內的套件從已安裝套件清單中移除。\n是否繼續？",
+  "Msg_clear_selected_pendings": "將所選範圍內的套件從安裝保留清單中移除。\n是否繼續？",
   "Msg_failed_installation": "找不到目標檔案，\n可能未正確進行安裝。",
   "File_scan": "檔案掃描",
   "Msg_warn_play_temp_install": "LR2 無法播放已安裝完成但即將安裝到其他目錄的 BMS 檔案。\n確定要繼續嗎？",

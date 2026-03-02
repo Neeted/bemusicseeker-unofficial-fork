@@ -79,6 +79,8 @@
   "Msg_fix_installation_warning": "再インストール先が不明か未調査です\n「再インストール先を推定」機能を先に実行して下さい",
   "Msg_download_ranking_cache": "LR2ランキングデータをキャッシュサーバからダウンロードします\n続行しますか？",
   "Msg_clear_pendings": "下記パッケージをインストール保留から削除します。\nよろしいですか？",
+  "Msg_clear_selected_installed": "選択範囲のパッケージをインストール済みパッケージの一覧から削除します。\nよろしいですか？",
+  "Msg_clear_selected_pendings": "選択範囲のパッケージをインストール保留から削除します。\nよろしいですか？",
   "Msg_failed_installation": "インストール対象ファイルが見つからなかったため中断しました。\n正しくインストールできなかった可能性があります。",
   "File_scan": "ファイルスキャン",
   "Msg_warn_play_temp_install": "既にインストールされているBMSファイルを新たに推定先のパスで再生する場合\nLR2をプレイヤーとして使用すると再生できない場合があります\n続行しますか?",

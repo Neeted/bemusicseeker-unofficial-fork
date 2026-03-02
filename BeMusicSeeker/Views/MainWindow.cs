@@ -73,6 +73,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         None,
         Playlist,
         InstallPending,
+        InstallInstalled,
         FullScanCheck,
         Other
     }
@@ -4057,43 +4058,44 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 menuItem7.IsEnabled = true;
             }
         }
-        bool flag3 = _currentTreeSelectionSection == TreeSelectionSection.InstallPending;
-        bool flag4 = _currentTreeSelectionSection == TreeSelectionSection.Playlist;
+        MenuItem menuItemDeleteInstallPackages = contextMenu.Items.OfType<MenuItem>().FirstOrDefault((MenuItem item) => item.Name == "dataGridContextMenuItemDeleteInstallPackages");
+        bool isPendingSelected = _currentTreeSelectionSection == TreeSelectionSection.InstallPending;
+        bool isInstalledSelected = _currentTreeSelectionSection == TreeSelectionSection.InstallInstalled;
+        bool isInstallListSelected = isPendingSelected || isInstalledSelected;
+        bool isPlaylistSelected = _currentTreeSelectionSection == TreeSelectionSection.Playlist;
         if (menuItemOpenInstallDestination != null)
         {
-            bool flag5 = flag3 && bmsFile != null && !(bmsFile is VirtualBMSFile);
-            menuItemOpenInstallDestination.Visibility = (flag5 ? Visibility.Visible : Visibility.Collapsed);
-            menuItemOpenInstallDestination.IsEnabled = flag5;
+            bool canOpenInstallDestination = isPendingSelected && bmsFile != null && !(bmsFile is VirtualBMSFile);
+            menuItemOpenInstallDestination.Visibility = (canOpenInstallDestination ? Visibility.Visible : Visibility.Collapsed);
+            menuItemOpenInstallDestination.IsEnabled = canOpenInstallDestination;
         }
         if (menuItem8 != null)
         {
-            bool flag6 = flag3;
-            menuItem8.Visibility = ((!flag6) ? Visibility.Collapsed : Visibility.Visible);
-            menuItem8.IsEnabled = flag6;
+            menuItem8.Visibility = ((!isPendingSelected) ? Visibility.Collapsed : Visibility.Visible);
+            menuItem8.IsEnabled = isPendingSelected;
         }
         if (menuItem10 != null)
         {
-            bool flag7 = !flag4;
-            menuItem10.Visibility = ((!flag7) ? Visibility.Collapsed : Visibility.Visible);
-            menuItem10.IsEnabled = flag7;
+            bool isFullScanMenuVisible = !isPlaylistSelected;
+            menuItem10.Visibility = ((!isFullScanMenuVisible) ? Visibility.Collapsed : Visibility.Visible);
+            menuItem10.IsEnabled = isFullScanMenuVisible;
         }
         if (menuItem13 != null)
         {
-            bool flag8 = !flag3;
-            menuItem13.Visibility = ((!flag8) ? Visibility.Collapsed : Visibility.Visible);
-            menuItem13.IsEnabled = flag8 && list.Any((BMSFile f) => !string.IsNullOrWhiteSpace(f.path) && File.Exists(f.path));
+            bool canMoveSelectedFiles = !isPendingSelected;
+            menuItem13.Visibility = ((!canMoveSelectedFiles) ? Visibility.Collapsed : Visibility.Visible);
+            menuItem13.IsEnabled = canMoveSelectedFiles && list.Any((BMSFile f) => !string.IsNullOrWhiteSpace(f.path) && File.Exists(f.path));
         }
         if (menuItem14 != null)
         {
-            bool flag9 = flag4;
-            menuItem14.Visibility = ((!flag9) ? Visibility.Collapsed : Visibility.Visible);
-            menuItem14.IsEnabled = flag9;
+            menuItem14.Visibility = ((!isPlaylistSelected) ? Visibility.Collapsed : Visibility.Visible);
+            menuItem14.IsEnabled = isPlaylistSelected;
         }
         if (menuItem15 != null)
         {
-            bool flag10 = !flag4;
-            menuItem15.Visibility = ((!flag10) ? Visibility.Collapsed : Visibility.Visible);
-            menuItem15.IsEnabled = flag10;
+            bool canDeleteFiles = !isPlaylistSelected;
+            menuItem15.Visibility = ((!canDeleteFiles) ? Visibility.Collapsed : Visibility.Visible);
+            menuItem15.IsEnabled = canDeleteFiles;
             Ribbit.Logging.NLogWrapper.FileLogger?.Info(
                 $"[ContextMenu] DeleteFile Header='{menuItem15.Header}', HasItems={menuItem15.HasItems}, Items.Count={menuItem15.Items.Count}");
 
@@ -4109,27 +4111,27 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         if (separator != null)
         {
-            bool flag11 = !flag4 && !flag3;
-            separator.Visibility = ((!flag11) ? Visibility.Collapsed : Visibility.Visible);
-            separator.IsEnabled = flag11;
+            bool isFolderViewSeparatorVisible = !isPlaylistSelected && !isPendingSelected;
+            separator.Visibility = ((!isFolderViewSeparatorVisible) ? Visibility.Collapsed : Visibility.Visible);
+            separator.IsEnabled = isFolderViewSeparatorVisible;
         }
         if (menuItem16 != null)
         {
-            bool flag12 = !flag4 && !flag3;
-            menuItem16.Visibility = ((!flag12) ? Visibility.Collapsed : Visibility.Visible);
-            menuItem16.IsEnabled = flag12;
+            bool canAutoRenameFolders = !isPlaylistSelected && !isPendingSelected;
+            menuItem16.Visibility = ((!canAutoRenameFolders) ? Visibility.Collapsed : Visibility.Visible);
+            menuItem16.IsEnabled = canAutoRenameFolders;
         }
         if (menuItem17 != null)
         {
-            bool flag13 = !flag4;
-            menuItem17.Visibility = ((!flag13) ? Visibility.Collapsed : Visibility.Visible);
-            menuItem17.IsEnabled = flag13;
+            bool canFixEncoding = !isPlaylistSelected;
+            menuItem17.Visibility = ((!canFixEncoding) ? Visibility.Collapsed : Visibility.Visible);
+            menuItem17.IsEnabled = canFixEncoding;
         }
         if (menuItem9 != null)
         {
-            bool flag14 = _currentTreeSelectionSection == TreeSelectionSection.FullScanCheck;
-            menuItem9.Visibility = ((!flag14) ? Visibility.Collapsed : Visibility.Visible);
-            menuItem9.IsEnabled = flag14;
+            bool isInstalledLocationFixVisible = _currentTreeSelectionSection == TreeSelectionSection.FullScanCheck;
+            menuItem9.Visibility = ((!isInstalledLocationFixVisible) ? Visibility.Collapsed : Visibility.Visible);
+            menuItem9.IsEnabled = isInstalledLocationFixVisible;
         }
         if (menuItem11 != null)
         {
@@ -4145,13 +4147,18 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         if (menuItem19 != null && separator2 != null)
         {
-            bool flag15 = !flag3;
-            Separator separator3 = separator2;
-            Visibility visibility = (menuItem19.Visibility = ((!flag15) ? Visibility.Collapsed : Visibility.Visible));
-            separator3.Visibility = visibility;
-            Separator separator4 = separator2;
-            bool isEnabled = (menuItem19.IsEnabled = flag15);
-            separator4.IsEnabled = isEnabled;
+            bool canConvertToAudio = !isPendingSelected;
+            Separator convertSeparator = separator2;
+            Visibility visibility = (menuItem19.Visibility = ((!canConvertToAudio) ? Visibility.Collapsed : Visibility.Visible));
+            convertSeparator.Visibility = visibility;
+            Separator convertSeparator2 = separator2;
+            bool isEnabled = (menuItem19.IsEnabled = canConvertToAudio);
+            convertSeparator2.IsEnabled = isEnabled;
+        }
+        if (menuItemDeleteInstallPackages != null)
+        {
+            menuItemDeleteInstallPackages.Visibility = (isInstallListSelected ? Visibility.Visible : Visibility.Collapsed);
+            menuItemDeleteInstallPackages.IsEnabled = isInstallListSelected && list.Count > 0;
         }
     }
 
@@ -5403,6 +5410,73 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
     }
 
+    private async void dataGridContextMenuItemDeleteInstallPackagesClick(object sender, RoutedEventArgs e)
+    {
+        if (!(e.Source is MenuItem { Parent: ContextMenu { PlacementTarget: DataGridRow } }))
+        {
+            return;
+        }
+        List<BMSFile> selectedBmsFiles = dataGrid.SelectedItems.Cast<BMSFile>().Where((BMSFile file) => !(file is VirtualBMSFile)).ToList();
+        if (selectedBmsFiles.Count == 0)
+        {
+            return;
+        }
+        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
+        if (viewModel == null)
+        {
+            return;
+        }
+        bool isPendingSelected = _currentTreeSelectionSection == TreeSelectionSection.InstallPending;
+        bool isInstalledSelected = _currentTreeSelectionSection == TreeSelectionSection.InstallInstalled;
+        if (!isPendingSelected && !isInstalledSelected)
+        {
+            return;
+        }
+        string confirmationMessage = isPendingSelected ? BeMusicSeeker.Properties.Resources.Msg_clear_selected_pendings : BeMusicSeeker.Properties.Resources.Msg_clear_selected_installed;
+        if (MessageBox.Show(Window.GetWindow(this), confirmationMessage, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) == MessageBoxResult.Cancel)
+        {
+            return;
+        }
+        NLogWrapper.FileLogger?.Info("dataGrid_delete_install_packages requested section=" + _currentTreeSelectionSection + " selectedRows=" + selectedBmsFiles.Count);
+        e.Handled = true;
+        if (dataGrid.SelectionMode == DataGridSelectionMode.Extended)
+        {
+            dataGrid.SelectedItems.Clear();
+        }
+        else
+        {
+            dataGrid.SelectedItem = null;
+        }
+        if (isPendingSelected)
+        {
+            SelectNextSiblingOrRoot(treeViewItemInstallPending, treeView.SelectedItem, "dataGridContextMenuItemDeleteInstallPackagesClick");
+            await Task.Run(delegate
+            {
+                viewModel.RemoveBMSPackagesPending(selectedBmsFiles);
+            }).Logging("dataGridContextMenuItemDeleteInstallPackagesClick");
+            if (treeViewItemInstallPending.IsSelected && treeViewItemInstallPending.Items.Count == 0)
+            {
+                await Task.Run(delegate
+                {
+                    viewModel.ExecInstallFilter(MainWindowViewModel.InstallFilterType.PendingInstallFilter);
+                }).Logging("dataGridContextMenuItemDeleteInstallPackagesClick");
+            }
+            return;
+        }
+        SelectNextSiblingOrRoot(newlyInstalledTreeViewItem, treeView.SelectedItem, "dataGridContextMenuItemDeleteInstallPackagesClick");
+        await Task.Run(delegate
+        {
+            viewModel.RemoveBMSPackagesInstalled(selectedBmsFiles);
+        }).Logging("dataGridContextMenuItemDeleteInstallPackagesClick");
+        if (newlyInstalledTreeViewItem.IsSelected && newlyInstalledTreeViewItem.Items.Count == 0)
+        {
+            await Task.Run(delegate
+            {
+                viewModel.ExecInstallFilter(MainWindowViewModel.InstallFilterType.NewlyInstalledFilter);
+            }).Logging("dataGridContextMenuItemDeleteInstallPackagesClick");
+        }
+    }
+
     private async void searchMergeDestinationSelectedBMS(object sender, RoutedEventArgs e)
     {
         if (!(e.Source is MenuItem menuItem) || !(((menuItem.Parent as MenuItem).Parent as ContextMenu).PlacementTarget is DataGridRow))
@@ -6144,6 +6218,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         if (IsSameOrDescendantOf(selectedTreeViewItem, treeViewItemInstallPending))
         {
             return TreeSelectionSection.InstallPending;
+        }
+        if (IsSameOrDescendantOf(selectedTreeViewItem, newlyInstalledTreeViewItem))
+        {
+            return TreeSelectionSection.InstallInstalled;
         }
         if (IsSameOrDescendantOf(selectedTreeViewItem, treeViewItemPlaylist))
         {

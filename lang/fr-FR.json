@@ -75,6 +75,8 @@
   "Msg_fix_installation_warning": "Re-installation location is empty.",
   "Msg_download_ranking_cache": "Voulez-vous vraiment telecharger  LR2IR ranking cache data?",
   "Msg_clear_pendings": "Remove the following package from installation pendings.",
+  "Msg_clear_selected_installed": "Supprimer les paquets de la plage selectionnee de la liste des paquets installes.\nVoulez-vous continuer ?",
+  "Msg_clear_selected_pendings": "Supprimer les paquets de la plage selectionnee de la liste des installations en attente.\nVoulez-vous continuer ?",
   "Msg_failed_installation": "The target file is not found and\nmay not be installed correctly.",
   "File_scan": "File scan",
   "Msg_warn_play_temp_install": "LR2 cannot play the BMS file which is already installed\nand to be installed to the other directory.\nAre you sure to continue?",

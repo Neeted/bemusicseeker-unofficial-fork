@@ -75,6 +75,8 @@
   "Msg_fix_installation_warning": "재설치 위치가 비어 있습니다.",
   "Msg_download_ranking_cache": "LR2IR 랭킹 캐시 데이터를 다운로드하시겠습니까?",
   "Msg_clear_pendings": "설치 보류 목록에서 다음 패키지를 제거합니다.",
+  "Msg_clear_selected_installed": "선택 범위의 패키지를 설치된 패키지 목록에서 제거합니다.\n계속하시겠습니까?",
+  "Msg_clear_selected_pendings": "선택 범위의 패키지를 설치 보류 목록에서 제거합니다.\n계속하시겠습니까?",
   "Msg_failed_installation": "대상 파일을 찾을 수 없으며\n올바르게 설치되지 않았을 수 있습니다.",
   "File_scan": "파일 스캔",
   "Msg_warn_play_temp_install": "LR2는 설치가 완료된 후 다른 디렉토리로 설치될 예정인 BMS 파일을 재생할 수 없습니다.\n계속하시겠습니까?",

@@ -282,6 +282,10 @@ public class Resources
 
     public static string Msg_clear_pendings => ResourceManager.GetString("Msg_clear_pendings", resourceCulture);
 
+    public static string Msg_clear_selected_installed => ResourceManager.GetString("Msg_clear_selected_installed", resourceCulture);
+
+    public static string Msg_clear_selected_pendings => ResourceManager.GetString("Msg_clear_selected_pendings", resourceCulture);
+
     public static string Msg_conversion_completed => ResourceManager.GetString("Msg_conversion_completed", resourceCulture);
 
     public static string Msg_conversion_stopped => ResourceManager.GetString("Msg_conversion_stopped", resourceCulture);

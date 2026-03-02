@@ -300,6 +300,14 @@ LR2ディレクトリ・カスタムフォルダ出力ディレクトリ
     <value>下記パッケージをインストール保留から削除します。
 よろしいですか？</value>
   </data>
+  <data name="Msg_clear_selected_installed" xml:space="preserve">
+    <value>選択範囲のパッケージをインストール済みパッケージの一覧から削除します。
+よろしいですか？</value>
+  </data>
+  <data name="Msg_clear_selected_pendings" xml:space="preserve">
+    <value>選択範囲のパッケージをインストール保留から削除します。
+よろしいですか？</value>
+  </data>
   <data name="Msg_failed_installation" xml:space="preserve">
     <value>インストール対象ファイルが見つからなかったため中断しました。
 正しくインストールできなかった可能性があります。</value>

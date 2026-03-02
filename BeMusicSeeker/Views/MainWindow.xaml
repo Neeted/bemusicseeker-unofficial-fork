@@ -216,6 +216,7 @@
         <MenuItem Name="dataGridContextMenuItemAutoRenameFolder" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Rename_folder_auto, Mode=OneWay}" Click="dataGridContextMenuItemAutoRenameFolderClick" />
         <Separator Name="dataGridContextMenuSeparatorForConvert" />
         <MenuItem Name="dataGridContextMenuItemConvertToAudioFile" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Convert_to_audio_file, Mode=OneWay}" Click="dataGridContextMenuItemConvertToAudioFileClick" />
+        <MenuItem Name="dataGridContextMenuItemDeleteInstallPackages" Visibility="Collapsed" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Delete_from_list, Mode=OneWay}" Click="dataGridContextMenuItemDeleteInstallPackagesClick" />
       </ContextMenu>
       <ContextMenu x:Key="treeViewPlaylistRootContextMenu" HasDropShadow="True" Opened="treeViewPlaylistRootContextMenuOpend">
         <MenuItem Name="treeViewPlaylistRootContextMenuItemCreateNewPlaylist" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Create_new, Mode=OneWay}" Click="treeViewPlaylistRootContextMenuItemCreateNewPlaylistClick" />
