@@ -8051,7 +8051,18 @@ public class MainWindowViewModel : ViewModel
                 }
 
                 // 実際にファイルをアップロードして登録
-                string registerResponseJson = AppHttpClient.Shared.PostFile(new Uri(scoreRegisterUrl), bmsFile.path, responseEncoding: Encoding.UTF8);
+                string registerResponseJson = AppHttpClient.Shared.PostFile(
+                    new Uri(scoreRegisterUrl),
+                    bmsFile.path,
+                    responseEncoding: Encoding.UTF8,
+                    headers: new Dictionary<string, string>
+                    {
+                        {
+                            "Accept",
+                            "application/json"
+                        }
+                    },
+                    logErrorResponseBody: true);
 
                 if (bmsFile == lastTargetBmsFile)
                 {
@@ -8063,9 +8074,10 @@ public class MainWindowViewModel : ViewModel
                     resultViewUrl = scoreViewUrl + currentFileHash;
                 }
             }
-            catch (Exception)
+            catch (Exception ex)
             {
                 // エラー発生時はこのファイルだけ失敗扱いにして次へ進む
+                NLogWrapper.FileLogger?.Warn(ex, "score_viewer_upload_failed path=" + (bmsFile.path ?? string.Empty) + " md5=" + (bmsFile.hash ?? string.Empty));
             }
         }
 

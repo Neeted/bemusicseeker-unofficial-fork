@@ -328,10 +328,12 @@ internal sealed class AppHttpClient
     /// <param name="fileName">送信時のファイル名。省略時は元のファイル名。</param>
     /// <param name="additionalFormFields">追加のフォームフィールド。</param>
     /// <param name="responseEncoding">レスポンスを文字列化する文字コード。省略時は UTF-8。</param>
+    /// <param name="headers">追加のリクエストヘッダー。</param>
+    /// <param name="logErrorResponseBody">非成功時のレスポンス本文を WARN ログへ含める場合は <see langword="true"/>。</param>
     /// <returns>レスポンス本文。</returns>
     /// <exception cref="ArgumentNullException"><paramref name="uri"/> または <paramref name="filePath"/> が <see langword="null"/> の場合。</exception>
     /// <exception cref="FileNotFoundException"><paramref name="filePath"/> が存在しない場合。</exception>
-    internal string PostFile(Uri uri, string filePath, string formFieldName = "file", string fileName = null, IDictionary<string, string> additionalFormFields = null, Encoding responseEncoding = null)
+    internal string PostFile(Uri uri, string filePath, string formFieldName = "file", string fileName = null, IDictionary<string, string> additionalFormFields = null, Encoding responseEncoding = null, IDictionary<string, string> headers = null, bool logErrorResponseBody = false)
     {
         if (uri == null)
         {
@@ -362,12 +364,28 @@ internal sealed class AppHttpClient
                     multipartFormDataContent.Add(new StringContent(additionalFormField.Value ?? string.Empty), additionalFormField.Key ?? string.Empty);
                 }
             }
-            using (FileStream fileStream = File.OpenRead(filePath))
+            using (ByteArrayContent byteArrayContent = new ByteArrayContent(File.ReadAllBytes(filePath)))
             {
-                using (StreamContent streamContent = new StreamContent(fileStream))
+                byteArrayContent.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+                byteArrayContent.Headers.ContentDisposition = new ContentDispositionHeaderValue("form-data")
                 {
-                    multipartFormDataContent.Add(streamContent, formFieldName, fileName);
-                    return ReadResponseString(Send(HttpMethod.Post, uri, multipartFormDataContent), responseEncoding);
+                    Name = QuoteContentDispositionValue(formFieldName),
+                    FileName = QuoteContentDispositionValue(fileName),
+                    FileNameStar = null
+                };
+                multipartFormDataContent.Add(byteArrayContent);
+                using (HttpResponseMessage httpResponseMessage = Send(HttpMethod.Post, uri, multipartFormDataContent, headers, throwOnNonSuccess: false))
+                {
+                    byte[] responseBytes = ReadResponseBytes(httpResponseMessage);
+                    string responseBody = ResolveEncoding(responseEncoding).GetString(responseBytes);
+                    if (!httpResponseMessage.IsSuccessStatusCode)
+                    {
+                        string formattedResponseBody = logErrorResponseBody ? FormatResponseBodyForLog(responseBody) : null;
+                        LogRequestFailure(HttpMethod.Post.Method, uri, httpResponseMessage, null, null, formattedResponseBody);
+                        HttpStatusCode statusCode = httpResponseMessage.StatusCode;
+                        throw new HttpRequestException("HTTP request failed statusCode=" + (int)statusCode + " status=" + statusCode);
+                    }
+                    return responseBody;
                 }
             }
         }
@@ -442,11 +460,12 @@ internal sealed class AppHttpClient
     /// <param name="uri">送信先 URI。</param>
     /// <param name="content">送信本文。</param>
     /// <param name="headers">追加のリクエストヘッダー。</param>
-    /// <returns>成功レスポンス。</returns>
+    /// <param name="throwOnNonSuccess"><see langword="true"/> の場合は非成功レスポンスを例外化します。</param>
+    /// <returns>レスポンス。既定では成功レスポンスのみ返します。</returns>
     /// <exception cref="ArgumentNullException"><paramref name="method"/> または <paramref name="uri"/> が <see langword="null"/> の場合。</exception>
-    private HttpResponseMessage Send(HttpMethod method, Uri uri, HttpContent content = null, IDictionary<string, string> headers = null)
+    private HttpResponseMessage Send(HttpMethod method, Uri uri, HttpContent content = null, IDictionary<string, string> headers = null, bool throwOnNonSuccess = true)
     {
-        return SendAsync(method, uri, content, headers, CancellationToken.None).ConfigureAwait(false).GetAwaiter().GetResult();
+        return SendAsync(method, uri, content, headers, CancellationToken.None, throwOnNonSuccess).ConfigureAwait(false).GetAwaiter().GetResult();
     }
 
     /// <summary>
@@ -457,9 +476,10 @@ internal sealed class AppHttpClient
     /// <param name="content">送信本文。</param>
     /// <param name="headers">追加のリクエストヘッダー。</param>
     /// <param name="cancellationToken">キャンセル用トークン。</param>
-    /// <returns>成功レスポンス。</returns>
+    /// <param name="throwOnNonSuccess"><see langword="true"/> の場合は非成功レスポンスを例外化します。</param>
+    /// <returns>レスポンス。既定では成功レスポンスのみ返します。</returns>
     /// <exception cref="ArgumentNullException"><paramref name="method"/> または <paramref name="uri"/> が <see langword="null"/> の場合。</exception>
-    private async Task<HttpResponseMessage> SendAsync(HttpMethod method, Uri uri, HttpContent content = null, IDictionary<string, string> headers = null, CancellationToken cancellationToken = default(CancellationToken))
+    private async Task<HttpResponseMessage> SendAsync(HttpMethod method, Uri uri, HttpContent content = null, IDictionary<string, string> headers = null, CancellationToken cancellationToken = default(CancellationToken), bool throwOnNonSuccess = true)
     {
         if (method == null)
         {
@@ -501,10 +521,14 @@ internal sealed class AppHttpClient
             }
             if (!httpResponseMessage.IsSuccessStatusCode)
             {
-                LogRequestFailure(method.Method, uri, httpResponseMessage, null, null);
-                HttpStatusCode statusCode = httpResponseMessage.StatusCode;
-                httpResponseMessage.Dispose();
-                throw new HttpRequestException("HTTP request failed statusCode=" + (int)statusCode + " status=" + statusCode);
+                if (throwOnNonSuccess)
+                {
+                    LogRequestFailure(method.Method, uri, httpResponseMessage, null, null);
+                    HttpStatusCode statusCode = httpResponseMessage.StatusCode;
+                    httpResponseMessage.Dispose();
+                    throw new HttpRequestException("HTTP request failed statusCode=" + (int)statusCode + " status=" + statusCode);
+                }
+                return httpResponseMessage;
             }
             LogRequestSuccess(method.Method, uri, httpResponseMessage);
             return httpResponseMessage;
@@ -526,9 +550,27 @@ internal sealed class AppHttpClient
         }
         using (httpResponseMessage)
         {
-            byte[] bytes = httpResponseMessage.Content.ReadAsByteArrayAsync().ConfigureAwait(false).GetAwaiter().GetResult();
-            return ResolveEncoding(responseEncoding).GetString(bytes);
+            return ResolveEncoding(responseEncoding).GetString(ReadResponseBytes(httpResponseMessage));
         }
+    }
+
+    /// <summary>
+    /// レスポンス本文をバイト列として読み取ります。
+    /// </summary>
+    /// <param name="httpResponseMessage">読み取り対象のレスポンス。</param>
+    /// <returns>レスポンス本文のバイト列。</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="httpResponseMessage"/> が <see langword="null"/> の場合。</exception>
+    private static byte[] ReadResponseBytes(HttpResponseMessage httpResponseMessage)
+    {
+        if (httpResponseMessage == null)
+        {
+            throw new ArgumentNullException(nameof(httpResponseMessage));
+        }
+        if (httpResponseMessage.Content == null)
+        {
+            return Array.Empty<byte>();
+        }
+        return httpResponseMessage.Content.ReadAsByteArrayAsync().ConfigureAwait(false).GetAwaiter().GetResult();
     }
 
     /// <summary>
@@ -539,6 +581,37 @@ internal sealed class AppHttpClient
     private static Encoding ResolveEncoding(Encoding encoding)
     {
         return encoding ?? Encoding.UTF8;
+    }
+
+    /// <summary>
+    /// Content-Disposition 用の値を quoted-string へ正規化します。
+    /// </summary>
+    /// <param name="value">ヘッダーへ設定したい値。</param>
+    /// <returns>quoted-string に変換した値。</returns>
+    private static string QuoteContentDispositionValue(string value)
+    {
+        string normalizedValue = value ?? string.Empty;
+        return "\"" + normalizedValue.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"";
+    }
+
+    /// <summary>
+    /// ログ出力用にレスポンス本文を 1 行へ整形します。
+    /// </summary>
+    /// <param name="responseBody">整形対象の本文。</param>
+    /// <returns>1 行に正規化されたログ用本文。空文字列相当なら <see langword="null"/>。</returns>
+    private static string FormatResponseBodyForLog(string responseBody)
+    {
+        if (string.IsNullOrWhiteSpace(responseBody))
+        {
+            return null;
+        }
+        string singleLineBody = responseBody.Trim().Replace("\r\n", "\n").Replace("\r", "\n").Replace("\n", "\\n");
+        const int maxLogLength = 2048;
+        if (singleLineBody.Length > maxLogLength)
+        {
+            return singleLineBody.Substring(0, maxLogLength) + "...(truncated)";
+        }
+        return singleLineBody;
     }
 
     /// <summary>
@@ -614,7 +687,8 @@ internal sealed class AppHttpClient
     /// <param name="httpResponseMessage">失敗レスポンス。例外送出前の送信失敗時は <see langword="null"/>。</param>
     /// <param name="reason">任意の失敗理由。</param>
     /// <param name="exception">送信時例外。</param>
-    private static void LogRequestFailure(string method, Uri uri, HttpResponseMessage httpResponseMessage, string reason, Exception exception)
+    /// <param name="responseBody">レスポンス本文のログ出力用文字列。</param>
+    private static void LogRequestFailure(string method, Uri uri, HttpResponseMessage httpResponseMessage, string reason, Exception exception, string responseBody = null)
     {
         try
         {
@@ -626,6 +700,10 @@ internal sealed class AppHttpClient
             if (!string.IsNullOrWhiteSpace(reason))
             {
                 message = message + " reason=" + reason;
+            }
+            if (!string.IsNullOrWhiteSpace(responseBody))
+            {
+                message = message + " responseBody=" + responseBody;
             }
             if (exception != null)
             {
