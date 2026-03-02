@@ -48,3 +48,4 @@ $RECYCLE.BIN/
 # We keep 'libs' as it contains required dependencies not restored via NuGet.
 
 .tmp/
+artifacts
