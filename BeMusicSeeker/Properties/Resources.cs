@@ -136,6 +136,11 @@ public class Resources
 
     public static string Details_test_db_read_optimized_pragmas => ResourceManager.GetString("Details_test_db_read_optimized_pragmas", resourceCulture);
 
+    /// <summary>
+    /// 通常インストール後に元パッケージを削除する設定項目の表示文言を取得します。
+    /// </summary>
+    public static string Details_test_delete_pending_source_after_install => ResourceManager.GetString("Details_test_delete_pending_source_after_install", resourceCulture);
+
     public static string Details_test_startup_expand_playlist_tree => ResourceManager.GetString("Details_test_startup_expand_playlist_tree", resourceCulture);
 
     public static string Details_test_startup_select_install_pending => ResourceManager.GetString("Details_test_startup_select_install_pending", resourceCulture);
@@ -355,6 +360,11 @@ public class Resources
     public static string Msg_load_recommended_tables_update_mode => ResourceManager.GetString("Msg_load_recommended_tables_update_mode", resourceCulture);
 
     public static string Msg_manual_installation => ResourceManager.GetString("Msg_manual_installation", resourceCulture);
+
+    /// <summary>
+    /// 通常インストール時に元パッケージも削除する場合の確認メッセージを取得します。
+    /// </summary>
+    public static string Msg_manual_installation_delete_source => ResourceManager.GetString("Msg_manual_installation_delete_source", resourceCulture);
 
     public static string Msg_estimate_merge_confirm => ResourceManager.GetString("Msg_estimate_merge_confirm", resourceCulture);
 

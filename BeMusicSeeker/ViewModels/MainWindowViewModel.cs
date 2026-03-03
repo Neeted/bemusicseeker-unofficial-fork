@@ -185,6 +185,8 @@ public class MainWindowViewModel : ViewModel
 
         private bool tempKeepInstallablePackagesPending;
 
+        private bool tempDeletePendingPackageSourceAfterInstall;
+
         private bool tempEnableSmartComponentOverwrite;
 
         private string tempStagefilePath;
@@ -1064,6 +1066,28 @@ public class MainWindowViewModel : ViewModel
                 {
                     Settings.Default.KeepInstallablePackagesPending = value;
                     RaisePropertyChanged("KeepInstallablePackagesPending");
+                }
+            }
+        }
+
+        /// <summary>
+        /// 推定先への通常インストール後に、元の保留パッケージフォルダを残り物ごと削除するかどうかを取得または設定します。
+        /// </summary>
+        /// <remarks>
+        /// 既定値は false で、既所持譜面が残る場合は従来どおり source フォルダを残します。
+        /// </remarks>
+        public bool DeletePendingPackageSourceAfterInstall
+        {
+            get
+            {
+                return Settings.Default.DeletePendingPackageSourceAfterInstall;
+            }
+            set
+            {
+                if (Settings.Default.DeletePendingPackageSourceAfterInstall != value)
+                {
+                    Settings.Default.DeletePendingPackageSourceAfterInstall = value;
+                    RaisePropertyChanged("DeletePendingPackageSourceAfterInstall");
                 }
             }
         }
@@ -2130,6 +2154,7 @@ public class MainWindowViewModel : ViewModel
             tempUseFastSortInDataGridExperimental = Settings.Default.UseFastSortInDataGridExperimental;
             tempUseDataGridColumnVirtualizationExperimental = Settings.Default.UseDataGridColumnVirtualizationExperimental;
             tempKeepInstallablePackagesPending = Settings.Default.KeepInstallablePackagesPending;
+            tempDeletePendingPackageSourceAfterInstall = Settings.Default.DeletePendingPackageSourceAfterInstall;
             tempEnableSmartComponentOverwrite = Settings.Default.EnableSmartComponentOverwrite;
             tempEncoderSampleRate = Settings.Default.EncoderSampleRate;
             tempEncoderIndex = (int)Settings.Default.Encoder;
@@ -2388,6 +2413,7 @@ public class MainWindowViewModel : ViewModel
             Settings.Default.UseFastSortInDataGridExperimental = tempUseFastSortInDataGridExperimental;
             Settings.Default.UseDataGridColumnVirtualizationExperimental = tempUseDataGridColumnVirtualizationExperimental;
             Settings.Default.KeepInstallablePackagesPending = tempKeepInstallablePackagesPending;
+            Settings.Default.DeletePendingPackageSourceAfterInstall = tempDeletePendingPackageSourceAfterInstall;
             Settings.Default.EnableSmartComponentOverwrite = tempEnableSmartComponentOverwrite;
             Settings.Default.SkipInitFileCheck = tempSkipInitFileCheck;
             Settings.Default.EncoderSampleRate = tempEncoderSampleRate;
@@ -2456,6 +2482,7 @@ public class MainWindowViewModel : ViewModel
             RaisePropertyChanged(() => UseFastSortInDataGridExperimental);
             RaisePropertyChanged(() => UseDataGridColumnVirtualizationExperimental);
             RaisePropertyChanged(() => KeepInstallablePackagesPending);
+            RaisePropertyChanged(() => DeletePendingPackageSourceAfterInstall);
             RaisePropertyChanged(() => EnableSmartComponentOverwrite);
             RaisePropertyChanged(() => EncoderSampleRate);
             RaisePropertyChanged(() => EncoderIndex);

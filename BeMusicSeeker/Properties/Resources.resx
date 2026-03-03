@@ -69,6 +69,9 @@
   <data name="Details_test_db_read_optimized_pragmas" xml:space="preserve">
     <value>[テスト中] DB読込最適化PRAGMAを有効にする</value>
   </data>
+  <data name="Details_test_delete_pending_source_after_install" xml:space="preserve">
+    <value>[テスト中] 通常インストール時、既所持譜面が残っていても元パッケージを削除する</value>
+  </data>
   <data name="Details_test_smart_component_overwrite" xml:space="preserve">
     <value>[テスト中] 差分導入時に更新日時とサイズを比較して同梱ファイルの上書きを最適化する</value>
   </data>
@@ -987,6 +990,14 @@ BMSファイルが重複しないようにマージします。
   </data>
   <data name="Msg_manual_installation" xml:space="preserve">
     <value>既にインストールされているファイルはスキップされます。
+また、インストール中にファイルの上書きが検出された場合、
+インストール対象の同名BMSファイルは自動でリネームされ、
+その他の構成ファイル・ディレクトリは上書します。
+よろしいですか?</value>
+  </data>
+  <data name="Msg_manual_installation_delete_source" xml:space="preserve">
+    <value>既にインストールされているファイルはライブラリへの追加をスキップします。
+ただし、処理済みパッケージの元フォルダは削除されます。
 また、インストール中にファイルの上書きが検出された場合、
 インストール対象の同名BMSファイルは自動でリネームされ、
 その他の構成ファイル・ディレクトリは上書します。

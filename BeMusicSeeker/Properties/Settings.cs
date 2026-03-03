@@ -1102,6 +1102,27 @@ internal sealed class Settings : ApplicationSettingsBase
 		}
 	}
 
+	/// <summary>
+	/// 推定先への通常インストール後に、元の保留パッケージフォルダを残り物ごと削除するかどうかを取得または設定します。
+	/// </summary>
+	/// <remarks>
+	/// 既定値は false で、既所持譜面などが source に残る場合は従来どおりフォルダ削除をスキップします。
+	/// </remarks>
+	[UserScopedSetting]
+	[DebuggerNonUserCode]
+	[DefaultSettingValue("False")]
+	public bool DeletePendingPackageSourceAfterInstall
+	{
+		get
+		{
+			return (bool)this["DeletePendingPackageSourceAfterInstall"];
+		}
+		set
+		{
+			this["DeletePendingPackageSourceAfterInstall"] = value;
+		}
+	}
+
 	[UserScopedSetting]
 	[DebuggerNonUserCode]
 	[DefaultSettingValue("True")]

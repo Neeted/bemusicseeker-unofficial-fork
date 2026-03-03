@@ -3205,7 +3205,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return;
         }
         MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        if (viewModel == null || (Settings.Default.ShowDiffBMSInstallConfirmMsg && MessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_manual_installation, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Asterisk) != MessageBoxResult.OK))
+        if (viewModel == null || (Settings.Default.ShowDiffBMSInstallConfirmMsg && MessageBox.Show(Window.GetWindow(this), GetManualInstallConfirmationMessage(), BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Asterisk) != MessageBoxResult.OK))
         {
             return;
         }
@@ -5357,6 +5357,13 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }).Logging("forceInstallSelectedBMS");
     }
 
+    private static string GetManualInstallConfirmationMessage()
+    {
+        return Settings.Default.DeletePendingPackageSourceAfterInstall
+            ? BeMusicSeeker.Properties.Resources.Msg_manual_installation_delete_source
+            : BeMusicSeeker.Properties.Resources.Msg_manual_installation;
+    }
+
     private async void manualInstallSelectedBMS(object sender, RoutedEventArgs e)
     {
         if (!(e.Source is MenuItem menuItem) || !(((menuItem.Parent as MenuItem).Parent as ContextMenu).PlacementTarget is DataGridRow))
@@ -5370,7 +5377,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
         e.Handled = true;
-        if (Settings.Default.ShowDiffBMSInstallConfirmMsg && MessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_manual_installation, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Asterisk) != MessageBoxResult.OK)
+        if (Settings.Default.ShowDiffBMSInstallConfirmMsg && MessageBox.Show(Window.GetWindow(this), GetManualInstallConfirmationMessage(), BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Asterisk) != MessageBoxResult.OK)
         {
             return;
         }
