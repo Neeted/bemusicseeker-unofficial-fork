@@ -50,6 +50,10 @@ public class BMSLibrary : NotificationObject
 
     private static readonly bool everythingScanLoggingEnabled = installPerformanceLoggingEnabled;
 
+    private static readonly FileMutationOptions targetOnlyFileMutationOptions = new FileMutationOptions(ReadOnlyNormalizationScope.TargetOnly);
+
+    private static readonly FileMutationOptions recursiveDirectoryTreeFileMutationOptions = new FileMutationOptions(ReadOnlyNormalizationScope.RecursiveDirectoryTree);
+
     private const int playlistReferenceApplyChunkSize = 1024;
 
     private struct PlaylistReferenceApplyStats
@@ -1038,7 +1042,31 @@ public class BMSLibrary : NotificationObject
 
     public List<string> SearchTargets { get; set; }
 
+    private readonly IFileMutationService fileMutationService;
+
+    /// <summary>
+    /// LR2 の song.db を読み込み、このセッションで利用する BMS ライブラリを初期化します。
+    /// </summary>
+    /// <param name="_lr2SongDB">必須の LR2 song.db パスです。</param>
+    /// <param name="getLR2Config">必要時に LR2 設定を取得するコールバックです。</param>
+    /// <param name="_lr2ScoreDB">任意の LR2 score.db パスです。</param>
+    /// <exception cref="ArgumentNullException">song.db パスが null の場合に送出されます。</exception>
+    /// <exception cref="ArgumentException">指定された DB ファイルが存在しない場合に送出されます。</exception>
     public BMSLibrary(string _lr2SongDB, Func<LR2Config> getLR2Config = null, string _lr2ScoreDB = null)
+        : this(_lr2SongDB, getLR2Config, _lr2ScoreDB, null)
+    {
+    }
+
+    /// <summary>
+    /// テストや内部差し替え用の変更系ファイル操作サービスを指定して BMS ライブラリを初期化します。
+    /// </summary>
+    /// <param name="_lr2SongDB">必須の LR2 song.db パスです。</param>
+    /// <param name="getLR2Config">必要時に LR2 設定を取得するコールバックです。</param>
+    /// <param name="_lr2ScoreDB">任意の LR2 score.db パスです。</param>
+    /// <param name="fileMutationService">ReadOnly 補正や再試行を担う変更系ファイル操作サービスです。</param>
+    /// <exception cref="ArgumentNullException">song.db パスが null の場合に送出されます。</exception>
+    /// <exception cref="ArgumentException">指定された DB ファイルが存在しない場合に送出されます。</exception>
+    internal BMSLibrary(string _lr2SongDB, Func<LR2Config> getLR2Config, string _lr2ScoreDB, IFileMutationService fileMutationService)
     {
         if (_lr2SongDB == null)
         {
@@ -1054,6 +1082,7 @@ public class BMSLibrary : NotificationObject
         }
         lr2SongDBPath = _lr2SongDB;
         lr2ScoreDBPath = _lr2ScoreDB;
+        this.fileMutationService = fileMutationService ?? new ResilientFileMutationService();
         lr2config = ((getLR2Config != null) ? getLR2Config : ((Func<LR2Config>)(() => (LR2Config)null)));
         using (LR2SongDBExtended lR2SongDBExtended = new LR2SongDBExtended(lr2SongDBPath))
         {
@@ -1478,15 +1507,15 @@ public class BMSLibrary : NotificationObject
                                                 {
                                                     try
                                                     {
-                                                        Directory.SetLastWriteTime(text, now);
+                                                        fileMutationService.SetTimestamps(text, isDirectory: true, creationTime: null, lastWriteTime: now, targetOnlyFileMutationOptions);
                                                         e.adddate = null;
                                                         e.date = null;
                                                         leapYearDetected = true;
                                                         return true;
                                                     }
-                                                    catch (Exception ex2)
+                                                    catch (Exception dateUpdateException)
                                                     {
-                                                        DispatcherMessageBox.Show(string.Format(Resources.Error_FailedToChangeDate, ex2.Message), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+                                                        DispatcherMessageBox.Show(string.Format(Resources.Error_FailedToChangeDate, GetDisplayedExceptionMessage(dateUpdateException)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
                                                     }
                                                 }
                                             }
@@ -3362,15 +3391,11 @@ public class BMSLibrary : NotificationObject
                                                 // メタデータの復元
                                                 try
                                                 {
-                                                    if (entry.LastWriteTime > DateTime.MinValue)
+                                                    DateTime? creationTimeToRestore = (entry.CreationTime > DateTime.MinValue) ? entry.CreationTime : ((DateTime?)null);
+                                                    DateTime? lastWriteTimeToRestore = (entry.LastWriteTime > DateTime.MinValue) ? entry.LastWriteTime : ((DateTime?)null);
+                                                    if (creationTimeToRestore.HasValue || lastWriteTimeToRestore.HasValue)
                                                     {
-                                                        if (isFile) File.SetLastWriteTime(fullPath, entry.LastWriteTime);
-                                                        else Directory.SetLastWriteTime(fullPath, entry.LastWriteTime);
-                                                    }
-                                                    if (entry.CreationTime > DateTime.MinValue)
-                                                    {
-                                                        if (isFile) File.SetCreationTime(fullPath, entry.CreationTime);
-                                                        else Directory.SetCreationTime(fullPath, entry.CreationTime);
+                                                        fileMutationService.SetTimestamps(fullPath, isDir, creationTimeToRestore, lastWriteTimeToRestore, targetOnlyFileMutationOptions);
                                                     }
                                                     if (entry.LastAccessTime > DateTime.MinValue)
                                                     {
@@ -3378,10 +3403,10 @@ public class BMSLibrary : NotificationObject
                                                         else Directory.SetLastAccessTime(fullPath, entry.LastAccessTime);
                                                     }
                                                 }
-                                                catch (Exception ex)
+                                                catch (Exception metadataRestoreException)
                                                 {
                                                     // 時刻設定の失敗は致命的ではないため無視
-                                                    Ribbit.Logging.NLogWrapper.FileLogger?.Info(ex, "Failed to restore metadata for " + fullPath);
+                                                    Ribbit.Logging.NLogWrapper.FileLogger?.Info(metadataRestoreException, "Failed to restore metadata for " + fullPath);
                                                 }
                                             }
                                         }
@@ -3722,29 +3747,31 @@ public class BMSLibrary : NotificationObject
         return componentMovePlanBuildResult;
     }
 
-    private static void CleanupEmptyComponentDirectories(IEnumerable<string> installComponentFiles)
+    private void CleanupEmptyComponentDirectories(IEnumerable<string> installComponentDirectories)
     {
-        foreach (string item in installComponentFiles.Where((string p) => Directory.Exists(p)).OrderByDescending((string p) => p.Length))
+        foreach (string installComponentDirectory in installComponentDirectories.Where((string path) => Directory.Exists(path)).OrderByDescending((string path) => path.Length))
         {
-            TryDeleteEmptyDirectoryTree(item);
+            TryDeleteEmptyDirectoryTree(installComponentDirectory);
         }
     }
 
-    private static void TryDeleteEmptyDirectoryTree(string rootDirectory)
+    private void TryDeleteEmptyDirectoryTree(string rootDirectoryPath)
     {
         try
         {
-            if (!Directory.Exists(rootDirectory))
+            if (!Directory.Exists(rootDirectoryPath))
             {
                 return;
             }
-            foreach (string item in Directory.EnumerateDirectories(rootDirectory).ToList())
+
+            foreach (string childDirectoryPath in Directory.EnumerateDirectories(rootDirectoryPath).ToList())
             {
-                TryDeleteEmptyDirectoryTree(item);
+                TryDeleteEmptyDirectoryTree(childDirectoryPath);
             }
-            if (!Directory.EnumerateFileSystemEntries(rootDirectory).Any())
+
+            if (!Directory.EnumerateFileSystemEntries(rootDirectoryPath).Any())
             {
-                Directory.Delete(rootDirectory, recursive: false);
+                fileMutationService.DeleteDirectoryDirect(rootDirectoryPath, recursive: false, targetOnlyFileMutationOptions);
             }
         }
         catch
@@ -3752,287 +3779,30 @@ public class BMSLibrary : NotificationObject
         }
     }
 
-    private const int deleteRetryDelayMs = 150;
-
-    private const int deleteRetryCountOnLock = 4;
-
-    private const int deleteRetryCountOnAccessDenied = 3;
-
-    private const int deleteInitialSettleDelayMs = 0;
-
-    private static Exception GetInnermostException(Exception ex)
+    private static string GetDisplayedExceptionMessage(Exception exception)
     {
-        Exception ex2 = ex;
-        while (ex2 != null && ex2.InnerException != null)
+        if (exception is AggregateException aggregateException)
         {
-            ex2 = ex2.InnerException;
-        }
-        return ex2 ?? ex;
-    }
-
-    private static int ExtractWin32ErrorCodeFromHResult(Exception ex)
-    {
-        Exception innermostException = GetInnermostException(ex);
-        int hResult = innermostException.HResult;
-        if ((hResult & -65536) == -2147024896)
-        {
-            return hResult & 0xFFFF;
-        }
-        return -1;
-    }
-
-    private static bool IsSharingOrLockViolation(Exception ex)
-    {
-        int num = ExtractWin32ErrorCodeFromHResult(ex);
-        return num == 32 || num == 33;
-    }
-
-    private static bool IsAccessDenied(Exception ex)
-    {
-        if (ex is UnauthorizedAccessException)
-        {
-            return true;
-        }
-        if (ExtractWin32ErrorCodeFromHResult(ex) == 5)
-        {
-            return true;
+            return string.Join(Environment.NewLine, aggregateException.Flatten().InnerExceptions.Select(GetDisplayedExceptionMessage));
         }
 
-        // NOTE:
-        // 一部環境では Directory.Delete のアクセス拒否が IOException(0x80131620) として
-        // 包装され、Win32コードが取得できないことがある。
-        // その場合でも短時間リトライを有効にするため、最深部メッセージでも判定する。
-        string message = GetInnermostException(ex).Message ?? string.Empty;
-        return message.IndexOf("access is denied", StringComparison.OrdinalIgnoreCase) >= 0
-            || message.IndexOf("アクセスが拒否されました", StringComparison.OrdinalIgnoreCase) >= 0;
+        if (exception is FileMutationException fileMutationException)
+        {
+            return fileMutationException.InnerException?.Message ?? fileMutationException.Message;
+        }
+
+        return exception?.Message ?? string.Empty;
     }
 
-    private static bool TryNormalizeDirectoryAttributes(string directoryPath)
+    private static bool HasRemainingDirectoryEntries(string directoryPath)
     {
         try
         {
-            DirectoryInfo directoryInfo = new DirectoryInfo(directoryPath);
-            if (!directoryInfo.Exists)
-            {
-                return false;
-            }
-            if ((directoryInfo.Attributes & FileAttributes.ReadOnly) != 0)
-            {
-                directoryInfo.Attributes &= ~FileAttributes.ReadOnly;
-                return true;
-            }
-            return false;
+            return Directory.Exists(directoryPath) && Directory.EnumerateFileSystemEntries(directoryPath).Any();
         }
         catch
         {
             return false;
-        }
-    }
-
-    /// <summary>
-    /// ファイル/ディレクトリのReadOnly属性を解除する。
-    /// </summary>
-    /// <param name="fileSystemPath">対象パス</param>
-    /// <returns>属性を変更した場合はtrue</returns>
-    private static bool TryNormalizeFileSystemReadOnlyAttribute(string fileSystemPath)
-    {
-        try
-        {
-            FileAttributes attributes = File.GetAttributes(fileSystemPath);
-            if ((attributes & FileAttributes.ReadOnly) == 0)
-            {
-                return false;
-            }
-            File.SetAttributes(fileSystemPath, attributes & ~FileAttributes.ReadOnly);
-            return true;
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
-    /// <summary>
-    /// ルート以下のReadOnly属性を再帰的に解除し、変更件数を返す。
-    /// </summary>
-    /// <param name="rootDirectoryPath">対象ルート</param>
-    /// <param name="includeFiles">ファイルも対象にする場合true</param>
-    /// <returns>実際に属性変更した件数</returns>
-    private static int NormalizeReadOnlyAttributesRecursively(string rootDirectoryPath, bool includeFiles)
-    {
-        if (string.IsNullOrWhiteSpace(rootDirectoryPath) || !Directory.Exists(rootDirectoryPath))
-        {
-            return 0;
-        }
-
-        int changedCount = 0;
-        Queue<string> directoryQueue = new Queue<string>();
-        directoryQueue.Enqueue(rootDirectoryPath);
-
-        while (directoryQueue.Count > 0)
-        {
-            string currentDirectoryPath = directoryQueue.Dequeue();
-
-            if (TryNormalizeDirectoryAttributes(currentDirectoryPath))
-            {
-                changedCount++;
-            }
-
-            string[] childDirectoryPaths = Array.Empty<string>();
-            try
-            {
-                childDirectoryPaths = Directory.GetDirectories(currentDirectoryPath);
-            }
-            catch
-            {
-            }
-            foreach (string childDirectoryPath in childDirectoryPaths)
-            {
-                directoryQueue.Enqueue(childDirectoryPath);
-            }
-
-            if (!includeFiles)
-            {
-                continue;
-            }
-
-            string[] childFilePaths = Array.Empty<string>();
-            try
-            {
-                childFilePaths = Directory.GetFiles(currentDirectoryPath);
-            }
-            catch
-            {
-            }
-            foreach (string childFilePath in childFilePaths)
-            {
-                if (TryNormalizeFileSystemReadOnlyAttribute(childFilePath))
-                {
-                    changedCount++;
-                }
-            }
-        }
-
-        return changedCount;
-    }
-
-    private static string BuildDirectoryDeleteDebugSample(string directoryPath)
-    {
-        try
-        {
-            if (!Directory.Exists(directoryPath))
-            {
-                return "(not_exists)";
-            }
-            return string.Join(" | ", Directory.EnumerateFileSystemEntries(directoryPath).Take(3).Select(Path.GetFileName));
-        }
-        catch (Exception ex)
-        {
-            return "(enumerate_failed:" + ex.GetType().Name + ")";
-        }
-    }
-
-    /// <summary>
-    /// 空ディレクトリ削除を試行し、ロック由来の一時エラーのみ短時間リトライする。
-    /// </summary>
-    /// <remarks>
-    /// 以前は例外種別を問わず長時間リトライしていたため、アクセス拒否時に操作不能時間だけが増える問題があった。
-    /// そのため、共有違反/ロック違反のみ再試行し、アクセス拒否は属性補正を1回だけ試して早期終了する。
-    /// </remarks>
-    private static bool TryDeleteDirectoryWithAdaptiveRetry(string directoryPath, bool deleteAllContents, out Exception finalException, out int attemptCount, out string remainingEntriesSample, out bool wasDeleted, out Exception firstFailureException, out string firstFailureRemainingEntriesSample, out int normalizedReadOnlyCount)
-    {
-        finalException = null;
-        attemptCount = 0;
-        remainingEntriesSample = string.Empty;
-        wasDeleted = false;
-        firstFailureException = null;
-        firstFailureRemainingEntriesSample = string.Empty;
-        normalizedReadOnlyCount = 0;
-        bool accessDeniedAttributeFixTried = false;
-
-        // NOTE:
-        // WindowsのDirectory.ReadOnlyは削除可否に不要だが、環境によりアクセス拒否へ波及することがある。
-        // 削除前に先回りで解除して、初回失敗を減らす。
-        if (deleteAllContents)
-        {
-            normalizedReadOnlyCount += NormalizeReadOnlyAttributesRecursively(directoryPath, includeFiles: true);
-        }
-        else if (TryNormalizeDirectoryAttributes(directoryPath))
-        {
-            normalizedReadOnlyCount++;
-        }
-
-        // NOTE:
-        // 直前まで大量移動を行った直後は、探索インデクサやシェル拡張の短時間ロックに当たりやすい。
-        // 初回だけ短い待機を入れ、同一フォルダでの「毎回2回目成功」パターンを減らせるか検証する。
-        if (deleteAllContents && deleteInitialSettleDelayMs > 0)
-        {
-            Thread.Sleep(deleteInitialSettleDelayMs);
-        }
-
-        while (true)
-        {
-            attemptCount++;
-            try
-            {
-                if (!deleteAllContents && Directory.EnumerateFileSystemEntries(directoryPath).Any())
-                {
-                    // NOTE:
-                    // 空フォルダ削除モード時に中身が残っている場合は「削除不要」として成功扱いにする。
-                    // 呼び出し側で成功ログとスキップログを区別するため、wasDeleted は false のまま返す。
-                    return true;
-                }
-                // NOTE:
-                // ここはマージ後の「空フォルダ後始末」専用経路で、ごみ箱経由は不要。
-                // DataGridの手動削除系は FileSystem.DeleteDirectory（シェル経由）で削除できるケースがある一方、
-                // この内部経路は Directory.Delete（直接削除）なのでReadOnly属性や短時間競合の影響を受けやすい。
-                // その差分を吸収するため、事前のReadOnly解除と診断ログを組み合わせている。
-                Directory.Delete(directoryPath, deleteAllContents);
-                wasDeleted = true;
-                return true;
-            }
-            catch (Exception ex)
-            {
-                finalException = ex;
-                if (firstFailureException == null)
-                {
-                    firstFailureException = ex;
-                    firstFailureRemainingEntriesSample = BuildDirectoryDeleteDebugSample(directoryPath);
-                }
-                if (!Directory.Exists(directoryPath))
-                {
-                    // 他スレッド/他プロセスで先に消えたケースは成功扱いにする。
-                    wasDeleted = true;
-                    return true;
-                }
-                if (IsAccessDenied(ex) && !accessDeniedAttributeFixTried)
-                {
-                    accessDeniedAttributeFixTried = true;
-                    int recoveredReadOnlyCount = deleteAllContents
-                        ? NormalizeReadOnlyAttributesRecursively(directoryPath, includeFiles: true)
-                        : (TryNormalizeDirectoryAttributes(directoryPath) ? 1 : 0);
-                    normalizedReadOnlyCount += recoveredReadOnlyCount;
-                    if (recoveredReadOnlyCount > 0)
-                    {
-                        continue;
-                    }
-                }
-                if (IsAccessDenied(ex) && attemptCount <= deleteRetryCountOnAccessDenied + 1)
-                {
-                    // NOTE:
-                    // 一部環境では Delete 直後にアクセス拒否が短時間だけ発生し、
-                    // 手動削除は即成功することがあるため、短い回数だけ再試行する。
-                    Thread.Sleep(deleteRetryDelayMs);
-                    continue;
-                }
-                if (IsSharingOrLockViolation(ex) && attemptCount <= deleteRetryCountOnLock + 1)
-                {
-                    Thread.Sleep(deleteRetryDelayMs);
-                    continue;
-                }
-                remainingEntriesSample = BuildDirectoryDeleteDebugSample(directoryPath);
-                return false;
-            }
         }
     }
 
@@ -4128,7 +3898,7 @@ public class BMSLibrary : NotificationObject
                 }
                 if (!isAutoNaming)
                 {
-                    Directory.CreateDirectory(destinationDirectory);
+                    fileMutationService.EnsureDirectory(destinationDirectory, targetOnlyFileMutationOptions);
                 }
             }
 
@@ -4139,7 +3909,7 @@ public class BMSLibrary : NotificationObject
                 {
                     throw new DirectoryNotFoundException(string.Format(Resources.Error_RenameDestDirNotFound, sourcePath));
                 }
-                FileSystem.MoveDirectory(sourcePath, destinationDirectory, overwrite: true);
+                fileMutationService.MoveDirectory(sourcePath, destinationDirectory, overwrite: true, recursiveDirectoryTreeFileMutationOptions);
             }
             else
             {
@@ -4171,7 +3941,7 @@ public class BMSLibrary : NotificationObject
                         string dstDirPath = Path.GetDirectoryName(dstFilePath);
                         if (!string.IsNullOrWhiteSpace(dstDirPath))
                         {
-                            Directory.CreateDirectory(dstDirPath);
+                            fileMutationService.EnsureDirectory(dstDirPath, targetOnlyFileMutationOptions);
                         }
 
                         // 移動判定: Move / Overwrite / SkipSame / SkipOlderOrEqual
@@ -4179,21 +3949,21 @@ public class BMSLibrary : NotificationObject
                         switch (moveDecision)
                         {
                             case ComponentMoveDecision.Move:
-                                FileSystem.MoveFile(srcFilePath, dstFilePath, overwrite: true);
+                                fileMutationService.MoveFile(srcFilePath, dstFilePath, overwrite: true, targetOnlyFileMutationOptions);
                                 componentMoveSummary.Moved++;
                                 break;
                             case ComponentMoveDecision.Overwrite:
-                                FileSystem.MoveFile(srcFilePath, dstFilePath, overwrite: true);
+                                fileMutationService.MoveFile(srcFilePath, dstFilePath, overwrite: true, targetOnlyFileMutationOptions);
                                 componentMoveSummary.Moved++;
                                 componentMoveSummary.Overwritten++;
                                 break;
                             case ComponentMoveDecision.SkipSame:
-                                File.Delete(srcFilePath);
+                                fileMutationService.DeleteFileDirect(srcFilePath, targetOnlyFileMutationOptions);
                                 componentMoveSummary.SkippedSame++;
                                 componentMoveSummary.DeletedAfterSkip++;
                                 break;
                             default:
-                                File.Delete(srcFilePath);
+                                fileMutationService.DeleteFileDirect(srcFilePath, targetOnlyFileMutationOptions);
                                 componentMoveSummary.SkippedOlder++;
                                 componentMoveSummary.DeletedAfterSkip++;
                                 break;
@@ -4212,7 +3982,7 @@ public class BMSLibrary : NotificationObject
                         string componentDstPath = Path.Combine(destinationDirectory, Path.GetFileName(file));
                         if (File.Exists(file))
                         {
-                            FileSystem.MoveFile(file, componentDstPath, overwrite: true);
+                            fileMutationService.MoveFile(file, componentDstPath, overwrite: true, targetOnlyFileMutationOptions);
                         }
                         else
                         {
@@ -4220,7 +3990,7 @@ public class BMSLibrary : NotificationObject
                             {
                                 throw new FileNotFoundException(Resources.Error_FileNotFound, file);
                             }
-                            FileSystem.MoveDirectory(file, componentDstPath, overwrite: true);
+                            fileMutationService.MoveDirectory(file, componentDstPath, overwrite: true, recursiveDirectoryTreeFileMutationOptions);
                         }
                     });
                 }
@@ -4239,18 +4009,18 @@ public class BMSLibrary : NotificationObject
                     {
                         throw new FileNotFoundException(Resources.Error_FileNotFound, bmsFile.path);
                     }
-                    FileSystem.MoveFile(bmsFile.path, destinationBmsPath, overwrite: true);
+                    fileMutationService.MoveFile(bmsFile.path, destinationBmsPath, overwrite: true, targetOnlyFileMutationOptions);
                     bmsFile.path = bmsFile.path.ReplaceFromEnd(Path.GetFileName(bmsFile.path), Path.GetFileName(destinationBmsPath), isIgnoreCase: true);
                 }
             }
         }
-        catch (Exception ex)
+        catch (Exception installException)
         {
             if (!showMessageBoxOnInstallFail)
             {
                 return false;
             }
-            DispatcherMessageBox.Show(string.Format(Resources.Error_InstallFailed, pkg.path, destinationDirectory, (ex is AggregateException) ? string.Join(Environment.NewLine, ((AggregateException)ex).Flatten().InnerExceptions.Select((Exception e) => e.Message)) : ex.Message), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+            DispatcherMessageBox.Show(string.Format(Resources.Error_InstallFailed, pkg.path, destinationDirectory, GetDisplayedExceptionMessage(installException)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
             return false;
         }
 
@@ -4298,65 +4068,41 @@ public class BMSLibrary : NotificationObject
         }
         if (!string.IsNullOrWhiteSpace(dirToBeDeleted) && Directory.Exists(dirToBeDeleted))
         {
-            Exception ex = null;
-            int attemptCount = 0;
-            string remainingEntriesSample = string.Empty;
-            bool wasDeleted = false;
-            Exception firstFailureException = null;
-            string firstFailureRemainingEntriesSample = string.Empty;
-            int normalizedReadOnlyCount = 0;
-            if (!TryDeleteDirectoryWithAdaptiveRetry(dirToBeDeleted, deleteAllContents, out ex, out attemptCount, out remainingEntriesSample, out wasDeleted, out firstFailureException, out firstFailureRemainingEntriesSample, out normalizedReadOnlyCount))
+            if (!deleteAllContents && HasRemainingDirectoryEntries(dirToBeDeleted))
             {
-                Exception innermostException = GetInnermostException(ex);
-                int num = ExtractWin32ErrorCodeFromHResult(ex);
-                NLogWrapper.FileLogger?.Info(string.Format(
-                    "Folder deletion failed: path={0} attempts={1} normalizedReadOnly={2} exType={3} hresult=0x{4:X8} rootType={5} rootHresult=0x{6:X8} win32={7} remaining={8} error={9}",
-                    dirToBeDeleted,
-                    attemptCount,
-                    normalizedReadOnlyCount,
-                    ex.GetType().FullName,
-                    ex.HResult,
-                    innermostException.GetType().FullName,
-                    innermostException.HResult,
-                    (num >= 0) ? num.ToString() : "n/a",
-                    string.IsNullOrWhiteSpace(remainingEntriesSample) ? "(none)" : remainingEntriesSample,
-                    ex.Message));
-                DispatcherMessageBox.Show(string.Format(Resources.Error_FolderDeleteFailed, dirToBeDeleted, ex.Message), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+                // NOTE:
+                // 保留からの通常インストールでは、既所持譜面を残した結果として移動元フォルダが非空のままになる。
+                // 旧実装はこの状態を「削除不要」として成功扱いにしていたため、その互換挙動を維持する。
+                NLogWrapper.FileLogger?.Info("Folder deletion skipped: path=" + dirToBeDeleted + " reason=not_empty deleteAllContents=False");
+                return true;
             }
-            else
+
+            FileMutationOptions deleteOptions = deleteAllContents ? recursiveDirectoryTreeFileMutationOptions : targetOnlyFileMutationOptions;
+            try
             {
-                if (attemptCount > 1 && firstFailureException != null)
+                fileMutationService.DeleteDirectoryDirect(dirToBeDeleted, deleteAllContents, deleteOptions);
+                NLogWrapper.FileLogger?.Info("Folder deletion success: path=" + dirToBeDeleted + " deleteAllContents=" + deleteAllContents);
+            }
+            catch (FileMutationException fileMutationException)
+            {
+                if (!deleteAllContents && HasRemainingDirectoryEntries(dirToBeDeleted))
                 {
-                    Exception firstInnermostException = GetInnermostException(firstFailureException);
-                    int firstWin32ErrorCode = ExtractWin32ErrorCodeFromHResult(firstFailureException);
-                    NLogWrapper.FileLogger?.Info(string.Format(
-                        "Folder deletion success: path={0} attempts={1} retried=True deleted={2} deleteAllContents={3} normalizedReadOnly={4} firstExType={5} firstHresult=0x{6:X8} firstRootType={7} firstRootHresult=0x{8:X8} firstWin32={9} firstRemaining={10} firstError={11} initialDelayMs={12}",
-                        dirToBeDeleted,
-                        attemptCount,
-                        wasDeleted.ToString(),
-                        deleteAllContents.ToString(),
-                        normalizedReadOnlyCount,
-                        firstFailureException.GetType().FullName,
-                        firstFailureException.HResult,
-                        firstInnermostException.GetType().FullName,
-                        firstInnermostException.HResult,
-                        (firstWin32ErrorCode >= 0) ? firstWin32ErrorCode.ToString() : "n/a",
-                        string.IsNullOrWhiteSpace(firstFailureRemainingEntriesSample) ? "(none)" : firstFailureRemainingEntriesSample,
-                        firstFailureException.Message,
-                        deleteAllContents ? deleteInitialSettleDelayMs : 0));
+                    // NOTE:
+                    // 事前チェック後に別ファイルが残る競合でも、旧実装は非空なら失敗扱いにしなかった。
+                    // 同じく通常インストール時だけはダイアログを出さずにスキップ成功へ寄せる。
+                    NLogWrapper.FileLogger?.Info("Folder deletion skipped after failure: path=" + dirToBeDeleted + " reason=not_empty_after_failure deleteAllContents=False attempts=" + fileMutationException.AttemptCount);
+                    return true;
                 }
-                else
-                {
-                    NLogWrapper.FileLogger?.Info(string.Format(
-                        "Folder deletion success: path={0} attempts={1} retried={2} deleted={3} deleteAllContents={4} normalizedReadOnly={5} initialDelayMs={6}",
-                        dirToBeDeleted,
-                        attemptCount,
-                        (attemptCount > 1).ToString(),
-                        wasDeleted.ToString(),
-                        deleteAllContents.ToString(),
-                        normalizedReadOnlyCount,
-                        deleteAllContents ? deleteInitialSettleDelayMs : 0));
-                }
+
+                NLogWrapper.FileLogger?.Info(string.Format(
+                    "Folder deletion failed: path={0} attempts={1} normalizedReadOnly={2} win32={3} errorType={4} error={5}",
+                    dirToBeDeleted,
+                    fileMutationException.AttemptCount,
+                    fileMutationException.NormalizedReadOnlyCount,
+                    fileMutationException.Win32ErrorCode,
+                    fileMutationException.RootCause.GetType().FullName,
+                    GetDisplayedExceptionMessage(fileMutationException)));
+                DispatcherMessageBox.Show(string.Format(Resources.Error_FolderDeleteFailed, dirToBeDeleted, GetDisplayedExceptionMessage(fileMutationException)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
             }
         }
         return true;
@@ -6293,7 +6039,7 @@ public class BMSLibrary : NotificationObject
         }
         try
         {
-            FileSystem.MoveDirectory(srcDir, dstDir);
+            fileMutationService.MoveDirectory(srcDir, dstDir, overwrite: false, recursiveDirectoryTreeFileMutationOptions);
             foreach (string item in bmsFolderAllFileList.Keys.Where((string f) => (f + Path.DirectorySeparatorChar).StartsWith(srcDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)))
             {
                 string newKey = item.ReplaceFromStart(srcDir, dstDir, isIgnoreCase: true);
@@ -6314,9 +6060,9 @@ public class BMSLibrary : NotificationObject
                 }
             }
         }
-        catch (Exception ex)
+        catch (Exception moveException)
         {
-            DispatcherMessageBox.Show(string.Format(Resources.Error_FolderMoveFailed, srcDir, dstDir, ex.Message), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+            DispatcherMessageBox.Show(string.Format(Resources.Error_FolderMoveFailed, srcDir, dstDir, GetDisplayedExceptionMessage(moveException)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
             return;
         }
         List<BMSFile> list = BMSFiles.Where((BMSFile f) => f.path.StartsWith(srcDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)).ToList();
@@ -6361,11 +6107,11 @@ public class BMSLibrary : NotificationObject
                 }
                 try
                 {
-                    FileSystem.MoveFile(bmsFile.path, dstPath);
+                    fileMutationService.MoveFile(bmsFile.path, dstPath, overwrite: false, targetOnlyFileMutationOptions);
                 }
-                catch (Exception ex)
+                catch (Exception moveException)
                 {
-                    DispatcherMessageBox.Show(string.Format(Resources.Error_BmsFileMoveFailed, bmsFile.path, dstPath, ex.Message), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+                    DispatcherMessageBox.Show(string.Format(Resources.Error_BmsFileMoveFailed, bmsFile.path, dstPath, GetDisplayedExceptionMessage(moveException)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
                     return;
                 }
                 if (unregister == true)
@@ -6431,12 +6177,12 @@ public class BMSLibrary : NotificationObject
                         }
                         try
                         {
-                            FileSystem.MoveFile(item.path, text);
+                            fileMutationService.MoveFile(item.path, text, overwrite: false, targetOnlyFileMutationOptions);
                             renamedFiles.Add(item);
                         }
-                        catch (Exception ex)
+                        catch (Exception moveException)
                         {
-                            DispatcherMessageBox.Show(string.Format(Resources.Error_BmsFileMoveFailed, item.path, text, ex.Message), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+                            DispatcherMessageBox.Show(string.Format(Resources.Error_BmsFileMoveFailed, item.path, text, GetDisplayedExceptionMessage(moveException)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
                         }
                     }
                     RemovePendingFilesFromPendingPackagesAndInstallRows(renamedFiles);
@@ -6453,67 +6199,59 @@ public class BMSLibrary : NotificationObject
             {
                 using (rwlockBMSFiles.GetWriterGuard())
                 {
-                    List<BMSFile> list = new List<BMSFile>();
-                    foreach (IGrouping<string, BMSFile> fGrp in from g in bmsFiles.GroupBy((BMSFile f) => DirectoryExt.GetDirectoryNameSimple(f.path), StringComparer.OrdinalIgnoreCase)
-                                                                orderby g.Key.Length descending
-                                                                select g)
+                    List<BMSFile> removedBmsFiles = new List<BMSFile>();
+                    foreach (IGrouping<string, BMSFile> folderGroup in from groupedFiles in bmsFiles.GroupBy((BMSFile bmsInfo) => DirectoryExt.GetDirectoryNameSimple(bmsInfo.path), StringComparer.OrdinalIgnoreCase)
+                                                                        orderby groupedFiles.Key.Length descending
+                                                                        select groupedFiles)
                     {
-                        if (BMSFiles.Where((BMSFile f) => f.path.StartsWith(fGrp.Key + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)).Except(list).Count() == fGrp.Count() && DispatcherMessageBox.Show(string.Format(Resources.Confirm_DeleteFolderWithNoBms, fGrp.Key), Resources.MessageBoxTitle_Confirm, MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.Yes) == MessageBoxResult.Yes)
+                        if (BMSFiles.Where((BMSFile bmsInfo) => bmsInfo.path.StartsWith(folderGroup.Key + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)).Except(removedBmsFiles).Count() == folderGroup.Count() && DispatcherMessageBox.Show(string.Format(Resources.Confirm_DeleteFolderWithNoBms, folderGroup.Key), Resources.MessageBoxTitle_Confirm, MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.Yes) == MessageBoxResult.Yes)
                         {
-                            if (!Directory.Exists(fGrp.Key))
+                            if (!Directory.Exists(folderGroup.Key))
                             {
                                 continue;
                             }
                             try
                             {
-                                // NOTE:
-                                // DataGrid右クリック削除でも、フォルダ配下にReadOnly属性が残っていると
-                                // アクセス拒否で失敗しやすいため、事前に再帰解除してから削除する。
-                                int normalizedReadOnlyCount = NormalizeReadOnlyAttributesRecursively(fGrp.Key, includeFiles: true);
-                                if (normalizedReadOnlyCount > 0)
+                                fileMutationService.DeleteDirectoryShell(folderGroup.Key, UIOption.OnlyErrorDialogs, sendToRecycleBin ? RecycleOption.SendToRecycleBin : RecycleOption.DeletePermanently, recursiveDirectoryTreeFileMutationOptions);
+                                foreach (string indexedDirectoryPath in bmsFolderAllFileList.Keys.Where((string directoryPath) => (directoryPath + Path.DirectorySeparatorChar).StartsWith(folderGroup.Key + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)))
                                 {
-                                    NLogWrapper.FileLogger?.Info("RemoveBMSFiles folder_delete_pre_normalize path=" + fGrp.Key + " normalizedReadOnly=" + normalizedReadOnlyCount);
+                                    bmsFolderAllFileList.RemoveDir(indexedDirectoryPath);
                                 }
-                                FileSystem.DeleteDirectory(fGrp.Key, UIOption.OnlyErrorDialogs, sendToRecycleBin ? RecycleOption.SendToRecycleBin : RecycleOption.DeletePermanently);
-                                foreach (string item in bmsFolderAllFileList.Keys.Where((string f) => (f + Path.DirectorySeparatorChar).StartsWith(fGrp.Key + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)))
+                                foreach (BMSFile installLinkedBmsFile in BMSPackagesPending.SelectMany((BMSPackage pkg) => pkg.BMSFiles).Concat(BMSFiles.Where((BMSFile bmsInfo) => !string.IsNullOrWhiteSpace(bmsInfo.instl_dst))))
                                 {
-                                    bmsFolderAllFileList.RemoveDir(item);
-                                }
-                                foreach (BMSFile item2 in BMSPackagesPending.SelectMany((BMSPackage pkg) => pkg.BMSFiles).Concat(BMSFiles.Where((BMSFile f) => !string.IsNullOrWhiteSpace(f.instl_dst))))
-                                {
-                                    if (!string.IsNullOrWhiteSpace(item2.instl_dst) && (item2.instl_dst + Path.DirectorySeparatorChar).StartsWith(fGrp.Key + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+                                    if (!string.IsNullOrWhiteSpace(installLinkedBmsFile.instl_dst) && (installLinkedBmsFile.instl_dst + Path.DirectorySeparatorChar).StartsWith(folderGroup.Key + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
                                     {
-                                        item2.instl_dst = null;
+                                        installLinkedBmsFile.instl_dst = null;
                                     }
                                 }
-                                List<BMSPackage> items = BMSPackagesInstalled.Where((BMSPackage pkg) => (pkg.path + Path.DirectorySeparatorChar).StartsWith(fGrp.Key + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)).ToList();
-                                BMSPackagesInstalled.Remove(items);
+                                List<BMSPackage> installedPackagesToRemove = BMSPackagesInstalled.Where((BMSPackage pkg) => (pkg.path + Path.DirectorySeparatorChar).StartsWith(folderGroup.Key + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)).ToList();
+                                BMSPackagesInstalled.Remove(installedPackagesToRemove);
                             }
-                            catch (Exception ex)
+                            catch (Exception deleteException)
                             {
-                                DispatcherMessageBox.Show(string.Format(Resources.Error_FolderOrTrashDeleteFailed, fGrp.Key, ex.Message), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+                                DispatcherMessageBox.Show(string.Format(Resources.Error_FolderOrTrashDeleteFailed, folderGroup.Key, GetDisplayedExceptionMessage(deleteException)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
                                 continue;
                             }
-                            list.AddRange(fGrp);
+                            removedBmsFiles.AddRange(folderGroup);
                             continue;
                         }
-                        foreach (BMSFile item3 in fGrp)
+                        foreach (BMSFile selectedBmsFile in folderGroup)
                         {
                             try
                             {
-                                if (File.Exists(item3.path))
+                                if (File.Exists(selectedBmsFile.path))
                                 {
-                                    FileSystem.DeleteFile(item3.path, UIOption.OnlyErrorDialogs, sendToRecycleBin ? RecycleOption.SendToRecycleBin : RecycleOption.DeletePermanently);
-                                    list.Add(item3);
+                                    fileMutationService.DeleteFileShell(selectedBmsFile.path, UIOption.OnlyErrorDialogs, sendToRecycleBin ? RecycleOption.SendToRecycleBin : RecycleOption.DeletePermanently, targetOnlyFileMutationOptions);
+                                    removedBmsFiles.Add(selectedBmsFile);
                                 }
                             }
-                            catch (Exception ex2)
+                            catch (Exception deleteException)
                             {
-                                DispatcherMessageBox.Show(string.Format(Resources.Error_BmsFileDeleteFailed, item3.path, ex2.Message), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+                                DispatcherMessageBox.Show(string.Format(Resources.Error_BmsFileDeleteFailed, selectedBmsFile.path, GetDisplayedExceptionMessage(deleteException)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
                             }
                         }
                     }
-                    unregisterBMSFiles(list);
+                    unregisterBMSFiles(removedBmsFiles);
                 }
             }
         }
@@ -6532,19 +6270,19 @@ public class BMSLibrary : NotificationObject
                 using (rwlockSongDBInstall.GetWriterGuard())
                 {
                     List<BMSFile> removedFiles = new List<BMSFile>();
-                    foreach (BMSFile item in bmsFiles.Where((BMSFile f) => f != null).ToList())
+                    foreach (BMSFile pendingBmsFile in bmsFiles.Where((BMSFile bmsInfo) => bmsInfo != null).ToList())
                     {
                         try
                         {
-                            if (File.Exists(item.path))
+                            if (File.Exists(pendingBmsFile.path))
                             {
-                                FileSystem.DeleteFile(item.path, UIOption.OnlyErrorDialogs, sendToRecycleBin ? RecycleOption.SendToRecycleBin : RecycleOption.DeletePermanently);
-                                removedFiles.Add(item);
+                                fileMutationService.DeleteFileShell(pendingBmsFile.path, UIOption.OnlyErrorDialogs, sendToRecycleBin ? RecycleOption.SendToRecycleBin : RecycleOption.DeletePermanently, targetOnlyFileMutationOptions);
+                                removedFiles.Add(pendingBmsFile);
                             }
                         }
-                        catch (Exception ex)
+                        catch (Exception deleteException)
                         {
-                            DispatcherMessageBox.Show(string.Format(Resources.Error_BmsFileDeleteFailed, item.path, ex.Message), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+                            DispatcherMessageBox.Show(string.Format(Resources.Error_BmsFileDeleteFailed, pendingBmsFile.path, GetDisplayedExceptionMessage(deleteException)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
                         }
                     }
                     RemovePendingFilesFromPendingPackagesAndInstallRows(removedFiles);

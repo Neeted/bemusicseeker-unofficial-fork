@@ -24,6 +24,7 @@
     <Reference Include="Livet">
       <HintPath>..\libs\Livet.dll</HintPath>
     </Reference>
+    <Reference Include="Microsoft.VisualBasic" />
   </ItemGroup>
 
   <ItemGroup>
