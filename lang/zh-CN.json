@@ -108,6 +108,7 @@
   "Update_ranking_data": "更新排行榜数据",
   "Msg_warn_playlist_backup": "没有播放列表，无需备份。",
   "Msg_move_to_recycle": "BMS 文件将被移动到回收站，并从数据库中取消注册。\n确定要继续吗？",
+  "Confirm_DeletePendingFolderWhenNoBms": "当目标文件夹将不再包含任何 BMS 文件时，同时删除整个文件夹。",
   "Msg_failed_save_playlist": "文件保存失败。",
   "Backup_desc": "* 满足上述条件时，将在启动时自动执行备份",
   "Msg_register_chart": "确定要注册所选的谱面吗？",

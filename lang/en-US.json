@@ -108,6 +108,7 @@
   "Update_ranking_data": "Update ranking data",
   "Msg_warn_playlist_backup": "There is no playlist, so you do not need to back it up.",
   "Msg_move_to_recycle": "The BMS file will be moved to recycle bin\nand removed from the DB.\n\nAre you sure you want to continue?",
+  "Confirm_DeletePendingFolderWhenNoBms": "Delete the containing folder as well when it would no longer contain any BMS files.",
   "Msg_failed_save_playlist": "Failed to save the file.",
   "Backup_desc": "* Backup will be executed at startup under the above condition",
   "Msg_register_chart": "Are you sure you want to register selected charts?",

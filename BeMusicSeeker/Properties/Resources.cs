@@ -866,6 +866,12 @@ public class Resources
     public static string Confirm_DeleteFolderWithNoBms => ResourceManager.GetString("Confirm_DeleteFolderWithNoBms", resourceCulture);
 
 
+    /// <summary>
+    /// 保留削除時に、BMSが空になるフォルダをまとめて削除するかどうかの確認文言を取得します。
+    /// </summary>
+    public static string Confirm_DeletePendingFolderWhenNoBms => ResourceManager.GetString("Confirm_DeletePendingFolderWhenNoBms", resourceCulture);
+
+
     public static string Error_FolderOrTrashDeleteFailed => ResourceManager.GetString("Error_FolderOrTrashDeleteFailed", resourceCulture);
 
 

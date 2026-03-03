@@ -7809,12 +7809,12 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
-    public void RemovePendingBMSFiles(IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles)
+    public void RemovePendingBMSFiles(IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles, bool sendToRecycleBin = true, bool deleteContainingPackageFoldersWhenNoBms = false)
     {
         lock (lockCopyFile)
         {
             stopPlayingBMSFile(bmsFiles);
-            files.RemovePendingBMSFiles(bmsFiles);
+            files.RemovePendingBMSFiles(bmsFiles, sendToRecycleBin, deleteContainingPackageFoldersWhenNoBms);
         }
     }
 

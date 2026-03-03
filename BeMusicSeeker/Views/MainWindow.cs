@@ -5250,20 +5250,44 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         bmsFiles = bmsFiles.Except(second).ToList();
         MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
         bool isPendingSelected = _currentTreeSelectionSection == TreeSelectionSection.InstallPending;
-        if (bmsFiles.Count > 0 && MessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_move_to_recycle, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) != MessageBoxResult.Cancel)
+        if (viewModel == null || bmsFiles.Count == 0)
         {
-            Task.Run(delegate
-            {
-                if (isPendingSelected)
-                {
-                    viewModel.RemovePendingBMSFiles(bmsFiles);
-                }
-                else
-                {
-                    viewModel.RemoveBMSFiles(bmsFiles);
-                }
-            }).Logging("dataGridContextMenuItemRemoveBMSFileClick");
+            return;
         }
+        bool deleteContainingPackageFoldersWhenNoBms = false;
+        if (isPendingSelected)
+        {
+            if (!ShowPendingDeleteConfirmDialog(out deleteContainingPackageFoldersWhenNoBms))
+            {
+                return;
+            }
+        }
+        else if (MessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_move_to_recycle, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) == MessageBoxResult.Cancel)
+        {
+            return;
+        }
+        Task.Run(delegate
+        {
+            if (isPendingSelected)
+            {
+                viewModel.RemovePendingBMSFiles(bmsFiles, sendToRecycleBin: true, deleteContainingPackageFoldersWhenNoBms: deleteContainingPackageFoldersWhenNoBms);
+            }
+            else
+            {
+                viewModel.RemoveBMSFiles(bmsFiles);
+            }
+        }).Logging("dataGridContextMenuItemRemoveBMSFileClick");
+    }
+
+    private bool ShowPendingDeleteConfirmDialog(out bool deleteContainingPackageFoldersWhenNoBms)
+    {
+        PendingDeleteConfirmDialog pendingDeleteConfirmDialog = new PendingDeleteConfirmDialog
+        {
+            Owner = this
+        };
+        bool? flag = pendingDeleteConfirmDialog.ShowDialog();
+        deleteContainingPackageFoldersWhenNoBms = pendingDeleteConfirmDialog.DeleteFolderWhenNoBmsChecked;
+        return flag == true;
     }
 
     private async void dataGridContextMenuItemMoveFileClick(object sender, RoutedEventArgs e)

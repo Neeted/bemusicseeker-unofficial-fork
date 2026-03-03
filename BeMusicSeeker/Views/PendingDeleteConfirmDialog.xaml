@@ -1,0 +1,25 @@
+<Window x:Class="BeMusicSeeker.Views.PendingDeleteConfirmDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="clr-namespace:BeMusicSeeker.ViewModels"
+        Title="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Confirm, Mode=OneWay}"
+        SizeToContent="WidthAndHeight"
+        ResizeMode="NoResize"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False">
+  <Border Padding="14">
+    <StackPanel MinWidth="420">
+      <TextBlock Margin="0,0,0,12"
+                 Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Msg_move_to_recycle, Mode=OneWay}"
+                 TextWrapping="Wrap" />
+      <CheckBox x:Name="checkBoxDeleteContainingFolder"
+                Margin="0,0,0,14"
+                IsChecked="True"
+                Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Confirm_DeletePendingFolderWhenNoBms, Mode=OneWay}" />
+      <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+        <Button Width="72" Margin="0,0,8,0" IsDefault="True" Click="OkButtonClick">OK</Button>
+        <Button Width="72" IsCancel="True">Cancel</Button>
+      </StackPanel>
+    </StackPanel>
+  </Border>
+</Window>

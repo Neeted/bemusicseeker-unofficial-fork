@@ -108,6 +108,7 @@
   "Update_ranking_data": "랭킹 데이터 업데이트",
   "Msg_warn_playlist_backup": "재생 목록이 없어 백업할 필요가 없습니다.",
   "Msg_move_to_recycle": "BMS 파일이 휴지통으로 이동하며, 데이터베이스에서 등록이 해제됩니다.\n\n계속하시겠습니까?",
+  "Confirm_DeletePendingFolderWhenNoBms": "대상 폴더에 BMS 파일이 남지 않게 되는 경우 폴더째 삭제합니다.",
   "Msg_failed_save_playlist": "파일을 저장하지 못했습니다.",
   "Backup_desc": "* 위 조건을 만족하는 경우 시작 시 백업이 실행됩니다",
   "Msg_register_chart": "선택한 채보를 등록하시겠습니까?",

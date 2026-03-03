@@ -6258,7 +6258,7 @@ public class BMSLibrary : NotificationObject
         }
     }
 
-    public void RemovePendingBMSFiles(IEnumerable<BMSFile> bmsFiles, bool sendToRecycleBin = true)
+    public void RemovePendingBMSFiles(IEnumerable<BMSFile> bmsFiles, bool sendToRecycleBin = true, bool deleteContainingPackageFoldersWhenNoBms = false)
     {
         if (bmsFiles == null)
         {
@@ -6270,14 +6270,62 @@ public class BMSLibrary : NotificationObject
             {
                 using (rwlockSongDBInstall.GetWriterGuard())
                 {
-                    List<BMSFile> removedFiles = new List<BMSFile>();
-                    foreach (BMSFile pendingBmsFile in bmsFiles.Where((BMSFile bmsInfo) => bmsInfo != null).ToList())
+                    List<BMSFile> selectedFiles = bmsFiles.Where((BMSFile bmsInfo) => bmsInfo != null).ToList();
+                    if (selectedFiles.Count == 0)
                     {
+                        return;
+                    }
+                    List<BMSFile> removedFiles = new List<BMSFile>();
+                    HashSet<string> selectedPaths = new HashSet<string>(selectedFiles.Where((BMSFile f) => !string.IsNullOrWhiteSpace(f.path)).Select((BMSFile f) => f.path), StringComparer.OrdinalIgnoreCase);
+                    HashSet<BMSFile> selectedFileRefs = new HashSet<BMSFile>(selectedFiles);
+                    HashSet<string> handledByFolderDeletePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    HashSet<string> blockedByFailedFolderDeletePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    RecycleOption recycleOption = sendToRecycleBin ? RecycleOption.SendToRecycleBin : RecycleOption.DeletePermanently;
+                    if (deleteContainingPackageFoldersWhenNoBms)
+                    {
+                        foreach (BMSPackage pendingPackage in GetPendingPackagesFullyCoveredBySelection(selectedPaths, selectedFileRefs))
+                        {
+                            if (!Directory.Exists(pendingPackage.path))
+                            {
+                                continue;
+                            }
+                            List<BMSFile> packageFiles = pendingPackage.BMSFiles.Where((BMSFile f) => f != null).ToList();
+                            try
+                            {
+                                fileMutationService.DeleteDirectoryShell(pendingPackage.path, UIOption.OnlyErrorDialogs, recycleOption, recursiveDirectoryTreeFileMutationOptions);
+                                foreach (BMSFile packageFile in packageFiles)
+                                {
+                                    removedFiles.Add(packageFile);
+                                    if (!string.IsNullOrWhiteSpace(packageFile.path))
+                                    {
+                                        handledByFolderDeletePaths.Add(packageFile.path);
+                                    }
+                                }
+                            }
+                            catch (Exception deleteException)
+                            {
+                                foreach (BMSFile packageFile in packageFiles)
+                                {
+                                    if (!string.IsNullOrWhiteSpace(packageFile.path))
+                                    {
+                                        blockedByFailedFolderDeletePaths.Add(packageFile.path);
+                                    }
+                                }
+                                DispatcherMessageBox.Show(string.Format(Resources.Error_FolderOrTrashDeleteFailed, pendingPackage.path, GetDisplayedExceptionMessage(deleteException)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+                            }
+                        }
+                    }
+                    foreach (BMSFile pendingBmsFile in selectedFiles)
+                    {
+                        if (!string.IsNullOrWhiteSpace(pendingBmsFile.path) && (handledByFolderDeletePaths.Contains(pendingBmsFile.path) || blockedByFailedFolderDeletePaths.Contains(pendingBmsFile.path)))
+                        {
+                            continue;
+                        }
                         try
                         {
                             if (File.Exists(pendingBmsFile.path))
                             {
-                                fileMutationService.DeleteFileShell(pendingBmsFile.path, UIOption.OnlyErrorDialogs, sendToRecycleBin ? RecycleOption.SendToRecycleBin : RecycleOption.DeletePermanently, targetOnlyFileMutationOptions);
+                                fileMutationService.DeleteFileShell(pendingBmsFile.path, UIOption.OnlyErrorDialogs, recycleOption, targetOnlyFileMutationOptions);
                                 removedFiles.Add(pendingBmsFile);
                             }
                         }
@@ -6290,6 +6338,11 @@ public class BMSLibrary : NotificationObject
                 }
             }
         }
+    }
+
+    private List<BMSPackage> GetPendingPackagesFullyCoveredBySelection(HashSet<string> selectedPaths, HashSet<BMSFile> selectedFileRefs)
+    {
+        return BMSPackagesPending.Where((BMSPackage pkg) => pkg != null && pkg.BMSFiles.Count > 0 && pkg.BMSFiles.All((BMSFile f) => IsMatchedRemovedFile(f, selectedPaths, selectedFileRefs))).ToList();
     }
 
     private void RemovePendingFilesFromPendingPackagesAndInstallRows(IEnumerable<BMSFile> bmsFiles)

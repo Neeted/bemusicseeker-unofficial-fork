@@ -112,6 +112,7 @@
   "Update_ranking_data": "ランキングデータの更新",
   "Msg_warn_playlist_backup": "プレイリストが存在しないためバックアップの必要がありません。",
   "Msg_move_to_recycle": "BMSファイルをごみ箱へ移動し一覧から削除します\nよろしいですか？",
+  "Confirm_DeletePendingFolderWhenNoBms": "対象フォルダにBMSファイルが含まれなくなる場合フォルダごと削除する。",
   "Msg_failed_save_playlist": "保存に失敗しました。",
   "Backup_desc": "※上記条件で起動時にバックアップが取得されます",
   "Msg_register_chart": "選択中の複数の譜面を譜面サイトに登録します\n続行しますか？",
