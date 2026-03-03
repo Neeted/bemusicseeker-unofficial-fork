@@ -9,6 +9,7 @@ using System.Text.RegularExpressions;
 using System.Threading;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
+using BeMusicSeeker.Properties;
 using Livet.EventListeners;
 using Ribbit.Threading;
 using Ribbit.Util.Extensions;
@@ -82,6 +83,8 @@ public class BMSFile : LR2SongDB.song
     private BMSFileStatus _status;
 
     private bool _isHashDuplicated;
+
+    private bool _hasZeroNoteMismatchWarning;
 
     private string _cachedComposedTitle;
 
@@ -379,7 +382,44 @@ public class BMSFile : LR2SongDB.song
             {
                 _warning = value;
                 RaisePropertyChanged("warning");
+                RaisePropertyChanged(() => DisplayWarning);
             }
+        }
+    }
+
+    public virtual bool HasZeroNoteMismatchWarning
+    {
+        get
+        {
+            return _hasZeroNoteMismatchWarning;
+        }
+        set
+        {
+            if (_hasZeroNoteMismatchWarning != value)
+            {
+                _hasZeroNoteMismatchWarning = value;
+                RaisePropertyChanged("HasZeroNoteMismatchWarning");
+                RaisePropertyChanged(() => HasHighlightedWarning);
+                RaisePropertyChanged(() => DisplayWarning);
+            }
+        }
+    }
+
+    public virtual bool HasHighlightedWarning => IsHashDuplicated || HasZeroNoteMismatchWarning;
+
+    public virtual string DisplayWarning
+    {
+        get
+        {
+            if (!HasZeroNoteMismatchWarning)
+            {
+                return warning;
+            }
+            if (string.IsNullOrWhiteSpace(warning))
+            {
+                return Resources.Warning_ZeroNoteMismatch;
+            }
+            return warning + Environment.NewLine + Resources.Warning_ZeroNoteMismatch;
         }
     }
 
@@ -637,6 +677,7 @@ public class BMSFile : LR2SongDB.song
             {
                 _isHashDuplicated = value;
                 RaisePropertyChanged("IsHashDuplicated");
+                RaisePropertyChanged(() => HasHighlightedWarning);
             }
         }
     }

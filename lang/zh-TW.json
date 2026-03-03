@@ -120,6 +120,8 @@
   "Msg_ranking_cache_notfound": "排行榜資料已被判定為最新狀態，\n或在快取伺服器上未找到資料。",
   "Clear_estimation": "清除估算",
   "Search_zero_note": "搜尋 0 Note 曲目",
+  "Recheck_zero_note": "重新判定零Note",
+  "Warning_ZeroNoteMismatch": "資料庫記錄為0notes，但存在可見音符",
   "Msg_conversion_stopped": "轉換已中止",
   "Pending": "已保留",
   "Msg_failed_play": "啟動 BMS 播放器失敗。",

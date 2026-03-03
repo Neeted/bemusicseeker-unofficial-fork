@@ -124,6 +124,8 @@
   "Msg_ranking_cache_notfound": "対象のデータは既にキャッシュより新しいか\nデータが見つかりませんでした",
   "Clear_estimation": "インストール先をクリア",
   "Search_zero_note": "ゼロノート検索",
+  "Recheck_zero_note": "ゼロノート再判定する",
+  "Warning_ZeroNoteMismatch": "DBに0notesと記録されていますが可視ノートが存在します",
   "Msg_conversion_stopped": "変換を中断しました",
   "Pending": "保留",
   "Msg_failed_play": "プレイヤーの起動に失敗しました。",

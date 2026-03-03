@@ -308,6 +308,9 @@
         <Separator />
         <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Delete_from_list, Mode=OneWay}" Click="treeViewInstalledFolderContextMenuClearFolderClick" />
       </ContextMenu>
+      <ContextMenu x:Key="treeViewZeroNoteContextMenu" HasDropShadow="True">
+        <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Recheck_zero_note, Mode=OneWay}" Click="treeViewZeroNoteContextMenuItemRecheckClick" />
+      </ContextMenu>
       <ContextMenu x:Key="treeViewDuplicateFolderContextMenu" HasDropShadow="True" Opened="treeViewDuplicateFolderContextMenuOpened">
         <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_file_explorer, Mode=OneWay}" Click="treeViewDuplicateFolderContextMenuOpenExplorerClick" />
         <MenuItem Name="treeViewDuplicateFolderContextMenuItemMergeInto">
@@ -1839,7 +1842,7 @@
                   <Trigger Property="ItemsControl.AlternationIndex" Value="1">
                     <Setter Property="Background" Value="#F1F4F7" />
                   </Trigger>
-                  <DataTrigger Value="True" Binding="{Binding IsHashDuplicated}">
+                  <DataTrigger Value="True" Binding="{Binding HasHighlightedWarning}">
                     <Setter Property="Background" Value="#FFFDE4E4" />
                   </DataTrigger>
                   <Trigger Property="DataGridRow.IsSelected" Value="True">
@@ -1910,7 +1913,7 @@
                   </Style>
                 </DataGridBoundColumn.ElementStyle>
               </DataGridHyperlinkColumn>
-              <DataGridTextColumn Header="WARNING" MinWidth="60" IsReadOnly="True" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCell}" HeaderStyle="{StaticResource styleDataGridColumnHeaderDefault}" Binding="{Binding warning}" Width="{Binding ColumnsSettingsBMSFilesView.Warning.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding ColumnsSettingsBMSFilesView.Warning.Visibility, Source={StaticResource vm}, Mode=TwoWay}" />
+              <DataGridTextColumn Header="WARNING" MinWidth="60" IsReadOnly="True" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCell}" HeaderStyle="{StaticResource styleDataGridColumnHeaderDefault}" Binding="{Binding DisplayWarning}" Width="{Binding ColumnsSettingsBMSFilesView.Warning.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding ColumnsSettingsBMSFilesView.Warning.Visibility, Source={StaticResource vm}, Mode=TwoWay}" />
               <DataGridTextColumn Header="COMMENT" CanUserSort="False" MinWidth="60" IsReadOnly="False" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCellWrap}" EditingElementStyle="{StaticResource styleDataGridEditingCell}" HeaderStyle="{StaticResource styleDataGridColumnHeaderDefault}" Binding="{Binding comment}" Width="{Binding ColumnsSettingsBMSFilesView.Comment.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{qc:MultiBinding '$P1 == Visibility.Visible ? $P0 : Visibility.Hidden', P0={Binding ColumnsSettingsBMSFilesView.Comment.Visibility, Source={StaticResource vm}}, P1={Binding ColumnSettingsVisibilityForPlaylist, Source={StaticResource vm}}}" />
               <DataGridTextColumn Header="MEMO" CanUserSort="False" MinWidth="60" IsReadOnly="False" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCellWrap}" EditingElementStyle="{StaticResource styleDataGridEditingCellForMemo}" HeaderStyle="{StaticResource styleDataGridColumnHeaderDefault}" Binding="{Binding memo}" Width="{Binding ColumnsSettingsBMSFilesView.Memo.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{qc:MultiBinding '$P1 == Visibility.Visible ? $P0 : Visibility.Hidden', P0={Binding ColumnsSettingsBMSFilesView.Memo.Visibility, Source={StaticResource vm}}, P1={Binding ColumnSettingsVisibilityForPlaylist, Source={StaticResource vm}}}" />
               <DataGridTextColumn Header="MD5 HASH" FontFamily="Courier New" MinWidth="240" MaxWidth="240" IsReadOnly="True" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCellCenterAlignment}" HeaderStyle="{StaticResource styleDataGridColumnHeaderCenter}" Binding="{Binding hash}" Width="{Binding ColumnsSettingsBMSFilesView.Hash.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding ColumnsSettingsBMSFilesView.Hash.Visibility, Source={StaticResource vm}, Mode=TwoWay}" />
@@ -2460,7 +2463,7 @@
                 </ResourceDictionary>
               </FrameworkElement.Resources>
               <TreeViewItem HeaderTemplate="{StaticResource templateTreeViewItemHeaderMaintenance}" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Unregistered_in_lr2_db, Mode=OneWay}" Selected="unregisteredToDBFolderSelect" />
-              <TreeViewItem HeaderTemplate="{StaticResource templateTreeViewItemHeaderMaintenanceZeroNote}" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Search_zero_note, Mode=OneWay}" Selected="zeronoteFolderSelect" />
+              <TreeViewItem HeaderTemplate="{StaticResource templateTreeViewItemHeaderMaintenanceZeroNote}" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Search_zero_note, Mode=OneWay}" Selected="zeronoteFolderSelect" ContextMenu="{StaticResource treeViewZeroNoteContextMenu}" />
               <TreeViewItem Name="treeViewItemFullScanCheck" HeaderTemplate="{StaticResource templateTreeViewItemHeaderMaintenanceHealthStatus}" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Full_scan_check, Mode=OneWay}" Selected="fullScanCheckFolderSelect">
                 <ItemsControl.ItemContainerStyle>
                   <Style TargetType="{x:Type TreeViewItem}">

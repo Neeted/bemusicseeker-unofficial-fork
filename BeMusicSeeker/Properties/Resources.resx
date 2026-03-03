@@ -445,6 +445,9 @@ LR2をプレイヤーとして使用すると再生できない場合があり�
   <data name="Search_zero_note" xml:space="preserve">
     <value>ゼロノート検索</value>
   </data>
+  <data name="Recheck_zero_note" xml:space="preserve">
+    <value>ゼロノート再判定する</value>
+  </data>
   <data name="Msg_conversion_stopped" xml:space="preserve">
     <value>変換を中断しました</value>
   </data>
@@ -1153,6 +1156,9 @@ BMSファイルが重複しないようにマージします。
   </data>
   <data name="Warning_DuplicateBmsFile" xml:space="preserve">
     <value>BMSファイルが重複しています</value>
+  </data>
+  <data name="Warning_ZeroNoteMismatch" xml:space="preserve">
+    <value>DBに0notesと記録されていますが可視ノートが存在します</value>
   </data>
   <data name="Error_FileNotFound" xml:space="preserve">
     <value>ファイルが見つかりませんでした</value>

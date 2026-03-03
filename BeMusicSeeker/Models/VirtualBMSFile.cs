@@ -191,6 +191,53 @@ public class VirtualBMSFile : BMSFile
 		}
 	}
 
+	public override bool HasZeroNoteMismatchWarning
+	{
+		get
+		{
+			if (bmsfile != null)
+			{
+				return bmsfile.HasZeroNoteMismatchWarning;
+			}
+			return base.HasZeroNoteMismatchWarning;
+		}
+		set
+		{
+			if (bmsfile == null)
+			{
+				base.HasZeroNoteMismatchWarning = value;
+			}
+			else
+			{
+				bmsfile.HasZeroNoteMismatchWarning = value;
+			}
+		}
+	}
+
+	public override bool HasHighlightedWarning
+	{
+		get
+		{
+			if (bmsfile != null)
+			{
+				return bmsfile.HasHighlightedWarning;
+			}
+			return base.HasHighlightedWarning;
+		}
+	}
+
+	public override string DisplayWarning
+	{
+		get
+		{
+			if (bmsfile != null)
+			{
+				return bmsfile.DisplayWarning;
+			}
+			return base.DisplayWarning;
+		}
+	}
+
 	public override string instl_dst
 	{
 		get
@@ -459,6 +506,18 @@ public class VirtualBMSFile : BMSFile
 		listenerForRealBMSFile.RegisterHandler(() => bmsfile.warning, delegate
 		{
 			RaisePropertyChanged(() => warning);
+		});
+		listenerForRealBMSFile.RegisterHandler(() => bmsfile.HasZeroNoteMismatchWarning, delegate
+		{
+			RaisePropertyChanged(() => HasZeroNoteMismatchWarning);
+		});
+		listenerForRealBMSFile.RegisterHandler(() => bmsfile.HasHighlightedWarning, delegate
+		{
+			RaisePropertyChanged(() => HasHighlightedWarning);
+		});
+		listenerForRealBMSFile.RegisterHandler(() => bmsfile.DisplayWarning, delegate
+		{
+			RaisePropertyChanged(() => DisplayWarning);
 		});
 		listenerForRealBMSFile.RegisterHandler(() => bmsfile.instl_dst, delegate
 		{

@@ -604,6 +604,8 @@ public class Resources
 
     public static string Reinstall_to_estimation => ResourceManager.GetString("Reinstall_to_estimation", resourceCulture);
 
+    public static string Recheck_zero_note => ResourceManager.GetString("Recheck_zero_note", resourceCulture);
+
     public static string Reload => ResourceManager.GetString("Reload", resourceCulture);
 
     public static string Remarks_URL => ResourceManager.GetString("Remarks_URL", resourceCulture);
@@ -744,6 +746,9 @@ public class Resources
 
 
     public static string Warning_DuplicateBmsFile => ResourceManager.GetString("Warning_DuplicateBmsFile", resourceCulture);
+
+
+    public static string Warning_ZeroNoteMismatch => ResourceManager.GetString("Warning_ZeroNoteMismatch", resourceCulture);
 
 
     public static string Error_FileNotFound => ResourceManager.GetString("Error_FileNotFound", resourceCulture);

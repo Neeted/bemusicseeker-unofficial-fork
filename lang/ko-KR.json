@@ -120,6 +120,8 @@
   "Msg_ranking_cache_notfound": "랭킹 데이터가 이미 캐시보다 최신 상태이거나\n캐시 서버에서 데이터를 찾을 수 없습니다.",
   "Clear_estimation": "추정 초기화",
   "Search_zero_note": "0 노트 곡 검색",
+  "Recheck_zero_note": "제로노트 재판정",
+  "Warning_ZeroNoteMismatch": "DB에 0notes로 기록되어 있지만 가시 노트가 존재합니다",
   "Msg_conversion_stopped": "변환이 중단되었습니다",
   "Pending": "보류",
   "Msg_failed_play": "BMS 플레이어를 실행하지 못했습니다.",

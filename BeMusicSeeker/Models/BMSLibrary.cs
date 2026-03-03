@@ -3118,6 +3118,59 @@ public class BMSLibrary : NotificationObject
         }
     }
 
+    public void RecheckZeroNoteWarnings()
+    {
+        List<BMSFile> allFiles;
+        using (rwlockBMSFiles.GetReaderGuard())
+        {
+            allFiles = ((BMSFiles == null) ? new List<BMSFile>() : BMSFiles.Where((BMSFile f) => f != null).ToList());
+        }
+        List<BMSFile> zeroNoteFiles = allFiles.Where((BMSFile f) => f.notes == 0 && !string.IsNullOrWhiteSpace(f.path)).ToList();
+        List<BMSFile> staleMismatchFiles = allFiles.Where((BMSFile f) => f.notes != 0 && f.HasZeroNoteMismatchWarning).ToList();
+        int clearedCount = 0;
+        foreach (BMSFile staleMismatchFile in staleMismatchFiles)
+        {
+            if (staleMismatchFile.HasZeroNoteMismatchWarning)
+            {
+                staleMismatchFile.HasZeroNoteMismatchWarning = false;
+                clearedCount++;
+            }
+        }
+        int mismatchCount = 0;
+        int skippedCount = 0;
+        foreach (BMSFile zeroNoteFile in zeroNoteFiles)
+        {
+            try
+            {
+                bool isZeroNoteByFile = BMSFile.IsZeroNoteBMSFile(zeroNoteFile.path);
+                if (!isZeroNoteByFile)
+                {
+                    zeroNoteFile.HasZeroNoteMismatchWarning = true;
+                    mismatchCount++;
+                }
+                else
+                {
+                    if (zeroNoteFile.HasZeroNoteMismatchWarning)
+                    {
+                        clearedCount++;
+                    }
+                    zeroNoteFile.HasZeroNoteMismatchWarning = false;
+                }
+            }
+            catch (Exception ex) when (ex is DirectoryNotFoundException || ex is FileNotFoundException || ex is IOException || ex is PathTooLongException || ex is SecurityException || ex is UnauthorizedAccessException)
+            {
+                if (zeroNoteFile.HasZeroNoteMismatchWarning)
+                {
+                    clearedCount++;
+                }
+                zeroNoteFile.HasZeroNoteMismatchWarning = false;
+                skippedCount++;
+                NLogWrapper.FileLogger?.Warn(ex, "zero_note_recheck skipped: path=" + zeroNoteFile.path);
+            }
+        }
+        NLogWrapper.FileLogger?.Info(string.Format("zero_note_recheck total={0} mismatch={1} cleared={2} skipped={3}", zeroNoteFiles.Count, mismatchCount, clearedCount, skippedCount));
+    }
+
     public List<BMSFile> GetBMSFilesZeroNote(IEnumerable<BMSFile> bmsFiles)
     {
         if (bmsFiles == null)

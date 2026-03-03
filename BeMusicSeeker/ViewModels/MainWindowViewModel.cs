@@ -6585,7 +6585,6 @@ public class MainWindowViewModel : ViewModel
                 break;
             case viewUpdateMode.FolderFilterSelected:
             case viewUpdateMode.UnregisteredFilterSelected:
-            case viewUpdateMode.ZeroNoteFilterSelected:
                 caseLabel = "standard";
                 stageStartMs = stopwatch.ElapsedMilliseconds;
                 if (isInit || Settings.Default.StandardColumnsSettings == null)
@@ -6595,6 +6594,18 @@ public class MainWindowViewModel : ViewModel
                 caseEnsureMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 stageStartMs = stopwatch.ElapsedMilliseconds;
                 ColumnsSettingsBMSFilesView = Settings.Default.StandardColumnsSettings;
+                caseAssignMs = stopwatch.ElapsedMilliseconds - stageStartMs;
+                break;
+            case viewUpdateMode.ZeroNoteFilterSelected:
+                caseLabel = "zero-note";
+                stageStartMs = stopwatch.ElapsedMilliseconds;
+                if (isInit || Settings.Default.ZeroNoteColumnsSettings == null)
+                {
+                    Settings.Default.ZeroNoteColumnsSettings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.ZERO_NOTE);
+                }
+                caseEnsureMs = stopwatch.ElapsedMilliseconds - stageStartMs;
+                stageStartMs = stopwatch.ElapsedMilliseconds;
+                ColumnsSettingsBMSFilesView = Settings.Default.ZeroNoteColumnsSettings;
                 caseAssignMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 break;
             case viewUpdateMode.FileMissingFilterSelected:
@@ -7815,6 +7826,18 @@ public class MainWindowViewModel : ViewModel
         {
             stopPlayingBMSFile(bmsFiles);
             files.RemovePendingBMSFiles(bmsFiles, sendToRecycleBin, deleteContainingPackageFoldersWhenNoBms);
+        }
+    }
+
+    public void RecheckZeroNoteWarnings()
+    {
+        lock (lockCopyFile)
+        {
+            if (files == null)
+            {
+                return;
+            }
+            files.RecheckZeroNoteWarnings();
         }
     }
 

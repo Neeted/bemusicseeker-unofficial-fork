@@ -120,6 +120,8 @@
   "Msg_ranking_cache_notfound": "The ranking data is already newer than the cache\n or no data was found on cache server.",
   "Clear_estimation": "Clear estimation",
   "Search_zero_note": "Rechercher musiques a zero notes",
+  "Recheck_zero_note": "Relancer la verification zero note",
+  "Warning_ZeroNoteMismatch": "La base enregistre 0 note, mais des notes visibles existent",
   "Msg_conversion_stopped": "Convertion interrompute",
   "Pending": "En attente",
   "Msg_failed_play": "Failed to run the BMS player.",

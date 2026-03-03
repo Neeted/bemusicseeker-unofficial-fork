@@ -2268,6 +2268,18 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }).Logging("zeronoteFolderSelect");
     }
 
+    private void treeViewZeroNoteContextMenuItemRecheckClick(object sender, RoutedEventArgs e)
+    {
+        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
+        if (viewModel != null)
+        {
+            Task.Run(delegate
+            {
+                viewModel.RecheckZeroNoteWarnings();
+            }).Logging("treeViewZeroNoteContextMenuItemRecheckClick");
+        }
+    }
+
     private async void newlyInstalledFolderSelect(object sender, RoutedEventArgs e)
     {
         MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;

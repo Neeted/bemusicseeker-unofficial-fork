@@ -73,7 +73,8 @@ public class dataGridColumnsSettings : NotificationObject
         FULLSCAN,
         DUPLICATE,
         ENCODING,
-        INSTALL
+        INSTALL,
+        ZERO_NOTE
     }
 
     private dataGridColumnlayouts _Status;
@@ -823,28 +824,10 @@ public class dataGridColumnsSettings : NotificationObject
         switch (type)
         {
             case viewType.STANDARD:
-                Genre.Visibility = Visibility.Hidden;
-                Tag.Visibility = Visibility.Hidden;
-                Url1.Visibility = Visibility.Hidden;
-                Url2.Visibility = Visibility.Hidden;
-                Rate.Visibility = Visibility.Hidden;
-                RankingLastupdate.Visibility = Visibility.Hidden;
-                Score.Visibility = Visibility.Hidden;
-                Notes.Visibility = Visibility.Hidden;
-                Combo.Visibility = Visibility.Hidden;
-                Bp.Visibility = Visibility.Hidden;
-                TScore.Visibility = Visibility.Hidden;
-                ScoreDifficulty.Visibility = Visibility.Hidden;
-                Warning.Visibility = Visibility.Hidden;
-                Comment.Visibility = Visibility.Hidden;
-                Memo.Visibility = Visibility.Hidden;
-                Hash.Visibility = Visibility.Hidden;
-                Path.Visibility = Visibility.Hidden;
-                InstallDst.Visibility = Visibility.Hidden;
-                WavHealth.Visibility = Visibility.Hidden;
-                BgaHealth.Visibility = Visibility.Hidden;
-                MovieHealth.Visibility = Visibility.Hidden;
-                CharcterEncoding.Visibility = Visibility.Hidden;
+                ApplyStandardViewDefaults(showWarningColumn: false);
+                break;
+            case viewType.ZERO_NOTE:
+                ApplyStandardViewDefaults(showWarningColumn: true);
                 break;
             case viewType.PLAYLIST:
                 {
@@ -1062,5 +1045,31 @@ public class dataGridColumnsSettings : NotificationObject
                     break;
                 }
         }
+    }
+
+    private void ApplyStandardViewDefaults(bool showWarningColumn)
+    {
+        Genre.Visibility = Visibility.Hidden;
+        Tag.Visibility = Visibility.Hidden;
+        Url1.Visibility = Visibility.Hidden;
+        Url2.Visibility = Visibility.Hidden;
+        Rate.Visibility = Visibility.Hidden;
+        RankingLastupdate.Visibility = Visibility.Hidden;
+        Score.Visibility = Visibility.Hidden;
+        Notes.Visibility = Visibility.Hidden;
+        Combo.Visibility = Visibility.Hidden;
+        Bp.Visibility = Visibility.Hidden;
+        TScore.Visibility = Visibility.Hidden;
+        ScoreDifficulty.Visibility = Visibility.Hidden;
+        Warning.Visibility = showWarningColumn ? Visibility.Visible : Visibility.Hidden;
+        Comment.Visibility = Visibility.Hidden;
+        Memo.Visibility = Visibility.Hidden;
+        Hash.Visibility = Visibility.Hidden;
+        Path.Visibility = Visibility.Hidden;
+        InstallDst.Visibility = Visibility.Hidden;
+        WavHealth.Visibility = Visibility.Hidden;
+        BgaHealth.Visibility = Visibility.Hidden;
+        MovieHealth.Visibility = Visibility.Hidden;
+        CharcterEncoding.Visibility = Visibility.Hidden;
     }
 }

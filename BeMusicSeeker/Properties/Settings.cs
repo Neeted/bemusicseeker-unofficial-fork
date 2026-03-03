@@ -265,6 +265,20 @@ internal sealed class Settings : ApplicationSettingsBase
 
 	[UserScopedSetting]
 	[DebuggerNonUserCode]
+	public dataGridColumnsSettings ZeroNoteColumnsSettings
+	{
+		get
+		{
+			return (dataGridColumnsSettings)this["ZeroNoteColumnsSettings"];
+		}
+		set
+		{
+			this["ZeroNoteColumnsSettings"] = value;
+		}
+	}
+
+	[UserScopedSetting]
+	[DebuggerNonUserCode]
 	public dataGridColumnsSettings PlaylistColumnsSettings
 	{
 		get
@@ -1156,6 +1170,10 @@ internal sealed class Settings : ApplicationSettingsBase
 		if (((Settings)sender).StandardColumnsSettings == null)
 		{
 			((Settings)sender).StandardColumnsSettings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.STANDARD);
+		}
+		if (((Settings)sender).ZeroNoteColumnsSettings == null)
+		{
+			((Settings)sender).ZeroNoteColumnsSettings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.ZERO_NOTE);
 		}
 		if (((Settings)sender).PlaylistColumnsSettings == null)
 		{
