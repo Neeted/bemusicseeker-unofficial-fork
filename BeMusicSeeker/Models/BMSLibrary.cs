@@ -8,6 +8,7 @@ using System.IO;
 using System.Linq;
 using System.Net;
 using System.Security;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -38,6 +39,24 @@ public class BMSLibrary : NotificationObject
         public long RebuildMs { get; set; }
 
         public List<string> ParentFolders { get; set; }
+    }
+
+    private enum RenameInvalidExtensionAction
+    {
+        Renamed,
+        DeletedAsDuplicate,
+        Skipped
+    }
+
+    private sealed class RenameInvalidExtensionOutcome
+    {
+        public RenameInvalidExtensionAction Action { get; set; }
+
+        public string FinalPath { get; set; }
+
+        public Exception FailureException { get; set; }
+
+        public bool FailedDuringDelete { get; set; }
     }
 
     private static readonly Logger installPerformanceLogger = LogManager.GetLogger("InstallPerformance.BMSLibrary");
@@ -6181,6 +6200,128 @@ public class BMSLibrary : NotificationObject
         }
     }
 
+    private RenameInvalidExtensionOutcome ProcessInvalidExtensionRename(BMSFile sourceFile, string requestedPath, bool removeFromLibraryOnSuccess)
+    {
+        RenameInvalidExtensionOutcome renameInvalidExtensionOutcome = new RenameInvalidExtensionOutcome
+        {
+            Action = RenameInvalidExtensionAction.Skipped,
+            FinalPath = requestedPath
+        };
+        if (sourceFile == null || string.IsNullOrWhiteSpace(sourceFile.path) || string.IsNullOrWhiteSpace(requestedPath) || !File.Exists(sourceFile.path))
+        {
+            return renameInvalidExtensionOutcome;
+        }
+        string text = requestedPath;
+        if (Directory.Exists(requestedPath))
+        {
+            NLogWrapper.FileLogger?.Info("invalid_ext_rename collision_detected source=" + sourceFile.path + " requested=" + requestedPath + " existsType=directory removeOnSuccess=" + removeFromLibraryOnSuccess);
+            text = GetNonConflictingInvalidExtensionPath(requestedPath);
+            NLogWrapper.FileLogger?.Info("invalid_ext_rename renamed_with_suffix source=" + sourceFile.path + " requested=" + requestedPath + " resolved=" + text);
+        }
+        else if (File.Exists(requestedPath))
+        {
+            NLogWrapper.FileLogger?.Info("invalid_ext_rename collision_detected source=" + sourceFile.path + " requested=" + requestedPath + " existsType=file removeOnSuccess=" + removeFromLibraryOnSuccess);
+            string text2 = TryGetSourceHashForInvalidExtensionRename(sourceFile);
+            string text3 = TryComputeFileMd5ForInvalidExtensionRename(requestedPath);
+            if (!string.IsNullOrWhiteSpace(text2) && !string.IsNullOrWhiteSpace(text3) && text2.Equals(text3, StringComparison.OrdinalIgnoreCase))
+            {
+                try
+                {
+                    fileMutationService.DeleteFileDirect(sourceFile.path, targetOnlyFileMutationOptions);
+                    NLogWrapper.FileLogger?.Info("invalid_ext_rename duplicate_deleted source=" + sourceFile.path + " existing=" + requestedPath + " hash=" + text2);
+                    renameInvalidExtensionOutcome.Action = RenameInvalidExtensionAction.DeletedAsDuplicate;
+                    return renameInvalidExtensionOutcome;
+                }
+                catch (Exception ex)
+                {
+                    renameInvalidExtensionOutcome.FailureException = ex;
+                    renameInvalidExtensionOutcome.FailedDuringDelete = true;
+                    NLogWrapper.FileLogger?.Warn(ex, "invalid_ext_rename delete_failed source=" + sourceFile.path + " existing=" + requestedPath);
+                    return renameInvalidExtensionOutcome;
+                }
+            }
+            if (string.IsNullOrWhiteSpace(text2) || string.IsNullOrWhiteSpace(text3))
+            {
+                NLogWrapper.FileLogger?.Info("invalid_ext_rename hash_compare_unavailable source=" + sourceFile.path + " requested=" + requestedPath + " reason=" + (string.IsNullOrWhiteSpace(text2) ? "source_hash_unavailable" : "dest_hash_unavailable"));
+            }
+            text = GetNonConflictingInvalidExtensionPath(requestedPath);
+            NLogWrapper.FileLogger?.Info("invalid_ext_rename renamed_with_suffix source=" + sourceFile.path + " requested=" + requestedPath + " resolved=" + text);
+        }
+        try
+        {
+            fileMutationService.MoveFile(sourceFile.path, text, overwrite: false, targetOnlyFileMutationOptions);
+            renameInvalidExtensionOutcome.Action = RenameInvalidExtensionAction.Renamed;
+            renameInvalidExtensionOutcome.FinalPath = text;
+            return renameInvalidExtensionOutcome;
+        }
+        catch (Exception ex2)
+        {
+            renameInvalidExtensionOutcome.FailureException = ex2;
+            renameInvalidExtensionOutcome.FinalPath = text;
+            renameInvalidExtensionOutcome.FailedDuringDelete = false;
+            NLogWrapper.FileLogger?.Warn(ex2, "invalid_ext_rename move_failed source=" + sourceFile.path + " target=" + text);
+            return renameInvalidExtensionOutcome;
+        }
+    }
+
+    private string GetNonConflictingInvalidExtensionPath(string requestedPath)
+    {
+        if (string.IsNullOrWhiteSpace(requestedPath))
+        {
+            return requestedPath;
+        }
+        string directoryName = Path.GetDirectoryName(requestedPath);
+        string fileNameWithoutExtension = Path.GetFileNameWithoutExtension(requestedPath);
+        string extension = Path.GetExtension(requestedPath);
+        int num = 1;
+        string text = requestedPath;
+        while (File.Exists(text) || Directory.Exists(text))
+        {
+            string text2 = fileNameWithoutExtension + "(" + num + ")" + extension;
+            text = (string.IsNullOrWhiteSpace(directoryName) ? text2 : Path.Combine(directoryName, text2));
+            num++;
+        }
+        return text;
+    }
+
+    private string TryGetSourceHashForInvalidExtensionRename(BMSFile sourceFile)
+    {
+        if (!IsBMSHashAvailable(sourceFile))
+        {
+            return TryComputeFileMd5ForInvalidExtensionRename(sourceFile?.path);
+        }
+        return sourceFile.hash;
+    }
+
+    private string TryComputeFileMd5ForInvalidExtensionRename(string filePath)
+    {
+        if (string.IsNullOrWhiteSpace(filePath) || !File.Exists(filePath))
+        {
+            return null;
+        }
+        try
+        {
+            using MD5 mD = MD5.Create();
+            byte[] array;
+            using (FileStream inputStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read))
+            {
+                array = mD.ComputeHash(inputStream);
+            }
+            StringBuilder stringBuilder = new StringBuilder();
+            byte[] array2 = array;
+            foreach (byte b in array2)
+            {
+                stringBuilder.Append(b.ToString("x2"));
+            }
+            return stringBuilder.ToString();
+        }
+        catch (Exception ex) when (ex is DirectoryNotFoundException || ex is FileNotFoundException || ex is IOException || ex is PathTooLongException || ex is SecurityException || ex is UnauthorizedAccessException)
+        {
+            NLogWrapper.FileLogger?.Info(ex, "invalid_ext_rename hash_unavailable path=" + filePath);
+            return null;
+        }
+    }
+
     public void RenameBMSFilesExtensions(IEnumerable<BMSFile> bmsFiles, string newExt, bool? unregister = false)
     {
         using (rwlockBMSFilesInitializedMin.GetReaderGuard())
@@ -6188,22 +6329,74 @@ public class BMSLibrary : NotificationObject
             using (rwlockBMSFiles.GetWriterGuard())
             {
                 List<BMSFile> list = bmsFiles.ToList();
-                foreach (BMSFile item in list.Where((BMSFile f) => File.Exists(f.path)))
+                List<BMSFile> list2 = list.Where((BMSFile f) => f != null && File.Exists(f.path)).ToList();
+                List<BMSFile> list3 = new List<BMSFile>();
+                List<BMSFile> list4 = new List<BMSFile>();
+                bool flag = false;
+                int num = 0;
+                int num2 = 0;
+                int num3 = 0;
+                foreach (BMSFile item in list2)
                 {
                     string text = Path.Combine(Path.GetDirectoryName(item.path), Path.GetFileNameWithoutExtension(item.path) + newExt);
-                    if (File.Exists(text) || Directory.Exists(text))
+                    RenameInvalidExtensionOutcome renameInvalidExtensionOutcome = ProcessInvalidExtensionRename(item, text, unregister == true);
+                    switch (renameInvalidExtensionOutcome.Action)
                     {
-                        DispatcherMessageBox.Show(string.Format(Resources.Warn_RenameDestAlreadyExists, item.path, text), Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
-                    }
-                    else
-                    {
-                        MoveBMSFile(item, text, (unregister == false) ? new bool?(false) : ((bool?)null));
+                        case RenameInvalidExtensionAction.Renamed:
+                            num++;
+                            if (unregister == false)
+                            {
+                                replaceBMSFilePath(item, renameInvalidExtensionOutcome.FinalPath);
+                                flag = true;
+                            }
+                            else
+                            {
+                                list3.Add(item);
+                            }
+                            break;
+                        case RenameInvalidExtensionAction.DeletedAsDuplicate:
+                            num2++;
+                            if (unregister == false)
+                            {
+                                list4.Add(item);
+                            }
+                            else
+                            {
+                                list3.Add(item);
+                            }
+                            break;
+                        default:
+                            num3++;
+                            if (renameInvalidExtensionOutcome.FailureException != null)
+                            {
+                                if (renameInvalidExtensionOutcome.FailedDuringDelete)
+                                {
+                                    DispatcherMessageBox.Show(string.Format(Resources.Error_BmsFileDeleteFailed, item.path, GetDisplayedExceptionMessage(renameInvalidExtensionOutcome.FailureException)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+                                }
+                                else
+                                {
+                                    DispatcherMessageBox.Show(string.Format(Resources.Error_BmsFileMoveFailed, item.path, renameInvalidExtensionOutcome.FinalPath, GetDisplayedExceptionMessage(renameInvalidExtensionOutcome.FailureException)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+                                }
+                            }
+                            break;
                     }
                 }
                 if (unregister == true)
                 {
-                    unregisterBMSFiles(list);
+                    unregisterBMSFiles(list3);
                 }
+                else
+                {
+                    if (list4.Count > 0)
+                    {
+                        unregisterBMSFiles(list4);
+                    }
+                    if (flag)
+                    {
+                        RaisePropertyChanged(() => BMSFiles);
+                    }
+                }
+                NLogWrapper.FileLogger?.Info("invalid_ext_rename summary scope=normal total=" + list2.Count + " renamed=" + num + " deleted=" + num2 + " skipped=" + num3);
             }
         }
     }
@@ -6220,26 +6413,43 @@ public class BMSLibrary : NotificationObject
             {
                 using (rwlockSongDBInstall.GetWriterGuard())
                 {
-                    List<BMSFile> renamedFiles = new List<BMSFile>();
-                    foreach (BMSFile item in bmsFiles.Where((BMSFile f) => f != null && File.Exists(f.path)).ToList())
+                    List<BMSFile> list = bmsFiles.Where((BMSFile f) => f != null && File.Exists(f.path)).ToList();
+                    List<BMSFile> list2 = new List<BMSFile>();
+                    int num = 0;
+                    int num2 = 0;
+                    int num3 = 0;
+                    foreach (BMSFile item in list)
                     {
                         string text = Path.Combine(Path.GetDirectoryName(item.path), Path.GetFileNameWithoutExtension(item.path) + newExt);
-                        if (File.Exists(text) || Directory.Exists(text))
+                        RenameInvalidExtensionOutcome renameInvalidExtensionOutcome = ProcessInvalidExtensionRename(item, text, removeFromLibraryOnSuccess: false);
+                        switch (renameInvalidExtensionOutcome.Action)
                         {
-                            DispatcherMessageBox.Show(string.Format(Resources.Warn_RenameDestAlreadyExists, item.path, text), Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
-                            continue;
-                        }
-                        try
-                        {
-                            fileMutationService.MoveFile(item.path, text, overwrite: false, targetOnlyFileMutationOptions);
-                            renamedFiles.Add(item);
-                        }
-                        catch (Exception moveException)
-                        {
-                            DispatcherMessageBox.Show(string.Format(Resources.Error_BmsFileMoveFailed, item.path, text, GetDisplayedExceptionMessage(moveException)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+                            case RenameInvalidExtensionAction.Renamed:
+                                num++;
+                                list2.Add(item);
+                                break;
+                            case RenameInvalidExtensionAction.DeletedAsDuplicate:
+                                num2++;
+                                list2.Add(item);
+                                break;
+                            default:
+                                num3++;
+                                if (renameInvalidExtensionOutcome.FailureException != null)
+                                {
+                                    if (renameInvalidExtensionOutcome.FailedDuringDelete)
+                                    {
+                                        DispatcherMessageBox.Show(string.Format(Resources.Error_BmsFileDeleteFailed, item.path, GetDisplayedExceptionMessage(renameInvalidExtensionOutcome.FailureException)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+                                    }
+                                    else
+                                    {
+                                        DispatcherMessageBox.Show(string.Format(Resources.Error_BmsFileMoveFailed, item.path, renameInvalidExtensionOutcome.FinalPath, GetDisplayedExceptionMessage(renameInvalidExtensionOutcome.FailureException)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+                                    }
+                                }
+                                break;
                         }
                     }
-                    RemovePendingFilesFromPendingPackagesAndInstallRows(renamedFiles);
+                    RemovePendingFilesFromPendingPackagesAndInstallRows(list2);
+                    NLogWrapper.FileLogger?.Info("invalid_ext_rename summary scope=pending total=" + list.Count + " renamed=" + num + " deleted=" + num2 + " skipped=" + num3);
                 }
             }
         }
