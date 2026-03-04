@@ -2052,6 +2052,20 @@ public class BMSLibrary : NotificationObject
         return IsBMSHashAvailable(bmsFile.hash);
     }
 
+    private bool IsPendingPackageContainingOnlyInstalledCharts(BMSPackage package)
+    {
+        if (package == null)
+        {
+            return false;
+        }
+        List<BMSFile> list = package.BMSFiles.Where((BMSFile bmsFile) => bmsFile != null).ToList();
+        if (list.Count == 0)
+        {
+            return false;
+        }
+        return list.All((BMSFile file) => IsBMSHashAvailable(file.hash) && ContainsBMSHashUnsafe(file.hash));
+    }
+
     private void InvalidateBMSHashIndex()
     {
         lock (lockBMSHashIndex)
@@ -5219,6 +5233,98 @@ public class BMSLibrary : NotificationObject
         }
     }
 
+    private sealed class PendingPackageMutationDelta
+    {
+        public bool HasChanges { get; set; }
+
+        public List<BMSPackage> RemainingPackages { get; set; } = new List<BMSPackage>();
+
+        public List<string> InstallPathsToDelete { get; set; } = new List<string>();
+    }
+
+    private PendingPackageMutationDelta BuildPendingPackageMutationDelta(IEnumerable<BMSPackage> packagesToRemove = null, IEnumerable<BMSFile> filesToRemove = null, bool clearAll = false)
+    {
+        List<BMSPackage> list = BMSPackagesPending.Where((BMSPackage pkg) => pkg != null).ToList();
+        PendingPackageMutationDelta pendingPackageMutationDelta = new PendingPackageMutationDelta();
+        if (clearAll)
+        {
+            pendingPackageMutationDelta.HasChanges = list.Count > 0;
+            pendingPackageMutationDelta.InstallPathsToDelete = list.Where((BMSPackage pkg) => !string.IsNullOrWhiteSpace(pkg.path)).Select((BMSPackage pkg) => pkg.path).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            return pendingPackageMutationDelta;
+        }
+        HashSet<BMSPackage> hashSet = new HashSet<BMSPackage>((packagesToRemove ?? Enumerable.Empty<BMSPackage>()).Where((BMSPackage pkg) => pkg != null));
+        HashSet<string> hashSet2 = new HashSet<string>((packagesToRemove ?? Enumerable.Empty<BMSPackage>()).Where((BMSPackage pkg) => pkg != null && !string.IsNullOrWhiteSpace(pkg.path)).Select((BMSPackage pkg) => pkg.path), StringComparer.OrdinalIgnoreCase);
+        List<BMSFile> list2 = (filesToRemove ?? Enumerable.Empty<BMSFile>()).Where((BMSFile f) => f != null).ToList();
+        HashSet<string> removedPaths = new HashSet<string>(list2.Where((BMSFile f) => !string.IsNullOrWhiteSpace(f.path)).Select((BMSFile f) => f.path), StringComparer.OrdinalIgnoreCase);
+        HashSet<BMSFile> removedFiles = new HashSet<BMSFile>(list2);
+        bool flag = list2.Count > 0;
+        HashSet<string> hashSet3 = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (BMSPackage item in list)
+        {
+            if (hashSet.Contains(item) || (!string.IsNullOrWhiteSpace(item.path) && hashSet2.Contains(item.path)))
+            {
+                pendingPackageMutationDelta.HasChanges = true;
+                if (!string.IsNullOrWhiteSpace(item.path))
+                {
+                    hashSet3.Add(item.path);
+                }
+                continue;
+            }
+            if (!flag)
+            {
+                pendingPackageMutationDelta.RemainingPackages.Add(item);
+                continue;
+            }
+            List<BMSFile> list3 = item.BMSFiles.Where((BMSFile f) => f != null).ToList();
+            if (list3.Count == 0)
+            {
+                pendingPackageMutationDelta.RemainingPackages.Add(item);
+                continue;
+            }
+            List<BMSFile> list4 = list3.Where((BMSFile f) => !IsMatchedRemovedFile(f, removedPaths, removedFiles)).ToList();
+            if (list4.Count == list3.Count)
+            {
+                pendingPackageMutationDelta.RemainingPackages.Add(item);
+                continue;
+            }
+            pendingPackageMutationDelta.HasChanges = true;
+            if (list4.Count == 0)
+            {
+                if (!string.IsNullOrWhiteSpace(item.path))
+                {
+                    hashSet3.Add(item.path);
+                }
+                continue;
+            }
+            item.BMSFiles.Clear();
+            item.BMSFiles.AddRange(list4);
+            pendingPackageMutationDelta.RemainingPackages.Add(item);
+        }
+        pendingPackageMutationDelta.InstallPathsToDelete = hashSet3.ToList();
+        return pendingPackageMutationDelta;
+    }
+
+    private void ApplyPendingPackageMutationDelta(PendingPackageMutationDelta delta)
+    {
+        if (delta == null || !delta.HasChanges)
+        {
+            return;
+        }
+        BMSPackagesPending = new DispatcherCollection<BMSPackage>(new ObservableCollection<BMSPackage>(delta.RemainingPackages ?? new List<BMSPackage>()), DispatcherHelper.UIDispatcher);
+        List<string> list = (delta.InstallPathsToDelete ?? new List<string>()).Where((string path) => !string.IsNullOrWhiteSpace(path)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        if (list.Count == 0)
+        {
+            return;
+        }
+        using LR2SongDBExtended lR2SongDBExtended = new LR2SongDBExtended(lr2SongDBPath);
+        lR2SongDBExtended.BeginTransaction();
+        foreach (string item in list)
+        {
+            lR2SongDBExtended.Delete<LR2SongDBExtended.install>(item);
+        }
+        lR2SongDBExtended.Commit();
+    }
+
     public void RemoveBMSPackagesPending(IEnumerable<BMSPackage> packages)
     {
         using (rwlockBMSFilesInitializedAll.GetReaderGuard())
@@ -5227,18 +5333,7 @@ public class BMSLibrary : NotificationObject
             {
                 using (rwlockSongDBInstall.GetWriterGuard())
                 {
-                    List<BMSPackage> list = BMSPackagesPending.Remove(packages);
-                    if (list.Count == 0)
-                    {
-                        return;
-                    }
-                    using LR2SongDBExtended lR2SongDBExtended = new LR2SongDBExtended(lr2SongDBPath);
-                    lR2SongDBExtended.BeginTransaction();
-                    foreach (BMSPackage item in list)
-                    {
-                        lR2SongDBExtended.Delete<LR2SongDBExtended.install>(item.path);
-                    }
-                    lR2SongDBExtended.Commit();
+                    RemovePendingPackagesFromPendingListAndInstallRows(packages);
                 }
             }
         }
@@ -5266,14 +5361,146 @@ public class BMSLibrary : NotificationObject
             {
                 using (rwlockSongDBInstall.GetWriterGuard())
                 {
-                    BMSPackagesPending.Clear();
-                    using LR2SongDBExtended lR2SongDBExtended = new LR2SongDBExtended(lr2SongDBPath);
-                    lR2SongDBExtended.BeginTransaction();
-                    lR2SongDBExtended.DeleteAll<LR2SongDBExtended.install>();
-                    lR2SongDBExtended.Commit();
+                    ApplyPendingPackageMutationDelta(BuildPendingPackageMutationDelta(clearAll: true));
                 }
             }
         }
+    }
+
+    public List<BMSPackage> GetPendingPackagesContainingOnlyInstalledCharts()
+    {
+        using (rwlockBMSFilesInitializedAll.GetReaderGuard())
+        {
+            using (rwlockBMSFilesPendingInstall.GetReaderGuard())
+            {
+                List<BMSPackage> list = BMSPackagesPending.Where((BMSPackage pkg) => IsPendingPackageContainingOnlyInstalledCharts(pkg)).ToList();
+                NLogWrapper.FileLogger?.Info("advanced_pending_cleanup scan pendingTotal=" + BMSPackagesPending.Count + " eligible=" + list.Count);
+                return list;
+            }
+        }
+    }
+
+    public void DeletePendingPackageSources(IEnumerable<BMSPackage> packages, bool sendToRecycleBin = true, CancellationToken token = default(CancellationToken), Action onEachProcessed = null)
+    {
+        if (packages == null)
+        {
+            throw new ArgumentNullException("packages");
+        }
+        using (rwlockBMSFilesInitializedAll.GetReaderGuard())
+        {
+            using (rwlockBMSFilesPendingInstall.GetWriterGuard())
+            {
+                using (rwlockSongDBInstall.GetWriterGuard())
+                {
+                    List<BMSPackage> list = new List<BMSPackage>();
+                    HashSet<string> hashSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    HashSet<BMSPackage> hashSet2 = new HashSet<BMSPackage>();
+                    foreach (BMSPackage item in packages.Where((BMSPackage pkg) => pkg != null))
+                    {
+                        if (!string.IsNullOrWhiteSpace(item.path))
+                        {
+                            if (!hashSet.Add(item.path))
+                            {
+                                continue;
+                            }
+                        }
+                        else if (!hashSet2.Add(item))
+                        {
+                            continue;
+                        }
+                        list.Add(item);
+                    }
+                    List<BMSPackage> list2 = BMSPackagesPending.Where((BMSPackage pkg) => pkg != null).ToList();
+                    List<BMSPackage> list3 = new List<BMSPackage>();
+                    int num = 0;
+                    int num2 = 0;
+                    int num3 = 0;
+                    int num4 = 0;
+                    bool flag = false;
+                    bool flag2 = !sendToRecycleBin;
+                    RecycleOption recycleOption = sendToRecycleBin ? RecycleOption.SendToRecycleBin : RecycleOption.DeletePermanently;
+                    NLogWrapper.FileLogger?.Info("advanced_pending_cleanup start requested=" + list.Count + " permanent=" + flag2);
+                    foreach (BMSPackage requestedPackage in list)
+                    {
+                        if (token.IsCancellationRequested)
+                        {
+                            flag = true;
+                            break;
+                        }
+                        BMSPackage bMSPackage = list2.FirstOrDefault((BMSPackage pkg) => ReferenceEquals(pkg, requestedPackage) || (!string.IsNullOrWhiteSpace(pkg.path) && !string.IsNullOrWhiteSpace(requestedPackage.path) && pkg.path.Equals(requestedPackage.path, StringComparison.OrdinalIgnoreCase)));
+                        if (bMSPackage == null)
+                        {
+                            num4++;
+                            num++;
+                            NLogWrapper.FileLogger?.Info("advanced_pending_cleanup skipped_not_pending path=" + requestedPackage.path);
+                            onEachProcessed?.Invoke();
+                            continue;
+                        }
+                        bool flag3 = Directory.Exists(bMSPackage.path);
+                        bool flag4 = !flag3 && File.Exists(bMSPackage.path);
+                        try
+                        {
+                            if (flag3)
+                            {
+                                if (sendToRecycleBin)
+                                {
+                                    fileMutationService.DeleteDirectoryShell(bMSPackage.path, UIOption.OnlyErrorDialogs, recycleOption, recursiveDirectoryTreeFileMutationOptions);
+                                }
+                                else
+                                {
+                                    fileMutationService.DeleteDirectoryDirect(bMSPackage.path, recursive: true, recursiveDirectoryTreeFileMutationOptions);
+                                }
+                                list3.Add(bMSPackage);
+                                num2++;
+                                NLogWrapper.FileLogger?.Info("advanced_pending_cleanup deleted path=" + bMSPackage.path + " kind=directory");
+                            }
+                            else if (flag4)
+                            {
+                                if (sendToRecycleBin)
+                                {
+                                    fileMutationService.DeleteFileShell(bMSPackage.path, UIOption.OnlyErrorDialogs, recycleOption, targetOnlyFileMutationOptions);
+                                }
+                                else
+                                {
+                                    fileMutationService.DeleteFileDirect(bMSPackage.path, targetOnlyFileMutationOptions);
+                                }
+                                list3.Add(bMSPackage);
+                                num2++;
+                                NLogWrapper.FileLogger?.Info("advanced_pending_cleanup deleted path=" + bMSPackage.path + " kind=file");
+                            }
+                            else
+                            {
+                                list3.Add(bMSPackage);
+                                num2++;
+                                NLogWrapper.FileLogger?.Info("advanced_pending_cleanup missing_source_removed path=" + bMSPackage.path);
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            num3++;
+                            NLogWrapper.FileLogger?.Warn(ex, "advanced_pending_cleanup failed path=" + bMSPackage.path + " kind=" + (flag3 ? "directory" : "file") + " error=" + GetDisplayedExceptionMessage(ex));
+                            if (flag3)
+                            {
+                                DispatcherMessageBox.Show(string.Format(Resources.Error_FolderOrTrashDeleteFailed, bMSPackage.path, GetDisplayedExceptionMessage(ex)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+                            }
+                            else
+                            {
+                                DispatcherMessageBox.Show(string.Format(Resources.Error_BmsFileDeleteFailed, bMSPackage.path, GetDisplayedExceptionMessage(ex)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+                            }
+                        }
+                        num++;
+                        onEachProcessed?.Invoke();
+                    }
+                    RemovePendingPackagesFromPendingListAndInstallRows(list3);
+                    NLogWrapper.FileLogger?.Info("advanced_pending_cleanup summary requested=" + list.Count + " processed=" + num + " removed=" + num2 + " failed=" + num3 + " skipped=" + num4 + " canceled=" + flag);
+                }
+            }
+        }
+    }
+
+    private void RemovePendingPackagesFromPendingListAndInstallRows(IEnumerable<BMSPackage> packages)
+    {
+        ApplyPendingPackageMutationDelta(BuildPendingPackageMutationDelta(packagesToRemove: packages));
     }
 
     public void SearchCorrectInstallationDirectory(IEnumerable<BMSFile> bmsFiles)
@@ -6615,39 +6842,7 @@ public class BMSLibrary : NotificationObject
         {
             return;
         }
-        HashSet<string> removedPaths = new HashSet<string>(list.Where((BMSFile f) => !string.IsNullOrWhiteSpace(f.path)).Select((BMSFile f) => f.path), StringComparer.OrdinalIgnoreCase);
-        HashSet<BMSFile> removedFiles = new HashSet<BMSFile>(list);
-        bool changed = false;
-        List<BMSPackage> list2 = new List<BMSPackage>();
-        foreach (BMSPackage item in BMSPackagesPending.Where((BMSPackage pkg) => pkg != null).ToList())
-        {
-            int count = item.BMSFiles.Count;
-            item.BMSFiles.RemoveAll((BMSFile f) => IsMatchedRemovedFile(f, removedPaths, removedFiles));
-            if (item.BMSFiles.Count != count)
-            {
-                changed = true;
-                if (item.BMSFiles.Count == 0)
-                {
-                    list2.Add(item);
-                }
-            }
-        }
-        if (list2.Count > 0)
-        {
-            changed = true;
-            BMSPackagesPending.Remove(list2);
-            using LR2SongDBExtended lR2SongDBExtended = new LR2SongDBExtended(lr2SongDBPath);
-            lR2SongDBExtended.BeginTransaction();
-            foreach (BMSPackage item2 in list2)
-            {
-                lR2SongDBExtended.Delete<LR2SongDBExtended.install>(item2.path);
-            }
-            lR2SongDBExtended.Commit();
-        }
-        if (changed)
-        {
-            RaisePropertyChanged(() => BMSPackagesPending);
-        }
+        ApplyPendingPackageMutationDelta(BuildPendingPackageMutationDelta(filesToRemove: list));
     }
 
     private void unregisterBMSFiles(List<BMSFile> bmsFiles)

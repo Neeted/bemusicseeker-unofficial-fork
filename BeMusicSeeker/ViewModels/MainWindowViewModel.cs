@@ -3912,6 +3912,132 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
+    private void RunPendingInstallMutation(Action action, IEnumerable<BeMusicSeeker.Models.BMSFile> playbackTargets = null, UiRefreshChannel extraMask = UiRefreshChannel.None)
+    {
+        if (action == null)
+        {
+            throw new ArgumentNullException("action");
+        }
+        if (files == null)
+        {
+            return;
+        }
+        UiRefreshChannel mask = UiRefreshChannel.LibraryMainView | UiRefreshChannel.InstallTree | extraMask;
+        lock (lockCopyFile)
+        {
+            if (playbackTargets != null)
+            {
+                stopPlayingBMSFile(playbackTargets);
+            }
+            BeginUiUpdateSuppression(mask);
+            try
+            {
+                action();
+            }
+            finally
+            {
+                EndUiUpdateSuppression();
+            }
+        }
+    }
+
+    private T RunPendingInstallMutation<T>(Func<T> func, IEnumerable<BeMusicSeeker.Models.BMSFile> playbackTargets = null, UiRefreshChannel extraMask = UiRefreshChannel.None)
+    {
+        if (func == null)
+        {
+            throw new ArgumentNullException("func");
+        }
+        if (files == null)
+        {
+            return default(T);
+        }
+        UiRefreshChannel mask = UiRefreshChannel.LibraryMainView | UiRefreshChannel.InstallTree | extraMask;
+        lock (lockCopyFile)
+        {
+            if (playbackTargets != null)
+            {
+                stopPlayingBMSFile(playbackTargets);
+            }
+            BeginUiUpdateSuppression(mask);
+            try
+            {
+                return func();
+            }
+            finally
+            {
+                EndUiUpdateSuppression();
+            }
+        }
+    }
+
+    private void HandleBMSPackagesInstalledCollectionChanged()
+    {
+        if (treeViewFilterTypeSelected == viewUpdateMode.NewlyInstalledFolderSelected)
+        {
+            if (!TrySuppress(UiRefreshChannel.LibraryMainView))
+            {
+                makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
+            }
+        }
+        if (TrySuppress(UiRefreshChannel.InstallTree))
+        {
+            return;
+        }
+        RaisePropertyChanged(() => BMSPackagesInstalled);
+    }
+
+    private void HandleBMSPackagesPendingCollectionChanged()
+    {
+        if (treeViewFilterTypeSelected == viewUpdateMode.PendingInstallFolderSelected)
+        {
+            if (!TrySuppress(UiRefreshChannel.LibraryMainView))
+            {
+                makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
+            }
+        }
+        if (TrySuppress(UiRefreshChannel.InstallTree))
+        {
+            return;
+        }
+        RaisePropertyChanged(() => BMSPackagesPending);
+    }
+
+    private void RebindBMSPackagesInstalledCollectionListener()
+    {
+        if (listenerForBMSLibraryBMSPackagesInstalledCollection is IDisposable disposable)
+        {
+            disposable.Dispose();
+        }
+        if (files == null || files.BMSPackagesInstalled == null)
+        {
+            listenerForBMSLibraryBMSPackagesInstalledCollection = null;
+            return;
+        }
+        listenerForBMSLibraryBMSPackagesInstalledCollection = new CollectionChangedEventListener(files.BMSPackagesInstalled);
+        listenerForBMSLibraryBMSPackagesInstalledCollection.RegisterHandler(delegate
+        {
+            HandleBMSPackagesInstalledCollectionChanged();
+        });
+    }
+
+    private void RebindBMSPackagesPendingCollectionListener()
+    {
+        if (listenerForBMSLibraryBMSPackagesPendingCollection is IDisposable disposable)
+        {
+            disposable.Dispose();
+        }
+        if (files == null || files.BMSPackagesPending == null)
+        {
+            listenerForBMSLibraryBMSPackagesPendingCollection = null;
+            return;
+        }
+        listenerForBMSLibraryBMSPackagesPendingCollection = new CollectionChangedEventListener(files.BMSPackagesPending);
+        listenerForBMSLibraryBMSPackagesPendingCollection.RegisterHandler(delegate
+        {
+            HandleBMSPackagesPendingCollectionChanged();
+        });
+    }
+
     private void ScheduleDeferredPlaylistReferenceApply(string reason)
     {
         int version = 0;
@@ -5241,8 +5367,6 @@ public class MainWindowViewModel : ViewModel
         }
         ColumnsSettingsBMSFilesView = Settings.Default.StandardColumnsSettings;
         listenerForBMSLibrary = new PropertyChangedEventListener(files);
-        listenerForBMSLibraryBMSPackagesPendingCollection = new CollectionChangedEventListener(files.BMSPackagesPending);
-        listenerForBMSLibraryBMSPackagesInstalledCollection = new CollectionChangedEventListener(files.BMSPackagesInstalled);
         listenerForBMSPlaylist = new PropertyChangedEventListener(tables);
         listenerForBMSPlaylistBMSTablesCollection = new CollectionChangedEventListener(tables.BMSTables);
         listenerForBMSLibrary.RegisterHandler(() => files.BMSFiles, delegate
@@ -5346,64 +5470,16 @@ public class MainWindowViewModel : ViewModel
         });
         listenerForBMSLibrary.RegisterHandler(() => files.BMSPackagesInstalled, delegate
         {
-            if (treeViewFilterTypeSelected == viewUpdateMode.NewlyInstalledFolderSelected)
-            {
-                if (!TrySuppress(UiRefreshChannel.LibraryMainView))
-                {
-                    makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
-                }
-            }
-            if (TrySuppress(UiRefreshChannel.InstallTree))
-            {
-                return;
-            }
-            RaisePropertyChanged(() => BMSPackagesInstalled);
+            RebindBMSPackagesInstalledCollectionListener();
+            HandleBMSPackagesInstalledCollectionChanged();
         });
         listenerForBMSLibrary.RegisterHandler(() => files.BMSPackagesPending, delegate
         {
-            if (treeViewFilterTypeSelected == viewUpdateMode.PendingInstallFolderSelected)
-            {
-                if (!TrySuppress(UiRefreshChannel.LibraryMainView))
-                {
-                    makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
-                }
-            }
-            if (TrySuppress(UiRefreshChannel.InstallTree))
-            {
-                return;
-            }
-            RaisePropertyChanged(() => BMSPackagesPending);
+            RebindBMSPackagesPendingCollectionListener();
+            HandleBMSPackagesPendingCollectionChanged();
         });
-        listenerForBMSLibraryBMSPackagesInstalledCollection.RegisterHandler(delegate
-        {
-            if (treeViewFilterTypeSelected == viewUpdateMode.NewlyInstalledFolderSelected)
-            {
-                if (!TrySuppress(UiRefreshChannel.LibraryMainView))
-                {
-                    makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
-                }
-            }
-            if (TrySuppress(UiRefreshChannel.InstallTree))
-            {
-                return;
-            }
-            RaisePropertyChanged(() => BMSPackagesInstalled);
-        });
-        listenerForBMSLibraryBMSPackagesPendingCollection.RegisterHandler(delegate
-        {
-            if (treeViewFilterTypeSelected == viewUpdateMode.PendingInstallFolderSelected)
-            {
-                if (!TrySuppress(UiRefreshChannel.LibraryMainView))
-                {
-                    makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
-                }
-            }
-            if (TrySuppress(UiRefreshChannel.InstallTree))
-            {
-                return;
-            }
-            RaisePropertyChanged(() => BMSPackagesPending);
-        });
+        RebindBMSPackagesInstalledCollectionListener();
+        RebindBMSPackagesPendingCollectionListener();
         listenerForBMSLibrary.RegisterHandler(() => files.BMSParentFolderList, delegate
         {
             if (TrySuppress(UiRefreshChannel.LibraryFolderTree))
@@ -6970,23 +7046,18 @@ public class MainWindowViewModel : ViewModel
 
     public void ForceInstallBMSFiles(IEnumerable<BMSPackage> packages)
     {
-        if (files == null)
-        {
-            return;
-        }
         if (packages == null)
         {
             throw new ArgumentNullException("packages");
         }
         List<BMSPackage> list = packages.Where((BMSPackage pkg) => pkg != null).ToList();
-        lock (lockCopyFile)
+        RunPendingInstallMutation(delegate
         {
-            stopPlayingBMSFile(packages.SelectMany((BMSPackage p) => p.BMSFiles));
             for (int num = 0; num < list.Count; num++)
             {
                 files.InstallBMSPackageForce(list[num]);
             }
-        }
+        }, list.SelectMany((BMSPackage p) => p.BMSFiles), UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.DuplicateTree);
     }
 
     public void ForceInstallBMSFiles(IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles)
@@ -7001,28 +7072,15 @@ public class MainWindowViewModel : ViewModel
 
     public void ManualInstallBMSFiles(IEnumerable<BMSPackage> packages)
     {
-        if (files == null)
-        {
-            return;
-        }
         if (packages == null)
         {
             throw new ArgumentNullException("packages");
         }
         List<BMSPackage> list = packages.Where((BMSPackage pkg) => pkg != null).ToList();
-        lock (lockCopyFile)
+        RunPendingInstallMutation(delegate
         {
-            BeginUiUpdateSuppression(UiRefreshChannel.LibraryMainView | UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.InstallTree | UiRefreshChannel.DuplicateTree);
-            try
-            {
-                stopPlayingBMSFile(packages.SelectMany((BMSPackage p) => p.BMSFiles));
-                files.InstallBMSPackagesToEstimatedDir(list);
-            }
-            finally
-            {
-                EndUiUpdateSuppression();
-            }
-        }
+            files.InstallBMSPackagesToEstimatedDir(list);
+        }, list.SelectMany((BMSPackage p) => p.BMSFiles), UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.DuplicateTree);
     }
 
     private void SetPlaylistSummaryMode(bool enabled)
@@ -7305,22 +7363,22 @@ public class MainWindowViewModel : ViewModel
 
     public void RemoveBMSPackagesPendingAll()
     {
-        if (files != null)
+        RunPendingInstallMutation(delegate
         {
             files.RemoveBMSPackagesPendingAll();
-        }
+        });
     }
 
     public void RemoveBMSPackagesPending(IEnumerable<BMSPackage> packages)
     {
-        if (files != null)
+        if (packages == null)
         {
-            if (packages == null)
-            {
-                throw new ArgumentNullException("packages");
-            }
-            files.RemoveBMSPackagesPending(packages);
+            throw new ArgumentNullException("packages");
         }
+        RunPendingInstallMutation(delegate
+        {
+            files.RemoveBMSPackagesPending(packages);
+        });
     }
 
     public void RemoveBMSPackagesPending(IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles)
@@ -7332,6 +7390,30 @@ public class MainWindowViewModel : ViewModel
         List<BeMusicSeeker.Models.BMSFile> bmsFiles2 = bmsFiles.Where((BeMusicSeeker.Models.BMSFile f) => f != null).ToList();
         List<BMSPackage> bMSPackages = getBMSPackages(ref bmsFiles2);
         RemoveBMSPackagesPending(bMSPackages);
+    }
+
+    public List<BMSPackage> GetPendingPackagesContainingOnlyInstalledCharts()
+    {
+        if (files == null)
+        {
+            return new List<BMSPackage>();
+        }
+        lock (lockCopyFile)
+        {
+            return files.GetPendingPackagesContainingOnlyInstalledCharts();
+        }
+    }
+
+    public void DeletePendingPackageSources(IEnumerable<BMSPackage> packages, bool sendToRecycleBin = true, CancellationToken token = default(CancellationToken), Action onEachProcessed = null)
+    {
+        if (packages == null)
+        {
+            throw new ArgumentNullException("packages");
+        }
+        RunPendingInstallMutation(delegate
+        {
+            files.DeletePendingPackageSources(packages, sendToRecycleBin, token, onEachProcessed);
+        });
     }
 
     public void RemoveBMSPackagesInstalledAll()
@@ -7822,11 +7904,10 @@ public class MainWindowViewModel : ViewModel
 
     public void RemovePendingBMSFiles(IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles, bool sendToRecycleBin = true, bool deleteContainingPackageFoldersWhenNoBms = false)
     {
-        lock (lockCopyFile)
+        RunPendingInstallMutation(delegate
         {
-            stopPlayingBMSFile(bmsFiles);
             files.RemovePendingBMSFiles(bmsFiles, sendToRecycleBin, deleteContainingPackageFoldersWhenNoBms);
-        }
+        }, bmsFiles);
     }
 
     public void RecheckZeroNoteWarnings()
@@ -7852,11 +7933,10 @@ public class MainWindowViewModel : ViewModel
 
     public void RenamePendingBMSFilesExtensions(IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles, string newExt)
     {
-        lock (lockCopyFile)
+        RunPendingInstallMutation(delegate
         {
-            stopPlayingBMSFile(bmsFiles);
             files.RenamePendingBMSFilesExtensions(bmsFiles, newExt);
-        }
+        }, bmsFiles);
     }
 
     public void RenameBMSFolder(BeMusicSeeker.Models.BMSFile bmsFile, string newFolder)
