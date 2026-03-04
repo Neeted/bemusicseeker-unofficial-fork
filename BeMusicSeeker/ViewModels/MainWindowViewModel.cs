@@ -7053,10 +7053,7 @@ public class MainWindowViewModel : ViewModel
         List<BMSPackage> list = packages.Where((BMSPackage pkg) => pkg != null).ToList();
         RunPendingInstallMutation(delegate
         {
-            for (int num = 0; num < list.Count; num++)
-            {
-                files.InstallBMSPackageForce(list[num]);
-            }
+            files.InstallBMSPackagesForce(list);
         }, list.SelectMany((BMSPackage p) => p.BMSFiles), UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.DuplicateTree);
     }
 

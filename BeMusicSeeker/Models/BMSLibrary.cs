@@ -4824,8 +4824,12 @@ public class BMSLibrary : NotificationObject
         LogInstallPerformance("estimated_merge_done resolved=" + num + " targets=" + list.Count);
     }
 
-    public void InstallBMSPackageForce(BMSPackage package)
+    public void InstallBMSPackagesForce(IEnumerable<BMSPackage> packages)
     {
+        if (packages == null)
+        {
+            throw new ArgumentNullException("packages");
+        }
         using (rwlockBMSFilesInitializedAll.GetReaderGuard())
         {
             using (rwlockBMSFilesPendingInstall.GetWriterGuard())
@@ -4834,34 +4838,109 @@ public class BMSLibrary : NotificationObject
                 {
                     using (rwlockSongDBInstall.GetWriterGuard())
                     {
-                        if (!BMSPackagesPending.Contains(package) || BMSFiles == null)
+                        if (BMSFiles == null)
                         {
                             return;
                         }
-                        List<BMSFile> bMSFiles = package.BMSFiles;
-                        if (bMSFiles.Any((BMSFile bmsInfo) => !string.IsNullOrWhiteSpace(bmsInfo.instl_dst)) && MessageBox.Show(Resources.Confirm_NormalInstallOverride, Resources.Confirm_NormalInstallTitle, MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.Yes) == MessageBoxResult.No)
+                        List<BMSPackage> list = new List<BMSPackage>();
+                        HashSet<BMSPackage> hashSet = new HashSet<BMSPackage>();
+                        HashSet<string> hashSet2 = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                        foreach (BMSPackage item in packages.Where((BMSPackage pkg) => pkg != null))
                         {
-                            return;
-                        }
-                        string path = package.path;
-                        if (installBMSPackages(new BMSPackage[1] { package }).Count() == 0)
-                        {
-                            using (LR2SongDBExtended lR2SongDBExtended = new LR2SongDBExtended(lr2SongDBPath))
+                            if (!string.IsNullOrWhiteSpace(item.path))
                             {
-                                lR2SongDBExtended.BeginTransaction();
-                                lR2SongDBExtended.Delete<LR2SongDBExtended.install>(path);
-                                lR2SongDBExtended.Commit();
+                                if (!hashSet2.Add(item.path))
+                                {
+                                    continue;
+                                }
                             }
-                            BMSPackagesPending.RemoveExt(package);
-                            bMSFiles.ForEach(delegate (BMSFile bmsFile)
+                            else if (!hashSet.Add(item))
                             {
-                                bmsFile.instl_dst = null;
-                            });
+                                continue;
+                            }
+                            list.Add(item);
                         }
+                        if (list.Count == 0)
+                        {
+                            return;
+                        }
+                        List<BMSPackage> list2 = BMSPackagesPending.Where((BMSPackage pkg) => pkg != null).ToList();
+                        List<BMSPackage> list3 = new List<BMSPackage>();
+                        List<BMSPackage> deferredInstalledPackages = new List<BMSPackage>();
+                        int num = 0;
+                        int num2 = 0;
+                        int num3 = 0;
+                        int num4 = 0;
+                        NLogWrapper.FileLogger?.Info("force_install_batch start requested=" + list.Count);
+                        foreach (BMSPackage requestedPackage in list)
+                        {
+                            BMSPackage bMSPackage = list2.FirstOrDefault((BMSPackage pkg) => ReferenceEquals(pkg, requestedPackage) || (!string.IsNullOrWhiteSpace(pkg.path) && !string.IsNullOrWhiteSpace(requestedPackage.path) && pkg.path.Equals(requestedPackage.path, StringComparison.OrdinalIgnoreCase)));
+                            if (bMSPackage == null)
+                            {
+                                num4++;
+                                NLogWrapper.FileLogger?.Info("force_install_batch skip_not_pending path=" + (requestedPackage.path ?? "(null)"));
+                                continue;
+                            }
+                            List<BMSFile> list4 = bMSPackage.BMSFiles.Where((BMSFile f) => f != null).ToList();
+                            if (list4.Any((BMSFile bmsInfo) => !string.IsNullOrWhiteSpace(bmsInfo.instl_dst)) && MessageBox.Show(Resources.Confirm_NormalInstallOverride, Resources.Confirm_NormalInstallTitle, MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.Yes) == MessageBoxResult.No)
+                            {
+                                num4++;
+                                NLogWrapper.FileLogger?.Info("force_install_batch skipped_by_confirm path=" + (bMSPackage.path ?? "(null)"));
+                                continue;
+                            }
+                            if (installBMSPackages(new BMSPackage[1] { bMSPackage }, null, null, deferredInstalledPackages).Count() == 0)
+                            {
+                                list3.Add(bMSPackage);
+                                num2++;
+                                list4.ForEach(delegate (BMSFile bmsFile)
+                                {
+                                    bmsFile.instl_dst = null;
+                                });
+                                NLogWrapper.FileLogger?.Info("force_install_batch success path=" + (bMSPackage.path ?? "(null)"));
+                            }
+                            else
+                            {
+                                num3++;
+                                NLogWrapper.FileLogger?.Info("force_install_batch failed path=" + (bMSPackage.path ?? "(null)"));
+                            }
+                            num++;
+                        }
+                        if (list3.Count > 0)
+                        {
+                            ApplyPendingPackageMutationDelta(BuildPendingPackageMutationDelta(packagesToRemove: list3));
+                        }
+                        int num5 = 0;
+                        if (deferredInstalledPackages.Count > 0)
+                        {
+                            HashSet<BMSPackage> hashSet3 = new HashSet<BMSPackage>(BMSPackagesInstalled.Where((BMSPackage pkg) => pkg != null));
+                            List<BMSPackage> list5 = BMSPackagesInstalled.Where((BMSPackage pkg) => pkg != null).ToList();
+                            foreach (BMSPackage deferredInstalledPackage in deferredInstalledPackages)
+                            {
+                                if (deferredInstalledPackage != null && hashSet3.Add(deferredInstalledPackage))
+                                {
+                                    list5.Add(deferredInstalledPackage);
+                                    num5++;
+                                }
+                            }
+                            if (num5 > 0)
+                            {
+                                BMSPackagesInstalled = new DispatcherCollection<BMSPackage>(new ObservableCollection<BMSPackage>(list5), DispatcherHelper.UIDispatcher);
+                            }
+                        }
+                        NLogWrapper.FileLogger?.Info("force_install_batch summary requested=" + list.Count + " processed=" + num + " succeeded=" + num2 + " failed=" + num3 + " skipped=" + num4 + " pendingRemoved=" + list3.Count + " installedAdded=" + num5);
                     }
                 }
             }
         }
+    }
+
+    public void InstallBMSPackageForce(BMSPackage package)
+    {
+        if (package == null)
+        {
+            throw new ArgumentNullException("package");
+        }
+        InstallBMSPackagesForce(new BMSPackage[1] { package });
     }
 
     private int CountComponentMoveTargetsForPackage(BMSPackage package, string destinationDirectory, ISet<string> excludedComponentPaths)
