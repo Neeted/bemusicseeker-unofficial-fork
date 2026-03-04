@@ -156,7 +156,10 @@ public class BMSFile : LR2SongDB.song
 
     private static Regex bgafileRegex = new Regex("^[\\s\u3000]*#BMP[A-Z0-9]{2}(?>\\s+)(.*)", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
-    private static Regex visibleObjectChRegex = new Regex("^[\\s\u3000]*#[0-9]{3}[12][1-9A-Z]\\s*:[\\s0]*[^\\s0]", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    // Note: Although ':' is the common delimiter in BMS channel lines, some charts used in the wild
+    // are accepted by LR2/beatoraja even when the command/value boundary is written with whitespace only.
+    // Zero-note detection follows that de facto parsing behavior and treats ':' or whitespace runs as delimiters.
+    private static Regex visibleObjectChRegex = new Regex("^[\\s\u3000]*#[0-9]{3}[12][1-9A-Z][:\\s\u3000]+[\\s0]*[^\\s0]", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     private static Regex objectCh11Regex = new Regex("^[\\s\u3000]*#[0-9]{3}[13]1\\s*:[\\s0]*[^\\s0]", RegexOptions.Compiled);
 
