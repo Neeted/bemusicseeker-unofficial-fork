@@ -410,6 +410,12 @@ LR2をプレイヤーとして使用すると再生できない場合があり�
     <value>BMSファイルをごみ箱へ移動し一覧から削除します
 よろしいですか？</value>
   </data>
+  <data name="Msg_delete_pending_installed_only_packages_permanently" xml:space="preserve">
+    <value>既所持譜面のみが含まれる保留パッケージを、ごみ箱を経由せずに完全削除します。
+対象: {0} パッケージ
+フォルダパッケージはフォルダごと、単体パッケージはファイルを直接削除します。
+この操作は元に戻せません。よろしいですか？</value>
+  </data>
   <data name="Msg_failed_save_playlist" xml:space="preserve">
     <value>保存に失敗しました。</value>
   </data>
@@ -528,6 +534,9 @@ LR2をプレイヤーとして使用すると再生できない場合があり�
   </data>
   <data name="Advanced_settings" xml:space="preserve">
     <value>高度な設定</value>
+  </data>
+  <data name="Advanced_features" xml:space="preserve">
+    <value>高度な機能</value>
   </data>
   <data name="Details" xml:space="preserve">
     <value>詳細</value>
@@ -897,6 +906,9 @@ BMSファイルが重複しないようにマージします。
   </data>
   <data name="Delete_from_list" xml:space="preserve">
     <value>一覧から削除</value>
+  </data>
+  <data name="Delete_pending_installed_only_packages_permanently" xml:space="preserve">
+    <value>既所持譜面のみのパッケージをごみ箱を経由せずに削除</value>
   </data>
   <data name="Install_new_folder_desc" xml:space="preserve">
     <value>※設定はリネーム機能でも使用されます</value>
@@ -1343,6 +1355,9 @@ BMSファイルが重複しないようにマージします。
     <value>変更先ファイルが既に存在するため中止しました。
 変更元: {0}
 変更先: {1}</value>
+  </data>
+  <data name="Warn_no_pending_installed_only_packages" xml:space="preserve">
+    <value>既所持譜面のみの保留パッケージはありません。</value>
   </data>
   <data name="Error_BmsFileMoveFailed" xml:space="preserve">
     <value>BMSファイルの移動に失敗しました。

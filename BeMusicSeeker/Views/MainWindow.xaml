@@ -286,6 +286,10 @@
       </ContextMenu>
       <ContextMenu x:Key="treeViewInstallPendingContextMenu" HasDropShadow="True">
         <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Clear_all, Mode=OneWay}" Click="treeViewInstallPendingContextMenuClearAllClick" />
+        <Separator />
+        <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Advanced_features, Mode=OneWay}">
+          <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Delete_pending_installed_only_packages_permanently, Mode=OneWay}" Click="treeViewInstallPendingContextMenuDeleteInstalledOnlyPackagesClick" />
+        </MenuItem>
       </ContextMenu>
       <ContextMenu x:Key="treeViewInstallPackageContextMenu" HasDropShadow="True">
         <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_file_explorer, Mode=OneWay}" Click="treeViewInstallPackageContextMenuOpenExplorerClick" />

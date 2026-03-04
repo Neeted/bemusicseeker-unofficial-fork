@@ -54,6 +54,8 @@ public class Resources
 
     public static string Advanced_settings => ResourceManager.GetString("Advanced_settings", resourceCulture);
 
+    public static string Advanced_features => ResourceManager.GetString("Advanced_features", resourceCulture);
+
     public static string Appearance => ResourceManager.GetString("Appearance", resourceCulture);
 
     public static string Artist => ResourceManager.GetString("Artist", resourceCulture);
@@ -111,6 +113,8 @@ public class Resources
     public static string Daily => ResourceManager.GetString("Daily", resourceCulture);
 
     public static string Delete_from_list => ResourceManager.GetString("Delete_from_list", resourceCulture);
+
+    public static string Delete_pending_installed_only_packages_permanently => ResourceManager.GetString("Delete_pending_installed_only_packages_permanently", resourceCulture);
 
     public static string Details => ResourceManager.GetString("Details", resourceCulture);
 
@@ -383,6 +387,8 @@ public class Resources
     public static string Msg_move_to_other_root => ResourceManager.GetString("Msg_move_to_other_root", resourceCulture);
 
     public static string Msg_move_to_recycle => ResourceManager.GetString("Msg_move_to_recycle", resourceCulture);
+
+    public static string Msg_delete_pending_installed_only_packages_permanently => ResourceManager.GetString("Msg_delete_pending_installed_only_packages_permanently", resourceCulture);
 
     public static string Msg_override_level_error_recommended => ResourceManager.GetString("Msg_override_level_error_recommended", resourceCulture);
 
@@ -863,6 +869,8 @@ public class Resources
 
 
     public static string Warn_RenameDestAlreadyExists => ResourceManager.GetString("Warn_RenameDestAlreadyExists", resourceCulture);
+
+    public static string Warn_no_pending_installed_only_packages => ResourceManager.GetString("Warn_no_pending_installed_only_packages", resourceCulture);
 
 
     public static string Error_BmsFileMoveFailed => ResourceManager.GetString("Error_BmsFileMoveFailed", resourceCulture);
