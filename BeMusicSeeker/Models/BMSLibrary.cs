@@ -3951,6 +3951,59 @@ public class BMSLibrary : NotificationObject
         }
     }
 
+    private enum CleanupSourceKind
+    {
+        Directory,
+        File,
+        MissingSource
+    }
+
+    private bool TryCleanupPendingPackageSourceForEstimatedInstall(BMSPackage package, out CleanupSourceKind sourceKind)
+    {
+        sourceKind = CleanupSourceKind.MissingSource;
+        if (package == null || string.IsNullOrWhiteSpace(package.path))
+        {
+            return true;
+        }
+
+        string packagePath = package.path;
+        bool sourceDirectoryExists = Directory.Exists(packagePath);
+        bool sourceFileExists = File.Exists(packagePath);
+
+        if (!sourceDirectoryExists && !sourceFileExists)
+        {
+            return true;
+        }
+
+        sourceKind = sourceDirectoryExists ? CleanupSourceKind.Directory : CleanupSourceKind.File;
+        try
+        {
+            if (sourceDirectoryExists)
+            {
+                fileMutationService.DeleteDirectoryDirect(packagePath, recursive: true, recursiveDirectoryTreeFileMutationOptions);
+            }
+            else
+            {
+                fileMutationService.DeleteFileDirect(packagePath, targetOnlyFileMutationOptions);
+            }
+            return true;
+        }
+        catch (Exception ex)
+        {
+            string displayedMessage = GetDisplayedExceptionMessage(ex);
+            NLogWrapper.FileLogger?.Warn(ex, "estimated_install_cleanup_only_failed path=" + packagePath + " kind=" + sourceKind.ToString().ToLowerInvariant() + " error=" + displayedMessage);
+            if (sourceKind == CleanupSourceKind.Directory)
+            {
+                DispatcherMessageBox.Show(string.Format(Resources.Error_FolderDeleteFailed, packagePath, displayedMessage), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+            }
+            else
+            {
+                DispatcherMessageBox.Show(string.Format(Resources.Error_BmsFileDeleteFailed, packagePath, displayedMessage), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+            }
+            return false;
+        }
+    }
+
     /// <summary>
     /// BMSパッケージのファイル群を指定ディレクトリに移動し、移動元の空フォルダを削除する。
     /// マージ処理（MergeBMSDirectory）やインストール処理（installBMSPackages）から呼ばれる共通メソッド。
@@ -5147,6 +5200,7 @@ public class BMSLibrary : NotificationObject
                         HashSet<string> moveGuardHashes = CreateBMSHashSnapshotExcludingUnsafe(null);
                         HashSet<string> reservedHashesForBatch = new HashSet<string>(moveGuardHashes, StringComparer.OrdinalIgnoreCase);
                         int installTargetFileCount = 0;
+                        List<BMSPackage> cleanupOnlyCandidates = new List<BMSPackage>();
                         foreach (BMSPackage originalPackage in selectedPendingPackages)
                         {
                             List<BMSFile> packageFiles = (originalPackage.BMSFiles ?? new List<BMSFile>()).Where((BMSFile bmsInfo) => bmsInfo != null).ToList();
@@ -5267,7 +5321,15 @@ public class BMSLibrary : NotificationObject
                                 }
                                 if (componentMoveTargetCount == 0)
                                 {
-                                    LogInstallPerformance("estimated_install_skip reason=no_component_target package=" + originalPackage.path + " installTargets=0 resourceOnly=true");
+                                    if (deletePendingPackageSourceAfterInstall)
+                                    {
+                                        cleanupOnlyCandidates.Add(originalPackage);
+                                        LogInstallPerformance("estimated_install_cleanup_only_candidate package=" + originalPackage.path + " installTargets=0 resourceOnly=true");
+                                    }
+                                    else
+                                    {
+                                        LogInstallPerformance("estimated_install_skip reason=no_component_target package=" + originalPackage.path + " installTargets=0 resourceOnly=true");
+                                    }
                                     installWorkPackageByOriginal.Remove(originalPackage);
                                     originalPackageByInstallWorkPackage.Remove(installWorkPackage);
                                     excludedComponentPathsByWorkPackage.Remove(installWorkPackage);
@@ -5289,6 +5351,9 @@ public class BMSLibrary : NotificationObject
                         List<BMSFile> deferredMaintenanceTargets = new List<BMSFile>();
                         List<BMSPackage> deferredInstalledPackages = new List<BMSPackage>();
                         HashSet<BMSPackage> pendingPackagesToRemove = new HashSet<BMSPackage>();
+                        int cleanupOnlySucceeded = 0;
+                        int cleanupOnlyFailed = 0;
+                        int cleanupOnlyMissingSource = 0;
                         foreach (var groupEntry in packagesByDestination)
                         {
                             Stopwatch groupStopwatch = Stopwatch.StartNew();
@@ -5342,6 +5407,52 @@ public class BMSLibrary : NotificationObject
                             groupStopwatch.Stop();
                             LogInstallPerformance("InstallBMSPackagesToEstimatedDir group dst=" + groupEntry.Key + " packages=" + destinationPackages.Count + " workPackages=" + installWorkPackages.Count + " failedPackages=" + failedInstallWorkPackages.Count + " installMs=" + installStopwatch.ElapsedMilliseconds + " installDbMs=" + installDbStopwatch.ElapsedMilliseconds + " pendingMarkMs=" + pendingMarkStopwatch.ElapsedMilliseconds + " pendingBefore=" + pendingCountBeforeRemove + " pendingMarked=" + removedPendingCount + " pendingAfter=" + pendingCountAfterRemove + " bmsFilesBefore=" + bmsFilesCountBeforeRemove + " bmsFilesAfter=" + bmsFilesCountAfterRemove + " totalGroupMs=" + groupStopwatch.ElapsedMilliseconds);
                         }
+                        if (deletePendingPackageSourceAfterInstall && cleanupOnlyCandidates.Count > 0)
+                        {
+                            List<string> cleanupOnlyInstallPathsToDelete = new List<string>();
+                            foreach (BMSPackage cleanupOnlyPackage in cleanupOnlyCandidates.Distinct())
+                            {
+                                if (cleanupOnlyPackage == null)
+                                {
+                                    continue;
+                                }
+                                if (TryCleanupPendingPackageSourceForEstimatedInstall(cleanupOnlyPackage, out var sourceKind))
+                                {
+                                    cleanupOnlySucceeded++;
+                                    if (sourceKind == CleanupSourceKind.MissingSource)
+                                    {
+                                        cleanupOnlyMissingSource++;
+                                    }
+                                    if (!string.IsNullOrWhiteSpace(cleanupOnlyPackage.path))
+                                    {
+                                        cleanupOnlyInstallPathsToDelete.Add(cleanupOnlyPackage.path);
+                                    }
+                                    pendingPackagesToRemove.Add(cleanupOnlyPackage);
+                                    foreach (BMSFile packageFile in cleanupOnlyPackage.BMSFiles ?? Enumerable.Empty<BMSFile>())
+                                    {
+                                        packageFile.instl_dst = null;
+                                    }
+                                    LogInstallPerformance("estimated_install_cleanup_only_success package=" + cleanupOnlyPackage.path + " kind=" + sourceKind.ToString().ToLowerInvariant());
+                                }
+                                else
+                                {
+                                    cleanupOnlyFailed++;
+                                    LogInstallPerformance("estimated_install_cleanup_only_failed package=" + cleanupOnlyPackage.path);
+                                }
+                            }
+                            if (cleanupOnlyInstallPathsToDelete.Count > 0)
+                            {
+                                using (LR2SongDBExtended lR2SongDBExtended = new LR2SongDBExtended(lr2SongDBPath))
+                                {
+                                    lR2SongDBExtended.BeginTransaction();
+                                    foreach (string cleanupPath in cleanupOnlyInstallPathsToDelete.Distinct(StringComparer.OrdinalIgnoreCase))
+                                    {
+                                        lR2SongDBExtended.Delete<LR2SongDBExtended.install>(cleanupPath);
+                                    }
+                                    lR2SongDBExtended.Commit();
+                                }
+                            }
+                        }
                         Stopwatch pendingApplyStopwatch = Stopwatch.StartNew();
                         int pendingCountBeforeApply = BMSPackagesPending.Count;
                         int pendingRemovedTotal = pendingPackagesToRemove.Count;
@@ -5376,8 +5487,12 @@ public class BMSLibrary : NotificationObject
                             setMaintenanceInfo(deferredMaintenanceTargets, forceUpdate: true);
                         }
                         maintenanceStopwatch.Stop();
+                        if (deletePendingPackageSourceAfterInstall && cleanupOnlySucceeded > 0)
+                        {
+                            DispatcherMessageBox.Show(string.Format(Resources.Warn_estimated_install_cleanup_only_completed, cleanupOnlySucceeded), Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
+                        }
                         totalStopwatch.Stop();
-                        LogInstallPerformance("InstallBMSPackagesToEstimatedDir end pendingApplyMs=" + pendingApplyStopwatch.ElapsedMilliseconds + " pendingBeforeApply=" + pendingCountBeforeApply + " pendingRemovedTotal=" + pendingRemovedTotal + " pendingAfterApply=" + pendingCountAfterApply + " installedApplyMs=" + installedApplyStopwatch.ElapsedMilliseconds + " installedBeforeApply=" + installedCountBeforeApply + " installedAddedTotal=" + installedAddedTotal + " installedAfterApply=" + installedCountAfterApply + " maintenanceTargets=" + deferredMaintenanceTargets.Count + " maintenanceMs=" + maintenanceStopwatch.ElapsedMilliseconds + " totalMs=" + totalStopwatch.ElapsedMilliseconds);
+                        LogInstallPerformance("InstallBMSPackagesToEstimatedDir end pendingApplyMs=" + pendingApplyStopwatch.ElapsedMilliseconds + " pendingBeforeApply=" + pendingCountBeforeApply + " pendingRemovedTotal=" + pendingRemovedTotal + " pendingAfterApply=" + pendingCountAfterApply + " installedApplyMs=" + installedApplyStopwatch.ElapsedMilliseconds + " installedBeforeApply=" + installedCountBeforeApply + " installedAddedTotal=" + installedAddedTotal + " installedAfterApply=" + installedCountAfterApply + " maintenanceTargets=" + deferredMaintenanceTargets.Count + " maintenanceMs=" + maintenanceStopwatch.ElapsedMilliseconds + " cleanupOnlyCandidates=" + cleanupOnlyCandidates.Count + " cleanupOnlySucceeded=" + cleanupOnlySucceeded + " cleanupOnlyFailed=" + cleanupOnlyFailed + " cleanupOnlyMissingSource=" + cleanupOnlyMissingSource + " totalMs=" + totalStopwatch.ElapsedMilliseconds);
                     }
                 }
             }

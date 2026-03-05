@@ -1373,6 +1373,10 @@ BMSファイルが重複しないようにマージします。
   <data name="Warn_no_pending_charts" xml:space="preserve">
     <value>保留中の譜面がありません。</value>
   </data>
+  <data name="Warn_estimated_install_cleanup_only_completed" xml:space="preserve">
+    <value>選択範囲のうち {0} パッケージは、導入対象がなかったため保留から除去し、元フォルダ（または元ファイル）を削除しました。
+このパッケージは新規インストール一覧には追加されません。</value>
+  </data>
   <data name="Error_BmsFileMoveFailed" xml:space="preserve">
     <value>BMSファイルの移動に失敗しました。
 正常にアクセスできるか確認して下さい。

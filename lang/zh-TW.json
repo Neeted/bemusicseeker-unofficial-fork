@@ -156,6 +156,7 @@
   "Rename_pending_zero_note_to_invalid_ext": "將零音符譜面改為無效副檔名(*.bmx/pmx)",
   "Msg_rename_pending_zero_note_to_invalid_ext": "將檢查所有待安裝譜面的實際檔案，僅把零音符譜面改為無效副檔名(.bmx/.pmx)並自清單移除。\n目標：{0} 個譜面\n此操作無法復原。是否繼續？",
   "Warn_no_pending_charts": "沒有待安裝譜面。",
+  "Warn_estimated_install_cleanup_only_completed": "所選範圍中有 {0} 個套件沒有可安裝目標，因此已從待安裝清單移除，並刪除了其來源資料夾（或來源檔案）。\n這些套件不會加入新安裝清單。",
   "Details": "詳細資訊",
   "Record_setting_encoder_dir_dialog": "選取包含編碼器執行檔的資料夾",
   "Player_BMIIDXView_desc": "* 不支援 Win8 等作業系統的視窗嵌入功能",

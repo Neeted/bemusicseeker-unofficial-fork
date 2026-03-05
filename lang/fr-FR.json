@@ -156,6 +156,7 @@
   "Rename_pending_zero_note_to_invalid_ext": "Renommer les charts sans notes en extensions invalides (*.bmx/pmx)",
   "Msg_rename_pending_zero_note_to_invalid_ext": "Tous les charts en attente seront verifies a partir des fichiers reels, et seuls les charts sans notes seront renommes en extensions invalides (.bmx/.pmx) puis retires de la liste.\nCible : {0} chart(s)\nCette action est irreversible. Continuer ?",
   "Warn_no_pending_charts": "Il n'y a aucun chart en attente.",
+  "Warn_estimated_install_cleanup_only_completed": "{0} paquet(s) selectionne(s) n'avaient aucune cible installable ; ils ont donc ete retires de l'attente et leur source (dossier/fichier) a ete supprimee.\nCes paquets n'ont pas ete ajoutes a la liste des nouvelles installations.",
   "Details": "Details",
   "Record_setting_encoder_dir_dialog": "Select encoder search folder",
   "Player_BMIIDXView_desc": "* Continuous playback is not available",

@@ -880,6 +880,8 @@ public class Resources
 
     public static string Warn_no_pending_charts => ResourceManager.GetString("Warn_no_pending_charts", resourceCulture);
 
+    public static string Warn_estimated_install_cleanup_only_completed => ResourceManager.GetString("Warn_estimated_install_cleanup_only_completed", resourceCulture);
+
 
     public static string Error_BmsFileMoveFailed => ResourceManager.GetString("Error_BmsFileMoveFailed", resourceCulture);
 

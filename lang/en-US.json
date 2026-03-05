@@ -156,6 +156,7 @@
   "Rename_pending_zero_note_to_invalid_ext": "Rename zero-note charts to invalid extensions (*.bmx/pmx)",
   "Msg_rename_pending_zero_note_to_invalid_ext": "All pending charts will be checked from actual files, and only zero-note charts will be renamed to invalid extensions (.bmx/.pmx) and removed from the list.\nTarget: {0} chart(s)\nThis action cannot be undone. Continue?",
   "Warn_no_pending_charts": "There are no pending charts.",
+  "Warn_estimated_install_cleanup_only_completed": "{0} package(s) in the selection had no installable targets, so they were removed from pending and their source folder/file was deleted.\nThese packages were not added to the newly installed list.",
   "Details": "Details",
   "Record_setting_encoder_dir_dialog": "Select encoder search folder",
   "Player_BMIIDXView_desc": "* Continuous playback is not available",

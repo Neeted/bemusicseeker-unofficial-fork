@@ -156,6 +156,7 @@
   "Rename_pending_zero_note_to_invalid_ext": "将零音符谱面改为无效扩展名(*.bmx/pmx)",
   "Msg_rename_pending_zero_note_to_invalid_ext": "将检查所有待安装谱面的实际文件，仅把零音符谱面改为无效扩展名(.bmx/.pmx)并从列表中移除。\n目标：{0} 个谱面\n此操作无法撤销。是否继续？",
   "Warn_no_pending_charts": "没有待安装谱面。",
+  "Warn_estimated_install_cleanup_only_completed": "所选范围中有 {0} 个包没有可安装目标，因此已从待安装列表移除，并删除了其源文件夹（或源文件）。\n这些包不会添加到新安装列表中。",
   "Details": "详细信息",
   "Record_setting_encoder_dir_dialog": "选择包含编码器可执行文件的文件夹",
   "Player_BMIIDXView_desc": "* 不支持 Win8 等操作系统的窗口嵌入功能",
