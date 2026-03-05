@@ -8,7 +8,7 @@
       </ResourceDictionary>
     </FrameworkElement.Resources>
     <Rectangle Fill="#FF000000" Opacity="0.5" />
-    <Border Width="500" Height="410" CornerRadius="10" Background="#FFFFFFFF" Padding="10">
+    <Border Width="550" Height="410" CornerRadius="10" Background="#FFFFFFFF" Padding="10">
       <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
         <FrameworkElement.Style>
           <Style TargetType="{x:Type ScrollViewer}">
@@ -558,20 +558,22 @@
                   <ComboBox Height="24" IsReadOnly="True" Width="150" MaxDropDownHeight="260" VerticalContentAlignment="Center" HorizontalAlignment="Center" ItemsSource="{Binding settingDialog.Languages, Mode=OneWay}" SelectedItem="{Binding Path=settingDialog.Language}" />
                 </GroupBox>
                 <GroupBox Padding="5,5,5,0" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Advanced_settings, Mode=OneWay}">
-                  <StackPanel>
-                    <CheckBox IsChecked="{Binding settingDialog.SkipInitFileCheck}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_test_notscan, Mode=OneWay}" />
-                    <CheckBox IsChecked="{Binding settingDialog.SkipInitPlaylistLoad}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_test_notcheck_playlists, Mode=OneWay}" />
-                    <CheckBox IsChecked="{Binding settingDialog.StartupSelectInstallPending}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_test_startup_select_install_pending, Mode=OneWay}" />
-                    <CheckBox IsChecked="{Binding settingDialog.StartupExpandPlaylistTree}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_test_startup_expand_playlist_tree, Mode=OneWay}" />
-                    <CheckBox IsChecked="{Binding settingDialog.EnableReadOptimizedPragmas}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_test_db_read_optimized_pragmas, Mode=OneWay}" />
-                    <CheckBox IsChecked="{Binding settingDialog.SkipEstimateOfflineScoreRanking}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_test_notcalc_offrank, Mode=OneWay}" />
-                    <CheckBox IsChecked="{Binding settingDialog.EnableAutoInstall}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_test_download_and_install, Mode=OneWay}" />
-                    <CheckBox IsChecked="{Binding settingDialog.UseFastSortInDataGridExperimental}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_test_fast_sort_list_view, Mode=OneWay}" />
-                    <CheckBox IsChecked="{Binding settingDialog.UseDataGridColumnVirtualizationExperimental}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_test_column_virtualization_list_view, Mode=OneWay}" />
-                    <CheckBox IsChecked="{Binding settingDialog.KeepInstallablePackagesPending}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_test_keep_installable_pending, Mode=OneWay}" />
-                    <CheckBox IsChecked="{Binding settingDialog.DeletePendingPackageSourceAfterInstall}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_test_delete_pending_source_after_install, Mode=OneWay}" />
-                    <CheckBox IsChecked="{Binding settingDialog.EnableSmartComponentOverwrite}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_test_smart_component_overwrite, Mode=OneWay}" />
-                  </StackPanel>
+                  <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" MaxHeight="180">
+                    <StackPanel>
+                      <CheckBox IsChecked="{Binding settingDialog.SkipInitFileCheck}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_test_notscan, Mode=OneWay}" />
+                      <CheckBox IsChecked="{Binding settingDialog.SkipInitPlaylistLoad}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_test_notcheck_playlists, Mode=OneWay}" />
+                      <CheckBox IsChecked="{Binding settingDialog.StartupSelectInstallPending}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_test_startup_select_install_pending, Mode=OneWay}" />
+                      <CheckBox IsChecked="{Binding settingDialog.StartupExpandPlaylistTree}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_test_startup_expand_playlist_tree, Mode=OneWay}" />
+                      <CheckBox IsChecked="{Binding settingDialog.EnableReadOptimizedPragmas}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_test_db_read_optimized_pragmas, Mode=OneWay}" />
+                      <CheckBox IsChecked="{Binding settingDialog.SkipEstimateOfflineScoreRanking}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_test_notcalc_offrank, Mode=OneWay}" />
+                      <CheckBox IsChecked="{Binding settingDialog.EnableAutoInstall}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_test_download_and_install, Mode=OneWay}" />
+                      <CheckBox IsChecked="{Binding settingDialog.UseFastSortInDataGridExperimental}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_test_fast_sort_list_view, Mode=OneWay}" />
+                      <CheckBox IsChecked="{Binding settingDialog.UseDataGridColumnVirtualizationExperimental}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_test_column_virtualization_list_view, Mode=OneWay}" />
+                      <CheckBox IsChecked="{Binding settingDialog.KeepInstallablePackagesPending}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_test_keep_installable_pending, Mode=OneWay}" />
+                      <CheckBox IsChecked="{Binding settingDialog.DeletePendingPackageSourceAfterInstall}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_test_delete_pending_source_after_install, Mode=OneWay}" />
+                      <CheckBox IsChecked="{Binding settingDialog.EnableSmartComponentOverwrite}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_test_smart_component_overwrite, Mode=OneWay}" />
+                    </StackPanel>
+                  </ScrollViewer>
                 </GroupBox>
               </StackPanel>
             </TabItem>
