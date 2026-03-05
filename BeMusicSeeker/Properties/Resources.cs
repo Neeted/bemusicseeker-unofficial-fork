@@ -390,6 +390,8 @@ public class Resources
 
     public static string Msg_delete_pending_installed_only_packages_permanently => ResourceManager.GetString("Msg_delete_pending_installed_only_packages_permanently", resourceCulture);
 
+    public static string Msg_rename_pending_zero_note_to_invalid_ext => ResourceManager.GetString("Msg_rename_pending_zero_note_to_invalid_ext", resourceCulture);
+
     public static string Msg_override_level_error_recommended => ResourceManager.GetString("Msg_override_level_error_recommended", resourceCulture);
 
     public static string Msg_override_level_warning => ResourceManager.GetString("Msg_override_level_warning", resourceCulture);
@@ -629,6 +631,8 @@ public class Resources
     public static string Rename_folder_auto => ResourceManager.GetString("Rename_folder_auto", resourceCulture);
 
     public static string Rename_invalid_ext => ResourceManager.GetString("Rename_invalid_ext", resourceCulture);
+
+    public static string Rename_pending_zero_note_to_invalid_ext => ResourceManager.GetString("Rename_pending_zero_note_to_invalid_ext", resourceCulture);
 
     public static string Rescan => ResourceManager.GetString("Rescan", resourceCulture);
 
@@ -871,6 +875,8 @@ public class Resources
     public static string Warn_RenameDestAlreadyExists => ResourceManager.GetString("Warn_RenameDestAlreadyExists", resourceCulture);
 
     public static string Warn_no_pending_installed_only_packages => ResourceManager.GetString("Warn_no_pending_installed_only_packages", resourceCulture);
+
+    public static string Warn_no_pending_charts => ResourceManager.GetString("Warn_no_pending_charts", resourceCulture);
 
 
     public static string Error_BmsFileMoveFailed => ResourceManager.GetString("Error_BmsFileMoveFailed", resourceCulture);

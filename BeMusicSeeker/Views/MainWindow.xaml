@@ -289,6 +289,7 @@
         <Separator />
         <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Advanced_features, Mode=OneWay}">
           <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Delete_pending_installed_only_packages_permanently, Mode=OneWay}" Click="treeViewInstallPendingContextMenuDeleteInstalledOnlyPackagesClick" />
+          <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Rename_pending_zero_note_to_invalid_ext, Mode=OneWay}" Click="treeViewInstallPendingContextMenuRenameZeroNoteToInvalidExtClick" />
         </MenuItem>
       </ContextMenu>
       <ContextMenu x:Key="treeViewInstallPackageContextMenu" HasDropShadow="True">

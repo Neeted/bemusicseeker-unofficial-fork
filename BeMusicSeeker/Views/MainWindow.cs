@@ -3119,6 +3119,66 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         await task;
     }
 
+    private async void treeViewInstallPendingContextMenuRenameZeroNoteToInvalidExtClick(object sender, RoutedEventArgs e)
+    {
+        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
+        if (viewModel == null)
+        {
+            return;
+        }
+        List<BMSFile> list = viewModel.GetPendingBMSFilesSnapshot();
+        if (list.Count == 0)
+        {
+            MessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Warn_no_pending_charts, BeMusicSeeker.Properties.Resources.Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
+            return;
+        }
+        string messageBoxText = string.Format(BeMusicSeeker.Properties.Resources.Msg_rename_pending_zero_note_to_invalid_ext, list.Count);
+        if (MessageBox.Show(Window.GetWindow(this), messageBoxText, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Warning, MessageBoxResult.Cancel) == MessageBoxResult.Cancel)
+        {
+            return;
+        }
+        e.Handled = true;
+        if (list.Count == 1)
+        {
+            await Task.Run(delegate
+            {
+                viewModel.RenamePendingZeroNoteChartsToInvalidExtensions(list, CancellationToken.None, null);
+            }).Logging("treeViewInstallPendingContextMenuRenameZeroNoteToInvalidExtClick");
+            return;
+        }
+        CancellationTokenSource cancellationTokenSource = new CancellationTokenSource();
+        int processedCount = 0;
+        int total = list.Count;
+        Task task = Task.Run(delegate
+        {
+            viewModel.RenamePendingZeroNoteChartsToInvalidExtensions(list, cancellationTokenSource.Token, delegate
+            {
+                processedCount++;
+            });
+        }, cancellationTokenSource.Token).Logging("treeViewInstallPendingContextMenuRenameZeroNoteToInvalidExtClick");
+        ProgressDialog.Execute(this, BeMusicSeeker.Properties.Resources.Rename_invalid_ext, "", delegate
+        {
+            while (task.Status != TaskStatus.RanToCompletion)
+            {
+                try
+                {
+                    ProgressDialog.Current.ReportWithCancellationCheck(100 * processedCount / total, "[{0}/{1}] {2}", Math.Min(processedCount + 1, total), total, list[Math.Min(processedCount, total - 1)].path ?? "(null)");
+                }
+                catch
+                {
+                    cancellationTokenSource.Cancel();
+                    while (task.Status != TaskStatus.RanToCompletion)
+                    {
+                        Thread.Sleep(100);
+                    }
+                    break;
+                }
+                Thread.Sleep(100);
+            }
+        }, new ProgressDialogSettings(showSubLabel: true, showCancelButton: true, showProgressBarIndeterminate: false));
+        await task;
+    }
+
     private void treeViewInstallPackageContextMenuOpenExplorerClick(object sender, RoutedEventArgs e)
     {
         if (!(e.Source is MenuItem { Parent: ContextMenu { PlacementTarget: TreeViewItem { DataContext: BMSPackage dataContext } } }))

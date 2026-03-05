@@ -7401,6 +7401,18 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
+    public List<BeMusicSeeker.Models.BMSFile> GetPendingBMSFilesSnapshot()
+    {
+        if (files == null)
+        {
+            return new List<BeMusicSeeker.Models.BMSFile>();
+        }
+        lock (lockCopyFile)
+        {
+            return files.GetPendingBMSFilesSnapshot();
+        }
+    }
+
     public void DeletePendingPackageSources(IEnumerable<BMSPackage> packages, bool sendToRecycleBin = true, CancellationToken token = default(CancellationToken), Action onEachProcessed = null)
     {
         if (packages == null)
@@ -7411,6 +7423,15 @@ public class MainWindowViewModel : ViewModel
         {
             files.DeletePendingPackageSources(packages, sendToRecycleBin, token, onEachProcessed);
         });
+    }
+
+    public void RenamePendingZeroNoteChartsToInvalidExtensions(IEnumerable<BeMusicSeeker.Models.BMSFile> targetFiles, CancellationToken token = default(CancellationToken), Action onEachProcessed = null)
+    {
+        List<BeMusicSeeker.Models.BMSFile> list = ((targetFiles != null) ? targetFiles.Where((BeMusicSeeker.Models.BMSFile f) => f != null).ToList() : GetPendingBMSFilesSnapshot());
+        RunPendingInstallMutation(delegate
+        {
+            files.RenamePendingZeroNoteChartsToInvalidExtensions(list, token, onEachProcessed);
+        }, list);
     }
 
     public void RemoveBMSPackagesInstalledAll()

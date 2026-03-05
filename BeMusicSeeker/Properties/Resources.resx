@@ -54,6 +54,9 @@
   <data name="Rename_invalid_ext" xml:space="preserve">
     <value>無効な拡張子に変更(*.bmx/pmx)</value>
   </data>
+  <data name="Rename_pending_zero_note_to_invalid_ext" xml:space="preserve">
+    <value>ゼロノート譜面を無効な拡張子に変更(*.bmx/pmx)</value>
+  </data>
   <data name="Information" xml:space="preserve">
     <value>情報</value>
   </data>
@@ -415,6 +418,11 @@ LR2をプレイヤーとして使用すると再生できない場合があり�
 対象: {0} パッケージ
 フォルダパッケージはフォルダごと、単体パッケージはファイルを直接削除します。
 この操作は元に戻せません。よろしいですか？</value>
+  </data>
+  <data name="Msg_rename_pending_zero_note_to_invalid_ext" xml:space="preserve">
+    <value>保留中の全譜面を実ファイルで確認し、ゼロノート譜面のみを無効な拡張子(.bmx/.pmx)へ変更して一覧から除外します。
+対象: {0} 譜面
+この操作は取り消せません。よろしいですか？</value>
   </data>
   <data name="Msg_failed_save_playlist" xml:space="preserve">
     <value>保存に失敗しました。</value>
@@ -1358,6 +1366,9 @@ BMSファイルが重複しないようにマージします。
   </data>
   <data name="Warn_no_pending_installed_only_packages" xml:space="preserve">
     <value>既所持譜面のみの保留パッケージはありません。</value>
+  </data>
+  <data name="Warn_no_pending_charts" xml:space="preserve">
+    <value>保留中の譜面がありません。</value>
   </data>
   <data name="Error_BmsFileMoveFailed" xml:space="preserve">
     <value>BMSファイルの移動に失敗しました。

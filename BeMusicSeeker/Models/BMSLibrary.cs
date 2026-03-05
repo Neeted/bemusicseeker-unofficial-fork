@@ -5459,6 +5459,167 @@ public class BMSLibrary : NotificationObject
         }
     }
 
+    public List<BMSFile> GetPendingBMSFilesSnapshot()
+    {
+        using (rwlockBMSFilesInitializedMin.GetReaderGuard())
+        {
+            using (rwlockBMSFilesPendingInstall.GetReaderGuard())
+            {
+                List<BMSFile> list = new List<BMSFile>();
+                HashSet<BMSFile> hashSet = new HashSet<BMSFile>();
+                HashSet<string> hashSet2 = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (BMSFile item in BMSPackagesPending.Where((BMSPackage pkg) => pkg != null).SelectMany((BMSPackage pkg) => pkg.BMSFiles).Where((BMSFile f) => f != null))
+                {
+                    if (!string.IsNullOrWhiteSpace(item.path))
+                    {
+                        if (!hashSet2.Add(item.path))
+                        {
+                            continue;
+                        }
+                    }
+                    else if (!hashSet.Add(item))
+                    {
+                        continue;
+                    }
+                    list.Add(item);
+                }
+                return list;
+            }
+        }
+    }
+
+    public void RenamePendingZeroNoteChartsToInvalidExtensions(IEnumerable<BMSFile> targetFiles, CancellationToken token = default(CancellationToken), Action onEachProcessed = null)
+    {
+        using (rwlockBMSFilesInitializedMin.GetReaderGuard())
+        {
+            using (rwlockBMSFilesPendingInstall.GetWriterGuard())
+            {
+                using (rwlockSongDBInstall.GetWriterGuard())
+                {
+                    IEnumerable<BMSFile> enumerable = targetFiles ?? BMSPackagesPending.Where((BMSPackage pkg) => pkg != null).SelectMany((BMSPackage pkg) => pkg.BMSFiles).Where((BMSFile f) => f != null);
+                    List<BMSFile> list = new List<BMSFile>();
+                    HashSet<BMSFile> hashSet = new HashSet<BMSFile>();
+                    HashSet<string> hashSet2 = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    foreach (BMSFile item in enumerable)
+                    {
+                        if (!string.IsNullOrWhiteSpace(item.path))
+                        {
+                            if (!hashSet2.Add(item.path))
+                            {
+                                continue;
+                            }
+                        }
+                        else if (!hashSet.Add(item))
+                        {
+                            continue;
+                        }
+                        list.Add(item);
+                    }
+                    List<BMSFile> list2 = new List<BMSFile>();
+                    int num = 0;
+                    int num2 = 0;
+                    int num3 = 0;
+                    int num4 = 0;
+                    int num5 = 0;
+                    int num6 = 0;
+                    bool flag = false;
+                    NLogWrapper.FileLogger?.Info("advanced_pending_zero_note_rename start total=" + list.Count);
+                    foreach (BMSFile item2 in list)
+                    {
+                        if (token.IsCancellationRequested)
+                        {
+                            flag = true;
+                            break;
+                        }
+                        string extension = Path.GetExtension(item2.path);
+                        string text = null;
+                        if (!string.IsNullOrWhiteSpace(extension))
+                        {
+                            if (extension.StartsWith(".b", StringComparison.OrdinalIgnoreCase))
+                            {
+                                text = ".bmx";
+                            }
+                            else if (extension.StartsWith(".p", StringComparison.OrdinalIgnoreCase))
+                            {
+                                text = ".pmx";
+                            }
+                        }
+                        if (string.IsNullOrWhiteSpace(text))
+                        {
+                            num6++;
+                            num++;
+                            NLogWrapper.FileLogger?.Info("advanced_pending_zero_note_rename skip_unsupported_ext path=" + item2.path + " ext=" + extension);
+                            onEachProcessed?.Invoke();
+                            continue;
+                        }
+                        if (extension.Equals(text, StringComparison.OrdinalIgnoreCase))
+                        {
+                            num6++;
+                            num++;
+                            NLogWrapper.FileLogger?.Info("advanced_pending_zero_note_rename skip_unsupported_ext path=" + item2.path + " ext=" + extension);
+                            onEachProcessed?.Invoke();
+                            continue;
+                        }
+                        bool flag2 = false;
+                        try
+                        {
+                            flag2 = BMSFile.IsZeroNoteBMSFile(item2.path);
+                        }
+                        catch (Exception ex) when (ex is DirectoryNotFoundException || ex is FileNotFoundException || ex is IOException || ex is PathTooLongException || ex is SecurityException || ex is UnauthorizedAccessException)
+                        {
+                            num6++;
+                            num++;
+                            NLogWrapper.FileLogger?.Warn(ex, "advanced_pending_zero_note_rename zero_note_check_failed path=" + item2.path + " error=" + ex.Message);
+                            onEachProcessed?.Invoke();
+                            continue;
+                        }
+                        if (!flag2)
+                        {
+                            num6++;
+                            num++;
+                            NLogWrapper.FileLogger?.Info("advanced_pending_zero_note_rename skip_not_zero path=" + item2.path);
+                            onEachProcessed?.Invoke();
+                            continue;
+                        }
+                        num2++;
+                        NLogWrapper.FileLogger?.Info("advanced_pending_zero_note_rename zero_note_detected path=" + item2.path + " targetExt=" + text);
+                        string requestedPath = Path.Combine(Path.GetDirectoryName(item2.path), Path.GetFileNameWithoutExtension(item2.path) + text);
+                        RenameInvalidExtensionOutcome renameInvalidExtensionOutcome = ProcessInvalidExtensionRename(item2, requestedPath, removeFromLibraryOnSuccess: false);
+                        switch (renameInvalidExtensionOutcome.Action)
+                        {
+                            case RenameInvalidExtensionAction.Renamed:
+                                list2.Add(item2);
+                                num3++;
+                                break;
+                            case RenameInvalidExtensionAction.DeletedAsDuplicate:
+                                list2.Add(item2);
+                                num4++;
+                                break;
+                            default:
+                                num5++;
+                                if (renameInvalidExtensionOutcome.FailureException != null)
+                                {
+                                    if (renameInvalidExtensionOutcome.FailedDuringDelete)
+                                    {
+                                        DispatcherMessageBox.Show(string.Format(Resources.Error_BmsFileDeleteFailed, item2.path, GetDisplayedExceptionMessage(renameInvalidExtensionOutcome.FailureException)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+                                    }
+                                    else
+                                    {
+                                        DispatcherMessageBox.Show(string.Format(Resources.Error_BmsFileMoveFailed, item2.path, renameInvalidExtensionOutcome.FinalPath, GetDisplayedExceptionMessage(renameInvalidExtensionOutcome.FailureException)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+                                    }
+                                }
+                                break;
+                        }
+                        num++;
+                        onEachProcessed?.Invoke();
+                    }
+                    RemovePendingFilesFromPendingPackagesAndInstallRows(list2);
+                    NLogWrapper.FileLogger?.Info("advanced_pending_zero_note_rename summary total=" + list.Count + " processed=" + num + " zeroNote=" + num2 + " renamed=" + num3 + " duplicateDeleted=" + num4 + " skipped=" + num6 + " failed=" + num5 + " canceled=" + flag);
+                }
+            }
+        }
+    }
+
     public void DeletePendingPackageSources(IEnumerable<BMSPackage> packages, bool sendToRecycleBin = true, CancellationToken token = default(CancellationToken), Action onEachProcessed = null)
     {
         if (packages == null)
