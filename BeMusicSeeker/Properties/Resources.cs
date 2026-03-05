@@ -116,6 +116,8 @@ public class Resources
 
     public static string Delete_pending_installed_only_packages_permanently => ResourceManager.GetString("Delete_pending_installed_only_packages_permanently", resourceCulture);
 
+    public static string Overwrite_pending_installed_only_packages_resources => ResourceManager.GetString("Overwrite_pending_installed_only_packages_resources", resourceCulture);
+
     public static string Details => ResourceManager.GetString("Details", resourceCulture);
 
     public static string Details_message_diag => ResourceManager.GetString("Details_message_diag", resourceCulture);
@@ -393,6 +395,8 @@ public class Resources
     public static string Msg_delete_pending_installed_only_packages_permanently => ResourceManager.GetString("Msg_delete_pending_installed_only_packages_permanently", resourceCulture);
 
     public static string Msg_rename_pending_zero_note_to_invalid_ext => ResourceManager.GetString("Msg_rename_pending_zero_note_to_invalid_ext", resourceCulture);
+
+    public static string Msg_overwrite_pending_installed_only_packages_resources => ResourceManager.GetString("Msg_overwrite_pending_installed_only_packages_resources", resourceCulture);
 
     public static string Msg_override_level_error_recommended => ResourceManager.GetString("Msg_override_level_error_recommended", resourceCulture);
 
@@ -881,6 +885,8 @@ public class Resources
     public static string Warn_no_pending_charts => ResourceManager.GetString("Warn_no_pending_charts", resourceCulture);
 
     public static string Warn_estimated_install_cleanup_only_completed => ResourceManager.GetString("Warn_estimated_install_cleanup_only_completed", resourceCulture);
+
+    public static string Warn_overwrite_pending_installed_only_packages_summary => ResourceManager.GetString("Warn_overwrite_pending_installed_only_packages_summary", resourceCulture);
 
 
     public static string Error_BmsFileMoveFailed => ResourceManager.GetString("Error_BmsFileMoveFailed", resourceCulture);

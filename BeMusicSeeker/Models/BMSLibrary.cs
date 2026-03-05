@@ -5669,6 +5669,259 @@ public class BMSLibrary : NotificationObject
         }
     }
 
+    private enum PrepareSkipReason
+    {
+        None,
+        MissingInstallDestination,
+        MultipleInstallDestinations
+    }
+
+    private bool TryResolveInstalledDestinationForSingleChart(BMSPackage package, BMSFile chart, out string resolvedDir)
+    {
+        resolvedDir = null;
+        if (chart == null)
+        {
+            return false;
+        }
+        if (!string.IsNullOrWhiteSpace(chart.instl_dst))
+        {
+            resolvedDir = chart.instl_dst;
+            return true;
+        }
+        if (package != null && TryResolveInstalledDestinationFromPackage(package, new List<BMSFile> { chart }, out resolvedDir) && !string.IsNullOrWhiteSpace(resolvedDir))
+        {
+            return true;
+        }
+        string text = chart.instl_dst;
+        try
+        {
+            SearchEstimatedInstallationDirectory(chart, asParallel: false, fixMode: true);
+            if (string.IsNullOrWhiteSpace(chart.instl_dst))
+            {
+                return false;
+            }
+            resolvedDir = chart.instl_dst;
+            return true;
+        }
+        finally
+        {
+            chart.instl_dst = text;
+        }
+    }
+
+    private bool TryPrepareInstalledOnlyPackageDestination(BMSPackage package, out string destinationDir, out PrepareSkipReason reason)
+    {
+        destinationDir = null;
+        reason = PrepareSkipReason.None;
+        if (package == null)
+        {
+            reason = PrepareSkipReason.MissingInstallDestination;
+            return false;
+        }
+        List<BMSFile> list = (package.BMSFiles ?? new List<BMSFile>()).Where((BMSFile f) => f != null).ToList();
+        if (list.Count == 0)
+        {
+            reason = PrepareSkipReason.MissingInstallDestination;
+            return false;
+        }
+        HashSet<string> hashSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (BMSFile item in list)
+        {
+            if (!TryResolveInstalledDestinationForSingleChart(package, item, out var resolvedDir) || string.IsNullOrWhiteSpace(resolvedDir))
+            {
+                reason = PrepareSkipReason.MissingInstallDestination;
+                return false;
+            }
+            hashSet.Add(resolvedDir);
+            if (hashSet.Count > 1)
+            {
+                reason = PrepareSkipReason.MultipleInstallDestinations;
+                return false;
+            }
+        }
+        destinationDir = hashSet.FirstOrDefault();
+        if (string.IsNullOrWhiteSpace(destinationDir))
+        {
+            reason = PrepareSkipReason.MissingInstallDestination;
+            return false;
+        }
+        return true;
+    }
+
+    private bool HasResourceOverwriteTargetsForInstalledOnlyPackage(BMSPackage package, string destinationDir)
+    {
+        if (package == null || string.IsNullOrWhiteSpace(destinationDir))
+        {
+            return false;
+        }
+        List<BMSFile> list = (package.BMSFiles ?? new List<BMSFile>()).Where((BMSFile f) => f != null).ToList();
+        if (list.Count == 0)
+        {
+            return false;
+        }
+        HashSet<string> excludedPaths = new HashSet<string>(list.Where((BMSFile f) => !string.IsNullOrWhiteSpace(f.path)).Select((BMSFile f) => f.path), StringComparer.OrdinalIgnoreCase);
+        BMSPackage bMSPackage = new BMSPackage(list)
+        {
+            path = package.path,
+            delete_parent = package.delete_parent
+        };
+        return CountComponentMoveTargetsForPackage(bMSPackage, destinationDir, excludedPaths) > 0;
+    }
+
+    private bool IsPackageStillPending(BMSPackage package)
+    {
+        if (package == null)
+        {
+            return false;
+        }
+        return BMSPackagesPending.Any((BMSPackage pendingPkg) => pendingPkg != null && (ReferenceEquals(pendingPkg, package) || (!string.IsNullOrWhiteSpace(pendingPkg.path) && !string.IsNullOrWhiteSpace(package.path) && pendingPkg.path.Equals(package.path, StringComparison.OrdinalIgnoreCase))));
+    }
+
+    public PendingInstalledOnlyResourceOverwriteResult OverwritePendingInstalledOnlyPackagesResources(IEnumerable<BMSPackage> packages, CancellationToken token = default(CancellationToken), Action onEachProcessed = null)
+    {
+        if (packages == null)
+        {
+            throw new ArgumentNullException("packages");
+        }
+        PendingInstalledOnlyResourceOverwriteResult pendingInstalledOnlyResourceOverwriteResult = new PendingInstalledOnlyResourceOverwriteResult();
+        using (rwlockBMSFilesInitializedAll.GetReaderGuard())
+        {
+            using (rwlockBMSFilesPendingInstall.GetWriterGuard())
+            {
+                using (rwlockBMSFiles.GetWriterGuard())
+                {
+                    using (rwlockSongDBInstall.GetWriterGuard())
+                    {
+                        List<BMSPackage> list = new List<BMSPackage>();
+                        HashSet<string> hashSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                        HashSet<BMSPackage> hashSet2 = new HashSet<BMSPackage>();
+                        foreach (BMSPackage item in packages.Where((BMSPackage pkg) => pkg != null))
+                        {
+                            if (!string.IsNullOrWhiteSpace(item.path))
+                            {
+                                if (!hashSet.Add(item.path))
+                                {
+                                    continue;
+                                }
+                            }
+                            else if (!hashSet2.Add(item))
+                            {
+                                continue;
+                            }
+                            list.Add(item);
+                        }
+                        pendingInstalledOnlyResourceOverwriteResult.Requested = list.Count;
+                        bool deletePendingPackageSourceAfterInstall = Settings.Default.DeletePendingPackageSourceAfterInstall;
+                        NLogWrapper.FileLogger?.Info("advanced_pending_resource_overwrite scan pendingTotal=" + BMSPackagesPending.Count + " eligible=" + list.Count);
+                        foreach (BMSPackage requestedPackage in list)
+                        {
+                            if (token.IsCancellationRequested)
+                            {
+                                pendingInstalledOnlyResourceOverwriteResult.Canceled = true;
+                                break;
+                            }
+                            BMSPackage bMSPackage = BMSPackagesPending.FirstOrDefault((BMSPackage pkg) => pkg != null && (ReferenceEquals(pkg, requestedPackage) || (!string.IsNullOrWhiteSpace(pkg.path) && !string.IsNullOrWhiteSpace(requestedPackage.path) && pkg.path.Equals(requestedPackage.path, StringComparison.OrdinalIgnoreCase))));
+                            if (bMSPackage == null)
+                            {
+                                pendingInstalledOnlyResourceOverwriteResult.SkippedNotPending++;
+                                pendingInstalledOnlyResourceOverwriteResult.Processed++;
+                                NLogWrapper.FileLogger?.Info("advanced_pending_resource_overwrite skip_not_pending path=" + requestedPackage.path);
+                                onEachProcessed?.Invoke();
+                                continue;
+                            }
+                            if (!TryPrepareInstalledOnlyPackageDestination(bMSPackage, out var destinationDir, out var reason))
+                            {
+                                switch (reason)
+                                {
+                                    case PrepareSkipReason.MultipleInstallDestinations:
+                                        pendingInstalledOnlyResourceOverwriteResult.SkippedMultiDestination++;
+                                        NLogWrapper.FileLogger?.Info("advanced_pending_resource_overwrite skip_multi_dst path=" + bMSPackage.path);
+                                        break;
+                                    default:
+                                        pendingInstalledOnlyResourceOverwriteResult.SkippedMissingInstlDst++;
+                                        NLogWrapper.FileLogger?.Info("advanced_pending_resource_overwrite skip_missing_instl_dst path=" + bMSPackage.path);
+                                        break;
+                                }
+                                pendingInstalledOnlyResourceOverwriteResult.Processed++;
+                                onEachProcessed?.Invoke();
+                                continue;
+                            }
+                            if (!HasResourceOverwriteTargetsForInstalledOnlyPackage(bMSPackage, destinationDir))
+                            {
+                                if (deletePendingPackageSourceAfterInstall)
+                                {
+                                    if (TryCleanupPendingPackageSourceForEstimatedInstall(bMSPackage, out var sourceKind))
+                                    {
+                                        RemovePendingPackagesFromPendingListAndInstallRows(new BMSPackage[1] { bMSPackage });
+                                        pendingInstalledOnlyResourceOverwriteResult.SucceededCleanupOnly++;
+                                        NLogWrapper.FileLogger?.Info("advanced_pending_resource_overwrite cleanup_only_success path=" + bMSPackage.path + " kind=" + sourceKind.ToString().ToLowerInvariant());
+                                    }
+                                    else
+                                    {
+                                        pendingInstalledOnlyResourceOverwriteResult.Failed++;
+                                        NLogWrapper.FileLogger?.Warn("advanced_pending_resource_overwrite cleanup_only_failed path=" + bMSPackage.path);
+                                    }
+                                }
+                                else
+                                {
+                                    pendingInstalledOnlyResourceOverwriteResult.SkippedNoComponentTarget++;
+                                    NLogWrapper.FileLogger?.Info("advanced_pending_resource_overwrite skip_no_component_target path=" + bMSPackage.path);
+                                }
+                                pendingInstalledOnlyResourceOverwriteResult.Processed++;
+                                onEachProcessed?.Invoke();
+                                continue;
+                            }
+                            List<BMSFile> list2 = (bMSPackage.BMSFiles ?? new List<BMSFile>()).Where((BMSFile f) => f != null).ToList();
+                            Dictionary<BMSFile, string> dictionary = list2.ToDictionary((BMSFile f) => f, (BMSFile f) => f.instl_dst);
+                            bool flag = false;
+                            try
+                            {
+                                foreach (BMSFile item2 in list2)
+                                {
+                                    item2.instl_dst = destinationDir;
+                                }
+                                InstallBMSPackageToEstimatedDir(bMSPackage);
+                            }
+                            catch (Exception ex)
+                            {
+                                flag = true;
+                                pendingInstalledOnlyResourceOverwriteResult.Failed++;
+                                string displayedExceptionMessage = GetDisplayedExceptionMessage(ex);
+                                NLogWrapper.FileLogger?.Warn(ex, "advanced_pending_resource_overwrite install_failed_exception path=" + bMSPackage.path + " dst=" + destinationDir + " error=" + displayedExceptionMessage);
+                                DispatcherMessageBox.Show(string.Format(Resources.Error_InstallFailed, bMSPackage.path, destinationDir, displayedExceptionMessage), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+                            }
+                            bool flag2 = IsPackageStillPending(bMSPackage);
+                            if (flag2)
+                            {
+                                foreach (var item3 in dictionary)
+                                {
+                                    item3.Key.instl_dst = item3.Value;
+                                }
+                            }
+                            if (!flag)
+                            {
+                                if (flag2)
+                                {
+                                    pendingInstalledOnlyResourceOverwriteResult.Failed++;
+                                    NLogWrapper.FileLogger?.Warn("advanced_pending_resource_overwrite install_failed path=" + bMSPackage.path + " dst=" + destinationDir);
+                                }
+                                else
+                                {
+                                    pendingInstalledOnlyResourceOverwriteResult.SucceededInstall++;
+                                    NLogWrapper.FileLogger?.Info("advanced_pending_resource_overwrite install_success path=" + bMSPackage.path + " dst=" + destinationDir);
+                                }
+                            }
+                            pendingInstalledOnlyResourceOverwriteResult.Processed++;
+                            onEachProcessed?.Invoke();
+                        }
+                        NLogWrapper.FileLogger?.Info("advanced_pending_resource_overwrite summary requested=" + pendingInstalledOnlyResourceOverwriteResult.Requested + " processed=" + pendingInstalledOnlyResourceOverwriteResult.Processed + " succeededInstall=" + pendingInstalledOnlyResourceOverwriteResult.SucceededInstall + " succeededCleanupOnly=" + pendingInstalledOnlyResourceOverwriteResult.SucceededCleanupOnly + " skippedNotPending=" + pendingInstalledOnlyResourceOverwriteResult.SkippedNotPending + " skippedMissingInstlDst=" + pendingInstalledOnlyResourceOverwriteResult.SkippedMissingInstlDst + " skippedMultiDst=" + pendingInstalledOnlyResourceOverwriteResult.SkippedMultiDestination + " skippedNoComponentTarget=" + pendingInstalledOnlyResourceOverwriteResult.SkippedNoComponentTarget + " failed=" + pendingInstalledOnlyResourceOverwriteResult.Failed + " canceled=" + pendingInstalledOnlyResourceOverwriteResult.Canceled);
+                    }
+                }
+            }
+        }
+        return pendingInstalledOnlyResourceOverwriteResult;
+    }
+
     public List<BMSFile> GetPendingBMSFilesSnapshot()
     {
         using (rwlockBMSFilesInitializedMin.GetReaderGuard())

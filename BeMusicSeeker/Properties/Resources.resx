@@ -427,6 +427,12 @@ LR2をプレイヤーとして使用すると再生できない場合があり�
 対象: {0} 譜面
 この操作は取り消せません。よろしいですか？</value>
   </data>
+  <data name="Msg_overwrite_pending_installed_only_packages_resources" xml:space="preserve">
+    <value>既所持譜面のみの保留パッケージを対象に、推定先へリソース上書きを実行します。
+対象: {0} パッケージ
+導入先を一意に決められないパッケージはスキップされます。
+この操作は取り消せません。よろしいですか？</value>
+  </data>
   <data name="Msg_failed_save_playlist" xml:space="preserve">
     <value>保存に失敗しました。</value>
   </data>
@@ -921,6 +927,9 @@ BMSファイルが重複しないようにマージします。
   <data name="Delete_pending_installed_only_packages_permanently" xml:space="preserve">
     <value>既所持譜面のみのパッケージをごみ箱を経由せずに削除</value>
   </data>
+  <data name="Overwrite_pending_installed_only_packages_resources" xml:space="preserve">
+    <value>既所持譜面のみのパッケージをリソースのみ上書きする</value>
+  </data>
   <data name="Install_new_folder_desc" xml:space="preserve">
     <value>※設定はリネーム機能でも使用されます</value>
   </data>
@@ -1376,6 +1385,19 @@ BMSファイルが重複しないようにマージします。
   <data name="Warn_estimated_install_cleanup_only_completed" xml:space="preserve">
     <value>選択範囲のうち {0} パッケージは、導入対象がなかったため保留から除去し、元フォルダ（または元ファイル）を削除しました。
 このパッケージは新規インストール一覧には追加されません。</value>
+  </data>
+  <data name="Warn_overwrite_pending_installed_only_packages_summary" xml:space="preserve">
+    <value>既所持譜面のみパッケージのリソース上書きが完了しました。
+要求: {0}
+処理: {1}
+導入成功: {2}
+cleanup-only成功: {3}
+スキップ(保留外): {4}
+スキップ(instl_dst未解決): {5}
+スキップ(導入先非一意): {6}
+スキップ(リソース対象なし): {7}
+失敗: {8}
+キャンセル: {9}</value>
   </data>
   <data name="Error_BmsFileMoveFailed" xml:space="preserve">
     <value>BMSファイルの移動に失敗しました。

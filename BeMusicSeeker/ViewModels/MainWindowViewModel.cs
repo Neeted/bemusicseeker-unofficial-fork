@@ -7455,6 +7455,17 @@ public class MainWindowViewModel : ViewModel
         }, list);
     }
 
+    public PendingInstalledOnlyResourceOverwriteResult OverwritePendingInstalledOnlyPackagesResources(IEnumerable<BMSPackage> packages, CancellationToken token = default(CancellationToken), Action onEachProcessed = null)
+    {
+        if (packages == null)
+        {
+            throw new ArgumentNullException("packages");
+        }
+        List<BMSPackage> list = packages.Where((BMSPackage pkg) => pkg != null).ToList();
+        List<BeMusicSeeker.Models.BMSFile> list2 = list.SelectMany((BMSPackage pkg) => pkg.BMSFiles ?? new List<BeMusicSeeker.Models.BMSFile>()).Where((BeMusicSeeker.Models.BMSFile f) => f != null).ToList();
+        return RunPendingInstallMutation(() => files.OverwritePendingInstalledOnlyPackagesResources(list, token, onEachProcessed), list2);
+    }
+
     public void RemoveBMSPackagesInstalledAll()
     {
         if (files != null)
