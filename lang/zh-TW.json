@@ -336,6 +336,7 @@
   "Details_test_startup_expand_playlist_tree": "[測試] 啟動時自動展開播放清單的樹狀檢視",
   "Details_test_startup_select_install_pending": "[測試] 啟動時將初始檢視鎖定為「安裝 > 已保留」項目",
   "Details_test_smart_component_overwrite": "[測試] 差分安裝時，透過比對修改日期與檔案大小來最佳化隨附檔案的覆寫邏輯",
+  "Details_test_keep_smart_overwrite_protected_by_rename": "[測試] 智慧覆寫時，*.bmx/*.pmx/*.txt/*.bmson 不覆寫，改以自動編號保留",
   "Estimate_merge_loc": "估算合併目標",
   "Msg_estimate_merge_confirm": "將不使用原始資料夾的關聯資料，重新估算目標位置並覆寫現有的估算結果。\n確定要繼續嗎？",
   "Msg_open_install_destination_missing": "無法推斷出安裝目標的路徑。\n目標估算路徑未指定，或者是無法從已擁有的譜面中反向推導出來。",

@@ -78,6 +78,9 @@
   <data name="Details_test_smart_component_overwrite" xml:space="preserve">
     <value>[テスト中] 差分導入時に更新日時とサイズを比較して同梱ファイルの上書きを最適化する</value>
   </data>
+  <data name="Details_test_keep_smart_overwrite_protected_by_rename" xml:space="preserve">
+    <value>[テスト中] スマート上書き時、*.bmx/*.pmx/*.txt/*.bmson は上書きせず自動採番で保持する</value>
+  </data>
   <data name="Msg_failed_remove_playlist_entry" xml:space="preserve">
     <value>プレイリストが外部同期モードになっているため
 エントリーを削除することが出来ません。</value>

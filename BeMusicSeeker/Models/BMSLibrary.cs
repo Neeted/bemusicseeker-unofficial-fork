@@ -3702,6 +3702,13 @@ public class BMSLibrary : NotificationObject
         SkipOlderOrEqual
     }
 
+    private enum SmartOverwriteHashCompareResult
+    {
+        Same,
+        Different,
+        Unavailable
+    }
+
     private sealed class ComponentMovePlanItem
     {
         public string SourcePath { get; set; }
@@ -3735,13 +3742,65 @@ public class BMSLibrary : NotificationObject
         public int SkippedSamePath { get; set; }
 
         public int Failed { get; set; }
+
+        public int RenamedKeep { get; set; }
+
+        public int RenamedFromOverwrite { get; set; }
+
+        public int RenamedFromSkipOlder { get; set; }
+
+        public int HashChecked { get; set; }
+
+        public int HashSameSkip { get; set; }
+
+        public int HashDiffRenamed { get; set; }
+
+        public int HashUnavailableRenamed { get; set; }
     }
 
     private static readonly TimeSpan smartComponentOverwriteTimeTolerance = TimeSpan.FromSeconds(2.0);
 
+    private static readonly HashSet<string> smartOverwriteProtectedExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    {
+        ".txt",
+        ".bmx",
+        ".pmx",
+        ".bmson"
+    };
+
     private static bool IsSmartComponentOverwriteEnabled()
     {
         return Settings.Default.EnableSmartComponentOverwrite;
+    }
+
+    private static bool IsKeepSmartOverwriteProtectedFilesByRenamingEnabled()
+    {
+        return Settings.Default.KeepSmartOverwriteProtectedFilesByRenaming;
+    }
+
+    private static bool IsSmartOverwriteProtectedExtension(string filePath)
+    {
+        if (string.IsNullOrWhiteSpace(filePath))
+        {
+            return false;
+        }
+        string extension = Path.GetExtension(filePath);
+        return !string.IsNullOrWhiteSpace(extension) && smartOverwriteProtectedExtensions.Contains(extension);
+    }
+
+    private SmartOverwriteHashCompareResult CompareHashForSmartOverwrite(string srcFilePath, string dstFilePath)
+    {
+        string text = TryComputeFileMd5ForPath(srcFilePath, "smart_component_overwrite_hash");
+        string text2 = TryComputeFileMd5ForPath(dstFilePath, "smart_component_overwrite_hash");
+        if (string.IsNullOrWhiteSpace(text) || string.IsNullOrWhiteSpace(text2))
+        {
+            return SmartOverwriteHashCompareResult.Unavailable;
+        }
+        if (text.Equals(text2, StringComparison.OrdinalIgnoreCase))
+        {
+            return SmartOverwriteHashCompareResult.Same;
+        }
+        return SmartOverwriteHashCompareResult.Different;
     }
 
     private static ComponentMoveDecision DecideComponentMove(string srcFilePath, string dstFilePath)
@@ -4006,6 +4065,7 @@ public class BMSLibrary : NotificationObject
                     ComponentMoveSummary componentMoveSummary = new ComponentMoveSummary();
                     ComponentMovePlanBuildResult movePlanResult = BuildComponentMovePlan(installComponentFiles, destinationDirectory, excludedComponentPaths);
                     List<ComponentMovePlanItem> movePlanItems = movePlanResult.PlanItems;
+                    bool keepProtectedFilesByRenaming = IsKeepSmartOverwriteProtectedFilesByRenamingEnabled();
                     componentMoveSummary.Total = movePlanItems.Count;
                     componentMoveSummary.SkippedByExclusion = movePlanResult.SkippedByExclusion;
 
@@ -4032,6 +4092,41 @@ public class BMSLibrary : NotificationObject
 
                         // 移動判定: Move / Overwrite / SkipSame / SkipOlderOrEqual
                         ComponentMoveDecision moveDecision = DecideComponentMove(srcFilePath, dstFilePath);
+                        bool keepByRename = keepProtectedFilesByRenaming && File.Exists(dstFilePath) && IsSmartOverwriteProtectedExtension(srcFilePath) && moveDecision != ComponentMoveDecision.SkipSame;
+                        if (keepByRename)
+                        {
+                            componentMoveSummary.HashChecked++;
+                            SmartOverwriteHashCompareResult smartOverwriteHashCompareResult = CompareHashForSmartOverwrite(srcFilePath, dstFilePath);
+                            if (smartOverwriteHashCompareResult == SmartOverwriteHashCompareResult.Same)
+                            {
+                                fileMutationService.DeleteFileDirect(srcFilePath, targetOnlyFileMutationOptions);
+                                componentMoveSummary.SkippedSame++;
+                                componentMoveSummary.DeletedAfterSkip++;
+                                componentMoveSummary.HashSameSkip++;
+                                continue;
+                            }
+                            string nonConflictingDestination = GetNonConflictingPathWithSuffix(dstFilePath);
+                            fileMutationService.MoveFile(srcFilePath, nonConflictingDestination, overwrite: false, targetOnlyFileMutationOptions);
+                            componentMoveSummary.Moved++;
+                            componentMoveSummary.RenamedKeep++;
+                            if (smartOverwriteHashCompareResult == SmartOverwriteHashCompareResult.Different)
+                            {
+                                componentMoveSummary.HashDiffRenamed++;
+                            }
+                            else
+                            {
+                                componentMoveSummary.HashUnavailableRenamed++;
+                            }
+                            if (moveDecision == ComponentMoveDecision.Overwrite)
+                            {
+                                componentMoveSummary.RenamedFromOverwrite++;
+                            }
+                            else
+                            {
+                                componentMoveSummary.RenamedFromSkipOlder++;
+                            }
+                            continue;
+                        }
                         switch (moveDecision)
                         {
                             case ComponentMoveDecision.Move:
@@ -4058,7 +4153,7 @@ public class BMSLibrary : NotificationObject
                     // スキップ後の空ディレクトリを掃除して、後段のフォルダ削除を成功しやすくする。
                     CleanupEmptyComponentDirectories(installComponentFiles);
                     int movedNewCount = Math.Max(0, componentMoveSummary.Moved - componentMoveSummary.Overwritten);
-                    LogInstallPerformance("component_move_summary package=" + pkg.path + " total=" + componentMoveSummary.Total + " moved=" + componentMoveSummary.Moved + " moved_new=" + movedNewCount + " overwritten=" + componentMoveSummary.Overwritten + " skipped_same=" + componentMoveSummary.SkippedSame + " skipped_same_path=" + componentMoveSummary.SkippedSamePath + " skipped_older=" + componentMoveSummary.SkippedOlder + " skipped_by_exclusion=" + componentMoveSummary.SkippedByExclusion + " deleted_after_skip=" + componentMoveSummary.DeletedAfterSkip + " failed=" + componentMoveSummary.Failed);
+                    LogInstallPerformance("component_move_summary package=" + pkg.path + " total=" + componentMoveSummary.Total + " moved=" + componentMoveSummary.Moved + " moved_new=" + movedNewCount + " overwritten=" + componentMoveSummary.Overwritten + " skipped_same=" + componentMoveSummary.SkippedSame + " skipped_same_path=" + componentMoveSummary.SkippedSamePath + " skipped_older=" + componentMoveSummary.SkippedOlder + " skipped_by_exclusion=" + componentMoveSummary.SkippedByExclusion + " deleted_after_skip=" + componentMoveSummary.DeletedAfterSkip + " renamed_keep=" + componentMoveSummary.RenamedKeep + " renamed_from_overwrite=" + componentMoveSummary.RenamedFromOverwrite + " renamed_from_skip_older=" + componentMoveSummary.RenamedFromSkipOlder + " hash_checked=" + componentMoveSummary.HashChecked + " hash_same_skip=" + componentMoveSummary.HashSameSkip + " hash_diff_renamed=" + componentMoveSummary.HashDiffRenamed + " hash_unavailable_renamed=" + componentMoveSummary.HashUnavailableRenamed + " failed=" + componentMoveSummary.Failed);
                 }
                 else
                 {
@@ -6682,14 +6777,14 @@ public class BMSLibrary : NotificationObject
         if (Directory.Exists(requestedPath))
         {
             NLogWrapper.FileLogger?.Info("invalid_ext_rename collision_detected source=" + sourceFile.path + " requested=" + requestedPath + " existsType=directory removeOnSuccess=" + removeFromLibraryOnSuccess);
-            text = GetNonConflictingInvalidExtensionPath(requestedPath);
+            text = GetNonConflictingPathWithSuffix(requestedPath);
             NLogWrapper.FileLogger?.Info("invalid_ext_rename renamed_with_suffix source=" + sourceFile.path + " requested=" + requestedPath + " resolved=" + text);
         }
         else if (File.Exists(requestedPath))
         {
             NLogWrapper.FileLogger?.Info("invalid_ext_rename collision_detected source=" + sourceFile.path + " requested=" + requestedPath + " existsType=file removeOnSuccess=" + removeFromLibraryOnSuccess);
             string text2 = TryGetSourceHashForInvalidExtensionRename(sourceFile);
-            string text3 = TryComputeFileMd5ForInvalidExtensionRename(requestedPath);
+            string text3 = TryComputeFileMd5ForPath(requestedPath, "invalid_ext_rename");
             if (!string.IsNullOrWhiteSpace(text2) && !string.IsNullOrWhiteSpace(text3) && text2.Equals(text3, StringComparison.OrdinalIgnoreCase))
             {
                 try
@@ -6711,7 +6806,7 @@ public class BMSLibrary : NotificationObject
             {
                 NLogWrapper.FileLogger?.Info("invalid_ext_rename hash_compare_unavailable source=" + sourceFile.path + " requested=" + requestedPath + " reason=" + (string.IsNullOrWhiteSpace(text2) ? "source_hash_unavailable" : "dest_hash_unavailable"));
             }
-            text = GetNonConflictingInvalidExtensionPath(requestedPath);
+            text = GetNonConflictingPathWithSuffix(requestedPath);
             NLogWrapper.FileLogger?.Info("invalid_ext_rename renamed_with_suffix source=" + sourceFile.path + " requested=" + requestedPath + " resolved=" + text);
         }
         try
@@ -6731,7 +6826,7 @@ public class BMSLibrary : NotificationObject
         }
     }
 
-    private string GetNonConflictingInvalidExtensionPath(string requestedPath)
+    private string GetNonConflictingPathWithSuffix(string requestedPath)
     {
         if (string.IsNullOrWhiteSpace(requestedPath))
         {
@@ -6755,12 +6850,12 @@ public class BMSLibrary : NotificationObject
     {
         if (!IsBMSHashAvailable(sourceFile))
         {
-            return TryComputeFileMd5ForInvalidExtensionRename(sourceFile?.path);
+            return TryComputeFileMd5ForPath(sourceFile?.path, "invalid_ext_rename");
         }
         return sourceFile.hash;
     }
 
-    private string TryComputeFileMd5ForInvalidExtensionRename(string filePath)
+    private string TryComputeFileMd5ForPath(string filePath, string logCategory = null)
     {
         if (string.IsNullOrWhiteSpace(filePath) || !File.Exists(filePath))
         {
@@ -6784,7 +6879,10 @@ public class BMSLibrary : NotificationObject
         }
         catch (Exception ex) when (ex is DirectoryNotFoundException || ex is FileNotFoundException || ex is IOException || ex is PathTooLongException || ex is SecurityException || ex is UnauthorizedAccessException)
         {
-            NLogWrapper.FileLogger?.Info(ex, "invalid_ext_rename hash_unavailable path=" + filePath);
+            if (!string.IsNullOrWhiteSpace(logCategory))
+            {
+                NLogWrapper.FileLogger?.Info(ex, logCategory + " hash_unavailable path=" + filePath);
+            }
             return null;
         }
     }

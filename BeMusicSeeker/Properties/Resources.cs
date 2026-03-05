@@ -151,6 +151,8 @@ public class Resources
 
     public static string Details_test_smart_component_overwrite => ResourceManager.GetString("Details_test_smart_component_overwrite", resourceCulture);
 
+    public static string Details_test_keep_smart_overwrite_protected_by_rename => ResourceManager.GetString("Details_test_keep_smart_overwrite_protected_by_rename", resourceCulture);
+
     public static string Details_test_notscan => ResourceManager.GetString("Details_test_notscan", resourceCulture);
 
     public static string Device => ResourceManager.GetString("Device", resourceCulture);

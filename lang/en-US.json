@@ -336,6 +336,7 @@
   "Details_test_startup_expand_playlist_tree": "[TEST] Auto-expand playlist tree at startup",
   "Details_test_startup_select_install_pending": "[TEST] Set initial selection to Install > Pending at startup",
   "Details_test_smart_component_overwrite": "[TEST] Optimize bundled file overwrite by comparing modified date and size on diff install",
+  "Details_test_keep_smart_overwrite_protected_by_rename": "[TEST] During smart overwrite, keep *.bmx/*.pmx/*.txt/*.bmson by auto-renaming instead of overwriting",
   "Estimate_merge_loc": "Estimate merge destination",
   "Msg_estimate_merge_confirm": "Re-estimate install destination without using the original folder correction.\nExisting estimates will be overwritten.\nDo you want to continue?",
   "Msg_open_install_destination_missing": "Could not determine the install destination.\nThe estimated destination is not set, or it could not be reverse-looked up from owned charts.",

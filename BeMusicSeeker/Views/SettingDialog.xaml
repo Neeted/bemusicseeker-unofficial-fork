@@ -8,7 +8,7 @@
       </ResourceDictionary>
     </FrameworkElement.Resources>
     <Rectangle Fill="#FF000000" Opacity="0.5" />
-    <Border Width="550" Height="410" CornerRadius="10" Background="#FFFFFFFF" Padding="10">
+    <Border Width="570" Height="410" CornerRadius="10" Background="#FFFFFFFF" Padding="10">
       <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
         <FrameworkElement.Style>
           <Style TargetType="{x:Type ScrollViewer}">
@@ -572,6 +572,7 @@
                       <CheckBox IsChecked="{Binding settingDialog.KeepInstallablePackagesPending}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_test_keep_installable_pending, Mode=OneWay}" />
                       <CheckBox IsChecked="{Binding settingDialog.DeletePendingPackageSourceAfterInstall}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_test_delete_pending_source_after_install, Mode=OneWay}" />
                       <CheckBox IsChecked="{Binding settingDialog.EnableSmartComponentOverwrite}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_test_smart_component_overwrite, Mode=OneWay}" />
+                      <CheckBox IsChecked="{Binding settingDialog.KeepSmartOverwriteProtectedFilesByRenaming}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_test_keep_smart_overwrite_protected_by_rename, Mode=OneWay}" />
                     </StackPanel>
                   </ScrollViewer>
                 </GroupBox>

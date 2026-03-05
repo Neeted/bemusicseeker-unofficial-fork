@@ -189,6 +189,8 @@ public class MainWindowViewModel : ViewModel
 
         private bool tempEnableSmartComponentOverwrite;
 
+        private bool tempKeepSmartOverwriteProtectedFilesByRenaming;
+
         private string tempStagefilePath;
 
         private static string defaultFolderNameFormat = "[%ARTIST%] %TITLE%";
@@ -1104,6 +1106,22 @@ public class MainWindowViewModel : ViewModel
                 {
                     Settings.Default.EnableSmartComponentOverwrite = value;
                     RaisePropertyChanged("EnableSmartComponentOverwrite");
+                }
+            }
+        }
+
+        public bool KeepSmartOverwriteProtectedFilesByRenaming
+        {
+            get
+            {
+                return Settings.Default.KeepSmartOverwriteProtectedFilesByRenaming;
+            }
+            set
+            {
+                if (Settings.Default.KeepSmartOverwriteProtectedFilesByRenaming != value)
+                {
+                    Settings.Default.KeepSmartOverwriteProtectedFilesByRenaming = value;
+                    RaisePropertyChanged("KeepSmartOverwriteProtectedFilesByRenaming");
                 }
             }
         }
@@ -2156,6 +2174,7 @@ public class MainWindowViewModel : ViewModel
             tempKeepInstallablePackagesPending = Settings.Default.KeepInstallablePackagesPending;
             tempDeletePendingPackageSourceAfterInstall = Settings.Default.DeletePendingPackageSourceAfterInstall;
             tempEnableSmartComponentOverwrite = Settings.Default.EnableSmartComponentOverwrite;
+            tempKeepSmartOverwriteProtectedFilesByRenaming = Settings.Default.KeepSmartOverwriteProtectedFilesByRenaming;
             tempEncoderSampleRate = Settings.Default.EncoderSampleRate;
             tempEncoderIndex = (int)Settings.Default.Encoder;
             tempEncoderFormat = Settings.Default.EncoderFormat;
@@ -2415,6 +2434,7 @@ public class MainWindowViewModel : ViewModel
             Settings.Default.KeepInstallablePackagesPending = tempKeepInstallablePackagesPending;
             Settings.Default.DeletePendingPackageSourceAfterInstall = tempDeletePendingPackageSourceAfterInstall;
             Settings.Default.EnableSmartComponentOverwrite = tempEnableSmartComponentOverwrite;
+            Settings.Default.KeepSmartOverwriteProtectedFilesByRenaming = tempKeepSmartOverwriteProtectedFilesByRenaming;
             Settings.Default.SkipInitFileCheck = tempSkipInitFileCheck;
             Settings.Default.EncoderSampleRate = tempEncoderSampleRate;
             Settings.Default.Encoder = (EncoderType)tempEncoderIndex;
@@ -2484,6 +2504,7 @@ public class MainWindowViewModel : ViewModel
             RaisePropertyChanged(() => KeepInstallablePackagesPending);
             RaisePropertyChanged(() => DeletePendingPackageSourceAfterInstall);
             RaisePropertyChanged(() => EnableSmartComponentOverwrite);
+            RaisePropertyChanged(() => KeepSmartOverwriteProtectedFilesByRenaming);
             RaisePropertyChanged(() => EncoderSampleRate);
             RaisePropertyChanged(() => EncoderIndex);
             RaisePropertyChanged(() => EncoderNormalization);

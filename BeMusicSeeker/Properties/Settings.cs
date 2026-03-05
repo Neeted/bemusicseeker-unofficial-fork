@@ -1152,6 +1152,21 @@ internal sealed class Settings : ApplicationSettingsBase
 		}
 	}
 
+	[UserScopedSetting]
+	[DebuggerNonUserCode]
+	[DefaultSettingValue("False")]
+	public bool KeepSmartOverwriteProtectedFilesByRenaming
+	{
+		get
+		{
+			return (bool)this["KeepSmartOverwriteProtectedFilesByRenaming"];
+		}
+		set
+		{
+			this["KeepSmartOverwriteProtectedFilesByRenaming"] = value;
+		}
+	}
+
 	public Settings()
 	{
 		base.SettingsLoaded += SettingsLoadedEventHandler;
