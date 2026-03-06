@@ -4,9 +4,12 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Threading;
+using System.Windows;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using Microsoft.VisualBasic.FileIO;
+using Ribbit.Util.Extensions;
+using SevenZipExtractor;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
@@ -77,6 +80,8 @@ internal sealed class ComponentMoveSummary
 internal sealed class BmsLibraryPackageInstallService
 {
     public static readonly TimeSpan SmartComponentOverwriteTimeTolerance = TimeSpan.FromSeconds(2.0);
+
+    private readonly BmsLibraryLibraryFileOperationsService libraryFileOperationsService = new BmsLibraryLibraryFileOperationsService();
 
     private static readonly HashSet<string> smartOverwriteProtectedExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     {
@@ -329,6 +334,323 @@ internal sealed class BmsLibraryPackageInstallService
             return directories.SelectMany((string dir) => SearchBmsFilesRecursively(dir, dupRateThreshInOnePkg, recursive: true)).ToList();
         }
         return result;
+    }
+
+    public List<string> ExpandInstallSources(
+        IEnumerable<string> installPaths,
+        IFileMutationService fileMutationService,
+        FileMutationOptions targetOnlyFileMutationOptions,
+        Action<string> logInfo = null,
+        IBmsLibraryDialogService dialogService = null)
+    {
+        string[] archiveExtensions = new string[4] { ".zip", ".7z", ".rar", ".lzh" };
+        List<string> expandedPaths = new List<string>();
+        foreach (string installPath in installPaths ?? Enumerable.Empty<string>())
+        {
+            if (!archiveExtensions.Any((string ext) => installPath.EndsWith(ext, StringComparison.OrdinalIgnoreCase)))
+            {
+                expandedPaths.Add(installPath);
+                continue;
+            }
+            try
+            {
+                string tempDirectoryPath = TempDirectoryPublisher.Get();
+                using (ArchiveFile archiveFile = new ArchiveFile(installPath))
+                {
+                    archiveFile.Extract(tempDirectoryPath);
+                    foreach (Entry entry in archiveFile.Entries)
+                    {
+                        string entryPath = entry.FileName.Replace('/', Path.DirectorySeparatorChar);
+                        string fullPath = Path.GetFullPath(Path.Combine(tempDirectoryPath, entryPath));
+                        if (!fullPath.StartsWith(tempDirectoryPath, StringComparison.OrdinalIgnoreCase))
+                        {
+                            continue;
+                        }
+                        bool isFile = !entry.IsFolder && File.Exists(fullPath);
+                        bool isDirectory = entry.IsFolder && Directory.Exists(fullPath);
+                        if (!isFile && !isDirectory)
+                        {
+                            continue;
+                        }
+                        try
+                        {
+                            DateTime? creationTimeToRestore = entry.CreationTime > DateTime.MinValue ? entry.CreationTime : (DateTime?)null;
+                            DateTime? lastWriteTimeToRestore = entry.LastWriteTime > DateTime.MinValue ? entry.LastWriteTime : (DateTime?)null;
+                            if (creationTimeToRestore.HasValue || lastWriteTimeToRestore.HasValue)
+                            {
+                                fileMutationService.SetTimestamps(fullPath, isDirectory, creationTimeToRestore, lastWriteTimeToRestore, targetOnlyFileMutationOptions);
+                            }
+                            if (entry.LastAccessTime > DateTime.MinValue)
+                            {
+                                if (isFile)
+                                {
+                                    File.SetLastAccessTime(fullPath, entry.LastAccessTime);
+                                }
+                                else
+                                {
+                                    Directory.SetLastAccessTime(fullPath, entry.LastAccessTime);
+                                }
+                            }
+                        }
+                        catch (Exception metadataRestoreException)
+                        {
+                            logInfo?.Invoke("auto_install metadata_restore_failed path=" + fullPath + " error=" + metadataRestoreException.Message);
+                        }
+                    }
+                }
+                expandedPaths.Add(tempDirectoryPath);
+            }
+            catch (Exception ex)
+            {
+                logInfo?.Invoke("auto_install extract_failed path=" + installPath + " error=" + ex.Message);
+                dialogService?.Show("Extract failed:" + Environment.NewLine + installPath, "Warning", MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
+            }
+        }
+        return expandedPaths;
+    }
+
+    public bool MovePackageFiles(
+        BMSPackage package,
+        string installationDirectory,
+        BmsLibraryOptionsSnapshot options,
+        Func<IEnumerable<BMSFile>, string, string, string> createFolderPath,
+        Func<Exception, string> getDisplayedExceptionMessage,
+        IFileMutationService fileMutationService,
+        IBmsLibraryDialogService dialogService,
+        FileMutationOptions targetOnlyFileMutationOptions,
+        FileMutationOptions recursiveDirectoryTreeFileMutationOptions,
+        Action<string> logInstallPerformance,
+        bool showMessageBoxOnInstallFail = true,
+        bool deleteAllContents = false,
+        HashSet<string> existingHashes = null,
+        ISet<string> excludedComponentPaths = null)
+    {
+        if (package == null)
+        {
+            throw new ArgumentNullException(nameof(package));
+        }
+        string sourcePath = package.path;
+        string destinationDirectory = string.Empty;
+        bool isSingleFile = false;
+        bool isAutoNaming = false;
+        List<string> installComponentFiles = new List<string>();
+        List<BMSFile> installBmsFiles;
+        if (File.Exists(sourcePath))
+        {
+            installComponentFiles.Add(sourcePath);
+            isSingleFile = true;
+        }
+        else
+        {
+            if (!Directory.Exists(sourcePath))
+            {
+                return false;
+            }
+            installComponentFiles = Directory.EnumerateFileSystemEntries(sourcePath).ToList();
+            isAutoNaming = string.IsNullOrWhiteSpace(installationDirectory);
+        }
+
+        HashSet<string> installComponentPathSet = new HashSet<string>(installComponentFiles, StringComparer.OrdinalIgnoreCase);
+        installBmsFiles = package.BMSFiles.Where((BMSFile file) => installComponentPathSet.Contains(file.path)).ToList();
+        HashSet<string> installBmsPathSet = new HashSet<string>(installBmsFiles.Select((BMSFile file) => file.path), StringComparer.OrdinalIgnoreCase);
+        installComponentFiles = installComponentFiles.Where((string path) => !installBmsPathSet.Contains(path)).ToList();
+        if (excludedComponentPaths != null && excludedComponentPaths.Count > 0)
+        {
+            installComponentFiles = installComponentFiles.Where((string path) => !excludedComponentPaths.Contains(path)).ToList();
+        }
+
+        if (!string.IsNullOrWhiteSpace(installationDirectory))
+        {
+            HashSet<string> hashSnapshot = existingHashes ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            List<BMSFile> skippedBmsFiles = installBmsFiles.Where((BMSFile bmsFile) => IsBmsHashAvailable(bmsFile.hash) && hashSnapshot.Contains(bmsFile.hash)).ToList();
+            if (skippedBmsFiles.Count > 0)
+            {
+                HashSet<string> skipPathSet = new HashSet<string>(skippedBmsFiles.Select((BMSFile file) => file.path), StringComparer.OrdinalIgnoreCase);
+                installBmsFiles = installBmsFiles.Where((BMSFile file) => !skipPathSet.Contains(file.path)).ToList();
+                package.BMSFiles.RemoveAll((BMSFile file) => skipPathSet.Contains(file.path));
+            }
+        }
+
+        try
+        {
+            if (string.IsNullOrWhiteSpace(installationDirectory))
+            {
+                destinationDirectory = createFolderPath?.Invoke(
+                    package.BMSFiles,
+                    options?.BMSInstallDir,
+                    installComponentFiles.Select(Path.GetFileName).OrderByDescending((string fileName) => fileName.Length).FirstOrDefault() ?? string.Empty);
+            }
+            else
+            {
+                destinationDirectory = installationDirectory;
+            }
+
+            if (string.IsNullOrWhiteSpace(installationDirectory))
+            {
+                int dirSuffix = 1;
+                string baseDirName = destinationDirectory;
+                while (Directory.Exists(destinationDirectory) || File.Exists(destinationDirectory))
+                {
+                    dirSuffix++;
+                    destinationDirectory = baseDirName + "(" + dirSuffix + ")";
+                }
+                if (!isAutoNaming)
+                {
+                    fileMutationService.EnsureDirectory(destinationDirectory, targetOnlyFileMutationOptions);
+                }
+            }
+
+            if (isAutoNaming)
+            {
+                if (!Directory.Exists(sourcePath))
+                {
+                    throw new DirectoryNotFoundException(string.Format(Resources.Error_RenameDestDirNotFound, sourcePath));
+                }
+                fileMutationService.MoveDirectory(sourcePath, destinationDirectory, overwrite: true, recursiveDirectoryTreeFileMutationOptions);
+            }
+            else
+            {
+                if (options?.EnableSmartComponentOverwrite == true)
+                {
+                    MovePackageComponentsSmart(
+                        package,
+                        installComponentFiles,
+                        destinationDirectory,
+                        excludedComponentPaths,
+                        options.KeepSmartOverwriteProtectedFilesByRenaming,
+                        fileMutationService,
+                        targetOnlyFileMutationOptions,
+                        logInstallPerformance);
+                }
+                else
+                {
+                    installComponentFiles.AsParallel().ForAll(delegate (string path)
+                    {
+                        string componentDestinationPath = Path.Combine(destinationDirectory, Path.GetFileName(path));
+                        if (File.Exists(path))
+                        {
+                            fileMutationService.MoveFile(path, componentDestinationPath, overwrite: true, targetOnlyFileMutationOptions);
+                        }
+                        else
+                        {
+                            if (!Directory.Exists(path))
+                            {
+                                throw new FileNotFoundException(Resources.Error_FileNotFound, path);
+                            }
+                            fileMutationService.MoveDirectory(path, componentDestinationPath, overwrite: true, recursiveDirectoryTreeFileMutationOptions);
+                        }
+                    });
+                }
+
+                foreach (BMSFile bmsFile in installBmsFiles)
+                {
+                    string destinationBmsPath = Path.Combine(destinationDirectory, Path.GetFileName(bmsFile.path));
+                    while (File.Exists(destinationBmsPath) || Directory.Exists(destinationBmsPath))
+                    {
+                        string renamedFileName = Path.GetFileNameWithoutExtension(destinationBmsPath) + "_" + Path.GetExtension(destinationBmsPath);
+                        destinationBmsPath = Path.Combine(destinationDirectory, Path.GetFileName(renamedFileName));
+                    }
+                    if (!File.Exists(bmsFile.path))
+                    {
+                        throw new FileNotFoundException(Resources.Error_FileNotFound, bmsFile.path);
+                    }
+                    fileMutationService.MoveFile(bmsFile.path, destinationBmsPath, overwrite: true, targetOnlyFileMutationOptions);
+                    bmsFile.path = bmsFile.path.ReplaceFromEnd(Path.GetFileName(bmsFile.path), Path.GetFileName(destinationBmsPath), isIgnoreCase: true);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            if (!showMessageBoxOnInstallFail)
+            {
+                return false;
+            }
+            dialogService?.Show(
+                string.Format(Resources.Error_InstallFailed, package.path, destinationDirectory, getDisplayedExceptionMessage?.Invoke(ex) ?? ex.Message),
+                Resources.MessageBoxTitle_Error,
+                MessageBoxButton.OK,
+                MessageBoxImage.Hand,
+                MessageBoxResult.OK);
+            return false;
+        }
+
+        if (isSingleFile)
+        {
+            package.BMSFiles.ForEach(delegate (BMSFile bmsInfo)
+            {
+                bmsInfo.path = Path.Combine(destinationDirectory, Path.GetFileName(bmsInfo.path));
+                bmsInfo.parent = null;
+                bmsInfo.folder = null;
+                bmsInfo.adddate = null;
+                bmsInfo.date = null;
+            });
+            package.path = Path.Combine(destinationDirectory, Path.GetFileName(package.path));
+        }
+        else
+        {
+            if (!(Directory.Exists(sourcePath) || isAutoNaming))
+            {
+                return false;
+            }
+            package.BMSFiles.ForEach(delegate (BMSFile bmsInfo)
+            {
+                bmsInfo.path = bmsInfo.path.ReplaceFromStart(sourcePath + Path.DirectorySeparatorChar, destinationDirectory + Path.DirectorySeparatorChar, isIgnoreCase: true);
+                bmsInfo.parent = null;
+                bmsInfo.folder = null;
+                bmsInfo.adddate = null;
+                bmsInfo.date = null;
+            });
+            package.path = destinationDirectory;
+        }
+
+        string directoryToDelete = string.Empty;
+        if (package.delete_parent)
+        {
+            directoryToDelete = Path.GetDirectoryName(sourcePath);
+        }
+        else if (Directory.Exists(sourcePath))
+        {
+            directoryToDelete = sourcePath;
+        }
+        if (!string.IsNullOrWhiteSpace(directoryToDelete) && Directory.Exists(directoryToDelete))
+        {
+            if (!deleteAllContents && HasRemainingDirectoryEntries(directoryToDelete))
+            {
+                logInstallPerformance?.Invoke("Folder deletion skipped: path=" + directoryToDelete + " reason=not_empty deleteAllContents=False");
+                return true;
+            }
+
+            FileMutationOptions deleteOptions = deleteAllContents ? recursiveDirectoryTreeFileMutationOptions : targetOnlyFileMutationOptions;
+            try
+            {
+                fileMutationService.DeleteDirectoryDirect(directoryToDelete, deleteAllContents, deleteOptions);
+                logInstallPerformance?.Invoke("Folder deletion success: path=" + directoryToDelete + " deleteAllContents=" + deleteAllContents);
+            }
+            catch (FileMutationException ex)
+            {
+                if (!deleteAllContents && HasRemainingDirectoryEntries(directoryToDelete))
+                {
+                    logInstallPerformance?.Invoke("Folder deletion skipped after failure: path=" + directoryToDelete + " reason=not_empty_after_failure deleteAllContents=False attempts=" + ex.AttemptCount);
+                    return true;
+                }
+
+                logInstallPerformance?.Invoke(string.Format(
+                    "Folder deletion failed: path={0} attempts={1} normalizedReadOnly={2} win32={3} errorType={4} error={5}",
+                    directoryToDelete,
+                    ex.AttemptCount,
+                    ex.NormalizedReadOnlyCount,
+                    ex.Win32ErrorCode,
+                    ex.RootCause.GetType().FullName,
+                    getDisplayedExceptionMessage?.Invoke(ex) ?? ex.Message));
+                dialogService?.Show(
+                    string.Format(Resources.Error_FolderDeleteFailed, directoryToDelete, getDisplayedExceptionMessage?.Invoke(ex) ?? ex.Message),
+                    Resources.MessageBoxTitle_Error,
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Hand,
+                    MessageBoxResult.OK);
+            }
+        }
+        return true;
     }
 
     public AutoInstallWorkflowResult PrepareAutoInstallWorkflow(
@@ -1232,6 +1554,111 @@ internal sealed class BmsLibraryPackageInstallService
         return result;
     }
 
+    public PendingFileDeletionResult DeletePendingFiles(
+        IEnumerable<BMSFile> bmsFiles,
+        IEnumerable<BMSPackage> pendingPackages,
+        bool sendToRecycleBin,
+        bool deleteContainingPackageFoldersWhenNoBms,
+        IFileMutationService fileMutationService,
+        FileMutationOptions targetOnlyFileMutationOptions,
+        FileMutationOptions recursiveDirectoryTreeFileMutationOptions)
+    {
+        PendingFileDeletionResult result = new PendingFileDeletionResult();
+        List<BMSFile> selectedFiles = DeduplicateFilesByPathOrReference(bmsFiles);
+        result.Requested = selectedFiles.Count;
+        if (selectedFiles.Count == 0)
+        {
+            return result;
+        }
+
+        HashSet<string> selectedPaths = new HashSet<string>(
+            selectedFiles.Where((BMSFile file) => !string.IsNullOrWhiteSpace(file.path)).Select((BMSFile file) => file.path),
+            StringComparer.OrdinalIgnoreCase);
+        HashSet<BMSFile> selectedFileRefs = new HashSet<BMSFile>(selectedFiles);
+        HashSet<string> handledByFolderDeletePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        HashSet<string> blockedByFailedFolderDeletePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        RecycleOption recycleOption = sendToRecycleBin ? RecycleOption.SendToRecycleBin : RecycleOption.DeletePermanently;
+
+        if (deleteContainingPackageFoldersWhenNoBms)
+        {
+            foreach (BMSPackage pendingPackage in libraryFileOperationsService.GetPendingPackagesFullyCoveredBySelection(pendingPackages, selectedPaths, selectedFileRefs))
+            {
+                if (!Directory.Exists(pendingPackage.path))
+                {
+                    continue;
+                }
+                List<BMSFile> packageFiles = pendingPackage.BMSFiles.Where((BMSFile file) => file != null).ToList();
+                try
+                {
+                    fileMutationService.DeleteDirectoryShell(pendingPackage.path, UIOption.OnlyErrorDialogs, recycleOption, recursiveDirectoryTreeFileMutationOptions);
+                    foreach (BMSFile packageFile in packageFiles)
+                    {
+                        result.FilesToRemove.Add(packageFile);
+                        if (!string.IsNullOrWhiteSpace(packageFile.path))
+                        {
+                            handledByFolderDeletePaths.Add(packageFile.path);
+                        }
+                    }
+                    result.Processed += packageFiles.Count;
+                    result.Removed += packageFiles.Count;
+                }
+                catch (Exception ex)
+                {
+                    foreach (BMSFile packageFile in packageFiles)
+                    {
+                        if (!string.IsNullOrWhiteSpace(packageFile.path))
+                        {
+                            blockedByFailedFolderDeletePaths.Add(packageFile.path);
+                        }
+                    }
+                    result.Processed += packageFiles.Count;
+                    result.Failed += packageFiles.Count;
+                    result.Failures.Add(new PendingFileDeletionFailure
+                    {
+                        Path = pendingPackage.path,
+                        Exception = ex,
+                        IsDirectory = true
+                    });
+                }
+            }
+        }
+
+        foreach (BMSFile pendingFile in selectedFiles)
+        {
+            if (!string.IsNullOrWhiteSpace(pendingFile.path) && (handledByFolderDeletePaths.Contains(pendingFile.path) || blockedByFailedFolderDeletePaths.Contains(pendingFile.path)))
+            {
+                continue;
+            }
+
+            result.Processed++;
+            try
+            {
+                if (File.Exists(pendingFile.path))
+                {
+                    fileMutationService.DeleteFileShell(pendingFile.path, UIOption.OnlyErrorDialogs, recycleOption, targetOnlyFileMutationOptions);
+                    result.FilesToRemove.Add(pendingFile);
+                    result.Removed++;
+                }
+                else
+                {
+                    result.Skipped++;
+                }
+            }
+            catch (Exception ex2)
+            {
+                result.Failed++;
+                result.Failures.Add(new PendingFileDeletionFailure
+                {
+                    Path = pendingFile.path,
+                    Exception = ex2,
+                    IsDirectory = false
+                });
+            }
+        }
+
+        return result;
+    }
+
     private static void ApplyAlreadyInstalledWarning(IEnumerable<BMSFile> files)
     {
         foreach (BMSFile file in files ?? Enumerable.Empty<BMSFile>())
@@ -1259,5 +1686,161 @@ internal sealed class BmsLibraryPackageInstallService
     private static bool IsBmsHashAvailable(string hash)
     {
         return !string.IsNullOrWhiteSpace(hash);
+    }
+
+    private void MovePackageComponentsSmart(
+        BMSPackage package,
+        List<string> installComponentFiles,
+        string destinationDirectory,
+        ISet<string> excludedComponentPaths,
+        bool keepProtectedFilesByRenaming,
+        IFileMutationService fileMutationService,
+        FileMutationOptions targetOnlyFileMutationOptions,
+        Action<string> logInstallPerformance)
+    {
+        ComponentMoveSummary componentMoveSummary = new ComponentMoveSummary();
+        ComponentMovePlanBuildResult movePlanResult = BuildComponentMovePlan(installComponentFiles, destinationDirectory, excludedComponentPaths);
+        List<ComponentMovePlanItem> movePlanItems = movePlanResult.PlanItems;
+        componentMoveSummary.Total = movePlanItems.Count;
+        componentMoveSummary.SkippedByExclusion = movePlanResult.SkippedByExclusion;
+
+        foreach (ComponentMovePlanItem planItem in movePlanItems)
+        {
+            string srcFilePath = planItem.SourcePath;
+            string dstFilePath = planItem.DestinationPath;
+            if (!File.Exists(srcFilePath))
+            {
+                throw new FileNotFoundException(Resources.Error_FileNotFound, srcFilePath);
+            }
+            if (IsSamePath(srcFilePath, dstFilePath))
+            {
+                componentMoveSummary.SkippedSame++;
+                componentMoveSummary.SkippedSamePath++;
+                continue;
+            }
+            string dstDirPath = Path.GetDirectoryName(dstFilePath);
+            if (!string.IsNullOrWhiteSpace(dstDirPath))
+            {
+                fileMutationService.EnsureDirectory(dstDirPath, targetOnlyFileMutationOptions);
+            }
+
+            ComponentMoveDecision moveDecision = DecideComponentMove(srcFilePath, dstFilePath);
+            bool keepByRename = keepProtectedFilesByRenaming && File.Exists(dstFilePath) && IsSmartOverwriteProtectedExtension(srcFilePath) && moveDecision != ComponentMoveDecision.SkipSame;
+            if (keepByRename)
+            {
+                componentMoveSummary.HashChecked++;
+                SmartOverwriteHashCompareResult hashCompareResult = CompareHashForSmartOverwrite(srcFilePath, dstFilePath);
+                if (hashCompareResult == SmartOverwriteHashCompareResult.Same)
+                {
+                    fileMutationService.DeleteFileDirect(srcFilePath, targetOnlyFileMutationOptions);
+                    componentMoveSummary.SkippedSame++;
+                    componentMoveSummary.DeletedAfterSkip++;
+                    componentMoveSummary.HashSameSkip++;
+                    continue;
+                }
+                string nonConflictingDestination = libraryFileOperationsService.GetNonConflictingPathWithSuffix(dstFilePath);
+                fileMutationService.MoveFile(srcFilePath, nonConflictingDestination, overwrite: false, targetOnlyFileMutationOptions);
+                componentMoveSummary.Moved++;
+                componentMoveSummary.RenamedKeep++;
+                if (hashCompareResult == SmartOverwriteHashCompareResult.Different)
+                {
+                    componentMoveSummary.HashDiffRenamed++;
+                }
+                else
+                {
+                    componentMoveSummary.HashUnavailableRenamed++;
+                }
+                if (moveDecision == ComponentMoveDecision.Overwrite)
+                {
+                    componentMoveSummary.RenamedFromOverwrite++;
+                }
+                else
+                {
+                    componentMoveSummary.RenamedFromSkipOlder++;
+                }
+                continue;
+            }
+
+            switch (moveDecision)
+            {
+                case ComponentMoveDecision.Move:
+                    fileMutationService.MoveFile(srcFilePath, dstFilePath, overwrite: true, targetOnlyFileMutationOptions);
+                    componentMoveSummary.Moved++;
+                    break;
+                case ComponentMoveDecision.Overwrite:
+                    fileMutationService.MoveFile(srcFilePath, dstFilePath, overwrite: true, targetOnlyFileMutationOptions);
+                    componentMoveSummary.Moved++;
+                    componentMoveSummary.Overwritten++;
+                    break;
+                case ComponentMoveDecision.SkipSame:
+                    fileMutationService.DeleteFileDirect(srcFilePath, targetOnlyFileMutationOptions);
+                    componentMoveSummary.SkippedSame++;
+                    componentMoveSummary.DeletedAfterSkip++;
+                    break;
+                default:
+                    fileMutationService.DeleteFileDirect(srcFilePath, targetOnlyFileMutationOptions);
+                    componentMoveSummary.SkippedOlder++;
+                    componentMoveSummary.DeletedAfterSkip++;
+                    break;
+            }
+        }
+        CleanupEmptyComponentDirectories(installComponentFiles, fileMutationService, targetOnlyFileMutationOptions);
+        int movedNewCount = Math.Max(0, componentMoveSummary.Moved - componentMoveSummary.Overwritten);
+        logInstallPerformance?.Invoke("component_move_summary package=" + package.path + " total=" + componentMoveSummary.Total + " moved=" + componentMoveSummary.Moved + " moved_new=" + movedNewCount + " overwritten=" + componentMoveSummary.Overwritten + " skipped_same=" + componentMoveSummary.SkippedSame + " skipped_same_path=" + componentMoveSummary.SkippedSamePath + " skipped_older=" + componentMoveSummary.SkippedOlder + " skipped_by_exclusion=" + componentMoveSummary.SkippedByExclusion + " deleted_after_skip=" + componentMoveSummary.DeletedAfterSkip + " renamed_keep=" + componentMoveSummary.RenamedKeep + " renamed_from_overwrite=" + componentMoveSummary.RenamedFromOverwrite + " renamed_from_skip_older=" + componentMoveSummary.RenamedFromSkipOlder + " hash_checked=" + componentMoveSummary.HashChecked + " hash_same_skip=" + componentMoveSummary.HashSameSkip + " hash_diff_renamed=" + componentMoveSummary.HashDiffRenamed + " hash_unavailable_renamed=" + componentMoveSummary.HashUnavailableRenamed + " failed=" + componentMoveSummary.Failed);
+    }
+
+    private SmartOverwriteHashCompareResult CompareHashForSmartOverwrite(string srcFilePath, string dstFilePath)
+    {
+        string sourceHash = libraryFileOperationsService.TryComputeFileMd5ForPath(srcFilePath);
+        string destinationHash = libraryFileOperationsService.TryComputeFileMd5ForPath(dstFilePath);
+        if (string.IsNullOrWhiteSpace(sourceHash) || string.IsNullOrWhiteSpace(destinationHash))
+        {
+            return SmartOverwriteHashCompareResult.Unavailable;
+        }
+        return sourceHash.Equals(destinationHash, StringComparison.OrdinalIgnoreCase)
+            ? SmartOverwriteHashCompareResult.Same
+            : SmartOverwriteHashCompareResult.Different;
+    }
+
+    private static void CleanupEmptyComponentDirectories(IEnumerable<string> installComponentDirectories, IFileMutationService fileMutationService, FileMutationOptions targetOnlyFileMutationOptions)
+    {
+        foreach (string installComponentDirectory in installComponentDirectories.Where((string path) => Directory.Exists(path)).OrderByDescending((string path) => path.Length))
+        {
+            TryDeleteEmptyDirectoryTree(installComponentDirectory, fileMutationService, targetOnlyFileMutationOptions);
+        }
+    }
+
+    private static void TryDeleteEmptyDirectoryTree(string rootDirectoryPath, IFileMutationService fileMutationService, FileMutationOptions targetOnlyFileMutationOptions)
+    {
+        try
+        {
+            if (!Directory.Exists(rootDirectoryPath))
+            {
+                return;
+            }
+            foreach (string childDirectoryPath in Directory.EnumerateDirectories(rootDirectoryPath).ToList())
+            {
+                TryDeleteEmptyDirectoryTree(childDirectoryPath, fileMutationService, targetOnlyFileMutationOptions);
+            }
+            if (!Directory.EnumerateFileSystemEntries(rootDirectoryPath).Any())
+            {
+                fileMutationService.DeleteDirectoryDirect(rootDirectoryPath, recursive: false, targetOnlyFileMutationOptions);
+            }
+        }
+        catch
+        {
+        }
+    }
+
+    private static bool HasRemainingDirectoryEntries(string directoryPath)
+    {
+        try
+        {
+            return Directory.Exists(directoryPath) && Directory.EnumerateFileSystemEntries(directoryPath).Any();
+        }
+        catch
+        {
+            return false;
+        }
     }
 }

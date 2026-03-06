@@ -283,7 +283,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     }
 
     [TestMethod]
-    public void PrepareAutoInstallWorkflow_ClassifiesDirectoryAsInstallableAndSingleFileAsPending()
+    public void PrepareAutoInstallWorkflow_ClassifiesDetectedDirectoriesAsInstallable()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
@@ -307,10 +307,10 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 _ => false);
 
             Assert.AreEqual(2, result.DiscoveredPackages.Count);
-            Assert.AreEqual(1, result.AutoInstallCandidates.Count);
-            Assert.AreEqual(1, result.PendingPackagesToAdd.Count);
+            Assert.AreEqual(2, result.AutoInstallCandidates.Count);
+            Assert.AreEqual(0, result.PendingPackagesToAdd.Count);
             Assert.IsTrue(Directory.Exists(result.AutoInstallCandidates[0].path));
-            Assert.IsTrue(File.Exists(result.PendingPackagesToAdd[0].path));
+            Assert.IsTrue(result.AutoInstallCandidates.Any((BMSPackage package) => package.path.Equals(filePackageDirectoryPath, StringComparison.OrdinalIgnoreCase)));
             Assert.IsTrue(result.DiscoveryMs >= 0);
             Assert.IsTrue(result.ClassificationMs >= 0);
             Assert.IsTrue(result.TotalMs >= 0);
@@ -412,6 +412,91 @@ public sealed class BmsLibraryPackageInstallServiceTests
         CollectionAssert.AreEqual(new[] { cleanupPackage.path }, result.InstallRowsToDelete);
     }
 
+    [TestMethod]
+    public void MovePackageFiles_MovesDirectoryPackageAndUpdatesChartPaths()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string sourceDirectoryPath = Path.Combine(tempDirectoryPath, "PendingPkg");
+            string destinationDirectoryPath = Path.Combine(tempDirectoryPath, "Installed", "Pkg");
+            Directory.CreateDirectory(sourceDirectoryPath);
+            string chartPath = Path.Combine(sourceDirectoryPath, "chart.bms");
+            string resourcePath = Path.Combine(sourceDirectoryPath, "readme.txt");
+            File.WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE Move\r\n");
+            File.WriteAllText(resourcePath, "resource");
+
+            BmsLibraryPackageInstallService service = new BmsLibraryPackageInstallService();
+            TestableBmsFile chart = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", chartPath);
+            BMSPackage package = new BMSPackage(new BMSFile[] { chart })
+            {
+                path = sourceDirectoryPath,
+                delete_parent = false
+            };
+
+            bool moved = service.MovePackageFiles(
+                package,
+                destinationDirectoryPath,
+                new BmsLibraryOptionsSnapshot
+                {
+                    EnableSmartComponentOverwrite = false,
+                    KeepSmartOverwriteProtectedFilesByRenaming = false
+                },
+                (_, _, _) => throw new AssertFailedException("createFolderPath should not be called when destination is specified."),
+                ex => ex.Message,
+                new RealFileMutationService(),
+                null,
+                null,
+                null,
+                _ => { },
+                showMessageBoxOnInstallFail: false);
+
+            Assert.IsTrue(moved);
+            Assert.AreEqual(destinationDirectoryPath, package.path);
+            Assert.AreEqual(Path.Combine(destinationDirectoryPath, "chart.bms"), package.BMSFiles[0].path);
+            Assert.IsTrue(File.Exists(Path.Combine(destinationDirectoryPath, "chart.bms")));
+            Assert.IsTrue(File.Exists(Path.Combine(destinationDirectoryPath, "readme.txt")));
+            Assert.IsFalse(Directory.Exists(sourceDirectoryPath));
+        });
+    }
+
+    [TestMethod]
+    public void DeletePendingFiles_DeletesWholePackageDirectoryWhenSelectionCoversPackage()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            BmsLibraryPackageInstallService service = new BmsLibraryPackageInstallService();
+            string packageDirectoryPath = Path.Combine(tempDirectoryPath, "PendingPkg");
+            Directory.CreateDirectory(packageDirectoryPath);
+            string chartPath = Path.Combine(packageDirectoryPath, "chart.bms");
+            File.WriteAllText(chartPath, "#PLAYER 1\r\n");
+            TestableBmsFile chart = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", chartPath);
+            BMSPackage package = new BMSPackage(new BMSFile[] { chart })
+            {
+                path = packageDirectoryPath,
+                delete_parent = false
+            };
+
+            PendingFileDeletionResult result = service.DeletePendingFiles(
+                new[] { chart },
+                new[] { package },
+                sendToRecycleBin: false,
+                deleteContainingPackageFoldersWhenNoBms: true,
+                new RealFileMutationService(),
+                null,
+                null);
+
+            Assert.AreEqual(1, result.Requested);
+            Assert.AreEqual(1, result.Processed);
+            Assert.AreEqual(1, result.Removed);
+            Assert.AreEqual(0, result.Failed);
+            Assert.AreEqual(0, result.Skipped);
+            CollectionAssert.AreEqual(new[] { chart }, result.FilesToRemove);
+            Assert.IsFalse(Directory.Exists(packageDirectoryPath));
+        });
+    }
+
     private static TestableBmsFile CreateFile(string hash, string path)
     {
         TestableBmsFile file = new TestableBmsFile
@@ -495,6 +580,86 @@ public sealed class BmsLibraryPackageInstallServiceTests
 
         public void SetTimestamps(string path, bool isDirectory, DateTime? creationTime, DateTime? lastWriteTime, FileMutationOptions options = null)
         {
+        }
+    }
+
+    private sealed class RealFileMutationService : IFileMutationService
+    {
+        public void EnsureDirectory(string directoryPath, FileMutationOptions options = null)
+        {
+            if (!string.IsNullOrWhiteSpace(directoryPath))
+            {
+                Directory.CreateDirectory(directoryPath);
+            }
+        }
+
+        public void MoveFile(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null)
+        {
+            string destinationDirectoryPath = Path.GetDirectoryName(destinationPath);
+            if (!string.IsNullOrWhiteSpace(destinationDirectoryPath))
+            {
+                Directory.CreateDirectory(destinationDirectoryPath);
+            }
+            if (overwrite && File.Exists(destinationPath))
+            {
+                File.Delete(destinationPath);
+            }
+            File.Move(sourcePath, destinationPath);
+        }
+
+        public void MoveDirectory(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null)
+        {
+            if (overwrite && Directory.Exists(destinationPath))
+            {
+                Directory.Delete(destinationPath, recursive: true);
+            }
+            string destinationParentDirectoryPath = Path.GetDirectoryName(destinationPath);
+            if (!string.IsNullOrWhiteSpace(destinationParentDirectoryPath))
+            {
+                Directory.CreateDirectory(destinationParentDirectoryPath);
+            }
+            Directory.Move(sourcePath, destinationPath);
+        }
+
+        public void DeleteFileDirect(string filePath, FileMutationOptions options = null)
+        {
+            if (File.Exists(filePath))
+            {
+                File.Delete(filePath);
+            }
+        }
+
+        public void DeleteFileShell(string filePath, UIOption uiOption, RecycleOption recycleOption, FileMutationOptions options = null)
+        {
+            DeleteFileDirect(filePath, options);
+        }
+
+        public void DeleteDirectoryDirect(string directoryPath, bool recursive, FileMutationOptions options = null)
+        {
+            if (Directory.Exists(directoryPath))
+            {
+                Directory.Delete(directoryPath, recursive);
+            }
+        }
+
+        public void DeleteDirectoryShell(string directoryPath, UIOption uiOption, RecycleOption recycleOption, FileMutationOptions options = null)
+        {
+            DeleteDirectoryDirect(directoryPath, recursive: true, options);
+        }
+
+        public void SetTimestamps(string path, bool isDirectory, DateTime? creationTime, DateTime? lastWriteTime, FileMutationOptions options = null)
+        {
+            if (lastWriteTime.HasValue)
+            {
+                if (isDirectory)
+                {
+                    Directory.SetLastWriteTime(path, lastWriteTime.Value);
+                }
+                else
+                {
+                    File.SetLastWriteTime(path, lastWriteTime.Value);
+                }
+            }
         }
     }
 }

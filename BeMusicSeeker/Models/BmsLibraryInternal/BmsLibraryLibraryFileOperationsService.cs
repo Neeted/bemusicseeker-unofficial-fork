@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Security;
@@ -143,6 +144,126 @@ internal sealed class BmsLibraryLibraryFileOperationsService
             }
         }
         return result;
+    }
+
+    public LibraryMutationDelta BuildFolderMoveDelta(string srcDir, string dstDir, IEnumerable<BMSFile> libraryFiles, bool unregister)
+    {
+        LibraryMutationDelta delta = new LibraryMutationDelta();
+        List<BMSFile> targetFiles = (libraryFiles ?? Enumerable.Empty<BMSFile>())
+            .Where((BMSFile file) => file != null && !string.IsNullOrWhiteSpace(file.path) && file.path.StartsWith(srcDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        if (unregister)
+        {
+            delta.FilesToUnregister.AddRange(targetFiles);
+            delta.InvalidateBMSHashIndex = targetFiles.Count > 0;
+            delta.InvalidateInstalledDirectoryIndex = targetFiles.Count > 0;
+            delta.InvalidateParentFolderCache = targetFiles.Count > 0;
+            return delta;
+        }
+        foreach (IGrouping<string, BMSFile> group in targetFiles.GroupBy((BMSFile target) => Path.GetDirectoryName(target.path)))
+        {
+            string newFolderPath = group.Key.ReplaceFromStart(srcDir, dstDir, isIgnoreCase: true);
+            delta.FolderPathChanges.Add(new LibraryFolderPathChange
+            {
+                NewFolderPath = newFolderPath,
+                OldFolderPath = group.Key
+            });
+            foreach (BMSFile file in group)
+            {
+                delta.FilePathChanges.Add(new LibraryFilePathChange
+                {
+                    File = file,
+                    NewPath = file.path.ReplaceFromStart(srcDir, dstDir, isIgnoreCase: true)
+                });
+            }
+        }
+        delta.RaiseBmsFilesChanged = delta.FilePathChanges.Count > 0;
+        delta.InvalidateInstalledDirectoryIndex = delta.FilePathChanges.Count > 0;
+        delta.InvalidateParentFolderCache = delta.FilePathChanges.Count > 0;
+        return delta;
+    }
+
+    public LibraryMutationDelta BuildFileMoveDelta(BMSFile bmsFile, string dstPath, bool unregister)
+    {
+        LibraryMutationDelta delta = new LibraryMutationDelta();
+        if (bmsFile == null)
+        {
+            return delta;
+        }
+        if (unregister)
+        {
+            delta.FilesToUnregister.Add(bmsFile);
+            delta.InvalidateBMSHashIndex = true;
+            delta.InvalidateInstalledDirectoryIndex = true;
+            delta.InvalidateParentFolderCache = true;
+            return delta;
+        }
+        delta.FilePathChanges.Add(new LibraryFilePathChange
+        {
+            File = bmsFile,
+            NewPath = dstPath
+        });
+        delta.RaiseBmsFilesChanged = true;
+        delta.InvalidateInstalledDirectoryIndex = true;
+        delta.InvalidateParentFolderCache = true;
+        return delta;
+    }
+
+    public LibraryMutationDelta RenameLibraryFileExtensions(
+        IEnumerable<BMSFile> bmsFiles,
+        string newExt,
+        bool unregister,
+        Func<BMSFile, string, RenameInvalidExtensionOutcome> processRename)
+    {
+        LibraryMutationDelta delta = new LibraryMutationDelta();
+        Stopwatch stopwatch = Stopwatch.StartNew();
+        foreach (BMSFile file in (bmsFiles ?? Enumerable.Empty<BMSFile>()).Where((BMSFile file) => file != null && File.Exists(file.path)))
+        {
+            string requestedPath = Path.Combine(Path.GetDirectoryName(file.path), Path.GetFileNameWithoutExtension(file.path) + newExt);
+            RenameInvalidExtensionOutcome renameResult = processRename?.Invoke(file, requestedPath) ?? new RenameInvalidExtensionOutcome();
+            switch (renameResult.Action)
+            {
+                case RenameInvalidExtensionAction.Renamed:
+                    delta.RenamedCount++;
+                    if (unregister)
+                    {
+                        delta.FilesToUnregister.Add(file);
+                        delta.InvalidateBMSHashIndex = true;
+                    }
+                    else
+                    {
+                        delta.FilePathChanges.Add(new LibraryFilePathChange
+                        {
+                            File = file,
+                            NewPath = renameResult.FinalPath
+                        });
+                        delta.RaiseBmsFilesChanged = true;
+                    }
+                    break;
+                case RenameInvalidExtensionAction.DeletedAsDuplicate:
+                    delta.DuplicateDeletedCount++;
+                    delta.FilesToUnregister.Add(file);
+                    delta.InvalidateBMSHashIndex = true;
+                    break;
+                default:
+                    delta.SkippedCount++;
+                    if (renameResult.FailureException != null)
+                    {
+                        delta.Failures.Add(new LibraryDeleteFailure
+                        {
+                            Path = file.path,
+                            Exception = renameResult.FailureException,
+                            IsDirectory = false
+                        });
+                    }
+                    break;
+            }
+        }
+        delta.InvalidateInstalledDirectoryIndex = delta.FilePathChanges.Count > 0 || delta.FilesToUnregister.Count > 0;
+        delta.InvalidateParentFolderCache = delta.FilePathChanges.Count > 0 || delta.FilesToUnregister.Count > 0;
+        stopwatch.Stop();
+        delta.TotalMs = stopwatch.ElapsedMilliseconds;
+        return delta;
     }
 
     public RenameInvalidExtensionOutcome ProcessInvalidExtensionRename(BMSFile sourceFile, string requestedPath, IFileMutationService fileMutationService, FileMutationOptions targetOnlyFileMutationOptions, Action<string> logInfo = null, Action<Exception, string> logWarn = null)

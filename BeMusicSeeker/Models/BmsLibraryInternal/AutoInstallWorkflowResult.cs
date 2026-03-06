@@ -12,6 +12,8 @@ internal sealed class AutoInstallWorkflowResult
 
     public List<BMSPackage> AutoInstallCandidates { get; } = new List<BMSPackage>();
 
+    public List<string> ExtractedTempDirectories { get; } = new List<string>();
+
     public long DiscoveryMs { get; set; }
 
     public long ClassificationMs { get; set; }

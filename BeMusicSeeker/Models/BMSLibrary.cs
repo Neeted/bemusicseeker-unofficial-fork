@@ -1379,6 +1379,7 @@ public class BMSLibrary : NotificationObject
         long installTblCheckMs = 0L;
         long rebuildHashIndexMs = 0L;
         long maintenanceTblCheckMs = 0L;
+        BmsLibraryOptionsSnapshot options = BmsLibraryOptionsSnapshot.CreateCurrent();
         List<string> bMSDirectories = getBMSDirectories();
         if (bMSDirectories.Count == 0)
         {
@@ -1389,311 +1390,20 @@ public class BMSLibrary : NotificationObject
             Stopwatch stopwatchSongTblLoad = Stopwatch.StartNew();
             using (rwlockBMSFiles.GetWriterGuard())
             {
-                LR2SongDBExtended lr2Song = new LR2SongDBExtended(lr2SongDBPath);
-                try
-                {
-                    List<string> pragmaLogs = lr2Song.TryApplyReadOptimizedPragmas(Settings.Default.EnableReadOptimizedPragmas);
-                    LogInstallPerformance("db_read_pragmas scope=song_tbl_load " + string.Join(" ", pragmaLogs));
-                    long songTableLoadMs = 0L;
-                    long songNormalizeLoopMs = 0L;
-                    long folderTableLoadMs = 0L;
-                    long folderNormalizeLoopMs = 0L;
-                    long fixApplyMs = 0L;
-                    long maintenanceTableLoadMs = 0L;
-                    long maintenanceMapBuildMs = 0L;
-                    long maintenanceApplyMs = 0L;
-                    long bmsFilesAssignMs = 0L;
-                    long commitMs = 0L;
-                    bool dbWriteRequired = false;
-                    long dbWriteMs = 0L;
-                    long songCountMs = 0L;
-                    long songMaterializeMs = 0L;
-                    long maintenanceCountMs = 0L;
-                    long maintenanceMaterializeMs = 0L;
-                    Stopwatch stopwatchSongTableLoad = Stopwatch.StartNew();
-                    long songTableCount = 0L;
-                    Stopwatch stopwatchSongCount = Stopwatch.StartNew();
-                    try
-                    {
-                        songTableCount = Math.Max(0L, lr2Song.ExecuteScalar<long>("SELECT COUNT(1) FROM song;"));
-                    }
-                    catch
-                    {
-                    }
-                    stopwatchSongCount.Stop();
-                    songCountMs = stopwatchSongCount.ElapsedMilliseconds;
-                    List<BMSFile> list = (songTableCount > 0 && songTableCount <= int.MaxValue) ? new List<BMSFile>((int)songTableCount) : new List<BMSFile>();
-                    Stopwatch stopwatchSongMaterialize = Stopwatch.StartNew();
-                    using (BMSFile.SuppressPropertyChangedScope())
-                    {
-                        foreach (BMSFile item in lr2Song.Table<BMSFile>())
-                        {
-                            list.Add(item);
-                        }
-                    }
-                    stopwatchSongMaterialize.Stop();
-                    songMaterializeMs = stopwatchSongMaterialize.ElapsedMilliseconds;
-                    stopwatchSongTableLoad.Stop();
-                    songTableLoadMs = stopwatchSongTableLoad.ElapsedMilliseconds;
-                    List<BMSFile> deleteFiles = new List<BMSFile>();
-                    NLogWrapper.DebuggerLogger?.Trace("relative path and invalid md5 check");
-                    if (!string.IsNullOrWhiteSpace(lr2Song.LR2RootPath))
-                    {
-                        Encoding crcEncoding = Encoding.GetEncoding("shift_jis", EncoderFallback.ExceptionFallback, DecoderFallback.ExceptionFallback);
-                        List<string> deletePaths = new List<string>();
-                        int unixtime = (DateTime.Now + new TimeSpan(30, 0, 0, 0)).ToUnixtime();
-                        bool leapYearDetected = false;
-                        int relativePathFixed = 0;
-                        int crcRecalculated = 0;
-                        int crcSkipped = 0;
-                        List<BMSFile> list2 = new List<BMSFile>();
-                        Stopwatch stopwatchSongNormalizeLoop = Stopwatch.StartNew();
-                        foreach (BMSFile e in list)
-                        {
-                            try
-                            {
-                                if (string.IsNullOrWhiteSpace(e.hash))
-                                {
-                                    deletePaths.Add(e.path);
-                                    deleteFiles.Add(e);
-                                    continue;
-                                }
-                                if (!Path.IsPathRooted(e.path))
-                                {
-                                    deletePaths.Add(e.path);
-                                    e.path = Path.Combine(lr2Song.LR2RootPath, e.path);
-                                    string directoryName = Path.GetDirectoryName(e.path);
-                                    e.folder = ComputeLR2DirectoryHash(directoryName, crcEncoding);
-                                    e.parent = ComputeLR2DirectoryHash(Path.GetDirectoryName(directoryName), crcEncoding);
-                                    list2.Add(e);
-                                    relativePathFixed++;
-                                    crcRecalculated++;
-                                    continue;
-                                }
-                                if (e.adddate < 0 || e.adddate > unixtime)
-                                {
-                                    e.adddate = null;
-                                    e.date = null;
-                                    leapYearDetected = true;
-                                    list2.Add(e);
-                                    continue;
-                                }
-                                if (IsLikelyCrcHex(e.folder) && IsLikelyCrcHex(e.parent))
-                                {
-                                    crcSkipped++;
-                                    continue;
-                                }
-                                string directoryName2 = Path.GetDirectoryName(e.path);
-                                string text = ComputeLR2DirectoryHash(directoryName2, crcEncoding);
-                                string text2 = ComputeLR2DirectoryHash(Path.GetDirectoryName(directoryName2), crcEncoding);
-                                if (text != e.folder || text2 != e.parent)
-                                {
-                                    e.folder = text;
-                                    e.parent = text2;
-                                    list2.Add(e);
-                                }
-                                crcRecalculated++;
-                            }
-                            catch
-                            {
-                                deletePaths.Add(e.path);
-                                deleteFiles.Add(e);
-                            }
-                        }
-                        stopwatchSongNormalizeLoop.Stop();
-                        songNormalizeLoopMs = stopwatchSongNormalizeLoop.ElapsedMilliseconds;
-                        List<string> deleteFolders = new List<string>();
-                        Stopwatch stopwatchFolderTableLoad = Stopwatch.StartNew();
-                        List<LR2SongDB.folder> list3 = lr2Song.Table<LR2SongDB.folder>().ToList();
-                        stopwatchFolderTableLoad.Stop();
-                        folderTableLoadMs = stopwatchFolderTableLoad.ElapsedMilliseconds;
-                        Stopwatch stopwatchFolderNormalizeLoop = Stopwatch.StartNew();
-                        list3 = list3.Where(delegate (LR2SongDB.folder e)
-                        {
-                            try
-                            {
-                                if (!Path.IsPathRooted(e.path))
-                                {
-                                    if (!e.path.StartsWith("LR2files" + Path.DirectorySeparatorChar + "CustomFolder" + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) && !e.path.StartsWith("LR2files" + Path.DirectorySeparatorChar + "Rival" + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
-                                    {
-                                        deleteFolders.Add(e.path);
-                                        e.path = Path.Combine(lr2Song.LR2RootPath, e.path);
-                                        string directoryName = Path.GetDirectoryName(e.path);
-                                        if (e.path.EndsWith("\\"))
-                                        {
-                                            directoryName = Path.GetDirectoryName(directoryName);
-                                        }
-                                        if (e.parent != "e2977170")
-                                        {
-                                            e.parent = ComputeLR2DirectoryHash(directoryName, crcEncoding);
-                                        }
-                                        return true;
-                                    }
-                                }
-                                else
-                                {
-                                    if (e.adddate < 0 || e.adddate > unixtime)
-                                    {
-                                        e.adddate = null;
-                                        e.date = null;
-                                        leapYearDetected = true;
-                                        return true;
-                                    }
-                                    if ((e.date < 0 || !e.date.HasValue) && e.type == 1 && !string.IsNullOrWhiteSpace(e.path))
-                                    {
-                                        string text = e.path.TrimEnd('\\');
-                                        if (Directory.Exists(text))
-                                        {
-                                            DateTime lastWriteTime = Directory.GetLastWriteTime(text);
-                                            if ((new DateTime(2012, 2, 29) <= lastWriteTime && lastWriteTime < new DateTime(2012, 3, 2)) || (new DateTime(2016, 2, 29) <= lastWriteTime && lastWriteTime < new DateTime(2016, 3, 2)) || (new DateTime(2020, 2, 29) <= lastWriteTime && lastWriteTime < new DateTime(2020, 3, 2)))
-                                            {
-                                                DateTime now = DateTime.Now;
-                                                if (DispatcherMessageBox.Show(string.Format(Resources.Warn_LR2LeapYearFolderDetected, text, lastWriteTime.ToShortDateString(), now.ToShortDateString()), Resources.MessageBoxTitle_Warning, MessageBoxButton.YesNo, MessageBoxImage.Exclamation, MessageBoxResult.No) == MessageBoxResult.Yes)
-                                                {
-                                                    try
-                                                    {
-                                                        fileMutationService.SetTimestamps(text, isDirectory: true, creationTime: null, lastWriteTime: now, targetOnlyFileMutationOptions);
-                                                        e.adddate = null;
-                                                        e.date = null;
-                                                        leapYearDetected = true;
-                                                        return true;
-                                                    }
-                                                    catch (Exception dateUpdateException)
-                                                    {
-                                                        DispatcherMessageBox.Show(string.Format(Resources.Error_FailedToChangeDate, GetDisplayedExceptionMessage(dateUpdateException)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            catch
-                            {
-                                deleteFolders.Add(e.path);
-                            }
-                            return false;
-                        })
-                            .ToList();
-                        stopwatchFolderNormalizeLoop.Stop();
-                        folderNormalizeLoopMs = stopwatchFolderNormalizeLoop.ElapsedMilliseconds;
-                        Stopwatch stopwatchFixApply = Stopwatch.StartNew();
-                        dbWriteRequired = deletePaths.Count > 0 || list2.Count > 0 || deleteFolders.Count > 0 || list3.Count > 0;
-                        if (dbWriteRequired)
-                        {
-                            Stopwatch stopwatchDbWrite = Stopwatch.StartNew();
-                            lr2Song.BeginTransaction();
-                            foreach (string item in deletePaths)
-                            {
-                                lr2Song.Delete<LR2SongDB.song>(item);
-                            }
-                            foreach (BMSFile item2 in list2)
-                            {
-                                lr2Song.InsertOrReplace(item2, typeof(LR2SongDB.song));
-                            }
-                            foreach (string item3 in deleteFolders)
-                            {
-                                lr2Song.Delete<LR2SongDB.folder>(item3);
-                            }
-                            foreach (LR2SongDB.folder item4 in list3)
-                            {
-                                lr2Song.InsertOrReplace(item4, typeof(LR2SongDB.folder));
-                            }
-                            Stopwatch stopwatchCommit = Stopwatch.StartNew();
-                            lr2Song.Commit();
-                            stopwatchCommit.Stop();
-                            commitMs = stopwatchCommit.ElapsedMilliseconds;
-                            stopwatchDbWrite.Stop();
-                            dbWriteMs = stopwatchDbWrite.ElapsedMilliseconds;
-                        }
-                        if (leapYearDetected)
-                        {
-                            DispatcherMessageBox.Show(Resources.Warn_LR2LeapYearBugDetected, Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
-                        }
-                        stopwatchFixApply.Stop();
-                        fixApplyMs = stopwatchFixApply.ElapsedMilliseconds;
-                        LogInstallPerformance("song_tbl_load_detail totalSongs=" + list.Count + " deletedSongs=" + deleteFiles.Count + " updatedSongs=" + list2.Count + " relativePathFixed=" + relativePathFixed + " crcRecalculated=" + crcRecalculated + " crcSkipped=" + crcSkipped + " updatedFolders=" + list3.Count + " deletedFolders=" + deleteFolders.Count);
-                    }
-                    NLogWrapper.DebuggerLogger?.Trace("relative path check end");
-                    Stopwatch stopwatchMaintenanceTableLoad = Stopwatch.StartNew();
-                    long maintenanceTableCount = 0L;
-                    Stopwatch stopwatchMaintenanceCount = Stopwatch.StartNew();
-                    try
-                    {
-                        maintenanceTableCount = Math.Max(0L, lr2Song.ExecuteScalar<long>("SELECT COUNT(1) FROM maintenance;"));
-                    }
-                    catch
-                    {
-                    }
-                    stopwatchMaintenanceCount.Stop();
-                    maintenanceCountMs = stopwatchMaintenanceCount.ElapsedMilliseconds;
-                    List<BMSFileMaintenanceInfo> list4 = (maintenanceTableCount > 0 && maintenanceTableCount <= int.MaxValue) ? new List<BMSFileMaintenanceInfo>((int)maintenanceTableCount) : new List<BMSFileMaintenanceInfo>();
-                    Stopwatch stopwatchMaintenanceMaterialize = Stopwatch.StartNew();
-                    using (BMSFileMaintenanceInfo.SuppressPropertyChangedScope())
-                    {
-                        foreach (BMSFileMaintenanceInfo item in lr2Song.Table<BMSFileMaintenanceInfo>())
-                        {
-                            list4.Add(item);
-                        }
-                    }
-                    stopwatchMaintenanceMaterialize.Stop();
-                    maintenanceMaterializeMs = stopwatchMaintenanceMaterialize.ElapsedMilliseconds;
-                    stopwatchMaintenanceTableLoad.Stop();
-                    maintenanceTableLoadMs = stopwatchMaintenanceTableLoad.ElapsedMilliseconds;
-                    Stopwatch stopwatchMaintenanceMapBuild = Stopwatch.StartNew();
-                    Dictionary<string, BMSFileMaintenanceInfo> dictionary = new Dictionary<string, BMSFileMaintenanceInfo>(StringComparer.OrdinalIgnoreCase);
-                    foreach (BMSFileMaintenanceInfo item in list4)
-                    {
-                        if (!string.IsNullOrWhiteSpace(item.path) && !dictionary.ContainsKey(item.path))
-                        {
-                            dictionary[item.path] = item;
-                        }
-                    }
-                    stopwatchMaintenanceMapBuild.Stop();
-                    maintenanceMapBuildMs = stopwatchMaintenanceMapBuild.ElapsedMilliseconds;
-                    HashSet<BMSFile> hashSet = ((deleteFiles.Count > 0) ? new HashSet<BMSFile>(deleteFiles) : null);
-                    List<BMSFile> list5 = new List<BMSFile>(list.Count - deleteFiles.Count);
-                    Stopwatch stopwatchMaintenanceApply = Stopwatch.StartNew();
-                    foreach (BMSFile item2 in list)
-                    {
-                        if (hashSet != null && hashSet.Contains(item2))
-                        {
-                            continue;
-                        }
-                        if (dictionary.TryGetValue(item2.path, out BMSFileMaintenanceInfo value))
-                        {
-                            if (item2.HasMaintenanceInfoHash(value.hash) || string.Equals(value.hash, item2.hash, StringComparison.OrdinalIgnoreCase))
-                            {
-                                item2.SetMaintenanceInfo(value, suppressPropertyChanged: true, registerEventHandlers: false);
-                            }
-                            else
-                            {
-                                item2.SetMaintenanceInfo(new BMSFileMaintenanceInfo(item2), suppressPropertyChanged: true, registerEventHandlers: false);
-                            }
-                        }
-                        else
-                        {
-                            item2.SetMaintenanceInfo(new BMSFileMaintenanceInfo(item2), suppressPropertyChanged: true, registerEventHandlers: false);
-                        }
-                        list5.Add(item2);
-                    }
-                    stopwatchMaintenanceApply.Stop();
-                    maintenanceApplyMs = stopwatchMaintenanceApply.ElapsedMilliseconds;
-                    Stopwatch stopwatchBmsFilesAssign = Stopwatch.StartNew();
-                    BMSFiles = list5;
-                    stopwatchBmsFilesAssign.Stop();
-                    bmsFilesAssignMs = stopwatchBmsFilesAssign.ElapsedMilliseconds;
-                    LogInstallPerformance("song_tbl_load_maintenance_detail bmsCount=" + list5.Count + " maintenanceCount=" + list4.Count + " maintenanceKeyCount=" + dictionary.Count);
-                    LogInstallPerformance("song_tbl_load_io song_read_ms=" + songTableLoadMs + " song_count_ms=" + songCountMs + " song_materialize_ms=" + songMaterializeMs + " song_count=" + songTableCount + " maintenance_read_ms=" + maintenanceTableLoadMs + " maintenance_count_ms=" + maintenanceCountMs + " maintenance_materialize_ms=" + maintenanceMaterializeMs + " maintenance_count=" + maintenanceTableCount + " folder_read_ms=" + folderTableLoadMs + " db_write_required=" + dbWriteRequired.ToString().ToLowerInvariant() + " db_write_ms=" + dbWriteMs);
-                    LogInstallPerformance("song_tbl_load_breakdown song_table_load_ms=" + songTableLoadMs + " song_normalize_loop_ms=" + songNormalizeLoopMs + " folder_table_load_ms=" + folderTableLoadMs + " folder_normalize_loop_ms=" + folderNormalizeLoopMs + " fix_apply_ms=" + fixApplyMs + " maintenance_table_load_ms=" + maintenanceTableLoadMs + " maintenance_map_build_ms=" + maintenanceMapBuildMs + " maintenance_apply_ms=" + maintenanceApplyMs + " bmsfiles_assign_ms=" + bmsFilesAssignMs + " commit_ms=" + commitMs);
-                }
-                finally
-                {
-                    if (lr2Song != null)
-                    {
-                        ((IDisposable)lr2Song).Dispose();
-                    }
-                }
+                SongTableLoadResult songTableLoadResult = initializationService.LoadSongTable(
+                    dbGateway,
+                    options,
+                    dialogService,
+                    fileMutationService,
+                    targetOnlyFileMutationOptions,
+                    GetDisplayedExceptionMessage,
+                    LogInstallPerformance,
+                    message => NLogWrapper.DebuggerLogger?.Trace(message));
+                Stopwatch stopwatchBmsFilesAssign = Stopwatch.StartNew();
+                BMSFiles = songTableLoadResult.LoadedFiles;
+                stopwatchBmsFilesAssign.Stop();
+                songTableLoadResult.BmsFilesAssignMs = stopwatchBmsFilesAssign.ElapsedMilliseconds;
+                LogInstallPerformance("song_tbl_load_breakdown song_table_load_ms=" + songTableLoadResult.SongTableLoadMs + " song_normalize_loop_ms=" + songTableLoadResult.SongNormalizeLoopMs + " folder_table_load_ms=" + songTableLoadResult.FolderTableLoadMs + " folder_normalize_loop_ms=" + songTableLoadResult.FolderNormalizeLoopMs + " fix_apply_ms=" + songTableLoadResult.FixApplyMs + " maintenance_table_load_ms=" + songTableLoadResult.MaintenanceTableLoadMs + " maintenance_map_build_ms=" + songTableLoadResult.MaintenanceMapBuildMs + " maintenance_apply_ms=" + songTableLoadResult.MaintenanceApplyMs + " bmsfiles_assign_ms=" + songTableLoadResult.BmsFilesAssignMs + " commit_ms=" + songTableLoadResult.CommitMs);
             }
             stopwatchSongTblLoad.Stop();
             songTblLoadMs = stopwatchSongTblLoad.ElapsedMilliseconds;
@@ -1731,138 +1441,27 @@ public class BMSLibrary : NotificationObject
         if (songTblFileCheck)
         {
             Stopwatch stopwatchSongTblFileCheck = Stopwatch.StartNew();
-            long scanElapsedMs = 0L;
-            long dirhashBuildMs = 0L;
-            long diffMs = 0L;
-            long newfileParseMs = 0L;
-            long applyMs = 0L;
-            long dbCommitMs = 0L;
-            long instlDstCleanupMs = 0L;
-            bool prefetchedScanUsed = false;
-            long prefetchedScanElapsedMs = 0L;
-            BmsScanExecutionResult scanResult = null;
-            Stopwatch stopwatchScan = Stopwatch.StartNew();
-            if (bmsScanPrefetchInfo != null && bmsScanPrefetchInfo.ScanResult != null && bmsScanPrefetchInfo.ScanResult.Result != null)
-            {
-                scanResult = bmsScanPrefetchInfo.ScanResult;
-                prefetchedScanElapsedMs = bmsScanPrefetchInfo.ElapsedMs;
-                prefetchedScanUsed = true;
-            }
-            else
-            {
-                scanResult = ExecuteBmsScanWithFallback(bMSDirectories);
-            }
-            stopwatchScan.Stop();
-            scanElapsedMs = stopwatchScan.ElapsedMilliseconds + (prefetchedScanUsed ? prefetchedScanElapsedMs : 0L);
-            BMSDirectoryFileNameHash nextFolderAllFileList = new BMSDirectoryFileNameHash();
-            Stopwatch stopwatchDirhashBuild = Stopwatch.StartNew();
-            if (scanResult.Result.FileNameHashesByDirectory != null && scanResult.Result.FileNameHashesByDirectory.Count > 0)
-            {
-                foreach (KeyValuePair<string, uint[]> item4 in scanResult.Result.FileNameHashesByDirectory)
-                {
-                    nextFolderAllFileList.AddDirHashed(item4.Key, item4.Value);
-                }
-            }
-            else
-            {
-                foreach (KeyValuePair<string, List<string>> item5 in scanResult.Result.FilesByDirectory)
-                {
-                    nextFolderAllFileList.AddDir(item5.Key, item5.Value);
-                }
-            }
-            stopwatchDirhashBuild.Stop();
-            dirhashBuildMs = stopwatchDirhashBuild.ElapsedMilliseconds;
-            HashSet<string> hashSet = new HashSet<string>(scanResult.Result.BmsFilePaths ?? new HashSet<string>(), StringComparer.OrdinalIgnoreCase);
-            HashSet<string> hashSet2;
-            Stopwatch stopwatchDiff = Stopwatch.StartNew();
-            using (rwlockBMSFiles.GetReaderGuard())
-            {
-                hashSet2 = new HashSet<string>(BMSFiles.Select((BMSFile x) => x.path), StringComparer.OrdinalIgnoreCase);
-            }
-            HashSet<string> bmsFilesDeletedPaths = new HashSet<string>(hashSet2.Except(hashSet), StringComparer.OrdinalIgnoreCase);
-            List<string> list4 = hashSet.Except(hashSet2).ToList();
-            stopwatchDiff.Stop();
-            diffMs = stopwatchDiff.ElapsedMilliseconds;
-            Stopwatch stopwatchNewFileParse = Stopwatch.StartNew();
-            List<BMSFile> list5 = ((list4.Count <= 0) ? new List<BMSFile>() : (from x in list4.AsParallel().Select(delegate (string l)
-                {
-                    BMSFile bMSFile = null;
-                    try
-                    {
-                        bMSFile = BMSFile.CreateBMSFileFromFile(l);
-                    }
-                    catch (IOException ex2)
-                    {
-                        DispatcherMessageBox.Show(string.Format(Resources.Error_InitializationFailed, l, ex2.Message), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
-                        bMSFile = null;
-                    }
-                    return new
-                    {
-                        path = l,
-                        file = bMSFile
-                    };
-                })
-                                                                               where x.file != null
-                                                                               select x.file).ToList());
-            stopwatchNewFileParse.Stop();
-            newfileParseMs = stopwatchNewFileParse.ElapsedMilliseconds;
-            bool hasDbDiff = bmsFilesDeletedPaths.Count > 0 || list5.Count > 0;
-            Stopwatch stopwatchApply = Stopwatch.StartNew();
+            SongTableFileCheckResult fileCheckResult = initializationService.ApplyFileScanDiff(
+                dbGateway,
+                options,
+                BMSFiles,
+                bmsScanPrefetchInfo?.ScanResult,
+                bmsScanPrefetchInfo?.ElapsedMs ?? 0L,
+                () => ExecuteBmsScanWithFallback(bMSDirectories),
+                dialogService,
+                LogInstallPerformance,
+                LogEverythingScan);
             using (rwlockBMSFiles.GetWriterGuard())
             {
-                if (bmsFilesDeletedPaths.Count > 0)
-                {
-                    BMSFiles.RemoveAll((BMSFile f) => bmsFilesDeletedPaths.Contains(f.path));
-                }
-                if (list5.Count > 0)
-                {
-                    BMSFiles.AddRange(list5);
-                }
-                bmsFolderAllFileList = nextFolderAllFileList;
-                Stopwatch stopwatchInstlDstCleanup = Stopwatch.StartNew();
-                HashSet<string> directoryKeys = new HashSet<string>(bmsFolderAllFileList.Keys, StringComparer.OrdinalIgnoreCase);
-                foreach (BMSFile item6 in BMSFiles.Where((BMSFile f) => !string.IsNullOrWhiteSpace(f.instl_dst)))
-                {
-                    if (!directoryKeys.Contains(item6.instl_dst))
-                    {
-                        item6.instl_dst = null;
-                    }
-                }
-                stopwatchInstlDstCleanup.Stop();
-                instlDstCleanupMs = stopwatchInstlDstCleanup.ElapsedMilliseconds;
+                BMSFiles = fileCheckResult.NextFiles;
+                bmsFolderAllFileList = fileCheckResult.NextFolderAllFileList ?? new BMSDirectoryFileNameHash();
             }
-            stopwatchApply.Stop();
-            applyMs = stopwatchApply.ElapsedMilliseconds;
-            if (hasDbDiff)
+            if (fileCheckResult.HasDbDiff)
             {
-                Stopwatch stopwatchDbCommit = Stopwatch.StartNew();
-                using LR2SongDBExtended lR2SongDBExtended = new LR2SongDBExtended(lr2SongDBPath);
-                List<string> pragmaLogs = lR2SongDBExtended.TryApplyReadOptimizedPragmas(Settings.Default.EnableReadOptimizedPragmas);
-                LogInstallPerformance("db_read_pragmas scope=song_tbl_file_check " + string.Join(" ", pragmaLogs));
-                lR2SongDBExtended.BeginTransaction();
-                if (bmsFilesDeletedPaths.Count > 0)
-                {
-                    foreach (string item7 in bmsFilesDeletedPaths)
-                    {
-                        lR2SongDBExtended.Delete<LR2SongDB.song>(item7);
-                    }
-                }
-                if (list5.Count > 0)
-                {
-                    foreach (BMSFile item8 in list5)
-                    {
-                        lR2SongDBExtended.InsertOrReplace(item8, typeof(LR2SongDB.song));
-                    }
-                }
-                lR2SongDBExtended.Commit();
-                stopwatchDbCommit.Stop();
-                dbCommitMs = stopwatchDbCommit.ElapsedMilliseconds;
                 InvalidateBMSHashIndex();
                 InvalidateInstalledDirectoryIndex();
                 InvalidateBMSParentFolderListCache();
             }
-            LogInstallPerformance("song_tbl_file_check_breakdown scan_ms=" + scanElapsedMs + " dirhash_build_ms=" + dirhashBuildMs + " diff_ms=" + diffMs + " deleted_count=" + bmsFilesDeletedPaths.Count + " added_count=" + list5.Count + " newfile_parse_ms=" + newfileParseMs + " apply_ms=" + applyMs + " db_commit_ms=" + dbCommitMs + " instl_dst_cleanup_ms=" + instlDstCleanupMs);
-            LogEverythingScan("bms_scan totalMs=" + scanElapsedMs + " bmsPaths=" + hashSet.Count + " dirs=" + bmsFolderAllFileList.Keys.Count + " prefetched=" + prefetchedScanUsed.ToString().ToLowerInvariant());
             stopwatchSongTblFileCheck.Stop();
             songTblFileCheckMs = stopwatchSongTblFileCheck.ElapsedMilliseconds;
         }
@@ -2682,68 +2281,12 @@ public class BMSLibrary : NotificationObject
                             DispatcherMessageBox.Show(Resources.Warn_InstallAbortedFilesNotFound, Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
                             return discoveredPackages;
                         }
-                        string[] exts = new string[4] { ".zip", ".7z", ".rar", "lzh" };
-                        installPaths = installPaths.Select(delegate (string p)
-                        {
-                            if (exts.Any((string ext) => p.EndsWith(ext, StringComparison.OrdinalIgnoreCase)))
-                            {
-                                try
-                                {
-                                    string text = TempDirectoryPublisher.Get();
-                                    using (ArchiveFile archiveFile = new ArchiveFile(p))
-                                    {
-                                        // 1. 一括解凍（ソリッド圧縮などのパフォーマンス向上のため）
-                                        archiveFile.Extract(text);
-
-                                        // 2. メタデータの復元とセキュリティチェック
-                                        foreach (Entry entry in archiveFile.Entries)
-                                        {
-                                            string entryPath = entry.FileName.Replace('/', Path.DirectorySeparatorChar);
-                                            string fullPath = Path.GetFullPath(Path.Combine(text, entryPath));
-
-                                            // Zip Slip 対策: 解凍先ディレクトリの中に収まっているか確認
-                                            if (!fullPath.StartsWith(text, StringComparison.OrdinalIgnoreCase))
-                                            {
-                                                continue;
-                                            }
-
-                                            bool isFile = !entry.IsFolder && File.Exists(fullPath);
-                                            bool isDir = entry.IsFolder && Directory.Exists(fullPath);
-
-                                            if (isFile || isDir)
-                                            {
-                                                // メタデータの復元
-                                                try
-                                                {
-                                                    DateTime? creationTimeToRestore = (entry.CreationTime > DateTime.MinValue) ? entry.CreationTime : ((DateTime?)null);
-                                                    DateTime? lastWriteTimeToRestore = (entry.LastWriteTime > DateTime.MinValue) ? entry.LastWriteTime : ((DateTime?)null);
-                                                    if (creationTimeToRestore.HasValue || lastWriteTimeToRestore.HasValue)
-                                                    {
-                                                        fileMutationService.SetTimestamps(fullPath, isDir, creationTimeToRestore, lastWriteTimeToRestore, targetOnlyFileMutationOptions);
-                                                    }
-                                                    if (entry.LastAccessTime > DateTime.MinValue)
-                                                    {
-                                                        if (isFile) File.SetLastAccessTime(fullPath, entry.LastAccessTime);
-                                                        else Directory.SetLastAccessTime(fullPath, entry.LastAccessTime);
-                                                    }
-                                                }
-                                                catch (Exception metadataRestoreException)
-                                                {
-                                                    // 時刻設定の失敗は致命的ではないため無視
-                                                    Ribbit.Logging.NLogWrapper.FileLogger?.Info(metadataRestoreException, "Failed to restore metadata for " + fullPath);
-                                                }
-                                            }
-                                        }
-                                    }
-                                    return text;
-                                }
-                                catch
-                                {
-                                    DispatcherMessageBox.Show("Extract failed:" + Environment.NewLine + p, "Warning", MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
-                                }
-                            }
-                            return p;
-                        }).ToList();
+                        installPaths = packageInstallService.ExpandInstallSources(
+                            installPaths,
+                            fileMutationService,
+                            targetOnlyFileMutationOptions,
+                            info => NLogWrapper.FileLogger?.Info(info),
+                            dialogService);
                         AutoInstallWorkflowResult workflow = packageInstallService.PrepareAutoInstallWorkflow(
                             installPaths,
                             BMSPackagesPending,
@@ -2959,329 +2502,21 @@ public class BMSLibrary : NotificationObject
     /// <returns>移動成功時true</returns>
     private bool moveBMSPackageFiles(BMSPackage pkg, string installationDirectory, bool showMessageBoxOnInstallFail = true, bool deleteAllContents = false, HashSet<string> existingHashes = null, ISet<string> excludedComponentPaths = null)
     {
-        string sourcePath = pkg.path;
-        string destinationDirectory = string.Empty;
-        string bMSInstallDir = Settings.Default.BMSInstallDir;
-        bool isSingleFile = false;
-        List<string> installComponentFiles = new List<string>();
-        List<BMSFile> installBMSFiles = new List<BMSFile>();
-        List<BMSFile> skippedBMSFiles = new List<BMSFile>();
-        bool isAutoNaming = false;
-
-        // --- ソースの種類判定: 単一ファイル or ディレクトリ ---
-        if (File.Exists(sourcePath))
-        {
-            installComponentFiles = new List<string> { sourcePath };
-            isSingleFile = true;
-        }
-        else
-        {
-            if (!Directory.Exists(sourcePath))
-            {
-                return false;
-            }
-            installComponentFiles = Directory.EnumerateFileSystemEntries(sourcePath).ToList();
-            // 移動先が未指定の場合はフォルダ名を自動生成する
-            isAutoNaming = string.IsNullOrWhiteSpace(installationDirectory);
-        }
-
-        // --- BMSファイルとコンポーネントファイルを分類 ---
-        HashSet<string> installComponentPathSet = new HashSet<string>(installComponentFiles, StringComparer.OrdinalIgnoreCase);
-        installBMSFiles = pkg.BMSFiles.Where((BMSFile f) => installComponentPathSet.Contains(f.path)).ToList();
-        HashSet<string> installBMSPathSet = new HashSet<string>(installBMSFiles.Select((BMSFile f) => f.path), StringComparer.OrdinalIgnoreCase);
-        // コンポーネントファイルからBMSファイルを除外（BMSは個別に移動する）
-        installComponentFiles = installComponentFiles.Where((string p) => !installBMSPathSet.Contains(p)).ToList();
-        if (excludedComponentPaths != null && excludedComponentPaths.Count > 0)
-        {
-            // 既所持譜面など「今回の導入対象外BMS」は、コンポーネント側の移動にも巻き込まない。
-            installComponentFiles = installComponentFiles.Where((string p) => !excludedComponentPaths.Contains(p)).ToList();
-        }
-
-        // --- 既存ハッシュとの重複チェック: 同一ハッシュのBMSはスキップ ---
-        if (!string.IsNullOrWhiteSpace(installationDirectory))
-        {
-            HashSet<string> hashSnapshot = existingHashes ?? CreateBMSHashSnapshotExcludingUnsafe(installBMSFiles);
-            skippedBMSFiles = installBMSFiles.Where((BMSFile bmsFile) => IsBMSHashAvailable(bmsFile.hash) && hashSnapshot.Contains(bmsFile.hash)).ToList();
-            if (skippedBMSFiles.Count != 0)
-            {
-                HashSet<string> skipPathSet = new HashSet<string>(skippedBMSFiles.Select((BMSFile f) => f.path), StringComparer.OrdinalIgnoreCase);
-                installBMSFiles = installBMSFiles.Where((BMSFile f) => !skipPathSet.Contains(f.path)).ToList();
-                pkg.BMSFiles.RemoveAll((BMSFile f) => skipPathSet.Contains(f.path));
-            }
-        }
-
-        // --- ファイル移動の実行 ---
-        try
-        {
-            // 移動先ディレクトリの決定
-            if (string.IsNullOrWhiteSpace(installationDirectory))
-            {
-                destinationDirectory = createBMSFolderPath(pkg.BMSFiles, bMSInstallDir, (from file in installComponentFiles
-                                                                                         select Path.GetFileName(file) into f
-                                                                                         orderby f.Length descending
-                                                                                         select f).FirstOrDefault() ?? string.Empty);
-            }
-            else
-            {
-                destinationDirectory = installationDirectory;
-            }
-
-            // 自動命名の場合: 重複しないディレクトリ名を生成
-            if (string.IsNullOrWhiteSpace(installationDirectory))
-            {
-                int dirSuffix = 1;
-                string baseDirName = destinationDirectory;
-                while (Directory.Exists(destinationDirectory) || File.Exists(destinationDirectory))
-                {
-                    dirSuffix++;
-                    destinationDirectory = baseDirName + "(" + dirSuffix + ")";
-                }
-                if (!isAutoNaming)
-                {
-                    fileMutationService.EnsureDirectory(destinationDirectory, targetOnlyFileMutationOptions);
-                }
-            }
-
-            // ディレクトリ名変更モード（自動命名 + ソースがディレクトリ）
-            if (isAutoNaming)
-            {
-                if (!Directory.Exists(sourcePath))
-                {
-                    throw new DirectoryNotFoundException(string.Format(Resources.Error_RenameDestDirNotFound, sourcePath));
-                }
-                fileMutationService.MoveDirectory(sourcePath, destinationDirectory, overwrite: true, recursiveDirectoryTreeFileMutationOptions);
-            }
-            else
-            {
-                // コンポーネントファイル（音源・画像等）の移動
-                if (IsSmartComponentOverwriteEnabled())
-                {
-                    // スマートコンポーネント上書きモード: 同一ファイルのスキップ、古いファイルの上書き判定
-                    ComponentMoveSummary componentMoveSummary = new ComponentMoveSummary();
-                    ComponentMovePlanBuildResult movePlanResult = BuildComponentMovePlan(installComponentFiles, destinationDirectory, excludedComponentPaths);
-                    List<ComponentMovePlanItem> movePlanItems = movePlanResult.PlanItems;
-                    bool keepProtectedFilesByRenaming = IsKeepSmartOverwriteProtectedFilesByRenamingEnabled();
-                    componentMoveSummary.Total = movePlanItems.Count;
-                    componentMoveSummary.SkippedByExclusion = movePlanResult.SkippedByExclusion;
-
-                    foreach (ComponentMovePlanItem planItem in movePlanItems)
-                    {
-                        string srcFilePath = planItem.SourcePath;
-                        string dstFilePath = planItem.DestinationPath;
-                        if (!File.Exists(srcFilePath))
-                        {
-                            throw new FileNotFoundException(Resources.Error_FileNotFound, srcFilePath);
-                        }
-                        if (IsSamePath(srcFilePath, dstFilePath))
-                        {
-                            // 同一パスは自己上書きになるため安全側でスキップする。
-                            componentMoveSummary.SkippedSame++;
-                            componentMoveSummary.SkippedSamePath++;
-                            continue;
-                        }
-                        string dstDirPath = Path.GetDirectoryName(dstFilePath);
-                        if (!string.IsNullOrWhiteSpace(dstDirPath))
-                        {
-                            fileMutationService.EnsureDirectory(dstDirPath, targetOnlyFileMutationOptions);
-                        }
-
-                        // 移動判定: Move / Overwrite / SkipSame / SkipOlderOrEqual
-                        ComponentMoveDecision moveDecision = DecideComponentMove(srcFilePath, dstFilePath);
-                        bool keepByRename = keepProtectedFilesByRenaming && File.Exists(dstFilePath) && IsSmartOverwriteProtectedExtension(srcFilePath) && moveDecision != ComponentMoveDecision.SkipSame;
-                        if (keepByRename)
-                        {
-                            componentMoveSummary.HashChecked++;
-                            SmartOverwriteHashCompareResult smartOverwriteHashCompareResult = CompareHashForSmartOverwrite(srcFilePath, dstFilePath);
-                            if (smartOverwriteHashCompareResult == SmartOverwriteHashCompareResult.Same)
-                            {
-                                fileMutationService.DeleteFileDirect(srcFilePath, targetOnlyFileMutationOptions);
-                                componentMoveSummary.SkippedSame++;
-                                componentMoveSummary.DeletedAfterSkip++;
-                                componentMoveSummary.HashSameSkip++;
-                                continue;
-                            }
-                            string nonConflictingDestination = GetNonConflictingPathWithSuffix(dstFilePath);
-                            fileMutationService.MoveFile(srcFilePath, nonConflictingDestination, overwrite: false, targetOnlyFileMutationOptions);
-                            componentMoveSummary.Moved++;
-                            componentMoveSummary.RenamedKeep++;
-                            if (smartOverwriteHashCompareResult == SmartOverwriteHashCompareResult.Different)
-                            {
-                                componentMoveSummary.HashDiffRenamed++;
-                            }
-                            else
-                            {
-                                componentMoveSummary.HashUnavailableRenamed++;
-                            }
-                            if (moveDecision == ComponentMoveDecision.Overwrite)
-                            {
-                                componentMoveSummary.RenamedFromOverwrite++;
-                            }
-                            else
-                            {
-                                componentMoveSummary.RenamedFromSkipOlder++;
-                            }
-                            continue;
-                        }
-                        switch (moveDecision)
-                        {
-                            case ComponentMoveDecision.Move:
-                                fileMutationService.MoveFile(srcFilePath, dstFilePath, overwrite: true, targetOnlyFileMutationOptions);
-                                componentMoveSummary.Moved++;
-                                break;
-                            case ComponentMoveDecision.Overwrite:
-                                fileMutationService.MoveFile(srcFilePath, dstFilePath, overwrite: true, targetOnlyFileMutationOptions);
-                                componentMoveSummary.Moved++;
-                                componentMoveSummary.Overwritten++;
-                                break;
-                            case ComponentMoveDecision.SkipSame:
-                                fileMutationService.DeleteFileDirect(srcFilePath, targetOnlyFileMutationOptions);
-                                componentMoveSummary.SkippedSame++;
-                                componentMoveSummary.DeletedAfterSkip++;
-                                break;
-                            default:
-                                fileMutationService.DeleteFileDirect(srcFilePath, targetOnlyFileMutationOptions);
-                                componentMoveSummary.SkippedOlder++;
-                                componentMoveSummary.DeletedAfterSkip++;
-                                break;
-                        }
-                    }
-                    // スキップ後の空ディレクトリを掃除して、後段のフォルダ削除を成功しやすくする。
-                    CleanupEmptyComponentDirectories(installComponentFiles);
-                    int movedNewCount = Math.Max(0, componentMoveSummary.Moved - componentMoveSummary.Overwritten);
-                    LogInstallPerformance("component_move_summary package=" + pkg.path + " total=" + componentMoveSummary.Total + " moved=" + componentMoveSummary.Moved + " moved_new=" + movedNewCount + " overwritten=" + componentMoveSummary.Overwritten + " skipped_same=" + componentMoveSummary.SkippedSame + " skipped_same_path=" + componentMoveSummary.SkippedSamePath + " skipped_older=" + componentMoveSummary.SkippedOlder + " skipped_by_exclusion=" + componentMoveSummary.SkippedByExclusion + " deleted_after_skip=" + componentMoveSummary.DeletedAfterSkip + " renamed_keep=" + componentMoveSummary.RenamedKeep + " renamed_from_overwrite=" + componentMoveSummary.RenamedFromOverwrite + " renamed_from_skip_older=" + componentMoveSummary.RenamedFromSkipOlder + " hash_checked=" + componentMoveSummary.HashChecked + " hash_same_skip=" + componentMoveSummary.HashSameSkip + " hash_diff_renamed=" + componentMoveSummary.HashDiffRenamed + " hash_unavailable_renamed=" + componentMoveSummary.HashUnavailableRenamed + " failed=" + componentMoveSummary.Failed);
-                }
-                else
-                {
-                    // 通常モード: 全コンポーネントを並列に移動
-                    installComponentFiles.AsParallel().ForAll(delegate (string file)
-                    {
-                        string componentDstPath = Path.Combine(destinationDirectory, Path.GetFileName(file));
-                        if (File.Exists(file))
-                        {
-                            fileMutationService.MoveFile(file, componentDstPath, overwrite: true, targetOnlyFileMutationOptions);
-                        }
-                        else
-                        {
-                            if (!Directory.Exists(file))
-                            {
-                                throw new FileNotFoundException(Resources.Error_FileNotFound, file);
-                            }
-                            fileMutationService.MoveDirectory(file, componentDstPath, overwrite: true, recursiveDirectoryTreeFileMutationOptions);
-                        }
-                    });
-                }
-
-                // BMSファイルの個別移動（ファイル名衝突を回避しつつ移動）
-                foreach (BMSFile bmsFile in installBMSFiles)
-                {
-                    string destinationBmsPath = Path.Combine(destinationDirectory, Path.GetFileName(bmsFile.path));
-                    // 移動先に同名ファイル/ディレクトリが存在する場合はサフィックスを追加
-                    while (File.Exists(destinationBmsPath) || Directory.Exists(destinationBmsPath))
-                    {
-                        string renamedFileName = Path.GetFileNameWithoutExtension(destinationBmsPath) + "_" + Path.GetExtension(destinationBmsPath);
-                        destinationBmsPath = Path.Combine(destinationDirectory, Path.GetFileName(renamedFileName));
-                    }
-                    if (!File.Exists(bmsFile.path))
-                    {
-                        throw new FileNotFoundException(Resources.Error_FileNotFound, bmsFile.path);
-                    }
-                    fileMutationService.MoveFile(bmsFile.path, destinationBmsPath, overwrite: true, targetOnlyFileMutationOptions);
-                    bmsFile.path = bmsFile.path.ReplaceFromEnd(Path.GetFileName(bmsFile.path), Path.GetFileName(destinationBmsPath), isIgnoreCase: true);
-                }
-            }
-        }
-        catch (Exception installException)
-        {
-            if (!showMessageBoxOnInstallFail)
-            {
-                return false;
-            }
-            dialogService.Show(string.Format(Resources.Error_InstallFailed, pkg.path, destinationDirectory, GetDisplayedExceptionMessage(installException)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
-            return false;
-        }
-
-        // --- パッケージ内のBMSFileパスを移動先に更新 ---
-        if (isSingleFile)
-        {
-            pkg.BMSFiles.ForEach(delegate (BMSFile bmsInfo)
-            {
-                bmsInfo.path = Path.Combine(destinationDirectory, Path.GetFileName(bmsInfo.path));
-                bmsInfo.parent = null;
-                bmsInfo.folder = null;
-                bmsInfo.adddate = null;
-                bmsInfo.date = null;
-            });
-            pkg.path = Path.Combine(destinationDirectory, Path.GetFileName(pkg.path));
-        }
-        else
-        {
-            if (!(Directory.Exists(sourcePath) || isAutoNaming))
-            {
-                return false;
-            }
-            pkg.BMSFiles.ForEach(delegate (BMSFile bmsInfo)
-            {
-                bmsInfo.path = bmsInfo.path.ReplaceFromStart(sourcePath + Path.DirectorySeparatorChar, destinationDirectory + Path.DirectorySeparatorChar, isIgnoreCase: true);
-                bmsInfo.parent = null;
-                bmsInfo.folder = null;
-                bmsInfo.adddate = null;
-                bmsInfo.date = null;
-            });
-            pkg.path = destinationDirectory;
-        }
-
-        // --- 移動元フォルダの削除 ---
-        string dirToBeDeleted = string.Empty;
-        if (pkg.delete_parent)
-        {
-            // アーカイブ展開元の親ディレクトリを削除
-            dirToBeDeleted = Path.GetDirectoryName(sourcePath);
-        }
-        else if (Directory.Exists(sourcePath))
-        {
-            // ソースディレクトリ自体を削除
-            dirToBeDeleted = sourcePath;
-        }
-        if (!string.IsNullOrWhiteSpace(dirToBeDeleted) && Directory.Exists(dirToBeDeleted))
-        {
-            if (!deleteAllContents && HasRemainingDirectoryEntries(dirToBeDeleted))
-            {
-                // NOTE:
-                // 保留からの通常インストールでは、既所持譜面を残した結果として移動元フォルダが非空のままになる。
-                // 旧実装はこの状態を「削除不要」として成功扱いにしていたため、その互換挙動を維持する。
-                NLogWrapper.FileLogger?.Info("Folder deletion skipped: path=" + dirToBeDeleted + " reason=not_empty deleteAllContents=False");
-                return true;
-            }
-
-            FileMutationOptions deleteOptions = deleteAllContents ? recursiveDirectoryTreeFileMutationOptions : targetOnlyFileMutationOptions;
-            try
-            {
-                fileMutationService.DeleteDirectoryDirect(dirToBeDeleted, deleteAllContents, deleteOptions);
-                NLogWrapper.FileLogger?.Info("Folder deletion success: path=" + dirToBeDeleted + " deleteAllContents=" + deleteAllContents);
-            }
-            catch (FileMutationException fileMutationException)
-            {
-                if (!deleteAllContents && HasRemainingDirectoryEntries(dirToBeDeleted))
-                {
-                    // NOTE:
-                    // 事前チェック後に別ファイルが残る競合でも、旧実装は非空なら失敗扱いにしなかった。
-                    // 同じく通常インストール時だけはダイアログを出さずにスキップ成功へ寄せる。
-                    NLogWrapper.FileLogger?.Info("Folder deletion skipped after failure: path=" + dirToBeDeleted + " reason=not_empty_after_failure deleteAllContents=False attempts=" + fileMutationException.AttemptCount);
-                    return true;
-                }
-
-                NLogWrapper.FileLogger?.Info(string.Format(
-                    "Folder deletion failed: path={0} attempts={1} normalizedReadOnly={2} win32={3} errorType={4} error={5}",
-                    dirToBeDeleted,
-                    fileMutationException.AttemptCount,
-                    fileMutationException.NormalizedReadOnlyCount,
-                    fileMutationException.Win32ErrorCode,
-                    fileMutationException.RootCause.GetType().FullName,
-                    GetDisplayedExceptionMessage(fileMutationException)));
-                DispatcherMessageBox.Show(string.Format(Resources.Error_FolderDeleteFailed, dirToBeDeleted, GetDisplayedExceptionMessage(fileMutationException)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
-            }
-        }
-        return true;
+        return packageInstallService.MovePackageFiles(
+            pkg,
+            installationDirectory,
+            BmsLibraryOptionsSnapshot.CreateCurrent(),
+            createBMSFolderPath,
+            GetDisplayedExceptionMessage,
+            fileMutationService,
+            dialogService,
+            targetOnlyFileMutationOptions,
+            recursiveDirectoryTreeFileMutationOptions,
+            LogInstallPerformance,
+            showMessageBoxOnInstallFail,
+            deleteAllContents,
+            existingHashes,
+            excludedComponentPaths);
     }
 
     private List<BMSPackage> installBMSPackages(IEnumerable<BMSPackage> bmsPackagesInstall, string installationDirectory = null, List<BMSFile> deferredMaintenanceTargets = null, List<BMSPackage> deferredInstalledPackages = null, Dictionary<BMSPackage, HashSet<string>> excludedComponentPathsByPackage = null, HashSet<string> existingHashes = null, bool skipInstalledPackageWhenNoBms = false, bool deleteSourceContentsAfterSuccessfulInstall = false)
@@ -4612,15 +3847,7 @@ public class BMSLibrary : NotificationObject
                             item2.instl_dst = item2.instl_dst.ReplaceFromStart(src, dst, isIgnoreCase: true);
                         }
                     }
-                    using (LR2SongDBExtended lR2SongDBExtended = new LR2SongDBExtended(lr2SongDBPath))
-                    {
-                        lR2SongDBExtended.BeginTransaction();
-                        foreach (BMSFile bMSFile in repackage.BMSFiles)
-                        {
-                            lR2SongDBExtended.InsertOrReplace(bMSFile, typeof(LR2SongDB.song));
-                        }
-                        lR2SongDBExtended.Commit();
-                    }
+                    dbGateway.UpsertSongs(repackage.BMSFiles);
                     List<BMSFile> bmsFiles2 = repackage.BMSFiles.Concat(BMSFiles.Where((BMSFile f) => f.path.StartsWith(dst + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))).ToList();
                     setMaintenanceInfo(bmsFiles2, forceUpdate: true);
                     HashSet<string> repackagePathSet = new HashSet<string>(repackage.BMSFiles.Select((BMSFile ff) => ff.path), StringComparer.OrdinalIgnoreCase);
@@ -4871,29 +4098,12 @@ public class BMSLibrary : NotificationObject
             DispatcherMessageBox.Show(string.Format(Resources.Error_FolderMoveFailed, srcDir, dstDir, GetDisplayedExceptionMessage(moveException)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
             return;
         }
-        List<BMSFile> list = BMSFiles.Where((BMSFile f) => f.path.StartsWith(srcDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)).ToList();
-        if (unregister == true)
+        if (unregister != false && unregister != true)
         {
-            unregisterBMSFiles(list);
+            return;
         }
-        else
-        {
-            if (unregister != false)
-            {
-                return;
-            }
-            foreach (IGrouping<string, BMSFile> item4 in from target in list
-                                                         group target by Path.GetDirectoryName(target.path))
-            {
-                string newFolderPath = item4.Key.ReplaceFromStart(srcDir, dstDir, isIgnoreCase: true);
-                bool calcFolderParent = replaceBMSFolder(newFolderPath, item4.Key);
-                foreach (BMSFile item5 in item4)
-                {
-                    string newPath = item5.path.ReplaceFromStart(srcDir, dstDir, isIgnoreCase: true);
-                    replaceBMSFilePath(item5, newPath, null, calcFolderParent);
-                }
-            }
-        }
+        LibraryMutationDelta delta = libraryFileOperationsService.BuildFolderMoveDelta(srcDir, dstDir, BMSFiles, unregister == true);
+        ApplyLibraryMutationDelta(delta);
     }
 
     public void MoveBMSFile(BMSFile bmsFile, string dstPath, bool? unregister = false)
@@ -4920,15 +4130,11 @@ public class BMSLibrary : NotificationObject
                     DispatcherMessageBox.Show(string.Format(Resources.Error_BmsFileMoveFailed, bmsFile.path, dstPath, GetDisplayedExceptionMessage(moveException)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
                     return;
                 }
-                if (unregister == true)
+                if (unregister != false && unregister != true)
                 {
-                    unregisterBMSFiles(new List<BMSFile> { bmsFile });
+                    return;
                 }
-                else if (unregister == false)
-                {
-                    replaceBMSFilePath(bmsFile, dstPath);
-                    RaisePropertyChanged(() => BMSFiles);
-                }
+                ApplyLibraryMutationDelta(libraryFileOperationsService.BuildFileMoveDelta(bmsFile, dstPath, unregister == true));
             }
         }
     }
@@ -4961,75 +4167,26 @@ public class BMSLibrary : NotificationObject
         {
             using (rwlockBMSFiles.GetWriterGuard())
             {
-                List<BMSFile> list = bmsFiles.ToList();
-                List<BMSFile> list2 = list.Where((BMSFile f) => f != null && File.Exists(f.path)).ToList();
-                List<BMSFile> list3 = new List<BMSFile>();
-                List<BMSFile> list4 = new List<BMSFile>();
-                bool flag = false;
-                int num = 0;
-                int num2 = 0;
-                int num3 = 0;
-                foreach (BMSFile item in list2)
+                LibraryMutationDelta delta = libraryFileOperationsService.RenameLibraryFileExtensions(
+                    bmsFiles,
+                    newExt,
+                    unregister == true,
+                    (file, requestedPath) => ProcessInvalidExtensionRename(file, requestedPath, unregister == true));
+                foreach (LibraryDeleteFailure failure in delta.Failures)
                 {
-                    string text = Path.Combine(Path.GetDirectoryName(item.path), Path.GetFileNameWithoutExtension(item.path) + newExt);
-                    RenameInvalidExtensionOutcome renameInvalidExtensionOutcome = ProcessInvalidExtensionRename(item, text, unregister == true);
-                    switch (renameInvalidExtensionOutcome.Action)
+                    if (failure.Exception == null)
                     {
-                        case RenameInvalidExtensionAction.Renamed:
-                            num++;
-                            if (unregister == false)
-                            {
-                                replaceBMSFilePath(item, renameInvalidExtensionOutcome.FinalPath);
-                                flag = true;
-                            }
-                            else
-                            {
-                                list3.Add(item);
-                            }
-                            break;
-                        case RenameInvalidExtensionAction.DeletedAsDuplicate:
-                            num2++;
-                            if (unregister == false)
-                            {
-                                list4.Add(item);
-                            }
-                            else
-                            {
-                                list3.Add(item);
-                            }
-                            break;
-                        default:
-                            num3++;
-                            if (renameInvalidExtensionOutcome.FailureException != null)
-                            {
-                                if (renameInvalidExtensionOutcome.FailedDuringDelete)
-                                {
-                                    DispatcherMessageBox.Show(string.Format(Resources.Error_BmsFileDeleteFailed, item.path, GetDisplayedExceptionMessage(renameInvalidExtensionOutcome.FailureException)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
-                                }
-                                else
-                                {
-                                    DispatcherMessageBox.Show(string.Format(Resources.Error_BmsFileMoveFailed, item.path, renameInvalidExtensionOutcome.FinalPath, GetDisplayedExceptionMessage(renameInvalidExtensionOutcome.FailureException)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
-                                }
-                            }
-                            break;
+                        continue;
                     }
+                    DispatcherMessageBox.Show(
+                        string.Format(Resources.Error_BmsFileMoveFailed, failure.Path, newExt, GetDisplayedExceptionMessage(failure.Exception)),
+                        Resources.MessageBoxTitle_Error,
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Hand,
+                        MessageBoxResult.OK);
                 }
-                if (unregister == true)
-                {
-                    unregisterBMSFiles(list3);
-                }
-                else
-                {
-                    if (list4.Count > 0)
-                    {
-                        unregisterBMSFiles(list4);
-                    }
-                    if (flag)
-                    {
-                        RaisePropertyChanged(() => BMSFiles);
-                    }
-                }
-                NLogWrapper.FileLogger?.Info("invalid_ext_rename summary scope=normal total=" + list2.Count + " renamed=" + num + " deleted=" + num2 + " skipped=" + num3);
+                ApplyLibraryMutationDelta(delta);
+                NLogWrapper.FileLogger?.Info("invalid_ext_rename summary scope=normal total=" + (bmsFiles?.Count() ?? 0) + " renamed=" + delta.RenamedCount + " deleted=" + delta.DuplicateDeletedCount + " skipped=" + delta.SkippedCount);
             }
         }
     }
@@ -5141,71 +4298,30 @@ public class BMSLibrary : NotificationObject
             {
                 using (rwlockSongDBInstall.GetWriterGuard())
                 {
-                    List<BMSFile> selectedFiles = bmsFiles.Where((BMSFile bmsInfo) => bmsInfo != null).ToList();
-                    if (selectedFiles.Count == 0)
+                    PendingFileDeletionResult result = packageInstallService.DeletePendingFiles(
+                        bmsFiles,
+                        BMSPackagesPending,
+                        sendToRecycleBin,
+                        deleteContainingPackageFoldersWhenNoBms,
+                        fileMutationService,
+                        targetOnlyFileMutationOptions,
+                        recursiveDirectoryTreeFileMutationOptions);
+                    foreach (PendingFileDeletionFailure failure in result.Failures)
                     {
-                        return;
-                    }
-                    List<BMSFile> removedFiles = new List<BMSFile>();
-                    HashSet<string> selectedPaths = new HashSet<string>(selectedFiles.Where((BMSFile f) => !string.IsNullOrWhiteSpace(f.path)).Select((BMSFile f) => f.path), StringComparer.OrdinalIgnoreCase);
-                    HashSet<BMSFile> selectedFileRefs = new HashSet<BMSFile>(selectedFiles);
-                    HashSet<string> handledByFolderDeletePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                    HashSet<string> blockedByFailedFolderDeletePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                    RecycleOption recycleOption = sendToRecycleBin ? RecycleOption.SendToRecycleBin : RecycleOption.DeletePermanently;
-                    if (deleteContainingPackageFoldersWhenNoBms)
-                    {
-                        foreach (BMSPackage pendingPackage in GetPendingPackagesFullyCoveredBySelection(selectedPaths, selectedFileRefs))
-                        {
-                            if (!Directory.Exists(pendingPackage.path))
-                            {
-                                continue;
-                            }
-                            List<BMSFile> packageFiles = pendingPackage.BMSFiles.Where((BMSFile f) => f != null).ToList();
-                            try
-                            {
-                                fileMutationService.DeleteDirectoryShell(pendingPackage.path, UIOption.OnlyErrorDialogs, recycleOption, recursiveDirectoryTreeFileMutationOptions);
-                                foreach (BMSFile packageFile in packageFiles)
-                                {
-                                    removedFiles.Add(packageFile);
-                                    if (!string.IsNullOrWhiteSpace(packageFile.path))
-                                    {
-                                        handledByFolderDeletePaths.Add(packageFile.path);
-                                    }
-                                }
-                            }
-                            catch (Exception deleteException)
-                            {
-                                foreach (BMSFile packageFile in packageFiles)
-                                {
-                                    if (!string.IsNullOrWhiteSpace(packageFile.path))
-                                    {
-                                        blockedByFailedFolderDeletePaths.Add(packageFile.path);
-                                    }
-                                }
-                                DispatcherMessageBox.Show(string.Format(Resources.Error_FolderOrTrashDeleteFailed, pendingPackage.path, GetDisplayedExceptionMessage(deleteException)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
-                            }
-                        }
-                    }
-                    foreach (BMSFile pendingBmsFile in selectedFiles)
-                    {
-                        if (!string.IsNullOrWhiteSpace(pendingBmsFile.path) && (handledByFolderDeletePaths.Contains(pendingBmsFile.path) || blockedByFailedFolderDeletePaths.Contains(pendingBmsFile.path)))
+                        if (failure?.Exception == null)
                         {
                             continue;
                         }
-                        try
+                        if (failure.IsDirectory)
                         {
-                            if (File.Exists(pendingBmsFile.path))
-                            {
-                                fileMutationService.DeleteFileShell(pendingBmsFile.path, UIOption.OnlyErrorDialogs, recycleOption, targetOnlyFileMutationOptions);
-                                removedFiles.Add(pendingBmsFile);
-                            }
+                            DispatcherMessageBox.Show(string.Format(Resources.Error_FolderOrTrashDeleteFailed, failure.Path, GetDisplayedExceptionMessage(failure.Exception)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
                         }
-                        catch (Exception deleteException)
+                        else
                         {
-                            DispatcherMessageBox.Show(string.Format(Resources.Error_BmsFileDeleteFailed, pendingBmsFile.path, GetDisplayedExceptionMessage(deleteException)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+                            DispatcherMessageBox.Show(string.Format(Resources.Error_BmsFileDeleteFailed, failure.Path, GetDisplayedExceptionMessage(failure.Exception)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
                         }
                     }
-                    RemovePendingFilesFromPendingPackagesAndInstallRows(removedFiles);
+                    RemovePendingFilesFromPendingPackagesAndInstallRows(result.FilesToRemove);
                 }
             }
         }
@@ -5224,6 +4340,46 @@ public class BMSLibrary : NotificationObject
             return;
         }
         ApplyPendingPackageMutationDelta(BuildPendingPackageMutationDelta(filesToRemove: list));
+    }
+
+    private void ApplyLibraryMutationDelta(LibraryMutationDelta delta)
+    {
+        if (delta == null)
+        {
+            return;
+        }
+        foreach (LibraryFolderPathChange folderPathChange in delta.FolderPathChanges)
+        {
+            replaceBMSFolder(folderPathChange.NewFolderPath, folderPathChange.OldFolderPath);
+        }
+        foreach (LibraryFilePathChange filePathChange in delta.FilePathChanges)
+        {
+            replaceBMSFilePath(filePathChange.File, filePathChange.NewPath, filePathChange.OldPath, filePathChange.CalcFolderParent);
+        }
+        if (delta.FilesToUnregister.Count > 0)
+        {
+            unregisterBMSFiles(delta.FilesToUnregister.Distinct().ToList());
+        }
+        if (delta.InvalidateBMSHashIndex)
+        {
+            InvalidateBMSHashIndex();
+        }
+        if (delta.InvalidateInstalledDirectoryIndex)
+        {
+            InvalidateInstalledDirectoryIndex();
+        }
+        if (delta.InvalidateParentFolderCache)
+        {
+            InvalidateBMSParentFolderListCache();
+        }
+        if (delta.RaiseInstalledPackagesChanged)
+        {
+            RaisePropertyChanged(() => BMSPackagesInstalled);
+        }
+        if (delta.RaiseBmsFilesChanged)
+        {
+            RaisePropertyChanged(() => BMSFiles);
+        }
     }
 
     /// <summary>

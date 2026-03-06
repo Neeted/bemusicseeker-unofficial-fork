@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.Utils;
@@ -158,6 +159,61 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
         });
     }
 
+    [TestMethod]
+    public void BuildFolderMoveDelta_ReturnsFolderAndFilePathChanges()
+    {
+        BmsLibraryLibraryFileOperationsService service = new BmsLibraryLibraryFileOperationsService();
+        TestableBmsFile file1 = CreateFile("C:\\Lib\\Src\\A\\a.bms");
+        TestableBmsFile file2 = CreateFile("C:\\Lib\\Src\\B\\b.bms");
+
+        LibraryMutationDelta delta = service.BuildFolderMoveDelta("C:\\Lib\\Src", "C:\\Lib\\Dst", new[] { file1, file2 }, unregister: false);
+
+        Assert.AreEqual(2, delta.FolderPathChanges.Count);
+        Assert.AreEqual(2, delta.FilePathChanges.Count);
+        Assert.AreEqual(0, delta.FilesToUnregister.Count);
+        CollectionAssert.AreEquivalent(
+            new[] { "C:\\Lib\\Dst\\A\\a.bms", "C:\\Lib\\Dst\\B\\b.bms" },
+            delta.FilePathChanges.Select((LibraryFilePathChange change) => change.NewPath).ToArray());
+        Assert.IsTrue(delta.RaiseBmsFilesChanged);
+        Assert.IsTrue(delta.InvalidateInstalledDirectoryIndex);
+        Assert.IsTrue(delta.InvalidateParentFolderCache);
+    }
+
+    [TestMethod]
+    public void RenameLibraryFileExtensions_ReturnsRenamedAndDuplicateDeletedFiles()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            BmsLibraryLibraryFileOperationsService service = new BmsLibraryLibraryFileOperationsService();
+            TestFileMutationService fileMutationService = new TestFileMutationService();
+            string renameSourcePath = Path.Combine(tempDirectoryPath, "rename_me.bms");
+            string duplicateSourcePath = Path.Combine(tempDirectoryPath, "duplicate.bms");
+            string duplicateDestinationPath = Path.Combine(tempDirectoryPath, "duplicate.bme");
+            File.WriteAllText(renameSourcePath, "rename");
+            File.WriteAllText(duplicateSourcePath, "same");
+            File.WriteAllText(duplicateDestinationPath, "same");
+            TestableBmsFile renameFile = CreateFile(renameSourcePath);
+            TestableBmsFile duplicateFile = CreateFile(duplicateSourcePath);
+
+            LibraryMutationDelta delta = service.RenameLibraryFileExtensions(
+                new[] { renameFile, duplicateFile },
+                ".bme",
+                unregister: false,
+                (file, requestedPath) => service.ProcessInvalidExtensionRename(file, requestedPath, fileMutationService, null));
+
+            Assert.AreEqual(1, delta.RenamedCount);
+            Assert.AreEqual(1, delta.DuplicateDeletedCount);
+            Assert.AreEqual(0, delta.SkippedCount);
+            Assert.AreEqual(1, delta.FilePathChanges.Count);
+            Assert.AreEqual(1, delta.FilesToUnregister.Count);
+            Assert.AreEqual(Path.Combine(tempDirectoryPath, "rename_me.bme"), delta.FilePathChanges[0].NewPath);
+            Assert.IsTrue(File.Exists(Path.Combine(tempDirectoryPath, "rename_me.bme")));
+            Assert.IsFalse(File.Exists(renameSourcePath));
+            Assert.IsFalse(File.Exists(duplicateSourcePath));
+            Assert.IsTrue(File.Exists(duplicateDestinationPath));
+        });
+    }
+
     private static TestableBmsFile CreateFile(string path)
     {
         return new TestableBmsFile
@@ -216,7 +272,13 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             {
                 Directory.Delete(destinationPath, recursive: true);
             }
-            Directory.Move(sourcePath, destinationPath);
+            string destinationParentPath = Path.GetDirectoryName(destinationPath);
+            if (!string.IsNullOrWhiteSpace(destinationParentPath))
+            {
+                Directory.CreateDirectory(destinationParentPath);
+            }
+            CopyDirectory(sourcePath, destinationPath);
+            Directory.Delete(sourcePath, recursive: true);
         }
 
         public void DeleteFileDirect(string filePath, FileMutationOptions options = null)
@@ -247,6 +309,25 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
 
         public void SetTimestamps(string path, bool isDirectory, DateTime? creationTime, DateTime? lastWriteTime, FileMutationOptions options = null)
         {
+        }
+
+        private static void CopyDirectory(string sourcePath, string destinationPath)
+        {
+            Directory.CreateDirectory(destinationPath);
+            foreach (string directoryPath in Directory.GetDirectories(sourcePath, "*", System.IO.SearchOption.AllDirectories))
+            {
+                Directory.CreateDirectory(directoryPath.Replace(sourcePath, destinationPath));
+            }
+            foreach (string filePath in Directory.GetFiles(sourcePath, "*", System.IO.SearchOption.AllDirectories))
+            {
+                string destinationFilePath = filePath.Replace(sourcePath, destinationPath);
+                string destinationDirectoryPath = Path.GetDirectoryName(destinationFilePath);
+                if (!string.IsNullOrWhiteSpace(destinationDirectoryPath))
+                {
+                    Directory.CreateDirectory(destinationDirectoryPath);
+                }
+                File.Copy(filePath, destinationFilePath, overwrite: true);
+            }
         }
     }
 }
