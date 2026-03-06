@@ -4,6 +4,8 @@ using System.IO;
 using System.Linq;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Models.Utils;
+using Microsoft.VisualBasic.FileIO;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
@@ -192,7 +194,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
 
         Assert.AreEqual(2, result.PendingPackagesToRemove.Count);
         CollectionAssert.AreEquivalent(new[] { mixedPackage.path, cleanupOnlyPackage.path }, result.InstallRowsToDelete.Distinct(StringComparer.OrdinalIgnoreCase).ToArray());
-        Assert.AreEqual(2, result.DeferredInstalledPackages.Count);
+        Assert.AreEqual(1, result.DeferredInstalledPackages.Count);
         Assert.AreEqual(1, result.CleanupOnlySucceeded);
         Assert.AreEqual(0, result.CleanupOnlyFailed);
         Assert.AreEqual(1, result.CleanupOnlyMissingSource);
@@ -200,6 +202,65 @@ public sealed class BmsLibraryPackageInstallServiceTests
         Assert.IsNull(alreadyInstalledInPackage.instl_dst);
         Assert.IsNull(newFile.instl_dst);
         Assert.IsNull(cleanupOnlyFile.instl_dst);
+    }
+
+    [TestMethod]
+    public void ForceInstallPackages_SkipsWhenConfirmationRejected()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        BmsLibraryPackageInstallService service = new BmsLibraryPackageInstallService();
+        TestableBmsFile pendingFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "C:\\Pending\\Pkg1\\a.bms");
+        pendingFile.instl_dst = "C:\\Installed\\Target";
+        BMSPackage pendingPackage = new BMSPackage(new BMSFile[] { pendingFile })
+        {
+            path = "C:\\Pending\\Pkg1",
+            delete_parent = false
+        };
+
+        ForceInstallBatchResult result = service.ForceInstallPackages(
+            new[] { pendingPackage },
+            new[] { pendingPackage },
+            _ => false,
+            (_, __) => new List<BMSPackage>());
+
+        Assert.AreEqual(1, result.Requested);
+        Assert.AreEqual(1, result.Skipped);
+        Assert.AreEqual(0, result.Processed);
+        Assert.AreEqual(0, result.PendingPackagesToRemove.Count);
+        Assert.AreEqual("C:\\Installed\\Target", pendingFile.instl_dst);
+    }
+
+    [TestMethod]
+    public void DeletePendingPackageSources_RemovesPackagesWhoseSourceWasDeleted()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            BmsLibraryPackageInstallService service = new BmsLibraryPackageInstallService();
+            string packageDirectoryPath = Path.Combine(tempDirectoryPath, "Pkg1");
+            Directory.CreateDirectory(packageDirectoryPath);
+            File.WriteAllText(Path.Combine(packageDirectoryPath, "chart.bms"), "#PLAYER 1");
+            BMSPackage pendingPackage = new BMSPackage(new BMSFile[0])
+            {
+                path = packageDirectoryPath,
+                delete_parent = false
+            };
+
+            PendingPackageSourceDeletionResult result = service.DeletePendingPackageSources(
+                new[] { pendingPackage },
+                new[] { pendingPackage },
+                sendToRecycleBin: false,
+                new TestFileMutationService(),
+                null,
+                null);
+
+            Assert.AreEqual(1, result.Requested);
+            Assert.AreEqual(1, result.Processed);
+            Assert.AreEqual(1, result.Removed);
+            Assert.AreEqual(0, result.Failed);
+            CollectionAssert.AreEqual(new[] { pendingPackage }, result.PackagesToRemove);
+            Assert.IsFalse(Directory.Exists(packageDirectoryPath));
+        });
     }
 
     private static TestableBmsFile CreateFile(string hash, string path)
@@ -234,6 +295,57 @@ public sealed class BmsLibraryPackageInstallServiceTests
         public void SetHash(string value)
         {
             hash = value;
+        }
+    }
+
+    private sealed class TestFileMutationService : IFileMutationService
+    {
+        public void EnsureDirectory(string directoryPath, FileMutationOptions options = null)
+        {
+            if (!string.IsNullOrWhiteSpace(directoryPath))
+            {
+                Directory.CreateDirectory(directoryPath);
+            }
+        }
+
+        public void MoveFile(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null)
+        {
+            throw new NotSupportedException();
+        }
+
+        public void MoveDirectory(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null)
+        {
+            throw new NotSupportedException();
+        }
+
+        public void DeleteFileDirect(string filePath, FileMutationOptions options = null)
+        {
+            if (File.Exists(filePath))
+            {
+                File.Delete(filePath);
+            }
+        }
+
+        public void DeleteFileShell(string filePath, UIOption uiOption, RecycleOption recycleOption, FileMutationOptions options = null)
+        {
+            DeleteFileDirect(filePath, options);
+        }
+
+        public void DeleteDirectoryDirect(string directoryPath, bool recursive, FileMutationOptions options = null)
+        {
+            if (Directory.Exists(directoryPath))
+            {
+                Directory.Delete(directoryPath, recursive);
+            }
+        }
+
+        public void DeleteDirectoryShell(string directoryPath, UIOption uiOption, RecycleOption recycleOption, FileMutationOptions options = null)
+        {
+            DeleteDirectoryDirect(directoryPath, recursive: true, options);
+        }
+
+        public void SetTimestamps(string path, bool isDirectory, DateTime? creationTime, DateTime? lastWriteTime, FileMutationOptions options = null)
+        {
         }
     }
 }

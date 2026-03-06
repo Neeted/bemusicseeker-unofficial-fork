@@ -1083,6 +1083,8 @@ public class BMSLibrary : NotificationObject
 
     private readonly BmsLibraryIrService irService = new BmsLibraryIrService();
 
+    private readonly BmsLibraryInitializationService initializationService = new BmsLibraryInitializationService();
+
     private readonly IBmsLibraryIrClient irClient = new BmsLibraryIrClient();
 
     private readonly BmsLibraryMaintenanceService maintenanceService = new BmsLibraryMaintenanceService();
@@ -1250,11 +1252,6 @@ public class BMSLibrary : NotificationObject
     /// <param name="reloadScoresOnly">スコアのみの再読み込み指定。</param>
     public void Initialize(List<Action> tasksContinuation, SemaphoreSlim semaphore = null, bool? reloadScoresOnly = null)
     {
-        Stopwatch stopwatchTotal = Stopwatch.StartNew();
-        long phase1MinLoadMs = 0L;
-        long phase2ScanMaintMs = 0L;
-        long phase3InstallMaintenanceMs = 0L;
-        long waitContinuationMs = 0L;
         bool scheduleDeferredMaintenanceTableCheck = false;
         string deferredMaintenanceReason = ((reloadScoresOnly == false) ? "reload_files" : "initialize");
         bool songTblLoad = reloadScoresOnly != true;
@@ -1282,66 +1279,44 @@ public class BMSLibrary : NotificationObject
         }
         GC.Collect();
         NLogWrapper.DebuggerLogger?.Trace("hazimari: " + GC.GetTotalMemory(forceFullCollection: false));
-        List<Task> list = new List<Task>();
         DateTime now;
+        InitializationExecutionResult initializeResult;
         using (rwlockBMSFilesInitializedAll.GetWriterGuard())
         {
             now = DateTime.Now;
-            Stopwatch stopwatchPhase1 = Stopwatch.StartNew();
-            using (rwlockBMSFilesInitializedMin.GetWriterGuard())
-            {
-                _initialize(songTblLoad, scoreTblrLoad: true, songTblFileCheck: false, setMainteInfo: false, updateIrScore: false, installTblCheck: false, maintenanceTblCheck: false);
-            }
-            stopwatchPhase1.Stop();
-            phase1MinLoadMs = stopwatchPhase1.ElapsedMilliseconds;
-            TimeSpan timeSpan = DateTime.Now - now;
-            NLogWrapper.DebuggerLogger?.Trace(timeSpan.ToString());
-            long waitBeforeContinuationStartMs = 0L;
-            long waitForContinuationCompleteMs = 0L;
-            Stopwatch stopwatchWaitBeforeContinuationStart = Stopwatch.StartNew();
-            semaphore?.Wait();
-            stopwatchWaitBeforeContinuationStart.Stop();
-            waitBeforeContinuationStartMs = stopwatchWaitBeforeContinuationStart.ElapsedMilliseconds;
-            if (tasksContinuation != null)
-            {
-                for (int i = 0; i < tasksContinuation.Count; i++)
+            initializeResult = initializationService.RunInitialize(
+                tasksContinuation,
+                semaphore,
+                delegate
                 {
-                    list.Add(Task.Run(tasksContinuation[i]).Logging("Initialize"));
-                }
-            }
-            Thread.Yield();
-            now = DateTime.Now;
-            Stopwatch stopwatchPhase2 = Stopwatch.StartNew();
-            BmsScanPrefetchInfo bmsScanPrefetchInfo = null;
-            if (songTblFileCheck && bmsScanPrefetchTask != null)
-            {
-                try
+                    using (rwlockBMSFilesInitializedMin.GetWriterGuard())
+                    {
+                        _initialize(songTblLoad, scoreTblrLoad: true, songTblFileCheck: false, setMainteInfo: false, updateIrScore: false, installTblCheck: false, maintenanceTblCheck: false);
+                    }
+                },
+                delegate
                 {
-                    bmsScanPrefetchInfo = bmsScanPrefetchTask.GetAwaiter().GetResult();
-                }
-                catch (Exception ex)
+                    BmsScanPrefetchInfo bmsScanPrefetchInfo = null;
+                    if (songTblFileCheck && bmsScanPrefetchTask != null)
+                    {
+                        try
+                        {
+                            bmsScanPrefetchInfo = bmsScanPrefetchTask.GetAwaiter().GetResult();
+                        }
+                        catch (Exception ex)
+                        {
+                            LogEverythingScan("bms_scan_prefetch failed message=" + ex.Message);
+                            bmsScanPrefetchInfo = null;
+                        }
+                    }
+                    _initialize(songTblLoad: false, scoreTblrLoad: false, songTblFileCheck, setMainteInfo: setMaintenanceInfo, updateIrScore: true, installTblCheck: false, maintenanceTblCheck: false, bmsScanPrefetchInfo);
+                },
+                delegate
                 {
-                    LogEverythingScan("bms_scan_prefetch failed message=" + ex.Message);
-                    bmsScanPrefetchInfo = null;
-                }
-            }
-            _initialize(songTblLoad: false, scoreTblrLoad: false, songTblFileCheck, setMainteInfo: setMaintenanceInfo, updateIrScore: true, installTblCheck: false, maintenanceTblCheck: false, bmsScanPrefetchInfo);
-            stopwatchPhase2.Stop();
-            phase2ScanMaintMs = stopwatchPhase2.ElapsedMilliseconds;
-            Stopwatch stopwatchPhase3 = Stopwatch.StartNew();
-            _initialize(songTblLoad: false, scoreTblrLoad: false, songTblFileCheck: false, setMainteInfo: false, updateIrScore: false, flag, maintenanceTblCheck: false);
-            stopwatchPhase3.Stop();
-            phase3InstallMaintenanceMs = stopwatchPhase3.ElapsedMilliseconds;
-            if (semaphore != null && tasksContinuation != null && tasksContinuation.Count > 0)
-            {
-                Stopwatch stopwatchWaitForContinuationComplete = Stopwatch.StartNew();
-                semaphore.Wait();
-                stopwatchWaitForContinuationComplete.Stop();
-                waitForContinuationCompleteMs = stopwatchWaitForContinuationComplete.ElapsedMilliseconds;
-            }
-            waitContinuationMs = waitBeforeContinuationStartMs + waitForContinuationCompleteMs;
+                    _initialize(songTblLoad: false, scoreTblrLoad: false, songTblFileCheck: false, setMainteInfo: false, updateIrScore: false, flag, maintenanceTblCheck: false);
+                });
             scheduleDeferredMaintenanceTableCheck = flag;
-            timeSpan = DateTime.Now - now;
+            TimeSpan timeSpan = DateTime.Now - now;
             NLogWrapper.DebuggerLogger?.Trace(timeSpan.ToString());
         }
         if (flag)
@@ -1356,15 +1331,13 @@ public class BMSLibrary : NotificationObject
         }
         TimeSpan timeSpan2 = DateTime.Now - now;
         NLogWrapper.DebuggerLogger?.Trace(timeSpan2.ToString());
-        Task.WaitAll(list.ToArray());
         if (scheduleDeferredMaintenanceTableCheck)
         {
             ScheduleDeferredMaintenanceTableCheck(deferredMaintenanceReason);
         }
         GC.Collect();
         NLogWrapper.DebuggerLogger?.Trace("owari: " + GC.GetTotalMemory(forceFullCollection: false));
-        stopwatchTotal.Stop();
-        LogInstallPerformance("init_library phase1_min_load_ms=" + phase1MinLoadMs + " phase2_scan_maint_ms=" + phase2ScanMaintMs + " phase3_install_maintenance_ms=" + phase3InstallMaintenanceMs + " wait_continuation_ms=" + waitContinuationMs + " total_ms=" + stopwatchTotal.ElapsedMilliseconds + " maintenance_tbl_check_deferred=" + scheduleDeferredMaintenanceTableCheck.ToString().ToLowerInvariant() + " set_maintenance_enabled=" + setMaintenanceInfo.ToString().ToLowerInvariant());
+        LogInstallPerformance("init_library phase1_min_load_ms=" + initializeResult.Phase1MinLoadMs + " phase2_scan_maint_ms=" + initializeResult.Phase2ScanMaintMs + " phase3_install_maintenance_ms=" + initializeResult.Phase3InstallMaintenanceMs + " wait_continuation_ms=" + initializeResult.WaitContinuationMs + " total_ms=" + initializeResult.TotalMs + " maintenance_tbl_check_deferred=" + scheduleDeferredMaintenanceTableCheck.ToString().ToLowerInvariant() + " set_maintenance_enabled=" + setMaintenanceInfo.ToString().ToLowerInvariant());
     }
 
     private static bool IsLikelyCrcHex(string value)
@@ -2338,120 +2311,14 @@ public class BMSLibrary : NotificationObject
         }
         using (rwlockLR2IrDir.GetWriterGuard())
         {
-            string path = Path.Combine(Path.GetDirectoryName(lr2ScoreDBPath), "..\\..\\Ir");
-            try
-            {
-                path = Path.GetFullPath(path);
-            }
-            catch (Exception)
-            {
-                return;
-            }
             NLogWrapper.DebuggerLogger?.Trace("IR CACHE DIR END");
-            List<LR2IRData> irDataDB = null;
-            try
+            using (rwlockBMSScores.GetWriterGuard())
             {
-                using LR2SongDBExtended lR2SongDBExtended = new LR2SongDBExtended(lr2SongDBPath);
-                irDataDB = (from s in lR2SongDBExtended.Table<LR2IRData>().ToList()
-                            where s.lr2id == LR2ID
-                            select s).ToList();
+                using (rwlockBMSFiles.GetReaderGuard())
+                {
+                    irService.RefreshRankingScoresFromCache(LR2ID, lr2ScoreDBPath, dbGateway, BMSScores, BMSFiles, Settings.Default.SkipEstimateOfflineScoreRanking);
+                }
             }
-            catch (Exception)
-            {
-                return;
-            }
-            if (irDataDB == null)
-            {
-                return;
-            }
-            NLogWrapper.DebuggerLogger?.Trace("IR CACHE DB DATA END");
-            List<LR2IRData> irDataToBeCommited = new List<LR2IRData>();
-            List<string> source = Directory.EnumerateFiles(path).AsParallel().Where(delegate (string filePath)
-            {
-                try
-                {
-                    string md5 = Path.GetFileNameWithoutExtension(filePath);
-                    if (!LR2SongDB.md5HashRegex.IsMatch(Path.GetFileNameWithoutExtension(filePath)))
-                    {
-                        return false;
-                    }
-                    LR2IRData lR2IRData = irDataDB.FirstOrDefault((LR2IRData d) => d.hash == md5);
-                    if (lR2IRData == null)
-                    {
-                        return true;
-                    }
-                    DateTime lastWriteTime = File.GetLastWriteTime(filePath);
-                    if (lR2IRData.lastcacheupdate == lastWriteTime)
-                    {
-                        return false;
-                    }
-                    string s = string.Empty;
-                    using (StreamReader reader = new StreamReader(filePath))
-                    {
-                        s = reader.Tail(33, 19);
-                    }
-                    if (!DateTime.TryParseExact(s, "yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture, DateTimeStyles.None, out var result) || result > lR2IRData.lastupdate)
-                    {
-                        return true;
-                    }
-                    if (!lR2IRData.lastcacheupdate.HasValue)
-                    {
-                        lR2IRData.lastcacheupdate = lastWriteTime;
-                        lock (lockRankingScores)
-                        {
-                            irDataToBeCommited.Add(lR2IRData);
-                        }
-                        setBMSScore(lR2IRData, null);
-                    }
-                    return false;
-                }
-                catch
-                {
-                    return false;
-                }
-            })
-                .ToList();
-            NLogWrapper.DebuggerLogger?.Trace("IR CACHE FILE TAIL END");
-            source.AsParallel().ForAll(delegate (string filePath)
-            {
-                LR2IRCache lR2IRCache = null;
-                try
-                {
-                    lR2IRCache = getIRCache(filePath);
-                }
-                catch
-                {
-                    return;
-                }
-                LR2IRData lR2IRData = lR2IRCache.GetLR2IRData(LR2ID);
-                if (lR2IRData != null)
-                {
-                    lock (lockRankingScores)
-                    {
-                        irDataToBeCommited.Add(lR2IRData);
-                    }
-                    setBMSScore(lR2IRData, lR2IRCache);
-                }
-            });
-            NLogWrapper.DebuggerLogger?.Trace("IR CACHE SET SCORE END");
-            using (LR2SongDBExtended lR2SongDBExtended2 = new LR2SongDBExtended(lr2SongDBPath))
-            {
-                lR2SongDBExtended2.BeginTransaction();
-                foreach (LR2IRData item in irDataToBeCommited)
-                {
-                    lR2SongDBExtended2.Execute("DELETE FROM " + SQLiteTable<LR2SongDBExtended.ir_data>.GetTableName() + " WHERE " + SQLiteTable<LR2SongDBExtended.ir_data>.GetColumnName((LR2SongDBExtended.ir_data e) => e.hash) + " = '" + item.hash + "' AND " + SQLiteTable<LR2SongDBExtended.ir_data>.GetColumnName((LR2SongDBExtended.ir_data e) => e.lr2id) + " = " + item.lr2id + ";");
-                    lR2SongDBExtended2.InsertOrReplace(item, typeof(LR2SongDBExtended.ir_data));
-                }
-                lR2SongDBExtended2.Commit();
-            }
-            HashSet<string> hashlist = new HashSet<string>(irDataToBeCommited.Select((LR2IRData b) => b.hash), StringComparer.OrdinalIgnoreCase);
-            irDataDB.AsParallel().ForAll(delegate (LR2IRData d)
-            {
-                if (!hashlist.Contains(d.hash))
-                {
-                    setBMSScore(d, null);
-                }
-            });
             NLogWrapper.DebuggerLogger?.Trace("IR CACHE END");
             GC.Collect();
             NLogWrapper.DebuggerLogger?.Trace(GC.GetTotalMemory(forceFullCollection: false));
@@ -2513,91 +2380,19 @@ public class BMSLibrary : NotificationObject
         }
         using (rwlockBMSFiles.GetReaderGuard())
         {
-            List<BMSFile> list = (forceUpdate ? bmsFiles.ToList() : bmsFiles.Where((BMSFile f) => !f.maintenanceInfo.IsInformationChecked() || string.IsNullOrWhiteSpace(f.maintenanceInfo.encoding)).ToList());
-            bool maintenanceInfoUpdated = false;
-            if (list.Count > 0)
+            using (rwlockSongDBMaintenance.GetWriterGuard())
             {
-                foreach (IEnumerable<BMSFile> item in list.Section(1000))
+                MaintenanceWorkflowResult workflowResult = maintenanceService.UpdateMaintenanceInfo(bmsFiles, forceUpdate, bmsFolderAllFileList, dbGateway, dialogService);
+                if (workflowResult.HasUpdates)
                 {
-                    using (rwlockSongDBMaintenance.GetWriterGuard())
+                    Task.Run(delegate
                     {
-                        object bmsFilesReloadedLock = new object();
-                        List<BMSFile> bmsFilesReloaded = new List<BMSFile>();
-                        item.AsParallel().ForAll(delegate (BMSFile f)
-                        {
-                            string hash = f.hash;
-                            int retryCount = 0;
-                            while (true)
-                            {
-                                try
-                                {
-                                    f.SetHealthStatus(bmsFolderAllFileList, forceUpdate);
-                                    break;
-                                }
-                                catch (Exception ex)
-                                {
-                                    if (ex is DirectoryNotFoundException || ex is FileNotFoundException || ex is IOException || ex is PathTooLongException || ex is SecurityException || ex is UnauthorizedAccessException)
-                                    {
-                                        if (retryCount < 3)
-                                        {
-                                            retryCount++;
-                                            Thread.Sleep(200);
-                                            continue;
-                                        }
-                                        DispatcherMessageBox.Show(string.Format(Resources.Error_BmsLoadFailedSkip, f.path, ex.Message), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
-                                        return;
-                                    }
-                                    throw;
-                                }
-                            }
-                            if (forceUpdate || string.IsNullOrWhiteSpace(f.maintenanceInfo.encoding))
-                            {
-                                f.SetEncosingInfo();
-                            }
-                            if (!string.IsNullOrWhiteSpace(f.maintenanceInfo.encoding) && !f.maintenanceInfo.encoding.StartsWith("shift_jis") && !f.maintenanceInfo.encoding.EndsWith("?") && f.maintenanceInfo.encoding != "unknown")
-                            {
-                                BMSFile.ReloadBMSFileWithEncoding(f, f.maintenanceInfo.encoding);
-                                f.maintenanceInfo.is_encoding_fixed = true;
-                                lock (bmsFilesReloadedLock)
-                                {
-                                    bmsFilesReloaded.Add(f);
-                                    return;
-                                }
-                            }
-                            if (hash != f.hash)
-                            {
-                                lock (bmsFilesReloadedLock)
-                                {
-                                    bmsFilesReloaded.Add(f);
-                                }
-                            }
-                        });
-                        using (LR2SongDBExtended lR2SongDBExtended = new LR2SongDBExtended(lr2SongDBPath))
-                        {
-                            lR2SongDBExtended.BeginTransaction();
-                            foreach (BMSFile item2 in item.Where((BMSFile f) => f.maintenanceInfo.IsInformationChecked()))
-                            {
-                                lR2SongDBExtended.InsertOrReplace(item2.maintenanceInfo, typeof(LR2SongDBExtended.maintenance));
-                            }
-                            foreach (BMSFile item3 in bmsFilesReloaded)
-                            {
-                                lR2SongDBExtended.InsertOrReplace(item3, typeof(LR2SongDB.song));
-                            }
-                            lR2SongDBExtended.Commit();
-                        }
-                        maintenanceInfoUpdated = true;
-                    }
+                        RaisePropertyChanged(() => BMSFilesNeedToBeFixed);
+                        RaisePropertyChanged(() => BMSFilesNeedToBeFixedIgnored);
+                        RaisePropertyChanged(() => BMSFilesGarbled);
+                        RaisePropertyChanged(() => BMSFilesGarbledFixed);
+                    }).Logging("setMaintenanceInfo");
                 }
-            }
-            if (maintenanceInfoUpdated)
-            {
-                Task.Run(delegate
-                {
-                    RaisePropertyChanged(() => BMSFilesNeedToBeFixed);
-                    RaisePropertyChanged(() => BMSFilesNeedToBeFixedIgnored);
-                    RaisePropertyChanged(() => BMSFilesGarbled);
-                    RaisePropertyChanged(() => BMSFilesGarbledFixed);
-                }).Logging("setMaintenanceInfo");
             }
             foreach (BMSFile bmsFile in bmsFiles)
             {
@@ -2735,43 +2530,12 @@ public class BMSLibrary : NotificationObject
         {
             bmsFiles = BMSFiles;
         }
-        List<BMSFile> targetFiles = bmsFiles.Where((BMSFile f) => f != null && !string.IsNullOrWhiteSpace(f.path)).GroupBy((BMSFile f) => f.path, StringComparer.OrdinalIgnoreCase).Select((IGrouping<string, BMSFile> g) => g.First()).ToList();
-        if (targetFiles.Count == 0)
-        {
-            return;
-        }
         using (rwlockBMSFiles.GetWriterGuard())
         {
-            targetFiles.Where((BMSFile f) => f.notes == 0).ToList();
-            List<BMSFile> source = targetFiles.Where((BMSFile f) => !f.notes.HasValue && File.Exists(f.path)).ToList();
-            source = source.AsParallel().Where(delegate (BMSFile f)
-            {
-                try
-                {
-                    return f.SetNotesIfZeroNote();
-                }
-                catch (Exception ex)
-                {
-                    if (!(ex is DirectoryNotFoundException) && !(ex is FileNotFoundException) && !(ex is IOException) && !(ex is PathTooLongException) && !(ex is SecurityException) && !(ex is UnauthorizedAccessException))
-                    {
-                        throw;
-                    }
-                    DispatcherMessageBox.Show(string.Format(Resources.Error_BmsLoadFailedSkip, f.path, ex.Message), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
-                    return false;
-                }
-            }).ToList();
-            if (source.Count <= 0)
+            MaintenanceWorkflowResult workflowResult = maintenanceService.UpdateZeroNoteAndCommit(bmsFiles, dbGateway, dialogService);
+            if (!workflowResult.HasUpdates)
             {
                 return;
-            }
-            using (LR2SongDBExtended lR2SongDBExtended = new LR2SongDBExtended(lr2SongDBPath))
-            {
-                lR2SongDBExtended.BeginTransaction();
-                foreach (BMSFile item in source)
-                {
-                    lR2SongDBExtended.InsertOrReplace(item, typeof(LR2SongDB.song));
-                }
-                lR2SongDBExtended.Commit();
             }
             Task.Run(delegate
             {
@@ -3988,62 +3752,33 @@ public class BMSLibrary : NotificationObject
                         {
                             return;
                         }
-                        List<BMSPackage> list = packageInstallService.DeduplicatePackagesByPathOrReference(packages);
-                        if (list.Count == 0)
+                        ForceInstallBatchResult result = packageInstallService.ForceInstallPackages(
+                            packages,
+                            BMSPackagesPending,
+                            delegate (BMSPackage pendingPackage)
+                            {
+                                return MessageBox.Show(Resources.Confirm_NormalInstallOverride, Resources.Confirm_NormalInstallTitle, MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.Yes) == MessageBoxResult.Yes;
+                            },
+                            delegate (IEnumerable<BMSPackage> packagesToInstall, List<BMSPackage> deferredInstalledPackages)
+                            {
+                                return installBMSPackages(packagesToInstall, null, null, deferredInstalledPackages);
+                            },
+                            info => NLogWrapper.FileLogger?.Info(info));
+                        if (result.Requested == 0)
                         {
                             return;
                         }
-                        List<BMSPackage> list2 = BMSPackagesPending.Where((BMSPackage pkg) => pkg != null).ToList();
-                        List<BMSPackage> list3 = new List<BMSPackage>();
-                        List<BMSPackage> deferredInstalledPackages = new List<BMSPackage>();
-                        int num = 0;
-                        int num2 = 0;
-                        int num3 = 0;
-                        int num4 = 0;
-                        NLogWrapper.FileLogger?.Info("force_install_batch start requested=" + list.Count);
-                        foreach (BMSPackage requestedPackage in list)
+                        NLogWrapper.FileLogger?.Info("force_install_batch start requested=" + result.Requested);
+                        if (result.PendingPackagesToRemove.Count > 0)
                         {
-                            BMSPackage bMSPackage = list2.FirstOrDefault((BMSPackage pkg) => ReferenceEquals(pkg, requestedPackage) || (!string.IsNullOrWhiteSpace(pkg.path) && !string.IsNullOrWhiteSpace(requestedPackage.path) && pkg.path.Equals(requestedPackage.path, StringComparison.OrdinalIgnoreCase)));
-                            if (bMSPackage == null)
-                            {
-                                num4++;
-                                NLogWrapper.FileLogger?.Info("force_install_batch skip_not_pending path=" + (requestedPackage.path ?? "(null)"));
-                                continue;
-                            }
-                            List<BMSFile> list4 = bMSPackage.BMSFiles.Where((BMSFile f) => f != null).ToList();
-                            if (list4.Any((BMSFile bmsInfo) => !string.IsNullOrWhiteSpace(bmsInfo.instl_dst)) && MessageBox.Show(Resources.Confirm_NormalInstallOverride, Resources.Confirm_NormalInstallTitle, MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.Yes) == MessageBoxResult.No)
-                            {
-                                num4++;
-                                NLogWrapper.FileLogger?.Info("force_install_batch skipped_by_confirm path=" + (bMSPackage.path ?? "(null)"));
-                                continue;
-                            }
-                            if (installBMSPackages(new BMSPackage[1] { bMSPackage }, null, null, deferredInstalledPackages).Count() == 0)
-                            {
-                                list3.Add(bMSPackage);
-                                num2++;
-                                list4.ForEach(delegate (BMSFile bmsFile)
-                                {
-                                    bmsFile.instl_dst = null;
-                                });
-                                NLogWrapper.FileLogger?.Info("force_install_batch success path=" + (bMSPackage.path ?? "(null)"));
-                            }
-                            else
-                            {
-                                num3++;
-                                NLogWrapper.FileLogger?.Info("force_install_batch failed path=" + (bMSPackage.path ?? "(null)"));
-                            }
-                            num++;
-                        }
-                        if (list3.Count > 0)
-                        {
-                            ApplyPendingPackageMutationDelta(BuildPendingPackageMutationDelta(packagesToRemove: list3));
+                            ApplyPendingPackageMutationDelta(BuildPendingPackageMutationDelta(packagesToRemove: result.PendingPackagesToRemove));
                         }
                         int num5 = 0;
-                        if (deferredInstalledPackages.Count > 0)
+                        if (result.DeferredInstalledPackages.Count > 0)
                         {
                             HashSet<BMSPackage> hashSet3 = new HashSet<BMSPackage>(BMSPackagesInstalled.Where((BMSPackage pkg) => pkg != null));
                             List<BMSPackage> list5 = BMSPackagesInstalled.Where((BMSPackage pkg) => pkg != null).ToList();
-                            foreach (BMSPackage deferredInstalledPackage in deferredInstalledPackages)
+                            foreach (BMSPackage deferredInstalledPackage in result.DeferredInstalledPackages)
                             {
                                 if (deferredInstalledPackage != null && hashSet3.Add(deferredInstalledPackage))
                                 {
@@ -4056,7 +3791,7 @@ public class BMSLibrary : NotificationObject
                                 BMSPackagesInstalled = new DispatcherCollection<BMSPackage>(new ObservableCollection<BMSPackage>(list5), DispatcherHelper.UIDispatcher);
                             }
                         }
-                        NLogWrapper.FileLogger?.Info("force_install_batch summary requested=" + list.Count + " processed=" + num + " succeeded=" + num2 + " failed=" + num3 + " skipped=" + num4 + " pendingRemoved=" + list3.Count + " installedAdded=" + num5);
+                        NLogWrapper.FileLogger?.Info("force_install_batch summary requested=" + result.Requested + " processed=" + result.Processed + " succeeded=" + result.Succeeded + " failed=" + result.Failed + " skipped=" + result.Skipped + " pendingRemoved=" + result.PendingPackagesToRemove.Count + " installedAdded=" + num5);
                     }
                 }
             }
@@ -4566,107 +4301,29 @@ public class BMSLibrary : NotificationObject
                 using (rwlockSongDBInstall.GetWriterGuard())
                 {
                     IEnumerable<BMSFile> enumerable = targetFiles ?? BMSPackagesPending.Where((BMSPackage pkg) => pkg != null).SelectMany((BMSPackage pkg) => pkg.BMSFiles).Where((BMSFile f) => f != null);
-                    List<BMSFile> list = packageInstallService.DeduplicateFilesByPathOrReference(enumerable);
-                    List<BMSFile> list2 = new List<BMSFile>();
-                    int num = 0;
-                    int num2 = 0;
-                    int num3 = 0;
-                    int num4 = 0;
-                    int num5 = 0;
-                    int num6 = 0;
-                    bool flag = false;
-                    NLogWrapper.FileLogger?.Info("advanced_pending_zero_note_rename start total=" + list.Count);
-                    foreach (BMSFile item2 in list)
+                    PendingZeroNoteRenameResult result = packageInstallService.RenamePendingZeroNoteChartsToInvalidExtensions(
+                        enumerable,
+                        (file, requestedPath) => ProcessInvalidExtensionRename(file, requestedPath, removeFromLibraryOnSuccess: false),
+                        token,
+                        onEachProcessed,
+                        info => NLogWrapper.FileLogger?.Info(info));
+                    foreach (PendingZeroNoteRenameFailure failure in result.Failures)
                     {
-                        if (token.IsCancellationRequested)
+                        if (failure?.Outcome?.FailureException == null || failure.File == null)
                         {
-                            flag = true;
-                            break;
-                        }
-                        string extension = Path.GetExtension(item2.path);
-                        string text = null;
-                        if (!string.IsNullOrWhiteSpace(extension))
-                        {
-                            if (extension.StartsWith(".b", StringComparison.OrdinalIgnoreCase))
-                            {
-                                text = ".bmx";
-                            }
-                            else if (extension.StartsWith(".p", StringComparison.OrdinalIgnoreCase))
-                            {
-                                text = ".pmx";
-                            }
-                        }
-                        if (string.IsNullOrWhiteSpace(text))
-                        {
-                            num6++;
-                            num++;
-                            NLogWrapper.FileLogger?.Info("advanced_pending_zero_note_rename skip_unsupported_ext path=" + item2.path + " ext=" + extension);
-                            onEachProcessed?.Invoke();
                             continue;
                         }
-                        if (extension.Equals(text, StringComparison.OrdinalIgnoreCase))
+                        if (failure.Outcome.FailedDuringDelete)
                         {
-                            num6++;
-                            num++;
-                            NLogWrapper.FileLogger?.Info("advanced_pending_zero_note_rename skip_unsupported_ext path=" + item2.path + " ext=" + extension);
-                            onEachProcessed?.Invoke();
-                            continue;
+                            DispatcherMessageBox.Show(string.Format(Resources.Error_BmsFileDeleteFailed, failure.File.path, GetDisplayedExceptionMessage(failure.Outcome.FailureException)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
                         }
-                        bool flag2 = false;
-                        try
+                        else
                         {
-                            flag2 = BMSFile.IsZeroNoteBMSFile(item2.path);
+                            DispatcherMessageBox.Show(string.Format(Resources.Error_BmsFileMoveFailed, failure.File.path, failure.Outcome.FinalPath, GetDisplayedExceptionMessage(failure.Outcome.FailureException)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
                         }
-                        catch (Exception ex) when (ex is DirectoryNotFoundException || ex is FileNotFoundException || ex is IOException || ex is PathTooLongException || ex is SecurityException || ex is UnauthorizedAccessException)
-                        {
-                            num6++;
-                            num++;
-                            NLogWrapper.FileLogger?.Warn(ex, "advanced_pending_zero_note_rename zero_note_check_failed path=" + item2.path + " error=" + ex.Message);
-                            onEachProcessed?.Invoke();
-                            continue;
-                        }
-                        if (!flag2)
-                        {
-                            num6++;
-                            num++;
-                            NLogWrapper.FileLogger?.Info("advanced_pending_zero_note_rename skip_not_zero path=" + item2.path);
-                            onEachProcessed?.Invoke();
-                            continue;
-                        }
-                        num2++;
-                        NLogWrapper.FileLogger?.Info("advanced_pending_zero_note_rename zero_note_detected path=" + item2.path + " targetExt=" + text);
-                        string requestedPath = Path.Combine(Path.GetDirectoryName(item2.path), Path.GetFileNameWithoutExtension(item2.path) + text);
-                        RenameInvalidExtensionOutcome renameInvalidExtensionOutcome = ProcessInvalidExtensionRename(item2, requestedPath, removeFromLibraryOnSuccess: false);
-                        switch (renameInvalidExtensionOutcome.Action)
-                        {
-                            case RenameInvalidExtensionAction.Renamed:
-                                list2.Add(item2);
-                                num3++;
-                                break;
-                            case RenameInvalidExtensionAction.DeletedAsDuplicate:
-                                list2.Add(item2);
-                                num4++;
-                                break;
-                            default:
-                                num5++;
-                                if (renameInvalidExtensionOutcome.FailureException != null)
-                                {
-                                    if (renameInvalidExtensionOutcome.FailedDuringDelete)
-                                    {
-                                        DispatcherMessageBox.Show(string.Format(Resources.Error_BmsFileDeleteFailed, item2.path, GetDisplayedExceptionMessage(renameInvalidExtensionOutcome.FailureException)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
-                                    }
-                                    else
-                                    {
-                                        DispatcherMessageBox.Show(string.Format(Resources.Error_BmsFileMoveFailed, item2.path, renameInvalidExtensionOutcome.FinalPath, GetDisplayedExceptionMessage(renameInvalidExtensionOutcome.FailureException)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
-                                    }
-                                }
-                                break;
-                        }
-                        num++;
-                        onEachProcessed?.Invoke();
                     }
-                    RemovePendingFilesFromPendingPackagesAndInstallRows(list2);
-                    NLogWrapper.FileLogger?.Info("advanced_pending_zero_note_rename summary total=" + list.Count + " processed=" + num + " zeroNote=" + num2 + " renamed=" + num3 + " duplicateDeleted=" + num4 + " skipped=" + num6 + " failed=" + num5 + " canceled=" + flag);
+                    RemovePendingFilesFromPendingPackagesAndInstallRows(result.FilesToRemove);
+                    NLogWrapper.FileLogger?.Info("advanced_pending_zero_note_rename summary total=" + result.Total + " processed=" + result.Processed + " zeroNote=" + result.ZeroNote + " renamed=" + result.Renamed + " duplicateDeleted=" + result.DuplicateDeleted + " skipped=" + result.Skipped + " failed=" + result.Failed + " canceled=" + result.Canceled);
                 }
             }
         }
@@ -4688,89 +4345,36 @@ public class BMSLibrary : NotificationObject
                 using (rwlockSongDBInstall.GetWriterGuard())
                 {
                     List<BMSPackage> list = packageInstallService.DeduplicatePackagesByPathOrReference(packages);
-                    List<BMSPackage> list2 = BMSPackagesPending.Where((BMSPackage pkg) => pkg != null).ToList();
-                    List<BMSPackage> list3 = new List<BMSPackage>();
-                    int num = 0;
-                    int num2 = 0;
-                    int num3 = 0;
-                    int num4 = 0;
-                    bool flag = false;
                     bool flag2 = !sendToRecycleBin;
-                    RecycleOption recycleOption = sendToRecycleBin ? RecycleOption.SendToRecycleBin : RecycleOption.DeletePermanently;
                     NLogWrapper.FileLogger?.Info("advanced_pending_cleanup start requested=" + list.Count + " permanent=" + flag2);
-                    foreach (BMSPackage requestedPackage in list)
+                    PendingPackageSourceDeletionResult result = packageInstallService.DeletePendingPackageSources(
+                        list,
+                        BMSPackagesPending,
+                        sendToRecycleBin,
+                        fileMutationService,
+                        targetOnlyFileMutationOptions,
+                        recursiveDirectoryTreeFileMutationOptions,
+                        token,
+                        onEachProcessed,
+                        info => NLogWrapper.FileLogger?.Info(info));
+                    foreach (PendingPackageSourceDeletionFailure failure in result.Failures)
                     {
-                        if (token.IsCancellationRequested)
+                        if (failure?.Package == null)
                         {
-                            flag = true;
-                            break;
-                        }
-                        BMSPackage bMSPackage = list2.FirstOrDefault((BMSPackage pkg) => ReferenceEquals(pkg, requestedPackage) || (!string.IsNullOrWhiteSpace(pkg.path) && !string.IsNullOrWhiteSpace(requestedPackage.path) && pkg.path.Equals(requestedPackage.path, StringComparison.OrdinalIgnoreCase)));
-                        if (bMSPackage == null)
-                        {
-                            num4++;
-                            num++;
-                            NLogWrapper.FileLogger?.Info("advanced_pending_cleanup skipped_not_pending path=" + requestedPackage.path);
-                            onEachProcessed?.Invoke();
                             continue;
                         }
-                        bool flag3 = Directory.Exists(bMSPackage.path);
-                        bool flag4 = !flag3 && File.Exists(bMSPackage.path);
-                        try
+                        NLogWrapper.FileLogger?.Warn(failure.Exception, "advanced_pending_cleanup failed path=" + failure.Package.path + " kind=" + (failure.IsDirectory ? "directory" : "file") + " error=" + GetDisplayedExceptionMessage(failure.Exception));
+                        if (failure.IsDirectory)
                         {
-                            if (flag3)
-                            {
-                                if (sendToRecycleBin)
-                                {
-                                    fileMutationService.DeleteDirectoryShell(bMSPackage.path, UIOption.OnlyErrorDialogs, recycleOption, recursiveDirectoryTreeFileMutationOptions);
-                                }
-                                else
-                                {
-                                    fileMutationService.DeleteDirectoryDirect(bMSPackage.path, recursive: true, recursiveDirectoryTreeFileMutationOptions);
-                                }
-                                list3.Add(bMSPackage);
-                                num2++;
-                                NLogWrapper.FileLogger?.Info("advanced_pending_cleanup deleted path=" + bMSPackage.path + " kind=directory");
-                            }
-                            else if (flag4)
-                            {
-                                if (sendToRecycleBin)
-                                {
-                                    fileMutationService.DeleteFileShell(bMSPackage.path, UIOption.OnlyErrorDialogs, recycleOption, targetOnlyFileMutationOptions);
-                                }
-                                else
-                                {
-                                    fileMutationService.DeleteFileDirect(bMSPackage.path, targetOnlyFileMutationOptions);
-                                }
-                                list3.Add(bMSPackage);
-                                num2++;
-                                NLogWrapper.FileLogger?.Info("advanced_pending_cleanup deleted path=" + bMSPackage.path + " kind=file");
-                            }
-                            else
-                            {
-                                list3.Add(bMSPackage);
-                                num2++;
-                                NLogWrapper.FileLogger?.Info("advanced_pending_cleanup missing_source_removed path=" + bMSPackage.path);
-                            }
+                            DispatcherMessageBox.Show(string.Format(Resources.Error_FolderOrTrashDeleteFailed, failure.Package.path, GetDisplayedExceptionMessage(failure.Exception)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
                         }
-                        catch (Exception ex)
+                        else
                         {
-                            num3++;
-                            NLogWrapper.FileLogger?.Warn(ex, "advanced_pending_cleanup failed path=" + bMSPackage.path + " kind=" + (flag3 ? "directory" : "file") + " error=" + GetDisplayedExceptionMessage(ex));
-                            if (flag3)
-                            {
-                                DispatcherMessageBox.Show(string.Format(Resources.Error_FolderOrTrashDeleteFailed, bMSPackage.path, GetDisplayedExceptionMessage(ex)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
-                            }
-                            else
-                            {
-                                DispatcherMessageBox.Show(string.Format(Resources.Error_BmsFileDeleteFailed, bMSPackage.path, GetDisplayedExceptionMessage(ex)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
-                            }
+                            DispatcherMessageBox.Show(string.Format(Resources.Error_BmsFileDeleteFailed, failure.Package.path, GetDisplayedExceptionMessage(failure.Exception)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
                         }
-                        num++;
-                        onEachProcessed?.Invoke();
                     }
-                    RemovePendingPackagesFromPendingListAndInstallRows(list3);
-                    NLogWrapper.FileLogger?.Info("advanced_pending_cleanup summary requested=" + list.Count + " processed=" + num + " removed=" + num2 + " failed=" + num3 + " skipped=" + num4 + " canceled=" + flag);
+                    RemovePendingPackagesFromPendingListAndInstallRows(result.PackagesToRemove);
+                    NLogWrapper.FileLogger?.Info("advanced_pending_cleanup summary requested=" + result.Requested + " processed=" + result.Processed + " removed=" + result.Removed + " failed=" + result.Failed + " skipped=" + result.Skipped + " canceled=" + result.Canceled);
                 }
             }
         }
@@ -4790,19 +4394,9 @@ public class BMSLibrary : NotificationObject
         {
             throw new ArgumentNullException("bmsFiles");
         }
-        bmsFiles.Where((BMSFile f) => f != null).AsParallel().ForAll(delegate (BMSFile bmsFile)
+        CreateInstallEstimationService().CorrectInstallationDirectory(bmsFiles, delegate (BMSFile bmsFile)
         {
-            lock (bmsFile)
-            {
-                if (string.IsNullOrWhiteSpace(bmsFile.instl_dst))
-                {
-                    SearchEstimatedInstallationDirectory(bmsFile, asParallel: false, fixMode: true);
-                    if (!string.IsNullOrWhiteSpace(bmsFile.instl_dst) && bmsFile.instl_dst.Equals(DirectoryExt.GetDirectoryNameSimple(bmsFile.path), StringComparison.OrdinalIgnoreCase))
-                    {
-                        bmsFile.instl_dst = null;
-                    }
-                }
-            }
+            SearchEstimatedInstallationDirectory(bmsFile, asParallel: false, fixMode: true);
         });
     }
 
@@ -4816,11 +4410,7 @@ public class BMSLibrary : NotificationObject
         {
             using (rwlockBMSFiles.GetReaderGuard())
             {
-                List<BMSFile> list = bmsFiles.Where((BMSFile f) => f != null && !string.IsNullOrWhiteSpace(f.instl_dst)).ToList();
-                for (int num = 0; num < list.Count; num++)
-                {
-                    list[num].instl_dst = null;
-                }
+                CreateInstallEstimationService().ClearInstallDestinations(bmsFiles);
             }
         }
     }
@@ -4835,53 +4425,15 @@ public class BMSLibrary : NotificationObject
         {
             using (rwlockBMSFilesPendingInstall.GetWriterGuard())
             {
-                BMSPackage bMSPackage = BMSPackagesPending.FirstOrDefault((BMSPackage pkg) => pkg != null && pkg.BMSFiles.Any((BMSFile f) => f != null && (ReferenceEquals(f, bmsFile) || (!string.IsNullOrWhiteSpace(f.path) && !string.IsNullOrWhiteSpace(bmsFile.path) && f.path.Equals(bmsFile.path, StringComparison.OrdinalIgnoreCase)))));
-                if (bMSPackage == null)
+                PendingInstallDestinationSelectionResult selection = CreateInstallEstimationService().ValidatePendingInstallDestination(bmsFile, BMSPackagesPending, bmsFolderAllFileList.Keys, destinationDirectory);
+                if (!selection.Success)
                 {
-                    DispatcherMessageBox.Show(Resources.Warn_PendingPackageNotFound, Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
+                    DispatcherMessageBox.Show(selection.WarningMessage, Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
                     return false;
                 }
-                if (string.IsNullOrWhiteSpace(destinationDirectory))
+                foreach (BMSFile item in selection.TargetFiles)
                 {
-                    foreach (BMSFile item in bMSPackage.BMSFiles.Where((BMSFile f) => f != null))
-                    {
-                        item.instl_dst = null;
-                    }
-                    return true;
-                }
-                string text;
-                string normalizedInput;
-                try
-                {
-                    normalizedInput = Path.GetFullPath(destinationDirectory.Trim().Trim('"'));
-                }
-                catch (Exception ex)
-                {
-                    DispatcherMessageBox.Show(string.Format(Resources.Warn_InvalidInstallPath, destinationDirectory, ex.Message), Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
-                    return false;
-                }
-                if (File.Exists(normalizedInput))
-                {
-                    text = DirectoryExt.GetDirectoryNameSimple(normalizedInput);
-                }
-                else
-                {
-                    text = normalizedInput.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-                }
-                if (!Directory.Exists(text))
-                {
-                    DispatcherMessageBox.Show(string.Format(Resources.Warn_InstallDirNotFound, text), Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
-                    return false;
-                }
-                HashSet<string> hashSet = new HashSet<string>(bmsFolderAllFileList.Keys, StringComparer.OrdinalIgnoreCase);
-                if (!hashSet.Contains(text))
-                {
-                    DispatcherMessageBox.Show(string.Format(Resources.Warn_InstallDirMustContainBms, text), Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
-                    return false;
-                }
-                foreach (BMSFile item in bMSPackage.BMSFiles.Where((BMSFile f) => f != null))
-                {
-                    item.instl_dst = text;
+                    item.instl_dst = selection.ValidatedDestinationDirectory;
                 }
                 return true;
             }

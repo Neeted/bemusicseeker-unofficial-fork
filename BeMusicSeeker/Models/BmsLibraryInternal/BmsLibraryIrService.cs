@@ -6,6 +6,7 @@ using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
 using BeMusicSeeker.Models.LR2;
+using Ribbit.Util.Extensions;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
@@ -307,6 +308,124 @@ internal sealed class BmsLibraryIrService
         {
             return irClient.GetSongInfo(songInfoUrl, md5OrLr2BmsId, searchAggressively: false);
         }
+    }
+
+    public IrCacheRefreshResult RefreshRankingScoresFromCache(int lr2Id, string scoreDbPath, BmsLibraryDbGateway dbGateway, List<BMSScore> bmsScores, IEnumerable<BMSFile> bmsFiles, bool skipEstimateOfflineScoreRanking)
+    {
+        IrCacheRefreshResult result = new IrCacheRefreshResult();
+        if (lr2Id == 0 || string.IsNullOrWhiteSpace(scoreDbPath) || dbGateway == null || bmsScores == null)
+        {
+            return result;
+        }
+        string cacheDirectoryPath;
+        try
+        {
+            cacheDirectoryPath = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(scoreDbPath), "..\\..\\Ir"));
+        }
+        catch
+        {
+            return result;
+        }
+        if (!Directory.Exists(cacheDirectoryPath))
+        {
+            return result;
+        }
+        List<LR2IRData> irDataDb;
+        try
+        {
+            irDataDb = LoadIrData(lr2Id, dbGateway);
+        }
+        catch
+        {
+            return result;
+        }
+        if (irDataDb == null)
+        {
+            return result;
+        }
+        List<LR2IRData> irDataToBeCommitted = new List<LR2IRData>();
+        object commitLock = new object();
+        List<string> cacheFilePaths = Directory.EnumerateFiles(cacheDirectoryPath).ToList();
+        result.CacheFilesScanned = cacheFilePaths.Count;
+        List<string> reloadTargets = cacheFilePaths.AsParallel().Where(delegate (string filePath)
+        {
+            try
+            {
+                string md5 = Path.GetFileNameWithoutExtension(filePath);
+                if (!LR2SongDB.md5HashRegex.IsMatch(md5))
+                {
+                    return false;
+                }
+                LR2IRData current = irDataDb.FirstOrDefault((LR2IRData data) => data.hash == md5);
+                if (current == null)
+                {
+                    return true;
+                }
+                DateTime lastWriteTime = File.GetLastWriteTime(filePath);
+                if (current.lastcacheupdate == lastWriteTime)
+                {
+                    return false;
+                }
+                string tail = string.Empty;
+                using (StreamReader reader = new StreamReader(filePath))
+                {
+                    tail = reader.Tail(33, 19);
+                }
+                if (!DateTime.TryParseExact(tail, "yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture, DateTimeStyles.None, out DateTime parsedLastUpdate) || parsedLastUpdate > current.lastupdate)
+                {
+                    return true;
+                }
+                if (!current.lastcacheupdate.HasValue)
+                {
+                    current.lastcacheupdate = lastWriteTime;
+                    lock (commitLock)
+                    {
+                        irDataToBeCommitted.Add(current);
+                    }
+                    ApplyIrDataToScoresAndFiles(current, null, scoreDbPath, bmsScores, bmsFiles, skipEstimateOfflineScoreRanking);
+                }
+                return false;
+            }
+            catch
+            {
+                return false;
+            }
+        }).ToList();
+        reloadTargets.AsParallel().ForAll(delegate (string filePath)
+        {
+            LR2IRCache irCache;
+            try
+            {
+                irCache = LoadIrCache(filePath);
+            }
+            catch
+            {
+                return;
+            }
+            LR2IRData irData = irCache.GetLR2IRData(lr2Id);
+            if (irData == null)
+            {
+                return;
+            }
+            lock (commitLock)
+            {
+                irDataToBeCommitted.Add(irData);
+            }
+            ApplyIrDataToScoresAndFiles(irData, irCache, scoreDbPath, bmsScores, bmsFiles, skipEstimateOfflineScoreRanking);
+        });
+        result.CacheFilesReloaded = reloadTargets.Count;
+        dbGateway.UpsertIrData(irDataToBeCommitted);
+        result.IrDataUpsertCount = irDataToBeCommitted.Count;
+        HashSet<string> updatedHashes = new HashSet<string>(irDataToBeCommitted.Select((LR2IRData data) => data.hash), StringComparer.OrdinalIgnoreCase);
+        foreach (LR2IRData irData in irDataDb)
+        {
+            if (irData != null && !updatedHashes.Contains(irData.hash))
+            {
+                ApplyIrDataToScoresAndFiles(irData, null, scoreDbPath, bmsScores, bmsFiles, skipEstimateOfflineScoreRanking);
+                result.DbFallbackAppliedCount++;
+            }
+        }
+        return result;
     }
 
     private static LR2IRCache EnsureIrCacheLoaded(LR2IRCache cache, string cachePath)

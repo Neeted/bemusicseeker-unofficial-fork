@@ -113,6 +113,50 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         });
     }
 
+    [TestMethod]
+    public void ValidatePendingInstallDestination_ReturnsResolvedDirectoryForPendingPackage()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
+        {
+            string pendingDirectoryPath = Path.Combine(tempRoot, "pending");
+            string installDirectoryPath = Path.Combine(tempRoot, "install");
+            Directory.CreateDirectory(pendingDirectoryPath);
+            Directory.CreateDirectory(installDirectoryPath);
+            TestableBmsFile pendingFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(pendingDirectoryPath, "chart.bms"));
+            BMSPackage pendingPackage = new BMSPackage(new BMSFile[] { pendingFile })
+            {
+                path = pendingDirectoryPath,
+                delete_parent = false
+            };
+
+            PendingInstallDestinationSelectionResult result = service.ValidatePendingInstallDestination(
+                pendingFile,
+                new[] { pendingPackage },
+                new[] { installDirectoryPath },
+                installDirectoryPath);
+
+            Assert.IsTrue(result.Success);
+            Assert.AreEqual(installDirectoryPath, result.ValidatedDestinationDirectory);
+            CollectionAssert.AreEqual(new[] { pendingFile }, result.TargetFiles);
+        });
+    }
+
+    [TestMethod]
+    public void CorrectInstallationDirectory_ClearsSameDirectorySuggestion()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        BmsLibraryInstallEstimationService service = CreateService();
+        TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Music", "FolderA", "chart.bms"));
+
+        service.CorrectInstallationDirectory(new[] { file }, delegate (BMSFile target)
+        {
+            target.instl_dst = Path.Combine("C:\\Music", "FolderA");
+        });
+
+        Assert.IsNull(file.instl_dst);
+    }
+
     private static void WithWorkspace(Action<string, BmsLibraryInstallEstimationService> testAction)
     {
         string tempRoot = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_InstallEstimateTests_" + Guid.NewGuid().ToString("N"));

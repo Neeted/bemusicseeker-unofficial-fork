@@ -1,8 +1,13 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Security;
+using System.Threading;
 using BeMusicSeeker.Properties;
+using System.Windows;
+using Ribbit.Util.Extensions;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
@@ -175,6 +180,145 @@ internal sealed class BmsLibraryMaintenanceService
             target.SetMode();
         }
         return targets;
+    }
+
+    public MaintenanceWorkflowResult UpdateMaintenanceInfo(
+        IEnumerable<BMSFile> bmsFiles,
+        bool forceUpdate,
+        BMSDirectoryFileNameHash folderAllFileList,
+        BmsLibraryDbGateway dbGateway,
+        IBmsLibraryDialogService dialogService)
+    {
+        MaintenanceWorkflowResult result = new MaintenanceWorkflowResult();
+        if (bmsFiles == null || dbGateway == null)
+        {
+            return result;
+        }
+        Stopwatch stopwatch = Stopwatch.StartNew();
+        List<BMSFile> targets = (forceUpdate
+            ? (bmsFiles ?? Enumerable.Empty<BMSFile>()).Where((BMSFile file) => file != null).ToList()
+            : (bmsFiles ?? Enumerable.Empty<BMSFile>()).Where((BMSFile file) => file != null && (!file.maintenanceInfo.IsInformationChecked() || string.IsNullOrWhiteSpace(file.maintenanceInfo.encoding))).ToList());
+        result.CheckedFileCount = targets.Count;
+        foreach (IEnumerable<BMSFile> section in targets.Section(1000))
+        {
+            object reloadedLock = new object();
+            List<BMSFile> reloadedFiles = new List<BMSFile>();
+            List<BMSFile> filesInSection = section.Where((BMSFile file) => file != null).ToList();
+            filesInSection.AsParallel().ForAll(delegate (BMSFile file)
+            {
+                string originalHash = file.hash;
+                int retryCount = 0;
+                while (true)
+                {
+                    try
+                    {
+                        file.SetHealthStatus(folderAllFileList, forceUpdate);
+                        break;
+                    }
+                    catch (Exception ex)
+                    {
+                        if (ex is DirectoryNotFoundException || ex is FileNotFoundException || ex is IOException || ex is PathTooLongException || ex is SecurityException || ex is UnauthorizedAccessException)
+                        {
+                            if (retryCount < 3)
+                            {
+                                retryCount++;
+                                Thread.Sleep(200);
+                                continue;
+                            }
+                            dialogService?.Show(string.Format(Resources.Error_BmsLoadFailedSkip, file.path, ex.Message), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+                            return;
+                        }
+                        throw;
+                    }
+                }
+                if (forceUpdate || string.IsNullOrWhiteSpace(file.maintenanceInfo.encoding))
+                {
+                    file.SetEncosingInfo();
+                }
+                if (!string.IsNullOrWhiteSpace(file.maintenanceInfo.encoding) && !file.maintenanceInfo.encoding.StartsWith("shift_jis") && !file.maintenanceInfo.encoding.EndsWith("?") && file.maintenanceInfo.encoding != "unknown")
+                {
+                    BMSFile.ReloadBMSFileWithEncoding(file, file.maintenanceInfo.encoding);
+                    file.maintenanceInfo.is_encoding_fixed = true;
+                    lock (reloadedLock)
+                    {
+                        reloadedFiles.Add(file);
+                        return;
+                    }
+                }
+                if (originalHash != file.hash)
+                {
+                    lock (reloadedLock)
+                    {
+                        reloadedFiles.Add(file);
+                    }
+                }
+            });
+            List<BMSFileMaintenanceInfo> maintenanceInfos = filesInSection.Where((BMSFile file) => file.maintenanceInfo.IsInformationChecked()).Select((BMSFile file) => file.maintenanceInfo).ToList();
+            if (maintenanceInfos.Count > 0 || reloadedFiles.Count > 0)
+            {
+                dbGateway.ExecuteSongDbTransaction(delegate (Models.LR2.LR2SongDBExtended songDb)
+                {
+                    foreach (BMSFileMaintenanceInfo maintenanceInfo in maintenanceInfos)
+                    {
+                        songDb.InsertOrReplace(maintenanceInfo, typeof(Models.LR2.LR2SongDBExtended.maintenance));
+                    }
+                    foreach (BMSFile reloadedFile in reloadedFiles)
+                    {
+                        songDb.InsertOrReplace(reloadedFile, typeof(Models.LR2.LR2SongDB.song));
+                    }
+                });
+                result.HasUpdates = true;
+                result.MaintenanceInfoUpsertCount += maintenanceInfos.Count;
+                result.ReloadedSongCount += reloadedFiles.Count;
+                result.SongUpsertCount += reloadedFiles.Count;
+            }
+        }
+        stopwatch.Stop();
+        result.TotalMs = stopwatch.ElapsedMilliseconds;
+        return result;
+    }
+
+    public MaintenanceWorkflowResult UpdateZeroNoteAndCommit(
+        IEnumerable<BMSFile> bmsFiles,
+        BmsLibraryDbGateway dbGateway,
+        IBmsLibraryDialogService dialogService)
+    {
+        MaintenanceWorkflowResult result = new MaintenanceWorkflowResult();
+        if (bmsFiles == null || dbGateway == null)
+        {
+            return result;
+        }
+        Stopwatch stopwatch = Stopwatch.StartNew();
+        List<BMSFile> targetFiles = bmsFiles.Where((BMSFile file) => file != null && !string.IsNullOrWhiteSpace(file.path))
+            .GroupBy((BMSFile file) => file.path, StringComparer.OrdinalIgnoreCase)
+            .Select((IGrouping<string, BMSFile> group) => group.First())
+            .ToList();
+        List<BMSFile> changedFiles = targetFiles.Where((BMSFile file) => !file.notes.HasValue && File.Exists(file.path)).AsParallel().Where(delegate (BMSFile file)
+        {
+            try
+            {
+                return file.SetNotesIfZeroNote();
+            }
+            catch (Exception ex)
+            {
+                if (ex is DirectoryNotFoundException || ex is FileNotFoundException || ex is IOException || ex is PathTooLongException || ex is SecurityException || ex is UnauthorizedAccessException)
+                {
+                    dialogService?.Show(string.Format(Resources.Error_BmsLoadFailedSkip, file.path, ex.Message), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+                    return false;
+                }
+                throw;
+            }
+        }).ToList();
+        if (changedFiles.Count > 0)
+        {
+            dbGateway.UpsertSongs(changedFiles);
+            result.HasUpdates = true;
+            result.SongUpsertCount = changedFiles.Count;
+            result.ZeroNoteChangedCount = changedFiles.Count;
+        }
+        stopwatch.Stop();
+        result.TotalMs = stopwatch.ElapsedMilliseconds;
+        return result;
     }
 
     private static bool AppendHealthWarning(BMSFile bmsFile, int? health, int? defined, int? existing, string warningFormat)

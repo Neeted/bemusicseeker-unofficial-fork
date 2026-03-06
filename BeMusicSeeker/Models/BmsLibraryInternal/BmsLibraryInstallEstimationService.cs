@@ -371,6 +371,82 @@ internal sealed class BmsLibraryInstallEstimationService
         return result;
     }
 
+    public void CorrectInstallationDirectory(IEnumerable<BMSFile> bmsFiles, Action<BMSFile> searchInstallDestination)
+    {
+        foreach (BMSFile bmsFile in (bmsFiles ?? Enumerable.Empty<BMSFile>()).Where((BMSFile file) => file != null))
+        {
+            lock (bmsFile)
+            {
+                if (!string.IsNullOrWhiteSpace(bmsFile.instl_dst))
+                {
+                    continue;
+                }
+                searchInstallDestination?.Invoke(bmsFile);
+                if (!string.IsNullOrWhiteSpace(bmsFile.instl_dst) && bmsFile.instl_dst.Equals(DirectoryExt.GetDirectoryNameSimple(bmsFile.path), StringComparison.OrdinalIgnoreCase))
+                {
+                    bmsFile.instl_dst = null;
+                }
+            }
+        }
+    }
+
+    public void ClearInstallDestinations(IEnumerable<BMSFile> bmsFiles)
+    {
+        foreach (BMSFile bmsFile in (bmsFiles ?? Enumerable.Empty<BMSFile>()).Where((BMSFile file) => file != null && !string.IsNullOrWhiteSpace(file.instl_dst)))
+        {
+            bmsFile.instl_dst = null;
+        }
+    }
+
+    public PendingInstallDestinationSelectionResult ValidatePendingInstallDestination(BMSFile targetFile, IEnumerable<BMSPackage> pendingPackages, IEnumerable<string> knownBmsDirectories, string destinationDirectory)
+    {
+        PendingInstallDestinationSelectionResult result = new PendingInstallDestinationSelectionResult();
+        if (targetFile == null)
+        {
+            return result;
+        }
+        BMSPackage package = (pendingPackages ?? Enumerable.Empty<BMSPackage>())
+            .FirstOrDefault((BMSPackage pkg) => pkg != null && pkg.BMSFiles.Any((BMSFile file) => file != null && (ReferenceEquals(file, targetFile) || (!string.IsNullOrWhiteSpace(file.path) && !string.IsNullOrWhiteSpace(targetFile.path) && file.path.Equals(targetFile.path, StringComparison.OrdinalIgnoreCase)))));
+        if (package == null)
+        {
+            result.WarningMessage = Properties.Resources.Warn_PendingPackageNotFound;
+            return result;
+        }
+        result.TargetFiles.AddRange(package.BMSFiles.Where((BMSFile file) => file != null));
+        if (string.IsNullOrWhiteSpace(destinationDirectory))
+        {
+            result.Success = true;
+            return result;
+        }
+        string normalizedInput;
+        try
+        {
+            normalizedInput = Path.GetFullPath(destinationDirectory.Trim().Trim('"'));
+        }
+        catch (Exception ex)
+        {
+            result.WarningMessage = string.Format(Properties.Resources.Warn_InvalidInstallPath, destinationDirectory, ex.Message);
+            return result;
+        }
+        string installDirectory = File.Exists(normalizedInput)
+            ? DirectoryExt.GetDirectoryNameSimple(normalizedInput)
+            : normalizedInput.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        if (!Directory.Exists(installDirectory))
+        {
+            result.WarningMessage = string.Format(Properties.Resources.Warn_InstallDirNotFound, installDirectory);
+            return result;
+        }
+        HashSet<string> knownDirectories = new HashSet<string>((knownBmsDirectories ?? Enumerable.Empty<string>()).Where((string path) => !string.IsNullOrWhiteSpace(path)), StringComparer.OrdinalIgnoreCase);
+        if (!knownDirectories.Contains(installDirectory))
+        {
+            result.WarningMessage = string.Format(Properties.Resources.Warn_InstallDirMustContainBms, installDirectory);
+            return result;
+        }
+        result.Success = true;
+        result.ValidatedDestinationDirectory = installDirectory;
+        return result;
+    }
+
     public static List<string> GetDistinctInstalledDirectoriesByHash(Dictionary<string, List<string>> installedDirectoryIndexSnapshot, string hash)
     {
         if (installedDirectoryIndexSnapshot == null || !IsBmsHashAvailable(hash) || !installedDirectoryIndexSnapshot.TryGetValue(hash, out List<string> directories) || directories == null)

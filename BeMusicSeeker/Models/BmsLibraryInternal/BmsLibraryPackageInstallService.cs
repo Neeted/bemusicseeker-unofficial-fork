@@ -3,6 +3,9 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Threading;
+using BeMusicSeeker.Models.Utils;
+using Microsoft.VisualBasic.FileIO;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
@@ -160,7 +163,7 @@ internal sealed class BmsLibraryPackageInstallService
                 throw new FileNotFoundException("Component path was not found.", installComponentFile);
             }
             string destinationRoot = Path.Combine(destinationDirectory, Path.GetFileName(installComponentFile));
-            foreach (string path in Directory.EnumerateFiles(installComponentFile, "*", SearchOption.AllDirectories))
+            foreach (string path in Directory.EnumerateFiles(installComponentFile, "*", System.IO.SearchOption.AllDirectories))
             {
                 if (excludedPathSet != null && excludedPathSet.Contains(path))
                 {
@@ -607,6 +610,225 @@ internal sealed class BmsLibraryPackageInstallService
                     logInfo?.Invoke("estimated_install_cleanup_only_failed package=" + cleanupOnlyPackage.path);
                 }
             }
+        }
+        return result;
+    }
+
+    public ForceInstallBatchResult ForceInstallPackages(
+        IEnumerable<BMSPackage> packages,
+        IEnumerable<BMSPackage> currentPendingPackages,
+        Func<BMSPackage, bool> confirmNormalInstallOverride,
+        Func<IEnumerable<BMSPackage>, List<BMSPackage>, List<BMSPackage>> installPackages,
+        Action<string> logInfo = null)
+    {
+        ForceInstallBatchResult result = new ForceInstallBatchResult();
+        List<BMSPackage> requestedPackages = DeduplicatePackagesByPathOrReference(packages);
+        List<BMSPackage> pendingPackages = (currentPendingPackages ?? Enumerable.Empty<BMSPackage>()).Where((BMSPackage pkg) => pkg != null).ToList();
+        result.Requested = requestedPackages.Count;
+        foreach (BMSPackage requestedPackage in requestedPackages)
+        {
+            BMSPackage pendingPackage = pendingPackages.FirstOrDefault((BMSPackage pkg) => ReferenceEquals(pkg, requestedPackage) || (!string.IsNullOrWhiteSpace(pkg.path) && !string.IsNullOrWhiteSpace(requestedPackage.path) && pkg.path.Equals(requestedPackage.path, StringComparison.OrdinalIgnoreCase)));
+            if (pendingPackage == null)
+            {
+                result.Skipped++;
+                logInfo?.Invoke("force_install_batch skip_not_pending path=" + (requestedPackage.path ?? "(null)"));
+                continue;
+            }
+            List<BMSFile> packageFiles = (pendingPackage.BMSFiles ?? new List<BMSFile>()).Where((BMSFile file) => file != null).ToList();
+            if (packageFiles.Any((BMSFile file) => !string.IsNullOrWhiteSpace(file.instl_dst)) && confirmNormalInstallOverride != null && !confirmNormalInstallOverride(pendingPackage))
+            {
+                result.Skipped++;
+                logInfo?.Invoke("force_install_batch skipped_by_confirm path=" + (pendingPackage.path ?? "(null)"));
+                continue;
+            }
+            List<BMSPackage> deferredInstalledPackages = new List<BMSPackage>();
+            List<BMSPackage> failedPackages = installPackages?.Invoke(new BMSPackage[1] { pendingPackage }, deferredInstalledPackages) ?? new List<BMSPackage>();
+            result.Processed++;
+            if (failedPackages.Count == 0)
+            {
+                result.PendingPackagesToRemove.Add(pendingPackage);
+                result.DeferredInstalledPackages.AddRange(deferredInstalledPackages.Where((BMSPackage pkg) => pkg != null));
+                result.Succeeded++;
+                foreach (BMSFile packageFile in packageFiles)
+                {
+                    packageFile.instl_dst = null;
+                }
+                logInfo?.Invoke("force_install_batch success path=" + (pendingPackage.path ?? "(null)"));
+            }
+            else
+            {
+                result.Failed++;
+                logInfo?.Invoke("force_install_batch failed path=" + (pendingPackage.path ?? "(null)"));
+            }
+        }
+        return result;
+    }
+
+    public PendingZeroNoteRenameResult RenamePendingZeroNoteChartsToInvalidExtensions(
+        IEnumerable<BMSFile> targetFiles,
+        Func<BMSFile, string, RenameInvalidExtensionOutcome> processRename,
+        CancellationToken token = default,
+        Action onEachProcessed = null,
+        Action<string> logInfo = null)
+    {
+        PendingZeroNoteRenameResult result = new PendingZeroNoteRenameResult();
+        List<BMSFile> files = DeduplicateFilesByPathOrReference(targetFiles);
+        result.Total = files.Count;
+        foreach (BMSFile file in files)
+        {
+            if (token.IsCancellationRequested)
+            {
+                result.Canceled = true;
+                break;
+            }
+            string extension = Path.GetExtension(file.path);
+            string targetExtension = null;
+            if (!string.IsNullOrWhiteSpace(extension))
+            {
+                if (extension.StartsWith(".b", StringComparison.OrdinalIgnoreCase))
+                {
+                    targetExtension = ".bmx";
+                }
+                else if (extension.StartsWith(".p", StringComparison.OrdinalIgnoreCase))
+                {
+                    targetExtension = ".pmx";
+                }
+            }
+            if (string.IsNullOrWhiteSpace(targetExtension) || extension.Equals(targetExtension, StringComparison.OrdinalIgnoreCase))
+            {
+                result.Skipped++;
+                result.Processed++;
+                logInfo?.Invoke("advanced_pending_zero_note_rename skip_unsupported_ext path=" + file.path + " ext=" + extension);
+                onEachProcessed?.Invoke();
+                continue;
+            }
+            bool isZeroNote;
+            try
+            {
+                isZeroNote = BMSFile.IsZeroNoteBMSFile(file.path);
+            }
+            catch
+            {
+                result.Skipped++;
+                result.Processed++;
+                onEachProcessed?.Invoke();
+                continue;
+            }
+            if (!isZeroNote)
+            {
+                result.Skipped++;
+                result.Processed++;
+                logInfo?.Invoke("advanced_pending_zero_note_rename skip_not_zero path=" + file.path);
+                onEachProcessed?.Invoke();
+                continue;
+            }
+            result.ZeroNote++;
+            string requestedPath = Path.Combine(Path.GetDirectoryName(file.path), Path.GetFileNameWithoutExtension(file.path) + targetExtension);
+            RenameInvalidExtensionOutcome renameResult = processRename?.Invoke(file, requestedPath) ?? new RenameInvalidExtensionOutcome();
+            switch (renameResult.Action)
+            {
+                case RenameInvalidExtensionAction.Renamed:
+                    result.FilesToRemove.Add(file);
+                    result.Renamed++;
+                    break;
+                case RenameInvalidExtensionAction.DeletedAsDuplicate:
+                    result.FilesToRemove.Add(file);
+                    result.DuplicateDeleted++;
+                    break;
+                default:
+                    result.Failed++;
+                    result.Failures.Add(new PendingZeroNoteRenameFailure
+                    {
+                        File = file,
+                        Outcome = renameResult
+                    });
+                    break;
+            }
+            result.Processed++;
+            onEachProcessed?.Invoke();
+        }
+        return result;
+    }
+
+    public PendingPackageSourceDeletionResult DeletePendingPackageSources(
+        IEnumerable<BMSPackage> packages,
+        IEnumerable<BMSPackage> currentPendingPackages,
+        bool sendToRecycleBin,
+        IFileMutationService fileMutationService,
+        FileMutationOptions targetOnlyFileMutationOptions,
+        FileMutationOptions recursiveDirectoryTreeFileMutationOptions,
+        CancellationToken token = default,
+        Action onEachProcessed = null,
+        Action<string> logInfo = null)
+    {
+        PendingPackageSourceDeletionResult result = new PendingPackageSourceDeletionResult();
+        List<BMSPackage> requestedPackages = DeduplicatePackagesByPathOrReference(packages);
+        List<BMSPackage> pendingPackages = (currentPendingPackages ?? Enumerable.Empty<BMSPackage>()).Where((BMSPackage pkg) => pkg != null).ToList();
+        result.Requested = requestedPackages.Count;
+        RecycleOption recycleOption = sendToRecycleBin ? RecycleOption.SendToRecycleBin : RecycleOption.DeletePermanently;
+        foreach (BMSPackage requestedPackage in requestedPackages)
+        {
+            if (token.IsCancellationRequested)
+            {
+                result.Canceled = true;
+                break;
+            }
+            BMSPackage pendingPackage = pendingPackages.FirstOrDefault((BMSPackage pkg) => ReferenceEquals(pkg, requestedPackage) || (!string.IsNullOrWhiteSpace(pkg.path) && !string.IsNullOrWhiteSpace(requestedPackage.path) && pkg.path.Equals(requestedPackage.path, StringComparison.OrdinalIgnoreCase)));
+            if (pendingPackage == null)
+            {
+                result.Skipped++;
+                result.Processed++;
+                logInfo?.Invoke("advanced_pending_cleanup skipped_not_pending path=" + requestedPackage.path);
+                onEachProcessed?.Invoke();
+                continue;
+            }
+            bool isDirectory = Directory.Exists(pendingPackage.path);
+            bool isFile = !isDirectory && File.Exists(pendingPackage.path);
+            try
+            {
+                if (isDirectory)
+                {
+                    if (sendToRecycleBin)
+                    {
+                        fileMutationService.DeleteDirectoryShell(pendingPackage.path, UIOption.OnlyErrorDialogs, recycleOption, recursiveDirectoryTreeFileMutationOptions);
+                    }
+                    else
+                    {
+                        fileMutationService.DeleteDirectoryDirect(pendingPackage.path, recursive: true, recursiveDirectoryTreeFileMutationOptions);
+                    }
+                    logInfo?.Invoke("advanced_pending_cleanup deleted path=" + pendingPackage.path + " kind=directory");
+                }
+                else if (isFile)
+                {
+                    if (sendToRecycleBin)
+                    {
+                        fileMutationService.DeleteFileShell(pendingPackage.path, UIOption.OnlyErrorDialogs, recycleOption, targetOnlyFileMutationOptions);
+                    }
+                    else
+                    {
+                        fileMutationService.DeleteFileDirect(pendingPackage.path, targetOnlyFileMutationOptions);
+                    }
+                    logInfo?.Invoke("advanced_pending_cleanup deleted path=" + pendingPackage.path + " kind=file");
+                }
+                else
+                {
+                    logInfo?.Invoke("advanced_pending_cleanup missing_source_removed path=" + pendingPackage.path);
+                }
+                result.PackagesToRemove.Add(pendingPackage);
+                result.Removed++;
+            }
+            catch (Exception ex)
+            {
+                result.Failed++;
+                result.Failures.Add(new PendingPackageSourceDeletionFailure
+                {
+                    Package = pendingPackage,
+                    Exception = ex,
+                    IsDirectory = isDirectory
+                });
+            }
+            result.Processed++;
+            onEachProcessed?.Invoke();
         }
         return result;
     }
