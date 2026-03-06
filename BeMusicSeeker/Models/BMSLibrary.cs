@@ -4864,26 +4864,7 @@ public class BMSLibrary : NotificationObject
         }
         try
         {
-            fileMutationService.MoveDirectory(srcDir, dstDir, overwrite: false, recursiveDirectoryTreeFileMutationOptions);
-            foreach (string item in bmsFolderAllFileList.Keys.Where((string f) => (f + Path.DirectorySeparatorChar).StartsWith(srcDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)))
-            {
-                string newKey = item.ReplaceFromStart(srcDir, dstDir, isIgnoreCase: true);
-                bmsFolderAllFileList.ReplaceDir(item, newKey);
-            }
-            foreach (BMSFile item2 in BMSPackagesPending.SelectMany((BMSPackage pkg) => pkg.BMSFiles).Concat(BMSFiles.Where((BMSFile f) => !string.IsNullOrWhiteSpace(f.instl_dst))))
-            {
-                if (!string.IsNullOrWhiteSpace(item2.instl_dst) && (item2.instl_dst + Path.DirectorySeparatorChar).StartsWith(srcDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
-                {
-                    item2.instl_dst = item2.instl_dst.ReplaceFromStart(srcDir, dstDir, isIgnoreCase: true);
-                }
-            }
-            foreach (BMSPackage item3 in BMSPackagesInstalled)
-            {
-                if ((item3.path + Path.DirectorySeparatorChar).StartsWith(srcDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
-                {
-                    item3.path = item3.path.ReplaceFromStart(srcDir, dstDir, isIgnoreCase: true);
-                }
-            }
+            libraryFileOperationsService.MoveFolderAndUpdateReferences(srcDir, dstDir, BMSFiles, BMSPackagesPending, BMSPackagesInstalled, bmsFolderAllFileList, fileMutationService, recursiveDirectoryTreeFileMutationOptions);
         }
         catch (Exception moveException)
         {
@@ -4932,7 +4913,7 @@ public class BMSLibrary : NotificationObject
                 }
                 try
                 {
-                    fileMutationService.MoveFile(bmsFile.path, dstPath, overwrite: false, targetOnlyFileMutationOptions);
+                    libraryFileOperationsService.MoveFileOnDisk(bmsFile, dstPath, fileMutationService, targetOnlyFileMutationOptions);
                 }
                 catch (Exception moveException)
                 {
@@ -5118,59 +5099,28 @@ public class BMSLibrary : NotificationObject
             {
                 using (rwlockBMSFiles.GetWriterGuard())
                 {
-                    List<BMSFile> removedBmsFiles = new List<BMSFile>();
-                    foreach (IGrouping<string, BMSFile> folderGroup in from groupedFiles in bmsFiles.GroupBy((BMSFile bmsInfo) => DirectoryExt.GetDirectoryNameSimple(bmsInfo.path), StringComparer.OrdinalIgnoreCase)
-                                                                       orderby groupedFiles.Key.Length descending
-                                                                       select groupedFiles)
+                    LibraryRemovalResult result = libraryFileOperationsService.DeleteLibraryFiles(
+                        bmsFiles,
+                        BMSFiles,
+                        BMSPackagesPending,
+                        bmsFolderAllFileList,
+                        sendToRecycleBin,
+                        (folderPath) => DispatcherMessageBox.Show(string.Format(Resources.Confirm_DeleteFolderWithNoBms, folderPath), Resources.MessageBoxTitle_Confirm, MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.Yes) == MessageBoxResult.Yes,
+                        fileMutationService,
+                        targetOnlyFileMutationOptions,
+                        recursiveDirectoryTreeFileMutationOptions);
+                    foreach (LibraryDeleteFailure failure in result.Failures)
                     {
-                        if (BMSFiles.Where((BMSFile bmsInfo) => bmsInfo.path.StartsWith(folderGroup.Key + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)).Except(removedBmsFiles).Count() == folderGroup.Count() && DispatcherMessageBox.Show(string.Format(Resources.Confirm_DeleteFolderWithNoBms, folderGroup.Key), Resources.MessageBoxTitle_Confirm, MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.Yes) == MessageBoxResult.Yes)
+                        if (failure.IsDirectory)
                         {
-                            if (!Directory.Exists(folderGroup.Key))
-                            {
-                                continue;
-                            }
-                            try
-                            {
-                                fileMutationService.DeleteDirectoryShell(folderGroup.Key, UIOption.OnlyErrorDialogs, sendToRecycleBin ? RecycleOption.SendToRecycleBin : RecycleOption.DeletePermanently, recursiveDirectoryTreeFileMutationOptions);
-                                foreach (string indexedDirectoryPath in bmsFolderAllFileList.Keys.Where((string directoryPath) => (directoryPath + Path.DirectorySeparatorChar).StartsWith(folderGroup.Key + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)))
-                                {
-                                    bmsFolderAllFileList.RemoveDir(indexedDirectoryPath);
-                                }
-                                foreach (BMSFile installLinkedBmsFile in BMSPackagesPending.SelectMany((BMSPackage pkg) => pkg.BMSFiles).Concat(BMSFiles.Where((BMSFile bmsInfo) => !string.IsNullOrWhiteSpace(bmsInfo.instl_dst))))
-                                {
-                                    if (!string.IsNullOrWhiteSpace(installLinkedBmsFile.instl_dst) && (installLinkedBmsFile.instl_dst + Path.DirectorySeparatorChar).StartsWith(folderGroup.Key + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
-                                    {
-                                        installLinkedBmsFile.instl_dst = null;
-                                    }
-                                }
-                                List<BMSPackage> installedPackagesToRemove = BMSPackagesInstalled.Where((BMSPackage pkg) => (pkg.path + Path.DirectorySeparatorChar).StartsWith(folderGroup.Key + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)).ToList();
-                                BMSPackagesInstalled.Remove(installedPackagesToRemove);
-                            }
-                            catch (Exception deleteException)
-                            {
-                                DispatcherMessageBox.Show(string.Format(Resources.Error_FolderOrTrashDeleteFailed, folderGroup.Key, GetDisplayedExceptionMessage(deleteException)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
-                                continue;
-                            }
-                            removedBmsFiles.AddRange(folderGroup);
-                            continue;
+                            DispatcherMessageBox.Show(string.Format(Resources.Error_FolderOrTrashDeleteFailed, failure.Path, GetDisplayedExceptionMessage(failure.Exception)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
                         }
-                        foreach (BMSFile selectedBmsFile in folderGroup)
+                        else
                         {
-                            try
-                            {
-                                if (File.Exists(selectedBmsFile.path))
-                                {
-                                    fileMutationService.DeleteFileShell(selectedBmsFile.path, UIOption.OnlyErrorDialogs, sendToRecycleBin ? RecycleOption.SendToRecycleBin : RecycleOption.DeletePermanently, targetOnlyFileMutationOptions);
-                                    removedBmsFiles.Add(selectedBmsFile);
-                                }
-                            }
-                            catch (Exception deleteException)
-                            {
-                                DispatcherMessageBox.Show(string.Format(Resources.Error_BmsFileDeleteFailed, selectedBmsFile.path, GetDisplayedExceptionMessage(deleteException)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
-                            }
+                            DispatcherMessageBox.Show(string.Format(Resources.Error_BmsFileDeleteFailed, failure.Path, GetDisplayedExceptionMessage(failure.Exception)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
                         }
                     }
-                    unregisterBMSFiles(removedBmsFiles);
+                    unregisterBMSFiles(result.RemovedFiles);
                 }
             }
         }

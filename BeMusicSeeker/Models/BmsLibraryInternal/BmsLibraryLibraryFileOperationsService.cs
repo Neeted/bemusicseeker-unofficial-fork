@@ -5,7 +5,9 @@ using System.Linq;
 using System.Security;
 using System.Security.Cryptography;
 using System.Text;
+using Microsoft.VisualBasic.FileIO;
 using BeMusicSeeker.Models.Utils;
+using Ribbit.Util.Extensions;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
@@ -29,6 +31,120 @@ internal sealed class RenameInvalidExtensionOutcome
 
 internal sealed class BmsLibraryLibraryFileOperationsService
 {
+    public void MoveFolderAndUpdateReferences(
+        string srcDir,
+        string dstDir,
+        IEnumerable<BMSFile> libraryFiles,
+        IEnumerable<BMSPackage> pendingPackages,
+        IEnumerable<BMSPackage> installedPackages,
+        BMSDirectoryFileNameHash folderAllFileList,
+        IFileMutationService fileMutationService,
+        FileMutationOptions recursiveDirectoryTreeFileMutationOptions)
+    {
+        fileMutationService.MoveDirectory(srcDir, dstDir, overwrite: false, recursiveDirectoryTreeFileMutationOptions);
+        foreach (string item in folderAllFileList.Keys.Where((string f) => (f + Path.DirectorySeparatorChar).StartsWith(srcDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)))
+        {
+            string newKey = item.ReplaceFromStart(srcDir, dstDir, isIgnoreCase: true);
+            folderAllFileList.ReplaceDir(item, newKey);
+        }
+        foreach (BMSFile item in (pendingPackages ?? Enumerable.Empty<BMSPackage>()).SelectMany((BMSPackage pkg) => pkg.BMSFiles).Concat((libraryFiles ?? Enumerable.Empty<BMSFile>()).Where((BMSFile file) => !string.IsNullOrWhiteSpace(file.instl_dst))))
+        {
+            if (!string.IsNullOrWhiteSpace(item.instl_dst) && (item.instl_dst + Path.DirectorySeparatorChar).StartsWith(srcDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            {
+                item.instl_dst = item.instl_dst.ReplaceFromStart(srcDir, dstDir, isIgnoreCase: true);
+            }
+        }
+        foreach (BMSPackage item2 in installedPackages ?? Enumerable.Empty<BMSPackage>())
+        {
+            if (!string.IsNullOrWhiteSpace(item2.path) && (item2.path + Path.DirectorySeparatorChar).StartsWith(srcDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            {
+                item2.path = item2.path.ReplaceFromStart(srcDir, dstDir, isIgnoreCase: true);
+            }
+        }
+    }
+
+    public void MoveFileOnDisk(BMSFile bmsFile, string dstPath, IFileMutationService fileMutationService, FileMutationOptions targetOnlyFileMutationOptions)
+    {
+        fileMutationService.MoveFile(bmsFile.path, dstPath, overwrite: false, targetOnlyFileMutationOptions);
+    }
+
+    public LibraryRemovalResult DeleteLibraryFiles(
+        IEnumerable<BMSFile> bmsFiles,
+        IEnumerable<BMSFile> libraryFiles,
+        IEnumerable<BMSPackage> pendingPackages,
+        BMSDirectoryFileNameHash folderAllFileList,
+        bool sendToRecycleBin,
+        Func<string, bool> confirmDeleteWholeFolder,
+        IFileMutationService fileMutationService,
+        FileMutationOptions targetOnlyFileMutationOptions,
+        FileMutationOptions recursiveDirectoryTreeFileMutationOptions)
+    {
+        LibraryRemovalResult result = new LibraryRemovalResult();
+        List<BMSFile> currentLibraryFiles = (libraryFiles ?? Enumerable.Empty<BMSFile>()).Where((BMSFile file) => file != null).ToList();
+        RecycleOption recycleOption = sendToRecycleBin ? RecycleOption.SendToRecycleBin : RecycleOption.DeletePermanently;
+        foreach (IGrouping<string, BMSFile> folderGroup in from groupedFiles in (bmsFiles ?? Enumerable.Empty<BMSFile>()).Where((BMSFile file) => file != null).GroupBy((BMSFile bmsInfo) => DirectoryExt.GetDirectoryNameSimple(bmsInfo.path), StringComparer.OrdinalIgnoreCase)
+                                                          orderby groupedFiles.Key.Length descending
+                                                          select groupedFiles)
+        {
+            bool shouldDeleteWholeFolder = currentLibraryFiles.Where((BMSFile bmsInfo) => bmsInfo.path.StartsWith(folderGroup.Key + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)).Except(result.RemovedFiles).Count() == folderGroup.Count()
+                && (confirmDeleteWholeFolder?.Invoke(folderGroup.Key) ?? false);
+            if (shouldDeleteWholeFolder)
+            {
+                if (!Directory.Exists(folderGroup.Key))
+                {
+                    continue;
+                }
+                try
+                {
+                    fileMutationService.DeleteDirectoryShell(folderGroup.Key, UIOption.OnlyErrorDialogs, recycleOption, recursiveDirectoryTreeFileMutationOptions);
+                    foreach (string indexedDirectoryPath in folderAllFileList.Keys.Where((string directoryPath) => (directoryPath + Path.DirectorySeparatorChar).StartsWith(folderGroup.Key + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        folderAllFileList.RemoveDir(indexedDirectoryPath);
+                    }
+                    foreach (BMSFile installLinkedBmsFile in (pendingPackages ?? Enumerable.Empty<BMSPackage>()).SelectMany((BMSPackage pkg) => pkg.BMSFiles).Concat(currentLibraryFiles.Where((BMSFile bmsInfo) => !string.IsNullOrWhiteSpace(bmsInfo.instl_dst))))
+                    {
+                        if (!string.IsNullOrWhiteSpace(installLinkedBmsFile.instl_dst) && (installLinkedBmsFile.instl_dst + Path.DirectorySeparatorChar).StartsWith(folderGroup.Key + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+                        {
+                            installLinkedBmsFile.instl_dst = null;
+                        }
+                    }
+                    result.RemovedFiles.AddRange(folderGroup);
+                }
+                catch (Exception ex)
+                {
+                    result.Failures.Add(new LibraryDeleteFailure
+                    {
+                        Path = folderGroup.Key,
+                        Exception = ex,
+                        IsDirectory = true
+                    });
+                }
+                continue;
+            }
+            foreach (BMSFile selectedBmsFile in folderGroup)
+            {
+                try
+                {
+                    if (File.Exists(selectedBmsFile.path))
+                    {
+                        fileMutationService.DeleteFileShell(selectedBmsFile.path, UIOption.OnlyErrorDialogs, recycleOption, targetOnlyFileMutationOptions);
+                        result.RemovedFiles.Add(selectedBmsFile);
+                    }
+                }
+                catch (Exception ex2)
+                {
+                    result.Failures.Add(new LibraryDeleteFailure
+                    {
+                        Path = selectedBmsFile.path,
+                        Exception = ex2,
+                        IsDirectory = false
+                    });
+                }
+            }
+        }
+        return result;
+    }
+
     public RenameInvalidExtensionOutcome ProcessInvalidExtensionRename(BMSFile sourceFile, string requestedPath, IFileMutationService fileMutationService, FileMutationOptions targetOnlyFileMutationOptions, Action<string> logInfo = null, Action<Exception, string> logWarn = null)
     {
         RenameInvalidExtensionOutcome outcome = new RenameInvalidExtensionOutcome

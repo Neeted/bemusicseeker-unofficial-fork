@@ -63,6 +63,101 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
         CollectionAssert.AreEqual(new[] { pkg1 }, result);
     }
 
+    [TestMethod]
+    public void MoveFolderAndUpdateReferences_RewritesDirectoryIndexInstallDestinationsAndInstalledPaths()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            BmsLibraryLibraryFileOperationsService service = new BmsLibraryLibraryFileOperationsService();
+            TestFileMutationService fileMutationService = new TestFileMutationService();
+            string sourceRoot = Path.Combine(tempDirectoryPath, "Src");
+            string nestedDirectoryPath = Path.Combine(sourceRoot, "Nested");
+            Directory.CreateDirectory(nestedDirectoryPath);
+            File.WriteAllText(Path.Combine(nestedDirectoryPath, "chart.bms"), "#PLAYER 1");
+            string destinationRoot = Path.Combine(tempDirectoryPath, "Dst");
+            BMSDirectoryFileNameHash folderHash = new BMSDirectoryFileNameHash();
+            folderHash.AddDir(sourceRoot, update: true);
+            folderHash.AddDir(nestedDirectoryPath, update: true);
+
+            TestableBmsFile libraryFile = CreateFile(Path.Combine(sourceRoot, "Nested", "chart.bms"));
+            libraryFile.instl_dst = sourceRoot;
+            TestableBmsFile pendingFile = CreateFile(Path.Combine(tempDirectoryPath, "Pending", "chart.bms"));
+            pendingFile.instl_dst = nestedDirectoryPath;
+            BMSPackage pendingPackage = new BMSPackage(new BMSFile[] { pendingFile })
+            {
+                path = Path.Combine(tempDirectoryPath, "Pending"),
+                delete_parent = false
+            };
+            BMSPackage installedPackage = new BMSPackage(new BMSFile[] { libraryFile })
+            {
+                path = nestedDirectoryPath,
+                delete_parent = false
+            };
+
+            service.MoveFolderAndUpdateReferences(
+                sourceRoot,
+                destinationRoot,
+                new[] { libraryFile },
+                new[] { pendingPackage },
+                new[] { installedPackage },
+                folderHash,
+                fileMutationService,
+                null);
+
+            Assert.IsFalse(Directory.Exists(sourceRoot));
+            Assert.IsTrue(Directory.Exists(destinationRoot));
+            CollectionAssert.Contains(folderHash.Keys, destinationRoot);
+            CollectionAssert.Contains(folderHash.Keys, Path.Combine(destinationRoot, "Nested"));
+            Assert.AreEqual(Path.Combine(destinationRoot, "Nested"), pendingFile.instl_dst);
+            Assert.AreEqual(destinationRoot, libraryFile.instl_dst);
+            Assert.AreEqual(Path.Combine(destinationRoot, "Nested"), installedPackage.path);
+        });
+    }
+
+    [TestMethod]
+    public void DeleteLibraryFiles_RemovesFolderAndClearsInstallDestinations()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            BmsLibraryLibraryFileOperationsService service = new BmsLibraryLibraryFileOperationsService();
+            TestFileMutationService fileMutationService = new TestFileMutationService();
+            string folderPath = Path.Combine(tempDirectoryPath, "Song");
+            Directory.CreateDirectory(folderPath);
+            string chartPath = Path.Combine(folderPath, "chart.bms");
+            File.WriteAllText(chartPath, "#PLAYER 1");
+            TestableBmsFile libraryFile = CreateFile(chartPath);
+            libraryFile.instl_dst = folderPath;
+            TestableBmsFile pendingFile = CreateFile(Path.Combine(tempDirectoryPath, "Pending", "chart.bms"));
+            pendingFile.instl_dst = folderPath;
+            BMSPackage pendingPackage = new BMSPackage(new BMSFile[] { pendingFile })
+            {
+                path = Path.Combine(tempDirectoryPath, "Pending"),
+                delete_parent = false
+            };
+            BMSDirectoryFileNameHash folderHash = new BMSDirectoryFileNameHash();
+            folderHash.AddDir(folderPath, update: true);
+
+            LibraryRemovalResult result = service.DeleteLibraryFiles(
+                new[] { libraryFile },
+                new[] { libraryFile },
+                new[] { pendingPackage },
+                folderHash,
+                sendToRecycleBin: false,
+                _ => true,
+                fileMutationService,
+                null,
+                null);
+
+            Assert.AreEqual(1, result.RemovedFiles.Count);
+            Assert.AreSame(libraryFile, result.RemovedFiles[0]);
+            Assert.AreEqual(0, result.Failures.Count);
+            Assert.IsNull(pendingFile.instl_dst);
+            Assert.IsNull(libraryFile.instl_dst);
+            Assert.IsFalse(Directory.Exists(folderPath));
+            CollectionAssert.DoesNotContain(folderHash.Keys, folderPath);
+        });
+    }
+
     private static TestableBmsFile CreateFile(string path)
     {
         return new TestableBmsFile
