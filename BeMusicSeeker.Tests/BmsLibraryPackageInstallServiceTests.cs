@@ -263,6 +263,155 @@ public sealed class BmsLibraryPackageInstallServiceTests
         });
     }
 
+    [TestMethod]
+    public void SearchBmsFilesRecursively_SplitsIndependentChartsIntoSingleFilePackages()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string packageDirectoryPath = Path.Combine(tempDirectoryPath, "Pkg");
+            Directory.CreateDirectory(packageDirectoryPath);
+            File.WriteAllText(Path.Combine(packageDirectoryPath, "chart_a.bms"), "#PLAYER 1\r\n#TITLE A\r\n#WAVAA sound_a.wav\r\n#00111:AA\r\n");
+            File.WriteAllText(Path.Combine(packageDirectoryPath, "chart_b.bms"), "#PLAYER 1\r\n#TITLE B\r\n#WAVAA sound_b.wav\r\n#00111:AA\r\n");
+
+            BmsLibraryPackageInstallService service = new BmsLibraryPackageInstallService();
+            List<BMSPackage> result = service.SearchBmsFilesRecursively(packageDirectoryPath, 0.6);
+
+            Assert.AreEqual(2, result.Count);
+            Assert.IsTrue(result.All((BMSPackage package) => File.Exists(package.path)));
+        });
+    }
+
+    [TestMethod]
+    public void PrepareAutoInstallWorkflow_ClassifiesDirectoryAsInstallableAndSingleFileAsPending()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string directoryPackagePath = Path.Combine(tempDirectoryPath, "DirPkg");
+            Directory.CreateDirectory(directoryPackagePath);
+            File.WriteAllText(Path.Combine(directoryPackagePath, "chart_dir.bms"), "#PLAYER 1\r\n#TITLE Dir\r\n#WAVAA sound_dir.wav\r\n#00111:AA\r\n");
+
+            string filePackageDirectoryPath = Path.Combine(tempDirectoryPath, "SinglePkg");
+            Directory.CreateDirectory(filePackageDirectoryPath);
+            string singleFilePath = Path.Combine(filePackageDirectoryPath, "chart_single.bms");
+            File.WriteAllText(singleFilePath, "#PLAYER 1\r\n#TITLE Single\r\n#WAVAA sound_single.wav\r\n#00111:AA\r\n");
+
+            BmsLibraryPackageInstallService service = new BmsLibraryPackageInstallService();
+            AutoInstallWorkflowResult result = service.PrepareAutoInstallWorkflow(
+                new[] { directoryPackagePath, singleFilePath },
+                Array.Empty<BMSPackage>(),
+                Array.Empty<BMSFile>(),
+                Array.Empty<string>(),
+                0.6,
+                _ => false);
+
+            Assert.AreEqual(2, result.DiscoveredPackages.Count);
+            Assert.AreEqual(1, result.AutoInstallCandidates.Count);
+            Assert.AreEqual(1, result.PendingPackagesToAdd.Count);
+            Assert.IsTrue(Directory.Exists(result.AutoInstallCandidates[0].path));
+            Assert.IsTrue(File.Exists(result.PendingPackagesToAdd[0].path));
+            Assert.IsTrue(result.DiscoveryMs >= 0);
+            Assert.IsTrue(result.ClassificationMs >= 0);
+            Assert.IsTrue(result.TotalMs >= 0);
+        });
+    }
+
+    [TestMethod]
+    public void InstallPackages_ReturnsRegisteredPackagesAndTimingBreakdown()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        BmsLibraryPackageInstallService service = new BmsLibraryPackageInstallService();
+        TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "C:\\Installed\\chart.bms");
+        BMSPackage package = new BMSPackage(new BMSFile[] { file })
+        {
+            path = "C:\\Pending\\Pkg1",
+            delete_parent = false
+        };
+        List<BMSFile> songUpserts = new List<BMSFile>();
+        List<BMSFile> maintenanceTargets = new List<BMSFile>();
+        List<BMSFile> zeroNoteTargets = new List<BMSFile>();
+        List<BMSFile> scoreTargets = new List<BMSFile>();
+        List<BMSFile> applyTargets = new List<BMSFile>();
+
+        PackageInstallExecutionResult result = service.InstallPackages(
+            new[] { package },
+            "C:\\Installed",
+            (_, _, _, _, _) => true,
+            (files) => songUpserts.AddRange(files),
+            (files) => maintenanceTargets.AddRange(files),
+            (files) => zeroNoteTargets.AddRange(files),
+            (files) => scoreTargets.AddRange(files),
+            (files) => applyTargets.AddRange(files));
+
+        Assert.AreEqual(1, result.AddedFiles.Count);
+        Assert.AreEqual(1, result.InstalledPackagesToRegister.Count);
+        Assert.AreEqual(0, result.FailedPackages.Count);
+        CollectionAssert.AreEqual(new[] { file }, songUpserts);
+        CollectionAssert.AreEqual(new[] { file }, maintenanceTargets);
+        CollectionAssert.AreEqual(new[] { file }, zeroNoteTargets);
+        CollectionAssert.AreEqual(new[] { file }, scoreTargets);
+        CollectionAssert.AreEqual(new[] { file }, applyTargets);
+        Assert.IsTrue(result.MoveMs >= 0);
+        Assert.IsTrue(result.SongDbMs >= 0);
+        Assert.IsTrue(result.MaintenanceMs >= 0);
+        Assert.IsTrue(result.ZeroNoteMs >= 0);
+        Assert.IsTrue(result.ScoreMs >= 0);
+        Assert.IsTrue(result.ApplyMs >= 0);
+        Assert.IsTrue(result.TotalMs >= 0);
+    }
+
+    [TestMethod]
+    public void ExecuteInstalledOnlyResourceOverwrite_CategorizesCleanupInstallAndMissingCases()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        BmsLibraryPackageInstallService service = new BmsLibraryPackageInstallService();
+        BMSPackage cleanupPackage = new BMSPackage(new BMSFile[] { CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "C:\\Pending\\Cleanup\\a.bms") })
+        {
+            path = "C:\\Pending\\Cleanup",
+            delete_parent = false
+        };
+        BMSPackage installPackage = new BMSPackage(new BMSFile[] { CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "C:\\Pending\\Install\\b.bms") })
+        {
+            path = "C:\\Pending\\Install",
+            delete_parent = false
+        };
+        BMSPackage missingDestinationPackage = new BMSPackage(new BMSFile[] { CreateFile("cccccccccccccccccccccccccccccccc", "C:\\Pending\\Missing\\c.bms") })
+        {
+            path = "C:\\Pending\\Missing",
+            delete_parent = false
+        };
+
+        PendingResourceOverwriteExecutionResult result = service.ExecuteInstalledOnlyResourceOverwrite(
+            new[] { cleanupPackage, installPackage, missingDestinationPackage, new BMSPackage { path = "C:\\Pending\\Unknown" } },
+            new[] { cleanupPackage, installPackage, missingDestinationPackage },
+            true,
+            (package) => package.path switch
+            {
+                "C:\\Pending\\Cleanup" => new InstalledOnlyPackageResolutionResult { DestinationDirectory = "C:\\Installed\\Cleanup", Reason = InstalledDirectoryResolveReason.None },
+                "C:\\Pending\\Install" => new InstalledOnlyPackageResolutionResult { DestinationDirectory = "C:\\Installed\\Install", Reason = InstalledDirectoryResolveReason.None },
+                _ => new InstalledOnlyPackageResolutionResult { Reason = InstalledDirectoryResolveReason.MissingInstallDestination }
+            },
+            (_, package) => "log:" + package.path,
+            (package, _) => package.path == "C:\\Pending\\Install",
+            (_, _) => true,
+            (package) => package.path == "C:\\Pending\\Cleanup" ? (true, CleanupSourceKind.MissingSource) : (false, CleanupSourceKind.MissingSource),
+            (package) => package == missingDestinationPackage,
+            default,
+            null,
+            _ => { });
+
+        Assert.AreEqual(4, result.Requested);
+        Assert.AreEqual(4, result.Processed);
+        Assert.AreEqual(1, result.SucceededCleanupOnly);
+        Assert.AreEqual(1, result.SucceededInstall);
+        Assert.AreEqual(1, result.SkippedMissingInstlDst);
+        Assert.AreEqual(1, result.SkippedNotPending);
+        Assert.AreEqual(0, result.Failed);
+        CollectionAssert.AreEqual(new[] { cleanupPackage }, result.PendingPackagesToRemove);
+        CollectionAssert.AreEqual(new[] { cleanupPackage.path }, result.InstallRowsToDelete);
+    }
+
     private static TestableBmsFile CreateFile(string hash, string path)
     {
         TestableBmsFile file = new TestableBmsFile

@@ -1,7 +1,12 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using System.Security;
+using System.Text;
 using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.Models.Utils;
+using BeMusicSeeker.Properties;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
@@ -59,6 +64,19 @@ internal sealed class BmsLibraryDbGateway
         });
     }
 
+    public void UpsertInstallRows(IEnumerable<BMSPackage> packages)
+    {
+        List<BMSPackage> items = (packages ?? Enumerable.Empty<BMSPackage>()).Where((BMSPackage package) => package != null && !string.IsNullOrWhiteSpace(package.path)).ToList();
+        if (items.Count == 0)
+        {
+            return;
+        }
+        ExecuteSongDbTransaction(delegate (LR2SongDBExtended songDb)
+        {
+            songDb.InsertAll(items, typeof(LR2SongDBExtended.install));
+        });
+    }
+
     public void UpsertSongs(IEnumerable<BMSFile> bmsFiles)
     {
         List<BMSFile> files = (bmsFiles ?? Enumerable.Empty<BMSFile>()).Where((BMSFile file) => file != null).ToList();
@@ -108,6 +126,105 @@ internal sealed class BmsLibraryDbGateway
                 songDb.InsertOrReplace(entry, typeof(LR2SongDBExtended.maintenance));
             }
         });
+    }
+
+    public ScoreTableLoadResult LoadScoresAndPlayerId()
+    {
+        ScoreTableLoadResult result = new ScoreTableLoadResult();
+        if (string.IsNullOrWhiteSpace(ScoreDbPath))
+        {
+            return result;
+        }
+        using LR2ScoreDBExtended scoreDb = OpenScoreDb();
+        result.Scores.AddRange(scoreDb.Table<BMSScore>().ToList());
+        result.LR2Id = scoreDb.Table<LR2ScoreDB.player>().ToList().FirstOrDefault()?.irid ?? 0;
+        return result;
+    }
+
+    public List<BMSPackage> LoadInstallPackages()
+    {
+        using LR2SongDBExtended songDb = OpenSongDb();
+        return songDb.Table<BMSPackage>().ToList();
+    }
+
+    public void ReplaceSongPathWithMaintenance(BMSFile bmsFile, string oldPath)
+    {
+        if (bmsFile == null)
+        {
+            throw new ArgumentNullException(nameof(bmsFile));
+        }
+        if (string.IsNullOrWhiteSpace(oldPath))
+        {
+            throw new ArgumentNullException(nameof(oldPath));
+        }
+        ExecuteSongDbTransaction(delegate (LR2SongDBExtended songDb)
+        {
+            songDb.Delete<LR2SongDB.song>(oldPath);
+            songDb.Delete<LR2SongDBExtended.maintenance>(oldPath);
+            if (bmsFile.maintenanceInfo != null)
+            {
+                songDb.InsertOrReplace(bmsFile.maintenanceInfo, typeof(LR2SongDBExtended.maintenance));
+            }
+            songDb.InsertOrReplace(bmsFile, typeof(LR2SongDB.song));
+        });
+    }
+
+    public bool ReplaceFolderRecord(string oldFolderPath, string newFolderPath)
+    {
+        if (string.IsNullOrWhiteSpace(oldFolderPath) || string.IsNullOrWhiteSpace(newFolderPath))
+        {
+            throw new ArgumentNullException(string.IsNullOrWhiteSpace(oldFolderPath) ? nameof(oldFolderPath) : nameof(newFolderPath));
+        }
+        if (!Directory.Exists(newFolderPath))
+        {
+            throw new DirectoryNotFoundException(string.Format(Resources.Error_RenameDestDirNotFound, newFolderPath));
+        }
+        try
+        {
+            bool replaced = false;
+            ExecuteSongDbTransaction(delegate (LR2SongDBExtended songDb)
+            {
+                LR2SongDB.folder folder = songDb.Table<LR2SongDB.folder>()
+                    .ToList()
+                    .FirstOrDefault((LR2SongDB.folder item) => item.path.Equals(oldFolderPath.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase));
+                if (folder == null)
+                {
+                    return;
+                }
+                replaced = true;
+                songDb.Delete<LR2SongDB.folder>(folder.path);
+                folder.title = Path.GetFileName(newFolderPath);
+                folder.path = newFolderPath.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+                if (folder.parent != "e2977170")
+                {
+                    string directoryName = Path.GetDirectoryName(newFolderPath.TrimEnd(Path.DirectorySeparatorChar));
+                    Encoding encoding = Encoding.GetEncoding("shift_jis", EncoderFallback.ExceptionFallback, DecoderFallback.ExceptionFallback);
+                    folder.parent = LR2CRC32.Compute(encoding.GetBytes(directoryName + "\\\0")).ToString("x");
+                }
+                songDb.InsertOrReplace(folder, typeof(LR2SongDB.folder));
+            });
+            return replaced;
+        }
+        catch (DirectoryNotFoundException)
+        {
+            throw;
+        }
+        catch (FileNotFoundException)
+        {
+            throw;
+        }
+        catch (IOException)
+        {
+            return false;
+        }
+        catch (SecurityException)
+        {
+            return false;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return false;
+        }
     }
 
     public List<LR2IRData> LoadIrData(int lr2Id)

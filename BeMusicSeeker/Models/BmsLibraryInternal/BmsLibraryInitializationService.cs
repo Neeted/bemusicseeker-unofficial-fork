@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models.Utils;
@@ -9,6 +11,42 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 internal sealed class BmsLibraryInitializationService
 {
+    public ScoreTableLoadResult LoadScoreTable(BmsLibraryDbGateway dbGateway)
+    {
+        if (dbGateway == null || string.IsNullOrWhiteSpace(dbGateway.ScoreDbPath))
+        {
+            return new ScoreTableLoadResult();
+        }
+        try
+        {
+            return dbGateway.LoadScoresAndPlayerId();
+        }
+        catch
+        {
+            return new ScoreTableLoadResult();
+        }
+    }
+
+    public InstallTableLoadResult LoadInstallTable(BmsLibraryDbGateway dbGateway)
+    {
+        InstallTableLoadResult result = new InstallTableLoadResult();
+        if (dbGateway == null)
+        {
+            return result;
+        }
+        try
+        {
+            List<BMSPackage> packages = dbGateway.LoadInstallPackages();
+            result.PendingPackages.AddRange(packages.Where((BMSPackage pkg) => pkg != null && (File.Exists(pkg.path) || Directory.Exists(pkg.path)) && pkg.BMSFiles.Count > 0));
+            result.StalePackages.AddRange(packages.Except(result.PendingPackages));
+            result.StaleInstallPaths.AddRange(result.StalePackages.Where((BMSPackage pkg) => !string.IsNullOrWhiteSpace(pkg.path)).Select((BMSPackage pkg) => pkg.path));
+        }
+        catch
+        {
+        }
+        return result;
+    }
+
     public InitializationExecutionResult RunInitialize(
         List<Action> tasksContinuation,
         SemaphoreSlim semaphore,

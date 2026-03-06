@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using BeMusicSeeker.Models.Utils;
+using BeMusicSeeker.Properties;
 using Microsoft.VisualBasic.FileIO;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
@@ -258,6 +259,204 @@ internal sealed class BmsLibraryPackageInstallService
             .Where((BMSPackage package) => package != null)
             .SelectMany((BMSPackage package) => package.BMSFiles)
             .Where((BMSFile file) => file != null));
+    }
+
+    public List<BMSPackage> SearchBmsFilesRecursively(string dirfullpath, double dupRateThreshInOnePkg, bool recursive = false)
+    {
+        List<BMSPackage> result = new List<BMSPackage>();
+        IEnumerable<string> fileSystemEntries;
+        try
+        {
+            fileSystemEntries = Directory.EnumerateFileSystemEntries(dirfullpath, "*", System.IO.SearchOption.TopDirectoryOnly).ToList();
+        }
+        catch
+        {
+            return result;
+        }
+        if (fileSystemEntries == null || !fileSystemEntries.Any())
+        {
+            return result;
+        }
+        List<string> files = fileSystemEntries.Where(File.Exists).ToList();
+        List<string> directories = fileSystemEntries.Where(Directory.Exists).ToList();
+        List<string> bmsFiles = files.Where((string file) => BMSFile.bmsExtensions.Any((string ext) => file.EndsWith(ext, StringComparison.OrdinalIgnoreCase)) && File.Exists(file)).ToList();
+        if (bmsFiles.Count > 0)
+        {
+            if (bmsFiles.Count == 1 || bmsFiles.Any(delegate (string bmsFilePath)
+                {
+                    BMSFile bMSFile = BMSFile.CreateBMSFileFromFile(bmsFilePath);
+                    bMSFile.SetHealthStatus(null, forceUpdate: false, memClear: false);
+                    return bMSFile.maintenanceInfo.wav_files_existing > 0 || bMSFile.maintenanceInfo.bga_files_existing > 0;
+                }))
+            {
+                result.Add(new BMSPackage
+                {
+                    path = dirfullpath,
+                    delete_parent = false
+                });
+            }
+            else
+            {
+                List<IEnumerable<string>> resourcesByChart = bmsFiles
+                    .Select((string filePath) => BMSFile.CreateBMSFileFromFile(filePath))
+                    .Select((BMSFile bmsInfo) => bmsInfo.WAVfiles
+                        .Concat(bmsInfo.BGAfiles)
+                        .Select((string path) => Path.GetFileNameWithoutExtension(path).ToUpperInvariant())
+                        .Distinct()
+                        .ToList()
+                        .AsEnumerable())
+                    .ToList();
+                if ((double)resourcesByChart.Aggregate(Enumerable.Intersect).Count() / (double)resourcesByChart.Select((IEnumerable<string> resourceList) => resourceList.Count()).Min() >= dupRateThreshInOnePkg)
+                {
+                    result.Add(new BMSPackage
+                    {
+                        path = dirfullpath,
+                        delete_parent = false
+                    });
+                }
+                else
+                {
+                    result = bmsFiles.Select((string filePath) => new BMSPackage
+                    {
+                        path = filePath,
+                        delete_parent = recursive
+                    }).ToList();
+                }
+            }
+        }
+        else if (directories.Count > 0)
+        {
+            return directories.SelectMany((string dir) => SearchBmsFilesRecursively(dir, dupRateThreshInOnePkg, recursive: true)).ToList();
+        }
+        return result;
+    }
+
+    public AutoInstallWorkflowResult PrepareAutoInstallWorkflow(
+        IEnumerable<string> installPaths,
+        IEnumerable<BMSPackage> currentPendingPackages,
+        IEnumerable<BMSFile> installedFiles,
+        IEnumerable<string> bmsDirectories,
+        double dupRateThreshInOnePkg,
+        Func<BMSFile, bool> requiresPendingWarning)
+    {
+        AutoInstallWorkflowResult result = new AutoInstallWorkflowResult();
+        Stopwatch totalStopwatch = Stopwatch.StartNew();
+        Stopwatch discoveryStopwatch = Stopwatch.StartNew();
+        List<string> normalizedInstallPaths = (installPaths ?? Enumerable.Empty<string>())
+            .Where((string path) => !string.IsNullOrWhiteSpace(path) && (File.Exists(path) || Directory.Exists(path)))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        IEnumerable<IGrouping<string, string>> groupedPaths = from file in normalizedInstallPaths
+                                                              group file by Path.GetDirectoryName(file)?.ToUpperInvariant();
+        List<BMSPackage> discoveredPackages = groupedPaths.SelectMany(delegate (IGrouping<string, string> paths)
+        {
+            if (string.IsNullOrWhiteSpace(paths.Key) || !Directory.Exists(paths.Key))
+            {
+                return Enumerable.Empty<BMSPackage>();
+            }
+            List<string> files = paths.Where(File.Exists).ToList();
+            List<string> directories = paths.Where(Directory.Exists).ToList();
+            List<string> bmsFiles = files.Where((string file) => BMSFile.bmsExtensions.Any((string ext) => file.EndsWith(ext, StringComparison.OrdinalIgnoreCase)) && File.Exists(file)).ToList();
+            string[] topEntries = Directory.GetFileSystemEntries(paths.Key, "*", System.IO.SearchOption.TopDirectoryOnly);
+            if (files.Count + directories.Count == topEntries.Length)
+            {
+                return SearchBmsFilesRecursively(paths.Key, dupRateThreshInOnePkg);
+            }
+            if (bmsFiles.Count > 0 && bmsFiles.Any(delegate (string bmsFilePath)
+                {
+                    BMSFile bMSFile = BMSFile.CreateBMSFileFromFile(bmsFilePath);
+                    bMSFile.SetHealthStatus(null, forceUpdate: false, memClear: false);
+                    return bMSFile.maintenanceInfo.wav_files_existing > 0 || bMSFile.maintenanceInfo.bga_files_existing > 0;
+                }))
+            {
+                return SearchBmsFilesRecursively(paths.Key, dupRateThreshInOnePkg);
+            }
+            List<BMSPackage> singleFilePackages = bmsFiles.Select((string filePath) => new BMSPackage
+            {
+                path = filePath,
+                delete_parent = false
+            }).ToList();
+            List<BMSPackage> directoryPackages = directories.SelectMany((string dir) => SearchBmsFilesRecursively(dir, dupRateThreshInOnePkg)).ToList();
+            return singleFilePackages.Concat(directoryPackages);
+        }).ToList();
+        discoveryStopwatch.Stop();
+        result.DiscoveryMs = discoveryStopwatch.ElapsedMilliseconds;
+
+        List<string> libraryDirectories = (bmsDirectories ?? Enumerable.Empty<string>()).Where((string dir) => !string.IsNullOrWhiteSpace(dir)).ToList();
+        List<BMSPackage> pendingPackages = (currentPendingPackages ?? Enumerable.Empty<BMSPackage>()).Where((BMSPackage pkg) => pkg != null).ToList();
+        discoveredPackages = discoveredPackages
+            .Where((BMSPackage pkg) => pkg != null && !libraryDirectories.Any((string dir) => pkg.path.StartsWith(dir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)))
+            .Where((BMSPackage newPkg) => !pendingPackages.Any((BMSPackage oldPkg) => !string.IsNullOrWhiteSpace(oldPkg.path) && newPkg.path.Equals(oldPkg.path, StringComparison.OrdinalIgnoreCase)))
+            .Where((BMSPackage newPkg) => !pendingPackages.Any((BMSPackage oldPkg) => !string.IsNullOrWhiteSpace(oldPkg.path) && Directory.Exists(oldPkg.path) && newPkg.path.StartsWith(oldPkg.path + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)))
+            .ToList();
+        result.DiscoveredPackages.AddRange(discoveredPackages);
+        if (discoveredPackages.Count == 0)
+        {
+            totalStopwatch.Stop();
+            result.TotalMs = totalStopwatch.ElapsedMilliseconds;
+            return result;
+        }
+
+        if (discoveredPackages.Any((BMSPackage newPkg) => !string.IsNullOrWhiteSpace(newPkg.path) && Directory.Exists(newPkg.path)))
+        {
+            List<BMSPackage> pendingPackagesToRemove = pendingPackages.Where(delegate (BMSPackage oldPkg)
+            {
+                IEnumerable<BMSPackage> sourcePackages = discoveredPackages.Where((BMSPackage newPkg) => !string.IsNullOrWhiteSpace(newPkg.path) && Directory.Exists(newPkg.path));
+                string dir;
+                if (Directory.Exists(oldPkg.path))
+                {
+                    dir = oldPkg.path + Path.DirectorySeparatorChar;
+                }
+                else
+                {
+                    if (!File.Exists(oldPkg.path))
+                    {
+                        return true;
+                    }
+                    dir = oldPkg.path;
+                }
+                return sourcePackages.Any((BMSPackage newPkg) => dir.StartsWith(newPkg.path + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase));
+            }).ToList();
+            result.PendingPackagesToRemove.AddRange(pendingPackagesToRemove);
+        }
+
+        Stopwatch classificationStopwatch = Stopwatch.StartNew();
+        HashSet<string> installedHashes = new HashSet<string>(
+            (installedFiles ?? Enumerable.Empty<BMSFile>())
+                .Where((BMSFile file) => file != null && IsBmsHashAvailable(file.hash))
+                .Select((BMSFile file) => file.hash),
+            StringComparer.OrdinalIgnoreCase);
+        ILookup<bool, BMSPackage> lookup = discoveredPackages.AsParallel().ToLookup((BMSPackage pkg) => pkg.BMSFiles
+            .AsParallel()
+            .Select(delegate (BMSFile bmsFile)
+            {
+                bmsFile.SetHealthStatus(null, forceUpdate: false, memClear: false);
+                if (installedHashes.Contains(bmsFile.hash))
+                {
+                    bmsFile.warning = Resources.Warning_AlreadyInstalled;
+                    return true;
+                }
+                if (!Directory.Exists(pkg.path))
+                {
+                    bmsFile.warning = Resources.Warning_SingleBmsFile;
+                    return true;
+                }
+                return requiresPendingWarning != null && requiresPendingWarning(bmsFile);
+            })
+            .Any((bool isPending) => isPending));
+        if (lookup.Contains(false))
+        {
+            result.AutoInstallCandidates.AddRange(lookup[false]);
+        }
+        if (lookup.Contains(true))
+        {
+            result.PendingPackagesToAdd.AddRange(lookup[true]);
+        }
+        classificationStopwatch.Stop();
+        result.ClassificationMs = classificationStopwatch.ElapsedMilliseconds;
+        totalStopwatch.Stop();
+        result.TotalMs = totalStopwatch.ElapsedMilliseconds;
+        return result;
     }
 
     public PendingPackageMutationDelta BuildPendingPackageMutationDelta(IEnumerable<BMSPackage> pendingPackages, IEnumerable<BMSPackage> packagesToRemove = null, IEnumerable<BMSFile> filesToRemove = null, bool clearAll = false)
@@ -614,6 +813,85 @@ internal sealed class BmsLibraryPackageInstallService
         return result;
     }
 
+    public PackageInstallExecutionResult InstallPackages(
+        IEnumerable<BMSPackage> bmsPackagesInstall,
+        string installationDirectory,
+        Func<BMSPackage, string, bool, HashSet<string>, ISet<string>, bool> movePackageFiles,
+        Action<IEnumerable<BMSFile>> upsertSongs,
+        Action<IEnumerable<BMSFile>> updateMaintenance,
+        Action<IEnumerable<BMSFile>> updateZeroNote,
+        Action<IEnumerable<BMSFile>> applyScores,
+        Action<IEnumerable<BMSFile>> applyState,
+        Dictionary<BMSPackage, HashSet<string>> excludedComponentPathsByPackage = null,
+        HashSet<string> existingHashes = null,
+        bool skipInstalledPackageWhenNoBms = false,
+        bool deleteSourceContentsAfterSuccessfulInstall = false)
+    {
+        PackageInstallExecutionResult result = new PackageInstallExecutionResult();
+        List<BMSPackage> packages = (bmsPackagesInstall ?? Enumerable.Empty<BMSPackage>()).Where((BMSPackage package) => package != null).ToList();
+        Stopwatch totalStopwatch = Stopwatch.StartNew();
+        Stopwatch moveStopwatch = Stopwatch.StartNew();
+        foreach (BMSPackage package in packages)
+        {
+            HashSet<string> excludedComponentPaths = null;
+            excludedComponentPathsByPackage?.TryGetValue(package, out excludedComponentPaths);
+            if (movePackageFiles != null && movePackageFiles(package, installationDirectory, deleteSourceContentsAfterSuccessfulInstall, existingHashes, excludedComponentPaths))
+            {
+                result.AddedFiles.AddRange((package.BMSFiles ?? new List<BMSFile>()).Where((BMSFile file) => file != null));
+                if (existingHashes != null)
+                {
+                    foreach (BMSFile bmsFile in package.BMSFiles ?? Enumerable.Empty<BMSFile>())
+                    {
+                        if (IsBmsHashAvailable(bmsFile.hash))
+                        {
+                            existingHashes.Add(bmsFile.hash);
+                        }
+                    }
+                }
+                bool shouldSkipInstalledPackageRegistration = skipInstalledPackageWhenNoBms && (package.BMSFiles == null || package.BMSFiles.Count == 0);
+                if (!shouldSkipInstalledPackageRegistration)
+                {
+                    result.InstalledPackagesToRegister.Add(package);
+                }
+            }
+            else if (!string.IsNullOrWhiteSpace(package.path) && (File.Exists(package.path) || Directory.Exists(package.path)))
+            {
+                result.FailedPackages.Add(package);
+            }
+        }
+        moveStopwatch.Stop();
+        result.MoveMs = moveStopwatch.ElapsedMilliseconds;
+
+        Stopwatch songDbStopwatch = Stopwatch.StartNew();
+        upsertSongs?.Invoke(result.AddedFiles);
+        songDbStopwatch.Stop();
+        result.SongDbMs = songDbStopwatch.ElapsedMilliseconds;
+
+        Stopwatch maintenanceStopwatch = Stopwatch.StartNew();
+        updateMaintenance?.Invoke(result.AddedFiles);
+        maintenanceStopwatch.Stop();
+        result.MaintenanceMs = maintenanceStopwatch.ElapsedMilliseconds;
+
+        Stopwatch zeroNoteStopwatch = Stopwatch.StartNew();
+        updateZeroNote?.Invoke(result.AddedFiles);
+        zeroNoteStopwatch.Stop();
+        result.ZeroNoteMs = zeroNoteStopwatch.ElapsedMilliseconds;
+
+        Stopwatch scoreStopwatch = Stopwatch.StartNew();
+        applyScores?.Invoke(result.AddedFiles);
+        scoreStopwatch.Stop();
+        result.ScoreMs = scoreStopwatch.ElapsedMilliseconds;
+
+        Stopwatch applyStopwatch = Stopwatch.StartNew();
+        applyState?.Invoke(result.AddedFiles);
+        applyStopwatch.Stop();
+        result.ApplyMs = applyStopwatch.ElapsedMilliseconds;
+
+        totalStopwatch.Stop();
+        result.TotalMs = totalStopwatch.ElapsedMilliseconds;
+        return result;
+    }
+
     public ForceInstallBatchResult ForceInstallPackages(
         IEnumerable<BMSPackage> packages,
         IEnumerable<BMSPackage> currentPendingPackages,
@@ -660,6 +938,127 @@ internal sealed class BmsLibraryPackageInstallService
                 result.Failed++;
                 logInfo?.Invoke("force_install_batch failed path=" + (pendingPackage.path ?? "(null)"));
             }
+        }
+        return result;
+    }
+
+    public PendingResourceOverwriteExecutionResult ExecuteInstalledOnlyResourceOverwrite(
+        IEnumerable<BMSPackage> packages,
+        IEnumerable<BMSPackage> currentPendingPackages,
+        bool deletePendingPackageSourceAfterInstall,
+        Func<BMSPackage, InstalledOnlyPackageResolutionResult> resolveDestination,
+        Func<InstalledOnlyPackageResolutionResult, BMSPackage, string> describeSkipDetail,
+        Func<BMSPackage, string, bool> hasResourceOverwriteTargets,
+        Func<BMSPackage, string, bool> installPackageToEstimatedDestination,
+        Func<BMSPackage, (bool Success, CleanupSourceKind SourceKind)> cleanupPendingPackageSource,
+        Func<BMSPackage, bool> isPackageStillPending,
+        CancellationToken token = default,
+        Action onEachProcessed = null,
+        Action<string> logInfo = null)
+    {
+        PendingResourceOverwriteExecutionResult result = new PendingResourceOverwriteExecutionResult();
+        List<BMSPackage> requestedPackages = DeduplicatePackagesByPathOrReference(packages);
+        List<BMSPackage> pendingPackages = (currentPendingPackages ?? Enumerable.Empty<BMSPackage>()).Where((BMSPackage pkg) => pkg != null).ToList();
+        result.Requested = requestedPackages.Count;
+        foreach (BMSPackage requestedPackage in requestedPackages)
+        {
+            if (token.IsCancellationRequested)
+            {
+                result.Canceled = true;
+                break;
+            }
+            BMSPackage pendingPackage = pendingPackages.FirstOrDefault((BMSPackage pkg) => ReferenceEquals(pkg, requestedPackage) || (!string.IsNullOrWhiteSpace(pkg.path) && !string.IsNullOrWhiteSpace(requestedPackage.path) && pkg.path.Equals(requestedPackage.path, StringComparison.OrdinalIgnoreCase)));
+            if (pendingPackage == null)
+            {
+                result.SkippedNotPending++;
+                result.Processed++;
+                logInfo?.Invoke("advanced_pending_resource_overwrite skip_not_pending path=" + requestedPackage.path);
+                onEachProcessed?.Invoke();
+                continue;
+            }
+            InstalledOnlyPackageResolutionResult resolution = resolveDestination?.Invoke(pendingPackage) ?? new InstalledOnlyPackageResolutionResult();
+            if (!resolution.Success)
+            {
+                if (resolution.Reason == InstalledDirectoryResolveReason.ChartHasMultipleInstalledDirectories || resolution.Reason == InstalledDirectoryResolveReason.PackageHasSplitInstalledDirectories)
+                {
+                    result.SkippedMultiDestination++;
+                }
+                else
+                {
+                    result.SkippedMissingInstlDst++;
+                }
+                logInfo?.Invoke(describeSkipDetail?.Invoke(resolution, pendingPackage));
+                result.Processed++;
+                onEachProcessed?.Invoke();
+                continue;
+            }
+            string destinationDir = resolution.DestinationDirectory;
+            logInfo?.Invoke("advanced_pending_resource_overwrite resolve_selected path=" + pendingPackage.path + " dst=" + destinationDir + " charts=" + (pendingPackage.BMSFiles ?? new List<BMSFile>()).Count((BMSFile f) => f != null));
+            if (!hasResourceOverwriteTargets(pendingPackage, destinationDir))
+            {
+                if (deletePendingPackageSourceAfterInstall)
+                {
+                    (bool Success, CleanupSourceKind SourceKind) cleanupResult = cleanupPendingPackageSource != null
+                        ? cleanupPendingPackageSource(pendingPackage)
+                        : (false, CleanupSourceKind.MissingSource);
+                    if (cleanupResult.Success)
+                    {
+                        result.SucceededCleanupOnly++;
+                        result.PendingPackagesToRemove.Add(pendingPackage);
+                        if (!string.IsNullOrWhiteSpace(pendingPackage.path))
+                        {
+                            result.InstallRowsToDelete.Add(pendingPackage.path);
+                        }
+                        logInfo?.Invoke("advanced_pending_resource_overwrite cleanup_only_success path=" + pendingPackage.path + " kind=" + cleanupResult.SourceKind.ToString().ToLowerInvariant());
+                    }
+                    else
+                    {
+                        result.Failed++;
+                        logInfo?.Invoke("advanced_pending_resource_overwrite cleanup_only_failed path=" + pendingPackage.path);
+                    }
+                }
+                else
+                {
+                    result.SkippedNoComponentTarget++;
+                    logInfo?.Invoke("advanced_pending_resource_overwrite skip_no_component_target path=" + pendingPackage.path);
+                }
+                result.Processed++;
+                onEachProcessed?.Invoke();
+                continue;
+            }
+            List<BMSFile> packageFiles = (pendingPackage.BMSFiles ?? new List<BMSFile>()).Where((BMSFile file) => file != null).ToList();
+            Dictionary<BMSFile, string> installDestinations = packageFiles.ToDictionary((BMSFile file) => file, (BMSFile file) => file.instl_dst);
+            foreach (BMSFile packageFile in packageFiles)
+            {
+                packageFile.instl_dst = destinationDir;
+            }
+            bool installSucceeded = false;
+            try
+            {
+                installSucceeded = installPackageToEstimatedDestination != null && installPackageToEstimatedDestination(pendingPackage, destinationDir);
+            }
+            finally
+            {
+                if (isPackageStillPending != null && isPackageStillPending(pendingPackage))
+                {
+                    foreach (KeyValuePair<BMSFile, string> item in installDestinations)
+                    {
+                        item.Key.instl_dst = item.Value;
+                    }
+                }
+            }
+            if (!installSucceeded || (isPackageStillPending != null && isPackageStillPending(pendingPackage)))
+            {
+                result.Failed++;
+                logInfo?.Invoke("advanced_pending_resource_overwrite install_failed path=" + pendingPackage.path + " dst=" + destinationDir);
+            }
+            else
+            {
+                result.SucceededInstall++;
+                logInfo?.Invoke("advanced_pending_resource_overwrite install_success path=" + pendingPackage.path + " dst=" + destinationDir);
+            }
+            result.Processed++;
+            onEachProcessed?.Invoke();
         }
         return result;
     }
