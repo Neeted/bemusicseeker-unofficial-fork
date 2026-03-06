@@ -318,6 +318,38 @@ public sealed class BmsLibraryPackageInstallServiceTests
     }
 
     [TestMethod]
+    public void ApplyAutoInstallWorkflow_ReturnsPendingAddsRemovesAndEstimateTargets()
+    {
+        BmsLibraryPackageInstallService service = new BmsLibraryPackageInstallService();
+        BMSPackage removePackage = new BMSPackage { path = "C:\\Pending\\Remove" };
+        BMSPackage pendingPackage = new BMSPackage { path = "C:\\Pending\\Keep" };
+        BMSPackage successAutoInstallPackage = new BMSPackage { path = "C:\\Pending\\AutoOk" };
+        BMSPackage failedAutoInstallPackage = new BMSPackage { path = "C:\\Pending\\AutoNg" };
+        AutoInstallWorkflowResult workflow = new AutoInstallWorkflowResult();
+        workflow.PendingPackagesToRemove.Add(removePackage);
+        workflow.PendingPackagesToAdd.Add(pendingPackage);
+        workflow.AutoInstallCandidates.Add(successAutoInstallPackage);
+        workflow.AutoInstallCandidates.Add(failedAutoInstallPackage);
+
+        AutoInstallApplyResult result = service.ApplyAutoInstallWorkflow(
+            workflow,
+            keepInstallablePackagesPending: false,
+            canAutoInstallImmediately: true,
+            packages => new List<BMSPackage> { failedAutoInstallPackage });
+
+        CollectionAssert.AreEqual(new[] { removePackage }, result.PendingPackagesToRemove);
+        CollectionAssert.AreEqual(new[] { pendingPackage, failedAutoInstallPackage }, result.PendingPackagesToAdd);
+        CollectionAssert.AreEqual(new[] { successAutoInstallPackage }, result.AutoInstalledPackages);
+        CollectionAssert.AreEqual(new[] { failedAutoInstallPackage }, result.AutoInstallFailures);
+        CollectionAssert.AreEqual(new[] { pendingPackage, failedAutoInstallPackage }, result.EstimateTargets);
+        CollectionAssert.AreEquivalent(new[] { removePackage.path }, result.InstallRowsToDelete);
+        CollectionAssert.AreEquivalent(new[] { pendingPackage.path, failedAutoInstallPackage.path }, result.InstallRowsToUpsert.Select((BMSPackage pkg) => pkg.path).ToArray());
+        Assert.IsTrue(result.InstallMs >= 0);
+        Assert.IsTrue(result.ApplyMs >= 0);
+        Assert.IsTrue(result.TotalMs >= 0);
+    }
+
+    [TestMethod]
     public void InstallPackages_ReturnsRegisteredPackagesAndTimingBreakdown()
     {
         TestResourceInitializer.EnsureJapaneseResources();
@@ -494,6 +526,56 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(0, result.Skipped);
             CollectionAssert.AreEqual(new[] { chart }, result.FilesToRemove);
             Assert.IsFalse(Directory.Exists(packageDirectoryPath));
+        });
+    }
+
+    [TestMethod]
+    public void RenamePendingFileExtensions_ReturnsRenamedDuplicateDeletedAndFailedFiles()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            BmsLibraryPackageInstallService service = new BmsLibraryPackageInstallService();
+            BmsLibraryLibraryFileOperationsService fileOperationService = new BmsLibraryLibraryFileOperationsService();
+            RealFileMutationService fileMutationService = new RealFileMutationService();
+            string renameSourcePath = Path.Combine(tempDirectoryPath, "rename_me.bms");
+            string duplicateSourcePath = Path.Combine(tempDirectoryPath, "duplicate.bms");
+            string duplicateDestinationPath = Path.Combine(tempDirectoryPath, "duplicate.bme");
+            string failureSourcePath = Path.Combine(tempDirectoryPath, "failure.bms");
+            File.WriteAllText(renameSourcePath, "rename");
+            File.WriteAllText(duplicateSourcePath, "same");
+            File.WriteAllText(duplicateDestinationPath, "same");
+            File.WriteAllText(failureSourcePath, "failure");
+            TestableBmsFile renameFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", renameSourcePath);
+            TestableBmsFile duplicateFile = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", duplicateSourcePath);
+            TestableBmsFile failureFile = CreateFile("cccccccccccccccccccccccccccccccc", failureSourcePath);
+            duplicateFile.SetHash(fileOperationService.TryComputeFileMd5ForPath(duplicateSourcePath));
+
+            PendingExtensionRenameResult result = service.RenamePendingFileExtensions(
+                new[] { renameFile, duplicateFile, failureFile },
+                ".bme",
+                delegate (BMSFile file, string requestedPath)
+                {
+                    if (ReferenceEquals(file, failureFile))
+                    {
+                        return new RenameInvalidExtensionOutcome
+                        {
+                            Action = RenameInvalidExtensionAction.Skipped,
+                            FinalPath = requestedPath,
+                            FailureException = new IOException("failure")
+                        };
+                    }
+                    return fileOperationService.ProcessInvalidExtensionRename(file, requestedPath, fileMutationService, null);
+                });
+
+            Assert.AreEqual(3, result.Total);
+            Assert.AreEqual(1, result.Renamed);
+            Assert.AreEqual(1, result.DuplicateDeleted);
+            Assert.AreEqual(1, result.Skipped);
+            Assert.AreEqual(1, result.Failed);
+            CollectionAssert.AreEquivalent(new[] { renameFile, duplicateFile }, result.FilesToRemove);
+            Assert.AreEqual(1, result.Failures.Count);
+            Assert.AreSame(failureFile, result.Failures[0].File);
         });
     }
 

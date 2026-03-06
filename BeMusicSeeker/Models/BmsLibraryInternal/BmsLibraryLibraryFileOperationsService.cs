@@ -35,9 +35,6 @@ internal sealed class BmsLibraryLibraryFileOperationsService
     public void MoveFolderAndUpdateReferences(
         string srcDir,
         string dstDir,
-        IEnumerable<BMSFile> libraryFiles,
-        IEnumerable<BMSPackage> pendingPackages,
-        IEnumerable<BMSPackage> installedPackages,
         BMSDirectoryFileNameHash folderAllFileList,
         IFileMutationService fileMutationService,
         FileMutationOptions recursiveDirectoryTreeFileMutationOptions)
@@ -47,20 +44,6 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         {
             string newKey = item.ReplaceFromStart(srcDir, dstDir, isIgnoreCase: true);
             folderAllFileList.ReplaceDir(item, newKey);
-        }
-        foreach (BMSFile item in (pendingPackages ?? Enumerable.Empty<BMSPackage>()).SelectMany((BMSPackage pkg) => pkg.BMSFiles).Concat((libraryFiles ?? Enumerable.Empty<BMSFile>()).Where((BMSFile file) => !string.IsNullOrWhiteSpace(file.instl_dst))))
-        {
-            if (!string.IsNullOrWhiteSpace(item.instl_dst) && (item.instl_dst + Path.DirectorySeparatorChar).StartsWith(srcDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
-            {
-                item.instl_dst = item.instl_dst.ReplaceFromStart(srcDir, dstDir, isIgnoreCase: true);
-            }
-        }
-        foreach (BMSPackage item2 in installedPackages ?? Enumerable.Empty<BMSPackage>())
-        {
-            if (!string.IsNullOrWhiteSpace(item2.path) && (item2.path + Path.DirectorySeparatorChar).StartsWith(srcDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
-            {
-                item2.path = item2.path.ReplaceFromStart(srcDir, dstDir, isIgnoreCase: true);
-            }
         }
     }
 
@@ -146,7 +129,13 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         return result;
     }
 
-    public LibraryMutationDelta BuildFolderMoveDelta(string srcDir, string dstDir, IEnumerable<BMSFile> libraryFiles, bool unregister)
+    public LibraryMutationDelta BuildFolderMoveDelta(
+        string srcDir,
+        string dstDir,
+        IEnumerable<BMSFile> libraryFiles,
+        IEnumerable<BMSPackage> pendingPackages,
+        IEnumerable<BMSPackage> installedPackages,
+        bool unregister)
     {
         LibraryMutationDelta delta = new LibraryMutationDelta();
         List<BMSFile> targetFiles = (libraryFiles ?? Enumerable.Empty<BMSFile>())
@@ -159,6 +148,33 @@ internal sealed class BmsLibraryLibraryFileOperationsService
             delta.InvalidateInstalledDirectoryIndex = targetFiles.Count > 0;
             delta.InvalidateParentFolderCache = targetFiles.Count > 0;
             return delta;
+        }
+        foreach (BMSFile installLinkedFile in (pendingPackages ?? Enumerable.Empty<BMSPackage>())
+            .Where((BMSPackage pkg) => pkg != null)
+            .SelectMany((BMSPackage pkg) => pkg.BMSFiles)
+            .Concat((libraryFiles ?? Enumerable.Empty<BMSFile>()).Where((BMSFile file) => !string.IsNullOrWhiteSpace(file.instl_dst))))
+        {
+            if (!string.IsNullOrWhiteSpace(installLinkedFile?.instl_dst)
+                && (installLinkedFile.instl_dst + Path.DirectorySeparatorChar).StartsWith(srcDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            {
+                delta.UpdatedInstallDestinations.Add(new LibraryInstallDestinationChange
+                {
+                    File = installLinkedFile,
+                    NewInstallDestination = installLinkedFile.instl_dst.ReplaceFromStart(srcDir, dstDir, isIgnoreCase: true)
+                });
+            }
+        }
+        foreach (BMSPackage installedPackage in installedPackages ?? Enumerable.Empty<BMSPackage>())
+        {
+            if (!string.IsNullOrWhiteSpace(installedPackage?.path)
+                && (installedPackage.path + Path.DirectorySeparatorChar).StartsWith(srcDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            {
+                delta.UpdatedInstalledPackagePaths.Add(new LibraryInstalledPackagePathChange
+                {
+                    Package = installedPackage,
+                    NewPath = installedPackage.path.ReplaceFromStart(srcDir, dstDir, isIgnoreCase: true)
+                });
+            }
         }
         foreach (IGrouping<string, BMSFile> group in targetFiles.GroupBy((BMSFile target) => Path.GetDirectoryName(target.path)))
         {
@@ -178,9 +194,202 @@ internal sealed class BmsLibraryLibraryFileOperationsService
             }
         }
         delta.RaiseBmsFilesChanged = delta.FilePathChanges.Count > 0;
-        delta.InvalidateInstalledDirectoryIndex = delta.FilePathChanges.Count > 0;
+        delta.RaiseInstalledPackagesChanged = delta.UpdatedInstalledPackagePaths.Count > 0;
+        delta.InvalidateInstalledDirectoryIndex = delta.FilePathChanges.Count > 0 || delta.UpdatedInstallDestinations.Count > 0 || delta.UpdatedInstalledPackagePaths.Count > 0;
         delta.InvalidateParentFolderCache = delta.FilePathChanges.Count > 0;
+        delta.ClearDuplicatedCache = delta.FilePathChanges.Count > 0 || delta.UpdatedInstallDestinations.Count > 0 || delta.UpdatedInstalledPackagePaths.Count > 0;
         return delta;
+    }
+
+    public List<FolderAutoRenamePlan> BuildAutoRenamePlans(
+        IEnumerable<BMSFile> selectedFiles,
+        IEnumerable<BMSFile> libraryFiles,
+        IEnumerable<string> rootFolders,
+        bool renameRootFolder,
+        Func<IEnumerable<BMSFile>, string, string, string> createFolderPath)
+    {
+        List<string> sourceFolders = (from d in (selectedFiles ?? Enumerable.Empty<BMSFile>()).Where((BMSFile f) => f != null).Select((BMSFile f) => DirectoryExt.GetDirectoryNameSimple(f.path)).Distinct(StringComparer.OrdinalIgnoreCase)
+                                      orderby d.Length
+                                      select d).ToList();
+        List<string> effectiveRootFolders = (rootFolders ?? Enumerable.Empty<string>()).Where((string folder) => !string.IsNullOrWhiteSpace(folder)).ToList();
+        List<string> targetFolders = new List<string>();
+        foreach (string folder in sourceFolders.Where((string folder) => renameRootFolder || !effectiveRootFolders.Contains(folder, StringComparer.OrdinalIgnoreCase)))
+        {
+            if (!targetFolders.Any((string existingFolder) => folder.StartsWith(existingFolder + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)))
+            {
+                targetFolders.Add(folder);
+            }
+        }
+        List<FolderAutoRenamePlan> plans = new List<FolderAutoRenamePlan>();
+        foreach (string folder in targetFolders)
+        {
+            FolderAutoRenamePlan plan = new FolderAutoRenamePlan
+            {
+                SourceDirectory = folder
+            };
+            try
+            {
+                if (!Directory.Exists(folder) || Path.GetPathRoot(folder).Equals(folder, StringComparison.OrdinalIgnoreCase))
+                {
+                    plans.Add(plan);
+                    continue;
+                }
+                List<BMSFile> directChildren = (from f in libraryFiles ?? Enumerable.Empty<BMSFile>()
+                                                where f != null
+                                                    && f.path.StartsWith(folder, StringComparison.OrdinalIgnoreCase)
+                                                    && DirectoryExt.GetDirectoryNameSimple(f.path).Equals(folder, StringComparison.OrdinalIgnoreCase)
+                                                select f).ToList();
+                string longestFileName = (from f in FastDirectoryEnumerator.GetFileNames(folder)
+                                          orderby f.Length descending
+                                          select f).FirstOrDefault() ?? string.Empty;
+                string requestedPath = createFolderPath?.Invoke(directChildren, DirectoryExt.GetDirectoryNameSimple(folder), longestFileName);
+                if (!string.IsNullOrWhiteSpace(requestedPath) && !folder.Equals(requestedPath, StringComparison.OrdinalIgnoreCase))
+                {
+                    int suffix = 1;
+                    string candidate = requestedPath;
+                    while (File.Exists(candidate) || Directory.Exists(candidate))
+                    {
+                        suffix++;
+                        candidate = requestedPath + " (" + suffix + ")";
+                    }
+                    plan.DestinationDirectory = candidate;
+                }
+            }
+            catch (Exception ex)
+            {
+                plan.FailureException = ex;
+            }
+            plans.Add(plan);
+        }
+        return plans;
+    }
+
+    public List<FolderAutoRenamePlan> BuildRootFolderMovePlans(IEnumerable<BMSFile> selectedFiles, string destinationRootDirectory)
+    {
+        List<string> sourceFolders = (from d in (selectedFiles ?? Enumerable.Empty<BMSFile>()).Where((BMSFile f) => f != null).Select((BMSFile f) => DirectoryExt.GetDirectoryNameSimple(f.path)).Distinct(StringComparer.OrdinalIgnoreCase)
+                                      orderby d.Length
+                                      select d).ToList();
+        List<string> targetFolders = new List<string>();
+        foreach (string folder in sourceFolders)
+        {
+            if (!targetFolders.Any((string existingFolder) => folder.StartsWith(existingFolder + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)))
+            {
+                targetFolders.Add(folder);
+            }
+        }
+        return targetFolders
+            .Where((string folder) => !Path.GetPathRoot(folder).Equals(folder, StringComparison.OrdinalIgnoreCase) && Directory.Exists(folder))
+            .Select((string folder) => new FolderAutoRenamePlan
+            {
+                SourceDirectory = folder,
+                DestinationDirectory = Path.Combine(destinationRootDirectory, Path.GetFileName(folder))
+            })
+            .ToList();
+    }
+
+    public LibraryMergeResult PrepareMergeDirectory(
+        string srcDir,
+        string dstDir,
+        IEnumerable<BMSFile> libraryFiles,
+        IEnumerable<BMSPackage> pendingPackages,
+        IEnumerable<BMSPackage> installedPackages,
+        Func<IEnumerable<BMSFile>, HashSet<string>> createHashSnapshotExcluding)
+    {
+        LibraryMergeResult result = new LibraryMergeResult();
+        if (!Directory.Exists(srcDir) || !Directory.Exists(dstDir) || srcDir.Equals(dstDir, StringComparison.OrdinalIgnoreCase))
+        {
+            return result;
+        }
+        result.SourceFiles.AddRange((libraryFiles ?? Enumerable.Empty<BMSFile>())
+            .Where((BMSFile file) => file != null && file.path.StartsWith(srcDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)));
+        result.Repackage = new BMSPackage(result.SourceFiles)
+        {
+            path = srcDir,
+            delete_parent = false
+        };
+        result.ExistingHashes = createHashSnapshotExcluding?.Invoke(result.SourceFiles) ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (BMSFile installLinkedFile in (pendingPackages ?? Enumerable.Empty<BMSPackage>())
+            .Where((BMSPackage pkg) => pkg != null)
+            .SelectMany((BMSPackage pkg) => pkg.BMSFiles)
+            .Concat((libraryFiles ?? Enumerable.Empty<BMSFile>()).Where((BMSFile file) => !string.IsNullOrWhiteSpace(file.instl_dst))))
+        {
+            if (!string.IsNullOrWhiteSpace(installLinkedFile?.instl_dst)
+                && (installLinkedFile.instl_dst + Path.DirectorySeparatorChar).StartsWith(srcDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            {
+                result.ReferenceMutationDelta.UpdatedInstallDestinations.Add(new LibraryInstallDestinationChange
+                {
+                    File = installLinkedFile,
+                    NewInstallDestination = installLinkedFile.instl_dst.ReplaceFromStart(srcDir, dstDir, isIgnoreCase: true)
+                });
+            }
+        }
+        foreach (BMSPackage installedPackage in installedPackages ?? Enumerable.Empty<BMSPackage>())
+        {
+            if (!string.IsNullOrWhiteSpace(installedPackage?.path)
+                && (installedPackage.path + Path.DirectorySeparatorChar).StartsWith(srcDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            {
+                result.ReferenceMutationDelta.UpdatedInstalledPackagePaths.Add(new LibraryInstalledPackagePathChange
+                {
+                    Package = installedPackage,
+                    NewPath = installedPackage.path.ReplaceFromStart(srcDir, dstDir, isIgnoreCase: true)
+                });
+            }
+        }
+        result.ReferenceMutationDelta.RaiseInstalledPackagesChanged = result.ReferenceMutationDelta.UpdatedInstalledPackagePaths.Count > 0;
+        result.ReferenceMutationDelta.InvalidateInstalledDirectoryIndex = result.ReferenceMutationDelta.UpdatedInstallDestinations.Count > 0 || result.ReferenceMutationDelta.UpdatedInstalledPackagePaths.Count > 0;
+        result.ReferenceMutationDelta.ClearDuplicatedCache = result.ReferenceMutationDelta.UpdatedInstallDestinations.Count > 0 || result.ReferenceMutationDelta.UpdatedInstalledPackagePaths.Count > 0;
+        result.Success = result.SourceFiles.Count > 0;
+        return result;
+    }
+
+    public LibraryFixInstallationResult FixInstallationDirectory(
+        IEnumerable<BMSFile> bmsFiles,
+        HashSet<string> existingHashes,
+        Func<BMSPackage, string, bool> movePackageFiles,
+        Func<BMSFile, bool> confirmDuplicateRemoval)
+    {
+        LibraryFixInstallationResult result = new LibraryFixInstallationResult();
+        Stopwatch stopwatch = Stopwatch.StartNew();
+        List<BMSFile> files = (bmsFiles ?? Enumerable.Empty<BMSFile>()).Where((BMSFile file) => file != null && !string.IsNullOrWhiteSpace(file.instl_dst)).ToList();
+        result.RequestedCount = files.Count;
+        foreach (BMSFile file in files)
+        {
+            BMSPackage installPackage = new BMSPackage(file)
+            {
+                delete_parent = false
+            };
+            string oldPath = file.path;
+            if (!(movePackageFiles?.Invoke(installPackage, file.instl_dst) ?? false))
+            {
+                continue;
+            }
+            if (installPackage.BMSFiles.Count == 0)
+            {
+                result.DuplicateSkippedCount++;
+                if (confirmDuplicateRemoval != null && confirmDuplicateRemoval(file))
+                {
+                    result.FilesToRemove.Add(file);
+                }
+                continue;
+            }
+            file.instl_dst = null;
+            result.MutationDelta.FilePathChanges.Add(new LibraryFilePathChange
+            {
+                File = file,
+                NewPath = file.path,
+                OldPath = oldPath
+            });
+            result.MutationDelta.RaiseBmsFilesChanged = true;
+            result.MutationDelta.InvalidateInstalledDirectoryIndex = true;
+            result.MutationDelta.InvalidateParentFolderCache = true;
+            result.MutationDelta.ClearDuplicatedCache = true;
+            result.MaintenanceTargets.Add(file);
+            result.MovedCount++;
+        }
+        stopwatch.Stop();
+        result.TotalMs = stopwatch.ElapsedMilliseconds;
+        result.MutationDelta.TotalMs = result.TotalMs;
+        return result;
     }
 
     public LibraryMutationDelta BuildFileMoveDelta(BMSFile bmsFile, string dstPath, bool unregister)

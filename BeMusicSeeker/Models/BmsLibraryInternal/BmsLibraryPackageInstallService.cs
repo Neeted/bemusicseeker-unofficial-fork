@@ -781,6 +781,58 @@ internal sealed class BmsLibraryPackageInstallService
         return result;
     }
 
+    public AutoInstallApplyResult ApplyAutoInstallWorkflow(
+        AutoInstallWorkflowResult workflow,
+        bool keepInstallablePackagesPending,
+        bool canAutoInstallImmediately,
+        Func<IEnumerable<BMSPackage>, List<BMSPackage>> installPackages)
+    {
+        AutoInstallApplyResult result = new AutoInstallApplyResult();
+        if (workflow == null)
+        {
+            return result;
+        }
+        Stopwatch totalStopwatch = Stopwatch.StartNew();
+        Stopwatch installStopwatch = Stopwatch.StartNew();
+        if (workflow.PendingPackagesToRemove.Count > 0)
+        {
+            result.PendingPackagesToRemove.AddRange(workflow.PendingPackagesToRemove.Where((BMSPackage pkg) => pkg != null));
+            result.InstallRowsToDelete.AddRange(
+                workflow.PendingPackagesToRemove
+                    .Where((BMSPackage pkg) => pkg != null && !string.IsNullOrWhiteSpace(pkg.path))
+                    .Select((BMSPackage pkg) => pkg.path)
+                    .Distinct(StringComparer.OrdinalIgnoreCase));
+        }
+        List<BMSPackage> pendingPackagesToAdd = workflow.PendingPackagesToAdd.Where((BMSPackage pkg) => pkg != null).ToList();
+        if (workflow.AutoInstallCandidates.Count > 0)
+        {
+            if (!keepInstallablePackagesPending && canAutoInstallImmediately)
+            {
+                List<BMSPackage> failedPackages = installPackages?.Invoke(workflow.AutoInstallCandidates) ?? new List<BMSPackage>();
+                HashSet<BMSPackage> failedSet = new HashSet<BMSPackage>(failedPackages);
+                result.AutoInstallFailures.AddRange(failedPackages.Where((BMSPackage pkg) => pkg != null));
+                result.AutoInstalledPackages.AddRange(workflow.AutoInstallCandidates.Where((BMSPackage pkg) => pkg != null && !failedSet.Contains(pkg)));
+                pendingPackagesToAdd = pendingPackagesToAdd.Concat(failedPackages).ToList();
+            }
+            else
+            {
+                pendingPackagesToAdd = pendingPackagesToAdd.Concat(workflow.AutoInstallCandidates.Where((BMSPackage pkg) => pkg != null)).ToList();
+            }
+        }
+        installStopwatch.Stop();
+        result.InstallMs = installStopwatch.ElapsedMilliseconds;
+
+        Stopwatch applyStopwatch = Stopwatch.StartNew();
+        result.PendingPackagesToAdd.AddRange(pendingPackagesToAdd);
+        result.InstallRowsToUpsert.AddRange(pendingPackagesToAdd.Where((BMSPackage pkg) => !string.IsNullOrWhiteSpace(pkg.path)));
+        result.EstimateTargets.AddRange(pendingPackagesToAdd);
+        applyStopwatch.Stop();
+        result.ApplyMs = applyStopwatch.ElapsedMilliseconds;
+        totalStopwatch.Stop();
+        result.TotalMs = totalStopwatch.ElapsedMilliseconds;
+        return result;
+    }
+
     public PendingPackageMutationDelta BuildPendingPackageMutationDelta(IEnumerable<BMSPackage> pendingPackages, IEnumerable<BMSPackage> packagesToRemove = null, IEnumerable<BMSFile> filesToRemove = null, bool clearAll = false)
     {
         List<BMSPackage> currentPending = (pendingPackages ?? Enumerable.Empty<BMSPackage>()).Where((BMSPackage pkg) => pkg != null).ToList();
@@ -1468,6 +1520,49 @@ internal sealed class BmsLibraryPackageInstallService
             result.Processed++;
             onEachProcessed?.Invoke();
         }
+        return result;
+    }
+
+    public PendingExtensionRenameResult RenamePendingFileExtensions(
+        IEnumerable<BMSFile> targetFiles,
+        string newExt,
+        Func<BMSFile, string, RenameInvalidExtensionOutcome> processRename)
+    {
+        PendingExtensionRenameResult result = new PendingExtensionRenameResult();
+        Stopwatch stopwatch = Stopwatch.StartNew();
+        List<BMSFile> files = DeduplicateFilesByPathOrReference(
+            (targetFiles ?? Enumerable.Empty<BMSFile>()).Where((BMSFile file) => file != null && File.Exists(file.path)));
+        result.Total = files.Count;
+        foreach (BMSFile file in files)
+        {
+            string requestedPath = Path.Combine(Path.GetDirectoryName(file.path), Path.GetFileNameWithoutExtension(file.path) + newExt);
+            RenameInvalidExtensionOutcome renameResult = processRename?.Invoke(file, requestedPath) ?? new RenameInvalidExtensionOutcome();
+            switch (renameResult.Action)
+            {
+                case RenameInvalidExtensionAction.Renamed:
+                    result.Renamed++;
+                    result.FilesToRemove.Add(file);
+                    break;
+                case RenameInvalidExtensionAction.DeletedAsDuplicate:
+                    result.DuplicateDeleted++;
+                    result.FilesToRemove.Add(file);
+                    break;
+                default:
+                    result.Skipped++;
+                    if (renameResult.FailureException != null)
+                    {
+                        result.Failed++;
+                        result.Failures.Add(new PendingExtensionRenameFailure
+                        {
+                            File = file,
+                            Outcome = renameResult
+                        });
+                    }
+                    break;
+            }
+        }
+        stopwatch.Stop();
+        result.TotalMs = stopwatch.ElapsedMilliseconds;
         return result;
     }
 

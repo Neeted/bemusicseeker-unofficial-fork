@@ -194,6 +194,70 @@ public sealed class BmsLibraryInitializationServiceTests
         Assert.IsTrue(result.TotalMs >= 0);
     }
 
+    [TestMethod]
+    public void LoadInstallTable_InitializesPendingWarningsAndCounts()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
+        {
+            string directoryPackagePath = Path.Combine(lr2RootPath, "PendingDir");
+            Directory.CreateDirectory(directoryPackagePath);
+            string directoryChartPath = Path.Combine(directoryPackagePath, "dir_chart.bms");
+            File.WriteAllText(directoryChartPath, "#PLAYER 1\r\n#TITLE Dir\r\n");
+
+            string singleFileDirectoryPath = Path.Combine(lr2RootPath, "Single");
+            Directory.CreateDirectory(singleFileDirectoryPath);
+            string singleFileChartPath = Path.Combine(singleFileDirectoryPath, "single_chart.bms");
+            File.WriteAllText(singleFileChartPath, "#PLAYER 1\r\n#TITLE Single\r\n");
+
+            using (LR2SongDBExtended songDb = new LR2SongDBExtended(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDBExtended.install>();
+                songDb.InsertOrReplace(new BMSPackage
+                {
+                    path = directoryPackagePath,
+                    delete_parent = false
+                }, typeof(LR2SongDBExtended.install));
+                songDb.InsertOrReplace(new BMSPackage
+                {
+                    path = singleFileChartPath,
+                    delete_parent = false
+                }, typeof(LR2SongDBExtended.install));
+                songDb.InsertOrReplace(new BMSPackage
+                {
+                    path = Path.Combine(lr2RootPath, "MissingPkg"),
+                    delete_parent = false
+                }, typeof(LR2SongDBExtended.install));
+            }
+
+            string installedHash = BMSFile.CreateBMSFileFromFile(directoryChartPath).hash;
+            BmsLibraryInitializationService service = new BmsLibraryInitializationService();
+
+            InstallTableLoadResult result = service.LoadInstallTable(
+                new BmsLibraryDbGateway(songDbPath),
+                hash => string.Equals(hash, installedHash, StringComparison.OrdinalIgnoreCase),
+                file =>
+                {
+                    file.warning = "strict";
+                    return true;
+                });
+
+            Assert.AreEqual(2, result.PendingPackages.Count);
+            Assert.AreEqual(1, result.StaleInstallPaths.Count);
+            Assert.AreEqual(2, result.PendingWarningInitTargets.Count);
+            Assert.AreEqual(1, result.InstalledWarningCount);
+            Assert.AreEqual(1, result.SingleFileWarningCount);
+            Assert.AreEqual(0, result.StrictWarningCount);
+            Assert.IsTrue(result.LoadMs >= 0);
+            Assert.IsTrue(result.WarningInitMs >= 0);
+            Assert.IsTrue(result.TotalMs >= 0);
+            BMSPackage installedWarningPackage = result.PendingPackages.Single((BMSPackage pkg) => pkg.path.Equals(directoryPackagePath, StringComparison.OrdinalIgnoreCase));
+            BMSPackage singleFileWarningPackage = result.PendingPackages.Single((BMSPackage pkg) => pkg.path.Equals(singleFileChartPath, StringComparison.OrdinalIgnoreCase));
+            Assert.AreEqual(BeMusicSeeker.Properties.Resources.Warning_AlreadyInstalled, installedWarningPackage.BMSFiles[0].warning);
+            Assert.AreEqual(BeMusicSeeker.Properties.Resources.Warning_SingleBmsFile, singleFileWarningPackage.BMSFiles[0].warning);
+        });
+    }
+
     private static void WithTemporaryLr2SongDb(Action<string, string> testAction)
     {
         string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_InitTests_" + Guid.NewGuid().ToString("N"));

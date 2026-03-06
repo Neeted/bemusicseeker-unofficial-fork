@@ -65,7 +65,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
     }
 
     [TestMethod]
-    public void MoveFolderAndUpdateReferences_RewritesDirectoryIndexInstallDestinationsAndInstalledPaths()
+    public void MoveFolderAndUpdateReferences_RewritesDirectoryIndexAndBuildFolderMoveDeltaTracksReferences()
     {
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
@@ -98,20 +98,27 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             service.MoveFolderAndUpdateReferences(
                 sourceRoot,
                 destinationRoot,
-                new[] { libraryFile },
-                new[] { pendingPackage },
-                new[] { installedPackage },
                 folderHash,
                 fileMutationService,
                 null);
+            LibraryMutationDelta delta = service.BuildFolderMoveDelta(
+                sourceRoot,
+                destinationRoot,
+                new[] { libraryFile },
+                new[] { pendingPackage },
+                new[] { installedPackage },
+                unregister: false);
 
             Assert.IsFalse(Directory.Exists(sourceRoot));
             Assert.IsTrue(Directory.Exists(destinationRoot));
             CollectionAssert.Contains(folderHash.Keys, destinationRoot);
             CollectionAssert.Contains(folderHash.Keys, Path.Combine(destinationRoot, "Nested"));
-            Assert.AreEqual(Path.Combine(destinationRoot, "Nested"), pendingFile.instl_dst);
-            Assert.AreEqual(destinationRoot, libraryFile.instl_dst);
-            Assert.AreEqual(Path.Combine(destinationRoot, "Nested"), installedPackage.path);
+            Assert.AreEqual(2, delta.UpdatedInstallDestinations.Count);
+            Assert.AreEqual(1, delta.UpdatedInstalledPackagePaths.Count);
+            CollectionAssert.AreEquivalent(
+                new[] { Path.Combine(destinationRoot, "Nested"), destinationRoot },
+                delta.UpdatedInstallDestinations.Select((LibraryInstallDestinationChange change) => change.NewInstallDestination).ToArray());
+            Assert.AreEqual(Path.Combine(destinationRoot, "Nested"), delta.UpdatedInstalledPackagePaths[0].NewPath);
         });
     }
 
@@ -166,7 +173,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
         TestableBmsFile file1 = CreateFile("C:\\Lib\\Src\\A\\a.bms");
         TestableBmsFile file2 = CreateFile("C:\\Lib\\Src\\B\\b.bms");
 
-        LibraryMutationDelta delta = service.BuildFolderMoveDelta("C:\\Lib\\Src", "C:\\Lib\\Dst", new[] { file1, file2 }, unregister: false);
+        LibraryMutationDelta delta = service.BuildFolderMoveDelta("C:\\Lib\\Src", "C:\\Lib\\Dst", new[] { file1, file2 }, Array.Empty<BMSPackage>(), Array.Empty<BMSPackage>(), unregister: false);
 
         Assert.AreEqual(2, delta.FolderPathChanges.Count);
         Assert.AreEqual(2, delta.FilePathChanges.Count);
@@ -177,6 +184,67 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
         Assert.IsTrue(delta.RaiseBmsFilesChanged);
         Assert.IsTrue(delta.InvalidateInstalledDirectoryIndex);
         Assert.IsTrue(delta.InvalidateParentFolderCache);
+    }
+
+    [TestMethod]
+    public void BuildAutoRenamePlans_SkipsNestedFoldersAndAddsCollisionSuffix()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            BmsLibraryLibraryFileOperationsService service = new BmsLibraryLibraryFileOperationsService();
+            string rootPath = Path.Combine(tempDirectoryPath, "Songs");
+            string sourcePath = Path.Combine(rootPath, "OldFolder");
+            string nestedPath = Path.Combine(sourcePath, "Nested");
+            Directory.CreateDirectory(nestedPath);
+            File.WriteAllText(Path.Combine(sourcePath, "chart.bms"), "#PLAYER 1");
+            string collisionPath = Path.Combine(rootPath, "Renamed");
+            Directory.CreateDirectory(collisionPath);
+            TestableBmsFile file = CreateFile(Path.Combine(sourcePath, "chart.bms"));
+            TestableBmsFile nestedFile = CreateFile(Path.Combine(nestedPath, "nested.bms"));
+
+            List<FolderAutoRenamePlan> plans = service.BuildAutoRenamePlans(
+                new[] { file, nestedFile },
+                new[] { file, nestedFile },
+                Array.Empty<string>(),
+                renameRootFolder: true,
+                (_, parentDir, _) => Path.Combine(parentDir, "Renamed"));
+
+            Assert.AreEqual(1, plans.Count((FolderAutoRenamePlan plan) => !string.IsNullOrWhiteSpace(plan.DestinationDirectory)));
+            Assert.AreEqual(Path.Combine(rootPath, "Renamed (2)"), plans.Single((FolderAutoRenamePlan plan) => !string.IsNullOrWhiteSpace(plan.DestinationDirectory)).DestinationDirectory);
+        });
+    }
+
+    [TestMethod]
+    public void FixInstallationDirectory_ReturnsMutationDeltaAndDuplicateRemovalCandidates()
+    {
+        BmsLibraryLibraryFileOperationsService service = new BmsLibraryLibraryFileOperationsService();
+        TestableBmsFile movedFile = CreateFile("C:\\Broken\\move.bms");
+        movedFile.instl_dst = "C:\\Installed\\Move";
+        TestableBmsFile duplicateFile = CreateFile("C:\\Broken\\dup.bms");
+        duplicateFile.instl_dst = "C:\\Installed\\Dup";
+
+        LibraryFixInstallationResult result = service.FixInstallationDirectory(
+            new[] { movedFile, duplicateFile },
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+            delegate (BMSPackage package, string destinationDirectory)
+            {
+                if (package.BMSFiles[0] == duplicateFile)
+                {
+                    package.BMSFiles.Clear();
+                    return true;
+                }
+                movedFile.path = Path.Combine(destinationDirectory, "move.bms");
+                return true;
+            },
+            file => file == duplicateFile);
+
+        Assert.AreEqual(2, result.RequestedCount);
+        Assert.AreEqual(1, result.MovedCount);
+        Assert.AreEqual(1, result.DuplicateSkippedCount);
+        Assert.AreEqual(1, result.MutationDelta.FilePathChanges.Count);
+        Assert.AreEqual(Path.Combine("C:\\Installed\\Move", "move.bms"), result.MutationDelta.FilePathChanges[0].NewPath);
+        CollectionAssert.AreEqual(new[] { duplicateFile }, result.FilesToRemove);
+        CollectionAssert.AreEqual(new[] { movedFile }, result.MaintenanceTargets);
     }
 
     [TestMethod]

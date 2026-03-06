@@ -324,13 +324,18 @@ internal sealed class BmsLibraryInitializationService
         }
     }
 
-    public InstallTableLoadResult LoadInstallTable(BmsLibraryDbGateway dbGateway)
+    public InstallTableLoadResult LoadInstallTable(
+        BmsLibraryDbGateway dbGateway,
+        Func<string, bool> isInstalledHash = null,
+        Func<BMSFile, bool> applyStrictWarning = null)
     {
         InstallTableLoadResult result = new InstallTableLoadResult();
         if (dbGateway == null)
         {
             return result;
         }
+        Stopwatch totalStopwatch = Stopwatch.StartNew();
+        Stopwatch loadStopwatch = Stopwatch.StartNew();
         try
         {
             List<BMSPackage> packages = dbGateway.LoadInstallPackages();
@@ -340,7 +345,40 @@ internal sealed class BmsLibraryInitializationService
         }
         catch
         {
+            totalStopwatch.Stop();
+            result.TotalMs = totalStopwatch.ElapsedMilliseconds;
+            return result;
         }
+        loadStopwatch.Stop();
+        result.LoadMs = loadStopwatch.ElapsedMilliseconds;
+        Stopwatch warningStopwatch = Stopwatch.StartNew();
+        foreach (BMSPackage pendingPackage in result.PendingPackages)
+        {
+            bool isSingleFilePackage = !Directory.Exists(pendingPackage.path);
+            foreach (BMSFile bmsFile in (pendingPackage.BMSFiles ?? new List<BMSFile>()).Where((BMSFile file) => file != null))
+            {
+                bmsFile.SetHealthStatus(null, forceUpdate: false, memClear: false);
+                result.PendingWarningInitTargets.Add(bmsFile);
+                if (isInstalledHash != null && IsBmsHashAvailable(bmsFile.hash) && isInstalledHash(bmsFile.hash))
+                {
+                    bmsFile.warning = Resources.Warning_AlreadyInstalled;
+                    result.InstalledWarningCount++;
+                }
+                else if (isSingleFilePackage)
+                {
+                    bmsFile.warning = Resources.Warning_SingleBmsFile;
+                    result.SingleFileWarningCount++;
+                }
+                else if (applyStrictWarning != null && applyStrictWarning(bmsFile))
+                {
+                    result.StrictWarningCount++;
+                }
+            }
+        }
+        warningStopwatch.Stop();
+        result.WarningInitMs = warningStopwatch.ElapsedMilliseconds;
+        totalStopwatch.Stop();
+        result.TotalMs = totalStopwatch.ElapsedMilliseconds;
         return result;
     }
 
@@ -616,5 +654,10 @@ internal sealed class BmsLibraryInitializationService
         return (new DateTime(2012, 2, 29) <= lastWriteTime && lastWriteTime < new DateTime(2012, 3, 2))
             || (new DateTime(2016, 2, 29) <= lastWriteTime && lastWriteTime < new DateTime(2016, 3, 2))
             || (new DateTime(2020, 2, 29) <= lastWriteTime && lastWriteTime < new DateTime(2020, 3, 2));
+    }
+
+    private static bool IsBmsHashAvailable(string hash)
+    {
+        return !string.IsNullOrWhiteSpace(hash) && LR2SongDB.md5HashRegex.IsMatch(hash);
     }
 }

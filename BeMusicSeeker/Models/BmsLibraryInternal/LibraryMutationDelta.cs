@@ -10,6 +10,12 @@ internal sealed class LibraryMutationDelta
 
     public List<LibraryFolderPathChange> FolderPathChanges { get; } = new List<LibraryFolderPathChange>();
 
+    public List<LibraryInstallDestinationChange> UpdatedInstallDestinations { get; } = new List<LibraryInstallDestinationChange>();
+
+    public List<LibraryInstalledPackagePathChange> UpdatedInstalledPackagePaths { get; } = new List<LibraryInstalledPackagePathChange>();
+
+    public List<BMSFile> FilesToRecheckMaintenance { get; } = new List<BMSFile>();
+
     public List<LibraryDeleteFailure> Failures { get; } = new List<LibraryDeleteFailure>();
 
     public bool RaiseBmsFilesChanged { get; set; }
@@ -21,6 +27,8 @@ internal sealed class LibraryMutationDelta
     public bool InvalidateInstalledDirectoryIndex { get; set; }
 
     public bool InvalidateParentFolderCache { get; set; }
+
+    public bool ClearDuplicatedCache { get; set; }
 
     public int RenamedCount { get; set; }
 
@@ -47,4 +55,18 @@ internal sealed class LibraryFolderPathChange
     public string NewFolderPath { get; set; }
 
     public string OldFolderPath { get; set; }
+}
+
+internal sealed class LibraryInstallDestinationChange
+{
+    public BMSFile File { get; set; }
+
+    public string NewInstallDestination { get; set; }
+}
+
+internal sealed class LibraryInstalledPackagePathChange
+{
+    public BMSPackage Package { get; set; }
+
+    public string NewPath { get; set; }
 }
