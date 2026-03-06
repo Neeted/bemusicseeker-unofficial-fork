@@ -52,30 +52,6 @@ public class BMSLibrary : NotificationObject
         public List<string> ParentFolders { get; set; }
     }
 
-    /// <summary>
-    /// 無効な拡張子を持つ BMS ファイルのリネーム操作時の結果アクションを示す列挙型です。
-    /// </summary>
-    private enum RenameInvalidExtensionAction
-    {
-        Renamed,
-        DeletedAsDuplicate,
-        Skipped
-    }
-
-    /// <summary>
-    /// 無効な拡張子リネーム処理の結果詳細（最終パス、失敗例外など）を保持するクラスです。
-    /// </summary>
-    private sealed class RenameInvalidExtensionOutcome
-    {
-        public RenameInvalidExtensionAction Action { get; set; }
-
-        public string FinalPath { get; set; }
-
-        public Exception FailureException { get; set; }
-
-        public bool FailedDuringDelete { get; set; }
-    }
-
     private static readonly Logger installPerformanceLogger = LogManager.GetLogger("InstallPerformance.BMSLibrary");
 
     private static readonly Logger everythingVerifyLogger = LogManager.GetLogger("Verify.Everything");
@@ -1101,6 +1077,14 @@ public class BMSLibrary : NotificationObject
 
     private readonly BmsLibraryPlaylistReferenceService playlistReferenceService = new BmsLibraryPlaylistReferenceService(playlistReferenceApplyChunkSize);
 
+    private readonly BmsLibraryPackageInstallService packageInstallService = new BmsLibraryPackageInstallService();
+
+    private readonly BmsLibraryLibraryFileOperationsService libraryFileOperationsService = new BmsLibraryLibraryFileOperationsService();
+
+    private readonly BmsLibraryIrService irService = new BmsLibraryIrService();
+
+    private readonly IBmsLibraryIrClient irClient = new BmsLibraryIrClient();
+
     private readonly BmsLibraryMaintenanceService maintenanceService = new BmsLibraryMaintenanceService();
 
     private BmsLibraryOptionsSnapshot CurrentOptionsSnapshot => BmsLibraryOptionsSnapshot.CreateCurrent();
@@ -2015,26 +1999,7 @@ public class BMSLibrary : NotificationObject
         {
             using (rwlockSongDBMaintenance.GetWriterGuard())
             {
-                LR2SongDBExtended lr2Song = new LR2SongDBExtended(lr2SongDBPath);
-                try
-                {
-                    lr2Song.BeginTransaction();
-                    List<string> stalePaths = (from m in lr2Song.Table<BMSFileMaintenanceInfo>().ToList()
-                                               select m.path).Except(BMSFiles.Select((BMSFile i) => i.path)).ToList();
-                    foreach (string stalePath in stalePaths)
-                    {
-                        lr2Song.Delete<LR2SongDBExtended.maintenance>(stalePath);
-                    }
-                    lr2Song.Commit();
-                    return stalePaths.Count;
-                }
-                finally
-                {
-                    if (lr2Song != null)
-                    {
-                        ((IDisposable)lr2Song).Dispose();
-                    }
-                }
+                return maintenanceService.CleanupMaintenanceTable(BMSFiles, dbGateway);
             }
         }
     }
@@ -2320,14 +2285,7 @@ public class BMSLibrary : NotificationObject
                     {
                         return;
                     }
-                    foreach (var item in bmsFiles.Join(BMSScores, (BMSFile f) => f.hash, (BMSScore s) => s.hash, (BMSFile f, BMSScore y) => new
-                    {
-                        bmsFile = f,
-                        bmsScores = y
-                    }))
-                    {
-                        item.bmsFile.bmsScore = item.bmsScores;
-                    }
+                    irService.ApplyKnownScoresToFiles(bmsFiles, BMSScores);
                 }
             }
         }
@@ -2335,209 +2293,25 @@ public class BMSLibrary : NotificationObject
 
     private LR2IRCache getIRCache(string filePath)
     {
-        string fileNameWithoutExtension = Path.GetFileNameWithoutExtension(filePath);
-        string rankingxml = File.ReadAllText(filePath, Encoding.GetEncoding("shift_jis"));
-        DateTime lastWriteTime = File.GetLastWriteTime(filePath);
-        return new LR2IRCache(rankingxml, fileNameWithoutExtension, lastWriteTime);
+        return irService.LoadIrCache(filePath);
     }
 
     private void setBMSScore(LR2IRData data, LR2IRCache cache)
     {
-        string text = Path.Combine(Path.Combine(Path.GetDirectoryName(lr2ScoreDBPath), "..\\..\\Ir"), data.hash + ".xml");
-        BMSScore score = null;
-        using (rwlockBMSScores.GetReaderGuard())
-        {
-            score = BMSScores.FirstOrDefault((BMSScore s) => s.hash == data.hash);
-        }
-        if (data.score > 0)
-        {
-            if (score != null)
-            {
-                if (score.clear < data.clear)
-                {
-                    score.clear = data.clear;
-                }
-                if (score.score < data.score)
-                {
-                    score.ranking = data.rank;
-                    score.rankingNum = data.players_num;
-                    score.rankingLastupdate = data.lastupdate;
-                    score.perfect = data.pg;
-                    score.great = data.gr;
-                    score.maxcombo = data.combo;
-                    score.minbp = data.minbp;
-                }
-                else if (score.score == data.score)
-                {
-                    score.ranking = data.rank;
-                    score.rankingNum = data.players_num;
-                    score.rankingLastupdate = data.lastupdate;
-                }
-                else
-                {
-                    if (!Settings.Default.SkipEstimateOfflineScoreRanking)
-                    {
-                        if (cache == null && File.Exists(text))
-                        {
-                            try
-                            {
-                                cache = getIRCache(text);
-                            }
-                            catch
-                            {
-                                cache = null;
-                            }
-                        }
-                        if (cache != null)
-                        {
-                            score.ranking = cache.GetRankFromScore(score.score);
-                        }
-                    }
-                    score.rankingNum = data.players_num;
-                    score.rankingLastupdate = data.lastupdate;
-                }
-                score.SetStdDevVal(data.average, data.sigma);
-                score.SetScoreDiffic(data.average, data.sigma);
-                return;
-            }
-            score = new BMSScore(data);
-            using (rwlockBMSScores.GetWriterGuard())
-            {
-                BMSScores.Add(score);
-            }
-            using (rwlockBMSFiles.GetReaderGuard())
-            {
-                foreach (BMSFile item in BMSFiles.Where((BMSFile f) => f.hash == score.hash))
-                {
-                    item.bmsScore = score;
-                }
-                return;
-            }
-        }
-        if (score != null)
-        {
-            if (!Settings.Default.SkipEstimateOfflineScoreRanking)
-            {
-                if (cache == null && File.Exists(text))
-                {
-                    try
-                    {
-                        cache = getIRCache(text);
-                    }
-                    catch
-                    {
-                        cache = null;
-                    }
-                }
-                if (cache != null)
-                {
-                    score.ranking = cache.GetRankFromScore(score.score);
-                }
-            }
-            score.rankingNum = data.players_num;
-            score.rankingLastupdate = data.lastupdate;
-            score.SetStdDevVal(data.average, data.sigma);
-            score.SetScoreDiffic(data.average, data.sigma);
-            return;
-        }
-        score = new BMSScore(data);
         using (rwlockBMSScores.GetWriterGuard())
         {
-            BMSScores.Add(score);
-        }
-        using (rwlockBMSFiles.GetReaderGuard())
-        {
-            foreach (BMSFile item2 in BMSFiles.Where((BMSFile f) => f.hash == score.hash))
+            List<BMSFile> bmsFilesSnapshot;
+            using (rwlockBMSFiles.GetReaderGuard())
             {
-                item2.bmsScore = score;
+                bmsFilesSnapshot = ((BMSFiles == null) ? new List<BMSFile>() : BMSFiles.Where((BMSFile f) => f != null).ToList());
             }
+            irService.ApplyIrDataToScoresAndFiles(data, cache, lr2ScoreDBPath, BMSScores, bmsFilesSnapshot, Settings.Default.SkipEstimateOfflineScoreRanking);
         }
     }
 
     private List<LR2IRScore> updateLR2IRScoreTable()
     {
-        if (lr2ScoreDBPath == null)
-        {
-            return null;
-        }
-        if (LR2ID == 0)
-        {
-            return null;
-        }
-        string empty = string.Empty;
-        try
-        {
-            Uri uri = new Uri("http://www.dream-pro.info/~lavalse/LR2IR/2/getplayerxml.cgi?id=" + LR2ID);
-            empty = AppHttpClient.Shared.GetString(uri, Encoding.GetEncoding("shift_jis"));
-        }
-        catch (Exception)
-        {
-            return null;
-        }
-        List<LR2IRScore> list;
-        try
-        {
-            list = (from e in lr2IRScoreRegex.Matches(empty).Cast<Match>().Select(delegate (Match m)
-                {
-                    try
-                    {
-                        return new LR2IRScore(m.Groups[1].Value)
-                        {
-                            clear = (ClearType)int.Parse(m.Groups[2].Value),
-                            notes = int.Parse(m.Groups[3].Value),
-                            combo = int.Parse(m.Groups[4].Value),
-                            pg = int.Parse(m.Groups[5].Value),
-                            gr = int.Parse(m.Groups[6].Value),
-                            gd = int.Parse(m.Groups[7].Value),
-                            bd = int.Parse(m.Groups[8].Value),
-                            pr = int.Parse(m.Groups[9].Value),
-                            minbp = int.Parse(m.Groups[10].Value),
-                            option = int.Parse(m.Groups[11].Value),
-                            lastupdate = int.Parse(m.Groups[12].Value)
-                        };
-                    }
-                    catch
-                    {
-                        return (LR2IRScore)null;
-                    }
-                })
-                    where e != null
-                    group e by e.hash into e
-                    select e.First()).ToList();
-        }
-        catch (Exception)
-        {
-            return null;
-        }
-        try
-        {
-            if (list.Count > 0)
-            {
-                using LR2SongDBExtended lR2SongDBExtended = new LR2SongDBExtended(lr2SongDBPath);
-                lR2SongDBExtended.BeginTransaction();
-                lR2SongDBExtended.DropTable<LR2SongDBExtended.ir_score>();
-                lR2SongDBExtended.CreateTable<LR2SongDBExtended.ir_score>();
-                lR2SongDBExtended.InsertAll(list, typeof(LR2SongDBExtended.ir_score));
-                lR2SongDBExtended.CreateIndex("ir_score_idx_unsent", SQLiteTable<LR2SongDBExtended.ir_score>.GetTableName(), new string[9]
-                {
-                    SQLiteTable<LR2SongDBExtended.ir_score>.GetColumnName((LR2SongDBExtended.ir_score e) => e.hash),
-                    SQLiteTable<LR2SongDBExtended.ir_score>.GetColumnName((LR2SongDBExtended.ir_score e) => e.clear),
-                    SQLiteTable<LR2SongDBExtended.ir_score>.GetColumnName((LR2SongDBExtended.ir_score e) => e.combo),
-                    SQLiteTable<LR2SongDBExtended.ir_score>.GetColumnName((LR2SongDBExtended.ir_score e) => e.pg),
-                    SQLiteTable<LR2SongDBExtended.ir_score>.GetColumnName((LR2SongDBExtended.ir_score e) => e.gr),
-                    SQLiteTable<LR2SongDBExtended.ir_score>.GetColumnName((LR2SongDBExtended.ir_score e) => e.gd),
-                    SQLiteTable<LR2SongDBExtended.ir_score>.GetColumnName((LR2SongDBExtended.ir_score e) => e.bd),
-                    SQLiteTable<LR2SongDBExtended.ir_score>.GetColumnName((LR2SongDBExtended.ir_score e) => e.pr),
-                    SQLiteTable<LR2SongDBExtended.ir_score>.GetColumnName((LR2SongDBExtended.ir_score e) => e.minbp)
-                });
-                lR2SongDBExtended.Commit();
-            }
-        }
-        catch (Exception)
-        {
-            return null;
-        }
-        return list;
+        return irService.UpdateIrScoreTable(LR2ID, dbGateway, irClient, lr2IRScoreRegex);
     }
 
     private void updateBMSScores(List<LR2IRScore> scoreTable)
@@ -2550,66 +2324,7 @@ public class BMSLibrary : NotificationObject
         {
             using (rwlockBMSFiles.GetReaderGuard())
             {
-                foreach (BMSFile item in (from ls in BMSScores
-                                          join os in scoreTable on ls.hash equals os.hash into os
-                                          select new
-                                          {
-                                              bmsScore = ls,
-                                              irScores = os.DefaultIfEmpty()
-                                          } into grp
-                                          from a in grp.irScores
-                                          select new
-                                          {
-                                              bmsScore = grp.bmsScore,
-                                              irScore = a
-                                          } into b
-                                          where b.irScore == null || b.bmsScore.score != b.irScore.score || b.bmsScore.minbp != b.irScore.minbp || (b.bmsScore.clear != b.irScore.clear && (b.bmsScore.clear != ClearType.PA || b.irScore.clear != ClearType.FC))
-                                          select b).Join(BMSFiles, b => b.bmsScore.hash, bmsFile => bmsFile.hash, (a, bmsFile) => bmsFile))
-                {
-                    item.status |= BMSFile.BMSFileStatus.SCORE_UNSENT;
-                }
-            }
-            IEnumerable<BMSScore> enumerable = (from os in scoreTable
-                                                join ls in BMSScores on os.hash equals ls.hash into ls
-                                                select new
-                                                {
-                                                    irScore = os,
-                                                    bmsScores = ls.DefaultIfEmpty(new BMSScore(os))
-                                                } into grp
-                                                from a in grp.bmsScores
-                                                select new
-                                                {
-                                                    irScore = grp.irScore,
-                                                    bmsScore = a
-                                                }).Select(b =>
-                                            {
-                                                if (b.irScore.clear > b.bmsScore.clear)
-                                                {
-                                                    b.bmsScore.clear = b.irScore.clear;
-                                                }
-                                                if (b.irScore.score > b.bmsScore.score)
-                                                {
-                                                    b.bmsScore.Overwrite(b.irScore);
-                                                }
-                                                return b.bmsScore;
-                                            }).Except(BMSScores);
-            BMSScores = BMSScores.Concat(enumerable).ToList();
-            using (rwlockBMSFiles.GetReaderGuard())
-            {
-                if (BMSFiles == null)
-                {
-                    return;
-                }
-                foreach (var item2 in from f in BMSFiles
-                                      join s in enumerable on f.hash equals s.hash
-                                      select new
-                                      {
-                                          bmsFile = f,
-                                          bmsScores = s
-                                      })
-                {
-                    item2.bmsFile.bmsScore = item2.bmsScores;
-                }
+                BMSScores = irService.UpdateBmsScores(scoreTable, BMSScores, BMSFiles);
             }
         }
     }
@@ -2749,53 +2464,9 @@ public class BMSLibrary : NotificationObject
         {
             throw new InvalidOperationException(Resources.Error_LR2ScoreDBNotConnected);
         }
-        List<string> list = md5s.Where((string md5) => LR2SongDB.md5HashRegex.IsMatch(md5)).ToList();
-        dynamic val = new DynamicJson(DynamicJson.JsonType.array);
-        for (int num = 0; num < list.Count; num++)
-        {
-            val[num] = list[num];
-        }
-        dynamic val2 = DynamicJson.Parse(AppHttpClient.Shared.PostString(rankingInfoUrl, val.ToString(), "application/json;charset=UTF-8", Encoding.UTF8, new Dictionary<string, string>
-        {
-            { "Accept", "application/json" }
-        }));
-        List<IRDataCacheInfo> outer = (from ri in ((object[])val2).Select(delegate (dynamic i)
-            {
-                try
-                {
-                    return new IRDataCacheInfo(i);
-                }
-                catch
-                {
-                    return (IRDataCacheInfo)null;
-                }
-            })
-                                       where ri != null
-                                       select ri).ToList();
         using (rwlockLR2IrDir.GetReaderGuard())
         {
-            List<LR2IRData> inner;
-            using (LR2SongDBExtended lR2SongDBExtended = new LR2SongDBExtended(lr2SongDBPath))
-            {
-                inner = (from s in lR2SongDBExtended.Table<LR2IRData>().ToList()
-                         where s.lr2id == LR2ID
-                         select s).ToList();
-            }
-            return (from i in outer
-                    join d in inner on i.md5 equals d.hash into d
-                    select new
-                    {
-                        irCacheInfo = i,
-                        irDataDB = d.DefaultIfEmpty()
-                    } into grp
-                    from a in grp.irDataDB
-                    select new
-                    {
-                        irCacheInfo = grp.irCacheInfo,
-                        irDataDB = a
-                    } into b
-                    where b.irDataDB == null || b.irCacheInfo.lastupdate > b.irDataDB.lastupdate
-                    select b.irCacheInfo).ToList();
+            return irService.GetIRDataNeedUpdates(LR2ID, md5s, dbGateway, irClient, rankingInfoUrl);
         }
     }
 
@@ -2814,99 +2485,21 @@ public class BMSLibrary : NotificationObject
         {
             throw new DirectoryNotFoundException(string.Format(Resources.Error_IRCacheDirNotFound, irCacheDirPath));
         }
-        List<IRDataCacheInfo> source = cacheInfo.ToList();
-        List<IRDataCacheInfo> failed = new List<IRDataCacheInfo>();
-        object failedLock = new object();
-        List<LR2IRData> irDataToBeCommited = new List<LR2IRData>();
         using (rwlockLR2IrDir.GetWriterGuard())
         {
-            source.AsParallel().WithDegreeOfParallelism(3).ForAll(delegate (IRDataCacheInfo info)
+            using (rwlockBMSScores.GetWriterGuard())
             {
-                try
+                using (rwlockBMSFiles.GetReaderGuard())
                 {
-                    Uri address = new Uri(rankingDataUrl, "./" + info.md5 + ".xml");
-                    AppHttpClient.Shared.DownloadFile(address, Path.Combine(irCacheDirPath, info.md5 + ".xml"));
-                    LR2IRCache iRCache = getIRCache(Path.Combine(irCacheDirPath, info.md5 + ".xml"));
-                    LR2IRData lR2IRData = iRCache.GetLR2IRData(LR2ID);
-                    if (lR2IRData != null)
-                    {
-                        lock (lockRankingScores)
-                        {
-                            irDataToBeCommited.Add(lR2IRData);
-                        }
-                        setBMSScore(lR2IRData, iRCache);
-                    }
+                    return irService.DownloadIRData(LR2ID, cacheInfo, irCacheDirPath, dbGateway, irClient, rankingDataUrl, BMSScores, BMSFiles, Settings.Default.SkipEstimateOfflineScoreRanking);
                 }
-                catch
-                {
-                    lock (failedLock)
-                    {
-                        failed.Add(info);
-                    }
-                }
-            });
-        }
-        using (LR2SongDBExtended lR2SongDBExtended = new LR2SongDBExtended(lr2SongDBPath))
-        {
-            lR2SongDBExtended.BeginTransaction();
-            foreach (LR2IRData item in irDataToBeCommited)
-            {
-                lR2SongDBExtended.Execute("DELETE FROM " + SQLiteTable<LR2SongDBExtended.ir_data>.GetTableName() + " WHERE " + SQLiteTable<LR2SongDBExtended.ir_data>.GetColumnName((LR2SongDBExtended.ir_data e) => e.hash) + " = '" + item.hash + "' AND " + SQLiteTable<LR2SongDBExtended.ir_data>.GetColumnName((LR2SongDBExtended.ir_data e) => e.lr2id) + " = " + item.lr2id + ";");
-                lR2SongDBExtended.InsertOrReplace(item, typeof(LR2SongDBExtended.ir_data));
             }
-            lR2SongDBExtended.Commit();
         }
-        return failed;
     }
 
     public IRSongInfo GetIRSongInfoCache(string md5orlr2bmsid, bool seaarchAggressively = false)
     {
-        if (string.IsNullOrWhiteSpace(md5orlr2bmsid))
-        {
-            throw new ArgumentException("md5orlr2bmsid");
-        }
-        if (LR2SongDB.md5HashRegex.IsMatch(md5orlr2bmsid) || Regex.IsMatch(md5orlr2bmsid, "^[0-9]+$"))
-        {
-            try
-            {
-                string search_url = string.Empty;
-                string search_url_sabun = string.Empty;
-                IRSongInfo info = null;
-                Task task = Task.Run(delegate
-                {
-                    dynamic val2 = DynamicJson.Parse(AppHttpClient.Shared.GetString(new Uri(songInfoUrl, "./" + md5orlr2bmsid), Encoding.UTF8));
-                    info = new IRSongInfo(val2);
-                });
-                if (seaarchAggressively)
-                {
-                    Task.Run(delegate
-                    {
-                        dynamic val2 = DynamicJson.Parse(AppHttpClient.Shared.GetString(new Uri("http://www.ribbit.xyz/bms/search/run?search[value]=" + md5orlr2bmsid), Encoding.UTF8));
-                        search_url = val2.data[0][10].ToString().Trim();
-                        search_url_sabun = val2.data[0][11].ToString().Trim();
-                    }).Wait();
-                }
-                task.Wait();
-                if (seaarchAggressively)
-                {
-                    if (!string.IsNullOrWhiteSpace(search_url))
-                    {
-                        info.url = (info.url + " " + search_url).Trim();
-                    }
-                    if (!string.IsNullOrWhiteSpace(search_url_sabun))
-                    {
-                        info.url_diff = (info.url_diff + " " + search_url_sabun).Trim();
-                    }
-                }
-                return info;
-            }
-            catch
-            {
-                dynamic val = DynamicJson.Parse(AppHttpClient.Shared.GetString(new Uri(songInfoUrl, "./" + md5orlr2bmsid), Encoding.UTF8));
-                return new IRSongInfo(val);
-            }
-        }
-        throw new ArgumentException("md5orlr2bmsid");
+        return irService.GetIRSongInfoCache(md5orlr2bmsid, seaarchAggressively, irClient, songInfoUrl);
     }
 
     /// <summary>
@@ -3065,18 +2658,8 @@ public class BMSLibrary : NotificationObject
             {
                 using (rwlockSongDBMaintenance.GetWriterGuard())
                 {
-                    List<BMSFileMaintenanceInfo> list = (from f in bmsFiles
-                                                         select f.maintenanceInfo into m
-                                                         where m.is_files_warning_ignored == unset
-                                                         select m).ToList();
-                    using LR2SongDBExtended lR2SongDBExtended = new LR2SongDBExtended(lr2SongDBPath);
-                    lR2SongDBExtended.BeginTransaction();
-                    foreach (BMSFileMaintenanceInfo item in list)
-                    {
-                        item.is_files_warning_ignored = !unset;
-                        lR2SongDBExtended.InsertOrReplace(item, typeof(LR2SongDBExtended.maintenance));
-                    }
-                    lR2SongDBExtended.Commit();
+                    List<BMSFileMaintenanceInfo> changes = maintenanceService.SetFilesWarningIgnored(bmsFiles, unset);
+                    dbGateway.UpsertMaintenanceInfos(changes);
                 }
             }
         }
@@ -3125,57 +2708,20 @@ public class BMSLibrary : NotificationObject
         }
         using (rwlockBMSFilesInitializedMin.GetReaderGuard())
         {
-            if (!string.IsNullOrWhiteSpace(encoding))
+            using (rwlockBMSFiles.GetWriterGuard())
             {
-                using (rwlockBMSFiles.GetWriterGuard())
+                MaintenanceEncodingUpdateResult updateResult = maintenanceService.ApplyEncoding(bmsFiles, encoding);
+                if (updateResult.SongsToUpsert.Count > 0)
                 {
-                    List<BMSFile> list = bmsFiles.Where((BMSFile f) => f.maintenanceInfo.encoding != encoding && (encoding != "shift_jis" || f.maintenanceInfo.is_encoding_fixed) && File.Exists(f.path)).ToList();
-                    if (list.Count > 0)
+                    dbGateway.UpsertSongs(updateResult.SongsToUpsert);
+                }
+                if (updateResult.MaintenanceInfosToUpsert.Count > 0)
+                {
+                    using (rwlockSongDBMaintenance.GetWriterGuard())
                     {
-                        using LR2SongDBExtended lR2SongDBExtended = new LR2SongDBExtended(lr2SongDBPath);
-                        lR2SongDBExtended.BeginTransaction();
-                        foreach (BMSFile item in list)
-                        {
-                            BMSFile.ReloadBMSFileWithEncoding(item, encoding);
-                            lR2SongDBExtended.InsertOrReplace(item, typeof(LR2SongDB.song));
-                        }
-                        lR2SongDBExtended.Commit();
+                        dbGateway.UpsertMaintenanceInfos(updateResult.MaintenanceInfosToUpsert);
                     }
                 }
-            }
-            using (rwlockSongDBMaintenance.GetWriterGuard())
-            {
-                List<BMSFileMaintenanceInfo> list2 = bmsFiles.Select((BMSFile f) => f.maintenanceInfo).Where(delegate (BMSFileMaintenanceInfo m)
-                {
-                    if (m.encoding == encoding || (string.IsNullOrWhiteSpace(m.encoding) && string.IsNullOrWhiteSpace(encoding)))
-                    {
-                        return false;
-                    }
-                    if (!string.IsNullOrWhiteSpace(encoding))
-                    {
-                        m.encoding = encoding;
-                        m.is_encoding_fixed = true;
-                        return true;
-                    }
-                    if ((m.encoding.EndsWith("?") && m.encoding != "shift_jis?") || m.encoding == "unknown")
-                    {
-                        m.encoding = "shift_jis";
-                        m.is_encoding_fixed = true;
-                        return true;
-                    }
-                    return false;
-                }).ToList();
-                if (list2.Count <= 0)
-                {
-                    return;
-                }
-                using LR2SongDBExtended lR2SongDBExtended2 = new LR2SongDBExtended(lr2SongDBPath);
-                lR2SongDBExtended2.BeginTransaction();
-                foreach (BMSFileMaintenanceInfo item2 in list2)
-                {
-                    lR2SongDBExtended2.InsertOrReplace(item2, typeof(LR2SongDBExtended.maintenance));
-                }
-                lR2SongDBExtended2.Commit();
             }
         }
     }
@@ -3244,50 +2790,8 @@ public class BMSLibrary : NotificationObject
         {
             allFiles = ((BMSFiles == null) ? new List<BMSFile>() : BMSFiles.Where((BMSFile f) => f != null).ToList());
         }
-        List<BMSFile> zeroNoteFiles = allFiles.Where((BMSFile f) => f.notes == 0 && !string.IsNullOrWhiteSpace(f.path)).ToList();
-        List<BMSFile> staleMismatchFiles = allFiles.Where((BMSFile f) => f.notes != 0 && f.HasZeroNoteMismatchWarning).ToList();
-        int clearedCount = 0;
-        foreach (BMSFile staleMismatchFile in staleMismatchFiles)
-        {
-            if (staleMismatchFile.HasZeroNoteMismatchWarning)
-            {
-                staleMismatchFile.HasZeroNoteMismatchWarning = false;
-                clearedCount++;
-            }
-        }
-        int mismatchCount = 0;
-        int skippedCount = 0;
-        foreach (BMSFile zeroNoteFile in zeroNoteFiles)
-        {
-            try
-            {
-                bool isZeroNoteByFile = BMSFile.IsZeroNoteBMSFile(zeroNoteFile.path);
-                if (!isZeroNoteByFile)
-                {
-                    zeroNoteFile.HasZeroNoteMismatchWarning = true;
-                    mismatchCount++;
-                }
-                else
-                {
-                    if (zeroNoteFile.HasZeroNoteMismatchWarning)
-                    {
-                        clearedCount++;
-                    }
-                    zeroNoteFile.HasZeroNoteMismatchWarning = false;
-                }
-            }
-            catch (Exception ex) when (ex is DirectoryNotFoundException || ex is FileNotFoundException || ex is IOException || ex is PathTooLongException || ex is SecurityException || ex is UnauthorizedAccessException)
-            {
-                if (zeroNoteFile.HasZeroNoteMismatchWarning)
-                {
-                    clearedCount++;
-                }
-                zeroNoteFile.HasZeroNoteMismatchWarning = false;
-                skippedCount++;
-                NLogWrapper.FileLogger?.Warn(ex, "zero_note_recheck skipped: path=" + zeroNoteFile.path);
-            }
-        }
-        NLogWrapper.FileLogger?.Info(string.Format("zero_note_recheck total={0} mismatch={1} cleared={2} skipped={3}", zeroNoteFiles.Count, mismatchCount, clearedCount, skippedCount));
+        ZeroNoteRecheckResult result = maintenanceService.RecheckZeroNoteWarnings(allFiles, (ex, message) => NLogWrapper.FileLogger?.Warn(ex, message));
+        NLogWrapper.FileLogger?.Info(string.Format("zero_note_recheck total={0} mismatch={1} cleared={2} skipped={3}", result.Total, result.MismatchCount, result.ClearedCount, result.SkippedCount));
     }
 
     /// <summary>
@@ -3313,22 +2817,12 @@ public class BMSLibrary : NotificationObject
     {
         using (rwlockBMSFiles.GetReaderGuard())
         {
-            List<BMSFile> list = bmsFiles.Where((BMSFile f) => f != null && (forceUpdate || !f.mode.HasValue) && File.Exists(f.path)).ToList();
+            List<BMSFile> list = maintenanceService.DetectModeChanges(bmsFiles, forceUpdate);
             if (list.Count <= 0)
             {
                 return;
             }
-            foreach (BMSFile item in list)
-            {
-                item.SetMode();
-            }
-            using LR2SongDBExtended lR2SongDBExtended = new LR2SongDBExtended(lr2SongDBPath);
-            lR2SongDBExtended.BeginTransaction();
-            foreach (BMSFile item2 in list)
-            {
-                lR2SongDBExtended.InsertOrReplace(item2, typeof(LR2SongDB.song));
-            }
-            lR2SongDBExtended.Commit();
+            dbGateway.UpsertSongs(list);
         }
     }
 
@@ -3787,13 +3281,6 @@ public class BMSLibrary : NotificationObject
         }
     }
 
-    private enum CleanupSourceKind
-    {
-        Directory,
-        File,
-        MissingSource
-    }
-
     private bool TryCleanupPendingPackageSourceForEstimatedInstall(BMSPackage package, out CleanupSourceKind sourceKind)
     {
         sourceKind = CleanupSourceKind.MissingSource;
@@ -4225,15 +3712,7 @@ public class BMSLibrary : NotificationObject
         }
         stopwatchMove.Stop();
         Stopwatch stopwatchSongDb = Stopwatch.StartNew();
-        using (LR2SongDBExtended lR2SongDBExtended = new LR2SongDBExtended(lr2SongDBPath))
-        {
-            lR2SongDBExtended.BeginTransaction();
-            foreach (BMSFile item2 in bmsFilesToBeAdded)
-            {
-                lR2SongDBExtended.InsertOrReplace(item2, typeof(LR2SongDB.song));
-            }
-            lR2SongDBExtended.Commit();
-        }
+        dbGateway.UpsertSongs(bmsFilesToBeAdded);
         stopwatchSongDb.Stop();
         Stopwatch stopwatchMaintenance = Stopwatch.StartNew();
         if (deferredMaintenanceTargets != null)
@@ -4338,30 +3817,6 @@ public class BMSLibrary : NotificationObject
                 item.warning = Resources.Warning_AlreadyInstalled;
             }
         }
-    }
-
-    private void ApplyBatchDuplicateWarnings(IEnumerable<BMSFile> files)
-    {
-        if (files == null)
-        {
-            return;
-        }
-        foreach (BMSFile file in files)
-        {
-            if (file != null)
-            {
-                file.warning = Resources.Warning_AlreadyInstalled;
-            }
-        }
-    }
-
-    private bool TryAddBatchReservation(HashSet<string> reservedHashes, BMSFile file)
-    {
-        if (reservedHashes == null || file == null || !IsBMSHashAvailable(file.hash))
-        {
-            return false;
-        }
-        return reservedHashes.Add(file.hash);
     }
 
     private Dictionary<string, List<string>> BuildInstalledHashToDirectoryMap()
@@ -4533,24 +3988,7 @@ public class BMSLibrary : NotificationObject
                         {
                             return;
                         }
-                        List<BMSPackage> list = new List<BMSPackage>();
-                        HashSet<BMSPackage> hashSet = new HashSet<BMSPackage>();
-                        HashSet<string> hashSet2 = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                        foreach (BMSPackage item in packages.Where((BMSPackage pkg) => pkg != null))
-                        {
-                            if (!string.IsNullOrWhiteSpace(item.path))
-                            {
-                                if (!hashSet2.Add(item.path))
-                                {
-                                    continue;
-                                }
-                            }
-                            else if (!hashSet.Add(item))
-                            {
-                                continue;
-                            }
-                            list.Add(item);
-                        }
+                        List<BMSPackage> list = packageInstallService.DeduplicatePackagesByPathOrReference(packages);
                         if (list.Count == 0)
                         {
                             return;
@@ -4724,300 +4162,44 @@ public class BMSLibrary : NotificationObject
                             return;
                         }
                         bool deletePendingPackageSourceAfterInstall = Settings.Default.DeletePendingPackageSourceAfterInstall;
-                        List<BMSPackage> pendingPackagesSnapshot = BMSPackagesPending.Where((BMSPackage pkg) => pkg != null).ToList();
-                        HashSet<BMSPackage> pendingPackageSet = new HashSet<BMSPackage>(pendingPackagesSnapshot);
-                        Stopwatch filterStopwatch = Stopwatch.StartNew();
-                        List<BMSPackage> selectedPendingPackages = packages.Where((BMSPackage pkg) => pkg != null && pendingPackageSet.Contains(pkg)).Distinct().ToList();
-                        filterStopwatch.Stop();
-                        if (selectedPendingPackages.Count == 0)
+                        PendingInstallBatchPlan installPlan = packageInstallService.BuildEstimatedInstallBatchPlan(packages, BMSPackagesPending, BMSFiles, deletePendingPackageSourceAfterInstall, CountComponentMoveTargetsForPackage);
+                        if (installPlan.SelectedPendingPackages.Count == 0)
                         {
                             totalStopwatch.Stop();
-                            LogInstallPerformance("InstallBMSPackagesToEstimatedDir skipped reason=no_pending_target filterMs=" + filterStopwatch.ElapsedMilliseconds + " totalMs=" + totalStopwatch.ElapsedMilliseconds);
+                            LogInstallPerformance("InstallBMSPackagesToEstimatedDir skipped reason=no_pending_target filterMs=" + installPlan.FilterMs + " totalMs=" + totalStopwatch.ElapsedMilliseconds);
                             return;
                         }
-                        Stopwatch groupBuildStopwatch = Stopwatch.StartNew();
-                        // 実パッケージ全体ではなく「今回導入する未所持譜面集合」を単位にグルーピングする。
-                        Dictionary<string, List<BMSPackage>> packagesByDestination = new Dictionary<string, List<BMSPackage>>(StringComparer.OrdinalIgnoreCase);
-                        Dictionary<BMSPackage, BMSPackage> installWorkPackageByOriginal = new Dictionary<BMSPackage, BMSPackage>();
-                        Dictionary<BMSPackage, BMSPackage> originalPackageByInstallWorkPackage = new Dictionary<BMSPackage, BMSPackage>();
-                        Dictionary<BMSPackage, HashSet<string>> excludedComponentPathsByWorkPackage = new Dictionary<BMSPackage, HashSet<string>>();
-                        HashSet<BMSPackage> resourceOnlyOriginalPackages = new HashSet<BMSPackage>();
-                        // 判定用は「既存 + バッチ内予約済み」を持つ。
-                        // 実移動ガード用は「既存 + 移動成功分のみ」を持ち、自己スキップを防ぐ。
-                        HashSet<string> moveGuardHashes = CreateBMSHashSnapshotExcludingUnsafe(null);
-                        HashSet<string> reservedHashesForBatch = new HashSet<string>(moveGuardHashes, StringComparer.OrdinalIgnoreCase);
-                        int installTargetFileCount = 0;
-                        List<BMSPackage> cleanupOnlyCandidates = new List<BMSPackage>();
-                        foreach (BMSPackage originalPackage in selectedPendingPackages)
-                        {
-                            List<BMSFile> packageFiles = (originalPackage.BMSFiles ?? new List<BMSFile>()).Where((BMSFile bmsInfo) => bmsInfo != null).ToList();
-                            if (packageFiles.Count == 0)
+                        LogInstallPerformance("InstallBMSPackagesToEstimatedDir start selected=" + installPlan.SelectedPendingCount + " groups=" + installPlan.Groups.Count + " groupedPackages=" + installPlan.GroupedPackageCount + " installTargets=" + installPlan.InstallTargetFileCount + " deleteSourceContents=" + deletePendingPackageSourceAfterInstall + " filterMs=" + installPlan.FilterMs + " groupBuildMs=" + installPlan.GroupBuildMs + " planBuildMs=" + installPlan.PlanBuildMs);
+                        PendingInstallBatchResult batchResult = packageInstallService.ExecuteEstimatedInstallBatchPlan(
+                            installPlan,
+                            deletePendingPackageSourceAfterInstall,
+                            (installPackages, destinationDirectory, deferredMaintenanceTargets, deferredInstalledPackages, excludedComponentPathsByPackage, existingHashes, skipInstalledPackageWhenNoBms, deleteSourceContentsAfterSuccessfulInstall) => installBMSPackages(installPackages, destinationDirectory, deferredMaintenanceTargets, deferredInstalledPackages, excludedComponentPathsByPackage, existingHashes, skipInstalledPackageWhenNoBms, deleteSourceContentsAfterSuccessfulInstall),
+                            CreateInstalledDisplayPackageForResourceOnlyMerge,
+                            (cleanupOnlyPackage) =>
                             {
-                                continue;
-                            }
-                            List<BMSFile> installedInLibraryFiles = new List<BMSFile>();
-                            List<BMSFile> installTargetPackageFiles = new List<BMSFile>();
-                            List<BMSFile> duplicateInBatchFiles = new List<BMSFile>();
-                            foreach (BMSFile bmsInfo in packageFiles)
-                            {
-                                if (!IsBMSHashAvailable(bmsInfo.hash))
-                                {
-                                    installTargetPackageFiles.Add(bmsInfo);
-                                }
-                                else if (ContainsBMSHashUnsafe(bmsInfo.hash))
-                                {
-                                    installedInLibraryFiles.Add(bmsInfo);
-                                }
-                                else if (!TryAddBatchReservation(reservedHashesForBatch, bmsInfo))
-                                {
-                                    duplicateInBatchFiles.Add(bmsInfo);
-                                }
-                                else
-                                {
-                                    installTargetPackageFiles.Add(bmsInfo);
-                                }
-                            }
-                            ApplyPackageMixedInstallWarnings(installedInLibraryFiles);
-                            ApplyBatchDuplicateWarnings(duplicateInBatchFiles);
-                            if (duplicateInBatchFiles.Count > 0)
-                            {
-                                LogInstallPerformance("estimated_install_batch_duplicate package=" + originalPackage.path + " duplicates=" + duplicateInBatchFiles.Count);
-                            }
-                            List<BMSFile> installWorkPackageFiles = installTargetPackageFiles;
-                            bool isResourceOnlyInstall = false;
-                            string destinationDirectory = null;
-                            if (installTargetPackageFiles.Count == 0)
-                            {
-                                if (installedInLibraryFiles.Count == 0)
-                                {
-                                    continue;
-                                }
-                                List<string> distinctDestinationDirectories = packageFiles.Select((BMSFile bmsInfo) => bmsInfo.instl_dst).Where((string dst) => !string.IsNullOrWhiteSpace(dst)).Distinct(StringComparer.OrdinalIgnoreCase)
-                                    .ToList();
-                                if (distinctDestinationDirectories.Count == 0)
-                                {
-                                    LogInstallPerformance("estimated_install_skip reason=missing_instl_dst package=" + originalPackage.path + " installTargets=0 resourceOnly=true");
-                                    continue;
-                                }
-                                if (distinctDestinationDirectories.Count > 1)
-                                {
-                                    LogInstallPerformance("estimated_install_skip reason=multi_dst package=" + originalPackage.path + " installTargets=0 resourceOnly=true");
-                                    continue;
-                                }
-                                destinationDirectory = distinctDestinationDirectories[0];
-                                isResourceOnlyInstall = true;
-                                installWorkPackageFiles = packageFiles;
-                            }
-                            else
-                            {
-                                if (installTargetPackageFiles.Any((BMSFile bmsInfo) => string.IsNullOrWhiteSpace(bmsInfo.instl_dst)))
-                                {
-                                    LogInstallPerformance("estimated_install_skip reason=missing_instl_dst package=" + originalPackage.path + " installTargets=" + installTargetPackageFiles.Count + " resourceOnly=false");
-                                    continue;
-                                }
-                                destinationDirectory = installTargetPackageFiles.Select((BMSFile bmsInfo) => bmsInfo.instl_dst).FirstOrDefault();
-                                if (string.IsNullOrWhiteSpace(destinationDirectory) || installTargetPackageFiles.Any((BMSFile bmsInfo) => !string.Equals(bmsInfo.instl_dst, destinationDirectory, StringComparison.OrdinalIgnoreCase)))
-                                {
-                                    LogInstallPerformance("estimated_install_skip reason=multi_dst package=" + originalPackage.path + " installTargets=" + installTargetPackageFiles.Count + " resourceOnly=false");
-                                    continue;
-                                }
-                            }
-                            // install用ワークパッケージ: 未所持譜面のみ保持し、既所持/重複譜面は移動対象から除外する。
-                            BMSPackage installWorkPackage = new BMSPackage(installWorkPackageFiles)
-                            {
-                                path = originalPackage.path,
-                                delete_parent = originalPackage.delete_parent
-                            };
-                            installWorkPackageByOriginal[originalPackage] = installWorkPackage;
-                            originalPackageByInstallWorkPackage[installWorkPackage] = originalPackage;
-                            if (installedInLibraryFiles.Count > 0 || duplicateInBatchFiles.Count > 0 || isResourceOnlyInstall)
-                            {
-                                HashSet<string> excludedPaths = new HashSet<string>(installedInLibraryFiles.Select((BMSFile f) => f.path), StringComparer.OrdinalIgnoreCase);
-                                foreach (BMSFile duplicateFile in duplicateInBatchFiles)
-                                {
-                                    if (!string.IsNullOrWhiteSpace(duplicateFile?.path))
-                                    {
-                                        excludedPaths.Add(duplicateFile.path);
-                                    }
-                                }
-                                if (isResourceOnlyInstall)
-                                {
-                                    foreach (BMSFile packageFile in packageFiles)
-                                    {
-                                        if (!string.IsNullOrWhiteSpace(packageFile?.path))
-                                        {
-                                            excludedPaths.Add(packageFile.path);
-                                        }
-                                    }
-                                }
-                                if (excludedPaths.Count > 0)
-                                {
-                                    excludedComponentPathsByWorkPackage[installWorkPackage] = excludedPaths;
-                                }
-                            }
-                            if (isResourceOnlyInstall)
-                            {
-                                int componentMoveTargetCount = 0;
-                                if (excludedComponentPathsByWorkPackage.TryGetValue(installWorkPackage, out var excludedPathsForWorkPackage))
-                                {
-                                    componentMoveTargetCount = CountComponentMoveTargetsForPackage(installWorkPackage, destinationDirectory, excludedPathsForWorkPackage);
-                                }
-                                else
-                                {
-                                    componentMoveTargetCount = CountComponentMoveTargetsForPackage(installWorkPackage, destinationDirectory, null);
-                                }
-                                if (componentMoveTargetCount == 0)
-                                {
-                                    if (deletePendingPackageSourceAfterInstall)
-                                    {
-                                        cleanupOnlyCandidates.Add(originalPackage);
-                                        LogInstallPerformance("estimated_install_cleanup_only_candidate package=" + originalPackage.path + " installTargets=0 resourceOnly=true");
-                                    }
-                                    else
-                                    {
-                                        LogInstallPerformance("estimated_install_skip reason=no_component_target package=" + originalPackage.path + " installTargets=0 resourceOnly=true");
-                                    }
-                                    installWorkPackageByOriginal.Remove(originalPackage);
-                                    originalPackageByInstallWorkPackage.Remove(installWorkPackage);
-                                    excludedComponentPathsByWorkPackage.Remove(installWorkPackage);
-                                    continue;
-                                }
-                                resourceOnlyOriginalPackages.Add(originalPackage);
-                            }
-                            if (!packagesByDestination.TryGetValue(destinationDirectory, out var packagesInDestination))
-                            {
-                                packagesInDestination = new List<BMSPackage>();
-                                packagesByDestination[destinationDirectory] = packagesInDestination;
-                            }
-                            packagesInDestination.Add(originalPackage);
-                            installTargetFileCount += installTargetPackageFiles.Count;
-                            LogInstallPerformance("estimated_install_targets package=" + originalPackage.path + " total=" + packageFiles.Count + " installTargets=" + installTargetPackageFiles.Count + " installed=" + installedInLibraryFiles.Count + " dst=" + destinationDirectory + " resourceOnly=" + isResourceOnlyInstall);
-                        }
-                        groupBuildStopwatch.Stop();
-                        LogInstallPerformance("InstallBMSPackagesToEstimatedDir start selected=" + selectedPendingPackages.Count + " groups=" + packagesByDestination.Count + " installTargets=" + installTargetFileCount + " deleteSourceContents=" + deletePendingPackageSourceAfterInstall + " filterMs=" + filterStopwatch.ElapsedMilliseconds + " groupBuildMs=" + groupBuildStopwatch.ElapsedMilliseconds);
-                        List<BMSFile> deferredMaintenanceTargets = new List<BMSFile>();
-                        List<BMSPackage> deferredInstalledPackages = new List<BMSPackage>();
-                        HashSet<BMSPackage> pendingPackagesToRemove = new HashSet<BMSPackage>();
-                        int cleanupOnlySucceeded = 0;
-                        int cleanupOnlyFailed = 0;
-                        int cleanupOnlyMissingSource = 0;
-                        foreach (var groupEntry in packagesByDestination)
-                        {
-                            Stopwatch groupStopwatch = Stopwatch.StartNew();
-                            List<BMSPackage> destinationPackages = groupEntry.Value;
-                            List<BMSPackage> installWorkPackages = destinationPackages.Where((BMSPackage pkg) => installWorkPackageByOriginal.ContainsKey(pkg)).Select((BMSPackage pkg) => installWorkPackageByOriginal[pkg]).ToList();
-                            Stopwatch installStopwatch = Stopwatch.StartNew();
-                            // 既所持BMSの元パスを除外して、コンポーネント移動に巻き込まないようにする。
-                            List<BMSPackage> failedInstallWorkPackages = installBMSPackages(installWorkPackages, groupEntry.Key, deferredMaintenanceTargets, deferredInstalledPackages, excludedComponentPathsByWorkPackage, moveGuardHashes, skipInstalledPackageWhenNoBms: true, deleteSourceContentsAfterSuccessfulInstall: deletePendingPackageSourceAfterInstall);
-                            installStopwatch.Stop();
-                            HashSet<BMSPackage> failedOriginalPackages = new HashSet<BMSPackage>(failedInstallWorkPackages.Select((BMSPackage workPkg) => originalPackageByInstallWorkPackage[workPkg]));
-                            Stopwatch installDbStopwatch = Stopwatch.StartNew();
-                            using (LR2SongDBExtended lR2SongDBExtended = new LR2SongDBExtended(lr2SongDBPath))
-                            {
-                                lR2SongDBExtended.BeginTransaction();
-                                foreach (BMSPackage originalPackageInGroup in destinationPackages)
-                                {
-                                    if (!failedOriginalPackages.Contains(originalPackageInGroup))
-                                    {
-                                        lR2SongDBExtended.Delete<LR2SongDBExtended.install>(originalPackageInGroup.path);
-                                        if (resourceOnlyOriginalPackages.Contains(originalPackageInGroup))
-                                        {
-                                            BMSPackage bMSPackage = CreateInstalledDisplayPackageForResourceOnlyMerge(originalPackageInGroup, groupEntry.Key);
-                                            if (bMSPackage != null && bMSPackage.BMSFiles != null && bMSPackage.BMSFiles.Count > 0)
-                                            {
-                                                deferredInstalledPackages.Add(bMSPackage);
-                                            }
-                                        }
-                                        foreach (BMSFile packageFile in originalPackageInGroup.BMSFiles)
-                                        {
-                                            packageFile.instl_dst = null;
-                                        }
-                                    }
-                                }
-                                lR2SongDBExtended.Commit();
-                            }
-                            installDbStopwatch.Stop();
-                            Stopwatch pendingMarkStopwatch = Stopwatch.StartNew();
-                            int pendingCountBeforeRemove = BMSPackagesPending.Count;
-                            int bmsFilesCountBeforeRemove = ((BMSFiles != null) ? BMSFiles.Count : (-1));
-                            int removedPendingCount = 0;
-                            foreach (BMSPackage pendingPackage in destinationPackages)
-                            {
-                                if (pendingPackagesToRemove.Add(pendingPackage))
-                                {
-                                    removedPendingCount++;
-                                }
-                            }
-                            int pendingCountAfterRemove = BMSPackagesPending.Count;
-                            int bmsFilesCountAfterRemove = ((BMSFiles != null) ? BMSFiles.Count : (-1));
-                            pendingMarkStopwatch.Stop();
-                            groupStopwatch.Stop();
-                            LogInstallPerformance("InstallBMSPackagesToEstimatedDir group dst=" + groupEntry.Key + " packages=" + destinationPackages.Count + " workPackages=" + installWorkPackages.Count + " failedPackages=" + failedInstallWorkPackages.Count + " installMs=" + installStopwatch.ElapsedMilliseconds + " installDbMs=" + installDbStopwatch.ElapsedMilliseconds + " pendingMarkMs=" + pendingMarkStopwatch.ElapsedMilliseconds + " pendingBefore=" + pendingCountBeforeRemove + " pendingMarked=" + removedPendingCount + " pendingAfter=" + pendingCountAfterRemove + " bmsFilesBefore=" + bmsFilesCountBeforeRemove + " bmsFilesAfter=" + bmsFilesCountAfterRemove + " totalGroupMs=" + groupStopwatch.ElapsedMilliseconds);
-                        }
-                        if (deletePendingPackageSourceAfterInstall && cleanupOnlyCandidates.Count > 0)
-                        {
-                            List<string> cleanupOnlyInstallPathsToDelete = new List<string>();
-                            foreach (BMSPackage cleanupOnlyPackage in cleanupOnlyCandidates.Distinct())
-                            {
-                                if (cleanupOnlyPackage == null)
-                                {
-                                    continue;
-                                }
-                                if (TryCleanupPendingPackageSourceForEstimatedInstall(cleanupOnlyPackage, out var sourceKind))
-                                {
-                                    cleanupOnlySucceeded++;
-                                    if (sourceKind == CleanupSourceKind.MissingSource)
-                                    {
-                                        cleanupOnlyMissingSource++;
-                                    }
-                                    if (!string.IsNullOrWhiteSpace(cleanupOnlyPackage.path))
-                                    {
-                                        cleanupOnlyInstallPathsToDelete.Add(cleanupOnlyPackage.path);
-                                    }
-                                    pendingPackagesToRemove.Add(cleanupOnlyPackage);
-                                    foreach (BMSFile packageFile in cleanupOnlyPackage.BMSFiles ?? Enumerable.Empty<BMSFile>())
-                                    {
-                                        packageFile.instl_dst = null;
-                                    }
-                                    LogInstallPerformance("estimated_install_cleanup_only_success package=" + cleanupOnlyPackage.path + " kind=" + sourceKind.ToString().ToLowerInvariant());
-                                }
-                                else
-                                {
-                                    cleanupOnlyFailed++;
-                                    LogInstallPerformance("estimated_install_cleanup_only_failed package=" + cleanupOnlyPackage.path);
-                                }
-                            }
-                            if (cleanupOnlyInstallPathsToDelete.Count > 0)
-                            {
-                                using (LR2SongDBExtended lR2SongDBExtended = new LR2SongDBExtended(lr2SongDBPath))
-                                {
-                                    lR2SongDBExtended.BeginTransaction();
-                                    foreach (string cleanupPath in cleanupOnlyInstallPathsToDelete.Distinct(StringComparer.OrdinalIgnoreCase))
-                                    {
-                                        lR2SongDBExtended.Delete<LR2SongDBExtended.install>(cleanupPath);
-                                    }
-                                    lR2SongDBExtended.Commit();
-                                }
-                            }
-                        }
+                                bool cleanupSucceeded = TryCleanupPendingPackageSourceForEstimatedInstall(cleanupOnlyPackage, out var sourceKind);
+                                return (cleanupSucceeded, sourceKind);
+                            },
+                            LogInstallPerformance);
+                        dbGateway.DeleteInstallRows(batchResult.InstallRowsToDelete);
                         Stopwatch pendingApplyStopwatch = Stopwatch.StartNew();
                         int pendingCountBeforeApply = BMSPackagesPending.Count;
-                        int pendingRemovedTotal = pendingPackagesToRemove.Count;
+                        int pendingRemovedTotal = batchResult.PendingPackagesToRemove.Count;
                         if (pendingRemovedTotal > 0)
                         {
-                            List<BMSPackage> remainingPending = BMSPackagesPending.Where((BMSPackage pkg) => pkg != null && !pendingPackagesToRemove.Contains(pkg)).ToList();
+                            List<BMSPackage> remainingPending = BMSPackagesPending.Where((BMSPackage pkg) => pkg != null && !batchResult.PendingPackagesToRemove.Contains(pkg)).ToList();
                             BMSPackagesPending = new DispatcherCollection<BMSPackage>(new ObservableCollection<BMSPackage>(remainingPending), DispatcherHelper.UIDispatcher);
                         }
                         int pendingCountAfterApply = BMSPackagesPending.Count;
                         pendingApplyStopwatch.Stop();
                         Stopwatch installedApplyStopwatch = Stopwatch.StartNew();
                         int installedCountBeforeApply = BMSPackagesInstalled.Count;
-                        int installedAddedTotal = deferredInstalledPackages.Count;
+                        int installedAddedTotal = batchResult.DeferredInstalledPackages.Count;
                         if (installedAddedTotal > 0)
                         {
                             HashSet<BMSPackage> installedSet = new HashSet<BMSPackage>(BMSPackagesInstalled.Where((BMSPackage pkg) => pkg != null));
                             List<BMSPackage> mergedInstalled = BMSPackagesInstalled.Where((BMSPackage pkg) => pkg != null).ToList();
-                            foreach (BMSPackage installedPackage in deferredInstalledPackages)
+                            foreach (BMSPackage installedPackage in batchResult.DeferredInstalledPackages)
                             {
                                 if (installedPackage != null && installedSet.Add(installedPackage))
                                 {
@@ -5029,17 +4211,17 @@ public class BMSLibrary : NotificationObject
                         int installedCountAfterApply = BMSPackagesInstalled.Count;
                         installedApplyStopwatch.Stop();
                         Stopwatch maintenanceStopwatch = Stopwatch.StartNew();
-                        if (deferredMaintenanceTargets.Count > 0)
+                        if (batchResult.DeferredMaintenanceTargets.Count > 0)
                         {
-                            setMaintenanceInfo(deferredMaintenanceTargets, forceUpdate: true);
+                            setMaintenanceInfo(batchResult.DeferredMaintenanceTargets, forceUpdate: true);
                         }
                         maintenanceStopwatch.Stop();
-                        if (deletePendingPackageSourceAfterInstall && cleanupOnlySucceeded > 0)
+                        if (deletePendingPackageSourceAfterInstall && batchResult.CleanupOnlySucceeded > 0)
                         {
-                            DispatcherMessageBox.Show(string.Format(Resources.Warn_estimated_install_cleanup_only_completed, cleanupOnlySucceeded), Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
+                            DispatcherMessageBox.Show(string.Format(Resources.Warn_estimated_install_cleanup_only_completed, batchResult.CleanupOnlySucceeded), Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
                         }
                         totalStopwatch.Stop();
-                        LogInstallPerformance("InstallBMSPackagesToEstimatedDir end pendingApplyMs=" + pendingApplyStopwatch.ElapsedMilliseconds + " pendingBeforeApply=" + pendingCountBeforeApply + " pendingRemovedTotal=" + pendingRemovedTotal + " pendingAfterApply=" + pendingCountAfterApply + " installedApplyMs=" + installedApplyStopwatch.ElapsedMilliseconds + " installedBeforeApply=" + installedCountBeforeApply + " installedAddedTotal=" + installedAddedTotal + " installedAfterApply=" + installedCountAfterApply + " maintenanceTargets=" + deferredMaintenanceTargets.Count + " maintenanceMs=" + maintenanceStopwatch.ElapsedMilliseconds + " cleanupOnlyCandidates=" + cleanupOnlyCandidates.Count + " cleanupOnlySucceeded=" + cleanupOnlySucceeded + " cleanupOnlyFailed=" + cleanupOnlyFailed + " cleanupOnlyMissingSource=" + cleanupOnlyMissingSource + " totalMs=" + totalStopwatch.ElapsedMilliseconds);
+                        LogInstallPerformance("InstallBMSPackagesToEstimatedDir end pendingApplyMs=" + pendingApplyStopwatch.ElapsedMilliseconds + " pendingBeforeApply=" + pendingCountBeforeApply + " pendingRemovedTotal=" + pendingRemovedTotal + " pendingAfterApply=" + pendingCountAfterApply + " installedApplyMs=" + installedApplyStopwatch.ElapsedMilliseconds + " installedBeforeApply=" + installedCountBeforeApply + " installedAddedTotal=" + installedAddedTotal + " installedAfterApply=" + installedCountAfterApply + " maintenanceTargets=" + batchResult.DeferredMaintenanceTargets.Count + " maintenanceMs=" + maintenanceStopwatch.ElapsedMilliseconds + " cleanupOnlyCandidates=" + installPlan.CleanupOnlyCandidates.Count + " cleanupOnlySucceeded=" + batchResult.CleanupOnlySucceeded + " cleanupOnlyFailed=" + batchResult.CleanupOnlyFailed + " cleanupOnlyMissingSource=" + batchResult.CleanupOnlyMissingSource + " totalMs=" + totalStopwatch.ElapsedMilliseconds);
                     }
                 }
             }
@@ -5072,75 +4254,9 @@ public class BMSLibrary : NotificationObject
         }
     }
 
-    private sealed class PendingPackageMutationDelta
-    {
-        public bool HasChanges { get; set; }
-
-        public List<BMSPackage> RemainingPackages { get; set; } = new List<BMSPackage>();
-
-        public List<string> InstallPathsToDelete { get; set; } = new List<string>();
-    }
-
     private PendingPackageMutationDelta BuildPendingPackageMutationDelta(IEnumerable<BMSPackage> packagesToRemove = null, IEnumerable<BMSFile> filesToRemove = null, bool clearAll = false)
     {
-        List<BMSPackage> list = BMSPackagesPending.Where((BMSPackage pkg) => pkg != null).ToList();
-        PendingPackageMutationDelta pendingPackageMutationDelta = new PendingPackageMutationDelta();
-        if (clearAll)
-        {
-            pendingPackageMutationDelta.HasChanges = list.Count > 0;
-            pendingPackageMutationDelta.InstallPathsToDelete = list.Where((BMSPackage pkg) => !string.IsNullOrWhiteSpace(pkg.path)).Select((BMSPackage pkg) => pkg.path).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-            return pendingPackageMutationDelta;
-        }
-        HashSet<BMSPackage> hashSet = new HashSet<BMSPackage>((packagesToRemove ?? Enumerable.Empty<BMSPackage>()).Where((BMSPackage pkg) => pkg != null));
-        HashSet<string> hashSet2 = new HashSet<string>((packagesToRemove ?? Enumerable.Empty<BMSPackage>()).Where((BMSPackage pkg) => pkg != null && !string.IsNullOrWhiteSpace(pkg.path)).Select((BMSPackage pkg) => pkg.path), StringComparer.OrdinalIgnoreCase);
-        List<BMSFile> list2 = (filesToRemove ?? Enumerable.Empty<BMSFile>()).Where((BMSFile f) => f != null).ToList();
-        HashSet<string> removedPaths = new HashSet<string>(list2.Where((BMSFile f) => !string.IsNullOrWhiteSpace(f.path)).Select((BMSFile f) => f.path), StringComparer.OrdinalIgnoreCase);
-        HashSet<BMSFile> removedFiles = new HashSet<BMSFile>(list2);
-        bool flag = list2.Count > 0;
-        HashSet<string> hashSet3 = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (BMSPackage item in list)
-        {
-            if (hashSet.Contains(item) || (!string.IsNullOrWhiteSpace(item.path) && hashSet2.Contains(item.path)))
-            {
-                pendingPackageMutationDelta.HasChanges = true;
-                if (!string.IsNullOrWhiteSpace(item.path))
-                {
-                    hashSet3.Add(item.path);
-                }
-                continue;
-            }
-            if (!flag)
-            {
-                pendingPackageMutationDelta.RemainingPackages.Add(item);
-                continue;
-            }
-            List<BMSFile> list3 = item.BMSFiles.Where((BMSFile f) => f != null).ToList();
-            if (list3.Count == 0)
-            {
-                pendingPackageMutationDelta.RemainingPackages.Add(item);
-                continue;
-            }
-            List<BMSFile> list4 = list3.Where((BMSFile f) => !IsMatchedRemovedFile(f, removedPaths, removedFiles)).ToList();
-            if (list4.Count == list3.Count)
-            {
-                pendingPackageMutationDelta.RemainingPackages.Add(item);
-                continue;
-            }
-            pendingPackageMutationDelta.HasChanges = true;
-            if (list4.Count == 0)
-            {
-                if (!string.IsNullOrWhiteSpace(item.path))
-                {
-                    hashSet3.Add(item.path);
-                }
-                continue;
-            }
-            item.BMSFiles.Clear();
-            item.BMSFiles.AddRange(list4);
-            pendingPackageMutationDelta.RemainingPackages.Add(item);
-        }
-        pendingPackageMutationDelta.InstallPathsToDelete = hashSet3.ToList();
-        return pendingPackageMutationDelta;
+        return packageInstallService.BuildPendingPackageMutationDelta(BMSPackagesPending, packagesToRemove, filesToRemove, clearAll);
     }
 
     private void ApplyPendingPackageMutationDelta(PendingPackageMutationDelta delta)
@@ -5155,13 +4271,7 @@ public class BMSLibrary : NotificationObject
         {
             return;
         }
-        using LR2SongDBExtended lR2SongDBExtended = new LR2SongDBExtended(lr2SongDBPath);
-        lR2SongDBExtended.BeginTransaction();
-        foreach (string item in list)
-        {
-            lR2SongDBExtended.Delete<LR2SongDBExtended.install>(item);
-        }
-        lR2SongDBExtended.Commit();
+        dbGateway.DeleteInstallRows(list);
     }
 
     /// <summary>
@@ -5221,7 +4331,7 @@ public class BMSLibrary : NotificationObject
         {
             using (rwlockBMSFilesPendingInstall.GetReaderGuard())
             {
-                List<BMSPackage> list = BMSPackagesPending.Where((BMSPackage pkg) => IsPendingPackageContainingOnlyInstalledCharts(pkg)).ToList();
+                List<BMSPackage> list = packageInstallService.GetPendingPackagesContainingOnlyInstalledCharts(BMSPackagesPending, ContainsBMSHashUnsafe);
                 NLogWrapper.FileLogger?.Info("advanced_pending_cleanup scan pendingTotal=" + BMSPackagesPending.Count + " eligible=" + list.Count);
                 return list;
             }
@@ -5314,24 +4424,7 @@ public class BMSLibrary : NotificationObject
                 {
                     using (rwlockSongDBInstall.GetWriterGuard())
                     {
-                        List<BMSPackage> list = new List<BMSPackage>();
-                        HashSet<string> hashSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                        HashSet<BMSPackage> hashSet2 = new HashSet<BMSPackage>();
-                        foreach (BMSPackage item in packages.Where((BMSPackage pkg) => pkg != null))
-                        {
-                            if (!string.IsNullOrWhiteSpace(item.path))
-                            {
-                                if (!hashSet.Add(item.path))
-                                {
-                                    continue;
-                                }
-                            }
-                            else if (!hashSet2.Add(item))
-                            {
-                                continue;
-                            }
-                            list.Add(item);
-                        }
+                        List<BMSPackage> list = packageInstallService.DeduplicatePackagesByPathOrReference(packages);
                         pendingInstalledOnlyResourceOverwriteResult.Requested = list.Count;
                         bool deletePendingPackageSourceAfterInstall = Settings.Default.DeletePendingPackageSourceAfterInstall;
                         Dictionary<string, List<string>> installedDirectoryIndexSnapshot = CreateInstalledDirectoryIndexSnapshotUnsafe();
@@ -5459,25 +4552,7 @@ public class BMSLibrary : NotificationObject
         {
             using (rwlockBMSFilesPendingInstall.GetReaderGuard())
             {
-                List<BMSFile> list = new List<BMSFile>();
-                HashSet<BMSFile> hashSet = new HashSet<BMSFile>();
-                HashSet<string> hashSet2 = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                foreach (BMSFile item in BMSPackagesPending.Where((BMSPackage pkg) => pkg != null).SelectMany((BMSPackage pkg) => pkg.BMSFiles).Where((BMSFile f) => f != null))
-                {
-                    if (!string.IsNullOrWhiteSpace(item.path))
-                    {
-                        if (!hashSet2.Add(item.path))
-                        {
-                            continue;
-                        }
-                    }
-                    else if (!hashSet.Add(item))
-                    {
-                        continue;
-                    }
-                    list.Add(item);
-                }
-                return list;
+                return packageInstallService.GetPendingBmsFilesSnapshot(BMSPackagesPending);
             }
         }
     }
@@ -5491,24 +4566,7 @@ public class BMSLibrary : NotificationObject
                 using (rwlockSongDBInstall.GetWriterGuard())
                 {
                     IEnumerable<BMSFile> enumerable = targetFiles ?? BMSPackagesPending.Where((BMSPackage pkg) => pkg != null).SelectMany((BMSPackage pkg) => pkg.BMSFiles).Where((BMSFile f) => f != null);
-                    List<BMSFile> list = new List<BMSFile>();
-                    HashSet<BMSFile> hashSet = new HashSet<BMSFile>();
-                    HashSet<string> hashSet2 = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                    foreach (BMSFile item in enumerable)
-                    {
-                        if (!string.IsNullOrWhiteSpace(item.path))
-                        {
-                            if (!hashSet2.Add(item.path))
-                            {
-                                continue;
-                            }
-                        }
-                        else if (!hashSet.Add(item))
-                        {
-                            continue;
-                        }
-                        list.Add(item);
-                    }
+                    List<BMSFile> list = packageInstallService.DeduplicateFilesByPathOrReference(enumerable);
                     List<BMSFile> list2 = new List<BMSFile>();
                     int num = 0;
                     int num2 = 0;
@@ -5629,24 +4687,7 @@ public class BMSLibrary : NotificationObject
             {
                 using (rwlockSongDBInstall.GetWriterGuard())
                 {
-                    List<BMSPackage> list = new List<BMSPackage>();
-                    HashSet<string> hashSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                    HashSet<BMSPackage> hashSet2 = new HashSet<BMSPackage>();
-                    foreach (BMSPackage item in packages.Where((BMSPackage pkg) => pkg != null))
-                    {
-                        if (!string.IsNullOrWhiteSpace(item.path))
-                        {
-                            if (!hashSet.Add(item.path))
-                            {
-                                continue;
-                            }
-                        }
-                        else if (!hashSet2.Add(item))
-                        {
-                            continue;
-                        }
-                        list.Add(item);
-                    }
+                    List<BMSPackage> list = packageInstallService.DeduplicatePackagesByPathOrReference(packages);
                     List<BMSPackage> list2 = BMSPackagesPending.Where((BMSPackage pkg) => pkg != null).ToList();
                     List<BMSPackage> list3 = new List<BMSPackage>();
                     int num = 0;
@@ -6592,127 +5633,24 @@ public class BMSLibrary : NotificationObject
 
     private RenameInvalidExtensionOutcome ProcessInvalidExtensionRename(BMSFile sourceFile, string requestedPath, bool removeFromLibraryOnSuccess)
     {
-        RenameInvalidExtensionOutcome renameInvalidExtensionOutcome = new RenameInvalidExtensionOutcome
-        {
-            Action = RenameInvalidExtensionAction.Skipped,
-            FinalPath = requestedPath
-        };
-        if (sourceFile == null || string.IsNullOrWhiteSpace(sourceFile.path) || string.IsNullOrWhiteSpace(requestedPath) || !File.Exists(sourceFile.path))
-        {
-            return renameInvalidExtensionOutcome;
-        }
-        string text = requestedPath;
-        if (Directory.Exists(requestedPath))
-        {
-            NLogWrapper.FileLogger?.Info("invalid_ext_rename collision_detected source=" + sourceFile.path + " requested=" + requestedPath + " existsType=directory removeOnSuccess=" + removeFromLibraryOnSuccess);
-            text = GetNonConflictingPathWithSuffix(requestedPath);
-            NLogWrapper.FileLogger?.Info("invalid_ext_rename renamed_with_suffix source=" + sourceFile.path + " requested=" + requestedPath + " resolved=" + text);
-        }
-        else if (File.Exists(requestedPath))
-        {
-            NLogWrapper.FileLogger?.Info("invalid_ext_rename collision_detected source=" + sourceFile.path + " requested=" + requestedPath + " existsType=file removeOnSuccess=" + removeFromLibraryOnSuccess);
-            string text2 = TryGetSourceHashForInvalidExtensionRename(sourceFile);
-            string text3 = TryComputeFileMd5ForPath(requestedPath, "invalid_ext_rename");
-            if (!string.IsNullOrWhiteSpace(text2) && !string.IsNullOrWhiteSpace(text3) && text2.Equals(text3, StringComparison.OrdinalIgnoreCase))
-            {
-                try
-                {
-                    fileMutationService.DeleteFileDirect(sourceFile.path, targetOnlyFileMutationOptions);
-                    NLogWrapper.FileLogger?.Info("invalid_ext_rename duplicate_deleted source=" + sourceFile.path + " existing=" + requestedPath + " hash=" + text2);
-                    renameInvalidExtensionOutcome.Action = RenameInvalidExtensionAction.DeletedAsDuplicate;
-                    return renameInvalidExtensionOutcome;
-                }
-                catch (Exception ex)
-                {
-                    renameInvalidExtensionOutcome.FailureException = ex;
-                    renameInvalidExtensionOutcome.FailedDuringDelete = true;
-                    NLogWrapper.FileLogger?.Warn(ex, "invalid_ext_rename delete_failed source=" + sourceFile.path + " existing=" + requestedPath);
-                    return renameInvalidExtensionOutcome;
-                }
-            }
-            if (string.IsNullOrWhiteSpace(text2) || string.IsNullOrWhiteSpace(text3))
-            {
-                NLogWrapper.FileLogger?.Info("invalid_ext_rename hash_compare_unavailable source=" + sourceFile.path + " requested=" + requestedPath + " reason=" + (string.IsNullOrWhiteSpace(text2) ? "source_hash_unavailable" : "dest_hash_unavailable"));
-            }
-            text = GetNonConflictingPathWithSuffix(requestedPath);
-            NLogWrapper.FileLogger?.Info("invalid_ext_rename renamed_with_suffix source=" + sourceFile.path + " requested=" + requestedPath + " resolved=" + text);
-        }
-        try
-        {
-            fileMutationService.MoveFile(sourceFile.path, text, overwrite: false, targetOnlyFileMutationOptions);
-            renameInvalidExtensionOutcome.Action = RenameInvalidExtensionAction.Renamed;
-            renameInvalidExtensionOutcome.FinalPath = text;
-            return renameInvalidExtensionOutcome;
-        }
-        catch (Exception ex2)
-        {
-            renameInvalidExtensionOutcome.FailureException = ex2;
-            renameInvalidExtensionOutcome.FinalPath = text;
-            renameInvalidExtensionOutcome.FailedDuringDelete = false;
-            NLogWrapper.FileLogger?.Warn(ex2, "invalid_ext_rename move_failed source=" + sourceFile.path + " target=" + text);
-            return renameInvalidExtensionOutcome;
-        }
+        _ = removeFromLibraryOnSuccess;
+        return libraryFileOperationsService.ProcessInvalidExtensionRename(
+            sourceFile,
+            requestedPath,
+            fileMutationService,
+            targetOnlyFileMutationOptions,
+            info => NLogWrapper.FileLogger?.Info(info),
+            (ex, message) => NLogWrapper.FileLogger?.Warn(ex, message));
     }
 
     private string GetNonConflictingPathWithSuffix(string requestedPath)
     {
-        if (string.IsNullOrWhiteSpace(requestedPath))
-        {
-            return requestedPath;
-        }
-        string directoryName = Path.GetDirectoryName(requestedPath);
-        string fileNameWithoutExtension = Path.GetFileNameWithoutExtension(requestedPath);
-        string extension = Path.GetExtension(requestedPath);
-        int num = 1;
-        string text = requestedPath;
-        while (File.Exists(text) || Directory.Exists(text))
-        {
-            string text2 = fileNameWithoutExtension + "(" + num + ")" + extension;
-            text = (string.IsNullOrWhiteSpace(directoryName) ? text2 : Path.Combine(directoryName, text2));
-            num++;
-        }
-        return text;
-    }
-
-    private string TryGetSourceHashForInvalidExtensionRename(BMSFile sourceFile)
-    {
-        if (!IsBMSHashAvailable(sourceFile))
-        {
-            return TryComputeFileMd5ForPath(sourceFile?.path, "invalid_ext_rename");
-        }
-        return sourceFile.hash;
+        return libraryFileOperationsService.GetNonConflictingPathWithSuffix(requestedPath);
     }
 
     private string TryComputeFileMd5ForPath(string filePath, string logCategory = null)
     {
-        if (string.IsNullOrWhiteSpace(filePath) || !File.Exists(filePath))
-        {
-            return null;
-        }
-        try
-        {
-            using MD5 mD = MD5.Create();
-            byte[] array;
-            using (FileStream inputStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read))
-            {
-                array = mD.ComputeHash(inputStream);
-            }
-            StringBuilder stringBuilder = new StringBuilder();
-            byte[] array2 = array;
-            foreach (byte b in array2)
-            {
-                stringBuilder.Append(b.ToString("x2"));
-            }
-            return stringBuilder.ToString();
-        }
-        catch (Exception ex) when (ex is DirectoryNotFoundException || ex is FileNotFoundException || ex is IOException || ex is PathTooLongException || ex is SecurityException || ex is UnauthorizedAccessException)
-        {
-            if (!string.IsNullOrWhiteSpace(logCategory))
-            {
-                NLogWrapper.FileLogger?.Info(ex, logCategory + " hash_unavailable path=" + filePath);
-            }
-            return null;
-        }
+        return libraryFileOperationsService.TryComputeFileMd5ForPath(filePath, logCategory, info => NLogWrapper.FileLogger?.Info(info));
     }
 
     public void RenameBMSFilesExtensions(IEnumerable<BMSFile> bmsFiles, string newExt, bool? unregister = false)
@@ -7004,7 +5942,7 @@ public class BMSLibrary : NotificationObject
 
     private List<BMSPackage> GetPendingPackagesFullyCoveredBySelection(HashSet<string> selectedPaths, HashSet<BMSFile> selectedFileRefs)
     {
-        return BMSPackagesPending.Where((BMSPackage pkg) => pkg != null && pkg.BMSFiles.Count > 0 && pkg.BMSFiles.All((BMSFile f) => IsMatchedRemovedFile(f, selectedPaths, selectedFileRefs))).ToList();
+        return libraryFileOperationsService.GetPendingPackagesFullyCoveredBySelection(BMSPackagesPending, selectedPaths, selectedFileRefs);
     }
 
     private void RemovePendingFilesFromPendingPackagesAndInstallRows(IEnumerable<BMSFile> bmsFiles)
@@ -7034,14 +5972,7 @@ public class BMSLibrary : NotificationObject
         BMSFiles = BMSFiles.Except(list).ToList();
         using (rwlockSongDBMaintenance.GetWriterGuard())
         {
-            using LR2SongDBExtended lR2SongDBExtended = new LR2SongDBExtended(lr2SongDBPath);
-            lR2SongDBExtended.BeginTransaction();
-            foreach (BMSFile item2 in list)
-            {
-                lR2SongDBExtended.Delete<LR2SongDB.song>(item2.path);
-                lR2SongDBExtended.Delete<LR2SongDBExtended.maintenance>(item2.path);
-            }
-            lR2SongDBExtended.Commit();
+            dbGateway.DeleteSongsAndMaintenance(list);
         }
         HashSet<string> removedPaths = new HashSet<string>(list.Where((BMSFile f) => !string.IsNullOrWhiteSpace(f.path)).Select((BMSFile f) => f.path), StringComparer.OrdinalIgnoreCase);
         HashSet<BMSFile> removedFiles = new HashSet<BMSFile>(list);
@@ -7070,21 +6001,9 @@ public class BMSLibrary : NotificationObject
         }
     }
 
-    private static bool IsMatchedRemovedFile(BMSFile file, HashSet<string> removedPaths, HashSet<BMSFile> removedFiles)
+    private bool IsMatchedRemovedFile(BMSFile file, HashSet<string> removedPaths, HashSet<BMSFile> removedFiles)
     {
-        if (file == null)
-        {
-            return false;
-        }
-        if (removedFiles != null && removedFiles.Contains(file))
-        {
-            return true;
-        }
-        if (!string.IsNullOrWhiteSpace(file.path) && removedPaths.Contains(file.path))
-        {
-            return true;
-        }
-        return false;
+        return libraryFileOperationsService.IsMatchedRemovedFile(file, removedPaths, removedFiles);
     }
 
     /// <summary>
@@ -7212,13 +6131,7 @@ public class BMSLibrary : NotificationObject
         {
             using (rwlockBMSFiles.GetWriterGuard())
             {
-                using LR2SongDBExtended lR2SongDBExtended = new LR2SongDBExtended(lr2SongDBPath);
-                lR2SongDBExtended.BeginTransaction();
-                foreach (BMSFile _bmsFile in _bmsFiles)
-                {
-                    lR2SongDBExtended.InsertOrReplace(_bmsFile, typeof(LR2SongDB.song));
-                }
-                lR2SongDBExtended.Commit();
+                dbGateway.UpsertSongs(_bmsFiles);
             }
         }
     }

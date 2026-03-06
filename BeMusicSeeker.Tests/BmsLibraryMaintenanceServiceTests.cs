@@ -47,6 +47,43 @@ public sealed class BmsLibraryMaintenanceServiceTests
         CollectionAssert.AreEqual(new[] { zeroNoteFile }, result);
     }
 
+    [TestMethod]
+    public void SetFilesWarningIgnored_TogglesOnlyMatchingEntries()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        BmsLibraryMaintenanceService service = new BmsLibraryMaintenanceService();
+        TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        BMSFileMaintenanceInfo info = new BMSFileMaintenanceInfo(file)
+        {
+            hash = file.hash,
+            is_files_warning_ignored = false
+        };
+        file.SetMaintenanceInfo(info, suppressPropertyChanged: true, registerEventHandlers: false);
+
+        List<BMSFileMaintenanceInfo> changes = service.SetFilesWarningIgnored(new BMSFile[] { file }, unset: false);
+
+        Assert.AreEqual(1, changes.Count);
+        Assert.IsTrue(info.is_files_warning_ignored);
+    }
+
+    [TestMethod]
+    public void RecheckZeroNoteWarnings_SkipsMissingFilesAndClearsWarning()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        BmsLibraryMaintenanceService service = new BmsLibraryMaintenanceService();
+        TestableBmsFile zeroNoteFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        zeroNoteFile.SetNotes(0);
+        zeroNoteFile.path = "C:\\missing\\chart.bms";
+        zeroNoteFile.HasZeroNoteMismatchWarning = true;
+
+        ZeroNoteRecheckResult result = service.RecheckZeroNoteWarnings(new BMSFile[] { zeroNoteFile });
+
+        Assert.AreEqual(1, result.Total);
+        Assert.AreEqual(1, result.ClearedCount);
+        Assert.AreEqual(1, result.SkippedCount);
+        Assert.IsFalse(zeroNoteFile.HasZeroNoteMismatchWarning);
+    }
+
     private static TestableBmsFile CreateFile(string hash)
     {
         TestableBmsFile file = new TestableBmsFile();

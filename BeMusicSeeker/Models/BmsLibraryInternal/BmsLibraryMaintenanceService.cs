@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using BeMusicSeeker.Properties;
 
@@ -42,6 +43,138 @@ internal sealed class BmsLibraryMaintenanceService
     public List<BMSFile> GetZeroNoteFiles(IEnumerable<BMSFile> bmsFiles)
     {
         return (bmsFiles ?? Enumerable.Empty<BMSFile>()).Where((BMSFile file) => file != null && file.notes == 0).ToList();
+    }
+
+    public int CleanupMaintenanceTable(IEnumerable<BMSFile> bmsFiles, BmsLibraryDbGateway dbGateway)
+    {
+        List<string> currentPaths = (bmsFiles ?? Enumerable.Empty<BMSFile>())
+            .Where((BMSFile file) => file != null && !string.IsNullOrWhiteSpace(file.path))
+            .Select((BMSFile file) => file.path)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        List<string> stalePaths = new List<string>();
+        dbGateway.ExecuteSongDbTransaction(delegate (Models.LR2.LR2SongDBExtended songDb)
+        {
+            stalePaths = (from m in songDb.Table<BMSFileMaintenanceInfo>().ToList()
+                          select m.path).Except(currentPaths, StringComparer.OrdinalIgnoreCase).ToList();
+            foreach (string stalePath in stalePaths)
+            {
+                songDb.Delete<Models.LR2.LR2SongDBExtended.maintenance>(stalePath);
+            }
+        });
+        return stalePaths.Count;
+    }
+
+    public List<BMSFileMaintenanceInfo> SetFilesWarningIgnored(IEnumerable<BMSFile> bmsFiles, bool unset)
+    {
+        List<BMSFileMaintenanceInfo> changes = (from f in bmsFiles ?? Enumerable.Empty<BMSFile>()
+                                                let m = f?.maintenanceInfo
+                                                where m != null && m.is_files_warning_ignored == unset
+                                                select m).ToList();
+        foreach (BMSFileMaintenanceInfo item in changes)
+        {
+            item.is_files_warning_ignored = !unset;
+        }
+        return changes;
+    }
+
+    public MaintenanceEncodingUpdateResult ApplyEncoding(IEnumerable<BMSFile> bmsFiles, string encoding)
+    {
+        MaintenanceEncodingUpdateResult result = new MaintenanceEncodingUpdateResult();
+        List<BMSFile> files = (bmsFiles ?? Enumerable.Empty<BMSFile>()).Where((BMSFile file) => file != null).ToList();
+        if (!string.IsNullOrWhiteSpace(encoding))
+        {
+            List<BMSFile> songChanges = files.Where((BMSFile f) => f.maintenanceInfo.encoding != encoding && (encoding != "shift_jis" || f.maintenanceInfo.is_encoding_fixed) && File.Exists(f.path)).ToList();
+            foreach (BMSFile file in songChanges)
+            {
+                BMSFile.ReloadBMSFileWithEncoding(file, encoding);
+                result.SongsToUpsert.Add(file);
+            }
+        }
+        List<BMSFileMaintenanceInfo> maintenanceChanges = files.Select((BMSFile f) => f.maintenanceInfo).Where(delegate (BMSFileMaintenanceInfo info)
+        {
+            if (info == null || info.encoding == encoding || (string.IsNullOrWhiteSpace(info.encoding) && string.IsNullOrWhiteSpace(encoding)))
+            {
+                return false;
+            }
+            if (!string.IsNullOrWhiteSpace(encoding))
+            {
+                info.encoding = encoding;
+                info.is_encoding_fixed = true;
+                return true;
+            }
+            if ((info.encoding.EndsWith("?") && info.encoding != "shift_jis?") || info.encoding == "unknown")
+            {
+                info.encoding = "shift_jis";
+                info.is_encoding_fixed = true;
+                return true;
+            }
+            return false;
+        }).ToList();
+        result.MaintenanceInfosToUpsert.AddRange(maintenanceChanges);
+        return result;
+    }
+
+    public ZeroNoteRecheckResult RecheckZeroNoteWarnings(IEnumerable<BMSFile> allFiles, Action<Exception, string> logWarn = null)
+    {
+        List<BMSFile> files = (allFiles ?? Enumerable.Empty<BMSFile>()).Where((BMSFile f) => f != null).ToList();
+        List<BMSFile> zeroNoteFiles = files.Where((BMSFile f) => f.notes == 0 && !string.IsNullOrWhiteSpace(f.path)).ToList();
+        List<BMSFile> staleMismatchFiles = files.Where((BMSFile f) => f.notes != 0 && f.HasZeroNoteMismatchWarning).ToList();
+        ZeroNoteRecheckResult result = new ZeroNoteRecheckResult
+        {
+            Total = zeroNoteFiles.Count
+        };
+        foreach (BMSFile staleMismatchFile in staleMismatchFiles)
+        {
+            if (staleMismatchFile.HasZeroNoteMismatchWarning)
+            {
+                staleMismatchFile.HasZeroNoteMismatchWarning = false;
+                result.ClearedCount++;
+            }
+        }
+        foreach (BMSFile zeroNoteFile in zeroNoteFiles)
+        {
+            try
+            {
+                bool isZeroNoteByFile = BMSFile.IsZeroNoteBMSFile(zeroNoteFile.path);
+                if (!isZeroNoteByFile)
+                {
+                    zeroNoteFile.HasZeroNoteMismatchWarning = true;
+                    result.MismatchCount++;
+                }
+                else
+                {
+                    if (zeroNoteFile.HasZeroNoteMismatchWarning)
+                    {
+                        result.ClearedCount++;
+                    }
+                    zeroNoteFile.HasZeroNoteMismatchWarning = false;
+                }
+            }
+            catch (Exception ex) when (ex is DirectoryNotFoundException || ex is FileNotFoundException || ex is IOException || ex is PathTooLongException || ex is System.Security.SecurityException || ex is UnauthorizedAccessException)
+            {
+                if (zeroNoteFile.HasZeroNoteMismatchWarning)
+                {
+                    result.ClearedCount++;
+                }
+                zeroNoteFile.HasZeroNoteMismatchWarning = false;
+                result.SkippedCount++;
+                logWarn?.Invoke(ex, "zero_note_recheck skipped: path=" + zeroNoteFile.path);
+            }
+        }
+        return result;
+    }
+
+    public List<BMSFile> DetectModeChanges(IEnumerable<BMSFile> bmsFiles, bool forceUpdate)
+    {
+        List<BMSFile> targets = (bmsFiles ?? Enumerable.Empty<BMSFile>())
+            .Where((BMSFile file) => file != null && (forceUpdate || !file.mode.HasValue) && File.Exists(file.path))
+            .ToList();
+        foreach (BMSFile target in targets)
+        {
+            target.SetMode();
+        }
+        return targets;
     }
 
     private static bool AppendHealthWarning(BMSFile bmsFile, int? health, int? defined, int? existing, string warningFormat)
