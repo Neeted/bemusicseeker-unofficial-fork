@@ -6,6 +6,10 @@ using BeMusicSeeker.Models.Utils;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
+/// <summary>
+/// Calculates installation destinations against snapshots owned by BMSLibrary.
+/// The facade must acquire the required locks before invoking this service.
+/// </summary>
 internal sealed class BmsLibraryInstallEstimationService
 {
     private readonly int innerWavHealthThreshold;

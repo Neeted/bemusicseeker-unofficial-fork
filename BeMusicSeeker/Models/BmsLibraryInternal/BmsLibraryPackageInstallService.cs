@@ -77,6 +77,10 @@ internal sealed class ComponentMoveSummary
     public int HashUnavailableRenamed { get; set; }
 }
 
+/// <summary>
+/// Executes pending/package workflows against caller-owned state snapshots.
+/// The facade must acquire the required locks before invoking this service.
+/// </summary>
 internal sealed class BmsLibraryPackageInstallService
 {
     public static readonly TimeSpan SmartComponentOverwriteTimeTolerance = TimeSpan.FromSeconds(2.0);

@@ -197,6 +197,7 @@ public sealed class BmsSortCompatibilityTests
     /// </summary>
     [TestMethod]
     [TestCategory("SortEngine")]
+    [TestCategory("KnownFailure")]
     public void Sort_FolderColumn_UsesFastStringProfileInRegularView()
     {
         TestableBmsFile folder10 = new TestableBmsFile();

@@ -615,6 +615,12 @@ public class BMSLibrary : NotificationObject
 
     private bool installedDirectoryIndexInitialized;
 
+    // Lock acquisition order for facade orchestration:
+    // rwlockBMSFilesInitializedAll / rwlockBMSFilesInitializedMin
+    // -> rwlockBMSFilesPendingInstall
+    // -> rwlockBMSFiles
+    // -> rwlockSongDBInstall / rwlockSongDBMaintenance
+    // -> rwlockBMSScores
     private ReaderWriterLockSlimWrapper rwlockBMSFilesInitializedAll = new ReaderWriterLockSlimWrapper();
 
     private ReaderWriterLockSlimWrapper rwlockBMSFilesInitializedMin = new ReaderWriterLockSlimWrapper();
@@ -1061,7 +1067,7 @@ public class BMSLibrary : NotificationObject
         }
     }
 
-    private bool UseLR2 => Settings.Default.OperationModeLR2DB;
+    private bool UseLR2 => CurrentOptionsSnapshot.OperationModeLR2DB;
 
     public List<string> SearchTargets { get; set; }
 
@@ -1088,6 +1094,8 @@ public class BMSLibrary : NotificationObject
     private readonly IBmsLibraryIrClient irClient = new BmsLibraryIrClient();
 
     private readonly BmsLibraryMaintenanceService maintenanceService = new BmsLibraryMaintenanceService();
+
+    private readonly BmsLibraryStateApplier stateApplier;
 
     private BmsLibraryOptionsSnapshot CurrentOptionsSnapshot => BmsLibraryOptionsSnapshot.CreateCurrent();
 
@@ -1119,6 +1127,11 @@ public class BMSLibrary : NotificationObject
     /// <exception cref="ArgumentNullException">song.db パスが null の場合に送出されます。</exception>
     /// <exception cref="ArgumentException">指定された DB ファイルが存在しない場合に送出されます。</exception>
     internal BMSLibrary(string _lr2SongDB, Func<LR2Config> getLR2Config, string _lr2ScoreDB, IFileMutationService fileMutationService)
+        : this(_lr2SongDB, getLR2Config, _lr2ScoreDB, fileMutationService, null)
+    {
+    }
+
+    internal BMSLibrary(string _lr2SongDB, Func<LR2Config> getLR2Config, string _lr2ScoreDB, IFileMutationService fileMutationService, IBmsLibraryDialogService dialogService)
     {
         if (_lr2SongDB == null)
         {
@@ -1135,8 +1148,22 @@ public class BMSLibrary : NotificationObject
         lr2SongDBPath = _lr2SongDB;
         lr2ScoreDBPath = _lr2ScoreDB;
         this.fileMutationService = fileMutationService ?? new ResilientFileMutationService();
-        dialogService = new BmsLibraryDialogService();
+        this.dialogService = dialogService ?? new BmsLibraryDialogService();
         dbGateway = new BmsLibraryDbGateway(lr2SongDBPath, lr2ScoreDBPath);
+        stateApplier = new BmsLibraryStateApplier(
+            dbGateway,
+            () => BMSFiles,
+            files => BMSFiles = files,
+            () => BMSPackagesPending,
+            pendingPackages => BMSPackagesPending = pendingPackages,
+            () => BMSPackagesInstalled,
+            installedPackages => BMSPackagesInstalled = installedPackages,
+            InvalidateBMSHashIndex,
+            InvalidateInstalledDirectoryIndex,
+            InvalidateBMSParentFolderListCache,
+            () => BMSFilesDuplicated = null,
+            () => RaisePropertyChanged(() => BMSFiles),
+            () => RaisePropertyChanged(() => BMSPackagesInstalled));
         lr2config = ((getLR2Config != null) ? getLR2Config : ((Func<LR2Config>)(() => (LR2Config)null)));
         using (LR2SongDBExtended lR2SongDBExtended = dbGateway.OpenSongDb())
         {
@@ -1252,10 +1279,11 @@ public class BMSLibrary : NotificationObject
     /// <param name="reloadScoresOnly">スコアのみの再読み込み指定。</param>
     public void Initialize(List<Action> tasksContinuation, SemaphoreSlim semaphore = null, bool? reloadScoresOnly = null)
     {
+        BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
         bool scheduleDeferredMaintenanceTableCheck = false;
         string deferredMaintenanceReason = ((reloadScoresOnly == false) ? "reload_files" : "initialize");
         bool songTblLoad = reloadScoresOnly != true;
-        bool songTblFileCheck = reloadScoresOnly == false || (reloadScoresOnly != true && !Settings.Default.SkipInitFileCheck);
+        bool songTblFileCheck = reloadScoresOnly == false || (reloadScoresOnly != true && !options.SkipInitFileCheck);
         bool setMaintenanceInfo = reloadScoresOnly != true;
         bool flag = reloadScoresOnly != true;
         Task<BmsScanPrefetchInfo> bmsScanPrefetchTask = null;
@@ -1843,6 +1871,7 @@ public class BMSLibrary : NotificationObject
 
     private void setBMSScore(LR2IRData data, LR2IRCache cache)
     {
+        BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
         using (rwlockBMSScores.GetWriterGuard())
         {
             List<BMSFile> bmsFilesSnapshot;
@@ -1850,7 +1879,7 @@ public class BMSLibrary : NotificationObject
             {
                 bmsFilesSnapshot = ((BMSFiles == null) ? new List<BMSFile>() : BMSFiles.Where((BMSFile f) => f != null).ToList());
             }
-            irService.ApplyIrDataToScoresAndFiles(data, cache, lr2ScoreDBPath, BMSScores, bmsFilesSnapshot, Settings.Default.SkipEstimateOfflineScoreRanking);
+            irService.ApplyIrDataToScoresAndFiles(data, cache, lr2ScoreDBPath, BMSScores, bmsFilesSnapshot, options.SkipEstimateOfflineScoreRanking);
         }
     }
 
@@ -1876,6 +1905,7 @@ public class BMSLibrary : NotificationObject
 
     private void setRankingScore()
     {
+        BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
         NLogWrapper.DebuggerLogger?.Trace("IR CACHE START");
         if (lr2ScoreDBPath == null || LR2ID == 0)
         {
@@ -1888,7 +1918,7 @@ public class BMSLibrary : NotificationObject
             {
                 using (rwlockBMSFiles.GetReaderGuard())
                 {
-                    irService.RefreshRankingScoresFromCache(LR2ID, lr2ScoreDBPath, dbGateway, BMSScores, BMSFiles, Settings.Default.SkipEstimateOfflineScoreRanking);
+                    irService.RefreshRankingScoresFromCache(LR2ID, lr2ScoreDBPath, dbGateway, BMSScores, BMSFiles, options.SkipEstimateOfflineScoreRanking);
                 }
             }
             NLogWrapper.DebuggerLogger?.Trace("IR CACHE END");
@@ -1911,6 +1941,7 @@ public class BMSLibrary : NotificationObject
 
     public List<IRDataCacheInfo> DownloadIRData(IEnumerable<IRDataCacheInfo> cacheInfo)
     {
+        BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
         if (lr2ScoreDBPath == null || LR2ID == 0)
         {
             throw new InvalidOperationException(Resources.Error_LR2ScoreDBNotConnected);
@@ -1930,7 +1961,7 @@ public class BMSLibrary : NotificationObject
             {
                 using (rwlockBMSFiles.GetReaderGuard())
                 {
-                    return irService.DownloadIRData(LR2ID, cacheInfo, irCacheDirPath, dbGateway, irClient, rankingDataUrl, BMSScores, BMSFiles, Settings.Default.SkipEstimateOfflineScoreRanking);
+                    return irService.DownloadIRData(LR2ID, cacheInfo, irCacheDirPath, dbGateway, irClient, rankingDataUrl, BMSScores, BMSFiles, options.SkipEstimateOfflineScoreRanking);
                 }
             }
         }
@@ -2248,6 +2279,7 @@ public class BMSLibrary : NotificationObject
     /// <returns>インストール処理された BMS パッケージのリスト。</returns>
     public List<BMSPackage> InstallBMSFilesAuto(IEnumerable<string> installPaths)
     {
+        BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
         List<BMSPackage> pendingPackagesToEstimate = new List<BMSPackage>();
         List<BMSPackage> discoveredPackages = new List<BMSPackage>();
         using (rwlockBMSFilesInitializedAll.GetReaderGuard())
@@ -2260,7 +2292,7 @@ public class BMSLibrary : NotificationObject
                     {
                         if (installPaths == null || installPaths.Any((string path) => !Directory.Exists(path) && !File.Exists(path)))
                         {
-                            DispatcherMessageBox.Show(Resources.Warn_InstallAbortedFilesNotFound, Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+                            dialogService.Show(Resources.Warn_InstallAbortedFilesNotFound, Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
                             return discoveredPackages;
                         }
                         installPaths = packageInstallService.ExpandInstallSources(
@@ -2284,13 +2316,13 @@ public class BMSLibrary : NotificationObject
                         }
                         AutoInstallApplyResult applyResult = packageInstallService.ApplyAutoInstallWorkflow(
                             workflow,
-                            Settings.Default.KeepInstallablePackagesPending,
+                            options.KeepInstallablePackagesPending,
                             SearchTargets != null && SearchTargets.Count() > 0 && Directory.Exists(SearchTargets[0]),
                             (packagesToInstall) => installBMSPackages(packagesToInstall));
                         LogInstallPerformance("auto_install_apply pendingAdd=" + applyResult.PendingPackagesToAdd.Count + " pendingRemove=" + applyResult.PendingPackagesToRemove.Count + " autoInstalled=" + applyResult.AutoInstalledPackages.Count + " autoFailed=" + applyResult.AutoInstallFailures.Count + " installMs=" + applyResult.InstallMs + " applyMs=" + applyResult.ApplyMs + " totalMs=" + applyResult.TotalMs);
                         if (applyResult.PendingPackagesToRemove.Count > 0)
                         {
-                            ApplyPendingPackageMutationDelta(BuildPendingPackageMutationDelta(packagesToRemove: applyResult.PendingPackagesToRemove));
+                            stateApplier.ApplyPendingPackageMutationDelta(BuildPendingPackageMutationDelta(packagesToRemove: applyResult.PendingPackagesToRemove));
                         }
                         if (applyResult.InstallRowsToUpsert.Count > 0)
                         {
@@ -2312,36 +2344,6 @@ public class BMSLibrary : NotificationObject
     private List<BMSPackage> searchBMSFilesRecursively(string dirfullpath, bool recursive = false)
     {
         return packageInstallService.SearchBmsFilesRecursively(dirfullpath, dupRateThreshInOnePkg, recursive);
-    }
-
-    private static bool IsSmartComponentOverwriteEnabled()
-    {
-        return Settings.Default.EnableSmartComponentOverwrite;
-    }
-
-    private static bool IsKeepSmartOverwriteProtectedFilesByRenamingEnabled()
-    {
-        return Settings.Default.KeepSmartOverwriteProtectedFilesByRenaming;
-    }
-
-    private static bool IsSmartOverwriteProtectedExtension(string filePath)
-    {
-        return new BmsLibraryPackageInstallService().IsSmartOverwriteProtectedExtension(filePath);
-    }
-
-    private SmartOverwriteHashCompareResult CompareHashForSmartOverwrite(string srcFilePath, string dstFilePath)
-    {
-        string text = TryComputeFileMd5ForPath(srcFilePath, "smart_component_overwrite_hash");
-        string text2 = TryComputeFileMd5ForPath(dstFilePath, "smart_component_overwrite_hash");
-        if (string.IsNullOrWhiteSpace(text) || string.IsNullOrWhiteSpace(text2))
-        {
-            return SmartOverwriteHashCompareResult.Unavailable;
-        }
-        if (text.Equals(text2, StringComparison.OrdinalIgnoreCase))
-        {
-            return SmartOverwriteHashCompareResult.Same;
-        }
-        return SmartOverwriteHashCompareResult.Different;
     }
 
     private static ComponentMoveDecision DecideComponentMove(string srcFilePath, string dstFilePath)
@@ -2793,7 +2795,7 @@ public class BMSLibrary : NotificationObject
                             BMSPackagesPending,
                             delegate (BMSPackage pendingPackage)
                             {
-                                return MessageBox.Show(Resources.Confirm_NormalInstallOverride, Resources.Confirm_NormalInstallTitle, MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.Yes) == MessageBoxResult.Yes;
+                                return dialogService.Show(Resources.Confirm_NormalInstallOverride, Resources.Confirm_NormalInstallTitle, MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.Yes) == MessageBoxResult.Yes;
                             },
                             delegate (IEnumerable<BMSPackage> packagesToInstall, List<BMSPackage> deferredInstalledPackages)
                             {
@@ -2807,7 +2809,7 @@ public class BMSLibrary : NotificationObject
                         NLogWrapper.FileLogger?.Info("force_install_batch start requested=" + result.Requested);
                         if (result.PendingPackagesToRemove.Count > 0)
                         {
-                            ApplyPendingPackageMutationDelta(BuildPendingPackageMutationDelta(packagesToRemove: result.PendingPackagesToRemove));
+                            stateApplier.ApplyPendingPackageMutationDelta(BuildPendingPackageMutationDelta(packagesToRemove: result.PendingPackagesToRemove));
                         }
                         int num5 = 0;
                         if (result.DeferredInstalledPackages.Count > 0)
@@ -2917,6 +2919,7 @@ public class BMSLibrary : NotificationObject
         {
             throw new ArgumentNullException("packages");
         }
+        BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
         Stopwatch totalStopwatch = Stopwatch.StartNew();
         using (rwlockBMSFilesInitializedAll.GetReaderGuard())
         {
@@ -2932,7 +2935,7 @@ public class BMSLibrary : NotificationObject
                             LogInstallPerformance("InstallBMSPackagesToEstimatedDir skipped reason=BMSFiles_null totalMs=" + totalStopwatch.ElapsedMilliseconds);
                             return;
                         }
-                        bool deletePendingPackageSourceAfterInstall = Settings.Default.DeletePendingPackageSourceAfterInstall;
+                        bool deletePendingPackageSourceAfterInstall = options.DeletePendingPackageSourceAfterInstall;
                         PendingInstallBatchPlan installPlan = packageInstallService.BuildEstimatedInstallBatchPlan(packages, BMSPackagesPending, BMSFiles, deletePendingPackageSourceAfterInstall, CountComponentMoveTargetsForPackage);
                         if (installPlan.SelectedPendingPackages.Count == 0)
                         {
@@ -2989,7 +2992,7 @@ public class BMSLibrary : NotificationObject
                         maintenanceStopwatch.Stop();
                         if (deletePendingPackageSourceAfterInstall && batchResult.CleanupOnlySucceeded > 0)
                         {
-                            DispatcherMessageBox.Show(string.Format(Resources.Warn_estimated_install_cleanup_only_completed, batchResult.CleanupOnlySucceeded), Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
+                            dialogService.Show(string.Format(Resources.Warn_estimated_install_cleanup_only_completed, batchResult.CleanupOnlySucceeded), Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
                         }
                         totalStopwatch.Stop();
                         LogInstallPerformance("InstallBMSPackagesToEstimatedDir end pendingApplyMs=" + pendingApplyStopwatch.ElapsedMilliseconds + " pendingBeforeApply=" + pendingCountBeforeApply + " pendingRemovedTotal=" + pendingRemovedTotal + " pendingAfterApply=" + pendingCountAfterApply + " installedApplyMs=" + installedApplyStopwatch.ElapsedMilliseconds + " installedBeforeApply=" + installedCountBeforeApply + " installedAddedTotal=" + installedAddedTotal + " installedAfterApply=" + installedCountAfterApply + " maintenanceTargets=" + batchResult.DeferredMaintenanceTargets.Count + " maintenanceMs=" + maintenanceStopwatch.ElapsedMilliseconds + " cleanupOnlyCandidates=" + installPlan.CleanupOnlyCandidates.Count + " cleanupOnlySucceeded=" + batchResult.CleanupOnlySucceeded + " cleanupOnlyFailed=" + batchResult.CleanupOnlyFailed + " cleanupOnlyMissingSource=" + batchResult.CleanupOnlyMissingSource + " totalMs=" + totalStopwatch.ElapsedMilliseconds);
@@ -3032,17 +3035,7 @@ public class BMSLibrary : NotificationObject
 
     private void ApplyPendingPackageMutationDelta(PendingPackageMutationDelta delta)
     {
-        if (delta == null || !delta.HasChanges)
-        {
-            return;
-        }
-        BMSPackagesPending = new DispatcherCollection<BMSPackage>(new ObservableCollection<BMSPackage>(delta.RemainingPackages ?? new List<BMSPackage>()), DispatcherHelper.UIDispatcher);
-        List<string> list = (delta.InstallPathsToDelete ?? new List<string>()).Where((string path) => !string.IsNullOrWhiteSpace(path)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-        if (list.Count == 0)
-        {
-            return;
-        }
-        dbGateway.DeleteInstallRows(list);
+        stateApplier.ApplyPendingPackageMutationDelta(delta);
     }
 
     /// <summary>
@@ -3090,7 +3083,7 @@ public class BMSLibrary : NotificationObject
             {
                 using (rwlockSongDBInstall.GetWriterGuard())
                 {
-                    ApplyPendingPackageMutationDelta(BuildPendingPackageMutationDelta(clearAll: true));
+                    stateApplier.ApplyPendingPackageMutationDelta(BuildPendingPackageMutationDelta(clearAll: true));
                 }
             }
         }
@@ -3186,6 +3179,7 @@ public class BMSLibrary : NotificationObject
         {
             throw new ArgumentNullException("packages");
         }
+        BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
         using (rwlockBMSFilesInitializedAll.GetReaderGuard())
         {
             using (rwlockBMSFilesPendingInstall.GetWriterGuard())
@@ -3194,7 +3188,7 @@ public class BMSLibrary : NotificationObject
                 {
                     using (rwlockSongDBInstall.GetWriterGuard())
                     {
-                        bool deletePendingPackageSourceAfterInstall = Settings.Default.DeletePendingPackageSourceAfterInstall;
+                        bool deletePendingPackageSourceAfterInstall = options.DeletePendingPackageSourceAfterInstall;
                         Dictionary<string, List<string>> installedDirectoryIndexSnapshot = CreateInstalledDirectoryIndexSnapshotUnsafe();
                         NLogWrapper.FileLogger?.Info("advanced_pending_resource_overwrite scan pendingTotal=" + BMSPackagesPending.Count + " eligible=" + packageInstallService.DeduplicatePackagesByPathOrReference(packages).Count);
                         NLogWrapper.FileLogger?.Info("advanced_pending_resource_overwrite index_ready hashes=" + installedDirectoryIndexSnapshot.Count);
@@ -3228,7 +3222,7 @@ public class BMSLibrary : NotificationObject
                                 {
                                     string displayedExceptionMessage = GetDisplayedExceptionMessage(ex);
                                     NLogWrapper.FileLogger?.Warn(ex, "advanced_pending_resource_overwrite install_failed_exception path=" + pendingPackage.path + " dst=" + destinationDir + " error=" + displayedExceptionMessage);
-                                    DispatcherMessageBox.Show(string.Format(Resources.Error_InstallFailed, pendingPackage.path, destinationDir, displayedExceptionMessage), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+                                    dialogService.Show(string.Format(Resources.Error_InstallFailed, pendingPackage.path, destinationDir, displayedExceptionMessage), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
                                     return false;
                                 }
                             },
@@ -3294,11 +3288,11 @@ public class BMSLibrary : NotificationObject
                         }
                         if (failure.Outcome.FailedDuringDelete)
                         {
-                            DispatcherMessageBox.Show(string.Format(Resources.Error_BmsFileDeleteFailed, failure.File.path, GetDisplayedExceptionMessage(failure.Outcome.FailureException)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+                            dialogService.Show(string.Format(Resources.Error_BmsFileDeleteFailed, failure.File.path, GetDisplayedExceptionMessage(failure.Outcome.FailureException)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
                         }
                         else
                         {
-                            DispatcherMessageBox.Show(string.Format(Resources.Error_BmsFileMoveFailed, failure.File.path, failure.Outcome.FinalPath, GetDisplayedExceptionMessage(failure.Outcome.FailureException)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+                            dialogService.Show(string.Format(Resources.Error_BmsFileMoveFailed, failure.File.path, failure.Outcome.FinalPath, GetDisplayedExceptionMessage(failure.Outcome.FailureException)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
                         }
                     }
                     RemovePendingFilesFromPendingPackagesAndInstallRows(result.FilesToRemove);
@@ -3345,11 +3339,11 @@ public class BMSLibrary : NotificationObject
                         NLogWrapper.FileLogger?.Warn(failure.Exception, "advanced_pending_cleanup failed path=" + failure.Package.path + " kind=" + (failure.IsDirectory ? "directory" : "file") + " error=" + GetDisplayedExceptionMessage(failure.Exception));
                         if (failure.IsDirectory)
                         {
-                            DispatcherMessageBox.Show(string.Format(Resources.Error_FolderOrTrashDeleteFailed, failure.Package.path, GetDisplayedExceptionMessage(failure.Exception)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+                            dialogService.Show(string.Format(Resources.Error_FolderOrTrashDeleteFailed, failure.Package.path, GetDisplayedExceptionMessage(failure.Exception)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
                         }
                         else
                         {
-                            DispatcherMessageBox.Show(string.Format(Resources.Error_BmsFileDeleteFailed, failure.Package.path, GetDisplayedExceptionMessage(failure.Exception)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+                            dialogService.Show(string.Format(Resources.Error_BmsFileDeleteFailed, failure.Package.path, GetDisplayedExceptionMessage(failure.Exception)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
                         }
                     }
                     RemovePendingPackagesFromPendingListAndInstallRows(result.PackagesToRemove);
@@ -3361,7 +3355,7 @@ public class BMSLibrary : NotificationObject
 
     private void RemovePendingPackagesFromPendingListAndInstallRows(IEnumerable<BMSPackage> packages)
     {
-        ApplyPendingPackageMutationDelta(BuildPendingPackageMutationDelta(packagesToRemove: packages));
+        stateApplier.ApplyPendingPackageMutationDelta(BuildPendingPackageMutationDelta(packagesToRemove: packages));
     }
 
     /// <summary>
@@ -3407,7 +3401,7 @@ public class BMSLibrary : NotificationObject
                 PendingInstallDestinationSelectionResult selection = CreateInstallEstimationService().ValidatePendingInstallDestination(bmsFile, BMSPackagesPending, bmsFolderAllFileList.Keys, destinationDirectory);
                 if (!selection.Success)
                 {
-                    DispatcherMessageBox.Show(selection.WarningMessage, Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
+                    dialogService.Show(selection.WarningMessage, Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
                     return false;
                 }
                 foreach (BMSFile item in selection.TargetFiles)
@@ -3747,13 +3741,14 @@ public class BMSLibrary : NotificationObject
 
     private string createBMSFolderPath(IEnumerable<BMSFile> bmsFiles, string parentDir, string longestFileName = "")
     {
+        BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
         int num = 250;
         int num2 = 128;
         Encoding encoding = Encoding.GetEncoding("Shift_JIS");
         string lCSBMSInfo = GetLCSBMSInfo(bmsFiles.Select((BMSFile f) => f.Title));
         string lCSBMSInfo2 = GetLCSBMSInfo(bmsFiles.Select((BMSFile f) => f.Artist));
-        string s = Settings.Default.FolderNameFormat.Replace("%ARTIST%", lCSBMSInfo2).Replace("%TITLE%", lCSBMSInfo).Trim();
-        if (Settings.Default.UseOnlyShiftJISChars)
+        string s = options.FolderNameFormat.Replace("%ARTIST%", lCSBMSInfo2).Replace("%TITLE%", lCSBMSInfo).Trim();
+        if (options.UseOnlyShiftJISChars)
         {
             s = s.ToSjisSchemeString();
         }
@@ -3810,7 +3805,7 @@ public class BMSLibrary : NotificationObject
                     }
                     if (!moveBMSPackageFiles(mergeResult.Repackage, dst, showMessageBoxOnInstallFail: false, deleteAllContents: true, existingHashes: mergeResult.ExistingHashes))
                     {
-                        DispatcherMessageBox.Show(string.Format(Resources.Error_BmsFolderMergeFailed, src, dst), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+                        dialogService.Show(string.Format(Resources.Error_BmsFolderMergeFailed, src, dst), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
                         return;
                     }
                     bmsFolderAllFileList.AddDir(dst, update: true);
@@ -3846,7 +3841,7 @@ public class BMSLibrary : NotificationObject
                     (package, destinationDirectory) => moveBMSPackageFiles(package, destinationDirectory, showMessageBoxOnInstallFail: true, deleteAllContents: false, existingHashes: existingHashes),
                     delegate (BMSFile file)
                     {
-                        return DispatcherMessageBox.Show(string.Format(Resources.Confirm_DuplicateReinstallSkipped, file.path, string.Join(Environment.NewLine, from x in BMSFiles.Where((BMSFile f) => f.hash == file.hash).Except(new BMSFile[1] { file })
+                        return dialogService.Show(string.Format(Resources.Confirm_DuplicateReinstallSkipped, file.path, string.Join(Environment.NewLine, from x in BMSFiles.Where((BMSFile f) => f.hash == file.hash).Except(new BMSFile[1] { file })
                                                                                                                                                 select x.path)), Resources.MessageBoxTitle_Confirm, MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.Yes) == MessageBoxResult.Yes;
                     });
                 ApplyLibraryMutationDelta(result.MutationDelta);
@@ -3881,13 +3876,13 @@ public class BMSLibrary : NotificationObject
                     List<FolderAutoRenamePlan> plans = libraryFileOperationsService.BuildAutoRenamePlans(bmsFiles, BMSFiles, rootFolders, renameRootFolder, createBMSFolderPath);
                     if (plans.Any((FolderAutoRenamePlan plan) => !string.IsNullOrWhiteSpace(plan.SourceDirectory) && Path.GetPathRoot(plan.SourceDirectory).Equals(plan.SourceDirectory, StringComparison.OrdinalIgnoreCase)))
                     {
-                        DispatcherMessageBox.Show(Resources.Warn_DriveRootBmsSkipped, Resources.MessageBoxTitle_Confirm, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
+                        dialogService.Show(Resources.Warn_DriveRootBmsSkipped, Resources.MessageBoxTitle_Confirm, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
                     }
                     foreach (FolderAutoRenamePlan plan in plans)
                     {
                         if (plan?.FailureException != null)
                         {
-                            DispatcherMessageBox.Show(string.Format(Resources.Error_RenameFailed, plan.SourceDirectory, plan.FailureException.Message), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+                            dialogService.Show(string.Format(Resources.Error_RenameFailed, plan.SourceDirectory, plan.FailureException.Message), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
                             continue;
                         }
                         if (string.IsNullOrWhiteSpace(plan?.DestinationDirectory) || string.IsNullOrWhiteSpace(plan.SourceDirectory))
@@ -3914,12 +3909,13 @@ public class BMSLibrary : NotificationObject
         {
             throw new ArgumentNullException("newName");
         }
+        BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
         if (!renameRootFolder && getBMSDirectories().Contains(srcDir, StringComparer.OrdinalIgnoreCase))
         {
-            DispatcherMessageBox.Show(string.Format(Resources.Warn_CannotRenameRootFolder, srcDir), Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
+            dialogService.Show(string.Format(Resources.Warn_CannotRenameRootFolder, srcDir), Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
             return;
         }
-        if (Settings.Default.UseOnlyShiftJISChars)
+        if (options.UseOnlyShiftJISChars)
         {
             newName = newName.ToSjisSchemeString();
         }
@@ -3930,7 +3926,7 @@ public class BMSLibrary : NotificationObject
         }
         if (!Directory.Exists(srcDir))
         {
-            DispatcherMessageBox.Show(string.Format(Resources.Warn_RenameFolderNotExists, srcDir), Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
+            dialogService.Show(string.Format(Resources.Warn_RenameFolderNotExists, srcDir), Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
             return;
         }
         using (rwlockBMSFilesInitializedMin.GetReaderGuard())
@@ -3971,13 +3967,13 @@ public class BMSLibrary : NotificationObject
                 {
                     if (!Directory.Exists(dstDir))
                     {
-                        DispatcherMessageBox.Show(string.Format(Resources.Error_MoveDestRootNotFound, dstDir), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+                        dialogService.Show(string.Format(Resources.Error_MoveDestRootNotFound, dstDir), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
                         return;
                     }
                     List<FolderAutoRenamePlan> plans = libraryFileOperationsService.BuildRootFolderMovePlans(bmsFiles, dstDir);
                     if ((bmsFiles ?? Enumerable.Empty<BMSFile>()).Select((BMSFile f) => DirectoryExt.GetDirectoryNameSimple(f.path)).Distinct(StringComparer.OrdinalIgnoreCase).Any((string f) => !string.IsNullOrWhiteSpace(f) && Path.GetPathRoot(f).Equals(f, StringComparison.OrdinalIgnoreCase)))
                     {
-                        DispatcherMessageBox.Show(Resources.Warn_DriveRootCannotChangeRoot, Resources.MessageBoxTitle_Confirm, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
+                        dialogService.Show(Resources.Warn_DriveRootCannotChangeRoot, Resources.MessageBoxTitle_Confirm, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
                     }
                     foreach (FolderAutoRenamePlan plan in plans)
                     {
@@ -4000,7 +3996,7 @@ public class BMSLibrary : NotificationObject
         }
         if (File.Exists(dstDir) || Directory.Exists(dstDir))
         {
-            DispatcherMessageBox.Show(string.Format(Resources.Warn_MoveDestAlreadyExists, srcDir, dstDir), Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
+            dialogService.Show(string.Format(Resources.Warn_MoveDestAlreadyExists, srcDir, dstDir), Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
             return;
         }
         try
@@ -4009,7 +4005,7 @@ public class BMSLibrary : NotificationObject
         }
         catch (Exception moveException)
         {
-            DispatcherMessageBox.Show(string.Format(Resources.Error_FolderMoveFailed, srcDir, dstDir, GetDisplayedExceptionMessage(moveException)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+            dialogService.Show(string.Format(Resources.Error_FolderMoveFailed, srcDir, dstDir, GetDisplayedExceptionMessage(moveException)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
             return;
         }
         if (unregister != false && unregister != true)
@@ -4032,7 +4028,7 @@ public class BMSLibrary : NotificationObject
                 }
                 if (File.Exists(dstPath) || Directory.Exists(dstPath))
                 {
-                    DispatcherMessageBox.Show(string.Format(Resources.Warn_RenameDestAlreadyExists, bmsFile.path, dstPath), Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
+                    dialogService.Show(string.Format(Resources.Warn_RenameDestAlreadyExists, bmsFile.path, dstPath), Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
                     return;
                 }
                 try
@@ -4041,7 +4037,7 @@ public class BMSLibrary : NotificationObject
                 }
                 catch (Exception moveException)
                 {
-                    DispatcherMessageBox.Show(string.Format(Resources.Error_BmsFileMoveFailed, bmsFile.path, dstPath, GetDisplayedExceptionMessage(moveException)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+                    dialogService.Show(string.Format(Resources.Error_BmsFileMoveFailed, bmsFile.path, dstPath, GetDisplayedExceptionMessage(moveException)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
                     return;
                 }
                 if (unregister != false && unregister != true)
@@ -4092,7 +4088,7 @@ public class BMSLibrary : NotificationObject
                     {
                         continue;
                     }
-                    DispatcherMessageBox.Show(
+                    dialogService.Show(
                         string.Format(Resources.Error_BmsFileMoveFailed, failure.Path, newExt, GetDisplayedExceptionMessage(failure.Exception)),
                         Resources.MessageBoxTitle_Error,
                         MessageBoxButton.OK,
@@ -4129,11 +4125,11 @@ public class BMSLibrary : NotificationObject
                         }
                         if (failure.Outcome.FailedDuringDelete)
                         {
-                            DispatcherMessageBox.Show(string.Format(Resources.Error_BmsFileDeleteFailed, failure.File.path, GetDisplayedExceptionMessage(failure.Outcome.FailureException)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+                            dialogService.Show(string.Format(Resources.Error_BmsFileDeleteFailed, failure.File.path, GetDisplayedExceptionMessage(failure.Outcome.FailureException)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
                         }
                         else
                         {
-                            DispatcherMessageBox.Show(string.Format(Resources.Error_BmsFileMoveFailed, failure.File.path, failure.Outcome.FinalPath, GetDisplayedExceptionMessage(failure.Outcome.FailureException)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+                            dialogService.Show(string.Format(Resources.Error_BmsFileMoveFailed, failure.File.path, failure.Outcome.FinalPath, GetDisplayedExceptionMessage(failure.Outcome.FailureException)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
                         }
                     }
                     RemovePendingFilesFromPendingPackagesAndInstallRows(result.FilesToRemove);
@@ -4160,7 +4156,7 @@ public class BMSLibrary : NotificationObject
                         BMSPackagesPending,
                         bmsFolderAllFileList,
                         sendToRecycleBin,
-                        (folderPath) => DispatcherMessageBox.Show(string.Format(Resources.Confirm_DeleteFolderWithNoBms, folderPath), Resources.MessageBoxTitle_Confirm, MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.Yes) == MessageBoxResult.Yes,
+                        (folderPath) => dialogService.Show(string.Format(Resources.Confirm_DeleteFolderWithNoBms, folderPath), Resources.MessageBoxTitle_Confirm, MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.Yes) == MessageBoxResult.Yes,
                         fileMutationService,
                         targetOnlyFileMutationOptions,
                         recursiveDirectoryTreeFileMutationOptions);
@@ -4168,11 +4164,11 @@ public class BMSLibrary : NotificationObject
                     {
                         if (failure.IsDirectory)
                         {
-                            DispatcherMessageBox.Show(string.Format(Resources.Error_FolderOrTrashDeleteFailed, failure.Path, GetDisplayedExceptionMessage(failure.Exception)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+                            dialogService.Show(string.Format(Resources.Error_FolderOrTrashDeleteFailed, failure.Path, GetDisplayedExceptionMessage(failure.Exception)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
                         }
                         else
                         {
-                            DispatcherMessageBox.Show(string.Format(Resources.Error_BmsFileDeleteFailed, failure.Path, GetDisplayedExceptionMessage(failure.Exception)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+                            dialogService.Show(string.Format(Resources.Error_BmsFileDeleteFailed, failure.Path, GetDisplayedExceptionMessage(failure.Exception)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
                         }
                     }
                     unregisterBMSFiles(result.RemovedFiles);
@@ -4212,11 +4208,11 @@ public class BMSLibrary : NotificationObject
                         }
                         if (failure.IsDirectory)
                         {
-                            DispatcherMessageBox.Show(string.Format(Resources.Error_FolderOrTrashDeleteFailed, failure.Path, GetDisplayedExceptionMessage(failure.Exception)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+                            dialogService.Show(string.Format(Resources.Error_FolderOrTrashDeleteFailed, failure.Path, GetDisplayedExceptionMessage(failure.Exception)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
                         }
                         else
                         {
-                            DispatcherMessageBox.Show(string.Format(Resources.Error_BmsFileDeleteFailed, failure.Path, GetDisplayedExceptionMessage(failure.Exception)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+                            dialogService.Show(string.Format(Resources.Error_BmsFileDeleteFailed, failure.Path, GetDisplayedExceptionMessage(failure.Exception)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
                         }
                     }
                     RemovePendingFilesFromPendingPackagesAndInstallRows(result.FilesToRemove);
@@ -4237,65 +4233,12 @@ public class BMSLibrary : NotificationObject
         {
             return;
         }
-        ApplyPendingPackageMutationDelta(BuildPendingPackageMutationDelta(filesToRemove: list));
+        stateApplier.ApplyPendingPackageMutationDelta(BuildPendingPackageMutationDelta(filesToRemove: list));
     }
 
     private void ApplyLibraryMutationDelta(LibraryMutationDelta delta)
     {
-        if (delta == null)
-        {
-            return;
-        }
-        foreach (LibraryFolderPathChange folderPathChange in delta.FolderPathChanges)
-        {
-            replaceBMSFolder(folderPathChange.NewFolderPath, folderPathChange.OldFolderPath);
-        }
-        foreach (LibraryFilePathChange filePathChange in delta.FilePathChanges)
-        {
-            replaceBMSFilePath(filePathChange.File, filePathChange.NewPath, filePathChange.OldPath, filePathChange.CalcFolderParent);
-        }
-        foreach (LibraryInstallDestinationChange installDestinationChange in delta.UpdatedInstallDestinations)
-        {
-            if (installDestinationChange?.File != null)
-            {
-                installDestinationChange.File.instl_dst = installDestinationChange.NewInstallDestination;
-            }
-        }
-        foreach (LibraryInstalledPackagePathChange installedPackagePathChange in delta.UpdatedInstalledPackagePaths)
-        {
-            if (installedPackagePathChange?.Package != null)
-            {
-                installedPackagePathChange.Package.path = installedPackagePathChange.NewPath;
-            }
-        }
-        if (delta.FilesToUnregister.Count > 0)
-        {
-            unregisterBMSFiles(delta.FilesToUnregister.Distinct().ToList());
-        }
-        if (delta.InvalidateBMSHashIndex)
-        {
-            InvalidateBMSHashIndex();
-        }
-        if (delta.InvalidateInstalledDirectoryIndex)
-        {
-            InvalidateInstalledDirectoryIndex();
-        }
-        if (delta.InvalidateParentFolderCache)
-        {
-            InvalidateBMSParentFolderListCache();
-        }
-        if (delta.RaiseInstalledPackagesChanged)
-        {
-            RaisePropertyChanged(() => BMSPackagesInstalled);
-        }
-        if (delta.ClearDuplicatedCache)
-        {
-            BMSFilesDuplicated = null;
-        }
-        if (delta.RaiseBmsFilesChanged)
-        {
-            RaisePropertyChanged(() => BMSFiles);
-        }
+        stateApplier.ApplyLibraryMutationDelta(delta);
     }
 
     /// <summary>
@@ -4303,132 +4246,7 @@ public class BMSLibrary : NotificationObject
     /// </summary>
     private void unregisterBMSFiles(List<BMSFile> bmsFiles)
     {
-        if (bmsFiles == null)
-        {
-            throw new ArgumentNullException("bmsFile");
-        }
-        List<BMSFile> list = bmsFiles.Where((BMSFile f) => f != null).ToList();
-        if (list.Count == 0)
-        {
-            return;
-        }
-        BMSFiles = BMSFiles.Except(list).ToList();
-        using (rwlockSongDBMaintenance.GetWriterGuard())
-        {
-            dbGateway.DeleteSongsAndMaintenance(list);
-        }
-        HashSet<string> removedPaths = new HashSet<string>(list.Where((BMSFile f) => !string.IsNullOrWhiteSpace(f.path)).Select((BMSFile f) => f.path), StringComparer.OrdinalIgnoreCase);
-        HashSet<BMSFile> removedFiles = new HashSet<BMSFile>(list);
-        bool changed = false;
-        List<BMSPackage> list2 = new List<BMSPackage>();
-        foreach (BMSPackage item3 in BMSPackagesInstalled.Where((BMSPackage pkg) => pkg != null).ToList())
-        {
-            int count = item3.BMSFiles.Count;
-            item3.BMSFiles.RemoveAll((BMSFile f) => IsMatchedRemovedFile(f, removedPaths, removedFiles));
-            if (item3.BMSFiles.Count != count)
-            {
-                changed = true;
-                if (item3.BMSFiles.Count == 0)
-                {
-                    list2.Add(item3);
-                }
-            }
-        }
-        if (list2.Count > 0)
-        {
-            BMSPackagesInstalled.Remove(list2);
-        }
-        if (changed)
-        {
-            RaisePropertyChanged(() => BMSPackagesInstalled);
-        }
-    }
-
-    private bool IsMatchedRemovedFile(BMSFile file, HashSet<string> removedPaths, HashSet<BMSFile> removedFiles)
-    {
-        return libraryFileOperationsService.IsMatchedRemovedFile(file, removedPaths, removedFiles);
-    }
-
-    /// <summary>
-    /// BMS ファイルのパスを新しいパスに差し替え、song.db に反映します。
-    /// </summary>
-    private void replaceBMSFilePath(BMSFile bmsFile, string newPath, string oldPath = null, bool calcFolderParent = true)
-    {
-        if (bmsFile == null)
-        {
-            throw new ArgumentNullException("bmsFile");
-        }
-        if (newPath == null)
-        {
-            throw new ArgumentNullException("newPath");
-        }
-        if (!File.Exists(newPath))
-        {
-            throw new FileNotFoundException(Resources.Error_RenameDestFileNotFound, newPath);
-        }
-        if (!string.IsNullOrWhiteSpace(oldPath) && !bmsFile.path.Equals(newPath, StringComparison.OrdinalIgnoreCase))
-        {
-            throw new InvalidCastException(Resources.Error_OldPathMismatch);
-        }
-        using (rwlockBMSFilesInitializedMin.GetReaderGuard())
-        {
-            using (rwlockBMSFiles.GetWriterGuard())
-            {
-                using (rwlockSongDBMaintenance.GetWriterGuard())
-                {
-                    if (string.IsNullOrWhiteSpace(oldPath))
-                    {
-                        oldPath = bmsFile.path;
-                    }
-                    bmsFile.path = newPath;
-                    if (calcFolderParent)
-                    {
-                        try
-                        {
-                            string directoryName = Path.GetDirectoryName(bmsFile.path);
-                            bmsFile.folder = LR2CRC32.Compute(Encoding.GetEncoding("shift_jis", EncoderFallback.ExceptionFallback, DecoderFallback.ExceptionFallback).GetBytes(directoryName + "\\\0")).ToString("x");
-                            bmsFile.parent = LR2CRC32.Compute(Encoding.GetEncoding("shift_jis", EncoderFallback.ExceptionFallback, DecoderFallback.ExceptionFallback).GetBytes(Path.GetDirectoryName(directoryName) + "\\\0")).ToString("x");
-                        }
-                        catch
-                        {
-                            bmsFile.parent = null;
-                            bmsFile.folder = null;
-                            bmsFile.adddate = null;
-                            bmsFile.date = null;
-                        }
-                    }
-                    else
-                    {
-                        bmsFile.parent = null;
-                        bmsFile.folder = null;
-                        bmsFile.adddate = null;
-                        bmsFile.date = null;
-                    }
-                    InvalidateInstalledDirectoryIndex();
-                    InvalidateBMSParentFolderListCache();
-                    dbGateway.ReplaceSongPathWithMaintenance(bmsFile, oldPath);
-                }
-            }
-        }
-    }
-
-    private bool replaceBMSFolder(string newFolderPath, string oldFolderPath)
-    {
-        if (string.IsNullOrWhiteSpace(newFolderPath))
-        {
-            throw new ArgumentNullException("newFolderPath");
-        }
-        if (string.IsNullOrWhiteSpace(oldFolderPath))
-        {
-            throw new ArgumentNullException("oldFolderPath");
-        }
-        newFolderPath = newFolderPath.TrimEnd(Path.DirectorySeparatorChar);
-        oldFolderPath = oldFolderPath.TrimEnd(Path.DirectorySeparatorChar);
-        if (!Directory.Exists(newFolderPath))
-        {
-            throw new DirectoryNotFoundException(string.Format(Resources.Error_RenameDestDirNotFound, newFolderPath));
-        }
-        return dbGateway.ReplaceFolderRecord(oldFolderPath, newFolderPath);
+        stateApplier.UnregisterBmsFiles(bmsFiles);
     }
 
     /// <summary>

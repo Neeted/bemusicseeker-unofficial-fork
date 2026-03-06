@@ -15,6 +15,10 @@ using Ribbit.Util.Extensions;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
+/// <summary>
+/// Loads initialization phases against snapshot inputs owned by BMSLibrary.
+/// The facade must acquire the required locks before invoking phase methods.
+/// </summary>
 internal sealed class BmsLibraryInitializationService
 {
     public SongTableLoadResult LoadSongTable(

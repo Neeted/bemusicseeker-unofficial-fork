@@ -30,6 +30,10 @@ internal sealed class RenameInvalidExtensionOutcome
     public bool FailedDuringDelete { get; set; }
 }
 
+/// <summary>
+/// Builds and executes file-system mutations against snapshots owned by BMSLibrary.
+/// The facade must acquire the required locks before invoking this service.
+/// </summary>
 internal sealed class BmsLibraryLibraryFileOperationsService
 {
     public void MoveFolderAndUpdateReferences(

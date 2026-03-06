@@ -10,6 +10,10 @@ using Ribbit.Util.Extensions;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
+/// <summary>
+/// Applies IR cache/network data to snapshots owned by BMSLibrary.
+/// The facade must acquire the required locks before invoking this service.
+/// </summary>
 internal sealed class BmsLibraryIrService
 {
     public void ApplyKnownScoresToFiles(IEnumerable<BMSFile> bmsFiles, IEnumerable<BMSScore> bmsScores)

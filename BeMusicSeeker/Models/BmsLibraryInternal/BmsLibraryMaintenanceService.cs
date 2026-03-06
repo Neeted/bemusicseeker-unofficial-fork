@@ -11,6 +11,10 @@ using Ribbit.Util.Extensions;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
+/// <summary>
+/// Computes and persists maintenance state for snapshots owned by BMSLibrary.
+/// The facade must acquire the required locks before invoking this service.
+/// </summary>
 internal sealed class BmsLibraryMaintenanceService
 {
     public bool ApplyNeedToBeFixedWarnings(BMSFile bmsFile, BMSFileMaintenanceInfo maintenanceInfo = null, bool strictCheck = false)

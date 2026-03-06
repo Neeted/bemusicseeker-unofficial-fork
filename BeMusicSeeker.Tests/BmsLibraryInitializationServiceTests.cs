@@ -289,7 +289,7 @@ public sealed class BmsLibraryInitializationServiceTests
 
     private sealed class TestFileMutationService : IFileMutationService
     {
-        public void EnsureDirectory(string directoryPath, FileMutationOptions options = null)
+        public void EnsureDirectory(string directoryPath, FileMutationOptions options = null!)
         {
             if (!string.IsNullOrWhiteSpace(directoryPath))
             {
@@ -297,17 +297,17 @@ public sealed class BmsLibraryInitializationServiceTests
             }
         }
 
-        public void MoveFile(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null)
+        public void MoveFile(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null!)
         {
             throw new NotSupportedException();
         }
 
-        public void MoveDirectory(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null)
+        public void MoveDirectory(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null!)
         {
             throw new NotSupportedException();
         }
 
-        public void DeleteFileDirect(string filePath, FileMutationOptions options = null)
+        public void DeleteFileDirect(string filePath, FileMutationOptions options = null!)
         {
             if (File.Exists(filePath))
             {
@@ -315,12 +315,12 @@ public sealed class BmsLibraryInitializationServiceTests
             }
         }
 
-        public void DeleteFileShell(string filePath, Microsoft.VisualBasic.FileIO.UIOption uiOption, Microsoft.VisualBasic.FileIO.RecycleOption recycleOption, FileMutationOptions options = null)
+        public void DeleteFileShell(string filePath, Microsoft.VisualBasic.FileIO.UIOption uiOption, Microsoft.VisualBasic.FileIO.RecycleOption recycleOption, FileMutationOptions options = null!)
         {
             DeleteFileDirect(filePath, options);
         }
 
-        public void DeleteDirectoryDirect(string directoryPath, bool recursive, FileMutationOptions options = null)
+        public void DeleteDirectoryDirect(string directoryPath, bool recursive, FileMutationOptions options = null!)
         {
             if (Directory.Exists(directoryPath))
             {
@@ -328,12 +328,12 @@ public sealed class BmsLibraryInitializationServiceTests
             }
         }
 
-        public void DeleteDirectoryShell(string directoryPath, Microsoft.VisualBasic.FileIO.UIOption uiOption, Microsoft.VisualBasic.FileIO.RecycleOption recycleOption, FileMutationOptions options = null)
+        public void DeleteDirectoryShell(string directoryPath, Microsoft.VisualBasic.FileIO.UIOption uiOption, Microsoft.VisualBasic.FileIO.RecycleOption recycleOption, FileMutationOptions options = null!)
         {
             DeleteDirectoryDirect(directoryPath, recursive: true, options);
         }
 
-        public void SetTimestamps(string path, bool isDirectory, DateTime? creationTime, DateTime? lastWriteTime, FileMutationOptions options = null)
+        public void SetTimestamps(string path, bool isDirectory, DateTime? creationTime, DateTime? lastWriteTime, FileMutationOptions options = null!)
         {
         }
     }
