@@ -30,8 +30,18 @@ using NLog;
 
 namespace BeMusicSeeker.Models;
 
+/// <summary>
+/// BMS ファイルのライブラリ管理を担う中核クラスです。
+/// LR2 の song.db を読み込み、BMSファイルの走査・登録・インストール・保守（Missing/Garbled/ZeroNote/Duplicate 検出）、
+/// プレイリスト (BMSTable) との参照解決、LR2IR キャッシュの取得、およびフォルダの移動・リネーム・削除といった
+/// ファイルシステム操作を一手に引き受けます。
+/// </summary>
 public class BMSLibrary : NotificationObject
 {
+    /// <summary>
+    /// BMS 親フォルダ一覧キャッシュのスナップショットを格納するクラスです。
+    /// バックグラウンドスレッドで構築し、UIスレッドで適用する2段階方式に利用されます。
+    /// </summary>
     public sealed class ParentFolderListCacheSnapshot
     {
         public int Version { get; set; }
@@ -41,6 +51,9 @@ public class BMSLibrary : NotificationObject
         public List<string> ParentFolders { get; set; }
     }
 
+    /// <summary>
+    /// 無効な拡張子を持つ BMS ファイルのリネーム操作時の結果アクションを示す列挙型です。
+    /// </summary>
     private enum RenameInvalidExtensionAction
     {
         Renamed,
@@ -48,6 +61,9 @@ public class BMSLibrary : NotificationObject
         Skipped
     }
 
+    /// <summary>
+    /// 無効な拡張子リネーム処理の結果詳細（最終パス、失敗例外など）を保持するクラスです。
+    /// </summary>
     private sealed class RenameInvalidExtensionOutcome
     {
         public RenameInvalidExtensionAction Action { get; set; }
@@ -75,6 +91,9 @@ public class BMSLibrary : NotificationObject
 
     private const int playlistReferenceApplyChunkSize = 1024;
 
+    /// <summary>
+    /// プレイリスト参照適用処理の実行統計（チャンク数、最大所要時間、Yield回数）を保持する構造体です。
+    /// </summary>
     private struct PlaylistReferenceApplyStats
     {
         public int Chunks;
@@ -84,6 +103,9 @@ public class BMSLibrary : NotificationObject
         public int YieldCount;
     }
 
+    /// <summary>
+    /// インストール処理のパフォーマンスログを出力します。コマンドラインスイッチで有効化されている場合のみ動作します。
+    /// </summary>
     private static void LogInstallPerformance(string message)
     {
         if (installPerformanceLoggingEnabled)
@@ -92,6 +114,9 @@ public class BMSLibrary : NotificationObject
         }
     }
 
+    /// <summary>
+    /// Everything 全件走査のログを出力します。パフォーマンスロギングが有効な場合のみ動作します。
+    /// </summary>
     private static void LogEverythingScan(string message)
     {
         if (everythingScanLoggingEnabled)
@@ -100,6 +125,9 @@ public class BMSLibrary : NotificationObject
         }
     }
 
+    /// <summary>
+    /// Everything 検証ログを出力します。検証ロギングが有効な場合のみ動作します。
+    /// </summary>
     private static void LogEverythingVerify(string message)
     {
         if (everythingVerifyEnabled)
@@ -108,6 +136,10 @@ public class BMSLibrary : NotificationObject
         }
     }
 
+    /// <summary>
+    /// LR2IR ランキングデータのキャッシュ情報（MD5ハッシュ、データサイズ、最終更新日時）を保持するクラスです。
+    /// ribbit.xyz サーバーから取得した JSON をパースして生成されます。
+    /// </summary>
     public class IRDataCacheInfo
     {
         public string md5 { get; set; }
@@ -137,6 +169,10 @@ public class BMSLibrary : NotificationObject
         }
     }
 
+    /// <summary>
+    /// LR2IR に登録された楽曲の詳細情報（タイトル、アーティスト、BPM、各種クリアレート等）を保持するクラスです。
+    /// ribbit.xyz サーバーから取得した JSON をパースして生成されます。
+    /// </summary>
     public class IRSongInfo
     {
         private string _md5;
@@ -694,6 +730,10 @@ public class BMSLibrary : NotificationObject
 
     private static Regex kakkoInnerRegex = new Regex("(PMS|SP|ANOTHER|HYPER|NORMAL|EMPTY|DP|BGA|4[^\\d]|5[^\\d]|7[^\\d]|9[^\\d]|10[^\\d]|14[^\\d])[^\\w]+", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
+    /// <summary>
+    /// ライブラリが管理する全 BMS ファイルの一覧です。
+    /// セッターでは関連するハッシュインデックス・フォルダキャッシュ・重複リストを自動的にリセットします。
+    /// </summary>
     public List<BMSFile> BMSFiles
     {
         get
@@ -724,6 +764,9 @@ public class BMSLibrary : NotificationObject
 
     public IEnumerable<BMSFile> BMSFilesNeedToBeFixedIgnored => GetBMSFilesNeedToBeFixed(BMSFiles, forceUpdate: false, isInIgnoredList: true);
 
+    /// <summary>
+    /// 重複検出済みの BMS ファイルグループ一覧です。重複検出処理の結果が格納されます。
+    /// </summary>
     public List<DuplicateGroup> BMSFilesDuplicated
     {
         get
@@ -749,6 +792,9 @@ public class BMSLibrary : NotificationObject
 
     public IEnumerable<BMSFile> BMSFilesZeroNote => GetBMSFilesZeroNote(BMSFiles);
 
+    /// <summary>
+    /// インストール待ち（Pending状態）の BMS パッケージのコレクションです。UIスレッドへのディスパッチに対応しています。
+    /// </summary>
     public DispatcherCollection<BMSPackage> BMSPackagesPending
     {
         get
@@ -765,6 +811,9 @@ public class BMSLibrary : NotificationObject
         }
     }
 
+    /// <summary>
+    /// インストール済みの BMS パッケージのコレクションです。UIスレッドへのディスパッチに対応しています。
+    /// </summary>
     public DispatcherCollection<BMSPackage> BMSPackagesInstalled
     {
         get
@@ -781,6 +830,9 @@ public class BMSLibrary : NotificationObject
         }
     }
 
+    /// <summary>
+    /// BMS ファイルが格納されている親フォルダ一覧です。キャッシュ機構により遅延再構築されます。
+    /// </summary>
     public DispatcherCollection<string> BMSParentFolderList
     {
         get
@@ -793,6 +845,9 @@ public class BMSLibrary : NotificationObject
         }
     }
 
+    /// <summary>
+    /// 親フォルダ一覧キャッシュを無効化し、次回アクセス時に再構築が行われるようにマークします。
+    /// </summary>
     private void InvalidateBMSParentFolderListCache()
     {
         lock (lockParentFolderList)
@@ -802,6 +857,9 @@ public class BMSLibrary : NotificationObject
         }
     }
 
+    /// <summary>
+    /// 親フォルダ一覧キャッシュが無効化されており再構築が必要かどうかを返します。
+    /// </summary>
     public bool IsBMSParentFolderListCacheDirty()
     {
         lock (lockParentFolderList)
@@ -810,6 +868,10 @@ public class BMSLibrary : NotificationObject
         }
     }
 
+    /// <summary>
+    /// BMS ファイルのスナップショットから、親フォルダの候補リストを構築します。
+    /// カスタムフォルダ出力先ディレクトリ配下は除外されます。
+    /// </summary>
     private List<string> BuildBMSParentFolderCandidates(List<BMSFile> bmsFilesSnapshot)
     {
         return getBMSDirectories().Where(delegate (string d)
@@ -848,6 +910,10 @@ public class BMSLibrary : NotificationObject
         }).ToList();
     }
 
+    /// <summary>
+    /// 親フォルダ一覧のキャッシュスナップショットをバックグラウンドで構築します。
+    /// キャッシュが有効な場合は null を返します。
+    /// </summary>
     public ParentFolderListCacheSnapshot BuildBMSParentFolderListCacheSnapshot()
     {
         int version = 0;
@@ -875,6 +941,10 @@ public class BMSLibrary : NotificationObject
         };
     }
 
+    /// <summary>
+    /// バックグラウンドで構築されたスナップショットを親フォルダ一覧キャッシュに適用します。
+    /// バージョン不一致等でスキップされた場合は false を返します。
+    /// </summary>
     public bool TryApplyBMSParentFolderListCacheSnapshot(ParentFolderListCacheSnapshot snapshot)
     {
         if (snapshot == null)
@@ -902,6 +972,9 @@ public class BMSLibrary : NotificationObject
         }
     }
 
+    /// <summary>
+    /// 親フォルダ一覧キャッシュを同期的に再構築します（ロック外から呼ばれることを前提としない）。
+    /// </summary>
     private void RefreshBMSParentFolderListCacheUnsafe()
     {
         if (!bmsParentFolderListDirty)
@@ -1155,6 +1228,9 @@ public class BMSLibrary : NotificationObject
         });
     }
 
+    /// <summary>
+    /// 現在の BMS スコア情報 (LR2 score.db 由来) のコピーを取得します。
+    /// </summary>
     public List<BMSScore> GetBMSScores()
     {
         using (rwlockBMSScores.GetReaderGuard())
@@ -1163,6 +1239,9 @@ public class BMSLibrary : NotificationObject
         }
     }
 
+    /// <summary>
+    /// BMS ファイル走査のプリフェッチ結果（走査結果と所要時間）を保持するクラスです。
+    /// </summary>
     private sealed class BmsScanPrefetchInfo
     {
         public BmsScanExecutionResult ScanResult { get; set; }
@@ -1170,6 +1249,9 @@ public class BMSLibrary : NotificationObject
         public long ElapsedMs { get; set; }
     }
 
+    /// <summary>
+    /// Everything ファイルスキャナーで走査を試み、失敗時にはディレクトリ形式のフォールバックスキャナーを使用します。
+    /// </summary>
     private BmsScanExecutionResult ExecuteBmsScanWithFallback(List<string> bmsDirectories)
     {
         IBmsFileScanner fallbackScanner = new FastDirectoryFileScanner();
@@ -1206,6 +1288,13 @@ public class BMSLibrary : NotificationObject
         return scanResult;
     }
 
+    /// <summary>
+    /// BMS ライブラリの初期化を行います。song.db からの譜面データ読み込み、ファイルスキャン、
+    /// スコア / 保守情報の取得を統合的に実行します。
+    /// </summary>
+    /// <param name="tasksContinuation">初期化中に並行で実行する追加タスクのリスト。</param>
+    /// <param name="semaphore">追加タスクの同期用セマフォ。</param>
+    /// <param name="reloadScoresOnly">スコアのみの再読み込み指定。</param>
     public void Initialize(List<Action> tasksContinuation, SemaphoreSlim semaphore = null, bool? reloadScoresOnly = null)
     {
         Stopwatch stopwatchTotal = Stopwatch.StartNew();
@@ -1347,6 +1436,10 @@ public class BMSLibrary : NotificationObject
         return LR2CRC32.Compute(encoding.GetBytes((directoryPath ?? string.Empty) + "\\\0")).ToString("x");
     }
 
+    /// <summary>
+    /// Initialize から呼ばれる実際の初期化内部ロジックです。
+    /// song.db からのデータ再取得、BMS ファイルのディレクトリ走査、スコア反映、保守テーブルチェックを順次実行します。
+    /// </summary>
     private void _initialize(bool songTblLoad = true, bool scoreTblrLoad = true, bool songTblFileCheck = true, bool setMainteInfo = true, bool updateIrScore = true, bool installTblCheck = true, bool maintenanceTblCheck = true, BmsScanPrefetchInfo bmsScanPrefetchInfo = null)
     {
         Stopwatch stopwatchInitialize = Stopwatch.StartNew();
@@ -2074,6 +2167,9 @@ public class BMSLibrary : NotificationObject
         return list.All((BMSFile file) => IsBMSHashAvailable(file.hash) && ContainsBMSHashUnsafe(file.hash));
     }
 
+    /// <summary>
+    /// BMS ハッシュインデックスをクリアし、次回使用時に再構築されるようにマークします。
+    /// </summary>
     private void InvalidateBMSHashIndex()
     {
         lock (lockBMSHashIndex)
@@ -2084,6 +2180,9 @@ public class BMSLibrary : NotificationObject
         }
     }
 
+    /// <summary>
+    /// インストール済みディレクトリインデックスをクリアし、次回使用時に再構築されるようにマークします。
+    /// </summary>
     private void InvalidateInstalledDirectoryIndex()
     {
         lock (lockInstalledDirectoryIndex)
@@ -2093,6 +2192,9 @@ public class BMSLibrary : NotificationObject
         }
     }
 
+    /// <summary>
+    /// BMS ファイル群から MD5 ハッシュの参照カウントインデックスを再構築します。
+    /// </summary>
     private void RebuildBMSHashIndexUnsafe(IEnumerable<BMSFile> bmsFiles)
     {
         lock (lockBMSHashIndex)
@@ -2119,6 +2221,9 @@ public class BMSLibrary : NotificationObject
         }
     }
 
+    /// <summary>
+    /// ハッシュインデックスが未構築の場合にビルドします。
+    /// </summary>
     private void EnsureBMSHashIndexBuiltUnsafe()
     {
         if (!bmsHashIndexInitialized)
@@ -2127,6 +2232,9 @@ public class BMSLibrary : NotificationObject
         }
     }
 
+    /// <summary>
+    /// BMS ファイル群から MD5 ハッシュ⇒インストール済みディレクトリのマップを再構築します。
+    /// </summary>
     private void RebuildInstalledDirectoryIndexUnsafe(IEnumerable<BMSFile> bmsFiles)
     {
         Stopwatch stopwatch = Stopwatch.StartNew();
@@ -2169,6 +2277,9 @@ public class BMSLibrary : NotificationObject
         LogInstallPerformance("installed_dir_index rebuildMs=" + stopwatch.ElapsedMilliseconds + " hashes=" + dictionary2.Count + " dirRefs=" + num2 + " files=" + num);
     }
 
+    /// <summary>
+    /// インストール済みディレクトリインデックスが未構築の場合にビルドします。
+    /// </summary>
     private void EnsureInstalledDirectoryIndexBuiltUnsafe()
     {
         if (!installedDirectoryIndexInitialized)
@@ -2177,6 +2288,9 @@ public class BMSLibrary : NotificationObject
         }
     }
 
+    /// <summary>
+    /// 現在のインストール済みディレクトリインデックスのスナップショットを作成します。
+    /// </summary>
     private Dictionary<string, List<string>> CreateInstalledDirectoryIndexSnapshotUnsafe()
     {
         EnsureInstalledDirectoryIndexBuiltUnsafe();
@@ -2186,6 +2300,9 @@ public class BMSLibrary : NotificationObject
         }
     }
 
+    /// <summary>
+    /// 指定の MD5 ハッシュを持つファイルがライブラリに存在するかを確認します。
+    /// </summary>
     private bool ContainsBMSHashUnsafe(string hash)
     {
         if (!IsBMSHashAvailable(hash))
@@ -2199,6 +2316,10 @@ public class BMSLibrary : NotificationObject
         }
     }
 
+    /// <summary>
+    /// 指定された BMS ファイル群を除外したハッシュセットのスナップショットを生成します。
+    /// 重複検出等において、自身を除いた状態でハッシュの存在確認を行う際に使用されます。
+    /// </summary>
     private HashSet<string> CreateBMSHashSnapshotExcludingUnsafe(IEnumerable<BMSFile> excluded)
     {
         EnsureBMSHashIndexBuiltUnsafe();
@@ -2234,6 +2355,9 @@ public class BMSLibrary : NotificationObject
         return hashSet;
     }
 
+    /// <summary>
+    /// 指定された BMS ファイル群に対して、LR2 score.db からスコア情報を取得・反映します。
+    /// </summary>
     public void SetBMSScore(IEnumerable<BMSFile> bmsFiles)
     {
         if (bmsFiles == null || lr2ScoreDBPath == null)
@@ -2839,6 +2963,9 @@ public class BMSLibrary : NotificationObject
         throw new ArgumentException("md5orlr2bmsid");
     }
 
+    /// <summary>
+    /// BMS ファイル群の保守情報（ファイル存在チェック、エンコーディング検出等）を設定し、必要に応じて DB に永続化します。
+    /// </summary>
     private void setMaintenanceInfo(IEnumerable<BMSFile> bmsFiles, bool forceUpdate = false)
     {
         if (bmsFiles == null)
@@ -3026,6 +3153,9 @@ public class BMSLibrary : NotificationObject
         return flag || flag2 || flag3 || flag4 || flag5 || flag6;
     }
 
+    /// <summary>
+    /// ファイルが欠損・破損等で修復が必要な BMS ファイルの一覧を取得します。
+    /// </summary>
     public List<BMSFile> GetBMSFilesNeedToBeFixed(IEnumerable<BMSFile> bmsFiles, bool forceUpdate = false, bool isInIgnoredList = false)
     {
         if (bmsFiles == null)
@@ -3051,6 +3181,9 @@ public class BMSLibrary : NotificationObject
         }
     }
 
+    /// <summary>
+    /// 指定された BMS ファイル群の保守警告を無視リストに追加（または解除）し、DB に反映します。
+    /// </summary>
     public void SetBMSFilesToBeFixedIgnored(IEnumerable<BMSFile> bmsFiles, bool unset = false)
     {
         if (bmsFiles == null)
@@ -3086,6 +3219,9 @@ public class BMSLibrary : NotificationObject
         RaisePropertyChanged(() => BMSFilesNeedToBeFixedIgnored);
     }
 
+    /// <summary>
+    /// エンコーディングが Shift_JIS 以外と推定された（文字化けの可能性がある）BMS ファイル群を取得します。
+    /// </summary>
     public List<BMSFile> GetBMSFilesGarbled(IEnumerable<BMSFile> bmsFiles, bool forceUpdate = false, bool isInFixedList = false)
     {
         if (bmsFiles == null)
@@ -3109,6 +3245,9 @@ public class BMSLibrary : NotificationObject
         }
     }
 
+    /// <summary>
+    /// 指定された BMS ファイル群のエンコーディングを上書き設定し、song.db と maintenance テーブルに反映します。
+    /// </summary>
     public void SetBMSFilesEncoding(IEnumerable<BMSFile> bmsFiles, string encoding = "")
     {
         if (bmsFiles == null)
@@ -3176,6 +3315,9 @@ public class BMSLibrary : NotificationObject
         }
     }
 
+    /// <summary>
+    /// BMS ファイルのノート数がゼロかどうかをチェックし、該当する場合は DB にコミットします。
+    /// </summary>
     private void setZeroNoteAndCommitToDB(IEnumerable<BMSFile> bmsFiles)
     {
         if (bmsFiles == null)
@@ -3227,6 +3369,9 @@ public class BMSLibrary : NotificationObject
         }
     }
 
+    /// <summary>
+    /// DB 上のノート数が 0 のファイルについて、実際のファイルを再パースしてゼロノートかどうかを再検証します。
+    /// </summary>
     public void RecheckZeroNoteWarnings()
     {
         List<BMSFile> allFiles;
@@ -3280,6 +3425,9 @@ public class BMSLibrary : NotificationObject
         NLogWrapper.FileLogger?.Info(string.Format("zero_note_recheck total={0} mismatch={1} cleared={2} skipped={3}", zeroNoteFiles.Count, mismatchCount, clearedCount, skippedCount));
     }
 
+    /// <summary>
+    /// ノート数が 0 の BMS ファイルの一覧を取得します。
+    /// </summary>
     public List<BMSFile> GetBMSFilesZeroNote(IEnumerable<BMSFile> bmsFiles)
     {
         if (bmsFiles == null)
@@ -3293,6 +3441,9 @@ public class BMSLibrary : NotificationObject
         return bmsFiles.Where((BMSFile f) => f.notes == 0).ToList();
     }
 
+    /// <summary>
+    /// BMS ファイル群のモード（SP/DP等）を検出し、song.db にコミットします。
+    /// </summary>
     private void setModeAndCommitToDB(IEnumerable<BMSFile> bmsFiles, bool forceUpdate = false)
     {
         using (rwlockBMSFiles.GetReaderGuard())
@@ -3316,6 +3467,9 @@ public class BMSLibrary : NotificationObject
         }
     }
 
+    /// <summary>
+    /// ライブラリ内の重複 BMS ファイルを検出し、Union-Find でディレクトリグループ化した結果を <see cref="BMSFilesDuplicated"/> に格納します。
+    /// </summary>
     public void SearchBMSFilesDuplicated()
     {
         using (rwlockBMSFilesInitializedMin.GetReaderGuard())
@@ -3460,6 +3614,9 @@ public class BMSLibrary : NotificationObject
     }
     private static readonly string DuplicateWarningMessage = Resources.Warning_DuplicateBmsFile;
 
+    /// <summary>
+    /// 全 BMS ファイルの重複状態フラグと警告メッセージをクリアします。
+    /// </summary>
     private static void ClearDuplicateState(IEnumerable<BMSFile> files)
     {
         foreach (BMSFile file in files)
@@ -3469,6 +3626,9 @@ public class BMSLibrary : NotificationObject
         }
     }
 
+    /// <summary>
+    /// BMS ファイルに重複警告メッセージを付与します。
+    /// </summary>
     private static void SetDuplicateWarning(BMSFile file)
     {
         if (file == null)
@@ -3503,6 +3663,12 @@ public class BMSLibrary : NotificationObject
         return string.Join(Environment.NewLine, warning.Split(new char[2] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries).Select((string line) => line.Trim()).Where((string line) => !string.Equals(line, DuplicateWarningMessage, StringComparison.Ordinal)).ToArray());
     }
 
+    /// <summary>
+    /// 指定されたパス群（ファイルまたはディレクトリ）から BMS ファイルを自動検出・インストールします。
+    /// アーカイブの展開、song.db への登録、Pendingパッケージ生成を一括で行います。
+    /// </summary>
+    /// <param name="installPaths">インストール元のファイル/ディレクトリパスのコレクション。</param>
+    /// <returns>インストール処理された BMS パッケージのリスト。</returns>
     public List<BMSPackage> InstallBMSFilesAuto(IEnumerable<string> installPaths)
     {
         List<BMSPackage> list = new List<BMSPackage>();
@@ -5022,6 +5188,9 @@ public class BMSLibrary : NotificationObject
         LogInstallPerformance("estimated_merge_done resolved=" + num + " targets=" + list.Count);
     }
 
+    /// <summary>
+    /// 指定された BMS パッケージ群を、インストール先ディレクトリへ強制インストールします。
+    /// </summary>
     public void InstallBMSPackagesForce(IEnumerable<BMSPackage> packages)
     {
         if (packages == null)
@@ -5205,6 +5374,10 @@ public class BMSLibrary : NotificationObject
         };
     }
 
+    /// <summary>
+    /// 指定された BMS パッケージ群を推定されたインストール先ディレクトリへインストールします。
+    /// SmartOverwrite ロジックによるコンポーネント移動計画を構築して実行します。
+    /// </summary>
     public void InstallBMSPackagesToEstimatedDir(IEnumerable<BMSPackage> packages)
     {
         if (packages == null)
@@ -5558,6 +5731,9 @@ public class BMSLibrary : NotificationObject
         InstallBMSPackagesToEstimatedDir(new BMSPackage[1] { package });
     }
 
+    /// <summary>
+    /// 指定されたインストール済みパッケージ群をリストから削除します。
+    /// </summary>
     public void RemoveBMSPackagesInstalled(IEnumerable<BMSPackage> packages)
     {
         using (rwlockBMSFilesInitializedAll.GetReaderGuard())
@@ -5664,6 +5840,9 @@ public class BMSLibrary : NotificationObject
         lR2SongDBExtended.Commit();
     }
 
+    /// <summary>
+    /// 指定された Pending パッケージ群を Pending リストから削除します。
+    /// </summary>
     public void RemoveBMSPackagesPending(IEnumerable<BMSPackage> packages)
     {
         using (rwlockBMSFilesInitializedAll.GetReaderGuard())
@@ -5678,6 +5857,9 @@ public class BMSLibrary : NotificationObject
         }
     }
 
+    /// <summary>
+    /// 全てのインストール済みパッケージをリストからクリアします。
+    /// </summary>
     public void RemoveBMSPackagesInstalledAll()
     {
         using (rwlockBMSFilesInitializedAll.GetReaderGuard())
@@ -5692,6 +5874,9 @@ public class BMSLibrary : NotificationObject
         }
     }
 
+    /// <summary>
+    /// 全ての Pending パッケージをリストからクリアします。
+    /// </summary>
     public void RemoveBMSPackagesPendingAll()
     {
         using (rwlockBMSFilesInitializedAll.GetReaderGuard())
@@ -6145,6 +6330,9 @@ public class BMSLibrary : NotificationObject
         }
     }
 
+    /// <summary>
+    /// Pending パッケージのソースファイル群を削除（またはゴミ箱へ移動）します。
+    /// </summary>
     public void DeletePendingPackageSources(IEnumerable<BMSPackage> packages, bool sendToRecycleBin = true, CancellationToken token = default(CancellationToken), Action onEachProcessed = null)
     {
         if (packages == null)
@@ -6268,6 +6456,9 @@ public class BMSLibrary : NotificationObject
         ApplyPendingPackageMutationDelta(BuildPendingPackageMutationDelta(packagesToRemove: packages));
     }
 
+    /// <summary>
+    /// 指定された BMS ファイル群について、インストール先ディレクトリを再探索し、正しいパスを設定します。
+    /// </summary>
     public void SearchCorrectInstallationDirectory(IEnumerable<BMSFile> bmsFiles)
     {
         if (bmsFiles == null)
@@ -6634,6 +6825,9 @@ public class BMSLibrary : NotificationObject
         return addCalls;
     }
 
+    /// <summary>
+    /// 指定されたプレイリストの参照を BMS ファイル群から削除します。
+    /// </summary>
     public void RemoveReferenceBMSTables(BMSTable table, IEnumerable<BMSTableEntry> entries = null)
     {
         if (entries == null)
@@ -6818,6 +7012,9 @@ public class BMSLibrary : NotificationObject
         return Path.Combine(parentDir, s).Trim();
     }
 
+    /// <summary>
+    /// BMS ファイル群を指定された別のディレクトリへマージ（統合移動）します。
+    /// </summary>
     public void MergeBMSDirectory(string src, string dst)
     {
         if (src == null)
@@ -6882,6 +7079,9 @@ public class BMSLibrary : NotificationObject
         }
     }
 
+    /// <summary>
+    /// リンク切れ BMS ファイルのインストール先ディレクトリを修正し、song.db のパスを更新します。
+    /// </summary>
     public void FixInstallationDirectory(IEnumerable<BMSFile> bmsFiles)
     {
         if (bmsFiles == null)
@@ -6928,6 +7128,9 @@ public class BMSLibrary : NotificationObject
         }
     }
 
+    /// <summary>
+    /// BMS ファイル群のフォルダ名をメタデータに基づいて自動リネームします。
+    /// </summary>
     public void AutoRenameBMSFolder(IEnumerable<BMSFile> bmsFiles, bool renameRootFolder = false)
     {
         if (bmsFiles == null)
@@ -6992,6 +7195,9 @@ public class BMSLibrary : NotificationObject
         }
     }
 
+    /// <summary>
+    /// BMS フォルダを新しい名前にリネームし、song.db のパス情報を更新します。
+    /// </summary>
     public void RenameBMSFolder(string srcDir, string newName, bool? unregister = false, bool renameRootFolder = false)
     {
         if (srcDir == null)
@@ -7038,6 +7244,9 @@ public class BMSLibrary : NotificationObject
         }
     }
 
+    /// <summary>
+    /// BMS ファイル群のルートフォルダを別の親ディレクトリへ移動します。
+    /// </summary>
     public void MoveBMSRootFolder(IEnumerable<BMSFile> bmsFiles, string dstDir, bool? unregister = false)
     {
         if (bmsFiles == null)
@@ -7450,6 +7659,9 @@ public class BMSLibrary : NotificationObject
         }
     }
 
+    /// <summary>
+    /// 指定された BMS ファイル群をライブラリおよびファイルシステムから削除します。
+    /// </summary>
     public void RemoveBMSFiles(IEnumerable<BMSFile> bmsFiles, bool sendToRecycleBin = true)
     {
         using (rwlockBMSFilesInitializedMin.GetReaderGuard())
@@ -7460,8 +7672,8 @@ public class BMSLibrary : NotificationObject
                 {
                     List<BMSFile> removedBmsFiles = new List<BMSFile>();
                     foreach (IGrouping<string, BMSFile> folderGroup in from groupedFiles in bmsFiles.GroupBy((BMSFile bmsInfo) => DirectoryExt.GetDirectoryNameSimple(bmsInfo.path), StringComparer.OrdinalIgnoreCase)
-                                                                        orderby groupedFiles.Key.Length descending
-                                                                        select groupedFiles)
+                                                                       orderby groupedFiles.Key.Length descending
+                                                                       select groupedFiles)
                     {
                         if (BMSFiles.Where((BMSFile bmsInfo) => bmsInfo.path.StartsWith(folderGroup.Key + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)).Except(removedBmsFiles).Count() == folderGroup.Count() && DispatcherMessageBox.Show(string.Format(Resources.Confirm_DeleteFolderWithNoBms, folderGroup.Key), Resources.MessageBoxTitle_Confirm, MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.Yes) == MessageBoxResult.Yes)
                         {
@@ -7516,6 +7728,9 @@ public class BMSLibrary : NotificationObject
         }
     }
 
+    /// <summary>
+    /// Pending 状態の BMS ファイル群を Pending リストおよびファイルシステムから削除します。
+    /// </summary>
     public void RemovePendingBMSFiles(IEnumerable<BMSFile> bmsFiles, bool sendToRecycleBin = true, bool deleteContainingPackageFoldersWhenNoBms = false)
     {
         if (bmsFiles == null)
@@ -7613,6 +7828,9 @@ public class BMSLibrary : NotificationObject
         ApplyPendingPackageMutationDelta(BuildPendingPackageMutationDelta(filesToRemove: list));
     }
 
+    /// <summary>
+    /// BMS ファイル群を song.db から登録解除（レコード削除）します。
+    /// </summary>
     private void unregisterBMSFiles(List<BMSFile> bmsFiles)
     {
         if (bmsFiles == null)
@@ -7680,6 +7898,9 @@ public class BMSLibrary : NotificationObject
         return false;
     }
 
+    /// <summary>
+    /// BMS ファイルのパスを新しいパスに差し替え、song.db に反映します。
+    /// </summary>
     private void replaceBMSFilePath(BMSFile bmsFile, string newPath, string oldPath = null, bool calcFolderParent = true)
     {
         if (bmsFile == null)
@@ -7789,6 +8010,9 @@ public class BMSLibrary : NotificationObject
         return true;
     }
 
+    /// <summary>
+    /// 指定された BMS ファイル群の現在の状態を song.db にコミット（永続化）します。
+    /// </summary>
     public void CommitBMSFiles(IEnumerable<BMSFile> _bmsFiles)
     {
         if (_bmsFiles == null)
