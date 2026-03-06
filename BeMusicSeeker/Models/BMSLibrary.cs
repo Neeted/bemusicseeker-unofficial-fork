@@ -608,6 +608,12 @@ public class BMSLibrary : NotificationObject
 
     private bool bmsHashIndexInitialized;
 
+    private readonly object lockInstalledDirectoryIndex = new object();
+
+    private Dictionary<string, List<string>> installedDirectoryIndex = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+
+    private bool installedDirectoryIndexInitialized;
+
     private ReaderWriterLockSlimWrapper rwlockBMSFilesInitializedAll = new ReaderWriterLockSlimWrapper();
 
     private ReaderWriterLockSlimWrapper rwlockBMSFilesInitializedMin = new ReaderWriterLockSlimWrapper();
@@ -700,6 +706,7 @@ public class BMSLibrary : NotificationObject
             {
                 _BMSFiles = value;
                 InvalidateBMSHashIndex();
+                InvalidateInstalledDirectoryIndex();
                 InvalidateBMSParentFolderListCache();
                 BMSFilesDuplicated = null;
                 Task.Run(delegate
@@ -1833,6 +1840,7 @@ public class BMSLibrary : NotificationObject
                 stopwatchDbCommit.Stop();
                 dbCommitMs = stopwatchDbCommit.ElapsedMilliseconds;
                 InvalidateBMSHashIndex();
+                InvalidateInstalledDirectoryIndex();
                 InvalidateBMSParentFolderListCache();
             }
             LogInstallPerformance("song_tbl_file_check_breakdown scan_ms=" + scanElapsedMs + " dirhash_build_ms=" + dirhashBuildMs + " diff_ms=" + diffMs + " deleted_count=" + bmsFilesDeletedPaths.Count + " added_count=" + list5.Count + " newfile_parse_ms=" + newfileParseMs + " apply_ms=" + applyMs + " db_commit_ms=" + dbCommitMs + " instl_dst_cleanup_ms=" + instlDstCleanupMs);
@@ -2076,6 +2084,15 @@ public class BMSLibrary : NotificationObject
         }
     }
 
+    private void InvalidateInstalledDirectoryIndex()
+    {
+        lock (lockInstalledDirectoryIndex)
+        {
+            installedDirectoryIndex.Clear();
+            installedDirectoryIndexInitialized = false;
+        }
+    }
+
     private void RebuildBMSHashIndexUnsafe(IEnumerable<BMSFile> bmsFiles)
     {
         lock (lockBMSHashIndex)
@@ -2107,6 +2124,65 @@ public class BMSLibrary : NotificationObject
         if (!bmsHashIndexInitialized)
         {
             RebuildBMSHashIndexUnsafe(BMSFiles);
+        }
+    }
+
+    private void RebuildInstalledDirectoryIndexUnsafe(IEnumerable<BMSFile> bmsFiles)
+    {
+        Stopwatch stopwatch = Stopwatch.StartNew();
+        Dictionary<string, HashSet<string>> dictionary = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+        int num = 0;
+        foreach (BMSFile item in bmsFiles ?? Enumerable.Empty<BMSFile>())
+        {
+            num++;
+            if (item == null || !IsBMSHashAvailable(item.hash))
+            {
+                continue;
+            }
+            string text = null;
+            try
+            {
+                text = DirectoryExt.GetDirectoryNameSimple(item.path);
+            }
+            catch
+            {
+            }
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                continue;
+            }
+            if (!dictionary.TryGetValue(item.hash, out var value))
+            {
+                value = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                dictionary[item.hash] = value;
+            }
+            value.Add(text);
+        }
+        Dictionary<string, List<string>> dictionary2 = dictionary.ToDictionary((KeyValuePair<string, HashSet<string>> x) => x.Key, (KeyValuePair<string, HashSet<string>> x) => x.Value.OrderBy((string dir) => dir, StringComparer.OrdinalIgnoreCase).ToList(), StringComparer.OrdinalIgnoreCase);
+        int num2 = dictionary2.Sum((KeyValuePair<string, List<string>> x) => x.Value.Count);
+        lock (lockInstalledDirectoryIndex)
+        {
+            installedDirectoryIndex = dictionary2;
+            installedDirectoryIndexInitialized = true;
+        }
+        stopwatch.Stop();
+        LogInstallPerformance("installed_dir_index rebuildMs=" + stopwatch.ElapsedMilliseconds + " hashes=" + dictionary2.Count + " dirRefs=" + num2 + " files=" + num);
+    }
+
+    private void EnsureInstalledDirectoryIndexBuiltUnsafe()
+    {
+        if (!installedDirectoryIndexInitialized)
+        {
+            RebuildInstalledDirectoryIndexUnsafe(BMSFiles);
+        }
+    }
+
+    private Dictionary<string, List<string>> CreateInstalledDirectoryIndexSnapshotUnsafe()
+    {
+        EnsureInstalledDirectoryIndexBuiltUnsafe();
+        lock (lockInstalledDirectoryIndex)
+        {
+            return installedDirectoryIndex.ToDictionary((KeyValuePair<string, List<string>> x) => x.Key, (KeyValuePair<string, List<string>> x) => x.Value.ToList(), StringComparer.OrdinalIgnoreCase);
         }
     }
 
@@ -4736,33 +4812,7 @@ public class BMSLibrary : NotificationObject
 
     private Dictionary<string, List<string>> BuildInstalledHashToDirectoryMap()
     {
-        Dictionary<string, HashSet<string>> dictionary = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
-        foreach (BMSFile item in BMSFiles ?? new List<BMSFile>())
-        {
-            if (item == null || !IsBMSHashAvailable(item.hash))
-            {
-                continue;
-            }
-            string text = null;
-            try
-            {
-                text = DirectoryExt.GetDirectoryNameSimple(item.path);
-            }
-            catch
-            {
-            }
-            if (string.IsNullOrWhiteSpace(text))
-            {
-                continue;
-            }
-            if (!dictionary.TryGetValue(item.hash, out var value))
-            {
-                value = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                dictionary[item.hash] = value;
-            }
-            value.Add(text);
-        }
-        return dictionary.ToDictionary((KeyValuePair<string, HashSet<string>> x) => x.Key, (KeyValuePair<string, HashSet<string>> x) => x.Value.ToList(), StringComparer.OrdinalIgnoreCase);
+        return CreateInstalledDirectoryIndexSnapshotUnsafe();
     }
 
     private bool TryResolveInstalledDestinationFromPackage(BMSPackage package, List<BMSFile> missingFiles, out string resolvedDir)
@@ -5673,43 +5723,35 @@ public class BMSLibrary : NotificationObject
     {
         None,
         MissingInstallDestination,
-        MultipleInstallDestinations
+        ChartHasMultipleInstalledDirectories,
+        PackageHasSplitInstalledDirectories
     }
 
-    private bool TryResolveInstalledDestinationForSingleChart(BMSPackage package, BMSFile chart, out string resolvedDir)
+    private static List<string> GetDistinctInstalledDirectoriesByHash(Dictionary<string, List<string>> installedDirectoryIndexSnapshot, string hash)
     {
-        resolvedDir = null;
-        if (chart == null)
+        if (installedDirectoryIndexSnapshot == null || !IsBMSHashAvailable(hash) || !installedDirectoryIndexSnapshot.TryGetValue(hash, out var value) || value == null)
         {
-            return false;
+            return new List<string>();
         }
-        if (!string.IsNullOrWhiteSpace(chart.instl_dst))
-        {
-            resolvedDir = chart.instl_dst;
-            return true;
-        }
-        if (package != null && TryResolveInstalledDestinationFromPackage(package, new List<BMSFile> { chart }, out resolvedDir) && !string.IsNullOrWhiteSpace(resolvedDir))
-        {
-            return true;
-        }
-        string text = chart.instl_dst;
-        try
-        {
-            SearchEstimatedInstallationDirectory(chart, asParallel: false, fixMode: true);
-            if (string.IsNullOrWhiteSpace(chart.instl_dst))
-            {
-                return false;
-            }
-            resolvedDir = chart.instl_dst;
-            return true;
-        }
-        finally
-        {
-            chart.instl_dst = text;
-        }
+        return value.Where((string dir) => !string.IsNullOrWhiteSpace(dir)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
     }
 
-    private bool TryPrepareInstalledOnlyPackageDestination(BMSPackage package, out string destinationDir, out PrepareSkipReason reason)
+    private static BMSFile FindChartWithMissingInstalledDirectory(BMSPackage package, Dictionary<string, List<string>> installedDirectoryIndexSnapshot)
+    {
+        return (package?.BMSFiles ?? new List<BMSFile>()).FirstOrDefault((BMSFile f) => f == null || !IsBMSHashAvailable(f.hash) || GetDistinctInstalledDirectoriesByHash(installedDirectoryIndexSnapshot, f.hash).Count == 0);
+    }
+
+    private static BMSFile FindChartWithMultipleInstalledDirectories(BMSPackage package, Dictionary<string, List<string>> installedDirectoryIndexSnapshot)
+    {
+        return (package?.BMSFiles ?? new List<BMSFile>()).FirstOrDefault((BMSFile f) => f != null && IsBMSHashAvailable(f.hash) && GetDistinctInstalledDirectoriesByHash(installedDirectoryIndexSnapshot, f.hash).Count > 1);
+    }
+
+    private static int CountDistinctInstalledDirectoriesForPackage(BMSPackage package, Dictionary<string, List<string>> installedDirectoryIndexSnapshot)
+    {
+        return (package?.BMSFiles ?? new List<BMSFile>()).Where((BMSFile f) => f != null && IsBMSHashAvailable(f.hash)).SelectMany((BMSFile f) => GetDistinctInstalledDirectoriesByHash(installedDirectoryIndexSnapshot, f.hash)).Distinct(StringComparer.OrdinalIgnoreCase).Count();
+    }
+
+    private bool TryPrepareInstalledOnlyPackageDestination(BMSPackage package, Dictionary<string, List<string>> installedDirectoryIndexSnapshot, out string destinationDir, out PrepareSkipReason reason)
     {
         destinationDir = null;
         reason = PrepareSkipReason.None;
@@ -5724,18 +5766,29 @@ public class BMSLibrary : NotificationObject
             reason = PrepareSkipReason.MissingInstallDestination;
             return false;
         }
+        if (installedDirectoryIndexSnapshot == null || installedDirectoryIndexSnapshot.Count == 0)
+        {
+            reason = PrepareSkipReason.MissingInstallDestination;
+            return false;
+        }
         HashSet<string> hashSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (BMSFile item in list)
         {
-            if (!TryResolveInstalledDestinationForSingleChart(package, item, out var resolvedDir) || string.IsNullOrWhiteSpace(resolvedDir))
+            List<string> distinctInstalledDirectoriesByHash = GetDistinctInstalledDirectoriesByHash(installedDirectoryIndexSnapshot, item.hash);
+            if (distinctInstalledDirectoriesByHash.Count == 0)
             {
                 reason = PrepareSkipReason.MissingInstallDestination;
                 return false;
             }
-            hashSet.Add(resolvedDir);
+            if (distinctInstalledDirectoriesByHash.Count > 1)
+            {
+                reason = PrepareSkipReason.ChartHasMultipleInstalledDirectories;
+                return false;
+            }
+            hashSet.Add(distinctInstalledDirectoriesByHash[0]);
             if (hashSet.Count > 1)
             {
-                reason = PrepareSkipReason.MultipleInstallDestinations;
+                reason = PrepareSkipReason.PackageHasSplitInstalledDirectories;
                 return false;
             }
         }
@@ -5812,7 +5865,9 @@ public class BMSLibrary : NotificationObject
                         }
                         pendingInstalledOnlyResourceOverwriteResult.Requested = list.Count;
                         bool deletePendingPackageSourceAfterInstall = Settings.Default.DeletePendingPackageSourceAfterInstall;
+                        Dictionary<string, List<string>> installedDirectoryIndexSnapshot = CreateInstalledDirectoryIndexSnapshotUnsafe();
                         NLogWrapper.FileLogger?.Info("advanced_pending_resource_overwrite scan pendingTotal=" + BMSPackagesPending.Count + " eligible=" + list.Count);
+                        NLogWrapper.FileLogger?.Info("advanced_pending_resource_overwrite index_ready requested=" + list.Count + " hashes=" + installedDirectoryIndexSnapshot.Count);
                         foreach (BMSPackage requestedPackage in list)
                         {
                             if (token.IsCancellationRequested)
@@ -5829,23 +5884,30 @@ public class BMSLibrary : NotificationObject
                                 onEachProcessed?.Invoke();
                                 continue;
                             }
-                            if (!TryPrepareInstalledOnlyPackageDestination(bMSPackage, out var destinationDir, out var reason))
+                            if (!TryPrepareInstalledOnlyPackageDestination(bMSPackage, installedDirectoryIndexSnapshot, out var destinationDir, out var reason))
                             {
                                 switch (reason)
                                 {
-                                    case PrepareSkipReason.MultipleInstallDestinations:
+                                    case PrepareSkipReason.ChartHasMultipleInstalledDirectories:
                                         pendingInstalledOnlyResourceOverwriteResult.SkippedMultiDestination++;
-                                        NLogWrapper.FileLogger?.Info("advanced_pending_resource_overwrite skip_multi_dst path=" + bMSPackage.path);
+                                        BMSFile bMSFile = FindChartWithMultipleInstalledDirectories(bMSPackage, installedDirectoryIndexSnapshot);
+                                        NLogWrapper.FileLogger?.Info("advanced_pending_resource_overwrite skip_chart_multi_dst path=" + bMSPackage.path + " chartPath=" + (bMSFile?.path ?? "(null)") + " hash=" + (bMSFile?.hash ?? "(null)") + " dirCount=" + ((bMSFile == null) ? 0 : GetDistinctInstalledDirectoriesByHash(installedDirectoryIndexSnapshot, bMSFile.hash).Count));
+                                        break;
+                                    case PrepareSkipReason.PackageHasSplitInstalledDirectories:
+                                        pendingInstalledOnlyResourceOverwriteResult.SkippedMultiDestination++;
+                                        NLogWrapper.FileLogger?.Info("advanced_pending_resource_overwrite skip_package_split_dst path=" + bMSPackage.path + " dirCount=" + CountDistinctInstalledDirectoriesForPackage(bMSPackage, installedDirectoryIndexSnapshot));
                                         break;
                                     default:
                                         pendingInstalledOnlyResourceOverwriteResult.SkippedMissingInstlDst++;
-                                        NLogWrapper.FileLogger?.Info("advanced_pending_resource_overwrite skip_missing_instl_dst path=" + bMSPackage.path);
+                                        BMSFile bMSFile2 = FindChartWithMissingInstalledDirectory(bMSPackage, installedDirectoryIndexSnapshot);
+                                        NLogWrapper.FileLogger?.Info("advanced_pending_resource_overwrite skip_missing_instl_dst path=" + bMSPackage.path + " chartPath=" + (bMSFile2?.path ?? "(null)") + " hash=" + (bMSFile2?.hash ?? "(null)"));
                                         break;
                                 }
                                 pendingInstalledOnlyResourceOverwriteResult.Processed++;
                                 onEachProcessed?.Invoke();
                                 continue;
                             }
+                            NLogWrapper.FileLogger?.Info("advanced_pending_resource_overwrite resolve_selected path=" + bMSPackage.path + " dst=" + destinationDir + " charts=" + (bMSPackage.BMSFiles ?? new List<BMSFile>()).Count((BMSFile f) => f != null));
                             if (!HasResourceOverwriteTargetsForInstalledOnlyPackage(bMSPackage, destinationDir))
                             {
                                 if (deletePendingPackageSourceAfterInstall)
@@ -7674,6 +7736,7 @@ public class BMSLibrary : NotificationObject
                         bmsFile.adddate = null;
                         bmsFile.date = null;
                     }
+                    InvalidateInstalledDirectoryIndex();
                     InvalidateBMSParentFolderListCache();
                     lR2SongDBExtended.InsertOrReplace(bmsFile.maintenanceInfo, typeof(LR2SongDBExtended.maintenance));
                     lR2SongDBExtended.InsertOrReplace(bmsFile, typeof(LR2SongDB.song));
