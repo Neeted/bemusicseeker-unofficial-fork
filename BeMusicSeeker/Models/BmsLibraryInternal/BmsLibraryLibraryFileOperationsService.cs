@@ -156,7 +156,8 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         IEnumerable<BMSFile> libraryFiles,
         IEnumerable<BMSPackage> pendingPackages,
         IEnumerable<BMSPackage> installedPackages,
-        bool unregister)
+        bool unregister,
+        bool raiseBmsFilesChanged = true)
     {
         LibraryMutationDelta delta = new LibraryMutationDelta();
         List<BMSFile> targetFiles = (libraryFiles ?? Enumerable.Empty<BMSFile>())
@@ -214,7 +215,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
                 });
             }
         }
-        delta.RaiseBmsFilesChanged = delta.FilePathChanges.Count > 0;
+        delta.RaiseBmsFilesChanged = raiseBmsFilesChanged && delta.FilePathChanges.Count > 0;
         delta.RaiseInstalledPackagesChanged = delta.UpdatedInstalledPackagePaths.Count > 0;
         delta.InvalidateInstalledDirectoryIndex = delta.FilePathChanges.Count > 0 || delta.UpdatedInstallDestinations.Count > 0 || delta.UpdatedInstalledPackagePaths.Count > 0;
         delta.InvalidateParentFolderCache = delta.FilePathChanges.Count > 0;

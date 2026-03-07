@@ -3936,7 +3936,7 @@ public class BMSLibrary : NotificationObject
                 using (rwlockBMSFiles.GetWriterGuard())
                 {
                     string dstDir = Path.Combine(Path.GetDirectoryName(srcDir), newName);
-                    moveBMSFolder(srcDir, dstDir, unregister);
+                    MoveBmsFolderInternal(srcDir, dstDir, unregister, raiseBmsFilesChanged: false);
                     if (unregister == false)
                     {
                         BMSFilesDuplicated = null;
@@ -3977,7 +3977,7 @@ public class BMSLibrary : NotificationObject
                     }
                     foreach (FolderAutoRenamePlan plan in plans)
                     {
-                        moveBMSFolder(plan.SourceDirectory, plan.DestinationDirectory, unregister);
+                        MoveBmsFolderInternal(plan.SourceDirectory, plan.DestinationDirectory, unregister, raiseBmsFilesChanged: true);
                     }
                     if (unregister == false)
                     {
@@ -3989,6 +3989,11 @@ public class BMSLibrary : NotificationObject
     }
 
     public void moveBMSFolder(string srcDir, string dstDir, bool? unregister = false)
+    {
+        MoveBmsFolderInternal(srcDir, dstDir, unregister, raiseBmsFilesChanged: true);
+    }
+
+    private void MoveBmsFolderInternal(string srcDir, string dstDir, bool? unregister, bool raiseBmsFilesChanged)
     {
         if (srcDir.Equals(dstDir, StringComparison.OrdinalIgnoreCase))
         {
@@ -4012,7 +4017,7 @@ public class BMSLibrary : NotificationObject
         {
             return;
         }
-        LibraryMutationDelta delta = libraryFileOperationsService.BuildFolderMoveDelta(srcDir, dstDir, BMSFiles, BMSPackagesPending, BMSPackagesInstalled, unregister == true);
+        LibraryMutationDelta delta = libraryFileOperationsService.BuildFolderMoveDelta(srcDir, dstDir, BMSFiles, BMSPackagesPending, BMSPackagesInstalled, unregister == true, raiseBmsFilesChanged);
         ApplyLibraryMutationDelta(delta);
     }
 

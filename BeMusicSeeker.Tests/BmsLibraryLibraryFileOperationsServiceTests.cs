@@ -192,7 +192,8 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
                 new[] { libraryFile },
                 new[] { pendingPackage },
                 new[] { installedPackage },
-                unregister: false);
+                unregister: false,
+                raiseBmsFilesChanged: false);
 
             Assert.IsFalse(Directory.Exists(sourceRoot));
             Assert.IsTrue(Directory.Exists(destinationRoot));
@@ -252,13 +253,20 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
     }
 
     [TestMethod]
-    public void BuildFolderMoveDelta_ReturnsFolderAndFilePathChanges()
+    public void BuildFolderMoveDelta_CanSuppressMainViewRefreshForRename()
     {
         BmsLibraryLibraryFileOperationsService service = new BmsLibraryLibraryFileOperationsService();
         TestableBmsFile file1 = CreateFile("C:\\Lib\\Src\\A\\a.bms");
         TestableBmsFile file2 = CreateFile("C:\\Lib\\Src\\B\\b.bms");
 
-        LibraryMutationDelta delta = service.BuildFolderMoveDelta("C:\\Lib\\Src", "C:\\Lib\\Dst", new[] { file1, file2 }, Array.Empty<BMSPackage>(), Array.Empty<BMSPackage>(), unregister: false);
+        LibraryMutationDelta delta = service.BuildFolderMoveDelta(
+            "C:\\Lib\\Src",
+            "C:\\Lib\\Dst",
+            new[] { file1, file2 },
+            Array.Empty<BMSPackage>(),
+            Array.Empty<BMSPackage>(),
+            unregister: false,
+            raiseBmsFilesChanged: false);
 
         Assert.AreEqual(2, delta.FolderPathChanges.Count);
         Assert.AreEqual(2, delta.FilePathChanges.Count);
@@ -266,9 +274,28 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
         CollectionAssert.AreEquivalent(
             new[] { "C:\\Lib\\Dst\\A\\a.bms", "C:\\Lib\\Dst\\B\\b.bms" },
             delta.FilePathChanges.Select((LibraryFilePathChange change) => change.NewPath).ToArray());
-        Assert.IsTrue(delta.RaiseBmsFilesChanged);
+        Assert.IsFalse(delta.RaiseBmsFilesChanged);
         Assert.IsTrue(delta.InvalidateInstalledDirectoryIndex);
         Assert.IsTrue(delta.InvalidateParentFolderCache);
+    }
+
+    [TestMethod]
+    public void BuildFolderMoveDelta_RaisesMainViewRefreshForRootMove()
+    {
+        BmsLibraryLibraryFileOperationsService service = new BmsLibraryLibraryFileOperationsService();
+        TestableBmsFile file = CreateFile("C:\\Lib\\Src\\A\\a.bms");
+
+        LibraryMutationDelta delta = service.BuildFolderMoveDelta(
+            "C:\\Lib\\Src",
+            "C:\\Lib\\Dst",
+            new[] { file },
+            Array.Empty<BMSPackage>(),
+            Array.Empty<BMSPackage>(),
+            unregister: false,
+            raiseBmsFilesChanged: true);
+
+        Assert.IsTrue(delta.RaiseBmsFilesChanged);
+        Assert.AreEqual("C:\\Lib\\Dst\\A\\a.bms", delta.FilePathChanges.Single().NewPath);
     }
 
     [TestMethod]
