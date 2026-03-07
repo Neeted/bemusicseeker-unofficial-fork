@@ -282,6 +282,21 @@ LR2ディレクトリ・カスタムフォルダ出力ディレクトリ
   <data name="Korean" xml:space="preserve">
     <value>韓国語</value>
   </data>
+  <data name="Encoding_Japanese_ShiftJIS" xml:space="preserve">
+    <value>日本語(Shift_JIS)</value>
+  </data>
+  <data name="Encoding_UTF8" xml:space="preserve">
+    <value>UTF-8</value>
+  </data>
+  <data name="Encoding_Korean_KS_C_5601_1987" xml:space="preserve">
+    <value>韓国語(KS_C_5601-1987)</value>
+  </data>
+  <data name="Encoding_ChineseSimplified_GB2312" xml:space="preserve">
+    <value>簡体字中国語(GB2312)</value>
+  </data>
+  <data name="Encoding_ChineseTraditional_Big5" xml:space="preserve">
+    <value>繁体字中国語(Big5)</value>
+  </data>
   <data name="Property" xml:space="preserve">
     <value>プロパティ</value>
   </data>

@@ -163,9 +163,11 @@
           <MenuItem.Header>
             <TextBlock Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Fix_character_encoding, Mode=OneWay}" />
           </MenuItem.Header>
-          <MenuItem Tag="shift_jis" Header="SjiftJIS" Click="fixEncodingSelectedBMS" />
-          <MenuItem Tag="utf-8" Header="UTF-8" Click="fixEncodingSelectedBMS" />
-          <MenuItem Tag="ks_c_5601-1987" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Korean, Mode=OneWay}" Click="fixEncodingSelectedBMS" />
+          <MenuItem Tag="shift_jis" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Encoding_Japanese_ShiftJIS, Mode=OneWay}" Click="fixEncodingSelectedBMS" />
+          <MenuItem Tag="utf-8" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Encoding_UTF8, Mode=OneWay}" Click="fixEncodingSelectedBMS" />
+          <MenuItem Tag="ks_c_5601-1987" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Encoding_Korean_KS_C_5601_1987, Mode=OneWay}" Click="fixEncodingSelectedBMS" />
+          <MenuItem Tag="gb2312" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Encoding_ChineseSimplified_GB2312, Mode=OneWay}" Click="fixEncodingSelectedBMS" />
+          <MenuItem Tag="big5" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Encoding_ChineseTraditional_Big5, Mode=OneWay}" Click="fixEncodingSelectedBMS" />
           <MenuItem Tag="" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Mark_fixed, Mode=OneWay}" Click="fixEncodingSelectedBMS" />
         </MenuItem>
         <MenuItem Name="dataGridContextMenuItemFullScanCheck">

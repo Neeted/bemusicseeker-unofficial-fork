@@ -1,4 +1,7 @@
+using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Text;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Properties;
@@ -82,6 +85,52 @@ public sealed class BmsLibraryMaintenanceServiceTests
         Assert.AreEqual(1, result.ClearedCount);
         Assert.AreEqual(1, result.SkippedCount);
         Assert.IsFalse(zeroNoteFile.HasZeroNoteMismatchWarning);
+    }
+
+    [DataTestMethod]
+    [DataRow("gb2312", "\u7b80\u4f53\u6807\u9898", "\u7b80\u4f53\u4f5c\u8005")]
+    [DataRow("big5", "\u7e41\u9ad4\u6a19\u984c", "\u7e41\u9ad4\u4f5c\u8005")]
+    [DataRow("ks_c_5601-1987", "\ud55c\uad6d\uc5b4\uc81c\ubaa9", "\ud55c\uad6d\uc5b4\uc791\uac00")]
+    public void ApplyEncoding_ReloadsRequestedEncodingAndMarksFixed(string encoding, string expectedTitle, string expectedArtist)
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        BmsLibraryMaintenanceService service = new BmsLibraryMaintenanceService();
+        string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectoryPath);
+        string bmsFilePath = Path.Combine(tempDirectoryPath, "chart.bms");
+        string bmsContent = "#TITLE " + expectedTitle + "\r\n#ARTIST " + expectedArtist + "\r\n#GENRE TEST\r\n";
+        File.WriteAllText(
+            bmsFilePath,
+            bmsContent,
+            Encoding.GetEncoding(encoding, new EncoderExceptionFallback(), new DecoderExceptionFallback()));
+        try
+        {
+            TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+            file.path = bmsFilePath;
+            BMSFileMaintenanceInfo info = new BMSFileMaintenanceInfo(file)
+            {
+                hash = file.hash,
+                encoding = "unknown",
+                is_encoding_fixed = false
+            };
+            file.SetMaintenanceInfo(info, suppressPropertyChanged: true, registerEventHandlers: false);
+
+            MaintenanceEncodingUpdateResult result = service.ApplyEncoding(new BMSFile[] { file }, encoding);
+
+            Assert.AreEqual(expectedTitle, file.Title);
+            Assert.AreEqual(expectedArtist, file.Artist);
+            Assert.AreEqual(encoding, file.maintenanceInfo.encoding);
+            Assert.IsTrue(file.maintenanceInfo.is_encoding_fixed);
+            CollectionAssert.AreEqual(new BMSFile[] { file }, result.SongsToUpsert);
+            CollectionAssert.AreEqual(new BMSFileMaintenanceInfo[] { info }, result.MaintenanceInfosToUpsert);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectoryPath))
+            {
+                Directory.Delete(tempDirectoryPath, recursive: true);
+            }
+        }
     }
 
     private static TestableBmsFile CreateFile(string hash)

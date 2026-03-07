@@ -223,6 +223,16 @@ public class Resources
 
     public static string Fixed => ResourceManager.GetString("Fixed", resourceCulture);
 
+    public static string Encoding_ChineseSimplified_GB2312 => ResourceManager.GetString("Encoding_ChineseSimplified_GB2312", resourceCulture);
+
+    public static string Encoding_ChineseTraditional_Big5 => ResourceManager.GetString("Encoding_ChineseTraditional_Big5", resourceCulture);
+
+    public static string Encoding_Japanese_ShiftJIS => ResourceManager.GetString("Encoding_Japanese_ShiftJIS", resourceCulture);
+
+    public static string Encoding_Korean_KS_C_5601_1987 => ResourceManager.GetString("Encoding_Korean_KS_C_5601_1987", resourceCulture);
+
+    public static string Encoding_UTF8 => ResourceManager.GetString("Encoding_UTF8", resourceCulture);
+
     public static string Folder => ResourceManager.GetString("Folder", resourceCulture);
 
     public static string Force_install => ResourceManager.GetString("Force_install", resourceCulture);
