@@ -74,6 +74,58 @@ public sealed class BmsLibraryInitializationServiceTests
     }
 
     [TestMethod]
+    public void LoadSongTable_RegistersMaintenanceEncodingPropertyChangedHandler()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
+        {
+            string rootedChartPath = Path.Combine(lr2RootPath, "Songs", "chart.bms");
+            Directory.CreateDirectory(Path.GetDirectoryName(rootedChartPath));
+            File.WriteAllText(rootedChartPath, "#PLAYER 1");
+
+            using (LR2SongDBExtended songDb = new LR2SongDBExtended(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDB.song>();
+                songDb.CreateTable<LR2SongDB.folder>();
+                songDb.CreateTable<LR2SongDBExtended.maintenance>();
+
+                TestableBmsFile song = new TestableBmsFile
+                {
+                    path = rootedChartPath,
+                    folder = "folder",
+                    parent = "parent"
+                };
+                song.SetHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+                songDb.InsertOrReplace(song, typeof(LR2SongDB.song));
+                songDb.InsertOrReplace(new BMSFileMaintenanceInfo
+                {
+                    path = rootedChartPath,
+                    hash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    encoding = "shift_jis"
+                }, typeof(LR2SongDBExtended.maintenance));
+            }
+
+            BmsLibraryInitializationService service = new BmsLibraryInitializationService();
+            SongTableLoadResult result = service.LoadSongTable(
+                new BmsLibraryDbGateway(songDbPath),
+                new BmsLibraryOptionsSnapshot(),
+                null,
+                new TestFileMutationService(),
+                null,
+                ex => ex.Message);
+            List<string> propertyNames = new List<string>();
+            result.LoadedFiles[0].PropertyChanged += delegate (object sender, System.ComponentModel.PropertyChangedEventArgs e)
+            {
+                propertyNames.Add(e.PropertyName);
+            };
+
+            result.LoadedFiles[0].maintenanceInfo.encoding = "utf-8";
+
+            CollectionAssert.Contains(propertyNames, "encoding");
+        });
+    }
+
+    [TestMethod]
     public void ApplyFileScanDiff_UsesPrefetchedScanAndClearsStaleInstallDestination()
     {
         TestResourceInitializer.EnsureJapaneseResources();

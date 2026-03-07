@@ -139,16 +139,16 @@ internal sealed class BmsLibraryInitializationService
             {
                 if (item.HasMaintenanceInfoHash(value.hash) || string.Equals(value.hash, item.hash, StringComparison.OrdinalIgnoreCase))
                 {
-                    item.SetMaintenanceInfo(value, suppressPropertyChanged: true, registerEventHandlers: false);
+                    item.SetMaintenanceInfo(value, suppressPropertyChanged: true, registerEventHandlers: true);
                 }
                 else
                 {
-                    item.SetMaintenanceInfo(new BMSFileMaintenanceInfo(item), suppressPropertyChanged: true, registerEventHandlers: false);
+                    item.SetMaintenanceInfo(new BMSFileMaintenanceInfo(item), suppressPropertyChanged: true, registerEventHandlers: true);
                 }
             }
             else
             {
-                item.SetMaintenanceInfo(new BMSFileMaintenanceInfo(item), suppressPropertyChanged: true, registerEventHandlers: false);
+                item.SetMaintenanceInfo(new BMSFileMaintenanceInfo(item), suppressPropertyChanged: true, registerEventHandlers: true);
             }
             result.LoadedFiles.Add(item);
         }

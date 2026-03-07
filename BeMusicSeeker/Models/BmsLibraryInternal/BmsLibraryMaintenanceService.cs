@@ -90,37 +90,59 @@ internal sealed class BmsLibraryMaintenanceService
     {
         MaintenanceEncodingUpdateResult result = new MaintenanceEncodingUpdateResult();
         List<BMSFile> files = (bmsFiles ?? Enumerable.Empty<BMSFile>()).Where((BMSFile file) => file != null).ToList();
+        HashSet<BMSFile> reloadedFiles = new HashSet<BMSFile>();
         if (!string.IsNullOrWhiteSpace(encoding))
         {
-            List<BMSFile> songChanges = files.Where((BMSFile f) => f.maintenanceInfo.encoding != encoding && (encoding != "shift_jis" || f.maintenanceInfo.is_encoding_fixed) && File.Exists(f.path)).ToList();
-            foreach (BMSFile file in songChanges)
+            foreach (BMSFile file in files.Where((BMSFile f) => File.Exists(f.path)))
             {
+                if (!ShouldReloadMetadata(file, encoding))
+                {
+                    continue;
+                }
                 BMSFile.ReloadBMSFileWithEncoding(file, encoding);
                 result.SongsToUpsert.Add(file);
+                reloadedFiles.Add(file);
             }
         }
-        List<BMSFileMaintenanceInfo> maintenanceChanges = files.Select((BMSFile f) => f.maintenanceInfo).Where(delegate (BMSFileMaintenanceInfo info)
+        List<BMSFileMaintenanceInfo> maintenanceChanges = files.Select(delegate (BMSFile file)
         {
-            if (info == null || info.encoding == encoding || (string.IsNullOrWhiteSpace(info.encoding) && string.IsNullOrWhiteSpace(encoding)))
+            BMSFileMaintenanceInfo info = file.maintenanceInfo;
+            if (info == null)
             {
-                return false;
+                return null;
             }
             if (!string.IsNullOrWhiteSpace(encoding))
             {
-                info.encoding = encoding;
-                info.is_encoding_fixed = true;
-                return true;
+                if (reloadedFiles.Contains(file) || !string.Equals(info.encoding, encoding, StringComparison.Ordinal))
+                {
+                    info.encoding = encoding;
+                    info.is_encoding_fixed = true;
+                    return info;
+                }
+                return null;
             }
             if ((info.encoding.EndsWith("?") && info.encoding != "shift_jis?") || info.encoding == "unknown")
             {
                 info.encoding = "shift_jis";
                 info.is_encoding_fixed = true;
-                return true;
+                return info;
             }
-            return false;
-        }).ToList();
+            return null;
+        }).Where((BMSFileMaintenanceInfo info) => info != null).ToList();
         result.MaintenanceInfosToUpsert.AddRange(maintenanceChanges);
         return result;
+    }
+
+    private static bool ShouldReloadMetadata(BMSFile currentFile, string encoding)
+    {
+        if (currentFile == null || string.IsNullOrWhiteSpace(currentFile.path) || !File.Exists(currentFile.path))
+        {
+            return false;
+        }
+        BMSFile reloadedFile = BMSFile.CreateBMSFileFromFile(currentFile.path, encoding);
+        return !string.Equals(currentFile.Title ?? string.Empty, reloadedFile.Title ?? string.Empty, StringComparison.Ordinal)
+            || !string.Equals(currentFile.Artist ?? string.Empty, reloadedFile.Artist ?? string.Empty, StringComparison.Ordinal)
+            || !string.Equals(currentFile.genre ?? string.Empty, reloadedFile.genre ?? string.Empty, StringComparison.Ordinal);
     }
 
     public ZeroNoteRecheckResult RecheckZeroNoteWarnings(IEnumerable<BMSFile> allFiles, Action<Exception, string> logWarn = null)
