@@ -579,6 +579,156 @@ public sealed class BmsLibraryPackageInstallServiceTests
         });
     }
 
+    [TestMethod]
+    public void MovePackageFiles_DeletesProtectedSourceWhenSuffixedCandidateHasSameHash()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            BmsLibraryPackageInstallService service = new BmsLibraryPackageInstallService();
+            RealFileMutationService fileMutationService = new RealFileMutationService();
+            string sourceDirectoryPath = Path.Combine(tempDirectoryPath, "src");
+            string destinationDirectoryPath = Path.Combine(tempDirectoryPath, "dst");
+            Directory.CreateDirectory(sourceDirectoryPath);
+            Directory.CreateDirectory(destinationDirectoryPath);
+            string sourceFilePath = Path.Combine(sourceDirectoryPath, "notes.txt");
+            string destinationFilePath = Path.Combine(destinationDirectoryPath, "notes.txt");
+            string suffixedDestinationPath = Path.Combine(destinationDirectoryPath, "notes(1).txt");
+            File.WriteAllText(sourceFilePath, "same");
+            File.WriteAllText(destinationFilePath, "different");
+            File.WriteAllText(suffixedDestinationPath, "same");
+            BMSPackage package = new BMSPackage(new BMSFile[0])
+            {
+                path = sourceDirectoryPath,
+                delete_parent = false
+            };
+
+            bool moved = service.MovePackageFiles(
+                package,
+                destinationDirectoryPath,
+                new BmsLibraryOptionsSnapshot
+                {
+                    EnableSmartComponentOverwrite = true,
+                    KeepSmartOverwriteProtectedFilesByRenaming = true
+                },
+                null,
+                ex => ex.Message,
+                fileMutationService,
+                null,
+                null,
+                null,
+                _ => { });
+
+            Assert.IsTrue(moved);
+            Assert.IsFalse(File.Exists(sourceFilePath));
+            Assert.IsTrue(File.Exists(destinationFilePath));
+            Assert.IsTrue(File.Exists(suffixedDestinationPath));
+            Assert.IsFalse(File.Exists(Path.Combine(destinationDirectoryPath, "notes(2).txt")));
+        });
+    }
+
+    [TestMethod]
+    public void MovePackageFiles_RenamesProtectedSourceToFirstAvailableSuffixAfterDifferentCandidates()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            BmsLibraryPackageInstallService service = new BmsLibraryPackageInstallService();
+            RealFileMutationService fileMutationService = new RealFileMutationService();
+            string sourceDirectoryPath = Path.Combine(tempDirectoryPath, "src");
+            string destinationDirectoryPath = Path.Combine(tempDirectoryPath, "dst");
+            Directory.CreateDirectory(sourceDirectoryPath);
+            Directory.CreateDirectory(destinationDirectoryPath);
+            string sourceFilePath = Path.Combine(sourceDirectoryPath, "notes.txt");
+            string destinationFilePath = Path.Combine(destinationDirectoryPath, "notes.txt");
+            string suffixedDestinationPath = Path.Combine(destinationDirectoryPath, "notes(1).txt");
+            string finalDestinationPath = Path.Combine(destinationDirectoryPath, "notes(2).txt");
+            File.WriteAllText(sourceFilePath, "source");
+            File.WriteAllText(destinationFilePath, "different-a");
+            File.WriteAllText(suffixedDestinationPath, "different-b");
+            BMSPackage package = new BMSPackage(new BMSFile[0])
+            {
+                path = sourceDirectoryPath,
+                delete_parent = false
+            };
+
+            bool moved = service.MovePackageFiles(
+                package,
+                destinationDirectoryPath,
+                new BmsLibraryOptionsSnapshot
+                {
+                    EnableSmartComponentOverwrite = true,
+                    KeepSmartOverwriteProtectedFilesByRenaming = true
+                },
+                null,
+                ex => ex.Message,
+                fileMutationService,
+                null,
+                null,
+                null,
+                _ => { });
+
+            Assert.IsTrue(moved);
+            Assert.IsFalse(File.Exists(sourceFilePath));
+            Assert.IsTrue(File.Exists(destinationFilePath));
+            Assert.IsTrue(File.Exists(suffixedDestinationPath));
+            Assert.IsTrue(File.Exists(finalDestinationPath));
+        });
+    }
+
+    [TestMethod]
+    public void MovePackageFiles_RenamesProtectedSourceWhenIntermediateCandidateHashIsUnavailable()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            BmsLibraryPackageInstallService service = new BmsLibraryPackageInstallService();
+            RealFileMutationService fileMutationService = new RealFileMutationService();
+            string sourceDirectoryPath = Path.Combine(tempDirectoryPath, "src");
+            string destinationDirectoryPath = Path.Combine(tempDirectoryPath, "dst");
+            Directory.CreateDirectory(sourceDirectoryPath);
+            Directory.CreateDirectory(destinationDirectoryPath);
+            string sourceFilePath = Path.Combine(sourceDirectoryPath, "notes.txt");
+            string destinationFilePath = Path.Combine(destinationDirectoryPath, "notes.txt");
+            string unavailableCandidatePath = Path.Combine(destinationDirectoryPath, "notes(1).txt");
+            string finalDestinationPath = Path.Combine(destinationDirectoryPath, "notes(2).txt");
+            File.WriteAllText(sourceFilePath, "source");
+            File.WriteAllText(destinationFilePath, "different");
+            File.WriteAllText(unavailableCandidatePath, "locked");
+            BMSPackage package = new BMSPackage(new BMSFile[0])
+            {
+                path = sourceDirectoryPath,
+                delete_parent = false
+            };
+
+            using (FileStream lockStream = new FileStream(unavailableCandidatePath, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+            {
+                bool moved = service.MovePackageFiles(
+                    package,
+                    destinationDirectoryPath,
+                    new BmsLibraryOptionsSnapshot
+                    {
+                        EnableSmartComponentOverwrite = true,
+                        KeepSmartOverwriteProtectedFilesByRenaming = true
+                    },
+                    null,
+                    ex => ex.Message,
+                    fileMutationService,
+                    null,
+                    null,
+                    null,
+                    _ => { });
+
+                Assert.IsTrue(moved);
+            }
+
+            Assert.IsFalse(File.Exists(sourceFilePath));
+            Assert.IsTrue(File.Exists(destinationFilePath));
+            Assert.IsTrue(File.Exists(unavailableCandidatePath));
+            Assert.IsTrue(File.Exists(finalDestinationPath));
+        });
+    }
+
     private static TestableBmsFile CreateFile(string hash, string path)
     {
         TestableBmsFile file = new TestableBmsFile

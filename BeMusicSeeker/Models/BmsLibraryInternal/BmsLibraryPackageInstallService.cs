@@ -21,13 +21,6 @@ internal enum ComponentMoveDecision
     SkipOlderOrEqual
 }
 
-internal enum SmartOverwriteHashCompareResult
-{
-    Same,
-    Different,
-    Unavailable
-}
-
 internal sealed class ComponentMovePlanItem
 {
     public string SourcePath { get; set; }
@@ -1827,9 +1820,12 @@ internal sealed class BmsLibraryPackageInstallService
             bool keepByRename = keepProtectedFilesByRenaming && File.Exists(dstFilePath) && IsSmartOverwriteProtectedExtension(srcFilePath) && moveDecision != ComponentMoveDecision.SkipSame;
             if (keepByRename)
             {
-                componentMoveSummary.HashChecked++;
-                SmartOverwriteHashCompareResult hashCompareResult = CompareHashForSmartOverwrite(srcFilePath, dstFilePath);
-                if (hashCompareResult == SmartOverwriteHashCompareResult.Same)
+                FileCollisionResolutionResult resolution = libraryFileOperationsService.ResolveFileCollisionWithSuffix(srcFilePath, dstFilePath, null, "smart_overwrite", logInstallPerformance);
+                if (resolution.EncounteredFileCollision)
+                {
+                    componentMoveSummary.HashChecked++;
+                }
+                if (resolution.DuplicateMatched)
                 {
                     fileMutationService.DeleteFileDirect(srcFilePath, targetOnlyFileMutationOptions);
                     componentMoveSummary.SkippedSame++;
@@ -1837,17 +1833,16 @@ internal sealed class BmsLibraryPackageInstallService
                     componentMoveSummary.HashSameSkip++;
                     continue;
                 }
-                string nonConflictingDestination = libraryFileOperationsService.GetNonConflictingPathWithSuffix(dstFilePath);
-                fileMutationService.MoveFile(srcFilePath, nonConflictingDestination, overwrite: false, targetOnlyFileMutationOptions);
+                fileMutationService.MoveFile(srcFilePath, resolution.FinalPath, overwrite: false, targetOnlyFileMutationOptions);
                 componentMoveSummary.Moved++;
                 componentMoveSummary.RenamedKeep++;
-                if (hashCompareResult == SmartOverwriteHashCompareResult.Different)
+                if (resolution.AnyHashUnavailable)
                 {
-                    componentMoveSummary.HashDiffRenamed++;
+                    componentMoveSummary.HashUnavailableRenamed++;
                 }
                 else
                 {
-                    componentMoveSummary.HashUnavailableRenamed++;
+                    componentMoveSummary.HashDiffRenamed++;
                 }
                 if (moveDecision == ComponentMoveDecision.Overwrite)
                 {
@@ -1886,19 +1881,6 @@ internal sealed class BmsLibraryPackageInstallService
         CleanupEmptyComponentDirectories(installComponentFiles, fileMutationService, targetOnlyFileMutationOptions);
         int movedNewCount = Math.Max(0, componentMoveSummary.Moved - componentMoveSummary.Overwritten);
         logInstallPerformance?.Invoke("component_move_summary package=" + package.path + " total=" + componentMoveSummary.Total + " moved=" + componentMoveSummary.Moved + " moved_new=" + movedNewCount + " overwritten=" + componentMoveSummary.Overwritten + " skipped_same=" + componentMoveSummary.SkippedSame + " skipped_same_path=" + componentMoveSummary.SkippedSamePath + " skipped_older=" + componentMoveSummary.SkippedOlder + " skipped_by_exclusion=" + componentMoveSummary.SkippedByExclusion + " deleted_after_skip=" + componentMoveSummary.DeletedAfterSkip + " renamed_keep=" + componentMoveSummary.RenamedKeep + " renamed_from_overwrite=" + componentMoveSummary.RenamedFromOverwrite + " renamed_from_skip_older=" + componentMoveSummary.RenamedFromSkipOlder + " hash_checked=" + componentMoveSummary.HashChecked + " hash_same_skip=" + componentMoveSummary.HashSameSkip + " hash_diff_renamed=" + componentMoveSummary.HashDiffRenamed + " hash_unavailable_renamed=" + componentMoveSummary.HashUnavailableRenamed + " failed=" + componentMoveSummary.Failed);
-    }
-
-    private SmartOverwriteHashCompareResult CompareHashForSmartOverwrite(string srcFilePath, string dstFilePath)
-    {
-        string sourceHash = libraryFileOperationsService.TryComputeFileMd5ForPath(srcFilePath);
-        string destinationHash = libraryFileOperationsService.TryComputeFileMd5ForPath(dstFilePath);
-        if (string.IsNullOrWhiteSpace(sourceHash) || string.IsNullOrWhiteSpace(destinationHash))
-        {
-            return SmartOverwriteHashCompareResult.Unavailable;
-        }
-        return sourceHash.Equals(destinationHash, StringComparison.OrdinalIgnoreCase)
-            ? SmartOverwriteHashCompareResult.Same
-            : SmartOverwriteHashCompareResult.Different;
     }
 
     private static void CleanupEmptyComponentDirectories(IEnumerable<string> installComponentDirectories, IFileMutationService fileMutationService, FileMutationOptions targetOnlyFileMutationOptions)

@@ -30,6 +30,23 @@ internal sealed class RenameInvalidExtensionOutcome
     public bool FailedDuringDelete { get; set; }
 }
 
+internal sealed class FileCollisionResolutionResult
+{
+    public string FinalPath { get; set; }
+
+    public string SourceHash { get; set; }
+
+    public string DuplicatePath { get; set; }
+
+    public bool DuplicateMatched { get; set; }
+
+    public bool EncounteredFileCollision { get; set; }
+
+    public bool AnyHashUnavailable { get; set; }
+
+    public bool AnyHashDifferent { get; set; }
+}
+
 /// <summary>
 /// Builds and executes file-system mutations against snapshots owned by BMSLibrary.
 /// The facade must acquire the required locks before invoking this service.
@@ -490,40 +507,32 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         {
             return outcome;
         }
-        string finalPath = requestedPath;
-        if (Directory.Exists(requestedPath))
+        FileCollisionResolutionResult resolution = ResolveFileCollisionWithSuffix(
+            sourceFile.path,
+            requestedPath,
+            TryGetSourceHashForInvalidExtensionRename(sourceFile),
+            "invalid_ext_rename",
+            logInfo);
+        string finalPath = resolution.FinalPath;
+        if (resolution.DuplicateMatched)
         {
-            logInfo?.Invoke("invalid_ext_rename collision_detected source=" + sourceFile.path + " requested=" + requestedPath + " existsType=directory");
-            finalPath = GetNonConflictingPathWithSuffix(requestedPath);
-            logInfo?.Invoke("invalid_ext_rename renamed_with_suffix source=" + sourceFile.path + " requested=" + requestedPath + " resolved=" + finalPath);
+            try
+            {
+                fileMutationService.DeleteFileDirect(sourceFile.path, targetOnlyFileMutationOptions);
+                logInfo?.Invoke("invalid_ext_rename duplicate_deleted source=" + sourceFile.path + " existing=" + resolution.DuplicatePath + " hash=" + (resolution.SourceHash ?? "(null)"));
+                outcome.Action = RenameInvalidExtensionAction.DeletedAsDuplicate;
+                return outcome;
+            }
+            catch (Exception ex)
+            {
+                outcome.FailureException = ex;
+                outcome.FailedDuringDelete = true;
+                logWarn?.Invoke(ex, "invalid_ext_rename delete_failed source=" + sourceFile.path + " existing=" + resolution.DuplicatePath);
+                return outcome;
+            }
         }
-        else if (File.Exists(requestedPath))
+        if (!string.Equals(finalPath, requestedPath, StringComparison.OrdinalIgnoreCase))
         {
-            logInfo?.Invoke("invalid_ext_rename collision_detected source=" + sourceFile.path + " requested=" + requestedPath + " existsType=file");
-            string sourceHash = TryGetSourceHashForInvalidExtensionRename(sourceFile);
-            string destinationHash = TryComputeFileMd5ForPath(requestedPath, "invalid_ext_rename", logInfo);
-            if (!string.IsNullOrWhiteSpace(sourceHash) && !string.IsNullOrWhiteSpace(destinationHash) && sourceHash.Equals(destinationHash, StringComparison.OrdinalIgnoreCase))
-            {
-                try
-                {
-                    fileMutationService.DeleteFileDirect(sourceFile.path, targetOnlyFileMutationOptions);
-                    logInfo?.Invoke("invalid_ext_rename duplicate_deleted source=" + sourceFile.path + " existing=" + requestedPath + " hash=" + sourceHash);
-                    outcome.Action = RenameInvalidExtensionAction.DeletedAsDuplicate;
-                    return outcome;
-                }
-                catch (Exception ex)
-                {
-                    outcome.FailureException = ex;
-                    outcome.FailedDuringDelete = true;
-                    logWarn?.Invoke(ex, "invalid_ext_rename delete_failed source=" + sourceFile.path + " existing=" + requestedPath);
-                    return outcome;
-                }
-            }
-            if (string.IsNullOrWhiteSpace(sourceHash) || string.IsNullOrWhiteSpace(destinationHash))
-            {
-                logInfo?.Invoke("invalid_ext_rename hash_compare_unavailable source=" + sourceFile.path + " requested=" + requestedPath + " reason=" + (string.IsNullOrWhiteSpace(sourceHash) ? "source_hash_unavailable" : "dest_hash_unavailable"));
-            }
-            finalPath = GetNonConflictingPathWithSuffix(requestedPath);
             logInfo?.Invoke("invalid_ext_rename renamed_with_suffix source=" + sourceFile.path + " requested=" + requestedPath + " resolved=" + finalPath);
         }
         try
@@ -543,6 +552,68 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         }
     }
 
+    public FileCollisionResolutionResult ResolveFileCollisionWithSuffix(string sourcePath, string requestedPath, string sourceHashHint = null, string logCategory = null, Action<string> logInfo = null)
+    {
+        FileCollisionResolutionResult result = new FileCollisionResolutionResult
+        {
+            FinalPath = requestedPath,
+            SourceHash = sourceHashHint
+        };
+        if (string.IsNullOrWhiteSpace(requestedPath))
+        {
+            return result;
+        }
+
+        string candidatePath = requestedPath;
+        int suffix = 1;
+        while (File.Exists(candidatePath) || Directory.Exists(candidatePath))
+        {
+            result.FinalPath = candidatePath;
+            if (Directory.Exists(candidatePath))
+            {
+                if (!string.IsNullOrWhiteSpace(logCategory))
+                {
+                    logInfo?.Invoke(logCategory + " collision_detected source=" + sourcePath + " candidate=" + candidatePath + " existsType=directory");
+                }
+            }
+            else
+            {
+                result.EncounteredFileCollision = true;
+                if (!string.IsNullOrWhiteSpace(logCategory))
+                {
+                    logInfo?.Invoke(logCategory + " collision_detected source=" + sourcePath + " candidate=" + candidatePath + " existsType=file");
+                }
+                if (string.IsNullOrWhiteSpace(result.SourceHash))
+                {
+                    result.SourceHash = TryComputeFileMd5ForPath(sourcePath, logCategory, logInfo);
+                }
+                string destinationHash = TryComputeFileMd5ForPath(candidatePath, logCategory, logInfo);
+                if (!string.IsNullOrWhiteSpace(result.SourceHash) && !string.IsNullOrWhiteSpace(destinationHash))
+                {
+                    if (result.SourceHash.Equals(destinationHash, StringComparison.OrdinalIgnoreCase))
+                    {
+                        result.DuplicateMatched = true;
+                        result.DuplicatePath = candidatePath;
+                        return result;
+                    }
+                    result.AnyHashDifferent = true;
+                }
+                else
+                {
+                    result.AnyHashUnavailable = true;
+                    if (!string.IsNullOrWhiteSpace(logCategory))
+                    {
+                        logInfo?.Invoke(logCategory + " hash_compare_unavailable source=" + sourcePath + " candidate=" + candidatePath + " reason=" + (string.IsNullOrWhiteSpace(result.SourceHash) ? "source_hash_unavailable" : "dest_hash_unavailable"));
+                    }
+                }
+            }
+            candidatePath = BuildPathWithSuffix(requestedPath, suffix);
+            suffix++;
+        }
+        result.FinalPath = candidatePath;
+        return result;
+    }
+
     public string GetNonConflictingPathWithSuffix(string requestedPath)
     {
         if (string.IsNullOrWhiteSpace(requestedPath))
@@ -556,8 +627,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         string candidate = requestedPath;
         while (File.Exists(candidate) || Directory.Exists(candidate))
         {
-            string renamedFileName = fileNameWithoutExtension + "(" + suffix + ")" + extension;
-            candidate = string.IsNullOrWhiteSpace(directoryName) ? renamedFileName : Path.Combine(directoryName, renamedFileName);
+            candidate = BuildPathWithSuffix(requestedPath, suffix);
             suffix++;
         }
         return candidate;
@@ -621,5 +691,18 @@ internal sealed class BmsLibraryLibraryFileOperationsService
             return TryComputeFileMd5ForPath(sourceFile?.path);
         }
         return sourceFile.hash;
+    }
+
+    private static string BuildPathWithSuffix(string requestedPath, int suffix)
+    {
+        if (suffix < 1 || string.IsNullOrWhiteSpace(requestedPath))
+        {
+            return requestedPath;
+        }
+        string directoryName = Path.GetDirectoryName(requestedPath);
+        string fileNameWithoutExtension = Path.GetFileNameWithoutExtension(requestedPath);
+        string extension = Path.GetExtension(requestedPath);
+        string renamedFileName = fileNameWithoutExtension + "(" + suffix + ")" + extension;
+        return string.IsNullOrWhiteSpace(directoryName) ? renamedFileName : Path.Combine(directoryName, renamedFileName);
     }
 }

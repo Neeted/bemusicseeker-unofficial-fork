@@ -38,6 +38,91 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
     }
 
     [TestMethod]
+    public void ProcessInvalidExtensionRename_DeletesSourceWhenSuffixedCandidateHasSameHash()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            BmsLibraryLibraryFileOperationsService service = new BmsLibraryLibraryFileOperationsService();
+            TestFileMutationService fileMutationService = new TestFileMutationService();
+            string sourcePath = Path.Combine(tempDirectoryPath, "chart.bms");
+            string destinationPath = Path.Combine(tempDirectoryPath, "chart.bmx");
+            string suffixedDestinationPath = Path.Combine(tempDirectoryPath, "chart(1).bmx");
+            File.WriteAllText(sourcePath, "same");
+            File.WriteAllText(destinationPath, "different");
+            File.WriteAllText(suffixedDestinationPath, "same");
+            TestableBmsFile file = new TestableBmsFile
+            {
+                path = sourcePath
+            };
+
+            RenameInvalidExtensionOutcome result = service.ProcessInvalidExtensionRename(file, destinationPath, fileMutationService, null);
+
+            Assert.AreEqual(RenameInvalidExtensionAction.DeletedAsDuplicate, result.Action);
+            Assert.IsFalse(File.Exists(sourcePath));
+            Assert.IsTrue(File.Exists(destinationPath));
+            Assert.IsTrue(File.Exists(suffixedDestinationPath));
+            Assert.IsFalse(File.Exists(Path.Combine(tempDirectoryPath, "chart(2).bmx")));
+        });
+    }
+
+    [TestMethod]
+    public void ProcessInvalidExtensionRename_RenamesToFirstAvailableSuffixAfterDifferentCandidates()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            BmsLibraryLibraryFileOperationsService service = new BmsLibraryLibraryFileOperationsService();
+            TestFileMutationService fileMutationService = new TestFileMutationService();
+            string sourcePath = Path.Combine(tempDirectoryPath, "chart.bms");
+            string destinationPath = Path.Combine(tempDirectoryPath, "chart.bmx");
+            string suffixedDestinationPath = Path.Combine(tempDirectoryPath, "chart(1).bmx");
+            string finalDestinationPath = Path.Combine(tempDirectoryPath, "chart(2).bmx");
+            File.WriteAllText(sourcePath, "source");
+            File.WriteAllText(destinationPath, "different-a");
+            File.WriteAllText(suffixedDestinationPath, "different-b");
+            TestableBmsFile file = new TestableBmsFile
+            {
+                path = sourcePath
+            };
+
+            RenameInvalidExtensionOutcome result = service.ProcessInvalidExtensionRename(file, destinationPath, fileMutationService, null);
+
+            Assert.AreEqual(RenameInvalidExtensionAction.Renamed, result.Action);
+            Assert.AreEqual(finalDestinationPath, result.FinalPath);
+            Assert.IsFalse(File.Exists(sourcePath));
+            Assert.IsTrue(File.Exists(destinationPath));
+            Assert.IsTrue(File.Exists(suffixedDestinationPath));
+            Assert.IsTrue(File.Exists(finalDestinationPath));
+        });
+    }
+
+    [TestMethod]
+    public void ProcessInvalidExtensionRename_DeletesSourceWhenDirectoryThenSuffixedFileHasSameHash()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            BmsLibraryLibraryFileOperationsService service = new BmsLibraryLibraryFileOperationsService();
+            TestFileMutationService fileMutationService = new TestFileMutationService();
+            string sourcePath = Path.Combine(tempDirectoryPath, "chart.bms");
+            string destinationPath = Path.Combine(tempDirectoryPath, "chart.bmx");
+            string suffixedDestinationPath = Path.Combine(tempDirectoryPath, "chart(1).bmx");
+            File.WriteAllText(sourcePath, "same");
+            Directory.CreateDirectory(destinationPath);
+            File.WriteAllText(suffixedDestinationPath, "same");
+            TestableBmsFile file = new TestableBmsFile
+            {
+                path = sourcePath
+            };
+
+            RenameInvalidExtensionOutcome result = service.ProcessInvalidExtensionRename(file, destinationPath, fileMutationService, null);
+
+            Assert.AreEqual(RenameInvalidExtensionAction.DeletedAsDuplicate, result.Action);
+            Assert.IsFalse(File.Exists(sourcePath));
+            Assert.IsTrue(Directory.Exists(destinationPath));
+            Assert.IsTrue(File.Exists(suffixedDestinationPath));
+        });
+    }
+
+    [TestMethod]
     public void GetPendingPackagesFullyCoveredBySelection_ReturnsOnlyFullySelectedPackages()
     {
         BmsLibraryLibraryFileOperationsService service = new BmsLibraryLibraryFileOperationsService();
