@@ -655,9 +655,12 @@ internal sealed class BmsLibraryInitializationService
 
     private static bool IsLeapYearTimestamp(DateTime lastWriteTime)
     {
-        return (new DateTime(2012, 2, 29) <= lastWriteTime && lastWriteTime < new DateTime(2012, 3, 2))
-            || (new DateTime(2016, 2, 29) <= lastWriteTime && lastWriteTime < new DateTime(2016, 3, 2))
-            || (new DateTime(2020, 2, 29) <= lastWriteTime && lastWriteTime < new DateTime(2020, 3, 2));
+        if (!DateTime.IsLeapYear(lastWriteTime.Year))
+        {
+            return false;
+        }
+        return new DateTime(lastWriteTime.Year, 2, 29) <= lastWriteTime
+            && lastWriteTime < new DateTime(lastWriteTime.Year, 3, 2);
     }
 
     private static bool IsBmsHashAvailable(string hash)

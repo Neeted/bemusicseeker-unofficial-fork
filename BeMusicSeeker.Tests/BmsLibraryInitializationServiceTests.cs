@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading;
+using System.Windows;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
@@ -258,6 +259,105 @@ public sealed class BmsLibraryInitializationServiceTests
         });
     }
 
+    [TestMethod]
+    public void LoadSongTable_DetectsLeapYearFolderTimestampInAnyLeapYear()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
+        {
+            string folderPath = Path.Combine(lr2RootPath, "Songs", "LeapYearFolder");
+            Directory.CreateDirectory(folderPath);
+            Directory.SetLastWriteTime(folderPath, new DateTime(2024, 2, 29, 12, 0, 0));
+
+            using (LR2SongDBExtended songDb = new LR2SongDBExtended(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDB.song>();
+                songDb.CreateTable<LR2SongDB.folder>();
+                songDb.CreateTable<LR2SongDBExtended.maintenance>();
+                songDb.InsertOrReplace(new LR2SongDB.folder
+                {
+                    path = folderPath + Path.DirectorySeparatorChar,
+                    title = "LeapYearFolder",
+                    parent = "e2977170",
+                    type = 1,
+                    date = null,
+                    adddate = 0
+                }, typeof(LR2SongDB.folder));
+            }
+
+            RecordingDialogService dialogService = new RecordingDialogService
+            {
+                ResultToReturn = MessageBoxResult.Yes
+            };
+            RecordingFileMutationService fileMutationService = new RecordingFileMutationService();
+            BmsLibraryInitializationService service = new BmsLibraryInitializationService();
+
+            SongTableLoadResult result = service.LoadSongTable(
+                new BmsLibraryDbGateway(songDbPath),
+                new BmsLibraryOptionsSnapshot(),
+                dialogService,
+                fileMutationService,
+                null,
+                ex => ex.Message);
+
+            Assert.IsTrue(result.LeapYearDetected);
+            Assert.AreEqual(1, fileMutationService.TimestampCalls.Count);
+            Assert.AreEqual(folderPath, fileMutationService.TimestampCalls[0].Path);
+            Assert.IsTrue(result.UpdatedFolders.Any((LR2SongDB.folder folder) => string.Equals(folder.path, folderPath + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)));
+            Assert.IsTrue(dialogService.Calls.Any((DialogCall call) => call.Button == MessageBoxButton.YesNo));
+        });
+    }
+
+    [DataTestMethod]
+    [DataRow(2023, 2, 28, 12, 0, 0)]
+    [DataRow(2024, 3, 2, 0, 0, 0)]
+    public void LoadSongTable_DoesNotTreatNonTargetTimestampAsLeapYearBug(int year, int month, int day, int hour, int minute, int second)
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
+        {
+            string folderPath = Path.Combine(lr2RootPath, "Songs", "NormalFolder");
+            Directory.CreateDirectory(folderPath);
+            Directory.SetLastWriteTime(folderPath, new DateTime(year, month, day, hour, minute, second));
+
+            using (LR2SongDBExtended songDb = new LR2SongDBExtended(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDB.song>();
+                songDb.CreateTable<LR2SongDB.folder>();
+                songDb.CreateTable<LR2SongDBExtended.maintenance>();
+                songDb.InsertOrReplace(new LR2SongDB.folder
+                {
+                    path = folderPath + Path.DirectorySeparatorChar,
+                    title = "NormalFolder",
+                    parent = "e2977170",
+                    type = 1,
+                    date = null,
+                    adddate = 0
+                }, typeof(LR2SongDB.folder));
+            }
+
+            RecordingDialogService dialogService = new RecordingDialogService
+            {
+                ResultToReturn = MessageBoxResult.Yes
+            };
+            RecordingFileMutationService fileMutationService = new RecordingFileMutationService();
+            BmsLibraryInitializationService service = new BmsLibraryInitializationService();
+
+            SongTableLoadResult result = service.LoadSongTable(
+                new BmsLibraryDbGateway(songDbPath),
+                new BmsLibraryOptionsSnapshot(),
+                dialogService,
+                fileMutationService,
+                null,
+                ex => ex.Message);
+
+            Assert.IsFalse(result.LeapYearDetected);
+            Assert.AreEqual(0, fileMutationService.TimestampCalls.Count);
+            Assert.AreEqual(0, result.UpdatedFolders.Count);
+            Assert.IsFalse(dialogService.Calls.Any((DialogCall call) => call.Button == MessageBoxButton.YesNo));
+        });
+    }
+
     private static void WithTemporaryLr2SongDb(Action<string, string> testAction)
     {
         string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_InitTests_" + Guid.NewGuid().ToString("N"));
@@ -336,5 +436,103 @@ public sealed class BmsLibraryInitializationServiceTests
         public void SetTimestamps(string path, bool isDirectory, DateTime? creationTime, DateTime? lastWriteTime, FileMutationOptions options = null!)
         {
         }
+    }
+
+    private sealed class RecordingFileMutationService : IFileMutationService
+    {
+        public List<TimestampCall> TimestampCalls { get; } = new List<TimestampCall>();
+
+        public void EnsureDirectory(string directoryPath, FileMutationOptions options = null!)
+        {
+            if (!string.IsNullOrWhiteSpace(directoryPath))
+            {
+                Directory.CreateDirectory(directoryPath);
+            }
+        }
+
+        public void MoveFile(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null!)
+        {
+            throw new NotSupportedException();
+        }
+
+        public void MoveDirectory(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null!)
+        {
+            throw new NotSupportedException();
+        }
+
+        public void DeleteFileDirect(string filePath, FileMutationOptions options = null!)
+        {
+            throw new NotSupportedException();
+        }
+
+        public void DeleteFileShell(string filePath, Microsoft.VisualBasic.FileIO.UIOption uiOption, Microsoft.VisualBasic.FileIO.RecycleOption recycleOption, FileMutationOptions options = null!)
+        {
+            throw new NotSupportedException();
+        }
+
+        public void DeleteDirectoryDirect(string directoryPath, bool recursive, FileMutationOptions options = null!)
+        {
+            throw new NotSupportedException();
+        }
+
+        public void DeleteDirectoryShell(string directoryPath, Microsoft.VisualBasic.FileIO.UIOption uiOption, Microsoft.VisualBasic.FileIO.RecycleOption recycleOption, FileMutationOptions options = null!)
+        {
+            throw new NotSupportedException();
+        }
+
+        public void SetTimestamps(string path, bool isDirectory, DateTime? creationTime, DateTime? lastWriteTime, FileMutationOptions options = null!)
+        {
+            TimestampCalls.Add(new TimestampCall
+            {
+                Path = path,
+                IsDirectory = isDirectory,
+                CreationTime = creationTime,
+                LastWriteTime = lastWriteTime
+            });
+        }
+    }
+
+    private sealed class TimestampCall
+    {
+        public string Path { get; set; } = string.Empty;
+
+        public bool IsDirectory { get; set; }
+
+        public DateTime? CreationTime { get; set; }
+
+        public DateTime? LastWriteTime { get; set; }
+    }
+
+    private sealed class RecordingDialogService : IBmsLibraryDialogService
+    {
+        public List<DialogCall> Calls { get; } = new List<DialogCall>();
+
+        public MessageBoxResult ResultToReturn { get; set; } = MessageBoxResult.OK;
+
+        public MessageBoxResult Show(string messageBoxText, string caption, MessageBoxButton button, MessageBoxImage icon, MessageBoxResult defaultResult = MessageBoxResult.None)
+        {
+            Calls.Add(new DialogCall
+            {
+                Message = messageBoxText,
+                Caption = caption,
+                Button = button,
+                Icon = icon,
+                DefaultResult = defaultResult
+            });
+            return ResultToReturn;
+        }
+    }
+
+    private sealed class DialogCall
+    {
+        public string Message { get; set; } = string.Empty;
+
+        public string Caption { get; set; } = string.Empty;
+
+        public MessageBoxButton Button { get; set; }
+
+        public MessageBoxImage Icon { get; set; }
+
+        public MessageBoxResult DefaultResult { get; set; }
     }
 }
