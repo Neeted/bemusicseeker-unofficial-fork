@@ -44,7 +44,6 @@ internal sealed class BmsLibraryMaintenanceService
         return (bmsFiles ?? Enumerable.Empty<BMSFile>())
             .Where((BMSFile file) => !string.IsNullOrWhiteSpace(file?.maintenanceInfo?.encoding)
                 && isInFixedList == file.maintenanceInfo.is_encoding_fixed
-                && (file.maintenanceInfo.encoding.EndsWith("?") || file.maintenanceInfo.encoding != "unknown")
                 && !file.maintenanceInfo.encoding.StartsWith("shift_jis"))
             .ToList();
     }

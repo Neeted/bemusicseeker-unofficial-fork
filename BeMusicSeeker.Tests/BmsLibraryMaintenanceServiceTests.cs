@@ -70,6 +70,61 @@ public sealed class BmsLibraryMaintenanceServiceTests
     }
 
     [TestMethod]
+    public void GetGarbledFiles_IncludesUnknownEncodingInRegularAndFixedLists()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        BmsLibraryMaintenanceService service = new BmsLibraryMaintenanceService();
+        TestableBmsFile unknownFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        unknownFile.SetMaintenanceInfo(new BMSFileMaintenanceInfo(unknownFile)
+        {
+            hash = unknownFile.hash,
+            encoding = "unknown",
+            is_encoding_fixed = false
+        }, suppressPropertyChanged: true, registerEventHandlers: false);
+        TestableBmsFile fixedUnknownFile = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+        fixedUnknownFile.SetMaintenanceInfo(new BMSFileMaintenanceInfo(fixedUnknownFile)
+        {
+            hash = fixedUnknownFile.hash,
+            encoding = "unknown",
+            is_encoding_fixed = true
+        }, suppressPropertyChanged: true, registerEventHandlers: false);
+        TestableBmsFile shiftJisFile = CreateFile("cccccccccccccccccccccccccccccccc");
+        shiftJisFile.SetMaintenanceInfo(new BMSFileMaintenanceInfo(shiftJisFile)
+        {
+            hash = shiftJisFile.hash,
+            encoding = "shift_jis",
+            is_encoding_fixed = false
+        }, suppressPropertyChanged: true, registerEventHandlers: false);
+        TestableBmsFile shiftJisQuestionFile = CreateFile("dddddddddddddddddddddddddddddddd");
+        shiftJisQuestionFile.SetMaintenanceInfo(new BMSFileMaintenanceInfo(shiftJisQuestionFile)
+        {
+            hash = shiftJisQuestionFile.hash,
+            encoding = "shift_jis?",
+            is_encoding_fixed = false
+        }, suppressPropertyChanged: true, registerEventHandlers: false);
+        TestableBmsFile gb2312File = CreateFile("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
+        gb2312File.SetMaintenanceInfo(new BMSFileMaintenanceInfo(gb2312File)
+        {
+            hash = gb2312File.hash,
+            encoding = "gb2312",
+            is_encoding_fixed = false
+        }, suppressPropertyChanged: true, registerEventHandlers: false);
+        TestableBmsFile big5File = CreateFile("ffffffffffffffffffffffffffffffff");
+        big5File.SetMaintenanceInfo(new BMSFileMaintenanceInfo(big5File)
+        {
+            hash = big5File.hash,
+            encoding = "big5",
+            is_encoding_fixed = false
+        }, suppressPropertyChanged: true, registerEventHandlers: false);
+
+        List<BMSFile> regularList = service.GetGarbledFiles(new BMSFile[] { unknownFile, fixedUnknownFile, shiftJisFile, shiftJisQuestionFile, gb2312File, big5File }, isInFixedList: false);
+        List<BMSFile> fixedList = service.GetGarbledFiles(new BMSFile[] { unknownFile, fixedUnknownFile, shiftJisFile, shiftJisQuestionFile, gb2312File, big5File }, isInFixedList: true);
+
+        CollectionAssert.AreEquivalent(new BMSFile[] { unknownFile, gb2312File, big5File }, regularList);
+        CollectionAssert.AreEquivalent(new BMSFile[] { fixedUnknownFile }, fixedList);
+    }
+
+    [TestMethod]
     public void RecheckZeroNoteWarnings_SkipsMissingFilesAndClearsWarning()
     {
         TestResourceInitializer.EnsureJapaneseResources();
