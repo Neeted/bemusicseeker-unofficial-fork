@@ -5,6 +5,18 @@
       <ResourceDictionary>
         <v:expanderDetailedLR2PathConverter x:Key="expanderDetailedLR2PathConverter" />
         <v:backupTargetConverter x:Key="backupTargetConverter" />
+        <v:lr2DetailedPathAutoExpandConverter x:Key="lr2DetailedPathAutoExpandConverter" />
+        <v:pathToDirectoryOrSelfConverter x:Key="pathToDirectoryOrSelfConverter" />
+        <v:firstNonEmptyStringConverter x:Key="firstNonEmptyStringConverter" />
+        <v:firstNonEmptyStringOrDirectoryOfSecondConverter x:Key="firstNonEmptyStringOrDirectoryOfSecondConverter" />
+        <Style x:Key="styleTextBlockActiveForeground" TargetType="{x:Type TextBlock}">
+          <Setter Property="Foreground" Value="Gray" />
+          <Style.Triggers>
+            <DataTrigger Binding="{Binding Tag, RelativeSource={RelativeSource Self}}" Value="True">
+              <Setter Property="Foreground" Value="Black" />
+            </DataTrigger>
+          </Style.Triggers>
+        </Style>
       </ResourceDictionary>
     </FrameworkElement.Resources>
     <Rectangle Fill="#FF000000" Opacity="0.5" />
@@ -87,7 +99,14 @@
                       </TextBox>
                       <Label Height="28" HorizontalContentAlignment="Right" DockPanel.Dock="Right" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.DirPath_LR2, Mode=OneWay}" />
                     </DockPanel>
-                    <Expander Name="expanderDetailedLR2Path" Margin="10,0,0,0" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details, Mode=OneWay}" IsExpanded="{qc:MultiBinding String.IsNullOrWhiteSpace($P0) &amp;&amp; !String.IsNullOrWhiteSpace($P1) &amp;&amp; !String.IsNullOrWhiteSpace($P2), P0={Binding settingDialog.LR2RootPath}, P1={Binding settingDialog.LR2SongDBPath}, P2={Binding settingDialog.LR2ConfigXmlPath}}">
+                    <Expander Name="expanderDetailedLR2Path" Margin="10,0,0,0" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details, Mode=OneWay}">
+                      <Expander.IsExpanded>
+                        <MultiBinding Mode="OneTime" Converter="{StaticResource lr2DetailedPathAutoExpandConverter}">
+                          <Binding Path="settingDialog.LR2RootPath" />
+                          <Binding Path="settingDialog.LR2SongDBPath" />
+                          <Binding Path="settingDialog.LR2ConfigXmlPath" />
+                        </MultiBinding>
+                      </Expander.IsExpanded>
                       <StackPanel>
                         <DockPanel LastChildFill="False">
                           <Button Width="75" DockPanel.Dock="Right" Height="24" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Browse, Mode=OneWay}" IsEnabled="{Binding IsChecked, ElementName=radioButtonUseLR2}">
@@ -95,7 +114,7 @@
                               <i:EventTrigger EventName="Click">
                                 <l:OpenFileDialogInteractionMessageAction>
                                   <l:DirectInteractionMessage CallbackCommand="{Binding settingDialog.OpenFileCommand}">
-                                    <l:OpeningFileSelectionMessage FileName="song.db" Filter="|song.db|すべてのファイル(*.*)|*.*" Title="song.db を開く" MessageKey="{Binding Path.Path, ElementName=bindingLR2SongDBPath}" InitialDirectory="{Binding settingDialog.LR2SongDBPath, Converter={qc:QuickConverter  !String.IsNullOrWhiteSpace($P) ? Path.GetDirectoryName($P) : $P }}" />
+                                    <l:OpeningFileSelectionMessage FileName="song.db" Filter="|song.db|すべてのファイル(*.*)|*.*" Title="song.db を開く" MessageKey="{Binding Path.Path, ElementName=bindingLR2SongDBPath}" InitialDirectory="{Binding settingDialog.LR2SongDBPath, Converter={StaticResource pathToDirectoryOrSelfConverter}}" />
                                   </l:DirectInteractionMessage>
                                 </l:OpenFileDialogInteractionMessageAction>
                               </i:EventTrigger>
@@ -112,7 +131,7 @@
                               <i:EventTrigger EventName="Click">
                                 <l:OpenFileDialogInteractionMessageAction>
                                   <l:DirectInteractionMessage CallbackCommand="{Binding settingDialog.OpenFileCommand}">
-                                    <l:OpeningFileSelectionMessage FileName="config.xml" Filter="|config.xm?|すべてのファイル(*.*)|*.*" Title="config.xml を開く" MessageKey="{Binding Path.Path, ElementName=bindingLR2ConfigPath}" InitialDirectory="{Binding settingDialog.LR2ConfigXmlPath, Converter={qc:QuickConverter !String.IsNullOrWhiteSpace($P) ? Path.GetDirectoryName($P) : $P}}" />
+                                    <l:OpeningFileSelectionMessage FileName="config.xml" Filter="|config.xm?|すべてのファイル(*.*)|*.*" Title="config.xml を開く" MessageKey="{Binding Path.Path, ElementName=bindingLR2ConfigPath}" InitialDirectory="{Binding settingDialog.LR2ConfigXmlPath, Converter={StaticResource pathToDirectoryOrSelfConverter}}" />
                                   </l:DirectInteractionMessage>
                                 </l:OpenFileDialogInteractionMessageAction>
                               </i:EventTrigger>
@@ -136,7 +155,7 @@
                           <i:EventTrigger EventName="Click">
                             <l:OpenFileDialogInteractionMessageAction>
                               <l:DirectInteractionMessage CallbackCommand="{Binding settingDialog.OpenFileCommand}">
-                                <l:OpeningFileSelectionMessage Filter="Image file|*.bmp;*.gif;*.jpg;*.jpeg;*.png;*.tif;*.tiff|BMP file (*.bmp)|*.bmp|GIF file (*.gif)|*.gif|JPEG file (*.jpg;*.jpeg)|*.jpg;*.jpeg|PNG file (*.png)|*.png|TIFF file (*.tif;*.tiff)|*.tif;*.tiff" MessageKey="{Binding Path.Path, ElementName=bindingStagefilePath}" Title="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_image, Mode=OneWay}" InitialDirectory="{Binding settingDialog.StagefilePath, Converter={qc:QuickConverter !String.IsNullOrWhiteSpace($P) ? Path.GetDirectoryName($P) : $P}}" />
+                                <l:OpeningFileSelectionMessage Filter="Image file|*.bmp;*.gif;*.jpg;*.jpeg;*.png;*.tif;*.tiff|BMP file (*.bmp)|*.bmp|GIF file (*.gif)|*.gif|JPEG file (*.jpg;*.jpeg)|*.jpg;*.jpeg|PNG file (*.png)|*.png|TIFF file (*.tif;*.tiff)|*.tif;*.tiff" MessageKey="{Binding Path.Path, ElementName=bindingStagefilePath}" Title="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_image, Mode=OneWay}" InitialDirectory="{Binding settingDialog.StagefilePath, Converter={StaticResource pathToDirectoryOrSelfConverter}}" />
                               </l:DirectInteractionMessage>
                             </l:OpenFileDialogInteractionMessageAction>
                           </i:EventTrigger>
@@ -160,7 +179,7 @@
                       <RadioButton Name="radioButtonInternalPlayer" Height="20" GroupName="Player" Margin="30,0,0,0" IsChecked="True" DockPanel.Dock="Top" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Player_Name_Internal, Mode=OneWay}" />
                       <DockPanel Dock="Bottom">
                         <StackPanel DockPanel.Dock="Bottom">
-                          <TextBlock Margin="0,0,5,5" HorizontalAlignment="Right" Width="294" Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Player_Internal_desc, Mode=OneWay}" Foreground="{qc:Binding '$P?\'Black\':\'Gray\'', P={Binding IsChecked, ElementName=radioButtonInternalPlayer}}" />
+                          <TextBlock Margin="0,0,5,5" HorizontalAlignment="Right" Width="294" Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Player_Internal_desc, Mode=OneWay}" Style="{StaticResource styleTextBlockActiveForeground}" Tag="{Binding IsChecked, ElementName=radioButtonInternalPlayer}" />
                         </StackPanel>
                       </DockPanel>
                     </DockPanel>
@@ -168,14 +187,14 @@
                       <RadioButton Name="radioButtonPlayuBMplay" Content="uBMplay: " Height="20" GroupName="Player" Margin="30,2,0,0" VerticalAlignment="Top" IsChecked="{Binding settingDialog.UsePlayeruBMplay}" />
                       <DockPanel Dock="Right">
                         <StackPanel DockPanel.Dock="Bottom">
-                          <TextBlock Margin="5" Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Player_uBMplay_desc, Mode=OneWay}" Foreground="{qc:Binding '$P?\'Black\':\'Gray\'', P={Binding IsChecked, ElementName=radioButtonPlayuBMplay}}" />
+                          <TextBlock Margin="5" Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Player_uBMplay_desc, Mode=OneWay}" Style="{StaticResource styleTextBlockActiveForeground}" Tag="{Binding IsChecked, ElementName=radioButtonPlayuBMplay}" />
                         </StackPanel>
                         <Button Width="75" DockPanel.Dock="Right" Height="24" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Browse, Mode=OneWay}" IsEnabled="{Binding IsChecked, ElementName=radioButtonPlayuBMplay}">
                           <i:Interaction.Triggers>
                             <i:EventTrigger EventName="Click">
                               <l:OpenFileDialogInteractionMessageAction>
                                 <l:DirectInteractionMessage CallbackCommand="{Binding settingDialog.OpenFileCommand}">
-                                  <l:OpeningFileSelectionMessage FileName="uBMplay.exe" Filter="|uBMplay.exe|すべてのファイル(*.*)|*.*" Title="uBMplay.exe を開く" MessageKey="{Binding Path.Path, ElementName=bindinguBMplayPath}" InitialDirectory="{Binding settingDialog.uBMplayPath, Converter={qc:QuickConverter !String.IsNullOrWhiteSpace($P) ? Path.GetDirectoryName($P) : $P}}" />
+                                  <l:OpeningFileSelectionMessage FileName="uBMplay.exe" Filter="|uBMplay.exe|すべてのファイル(*.*)|*.*" Title="uBMplay.exe を開く" MessageKey="{Binding Path.Path, ElementName=bindinguBMplayPath}" InitialDirectory="{Binding settingDialog.uBMplayPath, Converter={StaticResource pathToDirectoryOrSelfConverter}}" />
                                 </l:DirectInteractionMessage>
                               </l:OpenFileDialogInteractionMessageAction>
                             </i:EventTrigger>
@@ -190,14 +209,14 @@
                       <RadioButton Name="radioButtonPlayBMIIDXView" Content="BMIIDXView2015: " Height="20" GroupName="Player" Margin="30,2,0,0" VerticalAlignment="Top" IsChecked="{Binding settingDialog.UsePlayerBMIIDXView}" />
                       <DockPanel Dock="Right">
                         <StackPanel DockPanel.Dock="Bottom">
-                          <TextBlock Margin="5" Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Player_BMIIDXView_desc, Mode=OneWay}" Foreground="{qc:Binding '$P?\'Black\':\'Gray\'', P={Binding IsChecked, ElementName=radioButtonPlayBMIIDXView}}" />
+                          <TextBlock Margin="5" Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Player_BMIIDXView_desc, Mode=OneWay}" Style="{StaticResource styleTextBlockActiveForeground}" Tag="{Binding IsChecked, ElementName=radioButtonPlayBMIIDXView}" />
                         </StackPanel>
                         <Button Width="75" DockPanel.Dock="Right" Height="24" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Browse, Mode=OneWay}" IsEnabled="{Binding IsChecked, ElementName=radioButtonPlayBMIIDXView}">
                           <i:Interaction.Triggers>
                             <i:EventTrigger EventName="Click">
                               <l:OpenFileDialogInteractionMessageAction>
                                 <l:DirectInteractionMessage CallbackCommand="{Binding settingDialog.OpenFileCommand}">
-                                  <l:OpeningFileSelectionMessage FileName="BMIIDXView2015.exe" Filter="|BMIIDXView2015*.exe|すべてのファイル(*.*)|*.*" Title="BMIIDXView2015.exe を開く" MessageKey="{Binding Path.Path, ElementName=bindingBMIIDXViewPath}" InitialDirectory="{Binding settingDialog.BMIIDXViewPath, Converter={qc:QuickConverter !String.IsNullOrWhiteSpace($P) ? Path.GetDirectoryName($P) : $P}}" />
+                                  <l:OpeningFileSelectionMessage FileName="BMIIDXView2015.exe" Filter="|BMIIDXView2015*.exe|すべてのファイル(*.*)|*.*" Title="BMIIDXView2015.exe を開く" MessageKey="{Binding Path.Path, ElementName=bindingBMIIDXViewPath}" InitialDirectory="{Binding settingDialog.BMIIDXViewPath, Converter={StaticResource pathToDirectoryOrSelfConverter}}" />
                                 </l:DirectInteractionMessage>
                               </l:OpenFileDialogInteractionMessageAction>
                             </i:EventTrigger>
@@ -214,7 +233,7 @@
                         <DockPanel Dock="Bottom">
                           <CheckBox DockPanel.Dock="Bottom" Height="18" HorizontalAlignment="Left" Margin="5,5,5,0" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Player_LR2_savewpos, Mode=OneWay}" IsChecked="{Binding settingDialog.IsSaveLR2bodyWindowPosition}" IsEnabled="{Binding IsChecked, ElementName=radioButtonPlayLR2body}" />
                           <ComboBox DockPanel.Dock="Right" DisplayMemberPath="Key" SelectedValuePath="Value" SelectedIndex="0" Width="130" Height="25" HorizontalContentAlignment="Right" IsEnabled="{Binding IsChecked, ElementName=radioButtonPlayLR2body}" ItemsSource="{Binding settingDialog.LR2bodyResolutions, Mode=OneWay}" SelectedValue="{Binding settingDialog.LR2bodyResolution}" />
-                          <TextBlock Margin="5,5,5,0" DockPanel.Dock="Left" Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Player_LR2_wsize, Mode=OneWay}" Foreground="{qc:Binding '$P?\'Black\':\'Gray\'', P={Binding IsChecked, ElementName=radioButtonPlayLR2body}}" />
+                          <TextBlock Margin="5,5,5,0" DockPanel.Dock="Left" Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Player_LR2_wsize, Mode=OneWay}" Style="{StaticResource styleTextBlockActiveForeground}" Tag="{Binding IsChecked, ElementName=radioButtonPlayLR2body}" />
                         </DockPanel>
                         <Button Width="75" DockPanel.Dock="Right" Height="24" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Browse, Mode=OneWay}" IsEnabled="{Binding IsChecked, ElementName=radioButtonPlayLR2body}">
                           <i:Interaction.Triggers>
@@ -390,7 +409,14 @@
                           <i:EventTrigger EventName="Click">
                             <l:FolderBrowserDialogInteractionMessageAction>
                               <l:DirectInteractionMessage CallbackCommand="{Binding settingDialog.AddBMSDirCommand}">
-                                <l:FolderSelectionMessage DialogPreference="FolderBrowser" SelectedPath="{qc:MultiBinding '!String.IsNullOrWhiteSpace($P0) ? $P0 : (!String.IsNullOrWhiteSpace($P1) ? $P1 : String.Empty)', P0={Binding settingDialog.LR2CustomFolderOutputDir}, P1={Binding settingDialog.LR2RootPath}}" MessageKey="{Binding Path.Path, ElementName=bindingLR2CustomFolderOutputDir}" />
+                                <l:FolderSelectionMessage DialogPreference="FolderBrowser" MessageKey="{Binding Path.Path, ElementName=bindingLR2CustomFolderOutputDir}">
+                                  <l:FolderSelectionMessage.SelectedPath>
+                                    <MultiBinding Converter="{StaticResource firstNonEmptyStringConverter}">
+                                      <Binding Path="settingDialog.LR2CustomFolderOutputDir" />
+                                      <Binding Path="settingDialog.LR2RootPath" />
+                                    </MultiBinding>
+                                  </l:FolderSelectionMessage.SelectedPath>
+                                </l:FolderSelectionMessage>
                               </l:DirectInteractionMessage>
                             </l:FolderBrowserDialogInteractionMessageAction>
                           </i:EventTrigger>
@@ -405,7 +431,14 @@
                           <i:EventTrigger EventName="Click">
                             <l:FolderBrowserDialogInteractionMessageAction>
                               <l:DirectInteractionMessage CallbackCommand="{Binding settingDialog.OpenRootFolderCommand}">
-                                <l:FolderSelectionMessage DialogPreference="FolderBrowser" MessageKey="{Binding Path.Path, ElementName=bindingLR2CustomFolderAsRootOutputDir}" SelectedPath="{qc:MultiBinding '!String.IsNullOrWhiteSpace($P0) ? $P0 : (!String.IsNullOrWhiteSpace($P1) ? Path.GetDirectoryName($P1) : String.Empty)', P0={Binding settingDialog.LR2CustomFolderAsRootOutputDir}, P1={Binding settingDialog.LR2CustomFolderOutputDir}}" />
+                                <l:FolderSelectionMessage DialogPreference="FolderBrowser" MessageKey="{Binding Path.Path, ElementName=bindingLR2CustomFolderAsRootOutputDir}">
+                                  <l:FolderSelectionMessage.SelectedPath>
+                                    <MultiBinding Converter="{StaticResource firstNonEmptyStringOrDirectoryOfSecondConverter}">
+                                      <Binding Path="settingDialog.LR2CustomFolderAsRootOutputDir" />
+                                      <Binding Path="settingDialog.LR2CustomFolderOutputDir" />
+                                    </MultiBinding>
+                                  </l:FolderSelectionMessage.SelectedPath>
+                                </l:FolderSelectionMessage>
                               </l:DirectInteractionMessage>
                             </l:FolderBrowserDialogInteractionMessageAction>
                           </i:EventTrigger>
@@ -538,7 +571,7 @@
                             <Label HorizontalContentAlignment="Right" DockPanel.Dock="Right" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Backup_numgen, Mode=OneWay}" />
                           </DockPanel>
                         </UniformGrid>
-                        <TextBlock Margin="5,5,5,0" Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Backup_desc, Mode=OneWay}" Foreground="{qc:Binding '$P?\'Black\':\'Gray\'', P={Binding settingDialog.IsLR2BackupEnabled}}" />
+                        <TextBlock Margin="5,5,5,0" Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Backup_desc, Mode=OneWay}" Style="{StaticResource styleTextBlockActiveForeground}" Tag="{Binding settingDialog.IsLR2BackupEnabled}" />
                       </StackPanel>
                     </GroupBox>
                   </StackPanel>
@@ -581,12 +614,12 @@
             <TabItem Name="tabItemVersionInfo" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Version_info, Mode=OneWay}">
               <DockPanel>
                 <DockPanel Dock="Top" Margin="10">
-                  <Image DockPanel.Dock="Left" Height="128" Source="/BeMusicSeeker;component/Resources/icon_and_logo.png" ToolTip="アイコン募集中です" />
-                  <StackPanel Margin="10,0">
+                  <Image DockPanel.Dock="Left" Source="/BeMusicSeeker;component/resources/icon_and_logo.png" ToolTip="アイコン募集中です" Height="128" />
+                  <StackPanel Margin="10,0,0,0">
                     <DockPanel>
-                      <TextBlock Name="textBlockVerNum" DockPanel.Dock="Right" Text="0.0.0.0" VerticalAlignment="Bottom" FontWeight="Bold" />
                       <TextBlock Text="BeMusicSeeker Unofficial Fork" FontSize="24" FontWeight="Bold" />
                     </DockPanel>
+                    <TextBlock Name="textBlockVerNum" Text="0.0.0.0" VerticalAlignment="Bottom" FontWeight="Bold" HorizontalAlignment="Right"/>  
                     <TextBlock Name="textBlockBuildNum" Text="Build: 0.0.0.0" HorizontalAlignment="Right" />
                     <TextBlock Margin="0">Original work: Copyright © 2018 <Hyperlink NavigateUri="http://tumblr.ribbit.xyz" RequestNavigate="hyperlinkRequestNavigate">ribbit.xyz</Hyperlink></TextBlock>
                     <TextBlock Margin="0">Fork modifications: Copyright © 2026 <Hyperlink NavigateUri="https://x.com/CyanHowan" RequestNavigate="hyperlinkRequestNavigate">ﾏﾝﾊｯﾀﾝｶﾞｯﾌｪ</Hyperlink></TextBlock>

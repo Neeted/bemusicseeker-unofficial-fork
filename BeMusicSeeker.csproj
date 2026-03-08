@@ -52,13 +52,13 @@
     <None Remove="resources\ligaturesymbols-2.11.otf" />
     <None Remove="resources\imageres_5328.ico" />
     <None Remove="resources\commodore-20rounded-20v1.2.ttf" />
-    <EmbeddedResource Include="icon_and_logo.ico" LogicalName="icon_and_logo.ico" />
+    <Resource Include="icon_and_logo.ico" />
     <EmbeddedResource Update="Properties\Images.resx" />
     <Resource Include="resources\default_image.jpg" />
     <Resource Include="resources\sovjetboxbd_v0_9.otf" />
-    <EmbeddedResource Include="resources\icon_and_logo.png" LogicalName="resources/icon_and_logo.png" />
+    <Resource Include="resources\icon_and_logo.png" />
     <Resource Include="resources\ligaturesymbols-2.11.otf" />
-    <EmbeddedResource Include="resources\imageres_5328.ico" LogicalName="resources/imageres_5328.ico" />
+    <Resource Include="resources\imageres_5328.ico" />
     <Resource Include="resources\commodore-20rounded-20v1.2.ttf" />
   </ItemGroup>
   <ItemGroup>
