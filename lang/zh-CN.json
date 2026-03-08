@@ -304,6 +304,8 @@
   "Backup_unistall": "卸载",
   "Msg_override_level_warning": "您在播放列表中设定的难度等级将作为此播放列表专用难度显示在 LR2 的选曲界面中。\n\n由于包含数据库的破坏性操作，此操作无法复原。\n确定要继续吗？",
   "Create_new_folder": "新建文件夹",
+  "Cancel": "取消",
+  "Drop_install_queue_label_format": "导入中: {0}项 (等待 {1} 批次)",
   "Install": "安装",
   "Backup_lr2backup_optimize": "备份并优化 LR2 数据",
   "Msg_load_recommended_tables_error": "由于未连接 LR2 数据库，该功能当前不可用。",

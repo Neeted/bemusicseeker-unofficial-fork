@@ -1026,6 +1026,12 @@ BMSファイルが重複しないようにマージします。
   <data name="Create_new_folder" xml:space="preserve">
     <value>フォルダの新規作成</value>
   </data>
+  <data name="Cancel" xml:space="preserve">
+    <value>キャンセル</value>
+  </data>
+  <data name="Drop_install_queue_label_format" xml:space="preserve">
+    <value>導入中: {0}件 (待機 {1} バッチ)</value>
+  </data>
   <data name="Install" xml:space="preserve">
     <value>インストール</value>
   </data>

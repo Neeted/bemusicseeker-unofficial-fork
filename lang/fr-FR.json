@@ -304,6 +304,8 @@
   "Backup_unistall": "Uninstall",
   "Msg_override_level_warning": "The playlist defined levels will be shown in LR2 music select.\nThis operation cannot be reverted.\nAre you sure you want to continue?",
   "Create_new_folder": "Creer nouveau dossier",
+  "Cancel": "Annuler",
+  "Drop_install_queue_label_format": "Installation : {0} éléments ({1} lots en attente)",
   "Install": "Install",
   "Backup_lr2backup_optimize": "Backup and optimize LR2 data",
   "Msg_load_recommended_tables_error": "Cette fonctionnalite n'est pas disponible car LR2 DB n'est pas connecte.",

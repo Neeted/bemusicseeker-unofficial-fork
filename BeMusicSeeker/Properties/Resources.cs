@@ -86,6 +86,8 @@ public class Resources
 
     public static string Browse => ResourceManager.GetString("Browse", resourceCulture);
 
+    public static string Cancel => ResourceManager.GetString("Cancel", resourceCulture);
+
     public static string Cancel_root_folder => ResourceManager.GetString("Cancel_root_folder", resourceCulture);
 
     public static string Change_stage_file => ResourceManager.GetString("Change_stage_file", resourceCulture);
@@ -248,6 +250,8 @@ public class Resources
     public static string Information => ResourceManager.GetString("Information", resourceCulture);
 
     public static string Init_column_setting => ResourceManager.GetString("Init_column_setting", resourceCulture);
+
+    public static string Drop_install_queue_label_format => ResourceManager.GetString("Drop_install_queue_label_format", resourceCulture);
 
     public static string Install => ResourceManager.GetString("Install", resourceCulture);
 

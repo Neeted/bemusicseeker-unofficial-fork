@@ -295,8 +295,13 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     {
         if (e.Data.GetData(DataFormats.FileDrop) is string[] filePaths)
         {
-            installBMSFiles(filePaths);
-            newlyInstalledTreeViewItem.IsExpanded = true;
+            MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
+            string[] pathSnapshot = filePaths.ToArray();
+            if (pathSnapshot.Length > 0)
+            {
+                viewModel?.EnqueueDroppedInstallPaths(pathSnapshot);
+                newlyInstalledTreeViewItem.IsExpanded = true;
+            }
         }
     }
     /// <summary>
@@ -5189,6 +5194,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 Thread.Sleep(100);
             }
         }, new ProgressDialogSettings(showSubLabel: true, showCancelButton: true, showProgressBarIndeterminate: false));
+    }
+
+    private void cancelDropInstallQueueClick(object sender, RoutedEventArgs e)
+    {
+        (base.DataContext as MainWindowViewModel)?.CancelDroppedInstallQueue();
     }
 
     private async void dataGridContextMenuItemSearchLinkSubmenuClick(object sender, RoutedEventArgs e)

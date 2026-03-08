@@ -860,7 +860,32 @@
   <Border Name="windowBorder" BorderThickness="0" Margin="0" BorderBrush="#FF4169E1">
     <Grid>
       <DockPanel Margin="0">
-        <StatusBar Height="20" DockPanel.Dock="Bottom" Visibility="Collapsed" />
+        <StatusBar Height="28" DockPanel.Dock="Bottom">
+          <StatusBar.Style>
+            <Style TargetType="{x:Type StatusBar}">
+              <Setter Property="Visibility" Value="Collapsed" />
+              <Style.Triggers>
+                <DataTrigger Binding="{Binding IsDropInstallQueueActive}" Value="True">
+                  <Setter Property="Visibility" Value="Visible" />
+                </DataTrigger>
+              </Style.Triggers>
+            </Style>
+          </StatusBar.Style>
+          <StatusBarItem>
+            <TextBlock Text="{Binding DropInstallQueueLabel}" />
+          </StatusBarItem>
+          <Separator />
+          <StatusBarItem>
+            <TextBlock Width="320" TextTrimming="CharacterEllipsis" Text="{Binding DropInstallQueueSubLabel}" />
+          </StatusBarItem>
+          <Separator />
+          <StatusBarItem>
+            <ProgressBar Width="180" Height="14" IsIndeterminate="True" />
+          </StatusBarItem>
+          <StatusBarItem>
+            <Button MinWidth="70" Padding="8,1" IsEnabled="{Binding DropInstallQueueCanCancel}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Cancel, Mode=OneWay}" Click="cancelDropInstallQueueClick" />
+          </StatusBarItem>
+        </StatusBar>
         <Grid Name="grid">
           <Grid.ColumnDefinitions>
             <ColumnDefinition Name="gridColumn0" MinWidth="5" Width="{Binding TreeViewWidth, Source={x:Static prop:Settings.Default}, Mode=OneTime}" />

@@ -2277,11 +2277,11 @@ public class BMSLibrary : NotificationObject
     /// </summary>
     /// <param name="installPaths">インストール元のファイル/ディレクトリパスのコレクション。</param>
     /// <returns>インストール処理された BMS パッケージのリスト。</returns>
-    public List<BMSPackage> InstallBMSFilesAuto(IEnumerable<string> installPaths)
+    public List<BMSPackage> InstallBMSFilesAuto(IEnumerable<string> installPaths, CancellationToken token = default(CancellationToken))
     {
         BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
         List<BMSPackage> pendingPackagesToEstimate = new List<BMSPackage>();
-        List<BMSPackage> discoveredPackages = new List<BMSPackage>();
+        List<BMSPackage> registeredPackages = new List<BMSPackage>();
         using (rwlockBMSFilesInitializedAll.GetReaderGuard())
         {
             using (rwlockBMSFilesPendingInstall.GetWriterGuard())
@@ -2293,32 +2293,43 @@ public class BMSLibrary : NotificationObject
                         if (installPaths == null || installPaths.Any((string path) => !Directory.Exists(path) && !File.Exists(path)))
                         {
                             dialogService.Show(Resources.Warn_InstallAbortedFilesNotFound, Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
-                            return discoveredPackages;
+                            return registeredPackages;
+                        }
+                        if (token.IsCancellationRequested)
+                        {
+                            return registeredPackages;
                         }
                         installPaths = packageInstallService.ExpandInstallSources(
                             installPaths,
                             fileMutationService,
                             targetOnlyFileMutationOptions,
                             info => NLogWrapper.FileLogger?.Info(info),
-                            dialogService);
+                            dialogService,
+                            token);
+                        if (token.IsCancellationRequested)
+                        {
+                            return registeredPackages;
+                        }
                         AutoInstallWorkflowResult workflow = packageInstallService.PrepareAutoInstallWorkflow(
                             installPaths,
                             BMSPackagesPending,
                             BMSFiles,
                             getBMSDirectories(),
                             dupRateThreshInOnePkg,
-                            (bmsFile) => checkBMSFileNeedToBeFixedAndSetWarnings(bmsFile, bmsFile.maintenanceInfo, strictCheck: true));
-                        discoveredPackages = workflow.DiscoveredPackages.ToList();
+                            (bmsFile) => checkBMSFileNeedToBeFixedAndSetWarnings(bmsFile, bmsFile.maintenanceInfo, strictCheck: true),
+                            token);
+                        List<BMSPackage> discoveredPackages = workflow.DiscoveredPackages.ToList();
                         LogInstallPerformance("auto_install_prepare discovered=" + discoveredPackages.Count + " autoInstall=" + workflow.AutoInstallCandidates.Count + " pendingAdd=" + workflow.PendingPackagesToAdd.Count + " pendingRemove=" + workflow.PendingPackagesToRemove.Count + " discoveryMs=" + workflow.DiscoveryMs + " classificationMs=" + workflow.ClassificationMs + " totalMs=" + workflow.TotalMs);
-                        if (discoveredPackages.Count == 0)
+                        if (discoveredPackages.Count == 0 || token.IsCancellationRequested)
                         {
-                            return discoveredPackages;
+                            return registeredPackages;
                         }
                         AutoInstallApplyResult applyResult = packageInstallService.ApplyAutoInstallWorkflow(
                             workflow,
                             options.KeepInstallablePackagesPending,
                             SearchTargets != null && SearchTargets.Count() > 0 && Directory.Exists(SearchTargets[0]),
-                            (packagesToInstall) => installBMSPackages(packagesToInstall));
+                            (packagesToInstall) => installBMSPackages(packagesToInstall),
+                            token);
                         LogInstallPerformance("auto_install_apply pendingAdd=" + applyResult.PendingPackagesToAdd.Count + " pendingRemove=" + applyResult.PendingPackagesToRemove.Count + " autoInstalled=" + applyResult.AutoInstalledPackages.Count + " autoFailed=" + applyResult.AutoInstallFailures.Count + " installMs=" + applyResult.InstallMs + " applyMs=" + applyResult.ApplyMs + " totalMs=" + applyResult.TotalMs);
                         if (applyResult.PendingPackagesToRemove.Count > 0)
                         {
@@ -2330,15 +2341,20 @@ public class BMSLibrary : NotificationObject
                             BMSPackagesPending.AddRange(applyResult.PendingPackagesToAdd);
                         }
                         pendingPackagesToEstimate = applyResult.EstimateTargets;
+                        registeredPackages = discoveredPackages;
                     }
                 }
                 foreach (BMSPackage item2 in pendingPackagesToEstimate)
                 {
+                    if (token.IsCancellationRequested)
+                    {
+                        break;
+                    }
                     SearchEstimatedInstallationDirectory(item2);
                 }
             }
         }
-        return discoveredPackages;
+        return registeredPackages;
     }
 
     private List<BMSPackage> searchBMSFilesRecursively(string dirfullpath, bool recursive = false)

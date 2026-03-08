@@ -310,6 +310,8 @@
   "Backup_unistall": "データのアンインストール",
   "Msg_override_level_warning": "選曲画面でプレイリスト定義のレベルが表示されるようにします\n\n続行すると楽曲データベースが書き換えられるため\nこの操作による変更を戻すことは出来ません",
   "Create_new_folder": "フォルダの新規作成",
+  "Cancel": "キャンセル",
+  "Drop_install_queue_label_format": "導入中: {0}件 (待機 {1} バッチ)",
   "Install": "インストール",
   "Backup_lr2backup_optimize": "LR2のバックアップと最適化",
   "Msg_load_recommended_tables_error": "LR2スコアデータベースに接続されていないためこの機能は利用できません",

@@ -338,12 +338,17 @@ internal sealed class BmsLibraryPackageInstallService
         IFileMutationService fileMutationService,
         FileMutationOptions targetOnlyFileMutationOptions,
         Action<string> logInfo = null,
-        IBmsLibraryDialogService dialogService = null)
+        IBmsLibraryDialogService dialogService = null,
+        CancellationToken token = default(CancellationToken))
     {
         string[] archiveExtensions = new string[4] { ".zip", ".7z", ".rar", ".lzh" };
         List<string> expandedPaths = new List<string>();
         foreach (string installPath in installPaths ?? Enumerable.Empty<string>())
         {
+            if (token.IsCancellationRequested)
+            {
+                break;
+            }
             if (!archiveExtensions.Any((string ext) => installPath.EndsWith(ext, StringComparison.OrdinalIgnoreCase)))
             {
                 expandedPaths.Add(installPath);
@@ -656,7 +661,8 @@ internal sealed class BmsLibraryPackageInstallService
         IEnumerable<BMSFile> installedFiles,
         IEnumerable<string> bmsDirectories,
         double dupRateThreshInOnePkg,
-        Func<BMSFile, bool> requiresPendingWarning)
+        Func<BMSFile, bool> requiresPendingWarning,
+        CancellationToken token = default(CancellationToken))
     {
         AutoInstallWorkflowResult result = new AutoInstallWorkflowResult();
         Stopwatch totalStopwatch = Stopwatch.StartNew();
@@ -665,6 +671,12 @@ internal sealed class BmsLibraryPackageInstallService
             .Where((string path) => !string.IsNullOrWhiteSpace(path) && (File.Exists(path) || Directory.Exists(path)))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
+        if (token.IsCancellationRequested)
+        {
+            totalStopwatch.Stop();
+            result.TotalMs = totalStopwatch.ElapsedMilliseconds;
+            return result;
+        }
         IEnumerable<IGrouping<string, string>> groupedPaths = from file in normalizedInstallPaths
                                                               group file by Path.GetDirectoryName(file)?.ToUpperInvariant();
         List<BMSPackage> discoveredPackages = groupedPaths.SelectMany(delegate (IGrouping<string, string> paths)
@@ -782,7 +794,8 @@ internal sealed class BmsLibraryPackageInstallService
         AutoInstallWorkflowResult workflow,
         bool keepInstallablePackagesPending,
         bool canAutoInstallImmediately,
-        Func<IEnumerable<BMSPackage>, List<BMSPackage>> installPackages)
+        Func<IEnumerable<BMSPackage>, List<BMSPackage>> installPackages,
+        CancellationToken token = default(CancellationToken))
     {
         AutoInstallApplyResult result = new AutoInstallApplyResult();
         if (workflow == null)
@@ -803,6 +816,14 @@ internal sealed class BmsLibraryPackageInstallService
         List<BMSPackage> pendingPackagesToAdd = workflow.PendingPackagesToAdd.Where((BMSPackage pkg) => pkg != null).ToList();
         if (workflow.AutoInstallCandidates.Count > 0)
         {
+            if (token.IsCancellationRequested)
+            {
+                installStopwatch.Stop();
+                result.InstallMs = installStopwatch.ElapsedMilliseconds;
+                totalStopwatch.Stop();
+                result.TotalMs = totalStopwatch.ElapsedMilliseconds;
+                return result;
+            }
             if (!keepInstallablePackagesPending && canAutoInstallImmediately)
             {
                 List<BMSPackage> failedPackages = installPackages?.Invoke(workflow.AutoInstallCandidates) ?? new List<BMSPackage>();

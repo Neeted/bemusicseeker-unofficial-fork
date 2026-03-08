@@ -3479,6 +3479,18 @@ public class MainWindowViewModel : ViewModel
 
     private string _GridSummaryText = string.Empty;
 
+    private DropInstallQueueProcessor dropInstallQueueProcessor;
+
+    private bool _IsDropInstallQueueActive;
+
+    private string _DropInstallQueueLabel = string.Empty;
+
+    private string _DropInstallQueueSubLabel = string.Empty;
+
+    private bool _DropInstallQueueCanCancel;
+
+    private int _DropInstallQueuePendingBatchCount;
+
     private bool _IsPlaylistTreeExpanded = true;
 
     private ModeFilterType _ModeFilter = ModeFilterType.All;
@@ -4606,6 +4618,88 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
+    public bool IsDropInstallQueueActive
+    {
+        get
+        {
+            return _IsDropInstallQueueActive;
+        }
+        private set
+        {
+            if (_IsDropInstallQueueActive != value)
+            {
+                _IsDropInstallQueueActive = value;
+                RaisePropertyChanged("IsDropInstallQueueActive");
+            }
+        }
+    }
+
+    public string DropInstallQueueLabel
+    {
+        get
+        {
+            return _DropInstallQueueLabel;
+        }
+        private set
+        {
+            string normalized = value ?? string.Empty;
+            if (!(_DropInstallQueueLabel == normalized))
+            {
+                _DropInstallQueueLabel = normalized;
+                RaisePropertyChanged("DropInstallQueueLabel");
+            }
+        }
+    }
+
+    public string DropInstallQueueSubLabel
+    {
+        get
+        {
+            return _DropInstallQueueSubLabel;
+        }
+        private set
+        {
+            string normalized = value ?? string.Empty;
+            if (!(_DropInstallQueueSubLabel == normalized))
+            {
+                _DropInstallQueueSubLabel = normalized;
+                RaisePropertyChanged("DropInstallQueueSubLabel");
+            }
+        }
+    }
+
+    public bool DropInstallQueueCanCancel
+    {
+        get
+        {
+            return _DropInstallQueueCanCancel;
+        }
+        private set
+        {
+            if (_DropInstallQueueCanCancel != value)
+            {
+                _DropInstallQueueCanCancel = value;
+                RaisePropertyChanged("DropInstallQueueCanCancel");
+            }
+        }
+    }
+
+    public int DropInstallQueuePendingBatchCount
+    {
+        get
+        {
+            return _DropInstallQueuePendingBatchCount;
+        }
+        private set
+        {
+            if (_DropInstallQueuePendingBatchCount != value)
+            {
+                _DropInstallQueuePendingBatchCount = value;
+                RaisePropertyChanged("DropInstallQueuePendingBatchCount");
+            }
+        }
+    }
+
     public PlaylistSummaryColumnSettings PlaylistSummaryColumnsSettings
     {
         get
@@ -5219,6 +5313,7 @@ public class MainWindowViewModel : ViewModel
     {
         _IsPlaylistTreeExpanded = Settings.Default.StartupExpandPlaylistTree;
         settingDialog = new SettingDialogViewModel(this);
+        dropInstallQueueProcessor = new DropInstallQueueProcessor(ProcessDroppedInstallBatch, UpdateDropInstallQueueStatus, HandleDroppedInstallBatchException);
     }
 
     /// <summary>
@@ -7006,10 +7101,15 @@ public class MainWindowViewModel : ViewModel
     /// </summary>
     /// <param name="installPaths">インストールの対象となるファイルまたはディレクトリパスのコレクション。</param>
     /// <param name="token">処理を中止するためのキャンセレーショントークン。</param>
-    /// <param name="onEachCompleted">個別のファイル処理完了ごとに呼ばれるコールバック。</param>
+    /// <param name="onEachCompleted">インストール処理完了時に呼ばれるコールバック。</param>
     public void InstallBMSFiles(IEnumerable<string> installPaths, CancellationToken token = default(CancellationToken), Action<bool> onEachCompleted = null)
     {
         if (files == null)
+        {
+            return;
+        }
+        string[] normalizedInstallPaths = (installPaths ?? Enumerable.Empty<string>()).Where((string path) => !string.IsNullOrWhiteSpace(path)).ToArray();
+        if (normalizedInstallPaths.Length == 0)
         {
             return;
         }
@@ -7018,20 +7118,15 @@ public class MainWindowViewModel : ViewModel
         {
             try
             {
-                foreach (string installPath in installPaths)
+                if (!token.IsCancellationRequested)
                 {
-                    if (!token.IsCancellationRequested)
-                    {
-                        list.AddRange(files.InstallBMSFilesAuto(new string[1] { installPath }));
-                        onEachCompleted(obj: true);
-                        continue;
-                    }
-                    break;
+                    list.AddRange(files.InstallBMSFilesAuto(normalizedInstallPaths, token));
                 }
             }
             catch (FileNotFoundException ex)
             {
                 base.Messenger.Raise(new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Msg_failed_installation + Environment.NewLine + ex.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
+                onEachCompleted?.Invoke(obj: false);
                 return;
             }
             catch
@@ -7039,9 +7134,85 @@ public class MainWindowViewModel : ViewModel
                 throw;
             }
         }
-        tables.AcquireReaderLockBMSTables();
-        files.AddReferenceBMSTables(BMSTables, list.SelectMany((BMSPackage p) => p.BMSFiles));
-        tables.FreeReaderLockBMSTables();
+        if (list.Count > 0)
+        {
+            tables.AcquireReaderLockBMSTables();
+            try
+            {
+                files.AddReferenceBMSTables(BMSTables, list.SelectMany((BMSPackage p) => p.BMSFiles));
+            }
+            finally
+            {
+                tables.FreeReaderLockBMSTables();
+            }
+        }
+        onEachCompleted?.Invoke(obj: !token.IsCancellationRequested);
+    }
+
+    public void EnqueueDroppedInstallPaths(IEnumerable<string> paths)
+    {
+        dropInstallQueueProcessor?.Enqueue(paths);
+    }
+
+    public void CancelDroppedInstallQueue()
+    {
+        dropInstallQueueProcessor?.CancelAll();
+    }
+
+    private void ProcessDroppedInstallBatch(DroppedInstallBatchRequest request, CancellationToken token)
+    {
+        if (request == null || request.PathCount == 0 || files == null)
+        {
+            return;
+        }
+        InstallBMSFiles(request.Paths, token);
+    }
+
+    private void HandleDroppedInstallBatchException(Exception ex)
+    {
+        if (ex == null)
+        {
+            return;
+        }
+        Action action = delegate
+        {
+            base.Messenger.Raise(new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Msg_failed_installation + Environment.NewLine + ex.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
+        };
+        if (System.Windows.Application.Current?.Dispatcher == null || System.Windows.Application.Current.Dispatcher.CheckAccess())
+        {
+            action();
+        }
+        else
+        {
+            System.Windows.Application.Current.Dispatcher.BeginInvoke(action);
+        }
+    }
+
+    private void UpdateDropInstallQueueStatus(DropInstallQueueStatusSnapshot snapshot)
+    {
+        Action reflect = delegate
+        {
+            bool isActive = snapshot != null && snapshot.IsActive;
+            IsDropInstallQueueActive = isActive;
+            DropInstallQueueCanCancel = isActive && snapshot.CanCancel;
+            DropInstallQueuePendingBatchCount = isActive ? snapshot.PendingBatchCount : 0;
+            if (!isActive)
+            {
+                DropInstallQueueLabel = string.Empty;
+                DropInstallQueueSubLabel = string.Empty;
+                return;
+            }
+            DropInstallQueueLabel = string.Format(BeMusicSeeker.Properties.Resources.Drop_install_queue_label_format, snapshot.CurrentPathCount, snapshot.PendingBatchCount);
+            DropInstallQueueSubLabel = snapshot.CurrentDisplayName ?? string.Empty;
+        };
+        if (DispatcherHelper.UIDispatcher == null || DispatcherHelper.UIDispatcher.CheckAccess())
+        {
+            reflect();
+        }
+        else
+        {
+            DispatcherHelper.UIDispatcher.BeginInvoke(reflect);
+        }
     }
 
     private List<BMSPackage> getBMSPackages(ref List<BeMusicSeeker.Models.BMSFile> bmsFiles, bool isInstalled = false)
