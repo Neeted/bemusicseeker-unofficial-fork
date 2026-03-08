@@ -71,6 +71,26 @@ public class BMSPlaylist : NotificationObject
     }
 
     /// <summary>
+    /// ログ出力向けに URI を安全な文字列へ整形します。
+    /// </summary>
+    /// <param name="uri">整形対象の URI。</param>
+    /// <returns><paramref name="uri"/> の文字列表現。null の場合は "(null)"。</returns>
+    private static string FormatUriForLog(Uri uri)
+    {
+        return uri?.ToString() ?? "(null)";
+    }
+
+    /// <summary>
+    /// ログ出力向けに文字列を安全な表現へ整形します。
+    /// </summary>
+    /// <param name="value">整形対象の文字列。</param>
+    /// <returns>空白を含む文字列はそのまま、null または空文字列は "(empty)"。</returns>
+    private static string FormatTextForLog(string value)
+    {
+        return string.IsNullOrWhiteSpace(value) ? "(empty)" : value;
+    }
+
+    /// <summary>
     /// <see cref="BMSPlaylist"/> 内の HTTP 通信に使う共有クライアントです。
     /// 外部テーブル同期は応答待ちが長くなりやすいため、既定より長いタイムアウトを設定します。
     /// </summary>
@@ -1965,8 +1985,9 @@ public class BMSPlaylist : NotificationObject
                                 }
                             }
                         }
-                        catch
+                        catch (Exception ex)
                         {
+                            Ribbit.Logging.NLogWrapper.FileLogger?.Warn(ex, "playlist_auto_resync_failed table=" + FormatTextForLog(table?.name) + " uri=" + FormatUriForLog(uri));
                         }
                         stopwatchExternalSync.Stop();
                         Interlocked.Add(ref updateExternalSyncTicks, stopwatchExternalSync.ElapsedTicks);
@@ -2250,83 +2271,84 @@ public class BMSPlaylist : NotificationObject
         {
             return LoadWalkureTable(pageUri, baseTable);
         }
-        Uri uri = null;
+        Uri originalPageUri = pageUri;
+        Uri headerUri = null;
+        Uri resolvedHeaderUri = null;
+        Uri resolvedDataUri = null;
+        BMSTable bMSTable = null;
         try
         {
-            string input = playlistHttpClient.GetString(pageUri);
-            StringBuilder errorLogBuilder = new StringBuilder();
             try
             {
-                XDocument xDocument;
-                using (SgmlReader reader = new SgmlReader
+                string input = playlistHttpClient.GetString(pageUri);
+                StringBuilder errorLogBuilder = new StringBuilder();
+                try
                 {
-                    Href = pageUri.AbsoluteUri,
-                    InputStream = new StringReader(input),
-                    IgnoreDtd = true,
-                    ErrorLog = new StringWriter(errorLogBuilder)
-                })
-                {
-                    xDocument = XDocument.Load(reader);
+                    XDocument xDocument;
+                    using (SgmlReader reader = new SgmlReader
+                    {
+                        Href = pageUri.AbsoluteUri,
+                        InputStream = new StringReader(input),
+                        IgnoreDtd = true,
+                        ErrorLog = new StringWriter(errorLogBuilder)
+                    })
+                    {
+                        xDocument = XDocument.Load(reader);
+                    }
+                    XNamespace xNamespace = xDocument.Root.Name.Namespace;
+                    headerUri = new Uri((from item in xDocument.Descendants(xNamespace + "meta")
+                                         let attrName = item.Attribute("name")
+                                         let attrCont = item.Attribute("content")
+                                         where attrName != null && attrCont != null && attrName.Value == "bmstable" && !string.IsNullOrWhiteSpace(attrCont.Value)
+                                         select attrCont.Value).FirstOrDefault(), UriKind.RelativeOrAbsolute);
                 }
-                XNamespace xNamespace = xDocument.Root.Name.Namespace;
-                uri = new Uri((from item in xDocument.Descendants(xNamespace + "meta")
-                               let attrName = item.Attribute("name")
-                               let attrCont = item.Attribute("content")
-                               where attrName != null && attrCont != null && attrName.Value == "bmstable" && !string.IsNullOrWhiteSpace(attrCont.Value)
-                               select attrCont.Value).FirstOrDefault(), UriKind.RelativeOrAbsolute);
+                catch (Exception)
+                {
+                    Match match = new Regex("name\\s*=\\s*\"bmstable\"[^<>]*content\\s*=\\s*\"([^?\"<>]+)[\"?<>]", RegexOptions.IgnoreCase).Match(input);
+                    if (!match.Success || string.IsNullOrWhiteSpace(match.Groups[1].Value))
+                    {
+                        throw new InvalidOperationException();
+                    }
+                    headerUri = new Uri(match.Groups[1].Value, UriKind.RelativeOrAbsolute);
+                }
             }
-            catch (Exception)
+            catch
             {
-                Match match = new Regex("name\\s*=\\s*\"bmstable\"[^<>]*content\\s*=\\s*\"([^?\"<>]+)[\"?<>]", RegexOptions.IgnoreCase).Match(input);
-                if (!match.Success || string.IsNullOrWhiteSpace(match.Groups[1].Value))
-                {
-                    throw new InvalidOperationException();
-                }
-                uri = new Uri(match.Groups[1].Value, UriKind.RelativeOrAbsolute);
+                headerUri = pageUri;
+                pageUri = null;
             }
+            resolvedHeaderUri = (!headerUri.IsAbsoluteUri) ? new Uri(pageUri, headerUri) : headerUri;
+            string header_json = playlistHttpClient.GetString(resolvedHeaderUri);
+            bMSTable = new BMSTable();
+            if (baseTable != null)
+            {
+                bMSTable.compat_prefix = baseTable.compat_prefix;
+            }
+            bMSTable.LoadHeaderJSON(header_json, pageUri, headerUri);
+            if (baseTable != null)
+            {
+                bMSTable.playlist_id = baseTable.playlist_id;
+                bMSTable.name = baseTable.name;
+                bMSTable.symbol = baseTable.symbol;
+                bMSTable.ignore_folder_output = baseTable.ignore_folder_output;
+                bMSTable.is_external_sync = baseTable.is_external_sync;
+                bMSTable.Output_dir = baseTable.Output_dir;
+                bMSTable.is_root_folder = baseTable.is_root_folder;
+            }
+            resolvedDataUri = bMSTable.GetAbsoluteDataUrl();
+            if (resolvedDataUri == null)
+            {
+                throw new InvalidOperationException("Failed to resolve playlist data_url. rawDataUrl=" + FormatTextForLog(bMSTable.data_url) + " pageUrl=" + FormatUriForLog(bMSTable.Page_url) + " headerUrl=" + FormatUriForLog(bMSTable.Header_url) + " sourcePage=" + FormatUriForLog(originalPageUri));
+            }
+            string data_json = playlistHttpClient.GetString(resolvedDataUri);
+            bMSTable.LoadDataJSON(data_json);
+            return bMSTable;
         }
-        catch
+        catch (Exception ex)
         {
-            uri = pageUri;
-            pageUri = null;
-        }
-        Uri uri2 = ((!uri.IsAbsoluteUri) ? new Uri(pageUri, uri) : uri);
-        string header_json;
-        try
-        {
-            header_json = playlistHttpClient.GetString(uri2);
-        }
-        catch
-        {
+            Ribbit.Logging.NLogWrapper.FileLogger?.Warn(ex, "playlist_external_load_failed pageUri=" + FormatUriForLog(originalPageUri) + " resolvedPageUri=" + FormatUriForLog(pageUri) + " rawHeaderUri=" + FormatUriForLog(headerUri) + " resolvedHeaderUri=" + FormatUriForLog(resolvedHeaderUri) + " rawDataUrl=" + FormatTextForLog(bMSTable?.data_url) + " storedPageUrl=" + FormatUriForLog(bMSTable?.Page_url) + " storedHeaderUrl=" + FormatUriForLog(bMSTable?.Header_url) + " resolvedDataUri=" + FormatUriForLog(resolvedDataUri) + " baseTable=" + FormatTextForLog(baseTable?.name));
             throw;
         }
-        BMSTable bMSTable = new BMSTable();
-        if (baseTable != null)
-        {
-            bMSTable.compat_prefix = baseTable.compat_prefix;
-        }
-        bMSTable.LoadHeaderJSON(header_json, pageUri, uri);
-        if (baseTable != null)
-        {
-            bMSTable.playlist_id = baseTable.playlist_id;
-            bMSTable.name = baseTable.name;
-            bMSTable.symbol = baseTable.symbol;
-            bMSTable.ignore_folder_output = baseTable.ignore_folder_output;
-            bMSTable.is_external_sync = baseTable.is_external_sync;
-            bMSTable.Output_dir = baseTable.Output_dir;
-            bMSTable.is_root_folder = baseTable.is_root_folder;
-        }
-        string data_json;
-        try
-        {
-            data_json = playlistHttpClient.GetString(bMSTable.GetAbsoluteDataUrl());
-        }
-        catch
-        {
-            throw;
-        }
-        bMSTable.LoadDataJSON(data_json);
-        return bMSTable;
     }
 
     /// <summary>

@@ -640,6 +640,29 @@
                       </FrameworkContentElement.Resources>
                       <List>
                         <ListItem>
+                          <Paragraph FontWeight="Bold">1.1.0.0:</Paragraph>
+                          <List MarkerStyle="Box">
+                            <ListItem>
+                              <Paragraph>LR2 閏年バグ補正の閏年判定を一般化</Paragraph>
+                            </ListItem>
+                            <ListItem>
+                              <Paragraph>保留画面に既所持のみ完全削除 / リソースのみ上書き / ゼロノート拡張子変更を追加</Paragraph>
+                            </ListItem>
+                            <ListItem>
+                              <Paragraph>複数パッケージのドラッグ＆ドロップ導入を非同期キュー化してロック時間を短縮</Paragraph>
+                            </ListItem>
+                            <ListItem>
+                              <Paragraph>ゼロノート再判定を追加し、ゼロノート判定の誤検出も軽減</Paragraph>
+                            </ListItem>
+                            <ListItem>
+                              <Paragraph>手動文字化け修正に簡体字中国語(GB2312) / 繁体字中国語(Big5)を追加</Paragraph>
+                            </ListItem>
+                            <ListItem>
+                              <Paragraph>ファイル操作基盤の見直し、個別プレイリストリロード修正、各種UI更新の最適化</Paragraph>
+                            </ListItem>
+                          </List>
+                        </ListItem>
+                        <ListItem>
                           <Paragraph FontWeight="Bold">1.0.5.1:</Paragraph>
                           <List MarkerStyle="Box">
                             <ListItem>

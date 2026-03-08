@@ -223,7 +223,7 @@ internal sealed class AppHttpClient
     /// <exception cref="ArgumentNullException"><paramref name="uri"/> が <see langword="null"/> の場合。</exception>
     internal string GetString(Uri uri, Encoding encoding = null)
     {
-        return ResolveEncoding(encoding).GetString(GetBytes(uri));
+        return DecodeStringAndTrimBom(GetBytes(uri), encoding);
     }
 
     /// <summary>
@@ -243,12 +243,12 @@ internal sealed class AppHttpClient
         if (uri.IsFile)
         {
             byte[] bytes = await Task.Run(() => File.ReadAllBytes(uri.LocalPath), cancellationToken).ConfigureAwait(false);
-            return ResolveEncoding(encoding).GetString(bytes);
+            return DecodeStringAndTrimBom(bytes, encoding);
         }
         using (HttpResponseMessage httpResponseMessage = await SendAsync(HttpMethod.Get, uri, null, null, cancellationToken).ConfigureAwait(false))
         {
             byte[] bytes = await httpResponseMessage.Content.ReadAsByteArrayAsync().ConfigureAwait(false);
-            return ResolveEncoding(encoding).GetString(bytes);
+            return DecodeStringAndTrimBom(bytes, encoding);
         }
     }
 
@@ -377,7 +377,7 @@ internal sealed class AppHttpClient
                 using (HttpResponseMessage httpResponseMessage = Send(HttpMethod.Post, uri, multipartFormDataContent, headers, throwOnNonSuccess: false))
                 {
                     byte[] responseBytes = ReadResponseBytes(httpResponseMessage);
-                    string responseBody = ResolveEncoding(responseEncoding).GetString(responseBytes);
+                    string responseBody = DecodeStringAndTrimBom(responseBytes, responseEncoding);
                     if (!httpResponseMessage.IsSuccessStatusCode)
                     {
                         string formattedResponseBody = logErrorResponseBody ? FormatResponseBodyForLog(responseBody) : null;
@@ -550,7 +550,7 @@ internal sealed class AppHttpClient
         }
         using (httpResponseMessage)
         {
-            return ResolveEncoding(responseEncoding).GetString(ReadResponseBytes(httpResponseMessage));
+            return DecodeStringAndTrimBom(ReadResponseBytes(httpResponseMessage), responseEncoding);
         }
     }
 
@@ -581,6 +581,24 @@ internal sealed class AppHttpClient
     private static Encoding ResolveEncoding(Encoding encoding)
     {
         return encoding ?? Encoding.UTF8;
+    }
+
+    /// <summary>
+    /// バイト列を文字列化し、先頭の UTF-8 BOM を吸収します。
+    /// 旧 <see cref="WebClient.DownloadString(Uri)"/> は BOM 付きの JSON/Text をそのまま扱えていたため、
+    /// HttpClient 置き換え後も同等の互換性を保てるよう AppHttpClient 全体で先頭 BOM を除去します。
+    /// </summary>
+    /// <param name="bytes">文字列化するバイト列。</param>
+    /// <param name="encoding">利用する文字コード。未指定時は UTF-8。</param>
+    /// <returns>先頭 BOM を除去した文字列。</returns>
+    private static string DecodeStringAndTrimBom(byte[] bytes, Encoding encoding)
+    {
+        string decoded = ResolveEncoding(encoding).GetString(bytes ?? Array.Empty<byte>());
+        if (!string.IsNullOrEmpty(decoded) && decoded[0] == '\uFEFF')
+        {
+            return decoded.Substring(1);
+        }
+        return decoded;
     }
 
     /// <summary>

@@ -3208,8 +3208,10 @@ public class MainWindowViewModel : ViewModel
                     {
                         bmsTable = ownerViewModel.tables.ResetBMSTable(bmsTable, uri);
                     }
-                    catch
+                    catch (Exception ex)
                     {
+                        NLogWrapper.FileLogger?.Warn(ex, "playlist_property_resync_failed table=" + (bmsTable?.name ?? string.Empty) + " uri=" + uri);
+                        ownerViewModel.ShowPlaylistLoadFailure(ex);
                     }
                 }
             }
@@ -7533,8 +7535,10 @@ public class MainWindowViewModel : ViewModel
                 files.RemoveReferenceBMSTables(item);
                 files.AddReferenceBMSTables(bMSTable);
             }
-            catch
+            catch (Exception ex)
             {
+                NLogWrapper.FileLogger?.Warn(ex, "playlist_manual_resync_failed table=" + (item?.name ?? string.Empty) + " uri=" + (uri?.ToString() ?? string.Empty));
+                ShowPlaylistLoadFailure(ex);
             }
         }
         RefreshPlaylistSummaryIfVisible();
@@ -7740,6 +7744,16 @@ public class MainWindowViewModel : ViewModel
         return files.TryGetInstalledDirectoryByHash(hash, out installDir);
     }
 
+    private void ShowPlaylistLoadFailure(Exception ex)
+    {
+        string message = BeMusicSeeker.Properties.Resources.Msg_failed_load_playlist;
+        if (ex != null && !string.IsNullOrWhiteSpace(ex.Message))
+        {
+            message = message + Environment.NewLine + ex.Message;
+        }
+        base.Messenger.Raise(new ConfirmationMessage(message, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
+    }
+
     internal void RegistrateExternalPlaylistBMSTable(Uri uri)
     {
         BMSTable table;
@@ -7749,12 +7763,14 @@ public class MainWindowViewModel : ViewModel
         }
         catch (InvalidOperationException ex)
         {
-            base.Messenger.Raise(new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Msg_failed_load_playlist + Environment.NewLine + ex.Message + ex.InnerException, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
+            NLogWrapper.FileLogger?.Warn(ex, "playlist_register_failed uri=" + (uri?.ToString() ?? string.Empty));
+            ShowPlaylistLoadFailure(ex);
             return;
         }
-        catch
+        catch (Exception ex)
         {
-            base.Messenger.Raise(new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Msg_failed_load_playlist, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
+            NLogWrapper.FileLogger?.Warn(ex, "playlist_register_failed uri=" + (uri?.ToString() ?? string.Empty));
+            ShowPlaylistLoadFailure(ex);
             return;
         }
         tables.AcquireReaderLockBMSTables();
