@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Threading;
 using System.Windows;
 using BeMusicSeeker.Models;
@@ -119,6 +120,74 @@ public sealed class BmsLibraryFolderRenameRefreshTests
         });
     }
 
+    [TestMethod]
+    public void SetBMSFilesEncoding_UpdatesEncodingCellWithoutRaisingGarbledCollectionsChanged()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_EncodingRefresh_" + Guid.NewGuid().ToString("N"));
+            string chartPath = Path.Combine(tempRootPath, "chart.bms");
+            Directory.CreateDirectory(tempRootPath);
+            File.WriteAllText(
+                chartPath,
+                "#TITLE Garbled\r\n#ARTIST Artist\r\n#GENRE TEST\r\n",
+                Encoding.GetEncoding("gb2312", new EncoderExceptionFallback(), new DecoderExceptionFallback()));
+            try
+            {
+                BMSLibrary library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
+                BMSFile file = BMSFile.CreateBMSFileFromFile(chartPath);
+                file.SetMaintenanceInfo(new BMSFileMaintenanceInfo(file)
+                {
+                    hash = file.hash,
+                    encoding = "unknown",
+                    is_encoding_fixed = false
+                }, suppressPropertyChanged: true, registerEventHandlers: false);
+                int garbledChangedCount = 0;
+                int garbledFixedChangedCount = 0;
+                int encodingChangedCount = 0;
+                library.PropertyChanged += delegate (object sender, System.ComponentModel.PropertyChangedEventArgs e)
+                {
+                    if (e.PropertyName == nameof(BMSLibrary.BMSFilesGarbled))
+                    {
+                        Interlocked.Increment(ref garbledChangedCount);
+                    }
+                    if (e.PropertyName == nameof(BMSLibrary.BMSFilesGarbledFixed))
+                    {
+                        Interlocked.Increment(ref garbledFixedChangedCount);
+                    }
+                };
+                file.PropertyChanged += delegate (object sender, System.ComponentModel.PropertyChangedEventArgs e)
+                {
+                    if (e.PropertyName == nameof(BMSFile.encoding))
+                    {
+                        Interlocked.Increment(ref encodingChangedCount);
+                    }
+                };
+                library.BMSFiles = new List<BMSFile> { file };
+                Thread.Sleep(200);
+                Interlocked.Exchange(ref garbledChangedCount, 0);
+                Interlocked.Exchange(ref garbledFixedChangedCount, 0);
+                Interlocked.Exchange(ref encodingChangedCount, 0);
+
+                library.SetBMSFilesEncoding(new[] { file }, "gb2312");
+
+                Thread.Sleep(200);
+                Assert.AreEqual(0, Volatile.Read(ref garbledChangedCount));
+                Assert.AreEqual(0, Volatile.Read(ref garbledFixedChangedCount));
+                Assert.IsTrue(Volatile.Read(ref encodingChangedCount) > 0);
+                Assert.AreEqual("gb2312", file.encoding);
+            }
+            finally
+            {
+                if (Directory.Exists(tempRootPath))
+                {
+                    Directory.Delete(tempRootPath, recursive: true);
+                }
+            }
+        });
+    }
+
     private static void WithTemporarySongDb(Action<string> testAction)
     {
         string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_FolderRenameRefresh_" + Guid.NewGuid().ToString("N"));
@@ -129,7 +198,9 @@ public sealed class BmsLibraryFolderRenameRefreshTests
         {
             using (LR2SongDBExtended songDb = new LR2SongDBExtended(songDbPath))
             {
+                songDb.CreateTable<LR2SongDB.song>();
                 songDb.CreateTable<LR2SongDB.folder>();
+                songDb.CreateTable<LR2SongDBExtended.maintenance>();
             }
             testAction(songDbPath);
         }

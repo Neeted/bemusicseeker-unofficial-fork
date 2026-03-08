@@ -111,12 +111,16 @@ internal sealed class BmsLibraryMaintenanceService
             {
                 return null;
             }
+            string originalEncoding = info.encoding;
             if (!string.IsNullOrWhiteSpace(encoding))
             {
                 if (reloadedFiles.Contains(file) || !string.Equals(info.encoding, encoding, StringComparison.Ordinal))
                 {
                     info.encoding = encoding;
                     info.is_encoding_fixed = true;
+                    file.NotifyMaintenanceInfoChanged(
+                        encodingChanged: !string.Equals(originalEncoding, info.encoding, StringComparison.Ordinal),
+                        healthChanged: false);
                     return info;
                 }
                 return null;
@@ -125,6 +129,9 @@ internal sealed class BmsLibraryMaintenanceService
             {
                 info.encoding = "shift_jis";
                 info.is_encoding_fixed = true;
+                file.NotifyMaintenanceInfoChanged(
+                    encodingChanged: !string.Equals(originalEncoding, info.encoding, StringComparison.Ordinal),
+                    healthChanged: false);
                 return info;
             }
             return null;
@@ -232,6 +239,7 @@ internal sealed class BmsLibraryMaintenanceService
             filesInSection.AsParallel().ForAll(delegate (BMSFile file)
             {
                 string originalHash = file.hash;
+                MaintenanceSnapshot beforeSnapshot = MaintenanceSnapshot.FromFile(file);
                 int retryCount = 0;
                 while (true)
                 {
@@ -267,15 +275,26 @@ internal sealed class BmsLibraryMaintenanceService
                     lock (reloadedLock)
                     {
                         reloadedFiles.Add(file);
-                        return;
                     }
                 }
-                if (originalHash != file.hash)
+                else if (originalHash != file.hash)
                 {
                     lock (reloadedLock)
                     {
                         reloadedFiles.Add(file);
                     }
+                }
+                MaintenanceSnapshot afterSnapshot = MaintenanceSnapshot.FromFile(file);
+                bool encodingChanged = !string.Equals(beforeSnapshot.Encoding, afterSnapshot.Encoding, StringComparison.Ordinal);
+                bool healthChanged = beforeSnapshot.WAVHealth != afterSnapshot.WAVHealth
+                    || beforeSnapshot.BGAHealth != afterSnapshot.BGAHealth
+                    || beforeSnapshot.MovieHealth != afterSnapshot.MovieHealth
+                    || beforeSnapshot.StagefileHealth != afterSnapshot.StagefileHealth
+                    || beforeSnapshot.BannerHealth != afterSnapshot.BannerHealth
+                    || beforeSnapshot.BackbmpHealth != afterSnapshot.BackbmpHealth;
+                if (encodingChanged || healthChanged)
+                {
+                    file.NotifyMaintenanceInfoChanged(encodingChanged, healthChanged);
                 }
             });
             List<BMSFileMaintenanceInfo> maintenanceInfos = filesInSection.Where((BMSFile file) => file.maintenanceInfo.IsInformationChecked()).Select((BMSFile file) => file.maintenanceInfo).ToList();
@@ -301,6 +320,39 @@ internal sealed class BmsLibraryMaintenanceService
         stopwatch.Stop();
         result.TotalMs = stopwatch.ElapsedMilliseconds;
         return result;
+    }
+
+    private readonly struct MaintenanceSnapshot
+    {
+        public string Encoding { get; }
+
+        public int? WAVHealth { get; }
+
+        public int? BGAHealth { get; }
+
+        public int? MovieHealth { get; }
+
+        public bool? StagefileHealth { get; }
+
+        public bool? BannerHealth { get; }
+
+        public bool? BackbmpHealth { get; }
+
+        private MaintenanceSnapshot(BMSFileMaintenanceInfo info)
+        {
+            Encoding = info?.encoding;
+            WAVHealth = info?.WAVHealth;
+            BGAHealth = info?.BGAHealth;
+            MovieHealth = info?.MovieHealth;
+            StagefileHealth = info?.StagefileHealth;
+            BannerHealth = info?.BannerHealth;
+            BackbmpHealth = info?.BackbmpHealth;
+        }
+
+        public static MaintenanceSnapshot FromFile(BMSFile file)
+        {
+            return new MaintenanceSnapshot(file?.maintenanceInfo);
+        }
     }
 
     public MaintenanceWorkflowResult UpdateZeroNoteAndCommit(

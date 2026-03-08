@@ -4,6 +4,7 @@ using System.IO;
 using System.Text;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Properties;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -240,6 +241,56 @@ public sealed class BmsLibraryMaintenanceServiceTests
     }
 
     [TestMethod]
+    public void ApplyEncoding_RaisesEncodingPropertyChangedWhenEncodingOnlyChanges()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        BmsLibraryMaintenanceService service = new BmsLibraryMaintenanceService();
+        string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectoryPath);
+        string bmsFilePath = Path.Combine(tempDirectoryPath, "chart.bms");
+        const string expectedTitle = "一致タイトル";
+        const string expectedArtist = "一致アーティスト";
+        const string expectedGenre = "一致GENRE";
+        File.WriteAllText(
+            bmsFilePath,
+            "#TITLE " + expectedTitle + "\r\n#ARTIST " + expectedArtist + "\r\n#GENRE " + expectedGenre + "\r\n",
+            Encoding.GetEncoding("gb2312", new EncoderExceptionFallback(), new DecoderExceptionFallback()));
+        try
+        {
+            TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+            file.path = bmsFilePath;
+            file.SetTitle(expectedTitle);
+            file.SetArtist(expectedArtist);
+            file.SetGenre(expectedGenre);
+            BMSFileMaintenanceInfo info = new BMSFileMaintenanceInfo(file)
+            {
+                hash = file.hash,
+                encoding = "unknown",
+                is_encoding_fixed = false
+            };
+            file.SetMaintenanceInfo(info, suppressPropertyChanged: true, registerEventHandlers: false);
+            List<string> propertyNames = new List<string>();
+            file.PropertyChanged += delegate (object sender, System.ComponentModel.PropertyChangedEventArgs e)
+            {
+                propertyNames.Add(e.PropertyName);
+            };
+
+            MaintenanceEncodingUpdateResult result = service.ApplyEncoding(new BMSFile[] { file }, "gb2312");
+
+            Assert.AreEqual(0, result.SongsToUpsert.Count);
+            CollectionAssert.AreEqual(new[] { info }, result.MaintenanceInfosToUpsert);
+            CollectionAssert.Contains(propertyNames, "encoding");
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectoryPath))
+            {
+                Directory.Delete(tempDirectoryPath, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
     public void ApplyEncoding_SkipsEntireUpdateWhenDecodedMetadataAndEncodingMatch()
     {
         TestResourceInitializer.EnsureJapaneseResources();
@@ -275,6 +326,61 @@ public sealed class BmsLibraryMaintenanceServiceTests
             Assert.AreEqual(0, result.MaintenanceInfosToUpsert.Count);
             Assert.AreEqual("gb2312", file.maintenanceInfo.encoding);
             Assert.IsFalse(file.maintenanceInfo.is_encoding_fixed);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectoryPath))
+            {
+                Directory.Delete(tempDirectoryPath, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void UpdateMaintenanceInfo_RaisesHealthPropertyChangedWhenHealthChanges()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        BmsLibraryMaintenanceService service = new BmsLibraryMaintenanceService();
+        string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectoryPath);
+        string bmsFilePath = Path.Combine(tempDirectoryPath, "chart.bms");
+        string songDbPath = Path.Combine(tempDirectoryPath, "song.db");
+        File.WriteAllText(
+            bmsFilePath,
+            "#PLAYER 1\r\n#STAGEFILE missing.png\r\n#BANNER missing_banner.png\r\n#BACKBMP missing_back.bmp\r\n",
+            Encoding.GetEncoding("shift_jis", new EncoderExceptionFallback(), new DecoderExceptionFallback()));
+        try
+        {
+            BMSFile file = BMSFile.CreateBMSFileFromFile(bmsFilePath);
+            file.SetMaintenanceInfo(new BMSFileMaintenanceInfo(file)
+            {
+                hash = file.hash
+            }, suppressPropertyChanged: true, registerEventHandlers: false);
+            BMSDirectoryFileNameHash folderHash = new BMSDirectoryFileNameHash();
+            folderHash.AddDir(tempDirectoryPath, Directory.GetFiles(tempDirectoryPath));
+            List<string> propertyNames = new List<string>();
+            file.PropertyChanged += delegate (object sender, System.ComponentModel.PropertyChangedEventArgs e)
+            {
+                propertyNames.Add(e.PropertyName);
+            };
+
+            using (LR2SongDBExtended songDb = new LR2SongDBExtended(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDBExtended.maintenance>();
+                songDb.CreateTable<LR2SongDB.song>();
+            }
+
+            MaintenanceWorkflowResult result = service.UpdateMaintenanceInfo(
+                new[] { file },
+                forceUpdate: true,
+                folderHash,
+                new BmsLibraryDbGateway(songDbPath),
+                null);
+
+            Assert.IsTrue(result.HasUpdates);
+            CollectionAssert.Contains(propertyNames, "StagefileHealth");
+            CollectionAssert.Contains(propertyNames, "BannerHealth");
+            CollectionAssert.Contains(propertyNames, "BackbmpHealth");
         }
         finally
         {

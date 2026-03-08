@@ -719,6 +719,24 @@ public class BMSFile : LR2SongDB.song
         return string.Equals(_maintenanceInfo.hash, expectedHash, StringComparison.OrdinalIgnoreCase);
     }
 
+    internal void NotifyMaintenanceInfoChanged(bool encodingChanged, bool healthChanged)
+    {
+        if (encodingChanged)
+        {
+            RaisePropertyChanged(() => encoding);
+        }
+        if (!healthChanged)
+        {
+            return;
+        }
+        RaisePropertyChanged(() => WAVHealth);
+        RaisePropertyChanged(() => BGAHealth);
+        RaisePropertyChanged(() => MovieHealth);
+        RaisePropertyChanged(() => StagefileHealth);
+        RaisePropertyChanged(() => BannerHealth);
+        RaisePropertyChanged(() => BackbmpHealth);
+    }
+
     public virtual string RefTablesSymbols
     {
         get

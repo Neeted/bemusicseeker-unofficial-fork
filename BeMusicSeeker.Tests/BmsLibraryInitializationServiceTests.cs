@@ -74,7 +74,7 @@ public sealed class BmsLibraryInitializationServiceTests
     }
 
     [TestMethod]
-    public void LoadSongTable_RegistersMaintenanceEncodingPropertyChangedHandler()
+    public void LoadSongTable_DoesNotRegisterMaintenanceEncodingPropertyChangedHandler()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
@@ -121,7 +121,7 @@ public sealed class BmsLibraryInitializationServiceTests
 
             result.LoadedFiles[0].maintenanceInfo.encoding = "utf-8";
 
-            CollectionAssert.Contains(propertyNames, "encoding");
+            CollectionAssert.DoesNotContain(propertyNames, "encoding");
         });
     }
 
