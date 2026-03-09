@@ -751,6 +751,32 @@ public class Resources
 
     public static string Playlist_summary_format => ResourceManager.GetString("Playlist_summary_format", resourceCulture);
 
+    public static string Playlist_summary_status_header => ResourceManager.GetString("Playlist_summary_status_header", resourceCulture);
+
+    public static string Playlist_sync_status_none => ResourceManager.GetString("Playlist_sync_status_none", resourceCulture);
+
+    public static string Playlist_sync_status_ok => ResourceManager.GetString("Playlist_sync_status_ok", resourceCulture);
+
+    public static string Playlist_sync_status_updated => ResourceManager.GetString("Playlist_sync_status_updated", resourceCulture);
+
+    public static string Playlist_sync_status_header => ResourceManager.GetString("Playlist_sync_status_header", resourceCulture);
+
+    public static string Playlist_sync_status_header_url => ResourceManager.GetString("Playlist_sync_status_header_url", resourceCulture);
+
+    public static string Playlist_sync_status_data => ResourceManager.GetString("Playlist_sync_status_data", resourceCulture);
+
+    public static string Playlist_sync_status_invalid_url => ResourceManager.GetString("Playlist_sync_status_invalid_url", resourceCulture);
+
+    public static string Playlist_sync_status_404 => ResourceManager.GetString("Playlist_sync_status_404", resourceCulture);
+
+    public static string Playlist_sync_status_403 => ResourceManager.GetString("Playlist_sync_status_403", resourceCulture);
+
+    public static string Playlist_sync_status_http => ResourceManager.GetString("Playlist_sync_status_http", resourceCulture);
+
+    public static string Playlist_sync_status_network => ResourceManager.GetString("Playlist_sync_status_network", resourceCulture);
+
+    public static string Playlist_sync_status_unknown => ResourceManager.GetString("Playlist_sync_status_unknown", resourceCulture);
+
     public static string MessageBoxTitle_Error => ResourceManager.GetString("MessageBoxTitle_Error", resourceCulture);
 
 

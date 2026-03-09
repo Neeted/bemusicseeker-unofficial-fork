@@ -44,6 +44,31 @@ public sealed class BmsPlaylistExternalLoadTests
         }
     }
 
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public void LoadExternalTable_HtmlWithoutHeaderMeta_ThrowsHeaderUriNotFound()
+    {
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistExternalLoadTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string htmlPath = Path.Combine(tempDirectory, "table.html");
+            File.WriteAllText(htmlPath, "<html><head><title>No header</title></head><body>moved</body></html>", Encoding.UTF8);
+
+            string songDbPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "TestData", "song_snapshot", "song.db");
+            BMSPlaylist playlist = new BMSPlaylist(songDbPath);
+
+            Assert.ThrowsException<PlaylistHeaderUriNotFoundException>(() => playlist.LoadExternalTable(new Uri(htmlPath)));
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
     private static byte[] CreateUtf8BomBytes(string text)
     {
         return Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(text)).ToArray();

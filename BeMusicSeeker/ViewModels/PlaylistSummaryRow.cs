@@ -26,6 +26,14 @@ public class PlaylistSummaryRow
 
 	public bool IsExternalSync { get; set; }
 
+	public string Status { get; set; } = string.Empty;
+
+	public string StatusDetail { get; set; } = string.Empty;
+
+	public int StatusSortOrder { get; set; }
+
+	public bool HasFailureStatus { get; set; }
+
 	public bool IsRootFolder { get; set; }
 
 	public BMSTable TableRef { get; set; }

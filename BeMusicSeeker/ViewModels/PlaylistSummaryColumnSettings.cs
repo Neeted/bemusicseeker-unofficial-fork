@@ -85,6 +85,8 @@ public class PlaylistSummaryColumnSettings : NotificationObject
 
     private ColumnLayout _IsExternalSync = new ColumnLayout();
 
+    private ColumnLayout _Status = new ColumnLayout();
+
     private ColumnLayout _IsRootFolder = new ColumnLayout();
 
     public ColumnLayout PlaylistId
@@ -217,6 +219,19 @@ public class PlaylistSummaryColumnSettings : NotificationObject
         }
     }
 
+    public ColumnLayout Status
+    {
+        get
+        {
+            return _Status;
+        }
+        set
+        {
+            _Status = value;
+            RaisePropertyChanged("Status");
+        }
+    }
+
     public ColumnLayout IsRootFolder
     {
         get
@@ -242,6 +257,7 @@ public class PlaylistSummaryColumnSettings : NotificationObject
         OwnedRatio.Width = 80;
         Link.Width = 70;
         IsExternalSync.Width = 70;
+        Status.Width = 90;
         IsRootFolder.Width = 70;
         int num = 0;
         PlaylistId.DisplayIndex = num++;
@@ -254,6 +270,56 @@ public class PlaylistSummaryColumnSettings : NotificationObject
         OwnedRatio.DisplayIndex = num++;
         Link.DisplayIndex = num++;
         IsExternalSync.DisplayIndex = num++;
+        Status.DisplayIndex = num++;
         IsRootFolder.DisplayIndex = num++;
+    }
+
+    public void EnsureCompatibility()
+    {
+        bool flag = _Status == null;
+        PlaylistId ??= new ColumnLayout();
+        Name ??= new ColumnLayout();
+        Symbol ??= new ColumnLayout();
+        LastUpdate ??= new ColumnLayout();
+        TotalCharts ??= new ColumnLayout();
+        OwnedCharts ??= new ColumnLayout();
+        MissingCharts ??= new ColumnLayout();
+        OwnedRatio ??= new ColumnLayout();
+        Link ??= new ColumnLayout();
+        IsExternalSync ??= new ColumnLayout();
+        Status ??= new ColumnLayout();
+        IsRootFolder ??= new ColumnLayout();
+        ApplyDefaultLayout(PlaylistId, 60, 0);
+        ApplyDefaultLayout(Name, 220, 1);
+        ApplyDefaultLayout(Symbol, 70, 2);
+        ApplyDefaultLayout(LastUpdate, 145, 3);
+        ApplyDefaultLayout(TotalCharts, 80, 4);
+        ApplyDefaultLayout(OwnedCharts, 80, 5);
+        ApplyDefaultLayout(MissingCharts, 80, 6);
+        ApplyDefaultLayout(OwnedRatio, 80, 7);
+        ApplyDefaultLayout(Link, 70, 8);
+        ApplyDefaultLayout(IsExternalSync, 70, 9);
+        ApplyDefaultLayout(Status, 90, 10);
+        ApplyDefaultLayout(IsRootFolder, 70, 11);
+        if (flag && IsRootFolder.DisplayIndex <= 10)
+        {
+            IsRootFolder.DisplayIndex = 11;
+        }
+    }
+
+    private static void ApplyDefaultLayout(ColumnLayout layout, int width, int displayIndex)
+    {
+        if (layout == null)
+        {
+            return;
+        }
+        if (layout.Width <= 0)
+        {
+            layout.Width = width;
+        }
+        if (layout.DisplayIndex < 0)
+        {
+            layout.DisplayIndex = displayIndex;
+        }
     }
 }

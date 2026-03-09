@@ -1934,6 +1934,11 @@ public class BMSPlaylist : NotificationObject
     /// <returns><c>last_update</c> が変化したプレイリスト一覧。</returns>
     public List<BMSTable> UpdateBMSTables(bool reloadExtPlaylist = true, List<Action<BMSTable, bool, BMSTable>> updateCallbackActions = null)
     {
+        return UpdateBMSTablesInternal(reloadExtPlaylist, updateCallbackActions, null);
+    }
+
+    internal List<BMSTable> UpdateBMSTablesInternal(bool reloadExtPlaylist = true, List<Action<BMSTable, bool, BMSTable>> updateCallbackActions = null, Action<PlaylistSyncAttemptResult> syncResultCallback = null)
+    {
         IsPlaylistUpdating = true;
         try
         {
@@ -1955,6 +1960,7 @@ public class BMSPlaylist : NotificationObject
                 {
                     Uri uri = table.Page_url ?? table.Header_url;
                     bool arg = false;
+                    PlaylistSyncAttemptResult playlistSyncAttemptResult = null;
                     if (reloadExtPlaylist && table.is_external_sync && uri != null && uri.IsAbsoluteUri)
                     {
                         Stopwatch stopwatchExternalSync = Stopwatch.StartNew();
@@ -1984,10 +1990,16 @@ public class BMSPlaylist : NotificationObject
                                     }
                                 }
                             }
+                            playlistSyncAttemptResult = PlaylistSyncAttemptResult.CreateSuccess(table, newTable, uri, arg);
                         }
                         catch (Exception ex)
                         {
                             Ribbit.Logging.NLogWrapper.FileLogger?.Warn(ex, "playlist_auto_resync_failed table=" + FormatTextForLog(table?.name) + " uri=" + FormatUriForLog(uri));
+                            playlistSyncAttemptResult = PlaylistSyncAttemptResult.CreateFailure(table, uri, ex);
+                        }
+                        finally
+                        {
+                            syncResultCallback?.Invoke(playlistSyncAttemptResult);
                         }
                         stopwatchExternalSync.Stop();
                         Interlocked.Add(ref updateExternalSyncTicks, stopwatchExternalSync.ElapsedTicks);
@@ -2272,53 +2284,30 @@ public class BMSPlaylist : NotificationObject
             return LoadWalkureTable(pageUri, baseTable);
         }
         Uri originalPageUri = pageUri;
-        Uri headerUri = null;
-        Uri resolvedHeaderUri = null;
-        Uri resolvedDataUri = null;
-        BMSTable bMSTable = null;
+            Uri headerUri = null;
+            Uri resolvedHeaderUri = null;
+            Uri resolvedDataUri = null;
+            BMSTable bMSTable = null;
+            string header_json = null;
         try
         {
-            try
+            string input = playlistHttpClient.GetString(pageUri);
+            if (TryResolveHeaderUri(input, pageUri, out headerUri))
             {
-                string input = playlistHttpClient.GetString(pageUri);
-                StringBuilder errorLogBuilder = new StringBuilder();
-                try
-                {
-                    XDocument xDocument;
-                    using (SgmlReader reader = new SgmlReader
-                    {
-                        Href = pageUri.AbsoluteUri,
-                        InputStream = new StringReader(input),
-                        IgnoreDtd = true,
-                        ErrorLog = new StringWriter(errorLogBuilder)
-                    })
-                    {
-                        xDocument = XDocument.Load(reader);
-                    }
-                    XNamespace xNamespace = xDocument.Root.Name.Namespace;
-                    headerUri = new Uri((from item in xDocument.Descendants(xNamespace + "meta")
-                                         let attrName = item.Attribute("name")
-                                         let attrCont = item.Attribute("content")
-                                         where attrName != null && attrCont != null && attrName.Value == "bmstable" && !string.IsNullOrWhiteSpace(attrCont.Value)
-                                         select attrCont.Value).FirstOrDefault(), UriKind.RelativeOrAbsolute);
-                }
-                catch (Exception)
-                {
-                    Match match = new Regex("name\\s*=\\s*\"bmstable\"[^<>]*content\\s*=\\s*\"([^?\"<>]+)[\"?<>]", RegexOptions.IgnoreCase).Match(input);
-                    if (!match.Success || string.IsNullOrWhiteSpace(match.Groups[1].Value))
-                    {
-                        throw new InvalidOperationException();
-                    }
-                    headerUri = new Uri(match.Groups[1].Value, UriKind.RelativeOrAbsolute);
-                }
+                resolvedHeaderUri = (!headerUri.IsAbsoluteUri) ? new Uri(pageUri, headerUri) : headerUri;
+                header_json = playlistHttpClient.GetString(resolvedHeaderUri);
             }
-            catch
+            else if (LooksLikeJsonContent(input))
             {
                 headerUri = pageUri;
                 pageUri = null;
+                resolvedHeaderUri = headerUri;
+                header_json = input;
             }
-            resolvedHeaderUri = (!headerUri.IsAbsoluteUri) ? new Uri(pageUri, headerUri) : headerUri;
-            string header_json = playlistHttpClient.GetString(resolvedHeaderUri);
+            else
+            {
+                throw new PlaylistHeaderUriNotFoundException(originalPageUri);
+            }
             bMSTable = new BMSTable();
             if (baseTable != null)
             {
@@ -2349,6 +2338,61 @@ public class BMSPlaylist : NotificationObject
             Ribbit.Logging.NLogWrapper.FileLogger?.Warn(ex, "playlist_external_load_failed pageUri=" + FormatUriForLog(originalPageUri) + " resolvedPageUri=" + FormatUriForLog(pageUri) + " rawHeaderUri=" + FormatUriForLog(headerUri) + " resolvedHeaderUri=" + FormatUriForLog(resolvedHeaderUri) + " rawDataUrl=" + FormatTextForLog(bMSTable?.data_url) + " storedPageUrl=" + FormatUriForLog(bMSTable?.Page_url) + " storedHeaderUrl=" + FormatUriForLog(bMSTable?.Header_url) + " resolvedDataUri=" + FormatUriForLog(resolvedDataUri) + " baseTable=" + FormatTextForLog(baseTable?.name));
             throw;
         }
+    }
+
+    private static bool TryResolveHeaderUri(string input, Uri pageUri, out Uri headerUri)
+    {
+        headerUri = null;
+        if (string.IsNullOrWhiteSpace(input) || pageUri == null)
+        {
+            return false;
+        }
+        StringBuilder stringBuilder = new StringBuilder();
+        try
+        {
+            XDocument xDocument;
+            using (SgmlReader reader = new SgmlReader
+            {
+                Href = pageUri.AbsoluteUri,
+                InputStream = new StringReader(input),
+                IgnoreDtd = true,
+                ErrorLog = new StringWriter(stringBuilder)
+            })
+            {
+                xDocument = XDocument.Load(reader);
+            }
+            XNamespace xNamespace = xDocument.Root.Name.Namespace;
+            string text = (from item in xDocument.Descendants(xNamespace + "meta")
+                           let attrName = item.Attribute("name")
+                           let attrCont = item.Attribute("content")
+                           where attrName != null && attrCont != null && attrName.Value == "bmstable" && !string.IsNullOrWhiteSpace(attrCont.Value)
+                           select attrCont.Value).FirstOrDefault();
+            if (!string.IsNullOrWhiteSpace(text))
+            {
+                headerUri = new Uri(text, UriKind.RelativeOrAbsolute);
+                return true;
+            }
+        }
+        catch
+        {
+        }
+        Match match = new Regex("name\\s*=\\s*\"bmstable\"[^<>]*content\\s*=\\s*\"([^?\"<>]+)[\"?<>]", RegexOptions.IgnoreCase).Match(input);
+        if (!match.Success || string.IsNullOrWhiteSpace(match.Groups[1].Value))
+        {
+            return false;
+        }
+        headerUri = new Uri(match.Groups[1].Value, UriKind.RelativeOrAbsolute);
+        return true;
+    }
+
+    private static bool LooksLikeJsonContent(string input)
+    {
+        if (string.IsNullOrWhiteSpace(input))
+        {
+            return false;
+        }
+        string text = input.TrimStart('\ufeff', ' ', '\t', '\r', '\n');
+        return text.StartsWith("{", StringComparison.Ordinal) || text.StartsWith("[", StringComparison.Ordinal);
     }
 
     /// <summary>

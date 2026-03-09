@@ -58,6 +58,9 @@ internal static class PlaylistSummarySortEngine
             case nameof(PlaylistSummaryRow.IsExternalSync):
                 sortProfile = "playlist_summary_numeric_bool";
                 return SortByTypedKey(safeSource, (PlaylistSummaryRow row) => row?.IsExternalSync ?? false, direction, useLegacyStringSort);
+            case nameof(PlaylistSummaryRow.StatusSortOrder):
+                sortProfile = "playlist_summary_numeric_int32";
+                return SortByTypedKey(safeSource, (PlaylistSummaryRow row) => row?.StatusSortOrder ?? int.MaxValue, direction, useLegacyStringSort);
             case nameof(PlaylistSummaryRow.IsRootFolder):
                 sortProfile = "playlist_summary_numeric_bool";
                 return SortByTypedKey(safeSource, (PlaylistSummaryRow row) => row?.IsRootFolder ?? false, direction, useLegacyStringSort);

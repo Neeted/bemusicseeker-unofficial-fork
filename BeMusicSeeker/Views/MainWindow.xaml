@@ -416,6 +416,7 @@
         <MenuItem Header="OWNED %" IsCheckable="True" Style="{StaticResource stylePlaylistSummaryContextMenuLeftAlignment}" IsChecked="{Binding PlaylistSummaryColumnsSettings.OwnedRatio.Visibility, Source={StaticResource vm}, Converter={qc:QuickConverter '$P == Visibility.Visible ? true : false', ConvertBack='$value ? Visibility.Visible : Visibility.Hidden'}}" />
         <MenuItem Header="LINK" IsCheckable="True" Style="{StaticResource stylePlaylistSummaryContextMenuLeftAlignment}" IsChecked="{Binding PlaylistSummaryColumnsSettings.Link.Visibility, Source={StaticResource vm}, Converter={qc:QuickConverter '$P == Visibility.Visible ? true : false', ConvertBack='$value ? Visibility.Visible : Visibility.Hidden'}}" />
         <MenuItem Header="SYNC" IsCheckable="True" Style="{StaticResource stylePlaylistSummaryContextMenuLeftAlignment}" IsChecked="{Binding PlaylistSummaryColumnsSettings.IsExternalSync.Visibility, Source={StaticResource vm}, Converter={qc:QuickConverter '$P == Visibility.Visible ? true : false', ConvertBack='$value ? Visibility.Visible : Visibility.Hidden'}}" />
+        <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_summary_status_header, Mode=OneWay}" IsCheckable="True" Style="{StaticResource stylePlaylistSummaryContextMenuLeftAlignment}" IsChecked="{Binding PlaylistSummaryColumnsSettings.Status.Visibility, Source={StaticResource vm}, Converter={qc:QuickConverter '$P == Visibility.Visible ? true : false', ConvertBack='$value ? Visibility.Visible : Visibility.Hidden'}}" />
         <MenuItem Header="ROOT" IsCheckable="True" Style="{StaticResource stylePlaylistSummaryContextMenuLeftAlignment}" IsChecked="{Binding PlaylistSummaryColumnsSettings.IsRootFolder.Visibility, Source={StaticResource vm}, Converter={qc:QuickConverter '$P == Visibility.Visible ? true : false', ConvertBack='$value ? Visibility.Visible : Visibility.Hidden'}}" />
       </ContextMenu>
       <ContextMenu x:Key="playlistSummaryContextMenu" HasDropShadow="True">
@@ -1973,7 +1974,7 @@
               <DataGridTemplateColumn x:Name="dataGridColumnDummyLast" Visibility="Collapsed" MinWidth="0" Width="0" CanUserResize="False" CanUserSort="False" CanUserReorder="False" DisplayIndex="32" />
             </DataGrid.Columns>
           </DataGrid>
-          <DataGrid Name="dataGridPlaylistSummary" Grid.Row="2" Grid.ColumnSpan="1" Margin="0,0,0,0" Grid.Column="1" IsReadOnly="False" SelectionMode="Extended" CanUserResizeRows="False" EnableColumnVirtualization="False" EnableRowVirtualization="True" AutoGenerateColumns="False" CanUserAddRows="False" CanUserDeleteRows="False" HeadersVisibility="Column" GridLinesVisibility="None" BorderBrush="#FF828790" BorderThickness="1,1,0,0" ItemsSource="{Binding PlaylistSummaryView, IsAsync=True, Mode=OneWay, NotifyOnTargetUpdated=True}" TargetUpdated="dataGridTargetUpdated" Sorting="dataGridPlaylistSummarySorting" ColumnReordered="setDisplayIndicesPlaylistSummary" Visibility="{Binding IsPlaylistSummaryMode, Converter={qc:QuickConverter '$P ? Visibility.Visible : Visibility.Collapsed'}}" IsVisibleChanged="dataGridPlaylistSummary_IsVisibleChanged">
+          <DataGrid Name="dataGridPlaylistSummary" Grid.Row="2" Grid.ColumnSpan="1" Margin="0,0,0,0" Grid.Column="1" IsReadOnly="False" SelectionMode="Extended" CanUserResizeRows="False" EnableColumnVirtualization="False" EnableRowVirtualization="True" AutoGenerateColumns="False" CanUserAddRows="False" CanUserDeleteRows="False" HeadersVisibility="Column" GridLinesVisibility="None" BorderBrush="#FF828790" BorderThickness="1,1,0,0" ItemsSource="{Binding PlaylistSummaryView, IsAsync=True, Mode=OneWay, NotifyOnTargetUpdated=True}" TargetUpdated="dataGridTargetUpdated" Sorting="dataGridPlaylistSummarySorting" ColumnReordered="setDisplayIndicesPlaylistSummary" Visibility="{Binding IsPlaylistSummaryMode, Converter={qc:QuickConverter '$P ? Visibility.Visible : Visibility.Collapsed'}}" IsVisibleChanged="dataGridPlaylistSummary_IsVisibleChanged" AlternationCount="2">
             <i:Interaction.Triggers>
               <l:InteractionMessageTrigger MessageKey="CallbackColumnsSetingsChanged" Messenger="{Binding Messenger}">
                 <l:LivetCallMethodAction MethodName="getDisplayIndicesPlaylistSummary" MethodTarget="{Binding ElementName=window, Mode=OneWay}" />
@@ -2012,22 +2013,26 @@
                 </Style>
               </ResourceDictionary>
             </FrameworkElement.Resources>
-            <DataGrid.AlternatingRowBackground>
-              <SolidColorBrush Color="#F1F4F7" />
-            </DataGrid.AlternatingRowBackground>
             <DataGrid.RowStyle>
               <Style TargetType="{x:Type DataGridRow}">
+                <Setter Property="Background" Value="White" />
+                <Setter Property="FrameworkElement.ContextMenu" Value="{StaticResource playlistSummaryContextMenu}" />
+                <Setter Property="BorderThickness" Value="0,0,0,1" />
+                <Setter Property="BorderBrush" Value="#E7E9EC" />
+                <EventSetter Event="MouseDoubleClick" Handler="playlistSummaryRowDoubleClicked" />
                 <Style.Triggers>
+                  <Trigger Property="ItemsControl.AlternationIndex" Value="1">
+                    <Setter Property="Background" Value="#F1F4F7" />
+                  </Trigger>
+                  <DataTrigger Value="True" Binding="{Binding HasFailureStatus}">
+                    <Setter Property="Background" Value="#FFFDE4E4" />
+                  </DataTrigger>
                   <Trigger Property="DataGridRow.IsSelected" Value="True">
                     <Setter Property="BorderThickness" Value="0" />
                     <Setter Property="Margin" Value="0,0,0,-1" />
                     <Setter Property="BorderBrush" Value="{x:Null}" />
                   </Trigger>
                 </Style.Triggers>
-                <Setter Property="FrameworkElement.ContextMenu" Value="{StaticResource playlistSummaryContextMenu}" />
-                <Setter Property="BorderThickness" Value="0,0,0,1" />
-                <Setter Property="BorderBrush" Value="#E7E9EC" />
-                <EventSetter Event="MouseDoubleClick" Handler="playlistSummaryRowDoubleClicked" />
               </Style>
             </DataGrid.RowStyle>
             <DataGrid.Columns>
@@ -2059,6 +2064,13 @@
                   </DataTemplate>
                 </DataGridTemplateColumn.CellTemplate>
               </DataGridTemplateColumn>
+              <DataGridTextColumn Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_summary_status_header, Mode=OneWay}" IsReadOnly="True" MinWidth="75" CellStyle="{StaticResource styleDataGridCellNonFocusable}" HeaderStyle="{StaticResource stylePlaylistSummaryColumnHeaderCenter}" SortMemberPath="StatusSortOrder" Binding="{Binding Status}" Width="{Binding PlaylistSummaryColumnsSettings.Status.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding PlaylistSummaryColumnsSettings.Status.Visibility, Source={StaticResource vm}, Mode=TwoWay}">
+                <DataGridTextColumn.ElementStyle>
+                  <Style TargetType="{x:Type TextBlock}" BasedOn="{StaticResource styleDataGridNotEditingCellCenterAlignment}">
+                    <Setter Property="ToolTip" Value="{Binding StatusDetail}" />
+                  </Style>
+                </DataGridTextColumn.ElementStyle>
+              </DataGridTextColumn>
               <DataGridTemplateColumn Header="ROOT" MinWidth="50" HeaderStyle="{StaticResource stylePlaylistSummaryColumnHeaderCenter}" SortMemberPath="IsRootFolder" Width="{Binding PlaylistSummaryColumnsSettings.IsRootFolder.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding PlaylistSummaryColumnsSettings.IsRootFolder.Visibility, Source={StaticResource vm}, Mode=TwoWay}">
                 <DataGridTemplateColumn.CellStyle>
                   <Style TargetType="{x:Type DataGridCell}" BasedOn="{StaticResource styleDataGridCellNonFocusable}" />

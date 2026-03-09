@@ -1183,6 +1183,45 @@ BMSファイルが重複しないようにマージします。
   <data name="Playlist_summary_format" xml:space="preserve">
     <value>[{0}譜面 / {1}プレイリスト]</value>
   </data>
+  <data name="Playlist_summary_status_header" xml:space="preserve">
+    <value>STATUS</value>
+  </data>
+  <data name="Playlist_sync_status_none" xml:space="preserve">
+    <value>-</value>
+  </data>
+  <data name="Playlist_sync_status_ok" xml:space="preserve">
+    <value>OK</value>
+  </data>
+  <data name="Playlist_sync_status_updated" xml:space="preserve">
+    <value>UPDATED</value>
+  </data>
+  <data name="Playlist_sync_status_header" xml:space="preserve">
+    <value>HEADER</value>
+  </data>
+  <data name="Playlist_sync_status_header_url" xml:space="preserve">
+    <value>HEADER URL</value>
+  </data>
+  <data name="Playlist_sync_status_data" xml:space="preserve">
+    <value>DATA</value>
+  </data>
+  <data name="Playlist_sync_status_invalid_url" xml:space="preserve">
+    <value>INVALID URL</value>
+  </data>
+  <data name="Playlist_sync_status_404" xml:space="preserve">
+    <value>404</value>
+  </data>
+  <data name="Playlist_sync_status_403" xml:space="preserve">
+    <value>403</value>
+  </data>
+  <data name="Playlist_sync_status_http" xml:space="preserve">
+    <value>HTTP</value>
+  </data>
+  <data name="Playlist_sync_status_network" xml:space="preserve">
+    <value>NETWORK</value>
+  </data>
+  <data name="Playlist_sync_status_unknown" xml:space="preserve">
+    <value>UNKNOWN</value>
+  </data>
   <data name="MessageBoxTitle_Error" xml:space="preserve">
     <value>エラー</value>
   </data>
