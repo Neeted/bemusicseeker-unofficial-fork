@@ -42,12 +42,9 @@ public partial class LoadPlaylistURIDialog : UserControl, IComponentConnector
 			}
 			textBoxURIInput.Text = string.Empty;
 			settingDialog.Visibility = Visibility.Hidden;
-			await Task.Run(delegate
-			{
-				viewModel.RegistrateExternalPlaylistBMSTable(targetURI);
-			}).Logging("SaveAndClose");
-		}
-	}
+            await viewModel.RegistrateExternalPlaylistBMSTableAsync(targetURI).Logging("SaveAndClose");
+        }
+    }
 
 	private void OpenLocalFile(object sender, RoutedEventArgs e)
 	{

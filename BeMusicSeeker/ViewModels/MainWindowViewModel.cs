@@ -3146,8 +3146,6 @@ public class MainWindowViewModel : ViewModel
                 bmsTable.Output_dir = output_dir;
                 bmsTable.is_root_folder = is_root_folder;
                 bmsTable.compat_prefix = compat_prefix;
-                tableUpdatesAfterSaved();
-                backupTableProperties();
                 return true;
             }
             return false;
@@ -3197,7 +3195,7 @@ public class MainWindowViewModel : ViewModel
             temp_Page_url = bmsTable.Page_url;
         }
 
-        private void tableUpdatesAfterSaved()
+        internal async Task ApplyPostSaveUpdatesAsync()
         {
             if ((!temp_is_external_sync && bmsTable.is_external_sync) || (bmsTable.is_external_sync && temp_compat_prefix != bmsTable.compat_prefix) || (bmsTable.is_external_sync && bmsTable.Page_url != null && temp_Page_url != null && bmsTable.Page_url.ToString() != temp_Page_url.ToString()))
             {
@@ -3208,7 +3206,7 @@ public class MainWindowViewModel : ViewModel
                     BMSTable sourceTable = bmsTable;
                     try
                     {
-                        bmsTable = ownerViewModel.tables.ResetBMSTable(bmsTable, uri);
+                        bmsTable = await ownerViewModel.tables.ResetBMSTableAsync(bmsTable, uri);
                         ownerViewModel.UpdatePlaylistSyncRuntimeStatus(PlaylistSyncAttemptResult.CreateSuccess(sourceTable, bmsTable, uri, bmsTable.last_update != last_update));
                     }
                     catch (Exception ex)
@@ -3242,6 +3240,7 @@ public class MainWindowViewModel : ViewModel
                     ownerViewModel.lr2config.Save();
                 }
             }
+            backupTableProperties();
         }
 
         protected override void Dispose(bool disposing)
@@ -4170,7 +4169,7 @@ public class MainWindowViewModel : ViewModel
         {
             return;
         }
-        Task.Run(delegate
+        Task.Run(async delegate
         {
             while (true)
             {
@@ -4188,10 +4187,10 @@ public class MainWindowViewModel : ViewModel
                     {
                         updateCallbackActions = new List<Action<BMSTable, bool, BMSTable>> { updateCallbackAction };
                     }
-                    List<BMSTable> list = tables.UpdateBMSTablesInternal(reloadExtPlaylist: true, updateCallbackActions, delegate (PlaylistSyncAttemptResult result)
+                    List<BMSTable> list = await tables.UpdateBMSTablesInternalAsync(reloadExtPlaylist: true, updateCallbackActions, delegate (PlaylistSyncAttemptResult result)
                     {
                         UpdatePlaylistSyncRuntimeStatus(result);
-                    });
+                    }).ConfigureAwait(false);
                     int num = list?.Count ?? 0;
                     ScheduleDeferredPlaylistReferenceApply("DeferredExternalSync:" + reason);
                     RefreshPlaylistSummaryIfVisible();
@@ -7527,15 +7526,25 @@ public class MainWindowViewModel : ViewModel
 
     public void ResyncPlaylists(IEnumerable<PlaylistSummaryRow> rows)
     {
+        ResyncPlaylistsAsync(rows).GetAwaiter().GetResult();
+    }
+
+    public Task ResyncPlaylistsAsync(IEnumerable<PlaylistSummaryRow> rows)
+    {
         if (rows == null)
         {
-            return;
+            return Task.CompletedTask;
         }
         List<BMSTable> tablesToResync = rows.Where((PlaylistSummaryRow r) => r?.TableRef != null).Select((PlaylistSummaryRow r) => r.TableRef).Distinct().ToList();
-        ResyncPlaylists(tablesToResync);
+        return ResyncPlaylistsAsync(tablesToResync);
     }
 
     public void ResyncPlaylists(IEnumerable<BMSTable> tablesToResync)
+    {
+        ResyncPlaylistsAsync(tablesToResync).GetAwaiter().GetResult();
+    }
+
+    public async Task ResyncPlaylistsAsync(IEnumerable<BMSTable> tablesToResync)
     {
         if (tablesToResync == null || tables == null || files == null)
         {
@@ -7552,7 +7561,7 @@ public class MainWindowViewModel : ViewModel
             try
             {
                 DateTime last_update = item.last_update;
-                BMSTable bMSTable = tables.ResetBMSTable(item, uri);
+                BMSTable bMSTable = await tables.ResetBMSTableAsync(item, uri);
                 files.RemoveReferenceBMSTables(item);
                 files.AddReferenceBMSTables(bMSTable);
                 UpdatePlaylistSyncRuntimeStatus(PlaylistSyncAttemptResult.CreateSuccess(item, bMSTable, uri, bMSTable.last_update != last_update));
@@ -7779,10 +7788,15 @@ public class MainWindowViewModel : ViewModel
 
     internal void RegistrateExternalPlaylistBMSTable(Uri uri)
     {
+        RegistrateExternalPlaylistBMSTableAsync(uri).GetAwaiter().GetResult();
+    }
+
+    internal async Task RegistrateExternalPlaylistBMSTableAsync(Uri uri)
+    {
         BMSTable table;
         try
         {
-            table = tables.RegistrateExternalTable(uri);
+            table = await tables.RegistrateExternalTableAsync(uri);
         }
         catch (InvalidOperationException ex)
         {

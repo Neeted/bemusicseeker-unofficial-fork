@@ -97,6 +97,12 @@ public class BMSPlaylist : NotificationObject
     private static readonly AppHttpClient playlistHttpClient = AppHttpClient.Create(PlaylistWebTimeoutMs);
 
     /// <summary>
+    /// 外部プレイリスト同期で同時に走らせる取得数の上限です。
+    /// HTTP 待ち主体のため CPU 数ではなく接続数ベースで抑制します。
+    /// </summary>
+    private const int ExternalPlaylistSyncMaxConcurrency = 32;
+
+    /// <summary>
     /// プレイリストを保存する LR2 Song DB のパスを保持します。
     /// </summary>
     private string lr2SongDBPath;
@@ -1891,16 +1897,20 @@ public class BMSPlaylist : NotificationObject
     /// <exception cref="InvalidOperationException">URI 不正、重複、または登録要件を満たさない場合。</exception>
     public BMSTable RegistrateExternalTable(Uri pageUri)
     {
+        return RegistrateExternalTableAsync(pageUri).GetAwaiter().GetResult();
+    }
+
+    internal async Task<BMSTable> RegistrateExternalTableAsync(Uri pageUri, CancellationToken cancellationToken = default(CancellationToken))
+    {
         if (!pageUri.IsAbsoluteUri)
         {
             throw new InvalidOperationException("pageUri.IsAbsoluteUri is not true");
         }
-        BMSTable bMSTable;
+        BMSTable bMSTable = await LoadExternalTableAsync(pageUri, null, cancellationToken).ConfigureAwait(false);
         using (rwlockBMSTablesInitializeMin.GetReaderGuard())
         {
             using (rwlockBMSTables.GetWriterGuard())
             {
-                bMSTable = LoadExternalTable(pageUri);
                 if (bMSTable.last_update == default(DateTime))
                 {
                     bMSTable.last_update = DateTime.Now;
@@ -1934,10 +1944,15 @@ public class BMSPlaylist : NotificationObject
     /// <returns><c>last_update</c> が変化したプレイリスト一覧。</returns>
     public List<BMSTable> UpdateBMSTables(bool reloadExtPlaylist = true, List<Action<BMSTable, bool, BMSTable>> updateCallbackActions = null)
     {
-        return UpdateBMSTablesInternal(reloadExtPlaylist, updateCallbackActions, null);
+        return UpdateBMSTablesInternalAsync(reloadExtPlaylist, updateCallbackActions, null).GetAwaiter().GetResult();
     }
 
     internal List<BMSTable> UpdateBMSTablesInternal(bool reloadExtPlaylist = true, List<Action<BMSTable, bool, BMSTable>> updateCallbackActions = null, Action<PlaylistSyncAttemptResult> syncResultCallback = null)
+    {
+        return UpdateBMSTablesInternalAsync(reloadExtPlaylist, updateCallbackActions, syncResultCallback).GetAwaiter().GetResult();
+    }
+
+    internal async Task<List<BMSTable>> UpdateBMSTablesInternalAsync(bool reloadExtPlaylist = true, List<Action<BMSTable, bool, BMSTable>> updateCallbackActions = null, Action<PlaylistSyncAttemptResult> syncResultCallback = null, CancellationToken cancellationToken = default(CancellationToken))
     {
         IsPlaylistUpdating = true;
         try
@@ -1953,89 +1968,87 @@ public class BMSPlaylist : NotificationObject
                 tableSnapshot = BMSTables.ToList();
             }
             object lockObject = new object();
-            int maxDegreeOfParallelism = Math.Max(1, Math.Min(Environment.ProcessorCount, 4));
-            using SemaphoreSlim semaphoreSlim = new SemaphoreSlim(maxDegreeOfParallelism, maxDegreeOfParallelism);
-            Task.WaitAll(tableSnapshot.Select(delegate (BMSTable table)
+            using SemaphoreSlim semaphoreSlim = new SemaphoreSlim(ExternalPlaylistSyncMaxConcurrency, ExternalPlaylistSyncMaxConcurrency);
+            await Task.WhenAll(tableSnapshot.Select(async delegate(BMSTable table)
             {
                 BMSTable newTable = table;
-                return Task.Run(async delegate
+                await semaphoreSlim.WaitAsync(cancellationToken).ConfigureAwait(false);
+                Uri uri = table.Page_url ?? table.Header_url;
+                bool arg = false;
+                PlaylistSyncAttemptResult playlistSyncAttemptResult = null;
+                try
                 {
-                    await semaphoreSlim.WaitAsync().ConfigureAwait(false);
-                    Uri uri = table.Page_url ?? table.Header_url;
-                    bool arg = false;
-                    PlaylistSyncAttemptResult playlistSyncAttemptResult = null;
-                    try
+                    cancellationToken.ThrowIfCancellationRequested();
+                    if (reloadExtPlaylist && table.is_external_sync && uri != null && uri.IsAbsoluteUri)
                     {
-                        if (reloadExtPlaylist && table.is_external_sync && uri != null && uri.IsAbsoluteUri)
-                        {
-                            Stopwatch stopwatchExternalSync = Stopwatch.StartNew();
-                            try
-                            {
-                                using (table.ReaderWriterLock.GetWriterGuard())
-                                {
-                                    newTable = MergeReloadedBMSTableWithExistingState(table, uri);
-                                    Stopwatch stopwatchCommit = Stopwatch.StartNew();
-                                    CommitBMSTable(newTable);
-                                    stopwatchCommit.Stop();
-                                    Interlocked.Add(ref updateCommitTicks, stopwatchCommit.ElapsedTicks);
-                                }
-                                using (rwlockBMSTables.GetWriterGuard())
-                                {
-                                    int index = BMSTables.IndexOf(table);
-                                    if (index >= 0)
-                                    {
-                                        BMSTables[index] = newTable;
-                                    }
-                                    if (newTable.last_update != table.last_update)
-                                    {
-                                        arg = true;
-                                        lock (lockObject)
-                                        {
-                                            updatedTables.Add(newTable);
-                                        }
-                                    }
-                                }
-                                playlistSyncAttemptResult = PlaylistSyncAttemptResult.CreateSuccess(table, newTable, uri, arg);
-                            }
-                            catch (Exception ex)
-                            {
-                                Ribbit.Logging.NLogWrapper.FileLogger?.Warn(ex, "playlist_auto_resync_failed table=" + FormatTextForLog(table?.name) + " uri=" + FormatUriForLog(uri));
-                                playlistSyncAttemptResult = PlaylistSyncAttemptResult.CreateFailure(table, uri, ex);
-                            }
-                            finally
-                            {
-                                syncResultCallback?.Invoke(playlistSyncAttemptResult);
-                            }
-                            stopwatchExternalSync.Stop();
-                            Interlocked.Add(ref updateExternalSyncTicks, stopwatchExternalSync.ElapsedTicks);
-                        }
-                        Stopwatch stopwatchCallbacks = Stopwatch.StartNew();
+                        Stopwatch stopwatchExternalSync = Stopwatch.StartNew();
                         try
                         {
-                            if (updateCallbackActions != null)
+                            BMSTable reloadedTable = await reloadBMSTableAsync(table, uri, cancellationToken).ConfigureAwait(false);
+                            using (table.ReaderWriterLock.GetWriterGuard())
                             {
-                                foreach (Action<BMSTable, bool, BMSTable> item in updateCallbackActions.Where((Action<BMSTable, bool, BMSTable> a) => a != null))
+                                newTable = MergeReloadedBMSTableState(table, reloadedTable);
+                                Stopwatch stopwatchCommit = Stopwatch.StartNew();
+                                CommitBMSTable(newTable);
+                                stopwatchCommit.Stop();
+                                Interlocked.Add(ref updateCommitTicks, stopwatchCommit.ElapsedTicks);
+                            }
+                            using (rwlockBMSTables.GetWriterGuard())
+                            {
+                                int index = BMSTables.IndexOf(table);
+                                if (index >= 0)
                                 {
-                                    item(newTable, arg, table);
+                                    BMSTables[index] = newTable;
+                                }
+                                if (newTable.last_update != table.last_update)
+                                {
+                                    arg = true;
+                                    lock (lockObject)
+                                    {
+                                        updatedTables.Add(newTable);
+                                    }
                                 }
                             }
+                            playlistSyncAttemptResult = PlaylistSyncAttemptResult.CreateSuccess(table, newTable, uri, arg);
                         }
                         catch (Exception ex)
                         {
-                            Ribbit.Logging.NLogWrapper.FileLogger?.Warn(ex, "playlist_update_callback_failed table=" + FormatTextForLog(newTable?.name) + " uri=" + FormatUriForLog(uri));
+                            Ribbit.Logging.NLogWrapper.FileLogger?.Warn(ex, "playlist_auto_resync_failed table=" + FormatTextForLog(table?.name) + " uri=" + FormatUriForLog(uri));
+                            playlistSyncAttemptResult = PlaylistSyncAttemptResult.CreateFailure(table, uri, ex);
                         }
                         finally
                         {
-                            stopwatchCallbacks.Stop();
-                            Interlocked.Add(ref updateCallbacksTicks, stopwatchCallbacks.ElapsedTicks);
+                            syncResultCallback?.Invoke(playlistSyncAttemptResult);
                         }
+                        stopwatchExternalSync.Stop();
+                        Interlocked.Add(ref updateExternalSyncTicks, stopwatchExternalSync.ElapsedTicks);
+                    }
+                    Stopwatch stopwatchCallbacks = Stopwatch.StartNew();
+                    try
+                    {
+                        if (updateCallbackActions != null)
+                        {
+                            foreach (Action<BMSTable, bool, BMSTable> item in updateCallbackActions.Where((Action<BMSTable, bool, BMSTable> a) => a != null))
+                            {
+                                item(newTable, arg, table);
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Ribbit.Logging.NLogWrapper.FileLogger?.Warn(ex, "playlist_update_callback_failed table=" + FormatTextForLog(newTable?.name) + " uri=" + FormatUriForLog(uri));
                     }
                     finally
                     {
-                        semaphoreSlim.Release();
+                        stopwatchCallbacks.Stop();
+                        Interlocked.Add(ref updateCallbacksTicks, stopwatchCallbacks.ElapsedTicks);
                     }
-                }).Logging("UpdateBMSTables");
-            }).ToArray());
+                }
+                finally
+                {
+                    semaphoreSlim.Release();
+                }
+            }).ToArray()).ConfigureAwait(false);
             stopwatchUpdateTablesTotal.Stop();
             long num = (long)TimeSpan.FromTicks(Interlocked.Read(ref updateExternalSyncTicks)).TotalMilliseconds;
             long num2 = (long)TimeSpan.FromTicks(Interlocked.Read(ref updateCallbacksTicks)).TotalMilliseconds;
@@ -2059,15 +2072,21 @@ public class BMSPlaylist : NotificationObject
     /// <exception cref="ArgumentNullException"><paramref name="bmsTable"/> が <see langword="null"/> の場合。</exception>
     public BMSTable ResetBMSTable(BMSTable bmsTable, Uri pageUri = null)
     {
+        return ResetBMSTableAsync(bmsTable, pageUri).GetAwaiter().GetResult();
+    }
+
+    internal async Task<BMSTable> ResetBMSTableAsync(BMSTable bmsTable, Uri pageUri = null, CancellationToken cancellationToken = default(CancellationToken))
+    {
         if (bmsTable == null)
         {
             throw new ArgumentNullException("bmsTable");
         }
+        BMSTable reloadedTable = await reloadBMSTableAsync(bmsTable, pageUri, cancellationToken).ConfigureAwait(false);
         using (rwlockBMSTables.GetWriterGuard())
         {
             using (bmsTable.ReaderWriterLock.GetWriterGuard())
             {
-                BMSTable bMSTable = MergeReloadedBMSTableWithExistingState(bmsTable, pageUri, logLastUpdateDecision: true);
+                BMSTable bMSTable = MergeReloadedBMSTableState(bmsTable, reloadedTable, logLastUpdateDecision: true);
                 using (bMSTable.ReaderWriterLock.GetWriterGuard())
                 {
                     BMSTables[BMSTables.IndexOf(bmsTable)] = bMSTable;
@@ -2285,6 +2304,11 @@ public class BMSPlaylist : NotificationObject
     /// <exception cref="ArgumentException">URI が無効な場合。</exception>
     public BMSTable LoadExternalTable(Uri pageUri, BMSTable baseTable = null)
     {
+        return LoadExternalTableAsync(pageUri, baseTable).GetAwaiter().GetResult();
+    }
+
+    internal async Task<BMSTable> LoadExternalTableAsync(Uri pageUri, BMSTable baseTable = null, CancellationToken cancellationToken = default(CancellationToken))
+    {
         if (pageUri == null || !pageUri.IsAbsoluteUri)
         {
             throw new ArgumentException(Resources.Error_URIMustBeAbsolute, "pageUri");
@@ -2301,11 +2325,11 @@ public class BMSPlaylist : NotificationObject
             string header_json = null;
         try
         {
-            string input = playlistHttpClient.GetString(pageUri);
+            string input = await playlistHttpClient.GetStringAsync(pageUri, null, cancellationToken).ConfigureAwait(false);
             if (TryResolveHeaderUri(input, pageUri, out headerUri))
             {
                 resolvedHeaderUri = (!headerUri.IsAbsoluteUri) ? new Uri(pageUri, headerUri) : headerUri;
-                header_json = playlistHttpClient.GetString(resolvedHeaderUri);
+                header_json = await playlistHttpClient.GetStringAsync(resolvedHeaderUri, null, cancellationToken).ConfigureAwait(false);
             }
             else if (LooksLikeJsonContent(input))
             {
@@ -2339,7 +2363,7 @@ public class BMSPlaylist : NotificationObject
             {
                 throw new InvalidOperationException("Failed to resolve playlist data_url. rawDataUrl=" + FormatTextForLog(bMSTable.data_url) + " pageUrl=" + FormatUriForLog(bMSTable.Page_url) + " headerUrl=" + FormatUriForLog(bMSTable.Header_url) + " sourcePage=" + FormatUriForLog(originalPageUri));
             }
-            string data_json = playlistHttpClient.GetString(resolvedDataUri);
+            string data_json = await playlistHttpClient.GetStringAsync(resolvedDataUri, null, cancellationToken).ConfigureAwait(false);
             bMSTable.LoadDataJSON(data_json);
             return bMSTable;
         }
@@ -2419,6 +2443,16 @@ public class BMSPlaylist : NotificationObject
             pageUri = oldTable.Page_url ?? oldTable.Header_url;
         }
         BMSTable reloadedTable = reloadBMSTable(oldTable, pageUri);
+        return MergeReloadedBMSTableState(oldTable, reloadedTable, logLastUpdateDecision);
+    }
+
+    private async Task<BMSTable> MergeReloadedBMSTableWithExistingStateAsync(BMSTable oldTable, Uri pageUri = null, bool logLastUpdateDecision = false, CancellationToken cancellationToken = default(CancellationToken))
+    {
+        if (pageUri == null)
+        {
+            pageUri = oldTable.Page_url ?? oldTable.Header_url;
+        }
+        BMSTable reloadedTable = await reloadBMSTableAsync(oldTable, pageUri, cancellationToken).ConfigureAwait(false);
         return MergeReloadedBMSTableState(oldTable, reloadedTable, logLastUpdateDecision);
     }
 
@@ -2564,6 +2598,15 @@ public class BMSPlaylist : NotificationObject
             pageUri = bmsTable.Page_url ?? bmsTable.Header_url;
         }
         return LoadExternalTable(pageUri, bmsTable);
+    }
+
+    private async Task<BMSTable> reloadBMSTableAsync(BMSTable bmsTable, Uri pageUri = null, CancellationToken cancellationToken = default(CancellationToken))
+    {
+        if (pageUri == null)
+        {
+            pageUri = bmsTable.Page_url ?? bmsTable.Header_url;
+        }
+        return await LoadExternalTableAsync(pageUri, bmsTable, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>

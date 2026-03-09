@@ -2082,10 +2082,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
         if (viewModel != null && selectedPlaylistSummaryRows.Count > 0)
         {
-            await Task.Run(delegate
-            {
-                viewModel.ResyncPlaylists(selectedPlaylistSummaryRows);
-            }).Logging("playlistSummaryContextMenuResyncClick");
+            await viewModel.ResyncPlaylistsAsync(selectedPlaylistSummaryRows).Logging("playlistSummaryContextMenuResyncClick");
         }
     }
 
@@ -2454,10 +2451,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         BMSTableSimple dataContext = menuItem.DataContext as BMSTableSimple;
         if (viewModel != null && dataContext != null && !(dataContext.url == null) && !viewModel.IsWriteLockHeldBMSTablesInitializeMin)
         {
-            await Task.Run(delegate
-            {
-                viewModel.RegistrateExternalPlaylistBMSTable(dataContext.url);
-            }).Logging("treeViewPlaylistRootContextMenuItemLoadPlaylistCollectionClick");
+            await viewModel.RegistrateExternalPlaylistBMSTableAsync(dataContext.url).Logging("treeViewPlaylistRootContextMenuItemLoadPlaylistCollectionClick");
         }
     }
 
@@ -2471,10 +2465,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         if (viewModel != null && sender is MenuItem menuItem && !viewModel.IsWriteLockHeldBMSTablesInitializeMin)
         {
             Uri uri = new Uri((string)menuItem.Tag);
-            await Task.Run(delegate
-            {
-                viewModel.RegistrateExternalPlaylistBMSTable(uri);
-            }).Logging("treeViewPlaylistRootContextMenuItemLoadWalkureTableClick");
+            await viewModel.RegistrateExternalPlaylistBMSTableAsync(uri).Logging("treeViewPlaylistRootContextMenuItemLoadWalkureTableClick");
         }
     }
 
@@ -2506,10 +2497,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        await Task.Run(delegate
-        {
-            viewModel.RegistrateExternalPlaylistBMSTable(uri);
-        }).Logging("treeViewPlaylistRootContextMenuItemLoadWalkureTableRecommendedClick");
+        await viewModel.RegistrateExternalPlaylistBMSTableAsync(uri).Logging("treeViewPlaylistRootContextMenuItemLoadWalkureTableRecommendedClick");
     }
 
     /// <summary>
@@ -2579,10 +2567,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        await Task.Run(delegate
-        {
-            viewModel.ResyncPlaylists(new BMSTable[1] { table });
-        }).Logging("treeViewPlaylistTableContextMenuItemReloadClick");
+        await viewModel.ResyncPlaylistsAsync(new BMSTable[1] { table }).Logging("treeViewPlaylistTableContextMenuItemReloadClick");
         RestorePlaylistTableSelectionAfterReload(table);
     }
 

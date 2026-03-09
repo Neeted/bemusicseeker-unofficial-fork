@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Markup;
@@ -35,19 +36,20 @@ public partial class PlaylistPropertyDialog : UserControl, IComponentConnector
 		}
 	}
 
-	private void SaveAndClose(object sender, RoutedEventArgs e)
-	{
-		if (base.DataContext is MainWindowViewModel { playlistPropertyDialog: { } playlistPropertyDialogViewModel })
-		{
-			if (playlistPropertyDialogViewModel.SaveProperties())
-			{
-				playlistPropertyDialogViewModel.Dispose();
-				playlistPropertyDialog.Visibility = Visibility.Hidden;
-			}
-			else
-			{
-				MessageBox.Show(Window.GetWindow(this), "プレイリスト名・URI・出力先フォルダ名を確認して下さい。", "エラー", MessageBoxButton.OK, MessageBoxImage.Hand);
-			}
+    private async void SaveAndClose(object sender, RoutedEventArgs e)
+    {
+        if (base.DataContext is MainWindowViewModel { playlistPropertyDialog: { } playlistPropertyDialogViewModel })
+        {
+            if (playlistPropertyDialogViewModel.SaveProperties())
+            {
+                playlistPropertyDialogViewModel.Dispose();
+                playlistPropertyDialog.Visibility = Visibility.Hidden;
+                await playlistPropertyDialogViewModel.ApplyPostSaveUpdatesAsync();
+            }
+            else
+            {
+                MessageBox.Show(Window.GetWindow(this), "プレイリスト名・URI・出力先フォルダ名を確認して下さい。", "エラー", MessageBoxButton.OK, MessageBoxImage.Hand);
+            }
 		}
 	}
 
