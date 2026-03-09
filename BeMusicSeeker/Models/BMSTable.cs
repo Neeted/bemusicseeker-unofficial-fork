@@ -66,13 +66,18 @@ public class BMSTable : LR2SongDBExtended.playlist
         }
         protected set
         {
-            try
+            if (string.IsNullOrWhiteSpace(value))
             {
-                Page_url = new Uri(value, UriKind.Absolute);
+                Page_url = null;
+                return;
             }
-            catch
+            if (TryParseStoredUri(value, UriKind.Absolute, out var uri, out var exception))
             {
+                Page_url = uri;
+                return;
             }
+            Page_url = null;
+            Ribbit.Logging.NLogWrapper.FileLogger?.Warn(exception, "playlist_invalid_page_url_from_db value=" + value);
         }
     }
 
@@ -90,13 +95,18 @@ public class BMSTable : LR2SongDBExtended.playlist
         }
         protected set
         {
-            try
+            if (string.IsNullOrWhiteSpace(value))
             {
-                Header_url = new Uri(value, UriKind.RelativeOrAbsolute);
+                Header_url = null;
+                return;
             }
-            catch
+            if (TryParseStoredUri(value, UriKind.RelativeOrAbsolute, out var uri, out var exception))
             {
+                Header_url = uri;
+                return;
             }
+            Header_url = null;
+            Ribbit.Logging.NLogWrapper.FileLogger?.Warn(exception, "playlist_invalid_header_url_from_db value=" + value);
         }
     }
 
@@ -114,17 +124,54 @@ public class BMSTable : LR2SongDBExtended.playlist
         }
         protected set
         {
-            try
+            if (string.IsNullOrWhiteSpace(value))
             {
-                Data_url = new Uri(value, UriKind.RelativeOrAbsolute);
+                Data_url = null;
+                return;
             }
-            catch
+            if (TryParseStoredUri(value, UriKind.RelativeOrAbsolute, out var uri, out var exception))
             {
+                Data_url = uri;
+                return;
             }
+            Data_url = null;
+            Ribbit.Logging.NLogWrapper.FileLogger?.Warn(exception, "playlist_invalid_data_url_from_db value=" + value);
         }
     }
 
     public Uri Data_url { get; set; }
+
+    private static bool TryParseStoredUri(string value, UriKind uriKind, out Uri uri, out Exception exception)
+    {
+        uri = null;
+        exception = null;
+        try
+        {
+            uri = new Uri(value, uriKind);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            exception = ex;
+            return false;
+        }
+    }
+
+    private static Uri ParsePlaylistUriOrThrow(string rawValue, string context)
+    {
+        if (string.IsNullOrWhiteSpace(rawValue))
+        {
+            return null;
+        }
+        try
+        {
+            return new Uri(rawValue, UriKind.RelativeOrAbsolute);
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException("Failed to resolve playlist " + context + ". rawValue=" + rawValue, ex);
+        }
+    }
 
     public List<BMSTableEntry> entries
     {
@@ -375,13 +422,13 @@ public class BMSTable : LR2SongDBExtended.playlist
             {
                 Page_url = _page_url_absolute;
             }
-            if (header_url != null)
+            if (__header_url != null)
             {
                 Header_url = __header_url;
             }
             if (val.IsDefined("data_url") && val.data_url != null)
             {
-                data_url = val.data_url.ToString();
+                Data_url = ParsePlaylistUriOrThrow(val.data_url.ToString(), "data_url");
             }
             if (!val.IsDefined("compat_prefix") || !val.IsDefined("folder_sort_key") || !val.IsDefined("folder_sort_ascending"))
             {
@@ -402,9 +449,13 @@ public class BMSTable : LR2SongDBExtended.playlist
                 }
             }
         }
-        catch
+        catch (InvalidOperationException)
         {
-            throw new ArgumentException("ヘッダのパースに失敗しました", "_header_json");
+            throw;
+        }
+        catch (Exception ex)
+        {
+            throw new PlaylistHeaderParseException("ヘッダのパースに失敗しました", ex);
         }
         if (_data_json != null)
         {
@@ -431,9 +482,9 @@ public class BMSTable : LR2SongDBExtended.playlist
             dynamic val = DynamicJson.Parse(_data_json);
             entries = ((object[])val).Select((dynamic json) => new BMSTableEntry(json, this)).ToList();
         }
-        catch
+        catch (Exception ex)
         {
-            throw new ArgumentException("データのパースに失敗しました", "_data_json");
+            throw new PlaylistDataParseException("データのパースに失敗しました", ex);
         }
     }
 

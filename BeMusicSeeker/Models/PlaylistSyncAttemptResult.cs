@@ -59,6 +59,14 @@ internal sealed class PlaylistSyncAttemptResult
         {
             return PlaylistSyncStatusKind.HeaderNotFound;
         }
+        if (exception is PlaylistHeaderParseException)
+        {
+            return PlaylistSyncStatusKind.HeaderParseError;
+        }
+        if (exception is PlaylistDataParseException)
+        {
+            return PlaylistSyncStatusKind.DataParseError;
+        }
         if (exception is ArgumentException argumentException)
         {
             if (string.Equals(argumentException.ParamName, "_header_json", StringComparison.Ordinal))
@@ -112,7 +120,7 @@ internal sealed class PlaylistSyncAttemptResult
 
     private static string BuildFailureDetail(Exception exception, Uri pageUri)
     {
-        string message = exception?.Message ?? string.Empty;
+        string message = BuildFailureMessage(exception);
         string text = pageUri?.ToString() ?? string.Empty;
         if (string.IsNullOrWhiteSpace(message))
         {
@@ -123,5 +131,24 @@ internal sealed class PlaylistSyncAttemptResult
             return message;
         }
         return message + Environment.NewLine + text;
+    }
+
+    private static string BuildFailureMessage(Exception exception)
+    {
+        if (exception == null)
+        {
+            return string.Empty;
+        }
+        string message = exception.Message ?? string.Empty;
+        string innerMessage = exception.InnerException?.Message ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(innerMessage) || string.Equals(message, innerMessage, StringComparison.Ordinal))
+        {
+            return message;
+        }
+        if (string.IsNullOrWhiteSpace(message))
+        {
+            return innerMessage;
+        }
+        return message + Environment.NewLine + innerMessage;
     }
 }

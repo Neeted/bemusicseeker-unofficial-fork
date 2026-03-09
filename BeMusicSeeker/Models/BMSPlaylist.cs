@@ -1953,76 +1953,86 @@ public class BMSPlaylist : NotificationObject
                 tableSnapshot = BMSTables.ToList();
             }
             object lockObject = new object();
+            int maxDegreeOfParallelism = Math.Max(1, Math.Min(Environment.ProcessorCount, 4));
+            using SemaphoreSlim semaphoreSlim = new SemaphoreSlim(maxDegreeOfParallelism, maxDegreeOfParallelism);
             Task.WaitAll(tableSnapshot.Select(delegate (BMSTable table)
             {
                 BMSTable newTable = table;
-                return Task.Run(delegate
+                return Task.Run(async delegate
                 {
+                    await semaphoreSlim.WaitAsync().ConfigureAwait(false);
                     Uri uri = table.Page_url ?? table.Header_url;
                     bool arg = false;
                     PlaylistSyncAttemptResult playlistSyncAttemptResult = null;
-                    if (reloadExtPlaylist && table.is_external_sync && uri != null && uri.IsAbsoluteUri)
+                    try
                     {
-                        Stopwatch stopwatchExternalSync = Stopwatch.StartNew();
-                        try
+                        if (reloadExtPlaylist && table.is_external_sync && uri != null && uri.IsAbsoluteUri)
                         {
-                            using (table.ReaderWriterLock.GetWriterGuard())
+                            Stopwatch stopwatchExternalSync = Stopwatch.StartNew();
+                            try
                             {
-                                newTable = MergeReloadedBMSTableWithExistingState(table, uri);
-                                Stopwatch stopwatchCommit = Stopwatch.StartNew();
-                                CommitBMSTable(newTable);
-                                stopwatchCommit.Stop();
-                                Interlocked.Add(ref updateCommitTicks, stopwatchCommit.ElapsedTicks);
-                            }
-                            using (rwlockBMSTables.GetWriterGuard())
-                            {
-                                int index = BMSTables.IndexOf(table);
-                                if (index >= 0)
+                                using (table.ReaderWriterLock.GetWriterGuard())
                                 {
-                                    BMSTables[index] = newTable;
+                                    newTable = MergeReloadedBMSTableWithExistingState(table, uri);
+                                    Stopwatch stopwatchCommit = Stopwatch.StartNew();
+                                    CommitBMSTable(newTable);
+                                    stopwatchCommit.Stop();
+                                    Interlocked.Add(ref updateCommitTicks, stopwatchCommit.ElapsedTicks);
                                 }
-                                if (newTable.last_update != table.last_update)
+                                using (rwlockBMSTables.GetWriterGuard())
                                 {
-                                    arg = true;
-                                    lock (lockObject)
+                                    int index = BMSTables.IndexOf(table);
+                                    if (index >= 0)
                                     {
-                                        updatedTables.Add(newTable);
+                                        BMSTables[index] = newTable;
+                                    }
+                                    if (newTable.last_update != table.last_update)
+                                    {
+                                        arg = true;
+                                        lock (lockObject)
+                                        {
+                                            updatedTables.Add(newTable);
+                                        }
                                     }
                                 }
+                                playlistSyncAttemptResult = PlaylistSyncAttemptResult.CreateSuccess(table, newTable, uri, arg);
                             }
-                            playlistSyncAttemptResult = PlaylistSyncAttemptResult.CreateSuccess(table, newTable, uri, arg);
+                            catch (Exception ex)
+                            {
+                                Ribbit.Logging.NLogWrapper.FileLogger?.Warn(ex, "playlist_auto_resync_failed table=" + FormatTextForLog(table?.name) + " uri=" + FormatUriForLog(uri));
+                                playlistSyncAttemptResult = PlaylistSyncAttemptResult.CreateFailure(table, uri, ex);
+                            }
+                            finally
+                            {
+                                syncResultCallback?.Invoke(playlistSyncAttemptResult);
+                            }
+                            stopwatchExternalSync.Stop();
+                            Interlocked.Add(ref updateExternalSyncTicks, stopwatchExternalSync.ElapsedTicks);
+                        }
+                        Stopwatch stopwatchCallbacks = Stopwatch.StartNew();
+                        try
+                        {
+                            if (updateCallbackActions != null)
+                            {
+                                foreach (Action<BMSTable, bool, BMSTable> item in updateCallbackActions.Where((Action<BMSTable, bool, BMSTable> a) => a != null))
+                                {
+                                    item(newTable, arg, table);
+                                }
+                            }
                         }
                         catch (Exception ex)
                         {
-                            Ribbit.Logging.NLogWrapper.FileLogger?.Warn(ex, "playlist_auto_resync_failed table=" + FormatTextForLog(table?.name) + " uri=" + FormatUriForLog(uri));
-                            playlistSyncAttemptResult = PlaylistSyncAttemptResult.CreateFailure(table, uri, ex);
+                            Ribbit.Logging.NLogWrapper.FileLogger?.Warn(ex, "playlist_update_callback_failed table=" + FormatTextForLog(newTable?.name) + " uri=" + FormatUriForLog(uri));
                         }
                         finally
                         {
-                            syncResultCallback?.Invoke(playlistSyncAttemptResult);
+                            stopwatchCallbacks.Stop();
+                            Interlocked.Add(ref updateCallbacksTicks, stopwatchCallbacks.ElapsedTicks);
                         }
-                        stopwatchExternalSync.Stop();
-                        Interlocked.Add(ref updateExternalSyncTicks, stopwatchExternalSync.ElapsedTicks);
-                    }
-                    Stopwatch stopwatchCallbacks = Stopwatch.StartNew();
-                    try
-                    {
-                        if (updateCallbackActions != null)
-                        {
-                            foreach (Action<BMSTable, bool, BMSTable> item in updateCallbackActions.Where((Action<BMSTable, bool, BMSTable> a) => a != null))
-                            {
-                                item(newTable, arg, table);
-                            }
-                            return;
-                        }
-                    }
-                    catch
-                    {
                     }
                     finally
                     {
-                        stopwatchCallbacks.Stop();
-                        Interlocked.Add(ref updateCallbacksTicks, stopwatchCallbacks.ElapsedTicks);
+                        semaphoreSlim.Release();
                     }
                 }).Logging("UpdateBMSTables");
             }).ToArray());
