@@ -50,6 +50,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 {
     private static readonly Logger installPerformanceLogger = LogManager.GetLogger("InstallPerformance.MainWindow");
 
+    private static readonly bool installPerformanceLoggingEnabled = CommandLineSwitches.IsInfoLoggingEnabled;
+
     private static readonly AppHttpClient updateCheckHttpClient = AppHttpClient.Create(5000);
 
     private const long DownloadAndInstallSizeLimitBytes = 536870912L;
@@ -61,6 +63,16 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     private DispatcherOperation _mainDataGridSortGlyphRefreshOperation;
 
     private DispatcherOperation _playlistSummarySortGlyphRefreshOperation;
+
+    private bool _mainDataGridUsesAsyncBinding = true;
+
+    private MainWindowViewModel _mainWindowViewModelForDataGridBinding;
+
+    private PropertyChangedEventHandler _mainWindowViewModelDataGridBindingHandler;
+
+    private long _mainDataGridLastScheduledSortGlyphGeneration;
+
+    private long _mainDataGridLastCompletedSortGlyphGeneration;
 
     private const long CallbackExecSortSlowLogThresholdMs = 100L;
 
@@ -184,6 +196,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     public MainWindow()
     {
         InitializeComponent();
+        DataContextChanged += MainWindow_DataContextChanged;
 
         // Add handler that catches already-handled TreeViewItem.Selected events to synchronize TreeView exclusivity
         gridTreePane.AddHandler(TreeViewItem.SelectedEvent, new RoutedEventHandler(gridTreePane_TreeViewItemSelected), true);
@@ -270,6 +283,172 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 treeViewItemInstallPending.IsSelected = true;
             }
         });
+    }
+
+    /// <summary>
+    /// DataContext 変更時にメイン DataGrid binding 監視先を差し替えます。
+    /// </summary>
+    private void MainWindow_DataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
+    {
+        if (ReferenceEquals(e.OldValue, e.NewValue))
+        {
+            return;
+        }
+        DetachMainDataGridBindingOwner();
+        AttachMainDataGridBindingOwner(e.NewValue as MainWindowViewModel);
+        if (dataGrid != null && dataGrid.IsLoaded)
+        {
+            ApplyMainDataGridItemsSourceBinding(forceRebind: true);
+        }
+    }
+
+    /// <summary>
+    /// メイン DataGrid の binding 切り替えを監視する ViewModel を登録します。
+    /// </summary>
+    /// <param name="viewModel">監視対象 ViewModel。</param>
+    private void AttachMainDataGridBindingOwner(MainWindowViewModel viewModel)
+    {
+        if (viewModel == null)
+        {
+            return;
+        }
+        if (ReferenceEquals(_mainWindowViewModelForDataGridBinding, viewModel) && _mainWindowViewModelDataGridBindingHandler != null)
+        {
+            return;
+        }
+        DetachMainDataGridBindingOwner();
+        _mainWindowViewModelForDataGridBinding = viewModel;
+        _mainWindowViewModelDataGridBindingHandler = delegate(object _, PropertyChangedEventArgs args)
+        {
+            if (args == null)
+            {
+                return;
+            }
+            if (args.PropertyName == "UseAsyncBMSFilesViewBinding" || args.PropertyName == "IsPlaylistDetailViewActive")
+            {
+                Dispatcher.BeginInvoke(DispatcherPriority.Background, (Action)delegate
+                {
+                    ApplyMainDataGridItemsSourceBinding(forceRebind: false);
+                });
+            }
+        };
+        viewModel.PropertyChanged += _mainWindowViewModelDataGridBindingHandler;
+    }
+
+    /// <summary>
+    /// 現在登録中の ViewModel 監視を解除します。
+    /// </summary>
+    private void DetachMainDataGridBindingOwner()
+    {
+        if (_mainWindowViewModelForDataGridBinding != null && _mainWindowViewModelDataGridBindingHandler != null)
+        {
+            _mainWindowViewModelForDataGridBinding.PropertyChanged -= _mainWindowViewModelDataGridBindingHandler;
+        }
+        _mainWindowViewModelForDataGridBinding = null;
+        _mainWindowViewModelDataGridBindingHandler = null;
+    }
+
+    /// <summary>
+    /// 現在の ViewModel 状態に応じてメイン DataGrid の ItemsSource binding を再構成します。
+    /// playlist 詳細表示では同期 binding に切り替えて旧 ItemsSource の保持を減らします。
+    /// </summary>
+    /// <param name="forceRebind">現在の設定と同一でも binding を再構成する場合は <see langword="true"/>。</param>
+    private void ApplyMainDataGridItemsSourceBinding(bool forceRebind)
+    {
+        if (dataGrid == null)
+        {
+            return;
+        }
+        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
+        bool useAsyncBinding = viewModel == null || viewModel.UseAsyncBMSFilesViewBinding;
+        if (!forceRebind && _mainDataGridUsesAsyncBinding == useAsyncBinding && BindingOperations.GetBinding(dataGrid, ItemsControl.ItemsSourceProperty) != null)
+        {
+            return;
+        }
+        Binding itemsSourceBinding = new Binding("BMSFilesView")
+        {
+            Mode = BindingMode.OneWay,
+            NotifyOnTargetUpdated = true,
+            IsAsync = useAsyncBinding
+        };
+        BindingOperations.SetBinding(dataGrid, ItemsControl.ItemsSourceProperty, itemsSourceBinding);
+        _mainDataGridUsesAsyncBinding = useAsyncBinding;
+        LogPlaylistDataGridState("binding_applied", dataGrid, "useAsync=" + useAsyncBinding);
+    }
+
+    /// <summary>
+    /// playlist 詳細表示の差し替え直前に DataGrid の選択・編集状態と旧 ItemsSource を解放します。
+    /// </summary>
+    /// <param name="targetDataGrid">対象 DataGrid。</param>
+    public void PreparePlaylistDataGridSwap(DataGrid targetDataGrid)
+    {
+        DataGrid effectiveDataGrid = targetDataGrid ?? dataGrid;
+        if (effectiveDataGrid == null)
+        {
+            return;
+        }
+        if (!Dispatcher.CheckAccess())
+        {
+            Dispatcher.BeginInvoke(DispatcherPriority.Background, (Action)delegate
+            {
+                PreparePlaylistDataGridSwap(effectiveDataGrid);
+            });
+            return;
+        }
+        DispatcherOperation pendingSortGlyphRefresh = GetSortGlyphRefreshOperation(effectiveDataGrid);
+        if (pendingSortGlyphRefresh != null && (pendingSortGlyphRefresh.Status == DispatcherOperationStatus.Pending || pendingSortGlyphRefresh.Status == DispatcherOperationStatus.Executing))
+        {
+            pendingSortGlyphRefresh.Abort();
+            SetSortGlyphRefreshOperation(effectiveDataGrid, null);
+        }
+        try
+        {
+            effectiveDataGrid.CancelEdit(DataGridEditingUnit.Cell);
+            effectiveDataGrid.CancelEdit(DataGridEditingUnit.Row);
+        }
+        catch
+        {
+        }
+        effectiveDataGrid.CurrentCell = default(DataGridCellInfo);
+        if (effectiveDataGrid.SelectionMode != DataGridSelectionMode.Single && effectiveDataGrid.SelectedItems != null)
+        {
+            effectiveDataGrid.SelectedItems.Clear();
+        }
+        effectiveDataGrid.SelectedItem = null;
+        effectiveDataGrid.SelectedIndex = -1;
+        effectiveDataGrid.SetCurrentValue(ItemsControl.ItemsSourceProperty, null);
+        LogPlaylistDataGridState("prepare_swap", effectiveDataGrid, "useAsync=" + _mainDataGridUsesAsyncBinding);
+        Dispatcher.BeginInvoke(DispatcherPriority.Background, (Action)delegate
+        {
+            ApplyMainDataGridItemsSourceBinding(forceRebind: false);
+        });
+    }
+
+    /// <summary>
+    /// playlist 詳細表示中の DataGrid 状態を診断ログへ出力します。
+    /// </summary>
+    /// <param name="eventName">出力イベント名。</param>
+    /// <param name="targetDataGrid">対象 DataGrid。</param>
+    /// <param name="details">追加情報。</param>
+    private void LogPlaylistDataGridState(string eventName, DataGrid targetDataGrid, string details = null)
+    {
+        if (!installPerformanceLoggingEnabled)
+        {
+            return;
+        }
+        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
+        bool isPlaylistDetailViewActive = viewModel != null && viewModel.IsPlaylistDetailViewActive;
+        int itemCount = 0;
+        int selectedCount = 0;
+        string itemsSourceType = "(null)";
+        if (targetDataGrid != null)
+        {
+            itemCount = targetDataGrid.Items?.Count ?? 0;
+            selectedCount = targetDataGrid.SelectedItems?.Count ?? 0;
+            itemsSourceType = targetDataGrid.ItemsSource?.GetType().FullName ?? "(null)";
+        }
+        string suffix = string.IsNullOrWhiteSpace(details) ? string.Empty : " " + details;
+        installPerformanceLogger.Info("playlist_datagrid_state event=" + eventName + " playlistActive=" + isPlaylistDetailViewActive + " useAsync=" + _mainDataGridUsesAsyncBinding + " itemsCount=" + itemCount + " selectedCount=" + selectedCount + " itemsSourceType=" + itemsSourceType + " sourceGenerationId=" + (viewModel?.PlaylistSourceGenerationId ?? 0L) + " viewGenerationId=" + (viewModel?.PlaylistAdoptedViewGenerationId ?? 0L) + suffix);
     }
 
     private void CloseWindow(object sender, ExecutedRoutedEventArgs e)
@@ -389,6 +568,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     protected override void OnClosing(CancelEventArgs e)
     {
         base.OnClosing(e);
+        DetachMainDataGridBindingOwner();
         Settings.Default.TreeViewWidth = treeView.ActualWidth + gridSplitter.ActualWidth;
         Win32API.WINDOWPLACEMENT lpwndpl = default(Win32API.WINDOWPLACEMENT);
         Win32API.GetWindowPlacement(new WindowInteropHelper(this).Handle, ref lpwndpl);
@@ -418,6 +598,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
+        LogPlaylistDataGridState("sorting", dataGrid, "column=" + sortMemberPath);
         ListSortDirection? effectiveCurrentDirection = e.Column.SortDirection;
         if (!effectiveCurrentDirection.HasValue && viewModel.SortParameters != null && string.Equals(viewModel.SortParameters.ColumnsName, sortMemberPath, StringComparison.Ordinal))
         {
@@ -479,6 +660,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         if (sender is DataGrid dataGrid2)
         {
+            LogPlaylistDataGridState("target_updated", dataGrid2);
             RequestSortGlyphRefresh(dataGrid2, "target_updated");
         }
     }
@@ -527,6 +709,15 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         bool isMainDataGrid = !ReferenceEquals(dataGrid, dataGridPlaylistSummary);
         MainWindowViewModel mainWindowViewModel = base.DataContext as MainWindowViewModel;
+        long playlistViewGenerationId = (isMainDataGrid && mainWindowViewModel != null && mainWindowViewModel.IsPlaylistDetailViewActive) ? mainWindowViewModel.PlaylistAdoptedViewGenerationId : 0L;
+        if (isMainDataGrid && playlistViewGenerationId > 0L && (_mainDataGridLastScheduledSortGlyphGeneration == playlistViewGenerationId || _mainDataGridLastCompletedSortGlyphGeneration == playlistViewGenerationId))
+        {
+            if (installPerformanceLoggingEnabled)
+            {
+                installPerformanceLogger.Info("playlist_sortglyph_refresh event=skipped generationId=" + playlistViewGenerationId + " trigger=" + trigger + " completedGenerationId=" + _mainDataGridLastCompletedSortGlyphGeneration + " scheduledGenerationId=" + _mainDataGridLastScheduledSortGlyphGeneration);
+            }
+            return;
+        }
         long requestId = Interlocked.Increment(ref callbackExecSortRequestId);
         Stopwatch queueStopwatch = Stopwatch.StartNew();
         long raiseRequestId = isMainDataGrid ? (mainWindowViewModel?.LastExecSortCallbackRequestId ?? 0L) : 0L;
@@ -537,6 +728,14 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         int mainViewBuildThreadId = isMainDataGrid ? (mainWindowViewModel?.LastMainViewBuildThreadId ?? 0) : 0;
         int mainViewBuildMode = isMainDataGrid ? (mainWindowViewModel?.LastMainViewBuildMode ?? 0) : 0;
         DispatcherOperation scheduledOperation = null;
+        if (isMainDataGrid && playlistViewGenerationId > 0L)
+        {
+            _mainDataGridLastScheduledSortGlyphGeneration = playlistViewGenerationId;
+            if (installPerformanceLoggingEnabled)
+            {
+                installPerformanceLogger.Info("playlist_sortglyph_refresh event=scheduled generationId=" + playlistViewGenerationId + " trigger=" + trigger + " request=" + requestId);
+            }
+        }
         scheduledOperation = base.Dispatcher.BeginInvoke((Action)delegate
         {
             if (ReferenceEquals(GetSortGlyphRefreshOperation(dataGrid), scheduledOperation))
@@ -561,6 +760,21 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             base.Dispatcher.BeginInvoke((Action)delegate
             {
                 bool appliedAtRender = ApplySortGlyphNow(dataGrid, requestId, raiseRequestId, trigger + "_render", logWhenTargetMissing: true);
+                if (isMainDataGrid && playlistViewGenerationId > 0L)
+                {
+                    if (appliedAtRender)
+                    {
+                        _mainDataGridLastCompletedSortGlyphGeneration = playlistViewGenerationId;
+                    }
+                    else if (_mainDataGridLastScheduledSortGlyphGeneration == playlistViewGenerationId)
+                    {
+                        _mainDataGridLastScheduledSortGlyphGeneration = 0L;
+                    }
+                    if (installPerformanceLoggingEnabled)
+                    {
+                        installPerformanceLogger.Info("playlist_sortglyph_refresh event=completed generationId=" + playlistViewGenerationId + " trigger=" + trigger + " request=" + requestId + " applied=" + appliedAtRender);
+                    }
+                }
                 long applyToRenderMs = (Stopwatch.GetTimestamp() - applyStartTimestamp) * 1000L / Stopwatch.Frequency;
                 long raiseToRenderMs = (raiseStartTimestamp > 0L) ? ((Stopwatch.GetTimestamp() - raiseStartTimestamp) * 1000L / Stopwatch.Frequency) : (-1L);
                 long buildToRenderMs = (mainViewBuildEndTimestamp > 0L) ? ((Stopwatch.GetTimestamp() - mainViewBuildEndTimestamp) * 1000L / Stopwatch.Frequency) : (-1L);
@@ -842,7 +1056,38 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     {
         if ((bool)e.NewValue && sender is DataGrid dataGrid2)
         {
+            LogPlaylistDataGridState("visible_changed", dataGrid2);
             RequestSortGlyphRefresh(dataGrid2, "visible_changed");
+        }
+    }
+
+    /// <summary>
+    /// メイン DataGrid のロード完了時に binding と診断状態を初期化します。
+    /// </summary>
+    private void dataGrid_Loaded(object sender, RoutedEventArgs e)
+    {
+        AttachMainDataGridBindingOwner(base.DataContext as MainWindowViewModel);
+        ApplyMainDataGridItemsSourceBinding(forceRebind: true);
+        LogPlaylistDataGridState("loaded", sender as DataGrid);
+    }
+
+    /// <summary>
+    /// メイン DataGrid のアンロード時に診断ログと監視状態を整理します。
+    /// </summary>
+    private void dataGrid_Unloaded(object sender, RoutedEventArgs e)
+    {
+        LogPlaylistDataGridState("unloaded", sender as DataGrid);
+    }
+
+    /// <summary>
+    /// メイン DataGrid の選択状態変化を診断ログへ出力します。
+    /// </summary>
+    private void dataGrid_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
+        if (viewModel != null && viewModel.IsPlaylistDetailViewActive)
+        {
+            LogPlaylistDataGridState("selection_changed", sender as DataGrid);
         }
     }
 
