@@ -1309,8 +1309,10 @@ public class BMSLibrary : NotificationObject
         NLogWrapper.DebuggerLogger?.Trace("hazimari: " + GC.GetTotalMemory(forceFullCollection: false));
         DateTime now;
         InitializationExecutionResult initializeResult;
+        LogInstallPerformance("init_library_enter reloadScoresOnly=" + (reloadScoresOnly?.ToString() ?? "(null)") + " songTblLoad=" + songTblLoad.ToString().ToLowerInvariant() + " songTblFileCheck=" + songTblFileCheck.ToString().ToLowerInvariant() + " setMaintenanceInfo=" + setMaintenanceInfo.ToString().ToLowerInvariant() + " installTblCheck=" + flag.ToString().ToLowerInvariant() + " rwlockInitAll currentRead=" + rwlockBMSFilesInitializedAll.CurrentReadCount + " lockingRead=" + rwlockBMSFilesInitializedAll.LockingReadCount + " lockingWrite=" + rwlockBMSFilesInitializedAll.LockingWriteCount + " waitingWrite=" + rwlockBMSFilesInitializedAll.WaitingWriteCount);
         using (rwlockBMSFilesInitializedAll.GetWriterGuard())
         {
+            LogInstallPerformance("init_library_lock_acquired rwlockInitAll currentRead=" + rwlockBMSFilesInitializedAll.CurrentReadCount + " lockingRead=" + rwlockBMSFilesInitializedAll.LockingReadCount + " lockingWrite=" + rwlockBMSFilesInitializedAll.LockingWriteCount + " waitingWrite=" + rwlockBMSFilesInitializedAll.WaitingWriteCount);
             now = DateTime.Now;
             initializeResult = initializationService.RunInitialize(
                 tasksContinuation,
@@ -3596,14 +3598,111 @@ public class BMSLibrary : NotificationObject
         }
     }
 
+    internal void RefreshReferenceDisplayForFiles(IEnumerable<BMSFile> files, bool suppressFilePropertyChanged = false)
+    {
+        if (files == null)
+        {
+            return;
+        }
+        foreach (BMSFile file in files.Where((BMSFile file) => file != null).Distinct())
+        {
+            file.RefreshRefTablesDisplayCache(suppressFilePropertyChanged);
+        }
+    }
+
+    internal void RefreshReferenceDisplayForTable(BMSTable table, IEnumerable<BMSFile> files = null, bool suppressFilePropertyChanged = false)
+    {
+        if (table == null)
+        {
+            return;
+        }
+        if (files != null)
+        {
+            RefreshReferenceDisplayForFiles(files.Where((BMSFile file) => file != null && file.HasRefTable(table)), suppressFilePropertyChanged);
+            return;
+        }
+        List<BMSFile> list = new List<BMSFile>();
+        using (rwlockBMSFiles.GetReaderGuard())
+        {
+            if (BMSFiles != null)
+            {
+                list.AddRange(BMSFiles.Where((BMSFile file) => file != null && file.HasRefTable(table)));
+            }
+        }
+        using (rwlockBMSFilesPendingInstall.GetReaderGuard())
+        {
+            if (BMSPackagesPending != null)
+            {
+                list.AddRange(BMSPackagesPending.SelectMany((BMSPackage pkg) => pkg.BMSFiles).Where((BMSFile file) => file != null && file.HasRefTable(table)));
+            }
+        }
+        RefreshReferenceDisplayForFiles(list, suppressFilePropertyChanged);
+    }
+
+    internal void SynchronizeReferenceBMSTables(IEnumerable<BMSTable> tables, bool suppressFilePropertyChanged = false)
+    {
+        List<BMSTable> list = ((tables != null) ? tables.Where((BMSTable table) => table != null).Distinct().ToList() : new List<BMSTable>());
+        HashSet<BMSTable> hashSet = new HashSet<BMSTable>(list);
+        Action<IEnumerable<BMSFile>> action = delegate(IEnumerable<BMSFile> files)
+        {
+            foreach (BMSFile file in files.Where((BMSFile file) => file != null))
+            {
+                file.RemoveRefTablesNotIn(hashSet, suppressFilePropertyChanged);
+            }
+        };
+        if (BMSFiles != null && BMSFiles.Count > 0)
+        {
+            using (rwlockBMSFiles.GetReaderGuard())
+            {
+                action(BMSFiles);
+            }
+        }
+        if (BMSPackagesPending != null && BMSPackagesPending.Count > 0)
+        {
+            using (rwlockBMSFilesPendingInstall.GetReaderGuard())
+            {
+                action(BMSPackagesPending.SelectMany((BMSPackage pkg) => pkg.BMSFiles));
+            }
+        }
+        if (list.Count > 0)
+        {
+            AddReferenceBMSTables(list, null, suppressFilePropertyChanged);
+        }
+    }
+
     /// <summary>
     /// 指定されたプレイリストの参照を BMS ファイル群から削除します。
     /// </summary>
     public void RemoveReferenceBMSTables(BMSTable table, IEnumerable<BMSTableEntry> entries = null)
     {
+        if (table == null)
+        {
+            return;
+        }
         if (entries == null)
         {
-            RemoveReferenceBMSTables(new BMSTable[1] { table });
+            Action<IEnumerable<BMSFile>> action = delegate(IEnumerable<BMSFile> files)
+            {
+                foreach (BMSFile file in files.Where((BMSFile file) => file != null))
+                {
+                    file.RemoveRefTable(table);
+                }
+            };
+            if (BMSFiles != null && BMSFiles.Count > 0)
+            {
+                using (rwlockBMSFiles.GetReaderGuard())
+                {
+                    action(BMSFiles);
+                }
+            }
+            if (BMSPackagesPending == null || BMSPackagesPending.Count <= 0)
+            {
+                return;
+            }
+            using (rwlockBMSFilesPendingInstall.GetReaderGuard())
+            {
+                action(BMSPackagesPending.SelectMany((BMSPackage pkg) => pkg.BMSFiles));
+            }
             return;
         }
         if (BMSFiles != null && BMSFiles.Count > 0)
@@ -3625,11 +3724,19 @@ public class BMSLibrary : NotificationObject
 
     public void RemoveReferenceBMSTables(IEnumerable<BMSTable> tables)
     {
+        List<BMSTable> list = tables?.Where((BMSTable table) => table != null).Distinct().ToList();
+        if (list == null || list.Count == 0)
+        {
+            return;
+        }
         Action<IEnumerable<BMSFile>> action = delegate (IEnumerable<BMSFile> l)
         {
-            tables.AsParallel().ForAll(delegate (BMSTable table)
+            list.AsParallel().ForAll(delegate (BMSTable table)
             {
-                removeReferenceBMSTables(table, table.entries, l);
+                foreach (BMSFile file in l.Where((BMSFile file) => file != null))
+                {
+                    file.RemoveRefTable(table);
+                }
             });
         };
         if (BMSFiles != null && BMSFiles.Count > 0)

@@ -98,9 +98,13 @@ public class BMSFile : LR2SongDB.song
 
     private object lockObject = new object();
 
-    private ReaderWriterLockSlim rwlockRefTablesEventListeners = new ReaderWriterLockSlim(LockRecursionPolicy.SupportsRecursion);
+    private ReaderWriterLockSlim rwlockRefTables = new ReaderWriterLockSlim(LockRecursionPolicy.SupportsRecursion);
 
-    private Dictionary<BMSTable, PropertyChangedEventListener> refTablesEventListeners = new Dictionary<BMSTable, PropertyChangedEventListener>();
+    private List<BMSTable> refTables = new List<BMSTable>();
+
+    private string refTablesSymbolsCache = string.Empty;
+
+    private string refTablesNamesCache;
 
     private PropertyChangedEventListener listenerForBMSScore;
 
@@ -699,6 +703,7 @@ public class BMSFile : LR2SongDB.song
         {
             throw new ArgumentException("maintenanceInfo の MD5 が一致しません。");
         }
+        DisposeMaintenanceInfoListener();
         _maintenanceInfo = value;
         if (registerEventHandlers)
         {
@@ -741,9 +746,9 @@ public class BMSFile : LR2SongDB.song
     {
         get
         {
-            using (new ReaderGuard(rwlockRefTablesEventListeners))
+            using (new ReaderGuard(rwlockRefTables))
             {
-                return string.Join(" ", refTablesEventListeners.Keys.Select((BMSTable t) => t.symbol));
+                return refTablesSymbolsCache;
             }
         }
     }
@@ -752,10 +757,9 @@ public class BMSFile : LR2SongDB.song
     {
         get
         {
-            using (new ReaderGuard(rwlockRefTablesEventListeners))
+            using (new ReaderGuard(rwlockRefTables))
             {
-                string text = string.Join(Environment.NewLine, refTablesEventListeners.Keys.Select((BMSTable t) => t.name));
-                return string.IsNullOrWhiteSpace(text) ? null : text;
+                return refTablesNamesCache;
             }
         }
     }
@@ -764,9 +768,9 @@ public class BMSFile : LR2SongDB.song
     {
         get
         {
-            using (new ReaderGuard(rwlockRefTablesEventListeners))
+            using (new ReaderGuard(rwlockRefTables))
             {
-                return refTablesEventListeners.Keys.ToList();
+                return refTables.ToList();
             }
         }
     }
@@ -785,6 +789,7 @@ public class BMSFile : LR2SongDB.song
                 {
                     throw new ArgumentException("bmsScore の MD5 が一致しません。");
                 }
+                DisposeBmsScoreListener();
                 _bmsScore = value;
                 registrateBMSScorePropertyChangedEventHandlers();
                 RaisePropertyChanged("bmsScore");
@@ -800,6 +805,7 @@ public class BMSFile : LR2SongDB.song
 
     private void registrateMaintenanceInfoPropertyChangedEventHandlers()
     {
+        DisposeMaintenanceInfoListener();
         if (maintenanceInfo == null)
         {
             return;
@@ -848,44 +854,26 @@ public class BMSFile : LR2SongDB.song
         }
         bool changed = false;
         int addedCount = 0;
-        using (new WriterGuard(rwlockRefTablesEventListeners))
+        using (new WriterGuard(rwlockRefTables))
         {
             foreach (BMSTable item in tables)
             {
-                if (item == null || refTablesEventListeners.ContainsKey(item))
+                if (item == null || refTables.Contains(item))
                 {
                     continue;
                 }
-                BMSTable table = item;
-                try
-                {
-                    PropertyChangedEventListener propertyChangedEventListener = new PropertyChangedEventListener(table);
-                    propertyChangedEventListener.RegisterHandler(() => table.symbol, delegate
-                    {
-                        RaisePropertyChanged(() => RefTablesSymbols);
-                    });
-                    propertyChangedEventListener.RegisterHandler(() => table.name, delegate
-                    {
-                        RaisePropertyChanged(() => RefTablesNames);
-                    });
-                    refTablesEventListeners.Add(table, propertyChangedEventListener);
-                    addedCount++;
-                    changed = true;
-                }
-                catch (ArgumentException)
-                {
-                }
-                catch (Exception)
-                {
-                    throw;
-                }
+                refTables.Add(item);
+                addedCount++;
+                changed = true;
+            }
+            if (changed)
+            {
+                refreshRefTablesDisplayCacheUnsafe();
             }
         }
         if (changed && !suppressPropertyChanged)
         {
-            RaisePropertyChanged(() => RefTablesSymbols);
-            RaisePropertyChanged(() => RefTablesNames);
-            RaisePropertyChanged(() => RefTables);
+            raiseRefTablesPropertyChanged(includeRefTables: true);
         }
         return addedCount;
     }
@@ -896,20 +884,51 @@ public class BMSFile : LR2SongDB.song
         {
             return;
         }
-        using (new WriterGuard(rwlockRefTablesEventListeners))
+        bool removed = false;
+        using (new WriterGuard(rwlockRefTables))
         {
-            if (refTablesEventListeners.ContainsKey(table))
+            if (refTables.Remove(table))
             {
-                refTablesEventListeners.Remove(table);
-                RaisePropertyChanged(() => RefTablesSymbols);
-                RaisePropertyChanged(() => RefTablesNames);
-                RaisePropertyChanged(() => RefTables);
+                refreshRefTablesDisplayCacheUnsafe();
+                removed = true;
             }
         }
+        if (removed)
+        {
+            raiseRefTablesPropertyChanged(includeRefTables: true);
+        }
+    }
+
+    internal bool RemoveRefTablesNotIn(ISet<BMSTable> tables, bool suppressPropertyChanged = false)
+    {
+        bool changed = false;
+        using (new WriterGuard(rwlockRefTables))
+        {
+            if (tables == null)
+            {
+                if (refTables.Count > 0)
+                {
+                    refTables.Clear();
+                    refreshRefTablesDisplayCacheUnsafe();
+                    changed = true;
+                }
+            }
+            else if (refTables.RemoveAll((BMSTable table) => !tables.Contains(table)) > 0)
+            {
+                refreshRefTablesDisplayCacheUnsafe();
+                changed = true;
+            }
+        }
+        if (changed && !suppressPropertyChanged)
+        {
+            raiseRefTablesPropertyChanged(includeRefTables: true);
+        }
+        return changed;
     }
 
     private void registrateBMSScorePropertyChangedEventHandlers()
     {
+        DisposeBmsScoreListener();
         if (bmsScore == null)
         {
             return;
@@ -943,6 +962,99 @@ public class BMSFile : LR2SongDB.song
         {
             RaisePropertyChanged(() => scoreDifficulty);
         });
+    }
+
+    internal int ReleaseTransientListeners(bool clearRefTables = false, bool releaseOwnedListeners = true)
+    {
+        int num = 0;
+        if (releaseOwnedListeners)
+        {
+            num += DisposeMaintenanceInfoListener();
+            num += DisposeBmsScoreListener();
+        }
+        if (clearRefTables)
+        {
+            using (new WriterGuard(rwlockRefTables))
+            {
+                if (refTables.Count > 0)
+                {
+                    num += refTables.Count;
+                    refTables.Clear();
+                    refreshRefTablesDisplayCacheUnsafe();
+                }
+            }
+        }
+        return num;
+    }
+
+    private int DisposeMaintenanceInfoListener()
+    {
+        int result = ((listenerForMaintenanceInfo != null) ? 1 : 0);
+        listenerForMaintenanceInfo?.Dispose();
+        listenerForMaintenanceInfo = null;
+        return result;
+    }
+
+    private int DisposeBmsScoreListener()
+    {
+        int result = ((listenerForBMSScore != null) ? 1 : 0);
+        listenerForBMSScore?.Dispose();
+        listenerForBMSScore = null;
+        return result;
+    }
+
+    private void refreshRefTablesDisplayCacheUnsafe()
+    {
+        refTablesSymbolsCache = string.Join(" ", refTables.Select((BMSTable t) => t.symbol));
+        string text = string.Join(Environment.NewLine, refTables.Select((BMSTable t) => t.name));
+        refTablesNamesCache = string.IsNullOrWhiteSpace(text) ? null : text;
+    }
+
+    private void raiseRefTablesPropertyChanged(bool includeRefTables)
+    {
+        RaisePropertyChanged(() => RefTablesSymbols);
+        RaisePropertyChanged(() => RefTablesNames);
+        if (includeRefTables)
+        {
+            RaisePropertyChanged(() => RefTables);
+        }
+    }
+
+    internal void RefreshRefTablesDisplayCache(bool suppressPropertyChanged = false)
+    {
+        bool symbolsChanged;
+        bool namesChanged;
+        using (new WriterGuard(rwlockRefTables))
+        {
+            string refTablesSymbolsCache2 = refTablesSymbolsCache;
+            string refTablesNamesCache2 = refTablesNamesCache;
+            refreshRefTablesDisplayCacheUnsafe();
+            symbolsChanged = !string.Equals(refTablesSymbolsCache2, refTablesSymbolsCache, StringComparison.Ordinal);
+            namesChanged = !string.Equals(refTablesNamesCache2, refTablesNamesCache, StringComparison.Ordinal);
+        }
+        if (!suppressPropertyChanged)
+        {
+            if (symbolsChanged)
+            {
+                RaisePropertyChanged(() => RefTablesSymbols);
+            }
+            if (namesChanged)
+            {
+                RaisePropertyChanged(() => RefTablesNames);
+            }
+        }
+    }
+
+    internal bool HasRefTable(BMSTable table)
+    {
+        if (table == null)
+        {
+            return false;
+        }
+        using (new ReaderGuard(rwlockRefTables))
+        {
+            return refTables.Contains(table);
+        }
     }
 
     public void SetEncosingInfo(BMSFileMaintenanceInfo mtInfo = null)

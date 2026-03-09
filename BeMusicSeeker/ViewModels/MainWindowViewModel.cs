@@ -2579,6 +2579,10 @@ public class MainWindowViewModel : ViewModel
 
         private string temp_compat_prefix;
 
+        private string temp_name;
+
+        private string temp_symbol;
+
         private string _compat_prefix;
 
         private bool _folder_sort_ascending;
@@ -3192,11 +3196,14 @@ public class MainWindowViewModel : ViewModel
             temp_is_root_folder = bmsTable.is_root_folder;
             temp_is_external_sync = bmsTable.is_external_sync;
             temp_compat_prefix = bmsTable.compat_prefix;
+            temp_name = bmsTable.name;
+            temp_symbol = bmsTable.symbol;
             temp_Page_url = bmsTable.Page_url;
         }
 
         internal async Task ApplyPostSaveUpdatesAsync()
         {
+            bool flag = !string.Equals(temp_name, bmsTable.name, StringComparison.Ordinal) || !string.Equals(temp_symbol, bmsTable.symbol, StringComparison.Ordinal);
             if ((!temp_is_external_sync && bmsTable.is_external_sync) || (bmsTable.is_external_sync && temp_compat_prefix != bmsTable.compat_prefix) || (bmsTable.is_external_sync && bmsTable.Page_url != null && temp_Page_url != null && bmsTable.Page_url.ToString() != temp_Page_url.ToString()))
             {
                 Uri uri = bmsTable.Page_url ?? bmsTable.Header_url;
@@ -3216,7 +3223,10 @@ public class MainWindowViewModel : ViewModel
                             CurrentUri = uri
                         });
                         bmsTable = await ownerViewModel.tables.ResetBMSTableAsync(bmsTable, uri);
+                        ownerViewModel.files.RemoveReferenceBMSTables(sourceTable);
+                        ownerViewModel.files.AddReferenceBMSTables(bmsTable);
                         ownerViewModel.UpdatePlaylistSyncRuntimeStatus(PlaylistSyncAttemptResult.CreateSuccess(sourceTable, bmsTable, uri, bmsTable.last_update != last_update));
+                        flag = false;
                     }
                     catch (Exception ex)
                     {
@@ -3238,6 +3248,11 @@ public class MainWindowViewModel : ViewModel
                     }
                     ownerViewModel.RefreshPlaylistSummaryIfVisible();
                 }
+            }
+            if (flag)
+            {
+                ownerViewModel.files.RefreshReferenceDisplayForTable(bmsTable);
+                ownerViewModel.RefreshPlaylistSummaryIfVisible();
             }
             if (Settings.Default.OperationModeLR2DB)
             {
@@ -4158,7 +4173,7 @@ public class MainWindowViewModel : ViewModel
                         tables.FreeReaderLockBMSTables();
                     }
                     LogDeferredPlaylistReference("playlist_ref_deferred run version=" + requestVersion + " tableCount=" + list.Count);
-                    files.AddReferenceBMSTables(list, null, suppressFilePropertyChanged: true);
+                    files.SynchronizeReferenceBMSTables(list, suppressFilePropertyChanged: true);
                     DispatcherHelper.UIDispatcher.BeginInvoke((Action)delegate
                     {
                         makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
@@ -5517,8 +5532,10 @@ public class MainWindowViewModel : ViewModel
         try
         {
             BeginUiUpdateSuppression(UiRefreshChannel.LibraryMainView | UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.InstallTree | UiRefreshChannel.DuplicateTree);
+            LogInitStage("files_initialize_task_start", "ReloadFiles");
             await Task.Run(delegate
             {
+                LogInitStage("files_initialize_call", "ReloadFiles");
                 files.Initialize(null, null, false);
             }).Logging("ReloadFiles");
             LogInitStage("files_initialize_done", "ReloadFiles");

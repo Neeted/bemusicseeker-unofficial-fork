@@ -5,6 +5,7 @@ using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Windows;
+using System.Reflection;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
@@ -44,7 +45,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                         Interlocked.Increment(ref bmsFilesChangedCount);
                     }
                 };
-                library.BMSFiles = new List<BMSFile> { file };
+                SetLibraryFilesWithoutNotification(library, new BMSFile[] { file });
                 Interlocked.Exchange(ref bmsFilesChangedCount, 0);
                 file.PropertyChanged += delegate (object sender, System.ComponentModel.PropertyChangedEventArgs e)
                 {
@@ -100,7 +101,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                         Interlocked.Increment(ref bmsFilesChangedCount);
                     }
                 };
-                library.BMSFiles = new List<BMSFile> { file };
+                SetLibraryFilesWithoutNotification(library, new BMSFile[] { file });
                 Interlocked.Exchange(ref bmsFilesChangedCount, 0);
 
                 library.MoveBMSRootFolder(new[] { file }, destinationParentPath);
@@ -162,7 +163,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                         Interlocked.Increment(ref encodingChangedCount);
                     }
                 };
-                library.BMSFiles = new List<BMSFile> { file };
+                SetLibraryFilesWithoutNotification(library, new BMSFile[] { file });
                 Interlocked.Exchange(ref garbledChangedCount, 0);
                 Interlocked.Exchange(ref garbledFixedChangedCount, 0);
                 Interlocked.Exchange(ref encodingChangedCount, 0);
@@ -185,9 +186,103 @@ public sealed class BmsLibraryFolderRenameRefreshTests
         });
     }
 
+    [TestMethod]
+    public void RefreshReferenceDisplayForTable_UpdatesPlaylistCellWithoutRaisingBmsFilesChanged()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            BMSLibrary library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
+            TestableBmsFile file = new TestableBmsFile
+            {
+                path = @"C:\Library\chart.bms"
+            };
+            BMSTable table = new BMSTable
+            {
+                name = "Before",
+                symbol = "A"
+            };
+            file.AddRefTable(table);
+            int bmsFilesChangedCount = 0;
+            int symbolsChangedCount = 0;
+            int namesChangedCount = 0;
+            library.PropertyChanged += delegate (object sender, System.ComponentModel.PropertyChangedEventArgs e)
+            {
+                if (e.PropertyName == nameof(BMSLibrary.BMSFiles))
+                {
+                    Interlocked.Increment(ref bmsFilesChangedCount);
+                }
+            };
+            file.PropertyChanged += delegate (object sender, System.ComponentModel.PropertyChangedEventArgs e)
+            {
+                if (e.PropertyName == nameof(BMSFile.RefTablesSymbols))
+                {
+                    Interlocked.Increment(ref symbolsChangedCount);
+                }
+                if (e.PropertyName == nameof(BMSFile.RefTablesNames))
+                {
+                    Interlocked.Increment(ref namesChangedCount);
+                }
+            };
+            SetLibraryFilesWithoutNotification(library, new BMSFile[] { file });
+            Interlocked.Exchange(ref bmsFilesChangedCount, 0);
+            Interlocked.Exchange(ref symbolsChangedCount, 0);
+            Interlocked.Exchange(ref namesChangedCount, 0);
+
+            table.symbol = "B";
+            table.name = "After";
+            Assert.AreEqual("A", file.RefTablesSymbols);
+            Assert.AreEqual("Before", file.RefTablesNames);
+
+            library.RefreshReferenceDisplayForTable(table);
+
+            Assert.IsTrue(WaitUntilTrue(() => Volatile.Read(ref symbolsChangedCount) > 0 && Volatile.Read(ref namesChangedCount) > 0));
+            Assert.AreEqual(0, Volatile.Read(ref bmsFilesChangedCount));
+            Assert.AreEqual("B", file.RefTablesSymbols);
+            Assert.AreEqual("After", file.RefTablesNames);
+        });
+    }
+
+    [TestMethod]
+    public void SynchronizeReferenceBMSTables_ReplacesReloadedPlaylistReferenceWithoutAppending()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            BMSLibrary library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
+            TestableBmsFile file = new TestableBmsFile
+            {
+                path = @"C:\Library\chart.bms"
+            };
+            file.SetHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+            BMSTable oldTable = CreateTable("Before", "A", file.hash);
+            BMSTable newTable = CreateTable("After", "B", file.hash);
+            SetLibraryFilesWithoutNotification(library, new BMSFile[] { file });
+
+            library.AddReferenceBMSTables(oldTable);
+            Assert.AreEqual(1, file.RefTables.Count);
+            Assert.AreEqual("A", file.RefTablesSymbols);
+            Assert.AreEqual("Before", file.RefTablesNames);
+
+            library.SynchronizeReferenceBMSTables(new[] { newTable }, suppressFilePropertyChanged: true);
+
+            Assert.AreEqual(1, file.RefTables.Count);
+            Assert.AreSame(newTable, file.RefTables[0]);
+            Assert.AreEqual("B", file.RefTablesSymbols);
+            Assert.AreEqual("After", file.RefTablesNames);
+        });
+    }
+
     private static bool WaitUntilTrue(Func<bool> predicate, int timeoutMs = 2000)
     {
         return SpinWait.SpinUntil(predicate, timeoutMs);
+    }
+
+    private static void SetLibraryFilesWithoutNotification(BMSLibrary library, IEnumerable<BMSFile> files)
+    {
+        FieldInfo fieldInfo = typeof(BMSLibrary).GetField("_BMSFiles", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.IsNotNull(fieldInfo);
+        fieldInfo.SetValue(library, files.ToList());
     }
 
     private static void WithTemporarySongDb(Action<string> testAction)
@@ -217,6 +312,27 @@ public sealed class BmsLibraryFolderRenameRefreshTests
 
     private sealed class TestableBmsFile : BMSFile
     {
+        public void SetHash(string value)
+        {
+            hash = value;
+        }
+    }
+
+    private static BMSTable CreateTable(string name, string symbol, string hash)
+    {
+        BMSTable bMSTable = new BMSTable
+        {
+            name = name,
+            symbol = symbol
+        };
+        TestableBmsFile testableBmsFile = new TestableBmsFile();
+        testableBmsFile.SetHash(hash);
+        testableBmsFile.path = @"C:\Library\chart.bms";
+        bMSTable.entries.Add(new BMSTableEntry(testableBmsFile)
+        {
+            is_removed = false
+        });
+        return bMSTable;
     }
 
     private sealed class RecordingDialogService : IBmsLibraryDialogService
