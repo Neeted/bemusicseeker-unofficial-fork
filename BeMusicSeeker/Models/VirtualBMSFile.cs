@@ -1,17 +1,22 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Text.RegularExpressions;
-using Livet.EventListeners;
+using System.Threading;
 
 namespace BeMusicSeeker.Models;
 
 public class VirtualBMSFile : BMSFile, IDisposable
 {
+	private static long createdCount;
+
+	private static long disposedCount;
+
 	private BMSTableEntry entry;
 
 	private BMSFile bmsfile;
 
-	private PropertyChangedEventListener listenerForRealBMSFile;
+	private PropertyChangedEventHandler listenerForRealBMSFileChanged;
 
 	private bool isDisposed;
 
@@ -480,6 +485,7 @@ public class VirtualBMSFile : BMSFile, IDisposable
 
 	public VirtualBMSFile(BMSTableEntry _entry, BMSFile file = null)
 	{
+		Interlocked.Increment(ref createdCount);
 		entry = _entry;
 		bmsfile = (entry.bmsfile = file);
 		if (bmsfile != null && bmsfile.hash != null)
@@ -497,65 +503,67 @@ public class VirtualBMSFile : BMSFile, IDisposable
 			return;
 		}
 		DisposeListenerForRealBmsFile();
-		listenerForRealBMSFile = new PropertyChangedEventListener(bmsfile);
-		listenerForRealBMSFile.RegisterHandler(() => bmsfile.tag, delegate
+		listenerForRealBMSFileChanged = OnRealBmsFilePropertyChanged;
+		bmsfile.PropertyChanged += listenerForRealBMSFileChanged;
+	}
+
+	/// <summary>
+	/// 実体譜面の変更を単一ハンドラで仮想行へ転送します。
+	/// プレイリスト詳細表示向けに listener 数を抑えつつ、既存表示更新は維持します。
+	/// </summary>
+	private void OnRealBmsFilePropertyChanged(object sender, PropertyChangedEventArgs e)
+	{
+		switch (e.PropertyName)
 		{
+		case nameof(BMSFile.tag):
 			RaisePropertyChanged(() => tag);
-		});
-		listenerForRealBMSFile.RegisterHandler(() => bmsfile.path, delegate
-		{
+			break;
+		case nameof(BMSFile.path):
 			RaisePropertyChanged(() => path);
-		});
-		listenerForRealBMSFile.RegisterHandler(() => bmsfile.warning, delegate
-		{
+			break;
+		case nameof(BMSFile.warning):
 			RaisePropertyChanged(() => warning);
-		});
-		listenerForRealBMSFile.RegisterHandler(() => bmsfile.HasZeroNoteMismatchWarning, delegate
-		{
+			break;
+		case nameof(BMSFile.HasZeroNoteMismatchWarning):
 			RaisePropertyChanged(() => HasZeroNoteMismatchWarning);
-		});
-		listenerForRealBMSFile.RegisterHandler(() => bmsfile.HasHighlightedWarning, delegate
-		{
+			break;
+		case nameof(BMSFile.HasHighlightedWarning):
 			RaisePropertyChanged(() => HasHighlightedWarning);
-		});
-		listenerForRealBMSFile.RegisterHandler(() => bmsfile.DisplayWarning, delegate
-		{
+			break;
+		case nameof(BMSFile.DisplayWarning):
 			RaisePropertyChanged(() => DisplayWarning);
-		});
-		listenerForRealBMSFile.RegisterHandler(() => bmsfile.instl_dst, delegate
-		{
+			break;
+		case nameof(BMSFile.instl_dst):
 			RaisePropertyChanged(() => instl_dst);
-		});
-		listenerForRealBMSFile.RegisterHandler(() => bmsfile.status, delegate
-		{
+			break;
+		case nameof(BMSFile.status):
 			RaisePropertyChanged(() => status);
-		});
-		listenerForRealBMSFile.RegisterHandler(() => bmsfile.RefTables, delegate
-		{
+			break;
+		case nameof(BMSFile.RefTables):
 			RaisePropertyChanged(() => RefTables);
-		});
-		listenerForRealBMSFile.RegisterHandler(() => bmsfile.RefTablesSymbols, delegate
-		{
+			break;
+		case nameof(BMSFile.RefTablesSymbols):
 			RaisePropertyChanged(() => RefTablesSymbols);
-		});
-		listenerForRealBMSFile.RegisterHandler(() => bmsfile.RefTablesNames, delegate
-		{
+			break;
+		case nameof(BMSFile.RefTablesNames):
 			RaisePropertyChanged(() => RefTablesNames);
-		});
-		listenerForRealBMSFile.RegisterHandler(() => bmsfile.maintenanceInfo, delegate
-		{
+			break;
+		case nameof(BMSFile.maintenanceInfo):
 			base.maintenanceInfo = bmsfile.maintenanceInfo;
-		});
-		listenerForRealBMSFile.RegisterHandler(() => bmsfile.bmsScore, delegate
-		{
+			break;
+		case nameof(BMSFile.bmsScore):
 			base.bmsScore = bmsfile.bmsScore;
-		});
+			break;
+		}
 	}
 
 	private void DisposeListenerForRealBmsFile()
 	{
-		listenerForRealBMSFile?.Dispose();
-		listenerForRealBMSFile = null;
+		if (bmsfile != null && listenerForRealBMSFileChanged != null)
+		{
+			bmsfile.PropertyChanged -= listenerForRealBMSFileChanged;
+		}
+		listenerForRealBMSFileChanged = null;
 	}
 
 	public BMSFile GetNonVirtualBMSFile()
@@ -594,7 +602,28 @@ public class VirtualBMSFile : BMSFile, IDisposable
 		{
 			isDisposed = true;
 			DisposeListenerForRealBmsFile();
+			Interlocked.Increment(ref disposedCount);
 			GC.SuppressFinalize(this);
 		}
+	}
+
+	/// <summary>
+	/// 診断ログとテスト向けに仮想行のライフサイクル統計を返します。
+	/// </summary>
+	/// <returns>生成数、破棄数、生存数のスナップショット。</returns>
+	internal static (long created, long disposed, long alive) GetLifecycleStats()
+	{
+		long created = Interlocked.Read(ref createdCount);
+		long disposed = Interlocked.Read(ref disposedCount);
+		return (created, disposed, created - disposed);
+	}
+
+	/// <summary>
+	/// テスト向けに仮想行のライフサイクル統計を初期化します。
+	/// </summary>
+	internal static void ResetLifecycleStatsForTests()
+	{
+		Interlocked.Exchange(ref createdCount, 0L);
+		Interlocked.Exchange(ref disposedCount, 0L);
 	}
 }

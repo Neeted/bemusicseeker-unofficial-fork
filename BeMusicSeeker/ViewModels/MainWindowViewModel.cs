@@ -3358,6 +3358,53 @@ public class MainWindowViewModel : ViewModel
         PlaylistNotOwnedFilterSelected
     }
 
+    /// <summary>
+    /// プレイリスト詳細ビューの source snapshot と build 制御状態を保持します。
+    /// source は keyword/mode/sort 適用前の正本であり、表示更新は常にこの snapshot から再計算します。
+    /// </summary>
+    internal sealed class PlaylistViewState
+    {
+        /// <summary>
+        /// source snapshot の更新や要求バージョン採番を直列化します。
+        /// </summary>
+        internal readonly object SyncRoot = new object();
+
+        /// <summary>
+        /// プレイリスト source build を単一実行に制限します。
+        /// </summary>
+        internal readonly SemaphoreSlim BuildGate = new SemaphoreSlim(1, 1);
+
+        /// <summary>
+        /// 現在表示の正本となるプレイリスト行集合です。
+        /// </summary>
+        internal List<BeMusicSeeker.Models.BMSFile> SourceRows = new List<BeMusicSeeker.Models.BMSFile>();
+
+        /// <summary>
+        /// 現在表示中のプレイリストです。
+        /// </summary>
+        internal BMSTable CurrentTable;
+
+        /// <summary>
+        /// 現在表示中のプレイリストフォルダ名です。全体表示時は null です。
+        /// </summary>
+        internal string CurrentFolderName;
+
+        /// <summary>
+        /// 現在表示中のプレイリスト filter 種別です。
+        /// </summary>
+        internal PlaylistFilterType CurrentFilterType = PlaylistFilterType.PlaylistFilter;
+
+        /// <summary>
+        /// 最新要求のみ反映するための要求バージョンです。
+        /// </summary>
+        internal int RequestVersion;
+
+        /// <summary>
+        /// 現在の source build をキャンセルするための token source です。
+        /// </summary>
+        internal CancellationTokenSource Cancellation = new CancellationTokenSource();
+    }
+
     public enum MaintenanceFilterType
     {
         FileMissingFilter = 33,
@@ -3437,6 +3484,8 @@ public class MainWindowViewModel : ViewModel
 
     private object lockDeferredPlaylistRef = new object();
 
+    private readonly PlaylistViewState playlistViewState = new PlaylistViewState();
+
     private int deferredExternalSyncRequestedVersion;
 
     private bool deferredExternalSyncRunning;
@@ -3468,6 +3517,10 @@ public class MainWindowViewModel : ViewModel
     private IEnumerable<BeMusicSeeker.Models.BMSFile> BMSFilesModeFilterView;
 
     private List<BeMusicSeeker.Models.BMSFile> _BMSFilesView = new List<BeMusicSeeker.Models.BMSFile>();
+
+    private bool bmsFilesViewOwnedByPlaylistSource;
+
+    private bool nextAssignedBmsFilesViewOwnedByPlaylistSource;
 
     private cSortParameters _SortParameters;
 
@@ -3657,6 +3710,124 @@ public class MainWindowViewModel : ViewModel
         {
             installPerformanceLogger.Info(message);
         }
+    }
+
+    /// <summary>
+    /// プレイリスト source build の診断ログを出力します。
+    /// </summary>
+    /// <param name="message">出力するログ本文。</param>
+    private static void LogPlaylistSourceBuild(string message)
+    {
+        LogMainViewBuild("playlist_source_build " + message);
+    }
+
+    /// <summary>
+    /// プレイリスト source からの view 適用ログを出力します。
+    /// </summary>
+    /// <param name="message">出力するログ本文。</param>
+    private static void LogPlaylistViewApply(string message)
+    {
+        LogMainViewBuild("playlist_view_apply " + message);
+    }
+
+    /// <summary>
+    /// playlist 系表示モードかどうかを判定します。
+    /// </summary>
+    /// <param name="mode">判定対象モード。</param>
+    /// <returns>playlist 系であれば <see langword="true"/>。</returns>
+    private static bool IsPlaylistViewMode(viewUpdateMode mode)
+    {
+        return mode == viewUpdateMode.PlaylistFilterSelected || mode == viewUpdateMode.PlaylistNotOwnedFilterSelected;
+    }
+
+    /// <summary>
+    /// 現在の更新要求がプレイリスト詳細ビューの再描画経路を使うべきかを判定します。
+     /// </summary>
+    /// <param name="mode">今回の更新モード。</param>
+    /// <param name="currentTreeMode">現在選択中の tree モード。</param>
+    /// <returns>プレイリスト詳細ビューの再描画経路を使う場合は <see langword="true"/>。</returns>
+    private static bool IsPlaylistTreeActive(viewUpdateMode mode, viewUpdateMode currentTreeMode)
+    {
+        if (IsPlaylistViewMode(mode))
+        {
+            return true;
+        }
+        if (!IsPlaylistViewMode(currentTreeMode))
+        {
+            return false;
+        }
+        return mode == viewUpdateMode.TreeViewFilterNotChanged || mode == viewUpdateMode.KeywordFilterUpdated || mode == viewUpdateMode.ModeFilterUpdated || mode == viewUpdateMode.SortUpdated;
+    }
+
+    /// <summary>
+    /// 最新のプレイリスト source build 要求としてバージョンを採番し、旧要求をキャンセルします。
+    /// </summary>
+    /// <param name="mode">要求対象モード。</param>
+    /// <param name="parameter">要求パラメータ。</param>
+    /// <param name="requestVersion">採番された要求バージョン。</param>
+    /// <returns>この要求に紐づくキャンセレーショントークン。</returns>
+    private CancellationToken RegisterPlaylistSourceBuildRequest(viewUpdateMode mode, object parameter, out int requestVersion)
+    {
+        CancellationTokenSource previousCancellation = null;
+        CancellationTokenSource currentCancellation = new CancellationTokenSource();
+        lock (playlistViewState.SyncRoot)
+        {
+            requestVersion = ++playlistViewState.RequestVersion;
+            previousCancellation = playlistViewState.Cancellation;
+            playlistViewState.Cancellation = currentCancellation;
+        }
+        previousCancellation?.Cancel();
+        previousCancellation?.Dispose();
+        LogPlaylistSourceBuild("requested version=" + requestVersion + " mode=" + mode + " parameterType=" + (parameter?.GetType().Name ?? "(null)"));
+        return currentCancellation.Token;
+    }
+
+    /// <summary>
+    /// 現在処理中の source build 要求が最新かどうかを判定します。
+     /// </summary>
+    /// <param name="requestVersion">判定対象の要求バージョン。</param>
+    /// <returns>最新要求であれば <see langword="true"/>。</returns>
+    private bool IsLatestPlaylistSourceBuildRequest(int requestVersion)
+    {
+        lock (playlistViewState.SyncRoot)
+        {
+            return requestVersion == playlistViewState.RequestVersion;
+        }
+    }
+
+    /// <summary>
+    /// 仮想行全体と最終採用行との差分を解放します。
+    /// キーワード・モード絞り込みで除外された仮想行をここで明示的に破棄します。
+    /// </summary>
+    /// <param name="allRows">生成済みの全仮想行。</param>
+    /// <param name="adoptedRows">最終的に表示へ採用した行。</param>
+    /// <returns>破棄した仮想行数。</returns>
+    internal static int DisposePlaylistRowsNotAdopted(IReadOnlyCollection<BeMusicSeeker.Models.BMSFile> allRows, IReadOnlyCollection<BeMusicSeeker.Models.BMSFile> adoptedRows)
+    {
+        if (allRows == null || allRows.Count == 0)
+        {
+            return 0;
+        }
+        if (adoptedRows == null || adoptedRows.Count == 0)
+        {
+            DisposeVirtualRows(allRows);
+            return allRows.Count;
+        }
+        if (allRows.Count == adoptedRows.Count)
+        {
+            return 0;
+        }
+        HashSet<BeMusicSeeker.Models.BMSFile> adoptedSet = new HashSet<BeMusicSeeker.Models.BMSFile>(adoptedRows);
+        int disposed = 0;
+        foreach (BeMusicSeeker.Models.BMSFile row in allRows)
+        {
+            if (row is VirtualBMSFile virtualRow && !adoptedSet.Contains(virtualRow))
+            {
+                virtualRow.Dispose();
+                disposed++;
+            }
+        }
+        return disposed;
     }
 
     private static bool IsSameReferenceSequence(List<BeMusicSeeker.Models.BMSFile> left, List<BeMusicSeeker.Models.BMSFile> right)
@@ -4443,9 +4614,14 @@ public class MainWindowViewModel : ViewModel
         }
         set
         {
+            bool newOwnerIsPlaylistSource = nextAssignedBmsFilesViewOwnedByPlaylistSource;
+            nextAssignedBmsFilesViewOwnedByPlaylistSource = false;
             if (_BMSFilesView != value)
             {
-                DisposeVirtualRows(_BMSFilesView);
+                if (!bmsFilesViewOwnedByPlaylistSource)
+                {
+                    DisposeVirtualRows(_BMSFilesView);
+                }
                 if (value == null)
                 {
                     _BMSFilesView = new List<BeMusicSeeker.Models.BMSFile>();
@@ -4456,6 +4632,7 @@ public class MainWindowViewModel : ViewModel
                 }
                 RaisePropertyChanged("BMSFilesView");
             }
+            bmsFilesViewOwnedByPlaylistSource = newOwnerIsPlaylistSource;
         }
     }
 
@@ -4472,6 +4649,75 @@ public class MainWindowViewModel : ViewModel
                 disposable.Dispose();
             }
         }
+    }
+
+    /// <summary>
+    /// <see cref="BMSFilesView"/> の所有権を指定して差し替えます。
+    /// playlist source が正本のときは行の破棄責務を setter から外します。
+    /// </summary>
+    /// <param name="rows">新しい表示行。</param>
+    /// <param name="ownedByPlaylistSource">playlist source が所有する行かどうか。</param>
+    private void SetBMSFilesView(List<BeMusicSeeker.Models.BMSFile> rows, bool ownedByPlaylistSource)
+    {
+        nextAssignedBmsFilesViewOwnedByPlaylistSource = ownedByPlaylistSource;
+        BMSFilesView = rows;
+    }
+
+    /// <summary>
+    /// playlist source に依存する generic cache を無効化します。
+    /// playlist 表示では source snapshot のみを正本として扱います。
+    /// </summary>
+    private void ResetPlaylistDerivedViewCaches()
+    {
+        BMSFilesFolderView = null;
+        BMSFilesKeywordFilterView = null;
+        BMSFilesModeFilterView = null;
+        folderSortSourceSnapshot = null;
+        folderSortResultSnapshot = null;
+        folderSortColumnName = null;
+        folderSortDirection = null;
+    }
+
+    /// <summary>
+    /// playlist source を破棄し、playlist 専用状態を初期化します。
+    /// </summary>
+    private void ClearPlaylistSourceRows()
+    {
+        List<BeMusicSeeker.Models.BMSFile> sourceRowsToDispose = null;
+        lock (playlistViewState.SyncRoot)
+        {
+            sourceRowsToDispose = playlistViewState.SourceRows;
+            playlistViewState.SourceRows = new List<BeMusicSeeker.Models.BMSFile>();
+            playlistViewState.CurrentTable = null;
+            playlistViewState.CurrentFolderName = null;
+            playlistViewState.CurrentFilterType = PlaylistFilterType.PlaylistFilter;
+        }
+        ResetPlaylistDerivedViewCaches();
+        DisposeVirtualRows(sourceRowsToDispose);
+    }
+
+    /// <summary>
+    /// playlist source snapshot を差し替え、前回 source を返します。
+    /// 返却された前回 source は view 差し替え後に呼び出し側で破棄します。
+    /// </summary>
+    /// <param name="sourceRows">新しい source snapshot。</param>
+    /// <param name="currentTable">現在表示中のプレイリスト。</param>
+    /// <param name="currentFolderName">現在表示中のプレイリストフォルダ名。</param>
+    /// <param name="currentFilterType">現在の playlist filter 種別。</param>
+    /// <returns>置き換え前の source snapshot。</returns>
+    private List<BeMusicSeeker.Models.BMSFile> ReplacePlaylistSourceRows(List<BeMusicSeeker.Models.BMSFile> sourceRows, BMSTable currentTable, string currentFolderName, PlaylistFilterType currentFilterType)
+    {
+        List<BeMusicSeeker.Models.BMSFile> previousSourceRows = null;
+        lock (playlistViewState.SyncRoot)
+        {
+            previousSourceRows = playlistViewState.SourceRows;
+            playlistViewState.SourceRows = sourceRows ?? new List<BeMusicSeeker.Models.BMSFile>();
+            playlistViewState.CurrentTable = currentTable;
+            playlistViewState.CurrentFolderName = currentFolderName;
+            playlistViewState.CurrentFilterType = currentFilterType;
+        }
+        ResetPlaylistDerivedViewCaches();
+        return previousSourceRows;
     }
 
     public cSortParameters SortParameters
@@ -6505,6 +6751,432 @@ public class MainWindowViewModel : ViewModel
     }
 
     /// <summary>
+    /// メインビュー更新共通の callback 発火と性能ログを確定します。
+    /// </summary>
+    private void FinalizeMainViewBuild(
+        Stopwatch viewBuildStopwatch,
+        viewUpdateMode mode,
+        viewUpdateMode requestedMode,
+        object parameter,
+        long folderStageMs,
+        long keywordStageMs,
+        long modeStageMs,
+        long sortStageMs,
+        bool sortReuse,
+        string sortProfile,
+        int folderCount,
+        int keywordCount,
+        int modeCount,
+        int viewCount,
+        long columnStageMs,
+        long callbackStageMs)
+    {
+        string sortColumn = SortParameters?.ColumnsName ?? "(default_title)";
+        string sortDirection = SortParameters?.Direction.ToString() ?? "Ascending";
+        string parameterType = parameter?.GetType().Name ?? "(null)";
+        bool fastSortEnabled = Settings.Default.UseFastSortInDataGridExperimental;
+        bool dataGridColumnVirtualizationEnabled = Settings.Default.UseDataGridColumnVirtualizationExperimental;
+        bool isPlaylistDetailForLog = IsPlaylistViewMode(mode) || IsPlaylistViewMode(treeViewFilterTypeSelected);
+        long mainViewBuildRequestId = Interlocked.Increment(ref mainViewBuildRequestIdSeed);
+        long mainViewBuildEndTimestamp = Stopwatch.GetTimestamp();
+        Interlocked.Exchange(ref lastMainViewBuildRequestId, mainViewBuildRequestId);
+        Interlocked.Exchange(ref lastMainViewBuildEndTimestamp, mainViewBuildEndTimestamp);
+        Volatile.Write(ref lastMainViewBuildThreadId, Thread.CurrentThread.ManagedThreadId);
+        Volatile.Write(ref lastMainViewBuildMode, (int)mode);
+        LogMainViewBuild("main_view_build mode=" + mode + " requestedMode=" + requestedMode + " parameterType=" + parameterType + " folderMs=" + folderStageMs + " keywordMs=" + keywordStageMs + " modeMs=" + modeStageMs + " sortMs=" + sortStageMs + " sortReuse=" + sortReuse + " sortProfile=" + sortProfile + " sortEngine=" + (fastSortEnabled ? "fast" : "legacy") + " fastSortEnabled=" + fastSortEnabled + " dataGridColumnVirtualizationEnabled=" + dataGridColumnVirtualizationEnabled + " isPlaylistDetailView=" + isPlaylistDetailForLog + " columnMs=" + columnStageMs + " callbackMs=" + callbackStageMs + " totalMs=" + viewBuildStopwatch.ElapsedMilliseconds + " folderCount=" + folderCount + " keywordCount=" + keywordCount + " modeCount=" + modeCount + " viewCount=" + viewCount + " sortColumn=" + sortColumn + " sortDirection=" + sortDirection);
+    }
+
+    /// <summary>
+    /// メインビュー更新後にソートアイコン再同期コールバックを非同期要求します。
+    /// </summary>
+    private long RaiseCallbackExecSort(viewUpdateMode mode)
+    {
+        string sortColumn = SortParameters?.ColumnsName ?? "(default_title)";
+        string sortDirection = SortParameters?.Direction.ToString() ?? "Ascending";
+        long callbackRequestId = Interlocked.Increment(ref callbackExecSortRaiseRequestId);
+        long callbackRaiseStartTimestamp = Stopwatch.GetTimestamp();
+        int callbackRaiseStartThreadId = Thread.CurrentThread.ManagedThreadId;
+        Interlocked.Exchange(ref lastExecSortCallbackRequestId, callbackRequestId);
+        Interlocked.Exchange(ref lastExecSortCallbackRaiseStartTimestamp, callbackRaiseStartTimestamp);
+        Volatile.Write(ref lastExecSortCallbackRaiseStartThreadId, callbackRaiseStartThreadId);
+        _ = Task.Run(delegate
+        {
+            Stopwatch dispatchStopwatch = Stopwatch.StartNew();
+            base.Messenger.Raise(new InteractionMessage("CallbackExecSort"));
+            long dispatchElapsedMs = dispatchStopwatch.ElapsedMilliseconds;
+            if (dispatchElapsedMs >= CallbackExecSortSlowLogThresholdMs)
+            {
+                LogMainViewBuild("callback_exec_sort_dispatch slow request=" + callbackRequestId + " elapsedMs=" + dispatchElapsedMs + " mode=" + mode + " sortColumn=" + sortColumn + " sortDirection=" + sortDirection + " threadId=" + Thread.CurrentThread.ManagedThreadId + " thresholdMs=" + CallbackExecSortSlowLogThresholdMs);
+            }
+        }).Logging("callback_exec_sort_dispatch");
+        return callbackRequestId;
+    }
+
+    /// <summary>
+    /// プレイリスト詳細ビューの元データを構築します。
+    /// </summary>
+    private List<BeMusicSeeker.Models.BMSFile> BuildPlaylistRows(BMSTable bmsTable, string folderName, bool onlyNotOwned, CancellationToken cancellationToken, out int scoreUpdateTargetCount)
+    {
+        scoreUpdateTargetCount = 0;
+        if (bmsTable == null)
+        {
+            return new List<BeMusicSeeker.Models.BMSFile>();
+        }
+        Dictionary<string, BeMusicSeeker.Models.BMSFile> filesByHash = new Dictionary<string, BeMusicSeeker.Models.BMSFile>(StringComparer.OrdinalIgnoreCase);
+        foreach (BeMusicSeeker.Models.BMSFile file in BMSFiles ?? Enumerable.Empty<BeMusicSeeker.Models.BMSFile>())
+        {
+            if (file == null || string.IsNullOrWhiteSpace(file.hash) || filesByHash.ContainsKey(file.hash))
+            {
+                continue;
+            }
+            filesByHash[file.hash] = file;
+        }
+        List<BeMusicSeeker.Models.BMSFile> playlistRows = new List<BeMusicSeeker.Models.BMSFile>();
+        List<BeMusicSeeker.Models.BMSFile> scoreUpdateTargets = new List<BeMusicSeeker.Models.BMSFile>();
+        foreach (BMSTableEntry entry in bmsTable.GetEntriesExceptDummy())
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (entry.is_removed || (folderName != null && entry.folder != folderName))
+            {
+                continue;
+            }
+            BeMusicSeeker.Models.BMSFile realFile = null;
+            if (!string.IsNullOrWhiteSpace(entry.md5))
+            {
+                filesByHash.TryGetValue(entry.md5, out realFile);
+            }
+            if (onlyNotOwned && realFile != null && !string.IsNullOrWhiteSpace(realFile.path))
+            {
+                continue;
+            }
+            VirtualBMSFile playlistRow = new VirtualBMSFile(entry, realFile);
+            playlistRows.Add(playlistRow);
+            if (string.IsNullOrWhiteSpace(playlistRow.path))
+            {
+                scoreUpdateTargets.Add(playlistRow);
+            }
+        }
+        scoreUpdateTargetCount = scoreUpdateTargets.Count;
+        if (scoreUpdateTargets.Count > 0)
+        {
+            files.SetBMSScore(scoreUpdateTargets);
+        }
+        return playlistRows;
+    }
+
+    /// <summary>
+    /// 現在のモード/パラメータからプレイリスト選択情報を解決します。
+    /// </summary>
+    /// <param name="mode">解決対象モード。</param>
+    /// <param name="parameter">更新パラメータ。</param>
+    /// <param name="bmsTable">解決されたプレイリスト。</param>
+    /// <param name="folderName">解決されたプレイリストフォルダ名。</param>
+    /// <param name="filterType">解決された filter 種別。</param>
+    /// <returns>プレイリスト選択情報を解決できた場合は <see langword="true"/>。</returns>
+    private bool TryResolvePlaylistSelection(viewUpdateMode mode, object parameter, out BMSTable bmsTable, out string folderName, out PlaylistFilterType filterType)
+    {
+        bmsTable = null;
+        folderName = null;
+        filterType = PlaylistFilterType.PlaylistFilter;
+        if (mode == viewUpdateMode.PlaylistFilterSelected)
+        {
+            if (parameter == null)
+            {
+                return true;
+            }
+            if (parameter is Tuple<BMSTable, string> tuple)
+            {
+                bmsTable = tuple.Item1;
+                folderName = tuple.Item2;
+                return true;
+            }
+            return false;
+        }
+        if (mode == viewUpdateMode.PlaylistNotOwnedFilterSelected)
+        {
+            filterType = PlaylistFilterType.PlaylistNotOwnedFilterSelected;
+            bmsTable = parameter as BMSTable;
+            return parameter == null || bmsTable != null;
+        }
+        if (treeViewFilterTypeSelected == viewUpdateMode.PlaylistFilterSelected)
+        {
+            if (treeViewFilterParameterSelected == null)
+            {
+                return true;
+            }
+            if (treeViewFilterParameterSelected is Tuple<BMSTable, string> treeTuple)
+            {
+                bmsTable = treeTuple.Item1;
+                folderName = treeTuple.Item2;
+                return true;
+            }
+            return false;
+        }
+        if (treeViewFilterTypeSelected == viewUpdateMode.PlaylistNotOwnedFilterSelected)
+        {
+            filterType = PlaylistFilterType.PlaylistNotOwnedFilterSelected;
+            bmsTable = treeViewFilterParameterSelected as BMSTable;
+            return treeViewFilterParameterSelected == null || bmsTable != null;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// プレイリスト source snapshot から keyword/mode/sort を適用し、表示用行集合を返します。
+    /// </summary>
+    /// <param name="sourceRows">keyword/mode/sort 適用前の source snapshot。</param>
+    /// <param name="keywordFilter">現在の keyword filter。</param>
+    /// <param name="modeFilter">現在の mode filter。</param>
+    /// <param name="sortParameters">現在の sort 条件。</param>
+    /// <param name="sortProfile">利用された sort profile。</param>
+    /// <param name="keywordCount">keyword 適用後件数。</param>
+    /// <param name="modeCount">mode 適用後件数。</param>
+    /// <param name="keywordStageMs">keyword 適用時間。</param>
+    /// <param name="modeStageMs">mode 適用時間。</param>
+    /// <param name="sortStageMs">sort 適用時間。</param>
+    /// <returns>表示用行集合。</returns>
+    internal static List<BeMusicSeeker.Models.BMSFile> ApplyPlaylistViewFromSource(IReadOnlyList<BeMusicSeeker.Models.BMSFile> sourceRows, string keywordFilter, ModeFilterType modeFilter, cSortParameters sortParameters, out string sortProfile, out int keywordCount, out int modeCount, out long keywordStageMs, out long modeStageMs, out long sortStageMs)
+    {
+        Stopwatch stageStopwatch = Stopwatch.StartNew();
+        IReadOnlyList<BeMusicSeeker.Models.BMSFile> effectiveSourceRows = sourceRows ?? Array.Empty<BeMusicSeeker.Models.BMSFile>();
+        List<BeMusicSeeker.Models.BMSFile> keywordRows;
+        if (!string.IsNullOrWhiteSpace(keywordFilter))
+        {
+            string keywordUpper = keywordFilter.ToUpperInvariant();
+            keywordRows = effectiveSourceRows.AsParallel().Where(delegate (BeMusicSeeker.Models.BMSFile row)
+            {
+                return (row.Title + "@" + row.genre + "@" + row.Artist + "@" + row.tag + "@" + row.path + "@" + row.RefTablesSymbols + ((row is VirtualBMSFile) ? (((VirtualBMSFile)row).memo + "@" + ((VirtualBMSFile)row).comment) : string.Empty)).ToUpperInvariant().Contains(keywordUpper);
+            }).ToList();
+        }
+        else
+        {
+            keywordRows = (effectiveSourceRows as List<BeMusicSeeker.Models.BMSFile>) ?? effectiveSourceRows.ToList();
+        }
+        keywordStageMs = stageStopwatch.ElapsedMilliseconds;
+        keywordCount = keywordRows.Count;
+
+        stageStopwatch.Restart();
+        List<BeMusicSeeker.Models.BMSFile> modeRows;
+        if (modeFilter != ModeFilterType.All)
+        {
+            List<int?> modeFlag = new List<int?> { null };
+            if ((modeFilter & ModeFilterType._5KEYS) == ModeFilterType._5KEYS)
+            {
+                modeFlag.Add(5);
+            }
+            if ((modeFilter & ModeFilterType._7KEYS) == ModeFilterType._7KEYS)
+            {
+                modeFlag.Add(7);
+            }
+            if ((modeFilter & ModeFilterType._9KEYS) == ModeFilterType._9KEYS)
+            {
+                modeFlag.Add(9);
+            }
+            if ((modeFilter & ModeFilterType._10KEYS) == ModeFilterType._10KEYS)
+            {
+                modeFlag.Add(10);
+            }
+            if ((modeFilter & ModeFilterType._14KEYS) == ModeFilterType._14KEYS)
+            {
+                modeFlag.Add(14);
+            }
+            modeRows = keywordRows.Where((BeMusicSeeker.Models.BMSFile file) => modeFlag.Contains(file.mode)).ToList();
+        }
+        else
+        {
+            modeRows = keywordRows;
+        }
+        modeStageMs = stageStopwatch.ElapsedMilliseconds;
+        modeCount = modeRows.Count;
+
+        stageStopwatch.Restart();
+        BMSFileSortEngine.UseLegacySortForDataGrid = !Settings.Default.UseFastSortInDataGridExperimental;
+        List<BeMusicSeeker.Models.BMSFile> finalRows = BMSFileSortEngine.SortForMainView(modeRows, sortParameters, isPlaylistDetailView: true, out sortProfile);
+        sortStageMs = stageStopwatch.ElapsedMilliseconds;
+        return finalRows;
+    }
+
+    /// <summary>
+    /// 現在保持している playlist source snapshot から view を再計算します。
+    /// </summary>
+    private List<BeMusicSeeker.Models.BMSFile> ApplyPlaylistViewFromCurrentSource(viewUpdateMode mode, out int sourceCount, out int keywordCount, out int modeCount, out long keywordStageMs, out long modeStageMs, out long sortStageMs, out string sortProfile)
+    {
+        List<BeMusicSeeker.Models.BMSFile> sourceRows;
+        lock (playlistViewState.SyncRoot)
+        {
+            sourceRows = playlistViewState.SourceRows;
+        }
+        sourceRows ??= new List<BeMusicSeeker.Models.BMSFile>();
+        sourceCount = sourceRows.Count;
+        LogPlaylistViewApply("started mode=" + mode + " sourceCount=" + sourceCount);
+        List<BeMusicSeeker.Models.BMSFile> finalRows = ApplyPlaylistViewFromSource(sourceRows, KeywordFilter, ModeFilter, SortParameters, out sortProfile, out keywordCount, out modeCount, out keywordStageMs, out modeStageMs, out sortStageMs);
+        LogPlaylistViewApply("completed mode=" + mode + " sourceCount=" + sourceCount + " keywordCount=" + keywordCount + " modeCount=" + modeCount + " viewCount=" + finalRows.Count + " sortProfile=" + sortProfile + " aliveVirtualRows=" + VirtualBMSFile.GetLifecycleStats().alive);
+        return finalRows;
+    }
+
+    /// <summary>
+    /// プレイリスト source snapshot を再構築してから view を反映します。
+    /// </summary>
+    private bool RebuildPlaylistSource(viewUpdateMode mode, viewUpdateMode requestedMode, object parameter)
+    {
+        CancellationToken cancellationToken = RegisterPlaylistSourceBuildRequest(mode, parameter, out int requestVersion);
+        Stopwatch viewBuildStopwatch = Stopwatch.StartNew();
+        long stageStartMs = 0L;
+        long folderStageMs = 0L;
+        long keywordStageMs = 0L;
+        long modeStageMs = 0L;
+        long sortStageMs = 0L;
+        long columnStageMs = 0L;
+        long callbackStageMs = 0L;
+        int folderCount = 0;
+        int keywordCount = 0;
+        int modeCount = 0;
+        int viewCount = 0;
+        int sourceCount = 0;
+        int scoreUpdateTargetCount = 0;
+        int disposedSourceRowsCount = 0;
+        string sortProfile = "not_sorted";
+        List<BeMusicSeeker.Models.BMSFile> sourceRows = null;
+        List<BeMusicSeeker.Models.BMSFile> previousSourceRows = null;
+        List<BeMusicSeeker.Models.BMSFile> finalRows = null;
+        bool gateEntered = false;
+        try
+        {
+            playlistViewState.BuildGate.Wait(cancellationToken);
+            gateEntered = true;
+            if (!IsLatestPlaylistSourceBuildRequest(requestVersion))
+            {
+                LogPlaylistSourceBuild("cancelled version=" + requestVersion + " stage=stale_before_start mode=" + mode);
+                return true;
+            }
+            if (!TryResolvePlaylistSelection(mode, parameter, out BMSTable bmsTable, out string folderName, out PlaylistFilterType filterType))
+            {
+                return false;
+            }
+            bool onlyNotOwned = filterType == PlaylistFilterType.PlaylistNotOwnedFilterSelected;
+            LogPlaylistSourceBuild("started version=" + requestVersion + " mode=" + mode + " parameterType=" + (parameter?.GetType().Name ?? "(null)"));
+            stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
+            sourceRows = BuildPlaylistRows(bmsTable, folderName, onlyNotOwned, cancellationToken, out scoreUpdateTargetCount);
+            folderStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
+            folderCount = sourceRows.Count;
+            sourceCount = folderCount;
+            if (cancellationToken.IsCancellationRequested || !IsLatestPlaylistSourceBuildRequest(requestVersion))
+            {
+                LogPlaylistSourceBuild("cancelled version=" + requestVersion + " stage=after_build mode=" + mode + " sourceCount=" + sourceCount);
+                return true;
+            }
+            LogPlaylistViewApply("started mode=" + mode + " sourceCount=" + sourceCount);
+            finalRows = ApplyPlaylistViewFromSource(sourceRows, KeywordFilter, ModeFilter, SortParameters, out sortProfile, out keywordCount, out modeCount, out keywordStageMs, out modeStageMs, out sortStageMs);
+            viewCount = finalRows.Count;
+            LogPlaylistViewApply("completed mode=" + mode + " sourceCount=" + sourceCount + " keywordCount=" + keywordCount + " modeCount=" + modeCount + " viewCount=" + viewCount + " sortProfile=" + sortProfile + " aliveVirtualRows=" + VirtualBMSFile.GetLifecycleStats().alive);
+            if (cancellationToken.IsCancellationRequested || !IsLatestPlaylistSourceBuildRequest(requestVersion))
+            {
+                LogPlaylistSourceBuild("cancelled version=" + requestVersion + " stage=after_apply mode=" + mode + " sourceCount=" + sourceCount + " viewCount=" + viewCount);
+                return true;
+            }
+            previousSourceRows = ReplacePlaylistSourceRows(sourceRows, bmsTable, folderName, filterType);
+            sourceRows = null;
+            SelectedIndexBMSFilesView = -1;
+            stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
+            loadColumnSetting(mode);
+            columnStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
+            stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
+            long callbackRequestId = RaiseCallbackExecSort(mode);
+            callbackStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
+            if (callbackStageMs >= CallbackExecSortSlowLogThresholdMs)
+            {
+                LogMainViewBuild("callback_exec_sort_raise slow request=" + callbackRequestId + " callbackMs=" + callbackStageMs + " enqueued=True threadId=" + Thread.CurrentThread.ManagedThreadId + " thresholdMs=" + CallbackExecSortSlowLogThresholdMs);
+            }
+            SetBMSFilesView(finalRows, ownedByPlaylistSource: true);
+            disposedSourceRowsCount = previousSourceRows?.Count ?? 0;
+            DisposeVirtualRows(previousSourceRows);
+            previousSourceRows = null;
+            finalRows = null;
+            FinalizeMainViewBuild(viewBuildStopwatch, mode, requestedMode, parameter, folderStageMs, keywordStageMs, modeStageMs, sortStageMs, sortReuse: false, sortProfile, folderCount, keywordCount, modeCount, viewCount, columnStageMs, callbackStageMs);
+            LogPlaylistSourceBuild("completed version=" + requestVersion + " mode=" + mode + " sourceCount=" + sourceCount + " viewCount=" + viewCount + " disposedSourceRows=" + disposedSourceRowsCount + " scoreTargets=" + scoreUpdateTargetCount + " aliveVirtualRows=" + VirtualBMSFile.GetLifecycleStats().alive + " totalMs=" + viewBuildStopwatch.ElapsedMilliseconds);
+            return true;
+        }
+        catch (OperationCanceledException)
+        {
+            LogPlaylistSourceBuild("cancelled version=" + requestVersion + " stage=exception mode=" + mode + " sourceCount=" + sourceCount);
+            return true;
+        }
+        finally
+        {
+            if (sourceRows != null)
+            {
+                DisposeVirtualRows(sourceRows);
+                LogPlaylistSourceBuild("discarded version=" + requestVersion + " mode=" + mode + " discardedRows=" + sourceCount + " aliveVirtualRows=" + VirtualBMSFile.GetLifecycleStats().alive);
+            }
+            if (previousSourceRows != null)
+            {
+                DisposeVirtualRows(previousSourceRows);
+            }
+            if (gateEntered)
+            {
+                playlistViewState.BuildGate.Release();
+            }
+        }
+    }
+
+    /// <summary>
+    /// 既存の playlist source snapshot から view のみ再適用します。
+    /// </summary>
+    private bool ApplyPlaylistViewWithoutSourceRebuild(viewUpdateMode mode, viewUpdateMode requestedMode, object parameter)
+    {
+        Stopwatch viewBuildStopwatch = Stopwatch.StartNew();
+        long keywordStageMs = 0L;
+        long modeStageMs = 0L;
+        long sortStageMs = 0L;
+        long columnStageMs = 0L;
+        long callbackStageMs = 0L;
+        int sourceCount = 0;
+        int keywordCount = 0;
+        int modeCount = 0;
+        int viewCount = 0;
+        string sortProfile = "not_sorted";
+        List<BeMusicSeeker.Models.BMSFile> finalRows = ApplyPlaylistViewFromCurrentSource(mode, out sourceCount, out keywordCount, out modeCount, out keywordStageMs, out modeStageMs, out sortStageMs, out sortProfile);
+        viewCount = finalRows.Count;
+        SelectedIndexBMSFilesView = -1;
+        long stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
+        loadColumnSetting(treeViewFilterTypeSelected);
+        columnStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
+        stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
+        long callbackRequestId = RaiseCallbackExecSort(mode);
+        callbackStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
+        if (callbackStageMs >= CallbackExecSortSlowLogThresholdMs)
+        {
+            LogMainViewBuild("callback_exec_sort_raise slow request=" + callbackRequestId + " callbackMs=" + callbackStageMs + " enqueued=True threadId=" + Thread.CurrentThread.ManagedThreadId + " thresholdMs=" + CallbackExecSortSlowLogThresholdMs);
+        }
+        SetBMSFilesView(finalRows, ownedByPlaylistSource: true);
+        FinalizeMainViewBuild(viewBuildStopwatch, treeViewFilterTypeSelected, requestedMode, parameter, folderStageMs: 0L, keywordStageMs, modeStageMs, sortStageMs, sortReuse: false, sortProfile, folderCount: sourceCount, keywordCount, modeCount, viewCount, columnStageMs, callbackStageMs);
+        return true;
+    }
+
+    /// <summary>
+    /// プレイリスト詳細ビューを source rebuild または source 再利用で更新します。
+    /// </summary>
+    private bool TryBuildPlaylistViewAndApply(viewUpdateMode mode, viewUpdateMode requestedMode, object parameter)
+    {
+        List<BeMusicSeeker.Models.BMSFile> sourceRows;
+        BMSTable currentTable;
+        PlaylistFilterType currentFilterType;
+        lock (playlistViewState.SyncRoot)
+        {
+            sourceRows = playlistViewState.SourceRows;
+            currentTable = playlistViewState.CurrentTable;
+            currentFilterType = playlistViewState.CurrentFilterType;
+        }
+        bool hasResolvedPlaylistSource = currentTable != null || currentFilterType == PlaylistFilterType.PlaylistNotOwnedFilterSelected;
+        bool requiresSourceRebuild = IsPlaylistViewMode(mode) || requestedMode == viewUpdateMode.TreeViewFilterNotChanged || sourceRows == null || (sourceRows.Count == 0 && !hasResolvedPlaylistSource);
+        if (requiresSourceRebuild)
+        {
+            return RebuildPlaylistSource(mode, requestedMode, parameter);
+        }
+        return ApplyPlaylistViewWithoutSourceRebuild(mode, requestedMode, parameter);
+    }
+
+    /// <summary>
     /// 指定された更新モードとパラメータに基づいて、メインのBMS一覧（DataGrid表示用コレクション）を生成・更新します。
     /// ツリーでのフォルダ選択、プレイリストや難易度表の適用、Missingファイル等の保守フィルタ、およびキーワードやキーモードでの絞り込み等を行います。<br/>
     /// このメソッドの実行には、規模に応じて時間がかかるため内部でタイマー計測し遅延を制御・ロギングする機構が含まれています。
@@ -6542,6 +7214,12 @@ public class MainWindowViewModel : ViewModel
         {
             return;
         }
+        if (IsPlaylistTreeActive(mode, treeViewFilterTypeSelected))
+        {
+            TryBuildPlaylistViewAndApply(mode, requestedMode, parameter);
+            return;
+        }
+        ClearPlaylistSourceRows();
         switch (mode)
         {
             case viewUpdateMode.FolderFilterSelected:
@@ -6831,14 +7509,14 @@ public class MainWindowViewModel : ViewModel
             List<BeMusicSeeker.Models.BMSFile> modeFilterList = BMSFilesModeFilterView as List<BeMusicSeeker.Models.BMSFile>;
             if (isFolderMode && isTreeSelectionRequest && modeFilterList != null && folderSortSourceSnapshot != null && folderSortResultSnapshot != null && string.Equals(folderSortColumnName, columnName, StringComparison.Ordinal) && folderSortDirection == direction && IsSameReferenceSequence(modeFilterList, folderSortSourceSnapshot))
             {
-                BMSFilesView = folderSortResultSnapshot;
+                SetBMSFilesView(folderSortResultSnapshot, ownedByPlaylistSource: false);
                 sortReuse = true;
                 sortProfile = "reuse";
             }
             else
             {
                 BMSFileSortEngine.UseLegacySortForDataGrid = useLegacySortForDataGrid;
-                BMSFilesView = BMSFileSortEngine.SortForMainView(BMSFilesModeFilterView, SortParameters, isPlaylistDetailView, out sortProfile);
+                SetBMSFilesView(BMSFileSortEngine.SortForMainView(BMSFilesModeFilterView, SortParameters, isPlaylistDetailView, out sortProfile), ownedByPlaylistSource: false);
                 if (isFolderMode)
                 {
                     folderSortResultSnapshot = BMSFilesView;
@@ -6860,7 +7538,7 @@ public class MainWindowViewModel : ViewModel
         }
         else
         {
-            BMSFilesView = BMSFilesModeFilterView.ToList();
+            SetBMSFilesView(BMSFilesModeFilterView.ToList(), ownedByPlaylistSource: false);
             sortProfile = "bypass";
         }
         sortStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
