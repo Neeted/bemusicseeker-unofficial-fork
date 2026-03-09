@@ -171,6 +171,41 @@ public sealed class BmsFileListenerLifecycleTests
         Assert.IsFalse(weakReference.IsAlive);
     }
 
+    [TestMethod]
+    public void VirtualBmsFile_Dispose_StopsForwardingRealFileChanges()
+    {
+        TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        BMSTableEntry entry = new BMSTableEntry(file);
+        VirtualBMSFile virtualFile = new VirtualBMSFile(entry, file);
+        int pathChangedCount = 0;
+        virtualFile.PropertyChanged += delegate (object sender, System.ComponentModel.PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName == nameof(BMSFile.path))
+            {
+                pathChangedCount++;
+            }
+        };
+
+        file.path = @"C:\Library\before.bms";
+        pathChangedCount = 0;
+
+        virtualFile.Dispose();
+        file.path = @"C:\Library\after.bms";
+
+        Assert.AreEqual(0, pathChangedCount);
+    }
+
+    [TestMethod]
+    public void VirtualBmsFile_Dispose_CanBeCalledTwice()
+    {
+        TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        BMSTableEntry entry = new BMSTableEntry(file);
+        VirtualBMSFile virtualFile = new VirtualBMSFile(entry, file);
+
+        virtualFile.Dispose();
+        virtualFile.Dispose();
+    }
+
     private static WeakReference CreateWeakReferenceAfterRelease(out BMSTable table, out BMSScore score, out BMSFileMaintenanceInfo info)
     {
         TestableBmsFile? file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");

@@ -5,13 +5,15 @@ using Livet.EventListeners;
 
 namespace BeMusicSeeker.Models;
 
-public class VirtualBMSFile : BMSFile
+public class VirtualBMSFile : BMSFile, IDisposable
 {
 	private BMSTableEntry entry;
 
 	private BMSFile bmsfile;
 
 	private PropertyChangedEventListener listenerForRealBMSFile;
+
+	private bool isDisposed;
 
 	public Uri Url
 	{
@@ -494,6 +496,7 @@ public class VirtualBMSFile : BMSFile
 		{
 			return;
 		}
+		DisposeListenerForRealBmsFile();
 		listenerForRealBMSFile = new PropertyChangedEventListener(bmsfile);
 		listenerForRealBMSFile.RegisterHandler(() => bmsfile.tag, delegate
 		{
@@ -549,6 +552,12 @@ public class VirtualBMSFile : BMSFile
 		});
 	}
 
+	private void DisposeListenerForRealBmsFile()
+	{
+		listenerForRealBMSFile?.Dispose();
+		listenerForRealBMSFile = null;
+	}
+
 	public BMSFile GetNonVirtualBMSFile()
 	{
 		if (entry != null && bmsfile != null)
@@ -576,6 +585,16 @@ public class VirtualBMSFile : BMSFile
 			{
 				base.level = value;
 			}
+		}
+	}
+
+	public void Dispose()
+	{
+		if (!isDisposed)
+		{
+			isDisposed = true;
+			DisposeListenerForRealBmsFile();
+			GC.SuppressFinalize(this);
 		}
 	}
 }

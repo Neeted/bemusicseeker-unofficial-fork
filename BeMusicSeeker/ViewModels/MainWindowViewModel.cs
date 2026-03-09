@@ -4445,6 +4445,7 @@ public class MainWindowViewModel : ViewModel
         {
             if (_BMSFilesView != value)
             {
+                DisposeVirtualRows(_BMSFilesView);
                 if (value == null)
                 {
                     _BMSFilesView = new List<BeMusicSeeker.Models.BMSFile>();
@@ -4454,6 +4455,21 @@ public class MainWindowViewModel : ViewModel
                     _BMSFilesView = value;
                 }
                 RaisePropertyChanged("BMSFilesView");
+            }
+        }
+    }
+
+    private static void DisposeVirtualRows(IEnumerable<BeMusicSeeker.Models.BMSFile> rows)
+    {
+        if (rows == null)
+        {
+            return;
+        }
+        foreach (BeMusicSeeker.Models.BMSFile row in rows)
+        {
+            if (row is IDisposable disposable && row is VirtualBMSFile)
+            {
+                disposable.Dispose();
             }
         }
     }
