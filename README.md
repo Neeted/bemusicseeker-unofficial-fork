@@ -100,6 +100,7 @@ The list below focuses on the main differences from the traditional build.
   - This makes it easier to notice when the number of unowned charts increases.
   - Filtering by "fully owned" or "contains unowned charts" is available from the search box in the top-right area.
   - Double-clicking a playlist summary row automatically jumps to the corresponding playlist view. This is especially useful when you want to review `[NO SONG]` entries after the unowned count increases.
+  - A `STATUS` column has been added. It shows the latest result of external playlist sync attempts made after startup, making it easier to notice broken links and errors such as failed header/data retrieval. Detailed information is available in a tooltip.
 - **Added single-playlist reload**
   - Individual tables can now be reloaded from the playlist tree or playlist summary detail view via the context menu.
 
