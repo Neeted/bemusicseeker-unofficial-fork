@@ -418,6 +418,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         effectiveDataGrid.SelectedIndex = -1;
         effectiveDataGrid.SetCurrentValue(ItemsControl.ItemsSourceProperty, null);
         LogPlaylistDataGridState("prepare_swap", effectiveDataGrid, "useAsync=" + _mainDataGridUsesAsyncBinding);
+        SchedulePlaylistRetentionCheckpoint(effectiveDataGrid, "prepare_swap");
         Dispatcher.BeginInvoke(DispatcherPriority.Background, (Action)delegate
         {
             ApplyMainDataGridItemsSourceBinding(forceRebind: false);
@@ -441,14 +442,80 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         int itemCount = 0;
         int selectedCount = 0;
         string itemsSourceType = "(null)";
+        int realizedRowCount = 0;
+        string generatorStatus = "(unknown)";
         if (targetDataGrid != null)
         {
             itemCount = targetDataGrid.Items?.Count ?? 0;
             selectedCount = targetDataGrid.SelectedItems?.Count ?? 0;
             itemsSourceType = targetDataGrid.ItemsSource?.GetType().FullName ?? "(null)";
+            realizedRowCount = CountVisualDescendants<DataGridRow>(targetDataGrid, maxCount: 2000);
+            generatorStatus = targetDataGrid.ItemContainerGenerator?.Status.ToString() ?? "(null)";
         }
         string suffix = string.IsNullOrWhiteSpace(details) ? string.Empty : " " + details;
-        installPerformanceLogger.Info("playlist_datagrid_state event=" + eventName + " playlistActive=" + isPlaylistDetailViewActive + " useAsync=" + _mainDataGridUsesAsyncBinding + " itemsCount=" + itemCount + " selectedCount=" + selectedCount + " itemsSourceType=" + itemsSourceType + " sourceGenerationId=" + (viewModel?.PlaylistSourceGenerationId ?? 0L) + " viewGenerationId=" + (viewModel?.PlaylistAdoptedViewGenerationId ?? 0L) + suffix);
+        installPerformanceLogger.Info("playlist_datagrid_state event=" + eventName + " playlistActive=" + isPlaylistDetailViewActive + " useAsync=" + _mainDataGridUsesAsyncBinding + " itemsCount=" + itemCount + " selectedCount=" + selectedCount + " realizedRowCount=" + realizedRowCount + " generatorStatus=" + generatorStatus + " itemsSourceType=" + itemsSourceType + " sourceGenerationId=" + (viewModel?.PlaylistSourceGenerationId ?? 0L) + " viewGenerationId=" + (viewModel?.PlaylistAdoptedViewGenerationId ?? 0L) + suffix);
+    }
+
+    /// <summary>
+    /// playlist DataGrid の描画完了後に retention 状態を再観測するチェックポイントを遅延投入します。
+    /// </summary>
+    /// <param name="targetDataGrid">対象 DataGrid。</param>
+    /// <param name="eventName">契機名。</param>
+    private void SchedulePlaylistRetentionCheckpoint(DataGrid targetDataGrid, string eventName)
+    {
+        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
+        if (targetDataGrid == null || viewModel == null || !viewModel.IsPlaylistDetailViewActive)
+        {
+            return;
+        }
+        long sourceGenerationId = viewModel.PlaylistSourceGenerationId;
+        long viewGenerationId = viewModel.PlaylistAdoptedViewGenerationId;
+        Dispatcher.BeginInvoke(DispatcherPriority.Render, (Action)delegate
+        {
+            LogPlaylistDataGridState(eventName + "_render", targetDataGrid, "scheduledSourceGenerationId=" + sourceGenerationId + " scheduledViewGenerationId=" + viewGenerationId);
+            viewModel.LogPlaylistUiRetentionCheckpoint(eventName + "_render", sourceGenerationId, viewGenerationId);
+        });
+        Dispatcher.BeginInvoke(DispatcherPriority.ContextIdle, (Action)delegate
+        {
+            LogPlaylistDataGridState(eventName + "_idle", targetDataGrid, "scheduledSourceGenerationId=" + sourceGenerationId + " scheduledViewGenerationId=" + viewGenerationId);
+            viewModel.LogPlaylistUiRetentionCheckpoint(eventName + "_idle", sourceGenerationId, viewGenerationId);
+        });
+    }
+
+    /// <summary>
+    /// 指定 Visual 配下に存在する特定型の子要素数を数えます。
+    /// </summary>
+    /// <typeparam name="T">数えたい Visual 型。</typeparam>
+    /// <param name="root">探索開始要素。</param>
+    /// <param name="maxCount">上限件数。</param>
+    /// <returns>見つかった要素数。</returns>
+    private static int CountVisualDescendants<T>(DependencyObject root, int maxCount) where T : DependencyObject
+    {
+        if (root == null || maxCount <= 0)
+        {
+            return 0;
+        }
+        int count = 0;
+        Queue<DependencyObject> pending = new Queue<DependencyObject>();
+        pending.Enqueue(root);
+        while (pending.Count > 0 && count < maxCount)
+        {
+            DependencyObject current = pending.Dequeue();
+            int childCount = VisualTreeHelper.GetChildrenCount(current);
+            for (int i = 0; i < childCount && count < maxCount; i++)
+            {
+                DependencyObject child = VisualTreeHelper.GetChild(current, i);
+                if (child is T)
+                {
+                    count++;
+                }
+                if (child != null)
+                {
+                    pending.Enqueue(child);
+                }
+            }
+        }
+        return count;
     }
 
     private void CloseWindow(object sender, ExecutedRoutedEventArgs e)
@@ -661,6 +728,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         if (sender is DataGrid dataGrid2)
         {
             LogPlaylistDataGridState("target_updated", dataGrid2);
+            SchedulePlaylistRetentionCheckpoint(dataGrid2, "target_updated");
             RequestSortGlyphRefresh(dataGrid2, "target_updated");
         }
     }
@@ -1069,6 +1137,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         AttachMainDataGridBindingOwner(base.DataContext as MainWindowViewModel);
         ApplyMainDataGridItemsSourceBinding(forceRebind: true);
         LogPlaylistDataGridState("loaded", sender as DataGrid);
+        SchedulePlaylistRetentionCheckpoint(sender as DataGrid, "loaded");
     }
 
     /// <summary>
