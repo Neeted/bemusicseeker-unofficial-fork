@@ -45,7 +45,6 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                     }
                 };
                 library.BMSFiles = new List<BMSFile> { file };
-                Assert.IsTrue(SpinWait.SpinUntil(() => Volatile.Read(ref bmsFilesChangedCount) > 0, 2000));
                 Interlocked.Exchange(ref bmsFilesChangedCount, 0);
                 file.PropertyChanged += delegate (object sender, System.ComponentModel.PropertyChangedEventArgs e)
                 {
@@ -57,7 +56,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
 
                 library.RenameBMSFolder(sourceDirectoryPath, "Renamed");
 
-                Thread.Sleep(200);
+                Assert.IsTrue(WaitUntilTrue(() => Volatile.Read(ref folderChangedCount) > 0));
                 Assert.AreEqual(0, Volatile.Read(ref bmsFilesChangedCount));
                 Assert.IsTrue(Volatile.Read(ref folderChangedCount) > 0);
                 Assert.AreEqual("Renamed", file.Folder);
@@ -102,12 +101,11 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                     }
                 };
                 library.BMSFiles = new List<BMSFile> { file };
-                Assert.IsTrue(SpinWait.SpinUntil(() => Volatile.Read(ref bmsFilesChangedCount) > 0, 2000));
                 Interlocked.Exchange(ref bmsFilesChangedCount, 0);
 
                 library.MoveBMSRootFolder(new[] { file }, destinationParentPath);
 
-                Assert.IsTrue(SpinWait.SpinUntil(() => Volatile.Read(ref bmsFilesChangedCount) > 0, 2000));
+                Assert.IsTrue(WaitUntilTrue(() => Volatile.Read(ref bmsFilesChangedCount) > 0));
                 Assert.IsTrue(file.path.Contains(Path.Combine("DestinationParent", "SourceRoot", "chart.bms")));
             }
             finally
@@ -165,7 +163,6 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                     }
                 };
                 library.BMSFiles = new List<BMSFile> { file };
-                Thread.Sleep(200);
                 Interlocked.Exchange(ref garbledChangedCount, 0);
                 Interlocked.Exchange(ref garbledFixedChangedCount, 0);
                 Interlocked.Exchange(ref encodingChangedCount, 0);
@@ -186,6 +183,11 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 }
             }
         });
+    }
+
+    private static bool WaitUntilTrue(Func<bool> predicate, int timeoutMs = 2000)
+    {
+        return SpinWait.SpinUntil(predicate, timeoutMs);
     }
 
     private static void WithTemporarySongDb(Action<string> testAction)
