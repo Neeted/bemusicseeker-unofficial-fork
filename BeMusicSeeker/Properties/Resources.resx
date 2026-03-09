@@ -1032,6 +1032,12 @@ BMSファイルが重複しないようにマージします。
   <data name="Drop_install_queue_label_format" xml:space="preserve">
     <value>導入中: {0}件 (待機 {1} バッチ)</value>
   </data>
+  <data name="Playlist_sync_progress_label_format" xml:space="preserve">
+    <value>プレイリスト同期 {0}/{1}</value>
+  </data>
+  <data name="Playlist_sync_progress_single_label" xml:space="preserve">
+    <value>プレイリスト同期</value>
+  </data>
   <data name="Install" xml:space="preserve">
     <value>インストール</value>
   </data>

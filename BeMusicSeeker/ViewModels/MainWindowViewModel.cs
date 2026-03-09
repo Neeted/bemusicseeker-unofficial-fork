@@ -3204,8 +3204,17 @@ public class MainWindowViewModel : ViewModel
                 {
                     DateTime last_update = bmsTable.last_update;
                     BMSTable sourceTable = bmsTable;
+                    ownerViewModel.BeginPlaylistSyncProgressOperation();
                     try
                     {
+                        ownerViewModel.UpdatePlaylistSyncProgressStatus(new PlaylistSyncProgressSnapshot
+                        {
+                            IsActive = true,
+                            TotalTableCount = 1,
+                            CompletedTableCount = 0,
+                            CurrentTableName = bmsTable.name,
+                            CurrentUri = uri
+                        });
                         bmsTable = await ownerViewModel.tables.ResetBMSTableAsync(bmsTable, uri);
                         ownerViewModel.UpdatePlaylistSyncRuntimeStatus(PlaylistSyncAttemptResult.CreateSuccess(sourceTable, bmsTable, uri, bmsTable.last_update != last_update));
                     }
@@ -3214,6 +3223,18 @@ public class MainWindowViewModel : ViewModel
                         NLogWrapper.FileLogger?.Warn(ex, "playlist_property_resync_failed table=" + (bmsTable?.name ?? string.Empty) + " uri=" + uri);
                         ownerViewModel.UpdatePlaylistSyncRuntimeStatus(PlaylistSyncAttemptResult.CreateFailure(sourceTable, uri, ex));
                         ownerViewModel.ShowPlaylistLoadFailure(ex);
+                    }
+                    finally
+                    {
+                        ownerViewModel.UpdatePlaylistSyncProgressStatus(new PlaylistSyncProgressSnapshot
+                        {
+                            IsActive = true,
+                            TotalTableCount = 1,
+                            CompletedTableCount = 1,
+                            CurrentTableName = bmsTable.name,
+                            CurrentUri = uri
+                        });
+                        ownerViewModel.EndPlaylistSyncProgressOperation();
                     }
                     ownerViewModel.RefreshPlaylistSummaryIfVisible();
                 }
@@ -3500,6 +3521,20 @@ public class MainWindowViewModel : ViewModel
     private bool _DropInstallQueueCanCancel;
 
     private int _DropInstallQueuePendingBatchCount;
+
+    private readonly object playlistSyncProgressLock = new object();
+
+    private int playlistSyncProgressActiveOperationCount;
+
+    private bool _IsPlaylistSyncProgressActive;
+
+    private string _PlaylistSyncProgressLabel = string.Empty;
+
+    private string _PlaylistSyncProgressSubLabel = string.Empty;
+
+    private double _PlaylistSyncProgressValue;
+
+    private double _PlaylistSyncProgressMaximum;
 
     private bool _IsPlaylistTreeExpanded = true;
 
@@ -4181,6 +4216,7 @@ public class MainWindowViewModel : ViewModel
                 DateTime startedAt = DateTime.UtcNow;
                 try
                 {
+                    BeginPlaylistSyncProgressOperation();
                     LogDeferredExternalSync("deferred_external_sync run reason=" + reason + " fromReloadTables=" + fromReloadTables.ToString().ToLowerInvariant() + " version=" + requestVersion);
                     List<Action<BMSTable, bool, BMSTable>> updateCallbackActions = null;
                     if (updateCallbackAction != null)
@@ -4190,7 +4226,7 @@ public class MainWindowViewModel : ViewModel
                     List<BMSTable> list = await tables.UpdateBMSTablesInternalAsync(reloadExtPlaylist: true, updateCallbackActions, delegate (PlaylistSyncAttemptResult result)
                     {
                         UpdatePlaylistSyncRuntimeStatus(result);
-                    }).ConfigureAwait(false);
+                    }, UpdatePlaylistSyncProgressStatus).ConfigureAwait(false);
                     int num = list?.Count ?? 0;
                     ScheduleDeferredPlaylistReferenceApply("DeferredExternalSync:" + reason);
                     RefreshPlaylistSummaryIfVisible();
@@ -4199,6 +4235,10 @@ public class MainWindowViewModel : ViewModel
                 catch (Exception ex)
                 {
                     LogDeferredExternalSync("deferred_external_sync failed reason=" + reason + " fromReloadTables=" + fromReloadTables.ToString().ToLowerInvariant() + " version=" + requestVersion + " elapsedMs=" + (long)(DateTime.UtcNow - startedAt).TotalMilliseconds + " message=" + ex.Message);
+                }
+                finally
+                {
+                    EndPlaylistSyncProgressOperation();
                 }
                 lock (lockDeferredExternalSync)
                 {
@@ -4710,6 +4750,88 @@ public class MainWindowViewModel : ViewModel
             {
                 _DropInstallQueuePendingBatchCount = value;
                 RaisePropertyChanged("DropInstallQueuePendingBatchCount");
+            }
+        }
+    }
+
+    public bool IsPlaylistSyncProgressActive
+    {
+        get
+        {
+            return _IsPlaylistSyncProgressActive;
+        }
+        private set
+        {
+            if (_IsPlaylistSyncProgressActive != value)
+            {
+                _IsPlaylistSyncProgressActive = value;
+                RaisePropertyChanged("IsPlaylistSyncProgressActive");
+            }
+        }
+    }
+
+    public string PlaylistSyncProgressLabel
+    {
+        get
+        {
+            return _PlaylistSyncProgressLabel;
+        }
+        private set
+        {
+            string normalized = value ?? string.Empty;
+            if (!(_PlaylistSyncProgressLabel == normalized))
+            {
+                _PlaylistSyncProgressLabel = normalized;
+                RaisePropertyChanged("PlaylistSyncProgressLabel");
+            }
+        }
+    }
+
+    public string PlaylistSyncProgressSubLabel
+    {
+        get
+        {
+            return _PlaylistSyncProgressSubLabel;
+        }
+        private set
+        {
+            string normalized = value ?? string.Empty;
+            if (!(_PlaylistSyncProgressSubLabel == normalized))
+            {
+                _PlaylistSyncProgressSubLabel = normalized;
+                RaisePropertyChanged("PlaylistSyncProgressSubLabel");
+            }
+        }
+    }
+
+    public double PlaylistSyncProgressValue
+    {
+        get
+        {
+            return _PlaylistSyncProgressValue;
+        }
+        private set
+        {
+            if (_PlaylistSyncProgressValue != value)
+            {
+                _PlaylistSyncProgressValue = value;
+                RaisePropertyChanged("PlaylistSyncProgressValue");
+            }
+        }
+    }
+
+    public double PlaylistSyncProgressMaximum
+    {
+        get
+        {
+            return _PlaylistSyncProgressMaximum;
+        }
+        private set
+        {
+            if (_PlaylistSyncProgressMaximum != value)
+            {
+                _PlaylistSyncProgressMaximum = value;
+                RaisePropertyChanged("PlaylistSyncProgressMaximum");
             }
         }
     }
@@ -7230,6 +7352,69 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
+    private void BeginPlaylistSyncProgressOperation()
+    {
+        lock (playlistSyncProgressLock)
+        {
+            playlistSyncProgressActiveOperationCount++;
+        }
+    }
+
+    private void EndPlaylistSyncProgressOperation()
+    {
+        bool shouldClear = false;
+        lock (playlistSyncProgressLock)
+        {
+            if (playlistSyncProgressActiveOperationCount > 0)
+            {
+                playlistSyncProgressActiveOperationCount--;
+            }
+            shouldClear = playlistSyncProgressActiveOperationCount == 0;
+        }
+        if (shouldClear)
+        {
+            UpdatePlaylistSyncProgressStatus(new PlaylistSyncProgressSnapshot
+            {
+                IsActive = false,
+                TotalTableCount = 0,
+                CompletedTableCount = 0,
+                CurrentTableName = string.Empty,
+                CurrentUri = null
+            });
+        }
+    }
+
+    private void UpdatePlaylistSyncProgressStatus(PlaylistSyncProgressSnapshot snapshot)
+    {
+        Action reflect = delegate
+        {
+            bool isActive = snapshot != null && snapshot.IsActive;
+            IsPlaylistSyncProgressActive = isActive;
+            if (!isActive)
+            {
+                PlaylistSyncProgressLabel = string.Empty;
+                PlaylistSyncProgressSubLabel = string.Empty;
+                PlaylistSyncProgressValue = 0.0;
+                PlaylistSyncProgressMaximum = 0.0;
+                return;
+            }
+            int total = Math.Max(snapshot.TotalTableCount, 1);
+            int completed = Math.Max(0, Math.Min(snapshot.CompletedTableCount, total));
+            PlaylistSyncProgressMaximum = total;
+            PlaylistSyncProgressValue = completed;
+            PlaylistSyncProgressLabel = (snapshot.TotalTableCount > 0) ? string.Format(BeMusicSeeker.Properties.Resources.Playlist_sync_progress_label_format, completed, total) : BeMusicSeeker.Properties.Resources.Playlist_sync_progress_single_label;
+            PlaylistSyncProgressSubLabel = !string.IsNullOrWhiteSpace(snapshot.CurrentTableName) ? snapshot.CurrentTableName : (snapshot.CurrentUri?.ToString() ?? string.Empty);
+        };
+        if (DispatcherHelper.UIDispatcher == null || DispatcherHelper.UIDispatcher.CheckAccess())
+        {
+            reflect();
+        }
+        else
+        {
+            DispatcherHelper.UIDispatcher.BeginInvoke(reflect);
+        }
+    }
+
     private List<BMSPackage> getBMSPackages(ref List<BeMusicSeeker.Models.BMSFile> bmsFiles, bool isInstalled = false)
     {
         DispatcherCollection<BMSPackage> source = (isInstalled ? BMSPackagesInstalled : BMSPackagesPending);
@@ -7550,30 +7735,71 @@ public class MainWindowViewModel : ViewModel
         {
             return;
         }
-        List<BMSTable> list = tablesToResync.Where((BMSTable t) => t != null).Distinct().ToList();
-        foreach (BMSTable item in list)
+        List<BMSTable> list = tablesToResync.Where((BMSTable t) => t != null).Distinct().Where(delegate(BMSTable item)
         {
-            Uri uri = item.Page_url ?? item.Header_url;
-            if (uri == null || !uri.IsAbsoluteUri)
-            {
-                continue;
-            }
-            try
-            {
-                DateTime last_update = item.last_update;
-                BMSTable bMSTable = await tables.ResetBMSTableAsync(item, uri);
-                files.RemoveReferenceBMSTables(item);
-                files.AddReferenceBMSTables(bMSTable);
-                UpdatePlaylistSyncRuntimeStatus(PlaylistSyncAttemptResult.CreateSuccess(item, bMSTable, uri, bMSTable.last_update != last_update));
-            }
-            catch (Exception ex)
-            {
-                NLogWrapper.FileLogger?.Warn(ex, "playlist_manual_resync_failed table=" + (item?.name ?? string.Empty) + " uri=" + (uri?.ToString() ?? string.Empty));
-                UpdatePlaylistSyncRuntimeStatus(PlaylistSyncAttemptResult.CreateFailure(item, uri, ex));
-                ShowPlaylistLoadFailure(ex);
-            }
+            Uri uri2 = item.Page_url ?? item.Header_url;
+            return uri2 != null && uri2.IsAbsoluteUri;
+        }).ToList();
+        if (list.Count == 0)
+        {
+            return;
         }
-        RefreshPlaylistSummaryIfVisible();
+        BeginPlaylistSyncProgressOperation();
+        try
+        {
+            int completed = 0;
+            UpdatePlaylistSyncProgressStatus(new PlaylistSyncProgressSnapshot
+            {
+                IsActive = true,
+                TotalTableCount = list.Count,
+                CompletedTableCount = 0,
+                CurrentTableName = string.Empty,
+                CurrentUri = null
+            });
+            foreach (BMSTable item in list)
+            {
+                Uri uri = item.Page_url ?? item.Header_url;
+                UpdatePlaylistSyncProgressStatus(new PlaylistSyncProgressSnapshot
+                {
+                    IsActive = true,
+                    TotalTableCount = list.Count,
+                    CompletedTableCount = completed,
+                    CurrentTableName = item.name,
+                    CurrentUri = uri
+                });
+                try
+                {
+                    DateTime last_update = item.last_update;
+                    BMSTable bMSTable = await tables.ResetBMSTableAsync(item, uri);
+                    files.RemoveReferenceBMSTables(item);
+                    files.AddReferenceBMSTables(bMSTable);
+                    UpdatePlaylistSyncRuntimeStatus(PlaylistSyncAttemptResult.CreateSuccess(item, bMSTable, uri, bMSTable.last_update != last_update));
+                }
+                catch (Exception ex)
+                {
+                    NLogWrapper.FileLogger?.Warn(ex, "playlist_manual_resync_failed table=" + (item?.name ?? string.Empty) + " uri=" + (uri?.ToString() ?? string.Empty));
+                    UpdatePlaylistSyncRuntimeStatus(PlaylistSyncAttemptResult.CreateFailure(item, uri, ex));
+                    ShowPlaylistLoadFailure(ex);
+                }
+                finally
+                {
+                    completed++;
+                    UpdatePlaylistSyncProgressStatus(new PlaylistSyncProgressSnapshot
+                    {
+                        IsActive = true,
+                        TotalTableCount = list.Count,
+                        CompletedTableCount = completed,
+                        CurrentTableName = item.name,
+                        CurrentUri = uri
+                    });
+                }
+            }
+            RefreshPlaylistSummaryIfVisible();
+        }
+        finally
+        {
+            EndPlaylistSyncProgressOperation();
+        }
     }
 
     public void ManualInstallBMSFiles(IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles)
@@ -7793,9 +8019,18 @@ public class MainWindowViewModel : ViewModel
 
     internal async Task RegistrateExternalPlaylistBMSTableAsync(Uri uri)
     {
+        BeginPlaylistSyncProgressOperation();
         BMSTable table;
         try
         {
+            UpdatePlaylistSyncProgressStatus(new PlaylistSyncProgressSnapshot
+            {
+                IsActive = true,
+                TotalTableCount = 1,
+                CompletedTableCount = 0,
+                CurrentTableName = string.Empty,
+                CurrentUri = uri
+            });
             table = await tables.RegistrateExternalTableAsync(uri);
         }
         catch (InvalidOperationException ex)
@@ -7809,6 +8044,18 @@ public class MainWindowViewModel : ViewModel
             NLogWrapper.FileLogger?.Warn(ex, "playlist_register_failed uri=" + (uri?.ToString() ?? string.Empty));
             ShowPlaylistLoadFailure(ex);
             return;
+        }
+        finally
+        {
+            UpdatePlaylistSyncProgressStatus(new PlaylistSyncProgressSnapshot
+            {
+                IsActive = true,
+                TotalTableCount = 1,
+                CompletedTableCount = 1,
+                CurrentTableName = string.Empty,
+                CurrentUri = uri
+            });
+            EndPlaylistSyncProgressOperation();
         }
         tables.AcquireReaderLockBMSTables();
         files.AddReferenceBMSTables(table);

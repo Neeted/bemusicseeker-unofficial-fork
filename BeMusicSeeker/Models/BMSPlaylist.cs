@@ -1949,10 +1949,10 @@ public class BMSPlaylist : NotificationObject
 
     internal List<BMSTable> UpdateBMSTablesInternal(bool reloadExtPlaylist = true, List<Action<BMSTable, bool, BMSTable>> updateCallbackActions = null, Action<PlaylistSyncAttemptResult> syncResultCallback = null)
     {
-        return UpdateBMSTablesInternalAsync(reloadExtPlaylist, updateCallbackActions, syncResultCallback).GetAwaiter().GetResult();
+        return UpdateBMSTablesInternalAsync(reloadExtPlaylist, updateCallbackActions, syncResultCallback, null).GetAwaiter().GetResult();
     }
 
-    internal async Task<List<BMSTable>> UpdateBMSTablesInternalAsync(bool reloadExtPlaylist = true, List<Action<BMSTable, bool, BMSTable>> updateCallbackActions = null, Action<PlaylistSyncAttemptResult> syncResultCallback = null, CancellationToken cancellationToken = default(CancellationToken))
+    internal async Task<List<BMSTable>> UpdateBMSTablesInternalAsync(bool reloadExtPlaylist = true, List<Action<BMSTable, bool, BMSTable>> updateCallbackActions = null, Action<PlaylistSyncAttemptResult> syncResultCallback = null, Action<PlaylistSyncProgressSnapshot> progressCallback = null, CancellationToken cancellationToken = default(CancellationToken))
     {
         IsPlaylistUpdating = true;
         try
@@ -1967,6 +1967,20 @@ public class BMSPlaylist : NotificationObject
             {
                 tableSnapshot = BMSTables.ToList();
             }
+            List<BMSTable> externalSyncTargets = tableSnapshot.Where(delegate(BMSTable table)
+            {
+                Uri uri2 = table?.Page_url ?? table?.Header_url;
+                return reloadExtPlaylist && table != null && table.is_external_sync && uri2 != null && uri2.IsAbsoluteUri;
+            }).ToList();
+            int completedTableCount = 0;
+            progressCallback?.Invoke(new PlaylistSyncProgressSnapshot
+            {
+                IsActive = externalSyncTargets.Count > 0,
+                TotalTableCount = externalSyncTargets.Count,
+                CompletedTableCount = 0,
+                CurrentTableName = string.Empty,
+                CurrentUri = null
+            });
             object lockObject = new object();
             using SemaphoreSlim semaphoreSlim = new SemaphoreSlim(ExternalPlaylistSyncMaxConcurrency, ExternalPlaylistSyncMaxConcurrency);
             await Task.WhenAll(tableSnapshot.Select(async delegate(BMSTable table)
@@ -1981,6 +1995,14 @@ public class BMSPlaylist : NotificationObject
                     cancellationToken.ThrowIfCancellationRequested();
                     if (reloadExtPlaylist && table.is_external_sync && uri != null && uri.IsAbsoluteUri)
                     {
+                        progressCallback?.Invoke(new PlaylistSyncProgressSnapshot
+                        {
+                            IsActive = true,
+                            TotalTableCount = externalSyncTargets.Count,
+                            CompletedTableCount = Volatile.Read(ref completedTableCount),
+                            CurrentTableName = table.name,
+                            CurrentUri = uri
+                        });
                         Stopwatch stopwatchExternalSync = Stopwatch.StartNew();
                         try
                         {
@@ -2019,6 +2041,15 @@ public class BMSPlaylist : NotificationObject
                         finally
                         {
                             syncResultCallback?.Invoke(playlistSyncAttemptResult);
+                            int num4 = Interlocked.Increment(ref completedTableCount);
+                            progressCallback?.Invoke(new PlaylistSyncProgressSnapshot
+                            {
+                                IsActive = true,
+                                TotalTableCount = externalSyncTargets.Count,
+                                CompletedTableCount = num4,
+                                CurrentTableName = table.name,
+                                CurrentUri = uri
+                            });
                         }
                         stopwatchExternalSync.Stop();
                         Interlocked.Add(ref updateExternalSyncTicks, stopwatchExternalSync.ElapsedTicks);
@@ -2049,6 +2080,14 @@ public class BMSPlaylist : NotificationObject
                     semaphoreSlim.Release();
                 }
             }).ToArray()).ConfigureAwait(false);
+            progressCallback?.Invoke(new PlaylistSyncProgressSnapshot
+            {
+                IsActive = false,
+                TotalTableCount = externalSyncTargets.Count,
+                CompletedTableCount = completedTableCount,
+                CurrentTableName = string.Empty,
+                CurrentUri = null
+            });
             stopwatchUpdateTablesTotal.Stop();
             long num = (long)TimeSpan.FromTicks(Interlocked.Read(ref updateExternalSyncTicks)).TotalMilliseconds;
             long num2 = (long)TimeSpan.FromTicks(Interlocked.Read(ref updateCallbacksTicks)).TotalMilliseconds;

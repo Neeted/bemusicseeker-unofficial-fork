@@ -8,6 +8,8 @@
   "Information": "資訊",
   "Details_test_notcheck_playlists": "[測試] 啟動時不確認播放清單更新",
   "Details_test_delete_pending_source_after_install": "[測試] 一般安裝時，即使已安裝譜面仍留在來源套件中也刪除來源套件",
+  "Playlist_sync_progress_label_format": "播放清單同步 {0}/{1}",
+  "Playlist_sync_progress_single_label": "播放清單同步",
   "Msg_failed_remove_playlist_entry": "無法從播放清單移除譜面。\n該播放清單已設定為外部同步模式。",
   "Record_setting_encoder_dir": "執行檔目錄：",
   "Estimate_reinstall_loc": "估算重新安裝位置",

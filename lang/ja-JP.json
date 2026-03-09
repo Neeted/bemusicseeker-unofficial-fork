@@ -13,6 +13,8 @@
   "Details_test_delete_pending_source_after_install": "[テスト中] 通常インストール時、既所持譜面が残っていても元パッケージを削除する",
   "Details_test_smart_component_overwrite": "[テスト中] 差分導入時に更新日時とサイズを比較して同梱ファイルの上書きを最適化する",
   "Details_test_keep_smart_overwrite_protected_by_rename": "[テスト中] スマート上書き時、*.bmx/*.pmx/*.txt/*.bmson は上書きせず自動採番で保持する",
+  "Playlist_sync_progress_label_format": "プレイリスト同期 {0}/{1}",
+  "Playlist_sync_progress_single_label": "プレイリスト同期",
   "Msg_failed_remove_playlist_entry": "プレイリストが外部同期モードになっているため\nエントリーを削除することが出来ません。",
   "Record_setting_encoder_dir": "実行ファイル検索先: ",
   "Estimate_reinstall_loc": "再インストール先を推定",

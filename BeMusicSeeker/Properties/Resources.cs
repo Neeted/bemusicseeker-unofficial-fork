@@ -253,6 +253,10 @@ public class Resources
 
     public static string Drop_install_queue_label_format => ResourceManager.GetString("Drop_install_queue_label_format", resourceCulture);
 
+    public static string Playlist_sync_progress_label_format => ResourceManager.GetString("Playlist_sync_progress_label_format", resourceCulture);
+
+    public static string Playlist_sync_progress_single_label => ResourceManager.GetString("Playlist_sync_progress_single_label", resourceCulture);
+
     public static string Install => ResourceManager.GetString("Install", resourceCulture);
 
     public static string Install_desc => ResourceManager.GetString("Install_desc", resourceCulture);

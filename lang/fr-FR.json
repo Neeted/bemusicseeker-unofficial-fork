@@ -8,6 +8,8 @@
   "Information": "Information",
   "Details_test_notcheck_playlists": "[TEST] Not scan updates of playlists",
   "Details_test_delete_pending_source_after_install": "[TEST] Delete the source package even if already installed charts remain after normal install",
+  "Playlist_sync_progress_label_format": "Synchronisation des playlists {0}/{1}",
+  "Playlist_sync_progress_single_label": "Synchronisation des playlists",
   "Msg_failed_remove_playlist_entry": "Failed to remove the song from the playlist.\nThe playlist is set to the external synchronization mode.",
   "Record_setting_encoder_dir": "Exe file dir: ",
   "Estimate_reinstall_loc": "Estimate re-installation location",

@@ -8,6 +8,8 @@
   "Information": "信息",
   "Details_test_notcheck_playlists": "[测试] 启动时不确认播放列表更新",
   "Details_test_delete_pending_source_after_install": "[测试] 普通安装时，即使已安装谱面仍留在源包中也删除源包",
+  "Playlist_sync_progress_label_format": "播放列表同步 {0}/{1}",
+  "Playlist_sync_progress_single_label": "播放列表同步",
   "Msg_failed_remove_playlist_entry": "谱面从播放列表移除失败。\n该播放列表已设置为外部同步模式。",
   "Record_setting_encoder_dir": "可执行文件目录：",
   "Estimate_reinstall_loc": "估算重新安装位置",
