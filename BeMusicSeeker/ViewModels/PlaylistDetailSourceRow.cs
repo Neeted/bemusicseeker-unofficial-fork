@@ -1,5 +1,7 @@
 using System;
+using System.Globalization;
 using System.Text;
+using System.Text.RegularExpressions;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.LR2;
 
@@ -11,6 +13,8 @@ namespace BeMusicSeeker.ViewModels;
 /// </summary>
 internal sealed class PlaylistDetailSourceRow
 {
+    private static readonly Regex levelParseRegex = new Regex("([+-]?\\d+(\\.\\d*)?|\\.\\d+)", RegexOptions.Compiled);
+
     /// <summary>
     /// プレイリストエントリ本体です。
     /// </summary>
@@ -36,9 +40,9 @@ internal sealed class PlaylistDetailSourceRow
 
     internal string tag { get; }
 
-    internal Uri Url { get; }
+    internal Uri Url { get; private set; }
 
-    internal Uri Url_diff { get; }
+    internal Uri Url_diff { get; private set; }
 
     internal string name_diff { get; }
 
@@ -50,9 +54,9 @@ internal sealed class PlaylistDetailSourceRow
 
     internal string DisplayWarning { get; }
 
-    internal string comment { get; }
+    internal string comment { get; private set; }
 
-    internal string memo { get; }
+    internal string memo { get; private set; }
 
     internal string hash { get; }
 
@@ -102,11 +106,11 @@ internal sealed class PlaylistDetailSourceRow
 
     internal string lr2_bmsid { get; }
 
-    internal double? EntryLevelSortKey { get; }
+    internal double? EntryLevelSortKey { get; private set; }
 
-    internal string Level { get; }
+    internal string Level { get; private set; }
 
-    internal string SearchText { get; }
+    internal string SearchText { get; private set; }
 
     internal PlaylistDetailSourceRow(BMSTableEntry entry, BMSFile realFile, BMSFile scoreProbe = null)
     {
@@ -164,6 +168,30 @@ internal sealed class PlaylistDetailSourceRow
         return new PlaylistDetailRow(this);
     }
 
+    /// <summary>
+    /// 編集済み view row の値で editable snapshot を更新します。
+    /// 再 sort/filter 時の再生成元となるため、playlist row の保存前に同期します。
+    /// </summary>
+    /// <param name="editedRow">編集済み row。</param>
+    internal void SynchronizeEditableSnapshot(PlaylistDetailRow editedRow)
+    {
+        if (editedRow == null)
+        {
+            throw new ArgumentNullException(nameof(editedRow));
+        }
+        if (!ReferenceEquals(Entry, editedRow.Entry))
+        {
+            throw new InvalidOperationException("PlaylistDetailSourceRow entry mismatch.");
+        }
+        Level = editedRow.Level ?? string.Empty;
+        Url = editedRow.Url;
+        Url_diff = editedRow.Url_diff;
+        comment = editedRow.comment ?? string.Empty;
+        memo = editedRow.memo ?? string.Empty;
+        EntryLevelSortKey = ResolveEntryLevelSortKey(editedRow.Level, Entry.level, editedRow.EntryLevelSortKey);
+        SearchText = BuildSearchText();
+    }
+
     private static string BuildLevelText(BMSTableEntry entry, BMSFile realFile)
     {
         if (entry?.level != null)
@@ -171,6 +199,32 @@ internal sealed class PlaylistDetailSourceRow
             return entry.level.ToString();
         }
         return realFile?.level?.ToString() ?? string.Empty;
+    }
+
+    private static double? ResolveEntryLevelSortKey(string levelText, double? entryLevel, double? rowSortKey)
+    {
+        if (entryLevel.HasValue)
+        {
+            return entryLevel;
+        }
+        if (rowSortKey.HasValue)
+        {
+            return rowSortKey;
+        }
+        if (string.IsNullOrWhiteSpace(levelText))
+        {
+            return null;
+        }
+        Match match = levelParseRegex.Match(levelText.Trim());
+        if (!match.Success)
+        {
+            return null;
+        }
+        if (double.TryParse(match.Groups[1].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out double parsedLevel))
+        {
+            return parsedLevel;
+        }
+        return null;
     }
 
     private string BuildSearchText()

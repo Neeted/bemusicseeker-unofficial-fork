@@ -1590,6 +1590,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 return;
             }
             bindingExpression.UpdateSource();
+            viewModel.SyncPlaylistSourceRowFromEditedViewRow(playlistRow);
             base.Dispatcher.BeginInvoke((Action)async delegate
             {
                 await Task.Run(delegate

@@ -40,7 +40,7 @@ internal sealed class PlaylistDetailRow : NotificationObject
     /// </summary>
     internal bool IsOwned { get; }
 
-    internal double? EntryLevelSortKey { get; }
+    internal double? EntryLevelSortKey { get; private set; }
 
     public string Title { get; }
 
@@ -177,6 +177,7 @@ internal sealed class PlaylistDetailRow : NotificationObject
             if (string.IsNullOrWhiteSpace(normalized))
             {
                 Entry.level = null;
+                EntryLevelSortKey = null;
             }
             else
             {
@@ -186,6 +187,7 @@ internal sealed class PlaylistDetailRow : NotificationObject
                     if (double.TryParse(match.Groups[1].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out double parsedLevel))
                     {
                         Entry.level = parsedLevel;
+                        EntryLevelSortKey = parsedLevel;
                     }
                 }
             }

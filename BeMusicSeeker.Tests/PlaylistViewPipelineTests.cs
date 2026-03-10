@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Linq;
+using System;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.ViewModels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -30,6 +31,7 @@ public sealed class PlaylistViewPipelineTests
             out string sortProfile,
             out int keywordCount,
             out int modeCount,
+            out long _,
             out long _,
             out long _,
             out long _);
@@ -67,6 +69,7 @@ public sealed class PlaylistViewPipelineTests
             out int modeCount,
             out long _,
             out long _,
+            out long _,
             out long _);
 
         Assert.AreEqual(1, result.Count);
@@ -96,6 +99,7 @@ public sealed class PlaylistViewPipelineTests
             out string _,
             out int keywordCount,
             out int modeCount,
+            out long _,
             out long _,
             out long _,
             out long _);
@@ -128,6 +132,7 @@ public sealed class PlaylistViewPipelineTests
             out int _,
             out long _,
             out long _,
+            out long _,
             out long _);
         List<PlaylistDetailRow> second = MainWindowViewModel.ApplyPlaylistViewFromSource(
             sourceRows,
@@ -137,6 +142,7 @@ public sealed class PlaylistViewPipelineTests
             out string _,
             out int _,
             out int _,
+            out long _,
             out long _,
             out long _,
             out long _);
@@ -170,6 +176,7 @@ public sealed class PlaylistViewPipelineTests
             out int _,
             out long _,
             out long _,
+            out long _,
             out long _);
 
         CollectionAssert.AreEqual(new[] { "2.5", "3", "12" }, result.Select((PlaylistDetailRow row) => row.Level).ToArray());
@@ -201,6 +208,74 @@ public sealed class PlaylistViewPipelineTests
         MainWindowViewModel.PlaylistRequestIdentity after = MainWindowViewModel.CreatePlaylistRequestIdentity(table, null, MainWindowViewModel.PlaylistFilterType.PlaylistNotOwnedFilterSelected, null, MainWindowViewModel.ModeFilterType.All, sortParameters: null, libraryIndexVersion: 3, playlistRevision: 5, hasResolvedSelection: true);
 
         Assert.AreNotEqual(before, after);
+    }
+
+    [TestMethod]
+    public void CreatePlaylistRequestIdentity_DistinguishesRootPlaylistAndEmptyFolderNode()
+    {
+        BMSTable table = new BMSTable();
+        MainWindowViewModel.PlaylistRequestIdentity rootPlaylist = MainWindowViewModel.CreatePlaylistRequestIdentity(table, null, MainWindowViewModel.PlaylistFilterType.PlaylistFilter, null, MainWindowViewModel.ModeFilterType.All, sortParameters: null, libraryIndexVersion: 3, playlistRevision: 4, hasResolvedSelection: true);
+        MainWindowViewModel.PlaylistRequestIdentity emptyFolder = MainWindowViewModel.CreatePlaylistRequestIdentity(table, string.Empty, MainWindowViewModel.PlaylistFilterType.PlaylistFilter, null, MainWindowViewModel.ModeFilterType.All, sortParameters: null, libraryIndexVersion: 3, playlistRevision: 4, hasResolvedSelection: true);
+
+        Assert.AreNotEqual(rootPlaylist, emptyFolder);
+    }
+
+    [TestMethod]
+    public void PlaylistDetailSourceRow_SynchronizeEditableSnapshot_UpdatesEditableFieldsAndSearchText()
+    {
+        PlaylistDetailSourceRow sourceRow = CreateSourceRow("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "Editable", 7, memo: "old memo", comment: "old comment", entryLevel: 3);
+        PlaylistDetailRow editedRow = sourceRow.CreateViewRow();
+
+        editedRow.comment = "new comment";
+        editedRow.memo = "new memo";
+        editedRow.Level = "12.5";
+        editedRow.Url = new Uri("https://example.com/original");
+        editedRow.Url_diff = new Uri("https://example.com/diff");
+
+        sourceRow.SynchronizeEditableSnapshot(editedRow);
+
+        Assert.AreEqual("new comment", sourceRow.comment);
+        Assert.AreEqual("new memo", sourceRow.memo);
+        Assert.AreEqual("12.5", sourceRow.Level);
+        Assert.AreEqual(12.5, sourceRow.EntryLevelSortKey);
+        Assert.AreEqual(new Uri("https://example.com/original"), sourceRow.Url);
+        Assert.AreEqual(new Uri("https://example.com/diff"), sourceRow.Url_diff);
+        StringAssert.Contains(sourceRow.SearchText, "NEW MEMO");
+        StringAssert.Contains(sourceRow.SearchText, "NEW COMMENT");
+    }
+
+    [TestMethod]
+    public void ShouldRebuildRegularFolderStage_WhenIncrementalRegularUpdateHasMissingCaches_ReturnsTrue()
+    {
+        Assert.IsTrue(MainWindowViewModel.ShouldRebuildRegularFolderStageForTest(
+            81,
+            hasFolderView: false,
+            hasKeywordView: true,
+            hasModeView: true,
+            currentTreeMode: 17));
+        Assert.IsTrue(MainWindowViewModel.ShouldRebuildRegularFolderStageForTest(
+            65,
+            hasFolderView: true,
+            hasKeywordView: false,
+            hasModeView: true,
+            currentTreeMode: 17));
+        Assert.IsFalse(MainWindowViewModel.ShouldRebuildRegularFolderStageForTest(
+            81,
+            hasFolderView: true,
+            hasKeywordView: true,
+            hasModeView: true,
+            currentTreeMode: 17));
+    }
+
+    [TestMethod]
+    public void ResolvePlaylistColumnSettingMode_ReturnsPlaylistViewModesForBothPlaylistFilters()
+    {
+        Assert.AreEqual(
+            1,
+            MainWindowViewModel.ResolvePlaylistColumnSettingModeForTest((int)MainWindowViewModel.PlaylistFilterType.PlaylistFilter));
+        Assert.AreEqual(
+            2,
+            MainWindowViewModel.ResolvePlaylistColumnSettingModeForTest((int)MainWindowViewModel.PlaylistFilterType.PlaylistNotOwnedFilterSelected));
     }
 
     private static PlaylistDetailSourceRow CreateSourceRow(string hash, string title, int? mode, string memo = "", string comment = "", double? entryLevel = null)
