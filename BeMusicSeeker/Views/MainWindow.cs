@@ -473,6 +473,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         Dispatcher.BeginInvoke(DispatcherPriority.Render, (Action)delegate
         {
             LogPlaylistDataGridState(eventName + "_render", targetDataGrid, "scheduledSourceGenerationId=" + sourceGenerationId + " scheduledViewGenerationId=" + viewGenerationId);
+            viewModel.TryLogPlaylistOpenVisibleCompleted(eventName + "_render", sourceGenerationId, viewGenerationId);
             viewModel.LogPlaylistUiRetentionCheckpoint(eventName + "_render", sourceGenerationId, viewGenerationId);
         });
         Dispatcher.BeginInvoke(DispatcherPriority.ContextIdle, (Action)delegate

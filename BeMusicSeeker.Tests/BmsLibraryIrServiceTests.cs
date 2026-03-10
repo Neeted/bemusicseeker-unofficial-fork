@@ -27,6 +27,58 @@ public sealed class BmsLibraryIrServiceTests
         Assert.IsNull(unmatched.bmsScore);
     }
 
+    [TestMethod]
+    public void ApplyKnownScoresToFilesAndCount_ReturnsMatchedScoreCount()
+    {
+        BmsLibraryIrService service = new BmsLibraryIrService();
+        TestableBmsFile matched = CreateFile("cccccccccccccccccccccccccccccccc");
+        TestableBmsFile unmatched = CreateFile("dddddddddddddddddddddddddddddddd");
+        BMSScore score = new BMSScore
+        {
+            hash = "cccccccccccccccccccccccccccccccc"
+        };
+
+        int matchedScoreCount = service.ApplyKnownScoresToFilesAndCount(new BMSFile[] { matched, unmatched }, new BMSScore[] { score });
+
+        Assert.AreEqual(1, matchedScoreCount);
+        Assert.AreSame(score, matched.bmsScore);
+        Assert.IsNull(unmatched.bmsScore);
+    }
+
+    [TestMethod]
+    public void ApplyKnownScoresToFilesAndCount_ReturnsZeroWhenTargetsAreEmpty()
+    {
+        BmsLibraryIrService service = new BmsLibraryIrService();
+
+        int matchedScoreCount = service.ApplyKnownScoresToFilesAndCount(new BMSFile[0], new BMSScore[0]);
+
+        Assert.AreEqual(0, matchedScoreCount);
+    }
+
+    [TestMethod]
+    public void ApplyKnownScoresToFilesAndCount_UsesHashIndexSnapshot()
+    {
+        BmsLibraryIrService service = new BmsLibraryIrService();
+        TestableBmsFile matched = CreateFile("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
+        TestableBmsFile unmatched = CreateFile("ffffffffffffffffffffffffffffffff");
+        BMSScore score = new BMSScore
+        {
+            hash = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+            perfect = 321,
+            great = 123
+        };
+        Dictionary<string, BMSScore> scoresByHash = new Dictionary<string, BMSScore>(System.StringComparer.OrdinalIgnoreCase)
+        {
+            [score.hash] = score
+        };
+
+        int matchedScoreCount = service.ApplyKnownScoresToFilesAndCount(new BMSFile[] { matched, unmatched }, scoresByHash);
+
+        Assert.AreEqual(1, matchedScoreCount);
+        Assert.AreSame(score, matched.bmsScore);
+        Assert.IsNull(unmatched.bmsScore);
+    }
+
     private static TestableBmsFile CreateFile(string hash)
     {
         TestableBmsFile file = new TestableBmsFile();

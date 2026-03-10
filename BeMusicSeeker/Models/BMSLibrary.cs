@@ -52,6 +52,76 @@ public class BMSLibrary : NotificationObject
         public List<string> ParentFolders { get; set; }
     }
 
+    /// <summary>
+    /// playlist score probe 用の score 反映メトリクスです。
+    /// </summary>
+    internal struct BmsScoreApplyMetrics
+    {
+        internal int TargetCount;
+
+        internal long WaitInitializedMinMs;
+
+        internal long WaitBmsFilesReadMs;
+
+        internal long WaitScoresWriteMs;
+
+        internal long WaitScoreSnapshotReadMs;
+
+        internal long ApplyKnownScoresMs;
+
+        internal int MatchedScoreCount;
+
+        internal long TotalMs;
+    }
+
+    /// <summary>
+    /// BMSScores の読み取り専用 snapshot です。
+    /// writer lock を長時間待たずに score lookup できるよう、hash index をあわせて保持します。
+    /// </summary>
+    internal sealed class ScoreSnapshot
+    {
+        internal int Version { get; set; }
+
+        internal DateTime LoadedAtUtc { get; set; }
+
+        internal long BuildElapsedMs { get; set; }
+
+        internal List<BMSScore> Scores { get; set; } = new List<BMSScore>();
+
+        internal Dictionary<string, BMSScore> ScoresByHash { get; set; } = new Dictionary<string, BMSScore>(StringComparer.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// score snapshot / hydration / ranking refresh の診断状態です。
+    /// playlist open readiness の記録に利用します。
+    /// </summary>
+    internal struct ScoreRuntimeState
+    {
+        internal bool SnapshotReady;
+
+        internal int SnapshotVersion;
+
+        internal bool HydrationRunning;
+
+        internal int HydrationCompletedVersion;
+
+        internal bool RankingRefreshRunning;
+
+        internal int RankingRefreshCompletedVersion;
+    }
+
+    /// <summary>
+    /// deferred maintenance table check の進行状態を表します。
+    /// </summary>
+    internal struct DeferredMaintenanceTableCheckState
+    {
+        internal bool Running;
+
+        internal int RequestedVersion;
+
+        internal int LastCompletedVersion;
+    }
+
     private static readonly Logger installPerformanceLogger = LogManager.GetLogger("InstallPerformance.BMSLibrary");
 
     private static readonly Logger everythingVerifyLogger = LogManager.GetLogger("Verify.Everything");
@@ -643,7 +713,31 @@ public class BMSLibrary : NotificationObject
 
     private bool deferredMaintenanceTableCheckRunning;
 
+    private int deferredMaintenanceTableCheckLastCompletedVersion;
+
     private readonly object lockDeferredMaintenanceTableCheck = new object();
+
+    private readonly object lockScoreSnapshot = new object();
+
+    private ScoreSnapshot scoreSnapshot;
+
+    private int scoreSnapshotVersion;
+
+    private readonly object lockDeferredScoreHydration = new object();
+
+    private int deferredScoreHydrationRequestedVersion;
+
+    private bool deferredScoreHydrationRunning;
+
+    private int deferredScoreHydrationLastCompletedVersion;
+
+    private readonly object lockDeferredRankingRefresh = new object();
+
+    private int deferredRankingRefreshRequestedVersion;
+
+    private bool deferredRankingRefreshRunning;
+
+    private int deferredRankingRefreshLastCompletedVersion;
 
     private PropertyChangedEventListener listenerForRwlockBMSFilesInitializedAll;
 
@@ -669,6 +763,16 @@ public class BMSLibrary : NotificationObject
 
     private int _LR2ID;
 
+    private bool _ScoreSnapshotReady;
+
+    private bool _ScoreHydrationRunning;
+
+    private int _ScoreHydrationCompletedVersion;
+
+    private bool _RankingRefreshRunning;
+
+    private int _RankingRefreshCompletedVersion;
+
     private bool _IsWriteLockHeldInitializeBMSFilesHealthStatus = true;
 
     private bool _IsWriteLockHeldInitializeBMSFilesEncodingInfo = true;
@@ -682,6 +786,10 @@ public class BMSLibrary : NotificationObject
     private static readonly Uri rankingDataUrl = new Uri("http://www.ribbit.xyz/bms/services/lr2ircache/ranking/");
 
     private static readonly Uri songInfoUrl = new Uri("http://www.ribbit.xyz/bms/services/lr2ircache/info/");
+
+    private const int deferredScoreHydrationChunkSize = 4096;
+
+    private const int deferredScoreHydrationChunkSlowLogThresholdMs = 500;
 
     private static Regex customTrimStartRegex1 = new Regex("^(\\d+(S|D)P|midi|bms|music)[.:・\\s]+", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
@@ -959,6 +1067,102 @@ public class BMSLibrary : NotificationObject
         }
     }
 
+    /// <summary>
+    /// score snapshot が利用可能かどうかを返します。
+    /// score probe はこの状態が true であれば global hydration 完了を待たずに実行できます。
+    /// </summary>
+    public bool ScoreSnapshotReady
+    {
+        get
+        {
+            return _ScoreSnapshotReady;
+        }
+        private set
+        {
+            if (_ScoreSnapshotReady != value)
+            {
+                _ScoreSnapshotReady = value;
+                RaisePropertyChanged(() => ScoreSnapshotReady);
+            }
+        }
+    }
+
+    /// <summary>
+    /// deferred score hydration worker が現在実行中かどうかを返します。
+    /// </summary>
+    public bool ScoreHydrationRunning
+    {
+        get
+        {
+            return _ScoreHydrationRunning;
+        }
+        private set
+        {
+            if (_ScoreHydrationRunning != value)
+            {
+                _ScoreHydrationRunning = value;
+                RaisePropertyChanged(() => ScoreHydrationRunning);
+            }
+        }
+    }
+
+    /// <summary>
+    /// 最後に完了した deferred score hydration の版数です。
+    /// </summary>
+    public int ScoreHydrationCompletedVersion
+    {
+        get
+        {
+            return _ScoreHydrationCompletedVersion;
+        }
+        private set
+        {
+            if (_ScoreHydrationCompletedVersion != value)
+            {
+                _ScoreHydrationCompletedVersion = value;
+                RaisePropertyChanged(() => ScoreHydrationCompletedVersion);
+            }
+        }
+    }
+
+    /// <summary>
+    /// deferred ranking refresh worker が現在実行中かどうかを返します。
+    /// </summary>
+    public bool RankingRefreshRunning
+    {
+        get
+        {
+            return _RankingRefreshRunning;
+        }
+        private set
+        {
+            if (_RankingRefreshRunning != value)
+            {
+                _RankingRefreshRunning = value;
+                RaisePropertyChanged(() => RankingRefreshRunning);
+            }
+        }
+    }
+
+    /// <summary>
+    /// 最後に完了した deferred ranking refresh の版数です。
+    /// </summary>
+    public int RankingRefreshCompletedVersion
+    {
+        get
+        {
+            return _RankingRefreshCompletedVersion;
+        }
+        private set
+        {
+            if (_RankingRefreshCompletedVersion != value)
+            {
+                _RankingRefreshCompletedVersion = value;
+                RaisePropertyChanged(() => RankingRefreshCompletedVersion);
+            }
+        }
+    }
+
     public bool IsWriteLockHeldInitializeAll
     {
         get
@@ -1215,9 +1419,113 @@ public class BMSLibrary : NotificationObject
     /// </summary>
     public List<BMSScore> GetBMSScores()
     {
+        ScoreSnapshot snapshot = GetScoreSnapshotForLookup(allowOnDemandBuild: true);
+        if (snapshot != null)
+        {
+            return snapshot.Scores;
+        }
         using (rwlockBMSScores.GetReaderGuard())
         {
             return BMSScores;
+        }
+    }
+
+    /// <summary>
+    /// 現在の score snapshot を playlist/diagnostics 向けに返します。
+    /// 必要なら on-demand で構築します。
+    /// </summary>
+    /// <returns>現在の score snapshot。</returns>
+    internal ScoreSnapshot GetScoreSnapshotForDiagnostics()
+    {
+        return GetScoreSnapshotForLookup(allowOnDemandBuild: true);
+    }
+
+    /// <summary>
+    /// score snapshot と deferred worker の診断状態を返します。
+    /// </summary>
+    /// <returns>現在の score runtime state。</returns>
+    internal ScoreRuntimeState GetScoreRuntimeStateForDiagnostics()
+    {
+        ScoreSnapshot snapshot;
+        lock (lockScoreSnapshot)
+        {
+            snapshot = scoreSnapshot;
+        }
+        lock (lockDeferredScoreHydration)
+        {
+            lock (lockDeferredRankingRefresh)
+            {
+                return new ScoreRuntimeState
+                {
+                    SnapshotReady = ScoreSnapshotReady,
+                    SnapshotVersion = snapshot?.Version ?? 0,
+                    HydrationRunning = deferredScoreHydrationRunning,
+                    HydrationCompletedVersion = deferredScoreHydrationLastCompletedVersion,
+                    RankingRefreshRunning = deferredRankingRefreshRunning,
+                    RankingRefreshCompletedVersion = deferredRankingRefreshLastCompletedVersion
+                };
+            }
+        }
+    }
+
+    /// <summary>
+    /// 現在の BMSScores から score snapshot を再構築して公開します。
+    /// </summary>
+    /// <param name="reason">ログ出力用の更新理由。</param>
+    private void RefreshScoreSnapshotFromCurrentScores(string reason)
+    {
+        List<BMSScore> scoresSnapshot;
+        using (rwlockBMSScores.GetReaderGuard())
+        {
+            scoresSnapshot = (BMSScores ?? new List<BMSScore>()).Where((BMSScore score) => score != null).ToList();
+        }
+        Stopwatch stopwatch = Stopwatch.StartNew();
+        Dictionary<string, BMSScore> scoresByHash = new Dictionary<string, BMSScore>(StringComparer.OrdinalIgnoreCase);
+        foreach (BMSScore bmsScore in scoresSnapshot)
+        {
+            if (bmsScore != null && !string.IsNullOrWhiteSpace(bmsScore.hash))
+            {
+                scoresByHash[bmsScore.hash] = bmsScore;
+            }
+        }
+        stopwatch.Stop();
+        int version;
+        lock (lockScoreSnapshot)
+        {
+            version = ++scoreSnapshotVersion;
+            scoreSnapshot = new ScoreSnapshot
+            {
+                Version = version,
+                LoadedAtUtc = DateTime.UtcNow,
+                BuildElapsedMs = stopwatch.ElapsedMilliseconds,
+                Scores = scoresSnapshot,
+                ScoresByHash = scoresByHash
+            };
+        }
+        ScoreSnapshotReady = lr2ScoreDBPath != null;
+        LogInstallPerformance("score_snapshot_load completed reason=" + (reason ?? "unknown") + " version=" + version + " count=" + scoresSnapshot.Count + " buildMs=" + stopwatch.ElapsedMilliseconds);
+    }
+
+    /// <summary>
+    /// score lookup 用 snapshot を返します。未構築時は必要に応じて on-demand で生成します。
+    /// </summary>
+    /// <param name="allowOnDemandBuild">未構築時に on-demand 生成を許可するかどうか。</param>
+    /// <returns>score snapshot。未取得の場合は null。</returns>
+    private ScoreSnapshot GetScoreSnapshotForLookup(bool allowOnDemandBuild)
+    {
+        ScoreSnapshot snapshot;
+        lock (lockScoreSnapshot)
+        {
+            snapshot = scoreSnapshot;
+        }
+        if (snapshot != null || !allowOnDemandBuild)
+        {
+            return snapshot;
+        }
+        RefreshScoreSnapshotFromCurrentScores("on_demand");
+        lock (lockScoreSnapshot)
+        {
+            return scoreSnapshot;
         }
     }
 
@@ -1465,6 +1773,7 @@ public class BMSLibrary : NotificationObject
                     BMSScores = new List<BMSScore>();
                 }
             }
+            RefreshScoreSnapshotFromCurrentScores("score_tbl_load");
             stopwatchScoreTblLoad.Stop();
             scoreTblLoadMs = stopwatchScoreTblLoad.ElapsedMilliseconds;
         }
@@ -1520,13 +1829,8 @@ public class BMSLibrary : NotificationObject
         }
         if (updateIrScore && lr2ScoreDBPath != null)
         {
-            SetBMSScore(BMSFiles);
-            Task.Run(delegate
-            {
-                List<LR2IRScore> scoreTable = updateLR2IRScoreTable();
-                updateBMSScores(scoreTable);
-                setRankingScore();
-            }).Logging("_initialize");
+            QueueDeferredScoreHydration("initialize_update_ir_score");
+            QueueDeferredRankingRefresh("initialize_update_ir_score");
         }
         if (installTblCheck)
         {
@@ -1622,6 +1926,7 @@ public class BMSLibrary : NotificationObject
                 }
                 lock (lockDeferredMaintenanceTableCheck)
                 {
+                    deferredMaintenanceTableCheckLastCompletedVersion = requestVersion;
                     if (requestVersion == deferredMaintenanceTableCheckRequestedVersion)
                     {
                         deferredMaintenanceTableCheckRunning = false;
@@ -1630,6 +1935,300 @@ public class BMSLibrary : NotificationObject
                 }
             }
         });
+    }
+
+    /// <summary>
+    /// deferred score hydration を要求します。
+    /// BMSFile.bmsScore の全件反映は UI operable 後に後追いで実行します。
+    /// </summary>
+    /// <param name="reason">要求理由。</param>
+    private void QueueDeferredScoreHydration(string reason)
+    {
+        int version;
+        bool shouldStartWorker = false;
+        bool markRunning = false;
+        lock (lockDeferredScoreHydration)
+        {
+            deferredScoreHydrationRequestedVersion++;
+            version = deferredScoreHydrationRequestedVersion;
+            if (!deferredScoreHydrationRunning)
+            {
+                deferredScoreHydrationRunning = true;
+                shouldStartWorker = true;
+                markRunning = true;
+            }
+        }
+        if (markRunning)
+        {
+            ScoreHydrationRunning = true;
+        }
+        LogInstallPerformance("score_hydration_deferred queue reason=" + (reason ?? "unknown") + " version=" + version);
+        if (shouldStartWorker)
+        {
+            Task.Run(ProcessDeferredScoreHydrationRequests).Logging("ProcessDeferredScoreHydrationRequests");
+        }
+    }
+
+    /// <summary>
+    /// deferred ranking refresh を要求します。
+    /// score hydration 完了後に worker が実行されます。
+    /// </summary>
+    /// <param name="reason">要求理由。</param>
+    private void QueueDeferredRankingRefresh(string reason)
+    {
+        int version;
+        bool shouldStartWorker = false;
+        bool markRunning = false;
+        lock (lockDeferredRankingRefresh)
+        {
+            deferredRankingRefreshRequestedVersion++;
+            version = deferredRankingRefreshRequestedVersion;
+            if (!deferredRankingRefreshRunning && !ScoreHydrationRunning)
+            {
+                deferredRankingRefreshRunning = true;
+                shouldStartWorker = true;
+                markRunning = true;
+            }
+        }
+        if (markRunning)
+        {
+            RankingRefreshRunning = true;
+        }
+        LogInstallPerformance("ranking_refresh_deferred queue reason=" + (reason ?? "unknown") + " version=" + version);
+        if (shouldStartWorker)
+        {
+            Task.Run(ProcessDeferredRankingRefreshRequests).Logging("ProcessDeferredRankingRefreshRequests");
+        }
+    }
+
+    /// <summary>
+    /// 必要であれば deferred ranking refresh worker を開始します。
+    /// </summary>
+    private void TryStartDeferredRankingRefreshWorker()
+    {
+        bool shouldStartWorker = false;
+        int version = 0;
+        bool markRunning = false;
+        lock (lockDeferredRankingRefresh)
+        {
+            if (!deferredRankingRefreshRunning && deferredRankingRefreshRequestedVersion > deferredRankingRefreshLastCompletedVersion)
+            {
+                deferredRankingRefreshRunning = true;
+                shouldStartWorker = true;
+                version = deferredRankingRefreshRequestedVersion;
+                markRunning = true;
+            }
+        }
+        if (markRunning)
+        {
+            RankingRefreshRunning = true;
+        }
+        if (shouldStartWorker)
+        {
+            LogInstallPerformance("ranking_refresh_deferred start version=" + version);
+            Task.Run(ProcessDeferredRankingRefreshRequests).Logging("ProcessDeferredRankingRefreshRequests");
+        }
+    }
+
+    /// <summary>
+    /// deferred score hydration worker です。
+    /// 最新要求だけを最後まで処理し、中間要求は chunk 境界で打ち切ります。
+    /// </summary>
+    private void ProcessDeferredScoreHydrationRequests()
+    {
+        while (true)
+        {
+            int requestVersion;
+            lock (lockDeferredScoreHydration)
+            {
+                requestVersion = deferredScoreHydrationRequestedVersion;
+            }
+            Stopwatch stopwatch = Stopwatch.StartNew();
+            try
+            {
+                LogInstallPerformance("score_hydration_deferred run version=" + requestVersion);
+                RunDeferredScoreHydration(requestVersion);
+                stopwatch.Stop();
+                LogInstallPerformance("score_hydration_deferred done version=" + requestVersion + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
+            }
+            catch (OperationCanceledException)
+            {
+                stopwatch.Stop();
+                LogInstallPerformance("score_hydration_deferred cancelled version=" + requestVersion + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
+            }
+            catch (Exception ex)
+            {
+                stopwatch.Stop();
+                LogInstallPerformance("score_hydration_deferred failed version=" + requestVersion + " elapsedMs=" + stopwatch.ElapsedMilliseconds + " message=" + ex.Message);
+            }
+            bool shouldStop = false;
+            bool markRunningFalse = false;
+            lock (lockDeferredScoreHydration)
+            {
+                deferredScoreHydrationLastCompletedVersion = requestVersion;
+                if (requestVersion == deferredScoreHydrationRequestedVersion)
+                {
+                    deferredScoreHydrationRunning = false;
+                    shouldStop = true;
+                    markRunningFalse = true;
+                }
+            }
+            ScoreHydrationCompletedVersion = requestVersion;
+            if (markRunningFalse)
+            {
+                ScoreHydrationRunning = false;
+            }
+            if (shouldStop)
+            {
+                TryStartDeferredRankingRefreshWorker();
+                return;
+            }
+        }
+    }
+
+    /// <summary>
+    /// deferred ranking refresh worker です。
+    /// score hydration 完了後に最新要求だけを処理します。
+    /// </summary>
+    private void ProcessDeferredRankingRefreshRequests()
+    {
+        while (true)
+        {
+            int requestVersion;
+            lock (lockDeferredRankingRefresh)
+            {
+                requestVersion = deferredRankingRefreshRequestedVersion;
+            }
+            Stopwatch stopwatch = Stopwatch.StartNew();
+            try
+            {
+                LogInstallPerformance("ranking_refresh_deferred run version=" + requestVersion);
+                RunDeferredRankingRefresh(requestVersion);
+                stopwatch.Stop();
+                LogInstallPerformance("ranking_refresh_deferred done version=" + requestVersion + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
+            }
+            catch (OperationCanceledException)
+            {
+                stopwatch.Stop();
+                LogInstallPerformance("ranking_refresh_deferred cancelled version=" + requestVersion + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
+            }
+            catch (Exception ex)
+            {
+                stopwatch.Stop();
+                LogInstallPerformance("ranking_refresh_deferred failed version=" + requestVersion + " elapsedMs=" + stopwatch.ElapsedMilliseconds + " message=" + ex.Message);
+            }
+            bool shouldStop = false;
+            bool markRunningFalse = false;
+            lock (lockDeferredRankingRefresh)
+            {
+                deferredRankingRefreshLastCompletedVersion = requestVersion;
+                if (requestVersion == deferredRankingRefreshRequestedVersion)
+                {
+                    deferredRankingRefreshRunning = false;
+                    shouldStop = true;
+                    markRunningFalse = true;
+                }
+            }
+            RankingRefreshCompletedVersion = requestVersion;
+            if (markRunningFalse)
+            {
+                RankingRefreshRunning = false;
+            }
+            if (shouldStop)
+            {
+                return;
+            }
+        }
+    }
+
+    /// <summary>
+    /// 現在の score snapshot を使って全 BMSFiles の bmsScore を chunk 単位で反映します。
+    /// </summary>
+    /// <param name="requestVersion">処理対象の要求版数。</param>
+    private void RunDeferredScoreHydration(int requestVersion)
+    {
+        if (lr2ScoreDBPath == null)
+        {
+            return;
+        }
+        ScoreSnapshot snapshot = GetScoreSnapshotForLookup(allowOnDemandBuild: true);
+        if (snapshot == null || snapshot.ScoresByHash == null || snapshot.ScoresByHash.Count == 0)
+        {
+            return;
+        }
+        List<BMSFile> bmsFilesSnapshot;
+        using (rwlockBMSFiles.GetReaderGuard())
+        {
+            bmsFilesSnapshot = (BMSFiles ?? new List<BMSFile>()).Where((BMSFile file) => file != null).ToList();
+        }
+        for (int offset = 0; offset < bmsFilesSnapshot.Count; offset += deferredScoreHydrationChunkSize)
+        {
+            if (IsDeferredScoreHydrationRequestSuperseded(requestVersion))
+            {
+                throw new OperationCanceledException();
+            }
+            int count = Math.Min(deferredScoreHydrationChunkSize, bmsFilesSnapshot.Count - offset);
+            List<BMSFile> chunk = bmsFilesSnapshot.GetRange(offset, count);
+            Stopwatch chunkStopwatch = Stopwatch.StartNew();
+            int matchedScoreCount = irService.ApplyKnownScoresToFilesAndCount(chunk, snapshot.ScoresByHash);
+            chunkStopwatch.Stop();
+            if (chunkStopwatch.ElapsedMilliseconds >= deferredScoreHydrationChunkSlowLogThresholdMs)
+            {
+                LogInstallPerformance("score_hydration_chunk version=" + requestVersion + " offset=" + offset + " count=" + count + " total=" + bmsFilesSnapshot.Count + " matchedScoreCount=" + matchedScoreCount + " elapsedMs=" + chunkStopwatch.ElapsedMilliseconds + " thresholdMs=" + deferredScoreHydrationChunkSlowLogThresholdMs);
+            }
+            Thread.Yield();
+        }
+    }
+
+    /// <summary>
+    /// 現在の deferred score hydration 要求が新しい要求で上書きされたかどうかを返します。
+    /// </summary>
+    /// <param name="requestVersion">確認対象の版数。</param>
+    /// <returns>新しい要求が存在する場合は <see langword="true"/>。</returns>
+    private bool IsDeferredScoreHydrationRequestSuperseded(int requestVersion)
+    {
+        lock (lockDeferredScoreHydration)
+        {
+            return requestVersion != deferredScoreHydrationRequestedVersion;
+        }
+    }
+
+    /// <summary>
+    /// 最新の ranking refresh 要求を実行し、score snapshot を更新します。
+    /// </summary>
+    /// <param name="requestVersion">処理対象の要求版数。</param>
+    private void RunDeferredRankingRefresh(int requestVersion)
+    {
+        if (lr2ScoreDBPath == null || LR2ID == 0)
+        {
+            return;
+        }
+        List<LR2IRScore> scoreTable = updateLR2IRScoreTable();
+        if (IsDeferredRankingRefreshRequestSuperseded(requestVersion))
+        {
+            throw new OperationCanceledException();
+        }
+        updateBMSScores(scoreTable);
+        RefreshScoreSnapshotFromCurrentScores("deferred_ranking_refresh_ir_score");
+        if (IsDeferredRankingRefreshRequestSuperseded(requestVersion))
+        {
+            throw new OperationCanceledException();
+        }
+        setRankingScore();
+        RefreshScoreSnapshotFromCurrentScores("deferred_ranking_refresh_cache");
+    }
+
+    /// <summary>
+    /// 現在の deferred ranking refresh 要求が新しい要求で上書きされたかどうかを返します。
+    /// </summary>
+    /// <param name="requestVersion">確認対象の版数。</param>
+    /// <returns>新しい要求が存在する場合は <see langword="true"/>。</returns>
+    private bool IsDeferredRankingRefreshRequestSuperseded(int requestVersion)
+    {
+        lock (lockDeferredRankingRefresh)
+        {
+            return requestVersion != deferredRankingRefreshRequestedVersion;
+        }
     }
 
     private List<string> getBMSDirectories()
@@ -1846,24 +2445,108 @@ public class BMSLibrary : NotificationObject
     /// </summary>
     public void SetBMSScore(IEnumerable<BMSFile> bmsFiles)
     {
+        SetBMSScoreInternal(bmsFiles, collectMetrics: false);
+    }
+
+    /// <summary>
+    /// 指定された BMS ファイル群に対して、LR2 score.db の score 反映メトリクスを取得します。
+    /// </summary>
+    /// <param name="bmsFiles">score 反映対象。</param>
+    /// <returns>score 反映時の待機・適用メトリクス。</returns>
+    internal BmsScoreApplyMetrics SetBMSScoreWithMetrics(IReadOnlyCollection<BMSFile> bmsFiles)
+    {
+        return SetBMSScoreInternal(bmsFiles, collectMetrics: true);
+    }
+
+    /// <summary>
+    /// deferred maintenance table check の進行状態を診断用に返します。
+    /// </summary>
+    /// <returns>現在の deferred maintenance 状態。</returns>
+    internal DeferredMaintenanceTableCheckState GetDeferredMaintenanceTableCheckStateForDiagnostics()
+    {
+        lock (lockDeferredMaintenanceTableCheck)
+        {
+            return new DeferredMaintenanceTableCheckState
+            {
+                Running = deferredMaintenanceTableCheckRunning,
+                RequestedVersion = deferredMaintenanceTableCheckRequestedVersion,
+                LastCompletedVersion = deferredMaintenanceTableCheckLastCompletedVersion
+            };
+        }
+    }
+
+    /// <summary>
+    /// score 反映と必要に応じたメトリクス収集を行います。
+    /// </summary>
+    /// <param name="bmsFiles">score 反映対象。</param>
+    /// <param name="collectMetrics">メトリクスを収集するかどうか。</param>
+    /// <returns>score 反映時のメトリクス。</returns>
+    private BmsScoreApplyMetrics SetBMSScoreInternal(IEnumerable<BMSFile> bmsFiles, bool collectMetrics)
+    {
+        BmsScoreApplyMetrics metrics = default(BmsScoreApplyMetrics);
         if (bmsFiles == null || lr2ScoreDBPath == null)
         {
-            return;
+            return metrics;
         }
-        using (rwlockBMSFilesInitializedMin.GetReaderGuard())
+        IEnumerable<BMSFile> effectiveFiles = bmsFiles;
+        if (collectMetrics)
         {
-            using (rwlockBMSFiles.GetReaderGuard())
+            if (bmsFiles is IReadOnlyCollection<BMSFile> readOnlyCollection)
             {
-                using (rwlockBMSScores.GetWriterGuard())
-                {
-                    if (BMSScores == null)
-                    {
-                        return;
-                    }
-                    irService.ApplyKnownScoresToFiles(bmsFiles, BMSScores);
-                }
+                metrics.TargetCount = readOnlyCollection.Count;
+            }
+            else if (bmsFiles is ICollection<BMSFile> collection)
+            {
+                metrics.TargetCount = collection.Count;
+            }
+            else
+            {
+                List<BMSFile> normalizedFiles = bmsFiles.Where((BMSFile file) => file != null).ToList();
+                effectiveFiles = normalizedFiles;
+                metrics.TargetCount = normalizedFiles.Count;
             }
         }
+        Stopwatch totalStopwatch = collectMetrics ? Stopwatch.StartNew() : null;
+        Stopwatch stageStopwatch = collectMetrics ? Stopwatch.StartNew() : null;
+        using (rwlockBMSFilesInitializedMin.GetReaderGuard())
+        {
+            if (collectMetrics)
+            {
+                metrics.WaitInitializedMinMs = stageStopwatch.ElapsedMilliseconds;
+                stageStopwatch.Restart();
+            }
+            if (collectMetrics)
+            {
+                metrics.WaitBmsFilesReadMs = stageStopwatch.ElapsedMilliseconds;
+                stageStopwatch.Restart();
+            }
+            ScoreSnapshot snapshot = GetScoreSnapshotForLookup(allowOnDemandBuild: true);
+            if (collectMetrics)
+            {
+                metrics.WaitScoreSnapshotReadMs = stageStopwatch.ElapsedMilliseconds;
+                metrics.WaitScoresWriteMs = 0L;
+            }
+            if (snapshot == null || snapshot.ScoresByHash == null || snapshot.ScoresByHash.Count == 0)
+            {
+                if (collectMetrics)
+                {
+                    metrics.TotalMs = totalStopwatch.ElapsedMilliseconds;
+                }
+                return metrics;
+            }
+            if (collectMetrics)
+            {
+                stageStopwatch.Restart();
+                metrics.MatchedScoreCount = irService.ApplyKnownScoresToFilesAndCount(effectiveFiles, snapshot.ScoresByHash);
+                metrics.ApplyKnownScoresMs = stageStopwatch.ElapsedMilliseconds;
+                metrics.TotalMs = totalStopwatch.ElapsedMilliseconds;
+            }
+            else
+            {
+                irService.ApplyKnownScoresToFilesAndCount(effectiveFiles, snapshot.ScoresByHash);
+            }
+        }
+        return metrics;
     }
 
     private LR2IRCache getIRCache(string filePath)
@@ -1883,6 +2566,7 @@ public class BMSLibrary : NotificationObject
             }
             irService.ApplyIrDataToScoresAndFiles(data, cache, lr2ScoreDBPath, BMSScores, bmsFilesSnapshot, options.SkipEstimateOfflineScoreRanking);
         }
+        RefreshScoreSnapshotFromCurrentScores("apply_ir_data");
     }
 
     private List<LR2IRScore> updateLR2IRScoreTable()
@@ -1903,6 +2587,7 @@ public class BMSLibrary : NotificationObject
                 BMSScores = irService.UpdateBmsScores(scoreTable, BMSScores, BMSFiles);
             }
         }
+        RefreshScoreSnapshotFromCurrentScores("update_ir_score_table");
     }
 
     private void setRankingScore()
@@ -1927,6 +2612,7 @@ public class BMSLibrary : NotificationObject
             GC.Collect();
             NLogWrapper.DebuggerLogger?.Trace(GC.GetTotalMemory(forceFullCollection: false));
         }
+        RefreshScoreSnapshotFromCurrentScores("refresh_ranking_cache");
     }
 
     public List<IRDataCacheInfo> GetIRDataNeedUpdates(IEnumerable<string> md5s)
@@ -1957,16 +2643,19 @@ public class BMSLibrary : NotificationObject
         {
             throw new DirectoryNotFoundException(string.Format(Resources.Error_IRCacheDirNotFound, irCacheDirPath));
         }
+        List<IRDataCacheInfo> failed;
         using (rwlockLR2IrDir.GetWriterGuard())
         {
             using (rwlockBMSScores.GetWriterGuard())
             {
                 using (rwlockBMSFiles.GetReaderGuard())
                 {
-                    return irService.DownloadIRData(LR2ID, cacheInfo, irCacheDirPath, dbGateway, irClient, rankingDataUrl, BMSScores, BMSFiles, options.SkipEstimateOfflineScoreRanking);
+                    failed = irService.DownloadIRData(LR2ID, cacheInfo, irCacheDirPath, dbGateway, irClient, rankingDataUrl, BMSScores, BMSFiles, options.SkipEstimateOfflineScoreRanking);
                 }
             }
         }
+        RefreshScoreSnapshotFromCurrentScores("download_ir_data");
+        return failed;
     }
 
     public IRSongInfo GetIRSongInfoCache(string md5orlr2bmsid, bool seaarchAggressively = false)

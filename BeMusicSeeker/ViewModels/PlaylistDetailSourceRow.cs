@@ -112,11 +112,12 @@ internal sealed class PlaylistDetailSourceRow
 
     internal string SearchText { get; private set; }
 
-    internal PlaylistDetailSourceRow(BMSTableEntry entry, BMSFile realFile, BMSFile scoreProbe = null)
+    internal PlaylistDetailSourceRow(BMSTableEntry entry, BMSFile realFile, BMSFile scoreProbe = null, BMSScore scoreSnapshot = null)
     {
         Entry = entry ?? throw new ArgumentNullException(nameof(entry));
         RealFile = realFile;
         BMSFile snapshotSource = realFile ?? scoreProbe;
+        BMSScore effectiveScore = scoreSnapshot ?? snapshotSource?.bmsScore;
         Title = realFile?.Title ?? entry.title ?? string.Empty;
         Artist = realFile?.Artist ?? entry.artist ?? string.Empty;
         genre = realFile?.genre ?? string.Empty;
@@ -141,17 +142,17 @@ internal sealed class PlaylistDetailSourceRow
         encoding = snapshotSource?.encoding ?? string.Empty;
         RefTablesSymbols = realFile?.RefTablesSymbols ?? string.Empty;
         RefTablesNames = realFile?.RefTablesNames ?? string.Empty;
-        clear = snapshotSource?.clear ?? ClearType.NO_SONG;
-        rank = snapshotSource?.rank ?? RankType.INVALID;
-        rate = snapshotSource?.rate;
-        score = snapshotSource?.score;
-        totalnotes = snapshotSource?.totalnotes;
-        maxcombo = snapshotSource?.maxcombo;
-        minbp = snapshotSource?.minbp;
-        rankingString = snapshotSource?.rankingString ?? string.Empty;
-        rankingLastupdate = snapshotSource?.rankingLastupdate;
-        stddevVal = snapshotSource?.stddevVal;
-        scoreDifficulty = snapshotSource?.scoreDifficulty;
+        clear = ResolveClear(realFile, scoreProbe, effectiveScore);
+        rank = ResolveRank(realFile, scoreProbe, effectiveScore);
+        rate = effectiveScore?.rate ?? scoreProbe?.rate;
+        score = effectiveScore?.score ?? scoreProbe?.score;
+        totalnotes = effectiveScore?.totalnotes ?? scoreProbe?.totalnotes;
+        maxcombo = effectiveScore?.maxcombo ?? scoreProbe?.maxcombo;
+        minbp = ResolveMinBp(scoreProbe, effectiveScore);
+        rankingString = BuildRankingString(effectiveScore) ?? scoreProbe?.rankingString ?? string.Empty;
+        rankingLastupdate = effectiveScore?.rankingLastupdate ?? scoreProbe?.rankingLastupdate;
+        stddevVal = effectiveScore?.stddevVal ?? scoreProbe?.stddevVal;
+        scoreDifficulty = effectiveScore?.scoreDifficulty ?? scoreProbe?.scoreDifficulty;
         status = snapshotSource?.status ?? BMSFile.BMSFileStatus.NONE;
         lr2_bmsid = entry.lr2_bmsid ?? string.Empty;
         EntryLevelSortKey = entry.level;
@@ -225,6 +226,46 @@ internal sealed class PlaylistDetailSourceRow
             return parsedLevel;
         }
         return null;
+    }
+
+    private static ClearType ResolveClear(BMSFile realFile, BMSFile scoreProbe, BMSScore effectiveScore)
+    {
+        if (realFile != null)
+        {
+            return effectiveScore?.clear ?? ClearType.NO_PLAY;
+        }
+        return scoreProbe?.clear ?? ClearType.NO_SONG;
+    }
+
+    private static RankType ResolveRank(BMSFile realFile, BMSFile scoreProbe, BMSScore effectiveScore)
+    {
+        if (realFile != null)
+        {
+            if (effectiveScore == null)
+            {
+                return RankType.INVALID;
+            }
+            return (effectiveScore.rank != RankType.INVALID) ? effectiveScore.rank : RankType.F;
+        }
+        return scoreProbe?.rank ?? RankType.INVALID;
+    }
+
+    private static int? ResolveMinBp(BMSFile scoreProbe, BMSScore effectiveScore)
+    {
+        if (effectiveScore != null)
+        {
+            return (effectiveScore.minbp == -1) ? effectiveScore.totalnotes : effectiveScore.minbp;
+        }
+        return scoreProbe?.minbp;
+    }
+
+    private static string BuildRankingString(BMSScore effectiveScore)
+    {
+        if (effectiveScore == null || effectiveScore.ranking == 0 || effectiveScore.ranking == -1 || effectiveScore.rankingNum == 0)
+        {
+            return string.Empty;
+        }
+        return effectiveScore.ranking.ToString().PadLeft(effectiveScore.rankingNum.ToString().Length) + "/" + effectiveScore.rankingNum;
     }
 
     private string BuildSearchText()

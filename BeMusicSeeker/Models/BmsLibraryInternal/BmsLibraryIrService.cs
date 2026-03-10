@@ -18,10 +18,41 @@ internal sealed class BmsLibraryIrService
 {
     public void ApplyKnownScoresToFiles(IEnumerable<BMSFile> bmsFiles, IEnumerable<BMSScore> bmsScores)
     {
+        ApplyKnownScoresToFilesAndCount(bmsFiles, bmsScores);
+    }
+
+    /// <summary>
+    /// hash-index 化済み score snapshot を使って対象ファイルへ score を反映し、反映件数を返します。
+    /// playlist score probe と deferred hydration で使う高速経路です。
+    /// </summary>
+    /// <param name="bmsFiles">score 反映対象の譜面一覧。</param>
+    /// <param name="scoresByHash">MD5 hash をキーにした score snapshot。</param>
+    /// <returns>score を反映できた件数。</returns>
+    internal int ApplyKnownScoresToFilesAndCount(IEnumerable<BMSFile> bmsFiles, IReadOnlyDictionary<string, BMSScore> scoresByHash)
+    {
+        if (bmsFiles == null || scoresByHash == null || scoresByHash.Count == 0)
+        {
+            return 0;
+        }
+        int matchedScoreCount = 0;
+        foreach (BMSFile bmsFile in bmsFiles)
+        {
+            if (bmsFile != null && !string.IsNullOrWhiteSpace(bmsFile.hash) && scoresByHash.TryGetValue(bmsFile.hash, out BMSScore value))
+            {
+                bmsFile.bmsScore = value;
+                matchedScoreCount++;
+            }
+        }
+        return matchedScoreCount;
+    }
+
+    internal int ApplyKnownScoresToFilesAndCount(IEnumerable<BMSFile> bmsFiles, IEnumerable<BMSScore> bmsScores)
+    {
         if (bmsFiles == null || bmsScores == null)
         {
-            return;
+            return 0;
         }
+        int matchedScoreCount = 0;
         foreach (var item in bmsFiles.Join(bmsScores, (BMSFile file) => file.hash, (BMSScore score) => score.hash, (BMSFile file, BMSScore score) => new
         {
             File = file,
@@ -29,7 +60,9 @@ internal sealed class BmsLibraryIrService
         }))
         {
             item.File.bmsScore = item.Score;
+            matchedScoreCount++;
         }
+        return matchedScoreCount;
     }
 
     public LR2IRCache LoadIrCache(string filePath)

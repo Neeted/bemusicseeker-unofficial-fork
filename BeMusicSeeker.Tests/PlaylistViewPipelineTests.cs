@@ -3,6 +3,7 @@ using System.ComponentModel;
 using System.Linq;
 using System;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.ViewModels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -194,8 +195,8 @@ public sealed class PlaylistViewPipelineTests
             Direction = ListSortDirection.Ascending
         };
 
-        MainWindowViewModel.PlaylistRequestIdentity left = MainWindowViewModel.CreatePlaylistRequestIdentity(table, " FolderA ", MainWindowViewModel.PlaylistFilterType.PlaylistFilter, " keyword ", MainWindowViewModel.ModeFilterType._7KEYS, sortParameters, libraryIndexVersion: 10, playlistRevision: 20, hasResolvedSelection: true);
-        MainWindowViewModel.PlaylistRequestIdentity right = MainWindowViewModel.CreatePlaylistRequestIdentity(table, "FolderA", MainWindowViewModel.PlaylistFilterType.PlaylistFilter, "KEYWORD", MainWindowViewModel.ModeFilterType._7KEYS, sortParameters, libraryIndexVersion: 10, playlistRevision: 20, hasResolvedSelection: true);
+        MainWindowViewModel.PlaylistRequestIdentity left = MainWindowViewModel.CreatePlaylistRequestIdentity(table, " FolderA ", MainWindowViewModel.PlaylistFilterType.PlaylistFilter, " keyword ", MainWindowViewModel.ModeFilterType._7KEYS, sortParameters, libraryIndexVersion: 10, playlistRevision: 20, scoreSnapshotVersion: 30, hasResolvedSelection: true);
+        MainWindowViewModel.PlaylistRequestIdentity right = MainWindowViewModel.CreatePlaylistRequestIdentity(table, "FolderA", MainWindowViewModel.PlaylistFilterType.PlaylistFilter, "KEYWORD", MainWindowViewModel.ModeFilterType._7KEYS, sortParameters, libraryIndexVersion: 10, playlistRevision: 20, scoreSnapshotVersion: 30, hasResolvedSelection: true);
 
         Assert.AreEqual(left, right);
     }
@@ -204,8 +205,18 @@ public sealed class PlaylistViewPipelineTests
     public void CreatePlaylistRequestIdentity_DifferentPlaylistRevisionBreaksDedup()
     {
         BMSTable table = new BMSTable();
-        MainWindowViewModel.PlaylistRequestIdentity before = MainWindowViewModel.CreatePlaylistRequestIdentity(table, null, MainWindowViewModel.PlaylistFilterType.PlaylistNotOwnedFilterSelected, null, MainWindowViewModel.ModeFilterType.All, sortParameters: null, libraryIndexVersion: 3, playlistRevision: 4, hasResolvedSelection: true);
-        MainWindowViewModel.PlaylistRequestIdentity after = MainWindowViewModel.CreatePlaylistRequestIdentity(table, null, MainWindowViewModel.PlaylistFilterType.PlaylistNotOwnedFilterSelected, null, MainWindowViewModel.ModeFilterType.All, sortParameters: null, libraryIndexVersion: 3, playlistRevision: 5, hasResolvedSelection: true);
+        MainWindowViewModel.PlaylistRequestIdentity before = MainWindowViewModel.CreatePlaylistRequestIdentity(table, null, MainWindowViewModel.PlaylistFilterType.PlaylistNotOwnedFilterSelected, null, MainWindowViewModel.ModeFilterType.All, sortParameters: null, libraryIndexVersion: 3, playlistRevision: 4, scoreSnapshotVersion: 5, hasResolvedSelection: true);
+        MainWindowViewModel.PlaylistRequestIdentity after = MainWindowViewModel.CreatePlaylistRequestIdentity(table, null, MainWindowViewModel.PlaylistFilterType.PlaylistNotOwnedFilterSelected, null, MainWindowViewModel.ModeFilterType.All, sortParameters: null, libraryIndexVersion: 3, playlistRevision: 5, scoreSnapshotVersion: 5, hasResolvedSelection: true);
+
+        Assert.AreNotEqual(before, after);
+    }
+
+    [TestMethod]
+    public void CreatePlaylistRequestIdentity_DifferentScoreSnapshotVersionBreaksDedup()
+    {
+        BMSTable table = new BMSTable();
+        MainWindowViewModel.PlaylistRequestIdentity before = MainWindowViewModel.CreatePlaylistRequestIdentity(table, null, MainWindowViewModel.PlaylistFilterType.PlaylistFilter, null, MainWindowViewModel.ModeFilterType.All, sortParameters: null, libraryIndexVersion: 3, playlistRevision: 4, scoreSnapshotVersion: 5, hasResolvedSelection: true);
+        MainWindowViewModel.PlaylistRequestIdentity after = MainWindowViewModel.CreatePlaylistRequestIdentity(table, null, MainWindowViewModel.PlaylistFilterType.PlaylistFilter, null, MainWindowViewModel.ModeFilterType.All, sortParameters: null, libraryIndexVersion: 3, playlistRevision: 4, scoreSnapshotVersion: 6, hasResolvedSelection: true);
 
         Assert.AreNotEqual(before, after);
     }
@@ -214,8 +225,8 @@ public sealed class PlaylistViewPipelineTests
     public void CreatePlaylistRequestIdentity_DistinguishesRootPlaylistAndEmptyFolderNode()
     {
         BMSTable table = new BMSTable();
-        MainWindowViewModel.PlaylistRequestIdentity rootPlaylist = MainWindowViewModel.CreatePlaylistRequestIdentity(table, null, MainWindowViewModel.PlaylistFilterType.PlaylistFilter, null, MainWindowViewModel.ModeFilterType.All, sortParameters: null, libraryIndexVersion: 3, playlistRevision: 4, hasResolvedSelection: true);
-        MainWindowViewModel.PlaylistRequestIdentity emptyFolder = MainWindowViewModel.CreatePlaylistRequestIdentity(table, string.Empty, MainWindowViewModel.PlaylistFilterType.PlaylistFilter, null, MainWindowViewModel.ModeFilterType.All, sortParameters: null, libraryIndexVersion: 3, playlistRevision: 4, hasResolvedSelection: true);
+        MainWindowViewModel.PlaylistRequestIdentity rootPlaylist = MainWindowViewModel.CreatePlaylistRequestIdentity(table, null, MainWindowViewModel.PlaylistFilterType.PlaylistFilter, null, MainWindowViewModel.ModeFilterType.All, sortParameters: null, libraryIndexVersion: 3, playlistRevision: 4, scoreSnapshotVersion: 5, hasResolvedSelection: true);
+        MainWindowViewModel.PlaylistRequestIdentity emptyFolder = MainWindowViewModel.CreatePlaylistRequestIdentity(table, string.Empty, MainWindowViewModel.PlaylistFilterType.PlaylistFilter, null, MainWindowViewModel.ModeFilterType.All, sortParameters: null, libraryIndexVersion: 3, playlistRevision: 4, scoreSnapshotVersion: 5, hasResolvedSelection: true);
 
         Assert.AreNotEqual(rootPlaylist, emptyFolder);
     }
@@ -242,6 +253,31 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(new Uri("https://example.com/diff"), sourceRow.Url_diff);
         StringAssert.Contains(sourceRow.SearchText, "NEW MEMO");
         StringAssert.Contains(sourceRow.SearchText, "NEW COMMENT");
+    }
+
+    [TestMethod]
+    public void PlaylistDetailSourceRow_UsesScoreSnapshotForOwnedRowsBeforeGlobalHydration()
+    {
+        TestableBmsFile file = new TestableBmsFile();
+        file.ApplySnapshot("cccccccccccccccccccccccccccccccc", "Owned", 7);
+        BMSTableEntry entry = new BMSTableEntry(file);
+        BMSScore score = new BMSScore
+        {
+            hash = file.hash,
+            clear = ClearType.HARD,
+            totalnotes = 1000,
+            perfect = 800,
+            great = 100,
+            rank = RankType.AA,
+            minbp = 3
+        };
+        PlaylistDetailSourceRow sourceRow = new PlaylistDetailSourceRow(entry, file, scoreSnapshot: score);
+
+        Assert.AreEqual(ClearType.HARD, sourceRow.clear);
+        Assert.AreEqual(RankType.AA, sourceRow.rank);
+        Assert.AreEqual(1700, sourceRow.score);
+        Assert.AreEqual(1000, sourceRow.totalnotes);
+        Assert.AreEqual(3, sourceRow.minbp);
     }
 
     [TestMethod]
