@@ -775,6 +775,12 @@ public class BMSLibrary : NotificationObject
 
     private int _RankingRefreshCompletedVersion;
 
+    private bool _MaintenanceDeferredRunning;
+
+    private int _MaintenanceDeferredRequestedVersion;
+
+    private int _MaintenanceDeferredCompletedVersion;
+
     private bool _IsWriteLockHeldInitializeBMSFilesHealthStatus = true;
 
     private bool _IsWriteLockHeldInitializeBMSFilesEncodingInfo = true;
@@ -1181,6 +1187,63 @@ public class BMSLibrary : NotificationObject
             {
                 _RankingRefreshCompletedVersion = value;
                 RaisePropertyChanged(() => RankingRefreshCompletedVersion);
+            }
+        }
+    }
+
+    /// <summary>
+    /// deferred maintenance table check worker が現在実行中かどうかを返します。
+    /// </summary>
+    public bool MaintenanceDeferredRunning
+    {
+        get
+        {
+            return _MaintenanceDeferredRunning;
+        }
+        private set
+        {
+            if (_MaintenanceDeferredRunning != value)
+            {
+                _MaintenanceDeferredRunning = value;
+                RaisePropertyChanged(() => MaintenanceDeferredRunning);
+            }
+        }
+    }
+
+    /// <summary>
+    /// 最後に要求された deferred maintenance table check の版数です。
+    /// </summary>
+    public int MaintenanceDeferredRequestedVersion
+    {
+        get
+        {
+            return _MaintenanceDeferredRequestedVersion;
+        }
+        private set
+        {
+            if (_MaintenanceDeferredRequestedVersion != value)
+            {
+                _MaintenanceDeferredRequestedVersion = value;
+                RaisePropertyChanged(() => MaintenanceDeferredRequestedVersion);
+            }
+        }
+    }
+
+    /// <summary>
+    /// 最後に完了した deferred maintenance table check の版数です。
+    /// </summary>
+    public int MaintenanceDeferredCompletedVersion
+    {
+        get
+        {
+            return _MaintenanceDeferredCompletedVersion;
+        }
+        private set
+        {
+            if (_MaintenanceDeferredCompletedVersion != value)
+            {
+                _MaintenanceDeferredCompletedVersion = value;
+                RaisePropertyChanged(() => MaintenanceDeferredCompletedVersion);
             }
         }
     }
@@ -1910,6 +1973,7 @@ public class BMSLibrary : NotificationObject
     {
         int version = 0;
         bool shouldStartWorker = false;
+        bool markRunning = false;
         lock (lockDeferredMaintenanceTableCheck)
         {
             deferredMaintenanceTableCheckRequestedVersion++;
@@ -1918,7 +1982,13 @@ public class BMSLibrary : NotificationObject
             {
                 deferredMaintenanceTableCheckRunning = true;
                 shouldStartWorker = true;
+                markRunning = true;
             }
+        }
+        MaintenanceDeferredRequestedVersion = version;
+        if (markRunning)
+        {
+            MaintenanceDeferredRunning = true;
         }
         LogInstallPerformance("maintenance_tbl_check_deferred queue reason=" + (reason ?? "unknown") + " version=" + version);
         if (!shouldStartWorker)
@@ -1947,14 +2017,21 @@ public class BMSLibrary : NotificationObject
                     stopwatch.Stop();
                     LogInstallPerformance("maintenance_tbl_check_deferred failed version=" + requestVersion + " elapsedMs=" + stopwatch.ElapsedMilliseconds + " message=" + ex.Message);
                 }
+                bool markRunningFalse = false;
                 lock (lockDeferredMaintenanceTableCheck)
                 {
                     deferredMaintenanceTableCheckLastCompletedVersion = requestVersion;
                     if (requestVersion == deferredMaintenanceTableCheckRequestedVersion)
                     {
                         deferredMaintenanceTableCheckRunning = false;
-                        return;
+                        markRunningFalse = true;
                     }
+                }
+                MaintenanceDeferredCompletedVersion = requestVersion;
+                if (markRunningFalse)
+                {
+                    MaintenanceDeferredRunning = false;
+                    return;
                 }
             }
         });
@@ -2487,15 +2564,12 @@ public class BMSLibrary : NotificationObject
     /// <returns>現在の deferred maintenance 状態。</returns>
     internal DeferredMaintenanceTableCheckState GetDeferredMaintenanceTableCheckStateForDiagnostics()
     {
-        lock (lockDeferredMaintenanceTableCheck)
+        return new DeferredMaintenanceTableCheckState
         {
-            return new DeferredMaintenanceTableCheckState
-            {
-                Running = deferredMaintenanceTableCheckRunning,
-                RequestedVersion = deferredMaintenanceTableCheckRequestedVersion,
-                LastCompletedVersion = deferredMaintenanceTableCheckLastCompletedVersion
-            };
-        }
+            Running = MaintenanceDeferredRunning,
+            RequestedVersion = MaintenanceDeferredRequestedVersion,
+            LastCompletedVersion = MaintenanceDeferredCompletedVersion
+        };
     }
 
     /// <summary>

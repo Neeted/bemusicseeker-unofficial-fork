@@ -257,6 +257,36 @@ public class Resources
 
     public static string Playlist_sync_progress_single_label => ResourceManager.GetString("Playlist_sync_progress_single_label", resourceCulture);
 
+    public static string Statusbar_progress_startup => ResourceManager.GetString("Statusbar_progress_startup", resourceCulture);
+
+    public static string Statusbar_progress_reload_files => ResourceManager.GetString("Statusbar_progress_reload_files", resourceCulture);
+
+    public static string Statusbar_progress_reload_tables => ResourceManager.GetString("Statusbar_progress_reload_tables", resourceCulture);
+
+    public static string Statusbar_progress_operable => ResourceManager.GetString("Statusbar_progress_operable", resourceCulture);
+
+    public static string Statusbar_progress_complete => ResourceManager.GetString("Statusbar_progress_complete", resourceCulture);
+
+    public static string Statusbar_progress_complete_reload => ResourceManager.GetString("Statusbar_progress_complete_reload", resourceCulture);
+
+    public static string Statusbar_progress_failed => ResourceManager.GetString("Statusbar_progress_failed", resourceCulture);
+
+    public static string Statusbar_progress_failed_reload => ResourceManager.GetString("Statusbar_progress_failed_reload", resourceCulture);
+
+    public static string Statusbar_progress_phase_library_load => ResourceManager.GetString("Statusbar_progress_phase_library_load", resourceCulture);
+
+    public static string Statusbar_progress_phase_ui_prepare => ResourceManager.GetString("Statusbar_progress_phase_ui_prepare", resourceCulture);
+
+    public static string Statusbar_progress_phase_playlist_ref => ResourceManager.GetString("Statusbar_progress_phase_playlist_ref", resourceCulture);
+
+    public static string Statusbar_progress_phase_maintenance => ResourceManager.GetString("Statusbar_progress_phase_maintenance", resourceCulture);
+
+    public static string Statusbar_progress_phase_score_hydration => ResourceManager.GetString("Statusbar_progress_phase_score_hydration", resourceCulture);
+
+    public static string Statusbar_progress_phase_ranking_refresh => ResourceManager.GetString("Statusbar_progress_phase_ranking_refresh", resourceCulture);
+
+    public static string Statusbar_progress_phase_background => ResourceManager.GetString("Statusbar_progress_phase_background", resourceCulture);
+
     public static string Install => ResourceManager.GetString("Install", resourceCulture);
 
     public static string Install_desc => ResourceManager.GetString("Install_desc", resourceCulture);

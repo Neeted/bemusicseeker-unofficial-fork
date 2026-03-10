@@ -888,6 +888,9 @@
             <Style TargetType="{x:Type StatusBar}">
               <Setter Property="Visibility" Value="Collapsed" />
               <Style.Triggers>
+                <DataTrigger Binding="{Binding IsStartupProgressActive}" Value="True">
+                  <Setter Property="Visibility" Value="Visible" />
+                </DataTrigger>
                 <DataTrigger Binding="{Binding IsDropInstallQueueActive}" Value="True">
                   <Setter Property="Visibility" Value="Visible" />
                 </DataTrigger>
@@ -898,6 +901,14 @@
             </Style>
           </StatusBar.Style>
           <StatusBar.Resources>
+            <Style x:Key="styleStartupProgressStatusBarItem" TargetType="{x:Type StatusBarItem}">
+              <Setter Property="Visibility" Value="Collapsed" />
+              <Style.Triggers>
+                <DataTrigger Binding="{Binding IsStartupProgressActive}" Value="True">
+                  <Setter Property="Visibility" Value="Visible" />
+                </DataTrigger>
+              </Style.Triggers>
+            </Style>
             <Style x:Key="styleDropInstallStatusBarItem" TargetType="{x:Type StatusBarItem}">
               <Setter Property="Visibility" Value="Collapsed" />
               <Style.Triggers>
@@ -915,6 +926,21 @@
               </Style.Triggers>
             </Style>
           </StatusBar.Resources>
+          <StatusBarItem Style="{StaticResource styleStartupProgressStatusBarItem}">
+            <TextBlock Text="{Binding StartupProgressLabel}" />
+          </StatusBarItem>
+          <StatusBarItem Style="{StaticResource styleStartupProgressStatusBarItem}">
+            <Separator />
+          </StatusBarItem>
+          <StatusBarItem Style="{StaticResource styleStartupProgressStatusBarItem}">
+            <TextBlock Width="160" TextTrimming="CharacterEllipsis" Text="{Binding StartupProgressSubLabel}" />
+          </StatusBarItem>
+          <StatusBarItem Style="{StaticResource styleStartupProgressStatusBarItem}">
+            <Separator />
+          </StatusBarItem>
+          <StatusBarItem Style="{StaticResource styleStartupProgressStatusBarItem}">
+            <ProgressBar Width="160" Height="14" Minimum="0" Maximum="{Binding StartupProgressMaximum, Mode=OneWay}" Value="{Binding StartupProgressValue, Mode=OneWay}" />
+          </StatusBarItem>
           <StatusBarItem Style="{StaticResource styleDropInstallStatusBarItem}">
             <TextBlock Text="{Binding DropInstallQueueLabel}" />
           </StatusBarItem>
@@ -922,13 +948,13 @@
             <Separator />
           </StatusBarItem>
           <StatusBarItem Style="{StaticResource styleDropInstallStatusBarItem}">
-            <TextBlock Width="320" TextTrimming="CharacterEllipsis" Text="{Binding DropInstallQueueSubLabel}" />
+            <TextBlock Width="200" TextTrimming="CharacterEllipsis" Text="{Binding DropInstallQueueSubLabel}" />
           </StatusBarItem>
           <StatusBarItem Style="{StaticResource styleDropInstallStatusBarItem}">
             <Separator />
           </StatusBarItem>
           <StatusBarItem Style="{StaticResource styleDropInstallStatusBarItem}">
-            <ProgressBar Width="180" Height="14" IsIndeterminate="True" />
+            <ProgressBar Width="160" Height="14" IsIndeterminate="True" />
           </StatusBarItem>
           <StatusBarItem Style="{StaticResource styleDropInstallStatusBarItem}">
             <Button MinWidth="70" Padding="8,1" IsEnabled="{Binding DropInstallQueueCanCancel}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Cancel, Mode=OneWay}" Click="cancelDropInstallQueueClick" />
@@ -943,13 +969,13 @@
             <Separator />
           </StatusBarItem>
           <StatusBarItem Style="{StaticResource stylePlaylistSyncStatusBarItem}">
-            <TextBlock Width="320" TextTrimming="CharacterEllipsis" Text="{Binding PlaylistSyncProgressSubLabel}" />
+            <TextBlock Width="200" TextTrimming="CharacterEllipsis" Text="{Binding PlaylistSyncProgressSubLabel}" />
           </StatusBarItem>
           <StatusBarItem Style="{StaticResource stylePlaylistSyncStatusBarItem}">
             <Separator />
           </StatusBarItem>
           <StatusBarItem Style="{StaticResource stylePlaylistSyncStatusBarItem}">
-            <ProgressBar Width="180" Height="14" Minimum="0" Maximum="{Binding PlaylistSyncProgressMaximum, Mode=OneWay}" Value="{Binding PlaylistSyncProgressValue, Mode=OneWay}" />
+            <ProgressBar Width="160" Height="14" Minimum="0" Maximum="{Binding PlaylistSyncProgressMaximum, Mode=OneWay}" Value="{Binding PlaylistSyncProgressValue, Mode=OneWay}" />
           </StatusBarItem>
         </StatusBar>
         <Grid Name="grid">

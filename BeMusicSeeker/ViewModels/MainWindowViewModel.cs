@@ -3560,6 +3560,72 @@ public class MainWindowViewModel : ViewModel
     }
 
     /// <summary>
+    /// 起動・リロード進捗の対象 operation 種別です。
+    /// </summary>
+    private enum StartupProgressOperationKind
+    {
+        None,
+        Startup,
+        ReloadFiles,
+        ReloadTables
+    }
+
+    /// <summary>
+    /// 起動・リロード進捗の内部フェーズ集合です。
+    /// </summary>
+    [Flags]
+    private enum StartupProgressPhase
+    {
+        None = 0,
+        CoreInitializeStarted = 1,
+        StartupReadyData = 2,
+        StartupReadyUi = 4,
+        StartupReadyOperable = 8,
+        PlaylistReferenceApplied = 16,
+        ExternalPlaylistSyncDone = 32,
+        ScoreHydrationDone = 64,
+        RankingRefreshDone = 128,
+        MaintenanceDeferredDone = 256
+    }
+
+    /// <summary>
+    /// 起動・リロード進捗の内部状態です。
+    /// UI 表示は Completed/Expected フェーズ集合から再計算します。
+    /// </summary>
+    private sealed class StartupProgressState
+    {
+        internal long OperationToken;
+
+        internal StartupProgressOperationKind OperationKind;
+
+        internal bool IsActive;
+
+        internal bool IsFailed;
+
+        internal string FailureSubLabel = string.Empty;
+
+        internal StartupProgressPhase CompletedPhases;
+
+        internal StartupProgressPhase ExpectedPhases;
+
+        internal int ScoreHydrationBaselineCompletedVersion;
+
+        internal int RankingRefreshBaselineCompletedVersion;
+
+        internal int MaintenanceRequestedBaselineVersion;
+
+        internal int RequiredPlaylistReferenceVersion;
+
+        internal int RequiredExternalSyncVersion;
+
+        internal int RequiredMaintenanceCompletedVersion;
+
+        internal bool CompletionHideScheduled;
+
+        internal DateTime? LastCompletedAtUtc;
+    }
+
+    /// <summary>
     /// playlist open 1 件の request/build/render 相関を保持します。
     /// </summary>
     private sealed class PlaylistOpenInteractionState
@@ -3985,6 +4051,22 @@ public class MainWindowViewModel : ViewModel
     private double _PlaylistSyncProgressValue;
 
     private double _PlaylistSyncProgressMaximum;
+
+    private readonly object startupProgressLock = new object();
+
+    private StartupProgressState startupProgressState = new StartupProgressState();
+
+    private long startupProgressOperationTokenSeed;
+
+    private bool _IsStartupProgressActive;
+
+    private string _StartupProgressLabel = string.Empty;
+
+    private string _StartupProgressSubLabel = string.Empty;
+
+    private double _StartupProgressValue;
+
+    private double _StartupProgressMaximum;
 
     private bool _IsPlaylistTreeExpanded = true;
 
@@ -5182,6 +5264,7 @@ public class MainWindowViewModel : ViewModel
         LogUiSuppression("startup_ready_data elapsedMs=" + startupReadyInstallStopwatch.ElapsedMilliseconds);
         startupReadyDataLogged = true;
         startupReadyDataReached = true;
+        MarkStartupProgressPhaseCompleted(StartupProgressPhase.StartupReadyData);
     }
 
     private void TryLogStartupReadyUi(UiRefreshChannel mask)
@@ -5199,6 +5282,7 @@ public class MainWindowViewModel : ViewModel
         LogUiSuppression("startup_ready_ui elapsedMs=" + startupReadyInstallStopwatch.ElapsedMilliseconds + " playlistRefreshed=" + flag.ToString().ToLowerInvariant());
         startupReadyUiLogged = true;
         startupReadyUiReached = true;
+        MarkStartupProgressPhaseCompleted(StartupProgressPhase.StartupReadyUi);
     }
 
     private void TryLogStartupReadyInstall(UiRefreshChannel mask)
@@ -5226,6 +5310,7 @@ public class MainWindowViewModel : ViewModel
         LogUiSuppression("startup_ready_operable elapsedMs=" + startupReadyOperableStopwatch.ElapsedMilliseconds);
         startupReadyOperableStopwatch = null;
         startupReadyOperableReached = true;
+        MarkStartupProgressPhaseCompleted(StartupProgressPhase.StartupReadyOperable);
     }
 
     private void RefreshLibraryMainViewForCurrentFilter()
@@ -5520,6 +5605,7 @@ public class MainWindowViewModel : ViewModel
                 shouldStartWorker = true;
             }
         }
+        TrackStartupProgressPlaylistReferenceRequest(reason, version);
         LogDeferredPlaylistReference("playlist_ref_deferred queue reason=" + reason + " version=" + version);
         if (!shouldStartWorker)
         {
@@ -5555,11 +5641,13 @@ public class MainWindowViewModel : ViewModel
                     });
                     LogDeferredPlaylistReference("playlist_ref_deferred done version=" + requestVersion + " elapsedMs=" + (long)(DateTime.UtcNow - startedAt).TotalMilliseconds + " refreshed=true");
                     deferredPlaylistRefLastCompletedVersion = requestVersion;
+                    TryCompleteStartupProgressPlaylistReference(requestVersion);
                 }
                 catch (Exception ex)
                 {
                     LogDeferredPlaylistReference("playlist_ref_deferred failed version=" + requestVersion + " elapsedMs=" + (long)(DateTime.UtcNow - startedAt).TotalMilliseconds + " message=" + ex.Message);
                     deferredPlaylistRefLastCompletedVersion = requestVersion;
+                    TryCompleteStartupProgressPlaylistReference(requestVersion);
                 }
                 lock (lockDeferredPlaylistRef)
                 {
@@ -5591,6 +5679,7 @@ public class MainWindowViewModel : ViewModel
                 shouldStartWorker = true;
             }
         }
+        TrackStartupProgressExternalSyncRequest(reason, version);
         LogDeferredExternalSync("deferred_external_sync queue reason=" + reason + " fromReloadTables=" + fromReloadTables.ToString().ToLowerInvariant() + " version=" + version);
         if (!shouldStartWorker)
         {
@@ -5623,10 +5712,12 @@ public class MainWindowViewModel : ViewModel
                     ScheduleDeferredPlaylistReferenceApply("DeferredExternalSync:" + reason);
                     RefreshPlaylistSummaryIfVisible();
                     LogDeferredExternalSync("deferred_external_sync done reason=" + reason + " fromReloadTables=" + fromReloadTables.ToString().ToLowerInvariant() + " version=" + requestVersion + " elapsedMs=" + (long)(DateTime.UtcNow - startedAt).TotalMilliseconds + " updatedCount=" + num);
+                    TryCompleteStartupProgressExternalSync(requestVersion);
                 }
                 catch (Exception ex)
                 {
                     LogDeferredExternalSync("deferred_external_sync failed reason=" + reason + " fromReloadTables=" + fromReloadTables.ToString().ToLowerInvariant() + " version=" + requestVersion + " elapsedMs=" + (long)(DateTime.UtcNow - startedAt).TotalMilliseconds + " message=" + ex.Message);
+                    TryCompleteStartupProgressExternalSync(requestVersion);
                 }
                 finally
                 {
@@ -6503,6 +6594,103 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
+    /// <summary>
+    /// 起動・リロード進捗をステータスバーへ表示中かどうかを返します。
+    /// </summary>
+    public bool IsStartupProgressActive
+    {
+        get
+        {
+            return _IsStartupProgressActive;
+        }
+        private set
+        {
+            if (_IsStartupProgressActive != value)
+            {
+                _IsStartupProgressActive = value;
+                RaisePropertyChanged("IsStartupProgressActive");
+            }
+        }
+    }
+
+    /// <summary>
+    /// 起動・リロード進捗の主ラベルを返します。
+    /// </summary>
+    public string StartupProgressLabel
+    {
+        get
+        {
+            return _StartupProgressLabel;
+        }
+        private set
+        {
+            string normalized = value ?? string.Empty;
+            if (!(_StartupProgressLabel == normalized))
+            {
+                _StartupProgressLabel = normalized;
+                RaisePropertyChanged("StartupProgressLabel");
+            }
+        }
+    }
+
+    /// <summary>
+    /// 起動・リロード進捗の補助ラベルを返します。
+    /// </summary>
+    public string StartupProgressSubLabel
+    {
+        get
+        {
+            return _StartupProgressSubLabel;
+        }
+        private set
+        {
+            string normalized = value ?? string.Empty;
+            if (!(_StartupProgressSubLabel == normalized))
+            {
+                _StartupProgressSubLabel = normalized;
+                RaisePropertyChanged("StartupProgressSubLabel");
+            }
+        }
+    }
+
+    /// <summary>
+    /// 起動・リロード進捗バーの現在値を返します。
+    /// </summary>
+    public double StartupProgressValue
+    {
+        get
+        {
+            return _StartupProgressValue;
+        }
+        private set
+        {
+            if (_StartupProgressValue != value)
+            {
+                _StartupProgressValue = value;
+                RaisePropertyChanged("StartupProgressValue");
+            }
+        }
+    }
+
+    /// <summary>
+    /// 起動・リロード進捗バーの最大値を返します。
+    /// </summary>
+    public double StartupProgressMaximum
+    {
+        get
+        {
+            return _StartupProgressMaximum;
+        }
+        private set
+        {
+            if (_StartupProgressMaximum != value)
+            {
+                _StartupProgressMaximum = value;
+                RaisePropertyChanged("StartupProgressMaximum");
+            }
+        }
+    }
+
     public PlaylistSummaryColumnSettings PlaylistSummaryColumnsSettings
     {
         get
@@ -7129,6 +7317,7 @@ public class MainWindowViewModel : ViewModel
         {
             return;
         }
+        StartStartupProgressOperation(StartupProgressOperationKind.ReloadTables);
         await _semaphore.WaitAsync();
         Action<BMSTable, bool, BMSTable> updateCallbackAction = delegate (BMSTable bmsTable, bool updated, BMSTable oldTable)
         {
@@ -7153,13 +7342,15 @@ public class MainWindowViewModel : ViewModel
             }).Logging("ReloadTables");
             scheduleDeferredExternalSync = true;
         }
-        catch
+        catch (Exception ex)
         {
+            FailStartupProgressOperation(ex.Message);
             throw;
         }
         finally
         {
             EndUiUpdateSuppression();
+            MarkStartupProgressPhaseCompleted(StartupProgressPhase.StartupReadyOperable);
             _semaphore.Release();
         }
         if (scheduleDeferredExternalSync)
@@ -7178,6 +7369,7 @@ public class MainWindowViewModel : ViewModel
         {
             return;
         }
+        StartStartupProgressOperation(StartupProgressOperationKind.ReloadFiles);
         LogInitStage("start", "ReloadFiles");
         bool scheduleDeferredPlaylistRef = false;
         await _semaphore.WaitAsync();
@@ -7197,13 +7389,15 @@ public class MainWindowViewModel : ViewModel
                 RaisePropertyChanged(() => BMSParentFolderList);
             }
         }
-        catch
+        catch (Exception ex)
         {
+            FailStartupProgressOperation(ex.Message);
             throw;
         }
         finally
         {
             EndUiUpdateSuppression();
+            MarkStartupProgressPhaseCompleted(StartupProgressPhase.StartupReadyOperable);
             LogInitStage("ui_suppress_end_called", "ReloadFiles");
             _semaphore.Release();
         }
@@ -7241,6 +7435,7 @@ public class MainWindowViewModel : ViewModel
             base.Messenger.Raise(new InteractionMessage("InitializationException"));
             return;
         }
+        StartStartupProgressOperation(StartupProgressOperationKind.Startup);
         try
         {
             if (Settings.Default.OperationModeLR2DB)
@@ -7278,6 +7473,7 @@ public class MainWindowViewModel : ViewModel
         }
         catch (Exception ex)
         {
+            FailStartupProgressOperation(ex.Message);
             DispatcherMessageBox.Show(BeMusicSeeker.Properties.Resources.Msg_error_unexpected + Environment.NewLine + ex.ToString(), BeMusicSeeker.Properties.Resources.Error, MessageBoxButton.OK, MessageBoxImage.Hand);
             Logger currentClassLogger = LogManager.GetCurrentClassLogger();
             string text3 = Assembly.GetEntryAssembly().GetName().Version.ToString();
@@ -7312,6 +7508,7 @@ public class MainWindowViewModel : ViewModel
         });
         listenerForBMSLibrary.RegisterHandler(() => files.ScoreHydrationCompletedVersion, delegate
         {
+            TryCompleteStartupProgressScoreHydration(files.ScoreHydrationCompletedVersion);
             if (TrySuppress(UiRefreshChannel.LibraryMainView))
             {
                 return;
@@ -7330,12 +7527,21 @@ public class MainWindowViewModel : ViewModel
         });
         listenerForBMSLibrary.RegisterHandler(() => files.RankingRefreshCompletedVersion, delegate
         {
+            TryCompleteStartupProgressRankingRefresh(files.RankingRefreshCompletedVersion);
             if (TrySuppress(UiRefreshChannel.LibraryMainView))
             {
                 return;
             }
             RefreshLibraryMainViewForCurrentFilter();
             RefreshPlaylistSummaryIfVisible();
+        });
+        listenerForBMSLibrary.RegisterHandler(() => files.MaintenanceDeferredRequestedVersion, delegate
+        {
+            TrackStartupProgressMaintenanceRequested(files.MaintenanceDeferredRequestedVersion);
+        });
+        listenerForBMSLibrary.RegisterHandler(() => files.MaintenanceDeferredCompletedVersion, delegate
+        {
+            TryCompleteStartupProgressMaintenance(files.MaintenanceDeferredCompletedVersion);
         });
         listenerForBMSLibrary.RegisterHandler(() => files.BMSFilesNeedToBeFixed, delegate
         {
@@ -7613,6 +7819,11 @@ public class MainWindowViewModel : ViewModel
             LogInitStage("files_initialize_done", "Initialize");
             TryLogStartupReadyData();
             scheduleDeferredPlaylistRef = true;
+        }
+        catch (Exception ex)
+        {
+            FailStartupProgressOperation(ex.Message);
+            throw;
         }
         finally
         {
@@ -9797,6 +10008,513 @@ public class MainWindowViewModel : ViewModel
         else
         {
             DispatcherHelper.UIDispatcher.BeginInvoke(reflect);
+        }
+    }
+
+    /// <summary>
+    /// 起動・リロード進捗の状態を開始し、基準版数を初期化します。
+    /// </summary>
+    /// <param name="operationKind">進捗対象の operation 種別。</param>
+    private void StartStartupProgressOperation(StartupProgressOperationKind operationKind)
+    {
+        StartupProgressState state = new StartupProgressState
+        {
+            OperationKind = operationKind,
+            OperationToken = Interlocked.Increment(ref startupProgressOperationTokenSeed),
+            IsActive = true,
+            CompletedPhases = StartupProgressPhase.CoreInitializeStarted,
+            ExpectedPhases = StartupProgressPhase.StartupReadyOperable | StartupProgressPhase.ScoreHydrationDone | StartupProgressPhase.RankingRefreshDone,
+            ScoreHydrationBaselineCompletedVersion = files?.ScoreHydrationCompletedVersion ?? 0,
+            RankingRefreshBaselineCompletedVersion = files?.RankingRefreshCompletedVersion ?? 0,
+            MaintenanceRequestedBaselineVersion = files?.MaintenanceDeferredRequestedVersion ?? 0
+        };
+        if (operationKind == StartupProgressOperationKind.Startup)
+        {
+            state.ExpectedPhases |= StartupProgressPhase.StartupReadyData | StartupProgressPhase.StartupReadyUi;
+        }
+        lock (startupProgressLock)
+        {
+            startupProgressState = state;
+        }
+        RecomputeStartupProgressPresentation();
+    }
+
+    /// <summary>
+    /// 起動・リロード進捗を失敗表示へ切り替えます。
+    /// </summary>
+    /// <param name="subLabel">失敗時に表示する補足文言。</param>
+    private void FailStartupProgressOperation(string subLabel)
+    {
+        lock (startupProgressLock)
+        {
+            if (!startupProgressState.IsActive)
+            {
+                return;
+            }
+            startupProgressState.IsFailed = true;
+            startupProgressState.FailureSubLabel = subLabel ?? string.Empty;
+            startupProgressState.CompletionHideScheduled = false;
+        }
+        RecomputeStartupProgressPresentation();
+    }
+
+    /// <summary>
+    /// 起動・リロード進捗のフェーズを完了済みにします。
+    /// </summary>
+    /// <param name="phase">完了したフェーズ。</param>
+    private void MarkStartupProgressPhaseCompleted(StartupProgressPhase phase)
+    {
+        lock (startupProgressLock)
+        {
+            if (!startupProgressState.IsActive)
+            {
+                return;
+            }
+            startupProgressState.CompletedPhases |= phase;
+            if (phase == StartupProgressPhase.RankingRefreshDone || phase == StartupProgressPhase.MaintenanceDeferredDone)
+            {
+                startupProgressState.LastCompletedAtUtc = DateTime.UtcNow;
+            }
+        }
+        RecomputeStartupProgressPresentation();
+    }
+
+    /// <summary>
+    /// 起動・リロード進捗で deferred playlist 参照適用を待機対象に追加します。
+    /// </summary>
+    /// <param name="reason">要求理由。</param>
+    /// <param name="version">要求版数。</param>
+    private void TrackStartupProgressPlaylistReferenceRequest(string reason, int version)
+    {
+        lock (startupProgressLock)
+        {
+            if (!startupProgressState.IsActive || !ShouldTrackStartupProgressPlaylistReference(reason, startupProgressState.OperationKind))
+            {
+                return;
+            }
+            startupProgressState.ExpectedPhases |= StartupProgressPhase.PlaylistReferenceApplied;
+            startupProgressState.RequiredPlaylistReferenceVersion = Math.Max(startupProgressState.RequiredPlaylistReferenceVersion, version);
+            startupProgressState.CompletionHideScheduled = false;
+        }
+        RecomputeStartupProgressPresentation();
+    }
+
+    /// <summary>
+    /// 起動・リロード進捗で deferred playlist 参照適用完了を反映します。
+    /// </summary>
+    /// <param name="version">完了版数。</param>
+    private void TryCompleteStartupProgressPlaylistReference(int version)
+    {
+        bool shouldComplete = false;
+        lock (startupProgressLock)
+        {
+            if (!startupProgressState.IsActive || (startupProgressState.ExpectedPhases & StartupProgressPhase.PlaylistReferenceApplied) == 0)
+            {
+                return;
+            }
+            shouldComplete = version >= startupProgressState.RequiredPlaylistReferenceVersion;
+        }
+        if (shouldComplete)
+        {
+            MarkStartupProgressPhaseCompleted(StartupProgressPhase.PlaylistReferenceApplied);
+        }
+    }
+
+    /// <summary>
+    /// 起動・リロード進捗で deferred 外部プレイリスト同期を待機対象に追加します。
+    /// </summary>
+    /// <param name="reason">要求理由。</param>
+    /// <param name="version">要求版数。</param>
+    private void TrackStartupProgressExternalSyncRequest(string reason, int version)
+    {
+        lock (startupProgressLock)
+        {
+            if (!startupProgressState.IsActive || !ShouldTrackStartupProgressExternalSync(reason, startupProgressState.OperationKind))
+            {
+                return;
+            }
+            startupProgressState.ExpectedPhases |= StartupProgressPhase.ExternalPlaylistSyncDone;
+            startupProgressState.RequiredExternalSyncVersion = Math.Max(startupProgressState.RequiredExternalSyncVersion, version);
+            startupProgressState.CompletionHideScheduled = false;
+        }
+        RecomputeStartupProgressPresentation();
+    }
+
+    /// <summary>
+    /// 起動・リロード進捗で deferred 外部プレイリスト同期完了を反映します。
+    /// </summary>
+    /// <param name="version">完了版数。</param>
+    private void TryCompleteStartupProgressExternalSync(int version)
+    {
+        bool shouldComplete = false;
+        lock (startupProgressLock)
+        {
+            if (!startupProgressState.IsActive || (startupProgressState.ExpectedPhases & StartupProgressPhase.ExternalPlaylistSyncDone) == 0)
+            {
+                return;
+            }
+            shouldComplete = version >= startupProgressState.RequiredExternalSyncVersion;
+        }
+        if (shouldComplete)
+        {
+            MarkStartupProgressPhaseCompleted(StartupProgressPhase.ExternalPlaylistSyncDone);
+        }
+    }
+
+    /// <summary>
+    /// maintenance deferred 要求を起動・リロード進捗へ反映します。
+    /// </summary>
+    /// <param name="requestedVersion">要求版数。</param>
+    private void TrackStartupProgressMaintenanceRequested(int requestedVersion)
+    {
+        lock (startupProgressLock)
+        {
+            if (!startupProgressState.IsActive || requestedVersion <= startupProgressState.MaintenanceRequestedBaselineVersion)
+            {
+                return;
+            }
+            startupProgressState.ExpectedPhases |= StartupProgressPhase.MaintenanceDeferredDone;
+            startupProgressState.RequiredMaintenanceCompletedVersion = Math.Max(startupProgressState.RequiredMaintenanceCompletedVersion, requestedVersion);
+            startupProgressState.CompletionHideScheduled = false;
+        }
+        RecomputeStartupProgressPresentation();
+    }
+
+    /// <summary>
+    /// maintenance deferred 完了を起動・リロード進捗へ反映します。
+    /// </summary>
+    /// <param name="completedVersion">完了版数。</param>
+    private void TryCompleteStartupProgressMaintenance(int completedVersion)
+    {
+        bool shouldComplete = false;
+        lock (startupProgressLock)
+        {
+            if (!startupProgressState.IsActive || (startupProgressState.ExpectedPhases & StartupProgressPhase.MaintenanceDeferredDone) == 0)
+            {
+                return;
+            }
+            shouldComplete = completedVersion >= startupProgressState.RequiredMaintenanceCompletedVersion;
+        }
+        if (shouldComplete)
+        {
+            MarkStartupProgressPhaseCompleted(StartupProgressPhase.MaintenanceDeferredDone);
+        }
+    }
+
+    /// <summary>
+    /// 起動・リロード進捗で deferred score hydration 完了を反映します。
+    /// </summary>
+    /// <param name="completedVersion">完了版数。</param>
+    private void TryCompleteStartupProgressScoreHydration(int completedVersion)
+    {
+        bool shouldComplete = false;
+        lock (startupProgressLock)
+        {
+            if (!startupProgressState.IsActive || (startupProgressState.ExpectedPhases & StartupProgressPhase.ScoreHydrationDone) == 0)
+            {
+                return;
+            }
+            shouldComplete = completedVersion > startupProgressState.ScoreHydrationBaselineCompletedVersion;
+        }
+        if (shouldComplete)
+        {
+            MarkStartupProgressPhaseCompleted(StartupProgressPhase.ScoreHydrationDone);
+        }
+    }
+
+    /// <summary>
+    /// 起動・リロード進捗で deferred ranking refresh 完了を反映します。
+    /// </summary>
+    /// <param name="completedVersion">完了版数。</param>
+    private void TryCompleteStartupProgressRankingRefresh(int completedVersion)
+    {
+        bool shouldComplete = false;
+        lock (startupProgressLock)
+        {
+            if (!startupProgressState.IsActive || (startupProgressState.ExpectedPhases & StartupProgressPhase.RankingRefreshDone) == 0)
+            {
+                return;
+            }
+            shouldComplete = completedVersion > startupProgressState.RankingRefreshBaselineCompletedVersion;
+        }
+        if (shouldComplete)
+        {
+            MarkStartupProgressPhaseCompleted(StartupProgressPhase.RankingRefreshDone);
+        }
+    }
+
+    /// <summary>
+    /// 起動・リロード進捗の表示を現在の内部状態から再計算します。
+    /// </summary>
+    private void RecomputeStartupProgressPresentation()
+    {
+        bool isActive;
+        string label;
+        string subLabel;
+        double value;
+        double maximum;
+        bool shouldHideLater = false;
+        long hideOperationToken = 0L;
+        lock (startupProgressLock)
+        {
+            StartupProgressState state = startupProgressState;
+            isActive = state.IsActive;
+            maximum = 6.0;
+            if (!isActive)
+            {
+                label = string.Empty;
+                subLabel = string.Empty;
+                value = 0.0;
+            }
+            else
+            {
+                bool libraryLoadCompleted = IsStartupProgressLibraryLoadCompleted(state);
+                bool uiPrepareCompleted = IsStartupProgressUiPrepareCompleted(state);
+                bool operableCompleted = (state.CompletedPhases & StartupProgressPhase.StartupReadyOperable) != 0;
+                bool referenceCompleted = IsStartupProgressReferencePhaseCompleted(state);
+                bool scoreCompleted = !IsStartupProgressPhaseExpected(state, StartupProgressPhase.ScoreHydrationDone) || (state.CompletedPhases & StartupProgressPhase.ScoreHydrationDone) != 0;
+                bool rankingCompleted = !IsStartupProgressPhaseExpected(state, StartupProgressPhase.RankingRefreshDone) || (state.CompletedPhases & StartupProgressPhase.RankingRefreshDone) != 0;
+                value = (libraryLoadCompleted ? 1.0 : 0.0) + (uiPrepareCompleted ? 1.0 : 0.0) + (operableCompleted ? 1.0 : 0.0) + (referenceCompleted ? 1.0 : 0.0) + (scoreCompleted ? 1.0 : 0.0) + (rankingCompleted ? 1.0 : 0.0);
+                bool operationCompleted = !state.IsFailed && operableCompleted && referenceCompleted && scoreCompleted && rankingCompleted;
+                if (state.IsFailed)
+                {
+                    label = GetStartupProgressFailedLabel(state.OperationKind);
+                    subLabel = !string.IsNullOrWhiteSpace(state.FailureSubLabel) ? state.FailureSubLabel : GetStartupProgressSubLabel(state);
+                }
+                else if (operationCompleted)
+                {
+                    label = GetStartupProgressCompletedLabel(state.OperationKind);
+                    subLabel = string.Empty;
+                    if (!state.CompletionHideScheduled)
+                    {
+                        state.CompletionHideScheduled = true;
+                        startupProgressState = state;
+                        shouldHideLater = true;
+                        hideOperationToken = state.OperationToken;
+                    }
+                }
+                else if (operableCompleted)
+                {
+                    label = BeMusicSeeker.Properties.Resources.Statusbar_progress_operable;
+                    subLabel = GetStartupProgressSubLabel(state);
+                }
+                else
+                {
+                    label = GetStartupProgressRunningLabel(state.OperationKind);
+                    subLabel = GetStartupProgressSubLabel(state);
+                }
+            }
+        }
+        Action reflect = delegate
+        {
+            IsStartupProgressActive = isActive;
+            StartupProgressLabel = label;
+            StartupProgressSubLabel = subLabel;
+            StartupProgressValue = value;
+            StartupProgressMaximum = maximum;
+        };
+        if (DispatcherHelper.UIDispatcher == null || DispatcherHelper.UIDispatcher.CheckAccess())
+        {
+            reflect();
+        }
+        else
+        {
+            DispatcherHelper.UIDispatcher.BeginInvoke(reflect);
+        }
+        if (shouldHideLater)
+        {
+            ScheduleStartupProgressHide(hideOperationToken);
+        }
+    }
+
+    /// <summary>
+    /// 完了表示後に起動・リロード進捗を非表示にします。
+    /// </summary>
+    /// <param name="operationToken">非表示対象の operation token。</param>
+    private void ScheduleStartupProgressHide(long operationToken)
+    {
+        Task.Run(async delegate
+        {
+            await Task.Delay(2000).ConfigureAwait(false);
+            bool shouldClear = false;
+            lock (startupProgressLock)
+            {
+                if (startupProgressState.IsActive && !startupProgressState.IsFailed && startupProgressState.OperationToken == operationToken && startupProgressState.CompletionHideScheduled)
+                {
+                    startupProgressState = new StartupProgressState();
+                    shouldClear = true;
+                }
+            }
+            if (shouldClear)
+            {
+                RecomputeStartupProgressPresentation();
+            }
+        });
+    }
+
+    /// <summary>
+    /// operation 種別に応じた進行中ラベルを返します。
+    /// </summary>
+    /// <param name="operationKind">operation 種別。</param>
+    /// <returns>進行中ラベル。</returns>
+    private static string GetStartupProgressRunningLabel(StartupProgressOperationKind operationKind)
+    {
+        switch (operationKind)
+        {
+            case StartupProgressOperationKind.ReloadFiles:
+                return BeMusicSeeker.Properties.Resources.Statusbar_progress_reload_files;
+            case StartupProgressOperationKind.ReloadTables:
+                return BeMusicSeeker.Properties.Resources.Statusbar_progress_reload_tables;
+            default:
+                return BeMusicSeeker.Properties.Resources.Statusbar_progress_startup;
+        }
+    }
+
+    /// <summary>
+    /// operation 種別に応じた完了ラベルを返します。
+    /// </summary>
+    /// <param name="operationKind">operation 種別。</param>
+    /// <returns>完了ラベル。</returns>
+    private static string GetStartupProgressCompletedLabel(StartupProgressOperationKind operationKind)
+    {
+        if (operationKind == StartupProgressOperationKind.Startup)
+        {
+            return BeMusicSeeker.Properties.Resources.Statusbar_progress_complete;
+        }
+        return BeMusicSeeker.Properties.Resources.Statusbar_progress_complete_reload;
+    }
+
+    /// <summary>
+    /// operation 種別に応じた失敗ラベルを返します。
+    /// </summary>
+    /// <param name="operationKind">operation 種別。</param>
+    /// <returns>失敗ラベル。</returns>
+    private static string GetStartupProgressFailedLabel(StartupProgressOperationKind operationKind)
+    {
+        if (operationKind == StartupProgressOperationKind.Startup)
+        {
+            return BeMusicSeeker.Properties.Resources.Statusbar_progress_failed;
+        }
+        return BeMusicSeeker.Properties.Resources.Statusbar_progress_failed_reload;
+    }
+
+    /// <summary>
+    /// 現在の未完了フェーズに対応するサブラベルを返します。
+    /// </summary>
+    /// <param name="state">進捗状態。</param>
+    /// <returns>サブラベル。</returns>
+    private static string GetStartupProgressSubLabel(StartupProgressState state)
+    {
+        if (!IsStartupProgressLibraryLoadCompleted(state))
+        {
+            return BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_library_load;
+        }
+        if (!IsStartupProgressUiPrepareCompleted(state))
+        {
+            return BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_ui_prepare;
+        }
+        if ((state.CompletedPhases & StartupProgressPhase.StartupReadyOperable) == 0)
+        {
+            return BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_ui_prepare;
+        }
+        if (!IsStartupProgressPhaseCompletedOrNotExpected(state, StartupProgressPhase.PlaylistReferenceApplied) || !IsStartupProgressPhaseCompletedOrNotExpected(state, StartupProgressPhase.ExternalPlaylistSyncDone))
+        {
+            return BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_playlist_ref;
+        }
+        if (!IsStartupProgressPhaseCompletedOrNotExpected(state, StartupProgressPhase.MaintenanceDeferredDone))
+        {
+            return BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_maintenance;
+        }
+        if (!IsStartupProgressPhaseCompletedOrNotExpected(state, StartupProgressPhase.ScoreHydrationDone))
+        {
+            return BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_score_hydration;
+        }
+        if (!IsStartupProgressPhaseCompletedOrNotExpected(state, StartupProgressPhase.RankingRefreshDone))
+        {
+            return BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_ranking_refresh;
+        }
+        return BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_background;
+    }
+
+    /// <summary>
+    /// ライブラリ読込フェーズが完了済みかどうかを返します。
+    /// </summary>
+    private static bool IsStartupProgressLibraryLoadCompleted(StartupProgressState state)
+    {
+        if (state.OperationKind == StartupProgressOperationKind.Startup)
+        {
+            return (state.CompletedPhases & StartupProgressPhase.StartupReadyData) != 0;
+        }
+        return (state.CompletedPhases & StartupProgressPhase.StartupReadyOperable) != 0;
+    }
+
+    /// <summary>
+    /// 画面準備フェーズが完了済みかどうかを返します。
+    /// </summary>
+    private static bool IsStartupProgressUiPrepareCompleted(StartupProgressState state)
+    {
+        if (state.OperationKind == StartupProgressOperationKind.Startup)
+        {
+            return (state.CompletedPhases & StartupProgressPhase.StartupReadyUi) != 0;
+        }
+        return (state.CompletedPhases & StartupProgressPhase.StartupReadyOperable) != 0;
+    }
+
+    /// <summary>
+    /// プレイリスト参照/保守更新フェーズが完了済みかどうかを返します。
+    /// </summary>
+    private static bool IsStartupProgressReferencePhaseCompleted(StartupProgressState state)
+    {
+        return IsStartupProgressPhaseCompletedOrNotExpected(state, StartupProgressPhase.PlaylistReferenceApplied) && IsStartupProgressPhaseCompletedOrNotExpected(state, StartupProgressPhase.ExternalPlaylistSyncDone) && IsStartupProgressPhaseCompletedOrNotExpected(state, StartupProgressPhase.MaintenanceDeferredDone);
+    }
+
+    /// <summary>
+    /// 指定フェーズが待機対象かどうかを返します。
+    /// </summary>
+    private static bool IsStartupProgressPhaseExpected(StartupProgressState state, StartupProgressPhase phase)
+    {
+        return (state.ExpectedPhases & phase) != 0;
+    }
+
+    /// <summary>
+    /// 指定フェーズが完了済み、または待機対象外かどうかを返します。
+    /// </summary>
+    private static bool IsStartupProgressPhaseCompletedOrNotExpected(StartupProgressState state, StartupProgressPhase phase)
+    {
+        return !IsStartupProgressPhaseExpected(state, phase) || (state.CompletedPhases & phase) != 0;
+    }
+
+    /// <summary>
+    /// deferred playlist 参照要求を現在の operation 進捗へ関連付けるかどうかを返します。
+    /// </summary>
+    private static bool ShouldTrackStartupProgressPlaylistReference(string reason, StartupProgressOperationKind operationKind)
+    {
+        switch (operationKind)
+        {
+            case StartupProgressOperationKind.Startup:
+                return string.Equals(reason, "Initialize", StringComparison.Ordinal) || string.Equals(reason, "DeferredExternalSync:Initialize", StringComparison.Ordinal);
+            case StartupProgressOperationKind.ReloadFiles:
+                return string.Equals(reason, "ReloadFiles", StringComparison.Ordinal);
+            case StartupProgressOperationKind.ReloadTables:
+                return string.Equals(reason, "DeferredExternalSync:ReloadTables", StringComparison.Ordinal);
+            default:
+                return false;
+        }
+    }
+
+    /// <summary>
+    /// deferred 外部プレイリスト同期要求を現在の operation 進捗へ関連付けるかどうかを返します。
+    /// </summary>
+    private static bool ShouldTrackStartupProgressExternalSync(string reason, StartupProgressOperationKind operationKind)
+    {
+        switch (operationKind)
+        {
+            case StartupProgressOperationKind.Startup:
+                return string.Equals(reason, "Initialize", StringComparison.Ordinal);
+            case StartupProgressOperationKind.ReloadTables:
+                return string.Equals(reason, "ReloadTables", StringComparison.Ordinal);
+            default:
+                return false;
         }
     }
 

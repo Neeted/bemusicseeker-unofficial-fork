@@ -1038,6 +1038,51 @@ BMSファイルが重複しないようにマージします。
   <data name="Playlist_sync_progress_single_label" xml:space="preserve">
     <value>プレイリスト同期</value>
   </data>
+  <data name="Statusbar_progress_startup" xml:space="preserve">
+    <value>初期化中</value>
+  </data>
+  <data name="Statusbar_progress_reload_files" xml:space="preserve">
+    <value>ライブラリ更新中</value>
+  </data>
+  <data name="Statusbar_progress_reload_tables" xml:space="preserve">
+    <value>ライブラリ更新中</value>
+  </data>
+  <data name="Statusbar_progress_operable" xml:space="preserve">
+    <value>操作可能</value>
+  </data>
+  <data name="Statusbar_progress_complete" xml:space="preserve">
+    <value>初期化完了</value>
+  </data>
+  <data name="Statusbar_progress_complete_reload" xml:space="preserve">
+    <value>ライブラリ更新完了</value>
+  </data>
+  <data name="Statusbar_progress_failed" xml:space="preserve">
+    <value>初期化失敗</value>
+  </data>
+  <data name="Statusbar_progress_failed_reload" xml:space="preserve">
+    <value>ライブラリ更新失敗</value>
+  </data>
+  <data name="Statusbar_progress_phase_library_load" xml:space="preserve">
+    <value>ライブラリ読込</value>
+  </data>
+  <data name="Statusbar_progress_phase_ui_prepare" xml:space="preserve">
+    <value>画面準備</value>
+  </data>
+  <data name="Statusbar_progress_phase_playlist_ref" xml:space="preserve">
+    <value>プレイリスト参照更新</value>
+  </data>
+  <data name="Statusbar_progress_phase_maintenance" xml:space="preserve">
+    <value>保守参照更新</value>
+  </data>
+  <data name="Statusbar_progress_phase_score_hydration" xml:space="preserve">
+    <value>スコア反映</value>
+  </data>
+  <data name="Statusbar_progress_phase_ranking_refresh" xml:space="preserve">
+    <value>ランキング更新</value>
+  </data>
+  <data name="Statusbar_progress_phase_background" xml:space="preserve">
+    <value>バックグラウンド更新中</value>
+  </data>
   <data name="Install" xml:space="preserve">
     <value>インストール</value>
   </data>
