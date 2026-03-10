@@ -8211,60 +8211,6 @@ public class MainWindowViewModel : ViewModel
                     BMSFilesFolderView = BMSFiles;
                 }
                 break;
-            case viewUpdateMode.PlaylistFilterSelected:
-                {
-                    if (parameter == null)
-                    {
-                        break;
-                    }
-                    string folderName = ((Tuple<BMSTable, string>)parameter).Item2;
-                    if (((Tuple<BMSTable, string>)parameter).Item1 != null)
-                    {
-                        BMSFilesFolderView = (from e in ((Tuple<BMSTable, string>)parameter).Item1.GetEntriesExceptDummy()
-                                              where (folderName == null || e.folder == folderName) && !e.is_removed
-                                              join f in BMSFiles on e.md5 equals f.hash into f
-                                              select new
-                                              {
-                                                  entry = e,
-                                                  files = f.DefaultIfEmpty()
-                                              } into g
-                                              select new VirtualBMSFile(g.entry, g.files.First())).ToList();
-                        files.SetBMSScore(BMSFilesFolderView.Where((BeMusicSeeker.Models.BMSFile f) => string.IsNullOrWhiteSpace(f.path)).ToList());
-                    }
-                    else
-                    {
-                        BMSFilesFolderView = Enumerable.Empty<BeMusicSeeker.Models.BMSFile>();
-                    }
-                    break;
-                }
-            case viewUpdateMode.PlaylistNotOwnedFilterSelected:
-                {
-                    if (parameter == null)
-                    {
-                        break;
-                    }
-                    BMSTable bMSTable = (BMSTable)parameter;
-                    if (bMSTable != null)
-                    {
-                        BMSFilesFolderView = (from e in bMSTable.GetEntriesExceptDummy()
-                                              where !e.is_removed
-                                              join f in BMSFiles on e.md5 equals f.hash into f
-                                              select new
-                                              {
-                                                  entry = e,
-                                                  files = f.DefaultIfEmpty()
-                                              } into g
-                                              select new VirtualBMSFile(g.entry, g.files.First()) into f
-                                              where string.IsNullOrWhiteSpace(f.path)
-                                              select f).ToList();
-                        files.SetBMSScore(BMSFilesFolderView.ToList());
-                    }
-                    else
-                    {
-                        BMSFilesFolderView = Enumerable.Empty<BeMusicSeeker.Models.BMSFile>();
-                    }
-                    break;
-                }
             case viewUpdateMode.FileMissingFilterSelected:
                 BMSFilesFolderView = BMSFilesToBeFixed;
                 break;
@@ -8416,7 +8362,7 @@ public class MainWindowViewModel : ViewModel
                 BMSFilesKeywordFilterView = new List<BeMusicSeeker.Models.BMSFile>();
                 string keywordUpper = KeywordFilter.ToUpperInvariant();
                 BMSFilesKeywordFilterView = from r in BMSFilesFolderView.AsParallel()
-                                            where (r.Title + "@" + r.genre + "@" + r.Artist + "@" + r.tag + "@" + r.path + "@" + r.RefTablesSymbols + ((r is VirtualBMSFile) ? (((VirtualBMSFile)r).memo + "@" + ((VirtualBMSFile)r).comment) : string.Empty)).ToUpperInvariant().Contains(keywordUpper)
+                                            where (r.Title + "@" + r.genre + "@" + r.Artist + "@" + r.tag + "@" + r.path + "@" + r.RefTablesSymbols).ToUpperInvariant().Contains(keywordUpper)
                                             select r;
             }
             else
@@ -8891,16 +8837,6 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
-    public void CommitBMSFile(BeMusicSeeker.Models.BMSFile bmsFile)
-    {
-        if (bmsFile is VirtualBMSFile)
-        {
-            tables.CommitBMSTableEntry(((VirtualBMSFile)bmsFile).ToBMSTableEntry());
-            return;
-        }
-        throw new NotImplementedException();
-    }
-
     /// <summary>
     /// playlist 詳細表示 row の編集結果を playlist DB へ永続化します。
     /// </summary>
@@ -8914,25 +8850,38 @@ public class MainWindowViewModel : ViewModel
         tables.CommitBMSTableEntry(playlistRow.Entry);
     }
 
+    /// <summary>
+    /// playlist entry が持つ level を、対応する実体譜面へ反映します。
+    /// </summary>
+    /// <param name="bmsTable">参照元 playlist。</param>
     public void ReplaceBMSFileLevelByTableEntryLevel(BMSTable bmsTable)
     {
         if (bmsTable != null && BMSFiles != null)
         {
-            IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles = from f in (from f in BMSFiles
-                                                                            join e in from e in bmsTable.GetEntriesExceptDummy()
-                                                                                      where !e.is_removed
-                                                                                      select e on f.hash equals e.md5
-                                                                            select new VirtualBMSFile(e, f) into vf
-                                                                            where !string.IsNullOrWhiteSpace(vf.path)
-                                                                            select vf).Select(delegate (VirtualBMSFile vf)
-                                                                        {
-                                                                            vf.OverwriteBMSFileLevel();
-                                                                            return vf.GetNonVirtualBMSFile();
-                                                                        })
-                                                                 where f != null
-                                                                 select f;
+            IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles = from file in BMSFiles
+                                                                 where file != null && !string.IsNullOrWhiteSpace(file.hash) && !string.IsNullOrWhiteSpace(file.path)
+                                                                 join entry in from entry in bmsTable.GetEntriesExceptDummy()
+                                                                               where !entry.is_removed && entry.level.HasValue
+                                                                               select entry on file.hash equals entry.md5
+                                                                 select ApplyPlaylistEntryLevel(file, entry.level);
             files.CommitBMSFiles(bmsFiles);
         }
+    }
+
+    /// <summary>
+    /// playlist entry が持つ level を実体譜面へ反映し、その譜面を返します。
+    /// </summary>
+    /// <param name="file">更新対象の実体譜面。</param>
+    /// <param name="entryLevel">playlist entry 側の level。</param>
+    /// <returns>更新後の譜面。</returns>
+    private static BeMusicSeeker.Models.BMSFile ApplyPlaylistEntryLevel(BeMusicSeeker.Models.BMSFile file, double? entryLevel)
+    {
+        if (file == null || !entryLevel.HasValue)
+        {
+            return null;
+        }
+        file.level = ((!(entryLevel.Value < 0.0)) ? ((int)entryLevel.Value) : 0);
+        return file;
     }
 
     /// <summary>
@@ -9994,7 +9943,7 @@ public class MainWindowViewModel : ViewModel
                     text = BMSLibrary.GetLCSBMSInfo(item.Select((BeMusicSeeker.Models.BMSFile f) => f.Title));
                     text = tables.CreateNewFolderBMSTable(bmsTable, text, commitFlag: false);
                 }
-                tables.AddEntriesToFolderBMSTable(item.Select((BeMusicSeeker.Models.BMSFile f) => (f is VirtualBMSFile) ? (f as VirtualBMSFile).ToBMSTableEntry().Duplicate() : new BMSTableEntry(f)
+                tables.AddEntriesToFolderBMSTable(item.Select((BeMusicSeeker.Models.BMSFile f) => GridRowResolver.GetPlaylistEntry(f)?.Duplicate() ?? new BMSTableEntry(f)
                 {
                     Org_md5 = md5sInTheSameDir
                 }), bmsTable, text, commitFlag: false);
@@ -10344,24 +10293,26 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
+    /// <summary>
+    /// 実体譜面または互換 row から LR2IR キャッシュを取得します。
+    /// </summary>
+    /// <param name="bmsFile">対象譜面。</param>
+    /// <param name="seaarchAggressively">積極探索するか。</param>
+    /// <returns>IR 情報キャッシュ。取得不可時は null。</returns>
     public BMSLibrary.IRSongInfo GetLR2IRSongInfoCache(BeMusicSeeker.Models.BMSFile bmsFile, bool seaarchAggressively = false)
     {
         if (bmsFile == null)
         {
             throw new ArgumentNullException();
         }
-        string text = null;
-        if (!string.IsNullOrWhiteSpace(bmsFile.hash))
+        string text = GridRowResolver.GetHash(bmsFile);
+        if (string.IsNullOrWhiteSpace(text))
         {
-            text = bmsFile.hash;
+            text = GridRowResolver.GetLr2BmsId(bmsFile);
         }
-        else
+        if (string.IsNullOrWhiteSpace(text))
         {
-            if (!(bmsFile is VirtualBMSFile) || string.IsNullOrWhiteSpace(((VirtualBMSFile)bmsFile).lr2_bmsid))
-            {
-                throw new ArgumentException("MD5/LR2BMSID not found: " + bmsFile.path);
-            }
-            text = ((VirtualBMSFile)bmsFile).lr2_bmsid;
+            throw new ArgumentException("MD5/LR2BMSID not found: " + bmsFile.path);
         }
         try
         {

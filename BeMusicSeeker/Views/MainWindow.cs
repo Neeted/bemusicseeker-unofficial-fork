@@ -1468,21 +1468,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             }
         }
         gridBMSPlayerControlsBanner.BorderThickness = ((gridBMSPlayerControlsBanner.Background == null) ? new Thickness(0.0) : new Thickness(1.0, 0.0, 1.0, 0.0));
-        if (bmsFile is VirtualBMSFile)
-        {
-            BMSFile nonVirtualBMSFile = ((VirtualBMSFile)bmsFile).GetNonVirtualBMSFile();
-            if (nonVirtualBMSFile == null)
-            {
-                gridBMSPlayerControlsTitle.Text = bmsFile.Title;
-                gridBMSPlayerControlsSubtitle.Text = string.Empty;
-                gridBMSPlayerControlsArtist.Text = bmsFile.Artist;
-                return;
-            }
-            bmsFile = nonVirtualBMSFile;
-        }
-        gridBMSPlayerControlsTitle.Text = bmsFile.title;
-        gridBMSPlayerControlsSubtitle.Text = bmsFile.subtitle;
-        gridBMSPlayerControlsArtist.Text = bmsFile.artist;
+        gridBMSPlayerControlsTitle.Text = GridRowResolver.GetDisplayTitle(bmsFile);
+        gridBMSPlayerControlsSubtitle.Text = GridRowResolver.GetDisplaySubtitle(bmsFile);
+        gridBMSPlayerControlsArtist.Text = GridRowResolver.GetDisplayArtist(bmsFile);
     }
 
     private void dataGridCellBeginningEdit(object sender, DataGridBeginningEditEventArgs e)
@@ -5354,21 +5342,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        if (bMSFile is VirtualBMSFile)
-        {
-            BMSFile nonVirtualBMSFile = ((VirtualBMSFile)bMSFile).GetNonVirtualBMSFile();
-            if (nonVirtualBMSFile == null)
-            {
-                gridBMSPlayerControlsTitleForMovie.Text = bMSFile.Title;
-                gridBMSPlayerControlsSubtitleForMovie.Text = string.Empty;
-                gridBMSPlayerControlsArtistForMovie.Text = bMSFile.Artist;
-                return;
-            }
-            bMSFile = nonVirtualBMSFile;
-        }
-        gridBMSPlayerControlsTitleForMovie.Text = bMSFile.title;
-        gridBMSPlayerControlsSubtitleForMovie.Text = bMSFile.subtitle;
-        gridBMSPlayerControlsArtistForMovie.Text = bMSFile.artist;
+        gridBMSPlayerControlsTitleForMovie.Text = GridRowResolver.GetDisplayTitle(bMSFile);
+        gridBMSPlayerControlsSubtitleForMovie.Text = GridRowResolver.GetDisplaySubtitle(bMSFile);
+        gridBMSPlayerControlsArtistForMovie.Text = GridRowResolver.GetDisplayArtist(bMSFile);
     }
 
     private void songInfoCacheToUrlLists(BMSLibrary.IRSongInfo info, Uri original, Uri diff, out List<Uri> urls, out List<Uri> urls_diff)

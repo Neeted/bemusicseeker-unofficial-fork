@@ -131,6 +131,48 @@ internal static class GridRowResolver
     }
 
     /// <summary>
+    /// 行の表示用タイトルを取得します。
+    /// </summary>
+    internal static string GetDisplayTitle(object row)
+    {
+        return row switch
+        {
+            PlaylistDetailRow playlistDetailRow => playlistDetailRow.Title,
+            BMSFile bmsFile => bmsFile.Title,
+            _ => string.Empty
+        };
+    }
+
+    /// <summary>
+    /// 行の表示用サブタイトルを取得します。
+    /// </summary>
+    internal static string GetDisplaySubtitle(object row)
+    {
+        if (row is PlaylistDetailRow)
+        {
+            return string.Empty;
+        }
+        if (row is BMSFile bmsFile)
+        {
+            return bmsFile.subtitle ?? string.Empty;
+        }
+        return string.Empty;
+    }
+
+    /// <summary>
+    /// 行の表示用アーティストを取得します。
+    /// </summary>
+    internal static string GetDisplayArtist(object row)
+    {
+        return row switch
+        {
+            PlaylistDetailRow playlistDetailRow => playlistDetailRow.Artist,
+            BMSFile bmsFile => bmsFile.Artist,
+            _ => string.Empty
+        };
+    }
+
+    /// <summary>
     /// 行が playlist セル編集を許可するかを返します。
     /// </summary>
     internal static bool CanEditPlaylistCell(object row, string propertyName)

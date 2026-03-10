@@ -580,53 +580,6 @@ public class VirtualBMSFile : BMSFile, IDisposable
 		return entry;
 	}
 
-	/// <summary>
-	/// DataGrid 表示用に独立した仮想行 wrapper を生成します。
-	/// playlist source と UI view で wrapper インスタンスを共有せず、WPF が旧 view を保持しても source 正本まで巻き込まないようにします。
-	/// </summary>
-	/// <returns>entry と実体譜面参照を引き継いだ表示用 clone。</returns>
-	public VirtualBMSFile CreatePlaylistViewClone()
-	{
-		VirtualBMSFile virtualBMSFile = new VirtualBMSFile(entry, bmsfile);
-		if (bmsfile == null)
-		{
-			virtualBMSFile.warning = warning;
-			virtualBMSFile.HasZeroNoteMismatchWarning = HasZeroNoteMismatchWarning;
-			virtualBMSFile.instl_dst = instl_dst;
-			virtualBMSFile.status = status;
-			virtualBMSFile.tag = tag;
-			if (!string.IsNullOrWhiteSpace(path))
-			{
-				virtualBMSFile.path = path;
-			}
-			if (base.bmsScore != null)
-			{
-				virtualBMSFile.bmsScore = base.bmsScore;
-			}
-			if (base.maintenanceInfo != null && string.Equals(base.maintenanceInfo.hash, virtualBMSFile.hash, StringComparison.OrdinalIgnoreCase))
-			{
-				virtualBMSFile.maintenanceInfo = base.maintenanceInfo;
-			}
-		}
-		return virtualBMSFile;
-	}
-
-	public void OverwriteBMSFileLevel()
-	{
-		if (entry.level.HasValue)
-		{
-			int value = ((!(entry.level.Value < 0.0)) ? ((int)entry.level.Value) : 0);
-			if (bmsfile != null)
-			{
-				bmsfile.level = value;
-			}
-			else
-			{
-				base.level = value;
-			}
-		}
-	}
-
 	public void Dispose()
 	{
 		if (!isDisposed)
