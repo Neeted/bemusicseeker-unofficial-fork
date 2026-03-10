@@ -222,6 +222,32 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
+    public void DeterminePlaylistSourceInvalidationReason_WhenOnlyScoreSnapshotChanges_ReturnsScoreSnapshotVersion()
+    {
+        string reason = MainWindowViewModel.DeterminePlaylistSourceInvalidationReasonForTest(
+            selectionChanged: false,
+            libraryIndexInvalidated: false,
+            playlistRevisionInvalidated: false,
+            scoreSnapshotInvalidated: true,
+            sourceMissing: false);
+
+        Assert.AreEqual("score_snapshot_version", reason);
+    }
+
+    [TestMethod]
+    public void DeterminePlaylistSourceInvalidationReason_WhenSelectionChanges_TakesPrecedence()
+    {
+        string reason = MainWindowViewModel.DeterminePlaylistSourceInvalidationReasonForTest(
+            selectionChanged: true,
+            libraryIndexInvalidated: true,
+            playlistRevisionInvalidated: true,
+            scoreSnapshotInvalidated: true,
+            sourceMissing: true);
+
+        Assert.AreEqual("selection_changed", reason);
+    }
+
+    [TestMethod]
     public void CreatePlaylistRequestIdentity_DistinguishesRootPlaylistAndEmptyFolderNode()
     {
         BMSTable table = new BMSTable();

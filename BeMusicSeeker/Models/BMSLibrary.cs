@@ -765,6 +765,8 @@ public class BMSLibrary : NotificationObject
 
     private bool _ScoreSnapshotReady;
 
+    private int _ScoreSnapshotVersion;
+
     private bool _ScoreHydrationRunning;
 
     private int _ScoreHydrationCompletedVersion;
@@ -1083,6 +1085,26 @@ public class BMSLibrary : NotificationObject
             {
                 _ScoreSnapshotReady = value;
                 RaisePropertyChanged(() => ScoreSnapshotReady);
+            }
+        }
+    }
+
+    /// <summary>
+    /// 現在公開中の score snapshot 版数です。
+    /// playlist detail view の再反映判定に利用します。
+    /// </summary>
+    public int ScoreSnapshotVersion
+    {
+        get
+        {
+            return _ScoreSnapshotVersion;
+        }
+        private set
+        {
+            if (_ScoreSnapshotVersion != value)
+            {
+                _ScoreSnapshotVersion = value;
+                RaisePropertyChanged(() => ScoreSnapshotVersion);
             }
         }
     }
@@ -1503,6 +1525,7 @@ public class BMSLibrary : NotificationObject
             };
         }
         ScoreSnapshotReady = lr2ScoreDBPath != null;
+        ScoreSnapshotVersion = version;
         LogInstallPerformance("score_snapshot_load completed reason=" + (reason ?? "unknown") + " version=" + version + " count=" + scoresSnapshot.Count + " buildMs=" + stopwatch.ElapsedMilliseconds);
     }
 

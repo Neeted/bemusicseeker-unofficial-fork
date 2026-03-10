@@ -1479,6 +1479,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         object row = e.Row.DataContext;
         BMSTableEntry playlistEntry = GridRowResolver.GetPlaylistEntry(row);
         BMSFile bMSFile = row as BMSFile;
+        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
         string path;
         try
         {
@@ -1516,6 +1517,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             else if ((path == nameof(PlaylistDetailRow.Level) || path == nameof(PlaylistDetailRow.comment) || path == nameof(PlaylistDetailRow.memo)) && !GridRowResolver.CanEditPlaylistCell(row, path))
             {
                 e.Cancel = true;
+            }
+            if (!e.Cancel)
+            {
+                viewModel?.NotifyPlaylistCellEditStarted();
             }
         }
         else if (bMSFile != null)
@@ -1562,43 +1567,53 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         if (playlistRow != null)
         {
-            if (path == nameof(PlaylistDetailRow.Url))
+            try
             {
-                dataGridLengthConverterForURL1.IsEditingMode = false;
-                Binding binding = BindingOperations.GetBinding(e.Column, DataGridColumn.WidthProperty);
-                e.Column.Width = (int)_getValueOfPropertyPath(binding.Source, binding.Path.Path);
-                e.Column.MaxWidth = e.Column.MinWidth;
-            }
-            else if (path == nameof(PlaylistDetailRow.Url_diff))
-            {
-                dataGridLengthConverterForURL2.IsEditingMode = false;
-                Binding binding2 = BindingOperations.GetBinding(e.Column, DataGridColumn.WidthProperty);
-                e.Column.Width = (int)_getValueOfPropertyPath(binding2.Source, binding2.Path.Path);
-                e.Column.MaxWidth = e.Column.MinWidth;
-            }
-            if (e.EditAction != DataGridEditAction.Commit)
-            {
-                return;
-            }
-            if (!GridRowResolver.CanEditPlaylistCell(row, path))
-            {
-                bindingExpression.UpdateTarget();
-                return;
-            }
-            if ((path == nameof(PlaylistDetailRow.Url) || path == nameof(PlaylistDetailRow.Url_diff)) && !Uri.TryCreate(textBox.Text, UriKind.Absolute, out var _))
-            {
-                bindingExpression.UpdateTarget();
-                return;
-            }
-            bindingExpression.UpdateSource();
-            viewModel.SyncPlaylistSourceRowFromEditedViewRow(playlistRow);
-            base.Dispatcher.BeginInvoke((Action)async delegate
-            {
-                await Task.Run(delegate
+                if (path == nameof(PlaylistDetailRow.Url))
                 {
-                    viewModel.CommitPlaylistRow(playlistRow);
-                }).Logging("dataGridCellEditEnding");
-            }, DispatcherPriority.Background);
+                    dataGridLengthConverterForURL1.IsEditingMode = false;
+                    Binding binding = BindingOperations.GetBinding(e.Column, DataGridColumn.WidthProperty);
+                    e.Column.Width = (int)_getValueOfPropertyPath(binding.Source, binding.Path.Path);
+                    e.Column.MaxWidth = e.Column.MinWidth;
+                }
+                else if (path == nameof(PlaylistDetailRow.Url_diff))
+                {
+                    dataGridLengthConverterForURL2.IsEditingMode = false;
+                    Binding binding2 = BindingOperations.GetBinding(e.Column, DataGridColumn.WidthProperty);
+                    e.Column.Width = (int)_getValueOfPropertyPath(binding2.Source, binding2.Path.Path);
+                    e.Column.MaxWidth = e.Column.MinWidth;
+                }
+                if (e.EditAction != DataGridEditAction.Commit)
+                {
+                    return;
+                }
+                if (!GridRowResolver.CanEditPlaylistCell(row, path))
+                {
+                    bindingExpression.UpdateTarget();
+                    return;
+                }
+                if ((path == nameof(PlaylistDetailRow.Url) || path == nameof(PlaylistDetailRow.Url_diff)) && !Uri.TryCreate(textBox.Text, UriKind.Absolute, out var _))
+                {
+                    bindingExpression.UpdateTarget();
+                    return;
+                }
+                bindingExpression.UpdateSource();
+                viewModel.SyncPlaylistSourceRowFromEditedViewRow(playlistRow);
+                base.Dispatcher.BeginInvoke((Action)async delegate
+                {
+                    await Task.Run(delegate
+                    {
+                        viewModel.CommitPlaylistRow(playlistRow);
+                    }).Logging("dataGridCellEditEnding");
+                }, DispatcherPriority.Background);
+            }
+            finally
+            {
+                base.Dispatcher.BeginInvoke((Action)delegate
+                {
+                    viewModel.NotifyPlaylistCellEditCompleted();
+                }, DispatcherPriority.Background);
+            }
         }
         else if (bmsFile != null && e.EditAction == DataGridEditAction.Commit)
         {
