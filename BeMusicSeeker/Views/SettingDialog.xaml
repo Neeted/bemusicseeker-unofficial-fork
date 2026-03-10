@@ -663,6 +663,12 @@
                             <ListItem>
                               <Paragraph>ファイル操作基盤の見直し、個別プレイリストリロード修正、各種UI更新の最適化</Paragraph>
                             </ListItem>
+                            <ListItem>
+                              <Paragraph>プレイリスト明細表示を高速化し、10万譜面規模でもよりスムーズに表示できるよう改善</Paragraph>
+                            </ListItem>
+                            <ListItem>
+                              <Paragraph>メモリ使用量とライフサイクル管理を見直し、リロードやプレイリスト切り替え時の無制限な積み上がりを抑制</Paragraph>
+                            </ListItem>
                           </List>
                         </ListItem>
                         <ListItem>

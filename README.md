@@ -53,6 +53,9 @@ The list below focuses on the main differences from the traditional build.
   - "Fast sort" prioritizes lighter display and re-sorting over strict natural-order behavior. The old version used natural sorting everywhere.
   - Difficulty-table folder names still need natural order, so this option only applies fast sorting to the list view.
   - If simple string ordering for `PATH` or `TITLE` is acceptable in the list view, rendering becomes faster.
+- **Faster playlist detail rendering**
+  - The playlist detail view now uses a lighter display-focused row model instead of carrying the full runtime object graph for each row.
+  - This keeps large playlists, including ones with around 100,000 charts, much smoother to open, switch, and re-sort.
 
 ### By feature
 
@@ -151,6 +154,9 @@ The list below focuses on the main differences from the traditional build.
 - **Automatic conflict resolution when renaming to invalid extensions (`*.bmx/pmx`)**
   - In the old version, a name collision interrupted the process and could leave the physical file behind even though it disappeared from the detail list.
   - In this fork, if the colliding files have the same hash, the rename source is deleted. If the hashes differ, the file is renamed with automatic numbering. This is handled silently without showing a conflict dialog.
+- **Reworked memory usage and lifecycle handling**
+  - Reference ownership and object lifecycles were revised around library reloads and playlist switching, especially for playlist detail data.
+  - This suppresses the unbounded memory buildup that previously looked like a leak during repeated reloads or playlist switching.
 
 ## TODO
 
