@@ -174,6 +174,32 @@ public sealed class PlaylistViewPipelineTests
         CollectionAssert.AreEqual(new[] { "3", "12" }, result.Select((PlaylistDetailRow row) => row.Level).ToArray());
     }
 
+    [TestMethod]
+    public void CreatePlaylistRequestIdentity_NormalizesKeywordAndFolderForDedup()
+    {
+        BMSTable table = new BMSTable();
+        MainWindowViewModel.cSortParameters sortParameters = new MainWindowViewModel.cSortParameters
+        {
+            ColumnsName = nameof(BMSFile.Title),
+            Direction = ListSortDirection.Ascending
+        };
+
+        MainWindowViewModel.PlaylistRequestIdentity left = MainWindowViewModel.CreatePlaylistRequestIdentity(table, " FolderA ", MainWindowViewModel.PlaylistFilterType.PlaylistFilter, " keyword ", MainWindowViewModel.ModeFilterType._7KEYS, sortParameters, libraryIndexVersion: 10, playlistRevision: 20, hasResolvedSelection: true);
+        MainWindowViewModel.PlaylistRequestIdentity right = MainWindowViewModel.CreatePlaylistRequestIdentity(table, "FolderA", MainWindowViewModel.PlaylistFilterType.PlaylistFilter, "KEYWORD", MainWindowViewModel.ModeFilterType._7KEYS, sortParameters, libraryIndexVersion: 10, playlistRevision: 20, hasResolvedSelection: true);
+
+        Assert.AreEqual(left, right);
+    }
+
+    [TestMethod]
+    public void CreatePlaylistRequestIdentity_DifferentPlaylistRevisionBreaksDedup()
+    {
+        BMSTable table = new BMSTable();
+        MainWindowViewModel.PlaylistRequestIdentity before = MainWindowViewModel.CreatePlaylistRequestIdentity(table, null, MainWindowViewModel.PlaylistFilterType.PlaylistNotOwnedFilterSelected, null, MainWindowViewModel.ModeFilterType.All, sortParameters: null, libraryIndexVersion: 3, playlistRevision: 4, hasResolvedSelection: true);
+        MainWindowViewModel.PlaylistRequestIdentity after = MainWindowViewModel.CreatePlaylistRequestIdentity(table, null, MainWindowViewModel.PlaylistFilterType.PlaylistNotOwnedFilterSelected, null, MainWindowViewModel.ModeFilterType.All, sortParameters: null, libraryIndexVersion: 3, playlistRevision: 5, hasResolvedSelection: true);
+
+        Assert.AreNotEqual(before, after);
+    }
+
     private static PlaylistDetailSourceRow CreateSourceRow(string hash, string title, int? mode, string memo = "", string comment = "", double? entryLevel = null)
     {
         TestableBmsFile file = new TestableBmsFile();
