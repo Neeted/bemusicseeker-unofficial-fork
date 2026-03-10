@@ -92,6 +92,17 @@ public class BMSLibrary : NotificationObject
     }
 
     /// <summary>
+    /// プレイリストサマリー集計で再利用する所持譜面ハッシュ一覧の snapshot です。
+    /// BMSFiles 全体から毎回 HashSet を作り直す一時 allocation を避けるために使用します。
+    /// </summary>
+    internal sealed class PlaylistSummaryOwnedHashSnapshot
+    {
+        internal long BuildElapsedMs { get; set; }
+
+        internal HashSet<string> Hashes { get; set; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
     /// score snapshot / hydration / ranking refresh の診断状態です。
     /// playlist open readiness の記録に利用します。
     /// </summary>
@@ -722,6 +733,10 @@ public class BMSLibrary : NotificationObject
     private ScoreSnapshot scoreSnapshot;
 
     private int scoreSnapshotVersion;
+
+    private readonly object lockPlaylistSummaryOwnedHashSnapshot = new object();
+
+    private PlaylistSummaryOwnedHashSnapshot playlistSummaryOwnedHashSnapshot;
 
     private readonly object lockDeferredScoreHydration = new object();
 
@@ -2386,6 +2401,10 @@ public class BMSLibrary : NotificationObject
             bmsHashIndex.Clear();
             bmsHashIndexInitialized = false;
         }
+        lock (lockPlaylistSummaryOwnedHashSnapshot)
+        {
+            playlistSummaryOwnedHashSnapshot = null;
+        }
     }
 
     /// <summary>
@@ -2426,6 +2445,50 @@ public class BMSLibrary : NotificationObject
                 bmsHashIndex = new HashSet<string>(bmsHashRefCount.Keys, StringComparer.OrdinalIgnoreCase);
             }
             bmsHashIndexInitialized = true;
+        }
+    }
+
+    /// <summary>
+    /// playlist summary 集計用の所持譜面ハッシュ snapshot を返します。
+    /// BMSFiles 変更時に無効化し、次回要求時にだけ再構築します。
+    /// </summary>
+    internal PlaylistSummaryOwnedHashSnapshot GetPlaylistSummaryOwnedHashSnapshot()
+    {
+        PlaylistSummaryOwnedHashSnapshot snapshot;
+        lock (lockPlaylistSummaryOwnedHashSnapshot)
+        {
+            snapshot = playlistSummaryOwnedHashSnapshot;
+        }
+        if (snapshot != null)
+        {
+            return snapshot;
+        }
+        Stopwatch stopwatch = Stopwatch.StartNew();
+        HashSet<string> hashes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        List<BMSFile> bmsFilesSnapshot;
+        using (rwlockBMSFiles.GetReaderGuard())
+        {
+            bmsFilesSnapshot = ((BMSFiles == null) ? new List<BMSFile>() : BMSFiles.Where((BMSFile file) => file != null).ToList());
+        }
+        foreach (BMSFile item in bmsFilesSnapshot)
+        {
+            if (!string.IsNullOrWhiteSpace(item.hash))
+            {
+                hashes.Add(item.hash);
+            }
+        }
+        PlaylistSummaryOwnedHashSnapshot rebuiltSnapshot = new PlaylistSummaryOwnedHashSnapshot
+        {
+            BuildElapsedMs = stopwatch.ElapsedMilliseconds,
+            Hashes = hashes
+        };
+        lock (lockPlaylistSummaryOwnedHashSnapshot)
+        {
+            if (playlistSummaryOwnedHashSnapshot == null)
+            {
+                playlistSummaryOwnedHashSnapshot = rebuiltSnapshot;
+            }
+            return playlistSummaryOwnedHashSnapshot;
         }
     }
 
