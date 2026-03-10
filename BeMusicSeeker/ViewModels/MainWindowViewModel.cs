@@ -12036,6 +12036,51 @@ public class MainWindowViewModel : ViewModel
     }
 
     /// <summary>
+    /// 指定されたハッシュ群をキーに LR2IR キャッシュを更新します。
+    /// 実ファイル未所持の playlist 行でもランキングデータ更新を行えるようにします。
+    /// </summary>
+    /// <param name="hashes">更新対象の MD5 ハッシュ一覧。</param>
+    public void GetLR2IRCacheHashes(IEnumerable<string> hashes)
+    {
+        lock (lockCopyFile)
+        {
+            if (hashes == null)
+            {
+                throw new ArgumentNullException(nameof(hashes));
+            }
+            try
+            {
+                List<string> normalizedHashes = hashes.Where((string hash) => !string.IsNullOrWhiteSpace(hash)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                if (normalizedHashes.Count == 0)
+                {
+                    return;
+                }
+                List<BMSLibrary.IRDataCacheInfo> iRDataNeedUpdates = files.GetIRDataNeedUpdates(normalizedHashes);
+                if (iRDataNeedUpdates.Count > 0)
+                {
+                    if (DispatcherMessageBox.Show(BeMusicSeeker.Properties.Resources.Msg_download_ranking_cache + Environment.NewLine + Environment.NewLine + BeMusicSeeker.Properties.Resources.Download + ": " + iRDataNeedUpdates.Count + Environment.NewLine + BeMusicSeeker.Properties.Resources.Skip + ": " + (normalizedHashes.Count - iRDataNeedUpdates.Count) + Environment.NewLine + BeMusicSeeker.Properties.Resources.Size + ": " + FileSizeHelper.GetReadableFileSize(iRDataNeedUpdates.Select((BMSLibrary.IRDataCacheInfo c) => c.size).Sum()), BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Asterisk, MessageBoxResult.OK) == MessageBoxResult.OK)
+                    {
+                        List<BMSLibrary.IRDataCacheInfo> list = files.DownloadIRData(iRDataNeedUpdates);
+                        DispatcherMessageBox.Show(BeMusicSeeker.Properties.Resources.Msg_download_completed + Environment.NewLine + Environment.NewLine + BeMusicSeeker.Properties.Resources.Success + ": " + (iRDataNeedUpdates.Count - list.Count) + Environment.NewLine + BeMusicSeeker.Properties.Resources.Failure + ": " + list.Count, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OK, MessageBoxImage.Asterisk, MessageBoxResult.OK);
+                    }
+                }
+                else
+                {
+                    DispatcherMessageBox.Show(BeMusicSeeker.Properties.Resources.Msg_ranking_cache_notfound, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+                }
+            }
+            catch (InvalidOperationException)
+            {
+                DispatcherMessageBox.Show(BeMusicSeeker.Properties.Resources.Msg_warn_cache_download, BeMusicSeeker.Properties.Resources.Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
+            }
+            catch (Exception ex)
+            {
+                DispatcherMessageBox.Show(BeMusicSeeker.Properties.Resources.Msg_error_cache_download + Environment.NewLine + Environment.NewLine + ex.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+            }
+        }
+    }
+
+    /// <summary>
     /// 実体譜面または互換 row から LR2IR キャッシュを取得します。
     /// </summary>
     /// <param name="bmsFile">対象譜面。</param>
@@ -12137,105 +12182,87 @@ public class MainWindowViewModel : ViewModel
         {
             throw new ArgumentNullException(nameof(bmsFiles));
         }
+        return RegisterScoreViewerTargets(bmsFiles.Select((BeMusicSeeker.Models.BMSFile bmsFile) => new ScoreViewerTarget(bmsFile.hash, bmsFile.path, bmsFile.Title)).ToList());
+    }
 
-        if (bmsFiles.Count == 0)
+    /// <summary>
+    /// Score Viewer 登録対象を hash/path/title ベースで登録します。
+    /// 未所持 playlist 行では path が null でも閲覧 URL を返せます。
+    /// </summary>
+    /// <param name="targets">登録対象の軽量ターゲット一覧。</param>
+    /// <returns>最後に処理されたターゲットの閲覧用 URL。失敗時は null。</returns>
+    internal string RegisterScoreViewerTargets(List<ScoreViewerTarget> targets)
+    {
+        if (targets == null)
+        {
+            throw new ArgumentNullException(nameof(targets));
+        }
+        List<ScoreViewerTarget> normalizedTargets = targets.Where((ScoreViewerTarget target) => target != null && !string.IsNullOrWhiteSpace(target.Hash)).ToList();
+        if (normalizedTargets.Count == 0)
         {
             return null;
         }
-
-        BeMusicSeeker.Models.BMSFile lastTargetBmsFile = bmsFiles.Last();
+        ScoreViewerTarget lastTarget = normalizedTargets.Last();
         bool userConfirmedMultiRegister = false;
         string resultViewUrl = null;
-
-        // 複数ファイルの登録時は最初に一括確認ダイアログを出す
-        if (bmsFiles.Count > 1)
+        if (normalizedTargets.Count > 1)
         {
             ConfirmationMessage confirmationMessage = new ConfirmationMessage(
-                BeMusicSeeker.Properties.Resources.Msg_register_chart + Environment.NewLine + Environment.NewLine + bmsFiles.Count + " " + BeMusicSeeker.Properties.Resources.Num_chart,
+                BeMusicSeeker.Properties.Resources.Msg_register_chart + Environment.NewLine + Environment.NewLine + normalizedTargets.Count + " " + BeMusicSeeker.Properties.Resources.Num_chart,
                 BeMusicSeeker.Properties.Resources.Confirm,
                 MessageBoxImage.Asterisk,
                 MessageBoxButton.YesNo,
                 "ConfirmationDialog");
-
             base.Messenger.Raise(confirmationMessage);
-
             if (confirmationMessage.Response != true)
             {
                 return null;
             }
             userConfirmedMultiRegister = true;
         }
-
-        foreach (BeMusicSeeker.Models.BMSFile bmsFile in bmsFiles)
+        foreach (ScoreViewerTarget target in normalizedTargets)
         {
             try
             {
-                string currentFileHash = bmsFile.hash;
-                if (string.IsNullOrWhiteSpace(bmsFile.path) || !File.Exists(bmsFile.path))
+                string currentFileHash = target.Hash;
+                if (string.IsNullOrWhiteSpace(target.Path) || !File.Exists(target.Path))
                 {
-                    // ファイルが実在しない場合はアップロード不可。対象が最後のファイルならURLを生成しておく
-                    if (bmsFile == lastTargetBmsFile)
+                    if (target == lastTarget)
                     {
                         resultViewUrl = scoreViewUrl + currentFileHash;
                     }
                     continue;
                 }
-
-                // すでに登録されているかステータスを確認
-                string statusJson = AppHttpClient.Shared.GetString(new Uri(scoreStatusUrl + bmsFile.hash), Encoding.UTF8);
+                string statusJson = AppHttpClient.Shared.GetString(new Uri(scoreStatusUrl + currentFileHash), Encoding.UTF8);
                 dynamic statusVal = DynamicJson.Parse(statusJson);
-
                 if (statusVal.status == "OK")
                 {
-                    // 登録済みの場合
-                    if (bmsFile == lastTargetBmsFile)
+                    if (target == lastTarget)
                     {
                         resultViewUrl = scoreViewUrl + currentFileHash;
                     }
                     continue;
                 }
-
-                // 未登録の場合の処理
-                // まだ確認が取れておらず、かつ1件アップロード設定で確認メッセージが有効な場合
                 if (!userConfirmedMultiRegister && Settings.Default.ShowScoreViewerRegisterConfirmMsg)
                 {
                     ConfirmationMessage uploadConfirmMessage = new ConfirmationMessage(
-                        BeMusicSeeker.Properties.Resources.Msg_show_chart + Environment.NewLine + Environment.NewLine +
-                        bmsFile.Title + Environment.NewLine + "MD5: " + bmsFile.hash + Environment.NewLine + Environment.NewLine +
-                        "(" + BeMusicSeeker.Properties.Resources.Msg_hide_message + ")",
+                        BeMusicSeeker.Properties.Resources.Msg_show_chart + Environment.NewLine + Environment.NewLine + (target.Title ?? string.Empty) + Environment.NewLine + "MD5: " + currentFileHash + Environment.NewLine + Environment.NewLine + "(" + BeMusicSeeker.Properties.Resources.Msg_hide_message + ")",
                         BeMusicSeeker.Properties.Resources.Confirm,
                         MessageBoxImage.Asterisk,
                         MessageBoxButton.YesNo,
                         "ConfirmationDialog");
-
                     base.Messenger.Raise(uploadConfirmMessage);
-
                     if (uploadConfirmMessage.Response == true)
                     {
                         userConfirmedMultiRegister = true;
                     }
                     else
                     {
-                        // キャンセルされた場合はこのファイルの処理をスキップ
                         continue;
                     }
                 }
-
-                // 実際にファイルをアップロードして登録
-                string registerResponseJson = AppHttpClient.Shared.PostFile(
-                    new Uri(scoreRegisterUrl),
-                    bmsFile.path,
-                    responseEncoding: Encoding.UTF8,
-                    headers: new Dictionary<string, string>
-                    {
-                        {
-                            "Accept",
-                            "application/json"
-                        }
-                    },
-                    logErrorResponseBody: true);
-
-                if (bmsFile == lastTargetBmsFile)
+                string registerResponseJson = AppHttpClient.Shared.PostFile(new Uri(scoreRegisterUrl), target.Path, responseEncoding: Encoding.UTF8, headers: new Dictionary<string, string> { { "Accept", "application/json" } }, logErrorResponseBody: true);
+                if (target == lastTarget)
                 {
                     dynamic registerResponseVal = DynamicJson.Parse(registerResponseJson);
                     if (registerResponseVal.status == "OK")
@@ -12247,22 +12274,13 @@ public class MainWindowViewModel : ViewModel
             }
             catch (Exception ex)
             {
-                // エラー発生時はこのファイルだけ失敗扱いにして次へ進む
-                NLogWrapper.FileLogger?.Warn(ex, "score_viewer_upload_failed path=" + (bmsFile.path ?? string.Empty) + " md5=" + (bmsFile.hash ?? string.Empty));
+                NLogWrapper.FileLogger?.Warn(ex, "score_viewer_upload_failed path=" + (target.Path ?? string.Empty) + " md5=" + (target.Hash ?? string.Empty));
             }
         }
-
-        // 複数登録や確認ダイアログ経由で1つ以上のアップロード処理を通った場合、成功メッセージを出す
         if (userConfirmedMultiRegister && !string.IsNullOrWhiteSpace(resultViewUrl))
         {
-            base.Messenger.Raise(new ConfirmationMessage(
-                BeMusicSeeker.Properties.Resources.Msg_success_register_chart,
-                BeMusicSeeker.Properties.Resources.Information,
-                MessageBoxImage.Asterisk,
-                MessageBoxButton.OK,
-                "ConfirmationDialog"));
+            base.Messenger.Raise(new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Msg_success_register_chart, BeMusicSeeker.Properties.Resources.Information, MessageBoxImage.Asterisk, MessageBoxButton.OK, "ConfirmationDialog"));
         }
-
         return resultViewUrl;
     }
 

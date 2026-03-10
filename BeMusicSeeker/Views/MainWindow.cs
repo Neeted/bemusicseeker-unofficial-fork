@@ -1269,6 +1269,27 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         return GetSelectedGridRowsSnapshot().Select(GridRowResolver.GetRealBmsFile).Where((BMSFile file) => file != null).ToList();
     }
 
+    private List<string> GetSelectedGridHashTargets()
+    {
+        return GetSelectedGridRowsSnapshot().Select(GridRowResolver.GetHash).Where((string hash) => !string.IsNullOrWhiteSpace(hash)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    private List<ScoreViewerTarget> GetSelectedGridScoreViewerTargets()
+    {
+        return GetSelectedGridRowsSnapshot().Select(TryCreateScoreViewerTarget).Where((ScoreViewerTarget target) => target != null).ToList();
+    }
+
+    private static ScoreViewerTarget TryCreateScoreViewerTarget(object row)
+    {
+        string hash = GridRowResolver.GetHash(row);
+        if (string.IsNullOrWhiteSpace(hash))
+        {
+            return null;
+        }
+        BMSFile realBmsFile = GridRowResolver.GetRealBmsFile(row);
+        return new ScoreViewerTarget(hash, realBmsFile?.path, GridRowResolver.GetDisplayTitle(row));
+    }
+
     private List<BMSTableEntry> GetSelectedGridPlaylistEntries()
     {
         return GetSelectedGridRowsSnapshot().Select(GridRowResolver.GetPlaylistEntry).Where((BMSTableEntry entry) => entry != null).ToList();
@@ -4910,9 +4931,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             NLogWrapper.FileLogger?.Info("playlist_missing_context_menu rowResolve=False sourceType=" + sender?.GetType().FullName);
             return;
         }
+        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
         BMSTableEntry entry = GridRowResolver.GetPlaylistEntry(row);
         Uri rowUrl = GridRowResolver.GetUrl(row);
         Uri rowUrlDiff = GridRowResolver.GetUrlDiff(row);
+        bool canOpenScoreViewer = !string.IsNullOrWhiteSpace(GridRowResolver.GetHash(row));
+        bool canUpdateRanking = canOpenScoreViewer && viewModel != null && viewModel.LR2ID != 0;
         bool canOpenLr2Ir = !string.IsNullOrWhiteSpace(GridRowResolver.GetHash(row)) || !string.IsNullOrWhiteSpace(GridRowResolver.GetLr2BmsId(row));
         foreach (Control item in (IEnumerable)contextMenu.Items)
         {
@@ -4930,15 +4954,28 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                     item.Visibility = Visibility.Visible;
                     item.IsEnabled = rowUrlDiff != null && rowUrlDiff.IsAbsoluteUri;
                     break;
+                case "dataGridContextMenuItemOpenExplorer":
+                case "dataGridContextMenuItemOpenBMSFile":
+                    item.Visibility = Visibility.Visible;
+                    item.IsEnabled = false;
+                    break;
                 case "dataGridContextMenuItemOpenVideo":
                 case "dataGridContextMenuItemSearchLink":
                 case "dataGridContextMenuItemDeleteEntry":
                     item.Visibility = Visibility.Visible;
                     item.IsEnabled = entry != null;
                     break;
+                case "dataGridContextMenuItemRegisterScore":
+                    item.Visibility = Visibility.Visible;
+                    item.IsEnabled = canOpenScoreViewer;
+                    break;
+                case "dataGridContextMenuItemUpdateRankingData":
+                    item.Visibility = Visibility.Visible;
+                    item.IsEnabled = canUpdateRanking;
+                    break;
             }
         }
-        NLogWrapper.FileLogger?.Info("playlist_missing_context_menu rowType=" + row?.GetType().FullName + " entryParent=" + entry?.parent?.name + " url=" + (rowUrl != null) + " urlDiff=" + (rowUrlDiff != null) + " canOpenLr2Ir=" + canOpenLr2Ir);
+        NLogWrapper.FileLogger?.Info("playlist_missing_context_menu rowType=" + row?.GetType().FullName + " entryParent=" + entry?.parent?.name + " url=" + (rowUrl != null) + " urlDiff=" + (rowUrlDiff != null) + " canOpenLr2Ir=" + canOpenLr2Ir + " canOpenScoreViewer=" + canOpenScoreViewer + " canUpdateRanking=" + canUpdateRanking);
     }
 
     private void dataGridContextMenuItemOpenExplorerClick(object sender, RoutedEventArgs e)
@@ -5825,13 +5862,13 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        List<BMSFile> bmsFiles = GetSelectedGridOperationFiles();
-        if (bmsFiles != null && bmsFiles.Count() != 0)
+        List<string> hashes = GetSelectedGridHashTargets();
+        if (hashes != null && hashes.Count != 0)
         {
             MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
             Task.Run(delegate
             {
-                viewModel.GetLR2IRCacheBMSFiles(bmsFiles);
+                viewModel.GetLR2IRCacheHashes(hashes);
             }).Logging("dataGridContextMenuItemUpdateRankingDataClick");
             e.Handled = true;
         }
@@ -5843,15 +5880,15 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        List<BMSFile> bmsFiles = GetSelectedGridRealFiles();
+        List<ScoreViewerTarget> targets = GetSelectedGridScoreViewerTargets();
         MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
         e.Handled = true;
         Task.Run(delegate
         {
-            string fileName = viewModel.RegisterBMSFilesToScoreViewer(bmsFiles);
+            string fileName = viewModel.RegisterScoreViewerTargets(targets);
             try
             {
-                if (bmsFiles.Count == 1)
+                if (targets.Count == 1 && !string.IsNullOrWhiteSpace(fileName))
                 {
                     Process.Start(fileName);
                 }

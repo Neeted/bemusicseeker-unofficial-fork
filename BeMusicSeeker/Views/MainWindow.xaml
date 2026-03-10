@@ -225,6 +225,8 @@
         <MenuItem Name="dataGridContextMenuItemOpenURL" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_Url, Mode=OneWay}" Click="dataGridContextMenuItemOpenURLClick" />
         <MenuItem Name="dataGridContextMenuItemOpenURLdiff" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_Url_diff, Mode=OneWay}" Click="dataGridContextMenuItemOpenURLdiffClick" />
         <Separator />
+        <MenuItem Name="dataGridContextMenuItemOpenExplorer" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_file_explorer, Mode=OneWay}" Click="dataGridContextMenuItemOpenExplorerClick" />
+        <MenuItem Name="dataGridContextMenuItemOpenBMSFile" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_association, Mode=OneWay}" Click="dataGridContextMenuItemOpenBMSFileClick" />
         <MenuItem Name="dataGridContextMenuItemOpenVideo" SubmenuOpened="dataGridContextMenuOpenVideoSubmenuOpened">
           <MenuItem.Header>
             <TextBlock Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_video, Mode=OneWay}" />
@@ -239,6 +241,9 @@
           </MenuItem.Header>
           <MenuItem Name="dummy" Header="" Visibility="Hidden" />
         </MenuItem>
+        <MenuItem Name="dataGridContextMenuItemRegisterScore" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_chart_viewer, Mode=OneWay}" Click="dataGridContextMenuItemRegisterBMSFileToScoreViwer" />
+        <Separator />
+        <MenuItem Name="dataGridContextMenuItemUpdateRankingData" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Update_ranking_data, Mode=OneWay}" Click="dataGridContextMenuItemUpdateRankingDataClick" />
         <Separator />
         <MenuItem Name="dataGridContextMenuItemDeleteEntry" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Remove, Mode=OneWay}" Click="dataGridContextMenuItemDeleteEntryClick" />
       </ContextMenu>
