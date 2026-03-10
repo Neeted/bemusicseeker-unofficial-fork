@@ -4475,41 +4475,6 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
-    /// <summary>
-    /// 仮想行全体と最終採用行との差分を解放します。
-    /// キーワード・モード絞り込みで除外された仮想行をここで明示的に破棄します。
-    /// </summary>
-    /// <param name="allRows">生成済みの全仮想行。</param>
-    /// <param name="adoptedRows">最終的に表示へ採用した行。</param>
-    /// <returns>破棄した仮想行数。</returns>
-    internal static int DisposePlaylistRowsNotAdopted(IReadOnlyCollection<BeMusicSeeker.Models.BMSFile> allRows, IReadOnlyCollection<BeMusicSeeker.Models.BMSFile> adoptedRows)
-    {
-        if (allRows == null || allRows.Count == 0)
-        {
-            return 0;
-        }
-        if (adoptedRows == null || adoptedRows.Count == 0)
-        {
-            DisposeDisposableRows(allRows);
-            return allRows.Count;
-        }
-        if (allRows.Count == adoptedRows.Count)
-        {
-            return 0;
-        }
-        HashSet<BeMusicSeeker.Models.BMSFile> adoptedSet = new HashSet<BeMusicSeeker.Models.BMSFile>(adoptedRows);
-        int disposed = 0;
-        foreach (BeMusicSeeker.Models.BMSFile row in allRows)
-        {
-            if (row is IDisposable disposable && !adoptedSet.Contains(row))
-            {
-                disposable.Dispose();
-                disposed++;
-            }
-        }
-        return disposed;
-    }
-
     private static bool IsSameReferenceSequence(List<BeMusicSeeker.Models.BMSFile> left, List<BeMusicSeeker.Models.BMSFile> right)
     {
         if (ReferenceEquals(left, right))

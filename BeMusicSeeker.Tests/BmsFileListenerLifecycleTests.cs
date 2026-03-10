@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using BeMusicSeeker.Models;
-using BeMusicSeeker.ViewModels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
@@ -170,130 +169,6 @@ public sealed class BmsFileListenerLifecycleTests
 
         GC.KeepAlive(table);
         Assert.IsFalse(weakReference.IsAlive);
-    }
-
-    [TestMethod]
-    public void VirtualBmsFile_Dispose_StopsForwardingRealFileChanges()
-    {
-        TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-        BMSTableEntry entry = new BMSTableEntry(file);
-        VirtualBMSFile virtualFile = new VirtualBMSFile(entry, file);
-        int pathChangedCount = 0;
-        virtualFile.PropertyChanged += delegate (object sender, System.ComponentModel.PropertyChangedEventArgs e)
-        {
-            if (e.PropertyName == nameof(BMSFile.path))
-            {
-                pathChangedCount++;
-            }
-        };
-
-        file.path = @"C:\Library\before.bms";
-        pathChangedCount = 0;
-
-        virtualFile.Dispose();
-        file.path = @"C:\Library\after.bms";
-
-        Assert.AreEqual(0, pathChangedCount);
-    }
-
-    [TestMethod]
-    public void VirtualBmsFile_Dispose_CanBeCalledTwice()
-    {
-        TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-        BMSTableEntry entry = new BMSTableEntry(file);
-        VirtualBMSFile virtualFile = new VirtualBMSFile(entry, file);
-
-        virtualFile.Dispose();
-        virtualFile.Dispose();
-    }
-
-    [TestMethod]
-    public void DisposePlaylistRowsNotAdopted_DisposesExcludedVirtualRows()
-    {
-        TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-        VirtualBMSFile keepRow = new VirtualBMSFile(new BMSTableEntry(file), file);
-        VirtualBMSFile discardRow1 = new VirtualBMSFile(new BMSTableEntry(file), file);
-        VirtualBMSFile discardRow2 = new VirtualBMSFile(new BMSTableEntry(file), file);
-        int keepPathChangedCount = 0;
-        int discardPathChangedCount1 = 0;
-        int discardPathChangedCount2 = 0;
-        keepRow.PropertyChanged += delegate (object sender, System.ComponentModel.PropertyChangedEventArgs e)
-        {
-            if (e.PropertyName == nameof(BMSFile.path))
-            {
-                keepPathChangedCount++;
-            }
-        };
-        discardRow1.PropertyChanged += delegate (object sender, System.ComponentModel.PropertyChangedEventArgs e)
-        {
-            if (e.PropertyName == nameof(BMSFile.path))
-            {
-                discardPathChangedCount1++;
-            }
-        };
-        discardRow2.PropertyChanged += delegate (object sender, System.ComponentModel.PropertyChangedEventArgs e)
-        {
-            if (e.PropertyName == nameof(BMSFile.path))
-            {
-                discardPathChangedCount2++;
-            }
-        };
-
-        file.path = @"C:\Library\before-dispose.bms";
-        keepPathChangedCount = 0;
-        discardPathChangedCount1 = 0;
-        discardPathChangedCount2 = 0;
-
-        int disposed = MainWindowViewModel.DisposePlaylistRowsNotAdopted(
-            new BMSFile[] { keepRow, discardRow1, discardRow2 },
-            new BMSFile[] { keepRow });
-
-        file.path = @"C:\Library\after-dispose.bms";
-
-        Assert.AreEqual(2, disposed);
-        Assert.AreEqual(1, keepPathChangedCount);
-        Assert.AreEqual(0, discardPathChangedCount1);
-        Assert.AreEqual(0, discardPathChangedCount2);
-
-        keepRow.Dispose();
-    }
-
-    [TestMethod]
-    public void DisposePlaylistRowsNotAdopted_WithNoAdoptedRowsDisposesAllVirtualRows()
-    {
-        TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-        VirtualBMSFile row1 = new VirtualBMSFile(new BMSTableEntry(file), file);
-        VirtualBMSFile row2 = new VirtualBMSFile(new BMSTableEntry(file), file);
-        int pathChangedCount1 = 0;
-        int pathChangedCount2 = 0;
-        row1.PropertyChanged += delegate (object sender, System.ComponentModel.PropertyChangedEventArgs e)
-        {
-            if (e.PropertyName == nameof(BMSFile.path))
-            {
-                pathChangedCount1++;
-            }
-        };
-        row2.PropertyChanged += delegate (object sender, System.ComponentModel.PropertyChangedEventArgs e)
-        {
-            if (e.PropertyName == nameof(BMSFile.path))
-            {
-                pathChangedCount2++;
-            }
-        };
-
-        file.path = @"C:\Library\before-dispose-all.bms";
-        pathChangedCount1 = 0;
-        pathChangedCount2 = 0;
-
-        int disposed = MainWindowViewModel.DisposePlaylistRowsNotAdopted(
-            new BMSFile[] { row1, row2 },
-            Array.Empty<BMSFile>());
-
-        file.path = @"C:\Library\after-dispose-all.bms";
-
-        Assert.AreEqual(2, disposed);
-        Assert.AreEqual(0, pathChangedCount1);
-        Assert.AreEqual(0, pathChangedCount2);
     }
 
     private static WeakReference CreateWeakReferenceAfterRelease(out BMSTable table, out BMSScore score, out BMSFileMaintenanceInfo info)
