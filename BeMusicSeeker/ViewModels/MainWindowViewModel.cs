@@ -4067,28 +4067,6 @@ public class MainWindowViewModel : ViewModel
     }
 
     /// <summary>
-    /// 指定行集合に含まれる仮想行件数を返します。
-    /// </summary>
-    /// <param name="rows">判定対象行集合。</param>
-    /// <returns>仮想行件数。</returns>
-    private static int CountVirtualRows(IEnumerable rows)
-    {
-        if (rows == null)
-        {
-            return 0;
-        }
-        int count = 0;
-        foreach (object row in rows)
-        {
-            if (row is VirtualBMSFile)
-            {
-                count++;
-            }
-        }
-        return count;
-    }
-
-    /// <summary>
     /// 指定行集合に含まれる playlist lightweight row 件数を返します。
     /// </summary>
     /// <param name="rows">判定対象行集合。</param>
@@ -4160,7 +4138,7 @@ public class MainWindowViewModel : ViewModel
         IList previousViewRows = null;
         bool previousSourceAlive = previousSourceWeakReference != null && previousSourceWeakReference.TryGetTarget(out previousSourceRows);
         bool previousViewAlive = previousViewWeakReference != null && previousViewWeakReference.TryGetTarget(out previousViewRows);
-        LogPlaylistRetention("playlist_weak_reference_check reason=" + reason + " sourceGenerationId=" + previousSourceGenerationId + " sourceAlive=" + previousSourceAlive + " playlistSourceRowCount=" + (previousSourceAlive ? CountPlaylistSourceRows(previousSourceRows) : 0) + " viewGenerationId=" + previousViewGenerationId + " viewAlive=" + previousViewAlive + " playlistViewRowCount=" + (previousViewAlive ? CountPlaylistDetailRows(previousViewRows) : 0) + " aliveVirtualRows=" + VirtualBMSFile.GetLifecycleStats().alive);
+        LogPlaylistRetention("playlist_weak_reference_check reason=" + reason + " sourceGenerationId=" + previousSourceGenerationId + " sourceAlive=" + previousSourceAlive + " playlistSourceRowCount=" + (previousSourceAlive ? CountPlaylistSourceRows(previousSourceRows) : 0) + " viewGenerationId=" + previousViewGenerationId + " viewAlive=" + previousViewAlive + " playlistViewRowCount=" + (previousViewAlive ? CountPlaylistDetailRows(previousViewRows) : 0));
     }
 
     /// <summary>
@@ -4512,7 +4490,7 @@ public class MainWindowViewModel : ViewModel
         }
         if (adoptedRows == null || adoptedRows.Count == 0)
         {
-            DisposeVirtualRows(allRows);
+            DisposeDisposableRows(allRows);
             return allRows.Count;
         }
         if (allRows.Count == adoptedRows.Count)
@@ -4523,9 +4501,9 @@ public class MainWindowViewModel : ViewModel
         int disposed = 0;
         foreach (BeMusicSeeker.Models.BMSFile row in allRows)
         {
-            if (row is VirtualBMSFile virtualRow && !adoptedSet.Contains(virtualRow))
+            if (row is IDisposable disposable && !adoptedSet.Contains(row))
             {
-                virtualRow.Dispose();
+                disposable.Dispose();
                 disposed++;
             }
         }
@@ -5318,7 +5296,7 @@ public class MainWindowViewModel : ViewModel
         {
             if (_BMSFilesView != value)
             {
-                DisposeVirtualRows(_BMSFilesView);
+                DisposeDisposableRows(_BMSFilesView);
                 if (value == null)
                 {
                     _BMSFilesView = new List<object>();
@@ -5332,7 +5310,7 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
-    private static void DisposeVirtualRows(IEnumerable rows)
+    private static void DisposeDisposableRows(IEnumerable rows)
     {
         if (rows == null)
         {
@@ -5340,7 +5318,7 @@ public class MainWindowViewModel : ViewModel
         }
         foreach (object row in rows)
         {
-            if (row is IDisposable disposable && row is VirtualBMSFile)
+            if (row is IDisposable disposable)
             {
                 disposable.Dispose();
             }
@@ -5412,7 +5390,7 @@ public class MainWindowViewModel : ViewModel
         }
         ResetPlaylistDerivedViewCaches();
         LogPlaylistWeakReferenceStatus("before_source_clear");
-        LogPlaylistRetention("playlist_source_replace action=clear generationId=" + previousGenerationId + " sourceCount=0 disposedCount=" + CountPlaylistSourceRows(sourceRowsToDispose) + " playlistSourceRowCount=0 playlistViewRowCount=" + CountPlaylistDetailRows(currentViewRows) + " aliveVirtualRows=" + VirtualBMSFile.GetLifecycleStats().alive);
+        LogPlaylistRetention("playlist_source_replace action=clear generationId=" + previousGenerationId + " sourceCount=0 disposedCount=" + CountPlaylistSourceRows(sourceRowsToDispose) + " playlistSourceRowCount=0 playlistViewRowCount=" + CountPlaylistDetailRows(currentViewRows));
     }
 
     /// <summary>
@@ -5451,7 +5429,7 @@ public class MainWindowViewModel : ViewModel
         }
         ResetPlaylistDerivedViewCaches();
         LogPlaylistWeakReferenceStatus("before_source_replace");
-        LogPlaylistRetention("playlist_source_replace action=replace generationId=" + nextGenerationId + " previousGenerationId=" + previousGenerationId + " sourceCount=" + (sourceRows?.Count ?? 0) + " disposedCount=" + CountPlaylistSourceRows(previousSourceRows) + " playlistSourceRowCount=" + CountPlaylistSourceRows(sourceRows) + " playlistViewRowCount=" + currentViewRowsAlive + " aliveVirtualRows=" + VirtualBMSFile.GetLifecycleStats().alive);
+        LogPlaylistRetention("playlist_source_replace action=replace generationId=" + nextGenerationId + " previousGenerationId=" + previousGenerationId + " sourceCount=" + (sourceRows?.Count ?? 0) + " disposedCount=" + CountPlaylistSourceRows(previousSourceRows) + " playlistSourceRowCount=" + CountPlaylistSourceRows(sourceRows) + " playlistViewRowCount=" + currentViewRowsAlive);
         return previousSourceRows;
     }
 
@@ -5484,7 +5462,7 @@ public class MainWindowViewModel : ViewModel
             playlistViewState.CurrentViewIdentity = requestIdentity;
             sourceRowsAlive = CountPlaylistSourceRows(playlistViewState.SourceRows);
         }
-        LogPlaylistRetention(((viewRows == null || viewRows.Count == 0) ? "playlist_view_clear " : "playlist_view_replace ") + "generationId=" + currentViewGenerationId + " previousGenerationId=" + previousViewGenerationId + " sourceCount=" + sourceRowsAlive + " viewCount=" + (viewRows?.Count ?? 0) + " playlistSourceRowCount=" + sourceRowsAlive + " playlistViewRowCount=" + CountPlaylistDetailRows(viewRows) + " previousViewRowsReferenced=" + CountPlaylistDetailRows(previousViewRows) + " disposedCount=" + CountPlaylistDetailRows(previousViewRows) + " aliveVirtualRows=" + VirtualBMSFile.GetLifecycleStats().alive + " selectedIndex=" + SelectedIndexBMSFilesView);
+        LogPlaylistRetention(((viewRows == null || viewRows.Count == 0) ? "playlist_view_clear " : "playlist_view_replace ") + "generationId=" + currentViewGenerationId + " previousGenerationId=" + previousViewGenerationId + " sourceCount=" + sourceRowsAlive + " viewCount=" + (viewRows?.Count ?? 0) + " playlistSourceRowCount=" + sourceRowsAlive + " playlistViewRowCount=" + CountPlaylistDetailRows(viewRows) + " previousViewRowsReferenced=" + CountPlaylistDetailRows(previousViewRows) + " disposedCount=" + CountPlaylistDetailRows(previousViewRows) + " selectedIndex=" + SelectedIndexBMSFilesView);
         return previousViewRows;
     }
 
@@ -5770,7 +5748,7 @@ public class MainWindowViewModel : ViewModel
             lastAppliedViewCount = playlistViewState.LastAppliedViewCount;
         }
         bool stale = currentSourceGenerationId != expectedSourceGenerationId || currentViewGenerationId != expectedViewGenerationId;
-        LogPlaylistRetention("playlist_ui_retention_checkpoint checkpoint=" + checkpoint + " expectedSourceGenerationId=" + expectedSourceGenerationId + " expectedViewGenerationId=" + expectedViewGenerationId + " currentSourceGenerationId=" + currentSourceGenerationId + " currentViewGenerationId=" + currentViewGenerationId + " stale=" + stale + " playlistSourceRowCount=" + sourceRowsAlive + " playlistViewRowCount=" + currentViewRowsAlive + " lastAppliedViewCount=" + lastAppliedViewCount + " aliveVirtualRows=" + VirtualBMSFile.GetLifecycleStats().alive);
+        LogPlaylistRetention("playlist_ui_retention_checkpoint checkpoint=" + checkpoint + " expectedSourceGenerationId=" + expectedSourceGenerationId + " expectedViewGenerationId=" + expectedViewGenerationId + " currentSourceGenerationId=" + currentSourceGenerationId + " currentViewGenerationId=" + currentViewGenerationId + " stale=" + stale + " playlistSourceRowCount=" + sourceRowsAlive + " playlistViewRowCount=" + currentViewRowsAlive + " lastAppliedViewCount=" + lastAppliedViewCount);
         LogPlaylistWeakReferenceStatus("ui_" + checkpoint);
     }
 
@@ -7947,7 +7925,7 @@ public class MainWindowViewModel : ViewModel
         sourceCount = sourceRows.Count;
         LogPlaylistViewApply("started mode=" + mode + " sourceGenerationId=" + sourceGenerationId + " sourceCount=" + sourceCount + " playlistSourceRowCount=" + CountPlaylistSourceRows(sourceRows) + " playlistViewRowCount=" + currentViewRowsAlive);
         List<PlaylistDetailRow> finalRows = ApplyPlaylistViewFromSource(sourceRows, KeywordFilter, ModeFilter, SortParameters, out sortProfile, out keywordCount, out modeCount, out keywordStageMs, out modeStageMs, out sortStageMs);
-        LogPlaylistViewApply("completed mode=" + mode + " sourceGenerationId=" + sourceGenerationId + " sourceCount=" + sourceCount + " keywordCount=" + keywordCount + " modeCount=" + modeCount + " viewCount=" + finalRows.Count + " sortProfile=" + sortProfile + " playlistSourceRowCount=" + CountPlaylistSourceRows(sourceRows) + " playlistViewRowCount=" + CountPlaylistDetailRows(finalRows) + " aliveVirtualRows=" + VirtualBMSFile.GetLifecycleStats().alive);
+        LogPlaylistViewApply("completed mode=" + mode + " sourceGenerationId=" + sourceGenerationId + " sourceCount=" + sourceCount + " keywordCount=" + keywordCount + " modeCount=" + modeCount + " viewCount=" + finalRows.Count + " sortProfile=" + sortProfile + " playlistSourceRowCount=" + CountPlaylistSourceRows(sourceRows) + " playlistViewRowCount=" + CountPlaylistDetailRows(finalRows));
         return finalRows;
     }
 
@@ -8016,7 +7994,7 @@ public class MainWindowViewModel : ViewModel
             LogPlaylistViewApply("started mode=" + mode + " sourceCount=" + sourceCount + " playlistSourceRowCount=" + CountPlaylistSourceRows(sourceRows) + " playlistViewRowCount=" + CountPlaylistDetailRows(playlistViewState.CurrentViewRows));
             finalRows = ApplyPlaylistViewFromSource(sourceRows, KeywordFilter, ModeFilter, SortParameters, out sortProfile, out keywordCount, out modeCount, out keywordStageMs, out modeStageMs, out sortStageMs);
             viewCount = finalRows.Count;
-            LogPlaylistViewApply("completed mode=" + mode + " sourceCount=" + sourceCount + " keywordCount=" + keywordCount + " modeCount=" + modeCount + " viewCount=" + viewCount + " sortProfile=" + sortProfile + " playlistSourceRowCount=" + CountPlaylistSourceRows(sourceRows) + " playlistViewRowCount=" + CountPlaylistDetailRows(finalRows) + " aliveVirtualRows=" + VirtualBMSFile.GetLifecycleStats().alive);
+            LogPlaylistViewApply("completed mode=" + mode + " sourceCount=" + sourceCount + " keywordCount=" + keywordCount + " modeCount=" + modeCount + " viewCount=" + viewCount + " sortProfile=" + sortProfile + " playlistSourceRowCount=" + CountPlaylistSourceRows(sourceRows) + " playlistViewRowCount=" + CountPlaylistDetailRows(finalRows));
             if (cancellationToken.IsCancellationRequested || !IsLatestPlaylistSourceBuildRequest(requestVersion))
             {
                 LogPlaylistSourceBuild("cancelled version=" + requestVersion + " stage=after_apply mode=" + mode + " sourceCount=" + sourceCount + " viewCount=" + viewCount);
@@ -8043,7 +8021,7 @@ public class MainWindowViewModel : ViewModel
             disposedSourceRowsCount = CountPlaylistSourceRows(previousSourceRows);
             previousSourceRows = null;
             FinalizeMainViewBuild(viewBuildStopwatch, mode, requestedMode, parameter, folderStageMs, keywordStageMs, modeStageMs, sortStageMs, sortReuse: false, sortProfile, folderCount, keywordCount, modeCount, viewCount, columnStageMs, callbackStageMs);
-            LogPlaylistSourceBuild("completed version=" + requestVersion + " mode=" + mode + " sourceCount=" + sourceCount + " viewCount=" + viewCount + " disposedSourceRows=" + disposedSourceRowsCount + " scoreTargets=" + scoreUpdateTargetCount + " aliveVirtualRows=" + VirtualBMSFile.GetLifecycleStats().alive + " totalMs=" + viewBuildStopwatch.ElapsedMilliseconds);
+            LogPlaylistSourceBuild("completed version=" + requestVersion + " mode=" + mode + " sourceCount=" + sourceCount + " viewCount=" + viewCount + " disposedSourceRows=" + disposedSourceRowsCount + " scoreTargets=" + scoreUpdateTargetCount + " totalMs=" + viewBuildStopwatch.ElapsedMilliseconds);
             return true;
         }
         catch (OperationCanceledException)
@@ -8055,7 +8033,7 @@ public class MainWindowViewModel : ViewModel
         {
             if (sourceRows != null)
             {
-                LogPlaylistSourceBuild("discarded version=" + requestVersion + " mode=" + mode + " discardedRows=" + sourceCount + " aliveVirtualRows=" + VirtualBMSFile.GetLifecycleStats().alive);
+                LogPlaylistSourceBuild("discarded version=" + requestVersion + " mode=" + mode + " discardedRows=" + sourceCount);
             }
             if (finalRows != null)
             {

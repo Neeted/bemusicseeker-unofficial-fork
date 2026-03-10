@@ -13,7 +13,7 @@ internal static class GridRowResolver
     /// </summary>
     internal static bool IsPlaylistRow(object row)
     {
-        return row is PlaylistDetailRow || row is VirtualBMSFile;
+        return row is PlaylistDetailRow;
     }
 
     /// <summary>
@@ -24,10 +24,6 @@ internal static class GridRowResolver
         if (row is PlaylistDetailRow playlistDetailRow)
         {
             return playlistDetailRow.Entry;
-        }
-        if (row is VirtualBMSFile virtualBmsFile)
-        {
-            return virtualBmsFile.ToBMSTableEntry();
         }
         return null;
     }
@@ -40,10 +36,6 @@ internal static class GridRowResolver
         if (row is PlaylistDetailRow playlistDetailRow)
         {
             return playlistDetailRow.RealFile;
-        }
-        if (row is VirtualBMSFile virtualBmsFile)
-        {
-            return virtualBmsFile.GetNonVirtualBMSFile();
         }
         return row as BMSFile;
     }
@@ -58,10 +50,6 @@ internal static class GridRowResolver
         {
             return playlistDetailRow.RealFile;
         }
-        if (row is VirtualBMSFile virtualBmsFile)
-        {
-            return virtualBmsFile.GetNonVirtualBMSFile() ?? virtualBmsFile;
-        }
         return row as BMSFile;
     }
 
@@ -73,7 +61,6 @@ internal static class GridRowResolver
         return row switch
         {
             PlaylistDetailRow playlistDetailRow => playlistDetailRow.Url,
-            VirtualBMSFile virtualBmsFile => virtualBmsFile.Url,
             _ => null
         };
     }
@@ -86,7 +73,6 @@ internal static class GridRowResolver
         return row switch
         {
             PlaylistDetailRow playlistDetailRow => playlistDetailRow.Url_diff,
-            VirtualBMSFile virtualBmsFile => virtualBmsFile.Url_diff,
             _ => null
         };
     }
@@ -99,7 +85,6 @@ internal static class GridRowResolver
         return row switch
         {
             PlaylistDetailRow playlistDetailRow => playlistDetailRow.lr2_bmsid,
-            VirtualBMSFile virtualBmsFile => virtualBmsFile.lr2_bmsid,
             _ => null
         };
     }
@@ -112,7 +97,6 @@ internal static class GridRowResolver
         return row switch
         {
             PlaylistDetailRow playlistDetailRow => playlistDetailRow.name_diff,
-            VirtualBMSFile virtualBmsFile => virtualBmsFile.name_diff,
             _ => null
         };
     }

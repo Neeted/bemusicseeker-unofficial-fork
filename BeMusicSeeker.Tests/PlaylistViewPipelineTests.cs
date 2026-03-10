@@ -149,10 +149,11 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
-    public void ApplyPlaylistViewFromSource_LevelSortUsesPlaylistEntryLevel()
+    public void ApplyPlaylistViewFromSource_LevelSortUsesPlaylistEntryDoubleValueNumerically()
     {
-        PlaylistDetailSourceRow higherEntryLevel = CreateSourceRow("88888888888888888888888888888888", "Second", 7, entryLevel: 12);
-        PlaylistDetailSourceRow lowerEntryLevel = CreateSourceRow("99999999999999999999999999999999", "First", 7, entryLevel: 3);
+        PlaylistDetailSourceRow entryLevelTwelve = CreateSourceRow("88888888888888888888888888888888", "Twelve", 7, entryLevel: 12);
+        PlaylistDetailSourceRow entryLevelTwoPointFive = CreateSourceRow("99999999999999999999999999999999", "TwoPointFive", 7, entryLevel: 2.5);
+        PlaylistDetailSourceRow entryLevelThree = CreateSourceRow("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Three", 7, entryLevel: 3);
         MainWindowViewModel.cSortParameters sortParameters = new MainWindowViewModel.cSortParameters
         {
             ColumnsName = nameof(PlaylistDetailRow.Level),
@@ -160,18 +161,20 @@ public sealed class PlaylistViewPipelineTests
         };
 
         List<PlaylistDetailRow> result = MainWindowViewModel.ApplyPlaylistViewFromSource(
-            new[] { higherEntryLevel, lowerEntryLevel },
+            new[] { entryLevelTwelve, entryLevelTwoPointFive, entryLevelThree },
             keywordFilter: null,
             modeFilter: MainWindowViewModel.ModeFilterType.All,
             sortParameters: sortParameters,
-            out string _,
+            out string sortProfile,
             out int _,
             out int _,
             out long _,
             out long _,
             out long _);
 
-        CollectionAssert.AreEqual(new[] { "3", "12" }, result.Select((PlaylistDetailRow row) => row.Level).ToArray());
+        CollectionAssert.AreEqual(new[] { "2.5", "3", "12" }, result.Select((PlaylistDetailRow row) => row.Level).ToArray());
+        CollectionAssert.AreEqual(new[] { "TwoPointFive", "Three", "Twelve" }, result.Select((PlaylistDetailRow row) => row.Title).ToArray());
+        Assert.AreEqual("level_mixed_double", sortProfile);
     }
 
     [TestMethod]

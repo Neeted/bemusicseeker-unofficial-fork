@@ -383,7 +383,7 @@ internal static class BMSFileSortEngine
 
     /// <summary>
     /// LEVEL 列専用の比較キーを返します。
-    /// VirtualBMSFile の場合は BMSTableEntry.level（double?）を優先します。
+    /// 通常一覧では BMSFile 自身が持つ数値/文字列レベルだけを比較に使います。
     /// </summary>
     /// <param name="bmsFile">対象譜面。</param>
     /// <returns>比較キー。</returns>
@@ -392,14 +392,6 @@ internal static class BMSFileSortEngine
         if (bmsFile == null)
         {
             return null;
-        }
-        if (bmsFile is VirtualBMSFile virtualBmsFile)
-        {
-            BMSTableEntry entry = virtualBmsFile.ToBMSTableEntry();
-            if (entry?.level.HasValue == true)
-            {
-                return entry.level.Value;
-            }
         }
         if (bmsFile.level.HasValue)
         {
