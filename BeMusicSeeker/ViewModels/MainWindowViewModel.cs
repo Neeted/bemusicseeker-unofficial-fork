@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
@@ -3377,13 +3378,13 @@ public class MainWindowViewModel : ViewModel
         /// <summary>
         /// 現在表示の正本となるプレイリスト行集合です。
         /// </summary>
-        internal List<BeMusicSeeker.Models.BMSFile> SourceRows = new List<BeMusicSeeker.Models.BMSFile>();
+        internal List<PlaylistDetailSourceRow> SourceRows = new List<PlaylistDetailSourceRow>();
 
         /// <summary>
         /// 現在 DataGrid へ反映している表示用 snapshot です。
         /// source と別インスタンスで保持し、UI 側の retained reference と source 正本を切り分けます。
         /// </summary>
-        internal List<BeMusicSeeker.Models.BMSFile> CurrentViewRows = new List<BeMusicSeeker.Models.BMSFile>();
+        internal IList CurrentViewRows = new List<object>();
 
         /// <summary>
         /// 現在表示中のプレイリストです。
@@ -3428,7 +3429,7 @@ public class MainWindowViewModel : ViewModel
         /// <summary>
         /// 直前に置き換えた source snapshot の弱参照です。
         /// </summary>
-        internal WeakReference<List<BeMusicSeeker.Models.BMSFile>> PreviousSourceRowsWeakReference;
+        internal WeakReference<List<PlaylistDetailSourceRow>> PreviousSourceRowsWeakReference;
 
         /// <summary>
         /// 直前に置き換えた source snapshot 世代です。
@@ -3438,7 +3439,7 @@ public class MainWindowViewModel : ViewModel
         /// <summary>
         /// 直前に置き換えた view の弱参照です。
         /// </summary>
-        internal WeakReference<List<BeMusicSeeker.Models.BMSFile>> PreviousViewRowsWeakReference;
+        internal WeakReference<IList> PreviousViewRowsWeakReference;
 
         /// <summary>
         /// 直前に置き換えた view 世代です。
@@ -3557,13 +3558,15 @@ public class MainWindowViewModel : ViewModel
 
     private IEnumerable<BeMusicSeeker.Models.BMSFile> BMSFilesModeFilterView;
 
-    private List<BeMusicSeeker.Models.BMSFile> _BMSFilesView = new List<BeMusicSeeker.Models.BMSFile>();
+    private IList _BMSFilesView = new List<object>();
 
     private cSortParameters _SortParameters;
 
     private cSortParameters _PlaylistSummarySortParameters;
 
     private BeMusicSeeker.Models.BMSFile _NowPlayingBMS;
+
+    private int nowPlayingBmsFilesViewIndex = -1;
 
     private Uri _BrowserSource;
 
@@ -3814,14 +3817,14 @@ public class MainWindowViewModel : ViewModel
     /// </summary>
     /// <param name="rows">判定対象行集合。</param>
     /// <returns>仮想行件数。</returns>
-    private static int CountVirtualRows(IEnumerable<BeMusicSeeker.Models.BMSFile> rows)
+    private static int CountVirtualRows(IEnumerable rows)
     {
         if (rows == null)
         {
             return 0;
         }
         int count = 0;
-        foreach (BeMusicSeeker.Models.BMSFile row in rows)
+        foreach (object row in rows)
         {
             if (row is VirtualBMSFile)
             {
@@ -3829,6 +3832,38 @@ public class MainWindowViewModel : ViewModel
             }
         }
         return count;
+    }
+
+    /// <summary>
+    /// 指定行集合に含まれる playlist lightweight row 件数を返します。
+    /// </summary>
+    /// <param name="rows">判定対象行集合。</param>
+    /// <returns>playlist row 件数。</returns>
+    private static int CountPlaylistDetailRows(IEnumerable rows)
+    {
+        if (rows == null)
+        {
+            return 0;
+        }
+        int count = 0;
+        foreach (object row in rows)
+        {
+            if (row is PlaylistDetailRow)
+            {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    /// <summary>
+    /// 指定行集合に含まれる playlist source row 件数を返します。
+    /// </summary>
+    /// <param name="rows">判定対象行集合。</param>
+    /// <returns>source row 件数。</returns>
+    private static int CountPlaylistSourceRows(IEnumerable<PlaylistDetailSourceRow> rows)
+    {
+        return rows?.Count() ?? 0;
     }
 
     /// <summary>
@@ -3856,8 +3891,8 @@ public class MainWindowViewModel : ViewModel
     /// <param name="reason">確認契機。</param>
     private void LogPlaylistWeakReferenceStatus(string reason)
     {
-        WeakReference<List<BeMusicSeeker.Models.BMSFile>> previousSourceWeakReference;
-        WeakReference<List<BeMusicSeeker.Models.BMSFile>> previousViewWeakReference;
+        WeakReference<List<PlaylistDetailSourceRow>> previousSourceWeakReference;
+        WeakReference<IList> previousViewWeakReference;
         long previousSourceGenerationId;
         long previousViewGenerationId;
         lock (playlistViewState.SyncRoot)
@@ -3867,11 +3902,11 @@ public class MainWindowViewModel : ViewModel
             previousSourceGenerationId = playlistViewState.PreviousSourceGenerationId;
             previousViewGenerationId = playlistViewState.PreviousViewGenerationId;
         }
-        List<BeMusicSeeker.Models.BMSFile> previousSourceRows = null;
-        List<BeMusicSeeker.Models.BMSFile> previousViewRows = null;
+        List<PlaylistDetailSourceRow> previousSourceRows = null;
+        IList previousViewRows = null;
         bool previousSourceAlive = previousSourceWeakReference != null && previousSourceWeakReference.TryGetTarget(out previousSourceRows);
         bool previousViewAlive = previousViewWeakReference != null && previousViewWeakReference.TryGetTarget(out previousViewRows);
-        LogPlaylistRetention("playlist_weak_reference_check reason=" + reason + " sourceGenerationId=" + previousSourceGenerationId + " sourceAlive=" + previousSourceAlive + " sourceRowsAlive=" + (previousSourceAlive ? CountVirtualRows(previousSourceRows) : 0) + " viewGenerationId=" + previousViewGenerationId + " viewAlive=" + previousViewAlive + " viewRowsReferenced=" + (previousViewAlive ? CountVirtualRows(previousViewRows) : 0) + " aliveVirtualRows=" + VirtualBMSFile.GetLifecycleStats().alive);
+        LogPlaylistRetention("playlist_weak_reference_check reason=" + reason + " sourceGenerationId=" + previousSourceGenerationId + " sourceAlive=" + previousSourceAlive + " playlistSourceRowCount=" + (previousSourceAlive ? CountPlaylistSourceRows(previousSourceRows) : 0) + " viewGenerationId=" + previousViewGenerationId + " viewAlive=" + previousViewAlive + " playlistViewRowCount=" + (previousViewAlive ? CountPlaylistDetailRows(previousViewRows) : 0) + " aliveVirtualRows=" + VirtualBMSFile.GetLifecycleStats().alive);
     }
 
     /// <summary>
@@ -4721,7 +4756,7 @@ public class MainWindowViewModel : ViewModel
     /// メインリスト (DataGrid) 上に実際に表示されるBMS楽曲データ群です。
     /// ツリーでのフォルダ選択や、各種フィルタリング（キーワード検索、モード絞り込みなど）による抽出結果が反映されます。
     /// </summary>
-    public List<BeMusicSeeker.Models.BMSFile> BMSFilesView
+    public IList BMSFilesView
     {
         get
         {
@@ -4734,7 +4769,7 @@ public class MainWindowViewModel : ViewModel
                 DisposeVirtualRows(_BMSFilesView);
                 if (value == null)
                 {
-                    _BMSFilesView = new List<BeMusicSeeker.Models.BMSFile>();
+                    _BMSFilesView = new List<object>();
                 }
                 else
                 {
@@ -4745,13 +4780,13 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
-    private static void DisposeVirtualRows(IEnumerable<BeMusicSeeker.Models.BMSFile> rows)
+    private static void DisposeVirtualRows(IEnumerable rows)
     {
         if (rows == null)
         {
             return;
         }
-        foreach (BeMusicSeeker.Models.BMSFile row in rows)
+        foreach (object row in rows)
         {
             if (row is IDisposable disposable && row is VirtualBMSFile)
             {
@@ -4765,7 +4800,7 @@ public class MainWindowViewModel : ViewModel
     /// playlist 詳細表示では <see cref="PlaylistViewState.CurrentViewRows"/> を先に更新してから呼び出します。
     /// </summary>
     /// <param name="rows">新しい表示行。</param>
-    private void SetBMSFilesView(List<BeMusicSeeker.Models.BMSFile> rows)
+    private void SetBMSFilesView(IList rows)
     {
         BMSFilesView = rows;
     }
@@ -4790,8 +4825,8 @@ public class MainWindowViewModel : ViewModel
     /// </summary>
     private void ClearPlaylistSourceRows()
     {
-        List<BeMusicSeeker.Models.BMSFile> sourceRowsToDispose = null;
-        List<BeMusicSeeker.Models.BMSFile> currentViewRows = null;
+        List<PlaylistDetailSourceRow> sourceRowsToDispose = null;
+        IList currentViewRows = null;
         long previousGenerationId = 0L;
         long previousViewGenerationId = 0L;
         lock (playlistViewState.SyncRoot)
@@ -4802,16 +4837,16 @@ public class MainWindowViewModel : ViewModel
             previousViewGenerationId = playlistViewState.CurrentViewGenerationId;
             if (sourceRowsToDispose != null)
             {
-                playlistViewState.PreviousSourceRowsWeakReference = new WeakReference<List<BeMusicSeeker.Models.BMSFile>>(sourceRowsToDispose);
+                playlistViewState.PreviousSourceRowsWeakReference = new WeakReference<List<PlaylistDetailSourceRow>>(sourceRowsToDispose);
                 playlistViewState.PreviousSourceGenerationId = previousGenerationId;
             }
             if (currentViewRows != null)
             {
-                playlistViewState.PreviousViewRowsWeakReference = new WeakReference<List<BeMusicSeeker.Models.BMSFile>>(currentViewRows);
+                playlistViewState.PreviousViewRowsWeakReference = new WeakReference<IList>(currentViewRows);
                 playlistViewState.PreviousViewGenerationId = previousViewGenerationId;
             }
-            playlistViewState.SourceRows = new List<BeMusicSeeker.Models.BMSFile>();
-            playlistViewState.CurrentViewRows = new List<BeMusicSeeker.Models.BMSFile>();
+            playlistViewState.SourceRows = new List<PlaylistDetailSourceRow>();
+            playlistViewState.CurrentViewRows = new List<object>();
             playlistViewState.CurrentTable = null;
             playlistViewState.CurrentFolderName = null;
             playlistViewState.CurrentFilterType = PlaylistFilterType.PlaylistFilter;
@@ -4821,8 +4856,7 @@ public class MainWindowViewModel : ViewModel
         }
         ResetPlaylistDerivedViewCaches();
         LogPlaylistWeakReferenceStatus("before_source_clear");
-        LogPlaylistRetention("playlist_source_replace action=clear generationId=" + previousGenerationId + " sourceCount=0 disposedCount=" + CountVirtualRows(sourceRowsToDispose) + " sourceRowsAlive=0 viewRowsReferenced=" + CountVirtualRows(currentViewRows) + " aliveVirtualRows=" + VirtualBMSFile.GetLifecycleStats().alive);
-        DisposeVirtualRows(sourceRowsToDispose);
+        LogPlaylistRetention("playlist_source_replace action=clear generationId=" + previousGenerationId + " sourceCount=0 disposedCount=" + CountPlaylistSourceRows(sourceRowsToDispose) + " playlistSourceRowCount=0 playlistViewRowCount=" + CountPlaylistDetailRows(currentViewRows) + " aliveVirtualRows=" + VirtualBMSFile.GetLifecycleStats().alive);
     }
 
     /// <summary>
@@ -4834,9 +4868,9 @@ public class MainWindowViewModel : ViewModel
     /// <param name="currentFolderName">現在表示中のプレイリストフォルダ名。</param>
     /// <param name="currentFilterType">現在の playlist filter 種別。</param>
     /// <returns>置き換え前の source snapshot。</returns>
-    private List<BeMusicSeeker.Models.BMSFile> ReplacePlaylistSourceRows(List<BeMusicSeeker.Models.BMSFile> sourceRows, BMSTable currentTable, string currentFolderName, PlaylistFilterType currentFilterType)
+    private List<PlaylistDetailSourceRow> ReplacePlaylistSourceRows(List<PlaylistDetailSourceRow> sourceRows, BMSTable currentTable, string currentFolderName, PlaylistFilterType currentFilterType)
     {
-        List<BeMusicSeeker.Models.BMSFile> previousSourceRows = null;
+        List<PlaylistDetailSourceRow> previousSourceRows = null;
         int currentViewRowsAlive = 0;
         long previousGenerationId = 0L;
         long nextGenerationId = 0L;
@@ -4846,20 +4880,20 @@ public class MainWindowViewModel : ViewModel
             previousGenerationId = playlistViewState.SourceGenerationId;
             if (previousSourceRows != null)
             {
-                playlistViewState.PreviousSourceRowsWeakReference = new WeakReference<List<BeMusicSeeker.Models.BMSFile>>(previousSourceRows);
+                playlistViewState.PreviousSourceRowsWeakReference = new WeakReference<List<PlaylistDetailSourceRow>>(previousSourceRows);
                 playlistViewState.PreviousSourceGenerationId = previousGenerationId;
             }
-            playlistViewState.SourceRows = sourceRows ?? new List<BeMusicSeeker.Models.BMSFile>();
+            playlistViewState.SourceRows = sourceRows ?? new List<PlaylistDetailSourceRow>();
             playlistViewState.CurrentTable = currentTable;
             playlistViewState.CurrentFolderName = currentFolderName;
             playlistViewState.CurrentFilterType = currentFilterType;
             playlistViewState.SourceGenerationId++;
             nextGenerationId = playlistViewState.SourceGenerationId;
-            currentViewRowsAlive = CountVirtualRows(playlistViewState.CurrentViewRows);
+            currentViewRowsAlive = CountPlaylistDetailRows(playlistViewState.CurrentViewRows);
         }
         ResetPlaylistDerivedViewCaches();
         LogPlaylistWeakReferenceStatus("before_source_replace");
-        LogPlaylistRetention("playlist_source_replace action=replace generationId=" + nextGenerationId + " previousGenerationId=" + previousGenerationId + " sourceCount=" + (sourceRows?.Count ?? 0) + " disposedCount=" + CountVirtualRows(previousSourceRows) + " sourceRowsAlive=" + CountVirtualRows(sourceRows) + " viewRowsReferenced=" + currentViewRowsAlive + " aliveVirtualRows=" + VirtualBMSFile.GetLifecycleStats().alive);
+        LogPlaylistRetention("playlist_source_replace action=replace generationId=" + nextGenerationId + " previousGenerationId=" + previousGenerationId + " sourceCount=" + (sourceRows?.Count ?? 0) + " disposedCount=" + CountPlaylistSourceRows(previousSourceRows) + " playlistSourceRowCount=" + CountPlaylistSourceRows(sourceRows) + " playlistViewRowCount=" + currentViewRowsAlive + " aliveVirtualRows=" + VirtualBMSFile.GetLifecycleStats().alive);
         return previousSourceRows;
     }
 
@@ -4869,10 +4903,10 @@ public class MainWindowViewModel : ViewModel
     /// </summary>
     /// <param name="viewRows">新しい表示用 snapshot。</param>
     /// <returns>置き換え前の view snapshot。</returns>
-    private List<BeMusicSeeker.Models.BMSFile> ReplacePlaylistViewRows(List<BeMusicSeeker.Models.BMSFile> viewRows)
+    private IList ReplacePlaylistViewRows(IList viewRows)
     {
         LogPlaylistWeakReferenceStatus("before_view_replace");
-        List<BeMusicSeeker.Models.BMSFile> previousViewRows = null;
+        IList previousViewRows = null;
         long previousViewGenerationId = 0L;
         long currentViewGenerationId = 0L;
         int sourceRowsAlive = 0;
@@ -4882,16 +4916,16 @@ public class MainWindowViewModel : ViewModel
             previousViewGenerationId = playlistViewState.CurrentViewGenerationId;
             if (previousViewRows != null)
             {
-                playlistViewState.PreviousViewRowsWeakReference = new WeakReference<List<BeMusicSeeker.Models.BMSFile>>(previousViewRows);
+                playlistViewState.PreviousViewRowsWeakReference = new WeakReference<IList>(previousViewRows);
                 playlistViewState.PreviousViewGenerationId = previousViewGenerationId;
             }
-            playlistViewState.CurrentViewRows = viewRows ?? new List<BeMusicSeeker.Models.BMSFile>();
+            playlistViewState.CurrentViewRows = viewRows ?? new List<object>();
             playlistViewState.CurrentViewGenerationId++;
             currentViewGenerationId = playlistViewState.CurrentViewGenerationId;
             playlistViewState.LastAppliedViewCount = playlistViewState.CurrentViewRows.Count;
-            sourceRowsAlive = CountVirtualRows(playlistViewState.SourceRows);
+            sourceRowsAlive = CountPlaylistSourceRows(playlistViewState.SourceRows);
         }
-        LogPlaylistRetention(((viewRows == null || viewRows.Count == 0) ? "playlist_view_clear " : "playlist_view_replace ") + "generationId=" + currentViewGenerationId + " previousGenerationId=" + previousViewGenerationId + " sourceCount=" + sourceRowsAlive + " viewCount=" + (viewRows?.Count ?? 0) + " sourceRowsAlive=" + sourceRowsAlive + " viewRowsAlive=" + CountVirtualRows(viewRows) + " previousViewRowsReferenced=" + CountVirtualRows(previousViewRows) + " disposedCount=" + CountVirtualRows(previousViewRows) + " aliveVirtualRows=" + VirtualBMSFile.GetLifecycleStats().alive + " selectedIndex=" + SelectedIndexBMSFilesView);
+        LogPlaylistRetention(((viewRows == null || viewRows.Count == 0) ? "playlist_view_clear " : "playlist_view_replace ") + "generationId=" + currentViewGenerationId + " previousGenerationId=" + previousViewGenerationId + " sourceCount=" + sourceRowsAlive + " viewCount=" + (viewRows?.Count ?? 0) + " playlistSourceRowCount=" + sourceRowsAlive + " playlistViewRowCount=" + CountPlaylistDetailRows(viewRows) + " previousViewRowsReferenced=" + CountPlaylistDetailRows(previousViewRows) + " disposedCount=" + CountPlaylistDetailRows(previousViewRows) + " aliveVirtualRows=" + VirtualBMSFile.GetLifecycleStats().alive + " selectedIndex=" + SelectedIndexBMSFilesView);
         return previousViewRows;
     }
 
@@ -4899,9 +4933,8 @@ public class MainWindowViewModel : ViewModel
     /// playlist 表示用 snapshot の仮想行を破棄します。
     /// </summary>
     /// <param name="viewRows">破棄する表示用 snapshot。</param>
-    private static void DisposePlaylistViewRows(IEnumerable<BeMusicSeeker.Models.BMSFile> viewRows)
+    private static void DisposePlaylistViewRows(IEnumerable viewRows)
     {
-        DisposeVirtualRows(viewRows);
     }
 
     public cSortParameters SortParameters
@@ -5173,12 +5206,12 @@ public class MainWindowViewModel : ViewModel
         {
             currentSourceGenerationId = playlistViewState.SourceGenerationId;
             currentViewGenerationId = playlistViewState.CurrentViewGenerationId;
-            sourceRowsAlive = CountVirtualRows(playlistViewState.SourceRows);
-            currentViewRowsAlive = CountVirtualRows(playlistViewState.CurrentViewRows);
+            sourceRowsAlive = CountPlaylistSourceRows(playlistViewState.SourceRows);
+            currentViewRowsAlive = CountPlaylistDetailRows(playlistViewState.CurrentViewRows);
             lastAppliedViewCount = playlistViewState.LastAppliedViewCount;
         }
         bool stale = currentSourceGenerationId != expectedSourceGenerationId || currentViewGenerationId != expectedViewGenerationId;
-        LogPlaylistRetention("playlist_ui_retention_checkpoint checkpoint=" + checkpoint + " expectedSourceGenerationId=" + expectedSourceGenerationId + " expectedViewGenerationId=" + expectedViewGenerationId + " currentSourceGenerationId=" + currentSourceGenerationId + " currentViewGenerationId=" + currentViewGenerationId + " stale=" + stale + " sourceRowsAlive=" + sourceRowsAlive + " viewRowsReferenced=" + currentViewRowsAlive + " lastAppliedViewCount=" + lastAppliedViewCount + " aliveVirtualRows=" + VirtualBMSFile.GetLifecycleStats().alive);
+        LogPlaylistRetention("playlist_ui_retention_checkpoint checkpoint=" + checkpoint + " expectedSourceGenerationId=" + expectedSourceGenerationId + " expectedViewGenerationId=" + expectedViewGenerationId + " currentSourceGenerationId=" + currentSourceGenerationId + " currentViewGenerationId=" + currentViewGenerationId + " stale=" + stale + " playlistSourceRowCount=" + sourceRowsAlive + " playlistViewRowCount=" + currentViewRowsAlive + " lastAppliedViewCount=" + lastAppliedViewCount + " aliveVirtualRows=" + VirtualBMSFile.GetLifecycleStats().alive);
         LogPlaylistWeakReferenceStatus("ui_" + checkpoint);
     }
 
@@ -6581,22 +6614,25 @@ public class MainWindowViewModel : ViewModel
 
     private void playStartBMSfile(int indexBMSFilesView)
     {
+        object row;
         BeMusicSeeker.Models.BMSFile bmsFile;
         try
         {
-            bmsFile = BMSFilesView.ElementAt(indexBMSFilesView);
+            row = BMSFilesView[indexBMSFilesView];
+            bmsFile = GridRowResolver.GetOperationBmsFile(row);
         }
         catch
         {
             return;
         }
-        if (bmsFile == null || !File.Exists(bmsFile.path))
+        nowPlayingBmsFilesViewIndex = indexBMSFilesView;
+        if (bmsFile == null || string.IsNullOrWhiteSpace(bmsFile.path) || !File.Exists(bmsFile.path))
         {
             if (NowPlayingBMS != null)
             {
                 NowPlayingBMS.status &= ~BeMusicSeeker.Models.BMSFile.BMSFileStatus.PLAYALL;
             }
-            NowPlayingBMS = bmsFile;
+            NowPlayingBMS = null;
             PlayNextBMSfile();
             return;
         }
@@ -6748,10 +6784,10 @@ public class MainWindowViewModel : ViewModel
             else
             {
                 PlayEndBMSFile();
-                if (SelectedIndexBMSFilesView >= 0 && SelectedIndexBMSFilesView < BMSFilesView.Count())
-                {
-                    playStartBMSfile(SelectedIndexBMSFilesView);
-                }
+        if (SelectedIndexBMSFilesView >= 0 && SelectedIndexBMSFilesView < BMSFilesView.Count)
+        {
+            playStartBMSfile(SelectedIndexBMSFilesView);
+        }
             }
         }
     }
@@ -6760,12 +6796,12 @@ public class MainWindowViewModel : ViewModel
     {
         lock (lockThis)
         {
-            if (bmsPlayer == null || NowPlayingBMS == null)
+            if (bmsPlayer == null)
             {
                 return;
             }
-            int num = BMSFilesView.TakeWhile((BeMusicSeeker.Models.BMSFile x) => x != NowPlayingBMS).Count();
-            if (num == BMSFilesView.Count())
+            int num = nowPlayingBmsFilesViewIndex;
+            if (num < 0 || num >= BMSFilesView.Count)
             {
                 PlayEndBMSFile();
                 return;
@@ -6780,33 +6816,34 @@ public class MainWindowViewModel : ViewModel
             }
             else
             {
-                string text = ((NowPlayingBMS is VirtualBMSFile) ? num.ToString() : (File.Exists(NowPlayingBMS.path) ? Path.GetDirectoryName(NowPlayingBMS.path) : string.Empty));
+                string text = (!string.IsNullOrWhiteSpace(NowPlayingBMS?.path) && File.Exists(NowPlayingBMS.path)) ? Path.GetDirectoryName(NowPlayingBMS.path) : num.ToString();
                 num++;
-                if (Settings.Default.RepeatPlayMode && num == BMSFilesView.Count())
+                if (Settings.Default.RepeatPlayMode && num == BMSFilesView.Count)
                 {
                     num = 0;
                 }
-                while (Settings.Default.FolderSkipPlayMode && num != BMSFilesView.Count())
+                while (Settings.Default.FolderSkipPlayMode && num != BMSFilesView.Count)
                 {
-                    BeMusicSeeker.Models.BMSFile bMSFile = BMSFilesView.ElementAt(num);
-                    if (NowPlayingBMS == bMSFile)
+                    object candidateRow = BMSFilesView[num];
+                    BeMusicSeeker.Models.BMSFile bMSFile = GridRowResolver.GetOperationBmsFile(candidateRow);
+                    if (num == nowPlayingBmsFilesViewIndex)
                     {
                         break;
                     }
-                    string text2 = ((bMSFile is VirtualBMSFile && File.Exists(bMSFile.path)) ? num.ToString() : (File.Exists(bMSFile.path) ? Path.GetDirectoryName(bMSFile.path) : string.Empty));
+                    string text2 = (bMSFile != null && !string.IsNullOrWhiteSpace(bMSFile.path) && File.Exists(bMSFile.path)) ? Path.GetDirectoryName(bMSFile.path) : num.ToString();
                     if (!string.IsNullOrWhiteSpace(text2) && text != text2)
                     {
                         break;
                     }
                     text = text2;
                     num++;
-                    if (Settings.Default.RepeatPlayMode && num == BMSFilesView.Count())
+                    if (Settings.Default.RepeatPlayMode && num == BMSFilesView.Count)
                     {
                         num = 0;
                     }
                 }
             }
-            if (num < BMSFilesView.Count())
+            if (num < BMSFilesView.Count)
             {
                 PlayEndBMSFile();
                 playStartBMSfile(num);
@@ -6822,12 +6859,12 @@ public class MainWindowViewModel : ViewModel
     {
         lock (lockThis)
         {
-            if (bmsPlayer == null || NowPlayingBMS == null)
+            if (bmsPlayer == null)
             {
                 return;
             }
-            int num = BMSFilesView.TakeWhile((BeMusicSeeker.Models.BMSFile x) => x != NowPlayingBMS).Count();
-            if (num == BMSFilesView.Count())
+            int num = nowPlayingBmsFilesViewIndex;
+            if (num < 0 || num >= BMSFilesView.Count)
             {
                 PlayEndBMSFile();
                 return;
@@ -6842,20 +6879,21 @@ public class MainWindowViewModel : ViewModel
             }
             else
             {
-                string text = ((NowPlayingBMS is VirtualBMSFile) ? num.ToString() : (File.Exists(NowPlayingBMS.path) ? Path.GetDirectoryName(NowPlayingBMS.path) : string.Empty));
+                string text = (!string.IsNullOrWhiteSpace(NowPlayingBMS?.path) && File.Exists(NowPlayingBMS.path)) ? Path.GetDirectoryName(NowPlayingBMS.path) : num.ToString();
                 num--;
                 if (Settings.Default.RepeatPlayMode && num == -1)
                 {
-                    num = BMSFilesView.Count() - 1;
+                    num = BMSFilesView.Count - 1;
                 }
                 while (Settings.Default.FolderSkipPlayMode && num != -1)
                 {
-                    BeMusicSeeker.Models.BMSFile bMSFile = BMSFilesView.ElementAt(num);
-                    if (NowPlayingBMS == bMSFile)
+                    object candidateRow = BMSFilesView[num];
+                    BeMusicSeeker.Models.BMSFile bMSFile = GridRowResolver.GetOperationBmsFile(candidateRow);
+                    if (num == nowPlayingBmsFilesViewIndex)
                     {
                         break;
                     }
-                    string text2 = ((bMSFile is VirtualBMSFile && File.Exists(bMSFile.path)) ? num.ToString() : (File.Exists(bMSFile.path) ? Path.GetDirectoryName(bMSFile.path) : string.Empty));
+                    string text2 = (bMSFile != null && !string.IsNullOrWhiteSpace(bMSFile.path) && File.Exists(bMSFile.path)) ? Path.GetDirectoryName(bMSFile.path) : num.ToString();
                     if (!string.IsNullOrWhiteSpace(text2) && text != text2)
                     {
                         break;
@@ -6864,7 +6902,7 @@ public class MainWindowViewModel : ViewModel
                     num--;
                     if (Settings.Default.RepeatPlayMode && num == -1)
                     {
-                        num = BMSFilesView.Count() - 1;
+                        num = BMSFilesView.Count - 1;
                     }
                 }
             }
@@ -6893,6 +6931,7 @@ public class MainWindowViewModel : ViewModel
                 NowPlayingBMS.status &= ~BeMusicSeeker.Models.BMSFile.BMSFileStatus.PLAYALL;
                 NowPlayingBMS = null;
             }
+            nowPlayingBmsFilesViewIndex = -1;
         }
     }
 
@@ -7078,14 +7117,14 @@ public class MainWindowViewModel : ViewModel
     }
 
     /// <summary>
-    /// プレイリスト詳細ビューの元データを構築します。
+    /// プレイリスト詳細ビューの source snapshot を構築します。
     /// </summary>
-    private List<BeMusicSeeker.Models.BMSFile> BuildPlaylistSourceRows(BMSTable bmsTable, string folderName, bool onlyNotOwned, CancellationToken cancellationToken, out int scoreUpdateTargetCount)
+    private List<PlaylistDetailSourceRow> BuildPlaylistSourceRows(BMSTable bmsTable, string folderName, bool onlyNotOwned, CancellationToken cancellationToken, out int scoreUpdateTargetCount)
     {
         scoreUpdateTargetCount = 0;
         if (bmsTable == null)
         {
-            return new List<BeMusicSeeker.Models.BMSFile>();
+            return new List<PlaylistDetailSourceRow>();
         }
         Dictionary<string, BeMusicSeeker.Models.BMSFile> filesByHash = new Dictionary<string, BeMusicSeeker.Models.BMSFile>(StringComparer.OrdinalIgnoreCase);
         foreach (BeMusicSeeker.Models.BMSFile file in BMSFiles ?? Enumerable.Empty<BeMusicSeeker.Models.BMSFile>())
@@ -7096,8 +7135,9 @@ public class MainWindowViewModel : ViewModel
             }
             filesByHash[file.hash] = file;
         }
-        List<BeMusicSeeker.Models.BMSFile> playlistRows = new List<BeMusicSeeker.Models.BMSFile>();
-        List<BeMusicSeeker.Models.BMSFile> scoreUpdateTargets = new List<BeMusicSeeker.Models.BMSFile>();
+
+        List<(BMSTableEntry entry, PlaylistScoreProbeBmsFile probe)> scoreProbeRows = new List<(BMSTableEntry, PlaylistScoreProbeBmsFile)>();
+        List<(BMSTableEntry entry, BeMusicSeeker.Models.BMSFile realFile)> resolvedEntries = new List<(BMSTableEntry, BeMusicSeeker.Models.BMSFile)>();
         foreach (BMSTableEntry entry in bmsTable.GetEntriesExceptDummy())
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -7105,60 +7145,61 @@ public class MainWindowViewModel : ViewModel
             {
                 continue;
             }
-            BeMusicSeeker.Models.BMSFile realFile = null;
-            if (!string.IsNullOrWhiteSpace(entry.md5))
-            {
-                filesByHash.TryGetValue(entry.md5, out realFile);
-            }
+            filesByHash.TryGetValue(entry.md5 ?? string.Empty, out BeMusicSeeker.Models.BMSFile realFile);
             if (onlyNotOwned && realFile != null && !string.IsNullOrWhiteSpace(realFile.path))
             {
                 continue;
             }
-            VirtualBMSFile playlistRow = new VirtualBMSFile(entry, realFile);
-            playlistRows.Add(playlistRow);
-            if (string.IsNullOrWhiteSpace(playlistRow.path))
+            resolvedEntries.Add((entry, realFile));
+            if (realFile == null)
             {
-                scoreUpdateTargets.Add(playlistRow);
+                PlaylistScoreProbeBmsFile probe = new PlaylistScoreProbeBmsFile();
+                probe.ApplyEntrySnapshot(entry);
+                scoreProbeRows.Add((entry, probe));
             }
         }
-        scoreUpdateTargetCount = scoreUpdateTargets.Count;
-        if (scoreUpdateTargets.Count > 0)
+
+        scoreUpdateTargetCount = scoreProbeRows.Count;
+        if (scoreProbeRows.Count > 0)
         {
-            files.SetBMSScore(scoreUpdateTargets);
+            files.SetBMSScore(scoreProbeRows.Select((ValueTuple<BMSTableEntry, PlaylistScoreProbeBmsFile> x) => x.Item2).ToList());
+        }
+
+        Dictionary<BMSTableEntry, PlaylistScoreProbeBmsFile> probesByEntry = scoreProbeRows.ToDictionary((ValueTuple<BMSTableEntry, PlaylistScoreProbeBmsFile> x) => x.Item1, (ValueTuple<BMSTableEntry, PlaylistScoreProbeBmsFile> x) => x.Item2);
+        List<PlaylistDetailSourceRow> playlistRows = new List<PlaylistDetailSourceRow>(resolvedEntries.Count);
+        foreach ((BMSTableEntry entry, BeMusicSeeker.Models.BMSFile realFile) in resolvedEntries)
+        {
+            probesByEntry.TryGetValue(entry, out PlaylistScoreProbeBmsFile scoreProbe);
+            playlistRows.Add(new PlaylistDetailSourceRow(entry, realFile, scoreProbe));
         }
         return playlistRows;
     }
 
     /// <summary>
-    /// source row を DataGrid 表示用の独立した snapshot 行へ複製します。
-    /// 同じ entry / real file を参照しつつ wrapper インスタンスは分離し、UI が旧 view を保持しても source まで巻き込まないようにします。
+    /// source row から表示用 lightweight row を生成します。
     /// </summary>
-    /// <param name="row">複製元の source row。</param>
-    /// <returns>表示用 snapshot 行。</returns>
-    private static BeMusicSeeker.Models.BMSFile CreatePlaylistViewRowClone(BeMusicSeeker.Models.BMSFile row)
+    private static PlaylistDetailRow CreatePlaylistViewRowClone(PlaylistDetailSourceRow row)
     {
-        if (row is VirtualBMSFile virtualRow)
-        {
-            return virtualRow.CreatePlaylistViewClone();
-        }
-        return row;
+        return row?.CreateViewRow();
     }
 
     /// <summary>
-    /// source snapshot から keyword/mode/sort 適用後の表示用行群を複製します。
+    /// source snapshot から表示用 row 一覧を生成します。
     /// </summary>
-    /// <param name="rows">複製対象の source row 群。</param>
-    /// <returns>DataGrid 表示用 snapshot。</returns>
-    private static List<BeMusicSeeker.Models.BMSFile> CreatePlaylistViewRowsFromSource(IEnumerable<BeMusicSeeker.Models.BMSFile> rows)
+    private static List<PlaylistDetailRow> CreatePlaylistViewRowsFromSource(IEnumerable<PlaylistDetailSourceRow> rows)
     {
         if (rows == null)
         {
-            return new List<BeMusicSeeker.Models.BMSFile>();
+            return new List<PlaylistDetailRow>();
         }
-        List<BeMusicSeeker.Models.BMSFile> clones = new List<BeMusicSeeker.Models.BMSFile>();
-        foreach (BeMusicSeeker.Models.BMSFile row in rows)
+        List<PlaylistDetailRow> clones = new List<PlaylistDetailRow>();
+        foreach (PlaylistDetailSourceRow row in rows)
         {
-            clones.Add(CreatePlaylistViewRowClone(row));
+            PlaylistDetailRow playlistRow = CreatePlaylistViewRowClone(row);
+            if (playlistRow != null)
+            {
+                clones.Add(playlistRow);
+            }
         }
         return clones;
     }
@@ -7234,28 +7275,28 @@ public class MainWindowViewModel : ViewModel
     /// <param name="modeStageMs">mode 適用時間。</param>
     /// <param name="sortStageMs">sort 適用時間。</param>
     /// <returns>表示用行集合。</returns>
-    internal static List<BeMusicSeeker.Models.BMSFile> ApplyPlaylistViewFromSource(IReadOnlyList<BeMusicSeeker.Models.BMSFile> sourceRows, string keywordFilter, ModeFilterType modeFilter, cSortParameters sortParameters, out string sortProfile, out int keywordCount, out int modeCount, out long keywordStageMs, out long modeStageMs, out long sortStageMs)
+    internal static List<PlaylistDetailRow> ApplyPlaylistViewFromSource(IReadOnlyList<PlaylistDetailSourceRow> sourceRows, string keywordFilter, ModeFilterType modeFilter, cSortParameters sortParameters, out string sortProfile, out int keywordCount, out int modeCount, out long keywordStageMs, out long modeStageMs, out long sortStageMs)
     {
         Stopwatch stageStopwatch = Stopwatch.StartNew();
-        IReadOnlyList<BeMusicSeeker.Models.BMSFile> effectiveSourceRows = sourceRows ?? Array.Empty<BeMusicSeeker.Models.BMSFile>();
-        List<BeMusicSeeker.Models.BMSFile> keywordRows;
+        IReadOnlyList<PlaylistDetailSourceRow> effectiveSourceRows = sourceRows ?? Array.Empty<PlaylistDetailSourceRow>();
+        List<PlaylistDetailSourceRow> keywordRows;
         if (!string.IsNullOrWhiteSpace(keywordFilter))
         {
             string keywordUpper = keywordFilter.ToUpperInvariant();
-            keywordRows = effectiveSourceRows.AsParallel().Where(delegate (BeMusicSeeker.Models.BMSFile row)
+            keywordRows = effectiveSourceRows.AsParallel().Where(delegate (PlaylistDetailSourceRow row)
             {
-                return (row.Title + "@" + row.genre + "@" + row.Artist + "@" + row.tag + "@" + row.path + "@" + row.RefTablesSymbols + ((row is VirtualBMSFile) ? (((VirtualBMSFile)row).memo + "@" + ((VirtualBMSFile)row).comment) : string.Empty)).ToUpperInvariant().Contains(keywordUpper);
+                return row.SearchText.Contains(keywordUpper);
             }).ToList();
         }
         else
         {
-            keywordRows = (effectiveSourceRows as List<BeMusicSeeker.Models.BMSFile>) ?? effectiveSourceRows.ToList();
+            keywordRows = (effectiveSourceRows as List<PlaylistDetailSourceRow>) ?? effectiveSourceRows.ToList();
         }
         keywordStageMs = stageStopwatch.ElapsedMilliseconds;
         keywordCount = keywordRows.Count;
 
         stageStopwatch.Restart();
-        List<BeMusicSeeker.Models.BMSFile> modeRows;
+        List<PlaylistDetailSourceRow> modeRows;
         if (modeFilter != ModeFilterType.All)
         {
             List<int?> modeFlag = new List<int?> { null };
@@ -7279,7 +7320,7 @@ public class MainWindowViewModel : ViewModel
             {
                 modeFlag.Add(14);
             }
-            modeRows = keywordRows.Where((BeMusicSeeker.Models.BMSFile file) => modeFlag.Contains(file.mode)).ToList();
+            modeRows = keywordRows.Where((PlaylistDetailSourceRow file) => modeFlag.Contains(file.mode)).ToList();
         }
         else
         {
@@ -7289,8 +7330,7 @@ public class MainWindowViewModel : ViewModel
         modeCount = modeRows.Count;
 
         stageStopwatch.Restart();
-        BMSFileSortEngine.UseLegacySortForDataGrid = !Settings.Default.UseFastSortInDataGridExperimental;
-        List<BeMusicSeeker.Models.BMSFile> sortedSourceRows = BMSFileSortEngine.SortForMainView(modeRows, sortParameters, isPlaylistDetailView: true, out sortProfile);
+        List<PlaylistDetailSourceRow> sortedSourceRows = PlaylistDetailSortEngine.Sort(modeRows, sortParameters, out sortProfile);
         sortStageMs = stageStopwatch.ElapsedMilliseconds;
         return CreatePlaylistViewRowsFromSource(sortedSourceRows);
     }
@@ -7298,22 +7338,22 @@ public class MainWindowViewModel : ViewModel
     /// <summary>
     /// 現在保持している playlist source snapshot から view を再計算します。
     /// </summary>
-    private List<BeMusicSeeker.Models.BMSFile> ApplyPlaylistViewFromCurrentSource(viewUpdateMode mode, out int sourceCount, out int keywordCount, out int modeCount, out long keywordStageMs, out long modeStageMs, out long sortStageMs, out string sortProfile)
+    private List<PlaylistDetailRow> ApplyPlaylistViewFromCurrentSource(viewUpdateMode mode, out int sourceCount, out int keywordCount, out int modeCount, out long keywordStageMs, out long modeStageMs, out long sortStageMs, out string sortProfile)
     {
-        List<BeMusicSeeker.Models.BMSFile> sourceRows;
+        List<PlaylistDetailSourceRow> sourceRows;
         int currentViewRowsAlive;
         long sourceGenerationId;
         lock (playlistViewState.SyncRoot)
         {
             sourceRows = playlistViewState.SourceRows;
             sourceGenerationId = playlistViewState.SourceGenerationId;
-            currentViewRowsAlive = CountVirtualRows(playlistViewState.CurrentViewRows);
+            currentViewRowsAlive = CountPlaylistDetailRows(playlistViewState.CurrentViewRows);
         }
-        sourceRows ??= new List<BeMusicSeeker.Models.BMSFile>();
+        sourceRows ??= new List<PlaylistDetailSourceRow>();
         sourceCount = sourceRows.Count;
-        LogPlaylistViewApply("started mode=" + mode + " sourceGenerationId=" + sourceGenerationId + " sourceCount=" + sourceCount + " sourceRowsAlive=" + CountVirtualRows(sourceRows) + " viewRowsReferenced=" + currentViewRowsAlive);
-        List<BeMusicSeeker.Models.BMSFile> finalRows = ApplyPlaylistViewFromSource(sourceRows, KeywordFilter, ModeFilter, SortParameters, out sortProfile, out keywordCount, out modeCount, out keywordStageMs, out modeStageMs, out sortStageMs);
-        LogPlaylistViewApply("completed mode=" + mode + " sourceGenerationId=" + sourceGenerationId + " sourceCount=" + sourceCount + " keywordCount=" + keywordCount + " modeCount=" + modeCount + " viewCount=" + finalRows.Count + " sortProfile=" + sortProfile + " sourceRowsAlive=" + CountVirtualRows(sourceRows) + " viewRowsAlive=" + CountVirtualRows(finalRows) + " aliveVirtualRows=" + VirtualBMSFile.GetLifecycleStats().alive);
+        LogPlaylistViewApply("started mode=" + mode + " sourceGenerationId=" + sourceGenerationId + " sourceCount=" + sourceCount + " playlistSourceRowCount=" + CountPlaylistSourceRows(sourceRows) + " playlistViewRowCount=" + currentViewRowsAlive);
+        List<PlaylistDetailRow> finalRows = ApplyPlaylistViewFromSource(sourceRows, KeywordFilter, ModeFilter, SortParameters, out sortProfile, out keywordCount, out modeCount, out keywordStageMs, out modeStageMs, out sortStageMs);
+        LogPlaylistViewApply("completed mode=" + mode + " sourceGenerationId=" + sourceGenerationId + " sourceCount=" + sourceCount + " keywordCount=" + keywordCount + " modeCount=" + modeCount + " viewCount=" + finalRows.Count + " sortProfile=" + sortProfile + " playlistSourceRowCount=" + CountPlaylistSourceRows(sourceRows) + " playlistViewRowCount=" + CountPlaylistDetailRows(finalRows) + " aliveVirtualRows=" + VirtualBMSFile.GetLifecycleStats().alive);
         return finalRows;
     }
 
@@ -7339,9 +7379,9 @@ public class MainWindowViewModel : ViewModel
         int scoreUpdateTargetCount = 0;
         int disposedSourceRowsCount = 0;
         string sortProfile = "not_sorted";
-        List<BeMusicSeeker.Models.BMSFile> sourceRows = null;
-        List<BeMusicSeeker.Models.BMSFile> previousSourceRows = null;
-        List<BeMusicSeeker.Models.BMSFile> finalRows = null;
+        List<PlaylistDetailSourceRow> sourceRows = null;
+        List<PlaylistDetailSourceRow> previousSourceRows = null;
+        List<PlaylistDetailRow> finalRows = null;
         bool gateEntered = false;
         try
         {
@@ -7368,10 +7408,10 @@ public class MainWindowViewModel : ViewModel
                 LogPlaylistSourceBuild("cancelled version=" + requestVersion + " stage=after_build mode=" + mode + " sourceCount=" + sourceCount);
                 return true;
             }
-            LogPlaylistViewApply("started mode=" + mode + " sourceCount=" + sourceCount + " sourceRowsAlive=" + CountVirtualRows(sourceRows) + " viewRowsReferenced=" + CountVirtualRows(playlistViewState.CurrentViewRows));
+            LogPlaylistViewApply("started mode=" + mode + " sourceCount=" + sourceCount + " playlistSourceRowCount=" + CountPlaylistSourceRows(sourceRows) + " playlistViewRowCount=" + CountPlaylistDetailRows(playlistViewState.CurrentViewRows));
             finalRows = ApplyPlaylistViewFromSource(sourceRows, KeywordFilter, ModeFilter, SortParameters, out sortProfile, out keywordCount, out modeCount, out keywordStageMs, out modeStageMs, out sortStageMs);
             viewCount = finalRows.Count;
-            LogPlaylistViewApply("completed mode=" + mode + " sourceCount=" + sourceCount + " keywordCount=" + keywordCount + " modeCount=" + modeCount + " viewCount=" + viewCount + " sortProfile=" + sortProfile + " sourceRowsAlive=" + CountVirtualRows(sourceRows) + " viewRowsAlive=" + CountVirtualRows(finalRows) + " aliveVirtualRows=" + VirtualBMSFile.GetLifecycleStats().alive);
+            LogPlaylistViewApply("completed mode=" + mode + " sourceCount=" + sourceCount + " keywordCount=" + keywordCount + " modeCount=" + modeCount + " viewCount=" + viewCount + " sortProfile=" + sortProfile + " playlistSourceRowCount=" + CountPlaylistSourceRows(sourceRows) + " playlistViewRowCount=" + CountPlaylistDetailRows(finalRows) + " aliveVirtualRows=" + VirtualBMSFile.GetLifecycleStats().alive);
             if (cancellationToken.IsCancellationRequested || !IsLatestPlaylistSourceBuildRequest(requestVersion))
             {
                 LogPlaylistSourceBuild("cancelled version=" + requestVersion + " stage=after_apply mode=" + mode + " sourceCount=" + sourceCount + " viewCount=" + viewCount);
@@ -7394,8 +7434,7 @@ public class MainWindowViewModel : ViewModel
             ReplacePlaylistViewRows(finalRows);
             SetBMSFilesView(finalRows);
             finalRows = null;
-            disposedSourceRowsCount = CountVirtualRows(previousSourceRows);
-            DisposeVirtualRows(previousSourceRows);
+            disposedSourceRowsCount = CountPlaylistSourceRows(previousSourceRows);
             previousSourceRows = null;
             FinalizeMainViewBuild(viewBuildStopwatch, mode, requestedMode, parameter, folderStageMs, keywordStageMs, modeStageMs, sortStageMs, sortReuse: false, sortProfile, folderCount, keywordCount, modeCount, viewCount, columnStageMs, callbackStageMs);
             LogPlaylistSourceBuild("completed version=" + requestVersion + " mode=" + mode + " sourceCount=" + sourceCount + " viewCount=" + viewCount + " disposedSourceRows=" + disposedSourceRowsCount + " scoreTargets=" + scoreUpdateTargetCount + " aliveVirtualRows=" + VirtualBMSFile.GetLifecycleStats().alive + " totalMs=" + viewBuildStopwatch.ElapsedMilliseconds);
@@ -7410,16 +7449,11 @@ public class MainWindowViewModel : ViewModel
         {
             if (sourceRows != null)
             {
-                DisposeVirtualRows(sourceRows);
                 LogPlaylistSourceBuild("discarded version=" + requestVersion + " mode=" + mode + " discardedRows=" + sourceCount + " aliveVirtualRows=" + VirtualBMSFile.GetLifecycleStats().alive);
             }
             if (finalRows != null)
             {
                 DisposePlaylistViewRows(finalRows);
-            }
-            if (previousSourceRows != null)
-            {
-                DisposeVirtualRows(previousSourceRows);
             }
             if (gateEntered)
             {
@@ -7444,7 +7478,7 @@ public class MainWindowViewModel : ViewModel
         int modeCount = 0;
         int viewCount = 0;
         string sortProfile = "not_sorted";
-        List<BeMusicSeeker.Models.BMSFile> finalRows = ApplyPlaylistViewFromCurrentSource(mode, out sourceCount, out keywordCount, out modeCount, out keywordStageMs, out modeStageMs, out sortStageMs, out sortProfile);
+        List<PlaylistDetailRow> finalRows = ApplyPlaylistViewFromCurrentSource(mode, out sourceCount, out keywordCount, out modeCount, out keywordStageMs, out modeStageMs, out sortStageMs, out sortProfile);
         viewCount = finalRows.Count;
         SelectedIndexBMSFilesView = -1;
         base.Messenger.Raise(new InteractionMessage("PreparePlaylistDataGridSwap"));
@@ -7469,7 +7503,7 @@ public class MainWindowViewModel : ViewModel
     /// </summary>
     private bool TryBuildPlaylistViewAndApply(viewUpdateMode mode, viewUpdateMode requestedMode, object parameter)
     {
-        List<BeMusicSeeker.Models.BMSFile> sourceRows;
+        List<PlaylistDetailSourceRow> sourceRows;
         BMSTable currentTable;
         PlaylistFilterType currentFilterType;
         lock (playlistViewState.SyncRoot)
@@ -7831,7 +7865,7 @@ public class MainWindowViewModel : ViewModel
                 SetBMSFilesView(BMSFileSortEngine.SortForMainView(BMSFilesModeFilterView, SortParameters, isPlaylistDetailView, out sortProfile));
                 if (isFolderMode)
                 {
-                    folderSortResultSnapshot = BMSFilesView;
+                    folderSortResultSnapshot = BMSFilesView as List<BeMusicSeeker.Models.BMSFile>;
                 }
             }
             if (isFolderMode)
@@ -7854,7 +7888,7 @@ public class MainWindowViewModel : ViewModel
             sortProfile = "bypass";
         }
         sortStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
-        viewCount = BMSFilesView.Count();
+        viewCount = BMSFilesView.Count;
         stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
         loadColumnSetting((mode < viewUpdateMode.KeywordFilterUpdated) ? mode : treeViewFilterTypeSelected);
         columnStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
@@ -8232,6 +8266,19 @@ public class MainWindowViewModel : ViewModel
             return;
         }
         throw new NotImplementedException();
+    }
+
+    /// <summary>
+    /// playlist 詳細表示 row の編集結果を playlist DB へ永続化します。
+    /// </summary>
+    /// <param name="playlistRow">保存対象 row。</param>
+    internal void CommitPlaylistRow(PlaylistDetailRow playlistRow)
+    {
+        if (playlistRow == null)
+        {
+            throw new ArgumentNullException(nameof(playlistRow));
+        }
+        tables.CommitBMSTableEntry(playlistRow.Entry);
     }
 
     public void ReplaceBMSFileLevelByTableEntryLevel(BMSTable bmsTable)
@@ -9239,43 +9286,50 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
-    internal void AddEntriesToFolderBMSTable(IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles, BMSTable bmsTable, string folderName = "")
+    internal void AddEntriesToFolderBMSTable(IEnumerable<object> rows, BMSTable bmsTable, string folderName = "")
     {
         if (folderName == null)
         {
             folderName = string.Empty;
+        }
+        if (rows == null)
+        {
+            throw new ArgumentNullException(nameof(rows));
         }
         if (bmsTable.is_external_sync)
         {
             base.Messenger.Raise(new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Msg_failed_add_playlist_entry, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
             return;
         }
-        if (bmsFiles.All((BeMusicSeeker.Models.BMSFile f) => f is VirtualBMSFile))
+        List<object> sourceRows = rows.Where((object row) => row != null).ToList();
+        if (sourceRows.Count == 0)
         {
-            List<VirtualBMSFile> list = (from VirtualBMSFile vf in bmsFiles
-                                         where vf.ToBMSTableEntry().parent == bmsTable
-                                         select vf).ToList();
-            List<VirtualBMSFile> second = list.Where((VirtualBMSFile vf) => vf.Folder == folderName).ToList();
+            return;
+        }
+        if (sourceRows.All(GridRowResolver.IsPlaylistRow))
+        {
+            List<BMSTableEntry> list = sourceRows.Select(GridRowResolver.GetPlaylistEntry).Where((BMSTableEntry entry) => entry != null && entry.parent == bmsTable).ToList();
+            List<BMSTableEntry> second = list.Where((BMSTableEntry entry) => string.Equals(entry.folder ?? string.Empty, folderName, StringComparison.Ordinal)).ToList();
             if (bmsTable.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder && string.IsNullOrWhiteSpace(folderName))
             {
-                tables.RemoveEntriesBMSTable(list.Select((VirtualBMSFile vf) => vf.ToBMSTableEntry()), bmsTable, commitFlag: false);
+                tables.RemoveEntriesBMSTable(list, bmsTable, commitFlag: false);
             }
             else
             {
-                bmsFiles = bmsFiles.Except(second).ToList();
-                if (bmsFiles.Count() == 0)
+                sourceRows = sourceRows.Where((object row) => !second.Contains(GridRowResolver.GetPlaylistEntry(row))).ToList();
+                if (sourceRows.Count == 0)
                 {
                     return;
                 }
-                tables.RemoveEntriesBMSTable(from vf in list.Except(second)
-                                             select vf.ToBMSTableEntry(), bmsTable, commitFlag: false);
+                tables.RemoveEntriesBMSTable(list.Except(second), bmsTable, commitFlag: false);
             }
         }
+        List<BeMusicSeeker.Models.BMSFile> resolvedFiles = sourceRows.Select(GridRowResolver.GetRealBmsFile).Where((BeMusicSeeker.Models.BMSFile file) => file != null).ToList();
         if (bmsTable.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder && string.IsNullOrWhiteSpace(folderName))
         {
-            List<BeMusicSeeker.Models.BMSFile> list2 = bmsFiles.Where((BeMusicSeeker.Models.BMSFile f) => string.IsNullOrWhiteSpace(f.path) || (f is VirtualBMSFile && ((VirtualBMSFile)f).GetNonVirtualBMSFile() == null)).ToList();
-            List<BeMusicSeeker.Models.BMSFile> source = bmsFiles.Except(list2).ToList();
-            tables.AddEntriesToFolderBMSTable(list2.Select((BeMusicSeeker.Models.BMSFile f) => (f as VirtualBMSFile).ToBMSTableEntry().Duplicate()), bmsTable, folderName, commitFlag: false);
+            List<object> playlistEntryRows = sourceRows.Where((object row) => GridRowResolver.GetRealBmsFile(row) == null).ToList();
+            List<BeMusicSeeker.Models.BMSFile> source = sourceRows.Select(GridRowResolver.GetRealBmsFile).Where((BeMusicSeeker.Models.BMSFile file) => file != null).ToList();
+            tables.AddEntriesToFolderBMSTable(playlistEntryRows.Select((object row) => GridRowResolver.GetPlaylistEntry(row)?.Duplicate()).Where((BMSTableEntry entry) => entry != null), bmsTable, folderName, commitFlag: false);
             if (BMSFiles == null)
             {
                 return;
@@ -9285,7 +9339,7 @@ public class MainWindowViewModel : ViewModel
                 List<string> md5sInTheSameDir = null;
                 foreach (BeMusicSeeker.Models.BMSFile item2 in item)
                 {
-                    md5sInTheSameDir = files.GetMD5sOfTheSameSong((item2 is VirtualBMSFile) ? ((VirtualBMSFile)item2).GetNonVirtualBMSFile() : item2);
+                    md5sInTheSameDir = files.GetMD5sOfTheSameSong(item2);
                     if (md5sInTheSameDir != null)
                     {
                         break;
@@ -9315,17 +9369,20 @@ public class MainWindowViewModel : ViewModel
         }
         else
         {
-            ParallelQuery<BMSTableEntry> bmsEntries = from f in bmsFiles.AsParallel()
-                                                      select (f is VirtualBMSFile) ? (f as VirtualBMSFile).ToBMSTableEntry().Duplicate() : new BMSTableEntry(f)
+            ParallelQuery<BMSTableEntry> bmsEntries = from row in sourceRows.AsParallel()
+                                                      let entry = GridRowResolver.GetPlaylistEntry(row)
+                                                      let file = GridRowResolver.GetRealBmsFile(row)
+                                                      where entry != null || file != null
+                                                      select (entry != null) ? entry.Duplicate() : new BMSTableEntry(file)
                                                       {
-                                                          Org_md5 = files.GetMD5sOfTheSameSong(f)
+                                                          Org_md5 = files.GetMD5sOfTheSameSong(file)
                                                       };
             tables.AddEntriesToFolderBMSTable(bmsEntries, bmsTable, folderName, commitFlag: false);
         }
         tables.ReOutputCustomFolderAndCommitToDB(bmsTable);
         updateBMSFilesViewForPlaylist(bmsTable);
         tables.AcquireReaderLockBMSTables();
-        files.AddReferenceBMSTables(bmsTable, bmsFiles);
+        files.AddReferenceBMSTables(bmsTable, resolvedFiles);
         tables.FreeReaderLockBMSTables();
     }
 
@@ -9675,6 +9732,43 @@ public class MainWindowViewModel : ViewModel
         try
         {
             return files.GetIRSongInfoCache(text, seaarchAggressively);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// DataGrid row から LR2IR キャッシュを取得します。
+    /// lightweight playlist row は hash / lr2_bmsid snapshot を使って解決します。
+    /// </summary>
+    /// <param name="row">対象 row。</param>
+    /// <param name="seaarchAggressively">積極探索するか。</param>
+    /// <returns>IR 情報キャッシュ。取得不可時は null。</returns>
+    public BMSLibrary.IRSongInfo GetLR2IRSongInfoCache(object row, bool seaarchAggressively = false)
+    {
+        if (row == null)
+        {
+            throw new ArgumentNullException(nameof(row));
+        }
+        BeMusicSeeker.Models.BMSFile realFile = GridRowResolver.GetRealBmsFile(row);
+        if (realFile != null)
+        {
+            return GetLR2IRSongInfoCache(realFile, seaarchAggressively);
+        }
+        string key = GridRowResolver.GetHash(row);
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            key = GridRowResolver.GetLr2BmsId(row);
+        }
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            throw new ArgumentException("MD5/LR2BMSID not found.");
+        }
+        try
+        {
+            return files.GetIRSongInfoCache(key, seaarchAggressively);
         }
         catch
         {

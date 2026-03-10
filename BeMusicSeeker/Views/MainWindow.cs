@@ -1246,6 +1246,143 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
     }
 
+    private List<object> GetSelectedGridRowsSnapshot()
+    {
+        try
+        {
+            return dataGrid.SelectedItems.Cast<object>().Where((object row) => row != null).ToList();
+        }
+        catch
+        {
+            return new List<object>();
+        }
+    }
+
+    private List<BMSFile> GetSelectedGridOperationFiles()
+    {
+        return GetSelectedGridRowsSnapshot().Select(GridRowResolver.GetOperationBmsFile).Where((BMSFile file) => file != null).ToList();
+    }
+
+    private List<BMSFile> GetSelectedGridRealFiles()
+    {
+        return GetSelectedGridRowsSnapshot().Select(GridRowResolver.GetRealBmsFile).Where((BMSFile file) => file != null).ToList();
+    }
+
+    private List<BMSTableEntry> GetSelectedGridPlaylistEntries()
+    {
+        return GetSelectedGridRowsSnapshot().Select(GridRowResolver.GetPlaylistEntry).Where((BMSTableEntry entry) => entry != null).ToList();
+    }
+
+    private static ContextMenu GetOwningContextMenu(object source)
+    {
+        object current = source;
+        while (current != null)
+        {
+            if (current is ContextMenu contextMenu)
+            {
+                return contextMenu;
+            }
+            if (current is MenuItem menuItem)
+            {
+                current = menuItem.Parent;
+                continue;
+            }
+            if (current is FrameworkElement frameworkElement)
+            {
+                current = frameworkElement.Parent;
+                continue;
+            }
+            break;
+        }
+        return null;
+    }
+
+    private bool TryGetContextMenuRow(object source, out ContextMenu contextMenu, out DataGridRow dataGridRow, out object row)
+    {
+        contextMenu = GetOwningContextMenu(source);
+        dataGridRow = null;
+        row = null;
+        if (contextMenu?.PlacementTarget is not FrameworkElement placementTarget)
+        {
+            return false;
+        }
+        dataGridRow = placementTarget as DataGridRow ?? WPFUtil.FindVisualParent<DataGridRow>(placementTarget);
+        row = dataGridRow?.DataContext ?? placementTarget.DataContext;
+        return row != null;
+    }
+
+    private bool TryGetDataGridRowFromSource(object source, out DataGridRow dataGridRow, out object row)
+    {
+        dataGridRow = null;
+        row = null;
+        FrameworkElement frameworkElement = source as FrameworkElement;
+        if (frameworkElement == null && source is DependencyObject dependencyObject)
+        {
+            dataGridRow = WPFUtil.FindVisualParent<DataGridRow>(dependencyObject);
+        }
+        else
+        {
+            dataGridRow = frameworkElement as DataGridRow ?? WPFUtil.FindVisualParent<DataGridRow>(frameworkElement);
+        }
+        row = dataGridRow?.DataContext ?? frameworkElement?.DataContext;
+        return row != null;
+    }
+
+    private bool TryAssignDataGridContextMenu(DataGridRow dataGridRow, object row, string logPrefix, out bool usePlaylistMissingContextMenu)
+    {
+        usePlaylistMissingContextMenu = GridRowResolver.IsPlaylistRow(row) && GridRowResolver.GetOperationBmsFile(row) == null;
+        string resourceKey = usePlaylistMissingContextMenu ? "dataGridContextMenuPlaylistMissing" : "dataGridContextMenu";
+        if (TryFindResource(resourceKey) is not ContextMenu contextMenu)
+        {
+            return false;
+        }
+        dataGridRow.ContextMenu = contextMenu;
+        NLogWrapper.FileLogger?.Info(logPrefix + " rowType=" + row?.GetType().FullName + " missing=" + usePlaylistMissingContextMenu + " resourceKey=" + resourceKey);
+        return true;
+    }
+
+    private void dataGridPreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (!TryGetDataGridRowFromSource(e.OriginalSource, out DataGridRow dataGridRow, out object row))
+        {
+            return;
+        }
+        if (!(sender is DataGrid dataGrid))
+        {
+            return;
+        }
+        if (!TryAssignDataGridContextMenu(dataGridRow, row, "playlist_context_menu_prepare", out bool usePlaylistMissingContextMenu))
+        {
+            return;
+        }
+        if (!usePlaylistMissingContextMenu)
+        {
+            return;
+        }
+        dataGrid.SelectedItem = row;
+        dataGridRow.IsSelected = true;
+        dataGridRow.Focus();
+        if (dataGridRow.ContextMenu == null)
+        {
+            return;
+        }
+        dataGridRow.ContextMenu.PlacementTarget = dataGridRow;
+        dataGridRow.ContextMenu.Placement = System.Windows.Controls.Primitives.PlacementMode.MousePoint;
+        dataGridRow.ContextMenu.IsOpen = true;
+        e.Handled = true;
+        NLogWrapper.FileLogger?.Info("playlist_context_menu_manual_open rowType=" + row?.GetType().FullName + " missing=True");
+    }
+
+    private void dataGridRowContextMenuOpening(object sender, ContextMenuEventArgs e)
+    {
+        if (!(sender is DataGridRow dataGridRow))
+        {
+            return;
+        }
+        object row = dataGridRow.DataContext;
+        TryAssignDataGridContextMenu(dataGridRow, row, "playlist_context_menu_assign", out _);
+    }
+
     /// <summary>
     /// 指定された DataGridRow にバインドされている BMSFile の情報を用いて、
     /// BMSPlayerコントロールのUI（画像・付帯情報）を更新します。
@@ -1253,7 +1390,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     /// <param name="dataGridRow">対象の BMSFile が存在する DataGridRow。</param>
     private void _renewBMSPlayerControlInfo(DataGridRow dataGridRow)
     {
-        if (dataGridRow.DataContext is BMSFile bmsFile)
+        BMSFile bmsFile = GridRowResolver.GetOperationBmsFile(dataGridRow?.DataContext);
+        if (bmsFile != null)
         {
             _renewBMSPlayerControlInfo(bmsFile);
         }
@@ -1349,8 +1487,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void dataGridCellBeginningEdit(object sender, DataGridBeginningEditEventArgs e)
     {
-        VirtualBMSFile virtualBMSFile = e.Row.DataContext as VirtualBMSFile;
-        BMSFile bMSFile = e.Row.DataContext as BMSFile;
+        object row = e.Row.DataContext;
+        BMSTableEntry playlistEntry = GridRowResolver.GetPlaylistEntry(row);
+        BMSFile bMSFile = row as BMSFile;
         string path;
         try
         {
@@ -1360,12 +1499,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        if (virtualBMSFile != null)
+        if (playlistEntry != null)
         {
             int num = 250;
-            if (path == virtualBMSFile.GetName((VirtualBMSFile f) => f.Url))
+            if (path == nameof(PlaylistDetailRow.Url))
             {
-                if (virtualBMSFile.ToBMSTableEntry().parent.is_external_sync)
+                if (!GridRowResolver.CanEditPlaylistCell(row, path))
                 {
                     e.Cancel = true;
                     return;
@@ -1374,9 +1513,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 e.Column.Width = num;
                 e.Column.MaxWidth = double.MaxValue;
             }
-            else if (path == virtualBMSFile.GetName((VirtualBMSFile f) => f.Url_diff))
+            else if (path == nameof(PlaylistDetailRow.Url_diff))
             {
-                if (virtualBMSFile.ToBMSTableEntry().parent.is_external_sync)
+                if (!GridRowResolver.CanEditPlaylistCell(row, path))
                 {
                     e.Cancel = true;
                     return;
@@ -1385,7 +1524,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 e.Column.Width = num;
                 e.Column.MaxWidth = double.MaxValue;
             }
-            else if (path == virtualBMSFile.GetName((VirtualBMSFile f) => f.Level) && virtualBMSFile.ToBMSTableEntry().parent.is_external_sync)
+            else if ((path == nameof(PlaylistDetailRow.Level) || path == nameof(PlaylistDetailRow.comment) || path == nameof(PlaylistDetailRow.memo)) && !GridRowResolver.CanEditPlaylistCell(row, path))
             {
                 e.Cancel = true;
             }
@@ -1406,8 +1545,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void dataGridCellEditEnding(object sender, DataGridCellEditEndingEventArgs e)
     {
-        VirtualBMSFile vbmsFile = e.Row.DataContext as VirtualBMSFile;
-        BMSFile bmsFile = e.Row.DataContext as BMSFile;
+        object row = e.Row.DataContext;
+        PlaylistDetailRow playlistRow = row as PlaylistDetailRow;
+        BMSFile bmsFile = row as BMSFile;
         if (!(e.EditingElement is TextBox textBox))
         {
             return;
@@ -1431,16 +1571,16 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        if (vbmsFile != null)
+        if (playlistRow != null)
         {
-            if (path == vbmsFile.GetName((VirtualBMSFile f) => f.Url))
+            if (path == nameof(PlaylistDetailRow.Url))
             {
                 dataGridLengthConverterForURL1.IsEditingMode = false;
                 Binding binding = BindingOperations.GetBinding(e.Column, DataGridColumn.WidthProperty);
                 e.Column.Width = (int)_getValueOfPropertyPath(binding.Source, binding.Path.Path);
                 e.Column.MaxWidth = e.Column.MinWidth;
             }
-            else if (path == vbmsFile.GetName((VirtualBMSFile f) => f.Url_diff))
+            else if (path == nameof(PlaylistDetailRow.Url_diff))
             {
                 dataGridLengthConverterForURL2.IsEditingMode = false;
                 Binding binding2 = BindingOperations.GetBinding(e.Column, DataGridColumn.WidthProperty);
@@ -1451,12 +1591,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             {
                 return;
             }
-            if (vbmsFile == null || (vbmsFile.ToBMSTableEntry().parent != null && vbmsFile.ToBMSTableEntry().parent.is_external_sync && path != vbmsFile.GetName((VirtualBMSFile f) => f.memo)))
+            if (!GridRowResolver.CanEditPlaylistCell(row, path))
             {
                 bindingExpression.UpdateTarget();
                 return;
             }
-            if ((path == vbmsFile.GetName((VirtualBMSFile f) => f.Url) || path == vbmsFile.GetName((VirtualBMSFile f) => f.Url_diff)) && !Uri.TryCreate(textBox.Text, UriKind.Absolute, out var _))
+            if ((path == nameof(PlaylistDetailRow.Url) || path == nameof(PlaylistDetailRow.Url_diff)) && !Uri.TryCreate(textBox.Text, UriKind.Absolute, out var _))
             {
                 bindingExpression.UpdateTarget();
                 return;
@@ -1466,7 +1606,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             {
                 await Task.Run(delegate
                 {
-                    viewModel.CommitBMSFile(vbmsFile);
+                    viewModel.CommitPlaylistRow(playlistRow);
                 }).Logging("dataGridCellEditEnding");
             }, DispatcherPriority.Background);
         }
@@ -1500,7 +1640,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private async void dataGridCellOpenURLClick(object sender, MouseButtonEventArgs e)
     {
-        if (!(sender is TextBlock { DataContext: VirtualBMSFile vbmsFile }) || vbmsFile.Url == null || !vbmsFile.Url.IsAbsoluteUri)
+        if (!(sender is TextBlock textBlock))
+        {
+            return;
+        }
+        Uri url = GridRowResolver.GetUrl(textBlock.DataContext);
+        if (url == null || !url.IsAbsoluteUri)
         {
             return;
         }
@@ -1508,9 +1653,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             try
             {
-                if (!vbmsFile.Url.ToString().EndsWith("/") && !vbmsFile.Url.ToString().EndsWith(".htm") && !vbmsFile.Url.ToString().EndsWith(".html"))
+                if (!url.ToString().EndsWith("/") && !url.ToString().EndsWith(".htm") && !url.ToString().EndsWith(".html"))
                 {
-                    switch (await downloadAndInstall(vbmsFile.Url))
+                    switch (await downloadAndInstall(url))
                     {
                         case DownloadAndInstallResult.Installed:
                             newlyInstalledTreeViewItem.IsExpanded = true;
@@ -1524,12 +1669,17 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             {
             }
         }
-        Process.Start(vbmsFile.Url.ToString());
+        Process.Start(url.ToString());
     }
 
     private async void dataGridCellOpenURLDiffClick(object sender, MouseButtonEventArgs e)
     {
-        if (!(sender is TextBlock { DataContext: VirtualBMSFile vbmsFile }) || vbmsFile.Url_diff == null || !vbmsFile.Url_diff.IsAbsoluteUri)
+        if (!(sender is TextBlock textBlock))
+        {
+            return;
+        }
+        Uri urlDiff = GridRowResolver.GetUrlDiff(textBlock.DataContext);
+        if (urlDiff == null || !urlDiff.IsAbsoluteUri)
         {
             return;
         }
@@ -1537,9 +1687,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             try
             {
-                if (!vbmsFile.Url_diff.ToString().EndsWith("/") && !vbmsFile.Url_diff.ToString().EndsWith(".htm") && !vbmsFile.Url_diff.ToString().EndsWith(".html"))
+                if (!urlDiff.ToString().EndsWith("/") && !urlDiff.ToString().EndsWith(".htm") && !urlDiff.ToString().EndsWith(".html"))
                 {
-                    switch (await downloadAndInstall(vbmsFile.Url_diff))
+                    switch (await downloadAndInstall(urlDiff))
                     {
                         case DownloadAndInstallResult.Installed:
                             newlyInstalledTreeViewItem.IsExpanded = true;
@@ -1553,7 +1703,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             {
             }
         }
-        Process.Start(vbmsFile.Url_diff.ToString());
+        Process.Start(urlDiff.ToString());
     }
 
     private void dataGridEditingCellPreviewMouseDoubleClicked(object sender, RoutedEventArgs e)
@@ -4293,30 +4443,27 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void dataGridContextMenuOpened(object sender, RoutedEventArgs e)
     {
-        if (!(sender is ContextMenu { PlacementTarget: DataGridRow placementTarget } contextMenu))
+        if (!TryGetContextMenuRow(sender, out ContextMenu contextMenu, out DataGridRow placementTarget, out object row))
         {
+            NLogWrapper.FileLogger?.Info("playlist_context_menu rowResolve=False sourceType=" + sender?.GetType().FullName);
             return;
         }
-        BMSFile bmsFile = placementTarget.DataContext as BMSFile;
-        VirtualBMSFile virtualBMSFile = placementTarget.DataContext as VirtualBMSFile;
-        if (bmsFile == null && virtualBMSFile == null)
+        BMSFile bmsFile = GridRowResolver.GetOperationBmsFile(row);
+        bool isPlaylistRow = GridRowResolver.IsPlaylistRow(row);
+        Uri rowUrl = GridRowResolver.GetUrl(row);
+        Uri rowUrlDiff = GridRowResolver.GetUrlDiff(row);
+        if (bmsFile == null && !isPlaylistRow)
         {
+            NLogWrapper.FileLogger?.Info("playlist_context_menu rowResolve=True but unsupported rowType=" + row?.GetType().FullName);
             return;
         }
-        List<BMSFile> list;
-        try
-        {
-            list = dataGrid.SelectedItems.Cast<BMSFile>().ToList();
-        }
-        catch
-        {
-            return;
-        }
+        List<BMSFile> list = GetSelectedGridOperationFiles();
         if (!(base.DataContext is MainWindowViewModel mainWindowViewModel))
         {
             return;
         }
-        if (songInfoCache == null || songInfoCache.md5 != bmsFile.hash)
+        string rowHash = bmsFile?.hash ?? GridRowResolver.GetHash(row);
+        if (songInfoCache == null || songInfoCache.md5 != rowHash)
         {
             calcelAllContextMenuTasks();
             initContextMenuTasks();
@@ -4428,11 +4575,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                     break;
             }
         }
-        if (virtualBMSFile != null)
+        if (isPlaylistRow)
         {
             if (menuItem != null)
             {
-                if (virtualBMSFile.Url != null && virtualBMSFile.Url.IsAbsoluteUri)
+                if (rowUrl != null && rowUrl.IsAbsoluteUri)
                 {
                     menuItem.Visibility = Visibility.Visible;
                     menuItem.IsEnabled = true;
@@ -4445,7 +4592,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             }
             if (menuItem2 != null)
             {
-                if (virtualBMSFile.Url_diff != null && virtualBMSFile.Url_diff.IsAbsoluteUri)
+                if (rowUrlDiff != null && rowUrlDiff.IsAbsoluteUri)
                 {
                     menuItem2.Visibility = Visibility.Visible;
                     menuItem2.IsEnabled = true;
@@ -4566,37 +4713,40 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         bool isInstalledSelected = _currentTreeSelectionSection == TreeSelectionSection.InstallInstalled;
         bool isInstallListSelected = isPendingSelected || isInstalledSelected;
         bool isPlaylistSelected = _currentTreeSelectionSection == TreeSelectionSection.Playlist;
+        bool isPlaylistContext = isPlaylistSelected || isPlaylistRow;
+        bool isNotOwnedPlaylistRow = isPlaylistRow && (bmsFile == null || string.IsNullOrWhiteSpace(bmsFile.path));
+        NLogWrapper.FileLogger?.Info("playlist_context_menu rowType=" + row?.GetType().FullName + " isPlaylistRow=" + isPlaylistRow + " isPlaylistContext=" + isPlaylistContext + " isNotOwned=" + isNotOwnedPlaylistRow + " section=" + _currentTreeSelectionSection + " path=" + (bmsFile?.path ?? string.Empty));
         if (menuItemOpenInstallDestination != null)
         {
-            bool canOpenInstallDestination = isPendingSelected && bmsFile != null && !(bmsFile is VirtualBMSFile);
+            bool canOpenInstallDestination = isPendingSelected && bmsFile != null && !isPlaylistRow;
             menuItemOpenInstallDestination.Visibility = (canOpenInstallDestination ? Visibility.Visible : Visibility.Collapsed);
             menuItemOpenInstallDestination.IsEnabled = canOpenInstallDestination;
         }
         if (menuItem8 != null)
         {
-            menuItem8.Visibility = ((!isPendingSelected) ? Visibility.Collapsed : Visibility.Visible);
-            menuItem8.IsEnabled = isPendingSelected;
+            menuItem8.Visibility = ((!isPendingSelected || isPlaylistContext) ? Visibility.Collapsed : Visibility.Visible);
+            menuItem8.IsEnabled = isPendingSelected && !isPlaylistContext;
         }
         if (menuItem10 != null)
         {
-            bool isFullScanMenuVisible = !isPlaylistSelected;
+            bool isFullScanMenuVisible = !isPlaylistContext;
             menuItem10.Visibility = ((!isFullScanMenuVisible) ? Visibility.Collapsed : Visibility.Visible);
             menuItem10.IsEnabled = isFullScanMenuVisible;
         }
         if (menuItem13 != null)
         {
-            bool canMoveSelectedFiles = !isPendingSelected;
+            bool canMoveSelectedFiles = !isPendingSelected && !isPlaylistContext;
             menuItem13.Visibility = ((!canMoveSelectedFiles) ? Visibility.Collapsed : Visibility.Visible);
             menuItem13.IsEnabled = canMoveSelectedFiles && list.Any((BMSFile f) => !string.IsNullOrWhiteSpace(f.path) && File.Exists(f.path));
         }
         if (menuItem14 != null)
         {
-            menuItem14.Visibility = ((!isPlaylistSelected) ? Visibility.Collapsed : Visibility.Visible);
-            menuItem14.IsEnabled = isPlaylistSelected;
+            menuItem14.Visibility = ((!isPlaylistContext) ? Visibility.Collapsed : Visibility.Visible);
+            menuItem14.IsEnabled = isPlaylistContext;
         }
         if (menuItem15 != null)
         {
-            bool canDeleteFiles = !isPlaylistSelected;
+            bool canDeleteFiles = !isPlaylistContext;
             menuItem15.Visibility = ((!canDeleteFiles) ? Visibility.Collapsed : Visibility.Visible);
             menuItem15.IsEnabled = canDeleteFiles;
             Ribbit.Logging.NLogWrapper.FileLogger?.Info(
@@ -4614,25 +4764,25 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         if (separator != null)
         {
-            bool isFolderViewSeparatorVisible = !isPlaylistSelected && !isPendingSelected;
+            bool isFolderViewSeparatorVisible = !isPlaylistContext && !isPendingSelected;
             separator.Visibility = ((!isFolderViewSeparatorVisible) ? Visibility.Collapsed : Visibility.Visible);
             separator.IsEnabled = isFolderViewSeparatorVisible;
         }
         if (menuItem16 != null)
         {
-            bool canAutoRenameFolders = !isPlaylistSelected && !isPendingSelected;
+            bool canAutoRenameFolders = !isPlaylistContext && !isPendingSelected;
             menuItem16.Visibility = ((!canAutoRenameFolders) ? Visibility.Collapsed : Visibility.Visible);
             menuItem16.IsEnabled = canAutoRenameFolders;
         }
         if (menuItem17 != null)
         {
-            bool canFixEncoding = !isPlaylistSelected;
+            bool canFixEncoding = !isPlaylistContext;
             menuItem17.Visibility = ((!canFixEncoding) ? Visibility.Collapsed : Visibility.Visible);
             menuItem17.IsEnabled = canFixEncoding;
         }
         if (menuItem9 != null)
         {
-            bool isInstalledLocationFixVisible = _currentTreeSelectionSection == TreeSelectionSection.FullScanCheck;
+            bool isInstalledLocationFixVisible = _currentTreeSelectionSection == TreeSelectionSection.FullScanCheck && !isPlaylistContext;
             menuItem9.Visibility = ((!isInstalledLocationFixVisible) ? Visibility.Collapsed : Visibility.Visible);
             menuItem9.IsEnabled = isInstalledLocationFixVisible;
         }
@@ -4650,7 +4800,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         if (menuItem19 != null && separator2 != null)
         {
-            bool canConvertToAudio = !isPendingSelected;
+            bool canConvertToAudio = !isPendingSelected && !isPlaylistContext;
             Separator convertSeparator = separator2;
             Visibility visibility = (menuItem19.Visibility = ((!canConvertToAudio) ? Visibility.Collapsed : Visibility.Visible));
             convertSeparator.Visibility = visibility;
@@ -4663,11 +4813,137 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             menuItemDeleteInstallPackages.Visibility = (isInstallListSelected ? Visibility.Visible : Visibility.Collapsed);
             menuItemDeleteInstallPackages.IsEnabled = isInstallListSelected && list.Count > 0;
         }
+        if (isNotOwnedPlaylistRow)
+        {
+            if (menuItem3 != null)
+            {
+                menuItem3.Visibility = Visibility.Collapsed;
+                menuItem3.IsEnabled = false;
+            }
+            if (menuItem4 != null)
+            {
+                menuItem4.Visibility = Visibility.Collapsed;
+                menuItem4.IsEnabled = false;
+            }
+            if (menuItemOpenDocument != null)
+            {
+                menuItemOpenDocument.Visibility = Visibility.Collapsed;
+                menuItemOpenDocument.IsEnabled = false;
+            }
+            if (menuItem18 != null)
+            {
+                menuItem18.Visibility = Visibility.Collapsed;
+                menuItem18.IsEnabled = false;
+            }
+            if (menuItem7 != null)
+            {
+                menuItem7.Visibility = Visibility.Collapsed;
+                menuItem7.IsEnabled = false;
+            }
+            if (menuItem8 != null)
+            {
+                menuItem8.Visibility = Visibility.Collapsed;
+                menuItem8.IsEnabled = false;
+            }
+            if (menuItem9 != null)
+            {
+                menuItem9.Visibility = Visibility.Collapsed;
+                menuItem9.IsEnabled = false;
+            }
+            if (menuItem10 != null)
+            {
+                menuItem10.Visibility = Visibility.Collapsed;
+                menuItem10.IsEnabled = false;
+            }
+            if (menuItem13 != null)
+            {
+                menuItem13.Visibility = Visibility.Collapsed;
+                menuItem13.IsEnabled = false;
+            }
+            if (menuItem15 != null)
+            {
+                menuItem15.Visibility = Visibility.Collapsed;
+                menuItem15.IsEnabled = false;
+            }
+            if (menuItem16 != null)
+            {
+                menuItem16.Visibility = Visibility.Collapsed;
+                menuItem16.IsEnabled = false;
+            }
+            if (menuItem17 != null)
+            {
+                menuItem17.Visibility = Visibility.Collapsed;
+                menuItem17.IsEnabled = false;
+            }
+            if (menuItem19 != null)
+            {
+                menuItem19.Visibility = Visibility.Collapsed;
+                menuItem19.IsEnabled = false;
+            }
+            if (separator != null)
+            {
+                separator.Visibility = Visibility.Collapsed;
+                separator.IsEnabled = false;
+            }
+            if (separator2 != null)
+            {
+                separator2.Visibility = Visibility.Collapsed;
+                separator2.IsEnabled = false;
+            }
+            if (menuItemDeleteInstallPackages != null)
+            {
+                menuItemDeleteInstallPackages.Visibility = Visibility.Collapsed;
+                menuItemDeleteInstallPackages.IsEnabled = false;
+            }
+        }
+    }
+
+    private void dataGridContextMenuPlaylistMissingOpened(object sender, RoutedEventArgs e)
+    {
+        if (!TryGetContextMenuRow(sender, out ContextMenu contextMenu, out DataGridRow placementTarget, out object row))
+        {
+            NLogWrapper.FileLogger?.Info("playlist_missing_context_menu rowResolve=False sourceType=" + sender?.GetType().FullName);
+            return;
+        }
+        BMSTableEntry entry = GridRowResolver.GetPlaylistEntry(row);
+        Uri rowUrl = GridRowResolver.GetUrl(row);
+        Uri rowUrlDiff = GridRowResolver.GetUrlDiff(row);
+        bool canOpenLr2Ir = !string.IsNullOrWhiteSpace(GridRowResolver.GetHash(row)) || !string.IsNullOrWhiteSpace(GridRowResolver.GetLr2BmsId(row));
+        foreach (Control item in (IEnumerable)contextMenu.Items)
+        {
+            switch (item.Name)
+            {
+                case "dataGridContextMenuItemOpenLR2IR":
+                    item.Visibility = Visibility.Visible;
+                    item.IsEnabled = canOpenLr2Ir;
+                    break;
+                case "dataGridContextMenuItemOpenURL":
+                    item.Visibility = Visibility.Visible;
+                    item.IsEnabled = rowUrl != null && rowUrl.IsAbsoluteUri;
+                    break;
+                case "dataGridContextMenuItemOpenURLdiff":
+                    item.Visibility = Visibility.Visible;
+                    item.IsEnabled = rowUrlDiff != null && rowUrlDiff.IsAbsoluteUri;
+                    break;
+                case "dataGridContextMenuItemOpenVideo":
+                case "dataGridContextMenuItemSearchLink":
+                case "dataGridContextMenuItemDeleteEntry":
+                    item.Visibility = Visibility.Visible;
+                    item.IsEnabled = entry != null;
+                    break;
+            }
+        }
+        NLogWrapper.FileLogger?.Info("playlist_missing_context_menu rowType=" + row?.GetType().FullName + " entryParent=" + entry?.parent?.name + " url=" + (rowUrl != null) + " urlDiff=" + (rowUrlDiff != null) + " canOpenLr2Ir=" + canOpenLr2Ir);
     }
 
     private void dataGridContextMenuItemOpenExplorerClick(object sender, RoutedEventArgs e)
     {
-        if (!(e.Source is MenuItem { Parent: ContextMenu { PlacementTarget: DataGridRow { Item: BMSFile { path: var path } } } }) || !File.Exists(path))
+        if (!(e.Source is MenuItem { Parent: ContextMenu { PlacementTarget: DataGridRow { Item: var row } } }))
+        {
+            return;
+        }
+        string path = GridRowResolver.GetOperationBmsFile(row)?.path;
+        if (!File.Exists(path))
         {
             return;
         }
@@ -4753,7 +5029,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        List<BMSFile> list = dataGrid.SelectedItems.Cast<BMSFile>().Where((BMSFile f) => !(f is VirtualBMSFile)).ToList();
+        List<BMSFile> list = GetSelectedGridRealFiles();
         if (list.Count == 0)
         {
             return;
@@ -4803,7 +5079,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        BMSFile bMSFile = placementTarget.Item as BMSFile;
+        BMSFile bMSFile = GridRowResolver.GetOperationBmsFile(placementTarget.Item);
         if (string.IsNullOrWhiteSpace(bMSFile?.path))
         {
             return;
@@ -4824,23 +5100,25 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void dataGridContextMenuItemOpenLR2IRClick(object sender, RoutedEventArgs e)
     {
-        if (!(e.Source is MenuItem { Parent: ContextMenu { PlacementTarget: DataGridRow { Item: BMSFile item } placementTarget } }))
+        if (!(e.Source is MenuItem { Parent: ContextMenu { PlacementTarget: DataGridRow placementTarget } }))
         {
             return;
         }
-        VirtualBMSFile virtualBMSFile = placementTarget.Item as VirtualBMSFile;
+        object row = placementTarget.Item;
+        string rowHash = GridRowResolver.GetHash(row);
         string text;
-        if (!string.IsNullOrWhiteSpace(item.hash))
+        if (!string.IsNullOrWhiteSpace(rowHash))
         {
-            text = _getLR2IRrankingPageURL(item.hash);
+            text = _getLR2IRrankingPageURL(rowHash);
         }
         else
         {
-            if (virtualBMSFile == null || string.IsNullOrWhiteSpace(virtualBMSFile.lr2_bmsid))
+            string lr2BmsId = GridRowResolver.GetLr2BmsId(row);
+            if (string.IsNullOrWhiteSpace(lr2BmsId))
             {
                 return;
             }
-            text = _getLR2IRrankingPageURL(virtualBMSFile.lr2_bmsid);
+            text = _getLR2IRrankingPageURL(lr2BmsId);
         }
         if (text != null)
         {
@@ -4850,17 +5128,25 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void dataGridContextMenuItemOpenURLClick(object sender, RoutedEventArgs e)
     {
-        if (e.Source is MenuItem { Parent: ContextMenu { PlacementTarget: DataGridRow { Item: VirtualBMSFile item } } })
+        if (e.Source is MenuItem { Parent: ContextMenu { PlacementTarget: DataGridRow { Item: var item } } })
         {
-            Process.Start(item.Url.ToString());
+            Uri url = GridRowResolver.GetUrl(item);
+            if (url != null && url.IsAbsoluteUri)
+            {
+                Process.Start(url.ToString());
+            }
         }
     }
 
     private void dataGridContextMenuItemOpenURLdiffClick(object sender, RoutedEventArgs e)
     {
-        if (e.Source is MenuItem { Parent: ContextMenu { PlacementTarget: DataGridRow { Item: VirtualBMSFile item } } })
+        if (e.Source is MenuItem { Parent: ContextMenu { PlacementTarget: DataGridRow { Item: var item } } })
         {
-            Process.Start(item.Url_diff.ToString());
+            Uri urlDiff = GridRowResolver.GetUrlDiff(item);
+            if (urlDiff != null && urlDiff.IsAbsoluteUri)
+            {
+                Process.Start(urlDiff.ToString());
+            }
         }
     }
 
@@ -4878,8 +5164,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        VirtualBMSFile bmsFileVirtual = placementTarget.DataContext as VirtualBMSFile;
-        if (bmsFileVirtual == null)
+        object row = placementTarget.DataContext;
+        if (!GridRowResolver.IsPlaylistRow(row))
         {
             return;
         }
@@ -4938,7 +5224,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                     NLogWrapper.DebuggerLogger?.Trace("Test starts: getSongInfoCacheTask");
                     try
                     {
-                        BMSLibrary.IRSongInfo lR2IRSongInfoCache = viewModel.GetLR2IRSongInfoCache(bmsFileVirtual);
+                        BMSLibrary.IRSongInfo lR2IRSongInfoCache = viewModel.GetLR2IRSongInfoCache(row);
                         if (!token.IsCancellationRequested)
                         {
                             songInfoCache = lR2IRSongInfoCache;
@@ -5063,7 +5349,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        BMSFile bMSFile = dataGrid.SelectedItem as BMSFile;
+        BMSFile bMSFile = GridRowResolver.GetOperationBmsFile(dataGrid.SelectedItem);
         if (bMSFile == null)
         {
             return;
@@ -5122,8 +5408,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        VirtualBMSFile bmsFileVirtual = placementTarget.DataContext as VirtualBMSFile;
-        if (bmsFileVirtual == null)
+        object row = placementTarget.DataContext;
+        if (!GridRowResolver.IsPlaylistRow(row))
         {
             return;
         }
@@ -5156,7 +5442,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                     NLogWrapper.DebuggerLogger?.Trace("Test starts: getSongInfoCacheTask");
                     try
                     {
-                        BMSLibrary.IRSongInfo lR2IRSongInfoCache = viewModel.GetLR2IRSongInfoCache(bmsFileVirtual, seaarchAggressively: true);
+                        BMSLibrary.IRSongInfo lR2IRSongInfoCache = viewModel.GetLR2IRSongInfoCache(row, seaarchAggressively: true);
                         if (!token.IsCancellationRequested)
                         {
                             songInfoCache = lR2IRSongInfoCache;
@@ -5171,7 +5457,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             if (!token.IsCancellationRequested)
             {
                 List<Func<MenuItem>> subMenuItemCreateFuncs = new List<Func<MenuItem>>();
-                songInfoCacheToUrlLists(songInfoCache, bmsFileVirtual.Url, bmsFileVirtual.Url_diff, out var urls, out var urls_diff);
+                    songInfoCacheToUrlLists(songInfoCache, GridRowResolver.GetUrl(row), GridRowResolver.GetUrlDiff(row), out var urls, out var urls_diff);
                 foreach (Uri url in urls)
                 {
                     Func<MenuItem> item = delegate
@@ -5219,7 +5505,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                         subMenuItemCreateFuncs.Add(item2);
                     }
                 }
-                string input = bmsFileVirtual.comment + Environment.NewLine + ((songInfoCache == null) ? string.Empty : songInfoCache.comment) + Environment.NewLine + bmsFileVirtual.name_diff;
+                string input = ((GridRowResolver.GetPlaylistEntry(row)?.comment) ?? string.Empty) + Environment.NewLine + ((songInfoCache == null) ? string.Empty : songInfoCache.comment) + Environment.NewLine + GridRowResolver.GetNameDiff(row);
                 string pattern = "h?(ttps?://[\\-_.!~*\\\\'()A-Z0-9;/?:@&=+$,%#]+)";
                 MatchCollection matchCollection = Regex.Matches(input, pattern, RegexOptions.IgnoreCase);
                 if (matchCollection.Count > 0)
@@ -5546,7 +5832,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        List<BMSFile> bmsFiles = dataGrid.SelectedItems.Cast<BMSFile>().ToList();
+        List<BMSFile> bmsFiles = GetSelectedGridOperationFiles();
         if (bmsFiles != null && bmsFiles.Count() != 0)
         {
             MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
@@ -5560,19 +5846,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void dataGridContextMenuItemRegisterBMSFileToScoreViwer(object sender, RoutedEventArgs e)
     {
-        if (!(e.Source is MenuItem { Parent: ContextMenu { PlacementTarget: DataGridRow placementTarget } }) || !(placementTarget.Item is BMSFile))
+        if (!(e.Source is MenuItem { Parent: ContextMenu { PlacementTarget: DataGridRow } }))
         {
             return;
         }
-        List<BMSFile> bmsFiles;
-        try
-        {
-            bmsFiles = dataGrid.SelectedItems.Cast<BMSFile>().ToList();
-        }
-        catch
-        {
-            return;
-        }
+        List<BMSFile> bmsFiles = GetSelectedGridRealFiles();
         MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
         e.Handled = true;
         Task.Run(delegate
@@ -5597,8 +5875,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        List<BMSFile> bmsFiles = (from BMSFile f in dataGrid.SelectedItems
-                                  select (!(f is VirtualBMSFile)) ? f : (((VirtualBMSFile)f).GetNonVirtualBMSFile() ?? f)).ToList();
+        List<BMSFile> bmsFiles = GetSelectedGridOperationFiles();
         if (bmsFiles != null && bmsFiles.Count() != 0)
         {
             MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
@@ -5616,8 +5893,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        List<BMSFile> bmsFiles = (from BMSFile f in dataGrid.SelectedItems
-                                  select (!(f is VirtualBMSFile)) ? f : (((VirtualBMSFile)f).GetNonVirtualBMSFile() ?? f)).ToList();
+        List<BMSFile> bmsFiles = GetSelectedGridOperationFiles();
         if (bmsFiles != null && bmsFiles.Count() != 0)
         {
             MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
@@ -5635,8 +5911,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        List<BMSFile> bmsFiles = (from BMSFile f in dataGrid.SelectedItems
-                                  select (!(f is VirtualBMSFile)) ? f : (((VirtualBMSFile)f).GetNonVirtualBMSFile() ?? f)).ToList();
+        List<BMSFile> bmsFiles = GetSelectedGridOperationFiles();
         if (bmsFiles != null && bmsFiles.Count() != 0)
         {
             MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
@@ -5654,8 +5929,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        List<BMSFile> bmsFiles = (from BMSFile f in dataGrid.SelectedItems
-                                  select (!(f is VirtualBMSFile)) ? f : (((VirtualBMSFile)f).GetNonVirtualBMSFile() ?? f)).ToList();
+        List<BMSFile> bmsFiles = GetSelectedGridOperationFiles();
         if (bmsFiles == null || bmsFiles.Count() == 0)
         {
             return;
@@ -5677,16 +5951,13 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void dataGridContextMenuItemDeleteEntryClick(object sender, RoutedEventArgs e)
     {
-        List<BMSFile> list = dataGrid.SelectedItems.Cast<BMSFile>().ToList();
-        List<VirtualBMSFile> list2 = list.Where((BMSFile f) => f is VirtualBMSFile).Cast<VirtualBMSFile>().ToList();
-        list.Except(list2).ToList();
+        List<BMSTableEntry> list2 = GetSelectedGridPlaylistEntries();
         MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
         if (list2.Count <= 0)
         {
             return;
         }
-        foreach (IGrouping<BMSTable, BMSTableEntry> enGrp in from f in list2
-                                                             select f.ToBMSTableEntry() into en
+        foreach (IGrouping<BMSTable, BMSTableEntry> enGrp in from en in list2
                                                              group en by en.parent)
         {
             Task.Run(delegate
@@ -5698,9 +5969,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void dataGridContextMenuItemAutoRenameFolderClick(object sender, RoutedEventArgs e)
     {
-        List<BMSFile> bmsFiles = dataGrid.SelectedItems.Cast<BMSFile>().ToList();
-        List<VirtualBMSFile> second = bmsFiles.Where((BMSFile f) => f is VirtualBMSFile).Cast<VirtualBMSFile>().ToList();
-        bmsFiles = bmsFiles.Except(second).ToList();
+        List<BMSFile> bmsFiles = GetSelectedGridRealFiles();
         MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
         if (bmsFiles.Count > 0)
         {
@@ -5713,9 +5982,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void dataGridContextMenuItemRenameBMSFileClick(object sender, RoutedEventArgs e)
     {
-        List<BMSFile> bmsFiles = (from BMSFile f in dataGrid.SelectedItems
-                                  where !(f is VirtualBMSFile)
-                                  select f).ToList();
+        List<BMSFile> bmsFiles = GetSelectedGridRealFiles();
         MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
         bool isPendingSelected = _currentTreeSelectionSection == TreeSelectionSection.InstallPending;
         if (bmsFiles.Count <= 0 || MessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_rename_to_invalid, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) == MessageBoxResult.Cancel)
@@ -5753,9 +6020,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void dataGridContextMenuItemRemoveBMSFileClick(object sender, RoutedEventArgs e)
     {
-        List<BMSFile> bmsFiles = dataGrid.SelectedItems.Cast<BMSFile>().ToList();
-        List<VirtualBMSFile> second = bmsFiles.Where((BMSFile f) => f is VirtualBMSFile).Cast<VirtualBMSFile>().ToList();
-        bmsFiles = bmsFiles.Except(second).ToList();
+        List<BMSFile> bmsFiles = GetSelectedGridRealFiles();
         MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
         bool isPendingSelected = _currentTreeSelectionSection == TreeSelectionSection.InstallPending;
         if (viewModel == null || bmsFiles.Count == 0)
@@ -5800,10 +6065,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private async void dataGridContextMenuItemMoveFileClick(object sender, RoutedEventArgs e)
     {
-        List<BMSFile> bmsFiles = (from BMSFile f in dataGrid.SelectedItems
-                                  select (!(f is VirtualBMSFile)) ? f : (((VirtualBMSFile)f).GetNonVirtualBMSFile() ?? f) into f
-                                  where !string.IsNullOrWhiteSpace(f?.path)
-                                  select f).ToList();
+        List<BMSFile> bmsFiles = GetSelectedGridOperationFiles().Where((BMSFile f) => !string.IsNullOrWhiteSpace(f?.path)).ToList();
         MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
         if (!(sender is MenuItem menuItem))
         {
@@ -5823,7 +6085,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     {
         if (e.Source is MenuItem menuItem && ((menuItem.Parent as MenuItem).Parent as ContextMenu).PlacementTarget is DataGridRow)
         {
-            List<BMSFile> list = dataGrid.SelectedItems.Cast<BMSFile>().ToList();
+            List<BMSFile> list = GetSelectedGridRealFiles();
             if (list != null && list.Count() != 0)
             {
                 (base.DataContext as MainWindowViewModel).FixEncodingBMSFiles(list, menuItem.Tag.ToString());
@@ -5836,7 +6098,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     {
         if (e.Source is MenuItem menuItem && ((menuItem.Parent as MenuItem).Parent as ContextMenu).PlacementTarget is DataGridRow)
         {
-            List<BMSFile> list = dataGrid.SelectedItems.Cast<BMSFile>().ToList();
+            List<BMSFile> list = GetSelectedGridRealFiles();
             if (list != null && list.Count() != 0)
             {
                 (base.DataContext as MainWindowViewModel).IgnoreFileScanCheckBMSFiles(list);
@@ -5849,7 +6111,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     {
         if (e.Source is MenuItem menuItem && ((menuItem.Parent as MenuItem).Parent as ContextMenu).PlacementTarget is DataGridRow)
         {
-            List<BMSFile> list = dataGrid.SelectedItems.Cast<BMSFile>().ToList();
+            List<BMSFile> list = GetSelectedGridRealFiles();
             if (list != null && list.Count() != 0)
             {
                 (base.DataContext as MainWindowViewModel).NotIgnoreFileScanCheckBMSFiles(list);
@@ -5864,7 +6126,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        List<BMSFile> bmsFiles = dataGrid.SelectedItems.Cast<BMSFile>().ToList();
+        List<BMSFile> bmsFiles = GetSelectedGridRealFiles();
         if (bmsFiles == null || bmsFiles.Count() == 0)
         {
             return;
@@ -5902,7 +6164,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        List<BMSFile> bmsFiles = dataGrid.SelectedItems.Cast<BMSFile>().ToList();
+        List<BMSFile> bmsFiles = GetSelectedGridRealFiles();
         if (bmsFiles == null || bmsFiles.Count() == 0)
         {
             return;
@@ -5937,7 +6199,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        List<BMSFile> bmsFiles = dataGrid.SelectedItems.Cast<BMSFile>().ToList();
+        List<BMSFile> bmsFiles = GetSelectedGridRealFiles();
         if (bmsFiles != null && bmsFiles.Count() != 0)
         {
             MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
@@ -5955,7 +6217,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        List<BMSFile> selectedBmsFiles = dataGrid.SelectedItems.Cast<BMSFile>().Where((BMSFile file) => !(file is VirtualBMSFile)).ToList();
+        List<BMSFile> selectedBmsFiles = GetSelectedGridRealFiles();
         if (selectedBmsFiles.Count == 0)
         {
             return;
@@ -6022,7 +6284,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        List<BMSFile> bmsFiles = dataGrid.SelectedItems.Cast<BMSFile>().ToList();
+        List<BMSFile> bmsFiles = GetSelectedGridRealFiles();
         if (bmsFiles == null || bmsFiles.Count == 0 || !ConfirmMergeDestinationSearch())
         {
             return;
@@ -6042,9 +6304,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void dataGridContextMenuItemConvertToAudioFileClick(object sender, RoutedEventArgs e)
     {
-        BMSFile[] bmsFiles = (from BMSFile f in dataGrid.SelectedItems
-                              where File.Exists(f.path)
-                              select f).ToArray();
+        BMSFile[] bmsFiles = GetSelectedGridRealFiles().Where((BMSFile f) => File.Exists(f.path)).ToArray();
         if (bmsFiles.Length == 0)
         {
             return;
@@ -6122,16 +6382,16 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        List<BMSFile> bmsFiles;
+        List<object> selectedRows;
         try
         {
-            bmsFiles = ((IList)e.Data.GetData("System.Windows.Controls.SelectedItemCollection")).Cast<BMSFile>().ToList();
+            selectedRows = ((IList)e.Data.GetData("System.Windows.Controls.SelectedItemCollection")).Cast<object>().Where((object row) => row != null).ToList();
         }
         catch
         {
             return;
         }
-        if (bmsFiles == null || bmsFiles.Count == 0)
+        if (selectedRows == null || selectedRows.Count == 0)
         {
             return;
         }
@@ -6150,7 +6410,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         Task.Run(delegate
         {
-            viewModel.AddEntriesToFolderBMSTable(bmsFiles, table, folderName);
+            viewModel.AddEntriesToFolderBMSTable(selectedRows, table, folderName);
         }).Logging("playlistTableDrop");
     }
 
@@ -6483,7 +6743,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 {
                     e.Handled = true;
                     bool hasSelectedRow = dataGrid.TryGetSelectedRowRealized(out DataGridRow selectedRow);
-                    BMSFile selectedBmsFile = dataGrid.SelectedItem as BMSFile;
+                    BMSFile selectedBmsFile = GridRowResolver.GetOperationBmsFile(dataGrid.SelectedItem);
                     if (!hasSelectedRow && selectedBmsFile == null)
                     {
                         break;

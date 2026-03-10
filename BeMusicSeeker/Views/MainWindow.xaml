@@ -220,6 +220,28 @@
         <MenuItem Name="dataGridContextMenuItemConvertToAudioFile" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Convert_to_audio_file, Mode=OneWay}" Click="dataGridContextMenuItemConvertToAudioFileClick" />
         <MenuItem Name="dataGridContextMenuItemDeleteInstallPackages" Visibility="Collapsed" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Delete_from_list, Mode=OneWay}" Click="dataGridContextMenuItemDeleteInstallPackagesClick" />
       </ContextMenu>
+      <ContextMenu x:Key="dataGridContextMenuPlaylistMissing" x:Shared="False" HasDropShadow="True" Opened="dataGridContextMenuPlaylistMissingOpened">
+        <MenuItem Name="dataGridContextMenuItemOpenLR2IR" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_lr2ir, Mode=OneWay}" Click="dataGridContextMenuItemOpenLR2IRClick" />
+        <MenuItem Name="dataGridContextMenuItemOpenURL" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_Url, Mode=OneWay}" Click="dataGridContextMenuItemOpenURLClick" />
+        <MenuItem Name="dataGridContextMenuItemOpenURLdiff" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_Url_diff, Mode=OneWay}" Click="dataGridContextMenuItemOpenURLdiffClick" />
+        <Separator />
+        <MenuItem Name="dataGridContextMenuItemOpenVideo" SubmenuOpened="dataGridContextMenuOpenVideoSubmenuOpened">
+          <MenuItem.Header>
+            <TextBlock Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_video, Mode=OneWay}" />
+          </MenuItem.Header>
+          <MenuItem Name="dataGridContextMenuItemOpenVideoSubmenuStatus" IsEnabled="False" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Searching, Mode=OneWay}" />
+          <MenuItem Name="dataGridContextMenuItemOpenVideoSubmenuYouTube" IsEnabled="False" Visibility="Collapsed" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.YouTube, Mode=OneWay}" Click="dataGridContextMenuItemOpenVideoSubmenuClick" />
+          <MenuItem Name="dataGridContextMenuItemOpenVideoSubmenuNiconico" IsEnabled="False" Visibility="Collapsed" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.NicoNico, Mode=OneWay}" Click="dataGridContextMenuItemOpenVideoSubmenuClick" />
+        </MenuItem>
+        <MenuItem Name="dataGridContextMenuItemSearchLink" SubmenuOpened="dataGridContextMenuSearchLinkOpened">
+          <MenuItem.Header>
+            <TextBlock Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Search_downalods, Mode=OneWay}" />
+          </MenuItem.Header>
+          <MenuItem Name="dummy" Header="" Visibility="Hidden" />
+        </MenuItem>
+        <Separator />
+        <MenuItem Name="dataGridContextMenuItemDeleteEntry" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Remove, Mode=OneWay}" Click="dataGridContextMenuItemDeleteEntryClick" />
+      </ContextMenu>
       <ContextMenu x:Key="treeViewPlaylistRootContextMenu" HasDropShadow="True" Opened="treeViewPlaylistRootContextMenuOpend">
         <MenuItem Name="treeViewPlaylistRootContextMenuItemCreateNewPlaylist" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Create_new, Mode=OneWay}" Click="treeViewPlaylistRootContextMenuItemCreateNewPlaylistClick" />
         <MenuItem>
@@ -1547,7 +1569,7 @@
               <TextBlock DockPanel.Dock="Left" FontFamily="Meiryo" FontSize="14" VerticalAlignment="Center" Margin="5,0" Foreground="#FF202020" TextTrimming="CharacterEllipsis" Visibility="{Binding IsPlaylistSummaryMode, Converter={qc:QuickConverter '$P ? Visibility.Visible : Visibility.Collapsed'}}" Text="{Binding GridHeaderText}" />
             </DockPanel>
           </Border>
-            <DataGrid Name="dataGrid" Grid.Row="2" Grid.ColumnSpan="1" Margin="0,0,0,0" Grid.Column="1" IsReadOnly="False" SelectionMode="Single" CanUserResizeRows="False" EnableColumnVirtualization="{Binding Source={x:Static prop:Settings.Default}, Path=UseDataGridColumnVirtualizationExperimental, Mode=OneWay}" EnableRowVirtualization="True" AutoGenerateColumns="False" CanUserAddRows="False" CanUserDeleteRows="False" HeadersVisibility="Column" GridLinesVisibility="None" BorderBrush="#FF828790" BorderThickness="1,1,0,0" AlternationCount="2" TargetUpdated="dataGridTargetUpdated" SelectedIndex="{Binding SelectedIndexBMSFilesView, Mode=TwoWay}" Sorting="dataGridSorting" ColumnReordered="setDisplayIndices" BeginningEdit="dataGridCellBeginningEdit" CellEditEnding="dataGridCellEditEnding" PreviewKeyDown="dataGridKeyDown" IsVisibleChanged="dataGrid_IsVisibleChanged" Loaded="dataGrid_Loaded" Unloaded="dataGrid_Unloaded" SelectionChanged="dataGrid_SelectionChanged" Visibility="{Binding IsPlaylistSummaryMode, Converter={qc:QuickConverter '$P ? Visibility.Collapsed : Visibility.Visible'}}">
+            <DataGrid Name="dataGrid" Grid.Row="2" Grid.ColumnSpan="1" Margin="0,0,0,0" Grid.Column="1" IsReadOnly="False" SelectionMode="Single" CanUserResizeRows="False" EnableColumnVirtualization="{Binding Source={x:Static prop:Settings.Default}, Path=UseDataGridColumnVirtualizationExperimental, Mode=OneWay}" EnableRowVirtualization="True" AutoGenerateColumns="False" CanUserAddRows="False" CanUserDeleteRows="False" HeadersVisibility="Column" GridLinesVisibility="None" BorderBrush="#FF828790" BorderThickness="1,1,0,0" AlternationCount="2" TargetUpdated="dataGridTargetUpdated" SelectedIndex="{Binding SelectedIndexBMSFilesView, Mode=TwoWay}" Sorting="dataGridSorting" ColumnReordered="setDisplayIndices" BeginningEdit="dataGridCellBeginningEdit" CellEditEnding="dataGridCellEditEnding" PreviewKeyDown="dataGridKeyDown" PreviewMouseRightButtonDown="dataGridPreviewMouseRightButtonDown" IsVisibleChanged="dataGrid_IsVisibleChanged" Loaded="dataGrid_Loaded" Unloaded="dataGrid_Unloaded" SelectionChanged="dataGrid_SelectionChanged" Visibility="{Binding IsPlaylistSummaryMode, Converter={qc:QuickConverter '$P ? Visibility.Collapsed : Visibility.Visible'}}">
             <i:Interaction.Triggers>
               <l:InteractionMessageTrigger MessageKey="CallbackPlayStartBMSfile" Messenger="{Binding Messenger}">
                 <l:LivetCallMethodAction MethodName="_renewBMSPlayerControlInfo" MethodTarget="{Binding ElementName=window, Mode=OneWay}" />
@@ -1918,6 +1940,7 @@
                 <Setter Property="BorderBrush" Value="#E7E9EC" />
                 <EventSetter Event="MouseDoubleClick" Handler="dataGridRowDoubleClicked" />
                 <EventSetter Event="Selected" Handler="dataGridRowSelected" />
+                <EventSetter Event="FrameworkElement.ContextMenuOpening" Handler="dataGridRowContextMenuOpening" />
                 <Style.Triggers>
                   <Trigger Property="ItemsControl.AlternationIndex" Value="1">
                     <Setter Property="Background" Value="#F1F4F7" />

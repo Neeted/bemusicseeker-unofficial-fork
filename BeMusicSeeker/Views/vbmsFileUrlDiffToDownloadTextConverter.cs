@@ -1,7 +1,7 @@
 using System;
 using System.Globalization;
 using System.Windows.Data;
-using BeMusicSeeker.Models;
+using BeMusicSeeker.ViewModels;
 
 namespace BeMusicSeeker.Views;
 
@@ -9,7 +9,8 @@ internal class vbmsFileUrlDiffToDownloadTextConverter : IValueConverter
 {
 	public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
 	{
-		if (value is VirtualBMSFile && !(((VirtualBMSFile)value).Url_diff == null) && ((VirtualBMSFile)value).Url_diff.IsAbsoluteUri)
+		Uri urlDiff = GridRowResolver.GetUrlDiff(value);
+		if (urlDiff != null && urlDiff.IsAbsoluteUri)
 		{
 			return "download";
 		}

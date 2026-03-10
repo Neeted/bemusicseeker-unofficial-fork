@@ -13,16 +13,16 @@ public sealed class PlaylistViewPipelineTests
     [TestMethod]
     public void ApplyPlaylistViewFromSource_SortKeepsAllRowsVisible()
     {
-        VirtualBMSFile zetaRow = CreateVirtualRow("11111111111111111111111111111111", "Zeta", 7);
-        VirtualBMSFile alphaRow = CreateVirtualRow("22222222222222222222222222222222", "Alpha", 7);
-        BMSFile[] sourceRows = new BMSFile[] { zetaRow, alphaRow };
+        PlaylistDetailSourceRow zetaRow = CreateSourceRow("11111111111111111111111111111111", "Zeta", 7);
+        PlaylistDetailSourceRow alphaRow = CreateSourceRow("22222222222222222222222222222222", "Alpha", 7);
+        PlaylistDetailSourceRow[] sourceRows = new PlaylistDetailSourceRow[] { zetaRow, alphaRow };
         MainWindowViewModel.cSortParameters sortParameters = new MainWindowViewModel.cSortParameters
         {
             ColumnsName = nameof(BMSFile.Title),
             Direction = ListSortDirection.Ascending
         };
 
-        List<BMSFile> result = MainWindowViewModel.ApplyPlaylistViewFromSource(
+        List<PlaylistDetailRow> result = MainWindowViewModel.ApplyPlaylistViewFromSource(
             sourceRows,
             keywordFilter: null,
             modeFilter: MainWindowViewModel.ModeFilterType.All,
@@ -35,31 +35,29 @@ public sealed class PlaylistViewPipelineTests
             out long _);
 
         Assert.AreEqual(2, result.Count);
-        CollectionAssert.AreEqual(new[] { "Alpha", "Zeta" }, result.Select((BMSFile row) => row.Title).ToArray());
-        CollectionAssert.AreEqual(new[] { "22222222222222222222222222222222", "11111111111111111111111111111111" }, result.Select((BMSFile row) => row.hash).ToArray());
+        CollectionAssert.AreEqual(new[] { "Alpha", "Zeta" }, result.Select((PlaylistDetailRow row) => row.Title).ToArray());
+        CollectionAssert.AreEqual(new[] { "22222222222222222222222222222222", "11111111111111111111111111111111" }, result.Select((PlaylistDetailRow row) => row.hash).ToArray());
         Assert.IsFalse(ReferenceEquals(sourceRows[0], result[0]));
         Assert.IsFalse(ReferenceEquals(sourceRows[1], result[1]));
         Assert.AreEqual(2, keywordCount);
         Assert.AreEqual(2, modeCount);
         Assert.IsFalse(string.IsNullOrWhiteSpace(sortProfile));
-
-        DisposeRows(sourceRows);
-        DisposeRows(result);
+        Assert.IsTrue(result.All((PlaylistDetailRow row) => !typeof(BMSFile).IsAssignableFrom(row.GetType())));
     }
 
     [TestMethod]
     public void ApplyPlaylistViewFromSource_KeywordFilterMatchesPlaylistMemoAndComment()
     {
-        VirtualBMSFile matchedRow = CreateVirtualRow("33333333333333333333333333333333", "Matched", 7, memo: "special memo");
-        VirtualBMSFile filteredRow = CreateVirtualRow("44444444444444444444444444444444", "Filtered", 7, comment: "ordinary");
-        BMSFile[] sourceRows = new BMSFile[] { matchedRow, filteredRow };
+        PlaylistDetailSourceRow matchedRow = CreateSourceRow("33333333333333333333333333333333", "Matched", 7, memo: "special memo");
+        PlaylistDetailSourceRow filteredRow = CreateSourceRow("44444444444444444444444444444444", "Filtered", 7, comment: "ordinary");
+        PlaylistDetailSourceRow[] sourceRows = new PlaylistDetailSourceRow[] { matchedRow, filteredRow };
         MainWindowViewModel.cSortParameters sortParameters = new MainWindowViewModel.cSortParameters
         {
             ColumnsName = nameof(BMSFile.Title),
             Direction = ListSortDirection.Ascending
         };
 
-        List<BMSFile> result = MainWindowViewModel.ApplyPlaylistViewFromSource(
+        List<PlaylistDetailRow> result = MainWindowViewModel.ApplyPlaylistViewFromSource(
             sourceRows,
             keywordFilter: "SPECIAL",
             modeFilter: MainWindowViewModel.ModeFilterType.All,
@@ -76,24 +74,21 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(1, keywordCount);
         Assert.AreEqual(1, modeCount);
         Assert.IsFalse(ReferenceEquals(sourceRows[0], result[0]));
-
-        DisposeRows(sourceRows);
-        DisposeRows(result);
     }
 
     [TestMethod]
     public void ApplyPlaylistViewFromSource_ModeFilterRecomputesFromSourceRows()
     {
-        VirtualBMSFile sevenKeysRow = CreateVirtualRow("55555555555555555555555555555555", "SevenKeys", 7);
-        VirtualBMSFile fourteenKeysRow = CreateVirtualRow("66666666666666666666666666666666", "FourteenKeys", 14);
-        BMSFile[] sourceRows = new BMSFile[] { sevenKeysRow, fourteenKeysRow };
+        PlaylistDetailSourceRow sevenKeysRow = CreateSourceRow("55555555555555555555555555555555", "SevenKeys", 7);
+        PlaylistDetailSourceRow fourteenKeysRow = CreateSourceRow("66666666666666666666666666666666", "FourteenKeys", 14);
+        PlaylistDetailSourceRow[] sourceRows = new PlaylistDetailSourceRow[] { sevenKeysRow, fourteenKeysRow };
         MainWindowViewModel.cSortParameters sortParameters = new MainWindowViewModel.cSortParameters
         {
             ColumnsName = nameof(BMSFile.Title),
             Direction = ListSortDirection.Ascending
         };
 
-        List<BMSFile> result = MainWindowViewModel.ApplyPlaylistViewFromSource(
+        List<PlaylistDetailRow> result = MainWindowViewModel.ApplyPlaylistViewFromSource(
             sourceRows,
             keywordFilter: null,
             modeFilter: MainWindowViewModel.ModeFilterType._14KEYS,
@@ -110,23 +105,20 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(2, keywordCount);
         Assert.AreEqual(1, modeCount);
         Assert.IsFalse(ReferenceEquals(sourceRows[1], result[0]));
-
-        DisposeRows(sourceRows);
-        DisposeRows(result);
     }
 
     [TestMethod]
     public void ApplyPlaylistViewFromSource_RebuildsDetachedSnapshotsForEachApply()
     {
-        VirtualBMSFile alphaRow = CreateVirtualRow("77777777777777777777777777777777", "Alpha", 7);
-        BMSFile[] sourceRows = new BMSFile[] { alphaRow };
+        PlaylistDetailSourceRow alphaRow = CreateSourceRow("77777777777777777777777777777777", "Alpha", 7);
+        PlaylistDetailSourceRow[] sourceRows = new PlaylistDetailSourceRow[] { alphaRow };
         MainWindowViewModel.cSortParameters sortParameters = new MainWindowViewModel.cSortParameters
         {
             ColumnsName = nameof(BMSFile.Title),
             Direction = ListSortDirection.Ascending
         };
 
-        List<BMSFile> first = MainWindowViewModel.ApplyPlaylistViewFromSource(
+        List<PlaylistDetailRow> first = MainWindowViewModel.ApplyPlaylistViewFromSource(
             sourceRows,
             keywordFilter: null,
             modeFilter: MainWindowViewModel.ModeFilterType.All,
@@ -137,7 +129,7 @@ public sealed class PlaylistViewPipelineTests
             out long _,
             out long _,
             out long _);
-        List<BMSFile> second = MainWindowViewModel.ApplyPlaylistViewFromSource(
+        List<PlaylistDetailRow> second = MainWindowViewModel.ApplyPlaylistViewFromSource(
             sourceRows,
             keywordFilter: null,
             modeFilter: MainWindowViewModel.ModeFilterType.All,
@@ -154,33 +146,45 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsFalse(ReferenceEquals(first[0], second[0]));
         Assert.IsFalse(ReferenceEquals(sourceRows[0], first[0]));
         Assert.IsFalse(ReferenceEquals(sourceRows[0], second[0]));
-
-        DisposeRows(sourceRows);
-        DisposeRows(first);
-        DisposeRows(second);
     }
 
-    private static VirtualBMSFile CreateVirtualRow(string hash, string title, int? mode, string memo = "", string comment = "")
+    [TestMethod]
+    public void ApplyPlaylistViewFromSource_LevelSortUsesPlaylistEntryLevel()
+    {
+        PlaylistDetailSourceRow higherEntryLevel = CreateSourceRow("88888888888888888888888888888888", "Second", 7, entryLevel: 12);
+        PlaylistDetailSourceRow lowerEntryLevel = CreateSourceRow("99999999999999999999999999999999", "First", 7, entryLevel: 3);
+        MainWindowViewModel.cSortParameters sortParameters = new MainWindowViewModel.cSortParameters
+        {
+            ColumnsName = nameof(PlaylistDetailRow.Level),
+            Direction = ListSortDirection.Ascending
+        };
+
+        List<PlaylistDetailRow> result = MainWindowViewModel.ApplyPlaylistViewFromSource(
+            new[] { higherEntryLevel, lowerEntryLevel },
+            keywordFilter: null,
+            modeFilter: MainWindowViewModel.ModeFilterType.All,
+            sortParameters: sortParameters,
+            out string _,
+            out int _,
+            out int _,
+            out long _,
+            out long _,
+            out long _);
+
+        CollectionAssert.AreEqual(new[] { "3", "12" }, result.Select((PlaylistDetailRow row) => row.Level).ToArray());
+    }
+
+    private static PlaylistDetailSourceRow CreateSourceRow(string hash, string title, int? mode, string memo = "", string comment = "", double? entryLevel = null)
     {
         TestableBmsFile file = new TestableBmsFile();
         file.ApplySnapshot(hash, title, mode);
         BMSTableEntry entry = new BMSTableEntry(file)
         {
             memo = memo,
-            comment = comment
+            comment = comment,
+            level = entryLevel
         };
-        return new VirtualBMSFile(entry, file);
-    }
-
-    private static void DisposeRows(IEnumerable<BMSFile> rows)
-    {
-        foreach (BMSFile row in rows)
-        {
-            if (row is VirtualBMSFile virtualRow)
-            {
-                virtualRow.Dispose();
-            }
-        }
+        return new PlaylistDetailSourceRow(entry, file);
     }
 
     private sealed class TestableBmsFile : BMSFile

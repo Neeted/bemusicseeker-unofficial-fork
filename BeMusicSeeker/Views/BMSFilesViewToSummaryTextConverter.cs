@@ -1,10 +1,12 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Windows.Data;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Properties;
+using BeMusicSeeker.ViewModels;
 
 namespace BeMusicSeeker.Views;
 
@@ -12,16 +14,30 @@ internal class BMSFilesViewToSummaryTextConverter : IValueConverter
 {
 	public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
 	{
-		if (value is List<BMSFile>)
+		if (value is IEnumerable rows)
 		{
-			int count = ((List<BMSFile>)value).Count;
-			int num = ((List<BMSFile>)value).Select((BMSFile f) => f.Folder).Distinct().Count();
+			List<object> rowList = rows.Cast<object>().Where((object row) => row != null).ToList();
+			int count = rowList.Count;
+			int num = rowList.Select(GetFolderName).Where((string folder) => !string.IsNullOrWhiteSpace(folder)).Distinct(StringComparer.OrdinalIgnoreCase).Count();
 			string text = "[" + count + Resources.Num_songs;
 			if (num > 1)
 			{
 				return text + " / " + num + Resources.Num_folders + "]";
 			}
 			return text + "]";
+		}
+		return string.Empty;
+	}
+
+	private static string GetFolderName(object row)
+	{
+		if (row is BMSFile bMSFile)
+		{
+			return bMSFile.Folder;
+		}
+		if (row is PlaylistDetailRow playlistDetailRow)
+		{
+			return playlistDetailRow.Folder;
 		}
 		return string.Empty;
 	}

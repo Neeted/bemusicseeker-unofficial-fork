@@ -1,7 +1,7 @@
 using System;
 using System.Globalization;
 using System.Windows.Data;
-using BeMusicSeeker.Models;
+using BeMusicSeeker.ViewModels;
 
 namespace BeMusicSeeker.Views;
 
@@ -9,7 +9,8 @@ internal class vbmsFileUrlToDownloadTextConverter : IValueConverter
 {
 	public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
 	{
-		if (value is VirtualBMSFile && !(((VirtualBMSFile)value).Url == null) && ((VirtualBMSFile)value).Url.IsAbsoluteUri)
+		Uri url = GridRowResolver.GetUrl(value);
+		if (url != null && url.IsAbsoluteUri)
 		{
 			return "download";
 		}
