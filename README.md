@@ -136,6 +136,8 @@ The list below focuses on the main differences from the traditional build.
 
 - **Two-tier left sidebar**
   - Improves usability in environments with a very large number of registered difficulty tables.
+- **Expanded use of the status bar**
+  - The status bar is now used to show initialization and library reload progress, external playlist sync progress, and installation destination estimation progress.
 - **Refreshed networking implementation**
   - **User-Agent headers are now added to HTTP requests**: this avoids `403 Forbidden` on some difficulty table sites that reject requests without a UA.
   - **Migrated from `WebClient` to `HttpClient`**: the performance impact is probably small and there is some regression risk, but the migration was done for long-term maintainability.
@@ -179,15 +181,15 @@ These are current memo-style ideas. Ordering is roughly "first thought of first"
    - **At the very least, a warning should be shown when pending packages contain bmson files.**
 9. Show a warning dialog when Everything 1.5a integration fails
 10. Refactor local variable names lost during decompilation
-   - Many variables ended up with meaningless names such as `list1`, `list2`, or `item1`, which seriously hurts readability.
+    - Many variables ended up with meaningless names such as `list1`, `list2`, or `item1`, which seriously hurts readability.
 11. Recheck the implementation status of the custom folder export feature
-   - There is no concrete improvement plan yet, but it is important enough to justify revisiting the behavior.
+    - There is no concrete improvement plan yet, but it is important enough to justify revisiting the behavior.
 12. Bundle LR2 settings files and DBs (`song.db`, `config.xml`)
-   - Since LR2 itself is not strictly required as long as the settings and DB exist, bundling them might remove the need to obtain LR2 separately.
-   - Without additional work, this would probably still create `.lr2folder` for no meaningful reason when LR2 itself is absent, but that may be acceptable.
-   - Full beatoraja support is not planned. For DB updates alone, [a sufficiently fast solution](https://github.com/Neeted/songdata-updater) already exists.
+    - Since LR2 itself is not strictly required as long as the settings and DB exist, bundling them might remove the need to obtain LR2 separately.
+    - Without additional work, this would probably still create `.lr2folder` for no meaningful reason when LR2 itself is absent, but that may be acceptable.
+    - Full beatoraja support is not planned. For DB updates alone, [a sufficiently fast solution](https://github.com/Neeted/songdata-updater) already exists.
 13. Improve the installation destination estimation algorithm
-   - Manual `INSTL DST` input was added as a workaround, but it would be better to consider titles and similar metadata as well to reduce mistakes caused by sparse definitions or numbered charts.
+    - Manual `INSTL DST` input was added as a workaround, but it would be better to consider titles and similar metadata as well to reduce mistakes caused by sparse definitions or numbered charts.
 14. Add a feature to consolidate `.wav` and `.ogg` when both exist as duplicates
 
 ## License Scope
