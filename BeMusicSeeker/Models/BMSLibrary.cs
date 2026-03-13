@@ -772,7 +772,7 @@ public class BMSLibrary : NotificationObject
 
     private DispatcherCollection<BMSPackage> _BMSPackagesInstalled = new DispatcherCollection<BMSPackage>(DispatcherHelper.UIDispatcher);
 
-    private DispatcherCollection<string> _BMSParentFolderList = new DispatcherCollection<string>(DispatcherHelper.UIDispatcher);
+    private List<string> bmsParentFolderListCache = new List<string>();
 
     private List<BMSScore> _BMSScores = new List<BMSScore>();
 
@@ -855,7 +855,7 @@ public class BMSLibrary : NotificationObject
                 {
                     RaisePropertyChanged("BMSFiles");
                 }).Logging("BMSFiles");
-                RaisePropertyChanged(() => BMSParentFolderList);
+                RaisePropertyChanged(() => BMSParentFolderListCacheVersion);
             }
         }
     }
@@ -933,16 +933,16 @@ public class BMSLibrary : NotificationObject
     }
 
     /// <summary>
-    /// BMS ファイルが格納されている親フォルダ一覧です。キャッシュ機構により遅延再構築されます。
+    /// 親フォルダ一覧キャッシュの世代です。
+    /// キャッシュ無効化のたびに増加し、UI 側はこの値の変化を契機に表示用ビューを再同期します。
     /// </summary>
-    public DispatcherCollection<string> BMSParentFolderList
+    internal int BMSParentFolderListCacheVersion
     {
         get
         {
             lock (lockParentFolderList)
             {
-                RefreshBMSParentFolderListCacheUnsafe();
-                return _BMSParentFolderList;
+                return bmsParentFolderListDirtyVersion;
             }
         }
     }
@@ -963,16 +963,16 @@ public class BMSLibrary : NotificationObject
     /// BMS 検索ルートディレクトリの設定変更を親フォルダ一覧キャッシュへ反映するため、
     /// キャッシュを無効化して更新通知を発行します。
     /// </summary>
-    public void NotifyBMSDirectoriesChanged()
+    internal void NotifyBMSDirectoriesChanged()
     {
         InvalidateBMSParentFolderListCache();
-        RaisePropertyChanged(() => BMSParentFolderList);
+        RaisePropertyChanged(() => BMSParentFolderListCacheVersion);
     }
 
     /// <summary>
     /// 親フォルダ一覧キャッシュが無効化されており再構築が必要かどうかを返します。
     /// </summary>
-    public bool IsBMSParentFolderListCacheDirty()
+    internal bool IsBMSParentFolderListCacheDirty()
     {
         lock (lockParentFolderList)
         {
@@ -993,7 +993,7 @@ public class BMSLibrary : NotificationObject
     /// 親フォルダ一覧のキャッシュスナップショットをバックグラウンドで構築します。
     /// キャッシュが有効な場合は null を返します。
     /// </summary>
-    public ParentFolderListCacheSnapshot BuildBMSParentFolderListCacheSnapshot()
+    internal ParentFolderListCacheSnapshot BuildBMSParentFolderListCacheSnapshot()
     {
         int version = 0;
         lock (lockParentFolderList)
@@ -1016,7 +1016,7 @@ public class BMSLibrary : NotificationObject
     /// バックグラウンドで構築されたスナップショットを親フォルダ一覧キャッシュに適用します。
     /// バージョン不一致等でスキップされた場合は false を返します。
     /// </summary>
-    public bool TryApplyBMSParentFolderListCacheSnapshot(ParentFolderListCacheSnapshot snapshot)
+    internal bool TryApplyBMSParentFolderListCacheSnapshot(ParentFolderListCacheSnapshot snapshot)
     {
         if (snapshot == null)
         {
@@ -1033,13 +1033,25 @@ public class BMSLibrary : NotificationObject
                 return false;
             }
             IEnumerable<string> enumerable = snapshot.ParentFolders ?? Enumerable.Empty<string>();
-            List<string> items = enumerable.Except(_BMSParentFolderList).ToList();
-            List<string> items2 = _BMSParentFolderList.Except(enumerable).ToList();
-            _BMSParentFolderList.AddRange(items);
-            _BMSParentFolderList.Remove(items2);
+            List<string> items = enumerable.Except(bmsParentFolderListCache).ToList();
+            List<string> items2 = bmsParentFolderListCache.Except(enumerable).ToList();
+            bmsParentFolderListCache = enumerable.ToList();
             bmsParentFolderListDirty = false;
-            LogInstallPerformance("parent_folder_cache rebuildMs=" + snapshot.RebuildMs + " added=" + items.Count + " removed=" + items2.Count + " total=" + _BMSParentFolderList.Count);
+            LogInstallPerformance("parent_folder_cache rebuildMs=" + snapshot.RebuildMs + " added=" + items.Count + " removed=" + items2.Count + " total=" + bmsParentFolderListCache.Count);
             return true;
+        }
+    }
+
+    /// <summary>
+    /// 現在の親フォルダ候補スナップショットを返します。
+    /// 必要に応じて同期的にキャッシュを再構築し、呼び出し側が UI 用ビューを独自に構築できるようにします。
+    /// </summary>
+    internal IReadOnlyList<string> GetBMSParentFolderListSnapshot()
+    {
+        lock (lockParentFolderList)
+        {
+            RefreshBMSParentFolderListCacheUnsafe();
+            return bmsParentFolderListCache.ToList();
         }
     }
 
@@ -1059,13 +1071,12 @@ public class BMSLibrary : NotificationObject
         }
         Stopwatch stopwatch = Stopwatch.StartNew();
         IEnumerable<string> enumerable = BuildBMSParentFolderCandidates(bmsFilesSnapshot);
-        List<string> items = enumerable.Except(_BMSParentFolderList).ToList();
-        List<string> items2 = _BMSParentFolderList.Except(enumerable).ToList();
-        _BMSParentFolderList.AddRange(items);
-        _BMSParentFolderList.Remove(items2);
+        List<string> items = enumerable.Except(bmsParentFolderListCache).ToList();
+        List<string> items2 = bmsParentFolderListCache.Except(enumerable).ToList();
+        bmsParentFolderListCache = enumerable.ToList();
         bmsParentFolderListDirty = false;
         stopwatch.Stop();
-        LogInstallPerformance("parent_folder_cache rebuildMs=" + stopwatch.ElapsedMilliseconds + " added=" + items.Count + " removed=" + items2.Count + " total=" + _BMSParentFolderList.Count);
+        LogInstallPerformance("parent_folder_cache rebuildMs=" + stopwatch.ElapsedMilliseconds + " added=" + items.Count + " removed=" + items2.Count + " total=" + bmsParentFolderListCache.Count);
     }
 
     private List<BMSScore> BMSScores

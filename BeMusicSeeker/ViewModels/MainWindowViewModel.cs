@@ -5674,7 +5674,7 @@ public class MainWindowViewModel : ViewModel
     /// </summary>
     private bool RefreshBmsParentFolderListView(bool raisePropertyChanged = true)
     {
-        IEnumerable<string> source = (files != null) ? files.BMSParentFolderList : Enumerable.Empty<string>();
+        IEnumerable<string> source = (files != null) ? files.GetBMSParentFolderListSnapshot() : Enumerable.Empty<string>();
         List<string> sortedParentFolders = source.Where((string path) => !string.IsNullOrWhiteSpace(path))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy((string path) => path, StringComparer.OrdinalIgnoreCase)
@@ -5703,7 +5703,6 @@ public class MainWindowViewModel : ViewModel
         {
             files.NotifyBMSDirectoriesChanged();
         }
-        RaisePropertyChanged(() => BMSParentFolderList);
     }
 
     private void FlushPendingUiRefresh(UiRefreshChannel mask)
@@ -6206,7 +6205,11 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
-    public IEnumerable<string> BMSParentFolderList
+    /// <summary>
+    /// ライブラリツリーや移動メニューが共有する、UI 向けの安定したソート済み親フォルダ一覧です。
+    /// ライブラリ側の候補 cache から同期される表示用正本であり、昇順表示を保証します。
+    /// </summary>
+    public DispatcherCollection<string> BMSParentFolderList
     {
         get
         {
@@ -7713,7 +7716,7 @@ public class MainWindowViewModel : ViewModel
             if (!TrySuppress(UiRefreshChannel.LibraryFolderTree))
             {
                 bmsParentFolderListViewInitialized = false;
-                RefreshBmsParentFolderListView();
+                ScheduleDeferredLibraryFolderTreeRefresh();
             }
         }
         catch (Exception ex)
@@ -7963,7 +7966,7 @@ public class MainWindowViewModel : ViewModel
         });
         RebindBMSPackagesInstalledCollectionListener();
         RebindBMSPackagesPendingCollectionListener();
-        listenerForBMSLibrary.RegisterHandler(() => files.BMSParentFolderList, delegate
+        listenerForBMSLibrary.RegisterHandler(() => files.BMSParentFolderListCacheVersion, delegate
         {
             bmsParentFolderListViewInitialized = false;
             if (TrySuppress(UiRefreshChannel.LibraryFolderTree))
