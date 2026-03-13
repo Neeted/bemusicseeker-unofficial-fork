@@ -960,6 +960,16 @@ public class BMSLibrary : NotificationObject
     }
 
     /// <summary>
+    /// BMS 検索ルートディレクトリの設定変更を親フォルダ一覧キャッシュへ反映するため、
+    /// キャッシュを無効化して更新通知を発行します。
+    /// </summary>
+    public void NotifyBMSDirectoriesChanged()
+    {
+        InvalidateBMSParentFolderListCache();
+        RaisePropertyChanged(() => BMSParentFolderList);
+    }
+
+    /// <summary>
     /// 親フォルダ一覧キャッシュが無効化されており再構築が必要かどうかを返します。
     /// </summary>
     public bool IsBMSParentFolderListCacheDirty()

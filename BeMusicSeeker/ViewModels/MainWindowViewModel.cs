@@ -1974,7 +1974,7 @@ public class MainWindowViewModel : ViewModel
                 }
                 else
                 {
-                    ownerViewModel.RaisePropertyChanged(() => ownerViewModel.BMSParentFolderList);
+                    ownerViewModel.NotifyBmsParentFolderListChanged();
                 }
                 return;
             }
@@ -2029,7 +2029,7 @@ public class MainWindowViewModel : ViewModel
                 }
                 else
                 {
-                    ownerViewModel.RaisePropertyChanged(() => ownerViewModel.BMSParentFolderList);
+                    ownerViewModel.NotifyBmsParentFolderListChanged();
                 }
                 return;
             }
@@ -4132,6 +4132,10 @@ public class MainWindowViewModel : ViewModel
 
     private Func<BeMusicSeeker.Models.BMSFile, bool> _FolderFilter;
 
+    private DispatcherCollection<string> _sortedBmsParentFolderList = new DispatcherCollection<string>(DispatcherHelper.UIDispatcher);
+
+    private bool bmsParentFolderListViewInitialized;
+
     private BMSTableSimpleCategorized _BMSExternalTableListExt;
 
     private bool _IsLoadingExternalCollectionBMSTables;
@@ -5638,9 +5642,9 @@ public class MainWindowViewModel : ViewModel
                             shouldReschedule = true;
                         }
                     }
-                    if (refreshed)
+                    if (!shouldReschedule)
                     {
-                        RaisePropertyChanged(() => BMSParentFolderList);
+                        RefreshBmsParentFolderListView();
                     }
                 }
                 finally
@@ -5662,6 +5666,44 @@ public class MainWindowViewModel : ViewModel
                 }
             });
         });
+    }
+
+    /// <summary>
+    /// BMS 親フォルダ一覧の安定したソート済みビューを、現在のライブラリ状態から更新します。
+    /// 他経路でキャッシュが先に構築された場合でも、ツリーと移動メニューが同じ正本を参照できるようにします。
+    /// </summary>
+    private bool RefreshBmsParentFolderListView(bool raisePropertyChanged = true)
+    {
+        IEnumerable<string> source = (files != null) ? files.BMSParentFolderList : Enumerable.Empty<string>();
+        List<string> sortedParentFolders = source.Where((string path) => !string.IsNullOrWhiteSpace(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy((string path) => path, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        bool changed = !_sortedBmsParentFolderList.SequenceEqual(sortedParentFolders, StringComparer.OrdinalIgnoreCase);
+        if (changed)
+        {
+            _sortedBmsParentFolderList.Clear();
+            _sortedBmsParentFolderList.AddRange(sortedParentFolders);
+        }
+        bmsParentFolderListViewInitialized = true;
+        if (raisePropertyChanged)
+        {
+            RaisePropertyChanged(() => BMSParentFolderList);
+        }
+        return changed;
+    }
+
+    /// <summary>
+    /// BMS 検索ルートディレクトリ設定の変更を UI 側の親フォルダ一覧へ反映させます。
+    /// </summary>
+    private void NotifyBmsParentFolderListChanged()
+    {
+        bmsParentFolderListViewInitialized = false;
+        if (files != null)
+        {
+            files.NotifyBMSDirectoriesChanged();
+        }
+        RaisePropertyChanged(() => BMSParentFolderList);
     }
 
     private void FlushPendingUiRefresh(UiRefreshChannel mask)
@@ -6168,11 +6210,11 @@ public class MainWindowViewModel : ViewModel
     {
         get
         {
-            if (files != null)
+            if (files != null && !bmsParentFolderListViewInitialized)
             {
-                return files.BMSParentFolderList.OrderBy((string s) => s);
+                RefreshBmsParentFolderListView(raisePropertyChanged: false);
             }
-            return null;
+            return _sortedBmsParentFolderList;
         }
     }
 
@@ -7670,7 +7712,8 @@ public class MainWindowViewModel : ViewModel
             scheduleDeferredPlaylistRef = true;
             if (!TrySuppress(UiRefreshChannel.LibraryFolderTree))
             {
-                RaisePropertyChanged(() => BMSParentFolderList);
+                bmsParentFolderListViewInitialized = false;
+                RefreshBmsParentFolderListView();
             }
         }
         catch (Exception ex)
@@ -7922,6 +7965,7 @@ public class MainWindowViewModel : ViewModel
         RebindBMSPackagesPendingCollectionListener();
         listenerForBMSLibrary.RegisterHandler(() => files.BMSParentFolderList, delegate
         {
+            bmsParentFolderListViewInitialized = false;
             if (TrySuppress(UiRefreshChannel.LibraryFolderTree))
             {
                 return;
