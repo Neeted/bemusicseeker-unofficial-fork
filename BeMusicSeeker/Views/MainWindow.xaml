@@ -225,8 +225,6 @@
         <MenuItem Name="dataGridContextMenuItemOpenURL" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_Url, Mode=OneWay}" Click="dataGridContextMenuItemOpenURLClick" />
         <MenuItem Name="dataGridContextMenuItemOpenURLdiff" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_Url_diff, Mode=OneWay}" Click="dataGridContextMenuItemOpenURLdiffClick" />
         <Separator />
-        <MenuItem Name="dataGridContextMenuItemOpenExplorer" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_file_explorer, Mode=OneWay}" Click="dataGridContextMenuItemOpenExplorerClick" />
-        <MenuItem Name="dataGridContextMenuItemOpenBMSFile" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_association, Mode=OneWay}" Click="dataGridContextMenuItemOpenBMSFileClick" />
         <MenuItem Name="dataGridContextMenuItemOpenVideo" SubmenuOpened="dataGridContextMenuOpenVideoSubmenuOpened">
           <MenuItem.Header>
             <TextBlock Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_video, Mode=OneWay}" />

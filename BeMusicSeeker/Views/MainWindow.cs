@@ -4761,7 +4761,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         if (menuItem13 != null)
         {
-            bool canMoveSelectedFiles = !isPendingSelected && !isPlaylistContext;
+            bool canMoveSelectedFiles = !isPendingSelected;
             menuItem13.Visibility = ((!canMoveSelectedFiles) ? Visibility.Collapsed : Visibility.Visible);
             menuItem13.IsEnabled = canMoveSelectedFiles && list.Any((BMSFile f) => !string.IsNullOrWhiteSpace(f.path) && File.Exists(f.path));
         }
@@ -4826,12 +4826,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         if (menuItem19 != null && separator2 != null)
         {
-            bool canConvertToAudio = !isPendingSelected && !isPlaylistContext;
+            bool canConvertToAudio = !isPendingSelected;
             Separator convertSeparator = separator2;
             Visibility visibility = (menuItem19.Visibility = ((!canConvertToAudio) ? Visibility.Collapsed : Visibility.Visible));
             convertSeparator.Visibility = visibility;
             Separator convertSeparator2 = separator2;
-            bool isEnabled = (menuItem19.IsEnabled = canConvertToAudio);
+            bool isEnabled = (menuItem19.IsEnabled = canConvertToAudio && list.Any((BMSFile f) => !string.IsNullOrWhiteSpace(f.path) && File.Exists(f.path)));
             convertSeparator2.IsEnabled = isEnabled;
         }
         if (menuItemDeleteInstallPackages != null)
@@ -4953,11 +4953,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 case "dataGridContextMenuItemOpenURLdiff":
                     item.Visibility = Visibility.Visible;
                     item.IsEnabled = rowUrlDiff != null && rowUrlDiff.IsAbsoluteUri;
-                    break;
-                case "dataGridContextMenuItemOpenExplorer":
-                case "dataGridContextMenuItemOpenBMSFile":
-                    item.Visibility = Visibility.Visible;
-                    item.IsEnabled = false;
                     break;
                 case "dataGridContextMenuItemOpenVideo":
                 case "dataGridContextMenuItemSearchLink":
