@@ -35,6 +35,6 @@ using System.Windows.Resources;
 [assembly: AssemblyAssociatedContentFile("x86/7z.dll")]
 [assembly: AssemblyAssociatedContentFile("x86/sqlite3.dll")]
 [assembly: AssemblyAssociatedContentFile("infrastructureassemblies/livet.xml")]
-[assembly: AssemblyInformationalVersion("1.1.0.0")]
+[assembly: AssemblyInformationalVersion("1.1.1.0")]
 [assembly: AssemblyVersion("0.1.7374.5230")]
 [assembly: InternalsVisibleTo("BeMusicSeeker.Tests")]
