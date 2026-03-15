@@ -644,6 +644,20 @@
                       </FrameworkContentElement.Resources>
                       <List>
                         <ListItem>
+                          <Paragraph FontWeight="Bold">1.2.0.0:</Paragraph>
+                          <List MarkerStyle="Box">
+                            <ListItem>
+                              <Paragraph>プレイリストの URL1 / URL2 を外部マッピングからランタイム補完する機能を追加</Paragraph>
+                            </ListItem>
+                            <ListItem>
+                              <Paragraph>補完設定として MD5-URLマッピングTSV取得URI、空欄補完、既存URL上書きオプションを追加</Paragraph>
+                            </ListItem>
+                            <ListItem>
+                              <Paragraph>ローカルプレイリストでは補完値を編集保存時のみDBへ反映するようにし、外部同期プレイリストの編集制約は維持</Paragraph>
+                            </ListItem>
+                          </List>
+                        </ListItem>
+                        <ListItem>
                           <Paragraph FontWeight="Bold">1.1.1.0:</Paragraph>
                           <List MarkerStyle="Box">
                             <ListItem>
