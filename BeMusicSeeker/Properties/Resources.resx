@@ -927,6 +927,18 @@ BMSファイルが重複しないようにマージします。
   <data name="Playlist_table_uri" xml:space="preserve">
     <value>難易度表リスト取得URI</value>
   </data>
+  <data name="Playlist_md5_url_mapping_tsv_uri" xml:space="preserve">
+    <value>MD5-URLマッピングTSV取得URI</value>
+  </data>
+  <data name="Playlist_url_completion_enable" xml:space="preserve">
+    <value>プレイリストの url, url_diff が空の場合補完を試みる</value>
+  </data>
+  <data name="Playlist_url_completion_overwrite" xml:space="preserve">
+    <value>空ではない url, url_diff も補完機能で上書きする</value>
+  </data>
+  <data name="Error_InvalidPlaylistMd5UrlMappingTsvUri" xml:space="preserve">
+    <value>MD5-URLマッピングTSV取得URIが正しくありません。</value>
+  </data>
   <data name="Open_Url_diff" xml:space="preserve">
     <value>差分URLを開く</value>
   </data>

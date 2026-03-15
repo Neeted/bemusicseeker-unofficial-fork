@@ -570,6 +570,14 @@ public class Resources
 
     public static string Playlist_table_uri => ResourceManager.GetString("Playlist_table_uri", resourceCulture);
 
+    public static string Playlist_md5_url_mapping_tsv_uri => ResourceManager.GetString("Playlist_md5_url_mapping_tsv_uri", resourceCulture);
+
+    public static string Playlist_url_completion_enable => ResourceManager.GetString("Playlist_url_completion_enable", resourceCulture);
+
+    public static string Playlist_url_completion_overwrite => ResourceManager.GetString("Playlist_url_completion_overwrite", resourceCulture);
+
+    public static string Error_InvalidPlaylistMd5UrlMappingTsvUri => ResourceManager.GetString("Error_InvalidPlaylistMd5UrlMappingTsvUri", resourceCulture);
+
     public static string PlaylistProp_asc => ResourceManager.GetString("PlaylistProp_asc", resourceCulture);
 
     public static string PlaylistProp_datauri => ResourceManager.GetString("PlaylistProp_datauri", resourceCulture);

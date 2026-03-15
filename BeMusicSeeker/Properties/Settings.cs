@@ -144,6 +144,60 @@ internal sealed class Settings : ApplicationSettingsBase
 		}
 	}
 
+	/// <summary>
+	/// プレイリストの URL1/URL2 が空欄のときに、外部マッピングからランタイム補完を試みるかどうかを取得または設定します。
+	/// </summary>
+	[UserScopedSetting]
+	[DebuggerNonUserCode]
+	[DefaultSettingValue("True")]
+	public bool EnablePlaylistUrlCompletion
+	{
+		get
+		{
+			return (bool)this["EnablePlaylistUrlCompletion"];
+		}
+		set
+		{
+			this["EnablePlaylistUrlCompletion"] = value;
+		}
+	}
+
+	/// <summary>
+	/// 補完値が見つかった場合に、既存の URL1/URL2 を画面表示上書きして補完値を優先するかどうかを取得または設定します。
+	/// </summary>
+	[UserScopedSetting]
+	[DebuggerNonUserCode]
+	[DefaultSettingValue("False")]
+	public bool OverwritePlaylistUrlsWithCompletion
+	{
+		get
+		{
+			return (bool)this["OverwritePlaylistUrlsWithCompletion"];
+		}
+		set
+		{
+			this["OverwritePlaylistUrlsWithCompletion"] = value;
+		}
+	}
+
+	/// <summary>
+	/// MD5 と URL の対応 TSV を取得する URI またはローカルファイルパスを取得または設定します。
+	/// </summary>
+	[UserScopedSetting]
+	[DebuggerNonUserCode]
+	[DefaultSettingValue("https://raw.githubusercontent.com/Neeted/bemusicseeker-unofficial-fork/main/bms-md5-url-map.tsv")]
+	public string PlaylistMd5UrlMappingTsvUri
+	{
+		get
+		{
+			return (string)this["PlaylistMd5UrlMappingTsvUri"];
+		}
+		set
+		{
+			this["PlaylistMd5UrlMappingTsvUri"] = value;
+		}
+	}
+
 	[UserScopedSetting]
 	[DebuggerNonUserCode]
 	[DefaultSettingValue("")]

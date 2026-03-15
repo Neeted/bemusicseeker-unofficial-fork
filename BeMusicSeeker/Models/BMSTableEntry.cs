@@ -7,7 +7,7 @@ using Codeplex.Data;
 
 namespace BeMusicSeeker.Models;
 
-public class BMSTableEntry : LR2SongDBExtended.playlist_entry
+public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
 {
 	protected BMSFile _bmsfile;
 
@@ -190,6 +190,8 @@ public class BMSTableEntry : LR2SongDBExtended.playlist_entry
 				return;
 			}
 			deferredUrlRaw = null;
+			_url = null;
+			runtimeUrlCompletion = null;
 			if (value == null || string.IsNullOrWhiteSpace(value))
 			{
 				return;
@@ -207,7 +209,9 @@ public class BMSTableEntry : LR2SongDBExtended.playlist_entry
 		}
 		set
 		{
+			deferredUrlRaw = null;
 			_url = value;
+			runtimeUrlCompletion = null;
 		}
 	}
 
@@ -230,6 +234,8 @@ public class BMSTableEntry : LR2SongDBExtended.playlist_entry
 				return;
 			}
 			deferredUrlDiffRaw = null;
+			_urlDiff = null;
+			runtimeUrlDiffCompletion = null;
 			if (value == null || string.IsNullOrWhiteSpace(value))
 			{
 				return;
@@ -247,7 +253,9 @@ public class BMSTableEntry : LR2SongDBExtended.playlist_entry
 		}
 		set
 		{
+			deferredUrlDiffRaw = null;
 			_urlDiff = value;
+			runtimeUrlDiffCompletion = null;
 		}
 	}
 
@@ -429,6 +437,7 @@ public class BMSTableEntry : LR2SongDBExtended.playlist_entry
 		obj.adddate = DateTime.Now;
 		obj.parent = null;
 		obj.playlist_id = null;
+		obj.ClearRuntimeUrlCompletions();
 		return obj;
 	}
 
@@ -479,11 +488,11 @@ public class BMSTableEntry : LR2SongDBExtended.playlist_entry
 			{
 				if (isDiff)
 				{
-					Url_diff = new Uri(value, UriKind.Absolute);
+					_urlDiff = new Uri(value, UriKind.Absolute);
 				}
 				else
 				{
-					Url = new Uri(value, UriKind.Absolute);
+					_url = new Uri(value, UriKind.Absolute);
 				}
 			}
 			else if (parent != null)
@@ -493,11 +502,11 @@ public class BMSTableEntry : LR2SongDBExtended.playlist_entry
 				{
 					if (isDiff)
 					{
-						Url_diff = new Uri(absoluteDataUrl, value);
+						_urlDiff = new Uri(absoluteDataUrl, value);
 					}
 					else
 					{
-						Url = new Uri(absoluteDataUrl, value);
+						_url = new Uri(absoluteDataUrl, value);
 					}
 				}
 			}

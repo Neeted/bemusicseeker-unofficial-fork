@@ -123,8 +123,8 @@ internal sealed class PlaylistDetailSourceRow
         genre = realFile?.genre ?? string.Empty;
         mode = realFile?.mode ?? scoreProbe?.mode;
         tag = realFile?.tag ?? string.Empty;
-        Url = entry.Url;
-        Url_diff = entry.Url_diff;
+        Url = entry.EffectiveUrl;
+        Url_diff = entry.EffectiveUrlDiff;
         name_diff = entry.name_diff ?? string.Empty;
         warning = snapshotSource?.warning ?? string.Empty;
         HasZeroNoteMismatchWarning = snapshotSource?.HasZeroNoteMismatchWarning ?? false;

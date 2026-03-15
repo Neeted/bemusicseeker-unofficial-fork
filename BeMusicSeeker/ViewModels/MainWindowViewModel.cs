@@ -146,6 +146,12 @@ public class MainWindowViewModel : ViewModel
 
         private Uri tempTableListURL;
 
+        private bool tempEnablePlaylistUrlCompletion;
+
+        private bool tempOverwritePlaylistUrlsWithCompletion;
+
+        private string tempPlaylistMd5UrlMappingTsvUri;
+
         private bool tempIsLR2BackupEnabled;
 
         private string tempLR2BackupPath;
@@ -683,6 +689,67 @@ public class MainWindowViewModel : ViewModel
                     }
                     RaisePropertyChanged("TableListURL");
                 }
+            }
+        }
+
+        public bool EnablePlaylistUrlCompletion
+        {
+            get
+            {
+                return Settings.Default.EnablePlaylistUrlCompletion;
+            }
+            set
+            {
+                if (Settings.Default.EnablePlaylistUrlCompletion != value)
+                {
+                    Settings.Default.EnablePlaylistUrlCompletion = value;
+                    RaisePropertyChanged("EnablePlaylistUrlCompletion");
+                }
+            }
+        }
+
+        public bool OverwritePlaylistUrlsWithCompletion
+        {
+            get
+            {
+                return Settings.Default.OverwritePlaylistUrlsWithCompletion;
+            }
+            set
+            {
+                if (Settings.Default.OverwritePlaylistUrlsWithCompletion != value)
+                {
+                    Settings.Default.OverwritePlaylistUrlsWithCompletion = value;
+                    RaisePropertyChanged("OverwritePlaylistUrlsWithCompletion");
+                }
+            }
+        }
+
+        public string PlaylistMd5UrlMappingTsvUri
+        {
+            get
+            {
+                if (Settings.Default.PlaylistMd5UrlMappingTsvUri == null)
+                {
+                    Settings.Default.PlaylistMd5UrlMappingTsvUri = PlaylistUrlCompletionSupport.DefaultMd5UrlMappingTsvUri;
+                }
+                return Settings.Default.PlaylistMd5UrlMappingTsvUri;
+            }
+            set
+            {
+                string normalizedValue = value ?? string.Empty;
+                if (string.Equals(Settings.Default.PlaylistMd5UrlMappingTsvUri, normalizedValue, StringComparison.Ordinal))
+                {
+                    return;
+                }
+                if (IsPlaylistMd5UrlMappingTsvUriValid(normalizedValue))
+                {
+                    Settings.Default.PlaylistMd5UrlMappingTsvUri = normalizedValue;
+                }
+                else
+                {
+                    ownerViewModel.Messenger.Raise(new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Error_InvalidPlaylistMd5UrlMappingTsvUri, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
+                }
+                RaisePropertyChanged("PlaylistMd5UrlMappingTsvUri");
             }
         }
 
@@ -1844,7 +1911,21 @@ public class MainWindowViewModel : ViewModel
 
         private bool IsTableListURLValid(Uri value)
         {
-            return Uri.TryCreate(value.OriginalString, UriKind.RelativeOrAbsolute, out value);
+            return value != null && Uri.TryCreate(value.OriginalString, UriKind.RelativeOrAbsolute, out value);
+        }
+
+        private bool IsPlaylistMd5UrlMappingTsvUriValid()
+        {
+            return IsPlaylistMd5UrlMappingTsvUriValid(Settings.Default.PlaylistMd5UrlMappingTsvUri);
+        }
+
+        private bool IsPlaylistMd5UrlMappingTsvUriValid(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return true;
+            }
+            return PlaylistUrlCompletionSupport.TryResolveSourceUri(value, out var _);
         }
 
         private bool IsLR2BackupPathValid()
@@ -2150,6 +2231,9 @@ public class MainWindowViewModel : ViewModel
             tempLR2CustomFolderAsRootOutputDir = Settings.Default.LR2CustomFolderOutputBaseDirRootType;
             tempBMSInstallDir = Settings.Default.BMSInstallDir;
             tempTableListURL = Settings.Default.TableListURL;
+            tempEnablePlaylistUrlCompletion = Settings.Default.EnablePlaylistUrlCompletion;
+            tempOverwritePlaylistUrlsWithCompletion = Settings.Default.OverwritePlaylistUrlsWithCompletion;
+            tempPlaylistMd5UrlMappingTsvUri = Settings.Default.PlaylistMd5UrlMappingTsvUri;
             tempIsLR2BackupEnabled = Settings.Default.IsLR2BackupEnabled;
             tempLR2BackupPath = Settings.Default.LR2BackupPath;
             tempLR2BackupTarget = Settings.Default.LR2BackupTarget;
@@ -2279,6 +2363,10 @@ public class MainWindowViewModel : ViewModel
             {
                 ownerViewModel.Messenger.Raise(new ConfirmationMessage("LR2設定ファイルバックアップ機能は" + Environment.NewLine + "次回起動時から有効になります", "確認", MessageBoxImage.Asterisk, MessageBoxButton.OK, "ConfirmationDialog"));
             }
+            if (tempEnablePlaylistUrlCompletion != Settings.Default.EnablePlaylistUrlCompletion || tempOverwritePlaylistUrlsWithCompletion != Settings.Default.OverwritePlaylistUrlsWithCompletion || !string.Equals(tempPlaylistMd5UrlMappingTsvUri, Settings.Default.PlaylistMd5UrlMappingTsvUri, StringComparison.Ordinal))
+            {
+                ownerViewModel.tables.SchedulePlaylistUrlCompletionRefresh("SettingDialog.SaveSettings");
+            }
         }
 
         public bool CheckValidation()
@@ -2361,6 +2449,11 @@ public class MainWindowViewModel : ViewModel
                 errMsg = errMsg + "プレイリスト: 難易度表リスト取得URIが設定されていません" + Environment.NewLine;
                 result = false;
             }
+            if (EnablePlaylistUrlCompletion && !IsPlaylistMd5UrlMappingTsvUriValid())
+            {
+                errMsg = errMsg + "プレイリスト: " + BeMusicSeeker.Properties.Resources.Error_InvalidPlaylistMd5UrlMappingTsvUri + Environment.NewLine;
+                result = false;
+            }
             if (!IsBMSInstallDirValid())
             {
                 errMsg = errMsg + "インストール: BMSインストール先が設定されていません" + Environment.NewLine;
@@ -2408,6 +2501,9 @@ public class MainWindowViewModel : ViewModel
             Settings.Default.LR2CustomFolderOutputBaseDirRootType = tempLR2CustomFolderAsRootOutputDir;
             Settings.Default.BMSInstallDir = tempBMSInstallDir;
             Settings.Default.TableListURL = tempTableListURL;
+            Settings.Default.EnablePlaylistUrlCompletion = tempEnablePlaylistUrlCompletion;
+            Settings.Default.OverwritePlaylistUrlsWithCompletion = tempOverwritePlaylistUrlsWithCompletion;
+            Settings.Default.PlaylistMd5UrlMappingTsvUri = tempPlaylistMd5UrlMappingTsvUri;
             Settings.Default.LR2bodyResolution = tempLR2bodyResolution;
             Settings.Default.IsSaveLR2bodyWindowPosition = tempIsSaveLR2bodyWindowPosition;
             Settings.Default.IsLR2BackupEnabled = tempIsLR2BackupEnabled;
@@ -2480,6 +2576,9 @@ public class MainWindowViewModel : ViewModel
             RaisePropertyChanged(() => BMSInstallDir);
             RaisePropertyChanged(() => LR2CustomFolderAsRootOutputDir);
             RaisePropertyChanged(() => TableListURL);
+            RaisePropertyChanged(() => EnablePlaylistUrlCompletion);
+            RaisePropertyChanged(() => OverwritePlaylistUrlsWithCompletion);
+            RaisePropertyChanged(() => PlaylistMd5UrlMappingTsvUri);
             RaisePropertyChanged(() => IsLR2BackupEnabled);
             RaisePropertyChanged(() => LR2BackupPath);
             RaisePropertyChanged(() => LR2BackupTarget);

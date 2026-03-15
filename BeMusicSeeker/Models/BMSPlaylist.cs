@@ -30,7 +30,7 @@ namespace BeMusicSeeker.Models;
 /// LR2 のプレイリスト定義、外部テーブル同期、カスタムフォルダ出力を一括管理します。
 /// DB 永続化と外部取得の境界が同居しているため、この型がプレイリスト関連処理の集約点です。
 /// </summary>
-public class BMSPlaylist : NotificationObject
+public partial class BMSPlaylist : NotificationObject
 {
     /// <summary>
     /// 推定表の派生種類を識別します。
@@ -768,6 +768,7 @@ public class BMSPlaylist : NotificationObject
         }
         stopwatchInitialize.Stop();
         LogPlaylistPerformance("playlist_init update_tables_ms=" + updateTablesMs + " lr2config_sync_ms=" + lr2configSyncMs + " total_ms=" + stopwatchInitialize.ElapsedMilliseconds);
+        SchedulePlaylistUrlCompletionRefresh("Initialize");
         initSemaphore = null;
     }
 
@@ -1933,6 +1934,8 @@ public class BMSPlaylist : NotificationObject
                 }
             }
         }
+        ApplyCachedPlaylistUrlCompletionToTable(bMSTable, "RegistrateExternalTableAsync");
+        SchedulePlaylistUrlCompletionRefresh("RegistrateExternalTableAsync");
         return bMSTable;
     }
 
@@ -2031,6 +2034,7 @@ public class BMSPlaylist : NotificationObject
                                     }
                                 }
                             }
+                            ApplyCachedPlaylistUrlCompletionToTable(newTable, "UpdateBMSTablesInternalAsync");
                             playlistSyncAttemptResult = PlaylistSyncAttemptResult.CreateSuccess(table, newTable, uri, arg);
                         }
                         catch (Exception ex)
@@ -2093,6 +2097,10 @@ public class BMSPlaylist : NotificationObject
             long num2 = (long)TimeSpan.FromTicks(Interlocked.Read(ref updateCallbacksTicks)).TotalMilliseconds;
             long num3 = (long)TimeSpan.FromTicks(Interlocked.Read(ref updateCommitTicks)).TotalMilliseconds;
             LogPlaylistPerformance("playlist_update update_external_sync_ms=" + num + " update_callbacks_ms=" + num2 + " update_commit_ms=" + num3 + " table_count=" + tableSnapshot.Count + " updated_count=" + updatedTables.Count + " total_ms=" + stopwatchUpdateTablesTotal.ElapsedMilliseconds);
+            if (reloadExtPlaylist)
+            {
+                SchedulePlaylistUrlCompletionRefresh("UpdateBMSTablesInternalAsync");
+            }
             return updatedTables;
         }
         finally
@@ -2121,19 +2129,22 @@ public class BMSPlaylist : NotificationObject
             throw new ArgumentNullException("bmsTable");
         }
         BMSTable reloadedTable = await reloadBMSTableAsync(bmsTable, pageUri, cancellationToken).ConfigureAwait(false);
+        BMSTable mergedTable;
         using (rwlockBMSTables.GetWriterGuard())
         {
             using (bmsTable.ReaderWriterLock.GetWriterGuard())
             {
-                BMSTable bMSTable = MergeReloadedBMSTableState(bmsTable, reloadedTable, logLastUpdateDecision: true);
-                using (bMSTable.ReaderWriterLock.GetWriterGuard())
+                mergedTable = MergeReloadedBMSTableState(bmsTable, reloadedTable, logLastUpdateDecision: true);
+                using (mergedTable.ReaderWriterLock.GetWriterGuard())
                 {
-                    BMSTables[BMSTables.IndexOf(bmsTable)] = bMSTable;
-                    CommitBMSTable(bMSTable);
-                    return bMSTable;
+                    BMSTables[BMSTables.IndexOf(bmsTable)] = mergedTable;
+                    CommitBMSTable(mergedTable);
                 }
             }
         }
+        ApplyCachedPlaylistUrlCompletionToTable(mergedTable, "ResetBMSTableAsync");
+        SchedulePlaylistUrlCompletionRefresh("ResetBMSTableAsync");
+        return mergedTable;
     }
 
     /// <summary>
@@ -2703,6 +2714,11 @@ public class BMSPlaylist : NotificationObject
         if (!entry.playlist_id.HasValue)
         {
             return;
+        }
+        BMSTable owningTable = ResolveOwningTableForEntry(entry);
+        if (owningTable == null || !owningTable.is_external_sync)
+        {
+            entry.MaterializeEffectiveUrlsIntoPersistedValues();
         }
         try
         {
