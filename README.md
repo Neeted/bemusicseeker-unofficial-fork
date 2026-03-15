@@ -106,6 +106,9 @@ The list below focuses on the main differences from the traditional build.
   - A `STATUS` column has been added. It shows the latest result of external playlist sync attempts made after startup, making it easier to notice broken links and errors such as failed header/data retrieval. Detailed information is available in a tooltip.
 - **Added single-playlist reload**
   - Individual tables can now be reloaded from the playlist tree or playlist summary detail view via the context menu.
+- **Added automatic playlist URL completion**
+  - When `url` / `url_diff` are missing, the app can now fill them at runtime by matching MD5 values against an external TSV and Stella Uploader data.
+  - The TSV source URI is configurable from the settings screen, and can point to HTTP/HTTPS resources or a local TSV file. If a more comprehensive mapping source becomes available, it can be swapped in directly.
 
 #### Duplicate file checking
 
