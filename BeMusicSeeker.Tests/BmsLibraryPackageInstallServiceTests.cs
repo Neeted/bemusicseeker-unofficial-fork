@@ -729,6 +729,127 @@ public sealed class BmsLibraryPackageInstallServiceTests
         });
     }
 
+    [TestMethod]
+    public void MovePackageFiles_DeletesParentDirectory_WhenRemainingFilesAreEmpty()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            SafeDeleteMoveSetup setup = CreateSingleChartParentDeleteSetup(tempDirectoryPath, "install-target", "#TITLE Installed");
+
+            bool moved = ExecuteSingleChartParentDeleteMove(setup, existingHashes: null, out List<string> logs);
+
+            Assert.IsTrue(moved);
+            Assert.IsFalse(Directory.Exists(setup.ParentDirectoryPath));
+            Assert.IsTrue(File.Exists(Path.Combine(setup.DestinationDirectoryPath, "install-target.bms")));
+            Assert.IsTrue(logs.Any(message => message.IndexOf("Folder deletion success:", StringComparison.OrdinalIgnoreCase) >= 0));
+        });
+    }
+
+    [TestMethod]
+    public void MovePackageFiles_KeepsParentDirectory_WhenUninstalledChartRemains()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            SafeDeleteMoveSetup setup = CreateSingleChartParentDeleteSetup(tempDirectoryPath, "install-target", "#TITLE Installed");
+            string remainingChartPath = CreateBmsFile(setup.ParentDirectoryPath, "remain-uninstalled.bms", "#TITLE Remain Uninstalled");
+
+            bool moved = ExecuteSingleChartParentDeleteMove(setup, existingHashes: null, out List<string> logs);
+
+            Assert.IsTrue(moved);
+            Assert.IsTrue(Directory.Exists(setup.ParentDirectoryPath));
+            Assert.IsTrue(File.Exists(remainingChartPath));
+            Assert.IsTrue(File.Exists(Path.Combine(setup.DestinationDirectoryPath, "install-target.bms")));
+            Assert.IsTrue(logs.Any(message => message.IndexOf("Folder deletion skipped:", StringComparison.OrdinalIgnoreCase) >= 0 && message.IndexOf("remaining_chart_not_installed", StringComparison.OrdinalIgnoreCase) >= 0));
+        });
+    }
+
+    [TestMethod]
+    public void MovePackageFiles_DeletesParentDirectory_WhenOnlyInstalledChartsRemain()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            SafeDeleteMoveSetup setup = CreateSingleChartParentDeleteSetup(tempDirectoryPath, "install-target", "#TITLE Installed");
+            string remainingChartPath = CreateBmsFile(setup.ParentDirectoryPath, "remain-installed.bms", "#TITLE Remain Installed");
+            string remainingHash = BMSFile.CreateBMSFileFromFile(remainingChartPath).hash;
+
+            bool moved = ExecuteSingleChartParentDeleteMove(
+                setup,
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase) { remainingHash },
+                out List<string> logs);
+
+            Assert.IsTrue(moved);
+            Assert.IsFalse(Directory.Exists(setup.ParentDirectoryPath));
+            Assert.IsTrue(File.Exists(Path.Combine(setup.DestinationDirectoryPath, "install-target.bms")));
+            Assert.IsTrue(logs.Any(message => message.IndexOf("Folder deletion success:", StringComparison.OrdinalIgnoreCase) >= 0 && message.IndexOf("remaining_files_all_installed_charts", StringComparison.OrdinalIgnoreCase) >= 0));
+        });
+    }
+
+    [TestMethod]
+    public void MovePackageFiles_KeepsParentDirectory_WhenNonChartFileRemains()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            SafeDeleteMoveSetup setup = CreateSingleChartParentDeleteSetup(tempDirectoryPath, "install-target", "#TITLE Installed");
+            string readmePath = Path.Combine(setup.ParentDirectoryPath, "readme.txt");
+            File.WriteAllText(readmePath, "remaining text");
+
+            bool moved = ExecuteSingleChartParentDeleteMove(setup, existingHashes: null, out List<string> logs);
+
+            Assert.IsTrue(moved);
+            Assert.IsTrue(Directory.Exists(setup.ParentDirectoryPath));
+            Assert.IsTrue(File.Exists(readmePath));
+            Assert.IsTrue(logs.Any(message => message.IndexOf("Folder deletion skipped:", StringComparison.OrdinalIgnoreCase) >= 0 && message.IndexOf("remaining_non_chart_file", StringComparison.OrdinalIgnoreCase) >= 0));
+        });
+    }
+
+    [TestMethod]
+    public void MovePackageFiles_KeepsParentDirectory_WhenRemainingChartHashCannotBeMatched()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            SafeDeleteMoveSetup setup = CreateSingleChartParentDeleteSetup(tempDirectoryPath, "install-target", "#TITLE Installed");
+            string nestedDirectoryPath = Path.Combine(setup.ParentDirectoryPath, "Nested");
+            Directory.CreateDirectory(nestedDirectoryPath);
+            string nestedChartPath = CreateBmsFile(nestedDirectoryPath, "remain-nested.bms", "#TITLE Nested Remain");
+
+            bool moved = ExecuteSingleChartParentDeleteMove(setup, existingHashes: null, out List<string> logs);
+
+            Assert.IsTrue(moved);
+            Assert.IsTrue(Directory.Exists(setup.ParentDirectoryPath));
+            Assert.IsTrue(File.Exists(nestedChartPath));
+            Assert.IsTrue(logs.Any(message => message.IndexOf("Folder deletion skipped:", StringComparison.OrdinalIgnoreCase) >= 0 && message.IndexOf("remaining_chart_not_installed", StringComparison.OrdinalIgnoreCase) >= 0));
+        });
+    }
+
+    [TestMethod]
+    public void MovePackageFiles_DeletesParentDirectory_WhenNestedRemainingChartsAreAllInstalled()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            SafeDeleteMoveSetup setup = CreateSingleChartParentDeleteSetup(tempDirectoryPath, "install-target", "#TITLE Installed");
+            string nestedDirectoryPath = Path.Combine(setup.ParentDirectoryPath, "Nested");
+            Directory.CreateDirectory(nestedDirectoryPath);
+            string nestedChartPath = CreateBmsFile(nestedDirectoryPath, "remain-nested-installed.bms", "#TITLE Nested Installed");
+            string nestedHash = BMSFile.CreateBMSFileFromFile(nestedChartPath).hash;
+
+            bool moved = ExecuteSingleChartParentDeleteMove(
+                setup,
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase) { nestedHash },
+                out List<string> logs);
+
+            Assert.IsTrue(moved);
+            Assert.IsFalse(Directory.Exists(setup.ParentDirectoryPath));
+            Assert.IsTrue(File.Exists(Path.Combine(setup.DestinationDirectoryPath, "install-target.bms")));
+            Assert.IsTrue(logs.Any(message => message.IndexOf("Folder deletion success:", StringComparison.OrdinalIgnoreCase) >= 0 && message.IndexOf("remaining_files_all_installed_charts", StringComparison.OrdinalIgnoreCase) >= 0));
+        });
+    }
+
     private static TestableBmsFile CreateFile(string hash, string path)
     {
         TestableBmsFile file = new TestableBmsFile
@@ -737,6 +858,62 @@ public sealed class BmsLibraryPackageInstallServiceTests
         };
         file.SetHash(hash);
         return file;
+    }
+
+    private static SafeDeleteMoveSetup CreateSingleChartParentDeleteSetup(string tempDirectoryPath, string chartBaseName, string chartBody)
+    {
+        string parentDirectoryPath = Path.Combine(tempDirectoryPath, "Pending", "Parent");
+        string destinationDirectoryPath = Path.Combine(tempDirectoryPath, "Installed", "Package");
+        Directory.CreateDirectory(parentDirectoryPath);
+        string sourceChartPath = CreateBmsFile(parentDirectoryPath, chartBaseName + ".bms", chartBody);
+        BMSFile sourceChart = BMSFile.CreateBMSFileFromFile(sourceChartPath);
+        BMSPackage package = new BMSPackage(new[] { sourceChart })
+        {
+            path = sourceChartPath,
+            delete_parent = true
+        };
+        return new SafeDeleteMoveSetup
+        {
+            ParentDirectoryPath = parentDirectoryPath,
+            DestinationDirectoryPath = destinationDirectoryPath,
+            SourceChartPath = sourceChartPath,
+            Package = package
+        };
+    }
+
+    private static bool ExecuteSingleChartParentDeleteMove(SafeDeleteMoveSetup setup, HashSet<string> existingHashes, out List<string> logs)
+    {
+        BmsLibraryPackageInstallService service = new BmsLibraryPackageInstallService();
+        RealFileMutationService fileMutationService = new RealFileMutationService();
+        List<string> localLogs = new List<string>();
+        bool moved = service.MovePackageFiles(
+            setup.Package,
+            setup.DestinationDirectoryPath,
+            new BmsLibraryOptionsSnapshot
+            {
+                EnableSmartComponentOverwrite = false,
+                KeepSmartOverwriteProtectedFilesByRenaming = false
+            },
+            (_, _, _) => throw new AssertFailedException("createFolderPath should not be called when destination is specified."),
+            ex => ex.Message,
+            fileMutationService,
+            null,
+            null,
+            null,
+            message => localLogs.Add(message),
+            showMessageBoxOnInstallFail: false,
+            deleteAllContents: true,
+            existingHashes: existingHashes);
+        logs = localLogs;
+        return moved;
+    }
+
+    private static string CreateBmsFile(string directoryPath, string fileName, string titleLine)
+    {
+        Directory.CreateDirectory(directoryPath);
+        string filePath = Path.Combine(directoryPath, fileName);
+        File.WriteAllText(filePath, "#PLAYER 1\r\n" + titleLine + "\r\n#ARTIST Test\r\n");
+        return filePath;
     }
 
     private static void WithTemporaryDirectory(Action<string> testAction)
@@ -754,6 +931,17 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 Directory.Delete(tempDirectoryPath, recursive: true);
             }
         }
+    }
+
+    private sealed class SafeDeleteMoveSetup
+    {
+        public string ParentDirectoryPath { get; set; } = string.Empty;
+
+        public string DestinationDirectoryPath { get; set; } = string.Empty;
+
+        public string SourceChartPath { get; set; } = string.Empty;
+
+        public BMSPackage Package { get; set; } = null!;
     }
 
     private sealed class TestableBmsFile : BMSFile
