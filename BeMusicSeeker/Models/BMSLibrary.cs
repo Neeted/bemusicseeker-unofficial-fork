@@ -4138,6 +4138,7 @@ public class BMSLibrary : NotificationObject
             LogInstallPerformance("pending_regroup skip reason=" + skipReason + " source=" + sourceDirectoryPath + " packages=" + sourcePackages.Count);
             return;
         }
+        ReinitializePendingWarningsForPackageUnsafe(regroupedPackage, CreateBMSHashSnapshotExcludingUnsafe(null));
         ReplacePendingPackagesWithRegroupedPackageUnsafe(sourcePackages, regroupedPackage);
         dbGateway.DeleteInstallRows(sourcePackages.Select((BMSPackage pendingPackage) => pendingPackage.path));
         dbGateway.UpsertInstallRows(new BMSPackage[1] { regroupedPackage });
@@ -4224,6 +4225,33 @@ public class BMSLibrary : NotificationObject
             return false;
         }
         return true;
+    }
+
+    private void ReinitializePendingWarningsForPackageUnsafe(BMSPackage package, ISet<string> installedHashes)
+    {
+        if (package == null)
+        {
+            return;
+        }
+        bool isSingleFilePackage = !Directory.Exists(package.path);
+        HashSet<string> installedHashSet = installedHashes as HashSet<string> ?? new HashSet<string>(installedHashes ?? Enumerable.Empty<string>(), StringComparer.OrdinalIgnoreCase);
+        foreach (BMSFile bmsFile in (package.BMSFiles ?? new List<BMSFile>()).Where((BMSFile file) => file != null))
+        {
+            bmsFile.SetHealthStatus(null, forceUpdate: false, memClear: false);
+            bmsFile.warning = null;
+            if (IsBMSHashAvailable(bmsFile.hash) && installedHashSet.Contains(bmsFile.hash))
+            {
+                bmsFile.warning = Resources.Warning_AlreadyInstalled;
+            }
+            else if (isSingleFilePackage)
+            {
+                bmsFile.warning = Resources.Warning_SingleBmsFile;
+            }
+            else
+            {
+                checkBMSFileNeedToBeFixedAndSetWarnings(bmsFile, bmsFile.maintenanceInfo, strictCheck: true);
+            }
+        }
     }
 
     private void ReplacePendingPackagesWithRegroupedPackageUnsafe(List<BMSPackage> sourcePackages, BMSPackage regroupedPackage)
