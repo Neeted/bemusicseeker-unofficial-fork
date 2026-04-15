@@ -16,6 +16,7 @@ using System.Windows;
 using System.Windows.Forms;
 using System.Windows.Threading;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
@@ -3991,6 +3992,8 @@ public class MainWindowViewModel : ViewModel
 
     private bool initializationCompleted;
 
+    private bool bmsonMigrationApprovedForSession;
+
     private BMSLibrary files;
 
     private BMSPlaylist tables;
@@ -7837,6 +7840,69 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
+    internal static string BuildBmsonMigrationWarningMessage(BmsonMigrationPreflightResult preflightResult)
+    {
+        if (preflightResult == null)
+        {
+            throw new ArgumentNullException(nameof(preflightResult));
+        }
+        StringBuilder stringBuilder = new StringBuilder();
+        stringBuilder.Append("bmson 対応のため、初回起動時にプレイリストやハッシュ管理用テーブルへ変更を加えます。");
+        stringBuilder.Append(Environment.NewLine);
+        stringBuilder.Append(Environment.NewLine);
+        stringBuilder.Append("初回の SHA-256 生成はライブラリ規模によってかなり時間がかかります。");
+        stringBuilder.Append(Environment.NewLine);
+        stringBuilder.Append("更新後の DB は、従来版 BeMusicSeeker および本フォーク版 v1.2.1.0 以前と互換性がない可能性があります。");
+        stringBuilder.Append(Environment.NewLine);
+        stringBuilder.Append("互換性に不安がある場合は、事前に song.db などのバックアップを推奨します。");
+        return stringBuilder.ToString();
+    }
+
+    internal static bool ApplyBmsonMigrationPreflightForStartup(BmsonMigrationPreflightResult preflightResult, ref bool approvedForSession, Func<string, bool?> confirmWarning, Action ensureSchema, Action shutdown)
+    {
+        if (preflightResult == null)
+        {
+            throw new ArgumentNullException(nameof(preflightResult));
+        }
+        if (ensureSchema == null)
+        {
+            throw new ArgumentNullException(nameof(ensureSchema));
+        }
+        if (preflightResult.RequiresWarning && !approvedForSession)
+        {
+            if (confirmWarning == null)
+            {
+                throw new ArgumentNullException(nameof(confirmWarning));
+            }
+            if (confirmWarning(BuildBmsonMigrationWarningMessage(preflightResult)) != true)
+            {
+                shutdown?.Invoke();
+                return false;
+            }
+            approvedForSession = true;
+        }
+        ensureSchema();
+        return true;
+    }
+
+    private bool EnsureBmsonMigrationApprovedForStartup()
+    {
+        BmsonMigrationPreflightService bmsonMigrationPreflightService = new BmsonMigrationPreflightService();
+        BmsonMigrationPreflightResult preflightResult = bmsonMigrationPreflightService.Inspect(Settings.Default.LR2SongDBPath);
+        return ApplyBmsonMigrationPreflightForStartup(preflightResult, ref bmsonMigrationApprovedForSession, delegate (string message)
+        {
+            ConfirmationMessage confirmationMessage = new ConfirmationMessage(message, "bmson 対応に伴う移行警告", MessageBoxImage.Exclamation, MessageBoxButton.OKCancel, "ConfirmationDialog");
+            base.Messenger.Raise(confirmationMessage);
+            return confirmationMessage.Response;
+        }, delegate
+        {
+            BMSPlaylist.EnsureSchema(Settings.Default.LR2SongDBPath);
+        }, delegate
+        {
+            System.Windows.Application.Current?.Shutdown();
+        });
+    }
+
     /// <summary>
     /// アプリケーション初期起動時に実行される、メイン初期化ルーチンです。非同期で呼び出されます。<br/>
     /// 設定の妥当性チェック、BMSデータベース (LR2SongDB形式など) との接続、BMSプレイヤーインスタンスの生成、
@@ -7860,6 +7926,24 @@ public class MainWindowViewModel : ViewModel
             {
                 DispatcherMessageBox.Show(BeMusicSeeker.Properties.Resources.Msg_init_settings_check, BeMusicSeeker.Properties.Resources.Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
             }
+            _semaphore.Release();
+            base.Messenger.Raise(new InteractionMessage("InitializationException"));
+            return;
+        }
+        try
+        {
+            if (Settings.Default.OperationModeLR2DB && !EnsureBmsonMigrationApprovedForStartup())
+            {
+                _semaphore.Release();
+                return;
+            }
+        }
+        catch (Exception ex)
+        {
+            DispatcherMessageBox.Show(BeMusicSeeker.Properties.Resources.Msg_error_unexpected + Environment.NewLine + ex.ToString(), BeMusicSeeker.Properties.Resources.Error, MessageBoxButton.OK, MessageBoxImage.Hand);
+            Logger currentClassLogger = LogManager.GetCurrentClassLogger();
+            string text2 = Assembly.GetEntryAssembly().GetName().Version.ToString();
+            currentClassLogger.Error(ex, text2 + " - " + Environment.NewLine + ex.ToString(), null);
             _semaphore.Release();
             base.Messenger.Raise(new InteractionMessage("InitializationException"));
             return;

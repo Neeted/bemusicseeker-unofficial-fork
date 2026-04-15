@@ -162,6 +162,7 @@ public sealed class PlaylistUrlCompletionTests
         string tempDbPath = CreateEmptySongDbPath();
         try
         {
+            BMSPlaylist.EnsureSchema(tempDbPath);
             BMSPlaylist playlist = new BMSPlaylist(tempDbPath);
             BMSTable table = CreateTable(4001, "LocalTable");
             BMSTableEntry entry = CreateEntry("ffffffffffffffffffffffffffffffff", "LocalSong");
@@ -193,6 +194,7 @@ public sealed class PlaylistUrlCompletionTests
         string tempDbPath = CreateEmptySongDbPath();
         try
         {
+            BMSPlaylist.EnsureSchema(tempDbPath);
             BMSPlaylist playlist = new BMSPlaylist(tempDbPath);
             BMSTable table = CreateTable(4002, "ExternalTable");
             table.Page_url = new Uri("https://example.com/page.html");
@@ -228,6 +230,7 @@ public sealed class PlaylistUrlCompletionTests
         string tempDbPath = CreateEmptySongDbPath();
         try
         {
+            BMSPlaylist.EnsureSchema(tempDbPath);
             BMSPlaylist playlist = new BMSPlaylist(tempDbPath);
             BMSTable table = CreateTable(4003, "ShaTable");
             InsertPlaylistHeader(tempDbPath, table);

@@ -568,10 +568,6 @@ public partial class BMSPlaylist : NotificationObject
         lr2ScoreDBPath = _lr2ScoreDB;
         lr2config = ((getLR2Config != null) ? getLR2Config : ((Func<LR2Config>)(() => (LR2Config)null)));
         bmsScores = ((getBMSScores != null) ? getBMSScores : ((Func<List<BMSScore>>)(() => (List<BMSScore>)null)));
-        using (LR2SongDBExtended lR2SongDBExtended = new LR2SongDBExtended(lr2SongDBPath))
-        {
-            EnsurePlaylistTablesAndIndexes(lR2SongDBExtended);
-        }
         listenerForRwlockBMSTablesInitializedAll = new PropertyChangedEventListener(rwlockBMSTablesInitializeAll);
         listenerForRwlockBMSTablesInitializedMin = new PropertyChangedEventListener(rwlockBMSTablesInitializeMin);
         listenerForRwlockBMSTables = new PropertyChangedEventListener(rwlockBMSTables);
@@ -587,6 +583,24 @@ public partial class BMSPlaylist : NotificationObject
         {
             RaisePropertyChanged(() => IsWriteLockHeldBMSTables);
         });
+    }
+
+    /// <summary>
+    /// プレイリスト関連テーブルと index を現在のアプリ所有スキーマへ揃えます。
+    /// </summary>
+    /// <param name="songDbPath">対象の song.db パス。</param>
+    public static void EnsureSchema(string songDbPath)
+    {
+        if (songDbPath == null)
+        {
+            throw new ArgumentNullException(nameof(songDbPath));
+        }
+        if (!File.Exists(songDbPath))
+        {
+            throw new ArgumentException(string.Format(Resources.Error_LR2SongDBNotFound, songDbPath), nameof(songDbPath));
+        }
+        using LR2SongDBExtended lR2SongDBExtended = new LR2SongDBExtended(songDbPath);
+        EnsurePlaylistTablesAndIndexes(lR2SongDBExtended);
     }
 
     /// <summary>
@@ -815,6 +829,11 @@ public partial class BMSPlaylist : NotificationObject
         {
             db.CreateIndex(indexName, tableName, columnNames);
         }
+    }
+
+    internal static string SqlQuoteForTest(string value)
+    {
+        return sqlQuote(value);
     }
 
     /// <summary>
