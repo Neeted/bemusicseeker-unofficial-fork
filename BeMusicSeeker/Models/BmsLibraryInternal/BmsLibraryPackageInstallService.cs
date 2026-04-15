@@ -616,9 +616,29 @@ internal sealed class BmsLibraryPackageInstallService
         }
         if (!string.IsNullOrWhiteSpace(directoryToDelete) && Directory.Exists(directoryToDelete))
         {
-            if (!deleteAllContents && HasRemainingDirectoryEntries(directoryToDelete))
+            string folderDeletionDecisionReason = deleteAllContents
+                ? string.Empty
+                : "not_empty deleteAllContents=False";
+            if (deleteAllContents)
             {
-                logInstallPerformance?.Invoke("Folder deletion skipped: path=" + directoryToDelete + " reason=not_empty deleteAllContents=False");
+                if (!TryBuildInstalledHashSnapshotForSafeCleanup(existingHashes, package.BMSFiles, out HashSet<string> installedHashesForCleanup, out folderDeletionDecisionReason))
+                {
+                    logInstallPerformance?.Invoke("Folder deletion skipped: path=" + directoryToDelete + " reason=" + folderDeletionDecisionReason);
+                    return true;
+                }
+
+                // NOTE:
+                // delete_parent は探索時の親候補フラグに過ぎないため、通常インストールでは
+                // 実際に残ったファイルを見て「空」または「既所持譜面のみ」の場合にだけ再帰削除します。
+                if (!CanDeleteDirectoryAfterInstall(directoryToDelete, installedHashesForCleanup, out folderDeletionDecisionReason))
+                {
+                    logInstallPerformance?.Invoke("Folder deletion skipped: path=" + directoryToDelete + " reason=" + folderDeletionDecisionReason);
+                    return true;
+                }
+            }
+            else if (HasRemainingDirectoryEntries(directoryToDelete))
+            {
+                logInstallPerformance?.Invoke("Folder deletion skipped: path=" + directoryToDelete + " reason=" + folderDeletionDecisionReason);
                 return true;
             }
 
@@ -626,7 +646,7 @@ internal sealed class BmsLibraryPackageInstallService
             try
             {
                 fileMutationService.DeleteDirectoryDirect(directoryToDelete, deleteAllContents, deleteOptions);
-                logInstallPerformance?.Invoke("Folder deletion success: path=" + directoryToDelete + " deleteAllContents=" + deleteAllContents);
+                logInstallPerformance?.Invoke("Folder deletion success: path=" + directoryToDelete + " deleteAllContents=" + deleteAllContents + " reason=" + folderDeletionDecisionReason);
             }
             catch (FileMutationException ex)
             {
@@ -653,6 +673,89 @@ internal sealed class BmsLibraryPackageInstallService
             }
         }
         return true;
+    }
+
+    private static bool TryBuildInstalledHashSnapshotForSafeCleanup(HashSet<string> existingHashes, IEnumerable<BMSFile> installedPackageFiles, out HashSet<string> installedHashes, out string reason)
+    {
+        installedHashes = existingHashes != null
+            ? new HashSet<string>(existingHashes, StringComparer.OrdinalIgnoreCase)
+            : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (BMSFile installedPackageFile in installedPackageFiles ?? Enumerable.Empty<BMSFile>())
+        {
+            if (installedPackageFile == null)
+            {
+                continue;
+            }
+            if (!IsBmsHashAvailable(installedPackageFile.hash))
+            {
+                reason = "current_package_hash_unavailable path=" + installedPackageFile.path;
+                return false;
+            }
+            installedHashes.Add(installedPackageFile.hash);
+        }
+        reason = "safe_cleanup_allowed pending_installed_hashes=" + installedHashes.Count;
+        return true;
+    }
+
+    private static bool CanDeleteDirectoryAfterInstall(string directoryPath, ISet<string> installedHashes, out string reason)
+    {
+        List<string> remainingFiles;
+        try
+        {
+            remainingFiles = Directory.EnumerateFiles(directoryPath, "*", System.IO.SearchOption.AllDirectories).ToList();
+        }
+        catch (Exception ex)
+        {
+            reason = "remaining_scan_failed path=" + directoryPath + " errorType=" + ex.GetType().FullName + " error=" + ex.Message;
+            return false;
+        }
+
+        if (remainingFiles.Count == 0)
+        {
+            reason = "safe_cleanup_allowed no_remaining_files";
+            return true;
+        }
+
+        foreach (string remainingFilePath in remainingFiles)
+        {
+            if (!IsSupportedChartFilePath(remainingFilePath))
+            {
+                reason = "remaining_non_chart_file path=" + remainingFilePath;
+                return false;
+            }
+
+            BMSFile remainingChart;
+            try
+            {
+                remainingChart = BMSFile.CreateBMSFileFromFile(remainingFilePath);
+            }
+            catch (Exception ex)
+            {
+                reason = "remaining_chart_load_failed path=" + remainingFilePath + " errorType=" + ex.GetType().FullName + " error=" + ex.Message;
+                return false;
+            }
+
+            if (remainingChart == null || !IsBmsHashAvailable(remainingChart.hash))
+            {
+                reason = "remaining_chart_hash_unavailable path=" + remainingFilePath;
+                return false;
+            }
+
+            if (installedHashes == null || !installedHashes.Contains(remainingChart.hash))
+            {
+                reason = "remaining_chart_not_installed path=" + remainingFilePath + " hash=" + remainingChart.hash;
+                return false;
+            }
+        }
+
+        reason = "safe_cleanup_allowed remaining_files_all_installed_charts count=" + remainingFiles.Count;
+        return true;
+    }
+
+    private static bool IsSupportedChartFilePath(string filePath)
+    {
+        string extension = Path.GetExtension(filePath);
+        return !string.IsNullOrWhiteSpace(extension) && BMSFile.bmsExtensions.Contains(extension, StringComparer.OrdinalIgnoreCase);
     }
 
     public AutoInstallWorkflowResult PrepareAutoInstallWorkflow(

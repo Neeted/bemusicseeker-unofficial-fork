@@ -3361,7 +3361,7 @@ public class BMSLibrary : NotificationObject
     /// <param name="pkg">移動対象のBMSパッケージ</param>
     /// <param name="installationDirectory">移動先ディレクトリ（nullの場合は自動命名）</param>
     /// <param name="showMessageBoxOnInstallFail">移動失敗時にエラーダイアログを表示するか</param>
-    /// <param name="deleteAllContents">移動元フォルダを中身ごと強制削除するか（マージ時はtrue）</param>
+    /// <param name="deleteAllContents">移動元フォルダを再帰削除対象として扱うか（通常インストール時は安全判定を通過した場合のみ削除）</param>
     /// <param name="existingHashes">既存BMSハッシュのスナップショット（重複スキップ用）</param>
     /// <param name="excludedComponentPaths">移動対象外のコンポーネントパス</param>
     /// <returns>移動成功時true</returns>
