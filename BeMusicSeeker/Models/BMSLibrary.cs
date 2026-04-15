@@ -3216,13 +3216,21 @@ public class BMSLibrary : NotificationObject
                         registeredPackages = discoveredPackages;
                     }
                 }
-                foreach (BMSPackage item2 in pendingPackagesToEstimate)
+                foreach (BMSPackage pendingPackage in pendingPackagesToEstimate)
                 {
                     if (token.IsCancellationRequested)
                     {
                         break;
                     }
-                    SearchEstimatedInstallationDirectory(item2);
+                    SearchEstimatedInstallationDirectory(pendingPackage);
+                }
+                if (!token.IsCancellationRequested)
+                {
+                    TryRegroupPendingPackagesForSourceDirectoriesUnsafe(
+                        pendingPackagesToEstimate
+                            .Select(GetPendingPackageSourceDirectoryPath)
+                            .Where((string sourceDirectoryPath) => !string.IsNullOrWhiteSpace(sourceDirectoryPath))
+                            .Distinct(StringComparer.OrdinalIgnoreCase));
                 }
             }
         }
@@ -3556,48 +3564,71 @@ public class BMSLibrary : NotificationObject
     /// <param name="package">推定を行うBMS差分パッケージオブジェクト</param>
     public void SearchEstimatedInstallationDirectory(BMSPackage package)
     {
-        if (BMSPackagesPending.Contains(package))
+        if (package == null)
         {
-            List<BMSFile> list = (package.BMSFiles ?? new List<BMSFile>()).Where((BMSFile x) => x != null).ToList();
-            if (list.Count == 0)
+            throw new ArgumentNullException("package");
+        }
+        using (rwlockBMSFilesInitializedAll.GetReaderGuard())
+        {
+            using (rwlockBMSFilesPendingInstall.GetWriterGuard())
             {
-                return;
-            }
-            IEnumerable<BMSFile> installedFiles = BMSFiles ?? new List<BMSFile>();
-            HashSet<string> hashSet = new HashSet<string>(installedFiles.Where((BMSFile x) => x != null).Select((BMSFile x) => x.hash), StringComparer.OrdinalIgnoreCase);
-            List<BMSFile> list2 = list.Where((BMSFile f) => IsBMSHashAvailable(f.hash) && hashSet.Contains(f.hash)).ToList();
-            List<BMSFile> list3 = list.Where((BMSFile f) => !IsBMSHashAvailable(f.hash) || !hashSet.Contains(f.hash)).ToList();
-            ApplyPackageMixedInstallWarnings(list2);
-            if (list3.Count == 0)
-            {
-                return;
-            }
-            // 部分既所持パッケージでは、既存譜面の実配置先を優先利用して未所持譜面の導入先を補完する。
-            if (list2.Count > 0)
-            {
-                if (TryResolveInstalledDestinationFromPackage(package, list3, out var resolvedDir))
+                using (rwlockBMSFiles.GetReaderGuard())
                 {
-                    foreach (BMSFile item in list3)
+                    using (rwlockSongDBInstall.GetWriterGuard())
                     {
-                        item.instl_dst = resolvedDir;
+                        if (!BMSPackagesPending.Contains(package))
+                        {
+                            return;
+                        }
+                        List<BMSFile> packageFiles = (package.BMSFiles ?? new List<BMSFile>()).Where((BMSFile file) => file != null).ToList();
+                        if (packageFiles.Count == 0)
+                        {
+                            return;
+                        }
+                        IEnumerable<BMSFile> installedFiles = BMSFiles ?? new List<BMSFile>();
+                        HashSet<string> installedHashes = new HashSet<string>(installedFiles.Where((BMSFile file) => file != null).Select((BMSFile file) => file.hash), StringComparer.OrdinalIgnoreCase);
+                        List<BMSFile> alreadyInstalledFiles = packageFiles.Where((BMSFile file) => IsBMSHashAvailable(file.hash) && installedHashes.Contains(file.hash)).ToList();
+                        List<BMSFile> missingFiles = packageFiles.Where((BMSFile file) => !IsBMSHashAvailable(file.hash) || !installedHashes.Contains(file.hash)).ToList();
+                        ApplyPackageMixedInstallWarnings(alreadyInstalledFiles);
+                        if (missingFiles.Count == 0)
+                        {
+                            TryRegroupPendingPackagesForPackageUnsafe(package);
+                            return;
+                        }
+                        // 部分既所持パッケージでは、既存譜面の実配置先を優先利用して未所持譜面の導入先を補完する。
+                        if (alreadyInstalledFiles.Count > 0)
+                        {
+                            if (TryResolveInstalledDestinationFromPackage(package, missingFiles, out var resolvedDir))
+                            {
+                                foreach (BMSFile missingFile in missingFiles)
+                                {
+                                    missingFile.instl_dst = resolvedDir;
+                                }
+                                TryRegroupPendingPackagesForPackageUnsafe(package);
+                                return;
+                            }
+                            // 解決できない場合だけ従来推定へフォールバックし、空欄のまま残るケースを減らす。
+                            LogInstallPerformance("mixed_package_resolve fallback reason=use_legacy_search missing=" + missingFiles.Count);
+                            searchEstimatedInstallationDirectory(missingFiles, asParallel: true, fixMode: true);
+                            TryRegroupPendingPackagesForPackageUnsafe(package);
+                            return;
+                        }
+                        searchEstimatedInstallationDirectory(missingFiles);
+                        TryRegroupPendingPackagesForPackageUnsafe(package);
                     }
-                    return;
                 }
-                // 解決できない場合だけ従来推定へフォールバックし、空欄のまま残るケースを減らす。
-                LogInstallPerformance("mixed_package_resolve fallback reason=use_legacy_search missing=" + list3.Count);
-                searchEstimatedInstallationDirectory(list3, asParallel: true, fixMode: true);
-                return;
-            }
-            if (list3.Count > 0)
-            {
-                searchEstimatedInstallationDirectory(list3);
             }
         }
     }
 
     public void SearchEstimatedInstallationDirectory(BMSFile bmsFile, bool asParallel = true, bool fixMode = false)
     {
+        if (bmsFile == null)
+        {
+            throw new ArgumentNullException("bmsFile");
+        }
         searchEstimatedInstallationDirectory(new BMSFile[1] { bmsFile }, asParallel, fixMode);
+        TryRegroupPendingPackagesForFile(bmsFile);
     }
 
     public void SearchMergeDestination(BMSPackage package)
@@ -4030,6 +4061,205 @@ public class BMSLibrary : NotificationObject
             _ => PrepareSkipReason.MissingInstallDestination
         };
         return resolution.Success;
+    }
+
+    private void TryRegroupPendingPackagesForFile(BMSFile bmsFile)
+    {
+        if (bmsFile == null)
+        {
+            return;
+        }
+        using (rwlockBMSFilesInitializedAll.GetReaderGuard())
+        {
+            using (rwlockBMSFilesPendingInstall.GetWriterGuard())
+            {
+                using (rwlockBMSFiles.GetReaderGuard())
+                {
+                    using (rwlockSongDBInstall.GetWriterGuard())
+                    {
+                        BMSPackage pendingPackage = BMSPackagesPending.FirstOrDefault((BMSPackage package) => package != null && package.BMSFiles.Any((BMSFile file) => ReferenceEquals(file, bmsFile) || (!string.IsNullOrWhiteSpace(file?.path) && !string.IsNullOrWhiteSpace(bmsFile.path) && file.path.Equals(bmsFile.path, StringComparison.OrdinalIgnoreCase))));
+                        if (pendingPackage != null)
+                        {
+                            TryRegroupPendingPackagesForPackageUnsafe(pendingPackage);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private void TryRegroupPendingPackagesForPackageUnsafe(BMSPackage package)
+    {
+        string sourceDirectoryPath = GetPendingPackageSourceDirectoryPath(package);
+        if (string.IsNullOrWhiteSpace(sourceDirectoryPath))
+        {
+            return;
+        }
+        TryRegroupPendingPackagesForSourceDirectoriesUnsafe(new string[1] { sourceDirectoryPath });
+    }
+
+    private void TryRegroupPendingPackagesForSourceDirectoriesUnsafe(IEnumerable<string> sourceDirectoryPaths)
+    {
+        List<string> sourceDirectories = (sourceDirectoryPaths ?? Enumerable.Empty<string>())
+            .Where((string path) => !string.IsNullOrWhiteSpace(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (sourceDirectories.Count == 0)
+        {
+            return;
+        }
+        Dictionary<string, List<string>> installedDirectoryIndexSnapshot = BuildInstalledHashToDirectoryMap();
+        foreach (string sourceDirectoryPath in sourceDirectories)
+        {
+            TryRegroupPendingPackagesForSourceDirectoryUnsafe(sourceDirectoryPath, installedDirectoryIndexSnapshot);
+        }
+    }
+
+    private void TryRegroupPendingPackagesForSourceDirectoryUnsafe(string sourceDirectoryPath, Dictionary<string, List<string>> installedDirectoryIndexSnapshot)
+    {
+        if (string.IsNullOrWhiteSpace(sourceDirectoryPath))
+        {
+            return;
+        }
+        List<BMSPackage> sourcePackages = BMSPackagesPending
+            .Where((BMSPackage pendingPackage) => pendingPackage != null && string.Equals(GetPendingPackageSourceDirectoryPath(pendingPackage), sourceDirectoryPath, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        if (sourcePackages.Count < 2)
+        {
+            return;
+        }
+        if (sourcePackages.Any((BMSPackage pendingPackage) => string.Equals(NormalizePendingPackagePath(pendingPackage.path), sourceDirectoryPath, StringComparison.OrdinalIgnoreCase)))
+        {
+            LogInstallPerformance("pending_regroup skip reason=already_directory_package source=" + sourceDirectoryPath + " packages=" + sourcePackages.Count);
+            return;
+        }
+        if (!TryBuildRegroupedPendingPackage(sourceDirectoryPath, sourcePackages, installedDirectoryIndexSnapshot, out BMSPackage regroupedPackage, out string resolvedDestinationDirectory, out string skipReason))
+        {
+            LogInstallPerformance("pending_regroup skip reason=" + skipReason + " source=" + sourceDirectoryPath + " packages=" + sourcePackages.Count);
+            return;
+        }
+        ReplacePendingPackagesWithRegroupedPackageUnsafe(sourcePackages, regroupedPackage);
+        dbGateway.DeleteInstallRows(sourcePackages.Select((BMSPackage pendingPackage) => pendingPackage.path));
+        dbGateway.UpsertInstallRows(new BMSPackage[1] { regroupedPackage });
+        LogInstallPerformance("pending_regroup success source=" + sourceDirectoryPath + " packages=" + sourcePackages.Count + " files=" + regroupedPackage.BMSFiles.Count + " dst=" + resolvedDestinationDirectory);
+    }
+
+    private bool TryBuildRegroupedPendingPackage(string sourceDirectoryPath, List<BMSPackage> sourcePackages, Dictionary<string, List<string>> installedDirectoryIndexSnapshot, out BMSPackage regroupedPackage, out string resolvedDestinationDirectory, out string skipReason)
+    {
+        regroupedPackage = null;
+        resolvedDestinationDirectory = null;
+        skipReason = "unknown";
+        List<BMSFile> regroupedFiles = new List<BMSFile>();
+        HashSet<BMSFile> seenFileReferences = new HashSet<BMSFile>();
+        HashSet<string> seenFilePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (BMSPackage sourcePackage in sourcePackages)
+        {
+            foreach (BMSFile sourceFile in (sourcePackage.BMSFiles ?? new List<BMSFile>()).Where((BMSFile file) => file != null))
+            {
+                if (seenFileReferences.Add(sourceFile) && (string.IsNullOrWhiteSpace(sourceFile.path) || seenFilePaths.Add(sourceFile.path)))
+                {
+                    regroupedFiles.Add(sourceFile);
+                }
+            }
+        }
+        if (regroupedFiles.Count == 0)
+        {
+            skipReason = "no_files";
+            return false;
+        }
+        HashSet<string> expectedDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (BMSFile regroupedFile in regroupedFiles)
+        {
+            if (!TryResolvePendingFileExpectedInstallDirectory(regroupedFile, installedDirectoryIndexSnapshot, out string expectedDirectory, out string unresolvedReason))
+            {
+                skipReason = unresolvedReason;
+                return false;
+            }
+            expectedDirectories.Add(expectedDirectory);
+            if (expectedDirectories.Count > 1)
+            {
+                skipReason = "split_expected_destination";
+                return false;
+            }
+        }
+        resolvedDestinationDirectory = expectedDirectories.Single();
+        foreach (BMSFile regroupedFile in regroupedFiles)
+        {
+            regroupedFile.instl_dst = resolvedDestinationDirectory;
+        }
+        regroupedPackage = new BMSPackage(regroupedFiles)
+        {
+            path = sourceDirectoryPath,
+            delete_parent = false
+        };
+        return true;
+    }
+
+    private bool TryResolvePendingFileExpectedInstallDirectory(BMSFile bmsFile, Dictionary<string, List<string>> installedDirectoryIndexSnapshot, out string expectedDirectory, out string reason)
+    {
+        expectedDirectory = null;
+        reason = "missing_expected_destination";
+        if (bmsFile == null)
+        {
+            reason = "null_file";
+            return false;
+        }
+        List<string> installedDirectories = GetDistinctInstalledDirectoriesByHash(installedDirectoryIndexSnapshot, bmsFile.hash);
+        if (installedDirectories.Count > 1)
+        {
+            reason = "multiple_installed_directories";
+            return false;
+        }
+        string installedDirectory = installedDirectories.FirstOrDefault();
+        string estimatedDirectory = string.IsNullOrWhiteSpace(bmsFile.instl_dst) ? null : bmsFile.instl_dst;
+        if (!string.IsNullOrWhiteSpace(installedDirectory) && !string.IsNullOrWhiteSpace(estimatedDirectory) && !installedDirectory.Equals(estimatedDirectory, StringComparison.OrdinalIgnoreCase))
+        {
+            reason = "installed_directory_conflict";
+            return false;
+        }
+        expectedDirectory = installedDirectory ?? estimatedDirectory;
+        if (string.IsNullOrWhiteSpace(expectedDirectory))
+        {
+            reason = "missing_expected_destination";
+            return false;
+        }
+        return true;
+    }
+
+    private void ReplacePendingPackagesWithRegroupedPackageUnsafe(List<BMSPackage> sourcePackages, BMSPackage regroupedPackage)
+    {
+        if (sourcePackages == null || sourcePackages.Count == 0 || regroupedPackage == null)
+        {
+            return;
+        }
+        List<BMSPackage> currentPendingPackages = BMSPackagesPending.Where((BMSPackage pendingPackage) => pendingPackage != null).ToList();
+        int insertIndex = currentPendingPackages.FindIndex((BMSPackage pendingPackage) => sourcePackages.Contains(pendingPackage));
+        if (insertIndex < 0)
+        {
+            insertIndex = currentPendingPackages.Count;
+        }
+        List<BMSPackage> replacedPendingPackages = currentPendingPackages.Where((BMSPackage pendingPackage) => !sourcePackages.Contains(pendingPackage)).ToList();
+        replacedPendingPackages.Insert(insertIndex, regroupedPackage);
+        BMSPackagesPending = new DispatcherCollection<BMSPackage>(new ObservableCollection<BMSPackage>(replacedPendingPackages), DispatcherHelper.UIDispatcher);
+    }
+
+    private static string GetPendingPackageSourceDirectoryPath(BMSPackage package)
+    {
+        return NormalizePendingPackagePath(package?.path) switch
+        {
+            string normalizedPath when string.IsNullOrWhiteSpace(normalizedPath) => null,
+            string normalizedPath when BMSFile.bmsExtensions.Contains(Path.GetExtension(normalizedPath), StringComparer.OrdinalIgnoreCase) => NormalizePendingPackagePath(Path.GetDirectoryName(normalizedPath)),
+            string normalizedPath => normalizedPath
+        };
+    }
+
+    private static string NormalizePendingPackagePath(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return null;
+        }
+        return path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
     }
 
     private bool HasResourceOverwriteTargetsForInstalledOnlyPackage(BMSPackage package, string destinationDir)
