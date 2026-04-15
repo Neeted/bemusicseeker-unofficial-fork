@@ -6,6 +6,8 @@ internal sealed class AutoInstallWorkflowResult
 {
     public List<BMSPackage> DiscoveredPackages { get; } = new List<BMSPackage>();
 
+    public List<string> RegroupEligibleSourceDirectories { get; } = new List<string>();
+
     public List<BMSPackage> PendingPackagesToRemove { get; } = new List<BMSPackage>();
 
     public List<BMSPackage> PendingPackagesToAdd { get; } = new List<BMSPackage>();

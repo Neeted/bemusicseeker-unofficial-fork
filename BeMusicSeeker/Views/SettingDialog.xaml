@@ -644,6 +644,17 @@
                       </FrameworkContentElement.Resources>
                       <List>
                         <ListItem>
+                          <Paragraph FontWeight="Bold">1.2.1.0:</Paragraph>
+                          <List MarkerStyle="Box">
+                            <ListItem>
+                              <Paragraph>保留パッケージについて、導入先が一致する場合に同一パッケージへ再統合するよう改善</Paragraph>
+                            </ListItem>
+                            <ListItem>
+                              <Paragraph>インストール後の元フォルダ削除処理を見直し、安全に削除できる場合のみ削除するよう改善</Paragraph>
+                            </ListItem>
+                          </List>
+                        </ListItem>
+                        <ListItem>
                           <Paragraph FontWeight="Bold">1.2.0.0:</Paragraph>
                           <List MarkerStyle="Box">
                             <ListItem>

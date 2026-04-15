@@ -265,7 +265,15 @@ internal sealed class BmsLibraryPackageInstallService
 
     public List<BMSPackage> SearchBmsFilesRecursively(string dirfullpath, double dupRateThreshInOnePkg, bool recursive = false)
     {
-        List<BMSPackage> result = new List<BMSPackage>();
+        return SearchBmsFilesRecursivelyWithMetadata(dirfullpath, dupRateThreshInOnePkg, recursive).Packages;
+    }
+
+    /// <summary>
+    /// ディレクトリ探索で見つかった BMS パッケージと、再統合候補ディレクトリをまとめて返します。
+    /// </summary>
+    internal BmsPackageDiscoveryResult SearchBmsFilesRecursivelyWithMetadata(string dirfullpath, double dupRateThreshInOnePkg, bool recursive = false)
+    {
+        BmsPackageDiscoveryResult result = new BmsPackageDiscoveryResult();
         IEnumerable<string> fileSystemEntries;
         try
         {
@@ -291,7 +299,7 @@ internal sealed class BmsLibraryPackageInstallService
                     return bMSFile.maintenanceInfo.wav_files_existing > 0 || bMSFile.maintenanceInfo.bga_files_existing > 0;
                 }))
             {
-                result.Add(new BMSPackage
+                result.Packages.Add(new BMSPackage
                 {
                     path = dirfullpath,
                     delete_parent = false
@@ -310,7 +318,7 @@ internal sealed class BmsLibraryPackageInstallService
                     .ToList();
                 if ((double)resourcesByChart.Aggregate(Enumerable.Intersect).Count() / (double)resourcesByChart.Select((IEnumerable<string> resourceList) => resourceList.Count()).Min() >= dupRateThreshInOnePkg)
                 {
-                    result.Add(new BMSPackage
+                    result.Packages.Add(new BMSPackage
                     {
                         path = dirfullpath,
                         delete_parent = false
@@ -318,19 +326,38 @@ internal sealed class BmsLibraryPackageInstallService
                 }
                 else
                 {
-                    result = bmsFiles.Select((string filePath) => new BMSPackage
+                    result.Packages.AddRange(bmsFiles.Select((string filePath) => new BMSPackage
                     {
                         path = filePath,
                         delete_parent = recursive
-                    }).ToList();
+                    }));
+                    result.RegroupEligibleSourceDirectories.Add(NormalizeDirectoryPath(dirfullpath));
                 }
             }
         }
         else if (directories.Count > 0)
         {
-            return directories.SelectMany((string dir) => SearchBmsFilesRecursively(dir, dupRateThreshInOnePkg, recursive: true)).ToList();
+            foreach (string dir in directories)
+            {
+                BmsPackageDiscoveryResult childResult = SearchBmsFilesRecursivelyWithMetadata(dir, dupRateThreshInOnePkg, recursive: true);
+                result.Packages.AddRange(childResult.Packages);
+                result.RegroupEligibleSourceDirectories.AddRange(childResult.RegroupEligibleSourceDirectories);
+            }
         }
+        List<string> distinctRegroupEligibleSourceDirectories = result.RegroupEligibleSourceDirectories
+            .Where((string path) => !string.IsNullOrWhiteSpace(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        result.RegroupEligibleSourceDirectories.Clear();
+        result.RegroupEligibleSourceDirectories.AddRange(distinctRegroupEligibleSourceDirectories);
         return result;
+    }
+
+    private static string NormalizeDirectoryPath(string directoryPath)
+    {
+        return string.IsNullOrWhiteSpace(directoryPath)
+            ? null
+            : directoryPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
     }
 
     public List<string> ExpandInstallSources(
@@ -782,11 +809,12 @@ internal sealed class BmsLibraryPackageInstallService
         }
         IEnumerable<IGrouping<string, string>> groupedPaths = from file in normalizedInstallPaths
                                                               group file by Path.GetDirectoryName(file)?.ToUpperInvariant();
-        List<BMSPackage> discoveredPackages = groupedPaths.SelectMany(delegate (IGrouping<string, string> paths)
+        List<BMSPackage> discoveredPackages = new List<BMSPackage>();
+        foreach (IGrouping<string, string> paths in groupedPaths)
         {
             if (string.IsNullOrWhiteSpace(paths.Key) || !Directory.Exists(paths.Key))
             {
-                return Enumerable.Empty<BMSPackage>();
+                continue;
             }
             List<string> files = paths.Where(File.Exists).ToList();
             List<string> directories = paths.Where(Directory.Exists).ToList();
@@ -794,7 +822,10 @@ internal sealed class BmsLibraryPackageInstallService
             string[] topEntries = Directory.GetFileSystemEntries(paths.Key, "*", System.IO.SearchOption.TopDirectoryOnly);
             if (files.Count + directories.Count == topEntries.Length)
             {
-                return SearchBmsFilesRecursively(paths.Key, dupRateThreshInOnePkg);
+                BmsPackageDiscoveryResult discoveryResult = SearchBmsFilesRecursivelyWithMetadata(paths.Key, dupRateThreshInOnePkg);
+                discoveredPackages.AddRange(discoveryResult.Packages);
+                result.RegroupEligibleSourceDirectories.AddRange(discoveryResult.RegroupEligibleSourceDirectories);
+                continue;
             }
             if (bmsFiles.Count > 0 && bmsFiles.Any(delegate (string bmsFilePath)
                 {
@@ -803,16 +834,25 @@ internal sealed class BmsLibraryPackageInstallService
                     return bMSFile.maintenanceInfo.wav_files_existing > 0 || bMSFile.maintenanceInfo.bga_files_existing > 0;
                 }))
             {
-                return SearchBmsFilesRecursively(paths.Key, dupRateThreshInOnePkg);
+                BmsPackageDiscoveryResult discoveryResult = SearchBmsFilesRecursivelyWithMetadata(paths.Key, dupRateThreshInOnePkg);
+                discoveredPackages.AddRange(discoveryResult.Packages);
+                result.RegroupEligibleSourceDirectories.AddRange(discoveryResult.RegroupEligibleSourceDirectories);
+                continue;
             }
             List<BMSPackage> singleFilePackages = bmsFiles.Select((string filePath) => new BMSPackage
             {
                 path = filePath,
                 delete_parent = false
             }).ToList();
-            List<BMSPackage> directoryPackages = directories.SelectMany((string dir) => SearchBmsFilesRecursively(dir, dupRateThreshInOnePkg)).ToList();
-            return singleFilePackages.Concat(directoryPackages);
-        }).ToList();
+            List<BMSPackage> directoryPackages = new List<BMSPackage>();
+            foreach (string dir in directories)
+            {
+                BmsPackageDiscoveryResult discoveryResult = SearchBmsFilesRecursivelyWithMetadata(dir, dupRateThreshInOnePkg);
+                directoryPackages.AddRange(discoveryResult.Packages);
+                result.RegroupEligibleSourceDirectories.AddRange(discoveryResult.RegroupEligibleSourceDirectories);
+            }
+            discoveredPackages.AddRange(singleFilePackages.Concat(directoryPackages));
+        }
         discoveryStopwatch.Stop();
         result.DiscoveryMs = discoveryStopwatch.ElapsedMilliseconds;
 
@@ -823,6 +863,12 @@ internal sealed class BmsLibraryPackageInstallService
             .Where((BMSPackage newPkg) => !pendingPackages.Any((BMSPackage oldPkg) => !string.IsNullOrWhiteSpace(oldPkg.path) && newPkg.path.Equals(oldPkg.path, StringComparison.OrdinalIgnoreCase)))
             .Where((BMSPackage newPkg) => !pendingPackages.Any((BMSPackage oldPkg) => !string.IsNullOrWhiteSpace(oldPkg.path) && Directory.Exists(oldPkg.path) && newPkg.path.StartsWith(oldPkg.path + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)))
             .ToList();
+        List<string> distinctWorkflowRegroupEligibleSourceDirectories = result.RegroupEligibleSourceDirectories
+            .Where((string sourceDirectoryPath) => !string.IsNullOrWhiteSpace(sourceDirectoryPath))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        result.RegroupEligibleSourceDirectories.Clear();
+        result.RegroupEligibleSourceDirectories.AddRange(distinctWorkflowRegroupEligibleSourceDirectories);
         result.DiscoveredPackages.AddRange(discoveredPackages);
         if (discoveredPackages.Count == 0)
         {

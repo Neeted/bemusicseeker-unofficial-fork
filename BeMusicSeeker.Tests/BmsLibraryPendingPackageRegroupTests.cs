@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Windows.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
@@ -16,7 +17,7 @@ namespace BeMusicSeeker.Tests;
 public sealed class BmsLibraryPendingPackageRegroupTests
 {
     [TestMethod]
-    public void SearchEstimatedInstallationDirectory_RegroupsSplitPackagesWhenPendingDestinationsMatch()
+    public void SearchEstimatedInstallationDirectory_DoesNotRegroupSplitPackagesWhenPendingDestinationsMatch()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
@@ -31,49 +32,47 @@ public sealed class BmsLibraryPendingPackageRegroupTests
 
             library.SearchEstimatedInstallationDirectory(firstPackage);
 
-            AssertRegroupedPendingPackage(library, sourceDirectoryPath, destinationDirectoryPath, expectedFileCount: 2);
-            CollectionAssert.AreEqual(new[] { sourceDirectoryPath }, LoadInstallPaths(songDbPath));
+            AssertPendingPackagePaths(library, firstPackage.path, secondPackage.path);
+            CollectionAssert.AreEquivalent(new[] { firstPackage.path, secondPackage.path }, LoadInstallPaths(songDbPath));
         });
     }
 
     [TestMethod]
-    public void SearchEstimatedInstallationDirectory_RegroupsSplitPackages_ReinitializesSingleFileWarnings()
-    {
-        TestResourceInitializer.EnsureJapaneseResources();
-        WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
-        {
-            string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "PackageWarningsA");
-            string destinationDirectoryPath = Path.Combine(tempRootPath, "Installed", "PackageWarningsA");
-            BMSPackage firstPackage = CreatePendingSingleFilePackage(CreateBmsFile(sourceDirectoryPath, "a.bms", "Same A"), destinationDirectoryPath);
-            BMSPackage secondPackage = CreatePendingSingleFilePackage(CreateBmsFile(sourceDirectoryPath, "b.bms", "Same B"), destinationDirectoryPath);
-
-            library.BMSFiles = new List<BMSFile>();
-            ApplySingleFileWarnings(firstPackage, secondPackage);
-            SeedPendingPackages(library, songDbPath, firstPackage, secondPackage);
-
-            library.SearchEstimatedInstallationDirectory(firstPackage);
-
-            BMSPackage regroupedPackage = AssertRegroupedPendingPackage(library, sourceDirectoryPath, destinationDirectoryPath, expectedFileCount: 2);
-            Assert.IsTrue(regroupedPackage.BMSFiles.All((BMSFile file) => string.IsNullOrWhiteSpace(file.warning)));
-        });
-    }
-
-    [TestMethod]
-    public void SearchEstimatedInstallationDirectory_RegroupsSplitPackagesWhenInstalledAndPendingDestinationsMatch()
+    public void SearchEstimatedInstallationDirectoryByFile_DoesNotRegroupSplitPackagesWhenPendingDestinationsMatch()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
         {
             string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "PackageB");
             string destinationDirectoryPath = Path.Combine(tempRootPath, "Installed", "PackageB");
-            string installedLibraryChartPath = CreateBmsFile(destinationDirectoryPath, "installed.bms", "Shared Installed");
-            BMSPackage installedPendingPackage = CreatePendingSingleFilePackage(CreateBmsFile(sourceDirectoryPath, "installed.bms", "Shared Installed"));
-            BMSPackage newPendingPackage = CreatePendingSingleFilePackage(CreateBmsFile(sourceDirectoryPath, "new.bms", "New Pending"), destinationDirectoryPath);
+            BMSPackage firstPackage = CreatePendingSingleFilePackage(CreateBmsFile(sourceDirectoryPath, "a.bms", "Same A"), destinationDirectoryPath);
+            BMSPackage secondPackage = CreatePendingSingleFilePackage(CreateBmsFile(sourceDirectoryPath, "b.bms", "Same B"), destinationDirectoryPath);
 
-            library.BMSFiles = new List<BMSFile> { BMSFile.CreateBMSFileFromFile(installedLibraryChartPath) };
-            SeedPendingPackages(library, songDbPath, installedPendingPackage, newPendingPackage);
+            library.BMSFiles = new List<BMSFile>();
+            SeedPendingPackages(library, songDbPath, firstPackage, secondPackage);
 
-            library.SearchEstimatedInstallationDirectory(installedPendingPackage);
+            library.SearchEstimatedInstallationDirectory(firstPackage.BMSFiles.Single(), asParallel: false, fixMode: false);
+
+            AssertPendingPackagePaths(library, firstPackage.path, secondPackage.path);
+            CollectionAssert.AreEquivalent(new[] { firstPackage.path, secondPackage.path }, LoadInstallPaths(songDbPath));
+        });
+    }
+
+    [TestMethod]
+    public void TryRegroupPendingPackagesForSourceDirectories_RegroupsSplitPackagesWhenEligibleDirectoryIsSupplied()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
+        {
+            string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "PackageC");
+            string destinationDirectoryPath = Path.Combine(tempRootPath, "Installed", "PackageC");
+            BMSPackage firstPackage = CreatePendingSingleFilePackage(CreateBmsFile(sourceDirectoryPath, "a.bms", "Same A"), destinationDirectoryPath);
+            BMSPackage secondPackage = CreatePendingSingleFilePackage(CreateBmsFile(sourceDirectoryPath, "b.bms", "Same B"), destinationDirectoryPath);
+
+            library.BMSFiles = new List<BMSFile>();
+            SeedPendingPackages(library, songDbPath, firstPackage, secondPackage);
+
+            InvokeRegroupForSourceDirectories(library, sourceDirectoryPath);
 
             AssertRegroupedPendingPackage(library, sourceDirectoryPath, destinationDirectoryPath, expectedFileCount: 2);
             CollectionAssert.AreEqual(new[] { sourceDirectoryPath }, LoadInstallPaths(songDbPath));
@@ -81,95 +80,13 @@ public sealed class BmsLibraryPendingPackageRegroupTests
     }
 
     [TestMethod]
-    public void SearchEstimatedInstallationDirectory_RegroupsSplitPackages_KeepsAlreadyInstalledWarning()
-    {
-        TestResourceInitializer.EnsureJapaneseResources();
-        WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
-        {
-            string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "PackageWarningsB");
-            string destinationDirectoryPath = Path.Combine(tempRootPath, "Installed", "PackageWarningsB");
-            string installedLibraryChartPath = CreateBmsFile(destinationDirectoryPath, "installed.bms", "Shared Installed");
-            BMSPackage installedPendingPackage = CreatePendingSingleFilePackage(CreateBmsFile(sourceDirectoryPath, "installed.bms", "Shared Installed"));
-            BMSPackage newPendingPackage = CreatePendingSingleFilePackage(CreateBmsFile(sourceDirectoryPath, "new.bms", "New Pending"), destinationDirectoryPath);
-
-            library.BMSFiles = new List<BMSFile> { BMSFile.CreateBMSFileFromFile(installedLibraryChartPath) };
-            ApplySingleFileWarnings(installedPendingPackage, newPendingPackage);
-            SeedPendingPackages(library, songDbPath, installedPendingPackage, newPendingPackage);
-
-            library.SearchEstimatedInstallationDirectory(installedPendingPackage);
-
-            BMSPackage regroupedPackage = AssertRegroupedPendingPackage(library, sourceDirectoryPath, destinationDirectoryPath, expectedFileCount: 2);
-            BMSFile installedFile = regroupedPackage.BMSFiles.Single((BMSFile file) => Path.GetFileName(file.path).Equals("installed.bms", StringComparison.OrdinalIgnoreCase));
-            BMSFile newFile = regroupedPackage.BMSFiles.Single((BMSFile file) => Path.GetFileName(file.path).Equals("new.bms", StringComparison.OrdinalIgnoreCase));
-            Assert.AreEqual(BeMusicSeeker.Properties.Resources.Warning_AlreadyInstalled, installedFile.warning);
-            Assert.IsTrue(string.IsNullOrWhiteSpace(newFile.warning));
-        });
-    }
-
-    [TestMethod]
-    public void SearchEstimatedInstallationDirectory_DoesNotRegroupWhenInstalledChartHasMultipleDirectories()
-    {
-        TestResourceInitializer.EnsureJapaneseResources();
-        WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
-        {
-            string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "PackageC");
-            string destinationDirectoryPath = Path.Combine(tempRootPath, "Installed", "PackageC");
-            string installedDirectoryPath1 = Path.Combine(tempRootPath, "Library", "Dir1");
-            string installedDirectoryPath2 = Path.Combine(tempRootPath, "Library", "Dir2");
-            string sharedFileName = "installed.bms";
-            string title = "Shared Installed";
-            string installedChartPath1 = CreateBmsFile(installedDirectoryPath1, sharedFileName, title);
-            string installedChartPath2 = CreateBmsFile(installedDirectoryPath2, sharedFileName, title);
-            BMSPackage installedPendingPackage = CreatePendingSingleFilePackage(CreateBmsFile(sourceDirectoryPath, sharedFileName, title));
-            BMSPackage newPendingPackage = CreatePendingSingleFilePackage(CreateBmsFile(sourceDirectoryPath, "new.bms", "New Pending"), destinationDirectoryPath);
-
-            library.BMSFiles = new List<BMSFile>
-            {
-                BMSFile.CreateBMSFileFromFile(installedChartPath1),
-                BMSFile.CreateBMSFileFromFile(installedChartPath2)
-            };
-            SeedPendingPackages(library, songDbPath, installedPendingPackage, newPendingPackage);
-
-            library.SearchEstimatedInstallationDirectory(installedPendingPackage);
-
-            Assert.AreEqual(2, library.BMSPackagesPending.Count);
-            CollectionAssert.AreEquivalent(
-                new[] { installedPendingPackage.path, newPendingPackage.path },
-                LoadInstallPaths(songDbPath));
-        });
-    }
-
-    [TestMethod]
-    public void SearchEstimatedInstallationDirectory_DoesNotRegroupWhenAnyPackageIsUnresolved()
+    public void TryRegroupPendingPackagesForSourceDirectories_ReinitializesWarningsWhenEligibleDirectoryIsSupplied()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
         {
             string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "PackageD");
             string destinationDirectoryPath = Path.Combine(tempRootPath, "Installed", "PackageD");
-            BMSPackage resolvedPackage = CreatePendingSingleFilePackage(CreateBmsFile(sourceDirectoryPath, "resolved.bms", "Resolved"), destinationDirectoryPath);
-            BMSPackage unresolvedPackage = CreatePendingSingleFilePackage(CreateBmsFile(sourceDirectoryPath, "unresolved.bms", "Unresolved"));
-
-            library.BMSFiles = new List<BMSFile>();
-            SeedPendingPackages(library, songDbPath, resolvedPackage, unresolvedPackage);
-
-            library.SearchEstimatedInstallationDirectory(resolvedPackage);
-
-            Assert.AreEqual(2, library.BMSPackagesPending.Count);
-            CollectionAssert.AreEquivalent(
-                new[] { resolvedPackage.path, unresolvedPackage.path },
-                LoadInstallPaths(songDbPath));
-        });
-    }
-
-    [TestMethod]
-    public void SearchEstimatedInstallationDirectory_RegroupsSplitPackages_ReplacesSingleFileWarningWithStrictWarning()
-    {
-        TestResourceInitializer.EnsureJapaneseResources();
-        WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
-        {
-            string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "PackageWarningsC");
-            string destinationDirectoryPath = Path.Combine(tempRootPath, "Installed", "PackageWarningsC");
             BMSPackage strictWarningPackage = CreatePendingSingleFilePackage(
                 CreateBmsFileWithContents(
                     sourceDirectoryPath,
@@ -182,7 +99,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             ApplySingleFileWarnings(strictWarningPackage, normalPackage);
             SeedPendingPackages(library, songDbPath, strictWarningPackage, normalPackage);
 
-            library.SearchEstimatedInstallationDirectory(strictWarningPackage);
+            InvokeRegroupForSourceDirectories(library, sourceDirectoryPath);
 
             BMSPackage regroupedPackage = AssertRegroupedPendingPackage(library, sourceDirectoryPath, destinationDirectoryPath, expectedFileCount: 2);
             BMSFile strictWarningFile = regroupedPackage.BMSFiles.Single((BMSFile file) => Path.GetFileName(file.path).Equals("strict.bms", StringComparison.OrdinalIgnoreCase));
@@ -194,46 +111,37 @@ public sealed class BmsLibraryPendingPackageRegroupTests
     }
 
     [TestMethod]
-    public void SearchEstimatedInstallationDirectory_ByFile_RegroupsSplitPackagesWhenDestinationsMatch()
+    public void TryRegroupPendingPackagesForSourceDirectories_DoesNotRegroupWhenDirectoryPackageAlreadyExists()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
         {
             string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "PackageE");
             string destinationDirectoryPath = Path.Combine(tempRootPath, "Installed", "PackageE");
-            BMSPackage firstPackage = CreatePendingSingleFilePackage(CreateBmsFile(sourceDirectoryPath, "a.bms", "Same A"), destinationDirectoryPath);
-            BMSPackage secondPackage = CreatePendingSingleFilePackage(CreateBmsFile(sourceDirectoryPath, "b.bms", "Same B"), destinationDirectoryPath);
+            CreateBmsFile(sourceDirectoryPath, "a.bms", "Same A");
+            CreateBmsFile(sourceDirectoryPath, "b.bms", "Same B");
+            BMSPackage directoryPackage = new BMSPackage
+            {
+                path = sourceDirectoryPath,
+                delete_parent = false
+            };
+            BMSPackage splitPackage = CreatePendingSingleFilePackage(Path.Combine(sourceDirectoryPath, "a.bms"), destinationDirectoryPath);
 
             library.BMSFiles = new List<BMSFile>();
-            SeedPendingPackages(library, songDbPath, firstPackage, secondPackage);
+            SeedPendingPackages(library, songDbPath, directoryPackage, splitPackage);
 
-            library.SearchEstimatedInstallationDirectory(firstPackage.BMSFiles.Single(), asParallel: false, fixMode: false);
+            InvokeRegroupForSourceDirectories(library, sourceDirectoryPath);
 
-            AssertRegroupedPendingPackage(library, sourceDirectoryPath, destinationDirectoryPath, expectedFileCount: 2);
-            CollectionAssert.AreEqual(new[] { sourceDirectoryPath }, LoadInstallPaths(songDbPath));
+            AssertPendingPackagePaths(library, sourceDirectoryPath, splitPackage.path);
+            CollectionAssert.AreEquivalent(new[] { sourceDirectoryPath, splitPackage.path }, LoadInstallPaths(songDbPath));
         });
     }
 
-    [TestMethod]
-    public void SearchEstimatedInstallationDirectory_ByFile_RegroupsSplitPackages_ReinitializesWarnings()
+    private static void InvokeRegroupForSourceDirectories(BMSLibrary library, params string[] sourceDirectoryPaths)
     {
-        TestResourceInitializer.EnsureJapaneseResources();
-        WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
-        {
-            string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "PackageWarningsD");
-            string destinationDirectoryPath = Path.Combine(tempRootPath, "Installed", "PackageWarningsD");
-            BMSPackage firstPackage = CreatePendingSingleFilePackage(CreateBmsFile(sourceDirectoryPath, "a.bms", "Same A"), destinationDirectoryPath);
-            BMSPackage secondPackage = CreatePendingSingleFilePackage(CreateBmsFile(sourceDirectoryPath, "b.bms", "Same B"), destinationDirectoryPath);
-
-            library.BMSFiles = new List<BMSFile>();
-            ApplySingleFileWarnings(firstPackage, secondPackage);
-            SeedPendingPackages(library, songDbPath, firstPackage, secondPackage);
-
-            library.SearchEstimatedInstallationDirectory(firstPackage.BMSFiles.Single(), asParallel: false, fixMode: false);
-
-            BMSPackage regroupedPackage = AssertRegroupedPendingPackage(library, sourceDirectoryPath, destinationDirectoryPath, expectedFileCount: 2);
-            Assert.IsTrue(regroupedPackage.BMSFiles.All((BMSFile file) => string.IsNullOrWhiteSpace(file.warning)));
-        });
+        MethodInfo regroupMethod = typeof(BMSLibrary).GetMethod("TryRegroupPendingPackagesForSourceDirectoriesUnsafe", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.IsNotNull(regroupMethod);
+        regroupMethod.Invoke(library, new object[] { sourceDirectoryPaths });
     }
 
     private static BMSPackage AssertRegroupedPendingPackage(BMSLibrary library, string expectedPackagePath, string expectedDestinationDirectory, int expectedFileCount)
@@ -245,6 +153,14 @@ public sealed class BmsLibraryPendingPackageRegroupTests
         Assert.AreEqual(expectedFileCount, regroupedPackage.BMSFiles.Count);
         Assert.IsTrue(regroupedPackage.BMSFiles.All((BMSFile file) => string.Equals(file.instl_dst, expectedDestinationDirectory, StringComparison.OrdinalIgnoreCase)));
         return regroupedPackage;
+    }
+
+    private static void AssertPendingPackagePaths(BMSLibrary library, params string[] expectedPaths)
+    {
+        Assert.AreEqual(expectedPaths.Length, library.BMSPackagesPending.Count);
+        CollectionAssert.AreEquivalent(
+            expectedPaths,
+            library.BMSPackagesPending.Select((BMSPackage package) => package.path).ToArray());
     }
 
     private static void SeedPendingPackages(BMSLibrary library, string songDbPath, params BMSPackage[] packages)

@@ -283,6 +283,45 @@ public sealed class BmsLibraryPackageInstallServiceTests
     }
 
     [TestMethod]
+    public void SearchBmsFilesRecursivelyWithMetadata_MarksSplitDirectoryAsRegroupEligible()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string packageDirectoryPath = Path.Combine(tempDirectoryPath, "Pkg");
+            Directory.CreateDirectory(packageDirectoryPath);
+            File.WriteAllText(Path.Combine(packageDirectoryPath, "chart_a.bms"), "#PLAYER 1\r\n#TITLE A\r\n#WAVAA sound_a.wav\r\n#00111:AA\r\n");
+            File.WriteAllText(Path.Combine(packageDirectoryPath, "chart_b.bms"), "#PLAYER 1\r\n#TITLE B\r\n#WAVAA sound_b.wav\r\n#00111:AA\r\n");
+
+            BmsLibraryPackageInstallService service = new BmsLibraryPackageInstallService();
+            BmsPackageDiscoveryResult result = service.SearchBmsFilesRecursivelyWithMetadata(packageDirectoryPath, 0.6);
+
+            Assert.AreEqual(2, result.Packages.Count);
+            CollectionAssert.AreEqual(new[] { packageDirectoryPath }, result.RegroupEligibleSourceDirectories);
+        });
+    }
+
+    [TestMethod]
+    public void SearchBmsFilesRecursivelyWithMetadata_MarksNestedSplitDirectoryAsRegroupEligible()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string rootDirectoryPath = Path.Combine(tempDirectoryPath, "Root");
+            string childDirectoryPath = Path.Combine(rootDirectoryPath, "Child");
+            Directory.CreateDirectory(childDirectoryPath);
+            File.WriteAllText(Path.Combine(childDirectoryPath, "chart_a.bms"), "#PLAYER 1\r\n#TITLE A\r\n#WAVAA sound_a.wav\r\n#00111:AA\r\n");
+            File.WriteAllText(Path.Combine(childDirectoryPath, "chart_b.bms"), "#PLAYER 1\r\n#TITLE B\r\n#WAVAA sound_b.wav\r\n#00111:AA\r\n");
+
+            BmsLibraryPackageInstallService service = new BmsLibraryPackageInstallService();
+            BmsPackageDiscoveryResult result = service.SearchBmsFilesRecursivelyWithMetadata(rootDirectoryPath, 0.6);
+
+            Assert.AreEqual(2, result.Packages.Count);
+            CollectionAssert.AreEqual(new[] { childDirectoryPath }, result.RegroupEligibleSourceDirectories);
+        });
+    }
+
+    [TestMethod]
     public void PrepareAutoInstallWorkflow_ClassifiesDetectedDirectoriesAsInstallable()
     {
         TestResourceInitializer.EnsureJapaneseResources();
@@ -309,11 +348,41 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(2, result.DiscoveredPackages.Count);
             Assert.AreEqual(2, result.AutoInstallCandidates.Count);
             Assert.AreEqual(0, result.PendingPackagesToAdd.Count);
+            Assert.AreEqual(0, result.RegroupEligibleSourceDirectories.Count);
             Assert.IsTrue(Directory.Exists(result.AutoInstallCandidates[0].path));
             Assert.IsTrue(result.AutoInstallCandidates.Any((BMSPackage package) => package.path.Equals(filePackageDirectoryPath, StringComparison.OrdinalIgnoreCase)));
             Assert.IsTrue(result.DiscoveryMs >= 0);
             Assert.IsTrue(result.ClassificationMs >= 0);
             Assert.IsTrue(result.TotalMs >= 0);
+        });
+    }
+
+    [TestMethod]
+    public void PrepareAutoInstallWorkflow_DoesNotMarkRegroupEligibleSourceDirectoryForPartialFileSelection()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string sourceDirectoryPath = Path.Combine(tempDirectoryPath, "Partial");
+            Directory.CreateDirectory(sourceDirectoryPath);
+            string firstFilePath = Path.Combine(sourceDirectoryPath, "chart_a.bms");
+            string secondFilePath = Path.Combine(sourceDirectoryPath, "chart_b.bms");
+            File.WriteAllText(firstFilePath, "#PLAYER 1\r\n#TITLE A\r\n");
+            File.WriteAllText(secondFilePath, "#PLAYER 1\r\n#TITLE B\r\n");
+            File.WriteAllText(Path.Combine(sourceDirectoryPath, "chart_c.bms"), "#PLAYER 1\r\n#TITLE C\r\n");
+
+            BmsLibraryPackageInstallService service = new BmsLibraryPackageInstallService();
+            AutoInstallWorkflowResult result = service.PrepareAutoInstallWorkflow(
+                new[] { firstFilePath, secondFilePath },
+                Array.Empty<BMSPackage>(),
+                Array.Empty<BMSFile>(),
+                Array.Empty<string>(),
+                0.6,
+                _ => false);
+
+            Assert.AreEqual(2, result.DiscoveredPackages.Count);
+            Assert.AreEqual(0, result.RegroupEligibleSourceDirectories.Count);
+            Assert.IsTrue(result.DiscoveredPackages.All((BMSPackage package) => File.Exists(package.path)));
         });
     }
 

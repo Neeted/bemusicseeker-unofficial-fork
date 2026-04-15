@@ -3154,6 +3154,7 @@ public class BMSLibrary : NotificationObject
         BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
         List<BMSPackage> pendingPackagesToEstimate = new List<BMSPackage>();
         List<BMSPackage> registeredPackages = new List<BMSPackage>();
+        List<string> regroupEligibleSourceDirectories = new List<string>();
         using (rwlockBMSFilesInitializedAll.GetReaderGuard())
         {
             using (rwlockBMSFilesPendingInstall.GetWriterGuard())
@@ -3213,6 +3214,7 @@ public class BMSLibrary : NotificationObject
                             BMSPackagesPending.AddRange(applyResult.PendingPackagesToAdd);
                         }
                         pendingPackagesToEstimate = applyResult.EstimateTargets;
+                        regroupEligibleSourceDirectories = workflow.RegroupEligibleSourceDirectories.ToList();
                         registeredPackages = discoveredPackages;
                     }
                 }
@@ -3227,8 +3229,7 @@ public class BMSLibrary : NotificationObject
                 if (!token.IsCancellationRequested)
                 {
                     TryRegroupPendingPackagesForSourceDirectoriesUnsafe(
-                        pendingPackagesToEstimate
-                            .Select(GetPendingPackageSourceDirectoryPath)
+                        regroupEligibleSourceDirectories
                             .Where((string sourceDirectoryPath) => !string.IsNullOrWhiteSpace(sourceDirectoryPath))
                             .Distinct(StringComparer.OrdinalIgnoreCase));
                 }
@@ -3592,7 +3593,6 @@ public class BMSLibrary : NotificationObject
                         ApplyPackageMixedInstallWarnings(alreadyInstalledFiles);
                         if (missingFiles.Count == 0)
                         {
-                            TryRegroupPendingPackagesForPackageUnsafe(package);
                             return;
                         }
                         // 部分既所持パッケージでは、既存譜面の実配置先を優先利用して未所持譜面の導入先を補完する。
@@ -3604,17 +3604,14 @@ public class BMSLibrary : NotificationObject
                                 {
                                     missingFile.instl_dst = resolvedDir;
                                 }
-                                TryRegroupPendingPackagesForPackageUnsafe(package);
                                 return;
                             }
                             // 解決できない場合だけ従来推定へフォールバックし、空欄のまま残るケースを減らす。
                             LogInstallPerformance("mixed_package_resolve fallback reason=use_legacy_search missing=" + missingFiles.Count);
                             searchEstimatedInstallationDirectory(missingFiles, asParallel: true, fixMode: true);
-                            TryRegroupPendingPackagesForPackageUnsafe(package);
                             return;
                         }
                         searchEstimatedInstallationDirectory(missingFiles);
-                        TryRegroupPendingPackagesForPackageUnsafe(package);
                     }
                 }
             }
@@ -3628,7 +3625,6 @@ public class BMSLibrary : NotificationObject
             throw new ArgumentNullException("bmsFile");
         }
         searchEstimatedInstallationDirectory(new BMSFile[1] { bmsFile }, asParallel, fixMode);
-        TryRegroupPendingPackagesForFile(bmsFile);
     }
 
     public void SearchMergeDestination(BMSPackage package)
@@ -4061,41 +4057,6 @@ public class BMSLibrary : NotificationObject
             _ => PrepareSkipReason.MissingInstallDestination
         };
         return resolution.Success;
-    }
-
-    private void TryRegroupPendingPackagesForFile(BMSFile bmsFile)
-    {
-        if (bmsFile == null)
-        {
-            return;
-        }
-        using (rwlockBMSFilesInitializedAll.GetReaderGuard())
-        {
-            using (rwlockBMSFilesPendingInstall.GetWriterGuard())
-            {
-                using (rwlockBMSFiles.GetReaderGuard())
-                {
-                    using (rwlockSongDBInstall.GetWriterGuard())
-                    {
-                        BMSPackage pendingPackage = BMSPackagesPending.FirstOrDefault((BMSPackage package) => package != null && package.BMSFiles.Any((BMSFile file) => ReferenceEquals(file, bmsFile) || (!string.IsNullOrWhiteSpace(file?.path) && !string.IsNullOrWhiteSpace(bmsFile.path) && file.path.Equals(bmsFile.path, StringComparison.OrdinalIgnoreCase))));
-                        if (pendingPackage != null)
-                        {
-                            TryRegroupPendingPackagesForPackageUnsafe(pendingPackage);
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    private void TryRegroupPendingPackagesForPackageUnsafe(BMSPackage package)
-    {
-        string sourceDirectoryPath = GetPendingPackageSourceDirectoryPath(package);
-        if (string.IsNullOrWhiteSpace(sourceDirectoryPath))
-        {
-            return;
-        }
-        TryRegroupPendingPackagesForSourceDirectoriesUnsafe(new string[1] { sourceDirectoryPath });
     }
 
     private void TryRegroupPendingPackagesForSourceDirectoriesUnsafe(IEnumerable<string> sourceDirectoryPaths)
