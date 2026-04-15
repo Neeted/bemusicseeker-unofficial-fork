@@ -267,6 +267,8 @@ public class BMSFile : LR2SongDB.song
         }
     }
 
+    public virtual string sha256 => string.Empty;
+
     public virtual string Title
     {
         get

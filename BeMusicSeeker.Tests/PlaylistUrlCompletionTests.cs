@@ -159,7 +159,7 @@ public sealed class PlaylistUrlCompletionTests
     [TestCategory("Playlist")]
     public void CommitBMSTableEntry_LocalPlaylistMaterializesEffectiveUrlsIntoDatabase()
     {
-        string tempDbPath = CreateTempSongDbPath();
+        string tempDbPath = CreateEmptySongDbPath();
         try
         {
             BMSPlaylist playlist = new BMSPlaylist(tempDbPath);
@@ -190,7 +190,7 @@ public sealed class PlaylistUrlCompletionTests
     [TestCategory("Playlist")]
     public void CommitBMSTableEntry_ExternalSyncPlaylistDoesNotMaterializeEffectiveUrls()
     {
-        string tempDbPath = CreateTempSongDbPath();
+        string tempDbPath = CreateEmptySongDbPath();
         try
         {
             BMSPlaylist playlist = new BMSPlaylist(tempDbPath);
@@ -221,6 +221,48 @@ public sealed class PlaylistUrlCompletionTests
         }
     }
 
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public void CommitBMSTableEntry_Sha256Identity_ReplacesExistingRowWithoutDuplicates()
+    {
+        string tempDbPath = CreateEmptySongDbPath();
+        try
+        {
+            BMSPlaylist playlist = new BMSPlaylist(tempDbPath);
+            BMSTable table = CreateTable(4003, "ShaTable");
+            InsertPlaylistHeader(tempDbPath, table);
+            TestablePlaylistEntry first = CreateShaOnlyEntry("3434343434343434343434343434343434343434343434343434343434343434", "ShaSong", "memo-1");
+            first.playlist_id = table.playlist_id;
+            TestablePlaylistEntry second = CreateShaOnlyEntry("3434343434343434343434343434343434343434343434343434343434343434", "ShaSong", "memo-2");
+            second.playlist_id = table.playlist_id;
+
+            playlist.CommitBMSTableEntry(first);
+            playlist.CommitBMSTableEntry(second);
+
+            using LR2SongDBExtended db = new LR2SongDBExtended(tempDbPath);
+            List<BMSTableEntry> rows = db.Table<BMSTableEntry>().Where((BMSTableEntry row) => row.playlist_id == table.playlist_id && row.sha256 == second.sha256).ToList();
+            Assert.AreEqual(1, rows.Count);
+            Assert.AreEqual("memo-2", rows[0].memo);
+            Assert.IsNull(rows[0].md5);
+        }
+        finally
+        {
+            DeleteTempSongDbDirectory(tempDbPath);
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public void BMSTableEntry_ToDynamicJson_RoundTripsSha256()
+    {
+        TestablePlaylistEntry entry = CreateShaOnlyEntry("5656565656565656565656565656565656565656565656565656565656565656", "ShaRoundTrip", "memo");
+
+        BMSTableEntry reloaded = new BMSTableEntry(entry.ToDynamicJson());
+
+        Assert.AreEqual(entry.sha256, reloaded.sha256);
+        Assert.AreEqual(entry.title, reloaded.title);
+    }
+
     private static BMSTableEntry CreateEntry(string md5, string title)
     {
         TestableBmsFile file = new TestableBmsFile();
@@ -229,6 +271,18 @@ public sealed class PlaylistUrlCompletionTests
         {
             folder = string.Empty
         };
+    }
+
+    private static TestablePlaylistEntry CreateShaOnlyEntry(string sha256, string title, string memo)
+    {
+        TestablePlaylistEntry entry = new TestablePlaylistEntry
+        {
+            folder = string.Empty,
+            memo = memo
+        };
+        entry.SetSha256(sha256);
+        entry.SetTitle(title);
+        return entry;
     }
 
     private static BMSTable CreateTable(int playlistId, string name)
@@ -258,6 +312,17 @@ public sealed class PlaylistUrlCompletionTests
         return tempDbPath;
     }
 
+    private static string CreateEmptySongDbPath()
+    {
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "PlaylistUrlCompletionTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        string tempDbPath = Path.Combine(tempDirectory, "song.db");
+        using (LR2SongDBExtended _ = new LR2SongDBExtended(tempDbPath))
+        {
+        }
+        return tempDbPath;
+    }
+
     private static void DeleteTempSongDbDirectory(string songDbPath)
     {
         if (string.IsNullOrWhiteSpace(songDbPath))
@@ -281,6 +346,19 @@ public sealed class PlaylistUrlCompletionTests
             Artist = "TestArtist";
             genre = "TestGenre";
             mode = snapshotMode;
+        }
+    }
+
+    private sealed class TestablePlaylistEntry : BMSTableEntry
+    {
+        public void SetSha256(string value)
+        {
+            sha256 = value;
+        }
+
+        public void SetTitle(string value)
+        {
+            title = value;
         }
     }
 }

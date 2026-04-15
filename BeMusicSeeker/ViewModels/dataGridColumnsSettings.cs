@@ -115,6 +115,8 @@ public class dataGridColumnsSettings : NotificationObject
 
     private dataGridColumnlayouts _Hash;
 
+    private dataGridColumnlayouts _Sha256;
+
     private dataGridColumnlayouts _Folder;
 
     private dataGridColumnlayouts _Path;
@@ -445,6 +447,30 @@ public class dataGridColumnsSettings : NotificationObject
         }
     }
 
+    public dataGridColumnlayouts Sha256
+    {
+        get
+        {
+            if (_Sha256 == null)
+            {
+                _Sha256 = new dataGridColumnlayouts
+                {
+                    Width = 420,
+                    Visibility = Visibility.Hidden
+                };
+            }
+            return _Sha256;
+        }
+        set
+        {
+            if (_Sha256 != value)
+            {
+                _Sha256 = value;
+                RaisePropertyChanged("Sha256");
+            }
+        }
+    }
+
     public dataGridColumnlayouts Folder
     {
         get
@@ -751,6 +777,11 @@ public class dataGridColumnsSettings : NotificationObject
         {
             Width = 240
         };
+        Sha256 = new dataGridColumnlayouts
+        {
+            Width = 420,
+            Visibility = Visibility.Hidden
+        };
         Folder = new dataGridColumnlayouts
         {
             Width = 200
@@ -808,6 +839,7 @@ public class dataGridColumnsSettings : NotificationObject
         Comment.DisplayIndex = num++;
         Memo.DisplayIndex = num++;
         Hash.DisplayIndex = num++;
+        Sha256.DisplayIndex = num++;
         Folder.DisplayIndex = num++;
         Path.DisplayIndex = num++;
         InstallDst.DisplayIndex = num++;
@@ -871,6 +903,7 @@ public class dataGridColumnsSettings : NotificationObject
                     Comment.DisplayIndex = num3++;
                     Memo.DisplayIndex = num3++;
                     Hash.DisplayIndex = num3++;
+                    Sha256.DisplayIndex = num3++;
                     Path.DisplayIndex = num3++;
                     InstallDst.DisplayIndex = num3++;
                     WavHealth.DisplayIndex = num3++;
@@ -928,6 +961,7 @@ public class dataGridColumnsSettings : NotificationObject
                     Comment.DisplayIndex = num2++;
                     Memo.DisplayIndex = num2++;
                     Hash.DisplayIndex = num2++;
+                    Sha256.DisplayIndex = num2++;
                     Folder.DisplayIndex = num2++;
                     WavHealth.DisplayIndex = num2++;
                     BgaHealth.DisplayIndex = num2++;
@@ -1036,6 +1070,7 @@ public class dataGridColumnsSettings : NotificationObject
                     Comment.DisplayIndex = num++;
                     Memo.DisplayIndex = num++;
                     Hash.DisplayIndex = num++;
+                    Sha256.DisplayIndex = num++;
                     Path.DisplayIndex = num++;
                     WavHealth.DisplayIndex = num++;
                     BgaHealth.DisplayIndex = num++;

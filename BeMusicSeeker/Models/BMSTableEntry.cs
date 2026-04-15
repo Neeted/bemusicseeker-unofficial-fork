@@ -21,6 +21,8 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
 
 	private string deferredOrgMd5Raw;
 
+	private static readonly Regex sha256HashRegex = new Regex("^[a-fA-F0-9]{64}$", RegexOptions.Compiled);
+
 	private Uri _url;
 
 	private Uri _urlDiff;
@@ -136,6 +138,32 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
 				return;
 			}
 			throw new FormatException("MD5 HASH ではありません。値: " + value.ToString());
+		}
+	}
+
+	public override string sha256
+	{
+		get
+		{
+			return _sha256;
+		}
+		protected set
+		{
+			if (string.IsNullOrWhiteSpace(value))
+			{
+				_sha256 = null;
+				return;
+			}
+			if (sha256HashRegex.IsMatch(value))
+			{
+				string text = value.ToLowerInvariant();
+				if (!(_sha256 == text))
+				{
+					_sha256 = text;
+				}
+				return;
+			}
+			throw new FormatException("SHA256 HASH ではありません。値: " + value.ToString());
 		}
 	}
 
@@ -309,16 +337,33 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
 		{
 			parent = _parent;
 		}
-		if (!((data_json.IsDefined("md5") && data_json.md5 != null) ? true : false))
+		bool flag = (data_json.IsDefined("md5") && data_json.md5 != null) ? true : false;
+		bool flag2 = (data_json.IsDefined("sha256") && data_json.sha256 != null) ? true : false;
+		bool flag3 = (data_json.IsDefined("lr2_bmsid") && data_json.lr2_bmsid != null) ? true : false;
+		bool flag4 = (data_json.IsDefined("title") && data_json.title != null) ? true : false;
+		if (!flag && !flag2 && !flag3 && !flag4)
 		{
 			return;
 		}
-		try
+		if (flag)
 		{
-			md5 = data_json.md5.ToString();
+			try
+			{
+				md5 = data_json.md5.ToString();
+			}
+			catch
+			{
+			}
 		}
-		catch
+		if (flag2)
 		{
+			try
+			{
+				sha256 = data_json.sha256.ToString();
+			}
+			catch
+			{
+			}
 		}
 		if (data_json.IsDefined("org_level"))
 		{
@@ -417,6 +462,10 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
 		{
 			md5 = md5.ToLowerInvariant();
 		}
+		if (sha256 != null)
+		{
+			sha256 = sha256.ToLowerInvariant();
+		}
 		if (Org_md5.Count() == 0 || Org_md5.All((string _md5) => LR2SongDB.md5HashRegex.IsMatch(_md5)))
 		{
 			Org_md5 = Org_md5.Select((string _md5) => _md5 = _md5.ToLowerInvariant()).ToList();
@@ -446,6 +495,7 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
 		ensureDeferredOrgMd5Parsed();
 		dynamic val = new DynamicJson();
 		val.md5 = md5;
+		val.sha256 = sha256;
 		val.org_level = base.level;
 		val.title = title;
 		val.artist = artist;

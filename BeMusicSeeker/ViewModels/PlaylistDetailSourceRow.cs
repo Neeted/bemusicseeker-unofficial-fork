@@ -60,6 +60,8 @@ internal sealed class PlaylistDetailSourceRow
 
     internal string hash { get; }
 
+    internal string sha256 { get; }
+
     internal string Folder { get; }
 
     internal string path { get; }
@@ -133,6 +135,7 @@ internal sealed class PlaylistDetailSourceRow
         comment = entry.comment ?? string.Empty;
         memo = entry.memo ?? string.Empty;
         hash = realFile?.hash ?? entry.md5 ?? string.Empty;
+        sha256 = !string.IsNullOrWhiteSpace(realFile?.sha256) ? realFile.sha256 : (entry.sha256 ?? string.Empty);
         Folder = entry.folder ?? string.Empty;
         path = realFile?.path ?? string.Empty;
         instl_dst = snapshotSource?.instl_dst ?? string.Empty;

@@ -71,6 +71,29 @@ public sealed class PlaylistReloadMergeTests
         Assert.IsTrue(mergedTable.last_update >= beforeMerge && mergedTable.last_update <= afterMerge, "Changed reload must stamp the current local time.");
     }
 
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public void MergeReloadedBMSTableState_Sha256Fallback_PreservesLocalState()
+    {
+        DateTime preservedAddDate = new DateTime(2023, 8, 20, 12, 34, 56);
+        BMSTable oldTable = CreateTable(
+            "Playlist C",
+            new DateTime(2024, 5, 10, 11, 22, 33),
+            CreateEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "FolderA", sha256: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", memo: "memo-c", addDate: preservedAddDate, isRemoved: true));
+        BMSTable reloadedTable = CreateTable(
+            "Playlist C",
+            default(DateTime),
+            CreateEntry(null, "FolderA", sha256: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"));
+
+        BMSTable mergedTable = BMSPlaylist.MergeReloadedBMSTableState(oldTable, reloadedTable);
+        BMSTableEntry matchedEntry = mergedTable.entries.Single((BMSTableEntry entry) => entry.sha256 == "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc" && entry.folder == "FolderA");
+
+        Assert.IsNull(matchedEntry.md5);
+        Assert.AreEqual("memo-c", matchedEntry.memo);
+        Assert.AreEqual(preservedAddDate, matchedEntry.adddate);
+        Assert.IsTrue(matchedEntry.is_removed);
+    }
+
     private static BMSTable CreateTable(string name, DateTime lastUpdate, params BMSTableEntry[] entries)
     {
         BMSTable table = new BMSTable
@@ -82,7 +105,7 @@ public sealed class PlaylistReloadMergeTests
         return table;
     }
 
-    private static BMSTableEntry CreateEntry(string md5, string folder, string memo = "", DateTime? addDate = null, bool isRemoved = false)
+    private static BMSTableEntry CreateEntry(string md5, string folder, string sha256 = null, string memo = "", DateTime? addDate = null, bool isRemoved = false)
     {
         TestablePlaylistEntry entry = new TestablePlaylistEntry
         {
@@ -91,7 +114,14 @@ public sealed class PlaylistReloadMergeTests
             adddate = addDate ?? new DateTime(2024, 1, 1, 0, 0, 0),
             is_removed = isRemoved
         };
-        entry.SetMd5(md5);
+        if (md5 != null)
+        {
+            entry.SetMd5(md5);
+        }
+        if (sha256 != null)
+        {
+            entry.SetSha256(sha256);
+        }
         return entry;
     }
 
@@ -107,6 +137,11 @@ public sealed class PlaylistReloadMergeTests
         public void SetMd5(string value)
         {
             md5 = value;
+        }
+
+        public void SetSha256(string value)
+        {
+            sha256 = value;
         }
     }
 }

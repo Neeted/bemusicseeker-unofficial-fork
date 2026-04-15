@@ -115,6 +115,19 @@ internal static class GridRowResolver
     }
 
     /// <summary>
+    /// 行の SHA256 ハッシュを取得します。
+    /// </summary>
+    internal static string GetSha256(object row)
+    {
+        return row switch
+        {
+            PlaylistDetailRow playlistDetailRow => playlistDetailRow.sha256,
+            BMSFile bmsFile => bmsFile.sha256,
+            _ => null
+        };
+    }
+
+    /// <summary>
     /// 行の表示用タイトルを取得します。
     /// </summary>
     internal static string GetDisplayTitle(object row)

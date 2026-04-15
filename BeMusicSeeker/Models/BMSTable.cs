@@ -708,6 +708,10 @@ public class BMSTable : LR2SongDBExtended.playlist
             {
                 text += e.md5;
             }
+            else if (!string.IsNullOrWhiteSpace(e.sha256))
+            {
+                text += e.sha256;
+            }
             else if (!string.IsNullOrWhiteSpace(e.lr2_bmsid))
             {
                 text += e.lr2_bmsid;
@@ -800,6 +804,10 @@ public class BMSTable : LR2SongDBExtended.playlist
         if (!string.IsNullOrWhiteSpace(entry.md5))
         {
             return entry.md5;
+        }
+        if (!string.IsNullOrWhiteSpace(entry.sha256))
+        {
+            return entry.sha256;
         }
         if (!string.IsNullOrWhiteSpace(entry.lr2_bmsid))
         {

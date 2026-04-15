@@ -171,6 +171,8 @@ public sealed class LR2SongDBExtended : LR2SongDB
 
         protected string _md5;
 
+        protected string _sha256;
+
         protected string _title = string.Empty;
 
         protected string _artist = string.Empty;
@@ -204,6 +206,21 @@ public sealed class LR2SongDBExtended : LR2SongDB
                 if (!(_md5 == value))
                 {
                     _md5 = value;
+                }
+            }
+        }
+
+        public virtual string sha256
+        {
+            get
+            {
+                return _sha256;
+            }
+            protected set
+            {
+                if (!(_sha256 == value))
+                {
+                    _sha256 = value;
                 }
             }
         }

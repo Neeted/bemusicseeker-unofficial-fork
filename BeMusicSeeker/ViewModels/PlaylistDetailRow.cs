@@ -62,6 +62,8 @@ internal sealed class PlaylistDetailRow : NotificationObject
 
     public string hash { get; }
 
+    public string sha256 { get; }
+
     public string Folder { get; }
 
     public string path { get; }
@@ -135,6 +137,7 @@ internal sealed class PlaylistDetailRow : NotificationObject
         HasHighlightedWarning = source.HasHighlightedWarning;
         DisplayWarning = source.DisplayWarning;
         hash = source.hash;
+        sha256 = source.sha256;
         Folder = source.Folder;
         path = source.path;
         instl_dst = source.instl_dst;

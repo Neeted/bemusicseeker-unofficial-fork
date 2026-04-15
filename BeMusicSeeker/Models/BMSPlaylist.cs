@@ -570,53 +570,7 @@ public partial class BMSPlaylist : NotificationObject
         bmsScores = ((getBMSScores != null) ? getBMSScores : ((Func<List<BMSScore>>)(() => (List<BMSScore>)null)));
         using (LR2SongDBExtended lR2SongDBExtended = new LR2SongDBExtended(lr2SongDBPath))
         {
-            lR2SongDBExtended.CreateTable<LR2SongDBExtended.playlist>();
-            lR2SongDBExtended.CreateTable<LR2SongDBExtended.playlist_entry>();
-            lR2SongDBExtended.Execute("DROP INDEX IF EXISTS 'playlist_entry_idx';");
-            lR2SongDBExtended.CreateIndex("playlist_entry_idx_uniq", SQLiteTable<LR2SongDBExtended.playlist_entry>.GetTableName(), new string[6]
-            {
-                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.md5),
-                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.playlist_id),
-                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.folder),
-                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.lr2_bmsid),
-                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.title),
-                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.is_removed)
-            }, unique: true);
-            lR2SongDBExtended.CreateIndex("playlist_entry_idx_id", SQLiteTable<LR2SongDBExtended.playlist_entry>.GetTableName(), new string[2]
-            {
-                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.playlist_id),
-                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.is_removed)
-            });
-            lR2SongDBExtended.CreateIndex("playlist_entry_idx_folder", SQLiteTable<LR2SongDBExtended.playlist_entry>.GetTableName(), new string[3]
-            {
-                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.playlist_id),
-                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.folder),
-                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.is_removed)
-            });
-            lR2SongDBExtended.CreateIndex("playlist_entry_idx_title", SQLiteTable<LR2SongDBExtended.playlist_entry>.GetTableName(), new string[3]
-            {
-                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.playlist_id),
-                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.title),
-                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.is_removed)
-            });
-            lR2SongDBExtended.CreateIndex("playlist_entry_idx_md5", SQLiteTable<LR2SongDBExtended.playlist_entry>.GetTableName(), new string[3]
-            {
-                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.md5),
-                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.playlist_id),
-                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.is_removed)
-            });
-            lR2SongDBExtended.CreateIndex("playlist_entry_idx_level", SQLiteTable<LR2SongDBExtended.playlist_entry>.GetTableName(), new string[3]
-            {
-                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.playlist_id),
-                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.level),
-                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.is_removed)
-            });
-            lR2SongDBExtended.CreateIndex("playlist_entry_idx_adddate", SQLiteTable<LR2SongDBExtended.playlist_entry>.GetTableName(), new string[3]
-            {
-                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.adddate),
-                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.playlist_id),
-                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.is_removed)
-            });
+            EnsurePlaylistTablesAndIndexes(lR2SongDBExtended);
         }
         listenerForRwlockBMSTablesInitializedAll = new PropertyChangedEventListener(rwlockBMSTablesInitializeAll);
         listenerForRwlockBMSTablesInitializedMin = new PropertyChangedEventListener(rwlockBMSTablesInitializeMin);
@@ -770,6 +724,97 @@ public partial class BMSPlaylist : NotificationObject
         LogPlaylistPerformance("playlist_init update_tables_ms=" + updateTablesMs + " lr2config_sync_ms=" + lr2configSyncMs + " total_ms=" + stopwatchInitialize.ElapsedMilliseconds);
         SchedulePlaylistUrlCompletionRefresh("Initialize");
         initSemaphore = null;
+    }
+
+    private static void EnsurePlaylistTablesAndIndexes(LR2SongDBExtended db)
+    {
+        db.CreateTable<LR2SongDBExtended.playlist>();
+        db.CreateTable<LR2SongDBExtended.playlist_entry>();
+        EnsurePlaylistEntrySha256Column(db);
+        RebuildPlaylistEntryIndexes(db);
+    }
+
+    private static void EnsurePlaylistEntrySha256Column(LR2SongDBExtended db)
+    {
+        string tableName = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetTableName();
+        string sql = db.ExecuteScalar<string>("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = " + sqlQuote(tableName) + ";");
+        if (string.IsNullOrWhiteSpace(sql) || sql.IndexOf("sha256", StringComparison.OrdinalIgnoreCase) < 0)
+        {
+            db.Execute("ALTER TABLE \"" + tableName + "\" ADD COLUMN \"sha256\" TEXT NULL;");
+        }
+    }
+
+    private static void RebuildPlaylistEntryIndexes(LR2SongDBExtended db)
+    {
+        string tableName = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetTableName();
+        string uniqueIndexSql = db.ExecuteScalar<string>("SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'playlist_entry_idx_uniq';");
+        if (string.IsNullOrWhiteSpace(uniqueIndexSql) || uniqueIndexSql.IndexOf("sha256", StringComparison.OrdinalIgnoreCase) < 0)
+        {
+            if (!string.IsNullOrWhiteSpace(uniqueIndexSql))
+            {
+                db.Execute("DROP INDEX IF EXISTS 'playlist_entry_idx_uniq';");
+            }
+            db.CreateIndex("playlist_entry_idx_uniq", tableName, new string[7]
+            {
+                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.md5),
+                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.sha256),
+                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.playlist_id),
+                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.folder),
+                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.lr2_bmsid),
+                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.title),
+                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.is_removed)
+            }, unique: true);
+        }
+        EnsurePlaylistEntryIndex(db, tableName, "playlist_entry_idx_id", new string[2]
+        {
+            SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.playlist_id),
+            SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.is_removed)
+        });
+        EnsurePlaylistEntryIndex(db, tableName, "playlist_entry_idx_folder", new string[3]
+        {
+            SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.playlist_id),
+            SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.folder),
+            SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.is_removed)
+        });
+        EnsurePlaylistEntryIndex(db, tableName, "playlist_entry_idx_title", new string[3]
+        {
+            SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.playlist_id),
+            SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.title),
+            SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.is_removed)
+        });
+        EnsurePlaylistEntryIndex(db, tableName, "playlist_entry_idx_md5", new string[3]
+        {
+            SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.md5),
+            SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.playlist_id),
+            SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.is_removed)
+        });
+        EnsurePlaylistEntryIndex(db, tableName, "playlist_entry_idx_sha256", new string[3]
+        {
+            SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.sha256),
+            SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.playlist_id),
+            SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.is_removed)
+        });
+        EnsurePlaylistEntryIndex(db, tableName, "playlist_entry_idx_level", new string[3]
+        {
+            SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.playlist_id),
+            SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.level),
+            SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.is_removed)
+        });
+        EnsurePlaylistEntryIndex(db, tableName, "playlist_entry_idx_adddate", new string[3]
+        {
+            SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.adddate),
+            SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.playlist_id),
+            SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.is_removed)
+        });
+    }
+
+    private static void EnsurePlaylistEntryIndex(LR2SongDBExtended db, string tableName, string indexName, string[] columnNames)
+    {
+        long count = db.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_master WHERE type = 'index' AND name = " + sqlQuote(indexName) + ";");
+        if (count == 0)
+        {
+            db.CreateIndex(indexName, tableName, columnNames);
+        }
     }
 
     /// <summary>
@@ -2527,55 +2572,21 @@ public partial class BMSPlaylist : NotificationObject
 
         BMSTable newTable = reloadedTable;
 
-        // Dictionary for fast lookup of new entries
-        var newEntriesByMd5 = newTable.entries.Where(e => !string.IsNullOrWhiteSpace(e.md5))
-            .GroupBy(e => e.md5).ToDictionary(g => g.Key, g => g.ToList());
-        var newEntriesByBmsId = newTable.entries.Where(e => string.IsNullOrWhiteSpace(e.md5) && !string.IsNullOrWhiteSpace(e.lr2_bmsid))
-            .GroupBy(e => e.lr2_bmsid).ToDictionary(g => g.Key, g => g.ToList());
-        var newEntriesByTitle = newTable.entries.Where(e => string.IsNullOrWhiteSpace(e.md5) && string.IsNullOrWhiteSpace(e.lr2_bmsid) && !string.IsNullOrWhiteSpace(e.title))
-            .GroupBy(e => e.title).ToDictionary(g => g.Key, g => g.ToList());
+        Dictionary<string, List<BMSTableEntry>> newEntriesByMd5 = BuildEntryLookup(newTable.entries, (BMSTableEntry entry) => entry.md5, StringComparer.OrdinalIgnoreCase);
+        Dictionary<string, List<BMSTableEntry>> newEntriesBySha256 = BuildEntryLookup(newTable.entries, (BMSTableEntry entry) => entry.sha256, StringComparer.OrdinalIgnoreCase);
+        Dictionary<string, List<BMSTableEntry>> newEntriesByBmsId = BuildEntryLookup(newTable.entries, (BMSTableEntry entry) => entry.lr2_bmsid, StringComparer.Ordinal);
+        Dictionary<string, List<BMSTableEntry>> newEntriesByTitle = BuildEntryLookup(newTable.entries, (BMSTableEntry entry) => entry.title, StringComparer.Ordinal);
 
         List<BMSTableEntry> matchedOldEntries = oldTable.entries.Where(delegate (BMSTableEntry oe)
         {
-            List<BMSTableEntry> candidates = null;
-            if (!string.IsNullOrWhiteSpace(oe.md5))
-            {
-                newEntriesByMd5.TryGetValue(oe.md5, out candidates);
-            }
-            else if (!string.IsNullOrWhiteSpace(oe.lr2_bmsid))
-            {
-                newEntriesByBmsId.TryGetValue(oe.lr2_bmsid, out candidates);
-            }
-            else if (!string.IsNullOrWhiteSpace(oe.title))
-            {
-                newEntriesByTitle.TryGetValue(oe.title, out candidates);
-            }
-
-            if (candidates == null || candidates.Count == 0)
+            BMSTableEntry matchedNew = ResolveReloadedEntryMatch(oe, newEntriesByMd5, newEntriesBySha256, newEntriesByBmsId, newEntriesByTitle);
+            if (matchedNew == null)
             {
                 return false;
             }
-
-            BMSTableEntry matchedNew;
-            if (candidates.Count > 1)
-            {
-                var sameFolder = candidates.Where(ne => ne.folder == oe.folder).ToList();
-                if (sameFolder.Count > 0)
-                {
-                    matchedNew = sameFolder.First();
-                }
-                else
-                {
-                    matchedNew = candidates.OrderByDescending(ne => Math.Abs((ne.level ?? 0.0) - (oe.level ?? 0.0))).First();
-                }
-            }
-            else
-            {
-                matchedNew = candidates.First();
-            }
-
             matchedNew.memo = oe.memo;
             matchedNew.adddate = oe.adddate;
+            matchedNew.is_removed = oe.is_removed;
             return true;
         }).ToList();
 
@@ -2610,6 +2621,65 @@ public partial class BMSPlaylist : NotificationObject
             Ribbit.Logging.NLogWrapper.FileLogger?.Info("playlist_resync last_update_decision table=" + (newTable.name ?? string.Empty) + " changed=" + lastUpdateChanged.ToString().ToLowerInvariant() + " structuralChanges=" + hasStructuralChanges.ToString().ToLowerInvariant() + " old=" + oldLastUpdate.ToString("O") + " reloaded=" + reloadedLastUpdate.ToString("O") + " final=" + newTable.last_update.ToString("O"));
         }
         return newTable;
+    }
+
+    private static Dictionary<string, List<BMSTableEntry>> BuildEntryLookup(IEnumerable<BMSTableEntry> entries, Func<BMSTableEntry, string> keySelector, IEqualityComparer<string> comparer)
+    {
+        return entries.Where(delegate (BMSTableEntry entry)
+        {
+            string text = keySelector(entry);
+            return !string.IsNullOrWhiteSpace(text);
+        }).GroupBy((BMSTableEntry entry) => keySelector(entry), comparer).ToDictionary((IGrouping<string, BMSTableEntry> group) => group.Key, (IGrouping<string, BMSTableEntry> group) => group.ToList(), comparer);
+    }
+
+    private static BMSTableEntry ResolveReloadedEntryMatch(BMSTableEntry oldEntry, Dictionary<string, List<BMSTableEntry>> entriesByMd5, Dictionary<string, List<BMSTableEntry>> entriesBySha256, Dictionary<string, List<BMSTableEntry>> entriesByBmsId, Dictionary<string, List<BMSTableEntry>> entriesByTitle)
+    {
+        List<BMSTableEntry> list = GetEntryMatchCandidates(oldEntry.md5, entriesByMd5);
+        if (list == null)
+        {
+            list = GetEntryMatchCandidates(oldEntry.sha256, entriesBySha256);
+        }
+        if (list == null)
+        {
+            list = GetEntryMatchCandidates(oldEntry.lr2_bmsid, entriesByBmsId);
+        }
+        if (list == null)
+        {
+            list = GetEntryMatchCandidates(oldEntry.title, entriesByTitle);
+        }
+        return SelectBestMatchedEntry(oldEntry, list);
+    }
+
+    private static List<BMSTableEntry> GetEntryMatchCandidates(string key, Dictionary<string, List<BMSTableEntry>> lookup)
+    {
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            return null;
+        }
+        lookup.TryGetValue(key, out var value);
+        if (value == null || value.Count == 0)
+        {
+            return null;
+        }
+        return value;
+    }
+
+    private static BMSTableEntry SelectBestMatchedEntry(BMSTableEntry oldEntry, List<BMSTableEntry> candidates)
+    {
+        if (candidates == null || candidates.Count == 0)
+        {
+            return null;
+        }
+        if (candidates.Count == 1)
+        {
+            return candidates[0];
+        }
+        List<BMSTableEntry> list = candidates.Where((BMSTableEntry ne) => ne.folder == oldEntry.folder).ToList();
+        if (list.Count > 0)
+        {
+            return list[0];
+        }
+        return candidates.OrderByDescending((BMSTableEntry ne) => Math.Abs((ne.level ?? 0.0) - (oldEntry.level ?? 0.0))).First();
     }
 
     /// <summary>
@@ -2724,7 +2794,7 @@ public partial class BMSPlaylist : NotificationObject
         {
             using LR2SongDBExtended lR2SongDBExtended = new LR2SongDBExtended(lr2SongDBPath);
             lR2SongDBExtended.BeginTransaction();
-            lR2SongDBExtended.Execute("DELETE FROM " + SQLiteTable<LR2SongDBExtended.playlist_entry>.GetTableName() + " WHERE " + SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.playlist_id) + " = " + entry.playlist_id + " AND " + SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.md5) + ((entry.md5 == null) ? " IS NULL " : (" = " + sqlQuote(entry.md5))) + " AND " + SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.folder) + " = " + sqlQuote(entry.folder) + " AND " + SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.lr2_bmsid) + ((entry.lr2_bmsid == null) ? " IS NULL " : (" = " + sqlQuote(entry.lr2_bmsid))) + " AND " + SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.title) + ((entry.title == null) ? " IS NULL " : (" = " + sqlQuote(entry.title))) + ";");
+            lR2SongDBExtended.Execute("DELETE FROM " + SQLiteTable<LR2SongDBExtended.playlist_entry>.GetTableName() + " WHERE " + SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.playlist_id) + " = " + entry.playlist_id + " AND " + SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.md5) + BuildNullableSqlEquality(entry.md5, blankAsNull: true) + " AND " + SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.sha256) + BuildNullableSqlEquality(entry.sha256, blankAsNull: true) + " AND " + SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.folder) + " = " + sqlQuote(entry.folder) + " AND " + SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.lr2_bmsid) + BuildNullableSqlEquality(entry.lr2_bmsid, blankAsNull: true) + " AND " + SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.title) + BuildNullableSqlEquality(entry.title) + ";");
             lR2SongDBExtended.InsertOrReplace(entry, typeof(LR2SongDBExtended.playlist_entry));
             lR2SongDBExtended.Commit();
         }
@@ -2814,8 +2884,7 @@ public partial class BMSPlaylist : NotificationObject
             {
                 lR2SongDBExtended.DropTable<LR2SongDBExtended.playlist>();
                 lR2SongDBExtended.DropTable<LR2SongDBExtended.playlist_entry>();
-                lR2SongDBExtended.CreateTable<LR2SongDBExtended.playlist>();
-                lR2SongDBExtended.CreateTable<LR2SongDBExtended.playlist_entry>();
+                EnsurePlaylistTablesAndIndexes(lR2SongDBExtended);
                 string[] source = sql.Split(new string[1] { "\v" + Environment.NewLine }, StringSplitOptions.None);
                 if (source.Count() <= 1)
                 {
@@ -2867,6 +2936,15 @@ public partial class BMSPlaylist : NotificationObject
             throw new ArgumentException(Resources.Error_ParseFailed, "tableinfoUri");
         }
         return source.Select((dynamic e) => new BMSTableSimple(e)).ToList();
+    }
+
+    private static string BuildNullableSqlEquality(string value, bool blankAsNull = false)
+    {
+        if (value == null || (blankAsNull && string.IsNullOrWhiteSpace(value)))
+        {
+            return " IS NULL ";
+        }
+        return " = " + sqlQuote(value);
     }
 
     /// <summary>

@@ -282,6 +282,18 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
+    public void PlaylistDetailRow_PreservesSha256SnapshotAcrossViewMaterialization()
+    {
+        PlaylistDetailSourceRow sourceRow = CreateSourceRow("cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd", "ShaVisible", 7, sha256: "abababababababababababababababababababababababababababababababab");
+
+        PlaylistDetailRow row = sourceRow.CreateViewRow();
+
+        Assert.AreEqual("abababababababababababababababababababababababababababababababab", sourceRow.sha256);
+        Assert.AreEqual("abababababababababababababababababababababababababababababababab", row.sha256);
+        Assert.AreEqual("abababababababababababababababababababababababababababababababab", GridRowResolver.GetSha256(row));
+    }
+
+    [TestMethod]
     public void PlaylistDetailSourceRow_UsesScoreSnapshotForOwnedRowsBeforeGlobalHydration()
     {
         TestableBmsFile file = new TestableBmsFile();
@@ -340,17 +352,34 @@ public sealed class PlaylistViewPipelineTests
             MainWindowViewModel.ResolvePlaylistColumnSettingModeForTest((int)MainWindowViewModel.PlaylistFilterType.PlaylistNotOwnedFilterSelected));
     }
 
-    private static PlaylistDetailSourceRow CreateSourceRow(string hash, string title, int? mode, string memo = "", string comment = "", double? entryLevel = null)
+    private static PlaylistDetailSourceRow CreateSourceRow(string hash, string title, int? mode, string memo = "", string comment = "", double? entryLevel = null, string sha256 = null)
     {
         TestableBmsFile file = new TestableBmsFile();
         file.ApplySnapshot(hash, title, mode);
-        BMSTableEntry entry = new BMSTableEntry(file)
+        TestablePlaylistEntry entry = new TestablePlaylistEntry(file)
         {
             memo = memo,
             comment = comment,
             level = entryLevel
         };
+        if (sha256 != null)
+        {
+            entry.SetSha256(sha256);
+        }
         return new PlaylistDetailSourceRow(entry, file);
+    }
+
+    private sealed class TestablePlaylistEntry : BMSTableEntry
+    {
+        public TestablePlaylistEntry(BMSFile bmsFile)
+            : base(bmsFile)
+        {
+        }
+
+        public void SetSha256(string value)
+        {
+            sha256 = value;
+        }
     }
 
     private sealed class TestableBmsFile : BMSFile
