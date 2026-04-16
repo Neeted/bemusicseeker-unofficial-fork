@@ -4890,6 +4890,82 @@ public class BMSLibrary : NotificationObject
         }
     }
 
+    internal void ReplaceReferenceBMSTable(BMSTable oldTable, BMSTable newTable, IEnumerable<BMSTableEntry> oldEntries = null, IEnumerable<BMSTableEntry> newEntries = null)
+    {
+        List<BMSTableEntry> oldEntriesSnapshot = SnapshotPlaylistReferenceEntries(oldTable, oldEntries);
+        List<BMSTableEntry> newEntriesSnapshot = SnapshotPlaylistReferenceEntries(newTable, newEntries);
+        (List<BMSFile> SongFiles, List<BMSFile> PendingFiles) targets = ResolvePlaylistReferenceTargets(oldEntriesSnapshot.Concat(newEntriesSnapshot));
+        LogInstallPerformance("playlist_ref_replace targetsSong=" + targets.SongFiles.Count + " targetsPending=" + targets.PendingFiles.Count + " oldEntryCount=" + oldEntriesSnapshot.Count + " newEntryCount=" + newEntriesSnapshot.Count);
+        if (oldTable != null)
+        {
+            RemoveReferenceBMSTables(oldTable, targets.SongFiles);
+            RemoveReferenceBMSTables(oldTable, targets.PendingFiles);
+        }
+        if (newTable != null)
+        {
+            AddReferenceBMSTables(newTable, targets.SongFiles);
+            AddReferenceBMSTables(newTable, targets.PendingFiles);
+        }
+    }
+
+    private List<BMSTableEntry> SnapshotPlaylistReferenceEntries(BMSTable table, IEnumerable<BMSTableEntry> entries)
+    {
+        if (entries != null)
+        {
+            return entries.Where((BMSTableEntry entry) => entry != null && !entry.is_removed).ToList();
+        }
+        if (table == null)
+        {
+            return new List<BMSTableEntry>();
+        }
+        using (table.ReaderWriterLock.GetReaderGuard())
+        {
+            return table.entries.Where((BMSTableEntry entry) => entry != null && !entry.is_removed).ToList();
+        }
+    }
+
+    private (List<BMSFile> SongFiles, List<BMSFile> PendingFiles) ResolvePlaylistReferenceTargets(IEnumerable<BMSTableEntry> entries)
+    {
+        HashSet<string> md5Hashes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        HashSet<string> sha256Hashes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (BMSTableEntry entry in entries ?? Enumerable.Empty<BMSTableEntry>())
+        {
+            if (entry == null)
+            {
+                continue;
+            }
+            if (!string.IsNullOrWhiteSpace(entry.md5))
+            {
+                md5Hashes.Add(entry.md5);
+            }
+            if (!string.IsNullOrWhiteSpace(entry.sha256))
+            {
+                sha256Hashes.Add(entry.sha256);
+            }
+        }
+        return (FilterPlaylistReferenceTargets(SnapshotSongFilesForPlaylistReferenceApply(), md5Hashes, sha256Hashes), FilterPlaylistReferenceTargets(SnapshotPendingFilesForPlaylistReferenceApply(), md5Hashes, sha256Hashes));
+    }
+
+    private static List<BMSFile> FilterPlaylistReferenceTargets(IEnumerable<BMSFile> files, HashSet<string> md5Hashes, HashSet<string> sha256Hashes)
+    {
+        if (files == null || ((md5Hashes?.Count ?? 0) == 0 && (sha256Hashes?.Count ?? 0) == 0))
+        {
+            return new List<BMSFile>();
+        }
+        return files.Where(delegate(BMSFile file)
+        {
+            if (file == null)
+            {
+                return false;
+            }
+            if (!string.IsNullOrWhiteSpace(file.hash) && md5Hashes.Contains(file.hash))
+            {
+                return true;
+            }
+            return !string.IsNullOrWhiteSpace(file.sha256) && sha256Hashes.Contains(file.sha256);
+        }).Distinct().ToList();
+    }
+
     public void AddReferenceBMSTables(BMSTable table, IEnumerable<BMSFile> files)
     {
         if (table == null || files == null)

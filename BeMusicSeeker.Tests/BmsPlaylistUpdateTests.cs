@@ -24,7 +24,7 @@ public sealed class BmsPlaylistUpdateTests
         playlist.BMSTables = new DispatcherCollection<BMSTable>(new ObservableCollection<BMSTable>(new[] { new BMSTable() }), Dispatcher.CurrentDispatcher);
         bool callbackInvoked = false;
 
-        List<BMSTable> updated = playlist.UpdateBMSTablesInternal(reloadExtPlaylist: false, updateCallbackActions: new List<Action<BMSTable, bool, BMSTable>>
+        List<BMSTable> updated = playlist.UpdateBMSTablesInternal(reloadExtPlaylist: false, updateCallbackActions: new List<Action<BMSPlaylist.PlaylistTableUpdateContext>>
         {
             delegate
             {
@@ -46,7 +46,7 @@ public sealed class BmsPlaylistUpdateTests
         playlist.BMSTables = new DispatcherCollection<BMSTable>(new ObservableCollection<BMSTable>(new[] { new BMSTable() }), Dispatcher.CurrentDispatcher);
         bool callbackInvoked = false;
 
-        List<BMSTable> updated = await playlist.UpdateBMSTablesInternalAsync(reloadExtPlaylist: false, updateCallbackActions: new List<Action<BMSTable, bool, BMSTable>>
+        List<BMSTable> updated = await playlist.UpdateBMSTablesInternalAsync(reloadExtPlaylist: false, updateCallbackActions: new List<Action<BMSPlaylist.PlaylistTableUpdateContext>>
         {
             delegate
             {
@@ -57,6 +57,54 @@ public sealed class BmsPlaylistUpdateTests
 
         Assert.IsTrue(callbackInvoked);
         Assert.AreEqual(0, updated.Count);
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public async Task UpdateBmsTablesInternalAsync_PassesOldAndNewEntrySnapshotsToCallback()
+    {
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string headerJsonPath = Path.Combine(tempDirectory, "header.json");
+            string scoreJsonPath = Path.Combine(tempDirectory, "score.json");
+            File.WriteAllBytes(headerJsonPath, CreateUtf8BomBytes("{\r\n\"name\":\"SnapshotTable\",\r\n\"symbol\":\"S\",\r\n\"data_url\":\"./score.json\",\r\n\"level_order\":[1]\r\n}"));
+            File.WriteAllBytes(scoreJsonPath, CreateUtf8BomBytes("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"sha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"title\":\"Snapshot Song\",\"artist\":\"Artist\",\"level\":\"1\"}]"));
+
+            string songDbPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "TestData", "song_snapshot", "song.db");
+            BMSPlaylist playlist = new BMSPlaylist(songDbPath);
+            BMSTable table = await playlist.LoadExternalTableAsync(new Uri(headerJsonPath));
+            table.EnableExternalSync();
+            playlist.BMSTables = new DispatcherCollection<BMSTable>(new ObservableCollection<BMSTable>(new[] { table }), Dispatcher.CurrentDispatcher);
+            BMSPlaylist.PlaylistTableUpdateContext callbackContext = null;
+
+            List<BMSTable> updated = await playlist.UpdateBMSTablesInternalAsync(reloadExtPlaylist: true, updateCallbackActions: new List<Action<BMSPlaylist.PlaylistTableUpdateContext>>
+            {
+                delegate(BMSPlaylist.PlaylistTableUpdateContext context)
+                {
+                    callbackContext = context;
+                }
+            }, syncResultCallback: null);
+
+            Assert.IsNotNull(callbackContext);
+            Assert.AreSame(table, callbackContext.OldTable);
+            Assert.IsNotNull(callbackContext.NewTable);
+            Assert.IsNotNull(callbackContext.OldEntriesSnapshot);
+            Assert.IsNotNull(callbackContext.NewEntriesSnapshot);
+            Assert.AreEqual(1, callbackContext.OldEntriesSnapshot.Count);
+            Assert.AreEqual(1, callbackContext.NewEntriesSnapshot.Count);
+            Assert.AreEqual("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", callbackContext.OldEntriesSnapshot[0].md5);
+            Assert.AreEqual("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", callbackContext.NewEntriesSnapshot[0].md5);
+            Assert.AreEqual(new string('b', 64), callbackContext.NewEntriesSnapshot[0].sha256);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
     }
 
     [TestMethod]

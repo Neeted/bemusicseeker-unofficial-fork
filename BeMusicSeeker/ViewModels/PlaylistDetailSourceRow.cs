@@ -125,11 +125,13 @@ internal sealed class PlaylistDetailSourceRow
         Entry = entry ?? throw new ArgumentNullException(nameof(entry));
         RealFile = realFile;
         ResolvedBmson = resolvedBmson;
+        bool isBmsOwned = realFile != null && !string.IsNullOrWhiteSpace(realFile.path);
+        bool isBmsonOwned = !isBmsOwned && resolvedBmson != null && !string.IsNullOrWhiteSpace(resolvedBmson.path);
         BMSFile snapshotSource = realFile ?? scoreProbe;
         BMSScore effectiveScore = scoreSnapshot ?? snapshotSource?.bmsScore;
-        Title = realFile?.Title ?? BmsonSongParser.ComposeDisplayTitle(resolvedBmson) ?? entry.title ?? string.Empty;
-        Artist = realFile?.Artist ?? resolvedBmson?.artist ?? entry.artist ?? string.Empty;
-        genre = realFile?.genre ?? resolvedBmson?.genre ?? string.Empty;
+        Title = FirstNonEmpty(realFile?.Title, BmsonSongParser.ComposeDisplayTitle(resolvedBmson), entry.title);
+        Artist = FirstNonEmpty(realFile?.Artist, resolvedBmson?.artist, entry.artist);
+        genre = FirstNonEmpty(realFile?.genre, resolvedBmson?.genre);
         mode = realFile?.mode ?? BmsonSongParser.ResolvePlaylistMode(resolvedBmson?.mode_hint) ?? scoreProbe?.mode;
         tag = realFile?.tag ?? string.Empty;
         Url = entry.EffectiveUrl;
@@ -141,10 +143,10 @@ internal sealed class PlaylistDetailSourceRow
         DisplayWarning = snapshotSource?.DisplayWarning ?? warning;
         comment = entry.comment ?? string.Empty;
         memo = entry.memo ?? string.Empty;
-        hash = realFile?.hash ?? resolvedBmson?.md5 ?? entry.md5 ?? string.Empty;
-        sha256 = !string.IsNullOrWhiteSpace(realFile?.sha256) ? realFile.sha256 : (!string.IsNullOrWhiteSpace(resolvedBmson?.sha256) ? resolvedBmson.sha256 : (entry.sha256 ?? string.Empty));
-        Folder = !string.IsNullOrWhiteSpace(entry.folder) ? entry.folder : BmsonSongParser.ComposeDisplayFolder(resolvedBmson);
-        path = realFile?.path ?? resolvedBmson?.path ?? string.Empty;
+        hash = FirstNonEmpty(realFile?.hash, resolvedBmson?.md5, entry.md5);
+        sha256 = FirstNonEmpty(realFile?.sha256, resolvedBmson?.sha256, entry.sha256);
+        Folder = FirstNonEmpty(entry.folder, BmsonSongParser.ComposeDisplayFolder(resolvedBmson));
+        path = FirstNonEmpty(realFile?.path, resolvedBmson?.path);
         instl_dst = snapshotSource?.instl_dst ?? string.Empty;
         WAVHealth = snapshotSource?.WAVHealth;
         BGAHealth = snapshotSource?.BGAHealth;
@@ -152,8 +154,8 @@ internal sealed class PlaylistDetailSourceRow
         encoding = snapshotSource?.encoding ?? string.Empty;
         RefTablesSymbols = realFile?.RefTablesSymbols ?? string.Empty;
         RefTablesNames = realFile?.RefTablesNames ?? string.Empty;
-        clear = ResolveClear(realFile, scoreProbe, effectiveScore);
-        rank = ResolveRank(realFile, scoreProbe, effectiveScore);
+        clear = ResolveClear(isBmsOwned, isBmsonOwned, scoreProbe, effectiveScore);
+        rank = ResolveRank(isBmsOwned, isBmsonOwned, scoreProbe, effectiveScore);
         rate = effectiveScore?.rate ?? scoreProbe?.rate;
         score = effectiveScore?.score ?? scoreProbe?.score;
         totalnotes = effectiveScore?.totalnotes ?? scoreProbe?.totalnotes;
@@ -238,24 +240,48 @@ internal sealed class PlaylistDetailSourceRow
         return null;
     }
 
-    private static ClearType ResolveClear(BMSFile realFile, BMSFile scoreProbe, BMSScore effectiveScore)
+    private static string FirstNonEmpty(params string[] candidates)
     {
-        if (realFile != null)
+        if (candidates == null)
+        {
+            return string.Empty;
+        }
+        foreach (string candidate in candidates)
+        {
+            if (!string.IsNullOrWhiteSpace(candidate))
+            {
+                return candidate;
+            }
+        }
+        return string.Empty;
+    }
+
+    private static ClearType ResolveClear(bool isBmsOwned, bool isBmsonOwned, BMSFile scoreProbe, BMSScore effectiveScore)
+    {
+        if (isBmsOwned)
         {
             return effectiveScore?.clear ?? ClearType.NO_PLAY;
+        }
+        if (isBmsonOwned)
+        {
+            return ClearType.NO_PLAY;
         }
         return scoreProbe?.clear ?? ClearType.NO_SONG;
     }
 
-    private static RankType ResolveRank(BMSFile realFile, BMSFile scoreProbe, BMSScore effectiveScore)
+    private static RankType ResolveRank(bool isBmsOwned, bool isBmsonOwned, BMSFile scoreProbe, BMSScore effectiveScore)
     {
-        if (realFile != null)
+        if (isBmsOwned)
         {
             if (effectiveScore == null)
             {
                 return RankType.INVALID;
             }
             return (effectiveScore.rank != RankType.INVALID) ? effectiveScore.rank : RankType.F;
+        }
+        if (isBmsonOwned)
+        {
+            return RankType.INVALID;
         }
         return scoreProbe?.rank ?? RankType.INVALID;
     }

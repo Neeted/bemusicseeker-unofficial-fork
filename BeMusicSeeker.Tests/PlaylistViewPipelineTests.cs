@@ -327,7 +327,44 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(7, row.mode);
         Assert.AreEqual(bmson.path, row.path);
         Assert.AreEqual(bmson.sha256, row.sha256);
+        Assert.AreEqual(ClearType.NO_PLAY, row.clear);
+        Assert.AreEqual(RankType.INVALID, row.rank);
+        Assert.IsNull(row.score);
+        Assert.AreEqual(BMSFile.BMSFileStatus.NONE, row.status);
         Assert.IsNull(GridRowResolver.GetOperationBmsFile(row));
+    }
+
+    [TestMethod]
+    public void PlaylistDetailSourceRow_MissingWithoutResolvedFiles_PreservesPlaylistEntryFallbackValues()
+    {
+        TestablePlaylistEntry entry = new TestablePlaylistEntry
+        {
+            folder = "EntryFolder",
+            level = 12
+        };
+        entry.SetTitle("EntryTitle");
+        entry.SetArtist("EntryArtist");
+        entry.SetMd5("abababababababababababababababab");
+        entry.SetSha256(new string('c', 64));
+
+        PlaylistDetailSourceRow sourceRow = new PlaylistDetailSourceRow(entry, realFile: null, resolvedBmson: null);
+
+        Assert.IsFalse(sourceRow.IsOwned);
+        Assert.AreEqual("EntryTitle", sourceRow.Title);
+        Assert.AreEqual("EntryArtist", sourceRow.Artist);
+        Assert.AreEqual("EntryFolder", sourceRow.Folder);
+        Assert.AreEqual("12", sourceRow.Level);
+        Assert.AreEqual(entry.md5, sourceRow.hash);
+        Assert.AreEqual(entry.sha256, sourceRow.sha256);
+        Assert.AreEqual(ClearType.NO_SONG, sourceRow.clear);
+    }
+
+    [TestMethod]
+    public void ShouldCreatePlaylistScoreProbeForTest_SkipsBmsonOwnedRows()
+    {
+        Assert.IsTrue(MainWindowViewModel.ShouldCreatePlaylistScoreProbeForTest(hasRealFile: false, hasResolvedBmson: false));
+        Assert.IsFalse(MainWindowViewModel.ShouldCreatePlaylistScoreProbeForTest(hasRealFile: false, hasResolvedBmson: true));
+        Assert.IsFalse(MainWindowViewModel.ShouldCreatePlaylistScoreProbeForTest(hasRealFile: true, hasResolvedBmson: false));
     }
 
     [TestMethod]
@@ -461,6 +498,16 @@ public sealed class PlaylistViewPipelineTests
         public void SetMd5(string value)
         {
             md5 = value;
+        }
+
+        public void SetTitle(string value)
+        {
+            title = value;
+        }
+
+        public void SetArtist(string value)
+        {
+            artist = value;
         }
     }
 

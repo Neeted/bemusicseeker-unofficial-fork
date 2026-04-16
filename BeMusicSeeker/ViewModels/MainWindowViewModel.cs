@@ -3323,9 +3323,13 @@ public class MainWindowViewModel : ViewModel
                             CurrentTableName = bmsTable.name,
                             CurrentUri = uri
                         });
+                        List<BMSTableEntry> oldEntriesSnapshot;
+                        using (bmsTable.ReaderWriterLock.GetReaderGuard())
+                        {
+                            oldEntriesSnapshot = bmsTable.entries.ToList();
+                        }
                         bmsTable = await ownerViewModel.tables.ResetBMSTableAsync(bmsTable, uri);
-                        ownerViewModel.files.RemoveReferenceBMSTables(sourceTable);
-                        ownerViewModel.files.AddReferenceBMSTables(bmsTable);
+                        ownerViewModel.files.ReplaceReferenceBMSTable(sourceTable, bmsTable, oldEntriesSnapshot);
                         ownerViewModel.UpdatePlaylistSyncRuntimeStatus(PlaylistSyncAttemptResult.CreateSuccess(sourceTable, bmsTable, uri, bmsTable.last_update != last_update));
                         flag = false;
                     }
@@ -4927,6 +4931,22 @@ public class MainWindowViewModel : ViewModel
         return null;
     }
 
+    internal static bool ShouldCreatePlaylistScoreProbeForTest(bool hasRealFile, bool hasResolvedBmson)
+    {
+        return ShouldCreatePlaylistScoreProbe(
+            hasRealFile ? new PlaylistScoreProbeBmsFile() { path = "owned.bms" } : null,
+            hasResolvedBmson ? new LR2SongDBExtended.bmson_song { path = "owned.bmson" } : null);
+    }
+
+    private static bool ShouldCreatePlaylistScoreProbe(BeMusicSeeker.Models.BMSFile realFile, LR2SongDBExtended.bmson_song resolvedBmson)
+    {
+        if (realFile != null && !string.IsNullOrWhiteSpace(realFile.path))
+        {
+            return false;
+        }
+        return resolvedBmson == null || string.IsNullOrWhiteSpace(resolvedBmson.path);
+    }
+
     private PlaylistLibraryIndexSnapshot CreatePlaylistLibraryIndexSnapshot(CancellationToken cancellationToken, long targetVersion)
     {
         Stopwatch stopwatch = Stopwatch.StartNew();
@@ -6152,7 +6172,24 @@ public class MainWindowViewModel : ViewModel
         }).Logging("ScheduleDeferredPlaylistReferenceApply");
     }
 
-    private void StartDeferredExternalPlaylistSync(string reason, bool fromReloadTables, Action<BMSTable, bool, BMSTable> updateCallbackAction = null)
+    private Action<BMSPlaylist.PlaylistTableUpdateContext> CreatePlaylistReferenceReplaceUpdateCallback()
+    {
+        return delegate(BMSPlaylist.PlaylistTableUpdateContext updateContext)
+        {
+            if (updateContext == null || !updateContext.Updated || files == null)
+            {
+                return;
+            }
+            files.ReplaceReferenceBMSTable(updateContext.OldTable, updateContext.NewTable, updateContext.OldEntriesSnapshot, updateContext.NewEntriesSnapshot);
+        };
+    }
+
+    private static bool ShouldScheduleDeferredPlaylistReferenceApplyAfterExternalSync(Action<BMSPlaylist.PlaylistTableUpdateContext> updateCallbackAction)
+    {
+        return updateCallbackAction == null;
+    }
+
+    private void StartDeferredExternalPlaylistSync(string reason, bool fromReloadTables, Action<BMSPlaylist.PlaylistTableUpdateContext> updateCallbackAction = null)
     {
         if (tables == null)
         {
@@ -6192,17 +6229,20 @@ public class MainWindowViewModel : ViewModel
                     BeginPlaylistSyncProgressOperation();
                     LogPlaylistReload("playlist_reload_operation started operationKind=" + GetPlaylistReloadOperationKindText(playlistReloadOperationKind) + " reason=" + reason + " tableCount=0 version=" + requestVersion);
                     LogDeferredExternalSync("deferred_external_sync run reason=" + reason + " fromReloadTables=" + fromReloadTables.ToString().ToLowerInvariant() + " version=" + requestVersion);
-                    List<Action<BMSTable, bool, BMSTable>> updateCallbackActions = null;
+                    List<Action<BMSPlaylist.PlaylistTableUpdateContext>> updateCallbackActions = null;
                     if (updateCallbackAction != null)
                     {
-                        updateCallbackActions = new List<Action<BMSTable, bool, BMSTable>> { updateCallbackAction };
+                        updateCallbackActions = new List<Action<BMSPlaylist.PlaylistTableUpdateContext>> { updateCallbackAction };
                     }
                     List<BMSTable> list = await tables.UpdateBMSTablesInternalAsync(reloadExtPlaylist: true, updateCallbackActions, delegate (PlaylistSyncAttemptResult result)
                     {
                         UpdatePlaylistSyncRuntimeStatus(result);
                     }, UpdatePlaylistSyncProgressStatus).ConfigureAwait(false);
                     int num = list?.Count ?? 0;
-                    ScheduleDeferredPlaylistReferenceApply("DeferredExternalSync:" + reason);
+                    if (ShouldScheduleDeferredPlaylistReferenceApplyAfterExternalSync(updateCallbackAction))
+                    {
+                        ScheduleDeferredPlaylistReferenceApply("DeferredExternalSync:" + reason);
+                    }
                     RefreshPlaylistSummaryIfVisible();
                     bool cleanupQueued = QueuePlaylistReloadCleanup(playlistReloadOperationKind, num);
                     LogPlaylistReload("playlist_reload_operation completed operationKind=" + GetPlaylistReloadOperationKindText(playlistReloadOperationKind) + " reason=" + reason + " tableCount=" + num + " summaryRebuildMs=" + Interlocked.Read(ref lastPlaylistSummaryBuildElapsedMs) + " detailRefreshMs=" + Interlocked.Read(ref lastPlaylistDetailBuildElapsedMs) + " cleanupQueued=" + cleanupQueued.ToString().ToLowerInvariant() + " elapsedMs=" + (long)(DateTime.UtcNow - startedAt).TotalMilliseconds);
@@ -7826,14 +7866,7 @@ public class MainWindowViewModel : ViewModel
         }
         StartStartupProgressOperation(StartupProgressOperationKind.ReloadTables);
         await _semaphore.WaitAsync();
-        Action<BMSTable, bool, BMSTable> updateCallbackAction = delegate (BMSTable bmsTable, bool updated, BMSTable oldTable)
-        {
-            if (updated)
-            {
-                files.RemoveReferenceBMSTables(oldTable);
-                files.AddReferenceBMSTables(bmsTable);
-            }
-        };
+        Action<BMSPlaylist.PlaylistTableUpdateContext> updateCallbackAction = CreatePlaylistReferenceReplaceUpdateCallback();
         bool scheduleDeferredExternalSync = false;
         try
         {
@@ -8487,7 +8520,7 @@ public class MainWindowViewModel : ViewModel
         }
         if (!Settings.Default.SkipInitPlaylistLoad)
         {
-            StartDeferredExternalPlaylistSync("Initialize", fromReloadTables: false, null);
+            StartDeferredExternalPlaylistSync("Initialize", fromReloadTables: false, CreatePlaylistReferenceReplaceUpdateCallback());
         }
     }
 
@@ -9149,7 +9182,7 @@ public class MainWindowViewModel : ViewModel
                 continue;
             }
             PlaylistScoreProbeBmsFile scoreProbe = null;
-            if (realFile == null)
+            if (ShouldCreatePlaylistScoreProbe(realFile, resolvedBmson))
             {
                 scoreProbe = new PlaylistScoreProbeBmsFile();
                 scoreProbe.ApplyEntrySnapshot(entry, BmsonSongParser.ResolvePlaylistMode(resolvedBmson?.mode_hint));
@@ -11604,9 +11637,13 @@ public class MainWindowViewModel : ViewModel
                 try
                 {
                     DateTime last_update = item.last_update;
+                    List<BMSTableEntry> oldEntriesSnapshot;
+                    using (item.ReaderWriterLock.GetReaderGuard())
+                    {
+                        oldEntriesSnapshot = item.entries.ToList();
+                    }
                     BMSTable bMSTable = await tables.ResetBMSTableAsync(item, uri);
-                    files.RemoveReferenceBMSTables(item);
-                    files.AddReferenceBMSTables(bMSTable);
+                    files.ReplaceReferenceBMSTable(item, bMSTable, oldEntriesSnapshot);
                     UpdatePlaylistSyncRuntimeStatus(PlaylistSyncAttemptResult.CreateSuccess(item, bMSTable, uri, bMSTable.last_update != last_update));
                 }
                 catch (Exception ex)

@@ -32,6 +32,19 @@ namespace BeMusicSeeker.Models;
 /// </summary>
 public partial class BMSPlaylist : NotificationObject
 {
+    public sealed class PlaylistTableUpdateContext
+    {
+        public BMSTable NewTable { get; internal set; }
+
+        public bool Updated { get; internal set; }
+
+        public BMSTable OldTable { get; internal set; }
+
+        public IReadOnlyList<BMSTableEntry> OldEntriesSnapshot { get; internal set; }
+
+        public IReadOnlyList<BMSTableEntry> NewEntriesSnapshot { get; internal set; }
+    }
+
     /// <summary>
     /// 推定表の派生種類を識別します。
     /// </summary>
@@ -610,7 +623,7 @@ public partial class BMSPlaylist : NotificationObject
     /// <param name="reloadExtPlaylist">外部同期対象プレイリストを再取得するかどうか。</param>
     /// <param name="updateCallbackAction">各プレイリスト更新後に呼ぶ追加コールバック。</param>
     /// <param name="semaphore">他初期化処理と連携するためのセマフォ。</param>
-    public void Initialize(bool reloadExtPlaylist = true, Action<BMSTable, bool, BMSTable> updateCallbackAction = null, SemaphoreSlim semaphore = null)
+    public void Initialize(bool reloadExtPlaylist = true, Action<PlaylistTableUpdateContext> updateCallbackAction = null, SemaphoreSlim semaphore = null)
     {
         Stopwatch stopwatchInitialize = Stopwatch.StartNew();
         long updateTablesMs = 0L;
@@ -687,8 +700,11 @@ public partial class BMSPlaylist : NotificationObject
                 initSemaphore.Release();
             }
             object folderoutLock = new object();
-            Action<BMSTable, bool, BMSTable> item = delegate (BMSTable bMSTable, bool updated, BMSTable oldtable)
+            Action<PlaylistTableUpdateContext> item = delegate (PlaylistTableUpdateContext updateContext)
             {
+                BMSTable bMSTable = updateContext?.NewTable;
+                BMSTable oldtable = updateContext?.OldTable;
+                bool updated = updateContext?.Updated ?? false;
                 if (Settings.Default.OperationModeLR2DB)
                 {
                     using (bMSTable.ReaderWriterLock.GetWriterGuard())
@@ -715,7 +731,7 @@ public partial class BMSPlaylist : NotificationObject
                 }
             };
             Stopwatch stopwatchUpdateTables = Stopwatch.StartNew();
-            UpdateBMSTables(reloadExtPlaylist, new List<Action<BMSTable, bool, BMSTable>> { item, updateCallbackAction });
+            UpdateBMSTables(reloadExtPlaylist, new List<Action<PlaylistTableUpdateContext>> { item, updateCallbackAction });
             stopwatchUpdateTables.Stop();
             updateTablesMs = stopwatchUpdateTables.ElapsedMilliseconds;
             Stopwatch stopwatchLr2configSync = Stopwatch.StartNew();
@@ -2009,17 +2025,17 @@ public partial class BMSPlaylist : NotificationObject
     /// <param name="reloadExtPlaylist">外部同期対象プレイリストを再取得するかどうか。</param>
     /// <param name="updateCallbackActions">各プレイリスト処理後に呼ぶコールバック群。</param>
     /// <returns><c>last_update</c> が変化したプレイリスト一覧。</returns>
-    public List<BMSTable> UpdateBMSTables(bool reloadExtPlaylist = true, List<Action<BMSTable, bool, BMSTable>> updateCallbackActions = null)
+    public List<BMSTable> UpdateBMSTables(bool reloadExtPlaylist = true, List<Action<PlaylistTableUpdateContext>> updateCallbackActions = null)
     {
         return UpdateBMSTablesInternalAsync(reloadExtPlaylist, updateCallbackActions, null).GetAwaiter().GetResult();
     }
 
-    internal List<BMSTable> UpdateBMSTablesInternal(bool reloadExtPlaylist = true, List<Action<BMSTable, bool, BMSTable>> updateCallbackActions = null, Action<PlaylistSyncAttemptResult> syncResultCallback = null)
+    internal List<BMSTable> UpdateBMSTablesInternal(bool reloadExtPlaylist = true, List<Action<PlaylistTableUpdateContext>> updateCallbackActions = null, Action<PlaylistSyncAttemptResult> syncResultCallback = null)
     {
         return UpdateBMSTablesInternalAsync(reloadExtPlaylist, updateCallbackActions, syncResultCallback, null).GetAwaiter().GetResult();
     }
 
-    internal async Task<List<BMSTable>> UpdateBMSTablesInternalAsync(bool reloadExtPlaylist = true, List<Action<BMSTable, bool, BMSTable>> updateCallbackActions = null, Action<PlaylistSyncAttemptResult> syncResultCallback = null, Action<PlaylistSyncProgressSnapshot> progressCallback = null, CancellationToken cancellationToken = default(CancellationToken))
+    internal async Task<List<BMSTable>> UpdateBMSTablesInternalAsync(bool reloadExtPlaylist = true, List<Action<PlaylistTableUpdateContext>> updateCallbackActions = null, Action<PlaylistSyncAttemptResult> syncResultCallback = null, Action<PlaylistSyncProgressSnapshot> progressCallback = null, CancellationToken cancellationToken = default(CancellationToken))
     {
         IsPlaylistUpdating = true;
         try
@@ -2053,6 +2069,8 @@ public partial class BMSPlaylist : NotificationObject
             await Task.WhenAll(tableSnapshot.Select(async delegate(BMSTable table)
             {
                 BMSTable newTable = table;
+                List<BMSTableEntry> oldEntriesSnapshot = null;
+                List<BMSTableEntry> newEntriesSnapshot = null;
                 await semaphoreSlim.WaitAsync(cancellationToken).ConfigureAwait(false);
                 Uri uri = table.Page_url ?? table.Header_url;
                 bool arg = false;
@@ -2076,7 +2094,9 @@ public partial class BMSPlaylist : NotificationObject
                             BMSTable reloadedTable = await reloadBMSTableAsync(table, uri, cancellationToken).ConfigureAwait(false);
                             using (table.ReaderWriterLock.GetWriterGuard())
                             {
+                                oldEntriesSnapshot = table.entries?.ToList() ?? new List<BMSTableEntry>();
                                 newTable = MergeReloadedBMSTableState(table, reloadedTable);
+                                newEntriesSnapshot = newTable.entries?.ToList() ?? new List<BMSTableEntry>();
                                 Stopwatch stopwatchCommit = Stopwatch.StartNew();
                                 CommitBMSTable(newTable);
                                 stopwatchCommit.Stop();
@@ -2127,9 +2147,17 @@ public partial class BMSPlaylist : NotificationObject
                     {
                         if (updateCallbackActions != null)
                         {
-                            foreach (Action<BMSTable, bool, BMSTable> item in updateCallbackActions.Where((Action<BMSTable, bool, BMSTable> a) => a != null))
+                            PlaylistTableUpdateContext updateContext = new PlaylistTableUpdateContext
                             {
-                                item(newTable, arg, table);
+                                NewTable = newTable,
+                                Updated = arg,
+                                OldTable = table,
+                                OldEntriesSnapshot = oldEntriesSnapshot,
+                                NewEntriesSnapshot = newEntriesSnapshot
+                            };
+                            foreach (Action<PlaylistTableUpdateContext> item in updateCallbackActions.Where((Action<PlaylistTableUpdateContext> a) => a != null))
+                            {
+                                item(updateContext);
                             }
                         }
                     }
