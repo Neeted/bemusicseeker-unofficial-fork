@@ -366,6 +366,215 @@ public sealed class LR2SongDBExtended : LR2SongDB
         public DateTime updated_at { get; set; }
     }
 
+    [Table("bmson_song")]
+    public class bmson_song : SQLiteTable<bmson_song>
+    {
+        private string _path;
+
+        private string _folder;
+
+        private string _title;
+
+        private string _subtitle;
+
+        private string _artist;
+
+        private string _genre;
+
+        private string _mode_hint;
+
+        private string _md5;
+
+        private string _sha256;
+
+        private string _banner;
+
+        private string _backbmp;
+
+        private string _stagefile;
+
+        private string _preview_music;
+
+        [PrimaryKey]
+        public virtual string path
+        {
+            get
+            {
+                return _path;
+            }
+            set
+            {
+                _path = string.IsNullOrWhiteSpace(value) ? null : value;
+            }
+        }
+
+        public virtual string folder
+        {
+            get
+            {
+                return _folder;
+            }
+            set
+            {
+                _folder = value ?? string.Empty;
+            }
+        }
+
+        public virtual string title
+        {
+            get
+            {
+                return _title;
+            }
+            set
+            {
+                _title = value ?? string.Empty;
+            }
+        }
+
+        public virtual string subtitle
+        {
+            get
+            {
+                return _subtitle;
+            }
+            set
+            {
+                _subtitle = value ?? string.Empty;
+            }
+        }
+
+        public virtual string artist
+        {
+            get
+            {
+                return _artist;
+            }
+            set
+            {
+                _artist = value ?? string.Empty;
+            }
+        }
+
+        public virtual string genre
+        {
+            get
+            {
+                return _genre;
+            }
+            set
+            {
+                _genre = value ?? string.Empty;
+            }
+        }
+
+        public double? level { get; set; }
+
+        public virtual string mode_hint
+        {
+            get
+            {
+                return _mode_hint;
+            }
+            set
+            {
+                _mode_hint = value ?? string.Empty;
+            }
+        }
+
+        public virtual string md5
+        {
+            get
+            {
+                return _md5;
+            }
+            set
+            {
+                if (string.IsNullOrWhiteSpace(value))
+                {
+                    _md5 = null;
+                    return;
+                }
+                if (!LR2SongDB.md5HashRegex.IsMatch(value))
+                {
+                    throw new FormatException("MD5 HASH ではありません");
+                }
+                _md5 = value.ToLowerInvariant();
+            }
+        }
+
+        public virtual string sha256
+        {
+            get
+            {
+                return _sha256;
+            }
+            set
+            {
+                if (string.IsNullOrWhiteSpace(value))
+                {
+                    _sha256 = null;
+                    return;
+                }
+                if (value.Length != 64 || value.Any((char c) => !Uri.IsHexDigit(c)))
+                {
+                    throw new FormatException("SHA256 HASH ではありません");
+                }
+                _sha256 = value.ToLowerInvariant();
+            }
+        }
+
+        public virtual string banner
+        {
+            get
+            {
+                return _banner;
+            }
+            set
+            {
+                _banner = value ?? string.Empty;
+            }
+        }
+
+        public virtual string backbmp
+        {
+            get
+            {
+                return _backbmp;
+            }
+            set
+            {
+                _backbmp = value ?? string.Empty;
+            }
+        }
+
+        public virtual string stagefile
+        {
+            get
+            {
+                return _stagefile;
+            }
+            set
+            {
+                _stagefile = value ?? string.Empty;
+            }
+        }
+
+        public virtual string preview_music
+        {
+            get
+            {
+                return _preview_music;
+            }
+            set
+            {
+                _preview_music = value ?? string.Empty;
+            }
+        }
+
+        public DateTime updated_at { get; set; }
+    }
+
     [Table("ir_score")]
     public class ir_score : SQLiteTable<ir_score>
     {
@@ -558,6 +767,7 @@ public sealed class LR2SongDBExtended : LR2SongDB
         DropTable<playlist>();
         DropTable<playlist_entry>();
         DropTable<chart_digest_map>();
+        DropTable<bmson_song>();
         DropTable<ir_score>();
         DropTable<ir_data>();
     }

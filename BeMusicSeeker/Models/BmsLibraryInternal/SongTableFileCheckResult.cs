@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
@@ -9,9 +10,15 @@ internal sealed class SongTableFileCheckResult
 
     public List<BMSFile> AddedFiles { get; } = new List<BMSFile>();
 
+    public List<LR2SongDBExtended.bmson_song> AddedBmsonSongs { get; } = new List<LR2SongDBExtended.bmson_song>();
+
     public List<BMSFile> NextFiles { get; } = new List<BMSFile>();
 
+    public List<LR2SongDBExtended.bmson_song> NextBmsonSongs { get; } = new List<LR2SongDBExtended.bmson_song>();
+
     public List<string> DeletedPaths { get; } = new List<string>();
+
+    public List<string> DeletedBmsonPaths { get; } = new List<string>();
 
     public List<BMSFile> ClearedInstallDestinations { get; } = new List<BMSFile>();
 

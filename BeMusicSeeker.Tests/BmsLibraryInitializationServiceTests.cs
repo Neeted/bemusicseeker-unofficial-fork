@@ -305,6 +305,125 @@ public sealed class BmsLibraryInitializationServiceTests
     }
 
     [TestMethod]
+    public void LoadSongTable_LoadsBmsonSongsFromCatalogTable()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
+        {
+            string bmsonPath = Path.Combine(lr2RootPath, "Songs", "chart.bmson");
+            Directory.CreateDirectory(Path.GetDirectoryName(bmsonPath));
+            File.WriteAllText(bmsonPath, CreateBmsonJson("Title", "Sub", "Chart", "Artist", "Genre", 12, "beat-7k"));
+
+            LR2SongDBExtended.bmson_song row = BmsonSongParser.Parse(bmsonPath);
+            using (LR2SongDBExtended songDb = new LR2SongDBExtended(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDB.song>();
+                songDb.CreateTable<LR2SongDB.folder>();
+                songDb.CreateTable<LR2SongDBExtended.maintenance>();
+                BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
+                songDb.InsertOrReplace(row, typeof(LR2SongDBExtended.bmson_song));
+            }
+
+            BmsLibraryInitializationService service = new BmsLibraryInitializationService();
+            SongTableLoadResult result = service.LoadSongTable(
+                new BmsLibraryDbGateway(songDbPath),
+                new BmsLibraryOptionsSnapshot(),
+                null,
+                new TestFileMutationService(),
+                null,
+                ex => ex.Message);
+
+            Assert.AreEqual(1, result.LoadedBmsonSongs.Count);
+            Assert.AreEqual(bmsonPath, result.LoadedBmsonSongs[0].path);
+            Assert.AreEqual("Title", result.LoadedBmsonSongs[0].title);
+            Assert.AreEqual("Sub [Chart]", result.LoadedBmsonSongs[0].subtitle);
+        });
+    }
+
+    [TestMethod]
+    public void ApplyFileScanDiff_TracksBmsonAddsDeletesAndUpdatesDatabase()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
+        {
+            string keepBmsonPath = Path.Combine(lr2RootPath, "Keep", "keep.bmson");
+            string addedBmsonPath = Path.Combine(lr2RootPath, "Added", "added.bmson");
+            string deletedBmsonPath = Path.Combine(lr2RootPath, "Deleted", "deleted.bmson");
+            Directory.CreateDirectory(Path.GetDirectoryName(keepBmsonPath));
+            Directory.CreateDirectory(Path.GetDirectoryName(addedBmsonPath));
+            File.WriteAllText(keepBmsonPath, CreateBmsonJson("Keep", "", "", "Artist", "Genre", 5, "beat-5k"));
+            File.WriteAllText(addedBmsonPath, CreateBmsonJson("Added", "", "", "Artist", "Genre", 7, "beat-7k"));
+
+            LR2SongDBExtended.bmson_song keepSong = BmsonSongParser.Parse(keepBmsonPath);
+            LR2SongDBExtended.bmson_song deletedSong = new LR2SongDBExtended.bmson_song
+            {
+                path = deletedBmsonPath,
+                folder = Path.GetDirectoryName(deletedBmsonPath),
+                title = "Deleted",
+                md5 = new string('a', 32),
+                sha256 = new string('b', 64),
+                updated_at = DateTime.UtcNow.AddDays(-1)
+            };
+            using (LR2SongDBExtended songDb = new LR2SongDBExtended(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDB.song>();
+                BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
+                songDb.InsertOrReplace(keepSong, typeof(LR2SongDBExtended.bmson_song));
+                songDb.InsertOrReplace(deletedSong, typeof(LR2SongDBExtended.bmson_song));
+            }
+
+            BmsLibraryInitializationService service = new BmsLibraryInitializationService();
+            SongTableFileCheckResult result = service.ApplyFileScanDiff(
+                new BmsLibraryDbGateway(songDbPath),
+                new BmsLibraryOptionsSnapshot(),
+                Array.Empty<BMSFile>(),
+                new BmsScanExecutionResult
+                {
+                    Success = true,
+                    Result = new BmsScanResult
+                    {
+                        BmsFilePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+                        FilesByDirectory = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase)
+                    }
+                },
+                0L,
+                () => null,
+                null,
+                currentBmsonSongs: new[] { keepSong, deletedSong },
+                executeBmsonScan: () => new BmsScanExecutionResult
+                {
+                    Success = true,
+                    Result = new BmsScanResult
+                    {
+                        BmsFilePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                        {
+                            keepBmsonPath,
+                            addedBmsonPath
+                        },
+                        FilesByDirectory = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase)
+                        {
+                            { Path.GetDirectoryName(keepBmsonPath), new List<string> { keepBmsonPath } },
+                            { Path.GetDirectoryName(addedBmsonPath), new List<string> { addedBmsonPath } }
+                        }
+                    }
+                });
+
+            CollectionAssert.Contains(result.DeletedBmsonPaths, deletedBmsonPath);
+            Assert.AreEqual(1, result.AddedBmsonSongs.Count);
+            Assert.AreEqual(2, result.NextBmsonSongs.Count);
+            Assert.IsTrue(result.NextBmsonSongs.Any((LR2SongDBExtended.bmson_song song) => string.Equals(song.path, keepBmsonPath, StringComparison.OrdinalIgnoreCase)));
+            Assert.IsTrue(result.NextBmsonSongs.Any((LR2SongDBExtended.bmson_song song) => string.Equals(song.path, addedBmsonPath, StringComparison.OrdinalIgnoreCase)));
+
+            using LR2SongDBExtended verify = new LR2SongDBExtended(songDbPath);
+            List<LR2SongDBExtended.bmson_song> rows = verify.Table<LR2SongDBExtended.bmson_song>().ToList();
+            Assert.AreEqual(2, rows.Count);
+            Assert.IsTrue(rows.Any((LR2SongDBExtended.bmson_song song) => string.Equals(song.path, keepBmsonPath, StringComparison.OrdinalIgnoreCase)));
+            Assert.IsTrue(rows.Any((LR2SongDBExtended.bmson_song song) => string.Equals(song.path, addedBmsonPath, StringComparison.OrdinalIgnoreCase)));
+            Assert.IsFalse(rows.Any((LR2SongDBExtended.bmson_song song) => string.Equals(song.path, deletedBmsonPath, StringComparison.OrdinalIgnoreCase)));
+        });
+    }
+
+    [TestMethod]
     public void RunInitialize_InvokesAllPhasesAndWaitsForContinuations()
     {
         BmsLibraryInitializationService service = new BmsLibraryInitializationService();
@@ -528,6 +647,30 @@ public sealed class BmsLibraryInitializationServiceTests
                 Directory.Delete(tempRootPath, recursive: true);
             }
         }
+    }
+
+    private static string CreateBmsonJson(string title, string subtitle, string chartName, string artist, string genre, int level, string modeHint)
+    {
+        return "{"
+            + "\"version\":\"1.0.0\","
+            + "\"info\":{"
+            + "\"title\":\"" + title + "\","
+            + "\"subtitle\":\"" + subtitle + "\","
+            + "\"chart_name\":\"" + chartName + "\","
+            + "\"artist\":\"" + artist + "\","
+            + "\"genre\":\"" + genre + "\","
+            + "\"level\":" + level + ","
+            + "\"mode_hint\":\"" + modeHint + "\","
+            + "\"banner_image\":\"banner.png\","
+            + "\"back_image\":\"back.png\","
+            + "\"eyecatch_image\":\"stage.png\","
+            + "\"preview_music\":\"preview.ogg\","
+            + "\"subartists\":[\"SubA\",\"SubB\"]"
+            + "},"
+            + "\"sound_channels\":[],"
+            + "\"bpm_events\":[],"
+            + "\"lines\":[{\"y\":0}]"
+            + "}";
     }
 
     private sealed class TestableBmsFile : BMSFile

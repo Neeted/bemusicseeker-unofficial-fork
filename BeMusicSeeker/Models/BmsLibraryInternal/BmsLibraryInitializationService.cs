@@ -97,6 +97,20 @@ internal sealed class BmsLibraryInitializationService
             result.ChartDigestMap[item.Key] = item.Value;
         }
 
+        Stopwatch stopwatchBmsonTableLoad = Stopwatch.StartNew();
+        if (TableExists(songDb, SQLiteTable<LR2SongDBExtended.bmson_song>.GetTableName()))
+        {
+            foreach (LR2SongDBExtended.bmson_song item in songDb.Table<LR2SongDBExtended.bmson_song>())
+            {
+                if (item != null && !string.IsNullOrWhiteSpace(item.path))
+                {
+                    result.LoadedBmsonSongs.Add(item);
+                }
+            }
+        }
+        stopwatchBmsonTableLoad.Stop();
+        result.BmsonTableLoadMs = stopwatchBmsonTableLoad.ElapsedMilliseconds;
+
         Stopwatch stopwatchMaintenanceTableLoad = Stopwatch.StartNew();
         Stopwatch stopwatchMaintenanceCount = Stopwatch.StartNew();
         try
@@ -205,7 +219,9 @@ internal sealed class BmsLibraryInitializationService
         Func<BmsScanExecutionResult> executeScan,
         IBmsLibraryDialogService dialogService,
         Action<string> logInstallPerformance = null,
-        Action<string> logEverythingScan = null)
+        Action<string> logEverythingScan = null,
+        IEnumerable<LR2SongDBExtended.bmson_song> currentBmsonSongs = null,
+        Func<BmsScanExecutionResult> executeBmsonScan = null)
     {
         SongTableFileCheckResult result = new SongTableFileCheckResult();
         Stopwatch stopwatchScan = Stopwatch.StartNew();
@@ -277,7 +293,6 @@ internal sealed class BmsLibraryInitializationService
         stopwatchNewFileParse.Stop();
         result.NewFileParseMs = stopwatchNewFileParse.ElapsedMilliseconds;
         result.AddedFiles.AddRange(addedFiles);
-        result.HasDbDiff = result.DeletedPaths.Count > 0 || result.AddedFiles.Count > 0;
 
         Stopwatch stopwatchApply = Stopwatch.StartNew();
         result.NextFiles.AddRange(currentFileList.Where((BMSFile file) => !result.DeletedPaths.Contains(file.path)));
@@ -296,6 +311,73 @@ internal sealed class BmsLibraryInitializationService
         result.InstlDstCleanupMs = stopwatchInstlDstCleanup.ElapsedMilliseconds;
         stopwatchApply.Stop();
         result.ApplyMs = stopwatchApply.ElapsedMilliseconds;
+
+        List<LR2SongDBExtended.bmson_song> currentBmsonList = (currentBmsonSongs ?? Enumerable.Empty<LR2SongDBExtended.bmson_song>())
+            .Where((LR2SongDBExtended.bmson_song song) => song != null && !string.IsNullOrWhiteSpace(song.path))
+            .ToList();
+        result.NextBmsonSongs.AddRange(currentBmsonList);
+        if (executeBmsonScan != null)
+        {
+            try
+            {
+                BmsScanExecutionResult bmsonScanResult = executeBmsonScan();
+                if (bmsonScanResult?.Result != null)
+                {
+                    HashSet<string> scannedBmsonPaths = new HashSet<string>(bmsonScanResult.Result.BmsFilePaths ?? new HashSet<string>(), StringComparer.OrdinalIgnoreCase);
+                    Dictionary<string, LR2SongDBExtended.bmson_song> currentBmsonByPath = currentBmsonList.ToDictionary((LR2SongDBExtended.bmson_song song) => song.path, StringComparer.OrdinalIgnoreCase);
+                    result.DeletedBmsonPaths.AddRange(currentBmsonByPath.Keys.Except(scannedBmsonPaths, StringComparer.OrdinalIgnoreCase));
+                    List<string> addedOrUpdatedBmsonPaths = scannedBmsonPaths
+                        .Where(delegate (string path)
+                        {
+                            if (!currentBmsonByPath.TryGetValue(path, out LR2SongDBExtended.bmson_song existing))
+                            {
+                                return true;
+                            }
+                            return existing.updated_at != SafeGetLastWriteTimeUtc(path);
+                        })
+                        .ToList();
+                    HashSet<string> successfullyParsedBmsonPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    List<LR2SongDBExtended.bmson_song> parsedBmsonSongs = addedOrUpdatedBmsonPaths.Count <= 0
+                        ? new List<LR2SongDBExtended.bmson_song>()
+                        : (from x in addedOrUpdatedBmsonPaths.AsParallel().Select(delegate (string path)
+                            {
+                                try
+                                {
+                                    LR2SongDBExtended.bmson_song parsed = BmsonSongParser.Parse(path);
+                                    lock (successfullyParsedBmsonPaths)
+                                    {
+                                        successfullyParsedBmsonPaths.Add(path);
+                                    }
+                                    return parsed;
+                                }
+                                catch (Exception ex)
+                                {
+                                    logEverythingScan?.Invoke("bmson_parse_failed path=" + path + " message=" + ex.Message);
+                                    return null;
+                                }
+                            })
+                           where x != null
+                           select x).ToList();
+                    result.AddedBmsonSongs.AddRange(parsedBmsonSongs);
+
+                    HashSet<string> removedBmsonPaths = new HashSet<string>(result.DeletedBmsonPaths, StringComparer.OrdinalIgnoreCase);
+                    foreach (string updatedPath in successfullyParsedBmsonPaths)
+                    {
+                        removedBmsonPaths.Add(updatedPath);
+                    }
+                    result.NextBmsonSongs.Clear();
+                    result.NextBmsonSongs.AddRange(currentBmsonList.Where((LR2SongDBExtended.bmson_song song) => !removedBmsonPaths.Contains(song.path)));
+                    result.NextBmsonSongs.AddRange(result.AddedBmsonSongs);
+                    logEverythingScan?.Invoke("bmson_scan totalPaths=" + scannedBmsonPaths.Count + " deleted=" + result.DeletedBmsonPaths.Count + " upserted=" + result.AddedBmsonSongs.Count);
+                }
+            }
+            catch (Exception ex)
+            {
+                logEverythingScan?.Invoke("bmson_scan_failed message=" + ex.Message);
+            }
+        }
+
+        result.HasDbDiff = result.DeletedPaths.Count > 0 || result.AddedFiles.Count > 0 || result.DeletedBmsonPaths.Count > 0 || result.AddedBmsonSongs.Count > 0;
 
         if (result.HasDbDiff)
         {
@@ -317,6 +399,14 @@ internal sealed class BmsLibraryInitializationService
                 songDb.InsertOrReplace(addedFile, typeof(LR2SongDB.song));
                 BmsLibraryDbGateway.UpsertChartDigest(songDb, addedFile);
             }
+            foreach (string deletedBmsonPath in result.DeletedBmsonPaths)
+            {
+                songDb.Delete<LR2SongDBExtended.bmson_song>(deletedBmsonPath);
+            }
+            foreach (LR2SongDBExtended.bmson_song addedBmsonSong in result.AddedBmsonSongs)
+            {
+                songDb.InsertOrReplace(addedBmsonSong, typeof(LR2SongDBExtended.bmson_song));
+            }
             songDb.Commit();
             stopwatchDbCommit.Stop();
             result.DbCommitMs = stopwatchDbCommit.ElapsedMilliseconds;
@@ -328,6 +418,8 @@ internal sealed class BmsLibraryInitializationService
             + " diff_ms=" + result.DiffMs
             + " deleted_count=" + result.DeletedPaths.Count
             + " added_count=" + result.AddedFiles.Count
+            + " bmson_deleted_count=" + result.DeletedBmsonPaths.Count
+            + " bmson_upsert_count=" + result.AddedBmsonSongs.Count
             + " newfile_parse_ms=" + result.NewFileParseMs
             + " apply_ms=" + result.ApplyMs
             + " db_commit_ms=" + result.DbCommitMs
@@ -750,5 +842,26 @@ internal sealed class BmsLibraryInitializationService
     private static bool IsBmsHashAvailable(string hash)
     {
         return !string.IsNullOrWhiteSpace(hash) && LR2SongDB.md5HashRegex.IsMatch(hash);
+    }
+
+    private static bool TableExists(LR2SongDBExtended songDb, string tableName)
+    {
+        if (songDb == null || string.IsNullOrWhiteSpace(tableName))
+        {
+            return false;
+        }
+        return songDb.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_master WHERE type = 'table' AND name = " + BMSPlaylist.SqlQuoteForTest(tableName) + ";") > 0;
+    }
+
+    private static DateTime SafeGetLastWriteTimeUtc(string path)
+    {
+        try
+        {
+            return File.GetLastWriteTimeUtc(path);
+        }
+        catch
+        {
+            return DateTime.MinValue;
+        }
     }
 }

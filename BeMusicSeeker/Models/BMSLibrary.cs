@@ -151,6 +151,8 @@ public class BMSLibrary : NotificationObject
 
     private const int playlistReferenceApplyChunkSize = 1024;
 
+    private static readonly string[] bmsonExtensions = new string[1] { ".bmson" };
+
     /// <summary>
     /// インストール処理のパフォーマンスログを出力します。コマンドラインスイッチで有効化されている場合のみ動作します。
     /// </summary>
@@ -774,6 +776,8 @@ public class BMSLibrary : NotificationObject
 
     private List<BMSFile> _BMSFiles = new List<BMSFile>();
 
+    private List<LR2SongDBExtended.bmson_song> _BmsonSongs = new List<LR2SongDBExtended.bmson_song>();
+
     private List<DuplicateGroup> _BMSFilesDuplicated;
 
     private DispatcherCollection<BMSPackage> _BMSPackagesPending = new DispatcherCollection<BMSPackage>(DispatcherHelper.UIDispatcher);
@@ -883,6 +887,26 @@ public class BMSLibrary : NotificationObject
     public List<BMSFile> BMSFilesUnregistered => BMSFiles.Where((BMSFile f) => string.IsNullOrWhiteSpace(f.parent)).ToList();
 
     public IEnumerable<BMSFile> BMSFilesNeedToBeFixed => GetBMSFilesNeedToBeFixed(BMSFiles);
+
+    public List<LR2SongDBExtended.bmson_song> BmsonSongs
+    {
+        get
+        {
+            return _BmsonSongs;
+        }
+        set
+        {
+            List<LR2SongDBExtended.bmson_song> normalized = value ?? new List<LR2SongDBExtended.bmson_song>();
+            if (_BmsonSongs != normalized)
+            {
+                _BmsonSongs = normalized;
+                Task.Run(delegate
+                {
+                    RaisePropertyChanged("BmsonSongs");
+                }).Logging("BmsonSongs");
+            }
+        }
+    }
 
     public IEnumerable<BMSFile> BMSFilesNeedToBeFixedIgnored => GetBMSFilesNeedToBeFixed(BMSFiles, forceUpdate: false, isInIgnoredList: true);
 
@@ -1818,6 +1842,22 @@ public class BMSLibrary : NotificationObject
     }
 
     /// <summary>
+    /// bmson ファイル走査を試み、失敗時にはディレクトリ形式のフォールバック走査を使用します。
+    /// </summary>
+    private BmsScanExecutionResult ExecuteBmsonScanWithFallback(List<string> bmsDirectories)
+    {
+        IBmsFileScanner fallbackScanner = new FastDirectoryFileScanner();
+        IBmsFileScanner scanner = new EverythingFileScanner();
+        BmsScanExecutionResult scanResult = scanner.Scan(bmsDirectories, bmsonExtensions, everythingScanLoggingEnabled);
+        if (!scanResult.Success || scanResult.Result == null)
+        {
+            LogEverythingScan("bmson file scan fallback reason=" + (scanResult?.ErrorReason ?? "unknown"));
+            scanResult = fallbackScanner.Scan(bmsDirectories, bmsonExtensions, everythingScanLoggingEnabled);
+        }
+        return scanResult;
+    }
+
+    /// <summary>
     /// BMS ライブラリの初期化を行います。song.db からの譜面データ読み込み、ファイルスキャン、
     /// スコア / 保守情報の取得を統合的に実行します。
     /// </summary>
@@ -1978,6 +2018,7 @@ public class BMSLibrary : NotificationObject
                     message => NLogWrapper.DebuggerLogger?.Trace(message));
                 Stopwatch stopwatchBmsFilesAssign = Stopwatch.StartNew();
                 BMSFiles = songTableLoadResult.LoadedFiles;
+                BmsonSongs = songTableLoadResult.LoadedBmsonSongs;
                 stopwatchBmsFilesAssign.Stop();
                 songTableLoadResult.BmsFilesAssignMs = stopwatchBmsFilesAssign.ElapsedMilliseconds;
                 LogInstallPerformance("song_tbl_load_breakdown song_table_load_ms=" + songTableLoadResult.SongTableLoadMs + " song_normalize_loop_ms=" + songTableLoadResult.SongNormalizeLoopMs + " folder_table_load_ms=" + songTableLoadResult.FolderTableLoadMs + " folder_normalize_loop_ms=" + songTableLoadResult.FolderNormalizeLoopMs + " fix_apply_ms=" + songTableLoadResult.FixApplyMs + " maintenance_table_load_ms=" + songTableLoadResult.MaintenanceTableLoadMs + " maintenance_map_build_ms=" + songTableLoadResult.MaintenanceMapBuildMs + " maintenance_apply_ms=" + songTableLoadResult.MaintenanceApplyMs + " bmsfiles_assign_ms=" + songTableLoadResult.BmsFilesAssignMs + " commit_ms=" + songTableLoadResult.CommitMs);
@@ -2028,10 +2069,13 @@ public class BMSLibrary : NotificationObject
                 () => ExecuteBmsScanWithFallback(bMSDirectories),
                 dialogService,
                 LogInstallPerformance,
-                LogEverythingScan);
+                LogEverythingScan,
+                BmsonSongs,
+                () => ExecuteBmsonScanWithFallback(bMSDirectories));
             using (rwlockBMSFiles.GetWriterGuard())
             {
                 BMSFiles = fileCheckResult.NextFiles;
+                BmsonSongs = fileCheckResult.NextBmsonSongs;
                 bmsFolderAllFileList = fileCheckResult.NextFolderAllFileList ?? new BMSDirectoryFileNameHash();
             }
             if (fileCheckResult.HasDbDiff)

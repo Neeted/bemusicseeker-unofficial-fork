@@ -294,6 +294,79 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
+    public void PlaylistDetailSourceRow_BmsonOwnedWithoutRealFile_UsesBmsonMetadata()
+    {
+        TestablePlaylistEntry entry = new TestablePlaylistEntry();
+        entry.comment = "comment";
+        entry.memo = "memo";
+        LR2SongDBExtended.bmson_song bmson = new LR2SongDBExtended.bmson_song
+        {
+            path = "C:\\Songs\\Bmson\\chart.bmson",
+            folder = "C:\\Songs\\Bmson",
+            title = "Bmson",
+            subtitle = "[Another]",
+            artist = "Artist",
+            genre = "Genre",
+            level = 11,
+            mode_hint = "beat-7k",
+            md5 = "dddddddddddddddddddddddddddddddd",
+            sha256 = new string('e', 64)
+        };
+        entry.SetMd5(bmson.md5);
+        entry.SetSha256(bmson.sha256);
+
+        PlaylistDetailSourceRow sourceRow = new PlaylistDetailSourceRow(entry, realFile: null, resolvedBmson: bmson);
+        PlaylistDetailRow row = sourceRow.CreateViewRow();
+
+        Assert.IsTrue(sourceRow.IsOwned);
+        Assert.IsNull(row.RealFile);
+        Assert.AreSame(bmson, row.ResolvedBmson);
+        Assert.AreEqual("Bmson [Another]", row.Title);
+        Assert.AreEqual("Artist", row.Artist);
+        Assert.AreEqual("Genre", row.genre);
+        Assert.AreEqual(7, row.mode);
+        Assert.AreEqual(bmson.path, row.path);
+        Assert.AreEqual(bmson.sha256, row.sha256);
+        Assert.IsNull(GridRowResolver.GetOperationBmsFile(row));
+    }
+
+    [TestMethod]
+    public void ResolveBmsonForPlaylistEntry_PrefersMd5AndRepresentativePathOrder()
+    {
+        TestablePlaylistEntry entry = new TestablePlaylistEntry();
+        entry.SetMd5("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
+        entry.SetSha256(new string('f', 64));
+
+        LR2SongDBExtended.bmson_song laterPath = new LR2SongDBExtended.bmson_song
+        {
+            path = "C:\\Songs\\Zeta\\chart.bmson",
+            md5 = entry.md5,
+            sha256 = new string('1', 64)
+        };
+        LR2SongDBExtended.bmson_song earlierPath = new LR2SongDBExtended.bmson_song
+        {
+            path = "C:\\Songs\\Alpha\\chart.bmson",
+            md5 = entry.md5,
+            sha256 = new string('2', 64)
+        };
+        LR2SongDBExtended.bmson_song shaOnly = new LR2SongDBExtended.bmson_song
+        {
+            path = "C:\\Songs\\Sha\\chart.bmson",
+            md5 = "99999999999999999999999999999999",
+            sha256 = entry.sha256
+        };
+
+        LR2SongDBExtended.bmson_song preferred = MainWindowViewModel.ChoosePreferredBmsonRepresentative(laterPath, earlierPath);
+        LR2SongDBExtended.bmson_song resolved = MainWindowViewModel.ResolveBmsonForPlaylistEntry(
+            entry,
+            new Dictionary<string, LR2SongDBExtended.bmson_song>(StringComparer.OrdinalIgnoreCase) { { entry.md5, preferred } },
+            new Dictionary<string, LR2SongDBExtended.bmson_song>(StringComparer.OrdinalIgnoreCase) { { entry.sha256, shaOnly } });
+
+        Assert.AreSame(earlierPath, preferred);
+        Assert.AreSame(earlierPath, resolved);
+    }
+
+    [TestMethod]
     public void PlaylistDetailSourceRow_UsesScoreSnapshotForOwnedRowsBeforeGlobalHydration()
     {
         TestableBmsFile file = new TestableBmsFile();
@@ -371,6 +444,10 @@ public sealed class PlaylistViewPipelineTests
 
     private sealed class TestablePlaylistEntry : BMSTableEntry
     {
+        public TestablePlaylistEntry()
+        {
+        }
+
         public TestablePlaylistEntry(BMSFile bmsFile)
             : base(bmsFile)
         {
@@ -379,6 +456,11 @@ public sealed class PlaylistViewPipelineTests
         public void SetSha256(string value)
         {
             sha256 = value;
+        }
+
+        public void SetMd5(string value)
+        {
+            md5 = value;
         }
     }
 

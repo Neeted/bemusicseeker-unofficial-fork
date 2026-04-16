@@ -9,6 +9,8 @@ internal sealed class SongTableLoadResult
 
     public List<BMSFile> LoadedFiles { get; } = new List<BMSFile>();
 
+    public List<LR2SongDBExtended.bmson_song> LoadedBmsonSongs { get; } = new List<LR2SongDBExtended.bmson_song>();
+
     public List<BMSFile> UpdatedSongs { get; } = new List<BMSFile>();
 
     public List<string> DeletedSongPaths { get; } = new List<string>();
@@ -62,6 +64,8 @@ internal sealed class SongTableLoadResult
     public long ChartDigestMapLoadMs { get; set; }
 
     public long ChartDigestApplyMs { get; set; }
+
+    public long BmsonTableLoadMs { get; set; }
 
     public long DbWriteMs { get; set; }
 

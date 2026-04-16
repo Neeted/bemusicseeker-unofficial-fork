@@ -3613,6 +3613,10 @@ public class MainWindowViewModel : ViewModel
         internal Dictionary<string, BeMusicSeeker.Models.BMSFile> FilesByHash = new Dictionary<string, BeMusicSeeker.Models.BMSFile>(StringComparer.OrdinalIgnoreCase);
 
         internal Dictionary<string, BeMusicSeeker.Models.BMSFile> FilesBySha256 = new Dictionary<string, BeMusicSeeker.Models.BMSFile>(StringComparer.OrdinalIgnoreCase);
+
+        internal Dictionary<string, LR2SongDBExtended.bmson_song> BmsonByMd5 = new Dictionary<string, LR2SongDBExtended.bmson_song>(StringComparer.OrdinalIgnoreCase);
+
+        internal Dictionary<string, LR2SongDBExtended.bmson_song> BmsonBySha256 = new Dictionary<string, LR2SongDBExtended.bmson_song>(StringComparer.OrdinalIgnoreCase);
     }
 
     /// <summary>
@@ -4893,12 +4897,44 @@ public class MainWindowViewModel : ViewModel
     /// <param name="cancellationToken">キャンセルトークン。</param>
     /// <param name="targetVersion">期待する版数。</param>
     /// <returns>構築された snapshot。</returns>
+    internal static LR2SongDBExtended.bmson_song ChoosePreferredBmsonRepresentative(LR2SongDBExtended.bmson_song existing, LR2SongDBExtended.bmson_song candidate)
+    {
+        if (existing == null)
+        {
+            return candidate;
+        }
+        if (candidate == null)
+        {
+            return existing;
+        }
+        return string.Compare(candidate.path ?? string.Empty, existing.path ?? string.Empty, StringComparison.OrdinalIgnoreCase) < 0 ? candidate : existing;
+    }
+
+    internal static LR2SongDBExtended.bmson_song ResolveBmsonForPlaylistEntry(BMSTableEntry entry, IReadOnlyDictionary<string, LR2SongDBExtended.bmson_song> bmsonByMd5, IReadOnlyDictionary<string, LR2SongDBExtended.bmson_song> bmsonBySha256)
+    {
+        if (entry == null)
+        {
+            return null;
+        }
+        if (!string.IsNullOrWhiteSpace(entry.md5) && bmsonByMd5 != null && bmsonByMd5.TryGetValue(entry.md5, out LR2SongDBExtended.bmson_song resolvedByMd5))
+        {
+            return resolvedByMd5;
+        }
+        if (!string.IsNullOrWhiteSpace(entry.sha256) && bmsonBySha256 != null && bmsonBySha256.TryGetValue(entry.sha256, out LR2SongDBExtended.bmson_song resolvedBySha256))
+        {
+            return resolvedBySha256;
+        }
+        return null;
+    }
+
     private PlaylistLibraryIndexSnapshot CreatePlaylistLibraryIndexSnapshot(CancellationToken cancellationToken, long targetVersion)
     {
         Stopwatch stopwatch = Stopwatch.StartNew();
         cancellationToken.ThrowIfCancellationRequested();
         Dictionary<string, BeMusicSeeker.Models.BMSFile> filesByHash = new Dictionary<string, BeMusicSeeker.Models.BMSFile>(StringComparer.OrdinalIgnoreCase);
         Dictionary<string, BeMusicSeeker.Models.BMSFile> filesBySha256 = new Dictionary<string, BeMusicSeeker.Models.BMSFile>(StringComparer.OrdinalIgnoreCase);
+        Dictionary<string, LR2SongDBExtended.bmson_song> bmsonByMd5 = new Dictionary<string, LR2SongDBExtended.bmson_song>(StringComparer.OrdinalIgnoreCase);
+        Dictionary<string, LR2SongDBExtended.bmson_song> bmsonBySha256 = new Dictionary<string, LR2SongDBExtended.bmson_song>(StringComparer.OrdinalIgnoreCase);
         foreach (BeMusicSeeker.Models.BMSFile file in BMSFiles ?? Enumerable.Empty<BeMusicSeeker.Models.BMSFile>())
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -4915,13 +4951,31 @@ public class MainWindowViewModel : ViewModel
                 filesBySha256[file.sha256] = file;
             }
         }
+        foreach (LR2SongDBExtended.bmson_song song in files?.BmsonSongs ?? Enumerable.Empty<LR2SongDBExtended.bmson_song>())
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (song == null || string.IsNullOrWhiteSpace(song.path))
+            {
+                continue;
+            }
+            if (!string.IsNullOrWhiteSpace(song.md5))
+            {
+                bmsonByMd5[song.md5] = ChoosePreferredBmsonRepresentative(bmsonByMd5.TryGetValue(song.md5, out LR2SongDBExtended.bmson_song existingByMd5) ? existingByMd5 : null, song);
+            }
+            if (!string.IsNullOrWhiteSpace(song.sha256))
+            {
+                bmsonBySha256[song.sha256] = ChoosePreferredBmsonRepresentative(bmsonBySha256.TryGetValue(song.sha256, out LR2SongDBExtended.bmson_song existingBySha256) ? existingBySha256 : null, song);
+            }
+        }
         cancellationToken.ThrowIfCancellationRequested();
         PlaylistLibraryIndexSnapshot newSnapshot = new PlaylistLibraryIndexSnapshot
         {
             Version = targetVersion,
             BuildElapsedMs = stopwatch.ElapsedMilliseconds,
             FilesByHash = filesByHash,
-            FilesBySha256 = filesBySha256
+            FilesBySha256 = filesBySha256,
+            BmsonByMd5 = bmsonByMd5,
+            BmsonBySha256 = bmsonBySha256
         };
         lock (playlistLibraryIndexSync)
         {
@@ -7869,7 +7923,7 @@ public class MainWindowViewModel : ViewModel
             throw new ArgumentNullException(nameof(preflightResult));
         }
         StringBuilder stringBuilder = new StringBuilder();
-        stringBuilder.Append("bmson 対応のため、初回起動時にプレイリストやハッシュ管理用テーブルへ変更を加えます。");
+        stringBuilder.Append("bmson 対応のため、初回起動時にプレイリストやハッシュ管理用・bmson カタログ用テーブルへ変更を加えます。");
         stringBuilder.Append(Environment.NewLine);
         stringBuilder.Append(Environment.NewLine);
         stringBuilder.Append("初回の SHA-256 生成はライブラリ規模によってかなり時間がかかります。");
@@ -7890,7 +7944,7 @@ public class MainWindowViewModel : ViewModel
         {
             throw new ArgumentNullException(nameof(ensureSchema));
         }
-        if (preflightResult.RequiresWarning && !approvedForSession)
+        if (preflightResult.WarnRequired && !approvedForSession)
         {
             if (confirmWarning == null)
             {
@@ -7909,17 +7963,36 @@ public class MainWindowViewModel : ViewModel
 
     private bool EnsureBmsonMigrationApprovedForStartup()
     {
+        LogInitStage("bmson_preflight_inspect_start", "Initialize");
         BmsonMigrationPreflightService bmsonMigrationPreflightService = new BmsonMigrationPreflightService();
         BmsonMigrationPreflightResult preflightResult = bmsonMigrationPreflightService.Inspect(Settings.Default.LR2SongDBPath);
+        LogInitStage("bmson_preflight_inspect_done", "Initialize");
+        if (preflightResult.RepairRequired)
+        {
+            LogInitStage("bmson_preflight_repair_start", "Initialize");
+            new BmsLibraryDbGateway(Settings.Default.LR2SongDBPath).EnsureBmsonSchema();
+            LogInitStage("bmson_preflight_repair_done", "Initialize");
+            LogInitStage("bmson_preflight_reinspect_start", "Initialize");
+            preflightResult = bmsonMigrationPreflightService.Inspect(Settings.Default.LR2SongDBPath);
+            LogInitStage("bmson_preflight_reinspect_done", "Initialize");
+            if (preflightResult.RepairRequired)
+            {
+                throw new InvalidOperationException("bmson app-owned schema repair did not converge.");
+            }
+        }
         return ApplyBmsonMigrationPreflightForStartup(preflightResult, ref bmsonMigrationApprovedForSession, delegate (string message)
         {
+            LogInitStage("bmson_preflight_prompt_show", "Initialize");
             ConfirmationMessage confirmationMessage = new ConfirmationMessage(message, "bmson 対応に伴う移行警告", MessageBoxImage.Exclamation, MessageBoxButton.OKCancel, "ConfirmationDialog");
             base.Messenger.Raise(confirmationMessage);
+            LogInitStage("bmson_preflight_prompt_close", "Initialize");
             return confirmationMessage.Response;
         }, delegate
         {
+            LogInitStage("bmson_preflight_ensure_schema_start", "Initialize");
             BMSPlaylist.EnsureSchema(Settings.Default.LR2SongDBPath);
             new BmsLibraryDbGateway(Settings.Default.LR2SongDBPath).EnsureBmsonSchema();
+            LogInitStage("bmson_preflight_ensure_schema_done", "Initialize");
         }, delegate
         {
             System.Windows.Application.Current?.Shutdown();
@@ -8041,6 +8114,18 @@ public class MainWindowViewModel : ViewModel
                 makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
             }
             RefreshPlaylistSummaryIfVisible();
+        });
+        listenerForBMSLibrary.RegisterHandler(() => files.BmsonSongs, delegate
+        {
+            InvalidatePlaylistLibraryIndexSnapshot("library_bmsons_changed");
+            if (TrySuppress(UiRefreshChannel.LibraryMainView))
+            {
+                return;
+            }
+            if (IsPlaylistDetailViewActive)
+            {
+                makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
+            }
         });
         listenerForBMSLibrary.RegisterHandler(() => files.ScoreHydrationCompletedVersion, delegate
         {
@@ -9032,11 +9117,13 @@ public class MainWindowViewModel : ViewModel
         cancellationToken.ThrowIfCancellationRequested();
         Dictionary<string, BeMusicSeeker.Models.BMSFile> filesByHash = libraryIndexSnapshot?.FilesByHash ?? new Dictionary<string, BeMusicSeeker.Models.BMSFile>(StringComparer.OrdinalIgnoreCase);
         Dictionary<string, BeMusicSeeker.Models.BMSFile> filesBySha256 = libraryIndexSnapshot?.FilesBySha256 ?? new Dictionary<string, BeMusicSeeker.Models.BMSFile>(StringComparer.OrdinalIgnoreCase);
+        Dictionary<string, LR2SongDBExtended.bmson_song> bmsonByMd5 = libraryIndexSnapshot?.BmsonByMd5 ?? new Dictionary<string, LR2SongDBExtended.bmson_song>(StringComparer.OrdinalIgnoreCase);
+        Dictionary<string, LR2SongDBExtended.bmson_song> bmsonBySha256 = libraryIndexSnapshot?.BmsonBySha256 ?? new Dictionary<string, LR2SongDBExtended.bmson_song>(StringComparer.OrdinalIgnoreCase);
         BeMusicSeeker.Models.BMSLibrary.ScoreSnapshot scoreSnapshot = files?.GetScoreSnapshotForDiagnostics();
         IReadOnlyDictionary<string, BeMusicSeeker.Models.BMSScore> scoresByHash = scoreSnapshot?.ScoresByHash ?? new Dictionary<string, BeMusicSeeker.Models.BMSScore>(StringComparer.OrdinalIgnoreCase);
         cancellationStage = "hash_index";
         cancellationToken.ThrowIfCancellationRequested();
-        List<(BMSTableEntry entry, BeMusicSeeker.Models.BMSFile realFile, PlaylistScoreProbeBmsFile scoreProbe, BeMusicSeeker.Models.BMSScore scoreSnapshot)> resolvedEntries = new List<(BMSTableEntry, BeMusicSeeker.Models.BMSFile, PlaylistScoreProbeBmsFile, BeMusicSeeker.Models.BMSScore)>();
+        List<(BMSTableEntry entry, BeMusicSeeker.Models.BMSFile realFile, LR2SongDBExtended.bmson_song resolvedBmson, PlaylistScoreProbeBmsFile scoreProbe, BeMusicSeeker.Models.BMSScore scoreSnapshot)> resolvedEntries = new List<(BMSTableEntry, BeMusicSeeker.Models.BMSFile, LR2SongDBExtended.bmson_song, PlaylistScoreProbeBmsFile, BeMusicSeeker.Models.BMSScore)>();
         cancellationStage = "entry_resolve";
         foreach (BMSTableEntry entry in bmsTable.GetEntriesExceptDummy())
         {
@@ -9054,8 +9141,10 @@ public class MainWindowViewModel : ViewModel
             {
                 filesBySha256.TryGetValue(entry.sha256, out realFile);
             }
+            LR2SongDBExtended.bmson_song resolvedBmson = realFile == null ? ResolveBmsonForPlaylistEntry(entry, bmsonByMd5, bmsonBySha256) : null;
             scoresByHash.TryGetValue(entry.md5 ?? string.Empty, out BeMusicSeeker.Models.BMSScore scoreSnapshotForRow);
-            if (onlyNotOwned && realFile != null && !string.IsNullOrWhiteSpace(realFile.path))
+            bool isOwned = (realFile != null && !string.IsNullOrWhiteSpace(realFile.path)) || (resolvedBmson != null && !string.IsNullOrWhiteSpace(resolvedBmson.path));
+            if (onlyNotOwned && isOwned)
             {
                 continue;
             }
@@ -9063,10 +9152,10 @@ public class MainWindowViewModel : ViewModel
             if (realFile == null)
             {
                 scoreProbe = new PlaylistScoreProbeBmsFile();
-                scoreProbe.ApplyEntrySnapshot(entry);
+                scoreProbe.ApplyEntrySnapshot(entry, BmsonSongParser.ResolvePlaylistMode(resolvedBmson?.mode_hint));
                 scoreUpdateTargetCount++;
             }
-            resolvedEntries.Add((entry, realFile, scoreProbe, scoreSnapshotForRow));
+            resolvedEntries.Add((entry, realFile, resolvedBmson, scoreProbe, scoreSnapshotForRow));
         }
         entryResolveMs = stopwatch.ElapsedMilliseconds;
 
@@ -9083,10 +9172,10 @@ public class MainWindowViewModel : ViewModel
         scoreProbeMs = stopwatch.ElapsedMilliseconds - entryResolveMs;
         List<PlaylistDetailSourceRow> playlistRows = new List<PlaylistDetailSourceRow>(resolvedEntries.Count);
         cancellationStage = "source_row_materialize";
-        foreach ((BMSTableEntry entry, BeMusicSeeker.Models.BMSFile realFile, PlaylistScoreProbeBmsFile scoreProbe, BeMusicSeeker.Models.BMSScore scoreSnapshotForRow) in resolvedEntries)
+        foreach ((BMSTableEntry entry, BeMusicSeeker.Models.BMSFile realFile, LR2SongDBExtended.bmson_song resolvedBmson, PlaylistScoreProbeBmsFile scoreProbe, BeMusicSeeker.Models.BMSScore scoreSnapshotForRow) in resolvedEntries)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            playlistRows.Add(new PlaylistDetailSourceRow(entry, realFile, scoreProbe, scoreSnapshotForRow));
+            playlistRows.Add(new PlaylistDetailSourceRow(entry, realFile, resolvedBmson, scoreProbe, scoreSnapshotForRow));
         }
         sourceMaterializeMs = stopwatch.ElapsedMilliseconds - entryResolveMs - scoreProbeMs;
         return playlistRows;

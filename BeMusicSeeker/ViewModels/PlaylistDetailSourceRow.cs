@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 
 namespace BeMusicSeeker.ViewModels;
@@ -26,9 +27,14 @@ internal sealed class PlaylistDetailSourceRow
     internal BMSFile RealFile { get; }
 
     /// <summary>
+    /// ライブラリ上の対応 bmson 実体です。未所持または BMS 優先解決時は null です。
+    /// </summary>
+    internal LR2SongDBExtended.bmson_song ResolvedBmson { get; }
+
+    /// <summary>
     /// 実体譜面を所持しているかどうかです。
     /// </summary>
-    internal bool IsOwned => RealFile != null && !string.IsNullOrWhiteSpace(RealFile.path);
+    internal bool IsOwned => (RealFile != null && !string.IsNullOrWhiteSpace(RealFile.path)) || (ResolvedBmson != null && !string.IsNullOrWhiteSpace(ResolvedBmson.path));
 
     internal string Title { get; }
 
@@ -114,16 +120,17 @@ internal sealed class PlaylistDetailSourceRow
 
     internal string SearchText { get; private set; }
 
-    internal PlaylistDetailSourceRow(BMSTableEntry entry, BMSFile realFile, BMSFile scoreProbe = null, BMSScore scoreSnapshot = null)
+    internal PlaylistDetailSourceRow(BMSTableEntry entry, BMSFile realFile, LR2SongDBExtended.bmson_song resolvedBmson = null, BMSFile scoreProbe = null, BMSScore scoreSnapshot = null)
     {
         Entry = entry ?? throw new ArgumentNullException(nameof(entry));
         RealFile = realFile;
+        ResolvedBmson = resolvedBmson;
         BMSFile snapshotSource = realFile ?? scoreProbe;
         BMSScore effectiveScore = scoreSnapshot ?? snapshotSource?.bmsScore;
-        Title = realFile?.Title ?? entry.title ?? string.Empty;
-        Artist = realFile?.Artist ?? entry.artist ?? string.Empty;
-        genre = realFile?.genre ?? string.Empty;
-        mode = realFile?.mode ?? scoreProbe?.mode;
+        Title = realFile?.Title ?? BmsonSongParser.ComposeDisplayTitle(resolvedBmson) ?? entry.title ?? string.Empty;
+        Artist = realFile?.Artist ?? resolvedBmson?.artist ?? entry.artist ?? string.Empty;
+        genre = realFile?.genre ?? resolvedBmson?.genre ?? string.Empty;
+        mode = realFile?.mode ?? BmsonSongParser.ResolvePlaylistMode(resolvedBmson?.mode_hint) ?? scoreProbe?.mode;
         tag = realFile?.tag ?? string.Empty;
         Url = entry.EffectiveUrl;
         Url_diff = entry.EffectiveUrlDiff;
@@ -134,10 +141,10 @@ internal sealed class PlaylistDetailSourceRow
         DisplayWarning = snapshotSource?.DisplayWarning ?? warning;
         comment = entry.comment ?? string.Empty;
         memo = entry.memo ?? string.Empty;
-        hash = realFile?.hash ?? entry.md5 ?? string.Empty;
-        sha256 = !string.IsNullOrWhiteSpace(realFile?.sha256) ? realFile.sha256 : (entry.sha256 ?? string.Empty);
-        Folder = entry.folder ?? string.Empty;
-        path = realFile?.path ?? string.Empty;
+        hash = realFile?.hash ?? resolvedBmson?.md5 ?? entry.md5 ?? string.Empty;
+        sha256 = !string.IsNullOrWhiteSpace(realFile?.sha256) ? realFile.sha256 : (!string.IsNullOrWhiteSpace(resolvedBmson?.sha256) ? resolvedBmson.sha256 : (entry.sha256 ?? string.Empty));
+        Folder = !string.IsNullOrWhiteSpace(entry.folder) ? entry.folder : BmsonSongParser.ComposeDisplayFolder(resolvedBmson);
+        path = realFile?.path ?? resolvedBmson?.path ?? string.Empty;
         instl_dst = snapshotSource?.instl_dst ?? string.Empty;
         WAVHealth = snapshotSource?.WAVHealth;
         BGAHealth = snapshotSource?.BGAHealth;
@@ -159,7 +166,7 @@ internal sealed class PlaylistDetailSourceRow
         status = snapshotSource?.status ?? BMSFile.BMSFileStatus.NONE;
         lr2_bmsid = entry.lr2_bmsid ?? string.Empty;
         EntryLevelSortKey = entry.level;
-        Level = BuildLevelText(entry, realFile);
+        Level = BuildLevelText(entry, realFile, resolvedBmson);
         SearchText = BuildSearchText();
     }
 
@@ -196,13 +203,13 @@ internal sealed class PlaylistDetailSourceRow
         SearchText = BuildSearchText();
     }
 
-    private static string BuildLevelText(BMSTableEntry entry, BMSFile realFile)
+    private static string BuildLevelText(BMSTableEntry entry, BMSFile realFile, LR2SongDBExtended.bmson_song resolvedBmson)
     {
         if (entry?.level != null)
         {
             return entry.level.ToString();
         }
-        return realFile?.level?.ToString() ?? string.Empty;
+        return realFile?.level?.ToString() ?? resolvedBmson?.level?.ToString() ?? string.Empty;
     }
 
     private static double? ResolveEntryLevelSortKey(string levelText, double? entryLevel, double? rowSortKey)
@@ -303,7 +310,7 @@ internal sealed class PlaylistScoreProbeBmsFile : BMSFile
     /// エントリ情報から score lookup 用の最小 snapshot を適用します。
     /// </summary>
     /// <param name="entry">対象エントリ。</param>
-    internal void ApplyEntrySnapshot(BMSTableEntry entry)
+    internal void ApplyEntrySnapshot(BMSTableEntry entry, int? resolvedMode = null)
     {
         if (entry == null)
         {
@@ -311,6 +318,6 @@ internal sealed class PlaylistScoreProbeBmsFile : BMSFile
         }
         hash = entry.md5;
         path = string.Empty;
-        mode = null;
+        mode = resolvedMode;
     }
 }
