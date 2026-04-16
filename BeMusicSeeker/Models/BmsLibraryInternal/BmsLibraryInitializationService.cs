@@ -88,6 +88,15 @@ internal sealed class BmsLibraryInitializationService
         }
         logDebugTrace?.Invoke("relative path check end");
 
+        Stopwatch stopwatchChartDigestMapLoad = Stopwatch.StartNew();
+        Dictionary<string, string> chartDigestMap = dbGateway.LoadChartDigestMap();
+        stopwatchChartDigestMapLoad.Stop();
+        result.ChartDigestMapLoadMs = stopwatchChartDigestMapLoad.ElapsedMilliseconds;
+        foreach (KeyValuePair<string, string> item in chartDigestMap)
+        {
+            result.ChartDigestMap[item.Key] = item.Value;
+        }
+
         Stopwatch stopwatchMaintenanceTableLoad = Stopwatch.StartNew();
         Stopwatch stopwatchMaintenanceCount = Stopwatch.StartNew();
         try
@@ -128,6 +137,19 @@ internal sealed class BmsLibraryInitializationService
         result.MaintenanceMapBuildMs = stopwatchMaintenanceMapBuild.ElapsedMilliseconds;
 
         HashSet<BMSFile> deletedFileSet = deletedFiles.Count > 0 ? new HashSet<BMSFile>(deletedFiles) : null;
+        Stopwatch stopwatchChartDigestApply = Stopwatch.StartNew();
+        foreach (BMSFile item in loadedSongs)
+        {
+            if (deletedFileSet == null || !deletedFileSet.Contains(item))
+            {
+                if (!string.IsNullOrWhiteSpace(item.hash) && result.ChartDigestMap.TryGetValue(item.hash, out string sha256))
+                {
+                    item.ApplySha256(sha256);
+                }
+            }
+        }
+        stopwatchChartDigestApply.Stop();
+        result.ChartDigestApplyMs = stopwatchChartDigestApply.ElapsedMilliseconds;
         Stopwatch stopwatchMaintenanceApply = Stopwatch.StartNew();
         foreach (BMSFile item in loadedSongs)
         {
@@ -285,6 +307,7 @@ internal sealed class BmsLibraryInitializationService
                 logInstallPerformance?.Invoke("db_read_pragmas scope=song_tbl_file_check " + string.Join(" ", result.Pragmas));
             }
             songDb.BeginTransaction();
+            BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
             foreach (string deletedPath in result.DeletedPaths)
             {
                 songDb.Delete<LR2SongDB.song>(deletedPath);
@@ -292,6 +315,7 @@ internal sealed class BmsLibraryInitializationService
             foreach (BMSFile addedFile in result.AddedFiles)
             {
                 songDb.InsertOrReplace(addedFile, typeof(LR2SongDB.song));
+                BmsLibraryDbGateway.UpsertChartDigest(songDb, addedFile);
             }
             songDb.Commit();
             stopwatchDbCommit.Stop();
@@ -309,6 +333,66 @@ internal sealed class BmsLibraryInitializationService
             + " db_commit_ms=" + result.DbCommitMs
             + " instl_dst_cleanup_ms=" + result.InstlDstCleanupMs);
         logEverythingScan?.Invoke("bms_scan totalMs=" + result.ScanElapsedMs + " bmsPaths=" + result.BmsPathCount + " dirs=" + result.DirectoryCount + " prefetched=" + result.PrefetchedScanUsed.ToString().ToLowerInvariant());
+        return result;
+    }
+
+    public ChartDigestBackfillResult BackfillChartDigests(
+        BmsLibraryDbGateway dbGateway,
+        IEnumerable<BMSFile> currentFiles,
+        Action<int, int, string> reportProgress = null,
+        Action<string> logInstallPerformance = null)
+    {
+        ChartDigestBackfillResult result = new ChartDigestBackfillResult();
+        if (dbGateway == null)
+        {
+            return result;
+        }
+        Stopwatch stopwatchTotal = Stopwatch.StartNew();
+        List<BMSFile> targetFiles = (currentFiles ?? Enumerable.Empty<BMSFile>())
+            .Where((BMSFile file) => file != null && !string.IsNullOrWhiteSpace(file.hash) && string.IsNullOrWhiteSpace(file.sha256) && !string.IsNullOrWhiteSpace(file.path) && File.Exists(file.path))
+            .ToList();
+        result.TargetCount = targetFiles.Count;
+        reportProgress?.Invoke(result.TargetCount, 0, string.Empty);
+        if (targetFiles.Count == 0)
+        {
+            stopwatchTotal.Stop();
+            result.TotalMs = stopwatchTotal.ElapsedMilliseconds;
+            return result;
+        }
+        Stopwatch stopwatchCompute = Stopwatch.StartNew();
+        List<BMSFile> completedFiles = new List<BMSFile>(targetFiles.Count);
+        foreach (BMSFile file in targetFiles)
+        {
+            try
+            {
+                reportProgress?.Invoke(result.TargetCount, result.ProcessedCount, file.path);
+                file.ApplySha256(BMSFile.GetSHA256Hash(file.path));
+                completedFiles.Add(file);
+                result.BackfilledCount++;
+            }
+            catch
+            {
+                result.FailedCount++;
+                result.FailedPaths.Add(file.path);
+            }
+            finally
+            {
+                result.ProcessedCount++;
+                reportProgress?.Invoke(result.TargetCount, result.ProcessedCount, file.path);
+            }
+        }
+        stopwatchCompute.Stop();
+        result.ComputeMs = stopwatchCompute.ElapsedMilliseconds;
+        Stopwatch stopwatchDbCommit = Stopwatch.StartNew();
+        if (completedFiles.Count > 0)
+        {
+            dbGateway.UpsertChartDigests(completedFiles);
+        }
+        stopwatchDbCommit.Stop();
+        result.DbCommitMs = stopwatchDbCommit.ElapsedMilliseconds;
+        stopwatchTotal.Stop();
+        result.TotalMs = stopwatchTotal.ElapsedMilliseconds;
+        logInstallPerformance?.Invoke("chart_digest_backfill total=" + result.TargetCount + " success=" + result.BackfilledCount + " failed=" + result.FailedCount + " computeMs=" + result.ComputeMs + " dbCommitMs=" + result.DbCommitMs + " totalMs=" + result.TotalMs);
         return result;
     }
 

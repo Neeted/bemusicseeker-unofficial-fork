@@ -15,7 +15,7 @@ public sealed class MainWindowViewModelBmsonMigrationTests
         bool approvedForSession = false;
         bool ensureSchemaCalled = false;
         bool shutdownCalled = false;
-        BmsonMigrationPreflightResult result = new BmsonMigrationPreflightResult(needsPlaylistEntrySha256Migration: true, needsInitialSha256BackfillWarning: false);
+        BmsonMigrationPreflightResult result = new BmsonMigrationPreflightResult(needsPlaylistEntrySha256Migration: true, needsChartDigestMapSchema: false, needsInitialSha256BackfillWarning: false);
 
         bool shouldContinue = MainWindowViewModel.ApplyBmsonMigrationPreflightForStartup(result, ref approvedForSession, _ => false, delegate
         {
@@ -38,7 +38,7 @@ public sealed class MainWindowViewModelBmsonMigrationTests
         bool approvedForSession = false;
         bool ensureSchemaCalled = false;
         bool shutdownCalled = false;
-        BmsonMigrationPreflightResult result = new BmsonMigrationPreflightResult(needsPlaylistEntrySha256Migration: true, needsInitialSha256BackfillWarning: false);
+        BmsonMigrationPreflightResult result = new BmsonMigrationPreflightResult(needsPlaylistEntrySha256Migration: true, needsChartDigestMapSchema: false, needsInitialSha256BackfillWarning: false);
 
         bool shouldContinue = MainWindowViewModel.ApplyBmsonMigrationPreflightForStartup(result, ref approvedForSession, _ => true, delegate
         {
@@ -58,7 +58,7 @@ public sealed class MainWindowViewModelBmsonMigrationTests
     [TestCategory("Playlist")]
     public void BuildBmsonMigrationWarningMessage_IncludesCompatibilityAndDurationWarnings()
     {
-        BmsonMigrationPreflightResult result = new BmsonMigrationPreflightResult(needsPlaylistEntrySha256Migration: true, needsInitialSha256BackfillWarning: false);
+        BmsonMigrationPreflightResult result = new BmsonMigrationPreflightResult(needsPlaylistEntrySha256Migration: true, needsChartDigestMapSchema: true, needsInitialSha256BackfillWarning: true);
 
         string message = MainWindowViewModel.BuildBmsonMigrationWarningMessage(result);
 

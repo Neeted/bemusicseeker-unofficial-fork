@@ -86,9 +86,11 @@ internal sealed class BmsLibraryDbGateway
         }
         ExecuteSongDbTransaction(delegate (LR2SongDBExtended songDb)
         {
+            EnsureBmsonSchema(songDb);
             foreach (BMSFile file in files)
             {
                 songDb.InsertOrReplace(file, typeof(LR2SongDB.song));
+                UpsertChartDigest(songDb, file);
             }
         });
     }
@@ -159,6 +161,7 @@ internal sealed class BmsLibraryDbGateway
         }
         ExecuteSongDbTransaction(delegate (LR2SongDBExtended songDb)
         {
+            EnsureBmsonSchema(songDb);
             songDb.Delete<LR2SongDB.song>(oldPath);
             songDb.Delete<LR2SongDBExtended.maintenance>(oldPath);
             if (bmsFile.maintenanceInfo != null)
@@ -166,6 +169,50 @@ internal sealed class BmsLibraryDbGateway
                 songDb.InsertOrReplace(bmsFile.maintenanceInfo, typeof(LR2SongDBExtended.maintenance));
             }
             songDb.InsertOrReplace(bmsFile, typeof(LR2SongDB.song));
+            UpsertChartDigest(songDb, bmsFile);
+        });
+    }
+
+    public void EnsureBmsonSchema()
+    {
+        using LR2SongDBExtended songDb = OpenSongDb();
+        EnsureBmsonSchema(songDb);
+    }
+
+    public Dictionary<string, string> LoadChartDigestMap()
+    {
+        using LR2SongDBExtended songDb = OpenSongDb();
+        if (!TableExists(songDb, SQLiteTable<LR2SongDBExtended.chart_digest_map>.GetTableName()))
+        {
+            return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        }
+        Dictionary<string, string> dictionary = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (LR2SongDBExtended.chart_digest_map item in songDb.Table<LR2SongDBExtended.chart_digest_map>())
+        {
+            if (item != null && !string.IsNullOrWhiteSpace(item.md5) && !string.IsNullOrWhiteSpace(item.sha256))
+            {
+                dictionary[item.md5] = item.sha256;
+            }
+        }
+        return dictionary;
+    }
+
+    public void UpsertChartDigests(IEnumerable<BMSFile> files)
+    {
+        List<BMSFile> sourceFiles = (files ?? Enumerable.Empty<BMSFile>())
+            .Where((BMSFile file) => file != null && !string.IsNullOrWhiteSpace(file.hash) && !string.IsNullOrWhiteSpace(file.sha256))
+            .ToList();
+        if (sourceFiles.Count == 0)
+        {
+            return;
+        }
+        ExecuteSongDbTransaction(delegate (LR2SongDBExtended songDb)
+        {
+            EnsureBmsonSchema(songDb);
+            foreach (BMSFile file in sourceFiles)
+            {
+                UpsertChartDigest(songDb, file);
+            }
         });
     }
 
@@ -285,5 +332,40 @@ internal sealed class BmsLibraryDbGateway
                 SQLiteTable<LR2SongDBExtended.ir_score>.GetColumnName((LR2SongDBExtended.ir_score e) => e.minbp)
             });
         });
+    }
+
+    internal static void EnsureBmsonSchema(LR2SongDBExtended songDb)
+    {
+        if (songDb == null)
+        {
+            throw new ArgumentNullException(nameof(songDb));
+        }
+        songDb.CreateTable<LR2SongDBExtended.chart_digest_map>();
+        songDb.CreateIndex("chart_digest_map_idx_sha256", SQLiteTable<LR2SongDBExtended.chart_digest_map>.GetTableName(), SQLiteTable<LR2SongDBExtended.chart_digest_map>.GetColumnName((LR2SongDBExtended.chart_digest_map row) => row.sha256));
+    }
+
+    internal static void UpsertChartDigest(LR2SongDBExtended songDb, BMSFile file)
+    {
+        if (songDb == null)
+        {
+            throw new ArgumentNullException(nameof(songDb));
+        }
+        if (file == null || string.IsNullOrWhiteSpace(file.hash) || string.IsNullOrWhiteSpace(file.sha256))
+        {
+            return;
+        }
+        LR2SongDBExtended.chart_digest_map row = new LR2SongDBExtended.chart_digest_map
+        {
+            md5 = file.hash,
+            sha256 = file.sha256,
+            last_seen_path = file.path,
+            updated_at = DateTime.UtcNow
+        };
+        songDb.InsertOrReplace(row, typeof(LR2SongDBExtended.chart_digest_map));
+    }
+
+    private static bool TableExists(LR2SongDBExtended songDb, string tableName)
+    {
+        return songDb.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_master WHERE type = 'table' AND name = " + BMSPlaylist.SqlQuoteForTest(tableName) + ";") > 0;
     }
 }

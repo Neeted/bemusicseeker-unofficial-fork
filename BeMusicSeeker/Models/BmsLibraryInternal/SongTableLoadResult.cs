@@ -19,6 +19,8 @@ internal sealed class SongTableLoadResult
 
     public Dictionary<string, BMSFileMaintenanceInfo> MaintenanceMap { get; } = new Dictionary<string, BMSFileMaintenanceInfo>(System.StringComparer.OrdinalIgnoreCase);
 
+    public Dictionary<string, string> ChartDigestMap { get; } = new Dictionary<string, string>(System.StringComparer.OrdinalIgnoreCase);
+
     public bool DbWriteRequired { get; set; }
 
     public bool LeapYearDetected { get; set; }
@@ -56,6 +58,10 @@ internal sealed class SongTableLoadResult
     public long MaintenanceMapBuildMs { get; set; }
 
     public long MaintenanceApplyMs { get; set; }
+
+    public long ChartDigestMapLoadMs { get; set; }
+
+    public long ChartDigestApplyMs { get; set; }
 
     public long DbWriteMs { get; set; }
 

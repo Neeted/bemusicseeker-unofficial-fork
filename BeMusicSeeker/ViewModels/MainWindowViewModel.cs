@@ -3611,6 +3611,8 @@ public class MainWindowViewModel : ViewModel
         internal long BuildElapsedMs;
 
         internal Dictionary<string, BeMusicSeeker.Models.BMSFile> FilesByHash = new Dictionary<string, BeMusicSeeker.Models.BMSFile>(StringComparer.OrdinalIgnoreCase);
+
+        internal Dictionary<string, BeMusicSeeker.Models.BMSFile> FilesBySha256 = new Dictionary<string, BeMusicSeeker.Models.BMSFile>(StringComparer.OrdinalIgnoreCase);
     }
 
     /// <summary>
@@ -3685,7 +3687,8 @@ public class MainWindowViewModel : ViewModel
         ExternalPlaylistSyncDone = 32,
         ScoreHydrationDone = 64,
         RankingRefreshDone = 128,
-        MaintenanceDeferredDone = 256
+        MaintenanceDeferredDone = 256,
+        ChartDigestBackfillDone = 512
     }
 
     /// <summary>
@@ -3714,11 +3717,21 @@ public class MainWindowViewModel : ViewModel
 
         internal int MaintenanceRequestedBaselineVersion;
 
+        internal int ChartDigestBackfillBaselineCompletedVersion;
+
         internal int RequiredPlaylistReferenceVersion;
 
         internal int RequiredExternalSyncVersion;
 
         internal int RequiredMaintenanceCompletedVersion;
+
+        internal int RequiredChartDigestBackfillCompletedVersion;
+
+        internal int ChartDigestBackfillTotalCount;
+
+        internal int ChartDigestBackfillProcessedCount;
+
+        internal string ChartDigestBackfillCurrentPath = string.Empty;
 
         internal bool CompletionHideScheduled;
 
@@ -4885,21 +4898,30 @@ public class MainWindowViewModel : ViewModel
         Stopwatch stopwatch = Stopwatch.StartNew();
         cancellationToken.ThrowIfCancellationRequested();
         Dictionary<string, BeMusicSeeker.Models.BMSFile> filesByHash = new Dictionary<string, BeMusicSeeker.Models.BMSFile>(StringComparer.OrdinalIgnoreCase);
+        Dictionary<string, BeMusicSeeker.Models.BMSFile> filesBySha256 = new Dictionary<string, BeMusicSeeker.Models.BMSFile>(StringComparer.OrdinalIgnoreCase);
         foreach (BeMusicSeeker.Models.BMSFile file in BMSFiles ?? Enumerable.Empty<BeMusicSeeker.Models.BMSFile>())
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (file == null || string.IsNullOrWhiteSpace(file.hash) || filesByHash.ContainsKey(file.hash))
+            if (file == null)
             {
                 continue;
             }
-            filesByHash[file.hash] = file;
+            if (!string.IsNullOrWhiteSpace(file.hash) && !filesByHash.ContainsKey(file.hash))
+            {
+                filesByHash[file.hash] = file;
+            }
+            if (!string.IsNullOrWhiteSpace(file.sha256) && !filesBySha256.ContainsKey(file.sha256))
+            {
+                filesBySha256[file.sha256] = file;
+            }
         }
         cancellationToken.ThrowIfCancellationRequested();
         PlaylistLibraryIndexSnapshot newSnapshot = new PlaylistLibraryIndexSnapshot
         {
             Version = targetVersion,
             BuildElapsedMs = stopwatch.ElapsedMilliseconds,
-            FilesByHash = filesByHash
+            FilesByHash = filesByHash,
+            FilesBySha256 = filesBySha256
         };
         lock (playlistLibraryIndexSync)
         {
@@ -7897,6 +7919,7 @@ public class MainWindowViewModel : ViewModel
         }, delegate
         {
             BMSPlaylist.EnsureSchema(Settings.Default.LR2SongDBPath);
+            new BmsLibraryDbGateway(Settings.Default.LR2SongDBPath).EnsureBmsonSchema();
         }, delegate
         {
             System.Windows.Application.Current?.Shutdown();
@@ -8055,6 +8078,26 @@ public class MainWindowViewModel : ViewModel
         listenerForBMSLibrary.RegisterHandler(() => files.MaintenanceDeferredCompletedVersion, delegate
         {
             TryCompleteStartupProgressMaintenance(files.MaintenanceDeferredCompletedVersion);
+        });
+        listenerForBMSLibrary.RegisterHandler(() => files.ChartDigestBackfillRequestedVersion, delegate
+        {
+            TrackStartupProgressChartDigestBackfillRequested(files.ChartDigestBackfillRequestedVersion);
+        });
+        listenerForBMSLibrary.RegisterHandler(() => files.ChartDigestBackfillCompletedVersion, delegate
+        {
+            TryCompleteStartupProgressChartDigestBackfill(files.ChartDigestBackfillCompletedVersion);
+        });
+        listenerForBMSLibrary.RegisterHandler(() => files.ChartDigestBackfillTotalCount, delegate
+        {
+            UpdateStartupProgressChartDigestBackfillStatus(files.ChartDigestBackfillTotalCount, files.ChartDigestBackfillProcessedCount, files.ChartDigestBackfillCurrentPath);
+        });
+        listenerForBMSLibrary.RegisterHandler(() => files.ChartDigestBackfillProcessedCount, delegate
+        {
+            UpdateStartupProgressChartDigestBackfillStatus(files.ChartDigestBackfillTotalCount, files.ChartDigestBackfillProcessedCount, files.ChartDigestBackfillCurrentPath);
+        });
+        listenerForBMSLibrary.RegisterHandler(() => files.ChartDigestBackfillCurrentPath, delegate
+        {
+            UpdateStartupProgressChartDigestBackfillStatus(files.ChartDigestBackfillTotalCount, files.ChartDigestBackfillProcessedCount, files.ChartDigestBackfillCurrentPath);
         });
         listenerForBMSLibrary.RegisterHandler(() => files.BMSFilesNeedToBeFixed, delegate
         {
@@ -8988,6 +9031,7 @@ public class MainWindowViewModel : ViewModel
         }
         cancellationToken.ThrowIfCancellationRequested();
         Dictionary<string, BeMusicSeeker.Models.BMSFile> filesByHash = libraryIndexSnapshot?.FilesByHash ?? new Dictionary<string, BeMusicSeeker.Models.BMSFile>(StringComparer.OrdinalIgnoreCase);
+        Dictionary<string, BeMusicSeeker.Models.BMSFile> filesBySha256 = libraryIndexSnapshot?.FilesBySha256 ?? new Dictionary<string, BeMusicSeeker.Models.BMSFile>(StringComparer.OrdinalIgnoreCase);
         BeMusicSeeker.Models.BMSLibrary.ScoreSnapshot scoreSnapshot = files?.GetScoreSnapshotForDiagnostics();
         IReadOnlyDictionary<string, BeMusicSeeker.Models.BMSScore> scoresByHash = scoreSnapshot?.ScoresByHash ?? new Dictionary<string, BeMusicSeeker.Models.BMSScore>(StringComparer.OrdinalIgnoreCase);
         cancellationStage = "hash_index";
@@ -9001,7 +9045,15 @@ public class MainWindowViewModel : ViewModel
             {
                 continue;
             }
-            filesByHash.TryGetValue(entry.md5 ?? string.Empty, out BeMusicSeeker.Models.BMSFile realFile);
+            BeMusicSeeker.Models.BMSFile realFile = null;
+            if (!string.IsNullOrWhiteSpace(entry.md5))
+            {
+                filesByHash.TryGetValue(entry.md5, out realFile);
+            }
+            if (realFile == null && !string.IsNullOrWhiteSpace(entry.sha256))
+            {
+                filesBySha256.TryGetValue(entry.sha256, out realFile);
+            }
             scoresByHash.TryGetValue(entry.md5 ?? string.Empty, out BeMusicSeeker.Models.BMSScore scoreSnapshotForRow);
             if (onlyNotOwned && realFile != null && !string.IsNullOrWhiteSpace(realFile.path))
             {
@@ -10550,7 +10602,8 @@ public class MainWindowViewModel : ViewModel
             ExpectedPhases = StartupProgressPhase.StartupReadyOperable | StartupProgressPhase.ScoreHydrationDone | StartupProgressPhase.RankingRefreshDone,
             ScoreHydrationBaselineCompletedVersion = files?.ScoreHydrationCompletedVersion ?? 0,
             RankingRefreshBaselineCompletedVersion = files?.RankingRefreshCompletedVersion ?? 0,
-            MaintenanceRequestedBaselineVersion = files?.MaintenanceDeferredRequestedVersion ?? 0
+            MaintenanceRequestedBaselineVersion = files?.MaintenanceDeferredRequestedVersion ?? 0,
+            ChartDigestBackfillBaselineCompletedVersion = files?.ChartDigestBackfillCompletedVersion ?? 0
         };
         if (operationKind == StartupProgressOperationKind.Startup)
         {
@@ -10704,6 +10757,53 @@ public class MainWindowViewModel : ViewModel
         RecomputeStartupProgressPresentation();
     }
 
+    private void TrackStartupProgressChartDigestBackfillRequested(int requestedVersion)
+    {
+        lock (startupProgressLock)
+        {
+            if (!startupProgressState.IsActive || requestedVersion <= startupProgressState.ChartDigestBackfillBaselineCompletedVersion)
+            {
+                return;
+            }
+            startupProgressState.ExpectedPhases |= StartupProgressPhase.ChartDigestBackfillDone;
+            startupProgressState.RequiredChartDigestBackfillCompletedVersion = Math.Max(startupProgressState.RequiredChartDigestBackfillCompletedVersion, requestedVersion);
+            startupProgressState.CompletionHideScheduled = false;
+        }
+        RecomputeStartupProgressPresentation();
+    }
+
+    private void UpdateStartupProgressChartDigestBackfillStatus(int totalCount, int processedCount, string currentPath)
+    {
+        lock (startupProgressLock)
+        {
+            if (!startupProgressState.IsActive || (startupProgressState.ExpectedPhases & StartupProgressPhase.ChartDigestBackfillDone) == 0)
+            {
+                return;
+            }
+            startupProgressState.ChartDigestBackfillTotalCount = totalCount;
+            startupProgressState.ChartDigestBackfillProcessedCount = processedCount;
+            startupProgressState.ChartDigestBackfillCurrentPath = currentPath ?? string.Empty;
+        }
+        RecomputeStartupProgressPresentation();
+    }
+
+    private void TryCompleteStartupProgressChartDigestBackfill(int completedVersion)
+    {
+        bool shouldComplete = false;
+        lock (startupProgressLock)
+        {
+            if (!startupProgressState.IsActive || (startupProgressState.ExpectedPhases & StartupProgressPhase.ChartDigestBackfillDone) == 0)
+            {
+                return;
+            }
+            shouldComplete = completedVersion >= startupProgressState.RequiredChartDigestBackfillCompletedVersion;
+        }
+        if (shouldComplete)
+        {
+            MarkStartupProgressPhaseCompleted(StartupProgressPhase.ChartDigestBackfillDone);
+        }
+    }
+
     /// <summary>
     /// maintenance deferred 完了を起動・リロード進捗へ反映します。
     /// </summary>
@@ -10783,7 +10883,7 @@ public class MainWindowViewModel : ViewModel
         {
             StartupProgressState state = startupProgressState;
             isActive = state.IsActive;
-            maximum = 6.0;
+                maximum = 7.0;
             if (!isActive)
             {
                 label = string.Empty;
@@ -10796,10 +10896,11 @@ public class MainWindowViewModel : ViewModel
                 bool uiPrepareCompleted = IsStartupProgressUiPrepareCompleted(state);
                 bool operableCompleted = (state.CompletedPhases & StartupProgressPhase.StartupReadyOperable) != 0;
                 bool referenceCompleted = IsStartupProgressReferencePhaseCompleted(state);
+                bool chartDigestCompleted = !IsStartupProgressPhaseExpected(state, StartupProgressPhase.ChartDigestBackfillDone) || (state.CompletedPhases & StartupProgressPhase.ChartDigestBackfillDone) != 0;
                 bool scoreCompleted = !IsStartupProgressPhaseExpected(state, StartupProgressPhase.ScoreHydrationDone) || (state.CompletedPhases & StartupProgressPhase.ScoreHydrationDone) != 0;
                 bool rankingCompleted = !IsStartupProgressPhaseExpected(state, StartupProgressPhase.RankingRefreshDone) || (state.CompletedPhases & StartupProgressPhase.RankingRefreshDone) != 0;
-                value = (libraryLoadCompleted ? 1.0 : 0.0) + (uiPrepareCompleted ? 1.0 : 0.0) + (operableCompleted ? 1.0 : 0.0) + (referenceCompleted ? 1.0 : 0.0) + (scoreCompleted ? 1.0 : 0.0) + (rankingCompleted ? 1.0 : 0.0);
-                bool operationCompleted = !state.IsFailed && operableCompleted && referenceCompleted && scoreCompleted && rankingCompleted;
+                value = (libraryLoadCompleted ? 1.0 : 0.0) + (uiPrepareCompleted ? 1.0 : 0.0) + (operableCompleted ? 1.0 : 0.0) + (referenceCompleted ? 1.0 : 0.0) + (chartDigestCompleted ? 1.0 : 0.0) + (scoreCompleted ? 1.0 : 0.0) + (rankingCompleted ? 1.0 : 0.0);
+                bool operationCompleted = !state.IsFailed && operableCompleted && referenceCompleted && chartDigestCompleted && scoreCompleted && rankingCompleted;
                 if (state.IsFailed)
                 {
                     label = GetStartupProgressFailedLabel(state.OperationKind);
@@ -10929,6 +11030,11 @@ public class MainWindowViewModel : ViewModel
     /// <returns>サブラベル。</returns>
     private static string GetStartupProgressSubLabel(StartupProgressState state)
     {
+        if (!IsStartupProgressPhaseCompletedOrNotExpected(state, StartupProgressPhase.ChartDigestBackfillDone))
+        {
+            string fileName = string.IsNullOrWhiteSpace(state.ChartDigestBackfillCurrentPath) ? string.Empty : Path.GetFileName(state.ChartDigestBackfillCurrentPath);
+            return "SHA-256 生成 [" + state.ChartDigestBackfillProcessedCount + "/" + state.ChartDigestBackfillTotalCount + "] " + fileName;
+        }
         if (!IsStartupProgressLibraryLoadCompleted(state))
         {
             return BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_library_load;
@@ -11142,7 +11248,8 @@ public class MainWindowViewModel : ViewModel
             List<PlaylistSummaryRow> list = new List<PlaylistSummaryRow>();
             Dictionary<string, PlaylistSyncRuntimeStatus> playlistSyncStatusSnapshot = GetPlaylistSyncStatusSnapshot();
             BMSLibrary.PlaylistSummaryOwnedHashSnapshot playlistSummaryOwnedHashSnapshot = files?.GetPlaylistSummaryOwnedHashSnapshot();
-            HashSet<string> ownedHashes = playlistSummaryOwnedHashSnapshot?.Hashes ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            HashSet<string> ownedMd5Hashes = playlistSummaryOwnedHashSnapshot?.Md5Hashes ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            HashSet<string> ownedSha256Hashes = playlistSummaryOwnedHashSnapshot?.Sha256Hashes ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             List<BMSTable> list2 = new List<BMSTable>();
             if (tables != null)
             {
@@ -11158,16 +11265,33 @@ public class MainWindowViewModel : ViewModel
             }
             foreach (BMSTable item2 in list2)
             {
-                HashSet<string> hashSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                HashSet<string> keySet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                int ownedCount = 0;
                 foreach (BMSTableEntry item3 in item2.GetEntriesExceptDummy())
                 {
-                    if (!item3.is_removed && !string.IsNullOrWhiteSpace(item3.md5))
+                    if (item3.is_removed)
                     {
-                        hashSet.Add(item3.md5);
+                        continue;
+                    }
+                    string key = !string.IsNullOrWhiteSpace(item3.md5) ? ("md5:" + item3.md5) : ((!string.IsNullOrWhiteSpace(item3.sha256)) ? ("sha256:" + item3.sha256) : null);
+                    if (string.IsNullOrWhiteSpace(key) || !keySet.Add(key))
+                    {
+                        continue;
+                    }
+                    if (!string.IsNullOrWhiteSpace(item3.md5))
+                    {
+                        if (ownedMd5Hashes.Contains(item3.md5))
+                        {
+                            ownedCount++;
+                        }
+                    }
+                    else if (!string.IsNullOrWhiteSpace(item3.sha256) && ownedSha256Hashes.Contains(item3.sha256))
+                    {
+                        ownedCount++;
                     }
                 }
-                int count = hashSet.Count;
-                int num = hashSet.Count((string m) => ownedHashes.Contains(m));
+                int count = keySet.Count;
+                int num = ownedCount;
                 PlaylistSyncRuntimeStatus playlistSyncRuntimeStatus = GetPlaylistSyncRuntimeStatus(item2, playlistSyncStatusSnapshot);
                 list.Add(new PlaylistSummaryRow
                 {
@@ -11211,7 +11335,7 @@ public class MainWindowViewModel : ViewModel
             string sortColumn = PlaylistSummarySortParameters?.ColumnsName ?? nameof(PlaylistSummaryRow.Name);
             string sortDirection = PlaylistSummarySortParameters?.Direction.ToString() ?? ListSortDirection.Ascending.ToString();
             Interlocked.Exchange(ref lastPlaylistSummaryBuildElapsedMs, stopwatch.ElapsedMilliseconds);
-            LogMainViewBuild("playlist_summary_build tableCount=" + list2.Count + " rawCount=" + list.Count + " filteredCount=" + filteredRows.Count + " viewCount=" + rows.Count + " buildMs=" + buildMs + " filterMs=" + filterMs + " sortMs=" + sortMs + " totalMs=" + stopwatch.ElapsedMilliseconds + " ownedHashCount=" + ownedHashes.Count + " ownedHashBuildMs=" + (playlistSummaryOwnedHashSnapshot?.BuildElapsedMs ?? 0L) + " sortColumn=" + sortColumn + " sortDirection=" + sortDirection + " sortProfile=" + sortProfile + " sortEngine=" + (useLegacySort ? "legacy" : "fast") + " fastSortEnabled=" + Settings.Default.UseFastSortInDataGridExperimental);
+            LogMainViewBuild("playlist_summary_build tableCount=" + list2.Count + " rawCount=" + list.Count + " filteredCount=" + filteredRows.Count + " viewCount=" + rows.Count + " buildMs=" + buildMs + " filterMs=" + filterMs + " sortMs=" + sortMs + " totalMs=" + stopwatch.ElapsedMilliseconds + " ownedMd5Count=" + ownedMd5Hashes.Count + " ownedSha256Count=" + ownedSha256Hashes.Count + " ownedHashBuildMs=" + (playlistSummaryOwnedHashSnapshot?.BuildElapsedMs ?? 0L) + " sortColumn=" + sortColumn + " sortDirection=" + sortDirection + " sortProfile=" + sortProfile + " sortEngine=" + (useLegacySort ? "legacy" : "fast") + " fastSortEnabled=" + Settings.Default.UseFastSortInDataGridExperimental);
         };
         if (!runAsync)
         {

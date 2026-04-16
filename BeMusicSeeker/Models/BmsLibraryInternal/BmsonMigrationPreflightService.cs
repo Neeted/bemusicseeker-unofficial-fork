@@ -9,13 +9,16 @@ internal sealed class BmsonMigrationPreflightResult
 {
     public bool NeedsPlaylistEntrySha256Migration { get; }
 
+    public bool NeedsChartDigestMapSchema { get; }
+
     public bool NeedsInitialSha256BackfillWarning { get; }
 
-    public bool RequiresWarning => NeedsPlaylistEntrySha256Migration || NeedsInitialSha256BackfillWarning;
+    public bool RequiresWarning => NeedsPlaylistEntrySha256Migration || NeedsChartDigestMapSchema || NeedsInitialSha256BackfillWarning;
 
-    public BmsonMigrationPreflightResult(bool needsPlaylistEntrySha256Migration, bool needsInitialSha256BackfillWarning)
+    public BmsonMigrationPreflightResult(bool needsPlaylistEntrySha256Migration, bool needsChartDigestMapSchema, bool needsInitialSha256BackfillWarning)
     {
         NeedsPlaylistEntrySha256Migration = needsPlaylistEntrySha256Migration;
+        NeedsChartDigestMapSchema = needsChartDigestMapSchema;
         NeedsInitialSha256BackfillWarning = needsInitialSha256BackfillWarning;
     }
 }
@@ -43,7 +46,9 @@ internal sealed class BmsonMigrationPreflightService
             throw new ArgumentNullException(nameof(db));
         }
         bool needsPlaylistEntrySha256Migration = NeedsPlaylistEntrySha256Migration(db);
-        return new BmsonMigrationPreflightResult(needsPlaylistEntrySha256Migration, needsInitialSha256BackfillWarning: false);
+        bool needsChartDigestMapSchema = NeedsChartDigestMapSchema(db);
+        bool needsInitialSha256BackfillWarning = NeedsInitialSha256BackfillWarning(db, needsChartDigestMapSchema);
+        return new BmsonMigrationPreflightResult(needsPlaylistEntrySha256Migration, needsChartDigestMapSchema, needsInitialSha256BackfillWarning);
     }
 
     private static bool NeedsPlaylistEntrySha256Migration(LR2SongDBExtended db)
@@ -69,6 +74,51 @@ internal sealed class BmsonMigrationPreflightService
             return true;
         }
         return false;
+    }
+
+    private static bool NeedsChartDigestMapSchema(LR2SongDBExtended db)
+    {
+        string tableName = SQLiteTable<LR2SongDBExtended.chart_digest_map>.GetTableName();
+        if (!TableExists(db, tableName))
+        {
+            return true;
+        }
+        string tableSql = db.ExecuteScalar<string>("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = " + BMSPlaylist.SqlQuoteForTest(tableName) + ";");
+        if (string.IsNullOrWhiteSpace(tableSql)
+            || tableSql.IndexOf("md5", StringComparison.OrdinalIgnoreCase) < 0
+            || tableSql.IndexOf("sha256", StringComparison.OrdinalIgnoreCase) < 0
+            || tableSql.IndexOf("last_seen_path", StringComparison.OrdinalIgnoreCase) < 0)
+        {
+            return true;
+        }
+        return !IndexExists(db, "chart_digest_map_idx_sha256");
+    }
+
+    private static bool NeedsInitialSha256BackfillWarning(LR2SongDBExtended db, bool needsChartDigestMapSchema)
+    {
+        bool songTableExists = TableExists(db, "song");
+        if (!songTableExists)
+        {
+            return false;
+        }
+        long songCount = db.ExecuteScalar<long>("SELECT COUNT(1) FROM song WHERE hash IS NOT NULL AND TRIM(hash) <> '';");
+        if (songCount <= 0)
+        {
+            return false;
+        }
+        if (needsChartDigestMapSchema)
+        {
+            return true;
+        }
+        string digestTableName = SQLiteTable<LR2SongDBExtended.chart_digest_map>.GetTableName();
+        long missingCount = db.ExecuteScalar<long>(
+            "SELECT COUNT(1) FROM song s "
+            + "WHERE s.hash IS NOT NULL AND TRIM(s.hash) <> '' "
+            + "AND NOT EXISTS ("
+            + "SELECT 1 FROM " + digestTableName + " d "
+            + "WHERE lower(d.md5) = lower(s.hash) AND d.sha256 IS NOT NULL AND TRIM(d.sha256) <> ''"
+            + ");");
+        return missingCount > 0;
     }
 
     private static bool TableExists(LR2SongDBExtended db, string tableName)

@@ -96,6 +96,8 @@ public class BMSFile : LR2SongDB.song
 
     private BMSFileMaintenanceInfo _maintenanceInfo;
 
+    private string _sha256;
+
     private object lockObject = new object();
 
     private ReaderWriterLockSlim rwlockRefTables = new ReaderWriterLockSlim(LockRecursionPolicy.SupportsRecursion);
@@ -267,7 +269,24 @@ public class BMSFile : LR2SongDB.song
         }
     }
 
-    public virtual string sha256 => string.Empty;
+    private static readonly Regex sha256HashRegex = new Regex("^[a-f0-9]{64}$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    public virtual string sha256
+    {
+        get
+        {
+            return _sha256 ?? string.Empty;
+        }
+        protected set
+        {
+            string normalized = NormalizeSha256(value);
+            if (!string.Equals(_sha256, normalized, StringComparison.Ordinal))
+            {
+                _sha256 = normalized;
+                RaisePropertyChanged("sha256");
+            }
+        }
+    }
 
     public virtual string Title
     {
@@ -1437,6 +1456,7 @@ public class BMSFile : LR2SongDB.song
         bMSFile.WAVfiles = hashSet;
         bMSFile.BGAfiles = hashSet2;
         bMSFile.hash = getMD5Hash(filePath);
+        bMSFile.ApplySha256(GetSHA256Hash(filePath));
         bMSFile.path = filePath;
         if (bMSFile.path.EndsWith(".pms", StringComparison.OrdinalIgnoreCase))
         {
@@ -1502,6 +1522,7 @@ public class BMSFile : LR2SongDB.song
         bmsFile.WAVfiles = hashSet;
         bmsFile.BGAfiles = hashSet2;
         bmsFile.hash = getMD5Hash(bmsFile.path);
+        bmsFile.ApplySha256(GetSHA256Hash(bmsFile.path));
     }
 
     private static string getMD5Hash(string filePath)
@@ -1519,6 +1540,41 @@ public class BMSFile : LR2SongDB.song
             stringBuilder.Append(b.ToString("x2"));
         }
         return stringBuilder.ToString();
+    }
+
+    internal static string GetSHA256Hash(string filePath)
+    {
+        using SHA256 sHA = SHA256.Create();
+        byte[] hash;
+        using (FileStream inputStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read))
+        {
+            hash = sHA.ComputeHash(inputStream);
+        }
+        StringBuilder stringBuilder = new StringBuilder(hash.Length * 2);
+        foreach (byte b in hash)
+        {
+            stringBuilder.Append(b.ToString("x2"));
+        }
+        return stringBuilder.ToString();
+    }
+
+    internal void ApplySha256(string value)
+    {
+        sha256 = value;
+    }
+
+    private static string NormalizeSha256(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+        string normalized = value.Trim().ToLowerInvariant();
+        if (!sha256HashRegex.IsMatch(normalized))
+        {
+            throw new FormatException("SHA256 HASH ではありません");
+        }
+        return normalized;
     }
 
     public static void ReloadBMSFileWithEncoding(BMSFile bmsFile, string codepageName = "")

@@ -126,6 +126,55 @@ public sealed class BmsLibraryInitializationServiceTests
     }
 
     [TestMethod]
+    public void LoadSongTable_AppliesChartDigestMapToLoadedFiles()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
+        {
+            string rootedChartPath = Path.Combine(lr2RootPath, "Songs", "chart.bms");
+            Directory.CreateDirectory(Path.GetDirectoryName(rootedChartPath));
+            File.WriteAllText(rootedChartPath, "#PLAYER 1");
+
+            using (LR2SongDBExtended songDb = new LR2SongDBExtended(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDB.song>();
+                songDb.CreateTable<LR2SongDB.folder>();
+                songDb.CreateTable<LR2SongDBExtended.maintenance>();
+                BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
+
+                TestableBmsFile song = new TestableBmsFile
+                {
+                    path = rootedChartPath,
+                    folder = "folder",
+                    parent = "parent"
+                };
+                song.SetHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+                songDb.InsertOrReplace(song, typeof(LR2SongDB.song));
+                songDb.InsertOrReplace(new LR2SongDBExtended.chart_digest_map
+                {
+                    md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    sha256 = new string('b', 64),
+                    last_seen_path = rootedChartPath,
+                    updated_at = DateTime.UtcNow
+                }, typeof(LR2SongDBExtended.chart_digest_map));
+            }
+
+            BmsLibraryInitializationService service = new BmsLibraryInitializationService();
+            SongTableLoadResult result = service.LoadSongTable(
+                new BmsLibraryDbGateway(songDbPath),
+                new BmsLibraryOptionsSnapshot(),
+                null,
+                new TestFileMutationService(),
+                null,
+                ex => ex.Message);
+
+            Assert.AreEqual(1, result.LoadedFiles.Count);
+            Assert.AreEqual(new string('b', 64), result.LoadedFiles[0].sha256);
+            Assert.AreEqual(1, result.ChartDigestMap.Count);
+        });
+    }
+
+    [TestMethod]
     public void ApplyFileScanDiff_UsesPrefetchedScanAndClearsStaleInstallDestination()
     {
         TestResourceInitializer.EnsureJapaneseResources();
@@ -202,6 +251,56 @@ public sealed class BmsLibraryInitializationServiceTests
             List<BMSFile> dbFiles = songDb.Table<BMSFile>().ToList();
             Assert.AreEqual(1, dbFiles.Count);
             Assert.AreEqual(Path.Combine(newDirectoryPath, "added.bms"), dbFiles[0].path);
+            List<LR2SongDBExtended.chart_digest_map> digestRows = songDb.Table<LR2SongDBExtended.chart_digest_map>().ToList();
+            Assert.AreEqual(1, digestRows.Count);
+            Assert.AreEqual(dbFiles[0].hash, digestRows[0].md5);
+            Assert.AreEqual(result.AddedFiles[0].sha256, digestRows[0].sha256);
+        });
+    }
+
+    [TestMethod]
+    public void BackfillChartDigests_ComputesOnlyMissingHashesAndPersistsThem()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
+        {
+            string chartAPath = Path.Combine(lr2RootPath, "Songs", "a.bms");
+            string chartBPath = Path.Combine(lr2RootPath, "Songs", "b.bms");
+            Directory.CreateDirectory(Path.GetDirectoryName(chartAPath));
+            File.WriteAllText(chartAPath, "#PLAYER 1\r\n#TITLE A\r\n");
+            File.WriteAllText(chartBPath, "#PLAYER 1\r\n#TITLE B\r\n");
+
+            TestableBmsFile chartA = new TestableBmsFile
+            {
+                path = chartAPath
+            };
+            chartA.SetHash(BMSFile.CreateBMSFileFromFile(chartAPath).hash);
+            TestableBmsFile chartB = new TestableBmsFile
+            {
+                path = chartBPath
+            };
+            chartB.SetHash(BMSFile.CreateBMSFileFromFile(chartBPath).hash);
+            chartB.SetSha256(new string('c', 64));
+
+            BmsLibraryInitializationService service = new BmsLibraryInitializationService();
+            List<(int Total, int Processed, string Path)> progress = new List<(int, int, string)>();
+            ChartDigestBackfillResult result = service.BackfillChartDigests(
+                new BmsLibraryDbGateway(songDbPath),
+                new[] { chartA, chartB },
+                (total, processed, path) => progress.Add((total, processed, path)));
+
+            Assert.AreEqual(1, result.TargetCount);
+            Assert.AreEqual(1, result.BackfilledCount);
+            Assert.AreEqual(0, result.FailedCount);
+            Assert.IsFalse(string.IsNullOrWhiteSpace(chartA.sha256));
+            Assert.AreEqual(new string('c', 64), chartB.sha256);
+            Assert.IsTrue(progress.Any((item) => item.Total == 1 && item.Processed == 1));
+
+            using LR2SongDBExtended songDb = new LR2SongDBExtended(songDbPath);
+            List<LR2SongDBExtended.chart_digest_map> rows = songDb.Table<LR2SongDBExtended.chart_digest_map>().ToList();
+            Assert.AreEqual(1, rows.Count);
+            Assert.AreEqual(chartA.hash, rows[0].md5);
+            Assert.AreEqual(chartA.sha256, rows[0].sha256);
         });
     }
 
@@ -436,6 +535,11 @@ public sealed class BmsLibraryInitializationServiceTests
         public void SetHash(string value)
         {
             hash = value;
+        }
+
+        public void SetSha256(string value)
+        {
+            ApplySha256(value);
         }
     }
 

@@ -303,6 +303,69 @@ public sealed class LR2SongDBExtended : LR2SongDB
         public bool is_removed { get; set; }
     }
 
+    [Table("chart_digest_map")]
+    public class chart_digest_map : SQLiteTable<chart_digest_map>
+    {
+        private string _md5;
+
+        private string _sha256;
+
+        [PrimaryKey]
+        public virtual string md5
+        {
+            get
+            {
+                return _md5;
+            }
+            set
+            {
+                if (string.IsNullOrWhiteSpace(value))
+                {
+                    _md5 = null;
+                    return;
+                }
+                if (!LR2SongDB.md5HashRegex.IsMatch(value))
+                {
+                    throw new FormatException("MD5 HASH ではありません");
+                }
+                string normalized = value.ToLowerInvariant();
+                if (_md5 != normalized)
+                {
+                    _md5 = normalized;
+                }
+            }
+        }
+
+        public virtual string sha256
+        {
+            get
+            {
+                return _sha256;
+            }
+            set
+            {
+                if (string.IsNullOrWhiteSpace(value))
+                {
+                    _sha256 = null;
+                    return;
+                }
+                if (value.Length != 64 || value.Any((char c) => !Uri.IsHexDigit(c)))
+                {
+                    throw new FormatException("SHA256 HASH ではありません");
+                }
+                string normalized = value.ToLowerInvariant();
+                if (_sha256 != normalized)
+                {
+                    _sha256 = normalized;
+                }
+            }
+        }
+
+        public virtual string last_seen_path { get; set; }
+
+        public DateTime updated_at { get; set; }
+    }
+
     [Table("ir_score")]
     public class ir_score : SQLiteTable<ir_score>
     {
@@ -494,6 +557,7 @@ public sealed class LR2SongDBExtended : LR2SongDB
         DropTable<maintenance>();
         DropTable<playlist>();
         DropTable<playlist_entry>();
+        DropTable<chart_digest_map>();
         DropTable<ir_score>();
         DropTable<ir_data>();
     }
