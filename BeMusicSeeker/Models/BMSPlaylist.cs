@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.Specialized;
 using System.Diagnostics;
 using System.IO;
+using System.Globalization;
 using System.Linq;
 using System.Runtime.ExceptionServices;
 using System.Text;
@@ -32,6 +33,44 @@ namespace BeMusicSeeker.Models;
 /// </summary>
 public partial class BMSPlaylist : NotificationObject
 {
+    internal sealed class ComparablePlaylistEntryRow
+    {
+        public string Md5 { get; set; }
+
+        public string Sha256 { get; set; }
+
+        public string Level { get; set; }
+
+        public string Title { get; set; }
+
+        public string Artist { get; set; }
+
+        public string Lr2BmsId { get; set; }
+
+        public string Url { get; set; }
+
+        public string UrlDiff { get; set; }
+
+        public string NameDiff { get; set; }
+
+        public string Comment { get; set; }
+
+        public string Fingerprint { get; set; }
+    }
+
+    internal sealed class PlaylistContentDiffResult
+    {
+        public bool HasChanges { get; set; }
+
+        public int PersistedOnlyCount { get; set; }
+
+        public int ReloadedOnlyCount { get; set; }
+
+        public IReadOnlyList<string> PersistedOnlySamples { get; set; }
+
+        public IReadOnlyList<string> ReloadedOnlySamples { get; set; }
+    }
+
     public sealed class PlaylistTableUpdateContext
     {
         public BMSTable NewTable { get; internal set; }
@@ -70,6 +109,11 @@ public partial class BMSPlaylist : NotificationObject
     /// 外部プレイリスト取得に使う既定のタイムアウト時間（ミリ秒）です。
     /// </summary>
     private const int PlaylistWebTimeoutMs = 300000;
+
+    /// <summary>
+    /// 差分ログへ出す fingerprint サンプル件数です。
+    /// </summary>
+    private const int PlaylistDiffSampleLogCount = 3;
 
     /// <summary>
     /// プレイリスト更新処理の性能ログを、INFO ログが有効な場合のみ出力します。
@@ -2095,23 +2139,31 @@ public partial class BMSPlaylist : NotificationObject
                             using (table.ReaderWriterLock.GetWriterGuard())
                             {
                                 oldEntriesSnapshot = table.entries?.ToList() ?? new List<BMSTableEntry>();
-                                newTable = MergeReloadedBMSTableState(table, reloadedTable);
-                                newEntriesSnapshot = newTable.entries?.ToList() ?? new List<BMSTableEntry>();
-                                Stopwatch stopwatchCommit = Stopwatch.StartNew();
-                                CommitBMSTable(newTable);
-                                stopwatchCommit.Stop();
-                                Interlocked.Add(ref updateCommitTicks, stopwatchCommit.ElapsedTicks);
-                            }
-                            using (rwlockBMSTables.GetWriterGuard())
-                            {
-                                int index = BMSTables.IndexOf(table);
-                                if (index >= 0)
+                                IReadOnlyList<BMSTableEntry> persistedActiveEntries = LoadPersistedActivePlaylistEntries(table.playlist_id);
+                                newTable = MergeReloadedBMSTableState(table, reloadedTable, BuildComparablePlaylistEntryRows(persistedActiveEntries), out arg, logLastUpdateDecision: true);
+                                if (arg)
                                 {
-                                    BMSTables[index] = newTable;
+                                    newEntriesSnapshot = newTable.entries?.ToList() ?? new List<BMSTableEntry>();
+                                    Stopwatch stopwatchCommit = Stopwatch.StartNew();
+                                    CommitBMSTable(newTable);
+                                    stopwatchCommit.Stop();
+                                    Interlocked.Add(ref updateCommitTicks, stopwatchCommit.ElapsedTicks);
                                 }
-                                if (newTable.last_update != table.last_update)
+                                else
                                 {
-                                    arg = true;
+                                    newTable = table;
+                                    newEntriesSnapshot = oldEntriesSnapshot;
+                                }
+                            }
+                            if (arg)
+                            {
+                                using (rwlockBMSTables.GetWriterGuard())
+                                {
+                                    int index = BMSTables.IndexOf(table);
+                                    if (index >= 0)
+                                    {
+                                        BMSTables[index] = newTable;
+                                    }
                                     lock (lockObject)
                                     {
                                         updatedTables.Add(newTable);
@@ -2226,11 +2278,19 @@ public partial class BMSPlaylist : NotificationObject
         {
             using (bmsTable.ReaderWriterLock.GetWriterGuard())
             {
-                mergedTable = MergeReloadedBMSTableState(bmsTable, reloadedTable, logLastUpdateDecision: true);
-                using (mergedTable.ReaderWriterLock.GetWriterGuard())
+                IReadOnlyList<BMSTableEntry> persistedActiveEntries = LoadPersistedActivePlaylistEntries(bmsTable.playlist_id);
+                mergedTable = MergeReloadedBMSTableState(bmsTable, reloadedTable, BuildComparablePlaylistEntryRows(persistedActiveEntries), out bool hasContentChanges, logLastUpdateDecision: true);
+                if (hasContentChanges)
                 {
-                    BMSTables[BMSTables.IndexOf(bmsTable)] = mergedTable;
-                    CommitBMSTable(mergedTable);
+                    using (mergedTable.ReaderWriterLock.GetWriterGuard())
+                    {
+                        BMSTables[BMSTables.IndexOf(bmsTable)] = mergedTable;
+                        CommitBMSTable(mergedTable);
+                    }
+                }
+                else
+                {
+                    mergedTable = bmsTable;
                 }
             }
         }
@@ -2585,7 +2645,7 @@ public partial class BMSPlaylist : NotificationObject
             pageUri = oldTable.Page_url ?? oldTable.Header_url;
         }
         BMSTable reloadedTable = reloadBMSTable(oldTable, pageUri);
-        return MergeReloadedBMSTableState(oldTable, reloadedTable, logLastUpdateDecision);
+        return MergeReloadedBMSTableState(oldTable, reloadedTable, BuildComparablePlaylistEntryRows(oldTable.entries.Where((BMSTableEntry entry) => !entry.is_removed)), out _, logLastUpdateDecision);
     }
 
     private async Task<BMSTable> MergeReloadedBMSTableWithExistingStateAsync(BMSTable oldTable, Uri pageUri = null, bool logLastUpdateDecision = false, CancellationToken cancellationToken = default(CancellationToken))
@@ -2595,7 +2655,7 @@ public partial class BMSPlaylist : NotificationObject
             pageUri = oldTable.Page_url ?? oldTable.Header_url;
         }
         BMSTable reloadedTable = await reloadBMSTableAsync(oldTable, pageUri, cancellationToken).ConfigureAwait(false);
-        return MergeReloadedBMSTableState(oldTable, reloadedTable, logLastUpdateDecision);
+        return MergeReloadedBMSTableState(oldTable, reloadedTable, BuildComparablePlaylistEntryRows(oldTable.entries.Where((BMSTableEntry entry) => !entry.is_removed)), out _, logLastUpdateDecision);
     }
 
     /// <summary>
@@ -2608,6 +2668,11 @@ public partial class BMSPlaylist : NotificationObject
     /// <exception cref="ArgumentNullException"><paramref name="oldTable"/> または <paramref name="reloadedTable"/> が <see langword="null"/> の場合。</exception>
     internal static BMSTable MergeReloadedBMSTableState(BMSTable oldTable, BMSTable reloadedTable, bool logLastUpdateDecision = false)
     {
+        return MergeReloadedBMSTableState(oldTable, reloadedTable, BuildComparablePlaylistEntryRows(oldTable.entries.Where((BMSTableEntry entry) => !entry.is_removed)), out _, logLastUpdateDecision);
+    }
+
+    internal static BMSTable MergeReloadedBMSTableState(BMSTable oldTable, BMSTable reloadedTable, IReadOnlyCollection<ComparablePlaylistEntryRow> persistedActiveRows, out bool hasContentChanges, bool logLastUpdateDecision = false)
+    {
         if (oldTable == null)
         {
             throw new ArgumentNullException("oldTable");
@@ -2618,42 +2683,42 @@ public partial class BMSPlaylist : NotificationObject
         }
 
         BMSTable newTable = reloadedTable;
+        List<ComparablePlaylistEntryRow> list = persistedActiveRows?.Where((ComparablePlaylistEntryRow row) => row != null).ToList();
+        IReadOnlyList<ComparablePlaylistEntryRow> normalizedPersistedRows = (list != null) ? list : (IReadOnlyList<ComparablePlaylistEntryRow>)Array.Empty<ComparablePlaylistEntryRow>();
+        IReadOnlyList<ComparablePlaylistEntryRow> normalizedReloadedRows = BuildComparablePlaylistEntryRows(newTable.entries);
+        PlaylistContentDiffResult playlistContentDiffResult = AnalyzePlaylistContentDiff(normalizedPersistedRows, normalizedReloadedRows);
+        hasContentChanges = playlistContentDiffResult.HasChanges;
 
         Dictionary<string, List<BMSTableEntry>> newEntriesByMd5 = BuildEntryLookup(newTable.entries, (BMSTableEntry entry) => entry.md5, StringComparer.OrdinalIgnoreCase);
         Dictionary<string, List<BMSTableEntry>> newEntriesBySha256 = BuildEntryLookup(newTable.entries, (BMSTableEntry entry) => entry.sha256, StringComparer.OrdinalIgnoreCase);
-        Dictionary<string, List<BMSTableEntry>> newEntriesByBmsId = BuildEntryLookup(newTable.entries, (BMSTableEntry entry) => entry.lr2_bmsid, StringComparer.Ordinal);
-        Dictionary<string, List<BMSTableEntry>> newEntriesByTitle = BuildEntryLookup(newTable.entries, (BMSTableEntry entry) => entry.title, StringComparer.Ordinal);
+        Dictionary<string, List<BMSTableEntry>> newEntriesByComparableRow = BuildComparableEntryLookup(newTable.entries);
 
         List<BMSTableEntry> matchedOldEntries = oldTable.entries.Where(delegate (BMSTableEntry oe)
         {
-            BMSTableEntry matchedNew = ResolveReloadedEntryMatch(oe, newEntriesByMd5, newEntriesBySha256, newEntriesByBmsId, newEntriesByTitle);
+            BMSTableEntry matchedNew = ResolveReloadedEntryMatch(oe, newEntriesByMd5, newEntriesBySha256, newEntriesByComparableRow);
             if (matchedNew == null)
             {
                 return false;
             }
             matchedNew.memo = oe.memo;
             matchedNew.adddate = oe.adddate;
-            matchedNew.is_removed = oe.is_removed;
+            matchedNew.is_removed = false;
             return true;
         }).ToList();
 
         DateTime oldLastUpdate = oldTable.last_update;
         DateTime reloadedLastUpdate = newTable.last_update;
-        bool hasStructuralChanges = HasPlaylistStructuralChanges(oldTable, newTable, matchedOldEntries.Count);
-        // NOTE:
-        // 外部ヘッダの last_update は未設定、または古い値のまま配信される場合があります。
-        // ここでその値を盲信するとローカルの更新日時が巻き戻るため、
-        // 構成差分がなければ旧値を維持し、差分があるときだけ現在時刻へ更新します。
-        if (newTable.last_update == default(DateTime) || newTable.last_update <= oldTable.last_update)
+        if (oldTable.playlist_id.HasValue)
         {
-            if (hasStructuralChanges)
-            {
-                newTable.last_update = DateTime.Now;
-            }
-            else
-            {
-                newTable.last_update = ((oldTable.last_update == default(DateTime)) ? DateTime.Now : oldTable.last_update);
-            }
+            newTable.last_update = hasContentChanges ? DateTime.Now : oldTable.last_update;
+        }
+        else if (hasContentChanges)
+        {
+            newTable.last_update = ((reloadedLastUpdate != default(DateTime)) ? reloadedLastUpdate : DateTime.Now);
+        }
+        else
+        {
+            newTable.last_update = ((reloadedLastUpdate != default(DateTime)) ? reloadedLastUpdate : oldTable.last_update);
         }
 
         List<BMSTableEntry> removedEntries = oldTable.entries.Except(matchedOldEntries).ToList();
@@ -2665,7 +2730,11 @@ public partial class BMSPlaylist : NotificationObject
         bool lastUpdateChanged = newTable.last_update != oldLastUpdate;
         if (logLastUpdateDecision)
         {
-            Ribbit.Logging.NLogWrapper.FileLogger?.Info("playlist_resync last_update_decision table=" + (newTable.name ?? string.Empty) + " changed=" + lastUpdateChanged.ToString().ToLowerInvariant() + " structuralChanges=" + hasStructuralChanges.ToString().ToLowerInvariant() + " old=" + oldLastUpdate.ToString("O") + " reloaded=" + reloadedLastUpdate.ToString("O") + " final=" + newTable.last_update.ToString("O"));
+            if (hasContentChanges)
+            {
+                LogPlaylistContentDiff(newTable.name, playlistContentDiffResult);
+            }
+            Ribbit.Logging.NLogWrapper.FileLogger?.Info("playlist_resync last_update_decision table=" + (newTable.name ?? string.Empty) + " changed=" + hasContentChanges.ToString().ToLowerInvariant() + " structuralChanges=" + hasContentChanges.ToString().ToLowerInvariant() + " old=" + oldLastUpdate.ToString("O") + " reloaded=" + reloadedLastUpdate.ToString("O") + " final=" + newTable.last_update.ToString("O"));
         }
         return newTable;
     }
@@ -2679,7 +2748,7 @@ public partial class BMSPlaylist : NotificationObject
         }).GroupBy((BMSTableEntry entry) => keySelector(entry), comparer).ToDictionary((IGrouping<string, BMSTableEntry> group) => group.Key, (IGrouping<string, BMSTableEntry> group) => group.ToList(), comparer);
     }
 
-    private static BMSTableEntry ResolveReloadedEntryMatch(BMSTableEntry oldEntry, Dictionary<string, List<BMSTableEntry>> entriesByMd5, Dictionary<string, List<BMSTableEntry>> entriesBySha256, Dictionary<string, List<BMSTableEntry>> entriesByBmsId, Dictionary<string, List<BMSTableEntry>> entriesByTitle)
+    private static BMSTableEntry ResolveReloadedEntryMatch(BMSTableEntry oldEntry, Dictionary<string, List<BMSTableEntry>> entriesByMd5, Dictionary<string, List<BMSTableEntry>> entriesBySha256, Dictionary<string, List<BMSTableEntry>> entriesByComparableRow)
     {
         List<BMSTableEntry> list = GetEntryMatchCandidates(oldEntry.md5, entriesByMd5);
         if (list == null)
@@ -2688,13 +2757,271 @@ public partial class BMSPlaylist : NotificationObject
         }
         if (list == null)
         {
-            list = GetEntryMatchCandidates(oldEntry.lr2_bmsid, entriesByBmsId);
-        }
-        if (list == null)
-        {
-            list = GetEntryMatchCandidates(oldEntry.title, entriesByTitle);
+            ComparablePlaylistEntryRow comparableRow = CreateComparablePlaylistEntryRow(oldEntry);
+            if (comparableRow != null)
+            {
+                list = GetEntryMatchCandidates(comparableRow.Fingerprint, entriesByComparableRow);
+            }
         }
         return SelectBestMatchedEntry(oldEntry, list);
+    }
+
+    private IReadOnlyList<BMSTableEntry> LoadPersistedActivePlaylistEntries(int? playlistId)
+    {
+        if (!playlistId.HasValue)
+        {
+            return Array.Empty<BMSTableEntry>();
+        }
+        using LR2SongDBExtended lR2SongDBExtended = new LR2SongDBExtended(lr2SongDBPath);
+        using (BMSTableEntry.BeginBulkLoadParseSuppression())
+        {
+            return lR2SongDBExtended.Query<BMSTableEntry>("SELECT * FROM " + SQLiteTable<LR2SongDBExtended.playlist_entry>.GetTableName() + " WHERE " + SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry entry) => entry.playlist_id) + " = ? AND " + SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry entry) => entry.is_removed) + " = 0;", playlistId.Value);
+        }
+    }
+
+    private static Dictionary<string, List<BMSTableEntry>> BuildComparableEntryLookup(IEnumerable<BMSTableEntry> entries)
+    {
+        Dictionary<string, List<BMSTableEntry>> dictionary = new Dictionary<string, List<BMSTableEntry>>(StringComparer.Ordinal);
+        foreach (BMSTableEntry entry in entries ?? Enumerable.Empty<BMSTableEntry>())
+        {
+            ComparablePlaylistEntryRow comparableRow = CreateComparablePlaylistEntryRow(entry);
+            if (comparableRow == null)
+            {
+                continue;
+            }
+            if (!dictionary.TryGetValue(comparableRow.Fingerprint, out List<BMSTableEntry> value))
+            {
+                value = new List<BMSTableEntry>();
+                dictionary[comparableRow.Fingerprint] = value;
+            }
+            value.Add(entry);
+        }
+        return dictionary;
+    }
+
+    internal static IReadOnlyList<ComparablePlaylistEntryRow> BuildComparablePlaylistEntryRows(IEnumerable<BMSTableEntry> entries)
+    {
+        if (entries == null)
+        {
+            return Array.Empty<ComparablePlaylistEntryRow>();
+        }
+        return entries.Select(CreateComparablePlaylistEntryRow).Where((ComparablePlaylistEntryRow row) => row != null).ToList();
+    }
+
+    internal static ComparablePlaylistEntryRow CreateComparablePlaylistEntryRow(BMSTableEntry entry)
+    {
+        if (entry == null)
+        {
+            return null;
+        }
+        ComparablePlaylistEntryRow comparableRow = new ComparablePlaylistEntryRow
+        {
+            Md5 = NormalizeHash(entry.md5),
+            Sha256 = NormalizeHash(entry.sha256),
+            Level = NormalizeLevel(entry.level),
+            Title = NormalizeText(entry.title),
+            Artist = NormalizeText(entry.artist),
+            Lr2BmsId = NormalizeText(entry.lr2_bmsid),
+            Url = NormalizeText(entry.url),
+            UrlDiff = NormalizeText(entry.url_diff),
+            NameDiff = NormalizeText(entry.name_diff),
+            Comment = NormalizeText(entry.comment)
+        };
+        if (!HasMeaningfulComparableContent(comparableRow))
+        {
+            return null;
+        }
+        return new ComparablePlaylistEntryRow
+        {
+            Md5 = comparableRow.Md5,
+            Sha256 = comparableRow.Sha256,
+            Level = comparableRow.Level,
+            Title = comparableRow.Title,
+            Artist = comparableRow.Artist,
+            Lr2BmsId = comparableRow.Lr2BmsId,
+            Url = comparableRow.Url,
+            UrlDiff = comparableRow.UrlDiff,
+            NameDiff = comparableRow.NameDiff,
+            Comment = comparableRow.Comment,
+            Fingerprint = BuildComparablePlaylistEntryFingerprint(comparableRow)
+        };
+    }
+
+    internal static PlaylistContentDiffResult AnalyzePlaylistContentDiff(IEnumerable<ComparablePlaylistEntryRow> persistedRows, IEnumerable<ComparablePlaylistEntryRow> reloadedRows)
+    {
+        Dictionary<string, int> dictionary = BuildComparableRowFingerprintCounts(persistedRows);
+        Dictionary<string, int> dictionary2 = BuildComparableRowFingerprintCounts(reloadedRows);
+        PlaylistContentDiffResult playlistContentDiffResult = new PlaylistContentDiffResult
+        {
+            PersistedOnlySamples = Array.Empty<string>(),
+            ReloadedOnlySamples = Array.Empty<string>()
+        };
+        List<string> list = null;
+        List<string> list2 = null;
+        foreach (string item in dictionary.Keys.Union(dictionary2.Keys, StringComparer.Ordinal).OrderBy((string key) => key, StringComparer.Ordinal))
+        {
+            dictionary.TryGetValue(item, out int value);
+            dictionary2.TryGetValue(item, out int value2);
+            if (value == value2)
+            {
+                continue;
+            }
+            if (value > value2)
+            {
+                int num = value - value2;
+                playlistContentDiffResult.PersistedOnlyCount += num;
+                list = list ?? new List<string>(PlaylistDiffSampleLogCount);
+                AppendDiffSamples(list, item, num);
+            }
+            else
+            {
+                int num2 = value2 - value;
+                playlistContentDiffResult.ReloadedOnlyCount += num2;
+                list2 = list2 ?? new List<string>(PlaylistDiffSampleLogCount);
+                AppendDiffSamples(list2, item, num2);
+            }
+        }
+        playlistContentDiffResult.HasChanges = playlistContentDiffResult.PersistedOnlyCount > 0 || playlistContentDiffResult.ReloadedOnlyCount > 0;
+        playlistContentDiffResult.PersistedOnlySamples = (IReadOnlyList<string>)(list != null ? list : (IReadOnlyList<string>)Array.Empty<string>());
+        playlistContentDiffResult.ReloadedOnlySamples = (IReadOnlyList<string>)(list2 != null ? list2 : (IReadOnlyList<string>)Array.Empty<string>());
+        return playlistContentDiffResult;
+    }
+
+    internal static bool HasPlaylistContentChanges(IEnumerable<ComparablePlaylistEntryRow> persistedRows, IEnumerable<ComparablePlaylistEntryRow> reloadedRows)
+    {
+        return AnalyzePlaylistContentDiff(persistedRows, reloadedRows).HasChanges;
+    }
+
+    private static Dictionary<string, int> BuildComparableRowFingerprintCounts(IEnumerable<ComparablePlaylistEntryRow> rows)
+    {
+        Dictionary<string, int> dictionary = new Dictionary<string, int>(StringComparer.Ordinal);
+        if (rows == null)
+        {
+            return dictionary;
+        }
+        foreach (ComparablePlaylistEntryRow row in rows.Where((ComparablePlaylistEntryRow row) => row != null))
+        {
+            if (dictionary.TryGetValue(row.Fingerprint, out int value))
+            {
+                dictionary[row.Fingerprint] = value + 1;
+            }
+            else
+            {
+                dictionary[row.Fingerprint] = 1;
+            }
+        }
+        return dictionary;
+    }
+
+    private static void AppendDiffSamples(List<string> samples, string fingerprint, int count)
+    {
+        if (samples == null || count <= 0)
+        {
+            return;
+        }
+        int num = PlaylistDiffSampleLogCount - samples.Count;
+        if (num <= 0)
+        {
+            return;
+        }
+        for (int i = 0; i < count && i < num; i++)
+        {
+            samples.Add(fingerprint);
+        }
+    }
+
+    private static void LogPlaylistContentDiff(string tableName, PlaylistContentDiffResult diffResult)
+    {
+        if (diffResult == null || !diffResult.HasChanges)
+        {
+            return;
+        }
+        Ribbit.Logging.NLogWrapper.FileLogger?.Info("playlist_resync diff_summary table=" + (tableName ?? string.Empty) + " persistedOnlyCount=" + diffResult.PersistedOnlyCount + " reloadedOnlyCount=" + diffResult.ReloadedOnlyCount + " sampleCount=" + PlaylistDiffSampleLogCount);
+        Ribbit.Logging.NLogWrapper.FileLogger?.Info("playlist_resync diff_samples table=" + (tableName ?? string.Empty) + " persistedOnly=[" + JoinDiffSamplesForLog(diffResult.PersistedOnlySamples) + "] reloadedOnly=[" + JoinDiffSamplesForLog(diffResult.ReloadedOnlySamples) + "]");
+    }
+
+    private static string JoinDiffSamplesForLog(IEnumerable<string> samples)
+    {
+        IEnumerable<string> enumerable = samples ?? (IEnumerable<string>)Array.Empty<string>();
+        return string.Join(", ", enumerable.Select(EscapeFingerprintForLog));
+    }
+
+    private static string EscapeFingerprintForLog(string fingerprint)
+    {
+        if (fingerprint == null)
+        {
+            return string.Empty;
+        }
+        return fingerprint.Replace("\\", "\\\\").Replace("\r", "\\r").Replace("\n", "\\n").Replace("\t", "\\t");
+    }
+
+    private static bool HasMeaningfulComparableContent(ComparablePlaylistEntryRow row)
+    {
+        return row != null && (!string.IsNullOrWhiteSpace(row.Md5) || !string.IsNullOrWhiteSpace(row.Sha256) || !string.IsNullOrWhiteSpace(row.Level) || !string.IsNullOrWhiteSpace(row.Title) || !string.IsNullOrWhiteSpace(row.Artist) || !string.IsNullOrWhiteSpace(row.Lr2BmsId) || !string.IsNullOrWhiteSpace(row.Url) || !string.IsNullOrWhiteSpace(row.UrlDiff) || !string.IsNullOrWhiteSpace(row.NameDiff) || !string.IsNullOrWhiteSpace(row.Comment));
+    }
+
+    private static string NormalizeHash(string value)
+    {
+        string text = value?.Trim();
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return null;
+        }
+        return text.ToLowerInvariant();
+    }
+
+    private static string NormalizeText(string value)
+    {
+        if (value == null)
+        {
+            return string.Empty;
+        }
+        int num = value.IndexOf('\0');
+        if (num >= 0)
+        {
+            value = value.Substring(0, num);
+        }
+        StringBuilder stringBuilder = new StringBuilder(value.Length);
+        foreach (char c in value)
+        {
+            if (char.IsControl(c) && c != '\r' && c != '\n' && c != '\t')
+            {
+                continue;
+            }
+            stringBuilder.Append(c);
+        }
+        return stringBuilder.ToString().Trim();
+    }
+
+    private static string NormalizeLevel(double? value)
+    {
+        if (!value.HasValue)
+        {
+            return string.Empty;
+        }
+        return value.Value.ToString("R", CultureInfo.InvariantCulture);
+    }
+
+    private static string BuildComparablePlaylistEntryFingerprint(ComparablePlaylistEntryRow row)
+    {
+        StringBuilder stringBuilder = new StringBuilder();
+        AppendComparableFingerprintPart(stringBuilder, row.Md5);
+        AppendComparableFingerprintPart(stringBuilder, row.Sha256);
+        AppendComparableFingerprintPart(stringBuilder, row.Level);
+        AppendComparableFingerprintPart(stringBuilder, row.Title);
+        AppendComparableFingerprintPart(stringBuilder, row.Artist);
+        AppendComparableFingerprintPart(stringBuilder, row.Lr2BmsId);
+        AppendComparableFingerprintPart(stringBuilder, row.Url);
+        AppendComparableFingerprintPart(stringBuilder, row.UrlDiff);
+        AppendComparableFingerprintPart(stringBuilder, row.NameDiff);
+        AppendComparableFingerprintPart(stringBuilder, row.Comment);
+        return stringBuilder.ToString();
+    }
+
+    private static void AppendComparableFingerprintPart(StringBuilder builder, string value)
+    {
+        string text = value ?? string.Empty;
+        builder.Append(text.Length).Append(':').Append(text).Append('|');
     }
 
     private static List<BMSTableEntry> GetEntryMatchCandidates(string key, Dictionary<string, List<BMSTableEntry>> lookup)
@@ -2721,12 +3048,7 @@ public partial class BMSPlaylist : NotificationObject
         {
             return candidates[0];
         }
-        List<BMSTableEntry> list = candidates.Where((BMSTableEntry ne) => ne.folder == oldEntry.folder).ToList();
-        if (list.Count > 0)
-        {
-            return list[0];
-        }
-        return candidates.OrderByDescending((BMSTableEntry ne) => Math.Abs((ne.level ?? 0.0) - (oldEntry.level ?? 0.0))).First();
+        return candidates.OrderBy((BMSTableEntry ne) => Math.Abs((ne.level ?? 0.0) - (oldEntry.level ?? 0.0))).First();
     }
 
     /// <summary>

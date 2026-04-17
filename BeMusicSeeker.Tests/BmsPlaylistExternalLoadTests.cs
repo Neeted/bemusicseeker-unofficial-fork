@@ -199,6 +199,36 @@ public sealed class BmsPlaylistExternalLoadTests
         }
     }
 
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public void LoadExternalTable_FullyEmptyEntry_IgnoresRow()
+    {
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistExternalLoadTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string headerJsonPath = Path.Combine(tempDirectory, "header.json");
+            string scoreJsonPath = Path.Combine(tempDirectory, "score.json");
+            File.WriteAllBytes(headerJsonPath, CreateUtf8BomBytes("{\"name\":\"EmptyRow\",\"symbol\":\"E\",\"data_url\":\"./score.json\"}"));
+            File.WriteAllBytes(scoreJsonPath, CreateUtf8BomBytes("[{\"title\":\"Title Only\"},{\"title\":\"\",\"artist\":\"\",\"folder\":\"\"}]"));
+
+            string songDbPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "TestData", "song_snapshot", "song.db");
+            BMSPlaylist playlist = new BMSPlaylist(songDbPath);
+
+            BMSTable table = playlist.LoadExternalTable(new Uri(headerJsonPath));
+
+            Assert.AreEqual(1, table.entries.Count);
+            Assert.AreEqual("Title Only", table.entries.Single().title);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
     private static byte[] CreateUtf8BomBytes(string text)
     {
         return Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(text)).ToArray();

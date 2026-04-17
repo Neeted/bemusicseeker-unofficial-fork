@@ -480,7 +480,7 @@ public class BMSTable : LR2SongDBExtended.playlist
         try
         {
             dynamic val = DynamicJson.Parse(_data_json);
-            entries = ((object[])val).Select((dynamic json) => new BMSTableEntry(json, this)).ToList();
+            entries = ((object[])val).Select((dynamic json) => new BMSTableEntry(json, this)).Where((BMSTableEntry entry) => BMSPlaylist.CreateComparablePlaylistEntryRow(entry) != null).ToList();
         }
         catch (Exception ex)
         {
