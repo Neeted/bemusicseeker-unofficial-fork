@@ -843,6 +843,9 @@ public class Resources
     public static string Warning_SingleBmsFile => ResourceManager.GetString("Warning_SingleBmsFile", resourceCulture);
 
 
+    public static string Warning_SingleBmsonFile => ResourceManager.GetString("Warning_SingleBmsonFile", resourceCulture);
+
+
     public static string Warning_DuplicateBmsFile => ResourceManager.GetString("Warning_DuplicateBmsFile", resourceCulture);
 
 

@@ -1,5 +1,7 @@
 using System;
 using System.IO;
+using System.Linq;
+using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -55,6 +57,47 @@ public sealed class BmsonSongParserTests
             Assert.AreEqual(64, parsed.sha256.Length);
             Assert.AreEqual(14, BmsonSongParser.ResolvePlaylistMode(parsed.mode_hint));
             Assert.AreEqual("Main Sub [Another]", BmsonSongParser.ComposeDisplayTitle(parsed));
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void Parse_ExtractsPendingHealthComponentFiles()
+    {
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsonSongParserTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        string filePath = Path.Combine(tempDirectory, "chart.bmson");
+        try
+        {
+            File.WriteAllText(filePath,
+                "{"
+                + "\"version\":\"1.0.0\","
+                + "\"info\":{"
+                + "\"title\":\"Main\","
+                + "\"artist\":\"Artist\","
+                + "\"preview_music\":\"preview.ogg\""
+                + "},"
+                + "\"sound_channels\":[{\"name\":\"keysound.wav\",\"notes\":[]}],"
+                + "\"bga\":{\"bga_header\":[{\"id\":1,\"name\":\"movie.mp4\"},{\"id\":2,\"name\":\"image.png\"}]},"
+                + "\"lines\":[{\"y\":0}]"
+                + "}");
+
+            var parsed = BmsonSongParser.Parse(filePath);
+            PendingChartEntry pending = PendingChartEntry.CreateFromBmsonSong(parsed);
+            pending.SetHealthStatus(null, forceUpdate: false, memClear: false);
+
+            CollectionAssert.AreEquivalent(new[] { "keysound.wav", "preview.ogg" }, pending.WAVfiles.ToArray());
+            CollectionAssert.AreEquivalent(new[] { "image.png", "movie.mp4" }, pending.BGAfiles.ToArray());
+            Assert.AreEqual(2, pending.maintenanceInfo.wav_files_defined);
+            Assert.AreEqual(0, pending.maintenanceInfo.wav_files_existing);
+            Assert.AreEqual(1, pending.maintenanceInfo.bga_files_defined);
+            Assert.AreEqual(1, pending.maintenanceInfo.movie_files_defined);
         }
         finally
         {

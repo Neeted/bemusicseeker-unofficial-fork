@@ -696,7 +696,7 @@ public class BMSLibrary : NotificationObject
 
     private readonly object lockInstalledDirectoryIndex = new object();
 
-    private Dictionary<string, List<string>> installedDirectoryIndex = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+    private InstalledChartDirectoryIndexSnapshot installedDirectoryIndex = new InstalledChartDirectoryIndexSnapshot();
 
     private bool installedDirectoryIndexInitialized;
 
@@ -2126,7 +2126,7 @@ public class BMSLibrary : NotificationObject
                     BMSPackagesInstalled.Clear();
                     InstallTableLoadResult installTableLoadResult = initializationService.LoadInstallTable(
                         dbGateway,
-                        ContainsBMSHashUnsafe,
+                        ContainsInstalledChartUnsafe,
                         (bmsFile) => checkBMSFileNeedToBeFixedAndSetWarnings(bmsFile, bmsFile.maintenanceInfo, strictCheck: true));
                     if (installTableLoadResult.StaleInstallPaths.Count > 0)
                     {
@@ -2617,7 +2617,7 @@ public class BMSLibrary : NotificationObject
         {
             return false;
         }
-        return list.All((BMSFile file) => IsBMSHashAvailable(file.hash) && ContainsBMSHashUnsafe(file.hash));
+        return list.All(ContainsInstalledChartUnsafe);
     }
 
     /// <summary>
@@ -2644,7 +2644,7 @@ public class BMSLibrary : NotificationObject
     {
         lock (lockInstalledDirectoryIndex)
         {
-            installedDirectoryIndex.Clear();
+            installedDirectoryIndex = new InstalledChartDirectoryIndexSnapshot();
             installedDirectoryIndexInitialized = false;
         }
     }
@@ -2750,15 +2750,15 @@ public class BMSLibrary : NotificationObject
         {
             num++;
         }
-        Dictionary<string, List<string>> dictionary2 = CreateInstallEstimationService().BuildInstalledHashToDirectoryMap(bmsFiles);
-        int num2 = dictionary2.Sum((KeyValuePair<string, List<string>> x) => x.Value.Count);
+        InstalledChartDirectoryIndexSnapshot dictionary2 = CreateInstallEstimationService().BuildInstalledHashToDirectoryMap(bmsFiles, BmsonSongs);
+        int num2 = dictionary2.DirectoryReferenceCount;
         lock (lockInstalledDirectoryIndex)
         {
             installedDirectoryIndex = dictionary2;
             installedDirectoryIndexInitialized = true;
         }
         stopwatch.Stop();
-        LogInstallPerformance("installed_dir_index rebuildMs=" + stopwatch.ElapsedMilliseconds + " hashes=" + dictionary2.Count + " dirRefs=" + num2 + " files=" + num);
+        LogInstallPerformance("installed_dir_index rebuildMs=" + stopwatch.ElapsedMilliseconds + " hashes=" + dictionary2.HashCount + " dirRefs=" + num2 + " files=" + num + " bmson=" + (BmsonSongs?.Count ?? 0));
     }
 
     /// <summary>
@@ -2775,12 +2775,12 @@ public class BMSLibrary : NotificationObject
     /// <summary>
     /// 現在のインストール済みディレクトリインデックスのスナップショットを作成します。
     /// </summary>
-    private Dictionary<string, List<string>> CreateInstalledDirectoryIndexSnapshotUnsafe()
+    private InstalledChartDirectoryIndexSnapshot CreateInstalledDirectoryIndexSnapshotUnsafe()
     {
         EnsureInstalledDirectoryIndexBuiltUnsafe();
         lock (lockInstalledDirectoryIndex)
         {
-            return installedDirectoryIndex.ToDictionary((KeyValuePair<string, List<string>> x) => x.Key, (KeyValuePair<string, List<string>> x) => x.Value.ToList(), StringComparer.OrdinalIgnoreCase);
+            return installedDirectoryIndex.Clone();
         }
     }
 
@@ -2798,6 +2798,39 @@ public class BMSLibrary : NotificationObject
         {
             return bmsHashIndex.Contains(hash);
         }
+    }
+
+    private bool ContainsInstalledChartUnsafe(BMSFile file)
+    {
+        if (file == null)
+        {
+            return false;
+        }
+        InstalledChartDirectoryIndexSnapshot snapshot = CreateInstalledDirectoryIndexSnapshotUnsafe();
+        return BmsLibraryInstallEstimationService.GetDistinctInstalledDirectoriesByHash(snapshot, file).Count > 0;
+    }
+
+    private HashSet<string> CreateKnownChartDirectorySnapshotUnsafe()
+    {
+        HashSet<string> knownChartDirectories = new HashSet<string>((bmsFolderAllFileList?.Keys ?? Enumerable.Empty<string>()).Where((string path) => !string.IsNullOrWhiteSpace(path)), StringComparer.OrdinalIgnoreCase);
+        foreach (LR2SongDBExtended.bmson_song bmsonSong in BmsonSongs ?? Enumerable.Empty<LR2SongDBExtended.bmson_song>())
+        {
+            string path = null;
+            try
+            {
+                path = !string.IsNullOrWhiteSpace(bmsonSong?.folder)
+                    ? bmsonSong.folder
+                    : DirectoryExt.GetDirectoryNameSimple(bmsonSong?.path);
+            }
+            catch
+            {
+            }
+            if (!string.IsNullOrWhiteSpace(path))
+            {
+                knownChartDirectories.Add(path);
+            }
+        }
+        return knownChartDirectories;
     }
 
     /// <summary>
@@ -2837,6 +2870,53 @@ public class BMSLibrary : NotificationObject
             }
         }
         return hashSet;
+    }
+
+    private HashSet<string> CreateInstalledChartKeySnapshotExcludingUnsafe(IEnumerable<BMSFile> excluded)
+    {
+        Dictionary<string, int> excludedKeyCount = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        if (excluded != null)
+        {
+            foreach (BMSFile item in excluded.Where((BMSFile file) => file != null))
+            {
+                string key = PendingChartEntry.GetPrimaryLookupHash(item);
+                if (!string.IsNullOrWhiteSpace(key))
+                {
+                    excludedKeyCount[key] = excludedKeyCount.TryGetValue(key, out int value) ? value + 1 : 1;
+                }
+            }
+        }
+        Dictionary<string, int> installedKeyCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        foreach (BMSFile bmsFile in BMSFiles ?? Enumerable.Empty<BMSFile>())
+        {
+            if (bmsFile == null)
+            {
+                continue;
+            }
+            string key2 = PendingChartEntry.GetPrimaryLookupHash(bmsFile);
+            if (!string.IsNullOrWhiteSpace(key2))
+            {
+                installedKeyCounts[key2] = installedKeyCounts.TryGetValue(key2, out int value2) ? value2 + 1 : 1;
+            }
+        }
+        foreach (LR2SongDBExtended.bmson_song bmsonSong in BmsonSongs ?? Enumerable.Empty<LR2SongDBExtended.bmson_song>())
+        {
+            string key3 = PendingChartEntry.GetPrimaryLookupHash(bmsonSong);
+            if (!string.IsNullOrWhiteSpace(key3))
+            {
+                installedKeyCounts[key3] = installedKeyCounts.TryGetValue(key3, out int value3) ? value3 + 1 : 1;
+            }
+        }
+        HashSet<string> snapshot = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (KeyValuePair<string, int> installedKeyCount in installedKeyCounts)
+        {
+            int excludedCount = excludedKeyCount.TryGetValue(installedKeyCount.Key, out int value5) ? value5 : 0;
+            if (installedKeyCount.Value - excludedCount > 0)
+            {
+                snapshot.Add(installedKeyCount.Key);
+            }
+        }
+        return snapshot;
     }
 
     /// <summary>
@@ -3401,8 +3481,8 @@ public class BMSLibrary : NotificationObject
                         AutoInstallWorkflowResult workflow = packageInstallService.PrepareAutoInstallWorkflow(
                             installPaths,
                             BMSPackagesPending,
-                            BMSFiles,
-                            getBMSDirectories(),
+                            CreateKnownChartDirectorySnapshotUnsafe(),
+                            ContainsInstalledChartUnsafe,
                             dupRateThreshInOnePkg,
                             (bmsFile) => checkBMSFileNeedToBeFixedAndSetWarnings(bmsFile, bmsFile.maintenanceInfo, strictCheck: true),
                             token);
@@ -3631,13 +3711,50 @@ public class BMSLibrary : NotificationObject
             delegate (IEnumerable<BMSFile> files)
             {
                 List<BMSFile> addedFiles = files.Where((BMSFile file) => file != null).ToList();
-                HashSet<string> addedPathSet = new HashSet<string>(addedFiles.Select((BMSFile ff) => ff.path), StringComparer.OrdinalIgnoreCase);
-                BMSFiles = BMSFiles.Where((BMSFile f) => !addedPathSet.Contains(f.path)).Concat(addedFiles).ToList();
+                List<BMSFile> addedBmsFiles = addedFiles.Where(PendingChartEntry.IsBmsChartFile).ToList();
+                List<LR2SongDBExtended.bmson_song> addedBmsonSongs = addedFiles
+                    .OfType<PendingChartEntry>()
+                    .Where((PendingChartEntry file) => file.IsBmsonChart)
+                    .Select(delegate (PendingChartEntry file)
+                    {
+                        LR2SongDBExtended.bmson_song source = file.BmsonSong ?? new LR2SongDBExtended.bmson_song();
+                        return new LR2SongDBExtended.bmson_song
+                        {
+                            path = file.path,
+                            folder = DirectoryExt.GetDirectoryNameSimple(file.path),
+                            title = source.title,
+                            subtitle = source.subtitle,
+                            artist = source.artist,
+                            genre = source.genre,
+                            level = source.level,
+                            mode_hint = source.mode_hint,
+                            md5 = source.md5 ?? file.hash,
+                            sha256 = source.sha256 ?? file.sha256,
+                            banner = source.banner,
+                            backbmp = source.backbmp,
+                            stagefile = source.stagefile,
+                            preview_music = source.preview_music
+                        };
+                    })
+                    .ToList();
+                HashSet<string> addedBmsPathSet = new HashSet<string>(addedBmsFiles.Select((BMSFile ff) => ff.path), StringComparer.OrdinalIgnoreCase);
+                BMSFiles = BMSFiles.Where((BMSFile f) => !addedBmsPathSet.Contains(f.path)).Concat(addedBmsFiles).ToList();
+                if (addedBmsonSongs.Count > 0)
+                {
+                    dbGateway.UpsertBmsonSongs(addedBmsonSongs);
+                    Dictionary<string, LR2SongDBExtended.bmson_song> nextBmsonByPath = (BmsonSongs ?? new List<LR2SongDBExtended.bmson_song>()).Where((LR2SongDBExtended.bmson_song song) => song != null && !string.IsNullOrWhiteSpace(song.path)).ToDictionary((LR2SongDBExtended.bmson_song song) => song.path, StringComparer.OrdinalIgnoreCase);
+                    foreach (LR2SongDBExtended.bmson_song addedBmsonSong in addedBmsonSongs)
+                    {
+                        nextBmsonByPath[addedBmsonSong.path] = addedBmsonSong;
+                    }
+                    BmsonSongs = nextBmsonByPath.Values.OrderBy((LR2SongDBExtended.bmson_song song) => song.path, StringComparer.OrdinalIgnoreCase).ToList();
+                }
                 addedFiles.Select((BMSFile bmsInfo) => DirectoryExt.GetDirectoryNameSimple(bmsInfo.path)).Distinct().AsParallel()
                     .ForAll(delegate (string dir)
                     {
                         bmsFolderAllFileList.AddDir(dir);
                     });
+                InvalidateInstalledDirectoryIndex();
             },
             excludedComponentPathsByPackage,
             existingHashes,
@@ -3733,7 +3850,7 @@ public class BMSLibrary : NotificationObject
         }
     }
 
-    private Dictionary<string, List<string>> BuildInstalledHashToDirectoryMap()
+    private InstalledChartDirectoryIndexSnapshot BuildInstalledHashToDirectoryMap()
     {
         return CreateInstalledDirectoryIndexSnapshotUnsafe();
     }
@@ -3745,8 +3862,8 @@ public class BMSLibrary : NotificationObject
         {
             return false;
         }
-        Dictionary<string, List<string>> installedDirectoryIndex = BuildInstalledHashToDirectoryMap();
-        if (installedDirectoryIndex.Count == 0)
+        InstalledChartDirectoryIndexSnapshot installedDirectoryIndex = BuildInstalledHashToDirectoryMap();
+        if (installedDirectoryIndex.HashCount == 0)
         {
             LogInstallPerformance("mixed_package_resolve fallback reason=installed_index_empty");
             return false;
@@ -3801,10 +3918,8 @@ public class BMSLibrary : NotificationObject
                         {
                             return;
                         }
-                        IEnumerable<BMSFile> installedFiles = BMSFiles ?? new List<BMSFile>();
-                        HashSet<string> installedHashes = new HashSet<string>(installedFiles.Where((BMSFile file) => file != null).Select((BMSFile file) => file.hash), StringComparer.OrdinalIgnoreCase);
-                        List<BMSFile> alreadyInstalledFiles = packageFiles.Where((BMSFile file) => IsBMSHashAvailable(file.hash) && installedHashes.Contains(file.hash)).ToList();
-                        List<BMSFile> missingFiles = packageFiles.Where((BMSFile file) => !IsBMSHashAvailable(file.hash) || !installedHashes.Contains(file.hash)).ToList();
+                        List<BMSFile> alreadyInstalledFiles = packageFiles.Where(ContainsInstalledChartUnsafe).ToList();
+                        List<BMSFile> missingFiles = packageFiles.Where((BMSFile file) => !ContainsInstalledChartUnsafe(file)).ToList();
                         ApplyPackageMixedInstallWarnings(alreadyInstalledFiles);
                         if (missingFiles.Count == 0)
                         {
@@ -3826,7 +3941,10 @@ public class BMSLibrary : NotificationObject
                             searchEstimatedInstallationDirectory(missingFiles, asParallel: true, fixMode: true);
                             return;
                         }
-                        searchEstimatedInstallationDirectory(missingFiles);
+                        if (missingFiles.Count > 0)
+                        {
+                            searchEstimatedInstallationDirectory(missingFiles);
+                        }
                     }
                 }
             }
@@ -3838,6 +3956,29 @@ public class BMSLibrary : NotificationObject
         if (bmsFile == null)
         {
             throw new ArgumentNullException("bmsFile");
+        }
+        bool resolvedInstalledDirectory = false;
+        if (PendingChartEntry.IsBmsonChartFile(bmsFile))
+        {
+            using (rwlockBMSFilesInitializedAll.GetReaderGuard())
+            {
+                using (rwlockBMSFilesPendingInstall.GetReaderGuard())
+                {
+                    if (ContainsInstalledChartUnsafe(bmsFile))
+                    {
+                        List<string> installedDirectories = BmsLibraryInstallEstimationService.GetDistinctInstalledDirectoriesByHash(CreateInstalledDirectoryIndexSnapshotUnsafe(), bmsFile);
+                        if (installedDirectories.Count == 1)
+                        {
+                            bmsFile.instl_dst = installedDirectories[0];
+                            resolvedInstalledDirectory = true;
+                        }
+                    }
+                }
+            }
+            if (resolvedInstalledDirectory)
+            {
+                return;
+            }
         }
         searchEstimatedInstallationDirectory(new BMSFile[1] { bmsFile }, asParallel, fixMode);
     }
@@ -3863,7 +4004,17 @@ public class BMSLibrary : NotificationObject
             item.instl_dst = null;
         }
         LogInstallPerformance("estimated_merge_start package=" + package.path + " targets=" + list.Count);
-        searchEstimatedInstallationDirectory(list, asParallel: true, BmsInstallationEstimateMode.MergeNoSourceCompensation);
+        if (!TryResolveInstalledDestinationFromPackage(package, list, out string resolvedDir))
+        {
+            searchEstimatedInstallationDirectory(list, asParallel: true, BmsInstallationEstimateMode.MergeNoSourceCompensation);
+        }
+        else
+        {
+            foreach (BMSFile item2 in list)
+            {
+                item2.instl_dst = resolvedDir;
+            }
+        }
         int num = list.Count((BMSFile f) => !string.IsNullOrWhiteSpace(f.instl_dst));
         if (num == 0)
         {
@@ -3888,7 +4039,7 @@ public class BMSLibrary : NotificationObject
         foreach (BMSFile item in list)
         {
             item.instl_dst = null;
-            searchEstimatedInstallationDirectory(new BMSFile[1] { item }, asParallel: true, BmsInstallationEstimateMode.MergeNoSourceCompensation);
+            SearchEstimatedInstallationDirectory(item, asParallel: true, fixMode: true);
         }
         int num = list.Count((BMSFile f) => !string.IsNullOrWhiteSpace(f.instl_dst));
         if (num == 0)
@@ -4015,19 +4166,40 @@ public class BMSLibrary : NotificationObject
         {
             return null;
         }
-        HashSet<string> hashSet = new HashSet<string>((originalPackage.BMSFiles ?? new List<BMSFile>()).Where((BMSFile f) => f != null && IsBMSHashAvailable(f.hash)).Select((BMSFile f) => f.hash), StringComparer.OrdinalIgnoreCase);
+        HashSet<string> hashSet = new HashSet<string>((originalPackage.BMSFiles ?? new List<BMSFile>())
+            .Where((BMSFile f) => f != null)
+            .Select(PendingChartEntry.GetPrimaryLookupHash)
+            .Where((string key) => !string.IsNullOrWhiteSpace(key)), StringComparer.OrdinalIgnoreCase);
         if (hashSet.Count == 0)
         {
             return null;
         }
         List<BMSFile> list = BMSFiles.Where(delegate (BMSFile f)
         {
-            if (f == null || string.IsNullOrWhiteSpace(f.path) || !IsBMSHashAvailable(f.hash) || !hashSet.Contains(f.hash))
+            if (f == null || string.IsNullOrWhiteSpace(f.path))
+            {
+                return false;
+            }
+            string key = PendingChartEntry.GetPrimaryLookupHash(f);
+            if (string.IsNullOrWhiteSpace(key) || !hashSet.Contains(key))
             {
                 return false;
             }
             return string.Equals(DirectoryExt.GetDirectoryNameSimple(f.path), destinationDirectory, StringComparison.OrdinalIgnoreCase);
         }).ToList();
+        list.AddRange((BmsonSongs ?? new List<LR2SongDBExtended.bmson_song>()).Where(delegate (LR2SongDBExtended.bmson_song song)
+        {
+            if (song == null || string.IsNullOrWhiteSpace(song.path))
+            {
+                return false;
+            }
+            string key = PendingChartEntry.GetPrimaryLookupHash(song);
+            if (!string.IsNullOrWhiteSpace(key) && hashSet.Contains(key))
+            {
+                return string.Equals(DirectoryExt.GetDirectoryNameSimple(song.path), destinationDirectory, StringComparison.OrdinalIgnoreCase);
+            }
+            return false;
+        }).Select(PendingChartEntry.CreateFromBmsonSong).Where((PendingChartEntry file) => file != null));
         if (list.Count == 0)
         {
             return null;
@@ -4066,7 +4238,7 @@ public class BMSLibrary : NotificationObject
                             return;
                         }
                         bool deletePendingPackageSourceAfterInstall = options.DeletePendingPackageSourceAfterInstall;
-                        PendingInstallBatchPlan installPlan = packageInstallService.BuildEstimatedInstallBatchPlan(packages, BMSPackagesPending, BMSFiles, deletePendingPackageSourceAfterInstall, CountComponentMoveTargetsForPackage);
+                        PendingInstallBatchPlan installPlan = packageInstallService.BuildEstimatedInstallBatchPlan(packages, BMSPackagesPending, BMSFiles, BmsonSongs, deletePendingPackageSourceAfterInstall, CountComponentMoveTargetsForPackage);
                         if (installPlan.SelectedPendingPackages.Count == 0)
                         {
                             totalStopwatch.Stop();
@@ -4225,7 +4397,7 @@ public class BMSLibrary : NotificationObject
         {
             using (rwlockBMSFilesPendingInstall.GetReaderGuard())
             {
-                List<BMSPackage> list = packageInstallService.GetPendingPackagesContainingOnlyInstalledCharts(BMSPackagesPending, ContainsBMSHashUnsafe);
+                List<BMSPackage> list = packageInstallService.GetPendingPackagesContainingOnlyInstalledCharts(BMSPackagesPending, ContainsInstalledChartUnsafe);
                 NLogWrapper.FileLogger?.Info("advanced_pending_cleanup scan pendingTotal=" + BMSPackagesPending.Count + " eligible=" + list.Count);
                 return list;
             }
@@ -4240,27 +4412,32 @@ public class BMSLibrary : NotificationObject
         PackageHasSplitInstalledDirectories
     }
 
-    private static List<string> GetDistinctInstalledDirectoriesByHash(Dictionary<string, List<string>> installedDirectoryIndexSnapshot, string hash)
+    private static List<string> GetDistinctInstalledDirectoriesByHash(InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot, string md5, string sha256 = null)
     {
-        return BmsLibraryInstallEstimationService.GetDistinctInstalledDirectoriesByHash(installedDirectoryIndexSnapshot, hash);
+        return BmsLibraryInstallEstimationService.GetDistinctInstalledDirectoriesByHash(installedDirectoryIndexSnapshot, md5, sha256);
     }
 
-    private static BMSFile FindChartWithMissingInstalledDirectory(BMSPackage package, Dictionary<string, List<string>> installedDirectoryIndexSnapshot)
+    private static List<string> GetDistinctInstalledDirectoriesByHash(InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot, BMSFile file)
+    {
+        return BmsLibraryInstallEstimationService.GetDistinctInstalledDirectoriesByHash(installedDirectoryIndexSnapshot, file);
+    }
+
+    private static BMSFile FindChartWithMissingInstalledDirectory(BMSPackage package, InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot)
     {
         return BmsLibraryInstallEstimationService.FindChartWithMissingInstalledDirectory(package, installedDirectoryIndexSnapshot);
     }
 
-    private static BMSFile FindChartWithMultipleInstalledDirectories(BMSPackage package, Dictionary<string, List<string>> installedDirectoryIndexSnapshot)
+    private static BMSFile FindChartWithMultipleInstalledDirectories(BMSPackage package, InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot)
     {
         return BmsLibraryInstallEstimationService.FindChartWithMultipleInstalledDirectories(package, installedDirectoryIndexSnapshot);
     }
 
-    private static int CountDistinctInstalledDirectoriesForPackage(BMSPackage package, Dictionary<string, List<string>> installedDirectoryIndexSnapshot)
+    private static int CountDistinctInstalledDirectoriesForPackage(BMSPackage package, InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot)
     {
         return BmsLibraryInstallEstimationService.CountDistinctInstalledDirectoriesForPackage(package, installedDirectoryIndexSnapshot);
     }
 
-    private bool TryPrepareInstalledOnlyPackageDestination(BMSPackage package, Dictionary<string, List<string>> installedDirectoryIndexSnapshot, out string destinationDir, out PrepareSkipReason reason)
+    private bool TryPrepareInstalledOnlyPackageDestination(BMSPackage package, InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot, out string destinationDir, out PrepareSkipReason reason)
     {
         InstalledOnlyPackageResolutionResult resolution = CreateInstallEstimationService().TryPrepareInstalledOnlyPackageDestination(package, installedDirectoryIndexSnapshot);
         destinationDir = resolution.DestinationDirectory;
@@ -4284,14 +4461,14 @@ public class BMSLibrary : NotificationObject
         {
             return;
         }
-        Dictionary<string, List<string>> installedDirectoryIndexSnapshot = BuildInstalledHashToDirectoryMap();
+        InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot = BuildInstalledHashToDirectoryMap();
         foreach (string sourceDirectoryPath in sourceDirectories)
         {
             TryRegroupPendingPackagesForSourceDirectoryUnsafe(sourceDirectoryPath, installedDirectoryIndexSnapshot);
         }
     }
 
-    private void TryRegroupPendingPackagesForSourceDirectoryUnsafe(string sourceDirectoryPath, Dictionary<string, List<string>> installedDirectoryIndexSnapshot)
+    private void TryRegroupPendingPackagesForSourceDirectoryUnsafe(string sourceDirectoryPath, InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot)
     {
         if (string.IsNullOrWhiteSpace(sourceDirectoryPath))
         {
@@ -4314,14 +4491,14 @@ public class BMSLibrary : NotificationObject
             LogInstallPerformance("pending_regroup skip reason=" + skipReason + " source=" + sourceDirectoryPath + " packages=" + sourcePackages.Count);
             return;
         }
-        ReinitializePendingWarningsForPackageUnsafe(regroupedPackage, CreateBMSHashSnapshotExcludingUnsafe(null));
+        ReinitializePendingWarningsForPackageUnsafe(regroupedPackage, CreateInstalledChartKeySnapshotExcludingUnsafe(null));
         ReplacePendingPackagesWithRegroupedPackageUnsafe(sourcePackages, regroupedPackage);
         dbGateway.DeleteInstallRows(sourcePackages.Select((BMSPackage pendingPackage) => pendingPackage.path));
         dbGateway.UpsertInstallRows(new BMSPackage[1] { regroupedPackage });
         LogInstallPerformance("pending_regroup success source=" + sourceDirectoryPath + " packages=" + sourcePackages.Count + " files=" + regroupedPackage.BMSFiles.Count + " dst=" + resolvedDestinationDirectory);
     }
 
-    private bool TryBuildRegroupedPendingPackage(string sourceDirectoryPath, List<BMSPackage> sourcePackages, Dictionary<string, List<string>> installedDirectoryIndexSnapshot, out BMSPackage regroupedPackage, out string resolvedDestinationDirectory, out string skipReason)
+    private bool TryBuildRegroupedPendingPackage(string sourceDirectoryPath, List<BMSPackage> sourcePackages, InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot, out BMSPackage regroupedPackage, out string resolvedDestinationDirectory, out string skipReason)
     {
         regroupedPackage = null;
         resolvedDestinationDirectory = null;
@@ -4372,7 +4549,7 @@ public class BMSLibrary : NotificationObject
         return true;
     }
 
-    private bool TryResolvePendingFileExpectedInstallDirectory(BMSFile bmsFile, Dictionary<string, List<string>> installedDirectoryIndexSnapshot, out string expectedDirectory, out string reason)
+    private bool TryResolvePendingFileExpectedInstallDirectory(BMSFile bmsFile, InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot, out string expectedDirectory, out string reason)
     {
         expectedDirectory = null;
         reason = "missing_expected_destination";
@@ -4381,7 +4558,7 @@ public class BMSLibrary : NotificationObject
             reason = "null_file";
             return false;
         }
-        List<string> installedDirectories = GetDistinctInstalledDirectoriesByHash(installedDirectoryIndexSnapshot, bmsFile.hash);
+        List<string> installedDirectories = GetDistinctInstalledDirectoriesByHash(installedDirectoryIndexSnapshot, bmsFile);
         if (installedDirectories.Count > 1)
         {
             reason = "multiple_installed_directories";
@@ -4413,15 +4590,17 @@ public class BMSLibrary : NotificationObject
         HashSet<string> installedHashSet = installedHashes as HashSet<string> ?? new HashSet<string>(installedHashes ?? Enumerable.Empty<string>(), StringComparer.OrdinalIgnoreCase);
         foreach (BMSFile bmsFile in (package.BMSFiles ?? new List<BMSFile>()).Where((BMSFile file) => file != null))
         {
+            bool isBmson = PendingChartEntry.IsBmsonChartFile(bmsFile);
             bmsFile.SetHealthStatus(null, forceUpdate: false, memClear: false);
             bmsFile.warning = null;
-            if (IsBMSHashAvailable(bmsFile.hash) && installedHashSet.Contains(bmsFile.hash))
+            string key = PendingChartEntry.GetPrimaryLookupHash(bmsFile);
+            if (!string.IsNullOrWhiteSpace(key) && installedHashSet.Contains(key))
             {
                 bmsFile.warning = Resources.Warning_AlreadyInstalled;
             }
             else if (isSingleFilePackage)
             {
-                bmsFile.warning = Resources.Warning_SingleBmsFile;
+                bmsFile.warning = isBmson ? Resources.Warning_SingleBmsonFile : Resources.Warning_SingleBmsFile;
             }
             else
             {
@@ -4452,7 +4631,7 @@ public class BMSLibrary : NotificationObject
         return NormalizePendingPackagePath(package?.path) switch
         {
             string normalizedPath when string.IsNullOrWhiteSpace(normalizedPath) => null,
-            string normalizedPath when BMSFile.bmsExtensions.Contains(Path.GetExtension(normalizedPath), StringComparer.OrdinalIgnoreCase) => NormalizePendingPackagePath(Path.GetDirectoryName(normalizedPath)),
+            string normalizedPath when PendingChartEntry.IsSupportedChartFilePath(normalizedPath) => NormalizePendingPackagePath(Path.GetDirectoryName(normalizedPath)),
             string normalizedPath => normalizedPath
         };
     }
@@ -4511,9 +4690,9 @@ public class BMSLibrary : NotificationObject
                     using (rwlockSongDBInstall.GetWriterGuard())
                     {
                         bool deletePendingPackageSourceAfterInstall = options.DeletePendingPackageSourceAfterInstall;
-                        Dictionary<string, List<string>> installedDirectoryIndexSnapshot = CreateInstalledDirectoryIndexSnapshotUnsafe();
+                        InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot = CreateInstalledDirectoryIndexSnapshotUnsafe();
                         NLogWrapper.FileLogger?.Info("advanced_pending_resource_overwrite scan pendingTotal=" + BMSPackagesPending.Count + " eligible=" + packageInstallService.DeduplicatePackagesByPathOrReference(packages).Count);
-                        NLogWrapper.FileLogger?.Info("advanced_pending_resource_overwrite index_ready hashes=" + installedDirectoryIndexSnapshot.Count);
+                        NLogWrapper.FileLogger?.Info("advanced_pending_resource_overwrite index_ready hashes=" + installedDirectoryIndexSnapshot.HashCount);
                         PendingResourceOverwriteExecutionResult executionResult = packageInstallService.ExecuteInstalledOnlyResourceOverwrite(
                             packages,
                             BMSPackagesPending,
@@ -4527,7 +4706,7 @@ public class BMSLibrary : NotificationObject
                                 }
                                 return resolution.Reason switch
                                 {
-                                    InstalledDirectoryResolveReason.ChartHasMultipleInstalledDirectories => "advanced_pending_resource_overwrite skip_chart_multi_dst path=" + pendingPackage.path + " chartPath=" + (FindChartWithMultipleInstalledDirectories(pendingPackage, installedDirectoryIndexSnapshot)?.path ?? "(null)") + " hash=" + (FindChartWithMultipleInstalledDirectories(pendingPackage, installedDirectoryIndexSnapshot)?.hash ?? "(null)") + " dirCount=" + ((FindChartWithMultipleInstalledDirectories(pendingPackage, installedDirectoryIndexSnapshot) == null) ? 0 : GetDistinctInstalledDirectoriesByHash(installedDirectoryIndexSnapshot, FindChartWithMultipleInstalledDirectories(pendingPackage, installedDirectoryIndexSnapshot).hash).Count),
+                                    InstalledDirectoryResolveReason.ChartHasMultipleInstalledDirectories => "advanced_pending_resource_overwrite skip_chart_multi_dst path=" + pendingPackage.path + " chartPath=" + (FindChartWithMultipleInstalledDirectories(pendingPackage, installedDirectoryIndexSnapshot)?.path ?? "(null)") + " hash=" + (FindChartWithMultipleInstalledDirectories(pendingPackage, installedDirectoryIndexSnapshot)?.hash ?? "(null)") + " dirCount=" + ((FindChartWithMultipleInstalledDirectories(pendingPackage, installedDirectoryIndexSnapshot) == null) ? 0 : GetDistinctInstalledDirectoriesByHash(installedDirectoryIndexSnapshot, FindChartWithMultipleInstalledDirectories(pendingPackage, installedDirectoryIndexSnapshot)).Count),
                                     InstalledDirectoryResolveReason.PackageHasSplitInstalledDirectories => "advanced_pending_resource_overwrite skip_package_split_dst path=" + pendingPackage.path + " dirCount=" + CountDistinctInstalledDirectoriesForPackage(pendingPackage, installedDirectoryIndexSnapshot),
                                     _ => "advanced_pending_resource_overwrite skip_missing_instl_dst path=" + pendingPackage.path + " chartPath=" + (FindChartWithMissingInstalledDirectory(pendingPackage, installedDirectoryIndexSnapshot)?.path ?? "(null)") + " hash=" + (FindChartWithMissingInstalledDirectory(pendingPackage, installedDirectoryIndexSnapshot)?.hash ?? "(null)")
                                 };
@@ -4720,7 +4899,7 @@ public class BMSLibrary : NotificationObject
         {
             using (rwlockBMSFilesPendingInstall.GetWriterGuard())
             {
-                PendingInstallDestinationSelectionResult selection = CreateInstallEstimationService().ValidatePendingInstallDestination(bmsFile, BMSPackagesPending, bmsFolderAllFileList.Keys, destinationDirectory);
+                PendingInstallDestinationSelectionResult selection = CreateInstallEstimationService().ValidatePendingInstallDestination(bmsFile, BMSPackagesPending, CreateKnownChartDirectorySnapshotUnsafe(), destinationDirectory);
                 if (!selection.Success)
                 {
                     dialogService.Show(selection.WarningMessage, Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);

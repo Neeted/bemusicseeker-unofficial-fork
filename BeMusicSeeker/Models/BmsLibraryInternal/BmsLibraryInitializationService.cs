@@ -506,7 +506,7 @@ internal sealed class BmsLibraryInitializationService
 
     public InstallTableLoadResult LoadInstallTable(
         BmsLibraryDbGateway dbGateway,
-        Func<string, bool> isInstalledHash = null,
+        Func<BMSFile, bool> isInstalledChart = null,
         Func<BMSFile, bool> applyStrictWarning = null)
     {
         InstallTableLoadResult result = new InstallTableLoadResult();
@@ -537,16 +537,17 @@ internal sealed class BmsLibraryInitializationService
             bool isSingleFilePackage = !Directory.Exists(pendingPackage.path);
             foreach (BMSFile bmsFile in (pendingPackage.BMSFiles ?? new List<BMSFile>()).Where((BMSFile file) => file != null))
             {
+                bool isBmson = PendingChartEntry.IsBmsonChartFile(bmsFile);
                 bmsFile.SetHealthStatus(null, forceUpdate: false, memClear: false);
                 result.PendingWarningInitTargets.Add(bmsFile);
-                if (isInstalledHash != null && IsBmsHashAvailable(bmsFile.hash) && isInstalledHash(bmsFile.hash))
+                if (isInstalledChart != null && isInstalledChart(bmsFile))
                 {
                     bmsFile.warning = Resources.Warning_AlreadyInstalled;
                     result.InstalledWarningCount++;
                 }
                 else if (isSingleFilePackage)
                 {
-                    bmsFile.warning = Resources.Warning_SingleBmsFile;
+                    bmsFile.warning = isBmson ? Resources.Warning_SingleBmsonFile : Resources.Warning_SingleBmsFile;
                     result.SingleFileWarningCount++;
                 }
                 else if (applyStrictWarning != null && applyStrictWarning(bmsFile))

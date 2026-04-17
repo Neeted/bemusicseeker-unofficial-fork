@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using BeMusicSeeker.Models.Utils;
+using BeMusicSeeker.Models.LR2;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
@@ -20,35 +21,36 @@ internal sealed class BmsLibraryInstallEstimationService
         this.innerWavHealthThreshold = innerWavHealthThreshold;
     }
 
-    public Dictionary<string, List<string>> BuildInstalledHashToDirectoryMap(IEnumerable<BMSFile> installedFiles)
+    public InstalledChartDirectoryIndexSnapshot BuildInstalledHashToDirectoryMap(IEnumerable<BMSFile> installedFiles, IEnumerable<LR2SongDBExtended.bmson_song> installedBmsonSongs = null)
     {
-        Dictionary<string, HashSet<string>> dictionary = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+        InstalledChartDirectoryIndexSnapshot result = new InstalledChartDirectoryIndexSnapshot();
+        Dictionary<string, HashSet<string>> md5Map = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+        Dictionary<string, HashSet<string>> sha256Map = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
         foreach (BMSFile item in installedFiles ?? Enumerable.Empty<BMSFile>())
         {
-            if (item == null || !IsBmsHashAvailable(item.hash))
+            if (item == null)
             {
                 continue;
             }
-            string directoryPath = null;
-            try
-            {
-                directoryPath = DirectoryExt.GetDirectoryNameSimple(item.path);
-            }
-            catch
-            {
-            }
-            if (string.IsNullOrWhiteSpace(directoryPath))
-            {
-                continue;
-            }
-            if (!dictionary.TryGetValue(item.hash, out HashSet<string> directories))
-            {
-                directories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                dictionary[item.hash] = directories;
-            }
-            directories.Add(directoryPath);
+            RegisterInstalledDirectory(md5Map, sha256Map, result.KnownChartDirectories, item.hash, item.sha256, item.path);
         }
-        return dictionary.ToDictionary((KeyValuePair<string, HashSet<string>> x) => x.Key, (KeyValuePair<string, HashSet<string>> x) => x.Value.OrderBy((string dir) => dir, StringComparer.OrdinalIgnoreCase).ToList(), StringComparer.OrdinalIgnoreCase);
+        foreach (LR2SongDBExtended.bmson_song item2 in installedBmsonSongs ?? Enumerable.Empty<LR2SongDBExtended.bmson_song>())
+        {
+            if (item2 == null)
+            {
+                continue;
+            }
+            RegisterInstalledDirectory(md5Map, sha256Map, result.KnownChartDirectories, item2.md5, item2.sha256, item2.path);
+        }
+        foreach (KeyValuePair<string, HashSet<string>> item3 in md5Map)
+        {
+            result.Md5Directories[item3.Key] = item3.Value.OrderBy((string dir) => dir, StringComparer.OrdinalIgnoreCase).ToList();
+        }
+        foreach (KeyValuePair<string, HashSet<string>> item4 in sha256Map)
+        {
+            result.Sha256Directories[item4.Key] = item4.Value.OrderBy((string dir) => dir, StringComparer.OrdinalIgnoreCase).ToList();
+        }
+        return result;
     }
 
     public InstalledDirectoryLookupResult TryGetInstalledDirectoryByHash(IEnumerable<BMSFile> installedFiles, string hash)
@@ -75,7 +77,7 @@ internal sealed class BmsLibraryInstallEstimationService
         return result;
     }
 
-    public InstalledOnlyPackageResolutionResult TryPrepareInstalledOnlyPackageDestination(BMSPackage package, Dictionary<string, List<string>> installedDirectoryIndexSnapshot)
+    public InstalledOnlyPackageResolutionResult TryPrepareInstalledOnlyPackageDestination(BMSPackage package, InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot)
     {
         InstalledOnlyPackageResolutionResult result = new InstalledOnlyPackageResolutionResult();
         if (package == null)
@@ -84,7 +86,7 @@ internal sealed class BmsLibraryInstallEstimationService
             return result;
         }
         List<BMSFile> packageFiles = (package.BMSFiles ?? new List<BMSFile>()).Where((BMSFile file) => file != null).ToList();
-        if (packageFiles.Count == 0 || installedDirectoryIndexSnapshot == null || installedDirectoryIndexSnapshot.Count == 0)
+        if (packageFiles.Count == 0 || installedDirectoryIndexSnapshot == null || installedDirectoryIndexSnapshot.HashCount == 0)
         {
             result.Reason = InstalledDirectoryResolveReason.MissingInstallDestination;
             return result;
@@ -92,7 +94,7 @@ internal sealed class BmsLibraryInstallEstimationService
         HashSet<string> distinctDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (BMSFile item in packageFiles)
         {
-            List<string> directoriesByHash = GetDistinctInstalledDirectoriesByHash(installedDirectoryIndexSnapshot, item.hash);
+            List<string> directoriesByHash = GetDistinctInstalledDirectoriesByHash(installedDirectoryIndexSnapshot, item);
             if (directoriesByHash.Count == 0)
             {
                 result.Reason = InstalledDirectoryResolveReason.MissingInstallDestination;
@@ -115,7 +117,7 @@ internal sealed class BmsLibraryInstallEstimationService
         return result;
     }
 
-    public InstalledDirectoryLookupResult TryResolveInstalledDestinationFromPackage(BMSPackage package, List<BMSFile> missingFiles, Dictionary<string, List<string>> installedDirectoryIndexSnapshot, BMSDirectoryFileNameHash folderAllFileList)
+    public InstalledDirectoryLookupResult TryResolveInstalledDestinationFromPackage(BMSPackage package, List<BMSFile> missingFiles, InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot, BMSDirectoryFileNameHash folderAllFileList)
     {
         InstalledDirectoryLookupResult result = new InstalledDirectoryLookupResult();
         if (package == null || missingFiles == null || missingFiles.Count == 0)
@@ -123,7 +125,7 @@ internal sealed class BmsLibraryInstallEstimationService
             result.Reason = InstalledDirectoryResolveReason.InvalidInput;
             return result;
         }
-        if (installedDirectoryIndexSnapshot == null || installedDirectoryIndexSnapshot.Count == 0)
+        if (installedDirectoryIndexSnapshot == null || installedDirectoryIndexSnapshot.HashCount == 0)
         {
             result.Reason = InstalledDirectoryResolveReason.InstalledIndexEmpty;
             return result;
@@ -131,7 +133,8 @@ internal sealed class BmsLibraryInstallEstimationService
         Dictionary<string, int> directoryScores = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         foreach (BMSFile item in package.BMSFiles ?? new List<BMSFile>())
         {
-            if (item == null || !IsBmsHashAvailable(item.hash) || !installedDirectoryIndexSnapshot.TryGetValue(item.hash, out List<string> directories))
+            List<string> directories = GetDistinctInstalledDirectoriesByHash(installedDirectoryIndexSnapshot, item);
+            if (item == null || directories.Count == 0)
             {
                 continue;
             }
@@ -402,7 +405,7 @@ internal sealed class BmsLibraryInstallEstimationService
         }
     }
 
-    public PendingInstallDestinationSelectionResult ValidatePendingInstallDestination(BMSFile targetFile, IEnumerable<BMSPackage> pendingPackages, IEnumerable<string> knownBmsDirectories, string destinationDirectory)
+    public PendingInstallDestinationSelectionResult ValidatePendingInstallDestination(BMSFile targetFile, IEnumerable<BMSPackage> pendingPackages, IEnumerable<string> knownChartDirectories, string destinationDirectory)
     {
         PendingInstallDestinationSelectionResult result = new PendingInstallDestinationSelectionResult();
         if (targetFile == null)
@@ -440,7 +443,7 @@ internal sealed class BmsLibraryInstallEstimationService
             result.WarningMessage = string.Format(Properties.Resources.Warn_InstallDirNotFound, installDirectory);
             return result;
         }
-        HashSet<string> knownDirectories = new HashSet<string>((knownBmsDirectories ?? Enumerable.Empty<string>()).Where((string path) => !string.IsNullOrWhiteSpace(path)), StringComparer.OrdinalIgnoreCase);
+        HashSet<string> knownDirectories = new HashSet<string>((knownChartDirectories ?? Enumerable.Empty<string>()).Where((string path) => !string.IsNullOrWhiteSpace(path)), StringComparer.OrdinalIgnoreCase);
         if (!knownDirectories.Contains(installDirectory))
         {
             result.WarningMessage = string.Format(Properties.Resources.Warn_InstallDirMustContainBms, installDirectory);
@@ -451,30 +454,61 @@ internal sealed class BmsLibraryInstallEstimationService
         return result;
     }
 
-    public static List<string> GetDistinctInstalledDirectoriesByHash(Dictionary<string, List<string>> installedDirectoryIndexSnapshot, string hash)
+    public static List<string> GetDistinctInstalledDirectoriesByHash(InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot, string md5, string sha256 = null)
     {
-        if (installedDirectoryIndexSnapshot == null || !IsBmsHashAvailable(hash) || !installedDirectoryIndexSnapshot.TryGetValue(hash, out List<string> directories) || directories == null)
+        if (installedDirectoryIndexSnapshot == null)
         {
             return new List<string>();
         }
-        return directories.Where((string dir) => !string.IsNullOrWhiteSpace(dir)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        HashSet<string> directories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (IsBmsHashAvailable(md5) && installedDirectoryIndexSnapshot.Md5Directories.TryGetValue(md5, out List<string> md5Directories) && md5Directories != null)
+        {
+            directories.UnionWith(md5Directories.Where((string dir) => !string.IsNullOrWhiteSpace(dir)));
+        }
+        if (!string.IsNullOrWhiteSpace(sha256) && installedDirectoryIndexSnapshot.Sha256Directories.TryGetValue(sha256, out List<string> shaDirectories) && shaDirectories != null)
+        {
+            directories.UnionWith(shaDirectories.Where((string dir) => !string.IsNullOrWhiteSpace(dir)));
+        }
+        return directories.ToList();
     }
 
-    public static BMSFile FindChartWithMissingInstalledDirectory(BMSPackage package, Dictionary<string, List<string>> installedDirectoryIndexSnapshot)
+    public static List<string> GetDistinctInstalledDirectoriesByHash(InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot, BMSFile file)
     {
-        return (package?.BMSFiles ?? new List<BMSFile>()).FirstOrDefault((BMSFile file) => file == null || !IsBmsHashAvailable(file.hash) || GetDistinctInstalledDirectoriesByHash(installedDirectoryIndexSnapshot, file.hash).Count == 0);
+        return GetDistinctInstalledDirectoriesByPrimaryHash(installedDirectoryIndexSnapshot, PendingChartEntry.GetPrimaryLookupHash(file));
     }
 
-    public static BMSFile FindChartWithMultipleInstalledDirectories(BMSPackage package, Dictionary<string, List<string>> installedDirectoryIndexSnapshot)
+    public static List<string> GetDistinctInstalledDirectoriesByPrimaryHash(InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot, string lookupHash)
     {
-        return (package?.BMSFiles ?? new List<BMSFile>()).FirstOrDefault((BMSFile file) => file != null && IsBmsHashAvailable(file.hash) && GetDistinctInstalledDirectoriesByHash(installedDirectoryIndexSnapshot, file.hash).Count > 1);
+        if (installedDirectoryIndexSnapshot == null || string.IsNullOrWhiteSpace(lookupHash))
+        {
+            return new List<string>();
+        }
+        if (installedDirectoryIndexSnapshot.Md5Directories.TryGetValue(lookupHash, out List<string> md5Directories) && md5Directories != null)
+        {
+            return md5Directories.Where((string dir) => !string.IsNullOrWhiteSpace(dir)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        }
+        if (installedDirectoryIndexSnapshot.Sha256Directories.TryGetValue(lookupHash, out List<string> shaDirectories) && shaDirectories != null)
+        {
+            return shaDirectories.Where((string dir) => !string.IsNullOrWhiteSpace(dir)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        }
+        return new List<string>();
     }
 
-    public static int CountDistinctInstalledDirectoriesForPackage(BMSPackage package, Dictionary<string, List<string>> installedDirectoryIndexSnapshot)
+    public static BMSFile FindChartWithMissingInstalledDirectory(BMSPackage package, InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot)
+    {
+        return (package?.BMSFiles ?? new List<BMSFile>()).FirstOrDefault((BMSFile file) => file == null || GetDistinctInstalledDirectoriesByHash(installedDirectoryIndexSnapshot, file).Count == 0);
+    }
+
+    public static BMSFile FindChartWithMultipleInstalledDirectories(BMSPackage package, InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot)
+    {
+        return (package?.BMSFiles ?? new List<BMSFile>()).FirstOrDefault((BMSFile file) => file != null && GetDistinctInstalledDirectoriesByHash(installedDirectoryIndexSnapshot, file).Count > 1);
+    }
+
+    public static int CountDistinctInstalledDirectoriesForPackage(BMSPackage package, InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot)
     {
         return (package?.BMSFiles ?? new List<BMSFile>())
-            .Where((BMSFile file) => file != null && IsBmsHashAvailable(file.hash))
-            .SelectMany((BMSFile file) => GetDistinctInstalledDirectoriesByHash(installedDirectoryIndexSnapshot, file.hash))
+            .Where((BMSFile file) => file != null)
+            .SelectMany((BMSFile file) => GetDistinctInstalledDirectoriesByHash(installedDirectoryIndexSnapshot, file))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .Count();
     }
@@ -495,5 +529,40 @@ internal sealed class BmsLibraryInstallEstimationService
     private static bool IsBmsHashAvailable(string hash)
     {
         return !string.IsNullOrWhiteSpace(hash);
+    }
+
+    private static void RegisterInstalledDirectory(Dictionary<string, HashSet<string>> md5Map, Dictionary<string, HashSet<string>> sha256Map, ISet<string> knownChartDirectories, string md5, string sha256, string chartPath)
+    {
+        string directoryPath = null;
+        try
+        {
+            directoryPath = DirectoryExt.GetDirectoryNameSimple(chartPath);
+        }
+        catch
+        {
+        }
+        if (string.IsNullOrWhiteSpace(directoryPath))
+        {
+            return;
+        }
+        knownChartDirectories?.Add(directoryPath);
+        if (IsBmsHashAvailable(md5))
+        {
+            if (!md5Map.TryGetValue(md5, out HashSet<string> value))
+            {
+                value = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                md5Map[md5] = value;
+            }
+            value.Add(directoryPath);
+        }
+        if (!string.IsNullOrWhiteSpace(sha256))
+        {
+            if (!sha256Map.TryGetValue(sha256, out HashSet<string> value2))
+            {
+                value2 = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                sha256Map[sha256] = value2;
+            }
+            value2.Add(directoryPath);
+        }
     }
 }

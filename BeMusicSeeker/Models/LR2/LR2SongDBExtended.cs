@@ -573,6 +573,12 @@ public sealed class LR2SongDBExtended : LR2SongDB
         }
 
         public DateTime updated_at { get; set; }
+
+        [Ignore]
+        public List<string> wav_files { get; set; } = new List<string>();
+
+        [Ignore]
+        public List<string> bga_files { get; set; } = new List<string>();
     }
 
     [Table("ir_score")]

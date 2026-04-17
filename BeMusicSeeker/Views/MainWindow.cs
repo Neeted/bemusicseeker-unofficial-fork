@@ -1271,7 +1271,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private List<string> GetSelectedGridHashTargets()
     {
-        return GetSelectedGridRowsSnapshot().Select(GridRowResolver.GetHash).Where((string hash) => !string.IsNullOrWhiteSpace(hash)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        return GetSelectedGridRowsSnapshot()
+            .Where((object row) => !GridRowResolver.IsBmsonContextRow(row))
+            .Select(GridRowResolver.GetHash)
+            .Where((string hash) => !string.IsNullOrWhiteSpace(hash))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
     }
 
     private List<ScoreViewerTarget> GetSelectedGridScoreViewerTargets()
@@ -1281,6 +1286,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private static ScoreViewerTarget TryCreateScoreViewerTarget(object row)
     {
+        if (GridRowResolver.IsBmsonContextRow(row))
+        {
+            return null;
+        }
         string hash = GridRowResolver.GetHash(row);
         if (string.IsNullOrWhiteSpace(hash))
         {
@@ -4484,6 +4493,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return;
         }
         List<BMSFile> list = GetSelectedGridOperationFiles();
+        bool hasBmsonSelection = list.Any(PendingChartEntry.IsBmsonChartFile);
         if (!(base.DataContext is MainWindowViewModel mainWindowViewModel))
         {
             return;
@@ -4714,18 +4724,18 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         if (list.Count > 1)
         {
             menuItem18.Header = BeMusicSeeker.Properties.Resources.Register_chart_with_viewer;
-            flag = (menuItem18.IsEnabled = list.Any((BMSFile f) => !string.IsNullOrWhiteSpace(f.path) && File.Exists(f.path)));
+            flag = (menuItem18.IsEnabled = !hasBmsonSelection && list.Any((BMSFile f) => !string.IsNullOrWhiteSpace(f.path) && File.Exists(f.path)));
         }
         else
         {
             menuItem18.Header = BeMusicSeeker.Properties.Resources.Open_chart_viewer;
-            flag = !string.IsNullOrWhiteSpace(bmsFile.path) && File.Exists(bmsFile.path);
-            menuItem18.IsEnabled = true;
+            flag = !hasBmsonSelection && !string.IsNullOrWhiteSpace(bmsFile.path) && File.Exists(bmsFile.path);
+            menuItem18.IsEnabled = flag;
         }
         menuItem19.IsEnabled = flag;
         if (menuItem7 != null)
         {
-            if (mainWindowViewModel.LR2ID == 0)
+            if (mainWindowViewModel.LR2ID == 0 || hasBmsonSelection)
             {
                 menuItem7.IsEnabled = false;
             }
@@ -4935,9 +4945,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         BMSTableEntry entry = GridRowResolver.GetPlaylistEntry(row);
         Uri rowUrl = GridRowResolver.GetUrl(row);
         Uri rowUrlDiff = GridRowResolver.GetUrlDiff(row);
-        bool canOpenScoreViewer = !string.IsNullOrWhiteSpace(GridRowResolver.GetHash(row));
+        bool isBmsonContextRow = GridRowResolver.IsBmsonContextRow(row);
+        bool canOpenScoreViewer = !isBmsonContextRow && !string.IsNullOrWhiteSpace(GridRowResolver.GetHash(row));
         bool canUpdateRanking = canOpenScoreViewer && viewModel != null && viewModel.LR2ID != 0;
-        bool canOpenLr2Ir = !string.IsNullOrWhiteSpace(GridRowResolver.GetHash(row)) || !string.IsNullOrWhiteSpace(GridRowResolver.GetLr2BmsId(row));
+        bool canOpenLr2Ir = !isBmsonContextRow && (!string.IsNullOrWhiteSpace(GridRowResolver.GetHash(row)) || !string.IsNullOrWhiteSpace(GridRowResolver.GetLr2BmsId(row)));
         foreach (Control item in (IEnumerable)contextMenu.Items)
         {
             switch (item.Name)
@@ -4970,7 +4981,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                     break;
             }
         }
-        NLogWrapper.FileLogger?.Info("playlist_missing_context_menu rowType=" + row?.GetType().FullName + " entryParent=" + entry?.parent?.name + " url=" + (rowUrl != null) + " urlDiff=" + (rowUrlDiff != null) + " canOpenLr2Ir=" + canOpenLr2Ir + " canOpenScoreViewer=" + canOpenScoreViewer + " canUpdateRanking=" + canUpdateRanking);
+        NLogWrapper.FileLogger?.Info("playlist_missing_context_menu rowType=" + row?.GetType().FullName + " entryParent=" + entry?.parent?.name + " isBmson=" + isBmsonContextRow + " url=" + (rowUrl != null) + " urlDiff=" + (rowUrlDiff != null) + " canOpenLr2Ir=" + canOpenLr2Ir + " canOpenScoreViewer=" + canOpenScoreViewer + " canUpdateRanking=" + canUpdateRanking);
     }
 
     private void dataGridContextMenuItemOpenExplorerClick(object sender, RoutedEventArgs e)
@@ -5142,6 +5153,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return;
         }
         object row = placementTarget.Item;
+        if (GridRowResolver.IsBmsonContextRow(row))
+        {
+            return;
+        }
         string rowHash = GridRowResolver.GetHash(row);
         string text;
         if (!string.IsNullOrWhiteSpace(rowHash))
@@ -5876,6 +5891,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return;
         }
         List<ScoreViewerTarget> targets = GetSelectedGridScoreViewerTargets();
+        if (targets.Count == 0)
+        {
+            e.Handled = true;
+            return;
+        }
         MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
         e.Handled = true;
         Task.Run(delegate

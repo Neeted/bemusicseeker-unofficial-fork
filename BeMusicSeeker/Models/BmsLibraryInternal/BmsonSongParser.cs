@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.RegularExpressions;
 using BeMusicSeeker.Models.LR2;
 using Codeplex.Data;
 
@@ -12,6 +13,8 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 internal static class BmsonSongParser
 {
+    private static readonly Regex namedFileRegex = new Regex("\"name\"\\s*:\\s*\"(?<value>(?:\\\\.|[^\"])*)\"", RegexOptions.IgnoreCase | RegexOptions.Singleline | RegexOptions.Compiled);
+
     public static LR2SongDBExtended.bmson_song Parse(string filePath)
     {
         if (string.IsNullOrWhiteSpace(filePath))
@@ -31,7 +34,7 @@ internal static class BmsonSongParser
         string artist = ComposeArtist(ReadString(info, "artist"), ReadStringArray(info, "subartists"));
         DateTime updatedAt = File.GetLastWriteTimeUtc(fullPath);
 
-        return new LR2SongDBExtended.bmson_song
+        LR2SongDBExtended.bmson_song result = new LR2SongDBExtended.bmson_song
         {
             path = fullPath,
             folder = Path.GetDirectoryName(fullPath) ?? string.Empty,
@@ -49,6 +52,9 @@ internal static class BmsonSongParser
             preview_music = ReadString(info, "preview_music"),
             updated_at = updatedAt
         };
+        result.wav_files = ReadBmsonWavFiles(json, result.preview_music);
+        result.bga_files = ReadBmsonBgaFiles(json);
+        return result;
     }
 
     internal static int? ResolvePlaylistMode(string modeHint)
@@ -124,6 +130,7 @@ internal static class BmsonSongParser
                 "chart_name" => obj.chart_name?.ToString() ?? string.Empty,
                 "artist" => obj.artist?.ToString() ?? string.Empty,
                 "genre" => obj.genre?.ToString() ?? string.Empty,
+                "name" => obj.name?.ToString() ?? string.Empty,
                 "mode_hint" => obj.mode_hint?.ToString() ?? string.Empty,
                 "banner_image" => obj.banner_image?.ToString() ?? string.Empty,
                 "back_image" => obj.back_image?.ToString() ?? string.Empty,
@@ -265,6 +272,72 @@ internal static class BmsonSongParser
             return safeArtist;
         }
         return safeArtist + " " + safeSubartists;
+    }
+
+    private static List<string> ReadBmsonWavFiles(string json, string previewMusic)
+    {
+        HashSet<string> files = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        AddNormalizedComponentPath(files, previewMusic);
+        foreach (string componentPath in EnumerateNamedComponentPaths(json))
+        {
+            string extension = Path.GetExtension(componentPath);
+            if (!string.IsNullOrWhiteSpace(extension) && BMSFile.wavExtensions.Contains(extension, StringComparer.OrdinalIgnoreCase))
+            {
+                files.Add(componentPath);
+            }
+        }
+        return files.OrderBy((string item) => item, StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    private static List<string> ReadBmsonBgaFiles(string json)
+    {
+        HashSet<string> files = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (string componentPath in EnumerateNamedComponentPaths(json))
+        {
+            string extension = Path.GetExtension(componentPath);
+            if (!string.IsNullOrWhiteSpace(extension) && BMSFile.bgaAllExtensions.Contains(extension, StringComparer.OrdinalIgnoreCase))
+            {
+                files.Add(componentPath);
+            }
+        }
+        return files.OrderBy((string item) => item, StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    private static IEnumerable<string> EnumerateNamedComponentPaths(string json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return Enumerable.Empty<string>();
+        }
+        List<string> results = new List<string>();
+        foreach (Match match in namedFileRegex.Matches(json))
+        {
+            string normalized = NormalizeComponentPath(Regex.Unescape(match.Groups["value"].Value));
+            if (!string.IsNullOrWhiteSpace(normalized))
+            {
+                results.Add(normalized);
+            }
+        }
+        return results;
+    }
+
+    private static void AddNormalizedComponentPath(ISet<string> files, string filePath)
+    {
+        string normalized = NormalizeComponentPath(filePath);
+        if (files == null || string.IsNullOrWhiteSpace(normalized))
+        {
+            return;
+        }
+        files.Add(normalized);
+    }
+
+    private static string NormalizeComponentPath(string filePath)
+    {
+        if (string.IsNullOrWhiteSpace(filePath))
+        {
+            return string.Empty;
+        }
+        return filePath.Trim().Replace('/', Path.DirectorySeparatorChar).Replace('\\', Path.DirectorySeparatorChar);
     }
 
     private static string ComputeHash(string filePath, HashAlgorithm algorithm)

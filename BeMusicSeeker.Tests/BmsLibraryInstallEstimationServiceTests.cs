@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Models.LR2;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
@@ -157,6 +158,100 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         Assert.IsNull(file.instl_dst);
     }
 
+    [TestMethod]
+    public void BuildInstalledHashToDirectoryMap_IncludesBmsonMd5AndSha256Directories()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        BmsLibraryInstallEstimationService service = CreateService();
+        string installDir = Path.Combine("C:\\Installed", "Bmson");
+        LR2SongDBExtended.bmson_song bmsonSong = new LR2SongDBExtended.bmson_song
+        {
+            path = Path.Combine(installDir, "chart.bmson"),
+            folder = installDir,
+            title = "Title",
+            artist = "Artist",
+            md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            sha256 = new string('b', 64)
+        };
+
+        InstalledChartDirectoryIndexSnapshot result = service.BuildInstalledHashToDirectoryMap(Array.Empty<BMSFile>(), new[] { bmsonSong });
+
+        CollectionAssert.AreEqual(new[] { installDir }, result.Md5Directories[bmsonSong.md5]);
+        CollectionAssert.AreEqual(new[] { installDir }, result.Sha256Directories[bmsonSong.sha256]);
+        CollectionAssert.AreEqual(new[] { installDir }, result.KnownChartDirectories.ToList());
+    }
+
+    [TestMethod]
+    public void EstimateInstallationDirectory_BmsonUsesCommonHealthBasedSearch()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
+        {
+            string sourceDir = Path.Combine(tempRoot, "source");
+            string candidateDir = Path.Combine(tempRoot, "candidate");
+            Directory.CreateDirectory(sourceDir);
+            Directory.CreateDirectory(candidateDir);
+            string bmsonPath = Path.Combine(sourceDir, "chart.bmson");
+            File.WriteAllText(bmsonPath, "{\"version\":\"1.0.0\",\"info\":{\"title\":\"Title\",\"artist\":\"Artist\"},\"sound_channels\":[{\"name\":\"keysound.wav\",\"notes\":[]}],\"lines\":[{\"y\":0}]}");
+            File.WriteAllText(Path.Combine(candidateDir, "keysound.wav"), "dummy");
+
+            PendingChartEntry pending = PendingChartEntry.CreateFromFilePath(bmsonPath);
+            pending.SetMaintenanceInfo(CreateMaintenanceInfo(pending, wavDefined: 1, wavExisting: 0), suppressPropertyChanged: true, registerEventHandlers: false);
+
+            BMSDirectoryFileNameHash cache = new BMSDirectoryFileNameHash();
+            cache.AddDir(sourceDir);
+            cache.AddDir(candidateDir);
+
+            InstallEstimationResult result = service.EstimateInstallationDirectory(
+                new[] { pending },
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+                cache,
+                asParallel: false,
+                BmsInstallationEstimateMode.Normal);
+
+            Assert.AreEqual(candidateDir, result.DestinationDirectory);
+        });
+    }
+
+    [TestMethod]
+    public void GetDistinctInstalledDirectoriesByHash_FileWithMd5DoesNotFallBackToSha256()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        BmsLibraryInstallEstimationService service = CreateService();
+        string installDir = Path.Combine("C:\\Installed", "PrimaryOnly");
+        TestableBmsFile installedFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(installDir, "chart.bms"));
+        installedFile.SetSha256(new string('b', 64));
+        TestableBmsFile pendingFile = CreateFile("cccccccccccccccccccccccccccccccc", "C:\\Pending\\chart.bms");
+        pendingFile.SetSha256(new string('b', 64));
+
+        InstalledChartDirectoryIndexSnapshot snapshot = service.BuildInstalledHashToDirectoryMap(new[] { installedFile });
+        List<string> directories = BmsLibraryInstallEstimationService.GetDistinctInstalledDirectoriesByHash(snapshot, pendingFile);
+
+        Assert.AreEqual(0, directories.Count);
+    }
+
+    [TestMethod]
+    public void GetDistinctInstalledDirectoriesByHash_Sha256OnlyFileUsesSha256()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        BmsLibraryInstallEstimationService service = CreateService();
+        string installDir = Path.Combine("C:\\Installed", "ShaOnly");
+        LR2SongDBExtended.bmson_song bmsonSong = new LR2SongDBExtended.bmson_song
+        {
+            path = Path.Combine(installDir, "chart.bmson"),
+            folder = installDir,
+            md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            sha256 = new string('c', 64)
+        };
+        TestableBmsFile pendingFile = CreateFile(null, "C:\\Pending\\chart.bmson");
+        pendingFile.SetSha256(new string('c', 64));
+
+        InstalledChartDirectoryIndexSnapshot snapshot = service.BuildInstalledHashToDirectoryMap(Array.Empty<BMSFile>(), new[] { bmsonSong });
+        List<string> directories = BmsLibraryInstallEstimationService.GetDistinctInstalledDirectoriesByHash(snapshot, pendingFile);
+
+        CollectionAssert.AreEqual(new[] { installDir }, directories);
+    }
+
     private static void WithWorkspace(Action<string, BmsLibraryInstallEstimationService> testAction)
     {
         string tempRoot = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_InstallEstimateTests_" + Guid.NewGuid().ToString("N"));
@@ -231,6 +326,11 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         public void SetHash(string value)
         {
             hash = value;
+        }
+
+        public void SetSha256(string value)
+        {
+            sha256 = value;
         }
     }
 }

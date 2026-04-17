@@ -33,7 +33,7 @@ public sealed class InstalledOnlyResourceOverwriteValidationTests
                 CreatePendingFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine(tempRoot, "Pending", "b.bme")),
                 CreatePendingFile("cccccccccccccccccccccccccccccccc", Path.Combine(tempRoot, "Pending", "c.pms")));
 
-            Dictionary<string, List<string>> snapshot = service.BuildInstalledHashToDirectoryMap(installedFiles);
+            InstalledChartDirectoryIndexSnapshot snapshot = service.BuildInstalledHashToDirectoryMap(installedFiles);
             InstalledOnlyPackageResolutionResult resolution = service.TryPrepareInstalledOnlyPackageDestination(package, snapshot);
 
             Assert.IsTrue(resolution.Success);
@@ -59,7 +59,7 @@ public sealed class InstalledOnlyResourceOverwriteValidationTests
                 CreatePendingFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(tempRoot, "Pending", "a.bms")),
                 CreatePendingFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine(tempRoot, "Pending", "b.bme")));
 
-            Dictionary<string, List<string>> snapshot = service.BuildInstalledHashToDirectoryMap(installedFiles);
+            InstalledChartDirectoryIndexSnapshot snapshot = service.BuildInstalledHashToDirectoryMap(installedFiles);
             InstalledOnlyPackageResolutionResult resolution = service.TryPrepareInstalledOnlyPackageDestination(package, snapshot);
 
             Assert.IsFalse(resolution.Success);
@@ -84,7 +84,7 @@ public sealed class InstalledOnlyResourceOverwriteValidationTests
             BMSPackage package = CreatePendingPackage(
                 CreatePendingFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(tempRoot, "Pending", "a.bms")));
 
-            Dictionary<string, List<string>> snapshot = service.BuildInstalledHashToDirectoryMap(installedFiles);
+            InstalledChartDirectoryIndexSnapshot snapshot = service.BuildInstalledHashToDirectoryMap(installedFiles);
             InstalledOnlyPackageResolutionResult resolution = service.TryPrepareInstalledOnlyPackageDestination(package, snapshot);
 
             Assert.IsFalse(resolution.Success);
@@ -108,7 +108,7 @@ public sealed class InstalledOnlyResourceOverwriteValidationTests
                 CreatePendingFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(tempRoot, "Pending", "a.bms")),
                 CreatePendingFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine(tempRoot, "Pending", "b.bme")));
 
-            Dictionary<string, List<string>> snapshot = service.BuildInstalledHashToDirectoryMap(installedFiles);
+            InstalledChartDirectoryIndexSnapshot snapshot = service.BuildInstalledHashToDirectoryMap(installedFiles);
             InstalledOnlyPackageResolutionResult resolution = service.TryPrepareInstalledOnlyPackageDestination(package, snapshot);
 
             Assert.IsFalse(resolution.Success);
@@ -136,12 +136,34 @@ public sealed class InstalledOnlyResourceOverwriteValidationTests
             pendingB.instl_dst = installedDir1;
             BMSPackage package = CreatePendingPackage(pendingA, pendingB);
 
-            Dictionary<string, List<string>> snapshot = service.BuildInstalledHashToDirectoryMap(installedFiles);
+            InstalledChartDirectoryIndexSnapshot snapshot = service.BuildInstalledHashToDirectoryMap(installedFiles);
             InstalledOnlyPackageResolutionResult resolution = service.TryPrepareInstalledOnlyPackageDestination(package, snapshot);
 
             Assert.IsFalse(resolution.Success);
             Assert.IsNull(resolution.DestinationDirectory);
             Assert.AreEqual(InstalledDirectoryResolveReason.PackageHasSplitInstalledDirectories, resolution.Reason);
+        });
+    }
+
+    [TestMethod]
+    public void TryPrepareInstalledOnlyPackageDestination_Md5PresentDoesNotFallBackToSha256()
+    {
+        WithWorkspace(delegate (BmsLibraryInstallEstimationService service, string tempRoot)
+        {
+            string installedDir = Path.Combine(tempRoot, "Installed", "Dir1");
+            TestableBmsFile installedFile = CreateInstalledFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(installedDir, "a.bms"));
+            installedFile.SetSha256(new string('b', 64));
+
+            TestableBmsFile pendingFile = CreatePendingFile("cccccccccccccccccccccccccccccccc", Path.Combine(tempRoot, "Pending", "a.bms"));
+            pendingFile.SetSha256(new string('b', 64));
+            BMSPackage package = CreatePendingPackage(pendingFile);
+
+            InstalledChartDirectoryIndexSnapshot snapshot = service.BuildInstalledHashToDirectoryMap(new[] { installedFile });
+            InstalledOnlyPackageResolutionResult resolution = service.TryPrepareInstalledOnlyPackageDestination(package, snapshot);
+
+            Assert.IsFalse(resolution.Success);
+            Assert.IsNull(resolution.DestinationDirectory);
+            Assert.AreEqual(InstalledDirectoryResolveReason.MissingInstallDestination, resolution.Reason);
         });
     }
 
@@ -157,16 +179,16 @@ public sealed class InstalledOnlyResourceOverwriteValidationTests
                 CreateInstalledFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(installedDir1, "a.bms"))
             };
 
-            Dictionary<string, List<string>> firstSnapshot = service.BuildInstalledHashToDirectoryMap(installedFiles);
-            CollectionAssert.AreEqual(new[] { installedDir1 }, firstSnapshot["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]);
+            InstalledChartDirectoryIndexSnapshot firstSnapshot = service.BuildInstalledHashToDirectoryMap(installedFiles);
+            CollectionAssert.AreEqual(new[] { installedDir1 }, BmsLibraryInstallEstimationService.GetDistinctInstalledDirectoriesByHash(firstSnapshot, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
 
             installedFiles = new List<BMSFile>
             {
                 CreateInstalledFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(installedDir2, "a.bms"))
             };
 
-            Dictionary<string, List<string>> secondSnapshot = service.BuildInstalledHashToDirectoryMap(installedFiles);
-            CollectionAssert.AreEqual(new[] { installedDir2 }, secondSnapshot["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]);
+            InstalledChartDirectoryIndexSnapshot secondSnapshot = service.BuildInstalledHashToDirectoryMap(installedFiles);
+            CollectionAssert.AreEqual(new[] { installedDir2 }, BmsLibraryInstallEstimationService.GetDistinctInstalledDirectoriesByHash(secondSnapshot, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
         });
     }
 
@@ -233,6 +255,11 @@ public sealed class InstalledOnlyResourceOverwriteValidationTests
         public void SetHash(string value)
         {
             hash = value;
+        }
+
+        public void SetSha256(string value)
+        {
+            sha256 = value;
         }
     }
 }

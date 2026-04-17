@@ -506,7 +506,7 @@ public sealed class BmsLibraryInitializationServiceTests
 
             InstallTableLoadResult result = service.LoadInstallTable(
                 new BmsLibraryDbGateway(songDbPath),
-                hash => string.Equals(hash, installedHash, StringComparison.OrdinalIgnoreCase),
+                file => string.Equals(file?.hash, installedHash, StringComparison.OrdinalIgnoreCase),
                 file =>
                 {
                     file.warning = "strict";
@@ -575,6 +575,44 @@ public sealed class BmsLibraryInitializationServiceTests
             Assert.AreEqual(folderPath, fileMutationService.TimestampCalls[0].Path);
             Assert.IsTrue(result.UpdatedFolders.Any((LR2SongDB.folder folder) => string.Equals(folder.path, folderPath + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)));
             Assert.IsTrue(dialogService.Calls.Any((DialogCall call) => call.Button == MessageBoxButton.YesNo));
+        });
+    }
+
+    [TestMethod]
+    public void LoadInstallTable_AssignsBmsonSingleFileWarning()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
+        {
+            string singleFileDirectoryPath = Path.Combine(lr2RootPath, "Pending");
+            Directory.CreateDirectory(singleFileDirectoryPath);
+            string singleFileChartPath = Path.Combine(singleFileDirectoryPath, "single_chart.bmson");
+            File.WriteAllText(singleFileChartPath, "{\"version\":\"1.0.0\",\"info\":{\"title\":\"Single\",\"artist\":\"Artist\"},\"lines\":[{\"y\":0}]}");
+
+            using (LR2SongDBExtended songDb = new LR2SongDBExtended(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDBExtended.install>();
+                songDb.InsertOrReplace(new BMSPackage
+                {
+                    path = singleFileChartPath,
+                    delete_parent = false
+                }, typeof(LR2SongDBExtended.install));
+            }
+
+            BmsLibraryInitializationService service = new BmsLibraryInitializationService();
+            InstallTableLoadResult result = service.LoadInstallTable(
+                new BmsLibraryDbGateway(songDbPath),
+                file => false,
+                file =>
+                {
+                    file.warning = "strict";
+                    return true;
+                });
+
+            Assert.AreEqual(1, result.PendingPackages.Count);
+            Assert.AreEqual(1, result.PendingWarningInitTargets.Count);
+            Assert.AreEqual(1, result.SingleFileWarningCount);
+            Assert.AreEqual(BeMusicSeeker.Properties.Resources.Warning_SingleBmsonFile, result.PendingPackages[0].BMSFiles[0].warning);
         });
     }
 

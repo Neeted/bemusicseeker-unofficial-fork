@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Windows;
+using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using Microsoft.VisualBasic.FileIO;
@@ -237,7 +238,7 @@ internal sealed class BmsLibraryPackageInstallService
         return deduplicated;
     }
 
-    public List<BMSPackage> GetPendingPackagesContainingOnlyInstalledCharts(IEnumerable<BMSPackage> pendingPackages, Func<string, bool> isInstalledHash)
+    public List<BMSPackage> GetPendingPackagesContainingOnlyInstalledCharts(IEnumerable<BMSPackage> pendingPackages, Func<BMSFile, bool> isInstalledChart)
     {
         List<BMSPackage> result = new List<BMSPackage>();
         foreach (BMSPackage package in pendingPackages ?? Enumerable.Empty<BMSPackage>())
@@ -247,7 +248,7 @@ internal sealed class BmsLibraryPackageInstallService
             {
                 continue;
             }
-            if (files.All((BMSFile file) => IsBmsHashAvailable(file.hash) && isInstalledHash != null && isInstalledHash(file.hash)))
+            if (files.All((BMSFile file) => isInstalledChart != null && isInstalledChart(file)))
             {
                 result.Add(package);
             }
@@ -260,7 +261,7 @@ internal sealed class BmsLibraryPackageInstallService
         return DeduplicateFilesByPathOrReference((pendingPackages ?? Enumerable.Empty<BMSPackage>())
             .Where((BMSPackage package) => package != null)
             .SelectMany((BMSPackage package) => package.BMSFiles)
-            .Where((BMSFile file) => file != null));
+            .Where((BMSFile file) => file != null && PendingChartEntry.IsBmsChartFile(file)));
     }
 
     public List<BMSPackage> SearchBmsFilesRecursively(string dirfullpath, double dupRateThreshInOnePkg, bool recursive = false)
@@ -289,14 +290,18 @@ internal sealed class BmsLibraryPackageInstallService
         }
         List<string> files = fileSystemEntries.Where(File.Exists).ToList();
         List<string> directories = fileSystemEntries.Where(Directory.Exists).ToList();
-        List<string> bmsFiles = files.Where((string file) => BMSFile.bmsExtensions.Any((string ext) => file.EndsWith(ext, StringComparison.OrdinalIgnoreCase)) && File.Exists(file)).ToList();
-        if (bmsFiles.Count > 0)
+        List<string> chartFiles = files.Where((string file) => PendingChartEntry.IsSupportedChartFilePath(file) && File.Exists(file)).ToList();
+        if (chartFiles.Count > 0)
         {
-            if (bmsFiles.Count == 1 || bmsFiles.Any(delegate (string bmsFilePath)
+            if (chartFiles.Count == 1 || chartFiles.Any(delegate (string chartFilePath)
                 {
-                    BMSFile bMSFile = BMSFile.CreateBMSFileFromFile(bmsFilePath);
+                    BMSFile bMSFile = PendingChartEntry.CreateFromFilePath(chartFilePath);
+                    if (bMSFile == null)
+                    {
+                        return false;
+                    }
                     bMSFile.SetHealthStatus(null, forceUpdate: false, memClear: false);
-                    return bMSFile.maintenanceInfo.wav_files_existing > 0 || bMSFile.maintenanceInfo.bga_files_existing > 0;
+                    return bMSFile.maintenanceInfo.wav_files_existing > 0 || bMSFile.maintenanceInfo.bga_files_existing > 0 || bMSFile.maintenanceInfo.movie_files_existing > 0;
                 }))
             {
                 result.Packages.Add(new BMSPackage
@@ -307,10 +312,11 @@ internal sealed class BmsLibraryPackageInstallService
             }
             else
             {
-                List<IEnumerable<string>> resourcesByChart = bmsFiles
-                    .Select((string filePath) => BMSFile.CreateBMSFileFromFile(filePath))
-                    .Select((BMSFile bmsInfo) => bmsInfo.WAVfiles
-                        .Concat(bmsInfo.BGAfiles)
+                List<IEnumerable<string>> resourcesByChart = chartFiles
+                    .Select((string filePath) => PendingChartEntry.CreateFromFilePath(filePath))
+                    .Where((BMSFile bmsInfo) => bmsInfo != null)
+                    .Select((BMSFile bmsInfo) => (bmsInfo.WAVfiles ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase))
+                        .Concat(bmsInfo.BGAfiles ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase))
                         .Select((string path) => Path.GetFileNameWithoutExtension(path).ToUpperInvariant())
                         .Distinct()
                         .ToList()
@@ -326,7 +332,7 @@ internal sealed class BmsLibraryPackageInstallService
                 }
                 else
                 {
-                    result.Packages.AddRange(bmsFiles.Select((string filePath) => new BMSPackage
+                    result.Packages.AddRange(chartFiles.Select((string filePath) => new BMSPackage
                     {
                         path = filePath,
                         delete_parent = recursive
@@ -713,12 +719,13 @@ internal sealed class BmsLibraryPackageInstallService
             {
                 continue;
             }
-            if (!IsBmsHashAvailable(installedPackageFile.hash))
+            string lookupKey = PendingChartEntry.GetPrimaryLookupHash(installedPackageFile);
+            if (string.IsNullOrWhiteSpace(lookupKey))
             {
                 reason = "current_package_hash_unavailable path=" + installedPackageFile.path;
                 return false;
             }
-            installedHashes.Add(installedPackageFile.hash);
+            installedHashes.Add(lookupKey);
         }
         reason = "safe_cleanup_allowed pending_installed_hashes=" + installedHashes.Count;
         return true;
@@ -754,7 +761,7 @@ internal sealed class BmsLibraryPackageInstallService
             BMSFile remainingChart;
             try
             {
-                remainingChart = BMSFile.CreateBMSFileFromFile(remainingFilePath);
+                remainingChart = PendingChartEntry.CreateFromFilePath(remainingFilePath);
             }
             catch (Exception ex)
             {
@@ -762,15 +769,16 @@ internal sealed class BmsLibraryPackageInstallService
                 return false;
             }
 
-            if (remainingChart == null || !IsBmsHashAvailable(remainingChart.hash))
+            string remainingLookupKey = PendingChartEntry.GetPrimaryLookupHash(remainingChart);
+            if (remainingChart == null || string.IsNullOrWhiteSpace(remainingLookupKey))
             {
                 reason = "remaining_chart_hash_unavailable path=" + remainingFilePath;
                 return false;
             }
 
-            if (installedHashes == null || !installedHashes.Contains(remainingChart.hash))
+            if (installedHashes == null || !installedHashes.Contains(remainingLookupKey))
             {
-                reason = "remaining_chart_not_installed path=" + remainingFilePath + " hash=" + remainingChart.hash;
+                reason = "remaining_chart_not_installed path=" + remainingFilePath + " hash=" + remainingLookupKey;
                 return false;
             }
         }
@@ -781,15 +789,14 @@ internal sealed class BmsLibraryPackageInstallService
 
     private static bool IsSupportedChartFilePath(string filePath)
     {
-        string extension = Path.GetExtension(filePath);
-        return !string.IsNullOrWhiteSpace(extension) && BMSFile.bmsExtensions.Contains(extension, StringComparer.OrdinalIgnoreCase);
+        return PendingChartEntry.IsSupportedChartFilePath(filePath);
     }
 
     public AutoInstallWorkflowResult PrepareAutoInstallWorkflow(
         IEnumerable<string> installPaths,
         IEnumerable<BMSPackage> currentPendingPackages,
-        IEnumerable<BMSFile> installedFiles,
-        IEnumerable<string> bmsDirectories,
+        IEnumerable<string> knownChartDirectories,
+        Func<BMSFile, bool> isInstalledChart,
         double dupRateThreshInOnePkg,
         Func<BMSFile, bool> requiresPendingWarning,
         CancellationToken token = default(CancellationToken))
@@ -818,7 +825,7 @@ internal sealed class BmsLibraryPackageInstallService
             }
             List<string> files = paths.Where(File.Exists).ToList();
             List<string> directories = paths.Where(Directory.Exists).ToList();
-            List<string> bmsFiles = files.Where((string file) => BMSFile.bmsExtensions.Any((string ext) => file.EndsWith(ext, StringComparison.OrdinalIgnoreCase)) && File.Exists(file)).ToList();
+            List<string> chartFiles = files.Where((string file) => PendingChartEntry.IsSupportedChartFilePath(file) && File.Exists(file)).ToList();
             string[] topEntries = Directory.GetFileSystemEntries(paths.Key, "*", System.IO.SearchOption.TopDirectoryOnly);
             if (files.Count + directories.Count == topEntries.Length)
             {
@@ -827,11 +834,15 @@ internal sealed class BmsLibraryPackageInstallService
                 result.RegroupEligibleSourceDirectories.AddRange(discoveryResult.RegroupEligibleSourceDirectories);
                 continue;
             }
-            if (bmsFiles.Count > 0 && bmsFiles.Any(delegate (string bmsFilePath)
+            if (chartFiles.Count > 0 && chartFiles.Any(delegate (string chartFilePath)
                 {
-                    BMSFile bMSFile = BMSFile.CreateBMSFileFromFile(bmsFilePath);
+                    BMSFile bMSFile = PendingChartEntry.CreateFromFilePath(chartFilePath);
+                    if (bMSFile == null)
+                    {
+                        return false;
+                    }
                     bMSFile.SetHealthStatus(null, forceUpdate: false, memClear: false);
-                    return bMSFile.maintenanceInfo.wav_files_existing > 0 || bMSFile.maintenanceInfo.bga_files_existing > 0;
+                    return bMSFile.maintenanceInfo.wav_files_existing > 0 || bMSFile.maintenanceInfo.bga_files_existing > 0 || bMSFile.maintenanceInfo.movie_files_existing > 0;
                 }))
             {
                 BmsPackageDiscoveryResult discoveryResult = SearchBmsFilesRecursivelyWithMetadata(paths.Key, dupRateThreshInOnePkg);
@@ -839,7 +850,7 @@ internal sealed class BmsLibraryPackageInstallService
                 result.RegroupEligibleSourceDirectories.AddRange(discoveryResult.RegroupEligibleSourceDirectories);
                 continue;
             }
-            List<BMSPackage> singleFilePackages = bmsFiles.Select((string filePath) => new BMSPackage
+            List<BMSPackage> singleFilePackages = chartFiles.Select((string filePath) => new BMSPackage
             {
                 path = filePath,
                 delete_parent = false
@@ -856,7 +867,7 @@ internal sealed class BmsLibraryPackageInstallService
         discoveryStopwatch.Stop();
         result.DiscoveryMs = discoveryStopwatch.ElapsedMilliseconds;
 
-        List<string> libraryDirectories = (bmsDirectories ?? Enumerable.Empty<string>()).Where((string dir) => !string.IsNullOrWhiteSpace(dir)).ToList();
+        List<string> libraryDirectories = (knownChartDirectories ?? Enumerable.Empty<string>()).Where((string dir) => !string.IsNullOrWhiteSpace(dir)).ToList();
         List<BMSPackage> pendingPackages = (currentPendingPackages ?? Enumerable.Empty<BMSPackage>()).Where((BMSPackage pkg) => pkg != null).ToList();
         discoveredPackages = discoveredPackages
             .Where((BMSPackage pkg) => pkg != null && !libraryDirectories.Any((string dir) => pkg.path.StartsWith(dir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)))
@@ -901,24 +912,20 @@ internal sealed class BmsLibraryPackageInstallService
         }
 
         Stopwatch classificationStopwatch = Stopwatch.StartNew();
-        HashSet<string> installedHashes = new HashSet<string>(
-            (installedFiles ?? Enumerable.Empty<BMSFile>())
-                .Where((BMSFile file) => file != null && IsBmsHashAvailable(file.hash))
-                .Select((BMSFile file) => file.hash),
-            StringComparer.OrdinalIgnoreCase);
         ILookup<bool, BMSPackage> lookup = discoveredPackages.AsParallel().ToLookup((BMSPackage pkg) => pkg.BMSFiles
             .AsParallel()
             .Select(delegate (BMSFile bmsFile)
             {
+                bool isBmson = PendingChartEntry.IsBmsonChartFile(bmsFile);
                 bmsFile.SetHealthStatus(null, forceUpdate: false, memClear: false);
-                if (installedHashes.Contains(bmsFile.hash))
+                if (isInstalledChart != null && isInstalledChart(bmsFile))
                 {
                     bmsFile.warning = Resources.Warning_AlreadyInstalled;
                     return true;
                 }
                 if (!Directory.Exists(pkg.path))
                 {
-                    bmsFile.warning = Resources.Warning_SingleBmsFile;
+                    bmsFile.warning = isBmson ? Resources.Warning_SingleBmsonFile : Resources.Warning_SingleBmsFile;
                     return true;
                 }
                 return requiresPendingWarning != null && requiresPendingWarning(bmsFile);
@@ -1062,7 +1069,7 @@ internal sealed class BmsLibraryPackageInstallService
         return delta;
     }
 
-    public PendingInstallBatchPlan BuildEstimatedInstallBatchPlan(IEnumerable<BMSPackage> requestedPackages, IEnumerable<BMSPackage> currentPendingPackages, IEnumerable<BMSFile> installedFiles, bool deletePendingPackageSourceAfterInstall, Func<BMSPackage, string, ISet<string>, int> countComponentMoveTargets)
+    public PendingInstallBatchPlan BuildEstimatedInstallBatchPlan(IEnumerable<BMSPackage> requestedPackages, IEnumerable<BMSPackage> currentPendingPackages, IEnumerable<BMSFile> installedFiles, IEnumerable<LR2SongDBExtended.bmson_song> installedBmsonSongs, bool deletePendingPackageSourceAfterInstall, Func<BMSPackage, string, ISet<string>, int> countComponentMoveTargets)
     {
         Stopwatch planStopwatch = Stopwatch.StartNew();
         PendingInstallBatchPlan plan = new PendingInstallBatchPlan();
@@ -1075,7 +1082,23 @@ internal sealed class BmsLibraryPackageInstallService
         plan.SelectedPendingCount = plan.SelectedPendingPackages.Count;
 
         Stopwatch groupBuildStopwatch = Stopwatch.StartNew();
-        HashSet<string> installedHashes = new HashSet<string>((installedFiles ?? Enumerable.Empty<BMSFile>()).Where((BMSFile file) => file != null && IsBmsHashAvailable(file.hash)).Select((BMSFile file) => file.hash), StringComparer.OrdinalIgnoreCase);
+        HashSet<string> installedHashes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (BMSFile installedFile in installedFiles ?? Enumerable.Empty<BMSFile>())
+        {
+            string key = PendingChartEntry.GetPrimaryLookupHash(installedFile);
+            if (!string.IsNullOrWhiteSpace(key))
+            {
+                installedHashes.Add(key);
+            }
+        }
+        foreach (LR2SongDBExtended.bmson_song installedBmsonSong in installedBmsonSongs ?? Enumerable.Empty<LR2SongDBExtended.bmson_song>())
+        {
+            string key2 = PendingChartEntry.GetPrimaryLookupHash(installedBmsonSong);
+            if (!string.IsNullOrWhiteSpace(key2))
+            {
+                installedHashes.Add(key2);
+            }
+        }
         HashSet<string> moveGuardHashes = new HashSet<string>(installedHashes, StringComparer.OrdinalIgnoreCase);
         HashSet<string> reservedHashes = new HashSet<string>(moveGuardHashes, StringComparer.OrdinalIgnoreCase);
         Dictionary<string, PendingInstallBatchGroup> groupsByDestination = new Dictionary<string, PendingInstallBatchGroup>(StringComparer.OrdinalIgnoreCase);
@@ -1091,20 +1114,22 @@ internal sealed class BmsLibraryPackageInstallService
             List<BMSFile> duplicateInBatchFiles = new List<BMSFile>();
             foreach (BMSFile packageFile in packageFiles)
             {
-                if (!IsBmsHashAvailable(packageFile.hash))
+                string lookupKey = PendingChartEntry.GetPrimaryLookupHash(packageFile);
+                if (string.IsNullOrWhiteSpace(lookupKey))
                 {
                     installTargetPackageFiles.Add(packageFile);
                 }
-                else if (installedHashes.Contains(packageFile.hash))
+                else if (installedHashes.Contains(lookupKey))
                 {
                     installedInLibraryFiles.Add(packageFile);
                 }
-                else if (!reservedHashes.Add(packageFile.hash))
+                else if (reservedHashes.Contains(lookupKey))
                 {
                     duplicateInBatchFiles.Add(packageFile);
                 }
                 else
                 {
+                    reservedHashes.Add(lookupKey);
                     installTargetPackageFiles.Add(packageFile);
                 }
             }
@@ -1383,9 +1408,10 @@ internal sealed class BmsLibraryPackageInstallService
                 {
                     foreach (BMSFile bmsFile in package.BMSFiles ?? Enumerable.Empty<BMSFile>())
                     {
-                        if (IsBmsHashAvailable(bmsFile.hash))
+                        string lookupKey = PendingChartEntry.GetPrimaryLookupHash(bmsFile);
+                        if (!string.IsNullOrWhiteSpace(lookupKey))
                         {
-                            existingHashes.Add(bmsFile.hash);
+                            existingHashes.Add(lookupKey);
                         }
                     }
                 }
@@ -1404,22 +1430,23 @@ internal sealed class BmsLibraryPackageInstallService
         result.MoveMs = moveStopwatch.ElapsedMilliseconds;
 
         Stopwatch songDbStopwatch = Stopwatch.StartNew();
-        upsertSongs?.Invoke(result.AddedFiles);
+        List<BMSFile> addedBmsFiles = result.AddedFiles.Where((BMSFile file) => PendingChartEntry.IsBmsChartFile(file)).ToList();
+        upsertSongs?.Invoke(addedBmsFiles);
         songDbStopwatch.Stop();
         result.SongDbMs = songDbStopwatch.ElapsedMilliseconds;
 
         Stopwatch maintenanceStopwatch = Stopwatch.StartNew();
-        updateMaintenance?.Invoke(result.AddedFiles);
+        updateMaintenance?.Invoke(addedBmsFiles);
         maintenanceStopwatch.Stop();
         result.MaintenanceMs = maintenanceStopwatch.ElapsedMilliseconds;
 
         Stopwatch zeroNoteStopwatch = Stopwatch.StartNew();
-        updateZeroNote?.Invoke(result.AddedFiles);
+        updateZeroNote?.Invoke(addedBmsFiles);
         zeroNoteStopwatch.Stop();
         result.ZeroNoteMs = zeroNoteStopwatch.ElapsedMilliseconds;
 
         Stopwatch scoreStopwatch = Stopwatch.StartNew();
-        applyScores?.Invoke(result.AddedFiles);
+        applyScores?.Invoke(addedBmsFiles);
         scoreStopwatch.Stop();
         result.ScoreMs = scoreStopwatch.ElapsedMilliseconds;
 

@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using Microsoft.VisualBasic.FileIO;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -117,6 +118,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             new[] { mixedPackage, cleanupOnlyPackage },
             new[] { mixedPackage, cleanupOnlyPackage },
             new[] { installedFile, cleanupInstalledFile },
+            Array.Empty<LR2SongDBExtended.bmson_song>(),
             deletePendingPackageSourceAfterInstall: true,
             countComponentMoveTargets: (pkg, dst, excluded) => pkg.path == cleanupOnlyPackage.path ? 0 : 2);
 
@@ -138,6 +140,38 @@ public sealed class BmsLibraryPackageInstallServiceTests
         Assert.AreEqual(2, plan.SelectedPendingCount);
         Assert.AreEqual(1, plan.GroupedPackageCount);
         Assert.AreEqual(1, plan.CleanupOnlyCandidateCount);
+    }
+
+    [TestMethod]
+    public void BuildEstimatedInstallBatchPlan_DoesNotTreatMd5MismatchAsInstalledWhenSha256Matches()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        BmsLibraryPackageInstallService service = new BmsLibraryPackageInstallService();
+        string destinationDirectory = "C:\\Installed\\Target";
+        TestableBmsFile installedFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "C:\\Lib\\a.bms");
+        installedFile.SetSha256(new string('b', 64));
+        TestableBmsFile pendingFile = CreateFile("cccccccccccccccccccccccccccccccc", "C:\\Pending\\Pkg1\\a.bms");
+        pendingFile.SetSha256(new string('b', 64));
+        pendingFile.instl_dst = destinationDirectory;
+        BMSPackage pendingPackage = new BMSPackage(new BMSFile[] { pendingFile })
+        {
+            path = "C:\\Pending\\Pkg1",
+            delete_parent = false
+        };
+
+        PendingInstallBatchPlan plan = service.BuildEstimatedInstallBatchPlan(
+            new[] { pendingPackage },
+            new[] { pendingPackage },
+            new[] { installedFile },
+            Array.Empty<LR2SongDBExtended.bmson_song>(),
+            deletePendingPackageSourceAfterInstall: false,
+            countComponentMoveTargets: (_, _, _) => 1);
+
+        Assert.AreEqual(1, plan.Groups.Count);
+        Assert.AreEqual(1, plan.Groups[0].Items.Count);
+        Assert.AreEqual(1, plan.Groups[0].Items[0].InstallWorkPackage.BMSFiles.Count);
+        Assert.AreSame(pendingFile, plan.Groups[0].Items[0].InstallWorkPackage.BMSFiles[0]);
+        Assert.IsTrue(string.IsNullOrWhiteSpace(pendingFile.warning));
     }
 
     [TestMethod]
@@ -168,6 +202,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             new[] { mixedPackage, cleanupOnlyPackage },
             new[] { mixedPackage, cleanupOnlyPackage },
             new[] { installedFile, cleanupInstalledFile },
+            Array.Empty<LR2SongDBExtended.bmson_song>(),
             deletePendingPackageSourceAfterInstall: true,
             countComponentMoveTargets: (pkg, dst, excluded) => pkg.path == cleanupOnlyPackage.path ? 0 : 2);
 
@@ -322,6 +357,55 @@ public sealed class BmsLibraryPackageInstallServiceTests
     }
 
     [TestMethod]
+    public void SearchBmsFilesRecursivelyWithMetadata_DetectsPureBmsonDirectoryPackage()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string packageDirectoryPath = Path.Combine(tempDirectoryPath, "BmsonPkg");
+            Directory.CreateDirectory(packageDirectoryPath);
+            File.WriteAllText(Path.Combine(packageDirectoryPath, "chart.bmson"), "{\"version\":\"1.0.0\",\"info\":{\"title\":\"Title\",\"artist\":\"Artist\",\"mode_hint\":\"beat-7k\"}}");
+            File.WriteAllText(Path.Combine(packageDirectoryPath, "sound.wav"), "dummy");
+
+            BmsLibraryPackageInstallService service = new BmsLibraryPackageInstallService();
+            BmsPackageDiscoveryResult result = service.SearchBmsFilesRecursivelyWithMetadata(packageDirectoryPath, 0.6);
+
+            Assert.AreEqual(1, result.Packages.Count);
+            Assert.AreEqual(packageDirectoryPath, result.Packages[0].path);
+            Assert.AreEqual(1, result.Packages[0].PendingCharts.Count((PendingChartEntry chart) => chart.IsBmsonChart));
+        });
+    }
+
+    [TestMethod]
+    public void PrepareAutoInstallWorkflow_DetectsSingleBmsonFileSelection()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string sourceDirectoryPath = Path.Combine(tempDirectoryPath, "BmsonSingle");
+            Directory.CreateDirectory(sourceDirectoryPath);
+            string bmsonFilePath = Path.Combine(sourceDirectoryPath, "chart.bmson");
+            File.WriteAllText(bmsonFilePath, "{\"version\":\"1.0.0\",\"info\":{\"title\":\"Title\",\"artist\":\"Artist\",\"mode_hint\":\"beat-7k\"},\"lines\":[{\"y\":0}]}");
+            File.WriteAllText(Path.Combine(sourceDirectoryPath, "other.txt"), "note");
+
+            BmsLibraryPackageInstallService service = new BmsLibraryPackageInstallService();
+            AutoInstallWorkflowResult result = service.PrepareAutoInstallWorkflow(
+                new[] { bmsonFilePath },
+                Array.Empty<BMSPackage>(),
+                Array.Empty<string>(),
+                _ => false,
+                0.6,
+                _ => false);
+
+            Assert.AreEqual(1, result.DiscoveredPackages.Count);
+            Assert.AreEqual(bmsonFilePath, result.DiscoveredPackages[0].path);
+            Assert.AreEqual(1, result.PendingPackagesToAdd.Count);
+            Assert.AreEqual(bmsonFilePath, result.PendingPackagesToAdd[0].path);
+            Assert.IsTrue(result.PendingPackagesToAdd[0].PendingCharts.Single().IsBmsonChart);
+        });
+    }
+
+    [TestMethod]
     public void PrepareAutoInstallWorkflow_ClassifiesDetectedDirectoriesAsInstallable()
     {
         TestResourceInitializer.EnsureJapaneseResources();
@@ -340,8 +424,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
             AutoInstallWorkflowResult result = service.PrepareAutoInstallWorkflow(
                 new[] { directoryPackagePath, singleFilePath },
                 Array.Empty<BMSPackage>(),
-                Array.Empty<BMSFile>(),
                 Array.Empty<string>(),
+                _ => false,
                 0.6,
                 _ => false);
 
@@ -355,6 +439,18 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.IsTrue(result.ClassificationMs >= 0);
             Assert.IsTrue(result.TotalMs >= 0);
         });
+    }
+
+    [TestMethod]
+    public void PendingChartEntry_CreateFromBmsFile_CopiesMode()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        TestableBmsFile source = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "C:\\Pending\\chart.bms");
+        source.SetMode(7);
+
+        PendingChartEntry pending = PendingChartEntry.CreateFromBmsFile(source);
+
+        Assert.AreEqual(7, pending.mode);
     }
 
     [TestMethod]
@@ -375,8 +471,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
             AutoInstallWorkflowResult result = service.PrepareAutoInstallWorkflow(
                 new[] { firstFilePath, secondFilePath },
                 Array.Empty<BMSPackage>(),
-                Array.Empty<BMSFile>(),
                 Array.Empty<string>(),
+                _ => false,
                 0.6,
                 _ => false);
 
@@ -1018,6 +1114,16 @@ public sealed class BmsLibraryPackageInstallServiceTests
         public void SetHash(string value)
         {
             hash = value;
+        }
+
+        public void SetSha256(string value)
+        {
+            sha256 = value;
+        }
+
+        public void SetMode(int? value)
+        {
+            mode = value;
         }
     }
 

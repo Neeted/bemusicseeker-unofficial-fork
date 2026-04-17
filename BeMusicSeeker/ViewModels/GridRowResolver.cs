@@ -53,6 +53,21 @@ internal static class GridRowResolver
         return row as BMSFile;
     }
 
+    internal static bool IsBmsonChartRow(object row)
+    {
+        return PendingChartEntry.IsBmsonChartFile(GetOperationBmsFile(row));
+    }
+
+    internal static bool IsBmsonContextRow(object row)
+    {
+        return row switch
+        {
+            PlaylistDetailRow playlistDetailRow => playlistDetailRow.ResolvedBmson != null && playlistDetailRow.RealFile == null,
+            BMSFile bmsFile => PendingChartEntry.IsBmsonChartFile(bmsFile),
+            _ => false
+        };
+    }
+
     /// <summary>
     /// 行の URL1 を取得します。
     /// </summary>

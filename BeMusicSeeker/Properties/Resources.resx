@@ -1309,6 +1309,9 @@ BMSファイルが重複しないようにマージします。
   <data name="Warning_SingleBmsFile" xml:space="preserve">
     <value>BMSファイル単体です</value>
   </data>
+  <data name="Warning_SingleBmsonFile" xml:space="preserve">
+    <value>BMSONファイル単体です</value>
+  </data>
   <data name="Warning_DuplicateBmsFile" xml:space="preserve">
     <value>BMSファイルが重複しています</value>
   </data>
