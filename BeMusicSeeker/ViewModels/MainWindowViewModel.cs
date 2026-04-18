@@ -8120,7 +8120,8 @@ public class MainWindowViewModel : ViewModel
         {
             LogInitStage("bmson_preflight_ensure_schema_start", "Initialize");
             BMSPlaylist.EnsureSchema(Settings.Default.LR2SongDBPath);
-            new BmsLibraryDbGateway(Settings.Default.LR2SongDBPath).EnsureBmsonSchema();
+            BmsLibraryDbGateway gateway = new BmsLibraryDbGateway(Settings.Default.LR2SongDBPath);
+            gateway.EnsureBmsonSchema();
             LogInitStage("bmson_preflight_ensure_schema_done", "Initialize");
         }, delegate
         {

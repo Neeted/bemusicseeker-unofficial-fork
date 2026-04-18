@@ -2170,6 +2170,13 @@ public class BMSLibrary : NotificationObject
 
     private void RunChartDigestBackfill()
     {
+        bool needsBmsonSchemaMigration = !dbGateway.IsBmsonAppSchemaCurrent();
+        if (!needsBmsonSchemaMigration)
+        {
+            ChartDigestBackfillRunning = false;
+            ChartDigestBackfillCurrentPath = string.Empty;
+            return;
+        }
         int requestVersion;
         lock (lockChartDigestBackfill)
         {
@@ -2198,6 +2205,10 @@ public class BMSLibrary : NotificationObject
                     ChartDigestBackfillCurrentPath = currentPath ?? string.Empty;
                 },
                 LogInstallPerformance);
+            if (result.FailedCount <= 0)
+            {
+                dbGateway.MarkBmsonAppSchemaCurrent();
+            }
             lock (lockPlaylistSummaryOwnedHashSnapshot)
             {
                 playlistSummaryOwnedHashSnapshot = null;

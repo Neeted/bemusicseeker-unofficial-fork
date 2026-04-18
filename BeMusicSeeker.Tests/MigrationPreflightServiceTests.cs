@@ -1,6 +1,6 @@
 using System;
-using System.IO;
 using System.Diagnostics;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
@@ -33,17 +33,14 @@ public sealed class MigrationPreflightServiceTests
             BmsonMigrationPreflightResult result = service.Inspect(tempDbPath);
 
             Assert.IsTrue(result.NeedsPlaylistEntrySha256Migration);
-            Assert.IsTrue(result.NeedsChartDigestMapSchema);
-            Assert.IsTrue(result.NeedsBmsonSongSchema);
-            Assert.IsTrue(result.NeedsInitialSha256BackfillWarning);
+            Assert.IsTrue(result.NeedsBmsonAppSchemaMigration);
             Assert.IsTrue(result.WarnRequired);
-            Assert.IsTrue(result.RepairRequired);
             Assert.IsTrue(result.RequiresWarning);
+
             using LR2SongDBExtended verify = new LR2SongDBExtended(tempDbPath);
             string tableSql = verify.ExecuteScalar<string>("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'playlist_entry';");
             Assert.IsFalse(tableSql.IndexOf("sha256", StringComparison.OrdinalIgnoreCase) >= 0);
-            Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_master WHERE type = 'index' AND name = 'playlist_entry_idx_sha256';"));
-            Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_master WHERE type = 'table' AND name = 'chart_digest_map';"));
+            Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_master WHERE type = 'table' AND name = 'app_schema_version';"));
         }
         finally
         {
@@ -53,7 +50,34 @@ public sealed class MigrationPreflightServiceTests
 
     [TestMethod]
     [TestCategory("Playlist")]
-    public void Inspect_UpToDateSchema_DoesNotRequireWarning()
+    public void Inspect_CurrentVersion_DoesNotRequireWarning()
+    {
+        string tempDbPath = CreateEmptySongDbPath();
+        try
+        {
+            BMSPlaylist.EnsureSchema(tempDbPath);
+            BmsLibraryDbGateway gateway = new BmsLibraryDbGateway(tempDbPath);
+            gateway.EnsureBmsonSchema();
+            gateway.RunBmsonSchemaMigration();
+
+            BmsonMigrationPreflightService service = new BmsonMigrationPreflightService();
+            BmsonMigrationPreflightResult result = service.Inspect(tempDbPath);
+
+            Assert.IsFalse(result.NeedsPlaylistEntrySha256Migration);
+            Assert.IsFalse(result.NeedsBmsonAppSchemaMigration);
+            Assert.IsFalse(result.WarnRequired);
+            Assert.IsFalse(result.RequiresWarning);
+            Assert.IsFalse(result.RepairRequired);
+        }
+        finally
+        {
+            DeleteTempSongDbDirectory(tempDbPath);
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public void Inspect_MissingVersionRow_RequiresWarningEvenWhenSchemaExists()
     {
         string tempDbPath = CreateEmptySongDbPath();
         try
@@ -65,165 +89,7 @@ public sealed class MigrationPreflightServiceTests
             BmsonMigrationPreflightResult result = service.Inspect(tempDbPath);
 
             Assert.IsFalse(result.NeedsPlaylistEntrySha256Migration);
-            Assert.IsFalse(result.NeedsChartDigestMapSchema);
-            Assert.IsFalse(result.NeedsBmsonSongSchema);
-            Assert.IsFalse(result.NeedsInitialSha256BackfillWarning);
-            Assert.IsFalse(result.WarnRequired);
-            Assert.IsFalse(result.RepairRequired);
-            Assert.IsFalse(result.RequiresWarning);
-        }
-        finally
-        {
-            DeleteTempSongDbDirectory(tempDbPath);
-        }
-    }
-
-    [TestMethod]
-    [TestCategory("Playlist")]
-    public void Inspect_MissingPlaylistTables_RequiresWarning()
-    {
-        string tempDbPath = CreateEmptySongDbPath();
-        try
-        {
-            using (LR2SongDBExtended db = new LR2SongDBExtended(tempDbPath))
-            {
-                db.DropTable<LR2SongDBExtended.playlist>();
-                db.DropTable<LR2SongDBExtended.playlist_entry>();
-            }
-
-            BmsonMigrationPreflightService service = new BmsonMigrationPreflightService();
-            BmsonMigrationPreflightResult result = service.Inspect(tempDbPath);
-
-            Assert.IsTrue(result.NeedsPlaylistEntrySha256Migration);
-            Assert.IsTrue(result.NeedsChartDigestMapSchema);
-            Assert.IsTrue(result.NeedsBmsonSongSchema);
-            Assert.IsTrue(result.WarnRequired);
-            Assert.IsTrue(result.RepairRequired);
-            Assert.IsTrue(result.RequiresWarning);
-        }
-        finally
-        {
-            DeleteTempSongDbDirectory(tempDbPath);
-        }
-    }
-
-    [TestMethod]
-    [TestCategory("Playlist")]
-    public void Inspect_MissingChartDigestMapOrBackfill_RequiresWarning()
-    {
-        string tempDbPath = CreateTempSongDbPath();
-        try
-        {
-            BMSPlaylist.EnsureSchema(tempDbPath);
-
-            BmsonMigrationPreflightService service = new BmsonMigrationPreflightService();
-            BmsonMigrationPreflightResult missingSchemaResult = service.Inspect(tempDbPath);
-
-            Assert.IsFalse(missingSchemaResult.NeedsPlaylistEntrySha256Migration);
-            Assert.IsTrue(missingSchemaResult.NeedsChartDigestMapSchema);
-            Assert.IsTrue(missingSchemaResult.NeedsBmsonSongSchema);
-            Assert.IsTrue(missingSchemaResult.NeedsInitialSha256BackfillWarning);
-            Assert.IsTrue(missingSchemaResult.WarnRequired);
-            Assert.IsTrue(missingSchemaResult.RepairRequired);
-
-            new BmsLibraryDbGateway(tempDbPath).EnsureBmsonSchema();
-            using (LR2SongDBExtended db = new LR2SongDBExtended(tempDbPath))
-            {
-                db.InsertOrReplace(new LR2SongDBExtended.chart_digest_map
-                {
-                    md5 = "0e5751c026e543b2e8ab2eb06099daa1",
-                    sha256 = new string('a', 64),
-                    last_seen_path = "dummy",
-                    updated_at = DateTime.UtcNow
-                }, typeof(LR2SongDBExtended.chart_digest_map));
-            }
-
-            BmsonMigrationPreflightResult partiallyBackfilledResult = service.Inspect(tempDbPath);
-            Assert.IsFalse(partiallyBackfilledResult.NeedsChartDigestMapSchema);
-            Assert.IsFalse(partiallyBackfilledResult.NeedsBmsonSongSchema);
-            Assert.IsTrue(partiallyBackfilledResult.NeedsInitialSha256BackfillWarning);
-            Assert.IsTrue(partiallyBackfilledResult.WarnRequired);
-            Assert.IsFalse(partiallyBackfilledResult.RepairRequired);
-            Assert.IsTrue(partiallyBackfilledResult.RequiresWarning);
-        }
-        finally
-        {
-            DeleteTempSongDbDirectory(tempDbPath);
-        }
-    }
-
-    [TestMethod]
-    [TestCategory("Playlist")]
-    public void Inspect_MissingBmsonSongOnly_RequiresRepairWithoutWarning()
-    {
-        string tempDbPath = CreateEmptySongDbPath();
-        try
-        {
-            BMSPlaylist.EnsureSchema(tempDbPath);
-            BmsLibraryDbGateway gateway = new BmsLibraryDbGateway(tempDbPath);
-            gateway.EnsureBmsonSchema();
-            using (LR2SongDBExtended db = new LR2SongDBExtended(tempDbPath))
-            {
-                db.CreateTable<LR2SongDB.song>();
-                db.Execute("INSERT INTO song(path, hash, folder) VALUES ('chart-1.bms', '0e5751c026e543b2e8ab2eb06099daa1', 'folder');");
-                db.InsertOrReplace(new LR2SongDBExtended.chart_digest_map
-                {
-                    md5 = "0e5751c026e543b2e8ab2eb06099daa1",
-                    sha256 = new string('d', 64),
-                    last_seen_path = "chart-1.bms",
-                    updated_at = DateTime.UtcNow
-                }, typeof(LR2SongDBExtended.chart_digest_map));
-                db.DropTable<LR2SongDBExtended.bmson_song>();
-            }
-
-            BmsonMigrationPreflightService service = new BmsonMigrationPreflightService();
-            BmsonMigrationPreflightResult result = service.Inspect(tempDbPath);
-
-            Assert.IsFalse(result.NeedsPlaylistEntrySha256Migration);
-            Assert.IsFalse(result.NeedsChartDigestMapSchema);
-            Assert.IsTrue(result.NeedsBmsonSongSchema);
-            Assert.IsFalse(result.NeedsInitialSha256BackfillWarning);
-            Assert.IsTrue(result.RepairRequired);
-            Assert.IsFalse(result.WarnRequired);
-            Assert.IsFalse(result.RequiresWarning);
-            Assert.AreEqual(RepairableBmsonSchemaIssues.BmsonSongTableMissing, result.RepairableBmsonSchemaIssues);
-        }
-        finally
-        {
-            DeleteTempSongDbDirectory(tempDbPath);
-        }
-    }
-
-    [TestMethod]
-    [TestCategory("Playlist")]
-    public void Inspect_ChartDigestMapPresent_ReturnsBackfillWarningWithoutScanningBmsonSchemaOnlyState()
-    {
-        string tempDbPath = CreateEmptySongDbPath();
-        try
-        {
-            BMSPlaylist.EnsureSchema(tempDbPath);
-            BmsLibraryDbGateway gateway = new BmsLibraryDbGateway(tempDbPath);
-            gateway.EnsureBmsonSchema();
-            using (LR2SongDBExtended db = new LR2SongDBExtended(tempDbPath))
-            {
-                db.CreateTable<LR2SongDB.song>();
-                db.Execute("INSERT INTO song(path, hash, folder) VALUES ('chart-1.bms', '0e5751c026e543b2e8ab2eb06099daa1', 'folder');");
-                db.Execute("INSERT INTO song(path, hash, folder) VALUES ('chart-2.bms', '7d793037a0760186574b0282f2f435e7', 'folder');");
-                db.InsertOrReplace(new LR2SongDBExtended.chart_digest_map
-                {
-                    md5 = "0e5751c026e543b2e8ab2eb06099daa1",
-                    sha256 = new string('a', 64),
-                    last_seen_path = "chart-1.bms",
-                    updated_at = DateTime.UtcNow
-                }, typeof(LR2SongDBExtended.chart_digest_map));
-            }
-
-            BmsonMigrationPreflightService service = new BmsonMigrationPreflightService();
-            BmsonMigrationPreflightResult result = service.Inspect(tempDbPath);
-
-            Assert.IsFalse(result.NeedsChartDigestMapSchema);
-            Assert.IsFalse(result.NeedsBmsonSongSchema);
-            Assert.IsTrue(result.NeedsInitialSha256BackfillWarning);
+            Assert.IsTrue(result.NeedsBmsonAppSchemaMigration);
             Assert.IsTrue(result.WarnRequired);
             Assert.IsFalse(result.RepairRequired);
         }
@@ -235,13 +101,35 @@ public sealed class MigrationPreflightServiceTests
 
     [TestMethod]
     [TestCategory("Playlist")]
-    public void BuildMissingSha256BackfillExistsSql_UsesDirectMd5ComparisonWithoutLowerCalls()
+    public void Inspect_OrphanDigestRow_DoesNotRequireWarningWhenVersionCurrent()
     {
-        string sql = BmsonMigrationPreflightService.BuildMissingSha256BackfillExistsSql();
+        string tempDbPath = CreateEmptySongDbPath();
+        try
+        {
+            BMSPlaylist.EnsureSchema(tempDbPath);
+            BmsLibraryDbGateway gateway = new BmsLibraryDbGateway(tempDbPath);
+            gateway.EnsureBmsonSchema();
+            gateway.RunBmsonSchemaMigration();
 
-        StringAssert.Contains(sql, "SELECT EXISTS(");
-        StringAssert.Contains(sql, "WHERE d.md5 = s.hash");
-        Assert.IsFalse(sql.IndexOf("lower(", StringComparison.OrdinalIgnoreCase) >= 0, "The backfill warning query must stay index-friendly and avoid lower(...) calls.");
+            using (LR2SongDBExtended db = new LR2SongDBExtended(tempDbPath))
+            {
+                db.InsertOrReplace(new LR2SongDBExtended.chart_digest_map
+                {
+                    md5 = "0e5751c026e543b2e8ab2eb06099daa1",
+                    sha256 = new string('d', 64)
+                }, typeof(LR2SongDBExtended.chart_digest_map));
+            }
+
+            BmsonMigrationPreflightService service = new BmsonMigrationPreflightService();
+            BmsonMigrationPreflightResult result = service.Inspect(tempDbPath);
+
+            Assert.IsFalse(result.WarnRequired);
+            Assert.IsFalse(result.RequiresWarning);
+        }
+        finally
+        {
+            DeleteTempSongDbDirectory(tempDbPath);
+        }
     }
 
     [TestMethod]
@@ -270,18 +158,17 @@ public sealed class MigrationPreflightServiceTests
             Assert.IsFalse(repairedResult.NeedsChartDigestMapSchema);
             Assert.IsFalse(repairedResult.NeedsBmsonSongSchema);
             Assert.IsFalse(repairedResult.RepairRequired);
-            Assert.IsFalse(repairedResult.WarnRequired);
 
             using LR2SongDBExtended verify = new LR2SongDBExtended(tempDbPath);
             string chartDigestMapSql = verify.ExecuteScalar<string>("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'chart_digest_map';");
             string bmsonSongSql = verify.ExecuteScalar<string>("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'bmson_song';");
+            Assert.IsFalse(chartDigestMapSql.IndexOf("last_seen_path", StringComparison.OrdinalIgnoreCase) >= 0);
+            Assert.IsFalse(chartDigestMapSql.IndexOf("updated_at", StringComparison.OrdinalIgnoreCase) >= 0);
             StringAssert.Contains(chartDigestMapSql, "sha256");
-            StringAssert.Contains(chartDigestMapSql, "last_seen_path");
             StringAssert.Contains(bmsonSongSql, "mode_hint");
-            StringAssert.Contains(bmsonSongSql, "sha256");
             Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_digest_map;"));
             Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM bmson_song;"));
-            Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_master WHERE type = 'index' AND name = 'chart_digest_map_idx_sha256';"));
+            Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_master WHERE type = 'table' AND name = 'app_schema_version';"));
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_master WHERE type = 'index' AND name = 'bmson_song_idx_md5';"));
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_master WHERE type = 'index' AND name = 'bmson_song_idx_sha256';"));
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_master WHERE type = 'index' AND name = 'bmson_song_idx_folder';"));
@@ -294,7 +181,43 @@ public sealed class MigrationPreflightServiceTests
 
     [TestMethod]
     [TestCategory("Playlist")]
-    public void EnsureBmsonSchema_RecreatesMissingIndexesWithoutDroppingRows()
+    public void RunBmsonSchemaMigration_NormalizesChartDigestMapAndSetsVersion()
+    {
+        string tempDbPath = CreateEmptySongDbPath();
+        string chartPath = string.Empty;
+        try
+        {
+            chartPath = Path.Combine(Path.GetDirectoryName(tempDbPath), "chart.bms");
+            File.WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE Test\r\n");
+            BMSPlaylist.EnsureSchema(tempDbPath);
+            using (LR2SongDBExtended db = new LR2SongDBExtended(tempDbPath))
+            {
+                db.CreateTable<LR2SongDB.song>();
+                BMSFile file = BMSFile.CreateBMSFileFromFile(chartPath);
+                db.InsertOrReplace(file, typeof(LR2SongDB.song));
+                db.Execute("CREATE TABLE chart_digest_map (md5 TEXT PRIMARY KEY, sha256 TEXT NULL, last_seen_path TEXT NULL, updated_at TEXT NULL);");
+                db.Execute("INSERT INTO chart_digest_map(md5, sha256, last_seen_path, updated_at) VALUES ('" + file.hash + "', '" + file.sha256 + "', '" + chartPath.Replace("'", "''") + "', 'legacy');");
+            }
+
+            BmsLibraryDbGateway gateway = new BmsLibraryDbGateway(tempDbPath);
+            gateway.RunBmsonSchemaMigration();
+
+            using LR2SongDBExtended verify = new LR2SongDBExtended(tempDbPath);
+            string chartDigestMapSql = verify.ExecuteScalar<string>("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'chart_digest_map';");
+            Assert.IsFalse(chartDigestMapSql.IndexOf("last_seen_path", StringComparison.OrdinalIgnoreCase) >= 0);
+            Assert.IsFalse(chartDigestMapSql.IndexOf("updated_at", StringComparison.OrdinalIgnoreCase) >= 0);
+            Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_digest_map;"));
+            Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM app_schema_version WHERE name = 'bmson_app_schema' AND version >= 1;"));
+        }
+        finally
+        {
+            DeleteTempSongDbDirectory(tempDbPath);
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public void EnsureBmsonSchema_RecreatesMissingBmsonIndexesWithoutDroppingRows()
     {
         string tempDbPath = CreateEmptySongDbPath();
         try
@@ -307,9 +230,7 @@ public sealed class MigrationPreflightServiceTests
                 db.InsertOrReplace(new LR2SongDBExtended.chart_digest_map
                 {
                     md5 = "0e5751c026e543b2e8ab2eb06099daa1",
-                    sha256 = new string('b', 64),
-                    last_seen_path = "digest-path",
-                    updated_at = DateTime.UtcNow
+                    sha256 = new string('b', 64)
                 }, typeof(LR2SongDBExtended.chart_digest_map));
                 db.InsertOrReplace(new LR2SongDBExtended.bmson_song
                 {
@@ -329,7 +250,6 @@ public sealed class MigrationPreflightServiceTests
                     preview_music = "preview.ogg",
                     updated_at = DateTime.UtcNow
                 }, typeof(LR2SongDBExtended.bmson_song));
-                db.Execute("DROP INDEX IF EXISTS chart_digest_map_idx_sha256;");
                 db.Execute("DROP INDEX IF EXISTS bmson_song_idx_md5;");
                 db.Execute("DROP INDEX IF EXISTS bmson_song_idx_sha256;");
                 db.Execute("DROP INDEX IF EXISTS bmson_song_idx_folder;");
@@ -340,7 +260,6 @@ public sealed class MigrationPreflightServiceTests
             using LR2SongDBExtended verify = new LR2SongDBExtended(tempDbPath);
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_digest_map;"));
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM bmson_song;"));
-            Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_master WHERE type = 'index' AND name = 'chart_digest_map_idx_sha256';"));
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_master WHERE type = 'index' AND name = 'bmson_song_idx_md5';"));
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_master WHERE type = 'index' AND name = 'bmson_song_idx_sha256';"));
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_master WHERE type = 'index' AND name = 'bmson_song_idx_folder';"));
@@ -379,7 +298,7 @@ public sealed class MigrationPreflightServiceTests
             BmsonMigrationPreflightResult result = service.Inspect(tempDbPath);
             stopwatch.Stop();
 
-            Assert.IsTrue(result.RepairRequired);
+            Assert.IsTrue(result.RequiresWarning);
             Assert.IsTrue(stopwatch.Elapsed < TimeSpan.FromSeconds(2), "Inspect should not block on LR2SongDBExtended monitor lock.");
         }
         finally

@@ -15,7 +15,7 @@ public sealed class MainWindowViewModelBmsonMigrationTests
         bool approvedForSession = false;
         bool ensureSchemaCalled = false;
         bool shutdownCalled = false;
-        BmsonMigrationPreflightResult result = new BmsonMigrationPreflightResult(needsPlaylistEntrySha256Migration: true, needsChartDigestMapSchema: false, needsBmsonSongSchema: false, needsInitialSha256BackfillWarning: false, RepairableBmsonSchemaIssues.None);
+        BmsonMigrationPreflightResult result = new BmsonMigrationPreflightResult(needsPlaylistEntrySha256Migration: true, needsChartDigestMapSchema: false, needsBmsonSongSchema: false, needsInitialSha256BackfillWarning: false, needsBmsonAppSchemaMigration: false, RepairableBmsonSchemaIssues.None);
 
         bool shouldContinue = MainWindowViewModel.ApplyBmsonMigrationPreflightForStartup(result, ref approvedForSession, _ => false, delegate
         {
@@ -38,7 +38,7 @@ public sealed class MainWindowViewModelBmsonMigrationTests
         bool approvedForSession = false;
         bool ensureSchemaCalled = false;
         bool shutdownCalled = false;
-        BmsonMigrationPreflightResult result = new BmsonMigrationPreflightResult(needsPlaylistEntrySha256Migration: true, needsChartDigestMapSchema: false, needsBmsonSongSchema: false, needsInitialSha256BackfillWarning: false, RepairableBmsonSchemaIssues.None);
+        BmsonMigrationPreflightResult result = new BmsonMigrationPreflightResult(needsPlaylistEntrySha256Migration: true, needsChartDigestMapSchema: false, needsBmsonSongSchema: false, needsInitialSha256BackfillWarning: false, needsBmsonAppSchemaMigration: false, RepairableBmsonSchemaIssues.None);
 
         bool shouldContinue = MainWindowViewModel.ApplyBmsonMigrationPreflightForStartup(result, ref approvedForSession, _ => true, delegate
         {
@@ -58,7 +58,7 @@ public sealed class MainWindowViewModelBmsonMigrationTests
     [TestCategory("Playlist")]
     public void BuildBmsonMigrationWarningMessage_IncludesCompatibilityAndDurationWarnings()
     {
-        BmsonMigrationPreflightResult result = new BmsonMigrationPreflightResult(needsPlaylistEntrySha256Migration: true, needsChartDigestMapSchema: true, needsBmsonSongSchema: true, needsInitialSha256BackfillWarning: true, RepairableBmsonSchemaIssues.ChartDigestMapTableMissing | RepairableBmsonSchemaIssues.BmsonSongTableMissing);
+        BmsonMigrationPreflightResult result = new BmsonMigrationPreflightResult(needsPlaylistEntrySha256Migration: true, needsChartDigestMapSchema: true, needsBmsonSongSchema: true, needsInitialSha256BackfillWarning: true, needsBmsonAppSchemaMigration: true, RepairableBmsonSchemaIssues.ChartDigestMapTableMissing | RepairableBmsonSchemaIssues.BmsonSongTableMissing);
 
         string message = MainWindowViewModel.BuildBmsonMigrationWarningMessage(result);
 
@@ -75,7 +75,7 @@ public sealed class MainWindowViewModelBmsonMigrationTests
         bool approvedForSession = false;
         bool ensureSchemaCalled = false;
         bool shutdownCalled = false;
-        BmsonMigrationPreflightResult result = new BmsonMigrationPreflightResult(needsPlaylistEntrySha256Migration: false, needsChartDigestMapSchema: false, needsBmsonSongSchema: true, needsInitialSha256BackfillWarning: false, RepairableBmsonSchemaIssues.BmsonSongTableMissing);
+        BmsonMigrationPreflightResult result = new BmsonMigrationPreflightResult(needsPlaylistEntrySha256Migration: false, needsChartDigestMapSchema: false, needsBmsonSongSchema: true, needsInitialSha256BackfillWarning: false, needsBmsonAppSchemaMigration: false, RepairableBmsonSchemaIssues.BmsonSongTableMissing);
 
         bool shouldContinue = MainWindowViewModel.ApplyBmsonMigrationPreflightForStartup(result, ref approvedForSession, null, delegate
         {

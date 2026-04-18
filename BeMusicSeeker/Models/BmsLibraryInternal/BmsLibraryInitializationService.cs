@@ -392,12 +392,16 @@ internal sealed class BmsLibraryInitializationService
             BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
             foreach (string deletedPath in result.DeletedPaths)
             {
+                string deletedHash = songDb.ExecuteScalar<string>("SELECT hash FROM song WHERE path = " + BMSPlaylist.SqlQuoteForTest(deletedPath) + " LIMIT 1;");
                 songDb.Delete<LR2SongDB.song>(deletedPath);
+                BmsLibraryDbGateway.DeleteChartDigestIfOrphaned(songDb, deletedHash);
             }
             foreach (BMSFile addedFile in result.AddedFiles)
             {
+                string previousHash = songDb.ExecuteScalar<string>("SELECT hash FROM song WHERE path = " + BMSPlaylist.SqlQuoteForTest(addedFile.path) + " LIMIT 1;");
                 songDb.InsertOrReplace(addedFile, typeof(LR2SongDB.song));
                 BmsLibraryDbGateway.UpsertChartDigest(songDb, addedFile);
+                BmsLibraryDbGateway.DeleteChartDigestIfOrphaned(songDb, previousHash, addedFile.hash);
             }
             foreach (string deletedBmsonPath in result.DeletedBmsonPaths)
             {
@@ -770,11 +774,16 @@ internal sealed class BmsLibraryInitializationService
             songDb.BeginTransaction();
             foreach (string deletedSongPath in result.DeletedSongPaths)
             {
+                string deletedHash = songDb.ExecuteScalar<string>("SELECT hash FROM song WHERE path = " + BMSPlaylist.SqlQuoteForTest(deletedSongPath) + " LIMIT 1;");
                 songDb.Delete<LR2SongDB.song>(deletedSongPath);
+                BmsLibraryDbGateway.DeleteChartDigestIfOrphaned(songDb, deletedHash);
             }
             foreach (BMSFile updatedSong in result.UpdatedSongs)
             {
+                string previousHash = songDb.ExecuteScalar<string>("SELECT hash FROM song WHERE path = " + BMSPlaylist.SqlQuoteForTest(updatedSong.path) + " LIMIT 1;");
                 songDb.InsertOrReplace(updatedSong, typeof(LR2SongDB.song));
+                BmsLibraryDbGateway.UpsertChartDigest(songDb, updatedSong);
+                BmsLibraryDbGateway.DeleteChartDigestIfOrphaned(songDb, previousHash, updatedSong.hash);
             }
             foreach (string deletedFolderPath in result.DeletedFolderPaths)
             {

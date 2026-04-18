@@ -12,6 +12,10 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 internal sealed class BmsLibraryDbGateway
 {
+    internal const string BmsonAppSchemaVersionName = "bmson_app_schema";
+
+    internal const int CurrentBmsonAppSchemaVersion = 1;
+
     public string SongDbPath { get; }
 
     public string ScoreDbPath { get; }
@@ -89,8 +93,10 @@ internal sealed class BmsLibraryDbGateway
             EnsureBmsonSchema(songDb);
             foreach (BMSFile file in files)
             {
+                string previousHash = GetSongHashByPath(songDb, file.path);
                 songDb.InsertOrReplace(file, typeof(LR2SongDB.song));
                 UpsertChartDigest(songDb, file);
+                DeleteChartDigestIfOrphaned(songDb, previousHash, file.hash);
             }
         });
     }
@@ -104,11 +110,13 @@ internal sealed class BmsLibraryDbGateway
         }
         ExecuteSongDbTransaction(delegate (LR2SongDBExtended songDb)
         {
+            EnsureBmsonSchema(songDb);
             foreach (BMSFile file in files)
             {
                 songDb.Delete<LR2SongDB.song>(file.path);
                 songDb.Delete<LR2SongDBExtended.maintenance>(file.path);
             }
+            DeleteChartDigestsIfOrphaned(songDb, files.Select((BMSFile file) => file.hash));
         });
     }
 
@@ -198,6 +206,44 @@ internal sealed class BmsLibraryDbGateway
         try
         {
             EnsureBmsonSchema(songDb);
+            songDb.Commit();
+        }
+        catch (Exception)
+        {
+            songDb.RollbackTo(savepoint);
+            throw;
+        }
+    }
+
+    public void RunBmsonSchemaMigration()
+    {
+        using LR2SongDBExtended songDb = OpenSongDb();
+        string savepoint = songDb.SaveTransactionPoint();
+        try
+        {
+            RunBmsonSchemaMigration(songDb);
+            songDb.Commit();
+        }
+        catch (Exception)
+        {
+            songDb.RollbackTo(savepoint);
+            throw;
+        }
+    }
+
+    public bool IsBmsonAppSchemaCurrent()
+    {
+        using LR2SongDBExtended songDb = OpenSongDb();
+        return IsBmsonAppSchemaCurrent(songDb);
+    }
+
+    public void MarkBmsonAppSchemaCurrent()
+    {
+        using LR2SongDBExtended songDb = OpenSongDb();
+        string savepoint = songDb.SaveTransactionPoint();
+        try
+        {
+            SetBmsonAppSchemaVersion(songDb, CurrentBmsonAppSchemaVersion);
             songDb.Commit();
         }
         catch (Exception)
@@ -419,6 +465,7 @@ internal sealed class BmsLibraryDbGateway
         {
             throw new ArgumentNullException(nameof(songDb));
         }
+        songDb.CreateTable<LR2SongDBExtended.app_schema_version>();
         RepairableBmsonSchemaIssues issues = BmsonMigrationPreflightService.AnalyzeRepairableBmsonSchemaIssues(songDb);
         bool rebuildChartDigestMapTable = issues.HasFlag(RepairableBmsonSchemaIssues.ChartDigestMapTableMissing)
             || issues.HasFlag(RepairableBmsonSchemaIssues.ChartDigestMapTableInvalid);
@@ -435,7 +482,6 @@ internal sealed class BmsLibraryDbGateway
 
         string chartDigestMapTableName = SQLiteTable<LR2SongDBExtended.chart_digest_map>.GetTableName();
         songDb.CreateTable<LR2SongDBExtended.chart_digest_map>();
-        EnsureIndex(songDb, "chart_digest_map_idx_sha256", chartDigestMapTableName, SQLiteTable<LR2SongDBExtended.chart_digest_map>.GetColumnName((LR2SongDBExtended.chart_digest_map row) => row.sha256));
 
         string bmsonSongTableName = SQLiteTable<LR2SongDBExtended.bmson_song>.GetTableName();
         songDb.CreateTable<LR2SongDBExtended.bmson_song>();
@@ -457,11 +503,58 @@ internal sealed class BmsLibraryDbGateway
         LR2SongDBExtended.chart_digest_map row = new LR2SongDBExtended.chart_digest_map
         {
             md5 = file.hash,
-            sha256 = file.sha256,
-            last_seen_path = file.path,
-            updated_at = DateTime.UtcNow
+            sha256 = file.sha256
         };
         songDb.InsertOrReplace(row, typeof(LR2SongDBExtended.chart_digest_map));
+    }
+
+    internal static void RunBmsonSchemaMigration(LR2SongDBExtended songDb)
+    {
+        if (songDb == null)
+        {
+            throw new ArgumentNullException(nameof(songDb));
+        }
+        Dictionary<string, string> reusableDigests = LoadReusableChartDigestMap(songDb);
+        EnsureBmsonSchema(songDb);
+        RepairChartDigestMapConsistency(songDb, reusableDigests);
+        SetBmsonAppSchemaVersion(songDb, CurrentBmsonAppSchemaVersion);
+    }
+
+    internal static void RepairChartDigestMapConsistency(LR2SongDBExtended songDb)
+    {
+        RepairChartDigestMapConsistency(songDb, null);
+    }
+
+    internal static void DeleteChartDigestIfOrphaned(LR2SongDBExtended songDb, string md5, string preservedMd5 = null)
+    {
+        if (songDb == null || string.IsNullOrWhiteSpace(md5))
+        {
+            return;
+        }
+        if (!TableExists(songDb, SQLiteTable<LR2SongDBExtended.chart_digest_map>.GetTableName()))
+        {
+            return;
+        }
+        if (!string.IsNullOrWhiteSpace(preservedMd5) && string.Equals(md5, preservedMd5, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+        long count = songDb.ExecuteScalar<long>(
+            "SELECT COUNT(1) FROM " + SQLiteTable<LR2SongDB.song>.GetTableName()
+            + " WHERE " + SQLiteTable<LR2SongDB.song>.GetColumnName((LR2SongDB.song row) => row.hash)
+            + " = " + BMSPlaylist.SqlQuoteForTest(md5) + ";");
+        if (count <= 0)
+        {
+            songDb.Delete<LR2SongDBExtended.chart_digest_map>(md5);
+        }
+    }
+
+    internal static void DeleteChartDigestsIfOrphaned(LR2SongDBExtended songDb, IEnumerable<string> md5s, string preservedMd5 = null)
+    {
+        foreach (string md5 in (md5s ?? Enumerable.Empty<string>()).Where((string item) => !string.IsNullOrWhiteSpace(item)).Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            DeleteChartDigestIfOrphaned(songDb, md5, preservedMd5);
+        }
     }
 
     private static bool TableExists(LR2SongDBExtended songDb, string tableName)
@@ -480,5 +573,143 @@ internal sealed class BmsLibraryDbGateway
         {
             songDb.CreateIndex(indexName, tableName, columnName);
         }
+    }
+
+    private static string GetSongHashByPath(LR2SongDBExtended songDb, string path)
+    {
+        if (songDb == null || string.IsNullOrWhiteSpace(path))
+        {
+            return null;
+        }
+        return songDb.ExecuteScalar<string>(
+            "SELECT " + SQLiteTable<LR2SongDB.song>.GetColumnName((LR2SongDB.song row) => row.hash)
+            + " FROM " + SQLiteTable<LR2SongDB.song>.GetTableName()
+            + " WHERE " + SQLiteTable<LR2SongDB.song>.GetColumnName((LR2SongDB.song row) => row.path)
+            + " = " + BMSPlaylist.SqlQuoteForTest(path)
+            + " LIMIT 1;");
+    }
+
+    private static bool IsBmsonAppSchemaCurrent(LR2SongDBExtended songDb)
+    {
+        if (songDb == null)
+        {
+            return false;
+        }
+        if (!TableExists(songDb, SQLiteTable<LR2SongDBExtended.app_schema_version>.GetTableName()))
+        {
+            return false;
+        }
+        long count = songDb.ExecuteScalar<long>(
+            "SELECT COUNT(1) FROM " + SQLiteTable<LR2SongDBExtended.app_schema_version>.GetTableName()
+            + " WHERE " + SQLiteTable<LR2SongDBExtended.app_schema_version>.GetColumnName((LR2SongDBExtended.app_schema_version row) => row.name)
+            + " = " + BMSPlaylist.SqlQuoteForTest(BmsonAppSchemaVersionName)
+            + " AND " + SQLiteTable<LR2SongDBExtended.app_schema_version>.GetColumnName((LR2SongDBExtended.app_schema_version row) => row.version)
+            + " >= " + CurrentBmsonAppSchemaVersion + ";");
+        return count > 0;
+    }
+
+    private static void SetBmsonAppSchemaVersion(LR2SongDBExtended songDb, int version)
+    {
+        songDb.InsertOrReplace(new LR2SongDBExtended.app_schema_version
+        {
+            name = BmsonAppSchemaVersionName,
+            version = version
+        }, typeof(LR2SongDBExtended.app_schema_version));
+    }
+
+    private static Dictionary<string, string> LoadReusableChartDigestMap(LR2SongDBExtended songDb)
+    {
+        Dictionary<string, string> result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        string tableName = SQLiteTable<LR2SongDBExtended.chart_digest_map>.GetTableName();
+        if (!TableExists(songDb, tableName))
+        {
+            return result;
+        }
+        string tableSql = songDb.ExecuteScalar<string>("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = " + BMSPlaylist.SqlQuoteForTest(tableName) + ";");
+        if (string.IsNullOrWhiteSpace(tableSql)
+            || tableSql.IndexOf("md5", StringComparison.OrdinalIgnoreCase) < 0
+            || tableSql.IndexOf("sha256", StringComparison.OrdinalIgnoreCase) < 0)
+        {
+            return result;
+        }
+        foreach (ChartDigestQueryRow row in songDb.Query<ChartDigestQueryRow>("SELECT md5, sha256 FROM " + tableName + " WHERE md5 IS NOT NULL AND TRIM(md5) <> '' AND sha256 IS NOT NULL AND TRIM(sha256) <> '';"))
+        {
+            string md5 = row.md5;
+            string sha256 = row.sha256;
+            if (!string.IsNullOrWhiteSpace(md5) && !string.IsNullOrWhiteSpace(sha256))
+            {
+                result[md5] = sha256;
+            }
+        }
+        return result;
+    }
+
+    private static void RepairChartDigestMapConsistency(LR2SongDBExtended songDb, Dictionary<string, string> reusableDigests)
+    {
+        if (songDb == null)
+        {
+            throw new ArgumentNullException(nameof(songDb));
+        }
+        string songTableName = SQLiteTable<LR2SongDB.song>.GetTableName();
+        if (!TableExists(songDb, songTableName))
+        {
+            RebuildChartDigestMap(songDb, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase));
+            return;
+        }
+        Dictionary<string, string> digests = reusableDigests != null
+            ? new Dictionary<string, string>(reusableDigests, StringComparer.OrdinalIgnoreCase)
+            : new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (SongDigestSourceRow row in songDb.Query<SongDigestSourceRow>(
+                     "SELECT DISTINCT "
+                     + SQLiteTable<LR2SongDB.song>.GetColumnName((LR2SongDB.song song) => song.hash) + " AS md5, "
+                     + SQLiteTable<LR2SongDB.song>.GetColumnName((LR2SongDB.song song) => song.path) + " AS path "
+                     + "FROM " + songTableName + " WHERE "
+                     + SQLiteTable<LR2SongDB.song>.GetColumnName((LR2SongDB.song song) => song.hash) + " IS NOT NULL AND TRIM("
+                     + SQLiteTable<LR2SongDB.song>.GetColumnName((LR2SongDB.song song) => song.hash) + ") <> '';"))
+        {
+            string md5 = row.md5;
+            string path = row.path;
+            if (string.IsNullOrWhiteSpace(md5) || digests.ContainsKey(md5))
+            {
+                continue;
+            }
+            if (!string.IsNullOrWhiteSpace(path) && File.Exists(path))
+            {
+                digests[md5] = BMSFile.GetSHA256Hash(path);
+            }
+        }
+        RebuildChartDigestMap(songDb, digests);
+    }
+
+    private static void RebuildChartDigestMap(LR2SongDBExtended songDb, IDictionary<string, string> digests)
+    {
+        string tableName = SQLiteTable<LR2SongDBExtended.chart_digest_map>.GetTableName();
+        if (TableExists(songDb, tableName))
+        {
+            songDb.DropTable<LR2SongDBExtended.chart_digest_map>();
+        }
+        songDb.CreateTable<LR2SongDBExtended.chart_digest_map>();
+        foreach (KeyValuePair<string, string> item in (digests ?? new Dictionary<string, string>()).Where((KeyValuePair<string, string> item) => !string.IsNullOrWhiteSpace(item.Key) && !string.IsNullOrWhiteSpace(item.Value)))
+        {
+            songDb.InsertOrReplace(new LR2SongDBExtended.chart_digest_map
+            {
+                md5 = item.Key,
+                sha256 = item.Value
+            }, typeof(LR2SongDBExtended.chart_digest_map));
+        }
+    }
+
+    private sealed class ChartDigestQueryRow
+    {
+        public string md5 { get; set; }
+
+        public string sha256 { get; set; }
+    }
+
+    private sealed class SongDigestSourceRow
+    {
+        public string md5 { get; set; }
+
+        public string path { get; set; }
     }
 }

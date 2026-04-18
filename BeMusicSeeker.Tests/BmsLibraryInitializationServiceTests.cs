@@ -153,9 +153,7 @@ public sealed class BmsLibraryInitializationServiceTests
                 songDb.InsertOrReplace(new LR2SongDBExtended.chart_digest_map
                 {
                     md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                    sha256 = new string('b', 64),
-                    last_seen_path = rootedChartPath,
-                    updated_at = DateTime.UtcNow
+                    sha256 = new string('b', 64)
                 }, typeof(LR2SongDBExtended.chart_digest_map));
             }
 
@@ -255,6 +253,131 @@ public sealed class BmsLibraryInitializationServiceTests
             Assert.AreEqual(1, digestRows.Count);
             Assert.AreEqual(dbFiles[0].hash, digestRows[0].md5);
             Assert.AreEqual(result.AddedFiles[0].sha256, digestRows[0].sha256);
+        });
+    }
+
+    [TestMethod]
+    public void ApplyFileScanDiff_RemovesOrphanChartDigestRowsForDeletedSongs()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLr2SongDb(delegate(string lr2RootPath, string songDbPath)
+        {
+            string deletedChartPath = Path.Combine(lr2RootPath, "Deleted", "deleted.bms");
+            Directory.CreateDirectory(Path.GetDirectoryName(deletedChartPath));
+            File.WriteAllText(deletedChartPath, "#PLAYER 1\r\n#TITLE Deleted\r\n");
+
+            TestableBmsFile deletedFile = new TestableBmsFile
+            {
+                path = deletedChartPath
+            };
+            BMSFile source = BMSFile.CreateBMSFileFromFile(deletedChartPath);
+            deletedFile.SetHash(source.hash);
+            deletedFile.SetSha256(source.sha256);
+
+            using (LR2SongDBExtended songDb = new LR2SongDBExtended(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDB.song>();
+                BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
+                songDb.InsertOrReplace(deletedFile, typeof(LR2SongDB.song));
+                songDb.InsertOrReplace(new LR2SongDBExtended.chart_digest_map
+                {
+                    md5 = deletedFile.hash,
+                    sha256 = deletedFile.sha256
+                }, typeof(LR2SongDBExtended.chart_digest_map));
+            }
+
+            BmsLibraryInitializationService service = new BmsLibraryInitializationService();
+            SongTableFileCheckResult result = service.ApplyFileScanDiff(
+                new BmsLibraryDbGateway(songDbPath),
+                new BmsLibraryOptionsSnapshot(),
+                new[] { deletedFile },
+                new BmsScanExecutionResult
+                {
+                    Success = true,
+                    Result = new BmsScanResult
+                    {
+                        BmsFilePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+                        FilesByDirectory = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase)
+                    }
+                },
+                0L,
+                () => null,
+                null);
+
+            CollectionAssert.Contains(result.DeletedPaths, deletedChartPath);
+            using LR2SongDBExtended verify = new LR2SongDBExtended(songDbPath);
+            Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_digest_map WHERE md5 = '" + deletedFile.hash + "';"));
+        });
+    }
+
+    [TestMethod]
+    public void ApplyFileScanDiff_KeepsSharedChartDigestRowsWhenAnotherSongStillUsesSameMd5()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLr2SongDb(delegate(string lr2RootPath, string songDbPath)
+        {
+            string keepChartPath = Path.Combine(lr2RootPath, "Keep", "keep.bms");
+            string deletedChartPath = Path.Combine(lr2RootPath, "Deleted", "deleted.bms");
+            Directory.CreateDirectory(Path.GetDirectoryName(keepChartPath));
+            Directory.CreateDirectory(Path.GetDirectoryName(deletedChartPath));
+            File.WriteAllText(keepChartPath, "#PLAYER 1\r\n#TITLE Same\r\n");
+            File.Copy(keepChartPath, deletedChartPath, overwrite: true);
+
+            BMSFile sourceKeep = BMSFile.CreateBMSFileFromFile(keepChartPath);
+            BMSFile sourceDeleted = BMSFile.CreateBMSFileFromFile(deletedChartPath);
+            TestableBmsFile keepFile = new TestableBmsFile
+            {
+                path = keepChartPath
+            };
+            keepFile.SetHash(sourceKeep.hash);
+            keepFile.SetSha256(sourceKeep.sha256);
+            TestableBmsFile deletedFile = new TestableBmsFile
+            {
+                path = deletedChartPath
+            };
+            deletedFile.SetHash(sourceDeleted.hash);
+            deletedFile.SetSha256(sourceDeleted.sha256);
+
+            using (LR2SongDBExtended songDb = new LR2SongDBExtended(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDB.song>();
+                BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
+                songDb.InsertOrReplace(keepFile, typeof(LR2SongDB.song));
+                songDb.InsertOrReplace(deletedFile, typeof(LR2SongDB.song));
+                songDb.InsertOrReplace(new LR2SongDBExtended.chart_digest_map
+                {
+                    md5 = keepFile.hash,
+                    sha256 = keepFile.sha256
+                }, typeof(LR2SongDBExtended.chart_digest_map));
+            }
+
+            BmsLibraryInitializationService service = new BmsLibraryInitializationService();
+            SongTableFileCheckResult result = service.ApplyFileScanDiff(
+                new BmsLibraryDbGateway(songDbPath),
+                new BmsLibraryOptionsSnapshot(),
+                new[] { keepFile, deletedFile },
+                new BmsScanExecutionResult
+                {
+                    Success = true,
+                    Result = new BmsScanResult
+                    {
+                        BmsFilePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                        {
+                            keepChartPath
+                        },
+                        FilesByDirectory = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase)
+                        {
+                            { Path.GetDirectoryName(keepChartPath), new List<string> { keepChartPath } }
+                        }
+                    }
+                },
+                0L,
+                () => null,
+                null);
+
+            CollectionAssert.Contains(result.DeletedPaths, deletedChartPath);
+            using LR2SongDBExtended verify = new LR2SongDBExtended(songDbPath);
+            Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_digest_map WHERE md5 = '" + keepFile.hash + "';"));
         });
     }
 

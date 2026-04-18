@@ -360,10 +360,15 @@ public sealed class LR2SongDBExtended : LR2SongDB
                 }
             }
         }
+    }
 
-        public virtual string last_seen_path { get; set; }
+    [Table("app_schema_version")]
+    public class app_schema_version : SQLiteTable<app_schema_version>
+    {
+        [PrimaryKey]
+        public virtual string name { get; set; }
 
-        public DateTime updated_at { get; set; }
+        public virtual int version { get; set; }
     }
 
     [Table("bmson_song")]
