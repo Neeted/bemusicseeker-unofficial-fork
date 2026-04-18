@@ -7,6 +7,7 @@ using System.Security;
 using System.Security.Cryptography;
 using System.Text;
 using Microsoft.VisualBasic.FileIO;
+using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using Ribbit.Util.Extensions;
 
@@ -154,6 +155,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         string srcDir,
         string dstDir,
         IEnumerable<BMSFile> libraryFiles,
+        IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs,
         IEnumerable<BMSPackage> pendingPackages,
         IEnumerable<BMSPackage> installedPackages,
         bool unregister,
@@ -215,11 +217,21 @@ internal sealed class BmsLibraryLibraryFileOperationsService
                 });
             }
         }
-        delta.RaiseBmsFilesChanged = raiseBmsFilesChanged && delta.FilePathChanges.Count > 0;
+        foreach (LR2SongDBExtended.bmson_song bmsonSong in (bmsonSongs ?? Enumerable.Empty<LR2SongDBExtended.bmson_song>())
+            .Where((LR2SongDBExtended.bmson_song song) => song != null && !string.IsNullOrWhiteSpace(song.path) && song.path.StartsWith(srcDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)))
+        {
+            delta.BmsonSongPathChanges.Add(new LibraryBmsonSongPathChange
+            {
+                Song = bmsonSong,
+                OldPath = bmsonSong.path,
+                NewPath = bmsonSong.path.ReplaceFromStart(srcDir, dstDir, isIgnoreCase: true)
+            });
+        }
+        delta.RaiseBmsFilesChanged = raiseBmsFilesChanged && (delta.FilePathChanges.Count > 0 || delta.BmsonSongPathChanges.Count > 0);
         delta.RaiseInstalledPackagesChanged = delta.UpdatedInstalledPackagePaths.Count > 0;
-        delta.InvalidateInstalledDirectoryIndex = delta.FilePathChanges.Count > 0 || delta.UpdatedInstallDestinations.Count > 0 || delta.UpdatedInstalledPackagePaths.Count > 0;
-        delta.InvalidateParentFolderCache = delta.FilePathChanges.Count > 0;
-        delta.ClearDuplicatedCache = delta.FilePathChanges.Count > 0 || delta.UpdatedInstallDestinations.Count > 0 || delta.UpdatedInstalledPackagePaths.Count > 0;
+        delta.InvalidateInstalledDirectoryIndex = delta.FilePathChanges.Count > 0 || delta.BmsonSongPathChanges.Count > 0 || delta.UpdatedInstallDestinations.Count > 0 || delta.UpdatedInstalledPackagePaths.Count > 0;
+        delta.InvalidateParentFolderCache = delta.FilePathChanges.Count > 0 || delta.BmsonSongPathChanges.Count > 0;
+        delta.ClearDuplicatedCache = delta.FilePathChanges.Count > 0 || delta.BmsonSongPathChanges.Count > 0 || delta.UpdatedInstallDestinations.Count > 0 || delta.UpdatedInstalledPackagePaths.Count > 0;
         return delta;
     }
 
@@ -313,6 +325,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         string srcDir,
         string dstDir,
         IEnumerable<BMSFile> libraryFiles,
+        IEnumerable<LR2SongDBExtended.bmson_song> libraryBmsonSongs,
         IEnumerable<BMSPackage> pendingPackages,
         IEnumerable<BMSPackage> installedPackages,
         Func<IEnumerable<BMSFile>, HashSet<string>> createHashSnapshotExcluding)
@@ -324,6 +337,10 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         }
         result.SourceFiles.AddRange((libraryFiles ?? Enumerable.Empty<BMSFile>())
             .Where((BMSFile file) => file != null && file.path.StartsWith(srcDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)));
+        result.SourceFiles.AddRange((libraryBmsonSongs ?? Enumerable.Empty<LR2SongDBExtended.bmson_song>())
+            .Where((LR2SongDBExtended.bmson_song song) => song != null && !string.IsNullOrWhiteSpace(song.path) && song.path.StartsWith(srcDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            .Select(PendingChartEntry.CreateFromBmsonSong)
+            .Where((PendingChartEntry file) => file != null));
         result.Repackage = new BMSPackage(result.SourceFiles)
         {
             path = srcDir,

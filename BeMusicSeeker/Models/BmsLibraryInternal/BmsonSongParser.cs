@@ -66,8 +66,10 @@ internal static class BmsonSongParser
             "beat-7k" => 7,
             "beat-10k" => 10,
             "beat-14k" => 14,
-            "popn-5k" => 5,
+            "popn-5k" => 9,
             "popn-9k" => 9,
+            "keyboard-24k" => 24,
+            "keyboard-24k-double" => 48,
             _ => null
         };
     }

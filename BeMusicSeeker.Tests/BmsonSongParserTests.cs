@@ -94,6 +94,7 @@ public sealed class BmsonSongParserTests
 
             CollectionAssert.AreEquivalent(new[] { "keysound.wav", "preview.ogg" }, pending.WAVfiles.ToArray());
             CollectionAssert.AreEquivalent(new[] { "image.png", "movie.mp4" }, pending.BGAfiles.ToArray());
+            Assert.AreEqual(string.Empty, pending.tag);
             Assert.AreEqual(2, pending.maintenanceInfo.wav_files_defined);
             Assert.AreEqual(0, pending.maintenanceInfo.wav_files_existing);
             Assert.AreEqual(1, pending.maintenanceInfo.bga_files_defined);
@@ -106,5 +107,47 @@ public sealed class BmsonSongParserTests
                 Directory.Delete(tempDirectory, recursive: true);
             }
         }
+    }
+
+    [TestMethod]
+    public void ResolvePlaylistMode_MapsPhase5DisplayModes()
+    {
+        Assert.AreEqual(5, BmsonSongParser.ResolvePlaylistMode("beat-5k"));
+        Assert.AreEqual(7, BmsonSongParser.ResolvePlaylistMode("beat-7k"));
+        Assert.AreEqual(10, BmsonSongParser.ResolvePlaylistMode("beat-10k"));
+        Assert.AreEqual(14, BmsonSongParser.ResolvePlaylistMode("beat-14k"));
+        Assert.AreEqual(9, BmsonSongParser.ResolvePlaylistMode("popn-5k"));
+        Assert.AreEqual(9, BmsonSongParser.ResolvePlaylistMode("popn-9k"));
+        Assert.AreEqual(24, BmsonSongParser.ResolvePlaylistMode("keyboard-24k"));
+        Assert.AreEqual(48, BmsonSongParser.ResolvePlaylistMode("keyboard-24k-double"));
+        Assert.IsNull(BmsonSongParser.ResolvePlaylistMode("unknown-mode"));
+    }
+
+    [TestMethod]
+    public void PendingChartEntry_UpdateFromBmsonSong_ReusesRowAndUpdatesDisplayFields()
+    {
+        PendingChartEntry row = PendingChartEntry.CreateFromBmsonSong(new BeMusicSeeker.Models.LR2.LR2SongDBExtended.bmson_song
+        {
+            path = @"C:\Songs\OldFolder\chart.bmson",
+            folder = @"C:\Songs\OldFolder",
+            title = "OldTitle",
+            artist = "OldArtist",
+            mode_hint = "beat-7k"
+        });
+
+        row.UpdateFromBmsonSong(new BeMusicSeeker.Models.LR2.LR2SongDBExtended.bmson_song
+        {
+            path = @"C:\Songs\NewFolder\chart.bmson",
+            folder = @"C:\Songs\NewFolder",
+            title = "NewTitle",
+            artist = "NewArtist",
+            mode_hint = "keyboard-24k"
+        });
+
+        Assert.AreEqual(@"C:\Songs\NewFolder\chart.bmson", row.path);
+        Assert.AreEqual("NewFolder", row.Folder);
+        Assert.AreEqual("NewTitle", row.Title);
+        Assert.AreEqual("NewArtist", row.Artist);
+        Assert.AreEqual(24, row.mode);
     }
 }

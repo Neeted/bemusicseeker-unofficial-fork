@@ -37,10 +37,11 @@ public sealed class BmsLibraryStateApplierTests
             }
 
             List<BMSFile> libraryFiles = new List<BMSFile>();
+            List<LR2SongDBExtended.bmson_song> bmsonSongs = new List<LR2SongDBExtended.bmson_song>();
             DispatcherCollection<BMSPackage> pendingPackages = CreatePackageCollection(new[] { removedPackage, remainingPackage });
             DispatcherCollection<BMSPackage> installedPackages = CreatePackageCollection(Array.Empty<BMSPackage>());
             TrackingCallbacks callbacks = new TrackingCallbacks();
-            BmsLibraryStateApplier applier = CreateStateApplier(songDbPath, callbacks, () => libraryFiles, files => libraryFiles = files, () => pendingPackages, packages => pendingPackages = packages, () => installedPackages, packages => installedPackages = packages);
+            BmsLibraryStateApplier applier = CreateStateApplier(songDbPath, callbacks, () => libraryFiles, files => libraryFiles = files, () => bmsonSongs, songs => bmsonSongs = songs, () => pendingPackages, packages => pendingPackages = packages, () => installedPackages, packages => installedPackages = packages);
 
             applier.ApplyPendingPackageMutationDelta(new PendingPackageMutationDelta
             {
@@ -71,8 +72,12 @@ public sealed class BmsLibraryStateApplierTests
             Directory.CreateDirectory(newDirectoryPath);
             string oldChartPath = Path.Combine(oldDirectoryPath, "chart.bms");
             string newChartPath = Path.Combine(newDirectoryPath, "chart.bms");
+            string oldBmsonPath = Path.Combine(oldDirectoryPath, "chart.bmson");
+            string newBmsonPath = Path.Combine(newDirectoryPath, "chart.bmson");
             File.WriteAllText(oldChartPath, "#PLAYER 1");
             File.WriteAllText(newChartPath, "#PLAYER 1");
+            File.WriteAllText(oldBmsonPath, "{}");
+            File.WriteAllText(newBmsonPath, "{}");
             try
             {
                 TestableBmsFile movedFile = new TestableBmsFile
@@ -95,6 +100,7 @@ public sealed class BmsLibraryStateApplierTests
                     songDb.CreateTable<LR2SongDB.song>();
                     songDb.CreateTable<LR2SongDB.folder>();
                     songDb.CreateTable<LR2SongDBExtended.maintenance>();
+                    songDb.CreateTable<LR2SongDBExtended.bmson_song>();
                     TestableBmsFile oldRow = new TestableBmsFile
                     {
                         path = oldChartPath
@@ -108,13 +114,26 @@ public sealed class BmsLibraryStateApplierTests
                         parent = "e2977170",
                         type = 1
                     }, typeof(LR2SongDB.folder));
+                    songDb.InsertOrReplace(new LR2SongDBExtended.bmson_song
+                    {
+                        path = oldBmsonPath,
+                        folder = oldDirectoryPath
+                    }, typeof(LR2SongDBExtended.bmson_song));
                 }
 
                 List<BMSFile> libraryFiles = new List<BMSFile> { movedFile };
+                List<LR2SongDBExtended.bmson_song> bmsonSongs = new List<LR2SongDBExtended.bmson_song>
+                {
+                    new LR2SongDBExtended.bmson_song
+                    {
+                        path = oldBmsonPath,
+                        folder = oldDirectoryPath
+                    }
+                };
                 DispatcherCollection<BMSPackage> pendingPackages = CreatePackageCollection(Array.Empty<BMSPackage>());
                 DispatcherCollection<BMSPackage> installedPackages = CreatePackageCollection(new[] { installedPackage });
                 TrackingCallbacks callbacks = new TrackingCallbacks();
-                BmsLibraryStateApplier applier = CreateStateApplier(songDbPath, callbacks, () => libraryFiles, files => libraryFiles = files, () => pendingPackages, packages => pendingPackages = packages, () => installedPackages, packages => installedPackages = packages);
+                BmsLibraryStateApplier applier = CreateStateApplier(songDbPath, callbacks, () => libraryFiles, files => libraryFiles = files, () => bmsonSongs, songs => bmsonSongs = songs, () => pendingPackages, packages => pendingPackages = packages, () => installedPackages, packages => installedPackages = packages);
                 LibraryMutationDelta delta = new LibraryMutationDelta
                 {
                     RaiseBmsFilesChanged = true,
@@ -134,6 +153,12 @@ public sealed class BmsLibraryStateApplierTests
                     File = movedFile,
                     OldPath = oldChartPath,
                     NewPath = newChartPath
+                });
+                delta.BmsonSongPathChanges.Add(new LibraryBmsonSongPathChange
+                {
+                    Song = bmsonSongs[0],
+                    OldPath = oldBmsonPath,
+                    NewPath = newBmsonPath
                 });
                 delta.UpdatedInstallDestinations.Add(new LibraryInstallDestinationChange
                 {
@@ -157,12 +182,16 @@ public sealed class BmsLibraryStateApplierTests
                 Assert.AreEqual(1, callbacks.ClearDuplicatedCount);
                 Assert.AreEqual(1, callbacks.BmsFilesChangedCount);
                 Assert.AreEqual(1, callbacks.InstalledPackagesChangedCount);
+                Assert.AreEqual(0, callbacks.BmsonSongsSetCount);
+                Assert.AreEqual(newBmsonPath, bmsonSongs[0].path);
                 using LR2SongDBExtended verifySongDb = new LR2SongDBExtended(songDbPath);
                 verifySongDb.CreateTable<LR2SongDB.song>();
                 verifySongDb.CreateTable<LR2SongDB.folder>();
+                verifySongDb.CreateTable<LR2SongDBExtended.bmson_song>();
                 Assert.IsTrue(verifySongDb.Table<BMSFile>().Any((BMSFile file) => file.path == newChartPath));
                 Assert.IsFalse(verifySongDb.Table<BMSFile>().Any((BMSFile file) => file.path == oldChartPath));
                 Assert.IsTrue(verifySongDb.Table<LR2SongDB.folder>().Any((LR2SongDB.folder folder) => folder.path == newDirectoryPath.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar));
+                Assert.IsTrue(verifySongDb.Table<LR2SongDBExtended.bmson_song>().Any((LR2SongDBExtended.bmson_song song) => song.path == newBmsonPath));
             }
             finally
             {
@@ -210,10 +239,11 @@ public sealed class BmsLibraryStateApplierTests
             }
 
             List<BMSFile> libraryFiles = new List<BMSFile> { removedFile, keptFile };
+            List<LR2SongDBExtended.bmson_song> bmsonSongs = new List<LR2SongDBExtended.bmson_song>();
             DispatcherCollection<BMSPackage> pendingPackages = CreatePackageCollection(Array.Empty<BMSPackage>());
             DispatcherCollection<BMSPackage> installedPackages = CreatePackageCollection(new[] { removedPackage, keptPackage });
             TrackingCallbacks callbacks = new TrackingCallbacks();
-            BmsLibraryStateApplier applier = CreateStateApplier(songDbPath, callbacks, () => libraryFiles, files => libraryFiles = files, () => pendingPackages, packages => pendingPackages = packages, () => installedPackages, packages => installedPackages = packages);
+            BmsLibraryStateApplier applier = CreateStateApplier(songDbPath, callbacks, () => libraryFiles, files => libraryFiles = files, () => bmsonSongs, songs => bmsonSongs = songs, () => pendingPackages, packages => pendingPackages = packages, () => installedPackages, packages => installedPackages = packages);
 
             applier.UnregisterBmsFiles(new[] { removedFile });
 
@@ -232,11 +262,54 @@ public sealed class BmsLibraryStateApplierTests
         });
     }
 
+    [TestMethod]
+    public void UnregisterBmsonSongs_RemovesSongsFromCollectionAndDatabase()
+    {
+        WithTemporarySongDb(delegate(string songDbPath)
+        {
+            LR2SongDBExtended.bmson_song removedSong = new LR2SongDBExtended.bmson_song
+            {
+                path = "C:\\Library\\remove.bmson",
+                folder = "C:\\Library"
+            };
+            LR2SongDBExtended.bmson_song keptSong = new LR2SongDBExtended.bmson_song
+            {
+                path = "C:\\Library\\keep.bmson",
+                folder = "C:\\Library"
+            };
+            using (LR2SongDBExtended songDb = new LR2SongDBExtended(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDBExtended.bmson_song>();
+                songDb.InsertOrReplace(removedSong, typeof(LR2SongDBExtended.bmson_song));
+                songDb.InsertOrReplace(keptSong, typeof(LR2SongDBExtended.bmson_song));
+            }
+
+            List<BMSFile> libraryFiles = new List<BMSFile>();
+            List<LR2SongDBExtended.bmson_song> bmsonSongs = new List<LR2SongDBExtended.bmson_song> { removedSong, keptSong };
+            DispatcherCollection<BMSPackage> pendingPackages = CreatePackageCollection(Array.Empty<BMSPackage>());
+            DispatcherCollection<BMSPackage> installedPackages = CreatePackageCollection(Array.Empty<BMSPackage>());
+            TrackingCallbacks callbacks = new TrackingCallbacks();
+            BmsLibraryStateApplier applier = CreateStateApplier(songDbPath, callbacks, () => libraryFiles, files => libraryFiles = files, () => bmsonSongs, songs => bmsonSongs = songs, () => pendingPackages, packages => pendingPackages = packages, () => installedPackages, packages => installedPackages = packages);
+
+            applier.UnregisterBmsonSongs(new[] { removedSong });
+
+            Assert.AreEqual(1, bmsonSongs.Count);
+            Assert.AreSame(keptSong, bmsonSongs.Single());
+            Assert.AreEqual(1, callbacks.BmsonSongsSetCount);
+            using LR2SongDBExtended verifySongDb = new LR2SongDBExtended(songDbPath);
+            verifySongDb.CreateTable<LR2SongDBExtended.bmson_song>();
+            Assert.IsFalse(verifySongDb.Table<LR2SongDBExtended.bmson_song>().Any((LR2SongDBExtended.bmson_song song) => song.path == removedSong.path));
+            Assert.IsTrue(verifySongDb.Table<LR2SongDBExtended.bmson_song>().Any((LR2SongDBExtended.bmson_song song) => song.path == keptSong.path));
+        });
+    }
+
     private static BmsLibraryStateApplier CreateStateApplier(
         string songDbPath,
         TrackingCallbacks callbacks,
         Func<List<BMSFile>> getBmsFiles,
         Action<List<BMSFile>> setBmsFiles,
+        Func<List<LR2SongDBExtended.bmson_song>> getBmsonSongs,
+        Action<List<LR2SongDBExtended.bmson_song>> setBmsonSongs,
         Func<DispatcherCollection<BMSPackage>> getPendingPackages,
         Action<DispatcherCollection<BMSPackage>> setPendingPackages,
         Func<DispatcherCollection<BMSPackage>> getInstalledPackages,
@@ -249,6 +322,12 @@ public sealed class BmsLibraryStateApplierTests
             {
                 callbacks.BmsFilesSetCount++;
                 setBmsFiles(files);
+            },
+            getBmsonSongs,
+            delegate (List<LR2SongDBExtended.bmson_song> songs)
+            {
+                callbacks.BmsonSongsSetCount++;
+                setBmsonSongs(songs);
             },
             getPendingPackages,
             delegate (DispatcherCollection<BMSPackage> packages)
@@ -301,6 +380,8 @@ public sealed class BmsLibraryStateApplierTests
         public int PendingPackagesSetCount { get; set; }
 
         public int InstalledPackagesSetCount { get; set; }
+
+        public int BmsonSongsSetCount { get; set; }
 
         public int BmsHashInvalidationCount { get; set; }
 

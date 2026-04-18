@@ -7,6 +7,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Runtime.ExceptionServices;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -4055,6 +4056,8 @@ public class MainWindowViewModel : ViewModel
 
     private bool deferredPlaylistSummaryRefreshRequested;
 
+    private bool deferredPlaylistSummaryPresentationRefreshRequested;
+
     private int deferredPlaylistRefRequestedVersion;
 
     private bool deferredPlaylistRefRunning;
@@ -4137,6 +4140,10 @@ public class MainWindowViewModel : ViewModel
 
     private ListSortDirection? folderSortDirection;
 
+    private readonly Dictionary<string, PendingChartEntry> bmsonLibraryRowsByPath = new Dictionary<string, PendingChartEntry>(StringComparer.OrdinalIgnoreCase);
+
+    private readonly Dictionary<LR2SongDBExtended.bmson_song, PendingChartEntry> bmsonLibraryRowsBySong = new Dictionary<LR2SongDBExtended.bmson_song, PendingChartEntry>(BmsonSongReferenceComparer.Instance);
+
     private static long callbackExecSortRaiseRequestId;
 
     private const long CallbackExecSortSlowLogThresholdMs = 100L;
@@ -4182,6 +4189,12 @@ public class MainWindowViewModel : ViewModel
     private ObservableCollection<PlaylistSummaryRow> _PlaylistSummaryView = new ObservableCollection<PlaylistSummaryRow>();
 
     private WeakReference<ObservableCollection<PlaylistSummaryRow>> previousPlaylistSummaryViewWeakReference;
+
+    private readonly object lockPlaylistSummaryRowsCache = new object();
+
+    private List<PlaylistSummaryRow> playlistSummaryRowsCache = new List<PlaylistSummaryRow>();
+
+    private bool playlistSummaryRowsCacheValid;
 
     private bool _IsPlaylistSummaryMode;
 
@@ -4298,6 +4311,35 @@ public class MainWindowViewModel : ViewModel
     private viewUpdateMode treeViewFilterTypeSelected = viewUpdateMode.FolderFilterSelected;
 
     private object treeViewFilterParameterSelected;
+
+    private sealed class DuplicateViewContext
+    {
+        internal DuplicateViewContextKind Kind { get; }
+
+        internal string Value { get; }
+
+        private DuplicateViewContext(DuplicateViewContextKind kind, string value)
+        {
+            Kind = kind;
+            Value = value;
+        }
+
+        internal static DuplicateViewContext ForGroup(string header)
+        {
+            return new DuplicateViewContext(DuplicateViewContextKind.GroupHeader, header);
+        }
+
+        internal static DuplicateViewContext ForFolder(string folderPath)
+        {
+            return new DuplicateViewContext(DuplicateViewContextKind.FolderPath, folderPath);
+        }
+    }
+
+    private enum DuplicateViewContextKind
+    {
+        GroupHeader,
+        FolderPath
+    }
 
     private static string scoreRegisterUrl = "https://bms-score-viewer-backend.sayakaisbaka.workers.dev/bms/score/register";
 
@@ -5679,6 +5721,14 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
+    private void RequestDeferredPlaylistSummaryPresentationRefresh()
+    {
+        lock (lockUiSuppression)
+        {
+            deferredPlaylistSummaryPresentationRefreshRequested = true;
+        }
+    }
+
     private bool ConsumeDeferredPlaylistSummaryRefresh()
     {
         lock (lockUiSuppression)
@@ -5686,6 +5736,46 @@ public class MainWindowViewModel : ViewModel
             bool result = deferredPlaylistSummaryRefreshRequested;
             deferredPlaylistSummaryRefreshRequested = false;
             return result;
+        }
+    }
+
+    private bool ConsumeDeferredPlaylistSummaryPresentationRefresh()
+    {
+        lock (lockUiSuppression)
+        {
+            bool result = deferredPlaylistSummaryPresentationRefreshRequested;
+            deferredPlaylistSummaryPresentationRefreshRequested = false;
+            return result;
+        }
+    }
+
+    private void InvalidatePlaylistSummaryRowsCache()
+    {
+        lock (lockPlaylistSummaryRowsCache)
+        {
+            playlistSummaryRowsCache.Clear();
+            playlistSummaryRowsCacheValid = false;
+        }
+    }
+
+    private void SetPlaylistSummaryRowsCache(IEnumerable<PlaylistSummaryRow> rows)
+    {
+        lock (lockPlaylistSummaryRowsCache)
+        {
+            playlistSummaryRowsCache = (rows ?? Enumerable.Empty<PlaylistSummaryRow>()).ToList();
+            playlistSummaryRowsCacheValid = true;
+        }
+    }
+
+    private List<PlaylistSummaryRow> GetPlaylistSummaryRowsCacheSnapshot()
+    {
+        lock (lockPlaylistSummaryRowsCache)
+        {
+            if (!playlistSummaryRowsCacheValid)
+            {
+                return null;
+            }
+            return playlistSummaryRowsCache.ToList();
         }
     }
 
@@ -5960,9 +6050,15 @@ public class MainWindowViewModel : ViewModel
         }
         stopwatchTotal.Stop();
         LogUiSuppression("ui_suppress flush_install_tree_ms=" + num + " flush_playlist_tree_ms=" + num2 + " flush_library_folder_tree_ms=" + num3 + " flush_duplicate_tree_ms=" + num4 + " flush_library_main_view_ms=" + num5 + " flush_total_ms=" + stopwatchTotal.ElapsedMilliseconds + " deferred_library_folder_tree=" + flag);
-        if (IsPlaylistSummaryMode && (((mask & (UiRefreshChannel.PlaylistTree | UiRefreshChannel.LibraryMainView)) != 0) || ConsumeDeferredPlaylistSummaryRefresh()))
+        bool playlistSummaryDataRefreshRequired = ((mask & (UiRefreshChannel.PlaylistTree | UiRefreshChannel.LibraryMainView)) != 0) || ConsumeDeferredPlaylistSummaryRefresh();
+        bool playlistSummaryPresentationRefreshRequired = ConsumeDeferredPlaylistSummaryPresentationRefresh();
+        if (IsPlaylistSummaryMode && playlistSummaryDataRefreshRequired)
         {
             RebuildPlaylistSummaryView();
+        }
+        else if (IsPlaylistSummaryMode && playlistSummaryPresentationRefreshRequired)
+        {
+            RefreshPlaylistSummaryPresentationIfVisible();
         }
         TryLogStartupReadyUi(mask);
         TryLogStartupReadyInstall(mask);
@@ -7327,7 +7423,7 @@ public class MainWindowViewModel : ViewModel
                 RaisePropertyChanged("PlaylistSummaryKeywordFilter");
                 if (IsPlaylistSummaryMode)
                 {
-                    RefreshPlaylistSummaryIfVisible();
+                    RefreshPlaylistSummaryPresentationIfVisible();
                 }
             }
         }
@@ -7347,7 +7443,7 @@ public class MainWindowViewModel : ViewModel
                 RaisePropertyChanged("PlaylistSummaryOwnedFilter");
                 if (IsPlaylistSummaryMode)
                 {
-                    RefreshPlaylistSummaryIfVisible();
+                    RefreshPlaylistSummaryPresentationIfVisible();
                 }
             }
         }
@@ -8140,7 +8236,10 @@ public class MainWindowViewModel : ViewModel
             if (Enum.IsDefined(typeof(MaintenanceFilterType), (int)treeViewFilterTypeSelected))
             {
                 MaintenanceFilterType type = (MaintenanceFilterType)treeViewFilterTypeSelected;
-                ExecMaintenanceFilter(type);
+                if (type != MaintenanceFilterType.DuplicateFilter)
+                {
+                    ExecMaintenanceFilter(type);
+                }
             }
             else
             {
@@ -8151,12 +8250,19 @@ public class MainWindowViewModel : ViewModel
         listenerForBMSLibrary.RegisterHandler(() => files.BmsonSongs, delegate
         {
             InvalidatePlaylistLibraryIndexSnapshot("library_bmsons_changed");
+            bool membershipChanged = SyncBmsonLibraryRowCache(files?.BmsonSongs);
+            RefreshPlaylistSummaryIfVisible();
             if (TrySuppress(UiRefreshChannel.LibraryMainView))
             {
                 return;
             }
-            if (IsPlaylistDetailViewActive)
+            if (!ShouldIncludeBmsonLibraryRowsInMainView(treeViewFilterTypeSelected, treeViewFilterTypeSelected))
             {
+                return;
+            }
+            if (membershipChanged)
+            {
+                ResetRegularDerivedViewCaches();
                 makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
             }
         });
@@ -8249,6 +8355,11 @@ public class MainWindowViewModel : ViewModel
             {
                 if (TrySuppress(UiRefreshChannel.LibraryMainView))
                 {
+                    return;
+                }
+                if (files.BMSFilesDuplicated == null)
+                {
+                    files.SearchBMSFilesDuplicated();
                     return;
                 }
                 makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
@@ -8636,6 +8747,10 @@ public class MainWindowViewModel : ViewModel
         {
             return;
         }
+        if (PendingChartEntry.IsBmsonChartFile(bmsFile))
+        {
+            return;
+        }
         nowPlayingBmsFilesViewIndex = indexBMSFilesView;
         if (bmsFile == null || string.IsNullOrWhiteSpace(bmsFile.path) || !File.Exists(bmsFile.path))
         {
@@ -8841,7 +8956,7 @@ public class MainWindowViewModel : ViewModel
                     {
                         break;
                     }
-                    string text2 = (bMSFile != null && !string.IsNullOrWhiteSpace(bMSFile.path) && File.Exists(bMSFile.path)) ? Path.GetDirectoryName(bMSFile.path) : num.ToString();
+                    string text2 = (bMSFile != null && !PendingChartEntry.IsBmsonChartFile(bMSFile) && !string.IsNullOrWhiteSpace(bMSFile.path) && File.Exists(bMSFile.path)) ? Path.GetDirectoryName(bMSFile.path) : num.ToString();
                     if (!string.IsNullOrWhiteSpace(text2) && text != text2)
                     {
                         break;
@@ -8904,7 +9019,7 @@ public class MainWindowViewModel : ViewModel
                     {
                         break;
                     }
-                    string text2 = (bMSFile != null && !string.IsNullOrWhiteSpace(bMSFile.path) && File.Exists(bMSFile.path)) ? Path.GetDirectoryName(bMSFile.path) : num.ToString();
+                    string text2 = (bMSFile != null && !PendingChartEntry.IsBmsonChartFile(bMSFile) && !string.IsNullOrWhiteSpace(bMSFile.path) && File.Exists(bMSFile.path)) ? Path.GetDirectoryName(bMSFile.path) : num.ToString();
                     if (!string.IsNullOrWhiteSpace(text2) && text != text2)
                     {
                         break;
@@ -9711,6 +9826,10 @@ public class MainWindowViewModel : ViewModel
         }
         else if (mode < viewUpdateMode.KeywordFilterUpdated)
         {
+            if (mode == viewUpdateMode.DuplicateFilterSelected)
+            {
+                parameter = NormalizeDuplicateViewParameter(parameter);
+            }
             treeViewFilterTypeSelected = mode;
             treeViewFilterParameterSelected = parameter;
         }
@@ -9724,6 +9843,11 @@ public class MainWindowViewModel : ViewModel
             RegisterPlaylistSourceBuildRequest(mode, requestedMode, parameter);
             return;
         }
+        bool includeBmsonRows = ShouldIncludeBmsonLibraryRowsInMainView(mode, treeViewFilterTypeSelected);
+        if (includeBmsonRows)
+        {
+            SyncBmsonLibraryRowCache(files?.BmsonSongs);
+        }
         ClearPlaylistSourceRows();
         if (ShouldRebuildRegularFolderStage(mode, BMSFilesFolderView, BMSFilesKeywordFilterView, BMSFilesModeFilterView, treeViewFilterTypeSelected))
         {
@@ -9733,14 +9857,7 @@ public class MainWindowViewModel : ViewModel
         switch (mode)
         {
             case viewUpdateMode.FolderFilterSelected:
-                if (FolderFilter != null && BMSFiles.Count() != 0)
-                {
-                    BMSFilesFolderView = BMSFiles.AsParallel().Where(FolderFilter);
-                }
-                else
-                {
-                    BMSFilesFolderView = BMSFiles;
-                }
+                BMSFilesFolderView = BuildStandardLibraryRowsForView(BMSFiles, includeBmsonRows ? GetBmsonLibraryRowsSnapshot() : Enumerable.Empty<BeMusicSeeker.Models.BMSFile>(), FolderFilter);
                 break;
             case viewUpdateMode.FileMissingFilterSelected:
                 BMSFilesFolderView = BMSFilesToBeFixed;
@@ -9754,9 +9871,34 @@ public class MainWindowViewModel : ViewModel
                     BMSFilesFolderView = null;
                     break;
                 }
+                parameter = NormalizeDuplicateViewParameter(parameter);
                 if (parameter != null)
                 {
-                    if (parameter is List<BeMusicSeeker.Models.BMSFile>)
+                    if (parameter is DuplicateViewContext duplicateContext)
+                    {
+                        if (duplicateContext.Kind == DuplicateViewContextKind.GroupHeader)
+                        {
+                            DuplicateGroup duplicateGroup = BMSFilesDuplicated.FirstOrDefault((DuplicateGroup group) => string.Equals(group.Header, duplicateContext.Value, StringComparison.Ordinal));
+                            BMSFilesFolderView = ((duplicateGroup != null) ? duplicateGroup.Files : BMSFilesDuplicated.SelectMany((DuplicateGroup g) => g.Files));
+                        }
+                        else
+                        {
+                            string dirname2 = duplicateContext.Value;
+                            RetryHelper.RetryIfError(delegate
+                            {
+                                BMSFilesFolderView = from f in BMSFilesDuplicated.SelectMany((DuplicateGroup g) => g.Files)
+                                                     where f.path.StartsWith(dirname2 + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+                                                     select f;
+                            }, delegate (Exception ex)
+                            {
+                                ExceptionDispatchInfo.Capture(ex).Throw();
+                            }, delegate
+                            {
+                                Thread.Sleep(100);
+                            }, 100u);
+                        }
+                    }
+                    else if (parameter is List<BeMusicSeeker.Models.BMSFile>)
                     {
                         BMSFilesFolderView = parameter as List<BeMusicSeeker.Models.BMSFile>;
                     }
@@ -10044,6 +10186,128 @@ public class MainWindowViewModel : ViewModel
         LogMainViewBuild("main_view_build mode=" + mode + " requestedMode=" + requestedMode + " parameterType=" + parameterType + " folderMs=" + folderStageMs + " keywordMs=" + keywordStageMs + " modeMs=" + modeStageMs + " sortMs=" + sortStageMs + " sortReuse=" + sortReuse + " sortProfile=" + sortProfile + " sortEngine=" + (fastSortEnabled ? "fast" : "legacy") + " fastSortEnabled=" + fastSortEnabled + " dataGridColumnVirtualizationEnabled=" + dataGridColumnVirtualizationEnabled + " isPlaylistDetailView=" + isPlaylistDetailForLog + " columnMs=" + columnStageMs + " callbackMs=" + callbackStageMs + " totalMs=" + viewBuildStopwatch.ElapsedMilliseconds + " folderCount=" + folderCount + " keywordCount=" + keywordCount + " modeCount=" + modeCount + " viewCount=" + viewCount + " sortColumn=" + sortColumn + " sortDirection=" + sortDirection);
     }
 
+    internal static List<BeMusicSeeker.Models.BMSFile> BuildStandardLibraryRowsForView(
+        IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles,
+        IEnumerable<BeMusicSeeker.Models.BMSFile> bmsonRows,
+        Func<BeMusicSeeker.Models.BMSFile, bool> folderFilter)
+    {
+        IEnumerable<BeMusicSeeker.Models.BMSFile> regularRows = (bmsFiles ?? Enumerable.Empty<BeMusicSeeker.Models.BMSFile>()).Where((BeMusicSeeker.Models.BMSFile file) => file != null);
+        IEnumerable<BeMusicSeeker.Models.BMSFile> normalizedBmsonRows = (bmsonRows ?? Enumerable.Empty<BeMusicSeeker.Models.BMSFile>()).Where((BeMusicSeeker.Models.BMSFile file) => file != null);
+        if (folderFilter != null)
+        {
+            regularRows = regularRows.AsParallel().Where(folderFilter);
+            normalizedBmsonRows = normalizedBmsonRows.AsParallel().Where(folderFilter);
+        }
+        return regularRows.Concat(normalizedBmsonRows).ToList();
+    }
+
+    private static bool ShouldIncludeBmsonLibraryRowsInMainView(viewUpdateMode mode, viewUpdateMode currentTreeMode)
+    {
+        if (IsPlaylistTreeActive(mode, currentTreeMode))
+        {
+            return false;
+        }
+        if (Enum.IsDefined(typeof(MaintenanceFilterType), (int)mode))
+        {
+            return false;
+        }
+        if (Enum.IsDefined(typeof(InstallFilterType), (int)mode))
+        {
+            return false;
+        }
+        return true;
+    }
+
+    private static object NormalizeDuplicateViewParameter(object parameter)
+    {
+        if (parameter == null || parameter is DuplicateViewContext || parameter is List<BeMusicSeeker.Models.BMSFile>)
+        {
+            return parameter;
+        }
+        if (parameter is DuplicateGroup duplicateGroup)
+        {
+            return DuplicateViewContext.ForGroup(duplicateGroup.Header);
+        }
+        if (parameter is string folderPath)
+        {
+            return DuplicateViewContext.ForFolder(folderPath);
+        }
+        return null;
+    }
+
+    private List<BeMusicSeeker.Models.BMSFile> GetBmsonLibraryRowsSnapshot()
+    {
+        return bmsonLibraryRowsByPath.Values
+            .OrderBy((PendingChartEntry row) => row.path ?? string.Empty, StringComparer.OrdinalIgnoreCase)
+            .Cast<BeMusicSeeker.Models.BMSFile>()
+            .ToList();
+    }
+
+    private bool SyncBmsonLibraryRowCache(IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs)
+    {
+        List<LR2SongDBExtended.bmson_song> snapshot = (bmsonSongs ?? Enumerable.Empty<LR2SongDBExtended.bmson_song>())
+            .Where((LR2SongDBExtended.bmson_song song) => song != null && !string.IsNullOrWhiteSpace(song.path))
+            .OrderBy((LR2SongDBExtended.bmson_song song) => song.path, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        HashSet<string> nextPaths = new HashSet<string>(snapshot.Select((LR2SongDBExtended.bmson_song song) => song.path), StringComparer.OrdinalIgnoreCase);
+        bool membershipChanged = bmsonLibraryRowsByPath.Count != nextPaths.Count || bmsonLibraryRowsByPath.Keys.Any((string path) => !nextPaths.Contains(path));
+        Dictionary<string, PendingChartEntry> nextByPath = new Dictionary<string, PendingChartEntry>(StringComparer.OrdinalIgnoreCase);
+        Dictionary<LR2SongDBExtended.bmson_song, PendingChartEntry> nextBySong = new Dictionary<LR2SongDBExtended.bmson_song, PendingChartEntry>(BmsonSongReferenceComparer.Instance);
+        foreach (LR2SongDBExtended.bmson_song song in snapshot)
+        {
+            PendingChartEntry row = null;
+            if (!bmsonLibraryRowsBySong.TryGetValue(song, out row))
+            {
+                bmsonLibraryRowsByPath.TryGetValue(song.path, out row);
+            }
+            if (row == null)
+            {
+                row = PendingChartEntry.CreateFromBmsonSong(song);
+                membershipChanged = true;
+            }
+            else
+            {
+                row.UpdateFromBmsonSong(song);
+            }
+            if (row != null)
+            {
+                nextByPath[song.path] = row;
+                nextBySong[song] = row;
+            }
+        }
+        bmsonLibraryRowsByPath.Clear();
+        foreach (KeyValuePair<string, PendingChartEntry> item2 in nextByPath)
+        {
+            bmsonLibraryRowsByPath[item2.Key] = item2.Value;
+        }
+        bmsonLibraryRowsBySong.Clear();
+        foreach (KeyValuePair<LR2SongDBExtended.bmson_song, PendingChartEntry> item3 in nextBySong)
+        {
+            bmsonLibraryRowsBySong[item3.Key] = item3.Value;
+        }
+        return membershipChanged;
+    }
+
+    private void SyncBmsonLibraryRowCacheWithoutRebuild()
+    {
+        SyncBmsonLibraryRowCache(files?.BmsonSongs);
+    }
+
+    private sealed class BmsonSongReferenceComparer : IEqualityComparer<LR2SongDBExtended.bmson_song>
+    {
+        internal static readonly BmsonSongReferenceComparer Instance = new BmsonSongReferenceComparer();
+
+        public bool Equals(LR2SongDBExtended.bmson_song x, LR2SongDBExtended.bmson_song y)
+        {
+            return ReferenceEquals(x, y);
+        }
+
+        public int GetHashCode(LR2SongDBExtended.bmson_song obj)
+        {
+            return RuntimeHelpers.GetHashCode(obj);
+        }
+    }
+
     public void LoadColumnSetting()
     {
         loadColumnSetting(viewUpdateMode.TreeViewFilterNotChanged, isInit: true);
@@ -10207,7 +10471,7 @@ public class MainWindowViewModel : ViewModel
                 ColumnsName = columnName,
                 Direction = direction
             };
-            RefreshPlaylistSummaryIfVisible();
+            RefreshPlaylistSummaryPresentationIfVisible();
         }
     }
 
@@ -11339,10 +11603,31 @@ public class MainWindowViewModel : ViewModel
             GridHeaderText = string.Empty;
             GridSummaryText = string.Empty;
             ConsumeDeferredPlaylistSummaryRefresh();
+            ConsumeDeferredPlaylistSummaryPresentationRefresh();
         }
     }
 
     private void RefreshPlaylistSummaryIfVisible()
+    {
+        RefreshPlaylistSummaryDataIfVisible();
+    }
+
+    private void RefreshPlaylistSummaryDataIfVisible()
+    {
+        if (!IsPlaylistSummaryMode)
+        {
+            return;
+        }
+        InvalidatePlaylistSummaryRowsCache();
+        if (IsUiUpdateSuppressed())
+        {
+            RequestDeferredPlaylistSummaryRefresh();
+            return;
+        }
+        RebuildPlaylistSummaryView();
+    }
+
+    private void RefreshPlaylistSummaryPresentationIfVisible()
     {
         if (!IsPlaylistSummaryMode)
         {
@@ -11350,10 +11635,10 @@ public class MainWindowViewModel : ViewModel
         }
         if (IsUiUpdateSuppressed())
         {
-            RequestDeferredPlaylistSummaryRefresh();
+            RequestDeferredPlaylistSummaryPresentationRefresh();
             return;
         }
-        RebuildPlaylistSummaryView();
+        ApplyPlaylistSummaryPresentation();
     }
 
     public void SelectPlaylistSummary()
@@ -11367,97 +11652,15 @@ public class MainWindowViewModel : ViewModel
         Action action = delegate
         {
             Stopwatch stopwatch = Stopwatch.StartNew();
-            List<PlaylistSummaryRow> list = new List<PlaylistSummaryRow>();
-            Dictionary<string, PlaylistSyncRuntimeStatus> playlistSyncStatusSnapshot = GetPlaylistSyncStatusSnapshot();
-            BMSLibrary.PlaylistSummaryOwnedHashSnapshot playlistSummaryOwnedHashSnapshot = files?.GetPlaylistSummaryOwnedHashSnapshot();
-            HashSet<string> ownedMd5Hashes = playlistSummaryOwnedHashSnapshot?.Md5Hashes ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            HashSet<string> ownedSha256Hashes = playlistSummaryOwnedHashSnapshot?.Sha256Hashes ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            List<BMSTable> list2 = new List<BMSTable>();
-            if (tables != null)
-            {
-                tables.AcquireReaderLockBMSTables();
-                try
-                {
-                    list2 = BMSTables.Where((BMSTable t) => t != null).OrderBy((BMSTable t) => t.name ?? string.Empty).ToList();
-                }
-                finally
-                {
-                    tables.FreeReaderLockBMSTables();
-                }
-            }
-            foreach (BMSTable item2 in list2)
-            {
-                HashSet<string> keySet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                int ownedCount = 0;
-                foreach (BMSTableEntry item3 in item2.GetEntriesExceptDummy())
-                {
-                    if (item3.is_removed)
-                    {
-                        continue;
-                    }
-                    string key = !string.IsNullOrWhiteSpace(item3.md5) ? ("md5:" + item3.md5) : ((!string.IsNullOrWhiteSpace(item3.sha256)) ? ("sha256:" + item3.sha256) : null);
-                    if (string.IsNullOrWhiteSpace(key) || !keySet.Add(key))
-                    {
-                        continue;
-                    }
-                    if (!string.IsNullOrWhiteSpace(item3.md5))
-                    {
-                        if (ownedMd5Hashes.Contains(item3.md5))
-                        {
-                            ownedCount++;
-                        }
-                    }
-                    else if (!string.IsNullOrWhiteSpace(item3.sha256) && ownedSha256Hashes.Contains(item3.sha256))
-                    {
-                        ownedCount++;
-                    }
-                }
-                int count = keySet.Count;
-                int num = ownedCount;
-                PlaylistSyncRuntimeStatus playlistSyncRuntimeStatus = GetPlaylistSyncRuntimeStatus(item2, playlistSyncStatusSnapshot);
-                list.Add(new PlaylistSummaryRow
-                {
-                    PlaylistId = item2.playlist_id,
-                    Name = item2.name ?? string.Empty,
-                    Symbol = item2.symbol ?? string.Empty,
-                    LastUpdate = item2.last_update,
-                    TotalCharts = count,
-                    OwnedCharts = num,
-                    MissingCharts = count - num,
-                    OwnedRatio = ((count == 0) ? 0.0 : ((double)num * 100.0 / (double)count)),
-                    LinkUri = item2.Page_url ?? item2.GetAbsoluteHeaderUrl(),
-                    IsExternalSync = item2.is_external_sync,
-                    Status = playlistSyncRuntimeStatus.StatusText,
-                    StatusDetail = playlistSyncRuntimeStatus.Detail,
-                    StatusSortOrder = playlistSyncRuntimeStatus.StatusSortOrder,
-                    HasFailureStatus = playlistSyncRuntimeStatus.HasFailureStatus,
-                    IsRootFolder = item2.is_root_folder,
-                    TableRef = item2
-                });
-            }
+            BMSLibrary.PlaylistSummaryOwnedHashSnapshot playlistSummaryOwnedHashSnapshot;
+            int tableCount;
+            List<PlaylistSummaryRow> rows = BuildPlaylistSummaryRows(out playlistSummaryOwnedHashSnapshot, out tableCount);
             long buildMs = stopwatch.ElapsedMilliseconds;
-            List<PlaylistSummaryRow> filteredRows = ApplyPlaylistSummaryFilters(list).ToList();
-            long filterMs = stopwatch.ElapsedMilliseconds - buildMs;
-            bool useLegacySort = !Settings.Default.UseFastSortInDataGridExperimental;
-            List<PlaylistSummaryRow> rows = PlaylistSummarySortEngine.Sort(filteredRows, PlaylistSummarySortParameters, useLegacySort, out string sortProfile);
-            long sortMs = stopwatch.ElapsedMilliseconds - buildMs - filterMs;
-            Action reflect = delegate
-            {
-                PlaylistSummaryView = new ObservableCollection<PlaylistSummaryRow>(rows);
-                GridSummaryText = string.Format(BeMusicSeeker.Properties.Resources.Playlist_summary_format, rows.Sum((PlaylistSummaryRow r) => r.TotalCharts), rows.Count);
-            };
-            if (DispatcherHelper.UIDispatcher == null || DispatcherHelper.UIDispatcher.CheckAccess())
-            {
-                reflect();
-            }
-            else
-            {
-                DispatcherHelper.UIDispatcher.BeginInvoke(reflect);
-            }
+            SetPlaylistSummaryRowsCache(rows);
             string sortColumn = PlaylistSummarySortParameters?.ColumnsName ?? nameof(PlaylistSummaryRow.Name);
             string sortDirection = PlaylistSummarySortParameters?.Direction.ToString() ?? ListSortDirection.Ascending.ToString();
-            Interlocked.Exchange(ref lastPlaylistSummaryBuildElapsedMs, stopwatch.ElapsedMilliseconds);
-            LogMainViewBuild("playlist_summary_build tableCount=" + list2.Count + " rawCount=" + list.Count + " filteredCount=" + filteredRows.Count + " viewCount=" + rows.Count + " buildMs=" + buildMs + " filterMs=" + filterMs + " sortMs=" + sortMs + " totalMs=" + stopwatch.ElapsedMilliseconds + " ownedMd5Count=" + ownedMd5Hashes.Count + " ownedSha256Count=" + ownedSha256Hashes.Count + " ownedHashBuildMs=" + (playlistSummaryOwnedHashSnapshot?.BuildElapsedMs ?? 0L) + " sortColumn=" + sortColumn + " sortDirection=" + sortDirection + " sortProfile=" + sortProfile + " sortEngine=" + (useLegacySort ? "legacy" : "fast") + " fastSortEnabled=" + Settings.Default.UseFastSortInDataGridExperimental);
+            LogMainViewBuild("playlist_summary_build tableCount=" + tableCount + " rawCount=" + rows.Count + " buildMs=" + buildMs + " ownedMd5Count=" + (playlistSummaryOwnedHashSnapshot?.Md5Hashes?.Count ?? 0) + " ownedSha256Count=" + (playlistSummaryOwnedHashSnapshot?.Sha256Hashes?.Count ?? 0) + " ownedHashBuildMs=" + (playlistSummaryOwnedHashSnapshot?.BuildElapsedMs ?? 0L) + " sortColumn=" + sortColumn + " sortDirection=" + sortDirection);
+            ApplyPlaylistSummaryPresentation(rows, stopwatch, buildMs);
         };
         if (!runAsync)
         {
@@ -11469,19 +11672,192 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
+    private List<PlaylistSummaryRow> BuildPlaylistSummaryRows(out BMSLibrary.PlaylistSummaryOwnedHashSnapshot playlistSummaryOwnedHashSnapshot, out int tableCount)
+    {
+        List<PlaylistSummaryRow> rows = new List<PlaylistSummaryRow>();
+        Dictionary<string, PlaylistSyncRuntimeStatus> playlistSyncStatusSnapshot = GetPlaylistSyncStatusSnapshot();
+        playlistSummaryOwnedHashSnapshot = files?.GetPlaylistSummaryOwnedHashSnapshot();
+        HashSet<string> ownedMd5Hashes = playlistSummaryOwnedHashSnapshot?.Md5Hashes ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        HashSet<string> ownedSha256Hashes = playlistSummaryOwnedHashSnapshot?.Sha256Hashes ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        List<BMSTable> tablesSnapshot = new List<BMSTable>();
+        if (tables != null)
+        {
+            tables.AcquireReaderLockBMSTables();
+            try
+            {
+                tablesSnapshot = BMSTables.Where((BMSTable t) => t != null).OrderBy((BMSTable t) => t.name ?? string.Empty).ToList();
+            }
+            finally
+            {
+                tables.FreeReaderLockBMSTables();
+            }
+        }
+        tableCount = tablesSnapshot.Count;
+        foreach (BMSTable table in tablesSnapshot)
+        {
+            PlaylistSummaryCountResult countResult = CalculatePlaylistSummaryCounts(table.GetEntriesExceptDummy(), ownedMd5Hashes, ownedSha256Hashes);
+            int totalCharts = countResult.TotalCharts;
+            int ownedCharts = countResult.OwnedCharts;
+            PlaylistSyncRuntimeStatus playlistSyncRuntimeStatus = GetPlaylistSyncRuntimeStatus(table, playlistSyncStatusSnapshot);
+            rows.Add(new PlaylistSummaryRow
+            {
+                PlaylistId = table.playlist_id,
+                Name = table.name ?? string.Empty,
+                Symbol = table.symbol ?? string.Empty,
+                LastUpdate = table.last_update,
+                TotalCharts = totalCharts,
+                OwnedCharts = ownedCharts,
+                MissingCharts = totalCharts - ownedCharts,
+                OwnedRatio = ((totalCharts == 0) ? 0.0 : ((double)ownedCharts * 100.0 / (double)totalCharts)),
+                LinkUri = table.Page_url ?? table.GetAbsoluteHeaderUrl(),
+                IsExternalSync = table.is_external_sync,
+                Status = playlistSyncRuntimeStatus.StatusText,
+                StatusDetail = playlistSyncRuntimeStatus.Detail,
+                StatusSortOrder = playlistSyncRuntimeStatus.StatusSortOrder,
+                HasFailureStatus = playlistSyncRuntimeStatus.HasFailureStatus,
+                IsRootFolder = table.is_root_folder,
+                TableRef = table
+            });
+        }
+        return rows;
+    }
+
+    private void ApplyPlaylistSummaryPresentation()
+    {
+        List<PlaylistSummaryRow> cachedRows = GetPlaylistSummaryRowsCacheSnapshot();
+        if (cachedRows == null)
+        {
+            RebuildPlaylistSummaryView();
+            return;
+        }
+        ApplyPlaylistSummaryPresentation(cachedRows, Stopwatch.StartNew(), 0L);
+    }
+
+    private void ApplyPlaylistSummaryPresentation(List<PlaylistSummaryRow> rawRows, Stopwatch stopwatch, long buildMs)
+    {
+        List<PlaylistSummaryRow> safeRawRows = rawRows ?? new List<PlaylistSummaryRow>();
+        PlaylistSummaryPresentationResult presentationResult = BuildPlaylistSummaryPresentationRows(safeRawRows, PlaylistSummaryKeywordFilter, PlaylistSummaryOwnedFilter, PlaylistSummarySortParameters, !Settings.Default.UseFastSortInDataGridExperimental);
+        Action reflect = delegate
+        {
+            PlaylistSummaryView = new ObservableCollection<PlaylistSummaryRow>(presentationResult.Rows);
+            GridSummaryText = string.Format(BeMusicSeeker.Properties.Resources.Playlist_summary_format, presentationResult.Rows.Sum((PlaylistSummaryRow r) => r.TotalCharts), presentationResult.Rows.Count);
+        };
+        if (DispatcherHelper.UIDispatcher == null || DispatcherHelper.UIDispatcher.CheckAccess())
+        {
+            reflect();
+        }
+        else
+        {
+            DispatcherHelper.UIDispatcher.BeginInvoke(reflect);
+        }
+        Interlocked.Exchange(ref lastPlaylistSummaryBuildElapsedMs, stopwatch.ElapsedMilliseconds);
+        if (buildMs > 0)
+        {
+            LogMainViewBuild("playlist_summary_present inputCount=" + safeRawRows.Count + " filteredCount=" + presentationResult.FilteredCount + " viewCount=" + presentationResult.Rows.Count + " filterMs=" + presentationResult.FilterElapsedMs + " sortMs=" + presentationResult.SortElapsedMs + " totalMs=" + stopwatch.ElapsedMilliseconds + " sortColumn=" + presentationResult.SortColumn + " sortDirection=" + presentationResult.SortDirection + " sortProfile=" + presentationResult.SortProfile + " sortEngine=" + (presentationResult.UseLegacySort ? "legacy" : "fast") + " buildMs=" + buildMs);
+        }
+        else
+        {
+            LogMainViewBuild("playlist_summary_present inputCount=" + safeRawRows.Count + " filteredCount=" + presentationResult.FilteredCount + " viewCount=" + presentationResult.Rows.Count + " filterMs=" + presentationResult.FilterElapsedMs + " sortMs=" + presentationResult.SortElapsedMs + " totalMs=" + stopwatch.ElapsedMilliseconds + " sortColumn=" + presentationResult.SortColumn + " sortDirection=" + presentationResult.SortDirection + " sortProfile=" + presentationResult.SortProfile + " sortEngine=" + (presentationResult.UseLegacySort ? "legacy" : "fast"));
+        }
+    }
+
+    internal static PlaylistSummaryPresentationResult BuildPlaylistSummaryPresentationRows(IEnumerable<PlaylistSummaryRow> rows, string keywordFilter, PlaylistSummaryOwnedFilterType ownedFilter, cSortParameters sortParameters, bool useLegacySort)
+    {
+        Stopwatch stopwatch = Stopwatch.StartNew();
+        List<PlaylistSummaryRow> filteredRows = ApplyPlaylistSummaryFilters(rows, keywordFilter, ownedFilter).ToList();
+        long filterElapsedMs = stopwatch.ElapsedMilliseconds;
+        List<PlaylistSummaryRow> sortedRows = PlaylistSummarySortEngine.Sort(filteredRows, sortParameters, useLegacySort, out string sortProfile);
+        long sortElapsedMs = stopwatch.ElapsedMilliseconds - filterElapsedMs;
+        return new PlaylistSummaryPresentationResult
+        {
+            Rows = sortedRows,
+            FilteredCount = filteredRows.Count,
+            FilterElapsedMs = filterElapsedMs,
+            SortElapsedMs = sortElapsedMs,
+            SortProfile = sortProfile,
+            SortColumn = sortParameters?.ColumnsName ?? nameof(PlaylistSummaryRow.Name),
+            SortDirection = sortParameters?.Direction.ToString() ?? ListSortDirection.Ascending.ToString(),
+            UseLegacySort = useLegacySort
+        };
+    }
+
+    internal static PlaylistSummaryCountResult CalculatePlaylistSummaryCounts(IEnumerable<BMSTableEntry> entries, HashSet<string> ownedMd5Hashes, HashSet<string> ownedSha256Hashes)
+    {
+        PlaylistSummaryCountResult result = default(PlaylistSummaryCountResult);
+        HashSet<string> safeOwnedMd5Hashes = ownedMd5Hashes ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        HashSet<string> safeOwnedSha256Hashes = ownedSha256Hashes ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (BMSTableEntry entry in entries ?? Enumerable.Empty<BMSTableEntry>())
+        {
+            if (entry == null || entry.is_removed)
+            {
+                continue;
+            }
+            bool hasMd5 = !string.IsNullOrWhiteSpace(entry.md5);
+            bool hasSha256 = !string.IsNullOrWhiteSpace(entry.sha256);
+            if (!hasMd5 && !hasSha256)
+            {
+                continue;
+            }
+            result.TotalCharts++;
+            if (hasMd5)
+            {
+                if (safeOwnedMd5Hashes.Contains(entry.md5))
+                {
+                    result.OwnedCharts++;
+                }
+            }
+            else if (safeOwnedSha256Hashes.Contains(entry.sha256))
+            {
+                result.OwnedCharts++;
+            }
+        }
+        return result;
+    }
+
+    internal struct PlaylistSummaryCountResult
+    {
+        internal int TotalCharts;
+
+        internal int OwnedCharts;
+    }
+
+    internal struct PlaylistSummaryPresentationResult
+    {
+        internal List<PlaylistSummaryRow> Rows;
+
+        internal int FilteredCount;
+
+        internal long FilterElapsedMs;
+
+        internal long SortElapsedMs;
+
+        internal string SortProfile;
+
+        internal string SortColumn;
+
+        internal string SortDirection;
+
+        internal bool UseLegacySort;
+    }
+
     private IEnumerable<PlaylistSummaryRow> ApplyPlaylistSummaryFilters(IEnumerable<PlaylistSummaryRow> rows)
     {
+        return ApplyPlaylistSummaryFilters(rows, PlaylistSummaryKeywordFilter, PlaylistSummaryOwnedFilter);
+    }
+
+    internal static IEnumerable<PlaylistSummaryRow> ApplyPlaylistSummaryFilters(IEnumerable<PlaylistSummaryRow> rows, string keywordFilter, PlaylistSummaryOwnedFilterType ownedFilter)
+    {
         IEnumerable<PlaylistSummaryRow> source = rows ?? Enumerable.Empty<PlaylistSummaryRow>();
-        string text = (PlaylistSummaryKeywordFilter ?? string.Empty).Trim();
+        string text = (keywordFilter ?? string.Empty).Trim();
         if (!string.IsNullOrWhiteSpace(text))
         {
             string keywordUpper = text.ToUpperInvariant();
             source = source.Where((PlaylistSummaryRow row) => IsPlaylistSummaryRowMatchedKeyword(row, keywordUpper));
         }
-        return source.Where(IsPlaylistSummaryRowMatchedOwnedFilter);
+        return source.Where((PlaylistSummaryRow row) => IsPlaylistSummaryRowMatchedOwnedFilter(row, ownedFilter));
     }
 
-    private bool IsPlaylistSummaryRowMatchedKeyword(PlaylistSummaryRow row, string keywordUpper)
+    private static bool IsPlaylistSummaryRowMatchedKeyword(PlaylistSummaryRow row, string keywordUpper)
     {
         if (row == null)
         {
@@ -11495,11 +11871,16 @@ public class MainWindowViewModel : ViewModel
 
     private bool IsPlaylistSummaryRowMatchedOwnedFilter(PlaylistSummaryRow row)
     {
+        return IsPlaylistSummaryRowMatchedOwnedFilter(row, PlaylistSummaryOwnedFilter);
+    }
+
+    internal static bool IsPlaylistSummaryRowMatchedOwnedFilter(PlaylistSummaryRow row, PlaylistSummaryOwnedFilterType ownedFilter)
+    {
         if (row == null)
         {
             return false;
         }
-        switch (PlaylistSummaryOwnedFilter)
+        switch (ownedFilter)
         {
             case PlaylistSummaryOwnedFilterType.OwnedComplete:
                 return row.TotalCharts > 0 && row.OwnedCharts == row.TotalCharts;
@@ -12434,6 +12815,7 @@ public class MainWindowViewModel : ViewModel
             if (!string.IsNullOrWhiteSpace(directoryNameSimple) && Directory.Exists(directoryNameSimple))
             {
                 files.RenameBMSFolder(directoryNameSimple, newFolder, false);
+                SyncBmsonLibraryRowCacheWithoutRebuild();
             }
         }
     }
@@ -12453,6 +12835,7 @@ public class MainWindowViewModel : ViewModel
                 enumerable = enumerable.Where((BeMusicSeeker.Models.BMSFile f) => f.path.StartsWith(parentDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase));
             }
             files.AutoRenameBMSFolder(enumerable);
+            SyncBmsonLibraryRowCacheWithoutRebuild();
         }
     }
 
@@ -12462,6 +12845,7 @@ public class MainWindowViewModel : ViewModel
         {
             stopPlayingBMSFile(bmsFiles);
             files.AutoRenameBMSFolder(bmsFiles);
+            SyncBmsonLibraryRowCacheWithoutRebuild();
         }
     }
 

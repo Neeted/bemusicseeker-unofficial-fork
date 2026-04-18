@@ -874,7 +874,7 @@ public class BMSLibrary : NotificationObject
                 InvalidateBMSHashIndex();
                 InvalidateInstalledDirectoryIndex();
                 InvalidateBMSParentFolderListCache();
-                BMSFilesDuplicated = null;
+                InvalidateDuplicatedCache();
                 Task.Run(delegate
                 {
                     RaisePropertyChanged("BMSFiles");
@@ -900,6 +900,11 @@ public class BMSLibrary : NotificationObject
             if (_BmsonSongs != normalized)
             {
                 _BmsonSongs = normalized;
+                lock (lockPlaylistSummaryOwnedHashSnapshot)
+                {
+                    playlistSummaryOwnedHashSnapshot = null;
+                }
+                InvalidateDuplicatedCache();
                 Task.Run(delegate
                 {
                     RaisePropertyChanged("BmsonSongs");
@@ -930,6 +935,11 @@ public class BMSLibrary : NotificationObject
                 }).Logging("BMSFilesDuplicated");
             }
         }
+    }
+
+    private void InvalidateDuplicatedCache()
+    {
+        BMSFilesDuplicated = null;
     }
 
     public IEnumerable<BMSFile> BMSFilesGarbled => GetBMSFilesGarbled(BMSFiles);
@@ -1620,6 +1630,8 @@ public class BMSLibrary : NotificationObject
             dbGateway,
             () => BMSFiles,
             files => BMSFiles = files,
+            () => BmsonSongs,
+            songs => BmsonSongs = songs,
             () => BMSPackagesPending,
             pendingPackages => BMSPackagesPending = pendingPackages,
             () => BMSPackagesInstalled,
@@ -1627,7 +1639,7 @@ public class BMSLibrary : NotificationObject
             InvalidateBMSHashIndex,
             InvalidateInstalledDirectoryIndex,
             InvalidateBMSParentFolderListCache,
-            () => BMSFilesDuplicated = null,
+            InvalidateDuplicatedCache,
             () => RaisePropertyChanged(() => BMSFiles),
             () => RaisePropertyChanged(() => BMSPackagesInstalled));
         lr2config = ((getLR2Config != null) ? getLR2Config : ((Func<LR2Config>)(() => (LR2Config)null)));
@@ -2697,9 +2709,11 @@ public class BMSLibrary : NotificationObject
         HashSet<string> md5Hashes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         HashSet<string> sha256Hashes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         List<BMSFile> bmsFilesSnapshot;
+        List<LR2SongDBExtended.bmson_song> bmsonSongsSnapshot;
         using (rwlockBMSFiles.GetReaderGuard())
         {
             bmsFilesSnapshot = ((BMSFiles == null) ? new List<BMSFile>() : BMSFiles.Where((BMSFile file) => file != null).ToList());
+            bmsonSongsSnapshot = ((BmsonSongs == null) ? new List<LR2SongDBExtended.bmson_song>() : BmsonSongs.Where((LR2SongDBExtended.bmson_song song) => song != null).ToList());
         }
         foreach (BMSFile item in bmsFilesSnapshot)
         {
@@ -2710,6 +2724,17 @@ public class BMSLibrary : NotificationObject
             if (!string.IsNullOrWhiteSpace(item.sha256))
             {
                 sha256Hashes.Add(item.sha256);
+            }
+        }
+        foreach (LR2SongDBExtended.bmson_song item2 in bmsonSongsSnapshot)
+        {
+            if (!string.IsNullOrWhiteSpace(item2.md5))
+            {
+                md5Hashes.Add(item2.md5);
+            }
+            if (!string.IsNullOrWhiteSpace(item2.sha256))
+            {
+                sha256Hashes.Add(item2.sha256);
             }
         }
         PlaylistSummaryOwnedHashSnapshot rebuiltSnapshot = new PlaylistSummaryOwnedHashSnapshot
@@ -3375,8 +3400,10 @@ public class BMSLibrary : NotificationObject
                     {
                         return;
                     }
-                    List<BMSFile> snapshot = BMSFiles.Where((BMSFile f) => f != null).ToList();
-                    duplicateService.ClearDuplicateState(snapshot, DuplicateWarningMessage);
+                    List<BMSFile> bmsSnapshot = BMSFiles.Where((BMSFile f) => f != null).ToList();
+                    List<LR2SongDBExtended.bmson_song> bmsonSnapshot = (BmsonSongs ?? new List<LR2SongDBExtended.bmson_song>()).Where((LR2SongDBExtended.bmson_song song) => song != null).ToList();
+                    duplicateService.ClearDuplicateState(bmsSnapshot, DuplicateWarningMessage);
+                    List<DuplicateChartRow> snapshot = duplicateService.BuildSnapshot(bmsSnapshot, bmsonSnapshot);
                     System.Diagnostics.Stopwatch swNew = System.Diagnostics.Stopwatch.StartNew();
                     DuplicateAnalysisResult analysis = duplicateService.Analyze(snapshot);
                     duplicateService.ApplyDuplicateWarnings(analysis.DuplicateFiles, DuplicateWarningMessage);
@@ -3712,31 +3739,7 @@ public class BMSLibrary : NotificationObject
             {
                 List<BMSFile> addedFiles = files.Where((BMSFile file) => file != null).ToList();
                 List<BMSFile> addedBmsFiles = addedFiles.Where(PendingChartEntry.IsBmsChartFile).ToList();
-                List<LR2SongDBExtended.bmson_song> addedBmsonSongs = addedFiles
-                    .OfType<PendingChartEntry>()
-                    .Where((PendingChartEntry file) => file.IsBmsonChart)
-                    .Select(delegate (PendingChartEntry file)
-                    {
-                        LR2SongDBExtended.bmson_song source = file.BmsonSong ?? new LR2SongDBExtended.bmson_song();
-                        return new LR2SongDBExtended.bmson_song
-                        {
-                            path = file.path,
-                            folder = DirectoryExt.GetDirectoryNameSimple(file.path),
-                            title = source.title,
-                            subtitle = source.subtitle,
-                            artist = source.artist,
-                            genre = source.genre,
-                            level = source.level,
-                            mode_hint = source.mode_hint,
-                            md5 = source.md5 ?? file.hash,
-                            sha256 = source.sha256 ?? file.sha256,
-                            banner = source.banner,
-                            backbmp = source.backbmp,
-                            stagefile = source.stagefile,
-                            preview_music = source.preview_music
-                        };
-                    })
-                    .ToList();
+                List<LR2SongDBExtended.bmson_song> addedBmsonSongs = BuildBmsonSongsFromChartRows(addedFiles);
                 HashSet<string> addedBmsPathSet = new HashSet<string>(addedBmsFiles.Select((BMSFile ff) => ff.path), StringComparer.OrdinalIgnoreCase);
                 BMSFiles = BMSFiles.Where((BMSFile f) => !addedBmsPathSet.Contains(f.path)).Concat(addedBmsFiles).ToList();
                 if (addedBmsonSongs.Count > 0)
@@ -3773,6 +3776,35 @@ public class BMSLibrary : NotificationObject
         }
         LogInstallPerformance("installBMSPackages dst=" + (installationDirectory ?? "(auto)") + " packages=" + bmsPackagesInstall.Count() + " addedFiles=" + result.AddedFiles.Count + " failedPackages=" + result.FailedPackages.Count + " deleteSourceContents=" + deleteSourceContentsAfterSuccessfulInstall + " moveMs=" + result.MoveMs + " songDbMs=" + result.SongDbMs + " maintenanceMs=" + result.MaintenanceMs + " zeroNoteMs=" + result.ZeroNoteMs + " scoreMs=" + result.ScoreMs + " applyMs=" + result.ApplyMs + " totalMs=" + result.TotalMs);
         return result.FailedPackages;
+    }
+
+    private static List<LR2SongDBExtended.bmson_song> BuildBmsonSongsFromChartRows(IEnumerable<BMSFile> files)
+    {
+        return (files ?? Enumerable.Empty<BMSFile>())
+            .OfType<PendingChartEntry>()
+            .Where((PendingChartEntry file) => file.IsBmsonChart)
+            .Select(delegate (PendingChartEntry file)
+            {
+                LR2SongDBExtended.bmson_song source = file.BmsonSong ?? new LR2SongDBExtended.bmson_song();
+                return new LR2SongDBExtended.bmson_song
+                {
+                    path = file.path,
+                    folder = DirectoryExt.GetDirectoryNameSimple(file.path),
+                    title = source.title,
+                    subtitle = source.subtitle,
+                    artist = source.artist,
+                    genre = source.genre,
+                    level = source.level,
+                    mode_hint = source.mode_hint,
+                    md5 = source.md5 ?? file.hash,
+                    sha256 = source.sha256 ?? file.sha256,
+                    banner = source.banner,
+                    backbmp = source.backbmp,
+                    stagefile = source.stagefile,
+                    preview_music = source.preview_music
+                };
+            })
+            .ToList();
     }
 
     /// <summary>
@@ -5473,14 +5505,23 @@ public class BMSLibrary : NotificationObject
                         src,
                         dst,
                         BMSFiles,
+                        BmsonSongs,
                         BMSPackagesPending,
                         BMSPackagesInstalled,
-                        CreateBMSHashSnapshotExcludingUnsafe);
+                        CreateInstalledChartKeySnapshotExcludingUnsafe);
                     if (!mergeResult.Success)
                     {
                         return;
                     }
-                    unregisterBMSFiles(mergeResult.SourceFiles);
+                    List<BMSFile> sourceBmsFiles = mergeResult.SourceFiles.Where(PendingChartEntry.IsBmsChartFile).ToList();
+                    List<LR2SongDBExtended.bmson_song> sourceBmsonSongs = mergeResult.SourceFiles
+                        .OfType<PendingChartEntry>()
+                        .Where((PendingChartEntry entry) => entry.BmsonSong != null)
+                        .Select((PendingChartEntry entry) => entry.BmsonSong)
+                        .Distinct()
+                        .ToList();
+                    unregisterBMSFiles(sourceBmsFiles);
+                    unregisterBmsonSongs(sourceBmsonSongs);
                     foreach (string item in bmsFolderAllFileList.Keys.Where((string f) => (f + Path.DirectorySeparatorChar).StartsWith(src + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)))
                     {
                         bmsFolderAllFileList.RemoveDir(item);
@@ -5492,11 +5533,28 @@ public class BMSLibrary : NotificationObject
                     }
                     bmsFolderAllFileList.AddDir(dst, update: true);
                     ApplyLibraryMutationDelta(mergeResult.ReferenceMutationDelta);
-                    dbGateway.UpsertSongs(mergeResult.Repackage.BMSFiles);
-                    List<BMSFile> maintenanceTargets = mergeResult.Repackage.BMSFiles.Concat(BMSFiles.Where((BMSFile f) => f.path.StartsWith(dst + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))).ToList();
+                    List<BMSFile> movedBmsFiles = mergeResult.Repackage.BMSFiles.Where(PendingChartEntry.IsBmsChartFile).ToList();
+                    List<LR2SongDBExtended.bmson_song> movedBmsonSongs = BuildBmsonSongsFromChartRows(mergeResult.Repackage.BMSFiles);
+                    dbGateway.UpsertSongs(movedBmsFiles);
+                    if (movedBmsonSongs.Count > 0)
+                    {
+                        dbGateway.UpsertBmsonSongs(movedBmsonSongs);
+                    }
+                    List<BMSFile> maintenanceTargets = movedBmsFiles.Concat(BMSFiles.Where((BMSFile f) => f.path.StartsWith(dst + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))).ToList();
                     setMaintenanceInfo(maintenanceTargets, forceUpdate: true);
-                    HashSet<string> repackagePathSet = new HashSet<string>(mergeResult.Repackage.BMSFiles.Select((BMSFile ff) => ff.path), StringComparer.OrdinalIgnoreCase);
-                    BMSFiles = BMSFiles.Where((BMSFile f) => !repackagePathSet.Contains(f.path)).Concat(mergeResult.Repackage.BMSFiles).ToList();
+                    HashSet<string> repackageBmsPathSet = new HashSet<string>(movedBmsFiles.Select((BMSFile ff) => ff.path), StringComparer.OrdinalIgnoreCase);
+                    BMSFiles = BMSFiles.Where((BMSFile f) => !repackageBmsPathSet.Contains(f.path)).Concat(movedBmsFiles).ToList();
+                    if (movedBmsonSongs.Count > 0)
+                    {
+                        Dictionary<string, LR2SongDBExtended.bmson_song> nextBmsonByPath = (BmsonSongs ?? new List<LR2SongDBExtended.bmson_song>())
+                            .Where((LR2SongDBExtended.bmson_song song) => song != null && !string.IsNullOrWhiteSpace(song.path))
+                            .ToDictionary((LR2SongDBExtended.bmson_song song) => song.path, StringComparer.OrdinalIgnoreCase);
+                        foreach (LR2SongDBExtended.bmson_song movedBmsonSong in movedBmsonSongs)
+                        {
+                            nextBmsonByPath[movedBmsonSong.path] = movedBmsonSong;
+                        }
+                        BmsonSongs = nextBmsonByPath.Values.OrderBy((LR2SongDBExtended.bmson_song song) => song.path, StringComparer.OrdinalIgnoreCase).ToList();
+                    }
                 }
             }
         }
@@ -5555,7 +5613,8 @@ public class BMSLibrary : NotificationObject
                 using (rwlockBMSFiles.GetWriterGuard())
                 {
                     List<string> rootFolders = getBMSDirectories();
-                    List<FolderAutoRenamePlan> plans = libraryFileOperationsService.BuildAutoRenamePlans(bmsFiles, BMSFiles, rootFolders, renameRootFolder, createBMSFolderPath);
+                    List<BMSFile> chartRows = GetLibraryChartRowsForFolderOperations();
+                    List<FolderAutoRenamePlan> plans = libraryFileOperationsService.BuildAutoRenamePlans(bmsFiles, chartRows, rootFolders, renameRootFolder, createBMSFolderPath);
                     if (plans.Any((FolderAutoRenamePlan plan) => !string.IsNullOrWhiteSpace(plan.SourceDirectory) && Path.GetPathRoot(plan.SourceDirectory).Equals(plan.SourceDirectory, StringComparison.OrdinalIgnoreCase)))
                     {
                         dialogService.Show(Resources.Warn_DriveRootBmsSkipped, Resources.MessageBoxTitle_Confirm, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
@@ -5576,6 +5635,15 @@ public class BMSLibrary : NotificationObject
                 }
             }
         }
+    }
+
+    private List<BMSFile> GetLibraryChartRowsForFolderOperations()
+    {
+        List<BMSFile> chartRows = (BMSFiles ?? new List<BMSFile>()).Where((BMSFile file) => file != null).ToList();
+        chartRows.AddRange((BmsonSongs ?? new List<LR2SongDBExtended.bmson_song>())
+            .Select(PendingChartEntry.CreateFromBmsonSong)
+            .Where((PendingChartEntry entry) => entry != null));
+        return chartRows;
     }
 
     /// <summary>
@@ -5621,7 +5689,7 @@ public class BMSLibrary : NotificationObject
                     MoveBmsFolderInternal(srcDir, dstDir, unregister, raiseBmsFilesChanged: false);
                     if (unregister == false)
                     {
-                        BMSFilesDuplicated = null;
+                        InvalidateDuplicatedCache();
                     }
                 }
             }
@@ -5699,7 +5767,7 @@ public class BMSLibrary : NotificationObject
         {
             return;
         }
-        LibraryMutationDelta delta = libraryFileOperationsService.BuildFolderMoveDelta(srcDir, dstDir, BMSFiles, BMSPackagesPending, BMSPackagesInstalled, unregister == true, raiseBmsFilesChanged);
+        LibraryMutationDelta delta = libraryFileOperationsService.BuildFolderMoveDelta(srcDir, dstDir, BMSFiles, BmsonSongs, BMSPackagesPending, BMSPackagesInstalled, unregister == true, raiseBmsFilesChanged);
         ApplyLibraryMutationDelta(delta);
     }
 
@@ -5858,7 +5926,21 @@ public class BMSLibrary : NotificationObject
                             dialogService.Show(string.Format(Resources.Error_BmsFileDeleteFailed, failure.Path, GetDisplayedExceptionMessage(failure.Exception)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
                         }
                     }
-                    unregisterBMSFiles(result.RemovedFiles);
+                    List<BMSFile> removedBmsFiles = result.RemovedFiles.Where((BMSFile file) => file != null && !PendingChartEntry.IsBmsonChartFile(file)).ToList();
+                    List<LR2SongDBExtended.bmson_song> removedBmsonSongs = result.RemovedFiles
+                        .OfType<PendingChartEntry>()
+                        .Where((PendingChartEntry entry) => entry.BmsonSong != null)
+                        .Select((PendingChartEntry entry) => entry.BmsonSong)
+                        .Distinct()
+                        .ToList();
+                    if (removedBmsFiles.Count > 0)
+                    {
+                        unregisterBMSFiles(removedBmsFiles);
+                    }
+                    if (removedBmsonSongs.Count > 0)
+                    {
+                        unregisterBmsonSongs(removedBmsonSongs);
+                    }
                 }
             }
         }
@@ -5934,6 +6016,11 @@ public class BMSLibrary : NotificationObject
     private void unregisterBMSFiles(List<BMSFile> bmsFiles)
     {
         stateApplier.UnregisterBmsFiles(bmsFiles);
+    }
+
+    private void unregisterBmsonSongs(List<LR2SongDBExtended.bmson_song> bmsonSongs)
+    {
+        stateApplier.UnregisterBmsonSongs(bmsonSongs);
     }
 
     /// <summary>

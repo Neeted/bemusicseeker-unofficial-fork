@@ -33,7 +33,7 @@ public class BMSPackage : LR2SongDBExtended.install
 	public BMSPackage(BMSFile bmsFile)
 	{
 		path = bmsFile.path;
-		bmsFiles = new List<BMSFile> { PendingChartEntry.CreateFromBmsFile(bmsFile) ?? bmsFile };
+		bmsFiles = new List<BMSFile> { bmsFile };
 	}
 
 	public BMSPackage(IEnumerable<BMSFile> bmsFiles)

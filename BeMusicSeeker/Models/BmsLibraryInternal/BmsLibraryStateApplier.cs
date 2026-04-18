@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using BeMusicSeeker.Properties;
+using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using Livet;
 
@@ -22,6 +23,10 @@ internal sealed class BmsLibraryStateApplier
     private readonly Func<List<BMSFile>> getBmsFiles;
 
     private readonly Action<List<BMSFile>> setBmsFiles;
+
+    private readonly Func<List<LR2SongDBExtended.bmson_song>> getBmsonSongs;
+
+    private readonly Action<List<LR2SongDBExtended.bmson_song>> setBmsonSongs;
 
     private readonly Func<DispatcherCollection<BMSPackage>> getPendingPackages;
 
@@ -47,6 +52,8 @@ internal sealed class BmsLibraryStateApplier
         BmsLibraryDbGateway dbGateway,
         Func<List<BMSFile>> getBmsFiles,
         Action<List<BMSFile>> setBmsFiles,
+        Func<List<LR2SongDBExtended.bmson_song>> getBmsonSongs,
+        Action<List<LR2SongDBExtended.bmson_song>> setBmsonSongs,
         Func<DispatcherCollection<BMSPackage>> getPendingPackages,
         Action<DispatcherCollection<BMSPackage>> setPendingPackages,
         Func<DispatcherCollection<BMSPackage>> getInstalledPackages,
@@ -61,6 +68,8 @@ internal sealed class BmsLibraryStateApplier
         this.dbGateway = dbGateway ?? throw new ArgumentNullException(nameof(dbGateway));
         this.getBmsFiles = getBmsFiles ?? throw new ArgumentNullException(nameof(getBmsFiles));
         this.setBmsFiles = setBmsFiles ?? throw new ArgumentNullException(nameof(setBmsFiles));
+        this.getBmsonSongs = getBmsonSongs ?? throw new ArgumentNullException(nameof(getBmsonSongs));
+        this.setBmsonSongs = setBmsonSongs ?? throw new ArgumentNullException(nameof(setBmsonSongs));
         this.getPendingPackages = getPendingPackages ?? throw new ArgumentNullException(nameof(getPendingPackages));
         this.setPendingPackages = setPendingPackages ?? throw new ArgumentNullException(nameof(setPendingPackages));
         this.getInstalledPackages = getInstalledPackages ?? throw new ArgumentNullException(nameof(getInstalledPackages));
@@ -111,6 +120,11 @@ internal sealed class BmsLibraryStateApplier
         foreach (LibraryFilePathChange filePathChange in delta.FilePathChanges)
         {
             ReplaceBmsFilePath(filePathChange.File, filePathChange.NewPath, filePathChange.OldPath, filePathChange.CalcFolderParent);
+        }
+
+        foreach (LibraryBmsonSongPathChange bmsonSongPathChange in delta.BmsonSongPathChanges)
+        {
+            ReplaceBmsonSongPath(bmsonSongPathChange.Song, bmsonSongPathChange.NewPath, bmsonSongPathChange.OldPath);
         }
 
         foreach (LibraryInstallDestinationChange installDestinationChange in delta.UpdatedInstallDestinations)
@@ -218,6 +232,31 @@ internal sealed class BmsLibraryStateApplier
         }
     }
 
+    public void UnregisterBmsonSongs(IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs)
+    {
+        if (bmsonSongs == null)
+        {
+            throw new ArgumentNullException(nameof(bmsonSongs));
+        }
+
+        List<LR2SongDBExtended.bmson_song> removedSongsList = bmsonSongs
+            .Where((LR2SongDBExtended.bmson_song song) => song != null && !string.IsNullOrWhiteSpace(song.path))
+            .ToList();
+        if (removedSongsList.Count == 0)
+        {
+            return;
+        }
+
+        HashSet<string> removedPaths = new HashSet<string>(
+            removedSongsList.Select((LR2SongDBExtended.bmson_song song) => song.path),
+            StringComparer.OrdinalIgnoreCase);
+        HashSet<LR2SongDBExtended.bmson_song> removedSongRefs = new HashSet<LR2SongDBExtended.bmson_song>(removedSongsList);
+        setBmsonSongs(getBmsonSongs()
+            .Where((LR2SongDBExtended.bmson_song song) => song != null && !removedSongRefs.Contains(song) && !removedPaths.Contains(song.path))
+            .ToList());
+        dbGateway.DeleteBmsonSongs(removedSongsList);
+    }
+
     private void ReplaceBmsFilePath(BMSFile bmsFile, string newPath, string oldPath = null, bool calcFolderParent = true)
     {
         if (bmsFile == null)
@@ -274,6 +313,40 @@ internal sealed class BmsLibraryStateApplier
         invalidateInstalledDirectoryIndex();
         invalidateParentFolderCache();
         dbGateway.ReplaceSongPathWithMaintenance(bmsFile, oldPath);
+    }
+
+    private void ReplaceBmsonSongPath(LR2SongDBExtended.bmson_song bmsonSong, string newPath, string oldPath = null)
+    {
+        if (bmsonSong == null)
+        {
+            throw new ArgumentNullException(nameof(bmsonSong));
+        }
+
+        if (newPath == null)
+        {
+            throw new ArgumentNullException(nameof(newPath));
+        }
+
+        if (!File.Exists(newPath))
+        {
+            throw new FileNotFoundException(Resources.Error_RenameDestFileNotFound, newPath);
+        }
+
+        if (!string.IsNullOrWhiteSpace(oldPath) && !string.Equals(bmsonSong.path, oldPath, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidCastException(Resources.Error_OldPathMismatch);
+        }
+
+        if (string.IsNullOrWhiteSpace(oldPath))
+        {
+            oldPath = bmsonSong.path;
+        }
+
+        bmsonSong.path = newPath;
+        bmsonSong.folder = Path.GetDirectoryName(newPath) ?? string.Empty;
+        invalidateInstalledDirectoryIndex();
+        invalidateParentFolderCache();
+        dbGateway.ReplaceBmsonSongPath(bmsonSong, oldPath);
     }
 
     private bool ReplaceBmsFolder(string newFolderPath, string oldFolderPath)

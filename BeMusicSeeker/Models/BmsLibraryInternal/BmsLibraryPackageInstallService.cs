@@ -497,7 +497,13 @@ internal sealed class BmsLibraryPackageInstallService
         if (!string.IsNullOrWhiteSpace(installationDirectory))
         {
             HashSet<string> hashSnapshot = existingHashes ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            List<BMSFile> skippedBmsFiles = installBmsFiles.Where((BMSFile bmsFile) => IsBmsHashAvailable(bmsFile.hash) && hashSnapshot.Contains(bmsFile.hash)).ToList();
+            List<BMSFile> skippedBmsFiles = installBmsFiles
+                .Where(delegate (BMSFile bmsFile)
+                {
+                    string lookupKey = PendingChartEntry.GetPrimaryLookupHash(bmsFile);
+                    return !string.IsNullOrWhiteSpace(lookupKey) && hashSnapshot.Contains(lookupKey);
+                })
+                .ToList();
             if (skippedBmsFiles.Count > 0)
             {
                 HashSet<string> skipPathSet = new HashSet<string>(skippedBmsFiles.Select((BMSFile file) => file.path), StringComparer.OrdinalIgnoreCase);

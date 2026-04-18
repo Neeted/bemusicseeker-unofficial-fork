@@ -4361,11 +4361,14 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return;
         }
 
-        // ハッシュでグループ化し、各グループで削除対象を決定
+        // 主キー(hash)でグループ化し、各グループで削除対象を決定
         var deletionList = new List<BMSFile>();
-        foreach (var hashGroup in filesInFolder.GroupBy(f => f.hash, StringComparer.OrdinalIgnoreCase))
+        foreach (var hashGroup in filesInFolder
+            .Select(f => new { File = f, LookupHash = PendingChartEntry.GetPrimaryLookupHash(f) })
+            .Where(x => !string.IsNullOrWhiteSpace(x.LookupHash))
+            .GroupBy(x => x.LookupHash, StringComparer.OrdinalIgnoreCase))
         {
-            var grouped = hashGroup.ToList();
+            var grouped = hashGroup.Select(x => x.File).ToList();
             if (grouped.Count <= 1)
             {
                 continue;
@@ -4521,9 +4524,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         MenuItem menuItem15 = null;
         MenuItem menuItem16 = null;
         MenuItem menuItem17 = null;
+        MenuItem menuItemOpenLr2Ir = null;
         MenuItem menuItemOpenInstallDestination = null;
         MenuItem menuItemOpenDocument = null;
         MenuItem menuItem18 = null;
+        MenuItem menuItemRenameInvalidExt = null;
         Separator separator = null;
         MenuItem menuItem19 = null;
         Separator separator2 = null;
@@ -4531,6 +4536,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             switch (item.Name)
             {
+                case "dataGridContextMenuItemOpenLR2IR":
+                    menuItemOpenLr2Ir = item as MenuItem;
+                    break;
                 case "dataGridContextMenuItemOpenURL":
                     menuItem = item as MenuItem;
                     break;
@@ -4558,7 +4566,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 case "dataGridContextMenuItemSearchLink":
                     menuItem6 = item as MenuItem;
                     break;
-                case "dataGridContextMenuItemUpdateRankingDataClick":
+                case "dataGridContextMenuItemUpdateRankingData":
                     menuItem7 = item as MenuItem;
                     break;
                 case "dataGridContextMenuItemInstall":
@@ -4593,6 +4601,13 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                     break;
                 case "dataGridContextMenuItemDeleteFile":
                     menuItem15 = item as MenuItem;
+                    foreach (Control item3 in (IEnumerable)menuItem15.Items)
+                    {
+                        if (item3.Name == "dataGridContextMenuItemRenameInvalidExt")
+                        {
+                            menuItemRenameInvalidExt = item3 as MenuItem;
+                        }
+                    }
                     break;
                 case "dataGridContextMenuItemAutoRenameFolder":
                     menuItem16 = item as MenuItem;
@@ -4733,6 +4748,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             menuItem18.IsEnabled = flag;
         }
         menuItem19.IsEnabled = flag;
+        if (menuItemOpenLr2Ir != null)
+        {
+            bool canOpenLr2Ir = !hasBmsonSelection && !string.IsNullOrWhiteSpace(GridRowResolver.GetHash(row));
+            menuItemOpenLr2Ir.Visibility = Visibility.Visible;
+            menuItemOpenLr2Ir.IsEnabled = canOpenLr2Ir;
+        }
         if (menuItem7 != null)
         {
             if (mainWindowViewModel.LR2ID == 0 || hasBmsonSelection)
@@ -4785,6 +4806,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             bool canDeleteFiles = !isPlaylistContext;
             menuItem15.Visibility = ((!canDeleteFiles) ? Visibility.Collapsed : Visibility.Visible);
             menuItem15.IsEnabled = canDeleteFiles;
+            if (menuItemRenameInvalidExt != null)
+            {
+                menuItemRenameInvalidExt.Visibility = (!canDeleteFiles || hasBmsonSelection) ? Visibility.Collapsed : Visibility.Visible;
+                menuItemRenameInvalidExt.IsEnabled = canDeleteFiles && !hasBmsonSelection;
+            }
             Ribbit.Logging.NLogWrapper.FileLogger?.Info(
                 $"[ContextMenu] DeleteFile Header='{menuItem15.Header}', HasItems={menuItem15.HasItems}, Items.Count={menuItem15.Items.Count}");
 
@@ -4843,6 +4869,34 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             Separator convertSeparator2 = separator2;
             bool isEnabled = (menuItem19.IsEnabled = canConvertToAudio && list.Any((BMSFile f) => !string.IsNullOrWhiteSpace(f.path) && File.Exists(f.path)));
             convertSeparator2.IsEnabled = isEnabled;
+        }
+        if (hasBmsonSelection)
+        {
+            if (menuItemOpenLr2Ir != null)
+            {
+                menuItemOpenLr2Ir.Visibility = Visibility.Collapsed;
+                menuItemOpenLr2Ir.IsEnabled = false;
+            }
+            if (menuItem18 != null)
+            {
+                menuItem18.Visibility = Visibility.Collapsed;
+                menuItem18.IsEnabled = false;
+            }
+            if (menuItem7 != null)
+            {
+                menuItem7.Visibility = Visibility.Collapsed;
+                menuItem7.IsEnabled = false;
+            }
+            if (menuItem19 != null)
+            {
+                menuItem19.Visibility = Visibility.Collapsed;
+                menuItem19.IsEnabled = false;
+            }
+            if (menuItemRenameInvalidExt != null)
+            {
+                menuItemRenameInvalidExt.Visibility = Visibility.Collapsed;
+                menuItemRenameInvalidExt.IsEnabled = false;
+            }
         }
         if (menuItemDeleteInstallPackages != null)
         {
@@ -4954,7 +5008,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             switch (item.Name)
             {
                 case "dataGridContextMenuItemOpenLR2IR":
-                    item.Visibility = Visibility.Visible;
+                    item.Visibility = canOpenLr2Ir ? Visibility.Visible : Visibility.Collapsed;
                     item.IsEnabled = canOpenLr2Ir;
                     break;
                 case "dataGridContextMenuItemOpenURL":
@@ -4972,11 +5026,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                     item.IsEnabled = entry != null;
                     break;
                 case "dataGridContextMenuItemRegisterScore":
-                    item.Visibility = Visibility.Visible;
+                    item.Visibility = canOpenScoreViewer ? Visibility.Visible : Visibility.Collapsed;
                     item.IsEnabled = canOpenScoreViewer;
                     break;
                 case "dataGridContextMenuItemUpdateRankingData":
-                    item.Visibility = Visibility.Visible;
+                    item.Visibility = canUpdateRanking ? Visibility.Visible : Visibility.Collapsed;
                     item.IsEnabled = canUpdateRanking;
                     break;
             }

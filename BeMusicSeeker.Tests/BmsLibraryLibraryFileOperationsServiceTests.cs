@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using Microsoft.VisualBasic.FileIO;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -190,6 +191,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
                 sourceRoot,
                 destinationRoot,
                 new[] { libraryFile },
+                Array.Empty<LR2SongDBExtended.bmson_song>(),
                 new[] { pendingPackage },
                 new[] { installedPackage },
                 unregister: false,
@@ -263,6 +265,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             "C:\\Lib\\Src",
             "C:\\Lib\\Dst",
             new[] { file1, file2 },
+            Array.Empty<LR2SongDBExtended.bmson_song>(),
             Array.Empty<BMSPackage>(),
             Array.Empty<BMSPackage>(),
             unregister: false,
@@ -289,6 +292,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             "C:\\Lib\\Src",
             "C:\\Lib\\Dst",
             new[] { file },
+            Array.Empty<LR2SongDBExtended.bmson_song>(),
             Array.Empty<BMSPackage>(),
             Array.Empty<BMSPackage>(),
             unregister: false,
@@ -324,6 +328,89 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             Assert.AreEqual(1, plans.Count((FolderAutoRenamePlan plan) => !string.IsNullOrWhiteSpace(plan.DestinationDirectory)));
             Assert.AreEqual(Path.Combine(rootPath, "Renamed (2)"), plans.Single((FolderAutoRenamePlan plan) => !string.IsNullOrWhiteSpace(plan.DestinationDirectory)).DestinationDirectory);
         });
+    }
+
+    [TestMethod]
+    public void BuildAutoRenamePlans_UsesBmsonRowsAsMetadataSource()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            BmsLibraryLibraryFileOperationsService service = new BmsLibraryLibraryFileOperationsService();
+            string rootPath = Path.Combine(tempDirectoryPath, "Songs");
+            string sourcePath = Path.Combine(rootPath, "OldFolder");
+            Directory.CreateDirectory(sourcePath);
+            string chartPath = Path.Combine(sourcePath, "chart.bmson");
+            File.WriteAllText(chartPath, "{}");
+            PendingChartEntry bmsonRow = PendingChartEntry.CreateFromBmsonSong(new LR2SongDBExtended.bmson_song
+            {
+                path = chartPath,
+                folder = sourcePath,
+                title = "BmsonTitle",
+                artist = "BmsonArtist"
+            });
+
+            List<FolderAutoRenamePlan> plans = service.BuildAutoRenamePlans(
+                new[] { bmsonRow },
+                new[] { bmsonRow },
+                Array.Empty<string>(),
+                renameRootFolder: true,
+                (children, parentDir, _) => Path.Combine(parentDir, children.First().Title + "_" + children.First().Artist));
+
+            Assert.AreEqual(1, plans.Count);
+            Assert.AreEqual(Path.Combine(rootPath, "BmsonTitle_BmsonArtist"), plans[0].DestinationDirectory);
+        });
+    }
+
+    [TestMethod]
+    public void BuildFolderMoveDelta_TracksBmsonSongPathChanges()
+    {
+        BmsLibraryLibraryFileOperationsService service = new BmsLibraryLibraryFileOperationsService();
+        LR2SongDBExtended.bmson_song bmsonSong = new LR2SongDBExtended.bmson_song
+        {
+            path = "C:\\Lib\\Src\\Pkg\\chart.bmson",
+            folder = "C:\\Lib\\Src\\Pkg"
+        };
+
+        LibraryMutationDelta delta = service.BuildFolderMoveDelta(
+            "C:\\Lib\\Src",
+            "C:\\Lib\\Dst",
+            Array.Empty<BMSFile>(),
+            new[] { bmsonSong },
+            Array.Empty<BMSPackage>(),
+            Array.Empty<BMSPackage>(),
+            unregister: false,
+            raiseBmsFilesChanged: false);
+
+        Assert.AreEqual(1, delta.BmsonSongPathChanges.Count);
+        Assert.AreEqual("C:\\Lib\\Src\\Pkg\\chart.bmson", delta.BmsonSongPathChanges[0].OldPath);
+        Assert.AreEqual("C:\\Lib\\Dst\\Pkg\\chart.bmson", delta.BmsonSongPathChanges[0].NewPath);
+        Assert.IsTrue(delta.InvalidateInstalledDirectoryIndex);
+        Assert.IsTrue(delta.InvalidateParentFolderCache);
+        Assert.IsFalse(delta.RaiseBmsFilesChanged);
+    }
+
+    [TestMethod]
+    public void BuildFolderMoveDelta_BmsonRootMove_RaisesMainViewRefresh()
+    {
+        BmsLibraryLibraryFileOperationsService service = new BmsLibraryLibraryFileOperationsService();
+        LR2SongDBExtended.bmson_song bmsonSong = new LR2SongDBExtended.bmson_song
+        {
+            path = "C:\\Lib\\Src\\Pkg\\chart.bmson",
+            folder = "C:\\Lib\\Src\\Pkg"
+        };
+
+        LibraryMutationDelta delta = service.BuildFolderMoveDelta(
+            "C:\\Lib\\Src",
+            "C:\\Lib\\Dst",
+            Array.Empty<BMSFile>(),
+            new[] { bmsonSong },
+            Array.Empty<BMSPackage>(),
+            Array.Empty<BMSPackage>(),
+            unregister: false,
+            raiseBmsFilesChanged: true);
+
+        Assert.IsTrue(delta.RaiseBmsFilesChanged);
+        Assert.AreEqual(1, delta.BmsonSongPathChanges.Count);
     }
 
     [TestMethod]

@@ -13,6 +13,13 @@ public enum PendingChartKind
     Bmson
 }
 
+public enum PendingChartLookupHashKind
+{
+    None,
+    Md5,
+    Sha256
+}
+
 public sealed class PendingChartEntry : BMSFile
 {
     public static readonly string[] bmsonExtensions = new string[1] { ".bmson" };
@@ -33,13 +40,81 @@ public sealed class PendingChartEntry : BMSFile
 
     public bool IsBmsChart => ChartKind == PendingChartKind.Bms;
 
-    public override string Title => IsBmsonChart ? displayTitle : base.Title;
+    public override string Title
+    {
+        get
+        {
+            return IsBmsonChart ? displayTitle : base.Title;
+        }
+        protected set
+        {
+            if (IsBmsonChart)
+            {
+                SetDisplayValue(ref displayTitle, value, nameof(Title));
+            }
+            else
+            {
+                base.Title = value;
+            }
+        }
+    }
 
-    public override string Artist => IsBmsonChart ? displayArtist : base.Artist;
+    public override string Artist
+    {
+        get
+        {
+            return IsBmsonChart ? displayArtist : base.Artist;
+        }
+        protected set
+        {
+            if (IsBmsonChart)
+            {
+                SetDisplayValue(ref displayArtist, value, nameof(Artist));
+            }
+            else
+            {
+                base.Artist = value;
+            }
+        }
+    }
 
-    public override string Level => IsBmsonChart ? displayLevel : base.Level;
+    public override string Level
+    {
+        get
+        {
+            return IsBmsonChart ? displayLevel : base.Level;
+        }
+        set
+        {
+            if (IsBmsonChart)
+            {
+                SetDisplayValue(ref displayLevel, value, nameof(Level));
+            }
+            else
+            {
+                base.Level = value;
+            }
+        }
+    }
 
-    public override string Folder => IsBmsonChart ? displayFolder : base.Folder;
+    public override string Folder
+    {
+        get
+        {
+            return IsBmsonChart ? displayFolder : base.Folder;
+        }
+        set
+        {
+            if (IsBmsonChart)
+            {
+                SetDisplayValue(ref displayFolder, value, nameof(Folder));
+            }
+            else
+            {
+                base.Folder = value;
+            }
+        }
+    }
 
     private PendingChartEntry()
     {
@@ -118,33 +193,49 @@ public sealed class PendingChartEntry : BMSFile
         PendingChartEntry entry = new PendingChartEntry
         {
             ChartKind = PendingChartKind.Bmson,
-            BmsonSong = song,
-            path = song.path,
             instl_dst = null,
-            status = BMSFileStatus.NONE,
-            displayTitle = BmsonSongParser.ComposeDisplayTitle(song),
-            displayArtist = song.artist ?? string.Empty,
-            displayLevel = song.level?.ToString() ?? string.Empty,
-            displayFolder = BmsonSongParser.ComposeDisplayFolder(song),
-            tag = song.mode_hint ?? string.Empty,
-            folder = song.folder,
-            parent = null,
-            type = 0
+            status = BMSFileStatus.NONE
         };
-        entry.hash = song.md5;
-        entry.sha256 = song.sha256;
-        entry.title = song.title;
-        entry.subtitle = song.subtitle;
-        entry.artist = song.artist;
-        entry.genre = song.genre;
-        entry.stagefile = song.stagefile;
-        entry.banner = song.banner;
-        entry.backbmp = song.backbmp;
-        entry.mode = BmsonSongParser.ResolvePlaylistMode(song.mode_hint);
-        entry.WAVfiles = new HashSet<string>(song.wav_files ?? Enumerable.Empty<string>(), StringComparer.OrdinalIgnoreCase);
-        entry.BGAfiles = new HashSet<string>(song.bga_files ?? Enumerable.Empty<string>(), StringComparer.OrdinalIgnoreCase);
         entry.SetMaintenanceInfo(new BMSFileMaintenanceInfo(entry), suppressPropertyChanged: true, registerEventHandlers: false);
+        entry.UpdateFromBmsonSong(song);
         return entry;
+    }
+
+    public void UpdateFromBmsonSong(LR2SongDBExtended.bmson_song song)
+    {
+        if (song == null)
+        {
+            throw new ArgumentNullException(nameof(song));
+        }
+        ChartKind = PendingChartKind.Bmson;
+        BmsonSong = song;
+        path = song.path;
+        instl_dst = null;
+        status = BMSFileStatus.NONE;
+        tag = string.Empty;
+        folder = song.folder;
+        parent = null;
+        type = 0;
+        hash = song.md5;
+        sha256 = song.sha256;
+        if (maintenanceInfo != null)
+        {
+            maintenanceInfo.path = path;
+        }
+        title = song.title;
+        subtitle = song.subtitle;
+        artist = song.artist;
+        genre = song.genre;
+        stagefile = song.stagefile;
+        banner = song.banner;
+        backbmp = song.backbmp;
+        mode = BmsonSongParser.ResolvePlaylistMode(song.mode_hint);
+        WAVfiles = new HashSet<string>(song.wav_files ?? Enumerable.Empty<string>(), StringComparer.OrdinalIgnoreCase);
+        BGAfiles = new HashSet<string>(song.bga_files ?? Enumerable.Empty<string>(), StringComparer.OrdinalIgnoreCase);
+        SetDisplayValue(ref displayTitle, BmsonSongParser.ComposeDisplayTitle(song), nameof(Title));
+        SetDisplayValue(ref displayArtist, song.artist ?? string.Empty, nameof(Artist));
+        SetDisplayValue(ref displayLevel, song.level?.ToString() ?? string.Empty, nameof(Level));
+        SetDisplayValue(ref displayFolder, BmsonSongParser.ComposeDisplayFolder(song), nameof(Folder));
     }
 
     public static bool IsBmsonFilePath(string filePath)
@@ -197,6 +288,19 @@ public sealed class PendingChartEntry : BMSFile
         return null;
     }
 
+    public static PendingChartLookupHashKind GetPrimaryLookupHashKind(BMSFile file)
+    {
+        if (!string.IsNullOrWhiteSpace(file?.hash))
+        {
+            return PendingChartLookupHashKind.Md5;
+        }
+        if (!string.IsNullOrWhiteSpace(file?.sha256))
+        {
+            return PendingChartLookupHashKind.Sha256;
+        }
+        return PendingChartLookupHashKind.None;
+    }
+
     public static string GetPrimaryLookupHash(LR2SongDBExtended.bmson_song song)
     {
         if (!string.IsNullOrWhiteSpace(song?.md5))
@@ -208,6 +312,19 @@ public sealed class PendingChartEntry : BMSFile
             return song.sha256;
         }
         return null;
+    }
+
+    public static PendingChartLookupHashKind GetPrimaryLookupHashKind(LR2SongDBExtended.bmson_song song)
+    {
+        if (!string.IsNullOrWhiteSpace(song?.md5))
+        {
+            return PendingChartLookupHashKind.Md5;
+        }
+        if (!string.IsNullOrWhiteSpace(song?.sha256))
+        {
+            return PendingChartLookupHashKind.Sha256;
+        }
+        return PendingChartLookupHashKind.None;
     }
 
     public static IEnumerable<string> GetAllLookupHashes(BMSFile file)
@@ -225,5 +342,15 @@ public sealed class PendingChartEntry : BMSFile
     public static IEnumerable<string> GetLookupKeys(BMSFile file)
     {
         return GetAllLookupHashes(file);
+    }
+
+    private void SetDisplayValue(ref string currentValue, string newValue, string propertyName)
+    {
+        string normalized = newValue ?? string.Empty;
+        if (!string.Equals(currentValue, normalized, StringComparison.Ordinal))
+        {
+            currentValue = normalized;
+            RaisePropertyChanged(propertyName);
+        }
     }
 }

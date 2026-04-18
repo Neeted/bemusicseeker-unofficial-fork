@@ -120,6 +120,111 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     }
 
     [TestMethod]
+    public void RenameBmsonFolder_UpdatesFolderWithoutRaisingCollectionRefresh()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_BmsonRenameRefresh_" + Guid.NewGuid().ToString("N"));
+            string sourceDirectoryPath = Path.Combine(tempRootPath, "Source");
+            string chartPath = Path.Combine(sourceDirectoryPath, "chart.bmson");
+            Directory.CreateDirectory(sourceDirectoryPath);
+            File.WriteAllText(chartPath, "{}");
+            try
+            {
+                BMSLibrary library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
+                LR2SongDBExtended.bmson_song song = new LR2SongDBExtended.bmson_song
+                {
+                    path = chartPath,
+                    folder = sourceDirectoryPath,
+                    title = "Chart"
+                };
+                PendingChartEntry row = PendingChartEntry.CreateFromBmsonSong(song);
+                int bmsFilesChangedCount = 0;
+                int bmsonSongsChangedCount = 0;
+                library.PropertyChanged += delegate (object sender, System.ComponentModel.PropertyChangedEventArgs e)
+                {
+                    if (e.PropertyName == nameof(BMSLibrary.BMSFiles))
+                    {
+                        Interlocked.Increment(ref bmsFilesChangedCount);
+                    }
+                    if (e.PropertyName == nameof(BMSLibrary.BmsonSongs))
+                    {
+                        Interlocked.Increment(ref bmsonSongsChangedCount);
+                    }
+                };
+                SetLibraryBmsonSongsWithoutNotification(library, new[] { song });
+                Interlocked.Exchange(ref bmsFilesChangedCount, 0);
+                Interlocked.Exchange(ref bmsonSongsChangedCount, 0);
+
+                library.RenameBMSFolder(sourceDirectoryPath, "Renamed");
+                row.UpdateFromBmsonSong(song);
+
+                Assert.AreEqual(0, Volatile.Read(ref bmsFilesChangedCount));
+                Assert.AreEqual(0, Volatile.Read(ref bmsonSongsChangedCount));
+                Assert.AreEqual("Renamed", row.Folder);
+                Assert.IsTrue(song.path.Contains(Path.Combine("Renamed", "chart.bmson")));
+            }
+            finally
+            {
+                if (Directory.Exists(tempRootPath))
+                {
+                    Directory.Delete(tempRootPath, recursive: true);
+                }
+            }
+        });
+    }
+
+    [TestMethod]
+    public void MoveBmsonRootFolder_RaisesBmsFilesChanged()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_BmsonMoveRefresh_" + Guid.NewGuid().ToString("N"));
+            string sourceRootPath = Path.Combine(tempRootPath, "SourceRoot");
+            string destinationParentPath = Path.Combine(tempRootPath, "DestinationParent");
+            string chartPath = Path.Combine(sourceRootPath, "chart.bmson");
+            Directory.CreateDirectory(sourceRootPath);
+            Directory.CreateDirectory(destinationParentPath);
+            File.WriteAllText(chartPath, "{}");
+            try
+            {
+                BMSLibrary library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
+                LR2SongDBExtended.bmson_song song = new LR2SongDBExtended.bmson_song
+                {
+                    path = chartPath,
+                    folder = sourceRootPath,
+                    title = "Chart"
+                };
+                PendingChartEntry row = PendingChartEntry.CreateFromBmsonSong(song);
+                int bmsFilesChangedCount = 0;
+                library.PropertyChanged += delegate (object sender, System.ComponentModel.PropertyChangedEventArgs e)
+                {
+                    if (e.PropertyName == nameof(BMSLibrary.BMSFiles))
+                    {
+                        Interlocked.Increment(ref bmsFilesChangedCount);
+                    }
+                };
+                SetLibraryBmsonSongsWithoutNotification(library, new[] { song });
+                Interlocked.Exchange(ref bmsFilesChangedCount, 0);
+
+                library.MoveBMSRootFolder(new[] { row }, destinationParentPath);
+
+                Assert.IsTrue(WaitUntilTrue(() => Volatile.Read(ref bmsFilesChangedCount) > 0));
+                Assert.IsTrue(song.path.Contains(Path.Combine("DestinationParent", "SourceRoot", "chart.bmson")));
+            }
+            finally
+            {
+                if (Directory.Exists(tempRootPath))
+                {
+                    Directory.Delete(tempRootPath, recursive: true);
+                }
+            }
+        });
+    }
+
+    [TestMethod]
     public void SetBMSFilesEncoding_UpdatesEncodingCellWithoutRaisingGarbledCollectionsChanged()
     {
         TestResourceInitializer.EnsureJapaneseResources();
@@ -283,6 +388,13 @@ public sealed class BmsLibraryFolderRenameRefreshTests
         FieldInfo fieldInfo = typeof(BMSLibrary).GetField("_BMSFiles", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.IsNotNull(fieldInfo);
         fieldInfo.SetValue(library, files.ToList());
+    }
+
+    private static void SetLibraryBmsonSongsWithoutNotification(BMSLibrary library, IEnumerable<LR2SongDBExtended.bmson_song> songs)
+    {
+        FieldInfo fieldInfo = typeof(BMSLibrary).GetField("_BmsonSongs", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.IsNotNull(fieldInfo);
+        fieldInfo.SetValue(library, songs.ToList());
     }
 
     private static void WithTemporarySongDb(Action<string> testAction)

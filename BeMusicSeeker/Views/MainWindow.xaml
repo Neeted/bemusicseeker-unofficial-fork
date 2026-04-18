@@ -212,7 +212,7 @@
           <MenuItem.Header>
             <TextBlock Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Remove, Mode=OneWay}" />
           </MenuItem.Header>
-          <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Rename_invalid_ext, Mode=OneWay}" Click="dataGridContextMenuItemRenameBMSFileClick" />
+          <MenuItem Name="dataGridContextMenuItemRenameInvalidExt" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Rename_invalid_ext, Mode=OneWay}" Click="dataGridContextMenuItemRenameBMSFileClick" />
           <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Move_to_recycle, Mode=OneWay}" Click="dataGridContextMenuItemRemoveBMSFileClick" />
         </MenuItem>
         <MenuItem Name="dataGridContextMenuItemAutoRenameFolder" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Rename_folder_auto, Mode=OneWay}" Click="dataGridContextMenuItemAutoRenameFolderClick" />

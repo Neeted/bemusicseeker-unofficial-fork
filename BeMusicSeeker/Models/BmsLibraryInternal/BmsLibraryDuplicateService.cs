@@ -1,12 +1,25 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 internal sealed class BmsLibraryDuplicateService
 {
+    public List<DuplicateChartRow> BuildSnapshot(IEnumerable<BMSFile> bmsFiles, IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs)
+    {
+        List<DuplicateChartRow> rows = new List<DuplicateChartRow>();
+        rows.AddRange((bmsFiles ?? Enumerable.Empty<BMSFile>())
+            .Select(DuplicateChartRow.CreateFromBmsFile)
+            .Where((DuplicateChartRow row) => row != null));
+        rows.AddRange((bmsonSongs ?? Enumerable.Empty<LR2SongDBExtended.bmson_song>())
+            .Select(DuplicateChartRow.CreateFromBmsonSong)
+            .Where((DuplicateChartRow row) => row != null));
+        return rows;
+    }
+
     public void ClearDuplicateState(IEnumerable<BMSFile> files, string duplicateWarningMessage)
     {
         foreach (BMSFile file in files ?? Enumerable.Empty<BMSFile>())
@@ -42,29 +55,39 @@ internal sealed class BmsLibraryDuplicateService
 
     public DuplicateAnalysisResult Analyze(List<BMSFile> snapshot)
     {
+        return Analyze((snapshot ?? new List<BMSFile>())
+            .Select(DuplicateChartRow.CreateFromBmsFile)
+            .Where((DuplicateChartRow row) => row != null)
+            .ToList());
+    }
+
+    public DuplicateAnalysisResult Analyze(IEnumerable<DuplicateChartRow> snapshot)
+    {
         DuplicateAnalysisResult result = new DuplicateAnalysisResult();
-        List<IGrouping<string, BMSFile>> duplicateHashGroups = (snapshot ?? new List<BMSFile>())
-            .Where((BMSFile file) => file != null && !string.IsNullOrWhiteSpace(file.hash))
-            .GroupBy((BMSFile file) => file.hash, StringComparer.OrdinalIgnoreCase)
-            .Where((IGrouping<string, BMSFile> group) => group.Count() > 1)
+        List<DuplicateChartRow> snapshotRows = (snapshot ?? Enumerable.Empty<DuplicateChartRow>())
+            .Where((DuplicateChartRow row) => row != null && row.DisplayRow != null && !string.IsNullOrWhiteSpace(row.LookupHash))
             .ToList();
-        foreach (IGrouping<string, BMSFile> duplicateHashGroup in duplicateHashGroups)
+        List<IGrouping<string, DuplicateChartRow>> duplicateHashGroups = snapshotRows
+            .GroupBy((DuplicateChartRow row) => row.LookupHash, StringComparer.OrdinalIgnoreCase)
+            .Where((IGrouping<string, DuplicateChartRow> group) => group.Count() > 1)
+            .ToList();
+        foreach (IGrouping<string, DuplicateChartRow> duplicateHashGroup in duplicateHashGroups)
         {
-            foreach (BMSFile item in duplicateHashGroup)
+            foreach (DuplicateChartRow item in duplicateHashGroup)
             {
-                result.DuplicateFiles.Add(item);
+                result.DuplicateFiles.Add(item.DisplayRow);
             }
         }
 
         Dictionary<string, int> dirToId = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         List<string> idToDir = new List<string>();
         List<List<int>> groupIndices = new List<List<int>>();
-        foreach (IGrouping<string, BMSFile> duplicateHashGroup2 in duplicateHashGroups)
+        foreach (IGrouping<string, DuplicateChartRow> duplicateHashGroup2 in duplicateHashGroups)
         {
             List<int> currentGroup = new List<int>();
-            foreach (BMSFile bmsInfo in duplicateHashGroup2)
+            foreach (DuplicateChartRow duplicateRow in duplicateHashGroup2)
             {
-                string dir = DirectoryExt.GetDirectoryNameSimple(bmsInfo.path);
+                string dir = duplicateRow.DirectoryPath;
                 if (string.IsNullOrWhiteSpace(dir))
                 {
                     continue;
@@ -115,15 +138,15 @@ internal sealed class BmsLibraryDuplicateService
         }
 
         Dictionary<string, List<BMSFile>> filesByDir = new Dictionary<string, List<BMSFile>>(StringComparer.OrdinalIgnoreCase);
-        foreach (BMSFile bms in snapshot ?? new List<BMSFile>())
+        foreach (DuplicateChartRow row in snapshotRows)
         {
-            string dir = DirectoryExt.GetDirectoryNameSimple(bms.path);
+            string dir = row.DirectoryPath;
             if (!filesByDir.TryGetValue(dir, out List<BMSFile> list))
             {
                 list = new List<BMSFile>();
                 filesByDir[dir] = list;
             }
-            list.Add(bms);
+            list.Add(row.DisplayRow);
         }
 
         foreach (HashSet<string> dirs in rootViewToDirs.Values)

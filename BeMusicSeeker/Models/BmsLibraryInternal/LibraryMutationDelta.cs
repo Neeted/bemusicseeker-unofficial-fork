@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using BeMusicSeeker.Models.LR2;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
@@ -7,6 +8,8 @@ internal sealed class LibraryMutationDelta
     public List<BMSFile> FilesToUnregister { get; } = new List<BMSFile>();
 
     public List<LibraryFilePathChange> FilePathChanges { get; } = new List<LibraryFilePathChange>();
+
+    public List<LibraryBmsonSongPathChange> BmsonSongPathChanges { get; } = new List<LibraryBmsonSongPathChange>();
 
     public List<LibraryFolderPathChange> FolderPathChanges { get; } = new List<LibraryFolderPathChange>();
 
@@ -48,6 +51,15 @@ internal sealed class LibraryFilePathChange
     public string OldPath { get; set; }
 
     public bool CalcFolderParent { get; set; } = true;
+}
+
+internal sealed class LibraryBmsonSongPathChange
+{
+    public LR2SongDBExtended.bmson_song Song { get; set; }
+
+    public string NewPath { get; set; }
+
+    public string OldPath { get; set; }
 }
 
 internal sealed class LibraryFolderPathChange

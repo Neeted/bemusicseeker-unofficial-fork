@@ -112,6 +112,24 @@ internal sealed class BmsLibraryDbGateway
         });
     }
 
+    public void DeleteBmsonSongs(IEnumerable<LR2SongDBExtended.bmson_song> songs)
+    {
+        List<LR2SongDBExtended.bmson_song> entries = (songs ?? Enumerable.Empty<LR2SongDBExtended.bmson_song>())
+            .Where((LR2SongDBExtended.bmson_song song) => song != null && !string.IsNullOrWhiteSpace(song.path))
+            .ToList();
+        if (entries.Count == 0)
+        {
+            return;
+        }
+        ExecuteSongDbTransaction(delegate(LR2SongDBExtended songDb)
+        {
+            foreach (LR2SongDBExtended.bmson_song entry in entries)
+            {
+                songDb.Delete<LR2SongDBExtended.bmson_song>(entry.path);
+            }
+        });
+    }
+
     public void UpsertMaintenanceInfos(IEnumerable<BMSFileMaintenanceInfo> maintenanceInfos)
     {
         List<BMSFileMaintenanceInfo> entries = (maintenanceInfos ?? Enumerable.Empty<BMSFileMaintenanceInfo>())
@@ -252,6 +270,28 @@ internal sealed class BmsLibraryDbGateway
             {
                 songDb.InsertOrReplace(song, typeof(LR2SongDBExtended.bmson_song));
             }
+        });
+    }
+
+    public void ReplaceBmsonSongPath(LR2SongDBExtended.bmson_song song, string oldPath)
+    {
+        if (song == null)
+        {
+            throw new ArgumentNullException(nameof(song));
+        }
+        if (string.IsNullOrWhiteSpace(song.path))
+        {
+            throw new ArgumentNullException(nameof(song.path));
+        }
+        if (string.IsNullOrWhiteSpace(oldPath))
+        {
+            throw new ArgumentNullException(nameof(oldPath));
+        }
+        ExecuteSongDbTransaction(delegate (LR2SongDBExtended songDb)
+        {
+            EnsureBmsonSchema(songDb);
+            songDb.Delete<LR2SongDBExtended.bmson_song>(oldPath);
+            songDb.InsertOrReplace(song, typeof(LR2SongDBExtended.bmson_song));
         });
     }
 
