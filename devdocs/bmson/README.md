@@ -1,0 +1,118 @@
+# bmson 対応ロードマップ
+
+本ディレクトリは、`BeMusicSeeker-decomp` に `bmson` 対応を段階的に導入するための作業資料です。  
+実装順を固定しつつ、各フェーズを独立して見積もり・着手・レビューできる形に整理しています。
+
+## 目的
+
+- `sha256` を含む外部プレイリスト所持判定を先に成立させる
+- LR2 既存テーブル (`song`, `folder`) を壊さずに `bmson` を扱えるようにする
+- `bmson` を「再生対応なしの管理対象」として段階導入する
+- 途中フェーズでも意味のある成果物が残るようにする
+
+## フェーズ一覧
+
+1. [Phase 1: Playlist SHA-256 基盤](phase-1-playlist-sha256-foundation.md)
+   - `playlist_entry.sha256` の追加
+   - プレイリストの `md5/sha256` 両対応
+   - DataGrid の `sha256` 表示基盤
+2. [Phase 1.5: bmson 対応前の移行警告](phase-1-5-migration-warning.md)
+   - 初回 migration / backfill 前の警告ダイアログ
+   - 過去バージョン互換性に関する注意喚起
+   - キャンセル時の安全終了
+3. [Phase 2: BMS の md5-sha256 マッピング](phase-2-bms-sha256-mapping.md)
+   - 既存 BMS の `sha256` バックフィル
+   - `sha256` プレイリストで既存 BMS を所持判定
+   - 既存導線へのハッシュ抽象化導入
+   - 初回バックフィル進捗表示
+4. [Phase 3: bmson カタログ導入](phase-3-bmson-catalog.md)
+   - `bmson_song` テーブル追加
+   - `bmson` 軽量パース
+   - playlist 詳細で `bmson` を所持譜面として解決できるようにする
+5. [Phase 3.5: bmson playlist 詳細の整合性 / 性能是正](phase-3-5-bmson-playlist-detail-fix.md)
+   - `bmson owned` 行を未所持経路へ流さない
+   - `NO SONG` 表示崩れの是正
+   - playlist 詳細リロード時の過剰な score probe を抑止
+6. [Phase 4: bmson Pending / 導入先推定](phase-4-bmson-pending-install.md)
+   - Pending package 検出を `.bmson` 対応
+   - `bmson` 差分の導入先推定
+   - `bms only` フォルダへの導入制約を扱う
+7. [Phase 5: UI / モード / 運用仕上げ](phase-5-ui-mode-and-polish.md)
+   - 通常一覧への `bmson` 表示
+   - `mode_hint` と `KEYS` / mode filter の整理
+   - プレイリストサマリー集計 / 性能と非対応機能の仕上げ
+   - 重複ファイルチェックの `bmson` 対応仕上げ
+
+## 実装方針の要点
+
+- `song` と `folder` は LR2 互換維持のため変更しない
+- `playlist_entry` はアプリ拡張領域として `sha256` を追加する
+- `bmson_song` は `path` を主キーにし、`md5` と `sha256` の両方を持てるようにする
+- `bmson_song` の `md5` と `sha256` はどちらも非ユニークとする
+  - 同一内容の `bmson` が別パスに複数存在し得るため
+- 既存 BMS の `sha256` は `song` には持たせず、別マップテーブルで管理する
+- `bmson` 専用の再生対応や LR2 依存機能対応はスコープ外とする
+
+## ハッシュ識別子の前提
+
+- 外部プレイリストは `md5` または `sha256` のどちらか片方だけを持つことがある
+- 多くの場合は以下の傾向がある
+  - BMS 系: `md5`
+  - bmson: `sha256`
+- ただしこれは絶対ではない
+  - BMS 系でも `sha256` のみの可能性がある
+  - bmson でも `md5` のみの可能性がある
+- したがって、プレイリスト matching はフォーマット固定ではなく `md5/sha256` の両対応前提で設計する
+- 優先順位は持つが、フォーマット種別ではなく「その entry が持つ識別子」で判断する
+- 既所持確認は BMS 同様に `md5` でもよい
+  - `sha256` 対応は主に外部プレイリスト受け入れのために入れる
+
+## 推奨の進め方
+
+- Phase 1 の後に Phase 1.5 を入れる
+  - DB 変更と初回バックフィル前の警告導線を先に固める
+- Phase 2 で `sha256` プレイリスト所持判定の価値を出す
+- Phase 3 で `bmson` の実体管理を追加する
+- Phase 3.5 で playlist 詳細の整合性と性能回帰を解消する
+- Phase 4 で Pending / 導入先推定へ拡張する
+- Phase 5 で UI / 集計 / duplicate を含む運用導線まで仕上げる
+
+## 現在の到達点
+
+- Phase 1, 1.5, 2 は完了
+- Phase 3 は完了
+  - `bmson_song`
+  - `.bmson` 軽量パース
+  - playlist 詳細での `md5/sha256` 解決
+- Phase 3.5 も完了
+  - playlist 詳細の `bmson owned` / `missing` 整理
+  - `NO SONG` fallback の維持
+  - 単体 / 全体同期の参照差し替え戦略統一
+  - 外部プレイリスト更新判定の active row 比較化
+  - 差分 fingerprint ログ追加
+- Phase 4 も完了
+  - Pending / install estimation / regroup の `bmson` 対応
+  - `.bmson` 単体ドロップ対応
+  - `WARNING / WAV / BGA / MOVIE` 列の `bmson` 対応
+  - `md5/sha256` 判定の `key-selection` 化
+- Phase 5 も完了
+  - 通常一覧への `bmson` 表示
+  - `mode_hint` の `KEYS` 表示整理と `TAG` 廃止
+  - プレイリストサマリー集計 / 性能是正
+  - `bmson` 非対応機能の非表示化
+  - 重複ファイルチェックの `BMS + bmson` 対応
+- 実装フェーズとしては 1 〜 5 が完了
+- 残る作業は README / リリースノート / バージョン反映などのリリース整理
+
+## バージョン方針
+
+- `bmson` 対応完了後は `v2.0.0.0` へのメジャーバージョンアップを想定する
+- ただし、全フェーズ完了まではバージョン番号自体は変更しない
+- したがって、各フェーズ資料には version up 作業を含めない
+- README / リリースノート / バージョン反映は Phase 5 完了後の別作業として扱う
+
+## 関連資料
+
+- [../spec/workflows.md](../spec/workflows.md)
+- [../spec/data-and-indexes.md](../spec/data-and-indexes.md)
+- [../spec/TECH_SPEC.ja.md](../spec/TECH_SPEC.ja.md)
