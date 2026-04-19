@@ -1312,6 +1312,14 @@ BMSファイルが重複しないようにマージします。
   <data name="Warning_SingleBmsonFile" xml:space="preserve">
     <value>BMSONファイル単体です</value>
   </data>
+  <data name="Warning_InstallEstimationAmbiguousPrefix" xml:space="preserve">
+    <value>導入先推定候補が複数あるため自動確定していません。</value>
+  </data>
+  <data name="Warning_InstallEstimationAmbiguous" xml:space="preserve">
+    <value>導入先推定候補が複数あるため自動確定していません。
+第1候補: {0}
+第2候補: {1}</value>
+  </data>
   <data name="BmsonMigrationWarningMessage" xml:space="preserve">
     <value>bmson 対応のため、初回起動時にプレイリストやハッシュ管理用・bmson カタログ用テーブルへ変更を加えます。
 
@@ -1327,6 +1335,12 @@ BMSファイルが重複しないようにマージします。
   </data>
   <data name="Warning_ZeroNoteMismatch" xml:space="preserve">
     <value>DBに0notesと記録されていますが可視ノートが存在します</value>
+  </data>
+  <data name="Header_InstallDstTitle" xml:space="preserve">
+    <value>INSTL DST TITLE</value>
+  </data>
+  <data name="Header_InstallDstArtist" xml:space="preserve">
+    <value>INSTL DST ARTIST</value>
   </data>
   <data name="Error_FileNotFound" xml:space="preserve">
     <value>ファイルが見つかりませんでした</value>

@@ -2925,6 +2925,23 @@ public class BMSLibrary : NotificationObject
     private HashSet<string> CreateKnownChartDirectorySnapshotUnsafe()
     {
         HashSet<string> knownChartDirectories = new HashSet<string>((bmsFolderAllFileList?.Keys ?? Enumerable.Empty<string>()).Where((string path) => !string.IsNullOrWhiteSpace(path)), StringComparer.OrdinalIgnoreCase);
+        foreach (BMSFile bmsFile in BMSFiles ?? Enumerable.Empty<BMSFile>())
+        {
+            string path = null;
+            try
+            {
+                path = !string.IsNullOrWhiteSpace(bmsFile?.folder)
+                    ? bmsFile.folder
+                    : DirectoryExt.GetDirectoryNameSimple(bmsFile?.path);
+            }
+            catch
+            {
+            }
+            if (!string.IsNullOrWhiteSpace(path))
+            {
+                knownChartDirectories.Add(path);
+            }
+        }
         foreach (LR2SongDBExtended.bmson_song bmsonSong in BmsonSongs ?? Enumerable.Empty<LR2SongDBExtended.bmson_song>())
         {
             string path = null;
@@ -3552,6 +3569,143 @@ public class BMSLibrary : NotificationObject
         return string.Join(Environment.NewLine, warning.Split(new char[2] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries).Select((string line) => line.Trim()).Where((string line) => !string.Equals(line, DuplicateWarningMessage, StringComparison.Ordinal)).ToArray());
     }
 
+    private static string AppendWarningLine(string warning, string warningLine)
+    {
+        if (string.IsNullOrWhiteSpace(warningLine))
+        {
+            return warning ?? string.Empty;
+        }
+        List<string> lines = (warning ?? string.Empty)
+            .Split(new char[2] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
+            .Select((string line) => line.Trim())
+            .Where((string line) => !string.IsNullOrWhiteSpace(line))
+            .ToList();
+        if (!lines.Contains(warningLine, StringComparer.Ordinal))
+        {
+            lines.Add(warningLine);
+        }
+        return string.Join(Environment.NewLine, lines);
+    }
+
+    private static string RemoveAmbiguousInstallWarning(string warning)
+    {
+        if (string.IsNullOrWhiteSpace(warning))
+        {
+            return string.Empty;
+        }
+        string warningPrefix = Resources.Warning_InstallEstimationAmbiguousPrefix;
+        return string.Join(
+            Environment.NewLine,
+            warning
+                .Split(new char[2] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
+                .Select((string line) => line.Trim())
+                .Where((string line) => !string.IsNullOrWhiteSpace(line) && !line.StartsWith(warningPrefix, StringComparison.Ordinal)));
+    }
+
+    private sealed class InstalledChartMetadataCandidate
+    {
+        internal string Title { get; set; }
+
+        internal string Artist { get; set; }
+
+        internal string Path { get; set; }
+    }
+
+    private static bool IsChartPathWithinDestinationDirectory(string destinationDirectory, string chartPath)
+    {
+        if (string.IsNullOrWhiteSpace(destinationDirectory) || string.IsNullOrWhiteSpace(chartPath))
+        {
+            return false;
+        }
+        string chartDirectory = DirectoryExt.GetDirectoryNameSimple(chartPath);
+        if (string.IsNullOrWhiteSpace(chartDirectory))
+        {
+            return false;
+        }
+        if (string.Equals(chartDirectory, destinationDirectory, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+        return (chartDirectory + Path.DirectorySeparatorChar).StartsWith(destinationDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private InstallDestinationRepresentativeMetadata ResolveInstallDestinationRepresentativeMetadataUnsafe(string destinationDirectory)
+    {
+        if (string.IsNullOrWhiteSpace(destinationDirectory))
+        {
+            return InstallDestinationRepresentativeMetadata.Empty;
+        }
+        string normalizedDestinationDirectory = destinationDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        InstalledChartMetadataCandidate representativeChart = (BMSFiles ?? new List<BMSFile>())
+            .Where((BMSFile file) => file != null && IsChartPathWithinDestinationDirectory(normalizedDestinationDirectory, file.path))
+            .Select((BMSFile file) => new InstalledChartMetadataCandidate
+            {
+                Title = file.Title ?? string.Empty,
+                Artist = file.Artist ?? string.Empty,
+                Path = file.path ?? string.Empty
+            })
+            .Concat((BmsonSongs ?? new List<LR2SongDBExtended.bmson_song>())
+                .Where((LR2SongDBExtended.bmson_song song) => song != null && IsChartPathWithinDestinationDirectory(normalizedDestinationDirectory, song.path))
+                .Select((LR2SongDBExtended.bmson_song song) => new InstalledChartMetadataCandidate
+                {
+                    Title = BmsonSongParser.ComposeDisplayTitle(song),
+                    Artist = song.artist ?? string.Empty,
+                    Path = song.path ?? string.Empty
+                }))
+            .OrderByDescending((InstalledChartMetadataCandidate candidate) => !string.IsNullOrWhiteSpace(candidate.Title))
+            .ThenByDescending((InstalledChartMetadataCandidate candidate) => !string.IsNullOrWhiteSpace(candidate.Artist))
+            .ThenBy((InstalledChartMetadataCandidate candidate) => candidate.Path, StringComparer.OrdinalIgnoreCase)
+            .FirstOrDefault();
+        if (representativeChart == null)
+        {
+            return InstallDestinationRepresentativeMetadata.Empty;
+        }
+        return new InstallDestinationRepresentativeMetadata
+        {
+            Title = representativeChart.Title ?? string.Empty,
+            Artist = representativeChart.Artist ?? string.Empty
+        };
+    }
+
+    private void ApplyResolvedInstallDestinationToFiles(IEnumerable<BMSFile> bmsFiles, string destinationDirectory)
+    {
+        InstallDestinationRepresentativeMetadata metadata = ResolveInstallDestinationRepresentativeMetadataUnsafe(destinationDirectory);
+        foreach (BMSFile bmsFile in (bmsFiles ?? Enumerable.Empty<BMSFile>()).Where((BMSFile file) => file != null))
+        {
+            bmsFile.warning = RemoveAmbiguousInstallWarning(bmsFile.warning);
+            bmsFile.instl_dst = destinationDirectory;
+            bmsFile.InstallDestinationTitle = metadata.Title;
+            bmsFile.InstallDestinationArtist = metadata.Artist;
+        }
+    }
+
+    private void ApplyInstallEstimationResultToFiles(IEnumerable<BMSFile> bmsFiles, InstallEstimationResult result)
+    {
+        InstallEstimationCandidate selectedCandidate = result?.SelectedCandidate;
+        InstallEstimationCandidate secondCandidate = result?.SecondCandidate;
+        string ambiguousWarning = selectedCandidate == null || secondCandidate == null
+            ? string.Empty
+            : string.Format(Resources.Warning_InstallEstimationAmbiguous, selectedCandidate.DirectoryPath, secondCandidate.DirectoryPath);
+        foreach (BMSFile bmsFile in (bmsFiles ?? Enumerable.Empty<BMSFile>()).Where((BMSFile file) => file != null))
+        {
+            bmsFile.warning = RemoveAmbiguousInstallWarning(bmsFile.warning);
+            if (result?.ShouldAutoApplyDestination == true && !string.IsNullOrWhiteSpace(result.DestinationDirectory))
+            {
+                bmsFile.instl_dst = result.DestinationDirectory;
+            }
+            else
+            {
+                bmsFile.instl_dst = null;
+            }
+            bmsFile.InstallDestinationTitle = selectedCandidate?.RepresentativeTitle ?? string.Empty;
+            bmsFile.InstallDestinationArtist = selectedCandidate?.RepresentativeArtist ?? string.Empty;
+            if (result?.ShouldAutoApplyDestination == false && !string.IsNullOrWhiteSpace(ambiguousWarning))
+            {
+                bmsFile.warning = AppendWarningLine(bmsFile.warning, ambiguousWarning);
+            }
+        }
+    }
+
     /// <summary>
     /// 指定されたパス群（ファイルまたはディレクトリ）から BMS ファイルを自動検出・インストールします。
     /// アーカイブの展開、song.db への登録、Pendingパッケージ生成を一括で行います。
@@ -3627,6 +3781,7 @@ public class BMSLibrary : NotificationObject
                         registeredPackages = discoveredPackages;
                     }
                 }
+                int lowConfidenceEstimateCount = 0;
                 foreach (BMSPackage pendingPackage in pendingPackagesToEstimate)
                 {
                     if (token.IsCancellationRequested)
@@ -3634,6 +3789,14 @@ public class BMSLibrary : NotificationObject
                         break;
                     }
                     SearchEstimatedInstallationDirectory(pendingPackage);
+                    if ((pendingPackage?.BMSFiles ?? new List<BMSFile>()).Any((BMSFile file) => file != null && string.IsNullOrWhiteSpace(file.instl_dst) && !string.IsNullOrWhiteSpace(file.InstallDestinationTitle)))
+                    {
+                        lowConfidenceEstimateCount++;
+                    }
+                }
+                if (pendingPackagesToEstimate.Count > 0)
+                {
+                    LogInstallPerformance("auto_install_estimate estimated=" + pendingPackagesToEstimate.Count + " lowConfidence=" + lowConfidenceEstimateCount);
                 }
                 if (!token.IsCancellationRequested)
                 {
@@ -3935,23 +4098,24 @@ public class BMSLibrary : NotificationObject
                         targetBmsFile.status |= BMSFile.BMSFileStatus.SEARCHING;
                     }
                     HashSet<string> installedHashes = CreateBMSHashSnapshotExcludingUnsafe(null);
-                    InstallEstimationResult result = CreateInstallEstimationService().EstimateInstallationDirectory(targetBmsFiles, installedHashes, bmsFolderAllFileList, directoryResourceLookupCache, asParallel, estimateMode);
-                    LogInstallPerformance("estimate_install start chartCount=" + targetBmsFiles.Count + " targetHashes=" + result.TargetResourceHashCount + " candidateDirsBefore=" + result.CandidateDirectoryCountBeforeHashFilter + " candidateDirsAfter=" + result.CandidateDirectoryCountAfterHashFilter + " candidateDirs=" + result.CandidateDirectoryCount + " evaluationMs=" + result.EvaluationMs + " fallback=" + result.UsedFallbackCandidateExpansion + " summary=" + (result.ResourceSummary ?? string.Empty));
+                    InstallEstimationResult result = CreateInstallEstimationService().EstimateInstallationDirectory(
+                        targetBmsFiles,
+                        installedHashes,
+                        bmsFolderAllFileList,
+                        directoryResourceLookupCache,
+                        asParallel,
+                        estimateMode,
+                        ResolveInstallDestinationRepresentativeMetadataUnsafe);
+                    LogInstallPerformance("estimate_install start chartCount=" + targetBmsFiles.Count + " targetHashes=" + result.TargetResourceHashCount + " candidateDirsBefore=" + result.CandidateDirectoryCountBeforeHashFilter + " candidateDirsAfter=" + result.CandidateDirectoryCountAfterHashFilter + " candidateDirs=" + result.CandidateDirectoryCount + " evaluationMs=" + result.EvaluationMs + " fallback=" + result.UsedFallbackCandidateExpansion + " confidence=" + result.Confidence + " autoApplied=" + result.ShouldAutoApplyDestination + " confidenceReason=" + (result.ConfidenceReason ?? string.Empty) + " summary=" + (result.ResourceSummary ?? string.Empty));
                     if (!string.IsNullOrWhiteSpace(result.TopCandidateSummary))
                     {
                         LogInstallPerformance("estimate_install candidates " + result.TopCandidateSummary);
                     }
                     if (!string.IsNullOrWhiteSpace(result.SelectedCandidateSummary))
                     {
-                        LogInstallPerformance("estimate_install selected " + result.SelectedCandidateSummary + " dst=" + (result.DestinationDirectory ?? "(none)"));
+                        LogInstallPerformance("estimate_install selected " + result.SelectedCandidateSummary + " dst=" + (result.DestinationDirectory ?? "(none)") + " second=" + (result.SecondCandidate?.DirectoryPath ?? "(none)"));
                     }
-                    if (!string.IsNullOrWhiteSpace(result.DestinationDirectory))
-                    {
-                        targetBmsFiles.ForEach(delegate (BMSFile bmsFile)
-                        {
-                            bmsFile.instl_dst = result.DestinationDirectory;
-                        });
-                    }
+                    ApplyInstallEstimationResultToFiles(targetBmsFiles, result);
                 }
                 finally
                 {
@@ -4059,10 +4223,7 @@ public class BMSLibrary : NotificationObject
                         {
                             if (TryResolveInstalledDestinationFromPackage(package, missingFiles, out var resolvedDir))
                             {
-                                foreach (BMSFile missingFile in missingFiles)
-                                {
-                                    missingFile.instl_dst = resolvedDir;
-                                }
+                                ApplyResolvedInstallDestinationToFiles(missingFiles, resolvedDir);
                                 return;
                             }
                             // 解決できない場合だけ従来推定へフォールバックし、空欄のまま残るケースを減らす。
@@ -4093,15 +4254,15 @@ public class BMSLibrary : NotificationObject
             {
                 using (rwlockBMSFilesPendingInstall.GetReaderGuard())
                 {
-                    if (ContainsInstalledChartUnsafe(bmsFile))
-                    {
-                        List<string> installedDirectories = BmsLibraryInstallEstimationService.GetDistinctInstalledDirectoriesByHash(CreateInstalledDirectoryIndexSnapshotUnsafe(), bmsFile);
-                        if (installedDirectories.Count == 1)
+                        if (ContainsInstalledChartUnsafe(bmsFile))
                         {
-                            bmsFile.instl_dst = installedDirectories[0];
-                            resolvedInstalledDirectory = true;
+                            List<string> installedDirectories = BmsLibraryInstallEstimationService.GetDistinctInstalledDirectoriesByHash(CreateInstalledDirectoryIndexSnapshotUnsafe(), bmsFile);
+                            if (installedDirectories.Count == 1)
+                            {
+                                ApplyResolvedInstallDestinationToFiles(new BMSFile[1] { bmsFile }, installedDirectories[0]);
+                                resolvedInstalledDirectory = true;
+                            }
                         }
-                    }
                 }
             }
             if (resolvedInstalledDirectory)
@@ -5014,6 +5175,12 @@ public class BMSLibrary : NotificationObject
             using (rwlockBMSFiles.GetReaderGuard())
             {
                 CreateInstallEstimationService().ClearInstallDestinations(bmsFiles);
+                foreach (BMSFile bmsFile in bmsFiles.Where((BMSFile file) => file != null))
+                {
+                    bmsFile.warning = RemoveAmbiguousInstallWarning(bmsFile.warning);
+                    bmsFile.InstallDestinationTitle = string.Empty;
+                    bmsFile.InstallDestinationArtist = string.Empty;
+                }
             }
         }
     }
@@ -5034,10 +5201,7 @@ public class BMSLibrary : NotificationObject
                     dialogService.Show(selection.WarningMessage, Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
                     return false;
                 }
-                foreach (BMSFile item in selection.TargetFiles)
-                {
-                    item.instl_dst = selection.ValidatedDestinationDirectory;
-                }
+                ApplyResolvedInstallDestinationToFiles(selection.TargetFiles, selection.ValidatedDestinationDirectory);
                 return true;
             }
         }

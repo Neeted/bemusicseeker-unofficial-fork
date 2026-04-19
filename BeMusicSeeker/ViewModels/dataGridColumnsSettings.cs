@@ -123,6 +123,10 @@ public class dataGridColumnsSettings : NotificationObject
 
     private dataGridColumnlayouts _InstallDst;
 
+    private dataGridColumnlayouts _InstallDstTitle;
+
+    private dataGridColumnlayouts _InstallDstArtist;
+
     private dataGridColumnlayouts _WavHealth;
 
     private dataGridColumnlayouts _BgaHealth;
@@ -519,6 +523,38 @@ public class dataGridColumnsSettings : NotificationObject
         }
     }
 
+    public dataGridColumnlayouts InstallDstTitle
+    {
+        get
+        {
+            return _InstallDstTitle;
+        }
+        set
+        {
+            if (_InstallDstTitle != value)
+            {
+                _InstallDstTitle = value;
+                RaisePropertyChanged("InstallDstTitle");
+            }
+        }
+    }
+
+    public dataGridColumnlayouts InstallDstArtist
+    {
+        get
+        {
+            return _InstallDstArtist;
+        }
+        set
+        {
+            if (_InstallDstArtist != value)
+            {
+                _InstallDstArtist = value;
+                RaisePropertyChanged("InstallDstArtist");
+            }
+        }
+    }
+
     public dataGridColumnlayouts WavHealth
     {
         get
@@ -794,6 +830,14 @@ public class dataGridColumnsSettings : NotificationObject
         {
             Width = 300
         };
+        InstallDstTitle = new dataGridColumnlayouts
+        {
+            Width = 220
+        };
+        InstallDstArtist = new dataGridColumnlayouts
+        {
+            Width = 180
+        };
         WavHealth = new dataGridColumnlayouts
         {
             Width = 50
@@ -843,6 +887,8 @@ public class dataGridColumnsSettings : NotificationObject
         Folder.DisplayIndex = num++;
         Path.DisplayIndex = num++;
         InstallDst.DisplayIndex = num++;
+        InstallDstTitle.DisplayIndex = num++;
+        InstallDstArtist.DisplayIndex = num++;
         WavHealth.DisplayIndex = num++;
         BgaHealth.DisplayIndex = num++;
         MovieHealth.DisplayIndex = num++;
@@ -875,6 +921,8 @@ public class dataGridColumnsSettings : NotificationObject
                     Warning.Visibility = Visibility.Hidden;
                     Hash.Visibility = Visibility.Hidden;
                     InstallDst.Visibility = Visibility.Hidden;
+                    InstallDstTitle.Visibility = Visibility.Hidden;
+                    InstallDstArtist.Visibility = Visibility.Hidden;
                     PlaylistSymbols.Visibility = Visibility.Hidden;
                     CharcterEncoding.Visibility = Visibility.Hidden;
                     int num3 = 0;
@@ -906,6 +954,8 @@ public class dataGridColumnsSettings : NotificationObject
                     Sha256.DisplayIndex = num3++;
                     Path.DisplayIndex = num3++;
                     InstallDst.DisplayIndex = num3++;
+                    InstallDstTitle.DisplayIndex = num3++;
+                    InstallDstArtist.DisplayIndex = num3++;
                     WavHealth.DisplayIndex = num3++;
                     BgaHealth.DisplayIndex = num3++;
                     MovieHealth.DisplayIndex = num3++;
@@ -934,6 +984,8 @@ public class dataGridColumnsSettings : NotificationObject
                     Comment.Visibility = Visibility.Hidden;
                     Memo.Visibility = Visibility.Hidden;
                     Hash.Visibility = Visibility.Hidden;
+                    InstallDstTitle.Visibility = Visibility.Hidden;
+                    InstallDstArtist.Visibility = Visibility.Hidden;
                     Folder.Visibility = Visibility.Hidden;
                     CharcterEncoding.Visibility = Visibility.Hidden;
                     int num2 = 0;
@@ -970,6 +1022,8 @@ public class dataGridColumnsSettings : NotificationObject
                     CharcterEncoding.DisplayIndex = num2++;
                     Path.DisplayIndex = num2++;
                     InstallDst.DisplayIndex = num2++;
+                    InstallDstTitle.DisplayIndex = num2++;
+                    InstallDstArtist.DisplayIndex = num2++;
                     break;
                 }
             case viewType.DUPLICATE:
@@ -993,6 +1047,8 @@ public class dataGridColumnsSettings : NotificationObject
                 Memo.Visibility = Visibility.Hidden;
                 Folder.Visibility = Visibility.Hidden;
                 InstallDst.Visibility = Visibility.Hidden;
+                InstallDstTitle.Visibility = Visibility.Hidden;
+                InstallDstArtist.Visibility = Visibility.Hidden;
                 CharcterEncoding.Visibility = Visibility.Hidden;
                 break;
             case viewType.ENCODING:
@@ -1016,6 +1072,8 @@ public class dataGridColumnsSettings : NotificationObject
                 Hash.Visibility = Visibility.Hidden;
                 Path.Visibility = Visibility.Hidden;
                 InstallDst.Visibility = Visibility.Hidden;
+                InstallDstTitle.Visibility = Visibility.Hidden;
+                InstallDstArtist.Visibility = Visibility.Hidden;
                 WavHealth.Visibility = Visibility.Hidden;
                 BgaHealth.Visibility = Visibility.Hidden;
                 MovieHealth.Visibility = Visibility.Hidden;
@@ -1066,6 +1124,8 @@ public class dataGridColumnsSettings : NotificationObject
                     TScore.DisplayIndex = num++;
                     ScoreDifficulty.DisplayIndex = num++;
                     InstallDst.DisplayIndex = num++;
+                    InstallDstTitle.DisplayIndex = num++;
+                    InstallDstArtist.DisplayIndex = num++;
                     Warning.DisplayIndex = num++;
                     Comment.DisplayIndex = num++;
                     Memo.DisplayIndex = num++;
@@ -1102,6 +1162,8 @@ public class dataGridColumnsSettings : NotificationObject
         Hash.Visibility = Visibility.Hidden;
         Path.Visibility = Visibility.Hidden;
         InstallDst.Visibility = Visibility.Hidden;
+        InstallDstTitle.Visibility = Visibility.Hidden;
+        InstallDstArtist.Visibility = Visibility.Hidden;
         WavHealth.Visibility = Visibility.Hidden;
         BgaHealth.Visibility = Visibility.Hidden;
         MovieHealth.Visibility = Visibility.Hidden;

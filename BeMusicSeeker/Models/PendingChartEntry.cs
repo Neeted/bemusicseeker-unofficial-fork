@@ -152,6 +152,8 @@ public sealed class PendingChartEntry : BMSFile
             tag = source.tag,
             notes = source.notes,
             instl_dst = source.instl_dst,
+            InstallDestinationTitle = source.InstallDestinationTitle,
+            InstallDestinationArtist = source.InstallDestinationArtist,
             warning = source.warning,
             status = source.status,
             HasZeroNoteMismatchWarning = source.HasZeroNoteMismatchWarning,
@@ -211,6 +213,8 @@ public sealed class PendingChartEntry : BMSFile
         BmsonSong = song;
         path = song.path;
         instl_dst = null;
+        InstallDestinationTitle = string.Empty;
+        InstallDestinationArtist = string.Empty;
         status = BMSFileStatus.NONE;
         tag = string.Empty;
         folder = song.folder;

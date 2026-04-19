@@ -72,6 +72,10 @@ internal sealed class PlaylistDetailRow : NotificationObject
 
     public string instl_dst { get; }
 
+    public string InstallDestinationTitle { get; }
+
+    public string InstallDestinationArtist { get; }
+
     public int? WAVHealth { get; }
 
     public int? BGAHealth { get; }
@@ -144,6 +148,8 @@ internal sealed class PlaylistDetailRow : NotificationObject
         Folder = source.Folder;
         path = source.path;
         instl_dst = source.instl_dst;
+        InstallDestinationTitle = source.InstallDestinationTitle;
+        InstallDestinationArtist = source.InstallDestinationArtist;
         WAVHealth = source.WAVHealth;
         BGAHealth = source.BGAHealth;
         MovieHealth = source.MovieHealth;

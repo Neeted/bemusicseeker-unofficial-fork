@@ -846,6 +846,12 @@ public class Resources
     public static string Warning_SingleBmsonFile => ResourceManager.GetString("Warning_SingleBmsonFile", resourceCulture);
 
 
+    public static string Warning_InstallEstimationAmbiguousPrefix => ResourceManager.GetString("Warning_InstallEstimationAmbiguousPrefix", resourceCulture);
+
+
+    public static string Warning_InstallEstimationAmbiguous => ResourceManager.GetString("Warning_InstallEstimationAmbiguous", resourceCulture);
+
+
     public static string BmsonMigrationWarningMessage => ResourceManager.GetString("BmsonMigrationWarningMessage", resourceCulture);
 
 
@@ -856,6 +862,12 @@ public class Resources
 
 
     public static string Warning_ZeroNoteMismatch => ResourceManager.GetString("Warning_ZeroNoteMismatch", resourceCulture);
+
+
+    public static string Header_InstallDstTitle => ResourceManager.GetString("Header_InstallDstTitle", resourceCulture);
+
+
+    public static string Header_InstallDstArtist => ResourceManager.GetString("Header_InstallDstArtist", resourceCulture);
 
 
     public static string Error_FileNotFound => ResourceManager.GetString("Error_FileNotFound", resourceCulture);

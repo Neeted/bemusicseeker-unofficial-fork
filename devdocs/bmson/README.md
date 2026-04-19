@@ -42,6 +42,10 @@
    - `mode_hint` と `KEYS` / mode filter の整理
    - プレイリストサマリー集計 / 性能と非対応機能の仕上げ
    - 重複ファイルチェックの `bmson` 対応仕上げ
+8. [導入先推定精度向上計画](install-estimation-accuracy-improvement-plan.md)
+   - 連番リソース系の誤推定対策
+   - confidence / 第2候補 / `INSTL DST TITLE/ARTIST`
+   - 余剰リソース評価と metadata tie-break
 
 ## 実装方針の要点
 
@@ -116,3 +120,4 @@
 - [../spec/workflows.md](../spec/workflows.md)
 - [../spec/data-and-indexes.md](../spec/data-and-indexes.md)
 - [../spec/TECH_SPEC.ja.md](../spec/TECH_SPEC.ja.md)
+- [install-estimation-accuracy-improvement-plan.md](install-estimation-accuracy-improvement-plan.md)

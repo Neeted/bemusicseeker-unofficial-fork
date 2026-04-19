@@ -74,6 +74,10 @@ internal sealed class PlaylistDetailSourceRow
 
     internal string instl_dst { get; }
 
+    internal string InstallDestinationTitle { get; }
+
+    internal string InstallDestinationArtist { get; }
+
     internal int? WAVHealth { get; }
 
     internal int? BGAHealth { get; }
@@ -148,6 +152,8 @@ internal sealed class PlaylistDetailSourceRow
         Folder = FirstNonEmpty(entry.folder, BmsonSongParser.ComposeDisplayFolder(resolvedBmson));
         path = FirstNonEmpty(realFile?.path, resolvedBmson?.path);
         instl_dst = snapshotSource?.instl_dst ?? string.Empty;
+        InstallDestinationTitle = snapshotSource?.InstallDestinationTitle ?? string.Empty;
+        InstallDestinationArtist = snapshotSource?.InstallDestinationArtist ?? string.Empty;
         WAVHealth = snapshotSource?.WAVHealth;
         BGAHealth = snapshotSource?.BGAHealth;
         MovieHealth = snapshotSource?.MovieHealth;

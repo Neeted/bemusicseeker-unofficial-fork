@@ -81,6 +81,10 @@ public class BMSFile : LR2SongDB.song
 
     private string _instl_dst;
 
+    private string _installDestinationTitle;
+
+    private string _installDestinationArtist;
+
     private BMSFileStatus _status;
 
     private bool _isHashDuplicated;
@@ -463,7 +467,53 @@ public class BMSFile : LR2SongDB.song
             if (!(_instl_dst == value))
             {
                 _instl_dst = value;
+                if (string.IsNullOrWhiteSpace(value))
+                {
+                    InstallDestinationTitle = string.Empty;
+                    InstallDestinationArtist = string.Empty;
+                }
                 RaisePropertyChanged("instl_dst");
+            }
+        }
+    }
+
+    /// <summary>
+    /// 保留画面で確認に使う、推定先フォルダの代表譜面タイトルです。
+    /// INSTL DST が未確定でも上位候補 metadata を見せるため、instl_dst とは独立して保持します。
+    /// </summary>
+    public virtual string InstallDestinationTitle
+    {
+        get
+        {
+            return _installDestinationTitle ?? string.Empty;
+        }
+        set
+        {
+            string normalized = value ?? string.Empty;
+            if (!(_installDestinationTitle == normalized))
+            {
+                _installDestinationTitle = normalized;
+                RaisePropertyChanged("InstallDestinationTitle");
+            }
+        }
+    }
+
+    /// <summary>
+    /// 保留画面で確認に使う、推定先フォルダの代表譜面アーティストです。
+    /// </summary>
+    public virtual string InstallDestinationArtist
+    {
+        get
+        {
+            return _installDestinationArtist ?? string.Empty;
+        }
+        set
+        {
+            string normalized = value ?? string.Empty;
+            if (!(_installDestinationArtist == normalized))
+            {
+                _installDestinationArtist = normalized;
+                RaisePropertyChanged("InstallDestinationArtist");
             }
         }
     }

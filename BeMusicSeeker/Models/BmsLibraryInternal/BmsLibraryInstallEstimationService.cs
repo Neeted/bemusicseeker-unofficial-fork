@@ -75,6 +75,23 @@ internal sealed class BmsLibraryInstallEstimationService
                 OptionalImageHealth);
         }
 
+        public bool HasSamePrimaryMetrics(CandidateEvaluation other)
+        {
+            return other != null
+                && AudioHealth == other.AudioHealth
+                && AudioMatched == other.AudioMatched
+                && AudioExactMatched == other.AudioExactMatched
+                && VisualHealth == other.VisualHealth
+                && VisualMatched == other.VisualMatched
+                && VisualExactMatched == other.VisualExactMatched
+                && MovieHealth == other.MovieHealth
+                && MovieMatched == other.MovieMatched
+                && MovieExactMatched == other.MovieExactMatched
+                && OptionalImageHealth == other.OptionalImageHealth
+                && OptionalImageMatched == other.OptionalImageMatched
+                && OptionalImageExactMatched == other.OptionalImageExactMatched;
+        }
+
         private static int ComputeHealth(int matched, int defined)
         {
             if (defined <= 0)
@@ -282,10 +299,10 @@ internal sealed class BmsLibraryInstallEstimationService
 
     public InstallEstimationResult EstimateInstallationDirectory(IEnumerable<BMSFile> bmsFiles, HashSet<string> installedHashes, BMSDirectoryFileNameHash folderAllFileList, bool asParallel, BmsInstallationEstimateMode estimateMode)
     {
-        return EstimateInstallationDirectory(bmsFiles, installedHashes, folderAllFileList, null, asParallel, estimateMode);
+        return EstimateInstallationDirectory(bmsFiles, installedHashes, folderAllFileList, null, asParallel, estimateMode, null);
     }
 
-    public InstallEstimationResult EstimateInstallationDirectory(IEnumerable<BMSFile> bmsFiles, HashSet<string> installedHashes, BMSDirectoryFileNameHash folderAllFileList, DirectoryResourceLookupCache directoryLookupCache, bool asParallel, BmsInstallationEstimateMode estimateMode)
+    public InstallEstimationResult EstimateInstallationDirectory(IEnumerable<BMSFile> bmsFiles, HashSet<string> installedHashes, BMSDirectoryFileNameHash folderAllFileList, DirectoryResourceLookupCache directoryLookupCache, bool asParallel, BmsInstallationEstimateMode estimateMode, Func<string, InstallDestinationRepresentativeMetadata> representativeMetadataResolver = null)
     {
         InstallEstimationResult result = new InstallEstimationResult();
         List<BMSFile> targetFiles = (bmsFiles ?? Enumerable.Empty<BMSFile>()).Where((BMSFile bmsInfo) => bmsInfo != null).ToList();
@@ -423,14 +440,34 @@ internal sealed class BmsLibraryInstallEstimationService
             .ThenByDescending((CandidateEvaluation evaluation) => evaluation.AudioFileCount)
             .ThenBy((CandidateEvaluation evaluation) => evaluation.DirectoryPath, StringComparer.OrdinalIgnoreCase)
             .ToList();
-        result.TopCandidateSummary = string.Join(" || ", orderedCandidates.Take(3).Select((CandidateEvaluation evaluation) => evaluation.ToSummary()));
-        CandidateEvaluation selectedCandidate = orderedCandidates.First();
-        result.SelectedCandidateSummary = selectedCandidate.ToSummary();
-        if (!isMergeMode && string.Equals(selectedCandidate.DirectoryPath, targetDir, StringComparison.OrdinalIgnoreCase))
+        foreach (InstallEstimationCandidate candidate in orderedCandidates
+            .Take(3)
+            .Select(delegate (CandidateEvaluation evaluation)
+            {
+                InstallDestinationRepresentativeMetadata representativeMetadata = representativeMetadataResolver?.Invoke(evaluation.DirectoryPath) ?? InstallDestinationRepresentativeMetadata.Empty;
+                return CreateCandidate(evaluation, representativeMetadata);
+            }))
         {
+            result.Candidates.Add(candidate);
+        }
+        result.TopCandidateSummary = string.Join(" || ", result.Candidates.Select((InstallEstimationCandidate candidate) => candidate.ToSummary()));
+        CandidateEvaluation selectedCandidateEvaluation = orderedCandidates.First();
+        result.SelectedCandidateSummary = result.SelectedCandidate?.ToSummary() ?? selectedCandidateEvaluation.ToSummary();
+        CandidateEvaluation secondCandidateEvaluation = orderedCandidates.Skip(1).FirstOrDefault();
+        bool isLowConfidence = secondCandidateEvaluation != null && selectedCandidateEvaluation.HasSamePrimaryMetrics(secondCandidateEvaluation);
+        result.Confidence = isLowConfidence ? InstallEstimationConfidence.Low : InstallEstimationConfidence.High;
+        result.ConfidenceReason = secondCandidateEvaluation == null ? "single_candidate" : (isLowConfidence ? "tie_on_primary_metrics" : "distinct_primary_metrics");
+        if (!isMergeMode && string.Equals(selectedCandidateEvaluation.DirectoryPath, targetDir, StringComparison.OrdinalIgnoreCase))
+        {
+            result.Candidates.Clear();
+            result.SelectedCandidateSummary = string.Empty;
+            result.TopCandidateSummary = string.Empty;
+            result.Confidence = InstallEstimationConfidence.High;
+            result.ConfidenceReason = "selected_source_directory";
             return result;
         }
-        result.DestinationDirectory = selectedCandidate.DirectoryPath;
+        result.DestinationDirectory = selectedCandidateEvaluation.DirectoryPath;
+        result.ShouldAutoApplyDestination = result.Confidence == InstallEstimationConfidence.High;
         return result;
     }
 
@@ -455,9 +492,11 @@ internal sealed class BmsLibraryInstallEstimationService
 
     public void ClearInstallDestinations(IEnumerable<BMSFile> bmsFiles)
     {
-        foreach (BMSFile bmsFile in (bmsFiles ?? Enumerable.Empty<BMSFile>()).Where((BMSFile file) => file != null && !string.IsNullOrWhiteSpace(file.instl_dst)))
+        foreach (BMSFile bmsFile in (bmsFiles ?? Enumerable.Empty<BMSFile>()).Where((BMSFile file) => file != null && (!string.IsNullOrWhiteSpace(file.instl_dst) || !string.IsNullOrWhiteSpace(file.InstallDestinationTitle) || !string.IsNullOrWhiteSpace(file.InstallDestinationArtist))))
         {
             bmsFile.instl_dst = null;
+            bmsFile.InstallDestinationTitle = string.Empty;
+            bmsFile.InstallDestinationArtist = string.Empty;
         }
     }
 
@@ -624,6 +663,29 @@ internal sealed class BmsLibraryInstallEstimationService
         {
             matched = exactMatched;
         }
+    }
+
+    private static InstallEstimationCandidate CreateCandidate(CandidateEvaluation evaluation, InstallDestinationRepresentativeMetadata representativeMetadata)
+    {
+        return new InstallEstimationCandidate
+        {
+            DirectoryPath = evaluation.DirectoryPath,
+            AudioHealth = evaluation.AudioHealth,
+            AudioMatched = evaluation.AudioMatched,
+            AudioExactMatched = evaluation.AudioExactMatched,
+            VisualHealth = evaluation.VisualHealth,
+            VisualMatched = evaluation.VisualMatched,
+            VisualExactMatched = evaluation.VisualExactMatched,
+            MovieHealth = evaluation.MovieHealth,
+            MovieMatched = evaluation.MovieMatched,
+            MovieExactMatched = evaluation.MovieExactMatched,
+            OptionalImageHealth = evaluation.OptionalImageHealth,
+            OptionalImageMatched = evaluation.OptionalImageMatched,
+            OptionalImageExactMatched = evaluation.OptionalImageExactMatched,
+            AudioFileCount = evaluation.AudioFileCount,
+            RepresentativeTitle = representativeMetadata?.Title ?? string.Empty,
+            RepresentativeArtist = representativeMetadata?.Artist ?? string.Empty
+        };
     }
 
     private static bool IsBmsHashAvailable(string hash)
