@@ -3125,6 +3125,7 @@ public partial class BMSPlaylist : NotificationObject
                     lr2Song.Execute("DELETE FROM " + SQLiteTable<LR2SongDBExtended.playlist_entry>.GetTableName() + " WHERE " + SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.playlist_id) + " = " + bmsTable.playlist_id + ";");
                     bmsTable.entries.ForEach(delegate (BMSTableEntry e)
                     {
+                        e?.NormalizeForPlaylistPersistence();
                         lr2Song.InsertOrReplace(e, typeof(LR2SongDBExtended.playlist_entry));
                     });
                 }
@@ -3159,6 +3160,7 @@ public partial class BMSPlaylist : NotificationObject
         {
             entry.MaterializeEffectiveUrlsIntoPersistedValues();
         }
+        entry.NormalizeForPlaylistPersistence();
         try
         {
             using LR2SongDBExtended lR2SongDBExtended = new LR2SongDBExtended(lr2SongDBPath);

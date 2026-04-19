@@ -10648,6 +10648,10 @@ public class MainWindowViewModel : ViewModel
         {
             throw new ArgumentNullException(nameof(playlistRow));
         }
+        if (playlistRow.ResolvedBmson != null && playlistRow.RealFile == null)
+        {
+            playlistRow.Entry.MarkAsBmsonPlaylistIdentity(playlistRow.sha256 ?? playlistRow.ResolvedBmson.sha256);
+        }
         tables.CommitBMSTableEntry(playlistRow.Entry);
     }
 

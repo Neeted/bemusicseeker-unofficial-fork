@@ -9,6 +9,13 @@ namespace BeMusicSeeker.Models;
 
 public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
 {
+	private enum PlaylistHashIdentityKind
+	{
+		Automatic,
+		Md5Only,
+		Sha256Only
+	}
+
 	protected BMSFile _bmsfile;
 
 	private static readonly object bulkLoadParseSuppressionLock = new object();
@@ -26,6 +33,10 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
 	private Uri _url;
 
 	private Uri _urlDiff;
+
+	private List<string> _orgMd5 = new List<string>();
+
+	private PlaylistHashIdentityKind playlistHashIdentityKind;
 
 	public const string DUMMY_MD5_FOR_EMPTY_FOLDER = "00000000000000000000000000000000";
 
@@ -292,7 +303,7 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
 		get
 		{
 			ensureDeferredOrgMd5Parsed();
-			return DynamicJson.Serialize(Org_md5);
+			return (Org_md5 == null || Org_md5.Count == 0) ? string.Empty : DynamicJson.Serialize(Org_md5);
 		}
 		protected set
 		{
@@ -304,13 +315,24 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
 			deferredOrgMd5Raw = null;
 			if (value == null || string.IsNullOrWhiteSpace(value))
 			{
+				Org_md5 = new List<string>();
 				return;
 			}
 			Org_md5 = parseOrgMd5(value);
 		}
 	}
 
-	public List<string> Org_md5 { get; set; }
+	public List<string> Org_md5
+	{
+		get
+		{
+			return _orgMd5 ?? (_orgMd5 = new List<string>());
+		}
+		set
+		{
+			_orgMd5 = normalizeOrgMd5Collection(value);
+		}
+	}
 
 	public BMSTableEntry()
 	{
@@ -325,9 +347,19 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
 		{
 			throw new ArgumentNullException("bmsFile");
 		}
+		if (PendingChartEntry.IsBmsonChartFile(bmsFile))
+		{
+			title = bmsFile.Title;
+			artist = bmsFile.Artist;
+			base.level = bmsFile.level;
+			base.folder = bmsFile.folder ?? string.Empty;
+			MarkAsBmsonPlaylistIdentity(bmsFile.sha256);
+			return;
+		}
 		md5 = bmsFile.hash;
 		bmsfile = bmsFile;
 		base.level = bmsFile.level;
+		playlistHashIdentityKind = PlaylistHashIdentityKind.Md5Only;
 	}
 
 	public BMSTableEntry(dynamic data_json, BMSTable _parent = null)
@@ -466,6 +498,10 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
 		{
 			sha256 = sha256.ToLowerInvariant();
 		}
+		if (string.IsNullOrWhiteSpace(md5) && !string.IsNullOrWhiteSpace(sha256))
+		{
+			playlistHashIdentityKind = PlaylistHashIdentityKind.Sha256Only;
+		}
 		if (Org_md5.Count() == 0 || Org_md5.All((string _md5) => LR2SongDB.md5HashRegex.IsMatch(_md5)))
 		{
 			Org_md5 = Org_md5.Select((string _md5) => _md5 = _md5.ToLowerInvariant()).ToList();
@@ -486,12 +522,14 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
 		obj.adddate = DateTime.Now;
 		obj.parent = null;
 		obj.playlist_id = null;
+		obj.Org_md5 = new List<string>(Org_md5 ?? new List<string>());
 		obj.ClearRuntimeUrlCompletions();
 		return obj;
 	}
 
 	public dynamic ToDynamicJson()
 	{
+		NormalizeForPlaylistPersistence();
 		ensureDeferredOrgMd5Parsed();
 		dynamic val = new DynamicJson();
 		val.md5 = md5;
@@ -510,6 +548,39 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
 		val.comment = base.comment ?? string.Empty;
 		val.adddate = base.adddate.ToShortDateString();
 		return val;
+	}
+
+	internal void MarkAsBmsPlaylistIdentity()
+	{
+		playlistHashIdentityKind = PlaylistHashIdentityKind.Md5Only;
+	}
+
+	internal void MarkAsBmsonPlaylistIdentity(string preferredSha256 = null)
+	{
+		materializeCurrentDisplayValues();
+		playlistHashIdentityKind = PlaylistHashIdentityKind.Sha256Only;
+		_bmsfile = null;
+		md5 = null;
+		if (!string.IsNullOrWhiteSpace(preferredSha256))
+		{
+			sha256 = preferredSha256;
+		}
+		Org_md5 = new List<string>();
+	}
+
+	internal void NormalizeForPlaylistPersistence()
+	{
+		ensureDeferredOrgMd5Parsed();
+		Org_md5 = Org_md5;
+		switch (playlistHashIdentityKind)
+		{
+		case PlaylistHashIdentityKind.Md5Only:
+			sha256 = null;
+			break;
+		case PlaylistHashIdentityKind.Sha256Only:
+			MarkAsBmsonPlaylistIdentity(sha256);
+			break;
+		}
 	}
 
 	private void ensureDeferredUrlParsed(bool isDiff)
@@ -572,6 +643,7 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
 		{
 			return;
 		}
+		Org_md5 = Org_md5;
 		if (Org_md5.Count == 0)
 		{
 			Org_md5 = parseOrgMd5(deferredOrgMd5Raw);
@@ -581,14 +653,48 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
 
 	private static List<string> parseOrgMd5(string value)
 	{
+		if (string.IsNullOrWhiteSpace(value) || string.Equals(value.Trim(), "null", StringComparison.OrdinalIgnoreCase))
+		{
+			return new List<string>();
+		}
 		try
 		{
 			dynamic val = DynamicJson.Parse(value);
+			if (val == null)
+			{
+				return new List<string>();
+			}
 			return ((object[])val).Select((object e) => e.ToString()).Cast<string>().ToList();
 		}
 		catch
 		{
 			return new List<string>();
+		}
+	}
+
+	private static List<string> normalizeOrgMd5Collection(IEnumerable<string> values)
+	{
+		return (values ?? Enumerable.Empty<string>())
+			.Where((string value) => !string.IsNullOrWhiteSpace(value) && !string.Equals(value.Trim(), "null", StringComparison.OrdinalIgnoreCase))
+			.Select((string value) => value.Trim())
+			.ToList();
+	}
+
+	private void materializeCurrentDisplayValues()
+	{
+		if (_bmsfile == null)
+		{
+			return;
+		}
+		title = this.title;
+		artist = this.artist;
+		if (!base.level.HasValue)
+		{
+			base.level = _bmsfile.level;
+		}
+		if (string.IsNullOrWhiteSpace(base.folder))
+		{
+			base.folder = _bmsfile.folder ?? string.Empty;
 		}
 	}
 
