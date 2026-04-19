@@ -23,7 +23,7 @@ public sealed class JsonBackedResourceManager : ResourceManager
         string cultureName = cultureInfo.Name;
 
         // First try to resolve from JSON languages (including user-customized ja-JP.json)
-        if (App.AvailableCultures.Values.Contains(cultureName))
+        if (App.AvailableCultures != null && App.AvailableCultures.Values.Contains(cultureName))
         {
             if (JsonLanguageCatalog.TryGetString(cultureName, name, out var value))
             {

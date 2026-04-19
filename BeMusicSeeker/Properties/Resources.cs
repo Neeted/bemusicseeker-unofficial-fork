@@ -846,6 +846,12 @@ public class Resources
     public static string Warning_SingleBmsonFile => ResourceManager.GetString("Warning_SingleBmsonFile", resourceCulture);
 
 
+    public static string BmsonMigrationWarningMessage => ResourceManager.GetString("BmsonMigrationWarningMessage", resourceCulture);
+
+
+    public static string BmsonMigrationWarningTitle => ResourceManager.GetString("BmsonMigrationWarningTitle", resourceCulture);
+
+
     public static string Warning_DuplicateBmsFile => ResourceManager.GetString("Warning_DuplicateBmsFile", resourceCulture);
 
 

@@ -8051,16 +8051,7 @@ public class MainWindowViewModel : ViewModel
         {
             throw new ArgumentNullException(nameof(preflightResult));
         }
-        StringBuilder stringBuilder = new StringBuilder();
-        stringBuilder.Append("bmson 対応のため、初回起動時にプレイリストやハッシュ管理用・bmson カタログ用テーブルへ変更を加えます。");
-        stringBuilder.Append(Environment.NewLine);
-        stringBuilder.Append(Environment.NewLine);
-        stringBuilder.Append("初回の SHA-256 生成はライブラリ規模によってかなり時間がかかります。");
-        stringBuilder.Append(Environment.NewLine);
-        stringBuilder.Append("更新後の DB は、従来版 BeMusicSeeker および本フォーク版 v1.2.1.0 以前と互換性がない可能性があります。");
-        stringBuilder.Append(Environment.NewLine);
-        stringBuilder.Append("互換性に不安がある場合は、事前に song.db などのバックアップを推奨します。");
-        return stringBuilder.ToString();
+        return BeMusicSeeker.Properties.Resources.BmsonMigrationWarningMessage;
     }
 
     internal static bool ApplyBmsonMigrationPreflightForStartup(BmsonMigrationPreflightResult preflightResult, ref bool approvedForSession, Func<string, bool?> confirmWarning, Action ensureSchema, Action shutdown)
@@ -8112,7 +8103,7 @@ public class MainWindowViewModel : ViewModel
         return ApplyBmsonMigrationPreflightForStartup(preflightResult, ref bmsonMigrationApprovedForSession, delegate (string message)
         {
             LogInitStage("bmson_preflight_prompt_show", "Initialize");
-            ConfirmationMessage confirmationMessage = new ConfirmationMessage(message, "bmson 対応に伴う移行警告", MessageBoxImage.Exclamation, MessageBoxButton.OKCancel, "ConfirmationDialog");
+            ConfirmationMessage confirmationMessage = new ConfirmationMessage(message, BeMusicSeeker.Properties.Resources.BmsonMigrationWarningTitle, MessageBoxImage.Exclamation, MessageBoxButton.OKCancel, "ConfirmationDialog");
             base.Messenger.Raise(confirmationMessage);
             LogInitStage("bmson_preflight_prompt_close", "Initialize");
             return confirmationMessage.Response;

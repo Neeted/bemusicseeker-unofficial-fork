@@ -1312,6 +1312,16 @@ BMSファイルが重複しないようにマージします。
   <data name="Warning_SingleBmsonFile" xml:space="preserve">
     <value>BMSONファイル単体です</value>
   </data>
+  <data name="BmsonMigrationWarningMessage" xml:space="preserve">
+    <value>bmson 対応のため、初回起動時にプレイリストやハッシュ管理用・bmson カタログ用テーブルへ変更を加えます。
+
+初回の SHA-256 生成はライブラリ規模によってかなり時間がかかります。
+更新後の DB は、従来版 BeMusicSeeker および本フォーク版 v1.2.1.0 以前と互換性がない可能性があります。
+互換性に不安がある場合は、事前に song.db などのバックアップを推奨します。</value>
+  </data>
+  <data name="BmsonMigrationWarningTitle" xml:space="preserve">
+    <value>bmson 対応に伴う移行警告</value>
+  </data>
   <data name="Warning_DuplicateBmsFile" xml:space="preserve">
     <value>BMSファイルが重複しています</value>
   </data>

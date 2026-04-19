@@ -1,5 +1,6 @@
 using System;
 using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -62,10 +63,7 @@ public sealed class MainWindowViewModelBmsonMigrationTests
 
         string message = MainWindowViewModel.BuildBmsonMigrationWarningMessage(result);
 
-        StringAssert.Contains(message, "SHA-256");
-        StringAssert.Contains(message, "v1.2.1.0");
-        StringAssert.Contains(message, "互換性");
-        StringAssert.Contains(message, "バックアップ");
+        Assert.AreEqual(Resources.BmsonMigrationWarningMessage, message);
     }
 
     [TestMethod]
