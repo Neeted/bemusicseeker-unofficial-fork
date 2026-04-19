@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
@@ -100,18 +101,48 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             BMSDirectoryFileNameHash cache = new BMSDirectoryFileNameHash();
             cache.AddDirHashed(sourceDir, Array.Empty<uint>());
             cache.AddDirHashed(candidateDir, Array.Empty<uint>());
+            DirectoryResourceLookupCache lookupCache = new DirectoryResourceLookupCache();
+            lookupCache.AddDir(sourceDir, new[] { "chart.bms" });
+            lookupCache.AddDir(candidateDir, new[] { "sound.wav" });
 
             InstallEstimationResult result = service.EstimateInstallationDirectory(
                 new[] { file },
                 new HashSet<string>(StringComparer.OrdinalIgnoreCase),
                 cache,
+                lookupCache,
                 asParallel: false,
                 BmsInstallationEstimateMode.Normal);
 
-            Assert.IsTrue(result.UsedFallbackCandidateExpansion);
-            Assert.AreEqual(1, result.CandidateDirectoryCount);
-            Assert.IsNull(result.DestinationDirectory);
+            string debugSummary = (result.ResourceSummary ?? string.Empty) + " || " + (result.TopCandidateSummary ?? string.Empty) + " || " + (result.SelectedCandidateSummary ?? string.Empty);
+            Assert.IsFalse(result.UsedFallbackCandidateExpansion, debugSummary);
+            Assert.AreEqual(1, result.CandidateDirectoryCount, debugSummary);
+            Assert.AreEqual(candidateDir, result.DestinationDirectory, debugSummary);
         });
+    }
+
+    [TestMethod]
+    public void EstimateInstallationDirectory_UsesCachedHashesWithoutRuntimeDirectoryEnumeration()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        BmsLibraryInstallEstimationService service = CreateService();
+        string sourceDir = Path.Combine("C:\\Temp", "source");
+        string candidateDir = Path.Combine("C:\\Library", "candidate");
+        TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(sourceDir, "chart.bms"), "keysound.wav");
+        file.SetMaintenanceInfo(CreateMaintenanceInfo(file, wavDefined: 1, wavExisting: 0), suppressPropertyChanged: true, registerEventHandlers: false);
+
+        BMSDirectoryFileNameHash cache = new BMSDirectoryFileNameHash();
+        cache.AddDirHashed(sourceDir, new[] { BMSDirectoryFileNameHash.GetFileNameHash("chart.bms") });
+        cache.AddDirHashed(candidateDir, new[] { BMSDirectoryFileNameHash.GetFileNameHash("keysound.wav") });
+
+        InstallEstimationResult result = service.EstimateInstallationDirectory(
+            new[] { file },
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+            cache,
+            asParallel: false,
+            BmsInstallationEstimateMode.Normal);
+
+        Assert.AreEqual(candidateDir, result.DestinationDirectory);
+        Assert.AreEqual(1, result.CandidateDirectoryCount);
     }
 
     [TestMethod]
@@ -210,6 +241,74 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 BmsInstallationEstimateMode.Normal);
 
             Assert.AreEqual(candidateDir, result.DestinationDirectory);
+        });
+    }
+
+    [TestMethod]
+    public void EstimateInstallationDirectory_BmsonSampleLikeOggSetSelectsMatchingDirectory()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
+        {
+            string sourceDir = Path.Combine(tempRoot, "bmson");
+            string candidateDir = Path.Combine(tempRoot, "piece_of_mine");
+            string decoyDir = Path.Combine(tempRoot, "decoy");
+            Directory.CreateDirectory(sourceDir);
+            Directory.CreateDirectory(candidateDir);
+            Directory.CreateDirectory(decoyDir);
+
+            List<string> oggNames = Enumerable.Range(1, 77).Select((int index) => string.Format("sound{0:00}.ogg", index)).ToList();
+            StringBuilder soundChannelsBuilder = new StringBuilder();
+            for (int i = 0; i < oggNames.Count; i++)
+            {
+                if (i > 0)
+                {
+                    soundChannelsBuilder.Append(",");
+                }
+                soundChannelsBuilder.Append("{\"name\":\"").Append(oggNames[i]).Append("\",\"notes\":[]}");
+            }
+            string bmsonPath = Path.Combine(sourceDir, "_circ_double_hard.bmson");
+            File.WriteAllText(
+                bmsonPath,
+                "{"
+                + "\"version\":\"1.0.0\","
+                + "\"info\":{\"title\":\"Title\",\"artist\":\"Artist\",\"preview_music\":\"preview.ogg\",\"banner_image\":\"banner.png\"},"
+                + "\"sound_channels\":[" + soundChannelsBuilder + "],"
+                + "\"bga\":{\"bga_header\":[{\"id\":1,\"name\":\"cover.jpg\"}]},"
+                + "\"lines\":[{\"y\":0}]"
+                + "}");
+
+            foreach (string oggName in oggNames)
+            {
+                File.WriteAllText(Path.Combine(candidateDir, oggName), "candidate");
+            }
+            File.WriteAllText(Path.Combine(candidateDir, "preview.ogg"), "candidate");
+            File.WriteAllText(Path.Combine(candidateDir, "banner.png"), "candidate");
+            File.WriteAllText(Path.Combine(candidateDir, "cover.jpg"), "candidate");
+            for (int i = 0; i < 10; i++)
+            {
+                File.WriteAllText(Path.Combine(decoyDir, oggNames[i]), "decoy");
+            }
+
+            PendingChartEntry pending = PendingChartEntry.CreateFromFilePath(bmsonPath);
+
+            BMSDirectoryFileNameHash cache = new BMSDirectoryFileNameHash();
+            cache.AddDir(sourceDir);
+            cache.AddDir(candidateDir);
+            cache.AddDir(decoyDir);
+
+            InstallEstimationResult result = service.EstimateInstallationDirectory(
+                new[] { pending },
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+                cache,
+                asParallel: false,
+                BmsInstallationEstimateMode.Normal);
+
+            string debugSummary = (result.ResourceSummary ?? string.Empty) + " || " + (result.TopCandidateSummary ?? string.Empty) + " || " + (result.SelectedCandidateSummary ?? string.Empty);
+            Assert.AreEqual(candidateDir, result.DestinationDirectory, debugSummary);
+            Assert.AreEqual(2, result.CandidateDirectoryCount, debugSummary);
+            StringAssert.Contains(result.ResourceSummary ?? string.Empty, "audioRefs=78");
+            StringAssert.Contains(result.SelectedCandidateSummary ?? string.Empty, candidateDir, debugSummary);
         });
     }
 

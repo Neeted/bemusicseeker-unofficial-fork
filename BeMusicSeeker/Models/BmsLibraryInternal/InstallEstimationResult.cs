@@ -9,4 +9,18 @@ internal sealed class InstallEstimationResult
     public int CandidateDirectoryCount { get; set; }
 
     public bool UsedFallbackCandidateExpansion { get; set; }
+
+    public int CandidateDirectoryCountBeforeHashFilter { get; set; }
+
+    public int CandidateDirectoryCountAfterHashFilter { get; set; }
+
+    public int TargetResourceHashCount { get; set; }
+
+    public long EvaluationMs { get; set; }
+
+    public string ResourceSummary { get; set; }
+
+    public string SelectedCandidateSummary { get; set; }
+
+    public string TopCandidateSummary { get; set; }
 }

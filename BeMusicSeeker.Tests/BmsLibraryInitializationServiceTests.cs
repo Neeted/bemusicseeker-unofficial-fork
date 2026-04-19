@@ -547,6 +547,77 @@ public sealed class BmsLibraryInitializationServiceTests
     }
 
     [TestMethod]
+    public void ApplyFileScanDiff_MergesBmsonOnlyDirectoriesIntoInstallCandidateCache()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
+        {
+            string bmsDir = Path.Combine(lr2RootPath, "BmsKeep");
+            string bmsonDir = Path.Combine(lr2RootPath, "BmsonOnly");
+            Directory.CreateDirectory(bmsDir);
+            Directory.CreateDirectory(bmsonDir);
+            string bmsPath = Path.Combine(bmsDir, "keep.bms");
+            string bmsonPath = Path.Combine(bmsonDir, "chart.bmson");
+            File.WriteAllText(bmsPath, "#PLAYER 1\r\n#TITLE Keep\r\n");
+            File.WriteAllText(bmsonPath, CreateBmsonJson("Title", "Sub", "Chart", "Artist", "Genre", 12, "beat-7k"));
+
+            TestableBmsFile keepFile = new TestableBmsFile
+            {
+                path = bmsPath
+            };
+            keepFile.SetHash(BMSFile.CreateBMSFileFromFile(bmsPath).hash);
+
+            using (LR2SongDBExtended songDb = new LR2SongDBExtended(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDB.song>();
+                BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
+                songDb.InsertOrReplace(keepFile, typeof(LR2SongDB.song));
+            }
+
+            BmsLibraryInitializationService service = new BmsLibraryInitializationService();
+            SongTableFileCheckResult result = service.ApplyFileScanDiff(
+                new BmsLibraryDbGateway(songDbPath),
+                new BmsLibraryOptionsSnapshot(),
+                new[] { keepFile },
+                new BmsScanExecutionResult
+                {
+                    Success = true,
+                    Result = new BmsScanResult
+                    {
+                        BmsFilePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { bmsPath },
+                        FileNameHashesByDirectory = new Dictionary<string, uint[]>(StringComparer.OrdinalIgnoreCase)
+                        {
+                            { bmsDir, new[] { BMSDirectoryFileNameHash.GetFileNameHash("keep.bms") } }
+                        }
+                    }
+                },
+                0L,
+                () => null,
+                dialogService: null,
+                logInstallPerformance: null,
+                logEverythingScan: null,
+                currentBmsonSongs: Array.Empty<LR2SongDBExtended.bmson_song>(),
+                executeBmsonScan: () => new BmsScanExecutionResult
+                {
+                    Success = true,
+                    Result = new BmsScanResult
+                    {
+                        BmsFilePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { bmsonPath },
+                        FileNameHashesByDirectory = new Dictionary<string, uint[]>(StringComparer.OrdinalIgnoreCase)
+                        {
+                            { bmsonDir, new[] { BMSDirectoryFileNameHash.GetFileNameHash("song.ogg") } }
+                        }
+                    }
+                });
+
+            CollectionAssert.Contains(result.NextFolderAllFileList.Keys.ToList(), bmsDir);
+            CollectionAssert.Contains(result.NextFolderAllFileList.Keys.ToList(), bmsonDir);
+            Assert.IsNotNull(result.NextDirectoryResourceLookupCache);
+            Assert.IsTrue(result.NextDirectoryResourceLookupCache.Keys.Contains(bmsonDir, StringComparer.OrdinalIgnoreCase));
+        });
+    }
+
+    [TestMethod]
     public void RunInitialize_InvokesAllPhasesAndWaitsForContinuations()
     {
         BmsLibraryInitializationService service = new BmsLibraryInitializationService();

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.Utils;
 using Ribbit.Cryptography;
 using Ribbit.Threading;
@@ -38,7 +39,7 @@ public class BMSDirectoryFileNameHash
 
 	public static uint GetFileNameHash(string fileName)
 	{
-		return xxHash32.CalculateHash(extensionNormalizer((fileName ?? string.Empty).ToUpperInvariant()));
+		return xxHash32.CalculateHash(ChartResourcePathNormalizer.NormalizeFileNameForLookup(fileName).ToUpperInvariant());
 	}
 
 	private static string extensionNormalizer(string str)
@@ -87,6 +88,14 @@ public class BMSDirectoryFileNameHash
 			}
 		}
 		return fileNameHashArray;
+	}
+
+	public uint[] TryGetCachedFileNameHashArray(string path)
+	{
+		using (new ReaderGuard(rwlock))
+		{
+			return allFileList.TryGetValue(path, out var value) ? value : null;
+		}
 	}
 
 	public void AddDir(string path, IEnumerable<string> fileNames)

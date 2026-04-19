@@ -918,32 +918,66 @@ internal sealed class BmsLibraryPackageInstallService
         }
 
         Stopwatch classificationStopwatch = Stopwatch.StartNew();
-        ILookup<bool, BMSPackage> lookup = discoveredPackages.AsParallel().ToLookup((BMSPackage pkg) => pkg.BMSFiles
-            .AsParallel()
-            .Select(delegate (BMSFile bmsFile)
+        Stopwatch installedCheckStopwatch = Stopwatch.StartNew();
+        Dictionary<BMSPackage, bool> pendingByPackage = new Dictionary<BMSPackage, bool>();
+        foreach (BMSPackage pkg in discoveredPackages)
+        {
+            bool hasInstalledChart = false;
+            foreach (BMSFile bmsFile in pkg.BMSFiles.Where((BMSFile file) => file != null))
             {
-                bool isBmson = PendingChartEntry.IsBmsonChartFile(bmsFile);
-                bmsFile.SetHealthStatus(null, forceUpdate: false, memClear: false);
                 if (isInstalledChart != null && isInstalledChart(bmsFile))
                 {
                     bmsFile.warning = Resources.Warning_AlreadyInstalled;
-                    return true;
+                    hasInstalledChart = true;
                 }
-                if (!Directory.Exists(pkg.path))
+            }
+            pendingByPackage[pkg] = hasInstalledChart;
+        }
+        installedCheckStopwatch.Stop();
+        result.InstalledCheckMs = installedCheckStopwatch.ElapsedMilliseconds;
+
+        Stopwatch warningClassificationStopwatch = Stopwatch.StartNew();
+        foreach (BMSPackage pkg in discoveredPackages)
+        {
+            if (pendingByPackage[pkg])
+            {
+                continue;
+            }
+            bool isSingleFilePackage = !Directory.Exists(pkg.path);
+            foreach (BMSFile bmsFile in pkg.BMSFiles.Where((BMSFile file) => file != null))
+            {
+                bool isBmson = PendingChartEntry.IsBmsonChartFile(bmsFile);
+                if (isSingleFilePackage)
                 {
                     bmsFile.warning = isBmson ? Resources.Warning_SingleBmsonFile : Resources.Warning_SingleBmsFile;
-                    return true;
+                    pendingByPackage[pkg] = true;
+                    break;
                 }
-                return requiresPendingWarning != null && requiresPendingWarning(bmsFile);
-            })
-            .Any((bool isPending) => isPending));
-        if (lookup.Contains(false))
-        {
-            result.AutoInstallCandidates.AddRange(lookup[false]);
+                bool hasDefinedResources = ChartResourceSnapshot.Create(bmsFile).TotalReferenceCount > 0;
+                if (!hasDefinedResources)
+                {
+                    continue;
+                }
+                bmsFile.SetHealthStatus(null, forceUpdate: false, memClear: false);
+                if (requiresPendingWarning != null && requiresPendingWarning(bmsFile))
+                {
+                    pendingByPackage[pkg] = true;
+                    break;
+                }
+            }
         }
-        if (lookup.Contains(true))
+        warningClassificationStopwatch.Stop();
+        result.WarningClassificationMs = warningClassificationStopwatch.ElapsedMilliseconds;
+        foreach (BMSPackage discoveredPackage in discoveredPackages)
         {
-            result.PendingPackagesToAdd.AddRange(lookup[true]);
+            if (pendingByPackage.TryGetValue(discoveredPackage, out bool isPending) && isPending)
+            {
+                result.PendingPackagesToAdd.Add(discoveredPackage);
+            }
+            else
+            {
+                result.AutoInstallCandidates.Add(discoveredPackage);
+            }
         }
         classificationStopwatch.Stop();
         result.ClassificationMs = classificationStopwatch.ElapsedMilliseconds;

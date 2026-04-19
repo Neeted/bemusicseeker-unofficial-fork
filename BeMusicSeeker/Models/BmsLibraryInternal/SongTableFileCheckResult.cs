@@ -24,6 +24,8 @@ internal sealed class SongTableFileCheckResult
 
     public BMSDirectoryFileNameHash NextFolderAllFileList { get; set; }
 
+    public DirectoryResourceLookupCache NextDirectoryResourceLookupCache { get; set; }
+
     public bool HasDbDiff { get; set; }
 
     public bool PrefetchedScanUsed { get; set; }

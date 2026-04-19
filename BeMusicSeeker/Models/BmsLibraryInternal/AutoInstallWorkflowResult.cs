@@ -20,5 +20,9 @@ internal sealed class AutoInstallWorkflowResult
 
     public long ClassificationMs { get; set; }
 
+    public long InstalledCheckMs { get; set; }
+
+    public long WarningClassificationMs { get; set; }
+
     public long TotalMs { get; set; }
 }

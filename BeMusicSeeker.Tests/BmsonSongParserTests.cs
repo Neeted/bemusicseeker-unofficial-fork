@@ -52,7 +52,7 @@ public sealed class BmsonSongParserTests
             Assert.AreEqual("banner.png", parsed.banner);
             Assert.AreEqual("back.png", parsed.backbmp);
             Assert.AreEqual("stage.png", parsed.stagefile);
-            Assert.AreEqual("preview.ogg", parsed.preview_music);
+            Assert.AreEqual("preview.wav", parsed.preview_music);
             Assert.AreEqual(32, parsed.md5.Length);
             Assert.AreEqual(64, parsed.sha256.Length);
             Assert.AreEqual(14, BmsonSongParser.ResolvePlaylistMode(parsed.mode_hint));
@@ -92,13 +92,62 @@ public sealed class BmsonSongParserTests
             PendingChartEntry pending = PendingChartEntry.CreateFromBmsonSong(parsed);
             pending.SetHealthStatus(null, forceUpdate: false, memClear: false);
 
-            CollectionAssert.AreEquivalent(new[] { "keysound.wav", "preview.ogg" }, pending.WAVfiles.ToArray());
+            CollectionAssert.AreEquivalent(new[] { "keysound.wav", "preview.wav" }, pending.WAVfiles.ToArray());
             CollectionAssert.AreEquivalent(new[] { "image.png", "movie.mp4" }, pending.BGAfiles.ToArray());
             Assert.AreEqual(string.Empty, pending.tag);
             Assert.AreEqual(2, pending.maintenanceInfo.wav_files_defined);
             Assert.AreEqual(0, pending.maintenanceInfo.wav_files_existing);
             Assert.AreEqual(1, pending.maintenanceInfo.bga_files_defined);
             Assert.AreEqual(1, pending.maintenanceInfo.movie_files_defined);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void Parse_UsesStructuredResourceLocationsOnly()
+    {
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsonSongParserTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        string filePath = Path.Combine(tempDirectory, "chart.bmson");
+        try
+        {
+            File.WriteAllText(filePath,
+                "{"
+                + "\"version\":\"1.0.0\","
+                + "\"info\":{"
+                + "\"title\":\"Main\","
+                + "\"artist\":\"Artist\","
+                + "\"preview_music\":\"/preview.ogg\","
+                + "\"banner_image\":\"banner.jpg\","
+                + "\"back_image\":\"bg\\\\back.bmp\","
+                + "\"eyecatch_image\":\"stage.png\""
+                + "},"
+                + "\"metadata\":{\"name\":\"ignored.ogg\"},"
+                + "\"sound_channels\":[{\"name\":\"sounds/keysound.ogg\",\"notes\":[]}],"
+                + "\"key_channels\":[{\"name\":\"keys/hidden.mp3\",\"notes\":[]}],"
+                + "\"mine_channels\":[{\"name\":\"mines/mine.wav\",\"notes\":[]}],"
+                + "\"bga\":{\"bga_header\":[{\"id\":1,\"name\":\"images\\\\layer.jpg\"},{\"id\":2,\"name\":\"movies\\\\clip.mp4\"}]},"
+                + "\"lines\":[{\"y\":0}]"
+                + "}");
+
+            var parsed = BmsonSongParser.Parse(filePath);
+
+            CollectionAssert.AreEquivalent(
+                new[] { "preview.wav", Path.Combine("sounds", "keysound.wav"), Path.Combine("keys", "hidden.wav"), Path.Combine("mines", "mine.wav") },
+                parsed.wav_files.ToArray());
+            CollectionAssert.AreEquivalent(
+                new[] { Path.Combine("images", "layer.png"), Path.Combine("movies", "clip.mp4") },
+                parsed.bga_files.ToArray());
+            Assert.AreEqual("banner.png", parsed.banner);
+            Assert.AreEqual(Path.Combine("bg", "back.png"), parsed.backbmp);
+            Assert.AreEqual("stage.png", parsed.stagefile);
+            Assert.IsFalse(parsed.wav_files.Contains("ignored.ogg"));
         }
         finally
         {

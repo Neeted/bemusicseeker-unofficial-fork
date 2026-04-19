@@ -1,19 +1,96 @@
 using System;
 using System.Collections.Generic;
-using System.Collections;
 using System.IO;
 using System.Linq;
+using System.Runtime.Serialization;
+using System.Runtime.Serialization.Json;
 using System.Security.Cryptography;
 using System.Text;
-using System.Text.RegularExpressions;
 using BeMusicSeeker.Models.LR2;
-using Codeplex.Data;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 internal static class BmsonSongParser
 {
-    private static readonly Regex namedFileRegex = new Regex("\"name\"\\s*:\\s*\"(?<value>(?:\\\\.|[^\"])*)\"", RegexOptions.IgnoreCase | RegexOptions.Singleline | RegexOptions.Compiled);
+    [DataContract]
+    private sealed class BmsonDocument
+    {
+        [DataMember(Name = "info")]
+        public BmsonInfo Info { get; set; }
+
+        [DataMember(Name = "sound_channels")]
+        public BmsonChannel[] SoundChannels { get; set; }
+
+        [DataMember(Name = "key_channels")]
+        public BmsonChannel[] KeyChannels { get; set; }
+
+        [DataMember(Name = "mine_channels")]
+        public BmsonChannel[] MineChannels { get; set; }
+
+        [DataMember(Name = "bga")]
+        public BmsonBga Bga { get; set; }
+    }
+
+    [DataContract]
+    private sealed class BmsonInfo
+    {
+        [DataMember(Name = "title")]
+        public string Title { get; set; }
+
+        [DataMember(Name = "subtitle")]
+        public string Subtitle { get; set; }
+
+        [DataMember(Name = "chart_name")]
+        public string ChartName { get; set; }
+
+        [DataMember(Name = "artist")]
+        public string Artist { get; set; }
+
+        [DataMember(Name = "subartists")]
+        public string[] Subartists { get; set; }
+
+        [DataMember(Name = "genre")]
+        public string Genre { get; set; }
+
+        [DataMember(Name = "level")]
+        public double? Level { get; set; }
+
+        [DataMember(Name = "mode_hint")]
+        public string ModeHint { get; set; }
+
+        [DataMember(Name = "banner_image")]
+        public string BannerImage { get; set; }
+
+        [DataMember(Name = "back_image")]
+        public string BackImage { get; set; }
+
+        [DataMember(Name = "eyecatch_image")]
+        public string EyecatchImage { get; set; }
+
+        [DataMember(Name = "preview_music")]
+        public string PreviewMusic { get; set; }
+    }
+
+    [DataContract]
+    private sealed class BmsonChannel
+    {
+        [DataMember(Name = "name")]
+        public string Name { get; set; }
+    }
+
+    [DataContract]
+    private sealed class BmsonBga
+    {
+        [DataMember(Name = "bga_header")]
+        public BmsonBgaHeader[] BgaHeader { get; set; }
+    }
+
+    [DataContract]
+    private sealed class BmsonBgaHeader
+    {
+        [DataMember(Name = "name")]
+        public string Name { get; set; }
+    }
 
     public static LR2SongDBExtended.bmson_song Parse(string filePath)
     {
@@ -23,37 +100,30 @@ internal static class BmsonSongParser
         }
         string fullPath = Path.GetFullPath(filePath);
         string json = File.ReadAllText(fullPath, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: false));
-        dynamic root = DynamicJson.Parse(json);
-        dynamic info = null;
-        if (root != null && root.IsDefined("info") && root.info != null)
-        {
-            info = root.info;
-        }
-
-        string subtitle = ComposeSubtitle(ReadString(info, "subtitle"), ReadString(info, "chart_name"));
-        string artist = ComposeArtist(ReadString(info, "artist"), ReadStringArray(info, "subartists"));
+        BmsonDocument root = ParseDocument(json);
+        BmsonInfo info = root?.Info ?? new BmsonInfo();
         DateTime updatedAt = File.GetLastWriteTimeUtc(fullPath);
 
         LR2SongDBExtended.bmson_song result = new LR2SongDBExtended.bmson_song
         {
             path = fullPath,
             folder = Path.GetDirectoryName(fullPath) ?? string.Empty,
-            title = ReadString(info, "title"),
-            subtitle = subtitle,
-            artist = artist,
-            genre = ReadString(info, "genre"),
-            level = ReadNullableDouble(info, "level"),
-            mode_hint = ReadString(info, "mode_hint"),
+            title = info.Title ?? string.Empty,
+            subtitle = ComposeSubtitle(info.Subtitle, info.ChartName),
+            artist = ComposeArtist(info.Artist, info.Subartists ?? Array.Empty<string>()),
+            genre = info.Genre ?? string.Empty,
+            level = info.Level,
+            mode_hint = info.ModeHint ?? string.Empty,
             md5 = ComputeHash(fullPath, MD5.Create()),
             sha256 = BMSFile.GetSHA256Hash(fullPath),
-            banner = ReadString(info, "banner_image"),
-            backbmp = ReadString(info, "back_image"),
-            stagefile = ReadString(info, "eyecatch_image"),
-            preview_music = ReadString(info, "preview_music"),
+            banner = ChartResourcePathNormalizer.NormalizeReferencePathForLookup(info.BannerImage),
+            backbmp = ChartResourcePathNormalizer.NormalizeReferencePathForLookup(info.BackImage),
+            stagefile = ChartResourcePathNormalizer.NormalizeReferencePathForLookup(info.EyecatchImage),
+            preview_music = ChartResourcePathNormalizer.NormalizeReferencePathForLookup(info.PreviewMusic),
             updated_at = updatedAt
         };
-        result.wav_files = ReadBmsonWavFiles(json, result.preview_music);
-        result.bga_files = ReadBmsonBgaFiles(json);
+        result.wav_files = ReadBmsonWavFiles(root, result.preview_music);
+        result.bga_files = ReadBmsonBgaFiles(root);
         return result;
     }
 
@@ -106,144 +176,64 @@ internal static class BmsonSongParser
         return Path.GetFileName(trimmed) ?? string.Empty;
     }
 
-    private static string ReadString(dynamic obj, string propertyName)
+    private static BmsonDocument ParseDocument(string json)
     {
-        if (obj == null || propertyName == null)
+        if (string.IsNullOrWhiteSpace(json))
         {
-            return string.Empty;
+            return new BmsonDocument();
         }
-        try
-        {
-            if (!obj.IsDefined(propertyName))
-            {
-                return string.Empty;
-            }
-        }
-        catch
-        {
-            return string.Empty;
-        }
-        try
-        {
-            return propertyName switch
-            {
-                "title" => obj.title?.ToString() ?? string.Empty,
-                "subtitle" => obj.subtitle?.ToString() ?? string.Empty,
-                "chart_name" => obj.chart_name?.ToString() ?? string.Empty,
-                "artist" => obj.artist?.ToString() ?? string.Empty,
-                "genre" => obj.genre?.ToString() ?? string.Empty,
-                "name" => obj.name?.ToString() ?? string.Empty,
-                "mode_hint" => obj.mode_hint?.ToString() ?? string.Empty,
-                "banner_image" => obj.banner_image?.ToString() ?? string.Empty,
-                "back_image" => obj.back_image?.ToString() ?? string.Empty,
-                "eyecatch_image" => obj.eyecatch_image?.ToString() ?? string.Empty,
-                "preview_music" => obj.preview_music?.ToString() ?? string.Empty,
-                _ => string.Empty
-            };
-        }
-        catch
-        {
-            return string.Empty;
-        }
+        using MemoryStream stream = new MemoryStream(Encoding.UTF8.GetBytes(json));
+        DataContractJsonSerializer serializer = new DataContractJsonSerializer(typeof(BmsonDocument));
+        return serializer.ReadObject(stream) as BmsonDocument ?? new BmsonDocument();
     }
 
-    private static IReadOnlyList<string> ReadStringArray(dynamic obj, string propertyName)
+    private static List<string> ReadBmsonWavFiles(BmsonDocument document, string previewMusic)
     {
-        if (obj == null || propertyName == null)
+        HashSet<string> files = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        AddNormalizedComponentPath(files, previewMusic);
+        foreach (BmsonChannel channel in EnumerateAudioChannels(document))
         {
-            return Array.Empty<string>();
+            AddNormalizedComponentPath(files, channel?.Name);
         }
-        try
-        {
-            if (!obj.IsDefined(propertyName))
-            {
-                return Array.Empty<string>();
-            }
-            if (propertyName == "subartists" && obj.subartists != null)
-            {
-                object value = obj.subartists;
-                if (value is object[] array)
-                {
-                    return array
-                        .Where((object item) => item != null)
-                        .Select((object item) => item.ToString())
-                        .Where((string item) => !string.IsNullOrWhiteSpace(item))
-                        .ToArray();
-                }
-                if (value is IEnumerable enumerable && value is not string)
-                {
-                    List<string> values = new List<string>();
-                    foreach (object item in enumerable)
-                    {
-                        if (item != null && !string.IsNullOrWhiteSpace(item.ToString()))
-                        {
-                            values.Add(item.ToString());
-                        }
-                    }
-                    if (values.Count > 0)
-                    {
-                        return values;
-                    }
-                }
-                string scalar = value.ToString();
-                if (!string.IsNullOrWhiteSpace(scalar))
-                {
-                    string trimmed = scalar.Trim();
-                    if (trimmed.StartsWith("[", StringComparison.Ordinal) && trimmed.EndsWith("]", StringComparison.Ordinal))
-                    {
-                        try
-                        {
-                            object[] parsedArray = (object[])DynamicJson.Parse(trimmed);
-                            return parsedArray
-                                .Where((object item) => item != null)
-                                .Select((object item) => item.ToString())
-                                .Where((string item) => !string.IsNullOrWhiteSpace(item))
-                                .ToArray();
-                        }
-                        catch
-                        {
-                        }
-                    }
-                    return new[] { scalar };
-                }
-            }
-        }
-        catch
-        {
-        }
-        return Array.Empty<string>();
+        return files.OrderBy((string item) => item, StringComparer.OrdinalIgnoreCase).ToList();
     }
 
-    private static double? ReadNullableDouble(dynamic obj, string propertyName)
+    private static List<string> ReadBmsonBgaFiles(BmsonDocument document)
     {
-        if (obj == null || propertyName == null)
+        HashSet<string> files = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (BmsonBgaHeader header in document?.Bga?.BgaHeader ?? Array.Empty<BmsonBgaHeader>())
         {
-            return null;
-        }
-        try
-        {
-            if (!obj.IsDefined(propertyName))
+            string normalized = ChartResourcePathNormalizer.NormalizeReferencePathForLookup(header?.Name);
+            if (!string.IsNullOrWhiteSpace(normalized))
             {
-                return null;
-            }
-            object value = propertyName switch
-            {
-                "level" => obj.level,
-                _ => null
-            };
-            if (value == null)
-            {
-                return null;
-            }
-            if (double.TryParse(value.ToString(), out double parsed))
-            {
-                return parsed;
+                ChartResourceKind kind = ChartResourcePathNormalizer.ClassifyPath(normalized);
+                if (kind == ChartResourceKind.Image || kind == ChartResourceKind.Movie)
+                {
+                    files.Add(normalized);
+                }
             }
         }
-        catch
+        return files.OrderBy((string item) => item, StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    private static IEnumerable<BmsonChannel> EnumerateAudioChannels(BmsonDocument document)
+    {
+        return (document?.SoundChannels ?? Array.Empty<BmsonChannel>())
+            .Concat(document?.KeyChannels ?? Array.Empty<BmsonChannel>())
+            .Concat(document?.MineChannels ?? Array.Empty<BmsonChannel>());
+    }
+
+    private static void AddNormalizedComponentPath(ISet<string> files, string filePath)
+    {
+        string normalized = ChartResourcePathNormalizer.NormalizeReferencePathForLookup(filePath);
+        if (files == null || string.IsNullOrWhiteSpace(normalized))
         {
+            return;
         }
-        return null;
+        if (ChartResourcePathNormalizer.ClassifyPath(normalized) == ChartResourceKind.Audio)
+        {
+            files.Add(normalized);
+        }
     }
 
     private static string ComposeSubtitle(string subtitle, string chartName)
@@ -274,72 +264,6 @@ internal static class BmsonSongParser
             return safeArtist;
         }
         return safeArtist + " " + safeSubartists;
-    }
-
-    private static List<string> ReadBmsonWavFiles(string json, string previewMusic)
-    {
-        HashSet<string> files = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        AddNormalizedComponentPath(files, previewMusic);
-        foreach (string componentPath in EnumerateNamedComponentPaths(json))
-        {
-            string extension = Path.GetExtension(componentPath);
-            if (!string.IsNullOrWhiteSpace(extension) && BMSFile.wavExtensions.Contains(extension, StringComparer.OrdinalIgnoreCase))
-            {
-                files.Add(componentPath);
-            }
-        }
-        return files.OrderBy((string item) => item, StringComparer.OrdinalIgnoreCase).ToList();
-    }
-
-    private static List<string> ReadBmsonBgaFiles(string json)
-    {
-        HashSet<string> files = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (string componentPath in EnumerateNamedComponentPaths(json))
-        {
-            string extension = Path.GetExtension(componentPath);
-            if (!string.IsNullOrWhiteSpace(extension) && BMSFile.bgaAllExtensions.Contains(extension, StringComparer.OrdinalIgnoreCase))
-            {
-                files.Add(componentPath);
-            }
-        }
-        return files.OrderBy((string item) => item, StringComparer.OrdinalIgnoreCase).ToList();
-    }
-
-    private static IEnumerable<string> EnumerateNamedComponentPaths(string json)
-    {
-        if (string.IsNullOrWhiteSpace(json))
-        {
-            return Enumerable.Empty<string>();
-        }
-        List<string> results = new List<string>();
-        foreach (Match match in namedFileRegex.Matches(json))
-        {
-            string normalized = NormalizeComponentPath(Regex.Unescape(match.Groups["value"].Value));
-            if (!string.IsNullOrWhiteSpace(normalized))
-            {
-                results.Add(normalized);
-            }
-        }
-        return results;
-    }
-
-    private static void AddNormalizedComponentPath(ISet<string> files, string filePath)
-    {
-        string normalized = NormalizeComponentPath(filePath);
-        if (files == null || string.IsNullOrWhiteSpace(normalized))
-        {
-            return;
-        }
-        files.Add(normalized);
-    }
-
-    private static string NormalizeComponentPath(string filePath)
-    {
-        if (string.IsNullOrWhiteSpace(filePath))
-        {
-            return string.Empty;
-        }
-        return filePath.Trim().Replace('/', Path.DirectorySeparatorChar).Replace('\\', Path.DirectorySeparatorChar);
     }
 
     private static string ComputeHash(string filePath, HashAlgorithm algorithm)

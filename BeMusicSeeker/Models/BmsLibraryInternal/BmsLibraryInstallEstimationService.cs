@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using BeMusicSeeker.Models.Utils;
@@ -13,6 +14,77 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 /// </summary>
 internal sealed class BmsLibraryInstallEstimationService
 {
+    private sealed class CandidateEvaluation
+    {
+        public string DirectoryPath { get; set; }
+
+        public int AudioMatched { get; set; }
+
+        public int AudioExactMatched { get; set; }
+
+        public int AudioDefined { get; set; }
+
+        public int VisualMatched { get; set; }
+
+        public int VisualExactMatched { get; set; }
+
+        public int VisualDefined { get; set; }
+
+        public int MovieMatched { get; set; }
+
+        public int MovieExactMatched { get; set; }
+
+        public int MovieDefined { get; set; }
+
+        public int OptionalImageMatched { get; set; }
+
+        public int OptionalImageExactMatched { get; set; }
+
+        public int OptionalImageDefined { get; set; }
+
+        public int AudioFileCount { get; set; }
+
+        public int AudioHealth => ComputeHealth(AudioMatched, AudioDefined);
+
+        public int VisualHealth => ComputeHealth(VisualMatched, VisualDefined);
+
+        public int MovieHealth => ComputeHealth(MovieMatched, MovieDefined);
+
+        public int OptionalImageHealth => ComputeHealth(OptionalImageMatched, OptionalImageDefined);
+
+        public string ToSummary()
+        {
+            return string.Format(
+                "dir={0} audio={1}/{2} exact={3} visual={4}/{5} exact={6} movie={7}/{8} exact={9} optional={10}/{11} exact={12} audioHealth={13} visualHealth={14} movieHealth={15} optionalHealth={16}",
+                DirectoryPath ?? string.Empty,
+                AudioMatched,
+                AudioDefined,
+                AudioExactMatched,
+                VisualMatched,
+                VisualDefined,
+                VisualExactMatched,
+                MovieMatched,
+                MovieDefined,
+                MovieExactMatched,
+                OptionalImageMatched,
+                OptionalImageDefined,
+                OptionalImageExactMatched,
+                AudioHealth,
+                VisualHealth,
+                MovieHealth,
+                OptionalImageHealth);
+        }
+
+        private static int ComputeHealth(int matched, int defined)
+        {
+            if (defined <= 0)
+            {
+                return 100;
+            }
+            return (int)Math.Round(100.0 * matched / defined, MidpointRounding.AwayFromZero);
+        }
+    }
+
     private readonly int innerWavHealthThreshold;
 
     public BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapshot options, int innerWavHealthThreshold)
@@ -210,6 +282,11 @@ internal sealed class BmsLibraryInstallEstimationService
 
     public InstallEstimationResult EstimateInstallationDirectory(IEnumerable<BMSFile> bmsFiles, HashSet<string> installedHashes, BMSDirectoryFileNameHash folderAllFileList, bool asParallel, BmsInstallationEstimateMode estimateMode)
     {
+        return EstimateInstallationDirectory(bmsFiles, installedHashes, folderAllFileList, null, asParallel, estimateMode);
+    }
+
+    public InstallEstimationResult EstimateInstallationDirectory(IEnumerable<BMSFile> bmsFiles, HashSet<string> installedHashes, BMSDirectoryFileNameHash folderAllFileList, DirectoryResourceLookupCache directoryLookupCache, bool asParallel, BmsInstallationEstimateMode estimateMode)
+    {
         InstallEstimationResult result = new InstallEstimationResult();
         List<BMSFile> targetFiles = (bmsFiles ?? Enumerable.Empty<BMSFile>()).Where((BMSFile bmsInfo) => bmsInfo != null).ToList();
         if (targetFiles.Count == 0 || targetFiles.Any((BMSFile bmsInfo) => !string.IsNullOrWhiteSpace(bmsInfo.instl_dst)))
@@ -221,160 +298,139 @@ internal sealed class BmsLibraryInstallEstimationService
         bool isCorrectionLikeMode = isFixMode || isMergeMode;
         BMSFile representativeFile = targetFiles
             .Where((BMSFile bmsFile) => bmsFile != null && (isCorrectionLikeMode || installedHashes == null || !installedHashes.Contains(bmsFile.hash)))
-            .Where((BMSFile bmsFile) => isCorrectionLikeMode || bmsFile.maintenanceInfo == null || bmsFile.maintenanceInfo.GetWAVHealth() <= innerWavHealthThreshold)
             .OrderByDescending(GetDefinedResourceCount)
             .FirstOrDefault();
         if (representativeFile == null)
         {
             return result;
         }
+        ChartResourceSnapshot resourceSnapshot = ChartResourceSnapshot.Create(representativeFile);
+        result.TargetResourceHashCount = resourceSnapshot.EnumerateAllBaseNameHashes().Count();
+        result.ResourceSummary = "chart=" + (representativeFile.path ?? string.Empty)
+            + " audioRefs=" + resourceSnapshot.AudioReferenceCount
+            + " visualRefs=" + resourceSnapshot.VisualReferenceCount
+            + " movieRefs=" + resourceSnapshot.MovieReferenceCount
+            + " optionalRefs=" + resourceSnapshot.OptionalImageReferenceCount
+            + " pathSegmentRefs=" + resourceSnapshot.PathSegmentReferenceCount;
+        if (resourceSnapshot.TotalReferenceCount == 0)
+        {
+            return result;
+        }
         string targetDir = Path.GetDirectoryName(representativeFile.path);
-        uint[] currentDirFileHashes = isCorrectionLikeMode ? null : BMSDirectoryFileNameHash.GetFileNameHashArray(targetDir);
         List<string> allCandidateDirs = folderAllFileList.Keys.Where((string dir) => !dir.Equals(targetDir, StringComparison.OrdinalIgnoreCase)).ToList();
+        result.CandidateDirectoryCountBeforeHashFilter = allCandidateDirs.Count;
         if (allCandidateDirs.Count == 0)
         {
             return result;
         }
-
-        HashSet<uint> targetFileHashes = new HashSet<uint>();
-        bool hasNonLocalReference = false;
-        Action<string, IEnumerable<string>> addTargetFileHashes = delegate (string fileName, IEnumerable<string> fallbackExtensions)
-        {
-            if (string.IsNullOrWhiteSpace(fileName))
-            {
-                return;
-            }
-            string normalized = fileName.Replace('/', Path.DirectorySeparatorChar).Trim();
-            if (normalized.IndexOf(Path.DirectorySeparatorChar) >= 0 || normalized.IndexOf(Path.AltDirectorySeparatorChar) >= 0)
-            {
-                hasNonLocalReference = true;
-            }
-            normalized = normalized.TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-            string normalizedFileName;
-            try
-            {
-                normalizedFileName = Path.GetFileName(normalized);
-            }
-            catch
-            {
-                return;
-            }
-            if (string.IsNullOrWhiteSpace(normalizedFileName))
-            {
-                return;
-            }
-            targetFileHashes.Add(BMSDirectoryFileNameHash.GetFileNameHash(normalizedFileName));
-            if (string.IsNullOrWhiteSpace(Path.GetExtension(normalizedFileName)) && fallbackExtensions != null)
-            {
-                foreach (string extension in fallbackExtensions)
-                {
-                    if (!string.IsNullOrWhiteSpace(extension))
-                    {
-                        targetFileHashes.Add(BMSDirectoryFileNameHash.GetFileNameHash(normalizedFileName + extension));
-                    }
-                }
-            }
-        };
-        foreach (string wavFile in representativeFile.WAVfiles ?? Enumerable.Empty<string>())
-        {
-            addTargetFileHashes(wavFile, BMSFile.wavExtensions);
-        }
-        foreach (string bgaFile in representativeFile.BGAfiles ?? Enumerable.Empty<string>())
-        {
-            addTargetFileHashes(bgaFile, BMSFile.bgaAllExtensions);
-        }
-        addTargetFileHashes(representativeFile.backbmp, BMSFile.bgaImageExtensions);
-        addTargetFileHashes(representativeFile.banner, BMSFile.bgaImageExtensions);
-        addTargetFileHashes(representativeFile.stagefile, BMSFile.bgaImageExtensions);
-
+        HashSet<uint> targetFileHashes = resourceSnapshot.EnumerateAllBaseNameHashes();
         List<string> candidateDirList = allCandidateDirs;
-        if (!hasNonLocalReference && targetFileHashes.Count > 0)
+        if (targetFileHashes.Count > 0)
         {
-            IEnumerable<string> filtered = (asParallel ? allCandidateDirs.AsParallel() : allCandidateDirs.AsParallel().WithDegreeOfParallelism(1))
-                .Where(delegate (string dir)
+            if (directoryLookupCache != null)
+            {
+                HashSet<string> filteredDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (uint targetFileHash in targetFileHashes)
                 {
-                    uint[] fileNameHashArray = folderAllFileList.GetFileNameHashArray(dir);
-                    if (fileNameHashArray == null || fileNameHashArray.Length == 0)
+                    filteredDirectories.UnionWith(directoryLookupCache.GetDirectoriesByHash(targetFileHash));
+                }
+                filteredDirectories.Remove(targetDir);
+                candidateDirList = filteredDirectories.ToList();
+            }
+            else
+            {
+                IEnumerable<string> filtered = (asParallel ? allCandidateDirs.AsParallel() : allCandidateDirs.AsParallel().WithDegreeOfParallelism(1))
+                    .Where(delegate (string dir)
                     {
-                        return false;
-                    }
-                    for (int i = 0; i < fileNameHashArray.Length; i++)
-                    {
-                        if (targetFileHashes.Contains(fileNameHashArray[i]))
+                        uint[] fileNameHashArray = folderAllFileList.TryGetCachedFileNameHashArray(dir);
+                        if (fileNameHashArray == null || fileNameHashArray.Length == 0)
                         {
-                            return true;
+                            return false;
                         }
-                    }
-                    return false;
-                });
-            candidateDirList = filtered.ToList();
+                        for (int i = 0; i < fileNameHashArray.Length; i++)
+                        {
+                            if (targetFileHashes.Contains(fileNameHashArray[i]))
+                            {
+                                return true;
+                            }
+                        }
+                        return false;
+                    });
+                candidateDirList = filtered.ToList();
+            }
+            result.CandidateDirectoryCountAfterHashFilter = candidateDirList.Count;
             if (candidateDirList.Count == 0)
             {
                 candidateDirList = allCandidateDirs;
                 result.UsedFallbackCandidateExpansion = true;
             }
         }
-        result.CandidateDirectoryCount = candidateDirList.Count;
-        IEnumerable<string> candidateSource = asParallel ? candidateDirList.AsParallel() : candidateDirList.AsParallel().WithDegreeOfParallelism(1);
-        List<BMSFileMaintenanceInfo> candidateInfos = candidateSource.Select(delegate (string candidateDir)
+        else
         {
-            BMSFileMaintenanceInfo maintenanceInfo = new BMSFileMaintenanceInfo(representativeFile)
+            result.CandidateDirectoryCountAfterHashFilter = candidateDirList.Count;
+        }
+        result.CandidateDirectoryCount = candidateDirList.Count;
+        Stopwatch evaluationStopwatch = Stopwatch.StartNew();
+        CandidateEvaluation sourceEvaluation = null;
+        if (!string.IsNullOrWhiteSpace(targetDir))
+        {
+            sourceEvaluation = EvaluateCandidate(targetDir, resourceSnapshot, folderAllFileList.TryGetCachedFileNameHashArray(targetDir), directoryLookupCache?.GetEntryOrNull(targetDir));
+        }
+        IEnumerable<string> candidateSource = asParallel ? candidateDirList.AsParallel() : candidateDirList.AsParallel().WithDegreeOfParallelism(1);
+        List<CandidateEvaluation> candidateInfos = candidateSource.Select((string candidateDir) => EvaluateCandidate(candidateDir, resourceSnapshot, folderAllFileList.TryGetCachedFileNameHashArray(candidateDir), directoryLookupCache?.GetEntryOrNull(candidateDir)))
+            .Where(delegate (CandidateEvaluation evaluation)
             {
-                path = Path.Combine(candidateDir, Path.GetFileName(representativeFile.path))
-            };
-            representativeFile.SetHealthStatus(folderAllFileList, forceUpdate: false, memClear: false, maintenanceInfo, candidateDir, currentDirFileHashes);
-            return maintenanceInfo;
-        }).Where((BMSFileMaintenanceInfo m) => m.GetWAVHealth() > innerWavHealthThreshold && (!isFixMode || m.GetBGAHealth() >= representativeFile.maintenanceInfo.GetBGAHealth()))
+                int primaryHealth = resourceSnapshot.AudioReferenceCount > 0
+                    ? evaluation.AudioHealth
+                    : Math.Max(evaluation.VisualHealth, Math.Max(evaluation.MovieHealth, evaluation.OptionalImageHealth));
+                if (primaryHealth <= innerWavHealthThreshold)
+                {
+                    return false;
+                }
+                if (!isFixMode || sourceEvaluation == null)
+                {
+                    return true;
+                }
+                return evaluation.VisualHealth >= sourceEvaluation.VisualHealth;
+            })
             .ToList();
         if (isMergeMode)
         {
-            candidateInfos = candidateInfos.Where((BMSFileMaintenanceInfo m) => !string.Equals(DirectoryExt.GetDirectoryNameSimple(m.path), targetDir, StringComparison.OrdinalIgnoreCase)).ToList();
+            candidateInfos = candidateInfos.Where((CandidateEvaluation evaluation) => !string.Equals(evaluation.DirectoryPath, targetDir, StringComparison.OrdinalIgnoreCase)).ToList();
         }
-        else
+        else if (sourceEvaluation != null)
         {
-            candidateInfos = candidateInfos.Concat(new BMSFileMaintenanceInfo[1] { representativeFile.maintenanceInfo }).Distinct().ToList();
+            candidateInfos.Add(sourceEvaluation);
         }
+        evaluationStopwatch.Stop();
+        result.EvaluationMs = evaluationStopwatch.ElapsedMilliseconds;
         if (candidateInfos.Count == 0)
         {
             return result;
         }
-        List<BMSFileMaintenanceInfo> orderedCandidates = candidateInfos.OrderByDescending((BMSFileMaintenanceInfo m) => m.GetWAVHealth())
-            .ThenByDescending((BMSFileMaintenanceInfo m) => m.GetBGAHealth())
-            .ThenByDescending((BMSFileMaintenanceInfo m) => m.GetMovieHealth())
-            .ThenByDescending((BMSFileMaintenanceInfo m) => m.GetOptIMGHealth())
+        List<CandidateEvaluation> orderedCandidates = candidateInfos.OrderByDescending((CandidateEvaluation evaluation) => evaluation.AudioHealth)
+            .ThenByDescending((CandidateEvaluation evaluation) => evaluation.AudioMatched)
+            .ThenByDescending((CandidateEvaluation evaluation) => evaluation.AudioExactMatched)
+            .ThenByDescending((CandidateEvaluation evaluation) => evaluation.VisualHealth)
+            .ThenByDescending((CandidateEvaluation evaluation) => evaluation.VisualMatched)
+            .ThenByDescending((CandidateEvaluation evaluation) => evaluation.VisualExactMatched)
+            .ThenByDescending((CandidateEvaluation evaluation) => evaluation.MovieHealth)
+            .ThenByDescending((CandidateEvaluation evaluation) => evaluation.MovieMatched)
+            .ThenByDescending((CandidateEvaluation evaluation) => evaluation.MovieExactMatched)
+            .ThenByDescending((CandidateEvaluation evaluation) => evaluation.OptionalImageHealth)
+            .ThenByDescending((CandidateEvaluation evaluation) => evaluation.OptionalImageMatched)
+            .ThenByDescending((CandidateEvaluation evaluation) => evaluation.OptionalImageExactMatched)
+            .ThenByDescending((CandidateEvaluation evaluation) => evaluation.AudioFileCount)
+            .ThenBy((CandidateEvaluation evaluation) => evaluation.DirectoryPath, StringComparer.OrdinalIgnoreCase)
             .ToList();
-        int? wavHealthBest = orderedCandidates[0].GetWAVHealth();
-        int? bgaHealthBest = orderedCandidates[0].GetBGAHealth();
-        int? movieHealthBest = orderedCandidates[0].GetMovieHealth();
-        bool? optImgHealthBest = orderedCandidates[0].GetOptIMGHealth();
-        List<BMSFileMaintenanceInfo> tiedCandidates = orderedCandidates.Where((BMSFileMaintenanceInfo m) => m.GetWAVHealth() == wavHealthBest && m.GetBGAHealth() == bgaHealthBest && m.GetMovieHealth() == movieHealthBest && m.GetOptIMGHealth() == optImgHealthBest).ToList();
-        Dictionary<string, int> wavFileCountsByDir = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        Func<string, int> getWavFileCount = delegate (string dir)
-        {
-            if (wavFileCountsByDir.TryGetValue(dir, out int value))
-            {
-                return value;
-            }
-            int wavFileCount = 0;
-            try
-            {
-                wavFileCount = FastDirectoryEnumerator.GetFileNames(dir).Count((string file) => BMSFile.wavExtensions.Any((string ext) => file.EndsWith(ext, StringComparison.OrdinalIgnoreCase)));
-            }
-            catch
-            {
-            }
-            wavFileCountsByDir[dir] = wavFileCount;
-            return wavFileCount;
-        };
-        int maxWavFileCount = tiedCandidates.Max((BMSFileMaintenanceInfo m) => getWavFileCount(DirectoryExt.GetDirectoryNameSimple(m.path)));
-        BMSFileMaintenanceInfo selectedCandidate = tiedCandidates.Where((BMSFileMaintenanceInfo m) => getWavFileCount(DirectoryExt.GetDirectoryNameSimple(m.path)) == maxWavFileCount)
-            .OrderByDescending((BMSFileMaintenanceInfo m) => ReferenceEquals(m, representativeFile.maintenanceInfo) ? 1 : 0)
-            .First();
-        if (ReferenceEquals(selectedCandidate, representativeFile.maintenanceInfo))
+        result.TopCandidateSummary = string.Join(" || ", orderedCandidates.Take(3).Select((CandidateEvaluation evaluation) => evaluation.ToSummary()));
+        CandidateEvaluation selectedCandidate = orderedCandidates.First();
+        result.SelectedCandidateSummary = selectedCandidate.ToSummary();
+        if (!isMergeMode && string.Equals(selectedCandidate.DirectoryPath, targetDir, StringComparison.OrdinalIgnoreCase))
         {
             return result;
         }
-        result.DestinationDirectory = DirectoryExt.GetDirectoryNameSimple(selectedCandidate.path);
+        result.DestinationDirectory = selectedCandidate.DirectoryPath;
         return result;
     }
 
@@ -515,15 +571,59 @@ internal sealed class BmsLibraryInstallEstimationService
 
     private static int GetDefinedResourceCount(BMSFile bmsFile)
     {
-        if (bmsFile.WAVfiles == null || bmsFile.BGAfiles == null)
+        return ChartResourceSnapshot.Create(bmsFile).TotalReferenceCount;
+    }
+
+    private static CandidateEvaluation EvaluateCandidate(string candidateDir, ChartResourceSnapshot snapshot, uint[] fileNameHashes, DirectoryResourceLookupCache.Entry entry)
+    {
+        ISet<uint> candidateHashes = entry?.FileNameHashes;
+        if (candidateHashes == null && fileNameHashes != null && fileNameHashes.Length > 0)
         {
-            bmsFile.SetHealthStatus(null, forceUpdate: true, memClear: false);
+            candidateHashes = new HashSet<uint>(fileNameHashes);
         }
-        return ((bmsFile.WAVfiles != null) ? bmsFile.WAVfiles.Count() : 0)
-            + ((bmsFile.BGAfiles != null) ? bmsFile.BGAfiles.Count() : 0)
-            + ((!string.IsNullOrWhiteSpace(bmsFile.backbmp)) ? 1 : 0)
-            + ((!string.IsNullOrWhiteSpace(bmsFile.banner)) ? 1 : 0)
-            + ((!string.IsNullOrWhiteSpace(bmsFile.stagefile)) ? 1 : 0);
+        HashSet<string> candidateBaseNames = entry?.NormalizedBaseNames;
+        CandidateEvaluation evaluation = new CandidateEvaluation
+        {
+            DirectoryPath = candidateDir,
+            AudioDefined = snapshot.AudioReferenceCount,
+            VisualDefined = snapshot.VisualReferenceCount,
+            MovieDefined = snapshot.MovieReferenceCount,
+            OptionalImageDefined = snapshot.OptionalImageReferenceCount,
+            AudioFileCount = entry?.FileNameHashCount ?? fileNameHashes?.Length ?? 0
+        };
+        if ((candidateHashes == null || candidateHashes.Count == 0) && (candidateBaseNames == null || candidateBaseNames.Count == 0))
+        {
+            return evaluation;
+        }
+        CountMatches(snapshot.AudioBaseNames, snapshot.AudioBaseNameHashes, candidateHashes, candidateBaseNames, out int audioMatched, out int audioExactMatched);
+        CountMatches(snapshot.VisualBaseNames, snapshot.VisualBaseNameHashes, candidateHashes, candidateBaseNames, out int visualMatched, out int visualExactMatched);
+        CountMatches(snapshot.MovieBaseNames, snapshot.MovieBaseNameHashes, candidateHashes, candidateBaseNames, out int movieMatched, out int movieExactMatched);
+        CountMatches(snapshot.OptionalImageBaseNames, snapshot.OptionalImageBaseNameHashes, candidateHashes, candidateBaseNames, out int optionalMatched, out int optionalExactMatched);
+        evaluation.AudioMatched = audioMatched;
+        evaluation.AudioExactMatched = audioExactMatched;
+        evaluation.VisualMatched = visualMatched;
+        evaluation.VisualExactMatched = visualExactMatched;
+        evaluation.MovieMatched = movieMatched;
+        evaluation.MovieExactMatched = movieExactMatched;
+        evaluation.OptionalImageMatched = optionalMatched;
+        evaluation.OptionalImageExactMatched = optionalExactMatched;
+        return evaluation;
+    }
+
+    private static void CountMatches(ISet<string> baseNames, ISet<uint> baseNameHashes, ISet<uint> candidateHashes, ISet<string> candidateBaseNames, out int matched, out int exactMatched)
+    {
+        matched = 0;
+        if (baseNameHashes != null && candidateHashes != null && baseNameHashes.Count > 0 && candidateHashes.Count > 0)
+        {
+            matched = baseNameHashes.Count(candidateHashes.Contains);
+        }
+        exactMatched = (candidateBaseNames == null || baseNames == null || candidateBaseNames.Count == 0 || baseNames.Count == 0)
+            ? 0
+            : baseNames.Count(candidateBaseNames.Contains);
+        if (exactMatched > matched)
+        {
+            matched = exactMatched;
+        }
     }
 
     private static bool IsBmsHashAvailable(string hash)

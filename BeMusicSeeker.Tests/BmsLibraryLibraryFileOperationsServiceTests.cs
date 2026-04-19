@@ -185,6 +185,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
                 sourceRoot,
                 destinationRoot,
                 folderHash,
+                new DirectoryResourceLookupCache(),
                 fileMutationService,
                 null);
             LibraryMutationDelta delta = service.BuildFolderMoveDelta(
@@ -232,13 +233,15 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             };
             BMSDirectoryFileNameHash folderHash = new BMSDirectoryFileNameHash();
             folderHash.AddDir(folderPath, update: true);
+            DirectoryResourceLookupCache lookupCache = new DirectoryResourceLookupCache();
 
             LibraryRemovalResult result = service.DeleteLibraryFiles(
                 new[] { libraryFile },
                 new[] { libraryFile },
                 new[] { pendingPackage },
                 folderHash,
-                sendToRecycleBin: false,
+                lookupCache,
+                false,
                 _ => true,
                 fileMutationService,
                 null,

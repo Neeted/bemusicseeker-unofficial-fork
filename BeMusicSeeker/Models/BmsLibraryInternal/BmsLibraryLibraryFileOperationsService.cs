@@ -58,6 +58,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         string srcDir,
         string dstDir,
         BMSDirectoryFileNameHash folderAllFileList,
+        DirectoryResourceLookupCache directoryLookupCache,
         IFileMutationService fileMutationService,
         FileMutationOptions recursiveDirectoryTreeFileMutationOptions)
     {
@@ -66,6 +67,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         {
             string newKey = item.ReplaceFromStart(srcDir, dstDir, isIgnoreCase: true);
             folderAllFileList.ReplaceDir(item, newKey);
+            directoryLookupCache?.ReplaceDir(item, newKey);
         }
     }
 
@@ -79,6 +81,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         IEnumerable<BMSFile> libraryFiles,
         IEnumerable<BMSPackage> pendingPackages,
         BMSDirectoryFileNameHash folderAllFileList,
+        DirectoryResourceLookupCache directoryLookupCache,
         bool sendToRecycleBin,
         Func<string, bool> confirmDeleteWholeFolder,
         IFileMutationService fileMutationService,
@@ -106,6 +109,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
                     foreach (string indexedDirectoryPath in folderAllFileList.Keys.Where((string directoryPath) => (directoryPath + Path.DirectorySeparatorChar).StartsWith(folderGroup.Key + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)))
                     {
                         folderAllFileList.RemoveDir(indexedDirectoryPath);
+                        directoryLookupCache?.RemoveDir(indexedDirectoryPath);
                     }
                     foreach (BMSFile installLinkedBmsFile in (pendingPackages ?? Enumerable.Empty<BMSPackage>()).SelectMany((BMSPackage pkg) => pkg.BMSFiles).Concat(currentLibraryFiles.Where((BMSFile bmsInfo) => !string.IsNullOrWhiteSpace(bmsInfo.instl_dst))))
                     {

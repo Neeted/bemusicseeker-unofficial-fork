@@ -7,6 +7,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
@@ -1190,8 +1191,8 @@ public class BMSFile : LR2SongDB.song
             };
             Func<string, IEnumerable<string>, bool> func2 = delegate (string filename, IEnumerable<string> extensions)
             {
-                string text = filename.TrimStart(Path.DirectorySeparatorChar);
-                if (text.IndexOfAny(invalidPathCharas) < 0)
+                string text = ChartResourcePathNormalizer.NormalizeReferencePathForLookup(filename);
+                if (!string.IsNullOrWhiteSpace(text))
                 {
                     try
                     {
@@ -1304,17 +1305,19 @@ public class BMSFile : LR2SongDB.song
                 if ((match = wavfileRegex.Match(item)).Success)
                 {
                     string text = match.Groups[1].ToString();
-                    if (text.IndexOfAny(invalidPathCharas) < 0)
+                    string normalized = ChartResourcePathNormalizer.NormalizeReferencePathForLookup(text);
+                    if (!string.IsNullOrWhiteSpace(normalized))
                     {
-                        hashSet.Add(text.Replace('/', Path.DirectorySeparatorChar).TrimStart(Path.DirectorySeparatorChar));
+                        hashSet.Add(normalized);
                     }
                 }
                 else if ((match = bgafileRegex.Match(item)).Success)
                 {
                     string text2 = match.Groups[1].ToString();
-                    if (text2.IndexOfAny(invalidPathCharas) < 0)
+                    string normalized2 = ChartResourcePathNormalizer.NormalizeReferencePathForLookup(text2);
+                    if (!string.IsNullOrWhiteSpace(normalized2))
                     {
-                        hashSet2.Add(text2.Replace('/', Path.DirectorySeparatorChar).TrimStart(Path.DirectorySeparatorChar));
+                        hashSet2.Add(normalized2);
                     }
                 }
                 else if (string.IsNullOrWhiteSpace(bMSFile.title) && (match = titleRegex.Match(item)).Success)
@@ -1503,9 +1506,10 @@ public class BMSFile : LR2SongDB.song
             if (match.Success)
             {
                 string text = match.Groups[1].ToString();
-                if (text.IndexOfAny(invalidPathCharas) < 0)
+                string normalized = ChartResourcePathNormalizer.NormalizeReferencePathForLookup(text);
+                if (!string.IsNullOrWhiteSpace(normalized))
                 {
-                    hashSet.Add(text.Replace('/', Path.DirectorySeparatorChar).TrimStart(Path.DirectorySeparatorChar));
+                    hashSet.Add(normalized);
                 }
                 continue;
             }
@@ -1513,9 +1517,10 @@ public class BMSFile : LR2SongDB.song
             if (match2.Success)
             {
                 string text2 = match2.Groups[1].ToString();
-                if (text2.IndexOfAny(invalidPathCharas) < 0)
+                string normalized2 = ChartResourcePathNormalizer.NormalizeReferencePathForLookup(text2);
+                if (!string.IsNullOrWhiteSpace(normalized2))
                 {
-                    hashSet2.Add(text2.Replace('/', Path.DirectorySeparatorChar).TrimStart(Path.DirectorySeparatorChar));
+                    hashSet2.Add(normalized2);
                 }
             }
         }

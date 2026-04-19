@@ -241,22 +241,42 @@ internal sealed class BmsLibraryInitializationService
         }
         result.ScanElapsedMs = stopwatchScan.ElapsedMilliseconds + (result.PrefetchedScanUsed ? prefetchedScanElapsedMs : 0L);
         result.NextFolderAllFileList = new BMSDirectoryFileNameHash();
+        result.NextDirectoryResourceLookupCache = new DirectoryResourceLookupCache();
+
+        void MergeScanCaches(BmsScanResult scan)
+        {
+            if (scan == null)
+            {
+                return;
+            }
+            if (scan.FileNameHashesByDirectory != null && scan.FileNameHashesByDirectory.Count > 0)
+            {
+                foreach (KeyValuePair<string, uint[]> item in scan.FileNameHashesByDirectory)
+                {
+                    uint[] existingHashes = result.NextFolderAllFileList.TryGetCachedFileNameHashArray(item.Key);
+                    uint[] mergedHashes = existingHashes == null || existingHashes.Length == 0
+                        ? (item.Value ?? Array.Empty<uint>())
+                        : existingHashes.Concat(item.Value ?? Array.Empty<uint>()).Distinct().ToArray();
+                    result.NextFolderAllFileList.AddDirHashed(item.Key, mergedHashes);
+                    result.NextDirectoryResourceLookupCache.AddDirHashed(item.Key, mergedHashes);
+                }
+            }
+            if (scan.FilesByDirectory == null || scan.FilesByDirectory.Count <= 0)
+            {
+                return;
+            }
+            foreach (KeyValuePair<string, List<string>> item2 in scan.FilesByDirectory)
+            {
+                if (scan.FileNameHashesByDirectory == null || !scan.FileNameHashesByDirectory.ContainsKey(item2.Key))
+                {
+                    result.NextFolderAllFileList.AddDir(item2.Key, item2.Value);
+                }
+                result.NextDirectoryResourceLookupCache.AddDir(item2.Key, item2.Value);
+            }
+        }
 
         Stopwatch stopwatchDirhashBuild = Stopwatch.StartNew();
-        if (scanResult.Result.FileNameHashesByDirectory != null && scanResult.Result.FileNameHashesByDirectory.Count > 0)
-        {
-            foreach (KeyValuePair<string, uint[]> item in scanResult.Result.FileNameHashesByDirectory)
-            {
-                result.NextFolderAllFileList.AddDirHashed(item.Key, item.Value);
-            }
-        }
-        else
-        {
-            foreach (KeyValuePair<string, List<string>> item in scanResult.Result.FilesByDirectory)
-            {
-                result.NextFolderAllFileList.AddDir(item.Key, item.Value);
-            }
-        }
+        MergeScanCaches(scanResult.Result);
         stopwatchDirhashBuild.Stop();
         result.DirhashBuildMs = stopwatchDirhashBuild.ElapsedMilliseconds;
 
@@ -323,6 +343,7 @@ internal sealed class BmsLibraryInitializationService
                 BmsScanExecutionResult bmsonScanResult = executeBmsonScan();
                 if (bmsonScanResult?.Result != null)
                 {
+                    MergeScanCaches(bmsonScanResult.Result);
                     HashSet<string> scannedBmsonPaths = new HashSet<string>(bmsonScanResult.Result.BmsFilePaths ?? new HashSet<string>(), StringComparer.OrdinalIgnoreCase);
                     Dictionary<string, LR2SongDBExtended.bmson_song> currentBmsonByPath = currentBmsonList.ToDictionary((LR2SongDBExtended.bmson_song song) => song.path, StringComparer.OrdinalIgnoreCase);
                     result.DeletedBmsonPaths.AddRange(currentBmsonByPath.Keys.Except(scannedBmsonPaths, StringComparer.OrdinalIgnoreCase));
@@ -376,6 +397,8 @@ internal sealed class BmsLibraryInitializationService
                 logEverythingScan?.Invoke("bmson_scan_failed message=" + ex.Message);
             }
         }
+
+        result.DirectoryCount = result.NextFolderAllFileList.Keys.Count;
 
         result.HasDbDiff = result.DeletedPaths.Count > 0 || result.AddedFiles.Count > 0 || result.DeletedBmsonPaths.Count > 0 || result.AddedBmsonSongs.Count > 0;
 
