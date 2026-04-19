@@ -135,6 +135,25 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private bool startupInitialSelectionApplied;
 
+    private bool _pendingInstallDestinationSelectionCommitInProgress;
+
+    private readonly Dictionary<BMSFile, PendingInstallDestinationEditState> _pendingInstallDestinationEditStates = new Dictionary<BMSFile, PendingInstallDestinationEditState>();
+
+    private sealed class PendingInstallDestinationEditState
+    {
+        public string InstallDestination { get; set; }
+
+        public string InstallDestinationTitle { get; set; }
+
+        public string InstallDestinationArtist { get; set; }
+
+        public string Warning { get; set; }
+
+        public IReadOnlyList<string> Suggestions { get; set; }
+
+        public bool HasLowConfidenceInstallWarning { get; set; }
+    }
+
     private BitmapSource panelImage
     {
         get
@@ -1513,9 +1532,13 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         string path;
         try
         {
-            path = ((Binding)((DataGridBoundColumn)e.Column).Binding).Path.Path;
+            path = GetDataGridColumnBindingPath(e.Column);
         }
         catch
+        {
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(path))
         {
             return;
         }
@@ -1564,6 +1587,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             {
                 e.Cancel = true;
             }
+            else if (path == bMSFile.GetName((BMSFile f) => f.instl_dst))
+            {
+                _pendingInstallDestinationEditStates[bMSFile] = CapturePendingInstallDestinationEditState(bMSFile);
+                bMSFile.IsInstallDestinationSuggestionPopupOpen = isPendingSelected && bMSFile.HasInstallDestinationSuggestionChoices;
+            }
         }
     }
 
@@ -1572,21 +1600,18 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         object row = e.Row.DataContext;
         PlaylistDetailRow playlistRow = row as PlaylistDetailRow;
         BMSFile bmsFile = row as BMSFile;
-        if (!(e.EditingElement is TextBox textBox))
-        {
-            return;
-        }
-        BindingExpression bindingExpression = textBox.GetBindingExpression(TextBox.TextProperty);
-        if (bindingExpression == null)
-        {
-            return;
-        }
+        string editingText = GetEditingElementText(e.EditingElement);
+        BindingExpression bindingExpression = GetEditingElementTextBindingExpression(e.EditingElement);
         string path;
         try
         {
-            path = ((Binding)((DataGridBoundColumn)e.Column).Binding).Path.Path;
+            path = GetDataGridColumnBindingPath(e.Column);
         }
         catch
+        {
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(path))
         {
             return;
         }
@@ -1617,12 +1642,16 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 {
                     return;
                 }
+                if (bindingExpression == null)
+                {
+                    return;
+                }
                 if (!GridRowResolver.CanEditPlaylistCell(row, path))
                 {
                     bindingExpression.UpdateTarget();
                     return;
                 }
-                if ((path == nameof(PlaylistDetailRow.Url) || path == nameof(PlaylistDetailRow.Url_diff)) && !Uri.TryCreate(textBox.Text, UriKind.Absolute, out var _))
+                if ((path == nameof(PlaylistDetailRow.Url) || path == nameof(PlaylistDetailRow.Url_diff)) && !Uri.TryCreate(editingText, UriKind.Absolute, out var _))
                 {
                     bindingExpression.UpdateTarget();
                     return;
@@ -1648,29 +1677,378 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         else if (bmsFile != null && e.EditAction == DataGridEditAction.Commit)
         {
             bool isPendingSelected = _currentTreeSelectionSection == TreeSelectionSection.InstallPending;
+            bmsFile.IsInstallDestinationSuggestionPopupOpen = false;
             if (path == bmsFile.GetName((BMSFile f) => f.Folder))
             {
-                string newFolder = textBox.Text;
+                string newFolder = editingText;
                 dataGrid.CancelEdit();
                 Task.Run(delegate
                 {
                     viewModel.RenameBMSFolder(bmsFile, newFolder);
                 }).Logging("dataGridCellEditEnding");
             }
-            else if (path == bmsFile.GetName((BMSFile f) => f.instl_dst) && isPendingSelected)
-            {
-                string destinationDirectory = textBox.Text;
-                dataGrid.CancelEdit();
-                Task.Run(delegate
-                {
-                    viewModel.SetPendingInstallDestination(bmsFile, destinationDirectory);
-                }).Logging("dataGridCellEditEnding");
-            }
+              else if (path == bmsFile.GetName((BMSFile f) => f.instl_dst) && isPendingSelected)
+              {
+                  if (_pendingInstallDestinationSelectionCommitInProgress)
+                  {
+                      _pendingInstallDestinationSelectionCommitInProgress = false;
+                      ClearPendingInstallDestinationEditState(bmsFile);
+                      return;
+                  }
+                  string destinationDirectory = editingText;
+                  PendingInstallDestinationEditState originalState = CaptureOrGetPendingInstallDestinationEditState(bmsFile);
+                  dataGrid.CancelEdit();
+                  Task.Run(delegate
+                  {
+                      bool succeeded = viewModel.SetPendingInstallDestination(bmsFile, destinationDirectory);
+                      if (!succeeded)
+                      {
+                          base.Dispatcher.BeginInvoke((Action)delegate
+                          {
+                              RestorePendingInstallDestinationEditState(bmsFile, originalState);
+                          }, DispatcherPriority.Background);
+                          return;
+                      }
+                      base.Dispatcher.BeginInvoke((Action)delegate
+                      {
+                          ClearPendingInstallDestinationEditState(bmsFile);
+                      }, DispatcherPriority.Background);
+                  }).Logging("dataGridCellEditEnding");
+              }
             else if (path == bmsFile.GetName((BMSFile f) => f.instl_dst))
             {
-                bindingExpression.UpdateTarget();
+                bindingExpression?.UpdateTarget();
             }
         }
+    }
+
+    private void dataGridInstallDestinationTextBoxLoaded(object sender, RoutedEventArgs e)
+    {
+        if (_currentTreeSelectionSection != TreeSelectionSection.InstallPending)
+        {
+            return;
+        }
+        if (!(sender is TextBox textBox) || !(textBox.DataContext is BMSFile bmsFile))
+        {
+            return;
+        }
+        base.Dispatcher.BeginInvoke((Action)delegate
+        {
+            bmsFile.IsInstallDestinationSuggestionPopupOpen = bmsFile.HasInstallDestinationSuggestionChoices;
+        }, DispatcherPriority.Input);
+    }
+
+    private void dataGridInstallDestinationTextBoxPreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (_currentTreeSelectionSection != TreeSelectionSection.InstallPending)
+        {
+            return;
+        }
+        if (!(sender is TextBox textBox) || !(textBox.DataContext is BMSFile bmsFile))
+        {
+            return;
+        }
+        ListBox suggestionListBox = FindTemplateElement<ListBox>(textBox, "listBoxInstallDestinationSuggestions");
+        if (suggestionListBox == null)
+        {
+            return;
+        }
+        if (e.Key == Key.Escape)
+        {
+            bmsFile.IsInstallDestinationSuggestionPopupOpen = false;
+            e.Handled = true;
+            return;
+        }
+        if (!bmsFile.HasInstallDestinationSuggestionChoices)
+        {
+            return;
+        }
+        if (e.Key == Key.Down || e.Key == Key.Up)
+        {
+            bmsFile.IsInstallDestinationSuggestionPopupOpen = true;
+            if (suggestionListBox.Items.Count == 0)
+            {
+                return;
+            }
+            int selectedIndex = suggestionListBox.SelectedIndex;
+            if (selectedIndex < 0)
+            {
+                selectedIndex = (e.Key == Key.Down) ? 0 : suggestionListBox.Items.Count - 1;
+            }
+            else
+            {
+                selectedIndex += (e.Key == Key.Down) ? 1 : -1;
+                if (selectedIndex < 0)
+                {
+                    selectedIndex = suggestionListBox.Items.Count - 1;
+                }
+                else if (selectedIndex >= suggestionListBox.Items.Count)
+                {
+                    selectedIndex = 0;
+                }
+            }
+            suggestionListBox.SelectedIndex = selectedIndex;
+            suggestionListBox.ScrollIntoView(suggestionListBox.SelectedItem);
+            suggestionListBox.Focus();
+            e.Handled = true;
+        }
+    }
+
+    private void dataGridInstallDestinationSuggestionPreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (!(sender is ListBox listBox) || !(listBox.DataContext is BMSFile bmsFile))
+        {
+            return;
+        }
+        ListBoxItem listBoxItem = ItemsControl.ContainerFromElement(listBox, e.OriginalSource as DependencyObject) as ListBoxItem;
+        string destinationDirectory = listBoxItem?.DataContext as string ?? listBoxItem?.Content as string;
+        if (string.IsNullOrWhiteSpace(destinationDirectory))
+        {
+            return;
+        }
+        listBox.SelectedItem = destinationDirectory;
+        CommitInstallDestinationSuggestionSelection(bmsFile, destinationDirectory);
+        e.Handled = true;
+    }
+
+    private void dataGridInstallDestinationSuggestionPreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (!(sender is ListBox listBox) || !(listBox.DataContext is BMSFile bmsFile))
+        {
+            return;
+        }
+        if (e.Key == Key.Enter)
+        {
+            CommitInstallDestinationSuggestionSelection(bmsFile, listBox.SelectedItem as string);
+            e.Handled = true;
+            return;
+        }
+        if (e.Key == Key.Escape)
+        {
+            bmsFile.IsInstallDestinationSuggestionPopupOpen = false;
+            TextBox textBox = FindTemplateElement<TextBox>(listBox, "textBoxInstallDestination");
+            textBox?.Focus();
+            e.Handled = true;
+        }
+    }
+
+    private static string GetDataGridColumnBindingPath(DataGridColumn column)
+    {
+        if (column is DataGridBoundColumn dataGridBoundColumn && dataGridBoundColumn.Binding is Binding binding)
+        {
+            return binding.Path?.Path;
+        }
+        return column?.SortMemberPath;
+    }
+
+    private PendingInstallDestinationEditState CapturePendingInstallDestinationEditState(BMSFile bmsFile)
+    {
+        if (bmsFile == null)
+        {
+            return null;
+        }
+        return new PendingInstallDestinationEditState
+        {
+            InstallDestination = bmsFile.instl_dst,
+            InstallDestinationTitle = bmsFile.InstallDestinationTitle,
+            InstallDestinationArtist = bmsFile.InstallDestinationArtist,
+            Warning = bmsFile.warning,
+            Suggestions = (bmsFile.InstallDestinationSuggestions ?? Array.Empty<string>()).ToArray(),
+            HasLowConfidenceInstallWarning = bmsFile.HasLowConfidenceInstallWarning
+        };
+    }
+
+    private PendingInstallDestinationEditState CaptureOrGetPendingInstallDestinationEditState(BMSFile bmsFile)
+    {
+        if (bmsFile == null)
+        {
+            return null;
+        }
+        if (!_pendingInstallDestinationEditStates.TryGetValue(bmsFile, out PendingInstallDestinationEditState state) || state == null)
+        {
+            state = CapturePendingInstallDestinationEditState(bmsFile);
+            _pendingInstallDestinationEditStates[bmsFile] = state;
+        }
+        return state;
+    }
+
+    private void ClearPendingInstallDestinationEditState(BMSFile bmsFile)
+    {
+        if (bmsFile != null)
+        {
+            _pendingInstallDestinationEditStates.Remove(bmsFile);
+        }
+    }
+
+    private void RestorePendingInstallDestinationEditState(BMSFile bmsFile, PendingInstallDestinationEditState state)
+    {
+        if (bmsFile == null || state == null)
+        {
+            return;
+        }
+        bmsFile.instl_dst = state.InstallDestination;
+        bmsFile.InstallDestinationTitle = state.InstallDestinationTitle;
+        bmsFile.InstallDestinationArtist = state.InstallDestinationArtist;
+        bmsFile.warning = state.Warning;
+        bmsFile.InstallDestinationSuggestions = state.Suggestions ?? Array.Empty<string>();
+        bmsFile.HasLowConfidenceInstallWarning = state.HasLowConfidenceInstallWarning;
+        bmsFile.IsInstallDestinationSuggestionPopupOpen = false;
+        ClearPendingInstallDestinationEditState(bmsFile);
+    }
+
+    private void CommitInstallDestinationSuggestionSelection(BMSFile bmsFile, string destinationDirectory)
+    {
+        if (_currentTreeSelectionSection != TreeSelectionSection.InstallPending)
+        {
+            return;
+        }
+        if (bmsFile == null || string.IsNullOrWhiteSpace(destinationDirectory))
+        {
+            return;
+        }
+        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
+        if (viewModel == null)
+        {
+            return;
+        }
+        PendingInstallDestinationEditState originalState = CaptureOrGetPendingInstallDestinationEditState(bmsFile);
+        _pendingInstallDestinationSelectionCommitInProgress = true;
+        bmsFile.IsInstallDestinationSuggestionPopupOpen = false;
+        dataGrid.CancelEdit();
+        Task.Run(delegate
+        {
+            bool succeeded = viewModel.SetPendingInstallDestination(bmsFile, destinationDirectory);
+            base.Dispatcher.BeginInvoke((Action)delegate
+            {
+                _pendingInstallDestinationSelectionCommitInProgress = false;
+                if (!succeeded)
+                {
+                    RestorePendingInstallDestinationEditState(bmsFile, originalState);
+                }
+                else
+                {
+                    ClearPendingInstallDestinationEditState(bmsFile);
+                }
+            }, DispatcherPriority.Background);
+        }).Logging("CommitInstallDestinationSuggestionSelection");
+    }
+
+    private static T FindTemplateElement<T>(FrameworkElement source, string elementName) where T : class
+    {
+        FrameworkElement current = source;
+        while (current != null)
+        {
+            T found = current.FindName(elementName) as T;
+            if (found != null)
+            {
+                return found;
+            }
+            current = current.Parent as FrameworkElement;
+        }
+        return null;
+    }
+
+    private static string GetEditingElementText(FrameworkElement editingElement)
+    {
+        TextBox installDestinationTextBox = ResolveEditingElementTextBox(editingElement);
+        if (installDestinationTextBox != null)
+        {
+            return installDestinationTextBox.Text;
+        }
+        if (editingElement is TextBox textBox)
+        {
+            return textBox.Text;
+        }
+        if (editingElement is ComboBox comboBox)
+        {
+            return comboBox.Text;
+        }
+        return string.Empty;
+    }
+
+    private static BindingExpression GetEditingElementTextBindingExpression(FrameworkElement editingElement)
+    {
+        TextBox installDestinationTextBox = ResolveEditingElementTextBox(editingElement);
+        if (installDestinationTextBox != null)
+        {
+            return installDestinationTextBox.GetBindingExpression(TextBox.TextProperty);
+        }
+        if (editingElement is TextBox textBox)
+        {
+            return textBox.GetBindingExpression(TextBox.TextProperty);
+        }
+        if (editingElement is ComboBox comboBox)
+        {
+            return comboBox.GetBindingExpression(ComboBox.TextProperty);
+        }
+        return null;
+    }
+
+    private static TextBox ResolveEditingElementTextBox(FrameworkElement editingElement)
+    {
+        if (editingElement == null)
+        {
+            return null;
+        }
+        if (editingElement is TextBox textBox)
+        {
+            return textBox;
+        }
+        TextBox namedTextBox = FindNamedDescendant<TextBox>(editingElement, "textBoxInstallDestination");
+        if (namedTextBox != null)
+        {
+            return namedTextBox;
+        }
+        return FindVisualDescendant<TextBox>(editingElement);
+    }
+
+    private static T FindNamedDescendant<T>(FrameworkElement root, string elementName) where T : class
+    {
+        if (root == null)
+        {
+            return null;
+        }
+        T foundByName = root.FindName(elementName) as T;
+        if (foundByName != null)
+        {
+            return foundByName;
+        }
+        int childrenCount = VisualTreeHelper.GetChildrenCount(root);
+        for (int i = 0; i < childrenCount; i++)
+        {
+            if (VisualTreeHelper.GetChild(root, i) is FrameworkElement child)
+            {
+                T found = FindNamedDescendant<T>(child, elementName);
+                if (found != null)
+                {
+                    return found;
+                }
+            }
+        }
+        return null;
+    }
+
+    private static T FindVisualDescendant<T>(DependencyObject root) where T : DependencyObject
+    {
+        if (root == null)
+        {
+            return null;
+        }
+        int childrenCount = VisualTreeHelper.GetChildrenCount(root);
+        for (int i = 0; i < childrenCount; i++)
+        {
+            DependencyObject child = VisualTreeHelper.GetChild(root, i);
+            if (child is T typedChild)
+            {
+                return typedChild;
+            }
+            T descendant = FindVisualDescendant<T>(child);
+            if (descendant != null)
+            {
+                return descendant;
+            }
+        }
+        return null;
     }
 
     private async void dataGridCellOpenURLClick(object sender, MouseButtonEventArgs e)

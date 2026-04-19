@@ -9,6 +9,7 @@
 - `P5`: 未実施
 
 現時点では、**曖昧な高スコア候補を自動確定しないこと** と、**保留画面で推定先の代表譜面 metadata を確認できること** まで入っています。  
+加えて、**pending の `INSTL DST` 手動編集時にオートコンプリート型で上位候補をサジェストすること** と、**`confidence=Low` 行を警告色で可視化すること** まで入っています。  
 一方で、推定スコア自体の精度改善として本命だった「余分リソースの少なさ」評価や `TITLE` / `ARTIST` tie-break はまだ入っていません。
 
 ## 今回実装したこと
@@ -29,6 +30,7 @@
   - 第1候補
   - 第2候補
 - `estimate_install` / `auto_install_prepare` に low-confidence 判定のログを追加した
+- pending の `INSTL DST` 編集時に、上位候補 3 件までをオートコンプリート型 UI でサジェストするようにした
 
 ### P3. 保留画面の確認導線強化
 
@@ -42,6 +44,9 @@
 - `confidence=Low` で `INSTL DST` を自動適用しなかった場合も、1 位候補の代表 metadata は表示する
   - これにより、warning を見ながら目視確認できる
 - 手動で `INSTL DST` を入力した場合も、その入力先に応じて `INSTL DST TITLE/ARTIST` を更新するようにした
+- `confidence=Low` かつ複数候補あり未確定の行だけ、重複警告と同じ背景色で強調表示するようにした
+- low-confidence 候補のどれかを手動選択した場合は、候補一覧と警告を維持したまま `INSTL DST` と代表 metadata を切り替えられるようにした
+- 候補外の path を自由入力して確定した場合は、low-confidence 状態を解除するようにした
 
 ## 今回の実装で変えなかったこと
 
@@ -100,11 +105,14 @@
 - low-confidence 時の warning
 - 1 位 / 2 位候補保持
 - `INSTL DST TITLE/ARTIST`
+- `INSTL DST` 候補サジェスト
+- low-confidence 行着色
 
 今回未実施:
 
 - `INSTL DST CONFIDENCE` 列
-- 第2候補のサジェスト UI
+- サジェスト候補ごとの metadata 一覧表示
+- 第2候補の context menu / tooltip
 
 ### P2. 余分リソースの少なさを評価へ入れる
 
@@ -137,6 +145,8 @@
 - pending 専用の `INSTL DST TITLE` / `INSTL DST ARTIST`
 - 推定先フォルダの代表譜面 metadata 解決
 - 手動 `INSTL DST` 入力後の metadata 再解決
+- `INSTL DST` 編集時の候補サジェスト
+- low-confidence 行の背景色強調
 
 今回未実施:
 

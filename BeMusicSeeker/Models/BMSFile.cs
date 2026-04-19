@@ -85,6 +85,12 @@ public class BMSFile : LR2SongDB.song
 
     private string _installDestinationArtist;
 
+    private IReadOnlyList<string> _installDestinationSuggestions = Array.Empty<string>();
+
+    private bool _hasLowConfidenceInstallWarning;
+
+    private bool _isInstallDestinationSuggestionPopupOpen;
+
     private BMSFileStatus _status;
 
     private bool _isHashDuplicated;
@@ -438,7 +444,43 @@ public class BMSFile : LR2SongDB.song
         }
     }
 
-    public virtual bool HasHighlightedWarning => IsHashDuplicated || HasZeroNoteMismatchWarning;
+    public virtual bool HasHighlightedWarning => IsHashDuplicated || HasZeroNoteMismatchWarning || HasLowConfidenceInstallWarning;
+
+    public virtual bool HasLowConfidenceInstallWarning
+    {
+        get
+        {
+            return _hasLowConfidenceInstallWarning;
+        }
+        set
+        {
+            if (_hasLowConfidenceInstallWarning != value)
+            {
+                _hasLowConfidenceInstallWarning = value;
+                RaisePropertyChanged("HasLowConfidenceInstallWarning");
+                RaisePropertyChanged(() => HasHighlightedWarning);
+            }
+        }
+    }
+
+    public virtual bool HasInstallDestinationSuggestionChoices => (InstallDestinationSuggestions?.Count ?? 0) >= 2;
+
+    public virtual bool IsInstallDestinationSuggestionPopupOpen
+    {
+        get
+        {
+            return _isInstallDestinationSuggestionPopupOpen;
+        }
+        set
+        {
+            bool normalized = value && HasInstallDestinationSuggestionChoices;
+            if (_isInstallDestinationSuggestionPopupOpen != normalized)
+            {
+                _isInstallDestinationSuggestionPopupOpen = normalized;
+                RaisePropertyChanged("IsInstallDestinationSuggestionPopupOpen");
+            }
+        }
+    }
 
     public virtual string DisplayWarning
     {
@@ -514,6 +556,33 @@ public class BMSFile : LR2SongDB.song
             {
                 _installDestinationArtist = normalized;
                 RaisePropertyChanged("InstallDestinationArtist");
+            }
+        }
+    }
+
+    /// <summary>
+    /// Pending 画面の INSTL DST 編集候補です。
+    /// low-confidence 時のみ上位候補の path を保持します。
+    /// </summary>
+    public virtual IReadOnlyList<string> InstallDestinationSuggestions
+    {
+        get
+        {
+            return _installDestinationSuggestions ?? Array.Empty<string>();
+        }
+        set
+        {
+            IReadOnlyList<string> normalized = value ?? Array.Empty<string>();
+            bool hadChoices = HasInstallDestinationSuggestionChoices;
+            if (!ReferenceEquals(_installDestinationSuggestions, normalized))
+            {
+                _installDestinationSuggestions = normalized;
+                RaisePropertyChanged("InstallDestinationSuggestions");
+                RaisePropertyChanged("HasInstallDestinationSuggestionChoices");
+                if (hadChoices != HasInstallDestinationSuggestionChoices && !HasInstallDestinationSuggestionChoices)
+                {
+                    IsInstallDestinationSuggestionPopupOpen = false;
+                }
             }
         }
     }

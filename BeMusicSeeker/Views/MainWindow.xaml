@@ -1651,12 +1651,16 @@
                 <Style x:Key="styleDataGridEditingCellForMemo" BasedOn="{StaticResource styleDataGridEditingCell}" TargetType="{x:Type TextBox}">
                   <Setter Property="TextBoxBase.IsReadOnly" Value="{Binding DataContext, RelativeSource={x:Static RelativeSource.Self}, Converter={StaticResource vbmsFileToIsReadOnlyConverterForMemo}}" />
                 </Style>
-                <Style x:Key="styleDataGridEditingCellForUrl" BasedOn="{StaticResource styleDataGridEditingCell}" TargetType="{x:Type TextBox}">
-                  <Setter Property="TextBox.TextWrapping" Value="NoWrap" />
-                </Style>
-                <Style x:Key="styleDataGridEditingCellForFolder" BasedOn="{StaticResource styleDataGridEditingCell}" TargetType="{x:Type TextBox}">
-                  <Setter Property="TextBoxBase.IsReadOnly" Value="False" />
-                </Style>
+                  <Style x:Key="styleDataGridEditingCellForUrl" BasedOn="{StaticResource styleDataGridEditingCell}" TargetType="{x:Type TextBox}">
+                    <Setter Property="TextBox.TextWrapping" Value="NoWrap" />
+                  </Style>
+                  <Style x:Key="styleDataGridEditingCellForInstallDestination" BasedOn="{StaticResource styleDataGridEditingCell}" TargetType="{x:Type TextBox}">
+                    <Setter Property="TextBoxBase.IsReadOnly" Value="False" />
+                    <Setter Property="TextBox.TextWrapping" Value="NoWrap" />
+                  </Style>
+                  <Style x:Key="styleDataGridEditingCellForFolder" BasedOn="{StaticResource styleDataGridEditingCell}" TargetType="{x:Type TextBox}">
+                    <Setter Property="TextBoxBase.IsReadOnly" Value="False" />
+                  </Style>
                 <Style x:Key="styleDataGridEditingCellRightAlignment" BasedOn="{StaticResource styleDataGridEditingCell}" TargetType="{x:Type TextBox}">
                   <Setter Property="TextBox.TextAlignment" Value="Right" />
                 </Style>
@@ -2055,7 +2059,25 @@
               <DataGridTextColumn Header="SHA256 HASH" FontFamily="Courier New" MinWidth="420" MaxWidth="420" IsReadOnly="True" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCellCenterAlignment}" HeaderStyle="{StaticResource styleDataGridColumnHeaderCenter}" Binding="{Binding sha256}" Width="{Binding ColumnsSettingsBMSFilesView.Sha256.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding ColumnsSettingsBMSFilesView.Sha256.Visibility, Source={StaticResource vm}, Mode=TwoWay}" />
               <DataGridTextColumn Header="FOLDER" MinWidth="80" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCell}" EditingElementStyle="{StaticResource styleDataGridEditingCellForFolder}" HeaderStyle="{StaticResource styleDataGridColumnHeaderDefault}" Binding="{Binding Folder}" Width="{Binding ColumnsSettingsBMSFilesView.Folder.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding ColumnsSettingsBMSFilesView.Folder.Visibility, Source={StaticResource vm}, Mode=TwoWay}" IsReadOnly="{qc:Binding '$P == Visibility.Visible ? True : False', P={Binding ColumnSettingsVisibilityForPlaylist, Source={StaticResource vm}}}" />
               <DataGridTextColumn Header="PATH" MinWidth="300" IsReadOnly="True" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCell}" HeaderStyle="{StaticResource styleDataGridColumnHeaderDefault}" Binding="{Binding path}" Width="{Binding ColumnsSettingsBMSFilesView.Path.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding ColumnsSettingsBMSFilesView.Path.Visibility, Source={StaticResource vm}, Mode=TwoWay}" />
-              <DataGridTextColumn Header="INSTL DST" IsReadOnly="False" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCell}" HeaderStyle="{StaticResource styleDataGridColumnHeaderDefault}" Binding="{Binding instl_dst}" Width="{Binding ColumnsSettingsBMSFilesView.InstallDst.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding ColumnsSettingsBMSFilesView.InstallDst.Visibility, Source={StaticResource vm}, Mode=TwoWay}" />
+              <DataGridTemplateColumn Header="INSTL DST" SortMemberPath="instl_dst" Width="{Binding ColumnsSettingsBMSFilesView.InstallDst.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding ColumnsSettingsBMSFilesView.InstallDst.Visibility, Source={StaticResource vm}, Mode=TwoWay}" CellStyle="{StaticResource styleDataGridCellNonFocusable}" HeaderStyle="{StaticResource styleDataGridColumnHeaderDefault}">
+                <DataGridTemplateColumn.CellTemplate>
+                  <DataTemplate>
+                    <TextBlock Style="{StaticResource styleDataGridNotEditingCell}" Text="{Binding instl_dst}" />
+                  </DataTemplate>
+                </DataGridTemplateColumn.CellTemplate>
+                <DataGridTemplateColumn.CellEditingTemplate>
+                  <DataTemplate>
+                      <Grid>
+                        <TextBox x:Name="textBoxInstallDestination" Style="{StaticResource styleDataGridEditingCellForInstallDestination}" Text="{Binding instl_dst, UpdateSourceTrigger=PropertyChanged}" Loaded="dataGridInstallDestinationTextBoxLoaded" PreviewKeyDown="dataGridInstallDestinationTextBoxPreviewKeyDown" />
+                        <Popup x:Name="popupInstallDestinationSuggestions" Placement="Bottom" PlacementTarget="{Binding ElementName=textBoxInstallDestination}" StaysOpen="True" AllowsTransparency="True" IsOpen="{Binding IsInstallDestinationSuggestionPopupOpen, Mode=TwoWay}">
+                          <Border Background="White" BorderBrush="#FF828790" BorderThickness="1" MinWidth="{Binding ActualWidth, ElementName=textBoxInstallDestination}" MaxWidth="600">
+                            <ListBox x:Name="listBoxInstallDestinationSuggestions" BorderThickness="0" Padding="0" ItemsSource="{Binding InstallDestinationSuggestions}" PreviewMouseLeftButtonDown="dataGridInstallDestinationSuggestionPreviewMouseLeftButtonDown" PreviewKeyDown="dataGridInstallDestinationSuggestionPreviewKeyDown" />
+                          </Border>
+                      </Popup>
+                    </Grid>
+                  </DataTemplate>
+                </DataGridTemplateColumn.CellEditingTemplate>
+              </DataGridTemplateColumn>
               <DataGridTextColumn Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Header_InstallDstTitle, Mode=OneWay}" IsReadOnly="True" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCell}" HeaderStyle="{StaticResource styleDataGridColumnHeaderDefault}" Binding="{Binding InstallDestinationTitle}" Width="{Binding ColumnsSettingsBMSFilesView.InstallDstTitle.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding ColumnsSettingsBMSFilesView.InstallDstTitle.Visibility, Source={StaticResource vm}, Mode=TwoWay}" />
               <DataGridTextColumn Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Header_InstallDstArtist, Mode=OneWay}" IsReadOnly="True" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCell}" HeaderStyle="{StaticResource styleDataGridColumnHeaderDefault}" Binding="{Binding InstallDestinationArtist}" Width="{Binding ColumnsSettingsBMSFilesView.InstallDstArtist.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding ColumnsSettingsBMSFilesView.InstallDstArtist.Visibility, Source={StaticResource vm}, Mode=TwoWay}" />
               <DataGridTextColumn Header="WAV" MinWidth="50" MaxWidth="50" IsReadOnly="True" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCellRightAlignment}" HeaderStyle="{StaticResource styleDataGridColumnHeaderCenter}" Binding="{Binding WAVHealth, Converter={StaticResource addStringToEndConverter}, ConverterParameter=%|}" Width="{Binding ColumnsSettingsBMSFilesView.WavHealth.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding ColumnsSettingsBMSFilesView.WavHealth.Visibility, Source={StaticResource vm}, Mode=TwoWay}" />

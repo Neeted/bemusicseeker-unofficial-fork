@@ -3594,12 +3594,26 @@ public class BMSLibrary : NotificationObject
             return string.Empty;
         }
         string warningPrefix = Resources.Warning_InstallEstimationAmbiguousPrefix;
+        string[] ambiguousWarningPrefixes = (Resources.Warning_InstallEstimationAmbiguous ?? string.Empty)
+            .Split(new char[2] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
+            .Select((string line) => line.Trim())
+            .Where((string line) => !string.IsNullOrWhiteSpace(line))
+            .Select(delegate (string line)
+            {
+                int placeholderIndex = line.IndexOf('{');
+                return placeholderIndex >= 0 ? line.Substring(0, placeholderIndex).TrimEnd() : line;
+            })
+            .Where((string line) => !string.IsNullOrWhiteSpace(line))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
         return string.Join(
             Environment.NewLine,
             warning
                 .Split(new char[2] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
                 .Select((string line) => line.Trim())
-                .Where((string line) => !string.IsNullOrWhiteSpace(line) && !line.StartsWith(warningPrefix, StringComparison.Ordinal)));
+                .Where((string line) => !string.IsNullOrWhiteSpace(line)
+                    && !line.StartsWith(warningPrefix, StringComparison.Ordinal)
+                    && !ambiguousWarningPrefixes.Any((string prefix) => line.StartsWith(prefix, StringComparison.Ordinal))));
     }
 
     private sealed class InstalledChartMetadataCandidate
@@ -3667,15 +3681,24 @@ public class BMSLibrary : NotificationObject
         };
     }
 
-    private void ApplyResolvedInstallDestinationToFiles(IEnumerable<BMSFile> bmsFiles, string destinationDirectory)
+    private void ApplyResolvedInstallDestinationToFiles(IEnumerable<BMSFile> bmsFiles, string destinationDirectory, bool preserveAmbiguousInstallContext = false)
     {
         InstallDestinationRepresentativeMetadata metadata = ResolveInstallDestinationRepresentativeMetadataUnsafe(destinationDirectory);
         foreach (BMSFile bmsFile in (bmsFiles ?? Enumerable.Empty<BMSFile>()).Where((BMSFile file) => file != null))
         {
-            bmsFile.warning = RemoveAmbiguousInstallWarning(bmsFile.warning);
+            bmsFile.IsInstallDestinationSuggestionPopupOpen = false;
+            if (!preserveAmbiguousInstallContext)
+            {
+                bmsFile.warning = RemoveAmbiguousInstallWarning(bmsFile.warning);
+            }
             bmsFile.instl_dst = destinationDirectory;
             bmsFile.InstallDestinationTitle = metadata.Title;
             bmsFile.InstallDestinationArtist = metadata.Artist;
+            if (!preserveAmbiguousInstallContext)
+            {
+                bmsFile.InstallDestinationSuggestions = Array.Empty<string>();
+                bmsFile.HasLowConfidenceInstallWarning = false;
+            }
         }
     }
 
@@ -3683,12 +3706,23 @@ public class BMSLibrary : NotificationObject
     {
         InstallEstimationCandidate selectedCandidate = result?.SelectedCandidate;
         InstallEstimationCandidate secondCandidate = result?.SecondCandidate;
+        string[] suggestionPaths = (result?.Candidates ?? new List<InstallEstimationCandidate>())
+            .Where((InstallEstimationCandidate candidate) => !string.IsNullOrWhiteSpace(candidate?.DirectoryPath))
+            .Select((InstallEstimationCandidate candidate) => candidate.DirectoryPath)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(3)
+            .ToArray();
+        bool isLowConfidenceAmbiguous = result?.Confidence == InstallEstimationConfidence.Low
+            && selectedCandidate != null
+            && secondCandidate != null
+            && suggestionPaths.Length >= 2;
         string ambiguousWarning = selectedCandidate == null || secondCandidate == null
             ? string.Empty
             : string.Format(Resources.Warning_InstallEstimationAmbiguous, selectedCandidate.DirectoryPath, secondCandidate.DirectoryPath);
         foreach (BMSFile bmsFile in (bmsFiles ?? Enumerable.Empty<BMSFile>()).Where((BMSFile file) => file != null))
         {
             bmsFile.warning = RemoveAmbiguousInstallWarning(bmsFile.warning);
+            bmsFile.IsInstallDestinationSuggestionPopupOpen = false;
             if (result?.ShouldAutoApplyDestination == true && !string.IsNullOrWhiteSpace(result.DestinationDirectory))
             {
                 bmsFile.instl_dst = result.DestinationDirectory;
@@ -3699,7 +3733,9 @@ public class BMSLibrary : NotificationObject
             }
             bmsFile.InstallDestinationTitle = selectedCandidate?.RepresentativeTitle ?? string.Empty;
             bmsFile.InstallDestinationArtist = selectedCandidate?.RepresentativeArtist ?? string.Empty;
-            if (result?.ShouldAutoApplyDestination == false && !string.IsNullOrWhiteSpace(ambiguousWarning))
+            bmsFile.InstallDestinationSuggestions = isLowConfidenceAmbiguous ? suggestionPaths : Array.Empty<string>();
+            bmsFile.HasLowConfidenceInstallWarning = isLowConfidenceAmbiguous;
+            if (isLowConfidenceAmbiguous && !string.IsNullOrWhiteSpace(ambiguousWarning))
             {
                 bmsFile.warning = AppendWarningLine(bmsFile.warning, ambiguousWarning);
             }
@@ -5180,6 +5216,9 @@ public class BMSLibrary : NotificationObject
                     bmsFile.warning = RemoveAmbiguousInstallWarning(bmsFile.warning);
                     bmsFile.InstallDestinationTitle = string.Empty;
                     bmsFile.InstallDestinationArtist = string.Empty;
+                    bmsFile.InstallDestinationSuggestions = Array.Empty<string>();
+                    bmsFile.HasLowConfidenceInstallWarning = false;
+                    bmsFile.IsInstallDestinationSuggestionPopupOpen = false;
                 }
             }
         }
@@ -5201,7 +5240,11 @@ public class BMSLibrary : NotificationObject
                     dialogService.Show(selection.WarningMessage, Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
                     return false;
                 }
-                ApplyResolvedInstallDestinationToFiles(selection.TargetFiles, selection.ValidatedDestinationDirectory);
+                bool preserveAmbiguousInstallContext = !string.IsNullOrWhiteSpace(selection.ValidatedDestinationDirectory)
+                    && selection.TargetFiles.Any((BMSFile file) => file != null
+                        && file.HasLowConfidenceInstallWarning
+                        && (file.InstallDestinationSuggestions?.Any((string path) => string.Equals(path, selection.ValidatedDestinationDirectory, StringComparison.OrdinalIgnoreCase)) ?? false));
+                ApplyResolvedInstallDestinationToFiles(selection.TargetFiles, selection.ValidatedDestinationDirectory, preserveAmbiguousInstallContext);
                 return true;
             }
         }

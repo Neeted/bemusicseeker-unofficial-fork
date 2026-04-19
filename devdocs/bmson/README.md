@@ -45,6 +45,8 @@
 8. [導入先推定精度向上計画](install-estimation-accuracy-improvement-plan.md)
    - 連番リソース系の誤推定対策
    - confidence / 第2候補 / `INSTL DST TITLE/ARTIST`
+   - `INSTL DST` 候補サジェスト（オートコンプリート型）
+   - low-confidence 行色
    - 余剰リソース評価と metadata tie-break
 
 ## 実装方針の要点
