@@ -146,6 +146,47 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     }
 
     [TestMethod]
+    public void CollectTargetResourceHashes_UsesSameRepresentativeHashesAsEstimateInstallationDirectory()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
+        {
+            string sourceDir = Path.Combine(tempRoot, "source");
+            string candidateDir = Path.Combine(tempRoot, "candidate");
+            Directory.CreateDirectory(sourceDir);
+            Directory.CreateDirectory(candidateDir);
+            File.WriteAllText(Path.Combine(sourceDir, "primary.bms"), "#PLAYER 1");
+            File.WriteAllText(Path.Combine(sourceDir, "secondary.bms"), "#PLAYER 1");
+            File.WriteAllText(Path.Combine(candidateDir, "00.wav"), "dst");
+            File.WriteAllText(Path.Combine(candidateDir, "01.wav"), "dst");
+
+            TestableBmsFile primary = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(sourceDir, "primary.bms"), "00.wav", "01.wav");
+            TestableBmsFile secondary = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine(sourceDir, "secondary.bms"), "00.wav");
+            primary.SetMaintenanceInfo(CreateMaintenanceInfo(primary, wavDefined: 2, wavExisting: 0), suppressPropertyChanged: true, registerEventHandlers: false);
+            secondary.SetMaintenanceInfo(CreateMaintenanceInfo(secondary, wavDefined: 1, wavExisting: 0), suppressPropertyChanged: true, registerEventHandlers: false);
+
+            BMSDirectoryFileNameHash cache = new BMSDirectoryFileNameHash();
+            cache.AddDir(sourceDir);
+            cache.AddDir(candidateDir);
+
+            HashSet<uint> hashes = service.CollectTargetResourceHashes(
+                new BMSFile[] { primary, secondary },
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+                BmsInstallationEstimateMode.Normal);
+
+            InstallEstimationResult result = service.EstimateInstallationDirectory(
+                new BMSFile[] { primary, secondary },
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+                cache,
+                asParallel: false,
+                BmsInstallationEstimateMode.Normal);
+
+            CollectionAssert.AreEquivalent(ChartResourceSnapshot.Create(primary).EnumerateAllBaseNameHashes().ToArray(), hashes.ToArray());
+            Assert.AreEqual(hashes.Count, result.TargetResourceHashCount);
+        });
+    }
+
+    [TestMethod]
     public void EstimateInstallationDirectory_PrefersCandidateWithFewerExtraAudioFiles()
     {
         TestResourceInitializer.EnsureJapaneseResources();

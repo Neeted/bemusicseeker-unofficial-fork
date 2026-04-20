@@ -372,6 +372,7 @@ internal sealed class BmsLibraryPackageInstallService
         FileMutationOptions targetOnlyFileMutationOptions,
         Action<string> logInfo = null,
         IBmsLibraryDialogService dialogService = null,
+        Action onEachSourceProcessed = null,
         CancellationToken token = default(CancellationToken))
     {
         string[] archiveExtensions = new string[4] { ".zip", ".7z", ".rar", ".lzh" };
@@ -382,63 +383,69 @@ internal sealed class BmsLibraryPackageInstallService
             {
                 break;
             }
-            if (!archiveExtensions.Any((string ext) => installPath.EndsWith(ext, StringComparison.OrdinalIgnoreCase)))
-            {
-                expandedPaths.Add(installPath);
-                continue;
-            }
             try
             {
-                string tempDirectoryPath = TempDirectoryPublisher.Get();
-                using (ArchiveFile archiveFile = new ArchiveFile(installPath))
+                if (!archiveExtensions.Any((string ext) => installPath.EndsWith(ext, StringComparison.OrdinalIgnoreCase)))
                 {
-                    archiveFile.Extract(tempDirectoryPath);
-                    foreach (Entry entry in archiveFile.Entries)
+                    expandedPaths.Add(installPath);
+                }
+                else
+                {
+                    string tempDirectoryPath = TempDirectoryPublisher.Get();
+                    using (ArchiveFile archiveFile = new ArchiveFile(installPath))
                     {
-                        string entryPath = entry.FileName.Replace('/', Path.DirectorySeparatorChar);
-                        string fullPath = Path.GetFullPath(Path.Combine(tempDirectoryPath, entryPath));
-                        if (!fullPath.StartsWith(tempDirectoryPath, StringComparison.OrdinalIgnoreCase))
+                        archiveFile.Extract(tempDirectoryPath);
+                        foreach (Entry entry in archiveFile.Entries)
                         {
-                            continue;
-                        }
-                        bool isFile = !entry.IsFolder && File.Exists(fullPath);
-                        bool isDirectory = entry.IsFolder && Directory.Exists(fullPath);
-                        if (!isFile && !isDirectory)
-                        {
-                            continue;
-                        }
-                        try
-                        {
-                            DateTime? creationTimeToRestore = entry.CreationTime > DateTime.MinValue ? entry.CreationTime : (DateTime?)null;
-                            DateTime? lastWriteTimeToRestore = entry.LastWriteTime > DateTime.MinValue ? entry.LastWriteTime : (DateTime?)null;
-                            if (creationTimeToRestore.HasValue || lastWriteTimeToRestore.HasValue)
+                            string entryPath = entry.FileName.Replace('/', Path.DirectorySeparatorChar);
+                            string fullPath = Path.GetFullPath(Path.Combine(tempDirectoryPath, entryPath));
+                            if (!fullPath.StartsWith(tempDirectoryPath, StringComparison.OrdinalIgnoreCase))
                             {
-                                fileMutationService.SetTimestamps(fullPath, isDirectory, creationTimeToRestore, lastWriteTimeToRestore, targetOnlyFileMutationOptions);
+                                continue;
                             }
-                            if (entry.LastAccessTime > DateTime.MinValue)
+                            bool isFile = !entry.IsFolder && File.Exists(fullPath);
+                            bool isDirectory = entry.IsFolder && Directory.Exists(fullPath);
+                            if (!isFile && !isDirectory)
                             {
-                                if (isFile)
+                                continue;
+                            }
+                            try
+                            {
+                                DateTime? creationTimeToRestore = entry.CreationTime > DateTime.MinValue ? entry.CreationTime : (DateTime?)null;
+                                DateTime? lastWriteTimeToRestore = entry.LastWriteTime > DateTime.MinValue ? entry.LastWriteTime : (DateTime?)null;
+                                if (creationTimeToRestore.HasValue || lastWriteTimeToRestore.HasValue)
                                 {
-                                    File.SetLastAccessTime(fullPath, entry.LastAccessTime);
+                                    fileMutationService.SetTimestamps(fullPath, isDirectory, creationTimeToRestore, lastWriteTimeToRestore, targetOnlyFileMutationOptions);
                                 }
-                                else
+                                if (entry.LastAccessTime > DateTime.MinValue)
                                 {
-                                    Directory.SetLastAccessTime(fullPath, entry.LastAccessTime);
+                                    if (isFile)
+                                    {
+                                        File.SetLastAccessTime(fullPath, entry.LastAccessTime);
+                                    }
+                                    else
+                                    {
+                                        Directory.SetLastAccessTime(fullPath, entry.LastAccessTime);
+                                    }
                                 }
                             }
-                        }
-                        catch (Exception metadataRestoreException)
-                        {
-                            logInfo?.Invoke("auto_install metadata_restore_failed path=" + fullPath + " error=" + metadataRestoreException.Message);
+                            catch (Exception metadataRestoreException)
+                            {
+                                logInfo?.Invoke("auto_install metadata_restore_failed path=" + fullPath + " error=" + metadataRestoreException.Message);
+                            }
                         }
                     }
+                    expandedPaths.Add(tempDirectoryPath);
                 }
-                expandedPaths.Add(tempDirectoryPath);
             }
             catch (Exception ex)
             {
                 logInfo?.Invoke("auto_install extract_failed path=" + installPath + " error=" + ex.Message);
                 dialogService?.Show("Extract failed:" + Environment.NewLine + installPath, "Warning", MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
+            }
+            finally
+            {
+                onEachSourceProcessed?.Invoke();
             }
         }
         return expandedPaths;

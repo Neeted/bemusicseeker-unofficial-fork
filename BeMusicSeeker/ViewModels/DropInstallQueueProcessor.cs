@@ -26,6 +26,8 @@ internal sealed class DropInstallQueueProcessor
 
     private CancellationTokenSource activeCancellationTokenSource;
 
+    private int activeCompletedPathCount;
+
     public DropInstallQueueProcessor(Action<DroppedInstallBatchRequest, CancellationToken> processBatch, Action<DropInstallQueueStatusSnapshot> statusChanged, Action<Exception> batchFailed = null)
     {
         this.processBatch = processBatch ?? throw new ArgumentNullException(nameof(processBatch));
@@ -81,6 +83,21 @@ internal sealed class DropInstallQueueProcessor
         statusChanged(snapshot);
     }
 
+    public void ReportActiveBatchProgress(int completedPathCount)
+    {
+        DropInstallQueueStatusSnapshot snapshot;
+        lock (syncRoot)
+        {
+            if (activeBatch == null)
+            {
+                return;
+            }
+            activeCompletedPathCount = Math.Max(0, Math.Min(completedPathCount, activeBatch.PathCount));
+            snapshot = CaptureStatusSnapshotUnsafe();
+        }
+        statusChanged(snapshot);
+    }
+
     private void ProcessLoop()
     {
         while (true)
@@ -96,6 +113,7 @@ internal sealed class DropInstallQueueProcessor
                     workerRunning = false;
                     cancelRequested = false;
                     activeBatch = null;
+                    activeCompletedPathCount = 0;
                     activeCancellationTokenSource?.Dispose();
                     activeCancellationTokenSource = null;
                     snapshot = CaptureStatusSnapshotUnsafe();
@@ -105,6 +123,7 @@ internal sealed class DropInstallQueueProcessor
                 {
                     batch = pendingBatches.Dequeue();
                     activeBatch = batch;
+                    activeCompletedPathCount = 0;
                     activeCancellationTokenSource?.Dispose();
                     activeCancellationTokenSource = new CancellationTokenSource();
                     cancellationTokenSource = activeCancellationTokenSource;
@@ -133,6 +152,7 @@ internal sealed class DropInstallQueueProcessor
                 lock (syncRoot)
                 {
                     activeBatch = null;
+                    activeCompletedPathCount = 0;
                     activeCancellationTokenSource?.Dispose();
                     activeCancellationTokenSource = null;
                     if (cancelRequested)
@@ -170,7 +190,8 @@ internal sealed class DropInstallQueueProcessor
             CanCancel = displayedBatch != null && !cancelRequested,
             IsCancellationRequested = cancelRequested,
             PendingBatchCount = pendingCount,
-            CurrentPathCount = displayedBatch?.PathCount ?? 0,
+            TotalPathCount = displayedBatch?.PathCount ?? 0,
+            CompletedPathCount = (activeBatch != null) ? activeCompletedPathCount : 0,
             CurrentDisplayName = displayedBatch?.DisplayName ?? string.Empty
         };
     }

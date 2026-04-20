@@ -327,6 +327,8 @@
   "Create_new_folder": "新增資料夾",
   "Cancel": "取消",
   "Drop_install_queue_label_format": "導入中: {0}項 (等待 {1} 批次)",
+  "Pending_estimate_queue_label_format": "保留推定: {0}/{1}項 (等待 {2} 批次)",
+  "Pending_estimate_queue_startup_display_name": "啟動時保留項",
   "Install": "安裝",
   "Backup_lr2backup_optimize": "備份並最佳化 LR2 資料",
   "Msg_load_recommended_tables_error": "由於未連線至 LR2 資料庫，該功能目前無法使用。",

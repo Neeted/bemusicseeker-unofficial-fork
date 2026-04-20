@@ -10,7 +10,9 @@ internal sealed class DropInstallQueueStatusSnapshot
 
     public int PendingBatchCount { get; set; }
 
-    public int CurrentPathCount { get; set; }
+    public int TotalPathCount { get; set; }
+
+    public int CompletedPathCount { get; set; }
 
     public string CurrentDisplayName { get; set; } = string.Empty;
 }

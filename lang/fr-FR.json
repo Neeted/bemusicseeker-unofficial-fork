@@ -327,6 +327,8 @@
   "Create_new_folder": "Creer nouveau dossier",
   "Cancel": "Annuler",
   "Drop_install_queue_label_format": "Installation : {0} éléments ({1} lots en attente)",
+  "Pending_estimate_queue_label_format": "Estimation en attente : {0}/{1} paquets ({2} lots en attente)",
+  "Pending_estimate_queue_startup_display_name": "En attente au démarrage",
   "Install": "Install",
   "Backup_lr2backup_optimize": "Backup and optimize LR2 data",
   "Msg_load_recommended_tables_error": "Cette fonctionnalite n'est pas disponible car LR2 DB n'est pas connecte.",

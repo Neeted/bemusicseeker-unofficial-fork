@@ -253,6 +253,10 @@ public class Resources
 
     public static string Drop_install_queue_label_format => ResourceManager.GetString("Drop_install_queue_label_format", resourceCulture);
 
+    public static string Pending_estimate_queue_label_format => ResourceManager.GetString("Pending_estimate_queue_label_format", resourceCulture);
+
+    public static string Pending_estimate_queue_startup_display_name => ResourceManager.GetString("Pending_estimate_queue_startup_display_name", resourceCulture);
+
     public static string Playlist_sync_progress_label_format => ResourceManager.GetString("Playlist_sync_progress_label_format", resourceCulture);
 
     public static string Playlist_sync_progress_single_label => ResourceManager.GetString("Playlist_sync_progress_single_label", resourceCulture);

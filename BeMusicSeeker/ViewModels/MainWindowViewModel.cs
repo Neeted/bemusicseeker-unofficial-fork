@@ -4218,6 +4218,32 @@ public class MainWindowViewModel : ViewModel
 
     private int _DropInstallQueuePendingBatchCount;
 
+    private bool _IsPendingEstimateQueueActive;
+
+    private string _PendingEstimateQueueLabel = string.Empty;
+
+    private string _PendingEstimateQueueSubLabel = string.Empty;
+
+    private int _PendingEstimateQueuePendingBatchCount;
+
+    private DropInstallQueueStatusSnapshot latestDropInstallQueueStatus = new DropInstallQueueStatusSnapshot();
+
+    private PendingInstallEstimateQueueStatusSnapshot latestPendingEstimateQueueStatus = new PendingInstallEstimateQueueStatusSnapshot();
+
+    private InstallEstimationProgressSnapshot latestInstallEstimationProgress = new InstallEstimationProgressSnapshot();
+
+    private bool _IsInstallPipelineStatusActive;
+
+    private string _InstallPipelineLabel = string.Empty;
+
+    private string _InstallPipelineSubLabel = string.Empty;
+
+    private int _InstallPipelineValue;
+
+    private int _InstallPipelineMaximum = 1;
+
+    private bool _InstallPipelineCanCancel;
+
     private readonly object playlistSyncProgressLock = new object();
 
     private int playlistSyncProgressActiveOperationCount;
@@ -7155,6 +7181,171 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
+    public bool IsPendingEstimateQueueActive
+    {
+        get
+        {
+            return _IsPendingEstimateQueueActive;
+        }
+        private set
+        {
+            if (_IsPendingEstimateQueueActive != value)
+            {
+                _IsPendingEstimateQueueActive = value;
+                RaisePropertyChanged("IsPendingEstimateQueueActive");
+            }
+        }
+    }
+
+    public string PendingEstimateQueueLabel
+    {
+        get
+        {
+            return _PendingEstimateQueueLabel;
+        }
+        private set
+        {
+            string normalized = value ?? string.Empty;
+            if (!(_PendingEstimateQueueLabel == normalized))
+            {
+                _PendingEstimateQueueLabel = normalized;
+                RaisePropertyChanged("PendingEstimateQueueLabel");
+            }
+        }
+    }
+
+    public string PendingEstimateQueueSubLabel
+    {
+        get
+        {
+            return _PendingEstimateQueueSubLabel;
+        }
+        private set
+        {
+            string normalized = value ?? string.Empty;
+            if (!(_PendingEstimateQueueSubLabel == normalized))
+            {
+                _PendingEstimateQueueSubLabel = normalized;
+                RaisePropertyChanged("PendingEstimateQueueSubLabel");
+            }
+        }
+    }
+
+    public int PendingEstimateQueuePendingBatchCount
+    {
+        get
+        {
+            return _PendingEstimateQueuePendingBatchCount;
+        }
+        private set
+        {
+            if (_PendingEstimateQueuePendingBatchCount != value)
+            {
+                _PendingEstimateQueuePendingBatchCount = value;
+                RaisePropertyChanged("PendingEstimateQueuePendingBatchCount");
+            }
+        }
+    }
+
+    public bool IsInstallPipelineStatusActive
+    {
+        get
+        {
+            return _IsInstallPipelineStatusActive;
+        }
+        private set
+        {
+            if (_IsInstallPipelineStatusActive != value)
+            {
+                _IsInstallPipelineStatusActive = value;
+                RaisePropertyChanged("IsInstallPipelineStatusActive");
+            }
+        }
+    }
+
+    public string InstallPipelineLabel
+    {
+        get
+        {
+            return _InstallPipelineLabel;
+        }
+        private set
+        {
+            string normalized = value ?? string.Empty;
+            if (!(_InstallPipelineLabel == normalized))
+            {
+                _InstallPipelineLabel = normalized;
+                RaisePropertyChanged("InstallPipelineLabel");
+            }
+        }
+    }
+
+    public string InstallPipelineSubLabel
+    {
+        get
+        {
+            return _InstallPipelineSubLabel;
+        }
+        private set
+        {
+            string normalized = value ?? string.Empty;
+            if (!(_InstallPipelineSubLabel == normalized))
+            {
+                _InstallPipelineSubLabel = normalized;
+                RaisePropertyChanged("InstallPipelineSubLabel");
+            }
+        }
+    }
+
+    public int InstallPipelineValue
+    {
+        get
+        {
+            return _InstallPipelineValue;
+        }
+        private set
+        {
+            if (_InstallPipelineValue != value)
+            {
+                _InstallPipelineValue = value;
+                RaisePropertyChanged("InstallPipelineValue");
+            }
+        }
+    }
+
+    public int InstallPipelineMaximum
+    {
+        get
+        {
+            return _InstallPipelineMaximum;
+        }
+        private set
+        {
+            int normalized = Math.Max(1, value);
+            if (_InstallPipelineMaximum != normalized)
+            {
+                _InstallPipelineMaximum = normalized;
+                RaisePropertyChanged("InstallPipelineMaximum");
+            }
+        }
+    }
+
+    public bool InstallPipelineCanCancel
+    {
+        get
+        {
+            return _InstallPipelineCanCancel;
+        }
+        private set
+        {
+            if (_InstallPipelineCanCancel != value)
+            {
+                _InstallPipelineCanCancel = value;
+                RaisePropertyChanged("InstallPipelineCanCancel");
+            }
+        }
+    }
+
     public bool IsPlaylistSyncProgressActive
     {
         get
@@ -8411,8 +8602,18 @@ public class MainWindowViewModel : ViewModel
             RebindBMSPackagesPendingCollectionListener();
             HandleBMSPackagesPendingCollectionChanged();
         });
+        listenerForBMSLibrary.RegisterHandler(() => files.PendingEstimateQueueStatusVersion, delegate
+        {
+            UpdatePendingEstimateQueueStatus(files.GetPendingEstimateQueueStatusSnapshot());
+        });
+        listenerForBMSLibrary.RegisterHandler(() => files.InstallEstimationProgressVersion, delegate
+        {
+            UpdateInstallEstimationProgressStatus(files.GetInstallEstimationProgressSnapshot());
+        });
         RebindBMSPackagesInstalledCollectionListener();
         RebindBMSPackagesPendingCollectionListener();
+        UpdatePendingEstimateQueueStatus(files.GetPendingEstimateQueueStatusSnapshot());
+        UpdateInstallEstimationProgressStatus(files.GetInstallEstimationProgressSnapshot());
         listenerForBMSLibrary.RegisterHandler(() => files.BMSParentFolderListCacheVersion, delegate
         {
             bmsParentFolderListViewInitialized = false;
@@ -10564,13 +10765,9 @@ public class MainWindowViewModel : ViewModel
         {
             throw new ArgumentNullException("packages");
         }
-        List<BMSPackage> list = packages.Where((BMSPackage pkg) => pkg != null).ToList();
         lock (lockCopyFile)
         {
-            for (int num = 0; num < list.Count; num++)
-            {
-                files.SearchEstimatedInstallationDirectory(list[num]);
-            }
+            files.SearchEstimatedInstallationDirectory(packages);
         }
     }
 
@@ -10599,16 +10796,7 @@ public class MainWindowViewModel : ViewModel
     {
         lock (lockCopyFile)
         {
-            List<BeMusicSeeker.Models.BMSFile> bmsFiles2 = bmsFiles.Where((BeMusicSeeker.Models.BMSFile bmsInfo) => bmsInfo != null).ToList();
-            List<BMSPackage> bMSPackages = getBMSPackages(ref bmsFiles2);
-            for (int num = 0; num < bMSPackages.Count; num++)
-            {
-                files.SearchEstimatedInstallationDirectory(bMSPackages[num]);
-            }
-            for (int num2 = 0; num2 < bmsFiles2.Count; num2++)
-            {
-                files.SearchEstimatedInstallationDirectory(bmsFiles2[num2]);
-            }
+            files.SearchEstimatedInstallationDirectory(bmsFiles);
         }
     }
 
@@ -10793,7 +10981,7 @@ public class MainWindowViewModel : ViewModel
     /// <param name="installPaths">インストールの対象となるファイルまたはディレクトリパスのコレクション。</param>
     /// <param name="token">処理を中止するためのキャンセレーショントークン。</param>
     /// <param name="onEachCompleted">インストール処理完了時に呼ばれるコールバック。</param>
-    public void InstallBMSFiles(IEnumerable<string> installPaths, CancellationToken token = default(CancellationToken), Action<bool> onEachCompleted = null)
+    public void InstallBMSFiles(IEnumerable<string> installPaths, CancellationToken token = default(CancellationToken), Action<bool> onEachCompleted = null, Action onEachPathProcessed = null)
     {
         if (files == null)
         {
@@ -10811,7 +10999,7 @@ public class MainWindowViewModel : ViewModel
             {
                 if (!token.IsCancellationRequested)
                 {
-                    list.AddRange(files.InstallBMSFilesAuto(normalizedInstallPaths, token));
+                    list.AddRange(files.InstallBMSFilesAuto(normalizedInstallPaths, token, onEachPathProcessed));
                 }
             }
             catch (FileNotFoundException ex)
@@ -10856,7 +11044,12 @@ public class MainWindowViewModel : ViewModel
         {
             return;
         }
-        InstallBMSFiles(request.Paths, token);
+        int completedPathCount = 0;
+        InstallBMSFiles(request.Paths, token, null, delegate
+        {
+            completedPathCount++;
+            dropInstallQueueProcessor?.ReportActiveBatchProgress(completedPathCount);
+        });
     }
 
     private void HandleDroppedInstallBatchException(Exception ex)
@@ -10883,6 +11076,7 @@ public class MainWindowViewModel : ViewModel
     {
         Action reflect = delegate
         {
+            latestDropInstallQueueStatus = snapshot ?? new DropInstallQueueStatusSnapshot();
             bool isActive = snapshot != null && snapshot.IsActive;
             IsDropInstallQueueActive = isActive;
             DropInstallQueueCanCancel = isActive && snapshot.CanCancel;
@@ -10891,10 +11085,13 @@ public class MainWindowViewModel : ViewModel
             {
                 DropInstallQueueLabel = string.Empty;
                 DropInstallQueueSubLabel = string.Empty;
-                return;
             }
-            DropInstallQueueLabel = string.Format(BeMusicSeeker.Properties.Resources.Drop_install_queue_label_format, snapshot.CurrentPathCount, snapshot.PendingBatchCount);
-            DropInstallQueueSubLabel = snapshot.CurrentDisplayName ?? string.Empty;
+            else
+            {
+                DropInstallQueueLabel = string.Format(BeMusicSeeker.Properties.Resources.Drop_install_queue_label_format, Math.Max(0, snapshot.CompletedPathCount), Math.Max(0, snapshot.TotalPathCount), snapshot.PendingBatchCount);
+                DropInstallQueueSubLabel = snapshot.CurrentDisplayName ?? string.Empty;
+            }
+            RefreshInstallPipelineStatus();
         };
         if (DispatcherHelper.UIDispatcher == null || DispatcherHelper.UIDispatcher.CheckAccess())
         {
@@ -10904,6 +11101,113 @@ public class MainWindowViewModel : ViewModel
         {
             DispatcherHelper.UIDispatcher.BeginInvoke(reflect);
         }
+    }
+
+    private void UpdatePendingEstimateQueueStatus(PendingInstallEstimateQueueStatusSnapshot snapshot)
+    {
+        Action reflect = delegate
+        {
+            latestPendingEstimateQueueStatus = snapshot?.Clone() ?? new PendingInstallEstimateQueueStatusSnapshot();
+            bool isActive = snapshot != null && snapshot.IsActive;
+            IsPendingEstimateQueueActive = isActive;
+            PendingEstimateQueuePendingBatchCount = isActive ? snapshot.PendingBatchCount : 0;
+            if (!isActive)
+            {
+                PendingEstimateQueueLabel = string.Empty;
+                PendingEstimateQueueSubLabel = string.Empty;
+            }
+            else
+            {
+                PendingEstimateQueueLabel = string.Format(
+                    BeMusicSeeker.Properties.Resources.Pending_estimate_queue_label_format,
+                    Math.Max(0, snapshot.CompletedPackageCount),
+                    Math.Max(snapshot.CurrentPackageCount, 0),
+                    Math.Max(snapshot.PendingBatchCount, 0));
+                PendingEstimateQueueSubLabel = snapshot.CurrentDisplayName ?? string.Empty;
+            }
+            RefreshInstallPipelineStatus();
+        };
+        if (DispatcherHelper.UIDispatcher == null || DispatcherHelper.UIDispatcher.CheckAccess())
+        {
+            reflect();
+        }
+        else
+        {
+            DispatcherHelper.UIDispatcher.BeginInvoke(reflect);
+        }
+    }
+
+    private void UpdateInstallEstimationProgressStatus(InstallEstimationProgressSnapshot snapshot)
+    {
+        Action reflect = delegate
+        {
+            latestInstallEstimationProgress = snapshot?.Clone() ?? new InstallEstimationProgressSnapshot();
+            RefreshInstallPipelineStatus();
+        };
+        if (DispatcherHelper.UIDispatcher == null || DispatcherHelper.UIDispatcher.CheckAccess())
+        {
+            reflect();
+        }
+        else
+        {
+            DispatcherHelper.UIDispatcher.BeginInvoke(reflect);
+        }
+    }
+
+    private void RefreshInstallPipelineStatus()
+    {
+        bool dropActive = latestDropInstallQueueStatus != null && latestDropInstallQueueStatus.IsActive;
+        bool pendingQueueActive = latestPendingEstimateQueueStatus != null && latestPendingEstimateQueueStatus.IsActive;
+        bool estimateActive = latestInstallEstimationProgress != null && latestInstallEstimationProgress.IsActive;
+        int pendingBatchCount = Math.Max(0, latestDropInstallQueueStatus?.PendingBatchCount ?? 0) + Math.Max(0, latestPendingEstimateQueueStatus?.PendingBatchCount ?? 0);
+        if (dropActive)
+        {
+            IsInstallPipelineStatusActive = true;
+            InstallPipelineLabel = string.Format(
+                BeMusicSeeker.Properties.Resources.Drop_install_queue_label_format,
+                Math.Max(0, latestDropInstallQueueStatus.CompletedPathCount),
+                Math.Max(0, latestDropInstallQueueStatus.TotalPathCount),
+                pendingBatchCount);
+            InstallPipelineSubLabel = latestDropInstallQueueStatus.CurrentDisplayName ?? string.Empty;
+            InstallPipelineMaximum = Math.Max(1, latestDropInstallQueueStatus.TotalPathCount);
+            InstallPipelineValue = Math.Max(0, latestDropInstallQueueStatus.CompletedPathCount);
+            InstallPipelineCanCancel = latestDropInstallQueueStatus.CanCancel;
+            return;
+        }
+        if (estimateActive)
+        {
+            IsInstallPipelineStatusActive = true;
+            InstallPipelineLabel = string.Format(
+                BeMusicSeeker.Properties.Resources.Pending_estimate_queue_label_format,
+                Math.Max(0, latestInstallEstimationProgress.CompletedWorkCount),
+                Math.Max(0, latestInstallEstimationProgress.TotalWorkCount),
+                pendingBatchCount);
+            InstallPipelineSubLabel = latestInstallEstimationProgress.CurrentDisplayName ?? string.Empty;
+            InstallPipelineMaximum = Math.Max(1, latestInstallEstimationProgress.TotalWorkCount);
+            InstallPipelineValue = Math.Max(0, latestInstallEstimationProgress.CompletedWorkCount);
+            InstallPipelineCanCancel = false;
+            return;
+        }
+        if (pendingQueueActive)
+        {
+            IsInstallPipelineStatusActive = true;
+            InstallPipelineLabel = string.Format(
+                BeMusicSeeker.Properties.Resources.Pending_estimate_queue_label_format,
+                Math.Max(0, latestPendingEstimateQueueStatus.CompletedPackageCount),
+                Math.Max(1, latestPendingEstimateQueueStatus.CurrentPackageCount),
+                pendingBatchCount);
+            InstallPipelineSubLabel = latestPendingEstimateQueueStatus.CurrentDisplayName ?? string.Empty;
+            InstallPipelineMaximum = Math.Max(1, latestPendingEstimateQueueStatus.CurrentPackageCount);
+            InstallPipelineValue = Math.Max(0, latestPendingEstimateQueueStatus.CompletedPackageCount);
+            InstallPipelineCanCancel = false;
+            return;
+        }
+        IsInstallPipelineStatusActive = false;
+        InstallPipelineLabel = string.Empty;
+        InstallPipelineSubLabel = string.Empty;
+        InstallPipelineValue = 0;
+        InstallPipelineMaximum = 1;
+        InstallPipelineCanCancel = false;
     }
 
     private void BeginPlaylistSyncProgressOperation()

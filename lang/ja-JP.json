@@ -333,6 +333,8 @@
   "Create_new_folder": "フォルダの新規作成",
   "Cancel": "キャンセル",
   "Drop_install_queue_label_format": "導入中: {0}件 (待機 {1} バッチ)",
+  "Pending_estimate_queue_label_format": "保留推定: {0}/{1}件 (待機 {2} バッチ)",
+  "Pending_estimate_queue_startup_display_name": "起動時の保留",
   "Install": "インストール",
   "Backup_lr2backup_optimize": "LR2のバックアップと最適化",
   "Msg_load_recommended_tables_error": "LR2スコアデータベースに接続されていないためこの機能は利用できません",

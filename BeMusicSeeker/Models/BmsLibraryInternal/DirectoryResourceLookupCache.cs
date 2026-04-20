@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using BeMusicSeeker.Models.Utils;
@@ -8,6 +9,77 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 internal sealed class DirectoryResourceLookupCache
 {
+    internal readonly struct ReverseLookupWarmupStepResult
+    {
+        public int ChunkEntryCount { get; }
+
+        public int ProcessedEntryCount { get; }
+
+        public int TotalEntryCount { get; }
+
+        public int BuiltHashCount { get; }
+
+        public long ChunkBuildMs { get; }
+
+        public long TotalBuildMs { get; }
+
+        public bool Completed { get; }
+
+        public bool Paused { get; }
+
+        public bool Cancelled { get; }
+
+        public ReverseLookupWarmupStepResult(
+            int chunkEntryCount,
+            int processedEntryCount,
+            int totalEntryCount,
+            int builtHashCount,
+            long chunkBuildMs,
+            long totalBuildMs,
+            bool completed,
+            bool paused,
+            bool cancelled)
+        {
+            ChunkEntryCount = chunkEntryCount;
+            ProcessedEntryCount = processedEntryCount;
+            TotalEntryCount = totalEntryCount;
+            BuiltHashCount = builtHashCount;
+            ChunkBuildMs = chunkBuildMs;
+            TotalBuildMs = totalBuildMs;
+            Completed = completed;
+            Paused = paused;
+            Cancelled = cancelled;
+        }
+    }
+
+    private sealed class ReverseLookupWarmupState
+    {
+        public int Version { get; }
+
+        public KeyValuePair<string, Entry>[] EntrySnapshot { get; }
+
+        public int NextEntryIndex { get; set; }
+
+        public Dictionary<uint, List<string>> AccumulatedDirectoriesByHash { get; }
+
+        public long BuildCpuMs { get; set; }
+
+        public bool Completed { get; set; }
+
+        public int TotalEntryCount => EntrySnapshot.Length;
+
+        public int BuiltHashCount => AccumulatedDirectoriesByHash.Count;
+
+        public int ProcessedEntryCount => Math.Min(NextEntryIndex, TotalEntryCount);
+
+        public ReverseLookupWarmupState(int version, KeyValuePair<string, Entry>[] entrySnapshot)
+        {
+            Version = version;
+            EntrySnapshot = entrySnapshot ?? Array.Empty<KeyValuePair<string, Entry>>();
+            AccumulatedDirectoriesByHash = new Dictionary<uint, List<string>>();
+        }
+    }
+
     internal sealed class Entry
     {
         private readonly uint[] allBaseNameHashArray;
@@ -128,23 +200,62 @@ internal sealed class DirectoryResourceLookupCache
         }
     }
 
+    private readonly object lockEntries = new object();
+
     private readonly Dictionary<string, Entry> entries = new Dictionary<string, Entry>(StringComparer.OrdinalIgnoreCase);
 
     private readonly Dictionary<uint, string[]> directoriesByHash = new Dictionary<uint, string[]>();
 
     private readonly object lockLazyDirectoriesByHash = new object();
 
+    private ReverseLookupWarmupState warmupState;
+
     private long lazyHashBuildMs;
 
     private long lazyHashLookupCount;
 
-    public IEnumerable<string> Keys => entries.Keys;
+    private int warmupVersion = 1;
 
-    public int Count => entries.Count;
+    private bool isFullReverseLookupBuilt;
+
+    private int highPriorityBuildCount;
+
+    public IEnumerable<string> Keys
+    {
+        get
+        {
+            lock (lockEntries)
+            {
+                return entries.Keys.ToArray();
+            }
+        }
+    }
+
+    public int Count
+    {
+        get
+        {
+            lock (lockEntries)
+            {
+                return entries.Count;
+            }
+        }
+    }
 
     public long LazyHashBuildMs => Interlocked.Read(ref lazyHashBuildMs);
 
     public long LazyHashLookupCount => Interlocked.Read(ref lazyHashLookupCount);
+
+    public int WarmupVersion
+    {
+        get
+        {
+            lock (lockLazyDirectoriesByHash)
+            {
+                return warmupVersion;
+            }
+        }
+    }
 
     public int LazyHashCacheEntryCount
     {
@@ -268,11 +379,15 @@ internal sealed class DirectoryResourceLookupCache
 
     public bool RemoveDir(string directoryPath)
     {
-        if (string.IsNullOrWhiteSpace(directoryPath) || !entries.TryGetValue(directoryPath, out Entry entry))
+        if (string.IsNullOrWhiteSpace(directoryPath))
         {
             return false;
         }
-        bool removed = entries.Remove(directoryPath);
+        bool removed = false;
+        lock (lockEntries)
+        {
+            removed = entries.Remove(directoryPath);
+        }
         if (removed)
         {
             InvalidateLazyReverseLookupCache();
@@ -286,23 +401,28 @@ internal sealed class DirectoryResourceLookupCache
         {
             return false;
         }
-        if (!entries.TryGetValue(oldPath, out Entry entry))
+        Entry entry = null;
+        lock (lockEntries)
         {
-            return false;
+            if (!entries.TryGetValue(oldPath, out entry))
+            {
+                return false;
+            }
+            entries.Remove(oldPath);
+            entries[newPath] = entry;
         }
-        entries.Remove(oldPath);
-        entries[newPath] = entry;
         InvalidateLazyReverseLookupCache();
         return true;
     }
 
     public IReadOnlyCollection<string> GetDirectoriesByHash(uint fileNameHash)
     {
-        Interlocked.Increment(ref lazyHashLookupCount);
         if (fileNameHash == 0u)
         {
             return Array.Empty<string>();
         }
+        Interlocked.Increment(ref lazyHashLookupCount);
+        EnsureDirectoriesByHashes(new uint[1] { fileNameHash });
         lock (lockLazyDirectoriesByHash)
         {
             if (directoriesByHash.TryGetValue(fileNameHash, out string[] directories))
@@ -310,25 +430,127 @@ internal sealed class DirectoryResourceLookupCache
                 return directories;
             }
         }
+        return Array.Empty<string>();
+    }
 
-        long started = System.Diagnostics.Stopwatch.GetTimestamp();
-        string[] builtDirectories = entries
-            .Where((KeyValuePair<string, Entry> pair) => pair.Value?.AllBaseNameHashArray != null && Array.BinarySearch(pair.Value.AllBaseNameHashArray, fileNameHash) >= 0)
-            .Select((KeyValuePair<string, Entry> pair) => pair.Key)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToArray();
-        long elapsedMs = (long)((System.Diagnostics.Stopwatch.GetTimestamp() - started) * 1000.0 / System.Diagnostics.Stopwatch.Frequency);
+    public void EnsureDirectoriesByHashes(IEnumerable<uint> hashes)
+    {
+        BuildDirectoriesByHashes(hashes, countAsLookup: false, highPriority: true);
+    }
+
+    public int PrepareWarmupState()
+    {
+        lock (lockLazyDirectoriesByHash)
+        {
+            if (isFullReverseLookupBuilt)
+            {
+                return 0;
+            }
+            if (warmupState != null)
+            {
+                return warmupState.TotalEntryCount;
+            }
+        }
+        KeyValuePair<string, Entry>[] entrySnapshot = SnapshotEntries();
+        lock (lockLazyDirectoriesByHash)
+        {
+            if (isFullReverseLookupBuilt)
+            {
+                return 0;
+            }
+            if (warmupState == null)
+            {
+                warmupState = new ReverseLookupWarmupState(warmupVersion, entrySnapshot);
+            }
+            return warmupState.TotalEntryCount;
+        }
+    }
+
+    public ReverseLookupWarmupStepResult WarmupReverseLookupStep(int maxEntryCount, int maxCpuMs, CancellationToken token)
+    {
+        if (token.IsCancellationRequested)
+        {
+            return new ReverseLookupWarmupStepResult(0, 0, 0, 0, 0L, 0L, completed: false, paused: false, cancelled: true);
+        }
+
+        PrepareWarmupState();
+        ReverseLookupWarmupState currentWarmupState;
+        lock (lockLazyDirectoriesByHash)
+        {
+            currentWarmupState = warmupState;
+            if (currentWarmupState == null)
+            {
+                return new ReverseLookupWarmupStepResult(0, 0, 0, directoriesByHash.Count, 0L, 0L, completed: true, paused: false, cancelled: false);
+            }
+            if (Volatile.Read(ref highPriorityBuildCount) > 0)
+            {
+                return CreateWarmupProgressResult(currentWarmupState, 0, 0L, completed: false, paused: true, cancelled: false);
+            }
+        }
+
+        int processedInChunk = 0;
+        Stopwatch stopwatch = Stopwatch.StartNew();
+        while (processedInChunk < maxEntryCount
+            && currentWarmupState.NextEntryIndex < currentWarmupState.TotalEntryCount
+            && (maxCpuMs <= 0 || stopwatch.ElapsedMilliseconds < maxCpuMs))
+        {
+            if (token.IsCancellationRequested)
+            {
+                stopwatch.Stop();
+                return CreateWarmupProgressResult(currentWarmupState, processedInChunk, stopwatch.ElapsedMilliseconds, completed: false, paused: false, cancelled: true);
+            }
+            KeyValuePair<string, Entry> entryPair = currentWarmupState.EntrySnapshot[currentWarmupState.NextEntryIndex++];
+            uint[] allBaseNameHashes = entryPair.Value?.AllBaseNameHashArray;
+            if (allBaseNameHashes != null)
+            {
+                foreach (uint hash in allBaseNameHashes)
+                {
+                    if (!currentWarmupState.AccumulatedDirectoriesByHash.TryGetValue(hash, out List<string> directories))
+                    {
+                        directories = new List<string>();
+                        currentWarmupState.AccumulatedDirectoriesByHash[hash] = directories;
+                    }
+                    directories.Add(entryPair.Key);
+                }
+            }
+            processedInChunk++;
+        }
+
+        bool completed = currentWarmupState.NextEntryIndex >= currentWarmupState.TotalEntryCount;
+        Dictionary<uint, string[]> completedIndex = null;
+        if (completed)
+        {
+            completedIndex = new Dictionary<uint, string[]>(currentWarmupState.AccumulatedDirectoriesByHash.Count);
+            foreach (KeyValuePair<uint, List<string>> hashDirectoriesPair in currentWarmupState.AccumulatedDirectoriesByHash)
+            {
+                completedIndex[hashDirectoriesPair.Key] = hashDirectoriesPair.Value.ToArray();
+            }
+            currentWarmupState.Completed = true;
+        }
+
+        stopwatch.Stop();
+        currentWarmupState.BuildCpuMs += stopwatch.ElapsedMilliseconds;
 
         lock (lockLazyDirectoriesByHash)
         {
-            if (!directoriesByHash.TryGetValue(fileNameHash, out string[] cachedDirectories))
+            if (!ReferenceEquals(warmupState, currentWarmupState) || currentWarmupState.Version != warmupVersion)
             {
-                directoriesByHash[fileNameHash] = builtDirectories;
-                Interlocked.Add(ref lazyHashBuildMs, elapsedMs);
-                return builtDirectories;
+                return CreateWarmupProgressResult(currentWarmupState, processedInChunk, stopwatch.ElapsedMilliseconds, completed: false, paused: false, cancelled: true);
             }
-            return cachedDirectories;
+
+            if (completed)
+            {
+                directoriesByHash.Clear();
+                foreach (KeyValuePair<uint, string[]> hashDirectoriesPair in completedIndex)
+                {
+                    directoriesByHash[hashDirectoriesPair.Key] = hashDirectoriesPair.Value;
+                }
+                warmupState = null;
+                isFullReverseLookupBuilt = true;
+            }
         }
+
+        return CreateWarmupProgressResult(currentWarmupState, processedInChunk, stopwatch.ElapsedMilliseconds, completed: completed, paused: false, cancelled: false);
     }
 
     public Entry GetEntryOrNull(string directoryPath)
@@ -337,8 +559,11 @@ internal sealed class DirectoryResourceLookupCache
         {
             return null;
         }
-        entries.TryGetValue(directoryPath, out Entry entry);
-        return entry;
+        lock (lockEntries)
+        {
+            entries.TryGetValue(directoryPath, out Entry entry);
+            return entry;
+        }
     }
 
     private static IEnumerable<uint> TryGetHashes(Dictionary<string, uint[]> hashesByDirectory, string directoryPath)
@@ -352,7 +577,10 @@ internal sealed class DirectoryResourceLookupCache
 
     private void SetEntry(string directoryPath, Entry entry)
     {
-        entries[directoryPath] = entry ?? new Entry();
+        lock (lockEntries)
+        {
+            entries[directoryPath] = entry ?? new Entry();
+        }
         InvalidateLazyReverseLookupCache();
     }
 
@@ -361,9 +589,127 @@ internal sealed class DirectoryResourceLookupCache
         lock (lockLazyDirectoriesByHash)
         {
             directoriesByHash.Clear();
+            warmupState = null;
+            isFullReverseLookupBuilt = false;
+            warmupVersion++;
         }
         Interlocked.Exchange(ref lazyHashBuildMs, 0L);
         Interlocked.Exchange(ref lazyHashLookupCount, 0L);
+    }
+
+    private ReverseLookupBuildResult BuildDirectoriesByHashes(IEnumerable<uint> hashes, bool countAsLookup, bool highPriority)
+    {
+        uint[] requestedHashes = hashes?
+            .Where((uint hash) => hash != 0u)
+            .Distinct()
+            .ToArray() ?? Array.Empty<uint>();
+        if (requestedHashes.Length == 0)
+        {
+            return ReverseLookupBuildResult.Empty;
+        }
+
+        if (countAsLookup)
+        {
+            Interlocked.Add(ref lazyHashLookupCount, requestedHashes.Length);
+        }
+
+        HashSet<uint> missingHashes = new HashSet<uint>(requestedHashes);
+        lock (lockLazyDirectoriesByHash)
+        {
+            missingHashes.RemoveWhere((uint hash) => directoriesByHash.ContainsKey(hash));
+        }
+        if (missingHashes.Count == 0)
+        {
+            return ReverseLookupBuildResult.Empty;
+        }
+
+        if (highPriority)
+        {
+            Interlocked.Increment(ref highPriorityBuildCount);
+        }
+
+        try
+        {
+            KeyValuePair<string, Entry>[] entrySnapshot = SnapshotEntries();
+            long started = System.Diagnostics.Stopwatch.GetTimestamp();
+            Dictionary<uint, List<string>> builtDirectories = new Dictionary<uint, List<string>>();
+            foreach (KeyValuePair<string, Entry> entryPair in entrySnapshot)
+            {
+                uint[] allBaseNameHashes = entryPair.Value?.AllBaseNameHashArray;
+                if (allBaseNameHashes == null || allBaseNameHashes.Length == 0)
+                {
+                    continue;
+                }
+                foreach (uint hash in allBaseNameHashes)
+                {
+                    if (!missingHashes.Contains(hash))
+                    {
+                        continue;
+                    }
+                    if (!builtDirectories.TryGetValue(hash, out List<string> directories))
+                    {
+                        directories = new List<string>();
+                        builtDirectories[hash] = directories;
+                    }
+                    directories.Add(entryPair.Key);
+                }
+            }
+            long elapsedMs = (long)((System.Diagnostics.Stopwatch.GetTimestamp() - started) * 1000.0 / System.Diagnostics.Stopwatch.Frequency);
+
+            int addedEntryCount = 0;
+            lock (lockLazyDirectoriesByHash)
+            {
+                foreach (uint hash in missingHashes)
+                {
+                    if (directoriesByHash.ContainsKey(hash))
+                    {
+                        continue;
+                    }
+                    if (builtDirectories.TryGetValue(hash, out List<string> directories))
+                    {
+                        directoriesByHash[hash] = directories
+                            .Distinct(StringComparer.OrdinalIgnoreCase)
+                            .ToArray();
+                    }
+                    else
+                    {
+                        directoriesByHash[hash] = Array.Empty<string>();
+                    }
+                    addedEntryCount++;
+                }
+            }
+            Interlocked.Add(ref lazyHashBuildMs, elapsedMs);
+            return new ReverseLookupBuildResult(addedEntryCount, elapsedMs);
+        }
+        finally
+        {
+            if (highPriority)
+            {
+                Interlocked.Decrement(ref highPriorityBuildCount);
+            }
+        }
+    }
+
+    private KeyValuePair<string, Entry>[] SnapshotEntries()
+    {
+        lock (lockEntries)
+        {
+            return entries.ToArray();
+        }
+    }
+
+    private static ReverseLookupWarmupStepResult CreateWarmupProgressResult(ReverseLookupWarmupState currentWarmupState, int chunkEntryCount, long chunkBuildMs, bool completed, bool paused, bool cancelled)
+    {
+        return new ReverseLookupWarmupStepResult(
+            chunkEntryCount,
+            currentWarmupState?.ProcessedEntryCount ?? 0,
+            currentWarmupState?.TotalEntryCount ?? 0,
+            currentWarmupState?.BuiltHashCount ?? 0,
+            chunkBuildMs,
+            currentWarmupState?.BuildCpuMs ?? 0L,
+            completed,
+            paused,
+            cancelled);
     }
 
     private static Entry CreateEntry(BmsScanResult scanResult, string directoryPath)
@@ -376,5 +722,20 @@ internal sealed class DirectoryResourceLookupCache
             TryGetHashes(scanResult?.AudioRelativePathHashesByChartDirectory, directoryPath),
             TryGetHashes(scanResult?.ImageRelativePathHashesByChartDirectory, directoryPath),
             TryGetHashes(scanResult?.MovieRelativePathHashesByChartDirectory, directoryPath));
+    }
+
+    private readonly struct ReverseLookupBuildResult
+    {
+        public static ReverseLookupBuildResult Empty => new ReverseLookupBuildResult(0, 0L);
+
+        public int AddedEntryCount { get; }
+
+        public long ElapsedMs { get; }
+
+        public ReverseLookupBuildResult(int addedEntryCount, long elapsedMs)
+        {
+            AddedEntryCount = addedEntryCount;
+            ElapsedMs = elapsedMs;
+        }
     }
 }

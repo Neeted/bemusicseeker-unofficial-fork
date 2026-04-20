@@ -369,22 +369,21 @@ internal sealed class BmsLibraryInstallEstimationService
         return EstimateInstallationDirectory(bmsFiles, installedHashes, folderAllFileList, null, asParallel, estimateMode, null);
     }
 
+    internal HashSet<uint> CollectTargetResourceHashes(IEnumerable<BMSFile> bmsFiles, HashSet<string> installedHashes, BmsInstallationEstimateMode estimateMode)
+    {
+        if (!TrySelectRepresentativeFile(bmsFiles, installedHashes, estimateMode, out BMSFile representativeFile))
+        {
+            return new HashSet<uint>();
+        }
+        return ChartResourceSnapshot.Create(representativeFile).EnumerateAllBaseNameHashes();
+    }
+
     public InstallEstimationResult EstimateInstallationDirectory(IEnumerable<BMSFile> bmsFiles, HashSet<string> installedHashes, BMSDirectoryFileNameHash folderAllFileList, DirectoryResourceLookupCache directoryLookupCache, bool asParallel, BmsInstallationEstimateMode estimateMode, Func<string, InstallDestinationRepresentativeMetadata> representativeMetadataResolver = null)
     {
         InstallEstimationResult result = new InstallEstimationResult();
-        List<BMSFile> targetFiles = (bmsFiles ?? Enumerable.Empty<BMSFile>()).Where((BMSFile bmsInfo) => bmsInfo != null).ToList();
-        if (targetFiles.Count == 0 || targetFiles.Any((BMSFile bmsInfo) => !string.IsNullOrWhiteSpace(bmsInfo.instl_dst)))
-        {
-            return result;
-        }
         bool isFixMode = estimateMode == BmsInstallationEstimateMode.Fix;
         bool isMergeMode = estimateMode == BmsInstallationEstimateMode.MergeNoSourceCompensation;
-        bool isCorrectionLikeMode = isFixMode || isMergeMode;
-        BMSFile representativeFile = targetFiles
-            .Where((BMSFile bmsFile) => bmsFile != null && (isCorrectionLikeMode || installedHashes == null || !installedHashes.Contains(bmsFile.hash)))
-            .OrderByDescending(GetDefinedResourceCount)
-            .FirstOrDefault();
-        if (representativeFile == null)
+        if (!TrySelectRepresentativeFile(bmsFiles, installedHashes, estimateMode, out BMSFile representativeFile))
         {
             return result;
         }
@@ -413,6 +412,7 @@ internal sealed class BmsLibraryInstallEstimationService
         {
             if (directoryLookupCache != null)
             {
+                directoryLookupCache.EnsureDirectoriesByHashes(targetFileHashes);
                 HashSet<string> filteredDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 foreach (uint targetFileHash in targetFileHashes)
                 {
@@ -540,6 +540,24 @@ internal sealed class BmsLibraryInstallEstimationService
         result.DestinationDirectory = selectedCandidateEvaluation.DirectoryPath;
         result.ShouldAutoApplyDestination = result.Confidence == InstallEstimationConfidence.High;
         return result;
+    }
+
+    private static bool TrySelectRepresentativeFile(IEnumerable<BMSFile> bmsFiles, HashSet<string> installedHashes, BmsInstallationEstimateMode estimateMode, out BMSFile representativeFile)
+    {
+        representativeFile = null;
+        List<BMSFile> targetFiles = (bmsFiles ?? Enumerable.Empty<BMSFile>()).Where((BMSFile bmsInfo) => bmsInfo != null).ToList();
+        if (targetFiles.Count == 0 || targetFiles.Any((BMSFile bmsInfo) => !string.IsNullOrWhiteSpace(bmsInfo.instl_dst)))
+        {
+            return false;
+        }
+        bool isFixMode = estimateMode == BmsInstallationEstimateMode.Fix;
+        bool isMergeMode = estimateMode == BmsInstallationEstimateMode.MergeNoSourceCompensation;
+        bool isCorrectionLikeMode = isFixMode || isMergeMode;
+        representativeFile = targetFiles
+            .Where((BMSFile bmsFile) => bmsFile != null && (isCorrectionLikeMode || installedHashes == null || !installedHashes.Contains(bmsFile.hash)))
+            .OrderByDescending(GetDefinedResourceCount)
+            .FirstOrDefault();
+        return representativeFile != null;
     }
 
     public void CorrectInstallationDirectory(IEnumerable<BMSFile> bmsFiles, Action<BMSFile> searchInstallDestination)

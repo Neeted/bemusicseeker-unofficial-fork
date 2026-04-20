@@ -327,6 +327,8 @@
   "Create_new_folder": "新建文件夹",
   "Cancel": "取消",
   "Drop_install_queue_label_format": "导入中: {0}项 (等待 {1} 批次)",
+  "Pending_estimate_queue_label_format": "保留推定: {0}/{1}项 (等待 {2} 批次)",
+  "Pending_estimate_queue_startup_display_name": "启动时保留项",
   "Install": "安装",
   "Backup_lr2backup_optimize": "备份并优化 LR2 数据",
   "Msg_load_recommended_tables_error": "由于未连接 LR2 数据库，该功能当前不可用。",

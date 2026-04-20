@@ -327,6 +327,8 @@
   "Create_new_folder": "새 폴더 생성",
   "Cancel": "취소",
   "Drop_install_queue_label_format": "설치 중: {0}건 (대기 {1} 배치)",
+  "Pending_estimate_queue_label_format": "보류 추정: {0}/{1}건 (대기 {2} 배치)",
+  "Pending_estimate_queue_startup_display_name": "시작 시 보류 항목",
   "Install": "설치",
   "Backup_lr2backup_optimize": "LR2 데이터를 백업 및 최적화하기",
   "Msg_load_recommended_tables_error": "LR2 DB와 연결되어 있지 않아 이 기능을 사용할 수 없습니다.",
