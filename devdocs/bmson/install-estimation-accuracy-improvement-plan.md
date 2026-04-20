@@ -4,13 +4,14 @@
 
 - `P1`: 実施済み
 - `P3`: 実施済み
-- `P2`: 未実施
+- `P2 前提整備（scan redesign）`: 実施済み
+- `P2 本体（余剰リソース評価の最終調整）`: 継続中
 - `P4`: 未実施
 - `P5`: 未実施
 
 現時点では、**曖昧な高スコア候補を自動確定しないこと** と、**保留画面で推定先の代表譜面 metadata を確認できること** まで入っています。  
 加えて、**pending の `INSTL DST` 手動編集時にオートコンプリート型で上位候補をサジェストすること** と、**`confidence=Low` 行を警告色で可視化すること** まで入っています。  
-一方で、推定スコア自体の精度改善として本命だった「余分リソースの少なさ」評価や `TITLE` / `ARTIST` tie-break はまだ入っていません。
+一方で、`TITLE` / `ARTIST` tie-break や fingerprint 系はまだ入っていません。
 
 ## 今回実装したこと
 
@@ -66,9 +67,35 @@
 
 - 現在の推定スコアは `Audio/Visual/Movie/OptionalImage` の一致数・一致率ベースで、`TITLE` / `ARTIST` は見ていない
 - 候補フォルダの「余分なリソースの少なさ」は見ていない
+- 追加音源を大量に含む元フォルダでも、譜面が定義している basename を十分満たしていれば高スコアになり得る
+- しかも現在は `AudioFileCount` が tie-break に入っているため、追加音源が多い候補が有利になる場合がある
 - 高スコア候補が複数並んだ場合でも、1 位だけを `instl_dst` に入れて終わる
 - `00.wav`, `01.wav` のような連番中心の譜面では、無関係なフォルダでも高一致になりやすい
 - 相対パスは snapshot / 正規化には乗っているが、推定精度改善の主材料としてはまだ使っていない
+- source folder は別枠で候補に戻され、1 位になると `selected_source_directory` で打ち切られる
+
+## 今回判明した誤推定パターン
+
+`2026-04-20` 時点で、以下のようなケースを確認した。
+
+- 対象譜面:
+  - `D:\DOWNLOAD\#作業\■\DRIVE-DOWNLOAD-20260419T182728Z-3-001\007494\TAKETORIHAPPY_PTCG\竹取はっぴー(potechang).bme`
+- 本来推定されてほしい導入先:
+  - `D:\BMS\0 ■OTHER\[ZUN (Arr.sun3)] 竹取はっぴー`
+- 実際のログ:
+  - `confidence=High`
+  - `confidenceReason=selected_source_directory`
+  - `candidateDirsAfter=2642`
+
+このケースでは、元フォルダに追加音源が多数ある一方、手動で正しい導入先へ配置した後の health check は明らかに高かった。  
+それでも推定が元フォルダへ倒れた理由は、現行ロジックが次の性質を持つためである。
+
+- 推定は代表譜面 1 件の resource 定義 basename を基準にしており、余剰ファイルを減点しない
+- `AudioFileCount` の降順 tie-break があるため、追加音源が多い候補が有利になることがある
+- source folder は通常候補とは別に評価されて候補へ戻される
+- source folder が最終 1 位になると `selected_source_directory` で即 return し、他候補の採用に進まない
+
+つまり、この種の誤推定は「候補集合が足りない」のではなく、**余剰リソースを罰していないこと** と **source folder 優遇が強すぎること** が主因である。
 
 ## 基本方針
 
@@ -116,15 +143,32 @@
 
 ### P2. 余分リソースの少なさを評価へ入れる
 
-未実施。誤推定の主因に直接効く本命改善。
+前提整備を実施済み。本体評価の最終調整は継続中。
 
-- 現在の一致率は「譜面が要求するリソースが満たされるか」寄りなので、候補側の余剰を罰する指標を追加する
-- 候補評価に少なくとも以下のどちらかを導入する
-  - `matched / candidateResourceCount`
-  - `intersection / union` の Jaccard 系スコア
-- 特に `Audio` を最重視し、`Visual/Movie/OptionalImage` は補助に留める
-- 連番系譜面では、単に `00.wav` 群が多いだけの無関係フォルダより、全体集合として近いフォルダが上に来るようにする
-- 現在の `AudioFileCount` 優先は、誤推定を招くなら縮小または置き換える
+#### 今回入れた前提整備
+
+- `Everything` と通常列挙で **同じ意味の推定用 cache** を作るようにした
+- `sibling:` query を廃止した
+- scan を `chart / audio / image / movie` の分離クエリへ置き換えた
+- `BmsScanResult` を chart-directory keyed の hash-only shape に更新した
+  - `AllResourceBaseNameHashesByChartDirectory`
+  - `Audio/Image/Movie` の basename hash
+  - `Audio/Image/Movie` の relative path hash
+- resource は「存在ディレクトリ」ではなく **最長一致する chart directory** へ再集約するようにした
+- `FilesByDirectory` 依存を source of truth から外し、`DirectoryResourceLookupCache` も hash-only entry 前提に寄せた
+- root custom folder 出力先は scan roots から除外するようにした
+
+#### この前提整備が必要だった理由
+
+- dirty state の `P2` は、Everything 経路と通常列挙経路で scan shape が違うため安定して動かなかった
+- 特に Everything 使用時は `FilesByDirectory` が空で、カテゴリ別評価や余剰リソース評価の土台が揃っていなかった
+- 先に列挙基盤を揃えないと、`Precision / Jaccard` を導入しても経路差で誤動作しやすかった
+
+#### P2 本体として残っているもの
+
+- `Precision / Jaccard` の最終的な順位調整
+- `selected_source_directory` / `source_tie_on_primary_metrics` の扱い見直しの詰め
+- 実機ケースでの誤推定ログを踏まえたパラメータ調整
 
 ### P3. 保留画面の確認導線強化
 
@@ -210,28 +254,21 @@
    - WARNING
    - 上位候補の保持
    - `INSTL DST TITLE/ARTIST`
-2. **P2**
-   - 次の本命
-   - 余剰リソースの少なさをスコアへ追加
-3. **P4**
+2. **P4**
    - P2 の次に入れやすい
    - `TITLE/ARTIST` tie-break
-4. **P5**
+3. **P5**
    - fingerprint 系
 
 ## 次に実装できそうなもの
 
-優先度順では、次は `P2` が最有力です。
+優先度順では、次は `P2 本体の最終調整` が最有力です。
 
 - 理由:
-  - 現在の誤推定は「高一致候補が複数並ぶ」ことが主因で、`P1` はそれを**安全側に倒す**改善
-  - ただし、そもそも正しい候補を 1 位にしやすくする本命は `P2`
-  - 特に `00.wav`, `01.wav` のような連番譜面には「余分リソースの少なさ」評価が直接効く
-
-その次は `P4` が現実的です。
-
-- `TITLE` / `ARTIST` は全候補に使うと重くなりやすいが、上位候補だけの tie-break なら入れやすい
-- `P2` の後でも僅差になるケースをさらに減らせる
+  - `P1` / `P3` と scan redesign で、安全側 UI と列挙基盤は整った
+  - 次はこの新 cache を前提に、`P2` の余剰リソース評価を実機ケースで正常化する段階
+  - その次の本命が、僅差候補をさらに崩す `TITLE/ARTIST` tie-break
+  - `TITLE` / `ARTIST` は全候補に使うと重くなりやすいが、上位候補だけなら入れやすい
 
 `P5` は有望ですが、別テーブルや追加カラム、再計算設計まで含むため、今の段階では中長期扱いが妥当です。
 

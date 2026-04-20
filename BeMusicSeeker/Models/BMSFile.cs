@@ -246,9 +246,9 @@ public class BMSFile : LR2SongDB.song
 
     public static readonly string bgaImageExtensionBase = ".png";
 
-    public static readonly string[] bgaImageExtensionsExtend = new string[2] { ".bmp", ".jpg" };
+    public static readonly string[] bgaImageExtensionsExtend = new string[3] { ".bmp", ".jpg", ".jpeg" };
 
-    public static readonly string[] wavExtensionsExtend = new string[2] { ".ogg", ".mp3" };
+    public static readonly string[] wavExtensionsExtend = new string[3] { ".ogg", ".mp3", ".flac" };
 
     public static readonly string[] wavExtensions = new string[1] { wavExtensionBase }.Concat(wavExtensionsExtend).ToArray();
 
@@ -258,7 +258,7 @@ public class BMSFile : LR2SongDB.song
 
     public static readonly Regex bgaImageExtensionsExtendRegex = new Regex("(\\" + string.Join("|\\", bgaImageExtensionsExtend) + ")$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
-    public static readonly string[] bgaMovieExtensions = new string[8] { ".mpg", ".mpeg", ".mp4", ".m4v", ".mp4v", ".avi", ".wmv", ".mov" };
+    public static readonly string[] bgaMovieExtensions = new string[15] { ".mpg", ".mpeg", ".mp4", ".m4v", ".mp4v", ".avi", ".wmv", ".mov", ".webm", ".mkv", ".m1v", ".m2v", ".3gp", ".flv", ".rm" };
 
     public static readonly string[] bgaAllExtensions = bgaImageExtensions.Concat(bgaMovieExtensions).ToArray();
 

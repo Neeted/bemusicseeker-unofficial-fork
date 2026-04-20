@@ -257,6 +257,90 @@ public sealed class BmsLibraryInitializationServiceTests
     }
 
     [TestMethod]
+    public void ApplyFileScanDiff_BuildsCachesDirectlyFromScanHashes()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
+        {
+            string chartDirectoryPath = Path.Combine(lr2RootPath, "Keep");
+            string chartPath = Path.Combine(chartDirectoryPath, "keep.bms");
+            Directory.CreateDirectory(chartDirectoryPath);
+            File.WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE Keep\r\n");
+
+            TestableBmsFile keepFile = new TestableBmsFile
+            {
+                path = chartPath
+            };
+            keepFile.SetHash(BMSFile.CreateBMSFileFromFile(chartPath).hash);
+
+            uint audioBaseHash = BMSDirectoryFileNameHash.GetFileNameHash("sound.wav");
+            uint imageBaseHash = BMSDirectoryFileNameHash.GetFileNameHash("bg.png");
+            uint audioRelativeHash = BMSDirectoryFileNameHash.GetLookupHash("sound\\sound.wav");
+            uint[] allBaseHashes = new[] { audioBaseHash, imageBaseHash };
+
+            BmsLibraryInitializationService service = new BmsLibraryInitializationService();
+            SongTableFileCheckResult result = service.ApplyFileScanDiff(
+                new BmsLibraryDbGateway(songDbPath),
+                new BmsLibraryOptionsSnapshot(),
+                new[] { keepFile },
+                new BmsScanExecutionResult
+                {
+                    Success = true,
+                    Result = new BmsScanResult
+                    {
+                        ChartFilePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { chartPath },
+                        ChartDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { chartDirectoryPath },
+                        AllResourceBaseNameHashesByChartDirectory = new Dictionary<string, uint[]>(StringComparer.OrdinalIgnoreCase)
+                        {
+                            { chartDirectoryPath, allBaseHashes }
+                        },
+                        AudioBaseNameHashesByChartDirectory = new Dictionary<string, uint[]>(StringComparer.OrdinalIgnoreCase)
+                        {
+                            { chartDirectoryPath, new[] { audioBaseHash } }
+                        },
+                        ImageBaseNameHashesByChartDirectory = new Dictionary<string, uint[]>(StringComparer.OrdinalIgnoreCase)
+                        {
+                            { chartDirectoryPath, new[] { imageBaseHash } }
+                        },
+                        MovieBaseNameHashesByChartDirectory = new Dictionary<string, uint[]>(StringComparer.OrdinalIgnoreCase)
+                        {
+                            { chartDirectoryPath, Array.Empty<uint>() }
+                        },
+                        AudioRelativePathHashesByChartDirectory = new Dictionary<string, uint[]>(StringComparer.OrdinalIgnoreCase)
+                        {
+                            { chartDirectoryPath, new[] { audioRelativeHash } }
+                        },
+                        ImageRelativePathHashesByChartDirectory = new Dictionary<string, uint[]>(StringComparer.OrdinalIgnoreCase)
+                        {
+                            { chartDirectoryPath, Array.Empty<uint>() }
+                        },
+                        MovieRelativePathHashesByChartDirectory = new Dictionary<string, uint[]>(StringComparer.OrdinalIgnoreCase)
+                        {
+                            { chartDirectoryPath, Array.Empty<uint>() }
+                        }
+                    }
+                },
+                0L,
+                () => null,
+                null);
+
+            CollectionAssert.AreEquivalent(allBaseHashes, result.NextFolderAllFileList.TryGetCachedFileNameHashArray(chartDirectoryPath));
+            DirectoryResourceLookupCache.Entry entry = result.NextDirectoryResourceLookupCache.GetEntryOrNull(chartDirectoryPath);
+            Assert.IsNotNull(entry);
+            Assert.AreEqual(2, entry.FileNameHashCount);
+            Assert.AreEqual(1, entry.AudioFileNameHashCount);
+            Assert.AreEqual(1, entry.ImageFileNameHashCount);
+            Assert.AreEqual(0, entry.MovieFileNameHashCount);
+            Assert.IsTrue(entry.AudioBaseNameHashes.Contains(audioBaseHash));
+            Assert.IsTrue(entry.ImageBaseNameHashes.Contains(imageBaseHash));
+            Assert.IsTrue(entry.AudioRelativePathHashes.Contains(audioRelativeHash));
+            Assert.AreEqual((ulong)2, result.AllBaseHashEntryCount);
+            Assert.AreEqual((ulong)1, result.AudioBaseHashEntryCount);
+            Assert.AreEqual((ulong)1, result.ImageBaseHashEntryCount);
+        });
+    }
+
+    [TestMethod]
     public void ApplyFileScanDiff_RemovesOrphanChartDigestRowsForDeletedSongs()
     {
         TestResourceInitializer.EnsureJapaneseResources();

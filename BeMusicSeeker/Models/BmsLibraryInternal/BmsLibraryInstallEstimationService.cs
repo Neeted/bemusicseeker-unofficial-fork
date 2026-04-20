@@ -42,6 +42,14 @@ internal sealed class BmsLibraryInstallEstimationService
 
         public int OptionalImageDefined { get; set; }
 
+        public int AudioCandidateCount { get; set; }
+
+        public int VisualCandidateCount { get; set; }
+
+        public int MovieCandidateCount { get; set; }
+
+        public int OptionalImageCandidateCount { get; set; }
+
         public int AudioFileCount { get; set; }
 
         public int AudioHealth => ComputeHealth(AudioMatched, AudioDefined);
@@ -52,23 +60,51 @@ internal sealed class BmsLibraryInstallEstimationService
 
         public int OptionalImageHealth => ComputeHealth(OptionalImageMatched, OptionalImageDefined);
 
+        public int AudioPrecision => ComputePrecision(AudioMatched, AudioDefined, AudioCandidateCount);
+
+        public int VisualPrecision => ComputePrecision(VisualMatched, VisualDefined, VisualCandidateCount);
+
+        public int MoviePrecision => ComputePrecision(MovieMatched, MovieDefined, MovieCandidateCount);
+
+        public int OptionalImagePrecision => ComputePrecision(OptionalImageMatched, OptionalImageDefined, OptionalImageCandidateCount);
+
+        public int AudioJaccard => ComputeJaccard(AudioMatched, AudioDefined, AudioCandidateCount);
+
+        public int VisualJaccard => ComputeJaccard(VisualMatched, VisualDefined, VisualCandidateCount);
+
+        public int MovieJaccard => ComputeJaccard(MovieMatched, MovieDefined, MovieCandidateCount);
+
+        public int OptionalImageJaccard => ComputeJaccard(OptionalImageMatched, OptionalImageDefined, OptionalImageCandidateCount);
+
         public string ToSummary()
         {
             return string.Format(
-                "dir={0} audio={1}/{2} exact={3} visual={4}/{5} exact={6} movie={7}/{8} exact={9} optional={10}/{11} exact={12} audioHealth={13} visualHealth={14} movieHealth={15} optionalHealth={16}",
+                "dir={0} audio={1}/{2} exact={3} candidate={4} precision={5} jaccard={6} visual={7}/{8} exact={9} candidate={10} precision={11} jaccard={12} movie={13}/{14} exact={15} candidate={16} precision={17} jaccard={18} optional={19}/{20} exact={21} candidate={22} precision={23} jaccard={24} audioHealth={25} visualHealth={26} movieHealth={27} optionalHealth={28}",
                 DirectoryPath ?? string.Empty,
                 AudioMatched,
                 AudioDefined,
                 AudioExactMatched,
+                AudioCandidateCount,
+                AudioPrecision,
+                AudioJaccard,
                 VisualMatched,
                 VisualDefined,
                 VisualExactMatched,
+                VisualCandidateCount,
+                VisualPrecision,
+                VisualJaccard,
                 MovieMatched,
                 MovieDefined,
                 MovieExactMatched,
+                MovieCandidateCount,
+                MoviePrecision,
+                MovieJaccard,
                 OptionalImageMatched,
                 OptionalImageDefined,
                 OptionalImageExactMatched,
+                OptionalImageCandidateCount,
+                OptionalImagePrecision,
+                OptionalImageJaccard,
                 AudioHealth,
                 VisualHealth,
                 MovieHealth,
@@ -99,6 +135,37 @@ internal sealed class BmsLibraryInstallEstimationService
                 return 100;
             }
             return (int)Math.Round(100.0 * matched / defined, MidpointRounding.AwayFromZero);
+        }
+
+        private static int ComputePrecision(int matched, int defined, int candidateCount)
+        {
+            if (defined <= 0)
+            {
+                return 100;
+            }
+            if (candidateCount <= 0)
+            {
+                return 0;
+            }
+            return (int)Math.Round(100.0 * matched / candidateCount, MidpointRounding.AwayFromZero);
+        }
+
+        private static int ComputeJaccard(int matched, int defined, int candidateCount)
+        {
+            if (defined <= 0)
+            {
+                return 100;
+            }
+            if (candidateCount <= 0)
+            {
+                return 0;
+            }
+            int unionCount = defined + candidateCount - matched;
+            if (unionCount <= 0)
+            {
+                return 100;
+            }
+            return (int)Math.Round(100.0 * matched / unionCount, MidpointRounding.AwayFromZero);
         }
     }
 
@@ -428,16 +495,23 @@ internal sealed class BmsLibraryInstallEstimationService
         List<CandidateEvaluation> orderedCandidates = candidateInfos.OrderByDescending((CandidateEvaluation evaluation) => evaluation.AudioHealth)
             .ThenByDescending((CandidateEvaluation evaluation) => evaluation.AudioMatched)
             .ThenByDescending((CandidateEvaluation evaluation) => evaluation.AudioExactMatched)
+            .ThenByDescending((CandidateEvaluation evaluation) => evaluation.AudioJaccard)
+            .ThenByDescending((CandidateEvaluation evaluation) => evaluation.AudioPrecision)
             .ThenByDescending((CandidateEvaluation evaluation) => evaluation.VisualHealth)
             .ThenByDescending((CandidateEvaluation evaluation) => evaluation.VisualMatched)
             .ThenByDescending((CandidateEvaluation evaluation) => evaluation.VisualExactMatched)
+            .ThenByDescending((CandidateEvaluation evaluation) => evaluation.VisualJaccard)
+            .ThenByDescending((CandidateEvaluation evaluation) => evaluation.VisualPrecision)
             .ThenByDescending((CandidateEvaluation evaluation) => evaluation.MovieHealth)
             .ThenByDescending((CandidateEvaluation evaluation) => evaluation.MovieMatched)
             .ThenByDescending((CandidateEvaluation evaluation) => evaluation.MovieExactMatched)
+            .ThenByDescending((CandidateEvaluation evaluation) => evaluation.MovieJaccard)
+            .ThenByDescending((CandidateEvaluation evaluation) => evaluation.MoviePrecision)
             .ThenByDescending((CandidateEvaluation evaluation) => evaluation.OptionalImageHealth)
             .ThenByDescending((CandidateEvaluation evaluation) => evaluation.OptionalImageMatched)
             .ThenByDescending((CandidateEvaluation evaluation) => evaluation.OptionalImageExactMatched)
-            .ThenByDescending((CandidateEvaluation evaluation) => evaluation.AudioFileCount)
+            .ThenByDescending((CandidateEvaluation evaluation) => evaluation.OptionalImageJaccard)
+            .ThenByDescending((CandidateEvaluation evaluation) => evaluation.OptionalImagePrecision)
             .ThenBy((CandidateEvaluation evaluation) => evaluation.DirectoryPath, StringComparer.OrdinalIgnoreCase)
             .ToList();
         foreach (InstallEstimationCandidate candidate in orderedCandidates
@@ -459,11 +533,8 @@ internal sealed class BmsLibraryInstallEstimationService
         result.ConfidenceReason = secondCandidateEvaluation == null ? "single_candidate" : (isLowConfidence ? "tie_on_primary_metrics" : "distinct_primary_metrics");
         if (!isMergeMode && string.Equals(selectedCandidateEvaluation.DirectoryPath, targetDir, StringComparison.OrdinalIgnoreCase))
         {
-            result.Candidates.Clear();
-            result.SelectedCandidateSummary = string.Empty;
-            result.TopCandidateSummary = string.Empty;
-            result.Confidence = InstallEstimationConfidence.High;
-            result.ConfidenceReason = "selected_source_directory";
+            result.ConfidenceReason = isLowConfidence ? "source_tie_on_primary_metrics" : "selected_source_directory";
+            result.ShouldAutoApplyDestination = false;
             return result;
         }
         result.DestinationDirectory = selectedCandidateEvaluation.DirectoryPath;
@@ -618,12 +689,19 @@ internal sealed class BmsLibraryInstallEstimationService
 
     private static CandidateEvaluation EvaluateCandidate(string candidateDir, ChartResourceSnapshot snapshot, uint[] fileNameHashes, DirectoryResourceLookupCache.Entry entry)
     {
-        ISet<uint> candidateHashes = entry?.FileNameHashes;
+        ISet<uint> candidateHashes = entry?.AllBaseNameHashes;
         if (candidateHashes == null && fileNameHashes != null && fileNameHashes.Length > 0)
         {
             candidateHashes = new HashSet<uint>(fileNameHashes);
         }
-        HashSet<string> candidateBaseNames = entry?.NormalizedBaseNames;
+        ISet<uint> candidateAudioHashes = entry?.AudioBaseNameHashes ?? candidateHashes;
+        ISet<uint> candidateVisualHashes = entry?.ImageBaseNameHashes ?? candidateHashes;
+        ISet<uint> candidateMovieHashes = entry?.MovieBaseNameHashes ?? candidateHashes;
+        ISet<uint> candidateOptionalImageHashes = entry?.ImageBaseNameHashes ?? candidateHashes;
+        ISet<uint> candidateAudioRelativeHashes = entry?.AudioRelativePathHashes;
+        ISet<uint> candidateVisualRelativeHashes = entry?.ImageRelativePathHashes;
+        ISet<uint> candidateMovieRelativeHashes = entry?.MovieRelativePathHashes;
+        ISet<uint> candidateOptionalImageRelativeHashes = entry?.ImageRelativePathHashes;
         CandidateEvaluation evaluation = new CandidateEvaluation
         {
             DirectoryPath = candidateDir,
@@ -631,16 +709,20 @@ internal sealed class BmsLibraryInstallEstimationService
             VisualDefined = snapshot.VisualReferenceCount,
             MovieDefined = snapshot.MovieReferenceCount,
             OptionalImageDefined = snapshot.OptionalImageReferenceCount,
+            AudioCandidateCount = entry?.AudioFileNameHashCount ?? fileNameHashes?.Length ?? 0,
+            VisualCandidateCount = entry?.ImageFileNameHashCount ?? fileNameHashes?.Length ?? 0,
+            MovieCandidateCount = entry?.MovieFileNameHashCount ?? fileNameHashes?.Length ?? 0,
+            OptionalImageCandidateCount = entry?.ImageFileNameHashCount ?? fileNameHashes?.Length ?? 0,
             AudioFileCount = entry?.FileNameHashCount ?? fileNameHashes?.Length ?? 0
         };
-        if ((candidateHashes == null || candidateHashes.Count == 0) && (candidateBaseNames == null || candidateBaseNames.Count == 0))
+        if (candidateHashes == null || candidateHashes.Count == 0)
         {
             return evaluation;
         }
-        CountMatches(snapshot.AudioBaseNames, snapshot.AudioBaseNameHashes, candidateHashes, candidateBaseNames, out int audioMatched, out int audioExactMatched);
-        CountMatches(snapshot.VisualBaseNames, snapshot.VisualBaseNameHashes, candidateHashes, candidateBaseNames, out int visualMatched, out int visualExactMatched);
-        CountMatches(snapshot.MovieBaseNames, snapshot.MovieBaseNameHashes, candidateHashes, candidateBaseNames, out int movieMatched, out int movieExactMatched);
-        CountMatches(snapshot.OptionalImageBaseNames, snapshot.OptionalImageBaseNameHashes, candidateHashes, candidateBaseNames, out int optionalMatched, out int optionalExactMatched);
+        CountMatches(snapshot.AudioBaseNameHashes, snapshot.AudioRelativePathHashes, candidateAudioHashes, candidateAudioRelativeHashes, out int audioMatched, out int audioExactMatched);
+        CountMatches(snapshot.VisualBaseNameHashes, snapshot.VisualRelativePathHashes, candidateVisualHashes, candidateVisualRelativeHashes, out int visualMatched, out int visualExactMatched);
+        CountMatches(snapshot.MovieBaseNameHashes, snapshot.MovieRelativePathHashes, candidateMovieHashes, candidateMovieRelativeHashes, out int movieMatched, out int movieExactMatched);
+        CountMatches(snapshot.OptionalImageBaseNameHashes, snapshot.OptionalImageRelativePathHashes, candidateOptionalImageHashes, candidateOptionalImageRelativeHashes, out int optionalMatched, out int optionalExactMatched);
         evaluation.AudioMatched = audioMatched;
         evaluation.AudioExactMatched = audioExactMatched;
         evaluation.VisualMatched = visualMatched;
@@ -652,16 +734,16 @@ internal sealed class BmsLibraryInstallEstimationService
         return evaluation;
     }
 
-    private static void CountMatches(ISet<string> baseNames, ISet<uint> baseNameHashes, ISet<uint> candidateHashes, ISet<string> candidateBaseNames, out int matched, out int exactMatched)
+    private static void CountMatches(ISet<uint> baseNameHashes, ISet<uint> relativePathHashes, ISet<uint> candidateHashes, ISet<uint> candidateRelativePathHashes, out int matched, out int exactMatched)
     {
         matched = 0;
         if (baseNameHashes != null && candidateHashes != null && baseNameHashes.Count > 0 && candidateHashes.Count > 0)
         {
             matched = baseNameHashes.Count(candidateHashes.Contains);
         }
-        exactMatched = (candidateBaseNames == null || baseNames == null || candidateBaseNames.Count == 0 || baseNames.Count == 0)
+        exactMatched = (candidateRelativePathHashes == null || relativePathHashes == null || candidateRelativePathHashes.Count == 0 || relativePathHashes.Count == 0)
             ? 0
-            : baseNames.Count(candidateBaseNames.Contains);
+            : relativePathHashes.Count(candidateRelativePathHashes.Contains);
         if (exactMatched > matched)
         {
             matched = exactMatched;
@@ -686,6 +768,14 @@ internal sealed class BmsLibraryInstallEstimationService
             OptionalImageMatched = evaluation.OptionalImageMatched,
             OptionalImageExactMatched = evaluation.OptionalImageExactMatched,
             AudioFileCount = evaluation.AudioFileCount,
+            AudioPrecision = evaluation.AudioPrecision,
+            AudioJaccard = evaluation.AudioJaccard,
+            VisualPrecision = evaluation.VisualPrecision,
+            VisualJaccard = evaluation.VisualJaccard,
+            MoviePrecision = evaluation.MoviePrecision,
+            MovieJaccard = evaluation.MovieJaccard,
+            OptionalImagePrecision = evaluation.OptionalImagePrecision,
+            OptionalImageJaccard = evaluation.OptionalImageJaccard,
             RepresentativeTitle = representativeMetadata?.Title ?? string.Empty,
             RepresentativeArtist = representativeMetadata?.Artist ?? string.Empty
         };

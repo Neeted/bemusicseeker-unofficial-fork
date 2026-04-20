@@ -1,5 +1,12 @@
 # Everything 1.5a `sibling:` + `ext:` 挙動メモ
 
+## 現在の位置づけ
+このメモは **旧実装の記録** です。  
+現行のファイル列挙基盤では `sibling:` を廃止し、`chart + audio + image + movie` の分割クエリと
+chart-directory keyed の再集約へ移行しています。
+
+そのため、本メモの内容は主に「なぜ `sibling:` をやめたか」の背景資料として扱います。
+
 ## 背景
 BMSライブラリ初期化の高速化で Everything 1.5a を利用した際、`sibling:<ext:...>` の挙動が想定と異なる可能性を確認した。
 

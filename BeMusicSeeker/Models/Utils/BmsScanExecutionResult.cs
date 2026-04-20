@@ -39,4 +39,80 @@ public class BmsScanExecutionResult
 	public ulong BmsQueryHitCount { get; set; }
 
 	public ulong SiblingQueryHitCount { get; set; }
+
+	public ulong ChartQueryHitCount { get; set; }
+
+	public ulong AudioQueryHitCount { get; set; }
+
+	public ulong ImageQueryHitCount { get; set; }
+
+	public ulong MovieQueryHitCount { get; set; }
+
+	public long ChartQueryMs { get; set; }
+
+	public long AudioQueryMs { get; set; }
+
+	public long ImageQueryMs { get; set; }
+
+	public long MovieQueryMs { get; set; }
+
+	public long AssignMs { get; set; }
+
+	public long DedupeMs { get; set; }
+
+	public long PackMs { get; set; }
+
+	public ulong ChartDirectoryCount { get; set; }
+
+	public ulong AudioAssignedCount { get; set; }
+
+	public ulong ImageAssignedCount { get; set; }
+
+	public ulong MovieAssignedCount { get; set; }
+
+	public ulong AllBaseHashCount { get; set; }
+
+	public ulong AudioBaseHashCount { get; set; }
+
+	public ulong ImageBaseHashCount { get; set; }
+
+	public ulong MovieBaseHashCount { get; set; }
+
+	public ulong AudioRelativeHashCount { get; set; }
+
+	public ulong ImageRelativeHashCount { get; set; }
+
+	public ulong MovieRelativeHashCount { get; set; }
+
+	public ulong AudioResourceDirCount { get; set; }
+
+	public ulong ImageResourceDirCount { get; set; }
+
+	public ulong MovieResourceDirCount { get; set; }
+
+	public ulong OwnerCacheHitCount { get; set; }
+
+	public ulong OwnerCacheMissCount { get; set; }
+
+	public ulong RelativePrefixCacheHitCount { get; set; }
+
+	public ulong RelativePrefixCacheMissCount { get; set; }
+
+	public long AudioGroupMs { get; set; }
+
+	public long AudioAssignMs { get; set; }
+
+	public long AudioMergeMs { get; set; }
+
+	public long ImageGroupMs { get; set; }
+
+	public long ImageAssignMs { get; set; }
+
+	public long ImageMergeMs { get; set; }
+
+	public long MovieGroupMs { get; set; }
+
+	public long MovieAssignMs { get; set; }
+
+	public long MovieMergeMs { get; set; }
 }

@@ -45,7 +45,7 @@ graph TD
 | **UIフレームワーク**       | Livet, MetroRadiance                  | MVVMアーキテクチャ基盤、およびモダンなWindows UIテーマ                                           |
 | **データベース**           | sqlite.net                            | 楽曲メタデータ(SongDB)およびスコアデータ(ScoreDB)のローカル管理                                  |
 | **オーディオ処理**         | BASS.NET                              | BMSのプレビュー再生・音声処理                                                                    |
-| **ファイル高速検索**       | Everything SDK (C API)                | `Everything3_x64.dll` 及び `EverythingBridge_x64.dll` を介したBMSファイル/フォルダの高速スキャン |
+| **ファイル高速検索**       | Everything SDK (C API)                | `Everything3_x64.dll` 及び `EverythingBridge_x64.dll` を介した chart/resource 分離スキャン |
 | **ユーティリティ**         | NLog                                  | アプリケーションの動作ログ出力(通常・エラーログ)                                                 |
 | **ユーティリティ**         | SevenZipExtractor                     | アーカイブ解凍、パッケージインストール                                                           |
 | **ユーティリティ**         | DynamicJson                           | IR(Internet Ranking)通信等のJSONデータパース処理                                                 |
@@ -72,12 +72,12 @@ sequenceDiagram
     EScanner->>ENative: EnsureBridgeAvailable()
     ENative-->>EScanner: true (ロード確認)
     
-    EScanner->>ENative: ExecuteScan(bmsQuery, siblingQuery)
+    EScanner->>ENative: ExecuteScan(chartQuery, audioQuery, imageQuery, movieQuery)
     activate ENative
     
-    ENative->>EBridge: EBridge_Scan(クエリ文字列)
+    ENative->>EBridge: EBridge_ScanChartAndResources(クエリ文字列)
     activate EBridge
-    Note right of EBridge: Everything SDKを利用して<br/>指定拡張子・パスのファイル検索
+    Note right of EBridge: Everything SDKを利用して<br/>chart/audio/image/movie を個別検索し<br/>chart directory 単位へ再集約
     EBridge-->>ENative: EBridgeResultHeader (メモリポインタ)
     deactivate EBridge
     
@@ -103,7 +103,7 @@ sequenceDiagram
 
 ネイティブDLL層で公開されている関数です。WPFアプリ (C#) の `EverythingNative` クラスから `P/Invoke` (DllImport) により呼び出されます。
 
-#### `EBridge_Scan`
+#### `EBridge_ScanChartAndResources`
 
 Everything検索クエリを実行し、結果を一括で取得するための関数です。
 
@@ -111,19 +111,19 @@ Everything検索クエリを実行し、結果を一括で取得するための�
 
     ```csharp
     [DllImport("EverythingBridge_x64.dll", CharSet = CharSet.Unicode, CallingConvention = CallingConvention.Cdecl)]
-    private static extern int EBridge_Scan(string bmsQuery, string siblingQuery, out IntPtr outResult);
+    private static extern int EBridge_ScanChartAndResources(string chartQuery, string audioQuery, string imageQuery, string movieQuery, out IntPtr outResult);
     ```
 
 - **引数**:
-  - `bmsQuery` (in): BMSファイルの検索クエリ文字列。
-  - `siblingQuery` (in): 同一ディレクトリに存在する関連ファイル(画像/音声等)の検索クエリ文字列。
+  - `chartQuery` (in): `.bme/.bms/.bml/.pms/.bmson` を対象にした chart 検索クエリ文字列。
+  - `audioQuery` / `imageQuery` / `movieQuery` (in): ライブラリ roots 配下の共有 resource をカテゴリ別に列挙する検索クエリ文字列。
   - `outResult` (out): 検索結果を格納した `EBridgeResultHeader` 構造体へのメモリポインタ。
 
 - **戻り値**: 実行結果のステータスコード (`0` ならば成功)。
 
 #### `EBridge_FreeResult`
 
-`EBridge_Scan` でポインタとして確保されたネイティブメモリを解放します。（メモリリーク防止用）
+`EBridge_ScanChartAndResources` でポインタとして確保されたネイティブメモリを解放します。（メモリリーク防止用）
 
 - **署名**:
 
@@ -145,22 +145,23 @@ private struct EBridgeResultHeader
 {
     public int status;             // 処理ステータスコード
     public int error_code;         // エラーコード
-    public ulong bms_count;        // ヒットしたBMSファイルの数
-    public IntPtr bms_offsets;     // BMSファイルパス(UTF-16)のオフセット配列
-    public IntPtr bms_blob;        // BMSファイルパス文字列データの実体
+    public ulong chart_count;      // ヒットした chart ファイルの数
+    public IntPtr chart_offsets;   // chart ファイルパス(UTF-16)のオフセット配列
+    public IntPtr chart_blob;      // chart ファイルパス文字列データの実体
     public ulong dir_count;        // ディレクトリの数
     public IntPtr dir_offsets;     // ディレクトリパスのオフセット配列
     public IntPtr dir_blob;        // ディレクトリパス文字列データの実体
-    public IntPtr dir_hash_offsets;// ディレクトリごとのハッシュのオフセット
-    public IntPtr dir_hash_lengths;// ディレクトリごとのハッシュデータ長
-    public IntPtr hashes_blob;     // ハッシュデータの実体
+    public IntPtr all_hash_offsets; // chart directory ごとの all-resource basename hash オフセット
+    public IntPtr all_hash_lengths; // chart directory ごとの all-resource basename hash 長
+    public IntPtr all_hashes_blob;  // all-resource basename hash 実体
+    // audio/image/movie の basename hash と relative path hash も同様に保持
     public ulong raw_buffer_size;  // 確保されたバッファの合計サイズ
 }
 ```
 
 ### 4.3. C# 内部モデル
 
-`EverythingFileScanner` が返すラップされた内部APIのデータ構造です。
+`EverythingFileScanner` / `FastDirectoryFileScanner` が返す、chart-directory keyed の共通 scan 結果です。
 
 ```csharp
 public class BmsScanExecutionResult
@@ -175,16 +176,23 @@ public class BmsScanExecutionResult
 
 public class BmsScanResult
 {
-    // 発見されたBMSファイルのフルパス一覧
-    public HashSet<string> BmsFilePaths { get; set; }
-    
-    // ディレクトリと、そこに含まれるBMS関連ファイルのリスト
-    public Dictionary<string, List<string>> FilesByDirectory { get; set; }
-    
-    // パフォーマンス比較・検証用：ディレクトリごとのファイルハッシュ
-    public Dictionary<string, uint[]> FileNameHashesByDirectory { get; set; }
+    public HashSet<string> ChartFilePaths { get; set; }
+    public HashSet<string> ChartDirectories { get; set; }
+    public Dictionary<string, uint[]> AllResourceBaseNameHashesByChartDirectory { get; set; }
+    public Dictionary<string, uint[]> AudioBaseNameHashesByChartDirectory { get; set; }
+    public Dictionary<string, uint[]> ImageBaseNameHashesByChartDirectory { get; set; }
+    public Dictionary<string, uint[]> MovieBaseNameHashesByChartDirectory { get; set; }
+    public Dictionary<string, uint[]> AudioRelativePathHashesByChartDirectory { get; set; }
+    public Dictionary<string, uint[]> ImageRelativePathHashesByChartDirectory { get; set; }
+    public Dictionary<string, uint[]> MovieRelativePathHashesByChartDirectory { get; set; }
 }
 ```
+
+補足:
+
+- `sibling:` query は廃止した
+- resource は存在ディレクトリではなく「最長一致する chart directory」へ再集約する
+- `FilesByDirectory` は source of truth ではなくなり、推定用 cache は hash-only shape に統一される
 
 これらの連携機能と拡張により、元のシステムから大幅な楽曲スキャンパフォーマンス向上とポータブルでの運用が可能になっています。
 

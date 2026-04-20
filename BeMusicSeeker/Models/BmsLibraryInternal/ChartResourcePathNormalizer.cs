@@ -140,8 +140,10 @@ internal static class ChartResourcePathNormalizer
         {
             ".ogg" => BMSFile.wavExtensionBase,
             ".mp3" => BMSFile.wavExtensionBase,
+            ".flac" => BMSFile.wavExtensionBase,
             ".bmp" => BMSFile.bgaImageExtensionBase,
             ".jpg" => BMSFile.bgaImageExtensionBase,
+            ".jpeg" => BMSFile.bgaImageExtensionBase,
             _ => normalizedExtension
         };
         if (string.Equals(extension, aliasExtension, StringComparison.OrdinalIgnoreCase))

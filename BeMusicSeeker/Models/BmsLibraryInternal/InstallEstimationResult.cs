@@ -46,6 +46,22 @@ internal sealed class InstallEstimationCandidate
 
     public int AudioFileCount { get; set; }
 
+    public int AudioPrecision { get; set; }
+
+    public int AudioJaccard { get; set; }
+
+    public int VisualPrecision { get; set; }
+
+    public int VisualJaccard { get; set; }
+
+    public int MoviePrecision { get; set; }
+
+    public int MovieJaccard { get; set; }
+
+    public int OptionalImagePrecision { get; set; }
+
+    public int OptionalImageJaccard { get; set; }
+
     public string RepresentativeTitle { get; set; } = string.Empty;
 
     public string RepresentativeArtist { get; set; } = string.Empty;
@@ -53,7 +69,7 @@ internal sealed class InstallEstimationCandidate
     public string ToSummary()
     {
         return string.Format(
-            "dir={0} audio={1}/{2} exact={3} visual={4}/{5} exact={6} movie={7}/{8} exact={9} optional={10}/{11} exact={12} audioCount={13} title={14} artist={15}",
+            "dir={0} audio={1}/{2} exact={3} visual={4}/{5} exact={6} movie={7}/{8} exact={9} optional={10}/{11} exact={12} audioCount={13} audioPrecision={14} audioJaccard={15} visualPrecision={16} visualJaccard={17} moviePrecision={18} movieJaccard={19} optionalPrecision={20} optionalJaccard={21} title={22} artist={23}",
             DirectoryPath ?? string.Empty,
             AudioMatched,
             AudioHealth,
@@ -68,6 +84,14 @@ internal sealed class InstallEstimationCandidate
             OptionalImageHealth,
             OptionalImageExactMatched,
             AudioFileCount,
+            AudioPrecision,
+            AudioJaccard,
+            VisualPrecision,
+            VisualJaccard,
+            MoviePrecision,
+            MovieJaccard,
+            OptionalImagePrecision,
+            OptionalImageJaccard,
             RepresentativeTitle ?? string.Empty,
             RepresentativeArtist ?? string.Empty);
     }

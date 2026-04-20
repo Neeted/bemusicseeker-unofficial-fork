@@ -47,7 +47,12 @@
    - confidence / 第2候補 / `INSTL DST TITLE/ARTIST`
    - `INSTL DST` 候補サジェスト（オートコンプリート型）
    - low-confidence 行色
-   - 余剰リソース評価と metadata tie-break
+   - P2 前提としての scan redesign
+     - sibling 廃止
+     - chart-directory keyed hash-only scan
+     - relative path hash の土台
+   - 余剰リソース評価と source folder 優遇見直し
+   - metadata tie-break の今後計画
 
 ## 実装方針の要点
 
@@ -108,6 +113,11 @@
   - `bmson` 非対応機能の非表示化
   - 重複ファイルチェックの `BMS + bmson` 対応
 - 実装フェーズとしては 1 〜 5 が完了
+- 導入先推定精度向上計画は `P1` / `P3` と `P2 前提整備` まで完了
+  - confidence / 第2候補 / `INSTL DST TITLE/ARTIST`
+  - `INSTL DST` 候補サジェストと low-confidence 行色
+  - sibling 廃止と chart-directory keyed scan redesign
+- `P2` 本体の余剰リソース評価は、この scan redesign を前提に継続調整中
 - 残る作業は README / リリースノート / バージョン反映などのリリース整理
 
 ## バージョン方針

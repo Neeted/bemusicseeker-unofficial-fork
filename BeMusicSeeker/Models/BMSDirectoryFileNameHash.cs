@@ -16,6 +16,22 @@ public class BMSDirectoryFileNameHash
 
 	private Dictionary<string, uint[]> allFileList = new Dictionary<string, uint[]>(StringComparer.OrdinalIgnoreCase);
 
+	internal static BMSDirectoryFileNameHash CreateFromHashedDirectories(IEnumerable<string> directories, IDictionary<string, uint[]> fileNameHashesByDirectory)
+	{
+		BMSDirectoryFileNameHash hashIndex = new BMSDirectoryFileNameHash();
+		IEnumerable<string> sourceDirectories = directories ?? fileNameHashesByDirectory?.Keys ?? Enumerable.Empty<string>();
+		foreach (string directory in sourceDirectories.Where((string directory) => !string.IsNullOrWhiteSpace(directory)).Distinct(StringComparer.OrdinalIgnoreCase))
+		{
+			uint[] hashes = null;
+			if (fileNameHashesByDirectory != null)
+			{
+				fileNameHashesByDirectory.TryGetValue(directory, out hashes);
+			}
+			hashIndex.allFileList[directory] = hashes ?? Array.Empty<uint>();
+		}
+		return hashIndex;
+	}
+
 	public List<string> Keys
 	{
 		get
@@ -39,7 +55,16 @@ public class BMSDirectoryFileNameHash
 
 	public static uint GetFileNameHash(string fileName)
 	{
-		return xxHash32.CalculateHash(ChartResourcePathNormalizer.NormalizeFileNameForLookup(fileName).ToUpperInvariant());
+		return GetLookupHash(ChartResourcePathNormalizer.NormalizeFileNameForLookup(fileName));
+	}
+
+	public static uint GetLookupHash(string normalizedLookupValue)
+	{
+		if (string.IsNullOrWhiteSpace(normalizedLookupValue))
+		{
+			return 0u;
+		}
+		return xxHash32.CalculateHash(normalizedLookupValue.ToUpperInvariant());
 	}
 
 	private static string extensionNormalizer(string str)

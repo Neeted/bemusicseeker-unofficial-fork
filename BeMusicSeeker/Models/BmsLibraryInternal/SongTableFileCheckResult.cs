@@ -38,6 +38,10 @@ internal sealed class SongTableFileCheckResult
 
     public long DirhashBuildMs { get; set; }
 
+    public long FolderHashIndexMs { get; set; }
+
+    public long ResourceLookupCacheMs { get; set; }
+
     public long DiffMs { get; set; }
 
     public long NewFileParseMs { get; set; }
@@ -47,4 +51,18 @@ internal sealed class SongTableFileCheckResult
     public long DbCommitMs { get; set; }
 
     public long InstlDstCleanupMs { get; set; }
+
+    public ulong AllBaseHashEntryCount { get; set; }
+
+    public ulong AudioBaseHashEntryCount { get; set; }
+
+    public ulong ImageBaseHashEntryCount { get; set; }
+
+    public ulong MovieBaseHashEntryCount { get; set; }
+
+    public ulong AudioRelativeHashEntryCount { get; set; }
+
+    public ulong ImageRelativeHashEntryCount { get; set; }
+
+    public ulong MovieRelativeHashEntryCount { get; set; }
 }

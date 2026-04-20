@@ -239,48 +239,48 @@ internal sealed class BmsLibraryInitializationService
         {
             return result;
         }
-        result.ScanElapsedMs = stopwatchScan.ElapsedMilliseconds + (result.PrefetchedScanUsed ? prefetchedScanElapsedMs : 0L);
-        result.NextFolderAllFileList = new BMSDirectoryFileNameHash();
-        result.NextDirectoryResourceLookupCache = new DirectoryResourceLookupCache();
-
-        void MergeScanCaches(BmsScanResult scan)
+        BmsScanResult mergedScanResult = scanResult.Result;
+        if (executeBmsonScan != null)
         {
-            if (scan == null)
+            Stopwatch stopwatchBmsonScan = Stopwatch.StartNew();
+            BmsScanExecutionResult bmsonScanResult = executeBmsonScan();
+            stopwatchBmsonScan.Stop();
+            if (bmsonScanResult?.Result != null)
             {
-                return;
+                mergedScanResult = MergeScanResults(scanResult.Result, bmsonScanResult.Result);
             }
-            if (scan.FileNameHashesByDirectory != null && scan.FileNameHashesByDirectory.Count > 0)
-            {
-                foreach (KeyValuePair<string, uint[]> item in scan.FileNameHashesByDirectory)
-                {
-                    uint[] existingHashes = result.NextFolderAllFileList.TryGetCachedFileNameHashArray(item.Key);
-                    uint[] mergedHashes = existingHashes == null || existingHashes.Length == 0
-                        ? (item.Value ?? Array.Empty<uint>())
-                        : existingHashes.Concat(item.Value ?? Array.Empty<uint>()).Distinct().ToArray();
-                    result.NextFolderAllFileList.AddDirHashed(item.Key, mergedHashes);
-                    result.NextDirectoryResourceLookupCache.AddDirHashed(item.Key, mergedHashes);
-                }
-            }
-            if (scan.FilesByDirectory == null || scan.FilesByDirectory.Count <= 0)
-            {
-                return;
-            }
-            foreach (KeyValuePair<string, List<string>> item2 in scan.FilesByDirectory)
-            {
-                if (scan.FileNameHashesByDirectory == null || !scan.FileNameHashesByDirectory.ContainsKey(item2.Key))
-                {
-                    result.NextFolderAllFileList.AddDir(item2.Key, item2.Value);
-                }
-                result.NextDirectoryResourceLookupCache.AddDir(item2.Key, item2.Value);
-            }
+            result.ScanElapsedMs = stopwatchScan.ElapsedMilliseconds + stopwatchBmsonScan.ElapsedMilliseconds + (result.PrefetchedScanUsed ? prefetchedScanElapsedMs : 0L);
         }
-
+        else
+        {
+            result.ScanElapsedMs = stopwatchScan.ElapsedMilliseconds + (result.PrefetchedScanUsed ? prefetchedScanElapsedMs : 0L);
+        }
         Stopwatch stopwatchDirhashBuild = Stopwatch.StartNew();
-        MergeScanCaches(scanResult.Result);
+        Stopwatch stopwatchFolderHashIndex = Stopwatch.StartNew();
+        result.NextFolderAllFileList = BMSDirectoryFileNameHash.CreateFromHashedDirectories(
+            mergedScanResult.ChartDirectories,
+            mergedScanResult.AllResourceBaseNameHashesByChartDirectory);
+        stopwatchFolderHashIndex.Stop();
+        result.FolderHashIndexMs = stopwatchFolderHashIndex.ElapsedMilliseconds;
+
+        Stopwatch stopwatchResourceLookupCache = Stopwatch.StartNew();
+        result.NextDirectoryResourceLookupCache = DirectoryResourceLookupCache.CreateFromScanResult(mergedScanResult);
+        stopwatchResourceLookupCache.Stop();
+        result.ResourceLookupCacheMs = stopwatchResourceLookupCache.ElapsedMilliseconds;
         stopwatchDirhashBuild.Stop();
         result.DirhashBuildMs = stopwatchDirhashBuild.ElapsedMilliseconds;
+        result.AllBaseHashEntryCount = CountHashEntries(mergedScanResult.AllResourceBaseNameHashesByChartDirectory);
+        result.AudioBaseHashEntryCount = CountHashEntries(mergedScanResult.AudioBaseNameHashesByChartDirectory);
+        result.ImageBaseHashEntryCount = CountHashEntries(mergedScanResult.ImageBaseNameHashesByChartDirectory);
+        result.MovieBaseHashEntryCount = CountHashEntries(mergedScanResult.MovieBaseNameHashesByChartDirectory);
+        result.AudioRelativeHashEntryCount = CountHashEntries(mergedScanResult.AudioRelativePathHashesByChartDirectory);
+        result.ImageRelativeHashEntryCount = CountHashEntries(mergedScanResult.ImageRelativePathHashesByChartDirectory);
+        result.MovieRelativeHashEntryCount = CountHashEntries(mergedScanResult.MovieRelativePathHashesByChartDirectory);
 
-        HashSet<string> scannedPaths = new HashSet<string>(scanResult.Result.BmsFilePaths ?? new HashSet<string>(), StringComparer.OrdinalIgnoreCase);
+        HashSet<string> scannedPaths = new HashSet<string>(
+            (mergedScanResult.ChartFilePaths ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase))
+                .Where((string path) => !string.Equals(Path.GetExtension(path), ".bmson", StringComparison.OrdinalIgnoreCase)),
+            StringComparer.OrdinalIgnoreCase);
         result.BmsPathCount = scannedPaths.Count;
         result.DirectoryCount = result.NextFolderAllFileList.Keys.Count;
 
@@ -336,66 +336,56 @@ internal sealed class BmsLibraryInitializationService
             .Where((LR2SongDBExtended.bmson_song song) => song != null && !string.IsNullOrWhiteSpace(song.path))
             .ToList();
         result.NextBmsonSongs.AddRange(currentBmsonList);
-        if (executeBmsonScan != null)
         {
-            try
-            {
-                BmsScanExecutionResult bmsonScanResult = executeBmsonScan();
-                if (bmsonScanResult?.Result != null)
+            HashSet<string> scannedBmsonPaths = new HashSet<string>(
+                (mergedScanResult.ChartFilePaths ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase))
+                    .Where((string path) => string.Equals(Path.GetExtension(path), ".bmson", StringComparison.OrdinalIgnoreCase)),
+                StringComparer.OrdinalIgnoreCase);
+            Dictionary<string, LR2SongDBExtended.bmson_song> currentBmsonByPath = currentBmsonList.ToDictionary((LR2SongDBExtended.bmson_song song) => song.path, StringComparer.OrdinalIgnoreCase);
+            result.DeletedBmsonPaths.AddRange(currentBmsonByPath.Keys.Except(scannedBmsonPaths, StringComparer.OrdinalIgnoreCase));
+            List<string> addedOrUpdatedBmsonPaths = scannedBmsonPaths
+                .Where(delegate (string path)
                 {
-                    MergeScanCaches(bmsonScanResult.Result);
-                    HashSet<string> scannedBmsonPaths = new HashSet<string>(bmsonScanResult.Result.BmsFilePaths ?? new HashSet<string>(), StringComparer.OrdinalIgnoreCase);
-                    Dictionary<string, LR2SongDBExtended.bmson_song> currentBmsonByPath = currentBmsonList.ToDictionary((LR2SongDBExtended.bmson_song song) => song.path, StringComparer.OrdinalIgnoreCase);
-                    result.DeletedBmsonPaths.AddRange(currentBmsonByPath.Keys.Except(scannedBmsonPaths, StringComparer.OrdinalIgnoreCase));
-                    List<string> addedOrUpdatedBmsonPaths = scannedBmsonPaths
-                        .Where(delegate (string path)
-                        {
-                            if (!currentBmsonByPath.TryGetValue(path, out LR2SongDBExtended.bmson_song existing))
-                            {
-                                return true;
-                            }
-                            return existing.updated_at != SafeGetLastWriteTimeUtc(path);
-                        })
-                        .ToList();
-                    HashSet<string> successfullyParsedBmsonPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                    List<LR2SongDBExtended.bmson_song> parsedBmsonSongs = addedOrUpdatedBmsonPaths.Count <= 0
-                        ? new List<LR2SongDBExtended.bmson_song>()
-                        : (from x in addedOrUpdatedBmsonPaths.AsParallel().Select(delegate (string path)
-                            {
-                                try
-                                {
-                                    LR2SongDBExtended.bmson_song parsed = BmsonSongParser.Parse(path);
-                                    lock (successfullyParsedBmsonPaths)
-                                    {
-                                        successfullyParsedBmsonPaths.Add(path);
-                                    }
-                                    return parsed;
-                                }
-                                catch (Exception ex)
-                                {
-                                    logEverythingScan?.Invoke("bmson_parse_failed path=" + path + " message=" + ex.Message);
-                                    return null;
-                                }
-                            })
-                           where x != null
-                           select x).ToList();
-                    result.AddedBmsonSongs.AddRange(parsedBmsonSongs);
-
-                    HashSet<string> removedBmsonPaths = new HashSet<string>(result.DeletedBmsonPaths, StringComparer.OrdinalIgnoreCase);
-                    foreach (string updatedPath in successfullyParsedBmsonPaths)
+                    if (!currentBmsonByPath.TryGetValue(path, out LR2SongDBExtended.bmson_song existing))
                     {
-                        removedBmsonPaths.Add(updatedPath);
+                        return true;
                     }
-                    result.NextBmsonSongs.Clear();
-                    result.NextBmsonSongs.AddRange(currentBmsonList.Where((LR2SongDBExtended.bmson_song song) => !removedBmsonPaths.Contains(song.path)));
-                    result.NextBmsonSongs.AddRange(result.AddedBmsonSongs);
-                    logEverythingScan?.Invoke("bmson_scan totalPaths=" + scannedBmsonPaths.Count + " deleted=" + result.DeletedBmsonPaths.Count + " upserted=" + result.AddedBmsonSongs.Count);
-                }
-            }
-            catch (Exception ex)
+                    return existing.updated_at != SafeGetLastWriteTimeUtc(path);
+                })
+                .ToList();
+            HashSet<string> successfullyParsedBmsonPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            List<LR2SongDBExtended.bmson_song> parsedBmsonSongs = addedOrUpdatedBmsonPaths.Count <= 0
+                ? new List<LR2SongDBExtended.bmson_song>()
+                : (from x in addedOrUpdatedBmsonPaths.AsParallel().Select(delegate (string path)
+                    {
+                        try
+                        {
+                            LR2SongDBExtended.bmson_song parsed = BmsonSongParser.Parse(path);
+                            lock (successfullyParsedBmsonPaths)
+                            {
+                                successfullyParsedBmsonPaths.Add(path);
+                            }
+                            return parsed;
+                        }
+                        catch (Exception ex)
+                        {
+                            logEverythingScan?.Invoke("bmson_parse_failed path=" + path + " message=" + ex.Message);
+                            return null;
+                        }
+                    })
+                   where x != null
+                   select x).ToList();
+            result.AddedBmsonSongs.AddRange(parsedBmsonSongs);
+
+            HashSet<string> removedBmsonPaths = new HashSet<string>(result.DeletedBmsonPaths, StringComparer.OrdinalIgnoreCase);
+            foreach (string updatedPath in successfullyParsedBmsonPaths)
             {
-                logEverythingScan?.Invoke("bmson_scan_failed message=" + ex.Message);
+                removedBmsonPaths.Add(updatedPath);
             }
+            result.NextBmsonSongs.Clear();
+            result.NextBmsonSongs.AddRange(currentBmsonList.Where((LR2SongDBExtended.bmson_song song) => !removedBmsonPaths.Contains(song.path)));
+            result.NextBmsonSongs.AddRange(result.AddedBmsonSongs);
+            logEverythingScan?.Invoke("bmson_scan totalPaths=" + scannedBmsonPaths.Count + " deleted=" + result.DeletedBmsonPaths.Count + " upserted=" + result.AddedBmsonSongs.Count);
         }
 
         result.DirectoryCount = result.NextFolderAllFileList.Keys.Count;
@@ -442,6 +432,11 @@ internal sealed class BmsLibraryInitializationService
         logInstallPerformance?.Invoke(
             "song_tbl_file_check_breakdown scan_ms=" + result.ScanElapsedMs
             + " dirhash_build_ms=" + result.DirhashBuildMs
+            + " folder_hash_index_ms=" + result.FolderHashIndexMs
+            + " resource_lookup_cache_ms=" + result.ResourceLookupCacheMs
+            + " lazy_hash_cache_entries=" + (result.NextDirectoryResourceLookupCache?.LazyHashCacheEntryCount ?? 0)
+            + " lazy_hash_build_ms=" + (result.NextDirectoryResourceLookupCache?.LazyHashBuildMs ?? 0L)
+            + " lazy_hash_lookup_count=" + (result.NextDirectoryResourceLookupCache?.LazyHashLookupCount ?? 0L)
             + " diff_ms=" + result.DiffMs
             + " deleted_count=" + result.DeletedPaths.Count
             + " added_count=" + result.AddedFiles.Count
@@ -451,8 +446,62 @@ internal sealed class BmsLibraryInitializationService
             + " apply_ms=" + result.ApplyMs
             + " db_commit_ms=" + result.DbCommitMs
             + " instl_dst_cleanup_ms=" + result.InstlDstCleanupMs);
+        logInstallPerformance?.Invoke(
+            "song_tbl_file_check_cache_counts chartDirs=" + result.DirectoryCount
+            + " allBaseHashEntries=" + result.AllBaseHashEntryCount
+            + " audioBaseHashEntries=" + result.AudioBaseHashEntryCount
+            + " imageBaseHashEntries=" + result.ImageBaseHashEntryCount
+            + " movieBaseHashEntries=" + result.MovieBaseHashEntryCount
+            + " audioRelHashEntries=" + result.AudioRelativeHashEntryCount
+            + " imageRelHashEntries=" + result.ImageRelativeHashEntryCount
+            + " movieRelHashEntries=" + result.MovieRelativeHashEntryCount);
         logEverythingScan?.Invoke("bms_scan totalMs=" + result.ScanElapsedMs + " bmsPaths=" + result.BmsPathCount + " dirs=" + result.DirectoryCount + " prefetched=" + result.PrefetchedScanUsed.ToString().ToLowerInvariant());
         return result;
+    }
+
+    private static BmsScanResult MergeScanResults(params BmsScanResult[] scanResults)
+    {
+        BmsScanResult merged = new BmsScanResult();
+        foreach (BmsScanResult scanResult in scanResults.Where((BmsScanResult scanResult) => scanResult != null))
+        {
+            merged.ChartFilePaths.UnionWith(scanResult.ChartFilePaths ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+            merged.ChartDirectories.UnionWith(scanResult.ChartDirectories ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+            MergeHashDictionary(merged.AllResourceBaseNameHashesByChartDirectory, scanResult.AllResourceBaseNameHashesByChartDirectory);
+            MergeHashDictionary(merged.AudioBaseNameHashesByChartDirectory, scanResult.AudioBaseNameHashesByChartDirectory);
+            MergeHashDictionary(merged.ImageBaseNameHashesByChartDirectory, scanResult.ImageBaseNameHashesByChartDirectory);
+            MergeHashDictionary(merged.MovieBaseNameHashesByChartDirectory, scanResult.MovieBaseNameHashesByChartDirectory);
+            MergeHashDictionary(merged.AudioRelativePathHashesByChartDirectory, scanResult.AudioRelativePathHashesByChartDirectory);
+            MergeHashDictionary(merged.ImageRelativePathHashesByChartDirectory, scanResult.ImageRelativePathHashesByChartDirectory);
+            MergeHashDictionary(merged.MovieRelativePathHashesByChartDirectory, scanResult.MovieRelativePathHashesByChartDirectory);
+        }
+        return merged;
+    }
+
+    private static void MergeHashDictionary(Dictionary<string, uint[]> destination, Dictionary<string, uint[]> source)
+    {
+        foreach (KeyValuePair<string, uint[]> item in source ?? new Dictionary<string, uint[]>(StringComparer.OrdinalIgnoreCase))
+        {
+            if (!destination.TryGetValue(item.Key, out uint[] existing) || existing == null || existing.Length == 0)
+            {
+                destination[item.Key] = item.Value ?? Array.Empty<uint>();
+                continue;
+            }
+            if (item.Value == null || item.Value.Length == 0)
+            {
+                continue;
+            }
+            destination[item.Key] = existing.Concat(item.Value).Distinct().ToArray();
+        }
+    }
+
+    private static ulong CountHashEntries(Dictionary<string, uint[]> hashesByDirectory)
+    {
+        ulong count = 0UL;
+        foreach (uint[] hashes in hashesByDirectory?.Values ?? Enumerable.Empty<uint[]>())
+        {
+            count += (ulong)(hashes?.Length ?? 0);
+        }
+        return count;
     }
 
     public ChartDigestBackfillResult BackfillChartDigests(

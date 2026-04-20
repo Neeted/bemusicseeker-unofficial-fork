@@ -56,17 +56,18 @@ internal static class EverythingNative
 				reason = "bridge_dll_not_found:" + expectedBridgeDllPath;
 				return false;
 			}
-			IntPtr intPtr = LoadLibraryW(expectedBridgeDllPath);
-			if (intPtr == IntPtr.Zero)
+			IntPtr module = LoadLibraryW(expectedBridgeDllPath);
+			if (module == IntPtr.Zero)
 			{
 				reason = "bridge_dll_load_failed:" + Marshal.GetLastWin32Error();
 				return false;
 			}
-			loadedBridgeModule = intPtr;
+			loadedBridgeModule = module;
 		}
 		if (!bridgeExportsChecked)
 		{
-			bridgeExportsAvailable = GetProcAddress(loadedBridgeModule, "EBridge_Scan") != IntPtr.Zero && GetProcAddress(loadedBridgeModule, "EBridge_FreeResult") != IntPtr.Zero;
+			bridgeExportsAvailable = GetProcAddress(loadedBridgeModule, "EBridge_ScanChartAndResources") != IntPtr.Zero
+				&& GetProcAddress(loadedBridgeModule, "EBridge_FreeResult") != IntPtr.Zero;
 			bridgeExportsChecked = true;
 		}
 		if (!bridgeExportsAvailable)
@@ -77,91 +78,70 @@ internal static class EverythingNative
 		return true;
 	}
 
-	internal static string BuildBmsFilesQuery(string[] roots, string[] extensions)
+	internal static string BuildFilesQuery(string[] roots, string[] extensions)
 	{
-		string str = string.Join(";", extensions);
-		string str2 = "<" + string.Join("|", Array.ConvertAll(roots, (string root) => "path:" + QuotePath(PathWithTrailingSeparator(root)))) + ">";
-		return "file: " + str2 + " <ext:" + str + ">";
+		string ext = string.Join(";", extensions ?? Array.Empty<string>());
+		string paths = "<" + string.Join("|", Array.ConvertAll(roots ?? Array.Empty<string>(), (string root) => "path:" + QuotePath(PathWithTrailingSeparator(root)))) + ">";
+		return "file: " + paths + " <ext:" + ext + ">";
 	}
 
-	internal static string BuildSiblingFilesQuery(string[] roots, string[] extensions)
+	internal static BmsScanExecutionResult ExecuteScan(string chartQuery, string audioQuery, string imageQuery, string movieQuery)
 	{
-		string str = string.Join(";", extensions);
-		string str2 = "<" + string.Join("|", Array.ConvertAll(roots, (string root) => "path:" + QuotePath(PathWithTrailingSeparator(root)))) + ">";
-		return "file: " + str2 + " sibling:<ext:" + str + ">";
-	}
-
-	internal static BmsScanExecutionResult ExecuteScan(string bmsQuery, string siblingQuery)
-	{
-		if (!TryExecuteBridgeScan(bmsQuery, siblingQuery, out var result, out var reason, out var elapsedMs))
+		if (!TryExecuteBridgeScan(chartQuery, audioQuery, imageQuery, movieQuery, out BmsScanExecutionResult result, out string reason, out long elapsedMs))
 		{
 			return Failed(reason, elapsedMs);
 		}
-		if (result == null || !result.Success || result.Result == null || result.Result.BmsFilePaths.Count == 0)
+		if (result == null || !result.Success || result.Result == null || result.Result.ChartFilePaths.Count == 0)
 		{
 			return Failed("bridge_empty_result", elapsedMs);
 		}
 		return result;
 	}
 
-	private static bool TryExecuteBridgeScan(string bmsQuery, string siblingQuery, out BmsScanExecutionResult result, out string reason, out long elapsedMs)
+	private static bool TryExecuteBridgeScan(string chartQuery, string audioQuery, string imageQuery, string movieQuery, out BmsScanExecutionResult result, out string reason, out long elapsedMs)
 	{
 		result = null;
+		reason = null;
 		elapsedMs = 0L;
+		IntPtr resultPtr = IntPtr.Zero;
 		Stopwatch stopwatch = Stopwatch.StartNew();
-		IntPtr intPtr = IntPtr.Zero;
 		try
 		{
 			if (!EnsureBridgeLoaded(out reason))
 			{
 				return false;
 			}
-			int num = EBridge_Scan(bmsQuery, siblingQuery, out intPtr);
-			if (num != 0)
+			int status = EBridge_ScanChartAndResources(chartQuery, audioQuery, imageQuery, movieQuery, out resultPtr);
+			if (status != 0)
 			{
-				reason = "bridge_scan_failed:" + num;
+				reason = "bridge_scan_failed:" + status;
 				return false;
 			}
-			if (intPtr == IntPtr.Zero)
+			if (resultPtr == IntPtr.Zero)
 			{
 				reason = "bridge_scan_empty_result";
 				return false;
 			}
-			EBridgeResultHeader eBridgeResultHeader = Marshal.PtrToStructure<EBridgeResultHeader>(intPtr);
-			if (eBridgeResultHeader.status != 0)
+			EBridgeResultHeader header = Marshal.PtrToStructure<EBridgeResultHeader>(resultPtr);
+			if (header.status != 0)
 			{
-				reason = "bridge_status_failed:" + eBridgeResultHeader.error_code;
+				reason = "bridge_status_failed:" + header.error_code;
 				return false;
 			}
-			HashSet<string> hashSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-			Dictionary<string, uint[]> dictionary = new Dictionary<string, uint[]>((int)eBridgeResultHeader.dir_count, StringComparer.OrdinalIgnoreCase);
-			ulong num2 = 0uL;
-			for (ulong i = 0uL; i < eBridgeResultHeader.bms_count; i += 1)
-			{
-				uint byteOffset = (uint)Marshal.ReadInt32(eBridgeResultHeader.bms_offsets, checked((int)(i * 4)));
-				string text = ReadUtf16FromBlob(eBridgeResultHeader.bms_blob, byteOffset);
-				if (!string.IsNullOrWhiteSpace(text))
-				{
-					hashSet.Add(text);
-				}
-			}
-			for (ulong j = 0uL; j < eBridgeResultHeader.dir_count; j += 1)
-			{
-				uint byteOffset2 = (uint)Marshal.ReadInt32(eBridgeResultHeader.dir_offsets, checked((int)(j * 4)));
-				string text2 = ReadUtf16FromBlob(eBridgeResultHeader.dir_blob, byteOffset2);
-				uint num3 = (uint)Marshal.ReadInt32(eBridgeResultHeader.dir_hash_offsets, checked((int)(j * 4)));
-				uint num4 = (uint)Marshal.ReadInt32(eBridgeResultHeader.dir_hash_lengths, checked((int)(j * 4)));
-				if (string.IsNullOrWhiteSpace(text2) || num4 == 0)
-				{
-					continue;
-				}
-				int[] array = new int[checked((int)num4)];
-				Marshal.Copy(IntPtr.Add(eBridgeResultHeader.hashes_blob, checked((int)num3)), array, 0, array.Length);
-				uint[] array2 = new uint[array.Length];
-				Buffer.BlockCopy(array, 0, array2, 0, array.Length * 4);
-				dictionary[text2] = array2;
-				num2 += (ulong)array2.Length;
-			}
+
+			HashSet<string> chartFilePaths = ReadStringSet(header.chart_count, header.chart_offsets, header.chart_blob);
+			HashSet<string> chartDirectories = ReadStringSet(header.dir_count, header.dir_offsets, header.dir_blob);
+			Dictionary<string, uint[]> allBase = ReadHashMap(chartDirectories, header.dir_count, header.dir_offsets, header.dir_blob, header.all_hash_offsets, header.all_hash_lengths, header.all_hashes_blob);
+			Dictionary<string, uint[]> audioBase = ReadHashMap(chartDirectories, header.dir_count, header.dir_offsets, header.dir_blob, header.audio_base_hash_offsets, header.audio_base_hash_lengths, header.audio_base_hashes_blob);
+			Dictionary<string, uint[]> imageBase = ReadHashMap(chartDirectories, header.dir_count, header.dir_offsets, header.dir_blob, header.image_base_hash_offsets, header.image_base_hash_lengths, header.image_base_hashes_blob);
+			Dictionary<string, uint[]> movieBase = ReadHashMap(chartDirectories, header.dir_count, header.dir_offsets, header.dir_blob, header.movie_base_hash_offsets, header.movie_base_hash_lengths, header.movie_base_hashes_blob);
+			Dictionary<string, uint[]> audioRelative = ReadHashMap(chartDirectories, header.dir_count, header.dir_offsets, header.dir_blob, header.audio_relative_hash_offsets, header.audio_relative_hash_lengths, header.audio_relative_hashes_blob);
+			Dictionary<string, uint[]> imageRelative = ReadHashMap(chartDirectories, header.dir_count, header.dir_offsets, header.dir_blob, header.image_relative_hash_offsets, header.image_relative_hash_lengths, header.image_relative_hashes_blob);
+			Dictionary<string, uint[]> movieRelative = ReadHashMap(chartDirectories, header.dir_count, header.dir_offsets, header.dir_blob, header.movie_relative_hash_offsets, header.movie_relative_hash_lengths, header.movie_relative_hashes_blob);
+
+			ulong hashDirCount = (ulong)chartDirectories.Count;
+			ulong hashEntryCount = header.all_base_hash_count;
+
 			result = new BmsScanExecutionResult
 			{
 				Success = true,
@@ -169,13 +149,57 @@ internal static class EverythingNative
 				NativeBridgeMs = stopwatch.ElapsedMilliseconds,
 				NativeBridgeReason = "ok",
 				HashBuildMs = 0L,
-				HashDirCount = (ulong)dictionary.Count,
-				HashEntryCount = num2,
+				HashDirCount = hashDirCount,
+				HashEntryCount = hashEntryCount,
+				ChartQueryHitCount = header.chart_query_hits,
+				AudioQueryHitCount = header.audio_query_hits,
+				ImageQueryHitCount = header.image_query_hits,
+				MovieQueryHitCount = header.movie_query_hits,
+				ChartQueryMs = header.chart_query_ms,
+				AudioQueryMs = header.audio_query_ms,
+				ImageQueryMs = header.image_query_ms,
+				MovieQueryMs = header.movie_query_ms,
+				AssignMs = header.assign_ms,
+				DedupeMs = header.dedupe_ms,
+				PackMs = header.pack_ms,
+				ChartDirectoryCount = header.chart_directory_count,
+				AudioAssignedCount = header.audio_assigned_count,
+				ImageAssignedCount = header.image_assigned_count,
+				MovieAssignedCount = header.movie_assigned_count,
+				AllBaseHashCount = header.all_base_hash_count,
+				AudioBaseHashCount = header.audio_base_hash_count,
+				ImageBaseHashCount = header.image_base_hash_count,
+				MovieBaseHashCount = header.movie_base_hash_count,
+				AudioRelativeHashCount = header.audio_relative_hash_count,
+				ImageRelativeHashCount = header.image_relative_hash_count,
+				MovieRelativeHashCount = header.movie_relative_hash_count,
+				AudioResourceDirCount = header.audio_resource_dir_count,
+				ImageResourceDirCount = header.image_resource_dir_count,
+				MovieResourceDirCount = header.movie_resource_dir_count,
+				OwnerCacheHitCount = header.owner_cache_hit_count,
+				OwnerCacheMissCount = header.owner_cache_miss_count,
+				RelativePrefixCacheHitCount = header.relative_prefix_cache_hit_count,
+				RelativePrefixCacheMissCount = header.relative_prefix_cache_miss_count,
+				AudioGroupMs = header.audio_group_ms,
+				AudioAssignMs = header.audio_assign_ms,
+				AudioMergeMs = header.audio_merge_ms,
+				ImageGroupMs = header.image_group_ms,
+				ImageAssignMs = header.image_assign_ms,
+				ImageMergeMs = header.image_merge_ms,
+				MovieGroupMs = header.movie_group_ms,
+				MovieAssignMs = header.movie_assign_ms,
+				MovieMergeMs = header.movie_merge_ms,
 				Result = new BmsScanResult
 				{
-					BmsFilePaths = hashSet,
-					FilesByDirectory = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase),
-					FileNameHashesByDirectory = dictionary
+					ChartFilePaths = chartFilePaths,
+					ChartDirectories = chartDirectories,
+					AllResourceBaseNameHashesByChartDirectory = allBase,
+					AudioBaseNameHashesByChartDirectory = audioBase,
+					ImageBaseNameHashesByChartDirectory = imageBase,
+					MovieBaseNameHashesByChartDirectory = movieBase,
+					AudioRelativePathHashesByChartDirectory = audioRelative,
+					ImageRelativePathHashesByChartDirectory = imageRelative,
+					MovieRelativePathHashesByChartDirectory = movieRelative
 				}
 			};
 			reason = "ok";
@@ -190,17 +214,63 @@ internal static class EverythingNative
 		{
 			stopwatch.Stop();
 			elapsedMs = stopwatch.ElapsedMilliseconds;
-			if (intPtr != IntPtr.Zero)
+			if (resultPtr != IntPtr.Zero)
 			{
 				try
 				{
-					EBridge_FreeResult(intPtr);
+					EBridge_FreeResult(resultPtr);
 				}
 				catch
 				{
 				}
 			}
 		}
+	}
+
+	private static HashSet<string> ReadStringSet(ulong count, IntPtr offsets, IntPtr blob)
+	{
+		HashSet<string> set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+		for (ulong i = 0; i < count; i += 1)
+		{
+			uint byteOffset = (uint)Marshal.ReadInt32(offsets, checked((int)(i * 4)));
+			string value = ReadUtf16FromBlob(blob, byteOffset);
+			if (!string.IsNullOrWhiteSpace(value))
+			{
+				set.Add(value);
+			}
+		}
+		return set;
+	}
+
+	private static Dictionary<string, uint[]> ReadHashMap(HashSet<string> chartDirectories, ulong dirCount, IntPtr dirOffsets, IntPtr dirBlob, IntPtr hashOffsets, IntPtr hashLengths, IntPtr hashesBlob)
+	{
+		Dictionary<string, uint[]> map = new Dictionary<string, uint[]>(StringComparer.OrdinalIgnoreCase);
+		foreach (string chartDirectory in chartDirectories ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase))
+		{
+			map[chartDirectory] = Array.Empty<uint>();
+		}
+		for (ulong i = 0; i < dirCount; i += 1)
+		{
+			uint dirOffset = (uint)Marshal.ReadInt32(dirOffsets, checked((int)(i * 4)));
+			string chartDirectory = ReadUtf16FromBlob(dirBlob, dirOffset);
+			if (string.IsNullOrWhiteSpace(chartDirectory))
+			{
+				continue;
+			}
+			uint hashOffset = (uint)Marshal.ReadInt32(hashOffsets, checked((int)(i * 4)));
+			uint hashLength = (uint)Marshal.ReadInt32(hashLengths, checked((int)(i * 4)));
+			if (hashLength == 0)
+			{
+				map[chartDirectory] = Array.Empty<uint>();
+				continue;
+			}
+			int[] temp = new int[checked((int)hashLength)];
+			Marshal.Copy(IntPtr.Add(hashesBlob, checked((int)hashOffset)), temp, 0, temp.Length);
+			uint[] hashes = new uint[temp.Length];
+			Buffer.BlockCopy(temp, 0, hashes, 0, temp.Length * 4);
+			map[chartDirectory] = hashes;
+		}
+		return map;
 	}
 
 	private static string ReadUtf16FromBlob(IntPtr blobBase, uint byteOffset)
@@ -248,8 +318,8 @@ internal static class EverythingNative
 	[DllImport("kernel32.dll", CharSet = CharSet.Ansi, SetLastError = true)]
 	private static extern IntPtr GetProcAddress(IntPtr hModule, string procName);
 
-	[DllImport(BridgeDllName, CharSet = CharSet.Unicode, CallingConvention = CallingConvention.Cdecl, EntryPoint = "EBridge_Scan")]
-	private static extern int EBridge_Scan(string bmsQuery, string siblingQuery, out IntPtr outResult);
+	[DllImport(BridgeDllName, CharSet = CharSet.Unicode, CallingConvention = CallingConvention.Cdecl, EntryPoint = "EBridge_ScanChartAndResources")]
+	private static extern int EBridge_ScanChartAndResources(string chartQuery, string audioQuery, string imageQuery, string movieQuery, out IntPtr outResult);
 
 	[DllImport(BridgeDllName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "EBridge_FreeResult")]
 	private static extern void EBridge_FreeResult(IntPtr result);
@@ -258,27 +328,72 @@ internal static class EverythingNative
 	private struct EBridgeResultHeader
 	{
 		public int status;
-
 		public int error_code;
-
-		public ulong bms_count;
-
-		public IntPtr bms_offsets;
-
-		public IntPtr bms_blob;
-
+		public ulong chart_count;
+		public IntPtr chart_offsets;
+		public IntPtr chart_blob;
 		public ulong dir_count;
-
 		public IntPtr dir_offsets;
-
 		public IntPtr dir_blob;
-
-		public IntPtr dir_hash_offsets;
-
-		public IntPtr dir_hash_lengths;
-
-		public IntPtr hashes_blob;
-
+		public IntPtr all_hash_offsets;
+		public IntPtr all_hash_lengths;
+		public IntPtr all_hashes_blob;
+		public IntPtr audio_base_hash_offsets;
+		public IntPtr audio_base_hash_lengths;
+		public IntPtr audio_base_hashes_blob;
+		public IntPtr image_base_hash_offsets;
+		public IntPtr image_base_hash_lengths;
+		public IntPtr image_base_hashes_blob;
+		public IntPtr movie_base_hash_offsets;
+		public IntPtr movie_base_hash_lengths;
+		public IntPtr movie_base_hashes_blob;
+		public IntPtr audio_relative_hash_offsets;
+		public IntPtr audio_relative_hash_lengths;
+		public IntPtr audio_relative_hashes_blob;
+		public IntPtr image_relative_hash_offsets;
+		public IntPtr image_relative_hash_lengths;
+		public IntPtr image_relative_hashes_blob;
+		public IntPtr movie_relative_hash_offsets;
+		public IntPtr movie_relative_hash_lengths;
+		public IntPtr movie_relative_hashes_blob;
+		public ulong chart_query_hits;
+		public ulong audio_query_hits;
+		public ulong image_query_hits;
+		public ulong movie_query_hits;
+		public long chart_query_ms;
+		public long audio_query_ms;
+		public long image_query_ms;
+		public long movie_query_ms;
+		public long assign_ms;
+		public long dedupe_ms;
+		public long pack_ms;
+		public ulong chart_directory_count;
+		public ulong audio_assigned_count;
+		public ulong image_assigned_count;
+		public ulong movie_assigned_count;
+		public ulong all_base_hash_count;
+		public ulong audio_base_hash_count;
+		public ulong image_base_hash_count;
+		public ulong movie_base_hash_count;
+		public ulong audio_relative_hash_count;
+		public ulong image_relative_hash_count;
+		public ulong movie_relative_hash_count;
+		public ulong audio_resource_dir_count;
+		public ulong image_resource_dir_count;
+		public ulong movie_resource_dir_count;
+		public ulong owner_cache_hit_count;
+		public ulong owner_cache_miss_count;
+		public ulong relative_prefix_cache_hit_count;
+		public ulong relative_prefix_cache_miss_count;
+		public long audio_group_ms;
+		public long audio_assign_ms;
+		public long audio_merge_ms;
+		public long image_group_ms;
+		public long image_assign_ms;
+		public long image_merge_ms;
+		public long movie_group_ms;
+		public long movie_assign_ms;
+		public long movie_merge_ms;
 		public ulong raw_buffer_size;
 	}
 }

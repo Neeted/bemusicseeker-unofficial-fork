@@ -9,11 +9,15 @@ internal sealed class ChartResourceSnapshot
 {
     public HashSet<string> AudioRelativePaths { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
+    public HashSet<uint> AudioRelativePathHashes { get; } = new HashSet<uint>();
+
     public HashSet<string> AudioBaseNames { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
     public HashSet<uint> AudioBaseNameHashes { get; } = new HashSet<uint>();
 
     public HashSet<string> VisualRelativePaths { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+    public HashSet<uint> VisualRelativePathHashes { get; } = new HashSet<uint>();
 
     public HashSet<string> VisualBaseNames { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
@@ -21,11 +25,15 @@ internal sealed class ChartResourceSnapshot
 
     public HashSet<string> MovieRelativePaths { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
+    public HashSet<uint> MovieRelativePathHashes { get; } = new HashSet<uint>();
+
     public HashSet<string> MovieBaseNames { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
     public HashSet<uint> MovieBaseNameHashes { get; } = new HashSet<uint>();
 
     public HashSet<string> OptionalImageRelativePaths { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+    public HashSet<uint> OptionalImageRelativePathHashes { get; } = new HashSet<uint>();
 
     public HashSet<string> OptionalImageBaseNames { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
@@ -108,7 +116,7 @@ internal sealed class ChartResourceSnapshot
 
     private void AddOptionalImage(string path)
     {
-        AddNormalized(OptionalImageRelativePaths, OptionalImageBaseNames, OptionalImageBaseNameHashes, path);
+        AddNormalized(OptionalImageRelativePaths, OptionalImageRelativePathHashes, OptionalImageBaseNames, OptionalImageBaseNameHashes, path);
     }
 
     private void AddReference(ChartResourceKind kind, string path)
@@ -116,18 +124,18 @@ internal sealed class ChartResourceSnapshot
         switch (kind)
         {
             case ChartResourceKind.Audio:
-                AddNormalized(AudioRelativePaths, AudioBaseNames, AudioBaseNameHashes, path);
+                AddNormalized(AudioRelativePaths, AudioRelativePathHashes, AudioBaseNames, AudioBaseNameHashes, path);
                 break;
             case ChartResourceKind.Image:
-                AddNormalized(VisualRelativePaths, VisualBaseNames, VisualBaseNameHashes, path);
+                AddNormalized(VisualRelativePaths, VisualRelativePathHashes, VisualBaseNames, VisualBaseNameHashes, path);
                 break;
             case ChartResourceKind.Movie:
-                AddNormalized(MovieRelativePaths, MovieBaseNames, MovieBaseNameHashes, path);
+                AddNormalized(MovieRelativePaths, MovieRelativePathHashes, MovieBaseNames, MovieBaseNameHashes, path);
                 break;
         }
     }
 
-    private static void AddNormalized(ISet<string> relativePaths, ISet<string> baseNames, ISet<uint> baseNameHashes, string path)
+    private static void AddNormalized(ISet<string> relativePaths, ISet<uint> relativePathHashes, ISet<string> baseNames, ISet<uint> baseNameHashes, string path)
     {
         string normalizedPath = ChartResourcePathNormalizer.NormalizeReferencePathForLookup(path);
         string baseName = ChartResourcePathNormalizer.GetLookupFileName(path);
@@ -136,7 +144,8 @@ internal sealed class ChartResourceSnapshot
             return;
         }
         relativePaths.Add(normalizedPath);
+        relativePathHashes.Add(BMSDirectoryFileNameHash.GetLookupHash(normalizedPath));
         baseNames.Add(baseName);
-        baseNameHashes.Add(BMSDirectoryFileNameHash.GetFileNameHash(baseName));
+        baseNameHashes.Add(BMSDirectoryFileNameHash.GetLookupHash(baseName));
     }
 }

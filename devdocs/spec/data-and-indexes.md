@@ -25,14 +25,16 @@
 - `BMSPackagesInstalled`  
   導入済みパッケージ一覧（管理用）
 - `bmsFolderAllFileList : BMSDirectoryFileNameHash`  
-  「譜面があるフォルダ」ごとの直下ファイルハッシュ配列
+  「chart directory」ごとの all-resource basename hash 配列
+- `directoryResourceLookupCache : DirectoryResourceLookupCache`
+  chart directory ごとのカテゴリ別 basename / relative-path hash 集合
 
 ## 3. `BMSDirectoryFileNameHash` の仕様
 
 `BMSDirectoryFileNameHash` は以下の形式を持つ:
 
-- キー: ディレクトリ絶対パス（`OrdinalIgnoreCase`）
-- 値: そのディレクトリ直下ファイル名の `uint[]` ハッシュ列
+- キー: chart directory 絶対パス（`OrdinalIgnoreCase`）
+- 値: その chart directory に再集約された resource basename の `uint[]` ハッシュ列
 
 ハッシュ関数:
 
@@ -44,10 +46,33 @@
 
 目的:
 
-- 推定先探索の一致判定を高速化
-- ヘルス判定での存在比較コストを低減
+- 推定先探索の候補抽出を高速化
+- Everything / Fast の両 scanner が同じ意味の chart-directory keyed hash を返せるようにする
 
-## 4. DBテーブル（BMSLibraryコンストラクタで整備）
+## 4. scan result / resource cache の形
+
+初期化時の scan 結果は raw file name 一覧ではなく、次の hash-only shape を source of truth にする。
+
+- `ChartFilePaths`
+- `ChartDirectories`
+- `AllResourceBaseNameHashesByChartDirectory`
+- `AudioBaseNameHashesByChartDirectory`
+- `ImageBaseNameHashesByChartDirectory`
+- `MovieBaseNameHashesByChartDirectory`
+- `AudioRelativePathHashesByChartDirectory`
+- `ImageRelativePathHashesByChartDirectory`
+- `MovieRelativePathHashesByChartDirectory`
+
+resource は「存在ディレクトリ」ではなく、**最長一致する chart directory** に再集約する。
+
+- `chartdir\\00.wav` → `chartdir`
+- `chartdir\\sound\\00.wav` → `chartdir`
+- `chartdir\\subchart\\sound\\00.wav` かつ `subchart` に chart がある → `chartdir\\subchart`
+- `chartdir\\..\\sound\\00.wav` のような親参照は今回未対応
+
+Everything と通常列挙の差は、設計上「速度だけ」に寄せる。
+
+## 5. DBテーブル（BMSLibraryコンストラクタで整備）
 
 - `song`（既存LR2）
 - `install`
@@ -60,11 +85,12 @@
 - `song_idx_folder`
 - `ir_data_idx`
 
-## 5. 一貫性更新の基本方針
+## 6. 一貫性更新の基本方針
 
 - ファイル実体変更後は次を同期:
   1. `BMSFiles`
   2. Song DB (`song`)
   3. `bmsFolderAllFileList`
-  4. 必要に応じてハッシュ索引再構築
+  4. `directoryResourceLookupCache`
+  5. 必要に応じてハッシュ索引再構築
 - 導入待ち/導入済みは末尾一括反映を優先し、UI通知の過多を避ける。

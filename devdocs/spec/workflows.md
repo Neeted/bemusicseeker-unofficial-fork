@@ -14,6 +14,15 @@
 `BMSLibrary.Initialize(...)` は内部で `_initialize` を3段実行し、  
 DBロード、ファイルスキャン、メンテ情報更新、導入待ち再構築まで進める。
 
+ファイルスキャンは現在、次の 2 段で統一されている。
+
+- chart scan
+  - `.bme/.bms/.bml/.pms/.bmson`
+- shared resource scan
+  - `Audio/Image/Movie`
+
+resource は `sibling:` ではなく roots 配下から列挙し、最長一致する chart directory へ再集約する。
+
 ## 2. リロード系
 
 ### 2.1 ライブラリのリロード（本体）
@@ -55,7 +64,7 @@ DBロード、ファイルスキャン、メンテ情報更新、導入待ち再
 概要:
 
 - 対象譜面の構成ファイル情報（WAV/BGA等）を基に、`bmsFolderAllFileList.Keys` の候補ディレクトリを評価。
-- `BMSDirectoryFileNameHash` のハッシュ配列を使って一致度を計算。
+- `BMSDirectoryFileNameHash` の all-resource basename hash と、`DirectoryResourceLookupCache` のカテゴリ別 hash を使って一致度を計算。
 - 最適候補を `instl_dst` に反映。
 
 ## 5. 再インストール補助
