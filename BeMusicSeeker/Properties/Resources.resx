@@ -1468,6 +1468,23 @@ BMSファイルが重複しないようにマージします。
     <value>インストール先には既存BMSが存在するフォルダのみ指定できます。
 {0}</value>
   </data>
+  <data name="Warn_ArchiveExtractFailed" xml:space="preserve">
+    <value>アーカイブの展開に失敗しました。
+対象: {0}
+詳細: {1}</value>
+  </data>
+  <data name="Warn_ArchiveTimestampRestoreFailed" xml:space="preserve">
+    <value>アーカイブ内ファイルの更新日時を復元できなかったため、導入を中止しました。
+アーカイブ: {0}
+対象: {1}
+詳細: {2}</value>
+  </data>
+  <data name="Warn_ArchiveLastWriteTimeMissingDetail" xml:space="preserve">
+    <value>アーカイブ内ファイルに更新日時が記録されていません。</value>
+  </data>
+  <data name="Warn_ArchiveBundledSevenZipMissingDetail" xml:space="preserve">
+    <value>同梱のアーカイブ展開ライブラリが見つかりません。</value>
+  </data>
   <data name="Error_BmsFolderMergeFailed" xml:space="preserve">
     <value>BMSフォルダのマージ中にエラーが発生したため中断しました。
 移動元と移動先のパスに正常にアクセスできるか確認して下さい。

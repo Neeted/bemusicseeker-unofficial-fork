@@ -480,6 +480,10 @@
   "Warn_CustomFolderOutputDirInvalid": "カスタムフォルダ出力先ディレクトリの不正を検出しました。\n正しく出力先が指定されているか確認して下さい。",
   "Error_InstallComponentFileNotFound": "ファイルが見つかりませんでした",
   "Msg_merge_bms_completed": "「{0}」を「{1}」へマージしました",
-  "Msg_cleanup_duplicate_hash": "同一フォルダ内のハッシュ重複BMSファイルを整理します。\n更新日時が古いファイルを優先的に残し、\n同一日時の場合はファイル名が短い方を残します。\n{0}件のファイルをごみ箱へ移動します。\n続行しますか？"
+  "Msg_cleanup_duplicate_hash": "同一フォルダ内のハッシュ重複BMSファイルを整理します。\n更新日時が古いファイルを優先的に残し、\n同一日時の場合はファイル名が短い方を残します。\n{0}件のファイルをごみ箱へ移動します。\n続行しますか？",
+  "Warn_ArchiveExtractFailed": "アーカイブの展開に失敗しました。\n対象: {0}\n詳細: {1}",
+  "Warn_ArchiveTimestampRestoreFailed": "アーカイブ内ファイルの更新日時を復元できなかったため、導入を中止しました。\nアーカイブ: {0}\n対象: {1}\n詳細: {2}",
+  "Warn_ArchiveLastWriteTimeMissingDetail": "アーカイブ内ファイルに更新日時が記録されていません。",
+  "Warn_ArchiveBundledSevenZipMissingDetail": "同梱のアーカイブ展開ライブラリが見つかりません。"
 }
 

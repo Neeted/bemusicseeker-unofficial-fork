@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Windows;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
@@ -1015,6 +1016,87 @@ public sealed class BmsLibraryPackageInstallServiceTests
         });
     }
 
+    [DataTestMethod]
+    [DataRow("fixture.zip")]
+    [DataRow("fixture.7z")]
+    [DataRow("fixture.rar")]
+    [DataRow("fixture.lzh")]
+    [DoNotParallelize]
+    public void ExpandInstallSources_ExtractsSupportedArchiveAndRestoresLastWriteTime(string archiveFileName)
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string archivePath = Path.Combine(tempDirectoryPath, archiveFileName);
+            File.Copy(GetArchiveFixturePath(archiveFileName), archivePath);
+            BmsLibraryPackageInstallService service = new BmsLibraryPackageInstallService();
+            List<string> logs = new List<string>();
+
+            try
+            {
+                List<string> expandedPaths = service.ExpandInstallSources(
+                    new[] { archivePath },
+                    new RealFileMutationService(),
+                    new FileMutationOptions(ReadOnlyNormalizationScope.TargetOnly),
+                    logs.Add,
+                    null,
+                    null);
+
+                Assert.AreEqual(1, expandedPaths.Count);
+                string extractedDirectoryPath = expandedPaths[0];
+                string extractedChartPath = Path.Combine(extractedDirectoryPath, "maybe_H.bms");
+                Assert.IsTrue(File.Exists(extractedChartPath));
+                Assert.AreEqual(GetExpectedArchiveLastWriteTime(), File.GetLastWriteTime(extractedChartPath));
+                Assert.IsFalse(logs.Any(message => message.IndexOf("extract_failed", StringComparison.OrdinalIgnoreCase) >= 0));
+                Assert.IsFalse(logs.Any(message => message.IndexOf("metadata_restore_required_failed", StringComparison.OrdinalIgnoreCase) >= 0));
+            }
+            finally
+            {
+                global::BeMusicSeeker.TempDirectoryPublisher.RemoveAll();
+            }
+        });
+    }
+
+    [DataTestMethod]
+    [DataRow("fixture.zip")]
+    [DataRow("fixture.7z")]
+    [DataRow("fixture.rar")]
+    [DataRow("fixture.lzh")]
+    [DoNotParallelize]
+    public void ExpandInstallSources_AbortsArchiveWhenRequiredLastWriteRestoreFails(string archiveFileName)
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string archivePath = Path.Combine(tempDirectoryPath, archiveFileName);
+            File.Copy(GetArchiveFixturePath(archiveFileName), archivePath);
+            BmsLibraryPackageInstallService service = new BmsLibraryPackageInstallService();
+            List<string> logs = new List<string>();
+            RecordingDialogService dialogService = new RecordingDialogService();
+
+            try
+            {
+                List<string> expandedPaths = service.ExpandInstallSources(
+                    new[] { archivePath },
+                    new FailingLastWriteFileMutationService(),
+                    new FileMutationOptions(ReadOnlyNormalizationScope.TargetOnly),
+                    logs.Add,
+                    dialogService,
+                    null);
+
+                Assert.AreEqual(0, expandedPaths.Count);
+                Assert.IsTrue(logs.Any(message => message.IndexOf("metadata_restore_required_failed", StringComparison.OrdinalIgnoreCase) >= 0));
+                Assert.IsTrue(logs.Any(message => message.IndexOf(".bms", StringComparison.OrdinalIgnoreCase) >= 0));
+                Assert.AreEqual(1, dialogService.Messages.Count);
+                Assert.IsTrue(dialogService.Messages[0].IndexOf("更新日時", StringComparison.OrdinalIgnoreCase) >= 0);
+            }
+            finally
+            {
+                global::BeMusicSeeker.TempDirectoryPublisher.RemoveAll();
+            }
+        });
+    }
+
     private static TestableBmsFile CreateFile(string hash, string path)
     {
         TestableBmsFile file = new TestableBmsFile
@@ -1079,6 +1161,16 @@ public sealed class BmsLibraryPackageInstallServiceTests
         string filePath = Path.Combine(directoryPath, fileName);
         File.WriteAllText(filePath, "#PLAYER 1\r\n" + titleLine + "\r\n#ARTIST Test\r\n");
         return filePath;
+    }
+
+    private static string GetArchiveFixturePath(string fileName)
+    {
+        return Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "TestData", "archives", fileName);
+    }
+
+    private static DateTime GetExpectedArchiveLastWriteTime()
+    {
+        return new DateTime(2002, 1, 11, 18, 0, 8);
     }
 
     private static void WithTemporaryDirectory(Action<string> testAction)
@@ -1175,6 +1267,86 @@ public sealed class BmsLibraryPackageInstallServiceTests
 
         public void SetTimestamps(string path, bool isDirectory, DateTime? creationTime, DateTime? lastWriteTime, FileMutationOptions options = null!)
         {
+        }
+    }
+
+    private sealed class FailingLastWriteFileMutationService : IFileMutationService
+    {
+        public void EnsureDirectory(string directoryPath, FileMutationOptions options = null!)
+        {
+            if (!string.IsNullOrWhiteSpace(directoryPath))
+            {
+                Directory.CreateDirectory(directoryPath);
+            }
+        }
+
+        public void MoveFile(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null!)
+        {
+            throw new NotSupportedException();
+        }
+
+        public void MoveDirectory(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null!)
+        {
+            throw new NotSupportedException();
+        }
+
+        public void DeleteFileDirect(string filePath, FileMutationOptions options = null!)
+        {
+            if (File.Exists(filePath))
+            {
+                File.Delete(filePath);
+            }
+        }
+
+        public void DeleteFileShell(string filePath, UIOption uiOption, RecycleOption recycleOption, FileMutationOptions options = null!)
+        {
+            DeleteFileDirect(filePath, options);
+        }
+
+        public void DeleteDirectoryDirect(string directoryPath, bool recursive, FileMutationOptions options = null!)
+        {
+            if (Directory.Exists(directoryPath))
+            {
+                Directory.Delete(directoryPath, recursive);
+            }
+        }
+
+        public void DeleteDirectoryShell(string directoryPath, UIOption uiOption, RecycleOption recycleOption, FileMutationOptions options = null!)
+        {
+            DeleteDirectoryDirect(directoryPath, recursive: true, options);
+        }
+
+        public void SetTimestamps(string path, bool isDirectory, DateTime? creationTime, DateTime? lastWriteTime, FileMutationOptions options = null!)
+        {
+            if (lastWriteTime.HasValue && !isDirectory)
+            {
+                throw new IOException("required_last_write_restore_failure");
+            }
+
+            if (!lastWriteTime.HasValue)
+            {
+                return;
+            }
+
+            if (isDirectory)
+            {
+                Directory.SetLastWriteTime(path, lastWriteTime.Value);
+            }
+            else
+            {
+                File.SetLastWriteTime(path, lastWriteTime.Value);
+            }
+        }
+    }
+
+    private sealed class RecordingDialogService : IBmsLibraryDialogService
+    {
+        public List<string> Messages { get; } = new List<string>();
+
+        public MessageBoxResult Show(string messageBoxText, string caption, MessageBoxButton button, MessageBoxImage icon, MessageBoxResult defaultResult = MessageBoxResult.None)
+        {
+            Messages.Add(messageBoxText);
+            return defaultResult;
         }
     }
 

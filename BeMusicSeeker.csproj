@@ -37,6 +37,10 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <TargetPath>libs\x64\%(Filename)%(Extension)</TargetPath>
     </None>
+    <None Include="libs\SevenZipExtractor.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <TargetPath>libs\SevenZipExtractor.dll</TargetPath>
+    </None>
     <None Update="lang\*.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
@@ -128,9 +132,6 @@
     </Reference>
     <Reference Include="SgmlReaderDll">
       <HintPath>libs\SgmlReaderDll.dll</HintPath>
-    </Reference>
-    <Reference Include="SevenZipExtractor">
-      <HintPath>libs\SevenZipExtractor.dll</HintPath>
     </Reference>
     <PackageReference Include="NLog" Version="4.4.3" />
     <PackageReference Include="System.Resources.Extensions" Version="8.0.0" />

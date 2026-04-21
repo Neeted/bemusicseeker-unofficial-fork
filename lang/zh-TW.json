@@ -480,5 +480,9 @@
   "Warn_CustomFolderOutputDirInvalid": "偵測到自訂資料夾輸出目錄異常。\n請確認輸出目錄是否正確設定。",
   "Error_InstallComponentFileNotFound": "找不到檔案",
   "Msg_merge_bms_completed": "已將「{0}」合併到「{1}」",
-  "Msg_cleanup_duplicate_hash": "整理同一資料夾內的雜湊重複BMS檔案。\n優先保留修改日期最早的檔案，\n日期相同則保留檔名較短的。\n將{0}個檔案移至資源回收桶。\n是否繼續？"
+  "Msg_cleanup_duplicate_hash": "整理同一資料夾內的雜湊重複BMS檔案。\n優先保留修改日期最早的檔案，\n日期相同則保留檔名較短的。\n將{0}個檔案移至資源回收桶。\n是否繼續？",
+  "Warn_ArchiveExtractFailed": "Failed to extract the archive.\nTarget: {0}\nDetails: {1}",
+  "Warn_ArchiveTimestampRestoreFailed": "Installation was aborted because the last write time could not be restored for a file inside the archive.\nArchive: {0}\nTarget: {1}\nDetails: {2}",
+  "Warn_ArchiveLastWriteTimeMissingDetail": "The archive entry does not contain a last write time.",
+  "Warn_ArchiveBundledSevenZipMissingDetail": "The bundled archive extraction library could not be found."
 }

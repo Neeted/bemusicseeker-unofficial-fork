@@ -1,6 +1,6 @@
 BeMusicSeeker サードパーティ・ノーティス
 
-最終更新: 2026-02-22
+最終更新: 2026-04-21
 適用範囲: BeMusicSeeker.csproj によって参照され、bin/Release/net472、vendor/native/{x86,x64}、native/、および resources/ 下で配布されるサードパーティ製ファイル。
 
 ステータスの凡例:
@@ -53,6 +53,7 @@ BeMusicSeeker サードパーティ・ノーティス
 ライセンス本文: third_party/licenses/03-LGPL-2.1.txt, third_party/licenses/03-7zip-unRAR-restriction.txt
 再配布時の注意事項:
 - 個別のDLLとして配布しています（動的リンク）。
+- リポジトリの x86/x64 バイナリのSHA256値が、SevenZipExtractor 1.0.19 パッケージ同梱の build/x86, build/x64 の 7z.dll と一致していることを確認済みです。
 - LGPLの本文と unRAR 制限事項のノーティスを配布物に同梱してください。
 
 ================================================================================
@@ -60,12 +61,12 @@ BeMusicSeeker サードパーティ・ノーティス
 ================================================================================
 ステータス: GREEN
 コンポーネント: SevenZipExtractor.dll
-著作権所有者: Alexander Selishchev
+著作権所有者: Alexander Selishchev および contributors
 ライセンス: MIT
-ソース: https://www.nuget.org/packages/SevenZipExtractor/1.0.12
+ソース: https://www.nuget.org/packages/SevenZipExtractor/1.0.19
 ライセンス本文: third_party/licenses/04-SevenZipExtractor-MIT.txt
 再配布時の注意事項:
-- リポジトリのバイナリのSHA256値が、NuGet 1.0.12 lib/net45 のファイルと一致していることを確認済みです。
+- リポジトリのバイナリのSHA256値が、NuGet 1.0.19 lib/net45 のファイルと一致していることを確認済みです。
 - MITライセンス本文を配布物に同梱してください。
 
 ================================================================================
@@ -308,4 +309,3 @@ GitHub リリース準備状況におけるアクション・サマリー
   SgmlReaderDll.dll, OggVorbis.NET.dll / OggVorbis.NET64.dll,
   フォント "Ligature Symbols", "Sovjet Box", commodore-20rounded-20v1.2.ttf,
   BASS ネイティブバイナリ群, Bass.Net.dll, Blend SDK バイナリ群
-

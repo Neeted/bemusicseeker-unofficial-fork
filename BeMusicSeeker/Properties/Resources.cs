@@ -1104,6 +1104,18 @@ public class Resources
     public static string Msg_cleanup_duplicate_hash => ResourceManager.GetString("Msg_cleanup_duplicate_hash", resourceCulture);
 
 
+    public static string Warn_ArchiveExtractFailed => ResourceManager.GetString("Warn_ArchiveExtractFailed", resourceCulture);
+
+
+    public static string Warn_ArchiveTimestampRestoreFailed => ResourceManager.GetString("Warn_ArchiveTimestampRestoreFailed", resourceCulture);
+
+
+    public static string Warn_ArchiveLastWriteTimeMissingDetail => ResourceManager.GetString("Warn_ArchiveLastWriteTimeMissingDetail", resourceCulture);
+
+
+    public static string Warn_ArchiveBundledSevenZipMissingDetail => ResourceManager.GetString("Warn_ArchiveBundledSevenZipMissingDetail", resourceCulture);
+
+
     internal Resources()
     {
     }

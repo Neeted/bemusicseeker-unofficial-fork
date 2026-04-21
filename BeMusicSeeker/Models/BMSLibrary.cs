@@ -27,7 +27,6 @@ using Ribbit.Logging;
 using Ribbit.Net;
 using Ribbit.Util;
 using Ribbit.Util.Extensions;
-using SevenZipExtractor;
 using NLog;
 
 namespace BeMusicSeeker.Models;

@@ -480,6 +480,10 @@
   "Warn_CustomFolderOutputDirInvalid": "Un répertoire de sortie de dossier personnalisé invalide a été détecté.\nVeuillez vérifier si le répertoire de sortie est correctement spécifié.",
   "Error_InstallComponentFileNotFound": "Fichier introuvable",
   "Msg_merge_bms_completed": "Fusion de \"{0}\" dans \"{1}\"",
-  "Msg_cleanup_duplicate_hash": "Nettoyer les fichiers BMS en double dans le même dossier.\nConserve le fichier avec la date de modification la plus ancienne,\nou le nom de fichier le plus court si les dates sont identiques.\n{0} fichier(s) seront déplacés vers la corbeille.\nContinuer ?"
+  "Msg_cleanup_duplicate_hash": "Nettoyer les fichiers BMS en double dans le même dossier.\nConserve le fichier avec la date de modification la plus ancienne,\nou le nom de fichier le plus court si les dates sont identiques.\n{0} fichier(s) seront déplacés vers la corbeille.\nContinuer ?",
+  "Warn_ArchiveExtractFailed": "Failed to extract the archive.\nTarget: {0}\nDetails: {1}",
+  "Warn_ArchiveTimestampRestoreFailed": "Installation was aborted because the last write time could not be restored for a file inside the archive.\nArchive: {0}\nTarget: {1}\nDetails: {2}",
+  "Warn_ArchiveLastWriteTimeMissingDetail": "The archive entry does not contain a last write time.",
+  "Warn_ArchiveBundledSevenZipMissingDetail": "The bundled archive extraction library could not be found."
 }
 

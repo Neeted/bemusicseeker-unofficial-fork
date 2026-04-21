@@ -480,6 +480,10 @@
   "Warn_CustomFolderOutputDirInvalid": "An invalid custom folder output directory was detected.\nPlease check if the output directory is correctly specified.",
   "Error_InstallComponentFileNotFound": "File not found",
   "Msg_merge_bms_completed": "Merged \"{0}\" into \"{1}\"",
-  "Msg_cleanup_duplicate_hash": "Clean up duplicate hash BMS files in the same folder.\nKeeps the file with the oldest modification date,\nor the shortest filename if dates are the same.\n{0} file(s) will be moved to the recycle bin.\nContinue?"
+  "Msg_cleanup_duplicate_hash": "Clean up duplicate hash BMS files in the same folder.\nKeeps the file with the oldest modification date,\nor the shortest filename if dates are the same.\n{0} file(s) will be moved to the recycle bin.\nContinue?",
+  "Warn_ArchiveExtractFailed": "Failed to extract the archive.\nTarget: {0}\nDetails: {1}",
+  "Warn_ArchiveTimestampRestoreFailed": "Installation was aborted because the last write time could not be restored for a file inside the archive.\nArchive: {0}\nTarget: {1}\nDetails: {2}",
+  "Warn_ArchiveLastWriteTimeMissingDetail": "The archive entry does not contain a last write time.",
+  "Warn_ArchiveBundledSevenZipMissingDetail": "The bundled archive extraction library could not be found."
 }
 
