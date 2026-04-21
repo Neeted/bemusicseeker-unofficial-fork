@@ -372,7 +372,7 @@
   "Details_test_smart_component_overwrite": "[TEST] Optimiser l'écrasement des fichiers en comparant la date de modification et la taille lors de l'installation différentielle",
   "Details_test_keep_smart_overwrite_protected_by_rename": "[TEST] En écrasement intelligent, conserver *.bmx/*.pmx/*.txt/*.bmson via renommage auto au lieu d'écraser",
   "Estimate_merge_loc": "Estimer la destination de fusion",
-  "Msg_estimate_merge_confirm": "Ré-estimer s'il existe une destination de fusion plus appropriée que le dossier source.\nLes estimations existantes seront écrasées.\nVoulez-vous continuer ?",
+  "Msg_estimate_merge_confirm": "Ré-estimer une destination de fusion pouvant être valide uniquement avec les ressources déjà présentes, sans utiliser les ressources incluses dans le dossier source.\nLes estimations existantes seront écrasées.\nVoulez-vous continuer ?",
   "Msg_open_install_destination_missing": "Impossible de déterminer la destination d'installation.\nLa destination estimée n'est pas définie, ou elle n'a pas pu être trouvée à partir des charts possédées.",
   "Msg_open_install_destination_multiple_selected": "Plusieurs éléments sont sélectionnés. Seule la première chart sera utilisée.",
   "Msg_open_install_destination_not_found": "Dossier de destination d'installation introuvable.\n{0}",

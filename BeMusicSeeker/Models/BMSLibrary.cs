@@ -5253,7 +5253,7 @@ public class BMSLibrary : NotificationObject
         package.DeferredEstimateReason = PendingEstimateDeferredReason.None;
         if (!TryResolveInstalledDestinationFromPackage(package, list, out string resolvedDir))
         {
-            searchEstimatedInstallationDirectory(package, list, asParallel: true, BmsInstallationEstimateMode.MergeSourceBaseline);
+            searchEstimatedInstallationDirectory(package, list, asParallel: true, BmsInstallationEstimateMode.MergeCandidateOnly);
         }
         else
         {
@@ -5295,7 +5295,7 @@ public class BMSLibrary : NotificationObject
         foreach (BMSFile item in list)
         {
             item.instl_dst = null;
-            searchEstimatedInstallationDirectory(new BMSFile[1] { item }, asParallel: true, BmsInstallationEstimateMode.MergeSourceBaseline);
+            searchEstimatedInstallationDirectory(new BMSFile[1] { item }, asParallel: true, BmsInstallationEstimateMode.MergeCandidateOnly);
         }
         int num = list.Count((BMSFile f) => !string.IsNullOrWhiteSpace(f.instl_dst));
         if (num == 0)

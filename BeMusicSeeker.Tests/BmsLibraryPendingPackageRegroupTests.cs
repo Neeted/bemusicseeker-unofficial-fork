@@ -304,6 +304,44 @@ public sealed class BmsLibraryPendingPackageRegroupTests
     }
 
     [TestMethod]
+    public void SearchMergeDestination_ByFile_UsesExternalCandidateOnly()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
+        {
+            string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "PackageMergeByFile");
+            string candidateDirectoryPath = Path.Combine(tempRootPath, "Installed", "MergeCandidate");
+            string pendingFilePath = CreateBmsFileWithContents(
+                sourceDirectoryPath,
+                "pending.bms",
+                "#PLAYER 1\r\n#TITLE Pending\r\n#ARTIST Test\r\n#WAVAA 00.wav\r\n#WAVAB 01.wav\r\n#00111:AAAB\r\n");
+            File.WriteAllText(Path.Combine(sourceDirectoryPath, "00.wav"), "src");
+            File.WriteAllText(Path.Combine(sourceDirectoryPath, "01.wav"), "src");
+            CreateBmsFileWithContents(candidateDirectoryPath, "installed.bms", "#PLAYER 1\r\n#TITLE Installed Title\r\n#ARTIST Installed Artist\r\n");
+            File.WriteAllText(Path.Combine(candidateDirectoryPath, "00.wav"), "dst");
+            File.WriteAllText(Path.Combine(candidateDirectoryPath, "01.wav"), "dst");
+
+            BMSFile pendingFile = BMSFile.CreateBMSFileFromFile(pendingFilePath);
+            BMSPackage pendingPackage = new BMSPackage(new[] { pendingFile })
+            {
+                path = pendingFilePath,
+                delete_parent = true
+            };
+            library.BMSFiles = new List<BMSFile> { BMSFile.CreateBMSFileFromFile(Path.Combine(candidateDirectoryPath, "installed.bms")) };
+            SeedPendingPackages(library, songDbPath, pendingPackage);
+            SetPrivateField(library, "bmsFolderAllFileList", BuildDirectoryHashCache(sourceDirectoryPath, candidateDirectoryPath));
+            SetPrivateField(library, "directoryResourceLookupCache", BuildDirectoryLookupCache(sourceDirectoryPath, candidateDirectoryPath));
+
+            library.SearchMergeDestination(new[] { pendingFile });
+
+            Assert.AreEqual(candidateDirectoryPath, pendingFile.instl_dst);
+            Assert.AreEqual("Installed Title", pendingFile.InstallDestinationTitle);
+            Assert.AreEqual("Installed Artist", pendingFile.InstallDestinationArtist);
+            Assert.AreEqual(0, pendingFile.InstallDestinationSuggestions.Count);
+        });
+    }
+
+    [TestMethod]
     public void SetPendingInstallDestination_UpdatesRepresentativeMetadata()
     {
         TestResourceInitializer.EnsureJapaneseResources();

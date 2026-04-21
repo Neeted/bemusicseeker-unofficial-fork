@@ -372,7 +372,7 @@
   "Details_test_smart_component_overwrite": "[測試] 差分安裝時，透過比對修改日期與檔案大小來最佳化隨附檔案的覆寫邏輯",
   "Details_test_keep_smart_overwrite_protected_by_rename": "[測試] 智慧覆寫時，*.bmx/*.pmx/*.txt/*.bmson 不覆寫，改以自動編號保留",
   "Estimate_merge_loc": "估算合併目標",
-  "Msg_estimate_merge_confirm": "將以來源資料夾為基準，重新估算是否存在更合適的合併目標。\n現有的估算結果將被覆寫。\n確定要繼續嗎？",
+  "Msg_estimate_merge_confirm": "重新估算一個在不使用來源資料夾附帶資源的情況下，僅靠既有資源也能成立的合併目標。\n現有的估算結果將被覆寫。\n確定要繼續嗎？",
   "Msg_open_install_destination_missing": "無法推斷出安裝目標的路徑。\n目標估算路徑未指定，或者是無法從已擁有的譜面中反向推導出來。",
   "Msg_open_install_destination_multiple_selected": "您選擇了多個項目。\n系統將自動只處理第一首曲目所在的資料夾路徑。",
   "Msg_open_install_destination_not_found": "找不到安裝目標資料夾。\n{0}",

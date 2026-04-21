@@ -372,7 +372,7 @@
   "Details_test_smart_component_overwrite": "[테스트] 차분 파일 설치 시 날짜/용량을 비교하여 동봉 파일의 덮어쓰기 논리 개선",
   "Details_test_keep_smart_overwrite_protected_by_rename": "[테스트] 스마트 덮어쓰기 시 *.bmx/*.pmx/*.txt/*.bmson 은 덮어쓰지 않고 자동 번호로 보존",
   "Estimate_merge_loc": "병합 위치 추정",
-  "Msg_estimate_merge_confirm": "원본 폴더를 기준으로 더 적합한 병합 대상이 있는지 다시 추정합니다.\n기존 추정 결과는 덮어써집니다.\n계속하시겠습니까?",
+  "Msg_estimate_merge_confirm": "원본 폴더의 동봉 리소스를 사용하지 않고, 기존 리소스만으로 성립하는 병합 대상을 다시 추정합니다.\n기존 추정 결과는 덮어써집니다.\n계속하시겠습니까?",
   "Msg_open_install_destination_missing": "설치 대상을 특정할 수 없었습니다.\n명시된 추정치가 없거나 소유 중인 채보들로부터 역산할 수 없습니다.",
   "Msg_open_install_destination_multiple_selected": "여러 항목이 선택되었습니다.\n자동으로 선택된 최상단의 BMS 폴더만 처리합니다.",
   "Msg_open_install_destination_not_found": "설치 대상 폴더를 찾을 수 없습니다.\n{0}",

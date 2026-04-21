@@ -2,24 +2,23 @@
 
 ## 目的
 
-この資料は、`2026-04-20` 時点の **実装上の現状** を整理するためのものです。  
-`P2` 再設計後の導入先推定が、現在どの単位で何を比較しているかを、次の実機調整に入れる粒度でまとめます。
+この資料は、`2026-04-22` 時点の **実装上の現状** を整理するためのものです。  
+現在の推定は、通常の `インストール先を推定` と `マージ先を推定` を、**評価単位の違う 2 つの機能**として扱います。
 
 ## 先に結論
 
-現在の最終評価単位は、従来の `candidate only` ではなく **`candidate + package bundled resources`** です。  
-推定サービスは、まず package 単位の snapshot を作り、その snapshot を使って候補 directory を比較します。
+現在の推定は次の 2 系統に分かれます。
 
-大きい流れは次です。
+1. `インストール先を推定`
+   - final evaluation は **`candidate + package bundled resources`**
+   - source は候補に入れない
+   - 「この package を外部のどこへ入れれば成立するか」を探す
+2. `マージ先を推定`
+   - final evaluation は **`candidate only`**
+   - source は候補に入れない
+   - 「source 以外に、既存リソースだけで成立する統合先があるか」を探す
 
-1. 対象を `PackageInstallEstimationSnapshot` に変換する
-2. `DefinedResources` の basename hash で chart directory 候補を粗く絞る
-3. 各候補に対して `EffectiveResources = CandidateResources ∪ BundledResources` を作る
-4. `EffectiveResources` と `DefinedResources` を比較して `Health / Matched / Exact / Precision / Jaccard` を出す
-5. source も通常候補と同じ土俵で比較する
-6. background pending estimate では、source baseline が `innerWavHealthThreshold=70` 以上なら自動推定を抑制する
-7. ただし結果は `High + destination` / `Low + suggestions` / `High + no destination` に整理して返す
-8. `innerWavHealthThreshold=70` は候補除外には使わず、viable destination と `High` / auto-apply の下限に使う
+一方で source は完全に不要になったわけではなく、**background auto-estimate 抑制の source baseline health 判定**にだけ使います。
 
 ## 関連クラス
 
@@ -41,7 +40,7 @@
 
 ## 推定入口
 
-## 1. package-aware 経路
+### 1. package-aware 経路
 
 主経路は `BMSLibrary.SearchEstimatedInstallationDirectoryCore(BMSPackage)` です。
 
@@ -49,7 +48,7 @@
   - `alreadyInstalledFiles`
   - `missingFiles`
   に分ける
-- `missingFiles.Count == 0` なら推定しない
+- `missingFiles.Count == 0` なら通常推定は行わない
 - mixed package では、まず既存配置先再利用を試す
   - 成功すれば推定に入らず適用
   - 失敗時だけ `Fix` モードで package-aware 推定へ入る
@@ -57,7 +56,7 @@
 
 この経路では、`missingFiles` と package の source path から **package snapshot** を作って評価します。
 
-### background pending estimate の抑制
+### 2. background pending estimate の抑制
 
 startup restore と auto-install 後の background pending estimate では、package-aware 推定へ入る前に **source baseline viability** を見ます。
 
@@ -74,18 +73,16 @@ startup restore と auto-install 後の background pending estimate では、pac
   - reuse 不成立時だけ source baseline 判定へ進む
 
 つまり現在は、**pending に残ること** と **background auto-estimate 対象になること** を分けています。
-高ヘルス source の package は「未推定」ではなく、**自動推定不要・必要なら手動 merge 対象**として保留に残ります。
 
-## 2. loose-file 経路
+### 3. loose-file 経路
 
 `IEnumerable<BMSFile>` / `BMSFile` から直接呼ぶ経路も残っています。
 
-- こちらは `PackageInstallEstimationSnapshotBuilder.BuildForLooseFiles(...)` を使う
+- `PackageInstallEstimationSnapshotBuilder.BuildForLooseFiles(...)` を使う
 - `BundledResources` は空
-- `SourceCandidateResources` は代表 file の親 directory から作る
+- `SourceCandidateResources` は source baseline health 判定用にだけ持つ
 
-つまり loose-file 推定は、まだ package install surface を持たない軽量経路です。  
-pending package・startup restore・auto-install では通常こちらは使いません。
+pending package・startup restore・auto-install では通常この経路は使いません。
 
 ## package snapshot の中身
 
@@ -101,57 +98,28 @@ pending package・startup restore・auto-install では通常こちらは使い�
 ### 1. `DefinedResources`
 
 `DefinedResources` は **package 内の対象 chart 群の union** です。  
-従来の「代表譜面 1 件だけ」ではなく、`ChartResourceSnapshot.CreateAggregate(...)` を使います。
+`ChartResourceSnapshot.CreateAggregate(...)` を使います。
 
-含むもの:
-
-- `AudioBaseNameHashes`
-- `VisualBaseNameHashes`
-- `MovieBaseNameHashes`
-- `OptionalImageBaseNameHashes`
-- 各 relative path hash
-
-## 2. `BundledResources`
+### 2. `BundledResources`
 
 `BundledResources` は **package が導入時に持ち込む non-chart resource 実体** です。  
 shape は `DirectoryResourceLookupCache.Entry` と揃えています。
 
-含むもの:
+### 3. `SourceCandidateResources`
 
-- `AllBaseNameHashArray`
-- `Audio/Image/MovieBaseNameHashArray`
-- `Audio/Image/MovieRelativePathHashArray`
+source baseline health を判定するための transient entry です。
 
-### directory package
-
-- `package.path` 配下を再帰列挙する
-- chart file は除外する
-- audio / image / movie だけを分類して hash 化する
-- relative path は **package root 基準**で正規化する
-
-### file package
-
-- 実 install では chart file 自身しか component として移動しない
-- そのため bundled non-chart resources は空
-- sibling resources は bundled に含めない
-
-## 3. `SourceCandidateResources`
-
-source を通常候補と同じ土俵で比較するための entry です。
-
-- directory package: source root 全体の resource entry
-- file package: parent directory を source candidate surface として読む
-- loose files: 代表 file の親 directory を使う
-
-`source` が library cache に載っていない場合も、この transient entry を使って比較できます。
+- directory package: source root 全体
+- file package: 親 directory
+- loose files: 代表 file の親 directory
 
 ## 候補母集団
 
 現在の候補母集団は scan redesign 後の **chart directory** です。
 
-- `bmsFolderAllFileList.Keys`
-- merge 以外では `SourceDirectory` も追加候補として含める
-- merge (`MergeSourceBaseline`) でも source を含めて比較し、source baseline より良い non-source があるかを見る
+- `folderAllFileList.Keys`
+- source directory は通常推定でも merge 推定でも候補に含めない
+- 比較対象は常に external candidate のみ
 
 resource-only subdir は候補に入りません。
 
@@ -165,52 +133,47 @@ coarse filter では、`snapshot.DefinedResources.EnumerateAllBaseNameHashes()` 
 - cache がない場合:
   - `BMSDirectoryFileNameHash` の hash array を直接なめる
 
-ここで重要なのは、**`innerWavHealthThreshold=70` による候補除外はもうしていない**ことです。  
-threshold は coarse filter ではなく、最終 confidence 判定側で使います。
-
-候補 0 件なら fallback で全 chart directory 比較に戻ります。
+ここで重要なのは、**`innerWavHealthThreshold=70` による候補除外はしていない**ことです。  
+threshold は最終 confidence 判定側で使います。
 
 ## 最終評価
 
 各候補は `EvaluateCandidate(...)` で評価します。
 
-候補ごとに作るもの:
+### 通常推定 / `Fix`
 
-- `CandidateResources`
-  - library cache の `DirectoryResourceLookupCache.Entry`
-  - source の場合は `SourceCandidateResources`
-- `BundledResources`
-  - package snapshot から渡された bundled resources
-- `EffectiveResources`
-  - `CandidateResources ∪ BundledResources`
+比較対象:
 
-比較対象は常に:
-
-- `EffectiveResources`
+- `CandidateResources ∪ BundledResources`
 - `snapshot.DefinedResources`
 
-です。
+つまり **`candidate + package bundled resources`** を見ます。
+
+### merge 推定
+
+比較対象:
+
+- `CandidateResources`
+- `snapshot.DefinedResources`
+
+つまり **`candidate only`** を見ます。  
+source の bundled resources は merge の final evaluation には足しません。
 
 ## 算出する指標
 
 カテゴリごとに次を算出します。
 
 - `Matched`
-  - basename hash 一致数
 - `ExactMatched`
-  - relative path hash 一致数
 - `Health`
-  - `matched / defined`
 - `Precision`
-  - `matched / effectiveCandidateCount`
 - `Jaccard`
-  - `matched / (defined + effectiveCandidateCount - matched)`
 
-ここでの `effectiveCandidateCount` は **union 後の候補側件数**です。
+`Precision` / `Jaccard` はログ/UI には整数 `%` を出しますが、**内部順位付けと tie 判定は raw ratio** を使います。
 
 ## 並び順
 
-候補は現在、概ね次の順で降順比較します。
+候補は概ね次の順で降順比較します。
 
 1. `AudioHealth`
 2. `AudioMatched`
@@ -223,46 +186,26 @@ threshold は coarse filter ではなく、最終 confidence 判定側で使い�
 9. raw precision / jaccard
 10. `DirectoryPath`
 
-`Precision` / `Jaccard` はログ/UI には整数 `%` を出しますが、**内部順位付けと tie 判定は raw ratio** を使います。
-そのため、`1281/1282` と `1281/1285` のような差が 100/100 に丸めつぶされて path 順になるのを避けています。
-
-つまり P2 現在地は「candidate+bundled union 評価に移行済みで、その指標で並べている」状態です。
+raw ratio 比較を入れているため、`1281/1282` と `1281/1285` のような差が 100/100 に丸め潰されて path 順になるのを避けています。
 
 ## source の扱い
 
-source は別枠 reinject ではなく、**通常候補と同じ list** で比較します。
+source は ranking 本体では扱いません。  
+現在の source は次の用途に限定しています。
 
-- source が 1 位で non-source 候補を十分に上回る場合:
-  - `Confidence = High`
-  - `DestinationDirectory = null`
-  - `ShouldAutoApplyDestination = false`
-  - `confidenceReason = source_directory_preferred_no_destination`
-- source が 1 位だが viable な non-source 候補と僅差の場合:
-  - `Confidence = Low`
-  - `DestinationDirectory = null`
-  - `ShouldAutoApplyDestination = false`
-  - `confidenceReason = tie_on_primary_metrics`
+- background auto-estimate 抑制の source baseline health 判定
+- package snapshot 内の `SourceCandidateResources`
 
-このため、source が最上位でも **自動確定はしません**。  
-また、候補 suggestion には **source を含めません**。
+通常推定でも merge 推定でも、候補 list・選択候補・suggestion には **source を含めません**。
 
 ## `innerWavHealthThreshold=70` の使い方
 
 `innerWavHealthThreshold=70` は、今は次の必要条件です。
 
+- viable destination
 - `High` 判定
 - `ShouldAutoApplyDestination`
-
-具体的には、1 位候補について
-
-- primary health が threshold を超える
-
-をまず viable destination の必要条件とし、その上で
-
-- source ではない
-- viable な 2 位候補と僅差ではない
-
-ときだけ `High` になります。
+- background auto-estimate 抑制の source baseline 判定
 
 つまり threshold は **候補 recall を削る前段フィルタ** ではなく、**viable destination / 自動確定の安全弁** です。
 
@@ -282,67 +225,52 @@ source は別枠 reinject ではなく、**通常候補と同じ list** で比�
 - `Confidence = Low` の場合だけ non-source suggestion を保持する
 - そのうち候補が 2 件以上ある場合だけ warning を保持する
 
-また、**UI に見える pending 状態で `instl_dst` を反映する経路**では、推定結果適用・手動 `INSTL DST` 入力・resolved destination 再利用・pending regroup のいずれでも、`INSTL DST TITLE` / `INSTL DST ARTIST` を同時に同期します。  
-destination 側に代表譜面 metadata が存在しない場合のみ、`instl_dst` が入っても title/artist は空を許容します。
+また、**UI に見える pending 状態で `instl_dst` を反映する経路**では、推定結果適用・手動 `INSTL DST` 入力・resolved destination 再利用・pending regroup のいずれでも、`INSTL DST TITLE` / `INSTL DST ARTIST` を同時に同期します。
 
 ## 手動 `インストール先を推定` と `マージ先を推定` の違い
 
-現在の手動操作は、入口の目的が明確に分かれています。
-
 ### 1. 手動 `インストール先を推定`
 
-目的は、**未所持譜面の導入先を決めること**です。
+目的は、**未所持譜面の external install destination を決めること**です。
 
-- background auto-estimate 抑制とは無関係で、手動なら実行する
-- pending package に対して実行した場合は `DeferredEstimateReason` を解除する
-- package 内を
-  - `alreadyInstalledFiles`
-  - `missingFiles`
-  に分ける
+- background auto-estimate 抑制とは無関係で、手動なら高ヘルスでも実行する
+- source は候補に入れない
+- external candidate を `candidate + bundled` で評価する
 
-その上で:
+mixed package では:
 
-- `missingFiles == 0`
-  - 何もしない
-- mixed package
-  - まず `TryResolveInstalledDestinationFromPackage(...)` で、既所持譜面の実配置先を未所持譜面へ再利用できるか試す
-  - 成功したら、その配置先を **未所持譜面だけ** に反映し、代表 metadata も同期して終了
-  - 失敗したら `Fix` モードで **未所持譜面だけ** を package-aware 推定する
-- 全部未所持
-  - `Normal` モードで通常推定する
+- まず `TryResolveInstalledDestinationFromPackage(...)` で、既所持譜面の実配置先を未所持譜面へ再利用できるか試す
+- 成功したら、その配置先を **未所持譜面だけ** に反映し、代表 metadata も同期して終了
+- 失敗したら `Fix` モードで **未所持譜面だけ** を package-aware 推定する
 
 つまり通常推定は、mixed package では **「既所持側の配置先に未所持を寄せる補完」** が第一です。
 
 ### 2. 手動 `マージ先を推定`
 
-目的は、**source baseline を上回る non-source merge 先があるかを見ること**です。
+目的は、**source の同梱リソースを使わず、source 以外に既存リソースだけで成立する統合先があるかを見ること**です。
 
-- package 単位では `MergeSourceBaseline` モードを使う
-- source を候補に含めて比較する
-- `DeferredEstimateReason` を解除した上で実行する
+- package 単位では `MergeCandidateOnly` モードを使う
+- source は候補に含めない
+- external candidate を `candidate only` で評価する
 
 その上で:
 
 - まず `TryResolveInstalledDestinationFromPackage(...)` を試す
 - 解決できれば、その配置先を package 全体へ反映し、代表 metadata も同期する
-- 解決できなければ `MergeSourceBaseline` で source を baseline に比較する
+- 解決できなければ `MergeCandidateOnly` で package 全体を external merge search する
 
-`MergeSourceBaseline` では、
+merge の結果は次で固定します。
 
-- non-source が source を **materially** 上回る
-  - merge destination を返す
-- source が最善
-  - `High + no destination`
-- source が最善だが viable non-source と僅差
+- viable external candidate が 1 件で明確
+  - `High + destination`
+- viable external candidate が複数で僅差
   - `Low + non-source suggestions`
+- viable external candidate が 0 件
+  - `High + no destination`
 
-となります。
-
-つまりマージ推定は、**「source のままで十分か、それとも source より良い merge 先があるか」** を見る機能です。
+つまりマージ推定は、**「source 以外に、既存リソースだけで成立する外部統合先があるか」** を見る機能です。
 
 ## 既所持譜面を含む package の扱い
-
-既所持譜面を含む mixed package は、通常推定とマージ推定で扱いが異なります。
 
 ### 通常推定
 
@@ -351,32 +279,20 @@ destination 側に代表譜面 metadata が存在しない場合のみ、`instl_
 - まず既所持譜面の実配置先を再利用できるか試す
 - 再利用できなければ、未所持譜面だけ `Fix` モードで推定する
 
-つまり mixed package に対する通常推定は、**「既所持分の実配置先へ未所持分を寄せる」** 挙動です。
-
 ### マージ推定
 
 - package 単位では **既所持・未所持をまとめて** 扱う
 - 既存配置先再利用が成功すれば、その配置先と代表 metadata を package 全体へ入れる
-- 失敗したら package 全体を `MergeSourceBaseline` で評価する
-
-つまり mixed package に対するマージ推定は、**「package 全体の行き先を source baseline 付きで見直す」** 挙動です。
-
-### regroup 時の補足
-
-- pending regroup で expected destination が一意に解決できた場合も、`instl_dst` だけでなく代表 metadata を同期する
-- regroup では warning 再初期化は行うが、metadata 同期のために suggestion / low-confidence 文脈を追加で消さない
+- 失敗したら package 全体を `MergeCandidateOnly` で評価する
 
 ### file 選択時の注意
-
-file 群を対象にした場合は、現在まだ wrapper が完全には同じではありません。
 
 - 通常推定
   - pending package に属する file は package 単位へ束ねて処理する
 - マージ推定
-  - 現在は file ごとに `MergeSourceBaseline` を回す
+  - 現在は file ごとに `MergeCandidateOnly` を回す
 
 そのため、同じ pending package でも **package 選択時と file 選択時で merge 結果がずれる余地** は残っています。
-現状 docs では、この差を既知の実装上の違いとして明示しておきます。
 
 ## pending batch と demand build
 
@@ -385,23 +301,7 @@ startup restore / auto-install 由来の pending 推定は、現在は queue で
 - package 群は先に DataGrid に出る
 - 推定は batch worker が package 単位で進める
 - batch 開始前に package aggregate hash をまとめて `EnsureDirectoriesByHashes(...)` する
-
-そのため、package ごとの `lazyHashBuildMsDelta` は小さく抑える設計です。
-
-## 現在の設計で解決したこと
-
-- `candidate only` 評価により destination が過小評価される問題
-- `innerWavHealthThreshold` による比較前の候補全落ち
-- source 別枠 reinject により無情報 source が勝ちやすい問題
-- startup restore 時に保留推定完了まで一覧が出ない問題
-
-## まだ残っている調整対象
-
-- `竹取はっぴー` のような実機ケースで、package-aware union 評価後の実順位を再確認する
-- `Precision / Jaccard` 重みの最終調整
-- source を suggestion に含めることの UI/UX 妥当性
-- loose-file 経路の bundled 空評価をどこまで維持するか
-- 将来の `TITLE/ARTIST` tie-break や fingerprint 併用
+- ただし source baseline が高ヘルスなら、その package は deferred として skip する
 
 ## 関連資料
 
