@@ -375,7 +375,7 @@
   "Msg_open_install_destination_missing": "インストール先を特定できませんでした。\n推定先が未設定か、既所持譜面から導入先を逆引きできません。",
   "Msg_open_install_destination_not_found": "インストール先フォルダが見つかりません。\n{0}",
   "Estimate_merge_loc": "マージ先を推定",
-  "Msg_estimate_merge_confirm": "元フォルダ補正を使わずにインストール先を再推定します。\n既存の推定先は上書きされます。\n続行しますか？",
+  "Msg_estimate_merge_confirm": "元フォルダを基準に、より適したマージ先があるか再推定します。\n既存の推定先は上書きされます。\n続行しますか？",
   "Details_test_keep_installable_pending": "[テスト中] 新規判定でも自動インストールせず保留に追加する",
   "Success": "成功",
   "Playlist_summary_header": "プレイリストサマリー",

@@ -1236,7 +1236,7 @@ BMSファイルが重複しないようにマージします。
     <value>マージ先を推定</value>
   </data>
   <data name="Msg_estimate_merge_confirm" xml:space="preserve">
-    <value>元フォルダ補正を使わずにインストール先を再推定します。
+    <value>元フォルダを基準に、より適したマージ先があるか再推定します。
 既存の推定先は上書きされます。
 続行しますか？</value>
   </data>

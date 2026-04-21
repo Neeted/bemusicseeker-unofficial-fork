@@ -101,6 +101,41 @@ internal sealed class ChartResourceSnapshot
         return snapshot;
     }
 
+    public static ChartResourceSnapshot CreateAggregate(IEnumerable<BMSFile> files)
+    {
+        ChartResourceSnapshot aggregate = new ChartResourceSnapshot();
+        foreach (BMSFile file in (files ?? Enumerable.Empty<BMSFile>()).Where((BMSFile item) => item != null))
+        {
+            aggregate.Merge(Create(file));
+        }
+        aggregate.PathSegmentReferenceCount = aggregate.EnumerateAllRelativePaths().Count(ChartResourcePathNormalizer.HasDirectorySegments);
+        return aggregate;
+    }
+
+    private void Merge(ChartResourceSnapshot other)
+    {
+        if (other == null)
+        {
+            return;
+        }
+        AudioRelativePaths.UnionWith(other.AudioRelativePaths);
+        AudioRelativePathHashes.UnionWith(other.AudioRelativePathHashes);
+        AudioBaseNames.UnionWith(other.AudioBaseNames);
+        AudioBaseNameHashes.UnionWith(other.AudioBaseNameHashes);
+        VisualRelativePaths.UnionWith(other.VisualRelativePaths);
+        VisualRelativePathHashes.UnionWith(other.VisualRelativePathHashes);
+        VisualBaseNames.UnionWith(other.VisualBaseNames);
+        VisualBaseNameHashes.UnionWith(other.VisualBaseNameHashes);
+        MovieRelativePaths.UnionWith(other.MovieRelativePaths);
+        MovieRelativePathHashes.UnionWith(other.MovieRelativePathHashes);
+        MovieBaseNames.UnionWith(other.MovieBaseNames);
+        MovieBaseNameHashes.UnionWith(other.MovieBaseNameHashes);
+        OptionalImageRelativePaths.UnionWith(other.OptionalImageRelativePaths);
+        OptionalImageRelativePathHashes.UnionWith(other.OptionalImageRelativePathHashes);
+        OptionalImageBaseNames.UnionWith(other.OptionalImageBaseNames);
+        OptionalImageBaseNameHashes.UnionWith(other.OptionalImageBaseNameHashes);
+    }
+
     private static void EnsureComponentCollectionsLoaded(BMSFile file)
     {
         if (file.WAVfiles != null && file.BGAfiles != null)

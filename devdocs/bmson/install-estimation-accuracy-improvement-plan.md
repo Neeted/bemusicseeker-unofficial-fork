@@ -5,13 +5,16 @@
 - `P1`: 実施済み
 - `P3`: 実施済み
 - `P2 前提整備（scan redesign）`: 実施済み
-- `P2 本体（余剰リソース評価の最終調整）`: 継続中
+- `P2 本体（評価単位の再定義と余剰リソース評価）`: 実装済み
+- `P2 最終調整（実機ケースでの順位・confidence チューニング）`: 継続中
 - `P4`: 未実施
 - `P5`: 未実施
 
 現時点では、**曖昧な高スコア候補を自動確定しないこと** と、**保留画面で推定先の代表譜面 metadata を確認できること** まで入っています。  
 加えて、**pending の `INSTL DST` 手動編集時にオートコンプリート型で上位候補をサジェストすること** と、**`confidence=Low` 行を警告色で可視化すること** まで入っています。  
-一方で、`TITLE` / `ARTIST` tie-break や fingerprint 系はまだ入っていません。
+一方で、`TITLE` / `ARTIST` tie-break や fingerprint 系はまだ入っていません。  
+また、`P2` については **評価単位の再定義** まで入っており、現在は **package-aware union 評価の順位・confidence の実機チューニング** が残課題です。  
+`2026-04-20` 時点の整理で本質だった **`candidate only` 評価** は解消し、現在の最終評価は `candidate + package bundled resources` を前提にしています。
 
 ## 今回実装したこと
 
@@ -65,14 +68,24 @@
 
 ## 現状整理
 
-- 現在の推定スコアは `Audio/Visual/Movie/OptionalImage` の一致数・一致率ベースで、`TITLE` / `ARTIST` は見ていない
-- 候補フォルダの「余分なリソースの少なさ」は見ていない
+- 現在の推定スコアは `Audio/Visual/Movie/OptionalImage` の
+  - `Health`
+  - `Matched`
+  - `ExactMatched`
+  - `Precision`
+  - `Jaccard`
+  ベースで、`TITLE` / `ARTIST` はまだ見ていない
+- 余剰リソース評価は **candidate 単体ではなく `candidate + package bundled resources` の union** に対して行っている
 - 追加音源を大量に含む元フォルダでも、譜面が定義している basename を十分満たしていれば高スコアになり得る
-- しかも現在は `AudioFileCount` が tie-break に入っているため、追加音源が多い候補が有利になる場合がある
+- `AudioFileCount` は順位決定の主軸から外している
 - 高スコア候補が複数並んだ場合でも、1 位だけを `instl_dst` に入れて終わる
 - `00.wav`, `01.wav` のような連番中心の譜面では、無関係なフォルダでも高一致になりやすい
 - 相対パスは snapshot / 正規化には乗っているが、推定精度改善の主材料としてはまだ使っていない
-- source folder は別枠で候補に戻され、1 位になると `selected_source_directory` で打ち切られる
+- source folder は通常候補と同じ list 上で比較する
+- source 1 位時は
+  - 非 source 候補と僅差なら `Low + non-source suggestions`
+  - 明確優位なら `High + no destination`
+  として扱う
 
 ## 今回判明した誤推定パターン
 
@@ -96,6 +109,47 @@
 - source folder が最終 1 位になると `selected_source_directory` で即 return し、他候補の採用に進まない
 
 つまり、この種の誤推定は「候補集合が足りない」のではなく、**余剰リソースを罰していないこと** と **source folder 優遇が強すぎること** が主因である。
+
+### `P2` 実装後に残った確認ポイント
+
+scan redesign と package-aware union 評価導入前の時点では、`2026-04-20 18:50` 時点のログでこのケースは未解決だった。
+
+- 実際のログ:
+  - `evaluationMs=84`
+  - `confidence=High`
+  - `confidenceReason=selected_source_directory`
+  - `candidateDirsAfter=2645`
+  - `selected dir=...\\taketorihappy_ptcg`
+  - `audio=0/0`
+  - `audioCount=0`
+  - `audioPrecision=0`
+  - `audioJaccard=0`
+- しかも候補ログに出ているのは source folder 1 件だけで、`second=(none)` になっていた
+
+この旧挙動から分かった問題は、「`Precision / Jaccard` の重み不足」だけではなく、**`candidate only` 評価 + threshold + source reinject** の組み合わせにあった。
+
+実装上は次の流れになっている。
+
+- 通常候補は `innerWavHealthThreshold` 以下だと `candidateInfos` から除外されていた
+- その後で `sourceEvaluation` は別枠で `candidateInfos` に追加されていた
+- その結果、通常候補が全落ちした場合でも source folder だけが 1 件残っていた
+- source folder がライブラリ外で cache を持たない場合、`audio=0/0`, `audioCount=0` のような**実質無情報の候補**でも `selected_source_directory` で勝てていた
+
+つまり、このケースの未解決要因は少なくとも 2 つある。
+
+1. **候補絞り込み段階**
+   - `innerWavHealthThreshold` により、本来比較すべき候補が P2 の並び替えまで到達していない可能性がある
+2. **source folder 再注入段階**
+   - source folder が無情報に近い評価でも、通常候補がいないと `selected_source_directory` で確定できてしまう
+
+このため `P2` 本体では、
+
+- `candidate + package bundled resources` 評価
+- source の通常候補化
+- threshold の auto-apply 安全弁化
+
+までを実装した。  
+今後の `P2` 調整では、この新しい評価単位の上で **順位式と confidence 条件の実機チューニング** を詰める。
 
 ## 基本方針
 
@@ -143,7 +197,7 @@
 
 ### P2. 余分リソースの少なさを評価へ入れる
 
-前提整備を実施済み。本体評価の最終調整は継続中。
+前提整備と本体の評価単位再定義は実施済み。実機チューニングは継続中。
 
 #### 今回入れた前提整備
 
@@ -164,11 +218,37 @@
 - 特に Everything 使用時は `FilesByDirectory` が空で、カテゴリ別評価や余剰リソース評価の土台が揃っていなかった
 - 先に列挙基盤を揃えないと、`Precision / Jaccard` を導入しても経路差で誤動作しやすかった
 
-#### P2 本体として残っているもの
+#### P2 本体として実装したもの
+
+- package 単位 snapshot
+  - `DefinedResources`
+  - `BundledResources`
+  - `SourceCandidateResources`
+- final evaluation の `candidate + package bundled resources` 化
+- `CollectTargetResourceHashes(...)` の package aggregate 化
+- source folder の通常候補化
+- source 1 位時の `Low / no auto-apply`
+- `innerWavHealthThreshold` の auto-apply 安全弁化
+
+#### P2 最終調整として残っているもの
 
 - `Precision / Jaccard` の最終的な順位調整
-- `selected_source_directory` / `source_tie_on_primary_metrics` の扱い見直しの詰め
-- 実機ケースでの誤推定ログを踏まえたパラメータ調整
+- source を suggestion 候補に含める UI/UX の妥当性確認
+- 実機ケースでの `confidenceReason` と auto-apply 条件の詰め
+- `TITLE/ARTIST` tie-break や fingerprint 併用を後段で入れるかの判断
+
+#### `P2` 最終調整の前提として確定した方向
+
+`2026-04-20` 時点の再整理では、`P2` は「候補順位の重みを少し動かす」だけでは足りず、**最終評価単位を `candidate + package bundled resources` に再定義する**方針で実装した。
+
+実装した理由:
+
+- 旧 `EvaluateCandidate(...)` は candidate directory 単体しか見ていなかった
+- 追加音源つき差分では、正しい導入先でも package bundled resources を足さない限り低 health になりやすかった
+- その状態で `innerWavHealthThreshold` による除外と source 再注入があるため、source が勝ちやすかった
+
+設計整理は別紙 [導入先推定のあるべき設計メモ](install-estimation-target-design.md) に残しつつ、現在はその方針に沿った実装が入っている。  
+次の作業は、この新設計を前提にした実機ログでの調整と残件整理である。
 
 ### P3. 保留画面の確認導線強化
 
@@ -266,7 +346,11 @@
 
 - 理由:
   - `P1` / `P3` と scan redesign で、安全側 UI と列挙基盤は整った
-  - 次はこの新 cache を前提に、`P2` の余剰リソース評価を実機ケースで正常化する段階
+  - 一方で `竹取はっぴー` ケースでは、`P2` の順位付けに入る前に通常候補が落ち、source folder だけが残る可能性が高いことが分かった
+  - したがって次は、`Precision / Jaccard` の重み調整だけでなく
+    - 候補 recall の維持
+    - source fallback 条件の抑制
+    を含めて `P2` を仕上げる段階
   - その次の本命が、僅差候補をさらに崩す `TITLE/ARTIST` tie-break
   - `TITLE` / `ARTIST` は全候補に使うと重くなりやすいが、上位候補だけなら入れやすい
 

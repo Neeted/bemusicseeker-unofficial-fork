@@ -372,7 +372,7 @@
   "Details_test_smart_component_overwrite": "[TEST] Optimize bundled file overwrite by comparing modified date and size on diff install",
   "Details_test_keep_smart_overwrite_protected_by_rename": "[TEST] During smart overwrite, keep *.bmx/*.pmx/*.txt/*.bmson by auto-renaming instead of overwriting",
   "Estimate_merge_loc": "Estimate merge destination",
-  "Msg_estimate_merge_confirm": "Re-estimate install destination without using the original folder correction.\nExisting estimates will be overwritten.\nDo you want to continue?",
+  "Msg_estimate_merge_confirm": "Re-estimate whether there is a better merge destination than the source folder.\nExisting estimates will be overwritten.\nDo you want to continue?",
   "Msg_open_install_destination_missing": "Could not determine the install destination.\nThe estimated destination is not set, or it could not be reverse-looked up from owned charts.",
   "Msg_open_install_destination_multiple_selected": "Multiple items are selected. Only the first chart will be used.",
   "Msg_open_install_destination_not_found": "Install destination folder not found.\n{0}",

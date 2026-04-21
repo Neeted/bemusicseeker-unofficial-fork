@@ -12,6 +12,10 @@ public class BMSPackage : LR2SongDBExtended.install
 {
 	private List<BMSFile> bmsFiles;
 
+	private readonly object installEstimationSnapshotLock = new object();
+
+	private PackageInstallSurfaceSnapshot installEstimationSurfaceSnapshot;
+
 	public List<PendingChartEntry> PendingCharts => (BMSFiles ?? new List<BMSFile>()).OfType<PendingChartEntry>().ToList();
 
 	public List<BMSFile> BMSFiles
@@ -39,6 +43,34 @@ public class BMSPackage : LR2SongDBExtended.install
 	public BMSPackage(IEnumerable<BMSFile> bmsFiles)
 	{
 		this.bmsFiles = bmsFiles.ToList();
+	}
+
+	internal PackageInstallEstimationSnapshot GetOrBuildInstallEstimationSnapshot(IEnumerable<BMSFile> targetFiles)
+	{
+		List<BMSFile> targetFileList = (targetFiles ?? Enumerable.Empty<BMSFile>()).Where((BMSFile file) => file != null).ToList();
+		PackageInstallSurfaceSnapshot installSurfaceSnapshot = GetOrBuildInstallEstimationSurfaceSnapshot();
+		return PackageInstallEstimationSnapshotBuilder.Build(this, targetFileList, installSurfaceSnapshot);
+	}
+
+	internal void InvalidateInstallEstimationSnapshot()
+	{
+		lock (installEstimationSnapshotLock)
+		{
+			installEstimationSurfaceSnapshot = null;
+		}
+	}
+
+	private PackageInstallSurfaceSnapshot GetOrBuildInstallEstimationSurfaceSnapshot()
+	{
+		lock (installEstimationSnapshotLock)
+		{
+			if (installEstimationSurfaceSnapshot == null
+				|| !string.Equals(installEstimationSurfaceSnapshot.SourcePath, path ?? string.Empty, StringComparison.OrdinalIgnoreCase))
+			{
+				installEstimationSurfaceSnapshot = PackageInstallEstimationSnapshotBuilder.BuildInstallSurface(path);
+			}
+			return installEstimationSurfaceSnapshot;
+		}
 	}
 
 	private List<BMSFile> getBMSFiles()

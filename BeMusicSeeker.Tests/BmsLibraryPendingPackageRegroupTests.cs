@@ -172,7 +172,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             Assert.IsTrue(string.IsNullOrWhiteSpace(pendingFile.instl_dst));
             Assert.AreEqual("Candidate A", pendingFile.InstallDestinationTitle);
             Assert.AreEqual("Artist A", pendingFile.InstallDestinationArtist);
-            CollectionAssert.AreEqual(new[] { candidateADirectoryPath, candidateBDirectoryPath }, pendingFile.InstallDestinationSuggestions.ToArray());
+            CollectionAssert.AreEquivalent(new[] { candidateADirectoryPath, candidateBDirectoryPath }, pendingFile.InstallDestinationSuggestions.ToArray());
             Assert.IsTrue(pendingFile.HasLowConfidenceInstallWarning);
             StringAssert.Contains(pendingFile.warning ?? string.Empty, BeMusicSeeker.Properties.Resources.Warning_InstallEstimationAmbiguousPrefix);
             StringAssert.Contains(pendingFile.warning ?? string.Empty, candidateADirectoryPath);
@@ -280,7 +280,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             Assert.AreEqual(candidateBDirectoryPath, pendingFile.instl_dst);
             Assert.AreEqual("Candidate B", pendingFile.InstallDestinationTitle);
             Assert.AreEqual("Artist B", pendingFile.InstallDestinationArtist);
-            CollectionAssert.AreEqual(new[] { candidateADirectoryPath, candidateBDirectoryPath }, pendingFile.InstallDestinationSuggestions.ToArray());
+            CollectionAssert.AreEquivalent(new[] { candidateADirectoryPath, candidateBDirectoryPath }, pendingFile.InstallDestinationSuggestions.ToArray());
             Assert.IsTrue(pendingFile.HasLowConfidenceInstallWarning);
             StringAssert.Contains(pendingFile.warning ?? string.Empty, BeMusicSeeker.Properties.Resources.Warning_InstallEstimationAmbiguousPrefix);
             StringAssert.Contains(pendingFile.warning ?? string.Empty, candidateADirectoryPath);

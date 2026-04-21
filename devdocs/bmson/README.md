@@ -49,10 +49,21 @@
    - low-confidence 行色
    - P2 前提としての scan redesign
      - sibling 廃止
-     - chart-directory keyed hash-only scan
-     - relative path hash の土台
-   - 余剰リソース評価と source folder 優遇見直し
+   - chart-directory keyed hash-only scan
+   - relative path hash の土台
+   - `candidate + package bundled resources` 評価への移行
+   - 余剰リソース評価と source folder 扱い見直し
    - metadata tie-break の今後計画
+9. [現状の導入先推定ロジック整理](install-estimation-current-logic.md)
+   - package-aware / loose-file の 2 経路
+   - package snapshot / bundled resources / source candidate surface
+   - `candidate + package bundled resources` の最終比較
+   - `confidence` / `ShouldAutoApplyDestination` / `INSTL DST` 適用条件
+10. [導入先推定のあるべき設計メモ](install-estimation-target-design.md)
+   - `candidate + package bundled resources` を採った背景
+   - coarse filter と final evaluation の役割分離
+   - source folder と threshold の再整理
+   - 実装後に残る tuning 論点整理
 
 ## 実装方針の要点
 
@@ -117,7 +128,11 @@
   - confidence / 第2候補 / `INSTL DST TITLE/ARTIST`
   - `INSTL DST` 候補サジェストと low-confidence 行色
   - sibling 廃止と chart-directory keyed scan redesign
-- `P2` 本体の余剰リソース評価は、この scan redesign を前提に継続調整中
+- `P2` 本体の評価単位再定義は実装済み
+  - package-aware union 評価
+  - source の通常候補化
+  - threshold の auto-apply 安全弁化
+- 残るのは実機ログでの順位 / confidence 調整
 - 残る作業は README / リリースノート / バージョン反映などのリリース整理
 
 ## バージョン方針

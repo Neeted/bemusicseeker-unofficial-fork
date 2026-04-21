@@ -20,6 +20,10 @@ internal sealed class InstallEstimationCandidate
 {
     public string DirectoryPath { get; set; }
 
+    public bool IsSourceCandidate { get; set; }
+
+    public bool IsViableDestination { get; set; }
+
     public int AudioHealth { get; set; }
 
     public int AudioMatched { get; set; }
@@ -69,8 +73,10 @@ internal sealed class InstallEstimationCandidate
     public string ToSummary()
     {
         return string.Format(
-            "dir={0} audio={1}/{2} exact={3} visual={4}/{5} exact={6} movie={7}/{8} exact={9} optional={10}/{11} exact={12} audioCount={13} audioPrecision={14} audioJaccard={15} visualPrecision={16} visualJaccard={17} moviePrecision={18} movieJaccard={19} optionalPrecision={20} optionalJaccard={21} title={22} artist={23}",
+            "dir={0} source={1} viable={2} audio={3}/{4} exact={5} visual={6}/{7} exact={8} movie={9}/{10} exact={11} optional={12}/{13} exact={14} audioCount={15} audioPrecision={16} audioJaccard={17} visualPrecision={18} visualJaccard={19} moviePrecision={20} movieJaccard={21} optionalPrecision={22} optionalJaccard={23} title={24} artist={25}",
             DirectoryPath ?? string.Empty,
+            IsSourceCandidate ? 1 : 0,
+            IsViableDestination ? 1 : 0,
             AudioMatched,
             AudioHealth,
             AudioExactMatched,
@@ -124,6 +130,8 @@ internal sealed class InstallEstimationResult
 
     public bool ShouldAutoApplyDestination { get; set; }
 
+    public bool HasViableDestination { get; set; }
+
     public string ConfidenceReason { get; set; }
 
     public List<InstallEstimationCandidate> Candidates { get; } = new List<InstallEstimationCandidate>();
@@ -131,6 +139,8 @@ internal sealed class InstallEstimationResult
     public InstallEstimationCandidate SelectedCandidate => Candidates.Count > 0 ? Candidates[0] : null;
 
     public InstallEstimationCandidate SecondCandidate => Candidates.Count > 1 ? Candidates[1] : null;
+
+    public List<string> SuggestedDestinationDirectories { get; } = new List<string>();
 
     public int CandidateDirectoryCount { get; set; }
 
@@ -141,6 +151,14 @@ internal sealed class InstallEstimationResult
     public int CandidateDirectoryCountAfterHashFilter { get; set; }
 
     public int TargetResourceHashCount { get; set; }
+
+    public int BundledAudioCount { get; set; }
+
+    public int BundledImageCount { get; set; }
+
+    public int BundledMovieCount { get; set; }
+
+    public string CandidateMode { get; set; }
 
     public long EvaluationMs { get; set; }
 
