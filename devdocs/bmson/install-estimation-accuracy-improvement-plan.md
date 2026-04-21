@@ -15,6 +15,7 @@
 一方で、`TITLE` / `ARTIST` tie-break や fingerprint 系はまだ入っていません。  
 また、`P2` については **評価単位の再定義** まで入っており、現在は **package-aware union 評価の順位・confidence の実機チューニング** が残課題です。  
 `2026-04-20` 時点の整理で本質だった **`candidate only` 評価** は解消し、現在の最終評価は `candidate + package bundled resources` を前提にしています。
+加えて `2026-04-21` 時点では、**高ヘルス source baseline の pending package に対する background auto-estimate 抑制** と、**merge の source baseline 比較化** まで入っています。
 
 ## 今回実装したこと
 
@@ -86,6 +87,10 @@
   - 非 source 候補と僅差なら `Low + non-source suggestions`
   - 明確優位なら `High + no destination`
   として扱う
+- ただし pending に残っていても、source baseline が `innerWavHealthThreshold` 以上なら background auto-estimate は走らせない
+  - `DeferredEstimateReason=HealthySourceBaseline`
+  - `INSTL DST` / suggestion / warning / 推定 metadata は空に保つ
+  - 必要なら手動 `マージ先を推定` で source baseline 比較を行う
 
 ## 今回判明した誤推定パターン
 
@@ -236,6 +241,13 @@ scan redesign と package-aware union 評価導入前の時点では、`2026-04-
 - source を suggestion 候補に含める UI/UX の妥当性確認
 - 実機ケースでの `confidenceReason` と auto-apply 条件の詰め
 - `TITLE/ARTIST` tie-break や fingerprint 併用を後段で入れるかの判断
+
+#### `2026-04-21` 時点で追加した運用整理
+
+- high-health source baseline package は、pending に残っても background auto-estimate を抑制する
+- file package は source baseline 抑制対象外とする
+- merge は `MergeSourceBaseline` として、source を baseline に non-source が materially 上回るかを見る
+- 内部順位付けでは raw precision / jaccard を使い、ログ/UI 用の整数 `%` は維持する
 
 #### `P2` 最終調整の前提として確定した方向
 

@@ -19,6 +19,13 @@
 
 現在この資料は、**なぜその設計にしたかの背景整理** と、**今後の tuning 論点メモ** として残しています。
 
+`2026-04-21` 時点では、さらに次の運用整理も入っています。
+
+- pending に残ることと background auto-estimate 対象になることを分離する
+- source baseline が `innerWavHealthThreshold` 以上なら、background auto-estimate は抑制する
+- この場合は `DeferredEstimateReason=HealthySourceBaseline` を transient に付け、必要なら手動の `マージ先を推定` で source baseline 比較を行う
+- file package は source baseline 抑制対象外とする
+
 ## 先に結論
 
 現状の最大のズレは、**最終評価が「candidate directory 単体」を見ている**ことです。  
@@ -44,6 +51,9 @@
    - `candidate + package bundled resources` の union を前提に、導入後状態を比較する
 
 `竹取はっぴー(potechang).bme` のようなケースで source folder が勝つのは、今の実装が 2. を満たしていないためです。
+
+一方で、`RESONANCE` のような **source 自体がほぼ完結している高ヘルス package** については、`candidate + bundled` 評価に移行した後でも background auto-estimate を走らせる必要は薄いです。
+このため現在は、あるべき設計の運用補足として **healthy source baseline の自動推定抑制** を入れています。
 
 ## 現状の問題点
 
@@ -128,6 +138,25 @@ source folder は「fallback だから最後に戻す」のではなく、
 という整理に寄せるのが自然です。
 
 少なくとも、**通常候補が `candidate only` 評価で全落ちした結果 source が勝つ**状態は避けるべきです。
+
+### 方針 4. source 自体が十分健康なら、自動推定を始めない
+
+source baseline が `innerWavHealthThreshold` 以上なら、その package は
+
+- 「導入先を自動推定すべき package」
+
+ではなく、
+
+- **「source のままでも成立しているので、必要なら手動 merge でより良い行き先を探す package」**
+
+として扱う方が自然です。
+
+この整理により、
+
+- `KeepInstallablePackagesPending=true` で pending に残しただけの package
+- startup restore で復元された高ヘルス package
+
+に対して、不要な background auto-estimate を走らせずに済みます。
 
 ## 評価対象の再定義
 

@@ -17,8 +17,9 @@
 3. 各候補に対して `EffectiveResources = CandidateResources ∪ BundledResources` を作る
 4. `EffectiveResources` と `DefinedResources` を比較して `Health / Matched / Exact / Precision / Jaccard` を出す
 5. source も通常候補と同じ土俵で比較する
-6. ただし結果は `High + destination` / `Low + suggestions` / `High + no destination` に整理して返す
-7. `innerWavHealthThreshold=70` は候補除外には使わず、viable destination と `High` / auto-apply の下限に使う
+6. background pending estimate では、source baseline が `innerWavHealthThreshold=70` 以上なら自動推定を抑制する
+7. ただし結果は `High + destination` / `Low + suggestions` / `High + no destination` に整理して返す
+8. `innerWavHealthThreshold=70` は候補除外には使わず、viable destination と `High` / auto-apply の下限に使う
 
 ## 関連クラス
 
@@ -55,6 +56,25 @@
 - 全未所持 package は `Normal` モードで package-aware 推定へ入る
 
 この経路では、`missingFiles` と package の source path から **package snapshot** を作って評価します。
+
+### background pending estimate の抑制
+
+startup restore と auto-install 後の background pending estimate では、package-aware 推定へ入る前に **source baseline viability** を見ます。
+
+- directory package で source baseline の primary health が `innerWavHealthThreshold=70` 以上
+  - pending には残す
+  - ただし background auto-estimate は走らせない
+  - package には transient に `DeferredEstimateReason=HealthySourceBaseline` を付ける
+  - `INSTL DST` / suggestion / low-confidence warning / 推定 metadata は空に戻す
+- file package
+  - deferred 抑制対象外
+  - 従来どおり background estimate の候補になり得る
+- mixed package
+  - まず installed-directory reuse を試す
+  - reuse 不成立時だけ source baseline 判定へ進む
+
+つまり現在は、**pending に残ること** と **background auto-estimate 対象になること** を分けています。
+高ヘルス source の package は「未推定」ではなく、**自動推定不要・必要なら手動 merge 対象**として保留に残ります。
 
 ## 2. loose-file 経路
 
@@ -131,7 +151,7 @@ source を通常候補と同じ土俵で比較するための entry です。
 
 - `bmsFolderAllFileList.Keys`
 - merge 以外では `SourceDirectory` も追加候補として含める
-- merge (`MergeNoSourceCompensation`) でも source を含めて比較し、source baseline より良い non-source があるかを見る
+- merge (`MergeSourceBaseline`) でも source を含めて比較し、source baseline より良い non-source があるかを見る
 
 resource-only subdir は候補に入りません。
 
@@ -200,7 +220,11 @@ threshold は coarse filter ではなく、最終 confidence 判定側で使い�
 6. 同様に `Visual`
 7. 同様に `Movie`
 8. 同様に `OptionalImage`
-9. `DirectoryPath`
+9. raw precision / jaccard
+10. `DirectoryPath`
+
+`Precision` / `Jaccard` はログ/UI には整数 `%` を出しますが、**内部順位付けと tie 判定は raw ratio** を使います。
+そのため、`1281/1282` と `1281/1285` のような差が 100/100 に丸めつぶされて path 順になるのを避けています。
 
 つまり P2 現在地は「candidate+bundled union 評価に移行済みで、その指標で並べている」状態です。
 
@@ -257,6 +281,94 @@ source は別枠 reinject ではなく、**通常候補と同じ list** で比�
 - `HasViableDestination == true` の場合だけ代表 metadata を入れる
 - `Confidence = Low` の場合だけ non-source suggestion を保持する
 - そのうち候補が 2 件以上ある場合だけ warning を保持する
+
+## 手動 `インストール先を推定` と `マージ先を推定` の違い
+
+現在の手動操作は、入口の目的が明確に分かれています。
+
+### 1. 手動 `インストール先を推定`
+
+目的は、**未所持譜面の導入先を決めること**です。
+
+- background auto-estimate 抑制とは無関係で、手動なら実行する
+- pending package に対して実行した場合は `DeferredEstimateReason` を解除する
+- package 内を
+  - `alreadyInstalledFiles`
+  - `missingFiles`
+  に分ける
+
+その上で:
+
+- `missingFiles == 0`
+  - 何もしない
+- mixed package
+  - まず `TryResolveInstalledDestinationFromPackage(...)` で、既所持譜面の実配置先を未所持譜面へ再利用できるか試す
+  - 成功したら、その配置先を **未所持譜面だけ** に反映して終了
+  - 失敗したら `Fix` モードで **未所持譜面だけ** を package-aware 推定する
+- 全部未所持
+  - `Normal` モードで通常推定する
+
+つまり通常推定は、mixed package では **「既所持側の配置先に未所持を寄せる補完」** が第一です。
+
+### 2. 手動 `マージ先を推定`
+
+目的は、**source baseline を上回る non-source merge 先があるかを見ること**です。
+
+- package 単位では `MergeSourceBaseline` モードを使う
+- source を候補に含めて比較する
+- `DeferredEstimateReason` を解除した上で実行する
+
+その上で:
+
+- まず `TryResolveInstalledDestinationFromPackage(...)` を試す
+- 解決できれば、その配置先を package 全体へ反映する
+- 解決できなければ `MergeSourceBaseline` で source を baseline に比較する
+
+`MergeSourceBaseline` では、
+
+- non-source が source を **materially** 上回る
+  - merge destination を返す
+- source が最善
+  - `High + no destination`
+- source が最善だが viable non-source と僅差
+  - `Low + non-source suggestions`
+
+となります。
+
+つまりマージ推定は、**「source のままで十分か、それとも source より良い merge 先があるか」** を見る機能です。
+
+## 既所持譜面を含む package の扱い
+
+既所持譜面を含む mixed package は、通常推定とマージ推定で扱いが異なります。
+
+### 通常推定
+
+- 既所持譜面は warning 対象になる
+- 推定対象は **未所持譜面だけ**
+- まず既所持譜面の実配置先を再利用できるか試す
+- 再利用できなければ、未所持譜面だけ `Fix` モードで推定する
+
+つまり mixed package に対する通常推定は、**「既所持分の実配置先へ未所持分を寄せる」** 挙動です。
+
+### マージ推定
+
+- package 単位では **既所持・未所持をまとめて** 扱う
+- 既存配置先再利用が成功すれば、その配置先を package 全体へ入れる
+- 失敗したら package 全体を `MergeSourceBaseline` で評価する
+
+つまり mixed package に対するマージ推定は、**「package 全体の行き先を source baseline 付きで見直す」** 挙動です。
+
+### file 選択時の注意
+
+file 群を対象にした場合は、現在まだ wrapper が完全には同じではありません。
+
+- 通常推定
+  - pending package に属する file は package 単位へ束ねて処理する
+- マージ推定
+  - 現在は file ごとに `MergeSourceBaseline` を回す
+
+そのため、同じ pending package でも **package 選択時と file 選択時で merge 結果がずれる余地** は残っています。
+現状 docs では、この差を既知の実装上の違いとして明示しておきます。
 
 ## pending batch と demand build
 

@@ -14,6 +14,31 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 /// </summary>
 internal sealed class BmsLibraryInstallEstimationService
 {
+    internal sealed class SourceBaselineEvaluation
+    {
+        public int PrimaryHealth { get; set; }
+
+        public bool IsViableDestination { get; set; }
+
+        public string Summary { get; set; } = string.Empty;
+    }
+
+    private readonly struct RatioMetric
+    {
+        internal RatioMetric(int state, long numerator, long denominator)
+        {
+            State = state;
+            Numerator = numerator;
+            Denominator = denominator;
+        }
+
+        internal int State { get; }
+
+        internal long Numerator { get; }
+
+        internal long Denominator { get; }
+    }
+
     private sealed class CandidateEvaluation
     {
         public string DirectoryPath { get; set; }
@@ -134,14 +159,14 @@ internal sealed class BmsLibraryInstallEstimationService
         {
             return HasSamePrimaryMetrics(other)
                 && other != null
-                && AudioJaccard == other.AudioJaccard
-                && AudioPrecision == other.AudioPrecision
-                && VisualJaccard == other.VisualJaccard
-                && VisualPrecision == other.VisualPrecision
-                && MovieJaccard == other.MovieJaccard
-                && MoviePrecision == other.MoviePrecision
-                && OptionalImageJaccard == other.OptionalImageJaccard
-                && OptionalImagePrecision == other.OptionalImagePrecision;
+                && CompareRatioMetric(BuildJaccardMetric(AudioMatched, AudioDefined, AudioCandidateCount), BuildJaccardMetric(other.AudioMatched, other.AudioDefined, other.AudioCandidateCount)) == 0
+                && CompareRatioMetric(BuildPrecisionMetric(AudioMatched, AudioDefined, AudioCandidateCount), BuildPrecisionMetric(other.AudioMatched, other.AudioDefined, other.AudioCandidateCount)) == 0
+                && CompareRatioMetric(BuildJaccardMetric(VisualMatched, VisualDefined, VisualCandidateCount), BuildJaccardMetric(other.VisualMatched, other.VisualDefined, other.VisualCandidateCount)) == 0
+                && CompareRatioMetric(BuildPrecisionMetric(VisualMatched, VisualDefined, VisualCandidateCount), BuildPrecisionMetric(other.VisualMatched, other.VisualDefined, other.VisualCandidateCount)) == 0
+                && CompareRatioMetric(BuildJaccardMetric(MovieMatched, MovieDefined, MovieCandidateCount), BuildJaccardMetric(other.MovieMatched, other.MovieDefined, other.MovieCandidateCount)) == 0
+                && CompareRatioMetric(BuildPrecisionMetric(MovieMatched, MovieDefined, MovieCandidateCount), BuildPrecisionMetric(other.MovieMatched, other.MovieDefined, other.MovieCandidateCount)) == 0
+                && CompareRatioMetric(BuildJaccardMetric(OptionalImageMatched, OptionalImageDefined, OptionalImageCandidateCount), BuildJaccardMetric(other.OptionalImageMatched, other.OptionalImageDefined, other.OptionalImageCandidateCount)) == 0
+                && CompareRatioMetric(BuildPrecisionMetric(OptionalImageMatched, OptionalImageDefined, OptionalImageCandidateCount), BuildPrecisionMetric(other.OptionalImageMatched, other.OptionalImageDefined, other.OptionalImageCandidateCount)) == 0;
         }
 
         private static int ComputeHealth(int matched, int defined)
@@ -395,6 +420,34 @@ internal sealed class BmsLibraryInstallEstimationService
         return snapshot?.DefinedResources?.EnumerateAllBaseNameHashes() ?? new HashSet<uint>();
     }
 
+    internal SourceBaselineEvaluation EvaluateSourceBaseline(PackageInstallEstimationSnapshot snapshot)
+    {
+        SourceBaselineEvaluation result = new SourceBaselineEvaluation();
+        if (snapshot?.RepresentativeFile == null)
+        {
+            return result;
+        }
+        ChartResourceSnapshot resourceSnapshot = snapshot.DefinedResources ?? new ChartResourceSnapshot();
+        if (resourceSnapshot.TotalReferenceCount == 0)
+        {
+            result.PrimaryHealth = 100;
+            result.IsViableDestination = true;
+            return result;
+        }
+        CandidateEvaluation evaluation = EvaluateCandidate(
+            snapshot.SourceDirectory,
+            resourceSnapshot,
+            null,
+            null,
+            snapshot.BundledResources,
+            snapshot.SourceCandidateResources,
+            isSourceCandidate: true);
+        result.PrimaryHealth = GetPrimaryHealth(resourceSnapshot, evaluation);
+        result.IsViableDestination = IsViableDestination(result.PrimaryHealth);
+        result.Summary = evaluation.ToSummary();
+        return result;
+    }
+
     public InstallEstimationResult EstimateInstallationDirectory(IEnumerable<BMSFile> bmsFiles, HashSet<string> installedHashes, BMSDirectoryFileNameHash folderAllFileList, DirectoryResourceLookupCache directoryLookupCache, bool asParallel, BmsInstallationEstimateMode estimateMode, Func<string, InstallDestinationRepresentativeMetadata> representativeMetadataResolver = null)
     {
         return EstimateInstallationDirectory(BuildLooseFileSnapshot(bmsFiles, installedHashes, estimateMode), folderAllFileList, directoryLookupCache, asParallel, estimateMode, representativeMetadataResolver);
@@ -403,7 +456,7 @@ internal sealed class BmsLibraryInstallEstimationService
     public InstallEstimationResult EstimateInstallationDirectory(PackageInstallEstimationSnapshot snapshot, BMSDirectoryFileNameHash folderAllFileList, DirectoryResourceLookupCache directoryLookupCache, bool asParallel, BmsInstallationEstimateMode estimateMode, Func<string, InstallDestinationRepresentativeMetadata> representativeMetadataResolver = null)
     {
         InstallEstimationResult result = new InstallEstimationResult();
-        bool isMergeMode = estimateMode == BmsInstallationEstimateMode.MergeNoSourceCompensation;
+        bool isMergeMode = estimateMode == BmsInstallationEstimateMode.MergeSourceBaseline;
         if (snapshot?.RepresentativeFile == null || folderAllFileList == null)
         {
             return result;
@@ -509,28 +562,8 @@ internal sealed class BmsLibraryInstallEstimationService
         {
             return result;
         }
-        List<CandidateEvaluation> orderedCandidates = candidateInfos.OrderByDescending((CandidateEvaluation evaluation) => evaluation.AudioHealth)
-            .ThenByDescending((CandidateEvaluation evaluation) => evaluation.AudioMatched)
-            .ThenByDescending((CandidateEvaluation evaluation) => evaluation.AudioExactMatched)
-            .ThenByDescending((CandidateEvaluation evaluation) => evaluation.AudioJaccard)
-            .ThenByDescending((CandidateEvaluation evaluation) => evaluation.AudioPrecision)
-            .ThenByDescending((CandidateEvaluation evaluation) => evaluation.VisualHealth)
-            .ThenByDescending((CandidateEvaluation evaluation) => evaluation.VisualMatched)
-            .ThenByDescending((CandidateEvaluation evaluation) => evaluation.VisualExactMatched)
-            .ThenByDescending((CandidateEvaluation evaluation) => evaluation.VisualJaccard)
-            .ThenByDescending((CandidateEvaluation evaluation) => evaluation.VisualPrecision)
-            .ThenByDescending((CandidateEvaluation evaluation) => evaluation.MovieHealth)
-            .ThenByDescending((CandidateEvaluation evaluation) => evaluation.MovieMatched)
-            .ThenByDescending((CandidateEvaluation evaluation) => evaluation.MovieExactMatched)
-            .ThenByDescending((CandidateEvaluation evaluation) => evaluation.MovieJaccard)
-            .ThenByDescending((CandidateEvaluation evaluation) => evaluation.MoviePrecision)
-            .ThenByDescending((CandidateEvaluation evaluation) => evaluation.OptionalImageHealth)
-            .ThenByDescending((CandidateEvaluation evaluation) => evaluation.OptionalImageMatched)
-            .ThenByDescending((CandidateEvaluation evaluation) => evaluation.OptionalImageExactMatched)
-            .ThenByDescending((CandidateEvaluation evaluation) => evaluation.OptionalImageJaccard)
-            .ThenByDescending((CandidateEvaluation evaluation) => evaluation.OptionalImagePrecision)
-            .ThenBy((CandidateEvaluation evaluation) => evaluation.DirectoryPath, StringComparer.OrdinalIgnoreCase)
-            .ToList();
+        List<CandidateEvaluation> orderedCandidates = candidateInfos.ToList();
+        orderedCandidates.Sort(CompareCandidateEvaluations);
         foreach (InstallEstimationCandidate candidate in orderedCandidates
             .Take(3)
             .Select(delegate (CandidateEvaluation evaluation)
@@ -541,22 +574,35 @@ internal sealed class BmsLibraryInstallEstimationService
         {
             result.Candidates.Add(candidate);
         }
+        CandidateEvaluation sourceCandidateEvaluation = orderedCandidates.FirstOrDefault((CandidateEvaluation evaluation) => evaluation.IsSourceCandidate);
+        CandidateEvaluation bestMateriallyBeatingNonSourceEvaluation = orderedCandidates.FirstOrDefault((CandidateEvaluation evaluation) => !evaluation.IsSourceCandidate
+            && MateriallyBeatsSource(resourceSnapshot, evaluation, sourceCandidateEvaluation));
         CandidateEvaluation selectedCandidateEvaluation = orderedCandidates.First();
-        CandidateEvaluation secondCandidateEvaluation = orderedCandidates.Skip(1).FirstOrDefault();
+        if (isMergeMode
+            && sourceCandidateEvaluation != null
+            && selectedCandidateEvaluation.IsSourceCandidate
+            && bestMateriallyBeatingNonSourceEvaluation != null)
+        {
+            selectedCandidateEvaluation = bestMateriallyBeatingNonSourceEvaluation;
+        }
+        CandidateEvaluation secondCandidateEvaluation = orderedCandidates.FirstOrDefault((CandidateEvaluation evaluation) => !ReferenceEquals(evaluation, selectedCandidateEvaluation));
         int selectedPrimaryHealth = GetPrimaryHealth(resourceSnapshot, selectedCandidateEvaluation);
         bool selectedViable = IsViableDestination(selectedPrimaryHealth);
         CandidateEvaluation bestNonSourceCandidateEvaluation = orderedCandidates.FirstOrDefault((CandidateEvaluation evaluation) => !evaluation.IsSourceCandidate);
         int bestNonSourcePrimaryHealth = GetPrimaryHealth(resourceSnapshot, bestNonSourceCandidateEvaluation);
         bool bestNonSourceViable = IsViableDestination(bestNonSourcePrimaryHealth);
+        int sourcePrimaryHealth = GetPrimaryHealth(resourceSnapshot, sourceCandidateEvaluation);
+        bool sourceViable = IsViableDestination(sourcePrimaryHealth);
         bool topTwoViableTie = secondCandidateEvaluation != null
             && selectedViable
             && IsViableDestination(GetPrimaryHealth(resourceSnapshot, secondCandidateEvaluation))
             && selectedCandidateEvaluation.HasSameRankingMetrics(secondCandidateEvaluation);
-        bool sourceVsNonSourceViableTie = selectedCandidateEvaluation.IsSourceCandidate
-            && selectedViable
+        bool sourceVsNonSourceViableTie = sourceCandidateEvaluation != null
+            && sourceViable
             && bestNonSourceCandidateEvaluation != null
             && bestNonSourceViable
-            && selectedCandidateEvaluation.HasSameRankingMetrics(bestNonSourceCandidateEvaluation);
+            && sourceCandidateEvaluation.HasSameRankingMetrics(bestNonSourceCandidateEvaluation);
+        bool anyNonSourceMateriallyBeatsSource = bestMateriallyBeatingNonSourceEvaluation != null;
 
         for (int i = 0; i < result.Candidates.Count && i < orderedCandidates.Count; i++)
         {
@@ -579,6 +625,18 @@ internal sealed class BmsLibraryInstallEstimationService
             result.ConfidenceReason = "no_viable_destination_below_threshold";
             result.DestinationDirectory = null;
             result.ShouldAutoApplyDestination = false;
+        }
+        else if (isMergeMode && sourceCandidateEvaluation != null && (!bestNonSourceViable || !anyNonSourceMateriallyBeatsSource))
+        {
+            result.HasViableDestination = sourceVsNonSourceViableTie;
+            result.Confidence = sourceVsNonSourceViableTie ? InstallEstimationConfidence.Low : InstallEstimationConfidence.High;
+            result.ConfidenceReason = sourceVsNonSourceViableTie ? "tie_on_primary_metrics" : "source_directory_preferred_no_destination";
+            result.DestinationDirectory = null;
+            result.ShouldAutoApplyDestination = false;
+            if (sourceVsNonSourceViableTie)
+            {
+                result.SuggestedDestinationDirectories.AddRange(viableNonSourceSuggestions);
+            }
         }
         else if (selectedCandidateEvaluation.IsSourceCandidate)
         {
@@ -621,7 +679,7 @@ internal sealed class BmsLibraryInstallEstimationService
         {
             return null;
         }
-        bool isCorrectionLikeMode = estimateMode == BmsInstallationEstimateMode.Fix || estimateMode == BmsInstallationEstimateMode.MergeNoSourceCompensation;
+        bool isCorrectionLikeMode = estimateMode == BmsInstallationEstimateMode.Fix || estimateMode == BmsInstallationEstimateMode.MergeSourceBaseline;
         if (!isCorrectionLikeMode && installedHashes != null)
         {
             targetFiles = targetFiles.Where((BMSFile file) => !installedHashes.Contains(file.hash)).ToList();
@@ -638,7 +696,7 @@ internal sealed class BmsLibraryInstallEstimationService
             return false;
         }
         bool isFixMode = estimateMode == BmsInstallationEstimateMode.Fix;
-        bool isMergeMode = estimateMode == BmsInstallationEstimateMode.MergeNoSourceCompensation;
+        bool isMergeMode = estimateMode == BmsInstallationEstimateMode.MergeSourceBaseline;
         bool isCorrectionLikeMode = isFixMode || isMergeMode;
         representativeFile = targetFiles
             .Where((BMSFile bmsFile) => bmsFile != null && (isCorrectionLikeMode || installedHashes == null || !installedHashes.Contains(bmsFile.hash)))
@@ -912,6 +970,253 @@ internal sealed class BmsLibraryInstallEstimationService
     private bool IsViableDestination(int primaryHealth)
     {
         return primaryHealth > innerWavHealthThreshold;
+    }
+
+    private static int GetPrimaryMatched(ChartResourceSnapshot snapshot, CandidateEvaluation evaluation)
+    {
+        if (evaluation == null)
+        {
+            return 0;
+        }
+        return snapshot.AudioReferenceCount > 0
+            ? evaluation.AudioMatched
+            : (snapshot.VisualReferenceCount > 0
+                ? evaluation.VisualMatched
+                : (snapshot.MovieReferenceCount > 0 ? evaluation.MovieMatched : evaluation.OptionalImageMatched));
+    }
+
+    private static int GetPrimaryExactMatched(ChartResourceSnapshot snapshot, CandidateEvaluation evaluation)
+    {
+        if (evaluation == null)
+        {
+            return 0;
+        }
+        return snapshot.AudioReferenceCount > 0
+            ? evaluation.AudioExactMatched
+            : (snapshot.VisualReferenceCount > 0
+                ? evaluation.VisualExactMatched
+                : (snapshot.MovieReferenceCount > 0 ? evaluation.MovieExactMatched : evaluation.OptionalImageExactMatched));
+    }
+
+    private bool MateriallyBeatsSource(ChartResourceSnapshot snapshot, CandidateEvaluation nonSourceCandidateEvaluation, CandidateEvaluation sourceCandidateEvaluation)
+    {
+        if (nonSourceCandidateEvaluation == null || sourceCandidateEvaluation == null)
+        {
+            return false;
+        }
+        int candidatePrimaryHealth = GetPrimaryHealth(snapshot, nonSourceCandidateEvaluation);
+        int sourcePrimaryHealth = GetPrimaryHealth(snapshot, sourceCandidateEvaluation);
+        bool candidateViable = IsViableDestination(candidatePrimaryHealth);
+        bool sourceViable = IsViableDestination(sourcePrimaryHealth);
+        if (!candidateViable)
+        {
+            return false;
+        }
+        if (!sourceViable)
+        {
+            return true;
+        }
+        if (candidatePrimaryHealth != sourcePrimaryHealth)
+        {
+            return candidatePrimaryHealth > sourcePrimaryHealth;
+        }
+        int candidatePrimaryExactMatched = GetPrimaryExactMatched(snapshot, nonSourceCandidateEvaluation);
+        int sourcePrimaryExactMatched = GetPrimaryExactMatched(snapshot, sourceCandidateEvaluation);
+        if (candidatePrimaryExactMatched != sourcePrimaryExactMatched)
+        {
+            return candidatePrimaryExactMatched > sourcePrimaryExactMatched;
+        }
+        int candidatePrimaryMatched = GetPrimaryMatched(snapshot, nonSourceCandidateEvaluation);
+        int sourcePrimaryMatched = GetPrimaryMatched(snapshot, sourceCandidateEvaluation);
+        return candidatePrimaryMatched > sourcePrimaryMatched;
+    }
+
+    private static int CompareCandidateEvaluations(CandidateEvaluation left, CandidateEvaluation right)
+    {
+        if (ReferenceEquals(left, right))
+        {
+            return 0;
+        }
+        if (left == null)
+        {
+            return 1;
+        }
+        if (right == null)
+        {
+            return -1;
+        }
+
+        int comparison = CompareDescending(left.AudioHealth, right.AudioHealth);
+        if (comparison != 0)
+        {
+            return comparison;
+        }
+        comparison = CompareDescending(left.AudioMatched, right.AudioMatched);
+        if (comparison != 0)
+        {
+            return comparison;
+        }
+        comparison = CompareDescending(left.AudioExactMatched, right.AudioExactMatched);
+        if (comparison != 0)
+        {
+            return comparison;
+        }
+        comparison = CompareRatioForSort(BuildJaccardMetric(left.AudioMatched, left.AudioDefined, left.AudioCandidateCount), BuildJaccardMetric(right.AudioMatched, right.AudioDefined, right.AudioCandidateCount));
+        if (comparison != 0)
+        {
+            return comparison;
+        }
+        comparison = CompareRatioForSort(BuildPrecisionMetric(left.AudioMatched, left.AudioDefined, left.AudioCandidateCount), BuildPrecisionMetric(right.AudioMatched, right.AudioDefined, right.AudioCandidateCount));
+        if (comparison != 0)
+        {
+            return comparison;
+        }
+
+        comparison = CompareDescending(left.VisualHealth, right.VisualHealth);
+        if (comparison != 0)
+        {
+            return comparison;
+        }
+        comparison = CompareDescending(left.VisualMatched, right.VisualMatched);
+        if (comparison != 0)
+        {
+            return comparison;
+        }
+        comparison = CompareDescending(left.VisualExactMatched, right.VisualExactMatched);
+        if (comparison != 0)
+        {
+            return comparison;
+        }
+        comparison = CompareRatioForSort(BuildJaccardMetric(left.VisualMatched, left.VisualDefined, left.VisualCandidateCount), BuildJaccardMetric(right.VisualMatched, right.VisualDefined, right.VisualCandidateCount));
+        if (comparison != 0)
+        {
+            return comparison;
+        }
+        comparison = CompareRatioForSort(BuildPrecisionMetric(left.VisualMatched, left.VisualDefined, left.VisualCandidateCount), BuildPrecisionMetric(right.VisualMatched, right.VisualDefined, right.VisualCandidateCount));
+        if (comparison != 0)
+        {
+            return comparison;
+        }
+
+        comparison = CompareDescending(left.MovieHealth, right.MovieHealth);
+        if (comparison != 0)
+        {
+            return comparison;
+        }
+        comparison = CompareDescending(left.MovieMatched, right.MovieMatched);
+        if (comparison != 0)
+        {
+            return comparison;
+        }
+        comparison = CompareDescending(left.MovieExactMatched, right.MovieExactMatched);
+        if (comparison != 0)
+        {
+            return comparison;
+        }
+        comparison = CompareRatioForSort(BuildJaccardMetric(left.MovieMatched, left.MovieDefined, left.MovieCandidateCount), BuildJaccardMetric(right.MovieMatched, right.MovieDefined, right.MovieCandidateCount));
+        if (comparison != 0)
+        {
+            return comparison;
+        }
+        comparison = CompareRatioForSort(BuildPrecisionMetric(left.MovieMatched, left.MovieDefined, left.MovieCandidateCount), BuildPrecisionMetric(right.MovieMatched, right.MovieDefined, right.MovieCandidateCount));
+        if (comparison != 0)
+        {
+            return comparison;
+        }
+
+        comparison = CompareDescending(left.OptionalImageHealth, right.OptionalImageHealth);
+        if (comparison != 0)
+        {
+            return comparison;
+        }
+        comparison = CompareDescending(left.OptionalImageMatched, right.OptionalImageMatched);
+        if (comparison != 0)
+        {
+            return comparison;
+        }
+        comparison = CompareDescending(left.OptionalImageExactMatched, right.OptionalImageExactMatched);
+        if (comparison != 0)
+        {
+            return comparison;
+        }
+        comparison = CompareRatioForSort(BuildJaccardMetric(left.OptionalImageMatched, left.OptionalImageDefined, left.OptionalImageCandidateCount), BuildJaccardMetric(right.OptionalImageMatched, right.OptionalImageDefined, right.OptionalImageCandidateCount));
+        if (comparison != 0)
+        {
+            return comparison;
+        }
+        comparison = CompareRatioForSort(BuildPrecisionMetric(left.OptionalImageMatched, left.OptionalImageDefined, left.OptionalImageCandidateCount), BuildPrecisionMetric(right.OptionalImageMatched, right.OptionalImageDefined, right.OptionalImageCandidateCount));
+        if (comparison != 0)
+        {
+            return comparison;
+        }
+
+        comparison = CompareDescending(left.IsSourceCandidate, right.IsSourceCandidate);
+        if (comparison != 0)
+        {
+            return comparison;
+        }
+        return StringComparer.OrdinalIgnoreCase.Compare(left.DirectoryPath ?? string.Empty, right.DirectoryPath ?? string.Empty);
+    }
+
+    private static int CompareDescending(int left, int right)
+    {
+        return right.CompareTo(left);
+    }
+
+    private static int CompareDescending(bool left, bool right)
+    {
+        return right.CompareTo(left);
+    }
+
+    private static RatioMetric BuildPrecisionMetric(int matched, int defined, int candidateCount)
+    {
+        if (defined <= 0)
+        {
+            return new RatioMetric(2, 1L, 1L);
+        }
+        if (candidateCount <= 0)
+        {
+            return new RatioMetric(0, 0L, 1L);
+        }
+        return new RatioMetric(1, matched, candidateCount);
+    }
+
+    private static RatioMetric BuildJaccardMetric(int matched, int defined, int candidateCount)
+    {
+        if (defined <= 0)
+        {
+            return new RatioMetric(2, 1L, 1L);
+        }
+        if (candidateCount <= 0)
+        {
+            return new RatioMetric(0, 0L, 1L);
+        }
+        int unionCount = defined + candidateCount - matched;
+        if (unionCount <= 0)
+        {
+            return new RatioMetric(2, 1L, 1L);
+        }
+        return new RatioMetric(1, matched, unionCount);
+    }
+
+    private static int CompareRatioMetric(RatioMetric left, RatioMetric right)
+    {
+        if (left.State != right.State)
+        {
+            return left.State.CompareTo(right.State);
+        }
+        if (left.State != 1)
+        {
+            return 0;
+        }
+        long lhs = left.Numerator * right.Denominator;
+        long rhs = right.Numerator * left.Denominator;
+        return lhs.CompareTo(rhs);
+    }
+
+    private static int CompareRatioForSort(RatioMetric left, RatioMetric right)
+    {
+        return -CompareRatioMetric(left, right);
     }
 
     private static InstallEstimationCandidate CreateCandidate(CandidateEvaluation evaluation, InstallDestinationRepresentativeMetadata representativeMetadata)

@@ -86,7 +86,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 cache,
                 lookupCache,
                 asParallel: false,
-                BmsInstallationEstimateMode.MergeNoSourceCompensation);
+                BmsInstallationEstimateMode.MergeSourceBaseline);
 
             Assert.AreEqual(mergeDir, result.DestinationDirectory);
             Assert.AreEqual(2, result.CandidateDirectoryCount);
@@ -669,6 +669,63 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             Assert.IsTrue(string.IsNullOrWhiteSpace(result.DestinationDirectory));
             Assert.AreEqual(sourceDir, result.SelectedCandidate?.DirectoryPath);
             Assert.AreEqual(0, result.SuggestedDestinationDirectories.Count);
+        });
+    }
+
+    [TestMethod]
+    public void EstimateInstallationDirectory_WhenRoundedRatiosTie_PrefersSourceBeforeDirectoryPath()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
+        {
+            string sourceDir = Path.Combine(tempRoot, "Z_Source");
+            string candidateDir = Path.Combine(tempRoot, "A_Candidate");
+            Directory.CreateDirectory(sourceDir);
+            Directory.CreateDirectory(candidateDir);
+            string chartPath = Path.Combine(sourceDir, "chart.bms");
+            File.WriteAllText(chartPath, "#PLAYER 1");
+
+            List<string> wavReferences = new List<string>();
+            List<string> sourceFiles = new List<string> { "chart.bms" };
+            List<string> candidateFiles = new List<string>();
+            for (int i = 0; i < 399; i++)
+            {
+                string fileName = i.ToString("000") + ".wav";
+                wavReferences.Add(fileName);
+                sourceFiles.Add(fileName);
+                candidateFiles.Add(fileName);
+                File.WriteAllText(Path.Combine(sourceDir, fileName), "src");
+                File.WriteAllText(Path.Combine(candidateDir, fileName), "dst");
+            }
+            sourceFiles.Add("src-extra.wav");
+            candidateFiles.Add("candidate-extra-a.wav");
+            candidateFiles.Add("candidate-extra-b.wav");
+            File.WriteAllText(Path.Combine(sourceDir, "src-extra.wav"), "src-extra");
+            File.WriteAllText(Path.Combine(candidateDir, "candidate-extra-a.wav"), "cand-extra-a");
+            File.WriteAllText(Path.Combine(candidateDir, "candidate-extra-b.wav"), "cand-extra-b");
+
+            TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", chartPath, wavReferences.ToArray());
+            file.SetMaintenanceInfo(CreateMaintenanceInfo(file, wavDefined: wavReferences.Count, wavExisting: wavReferences.Count), suppressPropertyChanged: true, registerEventHandlers: false);
+
+            BMSDirectoryFileNameHash cache = new BMSDirectoryFileNameHash();
+            cache.AddDir(sourceDir);
+            cache.AddDir(candidateDir);
+            DirectoryResourceLookupCache lookupCache = new DirectoryResourceLookupCache();
+            lookupCache.AddDir(sourceDir, sourceFiles);
+            lookupCache.AddDir(candidateDir, candidateFiles);
+
+            InstallEstimationResult result = service.EstimateInstallationDirectory(
+                new[] { file },
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+                cache,
+                lookupCache,
+                asParallel: false,
+                BmsInstallationEstimateMode.Normal);
+
+            Assert.AreEqual(sourceDir, result.SelectedCandidate?.DirectoryPath);
+            Assert.AreEqual(InstallEstimationConfidence.High, result.Confidence);
+            Assert.AreEqual("source_directory_preferred_no_destination", result.ConfidenceReason);
+            Assert.IsTrue(string.IsNullOrWhiteSpace(result.DestinationDirectory));
         });
     }
 

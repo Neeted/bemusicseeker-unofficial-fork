@@ -138,6 +138,28 @@ public sealed class BmsLibraryPendingPackageRegroupTests
     }
 
     [TestMethod]
+    public void TryRegroupPendingPackagesForSourceDirectories_SkipsDeferredEstimatePackages()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
+        {
+            string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "PackageDeferred");
+            string destinationDirectoryPath = Path.Combine(tempRootPath, "Installed", "PackageDeferred");
+            BMSPackage firstPackage = CreatePendingSingleFilePackage(CreateBmsFile(sourceDirectoryPath, "a.bms", "Same A"), destinationDirectoryPath);
+            BMSPackage secondPackage = CreatePendingSingleFilePackage(CreateBmsFile(sourceDirectoryPath, "b.bms", "Same B"), destinationDirectoryPath);
+            firstPackage.DeferredEstimateReason = PendingEstimateDeferredReason.HealthySourceBaseline;
+
+            library.BMSFiles = new List<BMSFile>();
+            SeedPendingPackages(library, songDbPath, firstPackage, secondPackage);
+
+            InvokeRegroupForSourceDirectories(library, sourceDirectoryPath);
+
+            AssertPendingPackagePaths(library, firstPackage.path, secondPackage.path);
+            CollectionAssert.AreEquivalent(new[] { firstPackage.path, secondPackage.path }, LoadInstallPaths(songDbPath));
+        });
+    }
+
+    [TestMethod]
     public void SearchEstimatedInstallationDirectory_LowConfidenceLeavesInstallDestinationEmptyAndShowsRepresentativeMetadata()
     {
         TestResourceInitializer.EnsureJapaneseResources();

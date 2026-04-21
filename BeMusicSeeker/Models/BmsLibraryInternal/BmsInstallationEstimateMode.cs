@@ -4,5 +4,5 @@ internal enum BmsInstallationEstimateMode
 {
     Normal,
     Fix,
-    MergeNoSourceCompensation
+    MergeSourceBaseline
 }

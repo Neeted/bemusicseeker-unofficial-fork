@@ -176,6 +176,32 @@ public sealed class BmsLibraryPackageInstallServiceTests
     }
 
     [TestMethod]
+    public void BuildEstimatedInstallBatchPlan_CountsDeferredManualHoldPackagesSeparately()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        BmsLibraryPackageInstallService service = new BmsLibraryPackageInstallService();
+        TestableBmsFile pendingFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "C:\\Pending\\Pkg1\\a.bms");
+        BMSPackage deferredPackage = new BMSPackage(new BMSFile[] { pendingFile })
+        {
+            path = "C:\\Pending\\Pkg1",
+            delete_parent = false,
+            DeferredEstimateReason = PendingEstimateDeferredReason.HealthySourceBaseline
+        };
+
+        PendingInstallBatchPlan plan = service.BuildEstimatedInstallBatchPlan(
+            new[] { deferredPackage },
+            new[] { deferredPackage },
+            Array.Empty<BMSFile>(),
+            Array.Empty<LR2SongDBExtended.bmson_song>(),
+            deletePendingPackageSourceAfterInstall: false,
+            countComponentMoveTargets: (_, _, _) => 0);
+
+        Assert.AreEqual(1, plan.SelectedPendingPackages.Count);
+        Assert.AreEqual(0, plan.Groups.Count);
+        Assert.AreEqual(1, plan.DeferredManualHoldCount);
+    }
+
+    [TestMethod]
     public void ExecuteEstimatedInstallBatchPlan_ReturnsPendingMutationsAndCleanupSummary()
     {
         TestResourceInitializer.EnsureJapaneseResources();

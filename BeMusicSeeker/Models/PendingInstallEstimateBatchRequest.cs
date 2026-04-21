@@ -13,6 +13,10 @@ internal sealed class PendingInstallEstimateBatchRequest
 
     public int PackageCount => Packages.Length;
 
+    public int DeferredPackageCount { get; }
+
+    public int TotalPackageCount => PackageCount + DeferredPackageCount;
+
     public string DisplayName { get; }
 
     public string[] RegroupEligibleSourceDirectories { get; }
@@ -21,12 +25,14 @@ internal sealed class PendingInstallEstimateBatchRequest
         PendingInstallEstimateBatchSource source,
         IEnumerable<BMSPackage> packages,
         string displayName,
-        IEnumerable<string> regroupEligibleSourceDirectories = null)
+        IEnumerable<string> regroupEligibleSourceDirectories = null,
+        int deferredPackageCount = 0)
     {
         Source = source;
         Packages = (packages ?? Enumerable.Empty<BMSPackage>())
             .Where((BMSPackage package) => package != null)
             .ToArray();
+        DeferredPackageCount = Math.Max(0, deferredPackageCount);
         DisplayName = string.IsNullOrWhiteSpace(displayName)
             ? GetDisplayName(Packages.FirstOrDefault()?.path)
             : displayName;

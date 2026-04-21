@@ -1429,6 +1429,12 @@ internal sealed class BmsLibraryPackageInstallService
             {
                 continue;
             }
+            if (originalPackage.DeferredEstimateReason != PendingEstimateDeferredReason.None
+                && packageFiles.All((BMSFile file) => string.IsNullOrWhiteSpace(file.instl_dst)))
+            {
+                plan.DeferredManualHoldCount++;
+                continue;
+            }
             List<BMSFile> installedInLibraryFiles = new List<BMSFile>();
             List<BMSFile> installTargetPackageFiles = new List<BMSFile>();
             List<BMSFile> duplicateInBatchFiles = new List<BMSFile>();

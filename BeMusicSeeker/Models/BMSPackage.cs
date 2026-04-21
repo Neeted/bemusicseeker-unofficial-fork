@@ -16,6 +16,8 @@ public class BMSPackage : LR2SongDBExtended.install
 
 	private PackageInstallSurfaceSnapshot installEstimationSurfaceSnapshot;
 
+	internal PendingEstimateDeferredReason DeferredEstimateReason { get; set; }
+
 	public List<PendingChartEntry> PendingCharts => (BMSFiles ?? new List<BMSFile>()).OfType<PendingChartEntry>().ToList();
 
 	public List<BMSFile> BMSFiles

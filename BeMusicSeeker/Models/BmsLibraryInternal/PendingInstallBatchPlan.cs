@@ -25,4 +25,6 @@ internal sealed class PendingInstallBatchPlan
     public int GroupedPackageCount { get; set; }
 
     public int CleanupOnlyCandidateCount { get; set; }
+
+    public int DeferredManualHoldCount { get; set; }
 }
