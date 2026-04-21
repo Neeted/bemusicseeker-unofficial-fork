@@ -282,6 +282,9 @@ source は別枠 reinject ではなく、**通常候補と同じ list** で比�
 - `Confidence = Low` の場合だけ non-source suggestion を保持する
 - そのうち候補が 2 件以上ある場合だけ warning を保持する
 
+また、**UI に見える pending 状態で `instl_dst` を反映する経路**では、推定結果適用・手動 `INSTL DST` 入力・resolved destination 再利用・pending regroup のいずれでも、`INSTL DST TITLE` / `INSTL DST ARTIST` を同時に同期します。  
+destination 側に代表譜面 metadata が存在しない場合のみ、`instl_dst` が入っても title/artist は空を許容します。
+
 ## 手動 `インストール先を推定` と `マージ先を推定` の違い
 
 現在の手動操作は、入口の目的が明確に分かれています。
@@ -303,7 +306,7 @@ source は別枠 reinject ではなく、**通常候補と同じ list** で比�
   - 何もしない
 - mixed package
   - まず `TryResolveInstalledDestinationFromPackage(...)` で、既所持譜面の実配置先を未所持譜面へ再利用できるか試す
-  - 成功したら、その配置先を **未所持譜面だけ** に反映して終了
+  - 成功したら、その配置先を **未所持譜面だけ** に反映し、代表 metadata も同期して終了
   - 失敗したら `Fix` モードで **未所持譜面だけ** を package-aware 推定する
 - 全部未所持
   - `Normal` モードで通常推定する
@@ -321,7 +324,7 @@ source は別枠 reinject ではなく、**通常候補と同じ list** で比�
 その上で:
 
 - まず `TryResolveInstalledDestinationFromPackage(...)` を試す
-- 解決できれば、その配置先を package 全体へ反映する
+- 解決できれば、その配置先を package 全体へ反映し、代表 metadata も同期する
 - 解決できなければ `MergeSourceBaseline` で source を baseline に比較する
 
 `MergeSourceBaseline` では、
@@ -353,10 +356,15 @@ source は別枠 reinject ではなく、**通常候補と同じ list** で比�
 ### マージ推定
 
 - package 単位では **既所持・未所持をまとめて** 扱う
-- 既存配置先再利用が成功すれば、その配置先を package 全体へ入れる
+- 既存配置先再利用が成功すれば、その配置先と代表 metadata を package 全体へ入れる
 - 失敗したら package 全体を `MergeSourceBaseline` で評価する
 
 つまり mixed package に対するマージ推定は、**「package 全体の行き先を source baseline 付きで見直す」** 挙動です。
+
+### regroup 時の補足
+
+- pending regroup で expected destination が一意に解決できた場合も、`instl_dst` だけでなく代表 metadata を同期する
+- regroup では warning 再初期化は行うが、metadata 同期のために suggestion / low-confidence 文脈を追加で消さない
 
 ### file 選択時の注意
 

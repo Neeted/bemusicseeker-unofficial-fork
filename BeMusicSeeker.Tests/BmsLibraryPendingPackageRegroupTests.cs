@@ -111,6 +111,38 @@ public sealed class BmsLibraryPendingPackageRegroupTests
     }
 
     [TestMethod]
+    public void TryRegroupPendingPackagesForSourceDirectories_SynchronizesRepresentativeMetadataWithoutClearingSuggestions()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
+        {
+            string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "PackageRegroupMetadata");
+            string destinationDirectoryPath = Path.Combine(tempRootPath, "Installed", "PackageRegroupMetadata");
+            string installedFilePath = CreateBmsFileWithContents(destinationDirectoryPath, "installed.bms", "#PLAYER 1\r\n#TITLE Installed Title\r\n#ARTIST Installed Artist\r\n");
+            BMSPackage firstPackage = CreatePendingSingleFilePackage(CreateBmsFile(sourceDirectoryPath, "a.bms", "Same A"), destinationDirectoryPath);
+            BMSPackage secondPackage = CreatePendingSingleFilePackage(CreateBmsFile(sourceDirectoryPath, "b.bms", "Same B"), destinationDirectoryPath);
+            BMSFile firstPendingFile = firstPackage.BMSFiles.Single();
+            firstPendingFile.InstallDestinationSuggestions = new[] { destinationDirectoryPath };
+            firstPendingFile.HasLowConfidenceInstallWarning = true;
+
+            library.BMSFiles = new List<BMSFile> { BMSFile.CreateBMSFileFromFile(installedFilePath) };
+            SeedPendingPackages(library, songDbPath, firstPackage, secondPackage);
+
+            InvokeRegroupForSourceDirectories(library, sourceDirectoryPath);
+
+            BMSPackage regroupedPackage = AssertRegroupedPendingPackage(library, sourceDirectoryPath, destinationDirectoryPath, expectedFileCount: 2);
+            foreach (BMSFile regroupedFile in regroupedPackage.BMSFiles)
+            {
+                Assert.AreEqual("Installed Title", regroupedFile.InstallDestinationTitle);
+                Assert.AreEqual("Installed Artist", regroupedFile.InstallDestinationArtist);
+            }
+            Assert.AreEqual(1, firstPendingFile.InstallDestinationSuggestions.Count);
+            Assert.AreEqual(destinationDirectoryPath, firstPendingFile.InstallDestinationSuggestions.Single());
+            Assert.IsTrue(firstPendingFile.HasLowConfidenceInstallWarning);
+        });
+    }
+
+    [TestMethod]
     public void TryRegroupPendingPackagesForSourceDirectories_DoesNotRegroupWhenDirectoryPackageAlreadyExists()
     {
         TestResourceInitializer.EnsureJapaneseResources();
@@ -230,6 +262,44 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             Assert.AreEqual(0, pendingFile.InstallDestinationSuggestions.Count);
             Assert.IsFalse(pendingFile.HasLowConfidenceInstallWarning);
             Assert.IsTrue(string.IsNullOrWhiteSpace(pendingFile.warning));
+        });
+    }
+
+    [TestMethod]
+    public void SearchMergeDestination_PackageResolvedPathUpdatesRepresentativeMetadata()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
+        {
+            string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "PackageMergeResolved");
+            string destinationDirectoryPath = Path.Combine(tempRootPath, "Installed", "PackageMergeResolved");
+            string pendingFileAPath = CreateBmsFileWithContents(sourceDirectoryPath, "pendingA.bms", "#PLAYER 1\r\n#TITLE Installed Title\r\n#ARTIST Installed Artist\r\n");
+            string pendingFileBPath = CreateBmsFileWithContents(sourceDirectoryPath, "pendingB.bms", "#PLAYER 1\r\n#TITLE Installed Title\r\n#ARTIST Installed Artist\r\n");
+            string installedFileAPath = CreateBmsFileWithContents(destinationDirectoryPath, "installedA.bms", "#PLAYER 1\r\n#TITLE Installed Title\r\n#ARTIST Installed Artist\r\n");
+            string installedFileBPath = CreateBmsFileWithContents(destinationDirectoryPath, "installedB.bms", "#PLAYER 1\r\n#TITLE Installed Title\r\n#ARTIST Installed Artist\r\n");
+
+            BMSFile pendingFileA = BMSFile.CreateBMSFileFromFile(pendingFileAPath);
+            BMSFile pendingFileB = BMSFile.CreateBMSFileFromFile(pendingFileBPath);
+            BMSPackage pendingPackage = new BMSPackage(new[] { pendingFileA, pendingFileB })
+            {
+                path = sourceDirectoryPath,
+                delete_parent = false
+            };
+            library.BMSFiles = new List<BMSFile>
+            {
+                BMSFile.CreateBMSFileFromFile(installedFileAPath),
+                BMSFile.CreateBMSFileFromFile(installedFileBPath)
+            };
+            SeedPendingPackages(library, songDbPath, pendingPackage);
+
+            library.SearchMergeDestination(pendingPackage);
+
+            foreach (BMSFile pendingFile in pendingPackage.BMSFiles)
+            {
+                Assert.AreEqual(destinationDirectoryPath, pendingFile.instl_dst);
+                Assert.AreEqual("Installed Title", pendingFile.InstallDestinationTitle);
+                Assert.AreEqual("Installed Artist", pendingFile.InstallDestinationArtist);
+            }
         });
     }
 

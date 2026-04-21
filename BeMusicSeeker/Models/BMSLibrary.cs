@@ -4424,9 +4424,21 @@ public class BMSLibrary : NotificationObject
         };
     }
 
-    private void ApplyResolvedInstallDestinationToFiles(IEnumerable<BMSFile> bmsFiles, string destinationDirectory, bool preserveAmbiguousInstallContext = false)
+    private InstallDestinationRepresentativeMetadata ApplyResolvedInstallDestinationPathAndMetadataToFiles(IEnumerable<BMSFile> bmsFiles, string destinationDirectory)
     {
         InstallDestinationRepresentativeMetadata metadata = ResolveInstallDestinationRepresentativeMetadataUnsafe(destinationDirectory);
+        foreach (BMSFile bmsFile in (bmsFiles ?? Enumerable.Empty<BMSFile>()).Where((BMSFile file) => file != null))
+        {
+            bmsFile.instl_dst = destinationDirectory;
+            bmsFile.InstallDestinationTitle = metadata.Title;
+            bmsFile.InstallDestinationArtist = metadata.Artist;
+        }
+        return metadata;
+    }
+
+    private void ApplyResolvedInstallDestinationToFiles(IEnumerable<BMSFile> bmsFiles, string destinationDirectory, bool preserveAmbiguousInstallContext = false)
+    {
+        ApplyResolvedInstallDestinationPathAndMetadataToFiles(bmsFiles, destinationDirectory);
         foreach (BMSFile bmsFile in (bmsFiles ?? Enumerable.Empty<BMSFile>()).Where((BMSFile file) => file != null))
         {
             bmsFile.IsInstallDestinationSuggestionPopupOpen = false;
@@ -4434,9 +4446,6 @@ public class BMSLibrary : NotificationObject
             {
                 bmsFile.warning = RemoveAmbiguousInstallWarning(bmsFile.warning);
             }
-            bmsFile.instl_dst = destinationDirectory;
-            bmsFile.InstallDestinationTitle = metadata.Title;
-            bmsFile.InstallDestinationArtist = metadata.Artist;
             if (!preserveAmbiguousInstallContext)
             {
                 bmsFile.InstallDestinationSuggestions = Array.Empty<string>();
@@ -5248,10 +5257,7 @@ public class BMSLibrary : NotificationObject
         }
         else
         {
-            foreach (BMSFile item2 in list)
-            {
-                item2.instl_dst = resolvedDir;
-            }
+            ApplyResolvedInstallDestinationToFiles(list, resolvedDir);
         }
         int num = list.Count((BMSFile f) => !string.IsNullOrWhiteSpace(f.instl_dst));
         if (num == 0)
@@ -5259,7 +5265,9 @@ public class BMSLibrary : NotificationObject
             LogInstallPerformance("estimated_merge_skip reason=unresolved package=" + package.path + " targets=" + list.Count);
             return;
         }
-        LogInstallPerformance("estimated_merge_done package=" + package.path + " resolved=" + num + " targets=" + list.Count + " dst=" + list.Select((BMSFile f) => f.instl_dst).Where((string d) => !string.IsNullOrWhiteSpace(d)).Distinct(StringComparer.OrdinalIgnoreCase).FirstOrDefault());
+        string resolvedDestination = list.Select((BMSFile f) => f.instl_dst).Where((string d) => !string.IsNullOrWhiteSpace(d)).Distinct(StringComparer.OrdinalIgnoreCase).FirstOrDefault();
+        bool metadataResolved = list.Any((BMSFile f) => !string.IsNullOrWhiteSpace(f.InstallDestinationTitle) || !string.IsNullOrWhiteSpace(f.InstallDestinationArtist));
+        LogInstallPerformance("estimated_merge_done package=" + package.path + " resolved=" + num + " targets=" + list.Count + " dst=" + resolvedDestination + " metadataResolved=" + metadataResolved);
     }
 
     public void SearchMergeDestination(IEnumerable<BMSFile> bmsFiles)
@@ -5754,7 +5762,8 @@ public class BMSLibrary : NotificationObject
         ReplacePendingPackagesWithRegroupedPackageUnsafe(sourcePackages, regroupedPackage);
         dbGateway.DeleteInstallRows(sourcePackages.Select((BMSPackage pendingPackage) => pendingPackage.path));
         dbGateway.UpsertInstallRows(new BMSPackage[1] { regroupedPackage });
-        LogInstallPerformance("pending_regroup success source=" + sourceDirectoryPath + " packages=" + sourcePackages.Count + " files=" + regroupedPackage.BMSFiles.Count + " dst=" + resolvedDestinationDirectory);
+        bool metadataResolved = (regroupedPackage.BMSFiles ?? new List<BMSFile>()).Any((BMSFile file) => file != null && (!string.IsNullOrWhiteSpace(file.InstallDestinationTitle) || !string.IsNullOrWhiteSpace(file.InstallDestinationArtist)));
+        LogInstallPerformance("pending_regroup success source=" + sourceDirectoryPath + " packages=" + sourcePackages.Count + " files=" + regroupedPackage.BMSFiles.Count + " dst=" + resolvedDestinationDirectory + " metadataResolved=" + metadataResolved);
     }
 
     private bool TryBuildRegroupedPendingPackage(string sourceDirectoryPath, List<BMSPackage> sourcePackages, InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot, out BMSPackage regroupedPackage, out string resolvedDestinationDirectory, out string skipReason)
@@ -5796,10 +5805,7 @@ public class BMSLibrary : NotificationObject
             }
         }
         resolvedDestinationDirectory = expectedDirectories.Single();
-        foreach (BMSFile regroupedFile in regroupedFiles)
-        {
-            regroupedFile.instl_dst = resolvedDestinationDirectory;
-        }
+        ApplyResolvedInstallDestinationPathAndMetadataToFiles(regroupedFiles, resolvedDestinationDirectory);
         regroupedPackage = new BMSPackage(regroupedFiles)
         {
             path = sourceDirectoryPath,

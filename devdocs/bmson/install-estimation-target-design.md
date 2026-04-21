@@ -13,6 +13,7 @@
 
 - `candidate + package bundled resources` を最終評価単位にする
 - package 単位 snapshot を導入する
+- pending state では destination path だけでなく representative metadata も表示状態の一部として扱い、`INSTL DST` が UI に反映される経路では `INSTL DST TITLE/ARTIST` を同期する
 - source を通常候補と同じ list 上で比較する
 - source 1 位時は `High + no destination` または `Low + non-source suggestions` に分ける
 - `innerWavHealthThreshold` を比較前除外ではなく viable / auto-apply 安全弁へ寄せる

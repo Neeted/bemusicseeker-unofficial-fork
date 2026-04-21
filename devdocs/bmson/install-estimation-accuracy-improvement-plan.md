@@ -49,6 +49,7 @@
 - `confidence=Low` で `INSTL DST` を自動適用しなかった場合も、1 位候補の代表 metadata は表示する
   - これにより、warning を見ながら目視確認できる
 - 手動で `INSTL DST` を入力した場合も、その入力先に応じて `INSTL DST TITLE/ARTIST` を更新するようにした
+- resolved destination の再利用や pending regroup で `INSTL DST` が入る場合も、同じ helper 群で `INSTL DST TITLE/ARTIST` を同期するようにした
 - `confidence=Low` かつ複数候補あり未確定の行だけ、重複警告と同じ背景色で強調表示するようにした
 - low-confidence 候補のどれかを手動選択した場合は、候補一覧と警告を維持したまま `INSTL DST` と代表 metadata を切り替えられるようにした
 - 候補外の path を自由入力して確定した場合は、low-confidence 状態を解除するようにした
