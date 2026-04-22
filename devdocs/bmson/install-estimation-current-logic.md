@@ -152,24 +152,76 @@ coarse filter では、`snapshot.DefinedResources.EnumerateAllBaseNameHashes()` 
 - cache がない場合:
   - `BMSDirectoryFileNameHash` の hash array を直接なめる
 
-`2026-04-22` 時点の Perf-1 以降は、この broad prefilter の後に **audio gate** をかけます。
+`2026-04-22` 時点の Perf-2a 修正後は、この broad prefilter の後に **unified audio gate** をかけます。
 
 - `audioRefs >= 2`
-  - audio basename hash 2 件以上一致必須
+  - candidate 自身の audio basename hash 2 件以上一致必須
 - `audioRefs == 1`
-  - audio basename hash 1 件以上一致必須
+  - candidate 自身の audio basename hash 1 件以上一致必須
 - `audioRefs == 0`
   - audio gate を適用しない
+
+さらに `audioRefs > 0` かつ `DirectoryResourceLookupCache` がある経路では、
+
+- 通常推定 / `Fix`
+  - `candidate + bundled` の effective audio health が `innerWavHealthThreshold=70` 超でない候補を落とす
+- merge 推定
+  - `candidate only` の effective audio health が `innerWavHealthThreshold=70` 超でない候補を落とす
+
+つまり coarse filter は次の 2 段です。
+
+1. broad prefilter
+2. unified audio gate
 
 つまり、
 
 - `audioRefs > 0 && audioMatched == 0`
   - image/movie/optional が一致していても候補に残さない
+- bundled だけで threshold を満たしても
+  - candidate 自身に最低限の audio 一致がなければ候補に残さない
 - `candidateDirsAfter=0`
   - 全 library へ fallback せず、そのまま no destination に落とす
 
-ここで重要なのは、**`innerWavHealthThreshold=70` による候補除外はしていない**ことです。  
-threshold は最終 confidence 判定側で使います。
+`innerWavHealthThreshold=70` は、現在は
+
+- coarse filter の unified audio gate
+- 最終 confidence / viable 判定
+
+の **二段**で使います。
+
+Perf-2a 再修正では、この unified audio gate の仕様は変えず、内部実装だけを軽くしています。
+
+- `candidate self minimum match`
+  - candidate 側 audio basename を直接なめる early-exit
+- `effective viability`
+  - `health > 70` に到達した時点で打ち切る threshold-only check
+
+つまり現在は、**1 helper / 2 条件**のまま、旧 2段ゲート時の cheap/heavy 構造を内部へ戻した状態です。
+
+### 現状の `innerWavHealthThreshold` の位置づけ
+
+`innerWavHealthThreshold=70` は、`2026-04-22` 時点では **coarse filter と最終判定の両方**で使う。
+
+- coarse filter
+  - broad prefilter
+  - unified audio gate
+- final evaluation 後
+  - viable destination 判定
+  - `High + destination` / `High + no destination` / `Low + suggestions`
+- background pending estimate 抑制
+  - source baseline health 判定
+
+に分かれている。
+
+つまり現状は、
+
+- `audio gate`
+  - 軽量な候補縮小と viability gate
+- `innerWavHealthThreshold`
+  - 前段と最終段の両方で使う
+
+という役割分担である。  
+ただし threshold の意味自体は変えておらず、「宛先として有効なのは audio health が threshold を超える candidate」という前提を、前段 candidate 除外にも流用している。
 
 ## 最終評価
 
@@ -307,7 +359,28 @@ source は ranking 本体では扱いません。
 - `ShouldAutoApplyDestination`
 - background auto-estimate 抑制の source baseline 判定
 
-つまり threshold は **候補 recall を削る前段フィルタ** ではなく、**viable destination / 自動確定の安全弁** です。
+さらに coarse filter の unified audio gate では、
+
+- 通常推定
+  - `candidate self minimum match`
+  - かつ `candidate + bundled` が `health > 70`
+- merge 推定
+  - `candidate self minimum match`
+  - かつ `candidate only` が `health > 70`
+
+の両方を必要条件として使います。  
+たとえば `audioRefs = 100` なら、`health > 70` を満たす最小 matched は `71` です。通常推定で bundled が `50` 有効なら、effective matched としては残り `21` 件以上が必要ですが、それとは別に candidate 自身の minimum match 条件も必要です。  
+つまり threshold は、**前段 gate と最終安全弁の二段**で使っています。
+
+なお Perf-2a 再修正で変更したのは、この前段 gate の**実装コストだけ**です。
+
+- 仕様:
+  - 不変
+- 実装:
+  - self minimum match は early-exit
+  - viability は full matched count ではなく threshold 到達 boolean
+
+に最適化しています。
 
 ## `INSTL DST` 反映条件
 

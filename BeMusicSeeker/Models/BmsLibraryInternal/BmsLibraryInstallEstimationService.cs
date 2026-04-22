@@ -564,16 +564,21 @@ internal sealed class BmsLibraryInstallEstimationService
             }
             if (directoryLookupCache != null)
             {
-                candidateDirList = ApplyAudioMinimumMatchGate(candidateDirList, resourceSnapshot, directoryLookupCache);
+                candidateDirList = ApplyAudioCandidateGate(
+                    candidateDirList,
+                    resourceSnapshot,
+                    directoryLookupCache,
+                    useBundledResources ? snapshot.BundledResources : null);
             }
             result.CandidateDirectoryCountAfterAudioGate = candidateDirList.Count;
-            result.CandidateDirectoryCountAfterHashFilter = candidateDirList.Count;
             if (candidateDirList.Count == 0)
             {
+                result.CandidateDirectoryCountAfterHashFilter = 0;
                 result.CandidateDirectoryCount = 0;
                 SetNoViableDestinationResult(result);
                 return result;
             }
+            result.CandidateDirectoryCountAfterHashFilter = candidateDirList.Count;
         }
         else
         {
@@ -713,7 +718,7 @@ internal sealed class BmsLibraryInstallEstimationService
         return 0;
     }
 
-    private static List<string> ApplyAudioMinimumMatchGate(IEnumerable<string> candidateDirectories, ChartResourceSnapshot resourceSnapshot, DirectoryResourceLookupCache directoryLookupCache)
+    private List<string> ApplyAudioCandidateGate(IEnumerable<string> candidateDirectories, ChartResourceSnapshot resourceSnapshot, DirectoryResourceLookupCache directoryLookupCache, DirectoryResourceLookupCache.Entry bundledResources)
     {
         List<string> candidates = (candidateDirectories ?? Enumerable.Empty<string>())
             .Where((string dir) => !string.IsNullOrWhiteSpace(dir))
@@ -730,6 +735,8 @@ internal sealed class BmsLibraryInstallEstimationService
             return candidates;
         }
 
+        int requiredMatchedForViableHealth = GetRequiredMatchedForViableAudioHealth(resourceSnapshot.AudioReferenceCount);
+
         return candidates
             .Where(delegate (string candidateDir)
             {
@@ -738,17 +745,116 @@ internal sealed class BmsLibraryInstallEstimationService
                 {
                     return false;
                 }
-                int matched = 0;
-                foreach (uint candidateAudioHash in entry.AudioBaseNameHashArray)
+                if (!HasMinimumAudioBaseNameMatches(resourceSnapshot.AudioBaseNameHashes, entry.AudioBaseNameHashArray, requiredAudioMatchCount))
                 {
-                    if (resourceSnapshot.AudioBaseNameHashes.Contains(candidateAudioHash) && ++matched >= requiredAudioMatchCount)
-                    {
-                        return true;
-                    }
+                    return false;
                 }
-                return false;
+                return HasRequiredAudioMatchesForViability(resourceSnapshot, entry, bundledResources, requiredMatchedForViableHealth);
             })
             .ToList();
+    }
+
+    private static bool HasMinimumAudioBaseNameMatches(ISet<uint> targetAudioBaseNameHashes, uint[] candidateAudioBaseNameHashArray, int requiredAudioMatchCount)
+    {
+        if (requiredAudioMatchCount <= 0)
+        {
+            return true;
+        }
+        if (targetAudioBaseNameHashes == null || targetAudioBaseNameHashes.Count == 0 || candidateAudioBaseNameHashArray == null || candidateAudioBaseNameHashArray.Length == 0)
+        {
+            return false;
+        }
+
+        int matched = 0;
+        for (int i = 0; i < candidateAudioBaseNameHashArray.Length; i++)
+        {
+            if (targetAudioBaseNameHashes.Contains(candidateAudioBaseNameHashArray[i]) && ++matched >= requiredAudioMatchCount)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private int GetRequiredMatchedForViableAudioHealth(int defined)
+    {
+        if (defined <= 0)
+        {
+            return 0;
+        }
+        for (int matched = 0; matched <= defined; matched++)
+        {
+            if (ComputeHealth(matched, defined) > innerWavHealthThreshold)
+            {
+                return matched;
+            }
+        }
+        return defined + 1;
+    }
+
+    private static bool HasRequiredAudioMatchesForViability(ChartResourceSnapshot snapshot, DirectoryResourceLookupCache.Entry entry, DirectoryResourceLookupCache.Entry bundledResources, int requiredMatchedForViableHealth)
+    {
+        if (snapshot == null || snapshot.AudioReferenceCount <= 0)
+        {
+            return true;
+        }
+        if (requiredMatchedForViableHealth <= 0)
+        {
+            return true;
+        }
+        if ((entry?.AudioBaseNameHashes == null || entry.AudioBaseNameHashes.Count == 0) && (bundledResources?.AudioBaseNameHashes == null || bundledResources.AudioBaseNameHashes.Count == 0))
+        {
+            return false;
+        }
+
+        int baseNameMatched = CountThresholdMatches(snapshot.AudioBaseNameHashes, entry?.AudioBaseNameHashes, bundledResources?.AudioBaseNameHashes, requiredMatchedForViableHealth);
+        if (baseNameMatched >= requiredMatchedForViableHealth)
+        {
+            return true;
+        }
+
+        int exactMatched = CountThresholdMatches(snapshot.AudioRelativePathHashes, entry?.AudioRelativePathHashes, bundledResources?.AudioRelativePathHashes, requiredMatchedForViableHealth);
+        return exactMatched >= requiredMatchedForViableHealth;
+    }
+
+    private static int CountThresholdMatches(ISet<uint> targetHashes, ISet<uint> candidateHashes, ISet<uint> bundledHashes, int requiredMatches)
+    {
+        if (targetHashes == null || targetHashes.Count == 0 || requiredMatches <= 0)
+        {
+            return 0;
+        }
+
+        bool hasCandidate = candidateHashes != null && candidateHashes.Count > 0;
+        bool hasBundled = bundledHashes != null && bundledHashes.Count > 0;
+        if (!hasCandidate && !hasBundled)
+        {
+            return 0;
+        }
+
+        int matched = 0;
+        foreach (uint hash in targetHashes)
+        {
+            if ((hasCandidate && candidateHashes.Contains(hash)) || (hasBundled && bundledHashes.Contains(hash)))
+            {
+                matched++;
+                if (matched >= requiredMatches)
+                {
+                    return matched;
+                }
+            }
+        }
+
+        return matched;
+    }
+
+    private static int ComputeHealth(int matched, int defined)
+    {
+        if (defined <= 0)
+        {
+            return 100;
+        }
+        return (int)Math.Round(100.0 * matched / defined, MidpointRounding.AwayFromZero);
     }
 
     private static void SetNoViableDestinationResult(InstallEstimationResult result)

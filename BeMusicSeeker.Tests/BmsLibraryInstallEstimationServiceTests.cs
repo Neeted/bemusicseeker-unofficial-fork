@@ -302,6 +302,253 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     }
 
     [TestMethod]
+    public void EstimateInstallationDirectory_AudioHealthGate_DropsCandidateBelowThreshold_WhenPackageUnionStillInsufficient()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
+        {
+            string sourceDir = Path.Combine(tempRoot, "source");
+            string candidateDir = Path.Combine(tempRoot, "candidate");
+            Directory.CreateDirectory(sourceDir);
+            Directory.CreateDirectory(candidateDir);
+            File.WriteAllText(Path.Combine(sourceDir, "chart.bms"), "#PLAYER 1");
+            File.WriteAllText(Path.Combine(candidateDir, "00.wav"), "dst");
+            File.WriteAllText(Path.Combine(candidateDir, "01.wav"), "dst");
+
+            TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(sourceDir, "chart.bms"), "00.wav", "01.wav", "02.wav");
+            file.SetMaintenanceInfo(CreateMaintenanceInfo(file, wavDefined: 3, wavExisting: 0), suppressPropertyChanged: true, registerEventHandlers: false);
+
+            BMSDirectoryFileNameHash cache = new BMSDirectoryFileNameHash();
+            cache.AddDir(sourceDir);
+            cache.AddDir(candidateDir);
+            DirectoryResourceLookupCache lookupCache = new DirectoryResourceLookupCache();
+            lookupCache.AddDir(sourceDir, new[] { "chart.bms" });
+            lookupCache.AddDir(candidateDir, new[] { "00.wav", "01.wav" });
+
+            InstallEstimationResult result = service.EstimateInstallationDirectory(
+                new[] { file },
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+                cache,
+                lookupCache,
+                asParallel: false,
+                BmsInstallationEstimateMode.Normal);
+
+            Assert.AreEqual(1, result.CandidateDirectoryCountAfterBroadFilter);
+            Assert.AreEqual(0, result.CandidateDirectoryCountAfterAudioGate);
+            Assert.AreEqual(0, result.CandidateDirectoryCount);
+            Assert.AreEqual("no_viable_destination_below_threshold", result.ConfidenceReason);
+        });
+    }
+
+    [TestMethod]
+    public void EstimateInstallationDirectory_AudioHealthGate_UsesBundledResourcesInNormalMode_ButNotInMergeMode()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
+        {
+            string sourceDir = Path.Combine(tempRoot, "SourcePackage");
+            string candidateDir = Path.Combine(tempRoot, "Candidate");
+            Directory.CreateDirectory(sourceDir);
+            Directory.CreateDirectory(candidateDir);
+            File.WriteAllText(Path.Combine(sourceDir, "chart.bms"), "#PLAYER 1");
+            File.WriteAllText(Path.Combine(sourceDir, "02.wav"), "bundled");
+            File.WriteAllText(Path.Combine(candidateDir, "00.wav"), "dst");
+            File.WriteAllText(Path.Combine(candidateDir, "01.wav"), "dst");
+
+            TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(sourceDir, "chart.bms"), "00.wav", "01.wav", "02.wav");
+            file.SetMaintenanceInfo(CreateMaintenanceInfo(file, wavDefined: 3, wavExisting: 1), suppressPropertyChanged: true, registerEventHandlers: false);
+
+            BMSPackage package = new BMSPackage(new BMSFile[] { file })
+            {
+                path = sourceDir,
+                delete_parent = true
+            };
+            PackageInstallEstimationSnapshot snapshot = package.GetOrBuildInstallEstimationSnapshot(new[] { file });
+
+            BMSDirectoryFileNameHash cache = new BMSDirectoryFileNameHash();
+            cache.AddDir(sourceDir);
+            cache.AddDir(candidateDir);
+            DirectoryResourceLookupCache lookupCache = new DirectoryResourceLookupCache();
+            lookupCache.AddDir(sourceDir, new[] { "chart.bms", "02.wav" });
+            lookupCache.AddDir(candidateDir, new[] { "00.wav", "01.wav" });
+
+            InstallEstimationResult normalResult = service.EstimateInstallationDirectory(
+                snapshot,
+                cache,
+                lookupCache,
+                asParallel: false,
+                BmsInstallationEstimateMode.Normal);
+
+            InstallEstimationResult mergeResult = service.EstimateInstallationDirectory(
+                snapshot,
+                cache,
+                lookupCache,
+                asParallel: false,
+                BmsInstallationEstimateMode.MergeCandidateOnly);
+
+            Assert.AreEqual(1, normalResult.CandidateDirectoryCountAfterAudioGate);
+            Assert.AreEqual(candidateDir, normalResult.DestinationDirectory);
+
+            Assert.AreEqual(0, mergeResult.CandidateDirectoryCountAfterAudioGate);
+            Assert.AreEqual(0, mergeResult.CandidateDirectoryCount);
+            Assert.AreEqual("no_viable_destination_below_threshold", mergeResult.ConfidenceReason);
+        });
+    }
+
+    [TestMethod]
+    public void EstimateInstallationDirectory_AudioGate_DropsCandidateSatisfiedOnlyByBundledResources()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
+        {
+            string sourceDir = Path.Combine(tempRoot, "SourcePackage");
+            string candidateDir = Path.Combine(tempRoot, "Candidate");
+            Directory.CreateDirectory(sourceDir);
+            Directory.CreateDirectory(candidateDir);
+            File.WriteAllText(Path.Combine(sourceDir, "chart.bms"), "#PLAYER 1");
+            File.WriteAllText(Path.Combine(candidateDir, "title.png"), "visual");
+            for (int i = 0; i < 71; i++)
+            {
+                File.WriteAllText(Path.Combine(sourceDir, i.ToString("D2") + ".wav"), "bundled");
+            }
+
+            TestableBmsFile file = CreateFile(
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                Path.Combine(sourceDir, "chart.bms"),
+                Enumerable.Range(0, 100).Select((int i) => i.ToString("D2") + ".wav").ToArray());
+            file.BGAfiles = new HashSet<string>(new[] { "title.png" }, StringComparer.OrdinalIgnoreCase);
+            file.SetMaintenanceInfo(CreateMaintenanceInfo(file, wavDefined: 100, wavExisting: 71), suppressPropertyChanged: true, registerEventHandlers: false);
+
+            BMSPackage package = new BMSPackage(new BMSFile[] { file })
+            {
+                path = sourceDir,
+                delete_parent = true
+            };
+            PackageInstallEstimationSnapshot snapshot = package.GetOrBuildInstallEstimationSnapshot(new[] { file });
+
+            BMSDirectoryFileNameHash cache = new BMSDirectoryFileNameHash();
+            cache.AddDir(sourceDir);
+            cache.AddDir(candidateDir);
+            DirectoryResourceLookupCache lookupCache = new DirectoryResourceLookupCache();
+            lookupCache.AddDir(sourceDir, new[] { "chart.bms" }.Concat(Enumerable.Range(0, 71).Select((int i) => i.ToString("D2") + ".wav")).ToArray());
+            lookupCache.AddDir(candidateDir, new[] { "title.png" });
+
+            InstallEstimationResult result = service.EstimateInstallationDirectory(
+                snapshot,
+                cache,
+                lookupCache,
+                asParallel: false,
+                BmsInstallationEstimateMode.Normal);
+
+            Assert.AreEqual(1, result.CandidateDirectoryCountAfterBroadFilter);
+            Assert.AreEqual(0, result.CandidateDirectoryCountAfterAudioGate);
+            Assert.AreEqual(0, result.CandidateDirectoryCount);
+            Assert.AreEqual("no_viable_destination_below_threshold", result.ConfidenceReason);
+        });
+    }
+
+    [TestMethod]
+    public void EstimateInstallationDirectory_AudioGate_RequiresMatchedAboveSeventyPercentBoundary()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
+        {
+            string sourceDir = Path.Combine(tempRoot, "source");
+            string weakCandidateDir = Path.Combine(tempRoot, "weak");
+            string strongCandidateDir = Path.Combine(tempRoot, "strong");
+            Directory.CreateDirectory(sourceDir);
+            Directory.CreateDirectory(weakCandidateDir);
+            Directory.CreateDirectory(strongCandidateDir);
+            File.WriteAllText(Path.Combine(sourceDir, "chart.bms"), "#PLAYER 1");
+
+            string[] allAudio = Enumerable.Range(0, 100).Select((int i) => i.ToString("D3") + ".wav").ToArray();
+            foreach (string fileName in allAudio.Take(70))
+            {
+                File.WriteAllText(Path.Combine(weakCandidateDir, fileName), "weak");
+            }
+            foreach (string fileName in allAudio.Take(71))
+            {
+                File.WriteAllText(Path.Combine(strongCandidateDir, fileName), "strong");
+            }
+
+            TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(sourceDir, "chart.bms"), allAudio);
+            file.SetMaintenanceInfo(CreateMaintenanceInfo(file, wavDefined: 100, wavExisting: 0), suppressPropertyChanged: true, registerEventHandlers: false);
+
+            BMSDirectoryFileNameHash cache = new BMSDirectoryFileNameHash();
+            cache.AddDir(sourceDir);
+            cache.AddDir(weakCandidateDir);
+            cache.AddDir(strongCandidateDir);
+            DirectoryResourceLookupCache lookupCache = new DirectoryResourceLookupCache();
+            lookupCache.AddDir(sourceDir, new[] { "chart.bms" });
+            lookupCache.AddDir(weakCandidateDir, allAudio.Take(70).ToArray());
+            lookupCache.AddDir(strongCandidateDir, allAudio.Take(71).ToArray());
+
+            InstallEstimationResult result = service.EstimateInstallationDirectory(
+                new[] { file },
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+                cache,
+                lookupCache,
+                asParallel: false,
+                BmsInstallationEstimateMode.Normal);
+
+            Assert.AreEqual(2, result.CandidateDirectoryCountAfterBroadFilter);
+            Assert.AreEqual(1, result.CandidateDirectoryCountAfterAudioGate);
+            Assert.AreEqual(1, result.CandidateDirectoryCount);
+            Assert.AreEqual(strongCandidateDir, result.SelectedCandidate?.DirectoryPath);
+        });
+    }
+
+    [TestMethod]
+    public void EstimateInstallationDirectory_AudioGate_RelativePathExactCanRescueViability()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
+        {
+            string sourceDir = Path.Combine(tempRoot, "source");
+            string candidateDir = Path.Combine(tempRoot, "candidate");
+            Directory.CreateDirectory(sourceDir);
+            Directory.CreateDirectory(candidateDir);
+            Directory.CreateDirectory(Path.Combine(candidateDir, "a"));
+            Directory.CreateDirectory(Path.Combine(candidateDir, "b"));
+            Directory.CreateDirectory(Path.Combine(candidateDir, "c"));
+            File.WriteAllText(Path.Combine(sourceDir, "chart.bms"), "#PLAYER 1");
+            File.WriteAllText(Path.Combine(candidateDir, "a", "00.wav"), "dst");
+            File.WriteAllText(Path.Combine(candidateDir, "b", "01.wav"), "dst");
+            File.WriteAllText(Path.Combine(candidateDir, "c", "01.wav"), "dst");
+
+            TestableBmsFile file = CreateFile(
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                Path.Combine(sourceDir, "chart.bms"),
+                Path.Combine("a", "00.wav"),
+                Path.Combine("b", "01.wav"),
+                Path.Combine("c", "01.wav"));
+            file.SetMaintenanceInfo(CreateMaintenanceInfo(file, wavDefined: 3, wavExisting: 0), suppressPropertyChanged: true, registerEventHandlers: false);
+
+            BMSDirectoryFileNameHash cache = new BMSDirectoryFileNameHash();
+            cache.AddDir(sourceDir);
+            cache.AddDir(candidateDir);
+            DirectoryResourceLookupCache lookupCache = new DirectoryResourceLookupCache();
+            lookupCache.AddDir(sourceDir, new[] { "chart.bms" });
+            lookupCache.AddDir(candidateDir, new[] { Path.Combine("a", "00.wav"), Path.Combine("b", "01.wav"), Path.Combine("c", "01.wav") });
+
+            InstallEstimationResult result = service.EstimateInstallationDirectory(
+                new[] { file },
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+                cache,
+                lookupCache,
+                asParallel: false,
+                BmsInstallationEstimateMode.Normal);
+
+            Assert.AreEqual(1, result.CandidateDirectoryCountAfterBroadFilter);
+            Assert.AreEqual(1, result.CandidateDirectoryCountAfterAudioGate);
+            Assert.AreEqual(1, result.CandidateDirectoryCount);
+            Assert.AreEqual(candidateDir, result.SelectedCandidate?.DirectoryPath);
+            Assert.AreEqual(3, result.SelectedCandidate?.AudioMatched);
+            Assert.AreEqual(3, result.SelectedCandidate?.AudioExactMatched);
+        });
+    }
+
+    [TestMethod]
     public void EstimateInstallationDirectory_UsesCachedHashesWithoutRuntimeDirectoryEnumeration()
     {
         TestResourceInitializer.EnsureJapaneseResources();
@@ -324,6 +571,38 @@ public sealed class BmsLibraryInstallEstimationServiceTests
 
         Assert.AreEqual(candidateDir, result.DestinationDirectory);
         Assert.AreEqual(1, result.CandidateDirectoryCount);
+    }
+
+    [TestMethod]
+    public void EstimateInstallationDirectory_CachelessPath_DoesNotApplyAudioHealthGate()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        BmsLibraryInstallEstimationService service = CreateService();
+        string sourceDir = Path.Combine("C:\\Temp", "source");
+        string candidateDir = Path.Combine("C:\\Library", "candidate");
+        TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(sourceDir, "chart.bms"), "00.wav", "01.wav", "02.wav");
+        file.SetMaintenanceInfo(CreateMaintenanceInfo(file, wavDefined: 3, wavExisting: 0), suppressPropertyChanged: true, registerEventHandlers: false);
+
+        BMSDirectoryFileNameHash cache = new BMSDirectoryFileNameHash();
+        cache.AddDirHashed(sourceDir, new[] { BMSDirectoryFileNameHash.GetFileNameHash("chart.bms") });
+        cache.AddDirHashed(candidateDir, new[]
+        {
+            BMSDirectoryFileNameHash.GetFileNameHash("00.wav"),
+            BMSDirectoryFileNameHash.GetFileNameHash("01.wav")
+        });
+
+        InstallEstimationResult result = service.EstimateInstallationDirectory(
+            new[] { file },
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+            cache,
+            asParallel: false,
+            BmsInstallationEstimateMode.Normal);
+
+        Assert.AreEqual(1, result.CandidateDirectoryCountAfterBroadFilter);
+        Assert.AreEqual(1, result.CandidateDirectoryCountAfterAudioGate);
+        Assert.AreEqual(1, result.CandidateDirectoryCount);
+        Assert.AreEqual("no_viable_destination_below_threshold", result.ConfidenceReason);
+        Assert.IsTrue(string.IsNullOrWhiteSpace(result.DestinationDirectory));
     }
 
     [TestMethod]

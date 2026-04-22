@@ -9,6 +9,7 @@
 - `P2 最終調整（通常推定とマージ推定の意味分離）`: 実施済み
 - `P4`: 実施済み
 - `Perf-1`: 実施済み
+- `Perf-2a`: 実施済み
 - `P5`: 未実施
 
 ## 現在の整理
@@ -124,6 +125,87 @@ source 前提の confidence reason は現在の主経路では使いません。
 - `audioRefs > 0` の譜面では audio 一致を candidate 成立の最低条件に変更
 - `audioRefs >= 2` は 2 件一致、`audioRefs == 1` は 1 件一致を必須化
 - `audioRefs == 0` の譜面だけは audio gate を適用しない
+
+## Perf-2a で再整理したこと
+
+### 1. `innerWavHealthThreshold` を viability gate として前段へ寄せる
+
+Perf-2a 修正後は、`innerWavHealthThreshold` を含む前段条件を **1 本の unified audio gate** にまとめた。
+
+- `candidate self minimum match`
+  - 前段の candidate 縮小
+- `innerWavHealthThreshold=70`
+  - mode-aware な effective audio viability 判定
+  - 最終 viable 判定
+
+に分かれている。
+
+ただしこのままだと、
+
+- 最終的な audio health が `70` 未満
+- それでも `Low` 候補や suggestion として残る
+
+ケースがあり、精度面でも UI 面でも価値が薄い。
+
+つまり現在は、`innerWavHealthThreshold` を **より手前の viability gate** としても使っている。
+
+### 2. mode ごとの適用単位
+
+この viability gate は、現在の mode 意味を維持したまま入れている。
+
+- 通常推定
+  - `candidate self minimum match`
+  - かつ `candidate + package bundled resources` の effective audio health が `70` 超
+- マージ推定
+  - `candidate self minimum match`
+  - かつ `candidate only` の effective audio health が `70` 超
+
+つまり、
+
+- 通常推定
+  - 「移動後に成立するか」
+- merge 推定
+  - 「宛先単体で成立するか」
+
+の違いを保ったまま、**成立しない candidate は suggestion に残さない**方向へ寄せる。
+
+### 3. 精度面での狙い
+
+この再整理の狙いは、単なる性能改善ではなく次でもある。
+
+- `innerWavHealthThreshold` 未満の candidate を warning/suggestion に残さない
+- bundled だけで threshold を満たしても、candidate 自身に音源根拠がない宛先は残さない
+- 宛先として有効なのは
+  - 「移動後に audio health が threshold 以上」
+  - かつ
+  - 「その中でも余分な音源が少ない相応しい resource 集合」
+  という意味を明確にする
+
+音源以外の resource は引き続き評価に使うが、候補絞り込みと rank の主軸は今後も audio に置く。
+
+### 4. 実装時の注意点
+
+- `audioRefs == 0` の特殊譜面は、Perf-1 同様に別扱いが必要
+- unified audio gate は 1 helper だが、
+  - `candidate self minimum match`
+  - mode-aware effective viability
+  の 2 条件を持つ
+- metadata tie-break / metadata validation は、threshold を超えた candidate 群に対してだけ意味を持つ
+
+つまり Perf-2a の本質は、
+
+- 「候補サジェスト対象になるには、最終的に成立している必要がある」
+- かつ「candidate 自身にも最低限の音源根拠が必要である」
+
+という条件を前段へ寄せたことにある。
+
+Perf-2a 再修正では、この意味自体は変えず、
+
+- self minimum match を early-exit 化
+- viability 判定を threshold 到達 boolean 化
+
+することで coarse filter CPU を減らした。  
+つまりここでの変更は、精度ロジックではなく**実装の軽量化**である。
 
 ## 関連資料
 

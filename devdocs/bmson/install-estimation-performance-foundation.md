@@ -157,9 +157,10 @@ Perf-1 前は
 
 したがって、Perf-2 以降の優先度は次に見直す。
 
-1. **Perf-2a: coarse filter 第2段 / cheap first pass**
-   - audio gate 後の candidate をさらに減らす
-   - full `EvaluateCandidate(...)` に入る前の cheap score / cheap upper bound を入れる
+1. **Perf-2a: unified audio candidate gate**
+   - `candidate self minimum match` と `innerWavHealthThreshold` ベースの viability を 1 helper に統合
+   - 通常推定は `candidate + bundled`
+   - merge は `candidate only`
 2. **Perf-2b: pending estimate の package 間並列化**
    - read-only evaluate phase と apply phase の分離
    - bounded parallel
@@ -239,6 +240,175 @@ Perf-1 実装後は、次段の本命の 1 つを引き続き 2 に寄せる。
 という役割分担で考える。
 
 この資料の段階では、詳細実装には入らず「Perf-2a は候補数削減の第2段である」とだけ固定する。
+
+### 1.4 `innerWavHealthThreshold` を前段 viability gate へ寄せる
+
+Perf-1 では audio minimum match gate までを前段に入れたが、まだ
+
+- audio gate を通る
+- しかし最終的な audio health は `70` 未満
+- それでも `Low` 候補や suggestion として残る
+
+ケースがある。  
+この種の candidate は、wall-clock と UI の両面で価値が薄い可能性が高い。
+
+Perf-2a 修正後は、`innerWavHealthThreshold=70` を **より手前の viability gate** として使う。
+
+前提は次で固定する。
+
+- 通常推定
+  - `candidate self minimum match`
+  - かつ `candidate + bundled` の effective audio health が `70` 超
+- merge 推定
+  - `candidate self minimum match`
+  - かつ `candidate only` の effective audio health が `70` 超
+
+つまり threshold は、
+
+- 現状
+  - 「最終 confidence / viable 判定」
+- 次段案
+  - 「coarse filter と final ranking の中間に置く audio viability gate」
+
+へ寄せる。
+
+この案の狙いは 2 つある。
+
+1. **性能**
+   - final ranking / metadata / low-confidence 処理に流す candidate 数を減らす
+2. **精度**
+   - 最終配置でも成立しない candidate を warning/suggestion に残し続けない
+
+### 1.5 前段 threshold gate をどう軽く入れるか
+
+ただし、`innerWavHealthThreshold` をそのまま full evaluation 前に完全計算すると、cheap gate にならない。  
+そのため Perf-2a 修正後は、**1 本の unified audio gate** に次の 2 条件を持たせる。
+
+1. **candidate self minimum match**
+   - Perf-1 の 1/2 件 audio basename minimum match を維持
+2. **effective audio viability**
+   - 通常推定は `candidate + bundled`
+   - merge は `candidate only`
+   で `health > 70`
+
+ここで大事なのは、「audio gate の強化」を helper 数ではなく**条件の統合**として再整理することである。
+
+- 音源が 0 一致なら即除外
+- bundled だけで threshold を満たしても、candidate 自身に音源根拠がなければ除外
+- さらに、**最終的な effective audio health が threshold を超えない candidate は除外**
+
+Perf-2a 再修正では、この unified gate の**意味は変えず**、内部実装だけを cheap/heavy に最適化した。
+
+- self minimum match
+  - candidate audio basename を直接なめて、1 件または 2 件で early-exit
+- effective viability
+  - full matched count を最後まで出さず、`health > 70` に必要な matched 数へ届いた時点で打ち切る
+- relative path exact
+  - viability 側の rescue として維持
+
+つまり、
+
+- `ApplyAudioCandidateGate(...)` という 1 helper の形は維持
+- ただし内部は
+  - cheap self minimum match
+  - heavier viability check
+
+の構造へ戻して、2段ゲート時より悪化した coarse filter CPU を取り戻す方針にした。
+
+この再修正は性能最適化のみであり、
+
+- candidate の意味
+- normal / merge の mode 差
+- metadata tie-break / validation
+- confidence / warning / suggestion の semantics
+
+は変更しない。
+
+### 1.6 `innerWavHealthThreshold` 前倒しの位置づけ
+
+この案は、`innerWavHealthThreshold` の意味そのものを変えるのではなく、
+
+- 「宛先として有効なのは、移動後に audio health が threshold 以上になる candidate」
+
+という既存の viability 意味を、**前段候補除外にも使う**ものと整理する。
+
+つまり Perf-2a 修正後は、
+
+- broad prefilter
+- unified audio gate
+- full evaluation / metadata / confidence
+
+の順へ寄せるプランとして扱う。
+
+### 1.7 Perf-2a 再修正後の実測
+
+Perf-2a は一度、
+
+- `candidate self minimum match`
+- `effective audio viability`
+
+を 1 helper に統合したが、内部実装が full count 寄りになったことで coarse filter CPU が悪化した。
+
+同一条件の `pending_estimate_batch done source=auto_install` 比較は次のとおり。
+
+- 2段ゲート時
+  - `elapsedMs=55017`
+- unified 直後
+  - `elapsedMs=62021`
+- Perf-2a 再修正後
+  - `elapsedMs=50952`
+
+つまり、
+
+- unified 直後比で `-11069ms`
+- 2段ゲート時比でも `-4065ms`
+
+まで戻せている。
+
+ここで重要なのは、**候補の意味や low-confidence 件数を変えずに速くなっている**こと。
+
+- 2段ゲート時
+  - `lowConfidence=107`
+- unified 直後
+  - `lowConfidence=107`
+- Perf-2a 再修正後
+  - `lowConfidence=107`
+
+代表ケースでも、full evaluation へ流す候補数は実質同じだった。
+
+- `9815 -> 2840 -> 1`
+  - 再修正後は `9815 -> 1`
+- `7999 -> 1604 -> 0`
+  - 再修正後は `7999 -> 0`
+- `5891 -> 3011 -> 175`
+  - 再修正後も `5891 -> 175`
+- `6312 -> 3305 -> 158`
+  - 再修正後も `6312 -> 158`
+
+つまり Perf-2a 再修正の本質は、
+
+- unified audio gate の**仕様を変えず**
+- old 2段ゲート時の **cheap/heavy 構造だけを内部へ戻した**
+
+ことにある。
+
+### 1.8 Perf-2a 再修正から得られたこと
+
+今回の比較で確認できたことは次の 2 点。
+
+1. `1 helper 化` 自体が遅いのではない
+   - 遅かったのは、self minimum match と viability をどちらも full count 寄りで計算していた実装
+2. coarse filter は、候補数だけでなく **候補を減らすまでの CPU コスト**も重要
+   - cheap phase は early-exit
+   - heavy phase も threshold 到達 boolean に留める
+   という構造が効く
+
+したがって、今後の性能改善でも
+
+- 仕様統合
+- helper 統合
+
+を行う場合でも、cheap phase を消して full count 計算に寄せないことが重要である。
 
 ## 論点 2: source package 側の追加キャッシュ / 列挙基盤
 
@@ -380,7 +550,7 @@ Perf-1 実装後は、次段の本命の 1 つを引き続き 2 に寄せる。
 
 ここは `evaluationMs` に出ないので、別計測を入れた上で着手順を決める。
 
-### C. coarse filter 第2段と package 間並列化を並行候補として扱う
+### C. package 間並列化が次の本命候補
 Perf-1 後ログを見る限り、package 間並列化は依然かなり有力である。
 
 一方で、その前提として
@@ -399,10 +569,10 @@ package 間並列化は効果が大きい可能性がある一方で、
 の設計コストが大きい。  
 よって、今後は
 
-1. candidate 数削減の第2段
-2. package 間並列化
+1. package 間並列化
+2. source surface 可視化 / scanner 整理
 
-を並行候補として扱い、その判断材料として source surface 可視化 / scanner 整理も進める。
+を次段候補として扱う。
 
 ## 追加で必要な計測
 
@@ -429,10 +599,10 @@ package 間並列化は効果が大きい可能性がある一方で、
    - 全件 fallback 廃止
    - audio 最低一致数
    - candidate 数削減
-2. **Perf-2a: coarse filter 第2段 / cheap first pass**
-   - audio gate 後の candidate をさらに減らす
-   - cheap score / upper bound
-   - full evaluation へ流す candidate の上限整理
+2. **Perf-2a: mode-aware audio viability gate**
+   - `innerWavHealthThreshold` を前段 candidate 除外にも使う
+   - 通常推定は `candidate + bundled`
+   - merge は `candidate only`
 3. **Perf-2b: pending estimate package 間並列化**
    - read-only evaluate phase 分離
    - bounded parallel
