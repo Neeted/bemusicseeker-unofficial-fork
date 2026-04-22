@@ -162,8 +162,8 @@ Perf-1 前は
    - 通常推定は `candidate + bundled`
    - merge は `candidate only`
 2. **Perf-2b: pending estimate の package 間並列化**
-   - read-only evaluate phase と apply phase の分離
-   - bounded parallel
+   - 実施済み
+   - background batch を `evaluate parallel / apply serial` に再編
    - batch wall-clock を縮める
 3. **Perf-3: source package surface / scanner 基盤整理**
    - source surface 構築コストの計測追加
@@ -521,16 +521,115 @@ Perf-2a は一度、
 - apply phase は deterministic にする
   - 同一 batch 内で package 完了順が前後しても、表示上の不整合が出ないようにする
 
-### 3.4 並列化の分割案
+### 3.4 Perf-2b で採用した実行モデル
 
-後続の実装プランでは package 間並列化を次の 2 段で切れる。
+`2026-04-22` 時点では、background の `pending_estimate_batch` は次の順で動く。
 
-1. **評価 phase の並列化**
-   - `InstallEstimationResult` 作成までを bounded parallel
-2. **queue / apply / progress モデルの再整理**
-   - 結果反映順
-   - manual estimate との排他
-   - regroup タイミング
+1. demand build
+2. immutable request 準備
+3. bounded parallel evaluate
+4. request 順の serial apply
+5. regroup
+
+並列化するのは **read-only evaluate phase のみ**で、次は従来どおり serial に保つ。
+
+- `BMSFile` への適用
+- warning / suggestion / metadata 同期
+- progress 更新
+- package-level の `estimate_install ...` ログ出力
+- regroup
+
+また、Perf-2b では nested parallelism を避けるため、background parallel path の package 内 candidate 評価は `asParallel: false` に固定する。
+
+manual estimate の優先順位は変更しておらず、batch 全体を `RunPendingEstimateExclusive(...)` で囲うことで、**manual estimate は background batch 完了待ち**のまま維持する。
+
+### 3.5 Perf-2b の設定
+
+Perf-2b では hidden setting として次を追加した。
+
+- `PendingInstallEstimateMaxParallelPackages`
+  - `0` は auto
+  - auto は `min(4, max(1, Environment.ProcessorCount / 2))`
+  - 実効値は `1..8` に clamp
+
+この設定は UI には出さず、background pending estimate の package 間並列度だけを制御する。
+
+### 3.6 Perf-2b で変えていないもの
+
+Perf-2b はあくまで **background 実行モデルの変更**であり、次は変更しない。
+
+- unified audio gate
+- metadata tie-break / metadata validation
+- confidence / warning / suggestion の semantics
+- source baseline defer 判定
+- manual estimate / manual merge の動作意味
+
+### 3.7 Perf-2b の実測
+
+同一条件の `pending_estimate_batch done source=auto_install` 比較は次のとおり。
+
+- Perf-2a 再修正後
+  - `elapsedMs=50952`
+  - `lowConfidence=107`
+- Perf-2b 実装後
+  - `elapsedMs=28628`
+  - `lowConfidence=107`
+
+つまり Perf-2b は、
+
+- 推定件数
+- defer 件数
+- low-confidence 件数
+
+を変えずに、batch wall-clock を **約 43.8% 短縮**している。
+
+一方で package 単体の `evaluationMs` は増えている。
+
+- Perf-2a 再修正後
+  - `estimate_install` 136 件
+  - `evaluationMs` 合計 `685`
+  - 平均 `5.0`
+- Perf-2b 実装後
+  - `estimate_install` 136 件
+  - `evaluationMs` 合計 `1605`
+  - 平均 `11.8`
+
+これは Perf-2b で background path の package 内 candidate 評価を `asParallel: false` に固定したためであり、**package 単体ではやや重くなるが、package 間並列化で batch 全体は大きく短縮する**という狙いどおりの結果である。
+
+また、候補数そのものはほぼ不変だった。
+
+- `candidateDirsAfterBroadFilter` 平均
+  - `2730.5 -> 2730.5`
+- `candidateDirsAfterAudioGate` 平均
+  - `151.6 -> 151.6`
+- `candidateDirsAfter=0` 件数
+  - `28 -> 28`
+
+つまり Perf-2b の効果は、candidate semantics や coarse filter 改変ではなく、**background 実行モデルの並列化そのもの**によって得られている。
+
+### 3.8 Perf-3 に進む前提
+
+Perf-2b 実装後は、候補数削減と background wall-clock 短縮の両方が一段落した。  
+この時点で次の本命は、当初から残課題だった **source package surface / scanner 基盤整理**である。
+
+Perf-3 では少なくとも次を前提にする。
+
+- 目的は `evaluationMs` ではなく、**source surface 構築の初回コスト**を可視化して減らすこと
+- まず追加計測を入れる
+  - `package_surface_build_ms`
+  - `package_surface_file_count`
+  - `package_surface_hash_materialize_ms`
+- そのうえで、`PackageInstallEstimationSnapshotBuilder.BuildInstallSurface(path)` の
+  - 再帰列挙
+  - hash/materialization
+  - cache invalidation
+  を分解して見る
+- Everything と FastDirectoryEnumerator の共通化は
+  - まず列挙基盤
+  - 次に package surface 集約
+  の順で考える
+
+つまり Perf-3 は、Perf-2a / Perf-2b のように candidate を減らしたり並列度を上げたりする段ではなく、**source path 列挙と surface snapshot 構築を観測し、再利用可能な scanner / cache へ寄せる段**として扱う。
 
 ## 優先度を決めるための前提
 
@@ -604,8 +703,8 @@ package 間並列化は効果が大きい可能性がある一方で、
    - 通常推定は `candidate + bundled`
    - merge は `candidate only`
 3. **Perf-2b: pending estimate package 間並列化**
-   - read-only evaluate phase 分離
-   - bounded parallel
+   - 実施済み
+   - `evaluate parallel / apply serial`
    - batch wall-clock 短縮
 4. **Perf-3: package source surface / scanner 基盤整理**
    - source path 列挙の一般化

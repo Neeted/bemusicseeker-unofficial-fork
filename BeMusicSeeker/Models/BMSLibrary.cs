@@ -1672,6 +1672,83 @@ public class BMSLibrary : NotificationObject
         return new BmsLibraryInstallEstimationService(CurrentOptionsSnapshot, innerWavHealthThreshForNormalBMSFile);
     }
 
+    private BmsLibraryInstallEstimationService CreateInstallEstimationService(BmsLibraryOptionsSnapshot optionsSnapshot)
+    {
+        return new BmsLibraryInstallEstimationService(optionsSnapshot ?? CurrentOptionsSnapshot, innerWavHealthThreshForNormalBMSFile);
+    }
+
+    private const int PendingInstallEstimateAutoParallelismMax = 4;
+
+    private const int PendingInstallEstimateParallelismHardMax = 8;
+
+    private enum PendingInstallEstimateEvaluationOutcomeKind
+    {
+        NoOp,
+        ResolvedInstalledDirectory,
+        EstimatedResult,
+        SkippedAsStale
+    }
+
+    private sealed class PendingInstallEstimateEvaluationRequest
+    {
+        public int OrderIndex { get; set; }
+
+        public BMSPackage Package { get; set; }
+
+        public string DisplayName { get; set; } = string.Empty;
+
+        public List<BMSFile> AlreadyInstalledFiles { get; set; } = new List<BMSFile>();
+
+        public List<BMSFile> MissingFiles { get; set; } = new List<BMSFile>();
+
+        public BmsInstallationEstimateMode EstimateMode { get; set; }
+
+        public bool WasPendingAtPreparation { get; set; }
+
+        public bool HasMissingFiles => MissingFiles.Count > 0;
+
+        public bool AttemptInstalledResolve => AlreadyInstalledFiles.Count > 0 && MissingFiles.Count > 0;
+    }
+
+    private sealed class PendingInstallEstimateEvaluationContext
+    {
+        public InstalledChartDirectoryIndexSnapshot InstalledDirectoryIndexSnapshot { get; set; } = new InstalledChartDirectoryIndexSnapshot();
+
+        public DirectoryResourceLookupCache DirectoryLookupCacheSnapshot { get; set; }
+
+        public BMSDirectoryFileNameHash FolderAllFileListSnapshot { get; set; }
+
+        public BmsLibraryOptionsSnapshot OptionsSnapshot { get; set; } = new BmsLibraryOptionsSnapshot();
+    }
+
+    private sealed class InstallEstimationEvaluationData
+    {
+        public int ChartCount { get; set; }
+
+        public InstallEstimationResult Result { get; set; }
+
+        public long LazyHashBuildMsDelta { get; set; }
+
+        public long LazyHashLookupCountDelta { get; set; }
+
+        public int LazyHashEntriesAdded { get; set; }
+
+        public string LazyHashBuildReason { get; set; } = "demand";
+    }
+
+    private sealed class PendingInstallEstimateEvaluationResult
+    {
+        public PendingInstallEstimateEvaluationRequest Request { get; set; }
+
+        public PendingInstallEstimateEvaluationOutcomeKind OutcomeKind { get; set; }
+
+        public string ResolvedDirectory { get; set; }
+
+        public InstalledDirectoryLookupResult InstalledResolution { get; set; }
+
+        public InstallEstimationEvaluationData EstimationData { get; set; }
+    }
+
     /// <summary>
     /// LR2 の song.db を読み込み、このセッションで利用する BMS ライブラリを初期化します。
     /// </summary>
@@ -1927,46 +2004,28 @@ public class BMSLibrary : NotificationObject
         LogInstallPerformance("pending_estimate_batch start source=" + source + " packages=" + request.PackageCount + " totalPackages=" + request.TotalPackageCount + " deferredPackages=" + request.DeferredPackageCount + " display=" + (request.DisplayName ?? string.Empty));
         try
         {
-            PreparePendingInstallEstimateBatchDemandBuild(request, source, token);
-            SetInstallEstimationProgress(ToInstallEstimationProgressSource(request.Source), request.PackageCount, 0, request.DisplayName ?? string.Empty);
-            foreach (BMSPackage package in request.Packages)
+            RunPendingEstimateExclusive(delegate
             {
-                if (token.IsCancellationRequested)
+                PreparePendingInstallEstimateBatchDemandBuildCore(request, source, token);
+                SetInstallEstimationProgress(ToInstallEstimationProgressSource(request.Source), request.PackageCount, 0, request.DisplayName ?? string.Empty);
+                PendingInstallEstimateEvaluationContext evaluationContext = CreatePendingInstallEstimateEvaluationContext();
+                List<PendingInstallEstimateEvaluationRequest> evaluationRequests = PreparePendingInstallEstimateEvaluationRequests(request);
+                int maxParallelPackages = ResolvePendingInstallEstimateMaxParallelPackages();
+                ProcessPendingInstallEstimateEvaluationPipeline(request, source, token, evaluationContext, evaluationRequests, maxParallelPackages, ref completed, ref lowConfidenceCount);
+                if (!token.IsCancellationRequested && request.RegroupEligibleSourceDirectories.Length > 0)
                 {
-                    break;
-                }
-                if (package == null)
-                {
-                    continue;
-                }
-                string currentDisplayName = PendingInstallEstimateBatchRequest.GetDisplayName(package.path);
-                SetInstallEstimationProgress(ToInstallEstimationProgressSource(request.Source), request.PackageCount, completed, currentDisplayName);
-                RunPendingEstimateExclusive(delegate
-                {
-                    SearchEstimatedInstallationDirectoryCore(package);
-                });
-                completed++;
-                SetInstallEstimationProgress(ToInstallEstimationProgressSource(request.Source), request.PackageCount, completed, currentDisplayName);
-                pendingInstallEstimateQueueProcessor.ReportActiveBatchProgress(completed);
-                if ((package.BMSFiles ?? new List<BMSFile>()).Any((BMSFile file) => file != null && string.IsNullOrWhiteSpace(file.instl_dst) && !string.IsNullOrWhiteSpace(file.InstallDestinationTitle)))
-                {
-                    lowConfidenceCount++;
-                }
-                LogInstallPerformance("pending_estimate_batch progress source=" + source + " completed=" + completed + "/" + request.PackageCount + " current=" + currentDisplayName);
-            }
-            if (!token.IsCancellationRequested && request.RegroupEligibleSourceDirectories.Length > 0)
-            {
-                using (rwlockBMSFilesInitializedAll.GetReaderGuard())
-                {
-                    using (rwlockBMSFilesPendingInstall.GetWriterGuard())
+                    using (rwlockBMSFilesInitializedAll.GetReaderGuard())
                     {
-                        using (rwlockBMSFiles.GetReaderGuard())
+                        using (rwlockBMSFilesPendingInstall.GetWriterGuard())
                         {
-                            TryRegroupPendingPackagesForSourceDirectoriesUnsafe(request.RegroupEligibleSourceDirectories);
+                            using (rwlockBMSFiles.GetReaderGuard())
+                            {
+                                TryRegroupPendingPackagesForSourceDirectoriesUnsafe(request.RegroupEligibleSourceDirectories);
+                            }
                         }
                     }
                 }
-            }
+            });
             stopwatch.Stop();
             LogInstallPerformance("pending_estimate_batch done source=" + source + " packages=" + request.PackageCount + " totalPackages=" + request.TotalPackageCount + " deferredPackages=" + request.DeferredPackageCount + " estimated=" + completed + " completed=" + (completed + request.DeferredPackageCount) + " elapsedMs=" + stopwatch.ElapsedMilliseconds + " lowConfidence=" + lowConfidenceCount);
         }
@@ -1985,58 +2044,359 @@ public class BMSLibrary : NotificationObject
 
         RunPendingEstimateExclusive(delegate
         {
-            if (token.IsCancellationRequested)
-            {
-                return;
-            }
+            PreparePendingInstallEstimateBatchDemandBuildCore(request, source, token);
+        });
+    }
 
-            HashSet<uint> targetHashes = new HashSet<uint>();
-            DirectoryResourceLookupCache directoryLookupCacheSnapshot;
-            long lazyHashBuildMsBefore;
-            int lazyHashCacheEntriesBefore;
+    private void PreparePendingInstallEstimateBatchDemandBuildCore(PendingInstallEstimateBatchRequest request, string source, CancellationToken token)
+    {
+        if (request == null || request.PackageCount == 0 || token.IsCancellationRequested)
+        {
+            return;
+        }
 
-            using (rwlockBMSFilesInitializedAll.GetReaderGuard())
+        HashSet<uint> targetHashes = new HashSet<uint>();
+        DirectoryResourceLookupCache directoryLookupCacheSnapshot;
+        long lazyHashBuildMsBefore;
+        int lazyHashCacheEntriesBefore;
+
+        using (rwlockBMSFilesInitializedAll.GetReaderGuard())
+        {
+            using (rwlockBMSFilesPendingInstall.GetReaderGuard())
             {
-                using (rwlockBMSFilesPendingInstall.GetReaderGuard())
+                using (rwlockBMSFiles.GetReaderGuard())
                 {
-                    using (rwlockBMSFiles.GetReaderGuard())
+                    directoryLookupCacheSnapshot = directoryResourceLookupCache;
+                    BmsLibraryInstallEstimationService installEstimationService = CreateInstallEstimationService();
+
+                    foreach (BMSPackage package in request.Packages.Where((BMSPackage package) => package != null))
                     {
-                        directoryLookupCacheSnapshot = directoryResourceLookupCache;
-                        BmsLibraryInstallEstimationService installEstimationService = CreateInstallEstimationService();
-
-                        foreach (BMSPackage package in request.Packages.Where((BMSPackage package) => package != null))
+                        List<BMSFile> packageFiles = (package.BMSFiles ?? new List<BMSFile>()).Where((BMSFile file) => file != null).ToList();
+                        if (packageFiles.Count == 0)
                         {
-                            List<BMSFile> packageFiles = (package.BMSFiles ?? new List<BMSFile>()).Where((BMSFile file) => file != null).ToList();
-                            if (packageFiles.Count == 0)
-                            {
-                                continue;
-                            }
-
-                            List<BMSFile> missingFiles = packageFiles.Where((BMSFile file) => !ContainsInstalledChartUnsafe(file)).ToList();
-                            if (missingFiles.Count == 0)
-                            {
-                                continue;
-                            }
-                            targetHashes.UnionWith(installEstimationService.CollectTargetResourceHashes(package.GetOrBuildInstallEstimationSnapshot(missingFiles)));
+                            continue;
                         }
+                        List<BMSFile> missingFiles = packageFiles.Where((BMSFile file) => !ContainsInstalledChartUnsafe(file)).ToList();
+                        if (missingFiles.Count == 0)
+                        {
+                            continue;
+                        }
+                        targetHashes.UnionWith(installEstimationService.CollectTargetResourceHashes(package.GetOrBuildInstallEstimationSnapshot(missingFiles)));
+                    }
 
-                        lazyHashBuildMsBefore = directoryLookupCacheSnapshot?.LazyHashBuildMs ?? 0L;
-                        lazyHashCacheEntriesBefore = directoryLookupCacheSnapshot?.LazyHashCacheEntryCount ?? 0;
+                    lazyHashBuildMsBefore = directoryLookupCacheSnapshot?.LazyHashBuildMs ?? 0L;
+                    lazyHashCacheEntriesBefore = directoryLookupCacheSnapshot?.LazyHashCacheEntryCount ?? 0;
+                }
+            }
+        }
+
+        if (directoryLookupCacheSnapshot == null || targetHashes.Count == 0)
+        {
+            LogInstallPerformance("pending_estimate_batch demand_build source=" + source + " packages=" + request.PackageCount + " estimablePackages=" + request.PackageCount + " deferredPackages=" + request.DeferredPackageCount + " targetHashes=" + targetHashes.Count + " builtMs=0 entriesAdded=0");
+            return;
+        }
+
+        directoryLookupCacheSnapshot.EnsureDirectoriesByHashes(targetHashes);
+        long lazyHashBuildMsAfter = directoryLookupCacheSnapshot.LazyHashBuildMs;
+        int lazyHashCacheEntriesAfter = directoryLookupCacheSnapshot.LazyHashCacheEntryCount;
+        LogInstallPerformance("pending_estimate_batch demand_build source=" + source + " packages=" + request.PackageCount + " estimablePackages=" + request.PackageCount + " deferredPackages=" + request.DeferredPackageCount + " targetHashes=" + targetHashes.Count + " builtMs=" + (lazyHashBuildMsAfter - lazyHashBuildMsBefore) + " entriesAdded=" + (lazyHashCacheEntriesAfter - lazyHashCacheEntriesBefore));
+    }
+
+    private PendingInstallEstimateEvaluationContext CreatePendingInstallEstimateEvaluationContext()
+    {
+        using (rwlockBMSFilesInitializedAll.GetReaderGuard())
+        {
+            using (rwlockBMSFiles.GetReaderGuard())
+            {
+                return new PendingInstallEstimateEvaluationContext
+                {
+                    InstalledDirectoryIndexSnapshot = CreateInstalledDirectoryIndexSnapshotUnsafe(),
+                    DirectoryLookupCacheSnapshot = directoryResourceLookupCache,
+                    FolderAllFileListSnapshot = bmsFolderAllFileList,
+                    OptionsSnapshot = CurrentOptionsSnapshot
+                };
+            }
+        }
+    }
+
+    private List<PendingInstallEstimateEvaluationRequest> PreparePendingInstallEstimateEvaluationRequests(PendingInstallEstimateBatchRequest request)
+    {
+        List<PendingInstallEstimateEvaluationRequest> requests = new List<PendingInstallEstimateEvaluationRequest>();
+        if (request == null)
+        {
+            return requests;
+        }
+        using (rwlockBMSFilesInitializedAll.GetReaderGuard())
+        {
+            using (rwlockBMSFilesPendingInstall.GetReaderGuard())
+            {
+                using (rwlockBMSFiles.GetReaderGuard())
+                {
+                    int orderIndex = 0;
+                    foreach (BMSPackage package in request.Packages)
+                    {
+                        List<BMSFile> packageFiles = (package?.BMSFiles ?? new List<BMSFile>()).Where((BMSFile file) => file != null).ToList();
+                        List<BMSFile> alreadyInstalledFiles = packageFiles.Where(ContainsInstalledChartUnsafe).ToList();
+                        List<BMSFile> missingFiles = packageFiles.Where((BMSFile file) => !ContainsInstalledChartUnsafe(file)).ToList();
+                        requests.Add(new PendingInstallEstimateEvaluationRequest
+                        {
+                            OrderIndex = orderIndex++,
+                            Package = package,
+                            DisplayName = PendingInstallEstimateBatchRequest.GetDisplayName(package?.path),
+                            AlreadyInstalledFiles = alreadyInstalledFiles,
+                            MissingFiles = missingFiles,
+                            EstimateMode = (alreadyInstalledFiles.Count > 0 && missingFiles.Count > 0) ? BmsInstallationEstimateMode.Fix : BmsInstallationEstimateMode.Normal,
+                            WasPendingAtPreparation = package != null && BMSPackagesPending.Contains(package)
+                        });
                     }
                 }
             }
+        }
+        return requests;
+    }
 
-            if (directoryLookupCacheSnapshot == null || targetHashes.Count == 0)
+    private int ResolvePendingInstallEstimateMaxParallelPackages()
+    {
+        int configured = Settings.Default.PendingInstallEstimateMaxParallelPackages;
+        int resolved = (configured == 0)
+            ? Math.Min(PendingInstallEstimateAutoParallelismMax, Math.Max(1, Environment.ProcessorCount / 2))
+            : configured;
+        return Math.Max(1, Math.Min(PendingInstallEstimateParallelismHardMax, resolved));
+    }
+
+    private void ProcessPendingInstallEstimateEvaluationPipeline(PendingInstallEstimateBatchRequest request, string source, CancellationToken token, PendingInstallEstimateEvaluationContext evaluationContext, List<PendingInstallEstimateEvaluationRequest> evaluationRequests, int maxParallelPackages, ref int completed, ref int lowConfidenceCount)
+    {
+        List<(PendingInstallEstimateEvaluationRequest Request, Task<PendingInstallEstimateEvaluationResult> Task)> inFlight = new List<(PendingInstallEstimateEvaluationRequest Request, Task<PendingInstallEstimateEvaluationResult> Task)>();
+        int nextDispatchIndex = 0;
+        int nextApplyIndex = 0;
+        while (nextApplyIndex < evaluationRequests.Count)
+        {
+            while (!token.IsCancellationRequested && nextDispatchIndex < evaluationRequests.Count && inFlight.Count < maxParallelPackages)
             {
-                LogInstallPerformance("pending_estimate_batch demand_build source=" + source + " packages=" + request.PackageCount + " estimablePackages=" + request.PackageCount + " deferredPackages=" + request.DeferredPackageCount + " targetHashes=" + targetHashes.Count + " builtMs=0 entriesAdded=0");
-                return;
+                PendingInstallEstimateEvaluationRequest dispatchRequest = evaluationRequests[nextDispatchIndex];
+                SetPendingInstallEstimateSearchingState(dispatchRequest, isSearching: true);
+                Task<PendingInstallEstimateEvaluationResult> evaluateTask = Task.Run(() => EvaluatePendingInstallEstimateRequest(dispatchRequest, evaluationContext, token), token);
+                inFlight.Add((dispatchRequest, evaluateTask));
+                nextDispatchIndex++;
             }
 
-            directoryLookupCacheSnapshot.EnsureDirectoriesByHashes(targetHashes);
-            long lazyHashBuildMsAfter = directoryLookupCacheSnapshot.LazyHashBuildMs;
-            int lazyHashCacheEntriesAfter = directoryLookupCacheSnapshot.LazyHashCacheEntryCount;
-            LogInstallPerformance("pending_estimate_batch demand_build source=" + source + " packages=" + request.PackageCount + " estimablePackages=" + request.PackageCount + " deferredPackages=" + request.DeferredPackageCount + " targetHashes=" + targetHashes.Count + " builtMs=" + (lazyHashBuildMsAfter - lazyHashBuildMsBefore) + " entriesAdded=" + (lazyHashCacheEntriesAfter - lazyHashCacheEntriesBefore));
-        });
+            int applySlotIndex = inFlight.FindIndex(item => item.Request.OrderIndex == nextApplyIndex);
+            if (applySlotIndex < 0)
+            {
+                if (token.IsCancellationRequested)
+                {
+                    break;
+                }
+                throw new InvalidOperationException("Pending install estimate pipeline lost request order.");
+            }
+
+            (PendingInstallEstimateEvaluationRequest Request, Task<PendingInstallEstimateEvaluationResult> Task) applySlot = inFlight[applySlotIndex];
+            PendingInstallEstimateEvaluationResult evaluationResult = applySlot.Task.GetAwaiter().GetResult();
+            inFlight.RemoveAt(applySlotIndex);
+            ApplyPendingInstallEstimateEvaluationResult(request, source, evaluationResult, ref completed, ref lowConfidenceCount);
+            nextApplyIndex++;
+        }
+
+        foreach ((PendingInstallEstimateEvaluationRequest Request, Task<PendingInstallEstimateEvaluationResult> Task) item in inFlight)
+        {
+            PendingInstallEstimateEvaluationResult evaluationResult = item.Task.GetAwaiter().GetResult();
+            ApplyPendingInstallEstimateEvaluationResult(request, source, evaluationResult, ref completed, ref lowConfidenceCount);
+        }
+    }
+
+    private PendingInstallEstimateEvaluationResult EvaluatePendingInstallEstimateRequest(PendingInstallEstimateEvaluationRequest request, PendingInstallEstimateEvaluationContext evaluationContext, CancellationToken token)
+    {
+        PendingInstallEstimateEvaluationResult result = new PendingInstallEstimateEvaluationResult
+        {
+            Request = request,
+            OutcomeKind = PendingInstallEstimateEvaluationOutcomeKind.NoOp
+        };
+        if (token.IsCancellationRequested || request == null || request.Package == null || !request.WasPendingAtPreparation)
+        {
+            result.OutcomeKind = PendingInstallEstimateEvaluationOutcomeKind.SkippedAsStale;
+            return result;
+        }
+        if (!request.HasMissingFiles)
+        {
+            return result;
+        }
+
+        if (request.AttemptInstalledResolve)
+        {
+            result.InstalledResolution = EvaluateInstalledDestinationFromPackage(request.Package, request.MissingFiles, evaluationContext);
+            if (result.InstalledResolution.Success)
+            {
+                result.OutcomeKind = PendingInstallEstimateEvaluationOutcomeKind.ResolvedInstalledDirectory;
+                result.ResolvedDirectory = result.InstalledResolution.InstallDirectory;
+                return result;
+            }
+        }
+
+        result.OutcomeKind = PendingInstallEstimateEvaluationOutcomeKind.EstimatedResult;
+        result.EstimationData = EvaluateInstallEstimation(request.Package, request.MissingFiles, asParallel: false, request.EstimateMode, evaluationContext.OptionsSnapshot, useThreadSafeResolvers: true, useSharedLazyHashMetrics: true);
+        return result;
+    }
+
+    private InstalledDirectoryLookupResult EvaluateInstalledDestinationFromPackage(BMSPackage package, List<BMSFile> missingFiles, PendingInstallEstimateEvaluationContext evaluationContext)
+    {
+        if (package == null || missingFiles == null || missingFiles.Count == 0)
+        {
+            return new InstalledDirectoryLookupResult
+            {
+                Reason = InstalledDirectoryResolveReason.NoInstalledDirectoryMatch
+            };
+        }
+        BmsLibraryInstallEstimationService installEstimationService = CreateInstallEstimationService(evaluationContext?.OptionsSnapshot);
+        return installEstimationService.TryResolveInstalledDestinationFromPackage(package, missingFiles, evaluationContext?.InstalledDirectoryIndexSnapshot ?? new InstalledChartDirectoryIndexSnapshot(), evaluationContext?.FolderAllFileListSnapshot ?? bmsFolderAllFileList);
+    }
+
+    private void ApplyPendingInstallEstimateEvaluationResult(PendingInstallEstimateBatchRequest batchRequest, string source, PendingInstallEstimateEvaluationResult evaluationResult, ref int completed, ref int lowConfidenceCount)
+    {
+        PendingInstallEstimateEvaluationRequest request = evaluationResult?.Request;
+        string currentDisplayName = request?.DisplayName ?? string.Empty;
+        SetInstallEstimationProgress(ToInstallEstimationProgressSource(batchRequest.Source), batchRequest.PackageCount, completed, currentDisplayName);
+        bool isLowConfidence = false;
+        using (rwlockBMSFilesInitializedAll.GetReaderGuard())
+        {
+            using (rwlockBMSFilesPendingInstall.GetWriterGuard())
+            {
+                using (rwlockBMSFiles.GetReaderGuard())
+                {
+                    using (rwlockSongDBInstall.GetWriterGuard())
+                    {
+                        isLowConfidence = ApplyPendingInstallEstimateEvaluationResultUnsafe(evaluationResult);
+                    }
+                }
+            }
+        }
+        completed++;
+        if (isLowConfidence)
+        {
+            lowConfidenceCount++;
+        }
+        SetInstallEstimationProgress(ToInstallEstimationProgressSource(batchRequest.Source), batchRequest.PackageCount, completed, currentDisplayName);
+        pendingInstallEstimateQueueProcessor.ReportActiveBatchProgress(completed);
+        LogInstallPerformance("pending_estimate_batch progress source=" + source + " completed=" + completed + "/" + batchRequest.PackageCount + " current=" + currentDisplayName);
+    }
+
+    private bool ApplyPendingInstallEstimateEvaluationResultUnsafe(PendingInstallEstimateEvaluationResult evaluationResult)
+    {
+        PendingInstallEstimateEvaluationRequest request = evaluationResult?.Request;
+        if (request == null)
+        {
+            return false;
+        }
+
+        SetPendingInstallEstimateSearchingStateUnsafe(request, isSearching: false);
+        BMSPackage package = request.Package;
+        if (package == null || !BMSPackagesPending.Contains(package))
+        {
+            return false;
+        }
+
+        package.DeferredEstimateReason = PendingEstimateDeferredReason.None;
+        ApplyPackageMixedInstallWarnings(request.AlreadyInstalledFiles.Where(ContainsInstalledChartUnsafe));
+
+        List<BMSFile> currentMissingFiles = request.MissingFiles
+            .Where((BMSFile file) => file != null && !ContainsInstalledChartUnsafe(file))
+            .ToList();
+        if (currentMissingFiles.Count == 0)
+        {
+            return false;
+        }
+        if (request.MissingFiles.Any((BMSFile file) => file != null && !string.IsNullOrWhiteSpace(file.instl_dst)))
+        {
+            return false;
+        }
+
+        if (request.AttemptInstalledResolve)
+        {
+            LogMixedPackageResolution(evaluationResult.InstalledResolution, package.path, request.MissingFiles.Count);
+        }
+
+        switch (evaluationResult.OutcomeKind)
+        {
+            case PendingInstallEstimateEvaluationOutcomeKind.ResolvedInstalledDirectory:
+                if (!string.IsNullOrWhiteSpace(evaluationResult.ResolvedDirectory))
+                {
+                    ApplyResolvedInstallDestinationToFiles(currentMissingFiles, evaluationResult.ResolvedDirectory);
+                }
+                return currentMissingFiles.Any((BMSFile file) => file != null && string.IsNullOrWhiteSpace(file.instl_dst) && !string.IsNullOrWhiteSpace(file.InstallDestinationTitle));
+            case PendingInstallEstimateEvaluationOutcomeKind.EstimatedResult:
+            {
+                if (request.AttemptInstalledResolve)
+                {
+                    LogInstallPerformance("mixed_package_resolve fallback reason=use_legacy_search missing=" + request.MissingFiles.Count);
+                }
+                LogInstallEstimationEvaluation(evaluationResult.EstimationData);
+                ApplyInstallEstimationResultToFiles(currentMissingFiles, evaluationResult.EstimationData?.Result);
+                return currentMissingFiles.Any((BMSFile file) => file != null && string.IsNullOrWhiteSpace(file.instl_dst) && !string.IsNullOrWhiteSpace(file.InstallDestinationTitle));
+            }
+            default:
+                return false;
+        }
+    }
+
+    private void LogMixedPackageResolution(InstalledDirectoryLookupResult resolution, string packagePath, int missingFileCount)
+    {
+        if (resolution == null)
+        {
+            return;
+        }
+        if (resolution.Reason == InstalledDirectoryResolveReason.InstalledIndexEmpty && !resolution.Success)
+        {
+            LogInstallPerformance("mixed_package_resolve fallback reason=installed_index_empty");
+            return;
+        }
+        LogInstallPerformance("mixed_package_resolve start package=" + (packagePath ?? string.Empty) + " missing=" + missingFileCount + " installedMatched=" + resolution.MatchedHashCount + " candidateDirs=" + resolution.CandidateDirectoryCount);
+        if (resolution.Success)
+        {
+            LogInstallPerformance("mixed_package_resolve selected dst=" + resolution.InstallDirectory + " matched=" + resolution.MatchedHashCount + " tieCandidates=" + resolution.CandidateDirectoryCount);
+            return;
+        }
+        string reason = resolution.Reason switch
+        {
+            InstalledDirectoryResolveReason.NoInstalledDirectoryMatch => "no_installed_dir_match",
+            InstalledDirectoryResolveReason.MissingRepresentative => "missing_representative_not_found",
+            InstalledDirectoryResolveReason.TieHealthBelowThreshold => "tie_health_below_threshold",
+            InstalledDirectoryResolveReason.TieBreakUnresolved => "tie_break_unresolved",
+            InstalledDirectoryResolveReason.InstalledIndexEmpty => "installed_index_empty",
+            _ => "unknown"
+        };
+        LogInstallPerformance("mixed_package_resolve fallback reason=" + reason + " tieCandidates=" + resolution.CandidateDirectoryCount);
+    }
+
+    private void SetPendingInstallEstimateSearchingState(PendingInstallEstimateEvaluationRequest request, bool isSearching)
+    {
+        using (rwlockBMSFilesInitializedAll.GetReaderGuard())
+        {
+            using (rwlockBMSFilesPendingInstall.GetWriterGuard())
+            {
+                using (rwlockBMSFiles.GetReaderGuard())
+                {
+                    SetPendingInstallEstimateSearchingStateUnsafe(request, isSearching);
+                }
+            }
+        }
+    }
+
+    private static void SetPendingInstallEstimateSearchingStateUnsafe(PendingInstallEstimateEvaluationRequest request, bool isSearching)
+    {
+        if (request == null)
+        {
+            return;
+        }
+        foreach (BMSFile file in request.MissingFiles.Where((BMSFile file) => file != null))
+        {
+            if (isSearching)
+            {
+                file.status |= BMSFile.BMSFileStatus.SEARCHING;
+            }
+            else
+            {
+                file.status &= ~BMSFile.BMSFileStatus.SEARCHING;
+            }
+        }
     }
 
     private void HandlePendingEstimateBatchException(Exception ex)
@@ -4478,6 +4838,28 @@ public class BMSLibrary : NotificationObject
         }
     }
 
+    private InstallDestinationRepresentativeMetadata ResolveInstallDestinationRepresentativeMetadataThreadSafe(string destinationDirectory)
+    {
+        using (rwlockBMSFilesInitializedAll.GetReaderGuard())
+        {
+            using (rwlockBMSFiles.GetReaderGuard())
+            {
+                return ResolveInstallDestinationRepresentativeMetadataUnsafe(destinationDirectory);
+            }
+        }
+    }
+
+    private InstallEstimationMetadataProfile ResolveInstallDestinationMetadataProfileThreadSafe(string destinationDirectory)
+    {
+        using (rwlockBMSFilesInitializedAll.GetReaderGuard())
+        {
+            using (rwlockBMSFiles.GetReaderGuard())
+            {
+                return ResolveInstallDestinationMetadataProfileUnsafe(destinationDirectory);
+            }
+        }
+    }
+
     private InstallDestinationRepresentativeMetadata ApplyResolvedInstallDestinationPathAndMetadataToFiles(IEnumerable<BMSFile> bmsFiles, string destinationDirectory)
     {
         InstallDestinationRepresentativeMetadata metadata = ResolveInstallDestinationRepresentativeMetadataUnsafe(destinationDirectory);
@@ -4559,6 +4941,81 @@ public class BMSLibrary : NotificationObject
             {
                 bmsFile.warning = AppendWarningLine(bmsFile.warning, metadataMismatchWarning);
             }
+        }
+    }
+
+    private InstallEstimationEvaluationData EvaluateInstallEstimation(BMSPackage package, List<BMSFile> targetBmsFiles, bool asParallel, BmsInstallationEstimateMode estimateMode, BmsLibraryOptionsSnapshot optionsSnapshot = null, bool useThreadSafeResolvers = false, bool useSharedLazyHashMetrics = false)
+    {
+        List<BMSFile> targetFileList = (targetBmsFiles ?? new List<BMSFile>()).Where((BMSFile bmsInfo) => bmsInfo != null).ToList();
+        if (targetFileList.Count == 0)
+        {
+            return new InstallEstimationEvaluationData
+            {
+                ChartCount = 0
+            };
+        }
+        Func<string, InstallDestinationRepresentativeMetadata> representativeResolver = useThreadSafeResolvers
+            ? new Func<string, InstallDestinationRepresentativeMetadata>(ResolveInstallDestinationRepresentativeMetadataThreadSafe)
+            : new Func<string, InstallDestinationRepresentativeMetadata>(ResolveInstallDestinationRepresentativeMetadataUnsafe);
+        Func<string, InstallEstimationMetadataProfile> metadataProfileResolver = useThreadSafeResolvers
+            ? new Func<string, InstallEstimationMetadataProfile>(ResolveInstallDestinationMetadataProfileThreadSafe)
+            : new Func<string, InstallEstimationMetadataProfile>(ResolveInstallDestinationMetadataProfileUnsafe);
+        DirectoryResourceLookupCache directoryLookupCacheSnapshot = directoryResourceLookupCache;
+        long lazyHashBuildMsBefore = useSharedLazyHashMetrics ? 0L : (directoryLookupCacheSnapshot?.LazyHashBuildMs ?? 0L);
+        long lazyHashLookupCountBefore = useSharedLazyHashMetrics ? 0L : (directoryLookupCacheSnapshot?.LazyHashLookupCount ?? 0L);
+        int lazyHashCacheEntriesBefore = useSharedLazyHashMetrics ? 0 : (directoryLookupCacheSnapshot?.LazyHashCacheEntryCount ?? 0);
+        PackageInstallEstimationSnapshot estimationSnapshot = package != null
+            ? package.GetOrBuildInstallEstimationSnapshot(targetFileList)
+            : PackageInstallEstimationSnapshotBuilder.BuildForLooseFiles(targetFileList);
+        InstallEstimationResult result = CreateInstallEstimationService(optionsSnapshot).EstimateInstallationDirectory(
+            estimationSnapshot,
+            bmsFolderAllFileList,
+            directoryResourceLookupCache,
+            asParallel,
+            estimateMode,
+            representativeResolver,
+            metadataProfileResolver);
+        long lazyHashBuildMsAfter = useSharedLazyHashMetrics ? lazyHashBuildMsBefore : (directoryLookupCacheSnapshot?.LazyHashBuildMs ?? lazyHashBuildMsBefore);
+        long lazyHashLookupCountAfter = useSharedLazyHashMetrics ? lazyHashLookupCountBefore : (directoryLookupCacheSnapshot?.LazyHashLookupCount ?? lazyHashLookupCountBefore);
+        int lazyHashCacheEntriesAfter = useSharedLazyHashMetrics ? lazyHashCacheEntriesBefore : (directoryLookupCacheSnapshot?.LazyHashCacheEntryCount ?? lazyHashCacheEntriesBefore);
+        return new InstallEstimationEvaluationData
+        {
+            ChartCount = targetFileList.Count,
+            Result = result,
+            LazyHashBuildMsDelta = useSharedLazyHashMetrics ? 0L : (lazyHashBuildMsAfter - lazyHashBuildMsBefore),
+            LazyHashLookupCountDelta = useSharedLazyHashMetrics ? 0L : (lazyHashLookupCountAfter - lazyHashLookupCountBefore),
+            LazyHashEntriesAdded = useSharedLazyHashMetrics ? 0 : (lazyHashCacheEntriesAfter - lazyHashCacheEntriesBefore),
+            LazyHashBuildReason = useSharedLazyHashMetrics ? "parallel_shared" : "demand"
+        };
+    }
+
+    private void LogInstallEstimationEvaluation(InstallEstimationEvaluationData estimationData)
+    {
+        InstallEstimationResult result = estimationData?.Result;
+        if (result == null)
+        {
+            return;
+        }
+        LogInstallPerformance("estimate_install start chartCount=" + estimationData.ChartCount + " targetHashes=" + result.TargetResourceHashCount + " bundledAudioCount=" + result.BundledAudioCount + " bundledImageCount=" + result.BundledImageCount + " bundledMovieCount=" + result.BundledMovieCount + " candidateMode=" + (result.CandidateMode ?? string.Empty) + " coarseFilterMode=" + (result.CoarseFilterMode ?? string.Empty) + " audioRefs=" + result.AudioReferenceCount + " audioMinMatchRequired=" + result.AudioMinimumMatchRequired + " candidateDirsBefore=" + result.CandidateDirectoryCountBeforeHashFilter + " candidateDirsAfterBroadFilter=" + result.CandidateDirectoryCountAfterBroadFilter + " candidateDirsAfterAudioGate=" + result.CandidateDirectoryCountAfterAudioGate + " candidateDirsAfter=" + result.CandidateDirectoryCountAfterHashFilter + " candidateDirs=" + result.CandidateDirectoryCount + " evaluationMs=" + result.EvaluationMs + " fallback=" + result.UsedFallbackCandidateExpansion + " confidence=" + result.Confidence + " autoApplied=" + result.ShouldAutoApplyDestination + " confidenceReason=" + (result.ConfidenceReason ?? string.Empty) + " lazyHashBuildMsDelta=" + estimationData.LazyHashBuildMsDelta + " lazyHashEntriesAdded=" + estimationData.LazyHashEntriesAdded + " lazyHashLookupCountDelta=" + estimationData.LazyHashLookupCountDelta + " lazyHashBuildReason=" + (estimationData.LazyHashBuildReason ?? string.Empty) + " summary=" + (result.ResourceSummary ?? string.Empty));
+        if (!string.IsNullOrWhiteSpace(result.TopCandidateSummary))
+        {
+            LogInstallPerformance("estimate_install candidates " + result.TopCandidateSummary);
+        }
+        if (!string.IsNullOrWhiteSpace(result.SelectedCandidateSummary))
+        {
+            LogInstallPerformance("estimate_install selected " + result.SelectedCandidateSummary + " dst=" + (result.DestinationDirectory ?? "(none)") + " second=" + (result.SecondCandidate?.DirectoryPath ?? "(none)"));
+        }
+        if (!string.IsNullOrWhiteSpace(result.MetadataFrontierSummary))
+        {
+            LogInstallPerformance("estimate_install metadata_frontier " + result.MetadataFrontierSummary);
+        }
+        if (!string.IsNullOrWhiteSpace(result.MetadataTieBreakSummary))
+        {
+            LogInstallPerformance("estimate_install metadata_tiebreak " + result.MetadataTieBreakSummary);
+        }
+        if (!string.IsNullOrWhiteSpace(result.MetadataValidationSummary))
+        {
+            LogInstallPerformance("estimate_install metadata_validation " + result.MetadataValidationSummary);
         }
     }
 
@@ -4960,46 +5417,9 @@ public class BMSLibrary : NotificationObject
                     {
                         targetBmsFile.status |= BMSFile.BMSFileStatus.SEARCHING;
                     }
-                    DirectoryResourceLookupCache directoryLookupCacheSnapshot = directoryResourceLookupCache;
-                    long lazyHashBuildMsBefore = directoryLookupCacheSnapshot?.LazyHashBuildMs ?? 0L;
-                    long lazyHashLookupCountBefore = directoryLookupCacheSnapshot?.LazyHashLookupCount ?? 0L;
-                    int lazyHashCacheEntriesBefore = directoryLookupCacheSnapshot?.LazyHashCacheEntryCount ?? 0;
-                    PackageInstallEstimationSnapshot estimationSnapshot = package != null
-                        ? package.GetOrBuildInstallEstimationSnapshot(targetBmsFiles)
-                        : PackageInstallEstimationSnapshotBuilder.BuildForLooseFiles(targetBmsFiles);
-                    InstallEstimationResult result = CreateInstallEstimationService().EstimateInstallationDirectory(
-                        estimationSnapshot,
-                        bmsFolderAllFileList,
-                        directoryResourceLookupCache,
-                        asParallel,
-                        estimateMode,
-                        ResolveInstallDestinationRepresentativeMetadataUnsafe,
-                        ResolveInstallDestinationMetadataProfileUnsafe);
-                    long lazyHashBuildMsAfter = directoryLookupCacheSnapshot?.LazyHashBuildMs ?? lazyHashBuildMsBefore;
-                    long lazyHashLookupCountAfter = directoryLookupCacheSnapshot?.LazyHashLookupCount ?? lazyHashLookupCountBefore;
-                    int lazyHashCacheEntriesAfter = directoryLookupCacheSnapshot?.LazyHashCacheEntryCount ?? lazyHashCacheEntriesBefore;
-                    LogInstallPerformance("estimate_install start chartCount=" + targetBmsFiles.Count + " targetHashes=" + result.TargetResourceHashCount + " bundledAudioCount=" + result.BundledAudioCount + " bundledImageCount=" + result.BundledImageCount + " bundledMovieCount=" + result.BundledMovieCount + " candidateMode=" + (result.CandidateMode ?? string.Empty) + " coarseFilterMode=" + (result.CoarseFilterMode ?? string.Empty) + " audioRefs=" + result.AudioReferenceCount + " audioMinMatchRequired=" + result.AudioMinimumMatchRequired + " candidateDirsBefore=" + result.CandidateDirectoryCountBeforeHashFilter + " candidateDirsAfterBroadFilter=" + result.CandidateDirectoryCountAfterBroadFilter + " candidateDirsAfterAudioGate=" + result.CandidateDirectoryCountAfterAudioGate + " candidateDirsAfter=" + result.CandidateDirectoryCountAfterHashFilter + " candidateDirs=" + result.CandidateDirectoryCount + " evaluationMs=" + result.EvaluationMs + " fallback=" + result.UsedFallbackCandidateExpansion + " confidence=" + result.Confidence + " autoApplied=" + result.ShouldAutoApplyDestination + " confidenceReason=" + (result.ConfidenceReason ?? string.Empty) + " lazyHashBuildMsDelta=" + (lazyHashBuildMsAfter - lazyHashBuildMsBefore) + " lazyHashEntriesAdded=" + (lazyHashCacheEntriesAfter - lazyHashCacheEntriesBefore) + " lazyHashLookupCountDelta=" + (lazyHashLookupCountAfter - lazyHashLookupCountBefore) + " lazyHashBuildReason=demand summary=" + (result.ResourceSummary ?? string.Empty));
-                    if (!string.IsNullOrWhiteSpace(result.TopCandidateSummary))
-                    {
-                        LogInstallPerformance("estimate_install candidates " + result.TopCandidateSummary);
-                    }
-                    if (!string.IsNullOrWhiteSpace(result.SelectedCandidateSummary))
-                    {
-                        LogInstallPerformance("estimate_install selected " + result.SelectedCandidateSummary + " dst=" + (result.DestinationDirectory ?? "(none)") + " second=" + (result.SecondCandidate?.DirectoryPath ?? "(none)"));
-                    }
-                    if (!string.IsNullOrWhiteSpace(result.MetadataFrontierSummary))
-                    {
-                        LogInstallPerformance("estimate_install metadata_frontier " + result.MetadataFrontierSummary);
-                    }
-                    if (!string.IsNullOrWhiteSpace(result.MetadataTieBreakSummary))
-                    {
-                        LogInstallPerformance("estimate_install metadata_tiebreak " + result.MetadataTieBreakSummary);
-                    }
-                    if (!string.IsNullOrWhiteSpace(result.MetadataValidationSummary))
-                    {
-                        LogInstallPerformance("estimate_install metadata_validation " + result.MetadataValidationSummary);
-                    }
-                    ApplyInstallEstimationResultToFiles(targetBmsFiles, result);
+                    InstallEstimationEvaluationData estimationData = EvaluateInstallEstimation(package, targetBmsFiles, asParallel, estimateMode);
+                    LogInstallEstimationEvaluation(estimationData);
+                    ApplyInstallEstimationResultToFiles(targetBmsFiles, estimationData.Result);
                 }
                 finally
                 {

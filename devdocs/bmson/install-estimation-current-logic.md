@@ -81,6 +81,34 @@ startup restore と auto-install 後の background pending estimate では、pac
 
 つまり現在は、**pending に残ること** と **background auto-estimate 対象になること** を分けています。
 
+### 2.1 background pending estimate の実行モデル
+
+`2026-04-22` 時点の background `pending_estimate_batch` は、次の順で進みます。
+
+1. demand build
+2. immutable request 準備
+3. bounded parallel evaluate
+4. request 順の serial apply
+5. regroup
+
+ここで並列化するのは **read-only evaluate phase** のみです。
+
+- mixed package の installed-dir resolve
+- package snapshot 構築
+- `EstimateInstallationDirectory(...)`
+- metadata tie-break / metadata validation を含む `InstallEstimationResult` 作成
+
+は bounded parallel に流します。
+
+一方で次は従来どおり serial のままです。
+
+- `BMSFile` への `instl_dst` / warning / suggestion / metadata 反映
+- progress 更新
+- package-level の `estimate_install ...` ログ
+- regroup
+
+manual estimate は `RunPendingEstimateExclusive(...)` の外には出しておらず、background batch 完了待ちのままです。
+
 ### 3. loose-file 経路
 
 `IEnumerable<BMSFile>` / `BMSFile` から直接呼ぶ経路も残っています。

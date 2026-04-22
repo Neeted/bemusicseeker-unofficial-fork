@@ -10,6 +10,7 @@
 - `P4`: 実施済み
 - `Perf-1`: 実施済み
 - `Perf-2a`: 実施済み
+- `Perf-2b`: 実施済み
 - `P5`: 未実施
 
 ## 現在の整理
@@ -85,6 +86,15 @@ source 前提の confidence reason は現在の主経路では使いません。
   - suggestion なし
   - warning なし
   のまま pending に残す
+
+## Perf-2b で追加したこと
+
+- background `pending_estimate_batch` を `evaluate parallel / apply serial` に再編
+- package 間だけ bounded parallel にし、package 内 candidate 評価は background path で `asParallel: false`
+- package-level の `estimate_install ...` ログと `completed=x/y` progress は request / apply 順を維持
+- manual estimate の優先順位や精度ロジック自体は変更しない
+
+つまり Perf-2b は、**精度ロジック不変のまま background 実行モデルだけを変更した改善**として扱う。
 
 ## 今後の残課題
 
