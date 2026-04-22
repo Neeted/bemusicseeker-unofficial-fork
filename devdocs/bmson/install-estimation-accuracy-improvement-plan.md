@@ -105,6 +105,17 @@ source 前提の confidence reason は現在の主経路では使いません。
 
 というケースを表します。
 
+## P4b で追加したこと
+
+- metadata を **selected-candidate validation** にも使う
+- `TITLE` は exact に加えて **軽量 fuzzy**
+- `ARTIST` は先頭 prefix 除去ではなく、**文字列中の差分作者 suffix 切り落とし**
+- viable candidate が 1 件だけでも metadata が弱ければ `Low`
+- metadata mismatch の場合は
+  - `INSTL DST` を空にする
+  - suggestion に top candidate を 1 件残す
+  - ambiguity とは別 warning を出す
+
 ## 関連資料
 
 - [install-estimation-current-logic.md](install-estimation-current-logic.md)

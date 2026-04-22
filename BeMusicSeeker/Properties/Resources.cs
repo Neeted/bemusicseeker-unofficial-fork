@@ -856,6 +856,12 @@ public class Resources
     public static string Warning_InstallEstimationAmbiguous => ResourceManager.GetString("Warning_InstallEstimationAmbiguous", resourceCulture);
 
 
+    public static string Warning_InstallEstimationMetadataMismatchPrefix => ResourceManager.GetString("Warning_InstallEstimationMetadataMismatchPrefix", resourceCulture);
+
+
+    public static string Warning_InstallEstimationMetadataMismatch => ResourceManager.GetString("Warning_InstallEstimationMetadataMismatch", resourceCulture);
+
+
     public static string BmsonMigrationWarningMessage => ResourceManager.GetString("BmsonMigrationWarningMessage", resourceCulture);
 
 

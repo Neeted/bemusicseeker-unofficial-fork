@@ -404,6 +404,8 @@
   "Warning_SingleBmsonFile": "單一BMSON檔案",
   "Warning_InstallEstimationAmbiguousPrefix": "存在多個導入目標候選，因此未自動確定導入目標。",
   "Warning_InstallEstimationAmbiguous": "存在多個導入目標候選，因此未自動確定導入目標。\n第1候選: {0}\n第2候選: {1}",
+  "Warning_InstallEstimationMetadataMismatchPrefix": "TITLE / ARTIST 的相似度過低，因此未自動確定導入目標。",
+  "Warning_InstallEstimationMetadataMismatch": "TITLE / ARTIST 的相似度過低，因此未自動確定導入目標。\n候選: {0}",
   "BmsonMigrationWarningMessage": "為了支援 bmson，首次啟動時會修改播放清單、雜湊管理資料表以及 bmson 目錄資料表。\n\n首次產生 SHA-256 可能會依資料庫規模耗費相當長的時間。\n更新後的資料庫可能不再相容於原版 BeMusicSeeker 與本分支 v1.2.1.0 以前的版本。\n如果擔心相容性，建議事先備份 song.db 等檔案。",
   "BmsonMigrationWarningTitle": "bmson 支援遷移警告",
   "Header_InstallDstTitle": "INSTL DST TITLE",

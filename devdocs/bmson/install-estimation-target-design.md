@@ -160,13 +160,19 @@ source 前提の confidence reason は設計上不要になります。
 - loose-file merge と package merge の wrapper 差
 - fingerprint の導入判断
 
-## P4 メモ
+## P4 / P4b メモ
 
-`TITLE / ARTIST` は全候補の主スコアには使わず、**resource 指標で僅差の上位 external candidate 群だけ**に使うのが現在の整理です。
+`TITLE / ARTIST` は全候補の主スコアには使わず、
+
+- **P4**: resource 指標で僅差の上位 external candidate 群の tie-break
+- **P4b**: 最終 1 位候補の妥当性検証
+
+に使うのが現在の整理です。
 
 - candidate 側は directory 配下全譜面の **最頻値 metadata profile**
 - target 側も package / loose-file 単位の **最頻値 metadata profile**
-- v1 は正規化後完全一致のみ
+- `TITLE` は exact + 軽量 fuzzy
+- `ARTIST` は差分作者 suffix を文字列中から切る
 - 役割は tie-break と最終 confidence 補助だけ
 
 この切り方により、通常推定の `package_union` と merge の `candidate_only` を壊さずに、音源だけで並んだ無関係候補を metadata で断ち切れます。

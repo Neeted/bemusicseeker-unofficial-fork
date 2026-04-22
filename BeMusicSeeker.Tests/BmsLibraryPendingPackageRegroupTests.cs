@@ -279,6 +279,44 @@ public sealed class BmsLibraryPendingPackageRegroupTests
     }
 
     [TestMethod]
+    public void SearchEstimatedInstallationDirectory_MetadataMismatchLeavesInstallDestinationEmptyAndShowsSingleSuggestion()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
+        {
+            string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "PackageMetadataMismatch");
+            string candidateDirectoryPath = Path.Combine(tempRootPath, "Installed", "OnlyCandidate");
+            string pendingFilePath = CreateBmsFileWithContents(sourceDirectoryPath, "pending.bms", "#PLAYER 1\r\n#TITLE Target Song\r\n#ARTIST Base Artist obj: Diff\r\n#WAVAA sound.wav\r\n#00111:AA\r\n");
+            CreateBmsFileWithContents(candidateDirectoryPath, "candidate.bms", "#PLAYER 1\r\n#TITLE Completely Different\r\n#ARTIST Another Artist\r\n");
+            File.WriteAllText(Path.Combine(candidateDirectoryPath, "sound.wav"), "dst");
+
+            BMSFile pendingFile = BMSFile.CreateBMSFileFromFile(pendingFilePath);
+            BMSPackage pendingPackage = new BMSPackage(new[] { pendingFile })
+            {
+                path = pendingFilePath,
+                delete_parent = true
+            };
+            library.BMSFiles = new List<BMSFile>
+            {
+                BMSFile.CreateBMSFileFromFile(Path.Combine(candidateDirectoryPath, "candidate.bms"))
+            };
+            SeedPendingPackages(library, songDbPath, pendingPackage);
+            SetPrivateField(library, "bmsFolderAllFileList", BuildDirectoryHashCache(sourceDirectoryPath, candidateDirectoryPath));
+            SetPrivateField(library, "directoryResourceLookupCache", BuildDirectoryLookupCache(sourceDirectoryPath, candidateDirectoryPath));
+
+            library.SearchEstimatedInstallationDirectory(pendingPackage);
+
+            Assert.IsTrue(string.IsNullOrWhiteSpace(pendingFile.instl_dst));
+            Assert.AreEqual("Completely Different", pendingFile.InstallDestinationTitle);
+            Assert.AreEqual("Another Artist", pendingFile.InstallDestinationArtist);
+            CollectionAssert.AreEqual(new[] { candidateDirectoryPath }, pendingFile.InstallDestinationSuggestions.ToArray());
+            Assert.IsTrue(pendingFile.HasLowConfidenceInstallWarning);
+            StringAssert.Contains(pendingFile.warning ?? string.Empty, BeMusicSeeker.Properties.Resources.Warning_InstallEstimationMetadataMismatchPrefix);
+            StringAssert.Contains(pendingFile.warning ?? string.Empty, candidateDirectoryPath);
+        });
+    }
+
+    [TestMethod]
     public void SearchEstimatedInstallationDirectory_HighConfidenceWithoutCandidate_DoesNotSetLowConfidenceState()
     {
         TestResourceInitializer.EnsureJapaneseResources();
@@ -358,7 +396,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             string pendingFilePath = CreateBmsFileWithContents(
                 sourceDirectoryPath,
                 "pending.bms",
-                "#PLAYER 1\r\n#TITLE Pending\r\n#ARTIST Test\r\n#WAVAA 00.wav\r\n#WAVAB 01.wav\r\n#00111:AAAB\r\n");
+                "#PLAYER 1\r\n#TITLE Installed Title\r\n#ARTIST Installed Artist obj: Diff\r\n#WAVAA 00.wav\r\n#WAVAB 01.wav\r\n#00111:AAAB\r\n");
             File.WriteAllText(Path.Combine(sourceDirectoryPath, "00.wav"), "src");
             File.WriteAllText(Path.Combine(sourceDirectoryPath, "01.wav"), "src");
             CreateBmsFileWithContents(candidateDirectoryPath, "installed.bms", "#PLAYER 1\r\n#TITLE Installed Title\r\n#ARTIST Installed Artist\r\n");
@@ -538,6 +576,46 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             SeedPendingPackages(library, songDbPath, pendingPackage);
             SetPrivateField(library, "bmsFolderAllFileList", BuildDirectoryHashCache(sourceDirectoryPath, candidateADirectoryPath, candidateBDirectoryPath));
             SetPrivateField(library, "directoryResourceLookupCache", BuildDirectoryLookupCache(sourceDirectoryPath, candidateADirectoryPath, candidateBDirectoryPath));
+
+            library.SearchEstimatedInstallationDirectory(pendingPackage);
+            Assert.IsFalse(string.IsNullOrWhiteSpace(pendingFile.warning));
+
+            library.RemoveInstallDestination(new[] { pendingFile });
+
+            Assert.IsTrue(string.IsNullOrWhiteSpace(pendingFile.instl_dst));
+            Assert.IsTrue(string.IsNullOrWhiteSpace(pendingFile.InstallDestinationTitle));
+            Assert.IsTrue(string.IsNullOrWhiteSpace(pendingFile.InstallDestinationArtist));
+            Assert.AreEqual(0, pendingFile.InstallDestinationSuggestions.Count);
+            Assert.IsFalse(pendingFile.HasLowConfidenceInstallWarning);
+            Assert.AreEqual(string.Empty, pendingFile.warning ?? string.Empty);
+        });
+    }
+
+    [TestMethod]
+    public void RemoveInstallDestination_ClearsMetadataMismatchWarningLinesAndRepresentativeMetadata()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
+        {
+            string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "PackageMetadataMismatchClear");
+            string candidateDirectoryPath = Path.Combine(tempRootPath, "Installed", "OnlyCandidate");
+            string pendingFilePath = CreateBmsFileWithContents(sourceDirectoryPath, "pending.bms", "#PLAYER 1\r\n#TITLE Target Song\r\n#ARTIST Base Artist obj: Diff\r\n#WAVAA sound.wav\r\n#00111:AA\r\n");
+            CreateBmsFileWithContents(candidateDirectoryPath, "candidate.bms", "#PLAYER 1\r\n#TITLE Completely Different\r\n#ARTIST Another Artist\r\n");
+            File.WriteAllText(Path.Combine(candidateDirectoryPath, "sound.wav"), "dst");
+
+            BMSFile pendingFile = BMSFile.CreateBMSFileFromFile(pendingFilePath);
+            BMSPackage pendingPackage = new BMSPackage(new[] { pendingFile })
+            {
+                path = pendingFilePath,
+                delete_parent = true
+            };
+            library.BMSFiles = new List<BMSFile>
+            {
+                BMSFile.CreateBMSFileFromFile(Path.Combine(candidateDirectoryPath, "candidate.bms"))
+            };
+            SeedPendingPackages(library, songDbPath, pendingPackage);
+            SetPrivateField(library, "bmsFolderAllFileList", BuildDirectoryHashCache(sourceDirectoryPath, candidateDirectoryPath));
+            SetPrivateField(library, "directoryResourceLookupCache", BuildDirectoryLookupCache(sourceDirectoryPath, candidateDirectoryPath));
 
             library.SearchEstimatedInstallationDirectory(pendingPackage);
             Assert.IsFalse(string.IsNullOrWhiteSpace(pendingFile.warning));

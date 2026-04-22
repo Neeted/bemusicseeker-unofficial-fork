@@ -1590,7 +1590,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             else if (path == bMSFile.GetName((BMSFile f) => f.instl_dst))
             {
                 _pendingInstallDestinationEditStates[bMSFile] = CapturePendingInstallDestinationEditState(bMSFile);
-                bMSFile.IsInstallDestinationSuggestionPopupOpen = isPendingSelected && bMSFile.HasInstallDestinationSuggestionChoices;
+                bMSFile.IsInstallDestinationSuggestionPopupOpen = isPendingSelected && bMSFile.HasInstallDestinationSuggestions;
             }
         }
     }
@@ -1734,7 +1734,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         base.Dispatcher.BeginInvoke((Action)delegate
         {
-            bmsFile.IsInstallDestinationSuggestionPopupOpen = bmsFile.HasInstallDestinationSuggestionChoices;
+            bmsFile.IsInstallDestinationSuggestionPopupOpen = bmsFile.HasInstallDestinationSuggestions;
         }, DispatcherPriority.Input);
     }
 
@@ -1759,7 +1759,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             e.Handled = true;
             return;
         }
-        if (!bmsFile.HasInstallDestinationSuggestionChoices)
+        if (!bmsFile.HasInstallDestinationSuggestions)
         {
             return;
         }

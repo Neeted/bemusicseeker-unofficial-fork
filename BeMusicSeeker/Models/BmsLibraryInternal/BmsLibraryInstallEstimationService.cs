@@ -14,11 +14,33 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 /// </summary>
 internal sealed class BmsLibraryInstallEstimationService
 {
+    private enum MetadataEvidenceStrength
+    {
+        None,
+        Weak,
+        Strong
+    }
+
     internal sealed class SourceBaselineEvaluation
     {
         public int PrimaryHealth { get; set; }
 
         public bool IsViableDestination { get; set; }
+
+        public string Summary { get; set; } = string.Empty;
+    }
+
+    private sealed class MetadataValidationResult
+    {
+        public bool IsApplicable { get; set; }
+
+        public bool PairExactMatch { get; set; }
+
+        public bool ArtistExactMatch { get; set; }
+
+        public InstallEstimationMetadataTitleMatchKind TitleMatchKind { get; set; } = InstallEstimationMetadataTitleMatchKind.None;
+
+        public MetadataEvidenceStrength Evidence { get; set; } = MetadataEvidenceStrength.None;
 
         public string Summary { get; set; } = string.Empty;
     }
@@ -583,6 +605,10 @@ internal sealed class BmsLibraryInstallEstimationService
             && IsViableDestination(GetPrimaryHealth(resourceSnapshot, secondCandidateEvaluation))
             && selectedCandidateEvaluation.HasSameRankingMetrics(secondCandidateEvaluation);
         bool metadataTieBreakDistinct = topTwoViableTie && IsMetadataTieBreakDistinct(selectedCandidateEvaluation, secondCandidateEvaluation, snapshot.TargetMetadataProfile, metadataProfileResolver);
+        MetadataValidationResult metadataValidation = selectedViable
+            ? EvaluateSelectedCandidateMetadata(selectedCandidateEvaluation, snapshot.TargetMetadataProfile, metadataProfileResolver)
+            : null;
+        result.MetadataValidationSummary = metadataValidation?.Summary ?? string.Empty;
 
         for (int i = 0; i < result.Candidates.Count && i < orderedCandidates.Count; i++)
         {
@@ -603,6 +629,7 @@ internal sealed class BmsLibraryInstallEstimationService
             result.HasViableDestination = false;
             result.Confidence = InstallEstimationConfidence.High;
             result.ConfidenceReason = "no_viable_destination_below_threshold";
+            result.LowConfidenceKind = InstallEstimationLowConfidenceKind.None;
             result.DestinationDirectory = null;
             result.ShouldAutoApplyDestination = false;
         }
@@ -614,12 +641,14 @@ internal sealed class BmsLibraryInstallEstimationService
             {
                 result.Confidence = InstallEstimationConfidence.High;
                 result.ConfidenceReason = "metadata_tiebreak_distinct";
+                result.LowConfidenceKind = InstallEstimationLowConfidenceKind.None;
                 result.ShouldAutoApplyDestination = true;
             }
             else
             {
                 result.Confidence = InstallEstimationConfidence.Low;
                 result.ConfidenceReason = "tie_on_viable_non_source_candidates";
+                result.LowConfidenceKind = InstallEstimationLowConfidenceKind.AmbiguousCandidates;
                 result.ShouldAutoApplyDestination = false;
                 result.SuggestedDestinationDirectories.AddRange(viableNonSourceSuggestions);
             }
@@ -627,10 +656,27 @@ internal sealed class BmsLibraryInstallEstimationService
         else
         {
             result.HasViableDestination = true;
-            result.Confidence = InstallEstimationConfidence.High;
-            result.ConfidenceReason = secondCandidateEvaluation == null ? "single_candidate" : "distinct_primary_metrics";
-            result.DestinationDirectory = selectedCandidateEvaluation.DirectoryPath;
-            result.ShouldAutoApplyDestination = true;
+            bool metadataMismatch = metadataValidation?.IsApplicable == true && metadataValidation.Evidence != MetadataEvidenceStrength.Strong;
+            if (metadataMismatch)
+            {
+                result.Confidence = InstallEstimationConfidence.Low;
+                result.ConfidenceReason = secondCandidateEvaluation == null ? "single_viable_candidate_metadata_mismatch" : "distinct_primary_metrics_metadata_mismatch";
+                result.LowConfidenceKind = InstallEstimationLowConfidenceKind.MetadataMismatch;
+                result.DestinationDirectory = null;
+                result.ShouldAutoApplyDestination = false;
+                if (!string.IsNullOrWhiteSpace(selectedCandidateEvaluation.DirectoryPath))
+                {
+                    result.SuggestedDestinationDirectories.Add(selectedCandidateEvaluation.DirectoryPath);
+                }
+            }
+            else
+            {
+                result.Confidence = InstallEstimationConfidence.High;
+                result.ConfidenceReason = secondCandidateEvaluation == null ? "single_candidate" : "distinct_primary_metrics";
+                result.LowConfidenceKind = InstallEstimationLowConfidenceKind.None;
+                result.DestinationDirectory = selectedCandidateEvaluation.DirectoryPath;
+                result.ShouldAutoApplyDestination = true;
+            }
         }
         return result;
     }
@@ -1032,6 +1078,28 @@ internal sealed class BmsLibraryInstallEstimationService
         return selectedTitleMatch && !secondTitleMatch && !secondArtistMatch && (selectedPairMatch || selectedArtistMatch);
     }
 
+    private static MetadataValidationResult EvaluateSelectedCandidateMetadata(CandidateEvaluation selectedCandidateEvaluation, InstallEstimationMetadataProfile targetMetadataProfile, Func<string, InstallEstimationMetadataProfile> metadataProfileResolver)
+    {
+        MetadataValidationResult result = new MetadataValidationResult();
+        if (selectedCandidateEvaluation == null || metadataProfileResolver == null || targetMetadataProfile == null || !targetMetadataProfile.HasAnySignal)
+        {
+            return result;
+        }
+
+        InstallEstimationMetadataProfile selectedProfile = metadataProfileResolver(selectedCandidateEvaluation.DirectoryPath) ?? InstallEstimationMetadataProfile.Empty;
+        result.IsApplicable = true;
+        result.PairExactMatch = HasExactMetadataPairMatch(targetMetadataProfile, selectedProfile);
+        result.ArtistExactMatch = HasExactMetadataArtistMatch(targetMetadataProfile, selectedProfile);
+        result.TitleMatchKind = GetMetadataTitleMatchKind(targetMetadataProfile, selectedProfile);
+        result.Evidence = ClassifyMetadataEvidence(result.PairExactMatch, result.ArtistExactMatch, result.TitleMatchKind);
+        result.Summary = "selected=" + (selectedCandidateEvaluation.DirectoryPath ?? string.Empty)
+            + " pairMatch=" + (result.PairExactMatch ? 1 : 0)
+            + " titleMatch=" + result.TitleMatchKind.ToString().ToLowerInvariant()
+            + " artistMatch=" + (result.ArtistExactMatch ? 1 : 0)
+            + " evidence=" + result.Evidence.ToString().ToLowerInvariant();
+        return result;
+    }
+
     private static int CompareCandidatesByMetadataTieBreak(CandidateEvaluation left, CandidateEvaluation right, InstallEstimationMetadataProfile targetMetadataProfile, IReadOnlyDictionary<string, InstallEstimationMetadataProfile> metadataProfilesByDirectory)
     {
         InstallEstimationMetadataProfile leftProfile = GetMetadataProfile(metadataProfilesByDirectory, left?.DirectoryPath);
@@ -1050,6 +1118,12 @@ internal sealed class BmsLibraryInstallEstimationService
         }
 
         comparison = CompareDescending(HasExactMetadataArtistMatch(targetMetadataProfile, leftProfile) ? 1 : 0, HasExactMetadataArtistMatch(targetMetadataProfile, rightProfile) ? 1 : 0);
+        if (comparison != 0)
+        {
+            return comparison;
+        }
+
+        comparison = CompareDescending((int)GetMetadataTitleMatchKind(targetMetadataProfile, leftProfile), (int)GetMetadataTitleMatchKind(targetMetadataProfile, rightProfile));
         if (comparison != 0)
         {
             return comparison;
@@ -1107,6 +1181,38 @@ internal sealed class BmsLibraryInstallEstimationService
             && candidateMetadataProfile != null
             && !string.IsNullOrWhiteSpace(targetMetadataProfile.DominantNormalizedArtist)
             && string.Equals(targetMetadataProfile.DominantNormalizedArtist, candidateMetadataProfile.DominantNormalizedArtist, StringComparison.Ordinal);
+    }
+
+    private static InstallEstimationMetadataTitleMatchKind GetMetadataTitleMatchKind(InstallEstimationMetadataProfile targetMetadataProfile, InstallEstimationMetadataProfile candidateMetadataProfile)
+    {
+        if (targetMetadataProfile == null || candidateMetadataProfile == null)
+        {
+            return InstallEstimationMetadataTitleMatchKind.None;
+        }
+        return InstallEstimationMetadataNormalizer.ClassifyTitleMatch(
+            targetMetadataProfile.DominantNormalizedTitle,
+            candidateMetadataProfile.DominantNormalizedTitle);
+    }
+
+    private static MetadataEvidenceStrength ClassifyMetadataEvidence(bool pairExactMatch, bool artistExactMatch, InstallEstimationMetadataTitleMatchKind titleMatchKind)
+    {
+        if (pairExactMatch)
+        {
+            return MetadataEvidenceStrength.Strong;
+        }
+        if (titleMatchKind == InstallEstimationMetadataTitleMatchKind.Exact)
+        {
+            return MetadataEvidenceStrength.Strong;
+        }
+        if (titleMatchKind == InstallEstimationMetadataTitleMatchKind.FuzzyStrong && artistExactMatch)
+        {
+            return MetadataEvidenceStrength.Strong;
+        }
+        if (artistExactMatch || titleMatchKind == InstallEstimationMetadataTitleMatchKind.FuzzyStrong || titleMatchKind == InstallEstimationMetadataTitleMatchKind.Weak)
+        {
+            return MetadataEvidenceStrength.Weak;
+        }
+        return MetadataEvidenceStrength.None;
     }
 
     private static int CompareCandidateEvaluations(CandidateEvaluation left, CandidateEvaluation right)

@@ -614,11 +614,23 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     }
 
     [TestMethod]
-    public void NormalizeArtistForTieBreak_StripsDiffPrefixesAndSlashSuffixes()
+    public void NormalizeArtistForTieBreak_StripsDiffSuffixesAndSlashSuffixes()
     {
-        Assert.AreEqual("diffuser", InstallEstimationMetadataNormalizer.NormalizeArtistForTieBreak("obj: diffuser"));
+        Assert.AreEqual(string.Empty, InstallEstimationMetadataNormalizer.NormalizeArtistForTieBreak("obj: diffuser"));
+        Assert.AreEqual("artist", InstallEstimationMetadataNormalizer.NormalizeArtistForTieBreak("Artist obj: Diff"));
+        Assert.AreEqual("artist", InstallEstimationMetadataNormalizer.NormalizeArtistForTieBreak("Artist ; notes: Diff"));
         Assert.AreEqual("artist", InstallEstimationMetadataNormalizer.NormalizeArtistForTieBreak("Artist / Diff"));
         Assert.AreEqual("key note team", InstallEstimationMetadataNormalizer.NormalizeArtistForTieBreak("Key Note Team"));
+        Assert.AreEqual("object", InstallEstimationMetadataNormalizer.NormalizeArtistForTieBreak("Object"));
+    }
+
+    [TestMethod]
+    public void ClassifyTitleMatch_DetectsExactStrongWeakAndNone()
+    {
+        Assert.AreEqual(InstallEstimationMetadataTitleMatchKind.Exact, InstallEstimationMetadataNormalizer.ClassifyTitleMatch("Target Song (Another)", "Target Song"));
+        Assert.AreEqual(InstallEstimationMetadataTitleMatchKind.FuzzyStrong, InstallEstimationMetadataNormalizer.ClassifyTitleMatch("Target Song 7K", "Target Song 7Key"));
+        Assert.AreEqual(InstallEstimationMetadataTitleMatchKind.Weak, InstallEstimationMetadataNormalizer.ClassifyTitleMatch("Alpha Beat", "Alpha Best"));
+        Assert.AreEqual(InstallEstimationMetadataTitleMatchKind.None, InstallEstimationMetadataNormalizer.ClassifyTitleMatch("Target Song", "Completely Different"));
     }
 
     [TestMethod]
@@ -724,6 +736,55 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             Assert.AreEqual("single_candidate", result.ConfidenceReason);
             Assert.AreEqual(0, result.SuggestedDestinationDirectories.Count);
             Assert.AreEqual(1, result.Candidates.Count);
+        });
+    }
+
+    [TestMethod]
+    public void EstimateInstallationDirectory_SingleCandidateWithMetadataMismatch_ReturnsLowWithoutDestination()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
+        {
+            string sourceDir = Path.Combine(tempRoot, "Pending", "Source");
+            string candidateDir = Path.Combine(tempRoot, "Installed", "A");
+            Directory.CreateDirectory(sourceDir);
+            Directory.CreateDirectory(candidateDir);
+            string chartPath = Path.Combine(sourceDir, "chart.bms");
+            File.WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE Target Song\r\n#ARTIST Base Artist obj: Diff\r\n#WAVAA sound.wav\r\n#00111:AA\r\n");
+            File.WriteAllText(Path.Combine(candidateDir, "installed.bms"), "#PLAYER 1\r\n#TITLE Completely Different\r\n#ARTIST Another Artist\r\n");
+            File.WriteAllText(Path.Combine(candidateDir, "sound.wav"), "dst");
+
+            BMSFile file = BMSFile.CreateBMSFileFromFile(chartPath);
+            file.SetMaintenanceInfo(CreateMaintenanceInfo(file, wavDefined: 1, wavExisting: 0), suppressPropertyChanged: true, registerEventHandlers: false);
+
+            BMSDirectoryFileNameHash cache = new BMSDirectoryFileNameHash();
+            cache.AddDir(sourceDir);
+            cache.AddDir(candidateDir);
+            DirectoryResourceLookupCache lookupCache = new DirectoryResourceLookupCache();
+            lookupCache.AddDir(sourceDir, new[] { "chart.bms" });
+            lookupCache.AddDir(candidateDir, new[] { "installed.bms", "sound.wav" });
+
+            InstallEstimationResult result = service.EstimateInstallationDirectory(
+                new[] { file },
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+                cache,
+                lookupCache,
+                asParallel: false,
+                BmsInstallationEstimateMode.Normal,
+                null,
+                delegate (string directoryPath)
+                {
+                    return string.Equals(directoryPath, candidateDir, StringComparison.OrdinalIgnoreCase)
+                        ? InstallEstimationMetadataNormalizer.BuildProfile(new[] { ("Completely Different", "Another Artist", Path.Combine(candidateDir, "installed.bms")) })
+                        : InstallEstimationMetadataProfile.Empty;
+                });
+
+            Assert.AreEqual(InstallEstimationConfidence.Low, result.Confidence);
+            Assert.AreEqual(InstallEstimationLowConfidenceKind.MetadataMismatch, result.LowConfidenceKind);
+            Assert.AreEqual("single_viable_candidate_metadata_mismatch", result.ConfidenceReason);
+            Assert.IsFalse(result.ShouldAutoApplyDestination);
+            Assert.IsTrue(string.IsNullOrWhiteSpace(result.DestinationDirectory));
+            CollectionAssert.AreEqual(new[] { candidateDir }, result.SuggestedDestinationDirectories.ToArray());
         });
     }
 

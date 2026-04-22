@@ -20,7 +20,12 @@
 
 一方で source は完全に不要になったわけではなく、**background auto-estimate 抑制の source baseline health 判定**にだけ使います。
 
-さらに `2026-04-22` 時点では、resource 指標で僅差の上位候補群にだけ `TITLE` / `ARTIST` の metadata tie-break を適用します。
+さらに `2026-04-22` 時点では、`TITLE` / `ARTIST` の metadata を
+
+- resource 指標で僅差の上位候補群に対する **frontier tie-break**
+- 最終 1 位候補に対する **selected-candidate validation**
+
+の 2 段で使います。
 
 ## 関連クラス
 
@@ -202,24 +207,25 @@ source の bundled resources は merge の final evaluation には足しませ�
 
 raw ratio 比較を入れているため、`1281/1282` と `1281/1285` のような差が 100/100 に丸め潰されて path 順になるのを避けています。
 
-## `TITLE` / `ARTIST` tie-break
+## `TITLE` / `ARTIST` metadata
 
-metadata は主スコアには入れず、**resource 指標で僅差の上位 frontier** にだけ後段適用します。
+metadata は主スコアには入れず、後段で使います。
 
 - 対象は先頭候補と `HasSameRankingMetrics(...)` な viable candidate 群
 - 対象数は最大 3 件
 - candidate 側 metadata は destination directory 配下の全譜面から作る **最頻値 profile**
 - target 側 metadata も package / loose-file 単位の最頻値 profile
 
-v1 の一致規則は **正規化後完全一致** です。
+frontier tie-break は、**resource 指標で僅差の上位 frontier** にだけ後段適用します。
 
 - `TITLE`
   - trim / 全半角 / 空白 / 大小を正規化
   - `(` `[` `~` ` -` 以降を無視
   - ただし先頭 delimiter は切らない
+  - 正規化後 exact に加え、bigram Dice coefficient による軽量 fuzzy を使う
 - `ARTIST`
   - trim / 全半角 / 空白 / 大小を正規化
-  - 先頭の `obj` `note` `notes` + セパレータ prefix を除去
+  - 文字列中の `obj` `note` `notes` + セパレータ marker 以降を切る
   - `/` 以降を無視
 
 比較順は次です。
@@ -234,6 +240,37 @@ v1 の一致規則は **正規化後完全一致** です。
 
 metadata tie-break の結果が明確なら、resource 指標上は tie でも `Low` を `High` へ上げます。
 このとき `ConfidenceReason = metadata_tiebreak_distinct` になります。
+
+### selected-candidate validation
+
+frontier tie-break 後も、最終 1 位候補に対して metadata 妥当性を再判定します。
+
+- viable candidate が 1 件だけ
+- `distinct_primary_metrics`
+- `single_candidate`
+
+でも必ず実行します。
+
+metadata evidence は次です。
+
+- `Strong`
+  - pair exact
+  - title exact
+  - title fuzzy strong + artist exact
+- `Weak`
+  - title fuzzy strong
+  - title weak
+  - artist exact のみ
+- `None`
+  - 上記以外
+
+selected candidate の metadata evidence が `Weak` / `None` の場合は、
+
+- `Confidence = Low`
+- `INSTL DST` は空
+- suggestion に top candidate を残す
+
+として、自動確定しません。
 
 ## source の扱い
 
@@ -270,7 +307,8 @@ source は ranking 本体では扱いません。
 - `instl_dst = null`
 - `HasViableDestination == true` の場合だけ代表 metadata を入れる
 - `Confidence = Low` の場合だけ non-source suggestion を保持する
-- そのうち候補が 2 件以上ある場合だけ warning を保持する
+- ambiguity の場合は 2 件以上 suggestion があるとき warning を保持する
+- metadata mismatch の場合は 1 件 suggestion でも warning を保持する
 
 また、**UI に見える pending 状態で `instl_dst` を反映する経路**では、推定結果適用・手動 `INSTL DST` 入力・resolved destination 再利用・pending regroup のいずれでも、`INSTL DST TITLE` / `INSTL DST ARTIST` を同時に同期します。
 

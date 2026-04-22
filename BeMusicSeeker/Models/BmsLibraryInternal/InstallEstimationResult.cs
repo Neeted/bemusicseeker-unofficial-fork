@@ -12,6 +12,13 @@ internal enum InstallEstimationConfidence
     Low
 }
 
+internal enum InstallEstimationLowConfidenceKind
+{
+    None,
+    AmbiguousCandidates,
+    MetadataMismatch
+}
+
 /// <summary>
 /// 推定候補 1 件分の評価結果です。
 /// 上位候補の比較表示と warning 文言生成に利用します。
@@ -134,6 +141,8 @@ internal sealed class InstallEstimationResult
 
     public string ConfidenceReason { get; set; }
 
+    public InstallEstimationLowConfidenceKind LowConfidenceKind { get; set; } = InstallEstimationLowConfidenceKind.None;
+
     public List<InstallEstimationCandidate> Candidates { get; } = new List<InstallEstimationCandidate>();
 
     public InstallEstimationCandidate SelectedCandidate => Candidates.Count > 0 ? Candidates[0] : null;
@@ -171,4 +180,6 @@ internal sealed class InstallEstimationResult
     public string MetadataFrontierSummary { get; set; }
 
     public string MetadataTieBreakSummary { get; set; }
+
+    public string MetadataValidationSummary { get; set; }
 }

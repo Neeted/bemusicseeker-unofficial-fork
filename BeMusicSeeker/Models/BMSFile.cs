@@ -463,6 +463,8 @@ public class BMSFile : LR2SongDB.song
         }
     }
 
+    public virtual bool HasInstallDestinationSuggestions => (InstallDestinationSuggestions?.Count ?? 0) >= 1;
+
     public virtual bool HasInstallDestinationSuggestionChoices => (InstallDestinationSuggestions?.Count ?? 0) >= 2;
 
     public virtual bool IsInstallDestinationSuggestionPopupOpen
@@ -473,7 +475,7 @@ public class BMSFile : LR2SongDB.song
         }
         set
         {
-            bool normalized = value && HasInstallDestinationSuggestionChoices;
+            bool normalized = value && HasInstallDestinationSuggestions;
             if (_isInstallDestinationSuggestionPopupOpen != normalized)
             {
                 _isInstallDestinationSuggestionPopupOpen = normalized;
@@ -573,13 +575,16 @@ public class BMSFile : LR2SongDB.song
         set
         {
             IReadOnlyList<string> normalized = value ?? Array.Empty<string>();
+            bool hadSuggestions = HasInstallDestinationSuggestions;
             bool hadChoices = HasInstallDestinationSuggestionChoices;
             if (!ReferenceEquals(_installDestinationSuggestions, normalized))
             {
                 _installDestinationSuggestions = normalized;
                 RaisePropertyChanged("InstallDestinationSuggestions");
+                RaisePropertyChanged("HasInstallDestinationSuggestions");
                 RaisePropertyChanged("HasInstallDestinationSuggestionChoices");
-                if (hadChoices != HasInstallDestinationSuggestionChoices && !HasInstallDestinationSuggestionChoices)
+                if ((hadSuggestions != HasInstallDestinationSuggestions && !HasInstallDestinationSuggestions)
+                    || (hadChoices != HasInstallDestinationSuggestionChoices && !HasInstallDestinationSuggestions))
                 {
                     IsInstallDestinationSuggestionPopupOpen = false;
                 }

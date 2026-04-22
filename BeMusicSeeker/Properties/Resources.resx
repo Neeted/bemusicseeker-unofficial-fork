@@ -1326,6 +1326,13 @@ BMSファイルが重複しないようにマージします。
 第1候補: {0}
 第2候補: {1}</value>
   </data>
+  <data name="Warning_InstallEstimationMetadataMismatchPrefix" xml:space="preserve">
+    <value>TITLE / ARTIST の一致度が低いため自動確定していません。</value>
+  </data>
+  <data name="Warning_InstallEstimationMetadataMismatch" xml:space="preserve">
+    <value>TITLE / ARTIST の一致度が低いため自動確定していません。
+候補: {0}</value>
+  </data>
   <data name="BmsonMigrationWarningMessage" xml:space="preserve">
     <value>bmson 対応のため、初回起動時にプレイリストやハッシュ管理用・bmson カタログ用テーブルへ変更を加えます。
 

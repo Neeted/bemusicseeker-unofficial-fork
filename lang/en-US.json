@@ -404,6 +404,8 @@
   "Warning_SingleBmsonFile": "Single BMSON file",
   "Warning_InstallEstimationAmbiguousPrefix": "Multiple installation destination candidates were found, so the destination was not auto-selected.",
   "Warning_InstallEstimationAmbiguous": "Multiple installation destination candidates were found, so the destination was not auto-selected.\n1st candidate: {0}\n2nd candidate: {1}",
+  "Warning_InstallEstimationMetadataMismatchPrefix": "The TITLE / ARTIST similarity was too low, so the destination was not auto-selected.",
+  "Warning_InstallEstimationMetadataMismatch": "The TITLE / ARTIST similarity was too low, so the destination was not auto-selected.\nCandidate: {0}",
   "BmsonMigrationWarningMessage": "To support bmson, changes will be applied on first startup to playlist data, hash management tables, and bmson catalog tables.\n\nThe initial SHA-256 generation may take a long time depending on the size of your library.\nAfter the update, the DB may no longer be compatible with the original BeMusicSeeker or this fork up to v1.2.1.0.\nIf you are concerned about compatibility, backing up song.db and related files beforehand is recommended.",
   "BmsonMigrationWarningTitle": "Migration warning for bmson support",
   "Header_InstallDstTitle": "INSTL DST TITLE",
