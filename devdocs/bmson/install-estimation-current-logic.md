@@ -172,19 +172,67 @@ resource-only subdir は候補に入りません。
 
 ## coarse filter
 
-coarse filter では、`snapshot.DefinedResources.EnumerateAllBaseNameHashes()` を使って候補 directory を絞ります。
+`2026-04-23` 時点の coarse filter は、**path-aware broad filter + unified audio gate** です。
 
-- `DirectoryResourceLookupCache` がある場合:
-  - `EnsureDirectoriesByHashes(targetHashes)`
-  - 各 hash に対応する directory を union
-- cache がない場合:
-  - `BMSDirectoryFileNameHash` の hash array を直接なめる
+### 1. path-aware broad filter
 
-つまり `2026-04-23` 時点では、coarse filter の入口は **basename-only** です。  
-relative path hash は後段の exact match には使いますが、`sound\bgm1` と `bgm1` を candidate 探索段階で別物として扱うところまでは完了していません。  
-この論点は [install-estimation-relative-path-foundation.md](install-estimation-relative-path-foundation.md) で別途整理しています。
+target 側 resource は broad filter 用に次の 2 種へ分けます。
 
-`2026-04-22` 時点の Perf-2a 修正後は、この broad prefilter の後に **unified audio gate** をかけます。
+- basename-only refs
+  - 例: `bgm1.wav`
+- path-aware refs
+  - 例: `sound\bgm1.wav`
+
+このとき `bgm1` と `sound\bgm1` は別 key です。  
+path-aware ref は basename key にフォールバックしません。
+
+broad filter では:
+
+- basename-only refs
+  - `ChartResourceSnapshot.EnumerateBroadFilterBaseNameHashes()` を使う
+- path-aware refs
+  - category ごとの relative-path hash lookup を使う
+
+cache あり経路:
+
+- basename-only refs
+  - `DirectoryResourceLookupCache.EnsureDirectoriesByHashes(...)`
+  - `GetDirectoriesByHash(...)`
+- path-aware audio refs
+  - `EnsureAudioRelativeDirectoriesByHashes(...)`
+  - `GetDirectoriesByAudioRelativeHash(...)`
+- path-aware visual / optional image refs
+  - `EnsureImageRelativeDirectoriesByHashes(...)`
+  - `GetDirectoriesByImageRelativeHash(...)`
+- path-aware movie refs
+  - `EnsureMovieRelativeDirectoriesByHashes(...)`
+  - `GetDirectoriesByMovieRelativeHash(...)`
+
+cacheless path:
+
+- basename-only refs
+  - `BMSDirectoryFileNameHash`
+- path-aware refs
+  - `DirectoryRelativePathHashIndex`
+
+を併用します。
+
+さらに seed 候補に対して **path-aware admission gate** をかけます。
+
+- target が path-aware audio ref を持つ
+  - candidate にも audio relative-path hit が 1 件以上必要
+- target が path-aware visual ref を持つ
+  - candidate にも image relative-path hit が 1 件以上必要
+- target が path-aware optional image ref を持つ
+  - candidate にも image relative-path hit が 1 件以上必要
+- target が path-aware movie ref を持つ
+  - candidate にも movie relative-path hit が 1 件以上必要
+
+つまり、`sound\bgm1` を要求する譜面では、candidate discovery の入口で `bgm1` only の directory を落とします。
+
+### 2. unified audio gate
+
+path-aware broad filter の後に、既存の **unified audio gate** をかけます。
 
 - `audioRefs >= 2`
   - candidate 自身の audio basename hash 2 件以上一致必須
@@ -202,7 +250,7 @@ relative path hash は後段の exact match には使いますが、`sound\bgm1`
 
 つまり coarse filter は次の 2 段です。
 
-1. broad prefilter
+1. path-aware broad filter
 2. unified audio gate
 
 つまり、
@@ -228,7 +276,12 @@ Perf-2a 再修正では、この unified audio gate の仕様は変えず、内�
 - `effective viability`
   - `health > 70` に到達した時点で打ち切る threshold-only check
 
-つまり現在は、**1 helper / 2 条件**のまま、旧 2段ゲート時の cheap/heavy 構造を内部へ戻した状態です。
+つまり現在は、
+
+- Phase 3 で broad filter を path-aware candidate discovery に更新
+- Perf-2a 再修正で unified audio gate の内部実装を軽量化
+
+した状態です。
 
 ### 現状の `innerWavHealthThreshold` の位置づけ
 

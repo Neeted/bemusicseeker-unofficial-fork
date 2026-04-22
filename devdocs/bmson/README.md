@@ -74,7 +74,7 @@
    - 相対パス譜面を前提にした `bgm1` と `sound\bgm1` の意味整理
    - Everything / fallback / 増分更新の parity 論点
    - broad filter を path-aware にする前のフェーズ分割
-   - Perf-3 に入る前の relative path completion 前提
+   - Phase 1+2 完了後、Phase 3 (path-aware index / broad filter) に進むための前提
 
 ## 実装方針の要点
 

@@ -206,6 +206,12 @@ internal sealed class DirectoryResourceLookupCache
 
     private readonly Dictionary<uint, string[]> directoriesByHash = new Dictionary<uint, string[]>();
 
+    private readonly Dictionary<uint, string[]> audioDirectoriesByRelativeHash = new Dictionary<uint, string[]>();
+
+    private readonly Dictionary<uint, string[]> imageDirectoriesByRelativeHash = new Dictionary<uint, string[]>();
+
+    private readonly Dictionary<uint, string[]> movieDirectoriesByRelativeHash = new Dictionary<uint, string[]>();
+
     private readonly object lockLazyDirectoriesByHash = new object();
 
     private ReverseLookupWarmupState warmupState;
@@ -433,9 +439,75 @@ internal sealed class DirectoryResourceLookupCache
         return Array.Empty<string>();
     }
 
+    public IReadOnlyCollection<string> GetDirectoriesByAudioRelativeHash(uint relativePathHash)
+    {
+        if (relativePathHash == 0u)
+        {
+            return Array.Empty<string>();
+        }
+        EnsureRelativeDirectoriesByHashes(audioDirectoriesByRelativeHash, (Entry entry) => entry?.AudioRelativePathHashArray, new[] { relativePathHash });
+        lock (lockLazyDirectoriesByHash)
+        {
+            if (audioDirectoriesByRelativeHash.TryGetValue(relativePathHash, out string[] directories))
+            {
+                return directories;
+            }
+        }
+        return Array.Empty<string>();
+    }
+
+    public IReadOnlyCollection<string> GetDirectoriesByImageRelativeHash(uint relativePathHash)
+    {
+        if (relativePathHash == 0u)
+        {
+            return Array.Empty<string>();
+        }
+        EnsureRelativeDirectoriesByHashes(imageDirectoriesByRelativeHash, (Entry entry) => entry?.ImageRelativePathHashArray, new[] { relativePathHash });
+        lock (lockLazyDirectoriesByHash)
+        {
+            if (imageDirectoriesByRelativeHash.TryGetValue(relativePathHash, out string[] directories))
+            {
+                return directories;
+            }
+        }
+        return Array.Empty<string>();
+    }
+
+    public IReadOnlyCollection<string> GetDirectoriesByMovieRelativeHash(uint relativePathHash)
+    {
+        if (relativePathHash == 0u)
+        {
+            return Array.Empty<string>();
+        }
+        EnsureRelativeDirectoriesByHashes(movieDirectoriesByRelativeHash, (Entry entry) => entry?.MovieRelativePathHashArray, new[] { relativePathHash });
+        lock (lockLazyDirectoriesByHash)
+        {
+            if (movieDirectoriesByRelativeHash.TryGetValue(relativePathHash, out string[] directories))
+            {
+                return directories;
+            }
+        }
+        return Array.Empty<string>();
+    }
+
     public void EnsureDirectoriesByHashes(IEnumerable<uint> hashes)
     {
         BuildDirectoriesByHashes(hashes, countAsLookup: false, highPriority: true);
+    }
+
+    public void EnsureAudioRelativeDirectoriesByHashes(IEnumerable<uint> hashes)
+    {
+        EnsureRelativeDirectoriesByHashes(audioDirectoriesByRelativeHash, (Entry entry) => entry?.AudioRelativePathHashArray, hashes);
+    }
+
+    public void EnsureImageRelativeDirectoriesByHashes(IEnumerable<uint> hashes)
+    {
+        EnsureRelativeDirectoriesByHashes(imageDirectoriesByRelativeHash, (Entry entry) => entry?.ImageRelativePathHashArray, hashes);
+    }
+
+    public void EnsureMovieRelativeDirectoriesByHashes(IEnumerable<uint> hashes)
+    {
+        EnsureRelativeDirectoriesByHashes(movieDirectoriesByRelativeHash, (Entry entry) => entry?.MovieRelativePathHashArray, hashes);
     }
 
     public int PrepareWarmupState()
@@ -589,12 +661,82 @@ internal sealed class DirectoryResourceLookupCache
         lock (lockLazyDirectoriesByHash)
         {
             directoriesByHash.Clear();
+            audioDirectoriesByRelativeHash.Clear();
+            imageDirectoriesByRelativeHash.Clear();
+            movieDirectoriesByRelativeHash.Clear();
             warmupState = null;
             isFullReverseLookupBuilt = false;
             warmupVersion++;
         }
         Interlocked.Exchange(ref lazyHashBuildMs, 0L);
         Interlocked.Exchange(ref lazyHashLookupCount, 0L);
+    }
+
+    private void EnsureRelativeDirectoriesByHashes(Dictionary<uint, string[]> targetDirectoriesByHash, Func<Entry, uint[]> hashArraySelector, IEnumerable<uint> hashes)
+    {
+        uint[] requestedHashes = hashes?
+            .Where((uint hash) => hash != 0u)
+            .Distinct()
+            .ToArray() ?? Array.Empty<uint>();
+        if (requestedHashes.Length == 0)
+        {
+            return;
+        }
+
+        HashSet<uint> missingHashes = new HashSet<uint>(requestedHashes);
+        lock (lockLazyDirectoriesByHash)
+        {
+            missingHashes.RemoveWhere((uint hash) => targetDirectoriesByHash.ContainsKey(hash));
+        }
+        if (missingHashes.Count == 0)
+        {
+            return;
+        }
+
+        KeyValuePair<string, Entry>[] entrySnapshot = SnapshotEntries();
+        Dictionary<uint, List<string>> builtDirectories = new Dictionary<uint, List<string>>();
+        foreach (KeyValuePair<string, Entry> entryPair in entrySnapshot)
+        {
+            uint[] relativeHashes = hashArraySelector?.Invoke(entryPair.Value);
+            if (relativeHashes == null || relativeHashes.Length == 0)
+            {
+                continue;
+            }
+            foreach (uint hash in relativeHashes)
+            {
+                if (!missingHashes.Contains(hash))
+                {
+                    continue;
+                }
+                if (!builtDirectories.TryGetValue(hash, out List<string> directories))
+                {
+                    directories = new List<string>();
+                    builtDirectories[hash] = directories;
+                }
+                directories.Add(entryPair.Key);
+            }
+        }
+
+        lock (lockLazyDirectoriesByHash)
+        {
+            foreach (uint hash in missingHashes)
+            {
+                if (targetDirectoriesByHash.ContainsKey(hash))
+                {
+                    continue;
+                }
+                if (builtDirectories.TryGetValue(hash, out List<string> directories))
+                {
+                    targetDirectoriesByHash[hash] = directories
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .ToArray();
+                }
+                else
+                {
+                    targetDirectoriesByHash[hash] = Array.Empty<string>();
+                }
+            }
+        }
     }
 
     private ReverseLookupBuildResult BuildDirectoriesByHashes(IEnumerable<uint> hashes, bool countAsLookup, bool highPriority)

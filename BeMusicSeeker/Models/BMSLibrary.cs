@@ -683,6 +683,8 @@ public class BMSLibrary : NotificationObject
 
     private DirectoryResourceLookupCache directoryResourceLookupCache = new DirectoryResourceLookupCache();
 
+    private DirectoryRelativePathHashIndex directoryRelativePathHashIndex = new DirectoryRelativePathHashIndex();
+
     private readonly int innerWavHealthThreshForNormalBMSFile = 70;
 
     private readonly double dupRateThreshInOnePkg = 0.9;
@@ -1718,6 +1720,8 @@ public class BMSLibrary : NotificationObject
 
         public BMSDirectoryFileNameHash FolderAllFileListSnapshot { get; set; }
 
+        public DirectoryRelativePathHashIndex RelativePathHashIndexSnapshot { get; set; }
+
         public BmsLibraryOptionsSnapshot OptionsSnapshot { get; set; } = new BmsLibraryOptionsSnapshot();
     }
 
@@ -2113,6 +2117,7 @@ public class BMSLibrary : NotificationObject
                     InstalledDirectoryIndexSnapshot = CreateInstalledDirectoryIndexSnapshotUnsafe(),
                     DirectoryLookupCacheSnapshot = directoryResourceLookupCache,
                     FolderAllFileListSnapshot = bmsFolderAllFileList,
+                    RelativePathHashIndexSnapshot = directoryRelativePathHashIndex,
                     OptionsSnapshot = CurrentOptionsSnapshot
                 };
             }
@@ -2233,7 +2238,17 @@ public class BMSLibrary : NotificationObject
         }
 
         result.OutcomeKind = PendingInstallEstimateEvaluationOutcomeKind.EstimatedResult;
-        result.EstimationData = EvaluateInstallEstimation(request.Package, request.MissingFiles, asParallel: false, request.EstimateMode, evaluationContext.OptionsSnapshot, useThreadSafeResolvers: true, useSharedLazyHashMetrics: true);
+        result.EstimationData = EvaluateInstallEstimation(
+            request.Package,
+            request.MissingFiles,
+            asParallel: false,
+            request.EstimateMode,
+            evaluationContext.OptionsSnapshot,
+            useThreadSafeResolvers: true,
+            useSharedLazyHashMetrics: true,
+            evaluationContext.FolderAllFileListSnapshot,
+            evaluationContext.DirectoryLookupCacheSnapshot,
+            evaluationContext.RelativePathHashIndexSnapshot);
         return result;
     }
 
@@ -2920,6 +2935,7 @@ public class BMSLibrary : NotificationObject
                 BmsonSongs = fileCheckResult.NextBmsonSongs;
                 bmsFolderAllFileList = fileCheckResult.NextFolderAllFileList ?? new BMSDirectoryFileNameHash();
                 directoryResourceLookupCache = fileCheckResult.NextDirectoryResourceLookupCache ?? new DirectoryResourceLookupCache();
+                directoryRelativePathHashIndex = fileCheckResult.NextDirectoryRelativePathHashIndex ?? new DirectoryRelativePathHashIndex();
             }
             if (fileCheckResult.HasDbDiff)
             {
@@ -4944,7 +4960,7 @@ public class BMSLibrary : NotificationObject
         }
     }
 
-    private InstallEstimationEvaluationData EvaluateInstallEstimation(BMSPackage package, List<BMSFile> targetBmsFiles, bool asParallel, BmsInstallationEstimateMode estimateMode, BmsLibraryOptionsSnapshot optionsSnapshot = null, bool useThreadSafeResolvers = false, bool useSharedLazyHashMetrics = false)
+    private InstallEstimationEvaluationData EvaluateInstallEstimation(BMSPackage package, List<BMSFile> targetBmsFiles, bool asParallel, BmsInstallationEstimateMode estimateMode, BmsLibraryOptionsSnapshot optionsSnapshot = null, bool useThreadSafeResolvers = false, bool useSharedLazyHashMetrics = false, BMSDirectoryFileNameHash folderAllFileListSnapshot = null, DirectoryResourceLookupCache directoryLookupCacheSnapshot = null, DirectoryRelativePathHashIndex relativePathHashIndexSnapshot = null)
     {
         List<BMSFile> targetFileList = (targetBmsFiles ?? new List<BMSFile>()).Where((BMSFile bmsInfo) => bmsInfo != null).ToList();
         if (targetFileList.Count == 0)
@@ -4960,24 +4976,27 @@ public class BMSLibrary : NotificationObject
         Func<string, InstallEstimationMetadataProfile> metadataProfileResolver = useThreadSafeResolvers
             ? new Func<string, InstallEstimationMetadataProfile>(ResolveInstallDestinationMetadataProfileThreadSafe)
             : new Func<string, InstallEstimationMetadataProfile>(ResolveInstallDestinationMetadataProfileUnsafe);
-        DirectoryResourceLookupCache directoryLookupCacheSnapshot = directoryResourceLookupCache;
-        long lazyHashBuildMsBefore = useSharedLazyHashMetrics ? 0L : (directoryLookupCacheSnapshot?.LazyHashBuildMs ?? 0L);
-        long lazyHashLookupCountBefore = useSharedLazyHashMetrics ? 0L : (directoryLookupCacheSnapshot?.LazyHashLookupCount ?? 0L);
-        int lazyHashCacheEntriesBefore = useSharedLazyHashMetrics ? 0 : (directoryLookupCacheSnapshot?.LazyHashCacheEntryCount ?? 0);
+        BMSDirectoryFileNameHash effectiveFolderAllFileList = folderAllFileListSnapshot ?? bmsFolderAllFileList;
+        DirectoryResourceLookupCache effectiveDirectoryLookupCache = directoryLookupCacheSnapshot ?? this.directoryResourceLookupCache;
+        DirectoryRelativePathHashIndex effectiveRelativePathHashIndex = relativePathHashIndexSnapshot ?? directoryRelativePathHashIndex;
+        long lazyHashBuildMsBefore = useSharedLazyHashMetrics ? 0L : (effectiveDirectoryLookupCache?.LazyHashBuildMs ?? 0L);
+        long lazyHashLookupCountBefore = useSharedLazyHashMetrics ? 0L : (effectiveDirectoryLookupCache?.LazyHashLookupCount ?? 0L);
+        int lazyHashCacheEntriesBefore = useSharedLazyHashMetrics ? 0 : (effectiveDirectoryLookupCache?.LazyHashCacheEntryCount ?? 0);
         PackageInstallEstimationSnapshot estimationSnapshot = package != null
             ? package.GetOrBuildInstallEstimationSnapshot(targetFileList)
             : PackageInstallEstimationSnapshotBuilder.BuildForLooseFiles(targetFileList);
         InstallEstimationResult result = CreateInstallEstimationService(optionsSnapshot).EstimateInstallationDirectory(
             estimationSnapshot,
-            bmsFolderAllFileList,
-            directoryResourceLookupCache,
+            effectiveFolderAllFileList,
+            effectiveDirectoryLookupCache,
             asParallel,
             estimateMode,
             representativeResolver,
-            metadataProfileResolver);
-        long lazyHashBuildMsAfter = useSharedLazyHashMetrics ? lazyHashBuildMsBefore : (directoryLookupCacheSnapshot?.LazyHashBuildMs ?? lazyHashBuildMsBefore);
-        long lazyHashLookupCountAfter = useSharedLazyHashMetrics ? lazyHashLookupCountBefore : (directoryLookupCacheSnapshot?.LazyHashLookupCount ?? lazyHashLookupCountBefore);
-        int lazyHashCacheEntriesAfter = useSharedLazyHashMetrics ? lazyHashCacheEntriesBefore : (directoryLookupCacheSnapshot?.LazyHashCacheEntryCount ?? lazyHashCacheEntriesBefore);
+            metadataProfileResolver,
+            effectiveRelativePathHashIndex);
+        long lazyHashBuildMsAfter = useSharedLazyHashMetrics ? lazyHashBuildMsBefore : (effectiveDirectoryLookupCache?.LazyHashBuildMs ?? lazyHashBuildMsBefore);
+        long lazyHashLookupCountAfter = useSharedLazyHashMetrics ? lazyHashLookupCountBefore : (effectiveDirectoryLookupCache?.LazyHashLookupCount ?? lazyHashLookupCountBefore);
+        int lazyHashCacheEntriesAfter = useSharedLazyHashMetrics ? lazyHashCacheEntriesBefore : (effectiveDirectoryLookupCache?.LazyHashCacheEntryCount ?? lazyHashCacheEntriesBefore);
         return new InstallEstimationEvaluationData
         {
             ChartCount = targetFileList.Count,
@@ -4996,7 +5015,7 @@ public class BMSLibrary : NotificationObject
         {
             return;
         }
-        LogInstallPerformance("estimate_install start chartCount=" + estimationData.ChartCount + " targetHashes=" + result.TargetResourceHashCount + " bundledAudioCount=" + result.BundledAudioCount + " bundledImageCount=" + result.BundledImageCount + " bundledMovieCount=" + result.BundledMovieCount + " candidateMode=" + (result.CandidateMode ?? string.Empty) + " coarseFilterMode=" + (result.CoarseFilterMode ?? string.Empty) + " audioRefs=" + result.AudioReferenceCount + " audioMinMatchRequired=" + result.AudioMinimumMatchRequired + " candidateDirsBefore=" + result.CandidateDirectoryCountBeforeHashFilter + " candidateDirsAfterBroadFilter=" + result.CandidateDirectoryCountAfterBroadFilter + " candidateDirsAfterAudioGate=" + result.CandidateDirectoryCountAfterAudioGate + " candidateDirsAfter=" + result.CandidateDirectoryCountAfterHashFilter + " candidateDirs=" + result.CandidateDirectoryCount + " evaluationMs=" + result.EvaluationMs + " fallback=" + result.UsedFallbackCandidateExpansion + " confidence=" + result.Confidence + " autoApplied=" + result.ShouldAutoApplyDestination + " confidenceReason=" + (result.ConfidenceReason ?? string.Empty) + " lazyHashBuildMsDelta=" + estimationData.LazyHashBuildMsDelta + " lazyHashEntriesAdded=" + estimationData.LazyHashEntriesAdded + " lazyHashLookupCountDelta=" + estimationData.LazyHashLookupCountDelta + " lazyHashBuildReason=" + (estimationData.LazyHashBuildReason ?? string.Empty) + " summary=" + (result.ResourceSummary ?? string.Empty));
+        LogInstallPerformance("estimate_install start chartCount=" + estimationData.ChartCount + " targetHashes=" + result.TargetResourceHashCount + " pathAwareRefs=" + result.TargetPathAwareHashCount + " pathAwareAudioRefs=" + result.TargetPathAwareAudioHashCount + " pathAwareVisualRefs=" + result.TargetPathAwareVisualHashCount + " pathAwareMovieRefs=" + result.TargetPathAwareMovieHashCount + " pathAwareOptionalRefs=" + result.TargetPathAwareOptionalImageHashCount + " bundledAudioCount=" + result.BundledAudioCount + " bundledImageCount=" + result.BundledImageCount + " bundledMovieCount=" + result.BundledMovieCount + " candidateMode=" + (result.CandidateMode ?? string.Empty) + " coarseFilterMode=" + (result.CoarseFilterMode ?? string.Empty) + " audioRefs=" + result.AudioReferenceCount + " audioMinMatchRequired=" + result.AudioMinimumMatchRequired + " candidateDirsBefore=" + result.CandidateDirectoryCountBeforeHashFilter + " candidateDirsAfterBroadFilter=" + result.CandidateDirectoryCountAfterBroadFilter + " candidateDirsAfterAudioGate=" + result.CandidateDirectoryCountAfterAudioGate + " candidateDirsAfter=" + result.CandidateDirectoryCountAfterHashFilter + " candidateDirs=" + result.CandidateDirectoryCount + " evaluationMs=" + result.EvaluationMs + " fallback=" + result.UsedFallbackCandidateExpansion + " confidence=" + result.Confidence + " autoApplied=" + result.ShouldAutoApplyDestination + " confidenceReason=" + (result.ConfidenceReason ?? string.Empty) + " lazyHashBuildMsDelta=" + estimationData.LazyHashBuildMsDelta + " lazyHashEntriesAdded=" + estimationData.LazyHashEntriesAdded + " lazyHashLookupCountDelta=" + estimationData.LazyHashLookupCountDelta + " lazyHashBuildReason=" + (estimationData.LazyHashBuildReason ?? string.Empty) + " summary=" + (result.ResourceSummary ?? string.Empty));
         if (!string.IsNullOrWhiteSpace(result.TopCandidateSummary))
         {
             LogInstallPerformance("estimate_install candidates " + result.TopCandidateSummary);
@@ -5321,6 +5340,7 @@ public class BMSLibrary : NotificationObject
                         bmsFolderAllFileList.AddDirHashed(dir, hashes);
                     }
                     directoryResourceLookupCache.AddDir(dir, addedDirectoryScan);
+                    directoryRelativePathHashIndex.AddDir(dir, addedDirectoryScan);
                 }
                 QueueDeferredReverseLookupWarmup("install_package");
                 InvalidateInstalledDirectoryIndex();
@@ -7266,6 +7286,7 @@ public class BMSLibrary : NotificationObject
                     {
                         bmsFolderAllFileList.RemoveDir(item);
                         directoryResourceLookupCache.RemoveDir(item);
+                        directoryRelativePathHashIndex.RemoveDir(item);
                     }
                     if (!moveBMSPackageFiles(mergeResult.Repackage, dst, showMessageBoxOnInstallFail: false, deleteAllContents: true, existingHashes: mergeResult.ExistingHashes))
                     {
@@ -7280,6 +7301,7 @@ public class BMSLibrary : NotificationObject
                             bmsFolderAllFileList.AddDirHashed(chartDirectory, hashes);
                         }
                         directoryResourceLookupCache.AddDir(chartDirectory, mergedDirectoryScan);
+                        directoryRelativePathHashIndex.AddDir(chartDirectory, mergedDirectoryScan);
                     }
                     QueueDeferredReverseLookupWarmup("merge_folder");
                     ApplyLibraryMutationDelta(mergeResult.ReferenceMutationDelta);

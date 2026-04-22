@@ -328,6 +328,9 @@ public sealed class BmsLibraryInitializationServiceTests
             Assert.IsTrue(entry.AudioBaseNameHashes.Contains(audioBaseHash));
             Assert.IsTrue(entry.ImageBaseNameHashes.Contains(imageBaseHash));
             Assert.IsTrue(entry.AudioRelativePathHashes.Contains(audioRelativeHash));
+            DirectoryRelativePathHashIndex.Entry relativePathEntry = result.NextDirectoryRelativePathHashIndex?.GetEntryOrNull(chartDirectoryPath);
+            Assert.IsNotNull(relativePathEntry);
+            Assert.IsTrue(relativePathEntry.AudioRelativePathHashes.Contains(audioRelativeHash));
             Assert.AreEqual((ulong)2, result.AllBaseHashEntryCount);
             Assert.AreEqual((ulong)1, result.AudioBaseHashEntryCount);
             Assert.AreEqual((ulong)1, result.ImageBaseHashEntryCount);

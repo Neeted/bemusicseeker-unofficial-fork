@@ -26,6 +26,8 @@ internal sealed class SongTableFileCheckResult
 
     public DirectoryResourceLookupCache NextDirectoryResourceLookupCache { get; set; }
 
+    public DirectoryRelativePathHashIndex NextDirectoryRelativePathHashIndex { get; set; }
+
     public bool HasDbDiff { get; set; }
 
     public bool PrefetchedScanUsed { get; set; }

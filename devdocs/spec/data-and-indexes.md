@@ -28,6 +28,8 @@
   「chart directory」ごとの all-resource basename hash 配列
 - `directoryResourceLookupCache : DirectoryResourceLookupCache`
   chart directory ごとのカテゴリ別 basename / relative-path hash 集合
+- `directoryRelativePathHashIndex : DirectoryRelativePathHashIndex`
+  cacheless broad filter 用の chart directory ごとのカテゴリ別 relative-path hash 索引
 
 ## 3. `BMSDirectoryFileNameHash` の仕様
 
@@ -52,10 +54,32 @@
 補足:
 
 - `BMSDirectoryFileNameHash` は **basename-only index** であり、`sound\bgm1` のような path-aware key は保持しない
+- basename-only broad filter はこの index を使う
 - relative path を含む source of truth は `DirectoryResourceLookupCache.Entry` 側に置く
-- `bgm1` と `sound\bgm1` を broad filter 入口で分離するのは、この index ではなく別 phase の責務とする
+- cacheless broad filter では `DirectoryRelativePathHashIndex` を併用して `sound\bgm1` と `bgm1` を入口で分離する
 
-## 4. scan result / resource cache の形
+## 4. `DirectoryRelativePathHashIndex` の仕様
+
+`DirectoryRelativePathHashIndex` は cacheless broad filter 専用の補助 index で、次を持つ。
+
+- キー: chart directory 絶対パス（`OrdinalIgnoreCase`）
+- 値:
+  - `AudioRelativePathHashArray`
+  - `ImageRelativePathHashArray`
+  - `MovieRelativePathHashArray`
+
+目的:
+
+- `DirectoryResourceLookupCache` がない経路でも、path-aware ref を broad filter 入口で first-class key として扱う
+- `BMSDirectoryFileNameHash` の basename-only 意味を壊さずに、cacheless path の semantics を cache あり経路に揃える
+
+この index は:
+
+- initial / reload では `BmsScanResult` から構築する
+- install / merge の増分更新でも同じ chart-directory keyed shape で `AddDir(..., scanResult)` する
+- final scoring には使わず、broad filter fallback に限定する
+
+## 5. scan result / resource cache の形
 
 初期化時の scan 結果は raw file name 一覧ではなく、次の hash-only shape を source of truth にする。
 
@@ -78,9 +102,15 @@ resource は「存在ディレクトリ」ではなく、**最長一致する ch
 
 Everything と通常列挙の差は、設計上「速度だけ」に寄せる。
 
-また、initial/reload と install/merge 後の増分更新は、この chart-directory keyed shape を同じ意味で `DirectoryResourceLookupCache` / `BMSDirectoryFileNameHash` に反映することを前提にする。
+また、initial/reload と install/merge 後の増分更新は、この chart-directory keyed shape を同じ意味で
 
-## 5. DBテーブル（BMSLibraryコンストラクタで整備）
+- `DirectoryResourceLookupCache`
+- `BMSDirectoryFileNameHash`
+- `DirectoryRelativePathHashIndex`
+
+へ反映することを前提にする。
+
+## 6. DBテーブル（BMSLibraryコンストラクタで整備）
 
 - `song`（既存LR2）
 - `install`
@@ -93,12 +123,13 @@ Everything と通常列挙の差は、設計上「速度だけ」に寄せる。
 - `song_idx_folder`
 - `ir_data_idx`
 
-## 6. 一貫性更新の基本方針
+## 7. 一貫性更新の基本方針
 
 - ファイル実体変更後は次を同期:
   1. `BMSFiles`
   2. Song DB (`song`)
   3. `bmsFolderAllFileList`
   4. `directoryResourceLookupCache`
-  5. 必要に応じてハッシュ索引再構築
+  5. `directoryRelativePathHashIndex`
+  6. 必要に応じてハッシュ索引再構築
 - 導入待ち/導入済みは末尾一括反映を優先し、UI通知の過多を避ける。

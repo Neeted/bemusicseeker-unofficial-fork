@@ -267,6 +267,7 @@ internal sealed class BmsLibraryInitializationService
         result.NextDirectoryResourceLookupCache = DirectoryResourceLookupCache.CreateFromScanResult(mergedScanResult);
         stopwatchResourceLookupCache.Stop();
         result.ResourceLookupCacheMs = stopwatchResourceLookupCache.ElapsedMilliseconds;
+        result.NextDirectoryRelativePathHashIndex = DirectoryRelativePathHashIndex.CreateFromScanResult(mergedScanResult);
         stopwatchDirhashBuild.Stop();
         result.DirhashBuildMs = stopwatchDirhashBuild.ElapsedMilliseconds;
         result.AllBaseHashEntryCount = CountHashEntries(mergedScanResult.AllResourceBaseNameHashesByChartDirectory);

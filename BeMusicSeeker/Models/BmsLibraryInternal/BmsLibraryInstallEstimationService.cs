@@ -470,12 +470,12 @@ internal sealed class BmsLibraryInstallEstimationService
         return result;
     }
 
-    public InstallEstimationResult EstimateInstallationDirectory(IEnumerable<BMSFile> bmsFiles, HashSet<string> installedHashes, BMSDirectoryFileNameHash folderAllFileList, DirectoryResourceLookupCache directoryLookupCache, bool asParallel, BmsInstallationEstimateMode estimateMode, Func<string, InstallDestinationRepresentativeMetadata> representativeMetadataResolver = null, Func<string, InstallEstimationMetadataProfile> metadataProfileResolver = null)
+    public InstallEstimationResult EstimateInstallationDirectory(IEnumerable<BMSFile> bmsFiles, HashSet<string> installedHashes, BMSDirectoryFileNameHash folderAllFileList, DirectoryResourceLookupCache directoryLookupCache, bool asParallel, BmsInstallationEstimateMode estimateMode, Func<string, InstallDestinationRepresentativeMetadata> representativeMetadataResolver = null, Func<string, InstallEstimationMetadataProfile> metadataProfileResolver = null, DirectoryRelativePathHashIndex relativePathHashIndex = null)
     {
-        return EstimateInstallationDirectory(BuildLooseFileSnapshot(bmsFiles, installedHashes, estimateMode), folderAllFileList, directoryLookupCache, asParallel, estimateMode, representativeMetadataResolver, metadataProfileResolver);
+        return EstimateInstallationDirectory(BuildLooseFileSnapshot(bmsFiles, installedHashes, estimateMode), folderAllFileList, directoryLookupCache, asParallel, estimateMode, representativeMetadataResolver, metadataProfileResolver, relativePathHashIndex);
     }
 
-    public InstallEstimationResult EstimateInstallationDirectory(PackageInstallEstimationSnapshot snapshot, BMSDirectoryFileNameHash folderAllFileList, DirectoryResourceLookupCache directoryLookupCache, bool asParallel, BmsInstallationEstimateMode estimateMode, Func<string, InstallDestinationRepresentativeMetadata> representativeMetadataResolver = null, Func<string, InstallEstimationMetadataProfile> metadataProfileResolver = null)
+    public InstallEstimationResult EstimateInstallationDirectory(PackageInstallEstimationSnapshot snapshot, BMSDirectoryFileNameHash folderAllFileList, DirectoryResourceLookupCache directoryLookupCache, bool asParallel, BmsInstallationEstimateMode estimateMode, Func<string, InstallDestinationRepresentativeMetadata> representativeMetadataResolver = null, Func<string, InstallEstimationMetadataProfile> metadataProfileResolver = null, DirectoryRelativePathHashIndex relativePathHashIndex = null)
     {
         InstallEstimationResult result = new InstallEstimationResult();
         bool isMergeMode = estimateMode == BmsInstallationEstimateMode.MergeCandidateOnly;
@@ -486,12 +486,20 @@ internal sealed class BmsLibraryInstallEstimationService
         }
         ChartResourceSnapshot resourceSnapshot = snapshot.DefinedResources ?? new ChartResourceSnapshot();
         result.TargetResourceHashCount = resourceSnapshot.EnumerateAllBaseNameHashes().Count();
+        result.TargetPathAwareAudioHashCount = resourceSnapshot.AudioPathAwareReferenceCount;
+        result.TargetPathAwareVisualHashCount = resourceSnapshot.VisualPathAwareReferenceCount;
+        result.TargetPathAwareMovieHashCount = resourceSnapshot.MoviePathAwareReferenceCount;
+        result.TargetPathAwareOptionalImageHashCount = resourceSnapshot.OptionalImagePathAwareReferenceCount;
+        result.TargetPathAwareHashCount = result.TargetPathAwareAudioHashCount
+            + result.TargetPathAwareVisualHashCount
+            + result.TargetPathAwareMovieHashCount
+            + result.TargetPathAwareOptionalImageHashCount;
         result.AudioReferenceCount = resourceSnapshot.AudioReferenceCount;
         result.BundledAudioCount = snapshot.BundledAudioCount;
         result.BundledImageCount = snapshot.BundledImageCount;
         result.BundledMovieCount = snapshot.BundledMovieCount;
         result.CandidateMode = useBundledResources ? "package_union_source_excluded" : "candidate_only_source_excluded";
-        result.CoarseFilterMode = (directoryLookupCache != null) ? "audio_gated" : "hash_only";
+        result.CoarseFilterMode = (directoryLookupCache != null) ? "path_aware_audio_gated" : "path_aware_hash_only";
         result.AudioMinimumMatchRequired = GetAudioMinimumMatchRequired(resourceSnapshot);
         result.ResourceSummary = "chart=" + (snapshot.RepresentativeFile.path ?? string.Empty)
             + " chartCount=" + snapshot.ChartCount
@@ -500,6 +508,10 @@ internal sealed class BmsLibraryInstallEstimationService
             + " movieRefs=" + resourceSnapshot.MovieReferenceCount
             + " optionalRefs=" + resourceSnapshot.OptionalImageReferenceCount
             + " pathSegmentRefs=" + resourceSnapshot.PathSegmentReferenceCount
+            + " pathAwareAudioRefs=" + result.TargetPathAwareAudioHashCount
+            + " pathAwareVisualRefs=" + result.TargetPathAwareVisualHashCount
+            + " pathAwareMovieRefs=" + result.TargetPathAwareMovieHashCount
+            + " pathAwareOptionalRefs=" + result.TargetPathAwareOptionalImageHashCount
             + " bundledAudio=" + snapshot.BundledAudioCount
             + " bundledImage=" + snapshot.BundledImageCount
             + " bundledMovie=" + snapshot.BundledMovieCount
@@ -517,42 +529,13 @@ internal sealed class BmsLibraryInstallEstimationService
         {
             return result;
         }
-        HashSet<uint> targetFileHashes = resourceSnapshot.EnumerateAllBaseNameHashes();
+        HashSet<uint> targetFileHashes = resourceSnapshot.EnumerateBroadFilterBaseNameHashes();
         List<string> candidateDirList = allCandidateDirs;
-        if (targetFileHashes.Count > 0)
+        if (targetFileHashes.Count > 0 || result.TargetPathAwareHashCount > 0)
         {
-            if (directoryLookupCache != null)
-            {
-                directoryLookupCache.EnsureDirectoriesByHashes(targetFileHashes);
-                HashSet<string> filteredDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                foreach (uint targetFileHash in targetFileHashes)
-                {
-                    filteredDirectories.UnionWith(directoryLookupCache.GetDirectoriesByHash(targetFileHash));
-                }
-                filteredDirectories.RemoveWhere((string dir) => string.Equals(dir, sourceDir, StringComparison.OrdinalIgnoreCase));
-                candidateDirList = filteredDirectories.ToList();
-            }
-            else
-            {
-                IEnumerable<string> filtered = (asParallel ? allCandidateDirs.AsParallel() : allCandidateDirs.AsParallel().WithDegreeOfParallelism(1))
-                    .Where(delegate (string dir)
-                    {
-                        uint[] fileNameHashArray = folderAllFileList.TryGetCachedFileNameHashArray(dir);
-                        if (fileNameHashArray == null || fileNameHashArray.Length == 0)
-                        {
-                            return false;
-                        }
-                        for (int i = 0; i < fileNameHashArray.Length; i++)
-                        {
-                            if (targetFileHashes.Contains(fileNameHashArray[i]))
-                            {
-                                return true;
-                            }
-                        }
-                        return false;
-                    });
-                candidateDirList = filtered.ToList();
-            }
+            candidateDirList = directoryLookupCache != null
+                ? ApplyPathAwareBroadFilter(allCandidateDirs, resourceSnapshot, directoryLookupCache)
+                : ApplyPathAwareBroadFilter(allCandidateDirs, resourceSnapshot, folderAllFileList, relativePathHashIndex, asParallel);
             result.CandidateDirectoryCountAfterBroadFilter = candidateDirList.Count;
             if (candidateDirList.Count == 0)
             {
@@ -716,6 +699,183 @@ internal sealed class BmsLibraryInstallEstimationService
             return 1;
         }
         return 0;
+    }
+
+    private static List<string> ApplyPathAwareBroadFilter(IEnumerable<string> candidateDirectories, ChartResourceSnapshot resourceSnapshot, DirectoryResourceLookupCache directoryLookupCache)
+    {
+        List<string> candidates = (candidateDirectories ?? Enumerable.Empty<string>())
+            .Where((string dir) => !string.IsNullOrWhiteSpace(dir))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (candidates.Count == 0 || resourceSnapshot == null || directoryLookupCache == null)
+        {
+            return candidates;
+        }
+
+        HashSet<string> filteredDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        HashSet<uint> broadFilterBaseHashes = resourceSnapshot.EnumerateBroadFilterBaseNameHashes();
+        if (broadFilterBaseHashes.Count > 0)
+        {
+            directoryLookupCache.EnsureDirectoriesByHashes(broadFilterBaseHashes);
+            foreach (uint targetFileHash in broadFilterBaseHashes)
+            {
+                filteredDirectories.UnionWith(directoryLookupCache.GetDirectoriesByHash(targetFileHash));
+            }
+        }
+        if (resourceSnapshot.AudioPathAwareRelativePathHashes.Count > 0)
+        {
+            directoryLookupCache.EnsureAudioRelativeDirectoriesByHashes(resourceSnapshot.AudioPathAwareRelativePathHashes);
+            foreach (uint pathAwareHash in resourceSnapshot.AudioPathAwareRelativePathHashes)
+            {
+                filteredDirectories.UnionWith(directoryLookupCache.GetDirectoriesByAudioRelativeHash(pathAwareHash));
+            }
+        }
+        if (resourceSnapshot.VisualPathAwareRelativePathHashes.Count > 0 || resourceSnapshot.OptionalImagePathAwareRelativePathHashes.Count > 0)
+        {
+            directoryLookupCache.EnsureImageRelativeDirectoriesByHashes(resourceSnapshot.VisualPathAwareRelativePathHashes.Concat(resourceSnapshot.OptionalImagePathAwareRelativePathHashes));
+            foreach (uint pathAwareHash in resourceSnapshot.VisualPathAwareRelativePathHashes)
+            {
+                filteredDirectories.UnionWith(directoryLookupCache.GetDirectoriesByImageRelativeHash(pathAwareHash));
+            }
+            foreach (uint pathAwareHash in resourceSnapshot.OptionalImagePathAwareRelativePathHashes)
+            {
+                filteredDirectories.UnionWith(directoryLookupCache.GetDirectoriesByImageRelativeHash(pathAwareHash));
+            }
+        }
+        if (resourceSnapshot.MoviePathAwareRelativePathHashes.Count > 0)
+        {
+            directoryLookupCache.EnsureMovieRelativeDirectoriesByHashes(resourceSnapshot.MoviePathAwareRelativePathHashes);
+            foreach (uint pathAwareHash in resourceSnapshot.MoviePathAwareRelativePathHashes)
+            {
+                filteredDirectories.UnionWith(directoryLookupCache.GetDirectoriesByMovieRelativeHash(pathAwareHash));
+            }
+        }
+
+        return candidates
+            .Where((string candidateDir) => filteredDirectories.Contains(candidateDir))
+            .Where((string candidateDir) => PassesPathAwareAdmissionGate(resourceSnapshot, directoryLookupCache.GetEntryOrNull(candidateDir)))
+            .ToList();
+    }
+
+    private static List<string> ApplyPathAwareBroadFilter(IEnumerable<string> candidateDirectories, ChartResourceSnapshot resourceSnapshot, BMSDirectoryFileNameHash folderAllFileList, DirectoryRelativePathHashIndex relativePathHashIndex, bool asParallel)
+    {
+        List<string> candidates = (candidateDirectories ?? Enumerable.Empty<string>())
+            .Where((string dir) => !string.IsNullOrWhiteSpace(dir))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (candidates.Count == 0 || resourceSnapshot == null || folderAllFileList == null)
+        {
+            return candidates;
+        }
+
+        HashSet<uint> broadFilterBaseHashes = resourceSnapshot.EnumerateBroadFilterBaseNameHashes();
+        IEnumerable<string> filtered = (asParallel ? candidates.AsParallel() : candidates.AsParallel().WithDegreeOfParallelism(1))
+            .Where(delegate (string dir)
+            {
+                bool hasBaseNameSeed = HasBaseNameSeedMatch(broadFilterBaseHashes, folderAllFileList.TryGetCachedFileNameHashArray(dir));
+                DirectoryRelativePathHashIndex.Entry relativeEntry = relativePathHashIndex?.GetEntryOrNull(dir);
+                bool hasPathAwareSeed = HasPathAwareSeedMatch(resourceSnapshot, relativeEntry);
+                if (!hasBaseNameSeed && !hasPathAwareSeed)
+                {
+                    return false;
+                }
+                return PassesPathAwareAdmissionGate(resourceSnapshot, relativeEntry);
+            });
+        return filtered.ToList();
+    }
+
+    private static bool HasBaseNameSeedMatch(ISet<uint> targetBaseHashes, uint[] candidateBaseHashArray)
+    {
+        if (targetBaseHashes == null || targetBaseHashes.Count == 0 || candidateBaseHashArray == null || candidateBaseHashArray.Length == 0)
+        {
+            return false;
+        }
+        for (int i = 0; i < candidateBaseHashArray.Length; i++)
+        {
+            if (targetBaseHashes.Contains(candidateBaseHashArray[i]))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static bool HasPathAwareSeedMatch(ChartResourceSnapshot resourceSnapshot, DirectoryRelativePathHashIndex.Entry relativeEntry)
+    {
+        if (resourceSnapshot == null)
+        {
+            return false;
+        }
+        return MatchesAny(resourceSnapshot.AudioPathAwareRelativePathHashes, relativeEntry?.AudioRelativePathHashes)
+            || MatchesAny(resourceSnapshot.VisualPathAwareRelativePathHashes, relativeEntry?.ImageRelativePathHashes)
+            || MatchesAny(resourceSnapshot.MoviePathAwareRelativePathHashes, relativeEntry?.MovieRelativePathHashes)
+            || MatchesAny(resourceSnapshot.OptionalImagePathAwareRelativePathHashes, relativeEntry?.ImageRelativePathHashes);
+    }
+
+    private static bool PassesPathAwareAdmissionGate(ChartResourceSnapshot resourceSnapshot, DirectoryResourceLookupCache.Entry entry)
+    {
+        if (resourceSnapshot == null)
+        {
+            return true;
+        }
+        if (resourceSnapshot.AudioPathAwareReferenceCount > 0 && !MatchesAny(resourceSnapshot.AudioPathAwareRelativePathHashes, entry?.AudioRelativePathHashes))
+        {
+            return false;
+        }
+        if (resourceSnapshot.VisualPathAwareReferenceCount > 0 && !MatchesAny(resourceSnapshot.VisualPathAwareRelativePathHashes, entry?.ImageRelativePathHashes))
+        {
+            return false;
+        }
+        if (resourceSnapshot.MoviePathAwareReferenceCount > 0 && !MatchesAny(resourceSnapshot.MoviePathAwareRelativePathHashes, entry?.MovieRelativePathHashes))
+        {
+            return false;
+        }
+        if (resourceSnapshot.OptionalImagePathAwareReferenceCount > 0 && !MatchesAny(resourceSnapshot.OptionalImagePathAwareRelativePathHashes, entry?.ImageRelativePathHashes))
+        {
+            return false;
+        }
+        return true;
+    }
+
+    private static bool PassesPathAwareAdmissionGate(ChartResourceSnapshot resourceSnapshot, DirectoryRelativePathHashIndex.Entry entry)
+    {
+        if (resourceSnapshot == null)
+        {
+            return true;
+        }
+        if (resourceSnapshot.AudioPathAwareReferenceCount > 0 && !MatchesAny(resourceSnapshot.AudioPathAwareRelativePathHashes, entry?.AudioRelativePathHashes))
+        {
+            return false;
+        }
+        if (resourceSnapshot.VisualPathAwareReferenceCount > 0 && !MatchesAny(resourceSnapshot.VisualPathAwareRelativePathHashes, entry?.ImageRelativePathHashes))
+        {
+            return false;
+        }
+        if (resourceSnapshot.MoviePathAwareReferenceCount > 0 && !MatchesAny(resourceSnapshot.MoviePathAwareRelativePathHashes, entry?.MovieRelativePathHashes))
+        {
+            return false;
+        }
+        if (resourceSnapshot.OptionalImagePathAwareReferenceCount > 0 && !MatchesAny(resourceSnapshot.OptionalImagePathAwareRelativePathHashes, entry?.ImageRelativePathHashes))
+        {
+            return false;
+        }
+        return true;
+    }
+
+    private static bool MatchesAny(ISet<uint> targetHashes, ISet<uint> candidateHashes)
+    {
+        if (targetHashes == null || targetHashes.Count == 0 || candidateHashes == null || candidateHashes.Count == 0)
+        {
+            return false;
+        }
+        foreach (uint targetHash in targetHashes)
+        {
+            if (candidateHashes.Contains(targetHash))
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
     private List<string> ApplyAudioCandidateGate(IEnumerable<string> candidateDirectories, ChartResourceSnapshot resourceSnapshot, DirectoryResourceLookupCache directoryLookupCache, DirectoryResourceLookupCache.Entry bundledResources)

@@ -165,6 +165,16 @@ internal sealed class InstallEstimationResult
 
     public int TargetResourceHashCount { get; set; }
 
+    public int TargetPathAwareHashCount { get; set; }
+
+    public int TargetPathAwareAudioHashCount { get; set; }
+
+    public int TargetPathAwareVisualHashCount { get; set; }
+
+    public int TargetPathAwareMovieHashCount { get; set; }
+
+    public int TargetPathAwareOptionalImageHashCount { get; set; }
+
     public int AudioReferenceCount { get; set; }
 
     public int AudioMinimumMatchRequired { get; set; }
