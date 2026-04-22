@@ -486,10 +486,13 @@ internal sealed class BmsLibraryInstallEstimationService
         }
         ChartResourceSnapshot resourceSnapshot = snapshot.DefinedResources ?? new ChartResourceSnapshot();
         result.TargetResourceHashCount = resourceSnapshot.EnumerateAllBaseNameHashes().Count();
+        result.AudioReferenceCount = resourceSnapshot.AudioReferenceCount;
         result.BundledAudioCount = snapshot.BundledAudioCount;
         result.BundledImageCount = snapshot.BundledImageCount;
         result.BundledMovieCount = snapshot.BundledMovieCount;
         result.CandidateMode = useBundledResources ? "package_union_source_excluded" : "candidate_only_source_excluded";
+        result.CoarseFilterMode = (directoryLookupCache != null) ? "audio_gated" : "hash_only";
+        result.AudioMinimumMatchRequired = GetAudioMinimumMatchRequired(resourceSnapshot);
         result.ResourceSummary = "chart=" + (snapshot.RepresentativeFile.path ?? string.Empty)
             + " chartCount=" + snapshot.ChartCount
             + " audioRefs=" + resourceSnapshot.AudioReferenceCount
@@ -550,15 +553,32 @@ internal sealed class BmsLibraryInstallEstimationService
                     });
                 candidateDirList = filtered.ToList();
             }
+            result.CandidateDirectoryCountAfterBroadFilter = candidateDirList.Count;
+            if (candidateDirList.Count == 0)
+            {
+                result.CandidateDirectoryCountAfterAudioGate = 0;
+                result.CandidateDirectoryCountAfterHashFilter = 0;
+                result.CandidateDirectoryCount = 0;
+                SetNoViableDestinationResult(result);
+                return result;
+            }
+            if (directoryLookupCache != null)
+            {
+                candidateDirList = ApplyAudioMinimumMatchGate(candidateDirList, resourceSnapshot, directoryLookupCache);
+            }
+            result.CandidateDirectoryCountAfterAudioGate = candidateDirList.Count;
             result.CandidateDirectoryCountAfterHashFilter = candidateDirList.Count;
             if (candidateDirList.Count == 0)
             {
-                candidateDirList = allCandidateDirs;
-                result.UsedFallbackCandidateExpansion = true;
+                result.CandidateDirectoryCount = 0;
+                SetNoViableDestinationResult(result);
+                return result;
             }
         }
         else
         {
+            result.CandidateDirectoryCountAfterBroadFilter = candidateDirList.Count;
+            result.CandidateDirectoryCountAfterAudioGate = candidateDirList.Count;
             result.CandidateDirectoryCountAfterHashFilter = candidateDirList.Count;
         }
         result.CandidateDirectoryCount = candidateDirList.Count;
@@ -626,12 +646,7 @@ internal sealed class BmsLibraryInstallEstimationService
 
         if (!selectedViable)
         {
-            result.HasViableDestination = false;
-            result.Confidence = InstallEstimationConfidence.High;
-            result.ConfidenceReason = "no_viable_destination_below_threshold";
-            result.LowConfidenceKind = InstallEstimationLowConfidenceKind.None;
-            result.DestinationDirectory = null;
-            result.ShouldAutoApplyDestination = false;
+            SetNoViableDestinationResult(result);
         }
         else if (topTwoViableTie)
         {
@@ -679,6 +694,75 @@ internal sealed class BmsLibraryInstallEstimationService
             }
         }
         return result;
+    }
+
+    private static int GetAudioMinimumMatchRequired(ChartResourceSnapshot resourceSnapshot)
+    {
+        if (resourceSnapshot == null)
+        {
+            return 0;
+        }
+        if (resourceSnapshot.AudioReferenceCount >= 2)
+        {
+            return 2;
+        }
+        if (resourceSnapshot.AudioReferenceCount == 1)
+        {
+            return 1;
+        }
+        return 0;
+    }
+
+    private static List<string> ApplyAudioMinimumMatchGate(IEnumerable<string> candidateDirectories, ChartResourceSnapshot resourceSnapshot, DirectoryResourceLookupCache directoryLookupCache)
+    {
+        List<string> candidates = (candidateDirectories ?? Enumerable.Empty<string>())
+            .Where((string dir) => !string.IsNullOrWhiteSpace(dir))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (candidates.Count == 0 || resourceSnapshot == null || directoryLookupCache == null)
+        {
+            return candidates;
+        }
+
+        int requiredAudioMatchCount = GetAudioMinimumMatchRequired(resourceSnapshot);
+        if (requiredAudioMatchCount <= 0 || resourceSnapshot.AudioBaseNameHashes.Count == 0)
+        {
+            return candidates;
+        }
+
+        return candidates
+            .Where(delegate (string candidateDir)
+            {
+                DirectoryResourceLookupCache.Entry entry = directoryLookupCache.GetEntryOrNull(candidateDir);
+                if (entry == null || entry.AudioBaseNameHashArray.Length == 0)
+                {
+                    return false;
+                }
+                int matched = 0;
+                foreach (uint candidateAudioHash in entry.AudioBaseNameHashArray)
+                {
+                    if (resourceSnapshot.AudioBaseNameHashes.Contains(candidateAudioHash) && ++matched >= requiredAudioMatchCount)
+                    {
+                        return true;
+                    }
+                }
+                return false;
+            })
+            .ToList();
+    }
+
+    private static void SetNoViableDestinationResult(InstallEstimationResult result)
+    {
+        if (result == null)
+        {
+            return;
+        }
+        result.HasViableDestination = false;
+        result.Confidence = InstallEstimationConfidence.High;
+        result.ConfidenceReason = "no_viable_destination_below_threshold";
+        result.LowConfidenceKind = InstallEstimationLowConfidenceKind.None;
+        result.DestinationDirectory = null;
+        result.ShouldAutoApplyDestination = false;
     }
 
     private static PackageInstallEstimationSnapshot BuildLooseFileSnapshot(IEnumerable<BMSFile> bmsFiles, HashSet<string> installedHashes, BmsInstallationEstimateMode estimateMode)

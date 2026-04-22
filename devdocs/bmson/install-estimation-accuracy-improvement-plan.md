@@ -8,6 +8,7 @@
 - `P2 本体（評価単位の再定義と余剰リソース評価）`: 実施済み
 - `P2 最終調整（通常推定とマージ推定の意味分離）`: 実施済み
 - `P4`: 実施済み
+- `Perf-1`: 実施済み
 - `P5`: 未実施
 
 ## 現在の整理
@@ -116,7 +117,16 @@ source 前提の confidence reason は現在の主経路では使いません。
   - suggestion に top candidate を 1 件残す
   - ambiguity とは別 warning を出す
 
+## Perf-1 で追加したこと
+
+- `candidateDirsAfter=0` の全件 fallback を廃止
+- coarse filter を broad prefilter + audio gate の二段へ整理
+- `audioRefs > 0` の譜面では audio 一致を candidate 成立の最低条件に変更
+- `audioRefs >= 2` は 2 件一致、`audioRefs == 1` は 1 件一致を必須化
+- `audioRefs == 0` の譜面だけは audio gate を適用しない
+
 ## 関連資料
 
 - [install-estimation-current-logic.md](install-estimation-current-logic.md)
 - [install-estimation-target-design.md](install-estimation-target-design.md)
+- [install-estimation-performance-foundation.md](install-estimation-performance-foundation.md)

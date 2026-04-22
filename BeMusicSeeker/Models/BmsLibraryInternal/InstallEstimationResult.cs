@@ -159,7 +159,15 @@ internal sealed class InstallEstimationResult
 
     public int CandidateDirectoryCountAfterHashFilter { get; set; }
 
+    public int CandidateDirectoryCountAfterBroadFilter { get; set; }
+
+    public int CandidateDirectoryCountAfterAudioGate { get; set; }
+
     public int TargetResourceHashCount { get; set; }
+
+    public int AudioReferenceCount { get; set; }
+
+    public int AudioMinimumMatchRequired { get; set; }
 
     public int BundledAudioCount { get; set; }
 
@@ -168,6 +176,8 @@ internal sealed class InstallEstimationResult
     public int BundledMovieCount { get; set; }
 
     public string CandidateMode { get; set; }
+
+    public string CoarseFilterMode { get; set; }
 
     public long EvaluationMs { get; set; }
 

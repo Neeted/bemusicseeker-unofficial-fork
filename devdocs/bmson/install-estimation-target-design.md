@@ -181,3 +181,4 @@ source 前提の confidence reason は設計上不要になります。
 
 - [install-estimation-current-logic.md](install-estimation-current-logic.md)
 - [install-estimation-accuracy-improvement-plan.md](install-estimation-accuracy-improvement-plan.md)
+- [install-estimation-performance-foundation.md](install-estimation-performance-foundation.md)

@@ -152,6 +152,22 @@ coarse filter では、`snapshot.DefinedResources.EnumerateAllBaseNameHashes()` 
 - cache がない場合:
   - `BMSDirectoryFileNameHash` の hash array を直接なめる
 
+`2026-04-22` 時点の Perf-1 以降は、この broad prefilter の後に **audio gate** をかけます。
+
+- `audioRefs >= 2`
+  - audio basename hash 2 件以上一致必須
+- `audioRefs == 1`
+  - audio basename hash 1 件以上一致必須
+- `audioRefs == 0`
+  - audio gate を適用しない
+
+つまり、
+
+- `audioRefs > 0 && audioMatched == 0`
+  - image/movie/optional が一致していても候補に残さない
+- `candidateDirsAfter=0`
+  - 全 library へ fallback せず、そのまま no destination に落とす
+
 ここで重要なのは、**`innerWavHealthThreshold=70` による候補除外はしていない**ことです。  
 threshold は最終 confidence 判定側で使います。
 
@@ -392,4 +408,5 @@ startup restore / auto-install 由来の pending 推定は、現在は queue で
 
 - [install-estimation-accuracy-improvement-plan.md](install-estimation-accuracy-improvement-plan.md)
 - [install-estimation-target-design.md](install-estimation-target-design.md)
+- [install-estimation-performance-foundation.md](install-estimation-performance-foundation.md)
 - [../spec/data-and-indexes.md](../spec/data-and-indexes.md)

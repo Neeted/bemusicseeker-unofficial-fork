@@ -64,6 +64,12 @@
    - coarse filter と final evaluation の役割分離
    - source folder と threshold の再整理
    - 実装後に残る tuning 論点整理
+11. [導入先推定 性能改善の前提整理](install-estimation-performance-foundation.md)
+   - 100+ package 一括ドロップ時の性能ホットパス整理
+   - coarse filter / fallback 見直しの前提
+   - source package surface 列挙基盤と追加キャッシュの論点
+   - package 間並列化に入る前の排他 / 適用モデル整理
+   - Perf-1: 全件 fallback 廃止と audio 主軸 coarse filter
 
 ## 実装方針の要点
 
