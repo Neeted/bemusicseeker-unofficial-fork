@@ -180,6 +180,10 @@ coarse filter では、`snapshot.DefinedResources.EnumerateAllBaseNameHashes()` 
 - cache がない場合:
   - `BMSDirectoryFileNameHash` の hash array を直接なめる
 
+つまり `2026-04-23` 時点では、coarse filter の入口は **basename-only** です。  
+relative path hash は後段の exact match には使いますが、`sound\bgm1` と `bgm1` を candidate 探索段階で別物として扱うところまでは完了していません。  
+この論点は [install-estimation-relative-path-foundation.md](install-estimation-relative-path-foundation.md) で別途整理しています。
+
 `2026-04-22` 時点の Perf-2a 修正後は、この broad prefilter の後に **unified audio gate** をかけます。
 
 - `audioRefs >= 2`

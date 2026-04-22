@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.Utils;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -62,6 +63,46 @@ public sealed class ChartDirectoryScanBuilderTests
             Assert.AreEqual(1, nestedHashes.Length);
             Assert.IsTrue(result.AudioBaseNameHashesByChartDirectory.TryGetValue(rootChartDir, out uint[] rootHashes));
             Assert.AreEqual(0, rootHashes.Length);
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot))
+            {
+                Directory.Delete(tempRoot, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void BuildFromRoots_PathAwareResourcesKeepDistinctRelativeHashesWhileCollapsingBaseNames()
+    {
+        string tempRoot = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_ChartDirRelative_" + Guid.NewGuid().ToString("N"));
+        string chartDir = Path.Combine(tempRoot, "song");
+        string nestedAudioDir = Path.Combine(chartDir, "sound");
+        string nestedImageDir = Path.Combine(chartDir, "clock");
+        Directory.CreateDirectory(nestedAudioDir);
+        Directory.CreateDirectory(nestedImageDir);
+        File.WriteAllText(Path.Combine(chartDir, "chart.bms"), "#PLAYER 1");
+        File.WriteAllText(Path.Combine(chartDir, "bgm1.wav"), "flat");
+        File.WriteAllText(Path.Combine(nestedAudioDir, "bgm1.wav"), "nested");
+        File.WriteAllText(Path.Combine(nestedImageDir, "00_001_00.bmp"), "image");
+        try
+        {
+            BmsScanResult result = ChartDirectoryScanBuilder.BuildFromRoots(new[] { tempRoot });
+
+            Assert.IsTrue(result.AudioBaseNameHashesByChartDirectory.TryGetValue(chartDir, out uint[] audioBaseHashes));
+            Assert.IsTrue(result.AudioRelativePathHashesByChartDirectory.TryGetValue(chartDir, out uint[] audioRelativeHashes));
+            Assert.IsTrue(result.ImageRelativePathHashesByChartDirectory.TryGetValue(chartDir, out uint[] imageRelativeHashes));
+
+            uint baseHash = BMSDirectoryFileNameHash.GetFileNameHash("bgm1.wav");
+            uint flatRelativeHash = BMSDirectoryFileNameHash.GetLookupHash("bgm1.wav");
+            uint nestedRelativeHash = BMSDirectoryFileNameHash.GetLookupHash(Path.Combine("sound", "bgm1.wav"));
+            uint imageRelativeHash = BMSDirectoryFileNameHash.GetLookupHash(Path.Combine("clock", "00_001_00.png"));
+
+            CollectionAssert.AreEquivalent(new[] { baseHash }, audioBaseHashes);
+            CollectionAssert.AreEquivalent(new[] { flatRelativeHash, nestedRelativeHash }, audioRelativeHashes);
+            CollectionAssert.Contains(imageRelativeHashes.ToList(), imageRelativeHash);
+            Assert.AreNotEqual(flatRelativeHash, nestedRelativeHash);
         }
         finally
         {

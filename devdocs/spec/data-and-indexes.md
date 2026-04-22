@@ -49,6 +49,12 @@
 - 推定先探索の候補抽出を高速化
 - Everything / Fast の両 scanner が同じ意味の chart-directory keyed hash を返せるようにする
 
+補足:
+
+- `BMSDirectoryFileNameHash` は **basename-only index** であり、`sound\bgm1` のような path-aware key は保持しない
+- relative path を含む source of truth は `DirectoryResourceLookupCache.Entry` 側に置く
+- `bgm1` と `sound\bgm1` を broad filter 入口で分離するのは、この index ではなく別 phase の責務とする
+
 ## 4. scan result / resource cache の形
 
 初期化時の scan 結果は raw file name 一覧ではなく、次の hash-only shape を source of truth にする。
@@ -71,6 +77,8 @@ resource は「存在ディレクトリ」ではなく、**最長一致する ch
 - `chartdir\\..\\sound\\00.wav` のような親参照は今回未対応
 
 Everything と通常列挙の差は、設計上「速度だけ」に寄せる。
+
+また、initial/reload と install/merge 後の増分更新は、この chart-directory keyed shape を同じ意味で `DirectoryResourceLookupCache` / `BMSDirectoryFileNameHash` に反映することを前提にする。
 
 ## 5. DBテーブル（BMSLibraryコンストラクタで整備）
 

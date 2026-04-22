@@ -211,19 +211,13 @@ public sealed class BmsLibraryInitializationServiceTests
                 new BmsScanExecutionResult
                 {
                     Success = true,
-                    Result = new BmsScanResult
-                    {
-                        BmsFilePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                    Result = CreateScanResult(
+                        new[] { keepFile.path, Path.Combine(newDirectoryPath, "added.bms") },
+                        new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
                         {
-                            keepFile.path,
-                            Path.Combine(newDirectoryPath, "added.bms")
-                        },
-                        FilesByDirectory = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase)
-                        {
-                            { keepDirectoryPath, new List<string> { keepFile.path } },
-                            { newDirectoryPath, new List<string> { Path.Combine(newDirectoryPath, "added.bms") } }
-                        }
-                    }
+                            { keepDirectoryPath, Array.Empty<string>() },
+                            { newDirectoryPath, Array.Empty<string>() }
+                        })
                 },
                 123L,
                 delegate
@@ -378,11 +372,7 @@ public sealed class BmsLibraryInitializationServiceTests
                 new BmsScanExecutionResult
                 {
                     Success = true,
-                    Result = new BmsScanResult
-                    {
-                        BmsFilePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase),
-                        FilesByDirectory = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase)
-                    }
+                    Result = CreateScanResult(Array.Empty<string>(), new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase))
                 },
                 0L,
                 () => null,
@@ -443,17 +433,12 @@ public sealed class BmsLibraryInitializationServiceTests
                 new BmsScanExecutionResult
                 {
                     Success = true,
-                    Result = new BmsScanResult
-                    {
-                        BmsFilePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                    Result = CreateScanResult(
+                        new[] { keepChartPath },
+                        new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
                         {
-                            keepChartPath
-                        },
-                        FilesByDirectory = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase)
-                        {
-                            { Path.GetDirectoryName(keepChartPath), new List<string> { keepChartPath } }
-                        }
-                    }
+                            { Path.GetDirectoryName(keepChartPath), Array.Empty<string>() }
+                        })
                 },
                 0L,
                 () => null,
@@ -587,11 +572,7 @@ public sealed class BmsLibraryInitializationServiceTests
                 new BmsScanExecutionResult
                 {
                     Success = true,
-                    Result = new BmsScanResult
-                    {
-                        BmsFilePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase),
-                        FilesByDirectory = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase)
-                    }
+                    Result = CreateScanResult(Array.Empty<string>(), new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase))
                 },
                 0L,
                 () => null,
@@ -600,19 +581,13 @@ public sealed class BmsLibraryInitializationServiceTests
                 executeBmsonScan: () => new BmsScanExecutionResult
                 {
                     Success = true,
-                    Result = new BmsScanResult
-                    {
-                        BmsFilePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                    Result = CreateScanResult(
+                        new[] { keepBmsonPath, addedBmsonPath },
+                        new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
                         {
-                            keepBmsonPath,
-                            addedBmsonPath
-                        },
-                        FilesByDirectory = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase)
-                        {
-                            { Path.GetDirectoryName(keepBmsonPath), new List<string> { keepBmsonPath } },
-                            { Path.GetDirectoryName(addedBmsonPath), new List<string> { addedBmsonPath } }
-                        }
-                    }
+                            { Path.GetDirectoryName(keepBmsonPath), Array.Empty<string>() },
+                            { Path.GetDirectoryName(addedBmsonPath), Array.Empty<string>() }
+                        })
                 });
 
             CollectionAssert.Contains(result.DeletedBmsonPaths, deletedBmsonPath);
@@ -666,14 +641,12 @@ public sealed class BmsLibraryInitializationServiceTests
                 new BmsScanExecutionResult
                 {
                     Success = true,
-                    Result = new BmsScanResult
-                    {
-                        BmsFilePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { bmsPath },
-                        FileNameHashesByDirectory = new Dictionary<string, uint[]>(StringComparer.OrdinalIgnoreCase)
+                    Result = CreateScanResult(
+                        new[] { bmsPath },
+                        new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
                         {
-                            { bmsDir, new[] { BMSDirectoryFileNameHash.GetFileNameHash("keep.bms") } }
-                        }
-                    }
+                            { bmsDir, Array.Empty<string>() }
+                        })
                 },
                 0L,
                 () => null,
@@ -684,20 +657,24 @@ public sealed class BmsLibraryInitializationServiceTests
                 executeBmsonScan: () => new BmsScanExecutionResult
                 {
                     Success = true,
-                    Result = new BmsScanResult
-                    {
-                        BmsFilePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { bmsonPath },
-                        FileNameHashesByDirectory = new Dictionary<string, uint[]>(StringComparer.OrdinalIgnoreCase)
+                    Result = CreateScanResult(
+                        new[] { bmsonPath },
+                        new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
                         {
-                            { bmsonDir, new[] { BMSDirectoryFileNameHash.GetFileNameHash("song.ogg") } }
-                        }
-                    }
+                            { bmsonDir, new[] { Path.Combine("sound", "song.ogg") } }
+                        })
                 });
 
             CollectionAssert.Contains(result.NextFolderAllFileList.Keys.ToList(), bmsDir);
             CollectionAssert.Contains(result.NextFolderAllFileList.Keys.ToList(), bmsonDir);
             Assert.IsNotNull(result.NextDirectoryResourceLookupCache);
             Assert.IsTrue(result.NextDirectoryResourceLookupCache.Keys.Contains(bmsonDir, StringComparer.OrdinalIgnoreCase));
+            DirectoryResourceLookupCache.Entry bmsonEntry = result.NextDirectoryResourceLookupCache.GetEntryOrNull(bmsonDir);
+            Assert.IsNotNull(bmsonEntry);
+            Assert.AreEqual(1, bmsonEntry.AudioFileNameHashCount);
+            Assert.AreEqual(1, bmsonEntry.AudioRelativePathHashArray.Length);
+            Assert.AreEqual(0, result.NextFolderAllFileList.TryGetCachedFileNameHashArray(bmsDir)?.Length ?? -1);
+            Assert.AreEqual(1, result.NextFolderAllFileList.TryGetCachedFileNameHashArray(bmsonDir)?.Length ?? -1);
         });
     }
 
@@ -987,6 +964,43 @@ public sealed class BmsLibraryInitializationServiceTests
             + "\"bpm_events\":[],"
             + "\"lines\":[{\"y\":0}]"
             + "}";
+    }
+
+    private static BmsScanResult CreateScanResult(IEnumerable<string> chartPaths, IDictionary<string, IEnumerable<string>> resourcesByDirectory)
+    {
+        HashSet<string> chartPathSet = new HashSet<string>(chartPaths ?? Array.Empty<string>(), StringComparer.OrdinalIgnoreCase);
+        HashSet<string> chartDirectories = new HashSet<string>(
+            chartPathSet.Select(Path.GetDirectoryName).Where(path => !string.IsNullOrWhiteSpace(path)),
+            StringComparer.OrdinalIgnoreCase);
+        foreach (string directoryPath in resourcesByDirectory?.Keys ?? Enumerable.Empty<string>())
+        {
+            if (!string.IsNullOrWhiteSpace(directoryPath))
+            {
+                chartDirectories.Add(directoryPath);
+            }
+        }
+
+        BmsScanResult result = new BmsScanResult
+        {
+            ChartFilePaths = chartPathSet,
+            ChartDirectories = chartDirectories
+        };
+        DirectoryResourceLookupCache cache = new DirectoryResourceLookupCache();
+        foreach (string chartDirectory in chartDirectories)
+        {
+            IEnumerable<string> resourceFiles = null;
+            resourcesByDirectory?.TryGetValue(chartDirectory, out resourceFiles);
+            cache.AddDir(chartDirectory, resourceFiles ?? Array.Empty<string>());
+            DirectoryResourceLookupCache.Entry entry = cache.GetEntryOrNull(chartDirectory) ?? new DirectoryResourceLookupCache.Entry();
+            result.AllResourceBaseNameHashesByChartDirectory[chartDirectory] = entry.AllBaseNameHashArray;
+            result.AudioBaseNameHashesByChartDirectory[chartDirectory] = entry.AudioBaseNameHashArray;
+            result.ImageBaseNameHashesByChartDirectory[chartDirectory] = entry.ImageBaseNameHashArray;
+            result.MovieBaseNameHashesByChartDirectory[chartDirectory] = entry.MovieBaseNameHashArray;
+            result.AudioRelativePathHashesByChartDirectory[chartDirectory] = entry.AudioRelativePathHashArray;
+            result.ImageRelativePathHashesByChartDirectory[chartDirectory] = entry.ImageRelativePathHashArray;
+            result.MovieRelativePathHashesByChartDirectory[chartDirectory] = entry.MovieRelativePathHashArray;
+        }
+        return result;
     }
 
     private sealed class TestableBmsFile : BMSFile

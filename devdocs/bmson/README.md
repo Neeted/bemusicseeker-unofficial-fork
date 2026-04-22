@@ -70,6 +70,11 @@
    - source package surface 列挙基盤と追加キャッシュの論点
    - package 間並列化に入る前の排他 / 適用モデル整理
    - Perf-1: 全件 fallback 廃止と audio 主軸 coarse filter
+12. [導入先推定 相対パス対応の前提整理](install-estimation-relative-path-foundation.md)
+   - 相対パス譜面を前提にした `bgm1` と `sound\bgm1` の意味整理
+   - Everything / fallback / 増分更新の parity 論点
+   - broad filter を path-aware にする前のフェーズ分割
+   - Perf-3 に入る前の relative path completion 前提
 
 ## 実装方針の要点
 
