@@ -155,9 +155,21 @@ source 前提の confidence reason は設計上不要になります。
 ## 今後の tuning 論点
 
 - package-aware union 評価の重み調整
+- `TITLE / ARTIST` frontier tie-break の重みづけと v2 の近似一致導入可否
 - `Precision / Jaccard` の raw comparator の最終 tuning
 - loose-file merge と package merge の wrapper 差
-- `TITLE / ARTIST` tie-break や fingerprint の導入判断
+- fingerprint の導入判断
+
+## P4 メモ
+
+`TITLE / ARTIST` は全候補の主スコアには使わず、**resource 指標で僅差の上位 external candidate 群だけ**に使うのが現在の整理です。
+
+- candidate 側は directory 配下全譜面の **最頻値 metadata profile**
+- target 側も package / loose-file 単位の **最頻値 metadata profile**
+- v1 は正規化後完全一致のみ
+- 役割は tie-break と最終 confidence 補助だけ
+
+この切り方により、通常推定の `package_union` と merge の `candidate_only` を壊さずに、音源だけで並んだ無関係候補を metadata で断ち切れます。
 
 ## 関連資料
 

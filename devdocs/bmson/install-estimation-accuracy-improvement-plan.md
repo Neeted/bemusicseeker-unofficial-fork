@@ -7,7 +7,7 @@
 - `P2 前提整備（scan redesign）`: 実施済み
 - `P2 本体（評価単位の再定義と余剰リソース評価）`: 実施済み
 - `P2 最終調整（通常推定とマージ推定の意味分離）`: 実施済み
-- `P4`: 未実施
+- `P4`: 実施済み
 - `P5`: 未実施
 
 ## 現在の整理
@@ -86,10 +86,24 @@ source 前提の confidence reason は現在の主経路では使いません。
 
 ## 今後の残課題
 
-- `TITLE / ARTIST` tie-break
 - fingerprint 系比較
 - loose-file merge と package merge の wrapper 差整理
 - 実機ケースでの raw precision / jaccard 重み調整
+
+## P4 で実装したこと
+
+- metadata は全候補ではなく **上位 frontier** にだけ使う
+- candidate 側は directory 配下の **最頻値 title/artist/pair**
+- target 側も package / loose-file 単位の **最頻値 profile**
+- v1 の一致方式は **正規化後完全一致**
+- metadata は主スコア化せず、tie-break と `Low -> High` の最終判断補助に限定
+
+現在の `ConfidenceReason = metadata_tiebreak_distinct` は、
+
+- resource 指標では viable candidate が僅差
+- ただし metadata では 1 位候補だけが明確に一致
+
+というケースを表します。
 
 ## 関連資料
 

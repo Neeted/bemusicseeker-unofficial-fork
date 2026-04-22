@@ -715,6 +715,10 @@ public class BMSLibrary : NotificationObject
 
     private bool installedChartKeyIndexInitialized;
 
+    private readonly object lockInstallEstimationMetadataProfileCache = new object();
+
+    private Dictionary<string, InstallEstimationMetadataProfile> installEstimationMetadataProfileCache = new Dictionary<string, InstallEstimationMetadataProfile>(StringComparer.OrdinalIgnoreCase);
+
     // Lock acquisition order for facade orchestration:
     // rwlockBMSFilesInitializedAll / rwlockBMSFilesInitializedMin
     // -> rwlockBMSFilesPendingInstall
@@ -959,6 +963,7 @@ public class BMSLibrary : NotificationObject
                     playlistSummaryOwnedHashSnapshot = null;
                 }
                 InvalidateInstalledChartKeyIndex();
+                InvalidateInstallEstimationMetadataProfileCache();
                 InvalidateDuplicatedCache();
                 Task.Run(delegate
                 {
@@ -3424,6 +3429,7 @@ public class BMSLibrary : NotificationObject
             installedDirectoryIndex = new InstalledChartDirectoryIndexSnapshot();
             installedDirectoryIndexInitialized = false;
         }
+        InvalidateInstallEstimationMetadataProfileCache();
     }
 
     private void InvalidateInstalledChartKeyIndex()
@@ -3432,6 +3438,14 @@ public class BMSLibrary : NotificationObject
         {
             installedChartKeyIndex.Clear();
             installedChartKeyIndexInitialized = false;
+        }
+    }
+
+    private void InvalidateInstallEstimationMetadataProfileCache()
+    {
+        lock (lockInstallEstimationMetadataProfileCache)
+        {
+            installEstimationMetadataProfileCache.Clear();
         }
     }
 
@@ -4386,14 +4400,9 @@ public class BMSLibrary : NotificationObject
         return (chartDirectory + Path.DirectorySeparatorChar).StartsWith(destinationDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
     }
 
-    private InstallDestinationRepresentativeMetadata ResolveInstallDestinationRepresentativeMetadataUnsafe(string destinationDirectory)
+    private IEnumerable<InstalledChartMetadataCandidate> EnumerateInstalledChartMetadataCandidatesUnsafe(string normalizedDestinationDirectory)
     {
-        if (string.IsNullOrWhiteSpace(destinationDirectory))
-        {
-            return InstallDestinationRepresentativeMetadata.Empty;
-        }
-        string normalizedDestinationDirectory = destinationDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        InstalledChartMetadataCandidate representativeChart = (BMSFiles ?? new List<BMSFile>())
+        return (BMSFiles ?? new List<BMSFile>())
             .Where((BMSFile file) => file != null && IsChartPathWithinDestinationDirectory(normalizedDestinationDirectory, file.path))
             .Select((BMSFile file) => new InstalledChartMetadataCandidate
             {
@@ -4408,7 +4417,17 @@ public class BMSLibrary : NotificationObject
                     Title = BmsonSongParser.ComposeDisplayTitle(song),
                     Artist = song.artist ?? string.Empty,
                     Path = song.path ?? string.Empty
-                }))
+                }));
+    }
+
+    private InstallDestinationRepresentativeMetadata ResolveInstallDestinationRepresentativeMetadataUnsafe(string destinationDirectory)
+    {
+        if (string.IsNullOrWhiteSpace(destinationDirectory))
+        {
+            return InstallDestinationRepresentativeMetadata.Empty;
+        }
+        string normalizedDestinationDirectory = destinationDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        InstalledChartMetadataCandidate representativeChart = EnumerateInstalledChartMetadataCandidatesUnsafe(normalizedDestinationDirectory)
             .OrderByDescending((InstalledChartMetadataCandidate candidate) => !string.IsNullOrWhiteSpace(candidate.Title))
             .ThenByDescending((InstalledChartMetadataCandidate candidate) => !string.IsNullOrWhiteSpace(candidate.Artist))
             .ThenBy((InstalledChartMetadataCandidate candidate) => candidate.Path, StringComparer.OrdinalIgnoreCase)
@@ -4422,6 +4441,33 @@ public class BMSLibrary : NotificationObject
             Title = representativeChart.Title ?? string.Empty,
             Artist = representativeChart.Artist ?? string.Empty
         };
+    }
+
+    private InstallEstimationMetadataProfile ResolveInstallDestinationMetadataProfileUnsafe(string destinationDirectory)
+    {
+        if (string.IsNullOrWhiteSpace(destinationDirectory))
+        {
+            return InstallEstimationMetadataProfile.Empty;
+        }
+
+        string normalizedDestinationDirectory = destinationDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        lock (lockInstallEstimationMetadataProfileCache)
+        {
+            if (installEstimationMetadataProfileCache.TryGetValue(normalizedDestinationDirectory, out InstallEstimationMetadataProfile cachedProfile))
+            {
+                return cachedProfile ?? InstallEstimationMetadataProfile.Empty;
+            }
+        }
+
+        InstallEstimationMetadataProfile profile = InstallEstimationMetadataNormalizer.BuildProfile(
+            EnumerateInstalledChartMetadataCandidatesUnsafe(normalizedDestinationDirectory)
+                .Select((InstalledChartMetadataCandidate candidate) => (candidate.Title ?? string.Empty, candidate.Artist ?? string.Empty, candidate.Path ?? string.Empty)));
+
+        lock (lockInstallEstimationMetadataProfileCache)
+        {
+            installEstimationMetadataProfileCache[normalizedDestinationDirectory] = profile ?? InstallEstimationMetadataProfile.Empty;
+            return installEstimationMetadataProfileCache[normalizedDestinationDirectory];
+        }
     }
 
     private InstallDestinationRepresentativeMetadata ApplyResolvedInstallDestinationPathAndMetadataToFiles(IEnumerable<BMSFile> bmsFiles, string destinationDirectory)
@@ -4910,7 +4956,8 @@ public class BMSLibrary : NotificationObject
                         directoryResourceLookupCache,
                         asParallel,
                         estimateMode,
-                        ResolveInstallDestinationRepresentativeMetadataUnsafe);
+                        ResolveInstallDestinationRepresentativeMetadataUnsafe,
+                        ResolveInstallDestinationMetadataProfileUnsafe);
                     long lazyHashBuildMsAfter = directoryLookupCacheSnapshot?.LazyHashBuildMs ?? lazyHashBuildMsBefore;
                     long lazyHashLookupCountAfter = directoryLookupCacheSnapshot?.LazyHashLookupCount ?? lazyHashLookupCountBefore;
                     int lazyHashCacheEntriesAfter = directoryLookupCacheSnapshot?.LazyHashCacheEntryCount ?? lazyHashCacheEntriesBefore;
@@ -4922,6 +4969,14 @@ public class BMSLibrary : NotificationObject
                     if (!string.IsNullOrWhiteSpace(result.SelectedCandidateSummary))
                     {
                         LogInstallPerformance("estimate_install selected " + result.SelectedCandidateSummary + " dst=" + (result.DestinationDirectory ?? "(none)") + " second=" + (result.SecondCandidate?.DirectoryPath ?? "(none)"));
+                    }
+                    if (!string.IsNullOrWhiteSpace(result.MetadataFrontierSummary))
+                    {
+                        LogInstallPerformance("estimate_install metadata_frontier " + result.MetadataFrontierSummary);
+                    }
+                    if (!string.IsNullOrWhiteSpace(result.MetadataTieBreakSummary))
+                    {
+                        LogInstallPerformance("estimate_install metadata_tiebreak " + result.MetadataTieBreakSummary);
                     }
                     ApplyInstallEstimationResultToFiles(targetBmsFiles, result);
                 }

@@ -167,4 +167,8 @@ internal sealed class InstallEstimationResult
     public string SelectedCandidateSummary { get; set; }
 
     public string TopCandidateSummary { get; set; }
+
+    public string MetadataFrontierSummary { get; set; }
+
+    public string MetadataTieBreakSummary { get; set; }
 }

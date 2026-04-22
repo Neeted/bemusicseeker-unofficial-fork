@@ -448,12 +448,12 @@ internal sealed class BmsLibraryInstallEstimationService
         return result;
     }
 
-    public InstallEstimationResult EstimateInstallationDirectory(IEnumerable<BMSFile> bmsFiles, HashSet<string> installedHashes, BMSDirectoryFileNameHash folderAllFileList, DirectoryResourceLookupCache directoryLookupCache, bool asParallel, BmsInstallationEstimateMode estimateMode, Func<string, InstallDestinationRepresentativeMetadata> representativeMetadataResolver = null)
+    public InstallEstimationResult EstimateInstallationDirectory(IEnumerable<BMSFile> bmsFiles, HashSet<string> installedHashes, BMSDirectoryFileNameHash folderAllFileList, DirectoryResourceLookupCache directoryLookupCache, bool asParallel, BmsInstallationEstimateMode estimateMode, Func<string, InstallDestinationRepresentativeMetadata> representativeMetadataResolver = null, Func<string, InstallEstimationMetadataProfile> metadataProfileResolver = null)
     {
-        return EstimateInstallationDirectory(BuildLooseFileSnapshot(bmsFiles, installedHashes, estimateMode), folderAllFileList, directoryLookupCache, asParallel, estimateMode, representativeMetadataResolver);
+        return EstimateInstallationDirectory(BuildLooseFileSnapshot(bmsFiles, installedHashes, estimateMode), folderAllFileList, directoryLookupCache, asParallel, estimateMode, representativeMetadataResolver, metadataProfileResolver);
     }
 
-    public InstallEstimationResult EstimateInstallationDirectory(PackageInstallEstimationSnapshot snapshot, BMSDirectoryFileNameHash folderAllFileList, DirectoryResourceLookupCache directoryLookupCache, bool asParallel, BmsInstallationEstimateMode estimateMode, Func<string, InstallDestinationRepresentativeMetadata> representativeMetadataResolver = null)
+    public InstallEstimationResult EstimateInstallationDirectory(PackageInstallEstimationSnapshot snapshot, BMSDirectoryFileNameHash folderAllFileList, DirectoryResourceLookupCache directoryLookupCache, bool asParallel, BmsInstallationEstimateMode estimateMode, Func<string, InstallDestinationRepresentativeMetadata> representativeMetadataResolver = null, Func<string, InstallEstimationMetadataProfile> metadataProfileResolver = null)
     {
         InstallEstimationResult result = new InstallEstimationResult();
         bool isMergeMode = estimateMode == BmsInstallationEstimateMode.MergeCandidateOnly;
@@ -560,6 +560,10 @@ internal sealed class BmsLibraryInstallEstimationService
         }
         List<CandidateEvaluation> orderedCandidates = candidateInfos.ToList();
         orderedCandidates.Sort(CompareCandidateEvaluations);
+        if (orderedCandidates.Count > 0 && IsViableDestination(GetPrimaryHealth(resourceSnapshot, orderedCandidates[0])))
+        {
+            ApplyMetadataTieBreakFrontier(orderedCandidates, snapshot.TargetMetadataProfile, metadataProfileResolver, result);
+        }
         foreach (InstallEstimationCandidate candidate in orderedCandidates
             .Take(3)
             .Select(delegate (CandidateEvaluation evaluation)
@@ -578,6 +582,7 @@ internal sealed class BmsLibraryInstallEstimationService
             && selectedViable
             && IsViableDestination(GetPrimaryHealth(resourceSnapshot, secondCandidateEvaluation))
             && selectedCandidateEvaluation.HasSameRankingMetrics(secondCandidateEvaluation);
+        bool metadataTieBreakDistinct = topTwoViableTie && IsMetadataTieBreakDistinct(selectedCandidateEvaluation, secondCandidateEvaluation, snapshot.TargetMetadataProfile, metadataProfileResolver);
 
         for (int i = 0; i < result.Candidates.Count && i < orderedCandidates.Count; i++)
         {
@@ -604,11 +609,20 @@ internal sealed class BmsLibraryInstallEstimationService
         else if (topTwoViableTie)
         {
             result.HasViableDestination = true;
-            result.Confidence = InstallEstimationConfidence.Low;
-            result.ConfidenceReason = "tie_on_viable_non_source_candidates";
             result.DestinationDirectory = selectedCandidateEvaluation.DirectoryPath;
-            result.ShouldAutoApplyDestination = false;
-            result.SuggestedDestinationDirectories.AddRange(viableNonSourceSuggestions);
+            if (metadataTieBreakDistinct)
+            {
+                result.Confidence = InstallEstimationConfidence.High;
+                result.ConfidenceReason = "metadata_tiebreak_distinct";
+                result.ShouldAutoApplyDestination = true;
+            }
+            else
+            {
+                result.Confidence = InstallEstimationConfidence.Low;
+                result.ConfidenceReason = "tie_on_viable_non_source_candidates";
+                result.ShouldAutoApplyDestination = false;
+                result.SuggestedDestinationDirectories.AddRange(viableNonSourceSuggestions);
+            }
         }
         else
         {
@@ -947,6 +961,152 @@ internal sealed class BmsLibraryInstallEstimationService
             : (snapshot.VisualReferenceCount > 0
                 ? evaluation.VisualExactMatched
                 : (snapshot.MovieReferenceCount > 0 ? evaluation.MovieExactMatched : evaluation.OptionalImageExactMatched));
+    }
+
+    private static void ApplyMetadataTieBreakFrontier(List<CandidateEvaluation> orderedCandidates, InstallEstimationMetadataProfile targetMetadataProfile, Func<string, InstallEstimationMetadataProfile> metadataProfileResolver, InstallEstimationResult result)
+    {
+        if (orderedCandidates == null || orderedCandidates.Count <= 1 || metadataProfileResolver == null || targetMetadataProfile == null || !targetMetadataProfile.HasAnySignal)
+        {
+            return;
+        }
+
+        CandidateEvaluation topCandidate = orderedCandidates[0];
+        if (topCandidate == null || !topCandidate.HasSameRankingMetrics(orderedCandidates[1]))
+        {
+            return;
+        }
+
+        List<CandidateEvaluation> frontier = orderedCandidates
+            .TakeWhile((CandidateEvaluation evaluation) => evaluation != null && topCandidate.HasSameRankingMetrics(evaluation))
+            .Take(3)
+            .ToList();
+        if (frontier.Count <= 1)
+        {
+            return;
+        }
+
+        Dictionary<string, InstallEstimationMetadataProfile> metadataProfilesByDirectory = frontier
+            .Select((CandidateEvaluation evaluation) => evaluation.DirectoryPath)
+            .Where((string path) => !string.IsNullOrWhiteSpace(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(
+                (string path) => path,
+                (string path) => metadataProfileResolver(path) ?? InstallEstimationMetadataProfile.Empty,
+                StringComparer.OrdinalIgnoreCase);
+
+        result.MetadataFrontierSummary = "candidates=" + string.Join(" || ", frontier.Select((CandidateEvaluation evaluation) => evaluation.DirectoryPath ?? string.Empty));
+        frontier.Sort((CandidateEvaluation left, CandidateEvaluation right) => CompareCandidatesByMetadataTieBreak(left, right, targetMetadataProfile, metadataProfilesByDirectory));
+        for (int i = 0; i < frontier.Count; i++)
+        {
+            orderedCandidates[i] = frontier[i];
+        }
+
+        CandidateEvaluation metadataWinner = frontier[0];
+        InstallEstimationMetadataProfile winnerProfile = GetMetadataProfile(metadataProfilesByDirectory, metadataWinner?.DirectoryPath);
+        result.MetadataTieBreakSummary = "winner=" + (metadataWinner?.DirectoryPath ?? string.Empty)
+            + " pairMatch=" + (HasExactMetadataPairMatch(targetMetadataProfile, winnerProfile) ? 1 : 0)
+            + " titleMatch=" + (HasExactMetadataTitleMatch(targetMetadataProfile, winnerProfile) ? 1 : 0)
+            + " artistMatch=" + (HasExactMetadataArtistMatch(targetMetadataProfile, winnerProfile) ? 1 : 0);
+    }
+
+    private static bool IsMetadataTieBreakDistinct(CandidateEvaluation selectedCandidateEvaluation, CandidateEvaluation secondCandidateEvaluation, InstallEstimationMetadataProfile targetMetadataProfile, Func<string, InstallEstimationMetadataProfile> metadataProfileResolver)
+    {
+        if (selectedCandidateEvaluation == null || secondCandidateEvaluation == null || targetMetadataProfile == null || !targetMetadataProfile.HasAnySignal || metadataProfileResolver == null)
+        {
+            return false;
+        }
+
+        InstallEstimationMetadataProfile selectedProfile = metadataProfileResolver(selectedCandidateEvaluation.DirectoryPath) ?? InstallEstimationMetadataProfile.Empty;
+        InstallEstimationMetadataProfile secondProfile = metadataProfileResolver(secondCandidateEvaluation.DirectoryPath) ?? InstallEstimationMetadataProfile.Empty;
+        bool selectedPairMatch = HasExactMetadataPairMatch(targetMetadataProfile, selectedProfile);
+        bool secondPairMatch = HasExactMetadataPairMatch(targetMetadataProfile, secondProfile);
+        if (selectedPairMatch && !secondPairMatch && !HasExactMetadataTitleMatch(targetMetadataProfile, secondProfile) && !HasExactMetadataArtistMatch(targetMetadataProfile, secondProfile))
+        {
+            return true;
+        }
+
+        bool selectedTitleMatch = HasExactMetadataTitleMatch(targetMetadataProfile, selectedProfile);
+        bool secondTitleMatch = HasExactMetadataTitleMatch(targetMetadataProfile, secondProfile);
+        bool selectedArtistMatch = HasExactMetadataArtistMatch(targetMetadataProfile, selectedProfile);
+        bool secondArtistMatch = HasExactMetadataArtistMatch(targetMetadataProfile, secondProfile);
+        return selectedTitleMatch && !secondTitleMatch && !secondArtistMatch && (selectedPairMatch || selectedArtistMatch);
+    }
+
+    private static int CompareCandidatesByMetadataTieBreak(CandidateEvaluation left, CandidateEvaluation right, InstallEstimationMetadataProfile targetMetadataProfile, IReadOnlyDictionary<string, InstallEstimationMetadataProfile> metadataProfilesByDirectory)
+    {
+        InstallEstimationMetadataProfile leftProfile = GetMetadataProfile(metadataProfilesByDirectory, left?.DirectoryPath);
+        InstallEstimationMetadataProfile rightProfile = GetMetadataProfile(metadataProfilesByDirectory, right?.DirectoryPath);
+
+        int comparison = CompareDescending(HasExactMetadataPairMatch(targetMetadataProfile, leftProfile) ? 1 : 0, HasExactMetadataPairMatch(targetMetadataProfile, rightProfile) ? 1 : 0);
+        if (comparison != 0)
+        {
+            return comparison;
+        }
+
+        comparison = CompareDescending(HasExactMetadataTitleMatch(targetMetadataProfile, leftProfile) ? 1 : 0, HasExactMetadataTitleMatch(targetMetadataProfile, rightProfile) ? 1 : 0);
+        if (comparison != 0)
+        {
+            return comparison;
+        }
+
+        comparison = CompareDescending(HasExactMetadataArtistMatch(targetMetadataProfile, leftProfile) ? 1 : 0, HasExactMetadataArtistMatch(targetMetadataProfile, rightProfile) ? 1 : 0);
+        if (comparison != 0)
+        {
+            return comparison;
+        }
+
+        comparison = CompareDescending(leftProfile.PairSupportCount, rightProfile.PairSupportCount);
+        if (comparison != 0)
+        {
+            return comparison;
+        }
+
+        comparison = CompareDescending(leftProfile.TitleSupportCount, rightProfile.TitleSupportCount);
+        if (comparison != 0)
+        {
+            return comparison;
+        }
+
+        comparison = CompareDescending(leftProfile.ArtistSupportCount, rightProfile.ArtistSupportCount);
+        if (comparison != 0)
+        {
+            return comparison;
+        }
+
+        return CompareCandidateEvaluations(left, right);
+    }
+
+    private static InstallEstimationMetadataProfile GetMetadataProfile(IReadOnlyDictionary<string, InstallEstimationMetadataProfile> metadataProfilesByDirectory, string directoryPath)
+    {
+        if (metadataProfilesByDirectory != null && !string.IsNullOrWhiteSpace(directoryPath) && metadataProfilesByDirectory.TryGetValue(directoryPath, out InstallEstimationMetadataProfile profile))
+        {
+            return profile ?? InstallEstimationMetadataProfile.Empty;
+        }
+        return InstallEstimationMetadataProfile.Empty;
+    }
+
+    private static bool HasExactMetadataPairMatch(InstallEstimationMetadataProfile targetMetadataProfile, InstallEstimationMetadataProfile candidateMetadataProfile)
+    {
+        return targetMetadataProfile != null
+            && candidateMetadataProfile != null
+            && !string.IsNullOrWhiteSpace(targetMetadataProfile.DominantNormalizedTitleArtistPair)
+            && string.Equals(targetMetadataProfile.DominantNormalizedTitleArtistPair, candidateMetadataProfile.DominantNormalizedTitleArtistPair, StringComparison.Ordinal);
+    }
+
+    private static bool HasExactMetadataTitleMatch(InstallEstimationMetadataProfile targetMetadataProfile, InstallEstimationMetadataProfile candidateMetadataProfile)
+    {
+        return targetMetadataProfile != null
+            && candidateMetadataProfile != null
+            && !string.IsNullOrWhiteSpace(targetMetadataProfile.DominantNormalizedTitle)
+            && string.Equals(targetMetadataProfile.DominantNormalizedTitle, candidateMetadataProfile.DominantNormalizedTitle, StringComparison.Ordinal);
+    }
+
+    private static bool HasExactMetadataArtistMatch(InstallEstimationMetadataProfile targetMetadataProfile, InstallEstimationMetadataProfile candidateMetadataProfile)
+    {
+        return targetMetadataProfile != null
+            && candidateMetadataProfile != null
+            && !string.IsNullOrWhiteSpace(targetMetadataProfile.DominantNormalizedArtist)
+            && string.Equals(targetMetadataProfile.DominantNormalizedArtist, candidateMetadataProfile.DominantNormalizedArtist, StringComparison.Ordinal);
     }
 
     private static int CompareCandidateEvaluations(CandidateEvaluation left, CandidateEvaluation right)

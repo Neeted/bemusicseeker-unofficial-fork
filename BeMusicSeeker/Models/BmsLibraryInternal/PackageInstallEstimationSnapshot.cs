@@ -31,6 +31,8 @@ internal sealed class PackageInstallEstimationSnapshot
 
     public ChartResourceSnapshot DefinedResources { get; set; } = new ChartResourceSnapshot();
 
+    public InstallEstimationMetadataProfile TargetMetadataProfile { get; set; } = InstallEstimationMetadataProfile.Empty;
+
     public DirectoryResourceLookupCache.Entry BundledResources { get; set; } = new DirectoryResourceLookupCache.Entry();
 
     public DirectoryResourceLookupCache.Entry SourceCandidateResources { get; set; } = new DirectoryResourceLookupCache.Entry();
@@ -55,6 +57,7 @@ internal static class PackageInstallEstimationSnapshotBuilder
         {
             RepresentativeFile = SelectRepresentativeFile(targetFileList),
             DefinedResources = ChartResourceSnapshot.CreateAggregate(targetFileList),
+            TargetMetadataProfile = BuildTargetMetadataProfile(targetFileList),
             BundledResources = installSurfaceSnapshot?.BundledResources?.Clone() ?? new DirectoryResourceLookupCache.Entry(),
             SourceCandidateResources = installSurfaceSnapshot?.SourceCandidateResources?.Clone() ?? new DirectoryResourceLookupCache.Entry(),
             SourceDirectory = installSurfaceSnapshot?.SourceDirectory ?? ResolveSourceDirectory(package?.path),
@@ -70,6 +73,7 @@ internal static class PackageInstallEstimationSnapshotBuilder
         {
             RepresentativeFile = representativeFile,
             DefinedResources = ChartResourceSnapshot.CreateAggregate(targetFileList),
+            TargetMetadataProfile = BuildTargetMetadataProfile(targetFileList),
             BundledResources = new DirectoryResourceLookupCache.Entry(),
             SourceCandidateResources = BuildSourceCandidateResourcesForLooseFiles(representativeFile),
             SourceDirectory = representativeFile == null ? string.Empty : ResolveSourceDirectory(representativeFile.path),
@@ -245,5 +249,13 @@ internal static class PackageInstallEstimationSnapshotBuilder
         {
             return string.Empty;
         }
+    }
+
+    private static InstallEstimationMetadataProfile BuildTargetMetadataProfile(IEnumerable<BMSFile> targetFiles)
+    {
+        return InstallEstimationMetadataNormalizer.BuildProfile(
+            (targetFiles ?? Enumerable.Empty<BMSFile>())
+                .Where((BMSFile file) => file != null)
+                .Select((BMSFile file) => (file.Title ?? string.Empty, file.Artist ?? string.Empty, file.path ?? string.Empty)));
     }
 }

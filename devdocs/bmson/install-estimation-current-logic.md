@@ -20,6 +20,8 @@
 
 一方で source は完全に不要になったわけではなく、**background auto-estimate 抑制の source baseline health 判定**にだけ使います。
 
+さらに `2026-04-22` 時点では、resource 指標で僅差の上位候補群にだけ `TITLE` / `ARTIST` の metadata tie-break を適用します。
+
 ## 関連クラス
 
 - `BMSLibrary`
@@ -90,6 +92,7 @@ pending package・startup restore・auto-install では通常この経路は使�
 
 - `RepresentativeFile`
 - `DefinedResources`
+- `TargetMetadataProfile`
 - `BundledResources`
 - `SourceCandidateResources`
 - `SourceDirectory`
@@ -112,6 +115,17 @@ source baseline health を判定するための transient entry です。
 - directory package: source root 全体
 - file package: 親 directory
 - loose files: 代表 file の親 directory
+
+### 4. `TargetMetadataProfile`
+
+target 側 metadata は、代表 1 件ではなく **対象 chart 群の最頻値 profile** を使います。
+
+- `DominantNormalizedTitle`
+- `DominantNormalizedArtist`
+- `DominantNormalizedTitleArtistPair`
+- support count
+
+package-aware 経路でも loose-file 経路でも同じ shape を持ちます。
 
 ## 候補母集団
 
@@ -187,6 +201,39 @@ source の bundled resources は merge の final evaluation には足しませ�
 10. `DirectoryPath`
 
 raw ratio 比較を入れているため、`1281/1282` と `1281/1285` のような差が 100/100 に丸め潰されて path 順になるのを避けています。
+
+## `TITLE` / `ARTIST` tie-break
+
+metadata は主スコアには入れず、**resource 指標で僅差の上位 frontier** にだけ後段適用します。
+
+- 対象は先頭候補と `HasSameRankingMetrics(...)` な viable candidate 群
+- 対象数は最大 3 件
+- candidate 側 metadata は destination directory 配下の全譜面から作る **最頻値 profile**
+- target 側 metadata も package / loose-file 単位の最頻値 profile
+
+v1 の一致規則は **正規化後完全一致** です。
+
+- `TITLE`
+  - trim / 全半角 / 空白 / 大小を正規化
+  - `(` `[` `~` ` -` 以降を無視
+  - ただし先頭 delimiter は切らない
+- `ARTIST`
+  - trim / 全半角 / 空白 / 大小を正規化
+  - 先頭の `obj` `note` `notes` + セパレータ prefix を除去
+  - `/` 以降を無視
+
+比較順は次です。
+
+1. `TitleArtistPair` 一致
+2. `Title` 一致
+3. `Artist` 一致
+4. pair support
+5. title support
+6. artist support
+7. それでも同点なら既存の raw ratio / path 順
+
+metadata tie-break の結果が明確なら、resource 指標上は tie でも `Low` を `High` へ上げます。
+このとき `ConfidenceReason = metadata_tiebreak_distinct` になります。
 
 ## source の扱い
 
