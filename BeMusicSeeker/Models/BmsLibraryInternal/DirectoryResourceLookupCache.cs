@@ -9,6 +9,76 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 internal sealed class DirectoryResourceLookupCache
 {
+    internal readonly struct ReverseLookupMutationResult
+    {
+        public static ReverseLookupMutationResult Empty => new ReverseLookupMutationResult(
+            changed: false,
+            addedDirectoryCount: 0,
+            removedDirectoryCount: 0,
+            replacedDirectoryCount: 0,
+            updatedHashCount: 0,
+            cancelledWarmup: false,
+            maintainedFullReverseLookup: false,
+            requiresDeferredWarmup: false);
+
+        public bool Changed { get; }
+
+        public int AddedDirectoryCount { get; }
+
+        public int RemovedDirectoryCount { get; }
+
+        public int ReplacedDirectoryCount { get; }
+
+        public int UpdatedHashCount { get; }
+
+        public bool CancelledWarmup { get; }
+
+        public bool MaintainedFullReverseLookup { get; }
+
+        public bool RequiresDeferredWarmup { get; }
+
+        public ReverseLookupMutationResult(
+            bool changed,
+            int addedDirectoryCount,
+            int removedDirectoryCount,
+            int replacedDirectoryCount,
+            int updatedHashCount,
+            bool cancelledWarmup,
+            bool maintainedFullReverseLookup,
+            bool requiresDeferredWarmup)
+        {
+            Changed = changed;
+            AddedDirectoryCount = addedDirectoryCount;
+            RemovedDirectoryCount = removedDirectoryCount;
+            ReplacedDirectoryCount = replacedDirectoryCount;
+            UpdatedHashCount = updatedHashCount;
+            CancelledWarmup = cancelledWarmup;
+            MaintainedFullReverseLookup = maintainedFullReverseLookup;
+            RequiresDeferredWarmup = requiresDeferredWarmup;
+        }
+
+        public ReverseLookupMutationResult Combine(ReverseLookupMutationResult other)
+        {
+            if (!Changed)
+            {
+                return other;
+            }
+            if (!other.Changed)
+            {
+                return this;
+            }
+            return new ReverseLookupMutationResult(
+                changed: true,
+                addedDirectoryCount: AddedDirectoryCount + other.AddedDirectoryCount,
+                removedDirectoryCount: RemovedDirectoryCount + other.RemovedDirectoryCount,
+                replacedDirectoryCount: ReplacedDirectoryCount + other.ReplacedDirectoryCount,
+                updatedHashCount: UpdatedHashCount + other.UpdatedHashCount,
+                cancelledWarmup: CancelledWarmup || other.CancelledWarmup,
+                maintainedFullReverseLookup: MaintainedFullReverseLookup && other.MaintainedFullReverseLookup,
+                requiresDeferredWarmup: RequiresDeferredWarmup || other.RequiresDeferredWarmup);
+        }
+    }
+
     internal readonly struct ReverseLookupWarmupStepResult
     {
         public int ChunkEntryCount { get; }
@@ -372,7 +442,7 @@ internal sealed class DirectoryResourceLookupCache
         return cache;
     }
 
-    public void AddDir(
+    public ReverseLookupMutationResult AddDir(
         string directoryPath,
         IEnumerable<uint> allBaseNameHashes,
         IEnumerable<uint> audioBaseNameHashes,
@@ -391,7 +461,7 @@ internal sealed class DirectoryResourceLookupCache
     {
         if (string.IsNullOrWhiteSpace(directoryPath))
         {
-            return;
+            return ReverseLookupMutationResult.Empty;
         }
 
         Entry entry = new Entry(
@@ -409,14 +479,14 @@ internal sealed class DirectoryResourceLookupCache
             selfOwnedAudioRelativePathHashes,
             selfOwnedImageRelativePathHashes,
             selfOwnedMovieRelativePathHashes);
-        SetEntry(directoryPath, entry);
+        return SetEntry(directoryPath, entry);
     }
 
-    public void AddDir(string directoryPath, IEnumerable<string> fileNames)
+    public ReverseLookupMutationResult AddDir(string directoryPath, IEnumerable<string> fileNames)
     {
         if (string.IsNullOrWhiteSpace(directoryPath))
         {
-            return;
+            return ReverseLookupMutationResult.Empty;
         }
 
         HashSet<uint> allBaseNameHashes = new HashSet<uint>();
@@ -461,7 +531,7 @@ internal sealed class DirectoryResourceLookupCache
                     break;
             }
         }
-        SetEntry(directoryPath, new Entry(
+        return SetEntry(directoryPath, new Entry(
             allBaseNameHashes,
             audioBaseNameHashes,
             imageBaseNameHashes,
@@ -478,56 +548,95 @@ internal sealed class DirectoryResourceLookupCache
             movieRelativePathHashes));
     }
 
-    public void AddDirHashed(string directoryPath, IEnumerable<uint> allBaseNameHashes)
+    public ReverseLookupMutationResult AddDirHashed(string directoryPath, IEnumerable<uint> allBaseNameHashes)
     {
-        AddDir(directoryPath, allBaseNameHashes, Array.Empty<uint>(), Array.Empty<uint>(), Array.Empty<uint>(), Array.Empty<uint>(), Array.Empty<uint>(), Array.Empty<uint>());
+        return AddDir(directoryPath, allBaseNameHashes, Array.Empty<uint>(), Array.Empty<uint>(), Array.Empty<uint>(), Array.Empty<uint>(), Array.Empty<uint>(), Array.Empty<uint>());
     }
 
-    public void AddDir(string directoryPath, BmsScanResult scanResult)
+    public ReverseLookupMutationResult AddDir(string directoryPath, BmsScanResult scanResult)
     {
         if (scanResult == null || string.IsNullOrWhiteSpace(directoryPath))
         {
-            return;
+            return ReverseLookupMutationResult.Empty;
         }
-        SetEntry(directoryPath, CreateEntry(scanResult, directoryPath));
+        return SetEntry(directoryPath, CreateEntry(scanResult, directoryPath));
     }
 
     public bool RemoveDir(string directoryPath)
     {
+        return RemoveDirWithResult(directoryPath).Changed;
+    }
+
+    internal ReverseLookupMutationResult RemoveDirWithResult(string directoryPath)
+    {
         if (string.IsNullOrWhiteSpace(directoryPath))
         {
-            return false;
+            return ReverseLookupMutationResult.Empty;
         }
-        bool removed = false;
+        Entry removedEntry = null;
         lock (lockEntries)
         {
-            removed = entries.Remove(directoryPath);
+            if (entries.TryGetValue(directoryPath, out removedEntry))
+            {
+                entries.Remove(directoryPath);
+            }
         }
-        if (removed)
+        if (removedEntry == null)
         {
-            InvalidateLazyReverseLookupCache();
+            return ReverseLookupMutationResult.Empty;
         }
-        return removed;
+        return ApplyReverseLookupMutation(
+            addedDirectoryPath: null,
+            addedEntry: null,
+            removedDirectoryPath: directoryPath,
+            removedEntry: removedEntry,
+            replacedDirectoryCount: 0);
     }
 
     public bool ReplaceDir(string oldPath, string newPath)
     {
+        return ReplaceDirWithResult(oldPath, newPath).Changed;
+    }
+
+    internal ReverseLookupMutationResult ReplaceDirWithResult(string oldPath, string newPath)
+    {
         if (string.IsNullOrWhiteSpace(oldPath) || string.IsNullOrWhiteSpace(newPath))
         {
-            return false;
+            return ReverseLookupMutationResult.Empty;
+        }
+        if (string.Equals(oldPath, newPath, StringComparison.OrdinalIgnoreCase))
+        {
+            return ReverseLookupMutationResult.Empty;
         }
         Entry entry = null;
+        Entry overwrittenEntry = null;
         lock (lockEntries)
         {
             if (!entries.TryGetValue(oldPath, out entry))
             {
-                return false;
+                return ReverseLookupMutationResult.Empty;
             }
             entries.Remove(oldPath);
+            entries.TryGetValue(newPath, out overwrittenEntry);
             entries[newPath] = entry;
         }
-        InvalidateLazyReverseLookupCache();
-        return true;
+        ReverseLookupMutationResult result = ReverseLookupMutationResult.Empty;
+        if (overwrittenEntry != null)
+        {
+            result = result.Combine(ApplyReverseLookupMutation(
+                addedDirectoryPath: null,
+                addedEntry: null,
+                removedDirectoryPath: newPath,
+                removedEntry: overwrittenEntry,
+                replacedDirectoryCount: 0));
+        }
+        result = result.Combine(ApplyReverseLookupMutation(
+            addedDirectoryPath: newPath,
+            addedEntry: entry,
+            removedDirectoryPath: oldPath,
+            removedEntry: entry,
+            replacedDirectoryCount: 1));
+        return result;
     }
 
     public IReadOnlyCollection<string> GetDirectoriesByHash(uint fileNameHash)
@@ -765,13 +874,20 @@ internal sealed class DirectoryResourceLookupCache
         return TryGetHashes(fallbackHashesByDirectory, directoryPath);
     }
 
-    private void SetEntry(string directoryPath, Entry entry)
+    private ReverseLookupMutationResult SetEntry(string directoryPath, Entry entry)
     {
+        Entry oldEntry = null;
         lock (lockEntries)
         {
+            entries.TryGetValue(directoryPath, out oldEntry);
             entries[directoryPath] = entry ?? new Entry();
         }
-        InvalidateLazyReverseLookupCache();
+        return ApplyReverseLookupMutation(
+            addedDirectoryPath: directoryPath,
+            addedEntry: entry ?? new Entry(),
+            removedDirectoryPath: oldEntry == null ? null : directoryPath,
+            removedEntry: oldEntry,
+            replacedDirectoryCount: 0);
     }
 
     private void InvalidateLazyReverseLookupCache()
@@ -788,6 +904,120 @@ internal sealed class DirectoryResourceLookupCache
         }
         Interlocked.Exchange(ref lazyHashBuildMs, 0L);
         Interlocked.Exchange(ref lazyHashLookupCount, 0L);
+    }
+
+    private ReverseLookupMutationResult ApplyReverseLookupMutation(
+        string addedDirectoryPath,
+        Entry addedEntry,
+        string removedDirectoryPath,
+        Entry removedEntry,
+        int replacedDirectoryCount)
+    {
+        bool hasAdded = !string.IsNullOrWhiteSpace(addedDirectoryPath) && addedEntry != null;
+        bool hasRemoved = !string.IsNullOrWhiteSpace(removedDirectoryPath) && removedEntry != null;
+        if (!hasAdded && !hasRemoved && replacedDirectoryCount <= 0)
+        {
+            return ReverseLookupMutationResult.Empty;
+        }
+
+        int updatedHashCount = 0;
+        bool cancelledWarmup;
+        bool maintainedFullReverseLookup;
+        bool requiresDeferredWarmup;
+        lock (lockLazyDirectoriesByHash)
+        {
+            cancelledWarmup = warmupState != null;
+            if (cancelledWarmup)
+            {
+                warmupState = null;
+            }
+
+            if (hasRemoved)
+            {
+                updatedHashCount += RemoveDirectoryFromCachedHashes(directoriesByHash, removedDirectoryPath, removedEntry.AllBaseNameHashArray);
+                updatedHashCount += RemoveDirectoryFromCachedHashes(audioDirectoriesByRelativeHash, removedDirectoryPath, removedEntry.AudioRelativePathHashArray);
+                updatedHashCount += RemoveDirectoryFromCachedHashes(imageDirectoriesByRelativeHash, removedDirectoryPath, removedEntry.ImageRelativePathHashArray);
+                updatedHashCount += RemoveDirectoryFromCachedHashes(movieDirectoriesByRelativeHash, removedDirectoryPath, removedEntry.MovieRelativePathHashArray);
+            }
+
+            if (hasAdded)
+            {
+                updatedHashCount += AddDirectoryToCachedHashes(directoriesByHash, addedDirectoryPath, addedEntry.AllBaseNameHashArray, addMissingKeys: isFullReverseLookupBuilt);
+                updatedHashCount += AddDirectoryToCachedHashes(audioDirectoriesByRelativeHash, addedDirectoryPath, addedEntry.AudioRelativePathHashArray, addMissingKeys: false);
+                updatedHashCount += AddDirectoryToCachedHashes(imageDirectoriesByRelativeHash, addedDirectoryPath, addedEntry.ImageRelativePathHashArray, addMissingKeys: false);
+                updatedHashCount += AddDirectoryToCachedHashes(movieDirectoriesByRelativeHash, addedDirectoryPath, addedEntry.MovieRelativePathHashArray, addMissingKeys: false);
+            }
+
+            maintainedFullReverseLookup = isFullReverseLookupBuilt;
+            requiresDeferredWarmup = !isFullReverseLookupBuilt;
+            warmupVersion++;
+        }
+
+        return new ReverseLookupMutationResult(
+            changed: true,
+            addedDirectoryCount: hasAdded ? 1 : 0,
+            removedDirectoryCount: hasRemoved ? 1 : 0,
+            replacedDirectoryCount: replacedDirectoryCount,
+            updatedHashCount: updatedHashCount,
+            cancelledWarmup: cancelledWarmup,
+            maintainedFullReverseLookup: maintainedFullReverseLookup,
+            requiresDeferredWarmup: requiresDeferredWarmup);
+    }
+
+    private static int AddDirectoryToCachedHashes(Dictionary<uint, string[]> directoriesByTargetHash, string directoryPath, IEnumerable<uint> hashes, bool addMissingKeys)
+    {
+        int updatedHashCount = 0;
+        foreach (uint hash in EnumerateLookupHashes(hashes))
+        {
+            if (directoriesByTargetHash.TryGetValue(hash, out string[] directories))
+            {
+                if (directories.Any((string dir) => string.Equals(dir, directoryPath, StringComparison.OrdinalIgnoreCase)))
+                {
+                    continue;
+                }
+                directoriesByTargetHash[hash] = directories
+                    .Concat(new[] { directoryPath })
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToArray();
+                updatedHashCount++;
+            }
+            else if (addMissingKeys)
+            {
+                directoriesByTargetHash[hash] = new[] { directoryPath };
+                updatedHashCount++;
+            }
+        }
+        return updatedHashCount;
+    }
+
+    private static int RemoveDirectoryFromCachedHashes(Dictionary<uint, string[]> directoriesByTargetHash, string directoryPath, IEnumerable<uint> hashes)
+    {
+        int updatedHashCount = 0;
+        foreach (uint hash in EnumerateLookupHashes(hashes))
+        {
+            if (!directoriesByTargetHash.TryGetValue(hash, out string[] directories))
+            {
+                continue;
+            }
+            string[] nextDirectories = directories
+                .Where((string dir) => !string.Equals(dir, directoryPath, StringComparison.OrdinalIgnoreCase))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            if (nextDirectories.Length == directories.Length)
+            {
+                continue;
+            }
+            directoriesByTargetHash[hash] = nextDirectories;
+            updatedHashCount++;
+        }
+        return updatedHashCount;
+    }
+
+    private static IEnumerable<uint> EnumerateLookupHashes(IEnumerable<uint> hashes)
+    {
+        return hashes?
+            .Where((uint hash) => hash != 0u)
+            .Distinct() ?? Enumerable.Empty<uint>();
     }
 
     private void EnsureRelativeDirectoriesByHashes(Dictionary<uint, string[]> targetDirectoriesByHash, Func<Entry, uint[]> hashArraySelector, IEnumerable<uint> hashes)

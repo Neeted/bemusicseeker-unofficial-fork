@@ -29,7 +29,7 @@ public sealed class DirectoryResourceLookupCacheTests
     }
 
     [TestMethod]
-    public void WarmupReverseLookupStep_BuildsRemainingHashesAndInvalidationResetsState()
+    public void WarmupReverseLookupStep_BuildsRemainingHashesAndMutationMaintainsState()
     {
         DirectoryResourceLookupCache cache = CreateCache();
 
@@ -59,14 +59,139 @@ public sealed class DirectoryResourceLookupCacheTests
         CollectionAssert.AreEquivalent(new[] { "C:\\Songs\\A", "C:\\Songs\\B" }, cache.GetDirectoriesByHash(2u).ToArray());
 
         int warmupVersionBeforeInvalidate = cache.WarmupVersion;
-        bool removed = cache.RemoveDir("C:\\Songs\\A");
+        DirectoryResourceLookupCache.ReverseLookupMutationResult mutation = cache.RemoveDirWithResult("C:\\Songs\\A");
 
-        Assert.IsTrue(removed);
-        Assert.AreEqual(0, cache.LazyHashCacheEntryCount);
-        Assert.AreEqual(1, cache.PrepareWarmupState());
+        Assert.IsTrue(mutation.Changed);
+        Assert.IsTrue(mutation.MaintainedFullReverseLookup);
+        Assert.IsFalse(mutation.RequiresDeferredWarmup);
+        Assert.AreEqual(3, cache.LazyHashCacheEntryCount);
+        Assert.AreEqual(0, cache.PrepareWarmupState());
         Assert.IsTrue(cache.WarmupVersion > warmupVersionBeforeInvalidate);
-        Assert.AreEqual(0L, cache.LazyHashBuildMs);
-        Assert.AreEqual(0L, cache.LazyHashLookupCount);
+        CollectionAssert.AreEquivalent(Array.Empty<string>(), cache.GetDirectoriesByHash(1u).ToArray());
+        CollectionAssert.AreEquivalent(new[] { "C:\\Songs\\B" }, cache.GetDirectoriesByHash(2u).ToArray());
+    }
+
+    [TestMethod]
+    public void AddDir_UpdatesCachedMissAndFullWarmupLookupIncrementally()
+    {
+        DirectoryResourceLookupCache cache = CreateCache();
+
+        CollectionAssert.AreEquivalent(Array.Empty<string>(), cache.GetDirectoriesByHash(99u).ToArray());
+
+        DirectoryResourceLookupCache.ReverseLookupMutationResult cachedMissMutation = cache.AddDir(
+            "C:\\Songs\\C",
+            new[] { 99u },
+            Array.Empty<uint>(),
+            Array.Empty<uint>(),
+            Array.Empty<uint>(),
+            Array.Empty<uint>(),
+            Array.Empty<uint>(),
+            Array.Empty<uint>());
+
+        Assert.IsTrue(cachedMissMutation.Changed);
+        CollectionAssert.AreEquivalent(new[] { "C:\\Songs\\C" }, cache.GetDirectoriesByHash(99u).ToArray());
+
+        CompleteWarmup(cache);
+
+        DirectoryResourceLookupCache.ReverseLookupMutationResult fullMutation = cache.AddDir(
+            "C:\\Songs\\D",
+            new[] { 2u, 100u },
+            Array.Empty<uint>(),
+            Array.Empty<uint>(),
+            Array.Empty<uint>(),
+            Array.Empty<uint>(),
+            Array.Empty<uint>(),
+            Array.Empty<uint>());
+
+        Assert.IsTrue(fullMutation.MaintainedFullReverseLookup);
+        Assert.IsFalse(fullMutation.RequiresDeferredWarmup);
+        Assert.AreEqual(0, cache.PrepareWarmupState());
+        CollectionAssert.AreEquivalent(new[] { "C:\\Songs\\A", "C:\\Songs\\B", "C:\\Songs\\D" }, cache.GetDirectoriesByHash(2u).ToArray());
+        CollectionAssert.AreEquivalent(new[] { "C:\\Songs\\D" }, cache.GetDirectoriesByHash(100u).ToArray());
+    }
+
+    [TestMethod]
+    public void RemoveDir_AfterFullWarmup_RemovesSharedAndOwnedHashesIncrementally()
+    {
+        DirectoryResourceLookupCache cache = CreateCache();
+        CompleteWarmup(cache);
+
+        DirectoryResourceLookupCache.ReverseLookupMutationResult mutation = cache.RemoveDirWithResult("C:\\Songs\\A");
+
+        Assert.IsTrue(mutation.MaintainedFullReverseLookup);
+        Assert.IsFalse(mutation.RequiresDeferredWarmup);
+        CollectionAssert.AreEquivalent(Array.Empty<string>(), cache.GetDirectoriesByHash(1u).ToArray());
+        CollectionAssert.AreEquivalent(new[] { "C:\\Songs\\B" }, cache.GetDirectoriesByHash(2u).ToArray());
+        CollectionAssert.AreEquivalent(new[] { "C:\\Songs\\B" }, cache.GetDirectoriesByHash(3u).ToArray());
+    }
+
+    [TestMethod]
+    public void ReplaceDir_AfterFullWarmup_ReplacesCachedDirectoryPath()
+    {
+        DirectoryResourceLookupCache cache = CreateCache();
+        CompleteWarmup(cache);
+
+        DirectoryResourceLookupCache.ReverseLookupMutationResult mutation = cache.ReplaceDirWithResult("C:\\Songs\\A", "C:\\Songs\\RenamedA");
+
+        Assert.IsTrue(mutation.Changed);
+        Assert.IsTrue(mutation.MaintainedFullReverseLookup);
+        Assert.IsFalse(mutation.RequiresDeferredWarmup);
+        CollectionAssert.AreEquivalent(new[] { "C:\\Songs\\RenamedA" }, cache.GetDirectoriesByHash(1u).ToArray());
+        CollectionAssert.AreEquivalent(new[] { "C:\\Songs\\RenamedA", "C:\\Songs\\B" }, cache.GetDirectoriesByHash(2u).ToArray());
+    }
+
+    [TestMethod]
+    public void RelativeReverseLookup_AddRemoveReplace_DoesNotLeaveStaleDirectories()
+    {
+        string dirA = @"C:\Songs\A";
+        string dirB = @"C:\Songs\B";
+        string dirC = @"C:\Songs\C";
+        string dirRenamed = @"C:\Songs\RenamedC";
+        uint audioRelativeHash = BMSDirectoryFileNameHash.GetLookupHash(@"sound\bgm1.wav");
+        uint imageRelativeHash = BMSDirectoryFileNameHash.GetLookupHash(@"image\logo.png");
+        uint movieRelativeHash = BMSDirectoryFileNameHash.GetLookupHash(@"bga\movie.mpg");
+        DirectoryResourceLookupCache cache = new DirectoryResourceLookupCache();
+        cache.AddDir(dirA, Array.Empty<uint>(), Array.Empty<uint>(), Array.Empty<uint>(), Array.Empty<uint>(), new[] { audioRelativeHash }, new[] { imageRelativeHash }, Array.Empty<uint>());
+        cache.AddDir(dirB, Array.Empty<uint>(), Array.Empty<uint>(), Array.Empty<uint>(), Array.Empty<uint>(), new[] { audioRelativeHash }, Array.Empty<uint>(), new[] { movieRelativeHash });
+
+        cache.EnsureAudioRelativeDirectoriesByHashes(new[] { audioRelativeHash });
+        cache.EnsureImageRelativeDirectoriesByHashes(new[] { imageRelativeHash });
+        cache.EnsureMovieRelativeDirectoriesByHashes(new[] { movieRelativeHash });
+
+        cache.AddDir(dirC, Array.Empty<uint>(), Array.Empty<uint>(), Array.Empty<uint>(), Array.Empty<uint>(), new[] { audioRelativeHash }, new[] { imageRelativeHash }, new[] { movieRelativeHash });
+        cache.RemoveDirWithResult(dirA);
+        cache.ReplaceDirWithResult(dirC, dirRenamed);
+
+        CollectionAssert.AreEquivalent(new[] { dirB, dirRenamed }, cache.GetDirectoriesByAudioRelativeHash(audioRelativeHash).ToArray());
+        CollectionAssert.AreEquivalent(new[] { dirRenamed }, cache.GetDirectoriesByImageRelativeHash(imageRelativeHash).ToArray());
+        CollectionAssert.AreEquivalent(new[] { dirB, dirRenamed }, cache.GetDirectoriesByMovieRelativeHash(movieRelativeHash).ToArray());
+    }
+
+    [TestMethod]
+    public void MutationDuringWarmup_CancelsOldStateAndRebuildsFromCurrentEntries()
+    {
+        DirectoryResourceLookupCache cache = CreateCache();
+
+        DirectoryResourceLookupCache.ReverseLookupWarmupStepResult firstStep = cache.WarmupReverseLookupStep(1, 1000, CancellationToken.None);
+        Assert.IsFalse(firstStep.Completed);
+
+        int versionBeforeMutation = cache.WarmupVersion;
+        DirectoryResourceLookupCache.ReverseLookupMutationResult mutation = cache.AddDir(
+            "C:\\Songs\\C",
+            new[] { 4u },
+            Array.Empty<uint>(),
+            Array.Empty<uint>(),
+            Array.Empty<uint>(),
+            Array.Empty<uint>(),
+            Array.Empty<uint>(),
+            Array.Empty<uint>());
+
+        Assert.IsTrue(mutation.CancelledWarmup);
+        Assert.IsTrue(cache.WarmupVersion > versionBeforeMutation);
+
+        CompleteWarmup(cache);
+
+        CollectionAssert.AreEquivalent(new[] { "C:\\Songs\\C" }, cache.GetDirectoriesByHash(4u).ToArray());
     }
 
     [TestMethod]
@@ -162,6 +287,20 @@ public sealed class DirectoryResourceLookupCacheTests
             Array.Empty<uint>(),
             Array.Empty<uint>());
         return cache;
+    }
+
+    private static void CompleteWarmup(DirectoryResourceLookupCache cache)
+    {
+        cache.PrepareWarmupState();
+        for (int i = 0; i < 10; i++)
+        {
+            DirectoryResourceLookupCache.ReverseLookupWarmupStepResult step = cache.WarmupReverseLookupStep(10, 1000, CancellationToken.None);
+            if (step.Completed)
+            {
+                return;
+            }
+        }
+        Assert.Fail("Reverse lookup warmup did not complete.");
     }
 
     private static void AssertEntriesEqual(DirectoryResourceLookupCache.Entry expected, DirectoryResourceLookupCache.Entry actual)

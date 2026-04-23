@@ -3477,6 +3477,37 @@ public class BMSLibrary : NotificationObject
         }).Logging("ProcessDeferredInstallableMaintenance");
     }
 
+    private void LogReverseLookupMutationAndQueueWarmupIfNeeded(string reason, DirectoryResourceLookupCache.ReverseLookupMutationResult mutationResult)
+    {
+        if (!mutationResult.Changed)
+        {
+            return;
+        }
+
+        string sourceReason = string.IsNullOrWhiteSpace(reason) ? "unknown" : reason;
+        LogInstallPerformance("reverse_lookup_incremental_update reason=" + sourceReason
+            + " addedDirs=" + mutationResult.AddedDirectoryCount
+            + " removedDirs=" + mutationResult.RemovedDirectoryCount
+            + " replacedDirs=" + mutationResult.ReplacedDirectoryCount
+            + " updatedHashes=" + mutationResult.UpdatedHashCount
+            + " cancelledWarmup=" + mutationResult.CancelledWarmup
+            + " fullMaintained=" + mutationResult.MaintainedFullReverseLookup
+            + " requiresWarmup=" + mutationResult.RequiresDeferredWarmup);
+
+        if (mutationResult.RequiresDeferredWarmup)
+        {
+            QueueDeferredReverseLookupWarmup(sourceReason);
+            return;
+        }
+
+        LogInstallPerformance("reverse_lookup_warmup_deferred skip reason=incremental_maintained"
+            + " sourceReason=" + sourceReason
+            + " addedDirs=" + mutationResult.AddedDirectoryCount
+            + " removedDirs=" + mutationResult.RemovedDirectoryCount
+            + " replacedDirs=" + mutationResult.ReplacedDirectoryCount
+            + " updatedHashes=" + mutationResult.UpdatedHashCount);
+    }
+
     private void QueueDeferredReverseLookupWarmup(string reason)
     {
         int version;
@@ -5667,6 +5698,7 @@ public class BMSLibrary : NotificationObject
                     BmsonSongs = nextBmsonByPath.Values.OrderBy((LR2SongDBExtended.bmson_song song) => song.path, StringComparer.OrdinalIgnoreCase).ToList();
                 }
                 BmsScanResult addedDirectoryScan = ChartDirectoryScanBuilder.BuildFromRoots(addedFiles.Select((BMSFile bmsInfo) => DirectoryExt.GetDirectoryNameSimple(bmsInfo.path)).Distinct(StringComparer.OrdinalIgnoreCase));
+                DirectoryResourceLookupCache.ReverseLookupMutationResult reverseLookupMutation = DirectoryResourceLookupCache.ReverseLookupMutationResult.Empty;
                 foreach (string dir in addedDirectoryScan.ChartDirectories)
                 {
                     if (!addedDirectoryScan.SelfOwnedAllResourceBaseNameHashesByChartDirectory.TryGetValue(dir, out uint[] hashes))
@@ -5677,10 +5709,10 @@ public class BMSLibrary : NotificationObject
                     {
                         bmsFolderAllFileList.AddDirHashed(dir, hashes);
                     }
-                    directoryResourceLookupCache.AddDir(dir, addedDirectoryScan);
+                    reverseLookupMutation = reverseLookupMutation.Combine(directoryResourceLookupCache.AddDir(dir, addedDirectoryScan));
                     directoryRelativePathHashIndex.AddDir(dir, addedDirectoryScan);
                 }
-                QueueDeferredReverseLookupWarmup("install_package");
+                LogReverseLookupMutationAndQueueWarmupIfNeeded("install_package", reverseLookupMutation);
                 InvalidateInstalledDirectoryIndex();
             },
             excludedComponentPathsByPackage,
@@ -7619,10 +7651,11 @@ public class BMSLibrary : NotificationObject
                         .ToList();
                     unregisterBMSFiles(sourceBmsFiles);
                     unregisterBmsonSongs(sourceBmsonSongs);
+                    DirectoryResourceLookupCache.ReverseLookupMutationResult reverseLookupMutation = DirectoryResourceLookupCache.ReverseLookupMutationResult.Empty;
                     foreach (string item in bmsFolderAllFileList.Keys.Where((string f) => (f + Path.DirectorySeparatorChar).StartsWith(src + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)))
                     {
                         bmsFolderAllFileList.RemoveDir(item);
-                        directoryResourceLookupCache.RemoveDir(item);
+                        reverseLookupMutation = reverseLookupMutation.Combine(directoryResourceLookupCache.RemoveDirWithResult(item));
                         directoryRelativePathHashIndex.RemoveDir(item);
                     }
                     if (!moveBMSPackageFiles(mergeResult.Repackage, dst, showMessageBoxOnInstallFail: false, deleteAllContents: true, existingHashes: mergeResult.ExistingHashes))
@@ -7641,10 +7674,10 @@ public class BMSLibrary : NotificationObject
                         {
                             bmsFolderAllFileList.AddDirHashed(chartDirectory, hashes);
                         }
-                        directoryResourceLookupCache.AddDir(chartDirectory, mergedDirectoryScan);
+                        reverseLookupMutation = reverseLookupMutation.Combine(directoryResourceLookupCache.AddDir(chartDirectory, mergedDirectoryScan));
                         directoryRelativePathHashIndex.AddDir(chartDirectory, mergedDirectoryScan);
                     }
-                    QueueDeferredReverseLookupWarmup("merge_folder");
+                    LogReverseLookupMutationAndQueueWarmupIfNeeded("merge_folder", reverseLookupMutation);
                     ApplyLibraryMutationDelta(mergeResult.ReferenceMutationDelta);
                     List<BMSFile> movedBmsFiles = mergeResult.Repackage.BMSFiles.Where(PendingChartEntry.IsBmsChartFile).ToList();
                     List<LR2SongDBExtended.bmson_song> movedBmsonSongs = BuildBmsonSongsFromChartRows(mergeResult.Repackage.BMSFiles);
