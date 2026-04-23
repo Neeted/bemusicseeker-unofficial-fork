@@ -418,9 +418,9 @@ Perf-3 に入る前の仕上げです。
 - broad filter を変える前に、scan / cache 結果が経路差なく揃うことを保証したい
 - 実際に推定が改善するのは Phase 3 以降だが、その前提は Phase 1 / 2 にある
 
-## 次に切るプラン
+## 現在の整理
 
-`2026-04-23` 時点では、Phase 1 から Phase 5+ までは完了している。
+`2026-04-24` 時点では、Phase 1 から Phase 5+ までは完了している。
 
 固定できたこと:
 
@@ -441,28 +441,36 @@ Perf-3 に入る前の仕上げです。
 - `candidateViewBuildMs=0`, `candidateViewBuildCount=0`, `candidateViewFallbackCount=0`
 
 このため、relative path 対応による **致命的な性能回帰は現時点ではない** と整理できる。  
-次段の論点は、relative path の意味追加や緊急 perf recovery ではなく **Phase 6. Cleanup / Legacy Removal / Perf-3 接続** になる。
+また、その後の source-side enumeration regress も `2026-04-24` 時点では解消済みで、relative path 対応自体を続けて触る緊急性はない。
 
-主論点:
+relative-path 文脈で固定できたこと:
 
-1. mixed package の installed-dir resolve を正経路として整理し、legacy search という命名を外す
-2. `BmsScanResult` の obsolete compat 面と未使用 `DirectoryResourceIndex` を cleanup する
-3. `--everything-verify` を opt-in verify 導線として mainline から切り離す
-4. library scan と package source surface を shared root enumeration backend に寄せる
-5. `BMSPackage` の source scan snapshot 再利用と package surface metrics / logging を固定する
+1. mixed package の installed-dir resolve を正経路として整理した
+2. `BmsScanResult` の obsolete compat 面と未使用 `DirectoryResourceIndex` は cleanup 済み
+3. `--everything-verify` は opt-in verify 導線として mainline から切り離した
+4. library build は fixed 4-query native scan に復旧済み
+5. source-side は `EBridge_ScanSourceRoots` または fast-only へ整理し、`BMSFiles` と install surface を分離した
+6. source-side で Everything を使うかどうかは user setting
+   - `保留パッケージの推定時に Everything を使用する`
+   - で切り替え、既定値は無効
 
-Perf-3 接続で固定する補足:
+この文書から見た「まだ残るもの」は、relative-path semantics 自体ではない。
 
-- shared root enumeration backend の Everything 経路は bridge-only とする
-- managed 側から `Everything3_x64.dll` を直接使わない
-- file search / enumeration 基盤の調整は、まず `EverythingBridge_x64.dll` の API 拡張を検討する
+- 導入先推定の精度 tuning
+  - `fingerprint`
+  - `raw precision / jaccard`
+  - merge wrapper 差
+- pending estimate の評価 / orchestration 側 perf
+- install / merge 実処理列挙の再設計
+
+これらは relative-path 対応の続きというより、通常の tuning / Perf 課題として扱うのが適切である。
 
 この Phase 6 / Perf-3 のスコープ外:
 
 - `BmsLibraryPackageInstallService` の install/merge package discovery 列挙
 - install/merge 実処理の列挙再設計
 
-つまりこの段は、relative path semantics を完成済み前提として、**導入先推定に必要な列挙基盤だけを一般化するフェーズ**である。
+つまり、relative path semantics は完成済み前提で固定し、以後は導入先推定全体の tuning / Perf と install 実処理の整理に論点が移っている。
 
 ## 関連ファイル
 

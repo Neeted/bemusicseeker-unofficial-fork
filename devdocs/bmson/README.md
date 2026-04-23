@@ -149,8 +149,66 @@
   - path-aware broad filter
   - final scoring semantics completion
   - aggregate ownership + self-only ownership の二重 view
-- 残るのは実機ログでの順位 / confidence 調整
-- 残る作業は README / リリースノート / バージョン反映などのリリース整理
+
+## いま残っているもの
+
+実装フェーズとして大きく未着手のものは多くない。`2026-04-24` 時点で残っているのは、主に次の 4 系統である。
+
+1. 導入先推定の精度 tuning
+   - `fingerprint` 比較の導入判断
+   - `loose-file merge` と `package merge` の wrapper 差整理
+   - 実機ケースでの `raw precision / jaccard` 重み調整
+2. 導入先推定の性能 tuning
+   - source-side 列挙の regress は解消済み
+   - 残差は `pending estimate` の評価 / orchestration 側
+3. install / merge 実処理側の列挙再設計
+   - `BmsLibraryPackageInstallService` の install / merge package discovery と実処理列挙
+   - これは current Perf-3 スコープ外として残している
+4. リリース整理
+   - README / リリースノート / バージョン反映
+
+## どの資料を見ればよいか
+
+資料の役割は次の 4 種類に分けて読むと分かりやすい。
+
+### 1. 現在の実装状態を知る資料
+
+- [現状の導入先推定ロジック整理](install-estimation-current-logic.md)
+  - 現在の code path / snapshot / confidence / diagnostics の説明
+- [導入先推定 性能改善の前提整理](install-estimation-performance-foundation.md)
+  - 現在の perf 論点と、source-side enumeration regress が解消済みであることの整理
+- [導入先推定 相対パス対応の前提整理](install-estimation-relative-path-foundation.md)
+  - relative-path 対応の完成形と、その後どこまで cleanup 済みかの整理
+
+### 2. 現在の target / tuning 論点を見る資料
+
+- [導入先推定精度向上計画](install-estimation-accuracy-improvement-plan.md)
+  - まだ残っている精度 tuning の論点
+- [導入先推定のあるべき設計メモ](install-estimation-target-design.md)
+  - 実装後も残る設計上の tuning 論点
+
+### 3. 履歴として残している資料
+
+- [library-scan-native-aggregation-plan.md](library-scan-native-aggregation-plan.md)
+  - library build / source-side enumeration regress をどう解消したかの履歴
+  - 現在は historical record としての性格が強い
+
+### 4. bmson 導入フェーズの履歴
+
+- `phase-1` 〜 `phase-5`
+  - いずれも完了済み
+  - 新しく着手するための plan というより、何をどの順で入れたかの履歴として読む
+
+## ひとことで言うと
+
+- bmson 対応フェーズ 1〜5 は完了
+- relative-path 対応と source-side enumeration regress 解消も完了
+- いま残っている主論点は
+  - 精度 tuning
+  - pending estimate の評価 / orchestration 側 perf
+  - install / merge 実処理列挙
+  - リリース整理
+  の 4 つである
 
 ## バージョン方針
 

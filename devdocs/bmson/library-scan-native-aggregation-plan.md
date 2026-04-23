@@ -397,6 +397,16 @@ package source directory / loose-file source 側も、full-path grouped enumerat
 
 ## Phase 4. Commonization by Contract, Not by Full Paths
 
+以下は Phase 3 以降に見えていた **follow-up design memo** であり、`2026-04-24` 時点の未着手実装一覧ではない。  
+現在の mainline はすでに
+
+- library build: fixed 4-query native scan
+- source-side: `EBridge_ScanSourceRoots` または fast-only
+- grouped enumeration: fallback / diagnostics / utility
+
+に整理されている。  
+したがって、この節以降は「当時どういう方向で整理したか」を残す履歴として読む。
+
 ### Goal
 
 「roots を渡せば同じように列挙できる」を保ちながら、共通化の単位を request / result contract に切り替える。
@@ -470,6 +480,14 @@ stretch goal:
 - 今の並列化前提では、それより速い状態を目標にする
 
 ## Work Split Recommendation
+
+この work split recommendation も historical memo であり、現在の残課題一覧そのものではない。  
+現在の残課題は次に絞られる。
+
+- pending estimate の評価 / orchestration 側 perf
+- install / merge 実処理列挙の再設計
+- 導入先推定の精度 tuning
+- リリース整理
 
 ### Pass A: まず戻す
 
