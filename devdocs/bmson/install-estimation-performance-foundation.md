@@ -631,88 +631,208 @@ Perf-3 では少なくとも次を前提にする。
 
 つまり Perf-3 は、Perf-2a / Perf-2b のように candidate を減らしたり並列度を上げたりする段ではなく、**source path 列挙と surface snapshot 構築を観測し、再利用可能な scanner / cache へ寄せる段**として扱う。
 
-## 優先度を決めるための前提
+### 3.9 Ownership Fix 後の性能観測
 
-後続の実装プランを優先度順に切るため、次の判断基準を採用する。
+`2026-04-23` に relative-path ownership fix を入れた後、correctness は改善したが batch wall-clock は再び悪化した。
 
-### A. まず wall-clock を大きく削れるもの
+同一条件の `pending_estimate_batch done source=auto_install` 比較:
 
-- 全件 fallback 廃止
-- audio 一致条件強化
+- Perf-2b 基準ログ
+  - `elapsedMs=28628`
+  - `lowConfidence=107`
+- ownership fix 後
+  - `elapsedMs=39353`
+  - `lowConfidence=106`
 
-これは candidate 数を直接減らせるため、最優先候補。
+`demand_build` はほぼ同じだった。
 
-### B. 次にログへ出ていない source surface コスト
+- Perf-2b 基準ログ
+  - `builtMs=163`
+  - `entriesAdded=2342`
+- ownership fix 後
+  - `builtMs=160`
+  - `entriesAdded=2342`
 
-- package source surface の列挙基盤整理
-- 初回 snapshot 構築コストの可視化
+したがって増えた wall-clock の主因は demand build ではない。
 
-ここは `evaluationMs` に出ないので、別計測を入れた上で着手順を決める。
+さらに `estimate_install` 136 件を集計すると、候補数はほぼ不変だった。
 
-### C. package 間並列化が次の本命候補
-Perf-1 後ログを見る限り、package 間並列化は依然かなり有力である。
+- `candidateDirsAfterBroadFilter` 平均
+  - `2730.5 -> 2728.4`
+- `candidateDirsAfterAudioGate` 平均
+  - `151.6 -> 151.5`
+- `candidateDirsAfter` 平均
+  - `151.6 -> 151.5`
+- `candidateDirsAfter >= 100` 件数
+  - `87 -> 87`
 
-一方で、その前提として
+一方で `evaluationMs` は大きく増えた。
 
-- source surface 構築の未可視コスト
-- audio gate 後も多い candidate 数
+- Perf-2b 基準ログ
+  - `evaluationMs` 合計 `1605`
+  - 平均 `11.8`
+  - candidate 1 件あたり約 `0.0779ms`
+- ownership fix 後
+  - `evaluationMs` 合計 `6117`
+  - 平均 `45.0`
+  - candidate 1 件あたり約 `0.2969ms`
 
-を先に詰めた方が安全である。
+しかも、この batch で `pathAwareRefs > 0` の package は `1` 件だけで、その package の `evaluationMs` は `0` だった。  
+つまり悪化の本体は「path-aware 譜面を 1 件拾ったこと」ではなく、**ownership fix の追加コストが basename-only package 全体にも乗っていること**である。
 
-package 間並列化は効果が大きい可能性がある一方で、
+現状コードから見て、主な増分要因は次の 2 つと考えるのが自然である。
 
-- lock / apply 順
-- UI progress
-- manual estimate との競合
+1. `EvaluateCandidate(...)` の定数コスト増
+   - aggregate view に加えて self-only view も毎 candidate で扱う
+   - `SelfOwnedMatchedTotal` 用の extra match pass が増えた
+   - `CandidateResourceView` も aggregate / self-only を両方抱える
+2. `SuppressAncestorShadowCandidates(...)` の全候補走査
+   - 候補数 `200~300` 規模でも、ancestor / descendant の有無に関係なく O(n^2) に近い比較を走らせる
+   - 実ログでも `candidateDirsAfter=200+` の package 群で `evaluationMs` 増分が特に大きい
 
-の設計コストが大きい。  
-よって、今後は
+要するに ownership fix は、
 
-1. package 間並列化
-2. source surface 可視化 / scanner 整理
+- correctness には効いている
+- しかし broad filter で候補を増やしたわけではなく、**candidate 1 件あたりの評価コスト**を押し上げている
 
-を次段候補として扱う。
+という整理になる。
 
-## 追加で必要な計測
+### 3.10 Ownership Perf Recovery 2nd Pass
 
-後続の実装プランへ入る前に、少なくとも次の計測があると判断しやすい。
+この観測を踏まえて、Perf-3 に進む前に **ownership perf recovery 2nd pass** を入れた。  
+これは既存の first pass の上に乗せる basename-only fast path で、`pathAwareRefs > 0` の package では strict relative-path final evaluation semantics を崩さず、`pathAwareRefs = 0` の package だけを軽くする段です。
 
-- `package_surface_build_ms`
-  - package source path 列挙
-  - bundled/source surface hash 構築
-- `candidate_prefilter_ms`
-  - reverse lookup + coarse filter
-- `candidate_evaluate_ms`
-  - 現行 `evaluationMs`
-- `candidate_count_before`
-- `candidate_count_after`
-- `fallback_used`
+この段でやったことは、ownership semantics を変えずに **常時コストだけを service 層で削る** ことです。
 
-この資料の段階では「必要な計測項目」を定義するに留め、実装プラン側で導入判断する。
+固定した前提:
 
-## 後続プランの分け方
+- correctness は戻さない
+  - root chart は descendant resource を見える
+  - child-only chart は ancestor-shadow で守る
+- broad filter / final scoring の意味は変えない
+- `pathAwareRefs > 0` の package では final evaluation を strict relative-path semantics のまま維持する
+- `pathAwareRefs = 0` の package では final evaluation と lookup-cache audio gate を basename-only fast path へ寄せる
+- まず削るのは **普通の package にも常時乗っていた評価コスト**
 
-この資料を前提に、後続の性能改善プランは少なくとも次の 5 本へ分割できる。
+実装した内容:
 
-1. **Perf-1: coarse filter / fallback 見直し**
-   - 全件 fallback 廃止
-   - audio 最低一致数
-   - candidate 数削減
-2. **Perf-2a: mode-aware audio viability gate**
-   - `innerWavHealthThreshold` を前段 candidate 除外にも使う
-   - 通常推定は `candidate + bundled`
-   - merge は `candidate only`
-3. **Perf-2b: pending estimate package 間並列化**
-   - 実施済み
-   - `evaluate parallel / apply serial`
-   - batch wall-clock 短縮
-4. **Perf-3: package source surface / scanner 基盤整理**
+1. **self-only match の lazy 化**
+   - `EvaluateCandidate(...)` では aggregate metrics だけを計算する
+   - `SelfOwnedMatchedTotal` は未計算 sentinel で保持し、ancestor-shadow 比較が必要な候補だけで遅延評価する
+2. **candidate hierarchy prepass**
+   - audio gate 後の candidate set に ancestor / descendant 関係が 1 組もなければ、ancestor-shadow 自体を完全にスキップする
+3. **chain-scoped shadow suppression**
+   - 全候補総当たりはやめ、実際に hierarchy を持つ候補ペアだけを比較する
+4. **bundled view の再利用**
+   - `bundledResources` から作る view は candidate ごとに作り直さず、評価ループ外で 1 回だけ構築する
+5. **basename-only fast path**
+   - `pathAwareRefs = 0` の package は final evaluation で full `CandidateResourceView` を作らず、basename sets だけで評価する
+   - lookup-cache audio gate でも basename intersection を使い、relative-path view の構築を避ける
+
+追加した診断値:
+
+- `evalMode`
+- `candidateViewBuildMs`
+- `candidateMatchMs`
+- `candidateViewBuildCount`
+- `candidateViewFallbackCount`
+- `candidateDirsInHierarchy`
+- `shadowSuppressed`
+- `lazySelfOwnedCandidates`
+- `shadowMs`
+
+これで次の確認をログだけでできるようにした。
+
+- hierarchy がない package では shadow path を通っていない
+- self-only lazy 評価が一部候補にだけ限定されている
+- 改善の本体が broad filter ではなく evaluation 側にある
+- `pathAwareRefs = 0` の package では basename-only fast path が効いている
+
+ここで重要なのは、ユーザーが直感している
+
+- `basename.wav`
+- `sound\\basename.wav`
+
+の違いそのものよりも、**その差を守るための ownership / suppression 機構を全 package に常時適用していたこと**が性能悪化の本体だった点である。  
+ownership perf recovery は、その常時コストを fast path で剥がすための段として整理する。
+
+2nd pass ではその fast path を `pathAwareRefs = 0` に限定し、`pathAwareRefs > 0` の strict relative-path semantics は維持したままにしている。
+
+## Relative Path 対応の性能整理
+
+`2026-04-23` 時点の最新 batch 観測では、relative path 対応に伴う性能対策はひとまず収束したと整理してよい。
+
+主要な比較:
+
+- 最新 `install-performance.log`
+  - `elapsedMs=29672`
+  - `lowConfidence=106`
+- ownership perf recovery 第1段階後
+  - `elapsedMs=31829`
+  - `lowConfidence=106`
+- `Pref-2b`
+  - `elapsedMs=28628`
+  - `lowConfidence=107`
+
+差分:
+
+- 第1段階後 `31829` からは `-2157ms (-6.8%)`
+- `Pref-2b` `28628` に対しては `+1044ms (+3.6%)`
+- 目標としていた `30000ms` 未満は達成
+
+`estimate_install start` の集計でも、改善の主因が candidate evaluation hot path にあることを確認できている。
+
+- `evaluationMs` 合計
+  - 第1段階後: `3449`
+  - 最新: `706`
+  - `Pref-2b`: `1605`
+- `evalMode`
+  - `basename_fast_path=135`
+  - `relative_strict=1`
+- `candidateViewBuildMs=0`
+- `candidateViewBuildCount=0`
+- `candidateViewFallbackCount=0`
+- `candidateMatchMs` 合計 `88`
+- `candidateDirsInHierarchy=0`
+- `shadowSuppressed=0`
+- `lazySelfOwnedCandidates=0`
+- `shadowMs=0`
+
+ここから言えること:
+
+1. basename-only package の fast path は狙いどおり効いている
+2. strict relative-path semantics は path-aware package にだけ残せている
+3. evaluation hot path 自体は、むしろ `Pref-2b` より軽くなっている
+4. 残る wall-clock 差分は、relative path semantics そのものや `EvaluateCandidate(...)` の重さではない
+
+したがって、**relative path 対応による致命的な性能回帰は現時点ではない** と整理できる。  
+以後の性能課題は「relative path 対応を成立させるための緊急 perf recovery」ではなく、batch orchestration / source surface / scanner / logging を含む通常の Perf-3 論点として扱う。
+
+## Phase 6 / Perf-3 へ引き継ぐ前提
+
+次段では、relative path 対応を特殊対応として持ち続けるのではなく、通常実装として整流化していく。
+
+固定前提:
+
+- relative-path semantics は凍結済み
+- ownership semantics と ancestor-shadow guard は完了済み
+- `pathAwareRefs > 0` package の strict relative-path final evaluation は維持する
+- `pathAwareRefs = 0` package の basename-only fast path は維持する
+- これ以上の perf 議論は relative path correctness の blocker 扱いにしない
+
+Phase 6 / Perf-3 で扱うもの:
+
+1. **Cleanup / Legacy Removal**
+   - obsolete helper
+   - verify-only 導線
+   - 一時互換コード
+2. **Perf-3: package source surface / scanner 基盤整理**
    - source path 列挙の一般化
-   - snapshot build 計測
-   - cache 改善
-5. **Perf-4: Perf-2a / Perf-2b 統合調整**
-   - apply phase / progress / lock 再整理
-   - candidate 数削減と parallel 度のバランス調整
+   - snapshot / scanner / index 前提の整理
+   - evaluation hot path の外側に残る wall-clock コストの観測
+3. **docs / diagnostics の整流化**
+   - 現状ロジックとログ項目の説明を一本化する
+   - Phase 6 以降の改善対象を relative path 回帰対策と切り分ける
 
 ## 関連資料
 

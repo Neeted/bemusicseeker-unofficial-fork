@@ -181,7 +181,8 @@ resource-only subdir は候補に入りません。
 - self-only ownership
   - resource を最も近くで所有する chart directory だけが持つ
 
-install estimation の broad filter / final evaluation は aggregate ownership を主に使い、installed-dir tie-break や ancestor-shadow rule では self-only ownership を参照します。
+install estimation の broad filter / final evaluation は aggregate ownership を主に使い、installed-dir tie-break や ancestor-shadow rule では self-only ownership を参照します。  
+ただし final evaluation は hybrid 化されており、`pathAwareRefs > 0` の package では strict relative-path semantics を維持し、`pathAwareRefs = 0` の package だけ basename-only fast path を許します。
 
 ## coarse filter
 
@@ -336,6 +337,8 @@ Perf-2a 再修正では、この unified audio gate の仕様は変えず、内�
 - `snapshot.DefinedResources`
 
 つまり **`candidate + package bundled resources`** を見ます。
+`pathAwareRefs > 0` の package では、この比較も relative-path exact 前提の strict semantics で行います。
+`pathAwareRefs = 0` の package では、candidateView と lookup-cache audio gate を basename-only fast path で処理できます。
 
 ### merge 推定
 
@@ -346,6 +349,28 @@ Perf-2a 再修正では、この unified audio gate の仕様は変えず、内�
 
 つまり **`candidate only`** を見ます。  
 source の bundled resources は merge の final evaluation には足しません。
+`pathAwareRefs > 0` の package では、merge でも strict relative-path semantics を崩しません。
+`pathAwareRefs = 0` の package では、basename-only fast path を使って final evaluation と lookup-cache audio gate を軽くできます。
+
+### ancestor-shadow fast path
+
+`2026-04-23` 時点では、ownership fix の後段として **candidate hierarchy prepass** を入れています。
+
+- audio gate 後の candidate set に ancestor / descendant 関係が 1 組もなければ
+  - ancestor-shadow rule は完全にスキップ
+  - self-only matched total も一切計算しない
+- hierarchy があるときだけ
+  - viable な ancestor / descendant 候補ペアに対して
+  - `SelfOwnedMatchedTotal` を lazy に計算し
+  - chain-scoped に suppression を行う
+
+つまり現在の ancestor-shadow rule は、
+
+- aggregate ownership の correctness を守るための guard
+- ただし普通の non-hierarchical package では寝ている fast path
+
+として動いています。
+hybrid final evaluation になってもこの guard は残し、`pathAwareRefs > 0` の package では strict relative-path final evaluation の correctness を守り、`pathAwareRefs = 0` の package では basename-only fast path を安全に許可します。
 
 ## 算出する指標
 
@@ -369,12 +394,26 @@ source の bundled resources は merge の final evaluation には足しませ�
 - 各 ref は `1 ref = 1 点`
   - path-aware ref に extra bonus は付けない
 - `Defined` / `Matched` / `CandidateCount`
-  - basename-only + path-aware を合算した **total resource count** を基準にする
+  - `pathAwareRefs > 0` の package では per-ref / total resource count 基準の strict relative-path semantics を使う
+  - `pathAwareRefs = 0` の package では distinct basename count 基準の basename-only fast path を使う
 
 `ExactMatched` は public shape 互換のため残していますが、現在は `Matched` と同値です。  
-relative path は独立 bonus 軸ではなく、**resource の定義方法に応じて match 条件が変わるだけ**という整理にしています。
+relative path は独立 bonus 軸ではなく、**resource の定義方法に応じて match 条件が変わるだけ**という整理にしています。  
+ただし basename-only package では、final evaluation の後段だけを意図的に basename key ベースへ寄せて、nested path の数え分けコストを払わないようにしています。
 
 `Precision` / `Jaccard` はログ/UI には整数 `%` を出しますが、**内部順位付けと tie 判定は raw ratio** を使います。
+
+### 診断ログ
+
+現在の final evaluation / candidate view まわりのログには、少なくとも次を出します。
+
+- `evalMode`
+- `candidateViewBuildMs`
+- `candidateMatchMs`
+- `candidateViewBuildCount`
+- `candidateViewFallbackCount`
+
+これで `pathAwareRefs > 0` の strict relative-path 経路と、`pathAwareRefs = 0` の basename-only fast path を区別して追えます。
 
 ## 並び順
 
@@ -425,6 +464,19 @@ frontier tie-break は、**resource 指標で僅差の上位 frontier** にだ�
 
 metadata tie-break の結果が明確なら、resource 指標上は tie でも `Low` を `High` へ上げます。
 このとき `ConfidenceReason = metadata_tiebreak_distinct` になります。
+
+### ancestor-shadow suppression
+
+resource 指標で viable な候補を並べたあと、ancestor / descendant 関係がある場合だけ **ancestor-shadow suppression** をかけます。
+
+抑制条件:
+
+- descendant が ancestor と同等以上の ranking metrics を持つ
+- ancestor の self-only matched total が `0`
+- descendant の self-only matched total が `1` 以上
+
+このとき ancestor は ordered candidate list と suggestion 候補から除外します。  
+`SelfOwnedMatchedTotal` はこの比較に入る候補だけで計算し、memoize します。
 
 ### selected-candidate validation
 

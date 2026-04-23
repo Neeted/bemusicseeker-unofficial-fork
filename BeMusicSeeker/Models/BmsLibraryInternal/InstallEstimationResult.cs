@@ -19,6 +19,12 @@ internal enum InstallEstimationLowConfidenceKind
     MetadataMismatch
 }
 
+internal enum InstallEstimationFinalEvaluationMode
+{
+    RelativeStrict,
+    BasenameOnlyFastPath
+}
+
 /// <summary>
 /// 推定候補 1 件分の評価結果です。
 /// 上位候補の比較表示と warning 文言生成に利用します。
@@ -163,6 +169,12 @@ internal sealed class InstallEstimationResult
 
     public int CandidateDirectoryCountAfterAudioGate { get; set; }
 
+    public int HierarchyCandidateDirectoryCount { get; set; }
+
+    public int AncestorShadowSuppressedCount { get; set; }
+
+    public int LazySelfOwnedEvaluationCount { get; set; }
+
     public int TargetResourceCount { get; set; }
 
     public int TargetResourceHashCount { get; set; }
@@ -187,6 +199,8 @@ internal sealed class InstallEstimationResult
 
     public int AudioMinimumMatchRequired { get; set; }
 
+    public InstallEstimationFinalEvaluationMode FinalEvaluationMode { get; set; } = InstallEstimationFinalEvaluationMode.RelativeStrict;
+
     public int BundledAudioCount { get; set; }
 
     public int BundledImageCount { get; set; }
@@ -198,6 +212,16 @@ internal sealed class InstallEstimationResult
     public string CoarseFilterMode { get; set; }
 
     public long EvaluationMs { get; set; }
+
+    public long CandidateViewBuildMs { get; set; }
+
+    public long CandidateMatchMs { get; set; }
+
+    public int CandidateViewBuildCount { get; set; }
+
+    public int CandidateViewFallbackCount { get; set; }
+
+    public long AncestorShadowEvaluationMs { get; set; }
 
     public string ResourceSummary { get; set; }
 

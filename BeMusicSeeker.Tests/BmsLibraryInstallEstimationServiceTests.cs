@@ -1697,7 +1697,13 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             asParallel: false,
             BmsInstallationEstimateMode.Normal);
 
+        Assert.AreEqual(InstallEstimationFinalEvaluationMode.BasenameOnlyFastPath, result.FinalEvaluationMode);
         Assert.AreEqual(2, result.CandidateDirectoryCountAfterBroadFilter);
+        Assert.AreEqual(2, result.HierarchyCandidateDirectoryCount);
+        Assert.AreEqual(1, result.AncestorShadowSuppressedCount);
+        Assert.AreEqual(2, result.LazySelfOwnedEvaluationCount);
+        Assert.AreEqual(2, result.CandidateViewBuildCount);
+        Assert.AreEqual(0, result.CandidateViewFallbackCount);
         Assert.AreEqual(childDir, result.SelectedCandidate?.DirectoryPath);
         Assert.AreEqual(childDir, result.DestinationDirectory);
     }
@@ -1729,7 +1735,13 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             asParallel: false,
             BmsInstallationEstimateMode.Normal);
 
+        Assert.AreEqual(InstallEstimationFinalEvaluationMode.BasenameOnlyFastPath, result.FinalEvaluationMode);
         Assert.AreEqual(2, result.CandidateDirectoryCountAfterBroadFilter);
+        Assert.AreEqual(0, result.HierarchyCandidateDirectoryCount);
+        Assert.AreEqual(0, result.AncestorShadowSuppressedCount);
+        Assert.AreEqual(0, result.LazySelfOwnedEvaluationCount);
+        Assert.AreEqual(0, result.CandidateViewBuildCount);
+        Assert.AreEqual(0, result.CandidateViewFallbackCount);
         Assert.AreEqual(1, result.SelectedCandidate?.AudioMatched);
         Assert.AreEqual(1, result.SelectedCandidate?.AudioExactMatched);
         Assert.AreEqual(nestedCandidateDir, result.SelectedCandidate?.DirectoryPath);
@@ -1763,6 +1775,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             asParallel: false,
             BmsInstallationEstimateMode.Normal);
 
+        Assert.AreEqual(InstallEstimationFinalEvaluationMode.RelativeStrict, result.FinalEvaluationMode);
         Assert.AreEqual(2, result.TargetResourceCount);
         Assert.AreEqual(candidateDir, result.SelectedCandidate?.DirectoryPath);
         Assert.AreEqual(2, result.SelectedCandidate?.AudioMatched);
@@ -1771,7 +1784,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     }
 
     [TestMethod]
-    public void EstimateInstallationDirectory_CandidateCount_UsesDistinctRelativeResources()
+    public void EstimateInstallationDirectory_CandidateCount_CollapsesBasenameDuplicatesInFastPath()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         BmsLibraryInstallEstimationService service = CreateService();
@@ -1798,11 +1811,14 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             asParallel: false,
             BmsInstallationEstimateMode.Normal);
 
+        Assert.AreEqual(InstallEstimationFinalEvaluationMode.BasenameOnlyFastPath, result.FinalEvaluationMode);
         Assert.AreEqual(candidateDir, result.SelectedCandidate?.DirectoryPath);
         Assert.AreEqual(1, result.SelectedCandidate?.AudioMatched);
-        Assert.AreEqual(50, result.SelectedCandidate?.AudioPrecision);
-        Assert.AreEqual(50, result.SelectedCandidate?.AudioJaccard);
-        Assert.AreEqual(2, result.SelectedCandidate?.AudioFileCount);
+        Assert.AreEqual(100, result.SelectedCandidate?.AudioPrecision);
+        Assert.AreEqual(100, result.SelectedCandidate?.AudioJaccard);
+        Assert.AreEqual(1, result.SelectedCandidate?.AudioFileCount);
+        Assert.AreEqual(0, result.CandidateViewBuildCount);
+        Assert.AreEqual(0, result.CandidateViewFallbackCount);
     }
 
     [TestMethod]
@@ -1905,11 +1921,181 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             BmsInstallationEstimateMode.Normal,
             relativePathHashIndex: relativePathIndex);
 
+        Assert.AreEqual(InstallEstimationFinalEvaluationMode.RelativeStrict, lookupResult.FinalEvaluationMode);
+        Assert.AreEqual(InstallEstimationFinalEvaluationMode.RelativeStrict, cachelessResult.FinalEvaluationMode);
+        Assert.AreEqual(0, lookupResult.CandidateViewFallbackCount);
+        Assert.AreEqual(0, cachelessResult.CandidateViewFallbackCount);
         Assert.AreEqual(lookupResult.DestinationDirectory, cachelessResult.DestinationDirectory);
         Assert.AreEqual(lookupResult.Confidence, cachelessResult.Confidence);
         Assert.AreEqual(lookupResult.SelectedCandidate?.AudioMatched, cachelessResult.SelectedCandidate?.AudioMatched);
         Assert.AreEqual(lookupResult.SelectedCandidate?.AudioPrecision, cachelessResult.SelectedCandidate?.AudioPrecision);
         Assert.AreEqual(lookupResult.SelectedCandidate?.AudioJaccard, cachelessResult.SelectedCandidate?.AudioJaccard);
+    }
+
+    [TestMethod]
+    public void EstimateInstallationDirectory_CachelessPath_BasenameOnlyFastPathMatchesLookupCacheWithoutViewFallback()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        BmsLibraryInstallEstimationService service = CreateService();
+        string sourceDir = Path.Combine("C:\\Pending", "Source");
+        string candidateDir = Path.Combine("C:\\Installed", "Candidate");
+        uint bgm1BaseHash = BMSDirectoryFileNameHash.GetLookupHash("bgm1.wav");
+        uint nestedBgm1Hash = BMSDirectoryFileNameHash.GetLookupHash("sound\\bgm1.wav");
+        TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(sourceDir, "chart.bms"), "bgm1.wav");
+        file.SetMaintenanceInfo(CreateMaintenanceInfo(file, wavDefined: 1, wavExisting: 0), suppressPropertyChanged: true, registerEventHandlers: false);
+
+        BMSDirectoryFileNameHash cache = new BMSDirectoryFileNameHash();
+        cache.AddDirHashed(sourceDir, new[] { BMSDirectoryFileNameHash.GetFileNameHash("chart.bms") });
+        cache.AddDirHashed(candidateDir, new[] { BMSDirectoryFileNameHash.GetFileNameHash("bgm1.wav") });
+        DirectoryResourceLookupCache lookupCache = new DirectoryResourceLookupCache();
+        lookupCache.AddDir(candidateDir, new[] { "sound\\bgm1.wav" });
+        DirectoryRelativePathHashIndex relativePathIndex = new DirectoryRelativePathHashIndex();
+        relativePathIndex.AddDir(candidateDir, new[] { bgm1BaseHash }, Array.Empty<uint>(), Array.Empty<uint>(), new[] { nestedBgm1Hash }, Array.Empty<uint>(), Array.Empty<uint>());
+
+        InstallEstimationResult lookupResult = service.EstimateInstallationDirectory(
+            new[] { file },
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+            cache,
+            lookupCache,
+            asParallel: false,
+            BmsInstallationEstimateMode.Normal);
+
+        InstallEstimationResult cachelessResult = service.EstimateInstallationDirectory(
+            new[] { file },
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+            cache,
+            directoryLookupCache: null,
+            asParallel: false,
+            BmsInstallationEstimateMode.Normal,
+            relativePathHashIndex: relativePathIndex);
+
+        Assert.AreEqual(InstallEstimationFinalEvaluationMode.BasenameOnlyFastPath, lookupResult.FinalEvaluationMode);
+        Assert.AreEqual(InstallEstimationFinalEvaluationMode.BasenameOnlyFastPath, cachelessResult.FinalEvaluationMode);
+        Assert.AreEqual(lookupResult.DestinationDirectory, cachelessResult.DestinationDirectory);
+        Assert.AreEqual(lookupResult.Confidence, cachelessResult.Confidence);
+        Assert.AreEqual(lookupResult.SelectedCandidate?.AudioMatched, cachelessResult.SelectedCandidate?.AudioMatched);
+        Assert.AreEqual(lookupResult.SelectedCandidate?.AudioPrecision, cachelessResult.SelectedCandidate?.AudioPrecision);
+        Assert.AreEqual(lookupResult.SelectedCandidate?.AudioJaccard, cachelessResult.SelectedCandidate?.AudioJaccard);
+        Assert.AreEqual(0, lookupResult.CandidateViewBuildCount);
+        Assert.AreEqual(0, cachelessResult.CandidateViewBuildCount);
+        Assert.AreEqual(0, lookupResult.CandidateViewFallbackCount);
+        Assert.AreEqual(0, cachelessResult.CandidateViewFallbackCount);
+    }
+
+    [TestMethod]
+    public void EstimateInstallationDirectory_CachelessPath_PreservesAncestorShadowDiagnosticsForNestedBasenameAudio()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        BmsLibraryInstallEstimationService service = CreateService();
+        string sourceDir = Path.Combine("C:\\Pending", "Source");
+        string parentDir = Path.Combine("C:\\Installed", "Parent");
+        string childDir = Path.Combine(parentDir, "Child");
+        uint zeroBaseHash = BMSDirectoryFileNameHash.GetFileNameHash("00.wav");
+        uint oneBaseHash = BMSDirectoryFileNameHash.GetFileNameHash("01.wav");
+        uint parentZeroRelativeHash = BMSDirectoryFileNameHash.GetLookupHash("Child\\sound\\00.wav");
+        uint parentOneRelativeHash = BMSDirectoryFileNameHash.GetLookupHash("Child\\sound\\01.wav");
+        uint childZeroRelativeHash = BMSDirectoryFileNameHash.GetLookupHash("sound\\00.wav");
+        uint childOneRelativeHash = BMSDirectoryFileNameHash.GetLookupHash("sound\\01.wav");
+        TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(sourceDir, "chart.bms"), "00.wav", "01.wav");
+        file.SetMaintenanceInfo(CreateMaintenanceInfo(file, wavDefined: 2, wavExisting: 0), suppressPropertyChanged: true, registerEventHandlers: false);
+
+        BMSDirectoryFileNameHash cache = new BMSDirectoryFileNameHash();
+        cache.AddDirHashed(sourceDir, new[] { BMSDirectoryFileNameHash.GetFileNameHash("chart.bms") });
+        cache.AddDirHashed(parentDir, Array.Empty<uint>());
+        cache.AddDirHashed(childDir, new[] { zeroBaseHash, oneBaseHash });
+
+        DirectoryResourceLookupCache lookupCache = new DirectoryResourceLookupCache();
+        lookupCache.AddDir(
+            parentDir,
+            new[] { zeroBaseHash, oneBaseHash },
+            new[] { zeroBaseHash, oneBaseHash },
+            Array.Empty<uint>(),
+            Array.Empty<uint>(),
+            new[] { parentZeroRelativeHash, parentOneRelativeHash },
+            Array.Empty<uint>(),
+            Array.Empty<uint>(),
+            Array.Empty<uint>(),
+            Array.Empty<uint>(),
+            Array.Empty<uint>(),
+            Array.Empty<uint>(),
+            Array.Empty<uint>(),
+            Array.Empty<uint>());
+        lookupCache.AddDir(
+            childDir,
+            new[] { zeroBaseHash, oneBaseHash },
+            new[] { zeroBaseHash, oneBaseHash },
+            Array.Empty<uint>(),
+            Array.Empty<uint>(),
+            new[] { childZeroRelativeHash, childOneRelativeHash },
+            Array.Empty<uint>(),
+            Array.Empty<uint>(),
+            new[] { zeroBaseHash, oneBaseHash },
+            new[] { zeroBaseHash, oneBaseHash },
+            Array.Empty<uint>(),
+            Array.Empty<uint>(),
+            new[] { childZeroRelativeHash, childOneRelativeHash },
+            Array.Empty<uint>(),
+            Array.Empty<uint>());
+
+        DirectoryRelativePathHashIndex relativePathIndex = new DirectoryRelativePathHashIndex();
+        relativePathIndex.AddDir(
+            parentDir,
+            new[] { zeroBaseHash, oneBaseHash },
+            Array.Empty<uint>(),
+            Array.Empty<uint>(),
+            new[] { parentZeroRelativeHash, parentOneRelativeHash },
+            Array.Empty<uint>(),
+            Array.Empty<uint>(),
+            Array.Empty<uint>(),
+            Array.Empty<uint>(),
+            Array.Empty<uint>(),
+            Array.Empty<uint>(),
+            Array.Empty<uint>(),
+            Array.Empty<uint>());
+        relativePathIndex.AddDir(
+            childDir,
+            new[] { zeroBaseHash, oneBaseHash },
+            Array.Empty<uint>(),
+            Array.Empty<uint>(),
+            new[] { childZeroRelativeHash, childOneRelativeHash },
+            Array.Empty<uint>(),
+            Array.Empty<uint>(),
+            new[] { zeroBaseHash, oneBaseHash },
+            Array.Empty<uint>(),
+            Array.Empty<uint>(),
+            new[] { childZeroRelativeHash, childOneRelativeHash },
+            Array.Empty<uint>(),
+            Array.Empty<uint>());
+
+        InstallEstimationResult lookupResult = service.EstimateInstallationDirectory(
+            new[] { file },
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+            cache,
+            lookupCache,
+            asParallel: false,
+            BmsInstallationEstimateMode.Normal);
+
+        InstallEstimationResult cachelessResult = service.EstimateInstallationDirectory(
+            new[] { file },
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+            cache,
+            directoryLookupCache: null,
+            asParallel: false,
+            BmsInstallationEstimateMode.Normal,
+            relativePathHashIndex: relativePathIndex);
+
+        Assert.AreEqual(InstallEstimationFinalEvaluationMode.BasenameOnlyFastPath, lookupResult.FinalEvaluationMode);
+        Assert.AreEqual(InstallEstimationFinalEvaluationMode.BasenameOnlyFastPath, cachelessResult.FinalEvaluationMode);
+        Assert.AreEqual(lookupResult.DestinationDirectory, cachelessResult.DestinationDirectory);
+        Assert.AreEqual(lookupResult.Confidence, cachelessResult.Confidence);
+        Assert.AreEqual(lookupResult.CandidateDirectoryCountAfterBroadFilter, cachelessResult.CandidateDirectoryCountAfterBroadFilter);
+        Assert.AreEqual(lookupResult.HierarchyCandidateDirectoryCount, cachelessResult.HierarchyCandidateDirectoryCount);
+        Assert.AreEqual(lookupResult.AncestorShadowSuppressedCount, cachelessResult.AncestorShadowSuppressedCount);
+        Assert.AreEqual(lookupResult.LazySelfOwnedEvaluationCount, cachelessResult.LazySelfOwnedEvaluationCount);
+        Assert.AreEqual(2, lookupResult.CandidateViewBuildCount);
+        Assert.AreEqual(2, cachelessResult.CandidateViewBuildCount);
+        Assert.AreEqual(0, lookupResult.CandidateViewFallbackCount);
+        Assert.AreEqual(0, cachelessResult.CandidateViewFallbackCount);
     }
 
     [TestMethod]

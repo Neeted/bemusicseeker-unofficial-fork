@@ -326,7 +326,8 @@ Phase 4 で固定したこと:
   - public shape 互換のため残すが、現在は `Matched` と同値
   - comparator の独立 bonus 軸からは外した
 - `Defined` / `Matched` / `CandidateCount`
-  - basename-only + path-aware を合算した **total resource count** を基準に統一した
+  - `pathAwareRefs > 0` の package では basename-only + path-aware を合算した **total resource count** を基準にする
+  - `pathAwareRefs = 0` の package では distinct basename count ベースの basename-only fast path を使う
 - viability / unified audio gate
   - basename-only ref は basename 一致
   - path-aware ref は relative path 完全一致
@@ -364,6 +365,23 @@ Phase 4 の後で見つかった、installed candidate surface の ownership gap
 - child-style / basename-only chart で child candidate が親 aggregate candidate に押し負けない
 - Everything / fallback / install / merge の各経路で aggregate + self-only の二重 semantics が揃う
 
+### Phase 5+. Hybrid Final Evaluation / Ownership Perf Recovery 2nd Pass
+
+Phase 5 で ownership semantics を揃えたあと、final evaluation は hybrid で運用する。
+
+固定したいこと:
+
+- `pathAwareRefs > 0` の package
+  - final evaluation は strict relative-path semantics を維持する
+  - lookup-cache audio gate も basename-only へは落とさない
+- `pathAwareRefs = 0` の package
+  - final evaluation は basename-only fast path を使う
+  - lookup-cache audio gate も basename-only fast path を使う
+- ancestor-shadow / lazy self-owned
+  - どちらの経路でも correctness guard として残す
+
+この段は、相対パス semantics を緩めるためではなく、**path-aware package は strict のまま、basename-only package だけを軽くする**ための ownership perf recovery 2nd pass です。
+
 ### Phase 6. Cleanup / Legacy Removal / Perf-3 接続
 
 Perf-3 に入る前の仕上げです。
@@ -390,7 +408,8 @@ Perf-3 に入る前の仕上げです。
 3. Phase 3: Path-Aware Index / Broad Filter Completion
 4. Phase 4: Estimation Semantics Completion
 5. Phase 5: Ownership Completion
-6. Phase 6: Cleanup / Legacy Removal / Perf-3 接続
+6. Phase 5+: Hybrid Final Evaluation / Ownership Perf Recovery 2nd Pass
+7. Phase 6: Cleanup / Legacy Removal / Perf-3 接続
 
 理由:
 - まず意味を固定しないと、Everything parity と推定改善のどちらもブレる
@@ -399,15 +418,34 @@ Perf-3 に入る前の仕上げです。
 
 ## 次に切るプラン
 
-Phase 1 から Phase 4 までは完了しており、次に切るプランは **Phase 5 / Ownership Completion** が自然です。
+`2026-04-23` 時点では、Phase 1 から Phase 5+ までは完了している。
+
+固定できたこと:
+
+1. relative-path semantics 自体
+2. broad filter / final scoring への一貫適用
+3. aggregate ownership と self-only ownership の二重 view
+4. root chart と nested chart directory が共存する package での candidate surface 修正
+5. ancestor-shadow rule による child-only chart 保護
+6. `pathAwareRefs = 0` package 向け basename-only fast path と mode-aware diagnostics
+
+性能面の整理:
+
+- 最新 batch は `elapsedMs=29672`
+- `Pref-2b` の `28628` に対して `+1044ms (+3.6%)`
+- ownership perf recovery 第1段階後の `31829` からは `-2157ms (-6.8%)`
+- `evaluationMs` 合計は `706` で、`Pref-2b` の `1605` より軽い
+- `basename_fast_path=135`, `relative_strict=1`
+- `candidateViewBuildMs=0`, `candidateViewBuildCount=0`, `candidateViewFallbackCount=0`
+
+このため、relative path 対応による **致命的な性能回帰は現時点ではない** と整理できる。  
+次段の論点は、relative path の意味追加や緊急 perf recovery ではなく **Phase 6. Cleanup / Legacy Removal / Perf-3 接続** になる。
 
 主論点:
 
-1. aggregate ownership と self-only ownership の二重 view 導入
-2. root chart と nested chart directory が共存する package の candidate surface 修正
-3. ancestor-shadow rule で child-only chart を親 aggregate candidate から守る
-
-つまり今後は、「relative path をどう実装するか」ではなく、**relative path semantics が完了した状態で installed candidate surface をどう正すか** が主戦場になります。
+1. obsolete helper / verify-only 導線 / 一時互換コード整理
+2. relative path 前提の docs / logs / diagnostics の整流化
+3. Perf-3 に渡す source surface / scanner / index 前提の整理
 
 ## 関連ファイル
 

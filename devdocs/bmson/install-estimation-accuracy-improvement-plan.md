@@ -12,11 +12,11 @@
 - `Perf-1`: 実施済み
 - `Perf-2a`: 実施済み
 - `Perf-2b`: 実施済み
-- `P5`: 未実施
+- `P5`: 実施済み
 
 ## 現在の整理
 
-`2026-04-22` 時点の推定は、次のように整理されています。
+`2026-04-23` 時点の推定は、次のように整理されています。
 
 - 通常の `インストール先を推定`
   - `candidate + package bundled resources`
@@ -36,6 +36,17 @@
 - ranking 本体は **external candidate をどう並べるか**
 
 で役割を分けています。
+
+## Relative Path / Perf 整理
+
+`2026-04-23` 時点では、relative path 対応に伴う性能対策もひとまず完了扱いでよい。
+
+- 最新 batch は `elapsedMs=29672`
+- `Pref-2b` の `28628` に対して `+1044ms (+3.6%)`
+- ownership perf recovery 第1段階後の `31829` からは `-2157ms (-6.8%)`
+- `evaluationMs` 合計は `706` で、`Pref-2b` の `1605` より軽い
+
+このため、relative path 対応による致命的な性能回帰はない整理とし、次段は `Phase 6. Cleanup / Legacy Removal / Perf-3 接続` を進める。
 
 ## P2 で実装した本質
 
