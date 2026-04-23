@@ -3477,6 +3477,7 @@ public class MainWindowViewModel : ViewModel
         PlaylistFilterSelected = 1,
         PlaylistNotOwnedFilterSelected = 2,
         FolderFilterSelected = 17,
+        FullScanAllChartsFilterSelected = 32,
         FileMissingFilterSelected = 33,
         FileMissingIgnoredFilterSelected = 34,
         DuplicateFilterSelected = 35,
@@ -4025,6 +4026,7 @@ public class MainWindowViewModel : ViewModel
 
     public enum MaintenanceFilterType
     {
+        FullScanAllChartsFilter = 32,
         FileMissingFilter = 33,
         FileMissingIgnoredFilter,
         DuplicateFilter,
@@ -10094,6 +10096,9 @@ public class MainWindowViewModel : ViewModel
             case viewUpdateMode.FolderFilterSelected:
                 BMSFilesFolderView = BuildStandardLibraryRowsForView(BMSFiles, includeBmsonRows ? GetBmsonLibraryRowsSnapshot() : Enumerable.Empty<BeMusicSeeker.Models.BMSFile>(), FolderFilter);
                 break;
+            case viewUpdateMode.FullScanAllChartsFilterSelected:
+                BMSFilesFolderView = BuildStandardLibraryRowsForView(BMSFiles, includeBmsonRows ? GetBmsonLibraryRowsSnapshot() : Enumerable.Empty<BeMusicSeeker.Models.BMSFile>(), null);
+                break;
             case viewUpdateMode.FileMissingFilterSelected:
                 BMSFilesFolderView = BMSFilesToBeFixed;
                 break;
@@ -10438,6 +10443,10 @@ public class MainWindowViewModel : ViewModel
 
     private static bool ShouldIncludeBmsonLibraryRowsInMainView(viewUpdateMode mode, viewUpdateMode currentTreeMode)
     {
+        if (mode == viewUpdateMode.FullScanAllChartsFilterSelected || currentTreeMode == viewUpdateMode.FullScanAllChartsFilterSelected)
+        {
+            return true;
+        }
         if (IsPlaylistTreeActive(mode, currentTreeMode))
         {
             return false;
@@ -10609,6 +10618,7 @@ public class MainWindowViewModel : ViewModel
                 break;
             case viewUpdateMode.FileMissingFilterSelected:
             case viewUpdateMode.FileMissingIgnoredFilterSelected:
+            case viewUpdateMode.FullScanAllChartsFilterSelected:
             case viewUpdateMode.NewlyInstalledFolderSelected:
                 caseLabel = "fullscan";
                 stageStartMs = stopwatch.ElapsedMilliseconds;

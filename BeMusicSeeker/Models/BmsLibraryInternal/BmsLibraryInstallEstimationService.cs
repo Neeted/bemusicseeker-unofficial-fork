@@ -657,7 +657,8 @@ internal sealed class BmsLibraryInstallEstimationService
     {
         InstallEstimationResult result = new InstallEstimationResult();
         bool isMergeMode = estimateMode == BmsInstallationEstimateMode.MergeCandidateOnly;
-        bool useBundledResources = !isMergeMode;
+        bool isReinstallCorrectionMode = estimateMode == BmsInstallationEstimateMode.ReinstallCorrection;
+        bool useBundledResources = !(isMergeMode || isReinstallCorrectionMode);
         if (snapshot?.RepresentativeFile == null || folderAllFileList == null)
         {
             return result;
@@ -680,9 +681,9 @@ internal sealed class BmsLibraryInstallEstimationService
         result.VisualReferenceCount = resourceSnapshot.VisualReferenceCount;
         result.MovieReferenceCount = resourceSnapshot.MovieReferenceCount;
         result.OptionalImageReferenceCount = resourceSnapshot.OptionalImageReferenceCount;
-        result.BundledAudioCount = snapshot.BundledAudioCount;
-        result.BundledImageCount = snapshot.BundledImageCount;
-        result.BundledMovieCount = snapshot.BundledMovieCount;
+        result.BundledAudioCount = useBundledResources ? snapshot.BundledAudioCount : 0;
+        result.BundledImageCount = useBundledResources ? snapshot.BundledImageCount : 0;
+        result.BundledMovieCount = useBundledResources ? snapshot.BundledMovieCount : 0;
         result.FinalEvaluationMode = evaluationMode;
         result.CandidateMode = useBundledResources ? "package_union_source_excluded" : "candidate_only_source_excluded";
         result.CoarseFilterMode = (directoryLookupCache != null) ? "path_aware_audio_gated" : "path_aware_hash_only";
@@ -698,15 +699,31 @@ internal sealed class BmsLibraryInstallEstimationService
             + " pathAwareVisualRefs=" + result.TargetPathAwareVisualHashCount
             + " pathAwareMovieRefs=" + result.TargetPathAwareMovieHashCount
             + " pathAwareOptionalRefs=" + result.TargetPathAwareOptionalImageHashCount
-            + " bundledAudio=" + snapshot.BundledAudioCount
-            + " bundledImage=" + snapshot.BundledImageCount
-            + " bundledMovie=" + snapshot.BundledMovieCount
+            + " bundledAudio=" + result.BundledAudioCount
+            + " bundledImage=" + result.BundledImageCount
+            + " bundledMovie=" + result.BundledMovieCount
             + " candidateMode=" + result.CandidateMode;
         if (resourceSnapshot.TotalReferenceCount == 0 || result.TargetResourceHashCount == 0)
         {
             return result;
         }
         string sourceDir = snapshot.SourceDirectory;
+        CandidateEvaluation sourceBaselineEvaluation = null;
+        if (isReinstallCorrectionMode && !string.IsNullOrWhiteSpace(sourceDir))
+        {
+            sourceBaselineEvaluation = EvaluateDirectoryCandidate(
+                sourceDir,
+                resourceSnapshot,
+                folderAllFileList,
+                directoryLookupCache,
+                relativePathHashIndex,
+                bundledResources: null,
+                bundledView: null,
+                evaluationMode,
+                diagnostics: null,
+                isSourceCandidate: true);
+            result.SourceBaselinePrimaryHealth = GetPrimaryHealth(resourceSnapshot, sourceBaselineEvaluation);
+        }
         List<string> allCandidateDirs = folderAllFileList.Keys
             .Where((string dir) => !string.Equals(dir, sourceDir, StringComparison.OrdinalIgnoreCase))
             .ToList();
@@ -765,27 +782,17 @@ internal sealed class BmsLibraryInstallEstimationService
         Stopwatch evaluationStopwatch = Stopwatch.StartNew();
         IEnumerable<string> candidateSource = asParallel ? candidateDirList.AsParallel() : candidateDirList.AsParallel().WithDegreeOfParallelism(1);
         List<CandidateEvaluation> candidateInfos = candidateSource
-            .Select((string candidateDir) =>
-            {
-                CandidateResourceSource candidateResourceSource = ResolveCandidateResourceSource(
-                    candidateDir,
-                    folderAllFileList,
-                    directoryLookupCache,
-                    relativePathHashIndex,
-                    includeRelativeWhenCachePresent: false);
-                return EvaluateCandidate(
-                    candidateDir,
-                    resourceSnapshot,
-                    candidateResourceSource.FallbackBaseNameHashes,
-                    candidateResourceSource.CacheEntry,
-                    bundledResources,
-                    bundledView,
-                    null,
-                    candidateResourceSource.RelativeEntry,
-                    evaluationMode,
-                    diagnostics,
-                    isSourceCandidate: false);
-            })
+            .Select((string candidateDir) => EvaluateDirectoryCandidate(
+                candidateDir,
+                resourceSnapshot,
+                folderAllFileList,
+                directoryLookupCache,
+                relativePathHashIndex,
+                bundledResources,
+                bundledView,
+                evaluationMode,
+                diagnostics,
+                isSourceCandidate: false))
             .ToList();
         evaluationStopwatch.Stop();
         result.EvaluationMs = evaluationStopwatch.ElapsedMilliseconds;
@@ -831,12 +838,15 @@ internal sealed class BmsLibraryInstallEstimationService
         CandidateEvaluation selectedCandidateEvaluation = orderedCandidates.First();
         CandidateEvaluation secondCandidateEvaluation = orderedCandidates.FirstOrDefault((CandidateEvaluation evaluation) => !ReferenceEquals(evaluation, selectedCandidateEvaluation));
         int selectedPrimaryHealth = GetPrimaryHealth(resourceSnapshot, selectedCandidateEvaluation);
+        result.SelectedCandidatePrimaryHealth = selectedPrimaryHealth;
         bool selectedViable = IsViableDestination(selectedPrimaryHealth);
+        bool hasMultipleViableCandidates = selectedViable
+            && orderedCandidates.Skip(1).Any((CandidateEvaluation evaluation) => IsViableDestination(GetPrimaryHealth(resourceSnapshot, evaluation)));
         bool topTwoViableTie = secondCandidateEvaluation != null
             && selectedViable
             && IsViableDestination(GetPrimaryHealth(resourceSnapshot, secondCandidateEvaluation))
             && selectedCandidateEvaluation.HasSameRankingMetrics(secondCandidateEvaluation);
-        bool metadataTieBreakDistinct = topTwoViableTie && IsMetadataTieBreakDistinct(selectedCandidateEvaluation, secondCandidateEvaluation, snapshot.TargetMetadataProfile, metadataProfileResolver);
+        bool metadataTieBreakDistinct = !isReinstallCorrectionMode && topTwoViableTie && IsMetadataTieBreakDistinct(selectedCandidateEvaluation, secondCandidateEvaluation, snapshot.TargetMetadataProfile, metadataProfileResolver);
         MetadataValidationResult metadataValidation = selectedViable
             ? EvaluateSelectedCandidateMetadata(selectedCandidateEvaluation, snapshot.TargetMetadataProfile, metadataProfileResolver)
             : null;
@@ -860,6 +870,16 @@ internal sealed class BmsLibraryInstallEstimationService
         {
             SetNoViableDestinationResult(result);
         }
+        else if (isReinstallCorrectionMode && hasMultipleViableCandidates)
+        {
+            result.HasViableDestination = true;
+            result.DestinationDirectory = selectedCandidateEvaluation.DirectoryPath;
+            result.Confidence = InstallEstimationConfidence.Low;
+            result.ConfidenceReason = "reinstall_multiple_viable_candidates";
+            result.LowConfidenceKind = InstallEstimationLowConfidenceKind.AmbiguousCandidates;
+            result.ShouldAutoApplyDestination = false;
+            result.SuggestedDestinationDirectories.AddRange(viableNonSourceSuggestions);
+        }
         else if (topTwoViableTie)
         {
             result.HasViableDestination = true;
@@ -874,6 +894,8 @@ internal sealed class BmsLibraryInstallEstimationService
             else
             {
                 bool autoApplyAmbiguousCandidate =
+                    !isReinstallCorrectionMode
+                    &&
                     options.AutoApplyAmbiguousInstallDestination
                     && metadataValidation?.IsApplicable == true
                     && metadataValidation.Evidence == MetadataEvidenceStrength.Strong;
@@ -904,8 +926,24 @@ internal sealed class BmsLibraryInstallEstimationService
             }
             else
             {
+                bool reinstallNotImproved = isReinstallCorrectionMode && selectedPrimaryHealth <= result.SourceBaselinePrimaryHealth;
+                if (reinstallNotImproved)
+                {
+                    result.Confidence = InstallEstimationConfidence.Low;
+                    result.ConfidenceReason = "reinstall_candidate_not_improved";
+                    result.LowConfidenceKind = InstallEstimationLowConfidenceKind.ReinstallNotImproved;
+                    result.DestinationDirectory = null;
+                    result.ShouldAutoApplyDestination = false;
+                    if (!string.IsNullOrWhiteSpace(selectedCandidateEvaluation.DirectoryPath))
+                    {
+                        result.SuggestedDestinationDirectories.Add(selectedCandidateEvaluation.DirectoryPath);
+                    }
+                    return result;
+                }
                 result.Confidence = InstallEstimationConfidence.High;
-                result.ConfidenceReason = secondCandidateEvaluation == null ? "single_candidate" : "distinct_primary_metrics";
+                result.ConfidenceReason = isReinstallCorrectionMode
+                    ? "reinstall_single_improved_candidate"
+                    : (secondCandidateEvaluation == null ? "single_candidate" : "distinct_primary_metrics");
                 result.LowConfidenceKind = InstallEstimationLowConfidenceKind.None;
                 result.DestinationDirectory = selectedCandidateEvaluation.DirectoryPath;
                 result.ShouldAutoApplyDestination = true;
@@ -1374,6 +1412,11 @@ internal sealed class BmsLibraryInstallEstimationService
 
     public PendingInstallDestinationSelectionResult ValidatePendingInstallDestination(BMSFile targetFile, IEnumerable<BMSPackage> pendingPackages, IEnumerable<string> knownChartDirectories, string destinationDirectory)
     {
+        return ValidateInstallDestination(targetFile, pendingPackages, knownChartDirectories, destinationDirectory, allowStandaloneLibraryFile: false);
+    }
+
+    public PendingInstallDestinationSelectionResult ValidateInstallDestination(BMSFile targetFile, IEnumerable<BMSPackage> pendingPackages, IEnumerable<string> knownChartDirectories, string destinationDirectory, bool allowStandaloneLibraryFile)
+    {
         PendingInstallDestinationSelectionResult result = new PendingInstallDestinationSelectionResult();
         if (targetFile == null)
         {
@@ -1383,10 +1426,17 @@ internal sealed class BmsLibraryInstallEstimationService
             .FirstOrDefault((BMSPackage pkg) => pkg != null && pkg.BMSFiles.Any((BMSFile file) => file != null && (ReferenceEquals(file, targetFile) || (!string.IsNullOrWhiteSpace(file.path) && !string.IsNullOrWhiteSpace(targetFile.path) && file.path.Equals(targetFile.path, StringComparison.OrdinalIgnoreCase)))));
         if (package == null)
         {
-            result.WarningMessage = Properties.Resources.Warn_PendingPackageNotFound;
-            return result;
+            if (!allowStandaloneLibraryFile)
+            {
+                result.WarningMessage = Properties.Resources.Warn_PendingPackageNotFound;
+                return result;
+            }
+            result.TargetFiles.Add(targetFile);
         }
-        result.TargetFiles.AddRange(package.BMSFiles.Where((BMSFile file) => file != null));
+        else
+        {
+            result.TargetFiles.AddRange(package.BMSFiles.Where((BMSFile file) => file != null));
+        }
         if (string.IsNullOrWhiteSpace(destinationDirectory))
         {
             result.Success = true;
@@ -1491,6 +1541,28 @@ internal sealed class BmsLibraryInstallEstimationService
         return evaluationMode == InstallEstimationFinalEvaluationMode.BasenameOnlyFastPath
             ? EvaluateCandidateBasenameOnlyFastPath(candidateDir, snapshot, fileNameHashes, candidateEntry, bundledResources, relativePathEntry, diagnostics, isSourceCandidate)
             : EvaluateCandidateRelativeStrict(candidateDir, snapshot, fileNameHashes, candidateEntry, bundledView, relativePathEntry, diagnostics, isSourceCandidate);
+    }
+
+    private static CandidateEvaluation EvaluateDirectoryCandidate(string candidateDir, ChartResourceSnapshot snapshot, BMSDirectoryFileNameHash folderAllFileList, DirectoryResourceLookupCache directoryLookupCache, DirectoryRelativePathHashIndex relativePathHashIndex, DirectoryResourceLookupCache.Entry bundledResources, CandidateResourceView bundledView, InstallEstimationFinalEvaluationMode evaluationMode, EvaluationDiagnostics diagnostics, bool isSourceCandidate)
+    {
+        CandidateResourceSource candidateResourceSource = ResolveCandidateResourceSource(
+            candidateDir,
+            folderAllFileList,
+            directoryLookupCache,
+            relativePathHashIndex,
+            includeRelativeWhenCachePresent: false);
+        return EvaluateCandidate(
+            candidateDir,
+            snapshot,
+            candidateResourceSource.FallbackBaseNameHashes,
+            candidateResourceSource.CacheEntry,
+            bundledResources,
+            bundledView,
+            null,
+            candidateResourceSource.RelativeEntry,
+            evaluationMode,
+            diagnostics,
+            isSourceCandidate);
     }
 
     private static CandidateEvaluation EvaluateCandidateRelativeStrict(string candidateDir, ChartResourceSnapshot snapshot, uint[] fileNameHashes, DirectoryResourceLookupCache.Entry entry, CandidateResourceView bundledView, DirectoryRelativePathHashIndex.Entry relativePathEntry, EvaluationDiagnostics diagnostics, bool isSourceCandidate)

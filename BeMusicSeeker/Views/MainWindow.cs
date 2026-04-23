@@ -1579,18 +1579,19 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         else if (bMSFile != null)
         {
             bool isPendingSelected = _currentTreeSelectionSection == TreeSelectionSection.InstallPending;
+            bool canEditInstallDestination = CanEditInstallDestinationInCurrentSection();
             if (path == bMSFile.GetName((BMSFile f) => f.Folder) && isPendingSelected)
             {
                 e.Cancel = true;
             }
-            else if (path == bMSFile.GetName((BMSFile f) => f.instl_dst) && !isPendingSelected)
+            else if (path == bMSFile.GetName((BMSFile f) => f.instl_dst) && !canEditInstallDestination)
             {
                 e.Cancel = true;
             }
             else if (path == bMSFile.GetName((BMSFile f) => f.instl_dst))
             {
                 _pendingInstallDestinationEditStates[bMSFile] = CapturePendingInstallDestinationEditState(bMSFile);
-                bMSFile.IsInstallDestinationSuggestionPopupOpen = isPendingSelected && bMSFile.HasInstallDestinationSuggestions;
+                bMSFile.IsInstallDestinationSuggestionPopupOpen = canEditInstallDestination && bMSFile.HasInstallDestinationSuggestions;
             }
         }
     }
@@ -1676,7 +1677,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         else if (bmsFile != null && e.EditAction == DataGridEditAction.Commit)
         {
-            bool isPendingSelected = _currentTreeSelectionSection == TreeSelectionSection.InstallPending;
+            bool canEditInstallDestination = CanEditInstallDestinationInCurrentSection();
             bmsFile.IsInstallDestinationSuggestionPopupOpen = false;
             if (path == bmsFile.GetName((BMSFile f) => f.Folder))
             {
@@ -1687,7 +1688,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                     viewModel.RenameBMSFolder(bmsFile, newFolder);
                 }).Logging("dataGridCellEditEnding");
             }
-              else if (path == bmsFile.GetName((BMSFile f) => f.instl_dst) && isPendingSelected)
+              else if (path == bmsFile.GetName((BMSFile f) => f.instl_dst) && canEditInstallDestination)
               {
                   if (_pendingInstallDestinationSelectionCommitInProgress)
                   {
@@ -1724,7 +1725,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void dataGridInstallDestinationTextBoxLoaded(object sender, RoutedEventArgs e)
     {
-        if (_currentTreeSelectionSection != TreeSelectionSection.InstallPending)
+        if (!CanEditInstallDestinationInCurrentSection())
         {
             return;
         }
@@ -1740,7 +1741,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void dataGridInstallDestinationTextBoxPreviewKeyDown(object sender, KeyEventArgs e)
     {
-        if (_currentTreeSelectionSection != TreeSelectionSection.InstallPending)
+        if (!CanEditInstallDestinationInCurrentSection())
         {
             return;
         }
@@ -1898,7 +1899,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void CommitInstallDestinationSuggestionSelection(BMSFile bmsFile, string destinationDirectory)
     {
-        if (_currentTreeSelectionSection != TreeSelectionSection.InstallPending)
+        if (!CanEditInstallDestinationInCurrentSection())
         {
             return;
         }
@@ -1931,6 +1932,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 }
             }, DispatcherPriority.Background);
         }).Logging("CommitInstallDestinationSuggestionSelection");
+    }
+
+    private bool CanEditInstallDestinationInCurrentSection()
+    {
+        return _currentTreeSelectionSection == TreeSelectionSection.InstallPending
+            || _currentTreeSelectionSection == TreeSelectionSection.FullScanCheck;
     }
 
     private static T FindTemplateElement<T>(FrameworkElement source, string elementName) where T : class
@@ -3038,6 +3045,20 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 viewModel.ExecMaintenanceFilter(MainWindowViewModel.MaintenanceFilterType.FileMissingFilter);
             }).Logging("fullScanCheckFolderSelect");
             treeRoot.IsExpanded = true;
+        }
+    }
+
+    private async void fullScanAllChartsFolderSelect(object sender, RoutedEventArgs e)
+    {
+        TreeViewItem treeViewItem = sender as TreeViewItem;
+        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
+        if (viewModel != null && treeViewItem != null)
+        {
+            e.Handled = true;
+            await Task.Run(delegate
+            {
+                viewModel.ExecMaintenanceFilter(MainWindowViewModel.MaintenanceFilterType.FullScanAllChartsFilter);
+            }).Logging("fullScanAllChartsFolderSelect");
         }
     }
 

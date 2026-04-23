@@ -2652,6 +2652,7 @@
                     <Setter Property="Template" Value="{StaticResource TreeViewItemFullWidth}" />
                   </Style>
                 </ItemsControl.ItemContainerStyle>
+                <TreeViewItem Name="treeViewItemFullScanCheckAllCharts" HeaderTemplate="{StaticResource templateTreeViewItemHeaderMaintenanceSubFolder}" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Full_scan_all_charts, Mode=OneWay}" Selected="fullScanAllChartsFolderSelect" />
                 <TreeViewItem Name="treeViewItemFullScanCheckIgnored" HeaderTemplate="{StaticResource templateTreeViewItemHeaderMaintenanceSubFolder}" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Ignore_list, Mode=OneWay}" Selected="fullScanCheckIgnoredFolderSelect" />
               </TreeViewItem>
               <TreeViewItem Name="treeViewItemSearchDuplicated" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Search_duplicates, Mode=OneWay}" ItemsSource="{Binding BMSFilesDuplicated}" HeaderTemplate="{StaticResource ResourceKey=templateTreeViewItemHeaderMaintenanceDuplicateFolder}" Selected="dupulicateFileCheckFolderSelect">

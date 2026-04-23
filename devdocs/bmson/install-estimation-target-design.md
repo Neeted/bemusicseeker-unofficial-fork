@@ -22,6 +22,8 @@
   - `DeferredEstimateReason=HealthySourceBaseline`
   の判定にだけ使う
 - `Fix` 相当の内部モードは `ReinstallCorrection` に整理し、既存ライブラリ譜面の「再インストール先を推定」専用に限定する
+  - source bundled resources は使わず、譜面単体を候補へ置いた場合の `candidate only` 評価で判定する
+  - 現在配置を baseline とし、候補が baseline より改善する一意候補の場合だけ自動適用する
 
 ## 設計の主旨
 
@@ -70,6 +72,24 @@ source を候補に戻すと、「source が成立しているか」と「外部
 ここでも source は候補に入れません。  
 merge は source baseline 比較そのものではなく、**external candidate の standalone viability search** として定義します。
 
+### 再インストール先推定
+
+`再インストール先を推定` は、ライブラリ内の既存譜面ファイルを、現在配置より健康度が高い導入先へ **譜面単体で** 移すための補助機能です。
+
+したがって final evaluation は、
+
+- `candidate only`
+
+で行います。現在配置フォルダも同じ candidate-only 評価で baseline として測り、candidate list からは除外します。
+
+自動適用するのは次をすべて満たす場合だけです。
+
+- viable candidate が一意
+- candidate の primary health が現在配置 baseline より高い
+- metadata 判定が可能な場合は `TITLE / ARTIST` evidence が strong
+
+複数候補、健康度が改善しない候補、metadata mismatch は `INSTL DST` を自動設定せず、warning と suggestion を残して手動選択に回します。
+
 ### source baseline
 
 source baseline は不要ではありません。  
@@ -104,7 +124,8 @@ source baseline は不要ではありません。
   - `candidate + bundled`
 - `ReinstallCorrection`
   - 既存ライブラリ譜面の再インストール先修正専用
-  - `candidate + bundled`
+  - `candidate only`
+  - 現在配置 baseline より改善する一意候補だけ自動適用
 - `MergeCandidateOnly`
   - `candidate only`
 

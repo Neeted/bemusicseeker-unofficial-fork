@@ -16,7 +16,8 @@ internal enum InstallEstimationLowConfidenceKind
 {
     None,
     AmbiguousCandidates,
-    MetadataMismatch
+    MetadataMismatch,
+    ReinstallNotImproved
 }
 
 internal enum InstallEstimationFinalEvaluationMode
@@ -198,6 +199,10 @@ internal sealed class InstallEstimationResult
     public int OptionalImageReferenceCount { get; set; }
 
     public int AudioMinimumMatchRequired { get; set; }
+
+    public int SourceBaselinePrimaryHealth { get; set; }
+
+    public int SelectedCandidatePrimaryHealth { get; set; }
 
     public InstallEstimationFinalEvaluationMode FinalEvaluationMode { get; set; } = InstallEstimationFinalEvaluationMode.RelativeStrict;
 

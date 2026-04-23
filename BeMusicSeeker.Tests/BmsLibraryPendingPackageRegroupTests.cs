@@ -544,6 +544,59 @@ public sealed class BmsLibraryPendingPackageRegroupTests
     }
 
     [TestMethod]
+    public void SetPendingInstallDestination_AllowsStandaloneLibraryFileForFullScan()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
+        {
+            string sourceDirectoryPath = Path.Combine(tempRootPath, "Library", "Source");
+            string destinationDirectoryPath = Path.Combine(tempRootPath, "Library", "Destination");
+            string sourceFilePath = CreateBmsFileWithContents(sourceDirectoryPath, "source.bms", "#PLAYER 1\r\n#TITLE Source\r\n#ARTIST Test\r\n");
+            string destinationFilePath = CreateBmsFileWithContents(destinationDirectoryPath, "destination.bms", "#PLAYER 1\r\n#TITLE Destination Title\r\n#ARTIST Destination Artist\r\n");
+
+            BMSFile sourceFile = BMSFile.CreateBMSFileFromFile(sourceFilePath);
+            library.BMSFiles = new List<BMSFile>
+            {
+                sourceFile,
+                BMSFile.CreateBMSFileFromFile(destinationFilePath)
+            };
+
+            bool succeeded = library.SetPendingInstallDestination(sourceFile, destinationDirectoryPath);
+
+            Assert.IsTrue(succeeded);
+            Assert.AreEqual(destinationDirectoryPath, sourceFile.instl_dst);
+            Assert.AreEqual("Destination Title", sourceFile.InstallDestinationTitle);
+            Assert.AreEqual("Destination Artist", sourceFile.InstallDestinationArtist);
+            Assert.AreEqual(0, sourceFile.InstallDestinationSuggestions.Count);
+            Assert.IsFalse(sourceFile.HasLowConfidenceInstallWarning);
+        });
+    }
+
+    [TestMethod]
+    public void SetPendingInstallDestination_RejectsStandaloneFileThatIsNotInLibrary()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
+        {
+            string sourceDirectoryPath = Path.Combine(tempRootPath, "External", "Source");
+            string destinationDirectoryPath = Path.Combine(tempRootPath, "Library", "Destination");
+            string sourceFilePath = CreateBmsFileWithContents(sourceDirectoryPath, "source.bms", "#PLAYER 1\r\n#TITLE Source\r\n#ARTIST Test\r\n");
+            string destinationFilePath = CreateBmsFileWithContents(destinationDirectoryPath, "destination.bms", "#PLAYER 1\r\n#TITLE Destination Title\r\n#ARTIST Destination Artist\r\n");
+
+            BMSFile sourceFile = BMSFile.CreateBMSFileFromFile(sourceFilePath);
+            library.BMSFiles = new List<BMSFile>
+            {
+                BMSFile.CreateBMSFileFromFile(destinationFilePath)
+            };
+
+            bool succeeded = library.SetPendingInstallDestination(sourceFile, destinationDirectoryPath);
+
+            Assert.IsFalse(succeeded);
+            Assert.IsNull(sourceFile.instl_dst);
+        });
+    }
+
+    [TestMethod]
     public void SetPendingInstallDestination_FromLowConfidenceCandidates_PreservesWarningAndSuggestions()
     {
         TestResourceInitializer.EnsureJapaneseResources();

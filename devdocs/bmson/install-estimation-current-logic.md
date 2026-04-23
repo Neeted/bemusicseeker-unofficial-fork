@@ -287,9 +287,9 @@ path-aware broad filter の後に、既存の **unified audio gate** をかけ�
 
 さらに `audioRefs > 0` かつ `DirectoryResourceLookupCache` がある経路では、
 
-- 通常推定 / `ReinstallCorrection`
+- 通常推定
   - `candidate + bundled` の effective audio health が `innerWavHealthThreshold=70` 超でない候補を落とす
-- merge 推定
+- `ReinstallCorrection` / merge 推定
   - `candidate only` の effective audio health が `innerWavHealthThreshold=70` 超でない候補を落とす
 
 つまり coarse filter は次の 2 段です。
@@ -359,7 +359,7 @@ Perf-2a 再修正では、この unified audio gate の仕様は変えず、内�
 
 各候補は `EvaluateCandidate(...)` で評価します。
 
-### 通常推定 / `ReinstallCorrection`
+### 通常推定
 
 比較対象:
 
@@ -369,6 +369,25 @@ Perf-2a 再修正では、この unified audio gate の仕様は変えず、内�
 つまり **`candidate + package bundled resources`** を見ます。
 `pathAwareRefs > 0` の package では、この比較も relative-path exact 前提の strict semantics で行います。
 `pathAwareRefs = 0` の package では、candidateView と lookup-cache audio gate を basename-only fast path で処理できます。
+
+### `ReinstallCorrection`
+
+比較対象:
+
+- `CandidateResources`
+- `snapshot.DefinedResources`
+
+つまり **`candidate only`** を見ます。
+元フォルダの同梱リソースは使わず、現在配置フォルダも同じ candidate-only 評価で baseline として測ります。
+
+`ReinstallCorrection` は「既存ライブラリ譜面の再インストール先を推定」専用で、現在配置フォルダは候補から除外します。
+自動適用するのは、viable candidate が一意で、candidate の primary health が現在配置 baseline より高く、metadata evidence が applicable な場合は strong のときだけです。
+
+次の場合は `Low + suggestions` とし、`INSTL DST` は自動設定しません。
+
+- 複数 viable candidate がある
+- 一意候補だが現在配置より health が改善しない
+- `TITLE / ARTIST` の metadata mismatch がある
 
 ### merge 推定
 
@@ -598,7 +617,7 @@ source は ranking 本体では扱いません。
 - ambiguity の場合は 2 件以上 suggestion があるとき warning を保持する
 - metadata mismatch の場合は 1 件 suggestion でも warning を保持する
 
-また、**UI に見える pending 状態で `instl_dst` を反映する経路**では、推定結果適用・手動 `INSTL DST` 入力・resolved destination 再利用・pending regroup のいずれでも、`INSTL DST TITLE` / `INSTL DST ARTIST` を同時に同期します。
+また、**UI に見える pending / full-scan 状態で `instl_dst` を反映する経路**では、推定結果適用・手動 `INSTL DST` 入力・suggestion 選択・resolved destination 再利用・pending regroup のいずれでも、`INSTL DST TITLE` / `INSTL DST ARTIST` を同時に同期します。
 
 ## 手動 `インストール先を推定` と `マージ先を推定` の違い
 
@@ -643,6 +662,31 @@ merge の結果は次で固定します。
   - `High + no destination`
 
 つまりマージ推定は、**「source 以外に、既存リソースだけで成立する外部統合先があるか」** を見る機能です。
+
+### 3. 手動 `再インストール先を推定`
+
+目的は、**ライブラリ内の既存譜面ファイル単体を、現在配置より健康度が高い既存 chart directory へ移せるかを見ること**です。
+
+- `ReinstallCorrection` モードを使う
+- 元フォルダの同梱リソースは候補評価へ足さない
+- external candidate を `candidate only` で評価する
+- 現在配置も `candidate only` で baseline 評価し、candidate list からは除外する
+- 複数 viable candidate がある場合は、曖昧候補自動適用設定が ON でも自動適用しない
+
+再インストール推定の結果は次で固定します。
+
+- viable external candidate が一意で、現在配置より primary health が改善し、metadata evidence が applicable なら strong
+  - `High + destination`
+- 一意候補だが health が改善しない
+  - `Low + ReinstallNotImproved + suggestion`
+- viable external candidate が複数ある
+  - `Low + AmbiguousCandidates + suggestions`
+- metadata mismatch
+  - `Low + MetadataMismatch + suggestion`
+
+`推定先に再インストール` は、`INSTL DST` が入っている譜面ファイルだけを対象に、**BMS/BMSON ファイル単体**を移動します。音源・画像・動画などのリソース一式は移動しません。
+
+`構成ファイルフルスキャン` 画面では pending 画面と同じように `INSTL DST` の手入力と suggestion 選択ができます。配下の `全譜面` は欠損や ignore 状態に関係なく、ライブラリフォルダ選択時と同等の全譜面を表示します。root の `構成ファイルフルスキャン` と `無視リスト` は従来どおり、欠損警告ありの譜面を ignore 状態で分けて表示します。
 
 ## 既所持譜面を含む package の扱い
 

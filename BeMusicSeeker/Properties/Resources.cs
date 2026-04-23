@@ -245,6 +245,8 @@ public class Resources
 
     public static string Full_scan_check => ResourceManager.GetString("Full_scan_check", resourceCulture);
 
+    public static string Full_scan_all_charts => ResourceManager.GetString("Full_scan_all_charts", resourceCulture);
+
     public static string General => ResourceManager.GetString("General", resourceCulture);
 
     public static string Ignore_list => ResourceManager.GetString("Ignore_list", resourceCulture);
@@ -864,6 +866,12 @@ public class Resources
 
 
     public static string Warning_InstallEstimationMetadataMismatch => ResourceManager.GetString("Warning_InstallEstimationMetadataMismatch", resourceCulture);
+
+
+    public static string Warning_InstallEstimationReinstallNotImprovedPrefix => ResourceManager.GetString("Warning_InstallEstimationReinstallNotImprovedPrefix", resourceCulture);
+
+
+    public static string Warning_InstallEstimationReinstallNotImproved => ResourceManager.GetString("Warning_InstallEstimationReinstallNotImproved", resourceCulture);
 
 
     public static string Warning_InstalledDestinationResolveFailed => ResourceManager.GetString("Warning_InstalledDestinationResolveFailed", resourceCulture);
