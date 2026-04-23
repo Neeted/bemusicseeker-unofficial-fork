@@ -1243,6 +1243,9 @@ BMSファイルが重複しないようにマージします。
   <data name="Details_test_keep_installable_pending" xml:space="preserve">
     <value>[テスト中] 新規判定でも自動インストールせず保留に追加する</value>
   </data>
+  <data name="Details_use_everything_for_pending_package_source_scan" xml:space="preserve">
+    <value>保留パッケージの推定時に Everything を使用する</value>
+  </data>
   <data name="Success" xml:space="preserve">
     <value>成功</value>
   </data>

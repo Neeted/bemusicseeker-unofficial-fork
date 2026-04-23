@@ -319,50 +319,35 @@ internal sealed class BmsLibraryPackageInstallService
         List<string> chartFiles = files.Where((string file) => PendingChartEntry.IsSupportedChartFilePath(file) && File.Exists(file)).ToList();
         if (chartFiles.Count > 0)
         {
-            if (chartFiles.Count == 1 || chartFiles.Any(delegate (string chartFilePath)
-                {
-                    BMSFile bMSFile = PendingChartEntry.CreateFromFilePath(chartFilePath);
-                    if (bMSFile == null)
-                    {
-                        return false;
-                    }
-                    bMSFile.SetHealthStatus(null, forceUpdate: false, memClear: false);
-                    return bMSFile.maintenanceInfo.wav_files_existing > 0 || bMSFile.maintenanceInfo.bga_files_existing > 0 || bMSFile.maintenanceInfo.movie_files_existing > 0;
-                }))
+            List<PendingChartEntry> parsedCharts = chartFiles
+                .Select(CreatePendingChartForDiscovery)
+                .Where((PendingChartEntry entry) => entry != null)
+                .ToList();
+            bool hasCompleteChartList = parsedCharts.Count == chartFiles.Count;
+            bool anyChartHasExistingResources = parsedCharts.Any((PendingChartEntry entry) => entry.maintenanceInfo.wav_files_existing > 0 || entry.maintenanceInfo.bga_files_existing > 0 || entry.maintenanceInfo.movie_files_existing > 0);
+            if (chartFiles.Count == 1 || anyChartHasExistingResources)
             {
-                result.Packages.Add(new BMSPackage
-                {
-                    path = dirfullpath,
-                    delete_parent = false
-                });
+                result.Packages.Add(CreatePackageWithKnownCharts(dirfullpath, deleteParent: false, hasCompleteChartList ? parsedCharts : null));
             }
             else
             {
-                List<IEnumerable<string>> resourcesByChart = chartFiles
-                    .Select((string filePath) => PendingChartEntry.CreateFromFilePath(filePath))
-                    .Where((BMSFile bmsInfo) => bmsInfo != null)
-                    .Select((BMSFile bmsInfo) => (bmsInfo.WAVfiles ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase))
+                List<IEnumerable<string>> resourcesByChart = parsedCharts
+                    .Select((PendingChartEntry bmsInfo) => (bmsInfo.WAVfiles ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase))
                         .Concat(bmsInfo.BGAfiles ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase))
                         .Select((string path) => Path.GetFileNameWithoutExtension(path).ToUpperInvariant())
                         .Distinct()
                         .ToList()
                         .AsEnumerable())
                     .ToList();
-                if ((double)resourcesByChart.Aggregate(Enumerable.Intersect).Count() / (double)resourcesByChart.Select((IEnumerable<string> resourceList) => resourceList.Count()).Min() >= dupRateThreshInOnePkg)
+                if (resourcesByChart.Count > 0
+                    && (double)resourcesByChart.Aggregate(Enumerable.Intersect).Count() / (double)resourcesByChart.Select((IEnumerable<string> resourceList) => resourceList.Count()).Min() >= dupRateThreshInOnePkg)
                 {
-                    result.Packages.Add(new BMSPackage
-                    {
-                        path = dirfullpath,
-                        delete_parent = false
-                    });
+                    result.Packages.Add(CreatePackageWithKnownCharts(dirfullpath, deleteParent: false, hasCompleteChartList ? parsedCharts : null));
                 }
                 else
                 {
-                    result.Packages.AddRange(chartFiles.Select((string filePath) => new BMSPackage
-                    {
-                        path = filePath,
-                        delete_parent = recursive
-                    }));
+                    Dictionary<string, PendingChartEntry> entryByPath = parsedCharts.ToDictionary((PendingChartEntry entry) => entry.path, StringComparer.OrdinalIgnoreCase);
+                    result.Packages.AddRange(chartFiles.Select((string filePath) => CreatePackageWithKnownCharts(filePath, recursive, entryByPath.TryGetValue(filePath, out PendingChartEntry entry) ? new[] { entry } : null)));
                     result.RegroupEligibleSourceDirectories.Add(NormalizeDirectoryPath(dirfullpath));
                 }
             }
@@ -390,6 +375,43 @@ internal sealed class BmsLibraryPackageInstallService
         return string.IsNullOrWhiteSpace(directoryPath)
             ? null
             : directoryPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+    }
+
+    private static PendingChartEntry CreatePendingChartForDiscovery(string filePath)
+    {
+        try
+        {
+            PendingChartEntry entry = PendingChartEntry.CreateFromFilePath(filePath);
+            if (entry == null)
+            {
+                return null;
+            }
+            entry.SetHealthStatus(null, forceUpdate: false, memClear: false);
+            return entry;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static BMSPackage CreatePackageWithKnownCharts(string packagePath, bool deleteParent, IEnumerable<BMSFile> knownCharts)
+    {
+        List<BMSFile> knownChartList = (knownCharts ?? Enumerable.Empty<BMSFile>()).Where((BMSFile file) => file != null).ToList();
+        if (knownChartList.Count == 0)
+        {
+            return new BMSPackage
+            {
+                path = packagePath,
+                delete_parent = deleteParent
+            };
+        }
+
+        return new BMSPackage(knownChartList)
+        {
+            path = packagePath,
+            delete_parent = deleteParent
+        };
     }
 
     private static string ResolveBundledSevenZipLibraryPath()
@@ -1120,27 +1142,22 @@ internal sealed class BmsLibraryPackageInstallService
                 result.RegroupEligibleSourceDirectories.AddRange(discoveryResult.RegroupEligibleSourceDirectories);
                 continue;
             }
-            if (chartFiles.Count > 0 && chartFiles.Any(delegate (string chartFilePath)
-                {
-                    BMSFile bMSFile = PendingChartEntry.CreateFromFilePath(chartFilePath);
-                    if (bMSFile == null)
-                    {
-                        return false;
-                    }
-                    bMSFile.SetHealthStatus(null, forceUpdate: false, memClear: false);
-                    return bMSFile.maintenanceInfo.wav_files_existing > 0 || bMSFile.maintenanceInfo.bga_files_existing > 0 || bMSFile.maintenanceInfo.movie_files_existing > 0;
-                }))
+            List<PendingChartEntry> parsedCharts = chartFiles
+                .Select(CreatePendingChartForDiscovery)
+                .Where((PendingChartEntry entry) => entry != null)
+                .ToList();
+            bool anyChartHasExistingResources = parsedCharts.Any((PendingChartEntry entry) => entry.maintenanceInfo.wav_files_existing > 0 || entry.maintenanceInfo.bga_files_existing > 0 || entry.maintenanceInfo.movie_files_existing > 0);
+            if (chartFiles.Count > 0 && anyChartHasExistingResources)
             {
                 BmsPackageDiscoveryResult discoveryResult = SearchBmsFilesRecursivelyWithMetadata(paths.Key, dupRateThreshInOnePkg);
                 discoveredPackages.AddRange(discoveryResult.Packages);
                 result.RegroupEligibleSourceDirectories.AddRange(discoveryResult.RegroupEligibleSourceDirectories);
                 continue;
             }
-            List<BMSPackage> singleFilePackages = chartFiles.Select((string filePath) => new BMSPackage
-            {
-                path = filePath,
-                delete_parent = false
-            }).ToList();
+            Dictionary<string, PendingChartEntry> entryByPath = parsedCharts.ToDictionary((PendingChartEntry entry) => entry.path, StringComparer.OrdinalIgnoreCase);
+            List<BMSPackage> singleFilePackages = chartFiles
+                .Select((string filePath) => CreatePackageWithKnownCharts(filePath, deleteParent: false, entryByPath.TryGetValue(filePath, out PendingChartEntry entry) ? new[] { entry } : null))
+                .ToList();
             List<BMSPackage> directoryPackages = new List<BMSPackage>();
             foreach (string dir in directories)
             {

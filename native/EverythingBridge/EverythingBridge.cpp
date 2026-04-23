@@ -131,9 +131,68 @@ struct EBridgeGroupedFilesResult {
 	unsigned long long raw_buffer_size;
 };
 
+struct EBridgeSourceRootRequest {
+	unsigned int root_id;
+	const wchar_t* root_path;
+};
+
+struct EBridgeSourceRootEntry {
+	unsigned int root_id;
+	unsigned long long chart_count;
+	unsigned int* chart_offsets;
+	unsigned int all_base_hash_offset;
+	unsigned int all_base_hash_length;
+	unsigned int audio_base_hash_offset;
+	unsigned int audio_base_hash_length;
+	unsigned int image_base_hash_offset;
+	unsigned int image_base_hash_length;
+	unsigned int movie_base_hash_offset;
+	unsigned int movie_base_hash_length;
+	unsigned int audio_relative_hash_offset;
+	unsigned int audio_relative_hash_length;
+	unsigned int image_relative_hash_offset;
+	unsigned int image_relative_hash_length;
+	unsigned int movie_relative_hash_offset;
+	unsigned int movie_relative_hash_length;
+	unsigned long long chart_file_count;
+	unsigned long long categorized_resource_file_count;
+	unsigned long long tracked_file_count;
+};
+
+struct EBridgeSourceRootsResult {
+	int status;
+	int error_code;
+	unsigned long long root_count;
+	EBridgeSourceRootEntry* roots;
+	unsigned int* root_offsets;
+	wchar_t* root_blob;
+	wchar_t* chart_blob;
+	unsigned char* all_base_hashes_blob;
+	unsigned char* audio_base_hashes_blob;
+	unsigned char* image_base_hashes_blob;
+	unsigned char* movie_base_hashes_blob;
+	unsigned char* audio_relative_hashes_blob;
+	unsigned char* image_relative_hashes_blob;
+	unsigned char* movie_relative_hashes_blob;
+	unsigned long long chart_query_hits;
+	unsigned long long audio_query_hits;
+	unsigned long long image_query_hits;
+	unsigned long long movie_query_hits;
+	long long chart_query_ms;
+	long long audio_query_ms;
+	long long image_query_ms;
+	long long movie_query_ms;
+	long long assign_ms;
+	long long dedupe_ms;
+	long long pack_ms;
+	unsigned long long raw_buffer_size;
+};
+
 __declspec(dllexport) int __cdecl EBridge_ScanChartAndResources(const wchar_t* chartQuery, const wchar_t* audioQuery, const wchar_t* imageQuery, const wchar_t* movieQuery, EBridgeResult** outResult);
+__declspec(dllexport) int __cdecl EBridge_ScanSourceRoots(const EBridgeSourceRootRequest* roots, unsigned int rootCount, const wchar_t* chartQuery, const wchar_t* audioQuery, const wchar_t* imageQuery, const wchar_t* movieQuery, EBridgeSourceRootsResult** outResult);
 __declspec(dllexport) int __cdecl EBridge_EnumerateGroupedFiles(const EBridgeGroupedQuery* queries, unsigned int queryCount, EBridgeGroupedFilesResult** outResult);
 __declspec(dllexport) void __cdecl EBridge_FreeResult(EBridgeResult* result);
+__declspec(dllexport) void __cdecl EBridge_FreeSourceRootsResult(EBridgeSourceRootsResult* result);
 __declspec(dllexport) void __cdecl EBridge_FreeGroupedFilesResult(EBridgeGroupedFilesResult* result);
 }
 
@@ -155,7 +214,8 @@ enum BridgeError {
 	BRIDGE_MOVIE_QUERY_FAILED = 7,
 	BRIDGE_OUT_OF_MEMORY = 8,
 	BRIDGE_INTERNAL_ERROR = 9,
-	BRIDGE_GROUPED_QUERY_FAILED = 10
+	BRIDGE_GROUPED_QUERY_FAILED = 10,
+	BRIDGE_SOURCE_ROOT_QUERY_FAILED = 11
 };
 
 using Everything3_ConnectWFn = void*(__stdcall*)(const wchar_t* instance_name);
@@ -294,6 +354,24 @@ struct GroupedQueryResult {
 	uint32_t groupId = 0u;
 	QueryExecutionStats stats;
 	std::vector<std::wstring> fullPaths;
+};
+
+struct SourceRootAggregate {
+	uint32_t rootId = 0u;
+	std::wstring rootPath;
+	std::vector<std::wstring> chartPaths;
+	std::vector<std::wstring> audioPaths;
+	std::vector<std::wstring> imagePaths;
+	std::vector<std::wstring> moviePaths;
+	std::vector<uint32_t> allBaseHashes;
+	std::vector<uint32_t> audioBaseHashes;
+	std::vector<uint32_t> imageBaseHashes;
+	std::vector<uint32_t> movieBaseHashes;
+	std::vector<uint32_t> audioRelativeHashes;
+	std::vector<uint32_t> imageRelativeHashes;
+	std::vector<uint32_t> movieRelativeHashes;
+	std::unordered_set<std::wstring> resourceTrackedPaths;
+	std::unordered_set<std::wstring> trackedPaths;
 };
 
 HMODULE g_bridgeModule = nullptr;
@@ -750,6 +828,221 @@ bool ExecuteQuery(void* client, const wchar_t* query, Callback&& onResult, Query
 void DedupePaths(std::vector<std::wstring>& paths) {
 	std::sort(paths.begin(), paths.end());
 	paths.erase(std::unique(paths.begin(), paths.end()), paths.end());
+}
+
+size_t AlignUp(size_t value, size_t align);
+size_t SumBlobChars(const std::vector<std::wstring>& values);
+void WriteStringBlob(uint8_t* raw, size_t offsetsPos, size_t blobPos, const std::vector<std::wstring>& values, unsigned int*& outOffsets, wchar_t*& outBlob);
+void AddUniqueHash(std::vector<uint32_t>& hashes, uint32_t hash);
+
+int FindBestMatchingRootIndex(const std::wstring& filePath, const std::vector<SourceRootAggregate>& roots) {
+	int bestIndex = -1;
+	size_t bestLength = 0;
+	for (size_t i = 0; i < roots.size(); i++) {
+		const std::wstring& rootPath = roots[i].rootPath;
+		if (rootPath.empty() || !StartsWithDirectoryPrefix(filePath, rootPath)) {
+			continue;
+		}
+		if (rootPath.size() >= bestLength) {
+			bestIndex = static_cast<int>(i);
+			bestLength = rootPath.size();
+		}
+	}
+	return bestIndex;
+}
+
+void ProcessSourceRootResourcePaths(
+	const std::wstring& rootPath,
+	const std::vector<std::wstring>& fullPaths,
+	std::vector<uint32_t>& allBaseHashes,
+	std::vector<uint32_t>& categoryBaseHashes,
+	std::vector<uint32_t>& categoryRelativeHashes,
+	std::unordered_set<std::wstring>& resourceTrackedPaths,
+	std::unordered_set<std::wstring>& trackedPaths)
+{
+	for (const std::wstring& fullPath : fullPaths) {
+		std::wstring normalizedBaseName = NormalizeLookupFileNameFast(fullPath);
+		std::wstring normalizedRelativePath = NormalizeRelativePathForLookup(rootPath, fullPath);
+		if (normalizedBaseName.empty() || normalizedRelativePath.empty()) {
+			continue;
+		}
+		uint32_t baseHash = GetLookupHashFast(normalizedBaseName);
+		uint32_t relativeHash = GetLookupHashFast(normalizedRelativePath);
+		AddUniqueHash(allBaseHashes, baseHash);
+		AddUniqueHash(categoryBaseHashes, baseHash);
+		AddUniqueHash(categoryRelativeHashes, relativeHash);
+		resourceTrackedPaths.insert(fullPath);
+		trackedPaths.insert(fullPath);
+	}
+}
+
+void DedupeHashes(std::vector<uint32_t>& hashes) {
+	std::sort(hashes.begin(), hashes.end());
+	hashes.erase(std::unique(hashes.begin(), hashes.end()), hashes.end());
+}
+
+void DedupeSourceRootAggregate(SourceRootAggregate& aggregate) {
+	DedupePaths(aggregate.chartPaths);
+	DedupePaths(aggregate.audioPaths);
+	DedupePaths(aggregate.imagePaths);
+	DedupePaths(aggregate.moviePaths);
+	DedupeHashes(aggregate.allBaseHashes);
+	DedupeHashes(aggregate.audioBaseHashes);
+	DedupeHashes(aggregate.imageBaseHashes);
+	DedupeHashes(aggregate.movieBaseHashes);
+	DedupeHashes(aggregate.audioRelativeHashes);
+	DedupeHashes(aggregate.imageRelativeHashes);
+	DedupeHashes(aggregate.movieRelativeHashes);
+}
+
+size_t SumSourceRootChartCount(const std::vector<SourceRootAggregate>& roots) {
+	size_t total = 0;
+	for (const SourceRootAggregate& root : roots) {
+		total += root.chartPaths.size();
+	}
+	return total;
+}
+
+int BuildSourceRootsResultBuffer(
+	const std::vector<SourceRootAggregate>& roots,
+	const BridgeExecutionStats& stats,
+	EBridgeSourceRootsResult** outResult)
+{
+	if (!outResult) {
+		return BRIDGE_INVALID_ARGUMENT;
+	}
+
+	size_t rootCount = roots.size();
+	size_t totalChartCount = SumSourceRootChartCount(roots);
+	std::vector<std::wstring> rootPaths;
+	rootPaths.reserve(rootCount);
+	size_t chartBlobChars = 0;
+	for (const SourceRootAggregate& root : roots) {
+		rootPaths.push_back(root.rootPath);
+		chartBlobChars += SumBlobChars(root.chartPaths);
+	}
+	size_t rootBlobChars = SumBlobChars(rootPaths);
+	size_t allHashCount = 0;
+	size_t audioBaseHashCount = 0;
+	size_t imageBaseHashCount = 0;
+	size_t movieBaseHashCount = 0;
+	size_t audioRelativeHashCount = 0;
+	size_t imageRelativeHashCount = 0;
+	size_t movieRelativeHashCount = 0;
+	for (const SourceRootAggregate& root : roots) {
+		allHashCount += root.allBaseHashes.size();
+		audioBaseHashCount += root.audioBaseHashes.size();
+		imageBaseHashCount += root.imageBaseHashes.size();
+		movieBaseHashCount += root.movieBaseHashes.size();
+		audioRelativeHashCount += root.audioRelativeHashes.size();
+		imageRelativeHashCount += root.imageRelativeHashes.size();
+		movieRelativeHashCount += root.movieRelativeHashes.size();
+	}
+
+	size_t cursor = AlignUp(sizeof(EBridgeSourceRootsResult), 8);
+	size_t rootEntriesPos = cursor; cursor += sizeof(EBridgeSourceRootEntry) * rootCount;
+	size_t rootOffsetsPos = cursor; cursor += sizeof(uint32_t) * rootCount;
+	size_t chartOffsetsPos = cursor; cursor += sizeof(uint32_t) * totalChartCount;
+
+	cursor = AlignUp(cursor, alignof(wchar_t));
+	size_t rootBlobPos = cursor; cursor += rootBlobChars * sizeof(wchar_t);
+	size_t chartBlobPos = cursor; cursor += chartBlobChars * sizeof(wchar_t);
+
+	cursor = AlignUp(cursor, alignof(uint32_t));
+	size_t allHashesPos = cursor; cursor += allHashCount * sizeof(uint32_t);
+	size_t audioBaseHashesPos = cursor; cursor += audioBaseHashCount * sizeof(uint32_t);
+	size_t imageBaseHashesPos = cursor; cursor += imageBaseHashCount * sizeof(uint32_t);
+	size_t movieBaseHashesPos = cursor; cursor += movieBaseHashCount * sizeof(uint32_t);
+	size_t audioRelativeHashesPos = cursor; cursor += audioRelativeHashCount * sizeof(uint32_t);
+	size_t imageRelativeHashesPos = cursor; cursor += imageRelativeHashCount * sizeof(uint32_t);
+	size_t movieRelativeHashesPos = cursor; cursor += movieRelativeHashCount * sizeof(uint32_t);
+	size_t totalBytes = cursor;
+
+	uint8_t* raw = reinterpret_cast<uint8_t*>(std::malloc(totalBytes));
+	if (!raw) {
+		return BRIDGE_OUT_OF_MEMORY;
+	}
+	std::memset(raw, 0, totalBytes);
+
+	auto* result = reinterpret_cast<EBridgeSourceRootsResult*>(raw);
+	result->roots = reinterpret_cast<EBridgeSourceRootEntry*>(raw + rootEntriesPos);
+	unsigned int* rootOffsets = reinterpret_cast<unsigned int*>(raw + rootOffsetsPos);
+	unsigned int* chartOffsetsBase = reinterpret_cast<unsigned int*>(raw + chartOffsetsPos);
+	result->root_offsets = rootOffsets;
+	result->root_blob = reinterpret_cast<wchar_t*>(raw + rootBlobPos);
+	result->chart_blob = reinterpret_cast<wchar_t*>(raw + chartBlobPos);
+	result->all_base_hashes_blob = reinterpret_cast<unsigned char*>(raw + allHashesPos);
+	result->audio_base_hashes_blob = reinterpret_cast<unsigned char*>(raw + audioBaseHashesPos);
+	result->image_base_hashes_blob = reinterpret_cast<unsigned char*>(raw + imageBaseHashesPos);
+	result->movie_base_hashes_blob = reinterpret_cast<unsigned char*>(raw + movieBaseHashesPos);
+	result->audio_relative_hashes_blob = reinterpret_cast<unsigned char*>(raw + audioRelativeHashesPos);
+	result->image_relative_hashes_blob = reinterpret_cast<unsigned char*>(raw + imageRelativeHashesPos);
+	result->movie_relative_hashes_blob = reinterpret_cast<unsigned char*>(raw + movieRelativeHashesPos);
+
+	WriteStringBlob(raw, rootOffsetsPos, rootBlobPos, rootPaths, result->root_offsets, result->root_blob);
+
+	unsigned char* chartBlobCursor = reinterpret_cast<unsigned char*>(result->chart_blob);
+	uint32_t allHashOffsetBytes = 0;
+	uint32_t audioBaseHashOffsetBytes = 0;
+	uint32_t imageBaseHashOffsetBytes = 0;
+	uint32_t movieBaseHashOffsetBytes = 0;
+	uint32_t audioRelativeHashOffsetBytes = 0;
+	uint32_t imageRelativeHashOffsetBytes = 0;
+	uint32_t movieRelativeHashOffsetBytes = 0;
+	size_t globalChartIndex = 0;
+	for (size_t rootIndex = 0; rootIndex < rootCount; rootIndex++) {
+		const SourceRootAggregate& root = roots[rootIndex];
+		EBridgeSourceRootEntry& entry = result->roots[rootIndex];
+		entry.root_id = root.rootId;
+		entry.chart_count = static_cast<unsigned long long>(root.chartPaths.size());
+		entry.chart_offsets = chartOffsetsBase + globalChartIndex;
+		for (const std::wstring& chartPath : root.chartPaths) {
+			size_t chars = chartPath.size() + 1;
+			chartOffsetsBase[globalChartIndex++] = static_cast<unsigned int>(chartBlobCursor - reinterpret_cast<unsigned char*>(result->chart_blob));
+			std::memcpy(chartBlobCursor, chartPath.c_str(), chars * sizeof(wchar_t));
+			chartBlobCursor += chars * sizeof(wchar_t);
+		}
+
+		auto writeHashVector = [&raw](size_t blobPos, const std::vector<uint32_t>& hashes, uint32_t& offsetBytes, unsigned int& offsetField, unsigned int& lengthField) {
+			offsetField = offsetBytes;
+			lengthField = static_cast<unsigned int>(hashes.size());
+			size_t bytes = hashes.size() * sizeof(uint32_t);
+			if (bytes > 0) {
+				std::memcpy(raw + blobPos + offsetBytes, hashes.data(), bytes);
+				offsetBytes += static_cast<uint32_t>(bytes);
+			}
+		};
+
+		writeHashVector(allHashesPos, root.allBaseHashes, allHashOffsetBytes, entry.all_base_hash_offset, entry.all_base_hash_length);
+		writeHashVector(audioBaseHashesPos, root.audioBaseHashes, audioBaseHashOffsetBytes, entry.audio_base_hash_offset, entry.audio_base_hash_length);
+		writeHashVector(imageBaseHashesPos, root.imageBaseHashes, imageBaseHashOffsetBytes, entry.image_base_hash_offset, entry.image_base_hash_length);
+		writeHashVector(movieBaseHashesPos, root.movieBaseHashes, movieBaseHashOffsetBytes, entry.movie_base_hash_offset, entry.movie_base_hash_length);
+		writeHashVector(audioRelativeHashesPos, root.audioRelativeHashes, audioRelativeHashOffsetBytes, entry.audio_relative_hash_offset, entry.audio_relative_hash_length);
+		writeHashVector(imageRelativeHashesPos, root.imageRelativeHashes, imageRelativeHashOffsetBytes, entry.image_relative_hash_offset, entry.image_relative_hash_length);
+		writeHashVector(movieRelativeHashesPos, root.movieRelativeHashes, movieRelativeHashOffsetBytes, entry.movie_relative_hash_offset, entry.movie_relative_hash_length);
+		entry.chart_file_count = static_cast<unsigned long long>(root.chartPaths.size());
+		entry.categorized_resource_file_count = static_cast<unsigned long long>(root.resourceTrackedPaths.size());
+		entry.tracked_file_count = static_cast<unsigned long long>(root.trackedPaths.size());
+	}
+
+	result->status = BRIDGE_OK;
+	result->error_code = 0;
+	result->root_count = static_cast<unsigned long long>(rootCount);
+	result->chart_query_hits = stats.chartQuery.hitCount;
+	result->audio_query_hits = stats.audioQuery.hitCount;
+	result->image_query_hits = stats.imageQuery.hitCount;
+	result->movie_query_hits = stats.movieQuery.hitCount;
+	result->chart_query_ms = stats.chartQuery.elapsedMs;
+	result->audio_query_ms = stats.audioQuery.elapsedMs;
+	result->image_query_ms = stats.imageQuery.elapsedMs;
+	result->movie_query_ms = stats.movieQuery.elapsedMs;
+	result->assign_ms = stats.assignMs;
+	result->dedupe_ms = stats.dedupeMs;
+	result->pack_ms = stats.packMs;
+	result->raw_buffer_size = static_cast<unsigned long long>(totalBytes);
+
+	*outResult = result;
+	return BRIDGE_OK;
 }
 
 int BuildGroupedFilesResultBuffer(const std::vector<GroupedQueryResult>& groupedResults, long long enumerationMs, EBridgeGroupedFilesResult** outResult) {
@@ -1389,6 +1682,134 @@ extern "C" __declspec(dllexport) int __cdecl EBridge_ScanChartAndResources(const
 	return buildResult;
 }
 
+extern "C" __declspec(dllexport) int __cdecl EBridge_ScanSourceRoots(
+	const EBridgeSourceRootRequest* roots,
+	unsigned int rootCount,
+	const wchar_t* chartQuery,
+	const wchar_t* audioQuery,
+	const wchar_t* imageQuery,
+	const wchar_t* movieQuery,
+	EBridgeSourceRootsResult** outResult)
+{
+	if (!outResult) {
+		return BRIDGE_INVALID_ARGUMENT;
+	}
+	*outResult = nullptr;
+	if (!roots || rootCount == 0u || !chartQuery || !audioQuery || !imageQuery || !movieQuery
+		|| chartQuery[0] == L'\0' || audioQuery[0] == L'\0' || imageQuery[0] == L'\0' || movieQuery[0] == L'\0') {
+		return BRIDGE_INVALID_ARGUMENT;
+	}
+	if (!EnsureEverythingApiLoaded()) {
+		return BRIDGE_LOAD_API_FAILED;
+	}
+
+	std::vector<SourceRootAggregate> sourceRoots;
+	sourceRoots.reserve(rootCount);
+	for (unsigned int i = 0; i < rootCount; i++) {
+		if (!roots[i].root_path || roots[i].root_path[0] == L'\0') {
+			return BRIDGE_INVALID_ARGUMENT;
+		}
+		SourceRootAggregate aggregate;
+		aggregate.rootId = roots[i].root_id;
+		aggregate.rootPath = TrimTrailingSeparators(ReplaceAltSeparators(roots[i].root_path));
+		if (aggregate.rootPath.empty()) {
+			return BRIDGE_INVALID_ARGUMENT;
+		}
+		sourceRoots.push_back(std::move(aggregate));
+	}
+
+	unsigned int connectError = EVERYTHING3_OK;
+	void* client = TryConnectClient(&connectError);
+	if (!client) {
+		return BRIDGE_CONNECT_FAILED;
+	}
+
+	BridgeExecutionStats stats;
+	bool okChart = ExecuteQuery(client, chartQuery, [&sourceRoots](const std::wstring& path, const std::wstring& name) {
+		if (path.empty() || name.empty()) {
+			return;
+		}
+		std::wstring fullPath = CombinePathAndName(TrimTrailingSeparators(ReplaceAltSeparators(path)), name);
+		int rootIndex = FindBestMatchingRootIndex(fullPath, sourceRoots);
+		if (rootIndex < 0) {
+			return;
+		}
+		sourceRoots[static_cast<size_t>(rootIndex)].chartPaths.push_back(fullPath);
+		sourceRoots[static_cast<size_t>(rootIndex)].trackedPaths.insert(fullPath);
+	}, &stats.chartQuery);
+	if (!okChart) {
+		g_api.DestroyClient(client);
+		return BRIDGE_CHART_QUERY_FAILED;
+	}
+
+	bool okAudio = ExecuteQuery(client, audioQuery, [&sourceRoots](const std::wstring& path, const std::wstring& name) {
+		if (path.empty() || name.empty()) {
+			return;
+		}
+		std::wstring fullPath = CombinePathAndName(TrimTrailingSeparators(ReplaceAltSeparators(path)), name);
+		int rootIndex = FindBestMatchingRootIndex(fullPath, sourceRoots);
+		if (rootIndex >= 0) {
+			sourceRoots[static_cast<size_t>(rootIndex)].audioPaths.push_back(fullPath);
+		}
+	}, &stats.audioQuery);
+	if (!okAudio) {
+		g_api.DestroyClient(client);
+		return BRIDGE_AUDIO_QUERY_FAILED;
+	}
+
+	bool okImage = ExecuteQuery(client, imageQuery, [&sourceRoots](const std::wstring& path, const std::wstring& name) {
+		if (path.empty() || name.empty()) {
+			return;
+		}
+		std::wstring fullPath = CombinePathAndName(TrimTrailingSeparators(ReplaceAltSeparators(path)), name);
+		int rootIndex = FindBestMatchingRootIndex(fullPath, sourceRoots);
+		if (rootIndex >= 0) {
+			sourceRoots[static_cast<size_t>(rootIndex)].imagePaths.push_back(fullPath);
+		}
+	}, &stats.imageQuery);
+	if (!okImage) {
+		g_api.DestroyClient(client);
+		return BRIDGE_IMAGE_QUERY_FAILED;
+	}
+
+	bool okMovie = ExecuteQuery(client, movieQuery, [&sourceRoots](const std::wstring& path, const std::wstring& name) {
+		if (path.empty() || name.empty()) {
+			return;
+		}
+		std::wstring fullPath = CombinePathAndName(TrimTrailingSeparators(ReplaceAltSeparators(path)), name);
+		int rootIndex = FindBestMatchingRootIndex(fullPath, sourceRoots);
+		if (rootIndex >= 0) {
+			sourceRoots[static_cast<size_t>(rootIndex)].moviePaths.push_back(fullPath);
+		}
+	}, &stats.movieQuery);
+	g_api.DestroyClient(client);
+	if (!okMovie) {
+		return BRIDGE_MOVIE_QUERY_FAILED;
+	}
+
+	auto assignStartedAt = std::chrono::steady_clock::now();
+	for (SourceRootAggregate& root : sourceRoots) {
+		ProcessSourceRootResourcePaths(root.rootPath, root.audioPaths, root.allBaseHashes, root.audioBaseHashes, root.audioRelativeHashes, root.resourceTrackedPaths, root.trackedPaths);
+		ProcessSourceRootResourcePaths(root.rootPath, root.imagePaths, root.allBaseHashes, root.imageBaseHashes, root.imageRelativeHashes, root.resourceTrackedPaths, root.trackedPaths);
+		ProcessSourceRootResourcePaths(root.rootPath, root.moviePaths, root.allBaseHashes, root.movieBaseHashes, root.movieRelativeHashes, root.resourceTrackedPaths, root.trackedPaths);
+	}
+	stats.assignMs = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - assignStartedAt).count();
+
+	auto dedupeStartedAt = std::chrono::steady_clock::now();
+	for (SourceRootAggregate& root : sourceRoots) {
+		DedupeSourceRootAggregate(root);
+	}
+	stats.dedupeMs = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - dedupeStartedAt).count();
+
+	auto packStartedAt = std::chrono::steady_clock::now();
+	int buildResult = BuildSourceRootsResultBuffer(sourceRoots, stats, outResult);
+	stats.packMs = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - packStartedAt).count();
+	if (buildResult == BRIDGE_OK && *outResult != nullptr) {
+		(*outResult)->pack_ms = stats.packMs;
+	}
+	return buildResult;
+}
+
 extern "C" __declspec(dllexport) int __cdecl EBridge_EnumerateGroupedFiles(const EBridgeGroupedQuery* queries, unsigned int queryCount, EBridgeGroupedFilesResult** outResult) {
 	if (!outResult) {
 		return BRIDGE_INVALID_ARGUMENT;
@@ -1439,6 +1860,13 @@ extern "C" __declspec(dllexport) int __cdecl EBridge_EnumerateGroupedFiles(const
 }
 
 extern "C" __declspec(dllexport) void __cdecl EBridge_FreeResult(EBridgeResult* result) {
+	if (!result) {
+		return;
+	}
+	std::free(result);
+}
+
+extern "C" __declspec(dllexport) void __cdecl EBridge_FreeSourceRootsResult(EBridgeSourceRootsResult* result) {
 	if (!result) {
 		return;
 	}

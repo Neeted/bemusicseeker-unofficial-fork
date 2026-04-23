@@ -16,7 +16,9 @@ public class BMSPackage : LR2SongDBExtended.install
 
 	private readonly object installEstimationSnapshotLock = new object();
 
-	private PackageSourceScanSnapshot packageSourceScanSnapshot;
+	private PackageChartDiscoverySnapshot packageChartDiscoverySnapshot;
+
+	private PackageInstallSurfaceSnapshot packageInstallSurfaceSnapshot;
 
 	internal PendingEstimateDeferredReason DeferredEstimateReason { get; set; }
 
@@ -30,7 +32,7 @@ public class BMSPackage : LR2SongDBExtended.install
 			{
 				return bmsFiles ?? new List<BMSFile>();
 			}
-			return GetOrBuildPackageSourceScanSnapshot(out _).BmsFiles;
+			return GetOrBuildPackageChartDiscoverySnapshot(out _).BmsFiles;
 		}
 	}
 
@@ -62,28 +64,40 @@ public class BMSPackage : LR2SongDBExtended.install
 	{
 		lock (installEstimationSnapshotLock)
 		{
-			packageSourceScanSnapshot = null;
+			packageChartDiscoverySnapshot = null;
+			packageInstallSurfaceSnapshot = null;
 		}
 	}
 
 	private PackageInstallSurfaceSnapshot GetOrBuildInstallEstimationSurfaceSnapshot(out bool cacheHit)
 	{
-		return GetOrBuildPackageSourceScanSnapshot(out cacheHit).InstallSurfaceSnapshot;
+		lock (installEstimationSnapshotLock)
+		{
+			if (packageInstallSurfaceSnapshot == null
+				|| !string.Equals(packageInstallSurfaceSnapshot.SourcePath, path ?? string.Empty, StringComparison.OrdinalIgnoreCase))
+			{
+				packageInstallSurfaceSnapshot = PackageInstallEstimationSnapshotBuilder.BuildPackageInstallSurfaceSnapshot(path);
+				cacheHit = false;
+				return packageInstallSurfaceSnapshot ?? PackageInstallSurfaceSnapshot.Empty;
+			}
+			cacheHit = true;
+			return packageInstallSurfaceSnapshot;
+		}
 	}
 
-	private PackageSourceScanSnapshot GetOrBuildPackageSourceScanSnapshot(out bool cacheHit)
+	private PackageChartDiscoverySnapshot GetOrBuildPackageChartDiscoverySnapshot(out bool cacheHit)
 	{
 		lock (installEstimationSnapshotLock)
 		{
-			if (packageSourceScanSnapshot == null
-				|| !string.Equals(packageSourceScanSnapshot.SourcePath, path ?? string.Empty, StringComparison.OrdinalIgnoreCase))
+			if (packageChartDiscoverySnapshot == null
+				|| !string.Equals(packageChartDiscoverySnapshot.SourcePath, path ?? string.Empty, StringComparison.OrdinalIgnoreCase))
 			{
-				packageSourceScanSnapshot = PackageInstallEstimationSnapshotBuilder.BuildPackageSourceScanSnapshot(path);
+				packageChartDiscoverySnapshot = PackageInstallEstimationSnapshotBuilder.BuildPackageChartDiscoverySnapshot(path);
 				cacheHit = false;
-				return packageSourceScanSnapshot ?? new PackageSourceScanSnapshot();
+				return packageChartDiscoverySnapshot ?? new PackageChartDiscoverySnapshot();
 			}
 			cacheHit = true;
-			return packageSourceScanSnapshot;
+			return packageChartDiscoverySnapshot;
 		}
 	}
 }

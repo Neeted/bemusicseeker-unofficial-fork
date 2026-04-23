@@ -835,7 +835,40 @@ Phase 6 / Perf-3 で扱うもの:
 - library scan mainline は fixed 4-query native scan に戻した
 - library build は grouped full-path enumeration を通らない
 - library build fixed scan の managed 側は唯一の canonical bridge 契約を前提にし、`ManagedDecodeMs` / `ManagedMaterializeMs` で unpack 残差を分離して追える
-- source-side package surface の native aggregation 化は未着手で、Phase 3 以降の課題として残す
+- **Phase 3 の実装は投入済み**
+  - source-side mainline は `EBridge_ScanSourceRoots` を使う 4-query native surface に切り替えた
+  - source-side mainline の `__all__` query は廃止した
+  - `BMSPackage.BMSFiles` は chart discovery cache に戻し、install surface は別 cache に分離した
+  - 件数は `SourceSurfaceTrackedFileCount` / `SourceSurfaceChartFileCount` / `SourceSurfaceResourceFileCount` で受ける
+  - source-side で Everything を使うかどうかは user setting で切り替える
+    - 設定名: `保留パッケージの推定時に Everything を使用する`
+    - 既定値: `false`
+    - `false` のときは source-side を fast-only enumeration で処理する
+- grouped enumeration は残すが、source-side mainline ではなく fallback / diagnostics / utility 用に寄せた
+
+Phase 3 実測 (`bin/Release/net472/install-performance.log`, setting=`false`):
+
+- `auto_install_prepare`
+  - `discoveryMs=978`
+  - `installedCheckMs=0`
+  - `warningClassifyMs=212`
+  - `classificationMs=212`
+  - `totalMs=2486`
+- `pending_estimate_source_batch_build`
+  - `roots=123`
+  - `chunks=0`
+  - `nativeBridgeMs=0`
+  - `elapsedMs=984`
+- `pending_estimate_batch`
+  - `start -> demand_build = 244ms`
+  - `done elapsedMs=30508`
+- `estimate_install start`
+  - `sourceSurfaceScanBackend=fast` が `136/136`
+  - `sourceSurfaceBatchHit=true` が `136/136`
+  - `sumSourceSurfaceScanMs=0`
+
+したがって、drop 直後の source-side enumeration regress は解消したとみなしてよい。  
+現在の残差は source-side 列挙ではなく、pending estimate の評価 / orchestration 側にある。
 
 Phase 1 実測:
 
@@ -873,6 +906,32 @@ Phase 2 実測:
 という mainline 経路だったと確定してよい。  
 Phase 1 はその regress を止める段として成立している。
 
+Phase 3 Step 0 baseline:
+
+- current comparison logs
+  - `.tmp/phase3-step0-install-performance-2026-04-23-2357.log`
+  - `.tmp/phase3-step0-application-2026-04-23-2352.log`
+- healthy comparison log
+  - `.tmp/相対パス対応後、パフォーマンス改善第1段階後.log`
+
+Step 0 では、pending estimate 本体だけでなく **`auto_install_prepare` の内訳が大きく悪化している**ことも確認できた。
+
+- current `auto_install_prepare`
+  - `discoveryMs=844`
+  - `installedCheckMs=81339`
+  - `warningClassifyMs=390`
+  - `classificationMs=81730`
+  - `totalMs=84256`
+- healthy baseline `auto_install_prepare`
+  - `discoveryMs=877`
+  - `installedCheckMs=858`
+  - `warningClassifyMs=277`
+  - `classificationMs=1136`
+  - `totalMs=3742`
+
+したがって、Phase 3 の perf 回復対象は source-side native aggregation だけでは足りなかった。  
+directory package の `pkg.BMSFiles` 参照に伴って source-side scan が早い段階で走っていたため、**`auto_install_prepare` の installed check / classification から full source-surface build を切り離す**ことも同時に実装対象にした。
+
 1. **Cleanup / Legacy Removal**
    - mixed-package resolve の説明とログを installed-dir resolve 基準へ統一し、legacy 命名を廃止する
    - `BmsScanResult` の obsolete compat 面を削除する
@@ -883,6 +942,8 @@ Phase 1 はその regress を止める段として成立している。
      - chart / audio / image / movie だけを query する
      - ownership 集約と hash 化は native 側で完結させる
    - package source surface も full-path grouped enumeration を source of truth にせず、**4-query native aggregation** に寄せる
+     - source-side mainline の `__all__` query は廃止済み
+     - chart list と resource surface は分離済みで、`auto_install_prepare` では lightweight な chart list だけを使う
    - 共通化するのは full-path 群ではなく
      - roots 正規化
      - query build
@@ -890,7 +951,7 @@ Phase 1 はその regress を止める段として成立している。
      - packed result decode
      の contract に限定する
    - grouped full-path enumeration は fallback / diagnostics / small-root utility に役割を限定する
-   - `BMSPackage` の source scan snapshot 再利用は維持しつつ、mainline materialize は native result 直受けへ寄せる
+   - `BMSPackage` の chart discovery cache と install-surface cache を分離し、mainline materialize は native result 直受けへ寄せる
    - 詳細な段階分けは [library-scan-native-aggregation-plan.md](library-scan-native-aggregation-plan.md) を参照
 3. **docs / diagnostics の整流化**
    - 現状ロジックとログ項目の説明を一本化する
@@ -905,10 +966,12 @@ Phase 1 はその regress を止める段として成立している。
 追加計測の主軸:
 
 - `packageSurfaceScanMs`
-- `packageSurfaceFileCount`
+- `packageSurfaceTrackedFileCount`
+- `packageSurfaceChartFileCount`
+- `packageSurfaceResourceFileCount`
 - `packageSurfaceHashMaterializeMs`
 - `packageSurfaceCacheHit`
-- `packageSurfaceScanBackend=everything|fast`
+- `packageSurfaceScanBackend=everything_bridge_source_surface|everything_bridge|fast`
 
 `estimate_install start` には source-surface delta を載せ、candidate/evaluation diagnostics と同じログ文脈で読めるようにする。
 

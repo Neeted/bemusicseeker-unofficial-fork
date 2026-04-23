@@ -37,10 +37,10 @@
 - `PackageInstallEstimationSnapshot`
   - package-aware 推定用 snapshot
 - `PackageInstallEstimationSnapshotBuilder`
-  - package source scan snapshot から bundled resources を構築する
+  - chart discovery cache と install-estimation surface cache から推定用 snapshot を構築する
 - `BMSPackage`
-  - package source scan snapshot を保持する
-  - `BMSFiles` と install-estimation surface の再利用境界
+  - chart discovery cache と install-estimation surface cache を別々に保持する
+  - `BMSFiles` は chart discovery 専用
 - `ChartResourceSnapshot`
   - target 側の resource 定義 union
 - `DirectoryResourceLookupCache`
@@ -73,7 +73,12 @@
 - 全未所持 package は `Normal` モードで package-aware 推定へ入る
 
 この経路では、`missingFiles` と package の source path から **package snapshot** を作って評価します。  
-`2026-04-23` 時点では、この snapshot 構築は package ごとの **source scan snapshot** を通じて行い、`BMSFiles` 側の source 列挙結果も同じ snapshot を再利用します。
+`2026-04-24` 時点では、`BMSFiles` は chart discovery 専用で、install-estimation surface とは分離されています。  
+また source-side で Everything を使うかどうかは設定
+
+- `保留パッケージの推定時に Everything を使用する`
+
+で切り替えます。既定値は無効で、無効時は source-side scan を fast-only で行います。
 
 ### 2. background pending estimate の抑制
 
@@ -143,13 +148,8 @@ pending package・startup restore・auto-install では通常この経路は使�
 - `SourceDirectory`
 - `ChartCount`
 
-この snapshot 自体は、package root の再帰列挙を毎回やり直して作るのではなく、`BMSPackage` が保持する **package source scan snapshot** を materialize して得ます。  
-同じ source scan snapshot から:
-
-- `BMSFiles`
-- `PackageInstallEstimationSnapshot`
-
-を作るのが現状です。
+この snapshot は、`BMSPackage` が保持する install-estimation surface cache から作ります。  
+`BMSFiles` は別の chart discovery cache を使うため、`BMSFiles` 参照で source-side full scan を起動しないのが現状です。
 
 ### 1. `DefinedResources`
 
@@ -161,15 +161,15 @@ pending package・startup restore・auto-install では通常この経路は使�
 `BundledResources` は **package が導入時に持ち込む non-chart resource 実体** です。  
 shape は `DirectoryResourceLookupCache.Entry` と揃えています。
 
-`2026-04-23` 時点では、package root 側の resource surface は library scan と同じ **shared root enumeration backend** を使って列挙し、path 正規化と hash pack も共通化されています。  
-ただし最終 shape は分けています。
+`2026-04-24` 時点では、package root 側の resource surface は source-side 専用の 4-query native surface か fast-only enumeration で構築します。  
+library build と query discipline は揃えていますが、mainline は grouped full-path enumeration を通りません。
 
 - library scan 側
   - chart-directory keyed な `BmsScanResult`
 - package source 側
-  - single-root keyed な package source scan snapshot / `PackageInstallEstimationSnapshot`
+  - single-root keyed な `PackageInstallSurfaceSnapshot` / `PackageInstallEstimationSnapshot`
 
-この shared root enumeration backend の Everything 経路は bridge-only である。
+source-side で Everything を使う場合も bridge-only である。
 
 - query 文字列の組み立ては managed 側
 - query 実行と結果回収は `EverythingBridge_x64.dll`
@@ -669,13 +669,17 @@ merge の結果は次で固定します。
 
 ## Phase 6 / Perf-3 時点の整理
 
-`2026-04-23` 時点では、relative-path 対応後の cleanup / Perf-3 は **Estimation First** スコープで入っています。
+`2026-04-24` 時点では、relative-path 対応後の cleanup / Perf-3 は **Estimation First** スコープで入っています。
 
-- library scan と package source surface は同じ root 列挙 backend を使う
-- package source scan snapshot は `BMSPackage` に保持し、`BMSFiles` と install-estimation surface で再利用する
+- library scan は fixed 4-query native scan を mainline に使う
+- package source surface は `EBridge_ScanSourceRoots` または fast-only enumeration を mainline に使う
+- `BMSPackage` は chart discovery cache と install-estimation surface cache を分離し、`BMSFiles` 参照で heavy source scan を起動しない
 - mixed package の説明は installed-dir resolve を正経路として書き、legacy search という命名は使わない
 - `BmsScanResult` の obsolete compat 面と未使用の `DirectoryResourceIndex` は cleanup 対象として整理済み
 - package surface には専用 metrics / logging を持たせ、source-side wall-clock を `estimate_install` と相関できる
+- source-side で Everything を使うかどうかは設定
+  - `保留パッケージの推定時に Everything を使用する`
+  - で切り替え、既定値は無効
 
 一方で、このフェーズで **扱わないもの** も明確です。
 

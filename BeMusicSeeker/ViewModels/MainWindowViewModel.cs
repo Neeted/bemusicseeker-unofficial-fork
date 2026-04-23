@@ -194,6 +194,8 @@ public class MainWindowViewModel : ViewModel
 
         private bool tempKeepInstallablePackagesPending;
 
+        private bool tempUseEverythingForPendingPackageSourceScan;
+
         private bool tempDeletePendingPackageSourceAfterInstall;
 
         private bool tempEnableSmartComponentOverwrite;
@@ -1138,6 +1140,22 @@ public class MainWindowViewModel : ViewModel
                 {
                     Settings.Default.KeepInstallablePackagesPending = value;
                     RaisePropertyChanged("KeepInstallablePackagesPending");
+                }
+            }
+        }
+
+        public bool UseEverythingForPendingPackageSourceScan
+        {
+            get
+            {
+                return Settings.Default.UseEverythingForPendingPackageSourceScan;
+            }
+            set
+            {
+                if (Settings.Default.UseEverythingForPendingPackageSourceScan != value)
+                {
+                    Settings.Default.UseEverythingForPendingPackageSourceScan = value;
+                    RaisePropertyChanged("UseEverythingForPendingPackageSourceScan");
                 }
             }
         }
@@ -2259,6 +2277,7 @@ public class MainWindowViewModel : ViewModel
             tempUseFastSortInDataGridExperimental = Settings.Default.UseFastSortInDataGridExperimental;
             tempUseDataGridColumnVirtualizationExperimental = Settings.Default.UseDataGridColumnVirtualizationExperimental;
             tempKeepInstallablePackagesPending = Settings.Default.KeepInstallablePackagesPending;
+            tempUseEverythingForPendingPackageSourceScan = Settings.Default.UseEverythingForPendingPackageSourceScan;
             tempDeletePendingPackageSourceAfterInstall = Settings.Default.DeletePendingPackageSourceAfterInstall;
             tempEnableSmartComponentOverwrite = Settings.Default.EnableSmartComponentOverwrite;
             tempKeepSmartOverwriteProtectedFilesByRenaming = Settings.Default.KeepSmartOverwriteProtectedFilesByRenaming;
@@ -2531,6 +2550,7 @@ public class MainWindowViewModel : ViewModel
             Settings.Default.UseFastSortInDataGridExperimental = tempUseFastSortInDataGridExperimental;
             Settings.Default.UseDataGridColumnVirtualizationExperimental = tempUseDataGridColumnVirtualizationExperimental;
             Settings.Default.KeepInstallablePackagesPending = tempKeepInstallablePackagesPending;
+            Settings.Default.UseEverythingForPendingPackageSourceScan = tempUseEverythingForPendingPackageSourceScan;
             Settings.Default.DeletePendingPackageSourceAfterInstall = tempDeletePendingPackageSourceAfterInstall;
             Settings.Default.EnableSmartComponentOverwrite = tempEnableSmartComponentOverwrite;
             Settings.Default.KeepSmartOverwriteProtectedFilesByRenaming = tempKeepSmartOverwriteProtectedFilesByRenaming;
@@ -2604,6 +2624,7 @@ public class MainWindowViewModel : ViewModel
             RaisePropertyChanged(() => UseFastSortInDataGridExperimental);
             RaisePropertyChanged(() => UseDataGridColumnVirtualizationExperimental);
             RaisePropertyChanged(() => KeepInstallablePackagesPending);
+            RaisePropertyChanged(() => UseEverythingForPendingPackageSourceScan);
             RaisePropertyChanged(() => DeletePendingPackageSourceAfterInstall);
             RaisePropertyChanged(() => EnableSmartComponentOverwrite);
             RaisePropertyChanged(() => KeepSmartOverwriteProtectedFilesByRenaming);

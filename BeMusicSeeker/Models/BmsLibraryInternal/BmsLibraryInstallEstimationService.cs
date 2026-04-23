@@ -562,9 +562,14 @@ internal sealed class BmsLibraryInstallEstimationService
         return CollectTargetResourceHashes(BuildLooseFileSnapshot(bmsFiles, installedHashes, estimateMode));
     }
 
+    internal HashSet<uint> CollectTargetResourceHashes(ChartResourceSnapshot resourceSnapshot)
+    {
+        return resourceSnapshot?.EnumerateAllBaseNameHashes() ?? new HashSet<uint>();
+    }
+
     internal HashSet<uint> CollectTargetResourceHashes(PackageInstallEstimationSnapshot snapshot)
     {
-        return snapshot?.DefinedResources?.EnumerateAllBaseNameHashes() ?? new HashSet<uint>();
+        return CollectTargetResourceHashes(snapshot?.DefinedResources);
     }
 
     private static InstallEstimationFinalEvaluationMode GetFinalEvaluationMode(ChartResourceSnapshot resourceSnapshot)
@@ -591,36 +596,51 @@ internal sealed class BmsLibraryInstallEstimationService
 
     internal SourceBaselineEvaluation EvaluateSourceBaseline(PackageInstallEstimationSnapshot snapshot)
     {
-        SourceBaselineEvaluation result = new SourceBaselineEvaluation();
         if (snapshot?.RepresentativeFile == null)
         {
-            return result;
+            return new SourceBaselineEvaluation();
         }
-        ChartResourceSnapshot resourceSnapshot = snapshot.DefinedResources ?? new ChartResourceSnapshot();
-        if (resourceSnapshot.TotalReferenceCount == 0)
+
+        return EvaluateSourceBaseline(
+            snapshot.DefinedResources,
+            snapshot.SourceDirectory,
+            snapshot.BundledResources,
+            snapshot.SourceCandidateResources);
+    }
+
+    internal SourceBaselineEvaluation EvaluateSourceBaseline(
+        ChartResourceSnapshot resourceSnapshot,
+        string sourceDirectory,
+        DirectoryResourceLookupCache.Entry bundledResources,
+        DirectoryResourceLookupCache.Entry sourceCandidateResources)
+    {
+        SourceBaselineEvaluation result = new SourceBaselineEvaluation();
+        ChartResourceSnapshot effectiveSnapshot = resourceSnapshot ?? new ChartResourceSnapshot();
+        if (effectiveSnapshot.TotalReferenceCount == 0)
         {
             result.PrimaryHealth = 100;
             result.IsViableDestination = true;
             return result;
         }
-        InstallEstimationFinalEvaluationMode evaluationMode = GetFinalEvaluationMode(resourceSnapshot);
-        DirectoryResourceLookupCache.Entry bundledResources = snapshot.BundledResources;
+
+        InstallEstimationFinalEvaluationMode evaluationMode = GetFinalEvaluationMode(effectiveSnapshot);
+        DirectoryResourceLookupCache.Entry effectiveBundledResources = bundledResources ?? new DirectoryResourceLookupCache.Entry();
         CandidateResourceView bundledView = evaluationMode == InstallEstimationFinalEvaluationMode.RelativeStrict
-            ? CreateCandidateResourceView(bundledResources, null, null)
+            ? CreateCandidateResourceView(effectiveBundledResources, null, null)
             : null;
         CandidateEvaluation evaluation = EvaluateCandidate(
-            snapshot.SourceDirectory,
-            resourceSnapshot,
+            sourceDirectory ?? string.Empty,
+            effectiveSnapshot,
             null,
             null,
-            bundledResources,
+            effectiveBundledResources,
             bundledView,
-            snapshot.SourceCandidateResources,
+            sourceCandidateResources ?? new DirectoryResourceLookupCache.Entry(),
             null,
             evaluationMode,
             diagnostics: null,
             isSourceCandidate: true);
-        result.PrimaryHealth = GetPrimaryHealth(resourceSnapshot, evaluation);
+        result.PrimaryHealth = GetPrimaryHealth(effectiveSnapshot, evaluation);
         result.IsViableDestination = IsViableDestination(result.PrimaryHealth);
         result.Summary = evaluation.ToSummary();
         return result;

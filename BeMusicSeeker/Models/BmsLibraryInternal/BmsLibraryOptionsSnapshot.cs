@@ -18,6 +18,8 @@ internal sealed class BmsLibraryOptionsSnapshot
 
     public bool KeepInstallablePackagesPending { get; set; }
 
+    public bool UseEverythingForPendingPackageSourceScan { get; set; }
+
     public bool SkipEstimateOfflineScoreRanking { get; set; }
 
     public bool EnableReadOptimizedPragmas { get; set; }
@@ -41,6 +43,7 @@ internal sealed class BmsLibraryOptionsSnapshot
             KeepSmartOverwriteProtectedFilesByRenaming = Settings.Default.KeepSmartOverwriteProtectedFilesByRenaming,
             DeletePendingPackageSourceAfterInstall = Settings.Default.DeletePendingPackageSourceAfterInstall,
             KeepInstallablePackagesPending = Settings.Default.KeepInstallablePackagesPending,
+            UseEverythingForPendingPackageSourceScan = Settings.Default.UseEverythingForPendingPackageSourceScan,
             SkipEstimateOfflineScoreRanking = Settings.Default.SkipEstimateOfflineScoreRanking,
             EnableReadOptimizedPragmas = Settings.Default.EnableReadOptimizedPragmas,
             SkipInitFileCheck = Settings.Default.SkipInitFileCheck,

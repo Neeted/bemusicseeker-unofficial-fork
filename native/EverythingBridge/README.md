@@ -11,6 +11,9 @@ Native bridge DLL for BeMusicSeeker chart/resource split scan.
   - audio files
   - image files
   - movie files
+- source-root scan inputs into:
+  - one or more roots
+  - chart/audio/image/movie queries
 - grouped file-enumeration queries
 - Re-aggregate resource hits to chart-directory keyed ownership views.
 - Return one packed result buffer to C# without per-item P/Invoke loops.
@@ -71,17 +74,27 @@ int  __cdecl EBridge_ScanChartAndResources(
     const wchar_t* imageQuery,
     const wchar_t* movieQuery,
     EBridgeResult** outResult);
+int  __cdecl EBridge_ScanSourceRoots(
+    const EBridgeSourceRootRequest* roots,
+    unsigned int rootCount,
+    const wchar_t* chartQuery,
+    const wchar_t* audioQuery,
+    const wchar_t* imageQuery,
+    const wchar_t* movieQuery,
+    EBridgeSourceRootsResult** outResult);
 int  __cdecl EBridge_EnumerateGroupedFiles(
     const EBridgeGroupedQuery* queries,
     unsigned int queryCount,
     EBridgeGroupedFilesResult** outResult);
 void __cdecl EBridge_FreeResult(EBridgeResult* result);
+void __cdecl EBridge_FreeSourceRootsResult(EBridgeSourceRootsResult* result);
 void __cdecl EBridge_FreeGroupedFilesResult(EBridgeGroupedFilesResult* result);
 ```
 
 `EBridge_FreeResult` must be called for every successful scan call.  
 `EBridge_ScanChartAndResources` is the canonical fixed-scan contract for library build and includes self-only ownership fields in the returned payload.
-`EBridge_EnumerateGroupedFiles` batches arbitrary grouped queries such as `chart/audio/image/movie/__all__` and returns one packed result buffer.
+`EBridge_ScanSourceRoots` is the canonical source-side contract for package/source surfaces and returns per-root chart paths plus root-level hash/count summaries without an `__all__` full-path query.
+`EBridge_EnumerateGroupedFiles` batches arbitrary grouped queries such as `chart/audio/image/movie/__all__` and returns one packed result buffer for fallback / diagnostics / utility use.
 
 ## Repository layout and operation
 

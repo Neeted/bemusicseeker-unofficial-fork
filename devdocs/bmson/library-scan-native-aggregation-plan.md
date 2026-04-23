@@ -28,13 +28,47 @@ relative-path 対応後の library build 性能悪化は、relative path その�
   - bare filename を特別扱いしない
 - roots を渡して列挙する共通化は進めるが、**共通化の単位は full-path 群ではなく native scan request / result contract** にする
 
-`2026-04-23` 時点の current status:
+`2026-04-24` 時点の current status:
 
 - **Phase 1 / Phase 2 は実装済み**
   - library build mainline は grouped full-path enumeration を通らず、fixed 4-query native scan を使う
   - library build fixed scan は `EBridge_ScanChartAndResources` を唯一の正式契約として使う
   - managed 側は `ManagedDecodeMs` / `ManagedMaterializeMs` / `BridgeRawBufferBytes` で unpack 残差を追える
-- source-side package surface はまだ grouped enumeration ベースであり、native aggregation 化は Phase 3 以降で扱う
+- **Phase 3 の実装は投入済み**
+  - source-side mainline は `EBridge_ScanSourceRoots` を使う 4-query native surface に切り替えた
+  - `BMSPackage.BMSFiles` は `PackageChartDiscoverySnapshot` だけを見る
+  - install estimation 用の source surface は `PackageInstallSurfaceSnapshot` に分離した
+  - source-side mainline から `__all__` query を外し、`tracked/chart/resource` count を canonical telemetry にした
+  - source-side で Everything を使うかどうかは user setting で切り替える
+    - 設定名: `保留パッケージの推定時に Everything を使用する`
+    - 既定値: `false`
+    - `false` のときは source-side を fast-only enumeration で処理する
+- grouped enumeration は残すが、source-side mainline ではなく fallback / diagnostics / utility 用に寄せた
+- source-side enumeration 自体は blocker ではなくなり、残差は pending estimate の評価 / orchestration 側へ移っている
+
+Phase 3 実測 (`bin/Release/net472/install-performance.log`, setting=`false`):
+
+- `auto_install_prepare`
+  - `discoveryMs=978`
+  - `installedCheckMs=0`
+  - `warningClassifyMs=212`
+  - `classificationMs=212`
+  - `totalMs=2486`
+- `pending_estimate_source_batch_build`
+  - `packages=143`
+  - `roots=123`
+  - `chunks=0`
+  - `nativeBridgeMs=0`
+  - `elapsedMs=984`
+- `pending_estimate_batch`
+  - `start -> demand_build = 244ms`
+  - `done elapsedMs=30508`
+- `estimate_install start`
+  - `sourceSurfaceScanBackend=fast` が `136/136`
+  - `sourceSurfaceBatchHit=true` が `136/136`
+  - `sumSourceSurfaceScanMs=0`
+
+この状態では、source-side Everything を既定で使わない設定でも regress は出ておらず、chart-only source が大半の corpus では fast-only path が妥当と整理してよい。
 
 Phase 1 実測 (`bin/Release/net472/install-performance.log`):
 
@@ -81,45 +115,85 @@ Phase 2 実測 (`bin/Release/net472/install-performance.log`):
   - index build: `549ms`
   に切り分けられる
 
-## Current Problem
+## Phase 3 Step 0 Baseline
 
-### 1. 現在の library build は generic grouped enumeration を mainline にしている
+Phase 3 の比較用ログは Git 管理外の `.tmp` に保存しておく。
 
-現行コードでは library build が次の経路になっている。
+- current
+  - `.tmp/phase3-step0-install-performance-2026-04-23-2357.log`
+  - `.tmp/phase3-step0-application-2026-04-23-2352.log`
+- healthy baseline
+  - `.tmp/相対パス対応後、パフォーマンス改善第1段階後.log`
 
-- `EverythingFileScanner.Scan(...)`
-  - `EverythingRootFileEnumerator.EnumerateFiles(...)`
-  - `BmsFileScannerResultBuilder.Build(...)`
-  - `ChartDirectoryScanBuilder.BuildFromGroupedPaths(...)`
+Step 0 で重要だったのは、source-side evaluation 本体だけでなく、**package drop 直後の `auto_install_prepare` が大きく悪化していた**ことだった。
 
-これは full path 群を managed 側へ戻し、そこから chart directory ownership を再計算している。
+- current `auto_install_prepare`
+  - `discoveryMs=844`
+  - `installedCheckMs=81339`
+  - `warningClassifyMs=390`
+  - `classificationMs=81730`
+  - `totalMs=84256`
+- healthy baseline `auto_install_prepare`
+  - `discoveryMs=877`
+  - `installedCheckMs=858`
+  - `warningClassifyMs=277`
+  - `classificationMs=1136`
+  - `totalMs=3742`
 
-### 2. 以前の高速経路は bridge-only のまま残っている
+したがって、Step 0 時点の regress 本体は discovery ではなく **installed check / classification** にあると整理できた。
 
-`EverythingNative.ExecuteScan(...)` は今も存在し、
+- `discoveryMs` はほぼ同じ
+- `warningClassifyMs` も小差
+- `installedCheckMs` だけが `858 -> 81339` に跳ねている
 
-- chart/audio/image/movie の **4 query**
-- `EBridge_ScanChartAndResources`
-- chart-directory keyed hash-only result
+回帰の本体は、directory package の `pkg.BMSFiles` 参照が source-side shared snapshot を起動し、**pending estimate に入る前の prepare 段階で重い package source enumeration を踏んでいたこと**にあった。
 
-を返せる。
+Phase 3 ではここを次で是正した。
 
-つまり、bridge-only 原則を崩さずに library build を fixed 4-query native aggregation へ戻すことは可能である。
+- `PackageSourceScanSnapshot` を廃止し、`PackageChartDiscoverySnapshot` と `PackageInstallSurfaceSnapshot` に分離した
+- `BMSPackage.BMSFiles` は chart discovery snapshot だけを参照する
+- `PrepareAutoInstallWorkflow(...)` では discovery 時点で得た chart list を package に埋め込み、installed check / warning classification で再利用する
+- install estimation 用の source surface は必要になった時点でだけ build する
 
-### 3. ログ上のボトルネックは query そのものではない
+## Step 0 Root Cause and Phase 3 Direction
 
-`install-performance.log` の `everything_scan success` では次の状態になっている。
+### 1. library build regress は止まったが、Step 0 時点の source-side mainline が重かった
 
-- `totalMs=209564`
-- `nativeBridgeMs=66461`
-- `chartQueryMs + audioQueryMs + imageQueryMs + movieQueryMs ~= 16035`
+library build mainline はすでに fixed 4-query native scan に戻っていた。  
+一方、Step 0 時点の source-side は次の経路を mainline にしていた。
 
-したがって重いのは query 自体ではなく、
+- `BMSPackage.BMSFiles`
+  - `GetOrBuildPackageSourceScanSnapshot(...)`
+  - `PackageInstallEstimationSnapshotBuilder.BuildPackageSourceScanSnapshot(...)`
+  - `RootFileEnumerationService.EnumerateFilesWithFallback(...)`
+  - `ChartDirectoryScanBuilder.CreateDefaultEnumerationGroups(includeAllFiles: true)`
+  - `ResourceSurfaceMaterializer.CreateSingleRootEntry(...)`
 
-- bridge 内での full-path 回収 / dedupe / pack
-- managed 側での owner 探索 / relative hash 化 / 集約
+これは grouped full path 群を managed 側へ戻し、そこから source-surface hash を作る経路で、`auto_install_prepare` にも流入していた。
 
-である。
+### 2. Step 0 時点の source-side mainline には `__all__` が入っていた
+
+Step 0 時点の source-side mainline は `includeAllFiles: true` を前提にしており、`chart / audio / image / movie` に加えて `__all__` full-path query を使っていた。
+
+しかし install destination 推定や source baseline で本当に必要なのは、
+
+- grouped chart file paths
+- audio/image/movie の basename / relative-path hash surface
+- summary counts
+
+であり、`__all__` full-path 自体は source of truth にしなくてよい。
+
+### 3. `auto_install_prepare` が source-side scan を早すぎる段階で踏んでいた
+
+`auto_install_prepare` の `installedCheckMs` 悪化は、directory package の `pkg.BMSFiles` アクセスが source-side snapshot build を起動していたことを示していた。
+
+Phase 3 では、pending estimate や install estimation より前の
+
+- installed check
+- warning classification
+- pending / auto-install classification
+
+では **lightweight な chart list だけ**で処理し、full source surface build は後ろへ遅延させる。
 
 ## Design Principles
 
@@ -245,19 +319,49 @@ parallel 化を入れるなら native 側で行う。
 
 package source directory / loose-file source 側も、full-path grouped enumeration ではなく 4-query native aggregation に寄せる。
 
-### Changes
+この段では次を同時に達成する。
 
-- source-side 用の native contract を追加する
-  - 例: `EBridge_ScanRootGroups`
+- source-side mainline から `__all__` query をなくす
+- package source surface を native aggregation 化する
+- `auto_install_prepare` で `pkg.BMSFiles` 参照に伴って source-side full scan が走る構造を解消する
+
+### Implemented Changes
+
+- source-side 用の native contract を追加した
+  - `EBridge_ScanSourceRoots`
+  - `EBridge_FreeSourceRootsResult`
 - 入力は library build と同じく
   - roots
   - chart/audio/image/movie query
-  - aggregation mode
 - 出力は source-side 用に絞る
-  - root-relative basename hashes
-  - root-relative relative-path hashes
   - grouped chart file paths
-  - summary counts
+  - root 単位の basename / relative-path hash arrays
+  - `trackedFileCount`
+  - `chartFileCount`
+  - `resourceFileCount`
+  - query / pack diagnostics
+
+- `BMSPackage` の cache を 2 系統に分離した
+  - `PackageChartDiscoverySnapshot`
+  - `PackageInstallSurfaceSnapshot`
+
+- `__all__` full-path query は mainline から削除する
+  - `chart / audio / image / movie` 以外の query は投げない
+  - 件数は native summary scalar で返す
+
+- `auto_install_prepare` は lightweight な chart discovery / chart file list だけで進める
+  - installed check
+  - warning classification
+  - pending / auto-install classification
+  の段階で package source surface build を起動しない
+  - full source surface は
+    - source baseline evaluation
+    - pending estimate
+    - install estimation
+    に必要になった時点で初めて要求する
+
+- source-side fallback でも `__all__` は要求しない
+  - grouped enumeration を使う場合も `chart / audio / image / movie` だけで組む
 
 ### Aggregation modes
 
@@ -275,13 +379,21 @@ package source directory / loose-file source 側も、full-path grouped enumerat
 - `PackageInstallEstimationSnapshotBuilder`
 - `BMSPackage`
 
-は grouped full-path 群から `ResourceSurfaceMaterializer` を作るのをやめ、native の single-root result をそのまま使う。
+は grouped full-path 群から `ResourceSurfaceMaterializer` を作るのを mainline ではやめ、native の single-root result をそのまま使う。
 
-### Acceptance
+- `BMSPackage.BMSFiles` は chart query result または discovery snapshot を再利用し、source-side surface build と分離する
+- `GetOrBuildPackageSourceScanSnapshot(...)` は廃止し、「chart list」と「resource surface」を別 cache に整理する
+- `ResourceSurfaceMaterializer.CreateSingleRootEntry(...)` は fallback 用の位置づけに下げる
+
+### Validation Targets
 
 - package source surface でも `__all__` query を使わない
 - mainline source-surface build は 4 query fixed
 - `ResourceSurfaceMaterializer.CreateSingleRootEntry(...)` は fallback 限定に寄る
+- `auto_install_prepare` は package source enumeration に支配されない
+  - `installedCheckMs` を Step 0 の `81339ms` から大きく削減する
+  - healthy baseline の `858ms` に近い低 single-digit seconds 帯へ戻すことを目標にする
+- `auto_install_prepare` の discovery / installed-check / classification を個別に追える diagnostics を維持し、改善前後をログだけで比較できる
 
 ## Phase 4. Commonization by Contract, Not by Full Paths
 
@@ -330,8 +442,8 @@ full-path grouped enumeration を source of truth にすると、
   - `BmsFileScannerResultBuilder`
   - `ChartDirectoryScanBuilder.BuildFromGroupedPaths(...)`
 - source-surface mainline から次を外す
-  - `includeAllFiles: true`
   - grouped full-path からの `ResourceSurfaceMaterializer`
+  - mainline call site から grouped enumeration 依存が残っている箇所
 - logs を次の 2 系統に分ける
   - library build
   - source-surface build

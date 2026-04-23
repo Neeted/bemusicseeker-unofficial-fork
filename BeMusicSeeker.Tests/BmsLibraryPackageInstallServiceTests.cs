@@ -462,9 +462,52 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(0, result.RegroupEligibleSourceDirectories.Count);
             Assert.IsTrue(Directory.Exists(result.AutoInstallCandidates[0].path));
             Assert.IsTrue(result.AutoInstallCandidates.Any((BMSPackage package) => package.path.Equals(filePackageDirectoryPath, StringComparison.OrdinalIgnoreCase)));
+            Assert.IsTrue(result.DiscoveredPackages.All((BMSPackage package) => package.BMSFiles.Count > 0));
             Assert.IsTrue(result.DiscoveryMs >= 0);
             Assert.IsTrue(result.ClassificationMs >= 0);
             Assert.IsTrue(result.TotalMs >= 0);
+        });
+    }
+
+    [TestMethod]
+    public void PrepareAutoInstallWorkflow_DoesNotPrebuildSourceSurfaceForDiscoveredPackages()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithPendingPackageSourceScanSetting(enabled: false, delegate
+        {
+            WithTemporaryDirectory(delegate (string tempDirectoryPath)
+            {
+                string directoryPackagePath = Path.Combine(tempDirectoryPath, "DirPkg");
+                Directory.CreateDirectory(directoryPackagePath);
+                File.WriteAllText(Path.Combine(directoryPackagePath, "chart_dir.bms"), "#PLAYER 1\r\n#TITLE Dir\r\n#WAVAA sound_dir.wav\r\n#00111:AA\r\n");
+
+                string filePackageDirectoryPath = Path.Combine(tempDirectoryPath, "SinglePkg");
+                Directory.CreateDirectory(filePackageDirectoryPath);
+                string singleFilePath = Path.Combine(filePackageDirectoryPath, "chart_single.bms");
+                File.WriteAllText(singleFilePath, "#PLAYER 1\r\n#TITLE Single\r\n#WAVAA sound_single.wav\r\n#00111:AA\r\n");
+
+                BmsLibraryPackageInstallService service = new BmsLibraryPackageInstallService();
+                AutoInstallWorkflowResult result = service.PrepareAutoInstallWorkflow(
+                    new[] { directoryPackagePath, singleFilePath },
+                    Array.Empty<BMSPackage>(),
+                    Array.Empty<string>(),
+                    _ => false,
+                    0.6,
+                    _ => false);
+
+                Assert.AreEqual(2, result.DiscoveredPackages.Count);
+                foreach (BMSPackage package in result.DiscoveredPackages)
+                {
+                    List<BMSFile> discoveredCharts = package.BMSFiles.ToList();
+                    PackageInstallEstimationSnapshot firstSnapshot = package.GetOrBuildInstallEstimationSnapshot(discoveredCharts);
+                    PackageInstallEstimationSnapshot secondSnapshot = package.GetOrBuildInstallEstimationSnapshot(discoveredCharts);
+
+                    Assert.IsTrue(discoveredCharts.Count > 0);
+                    Assert.IsFalse(firstSnapshot.SourceSurfaceCacheHit);
+                    Assert.IsTrue(secondSnapshot.SourceSurfaceCacheHit);
+                    Assert.AreEqual("fast", firstSnapshot.SourceSurfaceScanBackend);
+                }
+            });
         });
     }
 
@@ -1453,6 +1496,20 @@ public sealed class BmsLibraryPackageInstallServiceTests
                     File.SetLastWriteTime(path, lastWriteTime.Value);
                 }
             }
+        }
+    }
+
+    private static void WithPendingPackageSourceScanSetting(bool enabled, Action action)
+    {
+        bool original = BeMusicSeeker.Properties.Settings.Default.UseEverythingForPendingPackageSourceScan;
+        try
+        {
+            BeMusicSeeker.Properties.Settings.Default.UseEverythingForPendingPackageSourceScan = enabled;
+            action();
+        }
+        finally
+        {
+            BeMusicSeeker.Properties.Settings.Default.UseEverythingForPendingPackageSourceScan = original;
         }
     }
 }

@@ -138,6 +138,8 @@ public class Resources
 
     public static string Details_test_keep_installable_pending => ResourceManager.GetString("Details_test_keep_installable_pending", resourceCulture);
 
+    public static string Details_use_everything_for_pending_package_source_scan => ResourceManager.GetString("Details_use_everything_for_pending_package_source_scan", resourceCulture);
+
     public static string Details_test_notcalc_offrank => ResourceManager.GetString("Details_test_notcalc_offrank", resourceCulture);
 
     public static string Details_test_notcheck_playlists => ResourceManager.GetString("Details_test_notcheck_playlists", resourceCulture);

@@ -1185,6 +1185,21 @@ internal sealed class Settings : ApplicationSettingsBase
 		}
 	}
 
+	[UserScopedSetting]
+	[DebuggerNonUserCode]
+	[DefaultSettingValue("False")]
+	public bool UseEverythingForPendingPackageSourceScan
+	{
+		get
+		{
+			return (bool)this["UseEverythingForPendingPackageSourceScan"];
+		}
+		set
+		{
+			this["UseEverythingForPendingPackageSourceScan"] = value;
+		}
+	}
+
 	/// <summary>
 	/// 推定先への通常インストール後に、元の保留パッケージフォルダを残り物ごと削除するかどうかを取得または設定します。
 	/// </summary>

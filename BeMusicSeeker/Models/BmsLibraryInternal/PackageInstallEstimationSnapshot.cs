@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using BeMusicSeeker.Models.Utils;
+using BeMusicSeeker.Properties;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
@@ -27,20 +28,22 @@ internal sealed class PackageInstallSurfaceSnapshot
 
     public long ScanMs { get; set; }
 
-    public int FileCount { get; set; }
+    public int ChartFileCount { get; set; }
+
+    public int ResourceFileCount { get; set; }
+
+    public int TrackedFileCount { get; set; }
 
     public long HashMaterializeMs { get; set; }
 
     public string ScanBackend { get; set; } = string.Empty;
 }
 
-internal sealed class PackageSourceScanSnapshot
+internal sealed class PackageChartDiscoverySnapshot
 {
     public string SourcePath { get; set; } = string.Empty;
 
     public List<BMSFile> BmsFiles { get; set; } = new List<BMSFile>();
-
-    public PackageInstallSurfaceSnapshot InstallSurfaceSnapshot { get; set; } = PackageInstallSurfaceSnapshot.Empty;
 }
 
 internal sealed class PackageInstallEstimationSnapshot
@@ -67,18 +70,24 @@ internal sealed class PackageInstallEstimationSnapshot
 
     public long SourceSurfaceScanMs { get; set; }
 
-    public int SourceSurfaceFileCount { get; set; }
+    public int SourceSurfaceChartFileCount { get; set; }
+
+    public int SourceSurfaceResourceFileCount { get; set; }
+
+    public int SourceSurfaceTrackedFileCount { get; set; }
 
     public long SourceSurfaceHashMaterializeMs { get; set; }
 
     public bool SourceSurfaceCacheHit { get; set; }
+
+    public bool SourceSurfaceBatchHit { get; set; }
 
     public string SourceSurfaceScanBackend { get; set; } = string.Empty;
 }
 
 internal static class PackageInstallEstimationSnapshotBuilder
 {
-    internal static PackageInstallEstimationSnapshot Build(BMSPackage package, IEnumerable<BMSFile> targetFiles, PackageInstallSurfaceSnapshot installSurfaceSnapshot, bool sourceSurfaceCacheHit)
+    internal static PackageInstallEstimationSnapshot Build(BMSPackage package, IEnumerable<BMSFile> targetFiles, PackageInstallSurfaceSnapshot installSurfaceSnapshot, bool sourceSurfaceCacheHit, bool sourceSurfaceBatchHit = false)
     {
         List<BMSFile> targetFileList = (targetFiles ?? Enumerable.Empty<BMSFile>()).Where((BMSFile file) => file != null).ToList();
         return new PackageInstallEstimationSnapshot
@@ -91,9 +100,12 @@ internal static class PackageInstallEstimationSnapshotBuilder
             SourceDirectory = installSurfaceSnapshot?.SourceDirectory ?? ResolveSourceDirectory(package?.path),
             ChartCount = targetFileList.Count,
             SourceSurfaceScanMs = installSurfaceSnapshot?.ScanMs ?? 0L,
-            SourceSurfaceFileCount = installSurfaceSnapshot?.FileCount ?? 0,
+            SourceSurfaceChartFileCount = installSurfaceSnapshot?.ChartFileCount ?? 0,
+            SourceSurfaceResourceFileCount = installSurfaceSnapshot?.ResourceFileCount ?? 0,
+            SourceSurfaceTrackedFileCount = installSurfaceSnapshot?.TrackedFileCount ?? 0,
             SourceSurfaceHashMaterializeMs = installSurfaceSnapshot?.HashMaterializeMs ?? 0L,
             SourceSurfaceCacheHit = sourceSurfaceCacheHit,
+            SourceSurfaceBatchHit = sourceSurfaceBatchHit,
             SourceSurfaceScanBackend = installSurfaceSnapshot?.ScanBackend ?? string.Empty
         };
     }
@@ -113,18 +125,44 @@ internal static class PackageInstallEstimationSnapshotBuilder
             SourceDirectory = sourceSurfaceSnapshot.SourceDirectory,
             ChartCount = targetFileList.Count,
             SourceSurfaceScanMs = sourceSurfaceSnapshot.ScanMs,
-            SourceSurfaceFileCount = sourceSurfaceSnapshot.FileCount,
+            SourceSurfaceChartFileCount = sourceSurfaceSnapshot.ChartFileCount,
+            SourceSurfaceResourceFileCount = sourceSurfaceSnapshot.ResourceFileCount,
+            SourceSurfaceTrackedFileCount = sourceSurfaceSnapshot.TrackedFileCount,
             SourceSurfaceHashMaterializeMs = sourceSurfaceSnapshot.HashMaterializeMs,
             SourceSurfaceCacheHit = false,
+            SourceSurfaceBatchHit = false,
             SourceSurfaceScanBackend = sourceSurfaceSnapshot.ScanBackend
         };
     }
 
-    internal static PackageSourceScanSnapshot BuildPackageSourceScanSnapshot(string packagePath)
+    internal static PackageInstallSurfaceSnapshot BuildSharedInstallSurfaceSnapshot(string sourcePath, string sourceDirectory, SourceSurfaceEntryView sourceSurface, bool includeBundledResources)
+    {
+        DirectoryResourceLookupCache.Entry resourceEntry = sourceSurface?.ResourceEntry?.Clone() ?? new DirectoryResourceLookupCache.Entry();
+        return new PackageInstallSurfaceSnapshot
+        {
+            SourcePath = sourcePath ?? string.Empty,
+            SourceDirectory = sourceDirectory ?? string.Empty,
+            BundledResources = includeBundledResources ? resourceEntry.Clone() : new DirectoryResourceLookupCache.Entry(),
+            SourceCandidateResources = resourceEntry,
+            ScanMs = 0L,
+            ChartFileCount = sourceSurface?.ChartFileCount ?? 0,
+            ResourceFileCount = sourceSurface?.ResourceFileCount ?? 0,
+            TrackedFileCount = sourceSurface?.TrackedFileCount ?? 0,
+            HashMaterializeMs = 0L,
+            ScanBackend = sourceSurface?.ScanBackend ?? string.Empty
+        };
+    }
+
+    internal static PackageChartDiscoverySnapshot BuildPackageChartDiscoverySnapshot(string packagePath)
+    {
+        return BuildPackageChartDiscoverySnapshot(packagePath, Settings.Default.UseEverythingForPendingPackageSourceScan);
+    }
+
+    internal static PackageChartDiscoverySnapshot BuildPackageChartDiscoverySnapshot(string packagePath, bool useEverythingForPendingPackageSourceScan)
     {
         if (string.IsNullOrWhiteSpace(packagePath))
         {
-            return new PackageSourceScanSnapshot();
+            return new PackageChartDiscoverySnapshot();
         }
 
         string normalizedPath;
@@ -134,51 +172,80 @@ internal static class PackageInstallEstimationSnapshotBuilder
         }
         catch
         {
-            return new PackageSourceScanSnapshot();
+            return new PackageChartDiscoverySnapshot();
         }
 
         if (Directory.Exists(normalizedPath))
         {
-            RootFileEnumerationResult enumerationResult = RootFileEnumerationService.EnumerateFilesWithFallback(
-                new[] { normalizedPath },
-                ChartDirectoryScanBuilder.CreateDefaultEnumerationGroups(includeAllFiles: true));
-            PackageInstallSurfaceSnapshot installSurfaceSnapshot = CreateDirectoryInstallSurfaceSnapshot(normalizedPath, normalizedPath, enumerationResult);
-            return new PackageSourceScanSnapshot
+            RootFileEnumerationResult enumerationResult = useEverythingForPendingPackageSourceScan
+                ? EnumerateChartsOnlyWithFallback(normalizedPath)
+                : EnumerateChartsOnlyFastOnly(normalizedPath);
+            return new PackageChartDiscoverySnapshot
             {
                 SourcePath = normalizedPath,
-                BmsFiles = (enumerationResult?.GetPaths(ChartDirectoryScanBuilder.ChartGroupName) ?? Array.Empty<string>())
-                    .Select(CreatePendingChartFromPath)
-                    .Where((BMSFile file) => file != null)
-                    .ToList(),
-                InstallSurfaceSnapshot = installSurfaceSnapshot
+                BmsFiles = CreatePendingChartsFromPaths(enumerationResult?.GetPaths(ChartDirectoryScanBuilder.ChartGroupName) ?? Array.Empty<string>())
             };
         }
 
-        string sourceDirectory = ResolveSourceDirectory(normalizedPath);
-        RootFileEnumerationResult filePackageEnumerationResult = RootFileEnumerationService.EnumerateFilesWithFallback(
-            new[] { sourceDirectory },
-            ChartDirectoryScanBuilder.CreateDefaultEnumerationGroups(includeAllFiles: true));
-        return new PackageSourceScanSnapshot
+        return new PackageChartDiscoverySnapshot
         {
             SourcePath = normalizedPath,
             BmsFiles = File.Exists(normalizedPath) && PendingChartEntry.IsSupportedChartFilePath(normalizedPath)
                 ? new List<BMSFile> { CreatePendingChartFromPath(normalizedPath) }.Where((BMSFile file) => file != null).ToList()
-                : new List<BMSFile>(),
-            InstallSurfaceSnapshot = CreateFileInstallSurfaceSnapshot(normalizedPath, sourceDirectory, filePackageEnumerationResult)
+                : new List<BMSFile>()
         };
+    }
+
+    internal static PackageInstallSurfaceSnapshot BuildPackageInstallSurfaceSnapshot(string packagePath)
+    {
+        return BuildPackageInstallSurfaceSnapshot(packagePath, Settings.Default.UseEverythingForPendingPackageSourceScan);
+    }
+
+    internal static PackageInstallSurfaceSnapshot BuildPackageInstallSurfaceSnapshot(string packagePath, bool useEverythingForPendingPackageSourceScan)
+    {
+        if (string.IsNullOrWhiteSpace(packagePath))
+        {
+            return PackageInstallSurfaceSnapshot.Empty;
+        }
+
+        string normalizedPath;
+        try
+        {
+            normalizedPath = Path.GetFullPath(packagePath);
+        }
+        catch
+        {
+            return PackageInstallSurfaceSnapshot.Empty;
+        }
+
+        if (Directory.Exists(normalizedPath))
+        {
+            return CreateDirectoryInstallSurfaceSnapshot(normalizedPath, normalizedPath, useEverythingForPendingPackageSourceScan);
+        }
+
+        string sourceDirectory = ResolveSourceDirectory(normalizedPath);
+        return CreateFileInstallSurfaceSnapshot(normalizedPath, sourceDirectory, useEverythingForPendingPackageSourceScan);
     }
 
     private static PackageInstallSurfaceSnapshot BuildSourceCandidateResourcesForLooseFiles(BMSFile representativeFile)
     {
         string sourceDirectory = representativeFile == null ? string.Empty : ResolveSourceDirectory(representativeFile.path);
-        RootFileEnumerationResult enumerationResult = RootFileEnumerationService.EnumerateFilesWithFallback(
-            new[] { sourceDirectory },
-            ChartDirectoryScanBuilder.CreateDefaultEnumerationGroups(includeAllFiles: true));
-        return CreateFileInstallSurfaceSnapshot(representativeFile?.path ?? string.Empty, sourceDirectory, enumerationResult);
+        return CreateFileInstallSurfaceSnapshot(representativeFile?.path ?? string.Empty, sourceDirectory, Settings.Default.UseEverythingForPendingPackageSourceScan);
     }
 
-    private static PackageInstallSurfaceSnapshot CreateDirectoryInstallSurfaceSnapshot(string sourcePath, string sourceDirectory, RootFileEnumerationResult enumerationResult)
+    private static PackageInstallSurfaceSnapshot CreateDirectoryInstallSurfaceSnapshot(string sourcePath, string sourceDirectory, bool useEverythingForPendingPackageSourceScan)
     {
+        PackageInstallSurfaceSnapshot snapshot = useEverythingForPendingPackageSourceScan
+            ? TryCreateSourceRootInstallSurfaceSnapshot(sourcePath, sourceDirectory, includeBundledResources: true)
+            : null;
+        if (snapshot != null)
+        {
+            return snapshot;
+        }
+
+        RootFileEnumerationResult enumerationResult = useEverythingForPendingPackageSourceScan
+            ? EnumerateSourceSurfaceWithFallback(sourceDirectory)
+            : EnumerateSourceSurfaceFastOnly(sourceDirectory);
         System.Diagnostics.Stopwatch stopwatch = System.Diagnostics.Stopwatch.StartNew();
         DirectoryResourceLookupCache.Entry entry = CreateResourceEntryFromEnumeration(sourceDirectory, enumerationResult);
         stopwatch.Stop();
@@ -189,14 +256,34 @@ internal static class PackageInstallEstimationSnapshotBuilder
             BundledResources = entry,
             SourceCandidateResources = entry.Clone(),
             ScanMs = enumerationResult?.EnumerationMs ?? 0L,
-            FileCount = enumerationResult?.TotalFileCount ?? 0,
+            ChartFileCount = (enumerationResult?.GetPaths(ChartDirectoryScanBuilder.ChartGroupName) ?? Array.Empty<string>()).Count,
+            ResourceFileCount = CountDistinctPaths(
+                enumerationResult?.GetPaths(ChartDirectoryScanBuilder.AudioGroupName),
+                enumerationResult?.GetPaths(ChartDirectoryScanBuilder.ImageGroupName),
+                enumerationResult?.GetPaths(ChartDirectoryScanBuilder.MovieGroupName)),
+            TrackedFileCount = CountDistinctPaths(
+                enumerationResult?.GetPaths(ChartDirectoryScanBuilder.ChartGroupName),
+                enumerationResult?.GetPaths(ChartDirectoryScanBuilder.AudioGroupName),
+                enumerationResult?.GetPaths(ChartDirectoryScanBuilder.ImageGroupName),
+                enumerationResult?.GetPaths(ChartDirectoryScanBuilder.MovieGroupName)),
             HashMaterializeMs = stopwatch.ElapsedMilliseconds,
             ScanBackend = enumerationResult?.BackendName ?? "fast"
         };
     }
 
-    private static PackageInstallSurfaceSnapshot CreateFileInstallSurfaceSnapshot(string sourcePath, string sourceDirectory, RootFileEnumerationResult enumerationResult)
+    private static PackageInstallSurfaceSnapshot CreateFileInstallSurfaceSnapshot(string sourcePath, string sourceDirectory, bool useEverythingForPendingPackageSourceScan)
     {
+        PackageInstallSurfaceSnapshot snapshot = useEverythingForPendingPackageSourceScan
+            ? TryCreateSourceRootInstallSurfaceSnapshot(sourcePath, sourceDirectory, includeBundledResources: false)
+            : null;
+        if (snapshot != null)
+        {
+            return snapshot;
+        }
+
+        RootFileEnumerationResult enumerationResult = useEverythingForPendingPackageSourceScan
+            ? EnumerateSourceSurfaceWithFallback(sourceDirectory)
+            : EnumerateSourceSurfaceFastOnly(sourceDirectory);
         System.Diagnostics.Stopwatch stopwatch = System.Diagnostics.Stopwatch.StartNew();
         DirectoryResourceLookupCache.Entry sourceCandidateResources = CreateResourceEntryFromEnumeration(sourceDirectory, enumerationResult);
         stopwatch.Stop();
@@ -207,9 +294,49 @@ internal static class PackageInstallEstimationSnapshotBuilder
             BundledResources = new DirectoryResourceLookupCache.Entry(),
             SourceCandidateResources = sourceCandidateResources,
             ScanMs = enumerationResult?.EnumerationMs ?? 0L,
-            FileCount = enumerationResult?.TotalFileCount ?? 0,
+            ChartFileCount = (enumerationResult?.GetPaths(ChartDirectoryScanBuilder.ChartGroupName) ?? Array.Empty<string>()).Count,
+            ResourceFileCount = CountDistinctPaths(
+                enumerationResult?.GetPaths(ChartDirectoryScanBuilder.AudioGroupName),
+                enumerationResult?.GetPaths(ChartDirectoryScanBuilder.ImageGroupName),
+                enumerationResult?.GetPaths(ChartDirectoryScanBuilder.MovieGroupName)),
+            TrackedFileCount = CountDistinctPaths(
+                enumerationResult?.GetPaths(ChartDirectoryScanBuilder.ChartGroupName),
+                enumerationResult?.GetPaths(ChartDirectoryScanBuilder.AudioGroupName),
+                enumerationResult?.GetPaths(ChartDirectoryScanBuilder.ImageGroupName),
+                enumerationResult?.GetPaths(ChartDirectoryScanBuilder.MovieGroupName)),
             HashMaterializeMs = stopwatch.ElapsedMilliseconds,
             ScanBackend = enumerationResult?.BackendName ?? "fast"
+        };
+    }
+
+    private static PackageInstallSurfaceSnapshot TryCreateSourceRootInstallSurfaceSnapshot(string sourcePath, string sourceDirectory, bool includeBundledResources)
+    {
+        if (string.IsNullOrWhiteSpace(sourceDirectory) || !Directory.Exists(sourceDirectory))
+        {
+            return null;
+        }
+
+        if (!EverythingNative.TryScanSourceRoots(new[] { sourceDirectory }, out EverythingNative.BridgeSourceRootScanResult scanResult, out _)
+            || scanResult == null
+            || !scanResult.TryGetEntry(sourceDirectory, out EverythingNative.BridgeSourceRootEntryResult entryResult)
+            || entryResult == null
+            || entryResult.TrackedFileCount <= 0)
+        {
+            return null;
+        }
+
+        return new PackageInstallSurfaceSnapshot
+        {
+            SourcePath = sourcePath,
+            SourceDirectory = sourceDirectory,
+            BundledResources = includeBundledResources ? entryResult.ResourceEntry.Clone() : new DirectoryResourceLookupCache.Entry(),
+            SourceCandidateResources = entryResult.ResourceEntry.Clone(),
+            ScanMs = scanResult.TotalMs,
+            ChartFileCount = entryResult.ChartFileCount,
+            ResourceFileCount = entryResult.ResourceFileCount,
+            TrackedFileCount = entryResult.TrackedFileCount,
+            HashMaterializeMs = scanResult.ManagedMaterializeMs,
+            ScanBackend = scanResult.BackendName
         };
     }
 
@@ -225,6 +352,59 @@ internal static class PackageInstallEstimationSnapshotBuilder
             enumerationResult?.GetPaths(ChartDirectoryScanBuilder.AudioGroupName) ?? Array.Empty<string>(),
             enumerationResult?.GetPaths(ChartDirectoryScanBuilder.ImageGroupName) ?? Array.Empty<string>(),
             enumerationResult?.GetPaths(ChartDirectoryScanBuilder.MovieGroupName) ?? Array.Empty<string>());
+    }
+
+    private static RootFileEnumerationResult EnumerateChartsOnlyWithFallback(string rootDirectory)
+    {
+        return RootFileEnumerationService.EnumerateFilesWithFallback(
+            new[] { rootDirectory },
+            new[]
+            {
+                new RootFileEnumerationGroup(ChartDirectoryScanBuilder.ChartGroupName, ChartDirectoryScanBuilder.ChartExtensions)
+            });
+    }
+
+    private static RootFileEnumerationResult EnumerateChartsOnlyFastOnly(string rootDirectory)
+    {
+        return new FastRootFileEnumerator().EnumerateFiles(
+            new[] { rootDirectory },
+            new[]
+            {
+                new RootFileEnumerationGroup(ChartDirectoryScanBuilder.ChartGroupName, ChartDirectoryScanBuilder.ChartExtensions)
+            });
+    }
+
+    private static RootFileEnumerationResult EnumerateSourceSurfaceWithFallback(string rootDirectory)
+    {
+        return RootFileEnumerationService.EnumerateFilesWithFallback(
+            new[] { rootDirectory },
+            ChartDirectoryScanBuilder.CreateDefaultEnumerationGroups(includeAllFiles: false));
+    }
+
+    private static RootFileEnumerationResult EnumerateSourceSurfaceFastOnly(string rootDirectory)
+    {
+        return new FastRootFileEnumerator().EnumerateFiles(
+            new[] { rootDirectory },
+            ChartDirectoryScanBuilder.CreateDefaultEnumerationGroups(includeAllFiles: false));
+    }
+
+    private static List<BMSFile> CreatePendingChartsFromPaths(IEnumerable<string> chartPaths)
+    {
+        return (chartPaths ?? Enumerable.Empty<string>())
+            .Select(CreatePendingChartFromPath)
+            .Where((BMSFile file) => file != null)
+            .Cast<BMSFile>()
+            .ToList();
+    }
+
+    private static int CountDistinctPaths(params IReadOnlyCollection<string>[] groups)
+    {
+        return (groups ?? Array.Empty<IReadOnlyCollection<string>>())
+            .Where((IReadOnlyCollection<string> group) => group != null)
+            .SelectMany((IReadOnlyCollection<string> group) => group)
+            .Where((string path) => !string.IsNullOrWhiteSpace(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Count();
     }
 
     private static BMSFile CreatePendingChartFromPath(string filePath)

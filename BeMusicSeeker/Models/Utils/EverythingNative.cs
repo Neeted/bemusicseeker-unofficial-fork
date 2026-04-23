@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 
 namespace BeMusicSeeker.Models.Utils;
 
@@ -15,6 +16,8 @@ internal static class EverythingNative
 
 	internal const string FixedScanNativeBridgeReason = "everything_bridge_fixed_scan";
 
+	internal const string SourceRootScanBackendName = "everything_bridge_source_surface";
+
 	private static IntPtr loadedBridgeModule = IntPtr.Zero;
 
 	private static bool bridgeExportsProbed;
@@ -22,6 +25,10 @@ internal static class EverythingNative
 	private static bool bridgeFixedScanAvailable;
 
 	private static bool bridgeFreeResultAvailable;
+
+	private static bool bridgeSourceRootScanAvailable;
+
+	private static bool bridgeFreeSourceRootResultAvailable;
 
 	private static bool bridgeGroupedEnumerationQueryAvailable;
 
@@ -74,6 +81,8 @@ internal static class EverythingNative
 		}
 		bridgeFixedScanAvailable = GetProcAddress(loadedBridgeModule, "EBridge_ScanChartAndResources") != IntPtr.Zero;
 		bridgeFreeResultAvailable = GetProcAddress(loadedBridgeModule, "EBridge_FreeResult") != IntPtr.Zero;
+		bridgeSourceRootScanAvailable = GetProcAddress(loadedBridgeModule, "EBridge_ScanSourceRoots") != IntPtr.Zero;
+		bridgeFreeSourceRootResultAvailable = GetProcAddress(loadedBridgeModule, "EBridge_FreeSourceRootsResult") != IntPtr.Zero;
 		bridgeGroupedEnumerationQueryAvailable = GetProcAddress(loadedBridgeModule, "EBridge_EnumerateGroupedFiles") != IntPtr.Zero;
 		bridgeFreeGroupedEnumerationResultAvailable = GetProcAddress(loadedBridgeModule, "EBridge_FreeGroupedFilesResult") != IntPtr.Zero;
 		bridgeExportsProbed = true;
@@ -88,6 +97,21 @@ internal static class EverythingNative
 		if (!bridgeFixedScanAvailable || !bridgeFreeResultAvailable)
 		{
 			reason = "bridge_fixed_scan_export_missing";
+			return false;
+		}
+		reason = null;
+		return true;
+	}
+
+	private static bool EnsureSourceRootScanAvailable(out string reason)
+	{
+		if (!EnsureBridgeLoaded(out reason))
+		{
+			return false;
+		}
+		if (!bridgeSourceRootScanAvailable || !bridgeFreeSourceRootResultAvailable)
+		{
+			reason = "bridge_source_root_scan_export_missing";
 			return false;
 		}
 		reason = null;
@@ -120,6 +144,118 @@ internal static class EverythingNative
 	{
 		string paths = "<" + string.Join("|", Array.ConvertAll(roots ?? Array.Empty<string>(), (string root) => "path:" + QuotePath(PathWithTrailingSeparator(root)))) + ">";
 		return "file: " + paths;
+	}
+
+	internal static bool TryScanSourceRoots(IReadOnlyList<string> rootDirectories, out BridgeSourceRootScanResult result, out string reason)
+	{
+		result = null;
+		reason = null;
+		List<string> normalizedRoots = (rootDirectories ?? Array.Empty<string>())
+			.Where((string root) => !string.IsNullOrWhiteSpace(root))
+			.Select(NormalizeSourceRootDirectory)
+			.Where((string root) => !string.IsNullOrWhiteSpace(root))
+			.Distinct(StringComparer.OrdinalIgnoreCase)
+			.ToList();
+		if (normalizedRoots.Count == 0)
+		{
+			result = new BridgeSourceRootScanResult();
+			return true;
+		}
+		if (!EnsureSourceRootScanAvailable(out reason))
+		{
+			return false;
+		}
+
+		IntPtr resultPtr = IntPtr.Zero;
+		IntPtr nativeRoots = IntPtr.Zero;
+		List<IntPtr> allocatedStrings = new List<IntPtr>();
+		System.Diagnostics.Stopwatch totalStopwatch = System.Diagnostics.Stopwatch.StartNew();
+		try
+		{
+			nativeRoots = Marshal.AllocHGlobal(checked(Marshal.SizeOf<EBridgeSourceRootRequestNative>() * normalizedRoots.Count));
+			for (int i = 0; i < normalizedRoots.Count; i++)
+			{
+				IntPtr rootPath = Marshal.StringToHGlobalUni(normalizedRoots[i]);
+				allocatedStrings.Add(rootPath);
+				EBridgeSourceRootRequestNative nativeRoot = new EBridgeSourceRootRequestNative
+				{
+					root_id = (uint)i,
+					root_path = rootPath
+				};
+				Marshal.StructureToPtr(nativeRoot, IntPtr.Add(nativeRoots, i * Marshal.SizeOf<EBridgeSourceRootRequestNative>()), false);
+			}
+
+			string[] roots = normalizedRoots.ToArray();
+			string chartQuery = BuildFilesQuery(roots, ChartDirectoryScanBuilder.ChartExtensions);
+			string audioQuery = BuildFilesQuery(roots, ChartDirectoryScanBuilder.AudioExtensions);
+			string imageQuery = BuildFilesQuery(roots, ChartDirectoryScanBuilder.ImageExtensions);
+			string movieQuery = BuildFilesQuery(roots, ChartDirectoryScanBuilder.MovieExtensions);
+
+			System.Diagnostics.Stopwatch nativeBridgeStopwatch = System.Diagnostics.Stopwatch.StartNew();
+			int status = EBridge_ScanSourceRoots(nativeRoots, (uint)normalizedRoots.Count, chartQuery, audioQuery, imageQuery, movieQuery, out resultPtr);
+			nativeBridgeStopwatch.Stop();
+			long nativeBridgeMs = nativeBridgeStopwatch.ElapsedMilliseconds;
+			if (status != 0)
+			{
+				reason = "bridge_source_root_scan_failed:" + status;
+				return false;
+			}
+			if (resultPtr == IntPtr.Zero)
+			{
+				reason = "bridge_source_root_empty_result";
+				return false;
+			}
+
+			EBridgeSourceRootsResultHeader header = Marshal.PtrToStructure<EBridgeSourceRootsResultHeader>(resultPtr);
+			if (header.status != 0)
+			{
+				reason = "bridge_source_root_status_failed:" + header.error_code;
+				return false;
+			}
+
+			System.Diagnostics.Stopwatch decodeStopwatch = System.Diagnostics.Stopwatch.StartNew();
+			SourceRootDecodedResult decodedResult = DecodeSourceRootsResult(header);
+			decodeStopwatch.Stop();
+
+			System.Diagnostics.Stopwatch materializeStopwatch = System.Diagnostics.Stopwatch.StartNew();
+			result = CreateSourceRootScanResult(header, nativeBridgeMs, decodeStopwatch.ElapsedMilliseconds, decodedResult);
+			materializeStopwatch.Stop();
+			result.ManagedMaterializeMs = materializeStopwatch.ElapsedMilliseconds;
+			result.RawBufferBytes = header.raw_buffer_size;
+			totalStopwatch.Stop();
+			result.TotalMs = totalStopwatch.ElapsedMilliseconds;
+			reason = "ok";
+			return true;
+		}
+		catch (Exception ex)
+		{
+			reason = "bridge_source_root_exception:" + ex.Message;
+			return false;
+		}
+		finally
+		{
+			if (resultPtr != IntPtr.Zero)
+			{
+				try
+				{
+					EBridge_FreeSourceRootsResult(resultPtr);
+				}
+				catch
+				{
+				}
+			}
+			foreach (IntPtr rootPath in allocatedStrings)
+			{
+				if (rootPath != IntPtr.Zero)
+				{
+					Marshal.FreeHGlobal(rootPath);
+				}
+			}
+			if (nativeRoots != IntPtr.Zero)
+			{
+				Marshal.FreeHGlobal(nativeRoots);
+			}
+		}
 	}
 
 	internal static bool TryEnumerateGroupedFiles(IReadOnlyList<BridgeGroupedQuery> queries, out BridgeGroupedEnumerationResult result, out string reason)
@@ -350,6 +486,38 @@ internal static class EverythingNative
 		return result;
 	}
 
+	private static SourceRootDecodedResult DecodeSourceRootsResult(EBridgeSourceRootsResultHeader header)
+	{
+		string[] rootPaths = ReadStringArray(header.root_count, header.root_offsets, header.root_blob);
+		SourceRootDecodedEntry[] entries = new SourceRootDecodedEntry[checked((int)header.root_count)];
+		int entryHeaderSize = Marshal.SizeOf<EBridgeSourceRootEntryHeader>();
+		for (ulong i = 0; i < header.root_count; i += 1)
+		{
+			EBridgeSourceRootEntryHeader entryHeader = Marshal.PtrToStructure<EBridgeSourceRootEntryHeader>(
+				IntPtr.Add(header.roots, checked((int)(i * (ulong)entryHeaderSize))));
+			entries[checked((int)i)] = new SourceRootDecodedEntry
+			{
+				RootId = entryHeader.root_id,
+				ChartPaths = ReadStringList(entryHeader.chart_count, entryHeader.chart_offsets, header.chart_blob).ToArray(),
+				AllBaseHashes = ReadHashArray(entryHeader.all_base_hash_offset, entryHeader.all_base_hash_length, header.all_base_hashes_blob),
+				AudioBaseHashes = ReadHashArray(entryHeader.audio_base_hash_offset, entryHeader.audio_base_hash_length, header.audio_base_hashes_blob),
+				ImageBaseHashes = ReadHashArray(entryHeader.image_base_hash_offset, entryHeader.image_base_hash_length, header.image_base_hashes_blob),
+				MovieBaseHashes = ReadHashArray(entryHeader.movie_base_hash_offset, entryHeader.movie_base_hash_length, header.movie_base_hashes_blob),
+				AudioRelativeHashes = ReadHashArray(entryHeader.audio_relative_hash_offset, entryHeader.audio_relative_hash_length, header.audio_relative_hashes_blob),
+				ImageRelativeHashes = ReadHashArray(entryHeader.image_relative_hash_offset, entryHeader.image_relative_hash_length, header.image_relative_hashes_blob),
+				MovieRelativeHashes = ReadHashArray(entryHeader.movie_relative_hash_offset, entryHeader.movie_relative_hash_length, header.movie_relative_hashes_blob),
+				ChartFileCount = checked((int)entryHeader.chart_file_count),
+				ResourceFileCount = checked((int)entryHeader.categorized_resource_file_count),
+				TrackedFileCount = checked((int)entryHeader.tracked_file_count)
+			};
+		}
+		return new SourceRootDecodedResult
+		{
+			RootPaths = rootPaths,
+			Entries = entries
+		};
+	}
+
 	private static List<string> ReadStringList(ulong count, IntPtr offsets, IntPtr blob)
 	{
 		List<string> values = new List<string>();
@@ -363,6 +531,19 @@ internal static class EverythingNative
 			}
 		}
 		return values;
+	}
+
+	private static uint[] ReadHashArray(uint byteOffset, uint length, IntPtr blob)
+	{
+		if (blob == IntPtr.Zero || length == 0)
+		{
+			return Array.Empty<uint>();
+		}
+		int[] temp = new int[checked((int)length)];
+		Marshal.Copy(IntPtr.Add(blob, checked((int)byteOffset)), temp, 0, temp.Length);
+		uint[] hashes = new uint[temp.Length];
+		Buffer.BlockCopy(temp, 0, hashes, 0, temp.Length * sizeof(uint));
+		return hashes;
 	}
 
 	private static uint[][] ReadHashGroupArray(ulong dirCount, IntPtr hashOffsets, IntPtr hashLengths, IntPtr hashesBlob)
@@ -399,6 +580,61 @@ internal static class EverythingNative
 		return set;
 	}
 
+	private static BridgeSourceRootScanResult CreateSourceRootScanResult(
+		EBridgeSourceRootsResultHeader header,
+		long nativeBridgeMs,
+		long managedDecodeMs,
+		SourceRootDecodedResult decodedResult)
+	{
+		BridgeSourceRootScanResult result = new BridgeSourceRootScanResult
+		{
+			BackendName = SourceRootScanBackendName,
+			NativeBridgeMs = nativeBridgeMs,
+			ManagedDecodeMs = managedDecodeMs,
+			ChartQueryHitCount = header.chart_query_hits,
+			AudioQueryHitCount = header.audio_query_hits,
+			ImageQueryHitCount = header.image_query_hits,
+			MovieQueryHitCount = header.movie_query_hits,
+			ChartQueryMs = header.chart_query_ms,
+			AudioQueryMs = header.audio_query_ms,
+			ImageQueryMs = header.image_query_ms,
+			MovieQueryMs = header.movie_query_ms,
+			AssignMs = header.assign_ms,
+			DedupeMs = header.dedupe_ms,
+			PackMs = header.pack_ms
+		};
+		string[] rootPaths = decodedResult?.RootPaths ?? Array.Empty<string>();
+		SourceRootDecodedEntry[] entries = decodedResult?.Entries ?? Array.Empty<SourceRootDecodedEntry>();
+		int count = Math.Min(rootPaths.Length, entries.Length);
+		for (int i = 0; i < count; i++)
+		{
+			string rootPath = NormalizeSourceRootDirectory(rootPaths[i]);
+			if (string.IsNullOrWhiteSpace(rootPath))
+			{
+				continue;
+			}
+
+			SourceRootDecodedEntry decodedEntry = entries[i] ?? new SourceRootDecodedEntry();
+			result.Entries[rootPath] = new BridgeSourceRootEntryResult
+			{
+				RootPath = rootPath,
+				ChartPaths = decodedEntry.ChartPaths ?? Array.Empty<string>(),
+				ResourceEntry = new DirectoryResourceLookupCache.Entry(
+					decodedEntry.AllBaseHashes,
+					decodedEntry.AudioBaseHashes,
+					decodedEntry.ImageBaseHashes,
+					decodedEntry.MovieBaseHashes,
+					decodedEntry.AudioRelativeHashes,
+					decodedEntry.ImageRelativeHashes,
+					decodedEntry.MovieRelativeHashes),
+				ChartFileCount = decodedEntry.ChartFileCount,
+				ResourceFileCount = decodedEntry.ResourceFileCount,
+				TrackedFileCount = decodedEntry.TrackedFileCount
+			};
+		}
+		return result;
+	}
+
 	private static Dictionary<string, uint[]> MaterializeHashMap(string[] chartDirectories, uint[][] hashesByDirectoryIndex)
 	{
 		Dictionary<string, uint[]> map = new Dictionary<string, uint[]>(chartDirectories?.Length ?? 0, StringComparer.OrdinalIgnoreCase);
@@ -417,6 +653,22 @@ internal static class EverythingNative
 			map[chartDirectory] = hashesByDirectoryIndex[i] ?? Array.Empty<uint>();
 		}
 		return map;
+	}
+
+	private static string NormalizeSourceRootDirectory(string rootDirectory)
+	{
+		if (string.IsNullOrWhiteSpace(rootDirectory))
+		{
+			return string.Empty;
+		}
+		try
+		{
+			return Path.GetFullPath(rootDirectory).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+		}
+		catch
+		{
+			return rootDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+		}
 	}
 
 	private static BmsScanExecutionResult CreateExecutionResult(
@@ -565,6 +817,12 @@ internal static class EverythingNative
 	[DllImport(BridgeDllName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "EBridge_FreeResult")]
 	private static extern void EBridge_FreeResult(IntPtr result);
 
+	[DllImport(BridgeDllName, CharSet = CharSet.Unicode, CallingConvention = CallingConvention.Cdecl, EntryPoint = "EBridge_ScanSourceRoots")]
+	private static extern int EBridge_ScanSourceRoots(IntPtr roots, uint rootCount, string chartQuery, string audioQuery, string imageQuery, string movieQuery, out IntPtr outResult);
+
+	[DllImport(BridgeDllName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "EBridge_FreeSourceRootsResult")]
+	private static extern void EBridge_FreeSourceRootsResult(IntPtr result);
+
 	[DllImport(BridgeDllName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "EBridge_EnumerateGroupedFiles")]
 	private static extern int EBridge_EnumerateGroupedFiles(IntPtr queries, uint queryCount, out IntPtr outResult);
 
@@ -604,6 +862,65 @@ internal static class EverythingNative
 		internal long EnumerationMs { get; set; }
 	}
 
+	internal sealed class BridgeSourceRootEntryResult
+	{
+		internal string RootPath { get; set; } = string.Empty;
+
+		internal string[] ChartPaths { get; set; } = Array.Empty<string>();
+
+		internal DirectoryResourceLookupCache.Entry ResourceEntry { get; set; } = new DirectoryResourceLookupCache.Entry();
+
+		internal int ChartFileCount { get; set; }
+
+		internal int ResourceFileCount { get; set; }
+
+		internal int TrackedFileCount { get; set; }
+	}
+
+	internal sealed class BridgeSourceRootScanResult
+	{
+		internal Dictionary<string, BridgeSourceRootEntryResult> Entries { get; } = new Dictionary<string, BridgeSourceRootEntryResult>(StringComparer.OrdinalIgnoreCase);
+
+		internal string BackendName { get; set; } = SourceRootScanBackendName;
+
+		internal long TotalMs { get; set; }
+
+		internal long NativeBridgeMs { get; set; }
+
+		internal long ManagedDecodeMs { get; set; }
+
+		internal long ManagedMaterializeMs { get; set; }
+
+		internal ulong RawBufferBytes { get; set; }
+
+		internal ulong ChartQueryHitCount { get; set; }
+
+		internal ulong AudioQueryHitCount { get; set; }
+
+		internal ulong ImageQueryHitCount { get; set; }
+
+		internal ulong MovieQueryHitCount { get; set; }
+
+		internal long ChartQueryMs { get; set; }
+
+		internal long AudioQueryMs { get; set; }
+
+		internal long ImageQueryMs { get; set; }
+
+		internal long MovieQueryMs { get; set; }
+
+		internal long AssignMs { get; set; }
+
+		internal long DedupeMs { get; set; }
+
+		internal long PackMs { get; set; }
+
+		internal bool TryGetEntry(string rootPath, out BridgeSourceRootEntryResult entry)
+		{
+			return Entries.TryGetValue(NormalizeSourceRootDirectory(rootPath), out entry);
+		}
+	}
+
 	private sealed class FixedScanDecodedResult
 	{
 		internal string[] ChartPaths { get; set; } = Array.Empty<string>();
@@ -639,6 +956,47 @@ internal static class EverythingNative
 		internal uint[][] SelfOwnedMovieRelativeHashes { get; set; } = Array.Empty<uint[]>();
 	}
 
+	private sealed class SourceRootDecodedEntry
+	{
+		internal uint RootId { get; set; }
+
+		internal string[] ChartPaths { get; set; } = Array.Empty<string>();
+
+		internal uint[] AllBaseHashes { get; set; } = Array.Empty<uint>();
+
+		internal uint[] AudioBaseHashes { get; set; } = Array.Empty<uint>();
+
+		internal uint[] ImageBaseHashes { get; set; } = Array.Empty<uint>();
+
+		internal uint[] MovieBaseHashes { get; set; } = Array.Empty<uint>();
+
+		internal uint[] AudioRelativeHashes { get; set; } = Array.Empty<uint>();
+
+		internal uint[] ImageRelativeHashes { get; set; } = Array.Empty<uint>();
+
+		internal uint[] MovieRelativeHashes { get; set; } = Array.Empty<uint>();
+
+		internal int ChartFileCount { get; set; }
+
+		internal int ResourceFileCount { get; set; }
+
+		internal int TrackedFileCount { get; set; }
+	}
+
+	private sealed class SourceRootDecodedResult
+	{
+		internal string[] RootPaths { get; set; } = Array.Empty<string>();
+
+		internal SourceRootDecodedEntry[] Entries { get; set; } = Array.Empty<SourceRootDecodedEntry>();
+	}
+
+	[StructLayout(LayoutKind.Sequential)]
+	private struct EBridgeSourceRootRequestNative
+	{
+		public uint root_id;
+		public IntPtr root_path;
+	}
+
 	[StructLayout(LayoutKind.Sequential)]
 	private struct EBridgeGroupedQueryNative
 	{
@@ -666,6 +1024,62 @@ internal static class EverythingNative
 		public IntPtr path_blob;
 		public ulong total_file_count;
 		public long enumeration_ms;
+		public ulong raw_buffer_size;
+	}
+
+	[StructLayout(LayoutKind.Sequential)]
+	private struct EBridgeSourceRootEntryHeader
+	{
+		public uint root_id;
+		public ulong chart_count;
+		public IntPtr chart_offsets;
+		public uint all_base_hash_offset;
+		public uint all_base_hash_length;
+		public uint audio_base_hash_offset;
+		public uint audio_base_hash_length;
+		public uint image_base_hash_offset;
+		public uint image_base_hash_length;
+		public uint movie_base_hash_offset;
+		public uint movie_base_hash_length;
+		public uint audio_relative_hash_offset;
+		public uint audio_relative_hash_length;
+		public uint image_relative_hash_offset;
+		public uint image_relative_hash_length;
+		public uint movie_relative_hash_offset;
+		public uint movie_relative_hash_length;
+		public ulong chart_file_count;
+		public ulong categorized_resource_file_count;
+		public ulong tracked_file_count;
+	}
+
+	[StructLayout(LayoutKind.Sequential)]
+	private struct EBridgeSourceRootsResultHeader
+	{
+		public int status;
+		public int error_code;
+		public ulong root_count;
+		public IntPtr roots;
+		public IntPtr root_offsets;
+		public IntPtr root_blob;
+		public IntPtr chart_blob;
+		public IntPtr all_base_hashes_blob;
+		public IntPtr audio_base_hashes_blob;
+		public IntPtr image_base_hashes_blob;
+		public IntPtr movie_base_hashes_blob;
+		public IntPtr audio_relative_hashes_blob;
+		public IntPtr image_relative_hashes_blob;
+		public IntPtr movie_relative_hashes_blob;
+		public ulong chart_query_hits;
+		public ulong audio_query_hits;
+		public ulong image_query_hits;
+		public ulong movie_query_hits;
+		public long chart_query_ms;
+		public long audio_query_ms;
+		public long image_query_ms;
+		public long movie_query_ms;
+		public long assign_ms;
+		public long dedupe_ms;
+		public long pack_ms;
 		public ulong raw_buffer_size;
 	}
 
