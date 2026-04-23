@@ -103,7 +103,7 @@ sequenceDiagram
 
 ネイティブDLL層で公開されている関数です。WPFアプリ (C#) の `EverythingNative` クラスから `P/Invoke` (DllImport) により呼び出されます。
 
-#### `EBridge_ScanChartAndResourcesV2`
+#### `EBridge_ScanChartAndResources`
 
 Everything検索クエリを実行し、結果を一括で取得するための関数です。
 
@@ -115,7 +115,7 @@ Everything検索クエリを実行し、結果を一括で取得するための�
 
     ```csharp
     [DllImport("EverythingBridge_x64.dll", CharSet = CharSet.Unicode, CallingConvention = CallingConvention.Cdecl)]
-    private static extern int EBridge_ScanChartAndResourcesV2(string chartQuery, string audioQuery, string imageQuery, string movieQuery, out IntPtr outResult);
+    private static extern int EBridge_ScanChartAndResources(string chartQuery, string audioQuery, string imageQuery, string movieQuery, out IntPtr outResult);
     ```
 
 - **引数**:
@@ -125,10 +125,10 @@ Everything検索クエリを実行し、結果を一括で取得するための�
 
 - **戻り値**: 実行結果のステータスコード (`0` ならば成功)。
 - **備考**:
-  - library build の managed mainline は `V2` を正式契約として扱う
-  - `V2` が使えない場合、managed 側は `V1` を補完せず fast scanner fallback に進む
+  - library build の managed mainline はこの fixed-scan 契約だけを使う
+  - app と bridge DLL は常にセット管理され、旧 contract との切り替えは想定しない
 
-#### `EBridge_EnumerateGroupedFilesV1`
+#### `EBridge_EnumerateGroupedFiles`
 
 Everything 検索クエリを grouped enumeration としてまとめて実行し、結果を一括で取得するための関数です。
 
@@ -164,7 +164,7 @@ bridge API がポインタとして確保したネイティブメモリを解放
 
 - `EverythingNative` は `EverythingBridge_x64.dll` だけを `P/Invoke` する
 - `Everything3_x64.dll` の load/export 判定や query 実行は bridge 側責務とする
-- library build の fixed-scan path は `EBridge_ScanChartAndResourcesV2` を前提にし、managed 側で ownership/hash を再構築しない
+- library build の fixed-scan path は `EBridge_ScanChartAndResources` を前提にし、managed 側で ownership/hash を再構築しない
 - 今後 file search / enumeration 基盤を拡張する場合も、まず bridge API の拡張を検討する
 
 ### 4.2. EBridgeResultHeader 構造体
@@ -202,7 +202,7 @@ public class BmsScanExecutionResult
     public string ErrorReason { get; set; }     // エラーが起きた場合の理由
     public bool NativeBridgeUsed { get; set; }  // Everything Native Bridge が利用されたか
     public long NativeBridgeMs { get; set; }    // 検索にかかった時間(ms)
-    public string NativeBridgeContract { get; set; } // library build fixed-scan contract version ("v2")
+    public string NativeBridgeReason { get; set; } // 利用した bridge backend の理由/種別
     public long ManagedDecodeMs { get; set; }   // packed result の unpack 時間
     public long ManagedMaterializeMs { get; set; } // BmsScanResult への remap 時間
     public ulong BridgeRawBufferBytes { get; set; } // native packed buffer size

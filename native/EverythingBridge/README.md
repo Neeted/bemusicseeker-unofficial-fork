@@ -60,6 +60,7 @@ Output:
 - `native/Everything3_x64.dll`
 
 Both files must be placed in the same `native` directory under the app base path.
+BeMusicSeeker and the bridge DLL are managed as a single shipped set; old bridge variants are not a supported runtime scenario.
 
 ## Exported C API
 
@@ -70,13 +71,7 @@ int  __cdecl EBridge_ScanChartAndResources(
     const wchar_t* imageQuery,
     const wchar_t* movieQuery,
     EBridgeResult** outResult);
-int  __cdecl EBridge_ScanChartAndResourcesV2(
-    const wchar_t* chartQuery,
-    const wchar_t* audioQuery,
-    const wchar_t* imageQuery,
-    const wchar_t* movieQuery,
-    EBridgeResult** outResult);
-int  __cdecl EBridge_EnumerateGroupedFilesV1(
+int  __cdecl EBridge_EnumerateGroupedFiles(
     const EBridgeGroupedQuery* queries,
     unsigned int queryCount,
     EBridgeGroupedFilesResult** outResult);
@@ -85,9 +80,8 @@ void __cdecl EBridge_FreeGroupedFilesResult(EBridgeGroupedFilesResult* result);
 ```
 
 `EBridge_FreeResult` must be called for every successful scan call.  
-`EBridge_ScanChartAndResourcesV2` appends self-only ownership fields to the original result layout while keeping the original prefix ABI-compatible.
-Managed library-build mainline treats `EBridge_ScanChartAndResourcesV2` as the required fixed-scan contract; `V1` remains a legacy export and is not emulated by C#.
-`EBridge_EnumerateGroupedFilesV1` batches arbitrary grouped queries such as `chart/audio/image/movie/__all__` and returns one packed result buffer.
+`EBridge_ScanChartAndResources` is the canonical fixed-scan contract for library build and includes self-only ownership fields in the returned payload.
+`EBridge_EnumerateGroupedFiles` batches arbitrary grouped queries such as `chart/audio/image/movie/__all__` and returns one packed result buffer.
 
 ## Repository layout and operation
 

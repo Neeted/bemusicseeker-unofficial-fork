@@ -15,13 +15,11 @@ internal static class EverythingNative
 
 	internal const string FixedScanNativeBridgeReason = "everything_bridge_fixed_scan";
 
-	internal const string FixedScanBridgeContractVersion = "v2";
-
 	private static IntPtr loadedBridgeModule = IntPtr.Zero;
 
 	private static bool bridgeExportsProbed;
 
-	private static bool bridgeScanV2Available;
+	private static bool bridgeFixedScanAvailable;
 
 	private static bool bridgeFreeResultAvailable;
 
@@ -74,9 +72,9 @@ internal static class EverythingNative
 		{
 			return;
 		}
-		bridgeScanV2Available = GetProcAddress(loadedBridgeModule, "EBridge_ScanChartAndResourcesV2") != IntPtr.Zero;
+		bridgeFixedScanAvailable = GetProcAddress(loadedBridgeModule, "EBridge_ScanChartAndResources") != IntPtr.Zero;
 		bridgeFreeResultAvailable = GetProcAddress(loadedBridgeModule, "EBridge_FreeResult") != IntPtr.Zero;
-		bridgeGroupedEnumerationQueryAvailable = GetProcAddress(loadedBridgeModule, "EBridge_EnumerateGroupedFilesV1") != IntPtr.Zero;
+		bridgeGroupedEnumerationQueryAvailable = GetProcAddress(loadedBridgeModule, "EBridge_EnumerateGroupedFiles") != IntPtr.Zero;
 		bridgeFreeGroupedEnumerationResultAvailable = GetProcAddress(loadedBridgeModule, "EBridge_FreeGroupedFilesResult") != IntPtr.Zero;
 		bridgeExportsProbed = true;
 	}
@@ -87,9 +85,9 @@ internal static class EverythingNative
 		{
 			return false;
 		}
-		if (!bridgeScanV2Available || !bridgeFreeResultAvailable)
+		if (!bridgeFixedScanAvailable || !bridgeFreeResultAvailable)
 		{
-			reason = "bridge_fixed_scan_v2_export_missing";
+			reason = "bridge_fixed_scan_export_missing";
 			return false;
 		}
 		reason = null;
@@ -104,7 +102,7 @@ internal static class EverythingNative
 		}
 		if (!bridgeGroupedEnumerationQueryAvailable || !bridgeFreeGroupedEnumerationResultAvailable)
 		{
-			reason = "bridge_grouped_export_missing";
+			reason = "bridge_grouped_enumeration_export_missing";
 			return false;
 		}
 		reason = null;
@@ -156,7 +154,7 @@ internal static class EverythingNative
 				Marshal.StructureToPtr(nativeQuery, IntPtr.Add(nativeQueries, i * Marshal.SizeOf<EBridgeGroupedQueryNative>()), false);
 			}
 
-			int status = EBridge_EnumerateGroupedFilesV1(nativeQueries, (uint)queries.Count, out resultPtr);
+			int status = EBridge_EnumerateGroupedFiles(nativeQueries, (uint)queries.Count, out resultPtr);
 			if (status != 0)
 			{
 				reason = "bridge_grouped_query_failed:" + status;
@@ -238,7 +236,7 @@ internal static class EverythingNative
 			}
 
 			Stopwatch nativeBridgeStopwatch = Stopwatch.StartNew();
-			int status = EBridge_ScanChartAndResourcesV2(chartQuery, audioQuery, imageQuery, movieQuery, out resultPtr);
+			int status = EBridge_ScanChartAndResources(chartQuery, audioQuery, imageQuery, movieQuery, out resultPtr);
 			nativeBridgeStopwatch.Stop();
 			long nativeBridgeMs = nativeBridgeStopwatch.ElapsedMilliseconds;
 			if (status != 0)
@@ -251,7 +249,7 @@ internal static class EverythingNative
 				reason = "bridge_scan_empty_result";
 				return false;
 			}
-			EBridgeResultHeaderV2 header = Marshal.PtrToStructure<EBridgeResultHeaderV2>(resultPtr);
+			EBridgeResultHeader header = Marshal.PtrToStructure<EBridgeResultHeader>(resultPtr);
 			if (header.status != 0)
 			{
 				reason = "bridge_status_failed:" + header.error_code;
@@ -266,7 +264,6 @@ internal static class EverythingNative
 			result = CreateExecutionResult(header, nativeBridgeMs, decodeStopwatch.ElapsedMilliseconds, decodedResult);
 			materializeStopwatch.Stop();
 			result.ManagedMaterializeMs = materializeStopwatch.ElapsedMilliseconds;
-			result.NativeBridgeContract = FixedScanBridgeContractVersion;
 			result.BridgeRawBufferBytes = header.raw_buffer_size;
 
 			reason = "ok";
@@ -294,7 +291,7 @@ internal static class EverythingNative
 		}
 	}
 
-	private static FixedScanDecodedResult DecodeFixedScanResult(EBridgeResultHeaderV2 header)
+	private static FixedScanDecodedResult DecodeFixedScanResult(EBridgeResultHeader header)
 	{
 		string[] chartPaths = ReadStringArray(header.chart_count, header.chart_offsets, header.chart_blob);
 		string[] chartDirectories = ReadStringArray(header.dir_count, header.dir_offsets, header.dir_blob);
@@ -423,7 +420,7 @@ internal static class EverythingNative
 	}
 
 	private static BmsScanExecutionResult CreateExecutionResult(
-		EBridgeResultHeaderV2 header,
+		EBridgeResultHeader header,
 		long nativeBridgeMs,
 		long managedDecodeMs,
 		FixedScanDecodedResult decodedResult)
@@ -452,7 +449,6 @@ internal static class EverythingNative
 			NativeBridgeUsed = true,
 			NativeBridgeMs = nativeBridgeMs,
 			NativeBridgeReason = FixedScanNativeBridgeReason,
-			NativeBridgeContract = FixedScanBridgeContractVersion,
 			ManagedDecodeMs = managedDecodeMs,
 			BuildResultMs = 0L,
 			HashBuildMs = 0L,
@@ -563,14 +559,14 @@ internal static class EverythingNative
 	[DllImport("kernel32.dll", CharSet = CharSet.Ansi, SetLastError = true)]
 	private static extern IntPtr GetProcAddress(IntPtr hModule, string procName);
 
-	[DllImport(BridgeDllName, CharSet = CharSet.Unicode, CallingConvention = CallingConvention.Cdecl, EntryPoint = "EBridge_ScanChartAndResourcesV2")]
-	private static extern int EBridge_ScanChartAndResourcesV2(string chartQuery, string audioQuery, string imageQuery, string movieQuery, out IntPtr outResult);
+	[DllImport(BridgeDllName, CharSet = CharSet.Unicode, CallingConvention = CallingConvention.Cdecl, EntryPoint = "EBridge_ScanChartAndResources")]
+	private static extern int EBridge_ScanChartAndResources(string chartQuery, string audioQuery, string imageQuery, string movieQuery, out IntPtr outResult);
 
 	[DllImport(BridgeDllName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "EBridge_FreeResult")]
 	private static extern void EBridge_FreeResult(IntPtr result);
 
-	[DllImport(BridgeDllName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "EBridge_EnumerateGroupedFilesV1")]
-	private static extern int EBridge_EnumerateGroupedFilesV1(IntPtr queries, uint queryCount, out IntPtr outResult);
+	[DllImport(BridgeDllName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "EBridge_EnumerateGroupedFiles")]
+	private static extern int EBridge_EnumerateGroupedFiles(IntPtr queries, uint queryCount, out IntPtr outResult);
 
 	[DllImport(BridgeDllName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "EBridge_FreeGroupedFilesResult")]
 	private static extern void EBridge_FreeGroupedFilesResult(IntPtr result);
@@ -674,7 +670,7 @@ internal static class EverythingNative
 	}
 
 	[StructLayout(LayoutKind.Sequential)]
-	private struct EBridgeResultHeaderV2
+	private struct EBridgeResultHeader
 	{
 		public int status;
 		public int error_code;

@@ -32,7 +32,7 @@ relative-path 対応後の library build 性能悪化は、relative path その�
 
 - **Phase 1 / Phase 2 は実装済み**
   - library build mainline は grouped full-path enumeration を通らず、fixed 4-query native scan を使う
-  - library build fixed scan は `EBridge_ScanChartAndResourcesV2` を正式契約として使う
+  - library build fixed scan は `EBridge_ScanChartAndResources` を唯一の正式契約として使う
   - managed 側は `ManagedDecodeMs` / `ManagedMaterializeMs` / `BridgeRawBufferBytes` で unpack 残差を追える
 - source-side package surface はまだ grouped enumeration ベースであり、native aggregation 化は Phase 3 以降で扱う
 
@@ -61,7 +61,6 @@ Phase 2 実測 (`bin/Release/net472/install-performance.log`):
 
 - `everything_scan totalMs=27784`
 - `nativeBridgeMs=26936`
-- `bridgeContract=v2`
 - `managedDecodeMs=540`
 - `managedMaterializeMs=275`
 - `bridgeRawBufferBytes=331684812`
@@ -100,7 +99,7 @@ Phase 2 実測 (`bin/Release/net472/install-performance.log`):
 `EverythingNative.ExecuteScan(...)` は今も存在し、
 
 - chart/audio/image/movie の **4 query**
-- `EBridge_ScanChartAndResourcesV2`
+- `EBridge_ScanChartAndResources`
 - chart-directory keyed hash-only result
 
 を返せる。
@@ -197,7 +196,7 @@ library build を generic grouped enumeration から切り離し、fixed 4-query
 
 ### Acceptance
 
-- library build の Everything path で `EBridge_EnumerateGroupedFilesV1` を呼ばない
+- library build の Everything path で `EBridge_EnumerateGroupedFiles` を呼ばない
 - library build の query 回数は 4 回だけ
 - `everything_scan` ログは query 4 本の timings と native aggregation timings を中心に出す
 - `everything_scan totalMs` が「数十秒台」へ戻ることを第1目標にする
@@ -210,8 +209,8 @@ library build の result contract を「managed で再構築しない」前提�
 
 ### Changes
 
-- bridge fixed scan API は `EBridge_ScanChartAndResourcesV2` を library build 正式契約として固定する
-- managed 側は `V1` 補完を行わず、`V2` が無ければ fast scanner fallback に進む
+- bridge fixed scan API は `EBridge_ScanChartAndResources` を library build 正式契約として固定する
+- managed 側は bridge export の使い分けを行わず、fixed-scan bridge が使えなければ fast scanner fallback に進む
 - native result に含めるものを固定する
   - chart file paths
   - chart directories
@@ -249,7 +248,7 @@ package source directory / loose-file source 側も、full-path grouped enumerat
 ### Changes
 
 - source-side 用の native contract を追加する
-  - 例: `EBridge_ScanRootGroupsV1`
+  - 例: `EBridge_ScanRootGroups`
 - 入力は library build と同じく
   - roots
   - chart/audio/image/movie query

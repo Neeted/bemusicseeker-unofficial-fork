@@ -27,9 +27,9 @@ public sealed class BmsScanResultComparerTests
         try
         {
             BmsScanResult fast = ChartDirectoryScanBuilder.BuildFromRoots(new[] { tempRoot });
-            BmsScanResult compatibilityClone = CloneScanResult(fast);
+            BmsScanResult clonedResult = CloneScanResult(fast);
 
-            BmsScanDiffReport report = BmsScanResultComparer.Compare(compatibilityClone, fast);
+            BmsScanDiffReport report = BmsScanResultComparer.Compare(clonedResult, fast);
 
             Assert.IsTrue(report.IsMatch);
             Assert.AreEqual(0, report.ChartPathDiffCount);
@@ -114,7 +114,6 @@ public sealed class BmsScanResultComparerTests
 
             Assert.IsTrue(everything.NativeBridgeUsed);
             Assert.AreEqual("everything_bridge_fixed_scan", everything.NativeBridgeReason);
-            Assert.AreEqual("v2", everything.NativeBridgeContract);
             Assert.AreEqual(0L, everything.BuildResultMs);
             Assert.AreEqual(0L, everything.HashBuildMs);
             Assert.IsTrue(everything.ManagedDecodeMs >= 0L);

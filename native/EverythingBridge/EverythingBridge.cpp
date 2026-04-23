@@ -132,8 +132,7 @@ struct EBridgeGroupedFilesResult {
 };
 
 __declspec(dllexport) int __cdecl EBridge_ScanChartAndResources(const wchar_t* chartQuery, const wchar_t* audioQuery, const wchar_t* imageQuery, const wchar_t* movieQuery, EBridgeResult** outResult);
-__declspec(dllexport) int __cdecl EBridge_ScanChartAndResourcesV2(const wchar_t* chartQuery, const wchar_t* audioQuery, const wchar_t* imageQuery, const wchar_t* movieQuery, EBridgeResult** outResult);
-__declspec(dllexport) int __cdecl EBridge_EnumerateGroupedFilesV1(const EBridgeGroupedQuery* queries, unsigned int queryCount, EBridgeGroupedFilesResult** outResult);
+__declspec(dllexport) int __cdecl EBridge_EnumerateGroupedFiles(const EBridgeGroupedQuery* queries, unsigned int queryCount, EBridgeGroupedFilesResult** outResult);
 __declspec(dllexport) void __cdecl EBridge_FreeResult(EBridgeResult* result);
 __declspec(dllexport) void __cdecl EBridge_FreeGroupedFilesResult(EBridgeGroupedFilesResult* result);
 }
@@ -1390,11 +1389,7 @@ extern "C" __declspec(dllexport) int __cdecl EBridge_ScanChartAndResources(const
 	return buildResult;
 }
 
-extern "C" __declspec(dllexport) int __cdecl EBridge_ScanChartAndResourcesV2(const wchar_t* chartQuery, const wchar_t* audioQuery, const wchar_t* imageQuery, const wchar_t* movieQuery, EBridgeResult** outResult) {
-	return EBridge_ScanChartAndResources(chartQuery, audioQuery, imageQuery, movieQuery, outResult);
-}
-
-extern "C" __declspec(dllexport) int __cdecl EBridge_EnumerateGroupedFilesV1(const EBridgeGroupedQuery* queries, unsigned int queryCount, EBridgeGroupedFilesResult** outResult) {
+extern "C" __declspec(dllexport) int __cdecl EBridge_EnumerateGroupedFiles(const EBridgeGroupedQuery* queries, unsigned int queryCount, EBridgeGroupedFilesResult** outResult) {
 	if (!outResult) {
 		return BRIDGE_INVALID_ARGUMENT;
 	}

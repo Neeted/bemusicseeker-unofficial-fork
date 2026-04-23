@@ -257,7 +257,6 @@ internal sealed class BmsLibraryInitializationService
         }
         result.NativeBridgeMs = scanResult.NativeBridgeMs;
         result.NativeBridgeReason = scanResult.NativeBridgeReason ?? string.Empty;
-        result.NativeBridgeContract = scanResult.NativeBridgeContract ?? string.Empty;
         result.ManagedDecodeMs = scanResult.ManagedDecodeMs;
         result.ManagedMaterializeMs = scanResult.ManagedMaterializeMs;
         result.BridgeRawBufferBytes = scanResult.BridgeRawBufferBytes;
@@ -445,7 +444,6 @@ internal sealed class BmsLibraryInitializationService
             "song_tbl_file_check_breakdown scan_ms=" + result.ScanElapsedMs
             + " native_bridge_ms=" + result.NativeBridgeMs
             + " native_bridge_reason=" + (string.IsNullOrWhiteSpace(result.NativeBridgeReason) ? string.Empty : result.NativeBridgeReason)
-            + " bridge_contract=" + (string.IsNullOrWhiteSpace(result.NativeBridgeContract) ? string.Empty : result.NativeBridgeContract)
             + " managed_decode_ms=" + result.ManagedDecodeMs
             + " managed_materialize_ms=" + result.ManagedMaterializeMs
             + " bridge_raw_buffer_bytes=" + result.BridgeRawBufferBytes
@@ -482,7 +480,6 @@ internal sealed class BmsLibraryInitializationService
             + " folderHashIndexMs=" + result.FolderHashIndexMs
             + " resourceLookupCacheMs=" + result.ResourceLookupCacheMs
             + " relativePathHashIndexMs=" + result.RelativePathHashIndexMs
-            + " bridgeContract=" + (string.IsNullOrWhiteSpace(result.NativeBridgeContract) ? string.Empty : result.NativeBridgeContract)
             + " bridgeReason=" + (string.IsNullOrWhiteSpace(result.NativeBridgeReason) ? string.Empty : result.NativeBridgeReason)
             + " bmsPaths=" + result.BmsPathCount
             + " dirs=" + result.DirectoryCount

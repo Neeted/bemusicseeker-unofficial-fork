@@ -834,7 +834,7 @@ Phase 6 / Perf-3 で扱うもの:
 
 - library scan mainline は fixed 4-query native scan に戻した
 - library build は grouped full-path enumeration を通らない
-- library build fixed scan の managed 側は `V2` 契約前提になり、`ManagedDecodeMs` / `ManagedMaterializeMs` で unpack 残差を分離して追える
+- library build fixed scan の managed 側は唯一の canonical bridge 契約を前提にし、`ManagedDecodeMs` / `ManagedMaterializeMs` で unpack 残差を分離して追える
 - source-side package surface の native aggregation 化は未着手で、Phase 3 以降の課題として残す
 
 Phase 1 実測:
@@ -856,8 +856,6 @@ Phase 2 実測:
 - `bms_scan totalMs`
   - Phase 1: `29496`
   - Phase 2: `27808`
-- `bridgeContract`
-  - `v2`
 - managed unpack
   - `ManagedDecodeMs=540`
   - `ManagedMaterializeMs=275`

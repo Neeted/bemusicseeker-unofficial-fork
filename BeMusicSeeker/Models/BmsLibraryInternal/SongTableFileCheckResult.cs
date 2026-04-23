@@ -42,8 +42,6 @@ internal sealed class SongTableFileCheckResult
 
     public string NativeBridgeReason { get; set; }
 
-    public string NativeBridgeContract { get; set; }
-
     public long ManagedDecodeMs { get; set; }
 
     public long ManagedMaterializeMs { get; set; }

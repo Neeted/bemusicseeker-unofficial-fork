@@ -214,7 +214,6 @@ public sealed class BmsLibraryInitializationServiceTests
                     NativeBridgeUsed = true,
                     NativeBridgeMs = 234L,
                     NativeBridgeReason = "everything_bridge_fixed_scan",
-                    NativeBridgeContract = "v2",
                     ManagedDecodeMs = 12L,
                     ManagedMaterializeMs = 7L,
                     BridgeRawBufferBytes = 4096UL,
@@ -242,7 +241,6 @@ public sealed class BmsLibraryInitializationServiceTests
             Assert.AreEqual(2, result.NextFiles.Count);
             Assert.AreEqual(234L, result.NativeBridgeMs);
             Assert.AreEqual("everything_bridge_fixed_scan", result.NativeBridgeReason);
-            Assert.AreEqual("v2", result.NativeBridgeContract);
             Assert.AreEqual(12L, result.ManagedDecodeMs);
             Assert.AreEqual(7L, result.ManagedMaterializeMs);
             Assert.AreEqual(4096UL, result.BridgeRawBufferBytes);
