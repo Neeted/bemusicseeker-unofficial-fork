@@ -45,7 +45,7 @@ public sealed class ChartDirectoryScanBuilderTests
     }
 
     [TestMethod]
-    public void BuildFromRoots_AssignsResourceToNearestAncestorChartDirectory()
+    public void BuildFromRoots_AssignsAggregateOwnershipToAllAncestorChartDirectories_AndSelfOwnedToNearestChartDirectory()
     {
         string tempRoot = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_ChartDirNearest_" + Guid.NewGuid().ToString("N"));
         string rootChartDir = Path.Combine(tempRoot, "rootchart");
@@ -62,7 +62,16 @@ public sealed class ChartDirectoryScanBuilderTests
             Assert.IsTrue(result.AudioBaseNameHashesByChartDirectory.TryGetValue(nestedChartDir, out uint[] nestedHashes));
             Assert.AreEqual(1, nestedHashes.Length);
             Assert.IsTrue(result.AudioBaseNameHashesByChartDirectory.TryGetValue(rootChartDir, out uint[] rootHashes));
-            Assert.AreEqual(0, rootHashes.Length);
+            Assert.AreEqual(1, rootHashes.Length);
+            Assert.IsTrue(result.SelfOwnedAudioBaseNameHashesByChartDirectory.TryGetValue(nestedChartDir, out uint[] nestedSelfOwnedHashes));
+            Assert.AreEqual(1, nestedSelfOwnedHashes.Length);
+            Assert.IsTrue(result.SelfOwnedAudioBaseNameHashesByChartDirectory.TryGetValue(rootChartDir, out uint[] rootSelfOwnedHashes));
+            Assert.AreEqual(0, rootSelfOwnedHashes.Length);
+            Assert.IsTrue(result.AudioRelativePathHashesByChartDirectory.TryGetValue(rootChartDir, out uint[] rootRelativeHashes));
+            Assert.IsTrue(result.AudioRelativePathHashesByChartDirectory.TryGetValue(nestedChartDir, out uint[] nestedRelativeHashes));
+            CollectionAssert.Contains(rootRelativeHashes, BMSDirectoryFileNameHash.GetLookupHash(Path.Combine("subchart", "sound", "01.wav")));
+            CollectionAssert.Contains(nestedRelativeHashes, BMSDirectoryFileNameHash.GetLookupHash(Path.Combine("sound", "01.wav")));
+            CollectionAssert.Contains(result.SelfOwnedAudioRelativePathHashesByChartDirectory[nestedChartDir], BMSDirectoryFileNameHash.GetLookupHash(Path.Combine("sound", "01.wav")));
         }
         finally
         {

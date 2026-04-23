@@ -28,8 +28,10 @@
   「chart directory」ごとの all-resource basename hash 配列
 - `directoryResourceLookupCache : DirectoryResourceLookupCache`
   chart directory ごとのカテゴリ別 basename / relative-path hash 集合
+  - aggregate ownership と self-only ownership の二重 view
 - `directoryRelativePathHashIndex : DirectoryRelativePathHashIndex`
   cacheless path 用の chart directory ごとのカテゴリ別 basename / relative-path hash 索引
+  - aggregate ownership と self-only ownership の二重 view
 
 ## 3. `BMSDirectoryFileNameHash` の仕様
 
@@ -54,9 +56,9 @@
 補足:
 
 - `BMSDirectoryFileNameHash` は **basename-only index** であり、`sound\bgm1` のような path-aware key は保持しない
-- basename-only broad filter はこの index を使う
-- relative path を含む source of truth は `DirectoryResourceLookupCache.Entry` 側に置く
-- cacheless broad filter では `DirectoryRelativePathHashIndex` を併用して `sound\bgm1` と `bgm1` を入口で分離する
+- ownership fix 後も、この index は **self-only basename index** のまま維持する
+- basename-only broad filter の fallback や installed-dir tie-break はこの index を使う
+- relative path を含む source of truth は `DirectoryResourceLookupCache.Entry` / `DirectoryRelativePathHashIndex.Entry` 側に置く
 
 ## 4. `DirectoryRelativePathHashIndex` の仕様
 
@@ -64,12 +66,20 @@
 
 - キー: chart directory 絶対パス（`OrdinalIgnoreCase`）
 - 値:
-  - `AudioBaseNameHashArray`
-  - `ImageBaseNameHashArray`
-  - `MovieBaseNameHashArray`
-  - `AudioRelativePathHashArray`
-  - `ImageRelativePathHashArray`
-  - `MovieRelativePathHashArray`
+  - aggregate ownership
+    - `AudioBaseNameHashArray`
+    - `ImageBaseNameHashArray`
+    - `MovieBaseNameHashArray`
+    - `AudioRelativePathHashArray`
+    - `ImageRelativePathHashArray`
+    - `MovieRelativePathHashArray`
+  - self-only ownership
+    - `SelfOwnedAudioBaseNameHashArray`
+    - `SelfOwnedImageBaseNameHashArray`
+    - `SelfOwnedMovieBaseNameHashArray`
+    - `SelfOwnedAudioRelativePathHashArray`
+    - `SelfOwnedImageRelativePathHashArray`
+    - `SelfOwnedMovieRelativePathHashArray`
 
 目的:
 
@@ -82,6 +92,7 @@
 - install / merge の増分更新でも同じ chart-directory keyed shape で `AddDir(..., scanResult)` する
 - cacheless broad filter に使う
 - cacheless final evaluation でも category-aware basename / relative-path semantics を揃えるために使う
+- aggregate ownership を install estimation の主 view にし、self-only ownership を suppression / tie-break 補助に使う
 
 ## 5. scan result / resource cache の形
 
@@ -89,19 +100,39 @@
 
 - `ChartFilePaths`
 - `ChartDirectories`
-- `AllResourceBaseNameHashesByChartDirectory`
-- `AudioBaseNameHashesByChartDirectory`
-- `ImageBaseNameHashesByChartDirectory`
-- `MovieBaseNameHashesByChartDirectory`
-- `AudioRelativePathHashesByChartDirectory`
-- `ImageRelativePathHashesByChartDirectory`
-- `MovieRelativePathHashesByChartDirectory`
+- aggregate ownership
+  - `AllResourceBaseNameHashesByChartDirectory`
+  - `AudioBaseNameHashesByChartDirectory`
+  - `ImageBaseNameHashesByChartDirectory`
+  - `MovieBaseNameHashesByChartDirectory`
+  - `AudioRelativePathHashesByChartDirectory`
+  - `ImageRelativePathHashesByChartDirectory`
+  - `MovieRelativePathHashesByChartDirectory`
+- self-only ownership
+  - `SelfOwnedAllResourceBaseNameHashesByChartDirectory`
+  - `SelfOwnedAudioBaseNameHashesByChartDirectory`
+  - `SelfOwnedImageBaseNameHashesByChartDirectory`
+  - `SelfOwnedMovieBaseNameHashesByChartDirectory`
+  - `SelfOwnedAudioRelativePathHashesByChartDirectory`
+  - `SelfOwnedImageRelativePathHashesByChartDirectory`
+  - `SelfOwnedMovieRelativePathHashesByChartDirectory`
 
-resource は「存在ディレクトリ」ではなく、**最長一致する chart directory** に再集約する。
+resource は「存在ディレクトリ」ではなく、chart directory keyed に再集約する。  
+`2026-04-23` 時点では次の二重 semantics を持つ。
 
-- `chartdir\\00.wav` → `chartdir`
-- `chartdir\\sound\\00.wav` → `chartdir`
-- `chartdir\\subchart\\sound\\00.wav` かつ `subchart` に chart がある → `chartdir\\subchart`
+- aggregate ownership
+  - resource を含む path 上の **すべての ancestor chart directory**
+- self-only ownership
+  - resource を最も近くで所有する chart directory のみ
+
+例:
+
+- `chartdir\\subchart\\sound\\00.wav` かつ `subchart` に chart がある
+  - aggregate
+    - `chartdir` は `subchart\\sound\\00.wav`
+    - `chartdir\\subchart` は `sound\\00.wav`
+  - self-only
+    - `chartdir\\subchart` のみ
 - `chartdir\\..\\sound\\00.wav` のような親参照は今回未対応
 
 Everything と通常列挙の差は、設計上「速度だけ」に寄せる。

@@ -259,7 +259,9 @@ internal sealed class BmsLibraryInitializationService
         Stopwatch stopwatchFolderHashIndex = Stopwatch.StartNew();
         result.NextFolderAllFileList = BMSDirectoryFileNameHash.CreateFromHashedDirectories(
             mergedScanResult.ChartDirectories,
-            mergedScanResult.AllResourceBaseNameHashesByChartDirectory);
+            (mergedScanResult.SelfOwnedAllResourceBaseNameHashesByChartDirectory?.Count ?? 0) > 0
+                ? mergedScanResult.SelfOwnedAllResourceBaseNameHashesByChartDirectory
+                : mergedScanResult.AllResourceBaseNameHashesByChartDirectory);
         stopwatchFolderHashIndex.Stop();
         result.FolderHashIndexMs = stopwatchFolderHashIndex.ElapsedMilliseconds;
 
@@ -474,6 +476,13 @@ internal sealed class BmsLibraryInitializationService
             MergeHashDictionary(merged.AudioRelativePathHashesByChartDirectory, scanResult.AudioRelativePathHashesByChartDirectory);
             MergeHashDictionary(merged.ImageRelativePathHashesByChartDirectory, scanResult.ImageRelativePathHashesByChartDirectory);
             MergeHashDictionary(merged.MovieRelativePathHashesByChartDirectory, scanResult.MovieRelativePathHashesByChartDirectory);
+            MergeHashDictionary(merged.SelfOwnedAllResourceBaseNameHashesByChartDirectory, scanResult.SelfOwnedAllResourceBaseNameHashesByChartDirectory);
+            MergeHashDictionary(merged.SelfOwnedAudioBaseNameHashesByChartDirectory, scanResult.SelfOwnedAudioBaseNameHashesByChartDirectory);
+            MergeHashDictionary(merged.SelfOwnedImageBaseNameHashesByChartDirectory, scanResult.SelfOwnedImageBaseNameHashesByChartDirectory);
+            MergeHashDictionary(merged.SelfOwnedMovieBaseNameHashesByChartDirectory, scanResult.SelfOwnedMovieBaseNameHashesByChartDirectory);
+            MergeHashDictionary(merged.SelfOwnedAudioRelativePathHashesByChartDirectory, scanResult.SelfOwnedAudioRelativePathHashesByChartDirectory);
+            MergeHashDictionary(merged.SelfOwnedImageRelativePathHashesByChartDirectory, scanResult.SelfOwnedImageRelativePathHashesByChartDirectory);
+            MergeHashDictionary(merged.SelfOwnedMovieRelativePathHashesByChartDirectory, scanResult.SelfOwnedMovieRelativePathHashesByChartDirectory);
         }
         return merged;
     }

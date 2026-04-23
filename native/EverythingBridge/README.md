@@ -10,18 +10,26 @@ Native bridge DLL for BeMusicSeeker chart/resource split scan.
   - audio files
   - image files
   - movie files
-- Re-aggregate resource hits to the nearest owning chart directory.
+- Re-aggregate resource hits to chart-directory keyed ownership views.
 - Return one packed result buffer to C# without per-item P/Invoke loops.
 
 ## Returned data shape
 
-The bridge returns a chart-directory keyed hash-only result:
+The bridge returns a chart-directory keyed hash-only result with two ownership views:
 
 - chart file paths
 - chart directories
-- all-resource basename hashes by chart directory
-- audio/image/movie basename hashes by chart directory
-- audio/image/movie relative-path hashes by chart directory
+- aggregate ownership
+  - all-resource basename hashes by chart directory
+  - audio/image/movie basename hashes by chart directory
+  - audio/image/movie relative-path hashes by chart directory
+- self-only ownership
+  - all-resource basename hashes by chart directory
+  - audio/image/movie basename hashes by chart directory
+  - audio/image/movie relative-path hashes by chart directory
+
+Aggregate ownership means a resource is visible from every ancestor chart directory on its path.  
+Self-only ownership means the resource is visible only from the nearest owning chart directory.
 
 `sibling:` based resource collection is no longer used.
 
@@ -53,10 +61,17 @@ int  __cdecl EBridge_ScanChartAndResources(
     const wchar_t* imageQuery,
     const wchar_t* movieQuery,
     EBridgeResult** outResult);
+int  __cdecl EBridge_ScanChartAndResourcesV2(
+    const wchar_t* chartQuery,
+    const wchar_t* audioQuery,
+    const wchar_t* imageQuery,
+    const wchar_t* movieQuery,
+    EBridgeResult** outResult);
 void __cdecl EBridge_FreeResult(EBridgeResult* result);
 ```
 
-`EBridge_FreeResult` must be called for every successful `EBridge_ScanChartAndResources`.
+`EBridge_FreeResult` must be called for every successful scan call.  
+`EBridge_ScanChartAndResourcesV2` appends self-only ownership fields to the original result layout while keeping the original prefix ABI-compatible.
 
 ## Repository layout and operation
 

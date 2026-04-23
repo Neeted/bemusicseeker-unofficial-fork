@@ -21,6 +21,18 @@ internal sealed class DirectoryRelativePathHashIndex
 
         private readonly uint[] movieRelativePathHashArray;
 
+        private readonly uint[] selfOwnedAudioBaseNameHashArray;
+
+        private readonly uint[] selfOwnedImageBaseNameHashArray;
+
+        private readonly uint[] selfOwnedMovieBaseNameHashArray;
+
+        private readonly uint[] selfOwnedAudioRelativePathHashArray;
+
+        private readonly uint[] selfOwnedImageRelativePathHashArray;
+
+        private readonly uint[] selfOwnedMovieRelativePathHashArray;
+
         private HashSet<uint> audioBaseNameHashes;
 
         private HashSet<uint> imageBaseNameHashes;
@@ -32,6 +44,18 @@ internal sealed class DirectoryRelativePathHashIndex
         private HashSet<uint> imageRelativePathHashes;
 
         private HashSet<uint> movieRelativePathHashes;
+
+        private HashSet<uint> selfOwnedAudioBaseNameHashes;
+
+        private HashSet<uint> selfOwnedImageBaseNameHashes;
+
+        private HashSet<uint> selfOwnedMovieBaseNameHashes;
+
+        private HashSet<uint> selfOwnedAudioRelativePathHashes;
+
+        private HashSet<uint> selfOwnedImageRelativePathHashes;
+
+        private HashSet<uint> selfOwnedMovieRelativePathHashes;
 
         public ISet<uint> AudioBaseNameHashes => audioBaseNameHashes ??= CreateHashSet(audioBaseNameHashArray);
 
@@ -45,6 +69,18 @@ internal sealed class DirectoryRelativePathHashIndex
 
         public ISet<uint> MovieRelativePathHashes => movieRelativePathHashes ??= CreateHashSet(movieRelativePathHashArray);
 
+        public ISet<uint> SelfOwnedAudioBaseNameHashes => selfOwnedAudioBaseNameHashes ??= CreateHashSet(selfOwnedAudioBaseNameHashArray);
+
+        public ISet<uint> SelfOwnedImageBaseNameHashes => selfOwnedImageBaseNameHashes ??= CreateHashSet(selfOwnedImageBaseNameHashArray);
+
+        public ISet<uint> SelfOwnedMovieBaseNameHashes => selfOwnedMovieBaseNameHashes ??= CreateHashSet(selfOwnedMovieBaseNameHashArray);
+
+        public ISet<uint> SelfOwnedAudioRelativePathHashes => selfOwnedAudioRelativePathHashes ??= CreateHashSet(selfOwnedAudioRelativePathHashArray);
+
+        public ISet<uint> SelfOwnedImageRelativePathHashes => selfOwnedImageRelativePathHashes ??= CreateHashSet(selfOwnedImageRelativePathHashArray);
+
+        public ISet<uint> SelfOwnedMovieRelativePathHashes => selfOwnedMovieRelativePathHashes ??= CreateHashSet(selfOwnedMovieRelativePathHashArray);
+
         public uint[] AudioBaseNameHashArray => audioBaseNameHashArray;
 
         public uint[] ImageBaseNameHashArray => imageBaseNameHashArray;
@@ -57,12 +93,24 @@ internal sealed class DirectoryRelativePathHashIndex
 
         public uint[] MovieRelativePathHashArray => movieRelativePathHashArray;
 
+        public uint[] SelfOwnedAudioBaseNameHashArray => selfOwnedAudioBaseNameHashArray;
+
+        public uint[] SelfOwnedImageBaseNameHashArray => selfOwnedImageBaseNameHashArray;
+
+        public uint[] SelfOwnedMovieBaseNameHashArray => selfOwnedMovieBaseNameHashArray;
+
+        public uint[] SelfOwnedAudioRelativePathHashArray => selfOwnedAudioRelativePathHashArray;
+
+        public uint[] SelfOwnedImageRelativePathHashArray => selfOwnedImageRelativePathHashArray;
+
+        public uint[] SelfOwnedMovieRelativePathHashArray => selfOwnedMovieRelativePathHashArray;
+
         public Entry()
-            : this(Array.Empty<uint>(), Array.Empty<uint>(), Array.Empty<uint>(), Array.Empty<uint>(), Array.Empty<uint>(), Array.Empty<uint>())
+            : this(Array.Empty<uint>(), Array.Empty<uint>(), Array.Empty<uint>(), Array.Empty<uint>(), Array.Empty<uint>(), Array.Empty<uint>(), Array.Empty<uint>(), Array.Empty<uint>(), Array.Empty<uint>(), Array.Empty<uint>(), Array.Empty<uint>(), Array.Empty<uint>())
         {
         }
 
-        public Entry(IEnumerable<uint> audioBaseNameHashes, IEnumerable<uint> imageBaseNameHashes, IEnumerable<uint> movieBaseNameHashes, IEnumerable<uint> audioRelativePathHashes, IEnumerable<uint> imageRelativePathHashes, IEnumerable<uint> movieRelativePathHashes)
+        public Entry(IEnumerable<uint> audioBaseNameHashes, IEnumerable<uint> imageBaseNameHashes, IEnumerable<uint> movieBaseNameHashes, IEnumerable<uint> audioRelativePathHashes, IEnumerable<uint> imageRelativePathHashes, IEnumerable<uint> movieRelativePathHashes, IEnumerable<uint> selfOwnedAudioBaseNameHashes = null, IEnumerable<uint> selfOwnedImageBaseNameHashes = null, IEnumerable<uint> selfOwnedMovieBaseNameHashes = null, IEnumerable<uint> selfOwnedAudioRelativePathHashes = null, IEnumerable<uint> selfOwnedImageRelativePathHashes = null, IEnumerable<uint> selfOwnedMovieRelativePathHashes = null)
         {
             audioBaseNameHashArray = MaterializeHashes(audioBaseNameHashes);
             imageBaseNameHashArray = MaterializeHashes(imageBaseNameHashes);
@@ -70,11 +118,17 @@ internal sealed class DirectoryRelativePathHashIndex
             audioRelativePathHashArray = MaterializeHashes(audioRelativePathHashes);
             imageRelativePathHashArray = MaterializeHashes(imageRelativePathHashes);
             movieRelativePathHashArray = MaterializeHashes(movieRelativePathHashes);
+            selfOwnedAudioBaseNameHashArray = MaterializeHashes(selfOwnedAudioBaseNameHashes, audioBaseNameHashArray);
+            selfOwnedImageBaseNameHashArray = MaterializeHashes(selfOwnedImageBaseNameHashes, imageBaseNameHashArray);
+            selfOwnedMovieBaseNameHashArray = MaterializeHashes(selfOwnedMovieBaseNameHashes, movieBaseNameHashArray);
+            selfOwnedAudioRelativePathHashArray = MaterializeHashes(selfOwnedAudioRelativePathHashes, audioRelativePathHashArray);
+            selfOwnedImageRelativePathHashArray = MaterializeHashes(selfOwnedImageRelativePathHashes, imageRelativePathHashArray);
+            selfOwnedMovieRelativePathHashArray = MaterializeHashes(selfOwnedMovieRelativePathHashes, movieRelativePathHashArray);
         }
 
         public Entry Clone()
         {
-            return new Entry(audioBaseNameHashArray, imageBaseNameHashArray, movieBaseNameHashArray, audioRelativePathHashArray, imageRelativePathHashArray, movieRelativePathHashArray);
+            return new Entry(audioBaseNameHashArray, imageBaseNameHashArray, movieBaseNameHashArray, audioRelativePathHashArray, imageRelativePathHashArray, movieRelativePathHashArray, selfOwnedAudioBaseNameHashArray, selfOwnedImageBaseNameHashArray, selfOwnedMovieBaseNameHashArray, selfOwnedAudioRelativePathHashArray, selfOwnedImageRelativePathHashArray, selfOwnedMovieRelativePathHashArray);
         }
 
         private static uint[] MaterializeHashes(IEnumerable<uint> hashes)
@@ -88,6 +142,15 @@ internal sealed class DirectoryRelativePathHashIndex
                 return hashArray;
             }
             return hashes.Distinct().ToArray();
+        }
+
+        private static uint[] MaterializeHashes(IEnumerable<uint> hashes, uint[] fallback)
+        {
+            if (hashes == null)
+            {
+                return fallback ?? Array.Empty<uint>();
+            }
+            return MaterializeHashes(hashes);
         }
 
         private static HashSet<uint> CreateHashSet(IEnumerable<uint> hashes)
@@ -135,13 +198,13 @@ internal sealed class DirectoryRelativePathHashIndex
         AddDir(directoryPath, Array.Empty<uint>(), Array.Empty<uint>(), Array.Empty<uint>(), audioRelativePathHashes, imageRelativePathHashes, movieRelativePathHashes);
     }
 
-    public void AddDir(string directoryPath, IEnumerable<uint> audioBaseNameHashes, IEnumerable<uint> imageBaseNameHashes, IEnumerable<uint> movieBaseNameHashes, IEnumerable<uint> audioRelativePathHashes, IEnumerable<uint> imageRelativePathHashes, IEnumerable<uint> movieRelativePathHashes)
+    public void AddDir(string directoryPath, IEnumerable<uint> audioBaseNameHashes, IEnumerable<uint> imageBaseNameHashes, IEnumerable<uint> movieBaseNameHashes, IEnumerable<uint> audioRelativePathHashes, IEnumerable<uint> imageRelativePathHashes, IEnumerable<uint> movieRelativePathHashes, IEnumerable<uint> selfOwnedAudioBaseNameHashes = null, IEnumerable<uint> selfOwnedImageBaseNameHashes = null, IEnumerable<uint> selfOwnedMovieBaseNameHashes = null, IEnumerable<uint> selfOwnedAudioRelativePathHashes = null, IEnumerable<uint> selfOwnedImageRelativePathHashes = null, IEnumerable<uint> selfOwnedMovieRelativePathHashes = null)
     {
         if (string.IsNullOrWhiteSpace(directoryPath))
         {
             return;
         }
-        SetEntry(directoryPath, new Entry(audioBaseNameHashes, imageBaseNameHashes, movieBaseNameHashes, audioRelativePathHashes, imageRelativePathHashes, movieRelativePathHashes));
+        SetEntry(directoryPath, new Entry(audioBaseNameHashes, imageBaseNameHashes, movieBaseNameHashes, audioRelativePathHashes, imageRelativePathHashes, movieRelativePathHashes, selfOwnedAudioBaseNameHashes, selfOwnedImageBaseNameHashes, selfOwnedMovieBaseNameHashes, selfOwnedAudioRelativePathHashes, selfOwnedImageRelativePathHashes, selfOwnedMovieRelativePathHashes));
     }
 
     public bool RemoveDir(string directoryPath)
@@ -203,7 +266,13 @@ internal sealed class DirectoryRelativePathHashIndex
             TryGetHashes(scanResult?.MovieBaseNameHashesByChartDirectory, directoryPath),
             TryGetHashes(scanResult?.AudioRelativePathHashesByChartDirectory, directoryPath),
             TryGetHashes(scanResult?.ImageRelativePathHashesByChartDirectory, directoryPath),
-            TryGetHashes(scanResult?.MovieRelativePathHashesByChartDirectory, directoryPath));
+            TryGetHashes(scanResult?.MovieRelativePathHashesByChartDirectory, directoryPath),
+            TryGetHashes(scanResult?.SelfOwnedAudioBaseNameHashesByChartDirectory, directoryPath, scanResult?.AudioBaseNameHashesByChartDirectory),
+            TryGetHashes(scanResult?.SelfOwnedImageBaseNameHashesByChartDirectory, directoryPath, scanResult?.ImageBaseNameHashesByChartDirectory),
+            TryGetHashes(scanResult?.SelfOwnedMovieBaseNameHashesByChartDirectory, directoryPath, scanResult?.MovieBaseNameHashesByChartDirectory),
+            TryGetHashes(scanResult?.SelfOwnedAudioRelativePathHashesByChartDirectory, directoryPath, scanResult?.AudioRelativePathHashesByChartDirectory),
+            TryGetHashes(scanResult?.SelfOwnedImageRelativePathHashesByChartDirectory, directoryPath, scanResult?.ImageRelativePathHashesByChartDirectory),
+            TryGetHashes(scanResult?.SelfOwnedMovieRelativePathHashesByChartDirectory, directoryPath, scanResult?.MovieRelativePathHashesByChartDirectory));
     }
 
     private static IEnumerable<uint> TryGetHashes(Dictionary<string, uint[]> hashesByDirectory, string directoryPath)
@@ -213,5 +282,14 @@ internal sealed class DirectoryRelativePathHashIndex
             return hashes ?? Array.Empty<uint>();
         }
         return Array.Empty<uint>();
+    }
+
+    private static IEnumerable<uint> TryGetHashes(Dictionary<string, uint[]> hashesByDirectory, string directoryPath, Dictionary<string, uint[]> fallbackHashesByDirectory)
+    {
+        if (hashesByDirectory != null && hashesByDirectory.TryGetValue(directoryPath, out uint[] hashes) && hashes != null && hashes.Length > 0)
+        {
+            return hashes;
+        }
+        return TryGetHashes(fallbackHashesByDirectory, directoryPath);
     }
 }

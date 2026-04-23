@@ -88,5 +88,11 @@ public sealed class DirectoryRelativePathHashIndexTests
         CollectionAssert.AreEquivalent(expected.AudioRelativePathHashArray, actual.AudioRelativePathHashArray);
         CollectionAssert.AreEquivalent(expected.ImageRelativePathHashArray, actual.ImageRelativePathHashArray);
         CollectionAssert.AreEquivalent(expected.MovieRelativePathHashArray, actual.MovieRelativePathHashArray);
+        CollectionAssert.AreEquivalent(expected.SelfOwnedAudioBaseNameHashArray, actual.SelfOwnedAudioBaseNameHashArray);
+        CollectionAssert.AreEquivalent(expected.SelfOwnedImageBaseNameHashArray, actual.SelfOwnedImageBaseNameHashArray);
+        CollectionAssert.AreEquivalent(expected.SelfOwnedMovieBaseNameHashArray, actual.SelfOwnedMovieBaseNameHashArray);
+        CollectionAssert.AreEquivalent(expected.SelfOwnedAudioRelativePathHashArray, actual.SelfOwnedAudioRelativePathHashArray);
+        CollectionAssert.AreEquivalent(expected.SelfOwnedImageRelativePathHashArray, actual.SelfOwnedImageRelativePathHashArray);
+        CollectionAssert.AreEquivalent(expected.SelfOwnedMovieRelativePathHashArray, actual.SelfOwnedMovieRelativePathHashArray);
     }
 }

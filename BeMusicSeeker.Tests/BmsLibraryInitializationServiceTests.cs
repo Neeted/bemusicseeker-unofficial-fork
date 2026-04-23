@@ -1003,6 +1003,13 @@ public sealed class BmsLibraryInitializationServiceTests
             result.AudioRelativePathHashesByChartDirectory[chartDirectory] = entry.AudioRelativePathHashArray;
             result.ImageRelativePathHashesByChartDirectory[chartDirectory] = entry.ImageRelativePathHashArray;
             result.MovieRelativePathHashesByChartDirectory[chartDirectory] = entry.MovieRelativePathHashArray;
+            result.SelfOwnedAllResourceBaseNameHashesByChartDirectory[chartDirectory] = entry.SelfOwnedAllBaseNameHashArray;
+            result.SelfOwnedAudioBaseNameHashesByChartDirectory[chartDirectory] = entry.SelfOwnedAudioBaseNameHashArray;
+            result.SelfOwnedImageBaseNameHashesByChartDirectory[chartDirectory] = entry.SelfOwnedImageBaseNameHashArray;
+            result.SelfOwnedMovieBaseNameHashesByChartDirectory[chartDirectory] = entry.SelfOwnedMovieBaseNameHashArray;
+            result.SelfOwnedAudioRelativePathHashesByChartDirectory[chartDirectory] = entry.SelfOwnedAudioRelativePathHashArray;
+            result.SelfOwnedImageRelativePathHashesByChartDirectory[chartDirectory] = entry.SelfOwnedImageRelativePathHashArray;
+            result.SelfOwnedMovieRelativePathHashesByChartDirectory[chartDirectory] = entry.SelfOwnedMovieRelativePathHashArray;
         }
         return result;
     }

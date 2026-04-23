@@ -136,7 +136,14 @@ public sealed class BmsScanResultComparerTests
             MovieBaseNameHashesByChartDirectory = CloneMap(source.MovieBaseNameHashesByChartDirectory),
             AudioRelativePathHashesByChartDirectory = CloneMap(source.AudioRelativePathHashesByChartDirectory),
             ImageRelativePathHashesByChartDirectory = CloneMap(source.ImageRelativePathHashesByChartDirectory),
-            MovieRelativePathHashesByChartDirectory = CloneMap(source.MovieRelativePathHashesByChartDirectory)
+            MovieRelativePathHashesByChartDirectory = CloneMap(source.MovieRelativePathHashesByChartDirectory),
+            SelfOwnedAllResourceBaseNameHashesByChartDirectory = CloneMap(source.SelfOwnedAllResourceBaseNameHashesByChartDirectory),
+            SelfOwnedAudioBaseNameHashesByChartDirectory = CloneMap(source.SelfOwnedAudioBaseNameHashesByChartDirectory),
+            SelfOwnedImageBaseNameHashesByChartDirectory = CloneMap(source.SelfOwnedImageBaseNameHashesByChartDirectory),
+            SelfOwnedMovieBaseNameHashesByChartDirectory = CloneMap(source.SelfOwnedMovieBaseNameHashesByChartDirectory),
+            SelfOwnedAudioRelativePathHashesByChartDirectory = CloneMap(source.SelfOwnedAudioRelativePathHashesByChartDirectory),
+            SelfOwnedImageRelativePathHashesByChartDirectory = CloneMap(source.SelfOwnedImageRelativePathHashesByChartDirectory),
+            SelfOwnedMovieRelativePathHashesByChartDirectory = CloneMap(source.SelfOwnedMovieRelativePathHashesByChartDirectory)
         };
     }
 

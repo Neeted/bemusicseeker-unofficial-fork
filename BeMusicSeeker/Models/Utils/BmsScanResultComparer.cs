@@ -39,6 +39,13 @@ public static class BmsScanResultComparer
 		CompareCategory(report, "audio_rel", everything?.AudioRelativePathHashesByChartDirectory, fast?.AudioRelativePathHashesByChartDirectory, maxSamples);
 		CompareCategory(report, "image_rel", everything?.ImageRelativePathHashesByChartDirectory, fast?.ImageRelativePathHashesByChartDirectory, maxSamples);
 		CompareCategory(report, "movie_rel", everything?.MovieRelativePathHashesByChartDirectory, fast?.MovieRelativePathHashesByChartDirectory, maxSamples);
+		CompareCategory(report, "self_all_base", everything?.SelfOwnedAllResourceBaseNameHashesByChartDirectory, fast?.SelfOwnedAllResourceBaseNameHashesByChartDirectory, maxSamples);
+		CompareCategory(report, "self_audio_base", everything?.SelfOwnedAudioBaseNameHashesByChartDirectory, fast?.SelfOwnedAudioBaseNameHashesByChartDirectory, maxSamples);
+		CompareCategory(report, "self_image_base", everything?.SelfOwnedImageBaseNameHashesByChartDirectory, fast?.SelfOwnedImageBaseNameHashesByChartDirectory, maxSamples);
+		CompareCategory(report, "self_movie_base", everything?.SelfOwnedMovieBaseNameHashesByChartDirectory, fast?.SelfOwnedMovieBaseNameHashesByChartDirectory, maxSamples);
+		CompareCategory(report, "self_audio_rel", everything?.SelfOwnedAudioRelativePathHashesByChartDirectory, fast?.SelfOwnedAudioRelativePathHashesByChartDirectory, maxSamples);
+		CompareCategory(report, "self_image_rel", everything?.SelfOwnedImageRelativePathHashesByChartDirectory, fast?.SelfOwnedImageRelativePathHashesByChartDirectory, maxSamples);
+		CompareCategory(report, "self_movie_rel", everything?.SelfOwnedMovieRelativePathHashesByChartDirectory, fast?.SelfOwnedMovieRelativePathHashesByChartDirectory, maxSamples);
 		report.IsMatch = report.ChartPathDiffCount == 0 && report.ChartDirectoryDiffCount == 0 && report.CategoryHashDiffCount == 0;
 		return report;
 	}

@@ -24,6 +24,20 @@ public class BmsScanResult
 
 	public Dictionary<string, uint[]> MovieRelativePathHashesByChartDirectory { get; set; } = new Dictionary<string, uint[]>(StringComparer.OrdinalIgnoreCase);
 
+	public Dictionary<string, uint[]> SelfOwnedAllResourceBaseNameHashesByChartDirectory { get; set; } = new Dictionary<string, uint[]>(StringComparer.OrdinalIgnoreCase);
+
+	public Dictionary<string, uint[]> SelfOwnedAudioBaseNameHashesByChartDirectory { get; set; } = new Dictionary<string, uint[]>(StringComparer.OrdinalIgnoreCase);
+
+	public Dictionary<string, uint[]> SelfOwnedImageBaseNameHashesByChartDirectory { get; set; } = new Dictionary<string, uint[]>(StringComparer.OrdinalIgnoreCase);
+
+	public Dictionary<string, uint[]> SelfOwnedMovieBaseNameHashesByChartDirectory { get; set; } = new Dictionary<string, uint[]>(StringComparer.OrdinalIgnoreCase);
+
+	public Dictionary<string, uint[]> SelfOwnedAudioRelativePathHashesByChartDirectory { get; set; } = new Dictionary<string, uint[]>(StringComparer.OrdinalIgnoreCase);
+
+	public Dictionary<string, uint[]> SelfOwnedImageRelativePathHashesByChartDirectory { get; set; } = new Dictionary<string, uint[]>(StringComparer.OrdinalIgnoreCase);
+
+	public Dictionary<string, uint[]> SelfOwnedMovieRelativePathHashesByChartDirectory { get; set; } = new Dictionary<string, uint[]>(StringComparer.OrdinalIgnoreCase);
+
 	[Obsolete("Use ChartFilePaths")]
 	public HashSet<string> BmsFilePaths
 	{
@@ -97,6 +111,13 @@ public class BmsScanResult
 				AudioRelativePathHashesByChartDirectory[chartDirectory] = audioRelativeHashes.ToArray();
 				ImageRelativePathHashesByChartDirectory[chartDirectory] = imageRelativeHashes.ToArray();
 				MovieRelativePathHashesByChartDirectory[chartDirectory] = movieRelativeHashes.ToArray();
+				SelfOwnedAllResourceBaseNameHashesByChartDirectory[chartDirectory] = allHashes.ToArray();
+				SelfOwnedAudioBaseNameHashesByChartDirectory[chartDirectory] = audioBaseHashes.ToArray();
+				SelfOwnedImageBaseNameHashesByChartDirectory[chartDirectory] = imageBaseHashes.ToArray();
+				SelfOwnedMovieBaseNameHashesByChartDirectory[chartDirectory] = movieBaseHashes.ToArray();
+				SelfOwnedAudioRelativePathHashesByChartDirectory[chartDirectory] = audioRelativeHashes.ToArray();
+				SelfOwnedImageRelativePathHashesByChartDirectory[chartDirectory] = imageRelativeHashes.ToArray();
+				SelfOwnedMovieRelativePathHashesByChartDirectory[chartDirectory] = movieRelativeHashes.ToArray();
 			}
 		}
 	}

@@ -76,6 +76,7 @@
    - broad filter を path-aware にする前のフェーズ分割
    - Phase 1+2 と Phase 3 を実施済み
    - `CountMatches(...)` / viability / confidence を含む Relative Path Phase 4 も実施済み
+   - root chart と nested chart directory が共存する package に対する ownership completion も実施済み
 
 ## 実装方針の要点
 
@@ -144,6 +145,10 @@
   - package-aware union 評価
   - source の通常候補化
   - threshold の auto-apply 安全弁化
+- relative path 対応は ownership fix まで実装済み
+  - path-aware broad filter
+  - final scoring semantics completion
+  - aggregate ownership + self-only ownership の二重 view
 - 残るのは実機ログでの順位 / confidence 調整
 - 残る作業は README / リリースノート / バージョン反映などのリリース整理
 

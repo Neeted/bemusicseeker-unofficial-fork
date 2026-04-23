@@ -1567,6 +1567,142 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     }
 
     [TestMethod]
+    public void EstimateInstallationDirectory_NestedRootStylePathAwareAudio_SelectsParentAggregateCandidate()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        BmsLibraryInstallEstimationService service = CreateService();
+        string sourceDir = Path.Combine("C:\\Pending", "Source");
+        string parentDir = Path.Combine("C:\\Installed", "Parent");
+        string childDir = Path.Combine(parentDir, "Child");
+        uint zeroBaseHash = BMSDirectoryFileNameHash.GetFileNameHash("00.wav");
+        uint oneBaseHash = BMSDirectoryFileNameHash.GetFileNameHash("01.wav");
+        uint parentZeroRelativeHash = BMSDirectoryFileNameHash.GetLookupHash("Child\\sound\\00.wav");
+        uint parentOneRelativeHash = BMSDirectoryFileNameHash.GetLookupHash("Child\\sound\\01.wav");
+        uint childZeroRelativeHash = BMSDirectoryFileNameHash.GetLookupHash("sound\\00.wav");
+        uint childOneRelativeHash = BMSDirectoryFileNameHash.GetLookupHash("sound\\01.wav");
+        TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(sourceDir, "chart.bms"), "Child\\sound\\00.wav", "Child\\sound\\01.wav");
+        file.SetMaintenanceInfo(CreateMaintenanceInfo(file, wavDefined: 2, wavExisting: 0), suppressPropertyChanged: true, registerEventHandlers: false);
+
+        BMSDirectoryFileNameHash cache = new BMSDirectoryFileNameHash();
+        cache.AddDirHashed(sourceDir, new[] { BMSDirectoryFileNameHash.GetFileNameHash("chart.bms") });
+        cache.AddDirHashed(parentDir, Array.Empty<uint>());
+        cache.AddDirHashed(childDir, new[] { zeroBaseHash, oneBaseHash });
+
+        DirectoryResourceLookupCache lookupCache = new DirectoryResourceLookupCache();
+        lookupCache.AddDir(
+            parentDir,
+            new[] { zeroBaseHash, oneBaseHash },
+            new[] { zeroBaseHash, oneBaseHash },
+            Array.Empty<uint>(),
+            Array.Empty<uint>(),
+            new[] { parentZeroRelativeHash, parentOneRelativeHash },
+            Array.Empty<uint>(),
+            Array.Empty<uint>(),
+            Array.Empty<uint>(),
+            Array.Empty<uint>(),
+            Array.Empty<uint>(),
+            Array.Empty<uint>(),
+            Array.Empty<uint>(),
+            Array.Empty<uint>());
+        lookupCache.AddDir(
+            childDir,
+            new[] { zeroBaseHash, oneBaseHash },
+            new[] { zeroBaseHash, oneBaseHash },
+            Array.Empty<uint>(),
+            Array.Empty<uint>(),
+            new[] { childZeroRelativeHash, childOneRelativeHash },
+            Array.Empty<uint>(),
+            Array.Empty<uint>(),
+            new[] { zeroBaseHash, oneBaseHash },
+            new[] { zeroBaseHash, oneBaseHash },
+            Array.Empty<uint>(),
+            Array.Empty<uint>(),
+            new[] { childZeroRelativeHash, childOneRelativeHash },
+            Array.Empty<uint>(),
+            Array.Empty<uint>());
+
+        InstallEstimationResult result = service.EstimateInstallationDirectory(
+            new[] { file },
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+            cache,
+            lookupCache,
+            asParallel: false,
+            BmsInstallationEstimateMode.Normal);
+
+        Assert.AreEqual(1, result.CandidateDirectoryCountAfterBroadFilter);
+        Assert.AreEqual(parentDir, result.SelectedCandidate?.DirectoryPath);
+        Assert.AreEqual(parentDir, result.DestinationDirectory);
+    }
+
+    [TestMethod]
+    public void EstimateInstallationDirectory_NestedBasenameOnlyAudio_UsesAncestorShadowRuleToPreferChildCandidate()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        BmsLibraryInstallEstimationService service = CreateService();
+        string sourceDir = Path.Combine("C:\\Pending", "Source");
+        string parentDir = Path.Combine("C:\\Installed", "Parent");
+        string childDir = Path.Combine(parentDir, "Child");
+        uint zeroBaseHash = BMSDirectoryFileNameHash.GetFileNameHash("00.wav");
+        uint oneBaseHash = BMSDirectoryFileNameHash.GetFileNameHash("01.wav");
+        uint parentZeroRelativeHash = BMSDirectoryFileNameHash.GetLookupHash("Child\\sound\\00.wav");
+        uint parentOneRelativeHash = BMSDirectoryFileNameHash.GetLookupHash("Child\\sound\\01.wav");
+        uint childZeroRelativeHash = BMSDirectoryFileNameHash.GetLookupHash("sound\\00.wav");
+        uint childOneRelativeHash = BMSDirectoryFileNameHash.GetLookupHash("sound\\01.wav");
+        TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(sourceDir, "chart.bms"), "00.wav", "01.wav");
+        file.SetMaintenanceInfo(CreateMaintenanceInfo(file, wavDefined: 2, wavExisting: 0), suppressPropertyChanged: true, registerEventHandlers: false);
+
+        BMSDirectoryFileNameHash cache = new BMSDirectoryFileNameHash();
+        cache.AddDirHashed(sourceDir, new[] { BMSDirectoryFileNameHash.GetFileNameHash("chart.bms") });
+        cache.AddDirHashed(parentDir, Array.Empty<uint>());
+        cache.AddDirHashed(childDir, new[] { zeroBaseHash, oneBaseHash });
+
+        DirectoryResourceLookupCache lookupCache = new DirectoryResourceLookupCache();
+        lookupCache.AddDir(
+            parentDir,
+            new[] { zeroBaseHash, oneBaseHash },
+            new[] { zeroBaseHash, oneBaseHash },
+            Array.Empty<uint>(),
+            Array.Empty<uint>(),
+            new[] { parentZeroRelativeHash, parentOneRelativeHash },
+            Array.Empty<uint>(),
+            Array.Empty<uint>(),
+            Array.Empty<uint>(),
+            Array.Empty<uint>(),
+            Array.Empty<uint>(),
+            Array.Empty<uint>(),
+            Array.Empty<uint>(),
+            Array.Empty<uint>());
+        lookupCache.AddDir(
+            childDir,
+            new[] { zeroBaseHash, oneBaseHash },
+            new[] { zeroBaseHash, oneBaseHash },
+            Array.Empty<uint>(),
+            Array.Empty<uint>(),
+            new[] { childZeroRelativeHash, childOneRelativeHash },
+            Array.Empty<uint>(),
+            Array.Empty<uint>(),
+            new[] { zeroBaseHash, oneBaseHash },
+            new[] { zeroBaseHash, oneBaseHash },
+            Array.Empty<uint>(),
+            Array.Empty<uint>(),
+            new[] { childZeroRelativeHash, childOneRelativeHash },
+            Array.Empty<uint>(),
+            Array.Empty<uint>());
+
+        InstallEstimationResult result = service.EstimateInstallationDirectory(
+            new[] { file },
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+            cache,
+            lookupCache,
+            asParallel: false,
+            BmsInstallationEstimateMode.Normal);
+
+        Assert.AreEqual(2, result.CandidateDirectoryCountAfterBroadFilter);
+        Assert.AreEqual(childDir, result.SelectedCandidate?.DirectoryPath);
+        Assert.AreEqual(childDir, result.DestinationDirectory);
+    }
+
+    [TestMethod]
     public void EstimateInstallationDirectory_BasenameOnlyAudioRef_MatchesNestedPathWithoutExactBonus()
     {
         TestResourceInitializer.EnsureJapaneseResources();

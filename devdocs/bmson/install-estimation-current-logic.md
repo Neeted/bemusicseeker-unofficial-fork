@@ -42,8 +42,12 @@
   - target 側の resource 定義 union
 - `DirectoryResourceLookupCache`
   - chart directory ごとの resource hash cache
+  - aggregate ownership と self-only ownership の二重 view を持つ
 - `BMSDirectoryFileNameHash`
   - chart directory ごとの all-resource basename hash index
+  - self-only basename index
+- `DirectoryRelativePathHashIndex`
+  - cacheless path 用の chart directory ごとの aggregate / self-only resource hash index
 
 ## 推定入口
 
@@ -169,6 +173,15 @@ package-aware 経路でも loose-file 経路でも同じ shape を持ちます�
 - 比較対象は常に external candidate のみ
 
 resource-only subdir は候補に入りません。
+
+ただし `2026-04-23` 時点では chart-directory ownership は次の二重 semantics を持ちます。
+
+- aggregate ownership
+  - descendant resource は path 上のすべての ancestor chart directory から見える
+- self-only ownership
+  - resource を最も近くで所有する chart directory だけが持つ
+
+install estimation の broad filter / final evaluation は aggregate ownership を主に使い、installed-dir tie-break や ancestor-shadow rule では self-only ownership を参照します。
 
 ## coarse filter
 

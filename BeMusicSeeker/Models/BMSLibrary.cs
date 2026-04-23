@@ -5335,7 +5335,11 @@ public class BMSLibrary : NotificationObject
                 BmsScanResult addedDirectoryScan = ChartDirectoryScanBuilder.BuildFromRoots(addedFiles.Select((BMSFile bmsInfo) => DirectoryExt.GetDirectoryNameSimple(bmsInfo.path)).Distinct(StringComparer.OrdinalIgnoreCase));
                 foreach (string dir in addedDirectoryScan.ChartDirectories)
                 {
-                    if (addedDirectoryScan.AllResourceBaseNameHashesByChartDirectory.TryGetValue(dir, out uint[] hashes))
+                    if (!addedDirectoryScan.SelfOwnedAllResourceBaseNameHashesByChartDirectory.TryGetValue(dir, out uint[] hashes))
+                    {
+                        addedDirectoryScan.AllResourceBaseNameHashesByChartDirectory.TryGetValue(dir, out hashes);
+                    }
+                    if (hashes != null)
                     {
                         bmsFolderAllFileList.AddDirHashed(dir, hashes);
                     }
@@ -7296,7 +7300,11 @@ public class BMSLibrary : NotificationObject
                     BmsScanResult mergedDirectoryScan = ChartDirectoryScanBuilder.BuildFromRoots(new[] { dst });
                     foreach (string chartDirectory in mergedDirectoryScan.ChartDirectories)
                     {
-                        if (mergedDirectoryScan.AllResourceBaseNameHashesByChartDirectory.TryGetValue(chartDirectory, out uint[] hashes))
+                        if (!mergedDirectoryScan.SelfOwnedAllResourceBaseNameHashesByChartDirectory.TryGetValue(chartDirectory, out uint[] hashes))
+                        {
+                            mergedDirectoryScan.AllResourceBaseNameHashesByChartDirectory.TryGetValue(chartDirectory, out hashes);
+                        }
+                        if (hashes != null)
                         {
                             bmsFolderAllFileList.AddDirHashed(chartDirectory, hashes);
                         }

@@ -299,7 +299,9 @@ Phase 3 時点で意図的に残していたこと:
 - `confidenceReason=no_viable_destination_below_threshold`
 
 となっており、**basename-only 候補へ誤着地する状態は解消**できている。  
-Phase 4 ではここから先、relative-path 譜面を「誤推定しない」だけでなく、**正しい candidate を final scoring で拾える状態**まで進めた。
+Phase 4 ではここから先、relative-path 譜面を「誤推定しない」だけでなく、**正しい candidate を final scoring で拾える状態**まで進めた。  
+ただしその後の実ログ確認で、`root chart + nested chart directory` が共存する package では、installed candidate surface が nearest-only ownership のまま残っており、root candidate が broad filter で 0 件になる gap が見つかった。  
+したがって relative-path semantics 自体は完了したが、**candidate surface ownership** は次段の別フェーズとして扱う。
 
 ### Phase 4. Estimation Semantics Completion
 
@@ -340,7 +342,29 @@ Phase 4 で固定したこと:
 - `sound\bgm1` と `bgm1` の区別が final scoring / viability まで一貫
 - basename-only 誤候補に行かず、正しい path-aware candidate がある場合は拾える
 
-### Phase 5. Cleanup / Legacy Removal / Perf-3 接続
+### Phase 5. Ownership Completion
+
+Phase 4 の後で見つかった、installed candidate surface の ownership gap を埋めるフェーズです。
+
+スコープ:
+- `ChartDirectoryScanBuilder`
+- Everything bridge
+- `BmsScanResult`
+- `DirectoryResourceLookupCache`
+- `DirectoryRelativePathHashIndex`
+- ancestor-shadow rule を含む install estimation の candidate suppression
+
+このフェーズの狙い:
+- descendant resource を **all ancestor chart directories** から見える aggregate ownership にする
+- 同時に nearest-only の **self-only ownership** も保持する
+- root candidate が descendant resource を見えるようにしつつ、child-only chart が親 candidate に食われないようにする
+
+完了条件:
+- root-style path-aware chart で root candidate が broad filter を通る
+- child-style / basename-only chart で child candidate が親 aggregate candidate に押し負けない
+- Everything / fallback / install / merge の各経路で aggregate + self-only の二重 semantics が揃う
+
+### Phase 6. Cleanup / Legacy Removal / Perf-3 接続
 
 Perf-3 に入る前の仕上げです。
 
@@ -365,7 +389,8 @@ Perf-3 に入る前の仕上げです。
 2. Phase 2: Scan / Cache Parity Completion
 3. Phase 3: Path-Aware Index / Broad Filter Completion
 4. Phase 4: Estimation Semantics Completion
-5. Phase 5: Cleanup / Legacy Removal / Perf-3 接続
+5. Phase 5: Ownership Completion
+6. Phase 6: Cleanup / Legacy Removal / Perf-3 接続
 
 理由:
 - まず意味を固定しないと、Everything parity と推定改善のどちらもブレる
@@ -374,15 +399,15 @@ Perf-3 に入る前の仕上げです。
 
 ## 次に切るプラン
 
-Phase 1 から Phase 4 までは完了したため、この資料から次に切るプランは **Phase 5 / Perf-3 接続** が自然です。
+Phase 1 から Phase 4 までは完了しており、次に切るプランは **Phase 5 / Ownership Completion** が自然です。
 
 主論点:
 
-1. obsolete helper / verify-only 導線 / 一時互換コード整理
-2. relative path 前提の diagnostics / logs の整理
-3. Perf-3 の source surface / scanner / index 改善へ渡す前提の明文化
+1. aggregate ownership と self-only ownership の二重 view 導入
+2. root chart と nested chart directory が共存する package の candidate surface 修正
+3. ancestor-shadow rule で child-only chart を親 aggregate candidate から守る
 
-つまり今後は、「relative path をどう実装するか」ではなく、**relative path semantics が完了した状態を通常前提としてどう整理するか** が主戦場になります。
+つまり今後は、「relative path をどう実装するか」ではなく、**relative path semantics が完了した状態で installed candidate surface をどう正すか** が主戦場になります。
 
 ## 関連ファイル
 
