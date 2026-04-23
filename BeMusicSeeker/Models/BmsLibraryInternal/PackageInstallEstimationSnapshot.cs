@@ -41,11 +41,11 @@ internal sealed class PackageInstallEstimationSnapshot
 
     public int ChartCount { get; set; }
 
-    public int BundledAudioCount => BundledResources?.AudioFileNameHashCount ?? 0;
+    public int BundledAudioCount => BundledResources?.AudioRelativePathHashArray?.Length ?? 0;
 
-    public int BundledImageCount => BundledResources?.ImageFileNameHashCount ?? 0;
+    public int BundledImageCount => BundledResources?.ImageRelativePathHashArray?.Length ?? 0;
 
-    public int BundledMovieCount => BundledResources?.MovieFileNameHashCount ?? 0;
+    public int BundledMovieCount => BundledResources?.MovieRelativePathHashArray?.Length ?? 0;
 }
 
 internal static class PackageInstallEstimationSnapshotBuilder

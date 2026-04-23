@@ -74,7 +74,8 @@
    - 相対パス譜面を前提にした `bgm1` と `sound\bgm1` の意味整理
    - Everything / fallback / 増分更新の parity 論点
    - broad filter を path-aware にする前のフェーズ分割
-   - Phase 1+2 完了後、Phase 3 (path-aware index / broad filter) に進むための前提
+   - Phase 1+2 と Phase 3 を実施済み
+   - `CountMatches(...)` / viability / confidence を含む Relative Path Phase 4 も実施済み
 
 ## 実装方針の要点
 

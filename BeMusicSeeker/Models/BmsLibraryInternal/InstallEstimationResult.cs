@@ -163,6 +163,8 @@ internal sealed class InstallEstimationResult
 
     public int CandidateDirectoryCountAfterAudioGate { get; set; }
 
+    public int TargetResourceCount { get; set; }
+
     public int TargetResourceHashCount { get; set; }
 
     public int TargetPathAwareHashCount { get; set; }
@@ -176,6 +178,12 @@ internal sealed class InstallEstimationResult
     public int TargetPathAwareOptionalImageHashCount { get; set; }
 
     public int AudioReferenceCount { get; set; }
+
+    public int VisualReferenceCount { get; set; }
+
+    public int MovieReferenceCount { get; set; }
+
+    public int OptionalImageReferenceCount { get; set; }
 
     public int AudioMinimumMatchRequired { get; set; }
 

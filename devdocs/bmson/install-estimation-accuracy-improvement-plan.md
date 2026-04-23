@@ -8,6 +8,7 @@
 - `P2 本体（評価単位の再定義と余剰リソース評価）`: 実施済み
 - `P2 最終調整（通常推定とマージ推定の意味分離）`: 実施済み
 - `P4`: 実施済み
+- `Relative Path Phase 4`: 実施済み
 - `Perf-1`: 実施済み
 - `Perf-2a`: 実施済み
 - `Perf-2b`: 実施済み
@@ -86,6 +87,28 @@ source 前提の confidence reason は現在の主経路では使いません。
   - suggestion なし
   - warning なし
   のまま pending に残す
+
+## Relative Path Phase 4 で追加したこと
+
+- broad filter で分けた basename-only / path-aware semantics を final evaluation まで一貫化
+- basename-only ref
+  - basename 一致で `1` match
+- path-aware ref
+  - relative path 完全一致でのみ `1` match
+  - basename-only matchにはフォールバックしない
+- `Defined` / `Matched` / `CandidateCount`
+  - basename-only + path-aware を合算した total resource count を基準化
+- `*ExactMatched`
+  - 互換のため残すが独立 bonus 軸からは外し、`*Matched` と同値に整理
+- viability / audio gate も同じ per-ref semantics に更新
+
+これにより、相対パス譜面は
+
+- basename-only 誤候補へ行かない
+- 正しい path-aware candidate がある場合は拾える
+- まだ成立しない candidate は normal / merge の mode semantics に従って `no destination` または `Low` に留まる
+
+という期待値に寄せた。
 
 ## Perf-2b で追加したこと
 

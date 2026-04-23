@@ -283,18 +283,27 @@ relative path を **候補探索入口**に昇格させます。
   - optional image は image relative lookup を使う
   という semantics を揃えた
 
-まだ意図的に残していること:
+Phase 3 時点で意図的に残していたこと:
 
 - `CountMatches(...)` 自体の redesign
 - final scoring における relative path の resource 意味整理
-- metadata / confidence / warning semantics との統合
+- viability / confidence 側への relative-path semantics 流し込み
 
-つまり、Phase 3 で完了したのは **candidate discovery completion** であり、**final scoring completion ではない**。
-次の主戦場は、Phase 4 の `CountMatches(...)` / viability / confidence 側で relative-path semantics を最後まで一貫させることになる。
+この残件は、`2026-04-23` 時点で **Phase 4** として完了した。
+
+また、実ログ確認でも
+
+- `D:\相対パス譜面\07_12_nm [修正後].bml`
+- `candidateDirsAfterBroadFilter=0`
+- `candidateDirs=0`
+- `confidenceReason=no_viable_destination_below_threshold`
+
+となっており、**basename-only 候補へ誤着地する状態は解消**できている。  
+Phase 4 ではここから先、relative-path 譜面を「誤推定しない」だけでなく、**正しい candidate を final scoring で拾える状態**まで進めた。
 
 ### Phase 4. Estimation Semantics Completion
 
-最後に、候補探索後の推定 semantics を relative path 前提で完成させる。
+最後に、候補探索後の推定 semantics を relative path 前提で完成させた。
 
 スコープ:
 - `ChartResourceSnapshot`
@@ -302,18 +311,34 @@ relative path を **候補探索入口**に昇格させます。
 - `BmsLibraryInstallEstimationService`
 - metadata / confidence に入る前の candidate 意味
 
-このフェーズの狙い:
-- relative path resource を basename-only resource の「exact 加点」ではなく、**本来別 resource** として扱う
-- 通常推定 / merge / package bundled semantics を壊さずに path-aware 化する
+Phase 4 で固定したこと:
 
-主な対応候補:
-- `CountMatches(...)` の resource 意味整理
-- viability gate での relative path の扱い再整理
-- path-aware resource が多い譜面での suggestion / low-confidence 期待値固定
+- basename-only ref
+  - basename 一致で `1` match
+- path-aware ref
+  - relative path 完全一致でのみ `1` match
+  - basename-only matchへはフォールバックしない
+- `Matched`
+  - ref を 1 件ずつ数える per-ref semantics に置き換えた
+- `ExactMatched`
+  - public shape 互換のため残すが、現在は `Matched` と同値
+  - comparator の独立 bonus 軸からは外した
+- `Defined` / `Matched` / `CandidateCount`
+  - basename-only + path-aware を合算した **total resource count** を基準に統一した
+- viability / unified audio gate
+  - basename-only ref は basename 一致
+  - path-aware ref は relative path 完全一致
+  - `health > 70` も同じ per-ref semantics で判定する
+- normal / merge
+  - `candidate + bundled` / `candidate only` の mode semantics は維持
+- cache あり / cacheless
+  - broad filter だけでなく final evaluation も同じ semantics に揃えた
 
 完了条件:
-- relative path 譜面で normal / merge の両方の推定挙動が仕様どおり
-- `sound\bgm1` と `bgm1` の区別が final scoring まで一貫
+
+- relative-path 譜面で normal / merge の両方の推定挙動が仕様どおり
+- `sound\bgm1` と `bgm1` の区別が final scoring / viability まで一貫
+- basename-only 誤候補に行かず、正しい path-aware candidate がある場合は拾える
 
 ### Phase 5. Cleanup / Legacy Removal / Perf-3 接続
 
@@ -347,147 +372,17 @@ Perf-3 に入る前の仕上げです。
 - broad filter を変える前に、scan / cache 結果が経路差なく揃うことを保証したい
 - 実際に推定が改善するのは Phase 3 以降だが、その前提は Phase 1 / 2 にある
 
-## Phase 3 をプラン化するために先に固定する論点
+## 次に切るプラン
 
-Phase 3 の実装プランでは、次を先に固定してから作業を切るのがよい。
+Phase 1 から Phase 4 までは完了したため、この資料から次に切るプランは **Phase 5 / Perf-3 接続** が自然です。
 
-### 1. Phase 3 の主対象は `candidate discovery` だけに限定する
+主論点:
 
-Phase 3 の本体は、`sound\bgm1` を **candidate 探索入口で** `bgm1` から分離すること。
+1. obsolete helper / verify-only 導線 / 一時互換コード整理
+2. relative path 前提の diagnostics / logs の整理
+3. Perf-3 の source surface / scanner / index 改善へ渡す前提の明文化
 
-この段階で変えるもの:
-
-- target resource の broad filter 用 key 集合
-- destination directory 側の reverse lookup / index
-- broad filter の candidate 構築条件
-
-この段階で変えないもの:
-
-- final scoring
-- `CountMatches(...)` の exact / basename の意味
-- metadata tie-break / metadata validation
-- confidence / warning / suggestion semantics
-- normal / merge の `candidate + bundled` / `candidate only` の違い
-
-つまり Phase 3 は、**後段の ranking ではなく入口の candidate semantics completion** として切る。
-
-### 2. broad filter は resource ごとに key 種別を分ける
-
-Phase 3 では、target 側 resource を少なくとも次の 2 種へ分けて broad filter に流す前提を固定する。
-
-- basename-only refs
-  - 例: `bgm1.wav`
-- path-aware refs
-  - 例: `sound\bgm1.wav`
-
-期待する意味:
-
-- basename-only ref
-  - basename key で candidate を探す
-- path-aware ref
-  - path-aware key で candidate を探す
-  - basename key へフォールバックしない
-
-これにより、譜面に `sound\bgm1` と定義されているなら、candidate discovery の時点で `bgm1` only の directory を弾く。
-
-### 3. index 形状は「basename-only の既存 index を壊さず、path-aware lookup を別責務で足す」方向を第一候補にする
-
-Phase 1+2 で `BMSDirectoryFileNameHash` を basename-only として固定したため、Phase 3 ではその意味を曖昧に戻さない方がよい。
-
-したがって、Phase 3 の第一候補は次である。
-
-- `BMSDirectoryFileNameHash`
-  - basename-only index のまま維持
-- `DirectoryResourceLookupCache`
-  - path-aware reverse lookup を追加 / 拡張
-- cacheless path
-  - basename-only index とは別に path-aware candidate lookup を持つ
-  - もしくは broad filter fallback を path-aware array 直走査で補完する
-
-要するに、
-
-- 「basename-only index」
-- 「path-aware lookup」
-
-を **別責務** として持つ方向でプランを切る。
-
-### 4. Phase 3 では cache あり経路と cacheless path の両方の意味を定義する
-
-現在の production 主経路は `DirectoryResourceLookupCache` ありだが、Phase 3 を incomplete にしないためには cacheless path の意味も同時に決める必要がある。
-
-少なくとも plan では、次のどちらかを明示する。
-
-1. **両経路同時対応**
-   - cache あり
-   - cacheless path
-   の両方で path-aware broad filter を成立させる
-2. **段階対応**
-   - Phase 3a: cache あり経路
-   - Phase 3b: cacheless path
-
-ただし実物相対パス譜面の推定改善を主眼にするなら、まずは **production 主経路である cache あり経路を先に完了**させる切り方が自然である。
-
-### 5. category ごとの扱いを先に固定する
-
-Phase 3 では audio だけでなく、少なくとも次を broad filter semantics に含める前提を docs 上で固定しておくべきである。
-
-- Audio
-- Image
-- Movie
-- Optional image (`STAGEFILE` / `BANNER` / `BACKBMP` 系)
-
-理由:
-
-- 今回の実譜面は `sound\...` だけでなく `clock\...` `image\...` を大量に持つ
-- 音源だけ path-aware にしても、visual 側が basename-only candidate を広く拾うと意味が崩れる
-
-したがって、Phase 3 は **Audio 先行で実装しても、仕様としては全 category 同型**にする前提で切るのがよい。
-
-### 6. Phase 3 のテストゴールを先に決める
-
-Phase 3 実装プランでは、少なくとも次の期待値を直接テストで固定できる形にする。
-
-- `sound\bgm1` を要求する target がある
-- candidate A は `bgm1` だけ持つ
-- candidate B は `sound\bgm1` を持つ
-- broad filter 入口で
-  - candidate A は落ちる
-  - candidate B は残る
-
-さらに visual 系でも同じことを確認する。
-
-例:
-
-- `clock\00_001_00.bmp`
-- `image\logo.bmp`
-
-を持つ譜面で、basename-only candidate が入口で残らないことを固定する。
-
-### 7. Phase 3 でやらないことを明文化する
-
-Phase 3 の plan を膨らませすぎないため、次は明確に scope 外とする。
-
-- `CountMatches(...)` の全面 redesign
-- relative path を用いた confidence 再設計
-- metadata と relative path を組み合わせた tie-break
-- source baseline defer の見直し
-- Perf-3 の source surface / scanner 最適化
-
-これらは Phase 4 以降へ回す。
-
-## この資料から次に切る実装プラン
-
-次に個別プラン化するなら、順序は次が自然です。
-
-1. `Phase 1 + Phase 2`
-   - relative path semantics 固定
-   - Everything / fallback / 増分更新 parity テスト整備
-2. `Phase 3`
-   - path-aware index / broad filter の実装プラン
-3. `Phase 4`
-   - normal / merge / bundled semantics の実装プラン
-4. `Phase 5`
-   - cleanup と Perf-3 接続プラン
+つまり今後は、「relative path をどう実装するか」ではなく、**relative path semantics が完了した状態を通常前提としてどう整理するか** が主戦場になります。
 
 ## 関連ファイル
 

@@ -14,12 +14,27 @@ public sealed class DirectoryRelativePathHashIndexTests
     public void CreateFromScanResult_AndAddDirFromSameScanResult_ProduceEquivalentEntries()
     {
         string chartDir = @"C:\Songs\Relative";
+        uint audioBaseHash = BMSDirectoryFileNameHash.GetLookupHash("bgm1.wav");
+        uint imageBaseHash = BMSDirectoryFileNameHash.GetLookupHash("logo.png");
+        uint movieBaseHash = BMSDirectoryFileNameHash.GetLookupHash("movie.mpg");
         uint audioRelativeHash = BMSDirectoryFileNameHash.GetLookupHash(@"sound\bgm1.wav");
         uint imageRelativeHash = BMSDirectoryFileNameHash.GetLookupHash(@"image\logo.png");
         uint movieRelativeHash = BMSDirectoryFileNameHash.GetLookupHash(@"bga\movie.mpg");
         BmsScanResult scanResult = new BmsScanResult
         {
             ChartDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { chartDir },
+            AudioBaseNameHashesByChartDirectory = new Dictionary<string, uint[]>(StringComparer.OrdinalIgnoreCase)
+            {
+                { chartDir, new[] { audioBaseHash } }
+            },
+            ImageBaseNameHashesByChartDirectory = new Dictionary<string, uint[]>(StringComparer.OrdinalIgnoreCase)
+            {
+                { chartDir, new[] { imageBaseHash } }
+            },
+            MovieBaseNameHashesByChartDirectory = new Dictionary<string, uint[]>(StringComparer.OrdinalIgnoreCase)
+            {
+                { chartDir, new[] { movieBaseHash } }
+            },
             AudioRelativePathHashesByChartDirectory = new Dictionary<string, uint[]>(StringComparer.OrdinalIgnoreCase)
             {
                 { chartDir, new[] { audioRelativeHash } }
@@ -67,6 +82,9 @@ public sealed class DirectoryRelativePathHashIndexTests
     {
         Assert.IsNotNull(expected);
         Assert.IsNotNull(actual);
+        CollectionAssert.AreEquivalent(expected.AudioBaseNameHashArray, actual.AudioBaseNameHashArray);
+        CollectionAssert.AreEquivalent(expected.ImageBaseNameHashArray, actual.ImageBaseNameHashArray);
+        CollectionAssert.AreEquivalent(expected.MovieBaseNameHashArray, actual.MovieBaseNameHashArray);
         CollectionAssert.AreEquivalent(expected.AudioRelativePathHashArray, actual.AudioRelativePathHashArray);
         CollectionAssert.AreEquivalent(expected.ImageRelativePathHashArray, actual.ImageRelativePathHashArray);
         CollectionAssert.AreEquivalent(expected.MovieRelativePathHashArray, actual.MovieRelativePathHashArray);

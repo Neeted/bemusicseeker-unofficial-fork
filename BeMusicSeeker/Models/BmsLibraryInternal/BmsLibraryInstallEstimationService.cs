@@ -165,16 +165,12 @@ internal sealed class BmsLibraryInstallEstimationService
             return other != null
                 && AudioHealth == other.AudioHealth
                 && AudioMatched == other.AudioMatched
-                && AudioExactMatched == other.AudioExactMatched
                 && VisualHealth == other.VisualHealth
                 && VisualMatched == other.VisualMatched
-                && VisualExactMatched == other.VisualExactMatched
                 && MovieHealth == other.MovieHealth
                 && MovieMatched == other.MovieMatched
-                && MovieExactMatched == other.MovieExactMatched
                 && OptionalImageHealth == other.OptionalImageHealth
-                && OptionalImageMatched == other.OptionalImageMatched
-                && OptionalImageExactMatched == other.OptionalImageExactMatched;
+                && OptionalImageMatched == other.OptionalImageMatched;
         }
 
         public bool HasSameRankingMetrics(CandidateEvaluation other)
@@ -230,6 +226,33 @@ internal sealed class BmsLibraryInstallEstimationService
             }
             return (int)Math.Round(100.0 * matched / unionCount, MidpointRounding.AwayFromZero);
         }
+    }
+
+    private sealed class CandidateResourceView
+    {
+        public static CandidateResourceView Empty { get; } = new CandidateResourceView();
+
+        public ISet<uint> AllBaseNameHashes { get; set; } = new HashSet<uint>();
+
+        public ISet<uint> AudioBaseNameHashes { get; set; } = new HashSet<uint>();
+
+        public ISet<uint> VisualBaseNameHashes { get; set; } = new HashSet<uint>();
+
+        public ISet<uint> MovieBaseNameHashes { get; set; } = new HashSet<uint>();
+
+        public ISet<uint> AudioRelativePathHashes { get; set; } = new HashSet<uint>();
+
+        public ISet<uint> VisualRelativePathHashes { get; set; } = new HashSet<uint>();
+
+        public ISet<uint> MovieRelativePathHashes { get; set; } = new HashSet<uint>();
+
+        public int AudioResourceCount { get; set; }
+
+        public int VisualResourceCount { get; set; }
+
+        public int MovieResourceCount { get; set; }
+
+        public int TotalResourceCount { get; set; }
     }
 
     private readonly int innerWavHealthThreshold;
@@ -463,6 +486,7 @@ internal sealed class BmsLibraryInstallEstimationService
             null,
             snapshot.BundledResources,
             snapshot.SourceCandidateResources,
+            null,
             isSourceCandidate: true);
         result.PrimaryHealth = GetPrimaryHealth(resourceSnapshot, evaluation);
         result.IsViableDestination = IsViableDestination(result.PrimaryHealth);
@@ -485,6 +509,7 @@ internal sealed class BmsLibraryInstallEstimationService
             return result;
         }
         ChartResourceSnapshot resourceSnapshot = snapshot.DefinedResources ?? new ChartResourceSnapshot();
+        result.TargetResourceCount = resourceSnapshot.TotalReferenceCount;
         result.TargetResourceHashCount = resourceSnapshot.EnumerateAllBaseNameHashes().Count();
         result.TargetPathAwareAudioHashCount = resourceSnapshot.AudioPathAwareReferenceCount;
         result.TargetPathAwareVisualHashCount = resourceSnapshot.VisualPathAwareReferenceCount;
@@ -495,6 +520,9 @@ internal sealed class BmsLibraryInstallEstimationService
             + result.TargetPathAwareMovieHashCount
             + result.TargetPathAwareOptionalImageHashCount;
         result.AudioReferenceCount = resourceSnapshot.AudioReferenceCount;
+        result.VisualReferenceCount = resourceSnapshot.VisualReferenceCount;
+        result.MovieReferenceCount = resourceSnapshot.MovieReferenceCount;
+        result.OptionalImageReferenceCount = resourceSnapshot.OptionalImageReferenceCount;
         result.BundledAudioCount = snapshot.BundledAudioCount;
         result.BundledImageCount = snapshot.BundledImageCount;
         result.BundledMovieCount = snapshot.BundledMovieCount;
@@ -580,6 +608,7 @@ internal sealed class BmsLibraryInstallEstimationService
                 directoryLookupCache?.GetEntryOrNull(candidateDir),
                 useBundledResources ? snapshot.BundledResources : null,
                 null,
+                directoryLookupCache == null ? relativePathHashIndex?.GetEntryOrNull(candidateDir) : null,
                 isSourceCandidate: false))
             .ToList();
         evaluationStopwatch.Stop();
@@ -901,34 +930,36 @@ internal sealed class BmsLibraryInstallEstimationService
             .Where(delegate (string candidateDir)
             {
                 DirectoryResourceLookupCache.Entry entry = directoryLookupCache.GetEntryOrNull(candidateDir);
-                if (entry == null || entry.AudioBaseNameHashArray.Length == 0)
+                CandidateResourceView candidateView = CreateCandidateResourceView(entry, null, null);
+                if (candidateView.AudioBaseNameHashes.Count == 0 && candidateView.AudioRelativePathHashes.Count == 0)
                 {
                     return false;
                 }
-                if (!HasMinimumAudioBaseNameMatches(resourceSnapshot.AudioBaseNameHashes, entry.AudioBaseNameHashArray, requiredAudioMatchCount))
+                if (!HasMinimumAudioReferenceMatches(resourceSnapshot.AudioReferences, candidateView, requiredAudioMatchCount))
                 {
                     return false;
                 }
-                return HasRequiredAudioMatchesForViability(resourceSnapshot, entry, bundledResources, requiredMatchedForViableHealth);
+                CandidateResourceView bundledView = CreateCandidateResourceView(bundledResources, null, null);
+                return HasRequiredAudioMatchesForViability(resourceSnapshot.AudioReferences, candidateView, bundledView, requiredMatchedForViableHealth);
             })
             .ToList();
     }
 
-    private static bool HasMinimumAudioBaseNameMatches(ISet<uint> targetAudioBaseNameHashes, uint[] candidateAudioBaseNameHashArray, int requiredAudioMatchCount)
+    private static bool HasMinimumAudioReferenceMatches(IReadOnlyCollection<ChartResourceSnapshot.ResourceReference> targetAudioReferences, CandidateResourceView candidateView, int requiredAudioMatchCount)
     {
         if (requiredAudioMatchCount <= 0)
         {
             return true;
         }
-        if (targetAudioBaseNameHashes == null || targetAudioBaseNameHashes.Count == 0 || candidateAudioBaseNameHashArray == null || candidateAudioBaseNameHashArray.Length == 0)
+        if (targetAudioReferences == null || targetAudioReferences.Count == 0 || candidateView == null)
         {
             return false;
         }
 
         int matched = 0;
-        for (int i = 0; i < candidateAudioBaseNameHashArray.Length; i++)
+        foreach (ChartResourceSnapshot.ResourceReference reference in targetAudioReferences)
         {
-            if (targetAudioBaseNameHashes.Contains(candidateAudioBaseNameHashArray[i]) && ++matched >= requiredAudioMatchCount)
+            if (IsReferenceMatched(reference, candidateView.AudioBaseNameHashes, null, candidateView.AudioRelativePathHashes, null) && ++matched >= requiredAudioMatchCount)
             {
                 return true;
             }
@@ -953,9 +984,9 @@ internal sealed class BmsLibraryInstallEstimationService
         return defined + 1;
     }
 
-    private static bool HasRequiredAudioMatchesForViability(ChartResourceSnapshot snapshot, DirectoryResourceLookupCache.Entry entry, DirectoryResourceLookupCache.Entry bundledResources, int requiredMatchedForViableHealth)
+    private static bool HasRequiredAudioMatchesForViability(IReadOnlyCollection<ChartResourceSnapshot.ResourceReference> targetAudioReferences, CandidateResourceView candidateView, CandidateResourceView bundledView, int requiredMatchedForViableHealth)
     {
-        if (snapshot == null || snapshot.AudioReferenceCount <= 0)
+        if (targetAudioReferences == null || targetAudioReferences.Count == 0)
         {
             return true;
         }
@@ -963,49 +994,28 @@ internal sealed class BmsLibraryInstallEstimationService
         {
             return true;
         }
-        if ((entry?.AudioBaseNameHashes == null || entry.AudioBaseNameHashes.Count == 0) && (bundledResources?.AudioBaseNameHashes == null || bundledResources.AudioBaseNameHashes.Count == 0))
+        if ((candidateView?.AudioBaseNameHashes == null || candidateView.AudioBaseNameHashes.Count == 0)
+            && (candidateView?.AudioRelativePathHashes == null || candidateView.AudioRelativePathHashes.Count == 0)
+            && (bundledView?.AudioBaseNameHashes == null || bundledView.AudioBaseNameHashes.Count == 0)
+            && (bundledView?.AudioRelativePathHashes == null || bundledView.AudioRelativePathHashes.Count == 0))
         {
             return false;
         }
 
-        int baseNameMatched = CountThresholdMatches(snapshot.AudioBaseNameHashes, entry?.AudioBaseNameHashes, bundledResources?.AudioBaseNameHashes, requiredMatchedForViableHealth);
-        if (baseNameMatched >= requiredMatchedForViableHealth)
-        {
-            return true;
-        }
-
-        int exactMatched = CountThresholdMatches(snapshot.AudioRelativePathHashes, entry?.AudioRelativePathHashes, bundledResources?.AudioRelativePathHashes, requiredMatchedForViableHealth);
-        return exactMatched >= requiredMatchedForViableHealth;
-    }
-
-    private static int CountThresholdMatches(ISet<uint> targetHashes, ISet<uint> candidateHashes, ISet<uint> bundledHashes, int requiredMatches)
-    {
-        if (targetHashes == null || targetHashes.Count == 0 || requiredMatches <= 0)
-        {
-            return 0;
-        }
-
-        bool hasCandidate = candidateHashes != null && candidateHashes.Count > 0;
-        bool hasBundled = bundledHashes != null && bundledHashes.Count > 0;
-        if (!hasCandidate && !hasBundled)
-        {
-            return 0;
-        }
-
         int matched = 0;
-        foreach (uint hash in targetHashes)
+        foreach (ChartResourceSnapshot.ResourceReference reference in targetAudioReferences)
         {
-            if ((hasCandidate && candidateHashes.Contains(hash)) || (hasBundled && bundledHashes.Contains(hash)))
+            if (IsReferenceMatched(reference, candidateView?.AudioBaseNameHashes, bundledView?.AudioBaseNameHashes, candidateView?.AudioRelativePathHashes, bundledView?.AudioRelativePathHashes))
             {
                 matched++;
-                if (matched >= requiredMatches)
+                if (matched >= requiredMatchedForViableHealth)
                 {
-                    return matched;
+                    return true;
                 }
             }
         }
 
-        return matched;
+        return false;
     }
 
     private static int ComputeHealth(int matched, int defined)
@@ -1211,31 +1221,10 @@ internal sealed class BmsLibraryInstallEstimationService
         return ChartResourceSnapshot.Create(bmsFile).TotalReferenceCount;
     }
 
-    private static CandidateEvaluation EvaluateCandidate(string candidateDir, ChartResourceSnapshot snapshot, uint[] fileNameHashes, DirectoryResourceLookupCache.Entry entry, DirectoryResourceLookupCache.Entry bundledResources, DirectoryResourceLookupCache.Entry transientCandidateEntry, bool isSourceCandidate)
+    private static CandidateEvaluation EvaluateCandidate(string candidateDir, ChartResourceSnapshot snapshot, uint[] fileNameHashes, DirectoryResourceLookupCache.Entry entry, DirectoryResourceLookupCache.Entry bundledResources, DirectoryResourceLookupCache.Entry transientCandidateEntry, DirectoryRelativePathHashIndex.Entry relativePathEntry, bool isSourceCandidate)
     {
-        DirectoryResourceLookupCache.Entry effectiveEntry = transientCandidateEntry ?? entry;
-        ISet<uint> candidateHashes = effectiveEntry?.AllBaseNameHashes;
-        if (candidateHashes == null && fileNameHashes != null && fileNameHashes.Length > 0)
-        {
-            candidateHashes = new HashSet<uint>(fileNameHashes);
-        }
-        ISet<uint> candidateAudioHashes = effectiveEntry?.AudioBaseNameHashes ?? candidateHashes;
-        ISet<uint> candidateVisualHashes = effectiveEntry?.ImageBaseNameHashes ?? candidateHashes;
-        ISet<uint> candidateMovieHashes = effectiveEntry?.MovieBaseNameHashes ?? candidateHashes;
-        ISet<uint> candidateOptionalImageHashes = effectiveEntry?.ImageBaseNameHashes ?? candidateHashes;
-        ISet<uint> candidateAudioRelativeHashes = effectiveEntry?.AudioRelativePathHashes;
-        ISet<uint> candidateVisualRelativeHashes = effectiveEntry?.ImageRelativePathHashes;
-        ISet<uint> candidateMovieRelativeHashes = effectiveEntry?.MovieRelativePathHashes;
-        ISet<uint> candidateOptionalImageRelativeHashes = effectiveEntry?.ImageRelativePathHashes;
-        ISet<uint> bundledAllHashes = bundledResources?.AllBaseNameHashes;
-        ISet<uint> bundledAudioHashes = bundledResources?.AudioBaseNameHashes;
-        ISet<uint> bundledVisualHashes = bundledResources?.ImageBaseNameHashes;
-        ISet<uint> bundledMovieHashes = bundledResources?.MovieBaseNameHashes;
-        ISet<uint> bundledOptionalImageHashes = bundledResources?.ImageBaseNameHashes;
-        ISet<uint> bundledAudioRelativeHashes = bundledResources?.AudioRelativePathHashes;
-        ISet<uint> bundledVisualRelativeHashes = bundledResources?.ImageRelativePathHashes;
-        ISet<uint> bundledMovieRelativeHashes = bundledResources?.MovieRelativePathHashes;
-        ISet<uint> bundledOptionalImageRelativeHashes = bundledResources?.ImageRelativePathHashes;
+        CandidateResourceView candidateView = CreateCandidateResourceView(transientCandidateEntry ?? entry, relativePathEntry, fileNameHashes);
+        CandidateResourceView bundledView = CreateCandidateResourceView(bundledResources, null, null);
         CandidateEvaluation evaluation = new CandidateEvaluation
         {
             DirectoryPath = candidateDir,
@@ -1244,54 +1233,97 @@ internal sealed class BmsLibraryInstallEstimationService
             VisualDefined = snapshot.VisualReferenceCount,
             MovieDefined = snapshot.MovieReferenceCount,
             OptionalImageDefined = snapshot.OptionalImageReferenceCount,
-            AudioCandidateCount = CountUnion(candidateAudioHashes, bundledAudioHashes),
-            VisualCandidateCount = CountUnion(candidateVisualHashes, bundledVisualHashes),
-            MovieCandidateCount = CountUnion(candidateMovieHashes, bundledMovieHashes),
-            OptionalImageCandidateCount = CountUnion(candidateOptionalImageHashes, bundledOptionalImageHashes),
-            AudioFileCount = CountUnion(candidateHashes, bundledAllHashes)
+            AudioCandidateCount = CountUnion(candidateView.AudioRelativePathHashes, bundledView.AudioRelativePathHashes),
+            VisualCandidateCount = CountUnion(candidateView.VisualRelativePathHashes, bundledView.VisualRelativePathHashes),
+            MovieCandidateCount = CountUnion(candidateView.MovieRelativePathHashes, bundledView.MovieRelativePathHashes),
+            OptionalImageCandidateCount = CountUnion(candidateView.VisualRelativePathHashes, bundledView.VisualRelativePathHashes),
+            AudioFileCount = CountTotalResourceUnion(candidateView.AllBaseNameHashes, bundledView.AllBaseNameHashes, candidateView.AudioRelativePathHashes, candidateView.VisualRelativePathHashes, candidateView.MovieRelativePathHashes, bundledView.AudioRelativePathHashes, bundledView.VisualRelativePathHashes, bundledView.MovieRelativePathHashes)
         };
-        if ((candidateHashes == null || candidateHashes.Count == 0) && (bundledAllHashes == null || bundledAllHashes.Count == 0))
+        if (candidateView.TotalResourceCount <= 0 && bundledView.TotalResourceCount <= 0 && candidateView.AllBaseNameHashes.Count == 0 && bundledView.AllBaseNameHashes.Count == 0)
         {
             return evaluation;
         }
-        CountMatches(snapshot.AudioBaseNameHashes, snapshot.AudioRelativePathHashes, candidateAudioHashes, bundledAudioHashes, candidateAudioRelativeHashes, bundledAudioRelativeHashes, out int audioMatched, out int audioExactMatched);
-        CountMatches(snapshot.VisualBaseNameHashes, snapshot.VisualRelativePathHashes, candidateVisualHashes, bundledVisualHashes, candidateVisualRelativeHashes, bundledVisualRelativeHashes, out int visualMatched, out int visualExactMatched);
-        CountMatches(snapshot.MovieBaseNameHashes, snapshot.MovieRelativePathHashes, candidateMovieHashes, bundledMovieHashes, candidateMovieRelativeHashes, bundledMovieRelativeHashes, out int movieMatched, out int movieExactMatched);
-        CountMatches(snapshot.OptionalImageBaseNameHashes, snapshot.OptionalImageRelativePathHashes, candidateOptionalImageHashes, bundledOptionalImageHashes, candidateOptionalImageRelativeHashes, bundledOptionalImageRelativeHashes, out int optionalMatched, out int optionalExactMatched);
+        int audioMatched = CountMatchedReferences(snapshot.AudioReferences, candidateView.AudioBaseNameHashes, bundledView.AudioBaseNameHashes, candidateView.AudioRelativePathHashes, bundledView.AudioRelativePathHashes);
+        int visualMatched = CountMatchedReferences(snapshot.VisualReferences, candidateView.VisualBaseNameHashes, bundledView.VisualBaseNameHashes, candidateView.VisualRelativePathHashes, bundledView.VisualRelativePathHashes);
+        int movieMatched = CountMatchedReferences(snapshot.MovieReferences, candidateView.MovieBaseNameHashes, bundledView.MovieBaseNameHashes, candidateView.MovieRelativePathHashes, bundledView.MovieRelativePathHashes);
+        int optionalMatched = CountMatchedReferences(snapshot.OptionalImageReferences, candidateView.VisualBaseNameHashes, bundledView.VisualBaseNameHashes, candidateView.VisualRelativePathHashes, bundledView.VisualRelativePathHashes);
         evaluation.AudioMatched = audioMatched;
-        evaluation.AudioExactMatched = audioExactMatched;
+        evaluation.AudioExactMatched = audioMatched;
         evaluation.VisualMatched = visualMatched;
-        evaluation.VisualExactMatched = visualExactMatched;
+        evaluation.VisualExactMatched = visualMatched;
         evaluation.MovieMatched = movieMatched;
-        evaluation.MovieExactMatched = movieExactMatched;
+        evaluation.MovieExactMatched = movieMatched;
         evaluation.OptionalImageMatched = optionalMatched;
-        evaluation.OptionalImageExactMatched = optionalExactMatched;
+        evaluation.OptionalImageExactMatched = optionalMatched;
         return evaluation;
     }
 
-    private static void CountMatches(ISet<uint> baseNameHashes, ISet<uint> relativePathHashes, ISet<uint> candidateHashes, ISet<uint> bundledHashes, ISet<uint> candidateRelativePathHashes, ISet<uint> bundledRelativePathHashes, out int matched, out int exactMatched)
+    private static CandidateResourceView CreateCandidateResourceView(DirectoryResourceLookupCache.Entry entry, DirectoryRelativePathHashIndex.Entry relativePathEntry, uint[] fileNameHashes)
     {
-        matched = CountUnionMatches(baseNameHashes, candidateHashes, bundledHashes);
-        exactMatched = CountUnionMatches(relativePathHashes, candidateRelativePathHashes, bundledRelativePathHashes);
-        if (exactMatched > matched)
+        if (entry == null && relativePathEntry == null && (fileNameHashes == null || fileNameHashes.Length == 0))
         {
-            matched = exactMatched;
+            return CandidateResourceView.Empty;
         }
+
+        ISet<uint> allBaseNameHashes = entry?.AllBaseNameHashes;
+        if (allBaseNameHashes == null && fileNameHashes != null && fileNameHashes.Length > 0)
+        {
+            allBaseNameHashes = new HashSet<uint>(fileNameHashes);
+        }
+
+        ISet<uint> audioBaseNameHashes = entry?.AudioBaseNameHashes ?? relativePathEntry?.AudioBaseNameHashes ?? allBaseNameHashes ?? new HashSet<uint>();
+        ISet<uint> visualBaseNameHashes = entry?.ImageBaseNameHashes ?? relativePathEntry?.ImageBaseNameHashes ?? allBaseNameHashes ?? new HashSet<uint>();
+        ISet<uint> movieBaseNameHashes = entry?.MovieBaseNameHashes ?? relativePathEntry?.MovieBaseNameHashes ?? allBaseNameHashes ?? new HashSet<uint>();
+        ISet<uint> audioRelativePathHashes = entry?.AudioRelativePathHashes ?? relativePathEntry?.AudioRelativePathHashes ?? new HashSet<uint>();
+        ISet<uint> visualRelativePathHashes = entry?.ImageRelativePathHashes ?? relativePathEntry?.ImageRelativePathHashes ?? new HashSet<uint>();
+        ISet<uint> movieRelativePathHashes = entry?.MovieRelativePathHashes ?? relativePathEntry?.MovieRelativePathHashes ?? new HashSet<uint>();
+
+        return new CandidateResourceView
+        {
+            AllBaseNameHashes = allBaseNameHashes ?? new HashSet<uint>(audioBaseNameHashes.Concat(visualBaseNameHashes).Concat(movieBaseNameHashes)),
+            AudioBaseNameHashes = audioBaseNameHashes,
+            VisualBaseNameHashes = visualBaseNameHashes,
+            MovieBaseNameHashes = movieBaseNameHashes,
+            AudioRelativePathHashes = audioRelativePathHashes,
+            VisualRelativePathHashes = visualRelativePathHashes,
+            MovieRelativePathHashes = movieRelativePathHashes,
+            AudioResourceCount = entry?.AudioRelativePathHashArray.Length ?? relativePathEntry?.AudioRelativePathHashArray.Length ?? audioBaseNameHashes.Count,
+            VisualResourceCount = entry?.ImageRelativePathHashArray.Length ?? relativePathEntry?.ImageRelativePathHashArray.Length ?? visualBaseNameHashes.Count,
+            MovieResourceCount = entry?.MovieRelativePathHashArray.Length ?? relativePathEntry?.MovieRelativePathHashArray.Length ?? movieBaseNameHashes.Count,
+            TotalResourceCount = Math.Max(
+                CountUnion(audioRelativePathHashes, visualRelativePathHashes, movieRelativePathHashes),
+                (allBaseNameHashes ?? new HashSet<uint>(audioBaseNameHashes.Concat(visualBaseNameHashes).Concat(movieBaseNameHashes))).Count)
+        };
     }
 
-    private static int CountUnionMatches(ISet<uint> targetHashes, ISet<uint> candidateHashes, ISet<uint> bundledHashes)
+    private static int CountMatchedReferences(IReadOnlyCollection<ChartResourceSnapshot.ResourceReference> targetReferences, ISet<uint> candidateBaseNameHashes, ISet<uint> bundledBaseNameHashes, ISet<uint> candidateRelativePathHashes, ISet<uint> bundledRelativePathHashes)
     {
-        if (targetHashes == null || targetHashes.Count == 0)
+        if (targetReferences == null || targetReferences.Count == 0)
         {
             return 0;
         }
-        bool hasCandidate = candidateHashes != null && candidateHashes.Count > 0;
-        bool hasBundled = bundledHashes != null && bundledHashes.Count > 0;
-        if (!hasCandidate && !hasBundled)
+
+        int matched = 0;
+        foreach (ChartResourceSnapshot.ResourceReference reference in targetReferences)
         {
-            return 0;
+            if (IsReferenceMatched(reference, candidateBaseNameHashes, bundledBaseNameHashes, candidateRelativePathHashes, bundledRelativePathHashes))
+            {
+                matched++;
+            }
         }
-        return targetHashes.Count((uint hash) => (hasCandidate && candidateHashes.Contains(hash)) || (hasBundled && bundledHashes.Contains(hash)));
+        return matched;
+    }
+
+    private static bool IsReferenceMatched(ChartResourceSnapshot.ResourceReference reference, ISet<uint> candidateBaseNameHashes, ISet<uint> bundledBaseNameHashes, ISet<uint> candidateRelativePathHashes, ISet<uint> bundledRelativePathHashes)
+    {
+        if (reference.IsPathAware)
+        {
+            return (candidateRelativePathHashes?.Contains(reference.RelativePathHash) ?? false)
+                || (bundledRelativePathHashes?.Contains(reference.RelativePathHash) ?? false);
+        }
+
+        return (candidateBaseNameHashes?.Contains(reference.BaseNameHash) ?? false)
+            || (bundledBaseNameHashes?.Contains(reference.BaseNameHash) ?? false);
     }
 
     private static int CountUnion(ISet<uint> candidateHashes, ISet<uint> bundledHashes)
@@ -1315,6 +1347,30 @@ internal sealed class BmsLibraryInstallEstimationService
             }
         }
         return total;
+    }
+
+    private static int CountUnion(params ISet<uint>[] hashSets)
+    {
+        HashSet<uint> union = new HashSet<uint>();
+        foreach (ISet<uint> hashSet in hashSets ?? Array.Empty<ISet<uint>>())
+        {
+            if (hashSet == null || hashSet.Count == 0)
+            {
+                continue;
+            }
+            union.UnionWith(hashSet);
+        }
+        return union.Count;
+    }
+
+    private static int CountTotalResourceUnion(ISet<uint> candidateAllBaseNameHashes, ISet<uint> bundledAllBaseNameHashes, params ISet<uint>[] relativeHashSets)
+    {
+        int relativeUnionCount = CountUnion(relativeHashSets);
+        if (relativeUnionCount > 0)
+        {
+            return relativeUnionCount;
+        }
+        return CountUnion(candidateAllBaseNameHashes, bundledAllBaseNameHashes);
     }
 
     private static int GetPrimaryHealth(ChartResourceSnapshot snapshot, CandidateEvaluation evaluation)
@@ -1590,11 +1646,6 @@ internal sealed class BmsLibraryInstallEstimationService
         {
             return comparison;
         }
-        comparison = CompareDescending(left.AudioExactMatched, right.AudioExactMatched);
-        if (comparison != 0)
-        {
-            return comparison;
-        }
         comparison = CompareRatioForSort(BuildJaccardMetric(left.AudioMatched, left.AudioDefined, left.AudioCandidateCount), BuildJaccardMetric(right.AudioMatched, right.AudioDefined, right.AudioCandidateCount));
         if (comparison != 0)
         {
@@ -1612,11 +1663,6 @@ internal sealed class BmsLibraryInstallEstimationService
             return comparison;
         }
         comparison = CompareDescending(left.VisualMatched, right.VisualMatched);
-        if (comparison != 0)
-        {
-            return comparison;
-        }
-        comparison = CompareDescending(left.VisualExactMatched, right.VisualExactMatched);
         if (comparison != 0)
         {
             return comparison;
@@ -1642,11 +1688,6 @@ internal sealed class BmsLibraryInstallEstimationService
         {
             return comparison;
         }
-        comparison = CompareDescending(left.MovieExactMatched, right.MovieExactMatched);
-        if (comparison != 0)
-        {
-            return comparison;
-        }
         comparison = CompareRatioForSort(BuildJaccardMetric(left.MovieMatched, left.MovieDefined, left.MovieCandidateCount), BuildJaccardMetric(right.MovieMatched, right.MovieDefined, right.MovieCandidateCount));
         if (comparison != 0)
         {
@@ -1664,11 +1705,6 @@ internal sealed class BmsLibraryInstallEstimationService
             return comparison;
         }
         comparison = CompareDescending(left.OptionalImageMatched, right.OptionalImageMatched);
-        if (comparison != 0)
-        {
-            return comparison;
-        }
-        comparison = CompareDescending(left.OptionalImageExactMatched, right.OptionalImageExactMatched);
         if (comparison != 0)
         {
             return comparison;

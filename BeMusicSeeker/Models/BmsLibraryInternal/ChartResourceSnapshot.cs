@@ -7,6 +7,33 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 internal sealed class ChartResourceSnapshot
 {
+    internal readonly struct ResourceReference
+    {
+        public ResourceReference(string normalizedPath, uint baseNameHash, uint relativePathHash, bool isPathAware)
+        {
+            NormalizedPath = normalizedPath ?? string.Empty;
+            BaseNameHash = baseNameHash;
+            RelativePathHash = relativePathHash;
+            IsPathAware = isPathAware;
+        }
+
+        public string NormalizedPath { get; }
+
+        public uint BaseNameHash { get; }
+
+        public uint RelativePathHash { get; }
+
+        public bool IsPathAware { get; }
+    }
+
+    private readonly List<ResourceReference> audioReferences = new List<ResourceReference>();
+
+    private readonly List<ResourceReference> visualReferences = new List<ResourceReference>();
+
+    private readonly List<ResourceReference> movieReferences = new List<ResourceReference>();
+
+    private readonly List<ResourceReference> optionalImageReferences = new List<ResourceReference>();
+
     public HashSet<string> AudioRelativePaths { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
     public HashSet<uint> AudioRelativePathHashes { get; } = new HashSet<uint>();
@@ -82,6 +109,14 @@ internal sealed class ChartResourceSnapshot
     public int MoviePathAwareReferenceCount => MoviePathAwareRelativePaths.Count;
 
     public int OptionalImagePathAwareReferenceCount => OptionalImagePathAwareRelativePaths.Count;
+
+    public IReadOnlyList<ResourceReference> AudioReferences => audioReferences;
+
+    public IReadOnlyList<ResourceReference> VisualReferences => visualReferences;
+
+    public IReadOnlyList<ResourceReference> MovieReferences => movieReferences;
+
+    public IReadOnlyList<ResourceReference> OptionalImageReferences => optionalImageReferences;
 
     public IEnumerable<string> EnumerateAllBaseNames()
     {
@@ -159,34 +194,22 @@ internal sealed class ChartResourceSnapshot
         {
             return;
         }
-        AudioRelativePaths.UnionWith(other.AudioRelativePaths);
-        AudioRelativePathHashes.UnionWith(other.AudioRelativePathHashes);
-        AudioBaseNames.UnionWith(other.AudioBaseNames);
-        AudioBaseNameHashes.UnionWith(other.AudioBaseNameHashes);
-        AudioPathAwareRelativePaths.UnionWith(other.AudioPathAwareRelativePaths);
-        AudioPathAwareRelativePathHashes.UnionWith(other.AudioPathAwareRelativePathHashes);
-        AudioBasenameOnlyBaseNameHashes.UnionWith(other.AudioBasenameOnlyBaseNameHashes);
-        VisualRelativePaths.UnionWith(other.VisualRelativePaths);
-        VisualRelativePathHashes.UnionWith(other.VisualRelativePathHashes);
-        VisualBaseNames.UnionWith(other.VisualBaseNames);
-        VisualBaseNameHashes.UnionWith(other.VisualBaseNameHashes);
-        VisualPathAwareRelativePaths.UnionWith(other.VisualPathAwareRelativePaths);
-        VisualPathAwareRelativePathHashes.UnionWith(other.VisualPathAwareRelativePathHashes);
-        VisualBasenameOnlyBaseNameHashes.UnionWith(other.VisualBasenameOnlyBaseNameHashes);
-        MovieRelativePaths.UnionWith(other.MovieRelativePaths);
-        MovieRelativePathHashes.UnionWith(other.MovieRelativePathHashes);
-        MovieBaseNames.UnionWith(other.MovieBaseNames);
-        MovieBaseNameHashes.UnionWith(other.MovieBaseNameHashes);
-        MoviePathAwareRelativePaths.UnionWith(other.MoviePathAwareRelativePaths);
-        MoviePathAwareRelativePathHashes.UnionWith(other.MoviePathAwareRelativePathHashes);
-        MovieBasenameOnlyBaseNameHashes.UnionWith(other.MovieBasenameOnlyBaseNameHashes);
-        OptionalImageRelativePaths.UnionWith(other.OptionalImageRelativePaths);
-        OptionalImageRelativePathHashes.UnionWith(other.OptionalImageRelativePathHashes);
-        OptionalImageBaseNames.UnionWith(other.OptionalImageBaseNames);
-        OptionalImageBaseNameHashes.UnionWith(other.OptionalImageBaseNameHashes);
-        OptionalImagePathAwareRelativePaths.UnionWith(other.OptionalImagePathAwareRelativePaths);
-        OptionalImagePathAwareRelativePathHashes.UnionWith(other.OptionalImagePathAwareRelativePathHashes);
-        OptionalImageBasenameOnlyBaseNameHashes.UnionWith(other.OptionalImageBasenameOnlyBaseNameHashes);
+        foreach (ResourceReference reference in other.AudioReferences)
+        {
+            AddNormalized(AudioRelativePaths, AudioRelativePathHashes, AudioBaseNames, AudioBaseNameHashes, AudioPathAwareRelativePaths, AudioPathAwareRelativePathHashes, AudioBasenameOnlyBaseNameHashes, audioReferences, reference.NormalizedPath);
+        }
+        foreach (ResourceReference reference in other.VisualReferences)
+        {
+            AddNormalized(VisualRelativePaths, VisualRelativePathHashes, VisualBaseNames, VisualBaseNameHashes, VisualPathAwareRelativePaths, VisualPathAwareRelativePathHashes, VisualBasenameOnlyBaseNameHashes, visualReferences, reference.NormalizedPath);
+        }
+        foreach (ResourceReference reference in other.MovieReferences)
+        {
+            AddNormalized(MovieRelativePaths, MovieRelativePathHashes, MovieBaseNames, MovieBaseNameHashes, MoviePathAwareRelativePaths, MoviePathAwareRelativePathHashes, MovieBasenameOnlyBaseNameHashes, movieReferences, reference.NormalizedPath);
+        }
+        foreach (ResourceReference reference in other.OptionalImageReferences)
+        {
+            AddNormalized(OptionalImageRelativePaths, OptionalImageRelativePathHashes, OptionalImageBaseNames, OptionalImageBaseNameHashes, OptionalImagePathAwareRelativePaths, OptionalImagePathAwareRelativePathHashes, OptionalImageBasenameOnlyBaseNameHashes, optionalImageReferences, reference.NormalizedPath);
+        }
     }
 
     private static void EnsureComponentCollectionsLoaded(BMSFile file)
@@ -204,7 +227,7 @@ internal sealed class ChartResourceSnapshot
 
     private void AddOptionalImage(string path)
     {
-        AddNormalized(OptionalImageRelativePaths, OptionalImageRelativePathHashes, OptionalImageBaseNames, OptionalImageBaseNameHashes, OptionalImagePathAwareRelativePaths, OptionalImagePathAwareRelativePathHashes, OptionalImageBasenameOnlyBaseNameHashes, path);
+        AddNormalized(OptionalImageRelativePaths, OptionalImageRelativePathHashes, OptionalImageBaseNames, OptionalImageBaseNameHashes, OptionalImagePathAwareRelativePaths, OptionalImagePathAwareRelativePathHashes, OptionalImageBasenameOnlyBaseNameHashes, optionalImageReferences, path);
     }
 
     private void AddReference(ChartResourceKind kind, string path)
@@ -212,18 +235,18 @@ internal sealed class ChartResourceSnapshot
         switch (kind)
         {
             case ChartResourceKind.Audio:
-                AddNormalized(AudioRelativePaths, AudioRelativePathHashes, AudioBaseNames, AudioBaseNameHashes, AudioPathAwareRelativePaths, AudioPathAwareRelativePathHashes, AudioBasenameOnlyBaseNameHashes, path);
+                AddNormalized(AudioRelativePaths, AudioRelativePathHashes, AudioBaseNames, AudioBaseNameHashes, AudioPathAwareRelativePaths, AudioPathAwareRelativePathHashes, AudioBasenameOnlyBaseNameHashes, audioReferences, path);
                 break;
             case ChartResourceKind.Image:
-                AddNormalized(VisualRelativePaths, VisualRelativePathHashes, VisualBaseNames, VisualBaseNameHashes, VisualPathAwareRelativePaths, VisualPathAwareRelativePathHashes, VisualBasenameOnlyBaseNameHashes, path);
+                AddNormalized(VisualRelativePaths, VisualRelativePathHashes, VisualBaseNames, VisualBaseNameHashes, VisualPathAwareRelativePaths, VisualPathAwareRelativePathHashes, VisualBasenameOnlyBaseNameHashes, visualReferences, path);
                 break;
             case ChartResourceKind.Movie:
-                AddNormalized(MovieRelativePaths, MovieRelativePathHashes, MovieBaseNames, MovieBaseNameHashes, MoviePathAwareRelativePaths, MoviePathAwareRelativePathHashes, MovieBasenameOnlyBaseNameHashes, path);
+                AddNormalized(MovieRelativePaths, MovieRelativePathHashes, MovieBaseNames, MovieBaseNameHashes, MoviePathAwareRelativePaths, MoviePathAwareRelativePathHashes, MovieBasenameOnlyBaseNameHashes, movieReferences, path);
                 break;
         }
     }
 
-    private static void AddNormalized(ISet<string> relativePaths, ISet<uint> relativePathHashes, ISet<string> baseNames, ISet<uint> baseNameHashes, ISet<string> pathAwareRelativePaths, ISet<uint> pathAwareRelativePathHashes, ISet<uint> basenameOnlyBaseNameHashes, string path)
+    private static void AddNormalized(ISet<string> relativePaths, ISet<uint> relativePathHashes, ISet<string> baseNames, ISet<uint> baseNameHashes, ISet<string> pathAwareRelativePaths, ISet<uint> pathAwareRelativePathHashes, ISet<uint> basenameOnlyBaseNameHashes, ICollection<ResourceReference> references, string path)
     {
         string normalizedPath = ChartResourcePathNormalizer.NormalizeReferencePathForLookup(path);
         string baseName = ChartResourcePathNormalizer.GetLookupFileName(path);
@@ -231,19 +254,25 @@ internal sealed class ChartResourceSnapshot
         {
             return;
         }
-        relativePaths.Add(normalizedPath);
-        relativePathHashes.Add(BMSDirectoryFileNameHash.GetLookupHash(normalizedPath));
+        if (!relativePaths.Add(normalizedPath))
+        {
+            return;
+        }
+        uint relativePathHash = BMSDirectoryFileNameHash.GetLookupHash(normalizedPath);
+        relativePathHashes.Add(relativePathHash);
         baseNames.Add(baseName);
         uint baseNameHash = BMSDirectoryFileNameHash.GetLookupHash(baseName);
         baseNameHashes.Add(baseNameHash);
-        if (ChartResourcePathNormalizer.HasDirectorySegments(normalizedPath))
+        bool isPathAware = ChartResourcePathNormalizer.HasDirectorySegments(normalizedPath);
+        if (isPathAware)
         {
             pathAwareRelativePaths.Add(normalizedPath);
-            pathAwareRelativePathHashes.Add(BMSDirectoryFileNameHash.GetLookupHash(normalizedPath));
+            pathAwareRelativePathHashes.Add(relativePathHash);
         }
         else
         {
             basenameOnlyBaseNameHashes.Add(baseNameHash);
         }
+        references?.Add(new ResourceReference(normalizedPath, baseNameHash, relativePathHash, isPathAware));
     }
 }

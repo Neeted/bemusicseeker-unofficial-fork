@@ -272,8 +272,11 @@ path-aware broad filter の後に、既存の **unified audio gate** をかけ�
 Perf-2a 再修正では、この unified audio gate の仕様は変えず、内部実装だけを軽くしています。
 
 - `candidate self minimum match`
-  - candidate 側 audio basename を直接なめる early-exit
+  - basename-only audio ref は basename 一致
+  - path-aware audio ref は relative path 完全一致
+  - `requiredAudioMatchCount` に達した時点で打ち切る
 - `effective viability`
+  - basename-only / path-aware を同じ `1 ref = 1 点` として数える
   - `health > 70` に到達した時点で打ち切る threshold-only check
 
 つまり現在は、
@@ -341,6 +344,23 @@ source の bundled resources は merge の final evaluation には足しませ�
 - `Precision`
 - `Jaccard`
 
+`2026-04-23` 時点では、resource の数え方自体を relative-path semantics に揃えています。
+
+- basename-only ref
+  - 例: `bgm1.wav`
+  - candidate / bundled 側の basename 一致で `1` match
+- path-aware ref
+  - 例: `sound\\bgm1.wav`
+  - candidate / bundled 側の relative path 完全一致でのみ `1` match
+  - basename-only matchにはフォールバックしない
+- 各 ref は `1 ref = 1 点`
+  - path-aware ref に extra bonus は付けない
+- `Defined` / `Matched` / `CandidateCount`
+  - basename-only + path-aware を合算した **total resource count** を基準にする
+
+`ExactMatched` は public shape 互換のため残していますが、現在は `Matched` と同値です。  
+relative path は独立 bonus 軸ではなく、**resource の定義方法に応じて match 条件が変わるだけ**という整理にしています。
+
 `Precision` / `Jaccard` はログ/UI には整数 `%` を出しますが、**内部順位付けと tie 判定は raw ratio** を使います。
 
 ## 並び順
@@ -349,12 +369,11 @@ source の bundled resources は merge の final evaluation には足しませ�
 
 1. `AudioHealth`
 2. `AudioMatched`
-3. `AudioExactMatched`
-4. `AudioJaccard`
-5. `AudioPrecision`
-6. 同様に `Visual`
-7. 同様に `Movie`
-8. 同様に `OptionalImage`
+3. `AudioJaccard`
+4. `AudioPrecision`
+5. 同様に `Visual`
+6. 同様に `Movie`
+7. 同様に `OptionalImage`
 9. raw precision / jaccard
 10. `DirectoryPath`
 

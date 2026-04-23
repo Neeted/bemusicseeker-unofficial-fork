@@ -29,7 +29,7 @@
 - `directoryResourceLookupCache : DirectoryResourceLookupCache`
   chart directory ごとのカテゴリ別 basename / relative-path hash 集合
 - `directoryRelativePathHashIndex : DirectoryRelativePathHashIndex`
-  cacheless broad filter 用の chart directory ごとのカテゴリ別 relative-path hash 索引
+  cacheless path 用の chart directory ごとのカテゴリ別 basename / relative-path hash 索引
 
 ## 3. `BMSDirectoryFileNameHash` の仕様
 
@@ -60,10 +60,13 @@
 
 ## 4. `DirectoryRelativePathHashIndex` の仕様
 
-`DirectoryRelativePathHashIndex` は cacheless broad filter 専用の補助 index で、次を持つ。
+`DirectoryRelativePathHashIndex` は cacheless path 用の補助 index で、次を持つ。
 
 - キー: chart directory 絶対パス（`OrdinalIgnoreCase`）
 - 値:
+  - `AudioBaseNameHashArray`
+  - `ImageBaseNameHashArray`
+  - `MovieBaseNameHashArray`
   - `AudioRelativePathHashArray`
   - `ImageRelativePathHashArray`
   - `MovieRelativePathHashArray`
@@ -77,7 +80,8 @@
 
 - initial / reload では `BmsScanResult` から構築する
 - install / merge の増分更新でも同じ chart-directory keyed shape で `AddDir(..., scanResult)` する
-- final scoring には使わず、broad filter fallback に限定する
+- cacheless broad filter に使う
+- cacheless final evaluation でも category-aware basename / relative-path semantics を揃えるために使う
 
 ## 5. scan result / resource cache の形
 

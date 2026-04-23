@@ -152,6 +152,21 @@ source baseline は不要ではありません。
 
 source 前提の confidence reason は設計上不要になります。
 
+## Relative Path 完了後の意味
+
+`2026-04-23` 時点では、relative path は broad filter だけでなく final evaluation まで一貫しています。
+
+- basename-only ref
+  - basename 一致で `1` match
+- path-aware ref
+  - relative path 完全一致でのみ `1` match
+  - basename-only matchにはフォールバックしない
+- `Defined` / `Matched` / `CandidateCount`
+  - basename-only + path-aware を合算した total resource count を基準にする
+
+つまり relative path は「exact bonus」ではなく、**譜面に書かれている resource 指定方法の違い**として扱います。  
+1 リソースの重みは basename-only / path-aware のどちらでも同じ `1` です。
+
 ## 今後の tuning 論点
 
 - package-aware union 評価の重み調整
