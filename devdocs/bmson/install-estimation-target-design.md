@@ -21,6 +21,7 @@
   - background auto-estimate 抑制
   - `DeferredEstimateReason=HealthySourceBaseline`
   の判定にだけ使う
+- `Fix` 相当の内部モードは `ReinstallCorrection` に整理し、既存ライブラリ譜面の「再インストール先を推定」専用に限定する
 
 ## 設計の主旨
 
@@ -99,7 +100,10 @@ source baseline は不要ではありません。
 
 ### 2. mode ごとに評価単位を固定する
 
-- `Normal` / `Fix`
+- `Normal`
+  - `candidate + bundled`
+- `ReinstallCorrection`
+  - 既存ライブラリ譜面の再インストール先修正専用
   - `candidate + bundled`
 - `MergeCandidateOnly`
   - `candidate only`
@@ -125,7 +129,7 @@ source baseline は不要ではありません。
 ### 通常推定
 
 - 既所持譜面の実配置先再利用を優先
-- 失敗したら未所持分だけ external install search
+- 失敗したら `DeferredEstimateReason=InstalledDestinationResolveFailed` と警告を付け、未所持分の external install search へは進めない
 
 ### マージ推定
 

@@ -864,6 +864,9 @@ public class Resources
     public static string Warning_InstallEstimationMetadataMismatch => ResourceManager.GetString("Warning_InstallEstimationMetadataMismatch", resourceCulture);
 
 
+    public static string Warning_InstalledDestinationResolveFailed => ResourceManager.GetString("Warning_InstalledDestinationResolveFailed", resourceCulture);
+
+
     public static string BmsonMigrationWarningMessage => ResourceManager.GetString("BmsonMigrationWarningMessage", resourceCulture);
 
 

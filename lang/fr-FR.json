@@ -406,6 +406,7 @@
   "Warning_InstallEstimationAmbiguous": "Plusieurs destinations d'installation candidates existent, la destination n'a donc pas été fixée automatiquement.\n1er candidat : {0}\n2e candidat : {1}",
   "Warning_InstallEstimationMetadataMismatchPrefix": "La similarité TITLE / ARTIST est trop faible, la destination n'a donc pas été fixée automatiquement.",
   "Warning_InstallEstimationMetadataMismatch": "La similarité TITLE / ARTIST est trop faible, la destination n'a donc pas été fixée automatiquement.\nCandidat : {0}",
+  "Warning_InstalledDestinationResolveFailed": "Impossible de déterminer la destination à partir des charts déjà possédés. Veuillez vérifier l'état de la bibliothèque.",
   "BmsonMigrationWarningMessage": "Pour prendre en charge bmson, des modifications seront appliquées au premier démarrage aux playlists, aux tables de gestion de hachage et aux tables du catalogue bmson.\n\nLa génération initiale des SHA-256 peut prendre beaucoup de temps selon la taille de la bibliothèque.\nAprès la mise à jour, la base de données peut ne plus être compatible avec la version originale de BeMusicSeeker ni avec ce fork jusqu'à la version v1.2.1.0.\nSi vous avez des inquiétudes sur la compatibilité, il est recommandé de sauvegarder song.db et les fichiers associés à l'avance.",
   "BmsonMigrationWarningTitle": "Avertissement de migration pour la prise en charge bmson",
   "Header_InstallDstTitle": "INSTL DST TITLE",

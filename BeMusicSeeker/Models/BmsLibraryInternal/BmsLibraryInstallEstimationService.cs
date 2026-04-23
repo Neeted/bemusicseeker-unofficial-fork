@@ -1306,7 +1306,7 @@ internal sealed class BmsLibraryInstallEstimationService
         {
             return null;
         }
-        bool isCorrectionLikeMode = estimateMode == BmsInstallationEstimateMode.Fix || estimateMode == BmsInstallationEstimateMode.MergeCandidateOnly;
+        bool isCorrectionLikeMode = estimateMode == BmsInstallationEstimateMode.ReinstallCorrection || estimateMode == BmsInstallationEstimateMode.MergeCandidateOnly;
         if (!isCorrectionLikeMode && installedHashes != null)
         {
             targetFiles = targetFiles.Where((BMSFile file) => !installedHashes.Contains(file.hash)).ToList();
@@ -1322,9 +1322,9 @@ internal sealed class BmsLibraryInstallEstimationService
         {
             return false;
         }
-        bool isFixMode = estimateMode == BmsInstallationEstimateMode.Fix;
+        bool isReinstallCorrectionMode = estimateMode == BmsInstallationEstimateMode.ReinstallCorrection;
         bool isMergeMode = estimateMode == BmsInstallationEstimateMode.MergeCandidateOnly;
-        bool isCorrectionLikeMode = isFixMode || isMergeMode;
+        bool isCorrectionLikeMode = isReinstallCorrectionMode || isMergeMode;
         representativeFile = targetFiles
             .Where((BMSFile bmsFile) => bmsFile != null && (isCorrectionLikeMode || installedHashes == null || !installedHashes.Contains(bmsFile.hash)))
             .OrderByDescending(GetDefinedResourceCount)

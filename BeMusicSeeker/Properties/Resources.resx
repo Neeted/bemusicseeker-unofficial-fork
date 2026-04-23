@@ -1336,6 +1336,9 @@ BMSファイルが重複しないようにマージします。
     <value>TITLE / ARTIST の一致度が低いため自動確定していません。
 候補: {0}</value>
   </data>
+  <data name="Warning_InstalledDestinationResolveFailed" xml:space="preserve">
+    <value>既所持譜面から導入先を特定できません。ライブラリの状態を確認してください。</value>
+  </data>
   <data name="BmsonMigrationWarningMessage" xml:space="preserve">
     <value>bmson 対応のため、初回起動時にプレイリストやハッシュ管理用・bmson カタログ用テーブルへ変更を加えます。
 

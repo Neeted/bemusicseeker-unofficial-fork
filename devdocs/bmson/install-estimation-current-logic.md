@@ -69,7 +69,7 @@
 - `missingFiles.Count == 0` なら通常推定は行わない
 - mixed package では、まず既存配置先再利用を試す
   - 成功すれば推定に入らず適用
-  - 失敗時だけ `Fix` モードで package-aware 推定へ入る
+  - 失敗時は `DeferredEstimateReason=InstalledDestinationResolveFailed` と警告を付け、推定フォールバックしない
 - 全未所持 package は `Normal` モードで package-aware 推定へ入る
 
 この経路では、`missingFiles` と package の source path から **package snapshot** を作って評価します。  
@@ -94,7 +94,7 @@ startup restore と auto-install 後の background pending estimate では、pac
   - 従来どおり background estimate の候補になり得る
 - mixed package
   - まず installed-directory reuse を試す
-  - reuse 不成立時だけ source baseline 判定へ進む
+  - reuse 不成立時は異常系として deferred/manual-hold にし、source baseline 判定や estimator へ進めない
 
 つまり現在は、**pending に残ること** と **background auto-estimate 対象になること** を分けています。
 
@@ -287,7 +287,7 @@ path-aware broad filter の後に、既存の **unified audio gate** をかけ�
 
 さらに `audioRefs > 0` かつ `DirectoryResourceLookupCache` がある経路では、
 
-- 通常推定 / `Fix`
+- 通常推定 / `ReinstallCorrection`
   - `candidate + bundled` の effective audio health が `innerWavHealthThreshold=70` 超でない候補を落とす
 - merge 推定
   - `candidate only` の effective audio health が `innerWavHealthThreshold=70` 超でない候補を落とす
@@ -359,7 +359,7 @@ Perf-2a 再修正では、この unified audio gate の仕様は変えず、内�
 
 各候補は `EvaluateCandidate(...)` で評価します。
 
-### 通常推定 / `Fix`
+### 通常推定 / `ReinstallCorrection`
 
 比較対象:
 
@@ -614,9 +614,10 @@ mixed package では:
 
 - まず `TryResolveInstalledDestinationFromPackage(...)` で、既所持譜面の実配置先を未所持譜面へ再利用できるか試す
 - 成功したら、その配置先を **未所持譜面だけ** に反映し、代表 metadata も同期して終了
-- 解決できなければ `Fix` モードで **未所持譜面だけ** を package-aware 推定する
+- 解決できなければ `DeferredEstimateReason=InstalledDestinationResolveFailed` を付け、未所持譜面へ警告を出して終了する
 
 つまり通常推定は、mixed package では **「既所持側の配置先に未所持を寄せる補完」** が第一です。
+既所持譜面から導入先を逆引きできない状態は通常の推定分岐ではなく、ライブラリ状態の不整合または曖昧さとして扱います。
 
 ### 2. 手動 `マージ先を推定`
 
@@ -650,7 +651,7 @@ merge の結果は次で固定します。
 - 既所持譜面は warning 対象になる
 - 推定対象は **未所持譜面だけ**
 - まず既所持譜面の実配置先を再利用できるか試す
-- 再利用できなければ、未所持譜面だけ `Fix` モードで推定する
+- 再利用できなければ、未所持譜面だけ警告付きで保留し、`Normal` / `ReinstallCorrection` 推定へは進めない
 
 ### マージ推定
 

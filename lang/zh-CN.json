@@ -406,6 +406,7 @@
   "Warning_InstallEstimationAmbiguous": "存在多个导入目标候选，因此未自动确定导入目标。\n第1候选: {0}\n第2候选: {1}",
   "Warning_InstallEstimationMetadataMismatchPrefix": "TITLE / ARTIST 的相似度过低，因此未自动确定导入目标。",
   "Warning_InstallEstimationMetadataMismatch": "TITLE / ARTIST 的相似度过低，因此未自动确定导入目标。\n候选: {0}",
+  "Warning_InstalledDestinationResolveFailed": "无法从已持有谱面确定导入目标。请检查曲库状态。",
   "BmsonMigrationWarningMessage": "为支持 bmson，首次启动时将修改播放列表、哈希管理表以及 bmson 目录表。\n\n首次生成 SHA-256 可能会根据资料库规模耗费较长时间。\n更新后，数据库可能不再兼容原版 BeMusicSeeker 以及本分支 v1.2.1.0 及更早版本。\n如果担心兼容性，建议事先备份 song.db 等文件。",
   "BmsonMigrationWarningTitle": "bmson 支持迁移警告",
   "Header_InstallDstTitle": "INSTL DST TITLE",
