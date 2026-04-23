@@ -114,8 +114,12 @@ public sealed class BmsScanResultComparerTests
 
             Assert.IsTrue(everything.NativeBridgeUsed);
             Assert.AreEqual("everything_bridge_fixed_scan", everything.NativeBridgeReason);
+            Assert.AreEqual("v2", everything.NativeBridgeContract);
             Assert.AreEqual(0L, everything.BuildResultMs);
             Assert.AreEqual(0L, everything.HashBuildMs);
+            Assert.IsTrue(everything.ManagedDecodeMs >= 0L);
+            Assert.IsTrue(everything.ManagedMaterializeMs >= 0L);
+            Assert.IsTrue(everything.BridgeRawBufferBytes > 0UL);
 
             BmsScanDiffReport report = BmsScanResultComparer.Compare(everything.Result, fast.Result);
             Assert.IsTrue(report.IsMatch, string.Join(Environment.NewLine, report.Samples));

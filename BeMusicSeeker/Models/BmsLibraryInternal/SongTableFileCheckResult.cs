@@ -38,11 +38,25 @@ internal sealed class SongTableFileCheckResult
 
     public long ScanElapsedMs { get; set; }
 
+    public long NativeBridgeMs { get; set; }
+
+    public string NativeBridgeReason { get; set; }
+
+    public string NativeBridgeContract { get; set; }
+
+    public long ManagedDecodeMs { get; set; }
+
+    public long ManagedMaterializeMs { get; set; }
+
+    public ulong BridgeRawBufferBytes { get; set; }
+
     public long DirhashBuildMs { get; set; }
 
     public long FolderHashIndexMs { get; set; }
 
     public long ResourceLookupCacheMs { get; set; }
+
+    public long RelativePathHashIndexMs { get; set; }
 
     public long DiffMs { get; set; }
 

@@ -86,6 +86,7 @@ void __cdecl EBridge_FreeGroupedFilesResult(EBridgeGroupedFilesResult* result);
 
 `EBridge_FreeResult` must be called for every successful scan call.  
 `EBridge_ScanChartAndResourcesV2` appends self-only ownership fields to the original result layout while keeping the original prefix ABI-compatible.
+Managed library-build mainline treats `EBridge_ScanChartAndResourcesV2` as the required fixed-scan contract; `V1` remains a legacy export and is not emulated by C#.
 `EBridge_EnumerateGroupedFilesV1` batches arbitrary grouped queries such as `chart/audio/image/movie/__all__` and returns one packed result buffer.
 
 ## Repository layout and operation

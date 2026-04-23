@@ -211,6 +211,13 @@ public sealed class BmsLibraryInitializationServiceTests
                 new BmsScanExecutionResult
                 {
                     Success = true,
+                    NativeBridgeUsed = true,
+                    NativeBridgeMs = 234L,
+                    NativeBridgeReason = "everything_bridge_fixed_scan",
+                    NativeBridgeContract = "v2",
+                    ManagedDecodeMs = 12L,
+                    ManagedMaterializeMs = 7L,
+                    BridgeRawBufferBytes = 4096UL,
                     Result = CreateScanResult(
                         new[] { keepFile.path, Path.Combine(newDirectoryPath, "added.bms") },
                         new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
@@ -233,6 +240,12 @@ public sealed class BmsLibraryInitializationServiceTests
             CollectionAssert.Contains(result.DeletedPaths, deletedFile.path);
             Assert.AreEqual(1, result.AddedFiles.Count);
             Assert.AreEqual(2, result.NextFiles.Count);
+            Assert.AreEqual(234L, result.NativeBridgeMs);
+            Assert.AreEqual("everything_bridge_fixed_scan", result.NativeBridgeReason);
+            Assert.AreEqual("v2", result.NativeBridgeContract);
+            Assert.AreEqual(12L, result.ManagedDecodeMs);
+            Assert.AreEqual(7L, result.ManagedMaterializeMs);
+            Assert.AreEqual(4096UL, result.BridgeRawBufferBytes);
             Assert.AreSame(keepFile, result.ClearedInstallDestinations.Single());
             Assert.IsNull(keepFile.instl_dst);
             CollectionAssert.Contains(result.NextFolderAllFileList.Keys.ToList(), keepDirectoryPath);

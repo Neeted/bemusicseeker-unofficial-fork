@@ -255,6 +255,12 @@ internal sealed class BmsLibraryInitializationService
         {
             result.ScanElapsedMs = stopwatchScan.ElapsedMilliseconds + (result.PrefetchedScanUsed ? prefetchedScanElapsedMs : 0L);
         }
+        result.NativeBridgeMs = scanResult.NativeBridgeMs;
+        result.NativeBridgeReason = scanResult.NativeBridgeReason ?? string.Empty;
+        result.NativeBridgeContract = scanResult.NativeBridgeContract ?? string.Empty;
+        result.ManagedDecodeMs = scanResult.ManagedDecodeMs;
+        result.ManagedMaterializeMs = scanResult.ManagedMaterializeMs;
+        result.BridgeRawBufferBytes = scanResult.BridgeRawBufferBytes;
         Stopwatch stopwatchDirhashBuild = Stopwatch.StartNew();
         Stopwatch stopwatchFolderHashIndex = Stopwatch.StartNew();
         result.NextFolderAllFileList = BMSDirectoryFileNameHash.CreateFromHashedDirectories(
@@ -269,7 +275,10 @@ internal sealed class BmsLibraryInitializationService
         result.NextDirectoryResourceLookupCache = DirectoryResourceLookupCache.CreateFromScanResult(mergedScanResult);
         stopwatchResourceLookupCache.Stop();
         result.ResourceLookupCacheMs = stopwatchResourceLookupCache.ElapsedMilliseconds;
+        Stopwatch stopwatchRelativePathHashIndex = Stopwatch.StartNew();
         result.NextDirectoryRelativePathHashIndex = DirectoryRelativePathHashIndex.CreateFromScanResult(mergedScanResult);
+        stopwatchRelativePathHashIndex.Stop();
+        result.RelativePathHashIndexMs = stopwatchRelativePathHashIndex.ElapsedMilliseconds;
         stopwatchDirhashBuild.Stop();
         result.DirhashBuildMs = stopwatchDirhashBuild.ElapsedMilliseconds;
         result.AllBaseHashEntryCount = CountHashEntries(mergedScanResult.AllResourceBaseNameHashesByChartDirectory);
@@ -434,9 +443,16 @@ internal sealed class BmsLibraryInitializationService
 
         logInstallPerformance?.Invoke(
             "song_tbl_file_check_breakdown scan_ms=" + result.ScanElapsedMs
+            + " native_bridge_ms=" + result.NativeBridgeMs
+            + " native_bridge_reason=" + (string.IsNullOrWhiteSpace(result.NativeBridgeReason) ? string.Empty : result.NativeBridgeReason)
+            + " bridge_contract=" + (string.IsNullOrWhiteSpace(result.NativeBridgeContract) ? string.Empty : result.NativeBridgeContract)
+            + " managed_decode_ms=" + result.ManagedDecodeMs
+            + " managed_materialize_ms=" + result.ManagedMaterializeMs
+            + " bridge_raw_buffer_bytes=" + result.BridgeRawBufferBytes
             + " dirhash_build_ms=" + result.DirhashBuildMs
             + " folder_hash_index_ms=" + result.FolderHashIndexMs
             + " resource_lookup_cache_ms=" + result.ResourceLookupCacheMs
+            + " relative_path_hash_index_ms=" + result.RelativePathHashIndexMs
             + " lazy_hash_cache_entries=" + (result.NextDirectoryResourceLookupCache?.LazyHashCacheEntryCount ?? 0)
             + " lazy_hash_build_ms=" + (result.NextDirectoryResourceLookupCache?.LazyHashBuildMs ?? 0L)
             + " lazy_hash_lookup_count=" + (result.NextDirectoryResourceLookupCache?.LazyHashLookupCount ?? 0L)
@@ -458,7 +474,19 @@ internal sealed class BmsLibraryInitializationService
             + " audioRelHashEntries=" + result.AudioRelativeHashEntryCount
             + " imageRelHashEntries=" + result.ImageRelativeHashEntryCount
             + " movieRelHashEntries=" + result.MovieRelativeHashEntryCount);
-        logEverythingScan?.Invoke("bms_scan totalMs=" + result.ScanElapsedMs + " bmsPaths=" + result.BmsPathCount + " dirs=" + result.DirectoryCount + " prefetched=" + result.PrefetchedScanUsed.ToString().ToLowerInvariant());
+        logEverythingScan?.Invoke("bms_scan totalMs=" + result.ScanElapsedMs
+            + " nativeBridgeMs=" + result.NativeBridgeMs
+            + " managedDecodeMs=" + result.ManagedDecodeMs
+            + " managedMaterializeMs=" + result.ManagedMaterializeMs
+            + " indexBuildMs=" + result.DirhashBuildMs
+            + " folderHashIndexMs=" + result.FolderHashIndexMs
+            + " resourceLookupCacheMs=" + result.ResourceLookupCacheMs
+            + " relativePathHashIndexMs=" + result.RelativePathHashIndexMs
+            + " bridgeContract=" + (string.IsNullOrWhiteSpace(result.NativeBridgeContract) ? string.Empty : result.NativeBridgeContract)
+            + " bridgeReason=" + (string.IsNullOrWhiteSpace(result.NativeBridgeReason) ? string.Empty : result.NativeBridgeReason)
+            + " bmsPaths=" + result.BmsPathCount
+            + " dirs=" + result.DirectoryCount
+            + " prefetched=" + result.PrefetchedScanUsed.ToString().ToLowerInvariant());
         return result;
     }
 

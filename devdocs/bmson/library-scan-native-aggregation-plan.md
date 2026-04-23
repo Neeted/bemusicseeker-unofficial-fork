@@ -30,9 +30,11 @@ relative-path 対応後の library build 性能悪化は、relative path その�
 
 `2026-04-23` 時点の current status:
 
-- **Phase 1 は実装済み**
+- **Phase 1 / Phase 2 は実装済み**
   - library build mainline は grouped full-path enumeration を通らず、fixed 4-query native scan を使う
-- source-side package surface はまだ grouped enumeration ベースであり、native aggregation 化は Phase 2 以降で扱う
+  - library build fixed scan は `EBridge_ScanChartAndResourcesV2` を正式契約として使う
+  - managed 側は `ManagedDecodeMs` / `ManagedMaterializeMs` / `BridgeRawBufferBytes` で unpack 残差を追える
+- source-side package surface はまだ grouped enumeration ベースであり、native aggregation 化は Phase 3 以降で扱う
 
 Phase 1 実測 (`bin/Release/net472/install-performance.log`):
 
@@ -54,6 +56,31 @@ Phase 1 前の grouped full-path mainline では:
 - `bms_scan totalMs` は `276069 -> 29496` で **約 89.3% 短縮**
 
 となり、grouped full-path enumeration による regress は解消できたとみなしてよい。
+
+Phase 2 実測 (`bin/Release/net472/install-performance.log`):
+
+- `everything_scan totalMs=27784`
+- `nativeBridgeMs=26936`
+- `bridgeContract=v2`
+- `managedDecodeMs=540`
+- `managedMaterializeMs=275`
+- `bridgeRawBufferBytes=331684812`
+- `song_tbl_file_check_breakdown scan_ms=27808`
+- `dirhash_build_ms=549`
+  - `folder_hash_index_ms=43`
+  - `resource_lookup_cache_ms=272`
+  - `relative_path_hash_index_ms=234`
+- `bms_scan totalMs=27808`
+
+したがって Phase 2 により、
+
+- library build の `everything_scan` は `29472 -> 27784` で **約 5.7% 短縮**
+- `bms_scan totalMs` は `29496 -> 27808` で **約 5.7% 短縮**
+- fixed-scan の残差は
+  - native bridge: `26936ms`
+  - managed unpack: `540 + 275 = 815ms`
+  - index build: `549ms`
+  に切り分けられる
 
 ## Current Problem
 
@@ -183,9 +210,8 @@ library build の result contract を「managed で再構築しない」前提�
 
 ### Changes
 
-- bridge fixed scan API を library build 正式契約として再定義する
-  - 既存 `EBridge_ScanChartAndResourcesV2` を使うか
-  - 必要なら `V3` を追加する
+- bridge fixed scan API は `EBridge_ScanChartAndResourcesV2` を library build 正式契約として固定する
+- managed 側は `V1` 補完を行わず、`V2` が無ければ fast scanner fallback に進む
 - native result に含めるものを固定する
   - chart file paths
   - chart directories
@@ -196,6 +222,7 @@ library build の result contract を「managed で再構築しない」前提�
   - query hit counts / query ms
   - native collect / assign / merge / pack diagnostics
 - managed 側は `BmsScanResult` への 1 パス詰め替えだけにする
+- `ManagedDecodeMs` / `ManagedMaterializeMs` / `BridgeRawBufferBytes` を固定 diagnostics として追加する
 
 ### Parallelization
 

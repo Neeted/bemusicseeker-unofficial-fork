@@ -830,11 +830,12 @@ ownership perf recovery は、その常時コストを fast path で剥がすた
 
 Phase 6 / Perf-3 で扱うもの:
 
-`2026-04-23` 時点では、**Phase 1 (library build mainline recovery) は完了** と整理する。
+`2026-04-23` 時点では、**Phase 1 / Phase 2 は完了** と整理する。
 
 - library scan mainline は fixed 4-query native scan に戻した
 - library build は grouped full-path enumeration を通らない
-- source-side package surface の native aggregation 化は未着手で、Phase 2 以降の課題として残す
+- library build fixed scan の managed 側は `V2` 契約前提になり、`ManagedDecodeMs` / `ManagedMaterializeMs` で unpack 残差を分離して追える
+- source-side package surface の native aggregation 化は未着手で、Phase 3 以降の課題として残す
 
 Phase 1 実測:
 
@@ -846,6 +847,25 @@ Phase 1 実測:
   - fixed 4-query native scan 復旧後: `29496`
 - `nativeBridgeReason`
   - `everything_bridge_fixed_scan`
+
+Phase 2 実測:
+
+- `everything_scan totalMs`
+  - Phase 1: `29472`
+  - Phase 2: `27784`
+- `bms_scan totalMs`
+  - Phase 1: `29496`
+  - Phase 2: `27808`
+- `bridgeContract`
+  - `v2`
+- managed unpack
+  - `ManagedDecodeMs=540`
+  - `ManagedMaterializeMs=275`
+- index build
+  - `dirhash_build_ms=549`
+  - `folder_hash_index_ms=43`
+  - `resource_lookup_cache_ms=272`
+  - `relative_path_hash_index_ms=234`
 
 つまり、library build regress の本体は relative-path semantics そのものではなく、
 
