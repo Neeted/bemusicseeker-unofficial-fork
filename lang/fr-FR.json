@@ -8,6 +8,7 @@
   "Information": "Information",
   "Details_test_notcheck_playlists": "[TEST] Not scan updates of playlists",
   "Details_test_delete_pending_source_after_install": "[TEST] Delete the source package even if already installed charts remain after normal install",
+  "Details_auto_apply_ambiguous_install_destination": "Définir le premier candidat comme destination lorsque plusieurs candidats correspondent fortement",
   "Playlist_sync_progress_label_format": "Synchronisation des playlists {0}/{1}",
   "Playlist_sync_progress_single_label": "Synchronisation des playlists",
   "Statusbar_progress_startup": "Initialisation",

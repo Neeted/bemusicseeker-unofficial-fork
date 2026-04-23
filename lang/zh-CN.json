@@ -8,6 +8,7 @@
   "Information": "信息",
   "Details_test_notcheck_playlists": "[测试] 启动时不确认播放列表更新",
   "Details_test_delete_pending_source_after_install": "[测试] 普通安装时，即使已安装谱面仍留在源包中也删除源包",
+  "Details_auto_apply_ambiguous_install_destination": "多个候选高度匹配时，将第一个候选设为导入目标",
   "Playlist_sync_progress_label_format": "播放列表同步 {0}/{1}",
   "Playlist_sync_progress_single_label": "播放列表同步",
   "Statusbar_progress_startup": "初始化中",

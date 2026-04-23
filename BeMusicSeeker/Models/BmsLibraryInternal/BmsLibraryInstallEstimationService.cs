@@ -357,11 +357,13 @@ internal sealed class BmsLibraryInstallEstimationService
         }
     }
 
+    private readonly BmsLibraryOptionsSnapshot options;
+
     private readonly int innerWavHealthThreshold;
 
     public BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapshot options, int innerWavHealthThreshold)
     {
-        _ = options ?? throw new ArgumentNullException(nameof(options));
+        this.options = options ?? throw new ArgumentNullException(nameof(options));
         this.innerWavHealthThreshold = innerWavHealthThreshold;
     }
 
@@ -871,10 +873,16 @@ internal sealed class BmsLibraryInstallEstimationService
             }
             else
             {
+                bool autoApplyAmbiguousCandidate =
+                    options.AutoApplyAmbiguousInstallDestination
+                    && metadataValidation?.IsApplicable == true
+                    && metadataValidation.Evidence == MetadataEvidenceStrength.Strong;
                 result.Confidence = InstallEstimationConfidence.Low;
-                result.ConfidenceReason = "tie_on_viable_non_source_candidates";
+                result.ConfidenceReason = autoApplyAmbiguousCandidate
+                    ? "tie_on_viable_non_source_candidates_auto_apply_enabled"
+                    : "tie_on_viable_non_source_candidates";
                 result.LowConfidenceKind = InstallEstimationLowConfidenceKind.AmbiguousCandidates;
-                result.ShouldAutoApplyDestination = false;
+                result.ShouldAutoApplyDestination = autoApplyAmbiguousCandidate;
                 result.SuggestedDestinationDirectories.AddRange(viableNonSourceSuggestions);
             }
         }

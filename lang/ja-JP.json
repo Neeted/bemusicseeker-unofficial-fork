@@ -11,6 +11,7 @@
   "Details_test_startup_expand_playlist_tree": "[テスト中] 起動時にプレイリストを自動展開する",
   "Details_test_db_read_optimized_pragmas": "[テスト中] DB読込最適化PRAGMAを有効にする",
   "Details_test_delete_pending_source_after_install": "[テスト中] 通常インストール時、既所持譜面が残っていても元パッケージを削除する",
+  "Details_auto_apply_ambiguous_install_destination": "複数候補でも高一致なら第1候補を導入先に設定する",
   "Details_test_smart_component_overwrite": "[テスト中] 差分導入時に更新日時とサイズを比較して同梱ファイルの上書きを最適化する",
   "Details_test_keep_smart_overwrite_protected_by_rename": "[テスト中] スマート上書き時、*.bmx/*.pmx/*.txt/*.bmson は上書きせず自動採番で保持する",
   "Playlist_sync_progress_label_format": "プレイリスト同期 {0}/{1}",

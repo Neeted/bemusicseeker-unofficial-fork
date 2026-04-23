@@ -322,6 +322,52 @@ public sealed class BmsLibraryPendingPackageRegroupTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
+    public void SearchEstimatedInstallationDirectory_AmbiguousStrongMetadataWithSetting_AppliesDestinationAndKeepsWarning()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithAutoApplyAmbiguousInstallDestination(true, delegate
+        {
+            WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
+            {
+                string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "PackageAmbiguousStrongMetadata");
+                string candidateADirectoryPath = Path.Combine(tempRootPath, "Installed", "A");
+                string candidateBDirectoryPath = Path.Combine(tempRootPath, "Installed", "B");
+                string pendingFilePath = CreateBmsFileWithContents(sourceDirectoryPath, "pending.bms", "#PLAYER 1\r\n#TITLE Target Song (Another)\r\n#ARTIST Artist / Diff\r\n#WAVAA sound.wav\r\n#00111:AA\r\n");
+                CreateBmsFileWithContents(candidateADirectoryPath, "candidateA.bms", "#PLAYER 1\r\n#TITLE Target Song\r\n#ARTIST Artist\r\n");
+                CreateBmsFileWithContents(candidateBDirectoryPath, "candidateB.bms", "#PLAYER 1\r\n#TITLE Target Song\r\n#ARTIST Artist\r\n");
+                File.WriteAllText(Path.Combine(candidateADirectoryPath, "sound.wav"), "a");
+                File.WriteAllText(Path.Combine(candidateBDirectoryPath, "sound.wav"), "b");
+
+                BMSFile pendingFile = BMSFile.CreateBMSFileFromFile(pendingFilePath);
+                BMSPackage pendingPackage = new BMSPackage(new[] { pendingFile })
+                {
+                    path = pendingFilePath,
+                    delete_parent = true
+                };
+                library.BMSFiles = new List<BMSFile>
+                {
+                    BMSFile.CreateBMSFileFromFile(Path.Combine(candidateADirectoryPath, "candidateA.bms")),
+                    BMSFile.CreateBMSFileFromFile(Path.Combine(candidateBDirectoryPath, "candidateB.bms"))
+                };
+                SeedPendingPackages(library, songDbPath, pendingPackage);
+                SetPrivateField(library, "bmsFolderAllFileList", BuildDirectoryHashCache(sourceDirectoryPath, candidateADirectoryPath, candidateBDirectoryPath));
+                SetPrivateField(library, "directoryResourceLookupCache", BuildDirectoryLookupCache(sourceDirectoryPath, candidateADirectoryPath, candidateBDirectoryPath));
+
+                library.SearchEstimatedInstallationDirectory(pendingPackage);
+
+                Assert.AreEqual(candidateADirectoryPath, pendingFile.instl_dst);
+                Assert.AreEqual("Target Song", pendingFile.InstallDestinationTitle);
+                Assert.AreEqual("Artist", pendingFile.InstallDestinationArtist);
+                Assert.IsTrue(pendingFile.HasLowConfidenceInstallWarning);
+                CollectionAssert.AreEqual(new[] { candidateADirectoryPath, candidateBDirectoryPath }, pendingFile.InstallDestinationSuggestions.ToArray());
+                StringAssert.Contains(pendingFile.warning ?? string.Empty, candidateADirectoryPath);
+                StringAssert.Contains(pendingFile.warning ?? string.Empty, candidateBDirectoryPath);
+            });
+        });
+    }
+
+    [TestMethod]
     public void SearchEstimatedInstallationDirectory_MetadataMismatchLeavesInstallDestinationEmptyAndShowsSingleSuggestion()
     {
         TestResourceInitializer.EnsureJapaneseResources();
@@ -806,6 +852,20 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             {
                 Directory.Delete(tempRootPath, recursive: true);
             }
+        }
+    }
+
+    private static void WithAutoApplyAmbiguousInstallDestination(bool enabled, Action action)
+    {
+        bool original = BeMusicSeeker.Properties.Settings.Default.AutoApplyAmbiguousInstallDestination;
+        try
+        {
+            BeMusicSeeker.Properties.Settings.Default.AutoApplyAmbiguousInstallDestination = enabled;
+            action();
+        }
+        finally
+        {
+            BeMusicSeeker.Properties.Settings.Default.AutoApplyAmbiguousInstallDestination = original;
         }
     }
 

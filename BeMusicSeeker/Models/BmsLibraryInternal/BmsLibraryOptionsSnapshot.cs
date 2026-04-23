@@ -20,6 +20,8 @@ internal sealed class BmsLibraryOptionsSnapshot
 
     public bool UseEverythingForPendingPackageSourceScan { get; set; }
 
+    public bool AutoApplyAmbiguousInstallDestination { get; set; }
+
     public bool SkipEstimateOfflineScoreRanking { get; set; }
 
     public bool EnableReadOptimizedPragmas { get; set; }
@@ -44,6 +46,7 @@ internal sealed class BmsLibraryOptionsSnapshot
             DeletePendingPackageSourceAfterInstall = Settings.Default.DeletePendingPackageSourceAfterInstall,
             KeepInstallablePackagesPending = Settings.Default.KeepInstallablePackagesPending,
             UseEverythingForPendingPackageSourceScan = Settings.Default.UseEverythingForPendingPackageSourceScan,
+            AutoApplyAmbiguousInstallDestination = Settings.Default.AutoApplyAmbiguousInstallDestination,
             SkipEstimateOfflineScoreRanking = Settings.Default.SkipEstimateOfflineScoreRanking,
             EnableReadOptimizedPragmas = Settings.Default.EnableReadOptimizedPragmas,
             SkipInitFileCheck = Settings.Default.SkipInitFileCheck,

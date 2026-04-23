@@ -196,6 +196,8 @@ public class MainWindowViewModel : ViewModel
 
         private bool tempUseEverythingForPendingPackageSourceScan;
 
+        private bool tempAutoApplyAmbiguousInstallDestination;
+
         private bool tempDeletePendingPackageSourceAfterInstall;
 
         private bool tempEnableSmartComponentOverwrite;
@@ -1156,6 +1158,22 @@ public class MainWindowViewModel : ViewModel
                 {
                     Settings.Default.UseEverythingForPendingPackageSourceScan = value;
                     RaisePropertyChanged("UseEverythingForPendingPackageSourceScan");
+                }
+            }
+        }
+
+        public bool AutoApplyAmbiguousInstallDestination
+        {
+            get
+            {
+                return Settings.Default.AutoApplyAmbiguousInstallDestination;
+            }
+            set
+            {
+                if (Settings.Default.AutoApplyAmbiguousInstallDestination != value)
+                {
+                    Settings.Default.AutoApplyAmbiguousInstallDestination = value;
+                    RaisePropertyChanged("AutoApplyAmbiguousInstallDestination");
                 }
             }
         }
@@ -2278,6 +2296,7 @@ public class MainWindowViewModel : ViewModel
             tempUseDataGridColumnVirtualizationExperimental = Settings.Default.UseDataGridColumnVirtualizationExperimental;
             tempKeepInstallablePackagesPending = Settings.Default.KeepInstallablePackagesPending;
             tempUseEverythingForPendingPackageSourceScan = Settings.Default.UseEverythingForPendingPackageSourceScan;
+            tempAutoApplyAmbiguousInstallDestination = Settings.Default.AutoApplyAmbiguousInstallDestination;
             tempDeletePendingPackageSourceAfterInstall = Settings.Default.DeletePendingPackageSourceAfterInstall;
             tempEnableSmartComponentOverwrite = Settings.Default.EnableSmartComponentOverwrite;
             tempKeepSmartOverwriteProtectedFilesByRenaming = Settings.Default.KeepSmartOverwriteProtectedFilesByRenaming;
@@ -2551,6 +2570,7 @@ public class MainWindowViewModel : ViewModel
             Settings.Default.UseDataGridColumnVirtualizationExperimental = tempUseDataGridColumnVirtualizationExperimental;
             Settings.Default.KeepInstallablePackagesPending = tempKeepInstallablePackagesPending;
             Settings.Default.UseEverythingForPendingPackageSourceScan = tempUseEverythingForPendingPackageSourceScan;
+            Settings.Default.AutoApplyAmbiguousInstallDestination = tempAutoApplyAmbiguousInstallDestination;
             Settings.Default.DeletePendingPackageSourceAfterInstall = tempDeletePendingPackageSourceAfterInstall;
             Settings.Default.EnableSmartComponentOverwrite = tempEnableSmartComponentOverwrite;
             Settings.Default.KeepSmartOverwriteProtectedFilesByRenaming = tempKeepSmartOverwriteProtectedFilesByRenaming;
@@ -2625,6 +2645,7 @@ public class MainWindowViewModel : ViewModel
             RaisePropertyChanged(() => UseDataGridColumnVirtualizationExperimental);
             RaisePropertyChanged(() => KeepInstallablePackagesPending);
             RaisePropertyChanged(() => UseEverythingForPendingPackageSourceScan);
+            RaisePropertyChanged(() => AutoApplyAmbiguousInstallDestination);
             RaisePropertyChanged(() => DeletePendingPackageSourceAfterInstall);
             RaisePropertyChanged(() => EnableSmartComponentOverwrite);
             RaisePropertyChanged(() => KeepSmartOverwriteProtectedFilesByRenaming);
