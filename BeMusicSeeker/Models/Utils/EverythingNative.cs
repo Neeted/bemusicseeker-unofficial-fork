@@ -9,24 +9,25 @@ namespace BeMusicSeeker.Models.Utils;
 
 internal static class EverythingNative
 {
-	private const string EverythingDllName = "Everything3_x64.dll";
-
 	private const string BridgeDllName = "EverythingBridge_x64.dll";
+
+	internal const string GroupedEnumerationBackendName = "everything_bridge";
+
+	internal const string FixedScanNativeBridgeReason = "everything_bridge_fixed_scan";
 
 	private static IntPtr loadedBridgeModule = IntPtr.Zero;
 
-	private static bool bridgeExportsChecked;
-
-	private static bool bridgeExportsAvailable;
+	private static bool bridgeExportsProbed;
 
 	private static bool bridgeScanV1Available;
 
 	private static bool bridgeScanV2Available;
 
-	internal static string GetExpectedDllPath()
-	{
-		return Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "native", EverythingDllName);
-	}
+	private static bool bridgeFreeResultAvailable;
+
+	private static bool bridgeGroupedEnumerationQueryAvailable;
+
+	private static bool bridgeFreeGroupedEnumerationResultAvailable;
 
 	internal static string GetExpectedBridgeDllPath()
 	{
@@ -39,12 +40,6 @@ internal static class EverythingNative
 		if (IntPtr.Size != 8)
 		{
 			reason = "unsupported_architecture";
-			return false;
-		}
-		string expectedDllPath = GetExpectedDllPath();
-		if (!File.Exists(expectedDllPath))
-		{
-			reason = "dll_not_found:" + expectedDllPath;
 			return false;
 		}
 		return EnsureBridgeLoaded(out reason);
@@ -69,19 +64,51 @@ internal static class EverythingNative
 			}
 			loadedBridgeModule = module;
 		}
-		if (!bridgeExportsChecked)
+		ProbeBridgeExports();
+		return true;
+	}
+
+	private static void ProbeBridgeExports()
+	{
+		if (bridgeExportsProbed)
 		{
-			bridgeScanV1Available = GetProcAddress(loadedBridgeModule, "EBridge_ScanChartAndResources") != IntPtr.Zero;
-			bridgeScanV2Available = GetProcAddress(loadedBridgeModule, "EBridge_ScanChartAndResourcesV2") != IntPtr.Zero;
-			bridgeExportsAvailable = (bridgeScanV1Available || bridgeScanV2Available)
-				&& GetProcAddress(loadedBridgeModule, "EBridge_FreeResult") != IntPtr.Zero;
-			bridgeExportsChecked = true;
+			return;
 		}
-		if (!bridgeExportsAvailable)
+		bridgeScanV1Available = GetProcAddress(loadedBridgeModule, "EBridge_ScanChartAndResources") != IntPtr.Zero;
+		bridgeScanV2Available = GetProcAddress(loadedBridgeModule, "EBridge_ScanChartAndResourcesV2") != IntPtr.Zero;
+		bridgeFreeResultAvailable = GetProcAddress(loadedBridgeModule, "EBridge_FreeResult") != IntPtr.Zero;
+		bridgeGroupedEnumerationQueryAvailable = GetProcAddress(loadedBridgeModule, "EBridge_EnumerateGroupedFilesV1") != IntPtr.Zero;
+		bridgeFreeGroupedEnumerationResultAvailable = GetProcAddress(loadedBridgeModule, "EBridge_FreeGroupedFilesResult") != IntPtr.Zero;
+		bridgeExportsProbed = true;
+	}
+
+	private static bool EnsureFixedScanAvailable(out string reason)
+	{
+		if (!EnsureBridgeLoaded(out reason))
 		{
-			reason = "bridge_export_missing";
 			return false;
 		}
+		if (!(bridgeScanV1Available || bridgeScanV2Available) || !bridgeFreeResultAvailable)
+		{
+			reason = "bridge_fixed_scan_export_missing";
+			return false;
+		}
+		reason = null;
+		return true;
+	}
+
+	private static bool EnsureGroupedEnumerationAvailable(out string reason)
+	{
+		if (!EnsureBridgeLoaded(out reason))
+		{
+			return false;
+		}
+		if (!bridgeGroupedEnumerationQueryAvailable || !bridgeFreeGroupedEnumerationResultAvailable)
+		{
+			reason = "bridge_grouped_export_missing";
+			return false;
+		}
+		reason = null;
 		return true;
 	}
 
@@ -90,6 +117,98 @@ internal static class EverythingNative
 		string ext = string.Join(";", extensions ?? Array.Empty<string>());
 		string paths = "<" + string.Join("|", Array.ConvertAll(roots ?? Array.Empty<string>(), (string root) => "path:" + QuotePath(PathWithTrailingSeparator(root)))) + ">";
 		return "file: " + paths + " <ext:" + ext + ">";
+	}
+
+	internal static string BuildAllFilesQuery(string[] roots)
+	{
+		string paths = "<" + string.Join("|", Array.ConvertAll(roots ?? Array.Empty<string>(), (string root) => "path:" + QuotePath(PathWithTrailingSeparator(root)))) + ">";
+		return "file: " + paths;
+	}
+
+	internal static bool TryEnumerateGroupedFiles(IReadOnlyList<BridgeGroupedQuery> queries, out BridgeGroupedEnumerationResult result, out string reason)
+	{
+		result = null;
+		reason = null;
+		if (queries == null || queries.Count == 0)
+		{
+			result = new BridgeGroupedEnumerationResult();
+			return true;
+		}
+		if (!EnsureGroupedEnumerationAvailable(out reason))
+		{
+			return false;
+		}
+
+		IntPtr resultPtr = IntPtr.Zero;
+		IntPtr nativeQueries = IntPtr.Zero;
+		List<IntPtr> allocatedStrings = new List<IntPtr>();
+		try
+		{
+			nativeQueries = Marshal.AllocHGlobal(checked(Marshal.SizeOf<EBridgeGroupedQueryNative>() * queries.Count));
+			for (int i = 0; i < queries.Count; i++)
+			{
+				IntPtr queryText = Marshal.StringToHGlobalUni(queries[i].QueryText ?? string.Empty);
+				allocatedStrings.Add(queryText);
+				EBridgeGroupedQueryNative nativeQuery = new EBridgeGroupedQueryNative
+				{
+					group_id = queries[i].GroupId,
+					query_text = queryText
+				};
+				Marshal.StructureToPtr(nativeQuery, IntPtr.Add(nativeQueries, i * Marshal.SizeOf<EBridgeGroupedQueryNative>()), false);
+			}
+
+			int status = EBridge_EnumerateGroupedFilesV1(nativeQueries, (uint)queries.Count, out resultPtr);
+			if (status != 0)
+			{
+				reason = "bridge_grouped_query_failed:" + status;
+				return false;
+			}
+			if (resultPtr == IntPtr.Zero)
+			{
+				reason = "bridge_grouped_query_empty_result";
+				return false;
+			}
+
+			EBridgeGroupedFilesResultHeader header = Marshal.PtrToStructure<EBridgeGroupedFilesResultHeader>(resultPtr);
+			if (header.status != 0)
+			{
+				reason = "bridge_grouped_status_failed:" + header.error_code;
+				return false;
+			}
+
+			result = ReadGroupedEnumerationResult(header);
+			reason = "ok";
+			return true;
+		}
+		catch (Exception ex)
+		{
+			reason = "bridge_grouped_exception:" + ex.Message;
+			return false;
+		}
+		finally
+		{
+			if (resultPtr != IntPtr.Zero)
+			{
+				try
+				{
+					EBridge_FreeGroupedFilesResult(resultPtr);
+				}
+				catch
+				{
+				}
+			}
+			foreach (IntPtr queryText in allocatedStrings)
+			{
+				if (queryText != IntPtr.Zero)
+				{
+					Marshal.FreeHGlobal(queryText);
+				}
+			}
+			if (nativeQueries != IntPtr.Zero)
+			{
+				Marshal.FreeHGlobal(nativeQueries);
+			}
+		}
 	}
 
 	internal static BmsScanExecutionResult ExecuteScan(string chartQuery, string audioQuery, string imageQuery, string movieQuery)
@@ -114,7 +233,7 @@ internal static class EverythingNative
 		Stopwatch stopwatch = Stopwatch.StartNew();
 		try
 		{
-			if (!EnsureBridgeLoaded(out reason))
+			if (!EnsureFixedScanAvailable(out reason))
 			{
 				return false;
 			}
@@ -220,6 +339,44 @@ internal static class EverythingNative
 		return set;
 	}
 
+	private static BridgeGroupedEnumerationResult ReadGroupedEnumerationResult(EBridgeGroupedFilesResultHeader header)
+	{
+		BridgeGroupedEnumerationResult result = new BridgeGroupedEnumerationResult
+		{
+			TotalFileCount = (int)header.total_file_count,
+			EnumerationMs = header.enumeration_ms
+		};
+		int groupHeaderSize = Marshal.SizeOf<EBridgeGroupedResultGroupHeader>();
+		for (ulong i = 0; i < header.group_count; i += 1)
+		{
+			EBridgeGroupedResultGroupHeader groupHeader = Marshal.PtrToStructure<EBridgeGroupedResultGroupHeader>(
+				IntPtr.Add(header.groups, checked((int)(i * (ulong)groupHeaderSize))));
+			result.Groups[groupHeader.group_id] = new BridgeGroupedEnumerationGroupResult
+			{
+				GroupId = groupHeader.group_id,
+				HitCount = groupHeader.hit_count,
+				QueryMs = groupHeader.query_ms,
+				Paths = new HashSet<string>(ReadStringList(groupHeader.path_count, groupHeader.path_offsets, header.path_blob), StringComparer.OrdinalIgnoreCase)
+			};
+		}
+		return result;
+	}
+
+	private static List<string> ReadStringList(ulong count, IntPtr offsets, IntPtr blob)
+	{
+		List<string> values = new List<string>();
+		for (ulong i = 0; i < count; i += 1)
+		{
+			uint byteOffset = (uint)Marshal.ReadInt32(offsets, checked((int)(i * 4)));
+			string value = ReadUtf16FromBlob(blob, byteOffset);
+			if (!string.IsNullOrWhiteSpace(value))
+			{
+				values.Add(value);
+			}
+		}
+		return values;
+	}
+
 	private static Dictionary<string, uint[]> ReadHashMap(HashSet<string> chartDirectories, ulong dirCount, IntPtr dirOffsets, IntPtr dirBlob, IntPtr hashOffsets, IntPtr hashLengths, IntPtr hashesBlob)
 	{
 		Dictionary<string, uint[]> map = new Dictionary<string, uint[]>(StringComparer.OrdinalIgnoreCase);
@@ -284,7 +441,8 @@ internal static class EverythingNative
 			Success = true,
 			NativeBridgeUsed = true,
 			NativeBridgeMs = elapsedMs,
-			NativeBridgeReason = "ok",
+			NativeBridgeReason = FixedScanNativeBridgeReason,
+			BuildResultMs = 0L,
 			HashBuildMs = 0L,
 			HashDirCount = hashDirCount,
 			HashEntryCount = hashEntryCount,
@@ -375,7 +533,8 @@ internal static class EverythingNative
 			Success = true,
 			NativeBridgeUsed = true,
 			NativeBridgeMs = elapsedMs,
-			NativeBridgeReason = "ok",
+			NativeBridgeReason = FixedScanNativeBridgeReason,
+			BuildResultMs = 0L,
 			HashBuildMs = 0L,
 			HashDirCount = hashDirCount,
 			HashEntryCount = hashEntryCount,
@@ -492,6 +651,75 @@ internal static class EverythingNative
 
 	[DllImport(BridgeDllName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "EBridge_FreeResult")]
 	private static extern void EBridge_FreeResult(IntPtr result);
+
+	[DllImport(BridgeDllName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "EBridge_EnumerateGroupedFilesV1")]
+	private static extern int EBridge_EnumerateGroupedFilesV1(IntPtr queries, uint queryCount, out IntPtr outResult);
+
+	[DllImport(BridgeDllName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "EBridge_FreeGroupedFilesResult")]
+	private static extern void EBridge_FreeGroupedFilesResult(IntPtr result);
+
+	internal readonly struct BridgeGroupedQuery
+	{
+		internal BridgeGroupedQuery(uint groupId, string queryText)
+		{
+			GroupId = groupId;
+			QueryText = queryText ?? string.Empty;
+		}
+
+		internal uint GroupId { get; }
+
+		internal string QueryText { get; }
+	}
+
+	internal sealed class BridgeGroupedEnumerationGroupResult
+	{
+		internal uint GroupId { get; set; }
+
+		internal HashSet<string> Paths { get; set; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+		internal ulong HitCount { get; set; }
+
+		internal long QueryMs { get; set; }
+	}
+
+	internal sealed class BridgeGroupedEnumerationResult
+	{
+		internal Dictionary<uint, BridgeGroupedEnumerationGroupResult> Groups { get; } = new Dictionary<uint, BridgeGroupedEnumerationGroupResult>();
+
+		internal int TotalFileCount { get; set; }
+
+		internal long EnumerationMs { get; set; }
+	}
+
+	[StructLayout(LayoutKind.Sequential)]
+	private struct EBridgeGroupedQueryNative
+	{
+		public uint group_id;
+		public IntPtr query_text;
+	}
+
+	[StructLayout(LayoutKind.Sequential)]
+	private struct EBridgeGroupedResultGroupHeader
+	{
+		public uint group_id;
+		public ulong hit_count;
+		public long query_ms;
+		public ulong path_count;
+		public IntPtr path_offsets;
+	}
+
+	[StructLayout(LayoutKind.Sequential)]
+	private struct EBridgeGroupedFilesResultHeader
+	{
+		public int status;
+		public int error_code;
+		public ulong group_count;
+		public IntPtr groups;
+		public IntPtr path_blob;
+		public ulong total_file_count;
+		public long enumeration_ms;
+		public ulong raw_buffer_size;
+	}
 
 	[StructLayout(LayoutKind.Sequential)]
 	private struct EBridgeResultHeader

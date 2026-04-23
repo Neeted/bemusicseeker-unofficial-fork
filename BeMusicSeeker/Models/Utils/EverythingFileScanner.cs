@@ -26,14 +26,6 @@ public class EverythingFileScanner : IBmsFileScanner
 				Result = new BmsScanResult()
 			};
 		}
-		if (!EverythingNative.EnsureBridgeAvailable(out string reason))
-		{
-			return new BmsScanExecutionResult
-			{
-				Success = false,
-				ErrorReason = reason
-			};
-		}
 
 		string chartQuery = EverythingNative.BuildFilesQuery(roots.ToArray(), Array.ConvertAll(ChartDirectoryScanBuilder.ChartExtensions, (string ext) => ext.TrimStart('.')));
 		string audioQuery = EverythingNative.BuildFilesQuery(roots.ToArray(), Array.ConvertAll(ChartDirectoryScanBuilder.AudioExtensions, (string ext) => ext.TrimStart('.')));
@@ -47,6 +39,7 @@ public class EverythingFileScanner : IBmsFileScanner
 
 		Stopwatch stopwatch = Stopwatch.StartNew();
 		BmsScanExecutionResult result = EverythingNative.ExecuteScan(chartQuery, audioQuery, imageQuery, movieQuery);
+		stopwatch.Stop();
 		if (!result.Success)
 		{
 			if (verboseLog)
@@ -55,16 +48,18 @@ public class EverythingFileScanner : IBmsFileScanner
 			}
 			return result;
 		}
-		if (result.Result.ChartFilePaths.Count == 0)
+		if (result.Result == null || result.Result.ChartFilePaths.Count == 0)
 		{
 			if (verboseLog)
 			{
-				logger.Info("everything_scan failed reason=empty_results_with_roots nativeBridgeUsed={0} nativeBridgeReason={1} nativeBridgeMs={2}", result.NativeBridgeUsed.ToString().ToLowerInvariant(), result.NativeBridgeReason ?? "none", result.NativeBridgeMs);
+				logger.Info("everything_scan failed reason=empty_results_with_roots nativeBridgeReason={0} nativeBridgeMs={1}",
+					result.NativeBridgeReason ?? result.ErrorReason ?? "unknown",
+					result.NativeBridgeMs);
 			}
 			return new BmsScanExecutionResult
 			{
 				Success = false,
-				ErrorReason = "empty_results_with_roots:bridgeUsed=" + result.NativeBridgeUsed.ToString().ToLowerInvariant() + ":bridgeReason=" + (result.NativeBridgeReason ?? "none") + ":bridgeMs=" + result.NativeBridgeMs
+				ErrorReason = "empty_results_with_roots:bridgeReason=" + (result.NativeBridgeReason ?? result.ErrorReason ?? "unknown") + ":bridgeMs=" + result.NativeBridgeMs
 			};
 		}
 		if (verboseLog)

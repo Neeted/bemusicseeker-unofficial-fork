@@ -25,7 +25,7 @@ graph TD
     Scanner --> Everything[EverythingFileScanner\n高速検索]
     
     %% Everything連携
-    Everything --> Native[EverythingNative Wrapper]
+    Everything --> Native[EverythingNative Bridge-Only Wrapper]
     Native --> Bridge[EverythingBridge_x64.dll]
     Bridge --> EverythingSDK[Everything3_x64.dll]
     EverythingSDK -.-> OS_FS[(File System)]
@@ -45,7 +45,7 @@ graph TD
 | **UIフレームワーク**       | Livet, MetroRadiance                  | MVVMアーキテクチャ基盤、およびモダンなWindows UIテーマ                                           |
 | **データベース**           | sqlite.net                            | 楽曲メタデータ(SongDB)およびスコアデータ(ScoreDB)のローカル管理                                  |
 | **オーディオ処理**         | BASS.NET                              | BMSのプレビュー再生・音声処理                                                                    |
-| **ファイル高速検索**       | Everything SDK (C API)                | `Everything3_x64.dll` 及び `EverythingBridge_x64.dll` を介した chart/resource 分離スキャン |
+| **ファイル高速検索**       | Everything SDK (C API)                | managed 側は `EverythingBridge_x64.dll` のみを呼び、bridge 内部で `Everything3_x64.dll` を使う。library build は fixed 4-query native scan、grouped enumeration は source-side / utility 用に分離する |
 | **ユーティリティ**         | NLog                                  | アプリケーションの動作ログ出力(通常・エラーログ)                                                 |
 | **ユーティリティ**         | SevenZipExtractor                     | アーカイブ解凍、パッケージインストール                                                           |
 | **ユーティリティ**         | DynamicJson                           | IR(Internet Ranking)通信等のJSONデータパース処理                                                 |
@@ -72,13 +72,13 @@ sequenceDiagram
     EScanner->>ENative: EnsureBridgeAvailable()
     ENative-->>EScanner: true (ロード確認)
     
-    EScanner->>ENative: ExecuteScan(chartQuery, audioQuery, imageQuery, movieQuery)
+    EScanner->>ENative: ExecuteScan (library build) / EnumerateGroupedFiles (source-side)
     activate ENative
     
-    ENative->>EBridge: EBridge_ScanChartAndResources(クエリ文字列)
+    ENative->>EBridge: bridge API 呼び出し
     activate EBridge
-    Note right of EBridge: Everything SDKを利用して<br/>chart/audio/image/movie を個別検索し<br/>chart directory 単位へ再集約
-    EBridge-->>ENative: EBridgeResultHeader (メモリポインタ)
+    Note right of EBridge: managed は bridge のみを呼ぶ<br/>library build は fixed 4-query native scan を使う<br/>grouped enumeration は source-side / utility に限定する
+    EBridge-->>ENative: packed result buffer (メモリポインタ)
     deactivate EBridge
     
     ENative->>ENative: BLOBからUTF-16文字列へのデコード<br/>ハッシュデータの読み取り
@@ -103,9 +103,13 @@ sequenceDiagram
 
 ネイティブDLL層で公開されている関数です。WPFアプリ (C#) の `EverythingNative` クラスから `P/Invoke` (DllImport) により呼び出されます。
 
-#### `EBridge_ScanChartAndResources`
+#### `EBridge_ScanChartAndResources` / `EBridge_ScanChartAndResourcesV2`
 
 Everything検索クエリを実行し、結果を一括で取得するための関数です。
+
+- **主用途**:
+  - library build の mainline
+  - chart / audio / image / movie の fixed 4-query native scan
 
 - **署名**:
 
@@ -121,9 +125,27 @@ Everything検索クエリを実行し、結果を一括で取得するための�
 
 - **戻り値**: 実行結果のステータスコード (`0` ならば成功)。
 
-#### `EBridge_FreeResult`
+#### `EBridge_EnumerateGroupedFilesV1`
 
-`EBridge_ScanChartAndResources` でポインタとして確保されたネイティブメモリを解放します。（メモリリーク防止用）
+Everything 検索クエリを grouped enumeration としてまとめて実行し、結果を一括で取得するための関数です。
+
+- **用途**:
+  - `chart`
+  - `audio`
+  - `image`
+  - `movie`
+  - `__all__`
+    のような group を 1 回の bridge 呼び出しで列挙する
+- **主用途**:
+  - source-side package surface
+  - utility / diagnostics / fallback 補助
+- **備考**:
+  - managed 側で `Everything3_x64.dll` を直接呼ばない
+  - full path は bridge 側でまとめて収集し、packed buffer として返す
+
+#### `EBridge_FreeResult` / `EBridge_FreeGroupedFilesResult`
+
+bridge API がポインタとして確保したネイティブメモリを解放します。（メモリリーク防止用）
 
 - **署名**:
 
@@ -134,6 +156,12 @@ Everything検索クエリを実行し、結果を一括で取得するための�
 
 - **引数**:
   - `result` (in): 解放対象のメモリポインタ。
+
+### 4.1.1. bridge-only 原則
+
+- `EverythingNative` は `EverythingBridge_x64.dll` だけを `P/Invoke` する
+- `Everything3_x64.dll` の load/export 判定や query 実行は bridge 側責務とする
+- 今後 file search / enumeration 基盤を拡張する場合も、まず bridge API の拡張を検討する
 
 ### 4.2. EBridgeResultHeader 構造体
 

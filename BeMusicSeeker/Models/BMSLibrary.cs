@@ -1738,6 +1738,16 @@ public class BMSLibrary : NotificationObject
         public int LazyHashEntriesAdded { get; set; }
 
         public string LazyHashBuildReason { get; set; } = "demand";
+
+        public long SourceSurfaceScanMs { get; set; }
+
+        public int SourceSurfaceFileCount { get; set; }
+
+        public long SourceSurfaceHashMaterializeMs { get; set; }
+
+        public bool SourceSurfaceCacheHit { get; set; }
+
+        public string SourceSurfaceScanBackend { get; set; } = string.Empty;
     }
 
     private sealed class PendingInstallEstimateEvaluationResult
@@ -2341,7 +2351,7 @@ public class BMSLibrary : NotificationObject
             {
                 if (request.AttemptInstalledResolve)
                 {
-                    LogInstallPerformance("mixed_package_resolve fallback reason=use_legacy_search missing=" + request.MissingFiles.Count);
+                    LogInstallPerformance("mixed_package_resolve continue reason=installed_resolve_unresolved missing=" + request.MissingFiles.Count);
                 }
                 LogInstallEstimationEvaluation(evaluationResult.EstimationData);
                 ApplyInstallEstimationResultToFiles(currentMissingFiles, evaluationResult.EstimationData?.Result);
@@ -5004,7 +5014,12 @@ public class BMSLibrary : NotificationObject
             LazyHashBuildMsDelta = useSharedLazyHashMetrics ? 0L : (lazyHashBuildMsAfter - lazyHashBuildMsBefore),
             LazyHashLookupCountDelta = useSharedLazyHashMetrics ? 0L : (lazyHashLookupCountAfter - lazyHashLookupCountBefore),
             LazyHashEntriesAdded = useSharedLazyHashMetrics ? 0 : (lazyHashCacheEntriesAfter - lazyHashCacheEntriesBefore),
-            LazyHashBuildReason = useSharedLazyHashMetrics ? "parallel_shared" : "demand"
+            LazyHashBuildReason = useSharedLazyHashMetrics ? "parallel_shared" : "demand",
+            SourceSurfaceScanMs = estimationSnapshot?.SourceSurfaceScanMs ?? 0L,
+            SourceSurfaceFileCount = estimationSnapshot?.SourceSurfaceFileCount ?? 0,
+            SourceSurfaceHashMaterializeMs = estimationSnapshot?.SourceSurfaceHashMaterializeMs ?? 0L,
+            SourceSurfaceCacheHit = estimationSnapshot?.SourceSurfaceCacheHit ?? false,
+            SourceSurfaceScanBackend = estimationSnapshot?.SourceSurfaceScanBackend ?? string.Empty
         };
     }
 
@@ -5015,7 +5030,11 @@ public class BMSLibrary : NotificationObject
         {
             return;
         }
-        LogInstallPerformance("estimate_install start chartCount=" + estimationData.ChartCount + " targetHashes=" + result.TargetResourceHashCount + " targetResources=" + result.TargetResourceCount + " pathAwareRefs=" + result.TargetPathAwareHashCount + " pathAwareAudioRefs=" + result.TargetPathAwareAudioHashCount + " pathAwareVisualRefs=" + result.TargetPathAwareVisualHashCount + " pathAwareMovieRefs=" + result.TargetPathAwareMovieHashCount + " pathAwareOptionalRefs=" + result.TargetPathAwareOptionalImageHashCount + " bundledAudioCount=" + result.BundledAudioCount + " bundledImageCount=" + result.BundledImageCount + " bundledMovieCount=" + result.BundledMovieCount + " evalMode=" + (result.FinalEvaluationMode == InstallEstimationFinalEvaluationMode.BasenameOnlyFastPath ? "basename_fast_path" : "relative_strict") + " candidateMode=" + (result.CandidateMode ?? string.Empty) + " coarseFilterMode=" + (result.CoarseFilterMode ?? string.Empty) + " audioRefs=" + result.AudioReferenceCount + " visualRefs=" + result.VisualReferenceCount + " movieRefs=" + result.MovieReferenceCount + " optionalRefs=" + result.OptionalImageReferenceCount + " audioMinMatchRequired=" + result.AudioMinimumMatchRequired + " candidateDirsBefore=" + result.CandidateDirectoryCountBeforeHashFilter + " candidateDirsAfterBroadFilter=" + result.CandidateDirectoryCountAfterBroadFilter + " candidateDirsAfterAudioGate=" + result.CandidateDirectoryCountAfterAudioGate + " candidateDirsInHierarchy=" + result.HierarchyCandidateDirectoryCount + " shadowSuppressed=" + result.AncestorShadowSuppressedCount + " lazySelfOwnedCandidates=" + result.LazySelfOwnedEvaluationCount + " shadowMs=" + result.AncestorShadowEvaluationMs + " candidateViewBuildMs=" + result.CandidateViewBuildMs + " candidateMatchMs=" + result.CandidateMatchMs + " candidateViewBuildCount=" + result.CandidateViewBuildCount + " candidateViewFallbackCount=" + result.CandidateViewFallbackCount + " candidateDirsAfter=" + result.CandidateDirectoryCountAfterHashFilter + " candidateDirs=" + result.CandidateDirectoryCount + " evaluationMs=" + result.EvaluationMs + " fallback=" + result.UsedFallbackCandidateExpansion + " confidence=" + result.Confidence + " autoApplied=" + result.ShouldAutoApplyDestination + " confidenceReason=" + (result.ConfidenceReason ?? string.Empty) + " lazyHashBuildMsDelta=" + estimationData.LazyHashBuildMsDelta + " lazyHashEntriesAdded=" + estimationData.LazyHashEntriesAdded + " lazyHashLookupCountDelta=" + estimationData.LazyHashLookupCountDelta + " lazyHashBuildReason=" + (estimationData.LazyHashBuildReason ?? string.Empty) + " summary=" + (result.ResourceSummary ?? string.Empty));
+        if (!estimationData.SourceSurfaceCacheHit && estimationData.SourceSurfaceFileCount > 0)
+        {
+            LogInstallPerformance("package_surface_build backend=" + (estimationData.SourceSurfaceScanBackend ?? string.Empty) + " fileCount=" + estimationData.SourceSurfaceFileCount + " scanMs=" + estimationData.SourceSurfaceScanMs + " hashMaterializeMs=" + estimationData.SourceSurfaceHashMaterializeMs);
+        }
+        LogInstallPerformance("estimate_install start chartCount=" + estimationData.ChartCount + " targetHashes=" + result.TargetResourceHashCount + " targetResources=" + result.TargetResourceCount + " pathAwareRefs=" + result.TargetPathAwareHashCount + " pathAwareAudioRefs=" + result.TargetPathAwareAudioHashCount + " pathAwareVisualRefs=" + result.TargetPathAwareVisualHashCount + " pathAwareMovieRefs=" + result.TargetPathAwareMovieHashCount + " pathAwareOptionalRefs=" + result.TargetPathAwareOptionalImageHashCount + " bundledAudioCount=" + result.BundledAudioCount + " bundledImageCount=" + result.BundledImageCount + " bundledMovieCount=" + result.BundledMovieCount + " evalMode=" + (result.FinalEvaluationMode == InstallEstimationFinalEvaluationMode.BasenameOnlyFastPath ? "basename_fast_path" : "relative_strict") + " candidateMode=" + (result.CandidateMode ?? string.Empty) + " coarseFilterMode=" + (result.CoarseFilterMode ?? string.Empty) + " audioRefs=" + result.AudioReferenceCount + " visualRefs=" + result.VisualReferenceCount + " movieRefs=" + result.MovieReferenceCount + " optionalRefs=" + result.OptionalImageReferenceCount + " audioMinMatchRequired=" + result.AudioMinimumMatchRequired + " candidateDirsBefore=" + result.CandidateDirectoryCountBeforeHashFilter + " candidateDirsAfterBroadFilter=" + result.CandidateDirectoryCountAfterBroadFilter + " candidateDirsAfterAudioGate=" + result.CandidateDirectoryCountAfterAudioGate + " candidateDirsInHierarchy=" + result.HierarchyCandidateDirectoryCount + " shadowSuppressed=" + result.AncestorShadowSuppressedCount + " lazySelfOwnedCandidates=" + result.LazySelfOwnedEvaluationCount + " shadowMs=" + result.AncestorShadowEvaluationMs + " candidateViewBuildMs=" + result.CandidateViewBuildMs + " candidateMatchMs=" + result.CandidateMatchMs + " candidateViewBuildCount=" + result.CandidateViewBuildCount + " candidateViewFallbackCount=" + result.CandidateViewFallbackCount + " sourceSurfaceScanMs=" + estimationData.SourceSurfaceScanMs + " sourceSurfaceFileCount=" + estimationData.SourceSurfaceFileCount + " sourceSurfaceHashMaterializeMs=" + estimationData.SourceSurfaceHashMaterializeMs + " sourceSurfaceCacheHit=" + estimationData.SourceSurfaceCacheHit.ToString().ToLowerInvariant() + " sourceSurfaceScanBackend=" + (estimationData.SourceSurfaceScanBackend ?? string.Empty) + " candidateDirsAfter=" + result.CandidateDirectoryCountAfterHashFilter + " candidateDirs=" + result.CandidateDirectoryCount + " evaluationMs=" + result.EvaluationMs + " fallback=" + result.UsedFallbackCandidateExpansion + " confidence=" + result.Confidence + " autoApplied=" + result.ShouldAutoApplyDestination + " confidenceReason=" + (result.ConfidenceReason ?? string.Empty) + " lazyHashBuildMsDelta=" + estimationData.LazyHashBuildMsDelta + " lazyHashEntriesAdded=" + estimationData.LazyHashEntriesAdded + " lazyHashLookupCountDelta=" + estimationData.LazyHashLookupCountDelta + " lazyHashBuildReason=" + (estimationData.LazyHashBuildReason ?? string.Empty) + " summary=" + (result.ResourceSummary ?? string.Empty));
         if (!string.IsNullOrWhiteSpace(result.TopCandidateSummary))
         {
             LogInstallPerformance("estimate_install candidates " + result.TopCandidateSummary);
@@ -5555,8 +5574,7 @@ public class BMSLibrary : NotificationObject
                                 ApplyResolvedInstallDestinationToFiles(missingFiles, resolvedDir);
                                 return;
                             }
-                            // 解決できない場合だけ従来推定へフォールバックし、空欄のまま残るケースを減らす。
-                            LogInstallPerformance("mixed_package_resolve fallback reason=use_legacy_search missing=" + missingFiles.Count);
+                            LogInstallPerformance("mixed_package_resolve continue reason=installed_resolve_unresolved missing=" + missingFiles.Count);
                             searchEstimatedInstallationDirectory(package, missingFiles, asParallel: true, BmsInstallationEstimateMode.Fix);
                             return;
                         }

@@ -5,13 +5,22 @@ Native bridge DLL for BeMusicSeeker chart/resource split scan.
 ## Purpose
 
 - Execute Everything SDK 3 queries in native code.
+- Keep managed code on a bridge-only contract.
 - Split scan inputs into:
   - chart files
   - audio files
   - image files
   - movie files
+- grouped file-enumeration queries
 - Re-aggregate resource hits to chart-directory keyed ownership views.
 - Return one packed result buffer to C# without per-item P/Invoke loops.
+
+## Managed contract
+
+- C# / tests must not call `Everything3_x64.dll` directly.
+- Managed code may construct query strings, but query execution and result collection must go through `EverythingBridge_x64.dll`.
+- If file search / enumeration behavior needs to change, update the bridge API first instead of adding direct managed SDK calls.
+- The bridge exists specifically to avoid per-result managed/native round-trips.
 
 ## Returned data shape
 
@@ -67,11 +76,17 @@ int  __cdecl EBridge_ScanChartAndResourcesV2(
     const wchar_t* imageQuery,
     const wchar_t* movieQuery,
     EBridgeResult** outResult);
+int  __cdecl EBridge_EnumerateGroupedFilesV1(
+    const EBridgeGroupedQuery* queries,
+    unsigned int queryCount,
+    EBridgeGroupedFilesResult** outResult);
 void __cdecl EBridge_FreeResult(EBridgeResult* result);
+void __cdecl EBridge_FreeGroupedFilesResult(EBridgeGroupedFilesResult* result);
 ```
 
 `EBridge_FreeResult` must be called for every successful scan call.  
 `EBridge_ScanChartAndResourcesV2` appends self-only ownership fields to the original result layout while keeping the original prefix ABI-compatible.
+`EBridge_EnumerateGroupedFilesV1` batches arbitrary grouped queries such as `chart/audio/image/movie/__all__` and returns one packed result buffer.
 
 ## Repository layout and operation
 

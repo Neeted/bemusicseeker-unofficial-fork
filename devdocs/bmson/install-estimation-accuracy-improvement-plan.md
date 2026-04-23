@@ -48,6 +48,17 @@
 
 このため、relative path 対応による致命的な性能回帰はない整理とし、次段は `Phase 6. Cleanup / Legacy Removal / Perf-3 接続` を進める。
 
+この次段は **Estimation First** スコープで進める。
+
+- library build 側と package source surface 側で shared root enumeration backend を使う
+- Everything 経路は bridge-only とし、managed 側から `Everything3_x64.dll` を直接使わない
+- `BMSPackage` に package source scan snapshot を持たせ、`BMSFiles` と install-estimation surface を再利用する
+- mixed package は installed-dir resolve 基準の用語へ揃え、legacy search 命名は使わない
+- `BmsScanResult` の obsolete compat 面と未使用 `DirectoryResourceIndex` を cleanup する
+- package surface metrics / logging を追加し、source-side wall-clock を可視化する
+
+一方で、このフェーズでは `BmsLibraryPackageInstallService` の install/merge package discovery 列挙は扱わない。
+
 ## P2 で実装した本質
 
 ### 1. package-aware union 評価

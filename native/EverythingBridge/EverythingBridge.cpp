@@ -107,9 +107,35 @@ struct EBridgeResult {
 	unsigned char* self_movie_relative_hashes_blob;
 };
 
+struct EBridgeGroupedQuery {
+	unsigned int group_id;
+	const wchar_t* query_text;
+};
+
+struct EBridgeGroupedResultGroup {
+	unsigned int group_id;
+	unsigned long long hit_count;
+	long long query_ms;
+	unsigned long long path_count;
+	unsigned int* path_offsets;
+};
+
+struct EBridgeGroupedFilesResult {
+	int status;
+	int error_code;
+	unsigned long long group_count;
+	EBridgeGroupedResultGroup* groups;
+	wchar_t* path_blob;
+	unsigned long long total_file_count;
+	long long enumeration_ms;
+	unsigned long long raw_buffer_size;
+};
+
 __declspec(dllexport) int __cdecl EBridge_ScanChartAndResources(const wchar_t* chartQuery, const wchar_t* audioQuery, const wchar_t* imageQuery, const wchar_t* movieQuery, EBridgeResult** outResult);
 __declspec(dllexport) int __cdecl EBridge_ScanChartAndResourcesV2(const wchar_t* chartQuery, const wchar_t* audioQuery, const wchar_t* imageQuery, const wchar_t* movieQuery, EBridgeResult** outResult);
+__declspec(dllexport) int __cdecl EBridge_EnumerateGroupedFilesV1(const EBridgeGroupedQuery* queries, unsigned int queryCount, EBridgeGroupedFilesResult** outResult);
 __declspec(dllexport) void __cdecl EBridge_FreeResult(EBridgeResult* result);
+__declspec(dllexport) void __cdecl EBridge_FreeGroupedFilesResult(EBridgeGroupedFilesResult* result);
 }
 
 namespace {
@@ -129,7 +155,8 @@ enum BridgeError {
 	BRIDGE_IMAGE_QUERY_FAILED = 6,
 	BRIDGE_MOVIE_QUERY_FAILED = 7,
 	BRIDGE_OUT_OF_MEMORY = 8,
-	BRIDGE_INTERNAL_ERROR = 9
+	BRIDGE_INTERNAL_ERROR = 9,
+	BRIDGE_GROUPED_QUERY_FAILED = 10
 };
 
 using Everything3_ConnectWFn = void*(__stdcall*)(const wchar_t* instance_name);
@@ -262,6 +289,12 @@ struct CategoryProcessingMetrics {
 	long long groupMs = 0;
 	long long assignMs = 0;
 	long long mergeMs = 0;
+};
+
+struct GroupedQueryResult {
+	uint32_t groupId = 0u;
+	QueryExecutionStats stats;
+	std::vector<std::wstring> fullPaths;
 };
 
 HMODULE g_bridgeModule = nullptr;
@@ -713,6 +746,78 @@ bool ExecuteQuery(void* client, const wchar_t* query, Callback&& onResult, Query
 		stats->elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - startedAt).count();
 	}
 	return ok;
+}
+
+void DedupePaths(std::vector<std::wstring>& paths) {
+	std::sort(paths.begin(), paths.end());
+	paths.erase(std::unique(paths.begin(), paths.end()), paths.end());
+}
+
+int BuildGroupedFilesResultBuffer(const std::vector<GroupedQueryResult>& groupedResults, long long enumerationMs, EBridgeGroupedFilesResult** outResult) {
+	if (!outResult) {
+		return BRIDGE_INVALID_ARGUMENT;
+	}
+
+	size_t groupCount = groupedResults.size();
+	size_t totalPathCount = 0;
+	size_t totalBlobBytes = 0;
+	std::unordered_set<std::wstring> uniquePaths;
+	for (const GroupedQueryResult& groupedResult : groupedResults) {
+		totalPathCount += groupedResult.fullPaths.size();
+		for (const std::wstring& fullPath : groupedResult.fullPaths) {
+			totalBlobBytes += (fullPath.size() + 1) * sizeof(wchar_t);
+			uniquePaths.insert(fullPath);
+		}
+	}
+
+	size_t totalBytes = sizeof(EBridgeGroupedFilesResult)
+		+ sizeof(EBridgeGroupedResultGroup) * groupCount
+		+ sizeof(unsigned int) * totalPathCount
+		+ totalBlobBytes;
+	unsigned char* buffer = static_cast<unsigned char*>(std::malloc(totalBytes));
+	if (!buffer) {
+		return BRIDGE_OUT_OF_MEMORY;
+	}
+	std::memset(buffer, 0, totalBytes);
+
+	unsigned char* cursor = buffer + sizeof(EBridgeGroupedFilesResult);
+	EBridgeGroupedResultGroup* groupHeaders = reinterpret_cast<EBridgeGroupedResultGroup*>(cursor);
+	cursor += sizeof(EBridgeGroupedResultGroup) * groupCount;
+	unsigned int* pathOffsetsBase = reinterpret_cast<unsigned int*>(cursor);
+	cursor += sizeof(unsigned int) * totalPathCount;
+	wchar_t* pathBlob = reinterpret_cast<wchar_t*>(cursor);
+
+	EBridgeGroupedFilesResult* result = reinterpret_cast<EBridgeGroupedFilesResult*>(buffer);
+	result->status = BRIDGE_OK;
+	result->error_code = 0;
+	result->group_count = static_cast<unsigned long long>(groupCount);
+	result->groups = groupHeaders;
+	result->path_blob = pathBlob;
+	result->total_file_count = static_cast<unsigned long long>(uniquePaths.size());
+	result->enumeration_ms = enumerationMs;
+	result->raw_buffer_size = static_cast<unsigned long long>(totalBytes);
+
+	size_t globalPathIndex = 0;
+	unsigned char* blobCursor = reinterpret_cast<unsigned char*>(pathBlob);
+	for (size_t groupIndex = 0; groupIndex < groupCount; groupIndex++) {
+		const GroupedQueryResult& groupedResult = groupedResults[groupIndex];
+		EBridgeGroupedResultGroup& groupHeader = groupHeaders[groupIndex];
+		groupHeader.group_id = groupedResult.groupId;
+		groupHeader.hit_count = groupedResult.stats.hitCount;
+		groupHeader.query_ms = groupedResult.stats.elapsedMs;
+		groupHeader.path_count = static_cast<unsigned long long>(groupedResult.fullPaths.size());
+		groupHeader.path_offsets = pathOffsetsBase + globalPathIndex;
+
+		for (const std::wstring& fullPath : groupedResult.fullPaths) {
+			size_t chars = fullPath.size() + 1;
+			pathOffsetsBase[globalPathIndex++] = static_cast<unsigned int>(blobCursor - reinterpret_cast<unsigned char*>(pathBlob));
+			std::memcpy(blobCursor, fullPath.c_str(), chars * sizeof(wchar_t));
+			blobCursor += chars * sizeof(wchar_t);
+		}
+	}
+
+	*outResult = result;
+	return BRIDGE_OK;
 }
 
 uint32_t EnsureChartDirectory(ScanAggregate& aggregate, const std::wstring& chartDirectory) {
@@ -1289,7 +1394,63 @@ extern "C" __declspec(dllexport) int __cdecl EBridge_ScanChartAndResourcesV2(con
 	return EBridge_ScanChartAndResources(chartQuery, audioQuery, imageQuery, movieQuery, outResult);
 }
 
+extern "C" __declspec(dllexport) int __cdecl EBridge_EnumerateGroupedFilesV1(const EBridgeGroupedQuery* queries, unsigned int queryCount, EBridgeGroupedFilesResult** outResult) {
+	if (!outResult) {
+		return BRIDGE_INVALID_ARGUMENT;
+	}
+	*outResult = nullptr;
+	if (!queries || queryCount == 0u) {
+		return BRIDGE_INVALID_ARGUMENT;
+	}
+	if (!EnsureEverythingApiLoaded()) {
+		return BRIDGE_LOAD_API_FAILED;
+	}
+
+	unsigned int connectError = EVERYTHING3_OK;
+	void* client = TryConnectClient(&connectError);
+	if (!client) {
+		return BRIDGE_CONNECT_FAILED;
+	}
+
+	std::vector<GroupedQueryResult> groupedResults;
+	groupedResults.reserve(queryCount);
+	auto startedAt = std::chrono::steady_clock::now();
+	for (unsigned int i = 0; i < queryCount; i++) {
+		const EBridgeGroupedQuery& query = queries[i];
+		if (!query.query_text || query.query_text[0] == L'\0') {
+			g_api.DestroyClient(client);
+			return BRIDGE_INVALID_ARGUMENT;
+		}
+
+		GroupedQueryResult groupedResult;
+		groupedResult.groupId = query.group_id;
+		bool ok = ExecuteQuery(client, query.query_text, [&groupedResult](const std::wstring& path, const std::wstring& name) {
+			if (path.empty() || name.empty()) {
+				return;
+			}
+			groupedResult.fullPaths.push_back(CombinePathAndName(TrimTrailingSeparators(ReplaceAltSeparators(path)), name));
+		}, &groupedResult.stats);
+		if (!ok) {
+			g_api.DestroyClient(client);
+			return BRIDGE_GROUPED_QUERY_FAILED;
+		}
+		DedupePaths(groupedResult.fullPaths);
+		groupedResults.push_back(std::move(groupedResult));
+	}
+	g_api.DestroyClient(client);
+
+	long long enumerationMs = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - startedAt).count();
+	return BuildGroupedFilesResultBuffer(groupedResults, enumerationMs, outResult);
+}
+
 extern "C" __declspec(dllexport) void __cdecl EBridge_FreeResult(EBridgeResult* result) {
+	if (!result) {
+		return;
+	}
+	std::free(result);
+}
+
+extern "C" __declspec(dllexport) void __cdecl EBridge_FreeGroupedFilesResult(EBridgeGroupedFilesResult* result) {
 	if (!result) {
 		return;
 	}

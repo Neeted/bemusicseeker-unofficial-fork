@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
 
 namespace BeMusicSeeker.Models.Utils;
@@ -12,15 +11,19 @@ public class FastDirectoryFileScanner : IBmsFileScanner
 		try
 		{
 			List<string> roots = (rootDirectories ?? Enumerable.Empty<string>())
-				.Where((string p) => !string.IsNullOrWhiteSpace(p) && Directory.Exists(p))
-				.Select(Path.GetFullPath)
+				.Where((string p) => !string.IsNullOrWhiteSpace(p))
 				.Distinct(StringComparer.OrdinalIgnoreCase)
 				.ToList();
-			return new BmsScanExecutionResult
+			RootFileEnumerationResult enumerationResult = new FastRootFileEnumerator().EnumerateFiles(roots, ChartDirectoryScanBuilder.CreateDefaultEnumerationGroups(), verboseLog);
+			if (!enumerationResult.Success)
 			{
-				Success = true,
-				Result = ChartDirectoryScanBuilder.BuildFromRoots(roots)
-			};
+				return new BmsScanExecutionResult
+				{
+					Success = false,
+					ErrorReason = enumerationResult.ErrorReason
+				};
+			}
+			return BmsFileScannerResultBuilder.Build(enumerationResult);
 		}
 		catch (Exception ex)
 		{

@@ -112,8 +112,61 @@ public sealed class BmsScanResultComparerTests
                 Assert.Fail("Fast scan failed: " + (fast.ErrorReason ?? "unknown"));
             }
 
+            Assert.IsTrue(everything.NativeBridgeUsed);
+            Assert.AreEqual("everything_bridge_fixed_scan", everything.NativeBridgeReason);
+            Assert.AreEqual(0L, everything.BuildResultMs);
+            Assert.AreEqual(0L, everything.HashBuildMs);
+
             BmsScanDiffReport report = BmsScanResultComparer.Compare(everything.Result, fast.Result);
             Assert.IsTrue(report.IsMatch, string.Join(Environment.NewLine, report.Samples));
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot))
+            {
+                Directory.Delete(tempRoot, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void EverythingRootFileEnumerator_ReturnsAllFilesGroup_WhenOptInEnabled()
+    {
+        if (!string.Equals(Environment.GetEnvironmentVariable("BMS_TEST_EVERYTHING_INTEGRATION"), "1", StringComparison.Ordinal))
+        {
+            Assert.Inconclusive("Set BMS_TEST_EVERYTHING_INTEGRATION=1 to run Everything integration parity test.");
+        }
+        if (!EverythingNative.EnsureBridgeAvailable(out string reason))
+        {
+            Assert.Inconclusive("Everything bridge unavailable: " + (reason ?? "unknown"));
+        }
+
+        string tempRoot = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_EverythingGrouped_" + Guid.NewGuid().ToString("N"));
+        string chartDir = Path.Combine(tempRoot, "song");
+        Directory.CreateDirectory(Path.Combine(chartDir, "sound"));
+        Directory.CreateDirectory(Path.Combine(chartDir, "image"));
+        File.WriteAllText(Path.Combine(chartDir, "chart.bms"), "#PLAYER 1");
+        File.WriteAllText(Path.Combine(chartDir, "sound", "bgm1.wav"), "audio");
+        File.WriteAllText(Path.Combine(chartDir, "image", "logo.bmp"), "image");
+        File.WriteAllText(Path.Combine(chartDir, "readme.txt"), "misc");
+
+        try
+        {
+            RootFileEnumerationResult enumerationResult = new EverythingRootFileEnumerator().EnumerateFiles(
+                new[] { tempRoot },
+                ChartDirectoryScanBuilder.CreateDefaultEnumerationGroups(includeAllFiles: true),
+                verboseLog: false);
+
+            if (!enumerationResult.Success)
+            {
+                Assert.Inconclusive("Everything grouped enumeration failed: " + (enumerationResult.ErrorReason ?? "unknown"));
+            }
+            Assert.AreEqual("everything_bridge", enumerationResult.BackendName);
+            Assert.AreEqual(4, enumerationResult.TotalFileCount);
+            CollectionAssert.Contains(enumerationResult.GetPaths(RootFileEnumerationService.AllFilesGroupName).ToArray(), Path.Combine(chartDir, "readme.txt"));
+            CollectionAssert.Contains(enumerationResult.GetPaths(ChartDirectoryScanBuilder.ChartGroupName).ToArray(), Path.Combine(chartDir, "chart.bms"));
+            CollectionAssert.Contains(enumerationResult.GetPaths(ChartDirectoryScanBuilder.AudioGroupName).ToArray(), Path.Combine(chartDir, "sound", "bgm1.wav"));
+            CollectionAssert.Contains(enumerationResult.GetPaths(ChartDirectoryScanBuilder.ImageGroupName).ToArray(), Path.Combine(chartDir, "image", "logo.bmp"));
         }
         finally
         {

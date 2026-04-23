@@ -12,9 +12,11 @@ public class BMSPackage : LR2SongDBExtended.install
 {
 	private List<BMSFile> bmsFiles;
 
+	private readonly bool hasExplicitBmsFiles;
+
 	private readonly object installEstimationSnapshotLock = new object();
 
-	private PackageInstallSurfaceSnapshot installEstimationSurfaceSnapshot;
+	private PackageSourceScanSnapshot packageSourceScanSnapshot;
 
 	internal PendingEstimateDeferredReason DeferredEstimateReason { get; set; }
 
@@ -24,11 +26,11 @@ public class BMSPackage : LR2SongDBExtended.install
 	{
 		get
 		{
-			if (bmsFiles == null)
+			if (hasExplicitBmsFiles)
 			{
-				bmsFiles = getBMSFiles();
+				return bmsFiles ?? new List<BMSFile>();
 			}
-			return bmsFiles;
+			return GetOrBuildPackageSourceScanSnapshot(out _).BmsFiles;
 		}
 	}
 
@@ -40,68 +42,48 @@ public class BMSPackage : LR2SongDBExtended.install
 	{
 		path = bmsFile.path;
 		bmsFiles = new List<BMSFile> { bmsFile };
+		hasExplicitBmsFiles = true;
 	}
 
 	public BMSPackage(IEnumerable<BMSFile> bmsFiles)
 	{
 		this.bmsFiles = bmsFiles.ToList();
+		hasExplicitBmsFiles = true;
 	}
 
 	internal PackageInstallEstimationSnapshot GetOrBuildInstallEstimationSnapshot(IEnumerable<BMSFile> targetFiles)
 	{
 		List<BMSFile> targetFileList = (targetFiles ?? Enumerable.Empty<BMSFile>()).Where((BMSFile file) => file != null).ToList();
-		PackageInstallSurfaceSnapshot installSurfaceSnapshot = GetOrBuildInstallEstimationSurfaceSnapshot();
-		return PackageInstallEstimationSnapshotBuilder.Build(this, targetFileList, installSurfaceSnapshot);
+		PackageInstallSurfaceSnapshot installSurfaceSnapshot = GetOrBuildInstallEstimationSurfaceSnapshot(out bool sourceSurfaceCacheHit);
+		return PackageInstallEstimationSnapshotBuilder.Build(this, targetFileList, installSurfaceSnapshot, sourceSurfaceCacheHit);
 	}
 
 	internal void InvalidateInstallEstimationSnapshot()
 	{
 		lock (installEstimationSnapshotLock)
 		{
-			installEstimationSurfaceSnapshot = null;
+			packageSourceScanSnapshot = null;
 		}
 	}
 
-	private PackageInstallSurfaceSnapshot GetOrBuildInstallEstimationSurfaceSnapshot()
+	private PackageInstallSurfaceSnapshot GetOrBuildInstallEstimationSurfaceSnapshot(out bool cacheHit)
+	{
+		return GetOrBuildPackageSourceScanSnapshot(out cacheHit).InstallSurfaceSnapshot;
+	}
+
+	private PackageSourceScanSnapshot GetOrBuildPackageSourceScanSnapshot(out bool cacheHit)
 	{
 		lock (installEstimationSnapshotLock)
 		{
-			if (installEstimationSurfaceSnapshot == null
-				|| !string.Equals(installEstimationSurfaceSnapshot.SourcePath, path ?? string.Empty, StringComparison.OrdinalIgnoreCase))
+			if (packageSourceScanSnapshot == null
+				|| !string.Equals(packageSourceScanSnapshot.SourcePath, path ?? string.Empty, StringComparison.OrdinalIgnoreCase))
 			{
-				installEstimationSurfaceSnapshot = PackageInstallEstimationSnapshotBuilder.BuildInstallSurface(path);
+				packageSourceScanSnapshot = PackageInstallEstimationSnapshotBuilder.BuildPackageSourceScanSnapshot(path);
+				cacheHit = false;
+				return packageSourceScanSnapshot ?? new PackageSourceScanSnapshot();
 			}
-			return installEstimationSurfaceSnapshot;
-		}
-	}
-
-	private List<BMSFile> getBMSFiles()
-	{
-		if (Directory.Exists(path))
-		{
-			return FastDirectoryEnumerator
-				.GetFilePathsAsParallel(path, null, BMSFile.bmsExtensions.Concat(PendingChartEntry.bmsonExtensions).ToArray(), SearchOption.AllDirectories)
-				.Select(CreatePendingChartFromPath)
-				.Where((BMSFile file) => file != null)
-				.ToList();
-		}
-		if (File.Exists(path) && PendingChartEntry.IsSupportedChartFilePath(path))
-		{
-			BMSFile file = CreatePendingChartFromPath(path);
-			return (file != null) ? new List<BMSFile> { file } : new List<BMSFile>();
-		}
-		return new List<BMSFile>();
-	}
-
-	private static BMSFile CreatePendingChartFromPath(string filePath)
-	{
-		try
-		{
-			return PendingChartEntry.CreateFromFilePath(filePath);
-		}
-		catch
-		{
-			return null;
+			cacheHit = true;
+			return packageSourceScanSnapshot;
 		}
 	}
 }

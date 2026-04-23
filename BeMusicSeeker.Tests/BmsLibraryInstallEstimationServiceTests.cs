@@ -759,6 +759,76 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     }
 
     [TestMethod]
+    public void BMSPackage_PathPackage_ReusesSharedSourceScanSnapshotForBmsFilesAndInstallSurface()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
+        {
+            string sourceDir = Path.Combine(tempRoot, "PathPackage");
+            string soundDir = Path.Combine(sourceDir, "sound");
+            Directory.CreateDirectory(soundDir);
+            File.WriteAllText(Path.Combine(sourceDir, "chart1.bms"), "#PLAYER 1");
+            File.WriteAllText(Path.Combine(sourceDir, "chart2.bme"), "#PLAYER 1");
+            File.WriteAllText(Path.Combine(soundDir, "00.wav"), "audio");
+
+            BMSPackage package = new BMSPackage
+            {
+                path = sourceDir,
+                delete_parent = true
+            };
+
+            List<BMSFile> firstFiles = package.BMSFiles;
+            List<BMSFile> secondFiles = package.BMSFiles;
+            PackageInstallEstimationSnapshot snapshot = package.GetOrBuildInstallEstimationSnapshot(firstFiles);
+
+            Assert.AreSame(firstFiles, secondFiles);
+            Assert.AreEqual(2, firstFiles.Count);
+            Assert.AreEqual(2, snapshot.ChartCount);
+            Assert.AreEqual(sourceDir, snapshot.SourceDirectory);
+            CollectionAssert.Contains(new[] { "fast", "everything_bridge" }, snapshot.SourceSurfaceScanBackend);
+            Assert.IsTrue(snapshot.SourceSurfaceCacheHit);
+            Assert.IsTrue(snapshot.SourceSurfaceFileCount >= 3);
+            Assert.AreEqual(1, snapshot.BundledAudioCount);
+        });
+    }
+
+    [TestMethod]
+    public void BMSPackage_PathPackage_InvalidatesSharedSourceScanSnapshot_WhenPathChanges()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
+        {
+            string sourceDirA = Path.Combine(tempRoot, "PathPackageA");
+            string sourceDirB = Path.Combine(tempRoot, "PathPackageB");
+            Directory.CreateDirectory(sourceDirA);
+            Directory.CreateDirectory(sourceDirB);
+            File.WriteAllText(Path.Combine(sourceDirA, "a.bms"), "#PLAYER 1");
+            File.WriteAllText(Path.Combine(sourceDirB, "b.bms"), "#PLAYER 1");
+            File.WriteAllText(Path.Combine(sourceDirB, "01.wav"), "audio");
+
+            BMSPackage package = new BMSPackage
+            {
+                path = sourceDirA,
+                delete_parent = true
+            };
+
+            List<BMSFile> filesFromA = package.BMSFiles;
+
+            package.path = sourceDirB;
+            List<BMSFile> filesFromB = package.BMSFiles;
+            PackageInstallEstimationSnapshot snapshot = package.GetOrBuildInstallEstimationSnapshot(filesFromB);
+
+            Assert.AreEqual(1, filesFromA.Count);
+            Assert.AreEqual(1, filesFromB.Count);
+            Assert.AreNotSame(filesFromA, filesFromB);
+            Assert.AreEqual(Path.Combine(sourceDirB, "b.bms"), filesFromB[0].path);
+            Assert.AreEqual(sourceDirB, snapshot.SourceDirectory);
+            Assert.IsTrue(snapshot.SourceSurfaceCacheHit);
+            CollectionAssert.Contains(new[] { "fast", "everything_bridge" }, snapshot.SourceSurfaceScanBackend);
+        });
+    }
+
+    [TestMethod]
     public void EstimateInstallationDirectory_PackageUnionPrefersDestinationWithBaseResourcesMissingFromSourcePackage()
     {
         TestResourceInitializer.EnsureJapaneseResources();

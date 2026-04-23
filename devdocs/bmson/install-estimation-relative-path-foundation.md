@@ -389,15 +389,17 @@ Perf-3 に入る前の仕上げです。
 スコープ:
 - obsolete helper / verify-only 導線 / 一時互換コード整理
 - relative path 前提の計測 / ログ整理
-- Perf-3 へ渡す index / scanner 前提の整理
+- Estimation First スコープでの scanner / snapshot / index 前提整理
 
 このフェーズの狙い:
 - relative path 対応を「特殊ケース対応」ではなく通常状態へ昇格する
 - Perf-3 の source surface / scanner / index 改善にそのままつなげる
+- library scan と package source surface を同じ root 列挙 backend へ寄せる
 
 完了条件:
 - 主要 docs が relative path 対応後の実装を説明している
 - Perf-3 は relative path semantics を前提に着手できる
+- `BMSPackage` の source scan snapshot 再利用と package surface logging が通常実装として説明できる
 
 ## フェーズごとの優先順位
 
@@ -443,9 +445,24 @@ Perf-3 に入る前の仕上げです。
 
 主論点:
 
-1. obsolete helper / verify-only 導線 / 一時互換コード整理
-2. relative path 前提の docs / logs / diagnostics の整流化
-3. Perf-3 に渡す source surface / scanner / index 前提の整理
+1. mixed package の installed-dir resolve を正経路として整理し、legacy search という命名を外す
+2. `BmsScanResult` の obsolete compat 面と未使用 `DirectoryResourceIndex` を cleanup する
+3. `--everything-verify` を opt-in verify 導線として mainline から切り離す
+4. library scan と package source surface を shared root enumeration backend に寄せる
+5. `BMSPackage` の source scan snapshot 再利用と package surface metrics / logging を固定する
+
+Perf-3 接続で固定する補足:
+
+- shared root enumeration backend の Everything 経路は bridge-only とする
+- managed 側から `Everything3_x64.dll` を直接使わない
+- file search / enumeration 基盤の調整は、まず `EverythingBridge_x64.dll` の API 拡張を検討する
+
+この Phase 6 / Perf-3 のスコープ外:
+
+- `BmsLibraryPackageInstallService` の install/merge package discovery 列挙
+- install/merge 実処理の列挙再設計
+
+つまりこの段は、relative path semantics を完成済み前提として、**導入先推定に必要な列挙基盤だけを一般化するフェーズ**である。
 
 ## 関連ファイル
 

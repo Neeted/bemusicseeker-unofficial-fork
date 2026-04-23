@@ -8,6 +8,14 @@ namespace BeMusicSeeker.Models.Utils;
 
 internal static class ChartDirectoryScanBuilder
 {
+    internal const string ChartGroupName = "chart";
+
+    internal const string AudioGroupName = "audio";
+
+    internal const string ImageGroupName = "image";
+
+    internal const string MovieGroupName = "movie";
+
     internal static readonly string[] ChartExtensions = BMSFile.bmsExtensions.Concat(new[] { ".bmson" }).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
 
     internal static readonly string[] AudioExtensions = BMSFile.wavExtensions.Concat(new[] { ".flac" }).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
@@ -26,22 +34,38 @@ internal static class ChartDirectoryScanBuilder
 
     internal static BmsScanResult BuildFromRoots(IEnumerable<string> roots)
     {
-        HashSet<string> allFiles = new HashSet<string>(
-            (roots ?? Enumerable.Empty<string>())
-                .Where((string dir) => !string.IsNullOrWhiteSpace(dir) && Directory.Exists(dir))
-                .AsParallel()
-                .SelectMany((string dir) => FastDirectoryEnumerator.GetFilePathsAsParallel(dir, null, null, SearchOption.AllDirectories)),
-            StringComparer.OrdinalIgnoreCase);
-        return BuildFromAbsolutePaths(
-            allFiles.Where(IsChartFile),
-            allFiles.Where(IsAudioFile),
-            allFiles.Where(IsImageFile),
-            allFiles.Where(IsMovieFile));
+        RootFileEnumerationResult enumerationResult = new FastRootFileEnumerator().EnumerateFiles(roots, CreateDefaultEnumerationGroups(), verboseLog: false);
+        return BuildFromGroupedPaths(enumerationResult);
     }
 
     internal static BmsScanResult BuildFromChartDirectories(IEnumerable<string> chartDirectories)
     {
         return BuildFromRoots(chartDirectories);
+    }
+
+    internal static IReadOnlyList<RootFileEnumerationGroup> CreateDefaultEnumerationGroups(bool includeAllFiles = false)
+    {
+        List<RootFileEnumerationGroup> groups = new List<RootFileEnumerationGroup>
+        {
+            new RootFileEnumerationGroup(ChartGroupName, ChartExtensions),
+            new RootFileEnumerationGroup(AudioGroupName, AudioExtensions),
+            new RootFileEnumerationGroup(ImageGroupName, ImageExtensions),
+            new RootFileEnumerationGroup(MovieGroupName, MovieExtensions)
+        };
+        if (includeAllFiles)
+        {
+            groups.Add(new RootFileEnumerationGroup(RootFileEnumerationService.AllFilesGroupName, Array.Empty<string>(), includeAllFiles: true));
+        }
+        return groups;
+    }
+
+    internal static BmsScanResult BuildFromGroupedPaths(RootFileEnumerationResult enumerationResult)
+    {
+        return BuildFromAbsolutePaths(
+            enumerationResult?.GetPaths(ChartGroupName) ?? Array.Empty<string>(),
+            enumerationResult?.GetPaths(AudioGroupName) ?? Array.Empty<string>(),
+            enumerationResult?.GetPaths(ImageGroupName) ?? Array.Empty<string>(),
+            enumerationResult?.GetPaths(MovieGroupName) ?? Array.Empty<string>());
     }
 
     internal static BmsScanResult BuildFromAbsolutePaths(

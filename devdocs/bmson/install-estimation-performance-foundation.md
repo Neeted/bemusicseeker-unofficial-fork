@@ -439,6 +439,12 @@ Perf-2a は一度、
 
 が共通の列挙基盤を使う方向を検討する。
 
+`2026-04-23` 時点では、この Everything 経路は **bridge-only** を前提にする。
+
+- managed 側は `EverythingBridge_x64.dll` だけを呼ぶ
+- `Everything3_x64.dll` の query 実行や export 判定は bridge 側責務
+- 列挙基盤の拡張は、managed へ direct SDK 呼び出しを足すのではなく bridge API 拡張で吸収する
+
 ### 2.3 前提として固定したいこと
 
 - package source surface の列挙は、今後 **scanner abstraction** として扱う
@@ -629,7 +635,8 @@ Perf-3 では少なくとも次を前提にする。
   - 次に package surface 集約
   の順で考える
 
-つまり Perf-3 は、Perf-2a / Perf-2b のように candidate を減らしたり並列度を上げたりする段ではなく、**source path 列挙と surface snapshot 構築を観測し、再利用可能な scanner / cache へ寄せる段**として扱う。
+つまり Perf-3 は、Perf-2a / Perf-2b のように candidate を減らしたり並列度を上げたりする段ではなく、**source path 列挙と surface snapshot 構築を観測し、再利用可能な scanner / cache へ寄せる段**として扱う。  
+この段のスコープは **Estimation First** であり、`BMSLibrary` の library scan と `BMSPackage` / `PackageInstallEstimationSnapshotBuilder` の source-side install estimation までに限定する。
 
 ### 3.9 Ownership Fix 後の性能観測
 
@@ -819,25 +826,79 @@ ownership perf recovery は、その常時コストを fast path で剥がすた
 - `pathAwareRefs > 0` package の strict relative-path final evaluation は維持する
 - `pathAwareRefs = 0` package の basename-only fast path は維持する
 - これ以上の perf 議論は relative path correctness の blocker 扱いにしない
+- Perf-3 の主戦場は `EvaluateCandidate(...)` の内側ではなく、**library scan と package source surface の列挙 / materialize 経路**である
 
 Phase 6 / Perf-3 で扱うもの:
 
+`2026-04-23` 時点では、**Phase 1 (library build mainline recovery) は完了** と整理する。
+
+- library scan mainline は fixed 4-query native scan に戻した
+- library build は grouped full-path enumeration を通らない
+- source-side package surface の native aggregation 化は未着手で、Phase 2 以降の課題として残す
+
+Phase 1 実測:
+
+- `everything_scan totalMs`
+  - grouped full-path mainline: `209564`
+  - fixed 4-query native scan 復旧後: `29472`
+- `bms_scan totalMs`
+  - grouped full-path mainline: `276069`
+  - fixed 4-query native scan 復旧後: `29496`
+- `nativeBridgeReason`
+  - `everything_bridge_fixed_scan`
+
+つまり、library build regress の本体は relative-path semantics そのものではなく、
+
+- grouped full-path を bridge から managed へ返す
+- managed 側で ownership / relative hash / aggregate を再構築する
+
+という mainline 経路だったと確定してよい。  
+Phase 1 はその regress を止める段として成立している。
+
 1. **Cleanup / Legacy Removal**
-   - obsolete helper
-   - verify-only 導線
-   - 一時互換コード
+   - mixed-package resolve の説明とログを installed-dir resolve 基準へ統一し、legacy 命名を廃止する
+   - `BmsScanResult` の obsolete compat 面を削除する
+   - 未使用の `DirectoryResourceIndex` を削除する
+   - `--everything-verify` は opt-in 検証導線として残し、mainline からは切り離す
 2. **Perf-3: package source surface / scanner 基盤整理**
-   - source path 列挙の一般化
-   - snapshot / scanner / index 前提の整理
-   - evaluation hot path の外側に残る wall-clock コストの観測
+   - library scan は **fixed 4-query native scan** を mainline に戻す
+     - chart / audio / image / movie だけを query する
+     - ownership 集約と hash 化は native 側で完結させる
+   - package source surface も full-path grouped enumeration を source of truth にせず、**4-query native aggregation** に寄せる
+   - 共通化するのは full-path 群ではなく
+     - roots 正規化
+     - query build
+     - bridge dispatch
+     - packed result decode
+     の contract に限定する
+   - grouped full-path enumeration は fallback / diagnostics / small-root utility に役割を限定する
+   - `BMSPackage` の source scan snapshot 再利用は維持しつつ、mainline materialize は native result 直受けへ寄せる
+   - 詳細な段階分けは [library-scan-native-aggregation-plan.md](library-scan-native-aggregation-plan.md) を参照
 3. **docs / diagnostics の整流化**
    - 現状ロジックとログ項目の説明を一本化する
    - Phase 6 以降の改善対象を relative path 回帰対策と切り分ける
+
+この段で **扱わないもの**:
+
+- `BmsLibraryPackageInstallService` の install/merge package discovery 列挙
+- install/merge 実処理の列挙再設計
+- relative-path semantics / hybrid final evaluation / ancestor-shadow guard 自体の意味変更
+
+追加計測の主軸:
+
+- `packageSurfaceScanMs`
+- `packageSurfaceFileCount`
+- `packageSurfaceHashMaterializeMs`
+- `packageSurfaceCacheHit`
+- `packageSurfaceScanBackend=everything|fast`
+
+`estimate_install start` には source-surface delta を載せ、candidate/evaluation diagnostics と同じログ文脈で読めるようにする。
 
 ## 関連資料
 
 - [install-estimation-current-logic.md](install-estimation-current-logic.md)
 - [install-estimation-target-design.md](install-estimation-target-design.md)
 - [install-estimation-accuracy-improvement-plan.md](install-estimation-accuracy-improvement-plan.md)
+- [library-scan-native-aggregation-plan.md](library-scan-native-aggregation-plan.md)
 - [../spec/data-and-indexes.md](../spec/data-and-indexes.md)
 - [../spec/TECH_SPEC.ja.md](../spec/TECH_SPEC.ja.md)

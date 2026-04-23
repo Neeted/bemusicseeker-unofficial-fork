@@ -307,6 +307,22 @@ internal sealed class BmsLibraryInstallEstimationService
         }
     }
 
+    private readonly struct CandidateResourceSource
+    {
+        internal CandidateResourceSource(DirectoryResourceLookupCache.Entry cacheEntry, DirectoryRelativePathHashIndex.Entry relativeEntry, uint[] fallbackBaseNameHashes)
+        {
+            CacheEntry = cacheEntry;
+            RelativeEntry = relativeEntry;
+            FallbackBaseNameHashes = fallbackBaseNameHashes;
+        }
+
+        internal DirectoryResourceLookupCache.Entry CacheEntry { get; }
+
+        internal DirectoryRelativePathHashIndex.Entry RelativeEntry { get; }
+
+        internal uint[] FallbackBaseNameHashes { get; }
+    }
+
     private sealed class EvaluationDiagnostics
     {
         private long candidateViewBuildMs;
@@ -727,18 +743,27 @@ internal sealed class BmsLibraryInstallEstimationService
         Stopwatch evaluationStopwatch = Stopwatch.StartNew();
         IEnumerable<string> candidateSource = asParallel ? candidateDirList.AsParallel() : candidateDirList.AsParallel().WithDegreeOfParallelism(1);
         List<CandidateEvaluation> candidateInfos = candidateSource
-            .Select((string candidateDir) => EvaluateCandidate(
-                candidateDir,
-                resourceSnapshot,
-                folderAllFileList.TryGetCachedFileNameHashArray(candidateDir),
-                directoryLookupCache?.GetEntryOrNull(candidateDir),
-                bundledResources,
-                bundledView,
-                null,
-                directoryLookupCache == null ? relativePathHashIndex?.GetEntryOrNull(candidateDir) : null,
-                evaluationMode,
-                diagnostics,
-                isSourceCandidate: false))
+            .Select((string candidateDir) =>
+            {
+                CandidateResourceSource candidateResourceSource = ResolveCandidateResourceSource(
+                    candidateDir,
+                    folderAllFileList,
+                    directoryLookupCache,
+                    relativePathHashIndex,
+                    includeRelativeWhenCachePresent: false);
+                return EvaluateCandidate(
+                    candidateDir,
+                    resourceSnapshot,
+                    candidateResourceSource.FallbackBaseNameHashes,
+                    candidateResourceSource.CacheEntry,
+                    bundledResources,
+                    bundledView,
+                    null,
+                    candidateResourceSource.RelativeEntry,
+                    evaluationMode,
+                    diagnostics,
+                    isSourceCandidate: false);
+            })
             .ToList();
         evaluationStopwatch.Stop();
         result.EvaluationMs = evaluationStopwatch.ElapsedMilliseconds;
@@ -949,15 +974,19 @@ internal sealed class BmsLibraryInstallEstimationService
         IEnumerable<string> filtered = (asParallel ? candidates.AsParallel() : candidates.AsParallel().WithDegreeOfParallelism(1))
             .Where(delegate (string dir)
             {
-                DirectoryRelativePathHashIndex.Entry relativeEntry = relativePathHashIndex?.GetEntryOrNull(dir);
-                uint[] fallbackBaseHashes = relativeEntry == null ? folderAllFileList.TryGetCachedFileNameHashArray(dir) : null;
-                bool hasBaseNameSeed = HasBaseNameSeedMatch(broadFilterBaseHashes, relativeEntry, fallbackBaseHashes);
-                bool hasPathAwareSeed = HasPathAwareSeedMatch(resourceSnapshot, relativeEntry);
+                CandidateResourceSource candidateResourceSource = ResolveCandidateResourceSource(
+                    dir,
+                    folderAllFileList,
+                    directoryLookupCache: null,
+                    relativePathHashIndex,
+                    includeRelativeWhenCachePresent: true);
+                bool hasBaseNameSeed = HasBaseNameSeedMatch(broadFilterBaseHashes, candidateResourceSource.RelativeEntry, candidateResourceSource.FallbackBaseNameHashes);
+                bool hasPathAwareSeed = HasPathAwareSeedMatch(resourceSnapshot, candidateResourceSource.RelativeEntry);
                 if (!hasBaseNameSeed && !hasPathAwareSeed)
                 {
                     return false;
                 }
-                return PassesPathAwareAdmissionGate(resourceSnapshot, relativeEntry);
+                return PassesPathAwareAdmissionGate(resourceSnapshot, candidateResourceSource.RelativeEntry);
             });
         return filtered.ToList();
     }
@@ -1537,6 +1566,18 @@ internal sealed class BmsLibraryInstallEstimationService
     private static CandidateResourceView CreateCandidateResourceView(DirectoryResourceLookupCache.Entry entry, DirectoryRelativePathHashIndex.Entry relativePathEntry, uint[] fileNameHashes, EvaluationDiagnostics diagnostics = null)
     {
         return CreateCandidateResourceView(entry, relativePathEntry, fileNameHashes, includeSelfOwned: false, diagnostics: diagnostics);
+    }
+
+    private static CandidateResourceSource ResolveCandidateResourceSource(string directoryPath, BMSDirectoryFileNameHash folderAllFileList, DirectoryResourceLookupCache directoryLookupCache, DirectoryRelativePathHashIndex relativePathHashIndex, bool includeRelativeWhenCachePresent)
+    {
+        DirectoryResourceLookupCache.Entry cacheEntry = directoryLookupCache?.GetEntryOrNull(directoryPath);
+        DirectoryRelativePathHashIndex.Entry relativeEntry = (includeRelativeWhenCachePresent || cacheEntry == null)
+            ? relativePathHashIndex?.GetEntryOrNull(directoryPath)
+            : null;
+        uint[] fallbackBaseNameHashes = cacheEntry == null && relativeEntry == null
+            ? folderAllFileList?.TryGetCachedFileNameHashArray(directoryPath)
+            : null;
+        return new CandidateResourceSource(cacheEntry, relativeEntry, fallbackBaseNameHashes);
     }
 
     private static CandidateResourceView CreateCandidateResourceView(DirectoryResourceLookupCache.Entry entry, DirectoryRelativePathHashIndex.Entry relativePathEntry, uint[] fileNameHashes, bool includeSelfOwned, EvaluationDiagnostics diagnostics = null)
@@ -2150,10 +2191,18 @@ internal sealed class BmsLibraryInstallEstimationService
             return cachedMatchedTotal;
         }
 
-        DirectoryResourceLookupCache.Entry cacheEntry = directoryLookupCache?.GetEntryOrNull(directoryPath);
-        DirectoryRelativePathHashIndex.Entry relativeEntry = relativePathHashIndex?.GetEntryOrNull(directoryPath);
-        uint[] fileNameHashes = cacheEntry == null && relativeEntry == null ? folderAllFileList?.TryGetCachedFileNameHashArray(directoryPath) : null;
-        CandidateResourceView selfOwnedView = CreateCandidateResourceView(cacheEntry, relativeEntry, fileNameHashes, includeSelfOwned: true, diagnostics: diagnostics);
+        CandidateResourceSource candidateResourceSource = ResolveCandidateResourceSource(
+            directoryPath,
+            folderAllFileList,
+            directoryLookupCache,
+            relativePathHashIndex,
+            includeRelativeWhenCachePresent: true);
+        CandidateResourceView selfOwnedView = CreateCandidateResourceView(
+            candidateResourceSource.CacheEntry,
+            candidateResourceSource.RelativeEntry,
+            candidateResourceSource.FallbackBaseNameHashes,
+            includeSelfOwned: true,
+            diagnostics: diagnostics);
         Stopwatch matchStopwatch = diagnostics == null ? null : Stopwatch.StartNew();
         int matchedTotal = CountMatchedReferences(snapshot.AudioReferences, selfOwnedView.SelfOwnedAudioBaseNameHashes, null, selfOwnedView.SelfOwnedAudioRelativePathHashes, null)
             + CountMatchedReferences(snapshot.VisualReferences, selfOwnedView.SelfOwnedVisualBaseNameHashes, null, selfOwnedView.SelfOwnedVisualRelativePathHashes, null)
