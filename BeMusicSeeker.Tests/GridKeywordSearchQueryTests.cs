@@ -1,6 +1,7 @@
 using BeMusicSeeker.Models;
 using BeMusicSeeker.ViewModels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using System;
 using System.Linq;
 
 namespace BeMusicSeeker.Tests;
@@ -130,6 +131,66 @@ public sealed class GridKeywordSearchQueryTests
         GridKeywordSearchQuery query = GridKeywordSearchQuery.Parse("title:\"Alpha Title\" -artist:other title:alpha|beta title:re:^alpha");
 
         Assert.AreEqual(0, query.GetDiagnostics(GridKeywordSearchContext.BmsFile).Count);
+    }
+
+    [TestMethod]
+    public void CreateFieldCompletion_CompletesContextSpecificFields()
+    {
+        GridKeywordSearchCompletionResult bmsResult = GridKeywordSearchCompletion.CreateFieldCompletion("tit", 3, GridKeywordSearchContext.BmsFile);
+        GridKeywordSearchCompletionResult negatedResult = GridKeywordSearchCompletion.CreateFieldCompletion("-ar", 3, GridKeywordSearchContext.BmsFile);
+        GridKeywordSearchCompletionResult detailResult = GridKeywordSearchCompletion.CreateFieldCompletion("mem", 3, GridKeywordSearchContext.PlaylistDetail);
+        GridKeywordSearchCompletionResult summaryResult = GridKeywordSearchCompletion.CreateFieldCompletion("na", 2, GridKeywordSearchContext.PlaylistSummary);
+
+        Assert.IsTrue(bmsResult.Items.Any((KeywordSearchSuggestionItem item) => item.DisplayText == "title:"));
+        Assert.IsTrue(negatedResult.Items.Any((KeywordSearchSuggestionItem item) => item.DisplayText == "-artist:"));
+        Assert.IsTrue(detailResult.Items.Any((KeywordSearchSuggestionItem item) => item.DisplayText == "memo:"));
+        Assert.IsTrue(summaryResult.Items.Any((KeywordSearchSuggestionItem item) => item.DisplayText == "name:"));
+        Assert.AreEqual(0, GridKeywordSearchCompletion.CreateFieldCompletion("mem", 3, GridKeywordSearchContext.BmsFile).Items.Count);
+    }
+
+    [TestMethod]
+    public void CreateFieldCompletion_DoesNotCompleteTermsAfterFieldSeparator()
+    {
+        GridKeywordSearchCompletionResult result = GridKeywordSearchCompletion.CreateFieldCompletion("title:alpha", 11, GridKeywordSearchContext.BmsFile);
+
+        Assert.AreEqual(0, result.Items.Count);
+    }
+
+    [TestMethod]
+    public void KeywordSearchSuggestionItem_ApplyReplacesOnlyFieldPrefix()
+    {
+        KeywordSearchSuggestionItem suggestion = GridKeywordSearchCompletion.CreateFieldCompletion("foo tit bar", 7, GridKeywordSearchContext.BmsFile)
+            .Items
+            .Single((KeywordSearchSuggestionItem item) => item.DisplayText == "title:");
+
+        string applied = suggestion.Apply("foo tit bar", out int caretIndex);
+
+        Assert.AreEqual("foo title: bar", applied);
+        Assert.AreEqual("foo title:".Length, caretIndex);
+    }
+
+    [TestMethod]
+    public void KeywordSearchHistoryStore_RoundTripsDistinctCappedHistory()
+    {
+        string[] entries = Enumerable.Range(0, KeywordSearchHistoryStore.MaxHistoryCount + 5)
+            .Select((int index) => "title:" + index)
+            .ToArray();
+        string serialized = KeywordSearchHistoryStore.Serialize(entries);
+
+        string[] restored = KeywordSearchHistoryStore.Deserialize(serialized).ToArray();
+
+        Assert.AreEqual(KeywordSearchHistoryStore.MaxHistoryCount, restored.Length);
+        Assert.AreEqual("title:0", restored[0]);
+        CollectionAssert.DoesNotContain(restored, "title:24");
+    }
+
+    [TestMethod]
+    public void KeywordSearchHistoryStore_AddEntryMovesDuplicateToFront()
+    {
+        string[] updated = KeywordSearchHistoryStore.AddEntry(new[] { "alpha", "beta", "gamma" }, " BETA ")
+            .ToArray();
+
+        CollectionAssert.AreEqual(new[] { "BETA", "alpha", "gamma" }, updated);
     }
 
     private static TestableBmsFile CreateFile()

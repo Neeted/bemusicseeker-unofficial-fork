@@ -105,6 +105,8 @@
   "Keyword_search_help_fields_bmsfile": "title, artist, genre, tag, path, playlist/ref, md5/hash, sha256",
   "Keyword_search_help_fields_playlist_detail": "title, artist, genre, tag, path, playlist/ref, md5/hash, sha256, memo, comment",
   "Keyword_search_help_fields_playlist_summary": "id, name, symbol",
+  "Keyword_search_completion_fields_header": "検索対象",
+  "Keyword_search_completion_history_header": "検索履歴",
   "Keyword_search_warning_unknown_field": "未知の検索対象です: {0}",
   "Keyword_search_warning_empty_field_term": "検索語が空です: {0}:",
   "Keyword_search_warning_empty_negation": "除外条件が空です: -",

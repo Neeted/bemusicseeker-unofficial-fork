@@ -41,6 +41,12 @@ internal sealed class GridKeywordSearchQuery
 {
     private static readonly TimeSpan RegexTimeout = TimeSpan.FromMilliseconds(100);
 
+    private static readonly string[] BmsFileFields = { "title", "artist", "genre", "tag", "path", "playlist", "ref", "md5", "hash", "sha256" };
+
+    private static readonly string[] PlaylistDetailFields = { "title", "artist", "genre", "tag", "path", "playlist", "ref", "md5", "hash", "sha256", "memo", "comment" };
+
+    private static readonly string[] PlaylistSummaryFields = { "id", "name", "symbol" };
+
     private readonly SearchCondition[] conditions;
 
     private GridKeywordSearchQuery(SearchCondition[] conditions)
@@ -49,6 +55,25 @@ internal sealed class GridKeywordSearchQuery
     }
 
     internal bool HasTokens => conditions.Length > 0;
+
+    /// <summary>
+    /// 指定 context で利用できる field query 名を返します。
+    /// 診断・ヘルプ・補完が同じ field 定義を使うための共有入口です。
+    /// </summary>
+    /// <param name="context">検索対象の context。</param>
+    /// <returns>利用可能な field 名一覧。</returns>
+    internal static IReadOnlyList<string> GetKnownFields(GridKeywordSearchContext context)
+    {
+        switch (context)
+        {
+            case GridKeywordSearchContext.PlaylistDetail:
+                return PlaylistDetailFields;
+            case GridKeywordSearchContext.PlaylistSummary:
+                return PlaylistSummaryFields;
+            default:
+                return BmsFileFields;
+        }
+    }
 
     internal IReadOnlyList<GridKeywordSearchDiagnostic> GetDiagnostics(GridKeywordSearchContext context)
     {
@@ -481,60 +506,17 @@ internal sealed class GridKeywordSearchQuery
 
     private static bool IsKnownBmsFileField(string field)
     {
-        switch (field)
-        {
-            case null:
-            case "title":
-            case "artist":
-            case "genre":
-            case "tag":
-            case "path":
-            case "playlist":
-            case "ref":
-            case "md5":
-            case "hash":
-            case "sha256":
-                return true;
-            default:
-                return false;
-        }
+        return field == null || BmsFileFields.Contains(field);
     }
 
     private static bool IsKnownPlaylistDetailField(string field)
     {
-        switch (field)
-        {
-            case null:
-            case "title":
-            case "artist":
-            case "genre":
-            case "tag":
-            case "path":
-            case "playlist":
-            case "ref":
-            case "md5":
-            case "hash":
-            case "sha256":
-            case "memo":
-            case "comment":
-                return true;
-            default:
-                return false;
-        }
+        return field == null || PlaylistDetailFields.Contains(field);
     }
 
     private static bool IsKnownPlaylistSummaryField(string field)
     {
-        switch (field)
-        {
-            case null:
-            case "id":
-            case "name":
-            case "symbol":
-                return true;
-            default:
-                return false;
-        }
+        return field == null || PlaylistSummaryFields.Contains(field);
     }
 
     private static bool IsKnownField(GridKeywordSearchContext context, string field)

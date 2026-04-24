@@ -4342,6 +4342,22 @@ public class MainWindowViewModel : ViewModel
 
     private bool _IsPlaylistSummaryKeywordSearchHelpOpen;
 
+    private readonly ObservableCollection<KeywordSearchSuggestionItem> _KeywordSearchSuggestions = new ObservableCollection<KeywordSearchSuggestionItem>();
+
+    private readonly ObservableCollection<KeywordSearchSuggestionItem> _PlaylistSummaryKeywordSearchSuggestions = new ObservableCollection<KeywordSearchSuggestionItem>();
+
+    private readonly List<string> keywordSearchHistory = new List<string>();
+
+    private readonly List<string> playlistSummaryKeywordSearchHistory = new List<string>();
+
+    private bool _IsKeywordSearchSuggestionPopupOpen;
+
+    private bool _IsPlaylistSummaryKeywordSearchSuggestionPopupOpen;
+
+    private string _KeywordSearchSuggestionHeaderText = string.Empty;
+
+    private string _PlaylistSummaryKeywordSearchSuggestionHeaderText = string.Empty;
+
     private PlaylistSummaryOwnedFilterType _PlaylistSummaryOwnedFilter = PlaylistSummaryOwnedFilterType.All;
 
     private Func<BeMusicSeeker.Models.BMSFile, bool> _FolderFilter;
@@ -4618,6 +4634,34 @@ public class MainWindowViewModel : ViewModel
                 break;
         }
         return string.Format(BeMusicSeeker.Properties.Resources.Keyword_search_help_template, fields);
+    }
+
+    /// <summary>
+    /// 検索候補 popup の見出しを返します。
+    /// field 補完と履歴は同じ popup に載るため、候補種別に応じて表示を切り替えます。
+    /// </summary>
+    /// <param name="kind">候補種別。</param>
+    /// <returns>popup 見出し。</returns>
+    internal static string BuildKeywordSearchSuggestionHeaderText(KeywordSearchSuggestionKind kind)
+    {
+        return kind == KeywordSearchSuggestionKind.History
+            ? BeMusicSeeker.Properties.Resources.Keyword_search_completion_history_header
+            : BeMusicSeeker.Properties.Resources.Keyword_search_completion_fields_header;
+    }
+
+    /// <summary>
+    /// 検索履歴候補を作ります。
+    /// </summary>
+    /// <param name="history">履歴一覧。</param>
+    /// <param name="currentText">現在の検索文字列。</param>
+    /// <returns>履歴候補一覧。</returns>
+    internal static IReadOnlyList<KeywordSearchSuggestionItem> BuildKeywordSearchHistorySuggestions(IEnumerable<string> history, string currentText)
+    {
+        string safeText = currentText ?? string.Empty;
+        return (history ?? Enumerable.Empty<string>())
+            .Where((string entry) => !string.IsNullOrWhiteSpace(entry))
+            .Select((string entry) => new KeywordSearchSuggestionItem(KeywordSearchSuggestionKind.History, entry, entry, 0, safeText.Length))
+            .ToArray();
     }
 
     private static string FormatKeywordSearchDiagnostic(GridKeywordSearchDiagnostic diagnostic)
@@ -7772,6 +7816,138 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
+    /// <summary>
+    /// 通常検索欄に表示する field 補完・履歴候補です。
+    /// </summary>
+    public ObservableCollection<KeywordSearchSuggestionItem> KeywordSearchSuggestions => _KeywordSearchSuggestions;
+
+    /// <summary>
+    /// プレイリスト一覧検索欄に表示する field 補完・履歴候補です。
+    /// </summary>
+    public ObservableCollection<KeywordSearchSuggestionItem> PlaylistSummaryKeywordSearchSuggestions => _PlaylistSummaryKeywordSearchSuggestions;
+
+    /// <summary>
+    /// 通常検索欄の候補 popup が開いているかどうかを取得または設定します。
+    /// </summary>
+    public bool IsKeywordSearchSuggestionPopupOpen
+    {
+        get
+        {
+            return _IsKeywordSearchSuggestionPopupOpen;
+        }
+        set
+        {
+            if (_IsKeywordSearchSuggestionPopupOpen != value)
+            {
+                _IsKeywordSearchSuggestionPopupOpen = value;
+                RaisePropertyChanged("IsKeywordSearchSuggestionPopupOpen");
+            }
+        }
+    }
+
+    /// <summary>
+    /// プレイリスト一覧検索欄の候補 popup が開いているかどうかを取得または設定します。
+    /// </summary>
+    public bool IsPlaylistSummaryKeywordSearchSuggestionPopupOpen
+    {
+        get
+        {
+            return _IsPlaylistSummaryKeywordSearchSuggestionPopupOpen;
+        }
+        set
+        {
+            if (_IsPlaylistSummaryKeywordSearchSuggestionPopupOpen != value)
+            {
+                _IsPlaylistSummaryKeywordSearchSuggestionPopupOpen = value;
+                RaisePropertyChanged("IsPlaylistSummaryKeywordSearchSuggestionPopupOpen");
+            }
+        }
+    }
+
+    /// <summary>
+    /// 通常検索欄の候補 popup 見出しです。
+    /// </summary>
+    public string KeywordSearchSuggestionHeaderText => _KeywordSearchSuggestionHeaderText;
+
+    /// <summary>
+    /// プレイリスト一覧検索欄の候補 popup 見出しです。
+    /// </summary>
+    public string PlaylistSummaryKeywordSearchSuggestionHeaderText => _PlaylistSummaryKeywordSearchSuggestionHeaderText;
+
+    internal GridKeywordSearchContext CurrentKeywordSearchContext => GetCurrentKeywordSearchContext();
+
+    /// <summary>
+    /// 通常検索欄の補完・履歴候補を更新します。
+    /// </summary>
+    /// <param name="keywordFilter">検索欄の現在値。</param>
+    /// <param name="caretIndex">現在の caret 位置。</param>
+    /// <param name="forceHistory">field 補完が無い時に履歴を表示するか。</param>
+    internal void RefreshKeywordSearchSuggestions(string keywordFilter, int caretIndex, bool forceHistory)
+    {
+        RefreshKeywordSearchSuggestions(
+            _KeywordSearchSuggestions,
+            GetCurrentKeywordSearchContext(),
+            keywordSearchHistory,
+            keywordFilter,
+            caretIndex,
+            forceHistory,
+            isPlaylistSummary: false);
+    }
+
+    /// <summary>
+    /// プレイリスト一覧検索欄の補完・履歴候補を更新します。
+    /// </summary>
+    /// <param name="keywordFilter">検索欄の現在値。</param>
+    /// <param name="caretIndex">現在の caret 位置。</param>
+    /// <param name="forceHistory">field 補完が無い時に履歴を表示するか。</param>
+    internal void RefreshPlaylistSummaryKeywordSearchSuggestions(string keywordFilter, int caretIndex, bool forceHistory)
+    {
+        RefreshKeywordSearchSuggestions(
+            _PlaylistSummaryKeywordSearchSuggestions,
+            GridKeywordSearchContext.PlaylistSummary,
+            playlistSummaryKeywordSearchHistory,
+            keywordFilter,
+            caretIndex,
+            forceHistory,
+            isPlaylistSummary: true);
+    }
+
+    /// <summary>
+    /// 通常検索欄の候補 popup を閉じます。
+    /// </summary>
+    internal void CloseKeywordSearchSuggestions()
+    {
+        IsKeywordSearchSuggestionPopupOpen = false;
+    }
+
+    /// <summary>
+    /// プレイリスト一覧検索欄の候補 popup を閉じます。
+    /// </summary>
+    internal void ClosePlaylistSummaryKeywordSearchSuggestions()
+    {
+        IsPlaylistSummaryKeywordSearchSuggestionPopupOpen = false;
+    }
+
+    /// <summary>
+    /// 通常検索欄の検索履歴へ現在値を追加します。
+    /// </summary>
+    /// <param name="keywordFilter">保存する検索文字列。</param>
+    internal void CommitKeywordSearchHistory(string keywordFilter)
+    {
+        ReplaceKeywordSearchHistory(keywordSearchHistory, KeywordSearchHistoryStore.AddEntry(keywordSearchHistory, keywordFilter));
+        Settings.Default.KeywordSearchHistory = KeywordSearchHistoryStore.Serialize(keywordSearchHistory);
+    }
+
+    /// <summary>
+    /// プレイリスト一覧検索欄の検索履歴へ現在値を追加します。
+    /// </summary>
+    /// <param name="keywordFilter">保存する検索文字列。</param>
+    internal void CommitPlaylistSummaryKeywordSearchHistory(string keywordFilter)
+    {
+        ReplaceKeywordSearchHistory(playlistSummaryKeywordSearchHistory, KeywordSearchHistoryStore.AddEntry(playlistSummaryKeywordSearchHistory, keywordFilter));
+        Settings.Default.PlaylistSummaryKeywordSearchHistory = KeywordSearchHistoryStore.Serialize(playlistSummaryKeywordSearchHistory);
+    }
+
     private GridKeywordSearchContext GetCurrentKeywordSearchContext()
     {
         return IsPlaylistViewMode(treeViewFilterTypeSelected)
@@ -7801,6 +7977,51 @@ public class MainWindowViewModel : ViewModel
             RaisePropertyChanged("HasPlaylistSummaryKeywordSearchWarning");
         }
         RaisePropertyChanged("PlaylistSummaryKeywordSearchHelpText");
+    }
+
+    private void RefreshKeywordSearchSuggestions(ObservableCollection<KeywordSearchSuggestionItem> targetSuggestions, GridKeywordSearchContext context, IReadOnlyList<string> history, string keywordFilter, int caretIndex, bool forceHistory, bool isPlaylistSummary)
+    {
+        GridKeywordSearchCompletionResult fieldCompletion = GridKeywordSearchCompletion.CreateFieldCompletion(keywordFilter, caretIndex, context);
+        if (fieldCompletion.Items.Count > 0)
+        {
+            SetKeywordSearchSuggestions(targetSuggestions, fieldCompletion.Items, KeywordSearchSuggestionKind.Field, isPlaylistSummary);
+            return;
+        }
+        if (forceHistory)
+        {
+            IReadOnlyList<KeywordSearchSuggestionItem> historySuggestions = BuildKeywordSearchHistorySuggestions(history, keywordFilter);
+            SetKeywordSearchSuggestions(targetSuggestions, historySuggestions, KeywordSearchSuggestionKind.History, isPlaylistSummary);
+            return;
+        }
+        SetKeywordSearchSuggestions(targetSuggestions, Array.Empty<KeywordSearchSuggestionItem>(), KeywordSearchSuggestionKind.Field, isPlaylistSummary);
+    }
+
+    private void SetKeywordSearchSuggestions(ObservableCollection<KeywordSearchSuggestionItem> targetSuggestions, IReadOnlyList<KeywordSearchSuggestionItem> suggestions, KeywordSearchSuggestionKind kind, bool isPlaylistSummary)
+    {
+        targetSuggestions.Clear();
+        foreach (KeywordSearchSuggestionItem suggestion in suggestions ?? Array.Empty<KeywordSearchSuggestionItem>())
+        {
+            targetSuggestions.Add(suggestion);
+        }
+        string headerText = targetSuggestions.Count == 0 ? string.Empty : BuildKeywordSearchSuggestionHeaderText(kind);
+        if (isPlaylistSummary)
+        {
+            _PlaylistSummaryKeywordSearchSuggestionHeaderText = headerText;
+            RaisePropertyChanged("PlaylistSummaryKeywordSearchSuggestionHeaderText");
+            IsPlaylistSummaryKeywordSearchSuggestionPopupOpen = targetSuggestions.Count > 0;
+        }
+        else
+        {
+            _KeywordSearchSuggestionHeaderText = headerText;
+            RaisePropertyChanged("KeywordSearchSuggestionHeaderText");
+            IsKeywordSearchSuggestionPopupOpen = targetSuggestions.Count > 0;
+        }
+    }
+
+    private static void ReplaceKeywordSearchHistory(List<string> target, IEnumerable<string> source)
+    {
+        target.Clear();
+        target.AddRange(source ?? Enumerable.Empty<string>());
     }
 
     public PlaylistSummaryOwnedFilterType PlaylistSummaryOwnedFilter
@@ -8320,6 +8541,8 @@ public class MainWindowViewModel : ViewModel
     public MainWindowViewModel()
     {
         _IsPlaylistTreeExpanded = Settings.Default.StartupExpandPlaylistTree;
+        ReplaceKeywordSearchHistory(keywordSearchHistory, KeywordSearchHistoryStore.Deserialize(Settings.Default.KeywordSearchHistory));
+        ReplaceKeywordSearchHistory(playlistSummaryKeywordSearchHistory, KeywordSearchHistoryStore.Deserialize(Settings.Default.PlaylistSummaryKeywordSearchHistory));
         settingDialog = new SettingDialogViewModel(this);
         dropInstallQueueProcessor = new DropInstallQueueProcessor(ProcessDroppedInstallBatch, UpdateDropInstallQueueStatus, HandleDroppedInstallBatchException);
     }

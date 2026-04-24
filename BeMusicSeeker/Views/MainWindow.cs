@@ -22,6 +22,7 @@ using System.Windows.Markup;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Media.Imaging;
+using System.Windows.Media.Media3D;
 using System.Windows.Navigation;
 using System.Windows.Threading;
 using BeMusicSeeker.Models;
@@ -216,6 +217,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     {
         InitializeComponent();
         DataContextChanged += MainWindow_DataContextChanged;
+        AddHandler(UIElement.PreviewMouseDownEvent, new MouseButtonEventHandler(keywordSearchWindowPreviewMouseDown), true);
+        Deactivated += MainWindow_Deactivated;
 
         // Add handler that catches already-handled TreeViewItem.Selected events to synchronize TreeView exclusivity
         gridTreePane.AddHandler(TreeViewItem.SelectedEvent, new RoutedEventHandler(gridTreePane_TreeViewItemSelected), true);
@@ -1831,6 +1834,309 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             textBox?.Focus();
             e.Handled = true;
         }
+    }
+
+    private void keywordSearchBoxTextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (sender is TextBox textBox)
+        {
+            RefreshKeywordSearchSuggestions(textBox, forceHistory: false);
+        }
+    }
+
+    private void keywordSearchBoxGotKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)
+    {
+        if (sender is TextBox textBox && string.IsNullOrWhiteSpace(textBox.Text))
+        {
+            // NOTE:
+            // Popup を focus event の処理中に開くと、StaysOpen=false の外部 focus 判定で
+            // 即時に閉じる環境があるため、TextBox の focus が確定してから履歴を表示します。
+            Dispatcher.BeginInvoke((Action)delegate
+            {
+                if (textBox.IsKeyboardFocusWithin && string.IsNullOrWhiteSpace(textBox.Text))
+                {
+                    RefreshKeywordSearchSuggestions(textBox, forceHistory: true);
+                }
+            }, DispatcherPriority.Input);
+        }
+    }
+
+    private void keywordSearchBoxLostKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)
+    {
+        if (sender is TextBox textBox)
+        {
+            CommitKeywordSearchHistory(textBox);
+            CloseKeywordSearchSuggestions(IsPlaylistSummaryKeywordSearchBox(textBox));
+        }
+    }
+
+    private void keywordSearchWindowPreviewMouseDown(object sender, MouseButtonEventArgs e)
+    {
+        DependencyObject clickedElement = e.OriginalSource as DependencyObject;
+        CloseKeywordSearchSuggestionsIfOutside(clickedElement, false);
+        CloseKeywordSearchSuggestionsIfOutside(clickedElement, true);
+    }
+
+    private void MainWindow_Deactivated(object sender, EventArgs e)
+    {
+        CloseKeywordSearchSuggestions(false);
+        CloseKeywordSearchSuggestions(true);
+    }
+
+    private void keywordSearchBoxPreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (!(sender is TextBox textBox))
+        {
+            return;
+        }
+        bool isPlaylistSummary = IsPlaylistSummaryKeywordSearchBox(textBox);
+        bool isPopupOpen = IsKeywordSearchSuggestionPopupOpen(isPlaylistSummary);
+        if (e.Key == Key.Escape && isPopupOpen)
+        {
+            CloseKeywordSearchSuggestions(isPlaylistSummary);
+            e.Handled = true;
+            return;
+        }
+        if ((Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control && e.Key == Key.Space)
+        {
+            RefreshKeywordSearchSuggestions(textBox, forceHistory: true);
+            FocusFirstKeywordSearchSuggestion(isPlaylistSummary);
+            e.Handled = true;
+            return;
+        }
+        if (e.Key == Key.Down || e.Key == Key.Up)
+        {
+            if (!isPopupOpen)
+            {
+                RefreshKeywordSearchSuggestions(textBox, forceHistory: true);
+            }
+            NavigateKeywordSearchSuggestion(isPlaylistSummary, e.Key == Key.Down ? 1 : -1);
+            e.Handled = true;
+            return;
+        }
+        if ((e.Key == Key.Enter || e.Key == Key.Tab) && isPopupOpen)
+        {
+            if (ApplySelectedKeywordSearchSuggestion(textBox))
+            {
+                e.Handled = true;
+                return;
+            }
+        }
+        if (e.Key == Key.Enter)
+        {
+            CommitKeywordSearchHistory(textBox);
+        }
+    }
+
+    private void keywordSearchSuggestionPreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (!(sender is ListBox listBox))
+        {
+            return;
+        }
+        ListBoxItem listBoxItem = ItemsControl.ContainerFromElement(listBox, e.OriginalSource as DependencyObject) as ListBoxItem;
+        KeywordSearchSuggestionItem suggestion = listBoxItem?.DataContext as KeywordSearchSuggestionItem ?? listBox.SelectedItem as KeywordSearchSuggestionItem;
+        TextBox textBox = ReferenceEquals(listBox, PlaylistSummaryKeywordSearchSuggestionListBox) ? KeywordSearchBoxPlaylistSummary : KeywordSearchBox;
+        if (suggestion != null && ApplyKeywordSearchSuggestion(textBox, suggestion))
+        {
+            e.Handled = true;
+        }
+    }
+
+    private void keywordSearchSuggestionPreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (!(sender is ListBox listBox))
+        {
+            return;
+        }
+        bool isPlaylistSummary = ReferenceEquals(listBox, PlaylistSummaryKeywordSearchSuggestionListBox);
+        TextBox textBox = isPlaylistSummary ? KeywordSearchBoxPlaylistSummary : KeywordSearchBox;
+        if (e.Key == Key.Enter || e.Key == Key.Tab)
+        {
+            if (ApplySelectedKeywordSearchSuggestion(textBox))
+            {
+                e.Handled = true;
+            }
+            return;
+        }
+        if (e.Key == Key.Escape)
+        {
+            CloseKeywordSearchSuggestions(isPlaylistSummary);
+            textBox?.Focus();
+            e.Handled = true;
+        }
+    }
+
+    private void RefreshKeywordSearchSuggestions(TextBox textBox, bool forceHistory)
+    {
+        if (!(base.DataContext is MainWindowViewModel viewModel) || textBox == null)
+        {
+            return;
+        }
+        if (IsPlaylistSummaryKeywordSearchBox(textBox))
+        {
+            viewModel.RefreshPlaylistSummaryKeywordSearchSuggestions(textBox.Text, textBox.CaretIndex, forceHistory);
+        }
+        else
+        {
+            viewModel.RefreshKeywordSearchSuggestions(textBox.Text, textBox.CaretIndex, forceHistory);
+        }
+    }
+
+    private void CommitKeywordSearchHistory(TextBox textBox)
+    {
+        if (!(base.DataContext is MainWindowViewModel viewModel) || textBox == null)
+        {
+            return;
+        }
+        if (IsPlaylistSummaryKeywordSearchBox(textBox))
+        {
+            viewModel.CommitPlaylistSummaryKeywordSearchHistory(textBox.Text);
+        }
+        else
+        {
+            viewModel.CommitKeywordSearchHistory(textBox.Text);
+        }
+    }
+
+    private bool ApplySelectedKeywordSearchSuggestion(TextBox textBox)
+    {
+        bool isPlaylistSummary = IsPlaylistSummaryKeywordSearchBox(textBox);
+        ListBox listBox = GetKeywordSearchSuggestionListBox(isPlaylistSummary);
+        KeywordSearchSuggestionItem suggestion = listBox?.SelectedItem as KeywordSearchSuggestionItem;
+        if (suggestion == null && listBox?.Items.Count > 0)
+        {
+            suggestion = listBox.Items[0] as KeywordSearchSuggestionItem;
+        }
+        return suggestion != null && ApplyKeywordSearchSuggestion(textBox, suggestion);
+    }
+
+    private bool ApplyKeywordSearchSuggestion(TextBox textBox, KeywordSearchSuggestionItem suggestion)
+    {
+        if (textBox == null || suggestion == null)
+        {
+            return false;
+        }
+        string appliedText = suggestion.Apply(textBox.Text, out int caretIndex);
+        textBox.Text = appliedText;
+        textBox.CaretIndex = Math.Max(0, Math.Min(caretIndex, textBox.Text.Length));
+        textBox.GetBindingExpression(TextBox.TextProperty)?.UpdateSource();
+        bool isPlaylistSummary = IsPlaylistSummaryKeywordSearchBox(textBox);
+        if (suggestion.Kind == KeywordSearchSuggestionKind.History)
+        {
+            CommitKeywordSearchHistory(textBox);
+        }
+        CloseKeywordSearchSuggestions(isPlaylistSummary);
+        textBox.Focus();
+        return true;
+    }
+
+    private void NavigateKeywordSearchSuggestion(bool isPlaylistSummary, int delta)
+    {
+        ListBox listBox = GetKeywordSearchSuggestionListBox(isPlaylistSummary);
+        if (listBox == null || listBox.Items.Count == 0)
+        {
+            return;
+        }
+        int selectedIndex = listBox.SelectedIndex;
+        if (selectedIndex < 0)
+        {
+            selectedIndex = delta >= 0 ? 0 : listBox.Items.Count - 1;
+        }
+        else
+        {
+            selectedIndex += delta;
+            if (selectedIndex < 0)
+            {
+                selectedIndex = listBox.Items.Count - 1;
+            }
+            else if (selectedIndex >= listBox.Items.Count)
+            {
+                selectedIndex = 0;
+            }
+        }
+        listBox.SelectedIndex = selectedIndex;
+        listBox.ScrollIntoView(listBox.SelectedItem);
+        listBox.Focus();
+    }
+
+    private void FocusFirstKeywordSearchSuggestion(bool isPlaylistSummary)
+    {
+        ListBox listBox = GetKeywordSearchSuggestionListBox(isPlaylistSummary);
+        if (listBox == null || listBox.Items.Count == 0)
+        {
+            return;
+        }
+        listBox.SelectedIndex = 0;
+        listBox.Focus();
+    }
+
+    private ListBox GetKeywordSearchSuggestionListBox(bool isPlaylistSummary)
+    {
+        return isPlaylistSummary ? PlaylistSummaryKeywordSearchSuggestionListBox : KeywordSearchSuggestionListBox;
+    }
+
+    private bool IsPlaylistSummaryKeywordSearchBox(TextBox textBox)
+    {
+        return ReferenceEquals(textBox, KeywordSearchBoxPlaylistSummary);
+    }
+
+    private bool IsKeywordSearchSuggestionPopupOpen(bool isPlaylistSummary)
+    {
+        return base.DataContext is MainWindowViewModel viewModel
+            && (isPlaylistSummary ? viewModel.IsPlaylistSummaryKeywordSearchSuggestionPopupOpen : viewModel.IsKeywordSearchSuggestionPopupOpen);
+    }
+
+    private void CloseKeywordSearchSuggestions(bool isPlaylistSummary)
+    {
+        if (!(base.DataContext is MainWindowViewModel viewModel))
+        {
+            return;
+        }
+        if (isPlaylistSummary)
+        {
+            viewModel.ClosePlaylistSummaryKeywordSearchSuggestions();
+        }
+        else
+        {
+            viewModel.CloseKeywordSearchSuggestions();
+        }
+    }
+
+    private void CloseKeywordSearchSuggestionsIfOutside(DependencyObject clickedElement, bool isPlaylistSummary)
+    {
+        if (!IsKeywordSearchSuggestionPopupOpen(isPlaylistSummary))
+        {
+            return;
+        }
+        TextBox textBox = isPlaylistSummary ? KeywordSearchBoxPlaylistSummary : KeywordSearchBox;
+        ListBox listBox = GetKeywordSearchSuggestionListBox(isPlaylistSummary);
+        if (IsDescendantOf(clickedElement, textBox) || IsDescendantOf(clickedElement, listBox))
+        {
+            return;
+        }
+        CloseKeywordSearchSuggestions(isPlaylistSummary);
+    }
+
+    private static bool IsDescendantOf(DependencyObject child, DependencyObject ancestor)
+    {
+        if (child == null || ancestor == null)
+        {
+            return false;
+        }
+        DependencyObject current = child;
+        while (current != null)
+        {
+            if (ReferenceEquals(current, ancestor))
+            {
+                return true;
+            }
+            DependencyObject visualParent = current is Visual || current is Visual3D
+                ? VisualTreeHelper.GetParent(current)
+                : null;
+            current = visualParent ?? LogicalTreeHelper.GetParent(current);
+        }
+        return false;
     }
 
     private static string GetDataGridColumnBindingPath(DataGridColumn column)

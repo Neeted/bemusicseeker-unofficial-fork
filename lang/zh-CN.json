@@ -100,6 +100,8 @@
   "Keyword_search_help_fields_bmsfile": "title, artist, genre, tag, path, playlist/ref, md5/hash, sha256",
   "Keyword_search_help_fields_playlist_detail": "title, artist, genre, tag, path, playlist/ref, md5/hash, sha256, memo, comment",
   "Keyword_search_help_fields_playlist_summary": "id, name, symbol",
+  "Keyword_search_completion_fields_header": "搜索字段",
+  "Keyword_search_completion_history_header": "搜索历史",
   "Keyword_search_warning_unknown_field": "未知的搜索字段: {0}",
   "Keyword_search_warning_empty_field_term": "搜索词为空: {0}:",
   "Keyword_search_warning_empty_negation": "排除条件为空: -",

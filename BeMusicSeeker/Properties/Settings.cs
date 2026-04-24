@@ -1215,6 +1215,36 @@ internal sealed class Settings : ApplicationSettingsBase
 		}
 	}
 
+	[UserScopedSetting]
+	[DebuggerNonUserCode]
+	[DefaultSettingValue("")]
+	public string KeywordSearchHistory
+	{
+		get
+		{
+			return (string)this["KeywordSearchHistory"];
+		}
+		set
+		{
+			this["KeywordSearchHistory"] = value;
+		}
+	}
+
+	[UserScopedSetting]
+	[DebuggerNonUserCode]
+	[DefaultSettingValue("")]
+	public string PlaylistSummaryKeywordSearchHistory
+	{
+		get
+		{
+			return (string)this["PlaylistSummaryKeywordSearchHistory"];
+		}
+		set
+		{
+			this["PlaylistSummaryKeywordSearchHistory"] = value;
+		}
+	}
+
 	/// <summary>
 	/// 推定先への通常インストール後に、元の保留パッケージフォルダを残り物ごと削除するかどうかを取得または設定します。
 	/// </summary>

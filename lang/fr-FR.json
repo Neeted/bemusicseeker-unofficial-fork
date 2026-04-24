@@ -100,6 +100,8 @@
   "Keyword_search_help_fields_bmsfile": "title, artist, genre, tag, path, playlist/ref, md5/hash, sha256",
   "Keyword_search_help_fields_playlist_detail": "title, artist, genre, tag, path, playlist/ref, md5/hash, sha256, memo, comment",
   "Keyword_search_help_fields_playlist_summary": "id, name, symbol",
+  "Keyword_search_completion_fields_header": "Champs de recherche",
+  "Keyword_search_completion_history_header": "Historique de recherche",
   "Keyword_search_warning_unknown_field": "Champ de recherche inconnu : {0}",
   "Keyword_search_warning_empty_field_term": "Le terme de recherche est vide : {0}:",
   "Keyword_search_warning_empty_negation": "La condition d'exclusion est vide : -",

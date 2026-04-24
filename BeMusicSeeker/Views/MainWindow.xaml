@@ -1547,7 +1547,21 @@
                       </ContextMenu>
                     </v:DropDownMenuButton.DropDownContextMenu>
                   </v:DropDownMenuButton>
-                  <TextBox Name="KeywordSearchBox" Width="156" BorderThickness="0" HorizontalAlignment="Left" Margin="0,0,0,0" VerticalAlignment="Center" Background="#00FFFFFF" VerticalContentAlignment="Center" Text="{Binding KeywordFilter, Delay=500, UpdateSourceTrigger=PropertyChanged}" />
+                  <TextBox Name="KeywordSearchBox" Width="156" BorderThickness="0" HorizontalAlignment="Left" Margin="0,0,0,0" VerticalAlignment="Center" Background="#00FFFFFF" VerticalContentAlignment="Center" Text="{Binding KeywordFilter, Delay=500, UpdateSourceTrigger=PropertyChanged}" TextChanged="keywordSearchBoxTextChanged" GotKeyboardFocus="keywordSearchBoxGotKeyboardFocus" LostKeyboardFocus="keywordSearchBoxLostKeyboardFocus" PreviewKeyDown="keywordSearchBoxPreviewKeyDown" />
+                  <Popup Placement="Bottom" PlacementTarget="{Binding ElementName=KeywordSearchBox}" StaysOpen="False" AllowsTransparency="True" IsOpen="{Binding IsKeywordSearchSuggestionPopupOpen, Mode=TwoWay}">
+                    <Border BorderBrush="#FF828790" BorderThickness="1" CornerRadius="4" Background="#FFFFFFFF" Padding="4" MinWidth="{Binding ActualWidth, ElementName=KeywordSearchBox}">
+                      <StackPanel>
+                        <TextBlock FontFamily="Meiryo" FontSize="11" FontWeight="Bold" Foreground="#FF505050" Margin="4,2,4,4" Text="{Binding KeywordSearchSuggestionHeaderText}" />
+                        <ListBox Name="KeywordSearchSuggestionListBox" ItemsSource="{Binding KeywordSearchSuggestions}" BorderThickness="0" MaxHeight="180" PreviewMouseLeftButtonDown="keywordSearchSuggestionPreviewMouseLeftButtonDown" PreviewKeyDown="keywordSearchSuggestionPreviewKeyDown">
+                          <ListBox.ItemTemplate>
+                            <DataTemplate>
+                              <TextBlock FontFamily="Meiryo" FontSize="12" Foreground="#FF202020" Text="{Binding DisplayText}" Padding="6,2" />
+                            </DataTemplate>
+                          </ListBox.ItemTemplate>
+                        </ListBox>
+                      </StackPanel>
+                    </Border>
+                  </Popup>
                   <TextBlock FontFamily="Meiryo" VerticalAlignment="Center" FontSize="13" FontWeight="Bold" Text="!" Margin="2,0,2,0" Foreground="#FFD07A00" ToolTip="{Binding KeywordSearchWarningText}" Visibility="{Binding HasKeywordSearchWarning, Converter={qc:QuickConverter '$P ? Visibility.Visible : Visibility.Collapsed'}}" />
                   <ToggleButton x:Name="KeywordSearchHelpButton" Width="18" Height="20" Padding="0" BorderThickness="0" Background="#00FFFFFF" Foreground="#FF4169A6" FontWeight="Bold" Content="?" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Keyword_search_help_button_tooltip, Mode=OneWay}" IsChecked="{Binding IsKeywordSearchHelpOpen, Mode=TwoWay}" />
                   <Popup Placement="Bottom" PlacementTarget="{Binding ElementName=KeywordSearchHelpButton}" StaysOpen="False" AllowsTransparency="True" IsOpen="{Binding IsKeywordSearchHelpOpen, Mode=TwoWay}">
@@ -1594,7 +1608,21 @@
                       </ContextMenu>
                     </v:DropDownMenuButton.DropDownContextMenu>
                   </v:DropDownMenuButton>
-                  <TextBox Name="KeywordSearchBoxPlaylistSummary" Width="156" BorderThickness="0" HorizontalAlignment="Left" Margin="0,0,0,0" VerticalAlignment="Center" Background="#00FFFFFF" VerticalContentAlignment="Center" Text="{Binding PlaylistSummaryKeywordFilter, Delay=500, UpdateSourceTrigger=PropertyChanged}" />
+                  <TextBox Name="KeywordSearchBoxPlaylistSummary" Width="156" BorderThickness="0" HorizontalAlignment="Left" Margin="0,0,0,0" VerticalAlignment="Center" Background="#00FFFFFF" VerticalContentAlignment="Center" Text="{Binding PlaylistSummaryKeywordFilter, Delay=500, UpdateSourceTrigger=PropertyChanged}" TextChanged="keywordSearchBoxTextChanged" GotKeyboardFocus="keywordSearchBoxGotKeyboardFocus" LostKeyboardFocus="keywordSearchBoxLostKeyboardFocus" PreviewKeyDown="keywordSearchBoxPreviewKeyDown" />
+                  <Popup Placement="Bottom" PlacementTarget="{Binding ElementName=KeywordSearchBoxPlaylistSummary}" StaysOpen="False" AllowsTransparency="True" IsOpen="{Binding IsPlaylistSummaryKeywordSearchSuggestionPopupOpen, Mode=TwoWay}">
+                    <Border BorderBrush="#FF828790" BorderThickness="1" CornerRadius="4" Background="#FFFFFFFF" Padding="4" MinWidth="{Binding ActualWidth, ElementName=KeywordSearchBoxPlaylistSummary}">
+                      <StackPanel>
+                        <TextBlock FontFamily="Meiryo" FontSize="11" FontWeight="Bold" Foreground="#FF505050" Margin="4,2,4,4" Text="{Binding PlaylistSummaryKeywordSearchSuggestionHeaderText}" />
+                        <ListBox Name="PlaylistSummaryKeywordSearchSuggestionListBox" ItemsSource="{Binding PlaylistSummaryKeywordSearchSuggestions}" BorderThickness="0" MaxHeight="180" PreviewMouseLeftButtonDown="keywordSearchSuggestionPreviewMouseLeftButtonDown" PreviewKeyDown="keywordSearchSuggestionPreviewKeyDown">
+                          <ListBox.ItemTemplate>
+                            <DataTemplate>
+                              <TextBlock FontFamily="Meiryo" FontSize="12" Foreground="#FF202020" Text="{Binding DisplayText}" Padding="6,2" />
+                            </DataTemplate>
+                          </ListBox.ItemTemplate>
+                        </ListBox>
+                      </StackPanel>
+                    </Border>
+                  </Popup>
                   <TextBlock FontFamily="Meiryo" VerticalAlignment="Center" FontSize="13" FontWeight="Bold" Text="!" Margin="2,0,2,0" Foreground="#FFD07A00" ToolTip="{Binding PlaylistSummaryKeywordSearchWarningText}" Visibility="{Binding HasPlaylistSummaryKeywordSearchWarning, Converter={qc:QuickConverter '$P ? Visibility.Visible : Visibility.Collapsed'}}" />
                   <ToggleButton x:Name="PlaylistSummaryKeywordSearchHelpButton" Width="18" Height="20" Padding="0" BorderThickness="0" Background="#00FFFFFF" Foreground="#FF4169A6" FontWeight="Bold" Content="?" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Keyword_search_help_button_tooltip, Mode=OneWay}" IsChecked="{Binding IsPlaylistSummaryKeywordSearchHelpOpen, Mode=TwoWay}" />
                   <Popup Placement="Bottom" PlacementTarget="{Binding ElementName=PlaylistSummaryKeywordSearchHelpButton}" StaysOpen="False" AllowsTransparency="True" IsOpen="{Binding IsPlaylistSummaryKeywordSearchHelpOpen, Mode=TwoWay}">

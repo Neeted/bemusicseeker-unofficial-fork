@@ -40,4 +40,27 @@ public sealed class KeywordSearchPresentationTests
         StringAssert.Contains(playlistDetailHelp, "memo");
         StringAssert.Contains(summaryHelp, "symbol");
     }
+
+    [TestMethod]
+    public void BuildKeywordSearchSuggestionHeaderText_DescribesSuggestionKind()
+    {
+        string fieldHeader = MainWindowViewModel.BuildKeywordSearchSuggestionHeaderText(KeywordSearchSuggestionKind.Field);
+        string historyHeader = MainWindowViewModel.BuildKeywordSearchSuggestionHeaderText(KeywordSearchSuggestionKind.History);
+
+        Assert.IsFalse(string.IsNullOrWhiteSpace(fieldHeader));
+        Assert.IsFalse(string.IsNullOrWhiteSpace(historyHeader));
+        Assert.AreNotEqual(fieldHeader, historyHeader);
+    }
+
+    [TestMethod]
+    public void BuildKeywordSearchHistorySuggestions_ReplacesWholeSearchText()
+    {
+        KeywordSearchSuggestionItem suggestion = MainWindowViewModel.BuildKeywordSearchHistorySuggestions(new[] { "title:alpha" }, "current")
+            [0];
+
+        string applied = suggestion.Apply("current", out int caretIndex);
+
+        Assert.AreEqual("title:alpha", applied);
+        Assert.AreEqual("title:alpha".Length, caretIndex);
+    }
 }
