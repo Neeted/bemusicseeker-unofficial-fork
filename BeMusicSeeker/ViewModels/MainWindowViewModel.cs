@@ -9727,10 +9727,10 @@ public class MainWindowViewModel : ViewModel
         List<PlaylistDetailSourceRow> keywordRows;
         if (!string.IsNullOrWhiteSpace(keywordFilter))
         {
-            string keywordUpper = keywordFilter.ToUpperInvariant();
+            GridKeywordSearchQuery query = GridKeywordSearchQuery.Parse(keywordFilter);
             keywordRows = effectiveSourceRows.AsParallel().Where(delegate (PlaylistDetailSourceRow row)
             {
-                return row.SearchText.Contains(keywordUpper);
+                return query.MatchesPlaylistDetail(row);
             }).ToList();
         }
         else
@@ -10273,9 +10273,9 @@ public class MainWindowViewModel : ViewModel
             if (!string.IsNullOrWhiteSpace(KeywordFilter))
             {
                 BMSFilesKeywordFilterView = new List<BeMusicSeeker.Models.BMSFile>();
-                string keywordUpper = KeywordFilter.ToUpperInvariant();
+                GridKeywordSearchQuery query = GridKeywordSearchQuery.Parse(KeywordFilter);
                 BMSFilesKeywordFilterView = from r in BMSFilesFolderView.AsParallel()
-                                            where (r.Title + "@" + r.genre + "@" + r.Artist + "@" + r.tag + "@" + r.path + "@" + r.RefTablesSymbols).ToUpperInvariant().Contains(keywordUpper)
+                                            where query.MatchesBmsFile(r)
                                             select r;
             }
             else
@@ -12203,22 +12203,10 @@ public class MainWindowViewModel : ViewModel
         string text = (keywordFilter ?? string.Empty).Trim();
         if (!string.IsNullOrWhiteSpace(text))
         {
-            string keywordUpper = text.ToUpperInvariant();
-            source = source.Where((PlaylistSummaryRow row) => IsPlaylistSummaryRowMatchedKeyword(row, keywordUpper));
+            GridKeywordSearchQuery query = GridKeywordSearchQuery.Parse(text);
+            source = source.Where((PlaylistSummaryRow row) => query.MatchesPlaylistSummary(row));
         }
         return source.Where((PlaylistSummaryRow row) => IsPlaylistSummaryRowMatchedOwnedFilter(row, ownedFilter));
-    }
-
-    private static bool IsPlaylistSummaryRowMatchedKeyword(PlaylistSummaryRow row, string keywordUpper)
-    {
-        if (row == null)
-        {
-            return false;
-        }
-        string text = row.PlaylistId?.ToString() ?? string.Empty;
-        string text2 = row.Name ?? string.Empty;
-        string text3 = row.Symbol ?? string.Empty;
-        return text.ToUpperInvariant().Contains(keywordUpper) || text2.ToUpperInvariant().Contains(keywordUpper) || text3.ToUpperInvariant().Contains(keywordUpper);
     }
 
     private bool IsPlaylistSummaryRowMatchedOwnedFilter(PlaylistSummaryRow row)

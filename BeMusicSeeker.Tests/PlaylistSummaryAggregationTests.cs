@@ -147,6 +147,67 @@ public sealed class PlaylistSummaryAggregationTests
         CollectionAssert.AreEqual(new[] { "beta", "gamma" }, result.Rows.Select((PlaylistSummaryRow row) => row.Name).ToArray());
     }
 
+    [TestMethod]
+    public void BuildPlaylistSummaryPresentationRows_KeywordFilterSupportsAndAndFieldQueries()
+    {
+        List<PlaylistSummaryRow> rows = new List<PlaylistSummaryRow>
+        {
+            new PlaylistSummaryRow
+            {
+                PlaylistId = 10,
+                Name = "alpha pack",
+                Symbol = "A"
+            },
+            new PlaylistSummaryRow
+            {
+                PlaylistId = 20,
+                Name = "alpha other",
+                Symbol = "B"
+            }
+        };
+
+        MainWindowViewModel.PlaylistSummaryPresentationResult result = MainWindowViewModel.BuildPlaylistSummaryPresentationRows(
+            rows,
+            "name:alpha symbol:A",
+            MainWindowViewModel.PlaylistSummaryOwnedFilterType.All,
+            new MainWindowViewModel.cSortParameters
+            {
+                ColumnsName = nameof(PlaylistSummaryRow.PlaylistId),
+                Direction = System.ComponentModel.ListSortDirection.Ascending
+            },
+            useLegacySort: false);
+
+        Assert.AreEqual(1, result.FilteredCount);
+        Assert.AreEqual(10, result.Rows[0].PlaylistId);
+    }
+
+    [TestMethod]
+    public void BuildPlaylistSummaryPresentationRows_UnknownFieldDoesNotMatch()
+    {
+        List<PlaylistSummaryRow> rows = new List<PlaylistSummaryRow>
+        {
+            new PlaylistSummaryRow
+            {
+                PlaylistId = 10,
+                Name = "alpha pack",
+                Symbol = "A"
+            }
+        };
+
+        MainWindowViewModel.PlaylistSummaryPresentationResult result = MainWindowViewModel.BuildPlaylistSummaryPresentationRows(
+            rows,
+            "md5:aaaaaaaa",
+            MainWindowViewModel.PlaylistSummaryOwnedFilterType.All,
+            new MainWindowViewModel.cSortParameters
+            {
+                ColumnsName = nameof(PlaylistSummaryRow.PlaylistId),
+                Direction = System.ComponentModel.ListSortDirection.Ascending
+            },
+            useLegacySort: false);
+
+        Assert.AreEqual(0, result.FilteredCount);
+    }
+
     private static HashSet<string> CreateHashSet(params string[] values)
     {
         return new HashSet<string>(values ?? Array.Empty<string>(), StringComparer.OrdinalIgnoreCase);

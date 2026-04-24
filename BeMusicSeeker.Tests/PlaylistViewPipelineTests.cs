@@ -81,6 +81,65 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
+    public void ApplyPlaylistViewFromSource_KeywordFilterSupportsAndAndHashFields()
+    {
+        PlaylistDetailSourceRow matchedRow = CreateSourceRow(
+            "33333333333333333333333333333333",
+            "Matched",
+            7,
+            memo: "special memo",
+            sha256: "abababababababababababababababababababababababababababababababab");
+        PlaylistDetailSourceRow filteredRow = CreateSourceRow(
+            "44444444444444444444444444444444",
+            "Filtered",
+            7,
+            memo: "special memo",
+            sha256: "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd");
+        PlaylistDetailSourceRow[] sourceRows = new PlaylistDetailSourceRow[] { matchedRow, filteredRow };
+
+        List<PlaylistDetailRow> result = MainWindowViewModel.ApplyPlaylistViewFromSource(
+            sourceRows,
+            keywordFilter: "title:Matched memo:special md5:333333 sha256:abab",
+            modeFilter: MainWindowViewModel.ModeFilterType.All,
+            sortParameters: new MainWindowViewModel.cSortParameters { ColumnsName = nameof(BMSFile.Title), Direction = ListSortDirection.Ascending },
+            out string _,
+            out int keywordCount,
+            out int modeCount,
+            out long _,
+            out long _,
+            out long _,
+            out long _);
+
+        Assert.AreEqual(1, result.Count);
+        Assert.AreEqual("Matched", result[0].Title);
+        Assert.AreEqual(1, keywordCount);
+        Assert.AreEqual(1, modeCount);
+    }
+
+    [TestMethod]
+    public void ApplyPlaylistViewFromSource_UnknownFieldQueryDoesNotMatch()
+    {
+        PlaylistDetailSourceRow matchedRow = CreateSourceRow("33333333333333333333333333333333", "Matched", 7, memo: "special memo");
+
+        List<PlaylistDetailRow> result = MainWindowViewModel.ApplyPlaylistViewFromSource(
+            new[] { matchedRow },
+            keywordFilter: "unknown:Matched",
+            modeFilter: MainWindowViewModel.ModeFilterType.All,
+            sortParameters: new MainWindowViewModel.cSortParameters { ColumnsName = nameof(BMSFile.Title), Direction = ListSortDirection.Ascending },
+            out string _,
+            out int keywordCount,
+            out int modeCount,
+            out long _,
+            out long _,
+            out long _,
+            out long _);
+
+        Assert.AreEqual(0, result.Count);
+        Assert.AreEqual(0, keywordCount);
+        Assert.AreEqual(0, modeCount);
+    }
+
+    [TestMethod]
     public void ApplyPlaylistViewFromSource_ModeFilterRecomputesFromSourceRows()
     {
         PlaylistDetailSourceRow sevenKeysRow = CreateSourceRow("55555555555555555555555555555555", "SevenKeys", 7);
@@ -466,6 +525,10 @@ public sealed class PlaylistViewPipelineTests
     {
         TestableBmsFile file = new TestableBmsFile();
         file.ApplySnapshot(hash, title, mode);
+        if (sha256 != null)
+        {
+            file.SetSha256(sha256);
+        }
         TestablePlaylistEntry entry = new TestablePlaylistEntry(file)
         {
             memo = memo,
@@ -521,6 +584,11 @@ public sealed class PlaylistViewPipelineTests
             Artist = "TestArtist";
             genre = "TestGenre";
             mode = snapshotMode;
+        }
+
+        public void SetSha256(string value)
+        {
+            sha256 = value;
         }
     }
 }
