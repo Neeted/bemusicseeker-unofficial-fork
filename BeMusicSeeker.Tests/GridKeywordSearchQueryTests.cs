@@ -47,6 +47,55 @@ public sealed class GridKeywordSearchQueryTests
         Assert.IsFalse(GridKeywordSearchQuery.Parse(":alpha").MatchesBmsFile(file));
     }
 
+    [TestMethod]
+    public void MatchesBmsFile_QuoteSearchTreatsPhraseAsSingleToken()
+    {
+        TestableBmsFile file = CreateFile();
+        TestableBmsFile quotedFile = new TestableBmsFile();
+        quotedFile.SetTitleForTest("Alpha \"Quoted\"");
+
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("\"Alpha Title\"").MatchesBmsFile(file));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("title:\"Alpha Title\"").MatchesBmsFile(file));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("title:\"Alpha \\\"Quoted\\\"\"").MatchesBmsFile(quotedFile));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("\"Alpha Title").MatchesBmsFile(file));
+        Assert.IsFalse(GridKeywordSearchQuery.Parse("\"Alpha Missing\"").MatchesBmsFile(file));
+    }
+
+    [TestMethod]
+    public void MatchesBmsFile_NegationExcludesMatchingRows()
+    {
+        TestableBmsFile file = CreateFile();
+        TestableBmsFile hyphenatedFile = new TestableBmsFile();
+        hyphenatedFile.SetTitleForTest("foo-bar");
+
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("alpha -artist:other").MatchesBmsFile(file));
+        Assert.IsFalse(GridKeywordSearchQuery.Parse("alpha -artist:artistx").MatchesBmsFile(file));
+        Assert.IsFalse(GridKeywordSearchQuery.Parse("-").MatchesBmsFile(file));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("foo-bar").MatchesBmsFile(hyphenatedFile));
+    }
+
+    [TestMethod]
+    public void MatchesBmsFile_OrSearchIsLimitedToTokenAlternatives()
+    {
+        TestableBmsFile file = CreateFile();
+
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("title:missing|alpha").MatchesBmsFile(file));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("title:\"Alpha Title\"|missing").MatchesBmsFile(file));
+        Assert.IsFalse(GridKeywordSearchQuery.Parse("title:missing|other").MatchesBmsFile(file));
+        Assert.IsFalse(GridKeywordSearchQuery.Parse("|").MatchesBmsFile(file));
+    }
+
+    [TestMethod]
+    public void MatchesBmsFile_RegexSearchSupportsGlobalAndFieldQueries()
+    {
+        TestableBmsFile file = CreateFile();
+
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("re:^alpha").MatchesBmsFile(file));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("title:re:^alpha\\s+title$").MatchesBmsFile(file));
+        Assert.IsFalse(GridKeywordSearchQuery.Parse("artist:re:^alpha").MatchesBmsFile(file));
+        Assert.IsFalse(GridKeywordSearchQuery.Parse("title:re:[").MatchesBmsFile(file));
+    }
+
     private static TestableBmsFile CreateFile()
     {
         TestableBmsFile file = new TestableBmsFile();
@@ -65,6 +114,11 @@ public sealed class GridKeywordSearchQueryTests
             path = @"C:\Songs\Alpha\chart.bms";
             hash = "abcdefabcdefabcdefabcdefabcdefab";
             sha256 = "1234567890123456789012345678901234567890123456789012345678901234";
+        }
+
+        internal void SetTitleForTest(string value)
+        {
+            Title = value;
         }
     }
 }

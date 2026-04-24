@@ -140,6 +140,43 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
+    public void ApplyPlaylistViewFromSource_KeywordFilterSupportsQuoteNegationOrAndRegex()
+    {
+        PlaylistDetailSourceRow matchedRow = CreateSourceRow(
+            "33333333333333333333333333333333",
+            "Matched Alpha",
+            7,
+            memo: "special memo",
+            comment: "safe comment",
+            sha256: "abababababababababababababababababababababababababababababababab");
+        PlaylistDetailSourceRow filteredRow = CreateSourceRow(
+            "44444444444444444444444444444444",
+            "Filtered Alpha",
+            7,
+            memo: "special memo",
+            comment: "ordinary comment",
+            sha256: "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd");
+
+        List<PlaylistDetailRow> result = MainWindowViewModel.ApplyPlaylistViewFromSource(
+            new[] { matchedRow, filteredRow },
+            keywordFilter: "memo:\"special memo\" -comment:ordinary md5:333333|555555 sha256:abab|efef title:re:^matched",
+            modeFilter: MainWindowViewModel.ModeFilterType.All,
+            sortParameters: new MainWindowViewModel.cSortParameters { ColumnsName = nameof(BMSFile.Title), Direction = ListSortDirection.Ascending },
+            out string _,
+            out int keywordCount,
+            out int modeCount,
+            out long _,
+            out long _,
+            out long _,
+            out long _);
+
+        Assert.AreEqual(1, result.Count);
+        Assert.AreEqual("Matched Alpha", result[0].Title);
+        Assert.AreEqual(1, keywordCount);
+        Assert.AreEqual(1, modeCount);
+    }
+
+    [TestMethod]
     public void ApplyPlaylistViewFromSource_ModeFilterRecomputesFromSourceRows()
     {
         PlaylistDetailSourceRow sevenKeysRow = CreateSourceRow("55555555555555555555555555555555", "SevenKeys", 7);

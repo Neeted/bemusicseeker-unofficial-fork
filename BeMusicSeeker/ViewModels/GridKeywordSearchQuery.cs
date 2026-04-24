@@ -1,33 +1,36 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text;
+using System.Text.RegularExpressions;
 using BeMusicSeeker.Models;
 
 namespace BeMusicSeeker.ViewModels;
 
 internal sealed class GridKeywordSearchQuery
 {
-    private readonly SearchToken[] tokens;
+    private static readonly TimeSpan RegexTimeout = TimeSpan.FromMilliseconds(100);
 
-    private GridKeywordSearchQuery(SearchToken[] tokens)
+    private readonly SearchCondition[] conditions;
+
+    private GridKeywordSearchQuery(SearchCondition[] conditions)
     {
-        this.tokens = tokens ?? Array.Empty<SearchToken>();
+        this.conditions = conditions ?? Array.Empty<SearchCondition>();
     }
 
-    internal bool HasTokens => tokens.Length > 0;
+    internal bool HasTokens => conditions.Length > 0;
 
     internal static GridKeywordSearchQuery Parse(string keywordFilter)
     {
         if (string.IsNullOrWhiteSpace(keywordFilter))
         {
-            return new GridKeywordSearchQuery(Array.Empty<SearchToken>());
+            return new GridKeywordSearchQuery(Array.Empty<SearchCondition>());
         }
-        SearchToken[] parsedTokens = keywordFilter
-            .Split((char[])null, StringSplitOptions.RemoveEmptyEntries)
-            .Select(ParseToken)
-            .OrderBy((SearchToken token) => token.Term?.Length ?? 0)
+        SearchCondition[] parsedConditions = Tokenize(keywordFilter)
+            .Select(ParseCondition)
+            .OrderBy((SearchCondition condition) => condition.SortWeight)
             .ToArray();
-        return new GridKeywordSearchQuery(parsedTokens);
+        return new GridKeywordSearchQuery(parsedConditions);
     }
 
     internal bool MatchesBmsFile(BMSFile file)
@@ -40,9 +43,9 @@ internal sealed class GridKeywordSearchQuery
         {
             return false;
         }
-        foreach (SearchToken token in tokens)
+        foreach (SearchCondition condition in conditions)
         {
-            if (!MatchesToken(token, file))
+            if (!MatchesCondition(condition, file))
             {
                 return false;
             }
@@ -60,9 +63,9 @@ internal sealed class GridKeywordSearchQuery
         {
             return false;
         }
-        foreach (SearchToken token in tokens)
+        foreach (SearchCondition condition in conditions)
         {
-            if (!MatchesToken(token, row))
+            if (!MatchesCondition(condition, row))
             {
                 return false;
             }
@@ -80,9 +83,9 @@ internal sealed class GridKeywordSearchQuery
         {
             return false;
         }
-        foreach (SearchToken token in tokens)
+        foreach (SearchCondition condition in conditions)
         {
-            if (!MatchesToken(token, row))
+            if (!MatchesCondition(condition, row))
             {
                 return false;
             }
@@ -90,143 +93,493 @@ internal sealed class GridKeywordSearchQuery
         return true;
     }
 
-    private static SearchToken ParseToken(string rawToken)
+    private static IEnumerable<string> Tokenize(string keywordFilter)
+    {
+        StringBuilder builder = new StringBuilder();
+        bool inQuote = false;
+        bool escaping = false;
+        foreach (char c in keywordFilter ?? string.Empty)
+        {
+            if (inQuote)
+            {
+                if (escaping)
+                {
+                    builder.Append('\\');
+                    builder.Append(c);
+                    escaping = false;
+                    continue;
+                }
+                if (c == '\\')
+                {
+                    escaping = true;
+                    continue;
+                }
+                builder.Append(c);
+                if (c == '"')
+                {
+                    inQuote = false;
+                }
+                continue;
+            }
+            if (char.IsWhiteSpace(c))
+            {
+                if (builder.Length > 0)
+                {
+                    yield return builder.ToString();
+                    builder.Clear();
+                }
+                continue;
+            }
+            builder.Append(c);
+            if (c == '"')
+            {
+                inQuote = true;
+            }
+        }
+        if (escaping)
+        {
+            builder.Append('\\');
+        }
+        if (builder.Length > 0)
+        {
+            yield return builder.ToString();
+        }
+    }
+
+    private static SearchCondition ParseCondition(string rawToken)
     {
         string token = rawToken ?? string.Empty;
-        int colonIndex = token.IndexOf(':');
+        bool isNegated = token.Length > 1 && token[0] == '-';
+        if (isNegated)
+        {
+            token = token.Substring(1);
+        }
+        if (string.IsNullOrEmpty(token))
+        {
+            return SearchCondition.Invalid(isNegated);
+        }
+        int colonIndex = FindUnquotedChar(token, ':');
         if (colonIndex <= 0)
         {
-            return new SearchToken(null, token, isFieldToken: false);
+            return CreateCondition(isNegated, field: null, isRegex: false, rawTerms: token);
         }
         string field = token.Substring(0, colonIndex).Trim().ToLowerInvariant();
-        string term = token.Substring(colonIndex + 1);
-        return new SearchToken(field, term, isFieldToken: true);
+        string rawTerms = token.Substring(colonIndex + 1);
+        if (string.Equals(field, "re", StringComparison.OrdinalIgnoreCase))
+        {
+            return CreateCondition(isNegated, field: null, isRegex: true, rawTerms);
+        }
+        bool isRegex = false;
+        if (rawTerms.StartsWith("re:", StringComparison.OrdinalIgnoreCase))
+        {
+            isRegex = true;
+            rawTerms = rawTerms.Substring(3);
+        }
+        return CreateCondition(isNegated, field, isRegex, rawTerms);
     }
 
-    private static bool MatchesToken(SearchToken token, BMSFile file)
+    private static SearchCondition CreateCondition(bool isNegated, string field, bool isRegex, string rawTerms)
     {
-        if (token.IsInvalid)
+        List<SearchAlternative> alternatives = SplitUnquoted(rawTerms, '|')
+            .Select((string rawAlternative) => CreateAlternative(rawAlternative, isRegex))
+            .Where((SearchAlternative alternative) => !alternative.IsEmpty)
+            .ToList();
+        if (alternatives.Count == 0 || alternatives.All((SearchAlternative alternative) => alternative.IsInvalid))
+        {
+            return SearchCondition.Invalid(isNegated);
+        }
+        return new SearchCondition(isNegated, field, isRegex, alternatives.ToArray(), isInvalid: false);
+    }
+
+    private static SearchAlternative CreateAlternative(string rawAlternative, bool isRegex)
+    {
+        string term = NormalizeTerm(rawAlternative);
+        if (string.IsNullOrEmpty(term))
+        {
+            return SearchAlternative.Empty;
+        }
+        if (!isRegex)
+        {
+            return new SearchAlternative(term, regex: null, isInvalid: false, isEmpty: false);
+        }
+        try
+        {
+            Regex regex = new Regex(term, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, RegexTimeout);
+            return new SearchAlternative(term, regex, isInvalid: false, isEmpty: false);
+        }
+        catch (ArgumentException)
+        {
+            return new SearchAlternative(term, regex: null, isInvalid: true, isEmpty: false);
+        }
+    }
+
+    private static string NormalizeTerm(string rawTerm)
+    {
+        string term = rawTerm ?? string.Empty;
+        if (term.Length == 0)
+        {
+            return string.Empty;
+        }
+        term = term.Trim();
+        if (term.Length == 0)
+        {
+            return string.Empty;
+        }
+        if (term[0] != '"')
+        {
+            return term;
+        }
+        int start = 1;
+        int end = term.Length > 1 && term[term.Length - 1] == '"' ? term.Length - 1 : term.Length;
+        StringBuilder builder = new StringBuilder(end - start);
+        bool escaping = false;
+        for (int i = start; i < end; i++)
+        {
+            char c = term[i];
+            if (escaping)
+            {
+                if (c == '"' || c == '\\')
+                {
+                    builder.Append(c);
+                }
+                else
+                {
+                    builder.Append('\\');
+                    builder.Append(c);
+                }
+                escaping = false;
+                continue;
+            }
+            if (c == '\\')
+            {
+                escaping = true;
+                continue;
+            }
+            builder.Append(c);
+        }
+        if (escaping)
+        {
+            builder.Append('\\');
+        }
+        return builder.ToString();
+    }
+
+    private static IEnumerable<string> SplitUnquoted(string value, char separator)
+    {
+        StringBuilder builder = new StringBuilder();
+        bool inQuote = false;
+        bool escaping = false;
+        foreach (char c in value ?? string.Empty)
+        {
+            if (inQuote)
+            {
+                if (escaping)
+                {
+                    builder.Append('\\');
+                    builder.Append(c);
+                    escaping = false;
+                    continue;
+                }
+                if (c == '\\')
+                {
+                    escaping = true;
+                    continue;
+                }
+                builder.Append(c);
+                if (c == '"')
+                {
+                    inQuote = false;
+                }
+                continue;
+            }
+            if (c == separator)
+            {
+                yield return builder.ToString();
+                builder.Clear();
+                continue;
+            }
+            builder.Append(c);
+            if (c == '"')
+            {
+                inQuote = true;
+            }
+        }
+        if (escaping)
+        {
+            builder.Append('\\');
+        }
+        yield return builder.ToString();
+    }
+
+    private static int FindUnquotedChar(string value, char target)
+    {
+        bool inQuote = false;
+        bool escaping = false;
+        for (int i = 0; i < (value?.Length ?? 0); i++)
+        {
+            char c = value[i];
+            if (inQuote)
+            {
+                if (escaping)
+                {
+                    escaping = false;
+                    continue;
+                }
+                if (c == '\\')
+                {
+                    escaping = true;
+                    continue;
+                }
+                if (c == '"')
+                {
+                    inQuote = false;
+                }
+                continue;
+            }
+            if (c == '"')
+            {
+                inQuote = true;
+                continue;
+            }
+            if (c == target)
+            {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private static bool MatchesCondition(SearchCondition condition, BMSFile file)
+    {
+        if (condition.IsInvalid || !IsKnownBmsFileField(condition.Field))
         {
             return false;
         }
-        if (!token.IsFieldToken)
+        bool matched = condition.Alternatives.Any((SearchAlternative alternative) => MatchesAlternative(alternative, GetBmsFileValues(file, condition.Field)));
+        return condition.IsNegated ? !matched : matched;
+    }
+
+    private static bool MatchesCondition(SearchCondition condition, PlaylistDetailSourceRow row)
+    {
+        if (condition.IsInvalid || !IsKnownPlaylistDetailField(condition.Field))
         {
-            return ContainsAnyBmsFileGlobal(file, token.Term);
+            return false;
         }
-        switch (token.Field)
+        bool matched = condition.Alternatives.Any((SearchAlternative alternative) => MatchesAlternative(alternative, GetPlaylistDetailValues(row, condition.Field)));
+        return condition.IsNegated ? !matched : matched;
+    }
+
+    private static bool MatchesCondition(SearchCondition condition, PlaylistSummaryRow row)
+    {
+        if (condition.IsInvalid || !IsKnownPlaylistSummaryField(condition.Field))
         {
+            return false;
+        }
+        bool matched = condition.Alternatives.Any((SearchAlternative alternative) => MatchesAlternative(alternative, GetPlaylistSummaryValues(row, condition.Field)));
+        return condition.IsNegated ? !matched : matched;
+    }
+
+    private static bool MatchesAlternative(SearchAlternative alternative, IEnumerable<string> values)
+    {
+        if (alternative.IsInvalid || alternative.IsEmpty)
+        {
+            return false;
+        }
+        foreach (string value in values ?? Enumerable.Empty<string>())
+        {
+            if (alternative.Regex != null)
+            {
+                try
+                {
+                    if (!string.IsNullOrEmpty(value) && alternative.Regex.IsMatch(value))
+                    {
+                        return true;
+                    }
+                }
+                catch (RegexMatchTimeoutException)
+                {
+                    return false;
+                }
+            }
+            else if (Contains(value, alternative.Term))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static bool IsKnownBmsFileField(string field)
+    {
+        switch (field)
+        {
+            case null:
             case "title":
-                return Contains(file.Title, token.Term);
             case "artist":
-                return Contains(file.Artist, token.Term);
             case "genre":
-                return Contains(file.genre, token.Term);
             case "tag":
-                return Contains(file.tag, token.Term);
             case "path":
-                return Contains(file.path, token.Term);
             case "playlist":
             case "ref":
-                return Contains(file.RefTablesSymbols, token.Term);
             case "md5":
             case "hash":
-                return Contains(file.hash, token.Term);
             case "sha256":
-                return Contains(file.sha256, token.Term);
+                return true;
             default:
                 return false;
         }
     }
 
-    private static bool MatchesToken(SearchToken token, PlaylistDetailSourceRow row)
+    private static bool IsKnownPlaylistDetailField(string field)
     {
-        if (token.IsInvalid)
+        switch (field)
         {
-            return false;
-        }
-        if (!token.IsFieldToken)
-        {
-            return ContainsAnyPlaylistDetailGlobal(row, token.Term);
-        }
-        switch (token.Field)
-        {
+            case null:
             case "title":
-                return Contains(row.Title, token.Term);
             case "artist":
-                return Contains(row.Artist, token.Term);
             case "genre":
-                return Contains(row.genre, token.Term);
             case "tag":
-                return Contains(row.tag, token.Term);
             case "path":
-                return Contains(row.path, token.Term);
             case "playlist":
             case "ref":
-                return Contains(row.RefTablesSymbols, token.Term);
             case "md5":
             case "hash":
-                return Contains(row.hash, token.Term);
             case "sha256":
-                return Contains(row.sha256, token.Term);
             case "memo":
-                return Contains(row.memo, token.Term);
             case "comment":
-                return Contains(row.comment, token.Term);
+                return true;
             default:
                 return false;
         }
     }
 
-    private static bool MatchesToken(SearchToken token, PlaylistSummaryRow row)
+    private static bool IsKnownPlaylistSummaryField(string field)
     {
-        if (token.IsInvalid)
+        switch (field)
         {
-            return false;
-        }
-        string playlistId = row.PlaylistId?.ToString() ?? string.Empty;
-        if (!token.IsFieldToken)
-        {
-            return Contains(playlistId, token.Term)
-                || Contains(row.Name, token.Term)
-                || Contains(row.Symbol, token.Term);
-        }
-        switch (token.Field)
-        {
+            case null:
             case "id":
-                return Contains(playlistId, token.Term);
             case "name":
-                return Contains(row.Name, token.Term);
             case "symbol":
-                return Contains(row.Symbol, token.Term);
+                return true;
             default:
                 return false;
         }
     }
 
-    private static bool ContainsAnyBmsFileGlobal(BMSFile file, string term)
+    private static IEnumerable<string> GetBmsFileValues(BMSFile file, string field)
     {
-        return Contains(file.Title, term)
-            || Contains(file.genre, term)
-            || Contains(file.Artist, term)
-            || Contains(file.tag, term)
-            || Contains(file.path, term)
-            || Contains(file.RefTablesSymbols, term)
-            || Contains(file.hash, term)
-            || Contains(file.sha256, term);
+        switch (field)
+        {
+            case null:
+                yield return file.Title;
+                yield return file.genre;
+                yield return file.Artist;
+                yield return file.tag;
+                yield return file.path;
+                yield return file.RefTablesSymbols;
+                yield return file.hash;
+                yield return file.sha256;
+                break;
+            case "title":
+                yield return file.Title;
+                break;
+            case "artist":
+                yield return file.Artist;
+                break;
+            case "genre":
+                yield return file.genre;
+                break;
+            case "tag":
+                yield return file.tag;
+                break;
+            case "path":
+                yield return file.path;
+                break;
+            case "playlist":
+            case "ref":
+                yield return file.RefTablesSymbols;
+                break;
+            case "md5":
+            case "hash":
+                yield return file.hash;
+                break;
+            case "sha256":
+                yield return file.sha256;
+                break;
+        }
     }
 
-    private static bool ContainsAnyPlaylistDetailGlobal(PlaylistDetailSourceRow row, string term)
+    private static IEnumerable<string> GetPlaylistDetailValues(PlaylistDetailSourceRow row, string field)
     {
-        return Contains(row.Title, term)
-            || Contains(row.genre, term)
-            || Contains(row.Artist, term)
-            || Contains(row.tag, term)
-            || Contains(row.path, term)
-            || Contains(row.RefTablesSymbols, term)
-            || Contains(row.hash, term)
-            || Contains(row.sha256, term)
-            || Contains(row.memo, term)
-            || Contains(row.comment, term);
+        switch (field)
+        {
+            case null:
+                yield return row.Title;
+                yield return row.genre;
+                yield return row.Artist;
+                yield return row.tag;
+                yield return row.path;
+                yield return row.RefTablesSymbols;
+                yield return row.hash;
+                yield return row.sha256;
+                yield return row.memo;
+                yield return row.comment;
+                break;
+            case "title":
+                yield return row.Title;
+                break;
+            case "artist":
+                yield return row.Artist;
+                break;
+            case "genre":
+                yield return row.genre;
+                break;
+            case "tag":
+                yield return row.tag;
+                break;
+            case "path":
+                yield return row.path;
+                break;
+            case "playlist":
+            case "ref":
+                yield return row.RefTablesSymbols;
+                break;
+            case "md5":
+            case "hash":
+                yield return row.hash;
+                break;
+            case "sha256":
+                yield return row.sha256;
+                break;
+            case "memo":
+                yield return row.memo;
+                break;
+            case "comment":
+                yield return row.comment;
+                break;
+        }
+    }
+
+    private static IEnumerable<string> GetPlaylistSummaryValues(PlaylistSummaryRow row, string field)
+    {
+        switch (field)
+        {
+            case null:
+                yield return row.PlaylistId?.ToString() ?? string.Empty;
+                yield return row.Name;
+                yield return row.Symbol;
+                break;
+            case "id":
+                yield return row.PlaylistId?.ToString() ?? string.Empty;
+                break;
+            case "name":
+                yield return row.Name;
+                break;
+            case "symbol":
+                yield return row.Symbol;
+                break;
+        }
     }
 
     private static bool Contains(string value, string term)
@@ -236,21 +589,53 @@ internal sealed class GridKeywordSearchQuery
             && value.IndexOf(term, StringComparison.OrdinalIgnoreCase) >= 0;
     }
 
-    private readonly struct SearchToken
+    private readonly struct SearchCondition
     {
-        internal SearchToken(string field, string term, bool isFieldToken)
+        internal SearchCondition(bool isNegated, string field, bool isRegex, SearchAlternative[] alternatives, bool isInvalid)
         {
+            IsNegated = isNegated;
             Field = field;
-            Term = term ?? string.Empty;
-            IsFieldToken = isFieldToken;
+            IsRegex = isRegex;
+            Alternatives = alternatives ?? Array.Empty<SearchAlternative>();
+            IsInvalid = isInvalid;
         }
+
+        internal bool IsNegated { get; }
 
         internal string Field { get; }
 
+        internal bool IsRegex { get; }
+
+        internal SearchAlternative[] Alternatives { get; }
+
+        internal bool IsInvalid { get; }
+
+        internal int SortWeight => IsInvalid ? 0 : (IsRegex ? 100000 : Alternatives.Where((SearchAlternative alternative) => !alternative.IsInvalid && !alternative.IsEmpty).Select((SearchAlternative alternative) => alternative.Term.Length).DefaultIfEmpty(0).Min());
+
+        internal static SearchCondition Invalid(bool isNegated)
+        {
+            return new SearchCondition(isNegated, field: null, isRegex: false, alternatives: Array.Empty<SearchAlternative>(), isInvalid: true);
+        }
+    }
+
+    private readonly struct SearchAlternative
+    {
+        internal static readonly SearchAlternative Empty = new SearchAlternative(string.Empty, regex: null, isInvalid: false, isEmpty: true);
+
+        internal SearchAlternative(string term, Regex regex, bool isInvalid, bool isEmpty)
+        {
+            Term = term ?? string.Empty;
+            Regex = regex;
+            IsInvalid = isInvalid;
+            IsEmpty = isEmpty;
+        }
+
         internal string Term { get; }
 
-        internal bool IsFieldToken { get; }
+        internal Regex Regex { get; }
 
-        internal bool IsInvalid => IsFieldToken && (string.IsNullOrWhiteSpace(Field) || string.IsNullOrEmpty(Term));
+        internal bool IsInvalid { get; }
+
+        internal bool IsEmpty { get; }
     }
 }

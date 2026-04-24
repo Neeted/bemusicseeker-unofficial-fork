@@ -208,6 +208,46 @@ public sealed class PlaylistSummaryAggregationTests
         Assert.AreEqual(0, result.FilteredCount);
     }
 
+    [TestMethod]
+    public void BuildPlaylistSummaryPresentationRows_KeywordFilterSupportsQuoteNegationOrAndRegex()
+    {
+        List<PlaylistSummaryRow> rows = new List<PlaylistSummaryRow>
+        {
+            new PlaylistSummaryRow
+            {
+                PlaylistId = 10,
+                Name = "alpha pack",
+                Symbol = "A"
+            },
+            new PlaylistSummaryRow
+            {
+                PlaylistId = 20,
+                Name = "alpha pack",
+                Symbol = "B"
+            },
+            new PlaylistSummaryRow
+            {
+                PlaylistId = 30,
+                Name = "beta pack",
+                Symbol = "C"
+            }
+        };
+
+        MainWindowViewModel.PlaylistSummaryPresentationResult result = MainWindowViewModel.BuildPlaylistSummaryPresentationRows(
+            rows,
+            "name:\"alpha pack\" symbol:A|C -id:20 name:re:^alpha",
+            MainWindowViewModel.PlaylistSummaryOwnedFilterType.All,
+            new MainWindowViewModel.cSortParameters
+            {
+                ColumnsName = nameof(PlaylistSummaryRow.PlaylistId),
+                Direction = System.ComponentModel.ListSortDirection.Ascending
+            },
+            useLegacySort: false);
+
+        Assert.AreEqual(1, result.FilteredCount);
+        Assert.AreEqual(10, result.Rows[0].PlaylistId);
+    }
+
     private static HashSet<string> CreateHashSet(params string[] values)
     {
         return new HashSet<string>(values ?? Array.Empty<string>(), StringComparer.OrdinalIgnoreCase);
