@@ -1548,6 +1548,13 @@
                     </v:DropDownMenuButton.DropDownContextMenu>
                   </v:DropDownMenuButton>
                   <TextBox Name="KeywordSearchBox" Width="156" BorderThickness="0" HorizontalAlignment="Left" Margin="0,0,0,0" VerticalAlignment="Center" Background="#00FFFFFF" VerticalContentAlignment="Center" Text="{Binding KeywordFilter, Delay=500, UpdateSourceTrigger=PropertyChanged}" />
+                  <TextBlock FontFamily="Meiryo" VerticalAlignment="Center" FontSize="13" FontWeight="Bold" Text="!" Margin="2,0,2,0" Foreground="#FFD07A00" ToolTip="{Binding KeywordSearchWarningText}" Visibility="{Binding HasKeywordSearchWarning, Converter={qc:QuickConverter '$P ? Visibility.Visible : Visibility.Collapsed'}}" />
+                  <ToggleButton x:Name="KeywordSearchHelpButton" Width="18" Height="20" Padding="0" BorderThickness="0" Background="#00FFFFFF" Foreground="#FF4169A6" FontWeight="Bold" Content="?" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Keyword_search_help_button_tooltip, Mode=OneWay}" IsChecked="{Binding IsKeywordSearchHelpOpen, Mode=TwoWay}" />
+                  <Popup Placement="Bottom" PlacementTarget="{Binding ElementName=KeywordSearchHelpButton}" StaysOpen="False" AllowsTransparency="True" IsOpen="{Binding IsKeywordSearchHelpOpen, Mode=TwoWay}">
+                    <Border BorderBrush="#FF828790" BorderThickness="1" CornerRadius="4" Background="#FFFFFFFF" Padding="8" MaxWidth="380">
+                      <TextBlock FontFamily="Meiryo" FontSize="12" TextWrapping="Wrap" Foreground="#FF202020" Text="{Binding KeywordSearchHelpText}" />
+                    </Border>
+                  </Popup>
                   <TextBlock FontFamily="{StaticResource LigatureSymbols}" VerticalAlignment="Center" FontSize="16" Text="close" Margin="0,0,3,0.5" Foreground="#FF6495ED" Cursor="Hand" Visibility="{Binding Text, ElementName=KeywordSearchBox, Mode=OneWay, Converter={qc:QuickConverter 'String.IsNullOrWhiteSpace($P) ? Visibility.Hidden : Visibility.Visible'}}" MouseLeftButtonDown="{qc:QuickEvent '$KeywordSearchBox.Text = String.Empty'}" />
                 </StackPanel>
               </Border>
@@ -1588,6 +1595,13 @@
                     </v:DropDownMenuButton.DropDownContextMenu>
                   </v:DropDownMenuButton>
                   <TextBox Name="KeywordSearchBoxPlaylistSummary" Width="156" BorderThickness="0" HorizontalAlignment="Left" Margin="0,0,0,0" VerticalAlignment="Center" Background="#00FFFFFF" VerticalContentAlignment="Center" Text="{Binding PlaylistSummaryKeywordFilter, Delay=500, UpdateSourceTrigger=PropertyChanged}" />
+                  <TextBlock FontFamily="Meiryo" VerticalAlignment="Center" FontSize="13" FontWeight="Bold" Text="!" Margin="2,0,2,0" Foreground="#FFD07A00" ToolTip="{Binding PlaylistSummaryKeywordSearchWarningText}" Visibility="{Binding HasPlaylistSummaryKeywordSearchWarning, Converter={qc:QuickConverter '$P ? Visibility.Visible : Visibility.Collapsed'}}" />
+                  <ToggleButton x:Name="PlaylistSummaryKeywordSearchHelpButton" Width="18" Height="20" Padding="0" BorderThickness="0" Background="#00FFFFFF" Foreground="#FF4169A6" FontWeight="Bold" Content="?" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Keyword_search_help_button_tooltip, Mode=OneWay}" IsChecked="{Binding IsPlaylistSummaryKeywordSearchHelpOpen, Mode=TwoWay}" />
+                  <Popup Placement="Bottom" PlacementTarget="{Binding ElementName=PlaylistSummaryKeywordSearchHelpButton}" StaysOpen="False" AllowsTransparency="True" IsOpen="{Binding IsPlaylistSummaryKeywordSearchHelpOpen, Mode=TwoWay}">
+                    <Border BorderBrush="#FF828790" BorderThickness="1" CornerRadius="4" Background="#FFFFFFFF" Padding="8" MaxWidth="380">
+                      <TextBlock FontFamily="Meiryo" FontSize="12" TextWrapping="Wrap" Foreground="#FF202020" Text="{Binding PlaylistSummaryKeywordSearchHelpText}" />
+                    </Border>
+                  </Popup>
                   <TextBlock FontFamily="{StaticResource LigatureSymbols}" VerticalAlignment="Center" FontSize="16" Text="close" Margin="0,0,3,0.5" Foreground="#FF6495ED" Cursor="Hand" Visibility="{Binding Text, ElementName=KeywordSearchBoxPlaylistSummary, Mode=OneWay, Converter={qc:QuickConverter 'String.IsNullOrWhiteSpace($P) ? Visibility.Hidden : Visibility.Visible'}}" MouseLeftButtonDown="{qc:QuickEvent '$KeywordSearchBoxPlaylistSummary.Text = String.Empty'}" />
                 </StackPanel>
               </Border>

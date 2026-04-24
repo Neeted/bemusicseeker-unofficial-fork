@@ -309,6 +309,46 @@ LR2ディレクトリ・カスタムフォルダ出力ディレクトリ
   <data name="Search_garbled" xml:space="preserve">
     <value>文字化けチェック</value>
   </data>
+  <data name="Keyword_search_help_button_tooltip" xml:space="preserve">
+    <value>検索構文ヘルプ</value>
+  </data>
+  <data name="Keyword_search_help_template" xml:space="preserve">
+    <value>検索例:
+alpha artist
+title:"alpha title"
+-path:backup
+title:alpha|beta
+title:re:^alpha
+
+使用できる検索対象:
+{0}
+
+詳細は docs/keyword-search-syntax-guide.md を参照してください。</value>
+  </data>
+  <data name="Keyword_search_help_fields_bmsfile" xml:space="preserve">
+    <value>title, artist, genre, tag, path, playlist/ref, md5/hash, sha256</value>
+  </data>
+  <data name="Keyword_search_help_fields_playlist_detail" xml:space="preserve">
+    <value>title, artist, genre, tag, path, playlist/ref, md5/hash, sha256, memo, comment</value>
+  </data>
+  <data name="Keyword_search_help_fields_playlist_summary" xml:space="preserve">
+    <value>id, name, symbol</value>
+  </data>
+  <data name="Keyword_search_warning_unknown_field" xml:space="preserve">
+    <value>未知の検索対象です: {0}</value>
+  </data>
+  <data name="Keyword_search_warning_empty_field_term" xml:space="preserve">
+    <value>検索語が空です: {0}:</value>
+  </data>
+  <data name="Keyword_search_warning_empty_negation" xml:space="preserve">
+    <value>除外条件が空です: -</value>
+  </data>
+  <data name="Keyword_search_warning_empty_or" xml:space="preserve">
+    <value>OR の候補が空です</value>
+  </data>
+  <data name="Keyword_search_warning_invalid_regex" xml:space="preserve">
+    <value>正規表現が不正です: {0}</value>
+  </data>
   <data name="PlaylistProp_datauri" xml:space="preserve">
     <value>データURI: </value>
   </data>

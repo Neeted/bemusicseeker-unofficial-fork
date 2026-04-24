@@ -730,6 +730,26 @@ public class Resources
 
     public static string Search_garbled => ResourceManager.GetString("Search_garbled", resourceCulture);
 
+    public static string Keyword_search_help_button_tooltip => ResourceManager.GetString("Keyword_search_help_button_tooltip", resourceCulture);
+
+    public static string Keyword_search_help_template => ResourceManager.GetString("Keyword_search_help_template", resourceCulture);
+
+    public static string Keyword_search_help_fields_bmsfile => ResourceManager.GetString("Keyword_search_help_fields_bmsfile", resourceCulture);
+
+    public static string Keyword_search_help_fields_playlist_detail => ResourceManager.GetString("Keyword_search_help_fields_playlist_detail", resourceCulture);
+
+    public static string Keyword_search_help_fields_playlist_summary => ResourceManager.GetString("Keyword_search_help_fields_playlist_summary", resourceCulture);
+
+    public static string Keyword_search_warning_unknown_field => ResourceManager.GetString("Keyword_search_warning_unknown_field", resourceCulture);
+
+    public static string Keyword_search_warning_empty_field_term => ResourceManager.GetString("Keyword_search_warning_empty_field_term", resourceCulture);
+
+    public static string Keyword_search_warning_empty_negation => ResourceManager.GetString("Keyword_search_warning_empty_negation", resourceCulture);
+
+    public static string Keyword_search_warning_empty_or => ResourceManager.GetString("Keyword_search_warning_empty_or", resourceCulture);
+
+    public static string Keyword_search_warning_invalid_regex => ResourceManager.GetString("Keyword_search_warning_invalid_regex", resourceCulture);
+
     public static string Search_zero_note => ResourceManager.GetString("Search_zero_note", resourceCulture);
 
     public static string Searching => ResourceManager.GetString("Searching", resourceCulture);

@@ -1,6 +1,7 @@
 using BeMusicSeeker.Models;
 using BeMusicSeeker.ViewModels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using System.Linq;
 
 namespace BeMusicSeeker.Tests;
 
@@ -94,6 +95,41 @@ public sealed class GridKeywordSearchQueryTests
         Assert.IsTrue(GridKeywordSearchQuery.Parse("title:re:^alpha\\s+title$").MatchesBmsFile(file));
         Assert.IsFalse(GridKeywordSearchQuery.Parse("artist:re:^alpha").MatchesBmsFile(file));
         Assert.IsFalse(GridKeywordSearchQuery.Parse("title:re:[").MatchesBmsFile(file));
+    }
+
+    [TestMethod]
+    public void GetDiagnostics_ReportsContextSpecificWarnings()
+    {
+        GridKeywordSearchQuery memoQuery = GridKeywordSearchQuery.Parse("memo:alpha");
+
+        Assert.AreEqual(0, memoQuery.GetDiagnostics(GridKeywordSearchContext.PlaylistDetail).Count);
+        Assert.AreEqual(GridKeywordSearchDiagnosticKind.UnknownField, memoQuery.GetDiagnostics(GridKeywordSearchContext.BmsFile)[0].Kind);
+        Assert.AreEqual(GridKeywordSearchDiagnosticKind.UnknownField, memoQuery.GetDiagnostics(GridKeywordSearchContext.PlaylistSummary)[0].Kind);
+    }
+
+    [TestMethod]
+    public void GetDiagnostics_ReportsInvalidConditionsWithoutChangingMatchSemantics()
+    {
+        TestableBmsFile file = CreateFile();
+        GridKeywordSearchQuery query = GridKeywordSearchQuery.Parse("unknown:alpha title: - | title:re:[");
+        GridKeywordSearchDiagnosticKind[] kinds = query.GetDiagnostics(GridKeywordSearchContext.BmsFile)
+            .Select((GridKeywordSearchDiagnostic diagnostic) => diagnostic.Kind)
+            .ToArray();
+
+        CollectionAssert.Contains(kinds, GridKeywordSearchDiagnosticKind.UnknownField);
+        CollectionAssert.Contains(kinds, GridKeywordSearchDiagnosticKind.EmptyFieldTerm);
+        CollectionAssert.Contains(kinds, GridKeywordSearchDiagnosticKind.EmptyNegation);
+        CollectionAssert.Contains(kinds, GridKeywordSearchDiagnosticKind.EmptyOr);
+        CollectionAssert.Contains(kinds, GridKeywordSearchDiagnosticKind.InvalidRegex);
+        Assert.IsFalse(query.MatchesBmsFile(file));
+    }
+
+    [TestMethod]
+    public void GetDiagnostics_DoesNotReportValidAdvancedSyntax()
+    {
+        GridKeywordSearchQuery query = GridKeywordSearchQuery.Parse("title:\"Alpha Title\" -artist:other title:alpha|beta title:re:^alpha");
+
+        Assert.AreEqual(0, query.GetDiagnostics(GridKeywordSearchContext.BmsFile).Count);
     }
 
     private static TestableBmsFile CreateFile()

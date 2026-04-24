@@ -7,6 +7,36 @@ using BeMusicSeeker.Models;
 
 namespace BeMusicSeeker.ViewModels;
 
+internal enum GridKeywordSearchContext
+{
+    BmsFile,
+    PlaylistDetail,
+    PlaylistSummary
+}
+
+internal enum GridKeywordSearchDiagnosticKind
+{
+    None,
+    UnknownField,
+    EmptyFieldTerm,
+    EmptyNegation,
+    EmptyOr,
+    InvalidRegex
+}
+
+internal readonly struct GridKeywordSearchDiagnostic
+{
+    internal GridKeywordSearchDiagnostic(GridKeywordSearchDiagnosticKind kind, string value)
+    {
+        Kind = kind;
+        Value = value ?? string.Empty;
+    }
+
+    internal GridKeywordSearchDiagnosticKind Kind { get; }
+
+    internal string Value { get; }
+}
+
 internal sealed class GridKeywordSearchQuery
 {
     private static readonly TimeSpan RegexTimeout = TimeSpan.FromMilliseconds(100);
@@ -19,6 +49,34 @@ internal sealed class GridKeywordSearchQuery
     }
 
     internal bool HasTokens => conditions.Length > 0;
+
+    internal IReadOnlyList<GridKeywordSearchDiagnostic> GetDiagnostics(GridKeywordSearchContext context)
+    {
+        if (!HasTokens)
+        {
+            return Array.Empty<GridKeywordSearchDiagnostic>();
+        }
+        List<GridKeywordSearchDiagnostic> diagnostics = new List<GridKeywordSearchDiagnostic>();
+        foreach (SearchCondition condition in conditions)
+        {
+            if (!string.IsNullOrEmpty(condition.Field) && !IsKnownField(context, condition.Field))
+            {
+                diagnostics.Add(new GridKeywordSearchDiagnostic(GridKeywordSearchDiagnosticKind.UnknownField, condition.Field));
+            }
+            if (condition.DiagnosticKind != GridKeywordSearchDiagnosticKind.None)
+            {
+                diagnostics.Add(new GridKeywordSearchDiagnostic(condition.DiagnosticKind, condition.DiagnosticValue));
+            }
+            foreach (SearchAlternative alternative in condition.Alternatives)
+            {
+                if (alternative.IsInvalid && condition.IsRegex)
+                {
+                    diagnostics.Add(new GridKeywordSearchDiagnostic(GridKeywordSearchDiagnosticKind.InvalidRegex, alternative.Term));
+                }
+            }
+        }
+        return diagnostics;
+    }
 
     internal static GridKeywordSearchQuery Parse(string keywordFilter)
     {
@@ -149,6 +207,10 @@ internal sealed class GridKeywordSearchQuery
     private static SearchCondition ParseCondition(string rawToken)
     {
         string token = rawToken ?? string.Empty;
+        if (token == "-")
+        {
+            return SearchCondition.Invalid(isNegated: true, field: null, GridKeywordSearchDiagnosticKind.EmptyNegation, "-");
+        }
         bool isNegated = token.Length > 1 && token[0] == '-';
         if (isNegated)
         {
@@ -156,7 +218,7 @@ internal sealed class GridKeywordSearchQuery
         }
         if (string.IsNullOrEmpty(token))
         {
-            return SearchCondition.Invalid(isNegated);
+            return SearchCondition.Invalid(isNegated, field: null, GridKeywordSearchDiagnosticKind.EmptyNegation, "-");
         }
         int colonIndex = FindUnquotedChar(token, ':');
         if (colonIndex <= 0)
@@ -180,15 +242,23 @@ internal sealed class GridKeywordSearchQuery
 
     private static SearchCondition CreateCondition(bool isNegated, string field, bool isRegex, string rawTerms)
     {
+        if (string.IsNullOrEmpty(rawTerms))
+        {
+            return SearchCondition.Invalid(isNegated, field, field == null ? GridKeywordSearchDiagnosticKind.EmptyOr : GridKeywordSearchDiagnosticKind.EmptyFieldTerm, field ?? string.Empty);
+        }
         List<SearchAlternative> alternatives = SplitUnquoted(rawTerms, '|')
             .Select((string rawAlternative) => CreateAlternative(rawAlternative, isRegex))
             .Where((SearchAlternative alternative) => !alternative.IsEmpty)
             .ToList();
-        if (alternatives.Count == 0 || alternatives.All((SearchAlternative alternative) => alternative.IsInvalid))
+        if (alternatives.Count == 0)
         {
-            return SearchCondition.Invalid(isNegated);
+            return SearchCondition.Invalid(isNegated, field, GridKeywordSearchDiagnosticKind.EmptyOr, rawTerms);
         }
-        return new SearchCondition(isNegated, field, isRegex, alternatives.ToArray(), isInvalid: false);
+        if (alternatives.All((SearchAlternative alternative) => alternative.IsInvalid))
+        {
+            return SearchCondition.Invalid(isNegated, field, GridKeywordSearchDiagnosticKind.None, string.Empty, isRegex, alternatives.ToArray());
+        }
+        return new SearchCondition(isNegated, field, isRegex, alternatives.ToArray(), isInvalid: false, diagnosticKind: GridKeywordSearchDiagnosticKind.None, diagnosticValue: string.Empty);
     }
 
     private static SearchAlternative CreateAlternative(string rawAlternative, bool isRegex)
@@ -467,6 +537,19 @@ internal sealed class GridKeywordSearchQuery
         }
     }
 
+    private static bool IsKnownField(GridKeywordSearchContext context, string field)
+    {
+        switch (context)
+        {
+            case GridKeywordSearchContext.PlaylistDetail:
+                return IsKnownPlaylistDetailField(field);
+            case GridKeywordSearchContext.PlaylistSummary:
+                return IsKnownPlaylistSummaryField(field);
+            default:
+                return IsKnownBmsFileField(field);
+        }
+    }
+
     private static IEnumerable<string> GetBmsFileValues(BMSFile file, string field)
     {
         switch (field)
@@ -591,13 +674,15 @@ internal sealed class GridKeywordSearchQuery
 
     private readonly struct SearchCondition
     {
-        internal SearchCondition(bool isNegated, string field, bool isRegex, SearchAlternative[] alternatives, bool isInvalid)
+        internal SearchCondition(bool isNegated, string field, bool isRegex, SearchAlternative[] alternatives, bool isInvalid, GridKeywordSearchDiagnosticKind diagnosticKind, string diagnosticValue)
         {
             IsNegated = isNegated;
             Field = field;
             IsRegex = isRegex;
             Alternatives = alternatives ?? Array.Empty<SearchAlternative>();
             IsInvalid = isInvalid;
+            DiagnosticKind = diagnosticKind;
+            DiagnosticValue = diagnosticValue ?? string.Empty;
         }
 
         internal bool IsNegated { get; }
@@ -610,11 +695,15 @@ internal sealed class GridKeywordSearchQuery
 
         internal bool IsInvalid { get; }
 
+        internal GridKeywordSearchDiagnosticKind DiagnosticKind { get; }
+
+        internal string DiagnosticValue { get; }
+
         internal int SortWeight => IsInvalid ? 0 : (IsRegex ? 100000 : Alternatives.Where((SearchAlternative alternative) => !alternative.IsInvalid && !alternative.IsEmpty).Select((SearchAlternative alternative) => alternative.Term.Length).DefaultIfEmpty(0).Min());
 
-        internal static SearchCondition Invalid(bool isNegated)
+        internal static SearchCondition Invalid(bool isNegated, string field, GridKeywordSearchDiagnosticKind diagnosticKind, string diagnosticValue, bool isRegex = false, SearchAlternative[] alternatives = null)
         {
-            return new SearchCondition(isNegated, field: null, isRegex: false, alternatives: Array.Empty<SearchAlternative>(), isInvalid: true);
+            return new SearchCondition(isNegated, field, isRegex, alternatives ?? Array.Empty<SearchAlternative>(), isInvalid: true, diagnosticKind, diagnosticValue);
         }
     }
 

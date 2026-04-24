@@ -4334,6 +4334,14 @@ public class MainWindowViewModel : ViewModel
 
     private string _PlaylistSummaryKeywordFilter = string.Empty;
 
+    private string _KeywordSearchWarningText = string.Empty;
+
+    private string _PlaylistSummaryKeywordSearchWarningText = string.Empty;
+
+    private bool _IsKeywordSearchHelpOpen;
+
+    private bool _IsPlaylistSummaryKeywordSearchHelpOpen;
+
     private PlaylistSummaryOwnedFilterType _PlaylistSummaryOwnedFilter = PlaylistSummaryOwnedFilterType.All;
 
     private Func<BeMusicSeeker.Models.BMSFile, bool> _FolderFilter;
@@ -4576,6 +4584,59 @@ public class MainWindowViewModel : ViewModel
             return string.Empty;
         }
         return keywordFilter.Trim().ToUpperInvariant();
+    }
+
+    internal static string BuildKeywordSearchWarningText(string keywordFilter, GridKeywordSearchContext context)
+    {
+        GridKeywordSearchQuery query = GridKeywordSearchQuery.Parse(keywordFilter);
+        IReadOnlyList<GridKeywordSearchDiagnostic> diagnostics = query.GetDiagnostics(context);
+        if (diagnostics.Count == 0)
+        {
+            return string.Empty;
+        }
+        return string.Join(
+            Environment.NewLine,
+            diagnostics
+                .Select(FormatKeywordSearchDiagnostic)
+                .Where((string text) => !string.IsNullOrWhiteSpace(text))
+                .Distinct(StringComparer.Ordinal));
+    }
+
+    internal static string BuildKeywordSearchHelpText(GridKeywordSearchContext context)
+    {
+        string fields;
+        switch (context)
+        {
+            case GridKeywordSearchContext.PlaylistDetail:
+                fields = BeMusicSeeker.Properties.Resources.Keyword_search_help_fields_playlist_detail;
+                break;
+            case GridKeywordSearchContext.PlaylistSummary:
+                fields = BeMusicSeeker.Properties.Resources.Keyword_search_help_fields_playlist_summary;
+                break;
+            default:
+                fields = BeMusicSeeker.Properties.Resources.Keyword_search_help_fields_bmsfile;
+                break;
+        }
+        return string.Format(BeMusicSeeker.Properties.Resources.Keyword_search_help_template, fields);
+    }
+
+    private static string FormatKeywordSearchDiagnostic(GridKeywordSearchDiagnostic diagnostic)
+    {
+        switch (diagnostic.Kind)
+        {
+            case GridKeywordSearchDiagnosticKind.UnknownField:
+                return string.Format(BeMusicSeeker.Properties.Resources.Keyword_search_warning_unknown_field, diagnostic.Value);
+            case GridKeywordSearchDiagnosticKind.EmptyFieldTerm:
+                return string.Format(BeMusicSeeker.Properties.Resources.Keyword_search_warning_empty_field_term, diagnostic.Value);
+            case GridKeywordSearchDiagnosticKind.EmptyNegation:
+                return BeMusicSeeker.Properties.Resources.Keyword_search_warning_empty_negation;
+            case GridKeywordSearchDiagnosticKind.EmptyOr:
+                return BeMusicSeeker.Properties.Resources.Keyword_search_warning_empty_or;
+            case GridKeywordSearchDiagnosticKind.InvalidRegex:
+                return string.Format(BeMusicSeeker.Properties.Resources.Keyword_search_warning_invalid_regex, diagnostic.Value);
+            default:
+                return string.Empty;
+        }
     }
 
     /// <summary>
@@ -7026,6 +7087,7 @@ public class MainWindowViewModel : ViewModel
             {
                 _IsPlaylistSummaryMode = value;
                 RaisePropertyChanged("IsPlaylistSummaryMode");
+                UpdateKeywordSearchPresentation();
             }
         }
     }
@@ -7638,7 +7700,30 @@ public class MainWindowViewModel : ViewModel
             {
                 _KeywordFilter = value;
                 RaisePropertyChanged("KeywordFilter");
+                UpdateKeywordSearchPresentation();
                 makeBMSFilesView(viewUpdateMode.KeywordFilterUpdated);
+            }
+        }
+    }
+
+    public string KeywordSearchWarningText => _KeywordSearchWarningText;
+
+    public bool HasKeywordSearchWarning => !string.IsNullOrWhiteSpace(_KeywordSearchWarningText);
+
+    public string KeywordSearchHelpText => BuildKeywordSearchHelpText(GetCurrentKeywordSearchContext());
+
+    public bool IsKeywordSearchHelpOpen
+    {
+        get
+        {
+            return _IsKeywordSearchHelpOpen;
+        }
+        set
+        {
+            if (_IsKeywordSearchHelpOpen != value)
+            {
+                _IsKeywordSearchHelpOpen = value;
+                RaisePropertyChanged("IsKeywordSearchHelpOpen");
             }
         }
     }
@@ -7656,12 +7741,66 @@ public class MainWindowViewModel : ViewModel
             {
                 _PlaylistSummaryKeywordFilter = text;
                 RaisePropertyChanged("PlaylistSummaryKeywordFilter");
+                UpdatePlaylistSummaryKeywordSearchPresentation();
                 if (IsPlaylistSummaryMode)
                 {
                     RefreshPlaylistSummaryPresentationIfVisible();
                 }
             }
         }
+    }
+
+    public string PlaylistSummaryKeywordSearchWarningText => _PlaylistSummaryKeywordSearchWarningText;
+
+    public bool HasPlaylistSummaryKeywordSearchWarning => !string.IsNullOrWhiteSpace(_PlaylistSummaryKeywordSearchWarningText);
+
+    public string PlaylistSummaryKeywordSearchHelpText => BuildKeywordSearchHelpText(GridKeywordSearchContext.PlaylistSummary);
+
+    public bool IsPlaylistSummaryKeywordSearchHelpOpen
+    {
+        get
+        {
+            return _IsPlaylistSummaryKeywordSearchHelpOpen;
+        }
+        set
+        {
+            if (_IsPlaylistSummaryKeywordSearchHelpOpen != value)
+            {
+                _IsPlaylistSummaryKeywordSearchHelpOpen = value;
+                RaisePropertyChanged("IsPlaylistSummaryKeywordSearchHelpOpen");
+            }
+        }
+    }
+
+    private GridKeywordSearchContext GetCurrentKeywordSearchContext()
+    {
+        return IsPlaylistViewMode(treeViewFilterTypeSelected)
+            ? GridKeywordSearchContext.PlaylistDetail
+            : GridKeywordSearchContext.BmsFile;
+    }
+
+    private void UpdateKeywordSearchPresentation()
+    {
+        string warningText = BuildKeywordSearchWarningText(KeywordFilter, GetCurrentKeywordSearchContext());
+        if (!string.Equals(_KeywordSearchWarningText, warningText, StringComparison.Ordinal))
+        {
+            _KeywordSearchWarningText = warningText;
+            RaisePropertyChanged("KeywordSearchWarningText");
+            RaisePropertyChanged("HasKeywordSearchWarning");
+        }
+        RaisePropertyChanged("KeywordSearchHelpText");
+    }
+
+    private void UpdatePlaylistSummaryKeywordSearchPresentation()
+    {
+        string warningText = BuildKeywordSearchWarningText(PlaylistSummaryKeywordFilter, GridKeywordSearchContext.PlaylistSummary);
+        if (!string.Equals(_PlaylistSummaryKeywordSearchWarningText, warningText, StringComparison.Ordinal))
+        {
+            _PlaylistSummaryKeywordSearchWarningText = warningText;
+            RaisePropertyChanged("PlaylistSummaryKeywordSearchWarningText");
+            RaisePropertyChanged("HasPlaylistSummaryKeywordSearchWarning");
+        }
+        RaisePropertyChanged("PlaylistSummaryKeywordSearchHelpText");
     }
 
     public PlaylistSummaryOwnedFilterType PlaylistSummaryOwnedFilter
@@ -10069,6 +10208,7 @@ public class MainWindowViewModel : ViewModel
             }
             treeViewFilterTypeSelected = mode;
             treeViewFilterParameterSelected = parameter;
+            UpdateKeywordSearchPresentation();
         }
         if (BMSFiles == null)
         {
