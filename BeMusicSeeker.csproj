@@ -133,6 +133,7 @@
     <Reference Include="SgmlReaderDll">
       <HintPath>libs\SgmlReaderDll.dll</HintPath>
     </Reference>
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
     <PackageReference Include="NLog" Version="4.4.3" />
     <PackageReference Include="System.Resources.Extensions" Version="8.0.0" />
   </ItemGroup>

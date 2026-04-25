@@ -234,6 +234,48 @@ public sealed class ChartInfoMetadataTests
     }
 
     [TestMethod]
+    public void BmsonJsonParser_DuplicateKeysUseLastValueAndDefaultsMatchReference()
+    {
+        string json = "{"
+            + "\"unknown\":1,"
+            + "\"scroll_events\":[{\"y\":1,\"rate\":0.5}],"
+            + "\"scroll_events\":[{\"y\":2}],"
+            + "\"bga\":{\"bga_events\":[{\"y\":1}]},"
+            + "\"bga\":{\"bga_events\":[{\"y\":2}]}"
+            + "}";
+
+        BmsonDocument document = BmsonJsonParser.Parse(json);
+
+        Assert.IsNotNull(document.Info);
+        Assert.AreEqual("beat-7k", document.Info.ModeHint);
+        Assert.AreEqual(100, document.Info.JudgeRank);
+        Assert.AreEqual(100.0, document.Info.Total, 0.000001);
+        Assert.AreEqual(240.0, document.Info.Resolution, 0.000001);
+        Assert.AreEqual(0.0, document.Info.Level.GetValueOrDefault(), 0.000001);
+        Assert.AreEqual(0, document.Lines.Length);
+        Assert.AreEqual(0, document.SoundChannels.Length);
+        Assert.AreEqual(1, document.ScrollEvents.Length);
+        Assert.AreEqual(2, document.ScrollEvents[0].Y);
+        Assert.AreEqual(1.0, document.ScrollEvents[0].Rate, 0.000001);
+        Assert.AreEqual(1, document.Bga.BgaEvents.Length);
+        Assert.AreEqual(2, document.Bga.BgaEvents[0].Y);
+    }
+
+    [TestMethod]
+    public void BmsonJsonParser_InvalidJsonRemainsFatal()
+    {
+        try
+        {
+            BmsonJsonParser.Parse("{\"info\":");
+            Assert.Fail("Invalid bmson JSON should fail.");
+        }
+        catch (Exception ex)
+        {
+            StringAssert.Contains(ex.GetType().Name, "Json");
+        }
+    }
+
+    [TestMethod]
     public void ParseBms_Base62Fixture_UsesBase62ForIndexedDefinitionsAndDataTokens()
     {
         WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
@@ -590,6 +632,76 @@ public sealed class ChartInfoMetadataTests
         Assert.IsTrue(diffs.LengthDiffs <= 130, diffs.ToString());
         Assert.AreEqual(0, diffs.ChartHashDiffs, diffs.ToString());
         Assert.AreEqual(0, diffs.BpmIntegerDiffs, diffs.ToString());
+    }
+
+    [TestMethod]
+    [TestCategory("Compatibility")]
+    public void ParseRealBmsonDuplicateKeyFixtures_MatchBeatorajaHash()
+    {
+        string fixtureRootPath = Path.Combine(FindRepoRoot(), "BeMusicSeeker.Tests", "TestData", "chart_info_bmson_real");
+        string expectedDbPath = Path.Combine(fixtureRootPath, "expected.db");
+        Assert.IsTrue(File.Exists(expectedDbPath), "chart_info_bmson_real expected.db fixture is missing.");
+
+        using SQLiteConnection connection = new SQLiteConnection(expectedDbPath, SQLiteOpenFlags.ReadOnly | SQLiteOpenFlags.FullMutex, storeDateTimeAsTicks: true);
+        List<RealChartInfoExpectedRow> rows = connection.Query<RealChartInfoExpectedRow>(
+            "SELECT sc.fixture_id, sc.fixture_path, e.* "
+                + "FROM sample_chart sc "
+                + "JOIN expected_chart_info e ON e.sha256 = sc.sha256 "
+                + "WHERE sc.sha256 IN ('296314aeb18ba9c44eda264784711861df4fd9a91a9f82a133911e1e5b926749','b7e399df46bc7f800c91c4d81002b806f32b6da70314c47bcc3064467d21e6b1') "
+                + "ORDER BY sc.fixture_id;");
+        Assert.AreEqual(2, rows.Count);
+
+        foreach (RealChartInfoExpectedRow expected in rows)
+        {
+            string chartPath = Path.Combine(fixtureRootPath, expected.fixture_path.Replace('/', Path.DirectorySeparatorChar));
+
+            LR2SongDBExtended.chart_info actual = ChartInfoParser.Parse(chartPath, expected.md5, expected.sha256);
+
+            Assert.AreEqual(expected.charthash, actual.charthash, expected.sha256);
+            Assert.AreEqual(expected.notes, actual.notes, expected.sha256);
+            Assert.AreEqual(expected.length, actual.length, expected.sha256);
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("Compatibility")]
+    public void ParseRealBmsonBeatorajaCompatibility_AllFixturesMatch()
+    {
+        string fixtureRootPath = Path.Combine(FindRepoRoot(), "BeMusicSeeker.Tests", "TestData", "chart_info_bmson_real");
+        string expectedDbPath = Path.Combine(fixtureRootPath, "expected.db");
+        Assert.IsTrue(File.Exists(expectedDbPath), "chart_info_bmson_real expected.db fixture is missing.");
+
+        using SQLiteConnection connection = new SQLiteConnection(expectedDbPath, SQLiteOpenFlags.ReadOnly | SQLiteOpenFlags.FullMutex, storeDateTimeAsTicks: true);
+        List<RealChartInfoExpectedRow> rows = connection.Query<RealChartInfoExpectedRow>(
+            "SELECT sc.fixture_id, sc.fixture_path, e.* "
+                + "FROM sample_chart sc "
+                + "JOIN expected_chart_info e ON e.sha256 = sc.sha256 "
+                + "ORDER BY sc.fixture_id;");
+
+        Assert.AreEqual(1034, rows.Count);
+        BmsonCompatibilityDiffCounts diffs = new BmsonCompatibilityDiffCounts();
+        foreach (RealChartInfoExpectedRow expected in rows)
+        {
+            string chartPath = Path.Combine(fixtureRootPath, expected.fixture_path.Replace('/', Path.DirectorySeparatorChar));
+            Assert.IsTrue(File.Exists(chartPath), "Missing bmson chart fixture: " + expected.fixture_path);
+
+            LR2SongDBExtended.chart_info actual = ChartInfoParser.Parse(chartPath, expected.md5, expected.sha256);
+            ChartInfoParser.ChartInfoParseResult fromBytesResult = ChartInfoParser.ParseBytesDetailed(File.ReadAllBytes(chartPath), chartPath, expected.md5, expected.sha256);
+            LR2SongDBExtended.chart_info fromBytes = fromBytesResult.Row;
+            AssertChartInfoEquivalent(actual, fromBytes);
+            diffs.Add(expected, actual, fromBytesResult.ChartString);
+        }
+
+        Assert.AreEqual(0, diffs.CoreDiffs, diffs.ToString());
+        Assert.AreEqual(0, diffs.ChartHashDiffs, diffs.ToString());
+        Assert.AreEqual(0, diffs.LengthDiffs, diffs.ToString());
+        Assert.AreEqual(0, diffs.DistributionDiffs, diffs.ToString());
+        Assert.AreEqual(0, diffs.BpmIntegerDiffs, diffs.ToString());
+        Assert.AreEqual(0, diffs.TotalDiffs, diffs.ToString());
+        Assert.AreEqual(0, diffs.DensityDiffs, diffs.ToString());
+        Assert.AreEqual(0, diffs.PeakDensityDiffs, diffs.ToString());
+        Assert.AreEqual(0, diffs.EndDensityDiffs, diffs.ToString());
+        Assert.AreEqual(0, diffs.MainBpmDiffs, diffs.ToString());
     }
 
     [TestMethod]
@@ -1130,6 +1242,157 @@ public sealed class ChartInfoMetadataTests
         public string sha256 { get; set; } = string.Empty;
 
         public int has_beatoraja_song { get; set; }
+    }
+
+    private sealed class BmsonCompatibilityDiffCounts
+    {
+        private readonly List<string> samples = new List<string>();
+
+        public int CoreDiffs { get; private set; }
+
+        public int ChartHashDiffs { get; private set; }
+
+        public int LengthDiffs { get; private set; }
+
+        public int DistributionDiffs { get; private set; }
+
+        public int BpmIntegerDiffs { get; private set; }
+
+        public int TotalDiffs { get; private set; }
+
+        public int DensityDiffs { get; private set; }
+
+        public int PeakDensityDiffs { get; private set; }
+
+        public int EndDensityDiffs { get; private set; }
+
+        public int MainBpmDiffs { get; private set; }
+
+        public void Add(RealChartInfoExpectedRow expected, LR2SongDBExtended.chart_info actual, string chartString)
+        {
+            CoreDiffs += CountCoreDiffs(expected, actual);
+            if (!string.Equals(expected.charthash, actual.charthash, StringComparison.OrdinalIgnoreCase))
+            {
+                ChartHashDiffs++;
+                AddSample("charthash", expected, expected.charthash, actual.charthash, chartString);
+            }
+            if (expected.length != actual.length)
+            {
+                LengthDiffs++;
+                AddSample("length", expected, expected.length.GetValueOrDefault().ToString(CultureInfo.InvariantCulture), actual.length.GetValueOrDefault().ToString(CultureInfo.InvariantCulture), chartString);
+            }
+            if (!string.Equals(expected.distribution, actual.distribution, StringComparison.Ordinal))
+            {
+                DistributionDiffs++;
+            }
+            if ((int)(expected.maxbpm ?? 0.0) != (int)(actual.maxbpm ?? 0.0)
+                || (int)(expected.minbpm ?? 0.0) != (int)(actual.minbpm ?? 0.0))
+            {
+                BpmIntegerDiffs++;
+                AddSample(
+                    "bpm",
+                    expected,
+                    (expected.minbpm ?? 0.0).ToString("R") + "/" + (expected.maxbpm ?? 0.0).ToString("R"),
+                    (actual.minbpm ?? 0.0).ToString("R") + "/" + (actual.maxbpm ?? 0.0).ToString("R"),
+                    chartString);
+            }
+            if (!NullableDoubleEquals(expected.total, actual.total))
+            {
+                TotalDiffs++;
+            }
+            if (!NullableDoubleEquals(expected.density, actual.density))
+            {
+                DensityDiffs++;
+            }
+            if (!NullableDoubleEquals(expected.peakdensity, actual.peakdensity))
+            {
+                PeakDensityDiffs++;
+            }
+            if (!NullableDoubleEquals(expected.enddensity, actual.enddensity))
+            {
+                EndDensityDiffs++;
+            }
+            if (!NullableDoubleEquals(expected.mainbpm, actual.mainbpm))
+            {
+                MainBpmDiffs++;
+                AddSample(
+                    "mainbpm",
+                    expected,
+                    (expected.mainbpm ?? 0.0).ToString("R", CultureInfo.InvariantCulture),
+                    (actual.mainbpm ?? 0.0).ToString("R", CultureInfo.InvariantCulture),
+                    chartString);
+            }
+        }
+
+        public override string ToString()
+        {
+            return "chart_info bmson compatibility diffs: "
+                + "core=" + CoreDiffs
+                + " charthash=" + ChartHashDiffs
+                + " length=" + LengthDiffs
+                + " distribution=" + DistributionDiffs
+                + " bpmInteger=" + BpmIntegerDiffs
+                + " total=" + TotalDiffs
+                + " density=" + DensityDiffs
+                + " peakdensity=" + PeakDensityDiffs
+                + " enddensity=" + EndDensityDiffs
+                + " mainbpm=" + MainBpmDiffs
+                + (samples.Count == 0 ? string.Empty : " samples=" + string.Join(" | ", samples));
+        }
+
+        private void AddSample(string field, RealChartInfoExpectedRow expected, string expectedValue, string actualValue, string chartString)
+        {
+            if (samples.Count >= 25 || samples.Count((string item) => item.StartsWith(field + " ", StringComparison.Ordinal)) >= 5)
+            {
+                return;
+            }
+            string artifactPath = WriteChartStringArtifact(expected, chartString);
+            samples.Add(
+                field
+                    + " fixture_id=" + expected.fixture_id
+                    + " path=" + expected.fixture_path
+                    + " sha256=" + expected.sha256
+                    + " expected=" + expectedValue
+                    + " actual=" + actualValue
+                    + " chartString=" + artifactPath);
+        }
+
+        private static string WriteChartStringArtifact(RealChartInfoExpectedRow expected, string chartString)
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_ChartInfoBmsonDiffs");
+            Directory.CreateDirectory(directory);
+            string artifactPath = Path.Combine(directory, expected.sha256 + ".csharp.chart.txt");
+            File.WriteAllText(artifactPath, chartString ?? string.Empty, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+            return artifactPath;
+        }
+
+        private static int CountCoreDiffs(RealChartInfoExpectedRow expected, LR2SongDBExtended.chart_info actual)
+        {
+            int count = 0;
+            count += string.Equals(expected.sha256, actual.sha256, StringComparison.OrdinalIgnoreCase) ? 0 : 1;
+            count += string.Equals(expected.md5, actual.md5, StringComparison.OrdinalIgnoreCase) ? 0 : 1;
+            count += expected.level == actual.level ? 0 : 1;
+            count += expected.difficulty == actual.difficulty ? 0 : 1;
+            count += expected.mode == actual.mode ? 0 : 1;
+            count += expected.judge == actual.judge ? 0 : 1;
+            count += expected.feature == actual.feature ? 0 : 1;
+            count += expected.notes == actual.notes ? 0 : 1;
+            count += expected.n == actual.n ? 0 : 1;
+            count += expected.ln == actual.ln ? 0 : 1;
+            count += expected.s == actual.s ? 0 : 1;
+            count += expected.ls == actual.ls ? 0 : 1;
+            count += string.Equals(expected.lanenotes, actual.lanenotes, StringComparison.Ordinal) ? 0 : 1;
+            return count;
+        }
+
+        private static bool NullableDoubleEquals(double? expected, double? actual)
+        {
+            if (!expected.HasValue || !actual.HasValue)
+            {
+                return expected.HasValue == actual.HasValue;
+            }
+            return Math.Abs(expected.Value - actual.Value) <= 0.000001;
+        }
     }
 
     private sealed class CompatibilityDiffCounts

@@ -1,0 +1,667 @@
+{
+    "bga": {
+        "bga_events": [
+            {
+                "id": 1,
+                "y": 960
+            }
+        ],
+        "bga_header": [
+            {
+                "id": 1,
+                "name": "bga.mp4"
+            }
+        ],
+        "layer_events": [
+        ],
+        "poor_events": [
+        ]
+    },
+    "bpm_events": [
+        {
+            "bpm": 170,
+            "y": 0
+        }
+    ],
+    "info": {
+        "artist": "Verlexin",
+        "back_image": "backimage_logo.png",
+        "banner_image": "banner.png",
+        "bga": true,
+        "chart_name": "",
+        "eyecatch_image": "stage_bg.png",
+        "genre": "Freeform DnB",
+        "init_bpm": 170,
+        "judge_rank": 100,
+        "level": 12,
+        "mode_hint": "beat-7k",
+        "preview_music": "preview.wav",
+        "resolution": 240,
+        "subartists": [
+            "bga: Verlexin",
+            "obj: Warlock"
+        ],
+        "subtitle": "",
+        "title": "monochromatization",
+        "title_image": "backimage_logo.png",
+        "total": 250
+    },
+    "lines": [
+        {
+            "y": 0
+        },
+        {
+            "y": 960
+        },
+        {
+            "y": 1920
+        },
+        {
+            "y": 2880
+        },
+        {
+            "y": 3840
+        },
+        {
+            "y": 4800
+        },
+        {
+            "y": 5760
+        },
+        {
+            "y": 6720
+        },
+        {
+            "y": 7680
+        },
+        {
+            "y": 8640
+        },
+        {
+            "y": 9600
+        },
+        {
+            "y": 10560
+        },
+        {
+            "y": 11520
+        },
+        {
+            "y": 12480
+        },
+        {
+            "y": 13440
+        },
+        {
+            "y": 14400
+        },
+        {
+            "y": 15360
+        },
+        {
+            "y": 16320
+        },
+        {
+            "y": 17280
+        },
+        {
+            "y": 18240
+        },
+        {
+            "y": 19200
+        },
+        {
+            "y": 20160
+        },
+        {
+            "y": 21120
+        },
+        {
+            "y": 22080
+        },
+        {
+            "y": 23040
+        },
+        {
+            "y": 24000
+        },
+        {
+            "y": 24960
+        },
+        {
+            "y": 25920
+        },
+        {
+            "y": 26880
+        },
+        {
+            "y": 27840
+        },
+        {
+            "y": 28800
+        },
+        {
+            "y": 29760
+        },
+        {
+            "y": 30720
+        },
+        {
+            "y": 31680
+        },
+        {
+            "y": 32640
+        },
+        {
+            "y": 33600
+        },
+        {
+            "y": 34560
+        },
+        {
+            "y": 35520
+        },
+        {
+            "y": 36480
+        },
+        {
+            "y": 37440
+        },
+        {
+            "y": 38400
+        },
+        {
+            "y": 39360
+        },
+        {
+            "y": 40320
+        },
+        {
+            "y": 41280
+        },
+        {
+            "y": 42240
+        },
+        {
+            "y": 43200
+        },
+        {
+            "y": 44160
+        },
+        {
+            "y": 45120
+        },
+        {
+            "y": 46080
+        },
+        {
+            "y": 47040
+        },
+        {
+            "y": 48000
+        },
+        {
+            "y": 48960
+        },
+        {
+            "y": 49920
+        },
+        {
+            "y": 50880
+        },
+        {
+            "y": 51840
+        },
+        {
+            "y": 52800
+        },
+        {
+            "y": 53760
+        },
+        {
+            "y": 54720
+        },
+        {
+            "y": 55680
+        },
+        {
+            "y": 56640
+        },
+        {
+            "y": 57600
+        },
+        {
+            "y": 58560
+        },
+        {
+            "y": 59520
+        },
+        {
+            "y": 60480
+        },
+        {
+            "y": 61440
+        },
+        {
+            "y": 62400
+        },
+        {
+            "y": 63360
+        },
+        {
+            "y": 64320
+        },
+        {
+            "y": 65280
+        },
+        {
+            "y": 66240
+        },
+        {
+            "y": 67200
+        },
+        {
+            "y": 68160
+        },
+        {
+            "y": 69120
+        },
+        {
+            "y": 70080
+        },
+        {
+            "y": 71040
+        },
+        {
+            "y": 72000
+        },
+        {
+            "y": 72960
+        },
+        {
+            "y": 73920
+        },
+        {
+            "y": 74880
+        },
+        {
+            "y": 75840
+        },
+        {
+            "y": 76800
+        },
+        {
+            "y": 77760
+        },
+        {
+            "y": 78720
+        },
+        {
+            "y": 79680
+        },
+        {
+            "y": 80640
+        },
+        {
+            "y": 81600
+        },
+        {
+            "y": 82560
+        },
+        {
+            "y": 83520
+        },
+        {
+            "y": 84480
+        },
+        {
+            "y": 85440
+        },
+        {
+            "y": 86400
+        },
+        {
+            "y": 87360
+        },
+        {
+            "y": 88320
+        },
+        {
+            "y": 89280
+        },
+        {
+            "y": 90240
+        },
+        {
+            "y": 91200
+        },
+        {
+            "y": 92160
+        },
+        {
+            "y": 93120
+        }
+    ],
+    "sound_channels": [
+        {
+            "name": "arpeggio.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 960
+                }
+            ]
+        },
+        {
+            "name": "choirpad.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 960
+                }
+            ]
+        },
+        {
+            "name": "cymbalcrash.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 960
+                }
+            ]
+        },
+        {
+            "name": "fill.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 960
+                }
+            ]
+        },
+        {
+            "name": "glitchtextures.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 960
+                }
+            ]
+        },
+        {
+            "name": "gunrhythmicnoise.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 960
+                }
+            ]
+        },
+        {
+            "name": "kick.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 960
+                }
+            ]
+        },
+        {
+            "name": "perc1.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 960
+                }
+            ]
+        },
+        {
+            "name": "perc2.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 960
+                }
+            ]
+        },
+        {
+            "name": "perc3.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 960
+                }
+            ]
+        },
+        {
+            "name": "percfadein2.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 960
+                }
+            ]
+        },
+        {
+            "name": "percloop.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 960
+                }
+            ]
+        },
+        {
+            "name": "rain.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 960
+                }
+            ]
+        },
+        {
+            "name": "reeseNOSIDECHAIN.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 960
+                }
+            ]
+        },
+        {
+            "name": "ride.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 960
+                }
+            ]
+        },
+        {
+            "name": "ridelayer.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 960
+                }
+            ]
+        },
+        {
+            "name": "sawchords_lower.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 960
+                }
+            ]
+        },
+        {
+            "name": "sawchords_middle.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 960
+                }
+            ]
+        },
+        {
+            "name": "sawchords_upper.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 960
+                }
+            ]
+        },
+        {
+            "name": "sawchords2_lower.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 960
+                }
+            ]
+        },
+        {
+            "name": "sawchords2_upper.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 960
+                }
+            ]
+        },
+        {
+            "name": "snare.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 960
+                }
+            ]
+        },
+        {
+            "name": "snare2.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 960
+                }
+            ]
+        },
+        {
+            "name": "spacepad_lower.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 960
+                }
+            ]
+        },
+        {
+            "name": "spacepad_upper.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 960
+                }
+            ]
+        },
+        {
+            "name": "sweepdown.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 960
+                }
+            ]
+        },
+        {
+            "name": "sweepup.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 960
+                }
+            ]
+        },
+        {
+            "name": "weirdpad_lower.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 960
+                }
+            ]
+        },
+        {
+            "name": "weirdpad_upper.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 960
+                }
+            ]
+        }
+    ],
+    "version": "1.0.0"
+}

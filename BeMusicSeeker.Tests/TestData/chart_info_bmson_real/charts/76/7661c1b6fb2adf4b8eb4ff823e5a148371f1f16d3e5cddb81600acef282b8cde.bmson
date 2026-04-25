@@ -1,0 +1,136 @@
+{
+  "bga": {
+    "bga_events": [
+      {
+        "id": 1,
+        "y": 960
+      }
+    ],
+    "bga_header": [
+      {
+        "id": 1,
+        "name": "_bga.wmv"
+      }
+    ],
+    "layer_events": [],
+    "poor_events": []
+  },
+  "bpm_events": [],
+  "info": {
+    "artist": "",
+    "back_image": "",
+    "banner_image": "",
+    "chart_name": "21KEYS",
+    "eyecatch_image": "",
+    "genre": "meme",
+    "init_bpm": 406,
+    "judge_rank": 100,
+    "level": 1,
+    "mode_hint": "keyboard-24k",
+    "preview_music": "",
+    "resolution": 240,
+    "subartists": [
+      "BMS: 　"
+    ],
+    "subtitle": "",
+    "title": "bababooey",
+    "title_image": "",
+    "total": 50
+  },
+  "lines": [
+    {
+      "y": 0
+    },
+    {
+      "y": 960
+    },
+    {
+      "y": 1920
+    },
+    {
+      "y": 2880
+    },
+    {
+      "y": 3840
+    },
+    {
+      "y": 4800
+    },
+    {
+      "y": 5760
+    },
+    {
+      "y": 6720
+    }
+  ],
+  "sound_channels": [
+    {
+      "name": "bababooey_000.wav",
+      "notes": [
+        {
+          "c": false,
+          "l": 0,
+          "x": 21,
+          "y": 960
+        }
+      ]
+    },
+    {
+      "name": "bababooey_001.wav",
+      "notes": [
+        {
+          "c": false,
+          "l": 0,
+          "x": 0,
+          "y": 4675
+        }
+      ]
+    },
+    {
+      "name": "bababooey_002.wav",
+      "notes": [
+        {
+          "c": false,
+          "l": 0,
+          "x": 0,
+          "y": 4800
+        }
+      ]
+    },
+    {
+      "name": "bababooey_003.wav",
+      "notes": [
+        {
+          "c": false,
+          "l": 0,
+          "x": 0,
+          "y": 5025
+        }
+      ]
+    },
+    {
+      "name": "bababooey_004.wav",
+      "notes": [
+        {
+          "c": false,
+          "l": 0,
+          "x": 0,
+          "y": 5280
+        }
+      ]
+    },
+    {
+      "name": "bababooey_005.wav",
+      "notes": [
+        {
+          "c": false,
+          "l": 0,
+          "x": 0,
+          "y": 5580
+        }
+      ]
+    }
+  ],
+  "stop_events": [],
+  "version": "1.0.0"
+}

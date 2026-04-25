@@ -1,0 +1,209 @@
+{
+    "bpm_events": [
+    ],
+    "info": {
+        "artist": "bugs",
+        "back_image": "harambe.bmp",
+        "banner_image": "harambe.bmp",
+        "chart_name": "",
+        "eyecatch_image": "harambe.bmp",
+        "genre": "capitalistic hip hop",
+        "init_bpm": 100,
+        "judge_rank": 100,
+        "level": 1,
+        "mode_hint": "beat-7k",
+        "preview_music": "preview.ogg",
+        "resolution": 240,
+        "subartists": [
+        ],
+        "subtitle": "",
+        "title": "I thlammed my penuth in the car door (long)",
+        "title_image": "harambe.bmp",
+        "total": 160
+    },
+    "lines": [
+        {
+            "y": 0
+        },
+        {
+            "y": 960
+        },
+        {
+            "y": 1920
+        }
+    ],
+    "sound_channels": [
+        {
+            "name": "2.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 1,
+                    "y": 550
+                },
+                {
+                    "c": true,
+                    "l": 0,
+                    "x": 1,
+                    "y": 653
+                }
+            ]
+        },
+        {
+            "name": "1.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 6,
+                    "y": 484
+                }
+            ]
+        },
+        {
+            "name": "4.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 3,
+                    "y": 724
+                }
+            ]
+        },
+        {
+            "name": "3.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 3,
+                    "y": 603
+                }
+            ]
+        },
+        {
+            "name": "5.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 4,
+                    "y": 813
+                }
+            ]
+        },
+        {
+            "name": "6.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 1,
+                    "y": 925
+                }
+            ]
+        },
+        {
+            "name": "7.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 5,
+                    "y": 972
+                }
+            ]
+        },
+        {
+            "name": "vocal.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 481
+                }
+            ]
+        },
+        {
+            "name": "11_synth.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 3,
+                    "y": 1244
+                }
+            ]
+        },
+        {
+            "name": "12_teul.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 6,
+                    "y": 1319
+                }
+            ]
+        },
+        {
+            "name": "8.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 2,
+                    "y": 1081
+                }
+            ]
+        },
+        {
+            "name": "9_flute.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 6,
+                    "y": 1157
+                }
+            ]
+        },
+        {
+            "name": "10_snare.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 5,
+                    "y": 1209
+                }
+            ]
+        },
+        {
+            "name": "fadeout.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 7,
+                    "y": 1416
+                }
+            ]
+        },
+        {
+            "name": "fadein.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 0
+                }
+            ]
+        }
+    ],
+    "version": "1.0.0"
+}

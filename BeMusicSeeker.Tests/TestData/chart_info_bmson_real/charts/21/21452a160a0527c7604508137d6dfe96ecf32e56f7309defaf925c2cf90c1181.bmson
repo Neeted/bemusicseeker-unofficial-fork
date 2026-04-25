@@ -1,0 +1,310 @@
+{
+    "bpm_events": [
+    ],
+    "info": {
+        "artist": "bugs",
+        "back_image": "harambe.bmp",
+        "banner_image": "",
+        "chart_name": "",
+        "eyecatch_image": "harambe.bmp",
+        "genre": "capitalistic hip hop",
+        "init_bpm": 100,
+        "judge_rank": 100,
+        "level": 2,
+        "mode_hint": "beat-7k",
+        "preview_music": "preview.ogg",
+        "resolution": 240,
+        "subartists": [
+        ],
+        "subtitle": "",
+        "title": "I thlammed my penuth in the car door (sliced)",
+        "title_image": "image.bmp",
+        "total": 100
+    },
+    "lines": [
+        {
+            "y": 0
+        },
+        {
+            "y": 960
+        },
+        {
+            "y": 1920
+        }
+    ],
+    "sound_channels": [
+        {
+            "name": "thlammed_002.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 1,
+                    "y": 720
+                }
+            ]
+        },
+        {
+            "name": "thlammed_003.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 3,
+                    "y": 799
+                }
+            ]
+        },
+        {
+            "name": "thlammed_004.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 5,
+                    "y": 857
+                }
+            ]
+        },
+        {
+            "name": "thlammed_005.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 3,
+                    "y": 957
+                }
+            ]
+        },
+        {
+            "name": "thlammed_006.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 1,
+                    "y": 1078
+                }
+            ]
+        },
+        {
+            "name": "thlammed_007.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 4,
+                    "y": 1139
+                }
+            ]
+        },
+        {
+            "name": "thlammed_008.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 3,
+                    "y": 1215
+                }
+            ]
+        },
+        {
+            "name": "thlammed_009.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 4,
+                    "y": 1261
+                }
+            ]
+        },
+        {
+            "name": "thlammed_010.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 6,
+                    "y": 1337
+                }
+            ]
+        },
+        {
+            "name": "thlammed_011.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 5,
+                    "y": 1398
+                }
+            ]
+        },
+        {
+            "name": "thlammed_012.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 1,
+                    "y": 1459
+                }
+            ]
+        },
+        {
+            "name": "thlammed_013.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 5,
+                    "y": 1505
+                }
+            ]
+        },
+        {
+            "name": "thlammed_014.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 5,
+                    "y": 1581
+                }
+            ]
+        },
+        {
+            "name": "thlammed_015.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 2,
+                    "y": 1686
+                }
+            ]
+        },
+        {
+            "name": "thlammed_016.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 4,
+                    "y": 1763
+                }
+            ]
+        },
+        {
+            "name": "thlammed_017.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 3,
+                    "y": 1840
+                }
+            ]
+        },
+        {
+            "name": "thlammed_018.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 5,
+                    "y": 1945
+                }
+            ]
+        },
+        {
+            "name": "thlammed_019.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 4,
+                    "y": 2067
+                }
+            ]
+        },
+        {
+            "name": "thlammed_020.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 4,
+                    "y": 2145
+                }
+            ]
+        },
+        {
+            "name": "harambe.bmp",
+            "notes": [
+            ]
+        },
+        {
+            "name": "thlammed_022.wav",
+            "notes": [
+            ]
+        },
+        {
+            "name": "thlammed_023.wav",
+            "notes": [
+            ]
+        },
+        {
+            "name": "thlammed_024.wav",
+            "notes": [
+            ]
+        },
+        {
+            "name": "thlammed_025.wav",
+            "notes": [
+            ]
+        },
+        {
+            "name": "thlammed_026.wav",
+            "notes": [
+            ]
+        },
+        {
+            "name": "thlammed_000.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 1,
+                    "y": 480
+                }
+            ]
+        },
+        {
+            "name": "thlammed_001.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 2,
+                    "y": 579
+                }
+            ]
+        },
+        {
+            "name": "vocal.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 480
+                }
+            ]
+        }
+    ],
+    "version": "1.0.0"
+}

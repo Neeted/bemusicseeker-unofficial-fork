@@ -2,8 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Runtime.Serialization;
-using System.Runtime.Serialization.Json;
 using System.Security.Cryptography;
 using System.Text;
 using BeMusicSeeker.Models.LR2;
@@ -12,86 +10,6 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 internal static class BmsonSongParser
 {
-    [DataContract]
-    private sealed class BmsonDocument
-    {
-        [DataMember(Name = "info")]
-        public BmsonInfo Info { get; set; }
-
-        [DataMember(Name = "sound_channels")]
-        public BmsonChannel[] SoundChannels { get; set; }
-
-        [DataMember(Name = "key_channels")]
-        public BmsonChannel[] KeyChannels { get; set; }
-
-        [DataMember(Name = "mine_channels")]
-        public BmsonChannel[] MineChannels { get; set; }
-
-        [DataMember(Name = "bga")]
-        public BmsonBga Bga { get; set; }
-    }
-
-    [DataContract]
-    private sealed class BmsonInfo
-    {
-        [DataMember(Name = "title")]
-        public string Title { get; set; }
-
-        [DataMember(Name = "subtitle")]
-        public string Subtitle { get; set; }
-
-        [DataMember(Name = "chart_name")]
-        public string ChartName { get; set; }
-
-        [DataMember(Name = "artist")]
-        public string Artist { get; set; }
-
-        [DataMember(Name = "subartists")]
-        public string[] Subartists { get; set; }
-
-        [DataMember(Name = "genre")]
-        public string Genre { get; set; }
-
-        [DataMember(Name = "level")]
-        public double? Level { get; set; }
-
-        [DataMember(Name = "mode_hint")]
-        public string ModeHint { get; set; }
-
-        [DataMember(Name = "banner_image")]
-        public string BannerImage { get; set; }
-
-        [DataMember(Name = "back_image")]
-        public string BackImage { get; set; }
-
-        [DataMember(Name = "eyecatch_image")]
-        public string EyecatchImage { get; set; }
-
-        [DataMember(Name = "preview_music")]
-        public string PreviewMusic { get; set; }
-    }
-
-    [DataContract]
-    private sealed class BmsonChannel
-    {
-        [DataMember(Name = "name")]
-        public string Name { get; set; }
-    }
-
-    [DataContract]
-    private sealed class BmsonBga
-    {
-        [DataMember(Name = "bga_header")]
-        public BmsonBgaHeader[] BgaHeader { get; set; }
-    }
-
-    [DataContract]
-    private sealed class BmsonBgaHeader
-    {
-        [DataMember(Name = "name")]
-        public string Name { get; set; }
-    }
-
     public static LR2SongDBExtended.bmson_song Parse(string filePath)
     {
         if (string.IsNullOrWhiteSpace(filePath))
@@ -100,7 +18,7 @@ internal static class BmsonSongParser
         }
         string fullPath = Path.GetFullPath(filePath);
         string json = File.ReadAllText(fullPath, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: false));
-        BmsonDocument root = ParseDocument(json);
+        BmsonDocument root = BmsonJsonParser.Parse(json);
         BmsonInfo info = root?.Info ?? new BmsonInfo();
         DateTime updatedAt = File.GetLastWriteTimeUtc(fullPath);
 
@@ -176,24 +94,13 @@ internal static class BmsonSongParser
         return Path.GetFileName(trimmed) ?? string.Empty;
     }
 
-    private static BmsonDocument ParseDocument(string json)
-    {
-        if (string.IsNullOrWhiteSpace(json))
-        {
-            return new BmsonDocument();
-        }
-        using MemoryStream stream = new MemoryStream(Encoding.UTF8.GetBytes(json));
-        DataContractJsonSerializer serializer = new DataContractJsonSerializer(typeof(BmsonDocument));
-        return serializer.ReadObject(stream) as BmsonDocument ?? new BmsonDocument();
-    }
-
     private static List<string> ReadBmsonWavFiles(BmsonDocument document, string previewMusic)
     {
         HashSet<string> files = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         AddNormalizedComponentPath(files, previewMusic);
-        foreach (BmsonChannel channel in EnumerateAudioChannels(document))
+        foreach (string channelName in EnumerateAudioChannelNames(document))
         {
-            AddNormalizedComponentPath(files, channel?.Name);
+            AddNormalizedComponentPath(files, channelName);
         }
         return files.OrderBy((string item) => item, StringComparer.OrdinalIgnoreCase).ToList();
     }
@@ -216,11 +123,11 @@ internal static class BmsonSongParser
         return files.OrderBy((string item) => item, StringComparer.OrdinalIgnoreCase).ToList();
     }
 
-    private static IEnumerable<BmsonChannel> EnumerateAudioChannels(BmsonDocument document)
+    private static IEnumerable<string> EnumerateAudioChannelNames(BmsonDocument document)
     {
-        return (document?.SoundChannels ?? Array.Empty<BmsonChannel>())
-            .Concat(document?.KeyChannels ?? Array.Empty<BmsonChannel>())
-            .Concat(document?.MineChannels ?? Array.Empty<BmsonChannel>());
+        return (document?.SoundChannels ?? Array.Empty<BmsonSoundChannel>()).Select((BmsonSoundChannel channel) => channel?.Name)
+            .Concat((document?.KeyChannels ?? Array.Empty<BmsonMineChannel>()).Select((BmsonMineChannel channel) => channel?.Name))
+            .Concat((document?.MineChannels ?? Array.Empty<BmsonMineChannel>()).Select((BmsonMineChannel channel) => channel?.Name));
     }
 
     private static void AddNormalizedComponentPath(ISet<string> files, string filePath)

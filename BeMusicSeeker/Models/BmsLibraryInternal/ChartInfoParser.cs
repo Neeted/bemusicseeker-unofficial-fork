@@ -1,10 +1,9 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Runtime.Serialization;
-using System.Runtime.Serialization.Json;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -18,7 +17,7 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 /// </summary>
 internal static class ChartInfoParser
 {
-    private static readonly string[] JavaDoubleCandidateFormats = { "G15", "G16", "G17", "R" };
+    private static readonly ConcurrentDictionary<long, string> JavaDoubleFormatCache = new ConcurrentDictionary<long, string>();
 
     private const int MaxMetadataTimelineSeconds = 86400;
 
@@ -429,40 +428,60 @@ internal static class ChartInfoParser
         SortedList<int, ChartTimeline> timelinesByY = new SortedList<int, ChartTimeline>();
         ChartTimeline baseTimeline = new ChartTimeline(0.0, 0.0, mode.KeyCount)
         {
-            Bpm = model.InitialBpm
+            Bpm = model.InitialBpm,
+            BpmChartText = info.InitBpmText
         };
         timelinesByY.Add(0, baseTimeline);
 
         double resolution = info.Resolution > 0 ? info.Resolution * 4.0 : 960.0;
-        foreach (BmsonBpmEvent bpmEvent in (document?.BpmEvents ?? Array.Empty<BmsonBpmEvent>()).OrderBy((BmsonBpmEvent item) => item.Y))
+        BmsonBpmEvent[] bpmEvents = (document?.BpmEvents ?? Array.Empty<BmsonBpmEvent>()).OrderBy((BmsonBpmEvent item) => item.Y).ToArray();
+        BmsonStopEvent[] stopEvents = (document?.StopEvents ?? Array.Empty<BmsonStopEvent>()).OrderBy((BmsonStopEvent item) => item.Y).ToArray();
+        BmsonScrollEvent[] scrollEvents = (document?.ScrollEvents ?? Array.Empty<BmsonScrollEvent>()).OrderBy((BmsonScrollEvent item) => item.Y).ToArray();
+        int bpmPosition = 0;
+        int stopPosition = 0;
+        int scrollPosition = 0;
+        while (bpmPosition < bpmEvents.Length || stopPosition < stopEvents.Length || scrollPosition < scrollEvents.Length)
         {
-            if (bpmEvent.Bpm > 0)
+            int bpmY = bpmPosition < bpmEvents.Length ? bpmEvents[bpmPosition].Y : int.MaxValue;
+            int stopY = stopPosition < stopEvents.Length ? stopEvents[stopPosition].Y : int.MaxValue;
+            int scrollY = scrollPosition < scrollEvents.Length ? scrollEvents[scrollPosition].Y : int.MaxValue;
+            if (scrollY <= stopY && scrollY <= bpmY)
             {
-                GetBmsonTimeline(timelinesByY, bpmEvent.Y, resolution, mode).Bpm = bpmEvent.Bpm;
+                GetBmsonTimeline(timelinesByY, scrollY, resolution, mode).Scroll = scrollEvents[scrollPosition].Rate;
+                scrollPosition++;
             }
-            else
+            else if (bpmY <= stopY)
             {
-                AddDiagnostic(diagnostics, ChartInfoParseDiagnosticSeverity.Warning, "BMSON_BPM_NEGATIVE", "negative BPMはサポートされていません");
-            }
-        }
-        foreach (BmsonScrollEvent scrollEvent in (document?.ScrollEvents ?? Array.Empty<BmsonScrollEvent>()).OrderBy((BmsonScrollEvent item) => item.Y))
-        {
-            GetBmsonTimeline(timelinesByY, scrollEvent.Y, resolution, mode).Scroll = scrollEvent.Rate;
-        }
-        foreach (BmsonStopEvent stopEvent in (document?.StopEvents ?? Array.Empty<BmsonStopEvent>()).OrderBy((BmsonStopEvent item) => item.Y))
-        {
-            if (stopEvent.Duration >= 0)
-            {
-                ChartTimeline timeline = GetBmsonTimeline(timelinesByY, stopEvent.Y, resolution, mode);
-                if (timeline.Bpm <= 0)
+                BmsonBpmEvent bpmEvent = bpmEvents[bpmPosition];
+                if (bpmEvent.Bpm > 0)
                 {
-                    throw new InvalidDataException("bmson BPM is zero or negative.");
+                    ChartTimeline timeline = GetBmsonTimeline(timelinesByY, bpmEvent.Y, resolution, mode);
+                    timeline.Bpm = bpmEvent.Bpm;
+                    timeline.BpmChartText = bpmEvent.BpmText;
                 }
-                timeline.StopMicroseconds = (long)(1000.0 * 1000.0 * 60.0 * 4.0 * stopEvent.Duration / (timeline.Bpm * resolution));
+                else
+                {
+                    AddDiagnostic(diagnostics, ChartInfoParseDiagnosticSeverity.Warning, "BMSON_BPM_NEGATIVE", "negative BPMはサポートされていません");
+                }
+                bpmPosition++;
             }
-            else
+            else if (stopY != int.MaxValue)
             {
-                AddDiagnostic(diagnostics, ChartInfoParseDiagnosticSeverity.Warning, "BMSON_STOP_NEGATIVE", "negative STOPはサポートされていません");
+                BmsonStopEvent stopEvent = stopEvents[stopPosition];
+                if (stopEvent.Duration >= 0)
+                {
+                    ChartTimeline timeline = GetBmsonTimeline(timelinesByY, stopEvent.Y, resolution, mode);
+                    if (timeline.Bpm <= 0)
+                    {
+                        throw new InvalidDataException("bmson BPM is zero or negative.");
+                    }
+                    timeline.StopMicroseconds = (long)(1000.0 * 1000.0 * 60.0 * 4.0 * stopEvent.Duration / (timeline.Bpm * resolution));
+                }
+                else
+                {
+                    AddDiagnostic(diagnostics, ChartInfoParseDiagnosticSeverity.Warning, "BMSON_STOP_NEGATIVE", "negative STOPはサポートされていません");
+                }
+                stopPosition++;
             }
         }
         foreach (BmsonBarLine line in document?.Lines ?? Array.Empty<BmsonBarLine>())
@@ -491,20 +510,83 @@ internal static class ChartInfoParser
         {
             GetBmsonTimeline(timelinesByY, note.Y, resolution, mode).HasBga = true;
         }
-        foreach (BmsonBgaNote note in document?.Bga?.LayerEvents ?? Array.Empty<BmsonBgaNote>())
-        {
-            GetBmsonTimeline(timelinesByY, note.Y, resolution, mode).HasBga = true;
-        }
-        foreach (BmsonBgaNote note in document?.Bga?.PoorEvents ?? Array.Empty<BmsonBgaNote>())
-        {
-            GetBmsonTimeline(timelinesByY, note.Y, resolution, mode).HasBga = true;
-        }
 
         model.SetTimelines(timelinesByY.Values.ToList());
         int totalNotes = model.GetTotalNotes();
+        if (!model.Difficulty.HasValue || model.Difficulty.Value == 0)
+        {
+            model.Difficulty = InferBeatorajaDifficulty(info.Title, ComposeBmsonSubtitle(info.Subtitle, info.ChartName), totalNotes);
+        }
         defaultTotal = CalculateDefaultTotal(mode, totalNotes);
         model.Total = info.Total > 0 ? info.Total / 100.0 * defaultTotal : defaultTotal;
         return model;
+    }
+
+    private static string ComposeBmsonSubtitle(string subtitle, string chartName)
+    {
+        string safeSubtitle = subtitle ?? string.Empty;
+        string safeChartName = chartName ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(safeChartName))
+        {
+            return safeSubtitle;
+        }
+        if (string.IsNullOrWhiteSpace(safeSubtitle))
+        {
+            return "[" + safeChartName + "]";
+        }
+        return safeSubtitle + " [" + safeChartName + "]";
+    }
+
+    private static int InferBeatorajaDifficulty(string title, string subtitle, int notes)
+    {
+        string safeTitle = title ?? string.Empty;
+        string safeSubtitle = subtitle ?? string.Empty;
+        string fullTitle = (safeTitle + safeSubtitle).ToLowerInvariant();
+        string diffName = safeSubtitle.ToLowerInvariant();
+        int named = InferNamedDifficulty(diffName);
+        if (named != 0)
+        {
+            return named;
+        }
+        named = InferNamedDifficulty(fullTitle);
+        if (named != 0)
+        {
+            return named;
+        }
+        if (notes < 250)
+        {
+            return 1;
+        }
+        if (notes < 600)
+        {
+            return 2;
+        }
+        if (notes < 1000)
+        {
+            return 3;
+        }
+        return notes < 2000 ? 4 : 5;
+    }
+
+    private static int InferNamedDifficulty(string value)
+    {
+        if (value.Contains("beginner"))
+        {
+            return 1;
+        }
+        if (value.Contains("normal"))
+        {
+            return 2;
+        }
+        if (value.Contains("hyper"))
+        {
+            return 3;
+        }
+        if (value.Contains("another"))
+        {
+            return 4;
+        }
+        return value.Contains("insane") || value.Contains("leggendaria") ? 5 : 0;
     }
 
     private static void AddBmsonSoundChannel(SortedList<int, ChartTimeline> timelinesByY, double resolution, ChartMode mode, int[] keyAssign, List<ChartNote>[] longNotesByLane, IDictionary<string, ChartNote> pendingLongNoteEnds, BmsonSoundChannel channel, int soundId, int modelLnMode)
@@ -531,14 +613,17 @@ internal static class ChartInfoParser
             }
             else if (note.Up)
             {
-                ChartNote endNote = FindLongNoteEnd(longNotesByLane[lane], note.Y / resolution);
-                if (endNote != null)
+                if (longNotesByLane[lane].Count > 0)
                 {
-                    endNote.SetAudio(soundId, audioStartMicroseconds, durationMicroseconds);
-                }
-                else
-                {
-                    pendingLongNoteEnds[MakeBmsonLongNoteEndKey(note.X, note.Y)] = ChartNote.CreateLong(soundId, LongNoteTypeUndefined, audioStartMicroseconds, durationMicroseconds);
+                    ChartNote endNote = FindLongNoteEnd(longNotesByLane[lane], note.Y / resolution);
+                    if (endNote != null)
+                    {
+                        endNote.SetAudio(soundId, audioStartMicroseconds, durationMicroseconds);
+                    }
+                    else
+                    {
+                        pendingLongNoteEnds[MakeBmsonLongNoteEndKey(note.X, note.Y)] = ChartNote.CreateLong(soundId, LongNoteTypeUndefined, audioStartMicroseconds, durationMicroseconds);
+                    }
                 }
             }
             else if (!note.Up)
@@ -546,7 +631,7 @@ internal static class ChartInfoParser
                 if (note.Length > 0)
                 {
                     ChartTimeline endTimeline = GetBmsonTimeline(timelinesByY, note.Y + note.Length, resolution, mode);
-                    if (!HasNoteInsideLongNote(longNotesByLane[lane], note.Y / resolution, (note.Y + note.Length) / resolution) && timeline.Notes[lane] == null)
+                    if (!HasAnyNoteInRange(timelinesByY, lane, note.Y, note.Y + note.Length) && timeline.Notes[lane] == null)
                     {
                         ChartNote start = ChartNote.CreateLong(soundId, note.Type > 0 && note.Type <= 3 ? note.Type : modelLnMode, audioStartMicroseconds, durationMicroseconds);
                         string pendingEndKey = MakeBmsonLongNoteEndKey(note.X, note.Y + note.Length);
@@ -631,14 +716,16 @@ internal static class ChartInfoParser
             return existing;
         }
         int previousIndex = FindPreviousTimelineIndex(timelinesByY.Keys, y);
+        int previousY = timelinesByY.Keys[previousIndex];
         ChartTimeline previous = timelinesByY.Values[previousIndex];
         if (previous.Bpm <= 0)
         {
             throw new InvalidDataException("bmson BPM is zero or negative.");
         }
         double section = y / resolution;
-        double previousSection = timelinesByY.Keys[previousIndex] / resolution;
-        double preciseTime = previous.PreciseTimeMicroseconds + previous.StopMicroseconds + 240000.0 * 1000.0 * (section - previousSection) / previous.Bpm;
+        double preciseTime = previous.PreciseTimeMicroseconds
+            + previous.StopMicroseconds
+            + 240000.0 * 1000.0 * ((y - previousY) / resolution) / previous.Bpm;
         ChartTimeline timeline = new ChartTimeline(section, preciseTime, mode.KeyCount)
         {
             Bpm = previous.Bpm,
@@ -874,15 +961,276 @@ internal static class ChartInfoParser
 
     private static string FormatDouble(double value)
     {
-        foreach (string format in JavaDoubleCandidateFormats)
+        return JavaDoubleFormatCache.GetOrAdd(BitConverter.DoubleToInt64Bits(value), _ => FormatDoubleUncached(value));
+    }
+
+    private static string FormatDoubleUncached(double value)
+    {
+        List<string> candidates = new List<string>();
+        for (int precision = 1; precision <= 17; precision++)
         {
-            string candidate = NormalizeDoubleText(value.ToString(format, CultureInfo.InvariantCulture));
-            if (DoubleRoundTrips(value, candidate))
+            string format = "G" + precision.ToString(CultureInfo.InvariantCulture);
+            string text = value.ToString(format, CultureInfo.InvariantCulture);
+            AddDoubleFormatCandidate(candidates, value, text);
+            AddAdjacentDoubleFormatCandidates(candidates, value, text);
+        }
+        string best = null;
+        foreach (string candidate in candidates.Distinct(StringComparer.Ordinal))
+        {
+            if (!IsJavaRoundTripDoubleCandidate(value, candidate))
             {
-                return EnsureJavaDecimalPoint(candidate);
+                continue;
+            }
+            if (best == null || CompareJavaDoubleCandidate(value, candidate, best) < 0)
+            {
+                best = candidate;
             }
         }
-        return EnsureJavaDecimalPoint(NormalizeDoubleText(value.ToString("R", CultureInfo.InvariantCulture)));
+        return best ?? FormatJavaDoubleFallback(value);
+    }
+
+    private static void AddDoubleFormatCandidate(ICollection<string> candidates, double value, string text)
+    {
+        string candidate = NormalizeDoubleText(text);
+        if (UsesExponentAgainstJavaDecimalRange(value, candidate))
+        {
+            return;
+        }
+        if (UsesDecimalAgainstJavaExponentRange(value, candidate))
+        {
+            return;
+        }
+        candidate = EnsureJavaDecimalPoint(candidate);
+        if (!string.IsNullOrEmpty(candidate))
+        {
+            candidates.Add(candidate);
+        }
+    }
+
+    private static void AddAdjacentDoubleFormatCandidates(ICollection<string> candidates, double value, string text)
+    {
+        string normalized = NormalizeDoubleText(text);
+        if (normalized.IndexOf('E') >= 0 || normalized.IndexOf('e') >= 0 || UsesExponentAgainstJavaDecimalRange(value, normalized))
+        {
+            return;
+        }
+        for (int direction = -1; direction <= 1; direction += 2)
+        {
+            string adjusted = AdjustLastDecimalDigit(normalized, direction);
+            if (!string.IsNullOrEmpty(adjusted))
+            {
+                candidates.Add(EnsureJavaDecimalPoint(adjusted));
+            }
+        }
+    }
+
+    private static bool UsesExponentAgainstJavaDecimalRange(double value, string text)
+    {
+        double absolute = Math.Abs(value);
+        return absolute >= 0.001 && absolute < 10000000.0 && text.IndexOf('E') >= 0;
+    }
+
+    private static bool UsesDecimalAgainstJavaExponentRange(double value, string text)
+    {
+        double absolute = Math.Abs(value);
+        return absolute != 0.0
+            && (absolute < 0.001 || absolute >= 10000000.0)
+            && text.IndexOf('E') < 0
+            && text.IndexOf('e') < 0;
+    }
+
+    private static string FormatJavaDoubleFallback(double value)
+    {
+        string text = NormalizeDoubleText(value.ToString("R", CultureInfo.InvariantCulture));
+        if (UsesDecimalAgainstJavaExponentRange(value, text))
+        {
+            return ToJavaExponentText(text);
+        }
+        return EnsureJavaDecimalPoint(text);
+    }
+
+    private static string ToJavaExponentText(string text)
+    {
+        if (string.IsNullOrEmpty(text) || text.IndexOf('E') >= 0 || text.IndexOf('e') >= 0)
+        {
+            return NormalizeDoubleText(text);
+        }
+        bool negative = text[0] == '-';
+        if (negative)
+        {
+            text = text.Substring(1);
+        }
+        int decimalIndex = text.IndexOf('.');
+        string digits = decimalIndex >= 0 ? text.Remove(decimalIndex, 1) : text;
+        int exponent = (decimalIndex >= 0 ? decimalIndex : text.Length) - 1;
+        digits = digits.TrimEnd('0');
+        if (digits.Length == 0)
+        {
+            return "0.0";
+        }
+        string mantissa = digits.Length == 1 ? digits + ".0" : digits[0] + "." + digits.Substring(1);
+        return (negative ? "-" : string.Empty) + mantissa + "E" + exponent.ToString(CultureInfo.InvariantCulture);
+    }
+
+    private static string AdjustLastDecimalDigit(string text, int direction)
+    {
+        if (string.IsNullOrEmpty(text))
+        {
+            return null;
+        }
+        char[] chars = text.ToCharArray();
+        for (int index = chars.Length - 1; index >= 0; index--)
+        {
+            if (!char.IsDigit(chars[index]))
+            {
+                continue;
+            }
+            int digit = chars[index] - '0' + direction;
+            if (digit < 0 || digit > 9)
+            {
+                return null;
+            }
+            chars[index] = (char)('0' + digit);
+            return new string(chars);
+        }
+        return null;
+    }
+
+    private static int CompareJavaDoubleCandidate(double value, string left, string right)
+    {
+        int lengthCompare = left.Length.CompareTo(right.Length);
+        if (lengthCompare != 0)
+        {
+            return lengthCompare;
+        }
+        decimal leftDistance = GetDecimalDistance(value, left);
+        decimal rightDistance = GetDecimalDistance(value, right);
+        int distanceCompare = leftDistance.CompareTo(rightDistance);
+        if (distanceCompare != 0)
+        {
+            return distanceCompare;
+        }
+        if (decimal.TryParse(left, NumberStyles.Float, CultureInfo.InvariantCulture, out decimal leftValue)
+            && decimal.TryParse(right, NumberStyles.Float, CultureInfo.InvariantCulture, out decimal rightValue))
+        {
+            int valueCompare = leftValue.CompareTo(rightValue);
+            if (valueCompare != 0)
+            {
+                return valueCompare;
+            }
+        }
+        return string.CompareOrdinal(left, right);
+    }
+
+    private static decimal GetDecimalDistance(double value, string candidate)
+    {
+        if (TryGetExactDecimal(value, out decimal actual)
+            && decimal.TryParse(candidate, NumberStyles.Float, CultureInfo.InvariantCulture, out decimal parsed))
+        {
+            return Math.Abs(actual - parsed);
+        }
+        return decimal.MaxValue;
+    }
+
+    private static bool IsJavaRoundTripDoubleCandidate(double value, string candidate)
+    {
+        if (double.IsNaN(value) || double.IsInfinity(value))
+        {
+            return string.Equals(candidate, value.ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal);
+        }
+        if (Math.Abs(value) < 1.0 && DoubleRoundTrips(value, candidate))
+        {
+            return true;
+        }
+        if (!decimal.TryParse(candidate, NumberStyles.Float, CultureInfo.InvariantCulture, out decimal parsed)
+            || !TryGetExactDecimal(value, out decimal actual))
+        {
+            return DoubleRoundTrips(value, candidate);
+        }
+        double lowerDouble = NextDouble(value, -1);
+        double upperDouble = NextDouble(value, 1);
+        if (!TryGetExactDecimal(lowerDouble, out decimal lowerValue)
+            || !TryGetExactDecimal(upperDouble, out decimal upperValue))
+        {
+            return DoubleRoundTrips(value, candidate);
+        }
+        decimal lowerBoundary = (lowerValue + actual) / 2m;
+        decimal upperBoundary = (upperValue + actual) / 2m;
+        if (lowerBoundary > upperBoundary)
+        {
+            decimal swap = lowerBoundary;
+            lowerBoundary = upperBoundary;
+            upperBoundary = swap;
+        }
+        if (parsed < lowerBoundary || parsed > upperBoundary)
+        {
+            return false;
+        }
+        bool evenSignificand = (BitConverter.DoubleToInt64Bits(value) & 1L) == 0L;
+        if ((parsed == lowerBoundary || parsed == upperBoundary) && !evenSignificand)
+        {
+            return false;
+        }
+        return true;
+    }
+
+    private static double NextDouble(double value, int direction)
+    {
+        if (double.IsNaN(value) || double.IsInfinity(value))
+        {
+            return value;
+        }
+        if (value == 0.0)
+        {
+            return direction < 0 ? -double.Epsilon : double.Epsilon;
+        }
+        long bits = BitConverter.DoubleToInt64Bits(value);
+        bits += (value > 0.0) == (direction > 0) ? 1 : -1;
+        return BitConverter.ToDouble(BitConverter.GetBytes(bits), 0);
+    }
+
+    private static bool TryGetExactDecimal(double value, out decimal result)
+    {
+        result = 0m;
+        if (double.IsNaN(value) || double.IsInfinity(value))
+        {
+            return false;
+        }
+        long bits = BitConverter.DoubleToInt64Bits(value);
+        bool negative = (bits & unchecked((long)0x8000000000000000)) != 0;
+        int exponentBits = (int)((bits >> 52) & 0x7ffL);
+        long fraction = bits & 0x000fffffffffffffL;
+        if (exponentBits == 0 && fraction == 0)
+        {
+            result = 0m;
+            return true;
+        }
+        long significand = exponentBits == 0 ? fraction : fraction | 0x0010000000000000L;
+        int exponent = exponentBits == 0 ? -1074 : exponentBits - 1075;
+        try
+        {
+            decimal valueDecimal = significand;
+            if (exponent > 0)
+            {
+                for (int i = 0; i < exponent; i++)
+                {
+                    valueDecimal *= 2m;
+                }
+            }
+            else
+            {
+                for (int i = 0; i < -exponent; i++)
+                {
+                    valueDecimal /= 2m;
+                }
+            }
+            result = negative ? -valueDecimal : valueDecimal;
+            return true;
+        }
+        catch (OverflowException)
+        {
+            return false;
+        }
     }
 
     private static string NormalizeDoubleText(string text)
@@ -952,13 +1300,7 @@ internal static class ChartInfoParser
 
     private static BmsonDocument ParseBmsonDocument(string json)
     {
-        if (string.IsNullOrWhiteSpace(json))
-        {
-            return new BmsonDocument();
-        }
-        using MemoryStream stream = new MemoryStream(Encoding.UTF8.GetBytes(json));
-        DataContractJsonSerializer serializer = new DataContractJsonSerializer(typeof(BmsonDocument));
-        return serializer.ReadObject(stream) as BmsonDocument ?? new BmsonDocument();
+        return BmsonJsonParser.Parse(json);
     }
 
     private static List<ChartNote>[] CreateLaneLists(int laneCount)
@@ -979,6 +1321,26 @@ internal static class ChartInfoParser
     private static bool HasNoteInsideLongNote(IEnumerable<ChartNote> longNotes, double startSection, double endSection)
     {
         return (longNotes ?? Enumerable.Empty<ChartNote>()).Any((ChartNote note) => startSection < (note.Pair?.Section ?? note.Section) && note.Section < endSection);
+    }
+
+    private static bool HasAnyNoteInRange(SortedList<int, ChartTimeline> timelinesByY, int lane, int startY, int endY)
+    {
+        foreach (KeyValuePair<int, ChartTimeline> entry in timelinesByY)
+        {
+            if (entry.Key <= startY)
+            {
+                continue;
+            }
+            if (entry.Key > endY)
+            {
+                break;
+            }
+            if (entry.Value.Notes[lane] != null)
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static long ToCheckedMicroseconds(double value, string message)
@@ -1730,9 +2092,9 @@ internal static class ChartInfoParser
 
         public static readonly ChartMode Popn9 = new ChartMode(9, 9, Array.Empty<int>(), new[] { 0, 1, 2, 3, 4, -1, -1, -1, -1, -1, 5, 6, 7, 8, -1, -1, -1, -1 }, null);
 
-        public static readonly ChartMode Keyboard24 = new ChartMode(24, 26, new[] { 24, 25 }, null, null);
+        public static readonly ChartMode Keyboard24 = new ChartMode(25, 26, new[] { 24, 25 }, null, null);
 
-        public static readonly ChartMode Keyboard24Double = new ChartMode(48, 52, new[] { 24, 25, 50, 51 }, null, null);
+        public static readonly ChartMode Keyboard24Double = new ChartMode(50, 52, new[] { 24, 25, 50, 51 }, null, null);
 
         private readonly int[] scratchKeys;
 
@@ -1957,7 +2319,7 @@ internal static class ChartInfoParser
                 if (!currentBpm.HasValue || Math.Abs(currentBpm.Value - timeline.Bpm) > double.Epsilon)
                 {
                     currentBpm = timeline.Bpm;
-                    line.Append("B(").Append(FormatDouble(timeline.Bpm)).Append(')');
+                    line.Append("B(").Append(timeline.GetBpmChartText()).Append(')');
                     shouldWrite = true;
                 }
                 if (timeline.StopMilliseconds != 0)
@@ -2038,6 +2400,8 @@ internal static class ChartInfoParser
 
         public double Bpm { get; set; }
 
+        public string BpmChartText { get; set; }
+
         public long StopMicroseconds { get; set; }
 
         public int StopMilliseconds => (int)(StopMicroseconds / 1000L);
@@ -2089,6 +2453,11 @@ internal static class ChartInfoParser
         public bool HasPlayableOrResourceEvent()
         {
             return HasHiddenNote || HasBackground || HasBga || Notes.Any((ChartNote note) => note != null);
+        }
+
+        public string GetBpmChartText()
+        {
+            return string.IsNullOrEmpty(BpmChartText) ? FormatDouble(Bpm) : BpmChartText;
         }
     }
 
@@ -2410,7 +2779,7 @@ internal static class ChartInfoParser
                 speedList.Add(new[] { currentSpeed, (double)model.Timelines[model.Timelines.Count - 1].TimeMilliseconds });
             }
             int maxCount = 0;
-            result.MainBpm = model.InitialBpm;
+            result.MainBpm = 0.0;
             foreach (KeyValuePair<double, int> item in bpmNoteCounts)
             {
                 if (item.Value > maxCount)
@@ -2447,165 +2816,4 @@ internal static class ChartInfoParser
         }
     }
 
-    [DataContract]
-    private sealed class BmsonDocument
-    {
-        [DataMember(Name = "info")]
-        public BmsonInfo Info { get; set; }
-
-        [DataMember(Name = "sound_channels")]
-        public BmsonSoundChannel[] SoundChannels { get; set; }
-
-        [DataMember(Name = "key_channels")]
-        public BmsonMineChannel[] KeyChannels { get; set; }
-
-        [DataMember(Name = "mine_channels")]
-        public BmsonMineChannel[] MineChannels { get; set; }
-
-        [DataMember(Name = "bpm_events")]
-        public BmsonBpmEvent[] BpmEvents { get; set; }
-
-        [DataMember(Name = "stop_events")]
-        public BmsonStopEvent[] StopEvents { get; set; }
-
-        [DataMember(Name = "scroll_events")]
-        public BmsonScrollEvent[] ScrollEvents { get; set; }
-
-        [DataMember(Name = "lines")]
-        public BmsonBarLine[] Lines { get; set; }
-
-        [DataMember(Name = "bga")]
-        public BmsonBga Bga { get; set; }
-    }
-
-    [DataContract]
-    private sealed class BmsonInfo
-    {
-        [DataMember(Name = "level")]
-        public double? Level { get; set; }
-
-        [DataMember(Name = "mode_hint")]
-        public string ModeHint { get; set; }
-
-        [DataMember(Name = "judge_rank")]
-        public int JudgeRank { get; set; }
-
-        [DataMember(Name = "total")]
-        public double Total { get; set; }
-
-        [DataMember(Name = "init_bpm")]
-        public double InitBpm { get; set; }
-
-        [DataMember(Name = "resolution")]
-        public double Resolution { get; set; }
-
-        [DataMember(Name = "ln_type")]
-        public int LnType { get; set; }
-    }
-
-    [DataContract]
-    private sealed class BmsonSoundChannel
-    {
-        [DataMember(Name = "notes")]
-        public BmsonSoundNote[] Notes { get; set; }
-    }
-
-    [DataContract]
-    private sealed class BmsonSoundNote
-    {
-        [DataMember(Name = "x")]
-        public int X { get; set; }
-
-        [DataMember(Name = "y")]
-        public int Y { get; set; }
-
-        [DataMember(Name = "l")]
-        public int Length { get; set; }
-
-        [DataMember(Name = "c")]
-        public bool Continue { get; set; }
-
-        [DataMember(Name = "up")]
-        public bool Up { get; set; }
-
-        [DataMember(Name = "t")]
-        public int Type { get; set; }
-    }
-
-    [DataContract]
-    private sealed class BmsonMineChannel
-    {
-        [DataMember(Name = "notes")]
-        public BmsonMineNote[] Notes { get; set; }
-    }
-
-    [DataContract]
-    private sealed class BmsonMineNote
-    {
-        [DataMember(Name = "x")]
-        public int X { get; set; }
-
-        [DataMember(Name = "y")]
-        public int Y { get; set; }
-
-        [DataMember(Name = "damage")]
-        public double Damage { get; set; }
-    }
-
-    [DataContract]
-    private sealed class BmsonBpmEvent
-    {
-        [DataMember(Name = "y")]
-        public int Y { get; set; }
-
-        [DataMember(Name = "bpm")]
-        public double Bpm { get; set; }
-    }
-
-    [DataContract]
-    private sealed class BmsonStopEvent
-    {
-        [DataMember(Name = "y")]
-        public int Y { get; set; }
-
-        [DataMember(Name = "duration")]
-        public double Duration { get; set; }
-    }
-
-    [DataContract]
-    private sealed class BmsonScrollEvent
-    {
-        [DataMember(Name = "y")]
-        public int Y { get; set; }
-
-        [DataMember(Name = "rate")]
-        public double Rate { get; set; }
-    }
-
-    [DataContract]
-    private sealed class BmsonBarLine
-    {
-        [DataMember(Name = "y")]
-        public int Y { get; set; }
-    }
-
-    [DataContract]
-    private sealed class BmsonBga
-    {
-        [DataMember(Name = "bga_events")]
-        public BmsonBgaNote[] BgaEvents { get; set; }
-
-        [DataMember(Name = "layer_events")]
-        public BmsonBgaNote[] LayerEvents { get; set; }
-
-        [DataMember(Name = "poor_events")]
-        public BmsonBgaNote[] PoorEvents { get; set; }
-    }
-
-    [DataContract]
-    private sealed class BmsonBgaNote
-    {
-        [DataMember(Name = "y")]
-        public int Y { get; set; }
-    }
 }

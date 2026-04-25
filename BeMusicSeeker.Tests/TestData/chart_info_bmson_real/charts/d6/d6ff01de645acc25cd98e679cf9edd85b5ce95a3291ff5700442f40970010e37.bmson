@@ -1,0 +1,1537 @@
+{
+    "bga": {
+        "bga_events": [
+        ],
+        "bga_header": [
+        ],
+        "layer_events": [
+        ],
+        "poor_events": [
+        ]
+    },
+    "bpm_events": [
+    ],
+    "info": {
+        "artist": "TAKA",
+        "back_image": "",
+        "banner_image": "",
+        "chart_name": "",
+        "eyecatch_image": "",
+        "genre": "SOLDIER'S BALLAD",
+        "init_bpm": 85,
+        "judge_rank": 80,
+        "level": 0,
+        "mode_hint": "keyboard-24k",
+        "preview_music": "",
+        "resolution": 240,
+        "subartists": [
+            "bms:OYAKI"
+        ],
+        "subtitle": "[intro]",
+        "title": "走馬灯 -The Last Song-",
+        "title_image": "",
+        "total": 100
+    },
+    "lines": [
+        {
+            "y": 0
+        },
+        {
+            "y": 960
+        },
+        {
+            "y": 1920
+        },
+        {
+            "y": 2880
+        },
+        {
+            "y": 3840
+        },
+        {
+            "y": 4800
+        },
+        {
+            "y": 5760
+        },
+        {
+            "y": 6720
+        },
+        {
+            "y": 7680
+        },
+        {
+            "y": 8640
+        },
+        {
+            "y": 9600
+        },
+        {
+            "y": 10560
+        },
+        {
+            "y": 11520
+        }
+    ],
+    "sound_channels": [
+        {
+            "name": "_bgm.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 0
+                }
+            ]
+        },
+        {
+            "name": "violin1_01.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 12,
+                    "y": 960
+                }
+            ]
+        },
+        {
+            "name": "violin1_02.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 13,
+                    "y": 1080
+                },
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 13,
+                    "y": 4080
+                }
+            ]
+        },
+        {
+            "name": "violin1_03.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 15,
+                    "y": 1200
+                }
+            ]
+        },
+        {
+            "name": "violin1_04.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 8,
+                    "y": 1320
+                }
+            ]
+        },
+        {
+            "name": "violin1_05.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 240,
+                    "x": 20,
+                    "y": 1440
+                }
+            ]
+        },
+        {
+            "name": "violin1_06.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 10,
+                    "y": 1680
+                }
+            ]
+        },
+        {
+            "name": "violin1_07.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 6,
+                    "y": 1800
+                }
+            ]
+        },
+        {
+            "name": "violin1_08.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 240,
+                    "x": 8,
+                    "y": 1920
+                }
+            ]
+        },
+        {
+            "name": "violin1_09.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 240,
+                    "x": 13,
+                    "y": 2160
+                }
+            ]
+        },
+        {
+            "name": "violin1_10.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 240,
+                    "x": 16,
+                    "y": 2400
+                }
+            ]
+        },
+        {
+            "name": "violin1_11.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 15,
+                    "y": 2640
+                },
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 15,
+                    "y": 6720
+                }
+            ]
+        },
+        {
+            "name": "violin1_12.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 13,
+                    "y": 2760
+                }
+            ]
+        },
+        {
+            "name": "violin1_13.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 13,
+                    "y": 2880
+                },
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 13,
+                    "y": 6240
+                }
+            ]
+        },
+        {
+            "name": "violin1_14.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 12,
+                    "y": 3000
+                }
+            ]
+        },
+        {
+            "name": "violin1_15.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 8,
+                    "y": 3120
+                }
+            ]
+        },
+        {
+            "name": "violin1_16.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 3,
+                    "y": 3240
+                }
+            ]
+        },
+        {
+            "name": "violin1_17.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 240,
+                    "x": 5,
+                    "y": 3360
+                }
+            ]
+        },
+        {
+            "name": "violin1_18.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 180,
+                    "x": 10,
+                    "y": 3600
+                }
+            ]
+        },
+        {
+            "name": "violin1_19.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 10,
+                    "y": 3840
+                }
+            ]
+        },
+        {
+            "name": "violin1_20.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 12,
+                    "y": 3960
+                }
+            ]
+        },
+        {
+            "name": "violin1_21.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 240,
+                    "x": 15,
+                    "y": 4200
+                }
+            ]
+        },
+        {
+            "name": "violin1_22.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 22,
+                    "y": 4440
+                }
+            ]
+        },
+        {
+            "name": "violin1_23.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 240,
+                    "x": 19,
+                    "y": 4560
+                }
+            ]
+        },
+        {
+            "name": "violin1_24.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 12,
+                    "y": 4800
+                }
+            ]
+        },
+        {
+            "name": "violin1_25.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 12,
+                    "y": 4920
+                }
+            ]
+        },
+        {
+            "name": "violin1_26.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 13,
+                    "y": 4980
+                }
+            ]
+        },
+        {
+            "name": "violin1_27.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 15,
+                    "y": 5040
+                }
+            ]
+        },
+        {
+            "name": "violin1_28.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 8,
+                    "y": 5160
+                }
+            ]
+        },
+        {
+            "name": "violin1_29.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 240,
+                    "x": 20,
+                    "y": 5280
+                }
+            ]
+        },
+        {
+            "name": "violin1_30.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 240,
+                    "x": 15,
+                    "y": 5520
+                }
+            ]
+        },
+        {
+            "name": "violin1_31.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 17,
+                    "y": 5760
+                }
+            ]
+        },
+        {
+            "name": "violin1_32.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 15,
+                    "y": 5880
+                }
+            ]
+        },
+        {
+            "name": "violin1_33.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 17,
+                    "y": 6000
+                }
+            ]
+        },
+        {
+            "name": "violin1_34.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 13,
+                    "y": 6120
+                }
+            ]
+        },
+        {
+            "name": "violin1_35.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 20,
+                    "y": 6360
+                }
+            ]
+        },
+        {
+            "name": "violin1_36.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 240,
+                    "x": 16,
+                    "y": 6480
+                }
+            ]
+        },
+        {
+            "name": "violin1_37.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 19,
+                    "y": 6840
+                }
+            ]
+        },
+        {
+            "name": "violin1_38.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 10,
+                    "y": 6960
+                }
+            ]
+        },
+        {
+            "name": "violin1_39.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 240,
+                    "x": 15,
+                    "y": 7080
+                }
+            ]
+        },
+        {
+            "name": "violin1_40.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 12,
+                    "y": 7320
+                }
+            ]
+        },
+        {
+            "name": "violin1_41.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 10,
+                    "y": 7440
+                }
+            ]
+        },
+        {
+            "name": "violin1_42.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 8,
+                    "y": 7560
+                }
+            ]
+        },
+        {
+            "name": "violin1_43.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 480,
+                    "x": 10,
+                    "y": 7680
+                }
+            ]
+        },
+        {
+            "name": "violin1_44.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 480,
+                    "x": 7,
+                    "y": 8160
+                }
+            ]
+        },
+        {
+            "name": "violin1_45.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 1680,
+                    "x": 8,
+                    "y": 8640
+                }
+            ]
+        },
+        {
+            "name": "violin2_01.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 960
+                }
+            ]
+        },
+        {
+            "name": "violin2_02.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 1440
+                },
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 5280
+                }
+            ]
+        },
+        {
+            "name": "violin2_03.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 1920
+                },
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 5760
+                }
+            ]
+        },
+        {
+            "name": "violin2_04.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 2400
+                },
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 6240
+                }
+            ]
+        },
+        {
+            "name": "violin2_05.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 2880
+                }
+            ]
+        },
+        {
+            "name": "violin2_06.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 3360
+                }
+            ]
+        },
+        {
+            "name": "violin2_07.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 3840
+                }
+            ]
+        },
+        {
+            "name": "violin2_08.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 4320
+                }
+            ]
+        },
+        {
+            "name": "violin2_09.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 4800
+                }
+            ]
+        },
+        {
+            "name": "violin2_10.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 6720
+                }
+            ]
+        },
+        {
+            "name": "violin2_11.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 7200
+                }
+            ]
+        },
+        {
+            "name": "violin2_12.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 7680
+                }
+            ]
+        },
+        {
+            "name": "violin2_13.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 8160
+                }
+            ]
+        },
+        {
+            "name": "violin2_14.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 8640
+                }
+            ]
+        },
+        {
+            "name": "violin2_15.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 9600
+                }
+            ]
+        },
+        {
+            "name": "violas_1.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 8640
+                }
+            ]
+        },
+        {
+            "name": "violas_2.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 9360
+                }
+            ]
+        },
+        {
+            "name": "violas_3.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 9600
+                }
+            ]
+        },
+        {
+            "name": "cellos_01.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 3840
+                }
+            ]
+        },
+        {
+            "name": "cellos_02.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 3960
+                }
+            ]
+        },
+        {
+            "name": "cellos_03.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 4080
+                }
+            ]
+        },
+        {
+            "name": "cellos_04.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 4200
+                }
+            ]
+        },
+        {
+            "name": "cellos_05.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 4320
+                }
+            ]
+        },
+        {
+            "name": "cellos_06.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 4560
+                }
+            ]
+        },
+        {
+            "name": "cellos_07.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 5160
+                }
+            ]
+        },
+        {
+            "name": "cellos_08.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 6120
+                }
+            ]
+        },
+        {
+            "name": "cellos_09.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 6720
+                }
+            ]
+        },
+        {
+            "name": "cellos_10.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 7200
+                }
+            ]
+        },
+        {
+            "name": "cellos_11.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 7680
+                }
+            ]
+        },
+        {
+            "name": "cellos_12.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 7800
+                }
+            ]
+        },
+        {
+            "name": "cellos_13.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 7920
+                }
+            ]
+        },
+        {
+            "name": "cellos_14.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 8040
+                }
+            ]
+        },
+        {
+            "name": "cellos_15.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 8160
+                }
+            ]
+        },
+        {
+            "name": "cellos_16.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 8400
+                }
+            ]
+        },
+        {
+            "name": "cellos_17.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 8640
+                }
+            ]
+        },
+        {
+            "name": "cellos_spic_1.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 6240
+                }
+            ]
+        },
+        {
+            "name": "cellos_spic_2.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 5760
+                },
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 6120
+                }
+            ]
+        },
+        {
+            "name": "cellos_spic_3.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 5280
+                }
+            ]
+        },
+        {
+            "name": "cellos_spic_4.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 4800
+                },
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 5160
+                }
+            ]
+        },
+        {
+            "name": "horn_01.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 5160
+                }
+            ]
+        },
+        {
+            "name": "horn_02.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 9360
+                }
+            ]
+        },
+        {
+            "name": "horn_03.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 8160
+                }
+            ]
+        },
+        {
+            "name": "horn_04.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 4800
+                }
+            ]
+        },
+        {
+            "name": "horn_05.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 9600
+                }
+            ]
+        },
+        {
+            "name": "horn_06.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 4920
+                }
+            ]
+        },
+        {
+            "name": "horn_07.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 7680
+                }
+            ]
+        },
+        {
+            "name": "horn_08.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 8640
+                }
+            ]
+        },
+        {
+            "name": "horn_09.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 7200
+                }
+            ]
+        },
+        {
+            "name": "horn_10.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 5040
+                }
+            ]
+        },
+        {
+            "name": "horn_11.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 6720
+                }
+            ]
+        },
+        {
+            "name": "horn_12.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 6240
+                }
+            ]
+        },
+        {
+            "name": "horn_13.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 5760
+                }
+            ]
+        },
+        {
+            "name": "horn_14.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 5520
+                }
+            ]
+        },
+        {
+            "name": "horn_15.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 5280
+                }
+            ]
+        },
+        {
+            "name": "flute_01.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 9720
+                },
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 9960
+                }
+            ]
+        },
+        {
+            "name": "flute_02.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 8760
+                },
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 9000
+                },
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 9240
+                },
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 9480
+                }
+            ]
+        },
+        {
+            "name": "flute_03.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 5640
+                }
+            ]
+        },
+        {
+            "name": "flute_04.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 5760
+                }
+            ]
+        },
+        {
+            "name": "flute_05.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 8400
+                }
+            ]
+        },
+        {
+            "name": "flute_06.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 6240
+                }
+            ]
+        },
+        {
+            "name": "flute_07.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 5280
+                },
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 9600
+                },
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 9840
+                }
+            ]
+        },
+        {
+            "name": "flute_08.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 10080
+                }
+            ]
+        },
+        {
+            "name": "flute_09.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 5400
+                },
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 7680
+                },
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 8640
+                },
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 8880
+                },
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 9120
+                },
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 9360
+                }
+            ]
+        },
+        {
+            "name": "flute_10.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 8160
+                }
+            ]
+        },
+        {
+            "name": "flute_11.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 5520
+                },
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 7800
+                },
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 8040
+                }
+            ]
+        },
+        {
+            "name": "flute_12.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 7920
+                }
+            ]
+        },
+        {
+            "name": "oboe_1.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 8760
+                },
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 9000
+                },
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 9240
+                },
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 9480
+                },
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 9720
+                },
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 9960
+                }
+            ]
+        },
+        {
+            "name": "oboe_2.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 9600
+                },
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 9840
+                }
+            ]
+        },
+        {
+            "name": "oboe_3.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 10080
+                }
+            ]
+        },
+        {
+            "name": "oboe_4.wav",
+            "notes": [
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 8640
+                },
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 8880
+                },
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 9120
+                },
+                {
+                    "c": false,
+                    "l": 0,
+                    "x": 0,
+                    "y": 9360
+                }
+            ]
+        }
+    ],
+    "stop_events": [
+    ],
+    "version": "1.0.0"
+}
