@@ -51,6 +51,15 @@
     <None Update="TestData\chart_info_real\charts\**\*">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
+    <None Update="TestData\chart_info_edge_cases\expected.db">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="TestData\chart_info_edge_cases\manifest.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="TestData\chart_info_edge_cases\charts\**\*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
     <None Include="..\libs\SevenZipExtractor.dll">
       <Link>libs\SevenZipExtractor.dll</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -261,6 +262,29 @@ public sealed class ChartInfoMetadataTests
     }
 
     [TestMethod]
+    public void ParseBms_IndexedBpmCommandAcceptsColonSeparator()
+    {
+        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        {
+            string chartPath = Path.Combine(tempRootPath, "indexed-bpm-colon.bms");
+            File.WriteAllText(
+                chartPath,
+                "#BPM 120\r\n"
+                    + "#BPM01:180\r\n"
+                    + "#00108:01\r\n"
+                    + "#00111:01\r\n",
+                Encoding.ASCII);
+
+            LR2SongDBExtended.chart_info row = ChartInfoParser.Parse(chartPath);
+
+            Assert.AreEqual(1, row.notes);
+            Assert.AreEqual(120.0, row.minbpm.GetValueOrDefault(), 0.0001);
+            Assert.AreEqual(180.0, row.maxbpm.GetValueOrDefault(), 0.0001);
+            Assert.AreEqual(180.0, row.mainbpm.GetValueOrDefault(), 0.0001);
+        });
+    }
+
+    [TestMethod]
     public void ParseBms_InitialBpmIsIncludedInMinMaxBpmEvenWhenMeasureZeroChangesBpm()
     {
         WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
@@ -342,6 +366,127 @@ public sealed class ChartInfoMetadataTests
             File.WriteAllText(chartPath, "#00111:01\r\n", Encoding.ASCII);
 
             Assert.ThrowsException<InvalidDataException>(() => ChartInfoParser.Parse(chartPath));
+        });
+    }
+
+    [TestMethod]
+    public void ParseBms_MeasureZeroIndexedBpmCanDefineInitialTimelineBpm()
+    {
+        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        {
+            string chartPath = Path.Combine(tempRootPath, "measure-zero-indexed-bpm.bms");
+            File.WriteAllText(
+                chartPath,
+                "#BPM01 150\r\n"
+                    + "#00008:01\r\n"
+                    + "#00111:01\r\n",
+                Encoding.ASCII);
+
+            LR2SongDBExtended.chart_info row = ChartInfoParser.Parse(chartPath);
+
+            Assert.AreEqual(0.0, row.minbpm.GetValueOrDefault(), 0.0001);
+            Assert.AreEqual(150.0, row.maxbpm.GetValueOrDefault(), 0.0001);
+            Assert.AreEqual(150.0, row.mainbpm.GetValueOrDefault(), 0.0001);
+            Assert.AreEqual(1, row.notes);
+        });
+    }
+
+    [TestMethod]
+    public void ParseBms_MeasureZeroDirectBpmCanDefineInitialTimelineBpm()
+    {
+        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        {
+            string chartPath = Path.Combine(tempRootPath, "measure-zero-direct-bpm.bms");
+            File.WriteAllText(
+                chartPath,
+                "#00003:96\r\n"
+                    + "#00111:01\r\n",
+                Encoding.ASCII);
+
+            LR2SongDBExtended.chart_info row = ChartInfoParser.Parse(chartPath);
+
+            Assert.AreEqual(0.0, row.minbpm.GetValueOrDefault(), 0.0001);
+            Assert.AreEqual(150.0, row.maxbpm.GetValueOrDefault(), 0.0001);
+            Assert.AreEqual(150.0, row.mainbpm.GetValueOrDefault(), 0.0001);
+            Assert.AreEqual(1, row.notes);
+        });
+    }
+
+    [TestMethod]
+    public void ParseBms_InvalidInitialBpmWithoutTimelineZeroBpmIsFatal()
+    {
+        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        {
+            string[] texts =
+            {
+                "#BPM 0\r\n#00111:01\r\n",
+                "#BPM -120\r\n#00111:01\r\n",
+                "#BPM nope\r\n#00111:01\r\n"
+            };
+
+            for (int index = 0; index < texts.Length; index++)
+            {
+                string chartPath = Path.Combine(tempRootPath, "invalid-bpm-" + index.ToString(CultureInfo.InvariantCulture) + ".bms");
+                File.WriteAllText(chartPath, texts[index], Encoding.ASCII);
+
+                Assert.ThrowsException<InvalidDataException>(() => ChartInfoParser.Parse(chartPath));
+            }
+        });
+    }
+
+    [TestMethod]
+    public void ParseBms_RandomRetryUsesLaterBranchWhenBranchOneHasInvalidInitialBpm()
+    {
+        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        {
+            string chartPath = Path.Combine(tempRootPath, "random-initial-bpm-retry.bms");
+            File.WriteAllText(
+                chartPath,
+                "#RANDOM 2\r\n"
+                    + "#IF 1\r\n"
+                    + "#00111:01\r\n"
+                    + "#ENDIF\r\n"
+                    + "#IF 2\r\n"
+                    + "#BPM01 150\r\n"
+                    + "#00008:01\r\n"
+                    + "#00111:01\r\n"
+                    + "#ENDIF\r\n"
+                    + "#ENDRANDOM\r\n",
+                Encoding.ASCII);
+
+            LR2SongDBExtended.chart_info row = ChartInfoParser.Parse(chartPath);
+
+            Assert.AreEqual(1, row.notes);
+            Assert.AreEqual(150.0, row.mainbpm.GetValueOrDefault(), 0.0001);
+            Assert.IsTrue((row.feature & FeatureRandom) != 0);
+        });
+    }
+
+    [TestMethod]
+    public void ParseBms_RandomRetryUsesLaterBranchWhenBranchOneTimelineIsTooLong()
+    {
+        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        {
+            string chartPath = Path.Combine(tempRootPath, "random-long-timeline-retry.bms");
+            File.WriteAllText(
+                chartPath,
+                "#BPM 120\r\n"
+                    + "#RANDOM 2\r\n"
+                    + "#IF 1\r\n"
+                    + "#00102:100000\r\n"
+                    + "#00211:01\r\n"
+                    + "#ENDIF\r\n"
+                    + "#IF 2\r\n"
+                    + "#00111:01\r\n"
+                    + "#ENDIF\r\n"
+                    + "#ENDRANDOM\r\n",
+                Encoding.ASCII);
+
+            LR2SongDBExtended.chart_info row = ChartInfoParser.Parse(chartPath);
+
+            Assert.AreEqual(1, row.notes);
+            Assert.IsTrue(row.length.GetValueOrDefault() < 86400 * 1000);
+            Assert.IsTrue((row.feature & FeatureRandom) != 0);
         });
     }
 
@@ -445,6 +590,86 @@ public sealed class ChartInfoMetadataTests
         Assert.IsTrue(diffs.LengthDiffs <= 130, diffs.ToString());
         Assert.AreEqual(0, diffs.ChartHashDiffs, diffs.ToString());
         Assert.AreEqual(0, diffs.BpmIntegerDiffs, diffs.ToString());
+    }
+
+    [TestMethod]
+    [TestCategory("Compatibility")]
+    public void ParseRealEdgeCase_InitialBpmDefinedByTimelineZeroMatchesBeatoraja()
+    {
+        string fixtureRootPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "TestData", "chart_info_edge_cases");
+        string expectedDbPath = Path.Combine(fixtureRootPath, "expected.db");
+        Assert.IsTrue(File.Exists(expectedDbPath), "chart_info_edge_cases expected.db fixture is missing.");
+
+        using SQLiteConnection connection = new SQLiteConnection(expectedDbPath, SQLiteOpenFlags.ReadOnly | SQLiteOpenFlags.FullMutex, storeDateTimeAsTicks: true);
+        RealChartInfoExpectedRow expected = connection.Query<RealChartInfoExpectedRow>(
+            "SELECT sc.fixture_id, sc.fixture_path, e.* "
+                + "FROM sample_chart sc "
+                + "JOIN expected_chart_info e ON e.sha256 = sc.sha256 "
+                + "WHERE sc.reason = 'initial_bpm_success';").Single();
+        string chartPath = Path.Combine(fixtureRootPath, expected.fixture_path.Replace('/', Path.DirectorySeparatorChar));
+
+        LR2SongDBExtended.chart_info actual = ChartInfoParser.Parse(chartPath, expected.md5, expected.sha256);
+
+        Assert.AreEqual(expected.charthash, actual.charthash);
+        Assert.AreEqual(expected.notes, actual.notes);
+        Assert.AreEqual(expected.length, actual.length);
+        Assert.AreEqual(expected.mainbpm.GetValueOrDefault(), actual.mainbpm.GetValueOrDefault(), 0.000001);
+        Assert.AreEqual((int)(expected.minbpm ?? 0.0), (int)(actual.minbpm ?? 0.0));
+        Assert.AreEqual((int)(expected.maxbpm ?? 0.0), (int)(actual.maxbpm ?? 0.0));
+    }
+
+    [TestMethod]
+    [TestCategory("Compatibility")]
+    public void ParseRealEdgeCases_RandomOverflowFixturesDoNotOverflow()
+    {
+        string fixtureRootPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "TestData", "chart_info_edge_cases");
+        string expectedDbPath = Path.Combine(fixtureRootPath, "expected.db");
+        Assert.IsTrue(File.Exists(expectedDbPath), "chart_info_edge_cases expected.db fixture is missing.");
+
+        using SQLiteConnection connection = new SQLiteConnection(expectedDbPath, SQLiteOpenFlags.ReadOnly | SQLiteOpenFlags.FullMutex, storeDateTimeAsTicks: true);
+        List<EdgeCaseSampleChartRow> samples = connection.Query<EdgeCaseSampleChartRow>(
+            "SELECT * FROM sample_chart WHERE reason = 'overflow_retry' ORDER BY fixture_id;");
+        Assert.AreEqual(4, samples.Count);
+        foreach (EdgeCaseSampleChartRow sample in samples)
+        {
+            string chartPath = Path.Combine(fixtureRootPath, sample.fixture_path.Replace('/', Path.DirectorySeparatorChar));
+
+            LR2SongDBExtended.chart_info actual;
+            try
+            {
+                actual = ChartInfoParser.Parse(chartPath, sample.md5, sample.sha256);
+            }
+            catch (Exception ex)
+            {
+                Assert.Fail(sample.sha256 + " failed with " + ex.GetType().Name + ": " + ex.Message);
+                throw;
+            }
+
+            Assert.IsTrue((actual.feature & FeatureRandom) != 0, sample.sha256);
+            Assert.IsTrue(actual.notes > 0, sample.sha256);
+            Assert.IsTrue(actual.length.GetValueOrDefault() >= 0, sample.sha256);
+            Assert.IsTrue(actual.length.GetValueOrDefault() <= 86400 * 1000, sample.sha256);
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("Compatibility")]
+    public void ParseRealEdgeCases_InitialBpmReferenceFatalChartsRemainFatal()
+    {
+        string fixtureRootPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "TestData", "chart_info_edge_cases");
+        string expectedDbPath = Path.Combine(fixtureRootPath, "expected.db");
+        Assert.IsTrue(File.Exists(expectedDbPath), "chart_info_edge_cases expected.db fixture is missing.");
+
+        using SQLiteConnection connection = new SQLiteConnection(expectedDbPath, SQLiteOpenFlags.ReadOnly | SQLiteOpenFlags.FullMutex, storeDateTimeAsTicks: true);
+        List<EdgeCaseSampleChartRow> samples = connection.Query<EdgeCaseSampleChartRow>(
+            "SELECT * FROM sample_chart WHERE reason = 'initial_bpm_fatal_reference' ORDER BY fixture_id;");
+        Assert.AreEqual(2, samples.Count);
+        foreach (EdgeCaseSampleChartRow sample in samples)
+        {
+            string chartPath = Path.Combine(fixtureRootPath, sample.fixture_path.Replace('/', Path.DirectorySeparatorChar));
+
+            Assert.ThrowsException<InvalidDataException>(() => ChartInfoParser.Parse(chartPath, sample.md5, sample.sha256), sample.sha256);
+        }
     }
 
     [TestMethod]
@@ -888,6 +1113,23 @@ public sealed class ChartInfoMetadataTests
         public int speedchange_count { get; set; }
 
         public string lanenotes { get; set; } = string.Empty;
+    }
+
+    private sealed class EdgeCaseSampleChartRow
+    {
+        public int fixture_id { get; set; }
+
+        public string source_path { get; set; } = string.Empty;
+
+        public string fixture_path { get; set; } = string.Empty;
+
+        public string reason { get; set; } = string.Empty;
+
+        public string md5 { get; set; } = string.Empty;
+
+        public string sha256 { get; set; } = string.Empty;
+
+        public int has_beatoraja_song { get; set; }
     }
 
     private sealed class CompatibilityDiffCounts

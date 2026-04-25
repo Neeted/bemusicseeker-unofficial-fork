@@ -20,6 +20,8 @@ internal static class ChartInfoParser
 {
     private static readonly string[] JavaDoubleCandidateFormats = { "G15", "G16", "G17", "R" };
 
+    private const int MaxMetadataTimelineSeconds = 86400;
+
     private const int FeatureUndefinedLongNote = 1;
 
     private const int FeatureMineNote = 2;
@@ -94,13 +96,81 @@ internal static class ChartInfoParser
         {
             extension = chartName;
         }
-        ChartModel model = string.Equals(extension, ".bmson", StringComparison.OrdinalIgnoreCase)
-            ? ParseBmson(DecodeBmson(bytes), chartName, diagnostics)
-            : ParseBms(DecodeBms(bytes, encodingName), chartName, string.Equals(extension, ".pms", StringComparison.OrdinalIgnoreCase), diagnostics);
-        model.Md5 = string.IsNullOrWhiteSpace(md5) ? ComputeHash(bytes, MD5.Create()) : md5;
-        model.Sha256 = string.IsNullOrWhiteSpace(sha256) ? ComputeHash(bytes, SHA256.Create()) : sha256;
+        string resolvedMd5 = string.IsNullOrWhiteSpace(md5) ? ComputeHash(bytes, MD5.Create()) : md5;
+        string resolvedSha256 = string.IsNullOrWhiteSpace(sha256) ? ComputeHash(bytes, SHA256.Create()) : sha256;
+        if (!string.Equals(extension, ".bmson", StringComparison.OrdinalIgnoreCase))
+        {
+            return ParseBmsBytesDetailed(
+                DecodeBms(bytes, encodingName),
+                chartName,
+                string.Equals(extension, ".pms", StringComparison.OrdinalIgnoreCase),
+                diagnostics,
+                resolvedMd5,
+                resolvedSha256);
+        }
+        ChartModel model = ParseBmson(DecodeBmson(bytes), chartName, diagnostics);
+        model.Md5 = resolvedMd5;
+        model.Sha256 = resolvedSha256;
         string chartString = model.ToChartString();
         return new ChartInfoParseResult(BuildRow(model, chartString), diagnostics, chartString);
+    }
+
+    private static ChartInfoParseResult ParseBmsBytesDetailed(string text, string chartName, bool isPms, IList<ChartInfoParseDiagnostic> diagnostics, string md5, string sha256)
+    {
+        text ??= string.Empty;
+        List<int> randomMaxes = ScanRandomMaxes(text);
+        if (randomMaxes.Count == 0)
+        {
+            try
+            {
+                return BuildBmsParseResult(ParseBmsCandidate(text, chartName, isPms, diagnostics, null), diagnostics, md5, sha256);
+            }
+            catch (BmsRecoverableParseException ex)
+            {
+                throw new InvalidDataException(ex.Message, ex);
+            }
+        }
+
+        BmsRecoverableParseException lastRecoverable = null;
+        List<ChartInfoParseDiagnostic> lastDiagnostics = null;
+        foreach (int[] selectedRandoms in BuildRandomCandidates(randomMaxes, md5, sha256, chartName))
+        {
+            List<ChartInfoParseDiagnostic> candidateDiagnostics = new List<ChartInfoParseDiagnostic>();
+            try
+            {
+                ChartModel model = ParseBmsCandidate(text, chartName, isPms, candidateDiagnostics, selectedRandoms);
+                ChartInfoParseResult result = BuildBmsParseResult(model, candidateDiagnostics, md5, sha256);
+                foreach (ChartInfoParseDiagnostic diagnostic in candidateDiagnostics)
+                {
+                    diagnostics.Add(diagnostic);
+                }
+                return result;
+            }
+            catch (BmsRecoverableParseException ex)
+            {
+                lastRecoverable = ex;
+                lastDiagnostics = candidateDiagnostics;
+            }
+        }
+
+        if (lastDiagnostics != null)
+        {
+            foreach (ChartInfoParseDiagnostic diagnostic in lastDiagnostics)
+            {
+                diagnostics.Add(diagnostic);
+            }
+        }
+        throw lastRecoverable == null ? new InvalidDataException("BMS parse failed.") : new InvalidDataException(lastRecoverable.Message, lastRecoverable);
+    }
+
+    private static ChartInfoParseResult BuildBmsParseResult(ChartModel model, IEnumerable<ChartInfoParseDiagnostic> diagnostics, string md5, string sha256)
+    {
+        model.Md5 = md5;
+        model.Sha256 = sha256;
+        string chartString = model.ToChartString();
+        IReadOnlyList<ChartInfoParseDiagnostic> readOnlyDiagnostics = diagnostics as IReadOnlyList<ChartInfoParseDiagnostic>
+            ?? (diagnostics ?? Enumerable.Empty<ChartInfoParseDiagnostic>()).ToList();
+        return new ChartInfoParseResult(BuildRow(model, chartString), readOnlyDiagnostics, chartString);
     }
 
     private static LR2SongDBExtended.chart_info BuildRow(ChartModel model, string chartString)
@@ -139,22 +209,14 @@ internal static class ChartInfoParser
         };
     }
 
-    private static ChartModel ParseBms(string filePath, string encodingName)
-    {
-        return ParseBms(
-            File.ReadAllText(filePath, ResolveBmsEncoding(encodingName)),
-            filePath,
-            string.Equals(Path.GetExtension(filePath), ".pms", StringComparison.OrdinalIgnoreCase),
-            new List<ChartInfoParseDiagnostic>());
-    }
-
-    private static ChartModel ParseBms(string text, string chartName, bool isPms, IList<ChartInfoParseDiagnostic> diagnostics)
+    private static ChartModel ParseBmsCandidate(string text, string chartName, bool isPms, IList<ChartInfoParseDiagnostic> diagnostics, IReadOnlyList<int> selectedRandoms)
     {
         BmsChartBuilder builder = new BmsChartBuilder(chartName, isPms, diagnostics);
         Stack<int> selectedRandomStack = new Stack<int>();
         Stack<bool> skipStack = new Stack<bool>();
         using StringReader reader = new StringReader(text ?? string.Empty);
         string rawLine;
+        int randomIndex = 0;
         while ((rawLine = reader.ReadLine()) != null)
         {
             string line = (rawLine ?? string.Empty).TrimStart('\uFEFF');
@@ -165,9 +227,12 @@ internal static class ChartInfoParser
             if (MatchesReserveWord(line, "RANDOM"))
             {
                 builder.HasRandom = true;
-                if (int.TryParse(GetCommandArgument(line), NumberStyles.Integer, CultureInfo.InvariantCulture, out _))
+                if (int.TryParse(GetCommandArgument(line), NumberStyles.Integer, CultureInfo.InvariantCulture, out int randomMax))
                 {
-                    selectedRandomStack.Push(1);
+                    int normalizedMax = Math.Max(1, randomMax);
+                    int selected = selectedRandoms != null && randomIndex < selectedRandoms.Count ? selectedRandoms[randomIndex] : 1;
+                    selectedRandomStack.Push(Math.Max(1, Math.Min(normalizedMax, selected)));
+                    randomIndex++;
                 }
                 else
                 {
@@ -240,6 +305,80 @@ internal static class ChartInfoParser
             builder.ApplyCommand(line);
         }
         return builder.Build();
+    }
+
+    private static List<int> ScanRandomMaxes(string text)
+    {
+        List<int> randomMaxes = new List<int>();
+        using StringReader reader = new StringReader(text ?? string.Empty);
+        string rawLine;
+        while ((rawLine = reader.ReadLine()) != null)
+        {
+            string line = (rawLine ?? string.Empty).TrimStart('\uFEFF');
+            if (line.Length >= 2
+                && line[0] == '#'
+                && MatchesReserveWord(line, "RANDOM")
+                && int.TryParse(GetCommandArgument(line), NumberStyles.Integer, CultureInfo.InvariantCulture, out int randomMax))
+            {
+                randomMaxes.Add(Math.Max(1, randomMax));
+            }
+        }
+        return randomMaxes;
+    }
+
+    private static IEnumerable<int[]> BuildRandomCandidates(IReadOnlyList<int> randomMaxes, string md5, string sha256, string chartName)
+    {
+        List<int[]> candidates = new List<int[]>();
+        AddDistinctRandomCandidate(candidates, CreateUniformRandomCandidate(randomMaxes, 1));
+        AddDistinctRandomCandidate(candidates, CreateUniformRandomCandidate(randomMaxes, 2));
+        AddDistinctRandomCandidate(candidates, CreateUniformRandomCandidate(randomMaxes, 3));
+        AddDistinctRandomCandidate(candidates, CreateUniformRandomCandidate(randomMaxes, 4));
+        AddDistinctRandomCandidate(candidates, randomMaxes.Select((int max) => Math.Max(1, max)).ToArray());
+        AddDistinctRandomCandidate(candidates, CreateSeededRandomCandidate(randomMaxes, md5, sha256, chartName));
+        return candidates;
+    }
+
+    private static int[] CreateUniformRandomCandidate(IReadOnlyList<int> randomMaxes, int selected)
+    {
+        int[] result = new int[randomMaxes.Count];
+        for (int index = 0; index < result.Length; index++)
+        {
+            result[index] = Math.Max(1, Math.Min(Math.Max(1, randomMaxes[index]), selected));
+        }
+        return result;
+    }
+
+    private static int[] CreateSeededRandomCandidate(IReadOnlyList<int> randomMaxes, string md5, string sha256, string chartName)
+    {
+        string seed = !string.IsNullOrWhiteSpace(sha256)
+            ? sha256
+            : (!string.IsNullOrWhiteSpace(md5) ? md5 : (chartName ?? string.Empty));
+        byte[] hash;
+        using (SHA256 sha = SHA256.Create())
+        {
+            hash = sha.ComputeHash(Encoding.UTF8.GetBytes(seed));
+        }
+        int[] result = new int[randomMaxes.Count];
+        for (int index = 0; index < result.Length; index++)
+        {
+            int max = Math.Max(1, randomMaxes[index]);
+            result[index] = hash[index % hash.Length] % max + 1;
+        }
+        return result;
+    }
+
+    private static void AddDistinctRandomCandidate(ICollection<int[]> candidates, int[] candidate)
+    {
+        string signature = string.Join(",", candidate.Select((int value) => value.ToString(CultureInfo.InvariantCulture)));
+        foreach (int[] existing in candidates)
+        {
+            string existingSignature = string.Join(",", existing.Select((int value) => value.ToString(CultureInfo.InvariantCulture)));
+            if (string.Equals(existingSignature, signature, StringComparison.Ordinal))
+            {
+                return;
+            }
+        }
+        candidates.Add(candidate);
     }
 
     private static ChartModel ParseBmson(string filePath)
@@ -842,6 +981,24 @@ internal static class ChartInfoParser
         return (longNotes ?? Enumerable.Empty<ChartNote>()).Any((ChartNote note) => startSection < (note.Pair?.Section ?? note.Section) && note.Section < endSection);
     }
 
+    private static long ToCheckedMicroseconds(double value, string message)
+    {
+        if (double.IsNaN(value) || double.IsInfinity(value) || value > long.MaxValue || value < long.MinValue)
+        {
+            throw new BmsRecoverableParseException(message);
+        }
+        return (long)value;
+    }
+
+    private static int ToCheckedInt(long value, string message)
+    {
+        if (value > int.MaxValue || value < int.MinValue)
+        {
+            throw new BmsRecoverableParseException(message);
+        }
+        return (int)value;
+    }
+
     internal sealed class ChartInfoParseResult
     {
         public ChartInfoParseResult(LR2SongDBExtended.chart_info row, IReadOnlyList<ChartInfoParseDiagnostic> diagnostics, string chartString)
@@ -878,6 +1035,14 @@ internal static class ChartInfoParser
     {
         Warning,
         Error
+    }
+
+    private sealed class BmsRecoverableParseException : Exception
+    {
+        public BmsRecoverableParseException(string message)
+            : base(message)
+        {
+        }
     }
 
     private enum JudgeRankType
@@ -977,9 +1142,8 @@ internal static class ChartInfoParser
         public void ApplyCommand(string line)
         {
             string trimmed = line.Trim();
-            string token = trimmed.Split(new[] { ' ', '\t' }, 2, StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? string.Empty;
+            SplitCommand(trimmed, out string token, out string argument);
             string command = token.StartsWith("#", StringComparison.Ordinal) ? token.Substring(1) : token;
-            string argument = trimmed.Length > token.Length ? trimmed.Substring(token.Length).Trim() : string.Empty;
             if (command.Equals("BPM", StringComparison.OrdinalIgnoreCase))
             {
                 if (double.TryParse(argument, NumberStyles.Float, CultureInfo.InvariantCulture, out double bpm) && bpm > 0)
@@ -1094,13 +1258,31 @@ internal static class ChartInfoParser
             }
         }
 
+        private static void SplitCommand(string line, out string token, out string argument)
+        {
+            line ??= string.Empty;
+            int separatorIndex = -1;
+            for (int index = 0; index < line.Length; index++)
+            {
+                char c = line[index];
+                if (c == ':' || char.IsWhiteSpace(c))
+                {
+                    separatorIndex = index;
+                    break;
+                }
+            }
+            if (separatorIndex < 0)
+            {
+                token = line;
+                argument = string.Empty;
+                return;
+            }
+            token = line.Substring(0, separatorIndex);
+            argument = line.Substring(separatorIndex + 1).Trim();
+        }
+
         public ChartModel Build()
         {
-            if (InitialBpm <= 0)
-            {
-                AddDiagnostic(diagnostics, ChartInfoParseDiagnosticSeverity.Error, "BMS_INITIAL_BPM_INVALID", "#BPMが定義されていないか無効です");
-                throw new InvalidDataException("BMS initial BPM is not defined or invalid.");
-            }
             ChartMode mode = DetectMode();
             ChartModel model = new ChartModel(filePath, mode)
             {
@@ -1140,6 +1322,11 @@ internal static class ChartInfoParser
                 {
                     start.Owner.Notes[lane] = null;
                 }
+            }
+            if (timelines.Count == 0 || timelines.Values[0].Bpm <= 0)
+            {
+                AddDiagnostic(diagnostics, ChartInfoParseDiagnosticSeverity.Error, "BMS_INITIAL_BPM_INVALID", "#BPMが定義されていないか無効です");
+                throw new BmsRecoverableParseException("BMS initial BPM is not defined or invalid.");
             }
             model.SetTimelines(timelines.Values.ToList());
             if (!TotalDefined)
@@ -1234,7 +1421,14 @@ internal static class ChartInfoParser
                     {
                         if (stopTable.TryGetValue(pair.Value, out double stop))
                         {
-                            events.Add(new BmsTimelineEvent(pair.Position, 2, (ChartTimeline timeline) => timeline.StopMicroseconds = (long)(1000.0 * 1000.0 * 60.0 * 4.0 * stop / timeline.Bpm)));
+                            events.Add(new BmsTimelineEvent(pair.Position, 2, delegate(ChartTimeline timeline)
+                            {
+                                if (timeline.Bpm <= 0)
+                                {
+                                    throw new BmsRecoverableParseException("BMS timeline BPM is not defined before STOP.");
+                                }
+                                timeline.StopMicroseconds = (long)(1000.0 * 1000.0 * 60.0 * 4.0 * stop / timeline.Bpm);
+                            }));
                         }
                     }
                 }
@@ -1374,6 +1568,10 @@ internal static class ChartInfoParser
             int previousIndex = FindPreviousTimelineIndex(timelines.Keys, section);
             ChartTimeline previous = timelines.Values[previousIndex];
             double previousSection = timelines.Keys[previousIndex];
+            if (previous.Bpm <= 0)
+            {
+                throw new BmsRecoverableParseException("BMS timeline BPM is not defined before a future timeline.");
+            }
             double preciseTime = previous.PreciseTimeMicroseconds + previous.StopMicroseconds + 240000.0 * 1000.0 * (section - previousSection) / previous.Bpm;
             ChartTimeline timeline = new ChartTimeline(section, preciseTime, mode.KeyCount)
             {
@@ -1683,15 +1881,20 @@ internal static class ChartInfoParser
 
         public int GetLastTimeMilliseconds()
         {
+            return ToCheckedInt(GetLastTimeMillisecondsLong(), "BMS timeline length is too large.");
+        }
+
+        public long GetLastTimeMillisecondsLong()
+        {
             for (int index = Timelines.Count - 1; index >= 0; index--)
             {
                 ChartTimeline timeline = Timelines[index];
                 if (timeline.HasPlayableOrResourceEvent())
                 {
-                    return timeline.TimeMilliseconds;
+                    return timeline.TimeMillisecondsLong;
                 }
             }
-            return 0;
+            return 0L;
         }
 
         public int GetFeatureFlags()
@@ -1819,7 +2022,7 @@ internal static class ChartInfoParser
         {
             Section = section;
             PreciseTimeMicroseconds = preciseTimeMicroseconds;
-            TimeMicroseconds = (long)preciseTimeMicroseconds;
+            TimeMicroseconds = ToCheckedMicroseconds(preciseTimeMicroseconds, "BMS timeline time is out of range.");
             Notes = new ChartNote[laneCount];
         }
 
@@ -1829,7 +2032,9 @@ internal static class ChartInfoParser
 
         public long TimeMicroseconds { get; }
 
-        public int TimeMilliseconds => (int)(TimeMicroseconds / 1000L);
+        public long TimeMillisecondsLong => TimeMicroseconds / 1000L;
+
+        public int TimeMilliseconds => ToCheckedInt(TimeMillisecondsLong, "BMS timeline time is out of range.");
 
         public double Bpm { get; set; }
 
@@ -2063,8 +2268,14 @@ internal static class ChartInfoParser
 
         private static int[][] BuildDistribution(ChartModel model, int[][] laneNotes, int totalNotes, out int borderPosition)
         {
-            int lastTime = model.GetLastTimeMilliseconds();
-            int[][] data = new int[lastTime / 1000 + 2][];
+            long lastTime = model.GetLastTimeMillisecondsLong();
+            long lastTimeSeconds = lastTime / 1000L;
+            if (lastTime < 0 || lastTimeSeconds > MaxMetadataTimelineSeconds)
+            {
+                throw new BmsRecoverableParseException("BMS timeline length is outside metadata range.");
+            }
+            int bucketCount = ToCheckedInt(lastTimeSeconds + 2L, "BMS distribution bucket count is too large.");
+            int[][] data = new int[bucketCount][];
             for (int second = 0; second < data.Length; second++)
             {
                 data[second] = new int[7];
