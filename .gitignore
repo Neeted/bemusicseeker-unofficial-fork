@@ -49,3 +49,6 @@ $RECYCLE.BIN/
 
 .tmp/
 artifacts
+
+# Generated from local production DB comparisons.
+tools/chart-info-compare/reports/

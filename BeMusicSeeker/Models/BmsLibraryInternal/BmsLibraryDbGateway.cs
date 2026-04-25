@@ -46,9 +46,9 @@ internal sealed class BmsLibraryDbGateway
 
     internal const string ChartInfoSchemaVersionName = "chart_info_schema";
 
-    internal const int CurrentChartInfoSchemaVersion = 1;
+    internal const int CurrentChartInfoSchemaVersion = 2;
 
-    internal const int CurrentChartInfoParserVersion = 6;
+    internal const int CurrentChartInfoParserVersion = 9;
 
     public string SongDbPath { get; }
 
@@ -942,6 +942,7 @@ internal sealed class BmsLibraryDbGateway
             "charthash",
             "level",
             "difficulty",
+            "difficulty_defined",
             "mainbpm",
             "maxbpm",
             "minbpm",

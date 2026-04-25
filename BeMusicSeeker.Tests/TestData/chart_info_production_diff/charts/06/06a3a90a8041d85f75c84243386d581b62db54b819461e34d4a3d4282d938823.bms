@@ -1,0 +1,1159 @@
+
+*---------------------- HEADER FIELD
+
+#PLAYER 1
+#GENRE speed garage
+#TITLE world of dreams
+#ARTIST è\ç›ôz
+#BPM 120
+#PLAYLEVEL 7
+#RANK 3
+
+#SUBTITLE [hyper]
+
+#DIFFICULTY 3
+#TOTAL 800
+#LNTYPE 1
+
+#WAV01 vocals3_000.wav
+#WAV02 vocals3_001.wav
+#WAV03 vocals3_002.wav
+#WAV04 vocals3_003.wav
+#WAV05 vocals3_004.wav
+#WAV06 vocals3_005.wav
+#WAV07 vocals3_006.wav
+#WAV08 vocals3_007.wav
+#WAV09 vocals3_008.wav
+#WAV0A vocals3_009.wav
+#WAV0B vocals3_010.wav
+#WAV0C vocals3_011.wav
+#WAV0D vocals3_012.wav
+#WAV0E vocals3_013.wav
+#WAV0F vocals3_014.wav
+#WAV0G vocals3_015.wav
+#WAV0H vocals3_016.wav
+#WAV0I vocals3_017.wav
+#WAV0J vocals3_018.wav
+#WAV0K vocals3_019.wav
+#WAV0L vocals3_020.wav
+#WAV0M vocals3_021.wav
+#WAV0N vocals3_022.wav
+#WAV0O vocals3_023.wav
+#WAV0P vocals3_024.wav
+#WAV0Q vocals3_025.wav
+#WAV0R vocals3_026.wav
+#WAV0S vocals3_027.wav
+#WAV0T vocals3_028.wav
+#WAV0U vocals3_029.wav
+#WAV0V vocals3_030.wav
+#WAV0W vocals3_031.wav
+#WAV0X vocals3_032.wav
+#WAV0Y vocals3_033.wav
+#WAV0Z vocals3_034.wav
+#WAV10 vocals3_035.wav
+#WAV11 vocals3_036.wav
+#WAV12 vocals3_037.wav
+#WAV13 vocals3_038.wav
+#WAV14 vocals3_039.wav
+#WAV15 vocals3_040.wav
+#WAV16 vocals3_041.wav
+#WAV17 vocals3_042.wav
+#WAV18 vocals3_043.wav
+#WAV19 vocals3_044.wav
+#WAV1A vocals3_045.wav
+#WAV1B vocals3_046.wav
+#WAV1C vocals3_047.wav
+#WAV1D vocals3_048.wav
+#WAV1E vocals3_049.wav
+#WAV1F vocals3_050.wav
+#WAV1G vocals3_051.wav
+#WAV1H vocals3_052.wav
+#WAV1I vocals3_053.wav
+#WAV1J vocals3_054.wav
+#WAV1K vocals3_055.wav
+#WAV1L vocals3_056.wav
+#WAV1M vocals3_057.wav
+#WAV1N vocals3_058.wav
+#WAV1O vocals3_059.wav
+#WAV1P vocals3_060.wav
+#WAV1Q vocals3_061.wav
+#WAV1R vocals3_062.wav
+#WAV1S vocals3_063.wav
+#WAV1T vocals3_064.wav
+#WAV1U vocals3_065.wav
+#WAV1V vocals3_066.wav
+#WAV1W vocals3_067.wav
+#WAV1X vocals3_068.wav
+#WAV1Y vocals3_069.wav
+#WAV1Z vocals3_070.wav
+#WAV20 vocals3_071.wav
+#WAV21 vocals3_072.wav
+#WAV22 vocals3_073.wav
+#WAV23 vocals3_074.wav
+#WAV24 vocals3_075.wav
+#WAV25 vocals3_076.wav
+#WAV26 vocals3_077.wav
+#WAV27 vocals3_078.wav
+#WAV28 vocals3_079.wav
+#WAV29 vocals3_080.wav
+#WAV2A vocals3_081.wav
+#WAV2B vocals3_082.wav
+#WAV2C vocals3_083.wav
+#WAV2D vocals3_084.wav
+#WAV2E vocals3_085.wav
+#WAV2F vocals3_086.wav
+#WAV2G vocals3_087.wav
+#WAV2H vocals3_088.wav
+#WAV2I vocals3_089.wav
+#WAV2J vocals3_090.wav
+#WAV2K vocals3_091.wav
+#WAV2L vocals3_092.wav
+#WAV2M vocals3_093.wav
+#WAV2N vocals3_094.wav
+#WAV2O vocals3_095.wav
+#WAV2P vocals3_096.wav
+#WAV2Q vocals3_097.wav
+#WAV2R vocals3_098.wav
+#WAV2S vocals3_099.wav
+#WAV2T vocals3_100.wav
+#WAV2U vocals3_101.wav
+#WAV2V vocals3_102.wav
+#WAV2W vocals3_103.wav
+#WAV2X vocals3_104.wav
+#WAV2Y vocals3_105.wav
+#WAV2Z vocals3_106.wav
+#WAV30 vocals3_107.wav
+#WAV31 vocals3_108.wav
+#WAV32 vocals3_109.wav
+#WAV33 vocals3_110.wav
+#WAV34 vocals3_111.wav
+#WAV35 vocals3_112.wav
+#WAV36 vocals3_113.wav
+#WAV37 vocals3_114.wav
+#WAV38 vocals3_115.wav
+#WAV39 vocals3_116.wav
+#WAV3A vocals3_117.wav
+#WAV3B vocals3_118.wav
+#WAV3C vocals3_119.wav
+#WAV3D vocals3_120.wav
+#WAV3E vocals3_121.wav
+#WAV3F vocals3_122.wav
+#WAV3G vocals3_123.wav
+#WAV3H vocals3_124.wav
+#WAV3I vocals3_125.wav
+#WAV3J vocals3_126.wav
+#WAV3K vocals3_127.wav
+#WAV3L vocals3_128.wav
+#WAV3M vocals3_129.wav
+#WAV3N vocals3_130.wav
+#WAV3O vocals3_131.wav
+#WAV3P vocals3_132.wav
+#WAV3Q vocals3_133.wav
+#WAV3R vocals3_134.wav
+#WAV3S vocals3_135.wav
+#WAV3T vocals3_136.wav
+#WAV3U vocals3_137.wav
+#WAV3V vocals3_138.wav
+#WAV3W vocals3_139.wav
+#WAV3X vocals3_140.wav
+#WAV3Y vocals3_141.wav
+#WAV3Z vocals3_142.wav
+#WAV40 vocals3_143.wav
+#WAV41 vocals3_144.wav
+#WAV42 vocals3_145.wav
+#WAV43 vocals3_146.wav
+#WAV44 vocals3_147.wav
+#WAV45 vocals3_148.wav
+#WAV46 vocals3_149.wav
+#WAV47 vocals3_150.wav
+#WAV48 vocals3_151.wav
+#WAV49 vocals3_152.wav
+#WAV4A vocals3_153.wav
+#WAV4B vocals3_154.wav
+#WAV4C vocals3_155.wav
+#WAV4D vocals3_156.wav
+#WAV4E vocals3_157.wav
+#WAV4F vocals3_158.wav
+#WAV4G vocals3_159.wav
+#WAV4H vocals3_160.wav
+#WAV4I vocals3_161.wav
+#WAV4J vocals3_162.wav
+#WAV4K vocals3_163.wav
+#WAV4L vocals3_164.wav
+#WAV4M vocals3_165.wav
+#WAV4N vocals3_166.wav
+#WAV4O vocals3_167.wav
+#WAV4P vocals3_168.wav
+#WAV4Q vocals3_169.wav
+#WAV4R vocals3_170.wav
+#WAV4S vocals3_171.wav
+#WAV4T vocals3_172.wav
+#WAV4U vocals3_173.wav
+#WAV4V vocals3_174.wav
+#WAV4W vocals3_175.wav
+#WAV4X vocals3_176.wav
+#WAV4Y vocals3_177.wav
+#WAV4Z vocals3_178.wav
+#WAV50 vocals3_179.wav
+#WAV51 vocals3_180.wav
+#WAV52 vocals3_181.wav
+#WAV53 vocals3_182.wav
+#WAV54 vocals3_183.wav
+#WAV55 vocals3_184.wav
+#WAV56 vocals3_185.wav
+#WAV57 vocals3_186.wav
+#WAV58 vocals3_187.wav
+#WAV59 vocals3_188.wav
+#WAV5A vocals3_189.wav
+#WAV5B vocals3_190.wav
+#WAV5C vocals3_191.wav
+#WAV5D vocals3_192.wav
+#WAV5E vocals3_193.wav
+#WAV5F vocals3_194.wav
+#WAV5G vocals3_195.wav
+#WAV5H vocals3_196.wav
+#WAV5I vocals3_197.wav
+#WAV5J vocals3_198.wav
+#WAV5K vocals3_199.wav
+#WAV5L vocals3_200.wav
+#WAV5M vocals3_201.wav
+#WAV5N vocals3_202.wav
+#WAV5O vocals3_203.wav
+#WAV5P vocals3_204.wav
+#WAV5Q vocals3_205.wav
+#WAV5R vocals3_206.wav
+#WAV5S vocals3_207.wav
+#WAV5T vocals3_208.wav
+#WAV5U vocals3_209.wav
+#WAV5V vocals3_210.wav
+#WAV5W vocals3_211.wav
+#WAV5X vocals3_212.wav
+#WAV5Y vocals3_213.wav
+#WAV5Z vocals3_214.wav
+#WAV60 vocals3_215.wav
+#WAV61 vocals3_216.wav
+#WAV62 vocals3_217.wav
+#WAV63 vocals3_218.wav
+#WAV64 vocals3_219.wav
+#WAV65 vocals3_220.wav
+#WAV66 vocals3_221.wav
+#WAV67 vocals3_222.wav
+#WAV68 vocals3_223.wav
+#WAV69 vocals3_224.wav
+#WAV6A vocals3_225.wav
+#WAV6B vocals3_226.wav
+#WAV6C vocals3_227.wav
+#WAV6D vocals3_228.wav
+#WAV6E vocals3_229.wav
+#WAV6F vocals3_230.wav
+#WAV6G vocals3_231.wav
+#WAV6H vocals3_232.wav
+#WAV6I vocals3_233.wav
+#WAV6J vocals3_234.wav
+#WAV6K vocals3_235.wav
+#WAV6L vocals3_236.wav
+#WAV6M vocals3_237.wav
+#WAV6N vocals3_238.wav
+#WAV6O vocals3_239.wav
+#WAV6P vocals3_240.wav
+#WAV6Q vocals3_241.wav
+#WAV6R vocals3_242.wav
+#WAV6S vocals3_243.wav
+#WAV6T vocals3_244.wav
+#WAV6U vocals3_245.wav
+#WAV6V vocals3_246.wav
+#WAV6W vocals3_247.wav
+#WAV6X vocals3_248.wav
+#WAV6Y vocals3_249.wav
+#WAV6Z vocals3_250.wav
+#WAV70 vocals3_251.wav
+#WAV71 vocals3_252.wav
+#WAV72 vocals3_253.wav
+#WAV73 vocals3_254.wav
+#WAV74 vocals3_255.wav
+#WAV75 vocals3_256.wav
+#WAV76 vocals3_257.wav
+#WAV77 vocals3_258.wav
+#WAV78 vocals3_259.wav
+#WAV79 vocals3_260.wav
+#WAV7A vocals3_261.wav
+#WAV7B vocals3_262.wav
+#WAV7C vocals3_263.wav
+#WAV7D vocals3_264.wav
+#WAV7E vocals3_265.wav
+#WAV7F vocals3_266.wav
+#WAV7G vocals3_267.wav
+#WAV7H vocals3_268.wav
+#WAV7I vocals3_269.wav
+#WAV7J vocals3_270.wav
+#WAV7K vocals3_271.wav
+#WAV7L vocals3_272.wav
+#WAV7M vocals3_273.wav
+#WAV7N vocals3_274.wav
+#WAV7O vocals3_275.wav
+#WAV7P vocals3_276.wav
+#WAV7Q vocals3_277.wav
+#WAV7R vocals3_278.wav
+#WAV7S vocals3_279.wav
+#WAV7T vocals3_280.wav
+#WAV7U vocals3_281.wav
+#WAV7V vocals3_282.wav
+#WAV7W vocals3_283.wav
+#WAV7X vocals3_284.wav
+#WAV7Y vocals3_285.wav
+#WAV7Z vocals3_286.wav
+#WAV80 vocals3_287.wav
+#WAV81 vocals3_288.wav
+#WAV82 vocals3_289.wav
+#WAV83 vocals3_290.wav
+#WAV84 vocals3_291.wav
+#WAV85 vocals3_292.wav
+#WAV86 vocals3_293.wav
+#WAV87 vocals3_294.wav
+#WAV88 vocals3_295.wav
+#WAV89 vocals3_296.wav
+#WAV8A vocals3_297.wav
+#WAV8B vocals3_298.wav
+#WAV8C vocals3_299.wav
+#WAV8D vocals3_300.wav
+#WAV8E vocals3_301.wav
+#WAV8F vocals3_302.wav
+#WAV8G vocals3_303.wav
+#WAV8H vocals3_304.wav
+#WAV8I vocals3_305.wav
+#WAV8J vocals3_306.wav
+#WAV8K vocals3_307.wav
+#WAV8L vocals3_308.wav
+#WAV8M vocals3_309.wav
+#WAV8N vocals3_310.wav
+#WAV8O vocals3_311.wav
+#WAV8P vocals3_312.wav
+#WAV8Q vocals3_313.wav
+#WAV8R vocals3_314.wav
+#WAV8S vocals3_315.wav
+#WAV8T vocals3_316.wav
+#WAV8U vocals3_317.wav
+#WAV8V vocals3_318.wav
+#WAV8W vocals3_319.wav
+#WAV8X vocals3_320.wav
+#WAV8Y vocals3_321.wav
+#WAV8Z vocals3_322.wav
+#WAV90 vocals3_323.wav
+#WAV91 vocals3_324.wav
+#WAV92 vocals3_325.wav
+#WAV93 vocals3_326.wav
+#WAV94 vocals3_327.wav
+#WAV95 vocals3_328.wav
+#WAV96 vocals3_329.wav
+#WAV97 vocals3_330.wav
+#WAV98 vocals3_331.wav
+#WAV99 vocals3_332.wav
+#WAV9A vocals3_333.wav
+#WAV9B vocals3_334.wav
+#WAV9C vocals3_335.wav
+#WAV9D vocals3_336.wav
+#WAV9E vocals3_337.wav
+#WAV9F vocals3_338.wav
+#WAV9G vocals3_339.wav
+#WAV9H vocals3_340.wav
+#WAV9I vocals3_341.wav
+#WAV9J vocals3_342.wav
+#WAV9K vocals3_343.wav
+#WAV9L vocals3_344.wav
+#WAV9M vocals3_345.wav
+#WAV9N vocals3_346.wav
+#WAV9O vocals3_347.wav
+#WAV9P vocals3_348.wav
+#WAV9Q vocals3_349.wav
+#WAV9R vocals3_350.wav
+#WAV9S vocals3_351.wav
+#WAV9T vocals3_352.wav
+#WAV9U vocals3_353.wav
+#WAV9V vocals3_354.wav
+#WAV9W vocals3_355.wav
+#WAV9X vocals3_356.wav
+#WAV9Y vocals3_357.wav
+#WAV9Z vocals3_358.wav
+#WAVA0 vocals3_359.wav
+#WAVA1 vocals3_360.wav
+#WAVA2 vocals3_361.wav
+#WAVA3 vocals3_362.wav
+#WAVA4 vocals3_363.wav
+#WAVA5 vocals3_364.wav
+#WAVA6 vocals3_365.wav
+#WAVA7 vocals3_366.wav
+#WAVA8 vocals3_367.wav
+#WAVA9 vocals3_368.wav
+#WAVAA vocals3_369.wav
+#WAVAB vocals3_370.wav
+#WAVAC vocals3_371.wav
+#WAVAD vocals3_372.wav
+#WAVAE vocals3_373.wav
+#WAVAF vocals3_374.wav
+#WAVAG vocals3_375.wav
+#WAVAH vocals3_376.wav
+#WAVAI vocals3_377.wav
+#WAVAJ vocals3_378.wav
+#WAVAK vocals3_379.wav
+#WAVAL vocals3_380.wav
+#WAVAM vocals3_381.wav
+#WAVAN vocals3_382.wav
+#WAVAO vocals3_383.wav
+#WAVAP vocals3_384.wav
+#WAVAQ vocals3_385.wav
+#WAVAR vocals3_386.wav
+#WAVAS vocals3_387.wav
+#WAVAT vocals3_388.wav
+#WAVAU vocals3_389.wav
+#WAVAV vocals3_390.wav
+#WAVAW vocals3_391.wav
+#WAVAX vocals3_392.wav
+#WAVAY vocals3_393.wav
+#WAVAZ vocals3_394.wav
+#WAVB0 vocals3_395.wav
+#WAVB1 vocals3_396.wav
+#WAVB2 vocals3_397.wav
+#WAVB3 vocals3_398.wav
+#WAVB4 vocals3_399.wav
+#WAVB5 vocals3_400.wav
+#WAVB6 vocals3_401.wav
+#WAVB7 vocals3_402.wav
+#WAVB8 vocals3_403.wav
+#WAVB9 vocals3_404.wav
+#WAVBA vocals3_405.wav
+#WAVBB vocals3_406.wav
+#WAVBC vocals3_407.wav
+#WAVBD vocals3_408.wav
+#WAVBE vocals3_409.wav
+#WAVBF vocals3_410.wav
+#WAVBG vocals3_411.wav
+#WAVBH vocals3_412.wav
+#WAVBI vocals3_413.wav
+#WAVBJ vocals3_414.wav
+#WAVBK vocals3_415.wav
+#WAVBL vocals3_416.wav
+#WAVBM vocals3_417.wav
+#WAVBN vocals3_418.wav
+#WAVBO vocals3_419.wav
+#WAVBP vocals3_420.wav
+#WAVBQ vocals3_421.wav
+#WAVBR vocals3_422.wav
+#WAVBS vocals3_423.wav
+#WAVBT vocals3_424.wav
+#WAVBU vocals3_425.wav
+#WAVBV vocals3_426.wav
+#WAVBW vocals3_427.wav
+#WAVBX vocals3_428.wav
+#WAVBY vocals3_429.wav
+#WAVBZ vocals3_430.wav
+#WAVC0 vocals3_431.wav
+#WAVC1 vocals3_432.wav
+#WAVC2 vocals3_433.wav
+#WAVC3 vocals3_434.wav
+#WAVC4 vocals3_435.wav
+#WAVC5 vocals3_436.wav
+#WAVC6 vocals3_437.wav
+#WAVC7 vocals3_438.wav
+#WAVC8 vocals3_439.wav
+#WAVC9 vocals3_440.wav
+#WAVCA vocals3_441.wav
+#WAVCB vocals3_442.wav
+#WAVCC vocals3_443.wav
+#WAVCD vocals3_444.wav
+#WAVCE vocals3_445.wav
+#WAVCF vocals3_446.wav
+#WAVCG vocals3_447.wav
+#WAVCH vocals3_448.wav
+#WAVCI vocals3_449.wav
+#WAVCJ vocals3_450.wav
+#WAVCK vocals3_451.wav
+#WAVCL vocals3_452.wav
+#WAVCM vocals3_453.wav
+#WAVCN vocals3_454.wav
+#WAVCO vocals3_455.wav
+#WAVCP vocals3_456.wav
+#WAVCQ vocals3_457.wav
+#WAVCR vocals3_458.wav
+#WAVCS vocals3_459.wav
+#WAVCT vocals3_460.wav
+#WAVCU vocals3_461.wav
+#WAVCV vocals3_462.wav
+#WAVCW vocals3_463.wav
+#WAVCX vocals3_464.wav
+#WAVCY vocals3_465.wav
+#WAVCZ vocals3_466.wav
+#WAVD0 vocals3_467.wav
+#WAVD1 vocals3_468.wav
+#WAVD2 vocals3_469.wav
+#WAVD3 vocals3_470.wav
+#WAVD4 vocals3_471.wav
+#WAVD5 vocals3_472.wav
+#WAVD6 vocals3_473.wav
+#WAVD7 vocals3_474.wav
+#WAVD8 vocals3_475.wav
+#WAVD9 vocals3_476.wav
+#WAVDA vocals3_477.wav
+#WAVDB vocals3_478.wav
+#WAVDC vocals3_479.wav
+#WAVDD vocals3_480.wav
+#WAVDE vocals3_481.wav
+#WAVDF vocals3_482.wav
+#WAVDG vocals3_483.wav
+#WAVDH vocals3_484.wav
+#WAVDI vocals3_485.wav
+#WAVDJ vocals3_486.wav
+#WAVDK vocals3_487.wav
+#WAVDL vocals3_488.wav
+#WAVDM vocals3_489.wav
+#WAVDN vocals3_490.wav
+#WAVDO vocals3_491.wav
+#WAVDP vocals3_492.wav
+#WAVDQ vocals3_493.wav
+#WAVDR vocals3_494.wav
+#WAVDS vocals3_495.wav
+#WAVDT vocals3_496.wav
+#WAVDU vocals3_497.wav
+#WAVDV vocals3_498.wav
+#WAVDW vocals3_499.wav
+#WAVDX vocals3_500.wav
+#WAVDY vocals3_501.wav
+#WAVDZ vocals3_502.wav
+#WAVE0 vocals3_503.wav
+#WAVE1 vocals3_504.wav
+#WAVE2 vocals3_505.wav
+#WAVE3 vocals3_506.wav
+#WAVE4 vocals3_507.wav
+#WAVE5 vocals3_508.wav
+#WAVE6 vocals3_509.wav
+#WAVE7 vocals3_510.wav
+#WAVE8 vocals3_511.wav
+#WAVE9 vocals3_512.wav
+#WAVEA vocals3_513.wav
+#WAVEB vocals3_514.wav
+#WAVEC vocals3_515.wav
+#WAVED vocals3_516.wav
+#WAVEE vocals3_517.wav
+#WAVEF vocals3_518.wav
+#WAVEG vocals3_519.wav
+#WAVEH vocals3_520.wav
+#WAVEI vocals3_521.wav
+#WAVEJ vocals3_522.wav
+#WAVEK vocals3_523.wav
+#WAVEL vocals3_524.wav
+#WAVEM vocals3_525.wav
+#WAVEN vocals3_526.wav
+#WAVEO vocals3_527.wav
+#WAVEP vocals3_528.wav
+#WAVEQ vocals3_529.wav
+#WAVER vocals3_530.wav
+#WAVES vocals3_531.wav
+#WAVET vocals3_532.wav
+#WAVEU vocals3_533.wav
+#WAVEV vocals3_534.wav
+#WAVEW vocals3_535.wav
+#WAVEX vocals3_536.wav
+#WAVEY vocals3_537.wav
+#WAVEZ vocals3_538.wav
+#WAVF0 vocals3_539.wav
+#WAVF1 vocals3_540.wav
+#WAVF2 vocals3_541.wav
+#WAVF3 vocals3_542.wav
+#WAVF4 vocals3_543.wav
+#WAVF5 vocals3_544.wav
+#WAVF6 vocals3_545.wav
+#WAVF7 vocals3_546.wav
+#WAVF8 vocals3_547.wav
+#WAVF9 vocals3_548.wav
+#WAVFA vocals3_549.wav
+#WAVFB vocals3_550.wav
+#WAVFC vocals3_551.wav
+#WAVFD vocals3_552.wav
+#WAVFE vocals3_553.wav
+#WAVFF vocals3_554.wav
+#WAVFG vocals3_555.wav
+#WAVFH vocals3_556.wav
+#WAVFI vocals3_557.wav
+#WAVFJ vocals3_558.wav
+#WAVFK vocals3_559.wav
+#WAVFL vocals3_560.wav
+#WAVFM vocals3_561.wav
+#WAVFN vocals3_562.wav
+#WAVFO vocals3_563.wav
+#WAVFP vocals3_564.wav
+#WAVFQ vocals3_565.wav
+#WAVFR vocals3_566.wav
+#WAVFS vocals3_567.wav
+#WAVFT vocals3_568.wav
+#WAVFU vocals3_569.wav
+#WAVFV vocals3_570.wav
+#WAVFW vocals3_571.wav
+#WAVFX vocals3_572.wav
+#WAVFY vocals3_573.wav
+#WAVFZ vocals3_574.wav
+#WAVG0 vocals3_575.wav
+#WAVG1 vocals3_576.wav
+#WAVG2 vocals3_577.wav
+#WAVG3 vocals3_578.wav
+#WAVG4 vocals3_579.wav
+#WAVG5 vocals3_580.wav
+#WAVG6 vocals3_581.wav
+#WAVG7 vocals3_582.wav
+#WAVG8 vocals3_583.wav
+#WAVG9 vocals3_584.wav
+#WAVGA vocals3_585.wav
+#WAVGB vocals3_586.wav
+#WAVGC vocals3_587.wav
+#WAVGD vocals3_588.wav
+#WAVGE vocals3_589.wav
+#WAVGF vocals3_590.wav
+#WAVGG vocals3_591.wav
+#WAVGH vocals3_592.wav
+#WAVGI vocals3_593.wav
+#WAVGJ vocals3_594.wav
+#WAVGK vocals3_595.wav
+#WAVGL vocals3_596.wav
+#WAVGM vocals3_597.wav
+#WAVGN vocals3_598.wav
+#WAVGO vocals3_599.wav
+#WAVGP vocals3_600.wav
+#WAVGQ vocals3_601.wav
+#WAVGR vocals3_602.wav
+#WAVGS vocals3_603.wav
+#WAVGT vocals3_604.wav
+#WAVGU vocals3_605.wav
+#WAVGV vocals3_606.wav
+#WAVGW vocals3_607.wav
+#WAVGX vocals3_608.wav
+#WAVGY vocals3_609.wav
+#WAVGZ vocals3_610.wav
+#WAVH0 vocals3_611.wav
+#WAVH1 vocals3_612.wav
+#WAVH2 vocals3_613.wav
+#WAVH3 vocals3_614.wav
+#WAVH4 vocals3_615.wav
+#WAVH5 vocals3_616.wav
+#WAVH6 vocals3_617.wav
+#WAVH7 vocals3_618.wav
+#WAVH8 vocals3_619.wav
+#WAVH9 vocals3_620.wav
+#WAVHA vocals3_621.wav
+#WAVHB vocals3_622.wav
+#WAVHC vocals3_623.wav
+#WAVHD vocals3_624.wav
+#WAVHE vocals3_625.wav
+#WAVHF vocals3_626.wav
+#WAVHG vocals3_627.wav
+#WAVHH vocals3_628.wav
+#WAVHI vocals3_629.wav
+#WAVHJ vocals3_630.wav
+#WAVHK vocals3_631.wav
+#WAVHL vocals3_632.wav
+#WAVHM vocals3_633.wav
+#WAVHN vocals3_634.wav
+#WAVHO vocals3_635.wav
+#WAVHP vocals3_636.wav
+#WAVHQ vocals3_637.wav
+#WAVHR vocals3_638.wav
+#WAVHS vocals3_639.wav
+#WAVHT vocals3_640.wav
+#WAVHU vocals3_641.wav
+#WAVHV vocals3_642.wav
+#WAVHW vocals3_643.wav
+#WAVHX vocals3_644.wav
+#WAVHY vocals3_645.wav
+#WAVHZ vocals3_646.wav
+#WAVI0 vocals3_647.wav
+#WAVI1 vocals3_648.wav
+#WAVI2 vocals3_649.wav
+#WAVI3 vocals3_650.wav
+#WAVI4 vocals3_651.wav
+#WAVI5 vocals3_652.wav
+#WAVI6 vocals3_653.wav
+#WAVI7 vocals3_654.wav
+#WAVI8 vocals3_655.wav
+#WAVI9 vocals3_656.wav
+#WAVIA vocals3_657.wav
+#WAVIB vocals3_658.wav
+#WAVIC vocals3_659.wav
+#WAVID vocals3_660.wav
+#WAVIE vocals3_661.wav
+#WAVIF vocals3_662.wav
+#WAVIG vocals3_663.wav
+#WAVIH vocals3_664.wav
+#WAVII vocals3_665.wav
+#WAVIJ vocals3_666.wav
+#WAVIK vocals3_667.wav
+#WAVIL vocals3_668.wav
+#WAVIM vocals3_669.wav
+#WAVIN vocals3_670.wav
+#WAVIO vocals3_671.wav
+#WAVIP vocals3_672.wav
+#WAVIQ vocals3_673.wav
+#WAVIR vocals3_674.wav
+#WAVIS vocals3_675.wav
+#WAVIT vocals3_676.wav
+#WAVIU vocals3_677.wav
+#WAVIV vocals3_678.wav
+#WAVIW vocals3_679.wav
+#WAVIX vocals3_680.wav
+#WAVIY vocals3_681.wav
+#WAVIZ vocals3_682.wav
+#WAVJ0 vocals3_683.wav
+#WAVJ1 vocals3_684.wav
+#WAVJ2 vocals3_685.wav
+#WAVJ3 vocals3_686.wav
+#WAVJ4 vocals3_687.wav
+#WAVJ5 vocals3_688.wav
+#WAVJ6 vocals3_689.wav
+#WAVJ7 vocals3_690.wav
+#WAVJ8 vocals3_691.wav
+#WAVJ9 vocals3_692.wav
+#WAVJA vocals3_693.wav
+#WAVJB vocals3_694.wav
+#WAVJC vocals3_695.wav
+#WAVJD vocals3_696.wav
+#WAVJE vocals3_697.wav
+#WAVJF vocals3_698.wav
+#WAVJG vocals3_699.wav
+#WAVJH vocals3_700.wav
+#WAVJI vocals3_701.wav
+#WAVJJ vocals3_702.wav
+#WAVJK vocals3_703.wav
+#WAVJL vocals3_704.wav
+#WAVJM vocals3_705.wav
+#WAVJN vocals3_706.wav
+#WAVJO vocals3_707.wav
+#WAVJP vocals3_708.wav
+#WAVJQ vocals3_709.wav
+#WAVJR vocals3_710.wav
+#WAVJS vocals3_711.wav
+#WAVJT vocals3_712.wav
+#WAVJU vocals3_713.wav
+#WAVJV vocals3_714.wav
+#WAVJW vocals3_715.wav
+#WAVJX vocals3_716.wav
+#WAVJY vocals3_717.wav
+#WAVJZ vocals3_718.wav
+#WAVK0 vocals3_719.wav
+#WAVK1 vocals3_720.wav
+#WAVK2 vocals3_721.wav
+#WAVK3 vocals3_722.wav
+#WAVK4 vocals3_723.wav
+#WAVK5 vocals3_724.wav
+#WAVK6 vocals3_725.wav
+#WAVK7 vocals3_726.wav
+#WAVK8 vocals3_727.wav
+#WAVK9 vocals3_728.wav
+#WAVKA vocals3_729.wav
+#WAVKB vocals3_730.wav
+#WAVKC vocals3_731.wav
+#WAVKD vocals3_732.wav
+#WAVKE vocals3_733.wav
+#WAVKF vocals3_734.wav
+#WAVKG vocals3_735.wav
+#WAVKH vocals3_736.wav
+#WAVKI vocals3_737.wav
+#WAVKJ vocals3_738.wav
+#WAVKK vocals3_739.wav
+#WAVKL vocals3_740.wav
+#WAVKM vocals3_741.wav
+#WAVKN vocals3_742.wav
+#WAVKO vocals3_743.wav
+#WAVKP vocals3_744.wav
+#WAVKQ vocals3_745.wav
+#WAVKR vocals3_746.wav
+#WAVKS vocals3_747.wav
+#WAVKT vocals3_748.wav
+#WAVKU vocals3_749.wav
+#WAVKV vocals3_750.wav
+#WAVKW vocals3_751.wav
+#WAVKX vocals3_752.wav
+#WAVKY vocals3_753.wav
+#WAVKZ vocals3_754.wav
+#WAVL0 vocals3_755.wav
+#WAVL1 vocals3_756.wav
+#WAVL2 vocals3_757.wav
+#WAVL3 vocals3_758.wav
+#WAVL4 vocals3_759.wav
+#WAVL5 vocals3_760.wav
+#WAVL6 vocals3_761.wav
+#WAVL7 vocals3_762.wav
+#WAVL8 vocals3_763.wav
+#WAVL9 vocals3_764.wav
+#WAVLA vocals3_765.wav
+#WAVLB vocals3_766.wav
+#WAVLC vocals3_767.wav
+#WAVLD vocals3_768.wav
+#WAVLE vocals3_769.wav
+#WAVLF vocals3_770.wav
+#WAVLG vocals3_771.wav
+#WAVLH vocals3_772.wav
+#WAVLI vocals3_773.wav
+#WAVLJ vocals3_774.wav
+#WAVLK vocals3_775.wav
+#WAVLL vocals3_776.wav
+#WAVLM vocals3_777.wav
+#WAVLN vocals3_778.wav
+#WAVLO vocals3_779.wav
+#WAVLP vocals3_780.wav
+#WAVLQ vocals3_781.wav
+#WAVLR vocals3_782.wav
+#WAVLS vocals3_783.wav
+#WAVLT vocals3_784.wav
+#WAVLU vocals3_785.wav
+#WAVLV vocals3_786.wav
+#WAVLW vocals3_787.wav
+#WAVLX vocals3_788.wav
+#WAVLY vocals3_789.wav
+#WAVLZ vocals3_790.wav
+#WAVM0 vocals3_791.wav
+#WAVM1 vocals3_792.wav
+#WAVM2 vocals3_793.wav
+#WAVM3 vocals3_794.wav
+#WAVM4 vocals3_795.wav
+#WAVM5 vocals3_796.wav
+#WAVM6 vocals3_797.wav
+#WAVM7 vocals3_798.wav
+#WAVM8 vocals3_799.wav
+#WAVM9 vocals3_800.wav
+#WAVMA vocals3_801.wav
+#WAVMB vocals3_802.wav
+#WAVMC vocals3_803.wav
+#WAVMD vocals3_804.wav
+#WAVME vocals3_805.wav
+#WAVMF vocals3_806.wav
+#WAVMG vocals3_807.wav
+#WAVMH vocals3_808.wav
+#WAVMI vocals3_809.wav
+#WAVMJ vocals3_810.wav
+#WAVMK vocals3_811.wav
+#WAVML vocals3_812.wav
+#WAVMM vocals3_813.wav
+#WAVMN vocals3_814.wav
+#WAVMO vocals3_815.wav
+#WAVMP vocals3_816.wav
+#WAVMQ vocals3_817.wav
+#WAVMR vocals3_818.wav
+#WAVMS vocals3_819.wav
+#WAVMT vocals3_820.wav
+#WAVMU vocals3_821.wav
+#WAVMV vocals3_822.wav
+#WAVMW vocals3_823.wav
+#WAVMX vocals3_824.wav
+#WAVMY vocals3_825.wav
+#WAVMZ vocals3_826.wav
+#WAVN0 vocals3_827.wav
+#WAVN1 vocals3_828.wav
+#WAVN2 vocals3_829.wav
+#WAVN3 vocals3_830.wav
+#WAVN4 vocals3_831.wav
+#WAVN5 vocals3_832.wav
+#WAVN6 vocals3_833.wav
+#WAVN7 vocals3_834.wav
+#WAVN8 vocals3_835.wav
+#WAVN9 vocals3_836.wav
+#WAVNA vocals3_837.wav
+#WAVNB vocals3_838.wav
+#WAVNC vocals3_839.wav
+#WAVND vocals3_840.wav
+#WAVNE vocals3_841.wav
+#WAVNF vocals3_842.wav
+#WAVNG vocals3_843.wav
+#WAVNH vocals3_844.wav
+#WAVNI vocals3_845.wav
+#WAVNJ vocals3_846.wav
+#WAVNK vocals3_847.wav
+#WAVNL vocals3_848.wav
+#WAVNM vocals3_849.wav
+#WAVNN vocals3_850.wav
+#WAVNO vocals3_851.wav
+#WAVNP vocals3_852.wav
+#WAVNQ vocals3_853.wav
+#WAVNR vocals3_854.wav
+#WAVNS vocals3_855.wav
+#WAVNT vocals3_856.wav
+#WAVNU vocals3_857.wav
+#WAVNV vocals3_858.wav
+#WAVNW vocals3_859.wav
+#WAVNX vocals3_860.wav
+#WAVNY vocals3_861.wav
+#WAVNZ vocals3_862.wav
+#WAVO0 vocals3_863.wav
+#WAVO1 vocals3_864.wav
+#WAVO2 vocals3_865.wav
+#WAVO3 vocals3_866.wav
+#WAVO4 vocals3_867.wav
+#WAVO5 vocals3_868.wav
+#WAVO6 vocals3_869.wav
+#WAVO7 vocals3_870.wav
+#WAVO8 vocals3_871.wav
+#WAVO9 vocals3_872.wav
+#WAVOA vocals3_873.wav
+#WAVOB vocals3_874.wav
+#WAVOC vocals3_875.wav
+#WAVOD vocals3_876.wav
+#WAVOE vocals3_877.wav
+#WAVOF vocals3_878.wav
+#WAVOG vocals3_879.wav
+#WAVOH vocals3_880.wav
+#WAVOI vocals3_881.wav
+#WAVOJ vocals3_882.wav
+#WAVOK vocals3_883.wav
+#WAVOL vocals3_884.wav
+#WAVOM vocals3_885.wav
+#WAVON vocals3_886.wav
+#WAVOO vocals3_887.wav
+#WAVOP vocals3_888.wav
+#WAVOQ vocals3_889.wav
+#WAVOR vocals3_890.wav
+#WAVOS vocals3_891.wav
+#WAVOT vocals3_892.wav
+#WAVOU vocals3_893.wav
+#WAVOV vocals3_894.wav
+#WAVOW vocals3_895.wav
+#WAVOX vocals3_896.wav
+#WAVOY vocals3_897.wav
+#WAVOZ vocals3_898.wav
+#WAVP0 vocals3_899.wav
+#WAVP1 vocals3_900.wav
+#WAVP2 vocals3_901.wav
+#WAVP3 vocals3_902.wav
+#WAVP4 vocals3_903.wav
+#WAVP5 vocals3_904.wav
+#WAVP6 vocals3_905.wav
+#WAVP7 vocals3_906.wav
+#WAVP8 vocals3_907.wav
+#WAVP9 vocals3_908.wav
+#WAVPA vocals3_909.wav
+#WAVPB vocals3_910.wav
+#WAVPC vocals3_911.wav
+#WAVPD vocals3_912.wav
+#WAVPE vocals3_913.wav
+#WAVPF vocals3_914.wav
+#WAVPG vocals3_915.wav
+#WAVPH vocals3_916.wav
+#WAVPI vocals3_917.wav
+#WAVPJ vocals3_918.wav
+#WAVPK vocals3_919.wav
+#WAVPL vocals3_920.wav
+#WAVPM vocals3_921.wav
+#WAVPN vocals3_922.wav
+#WAVPO vocals3_923.wav
+#WAVPP vocals3_924.wav
+#WAVPQ vocals3_925.wav
+#WAVPR vocals3_926.wav
+#WAVPS vocals3_927.wav
+#WAVPT vocals3_928.wav
+#WAVPU vocals3_929.wav
+#WAVPV vocals3_930.wav
+#WAVPW vocals3_931.wav
+#WAVPX vocals3_932.wav
+#WAVPY vocals3_933.wav
+#WAVPZ vocals3_934.wav
+#WAVQ0 vocals3_935.wav
+#WAVQ1 vocals3_936.wav
+#WAVQ2 vocals3_937.wav
+#WAVQ3 vocals3_938.wav
+#WAVQ4 vocals3_939.wav
+#WAVQ5 vocals3_940.wav
+#WAVQ6 vocals3_941.wav
+#WAVQ7 vocals3_942.wav
+#WAVQ8 vocals3_943.wav
+#WAVQ9 vocals3_944.wav
+#WAVQA vocals3_945.wav
+#WAVQB vocals3_946.wav
+#WAVQC vocals3_947.wav
+#WAVQD vocals3_948.wav
+#WAVQE vocals3_949.wav
+#WAVQF vocals3_950.wav
+#WAVQG vocals3_951.wav
+#WAVQH vocals3_952.wav
+#WAVQI vocals3_953.wav
+#WAVQJ vocals3_954.wav
+#WAVQK vocals3_955.wav
+#WAVQL vocals3_956.wav
+#WAVQM vocals3_957.wav
+#WAVQN vocals3_958.wav
+#WAVQO vocals3_959.wav
+#WAVQP vocals3_960.wav
+#WAVQQ vocals3_961.wav
+#WAVQR vocals3_962.wav
+#WAVQS vocals3_963.wav
+#WAVQT vocals3_964.wav
+#WAVQU vocals3_965.wav
+#WAVQV vocals3_966.wav
+#WAVQW vocals3_967.wav
+#BPM01 300
+#BPM02 99999999160
+#STOP01 400
+
+
+*---------------------- MAIN DATA FIELD
+
+
+#00008:000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001
+#00009:000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001
+
+#00103:C8
+#00111:00000000000007080000000000000F0G
+#00113:000003040000000000000B0C00000000
+#00115:0102000000000000090A000000000000
+#00119:0000000005060000000000000D0E0000
+
+#00211:0000000000000N0O0000000000000V0W
+#00213:00000J0K0000000000000R0S00000000
+#00215:0H0I0000000000000P0Q000000000000
+#00219:000000000L0M0000000000000T0U0000
+
+#00303:000000CD
+#00309:000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+#00311:00000000000013140000000000000000
+#00313:00000Z10000000000000171800000000
+#00315:0X0Y0000000000001516000000000000
+#00316:000000000000000000000000191A1B1C
+#00319:00000000111200000000000000000000
+
+#00416:1D1E1F1G1H1I1J1K1L1M1N1O1P1Q1R1S
+
+#00516:1T1U1V1W1X1Y1Z202122232425262728
+
+#00616:292A2B2C2D2E2F2G2H2I2J2K2L2M2N2O
+
+#00709:000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001
+#00716:2P2Q2R2S2T2U2V2W2X2Y2Z3031323334
+
+#00808:01
+#00811:0037003B003F003J
+#00813:00360000003A0000003E0000003I0000
+#00815:35393D3H
+#00819:000000380000003C0000003G0000003K
+
+#00911:003N003R003V003Z
+#00913:003M0000003Q0000003U0000003Y0000
+#00915:3L3P3T3X
+#00919:0000003O0000003S0000003W00000040
+
+#01009:000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001
+#01011:00430047004B004F
+#01013:0042000000460000004A0000004E0000
+#01015:4145494D
+#01019:00000044000000480000004C0000004G
+
+#01103:78
+#01115:4H4I4J4K4L4M4N4O4P4Q4R4S4T4U4V4W
+
+#01215:4X4Y4Z505152535455565758595A5B5C
+
+#01315:5D5E5F5G5H5I5J5K5L5M5N5O5P5Q5R5S
+
+#01415:5T5U5V5W5X5Y5Z606162636465666768
+
+#01515:696A6B6C6D6E6F6G6H6I6J6K6L6M6N6O
+
+#01615:6P6Q6R6S6T6U6V6W6X6Y6Z7071727374
+
+#01715:75767778797A7B7C7D7E7F7G7H7I7J7K
+
+#01815:7L7M7N7O7P7Q7R7S7T7U7V7W7X7Y7Z80
+
+#01915:8182838485868788898A8B8C8D8E8F8G
+
+#02015:8H8I8J8K8L8M8N8O8P8Q8R8S8T8U8V8W
+
+#02115:8X8Y8Z909192939495969798999A9B9C
+
+#02215:9D9E9F9G9H9I9J9K9L9M9N9O9P9Q9R9S
+
+#02315:9T9U9V9W9X9Y9ZA0A1A2A3A4A5A6A7A8
+
+#02415:A9AAABACADAEAFAGAHAIAJAKALAMANAO
+
+#02515:APAQARASATAUAVAWAXAYAZB0B1B2B3B4
+
+#02615:B5B6B7B8B9BABBBCBDBEBFBGBHBIBJBK
+
+#02715:BLBMBNBOBPBQBRBSBTBUBVBWBXBYBZC0
+
+#02815:C1C2C3C4C5C6C7C8C9CACBCCCDCECFCG
+
+#02915:CHCICJCKCLCMCNCOCPCQCRCSCTCUCVCW
+
+#03012:000000000000000000000000000000DC
+#03015:CXCYCZD0D1D2D3D4D5D6D7D8D9DADB00
+
+#03112:DDDEDFDGDHDIDJDKDLDMDNDODPDQDRDS
+
+#03212:DTDUDV00000000000000000000000000
+#03215:000000DWDXDYDZE0E1E2E3E4E5E6E7E8
+
+#03315:E9EAEBECEDEEEFEGEHEIEJEKELEMENEO
+
+#03415:EPEQERESETEUEVEWEXEYEZF0F1F2F3F4
+
+#03515:F5F6F7F8F9FAFBFCFDFEFFFGFHFIFJFK
+
+#03615:FLFMFNFOFPFQFRFSFTFUFVFWFXFYFZG0
+
+#03715:G1G2G3G4G5G6G7G8G9GAGBGCGDGEGFGG
+
+#03815:GHGIGJGKGLGMGNGO0000000000000000
+#03819:0000000000000000GPGQGRGSGTGUGVGW
+
+#03915:000000000000000000000000H9HAHBHC
+#03919:GXGYGZH0H1H2H3H4H5H6H7H800000000
+
+#04015:HDHEHFHGHHHIHJHKHLHMHNHOHPHQHRHS
+
+#04115:HTHUHVHWHXHYHZI0I1I2I3I4I5I6I7I8
+
+#04215:I9IAIBICIDIEIF000000000000000000
+#04216:00000000000000IGIHIIIJIKILIMINIO
+
+#04315:00000000000000000000IZJ0J1J2J3J4
+#04316:IPIQIRISITIUIVIWIXIY000000000000
+
+#04415:J5J6J7J8J9JAJBJCJDJEJFJGJHJIJJJK
+
+#04515:JLJMJNJOJPJQJRJSJT0000JWJXJYJZK0
+#04518:000000000000000000JUJV0000000000
+
+#04614:00000000K5K6K7K8K9KAKBKCKD000000
+#04615:K1K2K3K4000000000000000000KEKFKG
+
+#04715:KHKIKJKKKLKMKNKOKPKQKRKSKTKUKVKW
+
+#04815:KXKYKZL0L1L2L3L4L5L6L7L8L9LALBLC
+
+#04915:LDLELFLGLHLILJLKLLLMLNLOLPLQLRLS
+
+#05015:LTLULVLWLXLYLZM0M1M2M3M4M5M6M7M8
+
+#05115:M9MAMBMCMDMEMFMGMHMIMJMKMLMMMNMO
+
+#05211:000000000000MVMWMXMYMZN0N1N2N3N4
+#05215:MPMQMRMSMTMU00000000000000000000
+
+#05311:N5N6N7N8N9NANBNCNDNENFNGNHNINJNK
+
+#05411:NLNMNNNONPNQ00000000000000000000
+#05415:000000000000NRNSNTNUNVNWNXNYNZO0
+
+#05515:O1O2O3O4O5O6O7O8O9OAOBOCODOEOFOG
+
+#05615:OHOIOJOKOLOMONOOOPOQOROSOTOUOVOW
+
+#05715:OXOYOZP0P1P2P3P4P5P6P7P8P9PAPBPC
+
+#05815:PDPEPFPGPHPIPJPKPLPMPNPOPPPQPRPS
+
+#05915:PTPUPVPWPXPYPZQ0Q1Q2Q3Q4Q5Q6Q7Q8
+
+#06014:00000000000000000000QJQKQLQMQNQO
+#06015:Q9QAQBQCQDQEQFQGQHQI000000000000
+
+#06103:0000001900000000
+#06108:00000000000000020000000000000000
+#06114:QPQQQRQSQTQUQV000000000000000000
+#06115:00000000000000QW0000000000000000
+
+

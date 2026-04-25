@@ -441,6 +441,11 @@ public sealed class LR2SongDBExtended : LR2SongDB
         public int? difficulty { get; set; }
 
         /// <summary>
+        /// 譜面難易度種別が譜面内で明示されていたかどうかです。
+        /// </summary>
+        public bool difficulty_defined { get; set; }
+
+        /// <summary>
         /// ノーツ数が最も多い BPM です。
         /// </summary>
         public double? mainbpm { get; set; }

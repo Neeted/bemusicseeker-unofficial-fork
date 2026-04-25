@@ -1,1 +1,7 @@
 BeMusicSeeker.Tests/TestData/chart_info_real/charts/** -text -diff
+
+*.bms binary
+*.bme binary
+*.bml binary
+*.pms binary
+*.bmson binary

@@ -1,0 +1,763 @@
+#PLAYER 1
+#GENRE Clockwork
+#TITLE ninth -forbidden story-
+#ARTIST MRYM's husbandary
+#BPM 138
+#RANK 3
+#VOLWAV 130
+#STAGEFILE stage_02.bmp
+#PLAYLEVEL ‚±‚ñ‚Î‚ñ‚Í
+#TOTAL 8383
+
+#WAV01 bgm_01.wav
+#WAV02 bgm_02.wav
+#WAV03 bgm_03.wav
+#WAV04 bgm_04.wav
+#WAV05 bgm_05.wav
+#WAV06 bgm_06.wav
+#WAV07 tr01_thestr_01.wav
+#WAV08 tr01_thestr_02.wav
+#WAV09 bgm_04r.wav
+#WAV0A tr02_a_back_01.wav
+#WAV0B tr02_a_back_02.wav
+#WAV0C tr02_a_back_03.wav
+#WAV0D tr02_a_back_04.wav
+#WAV0E tr02_a_back_05.wav
+#WAV0F tr02_a_back_06.wav
+#WAV10 tr02_a_back_07.wav
+#WAV11 tr02_a_back_08.wav
+#WAV12 tr02_a_back_09.wav
+#WAV13 tr02_a_back_10.wav
+#WAV14 tr02_a_back_11.wav
+#WAV15 tr02_a_back_12.wav
+#WAV16 tr02_a_back_13.wav
+#WAV17 tr02_a_back_14.wav
+#WAV18 tr02_a_back_15.wav
+#WAV19 tr02_a_back_16.wav
+#WAV1A tr02_a_back_17.wav
+#WAV1B tr02_a_back_18.wav
+#WAV1C tr02_a_back_19.wav
+#WAV1D tr02_a_back_20.wav
+#WAV1E tr02_a_back_21.wav
+#WAV1F tr02_a_back_22.wav
+#WAV20 tr02_a_me_01_a+5.wav
+#WAV21 tr02_a_me_02_a5.wav
+#WAV22 tr02_a_me_03_g5.wav
+#WAV23 tr02_a_me_04_d5.wav
+#WAV24 tr02_a_me_05_a4.wav
+#WAV25 tr02_a_me_06_a+4.wav
+#WAV26 tr02_a_me_07_f4.wav
+#WAV27 tr02_a_me_08_g4.wav
+#WAV28 tr02_a_me_09_g4.wav
+#WAV29 tr02_a_me_11_d5.wav
+#WAV2A tr02_a_me_12_g5.wav
+#WAV2B tr02_a_me_13_d6.wav
+#WAV2C tr02_a_me_14_d+6.wav
+#WAV2D tr02_a_me_15_d6.wav
+#WAV2E tr02_a_me_17_a+5.wav
+#WAV2F tr02_a_me_18_a5.wav
+#WAV30 tr02_a_me_19_a5.wav
+#WAV31 tr02_a_me_21_c6.wav
+#WAV32 tr02_a_me_23_d+6.wav
+#WAV33 tr02_a_me_24_d6.wav
+#WAV34 tr02_a_me_25_c6.wav
+#WAV35 tr02_a_me_26_g+5.wav
+#WAV36 tr02_a_me_27_f5.wav
+#WAV38 tr02_a_me_30_g5.wav
+#WAV39 tr02_a_me_34_f+5.wav
+#WAV3A tr02_a_me_35_f5.wav
+#WAV3B tr02_a_me_36_d+5.wav
+#WAV3C tr02_a_me_37_c5.wav
+#WAV3D tr02_a_me_38_g5.wav
+#WAV3E tr02_a_me_40_a+5.wav
+#WAV40 tr02_a_me_46_d+5.wav
+#WAV41 tr02_a_me_47_d5.wav
+#WAV42 tr02_a_me_48_d+5.wav
+#WAV43 tr02_a_me_49_d5.wav
+#WAV44 tr02_a_me_52_d+4.wav
+#WAV45 tr02_a_me_53_c6.wav
+#WAV47 tr02_a_me_58_c+6.wav
+#WAV48 tr02_a_me_ls.wav
+#WAV49 tr02_intro_back_01.wav
+#WAV4A tr02_intro_back_02.wav
+#WAV4B tr02_intro_back_03.wav
+#WAV4C tr02_intro_back_04.wav
+#WAV4D tr02_intro_back_05.wav
+#WAV4E tr02_intro_back_06.wav
+#WAV4F tr02_intro_back_07.wav
+#WAV50 tr02_intro_back_08.wav
+#WAV51 tr02_intro_back_09.wav
+#WAV52 tr02_intro_me_01.wav
+#WAV53 tr02_intro_me_02.wav
+#WAV54 tr02_intro_me_03_c+5.wav
+#WAV55 tr02_intro_me_04_c+5.wav
+#WAV56 tr02_intro_me_06_c+5.wav
+#WAV57 tr02_intro_me_08_a+4.wav
+#WAV58 tr02_intro_me_09_a4.wav
+#WAV59 tr02_intro_me_10_a+4.wav
+#WAV5A tr02_intro_me_11_a4.wav
+#WAV5B tr02_intro_me_12_g4.wav
+#WAV5C tr02_intro_me_14_f+5.wav
+#WAV5D tr02_intro_me_15_g5.wav
+#WAV5E tr02_intro_me_16_d5.wav
+#WAV5F tr02_intro_me_18_e5.wav
+#WAV60 tr02_intro_me_21_f5.wav
+#WAV61 tr02_intro_me_22_e5.wav
+#WAV62 tr02_intro_me_23_f5.wav
+#WAV63 tr02_intro_me_25_a3.wav
+#WAV64 tr02_intro_me_26_d4.wav
+#WAV65 tr02_intro_me_27_g3.wav
+#WAV66 tr02_intro_me_28_a4.wav
+#WAV67 tr02_repeat_01.wav
+#WAV68 tr02_repeat_02.wav
+#WAV69 tr02_repeat_03.wav
+#WAV6A tr02_repeat_back_01.wav
+#WAV6B tr02_repeat_back_02.wav
+#WAV6C tr02_repeat_back_03.wav
+#WAV6D tr02_repeat_back_04.wav
+#WAV6E tr02_repeat_back_05.wav
+#WAV6F tr02_repeat_back_06.wav
+#WAV70 tr02_repeat_back_07.wav
+#WAV71 tr02_repeat_back_08.wav
+#WAV72 tr02_repeat_back_09.wav
+#WAV73 tr02_repeat_back_10.wav
+#WAV74 tr02_repeat_back_11.wav
+#WAV75 tr02_repeat_back_12.wav
+#WAV76 tr02_repeat_back_13.wav
+#WAV77 tr02_repeat_back_14.wav
+#WAV78 tr02_repeat_back_15.wav
+#WAV79 tr02_repeat_back_16.wav
+#WAV7A tr02_repeat_back_17.wav
+#WAV7B tr02_repeat_back_18.wav
+#WAV7C tr03_intro_01_d4.wav
+#WAV7D tr03_intro_02_f4.wav
+#WAV7E tr03_intro_03_a4.wav
+#WAV7F tr03_intro_04_e5.wav
+#WAV80 tr03_intro_05_a+5.wav
+#WAV81 tr03_intro_06_a5.wav
+#WAV82 tr03_intro_07_d6.wav
+#WAV83 tr03_intro_08_c+6.wav
+#WAV84 tr03_intro_09_a5.wav
+#WAV85 tr03_intro_10_a+5.wav
+#WAV86 tr03_intro_11_a5.wav
+#WAV87 tr03_intro_13_f5.wav
+#WAV88 tr03_intro_14_f+5.wav
+#WAV89 tr03_intro_15_g5.wav
+#WAV8A tr03_intro_16_f5.wav
+#WAV8B tr03_intro_17_sld.wav
+#WAV8C tr03_repeat_01_d5.wav
+#WAV8D tr03_repeat_04_a5.wav
+#WAV8E tr03_repeat_05_a+5.wav
+#WAV8F tr03_repeat_06_g+5.wav
+#WAV90 tr03_repeat_08_f5.wav
+#WAV91 tr03_repeat_09_g5.wav
+#WAV92 tr03_repeat_10_g5.wav
+#WAV93 tr03_repeat_11_a5.wav
+#WAV94 tr03_repeat_12_f+5.wav
+#WAV95 tr03_repeat_13_d5.wav
+#WAV96 tr03_repeat_15_e5.wav
+#WAV97 tr03_repeat_17_f5.wav
+#WAV98 tr03_repeat_19_e5.wav
+#WAV99 tr03_repeat_20_c5.wav
+#WAV9A tr03_repeat_21_c5.wav
+#WAV9B tr03_repeat_22_c+5.wav
+#WAV9C tr03_repeat_23_d5.wav
+#WAV9D tr03_repeat_24_c+5.wav
+#WAV9E tr03_repeat_25_c6.wav
+#WAV9F tr03_repeat_26_c+6.wav
+#WAVA1 tr03_repeat_29_b5.wav
+#WAVA2 tr03_repeat_30_c6.wav
+#WAVA3 tr03_repeat_32_d+6.wav
+#WAVA4 tr03_repeat_33_b5.wav
+#WAVA5 tr03_repeat_34_a+5.wav
+#WAVA6 tr03_repeat_38_f5.wav
+#WAVA7 tr03_repeat_39_f+5.wav
+#WAVA8 tr03_repeat_40_g5.wav
+#WAVA9 tr05_bgm_01.wav
+#WAVAA tr05_bgm_02.wav
+#WAVAB tr05_lsarp.wav
+#WAVAC tr06_01.wav
+#WAVAD tr06_02.wav
+#WAVAE tr06_03.wav
+#WAVAF tr06_intro_01.wav
+#WAVB0 tr06_intro_02.wav
+#WAVB1 tr07_aco_01.wav
+#WAVB2 tr07_aco_02.wav
+#WAVB3 tr07_aco_03.wav
+#WAVB4 tr08_basspanish_03.wav
+#WAVB5 tr08_basspanish_04.wav
+#WAVB6 tr08_basspiz_intro_04.wav
+#WAVB7 tr08_bass_01.wav
+#WAVB8 tr08_bass_02.wav
+#WAVB9 tr08_bass_intro_01.wav
+#WAVBA tr08_bass_intro_02.wav
+#WAVBB tr08_bass_intro_03.wav
+#WAVBC tr09_ref_01.wav
+#WAVBD tr09_ref_02.wav
+#WAVBE tr09_ref_03.wav
+#WAVBF tr09_ref_04.wav
+#WAVC0 tr09_ref_05.wav
+#WAVC1 tr09_ref_06.wav
+#WAVC2 tr10_intro_01.wav
+#WAVC3 tr10_intro_02.wav
+#WAVC4 tr10_intro_03.wav
+#WAVC5 tr10_intro_04.wav
+#WAVC6 tr10_intro_05.wav
+#WAVC7 tr10_intro_06.wav
+#WAVC8 tr10_intro_07.wav
+#WAVC9 tr10_intro_08.wav
+#WAVCA tr10_intro_09.wav
+#WAVCB tr10_intro_10.wav
+#WAVCC tr10_intro_11.wav
+#WAVCD tr11_intro.wav
+#WAVCE tr12_01.wav
+#WAVCF tr12_02.wav
+#WAVD0 tr12_03.wav
+#WAVD1 tr12_04.wav
+#WAVD2 tr12_05.wav
+#WAVD3 tr12_06.wav
+#WAVD4 tr12_07.wav
+#WAVD5 tr14_01.wav
+#WAVD6 tr14_02.wav
+#WAVD7 tr15_intro_01.wav
+#WAVD8 tr15_intro_02.wav
+#WAVD9 tr15_intro_04.wav
+#WAVDA tr15_intro_06.wav
+#WAVDB tr15_intro_07.wav
+#WAVDC tr15_intro_08.wav
+#WAVDD tr15_intro_09.wav
+#WAVDE tr15_intro_10.wav
+#WAVDF tr05_bgm_01r.wav
+#WAVE0 tr15_intro_12.wav
+#WAVE1 tr05_bgm_02r.wav
+#WAVE2 tr16_awom.wav
+#WAVE3 tr16_awomclose.wav
+#WAVE4 tr16_board.wav
+#WAVE5 tr16_bob.wav
+#WAVE6 tr16_cpu.wav
+#WAVE7 tr16_fin.wav
+#WAVE8 tr16_gear_01.wav
+#WAVE9 tr16_gear_02.wav
+#WAVEA tr16_gear_03.wav
+#WAVEB tr16_inch.wav
+#WAVEC tr16_cpu.wav
+#WAVED tr16_smpdk_01.wav
+#WAVEE tr16_smpdk_02.wav
+#WAVEF tr16_smpdk_03.wav
+#WAVF0 tr16_smpdk_04.wav
+#WAVF1 tr16_smpdk_05.wav
+#WAVF2 tr16_smpdk_06.wav
+#WAVF3 tr16_smpdk_07.wav
+#WAVF4 tr16_smpdk_08.wav
+#WAVF5 tr16_smpdk_09.wav
+#WAVF6 tr16_smpdk_10.wav
+#WAVF7 tr16_smpdk_11.wav
+#WAVF8 tr16_smpdk_12.wav
+#WAVF9 tr16_smpdk_13.wav
+#WAVFA tr16_smpdk_14.wav
+#WAVFB tr16_smpdk_15.wav
+#WAVFC tr16_smpdk_16.wav
+#WAVFD tr16_smpdk_17.wav
+#WAVFE tr16_smpdk_18.wav
+#WAVFF tr16_stack.wav
+
+#BMP00 miss_00.bmp
+#BMP01 a_00.bmp
+#BMP02 a_01.bmp
+#BMP03 a_02.bmp
+#BMP04 a_03.bmp
+#BMP05 a_04.bmp
+#BMP06 a_05.bmp
+#BMP07 a_06.bmp
+#BMP08 a_07.bmp
+#BMP09 a_08.bmp
+#BMP0A a_09.bmp
+#BMP0B a_10.bmp
+#BMP0C a_11.bmp
+#BMP0D a_12.bmp
+#BMP0E a_13.bmp
+#BMP0F a_14.bmp
+#BMP10 a_15.bmp
+#BMP11 a_16fade.bmp
+#BMP12 a_17fade.bmp
+#BMP13 a_18fade.bmp
+#BMP14 a_19fade.bmp
+#BMP15 b_00.bmp
+#BMP16 b_01.bmp
+#BMP17 b_02.bmp
+#BMP18 b_03.bmp
+#BMP19 b_04.bmp
+#BMP1A b_05.bmp
+#BMP1B b_06.bmp
+#BMP1C b_07.bmp
+#BMP1D c_00.bmp
+#BMP1E c_01.bmp
+#BMP1F c_02.bmp
+#BMP20 c_03.bmp
+#BMP21 c_04.bmp
+#BMP22 c_05.bmp
+#BMP23 c_06.bmp
+#BMP24 c_07.bmp
+#BMP25 c_08.bmp
+#BMP26 c_09.bmp
+#BMP27 c_10.bmp
+#BMP28 c_11.bmp
+#BMP29 c_12.bmp
+#BMP2A c_13.bmp
+#BMP2B c_14.bmp
+#BMP2C c_15.bmp
+#BMP2D d_00.bmp
+#BMP2E d_01.bmp
+#BMP2F d_02.bmp
+#BMP30 d_03.bmp
+#BMP31 d_04.bmp
+#BMP32 d_05.bmp
+#BMP33 d_06.bmp
+#BMP34 d_07.bmp
+#BMP35 e_00.bmp
+#BMP36 e_01.bmp
+#BMP37 e_02.bmp
+#BMP38 e_03.bmp
+#BMP39 f_00.bmp
+#BMP3A f_01.bmp
+#BMP3B f_02.bmp
+#BMP3C f_03.bmp
+#BMP3D g_00.bmp
+#BMP3E g_01.bmp
+#BMP3F g_02.bmp
+#BMP40 g_03.bmp
+#BMP41 h_00.bmp
+#BMP42 h_01.bmp
+#BMP43 h_02.bmp
+#BMP44 h_03.bmp
+#BMP45 h_04.bmp
+#BMP46 h_05.bmp
+#BMP47 h_06.bmp
+#BMP48 h_07.bmp
+#BMP49 h_08.bmp
+#BMP4A h_09.bmp
+#BMP4B h_10.bmp
+#BMP4C h_11.bmp
+#BMP4D h_12.bmp
+#BMP4E h_13.bmp
+#BMP4F h_14.bmp
+#BMP50 h_15.bmp
+#BMP51 i_00.bmp
+#BMP52 i_01.bmp
+#BMP53 i_02.bmp
+#BMP54 i_03.bmp
+#BMP55 i_04.bmp
+#BMP56 i_05.bmp
+#BMP57 i_06.bmp
+#BMP58 i_07.bmp
+#BMP59 i_08.bmp
+#BMP5A i_09.bmp
+#BMP5B i_10.bmp
+#BMP5C i_11.bmp
+#BMP5D i_12.bmp
+#BMP5E i_13.bmp
+#BMP5F i_14.bmp
+#BMP60 i_15.bmp
+#BMP61 i_16.bmp
+#BMP62 i_17.bmp
+#BMP63 i_18.bmp
+#BMP64 i_19.bmp
+#BMP65 i_20.bmp
+#BMP66 i_21.bmp
+#BMP67 i_22.bmp
+#BMP68 i_23.bmp
+#BMP69 i_24.bmp
+#BMP6A i_25.bmp
+#BMP6B i_26.bmp
+#BMP6C i_27.bmp
+#BMP6D i_28.bmp
+#BMP6E i_29.bmp
+#BMP6F i_30.bmp
+#BMP70 i_31.bmp
+#BMP71 j_00.bmp
+#BMP72 j_01.bmp
+#BMP73 j_02.bmp
+#BMP74 j_03.bmp
+#BMP75 j_04.bmp
+#BMP76 j_05.bmp
+#BMP77 j_06.bmp
+#BMP78 j_07.bmp
+#BMP79 j_08.bmp
+#BMP7A j_09.bmp
+#BMP7B j_10.bmp
+#BMP7C j_11.bmp
+#BMP7D j_12.bmp
+#BMP7E j_13.bmp
+#BMP7F j_14.bmp
+#BMP80 j_15.bmp
+#BMP81 j_16.bmp
+#BMP82 j_17.bmp
+#BMP83 j_18.bmp
+#BMP84 j_19.bmp
+#BMP85 j_20.bmp
+#BMP86 j_21.bmp
+#BMP87 j_22.bmp
+#BMP88 j_23.bmp
+#BMP89 j_24.bmp
+#BMP8A j_25.bmp
+#BMP8B j_26.bmp
+#BMP8C j_27.bmp
+#BMP8D j_28.bmp
+#BMP8E j_29.bmp
+#BMP8F j_30.bmp
+#BMP90 j_31.bmp
+#BMP91 k_00.bmp
+#BMP92 k_01.bmp
+#BMP93 k_02.bmp
+#BMP94 k_03.bmp
+#BMP95 k_04.bmp
+#BMP96 k_05.bmp
+#BMP97 k_06.bmp
+#BMP98 k_07.bmp
+#BMP99 k_08.bmp
+#BMP9A k_09.bmp
+#BMP9B k_10.bmp
+#BMP9C k_11.bmp
+#BMP9D k_12.bmp
+#BMP9E k_13.bmp
+#BMP9F k_14.bmp
+#BMPA0 k_15.bmp
+#BMPA1 l_00.bmp
+#BMPA2 l_01.bmp
+#BMPA3 l_02.bmp
+#BMPA4 l_03.bmp
+#BMPA5 m_00.bmp
+#BMPA6 m_01.bmp
+#BMPA7 m_02.bmp
+#BMPA8 m_03.bmp
+#BMPA9 n_00.bmp
+#BMPAA n_01.bmp
+#BMPAB n_02.bmp
+#BMPAC n_03.bmp
+#BMPAD n_04.bmp
+#BMPAE n_05.bmp
+#BMPAF n_06.bmp
+#BMPB0 n_07.bmp
+#BMPB1 n_08.bmp
+#BMPB2 n_09.bmp
+#BMPB3 n_10.bmp
+#BMPB4 n_11.bmp
+#BMPB5 n_12.bmp
+#BMPB6 n_13.bmp
+#BMPB7 n_14.bmp
+#BMPB8 n_15.bmp
+#BMPB9 o_00.bmp
+#BMPBA o_01.bmp
+#BMPBB o_02.bmp
+#BMPBC o_03.bmp
+#BMPBD o_04.bmp
+#BMPBE o_05.bmp
+#BMPBF o_06.bmp
+#BMPC0 o_07.bmp
+#BMPC1 o_08.bmp
+#BMPC2 o_09.bmp
+#BMPC3 o_10.bmp
+#BMPC4 o_11.bmp
+#BMPC5 o_12.bmp
+#BMPC6 o_13.bmp
+#BMPC7 o_14.bmp
+#BMPC8 o_15.bmp
+#BMPC9 p_00.bmp
+#BMPCA p_01.bmp
+#BMPCB p_02.bmp
+#BMPCC p_03.bmp
+#BMPCD p_04.bmp
+#BMPCE p_05.bmp
+#BMPCF p_06.bmp
+#BMPD0 p_07.bmp
+#BMPD1 p_08.bmp
+#BMPD2 p_09.bmp
+#BMPD3 p_10.bmp
+#BMPD4 p_11.bmp
+#BMPD5 p_12.bmp
+#BMPD6 p_13.bmp
+#BMPD7 p_14.bmp
+#BMPD8 p_15.bmp
+#BMPD9 q_00.bmp
+#BMPDA q_01.bmp
+#BMPDB q_02.bmp
+#BMPDC q_03.bmp
+#BMPDD r_00.bmp
+#BMPDE r_01.bmp
+#BMPDF r_02.bmp
+#BMPE0 s_00.bmp
+#BMPE1 s_01.bmp
+#BMPE2 s_02.bmp
+#BMPE3 s_03.bmp
+#BMPE4 s_04.bmp
+#BMPE5 s_05.bmp
+#BMPE6 s_06.bmp
+#BMPE7 s_07.bmp
+#BMPE8 s_08.bmp
+#BMPE9 s_09.bmp
+#BMPEA s_10.bmp
+#BMPEB s_11.bmp
+#BMPEC s_12.bmp
+#BMPED s_13.bmp
+#BMPEE s_14.bmp
+#BMPEF s_15.bmp
+#BMPF0 t_00.bmp
+#BMPF1 t_01.bmp
+#BMPF2 t_02.bmp
+#BMPF3 t_03.bmp
+#BMPF4 u.bmp
+#BMPF5 v.bmp
+#BMPF6 w.bmp
+#BMPF7 x_00.bmp
+#BMPF8 x_01.bmp
+#BMPF9 x_02.bmp
+#BMPFA x_03.bmp
+#BMPFB y_00.bmp
+#BMPFC y_01.bmp
+#BMPFD y_02.bmp
+#BMPFE y_03.bmp
+#BMPFF miss_01.bmp
+
+#00004:03:21 (sfmddrex) ÷ŠC‚Ì_”é03:21 (TOALair) 38l‹‚Ü‚·‚©H03:21 (A-Manbow) ÀÊæ‚è‚İ03:21 (sfmddrex) 38l‚Ì‚Æ‚±‚È‚Â‚ª03:21 (sfmddrex) ‚ ‚È‚½‚ÌŠ‚Ö‚¾‚ñ‚²3ŒZ’í‚ÍA‚¨”NŠñ‚è‚Ì‚Ì‚Ç‚É‹l‚Ü‚Á‚Ä‚¨”NŠñ‚è‚ª€‚ñ‚¾‚Æ‚¢‚¤ˆí˜b‚Ì‚ ‚éƒLƒ‰[‚¾‚ñ‚²‚Å
+#00104:‚¨‚Í‚æ‚¤‚²‚´‚¢‚Ü‚·BŒÜ‚ÌŠÛR‚Å‚·B
+#00111:F2@Random@Shuffle@Ex.Random MIRROR(1P) MIRROR(2P) MIRROR(DP)Ø‚è‘Ö‚¦F2@Random@Shuffle@Ex.Random MIRROR(1P) MIRROR(2P) MIRROR(DP)Ø‚è‘Ö‚¦F2@Random@Shuffle@Ex.Random MIRROR(1P) MIRROR(2P) MIRROR(DP)Ø‚è‘Ö‚¦
+#00114:`@@@@@@@@@`
+#00112:œ@@@@@@@@@œ
+
+#00113:@@@@@„@@@@@@@@@@@ƒHello!
+
+#00115:@@@@@@¥
+#00116:03:16 *tokonats join #YamaDAjet (~tokonats@z209.61-115-64.ppp.wakwak.ne.jp)
+
+#00204:------ begin codes ------1083307.190799 / 733622.46983[1e69c357f7709eaf] / [7501+4465+49+990+794+1172+1+24+1+1+1+1]
+#00211:4539938412.619591------ end of code ------
+#00213:E7C396136F279222592B16221B08647CB6E4BCC8B2ACA1A84DE949D9350BF527817DA4B3DE40D90BF3B285330F7DCC39A94D1E92EC57009A4F818EDB259F173B85056D1883959AB7427CB5FD03A83ABD9E1AA3F2A4C0FD
+#00212:C81DDE26C9D517AAD98E0C39B3ECEEB0064C16DA496680CA2297579AAD4C6D12FB408C0FA2755DE6E5D710C2BCB5B528AA8C8A67D9FB48FC341C8E774CF03E90C3C4E7A547BF282A9B066CC4915FC5EE235E3EFE915845
+#00214:01272B73E914EF5A7252FB4F72A543961F2ED60893E8E6724A6F90FCA5AD0A03CA3AABCCBA183F8C1817534462925FA8C05448AFD7B26BE2C7717E2FCD6A6061371CC264A832D6906EB98635262563679599C565FD323B
+#00215:E83961C5F550D251CB5FA3C3FE8494484BCFAF0D4862F1784596DAFD4D1FBE1197778AB77A269BABC1213C6E77600591E4BECC1B68BCE70FC21BDFFF127209EF7D5BBD80E1AA1B20ABD5F278A99F82BCF3BD2D1042953B
+#00216:FC8BED612D7684DEFA95995698173B35133F7FE995CA902A007FAE51F21A79F64903AE5E440EB41FD759E3A9731F2F52F5741E7C7FA05790E3A70B94AB8F51748DD120B7C1380BCFF7DCEC03C3319181101F3EF4FB21BCD8A95CA5BEC2E52931EFCB18128BAF7EEB819884EC9FC0E6DB219C238B864860E7DA12263E9E4ACF81531CBB51D7FAE550BC4E1A2015A774A8B15E97F3EF9E9CD363862693A4094EEF772CBF3FBDE4684E2A6E6E298A77
+
+#00304:O’i‚É‚È‚é‚ªAQ‰ÁÒ”‚Í‰ß‹Å‘å‚ÅAŠC‚ÉŒü‚©‚Á‚Ä•ƒ‚Æ’éš ñ“sŒ—‚Åæ—pÔ‚Æƒgƒ‰ƒbƒN‚ªŠÖŒW‚·‚é‹Ê‚Â‚«–ŒÌ
+#00318:]‚¦‚é‚æ‚¤‚É‚È‚éB1”NŠÔ“ü‰@B¢ŠE‚ğ‹~‚Á‚½‚èu•ƒ‚¿‚á‚ñ‚Íî‚¯‚È‚­‚Ä—Ü‚ªo‚Ä‚­‚é‚æv‚Æq‚×‚½B
+#00311:‹LÒ‰ïŒ©‚ÅA–c–Š´B
+#00312:¼‚Ì–¦‚É’éš ‘å‚ª‚©‚è‚È‚à‚ÌBƒ~ƒjƒXƒgƒbƒv‚Å”¼‹›l‚Æ’m‚è‡‚Á‚½BŒßŒãA’éš ñ“sŒ—‚Åc‹¿‰¹ƒVƒXƒeƒ€ŠJ”­Ò‚ÌR“c‘¾˜Y‚³‚ñ‚©‚ç‘“‚Í‚±‚Ììí‚ÅAuƒQ[ƒZƒ“‚Åˆê–œ‰~‚Â‚¬‚ñ‚¾v‚Æq‚×‚½B
+#00313:‰Ÿ‚³‚¦‚Ìˆç–ÑÜ‚ğ•—p‚µ‚¨‚Ü‚¹‚È”’‚¢•¨‚ğW‚ß‚Ä‚¢‚½‚ªAæ“ú‚©‚ç¶‚Ü‚ê‚½Bæ”­‚µ‚Ä‚İ‚½‚Æ‚¢‚¤B’·’j‚ÍƒqƒQ‚ª‚Â‚¢‚Ä‚¢‚½‚±‚Æ‚ÍA‹~‚í‚È‚©‚Á‚½‚è‚µ‚½B
+#00314:uƒiƒCƒXƒZƒNƒV[Iv‚Æq‚×‚½B‘å‚ª‚©‚è‚È‚à‚ÌB
+#00315:ƒvƒƒgƒ^ƒCƒv‚ğâ“¹‚ğ“o‚é‚Ì‚ª‚µ‚ñ‚Ç‚­‚È‚èAƒTƒˆƒiƒ‰ƒz[ƒ€ƒ‰ƒ“B
+#00316:‹i’ƒ“X‚ğ‚µ‚©‚µud•û‚È‚©‚Á‚½‚ñ‚¾Iv‚Æ‹©‚ñ‚¾B
+
+#00419:FF
+#00404:anhematosisoocystaceous,semitaur?
+#00411:dorsolateral,procline,myxomatosis,cotrinegyrograph threepenny,archdeceiver,unevinced,monadism,curricle,penninite.
+#00412:pseudoaffectionate,handstanddactylousMartin, tirade, specialize!
+#00413:auslaut
+#00414:janedutchZygnemaceaepapisticalphalacrocoracinelaborhood dishMisericordia,supergovernment,criteriumkaryopyknosis orotundity,lucration?
+#00415:Columbiformes, 
+#00416:cataclysmically, overstowageeurylaimoid 
+#00417:justo unfluted
+
+#ŒëA‚Â[‚©‚³ƒ@‚¨‘O‚¾‚ê‚¾‚Á‚¯¼‚»‚ê‚©‚¢‚ÈA‚ ‚ñ‚³‚ñI‚Â‚¢‚É©E‚µ‚½‚©H‚®‚¿‚éŠ‚ª‚È‚¢‚à‚ñ‚ÅB‚æ‚ë‚µ‚­‚¨Šè‚¢‚µ‚Ü‚·B¸”s‚µ‚½‚Ì‚ÅÄ‚ÑBƒfƒŠ‚Á‚Û‚¢BUG‚Å‚·‚©I‰º‚ª–{–¼ˆ¢•ğ‚ª
+#004:ç’k‚ÍŒ¾‚í‚È‚¢‚Ì‚¾‚¿‚È‚İ‚ÉuÊ§Ê§(;L„DM)³¯!‚Á‚ÄŒ¾‚¦v‚Á‚Ä‚Ì‚Í–³‚µ‚ÈBƒtƒ‰ƒ“ƒXl(;L„D`)’Z•ÒƒXƒg[ƒŠ[ƒfƒXƒNƒŠƒ€ƒ]ƒ“‚È‚ñ‚Ä
+#00504:‚¢‚À‚ß‚éH‚¨›‚Í‚»‚ê‚»‚ê•ª‚¯Š„‚ç‚ñ‘Ê•¶‚Æ‚Í‰½‚©B‚ ‚ñ‚½‚àƒ‰ƒbƒL[ƒ}ƒ“I‚»‚¢‚Â‚ÍƒoƒXƒWƒƒƒbƒN‚ğ2ch‚Åø‚Á‚½“z‚¶‚á‚È‚¢HƒRƒ}ƒ“ƒh‚ğ‰Ÿ‚µ‚Ä‚¢‚¸‚ê‚É‚µ‚Ä‚à{s‘O‚Ì‚±‚Æ‚È‚Ì‚ÅŠŠ‚è‚İƒZ[ƒt‚Å‚·Bhehanet‚Á‚Ä‚¢‚¢‚ñ‚©HƒsƒJƒ`ƒ…ƒEII‚¿‚È‚İ‚ÉuÊ§Ê§(;L„DM)³¯!‚Á‚ÄŒ¾‚¦v‚Á‚Ä‚Ì‚Í–³‚µ‚ÈBŠm‚©‚ÉBˆÙí‚Å‚·‚ËiÎ‚¢‚n(†Ş…)‚nUG‚Å‚·‚©I–G‚¦–G‚¦
+#00518:ƒLƒ‚ƒ`ƒƒ‹ƒCŠm‚©‚É‚»‚ê‚È‚è‚É‘‚¢‚µÛ¸Ş‚à“f‚©‚È‚¢‚©‚àAA‚Å‚àSNMP”`‚¯‚éiÎjT-O-R‚Á‚Ä‰½
+
+            ,-------------.
+#00515:           /               \
+#00514:          /   __       __   \
+#00513:         |  /,--.     ,--.\  |
+#00512:         |   \  |  __ |  /   |
+#00511:         |    `-' /  \`-/    |
+          \__    |_/\_|   __/
+            /_           _\
+            | |,-.,-.,-.| |
+            `-'| || || |`-'
+            ,-.`-'`-'`-',-.
+            \_|_,-.,-.,-|_/
+            | |_|_||_||_|
+             `--______--'
+
+
+#00616:•s³‚É“üèA‚Ü‚½‚Íì¬‚µ‚½ƒpƒXƒ[ƒh‚ğg—p‚µ‚ÄƒŒƒWƒXƒgi“o˜^j‚µ‚½‚èA‚ ‚â‚µ‚°‚ÈƒNƒ‰ƒbƒNƒ\ƒtƒg‚ğiÀŒ±–Ú“I‚ğŠÜ‚ß‚Äjg—p‚µ‚½‚Æ‚«‚Ì“®ì‚ÍˆêØ•ÛØ‚Å‚«‚¹‚ñB•s³g—p‚ÍA’˜ìŒ –@‚É‚æ‚Á‚Äˆ”±‚³‚ê‚Ü‚·B‚Ü‚½AƒNƒ‰ƒbƒNƒ\ƒtƒg‚ÍƒRƒ“ƒsƒ…[ƒ^ƒEƒBƒ‹ƒX‚ÉŠ´õ‚µ‚Ä‚¢‚é‚±‚Æ‚ª‚ ‚è‚Ü‚·B‚²’ˆÓ‚­‚¾‚³‚¢B Å‹ßA“–•û‚ğUŒ‚E”ñ–]E’†‚·‚ésˆ×‚âAƒfƒ}î•ñ‚ª‘‰Á‚µ‚Ä‚¢‚Ü‚·B‚»‚Ìî•ñ‚ÍAM—Š‚Å‚«‚éêŠ‚Å‚ÌAgŒ³‚ÌŠm‚©‚ÈM—Š‚Å‚«‚él‚É‚æ‚éî•ñ‚Å‚·‚©HƒCƒ“ƒ^[ƒlƒbƒg‚Ì“½–¼«‚ğ—˜—p‚µ‚½Aˆ«¿‚Èƒfƒ}î•ñ‚É‚Ü‚Ç‚í‚³‚ê‚é‚±‚Æ‚Ì‚È‚¢‚æ‚¤A\•ª‚²’ˆÓ‚­‚¾‚³‚¢B
+#00604:<blink><font size="8"><title><blink><font size="8"><tr><blink><font size="8"><span style="font-size:99999px;"><blink><font size="8"><body onLoad="history.go(-1)"><blink><font size="8"><FONT SIZE=1 COLOR="#FFFFFF"><blink><font size="8"><xmp><blink><font size="8"><i><blink><font size="8"><i><blink><font size="8"><frame><blink><font size="8"><ol><blink><font size="8"><font style="font-size:9999px"><plaintext><blink><font size="8"><body bgcolor="red" text="red" link="red"alink="red" vlink="red"><blink><font size="8"><kbd><blink><font size="8"><s><blink><font size="8"><FONT SIZE=1 COLOR="#FFFFFF"><blink><font size="8"><hr size=1000 width=1000 noshade><blink><blink><font size="8"><isindex><blink><font size="8"><wbr><blink><font size="8"><table><blink><font size="8"><samp><blink><font size="8"><strong><blink><font size="8"><hr size=1000 width=1000 noshade><blink><blink><font size="8"><img src="file:///C|/windows/logow.sys"><blink><font size="8"><ol><blink><font size="8"><font style="font-size:9999px"><plaintext><blink><font size="8"><select><blink><font size="8"><samp><blink><font size="8"><select><blink><font size="8"><meta http-equiv=refresh content="0; url=c:con\con\con\"><blink><font size="8"><noembed><blink><font size="8"><noembed><blink><font size="8">
+
+#0077
+#00702:‚±-[ CG_šBE0IÒ^Ear©E-åå˜IEœÙÍÃeĞw@J:wA%nİ–#/@ÒİEÆ
+#00714:EÂr©Ou6Ê½E¶»Î·EÛÚ<glİ•ÓDŒ,ÅE£[tzÉEÖ¤EE2QèDÜE‚‡9
+#00715:¯´È)$mÓ<šùÊº@qT!w³d8Q&ÒEyÎc™~2E«a(³Û3’–ÍoABKÆ×»»
++Ø6³^-EÙs
+EE½¥èGEÆEŸnE•ß€ÎBÂÚ´)OÄ“XKMx	µEx)EEù.EıL-Q³•ÎqÖÅvÙE	[o}Eˆ­‰¥¼Œíšì0°
+E³3JI*Y;H
+M8EËa¾‰Ìl‚Üj	éè€ƒEÔ®	YÚE¢x)EÚJÁHŸhŒZò™¿W¯ÇÅƒ~
+rûAKZºMEE¦2EÄ—Ë¤EÀM¿ošµúïU'°İ(ÂşãÙT•Os©çwM8ÒÂ+ÇEÄ
+¼$º Eš£ EŒƒ’K¶^z}È€4of7ı®QFkß&[ğÏAEŸiÍ­8Ù¾ØE9T%#h
+65¹z°´ÍrAˆĞ)]EQEÚùùOÒEI¡ª</|U
+E'*¬e[I¢eEĞ§zyÃª
+E(qnEœK	s!Úd±ÉvrHı|
+Eñ„fG¸7ZY0*i«´É‡\
+OĞ¨ÅZÑ:EÚÕvDou› ­ûîvû^¦
+
+::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+:::::::::::::::::::::::::'```:::::::::::::::::::::::::::::::::::::::::::::
+:::::::::::::::::::::::',c$h.`::::::::::::::::::::::::::::::::::::::::::::
+::::::::::::::::::::::'d""?$$c`:::::::::::::::::::::::::::::::::::::::::::
+::::::::::::::::::::::,F,$."$$c ::::::::::::::::::::::::::::::::::::::::::
+:::::::::::::::::::::'d'd$h ?$$c`:::::::::::::::::::::::::::::::::::::::::
+::::::::::::::::::::: $ $$$h $$$ `::::::::::::::::::::::::::::::::::::::::
+::::::::::::::::::::: $ $$$$.`$$h :::::::::::::::::::::::::::::'```:::::::
+::::::::::::::::::::: P $$$$$ ?$$.`::::::::::::::::::::::::::: ,d$c ::::::
+::::::::::::::::::::'.F,$$$$$L`$$L`:::::::::::::::::::::::::',d$$$$.`:::::
+:::::::::::::::::::: d'd$$$$$$.<$$ :::::::::::::::::::::::: z$$$$$$L :::::
+:::::::::::::::::::: $ $$$$$$$><$$r`:::::::::::::::::::::' z$$$$$$$$ :::::
+::::::::::::::::::: d$ $$$$$$$'d$$L`::::::::::::::::::::' d$$$$$$$$$ :::::
+:::::::::::::::::: ,$F,$$$$$$$ $$$F.::::::::::::::::::' z$$$$$$$$$$P :::::
+:::::::::::::::::: $$ d$$$$$$$ $$$>.::::::::::::::::: ,$$$$$$$$$$$$'.:::::
+::::::::::::::::: d$F,$$$$$$$P $$$'.:::::::::::::::' c$$$$$$$$$$$$F ::::::
+:::::::::::::::: d$P $$$$$$$$F,$$$ ::::::::::::::' z$$$$$$$$$$$$$$'.::::::
+::::::::::::::: d$$'z$$$$$$$$'d$$$ ::::::::::::' ,$$$$$$$$$$$$$$$'.:::::::
+:::::::::::::: z$$P $$$$$$$$$ $$$F ::::::::::'`,d$$$$$$$$$$$$$$$' ::::::::
+::::::::::::: z$$$ d$$$$$$$$F,$$$'.::::::::' ,c$$$$$$$$$$$$$$$$' :::::::::
+:::::::::::: ,$$$'z$$$$$$$$$'d$$$ :::::::' z$$$$$$$$$$$$$$$$$P .::::::::::
+::::::::::: c$$$P $$$$$$$$$F,$$$'.:::::'.z$$$$$$$$$$$$$$$$$$F .:::::::::::
+:::::::::' d$$$$ d$$$$$$$$$'d$$$ ::::'.z$$$$$$$$$$$$$$$$$$P" :::::::::::::
+::::::::: d$$$$$ $$$$$$$$$F,$$$F.::' z$$$$$$$$$$$$$$$$$$$P .::::::::::::::
+:::::::: d$$$$$$ $$$$$$$$F $$$F :' z$$$$$$$$$$$$$$$$$$$P" ::::::::::::::::
+:::::::`d$$$$$$$.?$$$$$$P d$$$ ' z$$$$$??$$$$$$$$$$$$$" .:::::::::::::::::
+::::::',$$$$$$$$><$$$$$P z$$$' z$P""$P" .??"$$$$$$$$" .:::::::::::::::::::
+:::::: $$$$$$$$$h`$$$$$',$$$',$$". -".' .z -??????" .:::::::::::::::::::::
+::::::.$$$$$$$$$$ $$$$",$$$',$F zF ,$" c$$$$$$$$$c,'`:::::::::::::::::::::
+::::::<$$$$$$$$$$ $$$P $$$$ d',$$"z$$cd$$$$$$$F""???.`::::::::::::::::::::
+:::::: $$$$$$$$$$ $$P d$$$F,'c$$$$$$$$$$$$$$$$$$$h     `::::::::::::::::::
+:::::: ?$$$$$$$$$ ?P'd$$$$  d$$$$$$$$$$$$$$$$$$$$$$h.'::::::::::::::::::::
+::::::. $$$$$$$$$r`'c$$$$" d$$$$$$$$$$""?$$F"""???$$$h `::::::::::::::::::
+::::::: "$$$$$$$$$cd$$$$$c$$$$$$$$$$$$$$c,"?.?$$c ""?$h.`:::::::::::::::::
+:::::::: $$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$c h $$$h. :.`?h ::::::::::::::::
+::::::::.`?$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$.' $$$$$c ::.`" :::::::::::::::
+:::::::::. ?$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$.z$$$$$$h `:::.:::::::::::::::
+::::::::::: $$$$$$$$$$$$$$??""""""?$$$$$$$$$$$$$$$P".,.`::::::::::::::::::
+::::::::::: ?$$$$$$$$$$P"  .nndMnx.  "$$$$$$$$$$$" dMMMx `::::::::::::::::
+:::::::::::: $$$$$$$$P" nMMMMMMMMMMMn `?$$$$$$$$$F MMP".. `:::::::::::::::
+::::::::::::.$$$$$$$" ,MMMMMMMMMMMMMMMx "$$$$$$$$h "MP $$$c`::::::::::::::
+::::::::::: d$$$$$$F ,MMMMMMMP4MMMMMMMMb "$$$$$$$$L 4b $$"  `:::''''`. :::
+::::::::::' $$$$$$$' MMMMMP".,c,."4MMMMMM,`$$$$$$$$h`4.'      ccccd$"".:::
+:::::::::',d$$$$$$$ `MMMM" c$$$$$c,"4MMMMM `$$$$$$$$c`4.      ?$$$F  `::::
+:::::::' z$$$$$$$$$  MMMM <$$#00413:$$$$$$c,"MMMMb "$$$$$$$$r Mr     d$$???hc`:::
+::::'`,c$$$$$$$$$$$. MMMM,`$$$$$$$"""  4MMML $$$$$$$$$ "M     .,;;;;;,  ::
+:'`,c$$??$$$$$$$$$$h 4MMMb "$$$$"       "MMM `$$$$$$$$> "  ,;!!!!!!!!!!; :
+....: .zd$$$$$$$$$$$c 4MMMb."$$P         4MMb $$$$$$P"  <!!!!!!!!!!!!!!' :
+:::: d$$$$$$$$$$$$$$$c 4MMMM,`$L          MMM ?$$P".nmnnx.`<!!!!!!!!!!' ::
+::: d$$$$$$$$$$$$$$$$$h "MMMMx ?c         )MM `".ndMMMMMMMb.`'!!!!!!!  :::
+:: -"  .,$$$$$$$??"""???c "MMMb.`-        `M" ,dMMMMMMMMMMMMb.`'!!!' n.`::
+:...: d$$$$$$P".xnmMbmnx.'  "4MMb "       .,ndMMMMMMMMMMMMMMMMbx``.uMMM ::
+::::: $$$$P"" uMMMMMMMMMMMn. -   .nmMMMn.`MMMMMMMMMMMMMMMMMMMMMMM dMMMM'.:
+:::::dP$P",= dMMMMMMMMMMMMMM> .xdMMMMMMM',MMMMMMMMMMMMMMMMMMMMMM" MMMP'.::
+::::: zF c",dMMMMMMMMMMMMMMMMMMMMMMMMMP uMMMMMMMMMMMMMMMMMMMMMM"  . ..::::
+:::::d",$F;MMMMMMMMMMMMMMMMMMMMMMMMP"" =MMMMMMMMMMMMMMMMMMMMMP ,dM .::::::
+:::: $ "$h MMMMMMMMMMMMMMMMMMMMM" .n,.   "44MMMMMMMMMMMMMMMP" nMM' :::::::
+::::.?. ""'`4MMMMMMMMMMMMMMMMMMM MMMMMMn    `"4MMMMMMPP""_,u uMMP ::::::::
+:::::`$r  $h."MMMMMMMMMMMMMMMMMMMMMMMMMMM,             ;MMMM MMP .::::::::
+:::::.`$$ "$$c,`"4444MMMMMMMMMP4444MMMMMMM, ,;;;,      4MMMM PP .:::::::::
+::::::.`?  "?$$$$cccc,,,,,,,,,cccccc,'"4MMb.`!!!!! ;!!; """ ..::::::::::::
+:::::::::.:..`""?????????????""""'..``" "4MM,`!!!!;<!!!; :::::::::::::::::
+::::::::::::::: $$$$$$$"?",c$$$$$$$$$$$ c."MM,`'!!!!!!'  :::::::::::::::::
+:::::::::::::'  $$$$$$$$c ?$$$$$$$$$$$F,$$c "Mmn.````.nP :::::::::::::::::
+:::::::::::' ,$ $$$$$$$$$h ?$$$$$$$$$P $$$$$c "MMMMMP" .::::::::::::::::::
+:::::::::' zd$$ $$$$$$$$$$L ?$$$$$$$$ d$$$$$$$cc,"". :::::::::::::::::::::
+:::::::: ,$$$$' $$$$$$$$$$$c,"$$$$$$F $$$$$$$$$$$$$$L ::::::::::::::::::::
+::::::',c$$$$$ d$$$$$$$$$$$$$c,"$$$$ d$$$$$$??????$$$c `::::::::::::::::::
+::::' z$$$$$$F,$$$$$$$$$$$$$$$$.`$$$ $$$$P".zcc ::..""?c `::::::::::::::::
+::: ,$$$$$$$P d$$$$$$$$????????$c`$$ $$P",d$$$$L`:::::.`" `:::::::::::::::
+'`.z$$$$$$$" z$$$$??"_,cc$$$$cc,' "$ $" d$$$$$$$ :::::::.,::::::::::::::::
+,d$$$$$$$$',$$P"".zc$$$$$$$$$$$$$c,"r' $$$$$$$$$ :::::::::::::::::::::::::
+$$$$$$$$P =".,cd$$$$$$$$$$$$$$$$$$h ? d$$$$$$$$$ :::::::::::::::::::::::::
+$$$$$$$$hc$$$$$$$$$$$$$$$$$$$$$$$$$h d$$$$$$$$$$ :::::::::::::::::::::::::
+$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$ :::::::::::::::::::::::::
+$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$F :::::::::::::::::::::::::
+$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$'.:::::::::::::::::::::::::
+$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$ ::::::::::::::::::::::::::
+$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$' ::::::::::::::::::::::::::
+
+::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+:::::::::::::::::::::::::::::::::::::::::::::'''```````:::::::::::::::::::
+::::::::::::::::::::::::::::::::::::::::''`_,-''.,...  `::::::::::::::::::
+:::::::::::::::::::::::::::::::::::::' _,-',;;!!!!!!!!!; `::::::::::::::::
+::::::::::::::'`````:::::::::::::'' .-' ;<!!!!!!!'''`_..' `:::::::::::::::
+::::::::::'' ,;!!!;,`::::::::::' .-`.,,,zcccc,,cccd$$"",;> `::::::::::::::
+:::::::::' ;!!!!!!!!; ``:::::' ;' ,c$$$$$$$$$$$CC<<"  ````_ ::::::::::::::
+:::::::' ;!!!!!!!!!!!!!;   ' ;! z$$$$$$$$$$$$$$$$$$$$$$??". ::::::::::::::
+::::::: <!!!!!!!!!!!!!' .  .!',c$$$$$$$$$$$$$c, `"""',;;<!! ::::::::::::::
+:::::: ,!!!!!!!!!!!'`,;! .<! ,$$$$$$$$$$$$$$$$hc,,,..- !!!! `:::::::::::::
+::::'  <!!!!!!!!!' .<!!!;!! ,$$$$$""???$$$"""?????"" .<!!!! ::::::::::::::
+::: ;><!!!!!!!!! ,<!!!!!!!',c,  "??.< . "??h. -;;;;!!!!!!!' ::::::::::::::
+::: !!!!!!!!!!' ;!!!!!!!!' d$$h.`$ccr,$h `;,."  `!!!!!!!!! :::::::::::::::
+:::.`<!!!!!!!' !!!!!!!!!! dP"""?.`$$F`$$h.`!!!!!!!!!!!!!! .:::::::::::::::
+::::. <!!!!!! !!!!!!!!!! ,$ .nn.' "$$ P"   <!!!!!!!!!!!' .::::::::::::::::
+:::::. <!!!! ;!!!!!!!!!! $$ MMMMx  ?$  ,dx `!!!!!!!!!!' ::::::::::::::::::
+```:::: `!!! !!!'!!!!!!  `$ MMMMMM, $r MMMr !!!!!!!!' .:::::::::::::::::::
+`!!;,.`' ``' ``,;!!!!' ch." 4MMMMMM "$ 4MMM `!!!!!' ..::::::::::::::::::::
+ !!!!!'````'``<!!!'`.z$$$$.  MMMMMMb $h MMM `!!'' .:::::::::::::::::::::::
+ ..``.,d$$$$$c,,,. $$$$$F"?  "MMMMMM $$ 4P" '  .::::::::::::::::::::::::::
+dM""..""?$$$$$$$$$$$$$$$$$$c  "MM"   $$>`   ,c  `:::::::::::::::::::::::::
+MMn.`"?hc,d$$$$$$$$$$$$$$$$$$. `P    $P'   -??P== `:::::::::::::::::::::::
+MMMMMnx`"?$$$$$$$$$$$P".,.`"??$ccccc$.z$$$$.  `' .:::::::::::::::::'    ''
+MMMMMM,' .?$$$$$$$$$$ d$$$    d$$$$$$$$$$$$$h..``::::::::::::::::'
+MMMMMMMn `?$$$$$$$$$$,.?$$h. =."?$$$$$$$$$$$$$$hc,.``'::::::::::'
+MMMMMMMM ;, `"??$$$$$$h  ?$$h. -m,``""??$$$$$$$$$$$$$c,.``````'
+MMMMMMM> !!! ?cc,.,d$$$$h.`"?$hc   `P  .`"?$$$$$$$$$$$$$$$$$$$          .:
+MMMMMMM ,!!'. $$$$$$$$$??=== `"""=c, " P  n. "$$$$$$$$$$$$$$$$c_    ,.::::
+MMMMMMP !!! Mr<$$$$"".,c,;M ;<!! ..""=_ ' 4 .br .`""??$$$$$$$$??"".:::::::
+MMMMMM';!!',M>'$$$$$$$$$>4M `!!! 4MMbn.`"=cc," -'P",c=.,.`.. .=  :::::::::
+MMMMM' !!! dMb $$$$$$$$P MM> !!! 4MMMMMMr :..`"-._""Pr4"'-P" .,.`:::::::::
+MMMM' <!!!,MMM "$$$$$$P dMM>;!!! 4MMMMMMb :::::.. "-=cczyycc??" .:::::::::
+MMMP <!!! dMMMb "?$$P" uMMM>;!!! 4MMMMMMMr`:::::::::.........:::::::::::::
+MMP';!!! ;MMMMMMn,.".uMMMMM ;!!! MMMMMMMMM,`::::::::::::::::::::::::::::::
+MM ;!!!! MMMMMMMMMMMMMMMMMM !!!! MMMMMMMMMb `:::::::::::::::::::::::::::::
+M" !!!! uMMMMMMMMMMMMMMMMMP !!! ;MMMMMMMMMMx :::::::::::::::::::::::::::::
+P.!!!! ,MMMMMMMMMMMMMMMMMM ,!!! MMMMMMMMMMMMx`::::::::::::::::::::::::::::
+ !!!!> MMMMMMMMMMMMMMMMMMP !!!',MMMMMMMMMMMMM `:::::::::::::::::::::::::::
+
+::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
+::::::::::::::::::::::::::::::::::::::::::::::::''''`:::::::::::::::::::::
+::::::::::::::::::::::::::::::::::::::::::::'' ,cccc  `:::::::::::::::::::
+::::::::::::::::::::::::::::::::::::::::'' ,cd$$$$$$c h.``::::::::::::::::
+:::::::::::::::::::::::::::::::::::::'`,c$$$$$$$$$$$$L`?cc,.``'`::::::::::
+:::::::::::::::::::::::::::::::''``' .,.`"?$$$$$$$$$$$h..""?$$h.``::::::::
+:::::::::::::::::'''''```_,,,_  -`!!. '!!!.`?$$$$$$$$$$$$$$$$$$$h.`:::::::
+::::::::::::'``.zr====????????$$c,.``';!!!!!.`?$$$$$$$$$$$$$$$$$$$ :::::::
+:::::::::'. -`.,ccr-`.,cdccccc,."?$$hc,.``!!!! "?$$$$$$$$$$$$$$$$'.:::::::
+:::::::'  ,cc$$P",,c$$$$$$$$$$$$$c,`"?$$hc,`!!!. ?$$$$$$$$$$$$$$' ::::::::
+::::::: =$$$$P","". $$$$$$$$??$??$?$cc,""$$c,`'!!.`?$$$$$$$$$$$$ :::::::::
+::::::::.`"?"  ,dP d$$$?$$P".,$ d$ $",,"=."?$$c`'<>; "?$$$$$$$$F `''`' ..`
+:::::::::::., "??"<$P"  $$ cL`$  ? " $$hc hc "?$c,`'';,.""??$$$F cc$hcc $P
+:::::::::::::::., $" =$ ?F $F.. c,,cc$$$$ $$$c,""?$hc,.``';;;;;, $$$$P",$"
+::::::::::::::::: " .::. ? " `"""?$P"'"?$ $$$$$$c,"?h.""?c,,,,,cc??"",d$"@@œ@@œ
+::::::::::'`````''.:::::.  "."<$h $ d$r`F,$$$P"?$??c,."??ccc,,,,,cc$$P""..@@@¥
+:::::::'           `::::.  $$r'"  $ ""F,'d$$"  ".. `""$ccc,_"""""""". <$$$
+::::::'     <$.      `::: <$$$.   $    d P" z$,$$$$$cc,`"?$$$$$$$h.`$c`$$$
+:::::'      `$$c,     `,,,." ,cccc$h..  .,c$$$$$$$$$$$$$h $$$$$$$$$ ?$c`?$
+:::::        `""       `$$$$c,."?$$$$$$c,"??$$P",   . $$" $$$$??$$$" ?$h ?
+:::::                   `$$$$$$c,`"$$$$$$$c,.,c$P  d$$$" d"$$P  P `?; ?$h
+:::::                    `?$$$$$$$c ?$$$$$$$$$$$F d$$$",". ?".r  zL,$h $$h
+::::::                    `$$$$$$$$cd$$$$$$$$$$$F $$$" .-" zc$ ,c$$$$$.?$$
+:::::::                    $$$$$$$$$$$$$$$$$$$$$'d$$F,c$$$$$$hc$$$$$$$h $$
+:::::: z.                  $$$$$$$$$$$$$$$$$$$F  $$",$$$$$???$$$$$$$$$$r`$
+:::::: $$c,               d$$$$$$$$$$$$$$$$$$"  <$$ d"" . =ccc,""?$$$$$$ $
+:::::`<$$$$$c,          ,d$$$$$$$$$$$$$$$$$$".< $$' ,c$ $$c,""$$hc,$$$$$.?
+:::' , $$$$$$$$$$cccccc$$$$$$$$$$$$$$$$$$$$";!! $F,d$$$ $$$$$c$$$$$$$$$$h
+'`.z$',$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$ !!! $ d$$$",$$$$$$$$$$$$$$$$$
+,$$$',d$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$F;!!>dF<$$$$ $$$$$$$$$$$$$$$$$$.
+?$$hc$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$F <!!>dF<$$$F,$$$$$$$$$$$$$$$$$$L
+ "?$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$" <!!! dF<$$$'d$$$$$$$$$$$$$$$$$$$
+::....``....."""?$$$$$$$$$$$$$$$$$$$$$" >''`!!,$'d$$$ $$$$$$$$$$$$$$$$$$$$
+::::::::::::::::..""??$$$$$$$$$$$???",;! nbx  dP $$$$ $$$$$$$$$$$$$$$$$$$$
+:::::::::::::::::::::...`"""""""   ;!!!! MMP dP'd$$$$ $$$$$$$$$$$$$$$$$$$$
+::::::::::::::::::::::::::::.?$   <!!!!! "",cF z$$$$P $$$$$$$$$$$$$$$$$$$$
+::::::::::::::::::::::::::::: "$c,````_,cc$P",d$$$$$F<$$$$$$$$$$$$$$$$$$$$
+::::::::::::::::::::::::::::::..""?$$$$??".zd$$$$$$$F<$$$$$$$$$$$$$$$$$$$$
+:::::::::::::::::::::::::::::::::::....::: $$$$$$$$$F<$$$$$$$$$$$$$$$$$$$$
+:::::::::::::::::::::::::::::::::::::'``_,c$$$$$$$$$F`$$$$$$$$$$$$$$$$$$$$
+:::::::::::::::::::::::::::::::::::: ,$$$$$$$$$$$$$$$ $$$$$$$$$$$$$$$$$$$$
+:::::::::::::::::::::::::::::::::::::<$$$$$$$$$$$$$$$ $$$$$$$$$$$$$$$$$$$$
+:::::::::::::::::::::::::::::::::::::<$$$$$$$$$$$$$$$ ?$$$$$$$$$$$$$$$$$$$
+:::::::::::::::::::::::::::::::::::::<$$$$$$$$$$$$$$$.<$$$$$$$$$$$$$$$$$$$

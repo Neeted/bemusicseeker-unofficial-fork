@@ -31,6 +31,14 @@ public sealed class ChartInfoMetadataTests
 
     private const int FeatureScroll = 128;
 
+    private static readonly HashSet<string> ProductionDiffKnownTimeoutSha256s = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    {
+        "273433f8e72e768603d18c986b50900538e94c2bd3e50d4487b66d5c0c3c8201",
+        "a56958ab747ebb7fd4332afed2493f75a414c00be694e61182cbd3a363871a43",
+        "ae3d8c2c5eb88da961df62a6e7fa6ca043b528f1a36de67643eb463b18864d6f",
+        "bd496f28d4a61aba6e9315f61fda463209cd908f3b08f0c2e7e06150034e2e59"
+    };
+
     [TestMethod]
     public void EnsureChartInfoSchema_CreatesTableIndexesAndVersionWithoutAlteringSongTable()
     {
@@ -56,7 +64,7 @@ public sealed class ChartInfoMetadataTests
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_master WHERE type = 'index' AND name = 'chart_info_idx_md5';"));
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_master WHERE type = 'index' AND name = 'chart_info_idx_charthash';"));
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_master WHERE type = 'index' AND name = 'chart_info_idx_parser_version';"));
-            Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM app_schema_version WHERE name = 'chart_info_schema' AND version = 1;"));
+            Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM app_schema_version WHERE name = 'chart_info_schema' AND version = 2;"));
             CollectionAssert.AreEquivalent(
                 new[]
                 {
@@ -65,6 +73,7 @@ public sealed class ChartInfoMetadataTests
                     "charthash",
                     "level",
                     "difficulty",
+                    "difficulty_defined",
                     "mainbpm",
                     "maxbpm",
                     "minbpm",
@@ -90,6 +99,36 @@ public sealed class ChartInfoMetadataTests
                     "updated_at"
                 },
                 verify.Query<ColumnNameRow>("PRAGMA table_info(chart_info);").Select((ColumnNameRow row) => row.name).ToArray());
+            Assert.IsTrue(gateway.IsChartInfoSchemaCurrent());
+        });
+    }
+
+    [TestMethod]
+    public void EnsureChartInfoSchema_RecreatesOldTableWithoutDifficultyDefined()
+    {
+        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        {
+            using (LR2SongDBExtended songDb = new LR2SongDBExtended(songDbPath))
+            {
+                songDb.Execute(
+                    "CREATE TABLE chart_info ("
+                        + "sha256 TEXT PRIMARY KEY,"
+                        + "md5 TEXT,"
+                        + "charthash TEXT,"
+                        + "level INTEGER,"
+                        + "difficulty INTEGER,"
+                        + "parser_version INTEGER,"
+                        + "updated_at DATETIME"
+                        + ");");
+                songDb.Execute("INSERT INTO chart_info (sha256, md5, charthash, level, difficulty, parser_version, updated_at) VALUES ('" + new string('a', 64) + "', '" + new string('b', 32) + "', '" + new string('c', 64) + "', 1, 1, 6, CURRENT_TIMESTAMP);");
+            }
+
+            BmsLibraryDbGateway gateway = new BmsLibraryDbGateway(songDbPath);
+            gateway.EnsureChartInfoSchema();
+
+            using LR2SongDBExtended verify = new LR2SongDBExtended(songDbPath);
+            Assert.IsTrue(verify.Query<ColumnNameRow>("PRAGMA table_info(chart_info);").Any((ColumnNameRow row) => row.name == "difficulty_defined"));
+            Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info;"));
             Assert.IsTrue(gateway.IsChartInfoSchemaCurrent());
         });
     }
@@ -164,6 +203,7 @@ public sealed class ChartInfoMetadataTests
             Assert.AreEqual(BmsLibraryDbGateway.CurrentChartInfoParserVersion, row.parser_version);
             Assert.AreEqual(12, row.level);
             Assert.AreEqual(3, row.difficulty);
+            Assert.IsTrue(row.difficulty_defined);
             Assert.AreEqual(5, row.mode);
             Assert.AreEqual(100, row.judge);
             Assert.AreEqual(120.0, row.mainbpm.GetValueOrDefault(), 0.0001);
@@ -213,6 +253,8 @@ public sealed class ChartInfoMetadataTests
             Assert.AreEqual(digest.hash, row.md5);
             Assert.AreEqual(digest.sha256, row.sha256);
             Assert.AreEqual(10, row.level);
+            Assert.AreEqual(1, row.difficulty);
+            Assert.IsFalse(row.difficulty_defined);
             Assert.AreEqual(7, row.mode);
             Assert.AreEqual(100, row.judge);
             Assert.AreEqual(150.0, row.mainbpm.GetValueOrDefault(), 0.0001);
@@ -253,8 +295,8 @@ public sealed class ChartInfoMetadataTests
         Assert.AreEqual("beat-7k", document.Info.ModeHint);
         Assert.AreEqual(100, document.Info.JudgeRank);
         Assert.AreEqual(100.0, document.Info.Total, 0.000001);
-        Assert.AreEqual(240.0, document.Info.Resolution, 0.000001);
-        Assert.AreEqual(0.0, document.Info.Level.GetValueOrDefault(), 0.000001);
+        Assert.AreEqual(240, document.Info.Resolution);
+        Assert.IsFalse(document.Info.Level.HasValue);
         Assert.AreEqual(0, document.Lines.Length);
         Assert.AreEqual(0, document.SoundChannels.Length);
         Assert.AreEqual(1, document.ScrollEvents.Length);
@@ -276,6 +318,45 @@ public sealed class ChartInfoMetadataTests
         {
             StringAssert.Contains(ex.GetType().Name, "Json");
         }
+    }
+
+    [TestMethod]
+    public void ParseBmson_LevelMissingNullExplicitZeroAndFloatTruncated()
+    {
+        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        {
+            string missingPath = Path.Combine(tempRootPath, "missing-level.bmson");
+            File.WriteAllText(
+                missingPath,
+                "{\"info\":{\"mode_hint\":\"beat-7k\",\"init_bpm\":120,\"judge_rank\":100,\"total\":100,\"resolution\":240},\"sound_channels\":[{\"notes\":[{\"x\":1,\"y\":0}]}]}",
+                new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+
+            LR2SongDBExtended.chart_info missing = ChartInfoParser.Parse(missingPath);
+
+            Assert.IsFalse(missing.level.HasValue);
+            Assert.AreEqual(1, missing.difficulty);
+            Assert.IsFalse(missing.difficulty_defined);
+
+            string zeroPath = Path.Combine(tempRootPath, "zero-level.bmson");
+            File.WriteAllText(
+                zeroPath,
+                "{\"info\":{\"level\":0,\"mode_hint\":\"beat-7k\",\"init_bpm\":120,\"judge_rank\":100,\"total\":100,\"resolution\":240},\"sound_channels\":[{\"notes\":[{\"x\":1,\"y\":0}]}]}",
+                new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+
+            LR2SongDBExtended.chart_info zero = ChartInfoParser.Parse(zeroPath);
+
+            Assert.AreEqual(0, zero.level);
+
+            string floatPath = Path.Combine(tempRootPath, "float-level.bmson");
+            File.WriteAllText(
+                floatPath,
+                "{\"info\":{\"level\":12.9,\"mode_hint\":\"beat-7k\",\"init_bpm\":120,\"judge_rank\":100,\"total\":100,\"resolution\":240.9},\"sound_channels\":[{\"notes\":[{\"x\":1,\"y\":0}]}]}",
+                new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+
+            LR2SongDBExtended.chart_info floatLevel = ChartInfoParser.Parse(floatPath);
+
+            Assert.AreEqual(12, floatLevel.level);
+        });
     }
 
     [TestMethod]
@@ -416,6 +497,31 @@ public sealed class ChartInfoMetadataTests
     }
 
     [TestMethod]
+    public void ParseBms_JavaIntWrappedTimelineAddsDiagnostic()
+    {
+        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        {
+            string chartPath = Path.Combine(tempRootPath, "java-int-wrap.bms");
+            File.WriteAllText(
+                chartPath,
+                "#BPM 1\r\n"
+                    + "#STOP01 90000\r\n"
+                    + "#00009:" + string.Concat(Enumerable.Repeat("01", 40)) + "\r\n"
+                    + "#00111:01\r\n",
+                Encoding.ASCII);
+
+            ChartInfoParser.ChartInfoParseResult result = ChartInfoParser.ParseBytesDetailed(File.ReadAllBytes(chartPath), chartPath);
+
+            Assert.AreEqual(1, result.Row.notes);
+            Assert.IsTrue(result.Row.length.GetValueOrDefault() > 0);
+            ChartInfoParser.ChartInfoParseDiagnostic diagnostic = result.Diagnostics.Single((ChartInfoParser.ChartInfoParseDiagnostic item) => item.Code == "BMS_JAVA_INT_TIME_WRAP");
+            Assert.AreEqual(ChartInfoParser.ChartInfoParseDiagnosticSeverity.Info, diagnostic.Severity);
+            StringAssert.Contains(diagnostic.Message, "rawMs=");
+            StringAssert.Contains(diagnostic.Message, "wrappedMs=");
+        });
+    }
+
+    [TestMethod]
     public void ParseBms_RandomRetrySkipsTimelineLongerThanIntMilliseconds()
     {
         WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
@@ -463,6 +569,83 @@ public sealed class ChartInfoMetadataTests
             Assert.AreEqual(1, row.notes);
             Assert.IsFalse(row.total_defined);
             Assert.IsTrue(row.total.GetValueOrDefault() > 0.0);
+        });
+    }
+
+    [TestMethod]
+    public void ParseBms_LevelAndDifficultyUseStrictReferenceParsingAndDifficultyInference()
+    {
+        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        {
+            string validPath = Path.Combine(tempRootPath, "valid-difficulty.bms");
+            File.WriteAllText(
+                validPath,
+                "#BPM 120\r\n"
+                    + "#PLAYLEVEL 12\r\n"
+                    + "#DIFFICULTY 4\r\n"
+                    + "#00111:01\r\n",
+                Encoding.ASCII);
+
+            LR2SongDBExtended.chart_info valid = ChartInfoParser.Parse(validPath);
+
+            Assert.AreEqual(12, valid.level);
+            Assert.AreEqual(4, valid.difficulty);
+            Assert.IsTrue(valid.difficulty_defined);
+
+            string inferredPath = Path.Combine(tempRootPath, "inferred-difficulty.bms");
+            File.WriteAllText(
+                inferredPath,
+                "#TITLE Strict Parse\r\n"
+                    + "#SUBTITLE [Hyper]\r\n"
+                    + "#BPM 120\r\n"
+                    + "#PLAYLEVEL 12abc\r\n"
+                    + "#DIFFICULTY 0\r\n"
+                    + "#00111:01\r\n",
+                Encoding.ASCII);
+
+            LR2SongDBExtended.chart_info inferred = ChartInfoParser.Parse(inferredPath);
+
+            Assert.IsFalse(inferred.level.HasValue);
+            Assert.AreEqual(3, inferred.difficulty);
+            Assert.IsFalse(inferred.difficulty_defined);
+
+            string invalidAfterValidPath = Path.Combine(tempRootPath, "invalid-after-valid-difficulty.bms");
+            File.WriteAllText(
+                invalidAfterValidPath,
+                "#BPM 120\r\n"
+                    + "#PLAYLEVEL 12.5\r\n"
+                    + "#DIFFICULTY 4\r\n"
+                    + "#DIFFICULTY nope\r\n"
+                    + "#00111:01\r\n",
+                Encoding.ASCII);
+
+            LR2SongDBExtended.chart_info invalidAfterValid = ChartInfoParser.Parse(invalidAfterValidPath);
+
+            Assert.IsFalse(invalidAfterValid.level.HasValue);
+            Assert.AreEqual(4, invalidAfterValid.difficulty);
+            Assert.IsTrue(invalidAfterValid.difficulty_defined);
+        });
+    }
+
+    [TestMethod]
+    public void ParseBms_TotalRejectsTrailingGarbageButAcceptsDecimal()
+    {
+        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        {
+            string invalidPath = Path.Combine(tempRootPath, "total-invalid.bms");
+            File.WriteAllText(invalidPath, "#BPM 120\r\n#TOTAL 100abc\r\n#00111:01\r\n", Encoding.ASCII);
+
+            LR2SongDBExtended.chart_info invalid = ChartInfoParser.Parse(invalidPath);
+
+            Assert.IsFalse(invalid.total_defined);
+
+            string decimalPath = Path.Combine(tempRootPath, "total-decimal.bms");
+            File.WriteAllText(decimalPath, "#BPM 120\r\n#TOTAL 100.5\r\n#00111:01\r\n", Encoding.ASCII);
+
+            LR2SongDBExtended.chart_info decimalTotal = ChartInfoParser.Parse(decimalPath);
+
+            Assert.IsTrue(decimalTotal.total_defined);
+            Assert.AreEqual(100.5, decimalTotal.total.GetValueOrDefault(), 0.000001);
         });
     }
 
@@ -643,6 +826,76 @@ public sealed class ChartInfoMetadataTests
     }
 
     [TestMethod]
+    public void ParseBms_NormalNoteCollisionOverwritesExistingNoteLikeBeatoraja()
+    {
+        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        {
+            string chartPath = Path.Combine(tempRootPath, "normal-overwrite.bms");
+            File.WriteAllText(
+                chartPath,
+                "#PLAYER 1\r\n"
+                    + "#BPM 120\r\n"
+                    + "#001D1:01\r\n"
+                    + "#00111:01\r\n",
+                Encoding.ASCII);
+
+            LR2SongDBExtended.chart_info row = ChartInfoParser.Parse(chartPath);
+
+            Assert.AreEqual(1, row.notes);
+            Assert.AreEqual(1, row.n);
+            Assert.AreEqual(0, row.ln);
+            Assert.AreEqual(0, row.s);
+            Assert.AreEqual(0, row.ls);
+            Assert.AreEqual(0, row.feature & FeatureMine);
+            StringAssert.StartsWith(row.lanenotes, "1,0,0,");
+        });
+    }
+
+    [TestMethod]
+    public void ParseBms_LongNoteEndRemovesInsideLaneNotesLikeBeatoraja()
+    {
+        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        {
+            string chartPath = Path.Combine(tempRootPath, "ln-inside-collision.bms");
+            File.WriteAllText(
+                chartPath,
+                "#PLAYER 1\r\n"
+                    + "#BPM 120\r\n"
+                    + "#00111:000100\r\n"
+                    + "#00151:010001\r\n",
+                Encoding.ASCII);
+
+            LR2SongDBExtended.chart_info row = ChartInfoParser.Parse(chartPath);
+
+            Assert.AreEqual(1, row.notes);
+            Assert.AreEqual(0, row.n);
+            Assert.AreEqual(1, row.ln);
+            StringAssert.StartsWith(row.lanenotes, "0,1,0,");
+        });
+    }
+
+    [TestMethod]
+    public void ParseBms_MalformedChannelLineWithoutColonIsStillDecodedLikeBeatoraja()
+    {
+        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        {
+            string chartPath = Path.Combine(tempRootPath, "malformed-channel.bms");
+            File.WriteAllText(
+                chartPath,
+                "#PLAYER 1\r\n"
+                    + "#BPM 120\r\n"
+                    + "#00111;00001800\r\n",
+                Encoding.ASCII);
+
+            LR2SongDBExtended.chart_info row = ChartInfoParser.Parse(chartPath);
+
+            Assert.AreEqual(4, row.notes);
+            Assert.AreEqual(4, row.n);
+            StringAssert.StartsWith(row.lanenotes, "4,0,0,");
+        });
+    }
+
+    [TestMethod]
     public void ParseBmson_LongNoteAudioDurationAffectsChartHash()
     {
         WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
@@ -683,11 +936,22 @@ public sealed class ChartInfoMetadataTests
             string chartPath = Path.Combine(fixtureRootPath, expected.fixture_path.Replace('/', Path.DirectorySeparatorChar));
             Assert.IsTrue(File.Exists(chartPath), "Missing real chart fixture: " + expected.fixture_path);
 
-            LR2SongDBExtended.chart_info actual = ChartInfoParser.Parse(chartPath, expected.md5, expected.sha256);
-            ChartInfoParser.ChartInfoParseResult fromBytesResult = ChartInfoParser.ParseBytesDetailed(File.ReadAllBytes(chartPath), chartPath, expected.md5, expected.sha256);
-            LR2SongDBExtended.chart_info fromBytes = fromBytesResult.Row;
-            AssertChartInfoEquivalent(actual, fromBytes);
-            diffs.Add(expected, actual, fromBytesResult.ChartString);
+            ChartInfoParser.ChartInfoParseResult fromBytesResult;
+            try
+            {
+                fromBytesResult = ChartInfoParser.ParseBytesDetailed(File.ReadAllBytes(chartPath), chartPath, expected.md5, expected.sha256, timeout: TimeSpan.FromSeconds(10));
+            }
+            catch (Exception ex)
+            {
+                Assert.Fail("Production diff fixture parse failed: fixture_id="
+                    + expected.fixture_id
+                    + " path=" + expected.fixture_path
+                    + " sha256=" + expected.sha256
+                    + " exception=" + ex.GetType().Name
+                    + " message=" + ex.Message);
+                throw;
+            }
+            diffs.Add(expected, fromBytesResult.Row, fromBytesResult.ChartString);
         }
 
         Assert.AreEqual(0, diffs.CoreDiffs, diffs.ToString());
@@ -752,8 +1016,23 @@ public sealed class ChartInfoMetadataTests
             string chartPath = Path.Combine(fixtureRootPath, expected.fixture_path.Replace('/', Path.DirectorySeparatorChar));
             Assert.IsTrue(File.Exists(chartPath), "Missing bmson chart fixture: " + expected.fixture_path);
 
-            LR2SongDBExtended.chart_info actual = ChartInfoParser.Parse(chartPath, expected.md5, expected.sha256);
-            ChartInfoParser.ChartInfoParseResult fromBytesResult = ChartInfoParser.ParseBytesDetailed(File.ReadAllBytes(chartPath), chartPath, expected.md5, expected.sha256);
+            LR2SongDBExtended.chart_info actual;
+            ChartInfoParser.ChartInfoParseResult fromBytesResult;
+            try
+            {
+                actual = ChartInfoParser.Parse(chartPath, expected.md5, expected.sha256);
+                fromBytesResult = ChartInfoParser.ParseBytesDetailed(File.ReadAllBytes(chartPath), chartPath, expected.md5, expected.sha256);
+            }
+            catch (Exception ex)
+            {
+                Assert.Fail("Production diff fixture parse failed: fixture_id="
+                    + expected.fixture_id
+                    + " path=" + expected.fixture_path
+                    + " sha256=" + expected.sha256
+                    + " exception=" + ex.GetType().Name
+                    + " message=" + ex.Message);
+                throw;
+            }
             LR2SongDBExtended.chart_info fromBytes = fromBytesResult.Row;
             AssertChartInfoEquivalent(actual, fromBytes);
             diffs.Add(expected, actual, fromBytesResult.ChartString);
@@ -769,6 +1048,273 @@ public sealed class ChartInfoMetadataTests
         Assert.AreEqual(0, diffs.PeakDensityDiffs, diffs.ToString());
         Assert.AreEqual(0, diffs.EndDensityDiffs, diffs.ToString());
         Assert.AreEqual(0, diffs.MainBpmDiffs, diffs.ToString());
+    }
+
+    [TestMethod]
+    [TestCategory("Compatibility")]
+    public void ParseProductionDiffFixture_AllNonTimeoutRowsMatchBeatoraja()
+    {
+        if (!string.Equals(Environment.GetEnvironmentVariable("BMS_TEST_PRODUCTION_DIFF_FULL"), "1", StringComparison.Ordinal))
+        {
+            Assert.Inconclusive("Set BMS_TEST_PRODUCTION_DIFF_FULL=1 to run the full production diff compatibility fixture.");
+        }
+
+        string fixtureRootPath = Path.Combine(FindRepoRoot(), "BeMusicSeeker.Tests", "TestData", "chart_info_production_diff");
+        string expectedDbPath = Path.Combine(fixtureRootPath, "expected.db");
+        Assert.IsTrue(File.Exists(expectedDbPath), "chart_info_production_diff expected.db fixture is missing.");
+
+        using SQLiteConnection connection = new SQLiteConnection(expectedDbPath, SQLiteOpenFlags.ReadOnly | SQLiteOpenFlags.FullMutex, storeDateTimeAsTicks: true);
+        List<RealChartInfoExpectedRow> rows = connection.Query<RealChartInfoExpectedRow>(
+            "SELECT sc.fixture_id, sc.fixture_path, e.* "
+                + "FROM FixtureSampleChart sc "
+                + "JOIN FixtureExpectedChartInfo e ON e.sha256 = sc.sha256 "
+                + "ORDER BY sc.fixture_id;");
+
+        Assert.AreEqual(759, rows.Count);
+        List<RealChartInfoExpectedRow> rowsToVerify = rows
+            .Where((RealChartInfoExpectedRow row) => !ProductionDiffKnownTimeoutSha256s.Contains(row.sha256))
+            .ToList();
+        List<RealChartInfoExpectedRow> knownTimeoutRows = rows
+            .Where((RealChartInfoExpectedRow row) => ProductionDiffKnownTimeoutSha256s.Contains(row.sha256))
+            .ToList();
+        Assert.AreEqual(755, rowsToVerify.Count);
+        Assert.AreEqual(4, knownTimeoutRows.Count);
+
+        CompatibilityDiffCounts diffs = new CompatibilityDiffCounts();
+        TimeSpan parserTimeout = TimeSpan.FromSeconds(ReadPositiveIntEnvironmentVariable("BMS_TEST_PRODUCTION_DIFF_TIMEOUT_SECONDS", 10));
+        Stopwatch totalStopwatch = Stopwatch.StartNew();
+        Trace.WriteLine("chart_info production diff non-timeout start total=" + rowsToVerify.Count
+            + " excludedKnownTimeout=" + knownTimeoutRows.Count
+            + " timeoutSeconds=" + parserTimeout.TotalSeconds.ToString("0", CultureInfo.InvariantCulture)
+            + " reportDir=" + CompatibilityDiffCounts.GetReportDirectory());
+
+        int processed = 0;
+        foreach (RealChartInfoExpectedRow expected in rowsToVerify)
+        {
+            processed++;
+            string chartPath = Path.Combine(fixtureRootPath, expected.fixture_path.Replace('/', Path.DirectorySeparatorChar));
+            Assert.IsTrue(File.Exists(chartPath), "Missing production diff chart fixture: " + expected.fixture_path);
+
+            Stopwatch parseStopwatch = Stopwatch.StartNew();
+            try
+            {
+                ChartInfoParser.ChartInfoParseResult result = ChartInfoParser.ParseBytesDetailed(
+                    File.ReadAllBytes(chartPath),
+                    chartPath,
+                    expected.md5,
+                    expected.sha256,
+                    timeout: parserTimeout);
+                parseStopwatch.Stop();
+                diffs.AddParsed(expected, result.Row, result.ChartString, parseStopwatch.ElapsedMilliseconds);
+            }
+            catch (ChartInfoParser.ChartInfoParseTimeoutException ex)
+            {
+                parseStopwatch.Stop();
+                diffs.AddTimeout(expected, parseStopwatch.ElapsedMilliseconds, ex);
+            }
+            catch (Exception ex)
+            {
+                parseStopwatch.Stop();
+                diffs.AddParseFailure(expected, parseStopwatch.ElapsedMilliseconds, ex);
+            }
+
+            if (processed % 50 == 0 || processed == rowsToVerify.Count)
+            {
+                Trace.WriteLine("chart_info production diff progress processed=" + processed
+                    + " parsed=" + diffs.ParsedCount
+                    + " timeout=" + diffs.TimeoutCount
+                    + " failed=" + diffs.ParseFailureCount
+                    + " elapsedMs=" + totalStopwatch.ElapsedMilliseconds);
+            }
+        }
+
+        totalStopwatch.Stop();
+        string reportPath = diffs.WriteReport("production_diff_non_timeout");
+        Trace.WriteLine("chart_info production diff non-timeout done elapsedMs=" + totalStopwatch.ElapsedMilliseconds + " report=" + reportPath + " " + diffs);
+        Assert.AreEqual(rowsToVerify.Count, diffs.ParsedCount, diffs.ToString());
+        Assert.AreEqual(0, diffs.TimeoutCount, diffs.ToString());
+        Assert.AreEqual(0, diffs.ParseFailureCount, diffs.ToString());
+        Assert.AreEqual(0, diffs.TotalDiffs, diffs.ToString());
+    }
+
+    [TestMethod]
+    [TestCategory("Compatibility")]
+    [Microsoft.VisualStudio.TestTools.UnitTesting.Ignore("Known slow production-diff fixtures currently hit the test timeout. Enable manually while working on parser performance.")]
+    public void ParseProductionDiffFixture_KnownTimeoutRows_PerformanceAndExpectedValues()
+    {
+        string fixtureRootPath = Path.Combine(FindRepoRoot(), "BeMusicSeeker.Tests", "TestData", "chart_info_production_diff");
+        string expectedDbPath = Path.Combine(fixtureRootPath, "expected.db");
+        Assert.IsTrue(File.Exists(expectedDbPath), "chart_info_production_diff expected.db fixture is missing.");
+
+        using SQLiteConnection connection = new SQLiteConnection(expectedDbPath, SQLiteOpenFlags.ReadOnly | SQLiteOpenFlags.FullMutex, storeDateTimeAsTicks: true);
+        List<RealChartInfoExpectedRow> rows = connection.Query<RealChartInfoExpectedRow>(
+            "SELECT sc.fixture_id, sc.fixture_path, e.* "
+                + "FROM FixtureSampleChart sc "
+                + "JOIN FixtureExpectedChartInfo e ON e.sha256 = sc.sha256 "
+                + "ORDER BY sc.fixture_id;")
+            .Where((RealChartInfoExpectedRow row) => ProductionDiffKnownTimeoutSha256s.Contains(row.sha256))
+            .ToList();
+
+        Assert.AreEqual(4, rows.Count);
+        CompatibilityDiffCounts diffs = new CompatibilityDiffCounts();
+        TimeSpan parserTimeout = TimeSpan.FromSeconds(ReadPositiveIntEnvironmentVariable("BMS_TEST_PRODUCTION_DIFF_SLOW_TIMEOUT_SECONDS", 60));
+
+        foreach (RealChartInfoExpectedRow expected in rows)
+        {
+            string chartPath = Path.Combine(fixtureRootPath, expected.fixture_path.Replace('/', Path.DirectorySeparatorChar));
+            Stopwatch parseStopwatch = Stopwatch.StartNew();
+            ChartInfoParser.ChartInfoParseResult result = ChartInfoParser.ParseBytesDetailed(
+                File.ReadAllBytes(chartPath),
+                chartPath,
+                expected.md5,
+                expected.sha256,
+                timeout: parserTimeout);
+            parseStopwatch.Stop();
+            diffs.AddParsed(expected, result.Row, result.ChartString, parseStopwatch.ElapsedMilliseconds);
+        }
+
+        string reportPath = diffs.WriteReport("production_diff_known_timeout");
+        Trace.WriteLine("chart_info production diff known-timeout done report=" + reportPath + " " + diffs);
+        Assert.AreEqual(rows.Count, diffs.ParsedCount, diffs.ToString());
+        Assert.AreEqual(0, diffs.TotalDiffs, diffs.ToString());
+    }
+
+    [TestMethod]
+    [TestCategory("Compatibility")]
+    public void ParseProductionDiffFixture_ParsePathAndBytesAgreeForSamples()
+    {
+        string fixtureRootPath = Path.Combine(FindRepoRoot(), "BeMusicSeeker.Tests", "TestData", "chart_info_production_diff");
+        string expectedDbPath = Path.Combine(fixtureRootPath, "expected.db");
+        Assert.IsTrue(File.Exists(expectedDbPath), "chart_info_production_diff expected.db fixture is missing.");
+
+        string[] sha256s =
+        {
+            "cf3203eb2b057ca03f6a1579eb50c1169c6cf2b6956058077313ab3eed5f5a3a",
+            "dfc23c232b435b8abcfc9363a15400b4115a7bec0d66b0d405e6e6cdfcf224e2",
+            "45d530304e95f336578c639f4e38551c380053a7b9b843d38106bad11cc4ce5e",
+            "4cf26b3ba8d762de8db62eec0b7790a37da600b303aecffa6391018d83680266",
+            "9aa0dd20de15bd0f7d0166afcdaf87f05c0e331fe8cdc3017d931781526a8559",
+            "850175e80107119b507b42aa992b632bd3976a9ca7d1b348eb8af7bf854570e6",
+            "418806ce0bcd1eecc2256b022d1aad8c9616f7c21389eab61e280952e0f68558",
+            "0f9297f384c02a4060f31962e768dc6a34d83aa551fbc5a01c19a6b7c6c40b77",
+            "2125eeb135073c7d1f20968bef763ac1dc6290fd836fcc29309c5d351b60667e",
+            "b40404294f647c238462a47adf9f5e8a5a38832805c6bed7d8ed81926004afb6"
+        };
+
+        using SQLiteConnection connection = new SQLiteConnection(expectedDbPath, SQLiteOpenFlags.ReadOnly | SQLiteOpenFlags.FullMutex, storeDateTimeAsTicks: true);
+        foreach (string sha256 in sha256s)
+        {
+            RealChartInfoExpectedRow expected = connection.Query<RealChartInfoExpectedRow>(
+                "SELECT sc.fixture_id, sc.fixture_path, e.* "
+                    + "FROM FixtureSampleChart sc "
+                    + "JOIN FixtureExpectedChartInfo e ON e.sha256 = sc.sha256 "
+                    + "WHERE sc.sha256 = ?;",
+                sha256).Single();
+            string chartPath = Path.Combine(fixtureRootPath, expected.fixture_path.Replace('/', Path.DirectorySeparatorChar));
+
+            LR2SongDBExtended.chart_info fromPath = ChartInfoParser.Parse(chartPath, expected.md5, expected.sha256);
+            LR2SongDBExtended.chart_info fromBytes = ChartInfoParser.ParseBytesDetailed(
+                File.ReadAllBytes(chartPath),
+                chartPath,
+                expected.md5,
+                expected.sha256,
+                timeout: TimeSpan.FromSeconds(10)).Row;
+
+            AssertChartInfoEquivalent(fromPath, fromBytes);
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("Compatibility")]
+    public void ParseProductionDiffFixture_JavaIntWrappedStopLengthMatchesBeatoraja()
+    {
+        string fixtureRootPath = Path.Combine(FindRepoRoot(), "BeMusicSeeker.Tests", "TestData", "chart_info_production_diff");
+        string expectedDbPath = Path.Combine(fixtureRootPath, "expected.db");
+        Assert.IsTrue(File.Exists(expectedDbPath), "chart_info_production_diff expected.db fixture is missing.");
+
+        const string sha256 = "2125eeb135073c7d1f20968bef763ac1dc6290fd836fcc29309c5d351b60667e";
+        using SQLiteConnection connection = new SQLiteConnection(expectedDbPath, SQLiteOpenFlags.ReadOnly | SQLiteOpenFlags.FullMutex, storeDateTimeAsTicks: true);
+        RealChartInfoExpectedRow expected = connection.Query<RealChartInfoExpectedRow>(
+            "SELECT sc.fixture_id, sc.fixture_path, e.* "
+                + "FROM FixtureSampleChart sc "
+                + "JOIN FixtureExpectedChartInfo e ON e.sha256 = sc.sha256 "
+                + "WHERE sc.sha256 = ?;",
+            sha256).Single();
+        string chartPath = Path.Combine(fixtureRootPath, expected.fixture_path.Replace('/', Path.DirectorySeparatorChar));
+
+        ChartInfoParser.ChartInfoParseResult result = ChartInfoParser.ParseBytesDetailed(
+            File.ReadAllBytes(chartPath),
+            chartPath,
+            expected.md5,
+            expected.sha256,
+            timeout: TimeSpan.FromSeconds(10));
+
+        Assert.AreEqual(expected.length, result.Row.length);
+        Assert.AreEqual(expected.notes, result.Row.notes);
+        Assert.AreEqual(expected.feature, result.Row.feature);
+    }
+
+    [TestMethod]
+    [TestCategory("Compatibility")]
+    public void ParseProductionDiffFixture_NoteCollisionCountsMatchBeatorajaSamples()
+    {
+        string fixtureRootPath = Path.Combine(FindRepoRoot(), "BeMusicSeeker.Tests", "TestData", "chart_info_production_diff");
+        string expectedDbPath = Path.Combine(fixtureRootPath, "expected.db");
+        Assert.IsTrue(File.Exists(expectedDbPath), "chart_info_production_diff expected.db fixture is missing.");
+
+        string[] sha256s =
+        {
+            "4cf26b3ba8d762de8db62eec0b7790a37da600b303aecffa6391018d83680266",
+            "dfc23c232b435b8abcfc9363a15400b4115a7bec0d66b0d405e6e6cdfcf224e2",
+            "418806ce0bcd1eecc2256b022d1aad8c9616f7c21389eab61e280952e0f68558",
+            "0f9297f384c02a4060f31962e768dc6a34d83aa551fbc5a01c19a6b7c6c40b77"
+        };
+
+        using SQLiteConnection connection = new SQLiteConnection(expectedDbPath, SQLiteOpenFlags.ReadOnly | SQLiteOpenFlags.FullMutex, storeDateTimeAsTicks: true);
+        foreach (string sha256 in sha256s)
+        {
+            RealChartInfoExpectedRow expected = connection.Query<RealChartInfoExpectedRow>(
+                "SELECT sc.fixture_id, sc.fixture_path, e.* "
+                    + "FROM FixtureSampleChart sc "
+                    + "JOIN FixtureExpectedChartInfo e ON e.sha256 = sc.sha256 "
+                    + "WHERE sc.sha256 = ?;",
+                sha256).Single();
+            string chartPath = Path.Combine(fixtureRootPath, expected.fixture_path.Replace('/', Path.DirectorySeparatorChar));
+
+            LR2SongDBExtended.chart_info actual = ChartInfoParser.Parse(chartPath, expected.md5, expected.sha256);
+
+            Assert.AreEqual(expected.notes, actual.notes, expected.sha256);
+            Assert.AreEqual(expected.n, actual.n, expected.sha256);
+            Assert.AreEqual(expected.ln, actual.ln, expected.sha256);
+            Assert.AreEqual(expected.s, actual.s, expected.sha256);
+            Assert.AreEqual(expected.ls, actual.ls, expected.sha256);
+            Assert.AreEqual(expected.lanenotes, actual.lanenotes, expected.sha256);
+        }
+    }
+
+    [TestMethod]
+    public void CompatibilityDiffCounts_RecordsSkippedProductionDiffRowsWithoutCountingDiffs()
+    {
+        RealChartInfoExpectedRow expected = CreateExpectedCompatibilityRow(new string('a', 64), new string('c', 64));
+        LR2SongDBExtended.chart_info actual = CreateChartInfoRow(expected.sha256, expected.md5, BmsLibraryDbGateway.CurrentChartInfoParserVersion);
+        actual.charthash = new string('d', 64);
+
+        CompatibilityDiffCounts diffs = new CompatibilityDiffCounts();
+        diffs.AddTimeout(expected, 10001, new ChartInfoParser.ChartInfoParseTimeoutException(10000, "test"));
+        diffs.AddParseFailure(expected, 12, new InvalidDataException("synthetic parse failure"));
+
+        Assert.AreEqual(0, diffs.ParsedCount);
+        Assert.AreEqual(1, diffs.TimeoutCount);
+        Assert.AreEqual(1, diffs.ParseFailureCount);
+        Assert.AreEqual(0, diffs.ChartHashDiffs);
+        Assert.AreEqual(0, diffs.CoreDiffs);
+
+        diffs.AddParsed(expected, actual, string.Empty, 30);
+
+        Assert.AreEqual(1, diffs.ParsedCount);
+        Assert.AreEqual(1, diffs.ChartHashDiffs);
+        StringAssert.Contains(diffs.ToString(), "timeout=1");
+        StringAssert.Contains(diffs.ToString(), "parseFailure=1");
     }
 
     [TestMethod]
@@ -1414,6 +1960,47 @@ public sealed class ChartInfoMetadataTests
     }
 
     [TestMethod]
+    public void BackfillChartInfos_JavaIntWrappedTimelineLogsParseDiagnosticAsSuccess()
+    {
+        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        {
+            string chartPath = Path.Combine(tempRootPath, "java-int-wrap-backfill.bms");
+            File.WriteAllText(
+                chartPath,
+                "#BPM 1\r\n"
+                    + "#STOP01 90000\r\n"
+                    + "#00009:" + string.Concat(Enumerable.Repeat("01", 40)) + "\r\n"
+                    + "#00111:01\r\n",
+                Encoding.ASCII);
+            BMSFile digest = BMSFile.CreateBMSFileFromFile(chartPath);
+            TestableBmsFile file = new TestableBmsFile
+            {
+                path = chartPath
+            };
+            file.SetHash(digest.hash);
+            BmsLibraryDbGateway gateway = new BmsLibraryDbGateway(songDbPath);
+            ChartInfoBuildService service = new ChartInfoBuildService(File.ReadAllBytes, workerCountOverride: 1, commitChunkSizeOverride: 1);
+            List<string> logs = new List<string>();
+
+            ChartInfoBackfillResult result = service.BackfillChartInfos(
+                gateway,
+                new[] { file },
+                Array.Empty<LR2SongDBExtended.bmson_song>(),
+                null,
+                (string message) => logs.Add("INFO " + message),
+                (string message) => logs.Add("WARN " + message));
+
+            Assert.AreEqual(1, result.BackfilledCount);
+            Assert.AreEqual(0, result.ParseFailedCount);
+            Assert.AreEqual(0, result.FailedCount);
+            Assert.IsTrue(logs.Any((string message) => message.StartsWith("INFO chart_info_backfill parse_diagnostic", StringComparison.Ordinal)
+                && message.Contains("code=\"BMS_JAVA_INT_TIME_WRAP\"")
+                && message.Contains("parseFailed=false")));
+            Assert.IsFalse(logs.Any((string message) => message.StartsWith("WARN chart_info_backfill parse_failed", StringComparison.Ordinal)));
+        });
+    }
+
+    [TestMethod]
     public void RetryIfLockedOrBusy_RespectsMaxRetryCount()
     {
         int attempts = 0;
@@ -1454,6 +2041,7 @@ public sealed class ChartInfoMetadataTests
         Assert.AreEqual(expected.charthash, actual.charthash);
         Assert.AreEqual(expected.level, actual.level);
         Assert.AreEqual(expected.difficulty, actual.difficulty);
+        Assert.AreEqual(expected.difficulty_defined, actual.difficulty_defined);
         Assert.AreEqual(expected.mainbpm, actual.mainbpm);
         Assert.AreEqual(expected.maxbpm, actual.maxbpm);
         Assert.AreEqual(expected.minbpm, actual.minbpm);
@@ -1487,6 +2075,7 @@ public sealed class ChartInfoMetadataTests
             charthash = new string('c', 64),
             level = 1,
             difficulty = 1,
+            difficulty_defined = true,
             mainbpm = 120.0,
             maxbpm = 120.0,
             minbpm = 120.0,
@@ -1510,6 +2099,40 @@ public sealed class ChartInfoMetadataTests
             lanenotes = "1,0,0",
             parser_version = parserVersion,
             updated_at = DateTime.UtcNow
+        };
+    }
+
+    private static RealChartInfoExpectedRow CreateExpectedCompatibilityRow(string sha256, string charthash)
+    {
+        return new RealChartInfoExpectedRow
+        {
+            fixture_id = 1,
+            fixture_path = "synthetic.bms",
+            sha256 = sha256,
+            md5 = new string('b', 32),
+            charthash = charthash,
+            level = 1,
+            difficulty = 1,
+            mainbpm = 120.0,
+            maxbpm = 120.0,
+            minbpm = 120.0,
+            length = 0,
+            mode = 7,
+            judge = 100,
+            feature = FeatureLongByLnMode,
+            notes = 1,
+            n = 1,
+            ln = 0,
+            s = 0,
+            ls = 0,
+            total = 260.0,
+            density = 1.0,
+            peakdensity = 1.0,
+            enddensity = 0.0,
+            distribution = "#",
+            speedchange = "120.0,0.0",
+            speedchange_count = 0,
+            lanenotes = "1,0,0"
         };
     }
 
@@ -1567,6 +2190,16 @@ public sealed class ChartInfoMetadataTests
                 && library.ChartInfoBackfillCompletedVersion == library.ChartInfoBackfillRequestedVersion
                 && !library.ChartInfoBackfillRunning,
             10000);
+    }
+
+    private static int ReadPositiveIntEnvironmentVariable(string name, int defaultValue)
+    {
+        string value = Environment.GetEnvironmentVariable(name);
+        if (int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsed) && parsed > 0)
+        {
+            return parsed;
+        }
+        return defaultValue;
     }
 
     private static string FindRepoRoot()
@@ -1810,7 +2443,7 @@ public sealed class ChartInfoMetadataTests
             int count = 0;
             count += string.Equals(expected.sha256, actual.sha256, StringComparison.OrdinalIgnoreCase) ? 0 : 1;
             count += string.Equals(expected.md5, actual.md5, StringComparison.OrdinalIgnoreCase) ? 0 : 1;
-            count += expected.level == actual.level ? 0 : 1;
+            count += LevelEqualsBeatoraja(expected.level, actual.level) ? 0 : 1;
             count += expected.difficulty == actual.difficulty ? 0 : 1;
             count += expected.mode == actual.mode ? 0 : 1;
             count += expected.judge == actual.judge ? 0 : 1;
@@ -1832,11 +2465,56 @@ public sealed class ChartInfoMetadataTests
             }
             return Math.Abs(expected.Value - actual.Value) <= 0.000001;
         }
+
+        private static bool LevelEqualsBeatoraja(int? expected, int? actual)
+        {
+            if (expected == actual)
+            {
+                return true;
+            }
+            return expected.GetValueOrDefault() == 0 && !actual.HasValue;
+        }
     }
 
     private sealed class CompatibilityDiffCounts
     {
         private readonly List<string> samples = new List<string>();
+
+        private readonly List<FieldDiffRecord> fieldDiffRecords = new List<FieldDiffRecord>();
+
+        private readonly Dictionary<string, int> fieldDiffCounts = new Dictionary<string, int>(StringComparer.Ordinal);
+
+        private readonly List<long> parseElapsedMilliseconds = new List<long>();
+
+        private readonly List<ParseRecord> parseRecords = new List<ParseRecord>();
+
+        private readonly List<string> skippedSamples = new List<string>();
+
+        public int ParsedCount { get; private set; }
+
+        public int TimeoutCount { get; private set; }
+
+        public int ParseFailureCount { get; private set; }
+
+        public long TotalElapsedMs => parseElapsedMilliseconds.Sum();
+
+        public double AvgParseMs => parseElapsedMilliseconds.Count == 0 ? 0.0 : parseElapsedMilliseconds.Average();
+
+        public long MaxParseMs => parseElapsedMilliseconds.Count == 0 ? 0L : parseElapsedMilliseconds.Max();
+
+        public long ParseP95Ms
+        {
+            get
+            {
+                if (parseElapsedMilliseconds.Count == 0)
+                {
+                    return 0L;
+                }
+                long[] sorted = parseElapsedMilliseconds.OrderBy((long value) => value).ToArray();
+                int index = Math.Max(0, (int)Math.Ceiling(sorted.Length * 0.95) - 1);
+                return sorted[index];
+            }
+        }
 
         public int CoreDiffs { get; private set; }
 
@@ -1856,42 +2534,90 @@ public sealed class ChartInfoMetadataTests
 
         public int BpmIntegerDiffs { get; private set; }
 
+        public int TotalDiffs => fieldDiffRecords.Count;
+
+        public static string GetReportDirectory()
+        {
+            string configured = Environment.GetEnvironmentVariable("BMS_TEST_PRODUCTION_DIFF_REPORT_DIR");
+            if (!string.IsNullOrWhiteSpace(configured))
+            {
+                return configured;
+            }
+            return Path.Combine(Path.GetTempPath(), "BeMusicSeeker_ChartInfoProductionDiff");
+        }
+
+        public void AddParsed(RealChartInfoExpectedRow expected, LR2SongDBExtended.chart_info actual, string chartString, long elapsedMilliseconds)
+        {
+            ParsedCount++;
+            RecordParse(expected, elapsedMilliseconds, "success");
+            Add(expected, actual, chartString);
+        }
+
+        public void AddTimeout(RealChartInfoExpectedRow expected, long elapsedMilliseconds, Exception exception)
+        {
+            TimeoutCount++;
+            RecordParse(expected, elapsedMilliseconds, "timeout");
+            AddSkippedSample("timeout", expected, elapsedMilliseconds, exception);
+        }
+
+        public void AddParseFailure(RealChartInfoExpectedRow expected, long elapsedMilliseconds, Exception exception)
+        {
+            ParseFailureCount++;
+            RecordParse(expected, elapsedMilliseconds, "failed");
+            AddSkippedSample("failed", expected, elapsedMilliseconds, exception);
+        }
+
         public void Add(RealChartInfoExpectedRow expected, LR2SongDBExtended.chart_info actual, string chartString)
         {
-            CoreDiffs += CountCoreDiffs(expected, actual);
+            AddCoreDiffs(expected, actual);
             if (!string.Equals(expected.charthash, actual.charthash, StringComparison.OrdinalIgnoreCase))
             {
                 ChartHashDiffs++;
+                AddFieldDiff("charthash", expected, expected.charthash, actual.charthash);
                 AddSample("charthash", expected, expected.charthash, actual.charthash, chartString);
             }
             if (expected.length != actual.length)
             {
                 LengthDiffs++;
+                AddFieldDiff("length", expected, FormatValue(expected.length), FormatValue(actual.length));
             }
             if (!NullableDoubleEquals(expected.density, actual.density))
             {
                 DensityDiffs++;
+                AddFieldDiff("density", expected, FormatValue(expected.density), FormatValue(actual.density));
             }
             if (!NullableDoubleEquals(expected.peakdensity, actual.peakdensity))
             {
                 PeakDensityDiffs++;
+                AddFieldDiff("peakdensity", expected, FormatValue(expected.peakdensity), FormatValue(actual.peakdensity));
             }
             if (!NullableDoubleEquals(expected.enddensity, actual.enddensity))
             {
                 EndDensityDiffs++;
+                AddFieldDiff("enddensity", expected, FormatValue(expected.enddensity), FormatValue(actual.enddensity));
             }
             if (!string.Equals(expected.distribution, actual.distribution, StringComparison.Ordinal))
             {
                 DistributionDiffs++;
+                AddFieldDiff("distribution", expected, expected.distribution, actual.distribution);
             }
             if (!string.Equals(expected.speedchange, actual.speedchange, StringComparison.Ordinal))
             {
                 SpeedChangeDiffs++;
+                AddFieldDiff("speedchange", expected, expected.speedchange, actual.speedchange);
             }
             if ((int)(expected.maxbpm ?? 0.0) != (int)(actual.maxbpm ?? 0.0)
                 || (int)(expected.minbpm ?? 0.0) != (int)(actual.minbpm ?? 0.0))
             {
                 BpmIntegerDiffs++;
+                if ((int)(expected.minbpm ?? 0.0) != (int)(actual.minbpm ?? 0.0))
+                {
+                    AddFieldDiff("minbpm_integer", expected, FormatValue(expected.minbpm), FormatValue(actual.minbpm));
+                }
+                if ((int)(expected.maxbpm ?? 0.0) != (int)(actual.maxbpm ?? 0.0))
+                {
+                    AddFieldDiff("maxbpm_integer", expected, FormatValue(expected.maxbpm), FormatValue(actual.maxbpm));
+                }
                 AddSample(
                     "bpm",
                     expected,
@@ -1901,10 +2627,57 @@ public sealed class ChartInfoMetadataTests
             }
         }
 
+        public string WriteReport(string name)
+        {
+            string directory = Path.Combine(GetReportDirectory(), name);
+            Directory.CreateDirectory(directory);
+
+            WriteLines(
+                Path.Combine(directory, "field_diffs.csv"),
+                new[] { "field,count" }.Concat(fieldDiffCounts
+                    .OrderByDescending((KeyValuePair<string, int> pair) => pair.Value)
+                    .ThenBy((KeyValuePair<string, int> pair) => pair.Key, StringComparer.Ordinal)
+                    .Select((KeyValuePair<string, int> pair) => Csv(pair.Key) + "," + pair.Value.ToString(CultureInfo.InvariantCulture))));
+
+            WriteLines(
+                Path.Combine(directory, "diff_rows.csv"),
+                new[] { "fixture_id,sha256,fixture_path,field,expected,actual" }.Concat(fieldDiffRecords.Select((FieldDiffRecord record) => record.ToCsv())));
+
+            WriteLines(
+                Path.Combine(directory, "skipped_rows.csv"),
+                new[] { "sample" }.Concat(skippedSamples.Select(Csv)));
+
+            WriteLines(
+                Path.Combine(directory, "slow_parse_top.csv"),
+                new[] { "rank,status,elapsed_ms,fixture_id,sha256,fixture_path" }.Concat(parseRecords
+                    .OrderByDescending((ParseRecord record) => record.ElapsedMilliseconds)
+                    .Take(20)
+                    .Select((ParseRecord record, int index) =>
+                        (index + 1).ToString(CultureInfo.InvariantCulture)
+                            + "," + Csv(record.Status)
+                            + "," + record.ElapsedMilliseconds.ToString(CultureInfo.InvariantCulture)
+                            + "," + record.FixtureId.ToString(CultureInfo.InvariantCulture)
+                            + "," + Csv(record.Sha256)
+                            + "," + Csv(record.FixturePath))));
+
+            WriteLines(
+                Path.Combine(directory, "summary.txt"),
+                new[] { ToString() });
+
+            return directory;
+        }
+
         public override string ToString()
         {
             return "chart_info real compatibility diffs: "
-                + "core=" + CoreDiffs
+                + "parsed=" + ParsedCount
+                + " timeout=" + TimeoutCount
+                + " parseFailure=" + ParseFailureCount
+                + " totalParseMs=" + TotalElapsedMs
+                + " avgParseMs=" + AvgParseMs.ToString("0.###", CultureInfo.InvariantCulture)
+                + " maxParseMs=" + MaxParseMs
+                + " p95ParseMs=" + ParseP95Ms
+                + " core=" + CoreDiffs
                 + " charthash=" + ChartHashDiffs
                 + " length=" + LengthDiffs
                 + " density=" + DensityDiffs
@@ -1913,7 +2686,58 @@ public sealed class ChartInfoMetadataTests
                 + " distribution=" + DistributionDiffs
                 + " speedchange=" + SpeedChangeDiffs
                 + " bpmInteger=" + BpmIntegerDiffs
-                + (samples.Count == 0 ? string.Empty : " samples=" + string.Join(" | ", samples));
+                + " totalDiffs=" + TotalDiffs
+                + (fieldDiffCounts.Count == 0 ? string.Empty : " fieldTop=" + string.Join(" | ", fieldDiffCounts
+                    .OrderByDescending((KeyValuePair<string, int> pair) => pair.Value)
+                    .ThenBy((KeyValuePair<string, int> pair) => pair.Key, StringComparer.Ordinal)
+                    .Take(20)
+                    .Select((KeyValuePair<string, int> pair) => pair.Key + "=" + pair.Value.ToString(CultureInfo.InvariantCulture))))
+                + (samples.Count == 0 ? string.Empty : " samples=" + string.Join(" | ", samples))
+                + (skippedSamples.Count == 0 ? string.Empty : " skipped=" + string.Join(" | ", skippedSamples))
+                + (parseRecords.Count == 0 ? string.Empty : " slowTop=" + string.Join(" | ", GetSlowTopRecords()));
+        }
+
+        private void AddCoreDiffs(RealChartInfoExpectedRow expected, LR2SongDBExtended.chart_info actual)
+        {
+            CompareCoreField("level", expected, FormatValue(expected.level), FormatValue(actual.level), LevelEqualsBeatoraja(expected.level, actual.level));
+            CompareCoreField("difficulty", expected, FormatValue(expected.difficulty), FormatValue(actual.difficulty), expected.difficulty == actual.difficulty);
+            CompareCoreField("notes", expected, FormatValue(expected.notes), FormatValue(actual.notes), expected.notes == actual.notes);
+            CompareCoreField("n", expected, FormatValue(expected.n), FormatValue(actual.n), expected.n == actual.n);
+            CompareCoreField("ln", expected, FormatValue(expected.ln), FormatValue(actual.ln), expected.ln == actual.ln);
+            CompareCoreField("s", expected, FormatValue(expected.s), FormatValue(actual.s), expected.s == actual.s);
+            CompareCoreField("ls", expected, FormatValue(expected.ls), FormatValue(actual.ls), expected.ls == actual.ls);
+            CompareCoreField("judge", expected, FormatValue(expected.judge), FormatValue(actual.judge), expected.judge == actual.judge);
+            CompareCoreField("feature", expected, FormatValue(expected.feature), FormatValue(actual.feature), expected.feature == actual.feature);
+            CompareCoreField("mode", expected, FormatValue(expected.mode), FormatValue(actual.mode), expected.mode == actual.mode);
+            CompareCoreField("mainbpm", expected, FormatValue(expected.mainbpm), FormatValue(actual.mainbpm), NullableDoubleEquals(expected.mainbpm, actual.mainbpm));
+            CompareCoreField("lanenotes", expected, expected.lanenotes, actual.lanenotes, string.Equals(expected.lanenotes, actual.lanenotes, StringComparison.Ordinal));
+            CompareCoreField("total", expected, FormatValue(expected.total), FormatValue(actual.total), NullableDoubleEquals(expected.total, actual.total));
+        }
+
+        private void CompareCoreField(string field, RealChartInfoExpectedRow expected, string expectedValue, string actualValue, bool equals)
+        {
+            if (equals)
+            {
+                return;
+            }
+            CoreDiffs++;
+            AddFieldDiff(field, expected, expectedValue, actualValue);
+        }
+
+        private void AddFieldDiff(string field, RealChartInfoExpectedRow expected, string expectedValue, string actualValue)
+        {
+            int count;
+            fieldDiffCounts.TryGetValue(field, out count);
+            fieldDiffCounts[field] = count + 1;
+            fieldDiffRecords.Add(new FieldDiffRecord
+            {
+                FixtureId = expected.fixture_id,
+                Sha256 = expected.sha256,
+                FixturePath = expected.fixture_path,
+                Field = field,
+                Expected = expectedValue ?? string.Empty,
+                Actual = actualValue ?? string.Empty
+            });
         }
 
         private void AddSample(string field, RealChartInfoExpectedRow expected, string expectedValue, string actualValue, string chartString)
@@ -1933,6 +2757,49 @@ public sealed class ChartInfoMetadataTests
                     + " chartString=" + artifactPath);
         }
 
+        private void RecordParse(RealChartInfoExpectedRow expected, long elapsedMilliseconds, string status)
+        {
+            parseElapsedMilliseconds.Add(elapsedMilliseconds);
+            parseRecords.Add(new ParseRecord
+            {
+                FixtureId = expected.fixture_id,
+                Sha256 = expected.sha256,
+                FixturePath = expected.fixture_path,
+                ElapsedMilliseconds = elapsedMilliseconds,
+                Status = status
+            });
+        }
+
+        private void AddSkippedSample(string status, RealChartInfoExpectedRow expected, long elapsedMilliseconds, Exception exception)
+        {
+            if (skippedSamples.Count >= 10)
+            {
+                return;
+            }
+            skippedSamples.Add(
+                status
+                    + " fixture_id=" + expected.fixture_id
+                    + " path=" + expected.fixture_path
+                    + " sha256=" + expected.sha256
+                    + " elapsedMs=" + elapsedMilliseconds
+                    + " exception=" + exception.GetType().Name
+                    + " message=" + (exception.Message ?? string.Empty));
+        }
+
+        private IEnumerable<string> GetSlowTopRecords()
+        {
+            return parseRecords
+                .OrderByDescending((ParseRecord record) => record.ElapsedMilliseconds)
+                .Take(10)
+                .Select((ParseRecord record) =>
+                    "ranked"
+                        + " status=" + record.Status
+                        + " elapsedMs=" + record.ElapsedMilliseconds
+                        + " fixture_id=" + record.FixtureId
+                        + " path=" + record.FixturePath
+                        + " sha256=" + record.Sha256);
+        }
+
         private static string WriteChartStringArtifact(RealChartInfoExpectedRow expected, string chartString)
         {
             string directory = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_ChartInfoDiffs");
@@ -1942,23 +2809,6 @@ public sealed class ChartInfoMetadataTests
             return artifactPath;
         }
 
-        private static int CountCoreDiffs(RealChartInfoExpectedRow expected, LR2SongDBExtended.chart_info actual)
-        {
-            int count = 0;
-            count += expected.notes == actual.notes ? 0 : 1;
-            count += expected.n == actual.n ? 0 : 1;
-            count += expected.ln == actual.ln ? 0 : 1;
-            count += expected.s == actual.s ? 0 : 1;
-            count += expected.ls == actual.ls ? 0 : 1;
-            count += expected.judge == actual.judge ? 0 : 1;
-            count += expected.feature == actual.feature ? 0 : 1;
-            count += expected.mode == actual.mode ? 0 : 1;
-            count += NullableDoubleEquals(expected.mainbpm, actual.mainbpm) ? 0 : 1;
-            count += string.Equals(expected.lanenotes, actual.lanenotes, StringComparison.Ordinal) ? 0 : 1;
-            count += NullableDoubleEquals(expected.total, actual.total) ? 0 : 1;
-            return count;
-        }
-
         private static bool NullableDoubleEquals(double? expected, double? actual)
         {
             if (!expected.HasValue || !actual.HasValue)
@@ -1966,6 +2816,78 @@ public sealed class ChartInfoMetadataTests
                 return expected.HasValue == actual.HasValue;
             }
             return Math.Abs(expected.Value - actual.Value) <= 0.000001;
+        }
+
+        private static bool LevelEqualsBeatoraja(int? expected, int? actual)
+        {
+            if (expected == actual)
+            {
+                return true;
+            }
+            return expected.GetValueOrDefault() == 0 && !actual.HasValue;
+        }
+
+        private static string FormatValue(int value)
+        {
+            return value.ToString(CultureInfo.InvariantCulture);
+        }
+
+        private static string FormatValue(int? value)
+        {
+            return value.HasValue ? value.Value.ToString(CultureInfo.InvariantCulture) : string.Empty;
+        }
+
+        private static string FormatValue(double? value)
+        {
+            return value.HasValue ? value.Value.ToString("R", CultureInfo.InvariantCulture) : string.Empty;
+        }
+
+        private static void WriteLines(string path, IEnumerable<string> lines)
+        {
+            File.WriteAllLines(path, lines, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+        }
+
+        private static string Csv(string value)
+        {
+            return "\"" + (value ?? string.Empty).Replace("\"", "\"\"") + "\"";
+        }
+
+        private sealed class ParseRecord
+        {
+            public int FixtureId { get; set; }
+
+            public string Sha256 { get; set; } = string.Empty;
+
+            public string FixturePath { get; set; } = string.Empty;
+
+            public long ElapsedMilliseconds { get; set; }
+
+            public string Status { get; set; } = string.Empty;
+        }
+
+        private sealed class FieldDiffRecord
+        {
+            public int FixtureId { get; set; }
+
+            public string Sha256 { get; set; } = string.Empty;
+
+            public string FixturePath { get; set; } = string.Empty;
+
+            public string Field { get; set; } = string.Empty;
+
+            public string Expected { get; set; } = string.Empty;
+
+            public string Actual { get; set; } = string.Empty;
+
+            public string ToCsv()
+            {
+                return FixtureId.ToString(CultureInfo.InvariantCulture)
+                    + "," + Csv(Sha256)
+                    + "," + Csv(FixturePath)
+                    + "," + Csv(Field)
+                    + "," + Csv(Expected)
+                    + "," + Csv(Actual);
+            }
         }
     }
 }

@@ -497,7 +497,7 @@ internal sealed class BmsonInfo
     public double InitBpm { get; set; }
 
     [JsonProperty("level")]
-    public double? Level { get; set; } = 0.0;
+    public int? Level { get; set; }
 
     [JsonProperty("back_image")]
     public string BackImage { get; set; } = string.Empty;
@@ -512,7 +512,7 @@ internal sealed class BmsonInfo
     public string PreviewMusic { get; set; } = string.Empty;
 
     [JsonProperty("resolution")]
-    public double Resolution { get; set; } = 240.0;
+    public int Resolution { get; set; } = 240;
 
     [JsonProperty("ln_type")]
     public int LnType { get; set; }
@@ -529,14 +529,13 @@ internal sealed class BmsonInfo
         Subartists ??= Array.Empty<string>();
         ModeHint ??= "beat-7k";
         ChartName ??= string.Empty;
-        Level ??= 0.0;
         BackImage ??= string.Empty;
         EyecatchImage ??= string.Empty;
         BannerImage ??= string.Empty;
         PreviewMusic ??= string.Empty;
         if (Resolution <= 0)
         {
-            Resolution = 240.0;
+            Resolution = 240;
         }
     }
 }

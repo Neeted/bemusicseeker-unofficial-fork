@@ -1,0 +1,43 @@
+
+*---------------------- HEADER FIELD
+
+#PLAYER 1
+#GENRE ‚¨‚â‚¶
+#TITLE ‚¨‚â‚¶ƒMƒƒƒO
+#ARTIST ‚¨‚â‚¶ƒMƒƒƒOƒ}ƒ“
+#BPM 100
+#PLAYLEVEL 1
+#RANK 1
+#TOTAL 70
+#STAGEFILE 
+
+#WAV02 imananndo.wav
+#WAV03 apendo.wav
+#WAV04 dyuhuhu.wav
+#WAV05 v_foon.wav
+
+#BMP01 foon.bmp
+#BMP02 oyazi.bmp
+
+
+#BPM01 1200
+
+
+#DIFFICULTY 5
+
+
+
+*---------------------- MAIN DATA FIELD
+
+#00003:C8
+#00004:02
+
+#00103:64
+#00108:0000000000000001
+#00111:02
+#00113:0000000000000004
+#00119:0003
+
+#00204:0000000000010000
+#00216:0000000000050000
+

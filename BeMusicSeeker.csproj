@@ -20,6 +20,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Remove="BeMusicSeeker.Tests\**\*.cs" />
+    <Compile Remove="tools\**\*.cs" />
     <None Remove="BeMusicSeeker.Tests\**\*" />
   </ItemGroup>
   <ItemGroup>

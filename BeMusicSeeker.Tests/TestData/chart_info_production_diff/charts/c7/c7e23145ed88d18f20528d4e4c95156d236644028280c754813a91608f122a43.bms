@@ -1,0 +1,84 @@
+
+*---------------------- HEADER FIELD
+#PLAYER 2
+#GENRE PS GAME
+#TITLE Armored Core Free Battle 01
+#ARTIST Ahera
+#BPM 100
+#PLAYLEVEL 0
+#RANK 3
+#VOLWAV 100
+
+#WAV01 acw1.wav
+#WAV02 acw2.wav
+#WAV03 acw3.wav
+#WAV04 acw4.wav
+#WAV05 acw5.wav
+#WAV06 acw6.wav
+#WAV07 acw7.wav
+#WAV08 acw8.wav
+#WAV09 acwch.wav
+#WAV0A acb.wav
+#WAV0B acb-s.wav
+#WAV0C acb-l.wav
+#WAV0D acstep1.wav
+#WAV0E acstep2.wav
+#WAV0F acstep3.wav
+#WAV10 aclock1.wav
+#WAV11 aclock2.wav
+#WAV12 aclock3s.wav
+#WAV13 aclock3l.wav
+#WAV14 acd1.wav
+#WAV15 acd2.wav
+#WAV16 acd3.wav
+#WAV17 acd4.wav
+#WAV18 acgene.wav
+#WAV19 acls99-f.wav
+#WAV1A acls99ml.wav
+#WAV1B acdoor1.wav
+#WAV1C acdoor2.wav
+#WAV1D acdoor3.wav
+#WAV1E acpush.wav
+#WAV20 accpus01.wav
+#WAV21 accpus02.wav
+#WAV22 accpus01u.wav
+#WAV23 accpus02u.wav
+#WAV90 acppbg011.wav
+#WAV91 acppbg012.wav
+#WAV92 acppbg013.wav
+#WAV93 acppbg014.wav
+#WAV94 acppbg015.wav
+#WAV95 acppbg016.wav
+
+#BMP00 ac00.bmp
+#BMP01 ac01.bmp
+#BMP02 ac02.bmp
+
+
+*---------------------- MAIN DATA FIELD
+#00016:00000020
+#00026:00000022
+#00004:02
+#00002:2.0
+#00104:01
+#00131:01
+#00132:02
+#00133:08
+#00134:04
+#00135:05
+#00136:07
+#00141:19
+#00142:0d
+#00143:10
+#00144:0c
+#00145:09
+#00146:15
+#00301:90
+#00303:97
+#01901:91
+#03701:92
+#05301:93
+#07816:00000000000000000000000000000021
+#07826:00000000000000000000000000000023
+#07836:0000000000000007
+#07846:0000000000000015

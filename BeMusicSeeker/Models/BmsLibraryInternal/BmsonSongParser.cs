@@ -30,7 +30,7 @@ internal static class BmsonSongParser
             subtitle = ComposeSubtitle(info.Subtitle, info.ChartName),
             artist = ComposeArtist(info.Artist, info.Subartists ?? Array.Empty<string>()),
             genre = info.Genre ?? string.Empty,
-            level = info.Level,
+            level = info.Level.HasValue ? (double?)info.Level.Value : null,
             mode_hint = info.ModeHint ?? string.Empty,
             md5 = ComputeHash(fullPath, MD5.Create()),
             sha256 = BMSFile.GetSHA256Hash(fullPath),

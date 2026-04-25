@@ -166,7 +166,7 @@ internal sealed class ChartInfoBuildService
                 foreach (QueuedChartBytes item in queue.GetConsumingEnumerable())
                 {
                     Stopwatch parseStopwatch = Stopwatch.StartNew();
-                    ChartInfoBuildItemResult itemResult = ParseQueuedItem(item, existingRows, logInstallPerformanceWarn, parseTimeout);
+                    ChartInfoBuildItemResult itemResult = ParseQueuedItem(item, existingRows, logInstallPerformance, logInstallPerformanceWarn, parseTimeout);
                     parseStopwatch.Stop();
                     Interlocked.Add(ref parseTicks, parseStopwatch.ElapsedTicks);
                     itemResult.ParseMs = parseStopwatch.ElapsedMilliseconds;
@@ -232,6 +232,7 @@ internal sealed class ChartInfoBuildService
     private ChartInfoBuildItemResult ParseQueuedItem(
         QueuedChartBytes item,
         IDictionary<string, LR2SongDBExtended.chart_info> existingRows,
+        Action<string> logInstallPerformance,
         Action<string> logInstallPerformanceWarn,
         TimeSpan parseTimeout)
     {
@@ -244,7 +245,9 @@ internal sealed class ChartInfoBuildService
         }
         try
         {
-            LR2SongDBExtended.chart_info row = ChartInfoParser.ParseBytesDetailed(item.Bytes, target.Path, md5, sha256, target.EncodingName, parseTimeout).Row;
+            ChartInfoParser.ChartInfoParseResult parseResult = ChartInfoParser.ParseBytesDetailed(item.Bytes, target.Path, md5, sha256, target.EncodingName, parseTimeout);
+            LogParseDiagnostics(logInstallPerformance, target, md5, sha256, parseResult.Diagnostics);
+            LR2SongDBExtended.chart_info row = parseResult.Row;
             return new ChartInfoBuildItemResult(target, sha256, row, reusedExistingRow: false, parseFailed: false);
         }
         catch (Exception ex)
@@ -432,6 +435,27 @@ internal sealed class ChartInfoBuildService
                 + " md5=" + QuoteLogValue(record.Md5)
                 + " sha256=" + QuoteLogValue(record.Sha256));
             rank++;
+        }
+    }
+
+    private static void LogParseDiagnostics(
+        Action<string> logInstallPerformance,
+        ChartInfoBuildTarget target,
+        string md5,
+        string sha256,
+        IEnumerable<ChartInfoParser.ChartInfoParseDiagnostic> diagnostics)
+    {
+        if (logInstallPerformance == null || diagnostics == null)
+        {
+            return;
+        }
+        foreach (ChartInfoParser.ChartInfoParseDiagnostic diagnostic in diagnostics)
+        {
+            if (!string.Equals(diagnostic?.Code, "BMS_JAVA_INT_TIME_WRAP", StringComparison.Ordinal))
+            {
+                continue;
+            }
+            logInstallPerformance(BuildParseDiagnosticLogMessage(target, md5, sha256, diagnostic));
         }
     }
 
@@ -673,6 +697,19 @@ internal sealed class ChartInfoBuildService
             + " parserVersion=" + BmsLibraryDbGateway.CurrentChartInfoParserVersion
             + " exception=" + QuoteLogValue(ex?.GetType().Name)
             + " message=" + QuoteLogValue(ex?.Message);
+    }
+
+    private static string BuildParseDiagnosticLogMessage(ChartInfoBuildTarget target, string md5, string sha256, ChartInfoParser.ChartInfoParseDiagnostic diagnostic)
+    {
+        return "chart_info_backfill parse_diagnostic"
+            + " path=" + QuoteLogValue(target?.Path)
+            + " md5=" + QuoteLogValue(md5)
+            + " sha256=" + QuoteLogValue(sha256)
+            + " parserVersion=" + BmsLibraryDbGateway.CurrentChartInfoParserVersion
+            + " parseFailed=false"
+            + " severity=" + QuoteLogValue((diagnostic?.Severity.ToString() ?? string.Empty).ToLowerInvariant())
+            + " code=" + QuoteLogValue(diagnostic?.Code)
+            + " message=" + QuoteLogValue(diagnostic?.Message);
     }
 
     private static string QuoteLogValue(string value)

@@ -1,0 +1,48 @@
+*---------------------- HEADER FIELD
+
+#PLAYER 1
+#GENRE ambient drone
+#TITLE êØìVí‚é~ (retake)
+#ARTIST M-kani
+#BPM 120
+#PLAYLEVEL 0
+#DIFFICULTY 2
+#RANK 0
+#TOTAL 61
+#LNMODE 2
+
+*---------------------- DEFINITION FIELD
+
+#WAV01 pad_1.wav
+#WAV02 pad_2.wav
+#WAV03 pad_3.wav
+#WAV04 pad_4.wav
+#WAV05 pad_5.wav
+#WAV06 pad_6.wav
+#WAV07 pad_7.wav
+
+#BMP00 miss.jpg
+#BMP01 bgi.jpg
+
+*---------------------- MAIN DATA FIELD
+
+#00004:01
+
+#00103:23
+#00151:01
+#00152:02
+#00153:03
+#00154:04
+#00155:05
+#00158:06
+#00159:07
+
+#00903:78
+#00951:01
+#00952:02
+#00953:03
+#00954:04
+#00955:05
+#00958:06
+#00959:07
+
