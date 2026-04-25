@@ -25,6 +25,7 @@
   "Statusbar_progress_phase_maintenance": "更新維護參照",
   "Statusbar_progress_phase_score_hydration": "套用分數",
   "Statusbar_progress_phase_ranking_refresh": "更新排名",
+  "Statusbar_progress_phase_chart_info": "分析譜面中繼資料",
   "Statusbar_progress_phase_background": "背景更新中",
   "Msg_failed_remove_playlist_entry": "無法從播放清單移除譜面。\n該播放清單已設定為外部同步模式。",
   "Record_setting_encoder_dir": "執行檔目錄：",

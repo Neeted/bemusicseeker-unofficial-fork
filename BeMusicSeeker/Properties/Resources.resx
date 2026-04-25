@@ -1147,6 +1147,9 @@ BMSファイルが重複しないようにマージします。
   <data name="Statusbar_progress_phase_ranking_refresh" xml:space="preserve">
     <value>ランキング更新</value>
   </data>
+  <data name="Statusbar_progress_phase_chart_info" xml:space="preserve">
+    <value>譜面メタデータ解析</value>
+  </data>
   <data name="Statusbar_progress_phase_background" xml:space="preserve">
     <value>バックグラウンド更新中</value>
   </data>

@@ -362,6 +362,213 @@ public sealed class LR2SongDBExtended : LR2SongDB
         }
     }
 
+    /// <summary>
+    /// アプリ独自の譜面解析メタデータです。
+    /// LR2 が管理する song テーブルを変更せず、譜面内容の SHA-256 に紐づく情報を保持します。
+    /// </summary>
+    [Table("chart_info")]
+    public class chart_info : SQLiteTable<chart_info>
+    {
+        private string _sha256;
+
+        private string _md5;
+
+        private string _charthash;
+
+        /// <summary>
+        /// 譜面ファイル内容の SHA-256 です。
+        /// </summary>
+        [PrimaryKey]
+        public virtual string sha256
+        {
+            get
+            {
+                return _sha256;
+            }
+            set
+            {
+                _sha256 = NormalizeSha256(value);
+            }
+        }
+
+        /// <summary>
+        /// LR2 song.hash と照合するための MD5 です。
+        /// </summary>
+        public virtual string md5
+        {
+            get
+            {
+                return _md5;
+            }
+            set
+            {
+                if (string.IsNullOrWhiteSpace(value))
+                {
+                    _md5 = null;
+                    return;
+                }
+                if (!LR2SongDB.md5HashRegex.IsMatch(value))
+                {
+                    throw new FormatException("MD5 HASH ではありません");
+                }
+                _md5 = value.ToLowerInvariant();
+            }
+        }
+
+        /// <summary>
+        /// 譜面配置内容から算出した beatoraja 互換の chart hash です。
+        /// </summary>
+        public virtual string charthash
+        {
+            get
+            {
+                return _charthash;
+            }
+            set
+            {
+                _charthash = NormalizeSha256(value);
+            }
+        }
+
+        /// <summary>
+        /// 表記レベルです。
+        /// </summary>
+        public int? level { get; set; }
+
+        /// <summary>
+        /// 譜面難易度種別です。
+        /// </summary>
+        public int? difficulty { get; set; }
+
+        /// <summary>
+        /// ノーツ数が最も多い BPM です。
+        /// </summary>
+        public double? mainbpm { get; set; }
+
+        /// <summary>
+        /// 最大 BPM です。
+        /// </summary>
+        public double? maxbpm { get; set; }
+
+        /// <summary>
+        /// 最小 BPM です。
+        /// </summary>
+        public double? minbpm { get; set; }
+
+        /// <summary>
+        /// 譜面終端までの長さをミリ秒で保持します。
+        /// </summary>
+        public int? length { get; set; }
+
+        /// <summary>
+        /// 鍵盤数に相当するモード値です。
+        /// </summary>
+        public int? mode { get; set; }
+
+        /// <summary>
+        /// beatoraja 互換の判定幅倍率値です。
+        /// </summary>
+        public int? judge { get; set; }
+
+        /// <summary>
+        /// 譜面特徴を表す bit flag です。
+        /// </summary>
+        public int feature { get; set; }
+
+        /// <summary>
+        /// 総ノーツ数です。
+        /// </summary>
+        public int notes { get; set; }
+
+        /// <summary>
+        /// 通常鍵盤ノーツ数です。
+        /// </summary>
+        public int n { get; set; }
+
+        /// <summary>
+        /// ロング鍵盤ノーツ数です。
+        /// </summary>
+        public int ln { get; set; }
+
+        /// <summary>
+        /// 通常スクラッチノーツ数です。
+        /// </summary>
+        public int s { get; set; }
+
+        /// <summary>
+        /// ロングスクラッチノーツ数です。
+        /// </summary>
+        public int ls { get; set; }
+
+        /// <summary>
+        /// 表示・ソートに使う TOTAL 有効値です。
+        /// </summary>
+        public double? total { get; set; }
+
+        /// <summary>
+        /// TOTAL が譜面内で明示されていたかどうかです。
+        /// </summary>
+        public bool total_defined { get; set; }
+
+        /// <summary>
+        /// 平均密度です。
+        /// </summary>
+        public double? density { get; set; }
+
+        /// <summary>
+        /// 最大密度です。
+        /// </summary>
+        public double? peakdensity { get; set; }
+
+        /// <summary>
+        /// 終盤最大密度です。
+        /// </summary>
+        public double? enddensity { get; set; }
+
+        /// <summary>
+        /// beatoraja songinfo 互換のノーツ分布文字列です。
+        /// </summary>
+        public string distribution { get; set; }
+
+        /// <summary>
+        /// beatoraja songinfo 互換の変速列です。
+        /// </summary>
+        public string speedchange { get; set; }
+
+        /// <summary>
+        /// DataGrid 表示向けに保持する変速回数です。
+        /// </summary>
+        public int speedchange_count { get; set; }
+
+        /// <summary>
+        /// beatoraja songinfo 互換のレーン別ノーツ数です。
+        /// </summary>
+        public string lanenotes { get; set; }
+
+        /// <summary>
+        /// この行を生成した解析器のバージョンです。
+        /// </summary>
+        public int parser_version { get; set; }
+
+        /// <summary>
+        /// この行を最後に更新した UTC 時刻です。
+        /// </summary>
+        public DateTime updated_at { get; set; }
+
+        private static string NormalizeSha256(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return null;
+            }
+            if (value.Length != 64 || value.Any((char c) => !Uri.IsHexDigit(c)))
+            {
+                throw new FormatException("SHA256 HASH ではありません");
+            }
+            return value.ToLowerInvariant();
+        }
+    }
+
     [Table("app_schema_version")]
     public class app_schema_version : SQLiteTable<app_schema_version>
     {
@@ -584,6 +791,12 @@ public sealed class LR2SongDBExtended : LR2SongDB
 
         [Ignore]
         public List<string> bga_files { get; set; } = new List<string>();
+
+        /// <summary>
+        /// sha256 で照合した譜面解析メタデータです。
+        /// </summary>
+        [Ignore]
+        public chart_info ChartInfo { get; set; }
     }
 
     [Table("ir_score")]
@@ -778,6 +991,7 @@ public sealed class LR2SongDBExtended : LR2SongDB
         DropTable<playlist>();
         DropTable<playlist_entry>();
         DropTable<chart_digest_map>();
+        DropTable<chart_info>();
         DropTable<bmson_song>();
         DropTable<ir_score>();
         DropTable<ir_data>();

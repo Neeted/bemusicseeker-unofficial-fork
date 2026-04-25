@@ -14,6 +14,7 @@ using BeMusicSeeker.Properties;
 using Livet.EventListeners;
 using Ribbit.Threading;
 using Ribbit.Util.Extensions;
+using SQLite;
 
 namespace BeMusicSeeker.Models;
 
@@ -108,6 +109,8 @@ public class BMSFile : LR2SongDB.song
     private BMSFileMaintenanceInfo _maintenanceInfo;
 
     private string _sha256;
+
+    private LR2SongDBExtended.chart_info _chartInfo;
 
     private object lockObject = new object();
 
@@ -297,6 +300,36 @@ public class BMSFile : LR2SongDB.song
                 RaisePropertyChanged("sha256");
             }
         }
+    }
+
+    /// <summary>
+    /// sha256 で照合した譜面解析メタデータです。
+    /// song テーブルの列ではないため SQLite の永続化対象から除外します。
+    /// </summary>
+    [Ignore]
+    public virtual LR2SongDBExtended.chart_info ChartInfo
+    {
+        get
+        {
+            return _chartInfo;
+        }
+        private set
+        {
+            if (!ReferenceEquals(_chartInfo, value))
+            {
+                _chartInfo = value;
+                RaisePropertyChanged(() => ChartInfo);
+            }
+        }
+    }
+
+    /// <summary>
+    /// DB から読み込んだ、またはバックグラウンド解析で生成した譜面解析メタデータを関連付けます。
+    /// </summary>
+    /// <param name="chartInfo">関連付ける解析メタデータ。</param>
+    internal void SetChartInfo(LR2SongDBExtended.chart_info chartInfo)
+    {
+        ChartInfo = chartInfo;
     }
 
     public virtual string Title

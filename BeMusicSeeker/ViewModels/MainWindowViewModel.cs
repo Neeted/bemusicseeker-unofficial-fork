@@ -3740,7 +3740,8 @@ public class MainWindowViewModel : ViewModel
         ScoreHydrationDone = 64,
         RankingRefreshDone = 128,
         MaintenanceDeferredDone = 256,
-        ChartDigestBackfillDone = 512
+        ChartDigestBackfillDone = 512,
+        ChartInfoBackfillDone = 1024
     }
 
     /// <summary>
@@ -3771,6 +3772,8 @@ public class MainWindowViewModel : ViewModel
 
         internal int ChartDigestBackfillBaselineCompletedVersion;
 
+        internal int ChartInfoBackfillBaselineCompletedVersion;
+
         internal int RequiredPlaylistReferenceVersion;
 
         internal int RequiredExternalSyncVersion;
@@ -3779,11 +3782,19 @@ public class MainWindowViewModel : ViewModel
 
         internal int RequiredChartDigestBackfillCompletedVersion;
 
+        internal int RequiredChartInfoBackfillCompletedVersion;
+
         internal int ChartDigestBackfillTotalCount;
 
         internal int ChartDigestBackfillProcessedCount;
 
         internal string ChartDigestBackfillCurrentPath = string.Empty;
+
+        internal int ChartInfoBackfillTotalCount;
+
+        internal int ChartInfoBackfillProcessedCount;
+
+        internal string ChartInfoBackfillCurrentPath = string.Empty;
 
         internal bool CompletionHideScheduled;
 
@@ -8912,6 +8923,26 @@ public class MainWindowViewModel : ViewModel
         {
             UpdateStartupProgressChartDigestBackfillStatus(files.ChartDigestBackfillTotalCount, files.ChartDigestBackfillProcessedCount, files.ChartDigestBackfillCurrentPath);
         });
+        listenerForBMSLibrary.RegisterHandler(() => files.ChartInfoBackfillRequestedVersion, delegate
+        {
+            TrackStartupProgressChartInfoBackfillRequested(files.ChartInfoBackfillRequestedVersion);
+        });
+        listenerForBMSLibrary.RegisterHandler(() => files.ChartInfoBackfillCompletedVersion, delegate
+        {
+            TryCompleteStartupProgressChartInfoBackfill(files.ChartInfoBackfillCompletedVersion);
+        });
+        listenerForBMSLibrary.RegisterHandler(() => files.ChartInfoBackfillTotalCount, delegate
+        {
+            UpdateStartupProgressChartInfoBackfillStatus(files.ChartInfoBackfillTotalCount, files.ChartInfoBackfillProcessedCount, files.ChartInfoBackfillCurrentPath);
+        });
+        listenerForBMSLibrary.RegisterHandler(() => files.ChartInfoBackfillProcessedCount, delegate
+        {
+            UpdateStartupProgressChartInfoBackfillStatus(files.ChartInfoBackfillTotalCount, files.ChartInfoBackfillProcessedCount, files.ChartInfoBackfillCurrentPath);
+        });
+        listenerForBMSLibrary.RegisterHandler(() => files.ChartInfoBackfillCurrentPath, delegate
+        {
+            UpdateStartupProgressChartInfoBackfillStatus(files.ChartInfoBackfillTotalCount, files.ChartInfoBackfillProcessedCount, files.ChartInfoBackfillCurrentPath);
+        });
         listenerForBMSLibrary.RegisterHandler(() => files.BMSFilesNeedToBeFixed, delegate
         {
             if (treeViewFilterTypeSelected == viewUpdateMode.FileMissingFilterSelected)
@@ -11704,7 +11735,8 @@ public class MainWindowViewModel : ViewModel
             ScoreHydrationBaselineCompletedVersion = files?.ScoreHydrationCompletedVersion ?? 0,
             RankingRefreshBaselineCompletedVersion = files?.RankingRefreshCompletedVersion ?? 0,
             MaintenanceRequestedBaselineVersion = files?.MaintenanceDeferredRequestedVersion ?? 0,
-            ChartDigestBackfillBaselineCompletedVersion = files?.ChartDigestBackfillCompletedVersion ?? 0
+            ChartDigestBackfillBaselineCompletedVersion = files?.ChartDigestBackfillCompletedVersion ?? 0,
+            ChartInfoBackfillBaselineCompletedVersion = files?.ChartInfoBackfillCompletedVersion ?? 0
         };
         if (operationKind == StartupProgressOperationKind.Startup)
         {
@@ -11873,6 +11905,21 @@ public class MainWindowViewModel : ViewModel
         RecomputeStartupProgressPresentation();
     }
 
+    private void TrackStartupProgressChartInfoBackfillRequested(int requestedVersion)
+    {
+        lock (startupProgressLock)
+        {
+            if (!startupProgressState.IsActive || requestedVersion <= startupProgressState.ChartInfoBackfillBaselineCompletedVersion)
+            {
+                return;
+            }
+            startupProgressState.ExpectedPhases |= StartupProgressPhase.ChartInfoBackfillDone;
+            startupProgressState.RequiredChartInfoBackfillCompletedVersion = Math.Max(startupProgressState.RequiredChartInfoBackfillCompletedVersion, requestedVersion);
+            startupProgressState.CompletionHideScheduled = false;
+        }
+        RecomputeStartupProgressPresentation();
+    }
+
     private void UpdateStartupProgressChartDigestBackfillStatus(int totalCount, int processedCount, string currentPath)
     {
         lock (startupProgressLock)
@@ -11884,6 +11931,21 @@ public class MainWindowViewModel : ViewModel
             startupProgressState.ChartDigestBackfillTotalCount = totalCount;
             startupProgressState.ChartDigestBackfillProcessedCount = processedCount;
             startupProgressState.ChartDigestBackfillCurrentPath = currentPath ?? string.Empty;
+        }
+        RecomputeStartupProgressPresentation();
+    }
+
+    private void UpdateStartupProgressChartInfoBackfillStatus(int totalCount, int processedCount, string currentPath)
+    {
+        lock (startupProgressLock)
+        {
+            if (!startupProgressState.IsActive || (startupProgressState.ExpectedPhases & StartupProgressPhase.ChartInfoBackfillDone) == 0)
+            {
+                return;
+            }
+            startupProgressState.ChartInfoBackfillTotalCount = totalCount;
+            startupProgressState.ChartInfoBackfillProcessedCount = processedCount;
+            startupProgressState.ChartInfoBackfillCurrentPath = currentPath ?? string.Empty;
         }
         RecomputeStartupProgressPresentation();
     }
@@ -11902,6 +11964,23 @@ public class MainWindowViewModel : ViewModel
         if (shouldComplete)
         {
             MarkStartupProgressPhaseCompleted(StartupProgressPhase.ChartDigestBackfillDone);
+        }
+    }
+
+    private void TryCompleteStartupProgressChartInfoBackfill(int completedVersion)
+    {
+        bool shouldComplete = false;
+        lock (startupProgressLock)
+        {
+            if (!startupProgressState.IsActive || (startupProgressState.ExpectedPhases & StartupProgressPhase.ChartInfoBackfillDone) == 0)
+            {
+                return;
+            }
+            shouldComplete = completedVersion >= startupProgressState.RequiredChartInfoBackfillCompletedVersion;
+        }
+        if (shouldComplete)
+        {
+            MarkStartupProgressPhaseCompleted(StartupProgressPhase.ChartInfoBackfillDone);
         }
     }
 
@@ -11984,7 +12063,7 @@ public class MainWindowViewModel : ViewModel
         {
             StartupProgressState state = startupProgressState;
             isActive = state.IsActive;
-                maximum = 7.0;
+                maximum = 8.0;
             if (!isActive)
             {
                 label = string.Empty;
@@ -11998,10 +12077,11 @@ public class MainWindowViewModel : ViewModel
                 bool operableCompleted = (state.CompletedPhases & StartupProgressPhase.StartupReadyOperable) != 0;
                 bool referenceCompleted = IsStartupProgressReferencePhaseCompleted(state);
                 bool chartDigestCompleted = !IsStartupProgressPhaseExpected(state, StartupProgressPhase.ChartDigestBackfillDone) || (state.CompletedPhases & StartupProgressPhase.ChartDigestBackfillDone) != 0;
+                bool chartInfoCompleted = !IsStartupProgressPhaseExpected(state, StartupProgressPhase.ChartInfoBackfillDone) || (state.CompletedPhases & StartupProgressPhase.ChartInfoBackfillDone) != 0;
                 bool scoreCompleted = !IsStartupProgressPhaseExpected(state, StartupProgressPhase.ScoreHydrationDone) || (state.CompletedPhases & StartupProgressPhase.ScoreHydrationDone) != 0;
                 bool rankingCompleted = !IsStartupProgressPhaseExpected(state, StartupProgressPhase.RankingRefreshDone) || (state.CompletedPhases & StartupProgressPhase.RankingRefreshDone) != 0;
-                value = (libraryLoadCompleted ? 1.0 : 0.0) + (uiPrepareCompleted ? 1.0 : 0.0) + (operableCompleted ? 1.0 : 0.0) + (referenceCompleted ? 1.0 : 0.0) + (chartDigestCompleted ? 1.0 : 0.0) + (scoreCompleted ? 1.0 : 0.0) + (rankingCompleted ? 1.0 : 0.0);
-                bool operationCompleted = !state.IsFailed && operableCompleted && referenceCompleted && chartDigestCompleted && scoreCompleted && rankingCompleted;
+                value = (libraryLoadCompleted ? 1.0 : 0.0) + (uiPrepareCompleted ? 1.0 : 0.0) + (operableCompleted ? 1.0 : 0.0) + (referenceCompleted ? 1.0 : 0.0) + (chartDigestCompleted ? 1.0 : 0.0) + (chartInfoCompleted ? 1.0 : 0.0) + (scoreCompleted ? 1.0 : 0.0) + (rankingCompleted ? 1.0 : 0.0);
+                bool operationCompleted = !state.IsFailed && operableCompleted && referenceCompleted && chartDigestCompleted && chartInfoCompleted && scoreCompleted && rankingCompleted;
                 if (state.IsFailed)
                 {
                     label = GetStartupProgressFailedLabel(state.OperationKind);
@@ -12135,6 +12215,11 @@ public class MainWindowViewModel : ViewModel
         {
             string fileName = string.IsNullOrWhiteSpace(state.ChartDigestBackfillCurrentPath) ? string.Empty : Path.GetFileName(state.ChartDigestBackfillCurrentPath);
             return "SHA-256 生成 [" + state.ChartDigestBackfillProcessedCount + "/" + state.ChartDigestBackfillTotalCount + "] " + fileName;
+        }
+        if (!IsStartupProgressPhaseCompletedOrNotExpected(state, StartupProgressPhase.ChartInfoBackfillDone))
+        {
+            string fileName = string.IsNullOrWhiteSpace(state.ChartInfoBackfillCurrentPath) ? string.Empty : Path.GetFileName(state.ChartInfoBackfillCurrentPath);
+            return BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_chart_info + " [" + state.ChartInfoBackfillProcessedCount + "/" + state.ChartInfoBackfillTotalCount + "] " + fileName;
         }
         if (!IsStartupProgressLibraryLoadCompleted(state))
         {

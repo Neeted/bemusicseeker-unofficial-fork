@@ -173,6 +173,14 @@ public class BMSLibrary : NotificationObject
         }
     }
 
+    private static void LogInstallPerformanceWarn(string message)
+    {
+        if (installPerformanceLoggingEnabled)
+        {
+            installPerformanceLogger.Warn(message);
+        }
+    }
+
     /// <summary>
     /// Everything 全件走査のログを出力します。パフォーマンスロギングが有効な場合のみ動作します。
     /// </summary>
@@ -765,7 +773,7 @@ public class BMSLibrary : NotificationObject
 
     private readonly object lockDeferredInstallableMaintenance = new object();
 
-    private readonly object lockChartDigestBackfill = new object();
+    private readonly object lockChartInfoBackfill = new object();
 
     private readonly object lockScoreSnapshot = new object();
 
@@ -777,9 +785,9 @@ public class BMSLibrary : NotificationObject
 
     private PlaylistSummaryOwnedHashSnapshot playlistSummaryOwnedHashSnapshot;
 
-    private int chartDigestBackfillRequestedVersion;
+    private int chartInfoBackfillRequestedVersion;
 
-    private int chartDigestBackfillCompletedVersion;
+    private int chartInfoBackfillCompletedVersion;
 
     private readonly object lockDeferredScoreHydration = new object();
 
@@ -876,6 +884,18 @@ public class BMSLibrary : NotificationObject
     private int _ChartDigestBackfillProcessedCount;
 
     private string _ChartDigestBackfillCurrentPath = string.Empty;
+
+    private bool _ChartInfoBackfillRunning;
+
+    private int _ChartInfoBackfillRequestedVersion;
+
+    private int _ChartInfoBackfillCompletedVersion;
+
+    private int _ChartInfoBackfillTotalCount;
+
+    private int _ChartInfoBackfillProcessedCount;
+
+    private string _ChartInfoBackfillCurrentPath = string.Empty;
 
     private bool _IsWriteLockHeldInitializeBMSFilesHealthStatus = true;
 
@@ -1531,6 +1551,121 @@ public class BMSLibrary : NotificationObject
         }
     }
 
+    /// <summary>
+    /// chart_info のバックグラウンド構築が実行中かどうかです。
+    /// </summary>
+    public bool ChartInfoBackfillRunning
+    {
+        get
+        {
+            return _ChartInfoBackfillRunning;
+        }
+        private set
+        {
+            if (_ChartInfoBackfillRunning != value)
+            {
+                _ChartInfoBackfillRunning = value;
+                RaisePropertyChanged(() => ChartInfoBackfillRunning);
+            }
+        }
+    }
+
+    /// <summary>
+    /// chart_info 構築要求の版数です。
+    /// </summary>
+    public int ChartInfoBackfillRequestedVersion
+    {
+        get
+        {
+            return _ChartInfoBackfillRequestedVersion;
+        }
+        private set
+        {
+            if (_ChartInfoBackfillRequestedVersion != value)
+            {
+                _ChartInfoBackfillRequestedVersion = value;
+                RaisePropertyChanged(() => ChartInfoBackfillRequestedVersion);
+            }
+        }
+    }
+
+    /// <summary>
+    /// 最後に完了した chart_info 構築要求の版数です。
+    /// </summary>
+    public int ChartInfoBackfillCompletedVersion
+    {
+        get
+        {
+            return _ChartInfoBackfillCompletedVersion;
+        }
+        private set
+        {
+            if (_ChartInfoBackfillCompletedVersion != value)
+            {
+                _ChartInfoBackfillCompletedVersion = value;
+                RaisePropertyChanged(() => ChartInfoBackfillCompletedVersion);
+            }
+        }
+    }
+
+    /// <summary>
+    /// chart_info 構築対象の総件数です。
+    /// </summary>
+    public int ChartInfoBackfillTotalCount
+    {
+        get
+        {
+            return _ChartInfoBackfillTotalCount;
+        }
+        private set
+        {
+            if (_ChartInfoBackfillTotalCount != value)
+            {
+                _ChartInfoBackfillTotalCount = value;
+                RaisePropertyChanged(() => ChartInfoBackfillTotalCount);
+            }
+        }
+    }
+
+    /// <summary>
+    /// chart_info 構築済み件数です。
+    /// </summary>
+    public int ChartInfoBackfillProcessedCount
+    {
+        get
+        {
+            return _ChartInfoBackfillProcessedCount;
+        }
+        private set
+        {
+            if (_ChartInfoBackfillProcessedCount != value)
+            {
+                _ChartInfoBackfillProcessedCount = value;
+                RaisePropertyChanged(() => ChartInfoBackfillProcessedCount);
+            }
+        }
+    }
+
+    /// <summary>
+    /// chart_info 構築中の譜面パスです。
+    /// </summary>
+    public string ChartInfoBackfillCurrentPath
+    {
+        get
+        {
+            return _ChartInfoBackfillCurrentPath;
+        }
+        private set
+        {
+            value = value ?? string.Empty;
+            if (_ChartInfoBackfillCurrentPath != value)
+            {
+                _ChartInfoBackfillCurrentPath = value;
+                RaisePropertyChanged(() => ChartInfoBackfillCurrentPath);
+            }
+        }
+    }
+
     public bool IsWriteLockHeldInitializeAll
     {
         get
@@ -1662,6 +1797,8 @@ public class BMSLibrary : NotificationObject
     private readonly BmsLibraryIrService irService = new BmsLibraryIrService();
 
     private readonly BmsLibraryInitializationService initializationService = new BmsLibraryInitializationService();
+
+    private readonly ChartInfoBuildService chartInfoBuildService = new ChartInfoBuildService();
 
     private readonly IBmsLibraryIrClient irClient = new BmsLibraryIrClient();
 
@@ -1848,6 +1985,7 @@ public class BMSLibrary : NotificationObject
             lR2SongDBExtended.CreateTable<LR2SongDBExtended.ir_data>();
             lR2SongDBExtended.CreateIndex("song_idx_folder", SQLiteTable<LR2SongDB.song>.GetTableName(), new string[1] { SQLiteTable<LR2SongDB.song>.GetColumnName((LR2SongDB.song e) => e.folder) });
             lR2SongDBExtended.CreateIndex("ir_data_idx", SQLiteTable<LR2SongDBExtended.ir_data>.GetTableName(), new string[1] { SQLiteTable<LR2SongDBExtended.ir_data>.GetColumnName((LR2SongDBExtended.ir_data e) => e.lr2id) });
+            BmsLibraryDbGateway.EnsureChartInfoSchema(lR2SongDBExtended);
         }
         listenerForRwlockBMSFilesInitializedAll = new PropertyChangedEventListener(rwlockBMSFilesInitializedAll);
         listenerForRwlockBMSFilesInitializedMin = new PropertyChangedEventListener(rwlockBMSFilesInitializedMin);
@@ -3150,6 +3288,10 @@ public class BMSLibrary : NotificationObject
         {
             ScheduleDeferredMaintenanceTableCheck(deferredMaintenanceReason);
         }
+        if (reloadScoresOnly != true)
+        {
+            QueueChartInfoBackfill(deferredMaintenanceReason);
+        }
         GC.Collect();
         NLogWrapper.DebuggerLogger?.Trace("owari: " + GC.GetTotalMemory(forceFullCollection: false));
         LogInstallPerformance("init_library phase1_min_load_ms=" + initializeResult.Phase1MinLoadMs + " phase2_scan_maint_ms=" + initializeResult.Phase2ScanMaintMs + " phase3_install_maintenance_ms=" + initializeResult.Phase3InstallMaintenanceMs + " wait_continuation_ms=" + initializeResult.WaitContinuationMs + " total_ms=" + initializeResult.TotalMs + " maintenance_tbl_check_deferred=" + scheduleDeferredMaintenanceTableCheck.ToString().ToLowerInvariant() + " set_maintenance_enabled=" + setMaintenanceInfo.ToString().ToLowerInvariant());
@@ -3358,59 +3500,116 @@ public class BMSLibrary : NotificationObject
 
     private void RunChartDigestBackfill()
     {
-        bool needsBmsonSchemaMigration = !dbGateway.IsBmsonAppSchemaCurrent();
-        if (!needsBmsonSchemaMigration)
-        {
-            ChartDigestBackfillRunning = false;
-            ChartDigestBackfillCurrentPath = string.Empty;
-            return;
-        }
-        int requestVersion;
-        lock (lockChartDigestBackfill)
-        {
-            chartDigestBackfillRequestedVersion++;
-            requestVersion = chartDigestBackfillRequestedVersion;
-        }
-        ChartDigestBackfillRequestedVersion = requestVersion;
-        ChartDigestBackfillRunning = true;
         ChartDigestBackfillTotalCount = 0;
         ChartDigestBackfillProcessedCount = 0;
         ChartDigestBackfillCurrentPath = string.Empty;
-        List<BMSFile> filesSnapshot;
-        using (rwlockBMSFiles.GetReaderGuard())
+        ChartDigestBackfillRunning = false;
+        LogInstallPerformance("chart_digest_backfill skipped reason=combined_chart_info_pipeline");
+    }
+
+    /// <summary>
+    /// chart_info の不足分構築をバックグラウンドへ要求します。
+    /// </summary>
+    /// <param name="reason">ログに残す要求理由。</param>
+    private void QueueChartInfoBackfill(string reason)
+    {
+        int requestVersion;
+        bool shouldStartWorker = false;
+        lock (lockChartInfoBackfill)
         {
-            filesSnapshot = (BMSFiles ?? new List<BMSFile>()).Where((BMSFile file) => file != null).ToList();
+            chartInfoBackfillRequestedVersion++;
+            requestVersion = chartInfoBackfillRequestedVersion;
+            if (!ChartInfoBackfillRunning)
+            {
+                shouldStartWorker = true;
+                ChartInfoBackfillRunning = true;
+            }
         }
-        try
+        ChartInfoBackfillRequestedVersion = requestVersion;
+        ChartInfoBackfillTotalCount = 0;
+        ChartInfoBackfillProcessedCount = 0;
+        ChartInfoBackfillCurrentPath = string.Empty;
+        LogInstallPerformance("chart_info_backfill queue reason=" + (reason ?? "unknown") + " version=" + requestVersion);
+        if (shouldStartWorker)
         {
-            ChartDigestBackfillResult result = initializationService.BackfillChartDigests(
-                dbGateway,
-                filesSnapshot,
-                delegate (int total, int processed, string currentPath)
+            Task.Run(ProcessChartInfoBackfillRequests).Logging("ProcessChartInfoBackfillRequests");
+        }
+    }
+
+    /// <summary>
+    /// 最新の chart_info 構築要求を処理します。
+    /// 譜面削除時も chart_info は残すため、この worker は upsert のみ行います。
+    /// </summary>
+    private void ProcessChartInfoBackfillRequests()
+    {
+        while (true)
+        {
+            int requestVersion;
+            lock (lockChartInfoBackfill)
+            {
+                requestVersion = chartInfoBackfillRequestedVersion;
+            }
+            List<BMSFile> filesSnapshot;
+            List<LR2SongDBExtended.bmson_song> bmsonSongsSnapshot;
+            using (rwlockBMSFiles.GetReaderGuard())
+            {
+                filesSnapshot = (BMSFiles ?? new List<BMSFile>()).Where((BMSFile file) => file != null).ToList();
+                bmsonSongsSnapshot = (BmsonSongs ?? new List<LR2SongDBExtended.bmson_song>()).Where((LR2SongDBExtended.bmson_song song) => song != null).ToList();
+            }
+            bool completedLatestRequest = false;
+            try
+            {
+                ChartInfoBackfillRunning = true;
+                ChartInfoBackfillTotalCount = 0;
+                ChartInfoBackfillProcessedCount = 0;
+                ChartInfoBackfillCurrentPath = string.Empty;
+                ChartInfoBackfillResult result = chartInfoBuildService.BackfillChartInfos(
+                    dbGateway,
+                    filesSnapshot,
+                    bmsonSongsSnapshot,
+                    delegate (int total, int processed, string currentPath)
+                    {
+                        ChartInfoBackfillTotalCount = total;
+                        ChartInfoBackfillProcessedCount = processed;
+                        ChartInfoBackfillCurrentPath = currentPath ?? string.Empty;
+                    },
+                    LogInstallPerformance,
+                    LogInstallPerformanceWarn);
+                if (result.DigestFailedCount <= 0)
                 {
-                    ChartDigestBackfillTotalCount = total;
-                    ChartDigestBackfillProcessedCount = processed;
-                    ChartDigestBackfillCurrentPath = currentPath ?? string.Empty;
-                },
-                LogInstallPerformance);
-            if (result.FailedCount <= 0)
-            {
-                dbGateway.MarkBmsonAppSchemaCurrent();
+                    dbGateway.MarkBmsonAppSchemaCurrent();
+                }
+                if (result.DigestBackfilledCount > 0)
+                {
+                    lock (lockPlaylistSummaryOwnedHashSnapshot)
+                    {
+                        playlistSummaryOwnedHashSnapshot = null;
+                    }
+                }
+                LogInstallPerformance("chart_info_backfill done version=" + requestVersion + " total=" + result.TargetCount + " success=" + result.BackfilledCount + " failed=" + result.FailedCount + " digestBackfilled=" + result.DigestBackfilledCount + " digestFailed=" + result.DigestFailedCount);
             }
-            lock (lockPlaylistSummaryOwnedHashSnapshot)
+            catch (Exception ex)
             {
-                playlistSummaryOwnedHashSnapshot = null;
+                LogInstallPerformance("chart_info_backfill failed version=" + requestVersion + " message=" + ex.Message);
             }
-        }
-        finally
-        {
-            lock (lockChartDigestBackfill)
+            finally
             {
-                chartDigestBackfillCompletedVersion = requestVersion;
+                ChartInfoBackfillCurrentPath = string.Empty;
+                ChartInfoBackfillCompletedVersion = requestVersion;
+                lock (lockChartInfoBackfill)
+                {
+                    chartInfoBackfillCompletedVersion = requestVersion;
+                    if (requestVersion == chartInfoBackfillRequestedVersion)
+                    {
+                        ChartInfoBackfillRunning = false;
+                        completedLatestRequest = true;
+                    }
+                }
             }
-            ChartDigestBackfillCurrentPath = string.Empty;
-            ChartDigestBackfillCompletedVersion = requestVersion;
-            ChartDigestBackfillRunning = false;
+            if (completedLatestRequest)
+            {
+                return;
+            }
         }
     }
 

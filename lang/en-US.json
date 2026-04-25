@@ -25,6 +25,7 @@
   "Statusbar_progress_phase_maintenance": "Refreshing Maintenance",
   "Statusbar_progress_phase_score_hydration": "Applying Scores",
   "Statusbar_progress_phase_ranking_refresh": "Refreshing Rankings",
+  "Statusbar_progress_phase_chart_info": "Analyzing Chart Metadata",
   "Statusbar_progress_phase_background": "Background updates running",
   "Msg_failed_remove_playlist_entry": "Failed to remove the song from the playlist.\nThe playlist is set to the external synchronization mode.",
   "Record_setting_encoder_dir": "Exe file dir: ",

@@ -164,6 +164,34 @@ internal sealed class BmsLibraryInitializationService
         }
         stopwatchChartDigestApply.Stop();
         result.ChartDigestApplyMs = stopwatchChartDigestApply.ElapsedMilliseconds;
+
+        Stopwatch stopwatchChartInfoMapLoad = Stopwatch.StartNew();
+        Dictionary<string, LR2SongDBExtended.chart_info> chartInfoMap = dbGateway.LoadChartInfoMap();
+        stopwatchChartInfoMapLoad.Stop();
+        result.ChartInfoMapLoadMs = stopwatchChartInfoMapLoad.ElapsedMilliseconds;
+        foreach (KeyValuePair<string, LR2SongDBExtended.chart_info> item in chartInfoMap)
+        {
+            result.ChartInfoMap[item.Key] = item.Value;
+        }
+
+        Stopwatch stopwatchChartInfoApply = Stopwatch.StartNew();
+        foreach (BMSFile item in loadedSongs)
+        {
+            if ((deletedFileSet == null || !deletedFileSet.Contains(item)) && !string.IsNullOrWhiteSpace(item.sha256) && result.ChartInfoMap.TryGetValue(item.sha256, out LR2SongDBExtended.chart_info chartInfo))
+            {
+                item.SetChartInfo(chartInfo);
+            }
+        }
+        foreach (LR2SongDBExtended.bmson_song item in result.LoadedBmsonSongs)
+        {
+            if (!string.IsNullOrWhiteSpace(item.sha256) && result.ChartInfoMap.TryGetValue(item.sha256, out LR2SongDBExtended.chart_info chartInfo))
+            {
+                item.ChartInfo = chartInfo;
+            }
+        }
+        stopwatchChartInfoApply.Stop();
+        result.ChartInfoApplyMs = stopwatchChartInfoApply.ElapsedMilliseconds;
+
         Stopwatch stopwatchMaintenanceApply = Stopwatch.StartNew();
         foreach (BMSFile item in loadedSongs)
         {
@@ -204,6 +232,8 @@ internal sealed class BmsLibraryInitializationService
             + " maintenance_count_ms=" + result.MaintenanceCountMs
             + " maintenance_materialize_ms=" + result.MaintenanceMaterializeMs
             + " maintenance_count=" + result.MaintenanceTableCount
+            + " chart_info_read_ms=" + result.ChartInfoMapLoadMs
+            + " chart_info_apply_ms=" + result.ChartInfoApplyMs
             + " folder_read_ms=" + result.FolderTableLoadMs
             + " db_write_required=" + result.DbWriteRequired.ToString().ToLowerInvariant()
             + " db_write_ms=" + result.DbWriteMs);

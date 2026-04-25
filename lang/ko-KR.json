@@ -25,6 +25,7 @@
   "Statusbar_progress_phase_maintenance": "유지보수 참조 갱신",
   "Statusbar_progress_phase_score_hydration": "스코어 반영",
   "Statusbar_progress_phase_ranking_refresh": "랭킹 갱신",
+  "Statusbar_progress_phase_chart_info": "패턴 메타데이터 분석",
   "Statusbar_progress_phase_background": "백그라운드 갱신 중",
   "Msg_failed_remove_playlist_entry": "재생 목록에서 채보를 제거하지 못했습니다.\n해당 재생 목록이 외부 동기화 모드로 설정되어 있습니다.",
   "Record_setting_encoder_dir": "실행 파일 경로: ",

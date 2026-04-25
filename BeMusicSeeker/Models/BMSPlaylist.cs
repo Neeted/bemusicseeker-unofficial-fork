@@ -2159,11 +2159,7 @@ public partial class BMSPlaylist : NotificationObject
                             {
                                 using (rwlockBMSTables.GetWriterGuard())
                                 {
-                                    int index = BMSTables.IndexOf(table);
-                                    if (index >= 0)
-                                    {
-                                        BMSTables[index] = newTable;
-                                    }
+                                    ReplaceBMSTableInCollection(table, newTable);
                                     lock (lockObject)
                                     {
                                         updatedTables.Add(newTable);
@@ -2241,7 +2237,7 @@ public partial class BMSPlaylist : NotificationObject
             long num2 = (long)TimeSpan.FromTicks(Interlocked.Read(ref updateCallbacksTicks)).TotalMilliseconds;
             long num3 = (long)TimeSpan.FromTicks(Interlocked.Read(ref updateCommitTicks)).TotalMilliseconds;
             LogPlaylistPerformance("playlist_update update_external_sync_ms=" + num + " update_callbacks_ms=" + num2 + " update_commit_ms=" + num3 + " table_count=" + tableSnapshot.Count + " updated_count=" + updatedTables.Count + " total_ms=" + stopwatchUpdateTablesTotal.ElapsedMilliseconds);
-            if (reloadExtPlaylist)
+            if (reloadExtPlaylist && Settings.Default.EnablePlaylistUrlCompletion)
             {
                 SchedulePlaylistUrlCompletionRefresh("UpdateBMSTablesInternalAsync");
             }
@@ -2251,6 +2247,38 @@ public partial class BMSPlaylist : NotificationObject
         {
             IsPlaylistUpdating = false;
         }
+    }
+
+    private void ReplaceBMSTableInCollection(BMSTable oldTable, BMSTable newTable)
+    {
+        DispatcherCollection<BMSTable> tables = BMSTables;
+        if (tables == null)
+        {
+            return;
+        }
+
+        void ReplaceCore()
+        {
+            int index = tables.IndexOf(oldTable);
+            if (index >= 0)
+            {
+                tables[index] = newTable;
+            }
+        }
+
+        if (tables.Dispatcher == null || tables.Dispatcher.CheckAccess())
+        {
+            ReplaceCore();
+            return;
+        }
+
+        tables.Dispatcher.BeginInvoke(new Action(delegate
+        {
+            using (rwlockBMSTables.GetWriterGuard())
+            {
+                ReplaceCore();
+            }
+        }));
     }
 
     /// <summary>

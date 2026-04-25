@@ -6,6 +6,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Properties;
 using Livet;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using System.Windows.Threading;
@@ -63,6 +64,8 @@ public sealed class BmsPlaylistUpdateTests
     [TestCategory("Playlist")]
     public async Task UpdateBmsTablesInternalAsync_PassesOldAndNewEntrySnapshotsToCallback()
     {
+        bool previousEnablePlaylistUrlCompletion = Settings.Default.EnablePlaylistUrlCompletion;
+        Settings.Default.EnablePlaylistUrlCompletion = false;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
@@ -72,7 +75,7 @@ public sealed class BmsPlaylistUpdateTests
             File.WriteAllBytes(headerJsonPath, CreateUtf8BomBytes("{\r\n\"name\":\"SnapshotTable\",\r\n\"symbol\":\"S\",\r\n\"data_url\":\"./score.json\",\r\n\"level_order\":[1]\r\n}"));
             File.WriteAllBytes(scoreJsonPath, CreateUtf8BomBytes("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"sha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"title\":\"Snapshot Song\",\"artist\":\"Artist\",\"level\":\"1\"}]"));
 
-            string songDbPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "TestData", "song_snapshot", "song.db");
+            string songDbPath = CreateTempSongDbPath(tempDirectory);
             BMSPlaylist playlist = new BMSPlaylist(songDbPath);
             BMSTable table = await playlist.LoadExternalTableAsync(new Uri(headerJsonPath));
             table.EnableExternalSync();
@@ -100,6 +103,7 @@ public sealed class BmsPlaylistUpdateTests
         }
         finally
         {
+            Settings.Default.EnablePlaylistUrlCompletion = previousEnablePlaylistUrlCompletion;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -111,6 +115,8 @@ public sealed class BmsPlaylistUpdateTests
     [TestCategory("Playlist")]
     public async Task UpdateBmsTablesInternalAsync_ReportsPlaylistSyncProgressSnapshots()
     {
+        bool previousEnablePlaylistUrlCompletion = Settings.Default.EnablePlaylistUrlCompletion;
+        Settings.Default.EnablePlaylistUrlCompletion = false;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
@@ -120,7 +126,7 @@ public sealed class BmsPlaylistUpdateTests
             File.WriteAllBytes(headerJsonPath, CreateUtf8BomBytes("{\r\n\"name\":\"ProgressTable\",\r\n\"symbol\":\"P\",\r\n\"data_url\":\"./score.json\",\r\n\"level_order\":[1]\r\n}"));
             File.WriteAllBytes(scoreJsonPath, CreateUtf8BomBytes("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Progress Song\",\"artist\":\"Artist\",\"level\":\"1\"}]"));
 
-            string songDbPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "TestData", "song_snapshot", "song.db");
+            string songDbPath = CreateTempSongDbPath(tempDirectory);
             BMSPlaylist playlist = new BMSPlaylist(songDbPath);
             BMSTable table = await playlist.LoadExternalTableAsync(new Uri(headerJsonPath));
             table.EnableExternalSync();
@@ -141,6 +147,7 @@ public sealed class BmsPlaylistUpdateTests
         }
         finally
         {
+            Settings.Default.EnablePlaylistUrlCompletion = previousEnablePlaylistUrlCompletion;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -151,5 +158,13 @@ public sealed class BmsPlaylistUpdateTests
     private static byte[] CreateUtf8BomBytes(string text)
     {
         return Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(text)).ToArray();
+    }
+
+    private static string CreateTempSongDbPath(string tempDirectory)
+    {
+        string sourceSongDbPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "TestData", "song_snapshot", "song.db");
+        string tempSongDbPath = Path.Combine(tempDirectory, "song.db");
+        File.Copy(sourceSongDbPath, tempSongDbPath, overwrite: true);
+        return tempSongDbPath;
     }
 }

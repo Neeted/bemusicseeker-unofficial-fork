@@ -30,6 +30,7 @@
   "Statusbar_progress_phase_maintenance": "保守参照更新",
   "Statusbar_progress_phase_score_hydration": "スコア反映",
   "Statusbar_progress_phase_ranking_refresh": "ランキング更新",
+  "Statusbar_progress_phase_chart_info": "譜面メタデータ解析",
   "Statusbar_progress_phase_background": "バックグラウンド更新中",
   "Msg_failed_remove_playlist_entry": "プレイリストが外部同期モードになっているため\nエントリーを削除することが出来ません。",
   "Record_setting_encoder_dir": "実行ファイル検索先: ",

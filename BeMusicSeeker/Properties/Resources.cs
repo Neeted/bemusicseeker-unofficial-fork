@@ -295,6 +295,8 @@ public class Resources
 
     public static string Statusbar_progress_phase_ranking_refresh => ResourceManager.GetString("Statusbar_progress_phase_ranking_refresh", resourceCulture);
 
+    public static string Statusbar_progress_phase_chart_info => ResourceManager.GetString("Statusbar_progress_phase_chart_info", resourceCulture);
+
     public static string Statusbar_progress_phase_background => ResourceManager.GetString("Statusbar_progress_phase_background", resourceCulture);
 
     public static string Install => ResourceManager.GetString("Install", resourceCulture);

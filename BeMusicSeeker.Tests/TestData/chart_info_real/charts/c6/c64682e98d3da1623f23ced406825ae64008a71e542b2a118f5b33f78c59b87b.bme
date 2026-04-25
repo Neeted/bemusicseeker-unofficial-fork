@@ -1,0 +1,34 @@
+
+*---------------------- HEADER FIELD
+
+#PLAYER 1
+#GENRE RENAISSANCE
+#TITLE AAAA -game ver.-
+#ARTIST D.J.êÛìc
+#BPM 20516
+#PLAYLEVEL 1
+#RANK 0
+#TOTAL 100
+#STAGEFILE title.bmp
+
+#WAV11 iku1.wav
+#WAV19 v_foon.wav
+
+#BMP00 miss.bmp
+#BMP21 asd.bmp
+#POORBGA 1
+
+#BANNER banner.bmp
+#COMMENT "asso-"
+#TEXT00 "üØí∞"
+#TEXT01 "I am a pen."
+
+
+
+*---------------------- MAIN DATA FIELD
+
+#00099:01
+#00004:21
+
+#01019:11
+#99911:19

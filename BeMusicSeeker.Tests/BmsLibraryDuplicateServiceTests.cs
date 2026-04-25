@@ -102,7 +102,12 @@ public sealed class BmsLibraryDuplicateServiceTests
             BMSLibrary library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
             library.BMSFilesDuplicated = new List<DuplicateGroup>
             {
-                new DuplicateGroup(new List<BMSFile>(), new List<string> { @"C:\BMS\DirA" })
+                new DuplicateGroup(
+                    new List<BMSFile>
+                    {
+                        CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", @"C:\BMS\DirA\a.bms")
+                    },
+                    new List<string> { @"C:\BMS\DirA" })
             };
 
             library.BmsonSongs = new List<LR2SongDBExtended.bmson_song>
@@ -258,6 +263,7 @@ public sealed class BmsLibraryDuplicateServiceTests
             Directory.CreateDirectory(dstDir);
             File.WriteAllText(srcChartPath, "{}");
             File.WriteAllText(dstChartPath, "{}");
+            string duplicateHash = BmsonSongParser.Parse(srcChartPath).md5;
             try
             {
                 BMSLibrary library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
@@ -266,14 +272,14 @@ public sealed class BmsLibraryDuplicateServiceTests
                     path = srcChartPath,
                     folder = srcDir,
                     title = "src duplicate",
-                    md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                    md5 = duplicateHash
                 };
                 LR2SongDBExtended.bmson_song destinationSong = new LR2SongDBExtended.bmson_song
                 {
                     path = dstChartPath,
                     folder = dstDir,
                     title = "dst duplicate",
-                    md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                    md5 = duplicateHash
                 };
                 library.BmsonSongs = new List<LR2SongDBExtended.bmson_song> { sourceSong, destinationSong };
                 using (LR2SongDBExtended songDb = new LR2SongDBExtended(songDbPath))
@@ -374,12 +380,38 @@ public sealed class BmsLibraryDuplicateServiceTests
 
         public void MoveFile(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null!)
         {
-            throw new System.NotSupportedException();
+            string destinationDirectory = Path.GetDirectoryName(destinationPath);
+            if (!string.IsNullOrWhiteSpace(destinationDirectory))
+            {
+                Directory.CreateDirectory(destinationDirectory);
+            }
+            if (File.Exists(destinationPath))
+            {
+                if (!overwrite)
+                {
+                    throw new IOException("Destination file already exists.");
+                }
+                File.Delete(destinationPath);
+            }
+            File.Move(sourcePath, destinationPath);
         }
 
         public void MoveDirectory(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null!)
         {
-            throw new System.NotSupportedException();
+            string destinationParent = Path.GetDirectoryName(destinationPath);
+            if (!string.IsNullOrWhiteSpace(destinationParent))
+            {
+                Directory.CreateDirectory(destinationParent);
+            }
+            if (Directory.Exists(destinationPath))
+            {
+                if (!overwrite)
+                {
+                    throw new IOException("Destination directory already exists.");
+                }
+                Directory.Delete(destinationPath, recursive: true);
+            }
+            Directory.Move(sourcePath, destinationPath);
         }
 
         public void DeleteFileDirect(string filePath, FileMutationOptions options = null!)

@@ -42,6 +42,15 @@
     <None Update="TestData\archives\*">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
+    <None Update="TestData\chart_info_real\expected.db">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="TestData\chart_info_real\manifest.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="TestData\chart_info_real\charts\**\*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
     <None Include="..\libs\SevenZipExtractor.dll">
       <Link>libs\SevenZipExtractor.dll</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
