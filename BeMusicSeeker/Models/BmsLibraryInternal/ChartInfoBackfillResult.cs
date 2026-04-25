@@ -54,6 +54,11 @@ internal sealed class ChartInfoBackfillResult
     public int ParseFailedCount { get; set; }
 
     /// <summary>
+    /// 解析 timeout により chart_info を生成できなかった譜面数です。
+    /// </summary>
+    public int TimeoutFailedCount { get; set; }
+
+    /// <summary>
     /// 解析に失敗した譜面パスです。
     /// </summary>
     public List<string> FailedPaths { get; } = new List<string>();
@@ -74,9 +79,34 @@ internal sealed class ChartInfoBackfillResult
     public long ParseMs { get; set; }
 
     /// <summary>
+    /// 1譜面あたりの平均解析時間です。
+    /// </summary>
+    public long ParseAvgMs { get; set; }
+
+    /// <summary>
+    /// 解析時間の最大値です。
+    /// </summary>
+    public long ParseMaxMs { get; set; }
+
+    /// <summary>
+    /// 解析時間の95パーセンタイルです。
+    /// </summary>
+    public long ParseP95Ms { get; set; }
+
+    /// <summary>
     /// DB 保存に要した時間です。
     /// </summary>
     public long DbCommitMs { get; set; }
+
+    /// <summary>
+    /// DB 保存 chunk 数です。
+    /// </summary>
+    public int CommitChunks { get; set; }
+
+    /// <summary>
+    /// 最も長かった DB 保存 chunk の時間です。
+    /// </summary>
+    public long DbCommitMaxChunkMs { get; set; }
 
     /// <summary>
     /// 全体の処理時間です。

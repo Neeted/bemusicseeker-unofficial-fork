@@ -10,6 +10,34 @@ using BeMusicSeeker.Properties;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
+/// <summary>
+/// chart_info backfill 中に補完した MD5/SHA-256 対応です。
+/// BMSFile へ SHA-256 を反映する前に DB へ保存できるよう、所有オブジェクトとは分離しています。
+/// </summary>
+internal sealed class ChartDigestBackfillEntry
+{
+    /// <summary>
+    /// 保存する digest 対応を作成します。
+    /// </summary>
+    /// <param name="md5">LR2 song.hash と対応する MD5。</param>
+    /// <param name="sha256">譜面ファイル全体の SHA-256。</param>
+    public ChartDigestBackfillEntry(string md5, string sha256)
+    {
+        Md5 = md5 ?? string.Empty;
+        Sha256 = sha256 ?? string.Empty;
+    }
+
+    /// <summary>
+    /// LR2 song.hash と対応する MD5 です。
+    /// </summary>
+    public string Md5 { get; }
+
+    /// <summary>
+    /// 譜面ファイル全体の SHA-256 です。
+    /// </summary>
+    public string Sha256 { get; }
+}
+
 internal sealed class BmsLibraryDbGateway
 {
     internal const string BmsonAppSchemaVersionName = "bmson_app_schema";
@@ -53,9 +81,17 @@ internal sealed class BmsLibraryDbGateway
             throw new ArgumentNullException(nameof(action));
         }
         using LR2SongDBExtended songDb = OpenSongDb();
-        songDb.BeginTransaction();
-        action(songDb);
-        songDb.Commit();
+        string savepoint = songDb.SaveTransactionPoint();
+        try
+        {
+            action(songDb);
+            songDb.Commit();
+        }
+        catch (Exception)
+        {
+            songDb.RollbackTo(savepoint);
+            throw;
+        }
     }
 
     public void DeleteInstallRows(IEnumerable<string> installPaths)
@@ -370,6 +406,62 @@ internal sealed class BmsLibraryDbGateway
         ExecuteSongDbTransaction(delegate (LR2SongDBExtended songDb)
         {
             EnsureChartInfoSchema(songDb);
+            foreach (LR2SongDBExtended.chart_info row in sourceRows)
+            {
+                songDb.InsertOrReplace(row, typeof(LR2SongDBExtended.chart_info));
+            }
+        });
+    }
+
+    /// <summary>
+    /// chart_info backfill で使う app 独自 table を一度に準備します。
+    /// chunk commit ごとに schema repair を繰り返さないため、backfill 開始時に呼びます。
+    /// </summary>
+    public void EnsureChartInfoBackfillSchema()
+    {
+        using LR2SongDBExtended songDb = OpenSongDb();
+        string savepoint = songDb.SaveTransactionPoint();
+        try
+        {
+            EnsureBmsonSchema(songDb);
+            EnsureChartInfoSchema(songDb);
+            songDb.Commit();
+        }
+        catch (Exception)
+        {
+            songDb.RollbackTo(savepoint);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// chart_info backfill の1 chunk 分を短い transaction で保存します。
+    /// digest と chart_info をまとめて保存し、途中終了時は次回 backfill が未保存分だけを再開します。
+    /// </summary>
+    /// <param name="digestEntries">補完した MD5/SHA-256 対応。</param>
+    /// <param name="rows">保存する譜面解析メタデータ。</param>
+    public void UpsertChartInfoBackfillChunk(IEnumerable<ChartDigestBackfillEntry> digestEntries, IEnumerable<LR2SongDBExtended.chart_info> rows)
+    {
+        List<ChartDigestBackfillEntry> sourceDigestEntries = (digestEntries ?? Enumerable.Empty<ChartDigestBackfillEntry>())
+            .Where((ChartDigestBackfillEntry entry) => entry != null && !string.IsNullOrWhiteSpace(entry.Md5) && !string.IsNullOrWhiteSpace(entry.Sha256))
+            .ToList();
+        List<LR2SongDBExtended.chart_info> sourceRows = (rows ?? Enumerable.Empty<LR2SongDBExtended.chart_info>())
+            .Where((LR2SongDBExtended.chart_info row) => row != null && !string.IsNullOrWhiteSpace(row.sha256))
+            .ToList();
+        if (sourceDigestEntries.Count == 0 && sourceRows.Count == 0)
+        {
+            return;
+        }
+        ExecuteSongDbTransaction(delegate (LR2SongDBExtended songDb)
+        {
+            foreach (ChartDigestBackfillEntry entry in sourceDigestEntries)
+            {
+                songDb.InsertOrReplace(new LR2SongDBExtended.chart_digest_map
+                {
+                    md5 = entry.Md5,
+                    sha256 = entry.Sha256
+                }, typeof(LR2SongDBExtended.chart_digest_map));
+            }
             foreach (LR2SongDBExtended.chart_info row in sourceRows)
             {
                 songDb.InsertOrReplace(row, typeof(LR2SongDBExtended.chart_info));

@@ -32,10 +32,19 @@ public class SQLiteConnectionEx : SQLiteConnection
 				ExceptionDispatchInfo.Capture(ex).Throw();
 			};
 		}
-		RetryHelper.RetryIfError(onAction, onError, delegate
+		Action retryDelay = delegate
 		{
 			Thread.Sleep(1000);
-		}, (Exception ex) => ex is SQLiteException ex2 && (ex2.Result == SQLite3.Result.Busy || ex2.Result == SQLite3.Result.Locked));
+		};
+		Func<Exception, bool> retryCondition = (Exception ex) => ex is SQLiteException ex2 && (ex2.Result == SQLite3.Result.Busy || ex2.Result == SQLite3.Result.Locked);
+		if (maxRetryCount.HasValue)
+		{
+			RetryHelper.RetryIfError(onAction, onError, retryDelay, retryCondition, maxRetryCount.Value);
+		}
+		else
+		{
+			RetryHelper.RetryIfError(onAction, onError, retryDelay, retryCondition);
+		}
 	}
 
 	public new int Delete<T>(object primaryKey)

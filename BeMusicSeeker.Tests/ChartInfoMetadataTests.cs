@@ -1087,7 +1087,7 @@ public sealed class ChartInfoMetadataTests
             Assert.AreEqual(0, result.BackfilledCount);
             Assert.IsFalse(string.IsNullOrWhiteSpace(file.sha256));
             Assert.IsTrue(logs.Count >= 2);
-            StringAssert.StartsWith(logs[0], "WARN chart_info_backfill parse_failed");
+            Assert.IsTrue(logs.Any((string message) => message.StartsWith("WARN chart_info_backfill parse_failed", StringComparison.Ordinal)));
             StringAssert.StartsWith(logs[logs.Count - 1], "INFO chart_info_backfill total=");
             using LR2SongDBExtended verify = new LR2SongDBExtended(songDbPath);
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_digest_map WHERE md5 = '" + file.hash + "' AND sha256 = '" + file.sha256 + "';"));
@@ -1126,9 +1126,138 @@ public sealed class ChartInfoMetadataTests
             Assert.AreEqual(0, result.ParseFailedCount);
             Assert.AreEqual(1, result.FailedCount);
             Assert.IsTrue(logs.Count >= 2);
-            StringAssert.StartsWith(logs[0], "WARN chart_info_backfill read_failed");
+            Assert.IsTrue(logs.Any((string message) => message.StartsWith("WARN chart_info_backfill read_failed", StringComparison.Ordinal)));
             StringAssert.StartsWith(logs[logs.Count - 1], "INFO chart_info_backfill total=");
         });
+    }
+
+    [TestMethod]
+    public void ParseBytesDetailed_ZeroTimeoutThrowsDedicatedTimeout()
+    {
+        string text = "#PLAYER 1\r\n#BPM 120\r\n#00111:01\r\n";
+        byte[] bytes = Encoding.ASCII.GetBytes(text);
+
+        ChartInfoParser.ChartInfoParseTimeoutException ex = Assert.ThrowsException<ChartInfoParser.ChartInfoParseTimeoutException>(delegate
+        {
+            ChartInfoParser.ParseBytesDetailed(bytes, ".bms", new string('a', 32), new string('b', 64), null, TimeSpan.Zero);
+        });
+
+        StringAssert.Contains(ex.Message, "timed out");
+    }
+
+    [TestMethod]
+    public void BackfillChartInfos_TimeoutStillPersistsDigest()
+    {
+        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        {
+            string chartPath = Path.Combine(tempRootPath, "timeout.bms");
+            File.WriteAllText(chartPath, "#PLAYER 1\r\n#BPM 120\r\n#00111:01\r\n", Encoding.ASCII);
+            BMSFile digest = BMSFile.CreateBMSFileFromFile(chartPath);
+            TestableBmsFile file = new TestableBmsFile
+            {
+                path = chartPath
+            };
+            file.SetHash(digest.hash);
+            BmsLibraryDbGateway gateway = new BmsLibraryDbGateway(songDbPath);
+            ChartInfoBuildService service = new ChartInfoBuildService(File.ReadAllBytes, workerCountOverride: 1, commitChunkSizeOverride: 2, parseTimeoutOverride: TimeSpan.Zero);
+            List<string> logs = new List<string>();
+
+            ChartInfoBackfillResult result = service.BackfillChartInfos(
+                gateway,
+                new[] { file },
+                Array.Empty<LR2SongDBExtended.bmson_song>(),
+                null,
+                (string message) => logs.Add("INFO " + message),
+                (string message) => logs.Add("WARN " + message));
+
+            Assert.AreEqual(1, result.TargetCount);
+            Assert.AreEqual(1, result.ParseFailedCount);
+            Assert.AreEqual(1, result.TimeoutFailedCount);
+            Assert.AreEqual(1, result.FailedCount);
+            Assert.AreEqual(1, result.DigestBackfilledCount);
+            Assert.AreEqual(0, result.BackfilledCount);
+            Assert.IsFalse(string.IsNullOrWhiteSpace(file.sha256));
+            Assert.IsTrue(logs.Any((string message) => message.Contains("exception=\"ChartInfoParseTimeoutException\"")));
+            using LR2SongDBExtended verify = new LR2SongDBExtended(songDbPath);
+            Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_digest_map WHERE md5 = '" + file.hash + "' AND sha256 = '" + file.sha256 + "';"));
+            Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info;"));
+        });
+    }
+
+    [TestMethod]
+    public void BackfillChartInfos_CommitsInChunksAndLogsPhaseBoundaries()
+    {
+        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        {
+            List<TestableBmsFile> files = new List<TestableBmsFile>();
+            for (int index = 0; index < 5; index++)
+            {
+                string chartPath = Path.Combine(tempRootPath, "chunk-" + index.ToString(CultureInfo.InvariantCulture) + ".bms");
+                File.WriteAllText(
+                    chartPath,
+                    "#PLAYER 1\r\n#TITLE chunk " + index.ToString(CultureInfo.InvariantCulture) + "\r\n#BPM " + (120 + index).ToString(CultureInfo.InvariantCulture) + "\r\n#00111:01\r\n",
+                    Encoding.ASCII);
+                BMSFile digest = BMSFile.CreateBMSFileFromFile(chartPath);
+                TestableBmsFile file = new TestableBmsFile
+                {
+                    path = chartPath
+                };
+                file.SetHash(digest.hash);
+                files.Add(file);
+            }
+            BmsLibraryDbGateway gateway = new BmsLibraryDbGateway(songDbPath);
+            ChartInfoBuildService service = new ChartInfoBuildService(File.ReadAllBytes, workerCountOverride: 2, commitChunkSizeOverride: 2);
+            List<string> logs = new List<string>();
+
+            ChartInfoBackfillResult result = service.BackfillChartInfos(
+                gateway,
+                files,
+                Array.Empty<LR2SongDBExtended.bmson_song>(),
+                null,
+                (string message) => logs.Add("INFO " + message),
+                (string message) => logs.Add("WARN " + message));
+
+            Assert.AreEqual(5, result.TargetCount);
+            Assert.AreEqual(5, result.ProcessedCount);
+            Assert.AreEqual(5, result.DigestBackfilledCount);
+            Assert.AreEqual(5, result.BackfilledCount);
+            Assert.AreEqual(3, result.CommitChunks);
+            Assert.AreEqual(3, logs.Count((string message) => message.StartsWith("INFO chart_info_backfill db_commit_chunk_done", StringComparison.Ordinal)));
+            Assert.IsTrue(logs.Any((string message) => message.StartsWith("INFO chart_info_backfill start", StringComparison.Ordinal)));
+            Assert.IsTrue(logs.Any((string message) => message.StartsWith("INFO chart_info_backfill parse_done", StringComparison.Ordinal)));
+            Assert.IsTrue(logs.Any((string message) => message.StartsWith("INFO chart_info_backfill slow_parse_top", StringComparison.Ordinal)));
+            using LR2SongDBExtended verify = new LR2SongDBExtended(songDbPath);
+            Assert.AreEqual(5L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_digest_map;"));
+            Assert.AreEqual(5L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info;"));
+        });
+    }
+
+    [TestMethod]
+    public void RetryIfLockedOrBusy_RespectsMaxRetryCount()
+    {
+        int attempts = 0;
+
+        Assert.ThrowsException<SQLiteException>(delegate
+        {
+            SQLiteConnectionEx.RetryIfLockedOrBusy(delegate
+            {
+                attempts++;
+                throw CreateSQLiteException(SQLite3.Result.Busy, "busy");
+            }, null, 0u);
+        });
+
+        Assert.AreEqual(1, attempts);
+    }
+
+    private static SQLiteException CreateSQLiteException(SQLite3.Result result, string message)
+    {
+        System.Reflection.ConstructorInfo constructor = typeof(SQLiteException).GetConstructor(
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic,
+            null,
+            new[] { typeof(SQLite3.Result), typeof(string) },
+            null);
+        Assert.IsNotNull(constructor, "SQLiteException internal constructor was not found.");
+        return (SQLiteException)constructor.Invoke(new object[] { result, message });
     }
 
     private static long CountChartInfoRows(string songDbPath, string sha256)
