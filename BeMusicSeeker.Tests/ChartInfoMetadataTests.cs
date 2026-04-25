@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -260,6 +261,28 @@ public sealed class ChartInfoMetadataTests
     }
 
     [TestMethod]
+    public void ParseBms_InitialBpmIsIncludedInMinMaxBpmEvenWhenMeasureZeroChangesBpm()
+    {
+        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        {
+            string chartPath = Path.Combine(tempRootPath, "measure-zero-bpm.bms");
+            File.WriteAllText(
+                chartPath,
+                "#BPM 160\r\n"
+                    + "#BPMB4 180\r\n"
+                    + "#00003:B4\r\n"
+                    + "#00111:01\r\n",
+                Encoding.ASCII);
+
+            LR2SongDBExtended.chart_info row = ChartInfoParser.Parse(chartPath);
+
+            Assert.AreEqual(160.0, row.minbpm.GetValueOrDefault(), 0.0001);
+            Assert.AreEqual(180.0, row.maxbpm.GetValueOrDefault(), 0.0001);
+            Assert.AreEqual(180.0, row.mainbpm.GetValueOrDefault(), 0.0001);
+        });
+    }
+
+    [TestMethod]
     public void ParseBms_RandomFixture_UsesStableSelectedBranchOne()
     {
         WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
@@ -407,9 +430,10 @@ public sealed class ChartInfoMetadataTests
             Assert.IsTrue(File.Exists(chartPath), "Missing real chart fixture: " + expected.fixture_path);
 
             LR2SongDBExtended.chart_info actual = ChartInfoParser.Parse(chartPath, expected.md5, expected.sha256);
-            LR2SongDBExtended.chart_info fromBytes = ChartInfoParser.ParseBytes(File.ReadAllBytes(chartPath), chartPath, expected.md5, expected.sha256);
+            ChartInfoParser.ChartInfoParseResult fromBytesResult = ChartInfoParser.ParseBytesDetailed(File.ReadAllBytes(chartPath), chartPath, expected.md5, expected.sha256);
+            LR2SongDBExtended.chart_info fromBytes = fromBytesResult.Row;
             AssertChartInfoEquivalent(actual, fromBytes);
-            diffs.Add(expected, actual);
+            diffs.Add(expected, actual, fromBytesResult.ChartString);
         }
 
         Assert.AreEqual(0, diffs.CoreDiffs, diffs.ToString());
@@ -419,8 +443,49 @@ public sealed class ChartInfoMetadataTests
         Assert.IsTrue(diffs.DistributionDiffs <= 400, diffs.ToString());
         Assert.IsTrue(diffs.SpeedChangeDiffs <= 180, diffs.ToString());
         Assert.IsTrue(diffs.LengthDiffs <= 130, diffs.ToString());
-        Assert.IsTrue(diffs.ChartHashDiffs <= 700, diffs.ToString());
-        Assert.IsTrue(diffs.BpmIntegerDiffs <= 1, diffs.ToString());
+        Assert.AreEqual(0, diffs.ChartHashDiffs, diffs.ToString());
+        Assert.AreEqual(0, diffs.BpmIntegerDiffs, diffs.ToString());
+    }
+
+    [TestMethod]
+    [TestCategory("CompatibilityTool")]
+    [Microsoft.VisualStudio.TestTools.UnitTesting.Ignore("Manual smoke check for local JDK/reference repos. Normal dotnet test must not depend on Java.")]
+    public void ChartStringDumpTool_BuildsAndDumpsReferenceChartString()
+    {
+        string repoRoot = FindRepoRoot();
+        string scriptPath = Path.Combine(repoRoot, "tools", "chartstring-dump", "run.ps1");
+        string chartPath = Path.Combine(
+            repoRoot,
+            "BeMusicSeeker.Tests",
+            "TestData",
+            "chart_info_real",
+            "charts",
+            "00",
+            "00ac147d2ad720b50087e9480708c62240e2816d74bcdcf6ec22dbe7d413f2c6.bms");
+        Assert.IsTrue(File.Exists(scriptPath), "chartstring-dump run script is missing.");
+        Assert.IsTrue(File.Exists(chartPath), "chartstring-dump smoke fixture is missing.");
+
+        string powershellPath = File.Exists(@"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe")
+            ? @"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"
+            : "pwsh";
+        ProcessStartInfo startInfo = new ProcessStartInfo
+        {
+            FileName = powershellPath,
+            Arguments = "-ExecutionPolicy Bypass -File \"" + scriptPath + "\" \"" + chartPath + "\"",
+            WorkingDirectory = repoRoot,
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true
+        };
+
+        using Process process = Process.Start(startInfo) ?? throw new InvalidOperationException("Failed to start chartstring-dump.");
+        string stdout = process.StandardOutput.ReadToEnd();
+        string stderr = process.StandardError.ReadToEnd();
+        process.WaitForExit(30000);
+
+        Assert.AreEqual(0, process.ExitCode, stdout + Environment.NewLine + stderr);
+        StringAssert.Contains(stdout, "\"ok\":true");
+        StringAssert.Contains(stdout, "\"charthash\":");
     }
 
     [TestMethod]
@@ -736,6 +801,20 @@ public sealed class ChartInfoMetadataTests
         }
     }
 
+    private static string FindRepoRoot()
+    {
+        DirectoryInfo? directory = new DirectoryInfo(AppDomain.CurrentDomain.BaseDirectory);
+        while (directory != null)
+        {
+            if (File.Exists(Path.Combine(directory.FullName, "BeMusicSeeker-decomp.sln")))
+            {
+                return directory.FullName;
+            }
+            directory = directory.Parent;
+        }
+        throw new DirectoryNotFoundException("Could not find repository root.");
+    }
+
     private sealed class ColumnNameRow
     {
         public string name { get; set; } = string.Empty;
@@ -813,6 +892,8 @@ public sealed class ChartInfoMetadataTests
 
     private sealed class CompatibilityDiffCounts
     {
+        private readonly List<string> samples = new List<string>();
+
         public int CoreDiffs { get; private set; }
 
         public int ChartHashDiffs { get; private set; }
@@ -831,12 +912,13 @@ public sealed class ChartInfoMetadataTests
 
         public int BpmIntegerDiffs { get; private set; }
 
-        public void Add(RealChartInfoExpectedRow expected, LR2SongDBExtended.chart_info actual)
+        public void Add(RealChartInfoExpectedRow expected, LR2SongDBExtended.chart_info actual, string chartString)
         {
             CoreDiffs += CountCoreDiffs(expected, actual);
             if (!string.Equals(expected.charthash, actual.charthash, StringComparison.OrdinalIgnoreCase))
             {
                 ChartHashDiffs++;
+                AddSample("charthash", expected, expected.charthash, actual.charthash, chartString);
             }
             if (expected.length != actual.length)
             {
@@ -866,6 +948,12 @@ public sealed class ChartInfoMetadataTests
                 || (int)(expected.minbpm ?? 0.0) != (int)(actual.minbpm ?? 0.0))
             {
                 BpmIntegerDiffs++;
+                AddSample(
+                    "bpm",
+                    expected,
+                    (expected.minbpm ?? 0.0).ToString("R") + "/" + (expected.maxbpm ?? 0.0).ToString("R"),
+                    (actual.minbpm ?? 0.0).ToString("R") + "/" + (actual.maxbpm ?? 0.0).ToString("R"),
+                    chartString);
             }
         }
 
@@ -880,7 +968,34 @@ public sealed class ChartInfoMetadataTests
                 + " enddensity=" + EndDensityDiffs
                 + " distribution=" + DistributionDiffs
                 + " speedchange=" + SpeedChangeDiffs
-                + " bpmInteger=" + BpmIntegerDiffs;
+                + " bpmInteger=" + BpmIntegerDiffs
+                + (samples.Count == 0 ? string.Empty : " samples=" + string.Join(" | ", samples));
+        }
+
+        private void AddSample(string field, RealChartInfoExpectedRow expected, string expectedValue, string actualValue, string chartString)
+        {
+            if (samples.Count >= 5)
+            {
+                return;
+            }
+            string artifactPath = WriteChartStringArtifact(expected, chartString);
+            samples.Add(
+                field
+                    + " fixture_id=" + expected.fixture_id
+                    + " path=" + expected.fixture_path
+                    + " sha256=" + expected.sha256
+                    + " expected=" + expectedValue
+                    + " actual=" + actualValue
+                    + " chartString=" + artifactPath);
+        }
+
+        private static string WriteChartStringArtifact(RealChartInfoExpectedRow expected, string chartString)
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_ChartInfoDiffs");
+            Directory.CreateDirectory(directory);
+            string artifactPath = Path.Combine(directory, expected.sha256 + ".csharp.chart.txt");
+            File.WriteAllText(artifactPath, chartString ?? string.Empty, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+            return artifactPath;
         }
 
         private static int CountCoreDiffs(RealChartInfoExpectedRow expected, LR2SongDBExtended.chart_info actual)

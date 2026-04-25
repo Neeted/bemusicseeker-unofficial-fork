@@ -18,6 +18,8 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 /// </summary>
 internal static class ChartInfoParser
 {
+    private static readonly string[] JavaDoubleCandidateFormats = { "G15", "G16", "G17", "R" };
+
     private const int FeatureUndefinedLongNote = 1;
 
     private const int FeatureMineNote = 2;
@@ -97,17 +99,18 @@ internal static class ChartInfoParser
             : ParseBms(DecodeBms(bytes, encodingName), chartName, string.Equals(extension, ".pms", StringComparison.OrdinalIgnoreCase), diagnostics);
         model.Md5 = string.IsNullOrWhiteSpace(md5) ? ComputeHash(bytes, MD5.Create()) : md5;
         model.Sha256 = string.IsNullOrWhiteSpace(sha256) ? ComputeHash(bytes, SHA256.Create()) : sha256;
-        return new ChartInfoParseResult(BuildRow(model), diagnostics);
+        string chartString = model.ToChartString();
+        return new ChartInfoParseResult(BuildRow(model, chartString), diagnostics, chartString);
     }
 
-    private static LR2SongDBExtended.chart_info BuildRow(ChartModel model)
+    private static LR2SongDBExtended.chart_info BuildRow(ChartModel model, string chartString)
     {
         ChartStatistics statistics = ChartStatistics.Calculate(model);
         return new LR2SongDBExtended.chart_info
         {
             sha256 = model.Sha256,
             md5 = model.Md5,
-            charthash = ComputeSha256Text(model.ToChartString()),
+            charthash = ComputeSha256Text(chartString),
             level = model.Level,
             difficulty = model.Difficulty,
             mainbpm = statistics.MainBpm,
@@ -732,7 +735,20 @@ internal static class ChartInfoParser
 
     private static string FormatDouble(double value)
     {
-        string text = value.ToString("R", CultureInfo.InvariantCulture).Replace('e', 'E');
+        foreach (string format in JavaDoubleCandidateFormats)
+        {
+            string candidate = NormalizeDoubleText(value.ToString(format, CultureInfo.InvariantCulture));
+            if (DoubleRoundTrips(value, candidate))
+            {
+                return EnsureJavaDecimalPoint(candidate);
+            }
+        }
+        return EnsureJavaDecimalPoint(NormalizeDoubleText(value.ToString("R", CultureInfo.InvariantCulture)));
+    }
+
+    private static string NormalizeDoubleText(string text)
+    {
+        text = (text ?? string.Empty).Replace('e', 'E');
         int exponentIndex = text.IndexOf('E');
         if (exponentIndex >= 0)
         {
@@ -758,6 +774,17 @@ internal static class ChartInfoParser
             }
             text = mantissa + "E" + (negativeExponent ? "-" : string.Empty) + exponent;
         }
+        return text;
+    }
+
+    private static bool DoubleRoundTrips(double value, string text)
+    {
+        return double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out double parsed)
+            && BitConverter.DoubleToInt64Bits(parsed) == BitConverter.DoubleToInt64Bits(value);
+    }
+
+    private static string EnsureJavaDecimalPoint(string text)
+    {
         return text.IndexOf('.') < 0 && text.IndexOf('E') < 0 && text.IndexOf('e') < 0 ? text + ".0" : text;
     }
 
@@ -817,15 +844,18 @@ internal static class ChartInfoParser
 
     internal sealed class ChartInfoParseResult
     {
-        public ChartInfoParseResult(LR2SongDBExtended.chart_info row, IReadOnlyList<ChartInfoParseDiagnostic> diagnostics)
+        public ChartInfoParseResult(LR2SongDBExtended.chart_info row, IReadOnlyList<ChartInfoParseDiagnostic> diagnostics, string chartString)
         {
             Row = row;
             Diagnostics = diagnostics ?? Array.Empty<ChartInfoParseDiagnostic>();
+            ChartString = chartString ?? string.Empty;
         }
 
         public LR2SongDBExtended.chart_info Row { get; }
 
         public IReadOnlyList<ChartInfoParseDiagnostic> Diagnostics { get; }
+
+        public string ChartString { get; }
     }
 
     internal sealed class ChartInfoParseDiagnostic
@@ -1627,12 +1657,28 @@ internal static class ChartInfoParser
 
         public double GetMinBpm()
         {
-            return Timelines.Count == 0 ? InitialBpm : Timelines.Min((ChartTimeline timeline) => timeline.Bpm);
+            double bpm = InitialBpm;
+            foreach (ChartTimeline timeline in Timelines)
+            {
+                if (timeline.Bpm < bpm)
+                {
+                    bpm = timeline.Bpm;
+                }
+            }
+            return bpm;
         }
 
         public double GetMaxBpm()
         {
-            return Timelines.Count == 0 ? InitialBpm : Timelines.Max((ChartTimeline timeline) => timeline.Bpm);
+            double bpm = InitialBpm;
+            foreach (ChartTimeline timeline in Timelines)
+            {
+                if (timeline.Bpm > bpm)
+                {
+                    bpm = timeline.Bpm;
+                }
+            }
+            return bpm;
         }
 
         public int GetLastTimeMilliseconds()
@@ -1734,11 +1780,14 @@ internal static class ChartInfoParser
                         line.Append('1');
                         shouldWrite = true;
                     }
-                    else if (note.Kind == ChartNoteKind.Long && !note.IsEnd)
+                    else if (note.Kind == ChartNoteKind.Long)
                     {
-                        char longNoteMarker = new[] { 'l', 'L', 'C', 'H' }[Math.Max(0, Math.Min(3, note.LongType))];
-                        line.Append((long)longNoteMarker + note.AudioDurationMilliseconds);
-                        shouldWrite = true;
+                        if (!note.IsEnd)
+                        {
+                            char longNoteMarker = new[] { 'l', 'L', 'C', 'H' }[Math.Max(0, Math.Min(3, note.LongType))];
+                            line.Append((long)longNoteMarker + note.AudioDurationMilliseconds);
+                            shouldWrite = true;
+                        }
                     }
                     else if (note.Kind == ChartNoteKind.Mine)
                     {
