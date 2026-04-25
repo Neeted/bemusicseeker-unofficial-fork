@@ -775,6 +775,8 @@ public class BMSLibrary : NotificationObject
 
     private readonly object lockChartInfoBackfill = new object();
 
+    private readonly List<ChartInfoBackfillRequest> chartInfoBackfillRequests = new List<ChartInfoBackfillRequest>();
+
     private readonly object lockScoreSnapshot = new object();
 
     private ScoreSnapshot scoreSnapshot;
@@ -1910,6 +1912,45 @@ public class BMSLibrary : NotificationObject
         public InstalledDirectoryLookupResult InstalledResolution { get; set; }
 
         public InstallEstimationEvaluationData EstimationData { get; set; }
+    }
+
+    private enum ChartInfoBackfillRequestKind
+    {
+        FullSnapshot,
+        AddedCharts
+    }
+
+    private sealed class ChartInfoBackfillRequest
+    {
+        private ChartInfoBackfillRequest(
+            ChartInfoBackfillRequestKind kind,
+            string reason,
+            IEnumerable<BMSFile> bmsFiles,
+            IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs)
+        {
+            Kind = kind;
+            Reason = reason ?? "unknown";
+            BmsFiles = (bmsFiles ?? Enumerable.Empty<BMSFile>()).Where((BMSFile file) => file != null).ToList();
+            BmsonSongs = (bmsonSongs ?? Enumerable.Empty<LR2SongDBExtended.bmson_song>()).Where((LR2SongDBExtended.bmson_song song) => song != null).ToList();
+        }
+
+        public ChartInfoBackfillRequestKind Kind { get; }
+
+        public string Reason { get; }
+
+        public List<BMSFile> BmsFiles { get; }
+
+        public List<LR2SongDBExtended.bmson_song> BmsonSongs { get; }
+
+        public static ChartInfoBackfillRequest Full(string reason)
+        {
+            return new ChartInfoBackfillRequest(ChartInfoBackfillRequestKind.FullSnapshot, reason, null, null);
+        }
+
+        public static ChartInfoBackfillRequest Added(string reason, IEnumerable<BMSFile> bmsFiles, IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs)
+        {
+            return new ChartInfoBackfillRequest(ChartInfoBackfillRequestKind.AddedCharts, reason, bmsFiles, bmsonSongs);
+        }
     }
 
     /// <summary>
@@ -3513,12 +3554,38 @@ public class BMSLibrary : NotificationObject
     /// <param name="reason">ログに残す要求理由。</param>
     private void QueueChartInfoBackfill(string reason)
     {
+        QueueChartInfoBackfillRequest(ChartInfoBackfillRequest.Full(reason));
+    }
+
+    /// <summary>
+    /// 新規追加された所有譜面の chart_info 構築をバックグラウンドへ要求します。
+    /// </summary>
+    private void QueueChartInfoBackfillForAddedCharts(
+        string reason,
+        IEnumerable<BMSFile> addedBmsFiles,
+        IEnumerable<LR2SongDBExtended.bmson_song> addedBmsonSongs)
+    {
+        ChartInfoBackfillRequest request = ChartInfoBackfillRequest.Added(reason, addedBmsFiles, addedBmsonSongs);
+        if (request.BmsFiles.Count == 0 && request.BmsonSongs.Count == 0)
+        {
+            return;
+        }
+        QueueChartInfoBackfillRequest(request);
+    }
+
+    private void QueueChartInfoBackfillRequest(ChartInfoBackfillRequest request)
+    {
         int requestVersion;
         bool shouldStartWorker = false;
+        if (request == null)
+        {
+            return;
+        }
         lock (lockChartInfoBackfill)
         {
             chartInfoBackfillRequestedVersion++;
             requestVersion = chartInfoBackfillRequestedVersion;
+            chartInfoBackfillRequests.Add(request);
             if (!ChartInfoBackfillRunning)
             {
                 shouldStartWorker = true;
@@ -3529,7 +3596,12 @@ public class BMSLibrary : NotificationObject
         ChartInfoBackfillTotalCount = 0;
         ChartInfoBackfillProcessedCount = 0;
         ChartInfoBackfillCurrentPath = string.Empty;
-        LogInstallPerformance("chart_info_backfill queue reason=" + (reason ?? "unknown") + " version=" + requestVersion);
+        LogInstallPerformance("chart_info_backfill queue"
+            + " reason=" + (request.Reason ?? "unknown")
+            + " mode=" + (request.Kind == ChartInfoBackfillRequestKind.FullSnapshot ? "full" : "added")
+            + " addedBms=" + request.BmsFiles.Count
+            + " addedBmson=" + request.BmsonSongs.Count
+            + " version=" + requestVersion);
         if (shouldStartWorker)
         {
             Task.Run(ProcessChartInfoBackfillRequests).Logging("ProcessChartInfoBackfillRequests");
@@ -3545,16 +3617,28 @@ public class BMSLibrary : NotificationObject
         while (true)
         {
             int requestVersion;
+            List<ChartInfoBackfillRequest> requests;
             lock (lockChartInfoBackfill)
             {
                 requestVersion = chartInfoBackfillRequestedVersion;
+                requests = chartInfoBackfillRequests.ToList();
+                chartInfoBackfillRequests.Clear();
             }
+            bool isFullRequest = requests.Any((ChartInfoBackfillRequest request) => request.Kind == ChartInfoBackfillRequestKind.FullSnapshot);
             List<BMSFile> filesSnapshot;
             List<LR2SongDBExtended.bmson_song> bmsonSongsSnapshot;
-            using (rwlockBMSFiles.GetReaderGuard())
+            if (isFullRequest)
             {
-                filesSnapshot = (BMSFiles ?? new List<BMSFile>()).Where((BMSFile file) => file != null).ToList();
-                bmsonSongsSnapshot = (BmsonSongs ?? new List<LR2SongDBExtended.bmson_song>()).Where((LR2SongDBExtended.bmson_song song) => song != null).ToList();
+                using (rwlockBMSFiles.GetReaderGuard())
+                {
+                    filesSnapshot = (BMSFiles ?? new List<BMSFile>()).Where((BMSFile file) => file != null).ToList();
+                    bmsonSongsSnapshot = (BmsonSongs ?? new List<LR2SongDBExtended.bmson_song>()).Where((LR2SongDBExtended.bmson_song song) => song != null).ToList();
+                }
+            }
+            else
+            {
+                filesSnapshot = DistinctChartInfoBackfillBmsTargets(requests.SelectMany((ChartInfoBackfillRequest request) => request.BmsFiles));
+                bmsonSongsSnapshot = DistinctChartInfoBackfillBmsonTargets(requests.SelectMany((ChartInfoBackfillRequest request) => request.BmsonSongs));
             }
             bool completedLatestRequest = false;
             try
@@ -3563,19 +3647,28 @@ public class BMSLibrary : NotificationObject
                 ChartInfoBackfillTotalCount = 0;
                 ChartInfoBackfillProcessedCount = 0;
                 ChartInfoBackfillCurrentPath = string.Empty;
-                ChartInfoBackfillResult result = chartInfoBuildService.BackfillChartInfos(
-                    dbGateway,
-                    filesSnapshot,
-                    bmsonSongsSnapshot,
-                    delegate (int total, int processed, string currentPath)
-                    {
-                        ChartInfoBackfillTotalCount = total;
-                        ChartInfoBackfillProcessedCount = processed;
-                        ChartInfoBackfillCurrentPath = currentPath ?? string.Empty;
-                    },
-                    LogInstallPerformance,
-                    LogInstallPerformanceWarn);
-                if (result.DigestFailedCount <= 0)
+                Action<int, int, string> reportProgress = delegate (int total, int processed, string currentPath)
+                {
+                    ChartInfoBackfillTotalCount = total;
+                    ChartInfoBackfillProcessedCount = processed;
+                    ChartInfoBackfillCurrentPath = currentPath ?? string.Empty;
+                };
+                ChartInfoBackfillResult result = isFullRequest
+                    ? chartInfoBuildService.BackfillChartInfos(
+                        dbGateway,
+                        filesSnapshot,
+                        bmsonSongsSnapshot,
+                        reportProgress,
+                        LogInstallPerformance,
+                        LogInstallPerformanceWarn)
+                    : chartInfoBuildService.BackfillChartInfosForTargets(
+                        dbGateway,
+                        filesSnapshot,
+                        bmsonSongsSnapshot,
+                        reportProgress,
+                        LogInstallPerformance,
+                        LogInstallPerformanceWarn);
+                if (isFullRequest && result.DigestFailedCount <= 0)
                 {
                     dbGateway.MarkBmsonAppSchemaCurrent();
                 }
@@ -3586,7 +3679,7 @@ public class BMSLibrary : NotificationObject
                         playlistSummaryOwnedHashSnapshot = null;
                     }
                 }
-                LogInstallPerformance("chart_info_backfill done version=" + requestVersion + " total=" + result.TargetCount + " success=" + result.BackfilledCount + " failed=" + result.FailedCount + " timeoutFailed=" + result.TimeoutFailedCount + " digestBackfilled=" + result.DigestBackfilledCount + " digestFailed=" + result.DigestFailedCount);
+                LogInstallPerformance("chart_info_backfill done version=" + requestVersion + " mode=" + (isFullRequest ? "full" : "added") + " total=" + result.TargetCount + " success=" + result.BackfilledCount + " failed=" + result.FailedCount + " timeoutFailed=" + result.TimeoutFailedCount + " digestBackfilled=" + result.DigestBackfilledCount + " digestFailed=" + result.DigestFailedCount);
             }
             catch (Exception ex)
             {
@@ -3611,6 +3704,61 @@ public class BMSLibrary : NotificationObject
                 return;
             }
         }
+    }
+
+    private static List<BMSFile> DistinctChartInfoBackfillBmsTargets(IEnumerable<BMSFile> files)
+    {
+        List<BMSFile> result = new List<BMSFile>();
+        HashSet<string> seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (BMSFile file in files ?? Enumerable.Empty<BMSFile>())
+        {
+            if (file == null)
+            {
+                continue;
+            }
+            string key = BuildChartInfoBackfillTargetIdentity(file.path, file.sha256, file.hash);
+            if (seen.Add(key))
+            {
+                result.Add(file);
+            }
+        }
+        return result;
+    }
+
+    private static List<LR2SongDBExtended.bmson_song> DistinctChartInfoBackfillBmsonTargets(IEnumerable<LR2SongDBExtended.bmson_song> songs)
+    {
+        List<LR2SongDBExtended.bmson_song> result = new List<LR2SongDBExtended.bmson_song>();
+        HashSet<string> seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (LR2SongDBExtended.bmson_song song in songs ?? Enumerable.Empty<LR2SongDBExtended.bmson_song>())
+        {
+            if (song == null)
+            {
+                continue;
+            }
+            string key = BuildChartInfoBackfillTargetIdentity(song.path, song.sha256, song.md5);
+            if (seen.Add(key))
+            {
+                result.Add(song);
+            }
+        }
+        return result;
+    }
+
+    private static string BuildChartInfoBackfillTargetIdentity(string path, string sha256, string md5)
+    {
+        if (!string.IsNullOrWhiteSpace(path))
+        {
+            return "path:" + path;
+        }
+        if (!string.IsNullOrWhiteSpace(sha256))
+        {
+            return "sha256:" + sha256;
+        }
+        if (!string.IsNullOrWhiteSpace(md5))
+        {
+            return "md5:" + md5;
+        }
+        return "object:" + Guid.NewGuid().ToString("N");
     }
 
     private int CleanupMaintenanceTable()
@@ -5915,6 +6063,8 @@ public class BMSLibrary : NotificationObject
 
     private List<BMSPackage> installBMSPackages(IEnumerable<BMSPackage> bmsPackagesInstall, string installationDirectory = null, List<BMSFile> deferredMaintenanceTargets = null, List<BMSPackage> deferredInstalledPackages = null, Dictionary<BMSPackage, HashSet<string>> excludedComponentPathsByPackage = null, HashSet<string> existingHashes = null, bool skipInstalledPackageWhenNoBms = false, bool deleteSourceContentsAfterSuccessfulInstall = false)
     {
+        List<BMSFile> addedBmsFilesForChartInfo = new List<BMSFile>();
+        List<LR2SongDBExtended.bmson_song> addedBmsonSongsForChartInfo = new List<LR2SongDBExtended.bmson_song>();
         PackageInstallExecutionResult result = packageInstallService.InstallPackages(
             bmsPackagesInstall,
             installationDirectory,
@@ -5938,6 +6088,8 @@ public class BMSLibrary : NotificationObject
                 List<BMSFile> addedFiles = files.Where((BMSFile file) => file != null).ToList();
                 List<BMSFile> addedBmsFiles = addedFiles.Where(PendingChartEntry.IsBmsChartFile).ToList();
                 List<LR2SongDBExtended.bmson_song> addedBmsonSongs = BuildBmsonSongsFromChartRows(addedFiles);
+                addedBmsFilesForChartInfo.AddRange(addedBmsFiles);
+                addedBmsonSongsForChartInfo.AddRange(addedBmsonSongs);
                 HashSet<string> addedBmsPathSet = new HashSet<string>(addedBmsFiles.Select((BMSFile ff) => ff.path), StringComparer.OrdinalIgnoreCase);
                 BMSFiles = BMSFiles.Where((BMSFile f) => !addedBmsPathSet.Contains(f.path)).Concat(addedBmsFiles).ToList();
                 if (addedBmsonSongs.Count > 0)
@@ -5984,6 +6136,10 @@ public class BMSLibrary : NotificationObject
             }
         }
         LogInstallPerformance("installBMSPackages dst=" + (installationDirectory ?? "(auto)") + " packages=" + bmsPackagesInstall.Count() + " addedFiles=" + result.AddedFiles.Count + " failedPackages=" + result.FailedPackages.Count + " deleteSourceContents=" + deleteSourceContentsAfterSuccessfulInstall + " moveMs=" + result.MoveMs + " songDbMs=" + result.SongDbMs + " maintenanceMs=" + result.MaintenanceMs + " zeroNoteMs=" + result.ZeroNoteMs + " scoreMs=" + result.ScoreMs + " applyMs=" + result.ApplyMs + " totalMs=" + result.TotalMs);
+        if (deferredMaintenanceTargets == null)
+        {
+            QueueChartInfoBackfillForAddedCharts("install_package", addedBmsFilesForChartInfo, addedBmsonSongsForChartInfo);
+        }
         return result.FailedPackages;
     }
 
@@ -6014,6 +6170,39 @@ public class BMSLibrary : NotificationObject
                 };
             })
             .ToList();
+    }
+
+    private List<LR2SongDBExtended.bmson_song> ResolveAddedBmsonSongsFromInstalledPackages(IEnumerable<BMSPackage> installedPackages)
+    {
+        List<string> addedBmsonPaths = (installedPackages ?? Enumerable.Empty<BMSPackage>())
+            .Where((BMSPackage package) => package != null)
+            .SelectMany((BMSPackage package) => package.BMSFiles ?? new List<BMSFile>())
+            .Where(PendingChartEntry.IsBmsonChartFile)
+            .Select((BMSFile file) => file.path)
+            .Where((string path) => !string.IsNullOrWhiteSpace(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (addedBmsonPaths.Count == 0)
+        {
+            return new List<LR2SongDBExtended.bmson_song>();
+        }
+        Dictionary<string, LR2SongDBExtended.bmson_song> bmsonByPath = new Dictionary<string, LR2SongDBExtended.bmson_song>(StringComparer.OrdinalIgnoreCase);
+        foreach (LR2SongDBExtended.bmson_song song in BmsonSongs ?? new List<LR2SongDBExtended.bmson_song>())
+        {
+            if (song != null && !string.IsNullOrWhiteSpace(song.path))
+            {
+                bmsonByPath[song.path] = song;
+            }
+        }
+        List<LR2SongDBExtended.bmson_song> result = new List<LR2SongDBExtended.bmson_song>();
+        foreach (string path in addedBmsonPaths)
+        {
+            if (bmsonByPath.TryGetValue(path, out LR2SongDBExtended.bmson_song song))
+            {
+                result.Add(song);
+            }
+        }
+        return result;
     }
 
     /// <summary>
@@ -6714,6 +6903,10 @@ public class BMSLibrary : NotificationObject
                         {
                             setMaintenanceInfo(batchResult.DeferredMaintenanceTargets, forceUpdate: true);
                         }
+                        QueueChartInfoBackfillForAddedCharts(
+                            "install_package_estimated",
+                            batchResult.DeferredMaintenanceTargets,
+                            ResolveAddedBmsonSongsFromInstalledPackages(batchResult.DeferredInstalledPackages));
                         maintenanceStopwatch.Stop();
                         if (deletePendingPackageSourceAfterInstall && batchResult.CleanupOnlySucceeded > 0)
                         {

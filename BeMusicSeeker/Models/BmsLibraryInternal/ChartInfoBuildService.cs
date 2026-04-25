@@ -70,6 +70,53 @@ internal sealed class ChartInfoBuildService
         Action<string> logInstallPerformance = null,
         Action<string> logInstallPerformanceWarn = null)
     {
+        return BackfillChartInfosCore(
+            dbGateway,
+            currentFiles,
+            currentBmsonSongs,
+            "full",
+            reportProgress,
+            logInstallPerformance,
+            logInstallPerformanceWarn);
+    }
+
+    /// <summary>
+    /// 新規追加された譜面だけを対象に、不足または古い chart_info 行と不足している BMS SHA-256 digest を構築します。
+    /// </summary>
+    /// <param name="dbGateway">song.db へのアクセス手段。</param>
+    /// <param name="targetFiles">新規追加された BMS 譜面。</param>
+    /// <param name="targetBmsonSongs">新規追加された bmson 譜面。</param>
+    /// <param name="reportProgress">進捗通知 callback。total, processed, currentPath を渡します。</param>
+    /// <param name="logInstallPerformance">性能ログ callback。</param>
+    /// <param name="logInstallPerformanceWarn">解析を継続できない譜面を逐次 WARN 出力する callback。</param>
+    /// <returns>構築結果。</returns>
+    public ChartInfoBackfillResult BackfillChartInfosForTargets(
+        BmsLibraryDbGateway dbGateway,
+        IEnumerable<BMSFile> targetFiles,
+        IEnumerable<LR2SongDBExtended.bmson_song> targetBmsonSongs,
+        Action<int, int, string> reportProgress = null,
+        Action<string> logInstallPerformance = null,
+        Action<string> logInstallPerformanceWarn = null)
+    {
+        return BackfillChartInfosCore(
+            dbGateway,
+            targetFiles,
+            targetBmsonSongs,
+            "added",
+            reportProgress,
+            logInstallPerformance,
+            logInstallPerformanceWarn);
+    }
+
+    private ChartInfoBackfillResult BackfillChartInfosCore(
+        BmsLibraryDbGateway dbGateway,
+        IEnumerable<BMSFile> currentFiles,
+        IEnumerable<LR2SongDBExtended.bmson_song> currentBmsonSongs,
+        string mode,
+        Action<int, int, string> reportProgress,
+        Action<string> logInstallPerformance,
+        Action<string> logInstallPerformanceWarn)
+    {
         ChartInfoBackfillResult result = new ChartInfoBackfillResult();
         if (dbGateway == null)
         {
@@ -85,7 +132,7 @@ internal sealed class ChartInfoBuildService
         result.WorkerCount = ResolveWorkerCount();
         result.QueueCapacity = Math.Max(1, result.WorkerCount * 2);
         reportProgress?.Invoke(result.TargetCount, 0, string.Empty);
-        logInstallPerformance?.Invoke(BuildStartLogMessage(result, existingRows.Count, commitChunkSize, parseTimeout));
+        logInstallPerformance?.Invoke(BuildStartLogMessage(result, existingRows.Count, commitChunkSize, parseTimeout, mode));
         if (targets.Count == 0)
         {
             stopwatchTotal.Stop();
@@ -551,9 +598,10 @@ internal sealed class ChartInfoBuildService
             + " totalMs=" + result.TotalMs;
     }
 
-    private static string BuildStartLogMessage(ChartInfoBackfillResult result, int existingRowCount, int commitChunkSize, TimeSpan parseTimeout)
+    private static string BuildStartLogMessage(ChartInfoBackfillResult result, int existingRowCount, int commitChunkSize, TimeSpan parseTimeout, string mode)
     {
         return "chart_info_backfill start"
+            + " mode=" + (string.IsNullOrWhiteSpace(mode) ? "full" : mode)
             + " targets=" + result.TargetCount
             + " digestTargets=" + result.DigestTargetCount
             + " existingRows=" + existingRowCount

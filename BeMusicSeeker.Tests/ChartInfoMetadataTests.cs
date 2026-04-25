@@ -4,7 +4,10 @@ using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Text;
+using System.Threading;
+using System.Windows;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
@@ -1055,6 +1058,184 @@ public sealed class ChartInfoMetadataTests
     }
 
     [TestMethod]
+    public void BackfillChartInfosForTargets_ParsesOnlyProvidedTargets()
+    {
+        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        {
+            string targetChartPath = Path.Combine(tempRootPath, "target.bms");
+            string untouchedChartPath = Path.Combine(tempRootPath, "untouched.bms");
+            File.WriteAllText(targetChartPath, "#PLAYER 1\r\n#BPM 120\r\n#00111:01\r\n", Encoding.ASCII);
+            File.WriteAllText(untouchedChartPath, "#PLAYER 1\r\n#BPM 150\r\n#00111:01\r\n", Encoding.ASCII);
+            BMSFile targetDigest = BMSFile.CreateBMSFileFromFile(targetChartPath);
+            BMSFile untouchedDigest = BMSFile.CreateBMSFileFromFile(untouchedChartPath);
+            TestableBmsFile targetFile = new TestableBmsFile { path = targetChartPath };
+            TestableBmsFile untouchedFile = new TestableBmsFile { path = untouchedChartPath };
+            targetFile.SetHash(targetDigest.hash);
+            untouchedFile.SetHash(untouchedDigest.hash);
+            BmsLibraryDbGateway gateway = new BmsLibraryDbGateway(songDbPath);
+            Dictionary<string, int> readCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            ChartInfoBuildService service = new ChartInfoBuildService(delegate(string path)
+            {
+                readCounts[path] = readCounts.TryGetValue(path, out int count) ? count + 1 : 1;
+                return File.ReadAllBytes(path);
+            }, workerCountOverride: 1);
+            List<string> logs = new List<string>();
+
+            ChartInfoBackfillResult result = service.BackfillChartInfosForTargets(
+                gateway,
+                new[] { targetFile },
+                Array.Empty<LR2SongDBExtended.bmson_song>(),
+                null,
+                (string message) => logs.Add("INFO " + message),
+                (string message) => logs.Add("WARN " + message));
+
+            Assert.AreEqual(1, result.TargetCount);
+            Assert.AreEqual(1, result.BackfilledCount);
+            Assert.AreEqual(1, readCounts[targetChartPath]);
+            Assert.IsFalse(readCounts.ContainsKey(untouchedChartPath));
+            Assert.IsNotNull(targetFile.ChartInfo);
+            Assert.IsNull(untouchedFile.ChartInfo);
+            Assert.IsTrue(logs.Any((string message) => message.StartsWith("INFO chart_info_backfill start mode=added", StringComparison.Ordinal)));
+            using LR2SongDBExtended verify = new LR2SongDBExtended(songDbPath);
+            Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info WHERE sha256 = '" + targetFile.sha256 + "';"));
+            Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info WHERE sha256 = '" + untouchedDigest.sha256 + "';"));
+        });
+    }
+
+    [TestMethod]
+    public void BackfillChartInfosForTargets_AppliesExistingCurrentRowWithoutReading()
+    {
+        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        {
+            TestableBmsFile file = new TestableBmsFile
+            {
+                path = Path.Combine(tempRootPath, "already-current.bms")
+            };
+            file.SetHash(new string('a', 32));
+            file.SetSha256(new string('b', 64));
+            BmsLibraryDbGateway gateway = new BmsLibraryDbGateway(songDbPath);
+            LR2SongDBExtended.chart_info expected = CreateChartInfoRow(file.sha256, file.hash, parserVersion: BmsLibraryDbGateway.CurrentChartInfoParserVersion);
+            gateway.UpsertChartInfos(new[] { expected });
+            ChartInfoBuildService service = new ChartInfoBuildService(delegate
+            {
+                throw new InvalidOperationException("The existing current chart_info row should be reused.");
+            }, workerCountOverride: 1);
+
+            ChartInfoBackfillResult result = service.BackfillChartInfosForTargets(
+                gateway,
+                new[] { file },
+                Array.Empty<LR2SongDBExtended.bmson_song>());
+
+            Assert.AreEqual(0, result.TargetCount);
+            Assert.AreEqual(0, result.BackfilledCount);
+            Assert.IsNotNull(file.ChartInfo);
+            Assert.AreEqual(expected.sha256, file.ChartInfo.sha256);
+            Assert.AreEqual(expected.md5, file.ChartInfo.md5);
+        });
+    }
+
+    [TestMethod]
+    public void BackfillChartInfosForTargets_ParseFailureStillPersistsDigest()
+    {
+        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        {
+            string chartPath = Path.Combine(tempRootPath, "bad-target.bmson");
+            File.WriteAllText(chartPath, "not json", Encoding.ASCII);
+            TestableBmsFile file = new TestableBmsFile
+            {
+                path = chartPath
+            };
+            file.SetHash(new string('a', 32));
+            BmsLibraryDbGateway gateway = new BmsLibraryDbGateway(songDbPath);
+            ChartInfoBuildService service = new ChartInfoBuildService(File.ReadAllBytes, workerCountOverride: 1);
+
+            ChartInfoBackfillResult result = service.BackfillChartInfosForTargets(
+                gateway,
+                new[] { file },
+                Array.Empty<LR2SongDBExtended.bmson_song>());
+
+            Assert.AreEqual(1, result.TargetCount);
+            Assert.AreEqual(1, result.DigestBackfilledCount);
+            Assert.AreEqual(1, result.ParseFailedCount);
+            Assert.AreEqual(0, result.BackfilledCount);
+            Assert.IsFalse(string.IsNullOrWhiteSpace(file.sha256));
+            using LR2SongDBExtended verify = new LR2SongDBExtended(songDbPath);
+            Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_digest_map WHERE md5 = '" + file.hash + "' AND sha256 = '" + file.sha256 + "';"));
+            Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info;"));
+        });
+    }
+
+    [TestMethod]
+    public void InstallBMSPackages_AddsBmsAndQueuesTargetedChartInfoBackfill()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        {
+            string sourceDir = Path.Combine(tempRootPath, "SourceBms");
+            string installDir = Path.Combine(tempRootPath, "InstalledBms");
+            Directory.CreateDirectory(sourceDir);
+            Directory.CreateDirectory(installDir);
+            string sourceChartPath = Path.Combine(sourceDir, "install.bms");
+            File.WriteAllText(sourceChartPath, "#PLAYER 1\r\n#TITLE install bms\r\n#BPM 120\r\n#00111:01\r\n", Encoding.ASCII);
+            PendingChartEntry pendingChart = PendingChartEntry.CreateFromFilePath(sourceChartPath);
+            BMSPackage package = new BMSPackage(new[] { pendingChart })
+            {
+                path = sourceDir,
+                delete_parent = false
+            };
+            BMSLibrary library = new BMSLibrary(songDbPath, null, null, null, new RecordingDialogService());
+
+            InvokeInstallBmsPackages(library, new[] { package }, installDir);
+
+            Assert.IsTrue(WaitForChartInfoBackfill(library), "chart_info targeted backfill did not complete.");
+            BMSFile installedFile = library.BMSFiles.Single();
+            Assert.IsNotNull(installedFile.ChartInfo);
+            using LR2SongDBExtended verify = new LR2SongDBExtended(songDbPath);
+            Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM song WHERE path = '" + installedFile.path.Replace("'", "''") + "';"));
+            Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_digest_map WHERE md5 = '" + installedFile.hash + "' AND sha256 = '" + installedFile.sha256 + "';"));
+            Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info WHERE sha256 = '" + installedFile.sha256 + "';"));
+        });
+    }
+
+    [TestMethod]
+    public void InstallBMSPackages_AddsBmsonAndQueuesTargetedChartInfoBackfill()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        {
+            string sourceDir = Path.Combine(tempRootPath, "SourceBmson");
+            string installDir = Path.Combine(tempRootPath, "InstalledBmson");
+            Directory.CreateDirectory(sourceDir);
+            Directory.CreateDirectory(installDir);
+            string sourceChartPath = Path.Combine(sourceDir, "install.bmson");
+            File.WriteAllText(
+                sourceChartPath,
+                "{"
+                    + "\"version\":\"1.0.0\","
+                    + "\"info\":{\"title\":\"install bmson\",\"level\":1,\"mode_hint\":\"beat-7k\",\"init_bpm\":120,\"judge_rank\":100,\"total\":100,\"resolution\":240},"
+                    + "\"sound_channels\":[{\"notes\":[{\"x\":1,\"y\":0}]}]"
+                    + "}",
+                new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+            PendingChartEntry pendingChart = PendingChartEntry.CreateFromFilePath(sourceChartPath);
+            BMSPackage package = new BMSPackage(new[] { pendingChart })
+            {
+                path = sourceDir,
+                delete_parent = false
+            };
+            BMSLibrary library = new BMSLibrary(songDbPath, null, null, null, new RecordingDialogService());
+
+            InvokeInstallBmsPackages(library, new[] { package }, installDir);
+
+            Assert.IsTrue(WaitForChartInfoBackfill(library), "chart_info targeted backfill did not complete.");
+            LR2SongDBExtended.bmson_song installedSong = library.BmsonSongs.Single();
+            Assert.IsNotNull(installedSong.ChartInfo);
+            using LR2SongDBExtended verify = new LR2SongDBExtended(songDbPath);
+            Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM bmson_song WHERE path = '" + installedSong.path.Replace("'", "''") + "';"));
+            Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info WHERE sha256 = '" + installedSong.sha256 + "';"));
+        });
+    }
+
+    [TestMethod]
     public void BackfillChartInfos_ParseFailureStillPersistsDigest()
     {
         WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
@@ -1360,6 +1541,34 @@ public sealed class ChartInfoMetadataTests
         }
     }
 
+    private static void InvokeInstallBmsPackages(BMSLibrary library, IEnumerable<BMSPackage> packages, string installDirectory)
+    {
+        MethodInfo method = typeof(BMSLibrary).GetMethod("installBMSPackages", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.IsNotNull(method, "installBMSPackages method was not found.");
+        method.Invoke(
+            library,
+            new object[]
+            {
+                packages,
+                installDirectory,
+                null,
+                new List<BMSPackage>(),
+                null,
+                null,
+                false,
+                false
+            });
+    }
+
+    private static bool WaitForChartInfoBackfill(BMSLibrary library)
+    {
+        return SpinWait.SpinUntil(
+            () => library.ChartInfoBackfillRequestedVersion > 0
+                && library.ChartInfoBackfillCompletedVersion == library.ChartInfoBackfillRequestedVersion
+                && !library.ChartInfoBackfillRunning,
+            10000);
+    }
+
     private static string FindRepoRoot()
     {
         DirectoryInfo? directory = new DirectoryInfo(AppDomain.CurrentDomain.BaseDirectory);
@@ -1389,6 +1598,14 @@ public sealed class ChartInfoMetadataTests
         public void SetSha256(string value)
         {
             ApplySha256(value);
+        }
+    }
+
+    private sealed class RecordingDialogService : IBmsLibraryDialogService
+    {
+        public MessageBoxResult Show(string messageBoxText, string caption, MessageBoxButton button, MessageBoxImage icon, MessageBoxResult defaultResult = MessageBoxResult.None)
+        {
+            return defaultResult == MessageBoxResult.None ? MessageBoxResult.OK : defaultResult;
         }
     }
 
