@@ -19,8 +19,6 @@ internal static class ChartInfoParser
 {
     private static readonly ConcurrentDictionary<long, string> JavaDoubleFormatCache = new ConcurrentDictionary<long, string>();
 
-    private const int MaxMetadataTimelineSeconds = 86400;
-
     private const int FeatureUndefinedLongNote = 1;
 
     private const int FeatureMineNote = 2;
@@ -166,6 +164,7 @@ internal static class ChartInfoParser
     {
         model.Md5 = md5;
         model.Sha256 = sha256;
+        _ = model.GetLastTimeMilliseconds();
         string chartString = model.ToChartString();
         IReadOnlyList<ChartInfoParseDiagnostic> readOnlyDiagnostics = diagnostics as IReadOnlyList<ChartInfoParseDiagnostic>
             ?? (diagnostics ?? Enumerable.Empty<ChartInfoParseDiagnostic>()).ToList();
@@ -174,6 +173,7 @@ internal static class ChartInfoParser
 
     private static LR2SongDBExtended.chart_info BuildRow(ChartModel model, string chartString)
     {
+        int length = model.GetLastTimeMilliseconds();
         ChartStatistics statistics = ChartStatistics.Calculate(model);
         return new LR2SongDBExtended.chart_info
         {
@@ -185,7 +185,7 @@ internal static class ChartInfoParser
             mainbpm = statistics.MainBpm,
             maxbpm = model.GetMaxBpm(),
             minbpm = model.GetMinBpm(),
-            length = model.GetLastTimeMilliseconds(),
+            length = length,
             mode = model.DisplayMode,
             judge = model.JudgeRank,
             feature = model.GetFeatureFlags(),
@@ -1405,6 +1405,11 @@ internal static class ChartInfoParser
             : base(message)
         {
         }
+
+        public BmsRecoverableParseException(string message, Exception innerException)
+            : base(message, innerException)
+        {
+        }
     }
 
     private enum JudgeRankType
@@ -2598,7 +2603,7 @@ internal static class ChartInfoParser
             result.NormalScratchNotes = CountNotes(model, scratch: true, longNotes: false);
             result.LongScratchNotes = CountNotes(model, scratch: true, longNotes: true);
 
-            int[][] distribution = BuildDistribution(model, laneNotes, result.TotalNotes, out int borderPosition);
+            DistributionBuckets distribution = BuildDistribution(model, laneNotes, result.TotalNotes, out int borderPosition);
             result.Distribution = EncodeDistribution(distribution);
             result.LaneNotes = EncodeLaneNotes(laneNotes);
             CalculateDensity(distribution, borderPosition, result);
@@ -2635,19 +2640,27 @@ internal static class ChartInfoParser
             return count;
         }
 
-        private static int[][] BuildDistribution(ChartModel model, int[][] laneNotes, int totalNotes, out int borderPosition)
+        private static DistributionBuckets BuildDistribution(ChartModel model, int[][] laneNotes, int totalNotes, out int borderPosition)
         {
             long lastTime = model.GetLastTimeMillisecondsLong();
             long lastTimeSeconds = lastTime / 1000L;
-            if (lastTime < 0 || lastTimeSeconds > MaxMetadataTimelineSeconds)
+            if (lastTime < 0)
             {
-                throw new BmsRecoverableParseException("BMS timeline length is outside metadata range.");
+                throw new BmsRecoverableParseException("BMS timeline length is too large.");
             }
             int bucketCount = ToCheckedInt(lastTimeSeconds + 2L, "BMS distribution bucket count is too large.");
-            int[][] data = new int[bucketCount][];
-            for (int second = 0; second < data.Length; second++)
+            DistributionBuckets data;
+            try
             {
-                data[second] = new int[7];
+                data = new DistributionBuckets(bucketCount);
+            }
+            catch (OverflowException ex)
+            {
+                throw new BmsRecoverableParseException("BMS distribution bucket count is too large.", ex);
+            }
+            catch (OutOfMemoryException ex)
+            {
+                throw new BmsRecoverableParseException("BMS distribution bucket allocation failed.", ex);
             }
             int border = (int)(totalNotes * (1.0 - 100.0 / model.Total));
             borderPosition = 0;
@@ -2672,7 +2685,7 @@ internal static class ChartInfoParser
                         int endSecond = note.Pair.Owner.TimeMilliseconds / 1000;
                         for (int fillSecond = second; fillSecond <= endSecond; fillSecond++)
                         {
-                            data[fillSecond][scratch ? 1 : 4]++;
+                            data.Increment(fillSecond, scratch ? 1 : 4);
                         }
                     }
                     bool skipLongEnd = (model.LnMode == LongNoteTypeLongNote || (model.LnMode == LongNoteTypeUndefined && LntypeLongNote == 0))
@@ -2684,18 +2697,18 @@ internal static class ChartInfoParser
                     }
                     if (note.Kind == ChartNoteKind.Normal)
                     {
-                        data[second][scratch ? 2 : 5]++;
+                        data.Increment(second, scratch ? 2 : 5);
                         laneNotes[lane][0]++;
                     }
                     else if (note.Kind == ChartNoteKind.Long)
                     {
-                        data[second][scratch ? 0 : 3]++;
-                        data[second][scratch ? 1 : 4]--;
+                        data.Increment(second, scratch ? 0 : 3);
+                        data.Add(second, scratch ? 1 : 4, -1);
                         laneNotes[lane][1]++;
                     }
                     else if (note.Kind == ChartNoteKind.Mine)
                     {
-                        data[second][6]++;
+                        data.Increment(second, 6);
                         laneNotes[lane][2]++;
                     }
                     border--;
@@ -2708,15 +2721,15 @@ internal static class ChartInfoParser
             return data;
         }
 
-        private static void CalculateDensity(int[][] data, int borderPosition, ChartStatistics result)
+        private static void CalculateDensity(DistributionBuckets data, int borderPosition, ChartStatistics result)
         {
-            int threshold = data.Length > 0 ? result.TotalNotes / data.Length / 4 : 0;
+            int threshold = data.BucketCount > 0 ? result.TotalNotes / data.BucketCount / 4 : 0;
             double density = 0.0;
             double peak = 0.0;
             int count = 0;
-            for (int second = 0; second < data.Length; second++)
+            for (int second = 0; second < data.BucketCount; second++)
             {
-                int notes = data[second][0] + data[second][1] + data[second][2] + data[second][3] + data[second][4] + data[second][5];
+                int notes = data.GetPlayableNotes(second);
                 peak = Math.Max(peak, notes);
                 if (notes >= threshold)
                 {
@@ -2726,16 +2739,16 @@ internal static class ChartInfoParser
             }
             result.Density = count > 0 ? density / count : 0.0;
             result.PeakDensity = peak;
-            int window = Math.Min(5, data.Length - borderPosition - 1);
+            int window = Math.Min(5, data.BucketCount - borderPosition - 1);
             double endDensity = 0.0;
             if (window > 0)
             {
-                for (int second = Math.Max(0, borderPosition); second < data.Length - window; second++)
+                for (int second = Math.Max(0, borderPosition); second < data.BucketCount - window; second++)
                 {
                     int notes = 0;
                     for (int offset = 0; offset < window; offset++)
                     {
-                        notes += data[second + offset][0] + data[second + offset][1] + data[second + offset][2] + data[second + offset][3] + data[second + offset][4] + data[second + offset][5];
+                        notes += data.GetPlayableNotes(second + offset);
                     }
                     endDensity = Math.Max(endDensity, (double)notes / window);
                 }
@@ -2792,15 +2805,15 @@ internal static class ChartInfoParser
             result.SpeedChangeCount = speedChangeCount;
         }
 
-        private static string EncodeDistribution(int[][] values)
+        private static string EncodeDistribution(DistributionBuckets values)
         {
-            StringBuilder builder = new StringBuilder(values.Length * 14 + 1);
+            StringBuilder builder = new StringBuilder(values.BucketCount * 14 + 1);
             builder.Append('#');
-            foreach (int[] row in values)
+            for (int second = 0; second < values.BucketCount; second++)
             {
                 for (int column = 0; column < 7; column++)
                 {
-                    int value = Math.Min(row[column], 36 * 36 - 1);
+                    int value = Math.Min(values[second, column], 36 * 36 - 1);
                     int high = value / 36;
                     int low = value % 36;
                     builder.Append((char)(high >= 10 ? high - 10 + 'a' : high + '0'));
@@ -2813,6 +2826,53 @@ internal static class ChartInfoParser
         private static string EncodeLaneNotes(int[][] values)
         {
             return string.Join(",", values.SelectMany((int[] lane) => lane).Select((int value) => value.ToString(CultureInfo.InvariantCulture)));
+        }
+    }
+
+    private sealed class DistributionBuckets
+    {
+        private const int ColumnCount = 7;
+
+        private readonly int[] values;
+
+        public DistributionBuckets(int bucketCount)
+        {
+            if (bucketCount < 0)
+            {
+                throw new OverflowException("Bucket count must be non-negative.");
+            }
+            BucketCount = bucketCount;
+            values = new int[checked(bucketCount * ColumnCount)];
+        }
+
+        public int BucketCount { get; }
+
+        public int this[int second, int column] => values[GetIndex(second, column)];
+
+        public void Increment(int second, int column)
+        {
+            values[GetIndex(second, column)]++;
+        }
+
+        public void Add(int second, int column, int value)
+        {
+            values[GetIndex(second, column)] += value;
+        }
+
+        public int GetPlayableNotes(int second)
+        {
+            int offset = GetIndex(second, 0);
+            return values[offset]
+                + values[offset + 1]
+                + values[offset + 2]
+                + values[offset + 3]
+                + values[offset + 4]
+                + values[offset + 5];
+        }
+
+        private static int GetIndex(int second, int column)
+        {
+            return checked(second * ColumnCount + column);
         }
     }
 

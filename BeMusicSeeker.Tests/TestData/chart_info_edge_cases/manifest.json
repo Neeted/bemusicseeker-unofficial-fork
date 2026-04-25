@@ -67,6 +67,24 @@
       "sha256": "d19e71af75da61e048c6a2af18d4430ab972c505bf8e41fe5511751bc3729b33",
       "has_beatoraja_song": false,
       "reason": "initial_bpm_fatal_reference"
+    },
+    {
+      "md5": "5cce7a6928322b8126d276d8db918415",
+      "fixture_path": "charts/795c3568c59ddba6d5b5c757b8997d8fddf1a1046c4f0f709cf0efa684e80bae.bms",
+      "fixture_id": 8,
+      "source_path": "D:\\BMS\\0 ■OTHER\\[Hbk Akazawa／Yamajet] I will (rock you)\\iwillkill_re.bms",
+      "sha256": "795c3568c59ddba6d5b5c757b8997d8fddf1a1046c4f0f709cf0efa684e80bae",
+      "has_beatoraja_song": true,
+      "reason": "timeline_long_reference"
+    },
+    {
+      "md5": "c4ed9f01b82b8fbec2da4d348ed442ee",
+      "fixture_path": "charts/2fae03a78d2e8a7293437bfb470b4c8bcda0c077198809074b8db506029a1ef2.bme",
+      "fixture_id": 9,
+      "source_path": "D:\\BMS\\1 EVENT\\030726 LiZ vs OMT\\[455-38B] G e n g a o z o\\gengaozo_god999.bme",
+      "sha256": "2fae03a78d2e8a7293437bfb470b4c8bcda0c077198809074b8db506029a1ef2",
+      "has_beatoraja_song": true,
+      "reason": "timeline_long_reference"
     }
   ]
 }

@@ -377,6 +377,70 @@ public sealed class ChartInfoMetadataTests
     }
 
     [TestMethod]
+    public void ParseBms_TimelineLongerThanOneDayIsAllowed()
+    {
+        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        {
+            string chartPath = Path.Combine(tempRootPath, "longer-than-one-day.bms");
+            File.WriteAllText(
+                chartPath,
+                "#BPM 2.7\r\n"
+                    + "#99911:01\r\n",
+                Encoding.ASCII);
+
+            LR2SongDBExtended.chart_info row = ChartInfoParser.Parse(chartPath);
+
+            Assert.AreEqual(1, row.notes);
+            Assert.IsTrue(row.length.GetValueOrDefault() > 86400 * 1000);
+        });
+    }
+
+    [TestMethod]
+    public void ParseBms_TimelineLongerThanIntMillisecondsIsFatal()
+    {
+        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        {
+            string chartPath = Path.Combine(tempRootPath, "too-long.bms");
+            File.WriteAllText(
+                chartPath,
+                "#BPM 0.1\r\n"
+                    + "#99911:01\r\n",
+                Encoding.ASCII);
+
+            InvalidDataException ex = Assert.ThrowsException<InvalidDataException>(() => ChartInfoParser.Parse(chartPath));
+            StringAssert.Contains(ex.Message, "BMS timeline length is too large.");
+        });
+    }
+
+    [TestMethod]
+    public void ParseBms_RandomRetrySkipsTimelineLongerThanIntMilliseconds()
+    {
+        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        {
+            string chartPath = Path.Combine(tempRootPath, "random-too-long.bms");
+            File.WriteAllText(
+                chartPath,
+                "#RANDOM 2\r\n"
+                    + "#IF 1\r\n"
+                    + "#BPM 0.1\r\n"
+                    + "#99911:01\r\n"
+                    + "#ENDIF\r\n"
+                    + "#IF 2\r\n"
+                    + "#BPM 120\r\n"
+                    + "#00111:01\r\n"
+                    + "#ENDIF\r\n"
+                    + "#ENDRANDOM\r\n",
+                Encoding.ASCII);
+
+            LR2SongDBExtended.chart_info row = ChartInfoParser.Parse(chartPath);
+
+            Assert.AreEqual(1, row.notes);
+            Assert.AreEqual(2000, row.length.GetValueOrDefault());
+            Assert.IsTrue((row.feature & FeatureRandom) != 0);
+        });
+    }
+
+    [TestMethod]
     public void ParseBms_MalformedKnownCommandsAreNonFatalAndTotalUndefined()
     {
         WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
@@ -515,7 +579,7 @@ public sealed class ChartInfoMetadataTests
                 "#BPM 120\r\n"
                     + "#RANDOM 2\r\n"
                     + "#IF 1\r\n"
-                    + "#00102:100000\r\n"
+                    + "#00102:1100000\r\n"
                     + "#00211:01\r\n"
                     + "#ENDIF\r\n"
                     + "#IF 2\r\n"
@@ -732,6 +796,36 @@ public sealed class ChartInfoMetadataTests
 
     [TestMethod]
     [TestCategory("Compatibility")]
+    public void ParseRealEdgeCases_LongTimelineReferenceChartsMatchBeatoraja()
+    {
+        string fixtureRootPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "TestData", "chart_info_edge_cases");
+        string expectedDbPath = Path.Combine(fixtureRootPath, "expected.db");
+        Assert.IsTrue(File.Exists(expectedDbPath), "chart_info_edge_cases expected.db fixture is missing.");
+
+        using SQLiteConnection connection = new SQLiteConnection(expectedDbPath, SQLiteOpenFlags.ReadOnly | SQLiteOpenFlags.FullMutex, storeDateTimeAsTicks: true);
+        List<RealChartInfoExpectedRow> rows = connection.Query<RealChartInfoExpectedRow>(
+            "SELECT sc.fixture_id, sc.fixture_path, e.* "
+                + "FROM sample_chart sc "
+                + "JOIN expected_chart_info e ON e.sha256 = sc.sha256 "
+                + "WHERE sc.reason = 'timeline_long_reference' "
+                + "ORDER BY sc.fixture_id;");
+        Assert.AreEqual(2, rows.Count);
+        foreach (RealChartInfoExpectedRow expected in rows)
+        {
+            string chartPath = Path.Combine(fixtureRootPath, expected.fixture_path.Replace('/', Path.DirectorySeparatorChar));
+
+            LR2SongDBExtended.chart_info actual = ChartInfoParser.Parse(chartPath, expected.md5, expected.sha256);
+
+            Assert.AreEqual(expected.charthash, actual.charthash, expected.sha256);
+            Assert.AreEqual(expected.notes, actual.notes, expected.sha256);
+            Assert.AreEqual(expected.length, actual.length, expected.sha256);
+            Assert.AreEqual(expected.distribution, actual.distribution, expected.sha256);
+            Assert.AreEqual(expected.density.GetValueOrDefault(), actual.density.GetValueOrDefault(), 0.000001, expected.sha256);
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("Compatibility")]
     public void ParseRealEdgeCases_RandomOverflowFixturesDoNotOverflow()
     {
         string fixtureRootPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "TestData", "chart_info_edge_cases");
@@ -760,7 +854,6 @@ public sealed class ChartInfoMetadataTests
             Assert.IsTrue((actual.feature & FeatureRandom) != 0, sample.sha256);
             Assert.IsTrue(actual.notes > 0, sample.sha256);
             Assert.IsTrue(actual.length.GetValueOrDefault() >= 0, sample.sha256);
-            Assert.IsTrue(actual.length.GetValueOrDefault() <= 86400 * 1000, sample.sha256);
         }
     }
 
