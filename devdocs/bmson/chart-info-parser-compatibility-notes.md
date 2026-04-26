@@ -165,6 +165,14 @@ beatoraja `song` DB の `maxbpm` / `minbpm` は整数列として保存される
 参照実装は `selectedRandoms` 未指定の場合にランダム選択する。
 `chart_info` では stable metadata を優先するため、初回候補はすべて branch `1` とする。
 
+RANDOM feature の判定は「`#RANDOM` らしい行を見たか」ではなく、「`#RANDOM` の引数を Java `Integer.parseInt` 相当に parse でき、参照実装の `model.random` に入るか」で行う。
+
+重要な例:
+
+- `#RANDOM 4` は valid。RANDOM stack に入り、`feature & 4` が立つ。
+- `#RANDOM4` は reserve word としては拾われるが、参照実装では `line.substring(8).trim()` が空になり、`#RANDOMに数字が定義されていません` warning で終わる。`model.random` には入らないので `feature & 4` は立てない。
+- この状態で `#IF` / `#ENDIF` が続く場合も、それぞれ warning / stack mismatch 扱いであり、RANDOM 使用譜面としては扱わない。
+
 RANDOM retry:
 
 - all `1`
@@ -643,18 +651,42 @@ chart_info backfill は「単一 file reader + in-memory parallel parse + chunk 
 既存の `chart_info_production_diff` に既に含まれる譜面は重複コピーしない。
 2026-04-26 の latest report では non-RANDOM diff/missing が 7 件あり、そのうち 5 件は既存 fixture に含まれていたため、この補助 fixture には新規 2 件だけを入れている。
 
+この 2 件の charthash-only 差分は、`tools/chartstring-dump` を JDK 17 で実行すると C# parser の `ChartString` / `charthash` と一致する。
+しかし songdata-updater / beatoraja 同梱 JRE は JDK 21 であり、`D:\beatoraja\jre\bin\java.exe` で同じ dump を実行すると production DB の期待値と一致する。
+したがって production DB 側の生成経路差ではなく、JDK 17 と JDK 21 の `Double.toString(double)` 文字列表現差分として扱う。
+
+確認済み JDK 17 dump:
+
+- `f007405d0555d5e0919a4a1ff3ad7981cb8f7f47c505039905e2be2ca7b56d7c`: `e95b3b4976aa6f3b48cf726f1b490e4a4bf5a39e2010a165b9d1996df40ed8e9`
+- `4ca15478b4e2aeb23e70fac38ce8dd2782bc5a9b082b76b04f54d34ebfd5f7f4`: `3d04846a93d36a87828546b478b4181a76b6f917a9cb446b7c247dab85ff5054`
+
+確認済み JDK 21 dump / production DB reference:
+
+- `f007405d0555d5e0919a4a1ff3ad7981cb8f7f47c505039905e2be2ca7b56d7c`: `8480a10763dfb91f44dfa895b545b429f2cc6f6490458a3e6d3368c81a7cd547`
+- `4ca15478b4e2aeb23e70fac38ce8dd2782bc5a9b082b76b04f54d34ebfd5f7f4`: `745102a87afc4d87705b8b34d4501e57ea85977e497f9d476e6c4b13ee4134c1`
+
+代表的な chart string 差分:
+
+- JDK 17: `TOTAL:1.14514191981036442E18`
+- JDK 21: `TOTAL:1.1451419198103644E18`
+- JDK 17: `TOTAL:8.4929057819839846E17`
+- JDK 21: `TOTAL:8.492905781983985E17`
+
 ## 既知の残論点
 
-2026-04-26 時点で、最新 production diff fixture では非 RANDOM / 非 timeout の 755 件について:
+2026-04-26 時点で、production diff fixture では非 RANDOM / 非 timeout の 755 件について:
 
 - core 差分は 0 まで縮小済み。
 - `length`, `distribution`, `density`, `peakdensity`, `enddensity` は 0 件まで縮小済み。
 - JDK17 `Double.parseDouble` 互換 parser 適用後、`speedchange` / `charthash` も 0 件まで縮小済み。
+- 最新 production DB compare で出た feature 1 件は、invalid compact `#RANDOM4` を RANDOM feature として誤検出していたもの。参照実装に合わせ、parse 成功した `#RANDOM` だけで feature を立てる。
+- 最新 production DB compare で出た charthash 2 件は、JDK 21 の `Double.toString(double)` 互換へ寄せることで解消する対象。
 - 残る大きな論点は、既知 timeout 4 件の性能対策と、RANDOM 譜面の分岐選択差分。
 
 次に詰める候補:
 
-1. 既知 timeout 4 件の hotspot 分析と高速化
-2. RANDOM 譜面の deterministic branch 選択と beatoraja DB 期待値の扱い整理
-3. production DB 再生成時の差分追跡を容易にする report / fixture 更新手順の整備
-4. `#SWITCH/#CASE/#SKIP/#ENDSW` の追加サンプルが出た場合の conditional stack 再確認
+1. JDK 21 `Double.toString(double)` 互換 formatter への切り替え
+2. 既知 timeout 4 件の hotspot 分析と高速化
+3. RANDOM 譜面の deterministic branch 選択と beatoraja DB 期待値の扱い整理
+4. production DB 再生成時の差分追跡を容易にする report / fixture 更新手順の整備
+5. `#SWITCH/#CASE/#SKIP/#ENDSW` の追加サンプルが出た場合の conditional stack 再確認

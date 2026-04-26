@@ -265,9 +265,9 @@ internal static class ChartInfoParser
             }
             if (MatchesReserveWord(line, "RANDOM"))
             {
-                builder.HasRandom = true;
                 if (TryParseJavaIntStrict(GetReserveWordArgument(line, "RANDOM"), out int randomMax))
                 {
+                    builder.HasRandom = true;
                     int normalizedMax = Math.Max(1, randomMax);
                     int selected = selectedRandoms != null && randomIndex < selectedRandoms.Count ? selectedRandoms[randomIndex] : 1;
                     selectedRandomStack.Push(Math.Max(1, Math.Min(normalizedMax, selected)));

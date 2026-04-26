@@ -645,6 +645,29 @@ public sealed class ChartInfoMetadataTests
     }
 
     [TestMethod]
+    public void ParseBms_InvalidCompactRandomCommandDoesNotSetRandomFeature()
+    {
+        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        {
+            string chartPath = Path.Combine(tempRootPath, "invalid-compact-random.bms");
+            File.WriteAllText(
+                chartPath,
+                "#BPM 120\r\n"
+                    + "#RANDOM2\r\n"
+                    + "#IF 1\r\n"
+                    + "#00111:01\r\n"
+                    + "#ENDIF\r\n",
+                Encoding.ASCII);
+
+            ChartInfoParser.ChartInfoParseResult result = ChartInfoParser.ParseBytesDetailed(File.ReadAllBytes(chartPath), chartPath);
+
+            Assert.AreEqual(1, result.Row.notes);
+            Assert.AreEqual(0, result.Row.feature & FeatureRandom);
+            Assert.IsTrue(result.Diagnostics.Any((ChartInfoParser.ChartInfoParseDiagnostic item) => item.Code == "BMS_RANDOM_INVALID"));
+        });
+    }
+
+    [TestMethod]
     public void ParseBms_TimelineLongerThanOneDayIsAllowed()
     {
         WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
@@ -1499,6 +1522,32 @@ public sealed class ChartInfoMetadataTests
             Assert.AreEqual(expected.ls, actual.ls, expected.sha256);
             Assert.AreEqual(expected.lanenotes, actual.lanenotes, expected.sha256);
         }
+    }
+
+    [TestMethod]
+    [TestCategory("Compatibility")]
+    public void ParseProductionDiffFixture_InvalidCompactRandomDoesNotSetRandomFeature()
+    {
+        string fixtureRootPath = Path.Combine(FindRepoRoot(), "BeMusicSeeker.Tests", "TestData", "chart_info_production_diff");
+        string expectedDbPath = Path.Combine(fixtureRootPath, "expected.db");
+        Assert.IsTrue(File.Exists(expectedDbPath), "chart_info_production_diff expected.db fixture is missing.");
+
+        const string sha256 = "e570cff02a4a43809229060f3b0d146efc2635060786a0f9a4f9158bf5265b9d";
+        using SQLiteConnection connection = new SQLiteConnection(expectedDbPath, SQLiteOpenFlags.ReadOnly | SQLiteOpenFlags.FullMutex, storeDateTimeAsTicks: true);
+        RealChartInfoExpectedRow expected = connection.Query<RealChartInfoExpectedRow>(
+            "SELECT sc.fixture_id, sc.fixture_path, e.* "
+                + "FROM FixtureSampleChart sc "
+                + "JOIN FixtureExpectedChartInfo e ON e.sha256 = sc.sha256 "
+                + "WHERE sc.sha256 = ?;",
+            sha256).Single();
+        string chartPath = Path.Combine(fixtureRootPath, expected.fixture_path.Replace('/', Path.DirectorySeparatorChar));
+
+        ChartInfoParser.ChartInfoParseResult result = ChartInfoParser.ParseBytesDetailed(File.ReadAllBytes(chartPath), chartPath, expected.md5, expected.sha256);
+
+        Assert.AreEqual(expected.charthash, result.Row.charthash);
+        Assert.AreEqual(expected.feature, result.Row.feature);
+        Assert.AreEqual(0, result.Row.feature & FeatureRandom);
+        Assert.IsTrue((result.Row.feature & FeatureMine) != 0);
     }
 
     [TestMethod]
