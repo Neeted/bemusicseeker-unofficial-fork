@@ -403,18 +403,31 @@ base62 時の mine damage は前述の特殊再計算を行う。
   - 例: `1.0E-4` と `0.0001E0` のような表記差。
   - 例: `7.6999669989E7` と `7.699966998899999E7` のような最短表現差。
 
-本アプリでは `speedchange`, chart string, `TOTAL`, mine damage などの double 出力に JDK 17 `Double.toString` 相当の formatter を使う。
-beatoraja が JDK 17 環境で動作している場合、JDK 19 以降の Schubfach 系の出力ではなく JDK 17 `FloatingDecimal` 系の互換をターゲットにする。
+本アプリでは `speedchange`, chart string, `TOTAL`, mine damage などの double 出力に JDK 21 `Double.toString` 相当の formatter を使う。
+beatoraja / songdata-updater の production DB は `D:\beatoraja\jre\bin\java.exe`、つまり JDK 21 runtime で生成されているため、JDK 17 `FloatingDecimal` 系ではなく JDK 19+ `DoubleToDecimal` 系の互換をターゲットにする。
+旧 `JavaDoubleToStringJdk17` は、古い runtime 由来の差分調査用として残している。
 
 formatter は BMSON `charthash` にも影響するため、変更時は BMS / BMSON 双方の chart string fixture を見る。
 
 2026-04-26 時点の production diff では、JDK 17 `Double.toString` 互換 formatter 適用後に `speedchange` / `charthash` が 11 件ずつ残った。
-原因は `Double.toString` ではなく、主に parse 段階の `Double.parseDouble` 丸め差だった。
+この時点の主因は parse 段階の `Double.parseDouble` 丸め差だった。
 
 - BMS の高精度 decimal BPM を `double` に parse する段階の丸め差。
   - 例: `114.15384615384615384615384615` は Java `Double.parseDouble` 由来の値と .NET `double.Parse` 由来の値が 1 ulp ずれることがある。
 - BMSON の JSON numeric literal を Json.NET が先に .NET double 化する段階の丸め差。
   - 例: `131.4889812233735` は Java と .NET で 1 ulp ずれることがある。
+
+その後に残った charthash-only 2 件は JDK 17 / JDK 21 の `Double.toString` 差だった。
+JDK 17 と JDK 21 では同じ binary64 値でも最短 decimal の選び方が異なることがある。
+
+代表例:
+
+- JDK 17: `1.14514191981036442E18`
+- JDK 21: `1.1451419198103644E18`
+- JDK 17: `8.4929057819839846E17`
+- JDK 21: `8.492905781983985E17`
+- JDK 17: `1.9999999999999998E23`
+- JDK 21: `2.0E23`
 
 `length`, `distribution`, `density`, `peakdensity`, `enddensity` が 0 件まで縮んだ状態で `speedchange` だけ残る場合、timeline bucket ではなく上記を優先して疑う。
 
@@ -651,7 +664,7 @@ chart_info backfill は「単一 file reader + in-memory parallel parse + chunk 
 既存の `chart_info_production_diff` に既に含まれる譜面は重複コピーしない。
 2026-04-26 の latest report では non-RANDOM diff/missing が 7 件あり、そのうち 5 件は既存 fixture に含まれていたため、この補助 fixture には新規 2 件だけを入れている。
 
-この 2 件の charthash-only 差分は、`tools/chartstring-dump` を JDK 17 で実行すると C# parser の `ChartString` / `charthash` と一致する。
+この 2 件の charthash-only 差分は、`tools/chartstring-dump` を JDK 17 で実行すると旧 C# parser の `ChartString` / `charthash` と一致する。
 しかし songdata-updater / beatoraja 同梱 JRE は JDK 21 であり、`D:\beatoraja\jre\bin\java.exe` で同じ dump を実行すると production DB の期待値と一致する。
 したがって production DB 側の生成経路差ではなく、JDK 17 と JDK 21 の `Double.toString(double)` 文字列表現差分として扱う。
 
@@ -680,13 +693,12 @@ chart_info backfill は「単一 file reader + in-memory parallel parse + chunk 
 - `length`, `distribution`, `density`, `peakdensity`, `enddensity` は 0 件まで縮小済み。
 - JDK17 `Double.parseDouble` 互換 parser 適用後、`speedchange` / `charthash` も 0 件まで縮小済み。
 - 最新 production DB compare で出た feature 1 件は、invalid compact `#RANDOM4` を RANDOM feature として誤検出していたもの。参照実装に合わせ、parse 成功した `#RANDOM` だけで feature を立てる。
-- 最新 production DB compare で出た charthash 2 件は、JDK 21 の `Double.toString(double)` 互換へ寄せることで解消する対象。
+- 最新 production DB compare で出た charthash 2 件は、JDK 21 の `Double.toString(double)` 互換 formatter へ切り替えて解消する。
 - 残る大きな論点は、既知 timeout 4 件の性能対策と、RANDOM 譜面の分岐選択差分。
 
 次に詰める候補:
 
-1. JDK 21 `Double.toString(double)` 互換 formatter への切り替え
-2. 既知 timeout 4 件の hotspot 分析と高速化
-3. RANDOM 譜面の deterministic branch 選択と beatoraja DB 期待値の扱い整理
-4. production DB 再生成時の差分追跡を容易にする report / fixture 更新手順の整備
-5. `#SWITCH/#CASE/#SKIP/#ENDSW` の追加サンプルが出た場合の conditional stack 再確認
+1. 既知 timeout 4 件の hotspot 分析と高速化
+2. RANDOM 譜面の deterministic branch 選択と beatoraja DB 期待値の扱い整理
+3. production DB 再生成時の差分追跡を容易にする report / fixture 更新手順の整備
+4. `#SWITCH/#CASE/#SKIP/#ENDSW` の追加サンプルが出た場合の conditional stack 再確認

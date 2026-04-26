@@ -1,6 +1,7 @@
 [CmdletBinding(PositionalBinding = $false)]
 param(
     [string] $JavaHome,
+    [string] $JavaRuntimeHome,
     [string] $SongDataUpdaterRoot = "C:\Users\kazuk\IdeaProjects\songdata-updater",
     [string] $OutputDir = "artifacts\chartstring-dump",
 
@@ -58,7 +59,15 @@ if (-not (Test-Path $sourcePath)) {
 }
 
 $javac = Resolve-JavaTool "javac"
-$java = Resolve-JavaTool "java"
+$java = if ($JavaRuntimeHome) {
+    $runtimeJava = Join-Path $JavaRuntimeHome "bin\java.exe"
+    if (-not (Test-Path $runtimeJava)) {
+        throw "java.exe was not found in JavaRuntimeHome: $JavaRuntimeHome"
+    }
+    $runtimeJava
+} else {
+    Resolve-JavaTool "java"
+}
 New-Item -ItemType Directory -Force -Path $buildDir | Out-Null
 New-Item -ItemType Directory -Force -Path (Join-Path $repoRoot $OutputDir) | Out-Null
 

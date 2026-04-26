@@ -1104,7 +1104,7 @@ internal static class ChartInfoParser
 
     private static string FormatDouble(double value)
     {
-        return JavaDoubleFormatCache.GetOrAdd(BitConverter.DoubleToInt64Bits(value), _ => JavaDoubleToStringJdk17.ToString(value));
+        return JavaDoubleFormatCache.GetOrAdd(BitConverter.DoubleToInt64Bits(value), _ => JavaDoubleToStringJdk21.ToString(value));
     }
 
     private static bool TryParseJavaDouble(string value, out double result)

@@ -335,6 +335,26 @@ public sealed class ChartInfoMetadataTests
     }
 
     [TestMethod]
+    public void JavaDoubleToStringJdk21_MatchesKnownCompatibilityCases()
+    {
+        Assert.AreEqual("0.0", JavaDoubleToStringJdk21.ToString(0.0));
+        Assert.AreEqual("-0.0", JavaDoubleToStringJdk21.ToString(-0.0));
+        Assert.AreEqual("NaN", JavaDoubleToStringJdk21.ToString(double.NaN));
+        Assert.AreEqual("Infinity", JavaDoubleToStringJdk21.ToString(double.PositiveInfinity));
+        Assert.AreEqual("-Infinity", JavaDoubleToStringJdk21.ToString(double.NegativeInfinity));
+        Assert.AreEqual("4.9E-324", JavaDoubleToStringJdk21.ToString(double.Epsilon));
+        Assert.AreEqual("9.9E-324", JavaDoubleToStringJdk21.ToString(1e-323));
+        Assert.AreEqual("1.0E23", JavaDoubleToStringJdk21.ToString(1e23));
+        Assert.AreEqual("2.0E23", JavaDoubleToStringJdk21.ToString(2e23));
+        Assert.AreEqual("8.41E21", JavaDoubleToStringJdk21.ToString(8.41e21));
+        Assert.AreEqual("7.6999669989E7", JavaDoubleToStringJdk21.ToString(7.6999669989E7));
+        Assert.AreEqual("3.141592653589793", JavaDoubleToStringJdk21.ToString(Math.PI));
+        Assert.AreEqual("1.7976931348623157E308", JavaDoubleToStringJdk21.ToString(double.MaxValue));
+        Assert.AreEqual("1.1451419198103644E18", JavaDoubleToStringJdk21.ToString(1.1451419198103644E18));
+        Assert.AreEqual("8.492905781983985E17", JavaDoubleToStringJdk21.ToString(8.492905781983985E17));
+    }
+
+    [TestMethod]
     public void JavaDoubleParserJdk17_MatchesKnownCompatibilityCases()
     {
         AssertJavaDoubleParseBits("0", "0000000000000000");
@@ -1548,6 +1568,32 @@ public sealed class ChartInfoMetadataTests
         Assert.AreEqual(expected.feature, result.Row.feature);
         Assert.AreEqual(0, result.Row.feature & FeatureRandom);
         Assert.IsTrue((result.Row.feature & FeatureMine) != 0);
+    }
+
+    [TestMethod]
+    [TestCategory("Compatibility")]
+    public void ParseProductionLatestDiffFixture_ChartHashesMatchJdk21Reference()
+    {
+        string fixtureRootPath = Path.Combine(FindRepoRoot(), "BeMusicSeeker.Tests", "TestData", "chart_info_production_latest_diff");
+        string expectedDbPath = Path.Combine(fixtureRootPath, "expected.db");
+        Assert.IsTrue(File.Exists(expectedDbPath), "chart_info_production_latest_diff expected.db fixture is missing.");
+
+        using SQLiteConnection connection = new SQLiteConnection(expectedDbPath, SQLiteOpenFlags.ReadOnly | SQLiteOpenFlags.FullMutex, storeDateTimeAsTicks: true);
+        List<RealChartInfoExpectedRow> rows = connection.Query<RealChartInfoExpectedRow>(
+            "SELECT sc.fixture_id, sc.fixture_path, e.* "
+                + "FROM FixtureSampleChart sc "
+                + "JOIN FixtureExpectedChartInfo e ON e.sha256 = sc.sha256 "
+                + "ORDER BY sc.fixture_id;");
+        Assert.AreEqual(2, rows.Count);
+
+        foreach (RealChartInfoExpectedRow expected in rows)
+        {
+            string chartPath = Path.Combine(fixtureRootPath, expected.fixture_path.Replace('/', Path.DirectorySeparatorChar));
+
+            LR2SongDBExtended.chart_info actual = ChartInfoParser.Parse(chartPath, expected.md5, expected.sha256);
+
+            Assert.AreEqual(expected.charthash, actual.charthash, expected.sha256);
+        }
     }
 
     [TestMethod]
