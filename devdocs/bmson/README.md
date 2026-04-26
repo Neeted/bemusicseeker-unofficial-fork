@@ -80,6 +80,7 @@
 13. [chart_info parser compatibility notes](chart-info-parser-compatibility-notes.md)
    - beatoraja / jbms-parser 互換のための BMS / BMSON parser 実装メモ
    - JSON parse, delimiter, Java 型変換, LN, timeline, density, speedchange の注意点
+   - `chart_info` の production DB compare / backfill 性能 / 今後の DataGrid 表示論点
 
 ## 実装方針の要点
 
@@ -152,22 +153,33 @@
   - path-aware broad filter
   - final scoring semantics completion
   - aggregate ownership + self-only ownership の二重 view
+- `chart_info` メタデータ基盤は実用状態まで到達
+  - `song` テーブルを変更せず、アプリ独自の `chart_info` に譜面メタデータを保存
+  - BMS / BMSON の beatoraja / jbms-parser 互換 parser を実装
+  - 起動時 full backfill と新規追加譜面 targeted backfill に対応
+  - production DB compare で non-RANDOM 差分 0 を確認
+  - 約 20.9 万譜面の full backfill が timeout 0 で完走
 
 ## いま残っているもの
 
-実装フェーズとして大きく未着手のものは多くない。`2026-04-24` 時点で残っているのは、主に次の 4 系統である。
+実装フェーズとして大きく未着手のものは多くない。`2026-04-27` 時点で残っているのは、主に次の 5 系統である。
 
-1. 導入先推定の精度 tuning
+1. DataGrid での `chart_info` 表示設計
+   - `chart_info` 由来の `LEVEL`, `DIFFICULTY`, `JUDGE`, `FEATURE`, `TOTAL`, `T/N`, `DENSITY`, `PEAK`, `END`, `LONG`, `SCRATCH`, `SPEEDCHANGE` などの追加
+   - `difficulty_defined=false` / `total_defined=false` の警告表示
+   - 既存 LR2 `song` 由来値との優先順位
+   - keyword search field 拡張
+2. 導入先推定の精度 tuning
    - `fingerprint` 比較の導入判断
    - `loose-file merge` と `package merge` の wrapper 差整理
    - 実機ケースでの `raw precision / jaccard` 重み調整
-2. 導入先推定の性能 tuning
+3. 導入先推定の性能 tuning
    - source-side 列挙の regress は解消済み
    - 残差は `pending estimate` の評価 / orchestration 側
-3. install / merge 実処理側の列挙再設計
+4. install / merge 実処理側の列挙再設計
    - `BmsLibraryPackageInstallService` の install / merge package discovery と実処理列挙
    - これは current Perf-3 スコープ外として残している
-4. リリース整理
+5. リリース整理
    - README / リリースノート / バージョン反映
 
 ## どの資料を見ればよいか
@@ -206,7 +218,9 @@
 
 - bmson 対応フェーズ 1〜5 は完了
 - relative-path 対応と source-side enumeration regress 解消も完了
+- chart_info メタデータ基盤も production DB compare 差分 0 / timeout 0 まで完了
 - いま残っている主論点は
+  - chart_info を DataGrid / keyword search へどう見せるか
   - 精度 tuning
   - pending estimate の評価 / orchestration 側 perf
   - install / merge 実処理列挙

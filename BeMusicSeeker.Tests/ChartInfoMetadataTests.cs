@@ -1391,9 +1391,13 @@ public sealed class ChartInfoMetadataTests
 
     [TestMethod]
     [TestCategory("Compatibility")]
-    [Microsoft.VisualStudio.TestTools.UnitTesting.Ignore("Known slow production-diff fixtures currently hit the test timeout. Enable manually while working on parser performance.")]
     public void ParseProductionDiffFixture_KnownTimeoutRows_PerformanceAndExpectedValues()
     {
+        if (!string.Equals(Environment.GetEnvironmentVariable("BMS_TEST_CHART_INFO_SLOW"), "1", StringComparison.Ordinal))
+        {
+            Assert.Inconclusive("Set BMS_TEST_CHART_INFO_SLOW=1 to run the slow chart_info parser fixtures.");
+        }
+
         string fixtureRootPath = Path.Combine(FindRepoRoot(), "BeMusicSeeker.Tests", "TestData", "chart_info_production_diff");
         string expectedDbPath = Path.Combine(fixtureRootPath, "expected.db");
         Assert.IsTrue(File.Exists(expectedDbPath), "chart_info_production_diff expected.db fixture is missing.");

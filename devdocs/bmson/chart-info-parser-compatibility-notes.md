@@ -1,6 +1,6 @@
 # chart_info parser compatibility notes
 
-最終更新: 2026-04-26
+最終更新: 2026-04-27
 
 この文書は、`chart_info` 生成で beatoraja / jbms-parser 互換を目指す際に確認した実装上の注意点をまとめる。
 一般的な BMS / BMSON 仕様から自然には読めない、参照実装固有の解釈や Java 実装由来の挙動を優先して記録する。
@@ -641,6 +641,26 @@ chart_info backfill は「単一 file reader + in-memory parallel parse + chunk 
 
 これにより「解析で止まったのか」「DB commit で止まったのか」を切り分ける。
 
+2026-04-27 時点の full backfill 実測では、約 20.9 万譜面を次の状態で完走している。
+
+- `total=209781`
+- `success=209757`
+- `failed=24`
+- `timeoutFailed=0`
+- `parseAvgMs=16`
+- `parseP95Ms=33`
+- `parseMaxMs=55529`
+- `totalMs=909536`
+
+以前 timeout していた巨大譜面も 60 秒 timeout 内で成功しており、production DB compare でも non-RANDOM の値差分は 0 になっている。
+現時点では `chart_info` 生成基盤としては実用上問題ない状態とみなす。
+
+今後さらに全体時間を詰める場合は、parser の平均値よりも次の long tail / commit 側を優先して見る。
+
+- `slow_parse_top` 上位の巨大・特殊譜面
+- `dbCommitMaxChunkMs`
+- full backfill 中の DB chunk commit のばらつき
+
 ## production diff fixture の読み方
 
 `BeMusicSeeker.Tests/TestData/chart_info_production_diff/` は本番 DB 差分を fixture 化したもの。
@@ -685,20 +705,33 @@ chart_info backfill は「単一 file reader + in-memory parallel parse + chunk 
 - JDK 17: `TOTAL:8.4929057819839846E17`
 - JDK 21: `TOTAL:8.492905781983985E17`
 
-## 既知の残論点
+## 現在の到達点と残論点
 
-2026-04-26 時点で、production diff fixture では非 RANDOM / 非 timeout の 755 件について:
+2026-04-27 時点で、production DB compare では非 RANDOM の比較対象について:
 
-- core 差分は 0 まで縮小済み。
-- `length`, `distribution`, `density`, `peakdensity`, `enddensity` は 0 件まで縮小済み。
-- JDK17 `Double.parseDouble` 互換 parser 適用後、`speedchange` / `charthash` も 0 件まで縮小済み。
-- 最新 production DB compare で出た feature 1 件は、invalid compact `#RANDOM4` を RANDOM feature として誤検出していたもの。参照実装に合わせ、parse 成功した `#RANDOM` だけで feature を立てる。
-- 最新 production DB compare で出た charthash 2 件は、JDK 21 の `Double.toString(double)` 互換 formatter へ切り替えて解消する。
-- 残る大きな論点は、既知 timeout 4 件の性能対策と、RANDOM 譜面の分岐選択差分。
+- core 差分は 0。
+- `length`, `distribution`, `density`, `peakdensity`, `enddensity` は 0。
+- `speedchange` / `charthash` も 0。
+- timeout は 0。
+- `chart_info` backfill は約 15 分で完走。
 
-次に詰める候補:
+ここまでで DataGrid field 拡張用の metadata 基盤としては一旦区切りを付ける。
+今後の主タスクは、作成済み `chart_info` を DataGrid でどのように表示・ソート・警告表示するかの設計と実装に移る。
 
-1. 既知 timeout 4 件の hotspot 分析と高速化
-2. RANDOM 譜面の deterministic branch 選択と beatoraja DB 期待値の扱い整理
-3. production DB 再生成時の差分追跡を容易にする report / fixture 更新手順の整備
-4. `#SWITCH/#CASE/#SKIP/#ENDSW` の追加サンプルが出た場合の conditional stack 再確認
+今後の改善候補:
+
+1. DataGrid での `chart_info` 表示設計
+   - `LEVEL`, `DIFFICULTY`, `JUDGE`, `FEATURE`, `TOTAL`, `T/N`, `DENSITY`, `PEAK`, `END`, `LONG`, `SCRATCH`, `SPEEDCHANGE` など
+   - `difficulty_defined=false` / `total_defined=false` の警告表示
+   - 既存 LR2 `song` 由来値と `chart_info` 由来値の優先順位
+2. keyword search field 拡張
+   - `chart_info` 由来 field の命名
+   - numeric range / undefined handling
+   - feature bit flag の検索構文
+3. RANDOM 譜面の deterministic branch 選択と beatoraja DB 期待値の扱い整理
+   - 値差分は仕様上許容しているが、UI 表示上の説明が必要になる可能性がある
+4. production DB 再生成時の差分追跡を容易にする report / fixture 更新手順の整備
+5. `#SWITCH/#CASE/#SKIP/#ENDSW` の追加サンプルが出た場合の conditional stack 再確認
+6. さらなる性能 tuning
+   - `slow_parse_top` 上位譜面の個別 hotspot
+   - chunk commit の最大遅延

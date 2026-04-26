@@ -7,7 +7,6 @@ using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
-using System.Text.RegularExpressions;
 using BeMusicSeeker.Models.LR2;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
@@ -45,10 +44,6 @@ internal static class ChartInfoParser
     private const int LongNoteTypeHellChargeNote = 3;
 
     private const int LntypeLongNote = 0;
-
-    private static readonly Regex BmsChannelLineRegex = new Regex("^#([0-9]{3})([0-9A-Za-z]{2})\\s*:(.*)$", RegexOptions.Compiled);
-
-    private static readonly Regex BmsChannelHeaderRegex = new Regex("^#([0-9]{3})([0-9A-Za-z]{2}).*$", RegexOptions.Compiled);
 
     /// <summary>
     /// 指定された譜面ファイルを解析し、chart_info 行を返します。
@@ -329,13 +324,11 @@ internal static class ChartInfoParser
             if (IsBmsChartLikeLine(line, out int chartLikeSection))
             {
                 builder.TouchSection(chartLikeSection);
-                Match channelMatch = BmsChannelLineRegex.Match(line);
-                if (channelMatch.Success)
+                if (TryParseBmsChannelLine(line, out int channel, out string data))
                 {
-                    int channel = ParseBase36(channelMatch.Groups[2].Value);
                     if (channel >= 0)
                     {
-                        builder.AddChannelLine(chartLikeSection, channel, channelMatch.Groups[3].Value);
+                        builder.AddChannelLine(chartLikeSection, channel, data);
                     }
                     else
                     {
@@ -344,23 +337,7 @@ internal static class ChartInfoParser
                 }
                 else
                 {
-                    channelMatch = BmsChannelHeaderRegex.Match(line);
-                    if (channelMatch.Success)
-                    {
-                        int channel = ParseBase36(channelMatch.Groups[2].Value);
-                        if (channel >= 0)
-                        {
-                            builder.AddChannelLine(chartLikeSection, channel, line);
-                        }
-                        else
-                        {
-                            AddDiagnostic(diagnostics, ChartInfoParseDiagnosticSeverity.Warning, "BMS_CHANNEL_INVALID", "チャンネルに不正な値が定義されています");
-                        }
-                    }
-                    else
-                    {
-                        AddDiagnostic(diagnostics, ChartInfoParseDiagnosticSeverity.Warning, "BMS_CHANNEL_INVALID", "チャンネルに不正な値が定義されています");
-                    }
+                    AddDiagnostic(diagnostics, ChartInfoParseDiagnosticSeverity.Warning, "BMS_CHANNEL_INVALID", "チャンネルに不正な値が定義されています");
                 }
                 continue;
             }
@@ -386,6 +363,34 @@ internal static class ChartInfoParser
         }
         section = 0;
         return false;
+    }
+
+    private static bool TryParseBmsChannelLine(string line, out int channel, out string data)
+    {
+        channel = -1;
+        data = string.Empty;
+        if (string.IsNullOrEmpty(line) || line.Length < 6)
+        {
+            return false;
+        }
+        channel = ParseBase36(line[4], line[5]);
+        if (line.Length == 6)
+        {
+            data = line;
+            return true;
+        }
+        int index = 6;
+        while (index < line.Length && char.IsWhiteSpace(line[index]))
+        {
+            index++;
+        }
+        if (index < line.Length && line[index] == ':')
+        {
+            data = index + 1 < line.Length ? line.Substring(index + 1) : string.Empty;
+            return true;
+        }
+        data = line;
+        return true;
     }
 
     private static List<int> ScanRandomMaxes(string text, ParseTimeoutGuard timeoutGuard)
@@ -1400,6 +1405,10 @@ internal static class ChartInfoParser
 
         private int maxSection;
 
+        private int maxLinePairs;
+
+        private long totalDataPairs;
+
         public BmsChartBuilder(string filePath, bool isPms, IList<ChartInfoParseDiagnostic> diagnostics, ParseTimeoutGuard timeoutGuard)
         {
             this.filePath = filePath;
@@ -1438,7 +1447,14 @@ internal static class ChartInfoParser
 
         public void AddChannelLine(int section, int channel, string data)
         {
-            channelLines.Add(new BmsChannelLine(section, channel, data ?? string.Empty, order++));
+            data ??= string.Empty;
+            int pairCount = data.Length / 2;
+            if (pairCount > maxLinePairs)
+            {
+                maxLinePairs = pairCount;
+            }
+            totalDataPairs += pairCount;
+            channelLines.Add(new BmsChannelLine(section, channel, data, order++));
             maxSection = Math.Max(maxSection, section);
         }
 
@@ -1656,7 +1672,7 @@ internal static class ChartInfoParser
                 HasRandom = HasRandom
             };
             double[] sectionStarts = BuildSectionStarts(out double[] sectionRates);
-            SortedList<double, ChartTimeline> timelines = new SortedList<double, ChartTimeline>();
+            BmsTimelineStore timelines = CreateTimelineStore();
             ChartTimeline baseTimeline = new ChartTimeline(0.0, 0.0, mode.KeyCount)
             {
                 Bpm = model.InitialBpm
@@ -1690,12 +1706,12 @@ internal static class ChartInfoParser
                     start.Owner.Notes[lane] = null;
                 }
             }
-            if (timelines.Count == 0 || timelines.Values[0].Bpm <= 0)
+            if (timelines.Count == 0 || timelines.FirstValue.Bpm <= 0)
             {
                 AddDiagnostic(diagnostics, ChartInfoParseDiagnosticSeverity.Error, "BMS_INITIAL_BPM_INVALID", "#BPMが定義されていないか無効です");
                 throw new BmsRecoverableParseException("BMS initial BPM is not defined or invalid.");
             }
-            model.SetTimelines(timelines.Values.ToList());
+            model.SetTimelines(timelines.ValuesInOrder().ToList());
             int totalNotes = model.GetTotalNotes(timeoutGuard);
             if (!model.DifficultyDefined)
             {
@@ -1706,6 +1722,13 @@ internal static class ChartInfoParser
                 model.Total = CalculateDefaultTotal(mode, totalNotes);
             }
             return model;
+        }
+
+        private BmsTimelineStore CreateTimelineStore()
+        {
+            return maxLinePairs >= 16384 || totalDataPairs >= 250000L
+                ? (BmsTimelineStore)new TreapTimelineStore()
+                : new SortedListTimelineStore();
         }
 
         private List<BmsChannelLine>[] BuildSectionLineBuckets()
@@ -1781,7 +1804,7 @@ internal static class ChartInfoParser
             return starts;
         }
 
-        private void ApplyEvents(SortedList<double, ChartTimeline> timelines, ChartMode mode, IEnumerable<BmsChannelLine> sectionLines, double sectionStart, double rate)
+        private void ApplyEvents(BmsTimelineStore timelines, ChartMode mode, IEnumerable<BmsChannelLine> sectionLines, double sectionStart, double rate)
         {
             if (sectionLines == null)
             {
@@ -1789,84 +1812,96 @@ internal static class ChartInfoParser
             }
             List<BmsTimelineEvent> events = new List<BmsTimelineEvent>();
             int eventLineIndex = 0;
+            int eventSequence = 0;
             foreach (BmsChannelLine line in sectionLines)
             {
                 timeoutGuard.ThrowIfTimedOutEvery(++eventLineIndex, "bms_event_lines");
                 if (line.Channel == BpmChange)
                 {
-                    foreach (BmsDataPair pair in SplitData(line.Data))
+                    BmsDataScanner scanner = CreateScanner(line.Data);
+                    for (int index = 0; index < scanner.PairCount; index++)
                     {
-                        int bpmValue = Base == 62 ? pair.Base36Value : pair.Value;
+                        if (!scanner.TryGetValue(index, out int value, out char high, out char low))
+                        {
+                            continue;
+                        }
+                        int bpmValue = Base == 62 ? ParseBase36(high, low) : value;
                         if (bpmValue >= 0)
                         {
                             double bpm = (bpmValue / 36) * 16 + bpmValue % 36;
-                            events.Add(new BmsTimelineEvent(pair.Position, 1, (ChartTimeline timeline) => timeline.Bpm = bpm));
+                            events.Add(BmsTimelineEvent.CreateBpm(scanner.GetPosition(index), bpm, eventSequence++));
                         }
                     }
                 }
                 else if (line.Channel == BpmChangeExtend)
                 {
-                    foreach (BmsDataPair pair in SplitData(line.Data))
+                    BmsDataScanner scanner = CreateScanner(line.Data);
+                    for (int index = 0; index < scanner.PairCount; index++)
                     {
-                        if (bpmTable.TryGetValue(pair.Value, out double bpm))
+                        if (scanner.TryGetValue(index, out int value, out _, out _) && bpmTable.TryGetValue(value, out double bpm))
                         {
-                            events.Add(new BmsTimelineEvent(pair.Position, 1, (ChartTimeline timeline) => timeline.Bpm = bpm));
+                            events.Add(BmsTimelineEvent.CreateBpm(scanner.GetPosition(index), bpm, eventSequence++));
                         }
                     }
                 }
                 else if (line.Channel == Stop)
                 {
-                    foreach (BmsDataPair pair in SplitData(line.Data))
+                    BmsDataScanner scanner = CreateScanner(line.Data);
+                    for (int index = 0; index < scanner.PairCount; index++)
                     {
-                        if (stopTable.TryGetValue(pair.Value, out double stop))
+                        if (scanner.TryGetValue(index, out int value, out _, out _) && stopTable.TryGetValue(value, out double stop))
                         {
-                            events.Add(new BmsTimelineEvent(pair.Position, 2, delegate(ChartTimeline timeline)
-                            {
-                                if (timeline.Bpm <= 0)
-                                {
-                                    throw new BmsRecoverableParseException("BMS timeline BPM is not defined before STOP.");
-                                }
-                                timeline.StopMicroseconds = (long)(1000.0 * 1000.0 * 60.0 * 4.0 * stop / timeline.Bpm);
-                            }));
+                            events.Add(BmsTimelineEvent.CreateStop(scanner.GetPosition(index), stop, eventSequence++));
                         }
                     }
                 }
                 else if (line.Channel == Scroll)
                 {
-                    foreach (BmsDataPair pair in SplitData(line.Data))
+                    BmsDataScanner scanner = CreateScanner(line.Data);
+                    for (int index = 0; index < scanner.PairCount; index++)
                     {
-                        if (scrollTable.TryGetValue(pair.Value, out double scroll))
+                        if (scanner.TryGetValue(index, out int value, out _, out _) && scrollTable.TryGetValue(value, out double scroll))
                         {
-                            events.Add(new BmsTimelineEvent(pair.Position, 0, (ChartTimeline timeline) => timeline.Scroll = scroll));
+                            events.Add(BmsTimelineEvent.CreateScroll(scanner.GetPosition(index), scroll, eventSequence++));
                         }
                     }
                 }
             }
+            events.Sort(BmsTimelineEvent.Comparer);
             int eventIndex = 0;
-            foreach (BmsTimelineEvent timelineEvent in events.OrderBy((BmsTimelineEvent item) => item.Position).ThenBy((BmsTimelineEvent item) => item.Priority))
+            foreach (BmsTimelineEvent timelineEvent in events)
             {
                 timeoutGuard.ThrowIfTimedOutEvery(++eventIndex, "bms_apply_events");
-                timelineEvent.Apply(GetBmsTimeline(timelines, sectionStart + rate * timelineEvent.Position, mode));
+                ChartTimeline timeline = GetBmsTimeline(timelines, sectionStart + rate * timelineEvent.Position, mode);
+                timelineEvent.Apply(timeline);
             }
         }
 
-        private void ApplyNoteLine(SortedList<double, ChartTimeline> timelines, ChartMode mode, BmsChannelLine line, double sectionStart, double rate, List<ChartNote>[] longNotesByLane, ChartNote[] pendingLongStarts)
+        private void ApplyNoteLine(BmsTimelineStore timelines, ChartMode mode, BmsChannelLine line, double sectionStart, double rate, List<ChartNote>[] longNotesByLane, ChartNote[] pendingLongStarts)
         {
             int lane = ResolveLane(line.Channel, mode, out BmsLaneChannelKind kind);
             if (kind == BmsLaneChannelKind.None)
             {
                 if (line.Channel == LaneAutoplay)
                 {
-                    foreach (BmsDataPair pair in SplitData(line.Data))
+                    BmsDataScanner scanner = CreateScanner(line.Data);
+                    for (int index = 0; index < scanner.PairCount; index++)
                     {
-                        GetBmsTimeline(timelines, sectionStart + rate * pair.Position, mode).HasBackground = true;
+                        if (scanner.TryGetValue(index, out _, out _, out _))
+                        {
+                            GetBmsTimeline(timelines, sectionStart + rate * scanner.GetPosition(index), mode).HasBackground = true;
+                        }
                     }
                 }
                 else if (line.Channel == BgaPlay || line.Channel == LayerPlay)
                 {
-                    foreach (BmsDataPair pair in SplitData(line.Data))
+                    BmsDataScanner scanner = CreateScanner(line.Data);
+                    for (int index = 0; index < scanner.PairCount; index++)
                     {
-                        GetBmsTimeline(timelines, sectionStart + rate * pair.Position, mode).HasBga = true;
+                        if (scanner.TryGetValue(index, out _, out _, out _))
+                        {
+                            GetBmsTimeline(timelines, sectionStart + rate * scanner.GetPosition(index), mode).HasBga = true;
+                        }
                     }
                 }
                 return;
@@ -1876,42 +1911,41 @@ internal static class ChartInfoParser
                 return;
             }
             int pairIndex = 0;
-            foreach (BmsDataPair pair in SplitData(line.Data))
+            BmsDataScanner noteScanner = CreateScanner(line.Data);
+            for (int index = 0; index < noteScanner.PairCount; index++)
             {
                 timeoutGuard.ThrowIfTimedOutEvery(++pairIndex, "bms_apply_note_line");
-                ChartTimeline timeline = GetBmsTimeline(timelines, sectionStart + rate * pair.Position, mode);
+                if (!noteScanner.TryGetValue(index, out int value, out _, out _))
+                {
+                    continue;
+                }
+                ChartTimeline timeline = GetBmsTimeline(timelines, sectionStart + rate * noteScanner.GetPosition(index), mode);
                 if (kind == BmsLaneChannelKind.Hidden)
                 {
                     timeline.HasHiddenNote = true;
                 }
                 else if (kind == BmsLaneChannelKind.Normal)
                 {
-                    ApplyBmsNormalNote(timelines, lane, pair.Value, timeline, longNotesByLane, pendingLongStarts);
+                    ApplyBmsNormalNote(timelines, lane, value, timeline, longNotesByLane, pendingLongStarts);
                 }
                 else if (kind == BmsLaneChannelKind.Long)
                 {
-                    ApplyBmsLongNote(timelines, lane, pair.Value, timeline, longNotesByLane, pendingLongStarts);
+                    ApplyBmsLongNote(timelines, lane, value, timeline, longNotesByLane, pendingLongStarts);
                 }
                 else if (kind == BmsLaneChannelKind.Mine && timeline.Notes[lane] == null && !IsInsideBmsLongNote(longNotesByLane[lane], timeline.Section))
                 {
-                    timeline.SetNote(lane, ChartNote.CreateMine(pair.Value));
+                    timeline.SetNote(lane, ChartNote.CreateMine(value));
                 }
             }
         }
 
-        private void ApplyBmsNormalNote(SortedList<double, ChartTimeline> timelines, int lane, int data, ChartTimeline timeline, List<ChartNote>[] longNotesByLane, ChartNote[] pendingLongStarts)
+        private void ApplyBmsNormalNote(BmsTimelineStore timelines, int lane, int data, ChartTimeline timeline, List<ChartNote>[] longNotesByLane, ChartNote[] pendingLongStarts)
         {
             if (data == LnObject)
             {
                 int previousIndex = 0;
-                int index = FindPreviousTimelineIndex(timelines.Keys, timeline.Section);
-                if (timelines.Keys[index] >= timeline.Section)
+                foreach (ChartTimeline previous in timelines.DescendingBefore(timeline.Section))
                 {
-                    index--;
-                }
-                for (; index >= 0; index--)
-                {
-                    ChartTimeline previous = timelines.Values[index];
                     timeoutGuard.ThrowIfTimedOutEvery(++previousIndex, "bms_lnobj_backscan");
                     ChartNote previousNote = previous.Notes[lane];
                     if (previousNote == null)
@@ -1942,7 +1976,7 @@ internal static class ChartInfoParser
             timeline.SetNote(lane, ChartNote.CreateNormal(data));
         }
 
-        private void ApplyBmsLongNote(SortedList<double, ChartTimeline> timelines, int lane, int data, ChartTimeline timeline, List<ChartNote>[] longNotesByLane, ChartNote[] pendingLongStarts)
+        private void ApplyBmsLongNote(BmsTimelineStore timelines, int lane, int data, ChartTimeline timeline, List<ChartNote>[] longNotesByLane, ChartNote[] pendingLongStarts)
         {
             if (IsInsideBmsLongNote(longNotesByLane[lane], timeline.Section))
             {
@@ -1983,14 +2017,8 @@ internal static class ChartInfoParser
             }
             bool foundStart = false;
             int previousIndex = 0;
-            int index = FindPreviousTimelineIndex(timelines.Keys, timeline.Section);
-            if (timelines.Keys[index] >= timeline.Section)
+            foreach (ChartTimeline previous in timelines.DescendingBefore(timeline.Section))
             {
-                index--;
-            }
-            for (; index >= 0; index--)
-            {
-                ChartTimeline previous = timelines.Values[index];
                 timeoutGuard.ThrowIfTimedOutEvery(++previousIndex, "bms_long_note_backscan");
                 if (previous.Section == start.Section)
                 {
@@ -2018,15 +2046,13 @@ internal static class ChartInfoParser
             pendingLongStarts[lane] = null;
         }
 
-        private ChartTimeline GetBmsTimeline(SortedList<double, ChartTimeline> timelines, double section, ChartMode mode)
+        private ChartTimeline GetBmsTimeline(BmsTimelineStore timelines, double section, ChartMode mode)
         {
             if (timelines.TryGetValue(section, out ChartTimeline existing))
             {
                 return existing;
             }
-            int previousIndex = FindPreviousTimelineIndex(timelines.Keys, section);
-            ChartTimeline previous = timelines.Values[previousIndex];
-            double previousSection = timelines.Keys[previousIndex];
+            timelines.LowerEntry(section, out double previousSection, out ChartTimeline previous);
             if (previous.Bpm <= 0)
             {
                 throw new BmsRecoverableParseException("BMS timeline BPM is not defined before a future timeline.");
@@ -2091,31 +2117,318 @@ internal static class ChartInfoParser
 
         private bool HasNonZeroData(string data)
         {
-            return SplitData(data).Any();
+            BmsDataScanner scanner = CreateScanner(data);
+            return scanner.HasAnyNonZero();
         }
 
-        private IEnumerable<BmsDataPair> SplitData(string data)
+        private BmsDataScanner CreateScanner(string data)
         {
-            if (string.IsNullOrWhiteSpace(data) || data.Length < 2)
+            return new BmsDataScanner(data, Base, diagnostics, timeoutGuard);
+        }
+    }
+
+    private readonly struct BmsDataScanner
+    {
+        private readonly string data;
+
+        private readonly int numberBase;
+
+        private readonly IList<ChartInfoParseDiagnostic> diagnostics;
+
+        private readonly ParseTimeoutGuard timeoutGuard;
+
+        public BmsDataScanner(string data, int numberBase, IList<ChartInfoParseDiagnostic> diagnostics, ParseTimeoutGuard timeoutGuard)
+        {
+            this.data = data ?? string.Empty;
+            this.numberBase = numberBase;
+            this.diagnostics = diagnostics;
+            this.timeoutGuard = timeoutGuard ?? ParseTimeoutGuard.None;
+            PairCount = string.IsNullOrWhiteSpace(this.data) || this.data.Length < 2 ? 0 : this.data.Length / 2;
+        }
+
+        public int PairCount { get; }
+
+        public double GetPosition(int index)
+        {
+            return (double)index / PairCount;
+        }
+
+        public bool TryGetValue(int index, out int value, out char high, out char low)
+        {
+            timeoutGuard.ThrowIfTimedOutEvery(index + 1, "bms_split_data");
+            high = data[index * 2];
+            low = data[index * 2 + 1];
+            value = ParseBase(high, low, numberBase);
+            if (value > 0)
             {
-                yield break;
+                return true;
             }
-            int pairCount = data.Length / 2;
-            for (int index = 0; index < pairCount; index++)
+            if (value < 0)
             {
-                timeoutGuard.ThrowIfTimedOutEvery(index + 1, "bms_split_data");
-                char high = data[index * 2];
-                char low = data[index * 2 + 1];
-                int value = ParseBase(high, low, Base);
-                if (value > 0)
+                AddDiagnostic(diagnostics, ChartInfoParseDiagnosticSeverity.Warning, "BMS_CHANNEL_DATA_INVALID", "チャンネル定義中の不正な値です");
+            }
+            return false;
+        }
+
+        public bool HasAnyNonZero()
+        {
+            for (int index = 0; index < PairCount; index++)
+            {
+                if (TryGetValue(index, out _, out _, out _))
                 {
-                    yield return new BmsDataPair((double)index / pairCount, value, high, low);
-                }
-                else if (value < 0)
-                {
-                    AddDiagnostic(diagnostics, ChartInfoParseDiagnosticSeverity.Warning, "BMS_CHANNEL_DATA_INVALID", "チャンネル定義中の不正な値です");
+                    return true;
                 }
             }
+            return false;
+        }
+    }
+
+    private abstract class BmsTimelineStore
+    {
+        public abstract int Count { get; }
+
+        public abstract ChartTimeline FirstValue { get; }
+
+        public abstract bool TryGetValue(double section, out ChartTimeline timeline);
+
+        public abstract void Add(double section, ChartTimeline timeline);
+
+        public abstract void LowerEntry(double section, out double previousSection, out ChartTimeline previousTimeline);
+
+        public abstract IEnumerable<ChartTimeline> ValuesInOrder();
+
+        public abstract IEnumerable<ChartTimeline> DescendingBefore(double section);
+    }
+
+    private sealed class SortedListTimelineStore : BmsTimelineStore
+    {
+        private readonly SortedList<double, ChartTimeline> timelines = new SortedList<double, ChartTimeline>();
+
+        public override int Count => timelines.Count;
+
+        public override ChartTimeline FirstValue => timelines.Values[0];
+
+        public override bool TryGetValue(double section, out ChartTimeline timeline)
+        {
+            return timelines.TryGetValue(section, out timeline);
+        }
+
+        public override void Add(double section, ChartTimeline timeline)
+        {
+            timelines.Add(section, timeline);
+        }
+
+        public override void LowerEntry(double section, out double previousSection, out ChartTimeline previousTimeline)
+        {
+            int index = FindPreviousTimelineIndex(timelines.Keys, section);
+            if (timelines.Keys[index] >= section)
+            {
+                index--;
+            }
+            if (index < 0)
+            {
+                index = 0;
+            }
+            previousSection = timelines.Keys[index];
+            previousTimeline = timelines.Values[index];
+        }
+
+        public override IEnumerable<ChartTimeline> ValuesInOrder()
+        {
+            return timelines.Values;
+        }
+
+        public override IEnumerable<ChartTimeline> DescendingBefore(double section)
+        {
+            int index = FindPreviousTimelineIndex(timelines.Keys, section);
+            if (timelines.Keys[index] >= section)
+            {
+                index--;
+            }
+            for (; index >= 0; index--)
+            {
+                yield return timelines.Values[index];
+            }
+        }
+    }
+
+    private sealed class TreapTimelineStore : BmsTimelineStore
+    {
+        private readonly Dictionary<double, ChartTimeline> lookup = new Dictionary<double, ChartTimeline>();
+
+        private Node root;
+
+        public override int Count => lookup.Count;
+
+        public override ChartTimeline FirstValue
+        {
+            get
+            {
+                Node node = root;
+                while (node.Left != null)
+                {
+                    node = node.Left;
+                }
+                return node.Value;
+            }
+        }
+
+        public override bool TryGetValue(double section, out ChartTimeline timeline)
+        {
+            return lookup.TryGetValue(section, out timeline);
+        }
+
+        public override void Add(double section, ChartTimeline timeline)
+        {
+            lookup.Add(section, timeline);
+            root = Insert(root, new Node(section, timeline));
+        }
+
+        public override void LowerEntry(double section, out double previousSection, out ChartTimeline previousTimeline)
+        {
+            Node current = root;
+            Node candidate = null;
+            while (current != null)
+            {
+                if (section.CompareTo(current.Key) > 0)
+                {
+                    candidate = current;
+                    current = current.Right;
+                }
+                else
+                {
+                    current = current.Left;
+                }
+            }
+            if (candidate == null)
+            {
+                candidate = root;
+                while (candidate.Left != null)
+                {
+                    candidate = candidate.Left;
+                }
+            }
+            previousSection = candidate.Key;
+            previousTimeline = candidate.Value;
+        }
+
+        public override IEnumerable<ChartTimeline> ValuesInOrder()
+        {
+            Stack<Node> stack = new Stack<Node>();
+            Node current = root;
+            while (current != null || stack.Count > 0)
+            {
+                while (current != null)
+                {
+                    stack.Push(current);
+                    current = current.Left;
+                }
+                current = stack.Pop();
+                yield return current.Value;
+                current = current.Right;
+            }
+        }
+
+        public override IEnumerable<ChartTimeline> DescendingBefore(double section)
+        {
+            Stack<Node> stack = new Stack<Node>();
+            Node current = root;
+            while (current != null)
+            {
+                if (section.CompareTo(current.Key) > 0)
+                {
+                    stack.Push(current);
+                    current = current.Right;
+                }
+                else
+                {
+                    current = current.Left;
+                }
+            }
+            while (stack.Count > 0)
+            {
+                Node node = stack.Pop();
+                yield return node.Value;
+                current = node.Left;
+                while (current != null)
+                {
+                    stack.Push(current);
+                    current = current.Right;
+                }
+            }
+        }
+
+        private static Node Insert(Node root, Node node)
+        {
+            if (root == null)
+            {
+                return node;
+            }
+            int compare = node.Key.CompareTo(root.Key);
+            if (compare < 0)
+            {
+                root.Left = Insert(root.Left, node);
+                if (root.Left.Priority > root.Priority)
+                {
+                    root = RotateRight(root);
+                }
+            }
+            else
+            {
+                root.Right = Insert(root.Right, node);
+                if (root.Right.Priority > root.Priority)
+                {
+                    root = RotateLeft(root);
+                }
+            }
+            return root;
+        }
+
+        private static Node RotateRight(Node root)
+        {
+            Node left = root.Left;
+            root.Left = left.Right;
+            left.Right = root;
+            return left;
+        }
+
+        private static Node RotateLeft(Node root)
+        {
+            Node right = root.Right;
+            root.Right = right.Left;
+            right.Left = root;
+            return right;
+        }
+
+        private sealed class Node
+        {
+            public Node(double key, ChartTimeline value)
+            {
+                Key = key;
+                Value = value;
+                Priority = HashPriority(key);
+            }
+
+            public double Key { get; }
+
+            public ChartTimeline Value { get; }
+
+            public uint Priority { get; }
+
+            public Node Left { get; set; }
+
+            public Node Right { get; set; }
+        }
+
+        private static uint HashPriority(double key)
+        {
+            ulong bits = (ulong)BitConverter.DoubleToInt64Bits(key);
+            bits ^= bits >> 33;
+            bits *= 0xff51afd7ed558ccdUL;
+            bits ^= bits >> 33;
+            bits *= 0xc4ceb9fe1a85ec53UL;
+            bits ^= bits >> 33;
+            return (uint)(bits ^ (bits >> 32));
         }
     }
 
@@ -2128,41 +2441,84 @@ internal static class ChartInfoParser
         Mine
     }
 
-    private readonly struct BmsDataPair
+    private enum BmsTimelineEventKind
     {
-        public BmsDataPair(double position, int value, char high, char low)
-        {
-            Position = position;
-            Value = value;
-            High = high;
-            Low = low;
-        }
-
-        public double Position { get; }
-
-        public int Value { get; }
-
-        public char High { get; }
-
-        public char Low { get; }
-
-        public int Base36Value => ParseBase36(High, Low);
+        Scroll,
+        Bpm,
+        Stop
     }
 
-    private sealed class BmsTimelineEvent
+    private readonly struct BmsTimelineEvent
     {
-        public BmsTimelineEvent(double position, int priority, Action<ChartTimeline> apply)
+        public static readonly IComparer<BmsTimelineEvent> Comparer = new BmsTimelineEventComparer();
+
+        private BmsTimelineEvent(double position, int priority, BmsTimelineEventKind kind, double value, int sequence)
         {
             Position = position;
             Priority = priority;
-            Apply = apply;
+            Kind = kind;
+            Value = value;
+            Sequence = sequence;
         }
 
         public double Position { get; }
 
         public int Priority { get; }
 
-        public Action<ChartTimeline> Apply { get; }
+        public BmsTimelineEventKind Kind { get; }
+
+        public double Value { get; }
+
+        public int Sequence { get; }
+
+        public static BmsTimelineEvent CreateScroll(double position, double scroll, int sequence)
+        {
+            return new BmsTimelineEvent(position, 0, BmsTimelineEventKind.Scroll, scroll, sequence);
+        }
+
+        public static BmsTimelineEvent CreateBpm(double position, double bpm, int sequence)
+        {
+            return new BmsTimelineEvent(position, 1, BmsTimelineEventKind.Bpm, bpm, sequence);
+        }
+
+        public static BmsTimelineEvent CreateStop(double position, double stop, int sequence)
+        {
+            return new BmsTimelineEvent(position, 2, BmsTimelineEventKind.Stop, stop, sequence);
+        }
+
+        public void Apply(ChartTimeline timeline)
+        {
+            switch (Kind)
+            {
+                case BmsTimelineEventKind.Scroll:
+                    timeline.Scroll = Value;
+                    break;
+                case BmsTimelineEventKind.Bpm:
+                    timeline.Bpm = Value;
+                    break;
+                case BmsTimelineEventKind.Stop:
+                    if (timeline.Bpm <= 0)
+                    {
+                        throw new BmsRecoverableParseException("BMS timeline BPM is not defined before STOP.");
+                    }
+                    timeline.StopMicroseconds = (long)(1000.0 * 1000.0 * 60.0 * 4.0 * Value / timeline.Bpm);
+                    break;
+            }
+        }
+
+        private sealed class BmsTimelineEventComparer : IComparer<BmsTimelineEvent>
+        {
+            public int Compare(BmsTimelineEvent x, BmsTimelineEvent y)
+            {
+                int position = x.Position.CompareTo(y.Position);
+                if (position != 0)
+                {
+                    return position;
+                }
+                int priority = x.Priority.CompareTo(y.Priority);
+                return priority != 0 ? priority : x.Sequence.CompareTo(y.Sequence);
+            }
+        }
     }
 
     private sealed class BmsChannelLine
@@ -2202,6 +2558,8 @@ internal static class ChartInfoParser
 
         private readonly int[] scratchKeys;
 
+        private readonly bool[] scratchKeyMap;
+
         private readonly int[] bmsChannelAssign;
 
         private readonly int[] bmsonKeyAssign;
@@ -2211,6 +2569,14 @@ internal static class ChartInfoParser
             DisplayMode = displayMode;
             KeyCount = keyCount;
             this.scratchKeys = scratchKeys ?? Array.Empty<int>();
+            scratchKeyMap = new bool[Math.Max(0, keyCount)];
+            foreach (int scratchKey in this.scratchKeys)
+            {
+                if (scratchKey >= 0 && scratchKey < scratchKeyMap.Length)
+                {
+                    scratchKeyMap[scratchKey] = true;
+                }
+            }
             this.bmsChannelAssign = bmsChannelAssign;
             this.bmsonKeyAssign = bmsonKeyAssign;
         }
@@ -2245,7 +2611,7 @@ internal static class ChartInfoParser
 
         public bool IsScratchKey(int lane)
         {
-            return scratchKeys.Contains(lane);
+            return lane >= 0 && lane < scratchKeyMap.Length && scratchKeyMap[lane];
         }
 
         public int[] GetBmsChannelAssign()
