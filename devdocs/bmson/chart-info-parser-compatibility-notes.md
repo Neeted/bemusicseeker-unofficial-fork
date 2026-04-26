@@ -2,7 +2,7 @@
 
 最終更新: 2026-04-26
 
-この文書は、`chart_info` 生成で beatoraja / jbms-parser 互換を目指す際に確認した実装上の注意点をまとめる。  
+この文書は、`chart_info` 生成で beatoraja / jbms-parser 互換を目指す際に確認した実装上の注意点をまとめる。
 一般的な BMS / BMSON 仕様から自然には読めない、参照実装固有の解釈や Java 実装由来の挙動を優先して記録する。
 
 対象実装:
@@ -26,7 +26,7 @@
 
 ### 既定エンコード
 
-BMS の既定 decode は MS932 系に寄せる。  
+BMS の既定 decode は MS932 系に寄せる。
 明示 encoding が渡された場合のみそれを優先する。
 
 理由:
@@ -45,7 +45,7 @@ BMS の既定 decode は MS932 系に寄せる。
 - `#TITLExxx` のような古い無空白構文
 - `#BPMxx value` / `#STOPxx value` / `#SCROLLxx value`
 
-実装上は reserve word に対して `substring(command.length + 2)` 相当の切り出しを使う場面がある。  
+実装上は reserve word に対して `substring(command.length + 2)` 相当の切り出しを使う場面がある。
 `#DIFFICULTY=2` は `#` + `DIFFICULTY` + 区切り 1 文字 + argument という形として処理する。
 
 ### チャンネル行の colon 後空白
@@ -60,7 +60,7 @@ int split = (line.length() - findex) / 2;
 token = line.charAt(findex + i * 2), line.charAt(findex + i * 2 + 1);
 ```
 
-つまり、`#01301: 100...` のように colon 後に空白がある場合、最初の token は `" 1"` になり、不正値として無視される。  
+つまり、`#01301: 100...` のように colon 後に空白がある場合、最初の token は `" 1"` になり、不正値として無視される。
 C# 側で `:\s*(.*)` のように空白を食べると、本来無視されるノートが有効化される。
 
 現在の方針:
@@ -85,17 +85,17 @@ C# 側で `:\s*(.*)` のように空白を食べると、本来無視される�
   - 例: `#PLAYLEVEL 2８`
 - overflow は invalid。
 
-`level` は `chart_info` では nullable とし、未定義 / invalid は `NULL` にする。  
+`level` は `chart_info` では nullable とし、未定義 / invalid は `NULL` にする。
 beatoraja DB では未定義相当が `0` になるため、互換比較では `0 == NULL` として扱う。
 
 ### double 系
 
-`#TOTAL`, `#BPM`, `#BPMxx`, `#STOPxx`, `#SCROLLxx` は trailing garbage を許容しない。  
+`#TOTAL`, `#BPM`, `#BPMxx`, `#STOPxx`, `#SCROLLxx` は trailing garbage を許容しない。
 `#TOTAL 100abc` は未定義 / invalid 扱いにする。
 
 通常の decimal / signed / exponent 形式は許容する。
 
-`#TOTAL` は未定義でも fatal ではない。  
+`#TOTAL` は未定義でも fatal ではない。
 本アプリでは:
 
 - `total`: 表示・ソート用の有効値を保存する
@@ -105,12 +105,12 @@ beatoraja DB では未定義相当が `0` になるため、互換比較では `
 
 ### BPM の min/max
 
-beatoraja `song` DB の `maxbpm` / `minbpm` は整数列として保存されるため、比較時は整数部比較が必要になる。  
+beatoraja `song` DB の `maxbpm` / `minbpm` は整数列として保存されるため、比較時は整数部比較が必要になる。
 本アプリの `chart_info` では小数 BPM 自体は保持する。
 
 ただし、巨大 BPM が Java 側で `double -> int` 保存時に飽和 / narrowing 相当になるケースがあるため、`chart_info` 保存値も int 範囲外の巨大値は Java DB 比較に寄せた clamp を行う。
 
-`minbpm` / `maxbpm` の候補には `InitialBpm` も含める。  
+`minbpm` / `maxbpm` の候補には `InitialBpm` も含める。
 `#BPM` 未定義でも timeline 0 の BPM change が正なら解析成功にする方針を取っているため、`InitialBpm = 0` が min 候補に残ることがある。
 
 ## `#BASE 62`
@@ -130,7 +130,7 @@ beatoraja `song` DB の `maxbpm` / `minbpm` は整数列として保存される
 
 ### `#RANDOM/#IF/#ENDIF/#ENDRANDOM`
 
-参照実装は `selectedRandoms` 未指定の場合にランダム選択する。  
+参照実装は `selectedRandoms` 未指定の場合にランダム選択する。
 `chart_info` では stable metadata を優先するため、初回候補はすべて branch `1` とする。
 
 RANDOM retry:
@@ -154,7 +154,7 @@ retry 対象:
 
 ### `#SWITCH/#CASE/#SKIP/#ENDSW`
 
-`#SWITCH` 系は差分原因になりやすい。  
+`#SWITCH` 系は差分原因になりやすい。
 RANDOM 以外でも複数 branch が譜面内に残ると、LN や通常ノートの count が大きく変わる。
 
 観測例:
@@ -162,12 +162,12 @@ RANDOM 以外でも複数 branch が譜面内に残ると、LN や通常ノー�
 - `#CASE` 内の LN channel が全 branch 分処理されると、beatoraja 期待値より LN が増える。
 - LN が増えると、その LN 内の通常ノートが背景化され、`n`, `ln`, `notes`, `lanenotes`, `distribution`, `density` が連動してずれる。
 
-本アプリでは、参照実装の conditional stack に寄せる必要がある。  
+本アプリでは、参照実装の conditional stack に寄せる必要がある。
 未対応・不完全な状態では、`charthash` 以外の core diff として表面化する。
 
 ## mode / lane assign
 
-BMS の mode は、明示値だけでなく使用 channel によって 5K -> 7K, 5/7K -> 10/14K へ昇格する。  
+BMS の mode は、明示値だけでなく使用 channel によって 5K -> 7K, 5/7K -> 10/14K へ昇格する。
 参照実装では `Section` 構築時に note channel を見て `model.setMode(...)` する。
 
 lane assign は mode によって変わる。
@@ -178,7 +178,7 @@ lane assign は mode によって変わる。
 - BEAT 14K
 - POPN 9K
 
-特に 7K / 14K は scratch lane と key lane の並びが直感的な channel 順と一致しない。  
+特に 7K / 14K は scratch lane と key lane の並びが直感的な channel 順と一致しない。
 `lanenotes` 差分を追うときは、内部 lane index と DataGrid 表示順を混同しない。
 
 ## timeline / time / length
@@ -205,17 +205,52 @@ tlcache.put(section, new TimeLineCache(time, tl));
 
 C# 側で round したり、millisecond 単位で累積したりすると、`length`, `speedchange`, `distribution`, `density` が連動してずれる。
 
+### section rate の扱い
+
+`#xxx02` の小節長は、各 `Section` が保持する `rate` をそのまま note / BPM / STOP / SCROLL の section 座標計算に使う。
+
+重要点:
+
+- `Section` の `sectionnum` は前小節の `rate` を足して決まる。
+- その小節内の event 位置は `sectionnum + pos * rate`。
+- C# 側で `sectionStarts[next] - sectionStarts[current]` から rate を逆算すると、double 累積誤差で 1ms 前後の差が出る。
+- 特に `#xxx02:0.9` のような小節が連続すると、`length`, `speedchange`, `distribution`, `density` がまとめてずれる。
+
+したがって本アプリでは、section start 配列とは別に「その小節に解析された rate」を保持し、`ApplyEvents` / note line 展開に使う。
+これは `Section.rate` を持つ参照実装に寄せるための対応であり、一般的な BMS 仕様だけを見ると見落としやすい。
+
 ### timeline 順序
 
-参照実装の BMS timeline は `TreeMap<Double, TimeLine>` の section order が基準になる。  
+参照実装の BMS timeline は `TreeMap<Double, TimeLine>` の section order が基準になる。
 `SongInformation` も `model.getAllTimeLines()` を順に走査する。
 
-時刻順に並べ替えると、負 BPM / STOP / SCROLL などの特殊譜面で speedchange や mainbpm の集計順が変わり得る。  
+時刻順に並べ替えると、負 BPM / STOP / SCROLL などの特殊譜面で speedchange や mainbpm の集計順が変わり得る。
 ただし本アプリ側では UI / chart string / hash との兼ね合いがあるため、変更時は production diff fixture で確認する。
+
+### 不正な「小節風」行と max section
+
+`BMSDecoder` は、行が `#` + 3 桁数字で始まり、かつ行長が 7 文字以上なら、channel として壊れていても `lines[bar_index]` に入れて `maxsec` を更新する。
+
+例:
+
+```text
+#187だいすき
+#0736:bd
+```
+
+この挙動の結果:
+
+- channel としては invalid / warning 相当でも、空の `Section` が末尾まで作られる。
+- 各空 section に section line timeline が作られる。
+- `BMSModel.getLastTime()` は最後の note / BGA / background を見るため必ず伸びるわけではない。
+- ただし `SongInformation.speedchange` の末尾補完は `tls[tls.length - 1].getTime()` を見るため、最後の speed entry の時刻が大きく伸びることがある。
+
+`length` は一致しているのに `speedchange` の末尾だけ `439999.0` のように伸びる差分は、この挙動が原因になり得る。
+本アプリでも、channel line として有効かどうかとは別に、`#NNN...` 形式の chart-like line を見た時点で max section を更新する。
 
 ### 24時間超 timeline
 
-24時間超は参照実装では異常扱いしない。  
+24時間超は参照実装では異常扱いしない。
 本アプリでも 24時間上限は置かず、解析できる限り `chart_info` 生成を試みる。
 
 fatal にするケース:
@@ -228,7 +263,7 @@ RANDOM 譜面では、巨大 timeline / distribution 配列長エラーは recov
 
 ## LN / LNOBJ
 
-LN 処理は `Section.makeTimeLines` の分岐順に寄せる必要がある。  
+LN 処理は `Section.makeTimeLines` の分岐順に寄せる必要がある。
 ここは notes count, lane notes, distribution, charthash すべてに影響する。
 
 ### `#LNOBJ`
@@ -261,7 +296,7 @@ LN channel (`#xxx5y` / `#xxx6y`) は開始・終端を交互に処理する。
   - 開始位置を見つけられない場合、pair を作らない。
 - 未閉じ LN は最後に開始 note を消す。
 
-最後の「開始位置を見つけた場合のみ pair を作る」が重要。  
+最後の「開始位置を見つけた場合のみ pair を作る」が重要。
 逆順定義などで開始 timeline が scan 範囲に無い場合、C# 側で無条件に pair を作ると、参照実装では未閉じとして消える LN が残り、`ln` / `n` / `notes` / `lanenotes` がずれる。
 
 ### LN 内 LN
@@ -326,9 +361,21 @@ base62 時の mine damage は前述の特殊再計算を行う。
 - format only diff:
   - Java `Double.toString` と C# formatting 差。
   - 例: `1.0E-4` と `0.0001E0` のような表記差。
+  - 例: `7.6999669989E7` と `7.699966998899999E7` のような最短表現差。
 
-formatter は BMSON `charthash` にも影響するため、安易に変えると BMSON fixture が回帰する。  
-formatting 修正は BMS / BMSON 双方の chart string fixture を見ながら行う。
+本アプリでは `speedchange`, chart string, `TOTAL`, mine damage などの double 出力に JDK 17 `Double.toString` 相当の formatter を使う。
+beatoraja が JDK 17 環境で動作している場合、JDK 19 以降の Schubfach 系の出力ではなく JDK 17 `FloatingDecimal` 系の互換をターゲットにする。
+
+formatter は BMSON `charthash` にも影響するため、変更時は BMS / BMSON 双方の chart string fixture を見る。
+
+2026-04-26 時点の production diff では、JDK 17 `Double.toString` 互換 formatter 適用後も `speedchange` 残差がある。分類は概ね次の通り。
+
+- BMS の高精度 decimal BPM を `double` に parse する段階の丸め差。
+  - 例: `114.15384615384615384615384615` は Java `Double.parseDouble` 由来の値と .NET `double.Parse` 由来の値が 1 ulp ずれることがある。
+- BMS の極小 BPM / 巨大 BPM 由来の double 精度差。
+- BMSON の scroll / BPM / STOP merge order または同一 y event 処理由来と思われる差。
+
+`length`, `distribution`, `density`, `peakdensity`, `enddensity` が 0 件まで縮んだ状態で `speedchange` だけ残る場合、timeline bucket ではなく上記を優先して疑う。
 
 ## mainbpm
 
@@ -365,7 +412,7 @@ chart string の主な要素:
 - BMSON note は音声 slice の start/duration が charthash に効く。
 - chart string は差分調査時に `tools/chartstring-dump` で Java 側を出して、C# の internal `ChartInfoParseResult.ChartString` と行単位比較する。
 
-`charthash` は最も差分が残りやすい。  
+`charthash` は最も差分が残りやすい。
 DataGrid field 拡張用の metadata としては、まず `notes`, `density`, `length`, `difficulty`, `BPM` などの表示値の互換を優先し、`charthash` は段階的に詰める方針が現実的。
 
 ## BMSON JSON parse
@@ -417,14 +464,14 @@ scroll event default:
 
 ### BMSON event merge order
 
-BMSON timeline は y 順に merge する。  
+BMSON timeline は y 順に merge する。
 同一 y では参照実装に合わせて:
 
 1. scroll
 2. bpm
 3. stop
 
-stop の時刻計算には、その時点で作られた timeline の BPM を使う。  
+stop の時刻計算には、その時点で作られた timeline の BPM を使う。
 negative BPM / STOP などは fatal にせず diagnostic 扱いにする。
 
 ## difficulty / level
@@ -440,12 +487,12 @@ negative BPM / STOP などは fatal にせず diagnostic 扱いにする。
 - BMSON `info.level` missing / null: `NULL`
 - BMSON `info.level = 0`: `0`
 
-`level_defined` は持たない。  
+`level_defined` は持たない。
 未定義は `NULL` だけで表現する。
 
 ### difficulty
 
-`chart_info.difficulty` は DataGrid 表示・ソート用の有効値。  
+`chart_info.difficulty` は DataGrid 表示・ソート用の有効値。
 `difficulty_defined` は譜面に明示されていたかを表す。
 
 BMS:
@@ -550,16 +597,15 @@ chart_info backfill は「単一 file reader + in-memory parallel parse + chunk 
 2026-04-26 時点で、最新 production diff fixture では非 RANDOM / 非 timeout の 755 件について:
 
 - core 差分は 0 まで縮小済み。
-- `length` は 5 件が 1ms 差。
-- `distribution` / `density` / `speedchange` は timeline time 由来と思われる差分が残る。
-- `charthash` は BMS / BMSON ともに残差がある。
+- `length`, `distribution`, `density`, `peakdensity`, `enddensity` は 0 件まで縮小済み。
+- `speedchange` は 14 件残っている。
+- `charthash` は 11 件残っている。
 - BMSON fixture は最新期待値更新後、値系は一致しているが charthash 差分が残る。
 
 次に詰める候補:
 
-1. `TimeLine` / `BMSModel.getLastTime()` 相当の 1ms 差
-2. `SongInformation` の bucket 計算との完全一致
-3. Java `Double.toString` 互換 formatter
-4. BMSON charthash の audio slice / note duration / double string
+1. Java `Double.parseDouble` 相当の decimal -> double parse 差
+2. BMSON speedchange の event merge / same-y 処理
+3. BMSON charthash の audio slice / note duration / double string
+4. BMS charthash-only 差分の chart string 行単位比較
 5. `#SWITCH/#CASE/#SKIP/#ENDSW` の残差確認
-

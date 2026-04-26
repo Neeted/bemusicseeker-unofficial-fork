@@ -226,6 +226,90 @@ public sealed class ChartInfoMetadataTests
     }
 
     [TestMethod]
+    public void ParseBms_SectionRateUsesParsedRateWithoutSubtractionDrift()
+    {
+        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        {
+            string chartPath = Path.Combine(tempRootPath, "section-rate.bms");
+            StringBuilder chart = new StringBuilder();
+            chart.Append("#PLAYER 1\r\n#BPM 180\r\n");
+            chart.Append("#00102:0.5\r\n");
+            for (int section = 2; section <= 87; section++)
+            {
+                chart.Append('#').Append(section.ToString("000", CultureInfo.InvariantCulture)).Append("02:0.9\r\n");
+            }
+            chart.Append("#08711:0001\r\n");
+            File.WriteAllText(chartPath, chart.ToString(), Encoding.ASCII);
+
+            LR2SongDBExtended.chart_info row = ChartInfoParser.Parse(chartPath);
+
+            Assert.AreEqual(104600, row.length);
+            Assert.AreEqual("180.0,0.0,180.0,104600.0", row.speedchange);
+        });
+    }
+
+    [TestMethod]
+    public void ParseBms_SpeedChangeUsesJavaStyleSmallExponentText()
+    {
+        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        {
+            string chartPath = Path.Combine(tempRootPath, "small-bpm.bms");
+            File.WriteAllText(
+                chartPath,
+                "#PLAYER 1\r\n"
+                    + "#BPM 218.607\r\n"
+                    + "#BPM01 0.0001\r\n"
+                    + "#00108:01\r\n",
+                Encoding.ASCII);
+
+            LR2SongDBExtended.chart_info row = ChartInfoParser.Parse(chartPath);
+
+            StringAssert.Contains(row.speedchange, "1.0E-4");
+            Assert.IsFalse(row.speedchange.Contains("0.0001E0"));
+        });
+    }
+
+    [TestMethod]
+    public void JavaDoubleToStringJdk17_MatchesKnownCompatibilityCases()
+    {
+        Assert.AreEqual("0.0", JavaDoubleToStringJdk17.ToString(0.0));
+        Assert.AreEqual("-0.0", JavaDoubleToStringJdk17.ToString(-0.0));
+        Assert.AreEqual("NaN", JavaDoubleToStringJdk17.ToString(double.NaN));
+        Assert.AreEqual("Infinity", JavaDoubleToStringJdk17.ToString(double.PositiveInfinity));
+        Assert.AreEqual("-Infinity", JavaDoubleToStringJdk17.ToString(double.NegativeInfinity));
+        Assert.AreEqual("4.9E-324", JavaDoubleToStringJdk17.ToString(double.Epsilon));
+        Assert.AreEqual("1.0E-323", JavaDoubleToStringJdk17.ToString(1e-323));
+        Assert.AreEqual("9.999999999999999E22", JavaDoubleToStringJdk17.ToString(1e23));
+        Assert.AreEqual("1.9999999999999998E23", JavaDoubleToStringJdk17.ToString(2e23));
+        Assert.AreEqual("8.409999999999999E21", JavaDoubleToStringJdk17.ToString(8.41e21));
+        Assert.AreEqual("7.6999669989E7", JavaDoubleToStringJdk17.ToString(7.6999669989E7));
+        Assert.AreEqual("3.141592653589793", JavaDoubleToStringJdk17.ToString(Math.PI));
+        Assert.AreEqual("1.7976931348623157E308", JavaDoubleToStringJdk17.ToString(double.MaxValue));
+    }
+
+    [TestMethod]
+    public void ParseBms_InvalidChartLikeLineExtendsTimelineSections()
+    {
+        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        {
+            string chartPath = Path.Combine(tempRootPath, "invalid-section-tail.bms");
+            File.WriteAllText(
+                chartPath,
+                "#PLAYER 1\r\n"
+                    + "#BPM 102\r\n"
+                    + "#00111:01\r\n"
+                    + "#187???\r\n",
+                Encoding.ASCII);
+
+            LR2SongDBExtended.chart_info row = ChartInfoParser.Parse(chartPath);
+
+            Assert.AreEqual(2352, row.length);
+            Assert.AreEqual("102.0,0.0,102.0,439999.0", row.speedchange);
+        });
+    }
+
+
+    [TestMethod]
     public void ParseBmson_SimpleFixture_ComputesChartMetadata()
     {
         WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)

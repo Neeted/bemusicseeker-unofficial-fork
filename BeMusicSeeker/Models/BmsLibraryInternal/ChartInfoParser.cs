@@ -326,39 +326,66 @@ internal static class ChartInfoParser
             {
                 continue;
             }
-            Match channelMatch = BmsChannelLineRegex.Match(line);
-            if (channelMatch.Success)
+            if (IsBmsChartLikeLine(line, out int chartLikeSection))
             {
-                int section = int.Parse(channelMatch.Groups[1].Value, CultureInfo.InvariantCulture);
-                int channel = ParseBase36(channelMatch.Groups[2].Value);
-                if (channel >= 0)
+                builder.TouchSection(chartLikeSection);
+                Match channelMatch = BmsChannelLineRegex.Match(line);
+                if (channelMatch.Success)
                 {
-                    builder.AddChannelLine(section, channel, channelMatch.Groups[3].Value);
+                    int channel = ParseBase36(channelMatch.Groups[2].Value);
+                    if (channel >= 0)
+                    {
+                        builder.AddChannelLine(chartLikeSection, channel, channelMatch.Groups[3].Value);
+                    }
+                    else
+                    {
+                        AddDiagnostic(diagnostics, ChartInfoParseDiagnosticSeverity.Warning, "BMS_CHANNEL_INVALID", "チャンネルに不正な値が定義されています");
+                    }
                 }
                 else
                 {
-                    AddDiagnostic(diagnostics, ChartInfoParseDiagnosticSeverity.Warning, "BMS_CHANNEL_INVALID", "チャンネルに不正な値が定義されています");
-                }
-                continue;
-            }
-            channelMatch = BmsChannelHeaderRegex.Match(line);
-            if (channelMatch.Success && line.Length > 6)
-            {
-                int section = int.Parse(channelMatch.Groups[1].Value, CultureInfo.InvariantCulture);
-                int channel = ParseBase36(channelMatch.Groups[2].Value);
-                if (channel >= 0)
-                {
-                    builder.AddChannelLine(section, channel, line);
-                }
-                else
-                {
-                    AddDiagnostic(diagnostics, ChartInfoParseDiagnosticSeverity.Warning, "BMS_CHANNEL_INVALID", "チャンネルに不正な値が定義されています");
+                    channelMatch = BmsChannelHeaderRegex.Match(line);
+                    if (channelMatch.Success)
+                    {
+                        int channel = ParseBase36(channelMatch.Groups[2].Value);
+                        if (channel >= 0)
+                        {
+                            builder.AddChannelLine(chartLikeSection, channel, line);
+                        }
+                        else
+                        {
+                            AddDiagnostic(diagnostics, ChartInfoParseDiagnosticSeverity.Warning, "BMS_CHANNEL_INVALID", "チャンネルに不正な値が定義されています");
+                        }
+                    }
+                    else
+                    {
+                        AddDiagnostic(diagnostics, ChartInfoParseDiagnosticSeverity.Warning, "BMS_CHANNEL_INVALID", "チャンネルに不正な値が定義されています");
+                    }
                 }
                 continue;
             }
             builder.ApplyCommand(line);
         }
         return builder.Build();
+    }
+
+    private static bool IsBmsChartLikeLine(string line, out int section)
+    {
+        if (!string.IsNullOrEmpty(line)
+            && line.Length > 6
+            && line[0] == '#'
+            && line[1] >= '0'
+            && line[1] <= '9'
+            && line[2] >= '0'
+            && line[2] <= '9'
+            && line[3] >= '0'
+            && line[3] <= '9')
+        {
+            section = (line[1] - '0') * 100 + (line[2] - '0') * 10 + (line[3] - '0');
+            return true;
+        }
+        section = 0;
+        return false;
     }
 
     private static List<int> ScanRandomMaxes(string text, ParseTimeoutGuard timeoutGuard)
@@ -1078,321 +1105,7 @@ internal static class ChartInfoParser
 
     private static string FormatDouble(double value)
     {
-        return JavaDoubleFormatCache.GetOrAdd(BitConverter.DoubleToInt64Bits(value), _ => FormatDoubleUncached(value));
-    }
-
-    private static string FormatDoubleUncached(double value)
-    {
-        List<string> candidates = new List<string>();
-        for (int precision = 1; precision <= 17; precision++)
-        {
-            string format = "G" + precision.ToString(CultureInfo.InvariantCulture);
-            string text = value.ToString(format, CultureInfo.InvariantCulture);
-            AddDoubleFormatCandidate(candidates, value, text);
-            AddAdjacentDoubleFormatCandidates(candidates, value, text);
-        }
-        string best = null;
-        foreach (string candidate in candidates.Distinct(StringComparer.Ordinal))
-        {
-            if (!IsJavaRoundTripDoubleCandidate(value, candidate))
-            {
-                continue;
-            }
-            if (best == null || CompareJavaDoubleCandidate(value, candidate, best) < 0)
-            {
-                best = candidate;
-            }
-        }
-        return best ?? FormatJavaDoubleFallback(value);
-    }
-
-    private static void AddDoubleFormatCandidate(ICollection<string> candidates, double value, string text)
-    {
-        string candidate = NormalizeDoubleText(text);
-        if (UsesExponentAgainstJavaDecimalRange(value, candidate))
-        {
-            return;
-        }
-        if (UsesDecimalAgainstJavaExponentRange(value, candidate))
-        {
-            return;
-        }
-        candidate = EnsureJavaDecimalPoint(candidate);
-        if (!string.IsNullOrEmpty(candidate))
-        {
-            candidates.Add(candidate);
-        }
-    }
-
-    private static void AddAdjacentDoubleFormatCandidates(ICollection<string> candidates, double value, string text)
-    {
-        string normalized = NormalizeDoubleText(text);
-        if (normalized.IndexOf('E') >= 0
-            || normalized.IndexOf('e') >= 0
-            || UsesExponentAgainstJavaDecimalRange(value, normalized)
-            || UsesDecimalAgainstJavaExponentRange(value, normalized))
-        {
-            return;
-        }
-        for (int direction = -1; direction <= 1; direction += 2)
-        {
-            string adjusted = AdjustLastDecimalDigit(normalized, direction);
-            if (!string.IsNullOrEmpty(adjusted))
-            {
-                candidates.Add(EnsureJavaDecimalPoint(adjusted));
-            }
-        }
-    }
-
-    private static bool UsesExponentAgainstJavaDecimalRange(double value, string text)
-    {
-        double absolute = Math.Abs(value);
-        return absolute >= 0.001 && absolute < 10000000.0 && text.IndexOf('E') >= 0;
-    }
-
-    private static bool UsesDecimalAgainstJavaExponentRange(double value, string text)
-    {
-        double absolute = Math.Abs(value);
-        return absolute != 0.0
-            && (absolute < 0.001 || absolute >= 10000000.0)
-            && text.IndexOf('E') < 0
-            && text.IndexOf('e') < 0;
-    }
-
-    private static string FormatJavaDoubleFallback(double value)
-    {
-        string text = NormalizeDoubleText(value.ToString("R", CultureInfo.InvariantCulture));
-        if (UsesDecimalAgainstJavaExponentRange(value, text))
-        {
-            return ToJavaExponentText(text);
-        }
-        return EnsureJavaDecimalPoint(text);
-    }
-
-    private static string ToJavaExponentText(string text)
-    {
-        if (string.IsNullOrEmpty(text) || text.IndexOf('E') >= 0 || text.IndexOf('e') >= 0)
-        {
-            return NormalizeDoubleText(text);
-        }
-        bool negative = text[0] == '-';
-        if (negative)
-        {
-            text = text.Substring(1);
-        }
-        int decimalIndex = text.IndexOf('.');
-        string digits = decimalIndex >= 0 ? text.Remove(decimalIndex, 1) : text;
-        int exponent = (decimalIndex >= 0 ? decimalIndex : text.Length) - 1;
-        digits = digits.TrimEnd('0');
-        if (digits.Length == 0)
-        {
-            return "0.0";
-        }
-        string mantissa = digits.Length == 1 ? digits + ".0" : digits[0] + "." + digits.Substring(1);
-        return (negative ? "-" : string.Empty) + mantissa + "E" + exponent.ToString(CultureInfo.InvariantCulture);
-    }
-
-    private static string AdjustLastDecimalDigit(string text, int direction)
-    {
-        if (string.IsNullOrEmpty(text))
-        {
-            return null;
-        }
-        char[] chars = text.ToCharArray();
-        for (int index = chars.Length - 1; index >= 0; index--)
-        {
-            if (!char.IsDigit(chars[index]))
-            {
-                continue;
-            }
-            int digit = chars[index] - '0' + direction;
-            if (digit < 0 || digit > 9)
-            {
-                return null;
-            }
-            chars[index] = (char)('0' + digit);
-            return new string(chars);
-        }
-        return null;
-    }
-
-    private static int CompareJavaDoubleCandidate(double value, string left, string right)
-    {
-        int lengthCompare = left.Length.CompareTo(right.Length);
-        if (lengthCompare != 0)
-        {
-            return lengthCompare;
-        }
-        decimal leftDistance = GetDecimalDistance(value, left);
-        decimal rightDistance = GetDecimalDistance(value, right);
-        int distanceCompare = leftDistance.CompareTo(rightDistance);
-        if (distanceCompare != 0)
-        {
-            return distanceCompare;
-        }
-        if (decimal.TryParse(left, NumberStyles.Float, CultureInfo.InvariantCulture, out decimal leftValue)
-            && decimal.TryParse(right, NumberStyles.Float, CultureInfo.InvariantCulture, out decimal rightValue))
-        {
-            int valueCompare = leftValue.CompareTo(rightValue);
-            if (valueCompare != 0)
-            {
-                return valueCompare;
-            }
-        }
-        return string.CompareOrdinal(left, right);
-    }
-
-    private static decimal GetDecimalDistance(double value, string candidate)
-    {
-        if (TryGetExactDecimal(value, out decimal actual)
-            && decimal.TryParse(candidate, NumberStyles.Float, CultureInfo.InvariantCulture, out decimal parsed))
-        {
-            return Math.Abs(actual - parsed);
-        }
-        return decimal.MaxValue;
-    }
-
-    private static bool IsJavaRoundTripDoubleCandidate(double value, string candidate)
-    {
-        if (double.IsNaN(value) || double.IsInfinity(value))
-        {
-            return string.Equals(candidate, value.ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal);
-        }
-        if (Math.Abs(value) < 1.0 && DoubleRoundTrips(value, candidate))
-        {
-            return true;
-        }
-        if (!decimal.TryParse(candidate, NumberStyles.Float, CultureInfo.InvariantCulture, out decimal parsed)
-            || !TryGetExactDecimal(value, out decimal actual))
-        {
-            return DoubleRoundTrips(value, candidate);
-        }
-        double lowerDouble = NextDouble(value, -1);
-        double upperDouble = NextDouble(value, 1);
-        if (!TryGetExactDecimal(lowerDouble, out decimal lowerValue)
-            || !TryGetExactDecimal(upperDouble, out decimal upperValue))
-        {
-            return DoubleRoundTrips(value, candidate);
-        }
-        decimal lowerBoundary = (lowerValue + actual) / 2m;
-        decimal upperBoundary = (upperValue + actual) / 2m;
-        if (lowerBoundary > upperBoundary)
-        {
-            decimal swap = lowerBoundary;
-            lowerBoundary = upperBoundary;
-            upperBoundary = swap;
-        }
-        if (parsed < lowerBoundary || parsed > upperBoundary)
-        {
-            return false;
-        }
-        bool evenSignificand = (BitConverter.DoubleToInt64Bits(value) & 1L) == 0L;
-        if ((parsed == lowerBoundary || parsed == upperBoundary) && !evenSignificand)
-        {
-            return false;
-        }
-        return true;
-    }
-
-    private static double NextDouble(double value, int direction)
-    {
-        if (double.IsNaN(value) || double.IsInfinity(value))
-        {
-            return value;
-        }
-        if (value == 0.0)
-        {
-            return direction < 0 ? -double.Epsilon : double.Epsilon;
-        }
-        long bits = BitConverter.DoubleToInt64Bits(value);
-        bits += (value > 0.0) == (direction > 0) ? 1 : -1;
-        return BitConverter.ToDouble(BitConverter.GetBytes(bits), 0);
-    }
-
-    private static bool TryGetExactDecimal(double value, out decimal result)
-    {
-        result = 0m;
-        if (double.IsNaN(value) || double.IsInfinity(value))
-        {
-            return false;
-        }
-        long bits = BitConverter.DoubleToInt64Bits(value);
-        bool negative = (bits & unchecked((long)0x8000000000000000)) != 0;
-        int exponentBits = (int)((bits >> 52) & 0x7ffL);
-        long fraction = bits & 0x000fffffffffffffL;
-        if (exponentBits == 0 && fraction == 0)
-        {
-            result = 0m;
-            return true;
-        }
-        long significand = exponentBits == 0 ? fraction : fraction | 0x0010000000000000L;
-        int exponent = exponentBits == 0 ? -1074 : exponentBits - 1075;
-        try
-        {
-            decimal valueDecimal = significand;
-            if (exponent > 0)
-            {
-                for (int i = 0; i < exponent; i++)
-                {
-                    valueDecimal *= 2m;
-                }
-            }
-            else
-            {
-                for (int i = 0; i < -exponent; i++)
-                {
-                    valueDecimal /= 2m;
-                }
-            }
-            result = negative ? -valueDecimal : valueDecimal;
-            return true;
-        }
-        catch (OverflowException)
-        {
-            return false;
-        }
-    }
-
-    private static string NormalizeDoubleText(string text)
-    {
-        text = (text ?? string.Empty).Replace('e', 'E');
-        int exponentIndex = text.IndexOf('E');
-        if (exponentIndex >= 0)
-        {
-            string mantissa = text.Substring(0, exponentIndex);
-            string exponent = text.Substring(exponentIndex + 1);
-            if (mantissa.IndexOf('.') < 0)
-            {
-                mantissa += ".0";
-            }
-            if (exponent.StartsWith("+", StringComparison.Ordinal))
-            {
-                exponent = exponent.Substring(1);
-            }
-            bool negativeExponent = exponent.StartsWith("-", StringComparison.Ordinal);
-            if (negativeExponent)
-            {
-                exponent = exponent.Substring(1);
-            }
-            exponent = exponent.TrimStart('0');
-            if (exponent.Length == 0)
-            {
-                exponent = "0";
-            }
-            text = mantissa + "E" + (negativeExponent ? "-" : string.Empty) + exponent;
-        }
-        return text;
-    }
-
-    private static bool DoubleRoundTrips(double value, string text)
-    {
-        return double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out double parsed)
-            && BitConverter.DoubleToInt64Bits(parsed) == BitConverter.DoubleToInt64Bits(value);
-    }
-
-    private static string EnsureJavaDecimalPoint(string text)
-    {
-        return text.IndexOf('.') < 0 && text.IndexOf('E') < 0 && text.IndexOf('e') < 0 ? text + ".0" : text;
+        return JavaDoubleFormatCache.GetOrAdd(BitConverter.DoubleToInt64Bits(value), _ => JavaDoubleToStringJdk17.ToString(value));
     }
 
     private static double CalculateDefaultTotal(ChartMode mode, int totalNotes)
@@ -1725,6 +1438,11 @@ internal static class ChartInfoParser
             maxSection = Math.Max(maxSection, section);
         }
 
+        public void TouchSection(int section)
+        {
+            maxSection = Math.Max(maxSection, section);
+        }
+
         public void ApplyCommand(string line)
         {
             string trimmed = line.Trim();
@@ -1933,7 +1651,7 @@ internal static class ChartInfoParser
                 LnMode = LnMode,
                 HasRandom = HasRandom
             };
-            double[] sectionStarts = BuildSectionStarts();
+            double[] sectionStarts = BuildSectionStarts(out double[] sectionRates);
             SortedList<double, ChartTimeline> timelines = new SortedList<double, ChartTimeline>();
             ChartTimeline baseTimeline = new ChartTimeline(0.0, 0.0, mode.KeyCount)
             {
@@ -1946,7 +1664,7 @@ internal static class ChartInfoParser
             {
                 timeoutGuard.ThrowIfTimedOutEvery(section + 1, "bms_sections");
                 double sectionStart = sectionStarts[section];
-                double rate = section + 1 < sectionStarts.Length ? sectionStarts[section + 1] - sectionStart : 1.0;
+                double rate = section < sectionRates.Length ? sectionRates[section] : 1.0;
                 GetBmsTimeline(timelines, sectionStart, mode).HasSectionLine = true;
                 ApplyEvents(timelines, mode, section, sectionStart, rate);
                 foreach (BmsChannelLine line in channelLines.Where((BmsChannelLine item) => item.Section == section).OrderBy((BmsChannelLine item) => item.Order))
@@ -2016,9 +1734,9 @@ internal static class ChartInfoParser
             return hasSevenSide ? ChartMode.Beat7 : ChartMode.Beat5;
         }
 
-        private double[] BuildSectionStarts()
+        private double[] BuildSectionStarts(out double[] rates)
         {
-            double[] rates = Enumerable.Repeat(1.0, Math.Max(1, maxSection + 1)).ToArray();
+            rates = Enumerable.Repeat(1.0, Math.Max(1, maxSection + 1)).ToArray();
             int rateLineIndex = 0;
             foreach (BmsChannelLine line in channelLines.Where((BmsChannelLine item) => item.Channel == SectionRate))
             {
