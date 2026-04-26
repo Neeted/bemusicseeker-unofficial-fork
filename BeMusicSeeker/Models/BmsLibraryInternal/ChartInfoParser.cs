@@ -830,8 +830,7 @@ internal static class ChartInfoParser
             + 240000.0 * 1000.0 * ((y - previousY) / resolution) / previous.Bpm;
         ChartTimeline timeline = new ChartTimeline(section, preciseTime, mode.KeyCount)
         {
-            Bpm = previous.Bpm,
-            Scroll = previous.Scroll
+            Bpm = previous.Bpm
         };
         timelinesByY.Add(y, timeline);
         return timeline;

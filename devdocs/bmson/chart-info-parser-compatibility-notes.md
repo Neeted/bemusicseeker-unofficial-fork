@@ -474,6 +474,20 @@ BMSON timeline は y 順に merge する。
 stop の時刻計算には、その時点で作られた timeline の BPM を使う。
 negative BPM / STOP などは fatal にせず diagnostic 扱いにする。
 
+### BMSON scroll は後続 timeline に継承されない
+
+BMSON の `getTimeLine(y, resolution)` は、直前 timeline から BPM と precise time は引き継ぐが、scroll は引き継がない。
+
+参照実装では新規 `TimeLine` 作成時に概ね次の処理だけを行う:
+
+```java
+TimeLine tl = new TimeLine(y / resolution, (long) time, model.getMode().key);
+tl.setBPM(bpm);
+```
+
+`TimeLine.scroll` の初期値は `1.0` なので、`scroll_events` はその y の timeline にだけ直接設定される。
+C# 側で `previous.Scroll` をコピーすると、scroll 変化が後続 note / BGA / bar line timeline まで残り、`speedchange` が大きくずれる。
+
 ## difficulty / level
 
 ### level
@@ -598,14 +612,13 @@ chart_info backfill は「単一 file reader + in-memory parallel parse + chunk 
 
 - core 差分は 0 まで縮小済み。
 - `length`, `distribution`, `density`, `peakdensity`, `enddensity` は 0 件まで縮小済み。
-- `speedchange` は 14 件残っている。
+- `speedchange` は 11 件残っている。
 - `charthash` は 11 件残っている。
 - BMSON fixture は最新期待値更新後、値系は一致しているが charthash 差分が残る。
 
 次に詰める候補:
 
 1. Java `Double.parseDouble` 相当の decimal -> double parse 差
-2. BMSON speedchange の event merge / same-y 処理
-3. BMSON charthash の audio slice / note duration / double string
-4. BMS charthash-only 差分の chart string 行単位比較
-5. `#SWITCH/#CASE/#SKIP/#ENDSW` の残差確認
+2. BMSON charthash の audio slice / note duration / double string
+3. BMS charthash-only 差分の chart string 行単位比較
+4. `#SWITCH/#CASE/#SKIP/#ENDSW` の残差確認

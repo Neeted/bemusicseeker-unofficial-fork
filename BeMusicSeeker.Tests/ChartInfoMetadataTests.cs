@@ -355,10 +355,33 @@ public sealed class ChartInfoMetadataTests
             Assert.IsTrue((row.feature & FeatureMine) != 0);
             Assert.IsTrue((row.feature & FeatureStop) != 0);
             Assert.IsTrue((row.feature & FeatureScroll) != 0);
-            Assert.AreEqual(3, row.speedchange_count);
+            Assert.AreEqual(4, row.speedchange_count);
             StringAssert.StartsWith(row.distribution, "#");
             Assert.AreEqual(24, row.lanenotes.Split(',').Length);
             Assert.AreEqual(64, row.charthash.Length);
+        });
+    }
+
+    [TestMethod]
+    public void ParseBmson_ScrollDoesNotCarryToLaterTimelines()
+    {
+        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        {
+            string chartPath = Path.Combine(tempRootPath, "scroll-reset.bmson");
+            File.WriteAllText(
+                chartPath,
+                "{"
+                    + "\"version\":\"1.0.0\","
+                    + "\"info\":{\"mode_hint\":\"beat-7k\",\"init_bpm\":120,\"judge_rank\":100,\"total\":100,\"resolution\":240},"
+                    + "\"scroll_events\":[{\"y\":240,\"rate\":2.0}],"
+                    + "\"sound_channels\":[{\"notes\":[{\"x\":1,\"y\":480}]}]"
+                    + "}",
+                new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+
+            LR2SongDBExtended.chart_info row = ChartInfoParser.Parse(chartPath);
+
+            Assert.AreEqual("120.0,0.0,240.0,500.0,120.0,1000.0", row.speedchange);
+            Assert.AreEqual(2, row.speedchange_count);
         });
     }
 
