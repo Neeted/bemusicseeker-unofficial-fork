@@ -95,6 +95,34 @@ beatoraja DB では未定義相当が `0` になるため、互換比較では `
 
 通常の decimal / signed / exponent 形式は許容する。
 
+double の値変換は Java 17 の `Double.parseDouble` 相当に寄せる必要がある。
+.NET の `double.TryParse(..., InvariantCulture)` と JDK17 は、多桁 decimal を binary64 に丸める境界で 1 ulp ずれることがある。
+
+観測例:
+
+- `114.15384615384615384615384615`
+  - JDK17: `114.15384615384616`
+  - .NET parser: `114.15384615384615` になる環境がある
+- BMSON JSON の `131.4889812233735`
+  - JDK17: `131.4889812233735`
+  - Json.NET 経由の .NET double: `131.48898122337351` になる環境がある
+
+この 1 ulp 差は、`speedchange` の文字列と `BMSModel.toChartString()` 相当の BPM 出力にそのまま出るため、`charthash` も連動してずれる。
+そのため本アプリでは JDK17 互換の decimal / hex floating parser を使い、round-to-nearest-even の結果を raw bits レベルで合わせる。
+
+Java `Double.parseDouble` 互換として注意する点:
+
+- trim は Java 的に `U+0020` 以下の前後文字を落とす。
+- `NaN`, `Infinity`, `-Infinity` を受ける。
+- 16進浮動小数点表記を受ける。
+  - 例: `0x1.8p1`
+- numeric suffix `f/F/d/D` を受ける。
+- 多桁 decimal は exact rational として丸め、境界では round-to-nearest-even にする。
+
+BMS 側では `#BPM`, `#BPMxx`, `#STOPxx`, `#SCROLLxx`, `#TOTAL`, 小節長 `#xxx02` に適用する。
+BMSON 側では Json.NET が数値 token を先に .NET double 化してしまうため、converter だけでは足りない。
+`info.init_bpm`, `info.total`, `bpm_events[].bpm`, `stop_events[].duration`, `scroll_events[].rate`, `mine_channels/key_channels[].notes[].damage` は raw JSON 文字列を走査し、JDK17 互換 parser で読み直してモデル値を上書きする。
+
 `#TOTAL` は未定義でも fatal ではない。
 本アプリでは:
 
@@ -368,12 +396,13 @@ beatoraja が JDK 17 環境で動作している場合、JDK 19 以降の Schubf
 
 formatter は BMSON `charthash` にも影響するため、変更時は BMS / BMSON 双方の chart string fixture を見る。
 
-2026-04-26 時点の production diff では、JDK 17 `Double.toString` 互換 formatter 適用後も `speedchange` 残差がある。分類は概ね次の通り。
+2026-04-26 時点の production diff では、JDK 17 `Double.toString` 互換 formatter 適用後に `speedchange` / `charthash` が 11 件ずつ残った。
+原因は `Double.toString` ではなく、主に parse 段階の `Double.parseDouble` 丸め差だった。
 
 - BMS の高精度 decimal BPM を `double` に parse する段階の丸め差。
   - 例: `114.15384615384615384615384615` は Java `Double.parseDouble` 由来の値と .NET `double.Parse` 由来の値が 1 ulp ずれることがある。
-- BMS の極小 BPM / 巨大 BPM 由来の double 精度差。
-- BMSON の scroll / BPM / STOP merge order または同一 y event 処理由来と思われる差。
+- BMSON の JSON numeric literal を Json.NET が先に .NET double 化する段階の丸め差。
+  - 例: `131.4889812233735` は Java と .NET で 1 ulp ずれることがある。
 
 `length`, `distribution`, `density`, `peakdensity`, `enddensity` が 0 件まで縮んだ状態で `speedchange` だけ残る場合、timeline bucket ではなく上記を優先して疑う。
 
@@ -612,13 +641,12 @@ chart_info backfill は「単一 file reader + in-memory parallel parse + chunk 
 
 - core 差分は 0 まで縮小済み。
 - `length`, `distribution`, `density`, `peakdensity`, `enddensity` は 0 件まで縮小済み。
-- `speedchange` は 11 件残っている。
-- `charthash` は 11 件残っている。
-- BMSON fixture は最新期待値更新後、値系は一致しているが charthash 差分が残る。
+- JDK17 `Double.parseDouble` 互換 parser 適用後、`speedchange` / `charthash` も 0 件まで縮小済み。
+- 残る大きな論点は、既知 timeout 4 件の性能対策と、RANDOM 譜面の分岐選択差分。
 
 次に詰める候補:
 
-1. Java `Double.parseDouble` 相当の decimal -> double parse 差
-2. BMSON charthash の audio slice / note duration / double string
-3. BMS charthash-only 差分の chart string 行単位比較
-4. `#SWITCH/#CASE/#SKIP/#ENDSW` の残差確認
+1. 既知 timeout 4 件の hotspot 分析と高速化
+2. RANDOM 譜面の deterministic branch 選択と beatoraja DB 期待値の扱い整理
+3. production DB 再生成時の差分追跡を容易にする report / fixture 更新手順の整備
+4. `#SWITCH/#CASE/#SKIP/#ENDSW` の追加サンプルが出た場合の conditional stack 再確認

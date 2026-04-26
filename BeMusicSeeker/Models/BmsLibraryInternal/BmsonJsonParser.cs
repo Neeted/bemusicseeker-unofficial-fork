@@ -63,24 +63,68 @@ internal static class BmsonJsonParser
         string infoJson = FindLastTopLevelPropertyValue(json, "info");
         if (!string.IsNullOrEmpty(infoJson) && document.Info != null)
         {
-            document.Info.InitBpmText = NormalizeCanonicalJavaNumberText(FindLastObjectPropertyValue(infoJson, "init_bpm"));
+            string initBpmText = FindLastObjectPropertyValue(infoJson, "init_bpm");
+            document.Info.InitBpmText = NormalizeCanonicalJavaNumberText(initBpmText);
+            if (TryParseRawJavaDouble(initBpmText, out double initBpm))
+            {
+                document.Info.InitBpm = initBpm;
+            }
+            if (TryParseRawJavaDouble(FindLastObjectPropertyValue(infoJson, "total"), out double total))
+            {
+                document.Info.Total = total;
+            }
         }
         string bpmEventsJson = FindLastTopLevelPropertyValue(json, "bpm_events");
-        if (string.IsNullOrEmpty(bpmEventsJson) || document.BpmEvents == null)
+        if (!string.IsNullOrEmpty(bpmEventsJson) && document.BpmEvents != null)
         {
-            return;
+            List<string> bpmTexts = ExtractArrayObjectPropertyTexts(bpmEventsJson, "bpm");
+            int count = Math.Min(document.BpmEvents.Length, bpmTexts.Count);
+            for (int index = 0; index < count; index++)
+            {
+                document.BpmEvents[index].BpmText = NormalizeCanonicalJavaNumberText(bpmTexts[index]);
+                if (TryParseRawJavaDouble(bpmTexts[index], out double bpm))
+                {
+                    document.BpmEvents[index].Bpm = bpm;
+                }
+            }
         }
-        List<string> bpmTexts = ExtractBpmEventTexts(bpmEventsJson);
-        int count = Math.Min(document.BpmEvents.Length, bpmTexts.Count);
-        for (int index = 0; index < count; index++)
+        string stopEventsJson = FindLastTopLevelPropertyValue(json, "stop_events");
+        if (!string.IsNullOrEmpty(stopEventsJson) && document.StopEvents != null)
         {
-            document.BpmEvents[index].BpmText = NormalizeCanonicalJavaNumberText(bpmTexts[index]);
+            List<string> stopTexts = ExtractArrayObjectPropertyTexts(stopEventsJson, "duration");
+            int count = Math.Min(document.StopEvents.Length, stopTexts.Count);
+            for (int index = 0; index < count; index++)
+            {
+                if (TryParseRawJavaDouble(stopTexts[index], out double duration))
+                {
+                    document.StopEvents[index].Duration = duration;
+                }
+            }
         }
+        string scrollEventsJson = FindLastTopLevelPropertyValue(json, "scroll_events");
+        if (!string.IsNullOrEmpty(scrollEventsJson) && document.ScrollEvents != null)
+        {
+            List<string> scrollTexts = ExtractArrayObjectPropertyTexts(scrollEventsJson, "rate");
+            int count = Math.Min(document.ScrollEvents.Length, scrollTexts.Count);
+            for (int index = 0; index < count; index++)
+            {
+                if (TryParseRawJavaDouble(scrollTexts[index], out double rate))
+                {
+                    document.ScrollEvents[index].Rate = rate;
+                }
+            }
+        }
+        ApplyRawMineDamageTexts(FindLastTopLevelPropertyValue(json, "mine_channels"), document.MineChannels);
+        ApplyRawMineDamageTexts(FindLastTopLevelPropertyValue(json, "key_channels"), document.KeyChannels);
     }
 
-    private static List<string> ExtractBpmEventTexts(string arrayJson)
+    private static List<string> ExtractArrayObjectPropertyTexts(string arrayJson, string propertyName)
     {
         List<string> result = new List<string>();
+        if (string.IsNullOrEmpty(arrayJson))
+        {
+            return result;
+        }
         int index = 0;
         SkipWhiteSpace(arrayJson, ref index);
         if (index >= arrayJson.Length || arrayJson[index] != '[')
@@ -98,11 +142,8 @@ internal static class BmsonJsonParser
             int valueStart = index;
             int valueEnd = SkipJsonValue(arrayJson, valueStart);
             string itemJson = arrayJson.Substring(valueStart, valueEnd - valueStart);
-            string bpmText = FindLastObjectPropertyValue(itemJson, "bpm");
-            if (!string.IsNullOrEmpty(bpmText))
-            {
-                result.Add(bpmText);
-            }
+            string propertyText = FindLastObjectPropertyValue(itemJson, propertyName);
+            result.Add(propertyText);
             index = valueEnd;
             SkipWhiteSpace(arrayJson, ref index);
             if (index < arrayJson.Length && arrayJson[index] == ',')
@@ -111,6 +152,79 @@ internal static class BmsonJsonParser
             }
         }
         return result;
+    }
+
+    private static void ApplyRawMineDamageTexts(string channelsJson, BmsonMineChannel[] channels)
+    {
+        if (string.IsNullOrEmpty(channelsJson) || channels == null)
+        {
+            return;
+        }
+        List<string> channelTexts = ExtractArrayItems(channelsJson);
+        int channelCount = Math.Min(channels.Length, channelTexts.Count);
+        for (int channelIndex = 0; channelIndex < channelCount; channelIndex++)
+        {
+            BmsonMineChannel channel = channels[channelIndex];
+            if (channel?.Notes == null)
+            {
+                continue;
+            }
+            string notesJson = FindLastObjectPropertyValue(channelTexts[channelIndex], "notes");
+            List<string> damageTexts = ExtractArrayObjectPropertyTexts(notesJson, "damage");
+            int noteCount = Math.Min(channel.Notes.Length, damageTexts.Count);
+            for (int noteIndex = 0; noteIndex < noteCount; noteIndex++)
+            {
+                if (TryParseRawJavaDouble(damageTexts[noteIndex], out double damage))
+                {
+                    channel.Notes[noteIndex].Damage = damage;
+                }
+            }
+        }
+    }
+
+    private static List<string> ExtractArrayItems(string arrayJson)
+    {
+        List<string> result = new List<string>();
+        if (string.IsNullOrEmpty(arrayJson))
+        {
+            return result;
+        }
+        int index = 0;
+        SkipWhiteSpace(arrayJson, ref index);
+        if (index >= arrayJson.Length || arrayJson[index] != '[')
+        {
+            return result;
+        }
+        index++;
+        while (index < arrayJson.Length)
+        {
+            SkipWhiteSpace(arrayJson, ref index);
+            if (index >= arrayJson.Length || arrayJson[index] == ']')
+            {
+                break;
+            }
+            int valueStart = index;
+            int valueEnd = SkipJsonValue(arrayJson, valueStart);
+            result.Add(arrayJson.Substring(valueStart, valueEnd - valueStart));
+            index = valueEnd;
+            SkipWhiteSpace(arrayJson, ref index);
+            if (index < arrayJson.Length && arrayJson[index] == ',')
+            {
+                index++;
+            }
+        }
+        return result;
+    }
+
+    private static bool TryParseRawJavaDouble(string rawText, out double value)
+    {
+        string text = UnquoteJsonString(rawText)?.Trim();
+        if (string.IsNullOrEmpty(text))
+        {
+            value = 0.0;
+            return false;
+        }
+        return JavaDoubleParserJdk17.TryParseDouble(text, out value);
     }
 
     private static string FindLastTopLevelPropertyValue(string json, string propertyName)
@@ -202,7 +316,7 @@ internal static class BmsonJsonParser
         {
             return null;
         }
-        if (double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out double doubleValue)
+        if (JavaDoubleParserJdk17.TryParseDouble(text, out double doubleValue)
             && Math.Abs(doubleValue) >= 10000000.0)
         {
             return null;
@@ -376,7 +490,7 @@ internal sealed class BmsonIntJsonConverter : JsonConverter
             {
                 return nullable ? null : 0;
             }
-            if (double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out double doubleValue))
+            if (JavaDoubleParserJdk17.TryParseDouble(value, out double doubleValue))
             {
                 return (int)Math.Truncate(doubleValue);
             }
@@ -416,7 +530,7 @@ internal sealed class BmsonDoubleJsonConverter : JsonConverter
             {
                 return nullable ? null : 0.0;
             }
-            if (double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out double doubleValue))
+            if (JavaDoubleParserJdk17.TryParseDouble(value, out double doubleValue))
             {
                 return doubleValue;
             }

@@ -270,6 +270,53 @@ public sealed class ChartInfoMetadataTests
     }
 
     [TestMethod]
+    public void ParseBms_DoubleValuesUseJavaParseDoubleRounding()
+    {
+        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        {
+            string chartPath = Path.Combine(tempRootPath, "java-parse-double-bpm.bms");
+            File.WriteAllText(
+                chartPath,
+                "#PLAYER 1\r\n"
+                    + "#BPM 212\r\n"
+                    + "#BPM07 114.15384615384615384615384615\r\n"
+                    + "#00108:07\r\n"
+                    + "#00111:01\r\n",
+                Encoding.ASCII);
+
+            ChartInfoParser.ChartInfoParseResult result = ChartInfoParser.ParseBytesDetailed(File.ReadAllBytes(chartPath), chartPath);
+
+            StringAssert.Contains(result.Row.speedchange, "114.15384615384616");
+            Assert.IsFalse(result.Row.speedchange.Contains("114.15384615384615,"));
+            StringAssert.Contains(result.ChartString, "B(114.15384615384616)");
+        });
+    }
+
+    [TestMethod]
+    public void ParseBmson_RawJsonDoublesUseJavaParseDoubleRounding()
+    {
+        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        {
+            string chartPath = Path.Combine(tempRootPath, "java-parse-double-bpm.bmson");
+            File.WriteAllText(
+                chartPath,
+                "{"
+                    + "\"version\":\"1.0.0\","
+                    + "\"info\":{\"mode_hint\":\"beat-7k\",\"init_bpm\":150,\"judge_rank\":100,\"total\":100,\"resolution\":240},"
+                    + "\"bpm_events\":[{\"y\":240,\"bpm\":131.4889812233735}],"
+                    + "\"sound_channels\":[{\"notes\":[{\"x\":1,\"y\":480}]}]"
+                    + "}",
+                new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+
+            ChartInfoParser.ChartInfoParseResult result = ChartInfoParser.ParseBytesDetailed(File.ReadAllBytes(chartPath), chartPath);
+
+            StringAssert.Contains(result.Row.speedchange, "131.4889812233735");
+            Assert.IsFalse(result.Row.speedchange.Contains("131.48898122337351"));
+            StringAssert.Contains(result.ChartString, "B(131.4889812233735)");
+        });
+    }
+
+    [TestMethod]
     public void JavaDoubleToStringJdk17_MatchesKnownCompatibilityCases()
     {
         Assert.AreEqual("0.0", JavaDoubleToStringJdk17.ToString(0.0));
@@ -285,6 +332,36 @@ public sealed class ChartInfoMetadataTests
         Assert.AreEqual("7.6999669989E7", JavaDoubleToStringJdk17.ToString(7.6999669989E7));
         Assert.AreEqual("3.141592653589793", JavaDoubleToStringJdk17.ToString(Math.PI));
         Assert.AreEqual("1.7976931348623157E308", JavaDoubleToStringJdk17.ToString(double.MaxValue));
+    }
+
+    [TestMethod]
+    public void JavaDoubleParserJdk17_MatchesKnownCompatibilityCases()
+    {
+        AssertJavaDoubleParseBits("0", "0000000000000000");
+        AssertJavaDoubleParseBits("-0", "8000000000000000");
+        AssertJavaDoubleParseBits("NaN", "7ff8000000000000");
+        AssertJavaDoubleParseBits("-NaN", "7ff8000000000000");
+        AssertJavaDoubleParseBits("Infinity", "7ff0000000000000");
+        AssertJavaDoubleParseBits("-Infinity", "fff0000000000000");
+        AssertJavaDoubleParseBits("1e23", "44b52d02c7e14af6");
+        AssertJavaDoubleParseBits("2e23", "44c52d02c7e14af6");
+        AssertJavaDoubleParseBits("1e-323", "0000000000000002");
+        AssertJavaDoubleParseBits("4e-324", "0000000000000001");
+        AssertJavaDoubleParseBits("2.4703282292062327e-324", "0000000000000000");
+        AssertJavaDoubleParseBits("2.4703282292062328e-324", "0000000000000001");
+        AssertJavaDoubleParseBits("2.2250738585072014e-308", "0010000000000000");
+        AssertJavaDoubleParseBits("1.7976931348623157e308", "7fefffffffffffff");
+        AssertJavaDoubleParseBits("1.7976931348623159e308", "7ff0000000000000");
+        AssertJavaDoubleParseBits("0x1p0", "3ff0000000000000");
+        AssertJavaDoubleParseBits("0x1.8p1", "4008000000000000");
+        AssertJavaDoubleParseBits("0x1.fffffffffffffp1023", "7fefffffffffffff");
+        AssertJavaDoubleParseBits("0x1.fffffffffffff8p1023", "7ff0000000000000");
+        AssertJavaDoubleParseBits("0x0.0000000000001p-1022", "0000000000000001");
+        AssertJavaDoubleParseBits("0x1p-1075", "0000000000000000");
+        AssertJavaDoubleParseBits("0x1.8p-1075", "0000000000000001");
+
+        Assert.AreEqual("114.15384615384616", JavaDoubleToStringJdk17.ToString(JavaDoubleParserJdk17.ParseDouble("114.15384615384615384615384615")));
+        Assert.AreEqual("131.4889812233735", JavaDoubleToStringJdk17.ToString(JavaDoubleParserJdk17.ParseDouble("131.4889812233735")));
     }
 
     [TestMethod]
@@ -2164,6 +2241,11 @@ public sealed class ChartInfoMetadataTests
     {
         using LR2SongDBExtended songDb = new LR2SongDBExtended(songDbPath);
         return songDb.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info WHERE sha256 = '" + sha256 + "';");
+    }
+
+    private static void AssertJavaDoubleParseBits(string value, string expectedHexBits)
+    {
+        Assert.AreEqual(expectedHexBits, JavaDoubleParserJdk17.ParseDoubleBits(value).ToString("x16", CultureInfo.InvariantCulture), value);
     }
 
     private static void AssertChartInfoEquivalent(LR2SongDBExtended.chart_info expected, LR2SongDBExtended.chart_info actual)

@@ -97,6 +97,7 @@
     <Reference Include="WindowsFormsIntegration" />
     <Reference Include="System.Core" />
     <Reference Include="System.Configuration" />
+    <Reference Include="System.Numerics" />
     <Reference Include="Livet.Extensions">
       <HintPath>libs\Livet.Extensions.dll</HintPath>
     </Reference>

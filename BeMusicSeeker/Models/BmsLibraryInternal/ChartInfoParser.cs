@@ -1107,6 +1107,11 @@ internal static class ChartInfoParser
         return JavaDoubleFormatCache.GetOrAdd(BitConverter.DoubleToInt64Bits(value), _ => JavaDoubleToStringJdk17.ToString(value));
     }
 
+    private static bool TryParseJavaDouble(string value, out double result)
+    {
+        return JavaDoubleParserJdk17.TryParseDouble(value, out result);
+    }
+
     private static double CalculateDefaultTotal(ChartMode mode, int totalNotes)
     {
         if (mode == ChartMode.Keyboard24 || mode == ChartMode.Keyboard24Double)
@@ -1450,7 +1455,7 @@ internal static class ChartInfoParser
                 if (trimmed.Length > 4 && trimmed[4] == ' ')
                 {
                     string argument = GetReserveWordArgument(trimmed, "BPM");
-                    if (double.TryParse(argument, NumberStyles.Float, CultureInfo.InvariantCulture, out double bpm) && bpm > 0)
+                    if (TryParseJavaDouble(argument, out double bpm) && bpm > 0)
                     {
                         InitialBpm = bpm;
                     }
@@ -1463,7 +1468,7 @@ internal static class ChartInfoParser
                 {
                     int key = ParseBase(trimmed.Substring(4, 2), Base);
                     string argument = trimmed.Substring(7).Trim();
-                    if (key >= 0 && double.TryParse(argument, NumberStyles.Float, CultureInfo.InvariantCulture, out double bpm) && bpm > 0)
+                    if (key >= 0 && TryParseJavaDouble(argument, out double bpm) && bpm > 0)
                     {
                         bpmTable[key] = bpm;
                     }
@@ -1480,7 +1485,7 @@ internal static class ChartInfoParser
                 {
                     int key = ParseBase(trimmed.Substring(5, 2), Base);
                     string argument = trimmed.Substring(8).Trim();
-                    if (key >= 0 && double.TryParse(argument, NumberStyles.Float, CultureInfo.InvariantCulture, out double stop))
+                    if (key >= 0 && TryParseJavaDouble(argument, out double stop))
                     {
                         stopTable[key] = Math.Abs(stop) / 192.0;
                     }
@@ -1497,7 +1502,7 @@ internal static class ChartInfoParser
                 {
                     int key = ParseBase(trimmed.Substring(7, 2), Base);
                     string argument = trimmed.Substring(10).Trim();
-                    if (key >= 0 && double.TryParse(argument, NumberStyles.Float, CultureInfo.InvariantCulture, out double scroll))
+                    if (key >= 0 && TryParseJavaDouble(argument, out double scroll))
                     {
                         scrollTable[key] = scroll;
                     }
@@ -1561,7 +1566,7 @@ internal static class ChartInfoParser
             if (MatchesReserveWord(trimmed, "TOTAL"))
             {
                 string argument = GetReserveWordArgument(trimmed, "TOTAL");
-                if (double.TryParse(argument, NumberStyles.Float, CultureInfo.InvariantCulture, out double total) && total > 0)
+                if (TryParseJavaDouble(argument, out double total) && total > 0)
                 {
                     Total = total;
                     TotalDefined = true;
@@ -1740,7 +1745,7 @@ internal static class ChartInfoParser
             foreach (BmsChannelLine line in channelLines.Where((BmsChannelLine item) => item.Channel == SectionRate))
             {
                 timeoutGuard.ThrowIfTimedOutEvery(++rateLineIndex, "bms_section_rates");
-                if (double.TryParse(line.Data, NumberStyles.Float, CultureInfo.InvariantCulture, out double rate))
+                if (TryParseJavaDouble(line.Data, out double rate))
                 {
                     rates[line.Section] = rate;
                 }
