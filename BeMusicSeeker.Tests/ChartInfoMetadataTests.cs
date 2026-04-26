@@ -1572,7 +1572,7 @@ public sealed class ChartInfoMetadataTests
 
     [TestMethod]
     [TestCategory("Compatibility")]
-    public void ParseProductionLatestDiffFixture_ChartHashesMatchJdk21Reference()
+    public void ParseProductionLatestDiffFixture_MatchesJdk21ReferenceForReportedFields()
     {
         string fixtureRootPath = Path.Combine(FindRepoRoot(), "BeMusicSeeker.Tests", "TestData", "chart_info_production_latest_diff");
         string expectedDbPath = Path.Combine(fixtureRootPath, "expected.db");
@@ -1584,15 +1584,27 @@ public sealed class ChartInfoMetadataTests
                 + "FROM FixtureSampleChart sc "
                 + "JOIN FixtureExpectedChartInfo e ON e.sha256 = sc.sha256 "
                 + "ORDER BY sc.fixture_id;");
-        Assert.AreEqual(2, rows.Count);
+        Assert.AreEqual(7, rows.Count);
 
         foreach (RealChartInfoExpectedRow expected in rows)
         {
             string chartPath = Path.Combine(fixtureRootPath, expected.fixture_path.Replace('/', Path.DirectorySeparatorChar));
 
-            LR2SongDBExtended.chart_info actual = ChartInfoParser.Parse(chartPath, expected.md5, expected.sha256);
+            ChartInfoParser.ChartInfoParseResult result = ChartInfoParser.ParseBytesDetailed(
+                File.ReadAllBytes(chartPath),
+                chartPath,
+                expected.md5,
+                expected.sha256,
+                timeout: TimeSpan.FromSeconds(60));
 
+            LR2SongDBExtended.chart_info actual = result.Row;
             Assert.AreEqual(expected.charthash, actual.charthash, expected.sha256);
+            Assert.AreEqual(expected.length, actual.length, expected.sha256);
+            Assert.AreEqual(expected.distribution, actual.distribution, expected.sha256);
+            Assert.AreEqual(expected.speedchange, actual.speedchange, expected.sha256);
+            AssertNullableDouble(expected.density, actual.density, expected.sha256 + " density");
+            AssertNullableDouble(expected.peakdensity, actual.peakdensity, expected.sha256 + " peakdensity");
+            AssertNullableDouble(expected.enddensity, actual.enddensity, expected.sha256 + " enddensity");
         }
     }
 
@@ -2304,9 +2316,69 @@ public sealed class ChartInfoMetadataTests
             Assert.IsTrue(logs.Any((string message) => message.StartsWith("INFO chart_info_backfill start", StringComparison.Ordinal)));
             Assert.IsTrue(logs.Any((string message) => message.StartsWith("INFO chart_info_backfill parse_done", StringComparison.Ordinal)));
             Assert.IsTrue(logs.Any((string message) => message.StartsWith("INFO chart_info_backfill slow_parse_top", StringComparison.Ordinal)));
+            int parseDoneIndex = logs.FindIndex((string message) => message.StartsWith("INFO chart_info_backfill parse_done", StringComparison.Ordinal));
+            int finalSummaryIndex = logs.FindIndex((string message) => message.StartsWith("INFO chart_info_backfill total=", StringComparison.Ordinal));
+            int lastCommitDoneIndex = logs.FindLastIndex((string message) => message.StartsWith("INFO chart_info_backfill db_commit_chunk_done", StringComparison.Ordinal));
+            Assert.IsTrue(parseDoneIndex >= 0);
+            Assert.IsTrue(finalSummaryIndex > parseDoneIndex);
+            Assert.IsTrue(finalSummaryIndex > lastCommitDoneIndex);
             using LR2SongDBExtended verify = new LR2SongDBExtended(songDbPath);
             Assert.AreEqual(5L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_digest_map;"));
             Assert.AreEqual(5L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info;"));
+        });
+    }
+
+    [TestMethod]
+    public void UpsertChartInfoBackfillChunk_UsesExplicitSqlAndReplacesRows()
+    {
+        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        {
+            BmsLibraryDbGateway gateway = new BmsLibraryDbGateway(songDbPath);
+            gateway.EnsureChartInfoBackfillSchema();
+            gateway.UpsertChartInfoBackfillChunk(null, null);
+            gateway.UpsertChartInfoBackfillChunk(Array.Empty<ChartDigestBackfillEntry>(), Array.Empty<LR2SongDBExtended.chart_info>());
+
+            string md5A = new string('a', 32);
+            string md5B = new string('b', 32);
+            string shaA = new string('1', 64);
+            string shaB = new string('2', 64);
+            string shaC = new string('3', 64);
+            DateTime updatedAt = new DateTime(2026, 4, 27, 1, 2, 3, DateTimeKind.Utc);
+            LR2SongDBExtended.chart_info rowA = CreateChartInfoRow(shaA, md5A, BmsLibraryDbGateway.CurrentChartInfoParserVersion);
+            rowA.level = null;
+            rowA.difficulty = null;
+            rowA.difficulty_defined = false;
+            rowA.mainbpm = null;
+            rowA.total = null;
+            rowA.total_defined = false;
+            rowA.updated_at = updatedAt;
+            LR2SongDBExtended.chart_info rowB = CreateChartInfoRow(shaB, md5B, BmsLibraryDbGateway.CurrentChartInfoParserVersion);
+            rowB.level = 7;
+
+            gateway.UpsertChartInfoBackfillChunk(new[] { new ChartDigestBackfillEntry(md5A, shaA) }, null);
+            gateway.UpsertChartInfoBackfillChunk(null, new[] { rowA });
+            gateway.UpsertChartInfoBackfillChunk(new[] { new ChartDigestBackfillEntry(md5B, shaB) }, new[] { rowB });
+
+            LR2SongDBExtended.chart_info replacement = CreateChartInfoRow(shaA, md5A, BmsLibraryDbGateway.CurrentChartInfoParserVersion);
+            replacement.level = 12;
+            replacement.difficulty_defined = true;
+            replacement.total_defined = true;
+            replacement.updated_at = updatedAt.AddMinutes(1);
+            gateway.UpsertChartInfoBackfillChunk(
+                new[] { new ChartDigestBackfillEntry(md5A, shaC) },
+                new[] { replacement });
+
+            using LR2SongDBExtended verify = new LR2SongDBExtended(songDbPath);
+            Assert.AreEqual(2L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_digest_map;"));
+            Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_digest_map WHERE md5 = ? AND sha256 = ?;", md5A, shaC));
+            Assert.AreEqual(2L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info;"));
+            LR2SongDBExtended.chart_info storedA = verify.Query<LR2SongDBExtended.chart_info>("SELECT * FROM chart_info WHERE sha256 = ?;", shaA).Single();
+            LR2SongDBExtended.chart_info storedB = verify.Query<LR2SongDBExtended.chart_info>("SELECT * FROM chart_info WHERE sha256 = ?;", shaB).Single();
+            Assert.AreEqual(12, storedA.level);
+            Assert.IsTrue(storedA.difficulty_defined);
+            Assert.IsTrue(storedA.total_defined);
+            Assert.AreEqual(replacement.updated_at, storedA.updated_at);
+            Assert.AreEqual(7, storedB.level);
         });
     }
 
@@ -2420,6 +2492,16 @@ public sealed class ChartInfoMetadataTests
         Assert.AreEqual(expected.speedchange_count, actual.speedchange_count);
         Assert.AreEqual(expected.lanenotes, actual.lanenotes);
         Assert.AreEqual(expected.parser_version, actual.parser_version);
+    }
+
+    private static void AssertNullableDouble(double? expected, double? actual, string message)
+    {
+        if (!expected.HasValue || !actual.HasValue)
+        {
+            Assert.AreEqual(expected.HasValue, actual.HasValue, message);
+            return;
+        }
+        Assert.IsTrue(Math.Abs(expected.Value - actual.Value) <= 0.000001, message + " expected=" + expected.Value.ToString("R", CultureInfo.InvariantCulture) + " actual=" + actual.Value.ToString("R", CultureInfo.InvariantCulture));
     }
 
     private static LR2SongDBExtended.chart_info CreateChartInfoRow(string sha256, string md5, int parserVersion)

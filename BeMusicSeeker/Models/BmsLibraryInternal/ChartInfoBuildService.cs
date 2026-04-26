@@ -143,21 +143,38 @@ internal sealed class ChartInfoBuildService
 
         BlockingCollection<QueuedChartBytes> queue = new BlockingCollection<QueuedChartBytes>(result.QueueCapacity);
         BlockingCollection<ChartInfoBuildItemResult> itemResults = new BlockingCollection<ChartInfoBuildItemResult>();
+        BlockingCollection<ChartInfoCommitChunk> commitChunks = new BlockingCollection<ChartInfoCommitChunk>();
         long readTicks = 0L;
         long parseTicks = 0L;
         int[] processedCount = new int[1];
 
-        Task resultWriter = Task.Run(delegate
+        Task commitWriter = Task.Run(delegate
         {
-            ConsumeBuildResults(
+            ConsumeCommitChunks(
                 dbGateway,
-                itemResults.GetConsumingEnumerable(),
+                commitChunks.GetConsumingEnumerable(),
                 result,
-                commitChunkSize,
                 logInstallPerformance,
-                logInstallPerformanceWarn,
-                reportProgress,
-                processedCount);
+                logInstallPerformanceWarn);
+        });
+
+        Task resultCollector = Task.Run(delegate
+        {
+            try
+            {
+                ConsumeBuildResults(
+                    itemResults.GetConsumingEnumerable(),
+                    commitChunks,
+                    result,
+                    commitChunkSize,
+                    logInstallPerformance,
+                    reportProgress,
+                    processedCount);
+            }
+            finally
+            {
+                commitChunks.CompleteAdding();
+            }
         });
 
         List<Task> workers = Enumerable.Range(0, result.WorkerCount)
@@ -213,10 +230,30 @@ internal sealed class ChartInfoBuildService
         {
             itemResults.CompleteAdding();
         }
-        resultWriter.Wait();
+        Exception pipelineException = null;
+        try
+        {
+            resultCollector.Wait();
+        }
+        catch (Exception ex)
+        {
+            pipelineException = ex;
+        }
+        try
+        {
+            commitWriter.Wait();
+        }
+        catch (Exception ex)
+        {
+            pipelineException = pipelineException ?? ex;
+        }
         if (workerException != null)
         {
             throw workerException;
+        }
+        if (pipelineException != null)
+        {
+            throw pipelineException;
         }
 
         result.ProcessedCount = Volatile.Read(ref processedCount[0]);
@@ -260,12 +297,11 @@ internal sealed class ChartInfoBuildService
     }
 
     private static void ConsumeBuildResults(
-        BmsLibraryDbGateway dbGateway,
         IEnumerable<ChartInfoBuildItemResult> itemResults,
+        BlockingCollection<ChartInfoCommitChunk> commitChunks,
         ChartInfoBackfillResult result,
         int commitChunkSize,
         Action<string> logInstallPerformance,
-        Action<string> logInstallPerformanceWarn,
         Action<int, int, string> reportProgress,
         int[] processedCount)
     {
@@ -281,13 +317,13 @@ internal sealed class ChartInfoBuildService
             reportProgress?.Invoke(result.TargetCount, processed, itemResult.Target?.Path ?? string.Empty);
             if (commitBuffer.TargetCount >= commitChunkSize)
             {
-                FlushCommitBuffer(dbGateway, commitBuffer, result, logInstallPerformance, logInstallPerformanceWarn);
+                EnqueueCommitBuffer(commitChunks, commitBuffer);
             }
         }
+        EnqueueCommitBuffer(commitChunks, commitBuffer);
         ApplyParseMetrics(result, parseDurations);
         logInstallPerformance?.Invoke(BuildParseDoneLogMessage(result, parseSucceededCount));
         LogSlowParseRecords(logInstallPerformance, slowParseRecords);
-        FlushCommitBuffer(dbGateway, commitBuffer, result, logInstallPerformance, logInstallPerformanceWarn);
     }
 
     private static void ApplyBuildResult(
@@ -350,46 +386,66 @@ internal sealed class ChartInfoBuildService
         }
     }
 
-    private static void FlushCommitBuffer(
-        BmsLibraryDbGateway dbGateway,
-        ChartInfoCommitBuffer commitBuffer,
-        ChartInfoBackfillResult result,
-        Action<string> logInstallPerformance,
-        Action<string> logInstallPerformanceWarn)
+    private static void EnqueueCommitBuffer(
+        BlockingCollection<ChartInfoCommitChunk> commitChunks,
+        ChartInfoCommitBuffer commitBuffer)
     {
         if (!commitBuffer.HasPendingDbRows)
         {
             commitBuffer.Clear();
             return;
         }
+        commitChunks.Add(commitBuffer.ToChunk());
+        commitBuffer.Clear();
+    }
+
+    private static void ConsumeCommitChunks(
+        BmsLibraryDbGateway dbGateway,
+        IEnumerable<ChartInfoCommitChunk> commitChunks,
+        ChartInfoBackfillResult result,
+        Action<string> logInstallPerformance,
+        Action<string> logInstallPerformanceWarn)
+    {
+        foreach (ChartInfoCommitChunk chunk in commitChunks)
+        {
+            FlushCommitChunk(dbGateway, chunk, result, logInstallPerformance, logInstallPerformanceWarn);
+        }
+    }
+
+    private static void FlushCommitChunk(
+        BmsLibraryDbGateway dbGateway,
+        ChartInfoCommitChunk commitChunk,
+        ChartInfoBackfillResult result,
+        Action<string> logInstallPerformance,
+        Action<string> logInstallPerformanceWarn)
+    {
         int chunkNumber = result.CommitChunks + 1;
-        logInstallPerformance?.Invoke(BuildCommitStartLogMessage(chunkNumber, commitBuffer));
+        logInstallPerformance?.Invoke(BuildCommitStartLogMessage(chunkNumber, commitChunk));
         Stopwatch stopwatch = Stopwatch.StartNew();
         try
         {
-            dbGateway.UpsertChartInfoBackfillChunk(commitBuffer.DigestEntries, commitBuffer.ChartInfoRows);
+            dbGateway.UpsertChartInfoBackfillChunk(commitChunk.DigestEntries, commitChunk.ChartInfoRows);
         }
         catch (Exception ex)
         {
             stopwatch.Stop();
-            logInstallPerformanceWarn?.Invoke(BuildCommitFailureLogMessage(chunkNumber, commitBuffer, stopwatch.ElapsedMilliseconds, ex));
+            logInstallPerformanceWarn?.Invoke(BuildCommitFailureLogMessage(chunkNumber, commitChunk, stopwatch.ElapsedMilliseconds, ex));
             throw;
         }
         stopwatch.Stop();
         result.CommitChunks++;
         result.DbCommitMs += stopwatch.ElapsedMilliseconds;
         result.DbCommitMaxChunkMs = Math.Max(result.DbCommitMaxChunkMs, stopwatch.ElapsedMilliseconds);
-        foreach (PendingDigestApplication application in commitBuffer.DigestApplications)
+        foreach (PendingDigestApplication application in commitChunk.DigestApplications)
         {
             result.DigestBackfilledCount += application.Target.ApplyDigest(application.Sha256, null);
         }
-        foreach (PendingChartInfoApplication application in commitBuffer.ChartInfoApplications)
+        foreach (PendingChartInfoApplication application in commitChunk.ChartInfoApplications)
         {
             application.Target.ApplyChartInfo(application.Row);
             result.BackfilledCount++;
         }
-        logInstallPerformance?.Invoke(BuildCommitDoneLogMessage(chunkNumber, commitBuffer, stopwatch.ElapsedMilliseconds));
-        commitBuffer.Clear();
+        logInstallPerformance?.Invoke(BuildCommitDoneLogMessage(chunkNumber, commitChunk, stopwatch.ElapsedMilliseconds));
     }
 
     private static void ApplyParseMetrics(ChartInfoBackfillResult result, List<long> parseDurations)
@@ -650,32 +706,32 @@ internal sealed class ChartInfoBuildService
             + " parseP95Ms=" + result.ParseP95Ms;
     }
 
-    private static string BuildCommitStartLogMessage(int chunkNumber, ChartInfoCommitBuffer commitBuffer)
+    private static string BuildCommitStartLogMessage(int chunkNumber, ChartInfoCommitChunk commitChunk)
     {
         return "chart_info_backfill db_commit_chunk_start"
             + " chunk=" + chunkNumber
-            + " targets=" + commitBuffer.TargetCount
-            + " digestRows=" + commitBuffer.DigestEntries.Count
-            + " infoRows=" + commitBuffer.ChartInfoRows.Count;
+            + " targets=" + commitChunk.TargetCount
+            + " digestRows=" + commitChunk.DigestEntries.Count
+            + " infoRows=" + commitChunk.ChartInfoRows.Count;
     }
 
-    private static string BuildCommitDoneLogMessage(int chunkNumber, ChartInfoCommitBuffer commitBuffer, long elapsedMs)
+    private static string BuildCommitDoneLogMessage(int chunkNumber, ChartInfoCommitChunk commitChunk, long elapsedMs)
     {
         return "chart_info_backfill db_commit_chunk_done"
             + " chunk=" + chunkNumber
-            + " targets=" + commitBuffer.TargetCount
-            + " digestRows=" + commitBuffer.DigestEntries.Count
-            + " infoRows=" + commitBuffer.ChartInfoRows.Count
+            + " targets=" + commitChunk.TargetCount
+            + " digestRows=" + commitChunk.DigestEntries.Count
+            + " infoRows=" + commitChunk.ChartInfoRows.Count
             + " elapsedMs=" + elapsedMs;
     }
 
-    private static string BuildCommitFailureLogMessage(int chunkNumber, ChartInfoCommitBuffer commitBuffer, long elapsedMs, Exception ex)
+    private static string BuildCommitFailureLogMessage(int chunkNumber, ChartInfoCommitChunk commitChunk, long elapsedMs, Exception ex)
     {
         return "chart_info_backfill db_commit_chunk_failed"
             + " chunk=" + chunkNumber
-            + " targets=" + commitBuffer.TargetCount
-            + " digestRows=" + commitBuffer.DigestEntries.Count
-            + " infoRows=" + commitBuffer.ChartInfoRows.Count
+            + " targets=" + commitChunk.TargetCount
+            + " digestRows=" + commitChunk.DigestEntries.Count
+            + " infoRows=" + commitChunk.ChartInfoRows.Count
             + " elapsedMs=" + elapsedMs
             + " exception=" + QuoteLogValue(ex?.GetType().Name)
             + " message=" + QuoteLogValue(ex?.Message);
@@ -838,6 +894,43 @@ internal sealed class ChartInfoBuildService
             ChartInfoApplications.Clear();
             TargetCount = 0;
         }
+
+        public ChartInfoCommitChunk ToChunk()
+        {
+            return new ChartInfoCommitChunk(
+                TargetCount,
+                DigestEntries.ToList(),
+                DigestApplications.ToList(),
+                ChartInfoRows.ToList(),
+                ChartInfoApplications.ToList());
+        }
+    }
+
+    private sealed class ChartInfoCommitChunk
+    {
+        public ChartInfoCommitChunk(
+            int targetCount,
+            IReadOnlyList<ChartDigestBackfillEntry> digestEntries,
+            IReadOnlyList<PendingDigestApplication> digestApplications,
+            IReadOnlyList<LR2SongDBExtended.chart_info> chartInfoRows,
+            IReadOnlyList<PendingChartInfoApplication> chartInfoApplications)
+        {
+            TargetCount = targetCount;
+            DigestEntries = digestEntries ?? Array.Empty<ChartDigestBackfillEntry>();
+            DigestApplications = digestApplications ?? Array.Empty<PendingDigestApplication>();
+            ChartInfoRows = chartInfoRows ?? Array.Empty<LR2SongDBExtended.chart_info>();
+            ChartInfoApplications = chartInfoApplications ?? Array.Empty<PendingChartInfoApplication>();
+        }
+
+        public int TargetCount { get; }
+
+        public IReadOnlyList<ChartDigestBackfillEntry> DigestEntries { get; }
+
+        public IReadOnlyList<PendingDigestApplication> DigestApplications { get; }
+
+        public IReadOnlyList<LR2SongDBExtended.chart_info> ChartInfoRows { get; }
+
+        public IReadOnlyList<PendingChartInfoApplication> ChartInfoApplications { get; }
     }
 
     private sealed class PendingDigestApplication

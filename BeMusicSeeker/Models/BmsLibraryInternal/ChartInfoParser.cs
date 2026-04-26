@@ -1664,14 +1664,20 @@ internal static class ChartInfoParser
             timelines.Add(0.0, baseTimeline);
             List<ChartNote>[] longNotesByLane = CreateLaneLists(mode.KeyCount);
             ChartNote[] pendingLongStarts = new ChartNote[mode.KeyCount];
+            List<BmsChannelLine>[] sectionLineBuckets = BuildSectionLineBuckets();
             for (int section = 0; section <= maxSection; section++)
             {
                 timeoutGuard.ThrowIfTimedOutEvery(section + 1, "bms_sections");
                 double sectionStart = sectionStarts[section];
                 double rate = section < sectionRates.Length ? sectionRates[section] : 1.0;
+                List<BmsChannelLine> sectionLines = section < sectionLineBuckets.Length ? sectionLineBuckets[section] : null;
                 GetBmsTimeline(timelines, sectionStart, mode).HasSectionLine = true;
-                ApplyEvents(timelines, mode, section, sectionStart, rate);
-                foreach (BmsChannelLine line in channelLines.Where((BmsChannelLine item) => item.Section == section).OrderBy((BmsChannelLine item) => item.Order))
+                ApplyEvents(timelines, mode, sectionLines, sectionStart, rate);
+                if (sectionLines == null)
+                {
+                    continue;
+                }
+                foreach (BmsChannelLine line in sectionLines)
                 {
                     ApplyNoteLine(timelines, mode, line, sectionStart, rate, longNotesByLane, pendingLongStarts);
                 }
@@ -1700,6 +1706,22 @@ internal static class ChartInfoParser
                 model.Total = CalculateDefaultTotal(mode, totalNotes);
             }
             return model;
+        }
+
+        private List<BmsChannelLine>[] BuildSectionLineBuckets()
+        {
+            List<BmsChannelLine>[] buckets = new List<BmsChannelLine>[Math.Max(1, maxSection + 1)];
+            foreach (BmsChannelLine line in channelLines)
+            {
+                List<BmsChannelLine> bucket = buckets[line.Section];
+                if (bucket == null)
+                {
+                    bucket = new List<BmsChannelLine>();
+                    buckets[line.Section] = bucket;
+                }
+                bucket.Add(line);
+            }
+            return buckets;
         }
 
         private ChartMode DetectMode()
@@ -1759,18 +1781,22 @@ internal static class ChartInfoParser
             return starts;
         }
 
-        private void ApplyEvents(SortedList<double, ChartTimeline> timelines, ChartMode mode, int section, double sectionStart, double rate)
+        private void ApplyEvents(SortedList<double, ChartTimeline> timelines, ChartMode mode, IEnumerable<BmsChannelLine> sectionLines, double sectionStart, double rate)
         {
+            if (sectionLines == null)
+            {
+                return;
+            }
             List<BmsTimelineEvent> events = new List<BmsTimelineEvent>();
             int eventLineIndex = 0;
-            foreach (BmsChannelLine line in channelLines.Where((BmsChannelLine item) => item.Section == section))
+            foreach (BmsChannelLine line in sectionLines)
             {
                 timeoutGuard.ThrowIfTimedOutEvery(++eventLineIndex, "bms_event_lines");
                 if (line.Channel == BpmChange)
                 {
                     foreach (BmsDataPair pair in SplitData(line.Data))
                     {
-                        int bpmValue = Base == 62 ? ParseBase(pair.Token, 36) : pair.Value;
+                        int bpmValue = Base == 62 ? pair.Base36Value : pair.Value;
                         if (bpmValue >= 0)
                         {
                             double bpm = (bpmValue / 36) * 16 + bpmValue % 36;
@@ -1878,8 +1904,14 @@ internal static class ChartInfoParser
             if (data == LnObject)
             {
                 int previousIndex = 0;
-                foreach (ChartTimeline previous in timelines.Values.Reverse().Where((ChartTimeline item) => item.Section < timeline.Section))
+                int index = FindPreviousTimelineIndex(timelines.Keys, timeline.Section);
+                if (timelines.Keys[index] >= timeline.Section)
                 {
+                    index--;
+                }
+                for (; index >= 0; index--)
+                {
+                    ChartTimeline previous = timelines.Values[index];
                     timeoutGuard.ThrowIfTimedOutEvery(++previousIndex, "bms_lnobj_backscan");
                     ChartNote previousNote = previous.Notes[lane];
                     if (previousNote == null)
@@ -1951,8 +1983,14 @@ internal static class ChartInfoParser
             }
             bool foundStart = false;
             int previousIndex = 0;
-            foreach (ChartTimeline previous in timelines.Values.Reverse().Where((ChartTimeline item) => item.Section < timeline.Section))
+            int index = FindPreviousTimelineIndex(timelines.Keys, timeline.Section);
+            if (timelines.Keys[index] >= timeline.Section)
             {
+                index--;
+            }
+            for (; index >= 0; index--)
+            {
+                ChartTimeline previous = timelines.Values[index];
                 timeoutGuard.ThrowIfTimedOutEvery(++previousIndex, "bms_long_note_backscan");
                 if (previous.Section == start.Section)
                 {
@@ -2066,11 +2104,12 @@ internal static class ChartInfoParser
             for (int index = 0; index < pairCount; index++)
             {
                 timeoutGuard.ThrowIfTimedOutEvery(index + 1, "bms_split_data");
-                string token = data.Substring(index * 2, 2);
-                int value = ParseBase(data[index * 2], data[index * 2 + 1], Base);
+                char high = data[index * 2];
+                char low = data[index * 2 + 1];
+                int value = ParseBase(high, low, Base);
                 if (value > 0)
                 {
-                    yield return new BmsDataPair((double)index / pairCount, value, token);
+                    yield return new BmsDataPair((double)index / pairCount, value, high, low);
                 }
                 else if (value < 0)
                 {
@@ -2089,20 +2128,25 @@ internal static class ChartInfoParser
         Mine
     }
 
-    private sealed class BmsDataPair
+    private readonly struct BmsDataPair
     {
-        public BmsDataPair(double position, int value, string token)
+        public BmsDataPair(double position, int value, char high, char low)
         {
             Position = position;
             Value = value;
-            Token = token ?? string.Empty;
+            High = high;
+            Low = low;
         }
 
         public double Position { get; }
 
         public int Value { get; }
 
-        public string Token { get; }
+        public char High { get; }
+
+        public char Low { get; }
+
+        public int Base36Value => ParseBase36(High, Low);
     }
 
     private sealed class BmsTimelineEvent

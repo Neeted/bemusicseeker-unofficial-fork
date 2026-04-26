@@ -1,13 +1,12 @@
 {
-  "generated_at_utc": "2026-04-26T11:27:28.086141Z",
+  "generated_at_utc": "2026-04-27T00:00:00Z",
   "source_report": "tools/chart-info-compare/reports/latest",
-  "source_temp_fixture": "C:\\Users\\kazuk\\AppData\\Local\\Temp\\BeMusicSeeker_ChartInfoLatestDiffFixture",
   "app_song_db": "D:\\LR2beta3\\LR2files\\Database\\song.db",
   "beatoraja_song_db": "D:\\beatoraja\\songdata.db",
   "beatoraja_info_db": "D:\\beatoraja\\songinfo.db",
-  "latest_report_non_random_diff_count": 7,
-  "entries_not_already_in_chart_info_production_diff": 2,
-  "note": "Latest compare had 7 non-RANDOM diff/missing charts; 5 were already covered by chart_info_production_diff, so this fixture stores only the 2 newly observed charthash-only charts.",
+  "latest_report_non_random_diff_count": 6,
+  "entries_not_already_in_chart_info_production_diff": 7,
+  "note": "Stores latest observed non-RANDOM compatibility fixtures not covered by the full production diff fixture, plus previous latest-diff charthash fixtures.",
   "entries": [
     {
       "fixture_id": 1,
@@ -22,6 +21,41 @@
       "md5": "37dff85dff954bd87db1c19bd76299af",
       "source_path": "D:\\BMS\\1 EVENT\\050315 Hyper Remix 2\\[naotyu-] L99\\l99_kantan.bme",
       "fixture_path": "charts/f0/f007405d0555d5e0919a4a1ff3ad7981cb8f7f47c505039905e2be2ca7b56d7c.bme"
+    },
+    {
+      "fixture_id": 3,
+      "sha256": "6bb7e736e82adcfeaa35b871a52124bff2f57439eb3c3739761aef5380c3c2d4",
+      "md5": "666df340ff50e682ba1e8916da7b945c",
+      "source_path": "D:\\BMS\\1 EVENT\\240329 GENRE SHUFFLE 4\\SMcb_ogg\\SMcb_sph.bms",
+      "fixture_path": "charts/6b/6bb7e736e82adcfeaa35b871a52124bff2f57439eb3c3739761aef5380c3c2d4.bms"
+    },
+    {
+      "fixture_id": 4,
+      "sha256": "6f8a11e60a0f47089de70b65151367229b70dc5b727c8164a6a3d8d0b3130a6b",
+      "md5": "5092aca215a129139f074efa06dea633",
+      "source_path": "D:\\BMS\\1 EVENT\\241129 Let's BMS Edit! 3\\[Senza]Born_of_Dirt_ogg\\_bornofdirt_5a.bms",
+      "fixture_path": "charts/6f/6f8a11e60a0f47089de70b65151367229b70dc5b727c8164a6a3d8d0b3130a6b.bms"
+    },
+    {
+      "fixture_id": 5,
+      "sha256": "acc36b454bedc3b357cc195c878072b1604e8a245a8879b9117a6c50e2952225",
+      "md5": "2d31dadcbe8a38b04a33fbff0fac8add",
+      "source_path": "D:\\BMS\\1 EVENT\\241129 Let's BMS Edit! 3\\[Senza]Born_of_Dirt_ogg\\_bornofdirt_5h.bms",
+      "fixture_path": "charts/ac/acc36b454bedc3b357cc195c878072b1604e8a245a8879b9117a6c50e2952225.bms"
+    },
+    {
+      "fixture_id": 6,
+      "sha256": "a7346f3a41755410f211c28922a39d8fce77bc80a8373403638b3229bb1372d8",
+      "md5": "95f3c4c1b4e0da16573e92e1e1987f97",
+      "source_path": "D:\\BMS\\1 EVENT\\241129 Let's BMS Edit! 3\\[Senza]Born_of_Dirt_ogg\\_bornofdirt_7i.bms",
+      "fixture_path": "charts/a7/a7346f3a41755410f211c28922a39d8fce77bc80a8373403638b3229bb1372d8.bms"
+    },
+    {
+      "fixture_id": 7,
+      "sha256": "4bf94fcfee5513545a392593efb6f6ec895531c650e115236081a2dd8ab6f997",
+      "md5": "65413f2fa62de935f41c28848290e8e4",
+      "source_path": "D:\\BMS\\1 EVENT\\241129 Let's BMS Edit! 3\\[Senza]Born_of_Dirt_ogg\\_bornofdirt_14i.bms",
+      "fixture_path": "charts/4b/4bf94fcfee5513545a392593efb6f6ec895531c650e115236081a2dd8ab6f997.bms"
     }
   ]
 }

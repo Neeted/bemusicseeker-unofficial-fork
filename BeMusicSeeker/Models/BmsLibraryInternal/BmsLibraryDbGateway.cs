@@ -40,6 +40,14 @@ internal sealed class ChartDigestBackfillEntry
 
 internal sealed class BmsLibraryDbGateway
 {
+    private const string ChartDigestMapUpsertSql =
+        "INSERT OR REPLACE INTO chart_digest_map (md5, sha256) VALUES (?, ?);";
+
+    private const string ChartInfoUpsertSql =
+        "INSERT OR REPLACE INTO chart_info ("
+        + "sha256, md5, charthash, level, difficulty, difficulty_defined, mainbpm, maxbpm, minbpm, length, mode, judge, feature, notes, n, ln, s, ls, total, total_defined, density, peakdensity, enddensity, distribution, speedchange, speedchange_count, lanenotes, parser_version, updated_at"
+        + ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);";
+
     internal const string BmsonAppSchemaVersionName = "bmson_app_schema";
 
     internal const int CurrentBmsonAppSchemaVersion = 1;
@@ -48,7 +56,7 @@ internal sealed class BmsLibraryDbGateway
 
     internal const int CurrentChartInfoSchemaVersion = 2;
 
-    internal const int CurrentChartInfoParserVersion = 18;
+    internal const int CurrentChartInfoParserVersion = 19;
 
     public string SongDbPath { get; }
 
@@ -408,7 +416,7 @@ internal sealed class BmsLibraryDbGateway
             EnsureChartInfoSchema(songDb);
             foreach (LR2SongDBExtended.chart_info row in sourceRows)
             {
-                songDb.InsertOrReplace(row, typeof(LR2SongDBExtended.chart_info));
+                ExecuteChartInfoUpsert(songDb, row);
             }
         });
     }
@@ -456,17 +464,48 @@ internal sealed class BmsLibraryDbGateway
         {
             foreach (ChartDigestBackfillEntry entry in sourceDigestEntries)
             {
-                songDb.InsertOrReplace(new LR2SongDBExtended.chart_digest_map
-                {
-                    md5 = entry.Md5,
-                    sha256 = entry.Sha256
-                }, typeof(LR2SongDBExtended.chart_digest_map));
+                songDb.Execute(ChartDigestMapUpsertSql, entry.Md5, entry.Sha256);
             }
             foreach (LR2SongDBExtended.chart_info row in sourceRows)
             {
-                songDb.InsertOrReplace(row, typeof(LR2SongDBExtended.chart_info));
+                ExecuteChartInfoUpsert(songDb, row);
             }
         });
+    }
+
+    private static void ExecuteChartInfoUpsert(LR2SongDBExtended songDb, LR2SongDBExtended.chart_info row)
+    {
+        songDb.Execute(
+            ChartInfoUpsertSql,
+            row.sha256,
+            row.md5,
+            row.charthash,
+            row.level,
+            row.difficulty,
+            row.difficulty_defined ? 1 : 0,
+            row.mainbpm,
+            row.maxbpm,
+            row.minbpm,
+            row.length,
+            row.mode,
+            row.judge,
+            row.feature,
+            row.notes,
+            row.n,
+            row.ln,
+            row.s,
+            row.ls,
+            row.total,
+            row.total_defined ? 1 : 0,
+            row.density,
+            row.peakdensity,
+            row.enddensity,
+            row.distribution,
+            row.speedchange,
+            row.speedchange_count,
+            row.lanenotes,
+            row.parser_version,
+            row.updated_at);
     }
 
     public void UpsertChartDigests(IEnumerable<BMSFile> files)
