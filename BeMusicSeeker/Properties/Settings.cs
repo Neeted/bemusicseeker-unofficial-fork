@@ -1343,6 +1343,13 @@ internal sealed class Settings : ApplicationSettingsBase
 		{
 			((Settings)sender).PlaylistSummaryColumnsSettings = new PlaylistSummaryColumnSettings();
 		}
+		((Settings)sender).StandardColumnsSettings.EnsureChartInfoColumnDefaults(dataGridColumnsSettings.viewType.STANDARD);
+		((Settings)sender).ZeroNoteColumnsSettings.EnsureChartInfoColumnDefaults(dataGridColumnsSettings.viewType.ZERO_NOTE);
+		((Settings)sender).PlaylistColumnsSettings.EnsureChartInfoColumnDefaults(dataGridColumnsSettings.viewType.PLAYLIST);
+		((Settings)sender).FullScanColumnsSettings.EnsureChartInfoColumnDefaults(dataGridColumnsSettings.viewType.FULLSCAN);
+		((Settings)sender).DuplicateColumnsSettings.EnsureChartInfoColumnDefaults(dataGridColumnsSettings.viewType.DUPLICATE);
+		((Settings)sender).EncodingColumnsSettings.EnsureChartInfoColumnDefaults(dataGridColumnsSettings.viewType.ENCODING);
+		((Settings)sender).InstallColumnsSettings.EnsureChartInfoColumnDefaults(dataGridColumnsSettings.viewType.INSTALL);
 		if (((Settings)sender).WindowPlacement.NormalPosition.Left >= ((Settings)sender).WindowPlacement.NormalPosition.Right || ((Settings)sender).WindowPlacement.NormalPosition.Top >= ((Settings)sender).WindowPlacement.NormalPosition.Bottom)
 		{
 			Win32API.WINDOWPLACEMENT windowPlacement = ((Settings)sender).WindowPlacement;

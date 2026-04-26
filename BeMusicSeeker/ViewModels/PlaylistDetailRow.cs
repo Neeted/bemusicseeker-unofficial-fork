@@ -2,6 +2,7 @@ using System;
 using System.Globalization;
 using System.Text.RegularExpressions;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using Livet;
 
@@ -118,6 +119,78 @@ internal sealed class PlaylistDetailRow : NotificationObject
 
     public string name_diff { get; }
 
+    public string ChartLevelText { get; }
+
+    public double? ChartLevelSortKey { get; }
+
+    public bool ChartLevelUndefined { get; }
+
+    public string ChartDifficultyText { get; }
+
+    public int? ChartDifficultySortKey { get; }
+
+    public string ChartDifficultyColorKey { get; }
+
+    public bool ChartDifficultyUndefined { get; }
+
+    public string ChartMainBpmText { get; }
+
+    public double? ChartMainBpmSortKey { get; }
+
+    public string ChartMaxBpmText { get; }
+
+    public double? ChartMaxBpmSortKey { get; }
+
+    public string ChartMinBpmText { get; }
+
+    public double? ChartMinBpmSortKey { get; }
+
+    public string ChartDurationText { get; }
+
+    public int? ChartDurationSortKey { get; }
+
+    public string ChartJudgeText { get; }
+
+    public int? ChartJudgeSortKey { get; }
+
+    public string ChartJudgeColorKey { get; }
+
+    public string ChartJudgePercentText { get; }
+
+    public string ChartFeatureText { get; }
+
+    public int? ChartFeatureSortKey { get; }
+
+    public int? ChartNotes { get; }
+
+    public int? ChartLongNotes { get; }
+
+    public int? ChartScratchNotes { get; }
+
+    public string ChartTotalText { get; }
+
+    public double? ChartTotalSortKey { get; }
+
+    public bool ChartTotalUndefined { get; }
+
+    public string ChartTotalPerNoteText { get; }
+
+    public double? ChartTotalPerNoteSortKey { get; }
+
+    public string ChartDensityText { get; }
+
+    public double? ChartDensitySortKey { get; }
+
+    public string ChartPeakDensityText { get; }
+
+    public double? ChartPeakDensitySortKey { get; }
+
+    public string ChartEndDensityText { get; }
+
+    public double? ChartEndDensitySortKey { get; }
+
+    public int? ChartSoflanCount { get; }
+
     internal PlaylistDetailRow(PlaylistDetailSourceRow source)
     {
         if (source == null)
@@ -170,6 +243,42 @@ internal sealed class PlaylistDetailRow : NotificationObject
         status = source.status;
         lr2_bmsid = source.lr2_bmsid;
         name_diff = source.name_diff;
+        ChartLevelText = source.ChartLevelText;
+        ChartLevelSortKey = source.ChartLevelSortKey;
+        ChartLevelUndefined = source.ChartLevelUndefined;
+        ChartDifficultyText = source.ChartDifficultyText;
+        ChartDifficultySortKey = source.ChartDifficultySortKey;
+        ChartDifficultyColorKey = source.ChartDifficultyColorKey;
+        ChartDifficultyUndefined = source.ChartDifficultyUndefined;
+        ChartMainBpmText = source.ChartMainBpmText;
+        ChartMainBpmSortKey = source.ChartMainBpmSortKey;
+        ChartMaxBpmText = source.ChartMaxBpmText;
+        ChartMaxBpmSortKey = source.ChartMaxBpmSortKey;
+        ChartMinBpmText = source.ChartMinBpmText;
+        ChartMinBpmSortKey = source.ChartMinBpmSortKey;
+        ChartDurationText = source.ChartDurationText;
+        ChartDurationSortKey = source.ChartDurationSortKey;
+        ChartJudgeText = source.ChartJudgeText;
+        ChartJudgeSortKey = source.ChartJudgeSortKey;
+        ChartJudgeColorKey = source.ChartJudgeColorKey;
+        ChartJudgePercentText = source.ChartJudgePercentText;
+        ChartFeatureText = source.ChartFeatureText;
+        ChartFeatureSortKey = source.ChartFeatureSortKey;
+        ChartNotes = source.ChartNotes;
+        ChartLongNotes = source.ChartLongNotes;
+        ChartScratchNotes = source.ChartScratchNotes;
+        ChartTotalText = source.ChartTotalText;
+        ChartTotalSortKey = source.ChartTotalSortKey;
+        ChartTotalUndefined = source.ChartTotalUndefined;
+        ChartTotalPerNoteText = source.ChartTotalPerNoteText;
+        ChartTotalPerNoteSortKey = source.ChartTotalPerNoteSortKey;
+        ChartDensityText = source.ChartDensityText;
+        ChartDensitySortKey = source.ChartDensitySortKey;
+        ChartPeakDensityText = source.ChartPeakDensityText;
+        ChartPeakDensitySortKey = source.ChartPeakDensitySortKey;
+        ChartEndDensityText = source.ChartEndDensityText;
+        ChartEndDensitySortKey = source.ChartEndDensitySortKey;
+        ChartSoflanCount = source.ChartSoflanCount;
     }
 
     public string Level

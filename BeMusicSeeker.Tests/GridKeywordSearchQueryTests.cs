@@ -1,4 +1,6 @@
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.ViewModels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using System;
@@ -134,6 +136,69 @@ public sealed class GridKeywordSearchQueryTests
     }
 
     [TestMethod]
+    public void ChartInfoDisplayFormatter_FormatsDisplayValues()
+    {
+        LR2SongDBExtended.chart_info chartInfo = CreateChartInfo();
+
+        Assert.AreEqual("180", ChartInfoDisplayFormatter.FormatOptionalDouble(180.0));
+        Assert.AreEqual("180.25", ChartInfoDisplayFormatter.FormatOptionalDouble(180.25));
+        Assert.AreEqual("123.13 s", ChartInfoDisplayFormatter.FormatDuration(123130));
+        Assert.AreEqual("2.47", ChartInfoDisplayFormatter.FormatFixedTwo(2.468));
+        Assert.AreEqual("ANOTHER", ChartInfoDisplayFormatter.FormatDifficulty(4));
+        Assert.AreEqual("EASY", ChartInfoDisplayFormatter.FormatJudge(100));
+        Assert.AreEqual("LN RANDOM STOP", ChartInfoDisplayFormatter.FormatFeature(chartInfo.feature));
+    }
+
+    [TestMethod]
+    public void MatchesBmsFile_ChartInfoNumericRangeAndAliases()
+    {
+        TestableBmsFile file = CreateFile();
+        file.SetChartInfo(CreateChartInfo());
+
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("level:10..12 notes:>=2000 duration:<124").MatchesBmsFile(file));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("difficulty:another feature:random tn:2.0..").MatchesBmsFile(file));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("-feature:mine scratch:12").MatchesBmsFile(file));
+        Assert.IsFalse(GridKeywordSearchQuery.Parse("feature:mine").MatchesBmsFile(file));
+        Assert.IsFalse(GridKeywordSearchQuery.Parse("difficulty:insane").MatchesBmsFile(file));
+    }
+
+    [TestMethod]
+    public void MatchesBmsFile_ChartInfoDefinedUndefinedTerms()
+    {
+        TestableBmsFile file = CreateFile();
+        file.SetChartInfo(CreateChartInfo(level: null, difficultyDefined: false, totalDefined: false));
+
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("level:undefined difficulty:undefined total:undefined").MatchesBmsFile(file));
+        Assert.IsFalse(GridKeywordSearchQuery.Parse("level:defined").MatchesBmsFile(file));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("feature:defined").MatchesBmsFile(file));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("feature:undefined").MatchesBmsFile(CreateFile()));
+    }
+
+    [TestMethod]
+    public void CreateFromBmsonSong_ExposesChartInfoForDisplayAndSearch()
+    {
+        LR2SongDBExtended.chart_info chartInfo = CreateChartInfo();
+        LR2SongDBExtended.bmson_song song = new LR2SongDBExtended.bmson_song
+        {
+            path = @"C:\Songs\Alpha\chart.bmson",
+            title = "Alpha Bmson",
+            artist = "ArtistX",
+            folder = "Alpha",
+            mode_hint = "beat-7k",
+            md5 = chartInfo.md5,
+            sha256 = chartInfo.sha256,
+            ChartInfo = chartInfo
+        };
+
+        PendingChartEntry row = PendingChartEntry.CreateFromBmsonSong(song);
+
+        Assert.AreSame(chartInfo, row.ChartInfo);
+        Assert.AreEqual("12", row.ChartLevelText);
+        Assert.AreEqual(2500, row.ChartNotes);
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("level:12 feature:random notes:>=2000").MatchesBmsFile(row));
+    }
+
+    [TestMethod]
     public void CreateFieldCompletion_CompletesContextSpecificFields()
     {
         GridKeywordSearchCompletionResult bmsResult = GridKeywordSearchCompletion.CreateFieldCompletion("tit", 3, GridKeywordSearchContext.BmsFile);
@@ -198,6 +263,37 @@ public sealed class GridKeywordSearchQueryTests
         TestableBmsFile file = new TestableBmsFile();
         file.ApplySnapshot();
         return file;
+    }
+
+    private static LR2SongDBExtended.chart_info CreateChartInfo(int? level = 12, bool difficultyDefined = true, bool totalDefined = true)
+    {
+        return new LR2SongDBExtended.chart_info
+        {
+            sha256 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            charthash = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            level = level,
+            difficulty = 4,
+            difficulty_defined = difficultyDefined,
+            mainbpm = 180,
+            maxbpm = 220.5,
+            minbpm = 90,
+            length = 123130,
+            judge = 100,
+            feature = ChartInfoDisplayFormatter.FeatureUndefinedLongNote
+                | ChartInfoDisplayFormatter.FeatureRandom
+                | ChartInfoDisplayFormatter.FeatureStopSequence,
+            notes = 2500,
+            ln = 30,
+            s = 10,
+            ls = 2,
+            total = 6169.0,
+            total_defined = totalDefined,
+            density = 20.3,
+            peakdensity = 42,
+            enddensity = 12,
+            speedchange_count = 3
+        };
     }
 
     private sealed class TestableBmsFile : BMSFile

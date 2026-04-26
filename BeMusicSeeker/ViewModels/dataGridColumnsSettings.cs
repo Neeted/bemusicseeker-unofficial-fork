@@ -81,6 +81,8 @@ public class dataGridColumnsSettings : NotificationObject
 
     private dataGridColumnlayouts _Level;
 
+    private dataGridColumnlayouts _EntryLevel;
+
     private dataGridColumnlayouts _Title;
 
     private dataGridColumnlayouts _Artist;
@@ -147,6 +149,38 @@ public class dataGridColumnsSettings : NotificationObject
 
     private dataGridColumnlayouts _Bp;
 
+    private dataGridColumnlayouts _ChartDifficulty;
+
+    private dataGridColumnlayouts _ChartMainBpm;
+
+    private dataGridColumnlayouts _ChartMaxBpm;
+
+    private dataGridColumnlayouts _ChartMinBpm;
+
+    private dataGridColumnlayouts _ChartDuration;
+
+    private dataGridColumnlayouts _ChartJudge;
+
+    private dataGridColumnlayouts _ChartJudgePercent;
+
+    private dataGridColumnlayouts _ChartFeature;
+
+    private dataGridColumnlayouts _ChartLongNotes;
+
+    private dataGridColumnlayouts _ChartScratchNotes;
+
+    private dataGridColumnlayouts _ChartTotal;
+
+    private dataGridColumnlayouts _ChartTotalPerNote;
+
+    private dataGridColumnlayouts _ChartDensity;
+
+    private dataGridColumnlayouts _ChartPeakDensity;
+
+    private dataGridColumnlayouts _ChartEndDensity;
+
+    private dataGridColumnlayouts _ChartSoflan;
+
     public dataGridColumnlayouts Status
     {
         get
@@ -175,6 +209,22 @@ public class dataGridColumnsSettings : NotificationObject
             {
                 _Level = value;
                 RaisePropertyChanged("Level");
+            }
+        }
+    }
+
+    public dataGridColumnlayouts EntryLevel
+    {
+        get
+        {
+            return _EntryLevel ?? (_EntryLevel = CreateHiddenLayout(80));
+        }
+        set
+        {
+            if (_EntryLevel != value)
+            {
+                _EntryLevel = value;
+                RaisePropertyChanged("EntryLevel");
             }
         }
     }
@@ -715,6 +765,102 @@ public class dataGridColumnsSettings : NotificationObject
         }
     }
 
+    public dataGridColumnlayouts ChartDifficulty
+    {
+        get { return _ChartDifficulty ?? (_ChartDifficulty = CreateHiddenLayout(90)); }
+        set { if (_ChartDifficulty != value) { _ChartDifficulty = value; RaisePropertyChanged("ChartDifficulty"); } }
+    }
+
+    public dataGridColumnlayouts ChartMainBpm
+    {
+        get { return _ChartMainBpm ?? (_ChartMainBpm = CreateHiddenLayout(70)); }
+        set { if (_ChartMainBpm != value) { _ChartMainBpm = value; RaisePropertyChanged("ChartMainBpm"); } }
+    }
+
+    public dataGridColumnlayouts ChartMaxBpm
+    {
+        get { return _ChartMaxBpm ?? (_ChartMaxBpm = CreateHiddenLayout(70)); }
+        set { if (_ChartMaxBpm != value) { _ChartMaxBpm = value; RaisePropertyChanged("ChartMaxBpm"); } }
+    }
+
+    public dataGridColumnlayouts ChartMinBpm
+    {
+        get { return _ChartMinBpm ?? (_ChartMinBpm = CreateHiddenLayout(70)); }
+        set { if (_ChartMinBpm != value) { _ChartMinBpm = value; RaisePropertyChanged("ChartMinBpm"); } }
+    }
+
+    public dataGridColumnlayouts ChartDuration
+    {
+        get { return _ChartDuration ?? (_ChartDuration = CreateHiddenLayout(80)); }
+        set { if (_ChartDuration != value) { _ChartDuration = value; RaisePropertyChanged("ChartDuration"); } }
+    }
+
+    public dataGridColumnlayouts ChartJudge
+    {
+        get { return _ChartJudge ?? (_ChartJudge = CreateHiddenLayout(80)); }
+        set { if (_ChartJudge != value) { _ChartJudge = value; RaisePropertyChanged("ChartJudge"); } }
+    }
+
+    public dataGridColumnlayouts ChartJudgePercent
+    {
+        get { return _ChartJudgePercent ?? (_ChartJudgePercent = CreateHiddenLayout(70)); }
+        set { if (_ChartJudgePercent != value) { _ChartJudgePercent = value; RaisePropertyChanged("ChartJudgePercent"); } }
+    }
+
+    public dataGridColumnlayouts ChartFeature
+    {
+        get { return _ChartFeature ?? (_ChartFeature = CreateHiddenLayout(160)); }
+        set { if (_ChartFeature != value) { _ChartFeature = value; RaisePropertyChanged("ChartFeature"); } }
+    }
+
+    public dataGridColumnlayouts ChartLongNotes
+    {
+        get { return _ChartLongNotes ?? (_ChartLongNotes = CreateHiddenLayout(60)); }
+        set { if (_ChartLongNotes != value) { _ChartLongNotes = value; RaisePropertyChanged("ChartLongNotes"); } }
+    }
+
+    public dataGridColumnlayouts ChartScratchNotes
+    {
+        get { return _ChartScratchNotes ?? (_ChartScratchNotes = CreateHiddenLayout(75)); }
+        set { if (_ChartScratchNotes != value) { _ChartScratchNotes = value; RaisePropertyChanged("ChartScratchNotes"); } }
+    }
+
+    public dataGridColumnlayouts ChartTotal
+    {
+        get { return _ChartTotal ?? (_ChartTotal = CreateHiddenLayout(70)); }
+        set { if (_ChartTotal != value) { _ChartTotal = value; RaisePropertyChanged("ChartTotal"); } }
+    }
+
+    public dataGridColumnlayouts ChartTotalPerNote
+    {
+        get { return _ChartTotalPerNote ?? (_ChartTotalPerNote = CreateHiddenLayout(60)); }
+        set { if (_ChartTotalPerNote != value) { _ChartTotalPerNote = value; RaisePropertyChanged("ChartTotalPerNote"); } }
+    }
+
+    public dataGridColumnlayouts ChartDensity
+    {
+        get { return _ChartDensity ?? (_ChartDensity = CreateHiddenLayout(80)); }
+        set { if (_ChartDensity != value) { _ChartDensity = value; RaisePropertyChanged("ChartDensity"); } }
+    }
+
+    public dataGridColumnlayouts ChartPeakDensity
+    {
+        get { return _ChartPeakDensity ?? (_ChartPeakDensity = CreateHiddenLayout(60)); }
+        set { if (_ChartPeakDensity != value) { _ChartPeakDensity = value; RaisePropertyChanged("ChartPeakDensity"); } }
+    }
+
+    public dataGridColumnlayouts ChartEndDensity
+    {
+        get { return _ChartEndDensity ?? (_ChartEndDensity = CreateHiddenLayout(60)); }
+        set { if (_ChartEndDensity != value) { _ChartEndDensity = value; RaisePropertyChanged("ChartEndDensity"); } }
+    }
+
+    public dataGridColumnlayouts ChartSoflan
+    {
+        get { return _ChartSoflan ?? (_ChartSoflan = CreateHiddenLayout(65)); }
+        set { if (_ChartSoflan != value) { _ChartSoflan = value; RaisePropertyChanged("ChartSoflan"); } }
+    }
+
     public dataGridColumnsSettings()
     {
         Status = new dataGridColumnlayouts
@@ -724,6 +870,11 @@ public class dataGridColumnsSettings : NotificationObject
         Level = new dataGridColumnlayouts
         {
             Width = 50
+        };
+        EntryLevel = new dataGridColumnlayouts
+        {
+            Width = 80,
+            Visibility = Visibility.Hidden
         };
         Title = new dataGridColumnlayouts
         {
@@ -789,6 +940,22 @@ public class dataGridColumnsSettings : NotificationObject
         {
             Width = 55
         };
+        ChartDifficulty = CreateHiddenLayout(90);
+        ChartMainBpm = CreateHiddenLayout(70);
+        ChartMaxBpm = CreateHiddenLayout(70);
+        ChartMinBpm = CreateHiddenLayout(70);
+        ChartDuration = CreateHiddenLayout(80);
+        ChartJudge = CreateHiddenLayout(80);
+        ChartJudgePercent = CreateHiddenLayout(70);
+        ChartFeature = CreateHiddenLayout(160);
+        ChartLongNotes = CreateHiddenLayout(60);
+        ChartScratchNotes = CreateHiddenLayout(75);
+        ChartTotal = CreateHiddenLayout(70);
+        ChartTotalPerNote = CreateHiddenLayout(60);
+        ChartDensity = CreateHiddenLayout(80);
+        ChartPeakDensity = CreateHiddenLayout(60);
+        ChartEndDensity = CreateHiddenLayout(60);
+        ChartSoflan = CreateHiddenLayout(65);
         TScore = new dataGridColumnlayouts
         {
             Width = 65
@@ -860,7 +1027,7 @@ public class dataGridColumnsSettings : NotificationObject
         };
         int num = 0;
         Status.DisplayIndex = num++;
-        Level.DisplayIndex = num++;
+        EntryLevel.DisplayIndex = num++;
         Title.DisplayIndex = num++;
         Artist.DisplayIndex = num++;
         Genre.DisplayIndex = num++;
@@ -868,17 +1035,6 @@ public class dataGridColumnsSettings : NotificationObject
         Tag.DisplayIndex = num++;
         Url1.DisplayIndex = num++;
         Url2.DisplayIndex = num++;
-        Clear.DisplayIndex = num++;
-        Rank.DisplayIndex = num++;
-        Rate.DisplayIndex = num++;
-        Ranking.DisplayIndex = num++;
-        RankingLastupdate.DisplayIndex = num++;
-        Score.DisplayIndex = num++;
-        Notes.DisplayIndex = num++;
-        Combo.DisplayIndex = num++;
-        TScore.DisplayIndex = num++;
-        ScoreDifficulty.DisplayIndex = num++;
-        Bp.DisplayIndex = num++;
         Warning.DisplayIndex = num++;
         Comment.DisplayIndex = num++;
         Memo.DisplayIndex = num++;
@@ -893,6 +1049,34 @@ public class dataGridColumnsSettings : NotificationObject
         BgaHealth.DisplayIndex = num++;
         MovieHealth.DisplayIndex = num++;
         PlaylistSymbols.DisplayIndex = num++;
+        Level.DisplayIndex = num++;
+        ChartDifficulty.DisplayIndex = num++;
+        ChartMainBpm.DisplayIndex = num++;
+        ChartMaxBpm.DisplayIndex = num++;
+        ChartMinBpm.DisplayIndex = num++;
+        ChartDuration.DisplayIndex = num++;
+        ChartJudge.DisplayIndex = num++;
+        ChartJudgePercent.DisplayIndex = num++;
+        ChartFeature.DisplayIndex = num++;
+        Notes.DisplayIndex = num++;
+        ChartLongNotes.DisplayIndex = num++;
+        ChartScratchNotes.DisplayIndex = num++;
+        ChartTotal.DisplayIndex = num++;
+        ChartTotalPerNote.DisplayIndex = num++;
+        ChartDensity.DisplayIndex = num++;
+        ChartPeakDensity.DisplayIndex = num++;
+        ChartEndDensity.DisplayIndex = num++;
+        ChartSoflan.DisplayIndex = num++;
+        Clear.DisplayIndex = num++;
+        Rank.DisplayIndex = num++;
+        Rate.DisplayIndex = num++;
+        Ranking.DisplayIndex = num++;
+        RankingLastupdate.DisplayIndex = num++;
+        Score.DisplayIndex = num++;
+        Combo.DisplayIndex = num++;
+        TScore.DisplayIndex = num++;
+        ScoreDifficulty.DisplayIndex = num++;
+        Bp.DisplayIndex = num++;
         CharcterEncoding.DisplayIndex = num++;
     }
 
@@ -925,10 +1109,12 @@ public class dataGridColumnsSettings : NotificationObject
                     InstallDstArtist.Visibility = Visibility.Hidden;
                     PlaylistSymbols.Visibility = Visibility.Hidden;
                     CharcterEncoding.Visibility = Visibility.Hidden;
+                    EntryLevel.Visibility = Visibility.Visible;
+                    Level.Visibility = Visibility.Hidden;
                     int num3 = 0;
                     Status.DisplayIndex = num3++;
                     Folder.DisplayIndex = num3++;
-                    Level.DisplayIndex = num3++;
+                    EntryLevel.DisplayIndex = num3++;
                     Title.DisplayIndex = num3++;
                     Artist.DisplayIndex = num3++;
                     Genre.DisplayIndex = num3++;
@@ -936,17 +1122,6 @@ public class dataGridColumnsSettings : NotificationObject
                     Tag.DisplayIndex = num3++;
                     Url1.DisplayIndex = num3++;
                     Url2.DisplayIndex = num3++;
-                    Clear.DisplayIndex = num3++;
-                    Rank.DisplayIndex = num3++;
-                    Rate.DisplayIndex = num3++;
-                    Ranking.DisplayIndex = num3++;
-                    RankingLastupdate.DisplayIndex = num3++;
-                    Score.DisplayIndex = num3++;
-                    Notes.DisplayIndex = num3++;
-                    Combo.DisplayIndex = num3++;
-                    Bp.DisplayIndex = num3++;
-                    TScore.DisplayIndex = num3++;
-                    ScoreDifficulty.DisplayIndex = num3++;
                     Warning.DisplayIndex = num3++;
                     Comment.DisplayIndex = num3++;
                     Memo.DisplayIndex = num3++;
@@ -960,6 +1135,34 @@ public class dataGridColumnsSettings : NotificationObject
                     BgaHealth.DisplayIndex = num3++;
                     MovieHealth.DisplayIndex = num3++;
                     PlaylistSymbols.DisplayIndex = num3++;
+                    Level.DisplayIndex = num3++;
+                    ChartDifficulty.DisplayIndex = num3++;
+                    ChartMainBpm.DisplayIndex = num3++;
+                    ChartMaxBpm.DisplayIndex = num3++;
+                    ChartMinBpm.DisplayIndex = num3++;
+                    ChartDuration.DisplayIndex = num3++;
+                    ChartJudge.DisplayIndex = num3++;
+                    ChartJudgePercent.DisplayIndex = num3++;
+                    ChartFeature.DisplayIndex = num3++;
+                    Notes.DisplayIndex = num3++;
+                    ChartLongNotes.DisplayIndex = num3++;
+                    ChartScratchNotes.DisplayIndex = num3++;
+                    ChartTotal.DisplayIndex = num3++;
+                    ChartTotalPerNote.DisplayIndex = num3++;
+                    ChartDensity.DisplayIndex = num3++;
+                    ChartPeakDensity.DisplayIndex = num3++;
+                    ChartEndDensity.DisplayIndex = num3++;
+                    ChartSoflan.DisplayIndex = num3++;
+                    Clear.DisplayIndex = num3++;
+                    Rank.DisplayIndex = num3++;
+                    Rate.DisplayIndex = num3++;
+                    Ranking.DisplayIndex = num3++;
+                    RankingLastupdate.DisplayIndex = num3++;
+                    Score.DisplayIndex = num3++;
+                    Combo.DisplayIndex = num3++;
+                    Bp.DisplayIndex = num3++;
+                    TScore.DisplayIndex = num3++;
+                    ScoreDifficulty.DisplayIndex = num3++;
                     CharcterEncoding.DisplayIndex = num3++;
                     Folder.Width = 80;
                     break;
@@ -1144,6 +1347,7 @@ public class dataGridColumnsSettings : NotificationObject
 
     private void ApplyStandardViewDefaults(bool showWarningColumn)
     {
+        EntryLevel.Visibility = Visibility.Hidden;
         Genre.Visibility = Visibility.Hidden;
         Tag.Visibility = Visibility.Hidden;
         Url1.Visibility = Visibility.Hidden;
@@ -1168,5 +1372,44 @@ public class dataGridColumnsSettings : NotificationObject
         BgaHealth.Visibility = Visibility.Hidden;
         MovieHealth.Visibility = Visibility.Hidden;
         CharcterEncoding.Visibility = Visibility.Hidden;
+    }
+
+    public void EnsureChartInfoColumnDefaults(viewType type)
+    {
+        _ = EntryLevel;
+        _ = ChartDifficulty;
+        _ = ChartMainBpm;
+        _ = ChartMaxBpm;
+        _ = ChartMinBpm;
+        _ = ChartDuration;
+        _ = ChartJudge;
+        _ = ChartJudgePercent;
+        _ = ChartFeature;
+        _ = ChartLongNotes;
+        _ = ChartScratchNotes;
+        _ = ChartTotal;
+        _ = ChartTotalPerNote;
+        _ = ChartDensity;
+        _ = ChartPeakDensity;
+        _ = ChartEndDensity;
+        _ = ChartSoflan;
+        if (type == viewType.PLAYLIST)
+        {
+            EntryLevel.Visibility = Visibility.Visible;
+            Level.Visibility = Visibility.Hidden;
+        }
+        else
+        {
+            EntryLevel.Visibility = Visibility.Hidden;
+        }
+    }
+
+    private static dataGridColumnlayouts CreateHiddenLayout(int width)
+    {
+        return new dataGridColumnlayouts
+        {
+            Width = width,
+            Visibility = Visibility.Hidden
+        };
     }
 }

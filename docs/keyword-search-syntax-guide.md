@@ -142,8 +142,42 @@ title:alpha artist:xi
 | `md5` | MD5 |
 | `hash` | `md5` と同じ |
 | `sha256` | SHA256 |
+| `level` | `chart_info.level` |
+| `difficulty` | `chart_info.difficulty`。`beginner`, `normal`, `hyper`, `another`, `insane` も指定可 |
+| `mainbpm` | `chart_info.mainbpm` |
+| `maxbpm` | `chart_info.maxbpm` |
+| `minbpm` | `chart_info.minbpm` |
+| `duration` / `length` | 演奏時間。秒単位で指定 |
+| `judge` / `judge%` | 判定幅倍率。`judge` は `veryhard`, `hard`, `normal`, `easy`, `veryeasy` も指定可 |
+| `feature` | `ln`, `mine`, `random`, `lnmode`, `cn`, `hcn`, `stop`, `scroll` |
+| `notes` | 総ノーツ数 |
+| `long` / `ln` | ロングノーツ数 |
+| `scratch` | 通常スクラッチ + ロングスクラッチ |
+| `total` | TOTAL 有効値 |
+| `tn` / `t/n` | `total / notes` |
+| `density` | 平均密度 |
+| `peak` / `peakdensity` | 1 秒窓の最大密度 |
+| `end` / `enddensity` | 終盤密度 |
+| `soflan` | 変速回数 |
 | `memo` | memo。プレイリスト詳細のみ |
 | `comment` | comment。プレイリスト詳細のみ |
+
+数値 field は範囲指定と比較演算を利用できます。
+
+```text
+level:10..12
+notes:>=2000
+duration:<120
+tn:2.0..
+```
+
+`defined` / `undefined` も利用できます。`chart_info` が未構築の場合や、`level` が NULL の場合、`difficulty_defined=false` / `total_defined=false` の場合は `undefined` に一致します。
+
+```text
+total:undefined
+difficulty:defined
+-feature:random
+```
 
 ### プレイリスト一覧で使える field
 

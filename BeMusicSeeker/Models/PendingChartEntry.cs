@@ -40,6 +40,10 @@ public sealed class PendingChartEntry : BMSFile
 
     public bool IsBmsChart => ChartKind == PendingChartKind.Bms;
 
+    public override LR2SongDBExtended.chart_info ChartInfo => IsBmsonChart
+        ? BmsonSong?.ChartInfo ?? base.ChartInfo
+        : base.ChartInfo;
+
     public override string Title
     {
         get
@@ -186,6 +190,7 @@ public sealed class PendingChartEntry : BMSFile
         {
             entry.bmsScore = source.bmsScore;
         }
+        entry.SetChartInfo(source.ChartInfo);
         return entry;
     }
 
@@ -228,6 +233,7 @@ public sealed class PendingChartEntry : BMSFile
         type = 0;
         hash = song.md5;
         sha256 = song.sha256;
+        SetChartInfo(song.ChartInfo);
         if (maintenanceInfo != null)
         {
             maintenanceInfo.path = path;

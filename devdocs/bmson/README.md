@@ -81,6 +81,10 @@
    - beatoraja / jbms-parser 互換のための BMS / BMSON parser 実装メモ
    - JSON parse, delimiter, Java 型変換, LN, timeline, density, speedchange の注意点
    - `chart_info` の production DB compare / backfill 性能 / 今後の DataGrid 表示論点
+14. [chart_info DataGrid display plan](chart-info-datagrid-display-plan.md)
+   - `chart_info` 由来カラムの表示仕様
+   - 通常一覧 / プレイリスト詳細の LEVEL 整理
+   - keyword search field / range 検索の v1 仕様
 
 ## 実装方針の要点
 

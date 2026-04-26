@@ -122,6 +122,80 @@ internal sealed class PlaylistDetailSourceRow
 
     internal string Level { get; private set; }
 
+    internal LR2SongDBExtended.chart_info ChartInfo => RealFile?.ChartInfo ?? ResolvedBmson?.ChartInfo;
+
+    internal string ChartLevelText => ChartInfoDisplayFormatter.FormatOptionalInt(ChartInfo?.level);
+
+    internal double? ChartLevelSortKey => ChartInfo?.level ?? 0;
+
+    internal bool ChartLevelUndefined => ChartInfo == null || !ChartInfo.level.HasValue;
+
+    internal string ChartDifficultyText => ChartInfoDisplayFormatter.FormatDifficulty(ChartInfo?.difficulty);
+
+    internal int? ChartDifficultySortKey => ChartInfo?.difficulty;
+
+    internal string ChartDifficultyColorKey => ChartInfoDisplayFormatter.GetDifficultyColorKey(ChartInfo?.difficulty);
+
+    internal bool ChartDifficultyUndefined => ChartInfo == null || !ChartInfo.difficulty_defined;
+
+    internal string ChartMainBpmText => ChartInfoDisplayFormatter.FormatOptionalDouble(ChartInfo?.mainbpm);
+
+    internal double? ChartMainBpmSortKey => ChartInfo?.mainbpm;
+
+    internal string ChartMaxBpmText => ChartInfoDisplayFormatter.FormatOptionalDouble(ChartInfo?.maxbpm);
+
+    internal double? ChartMaxBpmSortKey => ChartInfo?.maxbpm;
+
+    internal string ChartMinBpmText => ChartInfoDisplayFormatter.FormatOptionalDouble(ChartInfo?.minbpm);
+
+    internal double? ChartMinBpmSortKey => ChartInfo?.minbpm;
+
+    internal string ChartDurationText => ChartInfoDisplayFormatter.FormatDuration(ChartInfo?.length);
+
+    internal int? ChartDurationSortKey => ChartInfo?.length;
+
+    internal string ChartJudgeText => ChartInfoDisplayFormatter.FormatJudge(ChartInfo?.judge);
+
+    internal int? ChartJudgeSortKey => ChartInfo?.judge;
+
+    internal string ChartJudgeColorKey => ChartInfoDisplayFormatter.GetJudgeColorKey(ChartInfo?.judge);
+
+    internal string ChartJudgePercentText => ChartInfoDisplayFormatter.FormatOptionalInt(ChartInfo?.judge);
+
+    internal string ChartFeatureText => ChartInfo == null ? string.Empty : ChartInfoDisplayFormatter.FormatFeature(ChartInfo.feature);
+
+    internal int? ChartFeatureSortKey => ChartInfo?.feature;
+
+    internal int? ChartNotes => ChartInfo?.notes;
+
+    internal int? ChartLongNotes => ChartInfo?.ln;
+
+    internal int? ChartScratchNotes => ChartInfoDisplayFormatter.GetScratchNotes(ChartInfo);
+
+    internal string ChartTotalText => ChartInfoDisplayFormatter.FormatOptionalDouble(ChartInfo?.total);
+
+    internal double? ChartTotalSortKey => ChartInfo?.total;
+
+    internal bool ChartTotalUndefined => ChartInfo == null || !ChartInfo.total_defined;
+
+    internal string ChartTotalPerNoteText => ChartInfoDisplayFormatter.FormatFixedTwo(ChartInfoDisplayFormatter.GetTotalPerNote(ChartInfo));
+
+    internal double? ChartTotalPerNoteSortKey => ChartInfoDisplayFormatter.GetTotalPerNote(ChartInfo);
+
+    internal string ChartDensityText => ChartInfoDisplayFormatter.FormatOptionalDouble(ChartInfo?.density);
+
+    internal double? ChartDensitySortKey => ChartInfo?.density;
+
+    internal string ChartPeakDensityText => ChartInfoDisplayFormatter.FormatOptionalDouble(ChartInfo?.peakdensity);
+
+    internal double? ChartPeakDensitySortKey => ChartInfo?.peakdensity;
+
+    internal string ChartEndDensityText => ChartInfoDisplayFormatter.FormatOptionalDouble(ChartInfo?.enddensity);
+
+    internal double? ChartEndDensitySortKey => ChartInfo?.enddensity;
+
+    internal int? ChartSoflanCount => ChartInfo?.speedchange_count;
+
     internal string SearchText { get; private set; }
 
     internal PlaylistDetailSourceRow(BMSTableEntry entry, BMSFile realFile, LR2SongDBExtended.bmson_song resolvedBmson = null, BMSFile scoreProbe = null, BMSScore scoreSnapshot = null)

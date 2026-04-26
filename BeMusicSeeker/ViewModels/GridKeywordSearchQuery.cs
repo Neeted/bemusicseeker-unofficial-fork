@@ -1,9 +1,12 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Models.LR2;
 
 namespace BeMusicSeeker.ViewModels;
 
@@ -41,9 +44,20 @@ internal sealed class GridKeywordSearchQuery
 {
     private static readonly TimeSpan RegexTimeout = TimeSpan.FromMilliseconds(100);
 
-    private static readonly string[] BmsFileFields = { "title", "artist", "genre", "tag", "path", "playlist", "ref", "md5", "hash", "sha256" };
+    private static readonly string[] BaseChartFields =
+    {
+        "level", "difficulty", "mainbpm", "maxbpm", "minbpm", "duration", "length", "judge", "judge%", "judgepct",
+        "feature", "notes", "long", "ln", "scratch", "total", "tn", "t/n", "density", "peak", "peakdensity",
+        "end", "enddensity", "soflan"
+    };
 
-    private static readonly string[] PlaylistDetailFields = { "title", "artist", "genre", "tag", "path", "playlist", "ref", "md5", "hash", "sha256", "memo", "comment" };
+    private static readonly string[] BmsFileFields = new[] { "title", "artist", "genre", "tag", "path", "playlist", "ref", "md5", "hash", "sha256" }
+        .Concat(BaseChartFields)
+        .ToArray();
+
+    private static readonly string[] PlaylistDetailFields = new[] { "title", "artist", "genre", "tag", "path", "playlist", "ref", "md5", "hash", "sha256", "memo", "comment" }
+        .Concat(BaseChartFields)
+        .ToArray();
 
     private static readonly string[] PlaylistSummaryFields = { "id", "name", "symbol" };
 
@@ -450,7 +464,9 @@ internal sealed class GridKeywordSearchQuery
         {
             return false;
         }
-        bool matched = condition.Alternatives.Any((SearchAlternative alternative) => MatchesAlternative(alternative, GetBmsFileValues(file, condition.Field)));
+        bool matched = IsChartInfoField(condition.Field) && !condition.IsRegex
+            ? condition.Alternatives.Any((SearchAlternative alternative) => MatchesChartInfoAlternative(alternative, file.ChartInfo, condition.Field))
+            : condition.Alternatives.Any((SearchAlternative alternative) => MatchesAlternative(alternative, GetBmsFileValues(file, condition.Field)));
         return condition.IsNegated ? !matched : matched;
     }
 
@@ -460,7 +476,9 @@ internal sealed class GridKeywordSearchQuery
         {
             return false;
         }
-        bool matched = condition.Alternatives.Any((SearchAlternative alternative) => MatchesAlternative(alternative, GetPlaylistDetailValues(row, condition.Field)));
+        bool matched = IsChartInfoField(condition.Field) && !condition.IsRegex
+            ? condition.Alternatives.Any((SearchAlternative alternative) => MatchesChartInfoAlternative(alternative, row.ChartInfo, condition.Field))
+            : condition.Alternatives.Any((SearchAlternative alternative) => MatchesAlternative(alternative, GetPlaylistDetailValues(row, condition.Field)));
         return condition.IsNegated ? !matched : matched;
     }
 
@@ -532,6 +550,11 @@ internal sealed class GridKeywordSearchQuery
         }
     }
 
+    private static bool IsChartInfoField(string field)
+    {
+        return field != null && BaseChartFields.Contains(field);
+    }
+
     private static IEnumerable<string> GetBmsFileValues(BMSFile file, string field)
     {
         switch (field)
@@ -571,6 +594,12 @@ internal sealed class GridKeywordSearchQuery
                 break;
             case "sha256":
                 yield return file.sha256;
+                break;
+            default:
+                foreach (string value in GetChartInfoValues(file.ChartInfo, field))
+                {
+                    yield return value;
+                }
                 break;
         }
     }
@@ -623,6 +652,352 @@ internal sealed class GridKeywordSearchQuery
             case "comment":
                 yield return row.comment;
                 break;
+            default:
+                foreach (string value in GetChartInfoValues(row.ChartInfo, field))
+                {
+                    yield return value;
+                }
+                break;
+        }
+    }
+
+    private static IEnumerable<string> GetChartInfoValues(LR2SongDBExtended.chart_info chartInfo, string field)
+    {
+        switch (field)
+        {
+            case "level":
+                yield return ChartInfoDisplayFormatter.FormatOptionalInt(chartInfo?.level);
+                break;
+            case "difficulty":
+                yield return ChartInfoDisplayFormatter.FormatDifficulty(chartInfo?.difficulty);
+                yield return ChartInfoDisplayFormatter.FormatOptionalInt(chartInfo?.difficulty);
+                break;
+            case "mainbpm":
+                yield return ChartInfoDisplayFormatter.FormatOptionalDouble(chartInfo?.mainbpm);
+                break;
+            case "maxbpm":
+                yield return ChartInfoDisplayFormatter.FormatOptionalDouble(chartInfo?.maxbpm);
+                break;
+            case "minbpm":
+                yield return ChartInfoDisplayFormatter.FormatOptionalDouble(chartInfo?.minbpm);
+                break;
+            case "duration":
+            case "length":
+                yield return ChartInfoDisplayFormatter.FormatDuration(chartInfo?.length);
+                break;
+            case "judge":
+                yield return ChartInfoDisplayFormatter.FormatJudge(chartInfo?.judge);
+                yield return ChartInfoDisplayFormatter.FormatOptionalInt(chartInfo?.judge);
+                break;
+            case "judge%":
+            case "judgepct":
+                yield return ChartInfoDisplayFormatter.FormatOptionalInt(chartInfo?.judge);
+                break;
+            case "feature":
+                yield return chartInfo == null ? string.Empty : ChartInfoDisplayFormatter.FormatFeature(chartInfo.feature);
+                break;
+            case "notes":
+                yield return chartInfo == null ? string.Empty : chartInfo.notes.ToString(CultureInfo.InvariantCulture);
+                break;
+            case "long":
+            case "ln":
+                yield return chartInfo == null ? string.Empty : chartInfo.ln.ToString(CultureInfo.InvariantCulture);
+                break;
+            case "scratch":
+                yield return ChartInfoDisplayFormatter.FormatOptionalInt(ChartInfoDisplayFormatter.GetScratchNotes(chartInfo));
+                break;
+            case "total":
+                yield return ChartInfoDisplayFormatter.FormatOptionalDouble(chartInfo?.total);
+                break;
+            case "tn":
+            case "t/n":
+                yield return ChartInfoDisplayFormatter.FormatFixedTwo(ChartInfoDisplayFormatter.GetTotalPerNote(chartInfo));
+                break;
+            case "density":
+                yield return ChartInfoDisplayFormatter.FormatOptionalDouble(chartInfo?.density);
+                break;
+            case "peak":
+            case "peakdensity":
+                yield return ChartInfoDisplayFormatter.FormatOptionalDouble(chartInfo?.peakdensity);
+                break;
+            case "end":
+            case "enddensity":
+                yield return ChartInfoDisplayFormatter.FormatOptionalDouble(chartInfo?.enddensity);
+                break;
+            case "soflan":
+                yield return chartInfo == null ? string.Empty : chartInfo.speedchange_count.ToString(CultureInfo.InvariantCulture);
+                break;
+        }
+    }
+
+    private static bool MatchesChartInfoAlternative(SearchAlternative alternative, LR2SongDBExtended.chart_info chartInfo, string field)
+    {
+        if (alternative.IsInvalid || alternative.IsEmpty)
+        {
+            return false;
+        }
+        string term = alternative.Term?.Trim() ?? string.Empty;
+        if (IsDefinedTerm(term, out bool defined))
+        {
+            return IsChartFieldDefined(chartInfo, field) == defined;
+        }
+        if (string.Equals(field, "feature", StringComparison.Ordinal))
+        {
+            return MatchesFeatureTerm(chartInfo, term);
+        }
+        if (string.Equals(field, "difficulty", StringComparison.Ordinal) && TryParseDifficultyTerm(term, out int difficulty))
+        {
+            return chartInfo != null && chartInfo.difficulty == difficulty;
+        }
+        if (string.Equals(field, "judge", StringComparison.Ordinal) && TryParseJudgeTerm(term, out int judgeLower, out int judgeUpperExclusive))
+        {
+            return chartInfo != null && chartInfo.judge.HasValue && chartInfo.judge.Value >= judgeLower && chartInfo.judge.Value < judgeUpperExclusive;
+        }
+        return MatchesNumericTerm(GetChartFieldNumericValue(chartInfo, field), term);
+    }
+
+    private static bool IsDefinedTerm(string term, out bool defined)
+    {
+        if (string.Equals(term, "defined", StringComparison.OrdinalIgnoreCase))
+        {
+            defined = true;
+            return true;
+        }
+        if (string.Equals(term, "undefined", StringComparison.OrdinalIgnoreCase))
+        {
+            defined = false;
+            return true;
+        }
+        defined = false;
+        return false;
+    }
+
+    private static bool IsChartFieldDefined(LR2SongDBExtended.chart_info chartInfo, string field)
+    {
+        if (chartInfo == null)
+        {
+            return false;
+        }
+        switch (field)
+        {
+            case "level":
+                return chartInfo.level.HasValue;
+            case "mainbpm":
+                return chartInfo.mainbpm.HasValue;
+            case "maxbpm":
+                return chartInfo.maxbpm.HasValue;
+            case "minbpm":
+                return chartInfo.minbpm.HasValue;
+            case "judge":
+            case "judge%":
+            case "judgepct":
+                return chartInfo.judge.HasValue;
+            case "difficulty":
+                return chartInfo.difficulty_defined;
+            case "total":
+            case "tn":
+            case "t/n":
+                return chartInfo.total_defined && chartInfo.total.HasValue;
+            default:
+                return true;
+        }
+    }
+
+    private static double? GetChartFieldNumericValue(LR2SongDBExtended.chart_info chartInfo, string field)
+    {
+        if (chartInfo == null)
+        {
+            return null;
+        }
+        switch (field)
+        {
+            case "level":
+                return chartInfo.level;
+            case "difficulty":
+                return chartInfo.difficulty;
+            case "mainbpm":
+                return chartInfo.mainbpm;
+            case "maxbpm":
+                return chartInfo.maxbpm;
+            case "minbpm":
+                return chartInfo.minbpm;
+            case "duration":
+            case "length":
+                return chartInfo.length / 1000.0;
+            case "judge":
+            case "judge%":
+            case "judgepct":
+                return chartInfo.judge;
+            case "notes":
+                return chartInfo.notes;
+            case "long":
+            case "ln":
+                return chartInfo.ln;
+            case "scratch":
+                return chartInfo.s + chartInfo.ls;
+            case "total":
+                return chartInfo.total;
+            case "tn":
+            case "t/n":
+                return ChartInfoDisplayFormatter.GetTotalPerNote(chartInfo);
+            case "density":
+                return chartInfo.density;
+            case "peak":
+            case "peakdensity":
+                return chartInfo.peakdensity;
+            case "end":
+            case "enddensity":
+                return chartInfo.enddensity;
+            case "soflan":
+                return chartInfo.speedchange_count;
+            default:
+                return null;
+        }
+    }
+
+    private static bool MatchesNumericTerm(double? value, string term)
+    {
+        if (!value.HasValue || string.IsNullOrWhiteSpace(term))
+        {
+            return false;
+        }
+        string trimmed = term.Trim();
+        if (trimmed.Contains(".."))
+        {
+            string[] parts = trimmed.Split(new[] { ".." }, StringSplitOptions.None);
+            if (parts.Length != 2)
+            {
+                return false;
+            }
+            if (!string.IsNullOrWhiteSpace(parts[0]) && (!TryParseDouble(parts[0], out double min) || value.Value < min))
+            {
+                return false;
+            }
+            if (!string.IsNullOrWhiteSpace(parts[1]) && (!TryParseDouble(parts[1], out double max) || value.Value > max))
+            {
+                return false;
+            }
+            return true;
+        }
+        string[] operators = { ">=", "<=", ">", "<" };
+        foreach (string op in operators)
+        {
+            if (!trimmed.StartsWith(op, StringComparison.Ordinal))
+            {
+                continue;
+            }
+            if (!TryParseDouble(trimmed.Substring(op.Length), out double threshold))
+            {
+                return false;
+            }
+            switch (op)
+            {
+                case ">=":
+                    return value.Value >= threshold;
+                case "<=":
+                    return value.Value <= threshold;
+                case ">":
+                    return value.Value > threshold;
+                case "<":
+                    return value.Value < threshold;
+            }
+        }
+        return TryParseDouble(trimmed, out double expected) && Math.Abs(value.Value - expected) < 0.000000001;
+    }
+
+    private static bool TryParseDouble(string value, out double parsed)
+    {
+        return double.TryParse(value?.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out parsed);
+    }
+
+    private static bool TryParseDifficultyTerm(string term, out int difficulty)
+    {
+        switch ((term ?? string.Empty).Trim().ToLowerInvariant())
+        {
+            case "beginner":
+                difficulty = 1;
+                return true;
+            case "normal":
+                difficulty = 2;
+                return true;
+            case "hyper":
+                difficulty = 3;
+                return true;
+            case "another":
+                difficulty = 4;
+                return true;
+            case "insane":
+                difficulty = 5;
+                return true;
+            default:
+                return int.TryParse(term, NumberStyles.Integer, CultureInfo.InvariantCulture, out difficulty);
+        }
+    }
+
+    private static bool TryParseJudgeTerm(string term, out int lower, out int upperExclusive)
+    {
+        switch ((term ?? string.Empty).Trim().ToLowerInvariant())
+        {
+            case "veryhard":
+                lower = int.MinValue;
+                upperExclusive = 35;
+                return true;
+            case "hard":
+                lower = 35;
+                upperExclusive = 60;
+                return true;
+            case "normal":
+                lower = 60;
+                upperExclusive = 85;
+                return true;
+            case "easy":
+                lower = 85;
+                upperExclusive = 110;
+                return true;
+            case "veryeasy":
+                lower = 110;
+                upperExclusive = int.MaxValue;
+                return true;
+            default:
+                lower = 0;
+                upperExclusive = 0;
+                return false;
+        }
+    }
+
+    private static bool MatchesFeatureTerm(LR2SongDBExtended.chart_info chartInfo, string term)
+    {
+        if (chartInfo == null)
+        {
+            return false;
+        }
+        int? bit = GetFeatureBit(term);
+        return bit.HasValue && ChartInfoDisplayFormatter.HasFeature(chartInfo.feature, bit.Value);
+    }
+
+    private static int? GetFeatureBit(string term)
+    {
+        switch ((term ?? string.Empty).Trim().ToLowerInvariant())
+        {
+            case "ln":
+                return ChartInfoDisplayFormatter.FeatureUndefinedLongNote;
+            case "mine":
+                return ChartInfoDisplayFormatter.FeatureMineNote;
+            case "random":
+                return ChartInfoDisplayFormatter.FeatureRandom;
+            case "lnmode":
+            case "ln(#lnmode)":
+                return ChartInfoDisplayFormatter.FeatureLongNote;
+            case "cn":
+                return ChartInfoDisplayFormatter.FeatureChargeNote;
+            case "hcn":
+                return ChartInfoDisplayFormatter.FeatureHellChargeNote;
+            case "stop":
+                return ChartInfoDisplayFormatter.FeatureStopSequence;
+            case "scroll":
+                return ChartInfoDisplayFormatter.FeatureScroll;
+            default:
+                return null;
         }
     }
 

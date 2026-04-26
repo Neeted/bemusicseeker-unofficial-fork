@@ -66,11 +66,18 @@ internal static class BMSFileSortEngine
         // NOTE:
         // 現在は実機比較のため MainView だけ従来実装へ戻しています。
         // 互換確認後に false へ戻せば最適化実装を再利用できます。
-        if (UseLegacySortForDataGrid)
+        if (UseLegacySortForDataGrid && !RequiresTypedSort(sortParameters?.ColumnsName))
         {
             return SortByLegacyImplementation(source, sortParameters, out sortProfile);
         }
         return Sort(source, sortParameters, isPlaylistDetailView, out sortProfile);
+    }
+
+    private static bool RequiresTypedSort(string columnName)
+    {
+        return !string.IsNullOrWhiteSpace(columnName)
+            && (columnName.StartsWith("Chart", StringComparison.Ordinal)
+                || string.Equals(columnName, nameof(BMSFile.rateDouble), StringComparison.Ordinal));
     }
 
     /// <summary>
