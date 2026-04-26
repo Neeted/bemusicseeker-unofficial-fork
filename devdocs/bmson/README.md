@@ -77,6 +77,9 @@
    - Phase 1+2 と Phase 3 を実施済み
    - `CountMatches(...)` / viability / confidence を含む Relative Path Phase 4 も実施済み
    - root chart と nested chart directory が共存する package に対する ownership completion も実施済み
+13. [chart_info parser compatibility notes](chart-info-parser-compatibility-notes.md)
+   - beatoraja / jbms-parser 互換のための BMS / BMSON parser 実装メモ
+   - JSON parse, delimiter, Java 型変換, LN, timeline, density, speedchange の注意点
 
 ## 実装方針の要点
 

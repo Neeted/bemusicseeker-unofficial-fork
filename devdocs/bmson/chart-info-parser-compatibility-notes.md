@@ -1,0 +1,565 @@
+# chart_info parser compatibility notes
+
+最終更新: 2026-04-26
+
+この文書は、`chart_info` 生成で beatoraja / jbms-parser 互換を目指す際に確認した実装上の注意点をまとめる。  
+一般的な BMS / BMSON 仕様から自然には読めない、参照実装固有の解釈や Java 実装由来の挙動を優先して記録する。
+
+対象実装:
+
+- 本アプリ: `BeMusicSeeker/Models/BmsLibraryInternal/ChartInfoParser.cs`
+- BMS 参照: `jbms-parser` の `BMSDecoder` / `Section` / `BMSModel` / `TimeLine`
+- BMSON 参照: `jbms-parser` の `BMSONDecoder`
+- 情報計算参照: beatoraja / songdata-updater の `SongInformation`
+- chart string 参照: `BMSModel.toChartString()`
+
+## 基本方針
+
+- `chart_info` は「所持譜面管理」ではなく「譜面メタデータ」の保存先として扱う。
+- `song` テーブルは LR2 互換維持のため変更しない。
+- 解析結果は原則として beatoraja / jbms-parser の解釈に寄せる。
+- ただし RANDOM 譜面は参照 DB 側の過去選択分岐と完全一致しないため、値差分は許容する。
+- `chart_info` では deterministic metadata を優先し、RANDOM はまず branch 1 固定で解析し、recoverable failure の場合だけ fallback branch を試す。
+- fatal parse failure だけを `install-performance.log` に WARN 出力する。non-fatal warning 相当は diagnostic 扱いにし、通常ログには出さない。
+
+## BMS テキスト読み取り
+
+### 既定エンコード
+
+BMS の既定 decode は MS932 系に寄せる。  
+明示 encoding が渡された場合のみそれを優先する。
+
+理由:
+
+- beatoraja / jbms-parser は日本語 BMS の実運用を前提に MS932 系として読まれることが多い。
+- UTF-8 として読めても、タイトル・サブタイトル・DIFFICULTY 推定文字列などが変わると結果がずれる。
+
+### 行コマンドの許容
+
+`BMSDecoder` は reserve word をかなり位置依存で扱う。一般的な「空白区切りの key/value」としてだけ読むと差分が出る。
+
+対応すべき例:
+
+- `#DIFFICULTY 2`
+- `#DIFFICULTY=2`
+- `#TITLExxx` のような古い無空白構文
+- `#BPMxx value` / `#STOPxx value` / `#SCROLLxx value`
+
+実装上は reserve word に対して `substring(command.length + 2)` 相当の切り出しを使う場面がある。  
+`#DIFFICULTY=2` は `#` + `DIFFICULTY` + 区切り 1 文字 + argument という形として処理する。
+
+### チャンネル行の colon 後空白
+
+チャンネル行では colon 後の空白を trim してはいけない。
+
+参照実装の `Section.processData` は概ね次の考え方で token を切る:
+
+```java
+int findex = line.indexOf(":") + 1;
+int split = (line.length() - findex) / 2;
+token = line.charAt(findex + i * 2), line.charAt(findex + i * 2 + 1);
+```
+
+つまり、`#01301: 100...` のように colon 後に空白がある場合、最初の token は `" 1"` になり、不正値として無視される。  
+C# 側で `:\s*(.*)` のように空白を食べると、本来無視されるノートが有効化される。
+
+現在の方針:
+
+- `#mmmcc\s*:(.*)` は許容する。
+- `:` の後はそのまま保持する。
+- data token は 2 文字単位で切る。
+- 余った末尾 1 文字は参照実装同様に無視する。
+
+## 数値 parse
+
+### Java `Integer.parseInt` 相当
+
+`#PLAYLEVEL`, `#DIFFICULTY`, `#RANK`, `#DEFEXRANK`, `#LNMODE`, `#BASE`, `#RANDOM`, `#IF` などの int 系は Java `Integer.parseInt` 相当に寄せる。
+
+重要点:
+
+- 文字列全体が int として valid でなければ invalid。
+- `12abc` や `12.5` は先頭整数 `12` として扱わない。
+- Java の `Integer.parseInt` は Unicode decimal digit を受ける。
+  - 例: `#PLAYLEVEL ４`
+  - 例: `#PLAYLEVEL 2８`
+- overflow は invalid。
+
+`level` は `chart_info` では nullable とし、未定義 / invalid は `NULL` にする。  
+beatoraja DB では未定義相当が `0` になるため、互換比較では `0 == NULL` として扱う。
+
+### double 系
+
+`#TOTAL`, `#BPM`, `#BPMxx`, `#STOPxx`, `#SCROLLxx` は trailing garbage を許容しない。  
+`#TOTAL 100abc` は未定義 / invalid 扱いにする。
+
+通常の decimal / signed / exponent 形式は許容する。
+
+`#TOTAL` は未定義でも fatal ではない。  
+本アプリでは:
+
+- `total`: 表示・ソート用の有効値を保存する
+- `total_defined`: `#TOTAL` / bmson total が明示されていたかを保存する
+
+未定義時の `total` は jbms-parser と同様の default 計算値を保存し、UI 側で `total_defined=false` を警告表示に使う想定。
+
+### BPM の min/max
+
+beatoraja `song` DB の `maxbpm` / `minbpm` は整数列として保存されるため、比較時は整数部比較が必要になる。  
+本アプリの `chart_info` では小数 BPM 自体は保持する。
+
+ただし、巨大 BPM が Java 側で `double -> int` 保存時に飽和 / narrowing 相当になるケースがあるため、`chart_info` 保存値も int 範囲外の巨大値は Java DB 比較に寄せた clamp を行う。
+
+`minbpm` / `maxbpm` の候補には `InitialBpm` も含める。  
+`#BPM` 未定義でも timeline 0 の BPM change が正なら解析成功にする方針を取っているため、`InitialBpm = 0` が min 候補に残ることがある。
+
+## `#BASE 62`
+
+`#BASE 62` は indexed command / channel data token の基数に影響する。
+
+注意点:
+
+- channel id 自体は `#mmmcc` の `cc` を base36 的に見る箇所がある。
+- data token は base36 / base62 を切り替える。
+- `#BPM` short channel (`#mmm03`) は、base62 時に一度 base62 値を base62 文字列へ戻して base36 として再解釈する、という参照実装由来の特殊挙動がある。
+- mine damage も base62 時に同種の再計算を行う。
+
+この挙動は直感的ではないが、最新 jbms-parser の解釈結果に寄せるため維持する。
+
+## RANDOM / conditional
+
+### `#RANDOM/#IF/#ENDIF/#ENDRANDOM`
+
+参照実装は `selectedRandoms` 未指定の場合にランダム選択する。  
+`chart_info` では stable metadata を優先するため、初回候補はすべて branch `1` とする。
+
+RANDOM retry:
+
+- all `1`
+- all `min(2,max)`
+- all `min(3,max)`
+- all `min(4,max)`
+- all `max`
+- sha256 / md5 seed candidate
+
+branch は `1..n` に丸める。
+
+retry 対象:
+
+- initial BPM 不正
+- timeline / distribution が overflow 級
+- RANDOM branch 1 が異常に長い timeline を選ぶケース
+
+最終失敗時のみ WARN を出す。retry 中の失敗は WARN にしない。
+
+### `#SWITCH/#CASE/#SKIP/#ENDSW`
+
+`#SWITCH` 系は差分原因になりやすい。  
+RANDOM 以外でも複数 branch が譜面内に残ると、LN や通常ノートの count が大きく変わる。
+
+観測例:
+
+- `#CASE` 内の LN channel が全 branch 分処理されると、beatoraja 期待値より LN が増える。
+- LN が増えると、その LN 内の通常ノートが背景化され、`n`, `ln`, `notes`, `lanenotes`, `distribution`, `density` が連動してずれる。
+
+本アプリでは、参照実装の conditional stack に寄せる必要がある。  
+未対応・不完全な状態では、`charthash` 以外の core diff として表面化する。
+
+## mode / lane assign
+
+BMS の mode は、明示値だけでなく使用 channel によって 5K -> 7K, 5/7K -> 10/14K へ昇格する。  
+参照実装では `Section` 構築時に note channel を見て `model.setMode(...)` する。
+
+lane assign は mode によって変わる。
+
+- BEAT 5K
+- BEAT 7K
+- BEAT 10K
+- BEAT 14K
+- POPN 9K
+
+特に 7K / 14K は scratch lane と key lane の並びが直感的な channel 順と一致しない。  
+`lanenotes` 差分を追うときは、内部 lane index と DataGrid 表示順を混同しない。
+
+## timeline / time / length
+
+### 内部時刻
+
+参照実装は概ね次の流れで timeline time を作る。
+
+```java
+double time = previousPreciseTime
+    + previousTimeline.getMicroStop()
+    + 240000.0 * 1000 * (section - previousSection) / bpm;
+TimeLine tl = new TimeLine(section, (long) time, keyCount);
+tlcache.put(section, new TimeLineCache(time, tl));
+```
+
+重要点:
+
+- 累積用の precise time は `double`。
+- `TimeLine` に入る時だけ `(long)` で microseconds に切り詰める。
+- Java の `(long)` は 0 方向 truncation。
+- `TimeLine.getTime()` は `(int)(time / 1000)`。
+- `BMSModel.getLastTime()` は最後の event timeline の `getMilliTime()` を int 化する。
+
+C# 側で round したり、millisecond 単位で累積したりすると、`length`, `speedchange`, `distribution`, `density` が連動してずれる。
+
+### timeline 順序
+
+参照実装の BMS timeline は `TreeMap<Double, TimeLine>` の section order が基準になる。  
+`SongInformation` も `model.getAllTimeLines()` を順に走査する。
+
+時刻順に並べ替えると、負 BPM / STOP / SCROLL などの特殊譜面で speedchange や mainbpm の集計順が変わり得る。  
+ただし本アプリ側では UI / chart string / hash との兼ね合いがあるため、変更時は production diff fixture で確認する。
+
+### 24時間超 timeline
+
+24時間超は参照実装では異常扱いしない。  
+本アプリでも 24時間上限は置かず、解析できる限り `chart_info` 生成を試みる。
+
+fatal にするケース:
+
+- `length` が int millisecond に収まらない
+- distribution bucket 数が int / allocation として現実的でない
+- 参照実装でも overflow 相当になると判断できるケース
+
+RANDOM 譜面では、巨大 timeline / distribution 配列長エラーは recoverable failure とし、RANDOM retry に進む。
+
+## LN / LNOBJ
+
+LN 処理は `Section.makeTimeLines` の分岐順に寄せる必要がある。  
+ここは notes count, lane notes, distribution, charthash すべてに影響する。
+
+### `#LNOBJ`
+
+`#LNOBJ` は通常ノート channel 上の特定 wav id を LN 終端として扱う。
+
+参照挙動:
+
+- LNOBJ を見つけたら、同一 lane の直前 note を後ろ向きに探す。
+- 直前 note が NormalNote なら、それを LongNote 始点へ差し替える。
+- LNOBJ 位置に LongNote 終端を置く。
+- 直前 note が未ペア LongNote なら、その LongNote に終端を付ける。
+- 対応できない場合は warning 相当で打ち切る。
+
+### LN channel
+
+LN channel (`#xxx5y` / `#xxx6y`) は開始・終端を交互に処理する。
+
+参照挙動の要点:
+
+- 既存 LN 範囲内かどうかは inclusive:
+  - `ln.section <= section && section <= ln.pair.section`
+- LN 開始位置に通常ノートがある場合:
+  - LongNote で上書きする。
+  - wav が異なる NormalNote は background note へ移す。
+- LN 終端処理では、開始位置まで後ろ向きに timeline を辿る。
+  - 開始位置より後ろに note がある場合、その note を消す。
+  - 消した note が NormalNote なら background note へ移す。
+  - 開始位置を見つけた場合のみ pair を作る。
+  - 開始位置を見つけられない場合、pair を作らない。
+- 未閉じ LN は最後に開始 note を消す。
+
+最後の「開始位置を見つけた場合のみ pair を作る」が重要。  
+逆順定義などで開始 timeline が scan 範囲に無い場合、C# 側で無条件に pair を作ると、参照実装では未閉じとして消える LN が残り、`ln` / `n` / `notes` / `lanenotes` がずれる。
+
+### LN 内 LN
+
+既存 LN 範囲内に LN channel が現れた場合、参照実装は sentinel 的な `Double.MIN_VALUE` section の LongNote を `startln` に入れて、次の LN channel で toggle 的に消す。
+
+意味:
+
+- LN 内の LN 開始は通常の LN として count しない。
+- 次の LN channel で sentinel を消して終わる。
+- sentinel ではない未ペア LN が残っていた場合は、対応 timeline の note を null にすることがある。
+
+### mine と LN
+
+mine は以下の場合に置かない:
+
+- 同時刻同 lane に note がある
+- 既存 LN 範囲内にある
+
+base62 時の mine damage は前述の特殊再計算を行う。
+
+## distribution / density / enddensity
+
+参照は `SongInformation` の計算に寄せる。
+
+概略:
+
+- `data = new int[model.getLastTime() / 1000 + 2][7]`
+- 各 note は `tl.getTime() / 1000` に入る。
+- LN は始点から終点秒まで LN density 用 bucket を fill する。
+- LN 終端は `LNTYPE_LONGNOTE` 相当では count 対象から除外される。
+- `borderPosition` は `totalNotes * (1 - 100 / total)` の通過位置から取る。
+- `density` は threshold 以上の秒 bucket だけ平均する。
+- `peakdensity` は playable notes の秒 bucket 最大。
+- `enddensity` は border 以後の rolling window 最大。
+
+実装注意:
+
+- 秒 bucket は Java の `tl.getTime()` を基準にする。
+- `length` が 1ms ずれるだけでも、bucket 数や境界秒が変わり density がずれることがある。
+- distribution string は大量差分になりやすいので、まず note count / timeline time / LN 処理を疑う。
+
+## speedchange
+
+`speedchange` は `SongInformation` の `speedchange` 相当。
+
+参照挙動:
+
+- 初期値として `initialBpm,0.0` を入れる。
+- timeline ごとに `bpm * scroll` を見る。
+- STOP 中は speed `0.0` として扱う。
+- 変化時刻は Java の `tl.getTime()`。
+- 最後の speed entry が最後の timeline 時刻と違う場合、最後の timeline 時刻の entry を追加する。
+- 文字列化は Java `StringBuilder.append(double)`、つまり `Double.toString`。
+
+差分分類:
+
+- time only diff:
+  - 1ms 差など。timeline time / length と同根のことが多い。
+- count diff:
+  - STOP / BPM / SCROLL event ordering や duplicate timeline の処理差を疑う。
+- format only diff:
+  - Java `Double.toString` と C# formatting 差。
+  - 例: `1.0E-4` と `0.0001E0` のような表記差。
+
+formatter は BMSON `charthash` にも影響するため、安易に変えると BMSON fixture が回帰する。  
+formatting 修正は BMS / BMSON 双方の chart string fixture を見ながら行う。
+
+## mainbpm
+
+`mainbpm` は単純な最大滞在時間 BPM ではなく、`SongInformation` と同じく BPM ごとの `tl.getTotalNotes()` 集計で選ぶ。
+
+注意点:
+
+- key は `double` BPM。
+- Java `HashMap<Double, Integer>` の iteration order に tie-break が依存することがある。
+- 本アプリでは Java HashMap bucket order を再現する helper を使う。
+
+## charthash / chart string
+
+`charthash` は `BMSModel.toChartString()` 相当の文字列を SHA-256 化する。
+
+chart string の主な要素:
+
+- `JUDGERANK`
+- `TOTAL`
+- `LNMODE`
+- timeline time
+- BPM change
+- STOP
+- section line
+- lane note state
+- mine damage
+- LN marker + audio duration
+
+注意点:
+
+- BPM 文字列は保存元文字列ではなく `tl.getBPM()` の double 文字列。
+- TOTAL, BPM, STOP, mine damage, speedchange などは Java double/int 文字列化の影響を受ける。
+- LN の chart string は文字連結ではなく `(int)lnChar + audioDurationMs` 相当。
+- BMSON note は音声 slice の start/duration が charthash に効く。
+- chart string は差分調査時に `tools/chartstring-dump` で Java 側を出して、C# の internal `ChartInfoParseResult.ChartString` と行単位比較する。
+
+`charthash` は最も差分が残りやすい。  
+DataGrid field 拡張用の metadata としては、まず `notes`, `density`, `length`, `difficulty`, `BPM` などの表示値の互換を優先し、`charthash` は段階的に詰める方針が現実的。
+
+## BMSON JSON parse
+
+BMSON は `DataContractJsonSerializer` ではなく Json.NET ベースの tolerant reader を使う。
+
+理由:
+
+- beatoraja / Jackson は duplicate key を fatal にしない。
+- `DataContractJsonSerializer` は duplicate member で `SerializationException` になる。
+- 実 DB では duplicate key を含む BMSON でも beatoraja 側に値が入っている。
+
+方針:
+
+- invalid JSON は fatal。
+- unknown field は無視。
+- duplicate key は last-win。
+- missing object / array は既定値で補う。
+
+BMSON root default:
+
+- `info = new`
+- `lines = []`
+- `bpm_events = []`
+- `stop_events = []`
+- `scroll_events = []`
+- `sound_channels = []`
+- `mine_channels = []`
+- `key_channels = []`
+- `bga = new`
+
+BMSON info default:
+
+- `mode_hint = "beat-7k"`
+- `judge_rank = 100`
+- `total = 100`
+- `resolution = 240`
+
+scroll event default:
+
+- `rate = 1.0`
+
+### BMSON int / nullable values
+
+- `info.level` missing / explicit `null` は `chart_info.level = NULL`。
+- `info.level = 0` は明示 0 として保存する。
+- int 系は四捨五入しない。float / string numeric を受ける場合も int へ切り詰める。
+- BMSON には BMS の `#DIFFICULTY` 相当の明示 field が無いため、`difficulty` は常に推定値、`difficulty_defined=false`。
+
+### BMSON event merge order
+
+BMSON timeline は y 順に merge する。  
+同一 y では参照実装に合わせて:
+
+1. scroll
+2. bpm
+3. stop
+
+stop の時刻計算には、その時点で作られた timeline の BPM を使う。  
+negative BPM / STOP などは fatal にせず diagnostic 扱いにする。
+
+## difficulty / level
+
+### level
+
+`chart_info.level` は nullable。
+
+- BMS `#PLAYLEVEL` missing / invalid: `NULL`
+- BMS `#PLAYLEVEL 12`: `12`
+- BMS `#PLAYLEVEL 12abc`: `NULL`
+- BMS `#PLAYLEVEL ４`: `4`
+- BMSON `info.level` missing / null: `NULL`
+- BMSON `info.level = 0`: `0`
+
+`level_defined` は持たない。  
+未定義は `NULL` だけで表現する。
+
+### difficulty
+
+`chart_info.difficulty` は DataGrid 表示・ソート用の有効値。  
+`difficulty_defined` は譜面に明示されていたかを表す。
+
+BMS:
+
+- `#DIFFICULTY 4`: `difficulty=4`, `difficulty_defined=true`
+- `#DIFFICULTY 0`: 推定値, `difficulty_defined=false`
+- missing / invalid: 推定値, `difficulty_defined=false`
+
+BMSON:
+
+- 常に推定値, `difficulty_defined=false`
+
+推定順:
+
+1. subtitle の `beginner/normal/hyper/another/insane/leggendaria`
+2. title + subtitle
+3. notes 数:
+   - `<250`: 1
+   - `<600`: 2
+   - `<1000`: 3
+   - `<2000`: 4
+   - `>=2000`: 5
+
+DataGrid では `difficulty` を表示・ソートに使い、`difficulty_defined=false` を警告表示に使う想定。
+
+## fatal / recoverable / diagnostic
+
+### fatal WARN 対象
+
+逐次 WARN に出すのは fatal のみ。
+
+- file read failure
+- invalid BMSON JSON
+- BMS / BMSON の最終 parse failure
+- parser unexpected exception
+- parse timeout
+
+parse failure でも bytes から digest 計算できている場合:
+
+- `chart_digest_map` は保存する。
+- `chart_info` は成功行のみ保存する。
+
+### diagnostic 扱い
+
+参照実装の `DecodeLog.WARNING` 相当は基本的に diagnostic 扱い。
+
+例:
+
+- malformed known command
+- undefined BPM / STOP reference
+- invalid numeric token
+- channel data invalid token
+- LN conflict
+- mine conflict
+
+ログ肥大化を避けるため、通常は WARN 出力しない。
+
+## backfill / timeout / commit
+
+chart_info backfill は「単一 file reader + in-memory parallel parse + chunk commit」。
+
+- file IO は reader 1 本。
+- `byte[]` を bounded queue に積む。
+- worker は `byte[]` から digest と chart_info を生成する。
+- DB commit は writer 側で chunk 単位に行う。
+- per-chart timeout は backfill 限定で 60 秒。
+- timeout は parse failure として扱う。
+- parser version は結果意味が変わる時だけ上げる。
+
+ログで見るべき境界:
+
+- `chart_info_backfill start`
+- `parse_done`
+- `slow_parse_top`
+- `db_commit_chunk_start`
+- `db_commit_chunk_done`
+- summary の `timeoutFailed`, `parseMaxMs`, `dbCommitMaxChunkMs`
+
+これにより「解析で止まったのか」「DB commit で止まったのか」を切り分ける。
+
+## production diff fixture の読み方
+
+`BeMusicSeeker.Tests/TestData/chart_info_production_diff/` は本番 DB 差分を fixture 化したもの。
+
+比較方針:
+
+- beatoraja `song ∩ information` を参照母集団とする。
+- RANDOM (`feature & 4 != 0`) は値差分許容。
+- BMSON は beatoraja が md5 を保持しないため、BMSON の md5 差分は比較対象外。
+- `level` は beatoraja `0` と app `NULL` を未定義相当として一致扱い。
+- `maxbpm/minbpm` は整数部比較。
+- double 系は epsilon 比較。
+
+現時点で重要な見方:
+
+- `core` 差分は `notes/n/ln/s/ls/lanenotes/difficulty/level/mode/judge/feature` などの表示値に直結するため最優先。
+- `length`, `distribution`, `density`, `speedchange` は timeline time 差分で連動しやすい。
+- `charthash` は chart string 文字列化・BMSON audio slice・LN duration など広い範囲に影響されるため、最後に詰める。
+
+## 既知の残論点
+
+2026-04-26 時点で、最新 production diff fixture では非 RANDOM / 非 timeout の 755 件について:
+
+- core 差分は 0 まで縮小済み。
+- `length` は 5 件が 1ms 差。
+- `distribution` / `density` / `speedchange` は timeline time 由来と思われる差分が残る。
+- `charthash` は BMS / BMSON ともに残差がある。
+- BMSON fixture は最新期待値更新後、値系は一致しているが charthash 差分が残る。
+
+次に詰める候補:
+
+1. `TimeLine` / `BMSModel.getLastTime()` 相当の 1ms 差
+2. `SongInformation` の bucket 計算との完全一致
+3. Java `Double.toString` 互換 formatter
+4. BMSON charthash の audio slice / note duration / double string
+5. `#SWITCH/#CASE/#SKIP/#ENDSW` の残差確認
+

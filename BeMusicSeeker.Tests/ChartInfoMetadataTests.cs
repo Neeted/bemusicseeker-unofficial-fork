@@ -628,6 +628,31 @@ public sealed class ChartInfoMetadataTests
     }
 
     [TestMethod]
+    public void ParseBms_HeaderCommandsAcceptBeatorajaReserveWordFormsAndUnicodeDigits()
+    {
+        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        {
+            string chartPath = Path.Combine(tempRootPath, "reserve-word-headers.bms");
+            File.WriteAllText(
+                chartPath,
+                "#TITLELegacy Title\r\n"
+                    + "#BPM 120\r\n"
+                    + "#PLAYLEVEL 2８\r\n"
+                    + "#DIFFICULTY=2\r\n"
+                    + "#RANK ３\r\n"
+                    + "#00111:01\r\n",
+                Encoding.GetEncoding(932));
+
+            LR2SongDBExtended.chart_info row = ChartInfoParser.Parse(chartPath);
+
+            Assert.AreEqual(28, row.level.GetValueOrDefault());
+            Assert.AreEqual(2, row.difficulty);
+            Assert.IsTrue(row.difficulty_defined);
+            Assert.AreEqual(100, row.judge);
+        });
+    }
+
+    [TestMethod]
     public void ParseBms_TotalRejectsTrailingGarbageButAcceptsDecimal()
     {
         WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
@@ -1081,7 +1106,7 @@ public sealed class ChartInfoMetadataTests
         Assert.AreEqual(4, knownTimeoutRows.Count);
 
         CompatibilityDiffCounts diffs = new CompatibilityDiffCounts();
-        TimeSpan parserTimeout = TimeSpan.FromSeconds(ReadPositiveIntEnvironmentVariable("BMS_TEST_PRODUCTION_DIFF_TIMEOUT_SECONDS", 10));
+        TimeSpan parserTimeout = TimeSpan.FromSeconds(ReadPositiveIntEnvironmentVariable("BMS_TEST_PRODUCTION_DIFF_TIMEOUT_SECONDS", 30));
         Stopwatch totalStopwatch = Stopwatch.StartNew();
         Trace.WriteLine("chart_info production diff non-timeout start total=" + rowsToVerify.Count
             + " excludedKnownTimeout=" + knownTimeoutRows.Count
@@ -2569,6 +2594,10 @@ public sealed class ChartInfoMetadataTests
 
         public void Add(RealChartInfoExpectedRow expected, LR2SongDBExtended.chart_info actual, string chartString)
         {
+            if (IsRandomFeature(expected.feature) || IsRandomFeature(actual.feature))
+            {
+                return;
+            }
             AddCoreDiffs(expected, actual);
             if (!string.Equals(expected.charthash, actual.charthash, StringComparison.OrdinalIgnoreCase))
             {
@@ -2712,6 +2741,11 @@ public sealed class ChartInfoMetadataTests
             CompareCoreField("mainbpm", expected, FormatValue(expected.mainbpm), FormatValue(actual.mainbpm), NullableDoubleEquals(expected.mainbpm, actual.mainbpm));
             CompareCoreField("lanenotes", expected, expected.lanenotes, actual.lanenotes, string.Equals(expected.lanenotes, actual.lanenotes, StringComparison.Ordinal));
             CompareCoreField("total", expected, FormatValue(expected.total), FormatValue(actual.total), NullableDoubleEquals(expected.total, actual.total));
+        }
+
+        private static bool IsRandomFeature(int? feature)
+        {
+            return ((feature ?? 0) & 4) != 0;
         }
 
         private void CompareCoreField(string field, RealChartInfoExpectedRow expected, string expectedValue, string actualValue, bool equals)

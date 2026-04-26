@@ -46,7 +46,7 @@ internal static class ChartInfoParser
 
     private const int LntypeLongNote = 0;
 
-    private static readonly Regex BmsChannelLineRegex = new Regex("^#([0-9]{3})([0-9A-Za-z]{2})\\s*:\\s*(.*)$", RegexOptions.Compiled);
+    private static readonly Regex BmsChannelLineRegex = new Regex("^#([0-9]{3})([0-9A-Za-z]{2})\\s*:(.*)$", RegexOptions.Compiled);
 
     private static readonly Regex BmsChannelHeaderRegex = new Regex("^#([0-9]{3})([0-9A-Za-z]{2}).*$", RegexOptions.Compiled);
 
@@ -221,8 +221,8 @@ internal static class ChartInfoParser
             difficulty = model.Difficulty,
             difficulty_defined = model.DifficultyDefined,
             mainbpm = statistics.MainBpm,
-            maxbpm = model.GetMaxBpm(),
-            minbpm = model.GetMinBpm(),
+            maxbpm = ClampJavaDoubleToIntRangeForHugeBpm(model.GetMaxBpm()),
+            minbpm = ClampJavaDoubleToIntRangeForHugeBpm(model.GetMinBpm()),
             length = length,
             mode = model.DisplayMode,
             judge = model.JudgeRank,
@@ -266,7 +266,7 @@ internal static class ChartInfoParser
             if (MatchesReserveWord(line, "RANDOM"))
             {
                 builder.HasRandom = true;
-                if (int.TryParse(GetCommandArgument(line), NumberStyles.Integer, CultureInfo.InvariantCulture, out int randomMax))
+                if (TryParseJavaIntStrict(GetReserveWordArgument(line, "RANDOM"), out int randomMax))
                 {
                     int normalizedMax = Math.Max(1, randomMax);
                     int selected = selectedRandoms != null && randomIndex < selectedRandoms.Count ? selectedRandoms[randomIndex] : 1;
@@ -283,7 +283,7 @@ internal static class ChartInfoParser
             {
                 if (selectedRandomStack.Count > 0)
                 {
-                    if (int.TryParse(GetCommandArgument(line), NumberStyles.Integer, CultureInfo.InvariantCulture, out int branch))
+                    if (TryParseJavaIntStrict(GetReserveWordArgument(line, "IF"), out int branch))
                     {
                         skipStack.Push(selectedRandomStack.Peek() != branch);
                     }
@@ -374,7 +374,7 @@ internal static class ChartInfoParser
             if (line.Length >= 2
                 && line[0] == '#'
                 && MatchesReserveWord(line, "RANDOM")
-                && int.TryParse(GetCommandArgument(line), NumberStyles.Integer, CultureInfo.InvariantCulture, out int randomMax))
+                && TryParseJavaIntStrict(GetReserveWordArgument(line, "RANDOM"), out int randomMax))
             {
                 randomMaxes.Add(Math.Max(1, randomMax));
             }
@@ -878,6 +878,13 @@ internal static class ChartInfoParser
         return whitespace >= 0 ? trimmed.Substring(whitespace + 1).Trim() : string.Empty;
     }
 
+    private static string GetReserveWordArgument(string line, string word)
+    {
+        string safeLine = line ?? string.Empty;
+        int start = word.Length + 2;
+        return safeLine.Length > start ? safeLine.Substring(start).Trim() : string.Empty;
+    }
+
     private static int ParseIntOrDefault(string value, int fallback)
     {
         return int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int result) ? result : fallback;
@@ -885,7 +892,43 @@ internal static class ChartInfoParser
 
     private static bool TryParseJavaIntStrict(string value, out int result)
     {
-        return int.TryParse((value ?? string.Empty).Trim(), NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out result);
+        string text = (value ?? string.Empty).Trim();
+        if (text.Length == 0)
+        {
+            result = 0;
+            return false;
+        }
+        int index = 0;
+        int sign = 1;
+        if (text[index] == '+' || text[index] == '-')
+        {
+            sign = text[index] == '-' ? -1 : 1;
+            index++;
+            if (index >= text.Length)
+            {
+                result = 0;
+                return false;
+            }
+        }
+        long value64 = 0L;
+        for (; index < text.Length; index++)
+        {
+            int digit = CharUnicodeInfo.GetDecimalDigitValue(text[index]);
+            if (digit < 0)
+            {
+                result = 0;
+                return false;
+            }
+            value64 = value64 * 10L + digit;
+            long signed = value64 * sign;
+            if (signed > int.MaxValue || signed < int.MinValue)
+            {
+                result = 0;
+                return false;
+            }
+        }
+        result = (int)(value64 * sign);
+        return true;
     }
 
     private static int ParseBase36(string value)
@@ -1006,6 +1049,23 @@ internal static class ChartInfoParser
         return ToHex(algorithm.ComputeHash(Encoding.UTF8.GetBytes(value ?? string.Empty)));
     }
 
+    private static double ClampJavaDoubleToIntRangeForHugeBpm(double value)
+    {
+        if (double.IsNaN(value))
+        {
+            return 0.0;
+        }
+        if (value > int.MaxValue)
+        {
+            return int.MaxValue;
+        }
+        if (value < int.MinValue)
+        {
+            return int.MinValue;
+        }
+        return value;
+    }
+
     private static string ToHex(byte[] hash)
     {
         StringBuilder builder = new StringBuilder(hash.Length * 2);
@@ -1067,7 +1127,10 @@ internal static class ChartInfoParser
     private static void AddAdjacentDoubleFormatCandidates(ICollection<string> candidates, double value, string text)
     {
         string normalized = NormalizeDoubleText(text);
-        if (normalized.IndexOf('E') >= 0 || normalized.IndexOf('e') >= 0 || UsesExponentAgainstJavaDecimalRange(value, normalized))
+        if (normalized.IndexOf('E') >= 0
+            || normalized.IndexOf('e') >= 0
+            || UsesExponentAgainstJavaDecimalRange(value, normalized)
+            || UsesDecimalAgainstJavaExponentRange(value, normalized))
         {
             return;
         }
@@ -1375,6 +1438,11 @@ internal static class ChartInfoParser
         return (longNotes ?? Enumerable.Empty<ChartNote>()).Any((ChartNote note) => note.Section < section && section <= (note.Pair?.Section ?? note.Section));
     }
 
+    private static bool IsInsideBmsLongNote(IEnumerable<ChartNote> longNotes, double section)
+    {
+        return (longNotes ?? Enumerable.Empty<ChartNote>()).Any((ChartNote note) => note.Section <= section && section <= (note.Pair?.Section ?? note.Section));
+    }
+
     private static bool HasNoteInsideLongNote(IEnumerable<ChartNote> longNotes, double startSection, double endSection)
     {
         return (longNotes ?? Enumerable.Empty<ChartNote>()).Any((ChartNote note) => startSection < (note.Pair?.Section ?? note.Section) && note.Section < endSection);
@@ -1660,133 +1728,167 @@ internal static class ChartInfoParser
         public void ApplyCommand(string line)
         {
             string trimmed = line.Trim();
-            SplitCommand(trimmed, out string token, out string argument);
-            string command = token.StartsWith("#", StringComparison.Ordinal) ? token.Substring(1) : token;
-            if (command.Equals("BPM", StringComparison.OrdinalIgnoreCase))
+            if (MatchesReserveWord(trimmed, "BPM"))
             {
-                if (double.TryParse(argument, NumberStyles.Float, CultureInfo.InvariantCulture, out double bpm) && bpm > 0)
+                if (trimmed.Length > 4 && trimmed[4] == ' ')
                 {
-                    InitialBpm = bpm;
-                }
-                else
-                {
-                    AddDiagnostic(diagnostics, ChartInfoParseDiagnosticSeverity.Warning, "BMS_BPM_INVALID", "#BPMに数字が定義されていません");
-                }
-                return;
-            }
-            if (command.StartsWith("BPM", StringComparison.OrdinalIgnoreCase) && command.Length >= 5)
-            {
-                int key = ParseBase(command.Substring(3, 2), Base);
-                if (key >= 0 && double.TryParse(argument, NumberStyles.Float, CultureInfo.InvariantCulture, out double bpm) && bpm > 0)
-                {
-                    bpmTable[key] = bpm;
-                }
-                else
-                {
-                    AddDiagnostic(diagnostics, ChartInfoParseDiagnosticSeverity.Warning, "BMS_BPM_INDEXED_INVALID", "#BPMxxに数字が定義されていません");
-                }
-                return;
-            }
-            if (command.StartsWith("STOP", StringComparison.OrdinalIgnoreCase) && command.Length >= 6)
-            {
-                int key = ParseBase(command.Substring(4, 2), Base);
-                if (key >= 0 && double.TryParse(argument, NumberStyles.Float, CultureInfo.InvariantCulture, out double stop))
-                {
-                    stopTable[key] = Math.Abs(stop) / 192.0;
-                }
-                else
-                {
-                    AddDiagnostic(diagnostics, ChartInfoParseDiagnosticSeverity.Warning, "BMS_STOP_INVALID", "#STOPxxに数字が定義されていません");
-                }
-                return;
-            }
-            if (command.StartsWith("SCROLL", StringComparison.OrdinalIgnoreCase) && command.Length >= 8)
-            {
-                int key = ParseBase(command.Substring(6, 2), Base);
-                if (key >= 0 && double.TryParse(argument, NumberStyles.Float, CultureInfo.InvariantCulture, out double scroll))
-                {
-                    scrollTable[key] = scroll;
-                }
-                else
-                {
-                    AddDiagnostic(diagnostics, ChartInfoParseDiagnosticSeverity.Warning, "BMS_SCROLL_INVALID", "#SCROLLxxに数字が定義されていません");
-                }
-                return;
-            }
-            switch (command.ToUpperInvariant())
-            {
-                case "TITLE":
-                    Title = argument ?? string.Empty;
-                    break;
-                case "SUBTITLE":
-                    Subtitle = argument ?? string.Empty;
-                    break;
-                case "PLAYLEVEL":
-                    Level = TryParseJavaIntStrict(argument, out int level) ? level : null;
-                    break;
-                case "DIFFICULTY":
-                    if (TryParseJavaIntStrict(argument, out int difficulty))
+                    string argument = GetReserveWordArgument(trimmed, "BPM");
+                    if (double.TryParse(argument, NumberStyles.Float, CultureInfo.InvariantCulture, out double bpm) && bpm > 0)
                     {
-                        Difficulty = difficulty;
-                        DifficultyDefined = difficulty != 0;
+                        InitialBpm = bpm;
                     }
                     else
                     {
-                        AddDiagnostic(diagnostics, ChartInfoParseDiagnosticSeverity.Warning, "BMS_DIFFICULTY_INVALID", "#DIFFICULTYに数字が定義されていません");
+                        AddDiagnostic(diagnostics, ChartInfoParseDiagnosticSeverity.Warning, "BMS_BPM_INVALID", "#BPMに数字が定義されていません");
                     }
-                    break;
-                case "RANK":
-                    if (int.TryParse(argument, NumberStyles.Integer, CultureInfo.InvariantCulture, out int rank) && rank >= 0 && rank < 5)
+                }
+                else if (trimmed.Length >= 8)
+                {
+                    int key = ParseBase(trimmed.Substring(4, 2), Base);
+                    string argument = trimmed.Substring(7).Trim();
+                    if (key >= 0 && double.TryParse(argument, NumberStyles.Float, CultureInfo.InvariantCulture, out double bpm) && bpm > 0)
                     {
-                        JudgeRank = rank;
-                        JudgeRankType = JudgeRankType.BmsRank;
-                    }
-                    break;
-                case "DEFEXRANK":
-                    if (int.TryParse(argument, NumberStyles.Integer, CultureInfo.InvariantCulture, out int defExRank) && defExRank >= 1)
-                    {
-                        JudgeRank = defExRank;
-                        JudgeRankType = JudgeRankType.BmsDefExRank;
-                    }
-                    break;
-                case "TOTAL":
-                    if (double.TryParse(argument, NumberStyles.Float, CultureInfo.InvariantCulture, out double total) && total > 0)
-                    {
-                        Total = total;
-                        TotalDefined = true;
+                        bpmTable[key] = bpm;
                     }
                     else
                     {
-                        AddDiagnostic(diagnostics, ChartInfoParseDiagnosticSeverity.Warning, "BMS_TOTAL_INVALID", "#TOTALに数字が定義されていません");
+                        AddDiagnostic(diagnostics, ChartInfoParseDiagnosticSeverity.Warning, "BMS_BPM_INDEXED_INVALID", "#BPMxxに数字が定義されていません");
                     }
-                    break;
-                case "LNOBJ":
-                    LnObject = ParseBase(argument.Trim(), Base);
-                    if (LnObject < 0)
+                }
+                return;
+            }
+            if (MatchesReserveWord(trimmed, "STOP"))
+            {
+                if (trimmed.Length >= 9)
+                {
+                    int key = ParseBase(trimmed.Substring(5, 2), Base);
+                    string argument = trimmed.Substring(8).Trim();
+                    if (key >= 0 && double.TryParse(argument, NumberStyles.Float, CultureInfo.InvariantCulture, out double stop))
                     {
-                        AddDiagnostic(diagnostics, ChartInfoParseDiagnosticSeverity.Warning, "BMS_LNOBJ_INVALID", "#LNOBJに数字が定義されていません");
-                    }
-                    break;
-                case "LNMODE":
-                    if (int.TryParse(argument, NumberStyles.Integer, CultureInfo.InvariantCulture, out int lnMode) && lnMode >= 0 && lnMode <= 3)
-                    {
-                        LnMode = lnMode;
+                        stopTable[key] = Math.Abs(stop) / 192.0;
                     }
                     else
                     {
-                        AddDiagnostic(diagnostics, ChartInfoParseDiagnosticSeverity.Warning, "BMS_LNMODE_INVALID", "#LNMODEに無効な数字が定義されています");
+                        AddDiagnostic(diagnostics, ChartInfoParseDiagnosticSeverity.Warning, "BMS_STOP_INVALID", "#STOPxxに数字が定義されていません");
                     }
-                    break;
-                case "BASE":
-                    if (int.TryParse(argument, NumberStyles.Integer, CultureInfo.InvariantCulture, out int numberBase) && numberBase == 62)
+                }
+                return;
+            }
+            if (MatchesReserveWord(trimmed, "SCROLL"))
+            {
+                if (trimmed.Length >= 11)
+                {
+                    int key = ParseBase(trimmed.Substring(7, 2), Base);
+                    string argument = trimmed.Substring(10).Trim();
+                    if (key >= 0 && double.TryParse(argument, NumberStyles.Float, CultureInfo.InvariantCulture, out double scroll))
                     {
-                        Base = 62;
+                        scrollTable[key] = scroll;
                     }
                     else
                     {
-                        AddDiagnostic(diagnostics, ChartInfoParseDiagnosticSeverity.Warning, "BMS_BASE_INVALID", "#BASEに無効な数字が定義されています");
+                        AddDiagnostic(diagnostics, ChartInfoParseDiagnosticSeverity.Warning, "BMS_SCROLL_INVALID", "#SCROLLxxに数字が定義されていません");
                     }
-                    break;
+                }
+                return;
+            }
+            if (MatchesReserveWord(trimmed, "TITLE"))
+            {
+                Title = GetReserveWordArgument(trimmed, "TITLE");
+                return;
+            }
+            if (MatchesReserveWord(trimmed, "SUBTITLE"))
+            {
+                Subtitle = GetReserveWordArgument(trimmed, "SUBTITLE");
+                return;
+            }
+            if (MatchesReserveWord(trimmed, "PLAYLEVEL"))
+            {
+                string argument = GetReserveWordArgument(trimmed, "PLAYLEVEL");
+                Level = TryParseJavaIntStrict(argument, out int level) ? level : null;
+                return;
+            }
+            if (MatchesReserveWord(trimmed, "DIFFICULTY"))
+            {
+                string argument = GetReserveWordArgument(trimmed, "DIFFICULTY");
+                if (TryParseJavaIntStrict(argument, out int difficulty))
+                {
+                    Difficulty = difficulty;
+                    DifficultyDefined = difficulty != 0;
+                }
+                else
+                {
+                    AddDiagnostic(diagnostics, ChartInfoParseDiagnosticSeverity.Warning, "BMS_DIFFICULTY_INVALID", "#DIFFICULTYに数字が定義されていません");
+                }
+                return;
+            }
+            if (MatchesReserveWord(trimmed, "RANK"))
+            {
+                string argument = GetReserveWordArgument(trimmed, "RANK");
+                if (TryParseJavaIntStrict(argument, out int rank) && rank >= 0 && rank < 5)
+                {
+                    JudgeRank = rank;
+                    JudgeRankType = JudgeRankType.BmsRank;
+                }
+                return;
+            }
+            if (MatchesReserveWord(trimmed, "DEFEXRANK"))
+            {
+                string argument = GetReserveWordArgument(trimmed, "DEFEXRANK");
+                if (TryParseJavaIntStrict(argument, out int defExRank) && defExRank >= 1)
+                {
+                    JudgeRank = defExRank;
+                    JudgeRankType = JudgeRankType.BmsDefExRank;
+                }
+                return;
+            }
+            if (MatchesReserveWord(trimmed, "TOTAL"))
+            {
+                string argument = GetReserveWordArgument(trimmed, "TOTAL");
+                if (double.TryParse(argument, NumberStyles.Float, CultureInfo.InvariantCulture, out double total) && total > 0)
+                {
+                    Total = total;
+                    TotalDefined = true;
+                }
+                else
+                {
+                    AddDiagnostic(diagnostics, ChartInfoParseDiagnosticSeverity.Warning, "BMS_TOTAL_INVALID", "#TOTALに数字が定義されていません");
+                }
+                return;
+            }
+            if (MatchesReserveWord(trimmed, "LNOBJ"))
+            {
+                string argument = GetReserveWordArgument(trimmed, "LNOBJ");
+                LnObject = ParseBase(argument.Trim(), Base);
+                if (LnObject < 0)
+                {
+                    AddDiagnostic(diagnostics, ChartInfoParseDiagnosticSeverity.Warning, "BMS_LNOBJ_INVALID", "#LNOBJに数字が定義されていません");
+                }
+                return;
+            }
+            if (MatchesReserveWord(trimmed, "LNMODE"))
+            {
+                string argument = GetReserveWordArgument(trimmed, "LNMODE");
+                if (TryParseJavaIntStrict(argument, out int lnMode) && lnMode >= 0 && lnMode <= 3)
+                {
+                    LnMode = lnMode;
+                }
+                else
+                {
+                    AddDiagnostic(diagnostics, ChartInfoParseDiagnosticSeverity.Warning, "BMS_LNMODE_INVALID", "#LNMODEに無効な数字が定義されています");
+                }
+                return;
+            }
+            if (MatchesReserveWord(trimmed, "BASE"))
+            {
+                string argument = GetReserveWordArgument(trimmed, "BASE");
+                if (TryParseJavaIntStrict(argument, out int numberBase) && numberBase == 62)
+                {
+                    Base = numberBase;
+                }
+                else
+                {
+                    AddDiagnostic(diagnostics, ChartInfoParseDiagnosticSeverity.Warning, "BMS_BASE_INVALID", "#BASEに無効な数字が定義されています");
+                }
             }
         }
 
@@ -1855,7 +1957,7 @@ internal static class ChartInfoParser
             for (int lane = 0; lane < pendingLongStarts.Length; lane++)
             {
                 ChartNote start = pendingLongStarts[lane];
-                if (start != null)
+                if (start != null && start.Owner != null && start.Section != double.MinValue)
                 {
                     start.Owner.Notes[lane] = null;
                 }
@@ -2036,20 +2138,20 @@ internal static class ChartInfoParser
                 }
                 else if (kind == BmsLaneChannelKind.Normal)
                 {
-                    ApplyBmsNormalNote(timelines, lane, pair.Value, timeline, longNotesByLane);
+                    ApplyBmsNormalNote(timelines, lane, pair.Value, timeline, longNotesByLane, pendingLongStarts);
                 }
                 else if (kind == BmsLaneChannelKind.Long)
                 {
                     ApplyBmsLongNote(timelines, lane, pair.Value, timeline, longNotesByLane, pendingLongStarts);
                 }
-                else if (kind == BmsLaneChannelKind.Mine && timeline.Notes[lane] == null && !IsInsideLongNote(longNotesByLane[lane], timeline.Section))
+                else if (kind == BmsLaneChannelKind.Mine && timeline.Notes[lane] == null && !IsInsideBmsLongNote(longNotesByLane[lane], timeline.Section))
                 {
                     timeline.SetNote(lane, ChartNote.CreateMine(pair.Value));
                 }
             }
         }
 
-        private void ApplyBmsNormalNote(SortedList<double, ChartTimeline> timelines, int lane, int data, ChartTimeline timeline, List<ChartNote>[] longNotesByLane)
+        private void ApplyBmsNormalNote(SortedList<double, ChartTimeline> timelines, int lane, int data, ChartTimeline timeline, List<ChartNote>[] longNotesByLane, ChartNote[] pendingLongStarts)
         {
             if (data == LnObject)
             {
@@ -2077,6 +2179,7 @@ internal static class ChartInfoParser
                         timeline.SetNote(lane, end);
                         previousNote.PairWith(end);
                         longNotesByLane[lane].Add(previousNote);
+                        pendingLongStarts[lane] = null;
                     }
                     break;
                 }
@@ -2087,12 +2190,31 @@ internal static class ChartInfoParser
 
         private void ApplyBmsLongNote(SortedList<double, ChartTimeline> timelines, int lane, int data, ChartTimeline timeline, List<ChartNote>[] longNotesByLane, ChartNote[] pendingLongStarts)
         {
-            if (IsInsideLongNote(longNotesByLane[lane], timeline.Section))
+            if (IsInsideBmsLongNote(longNotesByLane[lane], timeline.Section))
             {
-                timeline.HasBackground = true;
+                ChartNote pending = pendingLongStarts[lane];
+                if (pending == null)
+                {
+                    ChartNote ignored = ChartNote.CreateLong(data, LnMode);
+                    ignored.Section = double.MinValue;
+                    pendingLongStarts[lane] = ignored;
+                }
+                else
+                {
+                    if (pending.Section != double.MinValue && pending.Owner != null)
+                    {
+                        pending.Owner.SetNote(lane, null);
+                    }
+                    pendingLongStarts[lane] = null;
+                }
                 return;
             }
             ChartNote start = pendingLongStarts[lane];
+            if (start != null && start.Section == double.MinValue)
+            {
+                pendingLongStarts[lane] = null;
+                return;
+            }
             if (start == null)
             {
                 ChartNote existing = timeline.Notes[lane];
@@ -2105,12 +2227,14 @@ internal static class ChartInfoParser
                 pendingLongStarts[lane] = note;
                 return;
             }
+            bool foundStart = false;
             int previousIndex = 0;
             foreach (ChartTimeline previous in timelines.Values.Reverse().Where((ChartTimeline item) => item.Section < timeline.Section))
             {
                 timeoutGuard.ThrowIfTimedOutEvery(++previousIndex, "bms_long_note_backscan");
                 if (previous.Section == start.Section)
                 {
+                    foundStart = true;
                     break;
                 }
                 ChartNote existing = previous.Notes[lane];
@@ -2122,6 +2246,10 @@ internal static class ChartInfoParser
                         previous.HasBackground = true;
                     }
                 }
+            }
+            if (!foundStart)
+            {
+                return;
             }
             ChartNote end = ChartNote.CreateLong(data == start.Wav ? -2 : data, start.LongType);
             timeline.SetNote(lane, end);
@@ -2718,7 +2846,7 @@ internal static class ChartInfoParser
 
         public string GetBpmChartText()
         {
-            return string.IsNullOrEmpty(BpmChartText) ? FormatDouble(Bpm) : BpmChartText;
+            return FormatDouble(Bpm);
         }
     }
 
@@ -3024,6 +3152,7 @@ internal static class ChartInfoParser
         {
             List<double[]> speedList = new List<double[]>();
             Dictionary<double, int> bpmNoteCounts = new Dictionary<double, int>();
+            List<double> bpmInsertionOrder = new List<double>();
             double currentSpeed = model.InitialBpm;
             speedList.Add(new[] { currentSpeed, 0.0 });
             int speedChangeCount = 0;
@@ -3032,6 +3161,10 @@ internal static class ChartInfoParser
             {
                 timeoutGuard.ThrowIfTimedOutEvery(++timelineIndex, "calculate_speed");
                 bpmNoteCounts.TryGetValue(timeline.Bpm, out int noteCount);
+                if (!bpmNoteCounts.ContainsKey(timeline.Bpm))
+                {
+                    bpmInsertionOrder.Add(timeline.Bpm);
+                }
                 bpmNoteCounts[timeline.Bpm] = noteCount + timeline.GetTotalNotes(LntypeLongNote, timeoutGuard);
                 if (timeline.StopMilliseconds > 0)
                 {
@@ -3057,18 +3190,48 @@ internal static class ChartInfoParser
             {
                 speedList.Add(new[] { currentSpeed, (double)model.Timelines[model.Timelines.Count - 1].TimeMilliseconds });
             }
-            int maxCount = 0;
-            result.MainBpm = 0.0;
-            foreach (KeyValuePair<double, int> item in bpmNoteCounts)
-            {
-                if (item.Value > maxCount)
-                {
-                    maxCount = item.Value;
-                    result.MainBpm = item.Key;
-                }
-            }
+            result.MainBpm = SelectMainBpmInJavaHashMapOrder(bpmNoteCounts, bpmInsertionOrder);
             result.SpeedChange = string.Join(",", speedList.SelectMany((double[] values) => values).Select(FormatDouble));
             result.SpeedChangeCount = speedChangeCount;
+        }
+
+        private static double SelectMainBpmInJavaHashMapOrder(IDictionary<double, int> bpmNoteCounts, IReadOnlyList<double> insertionOrder)
+        {
+            if (bpmNoteCounts.Count == 0)
+            {
+                return 0.0;
+            }
+            int capacity = 16;
+            int threshold = 12;
+            while (bpmNoteCounts.Count > threshold)
+            {
+                capacity *= 2;
+                threshold = (int)(capacity * 0.75);
+            }
+            double result = 0.0;
+            int maxCount = 0;
+            foreach (double bpm in insertionOrder
+                .Select((double bpm, int index) => new { Bpm = bpm, Index = index, Bucket = JavaHashMapBucket(bpm, capacity) })
+                .OrderBy((item) => item.Bucket)
+                .ThenBy((item) => item.Index)
+                .Select((item) => item.Bpm))
+            {
+                int count = bpmNoteCounts[bpm];
+                if (count > maxCount)
+                {
+                    maxCount = count;
+                    result = bpm;
+                }
+            }
+            return result;
+        }
+
+        private static int JavaHashMapBucket(double value, int capacity)
+        {
+            long bits = BitConverter.DoubleToInt64Bits(value);
+            int hash = unchecked((int)(bits ^ ((long)((ulong)bits >> 32))));
+            hash ^= (int)((uint)hash >> 16);
+            return hash & (capacity - 1);
         }
 
         private static string EncodeDistribution(DistributionBuckets values, ParseTimeoutGuard timeoutGuard)
