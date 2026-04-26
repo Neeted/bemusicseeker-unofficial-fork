@@ -27,12 +27,16 @@
 ### 既定エンコード
 
 BMS の既定 decode は MS932 系に寄せる。
-明示 encoding が渡された場合のみそれを優先する。
+通常の `chart_info` 生成では、アプリが独自に推定・補正した `maintenance.encoding` は使わない。
 
 理由:
 
 - beatoraja / jbms-parser は日本語 BMS の実運用を前提に MS932 系として読まれることが多い。
 - UTF-8 として読めても、タイトル・サブタイトル・DIFFICULTY 推定文字列などが変わると結果がずれる。
+- `maintenance.encoding` は DataGrid 表示や LR2 `song` テーブルの文字列補正用であり、譜面構文の参照実装互換 decode を制御するものではない。
+- 例えば `#PLAYLEVEL １` を含む MS932 譜面で表示用 encoding が `ks_c_5601-1987?` と推定されても、`chart_info` では MS932 として解釈し、全角数字 `１` を Java `Integer.parseInt` 相当で `1` にする必要がある。
+
+`ChartInfoParser` の `encodingName` 引数は低レベル検証用 override として残しているが、通常 backfill からは常に `null` を渡す。
 
 ### 行コマンドの許容
 
@@ -634,6 +638,10 @@ chart_info backfill は「単一 file reader + in-memory parallel parse + chunk 
 - `core` 差分は `notes/n/ln/s/ls/lanenotes/difficulty/level/mode/judge/feature` などの表示値に直結するため最優先。
 - `length`, `distribution`, `density`, `speedchange` は timeline time 差分で連動しやすい。
 - `charthash` は chart string 文字列化・BMSON audio slice・LN duration など広い範囲に影響されるため、最後に詰める。
+
+`BeMusicSeeker.Tests/TestData/chart_info_production_latest_diff/` は、最新 production DB compare で新しく観測された少数差分だけを追加保持するための補助 fixture。
+既存の `chart_info_production_diff` に既に含まれる譜面は重複コピーしない。
+2026-04-26 の latest report では non-RANDOM diff/missing が 7 件あり、そのうち 5 件は既存 fixture に含まれていたため、この補助 fixture には新規 2 件だけを入れている。
 
 ## 既知の残論点
 

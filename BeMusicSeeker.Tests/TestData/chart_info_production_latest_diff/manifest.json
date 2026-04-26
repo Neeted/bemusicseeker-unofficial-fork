@@ -1,0 +1,27 @@
+{
+  "generated_at_utc": "2026-04-26T11:27:28.086141Z",
+  "source_report": "tools/chart-info-compare/reports/latest",
+  "source_temp_fixture": "C:\\Users\\kazuk\\AppData\\Local\\Temp\\BeMusicSeeker_ChartInfoLatestDiffFixture",
+  "app_song_db": "D:\\LR2beta3\\LR2files\\Database\\song.db",
+  "beatoraja_song_db": "D:\\beatoraja\\songdata.db",
+  "beatoraja_info_db": "D:\\beatoraja\\songinfo.db",
+  "latest_report_non_random_diff_count": 7,
+  "entries_not_already_in_chart_info_production_diff": 2,
+  "note": "Latest compare had 7 non-RANDOM diff/missing charts; 5 were already covered by chart_info_production_diff, so this fixture stores only the 2 newly observed charthash-only charts.",
+  "entries": [
+    {
+      "fixture_id": 1,
+      "sha256": "4ca15478b4e2aeb23e70fac38ce8dd2782bc5a9b082b76b04f54d34ebfd5f7f4",
+      "md5": "d5f8ef9693a91c62be3416e09ab6365e",
+      "source_path": "D:\\BMS\\1 EVENT\\220922 BOF ET\\Antares\\[Szymon1988]bmsspedkordataoffightingfamilybuffet\\anotherforbaby.pms",
+      "fixture_path": "charts/4c/4ca15478b4e2aeb23e70fac38ce8dd2782bc5a9b082b76b04f54d34ebfd5f7f4.pms"
+    },
+    {
+      "fixture_id": 2,
+      "sha256": "f007405d0555d5e0919a4a1ff3ad7981cb8f7f47c505039905e2be2ca7b56d7c",
+      "md5": "37dff85dff954bd87db1c19bd76299af",
+      "source_path": "D:\\BMS\\1 EVENT\\050315 Hyper Remix 2\\[naotyu-] L99\\l99_kantan.bme",
+      "fixture_path": "charts/f0/f007405d0555d5e0919a4a1ff3ad7981cb8f7f47c505039905e2be2ca7b56d7c.bme"
+    }
+  ]
+}

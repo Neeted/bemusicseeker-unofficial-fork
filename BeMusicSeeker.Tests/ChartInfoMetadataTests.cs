@@ -1773,6 +1773,53 @@ public sealed class ChartInfoMetadataTests
     }
 
     [TestMethod]
+    public void BackfillChartInfos_IgnoresMaintenanceEncodingAndUsesBeatorajaDefaultDecode()
+    {
+        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        {
+            string chartPath = Path.Combine(tempRootPath, "ms932-fullwidth-level.bms");
+            File.WriteAllText(
+                chartPath,
+                "#PLAYER 1\r\n"
+                    + "#BPM 120\r\n"
+                    + "#PLAYLEVEL １\r\n"
+                    + "#00111:01\r\n",
+                Encoding.GetEncoding(932));
+
+            BMSFile digest = BMSFile.CreateBMSFileFromFile(chartPath);
+            TestableBmsFile file = new TestableBmsFile
+            {
+                path = chartPath
+            };
+            file.SetHash(digest.hash);
+            file.SetMaintenanceInfo(
+                new BMSFileMaintenanceInfo(file)
+                {
+                    encoding = "ks_c_5601-1987?"
+                },
+                suppressPropertyChanged: true,
+                registerEventHandlers: false);
+
+            BmsLibraryDbGateway gateway = new BmsLibraryDbGateway(songDbPath);
+            gateway.EnsureChartInfoSchema();
+            ChartInfoBuildService service = new ChartInfoBuildService(File.ReadAllBytes, workerCountOverride: 1);
+
+            ChartInfoBackfillResult result = service.BackfillChartInfos(
+                gateway,
+                new[] { file },
+                Array.Empty<LR2SongDBExtended.bmson_song>());
+
+            Assert.AreEqual(1, result.TargetCount);
+            Assert.AreEqual(1, result.BackfilledCount);
+            Assert.IsNotNull(file.ChartInfo);
+            Assert.AreEqual(1, file.ChartInfo.level);
+            using LR2SongDBExtended verify = new LR2SongDBExtended(songDbPath);
+            LR2SongDBExtended.chart_info row = verify.Query<LR2SongDBExtended.chart_info>("SELECT * FROM chart_info WHERE sha256 = ?;", file.sha256).Single();
+            Assert.AreEqual(1, row.level);
+        });
+    }
+
+    [TestMethod]
     public void BackfillChartInfos_GroupsDuplicateMissingSha256TargetsByMd5()
     {
         WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)

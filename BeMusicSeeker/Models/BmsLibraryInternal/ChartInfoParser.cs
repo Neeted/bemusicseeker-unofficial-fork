@@ -56,7 +56,7 @@ internal static class ChartInfoParser
     /// <param name="filePath">解析対象の譜面ファイル。</param>
     /// <param name="md5">既に分かっている MD5。null の場合はファイルから計算します。</param>
     /// <param name="sha256">既に分かっている SHA-256。null の場合はファイルから計算します。</param>
-    /// <param name="encodingName">BMS テキストの文字コード。bmson では使用しません。</param>
+    /// <param name="encodingName">低レベル検証用の BMS decode override。通常の chart_info backfill では null にし、beatoraja 互換の既定 decode を使います。bmson では使用しません。</param>
     /// <returns>保存可能な chart_info 行。</returns>
     public static LR2SongDBExtended.chart_info Parse(string filePath, string md5 = null, string sha256 = null, string encodingName = null)
     {
@@ -76,7 +76,7 @@ internal static class ChartInfoParser
     /// <param name="fileNameOrExtension">拡張子判定に使うファイル名または拡張子。</param>
     /// <param name="md5">既に分かっている MD5。null の場合は bytes から計算します。</param>
     /// <param name="sha256">既に分かっている SHA-256。null の場合は bytes から計算します。</param>
-    /// <param name="encodingName">BMS テキストの文字コード。bmson では使用しません。</param>
+    /// <param name="encodingName">低レベル検証用の BMS decode override。通常の chart_info backfill では null にし、beatoraja 互換の既定 decode を使います。bmson では使用しません。</param>
     /// <returns>保存可能な chart_info 行。</returns>
     public static LR2SongDBExtended.chart_info ParseBytes(byte[] bytes, string fileNameOrExtension, string md5 = null, string sha256 = null, string encodingName = null)
     {
@@ -91,7 +91,7 @@ internal static class ChartInfoParser
     /// <param name="fileNameOrExtension">拡張子判定に使うファイル名または拡張子。</param>
     /// <param name="md5">既に分かっている MD5。null の場合は bytes から計算します。</param>
     /// <param name="sha256">既に分かっている SHA-256。null の場合は bytes から計算します。</param>
-    /// <param name="encodingName">BMS テキストの文字コード。bmson では使用しません。</param>
+    /// <param name="encodingName">低レベル検証用の BMS decode override。通常の chart_info backfill では null にし、beatoraja 互換の既定 decode を使います。bmson では使用しません。</param>
     /// <param name="timeout">解析 timeout。null の場合は timeout なし。</param>
     /// <returns>保存可能な chart_info 行、診断情報、chart string。</returns>
     /// <exception cref="ChartInfoParseTimeoutException">指定 timeout を超えた場合。</exception>

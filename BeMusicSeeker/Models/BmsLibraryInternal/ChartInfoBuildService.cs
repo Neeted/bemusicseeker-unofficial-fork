@@ -245,7 +245,9 @@ internal sealed class ChartInfoBuildService
         }
         try
         {
-            ChartInfoParser.ChartInfoParseResult parseResult = ChartInfoParser.ParseBytesDetailed(item.Bytes, target.Path, md5, sha256, target.EncodingName, parseTimeout);
+            // maintenance.encoding is for DataGrid/LR2 song display correction. chart_info must use
+            // the parser's beatoraja-compatible default BMS decoding instead of that UI hint.
+            ChartInfoParser.ChartInfoParseResult parseResult = ChartInfoParser.ParseBytesDetailed(item.Bytes, target.Path, md5, sha256, encodingName: null, timeout: parseTimeout);
             LogParseDiagnostics(logInstallPerformance, target, md5, sha256, parseResult.Diagnostics);
             LR2SongDBExtended.chart_info row = parseResult.Row;
             return new ChartInfoBuildItemResult(target, sha256, row, reusedExistingRow: false, parseFailed: false);
@@ -895,12 +897,11 @@ internal sealed class ChartInfoBuildService
 
         private readonly List<LR2SongDBExtended.bmson_song> bmsonSongs = new List<LR2SongDBExtended.bmson_song>();
 
-        private ChartInfoBuildTarget(string path, string md5, string sha256, string encodingName)
+        private ChartInfoBuildTarget(string path, string md5, string sha256)
         {
             Path = path;
             Md5 = md5;
             Sha256 = sha256;
-            EncodingName = encodingName;
         }
 
         public string Path { get; }
@@ -908,8 +909,6 @@ internal sealed class ChartInfoBuildService
         public string Md5 { get; }
 
         public string Sha256 { get; }
-
-        public string EncodingName { get; }
 
         public bool NeedsDigest => bmsFiles.Any((BMSFile file) => file != null && string.IsNullOrWhiteSpace(file.sha256));
 
@@ -920,8 +919,7 @@ internal sealed class ChartInfoBuildService
             ChartInfoBuildTarget target = new ChartInfoBuildTarget(
                 file.path,
                 file.hash,
-                file.sha256,
-                file.maintenanceInfo?.encoding);
+                file.sha256);
             target.AddBmsFile(file);
             return target;
         }
@@ -931,8 +929,7 @@ internal sealed class ChartInfoBuildService
             ChartInfoBuildTarget target = new ChartInfoBuildTarget(
                 song.path,
                 song.md5,
-                song.sha256,
-                null);
+                song.sha256);
             target.AddBmsonSong(song);
             return target;
         }
