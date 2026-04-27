@@ -721,6 +721,11 @@ public partial class BMSPlaylist : NotificationObject
                             value.Add(entryItem);
                         }
                         stopwatchGroupEntries.Stop();
+                        int removedEntryCount = source.Count((BMSTableEntry entry) => entry != null && entry.is_removed);
+                        int activeEntryCount = source.Count - removedEntryCount;
+                        long entryLoadRowsPerMs = stopwatchLoadEntries.ElapsedMilliseconds <= 0
+                            ? source.Count
+                            : source.Count / Math.Max(1L, stopwatchLoadEntries.ElapsedMilliseconds);
                         stopwatchAssignEntries.Start();
                         foreach (BMSTable table in list)
                         {
@@ -734,7 +739,15 @@ public partial class BMSPlaylist : NotificationObject
                             }
                         }
                         stopwatchAssignEntries.Stop();
-                        LogPlaylistPerformance("playlist_init loadTablesMs=" + stopwatchLoadTables.ElapsedMilliseconds + " loadEntriesMs=" + stopwatchLoadEntries.ElapsedMilliseconds + " groupEntriesMs=" + stopwatchGroupEntries.ElapsedMilliseconds + " assignEntriesMs=" + stopwatchAssignEntries.ElapsedMilliseconds + " tableCount=" + list.Count + " entryCount=" + source.Count);
+                        LogPlaylistPerformance("playlist_init loadTablesMs=" + stopwatchLoadTables.ElapsedMilliseconds
+                            + " loadEntriesMs=" + stopwatchLoadEntries.ElapsedMilliseconds
+                            + " groupEntriesMs=" + stopwatchGroupEntries.ElapsedMilliseconds
+                            + " assignEntriesMs=" + stopwatchAssignEntries.ElapsedMilliseconds
+                            + " tableCount=" + list.Count
+                            + " entryCount=" + source.Count
+                            + " activeEntryCount=" + activeEntryCount
+                            + " removedEntryCount=" + removedEntryCount
+                            + " entryLoadRowsPerMs=" + entryLoadRowsPerMs);
                         BMSTables.AddRange(list);
                     }
                 }

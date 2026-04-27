@@ -97,6 +97,8 @@ public class BMSLibrary : NotificationObject
     /// </summary>
     internal sealed class PlaylistSummaryOwnedHashSnapshot
     {
+        internal int Version { get; set; }
+
         internal long BuildElapsedMs { get; set; }
 
         internal HashSet<string> Md5Hashes { get; set; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -803,6 +805,8 @@ public class BMSLibrary : NotificationObject
 
     private PlaylistSummaryOwnedHashSnapshot playlistSummaryOwnedHashSnapshot;
 
+    private int playlistSummaryOwnedHashSnapshotVersion;
+
     private int chartInfoBackfillRequestedVersion;
 
     private int chartInfoBackfillCompletedVersion;
@@ -877,9 +881,13 @@ public class BMSLibrary : NotificationObject
 
     private bool _ScoreHydrationRunning;
 
+    private int _ScoreHydrationRequestedVersion;
+
     private int _ScoreHydrationCompletedVersion;
 
     private bool _RankingRefreshRunning;
+
+    private int _RankingRefreshRequestedVersion;
 
     private int _RankingRefreshCompletedVersion;
 
@@ -1343,6 +1351,25 @@ public class BMSLibrary : NotificationObject
     }
 
     /// <summary>
+    /// 最後に要求された deferred score hydration の版数です。
+    /// </summary>
+    public int ScoreHydrationRequestedVersion
+    {
+        get
+        {
+            return _ScoreHydrationRequestedVersion;
+        }
+        private set
+        {
+            if (_ScoreHydrationRequestedVersion != value)
+            {
+                _ScoreHydrationRequestedVersion = value;
+                RaisePropertyChanged(() => ScoreHydrationRequestedVersion);
+            }
+        }
+    }
+
+    /// <summary>
     /// 最後に完了した deferred score hydration の版数です。
     /// </summary>
     public int ScoreHydrationCompletedVersion
@@ -1376,6 +1403,25 @@ public class BMSLibrary : NotificationObject
             {
                 _RankingRefreshRunning = value;
                 RaisePropertyChanged(() => RankingRefreshRunning);
+            }
+        }
+    }
+
+    /// <summary>
+    /// 最後に要求された deferred ranking refresh の版数です。
+    /// </summary>
+    public int RankingRefreshRequestedVersion
+    {
+        get
+        {
+            return _RankingRefreshRequestedVersion;
+        }
+        private set
+        {
+            if (_RankingRefreshRequestedVersion != value)
+            {
+                _RankingRefreshRequestedVersion = value;
+                RaisePropertyChanged(() => RankingRefreshRequestedVersion);
             }
         }
     }
@@ -2120,6 +2166,12 @@ public class BMSLibrary : NotificationObject
         public long LoadMs { get; set; }
 
         public long ApplyMs { get; set; }
+
+        public long DbLoadMs { get; set; }
+
+        public long IndexBuildMs { get; set; }
+
+        public long OwnerApplyMs { get; set; }
 
         public long TotalMs { get; set; }
     }
@@ -3799,8 +3851,9 @@ public class BMSLibrary : NotificationObject
                 + " totalRows=" + result.TotalRows
                 + " appliedBms=" + result.AppliedBmsCount
                 + " appliedBmson=" + result.AppliedBmsonCount
-                + " loadMs=" + result.LoadMs
-                + " applyMs=" + result.ApplyMs
+                + " dbLoadMs=" + result.DbLoadMs
+                + " indexBuildMs=" + result.IndexBuildMs
+                + " ownerApplyMs=" + result.OwnerApplyMs
                 + " totalMs=" + result.TotalMs);
 
             bool completedLatestRequest = false;
@@ -3844,20 +3897,25 @@ public class BMSLibrary : NotificationObject
         {
             loadStopwatch.Stop();
             totalStopwatch.Stop();
-            result.LoadMs = loadStopwatch.ElapsedMilliseconds;
+            result.DbLoadMs = loadStopwatch.ElapsedMilliseconds;
+            result.LoadMs = result.DbLoadMs;
             result.TotalMs = totalStopwatch.ElapsedMilliseconds;
             LogInstallPerformance("chart_info_hydration failed reason=" + (reason ?? "unknown") + " message=" + ex.Message);
             return result;
         }
         loadStopwatch.Stop();
-        result.LoadMs = loadStopwatch.ElapsedMilliseconds;
+        result.DbLoadMs = loadStopwatch.ElapsedMilliseconds;
+        result.LoadMs = result.DbLoadMs;
         result.TotalRows = chartInfoMap.Count;
+        Stopwatch indexStopwatch = Stopwatch.StartNew();
         ChartInfoIndexUpdateResult indexUpdateResult = ReplaceChartInfoIndex(chartInfoMap.Values, hydrated: true);
+        indexStopwatch.Stop();
+        result.IndexBuildMs = indexStopwatch.ElapsedMilliseconds;
         LogInstallPerformance("chart_info_index_hydrated rows=" + indexUpdateResult.InputRows
             + " bySha256=" + indexUpdateResult.BySha256Count
             + " byMd5=" + indexUpdateResult.ByMd5Count
             + " version=" + indexUpdateResult.Version
-            + " elapsedMs=" + loadStopwatch.ElapsedMilliseconds);
+            + " indexBuildMs=" + result.IndexBuildMs);
 
         Stopwatch applyStopwatch = Stopwatch.StartNew();
         using (rwlockBMSFiles.GetReaderGuard())
@@ -3880,7 +3938,8 @@ public class BMSLibrary : NotificationObject
             }
         }
         applyStopwatch.Stop();
-        result.ApplyMs = applyStopwatch.ElapsedMilliseconds;
+        result.OwnerApplyMs = applyStopwatch.ElapsedMilliseconds;
+        result.ApplyMs = result.OwnerApplyMs;
         totalStopwatch.Stop();
         result.TotalMs = totalStopwatch.ElapsedMilliseconds;
         return result;
@@ -4050,6 +4109,18 @@ public class BMSLibrary : NotificationObject
         return dbGateway.LoadChartInfoMap();
     }
 
+    private Dictionary<string, LR2SongDBExtended.chart_info> CreateHydratedChartInfoIndexSha256Snapshot()
+    {
+        lock (lockChartInfoIndex)
+        {
+            if (!_ChartInfoIndexHydrated)
+            {
+                return null;
+            }
+            return new Dictionary<string, LR2SongDBExtended.chart_info>(chartInfoIndexBySha256, StringComparer.OrdinalIgnoreCase);
+        }
+    }
+
     internal Dictionary<string, LR2SongDBExtended.chart_info> LoadChartInfosBySha256(IEnumerable<string> sha256s)
     {
         return dbGateway.LoadChartInfosBySha256(sha256s);
@@ -4181,6 +4252,9 @@ public class BMSLibrary : NotificationObject
                     ChartInfoBackfillProcessedCount = processed;
                     ChartInfoBackfillCurrentPath = currentPath ?? string.Empty;
                 };
+                Dictionary<string, LR2SongDBExtended.chart_info> existingRowsSnapshot = isFullRequest
+                    ? CreateHydratedChartInfoIndexSha256Snapshot()
+                    : null;
                 ChartInfoBackfillResult result = isFullRequest
                     ? chartInfoBuildService.BackfillChartInfos(
                         dbGateway,
@@ -4189,7 +4263,8 @@ public class BMSLibrary : NotificationObject
                         reportProgress,
                         LogInstallPerformance,
                         LogInstallPerformanceWarn,
-                        (IReadOnlyList<LR2SongDBExtended.chart_info> rows) => UpsertChartInfoIndexRows(rows, "backfill"))
+                        (IReadOnlyList<LR2SongDBExtended.chart_info> rows) => UpsertChartInfoIndexRows(rows, "backfill"),
+                        existingRowsSnapshot)
                     : chartInfoBuildService.BackfillChartInfosForTargets(
                         dbGateway,
                         filesSnapshot,
@@ -4678,6 +4753,7 @@ public class BMSLibrary : NotificationObject
         {
             ScoreHydrationRunning = true;
         }
+        ScoreHydrationRequestedVersion = version;
         LogInstallPerformance("score_hydration_deferred queue reason=" + (reason ?? "unknown") + " version=" + version);
         if (shouldStartWorker)
         {
@@ -4710,6 +4786,7 @@ public class BMSLibrary : NotificationObject
         {
             RankingRefreshRunning = true;
         }
+        RankingRefreshRequestedVersion = version;
         LogInstallPerformance("ranking_refresh_deferred queue reason=" + (reason ?? "unknown") + " version=" + version);
         if (shouldStartWorker)
         {
@@ -5185,6 +5262,7 @@ public class BMSLibrary : NotificationObject
         }
         PlaylistSummaryOwnedHashSnapshot rebuiltSnapshot = new PlaylistSummaryOwnedHashSnapshot
         {
+            Version = Interlocked.Increment(ref playlistSummaryOwnedHashSnapshotVersion),
             BuildElapsedMs = stopwatch.ElapsedMilliseconds,
             Md5Hashes = md5Hashes,
             Sha256Hashes = sha256Hashes

@@ -3775,7 +3775,15 @@ public class MainWindowViewModel : ViewModel
 
         internal int ScoreHydrationBaselineCompletedVersion;
 
+        internal int ScoreHydrationRequestedBaselineVersion;
+
+        internal int RequiredScoreHydrationCompletedVersion;
+
         internal int RankingRefreshBaselineCompletedVersion;
+
+        internal int RankingRefreshRequestedBaselineVersion;
+
+        internal int RequiredRankingRefreshCompletedVersion;
 
         internal int MaintenanceRequestedBaselineVersion;
 
@@ -8948,6 +8956,10 @@ public class MainWindowViewModel : ViewModel
                 makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
             }
         });
+        listenerForBMSLibrary.RegisterHandler(() => files.ScoreHydrationRequestedVersion, delegate
+        {
+            TrackStartupProgressScoreHydrationRequested(files.ScoreHydrationRequestedVersion);
+        });
         listenerForBMSLibrary.RegisterHandler(() => files.ScoreHydrationCompletedVersion, delegate
         {
             TryCompleteStartupProgressScoreHydration(files.ScoreHydrationCompletedVersion);
@@ -8966,6 +8978,10 @@ public class MainWindowViewModel : ViewModel
             }
             RequestPlaylistScoreSnapshotRefresh(files.ScoreSnapshotVersion);
             RefreshPlaylistSummaryIfVisible();
+        });
+        listenerForBMSLibrary.RegisterHandler(() => files.RankingRefreshRequestedVersion, delegate
+        {
+            TrackStartupProgressRankingRefreshRequested(files.RankingRefreshRequestedVersion);
         });
         listenerForBMSLibrary.RegisterHandler(() => files.RankingRefreshCompletedVersion, delegate
         {
@@ -11857,9 +11873,11 @@ public class MainWindowViewModel : ViewModel
             OperationToken = Interlocked.Increment(ref startupProgressOperationTokenSeed),
             IsActive = true,
             CompletedPhases = StartupProgressPhase.CoreInitializeStarted,
-            ExpectedPhases = StartupProgressPhase.StartupReadyOperable | StartupProgressPhase.ScoreHydrationDone | StartupProgressPhase.RankingRefreshDone,
+            ExpectedPhases = StartupProgressPhase.CoreInitializeStarted | StartupProgressPhase.StartupReadyOperable,
             ScoreHydrationBaselineCompletedVersion = files?.ScoreHydrationCompletedVersion ?? 0,
+            ScoreHydrationRequestedBaselineVersion = files?.ScoreHydrationRequestedVersion ?? 0,
             RankingRefreshBaselineCompletedVersion = files?.RankingRefreshCompletedVersion ?? 0,
+            RankingRefreshRequestedBaselineVersion = files?.RankingRefreshRequestedVersion ?? 0,
             MaintenanceRequestedBaselineVersion = files?.MaintenanceDeferredRequestedVersion ?? 0,
             ChartDigestBackfillBaselineCompletedVersion = files?.ChartDigestBackfillCompletedVersion ?? 0,
             ChartInfoBackfillBaselineCompletedVersion = files?.ChartInfoBackfillCompletedVersion ?? 0,
@@ -12012,6 +12030,36 @@ public class MainWindowViewModel : ViewModel
             }
             startupProgressState.ExpectedPhases |= StartupProgressPhase.MaintenanceDeferredDone;
             startupProgressState.RequiredMaintenanceCompletedVersion = Math.Max(startupProgressState.RequiredMaintenanceCompletedVersion, requestedVersion);
+            startupProgressState.CompletionHideScheduled = false;
+        }
+        RecomputeStartupProgressPresentation();
+    }
+
+    private void TrackStartupProgressScoreHydrationRequested(int requestedVersion)
+    {
+        lock (startupProgressLock)
+        {
+            if (!startupProgressState.IsActive || requestedVersion <= startupProgressState.ScoreHydrationRequestedBaselineVersion)
+            {
+                return;
+            }
+            startupProgressState.ExpectedPhases |= StartupProgressPhase.ScoreHydrationDone;
+            startupProgressState.RequiredScoreHydrationCompletedVersion = Math.Max(startupProgressState.RequiredScoreHydrationCompletedVersion, requestedVersion);
+            startupProgressState.CompletionHideScheduled = false;
+        }
+        RecomputeStartupProgressPresentation();
+    }
+
+    private void TrackStartupProgressRankingRefreshRequested(int requestedVersion)
+    {
+        lock (startupProgressLock)
+        {
+            if (!startupProgressState.IsActive || requestedVersion <= startupProgressState.RankingRefreshRequestedBaselineVersion)
+            {
+                return;
+            }
+            startupProgressState.ExpectedPhases |= StartupProgressPhase.RankingRefreshDone;
+            startupProgressState.RequiredRankingRefreshCompletedVersion = Math.Max(startupProgressState.RequiredRankingRefreshCompletedVersion, requestedVersion);
             startupProgressState.CompletionHideScheduled = false;
         }
         RecomputeStartupProgressPresentation();
@@ -12191,7 +12239,8 @@ public class MainWindowViewModel : ViewModel
             {
                 return;
             }
-            shouldComplete = completedVersion > startupProgressState.ScoreHydrationBaselineCompletedVersion;
+            shouldComplete = completedVersion >= startupProgressState.RequiredScoreHydrationCompletedVersion
+                && completedVersion > startupProgressState.ScoreHydrationBaselineCompletedVersion;
         }
         if (shouldComplete)
         {
@@ -12212,7 +12261,8 @@ public class MainWindowViewModel : ViewModel
             {
                 return;
             }
-            shouldComplete = completedVersion > startupProgressState.RankingRefreshBaselineCompletedVersion;
+            shouldComplete = completedVersion >= startupProgressState.RequiredRankingRefreshCompletedVersion
+                && completedVersion > startupProgressState.RankingRefreshBaselineCompletedVersion;
         }
         if (shouldComplete)
         {
@@ -12236,27 +12286,19 @@ public class MainWindowViewModel : ViewModel
         {
             StartupProgressState state = startupProgressState;
             isActive = state.IsActive;
-                maximum = 8.0;
             if (!isActive)
             {
                 label = string.Empty;
                 subLabel = string.Empty;
                 value = 0.0;
+                maximum = 1.0;
             }
             else
             {
-                maximum = 8.0 + (IsStartupProgressPhaseExpected(state, StartupProgressPhase.ChartInfoHydrationDone) ? 1.0 : 0.0);
-                bool libraryLoadCompleted = IsStartupProgressLibraryLoadCompleted(state);
-                bool uiPrepareCompleted = IsStartupProgressUiPrepareCompleted(state);
+                maximum = Math.Max(1.0, CountExpectedStartupProgressPhases(state));
+                value = CountCompletedExpectedStartupProgressPhases(state);
                 bool operableCompleted = (state.CompletedPhases & StartupProgressPhase.StartupReadyOperable) != 0;
-                bool referenceCompleted = IsStartupProgressReferencePhaseCompleted(state);
-                bool chartDigestCompleted = !IsStartupProgressPhaseExpected(state, StartupProgressPhase.ChartDigestBackfillDone) || (state.CompletedPhases & StartupProgressPhase.ChartDigestBackfillDone) != 0;
-                bool chartInfoHydrationCompleted = !IsStartupProgressPhaseExpected(state, StartupProgressPhase.ChartInfoHydrationDone) || (state.CompletedPhases & StartupProgressPhase.ChartInfoHydrationDone) != 0;
-                bool chartInfoCompleted = !IsStartupProgressPhaseExpected(state, StartupProgressPhase.ChartInfoBackfillDone) || (state.CompletedPhases & StartupProgressPhase.ChartInfoBackfillDone) != 0;
-                bool scoreCompleted = !IsStartupProgressPhaseExpected(state, StartupProgressPhase.ScoreHydrationDone) || (state.CompletedPhases & StartupProgressPhase.ScoreHydrationDone) != 0;
-                bool rankingCompleted = !IsStartupProgressPhaseExpected(state, StartupProgressPhase.RankingRefreshDone) || (state.CompletedPhases & StartupProgressPhase.RankingRefreshDone) != 0;
-                value = (libraryLoadCompleted ? 1.0 : 0.0) + (uiPrepareCompleted ? 1.0 : 0.0) + (operableCompleted ? 1.0 : 0.0) + (referenceCompleted ? 1.0 : 0.0) + (chartDigestCompleted ? 1.0 : 0.0) + (chartInfoHydrationCompleted ? 1.0 : 0.0) + (chartInfoCompleted ? 1.0 : 0.0) + (scoreCompleted ? 1.0 : 0.0) + (rankingCompleted ? 1.0 : 0.0);
-                bool operationCompleted = !state.IsFailed && operableCompleted && referenceCompleted && chartDigestCompleted && chartInfoHydrationCompleted && chartInfoCompleted && scoreCompleted && rankingCompleted;
+                bool operationCompleted = !state.IsFailed && AreExpectedStartupProgressPhasesCompleted(state);
                 if (state.IsFailed)
                 {
                     label = GetStartupProgressFailedLabel(state.OperationKind);
@@ -12276,7 +12318,7 @@ public class MainWindowViewModel : ViewModel
                 }
                 else if (operableCompleted)
                 {
-                    label = BeMusicSeeker.Properties.Resources.Statusbar_progress_operable;
+                    label = BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_background;
                     subLabel = GetStartupProgressSubLabel(state);
                 }
                 else
@@ -12386,20 +12428,6 @@ public class MainWindowViewModel : ViewModel
     /// <returns>サブラベル。</returns>
     private static string GetStartupProgressSubLabel(StartupProgressState state)
     {
-        if (!IsStartupProgressPhaseCompletedOrNotExpected(state, StartupProgressPhase.ChartDigestBackfillDone))
-        {
-            string fileName = string.IsNullOrWhiteSpace(state.ChartDigestBackfillCurrentPath) ? string.Empty : Path.GetFileName(state.ChartDigestBackfillCurrentPath);
-            return "SHA-256 生成 [" + state.ChartDigestBackfillProcessedCount + "/" + state.ChartDigestBackfillTotalCount + "] " + fileName;
-        }
-        if (!IsStartupProgressPhaseCompletedOrNotExpected(state, StartupProgressPhase.ChartInfoHydrationDone))
-        {
-            return BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_chart_info_load + " [" + state.ChartInfoHydrationAppliedCount + "/" + state.ChartInfoHydrationTotalCount + "]";
-        }
-        if (!IsStartupProgressPhaseCompletedOrNotExpected(state, StartupProgressPhase.ChartInfoBackfillDone))
-        {
-            string fileName = string.IsNullOrWhiteSpace(state.ChartInfoBackfillCurrentPath) ? string.Empty : Path.GetFileName(state.ChartInfoBackfillCurrentPath);
-            return BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_chart_info + " [" + state.ChartInfoBackfillProcessedCount + "/" + state.ChartInfoBackfillTotalCount + "] " + fileName;
-        }
         if (!IsStartupProgressLibraryLoadCompleted(state))
         {
             return BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_library_load;
@@ -12412,13 +12440,23 @@ public class MainWindowViewModel : ViewModel
         {
             return BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_ui_prepare;
         }
+        if (!IsStartupProgressPhaseCompletedOrNotExpected(state, StartupProgressPhase.ChartInfoHydrationDone))
+        {
+            return BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_chart_info_load + " [" + state.ChartInfoHydrationAppliedCount + "/" + state.ChartInfoHydrationTotalCount + "]";
+        }
+        if (!IsStartupProgressPhaseCompletedOrNotExpected(state, StartupProgressPhase.ChartInfoBackfillDone))
+        {
+            string fileName = string.IsNullOrWhiteSpace(state.ChartInfoBackfillCurrentPath) ? string.Empty : Path.GetFileName(state.ChartInfoBackfillCurrentPath);
+            return BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_chart_info + " [" + state.ChartInfoBackfillProcessedCount + "/" + state.ChartInfoBackfillTotalCount + "] " + fileName;
+        }
+        if (!IsStartupProgressPhaseCompletedOrNotExpected(state, StartupProgressPhase.ChartDigestBackfillDone))
+        {
+            string fileName = string.IsNullOrWhiteSpace(state.ChartDigestBackfillCurrentPath) ? string.Empty : Path.GetFileName(state.ChartDigestBackfillCurrentPath);
+            return BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_chart_info + " [" + state.ChartDigestBackfillProcessedCount + "/" + state.ChartDigestBackfillTotalCount + "] " + fileName;
+        }
         if (!IsStartupProgressPhaseCompletedOrNotExpected(state, StartupProgressPhase.PlaylistReferenceApplied) || !IsStartupProgressPhaseCompletedOrNotExpected(state, StartupProgressPhase.ExternalPlaylistSyncDone))
         {
             return BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_playlist_ref;
-        }
-        if (!IsStartupProgressPhaseCompletedOrNotExpected(state, StartupProgressPhase.MaintenanceDeferredDone))
-        {
-            return BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_maintenance;
         }
         if (!IsStartupProgressPhaseCompletedOrNotExpected(state, StartupProgressPhase.ScoreHydrationDone))
         {
@@ -12427,6 +12465,10 @@ public class MainWindowViewModel : ViewModel
         if (!IsStartupProgressPhaseCompletedOrNotExpected(state, StartupProgressPhase.RankingRefreshDone))
         {
             return BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_ranking_refresh;
+        }
+        if (!IsStartupProgressPhaseCompletedOrNotExpected(state, StartupProgressPhase.MaintenanceDeferredDone))
+        {
+            return BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_maintenance;
         }
         return BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_background;
     }
@@ -12461,6 +12503,64 @@ public class MainWindowViewModel : ViewModel
     private static bool IsStartupProgressReferencePhaseCompleted(StartupProgressState state)
     {
         return IsStartupProgressPhaseCompletedOrNotExpected(state, StartupProgressPhase.PlaylistReferenceApplied) && IsStartupProgressPhaseCompletedOrNotExpected(state, StartupProgressPhase.ExternalPlaylistSyncDone) && IsStartupProgressPhaseCompletedOrNotExpected(state, StartupProgressPhase.MaintenanceDeferredDone);
+    }
+
+    private static int CountExpectedStartupProgressPhases(StartupProgressState state)
+    {
+        int count = 0;
+        CountExpectedStartupProgressPhase(state, StartupProgressPhase.CoreInitializeStarted, ref count);
+        CountExpectedStartupProgressPhase(state, StartupProgressPhase.StartupReadyData, ref count);
+        CountExpectedStartupProgressPhase(state, StartupProgressPhase.StartupReadyUi, ref count);
+        CountExpectedStartupProgressPhase(state, StartupProgressPhase.StartupReadyOperable, ref count);
+        CountExpectedStartupProgressPhase(state, StartupProgressPhase.PlaylistReferenceApplied, ref count);
+        CountExpectedStartupProgressPhase(state, StartupProgressPhase.ExternalPlaylistSyncDone, ref count);
+        CountExpectedStartupProgressPhase(state, StartupProgressPhase.MaintenanceDeferredDone, ref count);
+        CountExpectedStartupProgressPhase(state, StartupProgressPhase.ChartDigestBackfillDone, ref count);
+        CountExpectedStartupProgressPhase(state, StartupProgressPhase.ChartInfoHydrationDone, ref count);
+        CountExpectedStartupProgressPhase(state, StartupProgressPhase.ChartInfoBackfillDone, ref count);
+        CountExpectedStartupProgressPhase(state, StartupProgressPhase.ScoreHydrationDone, ref count);
+        CountExpectedStartupProgressPhase(state, StartupProgressPhase.RankingRefreshDone, ref count);
+        return count;
+    }
+
+    private static int CountCompletedExpectedStartupProgressPhases(StartupProgressState state)
+    {
+        int count = 0;
+        CountCompletedExpectedStartupProgressPhase(state, StartupProgressPhase.CoreInitializeStarted, ref count);
+        CountCompletedExpectedStartupProgressPhase(state, StartupProgressPhase.StartupReadyData, ref count);
+        CountCompletedExpectedStartupProgressPhase(state, StartupProgressPhase.StartupReadyUi, ref count);
+        CountCompletedExpectedStartupProgressPhase(state, StartupProgressPhase.StartupReadyOperable, ref count);
+        CountCompletedExpectedStartupProgressPhase(state, StartupProgressPhase.PlaylistReferenceApplied, ref count);
+        CountCompletedExpectedStartupProgressPhase(state, StartupProgressPhase.ExternalPlaylistSyncDone, ref count);
+        CountCompletedExpectedStartupProgressPhase(state, StartupProgressPhase.MaintenanceDeferredDone, ref count);
+        CountCompletedExpectedStartupProgressPhase(state, StartupProgressPhase.ChartDigestBackfillDone, ref count);
+        CountCompletedExpectedStartupProgressPhase(state, StartupProgressPhase.ChartInfoHydrationDone, ref count);
+        CountCompletedExpectedStartupProgressPhase(state, StartupProgressPhase.ChartInfoBackfillDone, ref count);
+        CountCompletedExpectedStartupProgressPhase(state, StartupProgressPhase.ScoreHydrationDone, ref count);
+        CountCompletedExpectedStartupProgressPhase(state, StartupProgressPhase.RankingRefreshDone, ref count);
+        return count;
+    }
+
+    private static void CountExpectedStartupProgressPhase(StartupProgressState state, StartupProgressPhase phase, ref int count)
+    {
+        if (IsStartupProgressPhaseExpected(state, phase))
+        {
+            count++;
+        }
+    }
+
+    private static void CountCompletedExpectedStartupProgressPhase(StartupProgressState state, StartupProgressPhase phase, ref int count)
+    {
+        if (IsStartupProgressPhaseExpected(state, phase) && (state.CompletedPhases & phase) != 0)
+        {
+            count++;
+        }
+    }
+
+    private static bool AreExpectedStartupProgressPhasesCompleted(StartupProgressState state)
+    {
+        StartupProgressPhase expected = state.ExpectedPhases;
+        return expected == StartupProgressPhase.None || (state.CompletedPhases & expected) == expected;
     }
 
     /// <summary>
@@ -12633,12 +12733,13 @@ public class MainWindowViewModel : ViewModel
             Stopwatch stopwatch = Stopwatch.StartNew();
             BMSLibrary.PlaylistSummaryOwnedHashSnapshot playlistSummaryOwnedHashSnapshot;
             int tableCount;
-            List<PlaylistSummaryRow> rows = BuildPlaylistSummaryRows(out playlistSummaryOwnedHashSnapshot, out tableCount);
+            int entryScanCount;
+            List<PlaylistSummaryRow> rows = BuildPlaylistSummaryRows(out playlistSummaryOwnedHashSnapshot, out tableCount, out entryScanCount);
             long buildMs = stopwatch.ElapsedMilliseconds;
             SetPlaylistSummaryRowsCache(rows);
             string sortColumn = PlaylistSummarySortParameters?.ColumnsName ?? nameof(PlaylistSummaryRow.Name);
             string sortDirection = PlaylistSummarySortParameters?.Direction.ToString() ?? ListSortDirection.Ascending.ToString();
-            LogMainViewBuild("playlist_summary_build tableCount=" + tableCount + " rawCount=" + rows.Count + " buildMs=" + buildMs + " ownedMd5Count=" + (playlistSummaryOwnedHashSnapshot?.Md5Hashes?.Count ?? 0) + " ownedSha256Count=" + (playlistSummaryOwnedHashSnapshot?.Sha256Hashes?.Count ?? 0) + " ownedHashBuildMs=" + (playlistSummaryOwnedHashSnapshot?.BuildElapsedMs ?? 0L) + " sortColumn=" + sortColumn + " sortDirection=" + sortDirection);
+            LogMainViewBuild("playlist_summary_build tableCount=" + tableCount + " entryScanCount=" + entryScanCount + " rawCount=" + rows.Count + " buildMs=" + buildMs + " ownedMd5Count=" + (playlistSummaryOwnedHashSnapshot?.Md5Hashes?.Count ?? 0) + " ownedSha256Count=" + (playlistSummaryOwnedHashSnapshot?.Sha256Hashes?.Count ?? 0) + " ownedSnapshotVersion=" + (playlistSummaryOwnedHashSnapshot?.Version ?? 0) + " ownedHashBuildMs=" + (playlistSummaryOwnedHashSnapshot?.BuildElapsedMs ?? 0L) + " summaryCacheHit=false sortColumn=" + sortColumn + " sortDirection=" + sortDirection);
             ApplyPlaylistSummaryPresentation(rows, stopwatch, buildMs);
         };
         if (!runAsync)
@@ -12651,9 +12752,10 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
-    private List<PlaylistSummaryRow> BuildPlaylistSummaryRows(out BMSLibrary.PlaylistSummaryOwnedHashSnapshot playlistSummaryOwnedHashSnapshot, out int tableCount)
+    private List<PlaylistSummaryRow> BuildPlaylistSummaryRows(out BMSLibrary.PlaylistSummaryOwnedHashSnapshot playlistSummaryOwnedHashSnapshot, out int tableCount, out int entryScanCount)
     {
         List<PlaylistSummaryRow> rows = new List<PlaylistSummaryRow>();
+        entryScanCount = 0;
         Dictionary<string, PlaylistSyncRuntimeStatus> playlistSyncStatusSnapshot = GetPlaylistSyncStatusSnapshot();
         playlistSummaryOwnedHashSnapshot = files?.GetPlaylistSummaryOwnedHashSnapshot();
         HashSet<string> ownedMd5Hashes = playlistSummaryOwnedHashSnapshot?.Md5Hashes ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -12675,6 +12777,7 @@ public class MainWindowViewModel : ViewModel
         foreach (BMSTable table in tablesSnapshot)
         {
             PlaylistSummaryCountResult countResult = CalculatePlaylistSummaryCounts(table.GetEntriesExceptDummy(), ownedMd5Hashes, ownedSha256Hashes);
+            entryScanCount += countResult.ScannedEntries;
             int totalCharts = countResult.TotalCharts;
             int ownedCharts = countResult.OwnedCharts;
             PlaylistSyncRuntimeStatus playlistSyncRuntimeStatus = GetPlaylistSyncRuntimeStatus(table, playlistSyncStatusSnapshot);
@@ -12732,11 +12835,11 @@ public class MainWindowViewModel : ViewModel
         Interlocked.Exchange(ref lastPlaylistSummaryBuildElapsedMs, stopwatch.ElapsedMilliseconds);
         if (buildMs > 0)
         {
-            LogMainViewBuild("playlist_summary_present inputCount=" + safeRawRows.Count + " filteredCount=" + presentationResult.FilteredCount + " viewCount=" + presentationResult.Rows.Count + " filterMs=" + presentationResult.FilterElapsedMs + " sortMs=" + presentationResult.SortElapsedMs + " totalMs=" + stopwatch.ElapsedMilliseconds + " sortColumn=" + presentationResult.SortColumn + " sortDirection=" + presentationResult.SortDirection + " sortProfile=" + presentationResult.SortProfile + " sortEngine=" + (presentationResult.UseLegacySort ? "legacy" : "fast") + " buildMs=" + buildMs);
+            LogMainViewBuild("playlist_summary_present inputCount=" + safeRawRows.Count + " filteredCount=" + presentationResult.FilteredCount + " viewCount=" + presentationResult.Rows.Count + " filterMs=" + presentationResult.FilterElapsedMs + " sortMs=" + presentationResult.SortElapsedMs + " totalMs=" + stopwatch.ElapsedMilliseconds + " sortColumn=" + presentationResult.SortColumn + " sortDirection=" + presentationResult.SortDirection + " sortProfile=" + presentationResult.SortProfile + " sortEngine=" + (presentationResult.UseLegacySort ? "legacy" : "fast") + " buildMs=" + buildMs + " summaryCacheHit=false");
         }
         else
         {
-            LogMainViewBuild("playlist_summary_present inputCount=" + safeRawRows.Count + " filteredCount=" + presentationResult.FilteredCount + " viewCount=" + presentationResult.Rows.Count + " filterMs=" + presentationResult.FilterElapsedMs + " sortMs=" + presentationResult.SortElapsedMs + " totalMs=" + stopwatch.ElapsedMilliseconds + " sortColumn=" + presentationResult.SortColumn + " sortDirection=" + presentationResult.SortDirection + " sortProfile=" + presentationResult.SortProfile + " sortEngine=" + (presentationResult.UseLegacySort ? "legacy" : "fast"));
+            LogMainViewBuild("playlist_summary_present inputCount=" + safeRawRows.Count + " filteredCount=" + presentationResult.FilteredCount + " viewCount=" + presentationResult.Rows.Count + " filterMs=" + presentationResult.FilterElapsedMs + " sortMs=" + presentationResult.SortElapsedMs + " totalMs=" + stopwatch.ElapsedMilliseconds + " sortColumn=" + presentationResult.SortColumn + " sortDirection=" + presentationResult.SortDirection + " sortProfile=" + presentationResult.SortProfile + " sortEngine=" + (presentationResult.UseLegacySort ? "legacy" : "fast") + " summaryCacheHit=true");
         }
     }
 
@@ -12767,6 +12870,7 @@ public class MainWindowViewModel : ViewModel
         HashSet<string> safeOwnedSha256Hashes = ownedSha256Hashes ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (BMSTableEntry entry in entries ?? Enumerable.Empty<BMSTableEntry>())
         {
+            result.ScannedEntries++;
             if (entry == null || entry.is_removed)
             {
                 continue;
@@ -12795,6 +12899,8 @@ public class MainWindowViewModel : ViewModel
 
     internal struct PlaylistSummaryCountResult
     {
+        internal int ScannedEntries;
+
         internal int TotalCharts;
 
         internal int OwnedCharts;

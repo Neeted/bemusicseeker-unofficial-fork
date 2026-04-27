@@ -62,6 +62,7 @@ internal sealed class ChartInfoBuildService
     /// <param name="logInstallPerformance">性能ログ callback。</param>
     /// <param name="logInstallPerformanceWarn">解析を継続できない譜面を逐次 WARN 出力する callback。</param>
     /// <param name="chartInfoRowsCommitted">DB commit 成功後に保存済み chart_info 行を通知する callback。</param>
+    /// <param name="existingRowsSnapshot">hydration 済みの chart_info index snapshot。full backfill 時の DB 全件再読込を避けるために使います。</param>
     /// <returns>構築結果。</returns>
     public ChartInfoBackfillResult BackfillChartInfos(
         BmsLibraryDbGateway dbGateway,
@@ -70,7 +71,8 @@ internal sealed class ChartInfoBuildService
         Action<int, int, string> reportProgress = null,
         Action<string> logInstallPerformance = null,
         Action<string> logInstallPerformanceWarn = null,
-        Action<IReadOnlyList<LR2SongDBExtended.chart_info>> chartInfoRowsCommitted = null)
+        Action<IReadOnlyList<LR2SongDBExtended.chart_info>> chartInfoRowsCommitted = null,
+        IReadOnlyDictionary<string, LR2SongDBExtended.chart_info> existingRowsSnapshot = null)
     {
         return BackfillChartInfosCore(
             dbGateway,
@@ -80,7 +82,8 @@ internal sealed class ChartInfoBuildService
             reportProgress,
             logInstallPerformance,
             logInstallPerformanceWarn,
-            chartInfoRowsCommitted);
+            chartInfoRowsCommitted,
+            existingRowsSnapshot);
     }
 
     /// <summary>
@@ -111,7 +114,8 @@ internal sealed class ChartInfoBuildService
             reportProgress,
             logInstallPerformance,
             logInstallPerformanceWarn,
-            chartInfoRowsCommitted);
+            chartInfoRowsCommitted,
+            null);
     }
 
     private ChartInfoBackfillResult BackfillChartInfosCore(
@@ -122,7 +126,8 @@ internal sealed class ChartInfoBuildService
         Action<int, int, string> reportProgress,
         Action<string> logInstallPerformance,
         Action<string> logInstallPerformanceWarn,
-        Action<IReadOnlyList<LR2SongDBExtended.chart_info>> chartInfoRowsCommitted)
+        Action<IReadOnlyList<LR2SongDBExtended.chart_info>> chartInfoRowsCommitted,
+        IReadOnlyDictionary<string, LR2SongDBExtended.chart_info> existingRowsSnapshot)
     {
         ChartInfoBackfillResult result = new ChartInfoBackfillResult();
         if (dbGateway == null)
@@ -136,16 +141,41 @@ internal sealed class ChartInfoBuildService
         List<LR2SongDBExtended.bmson_song> bmsonSongList = (currentBmsonSongs ?? Enumerable.Empty<LR2SongDBExtended.bmson_song>()).ToList();
         dbGateway.EnsureChartInfoBackfillSchema();
         bool isAddedMode = string.Equals(mode, "added", StringComparison.OrdinalIgnoreCase);
-        Dictionary<string, LR2SongDBExtended.chart_info> existingRows = isAddedMode
-            ? LoadExistingChartInfoRowsForTargets(dbGateway, fileList, bmsonSongList)
-            : dbGateway.LoadChartInfoMap();
+        Stopwatch existingRowsStopwatch = Stopwatch.StartNew();
+        string existingRowsSource;
+        Dictionary<string, LR2SongDBExtended.chart_info> existingRows;
+        if (isAddedMode)
+        {
+            existingRowsSource = "targeted";
+            existingRows = LoadExistingChartInfoRowsForTargets(dbGateway, fileList, bmsonSongList);
+        }
+        else if (existingRowsSnapshot != null)
+        {
+            existingRowsSource = "index";
+            existingRows = new Dictionary<string, LR2SongDBExtended.chart_info>(StringComparer.OrdinalIgnoreCase);
+            foreach (KeyValuePair<string, LR2SongDBExtended.chart_info> pair in existingRowsSnapshot)
+            {
+                if (!string.IsNullOrWhiteSpace(pair.Key) && pair.Value != null)
+                {
+                    existingRows[pair.Key] = pair.Value;
+                }
+            }
+        }
+        else
+        {
+            existingRowsSource = "db";
+            existingRows = dbGateway.LoadChartInfoMap();
+        }
+        existingRowsStopwatch.Stop();
         string existingRowsLogValue = isAddedMode ? "targeted:" + existingRows.Count : existingRows.Count.ToString();
+        Stopwatch targetBuildStopwatch = Stopwatch.StartNew();
         List<ChartInfoBuildTarget> targets = BuildTargets(fileList, bmsonSongList, existingRows, result);
+        targetBuildStopwatch.Stop();
         result.TargetCount = targets.Count;
         result.WorkerCount = ResolveWorkerCount();
         result.QueueCapacity = Math.Max(1, result.WorkerCount * 2);
         reportProgress?.Invoke(result.TargetCount, 0, string.Empty);
-        logInstallPerformance?.Invoke(BuildStartLogMessage(result, existingRowsLogValue, commitChunkSize, parseTimeout, mode));
+        logInstallPerformance?.Invoke(BuildStartLogMessage(result, existingRowsLogValue, existingRowsSource, existingRowsStopwatch.ElapsedMilliseconds, targetBuildStopwatch.ElapsedMilliseconds, commitChunkSize, parseTimeout, mode));
         if (targets.Count == 0)
         {
             stopwatchTotal.Stop();
@@ -723,13 +753,16 @@ internal sealed class ChartInfoBuildService
             + " totalMs=" + result.TotalMs;
     }
 
-    private static string BuildStartLogMessage(ChartInfoBackfillResult result, string existingRowCount, int commitChunkSize, TimeSpan parseTimeout, string mode)
+    private static string BuildStartLogMessage(ChartInfoBackfillResult result, string existingRowCount, string existingRowsSource, long existingRowsLoadMs, long targetBuildMs, int commitChunkSize, TimeSpan parseTimeout, string mode)
     {
         return "chart_info_backfill start"
             + " mode=" + (string.IsNullOrWhiteSpace(mode) ? "full" : mode)
             + " targets=" + result.TargetCount
             + " digestTargets=" + result.DigestTargetCount
             + " existingRows=" + (existingRowCount ?? "0")
+            + " existingRowsSource=" + (string.IsNullOrWhiteSpace(existingRowsSource) ? "db" : existingRowsSource)
+            + " existingRowsLoadMs=" + existingRowsLoadMs
+            + " targetBuildMs=" + targetBuildMs
             + " workerCount=" + result.WorkerCount
             + " queueCapacity=" + result.QueueCapacity
             + " chunkSize=" + commitChunkSize
