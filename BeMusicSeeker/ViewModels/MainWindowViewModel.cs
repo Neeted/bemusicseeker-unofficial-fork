@@ -6138,12 +6138,15 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
-    private void InvalidatePlaylistSummaryRowsCache()
+    private void InvalidatePlaylistSummaryRowsCache(bool invalidateTableCountCache = true)
     {
         lock (lockPlaylistSummaryRowsCache)
         {
             playlistSummaryRowsCache.Clear();
-            playlistSummaryTableCountCache.Clear();
+            if (invalidateTableCountCache)
+            {
+                playlistSummaryTableCountCache.Clear();
+            }
             playlistSummaryRowsCacheValid = false;
         }
     }
@@ -13071,7 +13074,10 @@ public class MainWindowViewModel : ViewModel
         {
             return;
         }
-        InvalidatePlaylistSummaryRowsCache();
+        // 表示へ戻るだけなら table count cache は残す。
+        // count cache key には playlist entry revision と owned snapshot version が含まれるため、
+        // playlist 内容や所持状態が変わった場合は自然に miss する。
+        InvalidatePlaylistSummaryRowsCache(invalidateTableCountCache: false);
         if (IsUiUpdateSuppressed())
         {
             RequestDeferredPlaylistSummaryRefresh();
@@ -13097,7 +13103,7 @@ public class MainWindowViewModel : ViewModel
     public void SelectPlaylistSummary()
     {
         SetPlaylistSummaryMode(enabled: true);
-        RefreshPlaylistSummaryIfVisible();
+        RefreshPlaylistSummaryPresentationIfVisible();
     }
 
     public void RebuildPlaylistSummaryView(bool runAsync = true)
