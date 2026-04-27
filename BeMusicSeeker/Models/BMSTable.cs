@@ -10,11 +10,25 @@ using Ribbit.Util.Extensions;
 
 namespace BeMusicSeeker.Models;
 
+public enum PlaylistEntriesLoadState
+{
+    NotLoaded,
+    Loading,
+    Loaded,
+    Failed
+}
+
 public class BMSTable : LR2SongDBExtended.playlist
 {
     private List<string> _Folder_order;
 
     protected List<BMSTableEntry> _entries;
+
+    private PlaylistEntriesLoadState _PlaylistEntriesLoadState = PlaylistEntriesLoadState.Loaded;
+
+    private int _PlaylistEntriesRevision;
+
+    private string _EntriesLoadErrorMessage = string.Empty;
 
     private const string compat_prefix_external_default = "LEVEL ";
 
@@ -185,6 +199,7 @@ public class BMSTable : LR2SongDBExtended.playlist
             {
                 _entries = new List<BMSTableEntry>();
                 RebuildFolderState();
+                MarkEntriesLoadedCore();
                 return;
             }
             foreach (BMSTableEntry item in value)
@@ -193,7 +208,97 @@ public class BMSTable : LR2SongDBExtended.playlist
             }
             _entries = normalizeEntries(value);
             RebuildFolderState();
+            MarkEntriesLoadedCore();
         }
+    }
+
+    public PlaylistEntriesLoadState PlaylistEntriesLoadState
+    {
+        get
+        {
+            return _PlaylistEntriesLoadState;
+        }
+        private set
+        {
+            if (_PlaylistEntriesLoadState != value)
+            {
+                _PlaylistEntriesLoadState = value;
+                RaisePropertyChanged("PlaylistEntriesLoadState");
+                RaisePropertyChanged("ArePlaylistEntriesLoaded");
+            }
+        }
+    }
+
+    public bool ArePlaylistEntriesLoaded
+    {
+        get
+        {
+            return PlaylistEntriesLoadState == PlaylistEntriesLoadState.Loaded;
+        }
+    }
+
+    public int PlaylistEntriesRevision
+    {
+        get
+        {
+            return _PlaylistEntriesRevision;
+        }
+        private set
+        {
+            if (_PlaylistEntriesRevision != value)
+            {
+                _PlaylistEntriesRevision = value;
+                RaisePropertyChanged("PlaylistEntriesRevision");
+            }
+        }
+    }
+
+    public string EntriesLoadErrorMessage
+    {
+        get
+        {
+            return _EntriesLoadErrorMessage;
+        }
+        private set
+        {
+            if (_EntriesLoadErrorMessage != value)
+            {
+                _EntriesLoadErrorMessage = value;
+                RaisePropertyChanged("EntriesLoadErrorMessage");
+            }
+        }
+    }
+
+    internal void MarkEntriesNotLoaded()
+    {
+        _entries = new List<BMSTableEntry>();
+        EntriesLoadErrorMessage = string.Empty;
+        PlaylistEntriesLoadState = PlaylistEntriesLoadState.NotLoaded;
+        RebuildFolderState();
+    }
+
+    internal void MarkEntriesLoading()
+    {
+        EntriesLoadErrorMessage = string.Empty;
+        PlaylistEntriesLoadState = PlaylistEntriesLoadState.Loading;
+    }
+
+    internal void MarkEntriesLoadFailed(string message)
+    {
+        EntriesLoadErrorMessage = message ?? string.Empty;
+        PlaylistEntriesLoadState = PlaylistEntriesLoadState.Failed;
+    }
+
+    private void MarkEntriesLoadedCore()
+    {
+        EntriesLoadErrorMessage = string.Empty;
+        PlaylistEntriesLoadState = PlaylistEntriesLoadState.Loaded;
+        PlaylistEntriesRevision++;
+    }
+
+    private void TouchPlaylistEntriesRevision()
+    {
+        PlaylistEntriesRevision++;
     }
 
     public string Output_dir
@@ -616,6 +721,7 @@ public class BMSTable : LR2SongDBExtended.playlist
             Folder_order = Folder_order.Select((string f) => (!(f == folderNameBefore)) ? f : folderNameAfter).Distinct().ToList();
         }
         base.last_update = DateTime.Now;
+        TouchPlaylistEntriesRevision();
     }
 
     public void RemoveFolder(string folderNameDelete)
@@ -644,6 +750,7 @@ public class BMSTable : LR2SongDBExtended.playlist
         _entries.Add(bMSTableEntry);
         base.last_update = DateTime.Now;
         RebuildFolderState();
+        TouchPlaylistEntriesRevision();
         return text;
     }
 
@@ -668,6 +775,7 @@ public class BMSTable : LR2SongDBExtended.playlist
         {
             RebuildFolderState();
         }
+        TouchPlaylistEntriesRevision();
     }
 
     public void RemoveBMSTableEntries(IEnumerable<BMSTableEntry> bmsEntries)
@@ -692,6 +800,7 @@ public class BMSTable : LR2SongDBExtended.playlist
             RebuildFolderState();
         }
         base.last_update = DateTime.Now;
+        TouchPlaylistEntriesRevision();
     }
 
     private List<BMSTableEntry> rebuildFolder(string folderName, IEnumerable<BMSTableEntry> inputEntries = null)

@@ -43,7 +43,7 @@ public partial class BMSPlaylist
         playlistUrlCompletionLatestReason = normalizedReason;
         long requestedVersion = Interlocked.Increment(ref playlistUrlCompletionRequestedVersion);
         NLogWrapper.FileLogger?.Info("playlist_url_completion schedule version=" + requestedVersion + " reason=" + normalizedReason);
-        _ = Task.Run(async delegate
+        Func<Task> work = async delegate
         {
             try
             {
@@ -53,7 +53,12 @@ public partial class BMSPlaylist
             {
                 NLogWrapper.FileLogger?.Warn(ex, "playlist_url_completion_refresh_failed reason=" + normalizedReason);
             }
-        });
+        };
+        if (StartupBackgroundTaskScheduler != null && StartupBackgroundTaskScheduler("playlist_url_completion", normalizedReason, "playlist_entries_hydration", work))
+        {
+            return;
+        }
+        _ = Task.Run(work);
     }
 
     /// <summary>
@@ -105,6 +110,7 @@ public partial class BMSPlaylist
     private async Task RefreshPlaylistUrlCompletionCoreAsync(long version, string reason)
     {
         NLogWrapper.FileLogger?.Info("playlist_url_completion start version=" + version + " reason=" + reason);
+        await EnsureAllPlaylistEntriesLoadedAsync("playlist_url_completion").ConfigureAwait(false);
         if (!Settings.Default.EnablePlaylistUrlCompletion)
         {
             PlaylistUrlCompletionApplyStats disabledApplyStats = ClearPlaylistUrlCompletionFromLoadedTables();
@@ -222,6 +228,14 @@ public partial class BMSPlaylist
         {
             return default(PlaylistUrlCompletionApplyStats);
         }
+        if (!table.ArePlaylistEntriesLoaded)
+        {
+            NLogWrapper.FileLogger?.Info("playlist_url_completion skip_unloaded_table table=\"" + (table.name ?? string.Empty).Replace("\"", "\"\"") + "\"");
+            return new PlaylistUrlCompletionApplyStats
+            {
+                TableCount = 1
+            };
+        }
         if (!Settings.Default.EnablePlaylistUrlCompletion)
         {
             return ClearPlaylistUrlCompletionFromTable(table);
@@ -284,6 +298,11 @@ public partial class BMSPlaylist
         {
             TableCount = 1
         };
+        if (!table.ArePlaylistEntriesLoaded)
+        {
+            NLogWrapper.FileLogger?.Info("playlist_url_completion clear_skip_unloaded_table table=\"" + (table.name ?? string.Empty).Replace("\"", "\"\"") + "\"");
+            return tableStats;
+        }
         using (table.ReaderWriterLock.GetWriterGuard())
         {
             foreach (BMSTableEntry entry in table.entries ?? Enumerable.Empty<BMSTableEntry>())

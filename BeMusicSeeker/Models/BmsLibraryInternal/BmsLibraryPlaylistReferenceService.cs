@@ -40,6 +40,10 @@ internal sealed class BmsLibraryPlaylistReferenceService
             List<BMSTableEntry> entries = null;
             using (table.ReaderWriterLock.GetReaderGuard())
             {
+                if (!table.ArePlaylistEntriesLoaded)
+                {
+                    throw new InvalidOperationException("Playlist entries are not loaded. table=" + (table.name ?? string.Empty));
+                }
                 entries = table.entries.ToList();
             }
             AddEntriesToReferenceMaps(md5Dictionary, sha256Dictionary, table, entries);

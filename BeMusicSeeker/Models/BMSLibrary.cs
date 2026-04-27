@@ -39,6 +39,8 @@ namespace BeMusicSeeker.Models;
 /// </summary>
 public class BMSLibrary : NotificationObject
 {
+    internal Func<string, string, string, Func<Task>, bool> StartupBackgroundTaskScheduler { get; set; }
+
     /// <summary>
     /// BMS 親フォルダ一覧キャッシュのスナップショットを格納するクラスです。
     /// バックグラウンドスレッドで構築し、UIスレッドで適用する2段階方式に利用されます。
@@ -3812,6 +3814,15 @@ public class BMSLibrary : NotificationObject
         LogInstallPerformance("chart_info_hydration queue reason=" + (reason ?? "unknown") + " version=" + requestVersion + " queueBackfill=" + queueFullBackfillAfterHydration.ToString().ToLowerInvariant());
         if (shouldStartWorker)
         {
+            Func<Task> work = delegate
+            {
+                ProcessDeferredChartInfoHydrationRequests();
+                return Task.CompletedTask;
+            };
+            if (StartupBackgroundTaskScheduler != null && StartupBackgroundTaskScheduler("chart_info_hydration", reason ?? "queue", null, work))
+            {
+                return;
+            }
             Task.Run(ProcessDeferredChartInfoHydrationRequests).Logging("ProcessDeferredChartInfoHydrationRequests");
         }
     }

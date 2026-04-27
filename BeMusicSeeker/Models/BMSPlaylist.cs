@@ -199,6 +199,18 @@ public partial class BMSPlaylist : NotificationObject
     /// </summary>
     private ReaderWriterLockSlimWrapper rwlockBMSTables = new ReaderWriterLockSlimWrapper();
 
+    private readonly SemaphoreSlim playlistEntriesHydrationSemaphore = new SemaphoreSlim(1, 1);
+
+    private int playlistEntriesHydrationQueued;
+
+    private readonly object playlistEntriesHydrationRequestLock = new object();
+
+    private bool playlistEntriesHydrationPendingRunExternalSync;
+
+    private readonly List<Action<PlaylistTableUpdateContext>> playlistEntriesHydrationPendingUpdateCallbacks = new List<Action<PlaylistTableUpdateContext>>();
+
+    internal Func<string, string, string, Func<Task>, bool> StartupBackgroundTaskScheduler { get; set; }
+
     /// <summary>
     /// 全件初期化ロックの状態変化を監視するリスナーです。
     /// </summary>
@@ -320,6 +332,12 @@ public partial class BMSPlaylist : NotificationObject
     /// </summary>
     private bool _IsPlaylistUpdating;
 
+    private bool _PlaylistEntriesHydrationRunning;
+
+    private int _PlaylistEntriesHydrationRequestedVersion;
+
+    private int _PlaylistEntriesHydrationCompletedVersion;
+
     /// <summary>
     /// FC 推定表エントリのキャッシュです。
     /// </summary>
@@ -346,6 +364,54 @@ public partial class BMSPlaylist : NotificationObject
             {
                 _IsPlaylistUpdating = value;
                 RaisePropertyChanged("IsPlaylistUpdating");
+            }
+        }
+    }
+
+    public bool PlaylistEntriesHydrationRunning
+    {
+        get
+        {
+            return _PlaylistEntriesHydrationRunning;
+        }
+        private set
+        {
+            if (_PlaylistEntriesHydrationRunning != value)
+            {
+                _PlaylistEntriesHydrationRunning = value;
+                RaisePropertyChanged("PlaylistEntriesHydrationRunning");
+            }
+        }
+    }
+
+    public int PlaylistEntriesHydrationRequestedVersion
+    {
+        get
+        {
+            return _PlaylistEntriesHydrationRequestedVersion;
+        }
+        private set
+        {
+            if (_PlaylistEntriesHydrationRequestedVersion != value)
+            {
+                _PlaylistEntriesHydrationRequestedVersion = value;
+                RaisePropertyChanged("PlaylistEntriesHydrationRequestedVersion");
+            }
+        }
+    }
+
+    public int PlaylistEntriesHydrationCompletedVersion
+    {
+        get
+        {
+            return _PlaylistEntriesHydrationCompletedVersion;
+        }
+        private set
+        {
+            if (_PlaylistEntriesHydrationCompletedVersion != value)
+            {
+                _PlaylistEntriesHydrationCompletedVersion = value;
+                RaisePropertyChanged("PlaylistEntriesHydrationCompletedVersion");
             }
         }
     }
@@ -685,11 +751,7 @@ public partial class BMSPlaylist : NotificationObject
                     if (BMSTables.Count == 0)
                     {
                         List<BMSTable> list;
-                        List<BMSTableEntry> source;
                         Stopwatch stopwatchLoadTables = new Stopwatch();
-                        Stopwatch stopwatchLoadEntries = new Stopwatch();
-                        Stopwatch stopwatchGroupEntries = new Stopwatch();
-                        Stopwatch stopwatchAssignEntries = new Stopwatch();
                         using (LR2SongDBExtended lR2SongDBExtended = new LR2SongDBExtended(lr2SongDBPath))
                         {
                             stopwatchLoadTables.Start();
@@ -697,57 +759,14 @@ public partial class BMSPlaylist : NotificationObject
                                     orderby t.name
                                     select t).ToList();
                             stopwatchLoadTables.Stop();
-                            stopwatchLoadEntries.Start();
-                            using (BMSTableEntry.BeginBulkLoadParseSuppression())
-                            {
-                                source = lR2SongDBExtended.Table<BMSTableEntry>().ToList();
-                            }
-                            stopwatchLoadEntries.Stop();
                         }
-                        stopwatchGroupEntries.Start();
-                        Dictionary<int, List<BMSTableEntry>> entriesByPlaylistId = new Dictionary<int, List<BMSTableEntry>>();
-                        foreach (BMSTableEntry entryItem in source)
-                        {
-                            if (!entryItem.playlist_id.HasValue)
-                            {
-                                continue;
-                            }
-                            int key = entryItem.playlist_id.Value;
-                            if (!entriesByPlaylistId.TryGetValue(key, out List<BMSTableEntry> value))
-                            {
-                                value = new List<BMSTableEntry>();
-                                entriesByPlaylistId[key] = value;
-                            }
-                            value.Add(entryItem);
-                        }
-                        stopwatchGroupEntries.Stop();
-                        int removedEntryCount = source.Count((BMSTableEntry entry) => entry != null && entry.is_removed);
-                        int activeEntryCount = source.Count - removedEntryCount;
-                        long entryLoadRowsPerMs = stopwatchLoadEntries.ElapsedMilliseconds <= 0
-                            ? source.Count
-                            : source.Count / Math.Max(1L, stopwatchLoadEntries.ElapsedMilliseconds);
-                        stopwatchAssignEntries.Start();
                         foreach (BMSTable table in list)
                         {
-                            if (table.playlist_id.HasValue && entriesByPlaylistId.TryGetValue(table.playlist_id.Value, out List<BMSTableEntry> value2))
-                            {
-                                table.entries = value2;
-                            }
-                            else
-                            {
-                                table.entries = new List<BMSTableEntry>();
-                            }
+                            table.MarkEntriesNotLoaded();
                         }
-                        stopwatchAssignEntries.Stop();
-                        LogPlaylistPerformance("playlist_init loadTablesMs=" + stopwatchLoadTables.ElapsedMilliseconds
-                            + " loadEntriesMs=" + stopwatchLoadEntries.ElapsedMilliseconds
-                            + " groupEntriesMs=" + stopwatchGroupEntries.ElapsedMilliseconds
-                            + " assignEntriesMs=" + stopwatchAssignEntries.ElapsedMilliseconds
+                        LogPlaylistPerformance("playlist_init_header loadTablesMs=" + stopwatchLoadTables.ElapsedMilliseconds
                             + " tableCount=" + list.Count
-                            + " entryCount=" + source.Count
-                            + " activeEntryCount=" + activeEntryCount
-                            + " removedEntryCount=" + removedEntryCount
-                            + " entryLoadRowsPerMs=" + entryLoadRowsPerMs);
+                            + " entriesDeferred=true");
                         BMSTables.AddRange(list);
                     }
                 }
@@ -787,10 +806,7 @@ public partial class BMSPlaylist : NotificationObject
                     }
                 }
             };
-            Stopwatch stopwatchUpdateTables = Stopwatch.StartNew();
-            UpdateBMSTables(reloadExtPlaylist, new List<Action<PlaylistTableUpdateContext>> { item, updateCallbackAction });
-            stopwatchUpdateTables.Stop();
-            updateTablesMs = stopwatchUpdateTables.ElapsedMilliseconds;
+            updateTablesMs = 0L;
             Stopwatch stopwatchLr2configSync = Stopwatch.StartNew();
             using (rwlockBMSTables.GetReaderGuard())
             {
@@ -806,11 +822,243 @@ public partial class BMSPlaylist : NotificationObject
             }
             stopwatchLr2configSync.Stop();
             lr2configSyncMs = stopwatchLr2configSync.ElapsedMilliseconds;
+            QueueDeferredPlaylistEntriesHydration("Initialize", reloadExtPlaylist, new List<Action<PlaylistTableUpdateContext>> { item, updateCallbackAction });
         }
         stopwatchInitialize.Stop();
         LogPlaylistPerformance("playlist_init update_tables_ms=" + updateTablesMs + " lr2config_sync_ms=" + lr2configSyncMs + " total_ms=" + stopwatchInitialize.ElapsedMilliseconds);
         SchedulePlaylistUrlCompletionRefresh("Initialize");
         initSemaphore = null;
+    }
+
+    public void QueueDeferredPlaylistEntriesHydration(string reason, bool runExternalSyncAfterHydration = false, List<Action<PlaylistTableUpdateContext>> updateCallbackActions = null)
+    {
+        int version = PlaylistEntriesHydrationRequestedVersion + 1;
+        PlaylistEntriesHydrationRequestedVersion = version;
+        LogPlaylistPerformance("playlist_entries_hydration queue reason=" + (reason ?? string.Empty) + " version=" + version + " runExternalSyncAfterHydration=" + runExternalSyncAfterHydration.ToString().ToLowerInvariant());
+        lock (playlistEntriesHydrationRequestLock)
+        {
+            playlistEntriesHydrationPendingRunExternalSync = playlistEntriesHydrationPendingRunExternalSync || runExternalSyncAfterHydration;
+            if (updateCallbackActions != null)
+            {
+                playlistEntriesHydrationPendingUpdateCallbacks.AddRange(updateCallbackActions.Where((Action<PlaylistTableUpdateContext> action) => action != null));
+            }
+        }
+        if (Interlocked.Exchange(ref playlistEntriesHydrationQueued, 1) != 0)
+        {
+            LogPlaylistPerformance("playlist_entries_hydration coalesced reason=" + (reason ?? string.Empty) + " version=" + version);
+            return;
+        }
+        Func<Task> work = async delegate
+        {
+            try
+            {
+                await EnsureAllPlaylistEntriesLoadedAsync(reason ?? "queue").ConfigureAwait(false);
+                PlaylistEntriesHydrationCompletedVersion = PlaylistEntriesHydrationRequestedVersion;
+                bool mergedRunExternalSync;
+                List<Action<PlaylistTableUpdateContext>> mergedUpdateCallbacks;
+                lock (playlistEntriesHydrationRequestLock)
+                {
+                    mergedRunExternalSync = playlistEntriesHydrationPendingRunExternalSync;
+                    mergedUpdateCallbacks = playlistEntriesHydrationPendingUpdateCallbacks.ToList();
+                    playlistEntriesHydrationPendingRunExternalSync = false;
+                    playlistEntriesHydrationPendingUpdateCallbacks.Clear();
+                }
+                if (mergedRunExternalSync || mergedUpdateCallbacks.Count > 0)
+                {
+                    Stopwatch stopwatchUpdateTables = Stopwatch.StartNew();
+                    UpdateBMSTables(mergedRunExternalSync, mergedUpdateCallbacks);
+                    stopwatchUpdateTables.Stop();
+                    LogPlaylistPerformance("playlist_entries_hydration post_update_tables reason=" + (reason ?? string.Empty) + " reloadExtPlaylist=" + mergedRunExternalSync.ToString().ToLowerInvariant() + " callbackCount=" + mergedUpdateCallbacks.Count + " elapsedMs=" + stopwatchUpdateTables.ElapsedMilliseconds);
+                }
+            }
+            finally
+            {
+                Interlocked.Exchange(ref playlistEntriesHydrationQueued, 0);
+                bool hasPendingRequest;
+                lock (playlistEntriesHydrationRequestLock)
+                {
+                    hasPendingRequest = playlistEntriesHydrationPendingRunExternalSync || playlistEntriesHydrationPendingUpdateCallbacks.Count > 0;
+                }
+                if (hasPendingRequest)
+                {
+                    LogPlaylistPerformance("playlist_entries_hydration reschedule reason=" + (reason ?? string.Empty));
+                    QueueDeferredPlaylistEntriesHydration(reason ?? "reschedule");
+                }
+            }
+        };
+        if (StartupBackgroundTaskScheduler != null && StartupBackgroundTaskScheduler("playlist_entries_hydration", reason ?? "queue", null, work))
+        {
+            return;
+        }
+        Task.Run(work).Logging("QueueDeferredPlaylistEntriesHydration");
+    }
+
+    internal async Task EnsureAllPlaylistEntriesLoadedAsync(string reason)
+    {
+        List<BMSTable> tablesSnapshot;
+        using (rwlockBMSTables.GetReaderGuard())
+        {
+            tablesSnapshot = BMSTables.Where((BMSTable table) => table != null).ToList();
+        }
+        if (tablesSnapshot.Count > 0 && tablesSnapshot.All((BMSTable table) => table.ArePlaylistEntriesLoaded))
+        {
+            return;
+        }
+        await playlistEntriesHydrationSemaphore.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            using (rwlockBMSTables.GetReaderGuard())
+            {
+                tablesSnapshot = BMSTables.Where((BMSTable table) => table != null).ToList();
+            }
+            if (tablesSnapshot.Count > 0 && tablesSnapshot.All((BMSTable table) => table.ArePlaylistEntriesLoaded))
+            {
+                return;
+            }
+            PlaylistEntriesHydrationRunning = true;
+            Stopwatch stopwatchTotal = Stopwatch.StartNew();
+            Stopwatch stopwatchDbLoad = Stopwatch.StartNew();
+            List<BMSTableEntry> source;
+            using (LR2SongDBExtended lR2SongDBExtended = new LR2SongDBExtended(lr2SongDBPath))
+            {
+                using (BMSTableEntry.BeginBulkLoadParseSuppression())
+                {
+                    source = lR2SongDBExtended.Table<BMSTableEntry>().ToList();
+                }
+            }
+            stopwatchDbLoad.Stop();
+            Stopwatch stopwatchGroup = Stopwatch.StartNew();
+            Dictionary<int, List<BMSTableEntry>> entriesByPlaylistId = new Dictionary<int, List<BMSTableEntry>>();
+            foreach (BMSTableEntry entryItem in source)
+            {
+                if (!entryItem.playlist_id.HasValue)
+                {
+                    continue;
+                }
+                int key = entryItem.playlist_id.Value;
+                if (!entriesByPlaylistId.TryGetValue(key, out List<BMSTableEntry> value))
+                {
+                    value = new List<BMSTableEntry>();
+                    entriesByPlaylistId[key] = value;
+                }
+                value.Add(entryItem);
+            }
+            stopwatchGroup.Stop();
+            int removedEntryCount = source.Count((BMSTableEntry entry) => entry != null && entry.is_removed);
+            int activeEntryCount = source.Count - removedEntryCount;
+            Stopwatch stopwatchAssign = Stopwatch.StartNew();
+            int assignedTableCount = 0;
+            using (rwlockBMSTables.GetWriterGuard())
+            {
+                foreach (BMSTable table in BMSTables.Where((BMSTable table) => table != null).ToList())
+                {
+                    if (table.ArePlaylistEntriesLoaded)
+                    {
+                        continue;
+                    }
+                    if (table.playlist_id.HasValue && entriesByPlaylistId.TryGetValue(table.playlist_id.Value, out List<BMSTableEntry> value))
+                    {
+                        using (table.ReaderWriterLock.GetWriterGuard())
+                        {
+                            table.entries = value;
+                        }
+                    }
+                    else
+                    {
+                        using (table.ReaderWriterLock.GetWriterGuard())
+                        {
+                            table.entries = new List<BMSTableEntry>();
+                        }
+                    }
+                    assignedTableCount++;
+                }
+            }
+            stopwatchAssign.Stop();
+            stopwatchTotal.Stop();
+            long entryLoadRowsPerMs = stopwatchDbLoad.ElapsedMilliseconds <= 0
+                ? source.Count
+                : source.Count / Math.Max(1L, stopwatchDbLoad.ElapsedMilliseconds);
+            LogPlaylistPerformance("playlist_entries_hydration done reason=" + (reason ?? string.Empty)
+                + " tableCount=" + tablesSnapshot.Count
+                + " assignedTableCount=" + assignedTableCount
+                + " entryCount=" + source.Count
+                + " activeEntryCount=" + activeEntryCount
+                + " removedEntryCount=" + removedEntryCount
+                + " dbLoadMs=" + stopwatchDbLoad.ElapsedMilliseconds
+                + " groupMs=" + stopwatchGroup.ElapsedMilliseconds
+                + " assignMs=" + stopwatchAssign.ElapsedMilliseconds
+                + " totalMs=" + stopwatchTotal.ElapsedMilliseconds
+                + " entryLoadRowsPerMs=" + entryLoadRowsPerMs);
+            bool allTablesLoaded;
+            using (rwlockBMSTables.GetReaderGuard())
+            {
+                allTablesLoaded = BMSTables.Where((BMSTable table) => table != null).All((BMSTable table) => table.ArePlaylistEntriesLoaded);
+            }
+            if (allTablesLoaded)
+            {
+                PlaylistEntriesHydrationCompletedVersion = PlaylistEntriesHydrationRequestedVersion;
+            }
+        }
+        catch (Exception ex)
+        {
+            using (rwlockBMSTables.GetReaderGuard())
+            {
+                foreach (BMSTable table in BMSTables.Where((BMSTable table) => table != null && !table.ArePlaylistEntriesLoaded))
+                {
+                    table.MarkEntriesLoadFailed(ex.Message);
+                }
+            }
+            LogPlaylistPerformance("playlist_entries_hydration failed reason=" + (reason ?? string.Empty) + " message=" + ex.Message);
+            throw;
+        }
+        finally
+        {
+            PlaylistEntriesHydrationRunning = false;
+            playlistEntriesHydrationSemaphore.Release();
+        }
+    }
+
+    internal void EnsurePlaylistEntriesLoaded(BMSTable table, string reason)
+    {
+        if (table == null || table.ArePlaylistEntriesLoaded)
+        {
+            return;
+        }
+        using (table.ReaderWriterLock.GetWriterGuard())
+        {
+            if (table.ArePlaylistEntriesLoaded)
+            {
+                return;
+            }
+            table.MarkEntriesLoading();
+        }
+        Stopwatch stopwatch = Stopwatch.StartNew();
+        try
+        {
+            List<BMSTableEntry> entries = LoadPersistedPlaylistEntries(table.playlist_id, activeOnly: false).ToList();
+            using (table.ReaderWriterLock.GetWriterGuard())
+            {
+                table.entries = entries;
+            }
+            stopwatch.Stop();
+            int removedEntryCount = entries.Count((BMSTableEntry entry) => entry != null && entry.is_removed);
+            LogPlaylistPerformance("playlist_entries_load_table done reason=" + (reason ?? string.Empty)
+                + " playlistId=" + (table.playlist_id.HasValue ? table.playlist_id.Value.ToString(CultureInfo.InvariantCulture) : "(null)")
+                + " name=\"" + (table.name ?? string.Empty).Replace("\"", "\"\"") + "\""
+                + " entryCount=" + entries.Count
+                + " activeEntryCount=" + (entries.Count - removedEntryCount)
+                + " removedEntryCount=" + removedEntryCount
+                + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
+        }
+        catch (Exception ex)
+        {
+            using (table.ReaderWriterLock.GetWriterGuard())
+            {
+                table.MarkEntriesLoadFailed(ex.Message);
+            }
+            LogPlaylistPerformance("playlist_entries_load_table failed reason=" + (reason ?? string.Empty) + " message=" + ex.Message);
+            throw;
+        }
     }
 
     private static void EnsurePlaylistTablesAndIndexes(LR2SongDBExtended db)
@@ -1779,6 +2027,7 @@ public partial class BMSPlaylist : NotificationObject
         {
             foreach (BMSTable item in BMSTables.Where((BMSTable t) => !t.is_root_folder && !string.IsNullOrWhiteSpace(t.Output_dir)))
             {
+                EnsurePlaylistEntriesLoaded(item, "ChangeCustomFolderBaseDirectory");
                 using (item.ReaderWriterLock.GetWriterGuard())
                 {
                     removeCustomFolder(Path.Combine(outputDirBaseBefore, item.Output_dir), Path.Combine(outputDirBaseAfter, item.Output_dir));
@@ -1799,6 +2048,7 @@ public partial class BMSPlaylist : NotificationObject
         {
             foreach (BMSTable item in BMSTables.Where((BMSTable t) => t.is_root_folder && !string.IsNullOrWhiteSpace(t.Output_dir)))
             {
+                EnsurePlaylistEntriesLoaded(item, "ChangeCustomFolderBaseDirectoryRoot");
                 using (item.ReaderWriterLock.GetWriterGuard())
                 {
                     removeCustomFolder(Path.Combine(outputDirBaseBefore, item.Output_dir), Path.Combine(outputDirBaseAfter, item.Output_dir));
@@ -1835,6 +2085,7 @@ public partial class BMSPlaylist : NotificationObject
         {
             outputDirPathAfter = GetCustomFolderOutputDirectory(bmsTable);
         }
+        EnsurePlaylistEntriesLoaded(bmsTable, "MigrateCustomFolderOutputDirectory");
         using (bmsTable.ReaderWriterLock.GetWriterGuard())
         {
             if (BMSTables.Contains(bmsTable))
@@ -1955,6 +2206,7 @@ public partial class BMSPlaylist : NotificationObject
         {
             throw new ArgumentException("bmsTable.Output_dir");
         }
+        EnsurePlaylistEntriesLoaded(bmsTable, "ReOutputCustomFolder");
         using (bmsTable.ReaderWriterLock.GetWriterGuard())
         {
             if (BMSTables.Contains(bmsTable))
@@ -2149,6 +2401,7 @@ public partial class BMSPlaylist : NotificationObject
                         try
                         {
                             BMSTable reloadedTable = await reloadBMSTableAsync(table, uri, cancellationToken).ConfigureAwait(false);
+                            EnsurePlaylistEntriesLoaded(table, "UpdateBMSTablesInternalAsync");
                             using (table.ReaderWriterLock.GetWriterGuard())
                             {
                                 oldEntriesSnapshot = table.entries?.ToList() ?? new List<BMSTableEntry>();
@@ -2314,6 +2567,7 @@ public partial class BMSPlaylist : NotificationObject
             throw new ArgumentNullException("bmsTable");
         }
         BMSTable reloadedTable = await reloadBMSTableAsync(bmsTable, pageUri, cancellationToken).ConfigureAwait(false);
+        EnsurePlaylistEntriesLoaded(bmsTable, "ResetBMSTableAsync");
         BMSTable mergedTable;
         using (rwlockBMSTables.GetWriterGuard())
         {
@@ -2390,6 +2644,7 @@ public partial class BMSPlaylist : NotificationObject
         {
             throw new ArgumentNullException("bmsTable");
         }
+        EnsurePlaylistEntriesLoaded(bmsTable, "RenameFolderBMSTable");
         using (bmsTable.ReaderWriterLock.GetWriterGuard())
         {
             if (BMSTables.Contains(bmsTable))
@@ -2416,6 +2671,7 @@ public partial class BMSPlaylist : NotificationObject
         {
             throw new ArgumentNullException("bmsTable");
         }
+        EnsurePlaylistEntriesLoaded(bmsTable, "RemoveFolderBMSTable");
         using (bmsTable.ReaderWriterLock.GetWriterGuard())
         {
             if (BMSTables.Contains(bmsTable))
@@ -2443,6 +2699,7 @@ public partial class BMSPlaylist : NotificationObject
         {
             throw new ArgumentNullException("bmsTable");
         }
+        EnsurePlaylistEntriesLoaded(bmsTable, "CreateNewFolderBMSTable");
         using (bmsTable.ReaderWriterLock.GetWriterGuard())
         {
             if (!BMSTables.Contains(bmsTable))
@@ -2472,6 +2729,7 @@ public partial class BMSPlaylist : NotificationObject
         {
             throw new ArgumentNullException("bmsTable");
         }
+        EnsurePlaylistEntriesLoaded(bmsTable, "AddEntriesToFolderBMSTable");
         using (bmsTable.ReaderWriterLock.GetWriterGuard())
         {
             if (BMSTables.Contains(bmsTable))
@@ -2498,6 +2756,7 @@ public partial class BMSPlaylist : NotificationObject
         {
             throw new ArgumentNullException("bmsTable");
         }
+        EnsurePlaylistEntriesLoaded(bmsTable, "RemoveEntriesBMSTable");
         using (bmsTable.ReaderWriterLock.GetWriterGuard())
         {
             if (BMSTables.Contains(bmsTable))
@@ -2522,6 +2781,7 @@ public partial class BMSPlaylist : NotificationObject
         {
             throw new ArgumentNullException("bmsTable");
         }
+        EnsurePlaylistEntriesLoaded(bmsTable, "ReOutputCustomFolderAndCommitToDB");
         using (bmsTable.ReaderWriterLock.GetWriterGuard())
         {
             if (BMSTables.Contains(bmsTable))
@@ -2686,6 +2946,7 @@ public partial class BMSPlaylist : NotificationObject
             pageUri = oldTable.Page_url ?? oldTable.Header_url;
         }
         BMSTable reloadedTable = reloadBMSTable(oldTable, pageUri);
+        EnsurePlaylistEntriesLoaded(oldTable, "MergeReloadedBMSTableWithExistingState");
         return MergeReloadedBMSTableState(oldTable, reloadedTable, BuildComparablePlaylistEntryRows(oldTable.entries.Where((BMSTableEntry entry) => !entry.is_removed)), out _, logLastUpdateDecision);
     }
 
@@ -2696,6 +2957,7 @@ public partial class BMSPlaylist : NotificationObject
             pageUri = oldTable.Page_url ?? oldTable.Header_url;
         }
         BMSTable reloadedTable = await reloadBMSTableAsync(oldTable, pageUri, cancellationToken).ConfigureAwait(false);
+        EnsurePlaylistEntriesLoaded(oldTable, "MergeReloadedBMSTableWithExistingStateAsync");
         return MergeReloadedBMSTableState(oldTable, reloadedTable, BuildComparablePlaylistEntryRows(oldTable.entries.Where((BMSTableEntry entry) => !entry.is_removed)), out _, logLastUpdateDecision);
     }
 
@@ -2809,6 +3071,11 @@ public partial class BMSPlaylist : NotificationObject
 
     private IReadOnlyList<BMSTableEntry> LoadPersistedActivePlaylistEntries(int? playlistId)
     {
+        return LoadPersistedPlaylistEntries(playlistId, activeOnly: true);
+    }
+
+    private IReadOnlyList<BMSTableEntry> LoadPersistedPlaylistEntries(int? playlistId, bool activeOnly)
+    {
         if (!playlistId.HasValue)
         {
             return Array.Empty<BMSTableEntry>();
@@ -2816,7 +3083,13 @@ public partial class BMSPlaylist : NotificationObject
         using LR2SongDBExtended lR2SongDBExtended = new LR2SongDBExtended(lr2SongDBPath);
         using (BMSTableEntry.BeginBulkLoadParseSuppression())
         {
-            return lR2SongDBExtended.Query<BMSTableEntry>("SELECT * FROM " + SQLiteTable<LR2SongDBExtended.playlist_entry>.GetTableName() + " WHERE " + SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry entry) => entry.playlist_id) + " = ? AND " + SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry entry) => entry.is_removed) + " = 0;", playlistId.Value);
+            string sql = "SELECT * FROM " + SQLiteTable<LR2SongDBExtended.playlist_entry>.GetTableName() + " WHERE " + SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry entry) => entry.playlist_id) + " = ?";
+            if (activeOnly)
+            {
+                sql += " AND " + SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry entry) => entry.is_removed) + " = 0";
+            }
+            sql += ";";
+            return lR2SongDBExtended.Query<BMSTableEntry>(sql, playlistId.Value);
         }
     }
 
@@ -3156,11 +3429,16 @@ public partial class BMSPlaylist : NotificationObject
     {
         try
         {
+            List<BMSTable> tableList = bmsTables?.Where((BMSTable table) => table != null).ToList() ?? new List<BMSTable>();
+            foreach (BMSTable table in tableList)
+            {
+                EnsurePlaylistEntriesLoaded(table, "CommitBMSTable");
+            }
             LR2SongDBExtended lr2Song = new LR2SongDBExtended(lr2SongDBPath);
             try
             {
                 lr2Song.BeginTransaction();
-                foreach (BMSTable bmsTable in bmsTables)
+                foreach (BMSTable bmsTable in tableList)
                 {
                     lr2Song.InsertOrReplace(bmsTable, typeof(LR2SongDBExtended.playlist));
                     lr2Song.Execute("DELETE FROM " + SQLiteTable<LR2SongDBExtended.playlist_entry>.GetTableName() + " WHERE " + SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry e) => e.playlist_id) + " = " + bmsTable.playlist_id + ";");
