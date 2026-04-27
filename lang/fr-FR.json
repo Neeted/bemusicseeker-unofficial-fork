@@ -26,6 +26,7 @@
   "Statusbar_progress_phase_score_hydration": "Application des scores",
   "Statusbar_progress_phase_ranking_refresh": "Maj classement",
   "Statusbar_progress_phase_chart_info": "Analyse des metadonnees",
+  "Statusbar_progress_phase_chart_info_load": "Chargement des metadonnees",
   "Statusbar_progress_phase_background": "Mise a jour en arriere-plan",
   "Msg_failed_remove_playlist_entry": "Failed to remove the song from the playlist.\nThe playlist is set to the external synchronization mode.",
   "Record_setting_encoder_dir": "Exe file dir: ",

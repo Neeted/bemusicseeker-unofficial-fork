@@ -165,32 +165,10 @@ internal sealed class BmsLibraryInitializationService
         stopwatchChartDigestApply.Stop();
         result.ChartDigestApplyMs = stopwatchChartDigestApply.ElapsedMilliseconds;
 
-        Stopwatch stopwatchChartInfoMapLoad = Stopwatch.StartNew();
-        Dictionary<string, LR2SongDBExtended.chart_info> chartInfoMap = dbGateway.LoadChartInfoMap();
-        stopwatchChartInfoMapLoad.Stop();
-        result.ChartInfoMapLoadMs = stopwatchChartInfoMapLoad.ElapsedMilliseconds;
-        foreach (KeyValuePair<string, LR2SongDBExtended.chart_info> item in chartInfoMap)
-        {
-            result.ChartInfoMap[item.Key] = item.Value;
-        }
-
-        Stopwatch stopwatchChartInfoApply = Stopwatch.StartNew();
-        foreach (BMSFile item in loadedSongs)
-        {
-            if ((deletedFileSet == null || !deletedFileSet.Contains(item)) && !string.IsNullOrWhiteSpace(item.sha256) && result.ChartInfoMap.TryGetValue(item.sha256, out LR2SongDBExtended.chart_info chartInfo))
-            {
-                item.SetChartInfo(chartInfo);
-            }
-        }
-        foreach (LR2SongDBExtended.bmson_song item in result.LoadedBmsonSongs)
-        {
-            if (!string.IsNullOrWhiteSpace(item.sha256) && result.ChartInfoMap.TryGetValue(item.sha256, out LR2SongDBExtended.chart_info chartInfo))
-            {
-                item.ChartInfo = chartInfo;
-            }
-        }
-        stopwatchChartInfoApply.Stop();
-        result.ChartInfoApplyMs = stopwatchChartInfoApply.ElapsedMilliseconds;
+        // chart_info is display/search metadata. Loading and applying every row can dominate startup
+        // on large libraries, so the application hydrates it after the core install workflow is operable.
+        result.ChartInfoMapLoadMs = 0L;
+        result.ChartInfoApplyMs = 0L;
 
         Stopwatch stopwatchMaintenanceApply = Stopwatch.StartNew();
         foreach (BMSFile item in loadedSongs)

@@ -777,6 +777,16 @@ public class BMSLibrary : NotificationObject
 
     private readonly List<ChartInfoBackfillRequest> chartInfoBackfillRequests = new List<ChartInfoBackfillRequest>();
 
+    private readonly object lockChartInfoHydration = new object();
+
+    private bool chartInfoHydrationRunning;
+
+    private bool chartInfoHydrationPending;
+
+    private string chartInfoHydrationPendingReason;
+
+    private bool chartInfoHydrationPendingQueueBackfill;
+
     private readonly object lockScoreSnapshot = new object();
 
     private ScoreSnapshot scoreSnapshot;
@@ -790,6 +800,8 @@ public class BMSLibrary : NotificationObject
     private int chartInfoBackfillRequestedVersion;
 
     private int chartInfoBackfillCompletedVersion;
+
+    private int chartInfoHydrationRequestedVersion;
 
     private readonly object lockDeferredScoreHydration = new object();
 
@@ -898,6 +910,16 @@ public class BMSLibrary : NotificationObject
     private int _ChartInfoBackfillProcessedCount;
 
     private string _ChartInfoBackfillCurrentPath = string.Empty;
+
+    private bool _ChartInfoHydrationRunning;
+
+    private int _ChartInfoHydrationRequestedVersion;
+
+    private int _ChartInfoHydrationCompletedVersion;
+
+    private int _ChartInfoHydrationTotalCount;
+
+    private int _ChartInfoHydrationAppliedCount;
 
     private bool _IsWriteLockHeldInitializeBMSFilesHealthStatus = true;
 
@@ -1668,6 +1690,101 @@ public class BMSLibrary : NotificationObject
         }
     }
 
+    /// <summary>
+    /// chart_info の既存行をメモリへ遅延適用中かどうかです。
+    /// </summary>
+    public bool ChartInfoHydrationRunning
+    {
+        get
+        {
+            return _ChartInfoHydrationRunning;
+        }
+        private set
+        {
+            if (_ChartInfoHydrationRunning != value)
+            {
+                _ChartInfoHydrationRunning = value;
+                RaisePropertyChanged(() => ChartInfoHydrationRunning);
+            }
+        }
+    }
+
+    /// <summary>
+    /// chart_info 遅延適用要求の版数です。
+    /// </summary>
+    public int ChartInfoHydrationRequestedVersion
+    {
+        get
+        {
+            return _ChartInfoHydrationRequestedVersion;
+        }
+        private set
+        {
+            if (_ChartInfoHydrationRequestedVersion != value)
+            {
+                _ChartInfoHydrationRequestedVersion = value;
+                RaisePropertyChanged(() => ChartInfoHydrationRequestedVersion);
+            }
+        }
+    }
+
+    /// <summary>
+    /// 最後に完了した chart_info 遅延適用要求の版数です。
+    /// </summary>
+    public int ChartInfoHydrationCompletedVersion
+    {
+        get
+        {
+            return _ChartInfoHydrationCompletedVersion;
+        }
+        private set
+        {
+            if (_ChartInfoHydrationCompletedVersion != value)
+            {
+                _ChartInfoHydrationCompletedVersion = value;
+                RaisePropertyChanged(() => ChartInfoHydrationCompletedVersion);
+            }
+        }
+    }
+
+    /// <summary>
+    /// 読み込んだ chart_info 行数です。
+    /// </summary>
+    public int ChartInfoHydrationTotalCount
+    {
+        get
+        {
+            return _ChartInfoHydrationTotalCount;
+        }
+        private set
+        {
+            if (_ChartInfoHydrationTotalCount != value)
+            {
+                _ChartInfoHydrationTotalCount = value;
+                RaisePropertyChanged(() => ChartInfoHydrationTotalCount);
+            }
+        }
+    }
+
+    /// <summary>
+    /// メモリ上の譜面へ適用した chart_info 件数です。
+    /// </summary>
+    public int ChartInfoHydrationAppliedCount
+    {
+        get
+        {
+            return _ChartInfoHydrationAppliedCount;
+        }
+        private set
+        {
+            if (_ChartInfoHydrationAppliedCount != value)
+            {
+                _ChartInfoHydrationAppliedCount = value;
+                RaisePropertyChanged(() => ChartInfoHydrationAppliedCount);
+            }
+        }
+    }
+
     public bool IsWriteLockHeldInitializeAll
     {
         get
@@ -1951,6 +2068,21 @@ public class BMSLibrary : NotificationObject
         {
             return new ChartInfoBackfillRequest(ChartInfoBackfillRequestKind.AddedCharts, reason, bmsFiles, bmsonSongs);
         }
+    }
+
+    private sealed class ChartInfoHydrationResult
+    {
+        public int TotalRows { get; set; }
+
+        public int AppliedBmsCount { get; set; }
+
+        public int AppliedBmsonCount { get; set; }
+
+        public long LoadMs { get; set; }
+
+        public long ApplyMs { get; set; }
+
+        public long TotalMs { get; set; }
     }
 
     /// <summary>
@@ -3331,7 +3463,7 @@ public class BMSLibrary : NotificationObject
         }
         if (reloadScoresOnly != true)
         {
-            QueueChartInfoBackfill(deferredMaintenanceReason);
+            QueueDeferredChartInfoHydration(deferredMaintenanceReason, queueFullBackfillAfterHydration: true);
         }
         GC.Collect();
         NLogWrapper.DebuggerLogger?.Trace("owari: " + GC.GetTotalMemory(forceFullCollection: false));
@@ -3549,6 +3681,169 @@ public class BMSLibrary : NotificationObject
     }
 
     /// <summary>
+    /// 既存 chart_info 行を起動後にメモリ上の譜面へ適用します。
+    /// DataGrid 表示用メタデータであり、導入先推定の critical path からは外します。
+    /// </summary>
+    private void QueueDeferredChartInfoHydration(string reason, bool queueFullBackfillAfterHydration)
+    {
+        int requestVersion;
+        bool shouldStartWorker = false;
+        lock (lockChartInfoHydration)
+        {
+            chartInfoHydrationRequestedVersion++;
+            requestVersion = chartInfoHydrationRequestedVersion;
+            chartInfoHydrationPending = true;
+            chartInfoHydrationPendingReason = reason;
+            chartInfoHydrationPendingQueueBackfill = chartInfoHydrationPendingQueueBackfill || queueFullBackfillAfterHydration;
+            if (!chartInfoHydrationRunning)
+            {
+                chartInfoHydrationRunning = true;
+                shouldStartWorker = true;
+            }
+        }
+        ChartInfoHydrationRequestedVersion = requestVersion;
+        ChartInfoHydrationTotalCount = 0;
+        ChartInfoHydrationAppliedCount = 0;
+        ChartInfoHydrationRunning = true;
+        LogInstallPerformance("chart_info_hydration queue reason=" + (reason ?? "unknown") + " version=" + requestVersion + " queueBackfill=" + queueFullBackfillAfterHydration.ToString().ToLowerInvariant());
+        if (shouldStartWorker)
+        {
+            Task.Run(ProcessDeferredChartInfoHydrationRequests).Logging("ProcessDeferredChartInfoHydrationRequests");
+        }
+    }
+
+    private void ProcessDeferredChartInfoHydrationRequests()
+    {
+        while (true)
+        {
+            int requestVersion;
+            string reason;
+            bool queueBackfillAfterHydration;
+            lock (lockChartInfoHydration)
+            {
+                requestVersion = chartInfoHydrationRequestedVersion;
+                reason = chartInfoHydrationPendingReason;
+                queueBackfillAfterHydration = chartInfoHydrationPendingQueueBackfill;
+                chartInfoHydrationPending = false;
+                chartInfoHydrationPendingReason = null;
+                chartInfoHydrationPendingQueueBackfill = false;
+            }
+
+            ChartInfoHydrationResult result;
+            try
+            {
+                result = HydrateChartInfos(reason);
+            }
+            catch (Exception ex)
+            {
+                result = new ChartInfoHydrationResult();
+                LogInstallPerformance("chart_info_hydration failed reason=" + (reason ?? "unknown") + " message=" + ex.Message);
+            }
+            ChartInfoHydrationTotalCount = result.TotalRows;
+            ChartInfoHydrationAppliedCount = result.AppliedBmsCount + result.AppliedBmsonCount;
+            ChartInfoHydrationCompletedVersion = requestVersion;
+            LogInstallPerformance("chart_info_hydration done version=" + requestVersion
+                + " reason=" + (reason ?? "unknown")
+                + " totalRows=" + result.TotalRows
+                + " appliedBms=" + result.AppliedBmsCount
+                + " appliedBmson=" + result.AppliedBmsonCount
+                + " loadMs=" + result.LoadMs
+                + " applyMs=" + result.ApplyMs
+                + " totalMs=" + result.TotalMs);
+
+            bool completedLatestRequest = false;
+            lock (lockChartInfoHydration)
+            {
+                if (!chartInfoHydrationPending)
+                {
+                    chartInfoHydrationRunning = false;
+                    ChartInfoHydrationRunning = false;
+                    completedLatestRequest = true;
+                }
+                else if (queueBackfillAfterHydration)
+                {
+                    chartInfoHydrationPendingQueueBackfill = true;
+                }
+            }
+            if (completedLatestRequest && queueBackfillAfterHydration)
+            {
+                QueueChartInfoBackfill(reason);
+            }
+            if (completedLatestRequest)
+            {
+                return;
+            }
+        }
+    }
+
+    private ChartInfoHydrationResult HydrateChartInfos(string reason)
+    {
+        ChartInfoHydrationResult result = new ChartInfoHydrationResult();
+        Stopwatch totalStopwatch = Stopwatch.StartNew();
+        LogInstallPerformance("chart_info_hydration start reason=" + (reason ?? "unknown"));
+
+        Dictionary<string, LR2SongDBExtended.chart_info> chartInfoMap;
+        Stopwatch loadStopwatch = Stopwatch.StartNew();
+        try
+        {
+            chartInfoMap = dbGateway.LoadChartInfoMap();
+        }
+        catch (Exception ex)
+        {
+            loadStopwatch.Stop();
+            totalStopwatch.Stop();
+            result.LoadMs = loadStopwatch.ElapsedMilliseconds;
+            result.TotalMs = totalStopwatch.ElapsedMilliseconds;
+            LogInstallPerformance("chart_info_hydration failed reason=" + (reason ?? "unknown") + " message=" + ex.Message);
+            return result;
+        }
+        loadStopwatch.Stop();
+        result.LoadMs = loadStopwatch.ElapsedMilliseconds;
+        result.TotalRows = chartInfoMap.Count;
+
+        Stopwatch applyStopwatch = Stopwatch.StartNew();
+        using (rwlockBMSFiles.GetReaderGuard())
+        {
+            foreach (BMSFile file in BMSFiles ?? Enumerable.Empty<BMSFile>())
+            {
+                if (file != null && !string.IsNullOrWhiteSpace(file.sha256) && chartInfoMap.TryGetValue(file.sha256, out LR2SongDBExtended.chart_info chartInfo))
+                {
+                    file.SetChartInfo(chartInfo);
+                    result.AppliedBmsCount++;
+                }
+            }
+            foreach (LR2SongDBExtended.bmson_song song in BmsonSongs ?? Enumerable.Empty<LR2SongDBExtended.bmson_song>())
+            {
+                if (song != null && !string.IsNullOrWhiteSpace(song.sha256) && chartInfoMap.TryGetValue(song.sha256, out LR2SongDBExtended.chart_info chartInfo))
+                {
+                    song.ChartInfo = chartInfo;
+                    result.AppliedBmsonCount++;
+                }
+            }
+        }
+        applyStopwatch.Stop();
+        result.ApplyMs = applyStopwatch.ElapsedMilliseconds;
+        totalStopwatch.Stop();
+        result.TotalMs = totalStopwatch.ElapsedMilliseconds;
+        return result;
+    }
+
+    private void WaitForChartInfoHydrationIdle()
+    {
+        while (true)
+        {
+            lock (lockChartInfoHydration)
+            {
+                if (!chartInfoHydrationRunning)
+                {
+                    return;
+                }
+            }
+            Thread.Sleep(50);
+        }
+    }
+
+    /// <summary>
     /// chart_info の不足分構築をバックグラウンドへ要求します。
     /// </summary>
     /// <param name="reason">ログに残す要求理由。</param>
@@ -3616,6 +3911,7 @@ public class BMSLibrary : NotificationObject
     {
         while (true)
         {
+            WaitForChartInfoHydrationIdle();
             int requestVersion;
             List<ChartInfoBackfillRequest> requests;
             lock (lockChartInfoBackfill)

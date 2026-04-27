@@ -1890,32 +1890,35 @@
                 </Style>
                 <Style x:Key="styleDataGridCellChartLevelUndefined" BasedOn="{StaticResource styleDataGridCellNonFocusable}" TargetType="{x:Type DataGridCell}">
                   <Style.Triggers>
-                    <DataTrigger Value="True" Binding="{Binding ChartLevelUndefined}">
+                    <MultiDataTrigger>
+                      <MultiDataTrigger.Conditions>
+                        <Condition Value="True" Binding="{Binding ChartLevelUndefined}" />
+                        <Condition Value="False" Binding="{Binding IsSelected, RelativeSource={RelativeSource Self}}" />
+                      </MultiDataTrigger.Conditions>
                       <Setter Property="Background" Value="#FFFFF6D5" />
-                    </DataTrigger>
-                    <Trigger Property="DataGridCell.IsSelected" Value="True">
-                      <Setter Property="Background" Value="{DynamicResource {x:Static SystemColors.HighlightBrushKey}}" />
-                    </Trigger>
+                    </MultiDataTrigger>
                   </Style.Triggers>
                 </Style>
                 <Style x:Key="styleDataGridCellChartDifficultyUndefined" BasedOn="{StaticResource styleDataGridCellNonFocusable}" TargetType="{x:Type DataGridCell}">
                   <Style.Triggers>
-                    <DataTrigger Value="True" Binding="{Binding ChartDifficultyUndefined}">
+                    <MultiDataTrigger>
+                      <MultiDataTrigger.Conditions>
+                        <Condition Value="True" Binding="{Binding ChartDifficultyUndefined}" />
+                        <Condition Value="False" Binding="{Binding IsSelected, RelativeSource={RelativeSource Self}}" />
+                      </MultiDataTrigger.Conditions>
                       <Setter Property="Background" Value="#FFFFF6D5" />
-                    </DataTrigger>
-                    <Trigger Property="DataGridCell.IsSelected" Value="True">
-                      <Setter Property="Background" Value="{DynamicResource {x:Static SystemColors.HighlightBrushKey}}" />
-                    </Trigger>
+                    </MultiDataTrigger>
                   </Style.Triggers>
                 </Style>
                 <Style x:Key="styleDataGridCellChartTotalUndefined" BasedOn="{StaticResource styleDataGridCellNonFocusable}" TargetType="{x:Type DataGridCell}">
                   <Style.Triggers>
-                    <DataTrigger Value="True" Binding="{Binding ChartTotalUndefined}">
+                    <MultiDataTrigger>
+                      <MultiDataTrigger.Conditions>
+                        <Condition Value="True" Binding="{Binding ChartTotalUndefined}" />
+                        <Condition Value="False" Binding="{Binding IsSelected, RelativeSource={RelativeSource Self}}" />
+                      </MultiDataTrigger.Conditions>
                       <Setter Property="Background" Value="#FFFFF6D5" />
-                    </DataTrigger>
-                    <Trigger Property="DataGridCell.IsSelected" Value="True">
-                      <Setter Property="Background" Value="{DynamicResource {x:Static SystemColors.HighlightBrushKey}}" />
-                    </Trigger>
+                    </MultiDataTrigger>
                   </Style.Triggers>
                 </Style>
                 <Style x:Key="styleDataGridNotEditingCellChartDifficulty" BasedOn="{StaticResource styleDataGridNotEditingCellCenterAlignment}" TargetType="{x:Type TextBlock}">

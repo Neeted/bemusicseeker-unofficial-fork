@@ -2150,6 +2150,66 @@ public sealed class ChartInfoMetadataTests
     }
 
     [TestMethod]
+    public void DeferredChartInfoHydration_AppliesExistingRowsToBmsAndBmson()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        {
+            string bmsSha = new string('1', 64);
+            string bmsonSha = new string('2', 64);
+            TestableBmsFile file = new TestableBmsFile
+            {
+                path = Path.Combine(tempRootPath, "hydrated.bms")
+            };
+            file.SetHash(new string('a', 32));
+            file.SetSha256(bmsSha);
+            LR2SongDBExtended.bmson_song bmsonSong = new LR2SongDBExtended.bmson_song
+            {
+                path = Path.Combine(tempRootPath, "hydrated.bmson"),
+                md5 = new string('b', 32),
+                sha256 = bmsonSha
+            };
+            BmsLibraryDbGateway gateway = new BmsLibraryDbGateway(songDbPath);
+            LR2SongDBExtended.chart_info bmsRow = CreateChartInfoRow(bmsSha, file.hash, BmsLibraryDbGateway.CurrentChartInfoParserVersion);
+            LR2SongDBExtended.chart_info bmsonRow = CreateChartInfoRow(bmsonSha, bmsonSong.md5, BmsLibraryDbGateway.CurrentChartInfoParserVersion);
+            gateway.UpsertChartInfos(new[] { bmsRow, bmsonRow });
+            BMSLibrary library = new BMSLibrary(songDbPath, null, null, null, new RecordingDialogService())
+            {
+                BMSFiles = new List<BMSFile> { file },
+                BmsonSongs = new List<LR2SongDBExtended.bmson_song> { bmsonSong }
+            };
+
+            InvokeDeferredChartInfoHydration(library, "unit_test", queueFullBackfillAfterHydration: false);
+
+            Assert.IsTrue(WaitForChartInfoHydration(library), "chart_info hydration did not complete.");
+            Assert.IsFalse(library.ChartInfoHydrationRunning);
+            Assert.AreEqual(2, library.ChartInfoHydrationTotalCount);
+            Assert.AreEqual(2, library.ChartInfoHydrationAppliedCount);
+            Assert.IsNotNull(file.ChartInfo);
+            Assert.AreEqual(bmsSha, file.ChartInfo.sha256);
+            Assert.IsNotNull(bmsonSong.ChartInfo);
+            Assert.AreEqual(bmsonSha, bmsonSong.ChartInfo.sha256);
+            Assert.AreEqual(0, library.ChartInfoBackfillRequestedVersion);
+        });
+    }
+
+    [TestMethod]
+    public void DeferredChartInfoHydration_QueuesFullBackfillAfterHydration()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        {
+            BMSLibrary library = new BMSLibrary(songDbPath, null, null, null, new RecordingDialogService());
+
+            InvokeDeferredChartInfoHydration(library, "unit_test", queueFullBackfillAfterHydration: true);
+
+            Assert.IsTrue(WaitForChartInfoHydration(library), "chart_info hydration did not complete.");
+            Assert.IsTrue(WaitForChartInfoBackfill(library), "chart_info full backfill was not queued after hydration.");
+            Assert.AreEqual(library.ChartInfoBackfillRequestedVersion, library.ChartInfoBackfillCompletedVersion);
+        });
+    }
+
+    [TestMethod]
     public void InstallBMSPackages_AddsBmsAndQueuesTargetedChartInfoBackfill()
     {
         TestResourceInitializer.EnsureJapaneseResources();
@@ -2702,6 +2762,22 @@ public sealed class ChartInfoMetadataTests
             () => library.ChartInfoBackfillRequestedVersion > 0
                 && library.ChartInfoBackfillCompletedVersion == library.ChartInfoBackfillRequestedVersion
                 && !library.ChartInfoBackfillRunning,
+            10000);
+    }
+
+    private static void InvokeDeferredChartInfoHydration(BMSLibrary library, string reason, bool queueFullBackfillAfterHydration)
+    {
+        MethodInfo method = typeof(BMSLibrary).GetMethod("QueueDeferredChartInfoHydration", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.IsNotNull(method, "QueueDeferredChartInfoHydration method was not found.");
+        method.Invoke(library, new object[] { reason, queueFullBackfillAfterHydration });
+    }
+
+    private static bool WaitForChartInfoHydration(BMSLibrary library)
+    {
+        return SpinWait.SpinUntil(
+            () => library.ChartInfoHydrationRequestedVersion > 0
+                && library.ChartInfoHydrationCompletedVersion == library.ChartInfoHydrationRequestedVersion
+                && !library.ChartInfoHydrationRunning,
             10000);
     }
 
