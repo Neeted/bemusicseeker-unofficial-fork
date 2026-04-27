@@ -85,6 +85,15 @@
       "sha256": "2fae03a78d2e8a7293437bfb470b4c8bcda0c077198809074b8db506029a1ef2",
       "has_beatoraja_song": true,
       "reason": "timeline_long_reference"
+    },
+    {
+      "md5": "a0dfd7d70a53e4752d39e09b23877cff",
+      "fixture_path": "charts/b862bf34bf6fbe034a18cceb9178a7e44a864a77e3475b9d478b9b5e5a46ff01.bms",
+      "fixture_id": 10,
+      "source_path": "D:\\BMS\\1 EVENT\\160227 PORTABLE MEMORIES MARCH\\[DashRaver feat. RainbowColors] Taken The First Step\\_dr_ttfs_silver_yume.bms",
+      "sha256": "b862bf34bf6fbe034a18cceb9178a7e44a864a77e3475b9d478b9b5e5a46ff01",
+      "has_beatoraja_song": true,
+      "reason": "random_endif_scope_reference"
     }
   ]
 }

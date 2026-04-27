@@ -1035,6 +1035,57 @@ public sealed class ChartInfoMetadataTests
     }
 
     [TestMethod]
+    public void ParseBms_RandomEndIfDoesNotSkipFollowingMainData()
+    {
+        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        {
+            string chartPath = Path.Combine(tempRootPath, "random-endif-main-data.bms");
+            File.WriteAllText(
+                chartPath,
+                "#BPM 120\r\n"
+                    + "#RANDOM 2\r\n"
+                    + "#IF 1\r\n"
+                    + "#00104:01\r\n"
+                    + "#ENDIF\r\n"
+                    + "#IF 2\r\n"
+                    + "#00104:02\r\n"
+                    + "#ENDIF\r\n"
+                    + "#00211:01\r\n",
+                Encoding.ASCII);
+
+            LR2SongDBExtended.chart_info row = ChartInfoParser.Parse(chartPath);
+
+            Assert.AreEqual(1, row.notes);
+            Assert.IsTrue(row.length.GetValueOrDefault() > 0);
+            Assert.IsTrue((row.feature & FeatureRandom) != 0);
+        });
+    }
+
+    [TestMethod]
+    public void ParseBms_RandomEndRandomCanCloseRandomBlock()
+    {
+        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        {
+            string chartPath = Path.Combine(tempRootPath, "random-endrandom-main-data.bms");
+            File.WriteAllText(
+                chartPath,
+                "#BPM 120\r\n"
+                    + "#RANDOM 2\r\n"
+                    + "#IF 2\r\n"
+                    + "#00111:01\r\n"
+                    + "#ENDIF\r\n"
+                    + "#ENDRANDOM\r\n"
+                    + "#00211:01\r\n",
+                Encoding.ASCII);
+
+            LR2SongDBExtended.chart_info row = ChartInfoParser.Parse(chartPath);
+
+            Assert.AreEqual(1, row.notes);
+            Assert.IsTrue((row.feature & FeatureRandom) != 0);
+        });
+    }
+
+    [TestMethod]
     public void ParseBmson_UnknownFieldsAreIgnoredAndUnsupportedModeFallsBackToBeat7()
     {
         WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
@@ -1724,6 +1775,26 @@ public sealed class ChartInfoMetadataTests
             Assert.IsTrue(actual.notes > 0, sample.sha256);
             Assert.IsTrue(actual.length.GetValueOrDefault() >= 0, sample.sha256);
         }
+    }
+
+    [TestMethod]
+    [TestCategory("Compatibility")]
+    public void ParseRealEdgeCases_RandomEndIfScopeReferenceMatchesBeatorajaCounts()
+    {
+        string fixtureRootPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "TestData", "chart_info_edge_cases");
+        string chartPath = Path.Combine(fixtureRootPath, "charts", "b862bf34bf6fbe034a18cceb9178a7e44a864a77e3475b9d478b9b5e5a46ff01.bms");
+        Assert.IsTrue(File.Exists(chartPath), "random_endif_scope_reference fixture is missing.");
+
+        LR2SongDBExtended.chart_info actual = ChartInfoParser.Parse(
+            chartPath,
+            "a0dfd7d70a53e4752d39e09b23877cff",
+            "b862bf34bf6fbe034a18cceb9178a7e44a864a77e3475b9d478b9b5e5a46ff01");
+
+        Assert.IsTrue((actual.feature & FeatureRandom) != 0);
+        Assert.AreEqual(2295, actual.notes);
+        Assert.AreEqual(2255, actual.n);
+        Assert.AreEqual(40, actual.s);
+        Assert.AreEqual(136083, actual.length);
     }
 
     [TestMethod]

@@ -56,7 +56,7 @@ internal sealed class BmsLibraryDbGateway
 
     internal const int CurrentChartInfoSchemaVersion = 2;
 
-    internal const int CurrentChartInfoParserVersion = 19;
+    internal const int CurrentChartInfoParserVersion = 20;
 
     public string SongDbPath { get; }
 

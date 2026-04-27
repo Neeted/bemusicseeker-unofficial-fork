@@ -293,7 +293,7 @@ internal static class ChartInfoParser
                 }
                 continue;
             }
-            if (MatchesReserveWord(line, "ENDIF"))
+            if (MatchesNoArgumentReserveWord(line, "ENDIF"))
             {
                 if (skipStack.Count > 0)
                 {
@@ -305,7 +305,7 @@ internal static class ChartInfoParser
                 }
                 continue;
             }
-            if (MatchesReserveWord(line, "ENDRANDOM"))
+            if (MatchesNoArgumentReserveWord(line, "ENDRANDOM"))
             {
                 if (selectedRandomStack.Count > 0)
                 {
@@ -899,6 +899,13 @@ internal static class ChartInfoParser
     {
         string trimmed = line.TrimStart();
         return trimmed.Length > word.Length + 1 && trimmed[0] == '#'
+            && string.Compare(trimmed, 1, word, 0, word.Length, ignoreCase: true, CultureInfo.InvariantCulture) == 0;
+    }
+
+    private static bool MatchesNoArgumentReserveWord(string line, string word)
+    {
+        string trimmed = line.TrimStart();
+        return trimmed.Length >= word.Length + 1 && trimmed[0] == '#'
             && string.Compare(trimmed, 1, word, 0, word.Length, ignoreCase: true, CultureInfo.InvariantCulture) == 0;
     }
 

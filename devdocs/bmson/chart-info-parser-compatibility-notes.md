@@ -172,6 +172,8 @@ RANDOM feature の判定は「`#RANDOM` らしい行を見たか」ではなく�
 - `#RANDOM 4` は valid。RANDOM stack に入り、`feature & 4` が立つ。
 - `#RANDOM4` は reserve word としては拾われるが、参照実装では `line.substring(8).trim()` が空になり、`#RANDOMに数字が定義されていません` warning で終わる。`model.random` には入らないので `feature & 4` は立てない。
 - この状態で `#IF` / `#ENDIF` が続く場合も、それぞれ warning / stack mismatch 扱いであり、RANDOM 使用譜面としては扱わない。
+- `#ENDIF` / `#ENDRANDOM` は引数を持たない directive として、行頭 prefix だけで認識する。ここを `#IF` などの引数付き reserve word と同じ判定にすると、完全一致の `#ENDIF` が拾えず、skip stack が残って後続の MAIN DATA FIELD まで無視される。
+- `#ENDRANDOM` が無い譜面も存在する。参照実装と同じく、`#IF/#ENDIF` の skip stack が閉じていれば、その後続行は通常通り処理する。
 
 RANDOM retry:
 
@@ -194,16 +196,9 @@ retry 対象:
 
 ### `#SWITCH/#CASE/#SKIP/#ENDSW`
 
-`#SWITCH` 系は差分原因になりやすい。
-RANDOM 以外でも複数 branch が譜面内に残ると、LN や通常ノートの count が大きく変わる。
+最新の jbms-parser / beatoraja が利用する `BMSDecoder` では、`#SWITCH/#CASE/#SKIP/#ENDSW` は特別処理されない。未知 command と同じ扱いになり、別途 `#IF` skip がかかっていない限り、ブロック内の譜面行は通常通り処理される。
 
-観測例:
-
-- `#CASE` 内の LN channel が全 branch 分処理されると、beatoraja 期待値より LN が増える。
-- LN が増えると、その LN 内の通常ノートが背景化され、`n`, `ln`, `notes`, `lanenotes`, `distribution`, `density` が連動してずれる。
-
-本アプリでは、参照実装の conditional stack に寄せる必要がある。
-未対応・不完全な状態では、`charthash` 以外の core diff として表面化する。
+そのため、本アプリ側でも `#SWITCH` 系の独自 conditional stack は実装しない。将来の参照実装で対応が入った場合のみ、production DB compare の差分を見ながら追従する。
 
 ## mode / lane assign
 
