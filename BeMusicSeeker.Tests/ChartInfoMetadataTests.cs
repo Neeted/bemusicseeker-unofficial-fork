@@ -172,6 +172,68 @@ public sealed class ChartInfoMetadataTests
     }
 
     [TestMethod]
+    public void LoadChartInfosByHash_LoadsRequestedRowsAndUsesStableMd5Representative()
+    {
+        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        {
+            BmsLibraryDbGateway gateway = new BmsLibraryDbGateway(songDbPath);
+            string md5 = new string('a', 32);
+            string firstSha = new string('1', 64);
+            string secondSha = new string('2', 64);
+            string unrelatedSha = new string('3', 64);
+            gateway.UpsertChartInfos(new[]
+            {
+                CreateChartInfoRow(secondSha, md5, BmsLibraryDbGateway.CurrentChartInfoParserVersion),
+                CreateChartInfoRow(firstSha, md5, BmsLibraryDbGateway.CurrentChartInfoParserVersion),
+                CreateChartInfoRow(unrelatedSha, new string('b', 32), BmsLibraryDbGateway.CurrentChartInfoParserVersion)
+            });
+
+            Dictionary<string, LR2SongDBExtended.chart_info> bySha256 = gateway.LoadChartInfosBySha256(new[] { secondSha });
+            Dictionary<string, LR2SongDBExtended.chart_info> byMd5 = gateway.LoadChartInfosByMd5(new[] { md5 });
+
+            Assert.AreEqual(1, bySha256.Count);
+            Assert.AreEqual(secondSha, bySha256[secondSha].sha256);
+            Assert.AreEqual(1, byMd5.Count);
+            Assert.AreEqual(firstSha, byMd5[md5].sha256);
+            Assert.IsFalse(bySha256.ContainsKey(unrelatedSha));
+        });
+    }
+
+    [TestMethod]
+    public void DeferredChartInfoHydration_BuildsSessionIndexAndUsesSha256BeforeMd5()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        {
+            BmsLibraryDbGateway gateway = new BmsLibraryDbGateway(songDbPath);
+            string md5 = new string('a', 32);
+            string firstSha = new string('1', 64);
+            string secondSha = new string('2', 64);
+            string unrelatedSha = new string('3', 64);
+            gateway.UpsertChartInfos(new[]
+            {
+                CreateChartInfoRow(secondSha, md5, BmsLibraryDbGateway.CurrentChartInfoParserVersion),
+                CreateChartInfoRow(firstSha, md5, BmsLibraryDbGateway.CurrentChartInfoParserVersion),
+                CreateChartInfoRow(unrelatedSha, new string('b', 32), BmsLibraryDbGateway.CurrentChartInfoParserVersion)
+            });
+            BMSLibrary library = new BMSLibrary(songDbPath, null, null, null, new RecordingDialogService());
+
+            Assert.IsFalse(library.ChartInfoIndexHydrated);
+            Assert.AreEqual(0, library.ChartInfoIndexVersion);
+            Assert.IsNull(library.ResolveChartInfo(firstSha, md5));
+
+            InvokeDeferredChartInfoHydration(library, "unit_test", queueFullBackfillAfterHydration: false);
+
+            Assert.IsTrue(WaitForChartInfoHydration(library), "chart_info hydration did not complete.");
+            Assert.IsTrue(library.ChartInfoIndexHydrated);
+            Assert.IsTrue(library.ChartInfoIndexVersion > 0);
+            Assert.AreEqual(secondSha, library.ResolveChartInfo(secondSha, md5).sha256, "sha256 match should win over md5 fallback.");
+            Assert.AreEqual(firstSha, library.ResolveChartInfo(null, md5).sha256, "md5 fallback should use the stable sha256-ordered representative.");
+            Assert.AreEqual(unrelatedSha, library.ResolveChartInfo(unrelatedSha, null).sha256);
+        });
+    }
+
+    [TestMethod]
     public void ParseBms_SimpleFixture_ComputesChartMetadata()
     {
         WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
@@ -2080,6 +2142,7 @@ public sealed class ChartInfoMetadataTests
             Assert.IsNotNull(targetFile.ChartInfo);
             Assert.IsNull(untouchedFile.ChartInfo);
             Assert.IsTrue(logs.Any((string message) => message.StartsWith("INFO chart_info_backfill start mode=added", StringComparison.Ordinal)));
+            Assert.IsTrue(logs.Any((string message) => message.Contains("existingRows=targeted:0")));
             using LR2SongDBExtended verify = new LR2SongDBExtended(songDbPath);
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info WHERE sha256 = '" + targetFile.sha256 + "';"));
             Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info WHERE sha256 = '" + untouchedDigest.sha256 + "';"));
@@ -2238,6 +2301,7 @@ public sealed class ChartInfoMetadataTests
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM song WHERE path = '" + installedFile.path.Replace("'", "''") + "';"));
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_digest_map WHERE md5 = '" + installedFile.hash + "' AND sha256 = '" + installedFile.sha256 + "';"));
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info WHERE sha256 = '" + installedFile.sha256 + "';"));
+            Assert.IsNotNull(library.ResolveChartInfo(installedFile.sha256, installedFile.hash));
         });
     }
 
@@ -2273,6 +2337,7 @@ public sealed class ChartInfoMetadataTests
             Assert.IsTrue(WaitForChartInfoBackfill(library), "chart_info targeted backfill did not complete.");
             LR2SongDBExtended.bmson_song installedSong = library.BmsonSongs.Single();
             Assert.IsNotNull(installedSong.ChartInfo);
+            Assert.IsNotNull(library.ResolveChartInfo(installedSong.sha256, installedSong.md5));
             using LR2SongDBExtended verify = new LR2SongDBExtended(songDbPath);
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM bmson_song WHERE path = '" + installedSong.path.Replace("'", "''") + "';"));
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info WHERE sha256 = '" + installedSong.sha256 + "';"));

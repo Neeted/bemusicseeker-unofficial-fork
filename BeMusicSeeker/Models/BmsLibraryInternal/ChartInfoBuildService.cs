@@ -61,6 +61,7 @@ internal sealed class ChartInfoBuildService
     /// <param name="reportProgress">進捗通知 callback。total, processed, currentPath を渡します。</param>
     /// <param name="logInstallPerformance">性能ログ callback。</param>
     /// <param name="logInstallPerformanceWarn">解析を継続できない譜面を逐次 WARN 出力する callback。</param>
+    /// <param name="chartInfoRowsCommitted">DB commit 成功後に保存済み chart_info 行を通知する callback。</param>
     /// <returns>構築結果。</returns>
     public ChartInfoBackfillResult BackfillChartInfos(
         BmsLibraryDbGateway dbGateway,
@@ -68,7 +69,8 @@ internal sealed class ChartInfoBuildService
         IEnumerable<LR2SongDBExtended.bmson_song> currentBmsonSongs,
         Action<int, int, string> reportProgress = null,
         Action<string> logInstallPerformance = null,
-        Action<string> logInstallPerformanceWarn = null)
+        Action<string> logInstallPerformanceWarn = null,
+        Action<IReadOnlyList<LR2SongDBExtended.chart_info>> chartInfoRowsCommitted = null)
     {
         return BackfillChartInfosCore(
             dbGateway,
@@ -77,7 +79,8 @@ internal sealed class ChartInfoBuildService
             "full",
             reportProgress,
             logInstallPerformance,
-            logInstallPerformanceWarn);
+            logInstallPerformanceWarn,
+            chartInfoRowsCommitted);
     }
 
     /// <summary>
@@ -89,6 +92,7 @@ internal sealed class ChartInfoBuildService
     /// <param name="reportProgress">進捗通知 callback。total, processed, currentPath を渡します。</param>
     /// <param name="logInstallPerformance">性能ログ callback。</param>
     /// <param name="logInstallPerformanceWarn">解析を継続できない譜面を逐次 WARN 出力する callback。</param>
+    /// <param name="chartInfoRowsCommitted">DB commit 成功後に保存済み chart_info 行を通知する callback。</param>
     /// <returns>構築結果。</returns>
     public ChartInfoBackfillResult BackfillChartInfosForTargets(
         BmsLibraryDbGateway dbGateway,
@@ -96,7 +100,8 @@ internal sealed class ChartInfoBuildService
         IEnumerable<LR2SongDBExtended.bmson_song> targetBmsonSongs,
         Action<int, int, string> reportProgress = null,
         Action<string> logInstallPerformance = null,
-        Action<string> logInstallPerformanceWarn = null)
+        Action<string> logInstallPerformanceWarn = null,
+        Action<IReadOnlyList<LR2SongDBExtended.chart_info>> chartInfoRowsCommitted = null)
     {
         return BackfillChartInfosCore(
             dbGateway,
@@ -105,7 +110,8 @@ internal sealed class ChartInfoBuildService
             "added",
             reportProgress,
             logInstallPerformance,
-            logInstallPerformanceWarn);
+            logInstallPerformanceWarn,
+            chartInfoRowsCommitted);
     }
 
     private ChartInfoBackfillResult BackfillChartInfosCore(
@@ -115,7 +121,8 @@ internal sealed class ChartInfoBuildService
         string mode,
         Action<int, int, string> reportProgress,
         Action<string> logInstallPerformance,
-        Action<string> logInstallPerformanceWarn)
+        Action<string> logInstallPerformanceWarn,
+        Action<IReadOnlyList<LR2SongDBExtended.chart_info>> chartInfoRowsCommitted)
     {
         ChartInfoBackfillResult result = new ChartInfoBackfillResult();
         if (dbGateway == null)
@@ -125,14 +132,20 @@ internal sealed class ChartInfoBuildService
         Stopwatch stopwatchTotal = Stopwatch.StartNew();
         int commitChunkSize = ResolveCommitChunkSize();
         TimeSpan parseTimeout = ResolveParseTimeout();
+        List<BMSFile> fileList = (currentFiles ?? Enumerable.Empty<BMSFile>()).ToList();
+        List<LR2SongDBExtended.bmson_song> bmsonSongList = (currentBmsonSongs ?? Enumerable.Empty<LR2SongDBExtended.bmson_song>()).ToList();
         dbGateway.EnsureChartInfoBackfillSchema();
-        Dictionary<string, LR2SongDBExtended.chart_info> existingRows = dbGateway.LoadChartInfoMap();
-        List<ChartInfoBuildTarget> targets = BuildTargets(currentFiles, currentBmsonSongs, existingRows, result);
+        bool isAddedMode = string.Equals(mode, "added", StringComparison.OrdinalIgnoreCase);
+        Dictionary<string, LR2SongDBExtended.chart_info> existingRows = isAddedMode
+            ? LoadExistingChartInfoRowsForTargets(dbGateway, fileList, bmsonSongList)
+            : dbGateway.LoadChartInfoMap();
+        string existingRowsLogValue = isAddedMode ? "targeted:" + existingRows.Count : existingRows.Count.ToString();
+        List<ChartInfoBuildTarget> targets = BuildTargets(fileList, bmsonSongList, existingRows, result);
         result.TargetCount = targets.Count;
         result.WorkerCount = ResolveWorkerCount();
         result.QueueCapacity = Math.Max(1, result.WorkerCount * 2);
         reportProgress?.Invoke(result.TargetCount, 0, string.Empty);
-        logInstallPerformance?.Invoke(BuildStartLogMessage(result, existingRows.Count, commitChunkSize, parseTimeout, mode));
+        logInstallPerformance?.Invoke(BuildStartLogMessage(result, existingRowsLogValue, commitChunkSize, parseTimeout, mode));
         if (targets.Count == 0)
         {
             stopwatchTotal.Stop();
@@ -155,7 +168,8 @@ internal sealed class ChartInfoBuildService
                 commitChunks.GetConsumingEnumerable(),
                 result,
                 logInstallPerformance,
-                logInstallPerformanceWarn);
+                logInstallPerformanceWarn,
+                chartInfoRowsCommitted);
         });
 
         Task resultCollector = Task.Run(delegate
@@ -404,11 +418,12 @@ internal sealed class ChartInfoBuildService
         IEnumerable<ChartInfoCommitChunk> commitChunks,
         ChartInfoBackfillResult result,
         Action<string> logInstallPerformance,
-        Action<string> logInstallPerformanceWarn)
+        Action<string> logInstallPerformanceWarn,
+        Action<IReadOnlyList<LR2SongDBExtended.chart_info>> chartInfoRowsCommitted)
     {
         foreach (ChartInfoCommitChunk chunk in commitChunks)
         {
-            FlushCommitChunk(dbGateway, chunk, result, logInstallPerformance, logInstallPerformanceWarn);
+            FlushCommitChunk(dbGateway, chunk, result, logInstallPerformance, logInstallPerformanceWarn, chartInfoRowsCommitted);
         }
     }
 
@@ -417,7 +432,8 @@ internal sealed class ChartInfoBuildService
         ChartInfoCommitChunk commitChunk,
         ChartInfoBackfillResult result,
         Action<string> logInstallPerformance,
-        Action<string> logInstallPerformanceWarn)
+        Action<string> logInstallPerformanceWarn,
+        Action<IReadOnlyList<LR2SongDBExtended.chart_info>> chartInfoRowsCommitted)
     {
         int chunkNumber = result.CommitChunks + 1;
         logInstallPerformance?.Invoke(BuildCommitStartLogMessage(chunkNumber, commitChunk));
@@ -436,6 +452,10 @@ internal sealed class ChartInfoBuildService
         result.CommitChunks++;
         result.DbCommitMs += stopwatch.ElapsedMilliseconds;
         result.DbCommitMaxChunkMs = Math.Max(result.DbCommitMaxChunkMs, stopwatch.ElapsedMilliseconds);
+        if (commitChunk.ChartInfoRows.Count > 0)
+        {
+            chartInfoRowsCommitted?.Invoke(commitChunk.ChartInfoRows);
+        }
         foreach (PendingDigestApplication application in commitChunk.DigestApplications)
         {
             result.DigestBackfilledCount += application.Target.ApplyDigest(application.Sha256, null);
@@ -579,6 +599,29 @@ internal sealed class ChartInfoBuildService
         return targets.Values.ToList();
     }
 
+    private static Dictionary<string, LR2SongDBExtended.chart_info> LoadExistingChartInfoRowsForTargets(
+        BmsLibraryDbGateway dbGateway,
+        IEnumerable<BMSFile> currentFiles,
+        IEnumerable<LR2SongDBExtended.bmson_song> currentBmsonSongs)
+    {
+        HashSet<string> sha256s = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (BMSFile file in currentFiles ?? Enumerable.Empty<BMSFile>())
+        {
+            if (file != null && !string.IsNullOrWhiteSpace(file.sha256))
+            {
+                sha256s.Add(file.sha256);
+            }
+        }
+        foreach (LR2SongDBExtended.bmson_song song in currentBmsonSongs ?? Enumerable.Empty<LR2SongDBExtended.bmson_song>())
+        {
+            if (song != null && !string.IsNullOrWhiteSpace(song.sha256))
+            {
+                sha256s.Add(song.sha256);
+            }
+        }
+        return dbGateway.LoadChartInfosBySha256(sha256s);
+    }
+
     private static string BuildTargetKey(string sha256, string md5, string path)
     {
         if (!string.IsNullOrWhiteSpace(sha256))
@@ -680,13 +723,13 @@ internal sealed class ChartInfoBuildService
             + " totalMs=" + result.TotalMs;
     }
 
-    private static string BuildStartLogMessage(ChartInfoBackfillResult result, int existingRowCount, int commitChunkSize, TimeSpan parseTimeout, string mode)
+    private static string BuildStartLogMessage(ChartInfoBackfillResult result, string existingRowCount, int commitChunkSize, TimeSpan parseTimeout, string mode)
     {
         return "chart_info_backfill start"
             + " mode=" + (string.IsNullOrWhiteSpace(mode) ? "full" : mode)
             + " targets=" + result.TargetCount
             + " digestTargets=" + result.DigestTargetCount
-            + " existingRows=" + existingRowCount
+            + " existingRows=" + (existingRowCount ?? "0")
             + " workerCount=" + result.WorkerCount
             + " queueCapacity=" + result.QueueCapacity
             + " chunkSize=" + commitChunkSize

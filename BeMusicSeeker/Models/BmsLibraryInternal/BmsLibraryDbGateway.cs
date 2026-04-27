@@ -40,6 +40,8 @@ internal sealed class ChartDigestBackfillEntry
 
 internal sealed class BmsLibraryDbGateway
 {
+    private const int ChartInfoLookupChunkSize = 500;
+
     private const string ChartDigestMapUpsertSql =
         "INSERT OR REPLACE INTO chart_digest_map (md5, sha256) VALUES (?, ?);";
 
@@ -386,6 +388,58 @@ internal sealed class BmsLibraryDbGateway
             }
         }
         return dictionary;
+    }
+
+    /// <summary>
+    /// 指定された SHA-256 だけに対応する chart_info を読み込みます。
+    /// playlist の未所持行解決や targeted backfill で全件読み込みを避けるために使用します。
+    /// </summary>
+    /// <param name="sha256s">検索対象 SHA-256。</param>
+    /// <returns>SHA-256 をキーにした chart_info。</returns>
+    public Dictionary<string, LR2SongDBExtended.chart_info> LoadChartInfosBySha256(IEnumerable<string> sha256s)
+    {
+        List<string> keys = NormalizeChartInfoLookupKeys(sha256s);
+        Dictionary<string, LR2SongDBExtended.chart_info> result = new Dictionary<string, LR2SongDBExtended.chart_info>(StringComparer.OrdinalIgnoreCase);
+        if (keys.Count == 0)
+        {
+            return result;
+        }
+        using LR2SongDBExtended songDb = OpenSongDb();
+        EnsureChartInfoSchema(songDb);
+        foreach (LR2SongDBExtended.chart_info row in QueryChartInfosByColumn(songDb, "sha256", keys, orderBySha256: false))
+        {
+            if (row != null && !string.IsNullOrWhiteSpace(row.sha256))
+            {
+                result[row.sha256] = row;
+            }
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// 指定された MD5 だけに対応する chart_info を読み込みます。
+    /// 同一 MD5 に複数 SHA-256 が存在する場合は SHA-256 昇順で最初の行を採用します。
+    /// </summary>
+    /// <param name="md5s">検索対象 MD5。</param>
+    /// <returns>MD5 をキーにした chart_info。</returns>
+    public Dictionary<string, LR2SongDBExtended.chart_info> LoadChartInfosByMd5(IEnumerable<string> md5s)
+    {
+        List<string> keys = NormalizeChartInfoLookupKeys(md5s);
+        Dictionary<string, LR2SongDBExtended.chart_info> result = new Dictionary<string, LR2SongDBExtended.chart_info>(StringComparer.OrdinalIgnoreCase);
+        if (keys.Count == 0)
+        {
+            return result;
+        }
+        using LR2SongDBExtended songDb = OpenSongDb();
+        EnsureChartInfoSchema(songDb);
+        foreach (LR2SongDBExtended.chart_info row in QueryChartInfosByColumn(songDb, "md5", keys, orderBySha256: true))
+        {
+            if (row != null && !string.IsNullOrWhiteSpace(row.md5) && !result.ContainsKey(row.md5))
+            {
+                result[row.md5] = row;
+            }
+        }
+        return result;
     }
 
     public List<LR2SongDBExtended.bmson_song> LoadBmsonSongs()
@@ -924,6 +978,42 @@ internal sealed class BmsLibraryDbGateway
             }
         }
         return result;
+    }
+
+    private static List<string> NormalizeChartInfoLookupKeys(IEnumerable<string> values)
+    {
+        return (values ?? Enumerable.Empty<string>())
+            .Where((string value) => !string.IsNullOrWhiteSpace(value))
+            .Select((string value) => value.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private static IEnumerable<LR2SongDBExtended.chart_info> QueryChartInfosByColumn(LR2SongDBExtended songDb, string columnName, IReadOnlyList<string> keys, bool orderBySha256)
+    {
+        if (songDb == null || keys == null || keys.Count == 0)
+        {
+            yield break;
+        }
+        string tableName = SQLiteTable<LR2SongDBExtended.chart_info>.GetTableName();
+        for (int offset = 0; offset < keys.Count; offset += ChartInfoLookupChunkSize)
+        {
+            List<string> chunk = keys.Skip(offset).Take(ChartInfoLookupChunkSize).ToList();
+            if (chunk.Count == 0)
+            {
+                continue;
+            }
+            string placeholders = string.Join(", ", chunk.Select(_ => "?"));
+            string sql = "SELECT * FROM " + tableName + " WHERE " + columnName + " IN (" + placeholders + ")";
+            if (orderBySha256)
+            {
+                sql += " ORDER BY sha256 COLLATE NOCASE ASC";
+            }
+            foreach (LR2SongDBExtended.chart_info row in songDb.Query<LR2SongDBExtended.chart_info>(sql, chunk.Cast<object>().ToArray()))
+            {
+                yield return row;
+            }
+        }
     }
 
     private static void RepairChartDigestMapConsistency(LR2SongDBExtended songDb, Dictionary<string, string> reusableDigests)

@@ -787,6 +787,12 @@ public class BMSLibrary : NotificationObject
 
     private bool chartInfoHydrationPendingQueueBackfill;
 
+    private readonly object lockChartInfoIndex = new object();
+
+    private Dictionary<string, LR2SongDBExtended.chart_info> chartInfoIndexBySha256 = new Dictionary<string, LR2SongDBExtended.chart_info>(StringComparer.OrdinalIgnoreCase);
+
+    private Dictionary<string, SortedDictionary<string, LR2SongDBExtended.chart_info>> chartInfoIndexByMd5 = new Dictionary<string, SortedDictionary<string, LR2SongDBExtended.chart_info>>(StringComparer.OrdinalIgnoreCase);
+
     private readonly object lockScoreSnapshot = new object();
 
     private ScoreSnapshot scoreSnapshot;
@@ -920,6 +926,10 @@ public class BMSLibrary : NotificationObject
     private int _ChartInfoHydrationTotalCount;
 
     private int _ChartInfoHydrationAppliedCount;
+
+    private int _ChartInfoIndexVersion;
+
+    private bool _ChartInfoIndexHydrated;
 
     private bool _IsWriteLockHeldInitializeBMSFilesHealthStatus = true;
 
@@ -1785,6 +1795,35 @@ public class BMSLibrary : NotificationObject
         }
     }
 
+    /// <summary>
+    /// このセッションで保持している chart_info index の版数です。
+    /// hydration または backfill commit により、playlist 未所持行のメタデータ解決結果が変わるたびに進みます。
+    /// </summary>
+    public int ChartInfoIndexVersion
+    {
+        get
+        {
+            lock (lockChartInfoIndex)
+            {
+                return _ChartInfoIndexVersion;
+            }
+        }
+    }
+
+    /// <summary>
+    /// chart_info index が DB snapshot で初期化済みかどうかです。
+    /// </summary>
+    public bool ChartInfoIndexHydrated
+    {
+        get
+        {
+            lock (lockChartInfoIndex)
+            {
+                return _ChartInfoIndexHydrated;
+            }
+        }
+    }
+
     public bool IsWriteLockHeldInitializeAll
     {
         get
@@ -2083,6 +2122,19 @@ public class BMSLibrary : NotificationObject
         public long ApplyMs { get; set; }
 
         public long TotalMs { get; set; }
+    }
+
+    private sealed class ChartInfoIndexUpdateResult
+    {
+        public int InputRows { get; set; }
+
+        public int BySha256Count { get; set; }
+
+        public int ByMd5Count { get; set; }
+
+        public int Version { get; set; }
+
+        public bool HydrationChanged { get; set; }
     }
 
     /// <summary>
@@ -3800,6 +3852,12 @@ public class BMSLibrary : NotificationObject
         loadStopwatch.Stop();
         result.LoadMs = loadStopwatch.ElapsedMilliseconds;
         result.TotalRows = chartInfoMap.Count;
+        ChartInfoIndexUpdateResult indexUpdateResult = ReplaceChartInfoIndex(chartInfoMap.Values, hydrated: true);
+        LogInstallPerformance("chart_info_index_hydrated rows=" + indexUpdateResult.InputRows
+            + " bySha256=" + indexUpdateResult.BySha256Count
+            + " byMd5=" + indexUpdateResult.ByMd5Count
+            + " version=" + indexUpdateResult.Version
+            + " elapsedMs=" + loadStopwatch.ElapsedMilliseconds);
 
         Stopwatch applyStopwatch = Stopwatch.StartNew();
         using (rwlockBMSFiles.GetReaderGuard())
@@ -3826,6 +3884,180 @@ public class BMSLibrary : NotificationObject
         totalStopwatch.Stop();
         result.TotalMs = totalStopwatch.ElapsedMilliseconds;
         return result;
+    }
+
+    internal LR2SongDBExtended.chart_info ResolveChartInfo(string sha256, string md5)
+    {
+        lock (lockChartInfoIndex)
+        {
+            if (!string.IsNullOrWhiteSpace(sha256) && chartInfoIndexBySha256.TryGetValue(sha256, out LR2SongDBExtended.chart_info resolvedBySha256))
+            {
+                return resolvedBySha256;
+            }
+            if (!string.IsNullOrWhiteSpace(md5) && chartInfoIndexByMd5.TryGetValue(md5, out SortedDictionary<string, LR2SongDBExtended.chart_info> candidates) && candidates.Count > 0)
+            {
+                return candidates.First().Value;
+            }
+        }
+        return null;
+    }
+
+    private ChartInfoIndexUpdateResult ReplaceChartInfoIndex(IEnumerable<LR2SongDBExtended.chart_info> rows, bool hydrated)
+    {
+        Dictionary<string, LR2SongDBExtended.chart_info> bySha256 = new Dictionary<string, LR2SongDBExtended.chart_info>(StringComparer.OrdinalIgnoreCase);
+        Dictionary<string, SortedDictionary<string, LR2SongDBExtended.chart_info>> byMd5 = new Dictionary<string, SortedDictionary<string, LR2SongDBExtended.chart_info>>(StringComparer.OrdinalIgnoreCase);
+        int inputRows = 0;
+        foreach (LR2SongDBExtended.chart_info row in rows ?? Enumerable.Empty<LR2SongDBExtended.chart_info>())
+        {
+            if (!TryGetChartInfoSha256(row, out string sha256))
+            {
+                continue;
+            }
+            inputRows++;
+            bySha256[sha256] = row;
+            AddChartInfoMd5Candidate(byMd5, row, sha256);
+        }
+
+        ChartInfoIndexUpdateResult result = new ChartInfoIndexUpdateResult
+        {
+            InputRows = inputRows,
+            BySha256Count = bySha256.Count,
+            ByMd5Count = byMd5.Count
+        };
+        lock (lockChartInfoIndex)
+        {
+            chartInfoIndexBySha256 = bySha256;
+            chartInfoIndexByMd5 = byMd5;
+            result.HydrationChanged = _ChartInfoIndexHydrated != hydrated;
+            _ChartInfoIndexHydrated = hydrated;
+            _ChartInfoIndexVersion++;
+            result.Version = _ChartInfoIndexVersion;
+        }
+        RaisePropertyChanged(() => ChartInfoIndexVersion);
+        if (result.HydrationChanged)
+        {
+            RaisePropertyChanged(() => ChartInfoIndexHydrated);
+        }
+        return result;
+    }
+
+    private ChartInfoIndexUpdateResult UpsertChartInfoIndexRows(IEnumerable<LR2SongDBExtended.chart_info> rows, string reason)
+    {
+        List<LR2SongDBExtended.chart_info> rowList = (rows ?? Enumerable.Empty<LR2SongDBExtended.chart_info>())
+            .Where((LR2SongDBExtended.chart_info row) => row != null && !string.IsNullOrWhiteSpace(row.sha256))
+            .ToList();
+        if (rowList.Count == 0)
+        {
+            return new ChartInfoIndexUpdateResult();
+        }
+
+        ChartInfoIndexUpdateResult result = new ChartInfoIndexUpdateResult
+        {
+            InputRows = rowList.Count
+        };
+        lock (lockChartInfoIndex)
+        {
+            foreach (LR2SongDBExtended.chart_info row in rowList)
+            {
+                if (!TryGetChartInfoSha256(row, out string sha256))
+                {
+                    continue;
+                }
+                if (chartInfoIndexBySha256.TryGetValue(sha256, out LR2SongDBExtended.chart_info previousRow))
+                {
+                    RemoveChartInfoMd5Candidate(chartInfoIndexByMd5, previousRow, sha256);
+                }
+                chartInfoIndexBySha256[sha256] = row;
+                AddChartInfoMd5Candidate(chartInfoIndexByMd5, row, sha256);
+            }
+            _ChartInfoIndexVersion++;
+            result.Version = _ChartInfoIndexVersion;
+            result.BySha256Count = chartInfoIndexBySha256.Count;
+            result.ByMd5Count = chartInfoIndexByMd5.Count;
+        }
+        RaisePropertyChanged(() => ChartInfoIndexVersion);
+        LogInstallPerformance("chart_info_index_delta upserted=" + rowList.Count
+            + " bySha256=" + result.BySha256Count
+            + " byMd5=" + result.ByMd5Count
+            + " version=" + result.Version
+            + " reason=" + (reason ?? "unknown"));
+        return result;
+    }
+
+    private static bool TryGetChartInfoSha256(LR2SongDBExtended.chart_info row, out string sha256)
+    {
+        sha256 = row?.sha256;
+        if (string.IsNullOrWhiteSpace(sha256))
+        {
+            sha256 = null;
+            return false;
+        }
+        sha256 = sha256.Trim();
+        return true;
+    }
+
+    private static bool TryGetChartInfoMd5(LR2SongDBExtended.chart_info row, out string md5)
+    {
+        md5 = row?.md5;
+        if (string.IsNullOrWhiteSpace(md5))
+        {
+            md5 = null;
+            return false;
+        }
+        md5 = md5.Trim();
+        return true;
+    }
+
+    private static void AddChartInfoMd5Candidate(
+        IDictionary<string, SortedDictionary<string, LR2SongDBExtended.chart_info>> byMd5,
+        LR2SongDBExtended.chart_info row,
+        string sha256)
+    {
+        if (byMd5 == null || row == null || string.IsNullOrWhiteSpace(sha256) || !TryGetChartInfoMd5(row, out string md5))
+        {
+            return;
+        }
+        if (!byMd5.TryGetValue(md5, out SortedDictionary<string, LR2SongDBExtended.chart_info> candidates))
+        {
+            candidates = new SortedDictionary<string, LR2SongDBExtended.chart_info>(StringComparer.OrdinalIgnoreCase);
+            byMd5[md5] = candidates;
+        }
+        candidates[sha256] = row;
+    }
+
+    private static void RemoveChartInfoMd5Candidate(
+        IDictionary<string, SortedDictionary<string, LR2SongDBExtended.chart_info>> byMd5,
+        LR2SongDBExtended.chart_info row,
+        string sha256)
+    {
+        if (byMd5 == null || row == null || string.IsNullOrWhiteSpace(sha256) || !TryGetChartInfoMd5(row, out string md5))
+        {
+            return;
+        }
+        if (!byMd5.TryGetValue(md5, out SortedDictionary<string, LR2SongDBExtended.chart_info> candidates))
+        {
+            return;
+        }
+        candidates.Remove(sha256);
+        if (candidates.Count == 0)
+        {
+            byMd5.Remove(md5);
+        }
+    }
+
+    internal Dictionary<string, LR2SongDBExtended.chart_info> LoadChartInfoMapSnapshot()
+    {
+        return dbGateway.LoadChartInfoMap();
+    }
+
+    internal Dictionary<string, LR2SongDBExtended.chart_info> LoadChartInfosBySha256(IEnumerable<string> sha256s)
+    {
+        return dbGateway.LoadChartInfosBySha256(sha256s);
+    }
+
+    internal Dictionary<string, LR2SongDBExtended.chart_info> LoadChartInfosByMd5(IEnumerable<string> md5s)
+    {
+        return dbGateway.LoadChartInfosByMd5(md5s);
     }
 
     private void WaitForChartInfoHydrationIdle()
@@ -3956,14 +4188,24 @@ public class BMSLibrary : NotificationObject
                         bmsonSongsSnapshot,
                         reportProgress,
                         LogInstallPerformance,
-                        LogInstallPerformanceWarn)
+                        LogInstallPerformanceWarn,
+                        (IReadOnlyList<LR2SongDBExtended.chart_info> rows) => UpsertChartInfoIndexRows(rows, "backfill"))
                     : chartInfoBuildService.BackfillChartInfosForTargets(
                         dbGateway,
                         filesSnapshot,
                         bmsonSongsSnapshot,
                         reportProgress,
                         LogInstallPerformance,
-                        LogInstallPerformanceWarn);
+                        LogInstallPerformanceWarn,
+                        (IReadOnlyList<LR2SongDBExtended.chart_info> rows) => UpsertChartInfoIndexRows(rows, "backfill"));
+                if (!isFullRequest)
+                {
+                    IEnumerable<LR2SongDBExtended.chart_info> appliedRows =
+                        filesSnapshot.Select((BMSFile file) => file?.ChartInfo)
+                            .Concat(bmsonSongsSnapshot.Select((LR2SongDBExtended.bmson_song song) => song?.ChartInfo))
+                            .Where((LR2SongDBExtended.chart_info row) => row != null);
+                    UpsertChartInfoIndexRows(appliedRows, "backfill_added_targets");
+                }
                 if (isFullRequest && result.DigestFailedCount <= 0)
                 {
                     dbGateway.MarkBmsonAppSchemaCurrent();
@@ -6414,7 +6656,6 @@ public class BMSLibrary : NotificationObject
                     directoryRelativePathHashIndex.AddDir(dir, addedDirectoryScan);
                 }
                 LogReverseLookupMutationAndQueueWarmupIfNeeded("install_package", reverseLookupMutation);
-                InvalidateInstalledDirectoryIndex();
             },
             excludedComponentPathsByPackage,
             existingHashes,

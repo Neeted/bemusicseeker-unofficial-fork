@@ -3,6 +3,7 @@ using System.ComponentModel;
 using System.Linq;
 using System;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.ViewModels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -291,8 +292,8 @@ public sealed class PlaylistViewPipelineTests
             Direction = ListSortDirection.Ascending
         };
 
-        MainWindowViewModel.PlaylistRequestIdentity left = MainWindowViewModel.CreatePlaylistRequestIdentity(table, " FolderA ", MainWindowViewModel.PlaylistFilterType.PlaylistFilter, " keyword ", MainWindowViewModel.ModeFilterType._7KEYS, sortParameters, libraryIndexVersion: 10, playlistRevision: 20, scoreSnapshotVersion: 30, hasResolvedSelection: true);
-        MainWindowViewModel.PlaylistRequestIdentity right = MainWindowViewModel.CreatePlaylistRequestIdentity(table, "FolderA", MainWindowViewModel.PlaylistFilterType.PlaylistFilter, "KEYWORD", MainWindowViewModel.ModeFilterType._7KEYS, sortParameters, libraryIndexVersion: 10, playlistRevision: 20, scoreSnapshotVersion: 30, hasResolvedSelection: true);
+        MainWindowViewModel.PlaylistRequestIdentity left = MainWindowViewModel.CreatePlaylistRequestIdentity(table, " FolderA ", MainWindowViewModel.PlaylistFilterType.PlaylistFilter, " keyword ", MainWindowViewModel.ModeFilterType._7KEYS, sortParameters, libraryIndexVersion: 10, playlistRevision: 20, scoreSnapshotVersion: 30, chartInfoIndexVersion: 40, hasResolvedSelection: true);
+        MainWindowViewModel.PlaylistRequestIdentity right = MainWindowViewModel.CreatePlaylistRequestIdentity(table, "FolderA", MainWindowViewModel.PlaylistFilterType.PlaylistFilter, "KEYWORD", MainWindowViewModel.ModeFilterType._7KEYS, sortParameters, libraryIndexVersion: 10, playlistRevision: 20, scoreSnapshotVersion: 30, chartInfoIndexVersion: 40, hasResolvedSelection: true);
 
         Assert.AreEqual(left, right);
     }
@@ -301,8 +302,8 @@ public sealed class PlaylistViewPipelineTests
     public void CreatePlaylistRequestIdentity_DifferentPlaylistRevisionBreaksDedup()
     {
         BMSTable table = new BMSTable();
-        MainWindowViewModel.PlaylistRequestIdentity before = MainWindowViewModel.CreatePlaylistRequestIdentity(table, null, MainWindowViewModel.PlaylistFilterType.PlaylistNotOwnedFilterSelected, null, MainWindowViewModel.ModeFilterType.All, sortParameters: null, libraryIndexVersion: 3, playlistRevision: 4, scoreSnapshotVersion: 5, hasResolvedSelection: true);
-        MainWindowViewModel.PlaylistRequestIdentity after = MainWindowViewModel.CreatePlaylistRequestIdentity(table, null, MainWindowViewModel.PlaylistFilterType.PlaylistNotOwnedFilterSelected, null, MainWindowViewModel.ModeFilterType.All, sortParameters: null, libraryIndexVersion: 3, playlistRevision: 5, scoreSnapshotVersion: 5, hasResolvedSelection: true);
+        MainWindowViewModel.PlaylistRequestIdentity before = MainWindowViewModel.CreatePlaylistRequestIdentity(table, null, MainWindowViewModel.PlaylistFilterType.PlaylistNotOwnedFilterSelected, null, MainWindowViewModel.ModeFilterType.All, sortParameters: null, libraryIndexVersion: 3, playlistRevision: 4, scoreSnapshotVersion: 5, chartInfoIndexVersion: 6, hasResolvedSelection: true);
+        MainWindowViewModel.PlaylistRequestIdentity after = MainWindowViewModel.CreatePlaylistRequestIdentity(table, null, MainWindowViewModel.PlaylistFilterType.PlaylistNotOwnedFilterSelected, null, MainWindowViewModel.ModeFilterType.All, sortParameters: null, libraryIndexVersion: 3, playlistRevision: 5, scoreSnapshotVersion: 5, chartInfoIndexVersion: 6, hasResolvedSelection: true);
 
         Assert.AreNotEqual(before, after);
     }
@@ -311,8 +312,18 @@ public sealed class PlaylistViewPipelineTests
     public void CreatePlaylistRequestIdentity_DifferentScoreSnapshotVersionBreaksDedup()
     {
         BMSTable table = new BMSTable();
-        MainWindowViewModel.PlaylistRequestIdentity before = MainWindowViewModel.CreatePlaylistRequestIdentity(table, null, MainWindowViewModel.PlaylistFilterType.PlaylistFilter, null, MainWindowViewModel.ModeFilterType.All, sortParameters: null, libraryIndexVersion: 3, playlistRevision: 4, scoreSnapshotVersion: 5, hasResolvedSelection: true);
-        MainWindowViewModel.PlaylistRequestIdentity after = MainWindowViewModel.CreatePlaylistRequestIdentity(table, null, MainWindowViewModel.PlaylistFilterType.PlaylistFilter, null, MainWindowViewModel.ModeFilterType.All, sortParameters: null, libraryIndexVersion: 3, playlistRevision: 4, scoreSnapshotVersion: 6, hasResolvedSelection: true);
+        MainWindowViewModel.PlaylistRequestIdentity before = MainWindowViewModel.CreatePlaylistRequestIdentity(table, null, MainWindowViewModel.PlaylistFilterType.PlaylistFilter, null, MainWindowViewModel.ModeFilterType.All, sortParameters: null, libraryIndexVersion: 3, playlistRevision: 4, scoreSnapshotVersion: 5, chartInfoIndexVersion: 6, hasResolvedSelection: true);
+        MainWindowViewModel.PlaylistRequestIdentity after = MainWindowViewModel.CreatePlaylistRequestIdentity(table, null, MainWindowViewModel.PlaylistFilterType.PlaylistFilter, null, MainWindowViewModel.ModeFilterType.All, sortParameters: null, libraryIndexVersion: 3, playlistRevision: 4, scoreSnapshotVersion: 6, chartInfoIndexVersion: 6, hasResolvedSelection: true);
+
+        Assert.AreNotEqual(before, after);
+    }
+
+    [TestMethod]
+    public void CreatePlaylistRequestIdentity_DifferentChartInfoIndexVersionBreaksDedup()
+    {
+        BMSTable table = new BMSTable();
+        MainWindowViewModel.PlaylistRequestIdentity before = MainWindowViewModel.CreatePlaylistRequestIdentity(table, null, MainWindowViewModel.PlaylistFilterType.PlaylistFilter, null, MainWindowViewModel.ModeFilterType.All, sortParameters: null, libraryIndexVersion: 3, playlistRevision: 4, scoreSnapshotVersion: 5, chartInfoIndexVersion: 6, hasResolvedSelection: true);
+        MainWindowViewModel.PlaylistRequestIdentity after = MainWindowViewModel.CreatePlaylistRequestIdentity(table, null, MainWindowViewModel.PlaylistFilterType.PlaylistFilter, null, MainWindowViewModel.ModeFilterType.All, sortParameters: null, libraryIndexVersion: 3, playlistRevision: 4, scoreSnapshotVersion: 5, chartInfoIndexVersion: 7, hasResolvedSelection: true);
 
         Assert.AreNotEqual(before, after);
     }
@@ -325,9 +336,24 @@ public sealed class PlaylistViewPipelineTests
             libraryIndexInvalidated: false,
             playlistRevisionInvalidated: false,
             scoreSnapshotInvalidated: true,
+            chartInfoIndexInvalidated: false,
             sourceMissing: false);
 
         Assert.AreEqual("score_snapshot_version", reason);
+    }
+
+    [TestMethod]
+    public void DeterminePlaylistSourceInvalidationReason_WhenOnlyChartInfoIndexChanges_ReturnsChartInfoIndex()
+    {
+        string reason = MainWindowViewModel.DeterminePlaylistSourceInvalidationReasonForTest(
+            selectionChanged: false,
+            libraryIndexInvalidated: false,
+            playlistRevisionInvalidated: false,
+            scoreSnapshotInvalidated: false,
+            chartInfoIndexInvalidated: true,
+            sourceMissing: false);
+
+        Assert.AreEqual("chart_info_index", reason);
     }
 
     [TestMethod]
@@ -338,6 +364,7 @@ public sealed class PlaylistViewPipelineTests
             libraryIndexInvalidated: true,
             playlistRevisionInvalidated: true,
             scoreSnapshotInvalidated: true,
+            chartInfoIndexInvalidated: true,
             sourceMissing: true);
 
         Assert.AreEqual("selection_changed", reason);
@@ -347,8 +374,8 @@ public sealed class PlaylistViewPipelineTests
     public void CreatePlaylistRequestIdentity_DistinguishesRootPlaylistAndEmptyFolderNode()
     {
         BMSTable table = new BMSTable();
-        MainWindowViewModel.PlaylistRequestIdentity rootPlaylist = MainWindowViewModel.CreatePlaylistRequestIdentity(table, null, MainWindowViewModel.PlaylistFilterType.PlaylistFilter, null, MainWindowViewModel.ModeFilterType.All, sortParameters: null, libraryIndexVersion: 3, playlistRevision: 4, scoreSnapshotVersion: 5, hasResolvedSelection: true);
-        MainWindowViewModel.PlaylistRequestIdentity emptyFolder = MainWindowViewModel.CreatePlaylistRequestIdentity(table, string.Empty, MainWindowViewModel.PlaylistFilterType.PlaylistFilter, null, MainWindowViewModel.ModeFilterType.All, sortParameters: null, libraryIndexVersion: 3, playlistRevision: 4, scoreSnapshotVersion: 5, hasResolvedSelection: true);
+        MainWindowViewModel.PlaylistRequestIdentity rootPlaylist = MainWindowViewModel.CreatePlaylistRequestIdentity(table, null, MainWindowViewModel.PlaylistFilterType.PlaylistFilter, null, MainWindowViewModel.ModeFilterType.All, sortParameters: null, libraryIndexVersion: 3, playlistRevision: 4, scoreSnapshotVersion: 5, chartInfoIndexVersion: 6, hasResolvedSelection: true);
+        MainWindowViewModel.PlaylistRequestIdentity emptyFolder = MainWindowViewModel.CreatePlaylistRequestIdentity(table, string.Empty, MainWindowViewModel.PlaylistFilterType.PlaylistFilter, null, MainWindowViewModel.ModeFilterType.All, sortParameters: null, libraryIndexVersion: 3, playlistRevision: 4, scoreSnapshotVersion: 5, chartInfoIndexVersion: 6, hasResolvedSelection: true);
 
         Assert.AreNotEqual(rootPlaylist, emptyFolder);
     }
@@ -453,6 +480,86 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(entry.md5, sourceRow.hash);
         Assert.AreEqual(entry.sha256, sourceRow.sha256);
         Assert.AreEqual(ClearType.NO_SONG, sourceRow.clear);
+    }
+
+    [TestMethod]
+    public void PlaylistDetailSourceRow_MissingWithEntryChartInfo_DisplaysMetadataWithoutChangingOwnership()
+    {
+        LR2SongDBExtended.chart_info chartInfo = CreateChartInfo(
+            sha256: new string('d', 64),
+            md5: "abababababababababababababababab",
+            level: 12,
+            notes: 2500,
+            total: 777.5);
+        TestablePlaylistEntry entry = new TestablePlaylistEntry();
+        entry.SetTitle("Missing");
+        entry.SetMd5(chartInfo.md5);
+        entry.SetSha256(chartInfo.sha256);
+
+        PlaylistDetailSourceRow sourceRow = new PlaylistDetailSourceRow(entry, realFile: null, resolvedBmson: null, entryChartInfo: chartInfo);
+        PlaylistDetailRow row = sourceRow.CreateViewRow();
+
+        Assert.IsFalse(sourceRow.IsOwned);
+        Assert.AreEqual(ClearType.NO_SONG, sourceRow.clear);
+        Assert.AreSame(chartInfo, sourceRow.EntryChartInfo);
+        Assert.AreSame(chartInfo, sourceRow.ChartInfo);
+        Assert.AreEqual("12", row.ChartLevelText);
+        Assert.AreEqual("ANOTHER", row.ChartDifficultyText);
+        Assert.AreEqual(2500, row.ChartNotes);
+        Assert.AreEqual("777.5", row.ChartTotalText);
+    }
+
+    [TestMethod]
+    public void ResolveChartInfoForPlaylistEntry_PrefersSha256ThenFallsBackToMd5()
+    {
+        TestablePlaylistEntry entry = new TestablePlaylistEntry();
+        entry.SetMd5("abababababababababababababababab");
+        entry.SetSha256(new string('c', 64));
+        LR2SongDBExtended.chart_info shaMatch = CreateChartInfo(entry.sha256, "ffffffffffffffffffffffffffffffff", level: 12);
+        LR2SongDBExtended.chart_info md5Match = CreateChartInfo(new string('d', 64), entry.md5, level: 3);
+        Dictionary<string, LR2SongDBExtended.chart_info> bySha256 = new Dictionary<string, LR2SongDBExtended.chart_info>(StringComparer.OrdinalIgnoreCase)
+        {
+            [shaMatch.sha256] = shaMatch
+        };
+        Dictionary<string, LR2SongDBExtended.chart_info> byMd5 = new Dictionary<string, LR2SongDBExtended.chart_info>(StringComparer.OrdinalIgnoreCase)
+        {
+            [md5Match.md5] = md5Match
+        };
+
+        Assert.AreSame(shaMatch, MainWindowViewModel.ResolveChartInfoForPlaylistEntry(entry, byMd5, bySha256));
+
+        TestablePlaylistEntry md5OnlyEntry = new TestablePlaylistEntry();
+        md5OnlyEntry.SetMd5(md5Match.md5);
+        Assert.AreSame(md5Match, MainWindowViewModel.ResolveChartInfoForPlaylistEntry(md5OnlyEntry, byMd5, bySha256));
+    }
+
+    [TestMethod]
+    public void ApplyPlaylistViewFromSource_MissingChartInfoParticipatesInKeywordAndNumericSort()
+    {
+        LR2SongDBExtended.chart_info highNotesInfo = CreateChartInfo(new string('e', 64), "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", level: 12, notes: 2500, total: 500);
+        LR2SongDBExtended.chart_info lowNotesInfo = CreateChartInfo(new string('f', 64), "ffffffffffffffffffffffffffffffff", level: 3, notes: 500, total: 100);
+        PlaylistDetailSourceRow highNotesRow = CreateMissingSourceRow("HighNotes", highNotesInfo);
+        PlaylistDetailSourceRow lowNotesRow = CreateMissingSourceRow("LowNotes", lowNotesInfo);
+
+        List<PlaylistDetailRow> result = MainWindowViewModel.ApplyPlaylistViewFromSource(
+            new[] { highNotesRow, lowNotesRow },
+            keywordFilter: "notes:>=2000 feature:random level:12",
+            modeFilter: MainWindowViewModel.ModeFilterType.All,
+            sortParameters: new MainWindowViewModel.cSortParameters { ColumnsName = nameof(PlaylistDetailRow.ChartNotes), Direction = ListSortDirection.Descending },
+            out string _,
+            out int keywordCount,
+            out int modeCount,
+            out long _,
+            out long _,
+            out long _,
+            out long _);
+
+        Assert.AreEqual(1, result.Count);
+        Assert.AreEqual("HighNotes", result[0].Title);
+        Assert.AreEqual(2500, result[0].ChartNotes);
+        Assert.AreEqual(1, keywordCount);
+        Assert.AreEqual(1, modeCount);
+        Assert.IsFalse(result[0].IsOwned);
     }
 
     [TestMethod]
@@ -577,6 +684,51 @@ public sealed class PlaylistViewPipelineTests
             entry.SetSha256(sha256);
         }
         return new PlaylistDetailSourceRow(entry, file);
+    }
+
+    private static PlaylistDetailSourceRow CreateMissingSourceRow(string title, LR2SongDBExtended.chart_info chartInfo)
+    {
+        TestablePlaylistEntry entry = new TestablePlaylistEntry();
+        entry.SetTitle(title);
+        entry.SetMd5(chartInfo.md5);
+        entry.SetSha256(chartInfo.sha256);
+        return new PlaylistDetailSourceRow(entry, realFile: null, resolvedBmson: null, entryChartInfo: chartInfo);
+    }
+
+    private static LR2SongDBExtended.chart_info CreateChartInfo(string sha256, string md5, int? level = 12, int notes = 2500, double total = 500)
+    {
+        return new LR2SongDBExtended.chart_info
+        {
+            sha256 = sha256,
+            md5 = md5,
+            charthash = new string('a', 64),
+            level = level,
+            difficulty = 4,
+            difficulty_defined = true,
+            mainbpm = 180,
+            maxbpm = 180,
+            minbpm = 120,
+            length = 123000,
+            mode = 7,
+            judge = 100,
+            feature = ChartInfoDisplayFormatter.FeatureRandom,
+            notes = notes,
+            n = notes,
+            ln = 10,
+            s = 20,
+            ls = 5,
+            total = total,
+            total_defined = true,
+            density = 10,
+            peakdensity = 20,
+            enddensity = 2,
+            distribution = "0,1,2",
+            speedchange = "0=180",
+            speedchange_count = 1,
+            lanenotes = "1,2,3,4,5,6,7",
+            parser_version = 1,
+            updated_at = DateTime.UtcNow
+        };
     }
 
     private sealed class TestablePlaylistEntry : BMSTableEntry

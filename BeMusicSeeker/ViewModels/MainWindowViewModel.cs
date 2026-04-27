@@ -3564,6 +3564,12 @@ public class MainWindowViewModel : ViewModel
         internal int ScoreSnapshotVersion { get; }
 
         /// <summary>
+        /// chart_info index 版数です。
+        /// playlist 未所持行のメタデータ解決結果が変わったかを判定します。
+        /// </summary>
+        internal int ChartInfoIndexVersion { get; }
+
+        /// <summary>
         /// selection を正しく解決できたかどうかです。
         /// </summary>
         internal bool HasResolvedSelection { get; }
@@ -3571,7 +3577,7 @@ public class MainWindowViewModel : ViewModel
         /// <summary>
         /// 正規化済み playlist 要求 identity を生成します。
         /// </summary>
-        internal PlaylistRequestIdentity(BMSTable table, string folderName, PlaylistFilterType filterType, string keywordFilter, ModeFilterType modeFilter, string sortColumnName, ListSortDirection sortDirection, long libraryIndexVersion, long playlistRevision, int scoreSnapshotVersion, bool hasResolvedSelection)
+        internal PlaylistRequestIdentity(BMSTable table, string folderName, PlaylistFilterType filterType, string keywordFilter, ModeFilterType modeFilter, string sortColumnName, ListSortDirection sortDirection, long libraryIndexVersion, long playlistRevision, int scoreSnapshotVersion, int chartInfoIndexVersion, bool hasResolvedSelection)
         {
             Table = table;
             FolderName = folderName;
@@ -3583,12 +3589,13 @@ public class MainWindowViewModel : ViewModel
             LibraryIndexVersion = libraryIndexVersion;
             PlaylistRevision = playlistRevision;
             ScoreSnapshotVersion = scoreSnapshotVersion;
+            ChartInfoIndexVersion = chartInfoIndexVersion;
             HasResolvedSelection = hasResolvedSelection;
         }
 
         public bool Equals(PlaylistRequestIdentity other)
         {
-            return Table == other.Table && string.Equals(FolderName, other.FolderName, StringComparison.Ordinal) && FilterType == other.FilterType && string.Equals(KeywordFilter, other.KeywordFilter, StringComparison.Ordinal) && ModeFilter == other.ModeFilter && string.Equals(SortColumnName, other.SortColumnName, StringComparison.Ordinal) && SortDirection == other.SortDirection && LibraryIndexVersion == other.LibraryIndexVersion && PlaylistRevision == other.PlaylistRevision && ScoreSnapshotVersion == other.ScoreSnapshotVersion && HasResolvedSelection == other.HasResolvedSelection;
+            return Table == other.Table && string.Equals(FolderName, other.FolderName, StringComparison.Ordinal) && FilterType == other.FilterType && string.Equals(KeywordFilter, other.KeywordFilter, StringComparison.Ordinal) && ModeFilter == other.ModeFilter && string.Equals(SortColumnName, other.SortColumnName, StringComparison.Ordinal) && SortDirection == other.SortDirection && LibraryIndexVersion == other.LibraryIndexVersion && PlaylistRevision == other.PlaylistRevision && ScoreSnapshotVersion == other.ScoreSnapshotVersion && ChartInfoIndexVersion == other.ChartInfoIndexVersion && HasResolvedSelection == other.HasResolvedSelection;
         }
 
         public override bool Equals(object obj)
@@ -3610,6 +3617,7 @@ public class MainWindowViewModel : ViewModel
                 hashCode = (hashCode * 397) ^ LibraryIndexVersion.GetHashCode();
                 hashCode = (hashCode * 397) ^ PlaylistRevision.GetHashCode();
                 hashCode = (hashCode * 397) ^ ScoreSnapshotVersion;
+                hashCode = (hashCode * 397) ^ ChartInfoIndexVersion;
                 hashCode = (hashCode * 397) ^ HasResolvedSelection.GetHashCode();
                 return hashCode;
             }
@@ -4003,6 +4011,11 @@ public class MainWindowViewModel : ViewModel
         internal int LastBuiltScoreSnapshotVersion;
 
         /// <summary>
+        /// 直前に source build を完了した chart_info index 版数です。
+        /// </summary>
+        internal int LastBuiltChartInfoIndexVersion;
+
+        /// <summary>
         /// playlist 内容更新版数です。
         /// </summary>
         internal long PlaylistContentRevision;
@@ -4139,6 +4152,10 @@ public class MainWindowViewModel : ViewModel
     private Task<PlaylistLibraryIndexSnapshot> playlistLibraryIndexPrewarmTask;
 
     private long playlistLibraryIndexPrewarmVersion;
+
+    private CancellationTokenSource playlistLibraryIndexPrewarmCancellation;
+
+    private const int PlaylistLibraryIndexPrewarmDebounceMs = 500;
 
     private int deferredExternalSyncRequestedVersion;
 
@@ -4730,15 +4747,15 @@ public class MainWindowViewModel : ViewModel
     /// <summary>
     /// 現在の UI 条件を反映した playlist request identity を生成します。
     /// </summary>
-    internal static PlaylistRequestIdentity CreatePlaylistRequestIdentity(BMSTable table, string folderName, PlaylistFilterType filterType, string keywordFilter, ModeFilterType modeFilter, cSortParameters sortParameters, long libraryIndexVersion, long playlistRevision, int scoreSnapshotVersion, bool hasResolvedSelection)
+    internal static PlaylistRequestIdentity CreatePlaylistRequestIdentity(BMSTable table, string folderName, PlaylistFilterType filterType, string keywordFilter, ModeFilterType modeFilter, cSortParameters sortParameters, long libraryIndexVersion, long playlistRevision, int scoreSnapshotVersion, int chartInfoIndexVersion, bool hasResolvedSelection)
     {
-        return new PlaylistRequestIdentity(table, NormalizePlaylistFolderName(folderName), filterType, NormalizePlaylistKeywordFilter(keywordFilter), modeFilter, NormalizePlaylistSortColumnName(sortParameters), NormalizePlaylistSortDirection(sortParameters), libraryIndexVersion, playlistRevision, scoreSnapshotVersion, hasResolvedSelection);
+        return new PlaylistRequestIdentity(table, NormalizePlaylistFolderName(folderName), filterType, NormalizePlaylistKeywordFilter(keywordFilter), modeFilter, NormalizePlaylistSortColumnName(sortParameters), NormalizePlaylistSortDirection(sortParameters), libraryIndexVersion, playlistRevision, scoreSnapshotVersion, chartInfoIndexVersion, hasResolvedSelection);
     }
 
     /// <summary>
     /// playlist source rebuild が必要になった理由を返します。
     /// </summary>
-    private static string DeterminePlaylistSourceInvalidationReason(bool selectionChanged, bool libraryIndexInvalidated, bool playlistRevisionInvalidated, bool scoreSnapshotInvalidated, bool sourceMissing)
+    private static string DeterminePlaylistSourceInvalidationReason(bool selectionChanged, bool libraryIndexInvalidated, bool playlistRevisionInvalidated, bool scoreSnapshotInvalidated, bool chartInfoIndexInvalidated, bool sourceMissing)
     {
         if (selectionChanged)
         {
@@ -4756,6 +4773,10 @@ public class MainWindowViewModel : ViewModel
         {
             return "score_snapshot_version";
         }
+        if (chartInfoIndexInvalidated)
+        {
+            return "chart_info_index";
+        }
         if (sourceMissing)
         {
             return "source_missing";
@@ -4766,9 +4787,9 @@ public class MainWindowViewModel : ViewModel
     /// <summary>
     /// playlist source rebuild 理由判定をテストから呼び出せるようにします。
     /// </summary>
-    internal static string DeterminePlaylistSourceInvalidationReasonForTest(bool selectionChanged, bool libraryIndexInvalidated, bool playlistRevisionInvalidated, bool scoreSnapshotInvalidated, bool sourceMissing)
+    internal static string DeterminePlaylistSourceInvalidationReasonForTest(bool selectionChanged, bool libraryIndexInvalidated, bool playlistRevisionInvalidated, bool scoreSnapshotInvalidated, bool chartInfoIndexInvalidated, bool sourceMissing)
     {
-        return DeterminePlaylistSourceInvalidationReason(selectionChanged, libraryIndexInvalidated, playlistRevisionInvalidated, scoreSnapshotInvalidated, sourceMissing);
+        return DeterminePlaylistSourceInvalidationReason(selectionChanged, libraryIndexInvalidated, playlistRevisionInvalidated, scoreSnapshotInvalidated, chartInfoIndexInvalidated, sourceMissing);
     }
 
     /// <summary>
@@ -5101,20 +5122,35 @@ public class MainWindowViewModel : ViewModel
         {
             return;
         }
+        bool debounce = ShouldDebouncePlaylistLibraryIndexPrewarm(reason);
+        int delayMs = debounce ? PlaylistLibraryIndexPrewarmDebounceMs : 0;
         lock (playlistLibraryIndexSync)
         {
             if (playlistLibraryIndexPrewarmTask != null && !playlistLibraryIndexPrewarmTask.IsCompleted && playlistLibraryIndexPrewarmVersion == targetVersion)
             {
                 return;
             }
+            if (playlistLibraryIndexPrewarmTask != null && !playlistLibraryIndexPrewarmTask.IsCompleted)
+            {
+                playlistLibraryIndexPrewarmCancellation?.Cancel();
+                LogPlaylistWorker("playlist_library_index_prewarm debounced oldVersion=" + playlistLibraryIndexPrewarmVersion + " newVersion=" + targetVersion + " reason=" + reason);
+            }
+            playlistLibraryIndexPrewarmCancellation = new CancellationTokenSource();
+            CancellationToken prewarmToken = playlistLibraryIndexPrewarmCancellation.Token;
             playlistLibraryIndexPrewarmVersion = targetVersion;
-            playlistLibraryIndexPrewarmTask = Task.Run(delegate
+            LogPlaylistWorker("playlist_library_index_prewarm scheduled version=" + targetVersion + " reason=" + reason + " debounceMs=" + delayMs);
+            playlistLibraryIndexPrewarmTask = Task.Run(async delegate
             {
                 Stopwatch stopwatch = Stopwatch.StartNew();
                 LogPlaylistWorker("playlist_library_index_prewarm started version=" + targetVersion + " reason=" + reason);
                 try
                 {
-                    PlaylistLibraryIndexSnapshot snapshot = CreatePlaylistLibraryIndexSnapshot(CancellationToken.None, targetVersion);
+                    if (delayMs > 0)
+                    {
+                        await Task.Delay(delayMs, prewarmToken).ConfigureAwait(false);
+                    }
+                    prewarmToken.ThrowIfCancellationRequested();
+                    PlaylistLibraryIndexSnapshot snapshot = CreatePlaylistLibraryIndexSnapshot(prewarmToken, targetVersion);
                     LogPlaylistWorker("playlist_library_index_prewarm completed version=" + targetVersion + " filesByHashCount=" + snapshot.FilesByHash.Count + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
                     return snapshot;
                 }
@@ -5130,6 +5166,12 @@ public class MainWindowViewModel : ViewModel
                 }
             });
         }
+    }
+
+    private static bool ShouldDebouncePlaylistLibraryIndexPrewarm(string reason)
+    {
+        return string.Equals(reason, "library_bmsfiles_changed", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(reason, "library_bmsons_changed", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
@@ -5164,6 +5206,23 @@ public class MainWindowViewModel : ViewModel
         if (!string.IsNullOrWhiteSpace(entry.sha256) && bmsonBySha256 != null && bmsonBySha256.TryGetValue(entry.sha256, out LR2SongDBExtended.bmson_song resolvedBySha256))
         {
             return resolvedBySha256;
+        }
+        return null;
+    }
+
+    internal static LR2SongDBExtended.chart_info ResolveChartInfoForPlaylistEntry(BMSTableEntry entry, IReadOnlyDictionary<string, LR2SongDBExtended.chart_info> chartInfoByMd5, IReadOnlyDictionary<string, LR2SongDBExtended.chart_info> chartInfoBySha256)
+    {
+        if (entry == null)
+        {
+            return null;
+        }
+        if (!string.IsNullOrWhiteSpace(entry.sha256) && chartInfoBySha256 != null && chartInfoBySha256.TryGetValue(entry.sha256, out LR2SongDBExtended.chart_info resolvedBySha256))
+        {
+            return resolvedBySha256;
+        }
+        if (!string.IsNullOrWhiteSpace(entry.md5) && chartInfoByMd5 != null && chartInfoByMd5.TryGetValue(entry.md5, out LR2SongDBExtended.chart_info resolvedByMd5))
+        {
+            return resolvedByMd5;
         }
         return null;
     }
@@ -5594,13 +5653,14 @@ public class MainWindowViewModel : ViewModel
         long libraryIndexVersion = GetPlaylistLibraryIndexVersion();
         long playlistRevision = GetPlaylistContentRevision();
         int scoreSnapshotVersion = GetPlaylistScoreSnapshotVersion();
+        int chartInfoIndexVersion = files?.ChartInfoIndexVersion ?? 0;
         return new PlaylistBuildRequest
         {
             RequestVersion = requestVersion,
             Mode = mode,
             RequestedMode = requestedMode,
             Parameter = parameter,
-            Identity = CreatePlaylistRequestIdentity(bmsTable, folderName, filterType, KeywordFilter, ModeFilter, SortParameters, libraryIndexVersion, playlistRevision, scoreSnapshotVersion, hasResolvedSelection),
+            Identity = CreatePlaylistRequestIdentity(bmsTable, folderName, filterType, KeywordFilter, ModeFilter, SortParameters, libraryIndexVersion, playlistRevision, scoreSnapshotVersion, chartInfoIndexVersion, hasResolvedSelection),
             UseCoalescingWindow = ShouldUsePlaylistBuildCoalescingWindow(mode, requestedMode)
         };
     }
@@ -6871,6 +6931,7 @@ public class MainWindowViewModel : ViewModel
             playlistViewState.LastBuiltLibraryIndexVersion = 0L;
             playlistViewState.LastBuiltPlaylistRevision = 0L;
             playlistViewState.LastBuiltScoreSnapshotVersion = 0;
+            playlistViewState.LastBuiltChartInfoIndexVersion = 0;
             playlistViewState.SourceGenerationId = 0L;
             playlistViewState.CurrentViewGenerationId = 0L;
             playlistViewState.LastAppliedViewCount = 0;
@@ -6912,6 +6973,7 @@ public class MainWindowViewModel : ViewModel
             playlistViewState.LastBuiltLibraryIndexVersion = requestIdentity.LibraryIndexVersion;
             playlistViewState.LastBuiltPlaylistRevision = requestIdentity.PlaylistRevision;
             playlistViewState.LastBuiltScoreSnapshotVersion = requestIdentity.ScoreSnapshotVersion;
+            playlistViewState.LastBuiltChartInfoIndexVersion = requestIdentity.ChartInfoIndexVersion;
             playlistViewState.SourceGenerationId++;
             nextGenerationId = playlistViewState.SourceGenerationId;
             currentViewRowsAlive = CountPlaylistDetailRows(playlistViewState.CurrentViewRows);
@@ -9939,7 +10001,7 @@ public class MainWindowViewModel : ViewModel
         IReadOnlyDictionary<string, BeMusicSeeker.Models.BMSScore> scoresByHash = scoreSnapshot?.ScoresByHash ?? new Dictionary<string, BeMusicSeeker.Models.BMSScore>(StringComparer.OrdinalIgnoreCase);
         cancellationStage = "hash_index";
         cancellationToken.ThrowIfCancellationRequested();
-        List<(BMSTableEntry entry, BeMusicSeeker.Models.BMSFile realFile, LR2SongDBExtended.bmson_song resolvedBmson, PlaylistScoreProbeBmsFile scoreProbe, BeMusicSeeker.Models.BMSScore scoreSnapshot)> resolvedEntries = new List<(BMSTableEntry, BeMusicSeeker.Models.BMSFile, LR2SongDBExtended.bmson_song, PlaylistScoreProbeBmsFile, BeMusicSeeker.Models.BMSScore)>();
+        List<(BMSTableEntry entry, BeMusicSeeker.Models.BMSFile realFile, LR2SongDBExtended.bmson_song resolvedBmson, BeMusicSeeker.Models.BMSScore scoreSnapshot)> resolvedEntries = new List<(BMSTableEntry, BeMusicSeeker.Models.BMSFile, LR2SongDBExtended.bmson_song, BeMusicSeeker.Models.BMSScore)>();
         cancellationStage = "entry_resolve";
         foreach (BMSTableEntry entry in bmsTable.GetEntriesExceptDummy())
         {
@@ -9964,6 +10026,27 @@ public class MainWindowViewModel : ViewModel
             {
                 continue;
             }
+            resolvedEntries.Add((entry, realFile, resolvedBmson, scoreSnapshotForRow));
+        }
+        cancellationToken.ThrowIfCancellationRequested();
+        List<(BMSTableEntry entry, BeMusicSeeker.Models.BMSFile realFile, LR2SongDBExtended.bmson_song resolvedBmson, LR2SongDBExtended.chart_info entryChartInfo, PlaylistScoreProbeBmsFile scoreProbe, BeMusicSeeker.Models.BMSScore scoreSnapshot)> preparedEntries = new List<(BMSTableEntry, BeMusicSeeker.Models.BMSFile, LR2SongDBExtended.bmson_song, LR2SongDBExtended.chart_info, PlaylistScoreProbeBmsFile, BeMusicSeeker.Models.BMSScore)>(resolvedEntries.Count);
+        Stopwatch chartInfoLookupStopwatch = Stopwatch.StartNew();
+        int missingChartInfoResolveTargets = 0;
+        int chartInfoResolvedCount = 0;
+        int chartInfoIndexVersion = files?.ChartInfoIndexVersion ?? 0;
+        foreach ((BMSTableEntry entry, BeMusicSeeker.Models.BMSFile realFile, LR2SongDBExtended.bmson_song resolvedBmson, BeMusicSeeker.Models.BMSScore scoreSnapshotForRow) in resolvedEntries)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            LR2SongDBExtended.chart_info entryChartInfo = null;
+            if (realFile == null && resolvedBmson == null)
+            {
+                missingChartInfoResolveTargets++;
+                entryChartInfo = files?.ResolveChartInfo(entry.sha256, entry.md5);
+                if (entryChartInfo != null)
+                {
+                    chartInfoResolvedCount++;
+                }
+            }
             PlaylistScoreProbeBmsFile scoreProbe = null;
             if (ShouldCreatePlaylistScoreProbe(realFile, resolvedBmson))
             {
@@ -9971,8 +10054,10 @@ public class MainWindowViewModel : ViewModel
                 scoreProbe.ApplyEntrySnapshot(entry, BmsonSongParser.ResolvePlaylistMode(resolvedBmson?.mode_hint));
                 scoreUpdateTargetCount++;
             }
-            resolvedEntries.Add((entry, realFile, resolvedBmson, scoreProbe, scoreSnapshotForRow));
+            preparedEntries.Add((entry, realFile, resolvedBmson, entryChartInfo, scoreProbe, scoreSnapshotForRow));
         }
+        chartInfoLookupStopwatch.Stop();
+        LogPlaylistWorker("playlist_chart_info_index_resolve entries=" + resolvedEntries.Count + " targets=" + missingChartInfoResolveTargets + " found=" + chartInfoResolvedCount + " version=" + chartInfoIndexVersion + " elapsedMs=" + chartInfoLookupStopwatch.ElapsedMilliseconds);
         entryResolveMs = stopwatch.ElapsedMilliseconds;
 
         cancellationToken.ThrowIfCancellationRequested();
@@ -9980,18 +10065,18 @@ public class MainWindowViewModel : ViewModel
         {
             cancellationStage = "score_probe_prepare";
             cancellationToken.ThrowIfCancellationRequested();
-            List<(BMSTableEntry, PlaylistScoreProbeBmsFile)> scoreProbeRows = resolvedEntries.Where((row) => row.scoreProbe != null).Select((row) => (row.entry, row.scoreProbe)).ToList();
+            List<(BMSTableEntry, PlaylistScoreProbeBmsFile)> scoreProbeRows = preparedEntries.Where((row) => row.scoreProbe != null).Select((row) => (row.entry, row.scoreProbe)).ToList();
             cancellationToken.ThrowIfCancellationRequested();
             cancellationStage = "score_probe";
             scoreProbeMetrics = SetPlaylistScoreProbeSnapshots(scoreProbeRows, requestVersion, cancellationToken);
         }
         scoreProbeMs = stopwatch.ElapsedMilliseconds - entryResolveMs;
-        List<PlaylistDetailSourceRow> playlistRows = new List<PlaylistDetailSourceRow>(resolvedEntries.Count);
+        List<PlaylistDetailSourceRow> playlistRows = new List<PlaylistDetailSourceRow>(preparedEntries.Count);
         cancellationStage = "source_row_materialize";
-        foreach ((BMSTableEntry entry, BeMusicSeeker.Models.BMSFile realFile, LR2SongDBExtended.bmson_song resolvedBmson, PlaylistScoreProbeBmsFile scoreProbe, BeMusicSeeker.Models.BMSScore scoreSnapshotForRow) in resolvedEntries)
+        foreach ((BMSTableEntry entry, BeMusicSeeker.Models.BMSFile realFile, LR2SongDBExtended.bmson_song resolvedBmson, LR2SongDBExtended.chart_info entryChartInfo, PlaylistScoreProbeBmsFile scoreProbe, BeMusicSeeker.Models.BMSScore scoreSnapshotForRow) in preparedEntries)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            playlistRows.Add(new PlaylistDetailSourceRow(entry, realFile, resolvedBmson, scoreProbe, scoreSnapshotForRow));
+            playlistRows.Add(new PlaylistDetailSourceRow(entry, realFile, resolvedBmson, scoreProbe, scoreSnapshotForRow, entryChartInfo));
         }
         sourceMaterializeMs = stopwatch.ElapsedMilliseconds - entryResolveMs - scoreProbeMs;
         return playlistRows;
@@ -10436,6 +10521,7 @@ public class MainWindowViewModel : ViewModel
         long lastBuiltLibraryIndexVersion;
         long lastBuiltPlaylistRevision;
         int lastBuiltScoreSnapshotVersion;
+        int lastBuiltChartInfoIndexVersion;
         lock (playlistViewState.SyncRoot)
         {
             sourceRows = playlistViewState.SourceRows;
@@ -10445,19 +10531,21 @@ public class MainWindowViewModel : ViewModel
             lastBuiltLibraryIndexVersion = playlistViewState.LastBuiltLibraryIndexVersion;
             lastBuiltPlaylistRevision = playlistViewState.LastBuiltPlaylistRevision;
             lastBuiltScoreSnapshotVersion = playlistViewState.LastBuiltScoreSnapshotVersion;
+            lastBuiltChartInfoIndexVersion = playlistViewState.LastBuiltChartInfoIndexVersion;
         }
         bool hasResolvedPlaylistSource = currentTable != null || currentFilterType == PlaylistFilterType.PlaylistNotOwnedFilterSelected;
         bool selectionChanged = currentTable != request.Identity.Table || !string.Equals(NormalizePlaylistFolderName(currentFolderName), request.Identity.FolderName, StringComparison.Ordinal) || currentFilterType != request.Identity.FilterType;
         bool libraryIndexInvalidated = lastBuiltLibraryIndexVersion != request.Identity.LibraryIndexVersion;
         bool playlistRevisionInvalidated = lastBuiltPlaylistRevision != request.Identity.PlaylistRevision;
         bool scoreSnapshotInvalidated = lastBuiltScoreSnapshotVersion != request.Identity.ScoreSnapshotVersion;
+        bool chartInfoIndexInvalidated = lastBuiltChartInfoIndexVersion != request.Identity.ChartInfoIndexVersion;
         bool sourceMissing = sourceRows == null || (sourceRows.Count == 0 && !hasResolvedPlaylistSource);
-        bool sourceInvalidated = libraryIndexInvalidated || playlistRevisionInvalidated || scoreSnapshotInvalidated;
+        bool sourceInvalidated = libraryIndexInvalidated || playlistRevisionInvalidated || scoreSnapshotInvalidated || chartInfoIndexInvalidated;
         bool requiresSourceRebuild = selectionChanged || sourceInvalidated || sourceMissing;
         if (requiresSourceRebuild)
         {
             request.LastBuiltScoreSnapshotVersion = lastBuiltScoreSnapshotVersion;
-            request.SourceInvalidationReason = DeterminePlaylistSourceInvalidationReason(selectionChanged, libraryIndexInvalidated, playlistRevisionInvalidated, scoreSnapshotInvalidated, sourceMissing);
+            request.SourceInvalidationReason = DeterminePlaylistSourceInvalidationReason(selectionChanged, libraryIndexInvalidated, playlistRevisionInvalidated, scoreSnapshotInvalidated, chartInfoIndexInvalidated, sourceMissing);
             return RebuildPlaylistSource(request, cancellationToken);
         }
         return ApplyPlaylistViewWithoutSourceRebuild(request, cancellationToken);
