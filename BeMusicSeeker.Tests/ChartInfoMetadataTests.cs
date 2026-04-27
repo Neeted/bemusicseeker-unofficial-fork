@@ -2241,6 +2241,14 @@ public sealed class ChartInfoMetadataTests
                 BMSFiles = new List<BMSFile> { file },
                 BmsonSongs = new List<LR2SongDBExtended.bmson_song> { bmsonSong }
             };
+            int chartInfoPropertyChangedCount = 0;
+            file.PropertyChanged += delegate(object sender, System.ComponentModel.PropertyChangedEventArgs args)
+            {
+                if (args.PropertyName == nameof(BMSFile.ChartInfo))
+                {
+                    chartInfoPropertyChangedCount++;
+                }
+            };
 
             InvokeDeferredChartInfoHydration(library, "unit_test", queueFullBackfillAfterHydration: false);
 
@@ -2253,6 +2261,14 @@ public sealed class ChartInfoMetadataTests
             Assert.IsNotNull(bmsonSong.ChartInfo);
             Assert.AreEqual(bmsonSha, bmsonSong.ChartInfo.sha256);
             Assert.AreEqual(0, library.ChartInfoBackfillRequestedVersion);
+            Assert.AreEqual(1, chartInfoPropertyChangedCount);
+
+            InvokeDeferredChartInfoHydration(library, "unit_test_repeat", queueFullBackfillAfterHydration: false);
+
+            Assert.IsTrue(WaitForChartInfoHydration(library), "second chart_info hydration did not complete.");
+            Assert.AreEqual(2, library.ChartInfoHydrationTotalCount);
+            Assert.AreEqual(0, library.ChartInfoHydrationAppliedCount);
+            Assert.AreEqual(1, chartInfoPropertyChangedCount);
         });
     }
 

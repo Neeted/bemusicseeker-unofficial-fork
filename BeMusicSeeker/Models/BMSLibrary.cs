@@ -2165,6 +2165,10 @@ public class BMSLibrary : NotificationObject
 
         public int AppliedBmsonCount { get; set; }
 
+        public int OwnerApplyUpdatedCount { get; set; }
+
+        public int OwnerApplySkippedCount { get; set; }
+
         public long LoadMs { get; set; }
 
         public long ApplyMs { get; set; }
@@ -3862,6 +3866,8 @@ public class BMSLibrary : NotificationObject
                 + " totalRows=" + result.TotalRows
                 + " appliedBms=" + result.AppliedBmsCount
                 + " appliedBmson=" + result.AppliedBmsonCount
+                + " ownerApplyUpdated=" + result.OwnerApplyUpdatedCount
+                + " ownerApplySkipped=" + result.OwnerApplySkippedCount
                 + " dbLoadMs=" + result.DbLoadMs
                 + " indexBuildMs=" + result.IndexBuildMs
                 + " ownerApplyMs=" + result.OwnerApplyMs
@@ -3935,16 +3941,28 @@ public class BMSLibrary : NotificationObject
             {
                 if (file != null && !string.IsNullOrWhiteSpace(file.sha256) && chartInfoMap.TryGetValue(file.sha256, out LR2SongDBExtended.chart_info chartInfo))
                 {
+                    if (IsSameChartInfoIdentity(file.ChartInfo, chartInfo))
+                    {
+                        result.OwnerApplySkippedCount++;
+                        continue;
+                    }
                     file.SetChartInfo(chartInfo);
                     result.AppliedBmsCount++;
+                    result.OwnerApplyUpdatedCount++;
                 }
             }
             foreach (LR2SongDBExtended.bmson_song song in BmsonSongs ?? Enumerable.Empty<LR2SongDBExtended.bmson_song>())
             {
                 if (song != null && !string.IsNullOrWhiteSpace(song.sha256) && chartInfoMap.TryGetValue(song.sha256, out LR2SongDBExtended.chart_info chartInfo))
                 {
+                    if (IsSameChartInfoIdentity(song.ChartInfo, chartInfo))
+                    {
+                        result.OwnerApplySkippedCount++;
+                        continue;
+                    }
                     song.ChartInfo = chartInfo;
                     result.AppliedBmsonCount++;
+                    result.OwnerApplyUpdatedCount++;
                 }
             }
         }
@@ -3970,6 +3988,29 @@ public class BMSLibrary : NotificationObject
             }
         }
         return null;
+    }
+
+    private static bool IsSameChartInfoIdentity(LR2SongDBExtended.chart_info existing, LR2SongDBExtended.chart_info incoming)
+    {
+        if (existing == null || incoming == null)
+        {
+            return false;
+        }
+        if (string.IsNullOrWhiteSpace(existing.sha256) || string.IsNullOrWhiteSpace(incoming.sha256))
+        {
+            return false;
+        }
+        if (existing.parser_version <= 0 || incoming.parser_version <= 0)
+        {
+            return false;
+        }
+        if (existing.updated_at == default(DateTime) || incoming.updated_at == default(DateTime))
+        {
+            return false;
+        }
+        return string.Equals(existing.sha256, incoming.sha256, StringComparison.OrdinalIgnoreCase)
+            && existing.parser_version == incoming.parser_version
+            && existing.updated_at == incoming.updated_at;
     }
 
     private ChartInfoIndexUpdateResult ReplaceChartInfoIndex(IEnumerable<LR2SongDBExtended.chart_info> rows, bool hydrated)

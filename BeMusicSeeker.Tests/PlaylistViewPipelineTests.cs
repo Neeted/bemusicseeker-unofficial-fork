@@ -329,6 +329,41 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
+    public void PlaylistIdentity_KeywordModeAndSortOnlyChangePresentationIdentity()
+    {
+        BMSTable table = new BMSTable();
+        MainWindowViewModel.cSortParameters titleAscending = new MainWindowViewModel.cSortParameters
+        {
+            ColumnsName = nameof(BMSFile.Title),
+            Direction = ListSortDirection.Ascending
+        };
+        MainWindowViewModel.cSortParameters titleDescending = new MainWindowViewModel.cSortParameters
+        {
+            ColumnsName = nameof(BMSFile.Title),
+            Direction = ListSortDirection.Descending
+        };
+
+        MainWindowViewModel.PlaylistRequestIdentity before = MainWindowViewModel.CreatePlaylistRequestIdentity(table, "Folder", MainWindowViewModel.PlaylistFilterType.PlaylistFilter, "alpha", MainWindowViewModel.ModeFilterType.All, titleAscending, libraryIndexVersion: 3, playlistRevision: 4, scoreSnapshotVersion: 5, chartInfoIndexVersion: 6, hasResolvedSelection: true);
+        MainWindowViewModel.PlaylistRequestIdentity after = MainWindowViewModel.CreatePlaylistRequestIdentity(table, "Folder", MainWindowViewModel.PlaylistFilterType.PlaylistFilter, "beta", MainWindowViewModel.ModeFilterType._7KEYS, titleDescending, libraryIndexVersion: 3, playlistRevision: 4, scoreSnapshotVersion: 5, chartInfoIndexVersion: 6, hasResolvedSelection: true);
+
+        Assert.AreEqual(before.SourceIdentity, after.SourceIdentity);
+        Assert.AreNotEqual(before.PresentationIdentity, after.PresentationIdentity);
+        Assert.AreNotEqual(before, after);
+    }
+
+    [TestMethod]
+    public void PlaylistIdentity_SourceVersionsOnlyChangeSourceIdentity()
+    {
+        BMSTable table = new BMSTable();
+        MainWindowViewModel.PlaylistRequestIdentity before = MainWindowViewModel.CreatePlaylistRequestIdentity(table, "Folder", MainWindowViewModel.PlaylistFilterType.PlaylistFilter, "keyword", MainWindowViewModel.ModeFilterType.All, sortParameters: null, libraryIndexVersion: 3, playlistRevision: 4, scoreSnapshotVersion: 5, chartInfoIndexVersion: 6, hasResolvedSelection: true);
+        MainWindowViewModel.PlaylistRequestIdentity after = MainWindowViewModel.CreatePlaylistRequestIdentity(table, "Folder", MainWindowViewModel.PlaylistFilterType.PlaylistFilter, "keyword", MainWindowViewModel.ModeFilterType.All, sortParameters: null, libraryIndexVersion: 4, playlistRevision: 4, scoreSnapshotVersion: 5, chartInfoIndexVersion: 6, hasResolvedSelection: true);
+
+        Assert.AreNotEqual(before.SourceIdentity, after.SourceIdentity);
+        Assert.AreEqual(before.PresentationIdentity, after.PresentationIdentity);
+        Assert.AreNotEqual(before, after);
+    }
+
+    [TestMethod]
     public void DeterminePlaylistSourceInvalidationReason_WhenOnlyScoreSnapshotChanges_ReturnsScoreSnapshotVersion()
     {
         string reason = MainWindowViewModel.DeterminePlaylistSourceInvalidationReasonForTest(
