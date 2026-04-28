@@ -197,6 +197,45 @@ public sealed class BmsLibraryDuplicateServiceTests
     }
 
     [TestMethod]
+    public void TryGetInstalledDirectoryByHash_ResolvesBmsonOnlyLibrary()
+    {
+        WithTemporarySongDb(delegate(string songDbPath)
+        {
+            string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_BmsonInstalledDir_" + System.Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(tempRootPath);
+            string chartPath = Path.Combine(tempRootPath, "chart.bmson");
+            File.WriteAllText(chartPath, "{}");
+            try
+            {
+                BMSLibrary library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
+                library.BmsonSongs = new List<LR2SongDBExtended.bmson_song>
+                {
+                    new LR2SongDBExtended.bmson_song
+                    {
+                        path = chartPath,
+                        folder = tempRootPath,
+                        title = "bmson",
+                        md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                        sha256 = new string('b', 64)
+                    }
+                };
+
+                bool resolved = library.TryGetInstalledDirectoryByHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", out string installDir);
+
+                Assert.IsTrue(resolved);
+                Assert.AreEqual(tempRootPath, installDir);
+            }
+            finally
+            {
+                if (Directory.Exists(tempRootPath))
+                {
+                    Directory.Delete(tempRootPath, recursive: true);
+                }
+            }
+        });
+    }
+
+    [TestMethod]
     public void MergeBMSDirectory_BmsonOnly_ReRegistersSongAtDestination()
     {
         WithTemporarySongDb(delegate(string songDbPath)

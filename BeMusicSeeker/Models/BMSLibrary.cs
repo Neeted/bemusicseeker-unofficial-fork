@@ -1031,6 +1031,8 @@ public class BMSLibrary : NotificationObject
                     playlistSummaryOwnedHashSnapshot = null;
                 }
                 InvalidateInstalledChartKeyIndex();
+                InvalidateInstalledDirectoryIndex();
+                InvalidateBMSParentFolderListCache();
                 InvalidateInstallEstimationMetadataProfileCache();
                 InvalidateDuplicatedCache();
                 Task.Run(delegate
@@ -7887,7 +7889,10 @@ public class BMSLibrary : NotificationObject
         foreach (BMSFile bmsFile in (package.BMSFiles ?? new List<BMSFile>()).Where((BMSFile file) => file != null))
         {
             bool isBmson = PendingChartEntry.IsBmsonChartFile(bmsFile);
-            bmsFile.SetHealthStatus(null, forceUpdate: false, memClear: false);
+            if (!isBmson)
+            {
+                bmsFile.SetHealthStatus(null, forceUpdate: false, memClear: false);
+            }
             bmsFile.warning = null;
             string key = PendingChartEntry.GetPrimaryLookupHash(bmsFile);
             if (!string.IsNullOrWhiteSpace(key) && installedHashSet.Contains(key))
@@ -8253,12 +8258,15 @@ public class BMSLibrary : NotificationObject
         {
             using (rwlockBMSFiles.GetReaderGuard())
             {
-                InstalledDirectoryLookupResult result = CreateInstallEstimationService().TryGetInstalledDirectoryByHash(BMSFiles, hash);
-                if (!result.Success)
+                List<string> installedDirectories = BmsLibraryInstallEstimationService.GetDistinctInstalledDirectoriesByPrimaryHash(CreateInstalledDirectoryIndexSnapshotUnsafe(), hash)
+                    .Where((string dir) => !string.IsNullOrWhiteSpace(dir) && Directory.Exists(dir))
+                    .OrderBy((string dir) => dir, StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+                if (installedDirectories.Count == 0)
                 {
                     return false;
                 }
-                installDir = result.InstallDirectory;
+                installDir = installedDirectories[0];
                 return true;
             }
         }

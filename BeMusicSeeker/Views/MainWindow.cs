@@ -5203,6 +5203,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         List<BMSFile> list = GetSelectedGridOperationFiles();
         bool isBmsonContextRow = GridRowResolver.IsBmsonContextRow(row);
         bool hasBmsonSelection = isBmsonContextRow || list.Any(PendingChartEntry.IsBmsonChartFile);
+        bool hasBmsSelection = PendingChartEntry.IsBmsChartFile(bmsFile) || list.Any(PendingChartEntry.IsBmsChartFile);
         if (!(base.DataContext is MainWindowViewModel mainWindowViewModel))
         {
             return;
@@ -5512,7 +5513,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         if (menuItem10 != null)
         {
-            bool isFullScanMenuVisible = !isPlaylistContext;
+            bool isFullScanMenuVisible = !isPlaylistContext && hasBmsSelection;
             menuItem10.Visibility = ((!isFullScanMenuVisible) ? Visibility.Collapsed : Visibility.Visible);
             menuItem10.IsEnabled = isFullScanMenuVisible;
         }
@@ -5564,7 +5565,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         if (menuItem17 != null)
         {
-            bool canFixEncoding = !isPlaylistContext;
+            bool canFixEncoding = !isPlaylistContext && hasBmsSelection;
             menuItem17.Visibility = ((!canFixEncoding) ? Visibility.Collapsed : Visibility.Visible);
             menuItem17.IsEnabled = canFixEncoding;
         }
@@ -5578,13 +5579,13 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             bool isSelected = treeViewItemFullScanCheck.IsSelected;
             menuItem11.Visibility = ((!isSelected) ? Visibility.Collapsed : Visibility.Visible);
-            menuItem11.IsEnabled = isSelected;
+            menuItem11.IsEnabled = isSelected && hasBmsSelection;
         }
         if (menuItem12 != null)
         {
             bool isSelected2 = treeViewItemFullScanCheckIgnored.IsSelected;
             menuItem12.Visibility = ((!isSelected2) ? Visibility.Collapsed : Visibility.Visible);
-            menuItem12.IsEnabled = isSelected2;
+            menuItem12.IsEnabled = isSelected2 && hasBmsSelection;
         }
         if (menuItem19 != null && separator2 != null)
         {
@@ -5622,6 +5623,19 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             {
                 menuItemRenameInvalidExt.Visibility = Visibility.Collapsed;
                 menuItemRenameInvalidExt.IsEnabled = false;
+            }
+            if (!hasBmsSelection)
+            {
+                if (menuItem10 != null)
+                {
+                    menuItem10.Visibility = Visibility.Collapsed;
+                    menuItem10.IsEnabled = false;
+                }
+                if (menuItem17 != null)
+                {
+                    menuItem17.Visibility = Visibility.Collapsed;
+                    menuItem17.IsEnabled = false;
+                }
             }
         }
         if (menuItemDeleteInstallPackages != null)
@@ -6747,7 +6761,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        List<BMSFile> bmsFiles = GetSelectedGridOperationFiles();
+        List<BMSFile> bmsFiles = GetSelectedGridOperationFiles().Where(PendingChartEntry.IsBmsChartFile).ToList();
         if (bmsFiles != null && bmsFiles.Count() != 0)
         {
             MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
@@ -6957,7 +6971,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     {
         if (e.Source is MenuItem menuItem && ((menuItem.Parent as MenuItem).Parent as ContextMenu).PlacementTarget is DataGridRow)
         {
-            List<BMSFile> list = GetSelectedGridRealFiles();
+            List<BMSFile> list = GetSelectedGridRealFiles().Where(PendingChartEntry.IsBmsChartFile).ToList();
             if (list != null && list.Count() != 0)
             {
                 (base.DataContext as MainWindowViewModel).FixEncodingBMSFiles(list, menuItem.Tag.ToString());
@@ -6970,7 +6984,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     {
         if (e.Source is MenuItem menuItem && ((menuItem.Parent as MenuItem).Parent as ContextMenu).PlacementTarget is DataGridRow)
         {
-            List<BMSFile> list = GetSelectedGridRealFiles();
+            List<BMSFile> list = GetSelectedGridRealFiles().Where(PendingChartEntry.IsBmsChartFile).ToList();
             if (list != null && list.Count() != 0)
             {
                 (base.DataContext as MainWindowViewModel).IgnoreFileScanCheckBMSFiles(list);
@@ -6983,7 +6997,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     {
         if (e.Source is MenuItem menuItem && ((menuItem.Parent as MenuItem).Parent as ContextMenu).PlacementTarget is DataGridRow)
         {
-            List<BMSFile> list = GetSelectedGridRealFiles();
+            List<BMSFile> list = GetSelectedGridRealFiles().Where(PendingChartEntry.IsBmsChartFile).ToList();
             if (list != null && list.Count() != 0)
             {
                 (base.DataContext as MainWindowViewModel).NotIgnoreFileScanCheckBMSFiles(list);

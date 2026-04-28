@@ -300,6 +300,52 @@ public sealed class BmsLibraryStateApplierTests
             verifySongDb.CreateTable<LR2SongDBExtended.bmson_song>();
             Assert.IsFalse(verifySongDb.Table<LR2SongDBExtended.bmson_song>().Any((LR2SongDBExtended.bmson_song song) => song.path == removedSong.path));
             Assert.IsTrue(verifySongDb.Table<LR2SongDBExtended.bmson_song>().Any((LR2SongDBExtended.bmson_song song) => song.path == keptSong.path));
+            Assert.AreEqual(1, callbacks.InstalledDirectoryInvalidationCount);
+            Assert.AreEqual(1, callbacks.ParentFolderInvalidationCount);
+            Assert.AreEqual(1, callbacks.ClearDuplicatedCount);
+        });
+    }
+
+    [TestMethod]
+    public void ApplyLibraryMutationDelta_UnregistersBmsonSongs()
+    {
+        WithTemporarySongDb(delegate(string songDbPath)
+        {
+            LR2SongDBExtended.bmson_song removedSong = new LR2SongDBExtended.bmson_song
+            {
+                path = "C:\\Library\\remove.bmson",
+                folder = "C:\\Library"
+            };
+            using (LR2SongDBExtended songDb = new LR2SongDBExtended(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDBExtended.bmson_song>();
+                songDb.InsertOrReplace(removedSong, typeof(LR2SongDBExtended.bmson_song));
+            }
+
+            List<BMSFile> libraryFiles = new List<BMSFile>();
+            List<LR2SongDBExtended.bmson_song> bmsonSongs = new List<LR2SongDBExtended.bmson_song> { removedSong };
+            DispatcherCollection<BMSPackage> pendingPackages = CreatePackageCollection(Array.Empty<BMSPackage>());
+            DispatcherCollection<BMSPackage> installedPackages = CreatePackageCollection(Array.Empty<BMSPackage>());
+            TrackingCallbacks callbacks = new TrackingCallbacks();
+            BmsLibraryStateApplier applier = CreateStateApplier(songDbPath, callbacks, () => libraryFiles, files => libraryFiles = files, () => bmsonSongs, songs => bmsonSongs = songs, () => pendingPackages, packages => pendingPackages = packages, () => installedPackages, packages => installedPackages = packages);
+            LibraryMutationDelta delta = new LibraryMutationDelta
+            {
+                InvalidateInstalledDirectoryIndex = true,
+                InvalidateParentFolderCache = true,
+                ClearDuplicatedCache = true
+            };
+            delta.BmsonSongsToUnregister.Add(removedSong);
+
+            applier.ApplyLibraryMutationDelta(delta);
+
+            Assert.AreEqual(0, bmsonSongs.Count);
+            Assert.AreEqual(1, callbacks.BmsonSongsSetCount);
+            Assert.IsTrue(callbacks.InstalledDirectoryInvalidationCount >= 1);
+            Assert.IsTrue(callbacks.ParentFolderInvalidationCount >= 1);
+            Assert.IsTrue(callbacks.ClearDuplicatedCount >= 1);
+            using LR2SongDBExtended verifySongDb = new LR2SongDBExtended(songDbPath);
+            verifySongDb.CreateTable<LR2SongDBExtended.bmson_song>();
+            Assert.IsFalse(verifySongDb.Table<LR2SongDBExtended.bmson_song>().Any((LR2SongDBExtended.bmson_song song) => song.path == removedSong.path));
         });
     }
 

@@ -507,7 +507,7 @@ internal sealed class BmsLibraryInstallEstimationService
             result.InstallDirectory = topCandidateDirs[0];
             return result;
         }
-        BMSFile representativeFile = missingFiles.Where((BMSFile file) => file != null).OrderByDescending(GetDefinedResourceCount).FirstOrDefault();
+        BMSFile representativeFile = missingFiles.Where((BMSFile file) => PendingChartEntry.IsBmsChartFile(file)).OrderByDescending(GetDefinedResourceCount).FirstOrDefault();
         if (representativeFile == null)
         {
             result.Reason = InstalledDirectoryResolveReason.MissingRepresentative;

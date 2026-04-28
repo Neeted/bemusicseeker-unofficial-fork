@@ -148,6 +148,11 @@ internal sealed class BmsLibraryStateApplier
             UnregisterBmsFiles(delta.FilesToUnregister.Distinct().ToList());
         }
 
+        if (delta.BmsonSongsToUnregister.Count > 0)
+        {
+            UnregisterBmsonSongs(delta.BmsonSongsToUnregister.Distinct().ToList());
+        }
+
         if (delta.InvalidateBMSHashIndex)
         {
             invalidateBmsHashIndex();
@@ -255,6 +260,9 @@ internal sealed class BmsLibraryStateApplier
             .Where((LR2SongDBExtended.bmson_song song) => song != null && !removedSongRefs.Contains(song) && !removedPaths.Contains(song.path))
             .ToList());
         dbGateway.DeleteBmsonSongs(removedSongsList);
+        invalidateInstalledDirectoryIndex();
+        invalidateParentFolderCache();
+        clearDuplicatedCache();
     }
 
     private void ReplaceBmsFilePath(BMSFile bmsFile, string newPath, string oldPath = null, bool calcFolderParent = true)

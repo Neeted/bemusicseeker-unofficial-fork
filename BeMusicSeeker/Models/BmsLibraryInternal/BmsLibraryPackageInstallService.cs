@@ -386,7 +386,10 @@ internal sealed class BmsLibraryPackageInstallService
             {
                 return null;
             }
-            entry.SetHealthStatus(null, forceUpdate: false, memClear: false);
+            if (entry.IsBmsChart)
+            {
+                entry.SetHealthStatus(null, forceUpdate: false, memClear: false);
+            }
             return entry;
         }
         catch
@@ -1252,6 +1255,10 @@ internal sealed class BmsLibraryPackageInstallService
                 }
                 bool hasDefinedResources = ChartResourceSnapshot.Create(bmsFile).TotalReferenceCount > 0;
                 if (!hasDefinedResources)
+                {
+                    continue;
+                }
+                if (isBmson)
                 {
                     continue;
                 }

@@ -657,7 +657,10 @@ internal sealed class BmsLibraryInitializationService
             foreach (BMSFile bmsFile in (pendingPackage.BMSFiles ?? new List<BMSFile>()).Where((BMSFile file) => file != null))
             {
                 bool isBmson = PendingChartEntry.IsBmsonChartFile(bmsFile);
-                bmsFile.SetHealthStatus(null, forceUpdate: false, memClear: false);
+                if (!isBmson)
+                {
+                    bmsFile.SetHealthStatus(null, forceUpdate: false, memClear: false);
+                }
                 result.PendingWarningInitTargets.Add(bmsFile);
                 if (isInstalledChart != null && isInstalledChart(bmsFile))
                 {

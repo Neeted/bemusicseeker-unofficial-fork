@@ -278,7 +278,7 @@ public sealed class PendingChartEntry : BMSFile
 
     public static bool IsBmsChartFile(BMSFile file)
     {
-        return !IsBmsonChartFile(file);
+        return file != null && !IsBmsonChartFile(file);
     }
 
     public static string GetPrimaryMd5(BMSFile file)

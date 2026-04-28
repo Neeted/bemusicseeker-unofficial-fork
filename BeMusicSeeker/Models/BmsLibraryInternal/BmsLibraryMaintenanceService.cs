@@ -17,9 +17,15 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 /// </summary>
 internal sealed class BmsLibraryMaintenanceService
 {
+    private static IEnumerable<BMSFile> EnumerateBmsChartFiles(IEnumerable<BMSFile> bmsFiles)
+    {
+        return (bmsFiles ?? Enumerable.Empty<BMSFile>())
+            .Where((BMSFile file) => file != null && PendingChartEntry.IsBmsChartFile(file));
+    }
+
     public bool ApplyNeedToBeFixedWarnings(BMSFile bmsFile, BMSFileMaintenanceInfo maintenanceInfo = null, bool strictCheck = false)
     {
-        if (bmsFile == null)
+        if (bmsFile == null || !PendingChartEntry.IsBmsChartFile(bmsFile))
         {
             return false;
         }
@@ -41,7 +47,7 @@ internal sealed class BmsLibraryMaintenanceService
 
     public List<BMSFile> GetGarbledFiles(IEnumerable<BMSFile> bmsFiles, bool isInFixedList)
     {
-        return (bmsFiles ?? Enumerable.Empty<BMSFile>())
+        return EnumerateBmsChartFiles(bmsFiles)
             .Where((BMSFile file) => !string.IsNullOrWhiteSpace(file?.maintenanceInfo?.encoding)
                 && isInFixedList == file.maintenanceInfo.is_encoding_fixed
                 && !file.maintenanceInfo.encoding.StartsWith("shift_jis"))
@@ -50,13 +56,13 @@ internal sealed class BmsLibraryMaintenanceService
 
     public List<BMSFile> GetZeroNoteFiles(IEnumerable<BMSFile> bmsFiles)
     {
-        return (bmsFiles ?? Enumerable.Empty<BMSFile>()).Where((BMSFile file) => file != null && file.notes == 0).ToList();
+        return EnumerateBmsChartFiles(bmsFiles).Where((BMSFile file) => file.notes == 0).ToList();
     }
 
     public int CleanupMaintenanceTable(IEnumerable<BMSFile> bmsFiles, BmsLibraryDbGateway dbGateway)
     {
-        List<string> currentPaths = (bmsFiles ?? Enumerable.Empty<BMSFile>())
-            .Where((BMSFile file) => file != null && !string.IsNullOrWhiteSpace(file.path))
+        List<string> currentPaths = EnumerateBmsChartFiles(bmsFiles)
+            .Where((BMSFile file) => !string.IsNullOrWhiteSpace(file.path))
             .Select((BMSFile file) => file.path)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
@@ -75,7 +81,7 @@ internal sealed class BmsLibraryMaintenanceService
 
     public List<BMSFileMaintenanceInfo> SetFilesWarningIgnored(IEnumerable<BMSFile> bmsFiles, bool unset)
     {
-        List<BMSFileMaintenanceInfo> changes = (from f in bmsFiles ?? Enumerable.Empty<BMSFile>()
+        List<BMSFileMaintenanceInfo> changes = (from f in EnumerateBmsChartFiles(bmsFiles)
                                                 let m = f?.maintenanceInfo
                                                 where m != null && m.is_files_warning_ignored == unset
                                                 select m).ToList();
@@ -89,7 +95,7 @@ internal sealed class BmsLibraryMaintenanceService
     public MaintenanceEncodingUpdateResult ApplyEncoding(IEnumerable<BMSFile> bmsFiles, string encoding)
     {
         MaintenanceEncodingUpdateResult result = new MaintenanceEncodingUpdateResult();
-        List<BMSFile> files = (bmsFiles ?? Enumerable.Empty<BMSFile>()).Where((BMSFile file) => file != null).ToList();
+        List<BMSFile> files = EnumerateBmsChartFiles(bmsFiles).ToList();
         HashSet<BMSFile> reloadedFiles = new HashSet<BMSFile>();
         if (!string.IsNullOrWhiteSpace(encoding))
         {
@@ -154,7 +160,7 @@ internal sealed class BmsLibraryMaintenanceService
 
     public ZeroNoteRecheckResult RecheckZeroNoteWarnings(IEnumerable<BMSFile> allFiles, Action<Exception, string> logWarn = null)
     {
-        List<BMSFile> files = (allFiles ?? Enumerable.Empty<BMSFile>()).Where((BMSFile f) => f != null).ToList();
+        List<BMSFile> files = EnumerateBmsChartFiles(allFiles).ToList();
         List<BMSFile> zeroNoteFiles = files.Where((BMSFile f) => f.notes == 0 && !string.IsNullOrWhiteSpace(f.path)).ToList();
         List<BMSFile> staleMismatchFiles = files.Where((BMSFile f) => f.notes != 0 && f.HasZeroNoteMismatchWarning).ToList();
         ZeroNoteRecheckResult result = new ZeroNoteRecheckResult
@@ -204,8 +210,8 @@ internal sealed class BmsLibraryMaintenanceService
 
     public List<BMSFile> DetectModeChanges(IEnumerable<BMSFile> bmsFiles, bool forceUpdate)
     {
-        List<BMSFile> targets = (bmsFiles ?? Enumerable.Empty<BMSFile>())
-            .Where((BMSFile file) => file != null && (forceUpdate || !file.mode.HasValue) && File.Exists(file.path))
+        List<BMSFile> targets = EnumerateBmsChartFiles(bmsFiles)
+            .Where((BMSFile file) => (forceUpdate || !file.mode.HasValue) && File.Exists(file.path))
             .ToList();
         foreach (BMSFile target in targets)
         {
@@ -228,8 +234,8 @@ internal sealed class BmsLibraryMaintenanceService
         }
         Stopwatch stopwatch = Stopwatch.StartNew();
         List<BMSFile> targets = (forceUpdate
-            ? (bmsFiles ?? Enumerable.Empty<BMSFile>()).Where((BMSFile file) => file != null).ToList()
-            : (bmsFiles ?? Enumerable.Empty<BMSFile>()).Where((BMSFile file) => file != null && (!file.maintenanceInfo.IsInformationChecked() || string.IsNullOrWhiteSpace(file.maintenanceInfo.encoding))).ToList());
+            ? EnumerateBmsChartFiles(bmsFiles).ToList()
+            : EnumerateBmsChartFiles(bmsFiles).Where((BMSFile file) => !file.maintenanceInfo.IsInformationChecked() || string.IsNullOrWhiteSpace(file.maintenanceInfo.encoding)).ToList());
         result.CheckedFileCount = targets.Count;
         foreach (IEnumerable<BMSFile> section in targets.Section(1000))
         {
@@ -366,7 +372,7 @@ internal sealed class BmsLibraryMaintenanceService
             return result;
         }
         Stopwatch stopwatch = Stopwatch.StartNew();
-        List<BMSFile> targetFiles = bmsFiles.Where((BMSFile file) => file != null && !string.IsNullOrWhiteSpace(file.path))
+        List<BMSFile> targetFiles = EnumerateBmsChartFiles(bmsFiles).Where((BMSFile file) => !string.IsNullOrWhiteSpace(file.path))
             .GroupBy((BMSFile file) => file.path, StringComparer.OrdinalIgnoreCase)
             .Select((IGrouping<string, BMSFile> group) => group.First())
             .ToList();

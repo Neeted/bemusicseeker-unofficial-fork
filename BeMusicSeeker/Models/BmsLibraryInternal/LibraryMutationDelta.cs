@@ -7,6 +7,8 @@ internal sealed class LibraryMutationDelta
 {
     public List<BMSFile> FilesToUnregister { get; } = new List<BMSFile>();
 
+    public List<LR2SongDBExtended.bmson_song> BmsonSongsToUnregister { get; } = new List<LR2SongDBExtended.bmson_song>();
+
     public List<LibraryFilePathChange> FilePathChanges { get; } = new List<LibraryFilePathChange>();
 
     public List<LibraryBmsonSongPathChange> BmsonSongPathChanges { get; } = new List<LibraryBmsonSongPathChange>();

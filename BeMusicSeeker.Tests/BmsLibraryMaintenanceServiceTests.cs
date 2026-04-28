@@ -45,10 +45,44 @@ public sealed class BmsLibraryMaintenanceServiceTests
         zeroNoteFile.SetNotes(0);
         TestableBmsFile normalFile = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
         normalFile.SetNotes(1200);
+        PendingChartEntry bmsonRow = CreateBmsonRow("C:\\Library\\chart.bmson", "cccccccccccccccccccccccccccccccc");
+        SetNotes(bmsonRow, 0);
 
-        List<BMSFile> result = service.GetZeroNoteFiles(new BMSFile[] { zeroNoteFile, normalFile });
+        List<BMSFile> result = service.GetZeroNoteFiles(new BMSFile[] { zeroNoteFile, normalFile, bmsonRow });
 
         CollectionAssert.AreEqual(new[] { zeroNoteFile }, result);
+    }
+
+    [TestMethod]
+    public void BmsOnlyMaintenanceOperations_SkipBmsonPendingRows()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        BmsLibraryMaintenanceService service = new BmsLibraryMaintenanceService();
+        PendingChartEntry bmsonRow = CreateBmsonRow("C:\\Library\\chart.bmson", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        string originalTitle = bmsonRow.Title;
+        string originalArtist = bmsonRow.Artist;
+        bmsonRow.SetMaintenanceInfo(new BMSFileMaintenanceInfo(bmsonRow)
+        {
+            hash = bmsonRow.hash,
+            encoding = "gb2312",
+            is_encoding_fixed = false,
+            is_files_warning_ignored = false
+        }, suppressPropertyChanged: true, registerEventHandlers: false);
+        SetNotes(bmsonRow, 0);
+
+        Assert.IsFalse(service.ApplyNeedToBeFixedWarnings(bmsonRow));
+        Assert.AreEqual(0, service.GetGarbledFiles(new BMSFile[] { bmsonRow }, isInFixedList: false).Count);
+        Assert.AreEqual(0, service.GetZeroNoteFiles(new BMSFile[] { bmsonRow }).Count);
+        Assert.AreEqual(0, service.SetFilesWarningIgnored(new BMSFile[] { bmsonRow }, unset: false).Count);
+
+        MaintenanceEncodingUpdateResult encodingResult = service.ApplyEncoding(new BMSFile[] { bmsonRow }, "shift_jis");
+
+        Assert.AreEqual(0, encodingResult.SongsToUpsert.Count);
+        Assert.AreEqual(0, encodingResult.MaintenanceInfosToUpsert.Count);
+        Assert.AreEqual(originalTitle, bmsonRow.Title);
+        Assert.AreEqual(originalArtist, bmsonRow.Artist);
+        Assert.AreEqual("gb2312", bmsonRow.maintenanceInfo.encoding);
+        Assert.IsFalse(bmsonRow.maintenanceInfo.is_encoding_fixed);
     }
 
     [TestMethod]
@@ -442,6 +476,25 @@ public sealed class BmsLibraryMaintenanceServiceTests
         TestableBmsFile file = new TestableBmsFile();
         file.SetHash(hash);
         return file;
+    }
+
+    private static PendingChartEntry CreateBmsonRow(string path, string md5)
+    {
+        LR2SongDBExtended.bmson_song song = new LR2SongDBExtended.bmson_song
+        {
+            path = path,
+            folder = Path.GetDirectoryName(path),
+            title = "Bmson Title",
+            artist = "Bmson Artist",
+            md5 = md5,
+            sha256 = new string('b', 64)
+        };
+        return PendingChartEntry.CreateFromBmsonSong(song);
+    }
+
+    private static void SetNotes(BMSFile file, int? value)
+    {
+        typeof(BMSFile).GetProperty(nameof(BMSFile.notes)).GetSetMethod(nonPublic: true).Invoke(file, new object[] { value });
     }
 
     private sealed class TestableBmsFile : BMSFile

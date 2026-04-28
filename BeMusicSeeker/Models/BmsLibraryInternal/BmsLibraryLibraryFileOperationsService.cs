@@ -169,12 +169,17 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         List<BMSFile> targetFiles = (libraryFiles ?? Enumerable.Empty<BMSFile>())
             .Where((BMSFile file) => file != null && !string.IsNullOrWhiteSpace(file.path) && file.path.StartsWith(srcDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
             .ToList();
+        List<LR2SongDBExtended.bmson_song> targetBmsonSongs = (bmsonSongs ?? Enumerable.Empty<LR2SongDBExtended.bmson_song>())
+            .Where((LR2SongDBExtended.bmson_song song) => song != null && !string.IsNullOrWhiteSpace(song.path) && song.path.StartsWith(srcDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            .ToList();
         if (unregister)
         {
             delta.FilesToUnregister.AddRange(targetFiles);
+            delta.BmsonSongsToUnregister.AddRange(targetBmsonSongs);
             delta.InvalidateBMSHashIndex = targetFiles.Count > 0;
-            delta.InvalidateInstalledDirectoryIndex = targetFiles.Count > 0;
-            delta.InvalidateParentFolderCache = targetFiles.Count > 0;
+            delta.InvalidateInstalledDirectoryIndex = targetFiles.Count > 0 || targetBmsonSongs.Count > 0;
+            delta.InvalidateParentFolderCache = targetFiles.Count > 0 || targetBmsonSongs.Count > 0;
+            delta.ClearDuplicatedCache = targetFiles.Count > 0 || targetBmsonSongs.Count > 0;
             return delta;
         }
         foreach (BMSFile installLinkedFile in (pendingPackages ?? Enumerable.Empty<BMSPackage>())
@@ -221,8 +226,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
                 });
             }
         }
-        foreach (LR2SongDBExtended.bmson_song bmsonSong in (bmsonSongs ?? Enumerable.Empty<LR2SongDBExtended.bmson_song>())
-            .Where((LR2SongDBExtended.bmson_song song) => song != null && !string.IsNullOrWhiteSpace(song.path) && song.path.StartsWith(srcDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)))
+        foreach (LR2SongDBExtended.bmson_song bmsonSong in targetBmsonSongs)
         {
             delta.BmsonSongPathChanges.Add(new LibraryBmsonSongPathChange
             {
@@ -440,6 +444,33 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         LibraryMutationDelta delta = new LibraryMutationDelta();
         if (bmsFile == null)
         {
+            return delta;
+        }
+        if (bmsFile is PendingChartEntry pendingChartEntry && pendingChartEntry.IsBmsonChart)
+        {
+            LR2SongDBExtended.bmson_song bmsonSong = pendingChartEntry.BmsonSong;
+            if (bmsonSong == null)
+            {
+                return delta;
+            }
+            if (unregister)
+            {
+                delta.BmsonSongsToUnregister.Add(bmsonSong);
+                delta.InvalidateInstalledDirectoryIndex = true;
+                delta.InvalidateParentFolderCache = true;
+                delta.ClearDuplicatedCache = true;
+                return delta;
+            }
+            delta.BmsonSongPathChanges.Add(new LibraryBmsonSongPathChange
+            {
+                Song = bmsonSong,
+                OldPath = bmsonSong.path,
+                NewPath = dstPath
+            });
+            delta.RaiseBmsFilesChanged = true;
+            delta.InvalidateInstalledDirectoryIndex = true;
+            delta.InvalidateParentFolderCache = true;
+            delta.ClearDuplicatedCache = true;
             return delta;
         }
         if (unregister)
