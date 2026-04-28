@@ -3548,6 +3548,11 @@ public class MainWindowViewModel : ViewModel
             return Table == other.Table && string.Equals(FolderName, other.FolderName, StringComparison.Ordinal) && FilterType == other.FilterType && LibraryIndexVersion == other.LibraryIndexVersion && PlaylistRevision == other.PlaylistRevision && ScoreSnapshotVersion == other.ScoreSnapshotVersion && ChartInfoIndexVersion == other.ChartInfoIndexVersion && HasResolvedSelection == other.HasResolvedSelection;
         }
 
+        internal bool EqualsIgnoringChartInfoIndex(PlaylistSourceIdentity other)
+        {
+            return Table == other.Table && string.Equals(FolderName, other.FolderName, StringComparison.Ordinal) && FilterType == other.FilterType && LibraryIndexVersion == other.LibraryIndexVersion && PlaylistRevision == other.PlaylistRevision && ScoreSnapshotVersion == other.ScoreSnapshotVersion && HasResolvedSelection == other.HasResolvedSelection;
+        }
+
         public override bool Equals(object obj)
         {
             return obj is PlaylistSourceIdentity other && Equals(other);
@@ -10849,6 +10854,79 @@ public class MainWindowViewModel : ViewModel
         return true;
     }
 
+    private bool TryPatchPlaylistSourceChartInfoIndex(PlaylistBuildRequest request, CancellationToken cancellationToken, out int sourceCount, out int dependencyCount, out int patchedCount, out long elapsedMs)
+    {
+        sourceCount = 0;
+        dependencyCount = 0;
+        patchedCount = 0;
+        Stopwatch stopwatch = Stopwatch.StartNew();
+        List<PlaylistDetailSourceRow> sourceRows;
+        lock (playlistViewState.SyncRoot)
+        {
+            sourceRows = playlistViewState.SourceRows;
+        }
+        if (sourceRows == null)
+        {
+            elapsedMs = stopwatch.ElapsedMilliseconds;
+            return false;
+        }
+        sourceCount = sourceRows.Count;
+        foreach (PlaylistDetailSourceRow row in sourceRows)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (row == null || !row.HasEntryChartInfoDependency)
+            {
+                continue;
+            }
+            dependencyCount++;
+            LR2SongDBExtended.chart_info resolved = files?.ResolveChartInfo(row.sha256, row.hash);
+            if (AreSameChartInfoIdentity(row.EntryChartInfo, resolved))
+            {
+                continue;
+            }
+            if (row.SetEntryChartInfo(resolved))
+            {
+                patchedCount++;
+            }
+        }
+        lock (playlistViewState.SyncRoot)
+        {
+            playlistViewState.LastBuiltChartInfoIndexVersion = request.Identity.ChartInfoIndexVersion;
+            playlistViewState.CurrentSourceIdentity = request.Identity.SourceIdentity;
+            playlistViewState.SourceGenerationId++;
+        }
+        stopwatch.Stop();
+        elapsedMs = stopwatch.ElapsedMilliseconds;
+        return true;
+    }
+
+    private static bool AreSameChartInfoIdentity(LR2SongDBExtended.chart_info existing, LR2SongDBExtended.chart_info incoming)
+    {
+        if (ReferenceEquals(existing, incoming))
+        {
+            return true;
+        }
+        if (existing == null || incoming == null)
+        {
+            return false;
+        }
+        if (string.IsNullOrWhiteSpace(existing.sha256) || string.IsNullOrWhiteSpace(incoming.sha256))
+        {
+            return false;
+        }
+        if (existing.parser_version <= 0 || incoming.parser_version <= 0)
+        {
+            return false;
+        }
+        if (existing.updated_at == default(DateTime) || incoming.updated_at == default(DateTime))
+        {
+            return false;
+        }
+        return string.Equals(existing.sha256, incoming.sha256, StringComparison.OrdinalIgnoreCase)
+            && existing.parser_version == incoming.parser_version
+            && existing.updated_at == incoming.updated_at;
+    }
+
     /// <summary>
     /// プレイリスト詳細ビューを source rebuild または source 再利用で更新します。
     /// </summary>
@@ -10890,10 +10968,17 @@ public class MainWindowViewModel : ViewModel
         bool playlistRevisionInvalidated = lastBuiltPlaylistRevision != request.Identity.PlaylistRevision;
         bool scoreSnapshotInvalidated = lastBuiltScoreSnapshotVersion != request.Identity.ScoreSnapshotVersion;
         bool chartInfoIndexInvalidated = lastBuiltChartInfoIndexVersion != request.Identity.ChartInfoIndexVersion;
-        bool sourceIdentityInvalidated = !currentSourceIdentity.HasValue || !currentSourceIdentity.Value.Equals(request.Identity.SourceIdentity);
+        bool sourceIdentityInvalidatedExceptChartInfo = !currentSourceIdentity.HasValue || !currentSourceIdentity.Value.EqualsIgnoringChartInfoIndex(request.Identity.SourceIdentity);
         bool presentationIdentityChanged = !currentViewIdentity.HasValue || !currentViewIdentity.Value.PresentationIdentity.Equals(request.Identity.PresentationIdentity);
         bool sourceMissing = sourceRows == null || (sourceRows.Count == 0 && !hasResolvedPlaylistSource);
-        bool sourceInvalidated = sourceIdentityInvalidated || libraryIndexInvalidated || playlistRevisionInvalidated || scoreSnapshotInvalidated || chartInfoIndexInvalidated;
+        bool sourceInvalidated = sourceIdentityInvalidatedExceptChartInfo || libraryIndexInvalidated || playlistRevisionInvalidated || scoreSnapshotInvalidated;
+        bool chartInfoOnlyInvalidated = chartInfoIndexInvalidated && !selectionChanged && !sourceInvalidated && !sourceMissing;
+        if (chartInfoOnlyInvalidated && TryPatchPlaylistSourceChartInfoIndex(request, cancellationToken, out int patchedSourceCount, out int chartInfoDependencyCount, out int chartInfoPatchedCount, out long chartInfoPatchMs))
+        {
+            LogPlaylistViewApply("chart_info_patch requestVersion=" + request.RequestVersion + " sourceCount=" + patchedSourceCount + " dependencyCount=" + chartInfoDependencyCount + " patchedCount=" + chartInfoPatchedCount + " chartInfoIndexVersion=" + request.Identity.ChartInfoIndexVersion + " elapsedMs=" + chartInfoPatchMs);
+            return ApplyPlaylistViewWithoutSourceRebuild(request, cancellationToken);
+        }
+        sourceInvalidated = sourceInvalidated || (chartInfoIndexInvalidated && !chartInfoOnlyInvalidated);
         bool requiresSourceRebuild = selectionChanged || sourceInvalidated || sourceMissing;
         if (requiresSourceRebuild)
         {

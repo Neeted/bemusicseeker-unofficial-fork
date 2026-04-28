@@ -2169,6 +2169,10 @@ public class BMSLibrary : NotificationObject
 
         public int OwnerApplySkippedCount { get; set; }
 
+        public int OwnerApplySilentCount { get; set; }
+
+        public int OwnerApplyNotifiedCount { get; set; }
+
         public long LoadMs { get; set; }
 
         public long ApplyMs { get; set; }
@@ -3868,6 +3872,8 @@ public class BMSLibrary : NotificationObject
                 + " appliedBmson=" + result.AppliedBmsonCount
                 + " ownerApplyUpdated=" + result.OwnerApplyUpdatedCount
                 + " ownerApplySkipped=" + result.OwnerApplySkippedCount
+                + " ownerApplySilent=" + result.OwnerApplySilentCount
+                + " ownerApplyNotified=" + result.OwnerApplyNotifiedCount
                 + " dbLoadMs=" + result.DbLoadMs
                 + " indexBuildMs=" + result.IndexBuildMs
                 + " ownerApplyMs=" + result.OwnerApplyMs
@@ -3946,9 +3952,12 @@ public class BMSLibrary : NotificationObject
                         result.OwnerApplySkippedCount++;
                         continue;
                     }
-                    file.SetChartInfo(chartInfo);
-                    result.AppliedBmsCount++;
-                    result.OwnerApplyUpdatedCount++;
+                    if (file.SetChartInfoSilently(chartInfo))
+                    {
+                        result.AppliedBmsCount++;
+                        result.OwnerApplyUpdatedCount++;
+                        result.OwnerApplySilentCount++;
+                    }
                 }
             }
             foreach (LR2SongDBExtended.bmson_song song in BmsonSongs ?? Enumerable.Empty<LR2SongDBExtended.bmson_song>())
@@ -3963,6 +3972,7 @@ public class BMSLibrary : NotificationObject
                     song.ChartInfo = chartInfo;
                     result.AppliedBmsonCount++;
                     result.OwnerApplyUpdatedCount++;
+                    result.OwnerApplySilentCount++;
                 }
             }
         }

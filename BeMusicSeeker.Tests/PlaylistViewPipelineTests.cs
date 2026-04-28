@@ -326,6 +326,7 @@ public sealed class PlaylistViewPipelineTests
         MainWindowViewModel.PlaylistRequestIdentity after = MainWindowViewModel.CreatePlaylistRequestIdentity(table, null, MainWindowViewModel.PlaylistFilterType.PlaylistFilter, null, MainWindowViewModel.ModeFilterType.All, sortParameters: null, libraryIndexVersion: 3, playlistRevision: 4, scoreSnapshotVersion: 5, chartInfoIndexVersion: 7, hasResolvedSelection: true);
 
         Assert.AreNotEqual(before, after);
+        Assert.IsTrue(before.SourceIdentity.EqualsIgnoringChartInfoIndex(after.SourceIdentity));
     }
 
     [TestMethod]
@@ -542,6 +543,27 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual("ANOTHER", row.ChartDifficultyText);
         Assert.AreEqual(2500, row.ChartNotes);
         Assert.AreEqual("777.5", row.ChartTotalText);
+    }
+
+    [TestMethod]
+    public void PlaylistDetailSourceRow_MissingEntryChartInfoCanBePatchedForViewRematerialize()
+    {
+        LR2SongDBExtended.chart_info oldInfo = CreateChartInfo(new string('e', 64), "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", level: 3, notes: 500, total: 100);
+        LR2SongDBExtended.chart_info newInfo = CreateChartInfo(new string('e', 64), "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", level: 12, notes: 2500, total: 500);
+        PlaylistDetailSourceRow sourceRow = CreateMissingSourceRow("PatchChartInfo", oldInfo);
+
+        Assert.IsTrue(sourceRow.HasEntryChartInfoDependency);
+        Assert.AreEqual("3", sourceRow.ChartLevelText);
+        Assert.AreEqual(500, sourceRow.ChartNotes);
+
+        Assert.IsTrue(sourceRow.SetEntryChartInfo(newInfo));
+
+        PlaylistDetailRow viewRow = sourceRow.CreateViewRow();
+        Assert.AreSame(newInfo, sourceRow.EntryChartInfo);
+        Assert.AreSame(newInfo, sourceRow.ChartInfo);
+        Assert.AreEqual("12", viewRow.ChartLevelText);
+        Assert.AreEqual(2500, viewRow.ChartNotes);
+        Assert.AreEqual("500", viewRow.ChartTotalText);
     }
 
     [TestMethod]

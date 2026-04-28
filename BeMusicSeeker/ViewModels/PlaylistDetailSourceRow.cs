@@ -122,9 +122,11 @@ internal sealed class PlaylistDetailSourceRow
 
     internal string Level { get; private set; }
 
-    internal LR2SongDBExtended.chart_info EntryChartInfo { get; }
+    internal LR2SongDBExtended.chart_info EntryChartInfo { get; private set; }
 
     internal LR2SongDBExtended.chart_info ChartInfo => RealFile?.ChartInfo ?? ResolvedBmson?.ChartInfo ?? EntryChartInfo;
+
+    internal bool HasEntryChartInfoDependency => RealFile == null && ResolvedBmson == null;
 
     internal string ChartLevelText => ChartInfoDisplayFormatter.FormatOptionalInt(ChartInfo?.level);
 
@@ -253,6 +255,16 @@ internal sealed class PlaylistDetailSourceRow
         EntryLevelSortKey = entry.level;
         Level = BuildLevelText(entry, realFile, resolvedBmson);
         SearchText = BuildSearchText();
+    }
+
+    internal bool SetEntryChartInfo(LR2SongDBExtended.chart_info chartInfo)
+    {
+        if (!HasEntryChartInfoDependency || ReferenceEquals(EntryChartInfo, chartInfo))
+        {
+            return false;
+        }
+        EntryChartInfo = chartInfo;
+        return true;
     }
 
     /// <summary>

@@ -2261,14 +2261,14 @@ public sealed class ChartInfoMetadataTests
             Assert.IsNotNull(bmsonSong.ChartInfo);
             Assert.AreEqual(bmsonSha, bmsonSong.ChartInfo.sha256);
             Assert.AreEqual(0, library.ChartInfoBackfillRequestedVersion);
-            Assert.AreEqual(1, chartInfoPropertyChangedCount);
+            Assert.AreEqual(0, chartInfoPropertyChangedCount);
 
             InvokeDeferredChartInfoHydration(library, "unit_test_repeat", queueFullBackfillAfterHydration: false);
 
             Assert.IsTrue(WaitForChartInfoHydration(library), "second chart_info hydration did not complete.");
             Assert.AreEqual(2, library.ChartInfoHydrationTotalCount);
             Assert.AreEqual(0, library.ChartInfoHydrationAppliedCount);
-            Assert.AreEqual(1, chartInfoPropertyChangedCount);
+            Assert.AreEqual(0, chartInfoPropertyChangedCount);
         });
     }
 
