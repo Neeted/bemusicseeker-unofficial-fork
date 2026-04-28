@@ -450,6 +450,25 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual("abababababababababababababababababababababababababababababababab", sourceRow.sha256);
         Assert.AreEqual("abababababababababababababababababababababababababababababababab", row.sha256);
         Assert.AreEqual("abababababababababababababababababababababababababababababababab", GridRowResolver.GetSha256(row));
+        Assert.AreEqual("abababababababababababababababababababababababababababababababab", GridRowResolver.GetRepositorySha256(row));
+    }
+
+    [TestMethod]
+    public void GridRowResolver_GetRepositorySha256_UsesBmsFileChartInfoFallback()
+    {
+        TestableBmsFile file = new TestableBmsFile();
+        file.ApplySnapshot("abababababababababababababababab", "ChartInfoSha", 7);
+        file.SetChartInfo(CreateChartInfo(new string('d', 64), file.hash));
+
+        Assert.AreEqual(new string('d', 64), GridRowResolver.GetRepositorySha256(file));
+    }
+
+    [TestMethod]
+    public void GridRowResolver_GetRepositorySha256_ReturnsNullWhenMissing()
+    {
+        PlaylistDetailSourceRow sourceRow = CreateSourceRow("cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd", "NoSha", 7);
+
+        Assert.IsNull(GridRowResolver.GetRepositorySha256(sourceRow.CreateViewRow()));
     }
 
     [TestMethod]
@@ -486,6 +505,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(7, row.mode);
         Assert.AreEqual(bmson.path, row.path);
         Assert.AreEqual(bmson.sha256, row.sha256);
+        Assert.AreEqual(bmson.sha256, GridRowResolver.GetRepositorySha256(row));
         Assert.AreEqual(ClearType.NO_PLAY, row.clear);
         Assert.AreEqual(RankType.INVALID, row.rank);
         Assert.IsNull(row.score);
@@ -539,10 +559,26 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(ClearType.NO_SONG, sourceRow.clear);
         Assert.AreSame(chartInfo, sourceRow.EntryChartInfo);
         Assert.AreSame(chartInfo, sourceRow.ChartInfo);
+        Assert.AreEqual(chartInfo.sha256, sourceRow.sha256);
+        Assert.AreEqual(chartInfo.sha256, GridRowResolver.GetRepositorySha256(row));
         Assert.AreEqual("12", row.ChartLevelText);
         Assert.AreEqual("ANOTHER", row.ChartDifficultyText);
         Assert.AreEqual(2500, row.ChartNotes);
         Assert.AreEqual("777.5", row.ChartTotalText);
+    }
+
+    [TestMethod]
+    public void PlaylistDetailSourceRow_MissingWithChartInfoFallback_UsesChartInfoSha256()
+    {
+        LR2SongDBExtended.chart_info chartInfo = CreateChartInfo(new string('a', 64), "abababababababababababababababab");
+        TestablePlaylistEntry entry = new TestablePlaylistEntry();
+        entry.SetTitle("MissingShaFallback");
+        entry.SetMd5(chartInfo.md5);
+
+        PlaylistDetailRow row = new PlaylistDetailSourceRow(entry, realFile: null, resolvedBmson: null, entryChartInfo: chartInfo).CreateViewRow();
+
+        Assert.AreEqual(chartInfo.sha256, row.sha256);
+        Assert.AreEqual(chartInfo.sha256, GridRowResolver.GetRepositorySha256(row));
     }
 
     [TestMethod]
@@ -561,6 +597,8 @@ public sealed class PlaylistViewPipelineTests
         PlaylistDetailRow viewRow = sourceRow.CreateViewRow();
         Assert.AreSame(newInfo, sourceRow.EntryChartInfo);
         Assert.AreSame(newInfo, sourceRow.ChartInfo);
+        Assert.AreEqual(newInfo.sha256, viewRow.sha256);
+        Assert.AreEqual(newInfo.sha256, GridRowResolver.GetRepositorySha256(viewRow));
         Assert.AreEqual("12", viewRow.ChartLevelText);
         Assert.AreEqual(2500, viewRow.ChartNotes);
         Assert.AreEqual("500", viewRow.ChartTotalText);

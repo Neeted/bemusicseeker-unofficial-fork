@@ -66,7 +66,7 @@ internal sealed class PlaylistDetailSourceRow
 
     internal string hash { get; }
 
-    internal string sha256 { get; }
+    internal string sha256 { get; private set; }
 
     internal string Folder { get; }
 
@@ -227,7 +227,7 @@ internal sealed class PlaylistDetailSourceRow
         comment = entry.comment ?? string.Empty;
         memo = entry.memo ?? string.Empty;
         hash = FirstNonEmpty(realFile?.hash, resolvedBmson?.md5, entry.md5);
-        sha256 = FirstNonEmpty(realFile?.sha256, resolvedBmson?.sha256, entry.sha256);
+        sha256 = FirstNonEmpty(realFile?.sha256, resolvedBmson?.sha256, entry.sha256, entryChartInfo?.sha256);
         Folder = FirstNonEmpty(entry.folder, BmsonSongParser.ComposeDisplayFolder(resolvedBmson));
         path = FirstNonEmpty(realFile?.path, resolvedBmson?.path);
         instl_dst = snapshotSource?.instl_dst ?? string.Empty;
@@ -264,6 +264,10 @@ internal sealed class PlaylistDetailSourceRow
             return false;
         }
         EntryChartInfo = chartInfo;
+        if (string.IsNullOrWhiteSpace(sha256) && !string.IsNullOrWhiteSpace(chartInfo?.sha256))
+        {
+            sha256 = chartInfo.sha256;
+        }
         return true;
     }
 

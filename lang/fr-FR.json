@@ -171,6 +171,8 @@
   "Device_setting_desc1": "* The buffer size is a trade-off between playback stability and precision (0: auto)",
   "Msg_error_unexpected": "An unexpected error occurred.",
   "Open_lr2ir": "Ouvrir sur LR2IR",
+  "Open_minir": "Open MinIR",
+  "Open_mocha": "Open Mocha",
   "Sampling_rate": "Sampling rate",
   "Open_image": "Open image file",
   "Estimate_install_loc": "Estimate installation location",

@@ -568,6 +568,12 @@ LR2をプレイヤーとして使用すると再生できない場合があり�
   <data name="Open_lr2ir" xml:space="preserve">
     <value>LR2 IRを開く</value>
   </data>
+  <data name="Open_minir" xml:space="preserve">
+    <value>MinIRを開く</value>
+  </data>
+  <data name="Open_mocha" xml:space="preserve">
+    <value>Mochaを開く</value>
+  </data>
   <data name="Sampling_rate" xml:space="preserve">
     <value>サンプリングレート</value>
   </data>

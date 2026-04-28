@@ -171,6 +171,8 @@
   "Device_setting_desc1": "* 버퍼 크기는 재생 안정성과 정밀도의 절충값입니다(0: 자동)",
   "Msg_error_unexpected": "예기치 않은 오류가 발생했습니다.",
   "Open_lr2ir": "LR2IR에서 열기",
+  "Open_minir": "Open MinIR",
+  "Open_mocha": "Open Mocha",
   "Sampling_rate": "샘플링 속도",
   "Open_image": "이미지 열기",
   "Estimate_install_loc": "설치 위치 추정",

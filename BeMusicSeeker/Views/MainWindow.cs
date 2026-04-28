@@ -5201,7 +5201,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return;
         }
         List<BMSFile> list = GetSelectedGridOperationFiles();
-        bool hasBmsonSelection = list.Any(PendingChartEntry.IsBmsonChartFile);
+        bool isBmsonContextRow = GridRowResolver.IsBmsonContextRow(row);
+        bool hasBmsonSelection = isBmsonContextRow || list.Any(PendingChartEntry.IsBmsonChartFile);
         if (!(base.DataContext is MainWindowViewModel mainWindowViewModel))
         {
             return;
@@ -5230,6 +5231,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         MenuItem menuItem16 = null;
         MenuItem menuItem17 = null;
         MenuItem menuItemOpenLr2Ir = null;
+        MenuItem menuItemOpenMocha = null;
+        MenuItem menuItemOpenMinIr = null;
         MenuItem menuItemOpenInstallDestination = null;
         MenuItem menuItemOpenDocument = null;
         MenuItem menuItem18 = null;
@@ -5243,6 +5246,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             {
                 case "dataGridContextMenuItemOpenLR2IR":
                     menuItemOpenLr2Ir = item as MenuItem;
+                    break;
+                case "dataGridContextMenuItemOpenMocha":
+                    menuItemOpenMocha = item as MenuItem;
+                    break;
+                case "dataGridContextMenuItemOpenMinIR":
+                    menuItemOpenMinIr = item as MenuItem;
                     break;
                 case "dataGridContextMenuItemOpenURL":
                     menuItem = item as MenuItem;
@@ -5392,7 +5401,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         if (menuItem3 != null && menuItem4 != null && menuItemOpenDocument != null && changeSubmenuOpenDocumentTask == null)
         {
             menuItemOpenDocument.IsEnabled = false;
-            if (!string.IsNullOrWhiteSpace(bmsFile.path) && File.Exists(bmsFile.path))
+            if (!string.IsNullOrWhiteSpace(bmsFile?.path) && File.Exists(bmsFile.path))
             {
                 menuItem3.IsEnabled = true;
                 menuItem4.IsEnabled = true;
@@ -5449,15 +5458,27 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         else
         {
             menuItem18.Header = BeMusicSeeker.Properties.Resources.Open_chart_viewer;
-            flag = !hasBmsonSelection && !string.IsNullOrWhiteSpace(bmsFile.path) && File.Exists(bmsFile.path);
+            flag = !hasBmsonSelection && !string.IsNullOrWhiteSpace(bmsFile?.path) && File.Exists(bmsFile.path);
             menuItem18.IsEnabled = flag;
         }
         menuItem19.IsEnabled = flag;
         if (menuItemOpenLr2Ir != null)
         {
             bool canOpenLr2Ir = !hasBmsonSelection && !string.IsNullOrWhiteSpace(GridRowResolver.GetHash(row));
-            menuItemOpenLr2Ir.Visibility = Visibility.Visible;
+            menuItemOpenLr2Ir.Visibility = hasBmsonSelection ? Visibility.Collapsed : Visibility.Visible;
             menuItemOpenLr2Ir.IsEnabled = canOpenLr2Ir;
+        }
+        string repositorySha256 = GridRowResolver.GetRepositorySha256(row);
+        bool canOpenRepository = !string.IsNullOrWhiteSpace(repositorySha256);
+        if (menuItemOpenMocha != null)
+        {
+            menuItemOpenMocha.Visibility = canOpenRepository ? Visibility.Visible : Visibility.Collapsed;
+            menuItemOpenMocha.IsEnabled = canOpenRepository;
+        }
+        if (menuItemOpenMinIr != null)
+        {
+            menuItemOpenMinIr.Visibility = canOpenRepository ? Visibility.Visible : Visibility.Collapsed;
+            menuItemOpenMinIr.IsEnabled = canOpenRepository;
         }
         if (menuItem7 != null)
         {
@@ -5705,6 +5726,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         Uri rowUrl = GridRowResolver.GetUrl(row);
         Uri rowUrlDiff = GridRowResolver.GetUrlDiff(row);
         bool isBmsonContextRow = GridRowResolver.IsBmsonContextRow(row);
+        string repositorySha256 = GridRowResolver.GetRepositorySha256(row);
+        bool canOpenRepository = !string.IsNullOrWhiteSpace(repositorySha256);
         bool canOpenScoreViewer = !isBmsonContextRow && !string.IsNullOrWhiteSpace(GridRowResolver.GetHash(row));
         bool canUpdateRanking = canOpenScoreViewer && viewModel != null && viewModel.LR2ID != 0;
         bool canOpenLr2Ir = !isBmsonContextRow && (!string.IsNullOrWhiteSpace(GridRowResolver.GetHash(row)) || !string.IsNullOrWhiteSpace(GridRowResolver.GetLr2BmsId(row)));
@@ -5715,6 +5738,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 case "dataGridContextMenuItemOpenLR2IR":
                     item.Visibility = canOpenLr2Ir ? Visibility.Visible : Visibility.Collapsed;
                     item.IsEnabled = canOpenLr2Ir;
+                    break;
+                case "dataGridContextMenuItemOpenMocha":
+                case "dataGridContextMenuItemOpenMinIR":
+                    item.Visibility = canOpenRepository ? Visibility.Visible : Visibility.Collapsed;
+                    item.IsEnabled = canOpenRepository;
                     break;
                 case "dataGridContextMenuItemOpenURL":
                     item.Visibility = Visibility.Visible;
@@ -5740,7 +5768,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                     break;
             }
         }
-        NLogWrapper.FileLogger?.Info("playlist_missing_context_menu rowType=" + row?.GetType().FullName + " entryParent=" + entry?.parent?.name + " isBmson=" + isBmsonContextRow + " url=" + (rowUrl != null) + " urlDiff=" + (rowUrlDiff != null) + " canOpenLr2Ir=" + canOpenLr2Ir + " canOpenScoreViewer=" + canOpenScoreViewer + " canUpdateRanking=" + canUpdateRanking);
+        NLogWrapper.FileLogger?.Info("playlist_missing_context_menu rowType=" + row?.GetType().FullName + " entryParent=" + entry?.parent?.name + " isBmson=" + isBmsonContextRow + " url=" + (rowUrl != null) + " urlDiff=" + (rowUrlDiff != null) + " canOpenLr2Ir=" + canOpenLr2Ir + " canOpenRepository=" + canOpenRepository + " canOpenScoreViewer=" + canOpenScoreViewer + " canUpdateRanking=" + canUpdateRanking);
     }
 
     private void dataGridContextMenuItemOpenExplorerClick(object sender, RoutedEventArgs e)
@@ -5880,6 +5908,30 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         return null;
     }
 
+    private static string GetMochaSongUrl(string sha256)
+    {
+        return string.IsNullOrWhiteSpace(sha256) ? null : "https://mocha-repository.info/song.php?sha256=" + sha256;
+    }
+
+    private static string GetMinIrSongUrl(string sha256)
+    {
+        return string.IsNullOrWhiteSpace(sha256) ? null : "https://www.gaftalk.com/minir/#/viewer/song/" + sha256 + "/0";
+    }
+
+    private void OpenRepositoryUrlForRow(object row, Func<string, string> urlFactory)
+    {
+        string sha256 = GridRowResolver.GetRepositorySha256(row);
+        if (string.IsNullOrWhiteSpace(sha256))
+        {
+            return;
+        }
+        string url = urlFactory?.Invoke(sha256);
+        if (!string.IsNullOrWhiteSpace(url))
+        {
+            Process.Start(url);
+        }
+    }
+
     private void dataGridContextMenuItemOpenBMSFileClick(object sender, RoutedEventArgs e)
     {
         if (!(e.Source is MenuItem { Parent: ContextMenu { PlacementTarget: DataGridRow placementTarget } }))
@@ -5934,6 +5986,22 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         if (text != null)
         {
             Process.Start(text);
+        }
+    }
+
+    private void dataGridContextMenuItemOpenMochaClick(object sender, RoutedEventArgs e)
+    {
+        if (e.Source is MenuItem { Parent: ContextMenu { PlacementTarget: DataGridRow { Item: var row } } })
+        {
+            OpenRepositoryUrlForRow(row, GetMochaSongUrl);
+        }
+    }
+
+    private void dataGridContextMenuItemOpenMinIRClick(object sender, RoutedEventArgs e)
+    {
+        if (e.Source is MenuItem { Parent: ContextMenu { PlacementTarget: DataGridRow { Item: var row } } })
+        {
+            OpenRepositoryUrlForRow(row, GetMinIrSongUrl);
         }
     }
 

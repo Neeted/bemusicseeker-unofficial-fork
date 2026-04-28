@@ -536,6 +536,10 @@ public class Resources
 
     public static string Open_lr2ir => ResourceManager.GetString("Open_lr2ir", resourceCulture);
 
+    public static string Open_minir => ResourceManager.GetString("Open_minir", resourceCulture);
+
+    public static string Open_mocha => ResourceManager.GetString("Open_mocha", resourceCulture);
+
     public static string Open_page => ResourceManager.GetString("Open_page", resourceCulture);
 
     public static string Open_Url => ResourceManager.GetString("Open_Url", resourceCulture);

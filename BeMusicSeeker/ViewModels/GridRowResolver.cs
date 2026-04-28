@@ -1,4 +1,5 @@
 using System;
+using System.Text.RegularExpressions;
 using BeMusicSeeker.Models;
 
 namespace BeMusicSeeker.ViewModels;
@@ -8,6 +9,8 @@ namespace BeMusicSeeker.ViewModels;
 /// </summary>
 internal static class GridRowResolver
 {
+    private static readonly Regex Sha256HashRegex = new Regex("^[a-f0-9]{64}$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
     /// <summary>
     /// playlist 詳細表示用 row かどうかを返します。
     /// </summary>
@@ -140,6 +143,42 @@ internal static class GridRowResolver
             BMSFile bmsFile => bmsFile.sha256,
             _ => null
         };
+    }
+
+    /// <summary>
+    /// Mocha / MinIR など SHA256 ベースの外部 repository 連携に使うハッシュを取得します。
+    /// 表示用 row に materialize 済みの値を優先し、通常 BMS 行では chart_info の SHA256 も fallback にします。
+    /// </summary>
+    internal static string GetRepositorySha256(object row)
+    {
+        string sha256 = row switch
+        {
+            PlaylistDetailRow playlistDetailRow => playlistDetailRow.sha256,
+            BMSFile bmsFile => FirstNonEmpty(bmsFile.sha256, bmsFile.ChartInfo?.sha256),
+            _ => null
+        };
+        return IsValidSha256(sha256) ? sha256.ToLowerInvariant() : null;
+    }
+
+    private static bool IsValidSha256(string value)
+    {
+        return !string.IsNullOrWhiteSpace(value) && Sha256HashRegex.IsMatch(value.Trim());
+    }
+
+    private static string FirstNonEmpty(params string[] values)
+    {
+        if (values == null)
+        {
+            return null;
+        }
+        foreach (string value in values)
+        {
+            if (!string.IsNullOrWhiteSpace(value))
+            {
+                return value.Trim();
+            }
+        }
+        return null;
     }
 
     /// <summary>
