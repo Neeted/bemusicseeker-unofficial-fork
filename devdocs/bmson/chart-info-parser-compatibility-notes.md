@@ -715,18 +715,10 @@ chart_info backfill は「単一 file reader + in-memory parallel parse + chunk 
 
 今後の改善候補:
 
-1. DataGrid での `chart_info` 表示設計
-   - `LEVEL`, `DIFFICULTY`, `JUDGE`, `FEATURE`, `TOTAL`, `T/N`, `DENSITY`, `PEAK`, `END`, `LONG`, `SCRATCH`, `SPEEDCHANGE` など
-   - `difficulty_defined=false` / `total_defined=false` の警告表示
-   - 既存 LR2 `song` 由来値と `chart_info` 由来値の優先順位
-2. keyword search field 拡張
-   - `chart_info` 由来 field の命名
-   - numeric range / undefined handling
-   - feature bit flag の検索構文
-3. RANDOM 譜面の deterministic branch 選択と beatoraja DB 期待値の扱い整理
+1. RANDOM 譜面の deterministic branch 選択と beatoraja DB 期待値の扱い整理
    - 値差分は仕様上許容しているが、UI 表示上の説明が必要になる可能性がある
-4. production DB 再生成時の差分追跡を容易にする report / fixture 更新手順の整備
-5. `#SWITCH/#CASE/#SKIP/#ENDSW` の追加サンプルが出た場合の conditional stack 再確認
-6. さらなる性能 tuning
+2. production DB 再生成時の差分追跡を容易にする report / fixture 更新手順の整備
+3. `#SWITCH/#CASE/#SKIP/#ENDSW` の追加サンプルが出た場合の conditional stack 再確認
+4. さらなる性能 tuning
    - `slow_parse_top` 上位譜面の個別 hotspot
    - chunk commit の最大遅延

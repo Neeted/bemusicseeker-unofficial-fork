@@ -71,7 +71,6 @@ field:<12
 
 ## 残課題
 
-- DataGrid の初期表示セットは控えめにしている。実利用でよく見る列が固まったら preset を見直す。
 - `NOTES` を chart_info 由来に置き換えたため、LR2 score 側の `totalnotes` を確認したい場面があれば別名列を追加する。
 - `FEATURE` は半角スペース区切り表示のみ。将来は chip / filter UI 化すると視認性が上がる。
 - `distribution` と `lanenotes` は v1 では直接表示しない。密度グラフやレーン分布 UI を作る場合に別途検討する。

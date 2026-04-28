@@ -1025,59 +1025,7 @@ public class dataGridColumnsSettings : NotificationObject
         {
             Width = 70
         };
-        int num = 0;
-        Status.DisplayIndex = num++;
-        EntryLevel.DisplayIndex = num++;
-        Title.DisplayIndex = num++;
-        Artist.DisplayIndex = num++;
-        Genre.DisplayIndex = num++;
-        Mode.DisplayIndex = num++;
-        Tag.DisplayIndex = num++;
-        Url1.DisplayIndex = num++;
-        Url2.DisplayIndex = num++;
-        Warning.DisplayIndex = num++;
-        Comment.DisplayIndex = num++;
-        Memo.DisplayIndex = num++;
-        Hash.DisplayIndex = num++;
-        Sha256.DisplayIndex = num++;
-        Folder.DisplayIndex = num++;
-        Path.DisplayIndex = num++;
-        InstallDst.DisplayIndex = num++;
-        InstallDstTitle.DisplayIndex = num++;
-        InstallDstArtist.DisplayIndex = num++;
-        WavHealth.DisplayIndex = num++;
-        BgaHealth.DisplayIndex = num++;
-        MovieHealth.DisplayIndex = num++;
-        PlaylistSymbols.DisplayIndex = num++;
-        Level.DisplayIndex = num++;
-        ChartDifficulty.DisplayIndex = num++;
-        ChartMainBpm.DisplayIndex = num++;
-        ChartMaxBpm.DisplayIndex = num++;
-        ChartMinBpm.DisplayIndex = num++;
-        ChartDuration.DisplayIndex = num++;
-        ChartJudge.DisplayIndex = num++;
-        ChartJudgePercent.DisplayIndex = num++;
-        ChartFeature.DisplayIndex = num++;
-        Notes.DisplayIndex = num++;
-        ChartLongNotes.DisplayIndex = num++;
-        ChartScratchNotes.DisplayIndex = num++;
-        ChartTotal.DisplayIndex = num++;
-        ChartTotalPerNote.DisplayIndex = num++;
-        ChartDensity.DisplayIndex = num++;
-        ChartPeakDensity.DisplayIndex = num++;
-        ChartEndDensity.DisplayIndex = num++;
-        ChartSoflan.DisplayIndex = num++;
-        Clear.DisplayIndex = num++;
-        Rank.DisplayIndex = num++;
-        Rate.DisplayIndex = num++;
-        Ranking.DisplayIndex = num++;
-        RankingLastupdate.DisplayIndex = num++;
-        Score.DisplayIndex = num++;
-        Combo.DisplayIndex = num++;
-        TScore.DisplayIndex = num++;
-        ScoreDifficulty.DisplayIndex = num++;
-        Bp.DisplayIndex = num++;
-        CharcterEncoding.DisplayIndex = num++;
+        ApplyColumnOrder(GetAllColumnLayouts());
     }
 
     public dataGridColumnsSettings(viewType type)
@@ -1086,292 +1034,224 @@ public class dataGridColumnsSettings : NotificationObject
         switch (type)
         {
             case viewType.STANDARD:
-                ApplyStandardViewDefaults(showWarningColumn: false);
+                ApplyVisibleColumnOrder(
+                    Title,
+                    Artist,
+                    Genre,
+                    Mode,
+                    Folder,
+                    Path,
+                    Clear,
+                    Rank,
+                    Rate,
+                    Bp,
+                    Level,
+                    ChartDifficulty,
+                    ChartJudge,
+                    ChartJudgePercent,
+                    Notes,
+                    ChartLongNotes,
+                    ChartScratchNotes,
+                    ChartMainBpm,
+                    ChartMinBpm,
+                    ChartMaxBpm,
+                    ChartSoflan,
+                    ChartTotal,
+                    ChartTotalPerNote,
+                    ChartDuration,
+                    ChartFeature,
+                    ChartDensity,
+                    ChartPeakDensity,
+                    ChartEndDensity,
+                    PlaylistSymbols);
                 break;
             case viewType.ZERO_NOTE:
-                ApplyStandardViewDefaults(showWarningColumn: true);
+                ApplyVisibleColumnOrder(
+                    Title,
+                    Artist,
+                    Mode,
+                    Warning,
+                    Notes,
+                    PlaylistSymbols,
+                    Folder,
+                    Path,
+                    Hash);
                 break;
             case viewType.PLAYLIST:
                 {
-                    Genre.Visibility = Visibility.Hidden;
-                    Mode.Visibility = Visibility.Hidden;
-                    Tag.Visibility = Visibility.Hidden;
-                    Rate.Visibility = Visibility.Hidden;
-                    RankingLastupdate.Visibility = Visibility.Hidden;
-                    Score.Visibility = Visibility.Hidden;
-                    Notes.Visibility = Visibility.Hidden;
-                    Combo.Visibility = Visibility.Hidden;
-                    Bp.Visibility = Visibility.Hidden;
-                    Warning.Visibility = Visibility.Hidden;
-                    Hash.Visibility = Visibility.Hidden;
-                    InstallDst.Visibility = Visibility.Hidden;
-                    InstallDstTitle.Visibility = Visibility.Hidden;
-                    InstallDstArtist.Visibility = Visibility.Hidden;
-                    PlaylistSymbols.Visibility = Visibility.Hidden;
-                    CharcterEncoding.Visibility = Visibility.Hidden;
-                    EntryLevel.Visibility = Visibility.Visible;
-                    Level.Visibility = Visibility.Hidden;
-                    int num3 = 0;
-                    Status.DisplayIndex = num3++;
-                    Folder.DisplayIndex = num3++;
-                    EntryLevel.DisplayIndex = num3++;
-                    Title.DisplayIndex = num3++;
-                    Artist.DisplayIndex = num3++;
-                    Genre.DisplayIndex = num3++;
-                    Mode.DisplayIndex = num3++;
-                    Tag.DisplayIndex = num3++;
-                    Url1.DisplayIndex = num3++;
-                    Url2.DisplayIndex = num3++;
-                    Warning.DisplayIndex = num3++;
-                    Comment.DisplayIndex = num3++;
-                    Memo.DisplayIndex = num3++;
-                    Hash.DisplayIndex = num3++;
-                    Sha256.DisplayIndex = num3++;
-                    Path.DisplayIndex = num3++;
-                    InstallDst.DisplayIndex = num3++;
-                    InstallDstTitle.DisplayIndex = num3++;
-                    InstallDstArtist.DisplayIndex = num3++;
-                    WavHealth.DisplayIndex = num3++;
-                    BgaHealth.DisplayIndex = num3++;
-                    MovieHealth.DisplayIndex = num3++;
-                    PlaylistSymbols.DisplayIndex = num3++;
-                    Level.DisplayIndex = num3++;
-                    ChartDifficulty.DisplayIndex = num3++;
-                    ChartMainBpm.DisplayIndex = num3++;
-                    ChartMaxBpm.DisplayIndex = num3++;
-                    ChartMinBpm.DisplayIndex = num3++;
-                    ChartDuration.DisplayIndex = num3++;
-                    ChartJudge.DisplayIndex = num3++;
-                    ChartJudgePercent.DisplayIndex = num3++;
-                    ChartFeature.DisplayIndex = num3++;
-                    Notes.DisplayIndex = num3++;
-                    ChartLongNotes.DisplayIndex = num3++;
-                    ChartScratchNotes.DisplayIndex = num3++;
-                    ChartTotal.DisplayIndex = num3++;
-                    ChartTotalPerNote.DisplayIndex = num3++;
-                    ChartDensity.DisplayIndex = num3++;
-                    ChartPeakDensity.DisplayIndex = num3++;
-                    ChartEndDensity.DisplayIndex = num3++;
-                    ChartSoflan.DisplayIndex = num3++;
-                    Clear.DisplayIndex = num3++;
-                    Rank.DisplayIndex = num3++;
-                    Rate.DisplayIndex = num3++;
-                    Ranking.DisplayIndex = num3++;
-                    RankingLastupdate.DisplayIndex = num3++;
-                    Score.DisplayIndex = num3++;
-                    Combo.DisplayIndex = num3++;
-                    Bp.DisplayIndex = num3++;
-                    TScore.DisplayIndex = num3++;
-                    ScoreDifficulty.DisplayIndex = num3++;
-                    CharcterEncoding.DisplayIndex = num3++;
+                    ApplyVisibleColumnOrder(
+                        Folder,
+                        Title,
+                        Artist,
+                        Url1,
+                        Url2,
+                        Comment,
+                        Clear,
+                        Rank,
+                        Rate,
+                        Bp,
+                        ChartJudge,
+                        ChartJudgePercent,
+                        Notes,
+                        ChartLongNotes,
+                        ChartScratchNotes,
+                        ChartMainBpm,
+                        ChartMinBpm,
+                        ChartMaxBpm,
+                        ChartSoflan,
+                        ChartTotal,
+                        ChartTotalPerNote,
+                        ChartDuration,
+                        ChartFeature,
+                        ChartDensity,
+                        ChartPeakDensity,
+                        ChartEndDensity,
+                        PlaylistSymbols);
                     Folder.Width = 80;
                     break;
                 }
             case viewType.FULLSCAN:
                 {
-                    Genre.Visibility = Visibility.Hidden;
-                    Tag.Visibility = Visibility.Hidden;
-                    Url1.Visibility = Visibility.Hidden;
-                    Url2.Visibility = Visibility.Hidden;
-                    Clear.Visibility = Visibility.Hidden;
-                    Rank.Visibility = Visibility.Hidden;
-                    Rate.Visibility = Visibility.Hidden;
-                    Ranking.Visibility = Visibility.Hidden;
-                    RankingLastupdate.Visibility = Visibility.Hidden;
-                    Score.Visibility = Visibility.Hidden;
-                    Notes.Visibility = Visibility.Hidden;
-                    Combo.Visibility = Visibility.Hidden;
-                    Bp.Visibility = Visibility.Hidden;
-                    TScore.Visibility = Visibility.Hidden;
-                    ScoreDifficulty.Visibility = Visibility.Hidden;
-                    Comment.Visibility = Visibility.Hidden;
-                    Memo.Visibility = Visibility.Hidden;
-                    Hash.Visibility = Visibility.Hidden;
-                    InstallDstTitle.Visibility = Visibility.Hidden;
-                    InstallDstArtist.Visibility = Visibility.Hidden;
-                    Folder.Visibility = Visibility.Hidden;
-                    CharcterEncoding.Visibility = Visibility.Hidden;
-                    int num2 = 0;
-                    Status.DisplayIndex = num2++;
-                    Level.DisplayIndex = num2++;
-                    Title.DisplayIndex = num2++;
-                    Artist.DisplayIndex = num2++;
-                    Genre.DisplayIndex = num2++;
-                    Mode.DisplayIndex = num2++;
-                    Tag.DisplayIndex = num2++;
-                    Url1.DisplayIndex = num2++;
-                    Url2.DisplayIndex = num2++;
-                    Clear.DisplayIndex = num2++;
-                    Rank.DisplayIndex = num2++;
-                    Rate.DisplayIndex = num2++;
-                    Ranking.DisplayIndex = num2++;
-                    RankingLastupdate.DisplayIndex = num2++;
-                    Score.DisplayIndex = num2++;
-                    Notes.DisplayIndex = num2++;
-                    Combo.DisplayIndex = num2++;
-                    Bp.DisplayIndex = num2++;
-                    TScore.DisplayIndex = num2++;
-                    ScoreDifficulty.DisplayIndex = num2++;
-                    Warning.DisplayIndex = num2++;
-                    Comment.DisplayIndex = num2++;
-                    Memo.DisplayIndex = num2++;
-                    Hash.DisplayIndex = num2++;
-                    Sha256.DisplayIndex = num2++;
-                    Folder.DisplayIndex = num2++;
-                    WavHealth.DisplayIndex = num2++;
-                    BgaHealth.DisplayIndex = num2++;
-                    MovieHealth.DisplayIndex = num2++;
-                    PlaylistSymbols.DisplayIndex = num2++;
-                    CharcterEncoding.DisplayIndex = num2++;
-                    Path.DisplayIndex = num2++;
-                    InstallDst.DisplayIndex = num2++;
-                    InstallDstTitle.DisplayIndex = num2++;
-                    InstallDstArtist.DisplayIndex = num2++;
+                    ApplyInstallAndFullScanDefaults();
                     break;
                 }
             case viewType.DUPLICATE:
-                Genre.Visibility = Visibility.Hidden;
-                Tag.Visibility = Visibility.Hidden;
-                Url1.Visibility = Visibility.Hidden;
-                Url2.Visibility = Visibility.Hidden;
-                Clear.Visibility = Visibility.Hidden;
-                Rank.Visibility = Visibility.Hidden;
-                Rate.Visibility = Visibility.Hidden;
-                Ranking.Visibility = Visibility.Hidden;
-                RankingLastupdate.Visibility = Visibility.Hidden;
-                Score.Visibility = Visibility.Hidden;
-                Notes.Visibility = Visibility.Hidden;
-                Combo.Visibility = Visibility.Hidden;
-                Bp.Visibility = Visibility.Hidden;
-                TScore.Visibility = Visibility.Hidden;
-                ScoreDifficulty.Visibility = Visibility.Hidden;
-                Warning.Visibility = Visibility.Hidden;
-                Comment.Visibility = Visibility.Hidden;
-                Memo.Visibility = Visibility.Hidden;
-                Folder.Visibility = Visibility.Hidden;
-                InstallDst.Visibility = Visibility.Hidden;
-                InstallDstTitle.Visibility = Visibility.Hidden;
-                InstallDstArtist.Visibility = Visibility.Hidden;
-                CharcterEncoding.Visibility = Visibility.Hidden;
+                ApplyVisibleColumnOrder(
+                    PlaylistSymbols,
+                    WavHealth,
+                    BgaHealth,
+                    MovieHealth,
+                    Warning,
+                    Hash,
+                    Title,
+                    Artist,
+                    Mode,
+                    Path,
+                    Folder);
                 break;
             case viewType.ENCODING:
-                Tag.Visibility = Visibility.Hidden;
-                Url1.Visibility = Visibility.Hidden;
-                Url2.Visibility = Visibility.Hidden;
-                Clear.Visibility = Visibility.Hidden;
-                Rank.Visibility = Visibility.Hidden;
-                Rate.Visibility = Visibility.Hidden;
-                Ranking.Visibility = Visibility.Hidden;
-                RankingLastupdate.Visibility = Visibility.Hidden;
-                Score.Visibility = Visibility.Hidden;
-                Notes.Visibility = Visibility.Hidden;
-                Combo.Visibility = Visibility.Hidden;
-                Bp.Visibility = Visibility.Hidden;
-                TScore.Visibility = Visibility.Hidden;
-                ScoreDifficulty.Visibility = Visibility.Hidden;
-                Warning.Visibility = Visibility.Hidden;
-                Comment.Visibility = Visibility.Hidden;
-                Memo.Visibility = Visibility.Hidden;
-                Hash.Visibility = Visibility.Hidden;
-                Path.Visibility = Visibility.Hidden;
-                InstallDst.Visibility = Visibility.Hidden;
-                InstallDstTitle.Visibility = Visibility.Hidden;
-                InstallDstArtist.Visibility = Visibility.Hidden;
-                WavHealth.Visibility = Visibility.Hidden;
-                BgaHealth.Visibility = Visibility.Hidden;
-                MovieHealth.Visibility = Visibility.Hidden;
-                PlaylistSymbols.Visibility = Visibility.Hidden;
+                ApplyVisibleColumnOrder(
+                    CharcterEncoding,
+                    Title,
+                    Artist,
+                    Genre,
+                    Mode,
+                    Folder,
+                    Path);
                 break;
             case viewType.INSTALL:
                 {
-                    Genre.Visibility = Visibility.Hidden;
-                    Tag.Visibility = Visibility.Hidden;
-                    Url1.Visibility = Visibility.Hidden;
-                    Url2.Visibility = Visibility.Hidden;
-                    Clear.Visibility = Visibility.Hidden;
-                    Rank.Visibility = Visibility.Hidden;
-                    Rate.Visibility = Visibility.Hidden;
-                    Ranking.Visibility = Visibility.Hidden;
-                    RankingLastupdate.Visibility = Visibility.Hidden;
-                    Score.Visibility = Visibility.Hidden;
-                    Notes.Visibility = Visibility.Hidden;
-                    Combo.Visibility = Visibility.Hidden;
-                    Bp.Visibility = Visibility.Hidden;
-                    TScore.Visibility = Visibility.Hidden;
-                    ScoreDifficulty.Visibility = Visibility.Hidden;
-                    Comment.Visibility = Visibility.Hidden;
-                    Memo.Visibility = Visibility.Hidden;
-                    Hash.Visibility = Visibility.Hidden;
-                    Folder.Visibility = Visibility.Hidden;
-                    CharcterEncoding.Visibility = Visibility.Hidden;
-                    int num = 0;
-                    Status.DisplayIndex = num++;
-                    Folder.DisplayIndex = num++;
-                    Level.DisplayIndex = num++;
-                    Title.DisplayIndex = num++;
-                    Artist.DisplayIndex = num++;
-                    Genre.DisplayIndex = num++;
-                    Mode.DisplayIndex = num++;
-                    Tag.DisplayIndex = num++;
-                    Url1.DisplayIndex = num++;
-                    Url2.DisplayIndex = num++;
-                    Clear.DisplayIndex = num++;
-                    Rank.DisplayIndex = num++;
-                    Rate.DisplayIndex = num++;
-                    Ranking.DisplayIndex = num++;
-                    RankingLastupdate.DisplayIndex = num++;
-                    Score.DisplayIndex = num++;
-                    Notes.DisplayIndex = num++;
-                    Combo.DisplayIndex = num++;
-                    Bp.DisplayIndex = num++;
-                    TScore.DisplayIndex = num++;
-                    ScoreDifficulty.DisplayIndex = num++;
-                    InstallDst.DisplayIndex = num++;
-                    InstallDstTitle.DisplayIndex = num++;
-                    InstallDstArtist.DisplayIndex = num++;
-                    Warning.DisplayIndex = num++;
-                    Comment.DisplayIndex = num++;
-                    Memo.DisplayIndex = num++;
-                    Hash.DisplayIndex = num++;
-                    Sha256.DisplayIndex = num++;
-                    Path.DisplayIndex = num++;
-                    WavHealth.DisplayIndex = num++;
-                    BgaHealth.DisplayIndex = num++;
-                    MovieHealth.DisplayIndex = num++;
-                    PlaylistSymbols.DisplayIndex = num++;
-                    CharcterEncoding.DisplayIndex = num++;
+                    ApplyInstallAndFullScanDefaults();
                     break;
                 }
         }
     }
 
-    private void ApplyStandardViewDefaults(bool showWarningColumn)
+    private dataGridColumnlayouts[] GetAllColumnLayouts()
     {
-        EntryLevel.Visibility = Visibility.Hidden;
-        Genre.Visibility = Visibility.Hidden;
-        Tag.Visibility = Visibility.Hidden;
-        Url1.Visibility = Visibility.Hidden;
-        Url2.Visibility = Visibility.Hidden;
-        Rate.Visibility = Visibility.Hidden;
-        RankingLastupdate.Visibility = Visibility.Hidden;
-        Score.Visibility = Visibility.Hidden;
-        Notes.Visibility = Visibility.Hidden;
-        Combo.Visibility = Visibility.Hidden;
-        Bp.Visibility = Visibility.Hidden;
-        TScore.Visibility = Visibility.Hidden;
-        ScoreDifficulty.Visibility = Visibility.Hidden;
-        Warning.Visibility = showWarningColumn ? Visibility.Visible : Visibility.Hidden;
-        Comment.Visibility = Visibility.Hidden;
-        Memo.Visibility = Visibility.Hidden;
-        Hash.Visibility = Visibility.Hidden;
-        Path.Visibility = Visibility.Hidden;
-        InstallDst.Visibility = Visibility.Hidden;
-        InstallDstTitle.Visibility = Visibility.Hidden;
-        InstallDstArtist.Visibility = Visibility.Hidden;
-        WavHealth.Visibility = Visibility.Hidden;
-        BgaHealth.Visibility = Visibility.Hidden;
-        MovieHealth.Visibility = Visibility.Hidden;
-        CharcterEncoding.Visibility = Visibility.Hidden;
+        return new[]
+        {
+            Status,
+            EntryLevel,
+            Title,
+            Artist,
+            Genre,
+            Mode,
+            Tag,
+            Url1,
+            Url2,
+            Warning,
+            Comment,
+            Memo,
+            Hash,
+            Sha256,
+            Folder,
+            Path,
+            InstallDst,
+            InstallDstTitle,
+            InstallDstArtist,
+            WavHealth,
+            BgaHealth,
+            MovieHealth,
+            PlaylistSymbols,
+            Level,
+            ChartDifficulty,
+            ChartMainBpm,
+            ChartMaxBpm,
+            ChartMinBpm,
+            ChartDuration,
+            ChartJudge,
+            ChartJudgePercent,
+            ChartFeature,
+            Notes,
+            ChartLongNotes,
+            ChartScratchNotes,
+            ChartTotal,
+            ChartTotalPerNote,
+            ChartDensity,
+            ChartPeakDensity,
+            ChartEndDensity,
+            ChartSoflan,
+            Clear,
+            Rank,
+            Rate,
+            Ranking,
+            RankingLastupdate,
+            Score,
+            Combo,
+            TScore,
+            ScoreDifficulty,
+            Bp,
+            CharcterEncoding
+        };
+    }
+
+    private void ApplyInstallAndFullScanDefaults()
+    {
+        ApplyVisibleColumnOrder(
+            PlaylistSymbols,
+            WavHealth,
+            BgaHealth,
+            MovieHealth,
+            Warning,
+            InstallDst,
+            InstallDstTitle,
+            Title,
+            InstallDstArtist,
+            Artist,
+            Mode,
+            Folder,
+            Path,
+            Hash);
+    }
+
+    private void ApplyVisibleColumnOrder(params dataGridColumnlayouts[] visibleLayouts)
+    {
+        foreach (dataGridColumnlayouts layout in GetAllColumnLayouts())
+        {
+            layout.Visibility = Visibility.Hidden;
+        }
+        foreach (dataGridColumnlayouts layout in visibleLayouts)
+        {
+            layout.Visibility = Visibility.Visible;
+        }
+        ApplyColumnOrder(visibleLayouts);
+    }
+
+    private void ApplyColumnOrder(params dataGridColumnlayouts[] firstLayouts)
+    {
+        int displayIndex = 0;
+        foreach (dataGridColumnlayouts layout in firstLayouts)
+        {
+            layout.DisplayIndex = displayIndex++;
+        }
+        foreach (dataGridColumnlayouts layout in GetAllColumnLayouts())
+        {
+            if (Array.IndexOf(firstLayouts, layout) < 0)
+            {
+                layout.DisplayIndex = displayIndex++;
+            }
+        }
     }
 
     public void EnsureChartInfoColumnDefaults(viewType type)
@@ -1393,15 +1273,6 @@ public class dataGridColumnsSettings : NotificationObject
         _ = ChartPeakDensity;
         _ = ChartEndDensity;
         _ = ChartSoflan;
-        if (type == viewType.PLAYLIST)
-        {
-            EntryLevel.Visibility = Visibility.Visible;
-            Level.Visibility = Visibility.Hidden;
-        }
-        else
-        {
-            EntryLevel.Visibility = Visibility.Hidden;
-        }
     }
 
     private static dataGridColumnlayouts CreateHiddenLayout(int width)

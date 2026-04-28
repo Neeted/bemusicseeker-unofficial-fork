@@ -389,6 +389,7 @@
           <ResourceDictionary>
             <Style x:Key="styleContextMenuLeftAlignment" TargetType="{x:Type MenuItem}">
               <Setter Property="TextBlock.TextAlignment" Value="left" />
+              <Setter Property="StaysOpenOnClick" Value="True" />
             </Style>
           </ResourceDictionary>
         </FrameworkElement.Resources>
@@ -446,13 +447,14 @@
         <MenuItem Header="T-SCORE" IsCheckable="True" Style="{StaticResource styleContextMenuLeftAlignment}" IsChecked="{Binding ColumnsSettingsBMSFilesView.TScore.Visibility, Source={StaticResource vm}, Converter={qc:QuickConverter '$P == Visibility.Visible ? true : false', ConvertBack='$value ? Visibility.Visible : Visibility.Hidden'}}" />
         <MenuItem Header="ΔMAX" IsCheckable="True" Style="{StaticResource styleContextMenuLeftAlignment}" IsChecked="{Binding ColumnsSettingsBMSFilesView.ScoreDifficulty.Visibility, Source={StaticResource vm}, Converter={qc:QuickConverter '$P == Visibility.Visible ? true : false', ConvertBack='$value ? Visibility.Visible : Visibility.Hidden'}}" />
         <Separator />
-        <MenuItem Style="{StaticResource styleContextMenuLeftAlignment}" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Init_column_setting, Mode=OneWay}" Click="dataGridInitializeColumnSetting" />
+        <MenuItem Style="{StaticResource styleContextMenuLeftAlignment}" StaysOpenOnClick="False" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Init_column_setting, Mode=OneWay}" Click="dataGridInitializeColumnSetting" />
       </ContextMenu>
       <ContextMenu x:Key="playlistSummaryColumnHeaderContextMenu">
         <FrameworkElement.Resources>
           <ResourceDictionary>
             <Style x:Key="stylePlaylistSummaryContextMenuLeftAlignment" TargetType="{x:Type MenuItem}">
               <Setter Property="TextBlock.TextAlignment" Value="left" />
+              <Setter Property="StaysOpenOnClick" Value="True" />
             </Style>
           </ResourceDictionary>
         </FrameworkElement.Resources>
