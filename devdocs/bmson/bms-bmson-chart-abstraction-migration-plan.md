@@ -301,6 +301,23 @@ Phase F-2 以降で検討する広範囲 rename 候補:
 
 BMS という名前を残す箇所は、LR2 / BMS 仕様 / 既存 UI / DB 互換の意味を持つものとして扱う。BMS と bmson の両方を対象にする新規内部処理では chart 名を使う。
 
+Phase F-2 では、広範囲 rename ではなく chart 共通操作の入口を整理する。
+
+- resource health は `ForceResourceHealthCheckCharts` / `SetChartResourceWarningsIgnored` を主 API とし、BMS / bmson 両方を対象にする
+- pending install destination は `UpdateInstallDestination`、所持 BMS の再インストール先修復は `RepairInstalledLocation` として capability を分離する
+- `SearchInstallDestinationForPendingCharts`, `ClearInstallDestinationForPendingCharts`, `RemovePendingCharts` を追加し、pending/package 互換処理の入口を chart 名へ寄せる
+- `BMSLibrary` には `GetChartsNeedResourceFix`, `SetChartResourceWarningsIgnored`, `MoveChartFile`, `RemoveChartFiles` を追加し、旧 BMS 名 API は wrapper として残す
+- `BMSFilesView`, `BMSPackage.BMSFiles`, `BMSLibrary.BMSFiles` の rename は Phase F-3 以降に回す
+
+Phase F-3 に進む前に、DataGrid sort engine を整理する。
+
+- 通常一覧は Phase E 以降 `LibraryChartRowSortEngine` が正本なので、`UseFastSortInDataGridExperimental` は `LibraryChartRowSortEngine` 側で解釈する
+- 挙動は旧 `BMSFileSortEngine.SortForMainView` に合わせ、fast sort 有効時は文字列列を `StringComparer.OrdinalIgnoreCase` ベース、無効時は legacy natural sort ベースにする
+- typed sort が必要な列、例えば `Chart*` の数値キー、`rateDouble`、date / bool / numeric property、LEVEL mixed double は設定に関係なく typed sort を使う
+- `Folder` など、従来 playlist detail で legacy natural 固定だった列は互換性を優先し、通常一覧 / playlist detail それぞれの既存 profile を明示する
+- `BMSFileSortEngine` は使用箇所を洗い出す。通常 DataGrid 用途は `LibraryChartRowSortEngine` へ移行済みなので、残る参照がテストまたは互換 shim だけなら廃止、または互換確認用 helper として隔離する
+- sort log の `sortEngine=fast|legacy` と実際の `sortProfile` が矛盾しないよう、`library_chart_*` profile 名も fast / legacy / typed の区別が分かる名前に揃える
+
 ## テスト方針
 
 ### 共通 target / capability tests

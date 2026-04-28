@@ -546,6 +546,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.UseScoreViewer));
         Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.RunBmsEncodingFix));
         Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.RunZeroNoteCheck));
+        Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.RepairInstalledLocation));
     }
 
     [TestMethod]
@@ -574,6 +575,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.UpdateRanking));
         Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.RenameInvalidExtension));
         Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.ConvertToAudio));
+        Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.RepairInstalledLocation));
     }
 
     [TestMethod]
@@ -601,6 +603,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.RemoveFromLibrary));
         Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.UseLr2Ir));
         Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.RunBmsEncodingFix));
+        Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.RepairInstalledLocation));
     }
 
     [TestMethod]
@@ -680,6 +683,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.OpenFolder));
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.UpdateInstallDestination));
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.RunResourceHealthCheck));
+        Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.RepairInstalledLocation));
         Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.RemoveFromLibrary));
         Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.MoveInLibrary));
     }
@@ -721,6 +725,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.RemoveFromLibrary));
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.MoveInLibrary));
         Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.UpdateInstallDestination));
+        Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.RepairInstalledLocation));
         Assert.AreEqual(installed.path, LibraryChartRef.FromBmsFile(pending).Path);
     }
 
@@ -741,6 +746,23 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.RunZeroNoteCheck));
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.RenameInvalidExtension));
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.ConvertToAudio));
+        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.RepairInstalledLocation));
+        Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.UpdateInstallDestination));
+    }
+
+    [TestMethod]
+    public void ChartOperationTarget_PendingBms_SeparatesInstallDestinationFromInstalledRepair()
+    {
+        TestableBmsFile file = new TestableBmsFile();
+        file.ApplySnapshot("abababababababababababababababab", "Pending Bms", 7);
+
+        Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(file, ChartOperationSourceScope.PendingPackage, out ChartOperationTarget target));
+
+        Assert.AreEqual(OwnedChartKind.Bms, target.Chart.Kind);
+        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.UpdateInstallDestination));
+        Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.RepairInstalledLocation));
+        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.RunResourceHealthCheck));
+        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.RunBmsEncodingFix));
     }
 
     [TestMethod]
@@ -776,6 +798,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.OpenFolder));
         Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.MoveInLibrary));
         Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.RemoveFromLibrary));
+        Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.RepairInstalledLocation));
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.UseLr2Ir));
     }
 

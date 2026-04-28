@@ -420,6 +420,10 @@ internal static class GridRowResolver
                     | ChartOperationCapabilities.RenameInvalidExtension
                     | ChartOperationCapabilities.ConvertToAudio;
             }
+            if (hasPath && !isPlaylistMissing && sourceScope != ChartOperationSourceScope.PendingPackage)
+            {
+                capabilities |= ChartOperationCapabilities.RepairInstalledLocation;
+            }
         }
         if (hasPath && !isPlaylistMissing)
         {

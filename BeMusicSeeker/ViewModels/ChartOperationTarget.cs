@@ -39,7 +39,8 @@ internal enum ChartOperationCapabilities
     UpdateInstallDestination = 1 << 12,
     RenameInvalidExtension = 1 << 13,
     ConvertToAudio = 1 << 14,
-    OpenPlaylistUrls = 1 << 15
+    OpenPlaylistUrls = 1 << 15,
+    RepairInstalledLocation = 1 << 16
 }
 
 internal sealed class OwnedChartRef

@@ -5886,10 +5886,15 @@ public class BMSLibrary : NotificationObject
     /// </summary>
     public List<BMSFile> GetBMSFilesNeedToBeFixed(IEnumerable<BMSFile> bmsFiles, bool forceUpdate = false, bool isInIgnoredList = false)
     {
-        bool includeInstalledBmson = bmsFiles == null;
-        if (bmsFiles == null)
+        return GetChartsNeedResourceFix(bmsFiles, forceUpdate, isInIgnoredList);
+    }
+
+    public List<BMSFile> GetChartsNeedResourceFix(IEnumerable<BMSFile> chartFiles, bool forceUpdate = false, bool isInIgnoredList = false)
+    {
+        bool includeInstalledBmson = chartFiles == null;
+        if (chartFiles == null)
         {
-            bmsFiles = BMSFiles;
+            chartFiles = BMSFiles;
         }
         _ = rwlockBMSFilesInitializedMin.IsWriteLockHeld;
         _ = rwlockBMSFiles.IsWriteLockHeld;
@@ -5897,14 +5902,14 @@ public class BMSLibrary : NotificationObject
         {
             using (rwlockBMSFiles.GetReaderGuard())
             {
-                List<BMSFile> targets = CreateResourceMaintenanceTargets(bmsFiles, includeInstalledBmson);
+                List<BMSFile> targets = CreateResourceMaintenanceTargets(chartFiles, includeInstalledBmson);
                 if (targets.Count == 0)
                 {
                     return new List<BMSFile>();
                 }
                 if (forceUpdate)
                 {
-                    setMaintenanceInfo(bmsFiles, forceUpdate, includeInstalledBmson);
+                    setMaintenanceInfo(chartFiles, forceUpdate, includeInstalledBmson);
                 }
                 return targets.Where((BMSFile file) => checkBMSFileNeedToBeFixedAndSetWarnings(file) && isInIgnoredList == file.maintenanceInfo.is_files_warning_ignored).ToList();
             }
@@ -5916,16 +5921,21 @@ public class BMSLibrary : NotificationObject
     /// </summary>
     public void SetBMSFilesToBeFixedIgnored(IEnumerable<BMSFile> bmsFiles, bool unset = false)
     {
-        bool includeInstalledBmson = bmsFiles == null;
-        if (bmsFiles == null)
+        SetChartResourceWarningsIgnored(bmsFiles, unset);
+    }
+
+    public void SetChartResourceWarningsIgnored(IEnumerable<BMSFile> chartFiles, bool unset = false)
+    {
+        bool includeInstalledBmson = chartFiles == null;
+        if (chartFiles == null)
         {
-            bmsFiles = BMSFiles;
+            chartFiles = BMSFiles;
         }
         using (rwlockBMSFilesInitializedMin.GetReaderGuard())
         {
             using (rwlockBMSFiles.GetReaderGuard())
             {
-                List<BMSFile> targets = CreateResourceMaintenanceTargets(bmsFiles, includeInstalledBmson);
+                List<BMSFile> targets = CreateResourceMaintenanceTargets(chartFiles, includeInstalledBmson);
                 if (targets.Count == 0)
                 {
                     return;
@@ -9159,7 +9169,12 @@ public class BMSLibrary : NotificationObject
 
     public void MoveBMSFile(BMSFile bmsFile, string dstPath, bool? unregister = false)
     {
-        MoveLibraryChart(LibraryChartRef.FromBmsFile(bmsFile), dstPath, unregister);
+        MoveChartFile(LibraryChartRef.FromBmsFile(bmsFile), dstPath, unregister);
+    }
+
+    internal void MoveChartFile(LibraryChartRef chart, string dstPath, bool? unregister = false)
+    {
+        MoveLibraryChart(chart, dstPath, unregister);
     }
 
     internal void MoveLibraryChart(LibraryChartRef chart, string dstPath, bool? unregister = false)
@@ -9297,7 +9312,12 @@ public class BMSLibrary : NotificationObject
     /// </summary>
     public void RemoveBMSFiles(IEnumerable<BMSFile> bmsFiles, bool sendToRecycleBin = true)
     {
-        RemoveLibraryCharts((bmsFiles ?? Enumerable.Empty<BMSFile>()).Select(LibraryChartRef.FromBmsFile), sendToRecycleBin);
+        RemoveChartFiles((bmsFiles ?? Enumerable.Empty<BMSFile>()).Select(LibraryChartRef.FromBmsFile), sendToRecycleBin);
+    }
+
+    internal void RemoveChartFiles(IEnumerable<LibraryChartRef> charts, bool sendToRecycleBin = true)
+    {
+        RemoveLibraryCharts(charts, sendToRecycleBin);
     }
 
     internal void RemoveLibraryCharts(IEnumerable<LibraryChartRef> charts, bool sendToRecycleBin = true)

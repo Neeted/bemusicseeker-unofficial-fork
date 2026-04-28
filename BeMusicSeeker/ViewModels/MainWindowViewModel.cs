@@ -11764,17 +11764,22 @@ public class MainWindowViewModel : ViewModel
 
     public void ForceResourceHealthCheckCharts(IEnumerable<BeMusicSeeker.Models.BMSFile> chartFiles)
     {
-        files.GetBMSFilesNeedToBeFixed(chartFiles, forceUpdate: true);
+        files.GetChartsNeedResourceFix(chartFiles, forceUpdate: true);
     }
 
     public void IgnoreFileScanCheckBMSFiles(IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles)
     {
-        files.SetBMSFilesToBeFixedIgnored(bmsFiles);
+        SetChartResourceWarningsIgnored(bmsFiles);
     }
 
     public void NotIgnoreFileScanCheckBMSFiles(IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles)
     {
-        files.SetBMSFilesToBeFixedIgnored(bmsFiles, unset: true);
+        SetChartResourceWarningsIgnored(bmsFiles, unset: true);
+    }
+
+    public void SetChartResourceWarningsIgnored(IEnumerable<BeMusicSeeker.Models.BMSFile> chartFiles, bool unset = false)
+    {
+        files.SetChartResourceWarningsIgnored(chartFiles, unset);
     }
 
     /// <summary>
@@ -11817,9 +11822,18 @@ public class MainWindowViewModel : ViewModel
     /// <param name="bmsFiles">探索・復旧対象となるBMSファイルのコレクション。</param>
     public void SearchInstallationDirectoryBMSFiles(IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles)
     {
+        SearchInstallDestinationForPendingCharts(bmsFiles);
+    }
+
+    public void SearchInstallDestinationForPendingCharts(IEnumerable<BeMusicSeeker.Models.BMSFile> chartFiles)
+    {
+        if (chartFiles == null)
+        {
+            throw new ArgumentNullException("chartFiles");
+        }
         lock (lockCopyFile)
         {
-            files.SearchEstimatedInstallationDirectory(bmsFiles);
+            files.SearchEstimatedInstallationDirectory(chartFiles);
         }
     }
 
@@ -13827,13 +13841,18 @@ public class MainWindowViewModel : ViewModel
 
     public void SearchCorrectInstallationDirectoryBMSFiles(IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles)
     {
+        SearchCorrectInstallationDirectoryCharts(bmsFiles);
+    }
+
+    public void SearchCorrectInstallationDirectoryCharts(IEnumerable<BeMusicSeeker.Models.BMSFile> chartFiles)
+    {
         if (files != null)
         {
-            if (bmsFiles == null)
+            if (chartFiles == null)
             {
-                throw new ArgumentNullException("bmsFiles");
+                throw new ArgumentNullException("chartFiles");
             }
-            files.SearchCorrectInstallationDirectory(bmsFiles);
+            files.SearchCorrectInstallationDirectory(chartFiles);
         }
     }
 
@@ -13855,13 +13874,23 @@ public class MainWindowViewModel : ViewModel
 
     public void RemoveInstallDestination(IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles)
     {
+        ClearInstallDestinationForCharts(bmsFiles);
+    }
+
+    public void ClearInstallDestinationForPendingCharts(IEnumerable<BeMusicSeeker.Models.BMSFile> chartFiles)
+    {
+        ClearInstallDestinationForCharts(chartFiles);
+    }
+
+    public void ClearInstallDestinationForCharts(IEnumerable<BeMusicSeeker.Models.BMSFile> chartFiles)
+    {
         if (files != null)
         {
-            if (bmsFiles == null)
+            if (chartFiles == null)
             {
-                throw new ArgumentNullException("bmsFiles");
+                throw new ArgumentNullException("chartFiles");
             }
-            List<BeMusicSeeker.Models.BMSFile> bmsFiles2 = bmsFiles.Where((BeMusicSeeker.Models.BMSFile f) => f != null).ToList();
+            List<BeMusicSeeker.Models.BMSFile> bmsFiles2 = chartFiles.Where((BeMusicSeeker.Models.BMSFile f) => f != null).ToList();
             List<BMSPackage> bMSPackages = getBMSPackages(ref bmsFiles2);
             for (int num = 0; num < bMSPackages.Count; num++)
             {
@@ -14387,14 +14416,19 @@ public class MainWindowViewModel : ViewModel
 
     public void FixInstallationDirectoryBMSFiles(IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles)
     {
+        FixInstallationDirectoryCharts(bmsFiles);
+    }
+
+    public void FixInstallationDirectoryCharts(IEnumerable<BeMusicSeeker.Models.BMSFile> chartFiles)
+    {
         lock (lockCopyFile)
         {
-            if (bmsFiles == null)
+            if (chartFiles == null)
             {
-                throw new ArgumentNullException("bmsFiles");
+                throw new ArgumentNullException("chartFiles");
             }
-            stopPlayingBMSFile(bmsFiles);
-            files.FixInstallationDirectory(bmsFiles);
+            stopPlayingBMSFile(chartFiles);
+            files.FixInstallationDirectory(chartFiles);
         }
     }
 
@@ -14423,10 +14457,26 @@ public class MainWindowViewModel : ViewModel
 
     public void RemovePendingBMSFiles(IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles, bool sendToRecycleBin = true, bool deleteContainingPackageFoldersWhenNoBms = false)
     {
+        RemovePendingCharts(bmsFiles, sendToRecycleBin, deleteContainingPackageFoldersWhenNoBms);
+    }
+
+    internal void RemovePendingCharts(IEnumerable<ChartOperationTarget> targets, bool sendToRecycleBin = true, bool deleteContainingPackageFoldersWhenNoBms = false)
+    {
+        RemovePendingCharts(
+            (targets ?? Enumerable.Empty<ChartOperationTarget>())
+            .Where((ChartOperationTarget target) => target != null && target.HasCapability(ChartOperationCapabilities.UpdateInstallDestination))
+            .Select(ToCompatibilityChartFile)
+            .Where((BeMusicSeeker.Models.BMSFile file) => file != null),
+            sendToRecycleBin,
+            deleteContainingPackageFoldersWhenNoBms);
+    }
+
+    public void RemovePendingCharts(IEnumerable<BeMusicSeeker.Models.BMSFile> chartFiles, bool sendToRecycleBin = true, bool deleteContainingPackageFoldersWhenNoBms = false)
+    {
         RunPendingInstallMutation(delegate
         {
-            files.RemovePendingBMSFiles(bmsFiles, sendToRecycleBin, deleteContainingPackageFoldersWhenNoBms);
-        }, bmsFiles);
+            files.RemovePendingBMSFiles(chartFiles, sendToRecycleBin, deleteContainingPackageFoldersWhenNoBms);
+        }, chartFiles);
     }
 
     public void RecheckZeroNoteWarnings()
@@ -14536,6 +14586,11 @@ public class MainWindowViewModel : ViewModel
             .Where((ChartOperationTarget target) => target != null && target.HasCapability(requiredCapability))
             .Select(ToLibraryChartRef)
             .Where((LibraryChartRef chart) => chart != null);
+    }
+
+    private static BeMusicSeeker.Models.BMSFile ToCompatibilityChartFile(ChartOperationTarget target)
+    {
+        return ToLibraryChartRef(target)?.ToCompatibilityBmsFile();
     }
 
     private static LibraryChartRef ToLibraryChartRef(ChartOperationTarget target)
