@@ -85,6 +85,10 @@
    - `chart_info` 由来カラムの表示仕様
    - 通常一覧 / プレイリスト詳細の LEVEL 整理
    - keyword search field / range 検索の v1 仕様
+15. [BMS / bmson 譜面抽象化 移行計画](bms-bmson-chart-abstraction-migration-plan.md)
+   - BMS と bmson を共通の「譜面ファイル」として扱うための設計
+   - LR2 / BMS 専用操作と共通操作の capability 分離
+   - `PendingChartEntry : BMSFile` から段階的に脱却する移行計画
 
 ## 実装方針の要点
 
@@ -225,11 +229,12 @@
 - chart_info メタデータ基盤も production DB compare 差分 0 / timeout 0 まで完了
 - いま残っている主論点は
   - chart_info を DataGrid / keyword search へどう見せるか
+  - BMS / bmson を共通の譜面抽象で扱い、BMS 専用処理の誤適用をなくすこと
   - 精度 tuning
   - pending estimate の評価 / orchestration 側 perf
   - install / merge 実処理列挙
   - リリース整理
-  の 4 つである
+  の 5 つである
 
 ## バージョン方針
 
