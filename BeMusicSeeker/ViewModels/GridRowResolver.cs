@@ -1,6 +1,9 @@
 using System;
+using System.Globalization;
 using System.Text.RegularExpressions;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Models.LR2;
 
 namespace BeMusicSeeker.ViewModels;
 
@@ -56,19 +59,57 @@ internal static class GridRowResolver
         return row as BMSFile;
     }
 
+    internal static bool TryGetOwnedChartRef(object row, out OwnedChartRef chart)
+    {
+        chart = null;
+        switch (row)
+        {
+            case PlaylistDetailRow playlistDetailRow:
+                return TryCreatePlaylistChartRef(playlistDetailRow, out chart);
+            case PlaylistDetailSourceRow playlistSourceRow:
+                return TryCreatePlaylistChartRef(playlistSourceRow, out chart);
+            case BMSFile bmsFile:
+                chart = CreateChartRef(bmsFile);
+                return chart != null;
+            default:
+                return false;
+        }
+    }
+
+    internal static bool TryGetChartOperationTarget(object row, out ChartOperationTarget target)
+    {
+        return TryGetChartOperationTarget(row, isPendingSection: false, out target);
+    }
+
+    internal static bool TryGetChartOperationTarget(object row, bool isPendingSection, out ChartOperationTarget target)
+    {
+        target = null;
+        if (!TryGetOwnedChartRef(row, out OwnedChartRef chart))
+        {
+            return false;
+        }
+        BMSTableEntry playlistEntry = GetPlaylistEntry(row);
+        bool isPlaylistRow = IsPlaylistRow(row) || row is PlaylistDetailSourceRow;
+        bool isOwned = row switch
+        {
+            PlaylistDetailRow playlistDetailRow => playlistDetailRow.IsOwned,
+            PlaylistDetailSourceRow playlistSourceRow => playlistSourceRow.IsOwned,
+            _ => !string.IsNullOrWhiteSpace(chart.Path)
+        };
+        bool isPlaylistMissing = isPlaylistRow && !isOwned;
+        ChartOperationCapabilities capabilities = BuildCapabilities(chart, playlistEntry, isPendingSection, isPlaylistRow, isOwned, isPlaylistMissing);
+        target = new ChartOperationTarget(chart, playlistEntry, isOwned, isPendingSection, isPlaylistMissing, capabilities);
+        return true;
+    }
+
     internal static bool IsBmsonChartRow(object row)
     {
-        return PendingChartEntry.IsBmsonChartFile(GetOperationBmsFile(row));
+        return TryGetOwnedChartRef(row, out OwnedChartRef chart) && chart.Kind == OwnedChartKind.Bmson;
     }
 
     internal static bool IsBmsonContextRow(object row)
     {
-        return row switch
-        {
-            PlaylistDetailRow playlistDetailRow => playlistDetailRow.ResolvedBmson != null && playlistDetailRow.RealFile == null,
-            BMSFile bmsFile => PendingChartEntry.IsBmsonChartFile(bmsFile),
-            _ => false
-        };
+        return IsBmsonChartRow(row);
     }
 
     /// <summary>
@@ -151,13 +192,191 @@ internal static class GridRowResolver
     /// </summary>
     internal static string GetRepositorySha256(object row)
     {
-        string sha256 = row switch
+        string sha256 = TryGetOwnedChartRef(row, out OwnedChartRef chart)
+            ? FirstNonEmpty(chart.Sha256, chart.ChartInfo?.sha256)
+            : row switch
         {
             PlaylistDetailRow playlistDetailRow => playlistDetailRow.sha256,
             BMSFile bmsFile => FirstNonEmpty(bmsFile.sha256, bmsFile.ChartInfo?.sha256),
             _ => null
         };
         return IsValidSha256(sha256) ? sha256.ToLowerInvariant() : null;
+    }
+
+    private static bool TryCreatePlaylistChartRef(PlaylistDetailRow row, out OwnedChartRef chart)
+    {
+        chart = null;
+        if (row == null)
+        {
+            return false;
+        }
+        if (row.RealFile != null)
+        {
+            chart = CreateChartRef(row.RealFile);
+            return chart != null;
+        }
+        if (row.ResolvedBmson != null)
+        {
+            chart = CreateChartRef(row.ResolvedBmson);
+            return chart != null;
+        }
+        chart = new OwnedChartRef(
+            OwnedChartKind.Bms,
+            row.path,
+            row.hash,
+            row.sha256,
+            row.Title,
+            row.Artist,
+            row.Entry?.level,
+            row.mode,
+            null,
+            null,
+            null);
+        return true;
+    }
+
+    private static bool TryCreatePlaylistChartRef(PlaylistDetailSourceRow row, out OwnedChartRef chart)
+    {
+        chart = null;
+        if (row == null)
+        {
+            return false;
+        }
+        if (row.RealFile != null)
+        {
+            chart = CreateChartRef(row.RealFile);
+            return chart != null;
+        }
+        if (row.ResolvedBmson != null)
+        {
+            chart = CreateChartRef(row.ResolvedBmson);
+            return chart != null;
+        }
+        chart = new OwnedChartRef(
+            OwnedChartKind.Bms,
+            row.path,
+            row.hash,
+            row.sha256,
+            row.Title,
+            row.Artist,
+            row.Entry?.level,
+            row.mode,
+            row.ChartInfo,
+            null,
+            null);
+        return true;
+    }
+
+    private static OwnedChartRef CreateChartRef(BMSFile file)
+    {
+        if (file == null)
+        {
+            return null;
+        }
+        PendingChartEntry pending = file as PendingChartEntry;
+        if (pending?.IsBmsonChart == true && pending.BmsonSong != null)
+        {
+            return CreateChartRef(pending.BmsonSong);
+        }
+        return new OwnedChartRef(
+            OwnedChartKind.Bms,
+            file.path,
+            file.hash,
+            file.sha256,
+            file.Title,
+            file.Artist,
+            ParseNullableDouble(file.Level),
+            file.mode,
+            file.ChartInfo,
+            file,
+            null);
+    }
+
+    private static OwnedChartRef CreateChartRef(LR2SongDBExtended.bmson_song song)
+    {
+        if (song == null)
+        {
+            return null;
+        }
+        return new OwnedChartRef(
+            OwnedChartKind.Bmson,
+            song.path,
+            song.md5,
+            song.sha256,
+            BmsonSongParser.ComposeDisplayTitle(song),
+            song.artist,
+            song.level,
+            BmsonSongParser.ResolvePlaylistMode(song.mode_hint),
+            song.ChartInfo,
+            null,
+            song);
+    }
+
+    private static ChartOperationCapabilities BuildCapabilities(
+        OwnedChartRef chart,
+        BMSTableEntry playlistEntry,
+        bool isPendingSection,
+        bool isPlaylistRow,
+        bool isOwned,
+        bool isPlaylistMissing)
+    {
+        ChartOperationCapabilities capabilities = ChartOperationCapabilities.None;
+        bool hasPath = !string.IsNullOrWhiteSpace(chart.Path);
+        bool hasMd5 = !string.IsNullOrWhiteSpace(chart.Md5);
+        bool isBms = chart.Kind == OwnedChartKind.Bms;
+        if (hasPath && !isPlaylistMissing)
+        {
+            capabilities |= ChartOperationCapabilities.OpenFile | ChartOperationCapabilities.OpenFolder;
+        }
+        if (IsValidSha256(chart.Sha256) || IsValidSha256(chart.ChartInfo?.sha256))
+        {
+            capabilities |= ChartOperationCapabilities.OpenRepositoryBySha256;
+        }
+        if (isPlaylistRow && (playlistEntry?.EffectiveUrl != null || playlistEntry?.EffectiveUrlDiff != null))
+        {
+            capabilities |= ChartOperationCapabilities.OpenPlaylistUrls;
+        }
+        if (isBms)
+        {
+            if (hasMd5 || !string.IsNullOrWhiteSpace(playlistEntry?.lr2_bmsid))
+            {
+                capabilities |= ChartOperationCapabilities.UseLr2Ir;
+            }
+            if (hasMd5)
+            {
+                capabilities |= ChartOperationCapabilities.UseScoreViewer | ChartOperationCapabilities.UpdateRanking;
+            }
+            if (!isPlaylistMissing)
+            {
+                capabilities |= ChartOperationCapabilities.RunResourceHealthCheck
+                    | ChartOperationCapabilities.RunBmsEncodingCheck
+                    | ChartOperationCapabilities.RunBmsEncodingFix
+                    | ChartOperationCapabilities.RunZeroNoteCheck
+                    | ChartOperationCapabilities.RenameInvalidExtension
+                    | ChartOperationCapabilities.ConvertToAudio;
+            }
+        }
+        if (hasPath && !isPlaylistMissing)
+        {
+            if (!isPendingSection)
+            {
+                capabilities |= ChartOperationCapabilities.MoveInLibrary | ChartOperationCapabilities.RemoveFromLibrary;
+            }
+            else if (!isPlaylistRow)
+            {
+                capabilities |= ChartOperationCapabilities.UpdateInstallDestination;
+            }
+        }
+        return capabilities;
+    }
+
+    private static double? ParseNullableDouble(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+        return double.TryParse(value.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out double parsed) ? parsed : null;
     }
 
     private static bool IsValidSha256(string value)

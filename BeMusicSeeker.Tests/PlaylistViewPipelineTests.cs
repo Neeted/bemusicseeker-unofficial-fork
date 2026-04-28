@@ -514,6 +514,113 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
+    public void ChartOperationTarget_PlaylistOwnedBmson_IsOwnedWithoutOperationBmsFile()
+    {
+        LR2SongDBExtended.bmson_song bmson = new LR2SongDBExtended.bmson_song
+        {
+            path = "C:\\Songs\\Bmson\\chart.bmson",
+            folder = "C:\\Songs\\Bmson",
+            title = "Bmson",
+            artist = "Artist",
+            level = 11,
+            mode_hint = "beat-7k",
+            md5 = "dddddddddddddddddddddddddddddddd",
+            sha256 = new string('e', 64)
+        };
+        TestablePlaylistEntry entry = new TestablePlaylistEntry();
+        entry.SetMd5(bmson.md5);
+        entry.SetSha256(bmson.sha256);
+        PlaylistDetailRow row = new PlaylistDetailSourceRow(entry, realFile: null, resolvedBmson: bmson).CreateViewRow();
+
+        Assert.IsNull(GridRowResolver.GetOperationBmsFile(row));
+        Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(row, out ChartOperationTarget target));
+        Assert.AreEqual(OwnedChartKind.Bmson, target.Chart.Kind);
+        Assert.IsTrue(target.IsOwned);
+        Assert.IsFalse(target.IsPlaylistMissing);
+        Assert.AreSame(bmson, target.Chart.BmsonSong);
+        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.OpenFile));
+        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.OpenFolder));
+        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.OpenRepositoryBySha256));
+        Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.UseLr2Ir));
+        Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.UseScoreViewer));
+        Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.RunBmsEncodingFix));
+        Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.RunZeroNoteCheck));
+    }
+
+    [TestMethod]
+    public void ChartOperationTarget_RegularBmson_DisablesBmsOnlyCapabilities()
+    {
+        LR2SongDBExtended.bmson_song bmson = new LR2SongDBExtended.bmson_song
+        {
+            path = "C:\\Songs\\Bmson\\chart.bmson",
+            folder = "C:\\Songs\\Bmson",
+            title = "Bmson",
+            artist = "Artist",
+            md5 = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+            sha256 = new string('f', 64)
+        };
+        PendingChartEntry row = PendingChartEntry.CreateFromBmsonSong(bmson);
+
+        Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(row, out ChartOperationTarget target));
+        Assert.AreEqual(OwnedChartKind.Bmson, target.Chart.Kind);
+        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.OpenRepositoryBySha256));
+        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.MoveInLibrary));
+        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.RemoveFromLibrary));
+        Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.UseLr2Ir));
+        Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.UpdateRanking));
+        Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.RenameInvalidExtension));
+        Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.ConvertToAudio));
+    }
+
+    [TestMethod]
+    public void ChartOperationTarget_BmsRow_HasBmsOnlyCapabilities()
+    {
+        TestableBmsFile file = new TestableBmsFile();
+        file.ApplySnapshot("abababababababababababababababab", "Bms", 7);
+        file.SetSha256(new string('a', 64));
+
+        Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(file, out ChartOperationTarget target));
+        Assert.AreEqual(OwnedChartKind.Bms, target.Chart.Kind);
+        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.UseLr2Ir));
+        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.UseScoreViewer));
+        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.UpdateRanking));
+        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.RunBmsEncodingFix));
+        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.RunZeroNoteCheck));
+        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.RenameInvalidExtension));
+        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.ConvertToAudio));
+    }
+
+    [TestMethod]
+    public void ChartOperationTarget_PlaylistMissing_DoesNotAllowLocalFileOperations()
+    {
+        TestablePlaylistEntry entry = new TestablePlaylistEntry();
+        entry.SetTitle("Missing");
+        entry.SetMd5("abababababababababababababababab");
+        entry.lr2_bmsid = "12345";
+        PlaylistDetailRow row = new PlaylistDetailSourceRow(entry, realFile: null, resolvedBmson: null).CreateViewRow();
+
+        Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(row, out ChartOperationTarget target));
+        Assert.AreEqual(OwnedChartKind.Bms, target.Chart.Kind);
+        Assert.IsFalse(target.IsOwned);
+        Assert.IsTrue(target.IsPlaylistMissing);
+        Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.OpenFile));
+        Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.OpenFolder));
+        Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.MoveInLibrary));
+        Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.RemoveFromLibrary));
+        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.UseLr2Ir));
+    }
+
+    [TestMethod]
+    public void ChartOperationTarget_MissingSha256_DisablesRepositoryCapability()
+    {
+        TestableBmsFile file = new TestableBmsFile();
+        file.ApplySnapshot("abababababababababababababababab", "NoSha", 7);
+
+        Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(file, out ChartOperationTarget target));
+        Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.OpenRepositoryBySha256));
+    }
+
+    [TestMethod]
     public void PlaylistDetailSourceRow_MissingWithoutResolvedFiles_PreservesPlaylistEntryFallbackValues()
     {
         TestablePlaylistEntry entry = new TestablePlaylistEntry

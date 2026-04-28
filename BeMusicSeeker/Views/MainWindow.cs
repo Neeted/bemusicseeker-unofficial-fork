@@ -1286,6 +1286,43 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         return GetSelectedGridRowsSnapshot().Select(GridRowResolver.GetOperationBmsFile).Where((BMSFile file) => file != null).ToList();
     }
 
+    private List<ChartOperationTarget> GetSelectedGridOperationTargets(bool isPendingSection = false)
+    {
+        return GetSelectedGridRowsSnapshot()
+            .Select(delegate(object row)
+            {
+                return GridRowResolver.TryGetChartOperationTarget(row, isPendingSection, out ChartOperationTarget target) ? target : null;
+            })
+            .Where((ChartOperationTarget target) => target != null)
+            .ToList();
+    }
+
+    private static BMSFile GetOperationFileFromTarget(ChartOperationTarget target)
+    {
+        if (target?.Chart == null)
+        {
+            return null;
+        }
+        if (target.Chart.BmsFile != null)
+        {
+            return target.Chart.BmsFile;
+        }
+        if (target.Chart.BmsonSong != null)
+        {
+            return PendingChartEntry.CreateFromBmsonSong(target.Chart.BmsonSong);
+        }
+        return null;
+    }
+
+    private List<BMSFile> GetSelectedGridOperationChartFiles(ChartOperationCapabilities capability, bool isPendingSection = false)
+    {
+        return GetSelectedGridOperationTargets(isPendingSection)
+            .Where((ChartOperationTarget target) => target.HasCapability(capability))
+            .Select(GetOperationFileFromTarget)
+            .Where((BMSFile file) => file != null)
+            .ToList();
+    }
+
     private List<BMSFile> GetSelectedGridRealFiles()
     {
         return GetSelectedGridRowsSnapshot().Select(GridRowResolver.GetRealBmsFile).Where((BMSFile file) => file != null).ToList();
@@ -1294,7 +1331,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     private List<string> GetSelectedGridHashTargets()
     {
         return GetSelectedGridRowsSnapshot()
-            .Where((object row) => !GridRowResolver.IsBmsonContextRow(row))
+            .Where((object row) => GridRowResolver.TryGetChartOperationTarget(row, out ChartOperationTarget target) && target.HasCapability(ChartOperationCapabilities.UseLr2Ir))
             .Select(GridRowResolver.GetHash)
             .Where((string hash) => !string.IsNullOrWhiteSpace(hash))
             .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -1308,17 +1345,16 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private static ScoreViewerTarget TryCreateScoreViewerTarget(object row)
     {
-        if (GridRowResolver.IsBmsonContextRow(row))
+        if (!GridRowResolver.TryGetChartOperationTarget(row, out ChartOperationTarget target) || !target.HasCapability(ChartOperationCapabilities.UseScoreViewer))
         {
             return null;
         }
-        string hash = GridRowResolver.GetHash(row);
+        string hash = target.Chart.Md5;
         if (string.IsNullOrWhiteSpace(hash))
         {
             return null;
         }
-        BMSFile realBmsFile = GridRowResolver.GetRealBmsFile(row);
-        return new ScoreViewerTarget(hash, realBmsFile?.path, GridRowResolver.GetDisplayTitle(row));
+        return new ScoreViewerTarget(hash, target.Chart.BmsFile?.path, target.Chart.Title);
     }
 
     private List<BMSTableEntry> GetSelectedGridPlaylistEntries()
@@ -1383,7 +1419,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private bool TryAssignDataGridContextMenu(DataGridRow dataGridRow, object row, string logPrefix, out bool usePlaylistMissingContextMenu)
     {
-        usePlaylistMissingContextMenu = GridRowResolver.IsPlaylistRow(row) && GridRowResolver.GetOperationBmsFile(row) == null;
+        usePlaylistMissingContextMenu = GridRowResolver.TryGetChartOperationTarget(row, out ChartOperationTarget target)
+            ? target.IsPlaylistMissing
+            : GridRowResolver.IsPlaylistRow(row) && GridRowResolver.GetOperationBmsFile(row) == null;
         string resourceKey = usePlaylistMissingContextMenu ? "dataGridContextMenuPlaylistMissing" : "dataGridContextMenu";
         if (TryFindResource(resourceKey) is not ContextMenu contextMenu)
         {
@@ -5191,24 +5229,39 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             NLogWrapper.FileLogger?.Info("playlist_context_menu rowResolve=False sourceType=" + sender?.GetType().FullName);
             return;
         }
-        BMSFile bmsFile = GridRowResolver.GetOperationBmsFile(row);
         bool isPlaylistRow = GridRowResolver.IsPlaylistRow(row);
         Uri rowUrl = GridRowResolver.GetUrl(row);
         Uri rowUrlDiff = GridRowResolver.GetUrlDiff(row);
-        if (bmsFile == null && !isPlaylistRow)
+        bool isPendingSelected = _currentTreeSelectionSection == TreeSelectionSection.InstallPending;
+        bool isInstalledSelected = _currentTreeSelectionSection == TreeSelectionSection.InstallInstalled;
+        bool isInstallListSelected = isPendingSelected || isInstalledSelected;
+        bool isPlaylistSelected = _currentTreeSelectionSection == TreeSelectionSection.Playlist;
+        bool isPlaylistContext = isPlaylistSelected || isPlaylistRow;
+        if (!GridRowResolver.TryGetChartOperationTarget(row, isPendingSelected, out ChartOperationTarget rowTarget))
         {
-            NLogWrapper.FileLogger?.Info("playlist_context_menu rowResolve=True but unsupported rowType=" + row?.GetType().FullName);
-            return;
+            rowTarget = null;
+            if (!isPlaylistRow)
+            {
+                NLogWrapper.FileLogger?.Info("playlist_context_menu rowResolve=True but unsupported rowType=" + row?.GetType().FullName);
+                return;
+            }
         }
-        List<BMSFile> list = GetSelectedGridOperationFiles();
-        bool isBmsonContextRow = GridRowResolver.IsBmsonContextRow(row);
-        bool hasBmsonSelection = isBmsonContextRow || list.Any(PendingChartEntry.IsBmsonChartFile);
-        bool hasBmsSelection = PendingChartEntry.IsBmsChartFile(bmsFile) || list.Any(PendingChartEntry.IsBmsChartFile);
+        string chartPath = rowTarget?.Chart?.Path;
+        BMSFile bmsFile = rowTarget?.Chart?.BmsFile;
+        List<ChartOperationTarget> selectedTargets = GetSelectedGridOperationTargets(isPendingSelected);
+        if (rowTarget != null && selectedTargets.Count == 0)
+        {
+            selectedTargets.Add(rowTarget);
+        }
+        List<BMSFile> list = selectedTargets.Select(GetOperationFileFromTarget).Where((BMSFile file) => file != null).ToList();
+        bool isBmsonContextRow = rowTarget?.Chart.Kind == OwnedChartKind.Bmson;
+        bool hasBmsonSelection = selectedTargets.Any((ChartOperationTarget target) => target.Chart.Kind == OwnedChartKind.Bmson);
+        bool hasBmsSelection = selectedTargets.Any((ChartOperationTarget target) => target.Chart.Kind == OwnedChartKind.Bms);
         if (!(base.DataContext is MainWindowViewModel mainWindowViewModel))
         {
             return;
         }
-        string rowHash = bmsFile?.hash ?? GridRowResolver.GetHash(row);
+        string rowHash = rowTarget?.Chart?.Md5 ?? GridRowResolver.GetHash(row);
         if (songInfoCache == null || songInfoCache.md5 != rowHash)
         {
             calcelAllContextMenuTasks();
@@ -5402,7 +5455,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         if (menuItem3 != null && menuItem4 != null && menuItemOpenDocument != null && changeSubmenuOpenDocumentTask == null)
         {
             menuItemOpenDocument.IsEnabled = false;
-            if (!string.IsNullOrWhiteSpace(bmsFile?.path) && File.Exists(bmsFile.path))
+            if (!string.IsNullOrWhiteSpace(chartPath) && File.Exists(chartPath))
             {
                 menuItem3.IsEnabled = true;
                 menuItem4.IsEnabled = true;
@@ -5411,7 +5464,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 {
                     NLogWrapper.DebuggerLogger?.Trace("Test starts: changeSubmenuOpenDocumentTask");
                     CancellationToken token = dataGridContextMenuTaskTokenSource.Token;
-                    string directoryNameSimple = DirectoryExt.GetDirectoryNameSimple(bmsFile.path);
+                    string directoryNameSimple = DirectoryExt.GetDirectoryNameSimple(chartPath);
                     if (token.IsCancellationRequested)
                     {
                         return;
@@ -5451,22 +5504,33 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             }
         }
         bool flag = false;
-        if (list.Count > 1)
+        bool hasScoreViewerTarget = selectedTargets.Any((ChartOperationTarget target) => target.HasCapability(ChartOperationCapabilities.UseScoreViewer));
+        if (menuItem18 != null && list.Count > 1)
         {
             menuItem18.Header = BeMusicSeeker.Properties.Resources.Register_chart_with_viewer;
-            flag = (menuItem18.IsEnabled = !hasBmsonSelection && list.Any((BMSFile f) => !string.IsNullOrWhiteSpace(f.path) && File.Exists(f.path)));
+            flag = (menuItem18.IsEnabled = selectedTargets.Any((ChartOperationTarget target) => target.HasCapability(ChartOperationCapabilities.UseScoreViewer) && !string.IsNullOrWhiteSpace(target.Chart.Path) && File.Exists(target.Chart.Path)));
         }
-        else
+        else if (menuItem18 != null)
         {
             menuItem18.Header = BeMusicSeeker.Properties.Resources.Open_chart_viewer;
-            flag = !hasBmsonSelection && !string.IsNullOrWhiteSpace(bmsFile?.path) && File.Exists(bmsFile.path);
+            flag = selectedTargets.Count == 1
+                && selectedTargets[0].HasCapability(ChartOperationCapabilities.UseScoreViewer)
+                && !string.IsNullOrWhiteSpace(selectedTargets[0].Chart.Path)
+                && File.Exists(selectedTargets[0].Chart.Path);
             menuItem18.IsEnabled = flag;
         }
-        menuItem19.IsEnabled = flag;
+        if (menuItem18 != null)
+        {
+            menuItem18.Visibility = hasScoreViewerTarget ? Visibility.Visible : Visibility.Collapsed;
+        }
+        if (menuItem19 != null)
+        {
+            menuItem19.IsEnabled = flag;
+        }
         if (menuItemOpenLr2Ir != null)
         {
-            bool canOpenLr2Ir = !hasBmsonSelection && !string.IsNullOrWhiteSpace(GridRowResolver.GetHash(row));
-            menuItemOpenLr2Ir.Visibility = hasBmsonSelection ? Visibility.Collapsed : Visibility.Visible;
+            bool canOpenLr2Ir = rowTarget != null && rowTarget.HasCapability(ChartOperationCapabilities.UseLr2Ir);
+            menuItemOpenLr2Ir.Visibility = canOpenLr2Ir ? Visibility.Visible : Visibility.Collapsed;
             menuItemOpenLr2Ir.IsEnabled = canOpenLr2Ir;
         }
         string repositorySha256 = GridRowResolver.GetRepositorySha256(row);
@@ -5483,7 +5547,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         if (menuItem7 != null)
         {
-            if (mainWindowViewModel.LR2ID == 0 || hasBmsonSelection)
+            bool hasRankingTarget = selectedTargets.Any((ChartOperationTarget target) => target.HasCapability(ChartOperationCapabilities.UpdateRanking));
+            menuItem7.Visibility = hasRankingTarget ? Visibility.Visible : Visibility.Collapsed;
+            if (mainWindowViewModel.LR2ID == 0 || !hasRankingTarget)
             {
                 menuItem7.IsEnabled = false;
             }
@@ -5493,16 +5559,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             }
         }
         MenuItem menuItemDeleteInstallPackages = contextMenu.Items.OfType<MenuItem>().FirstOrDefault((MenuItem item) => item.Name == "dataGridContextMenuItemDeleteInstallPackages");
-        bool isPendingSelected = _currentTreeSelectionSection == TreeSelectionSection.InstallPending;
-        bool isInstalledSelected = _currentTreeSelectionSection == TreeSelectionSection.InstallInstalled;
-        bool isInstallListSelected = isPendingSelected || isInstalledSelected;
-        bool isPlaylistSelected = _currentTreeSelectionSection == TreeSelectionSection.Playlist;
-        bool isPlaylistContext = isPlaylistSelected || isPlaylistRow;
-        bool isNotOwnedPlaylistRow = isPlaylistRow && (bmsFile == null || string.IsNullOrWhiteSpace(bmsFile.path));
-        NLogWrapper.FileLogger?.Info("playlist_context_menu rowType=" + row?.GetType().FullName + " isPlaylistRow=" + isPlaylistRow + " isPlaylistContext=" + isPlaylistContext + " isNotOwned=" + isNotOwnedPlaylistRow + " section=" + _currentTreeSelectionSection + " path=" + (bmsFile?.path ?? string.Empty));
+        bool isNotOwnedPlaylistRow = rowTarget?.IsPlaylistMissing == true;
+        NLogWrapper.FileLogger?.Info("playlist_context_menu rowType=" + row?.GetType().FullName + " isPlaylistRow=" + isPlaylistRow + " isPlaylistContext=" + isPlaylistContext + " isNotOwned=" + isNotOwnedPlaylistRow + " section=" + _currentTreeSelectionSection + " kind=" + rowTarget?.Chart.Kind + " path=" + (chartPath ?? string.Empty));
         if (menuItemOpenInstallDestination != null)
         {
-            bool canOpenInstallDestination = isPendingSelected && bmsFile != null && !isPlaylistRow;
+            bool canOpenInstallDestination = rowTarget != null && rowTarget.HasCapability(ChartOperationCapabilities.UpdateInstallDestination) && !isPlaylistRow;
             menuItemOpenInstallDestination.Visibility = (canOpenInstallDestination ? Visibility.Visible : Visibility.Collapsed);
             menuItemOpenInstallDestination.IsEnabled = canOpenInstallDestination;
         }
@@ -5521,7 +5582,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             bool canMoveSelectedFiles = !isPendingSelected;
             menuItem13.Visibility = ((!canMoveSelectedFiles) ? Visibility.Collapsed : Visibility.Visible);
-            menuItem13.IsEnabled = canMoveSelectedFiles && list.Any((BMSFile f) => !string.IsNullOrWhiteSpace(f.path) && File.Exists(f.path));
+            menuItem13.IsEnabled = canMoveSelectedFiles && selectedTargets.Any((ChartOperationTarget target) => target.HasCapability(ChartOperationCapabilities.MoveInLibrary) && !string.IsNullOrWhiteSpace(target.Chart.Path) && File.Exists(target.Chart.Path));
         }
         if (menuItem14 != null)
         {
@@ -5535,8 +5596,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             menuItem15.IsEnabled = canDeleteFiles;
             if (menuItemRenameInvalidExt != null)
             {
-                menuItemRenameInvalidExt.Visibility = (!canDeleteFiles || hasBmsonSelection) ? Visibility.Collapsed : Visibility.Visible;
-                menuItemRenameInvalidExt.IsEnabled = canDeleteFiles && !hasBmsonSelection;
+                bool canRenameInvalidExt = canDeleteFiles && selectedTargets.Any((ChartOperationTarget target) => target.HasCapability(ChartOperationCapabilities.RenameInvalidExtension));
+                menuItemRenameInvalidExt.Visibility = canRenameInvalidExt ? Visibility.Visible : Visibility.Collapsed;
+                menuItemRenameInvalidExt.IsEnabled = canRenameInvalidExt;
             }
             Ribbit.Logging.NLogWrapper.FileLogger?.Info(
                 $"[ContextMenu] DeleteFile Header='{menuItem15.Header}', HasItems={menuItem15.HasItems}, Items.Count={menuItem15.Items.Count}");
@@ -5594,38 +5656,38 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             Visibility visibility = (menuItem19.Visibility = ((!canConvertToAudio) ? Visibility.Collapsed : Visibility.Visible));
             convertSeparator.Visibility = visibility;
             Separator convertSeparator2 = separator2;
-            bool isEnabled = (menuItem19.IsEnabled = canConvertToAudio && list.Any((BMSFile f) => !string.IsNullOrWhiteSpace(f.path) && File.Exists(f.path)));
+            bool isEnabled = (menuItem19.IsEnabled = canConvertToAudio && selectedTargets.Any((ChartOperationTarget target) => target.HasCapability(ChartOperationCapabilities.ConvertToAudio) && !string.IsNullOrWhiteSpace(target.Chart.Path) && File.Exists(target.Chart.Path)));
             convertSeparator2.IsEnabled = isEnabled;
         }
         if (hasBmsonSelection)
         {
-            if (menuItemOpenLr2Ir != null)
-            {
-                menuItemOpenLr2Ir.Visibility = Visibility.Collapsed;
-                menuItemOpenLr2Ir.IsEnabled = false;
-            }
-            if (menuItem18 != null)
-            {
-                menuItem18.Visibility = Visibility.Collapsed;
-                menuItem18.IsEnabled = false;
-            }
-            if (menuItem7 != null)
-            {
-                menuItem7.Visibility = Visibility.Collapsed;
-                menuItem7.IsEnabled = false;
-            }
-            if (menuItem19 != null)
-            {
-                menuItem19.Visibility = Visibility.Collapsed;
-                menuItem19.IsEnabled = false;
-            }
-            if (menuItemRenameInvalidExt != null)
-            {
-                menuItemRenameInvalidExt.Visibility = Visibility.Collapsed;
-                menuItemRenameInvalidExt.IsEnabled = false;
-            }
             if (!hasBmsSelection)
             {
+                if (menuItemOpenLr2Ir != null)
+                {
+                    menuItemOpenLr2Ir.Visibility = Visibility.Collapsed;
+                    menuItemOpenLr2Ir.IsEnabled = false;
+                }
+                if (menuItem18 != null)
+                {
+                    menuItem18.Visibility = Visibility.Collapsed;
+                    menuItem18.IsEnabled = false;
+                }
+                if (menuItem7 != null)
+                {
+                    menuItem7.Visibility = Visibility.Collapsed;
+                    menuItem7.IsEnabled = false;
+                }
+                if (menuItem19 != null)
+                {
+                    menuItem19.Visibility = Visibility.Collapsed;
+                    menuItem19.IsEnabled = false;
+                }
+                if (menuItemRenameInvalidExt != null)
+                {
+                    menuItemRenameInvalidExt.Visibility = Visibility.Collapsed;
+                    menuItemRenameInvalidExt.IsEnabled = false;
+                }
                 if (menuItem10 != null)
                 {
                     menuItem10.Visibility = Visibility.Collapsed;
@@ -5739,12 +5801,13 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         BMSTableEntry entry = GridRowResolver.GetPlaylistEntry(row);
         Uri rowUrl = GridRowResolver.GetUrl(row);
         Uri rowUrlDiff = GridRowResolver.GetUrlDiff(row);
-        bool isBmsonContextRow = GridRowResolver.IsBmsonContextRow(row);
+        GridRowResolver.TryGetChartOperationTarget(row, out ChartOperationTarget rowTarget);
+        bool isBmsonContextRow = rowTarget?.Chart.Kind == OwnedChartKind.Bmson;
         string repositorySha256 = GridRowResolver.GetRepositorySha256(row);
         bool canOpenRepository = !string.IsNullOrWhiteSpace(repositorySha256);
-        bool canOpenScoreViewer = !isBmsonContextRow && !string.IsNullOrWhiteSpace(GridRowResolver.GetHash(row));
-        bool canUpdateRanking = canOpenScoreViewer && viewModel != null && viewModel.LR2ID != 0;
-        bool canOpenLr2Ir = !isBmsonContextRow && (!string.IsNullOrWhiteSpace(GridRowResolver.GetHash(row)) || !string.IsNullOrWhiteSpace(GridRowResolver.GetLr2BmsId(row)));
+        bool canOpenScoreViewer = rowTarget?.HasCapability(ChartOperationCapabilities.UseScoreViewer) == true;
+        bool canUpdateRanking = rowTarget?.HasCapability(ChartOperationCapabilities.UpdateRanking) == true && viewModel != null && viewModel.LR2ID != 0;
+        bool canOpenLr2Ir = rowTarget?.HasCapability(ChartOperationCapabilities.UseLr2Ir) == true;
         foreach (Control item in (IEnumerable)contextMenu.Items)
         {
             switch (item.Name)
@@ -5791,7 +5854,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        string path = GridRowResolver.GetOperationBmsFile(row)?.path;
+        if (!GridRowResolver.TryGetChartOperationTarget(row, out ChartOperationTarget target) || !target.HasCapability(ChartOperationCapabilities.OpenFolder))
+        {
+            return;
+        }
+        string path = target.Chart.Path;
         if (!File.Exists(path))
         {
             return;
@@ -5952,12 +6019,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        BMSFile bMSFile = GridRowResolver.GetOperationBmsFile(placementTarget.Item);
-        if (string.IsNullOrWhiteSpace(bMSFile?.path))
+        if (!GridRowResolver.TryGetChartOperationTarget(placementTarget.Item, out ChartOperationTarget target) || !target.HasCapability(ChartOperationCapabilities.OpenFile))
         {
             return;
         }
-        string path = bMSFile.path;
+        string path = target.Chart.Path;
         if (!File.Exists(path))
         {
             return;
@@ -5978,11 +6044,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return;
         }
         object row = placementTarget.Item;
-        if (GridRowResolver.IsBmsonContextRow(row))
+        if (!GridRowResolver.TryGetChartOperationTarget(row, out ChartOperationTarget target) || !target.HasCapability(ChartOperationCapabilities.UseLr2Ir))
         {
             return;
         }
-        string rowHash = GridRowResolver.GetHash(row);
+        string rowHash = target.Chart.Md5;
         string text;
         if (!string.IsNullOrWhiteSpace(rowHash))
         {
@@ -6951,7 +7017,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private async void dataGridContextMenuItemMoveFileClick(object sender, RoutedEventArgs e)
     {
-        List<BMSFile> bmsFiles = GetSelectedGridOperationFiles().Where((BMSFile f) => !string.IsNullOrWhiteSpace(f?.path)).ToList();
+        List<BMSFile> bmsFiles = GetSelectedGridOperationChartFiles(ChartOperationCapabilities.MoveInLibrary)
+            .Where((BMSFile f) => !string.IsNullOrWhiteSpace(f?.path))
+            .ToList();
         MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
         if (!(sender is MenuItem menuItem))
         {
