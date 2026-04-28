@@ -11759,7 +11759,12 @@ public class MainWindowViewModel : ViewModel
 
     public void ForceFileScanCheckBMSFiles(IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles)
     {
-        files.GetBMSFilesNeedToBeFixed(bmsFiles, forceUpdate: true);
+        ForceResourceHealthCheckCharts(bmsFiles);
+    }
+
+    public void ForceResourceHealthCheckCharts(IEnumerable<BeMusicSeeker.Models.BMSFile> chartFiles)
+    {
+        files.GetBMSFilesNeedToBeFixed(chartFiles, forceUpdate: true);
     }
 
     public void IgnoreFileScanCheckBMSFiles(IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles)

@@ -282,6 +282,16 @@ Phase E 完了後も domain/storage model は `BMSLibrary.BMSFiles` と `BMSLibr
 ### Phase F: 命名と API を整理する
 
 長期的には、ユーザー向け文言以外の内部 API も整理する。
+ただし `BMSFile`, `BMSPackage.BMSFiles`, `BMSLibrary.BMSFiles`, `BMSFilesView` は XAML binding、設定、pending install、LR2 互換の語彙に広く残っているため、全面 rename は挙動が安定してから行う。
+
+Phase F-1 では「新規コードの入口を chart 抽象に揃える」ことを優先する。
+
+- `GridRowResolver.TryGetChartRef` / `TryGetOperationChartTarget` を primary API とし、`GetOperationBmsFile` は BMS-only 互換 shim として残す
+- UI handler は `ChartOperationTarget.Capabilities` で対象を絞り、BMS 専用操作だけ `BMSFile` へ戻す
+- 構成ファイルフルスキャンは `RunResourceHealthCheck` capability を使い、BMS / bmson の両方を chart resource health 対象にする
+- `ForceResourceHealthCheckCharts` など chart 名 wrapper を追加し、旧 `ForceFileScanCheckBMSFiles` は互換 wrapper として残す
+
+Phase F-2 以降で検討する広範囲 rename 候補:
 
 - `MoveBMSFile` -> `MoveChartFile`
 - `RemoveBMSFiles` -> `RemoveChartFiles`
@@ -289,7 +299,7 @@ Phase E 完了後も domain/storage model は `BMSLibrary.BMSFiles` と `BMSLibr
 - `BMSFilesPendingInstall` -> `PendingCharts`
 - `ForceFileScanCheckBMSFiles` -> `ForceResourceHealthCheckCharts`
 
-ただし一度に rename すると diff が大きくなるため、実装が安定してから行う。
+BMS という名前を残す箇所は、LR2 / BMS 仕様 / 既存 UI / DB 互換の意味を持つものとして扱う。BMS と bmson の両方を対象にする新規内部処理では chart 名を使う。
 
 ## テスト方針
 

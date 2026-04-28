@@ -35,7 +35,8 @@ internal static class GridRowResolver
     }
 
     /// <summary>
-    /// 行から実体譜面を取得します。
+    /// 行から実体 BMS 譜面を取得します。
+    /// bmson は chart target API で扱い、この互換 API では返しません。
     /// </summary>
     internal static BMSFile GetRealBmsFile(object row)
     {
@@ -51,8 +52,8 @@ internal static class GridRowResolver
     }
 
     /// <summary>
-    /// 行から操作対象の譜面を取得します。
-    /// playlist 行で実体譜面が無い場合は null を返します。
+    /// 行から BMS 互換操作対象を取得します。
+    /// bmson owned row は <see cref="TryGetOperationChartTarget(object, ChartOperationSourceScope, out ChartOperationTarget)"/> を使ってください。
     /// </summary>
     internal static BMSFile GetOperationBmsFile(object row)
     {
@@ -67,7 +68,7 @@ internal static class GridRowResolver
         return row as BMSFile;
     }
 
-    internal static bool TryGetOwnedChartRef(object row, out OwnedChartRef chart)
+    internal static bool TryGetChartRef(object row, out OwnedChartRef chart)
     {
         chart = null;
         switch (row)
@@ -87,6 +88,26 @@ internal static class GridRowResolver
         }
     }
 
+    internal static bool TryGetOwnedChartRef(object row, out OwnedChartRef chart)
+    {
+        return TryGetChartRef(row, out chart);
+    }
+
+    internal static bool TryGetOperationChartTarget(object row, out ChartOperationTarget target)
+    {
+        return TryGetOperationChartTarget(row, ChartOperationSourceScope.Library, out target);
+    }
+
+    internal static bool TryGetOperationChartTarget(object row, bool isPendingSection, out ChartOperationTarget target)
+    {
+        return TryGetOperationChartTarget(row, isPendingSection ? ChartOperationSourceScope.PendingPackage : ChartOperationSourceScope.Library, out target);
+    }
+
+    internal static bool TryGetOperationChartTarget(object row, ChartOperationSourceScope sourceScope, out ChartOperationTarget target)
+    {
+        return TryGetChartOperationTarget(row, sourceScope, out target);
+    }
+
     internal static bool TryGetChartOperationTarget(object row, out ChartOperationTarget target)
     {
         return TryGetChartOperationTarget(row, ChartOperationSourceScope.Library, out target);
@@ -100,7 +121,7 @@ internal static class GridRowResolver
     internal static bool TryGetChartOperationTarget(object row, ChartOperationSourceScope sourceScope, out ChartOperationTarget target)
     {
         target = null;
-        if (!TryGetOwnedChartRef(row, out OwnedChartRef chart))
+        if (!TryGetChartRef(row, out OwnedChartRef chart))
         {
             return false;
         }
@@ -130,7 +151,7 @@ internal static class GridRowResolver
 
     internal static bool IsBmsonChartRow(object row)
     {
-        return TryGetOwnedChartRef(row, out OwnedChartRef chart) && chart.Kind == OwnedChartKind.Bmson;
+        return TryGetChartRef(row, out OwnedChartRef chart) && chart.Kind == OwnedChartKind.Bmson;
     }
 
     internal static bool IsBmsonContextRow(object row)
@@ -220,7 +241,7 @@ internal static class GridRowResolver
     /// </summary>
     internal static string GetRepositorySha256(object row)
     {
-        string sha256 = TryGetOwnedChartRef(row, out OwnedChartRef chart)
+        string sha256 = TryGetChartRef(row, out OwnedChartRef chart)
             ? FirstNonEmpty(chart.Sha256, chart.ChartInfo?.sha256)
             : row switch
         {
@@ -377,6 +398,10 @@ internal static class GridRowResolver
         {
             capabilities |= ChartOperationCapabilities.OpenPlaylistUrls;
         }
+        if (hasPath && !isPlaylistMissing)
+        {
+            capabilities |= ChartOperationCapabilities.RunResourceHealthCheck;
+        }
         if (isBms)
         {
             if (hasMd5 || !string.IsNullOrWhiteSpace(playlistEntry?.lr2_bmsid))
@@ -389,8 +414,7 @@ internal static class GridRowResolver
             }
             if (!isPlaylistMissing)
             {
-                capabilities |= ChartOperationCapabilities.RunResourceHealthCheck
-                    | ChartOperationCapabilities.RunBmsEncodingCheck
+                capabilities |= ChartOperationCapabilities.RunBmsEncodingCheck
                     | ChartOperationCapabilities.RunBmsEncodingFix
                     | ChartOperationCapabilities.RunZeroNoteCheck
                     | ChartOperationCapabilities.RenameInvalidExtension

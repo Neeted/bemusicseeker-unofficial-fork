@@ -541,6 +541,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.OpenFile));
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.OpenFolder));
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.OpenRepositoryBySha256));
+        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.RunResourceHealthCheck));
         Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.UseLr2Ir));
         Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.UseScoreViewer));
         Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.RunBmsEncodingFix));
@@ -566,6 +567,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreSame(row, target.Chart.BmsFile);
         Assert.AreSame(bmson, target.Chart.BmsonSong);
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.OpenRepositoryBySha256));
+        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.RunResourceHealthCheck));
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.MoveInLibrary));
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.RemoveFromLibrary));
         Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.UseLr2Ir));
@@ -594,6 +596,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(OwnedChartKind.Bmson, target.Chart.Kind);
         Assert.AreSame(bmson, target.Chart.BmsonSong);
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.OpenRepositoryBySha256));
+        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.RunResourceHealthCheck));
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.MoveInLibrary));
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.RemoveFromLibrary));
         Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.UseLr2Ir));
@@ -676,6 +679,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.OpenFile));
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.OpenFolder));
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.UpdateInstallDestination));
+        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.RunResourceHealthCheck));
         Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.RemoveFromLibrary));
         Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.MoveInLibrary));
     }
@@ -732,10 +736,27 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.UseLr2Ir));
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.UseScoreViewer));
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.UpdateRanking));
+        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.RunResourceHealthCheck));
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.RunBmsEncodingFix));
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.RunZeroNoteCheck));
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.RenameInvalidExtension));
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.ConvertToAudio));
+    }
+
+    [TestMethod]
+    public void ChartOperationTarget_ChartNamedApis_MatchCompatibilityBmsShim()
+    {
+        TestableBmsFile file = new TestableBmsFile();
+        file.ApplySnapshot("abababababababababababababababab", "Bms", 7);
+
+        Assert.IsTrue(GridRowResolver.TryGetChartRef(file, out OwnedChartRef chart));
+        Assert.AreEqual(OwnedChartKind.Bms, chart.Kind);
+        Assert.AreSame(file, chart.BmsFile);
+
+        Assert.IsTrue(GridRowResolver.TryGetOperationChartTarget(file, out ChartOperationTarget target));
+        Assert.AreEqual(OwnedChartKind.Bms, target.Chart.Kind);
+        Assert.AreSame(file, GridRowResolver.GetOperationBmsFile(file));
+        Assert.AreSame(file, target.Chart.BmsFile);
     }
 
     [TestMethod]
