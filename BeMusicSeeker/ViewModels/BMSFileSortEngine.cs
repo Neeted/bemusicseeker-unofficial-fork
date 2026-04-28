@@ -12,10 +12,11 @@ using Ribbit.Util;
 namespace BeMusicSeeker.ViewModels;
 
 /// <summary>
-/// MainWindow の一覧表示で使用する BMS ソート処理を集約します。
+/// 旧 BMSFile 行のソート互換確認用処理を集約します。
 /// </summary>
 /// <remarks>
-/// 既存挙動互換を最優先し、比較器・キー選択規則を MainWindowViewModel から切り出した実装です。
+/// 通常 DataGrid の正本は LibraryChartRowSortEngine です。
+/// この型は BMSFileSortCompatibilityTests と旧 BMSFile ソート規則の検証用に残しています。
 /// </remarks>
 internal static class BMSFileSortEngine
 {
@@ -24,10 +25,10 @@ internal static class BMSFileSortEngine
     private static readonly ConcurrentDictionary<string, Delegate> typedSortKeySelectorCache = new ConcurrentDictionary<string, Delegate>(StringComparer.Ordinal);
 
     /// <summary>
-    /// DataGrid の実ソートで従来実装を利用するかを示します。
+    /// 旧 BMSFile ソート互換検証で legacy natural sort を利用するかを示します。
     /// </summary>
     /// <remarks>
-    /// 実機性能比較のために、最適化実装を残したまま呼び出し経路だけ切り替えられるようにしています。
+    /// 通常 DataGrid の実ソート切り替えは LibraryChartRowSortEngine 側で行います。
     /// </remarks>
     internal static bool UseLegacySortForDataGrid { get; set; } = true;
 

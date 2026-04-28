@@ -1281,11 +1281,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
     }
 
-    private List<BMSFile> GetSelectedGridOperationFiles()
-    {
-        return GetSelectedCompatibilityChartFiles(ChartOperationCapabilities.None);
-    }
-
     private List<ChartOperationTarget> GetSelectedChartTargets(bool isPendingSection = false)
     {
         ChartOperationSourceScope sourceScope = isPendingSection
@@ -1298,11 +1293,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             })
             .Where((ChartOperationTarget target) => target != null)
             .ToList();
-    }
-
-    private List<ChartOperationTarget> GetSelectedGridOperationTargets(bool isPendingSection = false)
-    {
-        return GetSelectedChartTargets(isPendingSection);
     }
 
     private List<ChartOperationTarget> GetSelectedChartTargets(ChartOperationCapabilities capability, bool isPendingSection = false)
@@ -1364,16 +1354,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     private List<BMSFile> GetSelectedPendingChartFiles(ChartOperationCapabilities capability)
     {
         return GetSelectedCompatibilityChartFiles(capability, isPendingSection: true);
-    }
-
-    private List<BMSFile> GetSelectedGridOperationChartFiles(ChartOperationCapabilities capability, bool isPendingSection = false)
-    {
-        return GetSelectedCompatibilityChartFiles(capability, isPendingSection);
-    }
-
-    private List<BMSFile> GetSelectedGridRealFiles()
-    {
-        return GetSelectedGridRowsSnapshot().Select(GridRowResolver.GetRealBmsFile).Where((BMSFile file) => file != null).ToList();
     }
 
     private List<string> GetSelectedGridHashTargets()
@@ -5318,7 +5298,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         string chartPath = rowTarget?.Chart?.Path;
         BMSFile bmsFile = rowTarget?.Chart?.BmsFile;
-        List<ChartOperationTarget> selectedTargets = GetSelectedGridOperationTargets(isPendingSelected);
+        List<ChartOperationTarget> selectedTargets = GetSelectedChartTargets(isPendingSelected);
         if (rowTarget != null && selectedTargets.Count == 0)
         {
             selectedTargets.Add(rowTarget);
@@ -7020,9 +7000,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void dataGridContextMenuItemRenameBMSFileClick(object sender, RoutedEventArgs e)
     {
-        List<BMSFile> bmsFiles = GetSelectedGridOperationChartFiles(ChartOperationCapabilities.RenameInvalidExtension)
-            .Where(PendingChartEntry.IsBmsChartFile)
-            .ToList();
+        List<BMSFile> bmsFiles = GetSelectedBmsChartFiles(ChartOperationCapabilities.RenameInvalidExtension);
         MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
         bool isPendingSelected = _currentTreeSelectionSection == TreeSelectionSection.InstallPending;
         if (bmsFiles.Count <= 0 || MessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_rename_to_invalid, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) == MessageBoxResult.Cancel)
@@ -7062,7 +7040,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     {
         MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
         bool isPendingSelected = _currentTreeSelectionSection == TreeSelectionSection.InstallPending;
-        List<ChartOperationTarget> targets = GetSelectedGridOperationTargets(isPendingSelected)
+        List<ChartOperationTarget> targets = GetSelectedChartTargets(isPendingSelected)
             .Where((ChartOperationTarget target) => target.HasCapability(isPendingSelected ? ChartOperationCapabilities.UpdateInstallDestination : ChartOperationCapabilities.RemoveFromLibrary))
             .ToList();
         if (viewModel == null || targets.Count == 0)
@@ -7107,7 +7085,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private async void dataGridContextMenuItemMoveFileClick(object sender, RoutedEventArgs e)
     {
-        List<ChartOperationTarget> targets = GetSelectedGridOperationTargets()
+        List<ChartOperationTarget> targets = GetSelectedChartTargets()
             .Where((ChartOperationTarget target) => target.HasCapability(ChartOperationCapabilities.MoveInLibrary) && !string.IsNullOrWhiteSpace(target.Chart?.Path))
             .ToList();
         MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
@@ -7208,7 +7186,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        List<BMSFile> bmsFiles = GetSelectedGridRealFiles();
+        List<BMSFile> bmsFiles = GetSelectedPendingChartFiles(ChartOperationCapabilities.UpdateInstallDestination);
         if (bmsFiles == null || bmsFiles.Count() == 0)
         {
             return;
@@ -7243,7 +7221,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        List<BMSFile> bmsFiles = GetSelectedGridRealFiles();
+        List<BMSFile> bmsFiles = GetSelectedPendingChartFiles(ChartOperationCapabilities.UpdateInstallDestination);
         if (bmsFiles != null && bmsFiles.Count() != 0)
         {
             MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
@@ -7261,19 +7239,21 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        List<BMSFile> selectedBmsFiles = GetSelectedGridRealFiles();
+        bool isPendingSelected = _currentTreeSelectionSection == TreeSelectionSection.InstallPending;
+        bool isInstalledSelected = _currentTreeSelectionSection == TreeSelectionSection.InstallInstalled;
+        if (!isPendingSelected && !isInstalledSelected)
+        {
+            return;
+        }
+        List<BMSFile> selectedBmsFiles = isPendingSelected
+            ? GetSelectedPendingChartFiles(ChartOperationCapabilities.UpdateInstallDestination)
+            : GetSelectedCompatibilityChartFiles(ChartOperationCapabilities.None);
         if (selectedBmsFiles.Count == 0)
         {
             return;
         }
         MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
         if (viewModel == null)
-        {
-            return;
-        }
-        bool isPendingSelected = _currentTreeSelectionSection == TreeSelectionSection.InstallPending;
-        bool isInstalledSelected = _currentTreeSelectionSection == TreeSelectionSection.InstallInstalled;
-        if (!isPendingSelected && !isInstalledSelected)
         {
             return;
         }
@@ -7328,7 +7308,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        List<BMSFile> bmsFiles = GetSelectedGridRealFiles();
+        List<BMSFile> bmsFiles = GetSelectedPendingChartFiles(ChartOperationCapabilities.UpdateInstallDestination);
         if (bmsFiles == null || bmsFiles.Count == 0 || !ConfirmMergeDestinationSearch())
         {
             return;
@@ -7348,8 +7328,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void dataGridContextMenuItemConvertToAudioFileClick(object sender, RoutedEventArgs e)
     {
-        BMSFile[] bmsFiles = GetSelectedGridOperationChartFiles(ChartOperationCapabilities.ConvertToAudio)
-            .Where(PendingChartEntry.IsBmsChartFile)
+        BMSFile[] bmsFiles = GetSelectedBmsChartFiles(ChartOperationCapabilities.ConvertToAudio)
             .Where((BMSFile f) => File.Exists(f.path))
             .ToArray();
         if (bmsFiles.Length == 0)

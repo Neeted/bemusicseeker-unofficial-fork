@@ -324,6 +324,37 @@ Phase F-3 に進む前に、DataGrid sort engine を整理する。
 - `BMSFileSortEngine.UseLegacySortForDataGrid` は通常一覧から参照しない
 - `BMSFileSortEngine` は旧 `BMSFile` sort 互換検証用として残し、削除する場合は `BmsSortCompatibilityTests` を `LibraryChartRowSortEngine` ベースへ移植してから判断する
 
+Phase F-3 は「広範囲 rename」ではなく、低リスクな内部境界の chart 名化を進める。
+
+F-3 で進める候補:
+
+- `BMSFilesFolderView` / `BMSFilesKeywordFilterView` / `BMSFilesModeFilterView` は、型がすでに `LibraryChartRow` なので `ChartRowsFolderView` / `ChartRowsKeywordFilterView` / `ChartRowsModeFilterView` へ寄せる
+- `SetBMSFilesView()` は private helper なので、`SetChartRowsView()` を主 API にし、旧名は必要なら shim にする
+- `GetSelectedGridRealFiles` / `GetSelectedGridOperationFiles` / `GetSelectedGridOperationChartFiles` の残存用途を整理し、新規 handler は `GetSelectedChartTargets` / `GetSelectedBmsChartFiles` / `GetSelectedPendingChartFiles` へ統一する
+- `BMSFileSortEngine` は通常一覧の実行経路から外れているため、互換検証用 helper として隔離する。削除する場合は `BmsSortCompatibilityTests` を `LibraryChartRowSortEngine` ベースへ移植した後に行う
+- phase 名・ログ名・コメントは「通常一覧の表示 row は chart row、storage source は BMS/bmson 二本立て」という境界が分かるようにする
+
+F-3 の実装境界:
+
+- 通常一覧の内部 cache / setter は chart row 名へ寄せるが、public binding の `BMSFilesView` は XAML / settings 互換のため維持する
+- BMS 専用 handler は `GetSelectedBmsChartFiles`、pending/package 互換 handler は `GetSelectedPendingChartFiles` を使い、汎用的な legacy selection shim は使用箇所がなくなったら削除する
+- `BMSFileSortEngine` は通常一覧から参照せず、旧 `BMSFile` sort 互換検証用として残す
+
+F-3 では後回しにするもの:
+
+- `BMSFilesView`, `SelectedIndexBMSFilesView`, `ColumnsSettingsBMSFilesView`, `UseAsyncBMSFilesViewBinding` は XAML binding / settings / column state の public UI 契約なので rename しない
+- `BMSPackage.BMSFiles` は pending install / package chart discovery の中核であり、参照時に lazy discovery が走る意味もあるため rename しない。必要なら docs 上で「package 内 chart の BMSFile 互換 adapter list」と説明する
+- `BMSLibrary.BMSFiles` は LR2 `song` table 側の source of truth として残す。BMS / bmson 共通表示は `LibraryChartRow` / `OwnedChartRef` で扱い、storage model は `BMSFiles` と `BmsonSongs` の二本立てを維持する
+- `BMSFilesGarbled`, `BMSFilesZeroNote`, encoding / zero-note / LR2IR / ScoreViewer などは BMS 専用意味を持つため chart 名へ広げない
+- install package 操作 (`InstallBMSFiles`, `ForceInstallBMSFiles`, `ManualInstallBMSFiles` など) は pending/package 層の影響が大きいため、Phase F-3 では wrapper 追加以上の rename をしない
+
+F-3 の確認観点:
+
+- 通常一覧の folder / keyword / mode filter で、rename 前後の row count と sort/filter 結果が変わらない
+- pending / newly-installed / library / playlist owned / playlist missing の選択 helper が、それぞれ正しい `ChartOperationTarget` を返す
+- BMS 専用操作は `GetSelectedBmsChartFiles` へ集約され、bmson が encoding / zero-note / LR2IR / ScoreViewer に入らない
+- package discovery cache (`BMSPackage.BMSFiles`) は rename しないため、参照による heavy source scan 回避の既存挙動を維持する
+
 ## テスト方針
 
 ### 共通 target / capability tests

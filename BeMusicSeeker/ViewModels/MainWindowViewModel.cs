@@ -4295,11 +4295,11 @@ public class MainWindowViewModel : ViewModel
 
     private string _WindowTitle = "BeMusicSeeker Unofficial Fork - ";
 
-    private IEnumerable<LibraryChartRow> BMSFilesFolderView;
+    private IEnumerable<LibraryChartRow> ChartRowsFolderView;
 
-    private IEnumerable<LibraryChartRow> BMSFilesKeywordFilterView;
+    private IEnumerable<LibraryChartRow> ChartRowsKeywordFilterView;
 
-    private IEnumerable<LibraryChartRow> BMSFilesModeFilterView;
+    private IEnumerable<LibraryChartRow> ChartRowsModeFilterView;
 
     private IList _BMSFilesView = new List<object>();
 
@@ -7175,24 +7175,24 @@ public class MainWindowViewModel : ViewModel
     }
 
     /// <summary>
-    /// <see cref="BMSFilesView"/> を差し替えます。
+    /// 通常一覧 / playlist 詳細の chart row view を <see cref="BMSFilesView"/> binding へ差し替えます。
     /// playlist 詳細表示では <see cref="PlaylistViewState.CurrentViewRows"/> を先に更新してから呼び出します。
     /// </summary>
     /// <param name="rows">新しい表示行。</param>
-    private void SetBMSFilesView(IList rows)
+    private void SetChartRowsView(IList rows)
     {
         BMSFilesView = rows;
     }
 
     /// <summary>
-    /// 通常一覧の generic cache を無効化します。
+    /// 通常一覧の chart row cache を無効化します。
     /// folder/keyword/mode の各段を再計算する必要がある場合にだけ呼びます。
     /// </summary>
     private void ResetRegularDerivedViewCaches()
     {
-        BMSFilesFolderView = null;
-        BMSFilesKeywordFilterView = null;
-        BMSFilesModeFilterView = null;
+        ChartRowsFolderView = null;
+        ChartRowsKeywordFilterView = null;
+        ChartRowsModeFilterView = null;
         folderSortSourceSnapshot = null;
         folderSortResultSnapshot = null;
         folderSortColumnName = null;
@@ -10774,7 +10774,7 @@ public class MainWindowViewModel : ViewModel
                 LogMainViewBuild("callback_exec_sort_raise slow request=" + callbackRequestId + " callbackMs=" + callbackStageMs + " enqueued=True threadId=" + Thread.CurrentThread.ManagedThreadId + " thresholdMs=" + CallbackExecSortSlowLogThresholdMs);
             }
             ReplacePlaylistViewRows(finalRows, request.Identity);
-            SetBMSFilesView(finalRows);
+            SetChartRowsView(finalRows);
             TryMarkPlaylistOpenBuildCompleted(request, viewCount);
             finalRows = null;
             disposedSourceRowsCount = CountPlaylistSourceRows(previousSourceRows);
@@ -10848,7 +10848,7 @@ public class MainWindowViewModel : ViewModel
             LogMainViewBuild("callback_exec_sort_raise slow request=" + callbackRequestId + " callbackMs=" + callbackStageMs + " enqueued=True threadId=" + Thread.CurrentThread.ManagedThreadId + " thresholdMs=" + CallbackExecSortSlowLogThresholdMs);
         }
         ReplacePlaylistViewRows(finalRows, request.Identity);
-        SetBMSFilesView(finalRows);
+        SetChartRowsView(finalRows);
         TryMarkPlaylistOpenBuildCompleted(request, viewCount);
         FinalizeMainViewBuild(viewBuildStopwatch, treeViewFilterTypeSelected, requestedMode, parameter, folderStageMs: 0L, keywordStageMs, modeStageMs, sortStageMs, sortReuse: false, sortProfile, folderCount: sourceCount, keywordCount, modeCount, viewCount, columnStageMs, callbackStageMs);
         return true;
@@ -11045,7 +11045,7 @@ public class MainWindowViewModel : ViewModel
             SyncBmsonLibraryRowCache(files?.BmsonSongs);
         }
         ClearPlaylistSourceRows();
-        if (ShouldRebuildRegularFolderStage(mode, BMSFilesFolderView, BMSFilesKeywordFilterView, BMSFilesModeFilterView, treeViewFilterTypeSelected))
+        if (ShouldRebuildRegularFolderStage(mode, ChartRowsFolderView, ChartRowsKeywordFilterView, ChartRowsModeFilterView, treeViewFilterTypeSelected))
         {
             mode = treeViewFilterTypeSelected;
             parameter = treeViewFilterParameterSelected;
@@ -11053,21 +11053,21 @@ public class MainWindowViewModel : ViewModel
         switch (mode)
         {
             case viewUpdateMode.FolderFilterSelected:
-                BMSFilesFolderView = BuildStandardLibraryRowsForView(BMSFiles, includeBmsonRows ? GetBmsonLibraryRowsSnapshot() : Enumerable.Empty<LibraryChartRow>(), FolderFilter);
+                ChartRowsFolderView = BuildStandardLibraryRowsForView(BMSFiles, includeBmsonRows ? GetBmsonLibraryRowsSnapshot() : Enumerable.Empty<LibraryChartRow>(), FolderFilter);
                 break;
             case viewUpdateMode.FullScanAllChartsFilterSelected:
-                BMSFilesFolderView = BuildStandardLibraryRowsForView(BMSFiles, includeBmsonRows ? GetBmsonLibraryRowsSnapshot() : Enumerable.Empty<LibraryChartRow>(), null);
+                ChartRowsFolderView = BuildStandardLibraryRowsForView(BMSFiles, includeBmsonRows ? GetBmsonLibraryRowsSnapshot() : Enumerable.Empty<LibraryChartRow>(), null);
                 break;
             case viewUpdateMode.FileMissingFilterSelected:
-                BMSFilesFolderView = ToLibraryChartRows(BMSFilesToBeFixed);
+                ChartRowsFolderView = ToLibraryChartRows(BMSFilesToBeFixed);
                 break;
             case viewUpdateMode.FileMissingIgnoredFilterSelected:
-                BMSFilesFolderView = ToLibraryChartRows(BMSFilesToBeFixedIgnored);
+                ChartRowsFolderView = ToLibraryChartRows(BMSFilesToBeFixedIgnored);
                 break;
             case viewUpdateMode.DuplicateFilterSelected:
                 if (BMSFilesDuplicated == null)
                 {
-                    BMSFilesFolderView = null;
+                    ChartRowsFolderView = null;
                     break;
                 }
                 parameter = NormalizeDuplicateViewParameter(parameter);
@@ -11078,14 +11078,14 @@ public class MainWindowViewModel : ViewModel
                         if (duplicateContext.Kind == DuplicateViewContextKind.GroupHeader)
                         {
                             DuplicateGroup duplicateGroup = BMSFilesDuplicated.FirstOrDefault((DuplicateGroup group) => string.Equals(group.Header, duplicateContext.Value, StringComparison.Ordinal));
-                            BMSFilesFolderView = ToLibraryChartRows((duplicateGroup != null) ? duplicateGroup.Files : BMSFilesDuplicated.SelectMany((DuplicateGroup g) => g.Files));
+                            ChartRowsFolderView = ToLibraryChartRows((duplicateGroup != null) ? duplicateGroup.Files : BMSFilesDuplicated.SelectMany((DuplicateGroup g) => g.Files));
                         }
                         else
                         {
                             string dirname2 = duplicateContext.Value;
                             RetryHelper.RetryIfError(delegate
                             {
-                                BMSFilesFolderView = ToLibraryChartRows(from f in BMSFilesDuplicated.SelectMany((DuplicateGroup g) => g.Files)
+                                ChartRowsFolderView = ToLibraryChartRows(from f in BMSFilesDuplicated.SelectMany((DuplicateGroup g) => g.Files)
                                                                         where f.path.StartsWith(dirname2 + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
                                                                         select f);
                             }, delegate (Exception ex)
@@ -11099,11 +11099,11 @@ public class MainWindowViewModel : ViewModel
                     }
                     else if (parameter is List<BeMusicSeeker.Models.BMSFile>)
                     {
-                        BMSFilesFolderView = ToLibraryChartRows(parameter as List<BeMusicSeeker.Models.BMSFile>);
+                        ChartRowsFolderView = ToLibraryChartRows(parameter as List<BeMusicSeeker.Models.BMSFile>);
                     }
                     else if (parameter is DuplicateGroup)
                     {
-                        BMSFilesFolderView = ToLibraryChartRows((parameter as DuplicateGroup).Files);
+                        ChartRowsFolderView = ToLibraryChartRows((parameter as DuplicateGroup).Files);
                     }
                     else
                     {
@@ -11114,7 +11114,7 @@ public class MainWindowViewModel : ViewModel
                         string dirname = parameter as string;
                         RetryHelper.RetryIfError(delegate
                         {
-                            BMSFilesFolderView = ToLibraryChartRows(from f in BMSFilesDuplicated.SelectMany((DuplicateGroup g) => g.Files)
+                            ChartRowsFolderView = ToLibraryChartRows(from f in BMSFilesDuplicated.SelectMany((DuplicateGroup g) => g.Files)
                                                                     where f.path.StartsWith(dirname + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
                                                                     select f);
                         }, delegate (Exception ex)
@@ -11129,7 +11129,7 @@ public class MainWindowViewModel : ViewModel
                 }
                 RetryHelper.RetryIfError(delegate
                 {
-                    BMSFilesFolderView = ToLibraryChartRows(BMSFilesDuplicated.SelectMany((DuplicateGroup g) => g.Files));
+                    ChartRowsFolderView = ToLibraryChartRows(BMSFilesDuplicated.SelectMany((DuplicateGroup g) => g.Files));
                 }, delegate (Exception ex)
                 {
                     ExceptionDispatchInfo.Capture(ex).Throw();
@@ -11139,31 +11139,31 @@ public class MainWindowViewModel : ViewModel
                 }, 100u);
                 break;
             case viewUpdateMode.GarbledFilterSelected:
-                BMSFilesFolderView = ToLibraryChartRows(BMSFilesGarbled);
+                ChartRowsFolderView = ToLibraryChartRows(BMSFilesGarbled);
                 break;
             case viewUpdateMode.GarbleFixedFilterSelected:
-                BMSFilesFolderView = ToLibraryChartRows(BMSFilesGarbleFixed);
+                ChartRowsFolderView = ToLibraryChartRows(BMSFilesGarbleFixed);
                 break;
             case viewUpdateMode.UnregisteredFilterSelected:
-                BMSFilesFolderView = ToLibraryChartRows(BMSFilesUnregistered);
+                ChartRowsFolderView = ToLibraryChartRows(BMSFilesUnregistered);
                 break;
             case viewUpdateMode.ZeroNoteFilterSelected:
-                BMSFilesFolderView = ToLibraryChartRows(BMSFilesZeroNote);
+                ChartRowsFolderView = ToLibraryChartRows(BMSFilesZeroNote);
                 break;
             case viewUpdateMode.NewlyInstalledFolderSelected:
                 if (BMSPackagesInstalled == null)
                 {
-                    BMSFilesFolderView = null;
+                    ChartRowsFolderView = null;
                     break;
                 }
                 if (parameter != null && parameter is BMSPackage)
                 {
-                    BMSFilesFolderView = ToLibraryChartRows((parameter as BMSPackage).BMSFiles);
+                    ChartRowsFolderView = ToLibraryChartRows((parameter as BMSPackage).BMSFiles);
                     break;
                 }
                 RetryHelper.RetryIfError(delegate
                 {
-                    BMSFilesFolderView = ToLibraryChartRows(BMSPackagesInstalled.SelectMany(delegate (BMSPackage p)
+                    ChartRowsFolderView = ToLibraryChartRows(BMSPackagesInstalled.SelectMany(delegate (BMSPackage p)
                     {
                         try
                         {
@@ -11189,17 +11189,17 @@ public class MainWindowViewModel : ViewModel
             case viewUpdateMode.PendingInstallFolderSelected:
                 if (BMSPackagesPending == null)
                 {
-                    BMSFilesFolderView = null;
+                    ChartRowsFolderView = null;
                     break;
                 }
                 if (parameter != null && parameter is BMSPackage)
                 {
-                    BMSFilesFolderView = ToLibraryChartRows((parameter as BMSPackage).BMSFiles);
+                    ChartRowsFolderView = ToLibraryChartRows((parameter as BMSPackage).BMSFiles);
                     break;
                 }
                 RetryHelper.RetryIfError(delegate
                 {
-                    BMSFilesFolderView = ToLibraryChartRows(BMSPackagesPending.SelectMany(delegate (BMSPackage p)
+                    ChartRowsFolderView = ToLibraryChartRows(BMSPackagesPending.SelectMany(delegate (BMSPackage p)
                     {
                         try
                         {
@@ -11223,28 +11223,28 @@ public class MainWindowViewModel : ViewModel
                 }, 100u);
                 break;
         }
-        BMSFilesFolderView = ((BMSFilesFolderView == null) ? new List<LibraryChartRow>() : BMSFilesFolderView.ToList());
+        ChartRowsFolderView = ((ChartRowsFolderView == null) ? new List<LibraryChartRow>() : ChartRowsFolderView.ToList());
         folderStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
-        folderCount = BMSFilesFolderView.Count();
+        folderCount = ChartRowsFolderView.Count();
         stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
         if (mode <= viewUpdateMode.KeywordFilterUpdated)
         {
             if (!string.IsNullOrWhiteSpace(KeywordFilter))
             {
-                BMSFilesKeywordFilterView = new List<LibraryChartRow>();
+                ChartRowsKeywordFilterView = new List<LibraryChartRow>();
                 GridKeywordSearchQuery query = GridKeywordSearchQuery.Parse(KeywordFilter);
-                BMSFilesKeywordFilterView = from r in BMSFilesFolderView.AsParallel()
+                ChartRowsKeywordFilterView = from r in ChartRowsFolderView.AsParallel()
                                             where query.MatchesLibraryChartRow(r)
                                             select r;
             }
             else
             {
-                BMSFilesKeywordFilterView = BMSFilesFolderView;
+                ChartRowsKeywordFilterView = ChartRowsFolderView;
             }
         }
-        BMSFilesKeywordFilterView = ((BMSFilesKeywordFilterView == null) ? new List<LibraryChartRow>() : BMSFilesKeywordFilterView.ToList());
+        ChartRowsKeywordFilterView = ((ChartRowsKeywordFilterView == null) ? new List<LibraryChartRow>() : ChartRowsKeywordFilterView.ToList());
         keywordStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
-        keywordCount = BMSFilesKeywordFilterView.Count();
+        keywordCount = ChartRowsKeywordFilterView.Count();
         stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
         if (mode <= viewUpdateMode.ModeFilterUpdated)
         {
@@ -11271,16 +11271,16 @@ public class MainWindowViewModel : ViewModel
                 {
                     modeFlag.Add(14);
                 }
-                BMSFilesModeFilterView = BMSFilesKeywordFilterView.Where((LibraryChartRow f) => modeFlag.Contains(f.mode));
+                ChartRowsModeFilterView = ChartRowsKeywordFilterView.Where((LibraryChartRow f) => modeFlag.Contains(f.mode));
             }
             else
             {
-                BMSFilesModeFilterView = BMSFilesKeywordFilterView;
+                ChartRowsModeFilterView = ChartRowsKeywordFilterView;
             }
         }
-        BMSFilesModeFilterView = ((BMSFilesModeFilterView == null) ? new List<LibraryChartRow>() : BMSFilesModeFilterView.ToList());
+        ChartRowsModeFilterView = ((ChartRowsModeFilterView == null) ? new List<LibraryChartRow>() : ChartRowsModeFilterView.ToList());
         modeStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
-        modeCount = BMSFilesModeFilterView.Count();
+        modeCount = ChartRowsModeFilterView.Count();
         stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
         if (mode <= viewUpdateMode.SortUpdated)
         {
@@ -11303,16 +11303,16 @@ public class MainWindowViewModel : ViewModel
             }
             bool isTreeSelectionRequest = requestedMode != viewUpdateMode.TreeViewFilterNotChanged && requestedMode < viewUpdateMode.KeywordFilterUpdated;
             bool isFolderMode = mode == viewUpdateMode.FolderFilterSelected;
-            List<LibraryChartRow> modeFilterList = BMSFilesModeFilterView as List<LibraryChartRow>;
+            List<LibraryChartRow> modeFilterList = ChartRowsModeFilterView as List<LibraryChartRow>;
             if (isFolderMode && isTreeSelectionRequest && modeFilterList != null && folderSortSourceSnapshot != null && folderSortResultSnapshot != null && string.Equals(folderSortColumnName, columnName, StringComparison.Ordinal) && folderSortDirection == direction && IsSameReferenceSequence(modeFilterList, folderSortSourceSnapshot))
             {
-                SetBMSFilesView(folderSortResultSnapshot);
+                SetChartRowsView(folderSortResultSnapshot);
                 sortReuse = true;
                 sortProfile = "reuse";
             }
             else
             {
-                SetBMSFilesView(LibraryChartRowSortEngine.SortForMainView(BMSFilesModeFilterView, SortParameters, isPlaylistDetailView, useLegacySortForDataGrid, out sortProfile));
+                SetChartRowsView(LibraryChartRowSortEngine.SortForMainView(ChartRowsModeFilterView, SortParameters, isPlaylistDetailView, useLegacySortForDataGrid, out sortProfile));
                 if (isFolderMode)
                 {
                     folderSortResultSnapshot = BMSFilesView as List<LibraryChartRow>;
@@ -11326,7 +11326,7 @@ public class MainWindowViewModel : ViewModel
                 }
                 else
                 {
-                    folderSortSourceSnapshot = BMSFilesModeFilterView.ToList();
+                    folderSortSourceSnapshot = ChartRowsModeFilterView.ToList();
                 }
                 folderSortColumnName = columnName;
                 folderSortDirection = direction;
@@ -11334,7 +11334,7 @@ public class MainWindowViewModel : ViewModel
         }
         else
         {
-            SetBMSFilesView(BMSFilesModeFilterView.ToList());
+            SetChartRowsView(ChartRowsModeFilterView.ToList());
             sortProfile = "bypass";
         }
         sortStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
