@@ -9030,6 +9030,15 @@ public class BMSLibrary : NotificationObject
         {
             throw new ArgumentNullException("bmsFiles");
         }
+        MoveLibraryRootFolder((bmsFiles ?? Enumerable.Empty<BMSFile>()).Select(LibraryChartRef.FromBmsFile), dstDir, unregister);
+    }
+
+    internal void MoveLibraryRootFolder(IEnumerable<LibraryChartRef> charts, string dstDir, bool? unregister = false)
+    {
+        if (charts == null)
+        {
+            throw new ArgumentNullException("charts");
+        }
         if (dstDir == null)
         {
             throw new ArgumentNullException("dstDir");
@@ -9045,8 +9054,9 @@ public class BMSLibrary : NotificationObject
                         dialogService.Show(string.Format(Resources.Error_MoveDestRootNotFound, dstDir), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
                         return;
                     }
-                    List<FolderAutoRenamePlan> plans = libraryFileOperationsService.BuildRootFolderMovePlans(bmsFiles, dstDir);
-                    if ((bmsFiles ?? Enumerable.Empty<BMSFile>()).Select((BMSFile f) => DirectoryExt.GetDirectoryNameSimple(f.path)).Distinct(StringComparer.OrdinalIgnoreCase).Any((string f) => !string.IsNullOrWhiteSpace(f) && Path.GetPathRoot(f).Equals(f, StringComparison.OrdinalIgnoreCase)))
+                    List<LibraryChartRef> chartList = (charts ?? Enumerable.Empty<LibraryChartRef>()).Where((LibraryChartRef chart) => chart != null).ToList();
+                    List<FolderAutoRenamePlan> plans = libraryFileOperationsService.BuildRootFolderMovePlans(chartList, dstDir);
+                    if (chartList.Select((LibraryChartRef chart) => DirectoryExt.GetDirectoryNameSimple(chart.Path)).Distinct(StringComparer.OrdinalIgnoreCase).Any((string f) => !string.IsNullOrWhiteSpace(f) && Path.GetPathRoot(f).Equals(f, StringComparison.OrdinalIgnoreCase)))
                     {
                         dialogService.Show(Resources.Warn_DriveRootCannotChangeRoot, Resources.MessageBoxTitle_Confirm, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
                     }
@@ -9098,35 +9108,47 @@ public class BMSLibrary : NotificationObject
 
     public void MoveBMSFile(BMSFile bmsFile, string dstPath, bool? unregister = false)
     {
+        MoveLibraryChart(LibraryChartRef.FromBmsFile(bmsFile), dstPath, unregister);
+    }
+
+    internal void MoveLibraryChart(LibraryChartRef chart, string dstPath, bool? unregister = false)
+    {
         using (rwlockBMSFilesInitializedMin.GetReaderGuard())
         {
             using (rwlockBMSFiles.GetWriterGuard())
             {
-                if (!File.Exists(bmsFile.path) || BMSFiles.Any((BMSFile f) => f.path.Equals(dstPath, StringComparison.OrdinalIgnoreCase)))
+                if (chart == null || string.IsNullOrWhiteSpace(chart.Path) || !File.Exists(chart.Path) || IsRegisteredChartPath(dstPath))
                 {
                     return;
                 }
                 if (File.Exists(dstPath) || Directory.Exists(dstPath))
                 {
-                    dialogService.Show(string.Format(Resources.Warn_RenameDestAlreadyExists, bmsFile.path, dstPath), Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
+                    dialogService.Show(string.Format(Resources.Warn_RenameDestAlreadyExists, chart.Path, dstPath), Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
                     return;
                 }
                 try
                 {
-                    libraryFileOperationsService.MoveFileOnDisk(bmsFile, dstPath, fileMutationService, targetOnlyFileMutationOptions);
+                    libraryFileOperationsService.MoveChartFileOnDisk(chart, dstPath, fileMutationService, targetOnlyFileMutationOptions);
                 }
                 catch (Exception moveException)
                 {
-                    dialogService.Show(string.Format(Resources.Error_BmsFileMoveFailed, bmsFile.path, dstPath, GetDisplayedExceptionMessage(moveException)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+                    dialogService.Show(string.Format(Resources.Error_BmsFileMoveFailed, chart.Path, dstPath, GetDisplayedExceptionMessage(moveException)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
                     return;
                 }
                 if (unregister != false && unregister != true)
                 {
                     return;
                 }
-                ApplyLibraryMutationDelta(libraryFileOperationsService.BuildFileMoveDelta(bmsFile, dstPath, unregister == true));
+                ApplyLibraryMutationDelta(libraryFileOperationsService.BuildChartFileMoveDelta(chart, dstPath, unregister == true));
             }
         }
+    }
+
+    private bool IsRegisteredChartPath(string path)
+    {
+        return !string.IsNullOrWhiteSpace(path)
+            && ((BMSFiles?.Any((BMSFile f) => !string.IsNullOrWhiteSpace(f?.path) && f.path.Equals(path, StringComparison.OrdinalIgnoreCase)) ?? false)
+                || (BmsonSongs?.Any((LR2SongDBExtended.bmson_song song) => !string.IsNullOrWhiteSpace(song?.path) && song.path.Equals(path, StringComparison.OrdinalIgnoreCase)) ?? false));
     }
 
     private RenameInvalidExtensionOutcome ProcessInvalidExtensionRename(BMSFile sourceFile, string requestedPath, bool removeFromLibraryOnSuccess)
@@ -9224,15 +9246,21 @@ public class BMSLibrary : NotificationObject
     /// </summary>
     public void RemoveBMSFiles(IEnumerable<BMSFile> bmsFiles, bool sendToRecycleBin = true)
     {
+        RemoveLibraryCharts((bmsFiles ?? Enumerable.Empty<BMSFile>()).Select(LibraryChartRef.FromBmsFile), sendToRecycleBin);
+    }
+
+    internal void RemoveLibraryCharts(IEnumerable<LibraryChartRef> charts, bool sendToRecycleBin = true)
+    {
         using (rwlockBMSFilesInitializedMin.GetReaderGuard())
         {
             using (rwlockBMSFilesPendingInstall.GetWriterGuard())
             {
                 using (rwlockBMSFiles.GetWriterGuard())
                 {
-                    LibraryRemovalResult result = libraryFileOperationsService.DeleteLibraryFiles(
-                        bmsFiles,
-                        BMSFiles,
+                    LibraryRemovalResult result = libraryFileOperationsService.DeleteLibraryCharts(
+                        charts,
+                        (BMSFiles ?? Enumerable.Empty<BMSFile>()).Select(LibraryChartRef.FromBmsFile)
+                            .Concat((BmsonSongs ?? Enumerable.Empty<LR2SongDBExtended.bmson_song>()).Select(LibraryChartRef.FromBmsonSong)),
                         BMSPackagesPending,
                         bmsFolderAllFileList,
                         directoryResourceLookupCache,
@@ -9252,11 +9280,13 @@ public class BMSLibrary : NotificationObject
                             dialogService.Show(string.Format(Resources.Error_BmsFileDeleteFailed, failure.Path, GetDisplayedExceptionMessage(failure.Exception)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
                         }
                     }
-                    List<BMSFile> removedBmsFiles = result.RemovedFiles.Where((BMSFile file) => file != null && !PendingChartEntry.IsBmsonChartFile(file)).ToList();
-                    List<LR2SongDBExtended.bmson_song> removedBmsonSongs = result.RemovedFiles
-                        .OfType<PendingChartEntry>()
-                        .Where((PendingChartEntry entry) => entry.BmsonSong != null)
-                        .Select((PendingChartEntry entry) => entry.BmsonSong)
+                    List<BMSFile> removedBmsFiles = result.RemovedCharts
+                        .Where((LibraryChartRef chart) => chart?.Kind == LibraryChartKind.Bms && chart.BmsFile != null)
+                        .Select((LibraryChartRef chart) => chart.BmsFile)
+                        .ToList();
+                    List<LR2SongDBExtended.bmson_song> removedBmsonSongs = result.RemovedCharts
+                        .Where((LibraryChartRef chart) => chart?.Kind == LibraryChartKind.Bmson && chart.BmsonSong != null)
+                        .Select((LibraryChartRef chart) => chart.BmsonSong)
                         .Distinct()
                         .ToList();
                     if (removedBmsFiles.Count > 0)

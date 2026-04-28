@@ -5591,7 +5591,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         if (menuItem15 != null)
         {
-            bool canDeleteFiles = !isPlaylistContext;
+            bool canDeleteFiles = selectedTargets.Any((ChartOperationTarget target) => target.HasCapability(ChartOperationCapabilities.RemoveFromLibrary))
+                || (isPendingSelected && selectedTargets.Any((ChartOperationTarget target) => target.HasCapability(ChartOperationCapabilities.UpdateInstallDestination)));
             menuItem15.Visibility = ((!canDeleteFiles) ? Visibility.Collapsed : Visibility.Visible);
             menuItem15.IsEnabled = canDeleteFiles;
             if (menuItemRenameInvalidExt != null)
@@ -6972,10 +6973,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void dataGridContextMenuItemRemoveBMSFileClick(object sender, RoutedEventArgs e)
     {
-        List<BMSFile> bmsFiles = GetSelectedGridRealFiles();
         MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
         bool isPendingSelected = _currentTreeSelectionSection == TreeSelectionSection.InstallPending;
-        if (viewModel == null || bmsFiles.Count == 0)
+        List<ChartOperationTarget> targets = GetSelectedGridOperationTargets(isPendingSelected)
+            .Where((ChartOperationTarget target) => target.HasCapability(isPendingSelected ? ChartOperationCapabilities.UpdateInstallDestination : ChartOperationCapabilities.RemoveFromLibrary))
+            .ToList();
+        if (viewModel == null || targets.Count == 0)
         {
             return;
         }
@@ -6995,11 +6998,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             if (isPendingSelected)
             {
+                List<BMSFile> bmsFiles = targets.Select(GetOperationFileFromTarget).Where((BMSFile file) => file != null).ToList();
                 viewModel.RemovePendingBMSFiles(bmsFiles, sendToRecycleBin: true, deleteContainingPackageFoldersWhenNoBms: deleteContainingPackageFoldersWhenNoBms);
             }
             else
             {
-                viewModel.RemoveBMSFiles(bmsFiles);
+                viewModel.RemoveLibraryCharts(targets);
             }
         }).Logging("dataGridContextMenuItemRemoveBMSFileClick");
     }
@@ -7017,8 +7021,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private async void dataGridContextMenuItemMoveFileClick(object sender, RoutedEventArgs e)
     {
-        List<BMSFile> bmsFiles = GetSelectedGridOperationChartFiles(ChartOperationCapabilities.MoveInLibrary)
-            .Where((BMSFile f) => !string.IsNullOrWhiteSpace(f?.path))
+        List<ChartOperationTarget> targets = GetSelectedGridOperationTargets()
+            .Where((ChartOperationTarget target) => target.HasCapability(ChartOperationCapabilities.MoveInLibrary) && !string.IsNullOrWhiteSpace(target.Chart?.Path))
             .ToList();
         MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
         if (!(sender is MenuItem menuItem))
@@ -7026,11 +7030,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return;
         }
         string dstDir = menuItem.DataContext as string;
-        if (viewModel != null && dstDir != null && bmsFiles.Count > 0 && MessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_move_to_other_root, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) != MessageBoxResult.Cancel)
+        if (viewModel != null && dstDir != null && targets.Count > 0 && MessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_move_to_other_root, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) != MessageBoxResult.Cancel)
         {
             await Task.Run(delegate
             {
-                viewModel.MoveBMSFolder(bmsFiles, dstDir);
+                viewModel.MoveLibraryCharts(targets, dstDir);
             }).Logging("dataGridContextMenuItemMoveFileClick");
         }
     }

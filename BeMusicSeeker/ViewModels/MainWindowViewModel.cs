@@ -14395,6 +14395,20 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
+    internal void RemoveLibraryCharts(IEnumerable<ChartOperationTarget> targets)
+    {
+        List<LibraryChartRef> charts = ToLibraryChartRefs(targets, ChartOperationCapabilities.RemoveFromLibrary).ToList();
+        if (charts.Count == 0)
+        {
+            return;
+        }
+        lock (lockCopyFile)
+        {
+            stopPlayingBMSFile(charts.Where((LibraryChartRef chart) => chart.Kind == LibraryChartKind.Bms).Select((LibraryChartRef chart) => chart.BmsFile));
+            files.RemoveLibraryCharts(charts);
+        }
+    }
+
     public void RemovePendingBMSFiles(IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles, bool sendToRecycleBin = true, bool deleteContainingPackageFoldersWhenNoBms = false)
     {
         RunPendingInstallMutation(delegate
@@ -14486,6 +14500,47 @@ public class MainWindowViewModel : ViewModel
             stopPlayingBMSFile(bmsFiles);
             files.MoveBMSRootFolder(bmsFiles, newParentDirectory, false);
         }
+    }
+
+    internal void MoveLibraryCharts(IEnumerable<ChartOperationTarget> targets, string newParentDirectory)
+    {
+        List<LibraryChartRef> charts = ToLibraryChartRefs(targets, ChartOperationCapabilities.MoveInLibrary)
+            .Where((LibraryChartRef chart) => !string.IsNullOrWhiteSpace(chart.Path))
+            .ToList();
+        if (charts.Count == 0 || string.IsNullOrWhiteSpace(newParentDirectory))
+        {
+            return;
+        }
+        lock (lockCopyFile)
+        {
+            stopPlayingBMSFile(charts.Where((LibraryChartRef chart) => chart.Kind == LibraryChartKind.Bms).Select((LibraryChartRef chart) => chart.BmsFile));
+            files.MoveLibraryRootFolder(charts, newParentDirectory, false);
+        }
+    }
+
+    private static IEnumerable<LibraryChartRef> ToLibraryChartRefs(IEnumerable<ChartOperationTarget> targets, ChartOperationCapabilities requiredCapability)
+    {
+        return (targets ?? Enumerable.Empty<ChartOperationTarget>())
+            .Where((ChartOperationTarget target) => target != null && target.HasCapability(requiredCapability))
+            .Select(ToLibraryChartRef)
+            .Where((LibraryChartRef chart) => chart != null);
+    }
+
+    private static LibraryChartRef ToLibraryChartRef(ChartOperationTarget target)
+    {
+        if (target?.Chart == null)
+        {
+            return null;
+        }
+        if (target.Chart.BmsFile != null)
+        {
+            return LibraryChartRef.FromBmsFile(target.Chart.BmsFile);
+        }
+        if (target.Chart.BmsonSong != null)
+        {
+            return LibraryChartRef.FromBmsonSong(target.Chart.BmsonSong);
+        }
+        return null;
     }
 
     /// <summary>

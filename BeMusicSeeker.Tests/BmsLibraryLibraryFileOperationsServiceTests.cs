@@ -266,6 +266,49 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
     }
 
     [TestMethod]
+    public void DeleteLibraryCharts_BmsonOnlyFolderDeletesFolderAndReturnsBmsonChart()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            BmsLibraryLibraryFileOperationsService service = new BmsLibraryLibraryFileOperationsService();
+            TestFileMutationService fileMutationService = new TestFileMutationService();
+            string folderPath = Path.Combine(tempDirectoryPath, "BmsonSong");
+            Directory.CreateDirectory(folderPath);
+            string chartPath = Path.Combine(folderPath, "chart.bmson");
+            File.WriteAllText(chartPath, "{}");
+            LR2SongDBExtended.bmson_song song = new LR2SongDBExtended.bmson_song
+            {
+                path = chartPath,
+                folder = folderPath
+            };
+            BMSDirectoryFileNameHash folderHash = new BMSDirectoryFileNameHash();
+            folderHash.AddDir(folderPath, update: true);
+            DirectoryResourceLookupCache lookupCache = new DirectoryResourceLookupCache();
+
+            LibraryRemovalResult result = service.DeleteLibraryCharts(
+                new[] { LibraryChartRef.FromBmsonSong(song) },
+                new[] { LibraryChartRef.FromBmsonSong(song) },
+                Array.Empty<BMSPackage>(),
+                folderHash,
+                lookupCache,
+                false,
+                _ => true,
+                fileMutationService,
+                null,
+                null);
+
+            Assert.AreEqual(1, result.RemovedCharts.Count);
+            Assert.AreEqual(LibraryChartKind.Bmson, result.RemovedCharts[0].Kind);
+            Assert.AreSame(song, result.RemovedCharts[0].BmsonSong);
+            Assert.AreEqual(1, result.RemovedFiles.Count);
+            Assert.IsTrue(PendingChartEntry.IsBmsonChartFile(result.RemovedFiles[0]));
+            Assert.AreEqual(0, result.Failures.Count);
+            Assert.IsFalse(Directory.Exists(folderPath));
+            CollectionAssert.DoesNotContain(folderHash.Keys, folderPath);
+        });
+    }
+
+    [TestMethod]
     public void BuildFolderMoveDelta_CanSuppressMainViewRefreshForRename()
     {
         BmsLibraryLibraryFileOperationsService service = new BmsLibraryLibraryFileOperationsService();
@@ -482,6 +525,30 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
         Assert.IsTrue(unregisterDelta.InvalidateInstalledDirectoryIndex);
         Assert.IsTrue(unregisterDelta.InvalidateParentFolderCache);
         Assert.IsTrue(unregisterDelta.ClearDuplicatedCache);
+    }
+
+    [TestMethod]
+    public void BuildChartFileMoveDelta_UsesChartKindWithoutPendingAdapter()
+    {
+        BmsLibraryLibraryFileOperationsService service = new BmsLibraryLibraryFileOperationsService();
+        TestableBmsFile bmsFile = CreateFile("C:\\Lib\\Src\\chart.bms");
+        LR2SongDBExtended.bmson_song bmsonSong = new LR2SongDBExtended.bmson_song
+        {
+            path = "C:\\Lib\\Src\\chart.bmson",
+            folder = "C:\\Lib\\Src"
+        };
+
+        LibraryMutationDelta bmsDelta = service.BuildChartFileMoveDelta(LibraryChartRef.FromBmsFile(bmsFile), "C:\\Lib\\Dst\\chart.bms", unregister: false);
+        LibraryMutationDelta bmsonDelta = service.BuildChartFileMoveDelta(LibraryChartRef.FromBmsonSong(bmsonSong), "C:\\Lib\\Dst\\chart.bmson", unregister: false);
+        LibraryMutationDelta unregisterBmsonDelta = service.BuildChartFileMoveDelta(LibraryChartRef.FromBmsonSong(bmsonSong), "C:\\Lib\\Dst\\chart.bmson", unregister: true);
+
+        Assert.AreEqual(1, bmsDelta.FilePathChanges.Count);
+        Assert.AreSame(bmsFile, bmsDelta.FilePathChanges[0].File);
+        Assert.AreEqual(0, bmsDelta.BmsonSongPathChanges.Count);
+        Assert.AreEqual(0, bmsonDelta.FilePathChanges.Count);
+        Assert.AreEqual(1, bmsonDelta.BmsonSongPathChanges.Count);
+        Assert.AreSame(bmsonSong, bmsonDelta.BmsonSongPathChanges[0].Song);
+        CollectionAssert.AreEqual(new[] { bmsonSong }, unregisterBmsonDelta.BmsonSongsToUnregister);
     }
 
     [TestMethod]
