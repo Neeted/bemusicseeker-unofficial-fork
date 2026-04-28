@@ -11312,8 +11312,7 @@ public class MainWindowViewModel : ViewModel
             }
             else
             {
-                BMSFileSortEngine.UseLegacySortForDataGrid = useLegacySortForDataGrid;
-                SetBMSFilesView(LibraryChartRowSortEngine.SortForMainView(BMSFilesModeFilterView, SortParameters, isPlaylistDetailView, out sortProfile));
+                SetBMSFilesView(LibraryChartRowSortEngine.SortForMainView(BMSFilesModeFilterView, SortParameters, isPlaylistDetailView, useLegacySortForDataGrid, out sortProfile));
                 if (isFolderMode)
                 {
                     folderSortResultSnapshot = BMSFilesView as List<LibraryChartRow>;

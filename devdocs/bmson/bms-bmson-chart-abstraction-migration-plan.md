@@ -318,6 +318,12 @@ Phase F-3 に進む前に、DataGrid sort engine を整理する。
 - `BMSFileSortEngine` は使用箇所を洗い出す。通常 DataGrid 用途は `LibraryChartRowSortEngine` へ移行済みなので、残る参照がテストまたは互換 shim だけなら廃止、または互換確認用 helper として隔離する
 - sort log の `sortEngine=fast|legacy` と実際の `sortProfile` が矛盾しないよう、`library_chart_*` profile 名も fast / legacy / typed の区別が分かる名前に揃える
 
+整理後の境界:
+
+- 通常一覧の実行経路は `LibraryChartRowSortEngine.SortForMainView(..., useLegacySortForDataGrid, ...)` のみ
+- `BMSFileSortEngine.UseLegacySortForDataGrid` は通常一覧から参照しない
+- `BMSFileSortEngine` は旧 `BMSFile` sort 互換検証用として残し、削除する場合は `BmsSortCompatibilityTests` を `LibraryChartRowSortEngine` ベースへ移植してから判断する
+
 ## テスト方針
 
 ### 共通 target / capability tests
