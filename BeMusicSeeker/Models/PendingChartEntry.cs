@@ -284,6 +284,26 @@ public sealed class PendingChartEntry : BMSFile
         BGAfiles = new HashSet<string>(target.bga_files ?? Enumerable.Empty<string>(), StringComparer.OrdinalIgnoreCase);
     }
 
+    internal void ReplaceBmsonSongReferenceAfterInstall(LR2SongDBExtended.bmson_song installedSong)
+    {
+        if (installedSong == null || !IsBmsonChart)
+        {
+            return;
+        }
+        BmsonSong = installedSong;
+        path = installedSong.path;
+        folder = installedSong.folder;
+        hash = installedSong.md5;
+        sha256 = installedSong.sha256;
+        SetChartInfo(installedSong.ChartInfo);
+        BMSFileMaintenanceInfo nextMaintenanceInfo = installedSong.MaintenanceInfo ?? maintenanceInfo ?? BMSFileMaintenanceInfo.CreateForBmson(path, hash);
+        nextMaintenanceInfo.NormalizeForBmson(path, hash);
+        SetMaintenanceInfo(nextMaintenanceInfo, suppressPropertyChanged: true, registerEventHandlers: false);
+        installedSong.MaintenanceInfo = nextMaintenanceInfo;
+        WAVfiles = new HashSet<string>(installedSong.wav_files ?? Enumerable.Empty<string>(), StringComparer.OrdinalIgnoreCase);
+        BGAfiles = new HashSet<string>(installedSong.bga_files ?? Enumerable.Empty<string>(), StringComparer.OrdinalIgnoreCase);
+    }
+
     public static bool IsBmsonFilePath(string filePath)
     {
         string extension = Path.GetExtension(filePath);

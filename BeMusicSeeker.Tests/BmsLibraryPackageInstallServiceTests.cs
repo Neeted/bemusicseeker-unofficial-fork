@@ -433,6 +433,73 @@ public sealed class BmsLibraryPackageInstallServiceTests
     }
 
     [TestMethod]
+    public void PrepareAutoInstallWorkflow_KeepsBmsonPackagePendingWhenResourcesAreMissing()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string packageDirectoryPath = Path.Combine(tempDirectoryPath, "BmsonMissingResource");
+            Directory.CreateDirectory(packageDirectoryPath);
+            string bmsonFilePath = Path.Combine(packageDirectoryPath, "chart.bmson");
+            File.WriteAllText(bmsonFilePath, CreateBmsonJsonWithSound("missing.wav"));
+            BmsLibraryMaintenanceService maintenanceService = new BmsLibraryMaintenanceService();
+            BmsLibraryPackageInstallService service = new BmsLibraryPackageInstallService();
+
+            AutoInstallWorkflowResult result = service.PrepareAutoInstallWorkflow(
+                new[] { packageDirectoryPath },
+                Array.Empty<BMSPackage>(),
+                Array.Empty<string>(),
+                _ => false,
+                0.6,
+                file => maintenanceService.ApplyNeedToBeFixedWarnings(file, file.maintenanceInfo, strictCheck: true));
+
+            Assert.AreEqual(1, result.DiscoveredPackages.Count);
+            Assert.AreEqual(1, result.PendingPackagesToAdd.Count);
+            Assert.AreEqual(0, result.AutoInstallCandidates.Count);
+            PendingChartEntry chart = result.PendingPackagesToAdd[0].PendingCharts.Single();
+            Assert.IsTrue(chart.IsBmsonChart);
+            Assert.AreEqual(1, chart.maintenanceInfo.wav_files_defined);
+            Assert.AreEqual(0, chart.maintenanceInfo.wav_files_existing);
+            StringAssert.Contains(chart.warning, "WAV");
+        });
+    }
+
+    [TestMethod]
+    public void PrepareAutoInstallWorkflow_ExplicitBmsonFileWithAdjacentResourcesUsesDirectoryPackage()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string packageDirectoryPath = Path.Combine(tempDirectoryPath, "BmsonWithResource");
+            Directory.CreateDirectory(packageDirectoryPath);
+            string bmsonFilePath = Path.Combine(packageDirectoryPath, "chart.bmson");
+            File.WriteAllText(bmsonFilePath, CreateBmsonJsonWithSound("sound.wav"));
+            File.WriteAllText(Path.Combine(packageDirectoryPath, "sound.wav"), "dummy");
+            BmsLibraryMaintenanceService maintenanceService = new BmsLibraryMaintenanceService();
+            BmsLibraryPackageInstallService service = new BmsLibraryPackageInstallService();
+
+            AutoInstallWorkflowResult result = service.PrepareAutoInstallWorkflow(
+                new[] { bmsonFilePath },
+                Array.Empty<BMSPackage>(),
+                Array.Empty<string>(),
+                _ => false,
+                0.6,
+                file => maintenanceService.ApplyNeedToBeFixedWarnings(file, file.maintenanceInfo, strictCheck: true));
+
+            Assert.AreEqual(1, result.DiscoveredPackages.Count);
+            Assert.IsTrue(string.Equals(packageDirectoryPath, result.DiscoveredPackages[0].path, StringComparison.OrdinalIgnoreCase));
+            Assert.AreEqual(1, result.AutoInstallCandidates.Count);
+            Assert.IsTrue(string.Equals(packageDirectoryPath, result.AutoInstallCandidates[0].path, StringComparison.OrdinalIgnoreCase));
+            Assert.AreEqual(0, result.PendingPackagesToAdd.Count);
+            PendingChartEntry chart = result.AutoInstallCandidates[0].PendingCharts.Single();
+            Assert.IsTrue(chart.IsBmsonChart);
+            Assert.AreEqual(1, chart.maintenanceInfo.wav_files_defined);
+            Assert.AreEqual(1, chart.maintenanceInfo.wav_files_existing);
+            Assert.IsTrue(string.IsNullOrWhiteSpace(chart.warning));
+        });
+    }
+
+    [TestMethod]
     public void PrepareAutoInstallWorkflow_ClassifiesDetectedDirectoriesAsInstallable()
     {
         TestResourceInitializer.EnsureJapaneseResources();
@@ -1230,6 +1297,15 @@ public sealed class BmsLibraryPackageInstallServiceTests
         string filePath = Path.Combine(directoryPath, fileName);
         File.WriteAllText(filePath, "#PLAYER 1\r\n" + titleLine + "\r\n#ARTIST Test\r\n");
         return filePath;
+    }
+
+    private static string CreateBmsonJsonWithSound(string soundName)
+    {
+        return "{"
+            + "\"version\":\"1.0.0\","
+            + "\"info\":{\"title\":\"Bmson\",\"artist\":\"Artist\",\"mode_hint\":\"beat-7k\"},"
+            + "\"sound_channels\":[{\"name\":\"" + soundName + "\",\"notes\":[{\"x\":1,\"y\":0,\"l\":0}]}]"
+            + "}";
     }
 
     private static string GetArchiveFixturePath(string fileName)

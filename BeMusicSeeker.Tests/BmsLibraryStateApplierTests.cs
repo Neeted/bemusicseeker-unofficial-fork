@@ -307,6 +307,61 @@ public sealed class BmsLibraryStateApplierTests
     }
 
     [TestMethod]
+    public void UnregisterBmsonSongs_RemovesRowsFromInstalledPackages()
+    {
+        WithTemporarySongDb(delegate(string songDbPath)
+        {
+            LR2SongDBExtended.bmson_song removedSong = new LR2SongDBExtended.bmson_song
+            {
+                path = "C:\\Library\\remove.bmson",
+                folder = "C:\\Library",
+                md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            };
+            LR2SongDBExtended.bmson_song keptSong = new LR2SongDBExtended.bmson_song
+            {
+                path = "C:\\Library\\keep.bmson",
+                folder = "C:\\Library",
+                md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            };
+            PendingChartEntry removedEntry = PendingChartEntry.CreateFromBmsonSong(removedSong);
+            PendingChartEntry keptEntry = PendingChartEntry.CreateFromBmsonSong(keptSong);
+            BMSPackage removedPackage = new BMSPackage(new BMSFile[] { removedEntry })
+            {
+                path = "C:\\Installed\\RemovePkg",
+                delete_parent = false
+            };
+            BMSPackage keptPackage = new BMSPackage(new BMSFile[] { keptEntry })
+            {
+                path = "C:\\Installed\\KeepPkg",
+                delete_parent = false
+            };
+            using (LR2SongDBExtended songDb = new LR2SongDBExtended(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDBExtended.bmson_song>();
+                songDb.InsertOrReplace(removedSong, typeof(LR2SongDBExtended.bmson_song));
+                songDb.InsertOrReplace(keptSong, typeof(LR2SongDBExtended.bmson_song));
+            }
+
+            List<BMSFile> libraryFiles = new List<BMSFile>();
+            List<LR2SongDBExtended.bmson_song> bmsonSongs = new List<LR2SongDBExtended.bmson_song> { removedSong, keptSong };
+            DispatcherCollection<BMSPackage> pendingPackages = CreatePackageCollection(Array.Empty<BMSPackage>());
+            DispatcherCollection<BMSPackage> installedPackages = CreatePackageCollection(new[] { removedPackage, keptPackage });
+            TrackingCallbacks callbacks = new TrackingCallbacks();
+            BmsLibraryStateApplier applier = CreateStateApplier(songDbPath, callbacks, () => libraryFiles, files => libraryFiles = files, () => bmsonSongs, songs => bmsonSongs = songs, () => pendingPackages, packages => pendingPackages = packages, () => installedPackages, packages => installedPackages = packages);
+
+            applier.UnregisterBmsonSongs(new[] { removedSong });
+
+            Assert.AreEqual(1, bmsonSongs.Count);
+            Assert.AreSame(keptSong, bmsonSongs.Single());
+            Assert.AreEqual(1, installedPackages.Count);
+            Assert.AreSame(keptPackage, installedPackages.Single());
+            Assert.AreEqual(1, callbacks.BmsonSongsSetCount);
+            Assert.AreEqual(1, callbacks.InstalledPackagesSetCount);
+            Assert.AreEqual(1, callbacks.InstalledPackagesChangedCount);
+        });
+    }
+
+    [TestMethod]
     public void ApplyLibraryMutationDelta_UnregistersBmsonSongs()
     {
         WithTemporarySongDb(delegate(string songDbPath)

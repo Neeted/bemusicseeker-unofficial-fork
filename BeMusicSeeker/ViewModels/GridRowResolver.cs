@@ -43,6 +43,10 @@ internal static class GridRowResolver
         {
             return playlistDetailRow.RealFile;
         }
+        if (row is LibraryChartRow libraryChartRow)
+        {
+            return libraryChartRow.BmsFile;
+        }
         return row as BMSFile;
     }
 
@@ -56,6 +60,10 @@ internal static class GridRowResolver
         {
             return playlistDetailRow.RealFile;
         }
+        if (row is LibraryChartRow libraryChartRow)
+        {
+            return libraryChartRow.BmsFile;
+        }
         return row as BMSFile;
     }
 
@@ -68,6 +76,9 @@ internal static class GridRowResolver
                 return TryCreatePlaylistChartRef(playlistDetailRow, out chart);
             case PlaylistDetailSourceRow playlistSourceRow:
                 return TryCreatePlaylistChartRef(playlistSourceRow, out chart);
+            case LibraryChartRow libraryChartRow:
+                chart = libraryChartRow.Chart;
+                return chart != null;
             case BMSFile bmsFile:
                 chart = CreateChartRef(bmsFile);
                 return chart != null;
@@ -78,10 +89,15 @@ internal static class GridRowResolver
 
     internal static bool TryGetChartOperationTarget(object row, out ChartOperationTarget target)
     {
-        return TryGetChartOperationTarget(row, isPendingSection: false, out target);
+        return TryGetChartOperationTarget(row, ChartOperationSourceScope.Library, out target);
     }
 
     internal static bool TryGetChartOperationTarget(object row, bool isPendingSection, out ChartOperationTarget target)
+    {
+        return TryGetChartOperationTarget(row, isPendingSection ? ChartOperationSourceScope.PendingPackage : ChartOperationSourceScope.Library, out target);
+    }
+
+    internal static bool TryGetChartOperationTarget(object row, ChartOperationSourceScope sourceScope, out ChartOperationTarget target)
     {
         target = null;
         if (!TryGetOwnedChartRef(row, out OwnedChartRef chart))
@@ -94,11 +110,21 @@ internal static class GridRowResolver
         {
             PlaylistDetailRow playlistDetailRow => playlistDetailRow.IsOwned,
             PlaylistDetailSourceRow playlistSourceRow => playlistSourceRow.IsOwned,
+            LibraryChartRow => sourceScope != ChartOperationSourceScope.PendingPackage,
             _ => !string.IsNullOrWhiteSpace(chart.Path)
         };
+        if (!isPlaylistRow && sourceScope == ChartOperationSourceScope.PendingPackage)
+        {
+            isOwned = false;
+        }
         bool isPlaylistMissing = isPlaylistRow && !isOwned;
-        ChartOperationCapabilities capabilities = BuildCapabilities(chart, playlistEntry, isPendingSection, isPlaylistRow, isOwned, isPlaylistMissing);
-        target = new ChartOperationTarget(chart, playlistEntry, isOwned, isPendingSection, isPlaylistMissing, capabilities);
+        if (isPlaylistRow)
+        {
+            sourceScope = isPlaylistMissing ? ChartOperationSourceScope.PlaylistMissing : ChartOperationSourceScope.PlaylistOwned;
+        }
+        bool isPending = sourceScope == ChartOperationSourceScope.PendingPackage;
+        ChartOperationCapabilities capabilities = BuildCapabilities(chart, playlistEntry, sourceScope, isPlaylistRow, isOwned, isPlaylistMissing);
+        target = new ChartOperationTarget(chart, playlistEntry, sourceScope, isOwned, isPending, isPlaylistMissing, capabilities);
         return true;
     }
 
@@ -168,6 +194,7 @@ internal static class GridRowResolver
         return row switch
         {
             PlaylistDetailRow playlistDetailRow => playlistDetailRow.hash,
+            LibraryChartRow libraryChartRow => libraryChartRow.hash,
             BMSFile bmsFile => bmsFile.hash,
             _ => null
         };
@@ -181,6 +208,7 @@ internal static class GridRowResolver
         return row switch
         {
             PlaylistDetailRow playlistDetailRow => playlistDetailRow.sha256,
+            LibraryChartRow libraryChartRow => libraryChartRow.sha256,
             BMSFile bmsFile => bmsFile.sha256,
             _ => null
         };
@@ -197,6 +225,7 @@ internal static class GridRowResolver
             : row switch
         {
             PlaylistDetailRow playlistDetailRow => playlistDetailRow.sha256,
+            LibraryChartRow libraryChartRow => FirstNonEmpty(libraryChartRow.sha256, libraryChartRow.ChartInfo?.sha256),
             BMSFile bmsFile => FirstNonEmpty(bmsFile.sha256, bmsFile.ChartInfo?.sha256),
             _ => null
         };
@@ -276,7 +305,19 @@ internal static class GridRowResolver
         PendingChartEntry pending = file as PendingChartEntry;
         if (pending?.IsBmsonChart == true && pending.BmsonSong != null)
         {
-            return CreateChartRef(pending.BmsonSong);
+            LR2SongDBExtended.bmson_song song = pending.BmsonSong;
+            return new OwnedChartRef(
+                OwnedChartKind.Bmson,
+                pending.path,
+                pending.hash,
+                pending.sha256,
+                pending.Title,
+                pending.Artist,
+                pending.level ?? song.level,
+                pending.mode ?? BmsonSongParser.ResolvePlaylistMode(song.mode_hint),
+                pending.ChartInfo,
+                file,
+                song);
         }
         return new OwnedChartRef(
             OwnedChartKind.Bms,
@@ -315,7 +356,7 @@ internal static class GridRowResolver
     private static ChartOperationCapabilities BuildCapabilities(
         OwnedChartRef chart,
         BMSTableEntry playlistEntry,
-        bool isPendingSection,
+        ChartOperationSourceScope sourceScope,
         bool isPlaylistRow,
         bool isOwned,
         bool isPlaylistMissing)
@@ -358,7 +399,7 @@ internal static class GridRowResolver
         }
         if (hasPath && !isPlaylistMissing)
         {
-            if (!isPendingSection)
+            if (sourceScope != ChartOperationSourceScope.PendingPackage)
             {
                 capabilities |= ChartOperationCapabilities.MoveInLibrary | ChartOperationCapabilities.RemoveFromLibrary;
             }
@@ -408,6 +449,7 @@ internal static class GridRowResolver
         return row switch
         {
             PlaylistDetailRow playlistDetailRow => playlistDetailRow.Title,
+            LibraryChartRow libraryChartRow => libraryChartRow.Title,
             BMSFile bmsFile => bmsFile.Title,
             _ => string.Empty
         };
@@ -421,6 +463,10 @@ internal static class GridRowResolver
         if (row is PlaylistDetailRow)
         {
             return string.Empty;
+        }
+        if (row is LibraryChartRow libraryChartRow)
+        {
+            return libraryChartRow.BmsFile?.subtitle ?? string.Empty;
         }
         if (row is BMSFile bmsFile)
         {
@@ -437,6 +483,7 @@ internal static class GridRowResolver
         return row switch
         {
             PlaylistDetailRow playlistDetailRow => playlistDetailRow.Artist,
+            LibraryChartRow libraryChartRow => libraryChartRow.Artist,
             BMSFile bmsFile => bmsFile.Artist,
             _ => string.Empty
         };

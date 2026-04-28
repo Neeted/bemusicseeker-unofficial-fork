@@ -51,7 +51,13 @@ internal sealed class LibraryChartRef
         }
         if (file is PendingChartEntry pending && pending.IsBmsonChart)
         {
-            return FromBmsonSong(pending.BmsonSong);
+            return new LibraryChartRef(
+                LibraryChartKind.Bmson,
+                pending.path,
+                pending.hash,
+                pending.sha256,
+                pending,
+                pending.BmsonSong);
         }
         return new LibraryChartRef(
             LibraryChartKind.Bms,
@@ -83,6 +89,6 @@ internal sealed class LibraryChartRef
         {
             return BmsFile;
         }
-        return PendingChartEntry.CreateFromBmsonSong(BmsonSong);
+        return BmsFile ?? PendingChartEntry.CreateFromBmsonSong(BmsonSong);
     }
 }

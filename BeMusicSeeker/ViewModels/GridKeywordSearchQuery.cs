@@ -150,6 +150,26 @@ internal sealed class GridKeywordSearchQuery
         return true;
     }
 
+    internal bool MatchesLibraryChartRow(LibraryChartRow row)
+    {
+        if (!HasTokens)
+        {
+            return true;
+        }
+        if (row == null)
+        {
+            return false;
+        }
+        foreach (SearchCondition condition in conditions)
+        {
+            if (!MatchesCondition(condition, row))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
     internal bool MatchesPlaylistDetail(PlaylistDetailSourceRow row)
     {
         if (!HasTokens)
@@ -470,6 +490,18 @@ internal sealed class GridKeywordSearchQuery
         return condition.IsNegated ? !matched : matched;
     }
 
+    private static bool MatchesCondition(SearchCondition condition, LibraryChartRow row)
+    {
+        if (condition.IsInvalid || !IsKnownBmsFileField(condition.Field))
+        {
+            return false;
+        }
+        bool matched = IsChartInfoField(condition.Field) && !condition.IsRegex
+            ? condition.Alternatives.Any((SearchAlternative alternative) => MatchesChartInfoAlternative(alternative, row.ChartInfo, condition.Field))
+            : condition.Alternatives.Any((SearchAlternative alternative) => MatchesAlternative(alternative, GetLibraryChartRowValues(row, condition.Field)));
+        return condition.IsNegated ? !matched : matched;
+    }
+
     private static bool MatchesCondition(SearchCondition condition, PlaylistDetailSourceRow row)
     {
         if (condition.IsInvalid || !IsKnownPlaylistDetailField(condition.Field))
@@ -597,6 +629,55 @@ internal sealed class GridKeywordSearchQuery
                 break;
             default:
                 foreach (string value in GetChartInfoValues(file.ChartInfo, field))
+                {
+                    yield return value;
+                }
+                break;
+        }
+    }
+
+    private static IEnumerable<string> GetLibraryChartRowValues(LibraryChartRow row, string field)
+    {
+        switch (field)
+        {
+            case null:
+                yield return row.Title;
+                yield return row.genre;
+                yield return row.Artist;
+                yield return row.tag;
+                yield return row.path;
+                yield return row.RefTablesSymbols;
+                yield return row.hash;
+                yield return row.sha256;
+                break;
+            case "title":
+                yield return row.Title;
+                break;
+            case "artist":
+                yield return row.Artist;
+                break;
+            case "genre":
+                yield return row.genre;
+                break;
+            case "tag":
+                yield return row.tag;
+                break;
+            case "path":
+                yield return row.path;
+                break;
+            case "playlist":
+            case "ref":
+                yield return row.RefTablesSymbols;
+                break;
+            case "md5":
+            case "hash":
+                yield return row.hash;
+                break;
+            case "sha256":
+                yield return row.sha256;
+                break;
+            default:
+                foreach (string value in GetChartInfoValues(row.ChartInfo, field))
                 {
                     yield return value;
                 }

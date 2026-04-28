@@ -11,6 +11,15 @@ internal enum OwnedChartKind
     Bmson
 }
 
+internal enum ChartOperationSourceScope
+{
+    Library,
+    PendingPackage,
+    NewlyInstalledPackage,
+    PlaylistOwned,
+    PlaylistMissing
+}
+
 [Flags]
 internal enum ChartOperationCapabilities
 {
@@ -93,6 +102,8 @@ internal sealed class ChartOperationTarget
 
     internal BMSTableEntry PlaylistEntry { get; }
 
+    internal ChartOperationSourceScope SourceScope { get; }
+
     internal bool IsOwned { get; }
 
     internal bool IsPending { get; }
@@ -104,6 +115,7 @@ internal sealed class ChartOperationTarget
     internal ChartOperationTarget(
         OwnedChartRef chart,
         BMSTableEntry playlistEntry,
+        ChartOperationSourceScope sourceScope,
         bool isOwned,
         bool isPending,
         bool isPlaylistMissing,
@@ -111,6 +123,7 @@ internal sealed class ChartOperationTarget
     {
         Chart = chart ?? throw new ArgumentNullException(nameof(chart));
         PlaylistEntry = playlistEntry;
+        SourceScope = sourceScope;
         IsOwned = isOwned;
         IsPending = isPending;
         IsPlaylistMissing = isPlaylistMissing;

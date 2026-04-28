@@ -260,6 +260,36 @@ internal sealed class BmsLibraryStateApplier
             .Where((LR2SongDBExtended.bmson_song song) => song != null && !removedSongRefs.Contains(song) && !removedPaths.Contains(song.path))
             .ToList());
         dbGateway.DeleteBmsonSongs(removedSongsList);
+
+        DispatcherCollection<BMSPackage> installedPackages = getInstalledPackages();
+        bool installedPackagesChanged = false;
+        List<BMSPackage> emptyInstalledPackages = new List<BMSPackage>();
+        foreach (BMSPackage installedPackage in installedPackages.Where((BMSPackage package) => package != null).ToList())
+        {
+            int countBefore = installedPackage.BMSFiles.Count;
+            installedPackage.BMSFiles.RemoveAll((BMSFile file) => IsMatchedRemovedBmsonFile(file, removedPaths, removedSongRefs));
+            if (installedPackage.BMSFiles.Count != countBefore)
+            {
+                installedPackagesChanged = true;
+                if (installedPackage.BMSFiles.Count == 0)
+                {
+                    emptyInstalledPackages.Add(installedPackage);
+                }
+            }
+        }
+        if (emptyInstalledPackages.Count > 0)
+        {
+            foreach (BMSPackage emptyInstalledPackage in emptyInstalledPackages)
+            {
+                installedPackages.Remove(emptyInstalledPackage);
+            }
+            setInstalledPackages(installedPackages);
+        }
+        if (installedPackagesChanged)
+        {
+            raiseInstalledPackagesChanged();
+        }
+
         invalidateInstalledDirectoryIndex();
         invalidateParentFolderCache();
         clearDuplicatedCache();
@@ -385,6 +415,24 @@ internal sealed class BmsLibraryStateApplier
         if (removedFiles.Contains(file))
         {
             return true;
+        }
+
+        return !string.IsNullOrWhiteSpace(file.path) && removedPaths.Contains(file.path);
+    }
+
+    private static bool IsMatchedRemovedBmsonFile(BMSFile file, HashSet<string> removedPaths, HashSet<LR2SongDBExtended.bmson_song> removedSongs)
+    {
+        if (file == null)
+        {
+            return false;
+        }
+
+        if (file is PendingChartEntry pending && pending.IsBmsonChart)
+        {
+            if (pending.BmsonSong != null && removedSongs.Contains(pending.BmsonSong))
+            {
+                return true;
+            }
         }
 
         return !string.IsNullOrWhiteSpace(file.path) && removedPaths.Contains(file.path);

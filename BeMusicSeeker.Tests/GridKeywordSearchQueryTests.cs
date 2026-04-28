@@ -199,6 +199,33 @@ public sealed class GridKeywordSearchQueryTests
     }
 
     [TestMethod]
+    public void LibraryChartRow_FromBmsonSong_ExposesChartInfoForDisplayAndSearch()
+    {
+        LR2SongDBExtended.chart_info chartInfo = CreateChartInfo();
+        LR2SongDBExtended.bmson_song song = new LR2SongDBExtended.bmson_song
+        {
+            path = @"C:\Songs\Alpha\chart.bmson",
+            title = "Alpha Bmson",
+            artist = "ArtistX",
+            genre = "GenreX",
+            folder = "Alpha",
+            mode_hint = "beat-7k",
+            md5 = chartInfo.md5,
+            sha256 = chartInfo.sha256,
+            ChartInfo = chartInfo
+        };
+
+        LibraryChartRow row = LibraryChartRow.FromBmsonSong(song);
+
+        Assert.IsNotInstanceOfType(row, typeof(PendingChartEntry));
+        Assert.AreSame(chartInfo, row.ChartInfo);
+        Assert.AreEqual("12", row.ChartLevelText);
+        Assert.AreEqual(2500, row.ChartNotes);
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("alpha artistx genrex sha256:" + chartInfo.sha256.Substring(0, 8)).MatchesLibraryChartRow(row));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("level:12 feature:random notes:>=2000").MatchesLibraryChartRow(row));
+    }
+
+    [TestMethod]
     public void CreateFieldCompletion_CompletesContextSpecificFields()
     {
         GridKeywordSearchCompletionResult bmsResult = GridKeywordSearchCompletion.CreateFieldCompletion("tit", 3, GridKeywordSearchContext.BmsFile);

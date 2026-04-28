@@ -1288,13 +1288,26 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private List<ChartOperationTarget> GetSelectedGridOperationTargets(bool isPendingSection = false)
     {
+        ChartOperationSourceScope sourceScope = isPendingSection
+            ? ChartOperationSourceScope.PendingPackage
+            : GetCurrentChartOperationSourceScope();
         return GetSelectedGridRowsSnapshot()
             .Select(delegate(object row)
             {
-                return GridRowResolver.TryGetChartOperationTarget(row, isPendingSection, out ChartOperationTarget target) ? target : null;
+                return GridRowResolver.TryGetChartOperationTarget(row, sourceScope, out ChartOperationTarget target) ? target : null;
             })
             .Where((ChartOperationTarget target) => target != null)
             .ToList();
+    }
+
+    private ChartOperationSourceScope GetCurrentChartOperationSourceScope()
+    {
+        return _currentTreeSelectionSection switch
+        {
+            TreeSelectionSection.InstallPending => ChartOperationSourceScope.PendingPackage,
+            TreeSelectionSection.InstallInstalled => ChartOperationSourceScope.NewlyInstalledPackage,
+            _ => ChartOperationSourceScope.Library
+        };
     }
 
     private static BMSFile GetOperationFileFromTarget(ChartOperationTarget target)
@@ -1330,8 +1343,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private List<string> GetSelectedGridHashTargets()
     {
+        ChartOperationSourceScope sourceScope = GetCurrentChartOperationSourceScope();
         return GetSelectedGridRowsSnapshot()
-            .Where((object row) => GridRowResolver.TryGetChartOperationTarget(row, out ChartOperationTarget target) && target.HasCapability(ChartOperationCapabilities.UseLr2Ir))
+            .Where((object row) => GridRowResolver.TryGetChartOperationTarget(row, sourceScope, out ChartOperationTarget target) && target.HasCapability(ChartOperationCapabilities.UseLr2Ir))
             .Select(GridRowResolver.GetHash)
             .Where((string hash) => !string.IsNullOrWhiteSpace(hash))
             .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -1343,9 +1357,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         return GetSelectedGridRowsSnapshot().Select(TryCreateScoreViewerTarget).Where((ScoreViewerTarget target) => target != null).ToList();
     }
 
-    private static ScoreViewerTarget TryCreateScoreViewerTarget(object row)
+    private ScoreViewerTarget TryCreateScoreViewerTarget(object row)
     {
-        if (!GridRowResolver.TryGetChartOperationTarget(row, out ChartOperationTarget target) || !target.HasCapability(ChartOperationCapabilities.UseScoreViewer))
+        if (!GridRowResolver.TryGetChartOperationTarget(row, GetCurrentChartOperationSourceScope(), out ChartOperationTarget target) || !target.HasCapability(ChartOperationCapabilities.UseScoreViewer))
         {
             return null;
         }
@@ -1419,7 +1433,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private bool TryAssignDataGridContextMenu(DataGridRow dataGridRow, object row, string logPrefix, out bool usePlaylistMissingContextMenu)
     {
-        usePlaylistMissingContextMenu = GridRowResolver.TryGetChartOperationTarget(row, out ChartOperationTarget target)
+        usePlaylistMissingContextMenu = GridRowResolver.TryGetChartOperationTarget(row, GetCurrentChartOperationSourceScope(), out ChartOperationTarget target)
             ? target.IsPlaylistMissing
             : GridRowResolver.IsPlaylistRow(row) && GridRowResolver.GetOperationBmsFile(row) == null;
         string resourceKey = usePlaylistMissingContextMenu ? "dataGridContextMenuPlaylistMissing" : "dataGridContextMenu";
@@ -1568,7 +1582,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     {
         object row = e.Row.DataContext;
         BMSTableEntry playlistEntry = GridRowResolver.GetPlaylistEntry(row);
-        BMSFile bMSFile = row as BMSFile;
+        BMSFile bMSFile = GridRowResolver.GetOperationBmsFile(row);
         MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
         string path;
         try
@@ -1641,7 +1655,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     {
         object row = e.Row.DataContext;
         PlaylistDetailRow playlistRow = row as PlaylistDetailRow;
-        BMSFile bmsFile = row as BMSFile;
+        BMSFile bmsFile = GridRowResolver.GetOperationBmsFile(row);
         string editingText = GetEditingElementText(e.EditingElement);
         BindingExpression bindingExpression = GetEditingElementTextBindingExpression(e.EditingElement);
         string path;
@@ -1770,7 +1784,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        if (!(sender is TextBox textBox) || !(textBox.DataContext is BMSFile bmsFile))
+        if (!(sender is TextBox textBox))
+        {
+            return;
+        }
+        BMSFile bmsFile = GridRowResolver.GetOperationBmsFile(textBox.DataContext);
+        if (bmsFile == null)
         {
             return;
         }
@@ -1786,7 +1805,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        if (!(sender is TextBox textBox) || !(textBox.DataContext is BMSFile bmsFile))
+        if (!(sender is TextBox textBox))
+        {
+            return;
+        }
+        BMSFile bmsFile = GridRowResolver.GetOperationBmsFile(textBox.DataContext);
+        if (bmsFile == null)
         {
             return;
         }
@@ -1838,7 +1862,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void dataGridInstallDestinationSuggestionPreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
-        if (!(sender is ListBox listBox) || !(listBox.DataContext is BMSFile bmsFile))
+        if (!(sender is ListBox listBox))
+        {
+            return;
+        }
+        BMSFile bmsFile = GridRowResolver.GetOperationBmsFile(listBox.DataContext);
+        if (bmsFile == null)
         {
             return;
         }
@@ -1855,7 +1884,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void dataGridInstallDestinationSuggestionPreviewKeyDown(object sender, KeyEventArgs e)
     {
-        if (!(sender is ListBox listBox) || !(listBox.DataContext is BMSFile bmsFile))
+        if (!(sender is ListBox listBox))
+        {
+            return;
+        }
+        BMSFile bmsFile = GridRowResolver.GetOperationBmsFile(listBox.DataContext);
+        if (bmsFile == null)
         {
             return;
         }
@@ -5237,7 +5271,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         bool isInstallListSelected = isPendingSelected || isInstalledSelected;
         bool isPlaylistSelected = _currentTreeSelectionSection == TreeSelectionSection.Playlist;
         bool isPlaylistContext = isPlaylistSelected || isPlaylistRow;
-        if (!GridRowResolver.TryGetChartOperationTarget(row, isPendingSelected, out ChartOperationTarget rowTarget))
+        ChartOperationSourceScope sourceScope = GetCurrentChartOperationSourceScope();
+        if (!GridRowResolver.TryGetChartOperationTarget(row, sourceScope, out ChartOperationTarget rowTarget))
         {
             rowTarget = null;
             if (!isPlaylistRow)
@@ -5855,7 +5890,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        if (!GridRowResolver.TryGetChartOperationTarget(row, out ChartOperationTarget target) || !target.HasCapability(ChartOperationCapabilities.OpenFolder))
+        if (!GridRowResolver.TryGetChartOperationTarget(row, GetCurrentChartOperationSourceScope(), out ChartOperationTarget target) || !target.HasCapability(ChartOperationCapabilities.OpenFolder))
         {
             return;
         }
@@ -6020,7 +6055,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        if (!GridRowResolver.TryGetChartOperationTarget(placementTarget.Item, out ChartOperationTarget target) || !target.HasCapability(ChartOperationCapabilities.OpenFile))
+        if (!GridRowResolver.TryGetChartOperationTarget(placementTarget.Item, GetCurrentChartOperationSourceScope(), out ChartOperationTarget target) || !target.HasCapability(ChartOperationCapabilities.OpenFile))
         {
             return;
         }
@@ -6045,7 +6080,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return;
         }
         object row = placementTarget.Item;
-        if (!GridRowResolver.TryGetChartOperationTarget(row, out ChartOperationTarget target) || !target.HasCapability(ChartOperationCapabilities.UseLr2Ir))
+        if (!GridRowResolver.TryGetChartOperationTarget(row, GetCurrentChartOperationSourceScope(), out ChartOperationTarget target) || !target.HasCapability(ChartOperationCapabilities.UseLr2Ir))
         {
             return;
         }
@@ -6935,7 +6970,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void dataGridContextMenuItemRenameBMSFileClick(object sender, RoutedEventArgs e)
     {
-        List<BMSFile> bmsFiles = GetSelectedGridRealFiles();
+        List<BMSFile> bmsFiles = GetSelectedGridOperationChartFiles(ChartOperationCapabilities.RenameInvalidExtension)
+            .Where(PendingChartEntry.IsBmsChartFile)
+            .ToList();
         MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
         bool isPendingSelected = _currentTreeSelectionSection == TreeSelectionSection.InstallPending;
         if (bmsFiles.Count <= 0 || MessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_rename_to_invalid, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) == MessageBoxResult.Cancel)
@@ -7262,7 +7299,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void dataGridContextMenuItemConvertToAudioFileClick(object sender, RoutedEventArgs e)
     {
-        BMSFile[] bmsFiles = GetSelectedGridRealFiles().Where((BMSFile f) => File.Exists(f.path)).ToArray();
+        BMSFile[] bmsFiles = GetSelectedGridOperationChartFiles(ChartOperationCapabilities.ConvertToAudio)
+            .Where(PendingChartEntry.IsBmsChartFile)
+            .Where((BMSFile f) => File.Exists(f.path))
+            .ToArray();
         if (bmsFiles.Length == 0)
         {
             return;

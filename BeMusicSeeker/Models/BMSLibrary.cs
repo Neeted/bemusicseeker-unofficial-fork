@@ -6899,6 +6899,7 @@ public class BMSLibrary : NotificationObject
                 result.wav_files = source.wav_files != null && source.wav_files.Count > 0 ? source.wav_files : file.WAVfiles?.ToList() ?? new List<string>();
                 result.bga_files = source.bga_files != null && source.bga_files.Count > 0 ? source.bga_files : file.BGAfiles?.ToList() ?? new List<string>();
                 result.MaintenanceInfo?.NormalizeForBmson(result.path, result.md5);
+                file.ReplaceBmsonSongReferenceAfterInstall(result);
                 return result;
             })
             .ToList();
@@ -7942,10 +7943,7 @@ public class BMSLibrary : NotificationObject
         foreach (BMSFile bmsFile in (package.BMSFiles ?? new List<BMSFile>()).Where((BMSFile file) => file != null))
         {
             bool isBmson = PendingChartEntry.IsBmsonChartFile(bmsFile);
-            if (!isBmson)
-            {
-                bmsFile.SetHealthStatus(null, forceUpdate: false, memClear: false);
-            }
+            bmsFile.SetHealthStatus(null, forceUpdate: false, memClear: false);
             bmsFile.warning = null;
             string key = PendingChartEntry.GetPrimaryLookupHash(bmsFile);
             if (!string.IsNullOrWhiteSpace(key) && installedHashSet.Contains(key))

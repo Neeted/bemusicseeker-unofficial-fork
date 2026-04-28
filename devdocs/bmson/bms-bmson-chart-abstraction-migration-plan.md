@@ -264,7 +264,20 @@ LibraryChartRow
 通常 DataGrid は `BMSFile` と `PendingChartEntry` の混在ではなく、`LibraryChartRow` を表示する。  
 BMS 専用操作が必要なときだけ `row.Chart.BmsFile` を取り出す。
 
-この phase は影響が大きいため、Phase A-D で安全性を上げてから行う。
+実装後の境界:
+
+- 通常一覧の所持 BMS row は `LibraryChartRow.FromBmsFile(BMSFile)`
+- 通常一覧の所持 bmson row は `LibraryChartRow.FromBmsonSong(bmson_song)`
+- `LibraryChartRow` は表示・検索・ソート・右クリック resolver のための read model であり、DB 更新の source of truth ではない
+- pending install / package parse / maintenance 内部 adapter としての `PendingChartEntry : BMSFile` は残す
+- 保留 / 新規インストール画面で `PendingChartEntry` を `LibraryChartRow` が包む場合でも、元の `PendingChartEntry` を `Chart.BmsFile` / `GridRowResolver.GetOperationBmsFile()` に残す。`warning`, `instl_dst`, resource health などの pending state は adapter 側の値を正とする
+- `ChartOperationTarget` には `SourceScope` を持たせ、同じ `LibraryChartRow` でも `PendingPackage`, `NewlyInstalledPackage`, `Library`, `PlaylistOwned`, `PlaylistMissing` を区別する。保留行は local install destination 更新対象、新規導入後行と通常所持行は library mutation 対象として扱う
+- bmson install 後は、登録された `bmson_song` を `PendingChartEntry.BmsonSong` に差し替え、`path` / `folder` / `md5` / `sha256` / `MaintenanceInfo` を同期する。これにより、新規画面の PATH 表示、Explorer、削除/移動操作が同じ実体を指す
+- pending / newly-installed bmson の操作 target は `bmson_song.path` ではなく、現在の `PendingChartEntry.path` を優先する。`bmson_song` は保存済み実体の参照として使い、表示・操作のカレント path は adapter 側を正とする
+- DataGrid cell getter では DB lookup や `ChartInfoIndex` lookup を行わず、`BMSFile`, `bmson_song`, `ChartInfo`, `MaintenanceInfo` に materialize 済みの値だけを見る
+- BMS 専用操作は `ChartOperationTarget.Capabilities` と `row.Chart.BmsFile` の有無で guard し、bmson には流さない
+
+Phase E 完了後も domain/storage model は `BMSLibrary.BMSFiles` と `BMSLibrary.BmsonSongs` の二本立てのまま維持する。
 
 ### Phase F: 命名と API を整理する
 

@@ -563,6 +563,8 @@ public sealed class PlaylistViewPipelineTests
 
         Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(row, out ChartOperationTarget target));
         Assert.AreEqual(OwnedChartKind.Bmson, target.Chart.Kind);
+        Assert.AreSame(row, target.Chart.BmsFile);
+        Assert.AreSame(bmson, target.Chart.BmsonSong);
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.OpenRepositoryBySha256));
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.MoveInLibrary));
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.RemoveFromLibrary));
@@ -570,6 +572,152 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.UpdateRanking));
         Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.RenameInvalidExtension));
         Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.ConvertToAudio));
+    }
+
+    [TestMethod]
+    public void ChartOperationTarget_LibraryChartRowBmson_DisablesBmsOnlyCapabilities()
+    {
+        LR2SongDBExtended.bmson_song bmson = new LR2SongDBExtended.bmson_song
+        {
+            path = "C:\\Songs\\Bmson\\chart.bmson",
+            folder = "C:\\Songs\\Bmson",
+            title = "Bmson",
+            artist = "Artist",
+            md5 = "12121212121212121212121212121212",
+            sha256 = new string('1', 64)
+        };
+        LibraryChartRow row = LibraryChartRow.FromBmsonSong(bmson);
+
+        Assert.IsNotInstanceOfType(row, typeof(PendingChartEntry));
+        Assert.IsNull(GridRowResolver.GetOperationBmsFile(row));
+        Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(row, out ChartOperationTarget target));
+        Assert.AreEqual(OwnedChartKind.Bmson, target.Chart.Kind);
+        Assert.AreSame(bmson, target.Chart.BmsonSong);
+        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.OpenRepositoryBySha256));
+        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.MoveInLibrary));
+        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.RemoveFromLibrary));
+        Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.UseLr2Ir));
+        Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.RunBmsEncodingFix));
+    }
+
+    [TestMethod]
+    public void LibraryChartRow_FromPendingBmson_PreservesPendingInstallState()
+    {
+        LR2SongDBExtended.bmson_song bmson = new LR2SongDBExtended.bmson_song
+        {
+            path = "C:\\Pending\\Bmson\\chart.bmson",
+            folder = "C:\\Pending\\Bmson",
+            title = "Pending Bmson",
+            artist = "Artist",
+            level = 9,
+            mode_hint = "beat-7k",
+            md5 = "34343434343434343434343434343434",
+            sha256 = new string('3', 64)
+        };
+        bmson.MaintenanceInfo = BMSFileMaintenanceInfo.CreateForBmson(bmson.path, bmson.md5);
+        bmson.MaintenanceInfo.wav_files_defined = 4;
+        bmson.MaintenanceInfo.wav_files_existing = 1;
+
+        PendingChartEntry pending = PendingChartEntry.CreateFromBmsonSong(bmson);
+        pending.warning = "installed chart warning";
+        pending.instl_dst = "C:\\Library\\Destination";
+        LibraryChartRow row = LibraryChartRow.FromBmsFile(pending);
+
+        Assert.AreSame(pending, row.BmsFile);
+        Assert.AreSame(bmson, row.BmsonSong);
+        Assert.AreEqual(OwnedChartKind.Bmson, row.Chart.Kind);
+        Assert.AreSame(pending, row.Chart.BmsFile);
+        Assert.AreSame(bmson, row.Chart.BmsonSong);
+        Assert.AreSame(pending, GridRowResolver.GetOperationBmsFile(row));
+        Assert.AreEqual(pending.warning, row.warning);
+        Assert.AreEqual(pending.instl_dst, row.instl_dst);
+        Assert.AreEqual(pending.WAVHealth, row.WAVHealth);
+
+        Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(row, isPendingSection: true, out ChartOperationTarget target));
+        Assert.AreEqual(OwnedChartKind.Bmson, target.Chart.Kind);
+        Assert.AreSame(pending, target.Chart.BmsFile);
+        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.UpdateInstallDestination));
+        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.OpenRepositoryBySha256));
+        Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.UseLr2Ir));
+        Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.RunBmsEncodingFix));
+        Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.RunZeroNoteCheck));
+
+        LibraryChartRef chartRef = LibraryChartRef.FromBmsFile(pending);
+        BMSFile compatibilityFile = chartRef.ToCompatibilityBmsFile();
+        Assert.AreSame(pending, compatibilityFile);
+        Assert.AreEqual(pending.warning, compatibilityFile.warning);
+        Assert.AreEqual(pending.instl_dst, compatibilityFile.instl_dst);
+    }
+
+    [TestMethod]
+    public void ChartOperationTarget_PendingBmson_UsesPendingPathAndPendingCapabilities()
+    {
+        LR2SongDBExtended.bmson_song bmson = new LR2SongDBExtended.bmson_song
+        {
+            path = "C:\\Original\\Bmson\\chart.bmson",
+            folder = "C:\\Original\\Bmson",
+            title = "Pending Bmson",
+            artist = "Artist",
+            md5 = "56565656565656565656565656565656",
+            sha256 = new string('5', 64)
+        };
+        PendingChartEntry pending = PendingChartEntry.CreateFromBmsonSong(bmson);
+        pending.path = "C:\\Pending\\Package\\chart.bmson";
+        pending.folder = "C:\\Pending\\Package";
+        LibraryChartRow row = LibraryChartRow.FromBmsFile(pending);
+
+        Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(row, ChartOperationSourceScope.PendingPackage, out ChartOperationTarget target));
+
+        Assert.AreEqual(ChartOperationSourceScope.PendingPackage, target.SourceScope);
+        Assert.AreEqual(OwnedChartKind.Bmson, target.Chart.Kind);
+        Assert.AreEqual(pending.path, target.Chart.Path);
+        Assert.IsFalse(target.IsOwned);
+        Assert.IsTrue(target.IsPending);
+        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.OpenFile));
+        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.OpenFolder));
+        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.UpdateInstallDestination));
+        Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.RemoveFromLibrary));
+        Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.MoveInLibrary));
+    }
+
+    [TestMethod]
+    public void ChartOperationTarget_NewlyInstalledBmson_UsesInstalledPathAndLibraryCapabilities()
+    {
+        LR2SongDBExtended.bmson_song original = new LR2SongDBExtended.bmson_song
+        {
+            path = "C:\\Pending\\Package\\chart.bmson",
+            folder = "C:\\Pending\\Package",
+            title = "Installed Bmson",
+            artist = "Artist",
+            md5 = "67676767676767676767676767676767",
+            sha256 = new string('6', 64)
+        };
+        PendingChartEntry pending = PendingChartEntry.CreateFromBmsonSong(original);
+        LR2SongDBExtended.bmson_song installed = new LR2SongDBExtended.bmson_song
+        {
+            path = "C:\\Library\\Package\\chart.bmson",
+            folder = "C:\\Library\\Package",
+            title = original.title,
+            artist = original.artist,
+            md5 = original.md5,
+            sha256 = original.sha256
+        };
+        pending.ReplaceBmsonSongReferenceAfterInstall(installed);
+        LibraryChartRow row = LibraryChartRow.FromBmsFile(pending);
+
+        Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(row, ChartOperationSourceScope.NewlyInstalledPackage, out ChartOperationTarget target));
+
+        Assert.AreEqual(ChartOperationSourceScope.NewlyInstalledPackage, target.SourceScope);
+        Assert.IsTrue(target.IsOwned);
+        Assert.IsFalse(target.IsPending);
+        Assert.AreEqual(installed.path, target.Chart.Path);
+        Assert.AreSame(installed, target.Chart.BmsonSong);
+        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.OpenFile));
+        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.OpenFolder));
+        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.RemoveFromLibrary));
+        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.MoveInLibrary));
+        Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.UpdateInstallDestination));
+        Assert.AreEqual(installed.path, LibraryChartRef.FromBmsFile(pending).Path);
     }
 
     [TestMethod]

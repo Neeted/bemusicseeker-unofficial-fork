@@ -386,7 +386,7 @@ internal sealed class BmsLibraryPackageInstallService
             {
                 return null;
             }
-            if (entry.IsBmsChart)
+            if (entry.IsBmsChart || entry.IsBmsonChart)
             {
                 entry.SetHealthStatus(null, forceUpdate: false, memClear: false);
             }
@@ -1246,19 +1246,14 @@ internal sealed class BmsLibraryPackageInstallService
             bool isSingleFilePackage = !Directory.Exists(pkg.path);
             foreach (BMSFile bmsFile in pkg.BMSFiles.Where((BMSFile file) => file != null))
             {
-                bool isBmson = PendingChartEntry.IsBmsonChartFile(bmsFile);
                 if (isSingleFilePackage)
                 {
-                    bmsFile.warning = isBmson ? Resources.Warning_SingleBmsonFile : Resources.Warning_SingleBmsFile;
+                    bmsFile.warning = PendingChartEntry.IsBmsonChartFile(bmsFile) ? Resources.Warning_SingleBmsonFile : Resources.Warning_SingleBmsFile;
                     pendingByPackage[pkg] = true;
                     break;
                 }
                 bool hasDefinedResources = ChartResourceSnapshot.Create(bmsFile).TotalReferenceCount > 0;
                 if (!hasDefinedResources)
-                {
-                    continue;
-                }
-                if (isBmson)
                 {
                     continue;
                 }
