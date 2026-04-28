@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
@@ -66,14 +67,16 @@ public sealed class BmsLibraryMaintenanceServiceTests
             hash = bmsonRow.hash,
             encoding = "gb2312",
             is_encoding_fixed = false,
-            is_files_warning_ignored = false
+            is_files_warning_ignored = false,
+            wav_files_defined = 1,
+            wav_files_existing = 0
         }, suppressPropertyChanged: true, registerEventHandlers: false);
         SetNotes(bmsonRow, 0);
 
-        Assert.IsFalse(service.ApplyNeedToBeFixedWarnings(bmsonRow));
+        Assert.IsTrue(service.ApplyNeedToBeFixedWarnings(bmsonRow));
         Assert.AreEqual(0, service.GetGarbledFiles(new BMSFile[] { bmsonRow }, isInFixedList: false).Count);
         Assert.AreEqual(0, service.GetZeroNoteFiles(new BMSFile[] { bmsonRow }).Count);
-        Assert.AreEqual(0, service.SetFilesWarningIgnored(new BMSFile[] { bmsonRow }, unset: false).Count);
+        Assert.AreEqual(1, service.SetFilesWarningIgnored(new BMSFile[] { bmsonRow }, unset: false).Count);
 
         MaintenanceEncodingUpdateResult encodingResult = service.ApplyEncoding(new BMSFile[] { bmsonRow }, "shift_jis");
 
@@ -83,6 +86,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
         Assert.AreEqual(originalArtist, bmsonRow.Artist);
         Assert.AreEqual("gb2312", bmsonRow.maintenanceInfo.encoding);
         Assert.IsFalse(bmsonRow.maintenanceInfo.is_encoding_fixed);
+        Assert.IsTrue(bmsonRow.maintenanceInfo.is_files_warning_ignored);
     }
 
     [TestMethod]
@@ -102,6 +106,17 @@ public sealed class BmsLibraryMaintenanceServiceTests
 
         Assert.AreEqual(1, changes.Count);
         Assert.IsTrue(info.is_files_warning_ignored);
+    }
+
+    [TestMethod]
+    public void CreateFromBmsonSong_SetsMaintenanceHashAndPath()
+    {
+        PendingChartEntry bmsonRow = CreateBmsonRow("C:\\Library\\chart.bmson", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+
+        Assert.AreEqual(bmsonRow.hash, bmsonRow.maintenanceInfo.hash);
+        Assert.AreEqual(bmsonRow.path, bmsonRow.maintenanceInfo.path);
+        Assert.AreEqual("utf-8", bmsonRow.maintenanceInfo.encoding);
+        Assert.IsFalse(bmsonRow.maintenanceInfo.is_encoding_fixed);
     }
 
     [TestMethod]
@@ -415,6 +430,159 @@ public sealed class BmsLibraryMaintenanceServiceTests
             CollectionAssert.Contains(propertyNames, "StagefileHealth");
             CollectionAssert.Contains(propertyNames, "BannerHealth");
             CollectionAssert.Contains(propertyNames, "BackbmpHealth");
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectoryPath))
+            {
+                Directory.Delete(tempDirectoryPath, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void UpdateMaintenanceInfo_BmsonResourceHealth_UpsertsMaintenanceOnly()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        BmsLibraryMaintenanceService service = new BmsLibraryMaintenanceService();
+        string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectoryPath);
+        string bmsonFilePath = Path.Combine(tempDirectoryPath, "chart.bmson");
+        string songDbPath = Path.Combine(tempDirectoryPath, "song.db");
+        File.WriteAllText(
+            bmsonFilePath,
+            "{ \"info\": { \"title\": \"Bmson\", \"artist\": \"Artist\", \"eyecatch_image\": \"missing.png\" }, \"sound_channels\": [{ \"name\": \"missing.wav\", \"notes\": [] }] }",
+            new UTF8Encoding(false));
+        try
+        {
+            PendingChartEntry file = PendingChartEntry.CreateFromBmsonSong(BmsonSongParser.Parse(bmsonFilePath));
+            using (LR2SongDBExtended songDb = new LR2SongDBExtended(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDBExtended.maintenance>();
+                songDb.CreateTable<LR2SongDB.song>();
+            }
+
+            MaintenanceWorkflowResult result = service.UpdateMaintenanceInfo(
+                new[] { file },
+                forceUpdate: true,
+                new BMSDirectoryFileNameHash(),
+                new BmsLibraryDbGateway(songDbPath),
+                null);
+
+            Assert.IsTrue(result.HasUpdates);
+            Assert.AreEqual(1, result.BmsonResourceTargetCount);
+            Assert.AreEqual(0, result.SongUpsertCount);
+            Assert.AreEqual("Bmson", file.Title);
+            Assert.AreEqual("Artist", file.Artist);
+            Assert.AreEqual("utf-8", file.maintenanceInfo.encoding);
+            Assert.IsFalse(file.maintenanceInfo.is_encoding_fixed);
+            Assert.AreEqual(1, file.maintenanceInfo.wav_files_defined);
+            Assert.AreEqual(0, file.maintenanceInfo.wav_files_existing);
+            Assert.AreEqual(true, file.maintenanceInfo.is_stagefile_defined);
+            Assert.AreEqual(false, file.maintenanceInfo.is_stagefile_existing);
+
+            using (LR2SongDBExtended songDb = new LR2SongDBExtended(songDbPath))
+            {
+                Assert.AreEqual(1, songDb.Table<BMSFileMaintenanceInfo>().Count());
+                Assert.AreEqual(0, songDb.Table<LR2SongDB.song>().Count());
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectoryPath))
+            {
+                Directory.Delete(tempDirectoryPath, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void UpdateMaintenanceInfo_BmsonParseFailure_DoesNotAbortMaintenance()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        BmsLibraryMaintenanceService service = new BmsLibraryMaintenanceService();
+        string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectoryPath);
+        string invalidBmsonPath = Path.Combine(tempDirectoryPath, "invalid.bmson");
+        string validBmsonPath = Path.Combine(tempDirectoryPath, "valid.bmson");
+        string songDbPath = Path.Combine(tempDirectoryPath, "song.db");
+        File.WriteAllText(invalidBmsonPath, "{ \"info\": { \"title\": \"Broken\" }, \"bga\": \"unterminated", new UTF8Encoding(false));
+        File.WriteAllText(
+            validBmsonPath,
+            "{ \"info\": { \"title\": \"Valid\", \"artist\": \"Artist\" }, \"sound_channels\": [{ \"name\": \"missing.wav\", \"notes\": [] }] }",
+            new UTF8Encoding(false));
+        try
+        {
+            PendingChartEntry invalidRow = CreateBmsonRow(invalidBmsonPath, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+            PendingChartEntry validRow = PendingChartEntry.CreateFromBmsonSong(BmsonSongParser.Parse(validBmsonPath));
+            using (LR2SongDBExtended songDb = new LR2SongDBExtended(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDBExtended.maintenance>();
+                songDb.CreateTable<LR2SongDB.song>();
+            }
+
+            MaintenanceWorkflowResult result = service.UpdateMaintenanceInfo(
+                new[] { invalidRow, validRow },
+                forceUpdate: true,
+                new BMSDirectoryFileNameHash(),
+                new BmsLibraryDbGateway(songDbPath),
+                null);
+
+            Assert.IsTrue(result.HasUpdates);
+            Assert.AreEqual(2, result.BmsonResourceTargetCount);
+            Assert.AreEqual(1, result.BmsonReparsedCount);
+            Assert.AreEqual(1, result.BmsonReparseFailedCount);
+            Assert.AreEqual(1, result.MaintenanceInfoUpsertCount);
+            Assert.AreEqual(0, result.SongUpsertCount);
+            Assert.AreEqual("Valid", validRow.Title);
+            Assert.AreEqual(1, validRow.maintenanceInfo.wav_files_defined);
+            Assert.AreEqual(0, validRow.maintenanceInfo.wav_files_existing);
+
+            using (LR2SongDBExtended songDb = new LR2SongDBExtended(songDbPath))
+            {
+                List<BMSFileMaintenanceInfo> rows = songDb.Table<BMSFileMaintenanceInfo>().ToList();
+                Assert.AreEqual(1, rows.Count);
+                Assert.AreEqual(validRow.path, rows[0].path);
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectoryPath))
+            {
+                Directory.Delete(tempDirectoryPath, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void CleanupMaintenanceTable_KeepsBmsonRows()
+    {
+        BmsLibraryMaintenanceService service = new BmsLibraryMaintenanceService();
+        string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectoryPath);
+        string songDbPath = Path.Combine(tempDirectoryPath, "song.db");
+        try
+        {
+            TestableBmsFile bms = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+            bms.path = Path.Combine(tempDirectoryPath, "chart.bms");
+            PendingChartEntry bmson = CreateBmsonRow(Path.Combine(tempDirectoryPath, "chart.bmson"), "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+            using (LR2SongDBExtended songDb = new LR2SongDBExtended(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDBExtended.maintenance>();
+                songDb.InsertOrReplace(new BMSFileMaintenanceInfo { path = bms.path, hash = bms.hash }, typeof(LR2SongDBExtended.maintenance));
+                songDb.InsertOrReplace(BMSFileMaintenanceInfo.CreateForBmson(bmson.path, bmson.hash), typeof(LR2SongDBExtended.maintenance));
+                songDb.InsertOrReplace(new BMSFileMaintenanceInfo { path = Path.Combine(tempDirectoryPath, "stale.bms"), hash = "cccccccccccccccccccccccccccccccc" }, typeof(LR2SongDBExtended.maintenance));
+            }
+
+            int deleted = service.CleanupMaintenanceTable(new BMSFile[] { bms, bmson }, new BmsLibraryDbGateway(songDbPath));
+
+            Assert.AreEqual(1, deleted);
+            using (LR2SongDBExtended songDb = new LR2SongDBExtended(songDbPath))
+            {
+                Assert.AreEqual(2, songDb.Table<BMSFileMaintenanceInfo>().Count());
+                Assert.IsTrue(songDb.Table<BMSFileMaintenanceInfo>().Any((BMSFileMaintenanceInfo info) => info.path == bms.path));
+                Assert.IsTrue(songDb.Table<BMSFileMaintenanceInfo>().Any((BMSFileMaintenanceInfo info) => info.path == bmson.path));
+            }
         }
         finally
         {

@@ -1781,12 +1781,13 @@ internal sealed class BmsLibraryPackageInstallService
 
         Stopwatch songDbStopwatch = Stopwatch.StartNew();
         List<BMSFile> addedBmsFiles = result.AddedFiles.Where((BMSFile file) => PendingChartEntry.IsBmsChartFile(file)).ToList();
+        List<BMSFile> addedChartFiles = result.AddedFiles.Where((BMSFile file) => PendingChartEntry.IsBmsChartFile(file) || PendingChartEntry.IsBmsonChartFile(file)).ToList();
         upsertSongs?.Invoke(addedBmsFiles);
         songDbStopwatch.Stop();
         result.SongDbMs = songDbStopwatch.ElapsedMilliseconds;
 
         Stopwatch maintenanceStopwatch = Stopwatch.StartNew();
-        updateMaintenance?.Invoke(addedBmsFiles);
+        updateMaintenance?.Invoke(addedChartFiles);
         maintenanceStopwatch.Stop();
         result.MaintenanceMs = maintenanceStopwatch.ElapsedMilliseconds;
 

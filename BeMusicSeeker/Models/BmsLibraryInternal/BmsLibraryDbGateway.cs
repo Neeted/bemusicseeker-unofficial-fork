@@ -183,9 +183,14 @@ internal sealed class BmsLibraryDbGateway
         }
         ExecuteSongDbTransaction(delegate(LR2SongDBExtended songDb)
         {
+            bool hasMaintenanceTable = TableExists(songDb, SQLiteTable<LR2SongDBExtended.maintenance>.GetTableName());
             foreach (LR2SongDBExtended.bmson_song entry in entries)
             {
                 songDb.Delete<LR2SongDBExtended.bmson_song>(entry.path);
+                if (hasMaintenanceTable)
+                {
+                    songDb.Delete<LR2SongDBExtended.maintenance>(entry.path);
+                }
             }
         });
     }
@@ -617,8 +622,18 @@ internal sealed class BmsLibraryDbGateway
         ExecuteSongDbTransaction(delegate (LR2SongDBExtended songDb)
         {
             EnsureBmsonSchema(songDb);
+            bool hasMaintenanceTable = TableExists(songDb, SQLiteTable<LR2SongDBExtended.maintenance>.GetTableName());
             songDb.Delete<LR2SongDBExtended.bmson_song>(oldPath);
+            if (hasMaintenanceTable)
+            {
+                songDb.Delete<LR2SongDBExtended.maintenance>(oldPath);
+            }
             songDb.InsertOrReplace(song, typeof(LR2SongDBExtended.bmson_song));
+            if (hasMaintenanceTable && song.MaintenanceInfo != null)
+            {
+                song.MaintenanceInfo.NormalizeForBmson(song.path, song.md5);
+                songDb.InsertOrReplace(song.MaintenanceInfo, typeof(LR2SongDBExtended.maintenance));
+            }
         });
     }
 

@@ -194,11 +194,25 @@ internal sealed class BmsLibraryInitializationService
             }
             result.LoadedFiles.Add(item);
         }
+        foreach (LR2SongDBExtended.bmson_song item in result.LoadedBmsonSongs)
+        {
+            if (result.MaintenanceMap.TryGetValue(item.path, out BMSFileMaintenanceInfo value)
+                && string.Equals(value.hash, item.md5, StringComparison.OrdinalIgnoreCase))
+            {
+                value.NormalizeForBmson(item.path, item.md5);
+                item.MaintenanceInfo = value;
+            }
+            else
+            {
+                item.MaintenanceInfo = BMSFileMaintenanceInfo.CreateForBmson(item.path, item.md5);
+            }
+        }
         stopwatchMaintenanceApply.Stop();
         result.MaintenanceApplyMs = stopwatchMaintenanceApply.ElapsedMilliseconds;
 
         logInstallPerformance?.Invoke(
             "song_tbl_load_maintenance_detail bmsCount=" + result.LoadedFiles.Count
+            + " bmsonCount=" + result.LoadedBmsonSongs.Count
             + " maintenanceCount=" + maintenanceInfos.Count
             + " maintenanceKeyCount=" + result.MaintenanceMap.Count);
         logInstallPerformance?.Invoke(

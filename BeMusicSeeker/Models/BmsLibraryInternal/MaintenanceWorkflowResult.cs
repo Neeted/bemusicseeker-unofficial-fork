@@ -6,6 +6,14 @@ internal sealed class MaintenanceWorkflowResult
 
     public int CheckedFileCount { get; set; }
 
+    public int BmsResourceTargetCount { get; set; }
+
+    public int BmsonResourceTargetCount { get; set; }
+
+    public int BmsonReparsedCount { get; set; }
+
+    public int BmsonReparseFailedCount { get; set; }
+
     public int MaintenanceInfoUpsertCount { get; set; }
 
     public int SongUpsertCount { get; set; }

@@ -358,4 +358,23 @@ public class BMSFileMaintenanceInfo : LR2SongDBExtended.maintenance
 			is_backbmp_defined = true;
 		}
 	}
+
+	public static BMSFileMaintenanceInfo CreateForBmson(string path, string md5)
+	{
+		return new BMSFileMaintenanceInfo
+		{
+			hash = md5,
+			path = path,
+			encoding = "utf-8",
+			is_encoding_fixed = false
+		};
+	}
+
+	public void NormalizeForBmson(string path, string md5)
+	{
+		base.path = path;
+		base.hash = md5;
+		encoding = "utf-8";
+		is_encoding_fixed = false;
+	}
 }

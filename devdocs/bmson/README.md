@@ -89,6 +89,7 @@
    - BMS と bmson を共通の「譜面ファイル」として扱うための設計
    - LR2 / BMS 専用操作と共通操作の capability 分離
    - `PendingChartEntry : BMSFile` から段階的に脱却する移行計画
+   - Phase D の maintenance 方針: table は共有し、BMS encoding workflow と resource health workflow を分離
 
 ## 実装方針の要点
 
@@ -230,6 +231,7 @@
 - いま残っている主論点は
   - chart_info を DataGrid / keyword search へどう見せるか
   - BMS / bmson を共通の譜面抽象で扱い、BMS 専用処理の誤適用をなくすこと
+  - bmson resource health を shared `maintenance` table に載せつつ、encoding / 文字化け workflow から分離すること
   - 精度 tuning
   - pending estimate の評価 / orchestration 側 perf
   - install / merge 実処理列挙

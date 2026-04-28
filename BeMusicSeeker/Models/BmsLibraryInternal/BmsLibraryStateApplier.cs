@@ -352,6 +352,7 @@ internal sealed class BmsLibraryStateApplier
 
         bmsonSong.path = newPath;
         bmsonSong.folder = Path.GetDirectoryName(newPath) ?? string.Empty;
+        bmsonSong.MaintenanceInfo?.NormalizeForBmson(bmsonSong.path, bmsonSong.md5);
         invalidateInstalledDirectoryIndex();
         invalidateParentFolderCache();
         dbGateway.ReplaceBmsonSongPath(bmsonSong, oldPath);

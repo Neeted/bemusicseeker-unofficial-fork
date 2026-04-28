@@ -165,7 +165,7 @@ UI は `Kind` 直接判定ではなく capability を見る。これにより「
 | 導入先推定 | Yes | Yes | resource reference は format 別 parser |
 | 導入 / 移動 / 削除 | Yes | Yes | 永続化先は別 |
 | resource health | Yes | Yes | 計算元は format 別 |
-| maintenance table 反映 | Yes | TBD | bmson は仕様決定後に追加 |
+| maintenance table 反映 | Yes | Yes | テーブルは共有し、workflow は分離する |
 | BMS encoding check / fix | Yes | No | bmson JSON には適用しない |
 | zero-note check | Yes | No | `chart_info.notes` ではなく BMS/LR2 警告 |
 | `song` / `folder` 更新 | Yes | No | LR2 互換領域 |
@@ -210,23 +210,42 @@ UI は `Kind` 直接判定ではなく capability を見る。これにより「
 
 外部 API 名はすぐ変えなくてもよいが、内部実装は `BMSFile` 前提から脱却する。
 
-### Phase D: maintenance を format 別に分離する
+### Phase D: maintenance table を共有し、workflow を format 別に分離する
 
-現在の maintenance は BMS 前提の情報が混在している。
+`maintenance` table は分けず、BMS / bmson の resource health 保存先として共有する。  
+ただし、BMS の encoding / 文字化け / zero-note workflow と、BMS / bmson 共通の resource health workflow は明確に分離する。
 
-分離案:
+`maintenance` table で bmson が正式利用するフィールド:
 
-- BMS encoding maintenance
-  - BMS の文字化けチェック / 修正
-  - `maintenance.encoding`
-  - BMS parser reload
-- Chart resource health
-  - WAV / BGA / Movie / optional image
-  - BMS / bmson 共通
-  - 計算元は `OwnedChartRef.ResourceReferences`
+- `path`
+- `hash`
+- `wav_files_existing` / `wav_files_defined`
+- `bga_files_existing` / `bga_files_defined`
+- `movie_files_existing` / `movie_files_defined`
+- `is_stagefile_existing` / `is_stagefile_defined`
+- `is_banner_existing` / `is_banner_defined`
+- `is_backbmp_existing` / `is_backbmp_defined`
+- `is_files_warning_ignored`
 
-bmson の resource health を `maintenance` table に保存するかは仕様決定が必要。  
-保存する場合は `maintenance.path` を共通 path-keyed record として扱えるが、encoding 系は BMS のみに限定する。
+bmson では使用しない、または BMS 専用として扱うフィールド:
+
+- `encoding`
+- `is_encoding_fixed`
+
+bmson は UTF-8 JSON 前提なので、BMS の文字化けチェック / 修正 / encoding reload には入れない。  
+`encoding` に `utf-8` を保存する場合でも、それは情報表示用の仕様値であり、文字化け修正対象にするものではない。
+
+Phase D の実装方針:
+
+- `CleanupMaintenanceTable()` は BMS path と bmson path の両方を生存対象にする
+- 起動時 maintenance hydration は BMS だけでなく bmson row にも path で適用する
+- `UpdateMaintenanceInfo()` は BMS 用 encoding workflow と resource health workflow を内部で分ける
+- bmson の health 更新では BMS parser reload / encoding detection / zero-note check を呼ばない
+- bmson の resource reference は `bmson_song` / bmson parser 由来の `wav_files`, `bga_files`, optional image fields を使う
+- full scan view では BMS / bmson の health columns を同じ表示仕様で扱う
+
+この phase では table 追加は行わない。  
+将来 bmson 固有の JSON diagnostic や parser warning を永続化したくなった場合のみ、別 table 追加を再検討する。
 
 ### Phase E: 通常一覧の bmson から `PendingChartEntry : BMSFile` を外す
 
@@ -280,6 +299,8 @@ BMS 専用操作が必要なときだけ `row.Chart.BmsFile` を取り出す。
 
 - bmson resource health scan で title / artist / level が空欄化しない
 - bmson に対して BMS encoding reload が呼ばれない
+- bmson maintenance row が cleanup で削除されない
+- 起動後に bmson row へ persisted maintenance health が適用される
 - BMS encoding fix は BMS のみ対象
 - BMS zero-note check は bmson を対象にしない
 

@@ -1012,7 +1012,7 @@ public class BMSLibrary : NotificationObject
 
     public List<BMSFile> BMSFilesUnregistered => BMSFiles.Where((BMSFile f) => string.IsNullOrWhiteSpace(f.parent)).ToList();
 
-    public IEnumerable<BMSFile> BMSFilesNeedToBeFixed => GetBMSFilesNeedToBeFixed(BMSFiles);
+    public IEnumerable<BMSFile> BMSFilesNeedToBeFixed => GetBMSFilesNeedToBeFixed(null);
 
     public List<LR2SongDBExtended.bmson_song> BmsonSongs
     {
@@ -1043,7 +1043,7 @@ public class BMSLibrary : NotificationObject
         }
     }
 
-    public IEnumerable<BMSFile> BMSFilesNeedToBeFixedIgnored => GetBMSFilesNeedToBeFixed(BMSFiles, forceUpdate: false, isInIgnoredList: true);
+    public IEnumerable<BMSFile> BMSFilesNeedToBeFixedIgnored => GetBMSFilesNeedToBeFixed(null, forceUpdate: false, isInIgnoredList: true);
 
     /// <summary>
     /// 重複検出済みの BMS ファイルグループ一覧です。重複検出処理の結果が格納されます。
@@ -3722,25 +3722,31 @@ public class BMSLibrary : NotificationObject
         if (setMainteInfo)
         {
             Stopwatch stopwatchSetMaintenance = Stopwatch.StartNew();
-            Stopwatch stopwatchSetMode = Stopwatch.StartNew();
-            setModeAndCommitToDB(BMSFiles);
-            stopwatchSetMode.Stop();
-            setModeMs = stopwatchSetMode.ElapsedMilliseconds;
-            Stopwatch stopwatchSetHealth = Stopwatch.StartNew();
-            setMaintenanceInfo(BMSFiles);
-            stopwatchSetHealth.Stop();
-            setHealthMs = stopwatchSetHealth.ElapsedMilliseconds;
-            IsWriteLockHeldInitializdBMSFilesHealthStatus = false;
-            IsWriteLockHeldInitializeBMSFilesEncodingInfo = false;
-            Stopwatch stopwatchSetZeroNote = Stopwatch.StartNew();
-            setZeroNoteAndCommitToDB(BMSFiles);
-            stopwatchSetZeroNote.Stop();
-            setZeroNoteMs = stopwatchSetZeroNote.ElapsedMilliseconds;
-            IsWriteLockHeldInitializeBMSFilesZeroNote = false;
-            stopwatchSetMaintenance.Stop();
-            setMaintenanceMs = stopwatchSetMaintenance.ElapsedMilliseconds;
-            GC.Collect();
-            NLogWrapper.DebuggerLogger?.Trace(GC.GetTotalMemory(forceFullCollection: false));
+            try
+            {
+                Stopwatch stopwatchSetMode = Stopwatch.StartNew();
+                setModeAndCommitToDB(BMSFiles);
+                stopwatchSetMode.Stop();
+                setModeMs = stopwatchSetMode.ElapsedMilliseconds;
+                Stopwatch stopwatchSetHealth = Stopwatch.StartNew();
+                setMaintenanceInfo(BMSFiles, includeInstalledBmson: true);
+                stopwatchSetHealth.Stop();
+                setHealthMs = stopwatchSetHealth.ElapsedMilliseconds;
+                Stopwatch stopwatchSetZeroNote = Stopwatch.StartNew();
+                setZeroNoteAndCommitToDB(BMSFiles);
+                stopwatchSetZeroNote.Stop();
+                setZeroNoteMs = stopwatchSetZeroNote.ElapsedMilliseconds;
+            }
+            finally
+            {
+                IsWriteLockHeldInitializdBMSFilesHealthStatus = false;
+                IsWriteLockHeldInitializeBMSFilesEncodingInfo = false;
+                IsWriteLockHeldInitializeBMSFilesZeroNote = false;
+                stopwatchSetMaintenance.Stop();
+                setMaintenanceMs = stopwatchSetMaintenance.ElapsedMilliseconds;
+                GC.Collect();
+                NLogWrapper.DebuggerLogger?.Trace(GC.GetTotalMemory(forceFullCollection: false));
+            }
         }
         if (updateIrScore && lr2ScoreDBPath != null)
         {
@@ -4444,7 +4450,7 @@ public class BMSLibrary : NotificationObject
         {
             using (rwlockSongDBMaintenance.GetWriterGuard())
             {
-                return maintenanceService.CleanupMaintenanceTable(BMSFiles, dbGateway);
+                return maintenanceService.CleanupMaintenanceTable(CreateResourceMaintenanceTargets(BMSFiles, includeInstalledBmson: true), dbGateway);
             }
         }
     }
@@ -4497,7 +4503,7 @@ public class BMSLibrary : NotificationObject
                     setModeMs = stopwatchSetMode.ElapsedMilliseconds;
 
                     Stopwatch stopwatchSetHealth = Stopwatch.StartNew();
-                    setMaintenanceInfo(filesSnapshot);
+                    setMaintenanceInfo(filesSnapshot, includeInstalledBmson: true);
                     stopwatchSetHealth.Stop();
                     setHealthMs = stopwatchSetHealth.ElapsedMilliseconds;
                     IsWriteLockHeldInitializdBMSFilesHealthStatus = false;
@@ -4527,7 +4533,13 @@ public class BMSLibrary : NotificationObject
                         + " set_health_ms=" + setHealthMs
                         + " set_zero_note_ms=" + setZeroNoteMs
                         + " deferred_ms=" + stopwatch.ElapsedMilliseconds
-                        + " message=" + ex.Message);
+                        + " message=" + GetDisplayedExceptionMessage(ex).Replace(Environment.NewLine, " | "));
+                }
+                finally
+                {
+                    IsWriteLockHeldInitializdBMSFilesHealthStatus = false;
+                    IsWriteLockHeldInitializeBMSFilesEncodingInfo = false;
+                    IsWriteLockHeldInitializeBMSFilesZeroNote = false;
                 }
 
                 lock (lockDeferredInstallableMaintenance)
@@ -5803,7 +5815,27 @@ public class BMSLibrary : NotificationObject
     /// <summary>
     /// BMS ファイル群の保守情報（ファイル存在チェック、エンコーディング検出等）を設定し、必要に応じて DB に永続化します。
     /// </summary>
-    private void setMaintenanceInfo(IEnumerable<BMSFile> bmsFiles, bool forceUpdate = false)
+    private List<BMSFile> CreateResourceMaintenanceTargets(IEnumerable<BMSFile> bmsFiles, bool includeInstalledBmson)
+    {
+        List<BMSFile> targets = (bmsFiles ?? Enumerable.Empty<BMSFile>())
+            .Where((BMSFile file) => file != null)
+            .ToList();
+        if (!includeInstalledBmson)
+        {
+            return targets;
+        }
+        foreach (LR2SongDBExtended.bmson_song song in BmsonSongs ?? Enumerable.Empty<LR2SongDBExtended.bmson_song>())
+        {
+            PendingChartEntry row = PendingChartEntry.CreateFromBmsonSong(song);
+            if (row != null)
+            {
+                targets.Add(row);
+            }
+        }
+        return targets;
+    }
+
+    private void setMaintenanceInfo(IEnumerable<BMSFile> bmsFiles, bool forceUpdate = false, bool includeInstalledBmson = false)
     {
         if (bmsFiles == null)
         {
@@ -5811,9 +5843,21 @@ public class BMSLibrary : NotificationObject
         }
         using (rwlockBMSFiles.GetReaderGuard())
         {
+            List<BMSFile> maintenanceTargets = CreateResourceMaintenanceTargets(bmsFiles, includeInstalledBmson);
             using (rwlockSongDBMaintenance.GetWriterGuard())
             {
-                MaintenanceWorkflowResult workflowResult = maintenanceService.UpdateMaintenanceInfo(bmsFiles, forceUpdate, bmsFolderAllFileList, dbGateway, dialogService);
+                MaintenanceWorkflowResult workflowResult = maintenanceService.UpdateMaintenanceInfo(maintenanceTargets, forceUpdate, bmsFolderAllFileList, dbGateway, dialogService);
+                if (workflowResult.CheckedFileCount > 0 || workflowResult.BmsonReparsedCount > 0 || workflowResult.BmsonReparseFailedCount > 0)
+                {
+                    LogInstallPerformance("maintenance_update checked=" + workflowResult.CheckedFileCount
+                        + " bmsResourceTargets=" + workflowResult.BmsResourceTargetCount
+                        + " bmsonResourceTargets=" + workflowResult.BmsonResourceTargetCount
+                        + " maintenanceUpserted=" + workflowResult.MaintenanceInfoUpsertCount
+                        + " bmsonReparsed=" + workflowResult.BmsonReparsedCount
+                        + " bmsonReparseFailed=" + workflowResult.BmsonReparseFailedCount
+                        + " songReloaded=" + workflowResult.ReloadedSongCount
+                        + " elapsedMs=" + workflowResult.TotalMs);
+                }
                 if (workflowResult.HasUpdates)
                 {
                     Task.Run(delegate
@@ -5825,7 +5869,7 @@ public class BMSLibrary : NotificationObject
                     }).Logging("setMaintenanceInfo");
                 }
             }
-            foreach (BMSFile bmsFile in bmsFiles)
+            foreach (BMSFile bmsFile in maintenanceTargets)
             {
                 checkBMSFileNeedToBeFixedAndSetWarnings(bmsFile);
             }
@@ -5842,13 +5886,10 @@ public class BMSLibrary : NotificationObject
     /// </summary>
     public List<BMSFile> GetBMSFilesNeedToBeFixed(IEnumerable<BMSFile> bmsFiles, bool forceUpdate = false, bool isInIgnoredList = false)
     {
+        bool includeInstalledBmson = bmsFiles == null;
         if (bmsFiles == null)
         {
             bmsFiles = BMSFiles;
-        }
-        if (bmsFiles.Count() == 0)
-        {
-            return new List<BMSFile>();
         }
         _ = rwlockBMSFilesInitializedMin.IsWriteLockHeld;
         _ = rwlockBMSFiles.IsWriteLockHeld;
@@ -5856,11 +5897,16 @@ public class BMSLibrary : NotificationObject
         {
             using (rwlockBMSFiles.GetReaderGuard())
             {
+                List<BMSFile> targets = CreateResourceMaintenanceTargets(bmsFiles, includeInstalledBmson);
+                if (targets.Count == 0)
+                {
+                    return new List<BMSFile>();
+                }
                 if (forceUpdate)
                 {
-                    setMaintenanceInfo(bmsFiles, forceUpdate);
+                    setMaintenanceInfo(bmsFiles, forceUpdate, includeInstalledBmson);
                 }
-                return bmsFiles.Where((BMSFile file) => checkBMSFileNeedToBeFixedAndSetWarnings(file) && isInIgnoredList == file.maintenanceInfo.is_files_warning_ignored).ToList();
+                return targets.Where((BMSFile file) => checkBMSFileNeedToBeFixedAndSetWarnings(file) && isInIgnoredList == file.maintenanceInfo.is_files_warning_ignored).ToList();
             }
         }
     }
@@ -5870,21 +5916,23 @@ public class BMSLibrary : NotificationObject
     /// </summary>
     public void SetBMSFilesToBeFixedIgnored(IEnumerable<BMSFile> bmsFiles, bool unset = false)
     {
+        bool includeInstalledBmson = bmsFiles == null;
         if (bmsFiles == null)
         {
             bmsFiles = BMSFiles;
-        }
-        if (bmsFiles.Count() == 0)
-        {
-            return;
         }
         using (rwlockBMSFilesInitializedMin.GetReaderGuard())
         {
             using (rwlockBMSFiles.GetReaderGuard())
             {
+                List<BMSFile> targets = CreateResourceMaintenanceTargets(bmsFiles, includeInstalledBmson);
+                if (targets.Count == 0)
+                {
+                    return;
+                }
                 using (rwlockSongDBMaintenance.GetWriterGuard())
                 {
-                    List<BMSFileMaintenanceInfo> changes = maintenanceService.SetFilesWarningIgnored(bmsFiles, unset);
+                    List<BMSFileMaintenanceInfo> changes = maintenanceService.SetFilesWarningIgnored(targets, unset);
                     dbGateway.UpsertMaintenanceInfos(changes);
                 }
             }
@@ -6830,7 +6878,7 @@ public class BMSLibrary : NotificationObject
             .Select(delegate (PendingChartEntry file)
             {
                 LR2SongDBExtended.bmson_song source = file.BmsonSong ?? new LR2SongDBExtended.bmson_song();
-                return new LR2SongDBExtended.bmson_song
+                LR2SongDBExtended.bmson_song result = new LR2SongDBExtended.bmson_song
                 {
                     path = file.path,
                     folder = DirectoryExt.GetDirectoryNameSimple(file.path),
@@ -6845,8 +6893,13 @@ public class BMSLibrary : NotificationObject
                     banner = source.banner,
                     backbmp = source.backbmp,
                     stagefile = source.stagefile,
-                    preview_music = source.preview_music
+                    preview_music = source.preview_music,
+                    MaintenanceInfo = file.maintenanceInfo
                 };
+                result.wav_files = source.wav_files != null && source.wav_files.Count > 0 ? source.wav_files : file.WAVfiles?.ToList() ?? new List<string>();
+                result.bga_files = source.bga_files != null && source.bga_files.Count > 0 ? source.bga_files : file.BGAfiles?.ToList() ?? new List<string>();
+                result.MaintenanceInfo?.NormalizeForBmson(result.path, result.md5);
+                return result;
             })
             .ToList();
     }

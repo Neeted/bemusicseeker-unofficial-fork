@@ -206,7 +206,6 @@ public sealed class PendingChartEntry : BMSFile
             instl_dst = null,
             status = BMSFileStatus.NONE
         };
-        entry.SetMaintenanceInfo(new BMSFileMaintenanceInfo(entry), suppressPropertyChanged: true, registerEventHandlers: false);
         entry.UpdateFromBmsonSong(song);
         return entry;
     }
@@ -234,10 +233,17 @@ public sealed class PendingChartEntry : BMSFile
         hash = song.md5;
         sha256 = song.sha256;
         SetChartInfo(song.ChartInfo);
-        if (maintenanceInfo != null)
+        BMSFileMaintenanceInfo nextMaintenanceInfo = song.MaintenanceInfo ?? maintenanceInfo;
+        if (nextMaintenanceInfo == null || !string.Equals(nextMaintenanceInfo.hash, hash, StringComparison.OrdinalIgnoreCase))
         {
-            maintenanceInfo.path = path;
+            nextMaintenanceInfo = BMSFileMaintenanceInfo.CreateForBmson(path, hash);
         }
+        else
+        {
+            nextMaintenanceInfo.NormalizeForBmson(path, hash);
+        }
+        SetMaintenanceInfo(nextMaintenanceInfo, suppressPropertyChanged: true, registerEventHandlers: false);
+        song.MaintenanceInfo = nextMaintenanceInfo;
         title = song.title;
         subtitle = song.subtitle;
         artist = song.artist;
@@ -252,6 +258,30 @@ public sealed class PendingChartEntry : BMSFile
         SetDisplayValue(ref displayArtist, song.artist ?? string.Empty, nameof(Artist));
         SetDisplayValue(ref displayLevel, song.level?.ToString() ?? string.Empty, nameof(Level));
         SetDisplayValue(ref displayFolder, BmsonSongParser.ComposeDisplayFolder(song), nameof(Folder));
+    }
+
+    internal void UpdateBmsonResourceReferences(LR2SongDBExtended.bmson_song parsed)
+    {
+        if (parsed == null || !IsBmsonChart)
+        {
+            return;
+        }
+        LR2SongDBExtended.bmson_song target = BmsonSong ?? parsed;
+        target.stagefile = parsed.stagefile;
+        target.banner = parsed.banner;
+        target.backbmp = parsed.backbmp;
+        target.preview_music = parsed.preview_music;
+        target.wav_files = parsed.wav_files ?? new List<string>();
+        target.bga_files = parsed.bga_files ?? new List<string>();
+        if (target.MaintenanceInfo == null)
+        {
+            target.MaintenanceInfo = maintenanceInfo;
+        }
+        stagefile = target.stagefile;
+        banner = target.banner;
+        backbmp = target.backbmp;
+        WAVfiles = new HashSet<string>(target.wav_files ?? Enumerable.Empty<string>(), StringComparer.OrdinalIgnoreCase);
+        BGAfiles = new HashSet<string>(target.bga_files ?? Enumerable.Empty<string>(), StringComparer.OrdinalIgnoreCase);
     }
 
     public static bool IsBmsonFilePath(string filePath)

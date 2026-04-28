@@ -7,6 +7,7 @@ using System.Security;
 using System.Threading;
 using BeMusicSeeker.Properties;
 using System.Windows;
+using BeMusicSeeker.Models.LR2;
 using Ribbit.Util.Extensions;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
@@ -23,9 +24,15 @@ internal sealed class BmsLibraryMaintenanceService
             .Where((BMSFile file) => file != null && PendingChartEntry.IsBmsChartFile(file));
     }
 
+    private static IEnumerable<BMSFile> EnumerateResourceHealthChartFiles(IEnumerable<BMSFile> bmsFiles)
+    {
+        return (bmsFiles ?? Enumerable.Empty<BMSFile>())
+            .Where((BMSFile file) => file != null && (PendingChartEntry.IsBmsChartFile(file) || PendingChartEntry.IsBmsonChartFile(file)));
+    }
+
     public bool ApplyNeedToBeFixedWarnings(BMSFile bmsFile, BMSFileMaintenanceInfo maintenanceInfo = null, bool strictCheck = false)
     {
-        if (bmsFile == null || !PendingChartEntry.IsBmsChartFile(bmsFile))
+        if (bmsFile == null || (!PendingChartEntry.IsBmsChartFile(bmsFile) && !PendingChartEntry.IsBmsonChartFile(bmsFile)))
         {
             return false;
         }
@@ -61,7 +68,7 @@ internal sealed class BmsLibraryMaintenanceService
 
     public int CleanupMaintenanceTable(IEnumerable<BMSFile> bmsFiles, BmsLibraryDbGateway dbGateway)
     {
-        List<string> currentPaths = EnumerateBmsChartFiles(bmsFiles)
+        List<string> currentPaths = EnumerateResourceHealthChartFiles(bmsFiles)
             .Where((BMSFile file) => !string.IsNullOrWhiteSpace(file.path))
             .Select((BMSFile file) => file.path)
             .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -81,7 +88,7 @@ internal sealed class BmsLibraryMaintenanceService
 
     public List<BMSFileMaintenanceInfo> SetFilesWarningIgnored(IEnumerable<BMSFile> bmsFiles, bool unset)
     {
-        List<BMSFileMaintenanceInfo> changes = (from f in EnumerateBmsChartFiles(bmsFiles)
+        List<BMSFileMaintenanceInfo> changes = (from f in EnumerateResourceHealthChartFiles(bmsFiles)
                                                 let m = f?.maintenanceInfo
                                                 where m != null && m.is_files_warning_ignored == unset
                                                 select m).ToList();
@@ -234,24 +241,53 @@ internal sealed class BmsLibraryMaintenanceService
         }
         Stopwatch stopwatch = Stopwatch.StartNew();
         List<BMSFile> targets = (forceUpdate
-            ? EnumerateBmsChartFiles(bmsFiles).ToList()
-            : EnumerateBmsChartFiles(bmsFiles).Where((BMSFile file) => !file.maintenanceInfo.IsInformationChecked() || string.IsNullOrWhiteSpace(file.maintenanceInfo.encoding)).ToList());
+            ? EnumerateResourceHealthChartFiles(bmsFiles).ToList()
+            : EnumerateResourceHealthChartFiles(bmsFiles).Where((BMSFile file) => !file.maintenanceInfo.IsInformationChecked() || (PendingChartEntry.IsBmsChartFile(file) && string.IsNullOrWhiteSpace(file.maintenanceInfo.encoding))).ToList());
         result.CheckedFileCount = targets.Count;
+        result.BmsResourceTargetCount = targets.Count(PendingChartEntry.IsBmsChartFile);
+        result.BmsonResourceTargetCount = targets.Count(PendingChartEntry.IsBmsonChartFile);
         foreach (IEnumerable<BMSFile> section in targets.Section(1000))
         {
             object reloadedLock = new object();
             List<BMSFile> reloadedFiles = new List<BMSFile>();
+            object bmsonReparseLock = new object();
+            int bmsonReparsedInSection = 0;
+            int bmsonReparseFailedInSection = 0;
             List<BMSFile> filesInSection = section.Where((BMSFile file) => file != null).ToList();
             filesInSection.AsParallel().ForAll(delegate (BMSFile file)
             {
+                bool isBmson = PendingChartEntry.IsBmsonChartFile(file);
                 string originalHash = file.hash;
+                if (isBmson)
+                {
+                    file.maintenanceInfo.NormalizeForBmson(file.path, file.hash);
+                    if (forceUpdate || !file.maintenanceInfo.IsInformationChecked())
+                    {
+                        BmsonResourceRefreshResult refreshResult = TryRefreshBmsonResourceReferences(file);
+                        if (refreshResult == BmsonResourceRefreshResult.Success)
+                        {
+                            lock (bmsonReparseLock)
+                            {
+                                bmsonReparsedInSection++;
+                            }
+                        }
+                        else if (refreshResult == BmsonResourceRefreshResult.Failed)
+                        {
+                            lock (bmsonReparseLock)
+                            {
+                                bmsonReparseFailedInSection++;
+                            }
+                            return;
+                        }
+                    }
+                }
                 MaintenanceSnapshot beforeSnapshot = MaintenanceSnapshot.FromFile(file);
                 int retryCount = 0;
                 while (true)
                 {
                     try
                     {
-                        file.SetHealthStatus(folderAllFileList, forceUpdate);
+                        file.SetHealthStatus(folderAllFileList, forceUpdate, memClear: !isBmson);
                         break;
                     }
                     catch (Exception ex)
@@ -270,11 +306,15 @@ internal sealed class BmsLibraryMaintenanceService
                         throw;
                     }
                 }
-                if (forceUpdate || string.IsNullOrWhiteSpace(file.maintenanceInfo.encoding))
+                if (isBmson)
+                {
+                    file.maintenanceInfo.NormalizeForBmson(file.path, file.hash);
+                }
+                else if (forceUpdate || string.IsNullOrWhiteSpace(file.maintenanceInfo.encoding))
                 {
                     file.SetEncosingInfo();
                 }
-                if (!string.IsNullOrWhiteSpace(file.maintenanceInfo.encoding) && !file.maintenanceInfo.encoding.StartsWith("shift_jis") && !file.maintenanceInfo.encoding.EndsWith("?") && file.maintenanceInfo.encoding != "unknown")
+                if (!isBmson && !string.IsNullOrWhiteSpace(file.maintenanceInfo.encoding) && !file.maintenanceInfo.encoding.StartsWith("shift_jis") && !file.maintenanceInfo.encoding.EndsWith("?") && file.maintenanceInfo.encoding != "unknown")
                 {
                     BMSFile.ReloadBMSFileWithEncoding(file, file.maintenanceInfo.encoding);
                     file.maintenanceInfo.is_encoding_fixed = true;
@@ -283,7 +323,7 @@ internal sealed class BmsLibraryMaintenanceService
                         reloadedFiles.Add(file);
                     }
                 }
-                else if (originalHash != file.hash)
+                else if (!isBmson && originalHash != file.hash)
                 {
                     lock (reloadedLock)
                     {
@@ -322,10 +362,37 @@ internal sealed class BmsLibraryMaintenanceService
                 result.ReloadedSongCount += reloadedFiles.Count;
                 result.SongUpsertCount += reloadedFiles.Count;
             }
+            result.BmsonReparsedCount += bmsonReparsedInSection;
+            result.BmsonReparseFailedCount += bmsonReparseFailedInSection;
         }
         stopwatch.Stop();
         result.TotalMs = stopwatch.ElapsedMilliseconds;
         return result;
+    }
+
+    private static BmsonResourceRefreshResult TryRefreshBmsonResourceReferences(BMSFile file)
+    {
+        if (file is not PendingChartEntry pending || !pending.IsBmsonChart || string.IsNullOrWhiteSpace(pending.path) || !File.Exists(pending.path))
+        {
+            return BmsonResourceRefreshResult.NotApplicable;
+        }
+        try
+        {
+            LR2SongDBExtended.bmson_song parsed = BmsonSongParser.Parse(pending.path);
+            pending.UpdateBmsonResourceReferences(parsed);
+            return BmsonResourceRefreshResult.Success;
+        }
+        catch
+        {
+            return BmsonResourceRefreshResult.Failed;
+        }
+    }
+
+    private enum BmsonResourceRefreshResult
+    {
+        NotApplicable,
+        Success,
+        Failed
     }
 
     private readonly struct MaintenanceSnapshot
