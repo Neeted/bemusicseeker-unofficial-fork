@@ -4187,6 +4187,8 @@ public class MainWindowViewModel : ViewModel
 
     private bool bmsonMigrationApprovedForSession;
 
+    internal const int CurrentBmsonColumnSettingsMigrationVersion = 1;
+
     private BMSLibrary files;
 
     private BMSPlaylist tables;
@@ -9076,7 +9078,7 @@ public class MainWindowViewModel : ViewModel
         return BeMusicSeeker.Properties.Resources.BmsonMigrationWarningMessage;
     }
 
-    internal static bool ApplyBmsonMigrationPreflightForStartup(BmsonMigrationPreflightResult preflightResult, ref bool approvedForSession, Func<string, bool?> confirmWarning, Action ensureSchema, Action shutdown)
+    internal static bool ApplyBmsonMigrationPreflightForStartup(BmsonMigrationPreflightResult preflightResult, ref bool approvedForSession, Func<string, bool?> confirmWarning, Action ensureSchema, Action shutdown, Action resetColumnSettings = null)
     {
         if (preflightResult == null)
         {
@@ -9100,6 +9102,39 @@ public class MainWindowViewModel : ViewModel
             approvedForSession = true;
         }
         ensureSchema();
+        if (preflightResult.WarnRequired)
+        {
+            resetColumnSettings?.Invoke();
+        }
+        return true;
+    }
+
+    internal static bool ResetBmsonColumnSettingsForMigrationIfNeeded(Settings settings, Action saveSettings = null)
+    {
+        if (settings == null)
+        {
+            throw new ArgumentNullException(nameof(settings));
+        }
+        if (settings.BmsonColumnSettingsMigrationVersion >= CurrentBmsonColumnSettingsMigrationVersion)
+        {
+            return false;
+        }
+        settings.StandardColumnsSettings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.STANDARD);
+        settings.ZeroNoteColumnsSettings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.ZERO_NOTE);
+        settings.PlaylistColumnsSettings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.PLAYLIST);
+        settings.FullScanColumnsSettings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.FULLSCAN);
+        settings.DuplicateColumnsSettings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.DUPLICATE);
+        settings.EncodingColumnsSettings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.ENCODING);
+        settings.InstallColumnsSettings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.INSTALL);
+        settings.BmsonColumnSettingsMigrationVersion = CurrentBmsonColumnSettingsMigrationVersion;
+        if (saveSettings != null)
+        {
+            saveSettings();
+        }
+        else
+        {
+            settings.Save();
+        }
         return true;
     }
 
@@ -9109,7 +9144,7 @@ public class MainWindowViewModel : ViewModel
         BmsonMigrationPreflightService bmsonMigrationPreflightService = new BmsonMigrationPreflightService();
         BmsonMigrationPreflightResult preflightResult = bmsonMigrationPreflightService.Inspect(Settings.Default.LR2SongDBPath);
         LogInitStage("bmson_preflight_inspect_done", "Initialize");
-        if (preflightResult.RepairRequired)
+        if (preflightResult.RepairRequired && !preflightResult.WarnRequired)
         {
             LogInitStage("bmson_preflight_repair_start", "Initialize");
             new BmsLibraryDbGateway(Settings.Default.LR2SongDBPath).EnsureBmsonSchema();
@@ -9132,13 +9167,32 @@ public class MainWindowViewModel : ViewModel
         }, delegate
         {
             LogInitStage("bmson_preflight_ensure_schema_start", "Initialize");
-            BMSPlaylist.EnsureSchema(Settings.Default.LR2SongDBPath);
             BmsLibraryDbGateway gateway = new BmsLibraryDbGateway(Settings.Default.LR2SongDBPath);
+            if (preflightResult.RepairRequired)
+            {
+                LogInitStage("bmson_preflight_deferred_repair_start", "Initialize");
+                gateway.EnsureBmsonSchema();
+                LogInitStage("bmson_preflight_deferred_repair_done", "Initialize");
+                LogInitStage("bmson_preflight_deferred_reinspect_start", "Initialize");
+                preflightResult = bmsonMigrationPreflightService.Inspect(Settings.Default.LR2SongDBPath);
+                LogInitStage("bmson_preflight_deferred_reinspect_done", "Initialize");
+                if (preflightResult.RepairRequired)
+                {
+                    throw new InvalidOperationException("bmson app-owned schema repair did not converge.");
+                }
+            }
+            BMSPlaylist.EnsureSchema(Settings.Default.LR2SongDBPath);
             gateway.EnsureBmsonSchema();
             LogInitStage("bmson_preflight_ensure_schema_done", "Initialize");
         }, delegate
         {
             System.Windows.Application.Current?.Shutdown();
+        }, delegate
+        {
+            if (ResetBmsonColumnSettingsForMigrationIfNeeded(Settings.Default))
+            {
+                LogInitStage("bmson_column_settings_reset", "Initialize");
+            }
         });
     }
 

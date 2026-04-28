@@ -509,7 +509,7 @@ public class dataGridColumnsSettings : NotificationObject
             {
                 _Sha256 = new dataGridColumnlayouts
                 {
-                    Width = 420,
+                    Width = 480,
                     Visibility = Visibility.Hidden
                 };
             }
@@ -767,97 +767,97 @@ public class dataGridColumnsSettings : NotificationObject
 
     public dataGridColumnlayouts ChartDifficulty
     {
-        get { return _ChartDifficulty ?? (_ChartDifficulty = CreateHiddenLayout(90)); }
+        get { return _ChartDifficulty ?? (_ChartDifficulty = CreateHiddenLayout(80)); }
         set { if (_ChartDifficulty != value) { _ChartDifficulty = value; RaisePropertyChanged("ChartDifficulty"); } }
     }
 
     public dataGridColumnlayouts ChartMainBpm
     {
-        get { return _ChartMainBpm ?? (_ChartMainBpm = CreateHiddenLayout(70)); }
+        get { return _ChartMainBpm ?? (_ChartMainBpm = CreateHiddenLayout(40)); }
         set { if (_ChartMainBpm != value) { _ChartMainBpm = value; RaisePropertyChanged("ChartMainBpm"); } }
     }
 
     public dataGridColumnlayouts ChartMaxBpm
     {
-        get { return _ChartMaxBpm ?? (_ChartMaxBpm = CreateHiddenLayout(70)); }
+        get { return _ChartMaxBpm ?? (_ChartMaxBpm = CreateHiddenLayout(40)); }
         set { if (_ChartMaxBpm != value) { _ChartMaxBpm = value; RaisePropertyChanged("ChartMaxBpm"); } }
     }
 
     public dataGridColumnlayouts ChartMinBpm
     {
-        get { return _ChartMinBpm ?? (_ChartMinBpm = CreateHiddenLayout(70)); }
+        get { return _ChartMinBpm ?? (_ChartMinBpm = CreateHiddenLayout(40)); }
         set { if (_ChartMinBpm != value) { _ChartMinBpm = value; RaisePropertyChanged("ChartMinBpm"); } }
     }
 
     public dataGridColumnlayouts ChartDuration
     {
-        get { return _ChartDuration ?? (_ChartDuration = CreateHiddenLayout(80)); }
+        get { return _ChartDuration ?? (_ChartDuration = CreateHiddenLayout(50)); }
         set { if (_ChartDuration != value) { _ChartDuration = value; RaisePropertyChanged("ChartDuration"); } }
     }
 
     public dataGridColumnlayouts ChartJudge
     {
-        get { return _ChartJudge ?? (_ChartJudge = CreateHiddenLayout(80)); }
+        get { return _ChartJudge ?? (_ChartJudge = CreateHiddenLayout(70)); }
         set { if (_ChartJudge != value) { _ChartJudge = value; RaisePropertyChanged("ChartJudge"); } }
     }
 
     public dataGridColumnlayouts ChartJudgePercent
     {
-        get { return _ChartJudgePercent ?? (_ChartJudgePercent = CreateHiddenLayout(70)); }
+        get { return _ChartJudgePercent ?? (_ChartJudgePercent = CreateHiddenLayout(60)); }
         set { if (_ChartJudgePercent != value) { _ChartJudgePercent = value; RaisePropertyChanged("ChartJudgePercent"); } }
     }
 
     public dataGridColumnlayouts ChartFeature
     {
-        get { return _ChartFeature ?? (_ChartFeature = CreateHiddenLayout(160)); }
+        get { return _ChartFeature ?? (_ChartFeature = CreateHiddenLayout(60)); }
         set { if (_ChartFeature != value) { _ChartFeature = value; RaisePropertyChanged("ChartFeature"); } }
     }
 
     public dataGridColumnlayouts ChartLongNotes
     {
-        get { return _ChartLongNotes ?? (_ChartLongNotes = CreateHiddenLayout(60)); }
+        get { return _ChartLongNotes ?? (_ChartLongNotes = CreateHiddenLayout(40)); }
         set { if (_ChartLongNotes != value) { _ChartLongNotes = value; RaisePropertyChanged("ChartLongNotes"); } }
     }
 
     public dataGridColumnlayouts ChartScratchNotes
     {
-        get { return _ChartScratchNotes ?? (_ChartScratchNotes = CreateHiddenLayout(75)); }
+        get { return _ChartScratchNotes ?? (_ChartScratchNotes = CreateHiddenLayout(40)); }
         set { if (_ChartScratchNotes != value) { _ChartScratchNotes = value; RaisePropertyChanged("ChartScratchNotes"); } }
     }
 
     public dataGridColumnlayouts ChartTotal
     {
-        get { return _ChartTotal ?? (_ChartTotal = CreateHiddenLayout(70)); }
+        get { return _ChartTotal ?? (_ChartTotal = CreateHiddenLayout(40)); }
         set { if (_ChartTotal != value) { _ChartTotal = value; RaisePropertyChanged("ChartTotal"); } }
     }
 
     public dataGridColumnlayouts ChartTotalPerNote
     {
-        get { return _ChartTotalPerNote ?? (_ChartTotalPerNote = CreateHiddenLayout(60)); }
+        get { return _ChartTotalPerNote ?? (_ChartTotalPerNote = CreateHiddenLayout(40)); }
         set { if (_ChartTotalPerNote != value) { _ChartTotalPerNote = value; RaisePropertyChanged("ChartTotalPerNote"); } }
     }
 
     public dataGridColumnlayouts ChartDensity
     {
-        get { return _ChartDensity ?? (_ChartDensity = CreateHiddenLayout(80)); }
+        get { return _ChartDensity ?? (_ChartDensity = CreateHiddenLayout(40)); }
         set { if (_ChartDensity != value) { _ChartDensity = value; RaisePropertyChanged("ChartDensity"); } }
     }
 
     public dataGridColumnlayouts ChartPeakDensity
     {
-        get { return _ChartPeakDensity ?? (_ChartPeakDensity = CreateHiddenLayout(60)); }
+        get { return _ChartPeakDensity ?? (_ChartPeakDensity = CreateHiddenLayout(40)); }
         set { if (_ChartPeakDensity != value) { _ChartPeakDensity = value; RaisePropertyChanged("ChartPeakDensity"); } }
     }
 
     public dataGridColumnlayouts ChartEndDensity
     {
-        get { return _ChartEndDensity ?? (_ChartEndDensity = CreateHiddenLayout(60)); }
+        get { return _ChartEndDensity ?? (_ChartEndDensity = CreateHiddenLayout(40)); }
         set { if (_ChartEndDensity != value) { _ChartEndDensity = value; RaisePropertyChanged("ChartEndDensity"); } }
     }
 
     public dataGridColumnlayouts ChartSoflan
     {
-        get { return _ChartSoflan ?? (_ChartSoflan = CreateHiddenLayout(65)); }
+        get { return _ChartSoflan ?? (_ChartSoflan = CreateHiddenLayout(40)); }
         set { if (_ChartSoflan != value) { _ChartSoflan = value; RaisePropertyChanged("ChartSoflan"); } }
     }
 
@@ -882,7 +882,7 @@ public class dataGridColumnsSettings : NotificationObject
         };
         Artist = new dataGridColumnlayouts
         {
-            Width = 150
+            Width = 100
         };
         Genre = new dataGridColumnlayouts
         {
@@ -890,7 +890,7 @@ public class dataGridColumnsSettings : NotificationObject
         };
         Mode = new dataGridColumnlayouts
         {
-            Width = 50
+            Width = 43
         };
         Tag = new dataGridColumnlayouts
         {
@@ -906,7 +906,7 @@ public class dataGridColumnsSettings : NotificationObject
         };
         Clear = new dataGridColumnlayouts
         {
-            Width = 120
+            Width = 90
         };
         Rank = new dataGridColumnlayouts
         {
@@ -926,43 +926,43 @@ public class dataGridColumnsSettings : NotificationObject
         };
         Score = new dataGridColumnlayouts
         {
-            Width = 55
+            Width = 40
         };
         Notes = new dataGridColumnlayouts
         {
-            Width = 55
+            Width = 40
         };
         Combo = new dataGridColumnlayouts
         {
-            Width = 55
+            Width = 40
         };
         Bp = new dataGridColumnlayouts
         {
-            Width = 55
+            Width = 40
         };
-        ChartDifficulty = CreateHiddenLayout(90);
-        ChartMainBpm = CreateHiddenLayout(70);
-        ChartMaxBpm = CreateHiddenLayout(70);
-        ChartMinBpm = CreateHiddenLayout(70);
-        ChartDuration = CreateHiddenLayout(80);
-        ChartJudge = CreateHiddenLayout(80);
-        ChartJudgePercent = CreateHiddenLayout(70);
-        ChartFeature = CreateHiddenLayout(160);
-        ChartLongNotes = CreateHiddenLayout(60);
-        ChartScratchNotes = CreateHiddenLayout(75);
-        ChartTotal = CreateHiddenLayout(70);
-        ChartTotalPerNote = CreateHiddenLayout(60);
-        ChartDensity = CreateHiddenLayout(80);
-        ChartPeakDensity = CreateHiddenLayout(60);
-        ChartEndDensity = CreateHiddenLayout(60);
-        ChartSoflan = CreateHiddenLayout(65);
+        ChartDifficulty = CreateHiddenLayout(80);
+        ChartMainBpm = CreateHiddenLayout(40);
+        ChartMaxBpm = CreateHiddenLayout(40);
+        ChartMinBpm = CreateHiddenLayout(40);
+        ChartDuration = CreateHiddenLayout(50);
+        ChartJudge = CreateHiddenLayout(70);
+        ChartJudgePercent = CreateHiddenLayout(60);
+        ChartFeature = CreateHiddenLayout(60);
+        ChartLongNotes = CreateHiddenLayout(40);
+        ChartScratchNotes = CreateHiddenLayout(40);
+        ChartTotal = CreateHiddenLayout(40);
+        ChartTotalPerNote = CreateHiddenLayout(40);
+        ChartDensity = CreateHiddenLayout(40);
+        ChartPeakDensity = CreateHiddenLayout(40);
+        ChartEndDensity = CreateHiddenLayout(40);
+        ChartSoflan = CreateHiddenLayout(40);
         TScore = new dataGridColumnlayouts
         {
-            Width = 65
+            Width = 40
         };
         ScoreDifficulty = new dataGridColumnlayouts
         {
-            Width = 50
+            Width = 40
         };
         Warning = new dataGridColumnlayouts
         {
@@ -970,11 +970,11 @@ public class dataGridColumnsSettings : NotificationObject
         };
         Comment = new dataGridColumnlayouts
         {
-            Width = 300
+            Width = 200
         };
         Memo = new dataGridColumnlayouts
         {
-            Width = 300
+            Width = 200
         };
         Hash = new dataGridColumnlayouts
         {
@@ -982,40 +982,40 @@ public class dataGridColumnsSettings : NotificationObject
         };
         Sha256 = new dataGridColumnlayouts
         {
-            Width = 420,
+            Width = 480,
             Visibility = Visibility.Hidden
         };
         Folder = new dataGridColumnlayouts
         {
-            Width = 200
+            Width = 140
         };
         Path = new dataGridColumnlayouts
         {
-            Width = 300
+            Width = 250
         };
         InstallDst = new dataGridColumnlayouts
         {
-            Width = 300
+            Width = 250
         };
         InstallDstTitle = new dataGridColumnlayouts
         {
-            Width = 220
+            Width = 200
         };
         InstallDstArtist = new dataGridColumnlayouts
         {
-            Width = 180
+            Width = 100
         };
         WavHealth = new dataGridColumnlayouts
         {
-            Width = 50
+            Width = 40
         };
         BgaHealth = new dataGridColumnlayouts
         {
-            Width = 50
+            Width = 40
         };
         MovieHealth = new dataGridColumnlayouts
         {
-            Width = 50
+            Width = 40
         };
         CharcterEncoding = new dataGridColumnlayouts
         {

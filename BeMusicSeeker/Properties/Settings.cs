@@ -245,6 +245,21 @@ internal sealed class Settings : ApplicationSettingsBase
 
 	[UserScopedSetting]
 	[DebuggerNonUserCode]
+	[DefaultSettingValue("0")]
+	public int BmsonColumnSettingsMigrationVersion
+	{
+		get
+		{
+			return (int)this["BmsonColumnSettingsMigrationVersion"];
+		}
+		set
+		{
+			this["BmsonColumnSettingsMigrationVersion"] = value;
+		}
+	}
+
+	[UserScopedSetting]
+	[DebuggerNonUserCode]
 	[DefaultSettingValue("50")]
 	public int uBMplayVolume
 	{
