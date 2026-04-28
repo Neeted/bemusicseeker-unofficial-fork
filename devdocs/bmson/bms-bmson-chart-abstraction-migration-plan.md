@@ -355,6 +355,23 @@ F-3 の確認観点:
 - BMS 専用操作は `GetSelectedBmsChartFiles` へ集約され、bmson が encoding / zero-note / LR2IR / ScoreViewer に入らない
 - package discovery cache (`BMSPackage.BMSFiles`) は rename しないため、参照による heavy source scan 回避の既存挙動を維持する
 
+F-3 後のテスト補強で、今回の BMS / bmson chart 抽象化はいったん完了扱いにする。
+
+完了条件:
+
+- 通常一覧 / pending / newly installed / playlist owned / playlist missing の各 scope で `ChartOperationTarget` と capability が固定されている
+- BMS 専用処理、つまり encoding / zero-note / LR2IR / ScoreViewer / ranking / audio convert / invalid extension rename に bmson が入らない
+- BMS / bmson 共通処理、つまり open / repository link / resource health / move / remove は capability 境界で両方を扱える
+- 通常一覧の所持 bmson は `PendingChartEntry` ではなく `LibraryChartRow` として表示され、pending/package adapter とは境界が分かれている
+- sort / search / maintenance / mutation / pending install の回帰テストが、共通処理と専用処理の境界を守っている
+
+完了後に残す次候補:
+
+- `BMSFileSortEngine` を test-only helper として隔離するか、`BmsSortCompatibilityTests` を `LibraryChartRowSortEngine` ベースへ移植して削除する
+- `makeBMSFilesView` / converter / private helper など、XAML binding に影響しない内部 UI 名を小さく chart 名へ寄せる
+- `BMSPackage.BMSFiles` / `PendingChartEntry : BMSFile` の本格抽象化を検討する。ただし package discovery / pending install への影響が大きいため、実害が出た箇所から段階的に進める
+- public `BMSFilesView` / settings / column state 名の rename は互換リスクが高いため当面保留する
+
 ## テスト方針
 
 ### 共通 target / capability tests
@@ -397,20 +414,12 @@ F-3 の確認観点:
 - `PendingChartEntry` は段階移行中の adapter として残してよいが、永続所持 bmson の標準 row にしない
 - capability は UI 表示だけでなく、handler 側でも再チェックする
 
-## 推奨する次の着手順
+## 完了後の運用方針
 
-1. Phase A の安全修正
-   - bmson を BMS encoding / zero-note / BMS reload から除外
-   - bmson folder move / unregister の `bmson_song` 更新漏れ修正
-2. Phase B の `ChartOperationTarget` 導入
-   - 右クリック menu と handler を capability ベースに整理
-   - 通常一覧 bmson と playlist bmson の差を減らす
-3. Phase C の mutation 統合
-   - install / move / remove / unregister の BMS / bmson 共通化
-4. Phase D の maintenance 分離
-   - resource health を format-independent にする
-5. Phase E で `PendingChartEntry` の用途縮小
-   - 通常一覧の bmson 表示を専用 row / common row へ移行
+Phase A から F-3 までで、通常利用上の BMS / bmson chart 抽象化は完了とする。
+
+今後は大きな rename を先行せず、実運用で不整合が出た箇所を `ChartOperationTarget` / `OwnedChartRef` / `LibraryChartRow` の境界へ寄せる。  
+BMS 名が残っていても、それが LR2 / `song` table / BMS parser / package adapter の互換境界を表している場合は許容する。
 
 ## ゴール
 
