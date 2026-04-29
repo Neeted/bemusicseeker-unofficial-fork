@@ -2228,7 +2228,7 @@
   </TreeView>
   <GridSplitter Name="gridSplitterTree" Grid.Row="1" Height="5" HorizontalAlignment="Stretch" VerticalAlignment="Center" ResizeDirection="Rows" ResizeBehavior="PreviousAndNext" Margin="0,0,1,0" />
   <TreeView Name="treeView" Grid.Row="2" ScrollViewer.HorizontalScrollBarVisibility="Disabled" VirtualizingStackPanel.IsVirtualizing="True" VirtualizingStackPanel.VirtualizationMode="Recycling" BorderThickness="0,0,1,0" Padding="1,5" ItemContainerStyle="{DynamicResource TreeViewItemFullWidthStyle}" MouseRightButtonDown="treeViewItemOnRightClick" PreviewMouseLeftButtonDown="treeViewLeftClick" SelectedItemChanged="treeViewSelectedItemChanged">
-<TreeViewItem IsExpanded="True" IsSelected="True" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Library, Mode=OneWay}" Selected="rootFolderSelect">
+<TreeViewItem IsExpanded="True" IsSelected="{Binding Source={x:Static prop:Settings.Default}, Path=StartupSelectInstallPending, Mode=OneWay, Converter={qc:QuickConverter '!$P'}}" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Library, Mode=OneWay}" Selected="rootFolderSelect">
               <FrameworkElement.Resources>
                 <ResourceDictionary>
                   <DataTemplate x:Key="templateTreeViewItemHeaderFolder">
@@ -2345,7 +2345,7 @@
                   </Style>
                 </ItemsControl.ItemContainerStyle>
               </TreeViewItem>
-              <TreeViewItem Name="treeViewItemInstallPending" ContextMenu="{StaticResource treeViewInstallPendingContextMenu}" HeaderTemplate="{StaticResource templateTreeViewItemHeaderInstallPending}" IsExpanded="True" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Pending, Mode=OneWay}" ItemsSource="{Binding BMSPackagesPending}" Selected="pendingInstallFolderSelect">
+              <TreeViewItem Name="treeViewItemInstallPending" ContextMenu="{StaticResource treeViewInstallPendingContextMenu}" HeaderTemplate="{StaticResource templateTreeViewItemHeaderInstallPending}" IsExpanded="True" IsSelected="{Binding Source={x:Static prop:Settings.Default}, Path=StartupSelectInstallPending, Mode=OneWay}" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Pending, Mode=OneWay}" ItemsSource="{Binding BMSPackagesPending}" Selected="pendingInstallFolderSelect">
                 <ItemsControl.ItemContainerStyle>
                   <Style TargetType="{x:Type TreeViewItem}">
                     <Setter Property="Header" Value="{qc:Binding $P.Count() &gt; 1 ? $P[0].title : $P[0].Title, P={Binding BMSFiles}}" />

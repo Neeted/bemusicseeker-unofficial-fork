@@ -4551,7 +4551,7 @@ public class MainWindowViewModel : ViewModel
 
     private int _CurrentlyPlayingLastMeasure;
 
-    private viewUpdateMode treeViewFilterTypeSelected = viewUpdateMode.FolderFilterSelected;
+    private viewUpdateMode treeViewFilterTypeSelected = Settings.Default.StartupSelectInstallPending ? viewUpdateMode.PendingInstallFolderSelected : viewUpdateMode.FolderFilterSelected;
 
     private object treeViewFilterParameterSelected;
 

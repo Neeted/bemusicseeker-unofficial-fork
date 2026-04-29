@@ -300,6 +300,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
+        if (treeViewItemInstallPending != null && treeViewItemInstallPending.IsSelected)
+        {
+            return;
+        }
         MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
         if (viewModel != null && viewModel.IsStartupUiInteractionBlocked)
         {
