@@ -17,7 +17,7 @@ namespace BeMusicSeeker.Views;
 
 public sealed class CustomTableFirstRenderCompletedEventArgs : EventArgs
 {
-    internal CustomTableFirstRenderCompletedEventArgs(int rowCount, int visibleRowCount, int visibleColumnCount, int visibleCellCount, long firstRenderMs, long renderWorkMs)
+    internal CustomTableFirstRenderCompletedEventArgs(int rowCount, int visibleRowCount, int visibleColumnCount, int visibleCellCount, long firstRenderMs, long renderWorkMs, double textCacheHitRate)
     {
         RowCount = rowCount;
         VisibleRowCount = visibleRowCount;
@@ -25,6 +25,7 @@ public sealed class CustomTableFirstRenderCompletedEventArgs : EventArgs
         VisibleCellCount = visibleCellCount;
         FirstRenderMs = firstRenderMs;
         RenderWorkMs = renderWorkMs;
+        TextCacheHitRate = textCacheHitRate;
     }
 
     public int RowCount { get; }
@@ -38,6 +39,8 @@ public sealed class CustomTableFirstRenderCompletedEventArgs : EventArgs
     public long FirstRenderMs { get; }
 
     public long RenderWorkMs { get; }
+
+    public double TextCacheHitRate { get; }
 }
 
 public sealed class CustomTableView : Grid
@@ -300,7 +303,7 @@ public sealed class CustomTableView : Grid
         return Math.Max(1, (int)Math.Ceiling(bodyHeight / rowHeight));
     }
 
-    internal void NotifySurfaceRendered(int visibleRowCount, int visibleColumnCount, long renderWorkMs)
+    internal void NotifySurfaceRendered(int visibleRowCount, int visibleColumnCount, long renderWorkMs, double textCacheHitRate)
     {
         if (firstRenderLogged || !IsVisible || itemsAppliedTimestamp <= 0L)
         {
@@ -309,7 +312,7 @@ public sealed class CustomTableView : Grid
         firstRenderLogged = true;
         long firstRenderMs = (Stopwatch.GetTimestamp() - itemsAppliedTimestamp) * 1000L / Stopwatch.Frequency;
         int visibleCellCount = TableFirstVisibleMetrics.CalculateVisibleCellCount(visibleRowCount, visibleColumnCount);
-        FirstRenderCompleted?.Invoke(this, new CustomTableFirstRenderCompletedEventArgs(RowCount, visibleRowCount, visibleColumnCount, visibleCellCount, firstRenderMs, renderWorkMs));
+        FirstRenderCompleted?.Invoke(this, new CustomTableFirstRenderCompletedEventArgs(RowCount, visibleRowCount, visibleColumnCount, visibleCellCount, firstRenderMs, renderWorkMs, textCacheHitRate));
     }
 }
 
@@ -325,6 +328,9 @@ internal sealed class CustomTableSurface : FrameworkElement
     private static readonly Typeface NormalTypeface = new Typeface(new FontFamily("Meiryo UI"), FontStyles.Normal, FontWeights.Normal, FontStretches.Normal);
     private static readonly Typeface BoldTypeface = new Typeface(new FontFamily("Meiryo UI"), FontStyles.Normal, FontWeights.Bold, FontStretches.Normal);
     private readonly CustomTableView owner;
+    private readonly CustomTableTextLayoutCache textLayoutCache = new CustomTableTextLayoutCache();
+    private int renderTextCacheHits;
+    private int renderTextCacheMisses;
 
     internal CustomTableSurface(CustomTableView owner)
     {
@@ -336,11 +342,13 @@ internal sealed class CustomTableSurface : FrameworkElement
     protected override void OnRender(DrawingContext drawingContext)
     {
         Stopwatch renderStopwatch = Stopwatch.StartNew();
+        renderTextCacheHits = 0;
+        renderTextCacheMisses = 0;
         double width = ActualWidth;
         double height = ActualHeight;
         if (width <= 0d || height <= 0d)
         {
-            owner.NotifySurfaceRendered(0, 0, 0L);
+            owner.NotifySurfaceRendered(0, 0, 0L, -1d);
             return;
         }
         IReadOnlyList<CustomTableColumn> columns = owner.VisibleColumns;
@@ -348,7 +356,11 @@ internal sealed class CustomTableSurface : FrameworkElement
         DrawHeader(drawingContext, columns, width);
         int visibleRowCount = DrawRows(drawingContext, columns, width, height);
         renderStopwatch.Stop();
-        owner.NotifySurfaceRendered(visibleRowCount, CountColumnsWithinSurface(columns, width), renderStopwatch.ElapsedMilliseconds);
+        owner.NotifySurfaceRendered(
+            visibleRowCount,
+            CountColumnsWithinSurface(columns, width),
+            renderStopwatch.ElapsedMilliseconds,
+            CustomTableTextLayoutCache.CalculateHitRate(renderTextCacheHits, renderTextCacheMisses));
     }
 
     private void DrawBackground(DrawingContext drawingContext, double width, double height)
@@ -436,20 +448,28 @@ internal sealed class CustomTableSurface : FrameworkElement
             return;
         }
         double pixelsPerDip = VisualTreeHelper.GetDpi(this).PixelsPerDip;
-        FormattedText formattedText = new FormattedText(
+        double maxTextWidth = Math.Max(1d, cellRect.Width - 4d);
+        double maxTextHeight = Math.Max(1d, cellRect.Height);
+        FormattedText formattedText = textLayoutCache.GetOrCreate(
             text,
+            maxTextWidth,
+            maxTextHeight,
+            alignment,
+            useBoldText,
+            foreground,
+            pixelsPerDip,
             CultureInfo.CurrentUICulture,
-            FlowDirection.LeftToRight,
             useBoldText ? BoldTypeface : NormalTypeface,
             11d,
-            foreground,
-            pixelsPerDip)
+            out bool cacheHit);
+        if (cacheHit)
         {
-            MaxTextWidth = Math.Max(1d, cellRect.Width - 4d),
-            MaxTextHeight = Math.Max(1d, cellRect.Height),
-            Trimming = TextTrimming.CharacterEllipsis,
-            TextAlignment = alignment
-        };
+            renderTextCacheHits++;
+        }
+        else
+        {
+            renderTextCacheMisses++;
+        }
         double x = cellRect.X + 2d;
         double y = cellRect.Y + Math.Max(0d, (cellRect.Height - formattedText.Height) / 2d);
         drawingContext.PushClip(new RectangleGeometry(cellRect));

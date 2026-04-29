@@ -213,17 +213,26 @@ TextLayoutKey
 
 - 軽量テーブル表示 ON で、見た目は大きな破綻なく一覧として成立している。
 - `DataGrid` 側の `target_updated_render` は発生せず、メイン `dataGrid` のセル生成コストは測定に混ざっていない。
-- 直近ログでは `visibleRowCount=99`, `visibleColumnCount=5`, `visibleCellCount=495` の表示で、`requestToVisibleRenderMs=307-357ms`, `buildToVisibleRenderMs=175-197ms`, `firstRenderMs=172-190ms`, `renderWorkMs=168-189ms` だった。
-- `renderWorkMs` が初回可視時間の大半を占めているため、次の追加作業は Phase 6 の一部を前倒しし、`FormattedText` / 文字描画 cache を Phase 1 の延長として入れる。
+- 文字描画 cache 前のログでは `visibleRowCount=99`, `visibleColumnCount=5`, `visibleCellCount=495` の表示で、`requestToVisibleRenderMs=307-357ms`, `buildToVisibleRenderMs=175-197ms`, `firstRenderMs=172-190ms`, `renderWorkMs=168-189ms` だった。
+- 文字描画 cache 後のログでは、プレイリスト詳細で `visibleCellCount=495`, `buildToVisibleRenderMs=114-201ms`, `renderWorkMs=116-176ms`, `textCacheHitRate=0.6-0.676` だった。
+- 通常ライブラリでは `rowCount=209956`, `visibleCellCount=792`, `firstRenderMs=237ms`, `renderWorkMs=233ms`, `textCacheHitRate=0.681` だった。
+- `main_view_build` は通常ライブラリの行数が多い場合に `DataGrid` 利用時から重い処理であり、`CustomDrawTableView` の描画置換とは別件として扱う。
 
 Phase 1 追加作業: 文字描画 cache
 
-- 目的は `OnRender` 中の `FormattedText` 生成回数を減らし、現状 170-190ms 程度の `renderWorkMs` をさらに下げること。
-- まずは可視範囲 cache とし、行リスト差し替え、列幅変更、DPI/フォント/色設定変更時に破棄する。
-- cache key は `Text`, `Width`, `FontRole`, `ForegroundRole`, `Alignment`, `Dpi` を基本にする。
-- `textCacheHitRate` は `table_first_visible controlType=CustomTableView` で実値を出す。cache 未使用時の `-1` は Phase 1 初期実装のみとする。
-- cache が肥大化しないよう、最初は表示操作単位または可視範囲中心の簡易上限付き cache でよい。
+- Phase 6 の一部を前倒しし、`OnRender` 中の `FormattedText` 生成回数を減らすために実装した。
+- `CustomTableSurface` 単位で `FormattedText` cache を保持し、`ItemsSource` 差し替えやスクロールをまたいで再利用する。
+- cache key は `Text`, `MaxTextWidth`, `MaxTextHeight`, `TextAlignment`, `UseBoldText`, `Foreground`, `PixelsPerDip`, `CultureName` とする。
+- 最大件数は `8192` 件。超過時は古い挿入順に削除する FIFO eviction とし、hit 時の並べ替えはしない。
+- 空文字や極小セルなど描画しないセルは hit rate の分母に含めない。
+- `textCacheHitRate` は `table_first_visible controlType=CustomTableView` で `0.0-1.0` の実値を出し、描画対象テキストが 0 件の場合のみ `-1` とする。
 - 行単位 `DrawingVisual` 分割や差分再描画はまだ入れず、全面 `InvalidateVisual()` + 可視範囲描画のまま cache 効果を測る。
+
+Phase 1 完了判断:
+
+- 表示専用の軽量テーブルとして、通常ライブラリ表示とプレイリスト詳細表示の主要列描画は成立している。
+- `UseCustomTableView=False` が既定値で、従来 `DataGrid` へ切り戻せる。
+- Phase 1 の性能検証目的は達成したため、次は Phase 2 のソート、選択、右クリックに進む。
 
 ## Phase 2: ソート、行選択、右クリック
 

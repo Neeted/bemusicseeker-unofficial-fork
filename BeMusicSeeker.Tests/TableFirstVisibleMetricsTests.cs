@@ -40,7 +40,7 @@ public sealed class TableFirstVisibleMetricsTests
             visibleCellCount: 5000,
             firstRenderMs: 80,
             renderWorkMs: -1,
-            textCacheHitRate: -1d,
+            textCacheHitRate: 0.5d,
             stateLogMs: 1,
             timing: timing);
 
@@ -53,7 +53,7 @@ public sealed class TableFirstVisibleMetricsTests
         StringAssert.Contains(message, "visibleCellCount=5000");
         StringAssert.Contains(message, "firstRenderMs=80");
         StringAssert.Contains(message, "renderWorkMs=-1");
-        StringAssert.Contains(message, "textCacheHitRate=-1");
+        StringAssert.Contains(message, "textCacheHitRate=0.5");
         StringAssert.Contains(message, "stateLogMs=1");
     }
 }

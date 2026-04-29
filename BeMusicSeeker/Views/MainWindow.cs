@@ -1103,7 +1103,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             e.VisibleCellCount,
             e.FirstRenderMs,
             e.RenderWorkMs,
-            -1d,
+            e.TextCacheHitRate,
             stateLogMs,
             timing);
         installPerformanceLogger.Info(TableFirstVisibleLogFormatter.Format(metrics));
