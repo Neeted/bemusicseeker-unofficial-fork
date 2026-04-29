@@ -4465,6 +4465,8 @@ public class MainWindowViewModel : ViewModel
 
     private bool _IsStartupProgressActive;
 
+    private bool _IsStartupUiInteractionBlocked;
+
     private string _StartupProgressLabel = string.Empty;
 
     private string _StartupProgressSubLabel = string.Empty;
@@ -6274,6 +6276,7 @@ public class MainWindowViewModel : ViewModel
         LogUiSuppression("startup_ready_operable elapsedMs=" + startupReadyOperableStopwatch.ElapsedMilliseconds);
         startupReadyOperableStopwatch = null;
         startupReadyOperableReached = true;
+        SetStartupUiInteractionBlocked(false);
         MarkStartupProgressPhaseCompleted(StartupProgressPhase.StartupReadyOperable);
         StartStartupBackgroundTaskScheduler();
     }
@@ -7584,6 +7587,24 @@ public class MainWindowViewModel : ViewModel
         {
             return _UseAsyncBMSFilesViewBinding;
         }
+    }
+
+    public bool IsStartupUiInteractionBlocked
+    {
+        get
+        {
+            return _IsStartupUiInteractionBlocked;
+        }
+    }
+
+    internal void SetStartupUiInteractionBlocked(bool value)
+    {
+        if (_IsStartupUiInteractionBlocked == value)
+        {
+            return;
+        }
+        _IsStartupUiInteractionBlocked = value;
+        RaisePropertyChanged("IsStartupUiInteractionBlocked");
     }
 
     /// <summary>
@@ -9204,6 +9225,7 @@ public class MainWindowViewModel : ViewModel
     public async void Initialize()
     {
         await _semaphore.WaitAsync();
+        SetStartupUiInteractionBlocked(true);
         LogInitStage("start", "Initialize");
         initializationCompleted = false;
         _ = string.Empty;
@@ -9220,6 +9242,7 @@ public class MainWindowViewModel : ViewModel
                 DispatcherMessageBox.Show(BeMusicSeeker.Properties.Resources.Msg_init_settings_check, BeMusicSeeker.Properties.Resources.Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
             }
             _semaphore.Release();
+            SetStartupUiInteractionBlocked(false);
             base.Messenger.Raise(new InteractionMessage("InitializationException"));
             return;
         }
@@ -9228,6 +9251,7 @@ public class MainWindowViewModel : ViewModel
             if (Settings.Default.OperationModeLR2DB && !EnsureBmsonMigrationApprovedForStartup())
             {
                 _semaphore.Release();
+                SetStartupUiInteractionBlocked(false);
                 return;
             }
         }
@@ -9238,6 +9262,7 @@ public class MainWindowViewModel : ViewModel
             string text2 = Assembly.GetEntryAssembly().GetName().Version.ToString();
             currentClassLogger.Error(ex, text2 + " - " + Environment.NewLine + ex.ToString(), null);
             _semaphore.Release();
+            SetStartupUiInteractionBlocked(false);
             base.Messenger.Raise(new InteractionMessage("InitializationException"));
             return;
         }
@@ -9288,6 +9313,7 @@ public class MainWindowViewModel : ViewModel
             string text3 = Assembly.GetEntryAssembly().GetName().Version.ToString();
             currentClassLogger.Error(ex, text3 + " - " + Environment.NewLine + ex.ToString(), null);
             _semaphore.Release();
+            SetStartupUiInteractionBlocked(false);
             base.Messenger.Raise(new InteractionMessage("InitializationException"));
             return;
         }
@@ -12403,6 +12429,7 @@ public class MainWindowViewModel : ViewModel
     /// <param name="subLabel">失敗時に表示する補足文言。</param>
     private void FailStartupProgressOperation(string subLabel)
     {
+        SetStartupUiInteractionBlocked(false);
         lock (startupProgressLock)
         {
             if (!startupProgressState.IsActive)

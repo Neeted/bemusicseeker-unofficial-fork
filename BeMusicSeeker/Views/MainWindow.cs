@@ -65,6 +65,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private DispatcherOperation _playlistSummarySortGlyphRefreshOperation;
 
+    private bool _isClosingOrClosed;
+
+    private ContextMenu _lastOpenedContextMenu;
+
     private bool _mainDataGridUsesAsyncBinding = true;
 
     private MainWindowViewModel _mainWindowViewModelForDataGridBinding;
@@ -135,6 +139,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     private MainWindowViewModel _duplicateGroupAutoSelectHandlerOwner;
 
     private bool startupInitialSelectionApplied;
+
+    private PropertyChangedEventHandler _startupInitialSelectionReadyHandler;
 
     private bool _pendingInstallDestinationSelectionCommitInProgress;
 
@@ -293,8 +299,42 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
+        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
+        if (viewModel != null && viewModel.IsStartupUiInteractionBlocked)
+        {
+            QueueStartupInitialSelectionUntilOperable(viewModel);
+            return;
+        }
+        ApplyStartupInitialSelectionNow();
+    }
+
+    private void QueueStartupInitialSelectionUntilOperable(MainWindowViewModel viewModel)
+    {
+        if (_startupInitialSelectionReadyHandler != null)
+        {
+            return;
+        }
+        _startupInitialSelectionReadyHandler = delegate(object _, PropertyChangedEventArgs args)
+        {
+            if (args == null || args.PropertyName != "IsStartupUiInteractionBlocked" || viewModel.IsStartupUiInteractionBlocked)
+            {
+                return;
+            }
+            viewModel.PropertyChanged -= _startupInitialSelectionReadyHandler;
+            _startupInitialSelectionReadyHandler = null;
+            ApplyStartupInitialSelectionNow();
+        };
+        viewModel.PropertyChanged += _startupInitialSelectionReadyHandler;
+    }
+
+    private void ApplyStartupInitialSelectionNow()
+    {
         Dispatcher.BeginInvoke(DispatcherPriority.ContextIdle, (Action)delegate
         {
+            if (_isClosingOrClosed)
+            {
+                return;
+            }
             if (treeViewItemInstall != null)
             {
                 treeViewItemInstall.IsExpanded = true;
@@ -350,6 +390,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             {
                 Dispatcher.BeginInvoke(DispatcherPriority.Background, (Action)delegate
                 {
+                    if (_isClosingOrClosed)
+                    {
+                        return;
+                    }
                     ApplyMainDataGridItemsSourceBinding(forceRebind: false);
                 });
             }
@@ -413,6 +457,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             Dispatcher.BeginInvoke(DispatcherPriority.Background, (Action)delegate
             {
+                if (_isClosingOrClosed)
+                {
+                    return;
+                }
                 PreparePlaylistDataGridSwap(effectiveDataGrid);
             });
             return;
@@ -443,6 +491,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         SchedulePlaylistRetentionCheckpoint(effectiveDataGrid, "prepare_swap");
         Dispatcher.BeginInvoke(DispatcherPriority.Background, (Action)delegate
         {
+            if (_isClosingOrClosed)
+            {
+                return;
+            }
             ApplyMainDataGridItemsSourceBinding(forceRebind: false);
         });
     }
@@ -494,12 +546,20 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         long viewGenerationId = viewModel.PlaylistAdoptedViewGenerationId;
         Dispatcher.BeginInvoke(DispatcherPriority.Render, (Action)delegate
         {
+            if (_isClosingOrClosed)
+            {
+                return;
+            }
             LogPlaylistDataGridState(eventName + "_render", targetDataGrid, "scheduledSourceGenerationId=" + sourceGenerationId + " scheduledViewGenerationId=" + viewGenerationId);
             viewModel.TryLogPlaylistOpenVisibleCompleted(eventName + "_render", sourceGenerationId, viewGenerationId);
             viewModel.LogPlaylistUiRetentionCheckpoint(eventName + "_render", sourceGenerationId, viewGenerationId);
         });
         Dispatcher.BeginInvoke(DispatcherPriority.ContextIdle, (Action)delegate
         {
+            if (_isClosingOrClosed)
+            {
+                return;
+            }
             LogPlaylistDataGridState(eventName + "_idle", targetDataGrid, "scheduledSourceGenerationId=" + sourceGenerationId + " scheduledViewGenerationId=" + viewGenerationId);
             viewModel.LogPlaylistUiRetentionCheckpoint(eventName + "_idle", sourceGenerationId, viewGenerationId);
         });
@@ -657,13 +717,95 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     /// <param name="e">キャンセル可能なイベントデータ。</param>
     protected override void OnClosing(CancelEventArgs e)
     {
+        _isClosingOrClosed = true;
+        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
+        if (viewModel != null && _startupInitialSelectionReadyHandler != null)
+        {
+            viewModel.PropertyChanged -= _startupInitialSelectionReadyHandler;
+            _startupInitialSelectionReadyHandler = null;
+        }
+        viewModel?.SetStartupUiInteractionBlocked(false);
+        AbortSortGlyphRefreshOperation(dataGrid);
+        AbortSortGlyphRefreshOperation(dataGridPlaylistSummary);
+        calcelAllContextMenuTasks();
+        CloseContextMenuIfOpen(_lastOpenedContextMenu);
+        CloseContextMenuIfOpen(dataGrid?.ContextMenu);
+        CloseContextMenuIfOpen(dataGridPlaylistSummary?.ContextMenu);
         base.OnClosing(e);
         DetachMainDataGridBindingOwner();
-        Settings.Default.TreeViewWidth = treeView.ActualWidth + gridSplitter.ActualWidth;
-        Win32API.WINDOWPLACEMENT lpwndpl = default(Win32API.WINDOWPLACEMENT);
-        Win32API.GetWindowPlacement(new WindowInteropHelper(this).Handle, ref lpwndpl);
-        Settings.Default.WindowPlacement = lpwndpl;
-        Settings.Default.Save();
+        try
+        {
+            Settings.Default.TreeViewWidth = treeView.ActualWidth + gridSplitter.ActualWidth;
+        }
+        catch (Exception ex)
+        {
+            NLogWrapper.FileLogger?.Warn("Failed to save tree view width: " + ex.Message);
+        }
+        try
+        {
+            Win32API.WINDOWPLACEMENT lpwndpl = default(Win32API.WINDOWPLACEMENT);
+            Win32API.GetWindowPlacement(new WindowInteropHelper(this).Handle, ref lpwndpl);
+            Settings.Default.WindowPlacement = lpwndpl;
+        }
+        catch (Exception ex)
+        {
+            NLogWrapper.FileLogger?.Warn("Failed to save window placement: " + ex.Message);
+        }
+        try
+        {
+            Settings.Default.Save();
+        }
+        catch (Exception ex)
+        {
+            NLogWrapper.FileLogger?.Warn("Failed to save settings on closing: " + ex.Message);
+        }
+    }
+
+    private void AbortSortGlyphRefreshOperation(DataGrid targetDataGrid)
+    {
+        if (targetDataGrid == null)
+        {
+            return;
+        }
+        DispatcherOperation operation = GetSortGlyphRefreshOperation(targetDataGrid);
+        if (operation == null)
+        {
+            return;
+        }
+        if (operation.Status == DispatcherOperationStatus.Pending || operation.Status == DispatcherOperationStatus.Executing)
+        {
+            operation.Abort();
+        }
+        SetSortGlyphRefreshOperation(targetDataGrid, null);
+    }
+
+    private static void CloseContextMenuIfOpen(ContextMenu contextMenu)
+    {
+        if (contextMenu != null && contextMenu.IsOpen)
+        {
+            contextMenu.IsOpen = false;
+        }
+    }
+
+    private bool ShouldBlockStartupUiInteraction(string action)
+    {
+        if (_isClosingOrClosed)
+        {
+            LogStartupUiBlocked(action, "closing");
+            return true;
+        }
+        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
+        if (viewModel != null && viewModel.IsStartupUiInteractionBlocked)
+        {
+            LogStartupUiBlocked(action, "startup");
+            return true;
+        }
+        return false;
+    }
+
+    private static void LogStartupUiBlocked(string action, string reason)
+    {
+        installPerformanceLogger?.Info("startup_ui_blocked action=" + action + " reason=" + reason);
     }
 
     /// <summary>
@@ -674,6 +816,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     private async void dataGridSorting(object sender, DataGridSortingEventArgs e)
     {
         e.Handled = true;
+        if (ShouldBlockStartupUiInteraction("datagrid_sort"))
+        {
+            return;
+        }
         if (!(sender is DataGrid dataGrid))
         {
             return;
@@ -711,6 +857,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     private async void dataGridPlaylistSummarySorting(object sender, DataGridSortingEventArgs e)
     {
         e.Handled = true;
+        if (ShouldBlockStartupUiInteraction("playlist_summary_sort"))
+        {
+            return;
+        }
         if (!(sender is DataGrid dataGrid))
         {
             return;
@@ -785,8 +935,16 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             base.Dispatcher.BeginInvoke((Action)delegate
             {
+                if (_isClosingOrClosed)
+                {
+                    return;
+                }
                 RequestSortGlyphRefresh(dataGrid, trigger);
             }, DispatcherPriority.Normal);
+            return;
+        }
+        if (_isClosingOrClosed)
+        {
             return;
         }
         DispatcherOperation currentOperation = GetSortGlyphRefreshOperation(dataGrid);
@@ -829,6 +987,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         scheduledOperation = base.Dispatcher.BeginInvoke((Action)delegate
         {
+            if (_isClosingOrClosed)
+            {
+                return;
+            }
             if (ReferenceEquals(GetSortGlyphRefreshOperation(dataGrid), scheduledOperation))
             {
                 SetSortGlyphRefreshOperation(dataGrid, null);
@@ -850,6 +1012,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             }
             base.Dispatcher.BeginInvoke((Action)delegate
             {
+                if (_isClosingOrClosed)
+                {
+                    return;
+                }
                 bool appliedAtRender = ApplySortGlyphNow(dataGrid, requestId, raiseRequestId, trigger + "_render", logWhenTargetMissing: true);
                 if (isMainDataGrid && playlistViewGenerationId > 0L)
                 {
@@ -990,6 +1156,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void dataGridInitializeColumnSetting(object sender, RoutedEventArgs e)
     {
+        if (ShouldBlockStartupUiInteraction("column_setting_initialize"))
+        {
+            e.Handled = true;
+            return;
+        }
         if (base.DataContext is MainWindowViewModel mainWindowViewModel)
         {
             e.Handled = true;
@@ -1009,6 +1180,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     {
         base.Dispatcher.BeginInvoke((Action)delegate
         {
+            if (_isClosingOrClosed)
+            {
+                return;
+            }
             try
             {
                 MainWindowViewModel mainWindowViewModel = base.DataContext as MainWindowViewModel;
@@ -1033,6 +1208,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     {
         base.Dispatcher.BeginInvoke((Action)delegate
         {
+            if (_isClosingOrClosed)
+            {
+                return;
+            }
             _ = base.DataContext;
             _ = new DataGridColumn[dataGrid.Columns.Count];
             foreach (var item in dataGrid.Columns.Where((DataGridColumn col) => BindingOperations.GetBinding(col, DataGridColumn.WidthProperty) != null).OrderBy(delegate (DataGridColumn col)
@@ -1087,6 +1266,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     {
         base.Dispatcher.BeginInvoke((Action)delegate
         {
+            if (_isClosingOrClosed)
+            {
+                return;
+            }
             _ = base.DataContext;
             dataGridColumnDummyLast.DisplayIndex = dataGrid.Columns.Count - 1;
             dataGridColumnDummyFill.DisplayIndex = dataGrid.Columns.Count - 2;
@@ -1113,6 +1296,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     {
         base.Dispatcher.BeginInvoke((Action)delegate
         {
+            if (_isClosingOrClosed)
+            {
+                return;
+            }
             foreach (var item in (from c in dataGridPlaylistSummary.Columns
                                   where c != null
                                   orderby c.DisplayIndex
@@ -1131,6 +1318,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     {
         base.Dispatcher.BeginInvoke((Action)delegate
         {
+            if (_isClosingOrClosed)
+            {
+                return;
+            }
             foreach (var item in dataGridPlaylistSummary.Columns.Where((DataGridColumn col) => BindingOperations.GetBinding(col, DataGridColumn.WidthProperty) != null).OrderBy(delegate (DataGridColumn col)
             {
                 Binding binding = BindingOperations.GetBinding(col, DataGridColumn.WidthProperty);
@@ -1229,6 +1420,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private async void dataGridRowDoubleClicked(object sender, MouseButtonEventArgs e)
     {
+        if (ShouldBlockStartupUiInteraction("datagrid_row_double_click"))
+        {
+            e.Handled = true;
+            return;
+        }
         if (!(sender is DataGridRow dataGridRow))
         {
             return;
@@ -1463,6 +1659,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void dataGridPreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)
     {
+        if (ShouldBlockStartupUiInteraction("datagrid_row_context_menu"))
+        {
+            e.Handled = true;
+            return;
+        }
         if (!TryGetDataGridRowFromSource(e.OriginalSource, out DataGridRow dataGridRow, out object row))
         {
             return;
@@ -1495,12 +1696,25 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void dataGridRowContextMenuOpening(object sender, ContextMenuEventArgs e)
     {
+        if (ShouldBlockStartupUiInteraction("datagrid_row_context_menu"))
+        {
+            e.Handled = true;
+            return;
+        }
         if (!(sender is DataGridRow dataGridRow))
         {
             return;
         }
         object row = dataGridRow.DataContext;
         TryAssignDataGridContextMenu(dataGridRow, row, "playlist_context_menu_assign", out _);
+    }
+
+    private void dataGridColumnHeaderContextMenuOpening(object sender, ContextMenuEventArgs e)
+    {
+        if (ShouldBlockStartupUiInteraction("column_header_context_menu"))
+        {
+            e.Handled = true;
+        }
     }
 
     /// <summary>
@@ -1595,6 +1809,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void dataGridCellBeginningEdit(object sender, DataGridBeginningEditEventArgs e)
     {
+        if (ShouldBlockStartupUiInteraction("datagrid_cell_beginning_edit"))
+        {
+            e.Cancel = true;
+            return;
+        }
         object row = e.Row.DataContext;
         BMSTableEntry playlistEntry = GridRowResolver.GetPlaylistEntry(row);
         BMSFile bMSFile = GridRowResolver.GetOperationBmsFile(row);
@@ -1668,6 +1887,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void dataGridCellEditEnding(object sender, DataGridCellEditEndingEventArgs e)
     {
+        if (ShouldBlockStartupUiInteraction("datagrid_cell_edit_ending"))
+        {
+            return;
+        }
         object row = e.Row.DataContext;
         PlaylistDetailRow playlistRow = row as PlaylistDetailRow;
         BMSFile bmsFile = GridRowResolver.GetOperationBmsFile(row);
@@ -1731,6 +1954,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 viewModel.SyncPlaylistSourceRowFromEditedViewRow(playlistRow);
                 base.Dispatcher.BeginInvoke((Action)async delegate
                 {
+                    if (_isClosingOrClosed)
+                    {
+                        return;
+                    }
                     await Task.Run(delegate
                     {
                         viewModel.CommitPlaylistRow(playlistRow);
@@ -1741,6 +1968,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             {
                 base.Dispatcher.BeginInvoke((Action)delegate
                 {
+                    if (_isClosingOrClosed)
+                    {
+                        return;
+                    }
                     viewModel.NotifyPlaylistCellEditCompleted();
                 }, DispatcherPriority.Background);
             }
@@ -1776,12 +2007,20 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                       {
                           base.Dispatcher.BeginInvoke((Action)delegate
                           {
+                              if (_isClosingOrClosed)
+                              {
+                                  return;
+                              }
                               RestorePendingInstallDestinationEditState(bmsFile, originalState);
                           }, DispatcherPriority.Background);
                           return;
                       }
                       base.Dispatcher.BeginInvoke((Action)delegate
                       {
+                          if (_isClosingOrClosed)
+                          {
+                              return;
+                          }
                           ClearPendingInstallDestinationEditState(bmsFile);
                       }, DispatcherPriority.Background);
                   }).Logging("dataGridCellEditEnding");
@@ -1810,6 +2049,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         base.Dispatcher.BeginInvoke((Action)delegate
         {
+            if (_isClosingOrClosed)
+            {
+                return;
+            }
             bmsFile.IsInstallDestinationSuggestionPopupOpen = bmsFile.HasInstallDestinationSuggestions;
         }, DispatcherPriority.Input);
     }
@@ -2314,6 +2557,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             bool succeeded = viewModel.SetPendingInstallDestination(bmsFile, destinationDirectory);
             base.Dispatcher.BeginInvoke((Action)delegate
             {
+                if (_isClosingOrClosed)
+                {
+                    return;
+                }
                 _pendingInstallDestinationSelectionCommitInProgress = false;
                 if (!succeeded)
                 {
@@ -2453,6 +2700,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private async void dataGridCellOpenURLClick(object sender, MouseButtonEventArgs e)
     {
+        if (ShouldBlockStartupUiInteraction("datagrid_cell_open_url"))
+        {
+            e.Handled = true;
+            return;
+        }
         if (!(sender is TextBlock textBlock))
         {
             return;
@@ -2487,6 +2739,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private async void dataGridCellOpenURLDiffClick(object sender, MouseButtonEventArgs e)
     {
+        if (ShouldBlockStartupUiInteraction("datagrid_cell_open_url_diff"))
+        {
+            e.Handled = true;
+            return;
+        }
         if (!(sender is TextBlock textBlock))
         {
             return;
@@ -2527,6 +2784,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     private void playlistRootSelect(object sender, RoutedEventArgs e)
     {
         e.Handled = true;
+        if (ShouldBlockStartupUiInteraction("tree_playlist_root_select"))
+        {
+            return;
+        }
         if (e.Source is TreeViewItem)
         {
             MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
@@ -3010,6 +3271,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void directoryFolderSelect(object sender, RoutedEventArgs e)
     {
+        if (ShouldBlockStartupUiInteraction("tree_directory_folder_select"))
+        {
+            e.Handled = true;
+            return;
+        }
         if (e.Source is TreeViewItem treeViewItem)
         {
             (base.DataContext as MainWindowViewModel).ExecFolderFilter(MainWindowViewModel.FolderFilterType.DirectoryFilter, treeViewItem.Header.ToString());
@@ -3019,6 +3285,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void artistFolderSelect(object sender, RoutedEventArgs e)
     {
+        if (ShouldBlockStartupUiInteraction("tree_artist_folder_select"))
+        {
+            e.Handled = true;
+            return;
+        }
         if (e.Source is TreeViewItem treeViewItem)
         {
             (base.DataContext as MainWindowViewModel).ExecFolderFilter(MainWindowViewModel.FolderFilterType.ArtistFilter, treeViewItem.Header.ToString());
@@ -3028,6 +3299,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void rootFolderSelect(object sender, RoutedEventArgs e)
     {
+        if (ShouldBlockStartupUiInteraction("tree_root_folder_select"))
+        {
+            e.Handled = true;
+            return;
+        }
         if (e.OriginalSource is TreeViewItem)
         {
             (base.DataContext as MainWindowViewModel).ExecFolderFilter(MainWindowViewModel.FolderFilterType.FilterNone);
@@ -3066,6 +3342,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     /// <param name="e">マウス入力情報。</param>
     private void playlistSummaryRowDoubleClicked(object sender, MouseButtonEventArgs e)
     {
+        if (ShouldBlockStartupUiInteraction("playlist_summary_row_double_click"))
+        {
+            e.Handled = true;
+            return;
+        }
         if (e.ChangedButton != MouseButton.Left || !(sender is DataGridRow { DataContext: PlaylistSummaryRow playlistSummaryRow }) || playlistSummaryRow.TableRef == null)
         {
             return;
@@ -3428,6 +3709,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private async void fullScanCheckFolderSelect(object sender, RoutedEventArgs e)
     {
+        if (ShouldBlockStartupUiInteraction("tree_full_scan_check_select"))
+        {
+            e.Handled = true;
+            return;
+        }
         TreeViewItem treeRoot = sender as TreeViewItem;
         MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
         if (viewModel != null && treeRoot != null)
@@ -3443,6 +3729,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private async void fullScanAllChartsFolderSelect(object sender, RoutedEventArgs e)
     {
+        if (ShouldBlockStartupUiInteraction("tree_full_scan_all_charts_select"))
+        {
+            e.Handled = true;
+            return;
+        }
         TreeViewItem treeViewItem = sender as TreeViewItem;
         MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
         if (viewModel != null && treeViewItem != null)
@@ -3457,6 +3748,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private async void fullScanCheckIgnoredFolderSelect(object sender, RoutedEventArgs e)
     {
+        if (ShouldBlockStartupUiInteraction("tree_full_scan_ignored_select"))
+        {
+            e.Handled = true;
+            return;
+        }
         TreeViewItem treeViewItem = sender as TreeViewItem;
         MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
         if (viewModel != null && treeViewItem != null)
@@ -3471,6 +3767,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private async void dupulicateFileCheckFolderSelect(object sender, RoutedEventArgs e)
     {
+        if (ShouldBlockStartupUiInteraction("tree_duplicate_file_check_select"))
+        {
+            e.Handled = true;
+            return;
+        }
         MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
         TreeViewItem treeRoot = sender as TreeViewItem;
         TreeViewItem treeViewItem = e.OriginalSource as TreeViewItem;
@@ -3513,6 +3814,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private async void garbledCheckFolderSelect(object sender, RoutedEventArgs e)
     {
+        if (ShouldBlockStartupUiInteraction("tree_garbled_check_select"))
+        {
+            e.Handled = true;
+            return;
+        }
         TreeViewItem treeRoot = sender as TreeViewItem;
         MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
         if (viewModel != null && treeRoot != null)
@@ -3528,6 +3834,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private async void garbleFixedFolderSelect(object sender, RoutedEventArgs e)
     {
+        if (ShouldBlockStartupUiInteraction("tree_garble_fixed_select"))
+        {
+            e.Handled = true;
+            return;
+        }
         TreeViewItem treeRoot = sender as TreeViewItem;
         MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
         if (viewModel != null && treeRoot != null)
@@ -3543,6 +3854,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private async void unregisteredToDBFolderSelect(object sender, RoutedEventArgs e)
     {
+        if (ShouldBlockStartupUiInteraction("tree_unregistered_to_db_select"))
+        {
+            e.Handled = true;
+            return;
+        }
         MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
         e.Handled = true;
         await Task.Run(delegate
@@ -3553,6 +3869,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private async void zeronoteFolderSelect(object sender, RoutedEventArgs e)
     {
+        if (ShouldBlockStartupUiInteraction("tree_zero_note_select"))
+        {
+            e.Handled = true;
+            return;
+        }
         MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
         e.Handled = true;
         await Task.Run(delegate
@@ -3575,6 +3896,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private async void newlyInstalledFolderSelect(object sender, RoutedEventArgs e)
     {
+        if (ShouldBlockStartupUiInteraction("tree_newly_installed_select"))
+        {
+            e.Handled = true;
+            return;
+        }
         MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
         TreeViewItem treeRoot = sender as TreeViewItem;
         TreeViewItem treeViewItem = e.OriginalSource as TreeViewItem;
@@ -3604,6 +3930,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private async void pendingInstallFolderSelect(object sender, RoutedEventArgs e)
     {
+        if (ShouldBlockStartupUiInteraction("tree_pending_install_select"))
+        {
+            e.Handled = true;
+            return;
+        }
         MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
         TreeViewItem treeRoot = sender as TreeViewItem;
         TreeViewItem treeViewItem = e.OriginalSource as TreeViewItem;
@@ -4976,6 +5307,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             {
                 Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(delegate
                 {
+                    if (_isClosingOrClosed)
+                    {
+                        return;
+                    }
                     _ = AttemptAutoSelectAsync("property_changed");
                 }));
             }
@@ -4993,6 +5328,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             }
             await Dispatcher.InvokeAsync(async delegate
             {
+                if (_isClosingOrClosed)
+                {
+                    return;
+                }
                 if (completed || requestVersion != _duplicateGroupAutoSelectRequestVersion)
                 {
                     return;
@@ -5241,6 +5580,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         // メニューが開いた後にサブメニューを展開する
         Dispatcher.BeginInvoke(DispatcherPriority.Input, new Action(() =>
         {
+            if (_isClosingOrClosed)
+            {
+                return;
+            }
             foreach (Control item in (IEnumerable)contextMenu.Items)
             {
                 if (item.Name == "treeViewDuplicateFolderContextMenuItemMergeInto" && item is MenuItem mergeMenuItem)
@@ -5273,11 +5616,17 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void dataGridContextMenuOpened(object sender, RoutedEventArgs e)
     {
+        if (ShouldBlockStartupUiInteraction("datagrid_context_menu_opened"))
+        {
+            e.Handled = true;
+            return;
+        }
         if (!TryGetContextMenuRow(sender, out ContextMenu contextMenu, out DataGridRow placementTarget, out object row))
         {
             NLogWrapper.FileLogger?.Info("playlist_context_menu rowResolve=False sourceType=" + sender?.GetType().FullName);
             return;
         }
+        _lastOpenedContextMenu = contextMenu;
         bool isPlaylistRow = GridRowResolver.IsPlaylistRow(row);
         Uri rowUrl = GridRowResolver.GetUrl(row);
         Uri rowUrlDiff = GridRowResolver.GetUrlDiff(row);
@@ -5526,7 +5875,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                         {
                             base.Dispatcher.BeginInvoke((Action)delegate
                             {
-                                if (!token.IsCancellationRequested)
+                                if (!token.IsCancellationRequested && !_isClosingOrClosed)
                                 {
                                     menuItemOpenDocument.ItemsSource = list2;
                                     menuItemOpenDocument.IsEnabled = true;
@@ -5538,7 +5887,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                     {
                         base.Dispatcher.BeginInvoke((Action)delegate
                         {
-                            if (!token.IsCancellationRequested)
+                            if (!token.IsCancellationRequested && !_isClosingOrClosed)
                             {
                                 menuItemOpenDocument.Visibility = Visibility.Collapsed;
                             }
@@ -5845,11 +6194,17 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void dataGridContextMenuPlaylistMissingOpened(object sender, RoutedEventArgs e)
     {
+        if (ShouldBlockStartupUiInteraction("datagrid_playlist_missing_context_menu_opened"))
+        {
+            e.Handled = true;
+            return;
+        }
         if (!TryGetContextMenuRow(sender, out ContextMenu contextMenu, out DataGridRow placementTarget, out object row))
         {
             NLogWrapper.FileLogger?.Info("playlist_missing_context_menu rowResolve=False sourceType=" + sender?.GetType().FullName);
             return;
         }
+        _lastOpenedContextMenu = contextMenu;
         MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
         BMSTableEntry entry = GridRowResolver.GetPlaylistEntry(row);
         Uri rowUrl = GridRowResolver.GetUrl(row);
@@ -6172,6 +6527,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void dataGridContextMenuOpenVideoSubmenuOpened(object sender, RoutedEventArgs e)
     {
+        if (ShouldBlockStartupUiInteraction("datagrid_context_menu_open_video"))
+        {
+            e.Handled = true;
+            return;
+        }
         if (!(sender is MenuItem { Parent: ContextMenu { PlacementTarget: DataGridRow placementTarget } } menuItem))
         {
             return;
@@ -6257,7 +6617,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                     {
                         base.Dispatcher.BeginInvoke((Action)delegate
                         {
-                            if (!token.IsCancellationRequested)
+                            if (!token.IsCancellationRequested && !_isClosingOrClosed)
                             {
                                 if (found)
                                 {
@@ -6274,7 +6634,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                     {
                         base.Dispatcher.BeginInvoke((Action)delegate
                         {
-                            if (!token.IsCancellationRequested)
+                            if (!token.IsCancellationRequested && !_isClosingOrClosed)
                             {
                                 menuItemOpenVideoSubmenuYouTube.IsEnabled = true;
                                 menuItemOpenVideoSubmenuYouTube.Visibility = Visibility.Visible;
@@ -6286,7 +6646,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                     {
                         base.Dispatcher.BeginInvoke((Action)delegate
                         {
-                            if (!token.IsCancellationRequested)
+                            if (!token.IsCancellationRequested && !_isClosingOrClosed)
                             {
                                 menuItemOpenVideoSubmenuNiconico.IsEnabled = true;
                                 menuItemOpenVideoSubmenuNiconico.Visibility = Visibility.Visible;
@@ -6299,7 +6659,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 {
                     base.Dispatcher.BeginInvoke((Action)delegate
                     {
-                        if (!token.IsCancellationRequested)
+                        if (!token.IsCancellationRequested && !_isClosingOrClosed)
                         {
                             menuItemOpenVideoSubmenuStatus.Header = BeMusicSeeker.Properties.Resources.Unregistered;
                         }
@@ -6403,6 +6763,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void dataGridContextMenuSearchLinkOpened(object sender, RoutedEventArgs e)
     {
+        if (ShouldBlockStartupUiInteraction("datagrid_context_menu_search_link"))
+        {
+            e.Handled = true;
+            return;
+        }
         MenuItem menuItem = sender as MenuItem;
         if (menuItem == null || !(menuItem.Parent is ContextMenu { PlacementTarget: DataGridRow placementTarget }))
         {
@@ -6543,7 +6908,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 {
                     base.Dispatcher.BeginInvoke((Action)delegate
                     {
-                        if (!token.IsCancellationRequested)
+                        if (!token.IsCancellationRequested && !_isClosingOrClosed)
                         {
                             List<MenuItem> list = (from f in subMenuItemCreateFuncs
                                                    select f() into i
@@ -7759,6 +8124,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     /// </summary>
     private async void dataGridKeyDown(object sender, KeyEventArgs e)
     {
+        if (ShouldBlockStartupUiInteraction("datagrid_key_down"))
+        {
+            e.Handled = true;
+            return;
+        }
         if (!(sender is DataGrid dataGrid))
         {
             return;
@@ -7817,6 +8187,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void showBMSPlayerPanel()
     {
+        if (_isClosingOrClosed)
+        {
+            return;
+        }
         if (windowsFormsHost != null)
         {
             MultiBinding parentMultiBinding = BindingOperations.GetMultiBindingExpression(windowsFormsHost, UIElement.VisibilityProperty).ParentMultiBinding;
@@ -7827,20 +8201,50 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     public void tryShowBMSPlayerPanel()
     {
+        if (_isClosingOrClosed)
+        {
+            return;
+        }
         if (NowPanelState == MainWindowViewModel.PanelState.BMS_PLAYER)
         {
             showBMSPlayerPanel();
         }
-        if (!(new WindowInteropHelper(this).Handle == Win32API.GetForegroundWindow()))
+        IntPtr handle;
+        try
+        {
+            handle = new WindowInteropHelper(this).Handle;
+        }
+        catch
+        {
+            return;
+        }
+        if (!(handle == Win32API.GetForegroundWindow()))
         {
             return;
         }
         base.Dispatcher.BeginInvoke(DispatcherPriority.Input, (Action)async delegate
         {
+            if (_isClosingOrClosed)
+            {
+                return;
+            }
             for (int i = 1; i <= 10; i++)
             {
+                if (_isClosingOrClosed)
+                {
+                    break;
+                }
                 NLogWrapper.DebuggerLogger?.Trace("try to set focus on datagrid row");
-                if (!(new WindowInteropHelper(this).Handle == Win32API.GetForegroundWindow()))
+                IntPtr currentHandle;
+                try
+                {
+                    currentHandle = new WindowInteropHelper(this).Handle;
+                }
+                catch
+                {
+                    break;
+                }
+                if (!(currentHandle == Win32API.GetForegroundWindow()))
                 {
                     break;
                 }
@@ -7852,6 +8256,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void showBrowserPanel()
     {
+        if (_isClosingOrClosed)
+        {
+            return;
+        }
         if (webBrowser != null)
         {
             MultiBinding parentMultiBinding = BindingOperations.GetMultiBindingExpression(webBrowser, UIElement.VisibilityProperty).ParentMultiBinding;
@@ -7862,6 +8270,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     public void tryShowBrowserPanel()
     {
+        if (_isClosingOrClosed)
+        {
+            return;
+        }
         if (NowPanelState == MainWindowViewModel.PanelState.MOVIE_PLAYER)
         {
             showBrowserPanel();
@@ -7870,6 +8282,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void collapseBMSPlayerPanel()
     {
+        if (_isClosingOrClosed)
+        {
+            return;
+        }
         if (windowsFormsHost != null)
         {
             MultiBinding parentMultiBinding = BindingOperations.GetMultiBindingExpression(windowsFormsHost, UIElement.VisibilityProperty).ParentMultiBinding;
@@ -7880,6 +8296,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void collapseBrowserPanel()
     {
+        if (_isClosingOrClosed)
+        {
+            return;
+        }
         if (webBrowser != null)
         {
             MultiBinding parentMultiBinding = BindingOperations.GetMultiBindingExpression(webBrowser, UIElement.VisibilityProperty).ParentMultiBinding;
@@ -7912,12 +8332,20 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     {
         base.Dispatcher.BeginInvoke((Action)delegate
         {
+            if (_isClosingOrClosed)
+            {
+                return;
+            }
             gridBMSPlayerControlsRotatePanelStateButtonClicked(null, null);
         }, DispatcherPriority.ContextIdle);
     }
 
     private void gridBMSPlayerControlsRotatePanelStateButtonClicked(object sender = null, RoutedEventArgs e = null)
     {
+        if (_isClosingOrClosed)
+        {
+            return;
+        }
         MainWindowViewModel.PanelState panelState = NowPanelState;
         do
         {

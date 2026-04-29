@@ -384,7 +384,7 @@
           </i:Interaction.Triggers>
         </MenuItem>
       </ContextMenu>
-      <ContextMenu x:Key="dataGridColumnHeaderContextMenu">
+      <ContextMenu x:Key="dataGridColumnHeaderContextMenu" x:Shared="False">
         <FrameworkElement.Resources>
           <ResourceDictionary>
             <Style x:Key="styleContextMenuLeftAlignment" TargetType="{x:Type MenuItem}">
@@ -449,7 +449,7 @@
         <Separator />
         <MenuItem Style="{StaticResource styleContextMenuLeftAlignment}" StaysOpenOnClick="False" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Init_column_setting, Mode=OneWay}" Click="dataGridInitializeColumnSetting" />
       </ContextMenu>
-      <ContextMenu x:Key="playlistSummaryColumnHeaderContextMenu">
+      <ContextMenu x:Key="playlistSummaryColumnHeaderContextMenu" x:Shared="False">
         <FrameworkElement.Resources>
           <ResourceDictionary>
             <Style x:Key="stylePlaylistSummaryContextMenuLeftAlignment" TargetType="{x:Type MenuItem}">
@@ -2106,6 +2106,7 @@
                 </Style>
                 <Style x:Key="styleDataGridColumnHeaderDefault" TargetType="{x:Type DataGridColumnHeader}">
                   <Setter Property="FrameworkElement.ContextMenu" Value="{StaticResource dataGridColumnHeaderContextMenu}" />
+                  <EventSetter Event="FrameworkElement.ContextMenuOpening" Handler="dataGridColumnHeaderContextMenuOpening" />
                 </Style>
                 <Style x:Key="styleDataGridColumnHeaderCenter" BasedOn="{StaticResource styleDataGridColumnHeaderDefault}" TargetType="{x:Type DataGridColumnHeader}">
                   <Setter Property="TextBlock.TextAlignment" Value="Center" />
@@ -2298,6 +2299,7 @@
                 </Style>
                 <Style x:Key="stylePlaylistSummaryColumnHeaderDefault" TargetType="{x:Type DataGridColumnHeader}">
                   <Setter Property="FrameworkElement.ContextMenu" Value="{StaticResource playlistSummaryColumnHeaderContextMenu}" />
+                  <EventSetter Event="FrameworkElement.ContextMenuOpening" Handler="dataGridColumnHeaderContextMenuOpening" />
                 </Style>
                 <Style x:Key="stylePlaylistSummaryColumnHeaderCenter" BasedOn="{StaticResource stylePlaylistSummaryColumnHeaderDefault}" TargetType="{x:Type DataGridColumnHeader}">
                   <Setter Property="TextBlock.TextAlignment" Value="Center" />
