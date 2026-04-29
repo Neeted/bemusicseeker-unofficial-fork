@@ -10847,12 +10847,7 @@ public class MainWindowViewModel : ViewModel
             loadColumnSetting(ResolvePlaylistColumnSettingMode(filterType));
             columnStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
             stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
-            long callbackRequestId = RaiseCallbackExecSort(mode);
-            callbackStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
-            if (callbackStageMs >= CallbackExecSortSlowLogThresholdMs)
-            {
-                LogMainViewBuild("callback_exec_sort_raise slow request=" + callbackRequestId + " callbackMs=" + callbackStageMs + " enqueued=True threadId=" + Thread.CurrentThread.ManagedThreadId + " thresholdMs=" + CallbackExecSortSlowLogThresholdMs);
-            }
+            callbackStageMs = 0L;
             ReplacePlaylistViewRows(finalRows, request.Identity);
             SetChartRowsView(finalRows);
             TryMarkPlaylistOpenBuildCompleted(request, viewCount);
@@ -10921,12 +10916,7 @@ public class MainWindowViewModel : ViewModel
         loadColumnSetting(ResolvePlaylistColumnSettingMode(request.Identity.FilterType));
         columnStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
         stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
-        long callbackRequestId = RaiseCallbackExecSort(mode);
-        callbackStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
-        if (callbackStageMs >= CallbackExecSortSlowLogThresholdMs)
-        {
-            LogMainViewBuild("callback_exec_sort_raise slow request=" + callbackRequestId + " callbackMs=" + callbackStageMs + " enqueued=True threadId=" + Thread.CurrentThread.ManagedThreadId + " thresholdMs=" + CallbackExecSortSlowLogThresholdMs);
-        }
+        callbackStageMs = 0L;
         ReplacePlaylistViewRows(finalRows, request.Identity);
         SetChartRowsView(finalRows);
         TryMarkPlaylistOpenBuildCompleted(request, viewCount);

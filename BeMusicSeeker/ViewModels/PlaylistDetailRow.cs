@@ -93,6 +93,10 @@ internal sealed class PlaylistDetailRow : NotificationObject
 
     public RankType rank { get; }
 
+    public string ClearDisplayText => ScoreDisplayTextFormatter.FormatClear(clear);
+
+    public string RankDisplayText => ScoreDisplayTextFormatter.FormatRank(rank);
+
     public double? rate { get; }
 
     public double? rateDouble => rate;
@@ -118,6 +122,32 @@ internal sealed class PlaylistDetailRow : NotificationObject
     public string lr2_bmsid { get; }
 
     public string name_diff { get; }
+
+    public string UrlDownloadIconText => url != null && url.IsAbsoluteUri ? "download" : string.Empty;
+
+    public string UrlToolTipText => url != null && url.IsAbsoluteUri ? url.ToString() : null;
+
+    public string UrlDiffDownloadIconText => urlDiff != null && urlDiff.IsAbsoluteUri ? "download" : string.Empty;
+
+    public string UrlDiffToolTipText
+    {
+        get
+        {
+            if (urlDiff == null || !urlDiff.IsAbsoluteUri)
+            {
+                return null;
+            }
+            if (!string.IsNullOrWhiteSpace(name_diff))
+            {
+                if (!name_diff.StartsWith("http://", StringComparison.OrdinalIgnoreCase))
+                {
+                    return name_diff + Environment.NewLine + urlDiff;
+                }
+                return urlDiff.ToString();
+            }
+            return urlDiff.ToString();
+        }
+    }
 
     public string ChartLevelText { get; }
 
@@ -331,6 +361,8 @@ internal sealed class PlaylistDetailRow : NotificationObject
             url = value;
             Entry.Url = value;
             RaisePropertyChanged(nameof(Url));
+            RaisePropertyChanged(nameof(UrlDownloadIconText));
+            RaisePropertyChanged(nameof(UrlToolTipText));
         }
     }
 
@@ -349,6 +381,8 @@ internal sealed class PlaylistDetailRow : NotificationObject
             urlDiff = value;
             Entry.Url_diff = value;
             RaisePropertyChanged(nameof(Url_diff));
+            RaisePropertyChanged(nameof(UrlDiffDownloadIconText));
+            RaisePropertyChanged(nameof(UrlDiffToolTipText));
         }
     }
 

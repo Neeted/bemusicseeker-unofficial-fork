@@ -184,6 +184,10 @@ internal sealed class LibraryChartRow : NotificationObject
 
     public RankType rank => BmsFile?.rank ?? RankType.INVALID;
 
+    public string ClearDisplayText => ScoreDisplayTextFormatter.FormatClear(clear);
+
+    public string RankDisplayText => ScoreDisplayTextFormatter.FormatRank(rank);
+
     public int? score => BmsFile?.score;
 
     public int? rate => BmsFile?.rate;
@@ -299,6 +303,11 @@ internal sealed class LibraryChartRow : NotificationObject
     private void OnSourcePropertyChanged(object sender, PropertyChangedEventArgs e)
     {
         RaisePropertyChanged(e.PropertyName);
+        if (string.IsNullOrEmpty(e.PropertyName) || e.PropertyName == nameof(BMSFile.clear) || e.PropertyName == nameof(BMSFile.rank) || e.PropertyName == nameof(BMSFile.bmsScore))
+        {
+            RaisePropertyChanged(nameof(ClearDisplayText));
+            RaisePropertyChanged(nameof(RankDisplayText));
+        }
     }
 
     private LR2SongDBExtended.bmson_song GetBmsonSong()

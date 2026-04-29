@@ -14,6 +14,8 @@ internal class DragBehavior
 
 	private static readonly DependencyProperty StartPointProperty = DependencyProperty.RegisterAttached("StartPoint", typeof(Point?), typeof(DragBehavior), new PropertyMetadata(null));
 
+	private static readonly DependencyProperty DragSourceRowProperty = DependencyProperty.RegisterAttached("DragSourceRow", typeof(DataGridRow), typeof(DragBehavior), new PropertyMetadata(null));
+
 	private static readonly DependencyProperty DragAdornerProperty = DependencyProperty.RegisterAttached("DragAdorner", typeof(DragAdorner), typeof(DragBehavior), new PropertyMetadata(null));
 
 	[AttachedPropertyBrowsableForType(typeof(UIElement))]
@@ -61,75 +63,88 @@ internal class DragBehavior
 
 	private static void OnPreviewMouseDown(object sender, MouseButtonEventArgs e)
 	{
-		bool handled = true;
-		if (sender is DataGridRow)
+		UIElement uIElement = sender as UIElement;
+		DataGridRow dataGridRow = ResolveDataGridRow(sender, e.OriginalSource);
+		if (uIElement == null || dataGridRow == null)
 		{
-			DataGrid dataGrid = WPFUtil.FindVisualParent<DataGrid>(sender as DataGridRow);
-			if (dataGrid != null)
+			return;
+		}
+		bool handled = true;
+		DataGrid dataGrid = ResolveDataGrid(sender, dataGridRow);
+		if (dataGrid != null)
+		{
+			if (Keyboard.IsKeyDown(Key.LeftCtrl) || Keyboard.IsKeyDown(Key.RightCtrl) || Keyboard.IsKeyDown(Key.LeftShift) || Keyboard.IsKeyDown(Key.RightShift))
 			{
-				if (Keyboard.IsKeyDown(Key.LeftCtrl) || Keyboard.IsKeyDown(Key.RightCtrl) || Keyboard.IsKeyDown(Key.LeftShift) || Keyboard.IsKeyDown(Key.RightShift))
-				{
-					handled = false;
-					dataGrid.SelectionMode = DataGridSelectionMode.Extended;
-				}
-				else if (dataGrid.SelectedItems.Count <= 1 || !dataGrid.GetSelectedRows().Contains(sender))
-				{
-					handled = false;
-					dataGrid.SelectionMode = DataGridSelectionMode.Single;
-				}
-				else if (e.ButtonState == MouseButtonState.Pressed && e.ChangedButton == MouseButton.Right)
-				{
-					handled = false;
-				}
-				NLogWrapper.DebuggerLogger?.Trace(dataGrid.SelectionMode.ToString());
+				handled = false;
+				dataGrid.SelectionMode = DataGridSelectionMode.Extended;
 			}
+			else if (dataGrid.SelectedItems.Count <= 1 || !dataGrid.GetSelectedRows().Contains(dataGridRow))
+			{
+				handled = false;
+				dataGrid.SelectionMode = DataGridSelectionMode.Single;
+			}
+			else if (e.ButtonState == MouseButtonState.Pressed && e.ChangedButton == MouseButton.Right)
+			{
+				handled = false;
+			}
+			NLogWrapper.DebuggerLogger?.Trace(dataGrid.SelectionMode.ToString());
 		}
 		NLogWrapper.DebuggerLogger?.Trace(handled.ToString());
 		e.Handled = handled;
-		UIElement uIElement = sender as UIElement;
 		uIElement.SetValue(StartPointProperty, e.GetPosition(uIElement));
+		uIElement.SetValue(DragSourceRowProperty, dataGridRow);
 	}
 
 	private static void OnPreviewMouseUp(object sender, MouseButtonEventArgs e)
 	{
 		UIElement obj = sender as UIElement;
-		if (sender is DataGridRow)
+		DataGridRow dataGridRow = ResolveDataGridRow(sender, e.OriginalSource) ?? obj?.GetValue(DragSourceRowProperty) as DataGridRow;
+		if (dataGridRow != null)
 		{
-			DataGrid dataGrid = WPFUtil.FindVisualParent<DataGrid>(sender as DataGridRow);
-			if (dataGrid != null && !Keyboard.IsKeyDown(Key.LeftShift) && !Keyboard.IsKeyDown(Key.RightShift) && !Keyboard.IsKeyDown(Key.LeftCtrl) && !Keyboard.IsKeyDown(Key.RightCtrl) && dataGrid.SelectedItems.Count > 1 && dataGrid.GetSelectedRows().Contains(sender) && e.ChangedButton != MouseButton.Right)
+			DataGrid dataGrid = ResolveDataGrid(sender, dataGridRow);
+			if (dataGrid != null && !Keyboard.IsKeyDown(Key.LeftShift) && !Keyboard.IsKeyDown(Key.RightShift) && !Keyboard.IsKeyDown(Key.LeftCtrl) && !Keyboard.IsKeyDown(Key.RightCtrl) && dataGrid.SelectedItems.Count > 1 && dataGrid.GetSelectedRows().Contains(dataGridRow) && e.ChangedButton != MouseButton.Right)
 			{
 				dataGrid.UnselectAllCells();
 				dataGrid.UnselectAll();
-				dataGrid.SelectedItem = ((DataGridRow)sender).DataContext;
+				dataGrid.SelectedItem = dataGridRow.DataContext;
 			}
 		}
-		obj.SetValue(StartPointProperty, null);
+		obj?.SetValue(StartPointProperty, null);
+		obj?.SetValue(DragSourceRowProperty, null);
 	}
 
 	private static void OnMouseMove(object sender, MouseEventArgs e)
 	{
 		UIElement uIElement = sender as UIElement;
-		Point position = e.GetPosition(uIElement);
-		if (uIElement.GetValue(StartPointProperty) != null)
+		if (uIElement == null)
 		{
-			Point pointA = (Point)uIElement.GetValue(StartPointProperty);
-			position = e.GetPosition(uIElement);
-			if (!IsDragging(pointA, position))
-			{
-				return;
-			}
+			return;
+		}
+		Point position = e.GetPosition(uIElement);
+		object startPoint = uIElement.GetValue(StartPointProperty);
+		if (startPoint == null)
+		{
+			return;
+		}
+		Point pointA = (Point)startPoint;
+		position = e.GetPosition(uIElement);
+		if (!IsDragging(pointA, position))
+		{
+			return;
 		}
 		if (e.LeftButton == MouseButtonState.Released)
 		{
 			uIElement.SetValue(StartPointProperty, null);
+			uIElement.SetValue(DragSourceRowProperty, null);
 			return;
 		}
 		object data = uIElement;
 		DragAdorner dragAdorner = null;
-		if (uIElement is DataGridRow)
+		DataGridRow dataGridRow = uIElement.GetValue(DragSourceRowProperty) as DataGridRow ?? ResolveDataGridRow(sender, e.OriginalSource);
+		if (dataGridRow != null)
 		{
-			DataGrid dataGrid = WPFUtil.FindVisualParent<DataGrid>(uIElement);
-			if (dataGrid == null || !dataGrid.GetSelectedRows().Contains(uIElement))
+			DataGrid dataGrid = ResolveDataGrid(sender, dataGridRow);
+			if (dataGrid == null || !dataGrid.GetSelectedRows().Contains(dataGridRow))
 			{
 				return;
 			}
@@ -158,6 +173,25 @@ internal class DragBehavior
 		dragAdorner.Remove();
 		dragAdorner = null;
 		SetDragAdorner(uIElement, null);
+		uIElement.SetValue(DragSourceRowProperty, null);
+	}
+
+	private static DataGridRow ResolveDataGridRow(object sender, object originalSource)
+	{
+		if (sender is DataGridRow row)
+		{
+			return row;
+		}
+		if (originalSource is DependencyObject dependencyObject)
+		{
+			return WPFUtil.FindVisualParent<DataGridRow>(dependencyObject);
+		}
+		return null;
+	}
+
+	private static DataGrid ResolveDataGrid(object sender, DataGridRow row)
+	{
+		return sender as DataGrid ?? WPFUtil.FindVisualParent<DataGrid>(row);
 	}
 
 	private static bool IsDragging(Point pointA, Point pointB)

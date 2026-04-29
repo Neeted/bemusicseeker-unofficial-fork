@@ -820,6 +820,10 @@ public class BMSFile : LR2SongDB.song
         }
     }
 
+    public string ClearDisplayText => ScoreDisplayTextFormatter.FormatClear(clear);
+
+    public string RankDisplayText => ScoreDisplayTextFormatter.FormatRank(rank);
+
     public int? score
     {
         get
@@ -1101,6 +1105,10 @@ public class BMSFile : LR2SongDB.song
                 _bmsScore = value;
                 registrateBMSScorePropertyChangedEventHandlers();
                 RaisePropertyChanged("bmsScore");
+                RaisePropertyChanged(() => clear);
+                RaisePropertyChanged(() => rank);
+                RaisePropertyChanged(() => ClearDisplayText);
+                RaisePropertyChanged(() => RankDisplayText);
                 RaisePropertyChanged(() => ranking);
                 RaisePropertyChanged(() => rankingNum);
                 RaisePropertyChanged(() => rankingString);

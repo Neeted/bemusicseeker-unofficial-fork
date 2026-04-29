@@ -33,6 +33,7 @@
       <v:pathAbbreviationConvberter x:Key="pathAbbreviationConvberter" />
       <v:cleartypeToStringConvberter x:Key="cleartypeToStringConvberter" />
       <v:ranktypeToStringConvberter x:Key="ranktypeToStringConvberter" />
+      <v:dataGridForegroundBrushConverter x:Key="dataGridForegroundBrushConverter" />
       <v:dateTimeToDateStringConverter x:Key="dateTimeToDateStringConverter" />
       <v:statusToStringConverterForLigatureSymbols x:Key="statusToStringConverterForLigatureSymbols" />
       <v:statusToTooltipStringConverter x:Key="statusToTooltipStringConverter" />
@@ -1678,7 +1679,7 @@
               <TextBlock DockPanel.Dock="Left" FontFamily="Meiryo" FontSize="14" VerticalAlignment="Center" Margin="5,0" Foreground="#FF202020" TextTrimming="CharacterEllipsis" Visibility="{Binding IsPlaylistSummaryMode, Converter={qc:QuickConverter '$P ? Visibility.Visible : Visibility.Collapsed'}}" Text="{Binding GridHeaderText}" />
             </DockPanel>
           </Border>
-            <DataGrid Name="dataGrid" Grid.Row="2" Grid.ColumnSpan="1" Margin="0,0,0,0" Grid.Column="1" IsReadOnly="False" SelectionMode="Single" CanUserResizeRows="False" EnableColumnVirtualization="{Binding Source={x:Static prop:Settings.Default}, Path=UseDataGridColumnVirtualizationExperimental, Mode=OneWay}" EnableRowVirtualization="True" AutoGenerateColumns="False" CanUserAddRows="False" CanUserDeleteRows="False" HeadersVisibility="Column" GridLinesVisibility="None" BorderBrush="#FF828790" BorderThickness="1,1,0,0" AlternationCount="2" TargetUpdated="dataGridTargetUpdated" SelectedIndex="{Binding SelectedIndexBMSFilesView, Mode=TwoWay}" Sorting="dataGridSorting" ColumnReordered="setDisplayIndices" BeginningEdit="dataGridCellBeginningEdit" CellEditEnding="dataGridCellEditEnding" PreviewKeyDown="dataGridKeyDown" PreviewMouseRightButtonDown="dataGridPreviewMouseRightButtonDown" IsVisibleChanged="dataGrid_IsVisibleChanged" Loaded="dataGrid_Loaded" Unloaded="dataGrid_Unloaded" SelectionChanged="dataGrid_SelectionChanged" Visibility="{Binding IsPlaylistSummaryMode, Converter={qc:QuickConverter '$P ? Visibility.Collapsed : Visibility.Visible'}}">
+            <DataGrid Name="dataGrid" Grid.Row="2" Grid.ColumnSpan="1" Margin="0,0,0,0" Grid.Column="1" IsReadOnly="False" SelectionMode="Single" CanUserResizeRows="False" RowHeight="19" MinRowHeight="19" VirtualizingPanel.VirtualizationMode="Recycling" ScrollViewer.CanContentScroll="True" EnableColumnVirtualization="{Binding Source={x:Static prop:Settings.Default}, Path=UseDataGridColumnVirtualizationExperimental, Mode=OneWay}" EnableRowVirtualization="True" AutoGenerateColumns="False" CanUserAddRows="False" CanUserDeleteRows="False" HeadersVisibility="Column" GridLinesVisibility="None" BorderBrush="#FF828790" BorderThickness="1,1,0,0" AlternationCount="2" TargetUpdated="dataGridTargetUpdated" SelectedIndex="{Binding SelectedIndexBMSFilesView, Mode=TwoWay}" Sorting="dataGridSorting" ColumnReordered="setDisplayIndices" BeginningEdit="dataGridCellBeginningEdit" CellEditEnding="dataGridCellEditEnding" PreviewKeyDown="dataGridKeyDown" PreviewMouseRightButtonDown="dataGridPreviewMouseRightButtonDown" v:DragBehavior.IsEnable="True" IsVisibleChanged="dataGrid_IsVisibleChanged" Loaded="dataGrid_Loaded" Unloaded="dataGrid_Unloaded" SelectionChanged="dataGrid_SelectionChanged" Visibility="{Binding IsPlaylistSummaryMode, Converter={qc:QuickConverter '$P ? Visibility.Collapsed : Visibility.Visible'}}">
             <i:Interaction.Triggers>
               <l:InteractionMessageTrigger MessageKey="CallbackPlayStartBMSfile" Messenger="{Binding Messenger}">
                 <l:LivetCallMethodAction MethodName="_renewBMSPlayerControlInfo" MethodTarget="{Binding ElementName=window, Mode=OneWay}" />
@@ -1703,14 +1704,6 @@
                   <Setter Property="BorderThickness" Value="0,0,1,0" />
                   <Setter Property="BorderBrush" Value="#E7E9EC" />
                   <Setter Property="FrameworkElement.FocusVisualStyle" Value="{x:Null}" />
-                  <Style.Triggers>
-                    <Trigger Property="DataGridCell.IsSelected" Value="True">
-                      <Setter Property="BorderThickness" Value="0" />
-                      <Setter Property="Margin" Value="0,0,-1,0" />
-                      <Setter Property="BorderBrush" Value="{x:Null}" />
-                      <Setter Property="FrameworkElement.FocusVisualStyle" Value="{x:Null}" />
-                    </Trigger>
-                  </Style.Triggers>
                 </Style>
                 <Style x:Key="styleDataGridCellDummy" BasedOn="{StaticResource styleDataGridCellNonFocusable}" TargetType="{x:Type DataGridCell}">
                   <Setter Property="BorderThickness" Value="0" />
@@ -1744,29 +1737,14 @@
                 <Style x:Key="styleDataGridNotEditingCell" TargetType="{x:Type TextBlock}">
                   <Setter Property="TextBlock.Padding" Value="2,1,1,1" />
                   <Setter Property="TextTrimming" Value="CharacterEllipsis" />
-                  <Style.Triggers>
-                    <DataTrigger Value="True" Binding="{Binding IsSelected, Mode=OneWay, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type DataGridCell}}}">
-                      <Setter Property="TextBlock.Padding" Value="2,1,3,3" />
-                    </DataTrigger>
-                  </Style.Triggers>
                 </Style>
                 <Style x:Key="styleDataGridNotEditingCellRightAlignment" BasedOn="{StaticResource styleDataGridNotEditingCell}" TargetType="{x:Type TextBlock}">
                   <Setter Property="HorizontalAlignment" Value="Right" />
                   <Setter Property="TextBlock.Padding" Value="1,1,2,1" />
-                  <Style.Triggers>
-                    <DataTrigger Value="True" Binding="{Binding IsSelected, Mode=OneWay, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type DataGridCell}}}">
-                      <Setter Property="TextBlock.Padding" Value="1,1,4,3" />
-                    </DataTrigger>
-                  </Style.Triggers>
                 </Style>
                 <Style x:Key="styleDataGridNotEditingCellCenterAlignment" BasedOn="{StaticResource styleDataGridNotEditingCell}" TargetType="{x:Type TextBlock}">
                   <Setter Property="HorizontalAlignment" Value="Center" />
                   <Setter Property="TextBlock.Padding" Value="1,1,1,1" />
-                  <Style.Triggers>
-                    <DataTrigger Value="True" Binding="{Binding IsSelected, Mode=OneWay, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type DataGridCell}}}">
-                      <Setter Property="TextBlock.Padding" Value="1,1,3,3" />
-                    </DataTrigger>
-                  </Style.Triggers>
                 </Style>
                 <Style x:Key="styleDataGridNotEditingCellMusic" BasedOn="{StaticResource styleDataGridNotEditingCellCenterAlignment}" TargetType="{x:Type TextBlock}">
                   <Setter Property="FontFamily" Value="{StaticResource LigatureSymbols}" />
@@ -1776,123 +1754,15 @@
                   <Setter Property="VerticalAlignment" Value="Center" />
                   <Setter Property="FrameworkElement.ToolTip" Value="{Binding status, Converter={StaticResource statusToTooltipStringConverter}}" />
                 </Style>
-                <Style x:Key="styleDataGridNotEditingCellClear" BasedOn="{StaticResource styleDataGridNotEditingCellCenterAlignment}" TargetType="{x:Type TextBlock}">
+                <Style x:Key="styleDataGridNotEditingCellScoreText" BasedOn="{StaticResource styleDataGridNotEditingCellCenterAlignment}" TargetType="{x:Type TextBlock}">
                   <Setter Property="FontFamily" Value="{StaticResource SovjetBox}" />
-                  <Setter Property="VerticalAlignment" Value="Center" />
                   <Setter Property="Margin" Value="-2" />
+                  <Setter Property="HorizontalAlignment" Value="Center" />
+                  <Setter Property="VerticalAlignment" Value="Center" />
                   <Setter Property="TextBlock.Padding" Value="0,2,0,0" />
-                  <Setter Property="UIElement.Effect">
-                    <Setter.Value>
-                      <DropShadowEffect ShadowDepth="0" Color="Black" Opacity="1" BlurRadius="1" />
-                    </Setter.Value>
-                  </Setter>
-                  <Style.Triggers>
-                    <DataTrigger Value="True" Binding="{Binding IsSelected, Mode=OneWay, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type DataGridCell}}}">
-                      <Setter Property="TextBlock.Padding" Value="0,2,2,2" />
-                    </DataTrigger>
-                    <DataTrigger Value="{x:Static lr2:ClearType.NO_SONG}" Binding="{Binding clear}">
-                      <Setter Property="Foreground">
-                        <Setter.Value>
-                          <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
-                            <GradientStop Color="LightGray" Offset="0.0" />
-                            <GradientStop Color="DimGray" Offset="1.0" />
-                          </LinearGradientBrush>
-                        </Setter.Value>
-                      </Setter>
-                    </DataTrigger>
-                    <DataTrigger Value="{x:Static lr2:ClearType.NO_PLAY}" Binding="{Binding clear}">
-                      <Setter Property="Foreground">
-                        <Setter.Value>
-                          <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
-                            <GradientStop Color="LightGray" Offset="0.0" />
-                            <GradientStop Color="Black" Offset="1.0" />
-                          </LinearGradientBrush>
-                        </Setter.Value>
-                      </Setter>
-                    </DataTrigger>
-                    <DataTrigger Value="{x:Static lr2:ClearType.FAILED}" Binding="{Binding clear}">
-                      <Setter Property="Foreground">
-                        <Setter.Value>
-                          <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
-                            <GradientStop Color="Tomato" Offset="0.0" />
-                            <GradientStop Color="Chocolate" Offset="0.7" />
-                          </LinearGradientBrush>
-                        </Setter.Value>
-                      </Setter>
-                    </DataTrigger>
-                    <DataTrigger Value="{x:Static lr2:ClearType.EASY}" Binding="{Binding clear}">
-                      <Setter Property="Foreground">
-                        <Setter.Value>
-                          <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
-                            <GradientStop Color="Lime" Offset="0.0" />
-                            <GradientStop Color="SeaGreen" Offset="0.7" />
-                          </LinearGradientBrush>
-                        </Setter.Value>
-                      </Setter>
-                    </DataTrigger>
-                    <DataTrigger Value="{x:Static lr2:ClearType.INVALID}" Binding="{Binding clear}">
-                      <Setter Property="Foreground">
-                        <Setter.Value>
-                          <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
-                            <GradientStop Color="Plum" Offset="0.0" />
-                            <GradientStop Color="Indigo" Offset="0.7" />
-                          </LinearGradientBrush>
-                        </Setter.Value>
-                      </Setter>
-                    </DataTrigger>
-                    <DataTrigger Value="{x:Static lr2:ClearType.CLEAR}" Binding="{Binding clear}">
-                      <Setter Property="Foreground">
-                        <Setter.Value>
-                          <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
-                            <GradientStop Color="DeepSkyBlue" Offset="0.0" />
-                            <GradientStop Color="RoyalBlue" Offset="0.7" />
-                          </LinearGradientBrush>
-                        </Setter.Value>
-                      </Setter>
-                    </DataTrigger>
-                    <DataTrigger Value="{x:Static lr2:ClearType.HARD}" Binding="{Binding clear}">
-                      <Setter Property="Foreground">
-                        <Setter.Value>
-                          <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
-                            <GradientStop Color="Pink" Offset="0.0" />
-                            <GradientStop Color="Red" Offset="0.7" />
-                          </LinearGradientBrush>
-                        </Setter.Value>
-                      </Setter>
-                    </DataTrigger>
-                    <DataTrigger Value="{x:Static lr2:ClearType.FC}" Binding="{Binding clear}">
-                      <Setter Property="Foreground">
-                        <Setter.Value>
-                          <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
-                            <GradientStop Color="OrangeRed" Offset="0.0" />
-                            <GradientStop Color="Orange" Offset="0.2" />
-                            <GradientStop Color="Yellow" Offset="0.4" />
-                            <GradientStop Color="LimeGreen" Offset="0.6" />
-                            <GradientStop Color="RoyalBlue" Offset="0.8" />
-                            <GradientStop Color="Violet" Offset="1.0" />
-                          </LinearGradientBrush>
-                        </Setter.Value>
-                      </Setter>
-                    </DataTrigger>
-                    <DataTrigger Value="{x:Static lr2:ClearType.PA}" Binding="{Binding clear}">
-                      <Setter Property="Foreground">
-                        <Setter.Value>
-                          <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
-                            <GradientStop Color="Yellow" Offset="0.0" />
-                            <GradientStop Color="#FFffee62" Offset="0.2" />
-                            <GradientStop Color="#FFffc945" Offset="0.25" />
-                            <GradientStop Color="#FFf6f6c0" Offset="0.3" />
-                            <GradientStop Color="#FFffc736" Offset="0.55" />
-                            <GradientStop Color="#FFd3841b" Offset="0.6" />
-                            <GradientStop Color="#FFfec037" Offset="0.65" />
-                            <GradientStop Color="Orange" Offset="0.7" />
-                            <GradientStop Color="#FFf6d957" Offset="0.8" />
-                            <GradientStop Color="Yellow" Offset="1.0" />
-                          </LinearGradientBrush>
-                        </Setter.Value>
-                      </Setter>
-                    </DataTrigger>
-                  </Style.Triggers>
+                </Style>
+                <Style x:Key="styleDataGridNotEditingCellClear" BasedOn="{StaticResource styleDataGridNotEditingCellScoreText}" TargetType="{x:Type TextBlock}">
+                  <Setter Property="Foreground" Value="{Binding clear, Converter={StaticResource dataGridForegroundBrushConverter}, ConverterParameter=clear}" />
                 </Style>
                 <Style x:Key="styleDataGridCellChartLevelUndefined" BasedOn="{StaticResource styleDataGridCellNonFocusable}" TargetType="{x:Type DataGridCell}">
                   <Style.Triggers>
@@ -1927,185 +1797,27 @@
                     </MultiDataTrigger>
                   </Style.Triggers>
                 </Style>
-                <Style x:Key="styleDataGridNotEditingCellChartDifficulty" BasedOn="{StaticResource styleDataGridNotEditingCellCenterAlignment}" TargetType="{x:Type TextBlock}">
-                  <Style.Triggers>
-                    <DataTrigger Value="Beginner" Binding="{Binding ChartDifficultyColorKey}">
-                      <Setter Property="Foreground" Value="#FF2E7D32" />
-                    </DataTrigger>
-                    <DataTrigger Value="Normal" Binding="{Binding ChartDifficultyColorKey}">
-                      <Setter Property="Foreground" Value="#FF0087B0" />
-                    </DataTrigger>
-                    <DataTrigger Value="Hyper" Binding="{Binding ChartDifficultyColorKey}">
-                      <Setter Property="Foreground" Value="#FFD98200" />
-                    </DataTrigger>
-                    <DataTrigger Value="Another" Binding="{Binding ChartDifficultyColorKey}">
-                      <Setter Property="Foreground" Value="#FFD32F2F" />
-                    </DataTrigger>
-                    <DataTrigger Value="Insane" Binding="{Binding ChartDifficultyColorKey}">
-                      <Setter Property="Foreground" Value="#FF7B1FA2" />
-                    </DataTrigger>
-                  </Style.Triggers>
+                <Style x:Key="styleDataGridNotEditingCellChartDifficulty" BasedOn="{StaticResource styleDataGridNotEditingCellScoreText}" TargetType="{x:Type TextBlock}">
+                  <Setter Property="Foreground" Value="{Binding ChartDifficultyColorKey, Converter={StaticResource dataGridForegroundBrushConverter}, ConverterParameter=difficulty}" />
                 </Style>
-                <Style x:Key="styleDataGridNotEditingCellChartJudge" BasedOn="{StaticResource styleDataGridNotEditingCellCenterAlignment}" TargetType="{x:Type TextBlock}">
-                  <Style.Triggers>
-                    <DataTrigger Value="VeryHard" Binding="{Binding ChartJudgeColorKey}">
-                      <Setter Property="Foreground" Value="#FF8B0000" />
-                    </DataTrigger>
-                    <DataTrigger Value="Hard" Binding="{Binding ChartJudgeColorKey}">
-                      <Setter Property="Foreground" Value="#FFD32F2F" />
-                    </DataTrigger>
-                    <DataTrigger Value="Normal" Binding="{Binding ChartJudgeColorKey}">
-                      <Setter Property="Foreground" Value="#FF0087B0" />
-                    </DataTrigger>
-                    <DataTrigger Value="Easy" Binding="{Binding ChartJudgeColorKey}">
-                      <Setter Property="Foreground" Value="#FF2E7D32" />
-                    </DataTrigger>
-                    <DataTrigger Value="VeryEasy" Binding="{Binding ChartJudgeColorKey}">
-                      <Setter Property="Foreground" Value="#FF66A000" />
-                    </DataTrigger>
-                  </Style.Triggers>
+                <Style x:Key="styleDataGridNotEditingCellChartJudge" BasedOn="{StaticResource styleDataGridNotEditingCellScoreText}" TargetType="{x:Type TextBlock}">
+                  <Setter Property="Foreground" Value="{Binding ChartJudgeColorKey, Converter={StaticResource dataGridForegroundBrushConverter}, ConverterParameter=judge}" />
                 </Style>
-                <Style x:Key="styleDataGridNotEditingCellRank" BasedOn="{StaticResource styleDataGridNotEditingCellCenterAlignment}" TargetType="{x:Type TextBlock}">
-                  <Setter Property="FontFamily" Value="{StaticResource SovjetBox}" />
-                  <Setter Property="VerticalAlignment" Value="Center" />
+                <Style x:Key="styleDataGridNotEditingCellRank" BasedOn="{StaticResource styleDataGridNotEditingCellScoreText}" TargetType="{x:Type TextBlock}">
                   <Setter Property="FontSize" Value="16" />
                   <Setter Property="Margin" Value="-4" />
                   <Setter Property="TextBlock.Padding" Value="0,4,0,0" />
-                  <Setter Property="UIElement.Effect">
-                    <Setter.Value>
-                      <DropShadowEffect ShadowDepth="0" Color="Black" Opacity="1" BlurRadius="1" />
-                    </Setter.Value>
-                  </Setter>
-                  <Style.Triggers>
-                    <DataTrigger Value="True" Binding="{Binding IsSelected, Mode=OneWay, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type DataGridCell}}}">
-                      <Setter Property="TextBlock.Padding" Value="0,4,2,2" />
-                    </DataTrigger>
-                    <DataTrigger Value="{x:Static lr2:RankType.F}" Binding="{Binding rank}">
-                      <Setter Property="Foreground">
-                        <Setter.Value>
-                          <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
-                            <GradientStop Color="Silver" Offset="0.0" />
-                            <GradientStop Color="DimGray" Offset="1.0" />
-                          </LinearGradientBrush>
-                        </Setter.Value>
-                      </Setter>
-                    </DataTrigger>
-                    <DataTrigger Value="{x:Static lr2:RankType.E}" Binding="{Binding rank}">
-                      <Setter Property="Foreground">
-                        <Setter.Value>
-                          <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
-                            <GradientStop Color="Silver" Offset="0.0" />
-                            <GradientStop Color="DimGray" Offset="1.0" />
-                          </LinearGradientBrush>
-                        </Setter.Value>
-                      </Setter>
-                    </DataTrigger>
-                    <DataTrigger Value="{x:Static lr2:RankType.D}" Binding="{Binding rank}">
-                      <Setter Property="Foreground">
-                        <Setter.Value>
-                          <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
-                            <GradientStop Color="Silver" Offset="0.0" />
-                            <GradientStop Color="DimGray" Offset="1.0" />
-                          </LinearGradientBrush>
-                        </Setter.Value>
-                      </Setter>
-                    </DataTrigger>
-                    <DataTrigger Value="{x:Static lr2:RankType.C}" Binding="{Binding rank}">
-                      <Setter Property="Foreground">
-                        <Setter.Value>
-                          <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
-                            <GradientStop Color="Silver" Offset="0.0" />
-                            <GradientStop Color="DimGray" Offset="1.0" />
-                          </LinearGradientBrush>
-                        </Setter.Value>
-                      </Setter>
-                    </DataTrigger>
-                    <DataTrigger Value="{x:Static lr2:RankType.B}" Binding="{Binding rank}">
-                      <Setter Property="Foreground">
-                        <Setter.Value>
-                          <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
-                            <GradientStop Color="Silver" Offset="0.0" />
-                            <GradientStop Color="DimGray" Offset="1.0" />
-                          </LinearGradientBrush>
-                        </Setter.Value>
-                      </Setter>
-                    </DataTrigger>
-                    <DataTrigger Value="{x:Static lr2:RankType.A}" Binding="{Binding rank}">
-                      <Setter Property="Foreground">
-                        <Setter.Value>
-                          <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
-                            <GradientStop Color="Chartreuse" Offset="0.0" />
-                            <GradientStop Color="DarkSeaGreen" Offset="0.2" />
-                            <GradientStop Color="Lime" Offset="0.5" />
-                            <GradientStop Color="ForestGreen" Offset="0.6" />
-                            <GradientStop Color="Chartreuse" Offset="1.0" />
-                          </LinearGradientBrush>
-                        </Setter.Value>
-                      </Setter>
-                    </DataTrigger>
-                    <DataTrigger Value="{x:Static lr2:RankType.AA}" Binding="{Binding rank}">
-                      <Setter Property="Foreground">
-                        <Setter.Value>
-                          <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
-                            <GradientStop Color="DimGray" Offset="0.0" />
-                            <GradientStop Color="LightGray" Offset="0.2" />
-                            <GradientStop Color="DimGray" Offset="0.25" />
-                            <GradientStop Color="White" Offset="0.3" />
-                            <GradientStop Color="DimGray" Offset="0.55" />
-                            <GradientStop Color="LightGray" Offset="0.6" />
-                            <GradientStop Color="Black" Offset="0.65" />
-                            <GradientStop Color="Gray" Offset="0.8" />
-                            <GradientStop Color="DimGray" Offset="1.0" />
-                          </LinearGradientBrush>
-                        </Setter.Value>
-                      </Setter>
-                    </DataTrigger>
-                    <DataTrigger Value="{x:Static lr2:RankType.AAA}" Binding="{Binding rank}">
-                      <Setter Property="Foreground">
-                        <Setter.Value>
-                          <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
-                            <GradientStop Color="Yellow" Offset="0.0" />
-                            <GradientStop Color="#FFffee62" Offset="0.2" />
-                            <GradientStop Color="#FFffc945" Offset="0.25" />
-                            <GradientStop Color="#FFf6f6c0" Offset="0.3" />
-                            <GradientStop Color="#FFffc736" Offset="0.55" />
-                            <GradientStop Color="#FFd3841b" Offset="0.6" />
-                            <GradientStop Color="#FFfec037" Offset="0.65" />
-                            <GradientStop Color="Orange" Offset="0.7" />
-                            <GradientStop Color="#FFf6d957" Offset="0.8" />
-                            <GradientStop Color="Yellow" Offset="1.0" />
-                          </LinearGradientBrush>
-                        </Setter.Value>
-                      </Setter>
-                    </DataTrigger>
-                    <DataTrigger Value="{x:Static lr2:RankType.MAX}" Binding="{Binding rank}">
-                      <Setter Property="Foreground">
-                        <Setter.Value>
-                          <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
-                            <GradientStop Color="Yellow" Offset="0.0" />
-                            <GradientStop Color="#FFffee62" Offset="0.2" />
-                            <GradientStop Color="#FFffc945" Offset="0.25" />
-                            <GradientStop Color="#FFf6f6c0" Offset="0.3" />
-                            <GradientStop Color="#FFffc736" Offset="0.55" />
-                            <GradientStop Color="#FFd3841b" Offset="0.6" />
-                            <GradientStop Color="#FFfec037" Offset="0.65" />
-                            <GradientStop Color="Orange" Offset="0.7" />
-                            <GradientStop Color="#FFf6d957" Offset="0.8" />
-                            <GradientStop Color="Yellow" Offset="1.0" />
-                          </LinearGradientBrush>
-                        </Setter.Value>
-                      </Setter>
-                    </DataTrigger>
-                  </Style.Triggers>
+                  <Setter Property="Foreground" Value="{Binding rank, Converter={StaticResource dataGridForegroundBrushConverter}, ConverterParameter=rank}" />
                 </Style>
-                <Style x:Key="styleDataGridNotEditingCellWrap" BasedOn="{StaticResource styleDataGridNotEditingCell}" TargetType="{x:Type TextBlock}">
-                  <Setter Property="TextWrapping" Value="Wrap" />
+                <Style x:Key="styleDataGridNotEditingCellWithTooltip" BasedOn="{StaticResource styleDataGridNotEditingCell}" TargetType="{x:Type TextBlock}">
+                  <Setter Property="TextWrapping" Value="NoWrap" />
+                  <Setter Property="FrameworkElement.ToolTip" Value="{Binding Text, RelativeSource={x:Static RelativeSource.Self}}" />
                 </Style>
                 <Style x:Key="styleDataGridNotEditingCellPlaylist" BasedOn="{StaticResource styleDataGridNotEditingCell}" TargetType="{x:Type TextBlock}">
                   <Setter Property="FrameworkElement.ToolTip" Value="{Binding RefTablesNames}" />
                 </Style>
                 <Style x:Key="styleDataGridColumnHeaderDefault" TargetType="{x:Type DataGridColumnHeader}">
-                  <Setter Property="FrameworkElement.ContextMenu" Value="{StaticResource dataGridColumnHeaderContextMenu}" />
+                  <EventSetter Event="PreviewMouseRightButtonDown" Handler="dataGridColumnHeaderPreviewMouseRightButtonDown" />
                   <EventSetter Event="FrameworkElement.ContextMenuOpening" Handler="dataGridColumnHeaderContextMenuOpening" />
                 </Style>
                 <Style x:Key="styleDataGridColumnHeaderCenter" BasedOn="{StaticResource styleDataGridColumnHeaderDefault}" TargetType="{x:Type DataGridColumnHeader}">
@@ -2119,8 +1831,6 @@
             <DataGrid.RowStyle>
               <Style TargetType="{x:Type DataGridRow}">
                 <Setter Property="Background" Value="#FFFFFFFF" />
-                <Setter Property="FrameworkElement.ContextMenu" Value="{StaticResource dataGridContextMenu}" />
-                <Setter Property="v:DragBehavior.IsEnable" Value="True" />
                 <Setter Property="BorderThickness" Value="0,0,0,1" />
                 <Setter Property="BorderBrush" Value="#E7E9EC" />
                 <EventSetter Event="MouseDoubleClick" Handler="dataGridRowDoubleClicked" />
@@ -2133,11 +1843,6 @@
                   <DataTrigger Value="True" Binding="{Binding HasHighlightedWarning}">
                     <Setter Property="Background" Value="#FFFDE4E4" />
                   </DataTrigger>
-                  <Trigger Property="DataGridRow.IsSelected" Value="True">
-                    <Setter Property="BorderThickness" Value="0" />
-                    <Setter Property="Margin" Value="0,0,0,-1" />
-                    <Setter Property="BorderBrush" Value="{x:Null}" />
-                  </Trigger>
                 </Style.Triggers>
               </Style>
             </DataGrid.RowStyle>
@@ -2162,18 +1867,13 @@
               <DataGridHyperlinkColumn Header="URL1" CanUserSort="False" MinWidth="40" MaxWidth="40" IsReadOnly="False" CellStyle="{StaticResource styleDataGridCellNonFocusable}" EditingElementStyle="{StaticResource styleDataGridEditingCellForUrl}" HeaderStyle="{StaticResource styleDataGridColumnHeaderCenter}" Binding="{Binding Url}" Width="{Binding ColumnsSettingsBMSFilesView.Url1.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverterForURL1}}" Visibility="{qc:MultiBinding '$P1 == Visibility.Visible ? $P0 : Visibility.Hidden', P0={Binding ColumnsSettingsBMSFilesView.Url1.Visibility, Source={StaticResource vm}}, P1={Binding ColumnSettingsVisibilityForPlaylist, Source={StaticResource vm}}}">
                 <DataGridBoundColumn.ElementStyle>
                   <Style TargetType="{x:Type TextBlock}">
-                    <Style.Triggers>
-                      <DataTrigger Value="True" Binding="{Binding IsSelected, Mode=OneWay, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type DataGridCell}}}">
-                        <Setter Property="Margin" Value="-6,-6,-4,-4" />
-                      </DataTrigger>
-                    </Style.Triggers>
                     <Setter Property="FontFamily" Value="{StaticResource LigatureSymbols}" />
                     <Setter Property="FontSize" Value="20" />
                     <Setter Property="Margin" Value="-6" />
                     <Setter Property="HorizontalAlignment" Value="Center" />
                     <Setter Property="VerticalAlignment" Value="Center" />
-                    <Setter Property="Text" Value="{Binding DataContext, RelativeSource={x:Static RelativeSource.Self}, Converter={StaticResource vbmsFileUrlToDownloadTextConverter}}" />
-                    <Setter Property="FrameworkElement.ToolTip" Value="{Binding DataContext, RelativeSource={x:Static RelativeSource.Self}, Converter={StaticResource vbmsFileUrlToTooltipTextConverter}}" />
+                    <Setter Property="Text" Value="{Binding UrlDownloadIconText}" />
+                    <Setter Property="FrameworkElement.ToolTip" Value="{Binding UrlToolTipText}" />
                     <Setter Property="FrameworkElement.Cursor" Value="Hand" />
                     <Setter Property="TextBlock.Padding" Value="0" />
                     <EventSetter Event="PreviewMouseLeftButtonDown" Handler="dataGridCellOpenURLClick" />
@@ -2183,27 +1883,22 @@
               <DataGridHyperlinkColumn Header="URL2" CanUserSort="False" MinWidth="40" MaxWidth="40" IsReadOnly="False" CellStyle="{StaticResource styleDataGridCellNonFocusable}" EditingElementStyle="{StaticResource styleDataGridEditingCellForUrl}" HeaderStyle="{StaticResource styleDataGridColumnHeaderCenter}" Binding="{Binding Url_diff}" Width="{Binding ColumnsSettingsBMSFilesView.Url2.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverterForURL2}}" Visibility="{qc:MultiBinding '$P1 == Visibility.Visible ? $P0 : Visibility.Hidden', P0={Binding ColumnsSettingsBMSFilesView.Url2.Visibility, Source={StaticResource vm}}, P1={Binding ColumnSettingsVisibilityForPlaylist, Source={StaticResource vm}}}">
                 <DataGridBoundColumn.ElementStyle>
                   <Style TargetType="{x:Type TextBlock}">
-                    <Style.Triggers>
-                      <DataTrigger Value="True" Binding="{Binding IsSelected, Mode=OneWay, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type DataGridCell}}}">
-                        <Setter Property="Margin" Value="-6,-6,-4,-4" />
-                      </DataTrigger>
-                    </Style.Triggers>
                     <Setter Property="FontFamily" Value="{StaticResource LigatureSymbols}" />
                     <Setter Property="FontSize" Value="20" />
                     <Setter Property="Margin" Value="-6" />
                     <Setter Property="HorizontalAlignment" Value="Center" />
                     <Setter Property="VerticalAlignment" Value="Center" />
-                    <Setter Property="Text" Value="{Binding DataContext, RelativeSource={x:Static RelativeSource.Self}, Converter={StaticResource vbmsFileUrlDiffToDownloadTextConverter}}" />
-                    <Setter Property="FrameworkElement.ToolTip" Value="{Binding DataContext, RelativeSource={x:Static RelativeSource.Self}, Converter={StaticResource vbmsFileUrlDiffToTooltipTextConverter}}" />
+                    <Setter Property="Text" Value="{Binding UrlDiffDownloadIconText}" />
+                    <Setter Property="FrameworkElement.ToolTip" Value="{Binding UrlDiffToolTipText}" />
                     <Setter Property="FrameworkElement.Cursor" Value="Hand" />
                     <Setter Property="TextBlock.Padding" Value="0" />
                     <EventSetter Event="PreviewMouseLeftButtonDown" Handler="dataGridCellOpenURLDiffClick" />
                   </Style>
                 </DataGridBoundColumn.ElementStyle>
               </DataGridHyperlinkColumn>
-              <DataGridTextColumn Header="WARNING" MinWidth="40" IsReadOnly="True" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCell}" HeaderStyle="{StaticResource styleDataGridColumnHeaderDefault}" Binding="{Binding DisplayWarning}" Width="{Binding ColumnsSettingsBMSFilesView.Warning.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding ColumnsSettingsBMSFilesView.Warning.Visibility, Source={StaticResource vm}, Mode=TwoWay}" />
-              <DataGridTextColumn Header="COMMENT" CanUserSort="False" MinWidth="40" IsReadOnly="False" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCellWrap}" EditingElementStyle="{StaticResource styleDataGridEditingCell}" HeaderStyle="{StaticResource styleDataGridColumnHeaderDefault}" Binding="{Binding comment}" Width="{Binding ColumnsSettingsBMSFilesView.Comment.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{qc:MultiBinding '$P1 == Visibility.Visible ? $P0 : Visibility.Hidden', P0={Binding ColumnsSettingsBMSFilesView.Comment.Visibility, Source={StaticResource vm}}, P1={Binding ColumnSettingsVisibilityForPlaylist, Source={StaticResource vm}}}" />
-              <DataGridTextColumn Header="MEMO" CanUserSort="False" MinWidth="40" IsReadOnly="False" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCellWrap}" EditingElementStyle="{StaticResource styleDataGridEditingCellForMemo}" HeaderStyle="{StaticResource styleDataGridColumnHeaderDefault}" Binding="{Binding memo}" Width="{Binding ColumnsSettingsBMSFilesView.Memo.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{qc:MultiBinding '$P1 == Visibility.Visible ? $P0 : Visibility.Hidden', P0={Binding ColumnsSettingsBMSFilesView.Memo.Visibility, Source={StaticResource vm}}, P1={Binding ColumnSettingsVisibilityForPlaylist, Source={StaticResource vm}}}" />
+              <DataGridTextColumn Header="WARNING" MinWidth="40" IsReadOnly="True" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCellWithTooltip}" HeaderStyle="{StaticResource styleDataGridColumnHeaderDefault}" Binding="{Binding DisplayWarning}" Width="{Binding ColumnsSettingsBMSFilesView.Warning.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding ColumnsSettingsBMSFilesView.Warning.Visibility, Source={StaticResource vm}, Mode=TwoWay}" />
+              <DataGridTextColumn Header="COMMENT" CanUserSort="False" MinWidth="40" IsReadOnly="False" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCellWithTooltip}" EditingElementStyle="{StaticResource styleDataGridEditingCell}" HeaderStyle="{StaticResource styleDataGridColumnHeaderDefault}" Binding="{Binding comment}" Width="{Binding ColumnsSettingsBMSFilesView.Comment.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{qc:MultiBinding '$P1 == Visibility.Visible ? $P0 : Visibility.Hidden', P0={Binding ColumnsSettingsBMSFilesView.Comment.Visibility, Source={StaticResource vm}}, P1={Binding ColumnSettingsVisibilityForPlaylist, Source={StaticResource vm}}}" />
+              <DataGridTextColumn Header="MEMO" CanUserSort="False" MinWidth="40" IsReadOnly="False" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCellWithTooltip}" EditingElementStyle="{StaticResource styleDataGridEditingCellForMemo}" HeaderStyle="{StaticResource styleDataGridColumnHeaderDefault}" Binding="{Binding memo}" Width="{Binding ColumnsSettingsBMSFilesView.Memo.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{qc:MultiBinding '$P1 == Visibility.Visible ? $P0 : Visibility.Hidden', P0={Binding ColumnsSettingsBMSFilesView.Memo.Visibility, Source={StaticResource vm}}, P1={Binding ColumnSettingsVisibilityForPlaylist, Source={StaticResource vm}}}" />
               <DataGridTextColumn Header="MD5 HASH" FontFamily="Courier New" MinWidth="240" MaxWidth="240" IsReadOnly="True" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCellCenterAlignment}" HeaderStyle="{StaticResource styleDataGridColumnHeaderCenter}" Binding="{Binding hash}" Width="{Binding ColumnsSettingsBMSFilesView.Hash.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding ColumnsSettingsBMSFilesView.Hash.Visibility, Source={StaticResource vm}, Mode=TwoWay}" />
               <DataGridTextColumn Header="SHA256 HASH" FontFamily="Courier New" MinWidth="40" MaxWidth="480" IsReadOnly="True" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCellCenterAlignment}" HeaderStyle="{StaticResource styleDataGridColumnHeaderCenter}" Binding="{Binding sha256}" Width="{Binding ColumnsSettingsBMSFilesView.Sha256.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding ColumnsSettingsBMSFilesView.Sha256.Visibility, Source={StaticResource vm}, Mode=TwoWay}" />
               <DataGridTextColumn Header="FOLDER" MinWidth="40" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCell}" EditingElementStyle="{StaticResource styleDataGridEditingCellForFolder}" HeaderStyle="{StaticResource styleDataGridColumnHeaderDefault}" Binding="{Binding Folder}" Width="{Binding ColumnsSettingsBMSFilesView.Folder.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding ColumnsSettingsBMSFilesView.Folder.Visibility, Source={StaticResource vm}, Mode=TwoWay}" IsReadOnly="{qc:Binding '$P == Visibility.Visible ? True : False', P={Binding ColumnSettingsVisibilityForPlaylist, Source={StaticResource vm}}}" />
@@ -2253,8 +1948,8 @@
               <DataGridTextColumn Header="PEAK" SortMemberPath="ChartPeakDensitySortKey" MinWidth="40" IsReadOnly="True" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCellRightAlignment}" HeaderStyle="{StaticResource styleDataGridColumnHeaderCenter}" Binding="{Binding ChartPeakDensityText}" Width="{Binding ColumnsSettingsBMSFilesView.ChartPeakDensity.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding ColumnsSettingsBMSFilesView.ChartPeakDensity.Visibility, Source={StaticResource vm}, Mode=TwoWay}" />
               <DataGridTextColumn Header="END" SortMemberPath="ChartEndDensitySortKey" MinWidth="40" IsReadOnly="True" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCellRightAlignment}" HeaderStyle="{StaticResource styleDataGridColumnHeaderCenter}" Binding="{Binding ChartEndDensityText}" Width="{Binding ColumnsSettingsBMSFilesView.ChartEndDensity.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding ColumnsSettingsBMSFilesView.ChartEndDensity.Visibility, Source={StaticResource vm}, Mode=TwoWay}" />
               <DataGridTextColumn Header="SOFLAN" SortMemberPath="ChartSoflanCount" MinWidth="40" IsReadOnly="True" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCellRightAlignment}" HeaderStyle="{StaticResource styleDataGridColumnHeaderCenter}" Binding="{Binding ChartSoflanCount}" Width="{Binding ColumnsSettingsBMSFilesView.ChartSoflan.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding ColumnsSettingsBMSFilesView.ChartSoflan.Visibility, Source={StaticResource vm}, Mode=TwoWay}" />
-              <DataGridTextColumn Header="CLEAR" MinWidth="40" IsReadOnly="True" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCellClear}" HeaderStyle="{StaticResource styleDataGridColumnHeaderCenter}" Binding="{Binding clear, Converter={StaticResource cleartypeToStringConvberter}}" Width="{Binding ColumnsSettingsBMSFilesView.Clear.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding ColumnsSettingsBMSFilesView.Clear.Visibility, Source={StaticResource vm}, Mode=TwoWay}" />
-              <DataGridTextColumn Header="DJ LEVEL" MinWidth="40" IsReadOnly="True" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCellRank}" HeaderStyle="{StaticResource styleDataGridColumnHeaderCenter}" Binding="{Binding rank, Converter={StaticResource ranktypeToStringConvberter}}" Width="{Binding ColumnsSettingsBMSFilesView.Rank.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding ColumnsSettingsBMSFilesView.Rank.Visibility, Source={StaticResource vm}, Mode=TwoWay}" />
+              <DataGridTextColumn Header="CLEAR" MinWidth="40" IsReadOnly="True" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCellClear}" HeaderStyle="{StaticResource styleDataGridColumnHeaderCenter}" Binding="{Binding ClearDisplayText}" Width="{Binding ColumnsSettingsBMSFilesView.Clear.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding ColumnsSettingsBMSFilesView.Clear.Visibility, Source={StaticResource vm}, Mode=TwoWay}" />
+              <DataGridTextColumn Header="DJ LEVEL" MinWidth="40" IsReadOnly="True" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCellRank}" HeaderStyle="{StaticResource styleDataGridColumnHeaderCenter}" Binding="{Binding RankDisplayText}" Width="{Binding ColumnsSettingsBMSFilesView.Rank.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding ColumnsSettingsBMSFilesView.Rank.Visibility, Source={StaticResource vm}, Mode=TwoWay}" />
               <DataGridTextColumn Header="RATE" MinWidth="40" IsReadOnly="True" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCellRightAlignment}" HeaderStyle="{StaticResource styleDataGridColumnHeaderCenter}" Binding="{Binding rate, Converter={StaticResource addStringToEndConverter}, ConverterParameter=%|}" Width="{Binding ColumnsSettingsBMSFilesView.Rate.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding ColumnsSettingsBMSFilesView.Rate.Visibility, Source={StaticResource vm}, Mode=TwoWay}" />
               <DataGridTextColumn Header="SCORE" MinWidth="40" IsReadOnly="True" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCellRightAlignment}" HeaderStyle="{StaticResource styleDataGridColumnHeaderCenter}" Binding="{Binding score}" Width="{Binding ColumnsSettingsBMSFilesView.Score.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding ColumnsSettingsBMSFilesView.Score.Visibility, Source={StaticResource vm}, Mode=TwoWay}" />
               <DataGridTextColumn Header="COMBO" MinWidth="40" IsReadOnly="True" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCellRightAlignment}" HeaderStyle="{StaticResource styleDataGridColumnHeaderCenter}" Binding="{Binding maxcombo}" Width="{Binding ColumnsSettingsBMSFilesView.Combo.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding ColumnsSettingsBMSFilesView.Combo.Visibility, Source={StaticResource vm}, Mode=TwoWay}" />

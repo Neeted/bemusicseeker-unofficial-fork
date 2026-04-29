@@ -15,6 +15,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Interop;
@@ -443,26 +444,27 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     }
 
     /// <summary>
-    /// playlist 詳細表示の差し替え直前に DataGrid の選択・編集状態と旧 ItemsSource を解放します。
+    /// playlist 詳細表示の差し替え直前に DataGrid の選択・編集状態を解除します。
+    /// ItemsSource は空表示 pass を挟まず、ViewModel の BMSFilesView 置換で更新します。
     /// </summary>
     /// <param name="targetDataGrid">対象 DataGrid。</param>
     public void PreparePlaylistDataGridSwap(DataGrid targetDataGrid)
     {
-        DataGrid effectiveDataGrid = targetDataGrid ?? dataGrid;
-        if (effectiveDataGrid == null)
-        {
-            return;
-        }
         if (!Dispatcher.CheckAccess())
         {
-            Dispatcher.BeginInvoke(DispatcherPriority.Background, (Action)delegate
+            Dispatcher.Invoke((Action)delegate
             {
                 if (_isClosingOrClosed)
                 {
                     return;
                 }
-                PreparePlaylistDataGridSwap(effectiveDataGrid);
-            });
+                PreparePlaylistDataGridSwap(targetDataGrid);
+            }, DispatcherPriority.Send);
+            return;
+        }
+        DataGrid effectiveDataGrid = targetDataGrid ?? dataGrid;
+        if (effectiveDataGrid == null)
+        {
             return;
         }
         DispatcherOperation pendingSortGlyphRefresh = GetSortGlyphRefreshOperation(effectiveDataGrid);
@@ -486,17 +488,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         effectiveDataGrid.SelectedItem = null;
         effectiveDataGrid.SelectedIndex = -1;
-        effectiveDataGrid.SetCurrentValue(ItemsControl.ItemsSourceProperty, null);
-        LogPlaylistDataGridState("prepare_swap", effectiveDataGrid, "useAsync=" + _mainDataGridUsesAsyncBinding);
+        LogPlaylistDataGridState("prepare_swap", effectiveDataGrid, "useAsync=" + _mainDataGridUsesAsyncBinding + " itemsSourceUpdate=BMSFilesView");
         SchedulePlaylistRetentionCheckpoint(effectiveDataGrid, "prepare_swap");
-        Dispatcher.BeginInvoke(DispatcherPriority.Background, (Action)delegate
-        {
-            if (_isClosingOrClosed)
-            {
-                return;
-            }
-            ApplyMainDataGridItemsSourceBinding(forceRebind: false);
-        });
     }
 
     /// <summary>
@@ -511,23 +504,44 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
+        Stopwatch stateLogStopwatch = Stopwatch.StartNew();
         MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
         bool isPlaylistDetailViewActive = viewModel != null && viewModel.IsPlaylistDetailViewActive;
         int itemCount = 0;
         int selectedCount = 0;
         string itemsSourceType = "(null)";
-        int realizedRowCount = 0;
+        int realizedRowCount = -1;
         string generatorStatus = "(unknown)";
         if (targetDataGrid != null)
         {
             itemCount = targetDataGrid.Items?.Count ?? 0;
             selectedCount = targetDataGrid.SelectedItems?.Count ?? 0;
             itemsSourceType = targetDataGrid.ItemsSource?.GetType().FullName ?? "(null)";
-            realizedRowCount = CountVisualDescendants<DataGridRow>(targetDataGrid, maxCount: 2000);
+            if (ShouldCountRealizedRowsForLog(eventName))
+            {
+                realizedRowCount = CountVisualDescendants<DataGridRow>(targetDataGrid, maxCount: 2000);
+            }
             generatorStatus = targetDataGrid.ItemContainerGenerator?.Status.ToString() ?? "(null)";
         }
+        long stateLogMs = stateLogStopwatch.ElapsedMilliseconds;
         string suffix = string.IsNullOrWhiteSpace(details) ? string.Empty : " " + details;
-        installPerformanceLogger.Info("playlist_datagrid_state event=" + eventName + " playlistActive=" + isPlaylistDetailViewActive + " useAsync=" + _mainDataGridUsesAsyncBinding + " itemsCount=" + itemCount + " selectedCount=" + selectedCount + " realizedRowCount=" + realizedRowCount + " generatorStatus=" + generatorStatus + " itemsSourceType=" + itemsSourceType + " sourceGenerationId=" + (viewModel?.PlaylistSourceGenerationId ?? 0L) + " viewGenerationId=" + (viewModel?.PlaylistAdoptedViewGenerationId ?? 0L) + suffix);
+        installPerformanceLogger.Info("playlist_datagrid_state event=" + eventName + " playlistActive=" + isPlaylistDetailViewActive + " useAsync=" + _mainDataGridUsesAsyncBinding + " itemsCount=" + itemCount + " selectedCount=" + selectedCount + " realizedRowCount=" + realizedRowCount + " generatorStatus=" + generatorStatus + " itemsSourceType=" + itemsSourceType + " sourceGenerationId=" + (viewModel?.PlaylistSourceGenerationId ?? 0L) + " viewGenerationId=" + (viewModel?.PlaylistAdoptedViewGenerationId ?? 0L) + " stateLogMs=" + stateLogMs + suffix);
+    }
+
+    private static bool ShouldCountRealizedRowsForLog(string eventName)
+    {
+        if (string.IsNullOrWhiteSpace(eventName))
+        {
+            return false;
+        }
+        return eventName.EndsWith("_render", StringComparison.Ordinal)
+            || eventName.EndsWith("_idle", StringComparison.Ordinal)
+            || eventName.EndsWith("_containers_generated", StringComparison.Ordinal)
+            || eventName.EndsWith("_composition", StringComparison.Ordinal)
+            || eventName == "selection_changed"
+            || eventName == "visible_changed"
+            || eventName == "loaded"
+            || eventName == "unloaded";
     }
 
     /// <summary>
@@ -544,6 +558,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         long sourceGenerationId = viewModel.PlaylistSourceGenerationId;
         long viewGenerationId = viewModel.PlaylistAdoptedViewGenerationId;
+        if (string.Equals(eventName, "target_updated", StringComparison.Ordinal))
+        {
+            SchedulePlaylistGeneratorCheckpoint(targetDataGrid, eventName, sourceGenerationId, viewGenerationId);
+            SchedulePlaylistCompositionRenderingCheckpoint(targetDataGrid, eventName, sourceGenerationId, viewGenerationId);
+        }
         Dispatcher.BeginInvoke(DispatcherPriority.Render, (Action)delegate
         {
             if (_isClosingOrClosed)
@@ -563,6 +582,49 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             LogPlaylistDataGridState(eventName + "_idle", targetDataGrid, "scheduledSourceGenerationId=" + sourceGenerationId + " scheduledViewGenerationId=" + viewGenerationId);
             viewModel.LogPlaylistUiRetentionCheckpoint(eventName + "_idle", sourceGenerationId, viewGenerationId);
         });
+    }
+
+    private void SchedulePlaylistGeneratorCheckpoint(DataGrid targetDataGrid, string eventName, long sourceGenerationId, long viewGenerationId)
+    {
+        if (targetDataGrid?.ItemContainerGenerator == null)
+        {
+            return;
+        }
+        EventHandler handler = null;
+        handler = delegate
+        {
+            if (targetDataGrid.ItemContainerGenerator.Status != GeneratorStatus.ContainersGenerated)
+            {
+                return;
+            }
+            targetDataGrid.ItemContainerGenerator.StatusChanged -= handler;
+            if (_isClosingOrClosed)
+            {
+                return;
+            }
+            LogPlaylistDataGridState(eventName + "_containers_generated", targetDataGrid, "scheduledSourceGenerationId=" + sourceGenerationId + " scheduledViewGenerationId=" + viewGenerationId);
+        };
+        targetDataGrid.ItemContainerGenerator.StatusChanged += handler;
+        handler(targetDataGrid.ItemContainerGenerator, EventArgs.Empty);
+    }
+
+    private void SchedulePlaylistCompositionRenderingCheckpoint(DataGrid targetDataGrid, string eventName, long sourceGenerationId, long viewGenerationId)
+    {
+        long scheduledTimestamp = Stopwatch.GetTimestamp();
+        EventHandler handler = null;
+        handler = delegate
+        {
+            CompositionTarget.Rendering -= handler;
+            if (_isClosingOrClosed)
+            {
+                return;
+            }
+            long compositionRenderingMs = (Stopwatch.GetTimestamp() - scheduledTimestamp) * 1000L / Stopwatch.Frequency;
+            MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
+            LogPlaylistDataGridState(eventName + "_composition", targetDataGrid, "scheduledSourceGenerationId=" + sourceGenerationId + " scheduledViewGenerationId=" + viewGenerationId + " compositionRenderingMs=" + compositionRenderingMs);
+            viewModel?.LogPlaylistUiRetentionCheckpoint(eventName + "_composition", sourceGenerationId, viewGenerationId);
+        };
+        CompositionTarget.Rendering += handler;
     }
 
     /// <summary>
@@ -969,9 +1031,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         long requestId = Interlocked.Increment(ref callbackExecSortRequestId);
         Stopwatch queueStopwatch = Stopwatch.StartNew();
-        long raiseRequestId = isMainDataGrid ? (mainWindowViewModel?.LastExecSortCallbackRequestId ?? 0L) : 0L;
-        long raiseStartTimestamp = isMainDataGrid ? (mainWindowViewModel?.LastExecSortCallbackRaiseStartTimestamp ?? 0L) : 0L;
-        int raiseStartThreadId = isMainDataGrid ? (mainWindowViewModel?.LastExecSortCallbackRaiseStartThreadId ?? 0) : 0;
+        bool hasRaiseCallbackContext = isMainDataGrid && !string.Equals(trigger, "target_updated", StringComparison.Ordinal);
+        long raiseRequestId = hasRaiseCallbackContext ? (mainWindowViewModel?.LastExecSortCallbackRequestId ?? 0L) : 0L;
+        long raiseStartTimestamp = hasRaiseCallbackContext ? (mainWindowViewModel?.LastExecSortCallbackRaiseStartTimestamp ?? 0L) : 0L;
+        int raiseStartThreadId = hasRaiseCallbackContext ? (mainWindowViewModel?.LastExecSortCallbackRaiseStartThreadId ?? 0) : 0;
         long mainViewBuildRequestId = isMainDataGrid ? (mainWindowViewModel?.LastMainViewBuildRequestId ?? 0L) : 0L;
         long mainViewBuildEndTimestamp = isMainDataGrid ? (mainWindowViewModel?.LastMainViewBuildEndTimestamp ?? 0L) : 0L;
         int mainViewBuildThreadId = isMainDataGrid ? (mainWindowViewModel?.LastMainViewBuildThreadId ?? 0) : 0;
@@ -1644,6 +1707,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private bool TryAssignDataGridContextMenu(DataGridRow dataGridRow, object row, string logPrefix, out bool usePlaylistMissingContextMenu)
     {
+        if (dataGridRow == null || row == null)
+        {
+            usePlaylistMissingContextMenu = false;
+            return false;
+        }
         usePlaylistMissingContextMenu = GridRowResolver.TryGetOperationChartTarget(row, GetCurrentChartOperationSourceScope(), out ChartOperationTarget target)
             ? target.IsPlaylistMissing
             : GridRowResolver.IsPlaylistRow(row) && GridRowResolver.GetOperationBmsFile(row) == null;
@@ -1654,6 +1722,24 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         dataGridRow.ContextMenu = contextMenu;
         NLogWrapper.FileLogger?.Info(logPrefix + " rowType=" + row?.GetType().FullName + " missing=" + usePlaylistMissingContextMenu + " resourceKey=" + resourceKey);
+        return true;
+    }
+
+    private bool TryAssignDataGridColumnHeaderContextMenu(DataGridColumnHeader columnHeader)
+    {
+        if (columnHeader == null)
+        {
+            return false;
+        }
+        if (columnHeader.ContextMenu != null)
+        {
+            return true;
+        }
+        if (TryFindResource("dataGridColumnHeaderContextMenu") is not ContextMenu contextMenu)
+        {
+            return false;
+        }
+        columnHeader.ContextMenu = contextMenu;
         return true;
     }
 
@@ -1706,13 +1792,54 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return;
         }
         object row = dataGridRow.DataContext;
-        TryAssignDataGridContextMenu(dataGridRow, row, "playlist_context_menu_assign", out _);
+        bool hadContextMenu = dataGridRow.ContextMenu != null;
+        if (!TryAssignDataGridContextMenu(dataGridRow, row, "playlist_context_menu_assign", out _))
+        {
+            return;
+        }
+        if (!hadContextMenu)
+        {
+            dataGridRow.ContextMenu.PlacementTarget = dataGridRow;
+            dataGridRow.ContextMenu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom;
+            dataGridRow.ContextMenu.IsOpen = true;
+            e.Handled = true;
+        }
+    }
+
+    private void dataGridColumnHeaderPreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (ShouldBlockStartupUiInteraction("column_header_context_menu"))
+        {
+            e.Handled = true;
+            return;
+        }
+        if (sender is DataGridColumnHeader columnHeader)
+        {
+            TryAssignDataGridColumnHeaderContextMenu(columnHeader);
+        }
     }
 
     private void dataGridColumnHeaderContextMenuOpening(object sender, ContextMenuEventArgs e)
     {
         if (ShouldBlockStartupUiInteraction("column_header_context_menu"))
         {
+            e.Handled = true;
+            return;
+        }
+        if (sender is not DataGridColumnHeader columnHeader)
+        {
+            return;
+        }
+        bool hadContextMenu = columnHeader.ContextMenu != null;
+        if (!TryAssignDataGridColumnHeaderContextMenu(columnHeader))
+        {
+            return;
+        }
+        if (!hadContextMenu)
+        {
+            columnHeader.ContextMenu.PlacementTarget = columnHeader;
+            columnHeader.ContextMenu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom;
+            columnHeader.ContextMenu.IsOpen = true;
             e.Handled = true;
         }
     }
@@ -8135,6 +8262,20 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         switch (e.Key)
         {
+            case Key.Apps:
+            case Key.F10 when (Keyboard.Modifiers & ModifierKeys.Shift) == ModifierKeys.Shift:
+                e.Handled = true;
+                if (dataGrid.TryGetSelectedRowRealized(out DataGridRow contextMenuRow))
+                {
+                    object row = contextMenuRow.DataContext;
+                    if (TryAssignDataGridContextMenu(contextMenuRow, row, "playlist_context_menu_keyboard", out _) && contextMenuRow.ContextMenu != null)
+                    {
+                        contextMenuRow.ContextMenu.PlacementTarget = contextMenuRow;
+                        contextMenuRow.ContextMenu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom;
+                        contextMenuRow.ContextMenu.IsOpen = true;
+                    }
+                }
+                break;
             case Key.Return:
                 {
                     e.Handled = true;
