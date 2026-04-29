@@ -103,14 +103,14 @@ CustomTableColumn
 `DataGrid` 互換コンポーネントを作るのではなく、既存 ViewModel の行リスト、列設定、sort pipeline を使う描画専用ビューを作る。
 
 ```text
-CustomTableView : Control
-  ScrollViewer
-    CustomTableSurface : FrameworkElement
+CustomTableView : lightweight Grid container
+  CustomTableSurface : FrameworkElement
+  vertical ScrollBar
   overlay TextBox / ComboBox / Popup
   ContextMenu bridge
 ```
 
-`CustomTableSurface` は WPF 要素としてのセルを作らず、`OnRender(DrawingContext dc)` で可視範囲だけを描く。初期は外側 `ScrollViewer` の `ScrollChanged` を受けて `VerticalOffset` / `HorizontalOffset` を保持する。必要になったら `IScrollInfo` 実装へ進む。
+`CustomTableSurface` は WPF 要素としてのセルを作らず、`OnRender(DrawingContext dc)` で可視範囲だけを描く。初期は単一の縦 `ScrollBar` の値を行 offset として保持する。必要になったら `IScrollInfo` 実装へ進む。
 
 固定行高を前提にする。
 
@@ -193,10 +193,13 @@ TextLayoutKey
 実装内容:
 
 - `CustomTableView` / `CustomTableSurface` を追加。
-- `ItemsSource`, `Columns`, `RowHeight`, `HeaderHeight`, `SelectedIndex` を dependency property として持つ。
-- 可視行/列のみ `OnRender` で描画。
-- 列幅は既存 `dataGridColumnsSettings` から読むが、リサイズ保存はまだしない。
-- DataGrid と切り替える実験設定を追加する。
+- `ItemsSource`, `Columns`, `ColumnsSettings`, `RowHeight`, `HeaderHeight`, `SelectedIndex` を dependency property として持つ。
+- 可視行/列のみ `OnRender` で描画する。
+- Phase 1 対象列は `TITLE`, `ARTIST`, `PATH`, `CLEAR`, `DJ LEVEL`, `LEVEL`, `DIFFICULTY`, `JUDGE` に固定する。
+- 列幅、表示/非表示、表示順は既存 `dataGridColumnsSettings` から読むが、リサイズ保存はまだしない。
+- DataGrid と切り替える高度な設定として `UseCustomTableView` を追加する。表示名は「一覧画面で軽量テーブル表示を使用する」、既定値は `False`。
+- `UseCustomTableView=True` の間はメイン `dataGrid` の `ItemsSource` binding を外し、DataGrid のセル生成コストを測定に混ぜない。
+- `table_first_visible controlType=CustomTableView` を出し、`firstRenderMs` と `renderWorkMs` を確認できるようにする。
 
 完了条件:
 
@@ -204,6 +207,23 @@ TextLayoutKey
 - 縦スクロールできる。
 - 5000 セル相当表示が数十から数百 ms に入る見込みがログで確認できる。
 - DataGrid を残したまま切り戻せる。
+- Phase 1 では tooltip、編集、列リサイズ、右クリック、DnD、ヘッダー sort、コピーは未対応とする。
+
+実装後の確認:
+
+- 軽量テーブル表示 ON で、見た目は大きな破綻なく一覧として成立している。
+- `DataGrid` 側の `target_updated_render` は発生せず、メイン `dataGrid` のセル生成コストは測定に混ざっていない。
+- 直近ログでは `visibleRowCount=99`, `visibleColumnCount=5`, `visibleCellCount=495` の表示で、`requestToVisibleRenderMs=307-357ms`, `buildToVisibleRenderMs=175-197ms`, `firstRenderMs=172-190ms`, `renderWorkMs=168-189ms` だった。
+- `renderWorkMs` が初回可視時間の大半を占めているため、次の追加作業は Phase 6 の一部を前倒しし、`FormattedText` / 文字描画 cache を Phase 1 の延長として入れる。
+
+Phase 1 追加作業: 文字描画 cache
+
+- 目的は `OnRender` 中の `FormattedText` 生成回数を減らし、現状 170-190ms 程度の `renderWorkMs` をさらに下げること。
+- まずは可視範囲 cache とし、行リスト差し替え、列幅変更、DPI/フォント/色設定変更時に破棄する。
+- cache key は `Text`, `Width`, `FontRole`, `ForegroundRole`, `Alignment`, `Dpi` を基本にする。
+- `textCacheHitRate` は `table_first_visible controlType=CustomTableView` で実値を出す。cache 未使用時の `-1` は Phase 1 初期実装のみとする。
+- cache が肥大化しないよう、最初は表示操作単位または可視範囲中心の簡易上限付き cache でよい。
+- 行単位 `DrawingVisual` 分割や差分再描画はまだ入れず、全面 `InvalidateVisual()` + 可視範囲描画のまま cache 効果を測る。
 
 ## Phase 2: ソート、行選択、右クリック
 

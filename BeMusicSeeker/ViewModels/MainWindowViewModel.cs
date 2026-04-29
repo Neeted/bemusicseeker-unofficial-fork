@@ -194,6 +194,8 @@ public class MainWindowViewModel : ViewModel
 
         private bool tempUseDataGridColumnVirtualizationExperimental;
 
+        private bool tempUseCustomTableView;
+
         private bool tempKeepInstallablePackagesPending;
 
         private bool tempUseEverythingForPendingPackageSourceScan;
@@ -1128,6 +1130,22 @@ public class MainWindowViewModel : ViewModel
                 {
                     Settings.Default.UseDataGridColumnVirtualizationExperimental = value;
                     RaisePropertyChanged("UseDataGridColumnVirtualizationExperimental");
+                }
+            }
+        }
+
+        public bool UseCustomTableView
+        {
+            get
+            {
+                return Settings.Default.UseCustomTableView;
+            }
+            set
+            {
+                if (Settings.Default.UseCustomTableView != value)
+                {
+                    Settings.Default.UseCustomTableView = value;
+                    RaisePropertyChanged("UseCustomTableView");
                 }
             }
         }
@@ -2296,6 +2314,7 @@ public class MainWindowViewModel : ViewModel
             tempEnableAutoInstall = Settings.Default.AutoInstall;
             tempUseFastSortInDataGridExperimental = Settings.Default.UseFastSortInDataGridExperimental;
             tempUseDataGridColumnVirtualizationExperimental = Settings.Default.UseDataGridColumnVirtualizationExperimental;
+            tempUseCustomTableView = Settings.Default.UseCustomTableView;
             tempKeepInstallablePackagesPending = Settings.Default.KeepInstallablePackagesPending;
             tempUseEverythingForPendingPackageSourceScan = Settings.Default.UseEverythingForPendingPackageSourceScan;
             tempAutoApplyAmbiguousInstallDestination = Settings.Default.AutoApplyAmbiguousInstallDestination;
@@ -2570,6 +2589,7 @@ public class MainWindowViewModel : ViewModel
             Settings.Default.AutoInstall = tempEnableAutoInstall;
             Settings.Default.UseFastSortInDataGridExperimental = tempUseFastSortInDataGridExperimental;
             Settings.Default.UseDataGridColumnVirtualizationExperimental = tempUseDataGridColumnVirtualizationExperimental;
+            Settings.Default.UseCustomTableView = tempUseCustomTableView;
             Settings.Default.KeepInstallablePackagesPending = tempKeepInstallablePackagesPending;
             Settings.Default.UseEverythingForPendingPackageSourceScan = tempUseEverythingForPendingPackageSourceScan;
             Settings.Default.AutoApplyAmbiguousInstallDestination = tempAutoApplyAmbiguousInstallDestination;
@@ -2645,6 +2665,7 @@ public class MainWindowViewModel : ViewModel
             RaisePropertyChanged(() => EnableAutoInstall);
             RaisePropertyChanged(() => UseFastSortInDataGridExperimental);
             RaisePropertyChanged(() => UseDataGridColumnVirtualizationExperimental);
+            RaisePropertyChanged(() => UseCustomTableView);
             RaisePropertyChanged(() => KeepInstallablePackagesPending);
             RaisePropertyChanged(() => UseEverythingForPendingPackageSourceScan);
             RaisePropertyChanged(() => AutoApplyAmbiguousInstallDestination);

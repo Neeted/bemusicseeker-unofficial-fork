@@ -250,6 +250,17 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             _panelImage = null;
         });
+        settingsDefaultEventListnener.RegisterHandler(() => Settings.Default.UseCustomTableView, delegate
+        {
+            Dispatcher.BeginInvoke(DispatcherPriority.Background, (Action)delegate
+            {
+                if (_isClosingOrClosed)
+                {
+                    return;
+                }
+                ApplyMainDataGridItemsSourceBinding(forceRebind: true);
+            });
+        });
         gridBMSPlayerImage.Source = panelImage;
 
         // Start async update check
@@ -443,6 +454,17 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
         bool useAsyncBinding = viewModel == null || viewModel.UseAsyncBMSFilesViewBinding;
+        if (Settings.Default.UseCustomTableView)
+        {
+            if (BindingOperations.GetBinding(dataGrid, ItemsControl.ItemsSourceProperty) != null || dataGrid.ItemsSource != null || forceRebind)
+            {
+                BindingOperations.ClearBinding(dataGrid, ItemsControl.ItemsSourceProperty);
+                dataGrid.ItemsSource = null;
+                _mainDataGridUsesAsyncBinding = useAsyncBinding;
+                LogPlaylistDataGridState("binding_detached_custom_table", dataGrid, "useAsync=" + useAsyncBinding);
+            }
+            return;
+        }
         if (!forceRebind && _mainDataGridUsesAsyncBinding == useAsyncBinding && BindingOperations.GetBinding(dataGrid, ItemsControl.ItemsSourceProperty) != null)
         {
             return;
@@ -1050,6 +1072,44 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             LogPlaylistDataGridState("target_updated", dataGrid2);
             SchedulePlaylistRetentionCheckpoint(dataGrid2, "target_updated");
             RequestSortGlyphRefresh(dataGrid2, "target_updated");
+        }
+    }
+
+    private void customTableView_FirstRenderCompleted(object sender, CustomTableFirstRenderCompletedEventArgs e)
+    {
+        if (!installPerformanceLoggingEnabled)
+        {
+            return;
+        }
+        Stopwatch stateLogStopwatch = Stopwatch.StartNew();
+        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
+        long sourceGenerationId = viewModel?.PlaylistSourceGenerationId ?? 0L;
+        long viewGenerationId = viewModel?.PlaylistAdoptedViewGenerationId ?? 0L;
+        TableFirstVisibleTiming timing = default;
+        bool hasPlaylistTiming = viewModel != null && viewModel.TryCreatePlaylistOpenVisibleTiming(sourceGenerationId, viewGenerationId, out timing);
+        if (!hasPlaylistTiming)
+        {
+            timing = new TableFirstVisibleTiming(-1, -1L, -1L, e.FirstRenderMs, -1L, e.RowCount);
+        }
+        long stateLogMs = stateLogStopwatch.ElapsedMilliseconds;
+        TableFirstVisibleMetrics metrics = new TableFirstVisibleMetrics(
+            "CustomTableView",
+            "custom_onrender",
+            sourceGenerationId,
+            viewGenerationId,
+            e.RowCount,
+            e.VisibleRowCount,
+            e.VisibleColumnCount,
+            e.VisibleCellCount,
+            e.FirstRenderMs,
+            e.RenderWorkMs,
+            -1d,
+            stateLogMs,
+            timing);
+        installPerformanceLogger.Info(TableFirstVisibleLogFormatter.Format(metrics));
+        if (hasPlaylistTiming)
+        {
+            viewModel.TryLogPlaylistOpenVisibleCompleted("custom_onrender", sourceGenerationId, viewGenerationId);
         }
     }
 

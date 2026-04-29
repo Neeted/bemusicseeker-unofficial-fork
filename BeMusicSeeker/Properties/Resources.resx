@@ -607,6 +607,9 @@ LR2をプレイヤーとして使用すると再生できない場合があり�
   <data name="Details_test_column_virtualization_list_view" xml:space="preserve">
     <value>[テスト中] 一覧画面で列仮想化を有効にする (非推奨: 実験したが速くならず)</value>
   </data>
+  <data name="Details_use_custom_table_view" xml:space="preserve">
+    <value>一覧画面で軽量テーブル表示を使用する</value>
+  </data>
   <data name="Full_scan_check" xml:space="preserve">
     <value>構成ファイルフルスキャン</value>
   </data>

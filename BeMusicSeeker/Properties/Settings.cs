@@ -1173,6 +1173,21 @@ internal sealed class Settings : ApplicationSettingsBase
 	[UserScopedSetting]
 	[DebuggerNonUserCode]
 	[DefaultSettingValue("False")]
+	public bool UseCustomTableView
+	{
+		get
+		{
+			return (bool)this["UseCustomTableView"];
+		}
+		set
+		{
+			this["UseCustomTableView"] = value;
+		}
+	}
+
+	[UserScopedSetting]
+	[DebuggerNonUserCode]
+	[DefaultSettingValue("False")]
 	public bool KeepInstallablePackagesPending
 	{
 		get
