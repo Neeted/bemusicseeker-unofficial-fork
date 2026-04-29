@@ -5,6 +5,7 @@ namespace Ribbit.Windows;
 
 public static class DirectInputSendKey
 {
+#pragma warning disable CS0649
 	private struct MOUSEINPUT
 	{
 		public int dx;
@@ -61,6 +62,7 @@ public static class DirectInputSendKey
 		[FieldOffset(0)]
 		public HARDWAREINPUT hi;
 	}
+#pragma warning restore CS0649
 
 	[Flags]
 	public enum KEYEVENTF

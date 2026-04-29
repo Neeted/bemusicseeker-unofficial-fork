@@ -687,6 +687,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
 			}
 		};
 		playbackRate = 1f;
+#pragma warning disable CS0618
 		FxParameterTypeToBASSFXType = new ReadOnlyDictionary<Type, BASSFXType>(new Dictionary<Type, BASSFXType>
 		{
 			{
@@ -818,6 +819,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
 				BASSFXType.BASS_FX_BFX_FREEVERB
 			}
 		});
+#pragma warning restore CS0618
 		FxParameters = new ConcurrentDictionary<BASSFXType, Tuple<int, object>>();
 		EqualizerFrequencies = new List<float> { 32f, 64f, 125f, 250f, 500f, 1000f, 2000f, 4000f, 8000f, 16000f }.AsReadOnly();
 		equalizerGains = new float[10].ToList();
@@ -894,9 +896,7 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
 			{
 				if (frequency <= SampleRate.SAMPLE_RATE_11025Hz)
 				{
-					switch (frequency)
-					{
-					}
+					goto IL_02ce;
 				}
 				else
 				{

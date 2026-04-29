@@ -248,7 +248,8 @@ internal class OutlineText : FrameworkElement
 	{
 		if (FormattedText == null && Text != null)
 		{
-			FormattedText = new FormattedText(Text, CultureInfo.CurrentUICulture, base.FlowDirection, new Typeface(FontFamily, FontStyle, FontWeight, FontStretches.Normal), FontSize, Brushes.Black);
+			double pixelsPerDip = VisualTreeHelper.GetDpi(this).PixelsPerDip;
+			FormattedText = new FormattedText(Text, CultureInfo.CurrentUICulture, base.FlowDirection, new Typeface(FontFamily, FontStyle, FontWeight, FontStretches.Normal), FontSize, Brushes.Black, pixelsPerDip);
 			UpdateFormattedText();
 		}
 	}

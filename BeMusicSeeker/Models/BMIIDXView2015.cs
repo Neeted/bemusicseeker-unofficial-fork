@@ -40,8 +40,6 @@ public class BMIIDXView2015 : NotificationObject, IBMSPlayer, INotifyPropertyCha
 
 	private string BMSFilePathPlaying;
 
-	private bool isPausing;
-
 	private IntPtr BMIIDXView2015HandleShowing = IntPtr.Zero;
 
 	private EventHandler onExitEventHandlerRegstered;
@@ -374,10 +372,7 @@ public class BMIIDXView2015 : NotificationObject, IBMSPlayer, INotifyPropertyCha
 		{
 			BMIIDXView2015HandleShowing = IntPtr.Zero;
 			BMIIDXView2015Process = null;
-			if (!isPausing)
-			{
-				BMSFilePathPlaying = null;
-			}
+			BMSFilePathPlaying = null;
 		}
 	}
 

@@ -16,7 +16,6 @@ public class NamedLocks<T>
 			if (!locks.ContainsKey(name))
 			{
 				obj = (locks[name] = new object());
-				obj = obj;
 			}
 			else
 			{
