@@ -1264,7 +1264,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
         };
     }
 
-    private static bool ExecuteSingleChartParentDeleteMove(SafeDeleteMoveSetup setup, HashSet<string> existingHashes, out List<string> logs)
+    private static bool ExecuteSingleChartParentDeleteMove(SafeDeleteMoveSetup setup, HashSet<string>? existingHashes, out List<string> logs)
     {
         BmsLibraryPackageInstallService service = new BmsLibraryPackageInstallService();
         RealFileMutationService fileMutationService = new RealFileMutationService();

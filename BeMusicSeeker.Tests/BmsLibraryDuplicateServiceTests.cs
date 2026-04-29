@@ -349,7 +349,7 @@ public sealed class BmsLibraryDuplicateServiceTests
         });
     }
 
-    private static TestableBmsFile CreateFile(string hash, string path, string sha256 = null)
+    private static TestableBmsFile CreateFile(string? hash, string path, string? sha256 = null)
     {
         TestableBmsFile file = new TestableBmsFile
         {
@@ -388,12 +388,12 @@ public sealed class BmsLibraryDuplicateServiceTests
 
     private sealed class TestableBmsFile : BMSFile
     {
-        public void SetHash(string value)
+        public void SetHash(string? value)
         {
             hash = value;
         }
 
-        public void SetSha256(string value)
+        public void SetSha256(string? value)
         {
             sha256 = value;
         }

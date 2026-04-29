@@ -16,12 +16,12 @@ public sealed class PendingInstallEstimateQueueProcessorTests
         List<string> processed = new List<string>();
         List<PendingInstallEstimateQueueStatusSnapshot> snapshots = new List<PendingInstallEstimateQueueStatusSnapshot>();
         object syncRoot = new object();
-        Exception backgroundFailure = null;
+        Exception? backgroundFailure = null;
         ManualResetEventSlim firstStarted = new ManualResetEventSlim(initialState: false);
         ManualResetEventSlim releaseFirst = new ManualResetEventSlim(initialState: false);
         ManualResetEventSlim secondFinished = new ManualResetEventSlim(initialState: false);
         ManualResetEventSlim progressReported = new ManualResetEventSlim(initialState: false);
-        PendingInstallEstimateQueueProcessor processor = null;
+        PendingInstallEstimateQueueProcessor? processor = null;
         processor = new PendingInstallEstimateQueueProcessor(
             delegate (PendingInstallEstimateBatchRequest request, CancellationToken token)
             {
@@ -32,7 +32,7 @@ public sealed class PendingInstallEstimateQueueProcessorTests
                 if (request.DisplayName == "startup")
                 {
                     firstStarted.Set();
-                    processor.ReportActiveBatchProgress(1);
+                    processor!.ReportActiveBatchProgress(1);
                     if (!releaseFirst.Wait(3000))
                     {
                         lock (syncRoot)

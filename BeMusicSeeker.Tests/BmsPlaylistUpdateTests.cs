@@ -80,7 +80,7 @@ public sealed class BmsPlaylistUpdateTests
             BMSTable table = await playlist.LoadExternalTableAsync(new Uri(headerJsonPath));
             table.EnableExternalSync();
             playlist.BMSTables = new DispatcherCollection<BMSTable>(new ObservableCollection<BMSTable>(new[] { table }), Dispatcher.CurrentDispatcher);
-            BMSPlaylist.PlaylistTableUpdateContext callbackContext = null;
+            BMSPlaylist.PlaylistTableUpdateContext? callbackContext = null;
 
             List<BMSTable> updated = await playlist.UpdateBMSTablesInternalAsync(reloadExtPlaylist: true, updateCallbackActions: new List<Action<BMSPlaylist.PlaylistTableUpdateContext>>
             {
@@ -91,15 +91,16 @@ public sealed class BmsPlaylistUpdateTests
             }, syncResultCallback: null);
 
             Assert.IsNotNull(callbackContext);
-            Assert.AreSame(table, callbackContext.OldTable);
-            Assert.IsNotNull(callbackContext.NewTable);
-            Assert.IsNotNull(callbackContext.OldEntriesSnapshot);
-            Assert.IsNotNull(callbackContext.NewEntriesSnapshot);
-            Assert.AreEqual(1, callbackContext.OldEntriesSnapshot.Count);
-            Assert.AreEqual(1, callbackContext.NewEntriesSnapshot.Count);
-            Assert.AreEqual("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", callbackContext.OldEntriesSnapshot[0].md5);
-            Assert.AreEqual("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", callbackContext.NewEntriesSnapshot[0].md5);
-            Assert.AreEqual(new string('b', 64), callbackContext.NewEntriesSnapshot[0].sha256);
+            BMSPlaylist.PlaylistTableUpdateContext actualCallbackContext = callbackContext!;
+            Assert.AreSame(table, actualCallbackContext.OldTable);
+            Assert.IsNotNull(actualCallbackContext.NewTable);
+            Assert.IsNotNull(actualCallbackContext.OldEntriesSnapshot);
+            Assert.IsNotNull(actualCallbackContext.NewEntriesSnapshot);
+            Assert.AreEqual(1, actualCallbackContext.OldEntriesSnapshot.Count);
+            Assert.AreEqual(1, actualCallbackContext.NewEntriesSnapshot.Count);
+            Assert.AreEqual("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", actualCallbackContext.OldEntriesSnapshot[0].md5);
+            Assert.AreEqual("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", actualCallbackContext.NewEntriesSnapshot[0].md5);
+            Assert.AreEqual(new string('b', 64), actualCallbackContext.NewEntriesSnapshot[0].sha256);
         }
         finally
         {

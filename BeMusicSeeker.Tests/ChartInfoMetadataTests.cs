@@ -2824,7 +2824,7 @@ public sealed class ChartInfoMetadataTests
         Assert.IsNotNull(method, "installBMSPackages method was not found.");
         method.Invoke(
             library,
-            new object[]
+            new object?[]
             {
                 packages,
                 installDirectory,

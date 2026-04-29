@@ -1198,7 +1198,7 @@ public sealed class PlaylistViewPipelineTests
             MainWindowViewModel.ResolvePlaylistColumnSettingModeForTest((int)MainWindowViewModel.PlaylistFilterType.PlaylistNotOwnedFilterSelected));
     }
 
-    private static PlaylistDetailSourceRow CreateSourceRow(string hash, string title, int? mode, string memo = "", string comment = "", double? entryLevel = null, string sha256 = null)
+    private static PlaylistDetailSourceRow CreateSourceRow(string hash, string title, int? mode, string memo = "", string comment = "", double? entryLevel = null, string? sha256 = null)
     {
         TestableBmsFile file = new TestableBmsFile();
         file.ApplySnapshot(hash, title, mode);

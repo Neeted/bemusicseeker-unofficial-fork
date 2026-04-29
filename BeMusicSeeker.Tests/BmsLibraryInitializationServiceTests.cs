@@ -339,10 +339,11 @@ public sealed class BmsLibraryInitializationServiceTests
             Assert.IsTrue(entry.AudioBaseNameHashes.Contains(audioBaseHash));
             Assert.IsTrue(entry.ImageBaseNameHashes.Contains(imageBaseHash));
             Assert.IsTrue(entry.AudioRelativePathHashes.Contains(audioRelativeHash));
-            DirectoryRelativePathHashIndex.Entry relativePathEntry = result.NextDirectoryRelativePathHashIndex?.GetEntryOrNull(chartDirectoryPath);
+            DirectoryRelativePathHashIndex.Entry? relativePathEntry = result.NextDirectoryRelativePathHashIndex?.GetEntryOrNull(chartDirectoryPath);
             Assert.IsNotNull(relativePathEntry);
-            Assert.IsTrue(relativePathEntry.AudioBaseNameHashes.Contains(audioBaseHash));
-            Assert.IsTrue(relativePathEntry.AudioRelativePathHashes.Contains(audioRelativeHash));
+            DirectoryRelativePathHashIndex.Entry actualRelativePathEntry = relativePathEntry!;
+            Assert.IsTrue(actualRelativePathEntry.AudioBaseNameHashes.Contains(audioBaseHash));
+            Assert.IsTrue(actualRelativePathEntry.AudioRelativePathHashes.Contains(audioRelativeHash));
             Assert.AreEqual((ulong)2, result.AllBaseHashEntryCount);
             Assert.AreEqual((ulong)1, result.AudioBaseHashEntryCount);
             Assert.AreEqual((ulong)1, result.ImageBaseHashEntryCount);
@@ -1089,7 +1090,7 @@ public sealed class BmsLibraryInitializationServiceTests
         DirectoryResourceLookupCache cache = new DirectoryResourceLookupCache();
         foreach (string chartDirectory in chartDirectories)
         {
-            IEnumerable<string> resourceFiles = null;
+            IEnumerable<string>? resourceFiles = null;
             resourcesByDirectory?.TryGetValue(chartDirectory, out resourceFiles);
             cache.AddDir(chartDirectory, resourceFiles ?? Array.Empty<string>());
             DirectoryResourceLookupCache.Entry entry = cache.GetEntryOrNull(chartDirectory) ?? new DirectoryResourceLookupCache.Entry();

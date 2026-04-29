@@ -725,7 +725,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
 
     private static void SetNotes(BMSFile file, int? value)
     {
-        typeof(BMSFile).GetProperty(nameof(BMSFile.notes)).GetSetMethod(nonPublic: true).Invoke(file, new object[] { value });
+        typeof(BMSFile).GetProperty(nameof(BMSFile.notes))!.GetSetMethod(nonPublic: true)!.Invoke(file, new object?[] { value });
     }
 
     private sealed class TestableBmsFile : BMSFile

@@ -2548,7 +2548,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         return new BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapshot.CreateCurrent(), 70);
     }
 
-    private static TestableBmsFile CreateFile(string hash, string path, params string[] wavFiles)
+    private static TestableBmsFile CreateFile(string? hash, string path, params string[] wavFiles)
     {
         TestableBmsFile file = new TestableBmsFile
         {
@@ -2648,7 +2648,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
 
     private sealed class TestableBmsFile : BMSFile
     {
-        public void SetHash(string value)
+        public void SetHash(string? value)
         {
             hash = value;
         }

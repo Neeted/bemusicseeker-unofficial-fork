@@ -83,7 +83,7 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
         return table;
     }
 
-    private static TestablePlaylistEntry CreateEntry(string md5, string sha256 = null)
+    private static TestablePlaylistEntry CreateEntry(string? md5, string? sha256 = null)
     {
         TestablePlaylistEntry entry = new TestablePlaylistEntry();
         if (md5 != null)
@@ -98,7 +98,7 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
         return entry;
     }
 
-    private static TestableBmsFile CreateFile(string hash, string sha256 = null)
+    private static TestableBmsFile CreateFile(string hash, string? sha256 = null)
     {
         TestableBmsFile file = new TestableBmsFile
         {

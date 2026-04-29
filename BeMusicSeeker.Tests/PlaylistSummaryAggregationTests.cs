@@ -253,14 +253,20 @@ public sealed class PlaylistSummaryAggregationTests
         return new HashSet<string>(values ?? Array.Empty<string>(), StringComparer.OrdinalIgnoreCase);
     }
 
-    private static BMSTableEntry CreateEntry(string md5, string sha256, bool isRemoved = false)
+    private static BMSTableEntry CreateEntry(string? md5, string? sha256, bool isRemoved = false)
     {
         TestablePlaylistEntry entry = new TestablePlaylistEntry
         {
             is_removed = isRemoved
         };
-        entry.SetHash(md5);
-        entry.SetSha256(sha256);
+        if (md5 != null)
+        {
+            entry.SetHash(md5);
+        }
+        if (sha256 != null)
+        {
+            entry.SetSha256(sha256);
+        }
         return entry;
     }
 

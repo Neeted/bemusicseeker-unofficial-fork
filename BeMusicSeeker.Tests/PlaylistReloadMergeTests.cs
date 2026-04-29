@@ -306,7 +306,7 @@ public sealed class PlaylistReloadMergeTests
         return table;
     }
 
-    private static BMSTableEntry CreateEntry(string md5, string folder, string sha256 = null, string memo = "", DateTime? addDate = null, bool isRemoved = false)
+    private static BMSTableEntry CreateEntry(string? md5, string folder, string? sha256 = null, string memo = "", DateTime? addDate = null, bool isRemoved = false)
     {
         TestablePlaylistEntry entry = new TestablePlaylistEntry
         {
@@ -326,7 +326,7 @@ public sealed class PlaylistReloadMergeTests
         return entry;
     }
 
-    private static BMSTableEntry CreateComparableOnlyEntry(string title, string artist, string folder, string comment = "", DateTime? addDate = null, string orgMd5 = null)
+    private static BMSTableEntry CreateComparableOnlyEntry(string title, string artist, string folder, string comment = "", DateTime? addDate = null, string? orgMd5 = null)
     {
         TestablePlaylistEntry entry = new TestablePlaylistEntry
         {
