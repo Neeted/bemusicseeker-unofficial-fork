@@ -280,17 +280,52 @@ Phase 1 完了判断:
 
 実装内容:
 
-- 横スクロールを実装する。
-- `COMMENT` / `MEMO` / `WARNING` / `URL1` / `URL2` / `PLAYLIST` などの tooltip を座標 hit test で出す。
-- 列幅変更 hit area を実装する。
-- 変更した列幅を既存 `dataGridColumnsSettings` に保存する。
-- 列表示/非表示の反映を安定化する。
+- 描画対象列を Phase 1/2 の 8 列から、`URL1`, `URL2`, `WARNING`, `COMMENT`, `MEMO`, `PLAYLIST` を含む 14 列へ広げる。
+- 横スクロールを実装し、描画・hit-test・初回描画 metric の可視列数を `HorizontalOffset` 込みで計算する。
+- `COMMENT` / `MEMO` / `WARNING` / `URL1` / `URL2` / `PLAYLIST` の tooltip を座標 hit-test で出す。
+- tooltip は owner-level の `ToolTip` 1 個を使い、セルごとの WPF 要素は作らない。
+- header 境界の resize hit area を実装し、resize hit は sort より優先する。
+- 変更した列幅は既存 `dataGridColumnsSettings.dataGridColumnlayouts.Width` に反映する。
+- `URL1` / `URL2` は既存 `DataGrid` と同じく 40px 固定幅扱いにし、resize 対象外にする。
+- 列表示/非表示や列幅変更後に horizontal offset を有効範囲へ clamp する。
 
 完了条件:
 
 - 既存の列幅設定を読み書きできる。
 - 表示列の切替後にレイアウトが崩れない。
 - 長文セルは描画では省略表示し、tooltip で全文確認できる。
+- 横スクロール後も sort、選択、右クリック、ダブルクリック/Enter 再生が同じ行/列に作用する。
+- `DataGrid` fallback と `dataGridPlaylistSummary` には挙動差分を入れない。
+
+Phase 3 完了判断:
+
+- `UseCustomTableView=True` のプレイリスト詳細表示で、14 列表示、tooltip、横スクロール、列幅変更、マウスホイール縦スクロールが成立している。
+- URL 列はフォント依存のリガチャではなく、`DrawingContext` で軽量な download icon を直接描画する。
+- 最新ログでは `visibleCellCount=882` のプレイリスト詳細で `buildToVisibleRenderMs=168-266ms` 程度、通常ライブラリの描画で `renderWorkMs=216ms` 程度に収まっている。
+- 通常ライブラリの `main_view_build` は描画とは別の一覧生成/ソート側の課題として扱う。
+
+## Phase 3.5: 残り列表示と横スクロール自然化
+
+目的: 編集に進む前に、表示専用テーブルとして既存 `DataGrid` の主要列を一通り描ける状態へ近づける。
+
+実装内容:
+
+- Phase 3 の 14 列以外のメイン一覧列を `CustomTableColumnFactory` に追加する。
+- 既存 `dataGridColumnsSettings` の幅、表示/非表示、DisplayIndex、sort path を引き続き使う。
+- `GENRE`, `KEYS`, `HASH`, `FOLDER`, `RATE`, `BP`, chart_info 系、health 系など、編集を伴わない列は表示専用として先に対応する。
+- `INSTL DST` など編集予定列も、Phase 3.5 では通常テキスト表示だけに留める。
+- 横スクロール時の描画を一般的な挙動へ修正する。
+  - 列の本来位置は `columnX - HorizontalOffset` のまま負の X も許す。
+  - viewport で clip し、左端列の幅が縮んだように見える描画にはしない。
+  - hit-test と context menu 用の `CellRect` は画面内 rect のまま維持する。
+- 列ごとの表示 formatter を整理し、`DataGrid` converter 依存を増やさず `CustomTableColumn` 側で軽く解決する。
+
+完了条件:
+
+- 表示/非表示メニューで有効にした主要列が `CustomTableView` にも表示される。
+- 横スクロール時に列幅が縮むように見えず、一般的な表と同じ見え方になる。
+- 全列寄りの表示でも初回描画が大きく悪化しない。
+- 編集、URL click、DnD、コピー、列順変更保存は引き続き Phase 4/5 に残す。
 
 ## Phase 4: overlay TextBox 編集
 

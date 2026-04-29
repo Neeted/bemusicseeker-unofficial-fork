@@ -9,6 +9,7 @@ public enum CustomTableHitKind
 {
     Empty,
     Header,
+    HeaderResize,
     Cell
 }
 
