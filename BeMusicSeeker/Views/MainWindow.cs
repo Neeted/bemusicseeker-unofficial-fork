@@ -1105,9 +1105,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             e.RenderWorkMs,
             e.TextCacheHitRate,
             stateLogMs,
-            timing);
+            timing,
+            e.IsPreparationRender);
         installPerformanceLogger.Info(TableFirstVisibleLogFormatter.Format(metrics));
-        if (hasPlaylistTiming)
+        if (hasPlaylistTiming && !(e.IsPreparationRender && timing.ViewCount > 0))
         {
             viewModel.TryLogPlaylistOpenVisibleCompleted("custom_onrender", sourceGenerationId, viewGenerationId);
         }
@@ -1203,6 +1204,68 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         contextMenu.PlacementTarget = customTableView;
         contextMenu.Placement = e.OpenAtMousePosition ? PlacementMode.MousePoint : PlacementMode.Bottom;
         contextMenu.IsOpen = true;
+    }
+
+    private void customTableView_CellEditBeginning(object sender, CustomTableCellEditBeginningEventArgs e)
+    {
+        if (ShouldBlockStartupUiInteraction("custom_table_cell_edit_beginning"))
+        {
+            e.Cancel = true;
+            return;
+        }
+        if (!(base.DataContext is MainWindowViewModel viewModel) || !(e.Row is PlaylistDetailRow) || string.IsNullOrWhiteSpace(e.EditPropertyName))
+        {
+            e.Cancel = true;
+            return;
+        }
+        if (!GridRowResolver.CanEditPlaylistCell(e.Row, e.EditPropertyName))
+        {
+            e.Cancel = true;
+            return;
+        }
+        viewModel.NotifyPlaylistCellEditStarted();
+    }
+
+    private void customTableView_CellEditEnded(object sender, CustomTableCellEditEndedEventArgs e)
+    {
+        if (!(base.DataContext is MainWindowViewModel viewModel))
+        {
+            return;
+        }
+        try
+        {
+            if (!e.Commit || !(e.Row is PlaylistDetailRow playlistRow) || string.IsNullOrWhiteSpace(e.EditPropertyName))
+            {
+                return;
+            }
+            if (!GridRowResolver.CanEditPlaylistCell(e.Row, e.EditPropertyName))
+            {
+                return;
+            }
+            switch (e.EditPropertyName)
+            {
+                case nameof(PlaylistDetailRow.Level):
+                    playlistRow.Level = e.Text;
+                    break;
+                case nameof(PlaylistDetailRow.comment):
+                    playlistRow.comment = e.Text;
+                    break;
+                case nameof(PlaylistDetailRow.memo):
+                    playlistRow.memo = e.Text;
+                    break;
+                default:
+                    return;
+            }
+            viewModel.SyncPlaylistSourceRowFromEditedViewRow(playlistRow);
+            Task.Run(delegate
+            {
+                viewModel.CommitPlaylistRow(playlistRow);
+            }).Logging("customTableView_CellEditEnded");
+        }
+        finally
+        {
+            viewModel.NotifyPlaylistCellEditCompleted();
+        }
     }
 
     private void RememberMainDataGridTargetUpdated(DataGrid targetDataGrid)

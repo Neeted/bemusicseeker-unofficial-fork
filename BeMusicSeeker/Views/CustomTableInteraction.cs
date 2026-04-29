@@ -102,6 +102,52 @@ public sealed class CustomTableHeaderRequestedEventArgs : EventArgs
     public bool OpenAtMousePosition { get; }
 }
 
+public sealed class CustomTableCellEditBeginningEventArgs : EventArgs
+{
+    internal CustomTableCellEditBeginningEventArgs(CustomTableHitTestResult hit, string editPropertyName)
+    {
+        Hit = hit;
+        EditPropertyName = editPropertyName;
+    }
+
+    public CustomTableHitTestResult Hit { get; }
+
+    public object Row => Hit?.Row;
+
+    public int RowIndex => Hit?.RowIndex ?? -1;
+
+    public CustomTableColumn Column => Hit?.Column;
+
+    public string EditPropertyName { get; }
+
+    public bool Cancel { get; set; }
+}
+
+public sealed class CustomTableCellEditEndedEventArgs : EventArgs
+{
+    internal CustomTableCellEditEndedEventArgs(CustomTableHitTestResult hit, string editPropertyName, string text, bool commit)
+    {
+        Hit = hit;
+        EditPropertyName = editPropertyName;
+        Text = text ?? string.Empty;
+        Commit = commit;
+    }
+
+    public CustomTableHitTestResult Hit { get; }
+
+    public object Row => Hit?.Row;
+
+    public int RowIndex => Hit?.RowIndex ?? -1;
+
+    public CustomTableColumn Column => Hit?.Column;
+
+    public string EditPropertyName { get; }
+
+    public string Text { get; }
+
+    public bool Commit { get; }
+}
+
 internal sealed class CustomTableContextMenuContext
 {
     internal CustomTableContextMenuContext(object row, int rowIndex)

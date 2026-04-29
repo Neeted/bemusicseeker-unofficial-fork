@@ -11,6 +11,7 @@ using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Media3D;
 using BeMusicSeeker.Diagnostics;
 using BeMusicSeeker.ViewModels;
 
@@ -18,7 +19,7 @@ namespace BeMusicSeeker.Views;
 
 public sealed class CustomTableFirstRenderCompletedEventArgs : EventArgs
 {
-    internal CustomTableFirstRenderCompletedEventArgs(int rowCount, int visibleRowCount, int visibleColumnCount, int visibleCellCount, long firstRenderMs, long renderWorkMs, double textCacheHitRate)
+    internal CustomTableFirstRenderCompletedEventArgs(int rowCount, int visibleRowCount, int visibleColumnCount, int visibleCellCount, long firstRenderMs, long renderWorkMs, double textCacheHitRate, bool isPreparationRender)
     {
         RowCount = rowCount;
         VisibleRowCount = visibleRowCount;
@@ -27,6 +28,7 @@ public sealed class CustomTableFirstRenderCompletedEventArgs : EventArgs
         FirstRenderMs = firstRenderMs;
         RenderWorkMs = renderWorkMs;
         TextCacheHitRate = textCacheHitRate;
+        IsPreparationRender = isPreparationRender;
     }
 
     public int RowCount { get; }
@@ -42,6 +44,8 @@ public sealed class CustomTableFirstRenderCompletedEventArgs : EventArgs
     public long RenderWorkMs { get; }
 
     public double TextCacheHitRate { get; }
+
+    public bool IsPreparationRender { get; }
 }
 
 public sealed class CustomTableView : Grid
@@ -97,6 +101,7 @@ public sealed class CustomTableView : Grid
         new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender, OnSortStateChanged));
 
     private readonly CustomTableSurface surface;
+    private readonly Canvas editorLayer;
     private readonly ScrollBar verticalScrollBar;
     private readonly ScrollBar horizontalScrollBar;
     private readonly ToolTip cellToolTip;
@@ -114,6 +119,11 @@ public sealed class CustomTableView : Grid
     private int resizingStartWidth;
     private int toolTipRowIndex = -1;
     private string toolTipColumnId;
+    private CustomTableHitTestResult currentCellHit;
+    private CustomTableHitTestResult activeEditHit;
+    private TextBox activeEditor;
+    private bool completingEdit;
+    private bool preparationRenderLogged;
 
     public CustomTableView()
     {
@@ -143,13 +153,20 @@ public sealed class CustomTableView : Grid
             PlacementTarget = this,
             Placement = PlacementMode.MousePoint
         };
+        editorLayer = new Canvas
+        {
+            ClipToBounds = true
+        };
         verticalScrollBar.ValueChanged += VerticalScrollBarValueChanged;
         horizontalScrollBar.ValueChanged += HorizontalScrollBarValueChanged;
         Children.Add(surface);
+        Children.Add(editorLayer);
         Children.Add(verticalScrollBar);
         Children.Add(horizontalScrollBar);
         SetColumn(surface, 0);
         SetRow(surface, 0);
+        SetColumn(editorLayer, 0);
+        SetRow(editorLayer, 0);
         SetColumn(verticalScrollBar, 1);
         SetRow(verticalScrollBar, 0);
         SetColumn(horizontalScrollBar, 0);
@@ -165,6 +182,7 @@ public sealed class CustomTableView : Grid
         PreviewMouseMove += CustomTableViewPreviewMouseMove;
         PreviewMouseWheel += CustomTableViewPreviewMouseWheel;
         PreviewKeyDown += CustomTableViewPreviewKeyDown;
+        PreviewTextInput += CustomTableViewPreviewTextInput;
         MouseLeave += delegate
         {
             CloseCellToolTip();
@@ -183,6 +201,7 @@ public sealed class CustomTableView : Grid
             }
             else
             {
+                CommitActiveEdit();
                 CloseCellToolTip();
                 EndColumnResize();
             }
@@ -200,6 +219,10 @@ public sealed class CustomTableView : Grid
     public event EventHandler<CustomTableRowRequestedEventArgs> RowContextMenuRequested;
 
     public event EventHandler<CustomTableHeaderRequestedEventArgs> HeaderContextMenuRequested;
+
+    public event EventHandler<CustomTableCellEditBeginningEventArgs> CellEditBeginning;
+
+    public event EventHandler<CustomTableCellEditEndedEventArgs> CellEditEnded;
 
     public IList ItemsSource
     {
@@ -269,6 +292,8 @@ public sealed class CustomTableView : Grid
     private static void OnItemsSourceChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
     {
         CustomTableView view = (CustomTableView)d;
+        view.CommitActiveEdit();
+        view.currentCellHit = null;
         view.DetachCollectionChanged(e.OldValue as INotifyCollectionChanged);
         view.AttachCollectionChanged(e.NewValue as INotifyCollectionChanged);
         view.MarkItemsApplied();
@@ -280,6 +305,8 @@ public sealed class CustomTableView : Grid
     private static void OnColumnsChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
     {
         CustomTableView view = (CustomTableView)d;
+        view.CommitActiveEdit();
+        view.currentCellHit = null;
         view.UpdateScrollBars();
         view.surface.InvalidateVisual();
     }
@@ -287,6 +314,8 @@ public sealed class CustomTableView : Grid
     private static void OnColumnsSettingsChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
     {
         CustomTableView view = (CustomTableView)d;
+        view.CommitActiveEdit();
+        view.currentCellHit = null;
         view.DetachColumnLayoutHandlers();
         view.AttachColumnLayoutHandlers(e.NewValue as dataGridColumnsSettings);
         view.RebuildColumns();
@@ -295,6 +324,7 @@ public sealed class CustomTableView : Grid
     private static void OnLayoutMetricChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
     {
         CustomTableView view = (CustomTableView)d;
+        view.CommitActiveEdit();
         view.UpdateScrollBars();
         view.surface.InvalidateVisual();
     }
@@ -316,7 +346,9 @@ public sealed class CustomTableView : Grid
 
     private static void OnSortStateChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
     {
-        ((CustomTableView)d).surface.InvalidateVisual();
+        CustomTableView view = (CustomTableView)d;
+        view.CommitActiveEdit();
+        view.surface.InvalidateVisual();
     }
 
     private void AttachCollectionChanged(INotifyCollectionChanged collection)
@@ -342,6 +374,8 @@ public sealed class CustomTableView : Grid
 
     private void ItemsSourceCollectionChanged(object sender, NotifyCollectionChangedEventArgs e)
     {
+        CommitActiveEdit();
+        currentCellHit = null;
         MarkItemsApplied();
         CoerceSelectionToCurrentRows();
         UpdateScrollBars();
@@ -375,6 +409,8 @@ public sealed class CustomTableView : Grid
 
     private void ColumnLayoutPropertyChanged(object sender, PropertyChangedEventArgs e)
     {
+        CommitActiveEdit();
+        currentCellHit = null;
         RebuildColumns(!string.Equals(e.PropertyName, nameof(dataGridColumnsSettings.dataGridColumnlayouts.Width), StringComparison.Ordinal));
     }
 
@@ -405,16 +441,19 @@ public sealed class CustomTableView : Grid
     {
         itemsAppliedTimestamp = Stopwatch.GetTimestamp();
         firstRenderLogged = false;
+        preparationRenderLogged = false;
     }
 
     private void VerticalScrollBarValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
     {
+        CommitActiveEdit();
         CloseCellToolTip();
         surface.InvalidateVisual();
     }
 
     private void HorizontalScrollBarValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
     {
+        CommitActiveEdit();
         CloseCellToolTip();
         surface.InvalidateVisual();
     }
@@ -512,6 +551,11 @@ public sealed class CustomTableView : Grid
 
     private void CustomTableViewPreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
+        if (IsDescendantOfActiveEditor(e.OriginalSource as DependencyObject))
+        {
+            return;
+        }
+        CommitActiveEdit();
         CloseCellToolTip();
         if (!IsDescendantOfScrollBar(e.OriginalSource as DependencyObject))
         {
@@ -520,22 +564,33 @@ public sealed class CustomTableView : Grid
         CustomTableHitTestResult hit = HitTestTable(e.GetPosition(surface));
         if (hit.Kind == CustomTableHitKind.HeaderResize)
         {
+            CommitActiveEdit();
             BeginColumnResize(hit, e.GetPosition(surface).X);
             e.Handled = true;
             return;
         }
         if (hit.Kind == CustomTableHitKind.Header)
         {
+            CommitActiveEdit();
             RequestSort(hit.Column);
             e.Handled = true;
             return;
         }
         if (hit.Kind == CustomTableHitKind.Cell)
         {
+            bool shouldBeginEditOnRepeatClick = e.ClickCount == 1
+                && IsSameEditableCell(currentCellHit, hit)
+                && (Keyboard.Modifiers & (ModifierKeys.Control | ModifierKeys.Shift | ModifierKeys.Alt)) == ModifierKeys.None;
+            currentCellHit = hit;
             bool changed = ApplyMouseSelection(hit.RowIndex);
             if (changed)
             {
                 RaiseSelectionChanged();
+            }
+            if (shouldBeginEditOnRepeatClick && BeginCellEdit(hit, null))
+            {
+                e.Handled = true;
+                return;
             }
             if (e.ClickCount >= 2)
             {
@@ -555,6 +610,11 @@ public sealed class CustomTableView : Grid
 
     private void CustomTableViewPreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)
     {
+        if (IsDescendantOfActiveEditor(e.OriginalSource as DependencyObject))
+        {
+            return;
+        }
+        CommitActiveEdit();
         CloseCellToolTip();
         CustomTableHitTestResult hit = HitTestTable(e.GetPosition(surface));
         if (hit.Kind == CustomTableHitKind.HeaderResize)
@@ -611,6 +671,7 @@ public sealed class CustomTableView : Grid
 
     private void CustomTableViewPreviewMouseWheel(object sender, MouseWheelEventArgs e)
     {
+        CommitActiveEdit();
         if (verticalScrollBar.Visibility != Visibility.Visible || e.Delta == 0)
         {
             return;
@@ -627,8 +688,30 @@ public sealed class CustomTableView : Grid
 
     private void CustomTableViewPreviewKeyDown(object sender, KeyEventArgs e)
     {
+        if (activeEditor != null)
+        {
+            switch (e.Key)
+            {
+                case Key.Escape:
+                    CancelActiveEdit();
+                    e.Handled = true;
+                    return;
+                case Key.Return:
+                    CommitActiveEdit();
+                    e.Handled = true;
+                    return;
+                case Key.Tab:
+                    CommitActiveEdit();
+                    e.Handled = true;
+                    MoveFocus(new TraversalRequest(FocusNavigationDirection.Next));
+                    return;
+            }
+        }
         switch (e.Key)
         {
+            case Key.F2:
+                e.Handled = TryBeginEditCurrentCell(null);
+                break;
             case Key.Apps:
             case Key.F10 when (Keyboard.Modifiers & ModifierKeys.Shift) == ModifierKeys.Shift:
                 e.Handled = true;
@@ -649,6 +732,18 @@ public sealed class CustomTableView : Grid
         }
     }
 
+    private void CustomTableViewPreviewTextInput(object sender, TextCompositionEventArgs e)
+    {
+        if (activeEditor != null || string.IsNullOrEmpty(e.Text) || e.Text.Any(char.IsControl))
+        {
+            return;
+        }
+        if (TryBeginEditCurrentCell(e.Text))
+        {
+            e.Handled = true;
+        }
+    }
+
     private bool ApplyMouseSelection(int rowIndex)
     {
         selectionModel.SetItemCount(RowCount);
@@ -661,6 +756,15 @@ public sealed class CustomTableView : Grid
         UpdateSelectedIndexFromSelectionModel();
         surface.InvalidateVisual();
         return changed;
+    }
+
+    private static bool IsSameEditableCell(CustomTableHitTestResult current, CustomTableHitTestResult next)
+    {
+        return current?.Kind == CustomTableHitKind.Cell
+            && next?.Kind == CustomTableHitKind.Cell
+            && current.RowIndex == next.RowIndex
+            && string.Equals(current.Column?.Id, next.Column?.Id, StringComparison.Ordinal)
+            && !string.IsNullOrWhiteSpace(next.Column?.EditPropertyName);
     }
 
     private void RequestSort(CustomTableColumn column)
@@ -696,6 +800,176 @@ public sealed class CustomTableView : Grid
         IList rows = ItemsSource;
         object selectedRow = rows != null && selectionModel.CurrentIndex >= 0 && selectionModel.CurrentIndex < rows.Count ? rows[selectionModel.CurrentIndex] : null;
         SelectionChanged?.Invoke(this, new CustomTableSelectionChangedEventArgs(selectionModel.CurrentIndex, selectedRow, GetSelectedRowsSnapshot()));
+    }
+
+    private bool TryBeginEditCurrentCell(string replacementText)
+    {
+        if (currentCellHit == null || currentCellHit.Kind != CustomTableHitKind.Cell)
+        {
+            return false;
+        }
+        if (!TryCreateCellHit(currentCellHit.RowIndex, currentCellHit.Column?.Id, out CustomTableHitTestResult hit))
+        {
+            return false;
+        }
+        return BeginCellEdit(hit, replacementText);
+    }
+
+    private bool BeginCellEdit(CustomTableHitTestResult hit, string replacementText)
+    {
+        if (hit?.Kind != CustomTableHitKind.Cell || string.IsNullOrWhiteSpace(hit.Column?.EditPropertyName))
+        {
+            return false;
+        }
+        CommitActiveEdit();
+        CustomTableCellEditBeginningEventArgs beginningArgs = new CustomTableCellEditBeginningEventArgs(hit, hit.Column.EditPropertyName);
+        CellEditBeginning?.Invoke(this, beginningArgs);
+        if (beginningArgs.Cancel)
+        {
+            return false;
+        }
+        Rect rect = hit.CellRect;
+        if (rect.Width <= 2d || rect.Height <= 2d)
+        {
+            return false;
+        }
+        TextBox textBox = new TextBox
+        {
+            Text = replacementText ?? hit.Column.GetText(hit.Row),
+            TextAlignment = hit.Column.Alignment,
+            TextWrapping = hit.Column.EditTextWrapping ? TextWrapping.Wrap : TextWrapping.NoWrap,
+            AcceptsReturn = false,
+            BorderThickness = new Thickness(1d),
+            BorderBrush = Brushes.Black,
+            Padding = new Thickness(0d),
+            Margin = new Thickness(0d),
+            VerticalContentAlignment = VerticalAlignment.Center,
+            DataContext = hit.Row
+        };
+        textBox.LostKeyboardFocus += ActiveEditorLostKeyboardFocus;
+        Canvas.SetLeft(textBox, rect.Left);
+        Canvas.SetTop(textBox, rect.Top);
+        textBox.Width = rect.Width;
+        textBox.Height = rect.Height;
+        activeEditHit = hit;
+        activeEditor = textBox;
+        editorLayer.Children.Add(textBox);
+        textBox.Focus();
+        if (replacementText == null)
+        {
+            textBox.SelectAll();
+        }
+        else
+        {
+            textBox.CaretIndex = textBox.Text.Length;
+        }
+        return true;
+    }
+
+    private void ActiveEditorLostKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)
+    {
+        if (!completingEdit && activeEditor != null && !activeEditor.IsKeyboardFocusWithin)
+        {
+            CommitActiveEdit();
+        }
+    }
+
+    private bool CommitActiveEdit()
+    {
+        return CompleteActiveEdit(commit: true);
+    }
+
+    private bool CancelActiveEdit()
+    {
+        return CompleteActiveEdit(commit: false);
+    }
+
+    private bool CompleteActiveEdit(bool commit)
+    {
+        if (activeEditor == null || completingEdit)
+        {
+            return false;
+        }
+        completingEdit = true;
+        try
+        {
+            TextBox editor = activeEditor;
+            CustomTableHitTestResult hit = activeEditHit;
+            string text = editor.Text ?? string.Empty;
+            editor.LostKeyboardFocus -= ActiveEditorLostKeyboardFocus;
+            editorLayer.Children.Remove(editor);
+            activeEditor = null;
+            activeEditHit = null;
+            if (hit != null)
+            {
+                CellEditEnded?.Invoke(this, new CustomTableCellEditEndedEventArgs(hit, hit.Column?.EditPropertyName, text, commit));
+            }
+            surface.InvalidateVisual();
+            return true;
+        }
+        finally
+        {
+            completingEdit = false;
+        }
+    }
+
+    private bool TryCreateCellHit(int rowIndex, string columnId, out CustomTableHitTestResult hit)
+    {
+        hit = null;
+        if (rowIndex < FirstVisibleRowIndex || rowIndex >= FirstVisibleRowIndex + CalculateViewportRowCapacity() || string.IsNullOrWhiteSpace(columnId))
+        {
+            return false;
+        }
+        IList rows = ItemsSource;
+        if (rows == null || rowIndex < 0 || rowIndex >= rows.Count)
+        {
+            return false;
+        }
+        IReadOnlyList<CustomTableColumn> columns = VisibleColumns;
+        double x = 0d;
+        for (int i = 0; i < columns.Count; i++)
+        {
+            CustomTableColumn column = columns[i];
+            double width = column?.Width ?? 0d;
+            if (column != null && string.Equals(column.Id, columnId, StringComparison.Ordinal))
+            {
+                Rect rect = CustomTableColumnLayout.CreateVisibleColumnRect(
+                    x,
+                    width,
+                    HorizontalOffset,
+                    surface.ActualWidth,
+                    HeaderHeight + (rowIndex - FirstVisibleRowIndex) * Math.Max(1d, RowHeight),
+                    Math.Max(1d, RowHeight));
+                if (rect.Width <= 0d || rect.Height <= 0d)
+                {
+                    return false;
+                }
+                hit = new CustomTableHitTestResult(CustomTableHitKind.Cell, rowIndex, rows[rowIndex], column, i, rect);
+                return true;
+            }
+            x += width;
+        }
+        return false;
+    }
+
+    private bool IsDescendantOfActiveEditor(DependencyObject source)
+    {
+        if (activeEditor == null)
+        {
+            return false;
+        }
+        while (source != null)
+        {
+            if (ReferenceEquals(source, activeEditor))
+            {
+                return true;
+            }
+            DependencyObject visualParent = source is Visual || source is Visual3D
+                ? VisualTreeHelper.GetParent(source)
+                : null;
+            source = visualParent ?? LogicalTreeHelper.GetParent(source);
+        }
+        return false;
     }
 
     private CustomTableHitTestResult CreateSelectedRowHit()
@@ -835,10 +1109,22 @@ public sealed class CustomTableView : Grid
         {
             return;
         }
-        firstRenderLogged = true;
         long firstRenderMs = (Stopwatch.GetTimestamp() - itemsAppliedTimestamp) * 1000L / Stopwatch.Frequency;
         int visibleCellCount = TableFirstVisibleMetrics.CalculateVisibleCellCount(visibleRowCount, visibleColumnCount);
-        FirstRenderCompleted?.Invoke(this, new CustomTableFirstRenderCompletedEventArgs(RowCount, visibleRowCount, visibleColumnCount, visibleCellCount, firstRenderMs, renderWorkMs, textCacheHitRate));
+        bool isPreparationRender = RowCount == 0 && visibleCellCount == 0;
+        if (isPreparationRender)
+        {
+            if (preparationRenderLogged)
+            {
+                return;
+            }
+            preparationRenderLogged = true;
+        }
+        else
+        {
+            firstRenderLogged = true;
+        }
+        FirstRenderCompleted?.Invoke(this, new CustomTableFirstRenderCompletedEventArgs(RowCount, visibleRowCount, visibleColumnCount, visibleCellCount, firstRenderMs, renderWorkMs, textCacheHitRate, isPreparationRender));
     }
 }
 

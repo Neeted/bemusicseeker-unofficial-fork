@@ -46,7 +46,9 @@ public sealed class CustomTableColumn
         int minWidth = 40,
         int? maxWidth = null,
         bool canResize = true,
-        CustomTableCellKind cellKind = CustomTableCellKind.Text)
+        CustomTableCellKind cellKind = CustomTableCellKind.Text,
+        string editPropertyName = null,
+        bool editTextWrapping = false)
     {
         Id = id;
         Header = header;
@@ -62,6 +64,8 @@ public sealed class CustomTableColumn
         MaxWidth = maxWidth.HasValue ? Math.Max(MinWidth, maxWidth.Value) : int.MaxValue;
         CanResize = canResize;
         CellKind = cellKind;
+        EditPropertyName = editPropertyName;
+        EditTextWrapping = editTextWrapping;
     }
 
     public string Id { get; }
@@ -87,6 +91,10 @@ public sealed class CustomTableColumn
     public bool UseIconText => CellKind != CustomTableCellKind.Text;
 
     public CustomTableCellKind CellKind { get; }
+
+    public string EditPropertyName { get; }
+
+    public bool EditTextWrapping { get; }
 
     public int DisplayIndex => Layout?.DisplayIndex ?? -1;
 
@@ -164,7 +172,7 @@ internal static class CustomTableColumnFactory
         return new[]
         {
             new CustomTableColumn("Status", "♬", settings.Status, 0, null, TextAlignment.Center, row => GetStatusIconText(row), tooltipSelector: GetStatusTooltip, minWidth: 18, maxWidth: 18, canResize: false, cellKind: CustomTableCellKind.StatusIcon),
-            new CustomTableColumn("EntryLevel", "ENTRY LEVEL", settings.EntryLevel, 1, "EntryLevelSortKey", TextAlignment.Right, row => GetString(row, "Level")),
+            new CustomTableColumn("EntryLevel", "ENTRY LEVEL", settings.EntryLevel, 1, "EntryLevelSortKey", TextAlignment.Right, row => GetString(row, "Level"), editPropertyName: "Level"),
             new CustomTableColumn("Title", "TITLE", settings.Title, 2, nameof(LibraryChartRow.Title), TextAlignment.Left, row => GetString(row, nameof(LibraryChartRow.Title))),
             new CustomTableColumn("Artist", "ARTIST", settings.Artist, 3, nameof(LibraryChartRow.Artist), TextAlignment.Left, row => GetString(row, nameof(LibraryChartRow.Artist)), minWidth: 50),
             new CustomTableColumn("Genre", "GENRE", settings.Genre, 4, "genre", TextAlignment.Left, row => GetString(row, "genre")),
@@ -173,8 +181,8 @@ internal static class CustomTableColumnFactory
             new CustomTableColumn("Url1", "URL1", settings.Url1, 7, null, TextAlignment.Center, row => ConvertLigatureSymbolText(GetString(row, nameof(PlaylistDetailRow.UrlDownloadIconText))), tooltipSelector: row => GetString(row, nameof(PlaylistDetailRow.UrlToolTipText)), minWidth: 40, maxWidth: 40, canResize: false, cellKind: CustomTableCellKind.DownloadIcon),
             new CustomTableColumn("Url2", "URL2", settings.Url2, 8, null, TextAlignment.Center, row => ConvertLigatureSymbolText(GetString(row, nameof(PlaylistDetailRow.UrlDiffDownloadIconText))), tooltipSelector: row => GetString(row, nameof(PlaylistDetailRow.UrlDiffToolTipText)), minWidth: 40, maxWidth: 40, canResize: false, cellKind: CustomTableCellKind.DownloadIcon),
             new CustomTableColumn("Warning", "WARNING", settings.Warning, 9, nameof(LibraryChartRow.DisplayWarning), TextAlignment.Left, row => GetString(row, nameof(LibraryChartRow.DisplayWarning)), tooltipSelector: row => GetString(row, nameof(LibraryChartRow.DisplayWarning))),
-            new CustomTableColumn("Comment", "COMMENT", settings.Comment, 10, null, TextAlignment.Left, row => GetString(row, "comment"), tooltipSelector: row => GetString(row, "comment")),
-            new CustomTableColumn("Memo", "MEMO", settings.Memo, 11, null, TextAlignment.Left, row => GetString(row, "memo"), tooltipSelector: row => GetString(row, "memo")),
+            new CustomTableColumn("Comment", "COMMENT", settings.Comment, 10, null, TextAlignment.Left, row => GetString(row, "comment"), tooltipSelector: row => GetString(row, "comment"), editPropertyName: "comment", editTextWrapping: true),
+            new CustomTableColumn("Memo", "MEMO", settings.Memo, 11, null, TextAlignment.Left, row => GetString(row, "memo"), tooltipSelector: row => GetString(row, "memo"), editPropertyName: "memo", editTextWrapping: true),
             new CustomTableColumn("Hash", "MD5 HASH", settings.Hash, 12, "hash", TextAlignment.Center, row => GetString(row, "hash"), minWidth: 240, maxWidth: 240),
             new CustomTableColumn("Sha256", "SHA256 HASH", settings.Sha256, 13, "sha256", TextAlignment.Center, row => GetString(row, "sha256"), maxWidth: 480),
             new CustomTableColumn("Folder", "FOLDER", settings.Folder, 14, "Folder", TextAlignment.Left, row => GetString(row, "Folder")),

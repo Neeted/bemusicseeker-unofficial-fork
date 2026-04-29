@@ -43,7 +43,8 @@ internal readonly struct TableFirstVisibleMetrics
         long renderWorkMs,
         double textCacheHitRate,
         long stateLogMs,
-        TableFirstVisibleTiming timing)
+        TableFirstVisibleTiming timing,
+        bool isPreparationRender = false)
     {
         ControlType = controlType ?? string.Empty;
         Trigger = trigger ?? string.Empty;
@@ -58,6 +59,7 @@ internal readonly struct TableFirstVisibleMetrics
         TextCacheHitRate = textCacheHitRate;
         StateLogMs = stateLogMs;
         Timing = timing;
+        IsPreparationRender = isPreparationRender;
     }
 
     public string ControlType { get; }
@@ -85,6 +87,8 @@ internal readonly struct TableFirstVisibleMetrics
     public long StateLogMs { get; }
 
     public TableFirstVisibleTiming Timing { get; }
+
+    public bool IsPreparationRender { get; }
 
     public static int CalculateVisibleCellCount(int visibleRowCount, int visibleColumnCount)
     {
@@ -118,6 +122,7 @@ internal static class TableFirstVisibleLogFormatter
             + " visibleRowCount=" + metrics.VisibleRowCount
             + " visibleColumnCount=" + metrics.VisibleColumnCount
             + " visibleCellCount=" + metrics.VisibleCellCount
+            + " isPreparationRender=" + metrics.IsPreparationRender
             + " requestToBuildStartMs=" + timing.RequestToBuildStartMs
             + " requestToBuildCompleteMs=" + timing.RequestToBuildCompleteMs
             + " requestToVisibleRenderMs=" + timing.RequestToVisibleRenderMs

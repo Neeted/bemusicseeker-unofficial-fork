@@ -339,11 +339,11 @@ Phase 3 完了判断:
 初期対象:
 
 - プレイリスト詳細: `ENTRY LEVEL`
-- プレイリスト詳細: `URL1` / `URL2`
 - プレイリスト詳細: `COMMENT` / `MEMO`
 
 後続対象:
 
+- `URL1` / `URL2`
 - `FOLDER`
 - `INSTL DST`
 
@@ -353,10 +353,11 @@ Phase 3 完了判断:
   - `viewCount > 0` なのに `rowCount=0` / `visibleCellCount=0` の `custom_onrender` は、空の準備描画として扱い `playlist_open_visible completed` の対象にしない。
   - `table_first_visible` は必要なら空描画ログとして残すが、本描画と区別できる field を追加する。
   - 表示完了判定は、`CustomTableView` に実データ行が反映され、`visibleRowCount > 0` または `viewCount == 0` が確定した描画 checkpoint に寄せる。
-- `BeginEdit(rowIndex, columnId)` でセル矩形に `TextBox` を重ねる。
+- `ENTRY LEVEL` / `COMMENT` / `MEMO` だけを editable metadata 付き列にし、他列は Phase 4 では編集不可にする。
+- `F2`、editable current cell 上での文字入力、または選択済み editable cell の再クリックで、セル矩形に `TextBox` を重ねる。
 - Enter/Tab/フォーカス喪失で commit、Escape で cancel。
-- URL 編集中の列幅一時拡大は、列そのものではなく overlay 幅を広げる。
-- 既存 `dataGridCellEditEnding` の処理を、DataGrid event 非依存の edit service へ切り出す。
+- 縦横スクロール、列幅変更、sort、ItemsSource 差し替え、非表示化の前には編集中セルを commit する。
+- URL 編集中の列幅一時拡大は Phase 4 では実装せず、URL 編集対応時に overlay 幅だけで扱う。
 - playlist 行は `SyncPlaylistSourceRowFromEditedViewRow` / `CommitPlaylistRow` へ接続する。
 
 完了条件:

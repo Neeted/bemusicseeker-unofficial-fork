@@ -200,6 +200,29 @@ public sealed class CustomTableColumnFactoryTests
     }
 
     [TestMethod]
+    public void CreateMainColumns_AssignsPhaseFourEditableMetadata()
+    {
+        dataGridColumnsSettings settings = new dataGridColumnsSettings();
+        foreach (dataGridColumnsSettings.dataGridColumnlayouts layout in CustomTableColumnFactory.EnumerateMainColumnLayouts(settings))
+        {
+            layout.DisplayIndex = -1;
+            layout.Visibility = Visibility.Visible;
+        }
+
+        var columns = CustomTableColumnFactory.CreateMainColumns(settings).ToDictionary(column => column.Id);
+
+        Assert.AreEqual("Level", columns["EntryLevel"].EditPropertyName);
+        Assert.IsFalse(columns["EntryLevel"].EditTextWrapping);
+        Assert.AreEqual("comment", columns["Comment"].EditPropertyName);
+        Assert.IsTrue(columns["Comment"].EditTextWrapping);
+        Assert.AreEqual("memo", columns["Memo"].EditPropertyName);
+        Assert.IsTrue(columns["Memo"].EditTextWrapping);
+        Assert.IsNull(columns["Url1"].EditPropertyName);
+        Assert.IsNull(columns["Url2"].EditPropertyName);
+        Assert.IsNull(columns["InstallDst"].EditPropertyName);
+    }
+
+    [TestMethod]
     public void CreateMainColumns_AssignsTooltipSelectors()
     {
         dataGridColumnsSettings settings = new dataGridColumnsSettings();
