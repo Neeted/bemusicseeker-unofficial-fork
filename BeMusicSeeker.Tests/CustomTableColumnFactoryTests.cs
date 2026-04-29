@@ -52,4 +52,21 @@ public sealed class CustomTableColumnFactoryTests
         Assert.AreEqual("ChartJudge", columns[0].Id);
         Assert.AreEqual(77, columns[0].Width);
     }
+
+    [TestMethod]
+    public void CreateMainColumns_AssignsPhaseTwoSortMemberPaths()
+    {
+        dataGridColumnsSettings settings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.STANDARD);
+
+        var paths = CustomTableColumnFactory.CreateMainColumns(settings).ToDictionary(column => column.Id, column => column.SortMemberPath);
+
+        Assert.AreEqual("Title", paths["Title"]);
+        Assert.AreEqual("Artist", paths["Artist"]);
+        Assert.AreEqual("path", paths["Path"]);
+        Assert.AreEqual("ClearDisplayText", paths["Clear"]);
+        Assert.AreEqual("RankDisplayText", paths["Rank"]);
+        Assert.AreEqual("ChartLevelSortKey", paths["Level"]);
+        Assert.AreEqual("ChartDifficultySortKey", paths["ChartDifficulty"]);
+        Assert.AreEqual("ChartJudgeSortKey", paths["ChartJudge"]);
+    }
 }

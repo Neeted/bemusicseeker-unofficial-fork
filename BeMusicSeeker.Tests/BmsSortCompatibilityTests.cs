@@ -373,6 +373,33 @@ public sealed class BmsSortCompatibilityTests
         Assert.AreEqual("playlist_summary_numeric_int32", descProfile);
     }
 
+    [TestMethod]
+    [TestCategory("SortEngine")]
+    public void PlaylistDetailSortEngine_ClearAndRankDisplayColumnsSort()
+    {
+        PlaylistDetailSourceRow hardAaa = CreatePlaylistDetailSourceRow("z_hard_aaa.bms", "Hard AAA", ClearType.HARD, RankType.AAA);
+        PlaylistDetailSourceRow easyAa = CreatePlaylistDetailSourceRow("a_easy_aa.bms", "Easy AA", ClearType.EASY, RankType.AA);
+
+        MainWindowViewModel.cSortParameters clearSort = new MainWindowViewModel.cSortParameters
+        {
+            ColumnsName = nameof(PlaylistDetailRow.ClearDisplayText),
+            Direction = ListSortDirection.Ascending
+        };
+        MainWindowViewModel.cSortParameters rankSort = new MainWindowViewModel.cSortParameters
+        {
+            ColumnsName = nameof(PlaylistDetailRow.RankDisplayText),
+            Direction = ListSortDirection.Ascending
+        };
+
+        List<PlaylistDetailSourceRow> clearSorted = PlaylistDetailSortEngine.Sort(new[] { hardAaa, easyAa }, clearSort, out string clearProfile);
+        List<PlaylistDetailSourceRow> rankSorted = PlaylistDetailSortEngine.Sort(new[] { hardAaa, easyAa }, rankSort, out string rankProfile);
+
+        CollectionAssert.AreEqual(new[] { "a_easy_aa.bms", "z_hard_aaa.bms" }, clearSorted.Select(row => row.path).ToArray());
+        CollectionAssert.AreEqual(new[] { "a_easy_aa.bms", "z_hard_aaa.bms" }, rankSorted.Select(row => row.path).ToArray());
+        Assert.AreEqual("string_fast_ordinal_ignore_case", clearProfile);
+        Assert.AreEqual("string_fast_ordinal_ignore_case", rankProfile);
+    }
+
     /// <summary>
     /// song.db からソート検証に必要な行を読み込みます。
     /// </summary>
@@ -544,6 +571,22 @@ public sealed class BmsSortCompatibilityTests
             };
         }
         return LibraryChartRow.FromBmsFile(file);
+    }
+
+    private static PlaylistDetailSourceRow CreatePlaylistDetailSourceRow(string path, string title, ClearType clear, RankType rank)
+    {
+        string hash = CreateMd5FromPath(path);
+        TestableBmsFile file = new TestableBmsFile();
+        file.ApplySnapshot(new SongSnapshotRow { path = path, title = title, level = 1, hash = hash });
+        file.bmsScore = new BMSScore
+        {
+            hash = hash,
+            clear = clear,
+            rank = rank,
+            perfect = rank == RankType.AAA ? 95 : 85,
+            totalnotes = 100
+        };
+        return new PlaylistDetailSourceRow(new BMSTableEntry(file), file);
     }
 
     private static string CreateMd5FromPath(string path)

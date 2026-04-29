@@ -1,0 +1,141 @@
+using System.Collections.Generic;
+using System.Linq;
+
+namespace BeMusicSeeker.Views;
+
+internal sealed class CustomTableSelectionModel
+{
+    private readonly SortedSet<int> selectedIndices = new SortedSet<int>();
+    private int itemCount;
+
+    internal int CurrentIndex { get; private set; } = -1;
+
+    internal int AnchorIndex { get; private set; } = -1;
+
+    internal IReadOnlyCollection<int> SelectedIndices => selectedIndices;
+
+    internal void SetItemCount(int count)
+    {
+        itemCount = count < 0 ? 0 : count;
+        CoerceToItemCount();
+    }
+
+    internal bool IsSelected(int index)
+    {
+        return selectedIndices.Contains(index);
+    }
+
+    internal bool SelectSingle(int index)
+    {
+        if (!IsValidIndex(index))
+        {
+            return Clear();
+        }
+        bool changed = selectedIndices.Count != 1 || !selectedIndices.Contains(index) || CurrentIndex != index || AnchorIndex != index;
+        selectedIndices.Clear();
+        selectedIndices.Add(index);
+        CurrentIndex = index;
+        AnchorIndex = index;
+        return changed;
+    }
+
+    internal bool Toggle(int index)
+    {
+        if (!IsValidIndex(index))
+        {
+            return false;
+        }
+        bool changed;
+        if (selectedIndices.Contains(index))
+        {
+            selectedIndices.Remove(index);
+            CurrentIndex = selectedIndices.Count == 0 ? -1 : selectedIndices.Last();
+            changed = true;
+        }
+        else
+        {
+            selectedIndices.Add(index);
+            CurrentIndex = index;
+            changed = true;
+        }
+        AnchorIndex = index;
+        return changed;
+    }
+
+    internal bool SelectRange(int index)
+    {
+        if (!IsValidIndex(index))
+        {
+            return Clear();
+        }
+        int anchor = IsValidIndex(AnchorIndex) ? AnchorIndex : index;
+        int start = anchor < index ? anchor : index;
+        int end = anchor < index ? index : anchor;
+        HashSet<int> before = new HashSet<int>(selectedIndices);
+        selectedIndices.Clear();
+        for (int i = start; i <= end; i++)
+        {
+            selectedIndices.Add(i);
+        }
+        CurrentIndex = index;
+        return !before.SetEquals(selectedIndices);
+    }
+
+    internal bool SelectForRightClick(int index)
+    {
+        if (!IsValidIndex(index))
+        {
+            return Clear();
+        }
+        if (selectedIndices.Contains(index))
+        {
+            bool changed = CurrentIndex != index;
+            CurrentIndex = index;
+            return changed;
+        }
+        return SelectSingle(index);
+    }
+
+    internal bool SyncCurrentIndex(int index)
+    {
+        return SelectSingle(index);
+    }
+
+    internal bool Clear()
+    {
+        if (selectedIndices.Count == 0 && CurrentIndex == -1 && AnchorIndex == -1)
+        {
+            return false;
+        }
+        selectedIndices.Clear();
+        CurrentIndex = -1;
+        AnchorIndex = -1;
+        return true;
+    }
+
+    internal bool CoerceToItemCount()
+    {
+        int[] outOfRange = selectedIndices.Where(index => !IsValidIndex(index)).ToArray();
+        foreach (int index in outOfRange)
+        {
+            selectedIndices.Remove(index);
+        }
+        bool changed = outOfRange.Length > 0;
+        if (!IsValidIndex(CurrentIndex))
+        {
+            CurrentIndex = selectedIndices.Count == 0 ? -1 : selectedIndices.Last();
+            changed = true;
+        }
+        if (!IsValidIndex(AnchorIndex))
+        {
+            AnchorIndex = CurrentIndex;
+            changed = true;
+        }
+        return changed;
+    }
+
+    private bool IsValidIndex(int index)
+    {
+        return index >= 0 && index < itemCount;
+    }
+}

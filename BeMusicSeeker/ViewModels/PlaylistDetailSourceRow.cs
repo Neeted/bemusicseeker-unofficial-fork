@@ -94,6 +94,10 @@ internal sealed class PlaylistDetailSourceRow
 
     internal RankType rank { get; }
 
+    internal string ClearDisplayText => ScoreDisplayTextFormatter.FormatClear(clear);
+
+    internal string RankDisplayText => ScoreDisplayTextFormatter.FormatRank(rank);
+
     internal double? rate { get; }
 
     internal double? rateDouble => rate;

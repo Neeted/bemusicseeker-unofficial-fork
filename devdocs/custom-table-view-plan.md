@@ -240,19 +240,33 @@ Phase 1 完了判断:
 
 実装内容:
 
+- `CustomTableColumn.SortMemberPath` を追加し、Phase 1 の 8 列を既存 `DataGrid` 互換の sort path へ接続する。
+  - `TITLE`: `Title`
+  - `ARTIST`: `Artist`
+  - `PATH`: `path`
+  - `CLEAR`: `ClearDisplayText`
+  - `DJ LEVEL`: `RankDisplayText`
+  - `LEVEL`: `ChartLevelSortKey`
+  - `DIFFICULTY`: `ChartDifficultySortKey`
+  - `JUDGE`: `ChartJudgeSortKey`
 - ヘッダークリックで既存 `MainWindowViewModel.ExecSort(sortMemberPath, direction)` を呼ぶ。
-- sort glyph を独自描画する。
-- クリック選択、Shift/Ctrl 複数選択を実装する。
-- `SelectedIndexBMSFilesView` と同期する。
+- `SortColumnName` / `SortDirection` を `SortParameters` へ OneWay binding し、ヘッダー右端に小さな sort glyph を独自描画する。
+- `SortParameters` は WPF binding が安定して追従できるよう `ColumnsName` / `Direction` を property として公開する。
+- `CustomTableSelectionModel` を追加し、単一選択、Ctrl toggle、Shift range、右クリック選択維持を実装する。
+- `SelectedIndexBMSFilesView` と current row を同期し、描画は複数選択 index 全体を選択色にする。
+- `CustomTableView.GetSelectedRowsSnapshot()` を追加し、既存の選択対象取得を DataGrid / CustomTableView 両対応にする。
 - 行ダブルクリック、Enter 再生を既存処理へ接続する。
 - 行右クリックで既存 `dataGridContextMenu` / `dataGridContextMenuPlaylistMissing` を開く。
+- `ContextMenu.Tag` に `CustomTableContextMenuContext(row, rowIndex)` を入れ、既存 click handler は `TryGetContextMenuRow` 経由で DataGridRow と CustomTableView の両方を解決する。
 - 列ヘッダー右クリックの列表示メニューへ接続する。
+- プレイリスト詳細 source row に `ClearDisplayText` / `RankDisplayText` を持たせ、Phase 1 対象列の `CLEAR` / `DJ LEVEL` sort path が通常一覧と同じ名前で効くようにする。
 
 設計メモ:
 
 - `DataGridRow` 前提の処理を直接再利用しない。
-- `row object + rowIndex + columnId + cellRect` を渡す bridge API を作る。
+- `row object + rowIndex + columnId + cellRect` を渡す hit-test / event API を使う。
 - `GridRowResolver` は行オブジェクト中心なのでそのまま活かす。
+- Phase 2 では Phase 1 の 8 列だけを対象とし、URL click、tooltip、編集、DnD、コピー、横スクロール、列リサイズは引き続き後続 Phase に残す。
 
 完了条件:
 

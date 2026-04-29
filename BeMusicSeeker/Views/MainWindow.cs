@@ -1113,6 +1113,98 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
     }
 
+    private async void customTableView_SortRequested(object sender, CustomTableSortRequestedEventArgs e)
+    {
+        if (ShouldBlockStartupUiInteraction("custom_table_sort"))
+        {
+            return;
+        }
+        if (!(base.DataContext is MainWindowViewModel viewModel) || string.IsNullOrWhiteSpace(e.SortMemberPath))
+        {
+            return;
+        }
+        await Task.Run(delegate
+        {
+            viewModel.ExecSort(e.SortMemberPath, e.Direction);
+        }).Logging("customTableView_SortRequested");
+    }
+
+    private void customTableView_SelectionChanged(object sender, CustomTableSelectionChangedEventArgs e)
+    {
+        if (base.DataContext is MainWindowViewModel { NowPlayingBMS: null } viewModel)
+        {
+            if (viewModel.IsPlaylistDetailViewActive)
+            {
+                NLogWrapper.FileLogger?.Info("custom_table_selection_changed selectedIndex=" + e.SelectedIndex + " selectedCount=" + (e.SelectedRows?.Count ?? 0));
+            }
+            BMSFile bmsFile = GridRowResolver.GetOperationBmsFile(e.SelectedRow);
+            if (bmsFile != null)
+            {
+                _renewBMSPlayerControlInfo(bmsFile);
+            }
+        }
+    }
+
+    private async void customTableView_RowActivated(object sender, CustomTableRowRequestedEventArgs e)
+    {
+        if (ShouldBlockStartupUiInteraction("custom_table_row_activate"))
+        {
+            return;
+        }
+        if (!(base.DataContext is MainWindowViewModel viewModel))
+        {
+            return;
+        }
+        BMSFile bmsFile = GridRowResolver.GetOperationBmsFile(e.Row);
+        if (bmsFile == null)
+        {
+            return;
+        }
+        _renewBMSPlayerControlInfo(bmsFile);
+        if ((viewModel.NowPlayingBMS == null || viewModel.NowPlayingBMS.status.HasFlag(BMSFile.BMSFileStatus.PAUSE)) && isPanelStateValid(MainWindowViewModel.PanelState.BMS_PLAYER))
+        {
+            NowPanelState = MainWindowViewModel.PanelState.BMS_PLAYER;
+        }
+        await Task.Run(delegate
+        {
+            viewModel.PlayStartBMSfile();
+        }).Logging("customTableView_RowActivated");
+    }
+
+    private void customTableView_RowContextMenuRequested(object sender, CustomTableRowRequestedEventArgs e)
+    {
+        if (ShouldBlockStartupUiInteraction("custom_table_row_context_menu"))
+        {
+            return;
+        }
+        if (e.Row == null || !TryGetDataGridContextMenuResource(e.Row, "custom_table_context_menu_assign", out ContextMenu contextMenu, out _))
+        {
+            return;
+        }
+        CloseContextMenuIfOpen(contextMenu);
+        contextMenu.Tag = new CustomTableContextMenuContext(e.Row, e.RowIndex);
+        contextMenu.PlacementTarget = customTableView;
+        contextMenu.Placement = e.OpenAtMousePosition ? PlacementMode.MousePoint : PlacementMode.Bottom;
+        contextMenu.IsOpen = true;
+    }
+
+    private void customTableView_HeaderContextMenuRequested(object sender, CustomTableHeaderRequestedEventArgs e)
+    {
+        if (ShouldBlockStartupUiInteraction("custom_table_column_header_context_menu"))
+        {
+            return;
+        }
+        if (TryFindResource("dataGridColumnHeaderContextMenu") is not ContextMenu contextMenu)
+        {
+            return;
+        }
+        CloseContextMenuIfOpen(contextMenu);
+        contextMenu.Tag = null;
+        contextMenu.PlacementTarget = customTableView;
+        contextMenu.Placement = e.OpenAtMousePosition ? PlacementMode.MousePoint : PlacementMode.Bottom;
+        contextMenu.IsOpen = true;
+    }
+
     private void RememberMainDataGridTargetUpdated(DataGrid targetDataGrid)
     {
         if (!ReferenceEquals(targetDataGrid, dataGrid))
@@ -1689,6 +1781,17 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private List<object> GetSelectedGridRowsSnapshot()
     {
+        if (IsCustomTableViewActive())
+        {
+            try
+            {
+                return customTableView.GetSelectedRowsSnapshot().Where((object row) => row != null).ToList();
+            }
+            catch
+            {
+                return new List<object>();
+            }
+        }
         try
         {
             return dataGrid.SelectedItems.Cast<object>().Where((object row) => row != null).ToList();
@@ -1842,9 +1945,19 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return false;
         }
+        if (contextMenu.Tag is CustomTableContextMenuContext customTableContext)
+        {
+            row = customTableContext.Row;
+            return row != null;
+        }
         dataGridRow = placementTarget as DataGridRow ?? WPFUtil.FindVisualParent<DataGridRow>(placementTarget);
         row = dataGridRow?.DataContext ?? placementTarget.DataContext;
         return row != null;
+    }
+
+    private bool TryGetContextMenuRow(object source, out object row)
+    {
+        return TryGetContextMenuRow(source, out _, out _, out row);
     }
 
     private bool TryGetDataGridRowFromSource(object source, out DataGridRow dataGridRow, out object row)
@@ -1864,9 +1977,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         return row != null;
     }
 
-    private bool TryAssignDataGridContextMenu(DataGridRow dataGridRow, object row, string logPrefix, out bool usePlaylistMissingContextMenu)
+    private bool TryGetDataGridContextMenuResource(object row, string logPrefix, out ContextMenu contextMenu, out bool usePlaylistMissingContextMenu)
     {
-        if (dataGridRow == null || row == null)
+        contextMenu = null;
+        if (row == null)
         {
             usePlaylistMissingContextMenu = false;
             return false;
@@ -1875,12 +1989,24 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             ? target.IsPlaylistMissing
             : GridRowResolver.IsPlaylistRow(row) && GridRowResolver.GetOperationBmsFile(row) == null;
         string resourceKey = usePlaylistMissingContextMenu ? "dataGridContextMenuPlaylistMissing" : "dataGridContextMenu";
-        if (TryFindResource(resourceKey) is not ContextMenu contextMenu)
+        if (TryFindResource(resourceKey) is not ContextMenu foundContextMenu)
         {
             return false;
         }
-        dataGridRow.ContextMenu = contextMenu;
+        contextMenu = foundContextMenu;
         NLogWrapper.FileLogger?.Info(logPrefix + " rowType=" + row?.GetType().FullName + " missing=" + usePlaylistMissingContextMenu + " resourceKey=" + resourceKey);
+        return true;
+    }
+
+    private bool TryAssignDataGridContextMenu(DataGridRow dataGridRow, object row, string logPrefix, out bool usePlaylistMissingContextMenu)
+    {
+        usePlaylistMissingContextMenu = false;
+        if (dataGridRow == null || !TryGetDataGridContextMenuResource(row, logPrefix, out ContextMenu contextMenu, out usePlaylistMissingContextMenu))
+        {
+            return false;
+        }
+        contextMenu.Tag = null;
+        dataGridRow.ContextMenu = contextMenu;
         return true;
     }
 
@@ -1962,6 +2088,28 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             dataGridRow.ContextMenu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom;
             dataGridRow.ContextMenu.IsOpen = true;
             e.Handled = true;
+        }
+    }
+
+    private bool IsCustomTableViewActive()
+    {
+        return Settings.Default.UseCustomTableView && customTableView != null && customTableView.IsVisible;
+    }
+
+    private void ClearMainGridSelection()
+    {
+        if (IsCustomTableViewActive())
+        {
+            customTableView.ClearSelection();
+            return;
+        }
+        if (dataGrid.SelectionMode == DataGridSelectionMode.Extended)
+        {
+            dataGrid.SelectedItems.Clear();
+        }
+        else
+        {
+            dataGrid.SelectedItem = null;
         }
     }
 
@@ -6544,7 +6692,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void dataGridContextMenuItemOpenExplorerClick(object sender, RoutedEventArgs e)
     {
-        if (!(e.Source is MenuItem { Parent: ContextMenu { PlacementTarget: DataGridRow { Item: var row } } }))
+        if (!TryGetContextMenuRow(e.Source, out object row))
         {
             return;
         }
@@ -6709,11 +6857,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void dataGridContextMenuItemOpenBMSFileClick(object sender, RoutedEventArgs e)
     {
-        if (!(e.Source is MenuItem { Parent: ContextMenu { PlacementTarget: DataGridRow placementTarget } }))
+        if (!TryGetContextMenuRow(e.Source, out object row))
         {
             return;
         }
-        if (!GridRowResolver.TryGetOperationChartTarget(placementTarget.Item, GetCurrentChartOperationSourceScope(), out ChartOperationTarget target) || !target.HasCapability(ChartOperationCapabilities.OpenFile))
+        if (!GridRowResolver.TryGetOperationChartTarget(row, GetCurrentChartOperationSourceScope(), out ChartOperationTarget target) || !target.HasCapability(ChartOperationCapabilities.OpenFile))
         {
             return;
         }
@@ -6733,11 +6881,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void dataGridContextMenuItemOpenLR2IRClick(object sender, RoutedEventArgs e)
     {
-        if (!(e.Source is MenuItem { Parent: ContextMenu { PlacementTarget: DataGridRow placementTarget } }))
+        if (!TryGetContextMenuRow(e.Source, out object row))
         {
             return;
         }
-        object row = placementTarget.Item;
         if (!GridRowResolver.TryGetOperationChartTarget(row, GetCurrentChartOperationSourceScope(), out ChartOperationTarget target) || !target.HasCapability(ChartOperationCapabilities.UseLr2Ir))
         {
             return;
@@ -6765,7 +6912,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void dataGridContextMenuItemOpenMochaClick(object sender, RoutedEventArgs e)
     {
-        if (e.Source is MenuItem { Parent: ContextMenu { PlacementTarget: DataGridRow { Item: var row } } })
+        if (TryGetContextMenuRow(e.Source, out object row))
         {
             OpenRepositoryUrlForRow(row, GetMochaSongUrl);
         }
@@ -6773,7 +6920,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void dataGridContextMenuItemOpenMinIRClick(object sender, RoutedEventArgs e)
     {
-        if (e.Source is MenuItem { Parent: ContextMenu { PlacementTarget: DataGridRow { Item: var row } } })
+        if (TryGetContextMenuRow(e.Source, out object row))
         {
             OpenRepositoryUrlForRow(row, GetMinIrSongUrl);
         }
@@ -6781,7 +6928,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void dataGridContextMenuItemOpenURLClick(object sender, RoutedEventArgs e)
     {
-        if (e.Source is MenuItem { Parent: ContextMenu { PlacementTarget: DataGridRow { Item: var item } } })
+        if (TryGetContextMenuRow(e.Source, out object item))
         {
             Uri url = GridRowResolver.GetUrl(item);
             if (url != null && url.IsAbsoluteUri)
@@ -6793,7 +6940,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void dataGridContextMenuItemOpenURLdiffClick(object sender, RoutedEventArgs e)
     {
-        if (e.Source is MenuItem { Parent: ContextMenu { PlacementTarget: DataGridRow { Item: var item } } })
+        if (TryGetContextMenuRow(e.Source, out object item))
         {
             Uri urlDiff = GridRowResolver.GetUrlDiff(item);
             if (urlDiff != null && urlDiff.IsAbsoluteUri)
@@ -6818,11 +6965,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             e.Handled = true;
             return;
         }
-        if (!(sender is MenuItem { Parent: ContextMenu { PlacementTarget: DataGridRow placementTarget } } menuItem))
+        if (!(sender is MenuItem menuItem) || !TryGetContextMenuRow(sender, out object row))
         {
             return;
         }
-        object row = placementTarget.DataContext;
         if (!GridRowResolver.IsPlaylistRow(row))
         {
             return;
@@ -7007,7 +7153,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        BMSFile bMSFile = GridRowResolver.GetOperationBmsFile(dataGrid.SelectedItem);
+        if (!TryGetContextMenuRow(e.Source, out object row))
+        {
+            return;
+        }
+        BMSFile bMSFile = GridRowResolver.GetOperationBmsFile(row);
         if (bMSFile == null)
         {
             return;
@@ -7055,11 +7205,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return;
         }
         MenuItem menuItem = sender as MenuItem;
-        if (menuItem == null || !(menuItem.Parent is ContextMenu { PlacementTarget: DataGridRow placementTarget }))
+        if (menuItem == null || !TryGetContextMenuRow(sender, out object row))
         {
             return;
         }
-        object row = placementTarget.DataContext;
         if (!GridRowResolver.IsPlaylistRow(row))
         {
             return;
@@ -7479,7 +7628,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void dataGridContextMenuItemUpdateRankingDataClick(object sender, RoutedEventArgs e)
     {
-        if (!(e.Source is MenuItem menuItem) || !((menuItem.Parent as ContextMenu).PlacementTarget is DataGridRow))
+        if (!TryGetContextMenuRow(e.Source, out _))
         {
             return;
         }
@@ -7497,7 +7646,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void dataGridContextMenuItemRegisterBMSFileToScoreViwer(object sender, RoutedEventArgs e)
     {
-        if (!(e.Source is MenuItem { Parent: ContextMenu { PlacementTarget: DataGridRow } }))
+        if (!TryGetContextMenuRow(e.Source, out _))
         {
             return;
         }
@@ -7527,7 +7676,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void dataGridContextMenuItemForceFileScanCheckSelectedBMS(object sender, RoutedEventArgs e)
     {
-        if (!(e.Source is MenuItem menuItem) || !(((menuItem.Parent as MenuItem).Parent as ContextMenu).PlacementTarget is DataGridRow))
+        if (!TryGetContextMenuRow(e.Source, out _))
         {
             return;
         }
@@ -7545,7 +7694,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void dataGridContextMenuRemoveInstallDestinationClick(object sender, RoutedEventArgs e)
     {
-        if (!(e.Source is MenuItem menuItem) || !(((menuItem.Parent as MenuItem).Parent as ContextMenu).PlacementTarget is DataGridRow))
+        if (!TryGetContextMenuRow(e.Source, out _))
         {
             return;
         }
@@ -7576,7 +7725,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void dataGridContextMenuSearchCorrectInstallationDirectoryClick(object sender, RoutedEventArgs e)
     {
-        if (!(e.Source is MenuItem menuItem) || !(((menuItem.Parent as MenuItem).Parent as ContextMenu).PlacementTarget is DataGridRow))
+        if (!TryGetContextMenuRow(e.Source, out _))
         {
             return;
         }
@@ -7594,7 +7743,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void dataGridContextMenuFixInstallationDirectoryClick(object sender, RoutedEventArgs e)
     {
-        if (!(e.Source is MenuItem menuItem) || !(((menuItem.Parent as MenuItem).Parent as ContextMenu).PlacementTarget is DataGridRow))
+        if (!TryGetContextMenuRow(e.Source, out _))
         {
             return;
         }
@@ -7756,7 +7905,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void fixEncodingSelectedBMS(object sender, RoutedEventArgs e)
     {
-        if (e.Source is MenuItem menuItem && ((menuItem.Parent as MenuItem).Parent as ContextMenu).PlacementTarget is DataGridRow)
+        if (e.Source is MenuItem menuItem && TryGetContextMenuRow(e.Source, out _))
         {
             List<BMSFile> list = GetSelectedBmsChartFiles(ChartOperationCapabilities.RunBmsEncodingFix);
             if (list != null && list.Count() != 0)
@@ -7769,7 +7918,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void ignoreFileScanCheckSelectedBMS(object sender, RoutedEventArgs e)
     {
-        if (e.Source is MenuItem menuItem && ((menuItem.Parent as MenuItem).Parent as ContextMenu).PlacementTarget is DataGridRow)
+        if (TryGetContextMenuRow(e.Source, out _))
         {
             List<BMSFile> list = GetSelectedCompatibilityChartFiles(ChartOperationCapabilities.RunResourceHealthCheck);
             if (list != null && list.Count() != 0)
@@ -7782,7 +7931,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void notIgnoredFileScanCheckSelectedBMS(object sender, RoutedEventArgs e)
     {
-        if (e.Source is MenuItem menuItem && ((menuItem.Parent as MenuItem).Parent as ContextMenu).PlacementTarget is DataGridRow)
+        if (TryGetContextMenuRow(e.Source, out _))
         {
             List<BMSFile> list = GetSelectedCompatibilityChartFiles(ChartOperationCapabilities.RunResourceHealthCheck);
             if (list != null && list.Count() != 0)
@@ -7795,7 +7944,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private async void forceInstallSelectedBMS(object sender, RoutedEventArgs e)
     {
-        if (!(e.Source is MenuItem menuItem) || !(((menuItem.Parent as MenuItem).Parent as ContextMenu).PlacementTarget is DataGridRow))
+        if (!TryGetContextMenuRow(e.Source, out _))
         {
             return;
         }
@@ -7806,14 +7955,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
         e.Handled = true;
-        if (dataGrid.SelectionMode == DataGridSelectionMode.Extended)
-        {
-            dataGrid.SelectedItems.Clear();
-        }
-        else
-        {
-            dataGrid.SelectedItem = null;
-        }
+        ClearMainGridSelection();
         if (!treeViewItemInstallPending.IsSelected)
         {
             SelectNextSiblingOrRoot(treeViewItemInstallPending, treeView.SelectedItem, "forceInstallSelectedBMS");
@@ -7833,7 +7975,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private async void manualInstallSelectedBMS(object sender, RoutedEventArgs e)
     {
-        if (!(e.Source is MenuItem menuItem) || !(((menuItem.Parent as MenuItem).Parent as ContextMenu).PlacementTarget is DataGridRow))
+        if (!TryGetContextMenuRow(e.Source, out _))
         {
             return;
         }
@@ -7848,14 +7990,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        if (dataGrid.SelectionMode == DataGridSelectionMode.Extended)
-        {
-            dataGrid.SelectedItems.Clear();
-        }
-        else
-        {
-            dataGrid.SelectedItem = null;
-        }
+        ClearMainGridSelection();
         if (!treeViewItemInstallPending.IsSelected)
         {
             SelectNextSiblingOrRoot(treeViewItemInstallPending, treeView.SelectedItem, "manualInstallSelectedBMS");
@@ -7868,7 +8003,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private async void searchInstallationDirectorySelectedBMS(object sender, RoutedEventArgs e)
     {
-        if (!(e.Source is MenuItem menuItem) || !(((menuItem.Parent as MenuItem).Parent as ContextMenu).PlacementTarget is DataGridRow))
+        if (!TryGetContextMenuRow(e.Source, out _))
         {
             return;
         }
@@ -7886,7 +8021,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private async void dataGridContextMenuItemDeleteInstallPackagesClick(object sender, RoutedEventArgs e)
     {
-        if (!(e.Source is MenuItem { Parent: ContextMenu { PlacementTarget: DataGridRow } }))
+        if (!TryGetContextMenuRow(e.Source, out _))
         {
             return;
         }
@@ -7915,14 +8050,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         NLogWrapper.FileLogger?.Info("dataGrid_delete_install_packages requested section=" + _currentTreeSelectionSection + " selectedRows=" + selectedBmsFiles.Count);
         e.Handled = true;
-        if (dataGrid.SelectionMode == DataGridSelectionMode.Extended)
-        {
-            dataGrid.SelectedItems.Clear();
-        }
-        else
-        {
-            dataGrid.SelectedItem = null;
-        }
+        ClearMainGridSelection();
         if (isPendingSelected)
         {
             SelectNextSiblingOrRoot(treeViewItemInstallPending, treeView.SelectedItem, "dataGridContextMenuItemDeleteInstallPackagesClick");
@@ -7955,7 +8083,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private async void searchMergeDestinationSelectedBMS(object sender, RoutedEventArgs e)
     {
-        if (!(e.Source is MenuItem menuItem) || !(((menuItem.Parent as MenuItem).Parent as ContextMenu).PlacementTarget is DataGridRow))
+        if (!TryGetContextMenuRow(e.Source, out _))
         {
             return;
         }

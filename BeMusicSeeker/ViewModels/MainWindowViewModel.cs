@@ -3463,9 +3463,9 @@ public class MainWindowViewModel : ViewModel
 
     public class cSortParameters
     {
-        public string ColumnsName = "";
+        public string ColumnsName { get; set; } = "";
 
-        public ListSortDirection Direction;
+        public ListSortDirection Direction { get; set; }
     }
 
     [Flags]

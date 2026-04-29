@@ -15,6 +15,7 @@ public sealed class CustomTableColumn
         string header,
         dataGridColumnsSettings.dataGridColumnlayouts layout,
         int fallbackOrder,
+        string sortMemberPath,
         TextAlignment alignment,
         Func<object, string> textSelector,
         Func<object, Brush> foregroundSelector = null,
@@ -24,6 +25,7 @@ public sealed class CustomTableColumn
         Header = header;
         Layout = layout;
         FallbackOrder = fallbackOrder;
+        SortMemberPath = sortMemberPath;
         Alignment = alignment;
         TextSelector = textSelector;
         ForegroundSelector = foregroundSelector;
@@ -37,6 +39,8 @@ public sealed class CustomTableColumn
     public dataGridColumnsSettings.dataGridColumnlayouts Layout { get; }
 
     public int FallbackOrder { get; }
+
+    public string SortMemberPath { get; }
 
     public TextAlignment Alignment { get; }
 
@@ -73,14 +77,14 @@ internal static class CustomTableColumnFactory
         }
         CustomTableColumn[] columns =
         {
-            new CustomTableColumn("Title", "TITLE", settings.Title, 0, TextAlignment.Left, row => GetString(row, nameof(LibraryChartRow.Title))),
-            new CustomTableColumn("Artist", "ARTIST", settings.Artist, 1, TextAlignment.Left, row => GetString(row, nameof(LibraryChartRow.Artist))),
-            new CustomTableColumn("Path", "PATH", settings.Path, 2, TextAlignment.Left, row => GetString(row, "path")),
-            new CustomTableColumn("Clear", "CLEAR", settings.Clear, 3, TextAlignment.Center, row => GetString(row, nameof(LibraryChartRow.ClearDisplayText)), row => GetClearBrush(row), useBoldText: true),
-            new CustomTableColumn("Rank", "DJ LEVEL", settings.Rank, 4, TextAlignment.Center, row => GetString(row, nameof(LibraryChartRow.RankDisplayText)), row => GetRankBrush(row), useBoldText: true),
-            new CustomTableColumn("Level", "LEVEL", settings.Level, 5, TextAlignment.Right, row => GetString(row, nameof(LibraryChartRow.ChartLevelText))),
-            new CustomTableColumn("ChartDifficulty", "DIFFICULTY", settings.ChartDifficulty, 6, TextAlignment.Center, row => GetString(row, nameof(LibraryChartRow.ChartDifficultyText)), row => GetDifficultyBrush(row), useBoldText: true),
-            new CustomTableColumn("ChartJudge", "JUDGE", settings.ChartJudge, 7, TextAlignment.Center, row => GetString(row, nameof(LibraryChartRow.ChartJudgeText)), row => GetJudgeBrush(row), useBoldText: true)
+            new CustomTableColumn("Title", "TITLE", settings.Title, 0, nameof(LibraryChartRow.Title), TextAlignment.Left, row => GetString(row, nameof(LibraryChartRow.Title))),
+            new CustomTableColumn("Artist", "ARTIST", settings.Artist, 1, nameof(LibraryChartRow.Artist), TextAlignment.Left, row => GetString(row, nameof(LibraryChartRow.Artist))),
+            new CustomTableColumn("Path", "PATH", settings.Path, 2, "path", TextAlignment.Left, row => GetString(row, "path")),
+            new CustomTableColumn("Clear", "CLEAR", settings.Clear, 3, nameof(LibraryChartRow.ClearDisplayText), TextAlignment.Center, row => GetString(row, nameof(LibraryChartRow.ClearDisplayText)), row => GetClearBrush(row), useBoldText: true),
+            new CustomTableColumn("Rank", "DJ LEVEL", settings.Rank, 4, nameof(LibraryChartRow.RankDisplayText), TextAlignment.Center, row => GetString(row, nameof(LibraryChartRow.RankDisplayText)), row => GetRankBrush(row), useBoldText: true),
+            new CustomTableColumn("Level", "LEVEL", settings.Level, 5, nameof(LibraryChartRow.ChartLevelSortKey), TextAlignment.Right, row => GetString(row, nameof(LibraryChartRow.ChartLevelText))),
+            new CustomTableColumn("ChartDifficulty", "DIFFICULTY", settings.ChartDifficulty, 6, nameof(LibraryChartRow.ChartDifficultySortKey), TextAlignment.Center, row => GetString(row, nameof(LibraryChartRow.ChartDifficultyText)), row => GetDifficultyBrush(row), useBoldText: true),
+            new CustomTableColumn("ChartJudge", "JUDGE", settings.ChartJudge, 7, nameof(LibraryChartRow.ChartJudgeSortKey), TextAlignment.Center, row => GetString(row, nameof(LibraryChartRow.ChartJudgeText)), row => GetJudgeBrush(row), useBoldText: true)
         };
         return columns
             .Where(column => column.IsVisible)
