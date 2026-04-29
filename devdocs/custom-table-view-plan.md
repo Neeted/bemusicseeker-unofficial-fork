@@ -164,15 +164,18 @@ TextLayoutKey
 
 実装内容:
 
-- `CustomTableView` 用ログカテゴリを決める。
-- 初回 ItemsSource 反映から初回 render までを記録する。
-- `rowCount`, `visibleRowCount`, `visibleColumnCount`, `visibleCellCount`, `renderMs`, `textCacheHitRate` を出す。
+- `table_first_visible` を比較用ログ名にする。
+- 既存 `DataGrid` では `target_updated` から `target_updated_render` までを `firstRenderMs` として記録する。
+- `rowCount`, `visibleRowCount`, `visibleColumnCount`, `visibleCellCount`, `firstRenderMs`, `renderWorkMs`, `textCacheHitRate`, `stateLogMs` を出す。
+- `DataGrid` の `renderWorkMs` と `textCacheHitRate` は比較対象外なので `-1` を出す。
+- `visibleCellCount` は実 Visual 数ではなく、`visibleRowCount * visibleColumnCount` の表示規模として扱う。
 - 既存ログの `playlist_open_visible` と比較できるよう、同じ viewCount/表示列/ウィンドウ高さで測る。
 
 完了条件:
 
 - 既存 `DataGrid` の 5000 セル相当表示と同じ条件で比較できる。
 - 測定コード自体のコストが 1-2ms 程度に収まる。
+- 既存の `playlist_open_visible` / `playlist_datagrid_state` は削除・改名しない。
 
 ## Phase 1: 固定行高・固定列幅の表示専用
 
@@ -373,4 +376,3 @@ WPF `FrameworkElement.InvalidateVisual()` は基本的に全面再描画にな�
 - `BeMusicSeeker/Views/DragBehavior.cs`
 - `BeMusicSeeker/ViewModels/PlaylistSummaryRow.cs`
 - `BeMusicSeeker/ViewModels/PlaylistSummaryColumnSettings.cs`
-

@@ -26,6 +26,7 @@ using System.Windows.Media.Imaging;
 using System.Windows.Media.Media3D;
 using System.Windows.Navigation;
 using System.Windows.Threading;
+using BeMusicSeeker.Diagnostics;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
@@ -75,6 +76,16 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     private MainWindowViewModel _mainWindowViewModelForDataGridBinding;
 
     private PropertyChangedEventHandler _mainWindowViewModelDataGridBindingHandler;
+
+    private long _mainDataGridLastTargetUpdatedSourceGenerationId;
+
+    private long _mainDataGridLastTargetUpdatedViewGenerationId;
+
+    private long _mainDataGridLastTargetUpdatedTimestamp;
+
+    private long _mainDataGridLastTableFirstVisibleSourceGenerationId = -1L;
+
+    private long _mainDataGridLastTableFirstVisibleViewGenerationId = -1L;
 
     private long _mainDataGridLastScheduledSortGlyphGeneration;
 
@@ -515,21 +526,90 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         int selectedCount = 0;
         string itemsSourceType = "(null)";
         int realizedRowCount = -1;
+        int visibleColumnCount = -1;
+        int visibleCellCount = -1;
         string generatorStatus = "(unknown)";
         if (targetDataGrid != null)
         {
             itemCount = targetDataGrid.Items?.Count ?? 0;
             selectedCount = targetDataGrid.SelectedItems?.Count ?? 0;
             itemsSourceType = targetDataGrid.ItemsSource?.GetType().FullName ?? "(null)";
+            visibleColumnCount = CountVisibleDataGridColumns(targetDataGrid);
             if (ShouldCountRealizedRowsForLog(eventName))
             {
                 realizedRowCount = CountVisualDescendants<DataGridRow>(targetDataGrid, maxCount: 2000);
             }
+            visibleCellCount = TableFirstVisibleMetrics.CalculateVisibleCellCount(realizedRowCount, visibleColumnCount);
             generatorStatus = targetDataGrid.ItemContainerGenerator?.Status.ToString() ?? "(null)";
         }
         long stateLogMs = stateLogStopwatch.ElapsedMilliseconds;
         string suffix = string.IsNullOrWhiteSpace(details) ? string.Empty : " " + details;
-        installPerformanceLogger.Info("playlist_datagrid_state event=" + eventName + " playlistActive=" + isPlaylistDetailViewActive + " useAsync=" + _mainDataGridUsesAsyncBinding + " itemsCount=" + itemCount + " selectedCount=" + selectedCount + " realizedRowCount=" + realizedRowCount + " generatorStatus=" + generatorStatus + " itemsSourceType=" + itemsSourceType + " sourceGenerationId=" + (viewModel?.PlaylistSourceGenerationId ?? 0L) + " viewGenerationId=" + (viewModel?.PlaylistAdoptedViewGenerationId ?? 0L) + " stateLogMs=" + stateLogMs + suffix);
+        long sourceGenerationId = viewModel?.PlaylistSourceGenerationId ?? 0L;
+        long viewGenerationId = viewModel?.PlaylistAdoptedViewGenerationId ?? 0L;
+        installPerformanceLogger.Info("playlist_datagrid_state event=" + eventName + " playlistActive=" + isPlaylistDetailViewActive + " useAsync=" + _mainDataGridUsesAsyncBinding + " itemsCount=" + itemCount + " rowCount=" + itemCount + " selectedCount=" + selectedCount + " realizedRowCount=" + realizedRowCount + " visibleRowCount=" + realizedRowCount + " visibleColumnCount=" + visibleColumnCount + " visibleCellCount=" + visibleCellCount + " generatorStatus=" + generatorStatus + " itemsSourceType=" + itemsSourceType + " sourceGenerationId=" + sourceGenerationId + " viewGenerationId=" + viewGenerationId + " stateLogMs=" + stateLogMs + suffix);
+        TryLogMainDataGridTableFirstVisible(eventName, targetDataGrid, viewModel, itemCount, realizedRowCount, visibleColumnCount, visibleCellCount, stateLogMs, sourceGenerationId, viewGenerationId);
+    }
+
+    private static int CountVisibleDataGridColumns(DataGrid targetDataGrid)
+    {
+        if (targetDataGrid?.Columns == null)
+        {
+            return -1;
+        }
+        int count = 0;
+        foreach (DataGridColumn column in targetDataGrid.Columns)
+        {
+            if (column.Visibility == Visibility.Visible)
+            {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    private void TryLogMainDataGridTableFirstVisible(string eventName, DataGrid targetDataGrid, MainWindowViewModel viewModel, int rowCount, int visibleRowCount, int visibleColumnCount, int visibleCellCount, long stateLogMs, long sourceGenerationId, long viewGenerationId)
+    {
+        if (!string.Equals(eventName, "target_updated_render", StringComparison.Ordinal)
+            || viewModel == null
+            || !viewModel.IsPlaylistDetailViewActive
+            || !ReferenceEquals(targetDataGrid, dataGrid)
+            || visibleRowCount < 0
+            || visibleColumnCount < 0)
+        {
+            return;
+        }
+        if (_mainDataGridLastTableFirstVisibleSourceGenerationId == sourceGenerationId && _mainDataGridLastTableFirstVisibleViewGenerationId == viewGenerationId)
+        {
+            return;
+        }
+        if (!viewModel.TryCreatePlaylistOpenVisibleTiming(sourceGenerationId, viewGenerationId, out TableFirstVisibleTiming timing))
+        {
+            return;
+        }
+        long firstRenderMs = -1L;
+        if (_mainDataGridLastTargetUpdatedTimestamp > 0L
+            && _mainDataGridLastTargetUpdatedSourceGenerationId == sourceGenerationId
+            && _mainDataGridLastTargetUpdatedViewGenerationId == viewGenerationId)
+        {
+            firstRenderMs = (Stopwatch.GetTimestamp() - _mainDataGridLastTargetUpdatedTimestamp) * 1000L / Stopwatch.Frequency;
+        }
+        TableFirstVisibleMetrics metrics = new TableFirstVisibleMetrics(
+            "DataGrid",
+            eventName,
+            sourceGenerationId,
+            viewGenerationId,
+            rowCount,
+            visibleRowCount,
+            visibleColumnCount,
+            visibleCellCount,
+            firstRenderMs,
+            -1L,
+            -1d,
+            stateLogMs,
+            timing);
+        installPerformanceLogger.Info(TableFirstVisibleLogFormatter.Format(metrics));
+        _mainDataGridLastTableFirstVisibleSourceGenerationId = sourceGenerationId;
+        _mainDataGridLastTableFirstVisibleViewGenerationId = viewGenerationId;
     }
 
     private static bool ShouldCountRealizedRowsForLog(string eventName)
@@ -966,9 +1046,24 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         if (sender is DataGrid dataGrid2)
         {
+            RememberMainDataGridTargetUpdated(dataGrid2);
             LogPlaylistDataGridState("target_updated", dataGrid2);
             SchedulePlaylistRetentionCheckpoint(dataGrid2, "target_updated");
             RequestSortGlyphRefresh(dataGrid2, "target_updated");
+        }
+    }
+
+    private void RememberMainDataGridTargetUpdated(DataGrid targetDataGrid)
+    {
+        if (!ReferenceEquals(targetDataGrid, dataGrid))
+        {
+            return;
+        }
+        if (base.DataContext is MainWindowViewModel viewModel)
+        {
+            _mainDataGridLastTargetUpdatedSourceGenerationId = viewModel.PlaylistSourceGenerationId;
+            _mainDataGridLastTargetUpdatedViewGenerationId = viewModel.PlaylistAdoptedViewGenerationId;
+            _mainDataGridLastTargetUpdatedTimestamp = Stopwatch.GetTimestamp();
         }
     }
 

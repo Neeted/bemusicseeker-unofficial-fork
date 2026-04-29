@@ -17,6 +17,7 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Forms;
 using System.Windows.Threading;
+using BeMusicSeeker.Diagnostics;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
@@ -5757,6 +5758,35 @@ public class MainWindowViewModel : ViewModel
         {
             LogPlaylistOpen("playlist_open_stage_detail requestVersion=" + interaction.RequestVersion + " checkpoint=" + checkpoint + " requestToBuildStartMs=" + requestToBuildStartMs + " requestToBuildCompleteMs=" + requestToBuildCompleteMs + " requestToVisibleRenderMs=" + requestToVisibleRenderMs + " buildToVisibleRenderMs=" + buildToVisibleRenderMs + " thresholdMs=" + PlaylistOpenSlowLogThresholdMs);
         }
+    }
+
+    internal bool TryCreatePlaylistOpenVisibleTiming(long expectedSourceGenerationId, long expectedViewGenerationId, out TableFirstVisibleTiming timing)
+    {
+        timing = default;
+        if (!installPerformanceLoggingEnabled)
+        {
+            return false;
+        }
+        PlaylistOpenInteractionState interaction = null;
+        lock (playlistViewState.SyncRoot)
+        {
+            if (playlistViewState.CurrentOpenInteraction == null || !playlistViewState.CurrentOpenInteraction.BuildCompletedAtUtc.HasValue)
+            {
+                return false;
+            }
+            if (playlistViewState.CurrentOpenInteraction.ExpectedSourceGenerationId != expectedSourceGenerationId || playlistViewState.CurrentOpenInteraction.ExpectedViewGenerationId != expectedViewGenerationId)
+            {
+                return false;
+            }
+            interaction = playlistViewState.CurrentOpenInteraction;
+        }
+        long requestToBuildStartMs = interaction.BuildStartedAtUtc.HasValue ? (long)(interaction.BuildStartedAtUtc.Value - interaction.RequestedAtUtc).TotalMilliseconds : -1L;
+        long requestToBuildCompleteMs = (long)(interaction.BuildCompletedAtUtc.Value - interaction.RequestedAtUtc).TotalMilliseconds;
+        DateTime visibleAtUtc = DateTime.UtcNow;
+        long requestToVisibleRenderMs = (long)(visibleAtUtc - interaction.RequestedAtUtc).TotalMilliseconds;
+        long buildToVisibleRenderMs = (long)(visibleAtUtc - interaction.BuildCompletedAtUtc.Value).TotalMilliseconds;
+        timing = new TableFirstVisibleTiming(interaction.RequestVersion, requestToBuildStartMs, requestToBuildCompleteMs, requestToVisibleRenderMs, buildToVisibleRenderMs, interaction.ViewCount);
+        return true;
     }
 
     /// <summary>
