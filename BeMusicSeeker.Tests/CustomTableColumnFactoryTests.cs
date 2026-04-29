@@ -17,7 +17,7 @@ public sealed class CustomTableColumnFactoryTests
     }
 
     [TestMethod]
-    public void CreateMainColumns_UsesVisiblePhaseThreeColumnsForStandardView()
+    public void CreateMainColumns_UsesVisiblePhaseThreePointFiveColumnsForStandardView()
     {
         dataGridColumnsSettings settings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.STANDARD);
 
@@ -26,21 +26,42 @@ public sealed class CustomTableColumnFactoryTests
         CollectionAssert.AreEqual(
             new[]
             {
+                "Status",
                 "Title",
                 "Artist",
+                "Genre",
+                "Mode",
+                "Folder",
                 "Path",
                 "Clear",
                 "Rank",
+                "Rate",
+                "Bp",
                 "Level",
                 "ChartDifficulty",
                 "ChartJudge",
+                "ChartJudgePercent",
+                "Notes",
+                "ChartLongNotes",
+                "ChartScratchNotes",
+                "ChartMainBpm",
+                "ChartMinBpm",
+                "ChartMaxBpm",
+                "ChartSoflan",
+                "ChartTotal",
+                "ChartTotalPerNote",
+                "ChartDuration",
+                "ChartFeature",
+                "ChartDensity",
+                "ChartPeakDensity",
+                "ChartEndDensity",
                 "PlaylistSymbols"
             },
             ids);
     }
 
     [TestMethod]
-    public void CreateMainColumns_CanCreateAllPhaseThreeColumns()
+    public void CreateMainColumns_CanCreateAllMainDataGridColumns()
     {
         dataGridColumnsSettings settings = new dataGridColumnsSettings();
         foreach (dataGridColumnsSettings.dataGridColumnlayouts layout in CustomTableColumnFactory.EnumerateMainColumnLayouts(settings))
@@ -54,28 +75,81 @@ public sealed class CustomTableColumnFactoryTests
         CollectionAssert.AreEqual(
             new[]
             {
+                "Status",
+                "EntryLevel",
                 "Title",
                 "Artist",
+                "Genre",
+                "Mode",
+                "Tag",
                 "Url1",
                 "Url2",
                 "Warning",
                 "Comment",
                 "Memo",
+                "Hash",
+                "Sha256",
+                "Folder",
                 "Path",
+                "InstallDst",
+                "InstallDstTitle",
+                "InstallDstArtist",
+                "WavHealth",
+                "BgaHealth",
+                "MovieHealth",
+                "CharcterEncoding",
                 "PlaylistSymbols",
-                "Clear",
-                "Rank",
                 "Level",
                 "ChartDifficulty",
-                "ChartJudge"
+                "ChartMainBpm",
+                "ChartMaxBpm",
+                "ChartMinBpm",
+                "ChartDuration",
+                "ChartJudge",
+                "ChartJudgePercent",
+                "ChartFeature",
+                "Notes",
+                "ChartLongNotes",
+                "ChartScratchNotes",
+                "ChartTotal",
+                "ChartTotalPerNote",
+                "ChartDensity",
+                "ChartPeakDensity",
+                "ChartEndDensity",
+                "ChartSoflan",
+                "Clear",
+                "Rank",
+                "Rate",
+                "Score",
+                "Combo",
+                "Bp",
+                "Ranking",
+                "RankingLastupdate",
+                "TScore",
+                "ScoreDifficulty"
             },
             ids);
+    }
+
+    [TestMethod]
+    public void CreateMainColumns_KeepsStatusColumnVisibleFirstAndFixed()
+    {
+        dataGridColumnsSettings settings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.PLAYLIST);
+
+        CustomTableColumn status = CustomTableColumnFactory.CreateMainColumns(settings).First();
+
+        Assert.AreEqual("Status", status.Id);
+        Assert.AreEqual(18, status.Width);
+        Assert.IsFalse(status.CanResize);
+        Assert.IsNull(status.SortMemberPath);
+        Assert.AreEqual(CustomTableCellKind.StatusIcon, status.CellKind);
     }
 
     [TestMethod]
     public void CreateMainColumns_ReflectsVisibilityWidthAndDisplayIndex()
     {
         dataGridColumnsSettings settings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.STANDARD);
+        settings.Status.Visibility = Visibility.Hidden;
         settings.Title.Visibility = Visibility.Hidden;
         settings.ChartJudge.DisplayIndex = 0;
         settings.ChartJudge.Width = 77;
@@ -100,15 +174,26 @@ public sealed class CustomTableColumnFactoryTests
 
         Assert.AreEqual("Title", paths["Title"]);
         Assert.AreEqual("Artist", paths["Artist"]);
+        Assert.AreEqual("genre", paths["Genre"]);
+        Assert.AreEqual("mode", paths["Mode"]);
+        Assert.AreEqual("tag", paths["Tag"]);
         Assert.AreEqual("path", paths["Path"]);
+        Assert.AreEqual("hash", paths["Hash"]);
+        Assert.AreEqual("sha256", paths["Sha256"]);
         Assert.IsNull(paths["Url1"]);
         Assert.IsNull(paths["Url2"]);
         Assert.AreEqual("DisplayWarning", paths["Warning"]);
         Assert.IsNull(paths["Comment"]);
         Assert.IsNull(paths["Memo"]);
+        Assert.AreEqual("instl_dst", paths["InstallDst"]);
+        Assert.AreEqual("WAVHealth", paths["WavHealth"]);
+        Assert.AreEqual("ChartMainBpmSortKey", paths["ChartMainBpm"]);
+        Assert.AreEqual("ChartJudgeSortKey", paths["ChartJudgePercent"]);
         Assert.AreEqual("RefTablesSymbols", paths["PlaylistSymbols"]);
         Assert.AreEqual("ClearDisplayText", paths["Clear"]);
         Assert.AreEqual("RankDisplayText", paths["Rank"]);
+        Assert.AreEqual("rate", paths["Rate"]);
+        Assert.AreEqual("stddevVal", paths["TScore"]);
         Assert.AreEqual("ChartLevelSortKey", paths["Level"]);
         Assert.AreEqual("ChartDifficultySortKey", paths["ChartDifficulty"]);
         Assert.AreEqual("ChartJudgeSortKey", paths["ChartJudge"]);
@@ -154,6 +239,33 @@ public sealed class CustomTableColumnFactoryTests
     }
 
     [TestMethod]
+    public void CreateMainColumns_FormatsStatusAndSuffixColumns()
+    {
+        dataGridColumnsSettings settings = new dataGridColumnsSettings();
+        foreach (dataGridColumnsSettings.dataGridColumnlayouts layout in CustomTableColumnFactory.EnumerateMainColumnLayouts(settings))
+        {
+            layout.Visibility = Visibility.Visible;
+        }
+        var columns = CustomTableColumnFactory.CreateMainColumns(settings).ToDictionary(column => column.Id);
+        var row = new
+        {
+            status = BeMusicSeeker.Models.BMSFile.BMSFileStatus.PLAY | BeMusicSeeker.Models.BMSFile.BMSFileStatus.SCORE_UNSENT,
+            mode = 7,
+            rate = 98,
+            WAVHealth = 100,
+            stddevVal = 12.345,
+            scoreDifficulty = 6.789
+        };
+
+        Assert.AreEqual("Play", columns["Status"].GetText(row));
+        Assert.AreEqual("7KEYS", columns["Mode"].GetText(row));
+        Assert.AreEqual("98%", columns["Rate"].GetText(row));
+        Assert.AreEqual("100%", columns["WavHealth"].GetText(row));
+        Assert.AreEqual("12.35", columns["TScore"].GetText(row));
+        Assert.AreEqual("6.79", columns["ScoreDifficulty"].GetText(row));
+    }
+
+    [TestMethod]
     public void CustomTableColumnLayout_ResolvesHorizontalOffset()
     {
         dataGridColumnsSettings settings = new dataGridColumnsSettings();
@@ -163,17 +275,54 @@ public sealed class CustomTableColumnFactoryTests
         settings.Title.Width = 100;
         settings.Artist.Width = 80;
         settings.Path.Width = 70;
+        settings.Status.Visibility = Visibility.Hidden;
+        settings.Genre.Visibility = Visibility.Hidden;
+        settings.Mode.Visibility = Visibility.Hidden;
         settings.Url1.Visibility = Visibility.Hidden;
         settings.Url2.Visibility = Visibility.Hidden;
+        settings.Tag.Visibility = Visibility.Hidden;
         settings.Warning.Visibility = Visibility.Hidden;
         settings.Comment.Visibility = Visibility.Hidden;
         settings.Memo.Visibility = Visibility.Hidden;
+        settings.Hash.Visibility = Visibility.Hidden;
+        settings.Sha256.Visibility = Visibility.Hidden;
+        settings.Folder.Visibility = Visibility.Hidden;
+        settings.InstallDst.Visibility = Visibility.Hidden;
+        settings.InstallDstTitle.Visibility = Visibility.Hidden;
+        settings.InstallDstArtist.Visibility = Visibility.Hidden;
+        settings.WavHealth.Visibility = Visibility.Hidden;
+        settings.BgaHealth.Visibility = Visibility.Hidden;
+        settings.MovieHealth.Visibility = Visibility.Hidden;
+        settings.CharcterEncoding.Visibility = Visibility.Hidden;
         settings.PlaylistSymbols.Visibility = Visibility.Hidden;
         settings.Clear.Visibility = Visibility.Hidden;
         settings.Rank.Visibility = Visibility.Hidden;
         settings.Level.Visibility = Visibility.Hidden;
         settings.ChartDifficulty.Visibility = Visibility.Hidden;
+        settings.ChartMainBpm.Visibility = Visibility.Hidden;
+        settings.ChartMaxBpm.Visibility = Visibility.Hidden;
+        settings.ChartMinBpm.Visibility = Visibility.Hidden;
+        settings.ChartDuration.Visibility = Visibility.Hidden;
         settings.ChartJudge.Visibility = Visibility.Hidden;
+        settings.ChartJudgePercent.Visibility = Visibility.Hidden;
+        settings.ChartFeature.Visibility = Visibility.Hidden;
+        settings.Notes.Visibility = Visibility.Hidden;
+        settings.ChartLongNotes.Visibility = Visibility.Hidden;
+        settings.ChartScratchNotes.Visibility = Visibility.Hidden;
+        settings.ChartTotal.Visibility = Visibility.Hidden;
+        settings.ChartTotalPerNote.Visibility = Visibility.Hidden;
+        settings.ChartDensity.Visibility = Visibility.Hidden;
+        settings.ChartPeakDensity.Visibility = Visibility.Hidden;
+        settings.ChartEndDensity.Visibility = Visibility.Hidden;
+        settings.ChartSoflan.Visibility = Visibility.Hidden;
+        settings.Rate.Visibility = Visibility.Hidden;
+        settings.Score.Visibility = Visibility.Hidden;
+        settings.Combo.Visibility = Visibility.Hidden;
+        settings.Bp.Visibility = Visibility.Hidden;
+        settings.Ranking.Visibility = Visibility.Hidden;
+        settings.RankingLastupdate.Visibility = Visibility.Hidden;
+        settings.TScore.Visibility = Visibility.Hidden;
+        settings.ScoreDifficulty.Visibility = Visibility.Hidden;
         CustomTableColumn[] columns = CustomTableColumnFactory.CreateMainColumns(settings).ToArray();
 
         bool resolved = CustomTableColumnLayout.TryResolveColumn(columns, tableX: 125, out CustomTableColumn column, out int columnIndex, out double columnX);
@@ -183,6 +332,12 @@ public sealed class CustomTableColumnFactoryTests
         Assert.AreEqual(1, columnIndex);
         Assert.AreEqual(100d, columnX);
         Assert.AreEqual(3, CustomTableColumnLayout.CountColumnsWithinViewport(columns, horizontalOffset: 90, viewportWidth: 100));
+        Rect contentRect = CustomTableColumnLayout.CreateContentColumnRect(0, 100, 25, 0, 20);
+        Rect visibleRect = CustomTableColumnLayout.CreateVisibleColumnRect(0, 100, 25, 100, 0, 20);
+        Assert.AreEqual(-25d, contentRect.X);
+        Assert.AreEqual(100d, contentRect.Width);
+        Assert.AreEqual(0d, visibleRect.X);
+        Assert.AreEqual(75d, visibleRect.Width);
     }
 
     [TestMethod]
@@ -195,17 +350,54 @@ public sealed class CustomTableColumnFactoryTests
         settings.Title.Width = 100;
         settings.Artist.Width = 80;
         settings.Url1.Width = 40;
+        settings.Status.Visibility = Visibility.Hidden;
         settings.Path.Visibility = Visibility.Hidden;
+        settings.Genre.Visibility = Visibility.Hidden;
+        settings.Mode.Visibility = Visibility.Hidden;
+        settings.Tag.Visibility = Visibility.Hidden;
         settings.Url2.Visibility = Visibility.Hidden;
         settings.Warning.Visibility = Visibility.Hidden;
         settings.Comment.Visibility = Visibility.Hidden;
         settings.Memo.Visibility = Visibility.Hidden;
+        settings.Hash.Visibility = Visibility.Hidden;
+        settings.Sha256.Visibility = Visibility.Hidden;
+        settings.Folder.Visibility = Visibility.Hidden;
+        settings.InstallDst.Visibility = Visibility.Hidden;
+        settings.InstallDstTitle.Visibility = Visibility.Hidden;
+        settings.InstallDstArtist.Visibility = Visibility.Hidden;
+        settings.WavHealth.Visibility = Visibility.Hidden;
+        settings.BgaHealth.Visibility = Visibility.Hidden;
+        settings.MovieHealth.Visibility = Visibility.Hidden;
+        settings.CharcterEncoding.Visibility = Visibility.Hidden;
         settings.PlaylistSymbols.Visibility = Visibility.Hidden;
         settings.Clear.Visibility = Visibility.Hidden;
         settings.Rank.Visibility = Visibility.Hidden;
         settings.Level.Visibility = Visibility.Hidden;
         settings.ChartDifficulty.Visibility = Visibility.Hidden;
+        settings.ChartMainBpm.Visibility = Visibility.Hidden;
+        settings.ChartMaxBpm.Visibility = Visibility.Hidden;
+        settings.ChartMinBpm.Visibility = Visibility.Hidden;
+        settings.ChartDuration.Visibility = Visibility.Hidden;
         settings.ChartJudge.Visibility = Visibility.Hidden;
+        settings.ChartJudgePercent.Visibility = Visibility.Hidden;
+        settings.ChartFeature.Visibility = Visibility.Hidden;
+        settings.Notes.Visibility = Visibility.Hidden;
+        settings.ChartLongNotes.Visibility = Visibility.Hidden;
+        settings.ChartScratchNotes.Visibility = Visibility.Hidden;
+        settings.ChartTotal.Visibility = Visibility.Hidden;
+        settings.ChartTotalPerNote.Visibility = Visibility.Hidden;
+        settings.ChartDensity.Visibility = Visibility.Hidden;
+        settings.ChartPeakDensity.Visibility = Visibility.Hidden;
+        settings.ChartEndDensity.Visibility = Visibility.Hidden;
+        settings.ChartSoflan.Visibility = Visibility.Hidden;
+        settings.Rate.Visibility = Visibility.Hidden;
+        settings.Score.Visibility = Visibility.Hidden;
+        settings.Combo.Visibility = Visibility.Hidden;
+        settings.Bp.Visibility = Visibility.Hidden;
+        settings.Ranking.Visibility = Visibility.Hidden;
+        settings.RankingLastupdate.Visibility = Visibility.Hidden;
+        settings.TScore.Visibility = Visibility.Hidden;
+        settings.ScoreDifficulty.Visibility = Visibility.Hidden;
         CustomTableColumn[] columns = CustomTableColumnFactory.CreateMainColumns(settings).ToArray();
 
         bool titleResize = CustomTableColumnLayout.TryResolveResizeColumn(columns, surfaceX: 99, horizontalOffset: 0, viewportWidth: 200, margin: 4, out CustomTableColumn titleColumn, out _, out _);

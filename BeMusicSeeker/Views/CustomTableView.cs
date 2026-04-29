@@ -563,6 +563,11 @@ public sealed class CustomTableView : Grid
         }
         if (hit.Kind == CustomTableHitKind.Header)
         {
+            if (IsStatusColumn(hit.Column))
+            {
+                e.Handled = true;
+                return;
+            }
             HeaderContextMenuRequested?.Invoke(this, new CustomTableHeaderRequestedEventArgs(hit, openAtMousePosition: true));
             e.Handled = true;
             return;
@@ -705,6 +710,11 @@ public sealed class CustomTableView : Grid
         CustomTableColumn column = columns.Count == 0 ? null : columns[0];
         Rect cellRect = column == null ? Rect.Empty : CustomTableColumnLayout.CreateVisibleColumnRect(0d, column.Width, HorizontalOffset, surface.ActualWidth, HeaderHeight + (rowIndex - FirstVisibleRowIndex) * Math.Max(1d, RowHeight), Math.Max(1d, RowHeight));
         return new CustomTableHitTestResult(CustomTableHitKind.Cell, rowIndex, rows[rowIndex], column, column == null ? -1 : 0, cellRect);
+    }
+
+    private static bool IsStatusColumn(CustomTableColumn column)
+    {
+        return string.Equals(column?.Id, "Status", StringComparison.Ordinal);
     }
 
     private void BeginColumnResize(CustomTableHitTestResult hit, double surfaceX)
@@ -906,6 +916,11 @@ internal static class CustomTableColumnLayout
         return new Rect(left, y, Math.Max(0d, right - left), height);
     }
 
+    internal static Rect CreateContentColumnRect(double columnX, double columnWidth, double horizontalOffset, double y, double height)
+    {
+        return new Rect(columnX - horizontalOffset, y, Math.Max(0d, columnWidth), height);
+    }
+
     internal static int CountColumnsWithinViewport(IReadOnlyList<CustomTableColumn> columns, double horizontalOffset, double viewportWidth)
     {
         double currentX = 0d;
@@ -999,7 +1014,7 @@ internal sealed class CustomTableSurface : FrameworkElement
             }
             if (screenX + columnWidth > 0d)
             {
-                Rect cellRect = CustomTableColumnLayout.CreateVisibleColumnRect(x, columnWidth, horizontalOffset, width, 0d, headerHeight);
+                Rect cellRect = CustomTableColumnLayout.CreateContentColumnRect(x, columnWidth, horizontalOffset, 0d, headerHeight);
                 DrawCellText(drawingContext, column.Header, cellRect, CustomTableScoreBrushProvider.DefaultForeground, TextAlignment.Center, useBoldText: false);
                 DrawSortGlyph(drawingContext, column, cellRect);
                 double borderX = x + columnWidth - horizontalOffset - 0.5d;
@@ -1062,12 +1077,16 @@ internal sealed class CustomTableSurface : FrameworkElement
             }
             if (screenX + columnWidth > 0d)
             {
-                Rect cellRect = CustomTableColumnLayout.CreateVisibleColumnRect(x, columnWidth, horizontalOffset, width, y, rowHeight);
+                Rect cellRect = CustomTableColumnLayout.CreateContentColumnRect(x, columnWidth, horizontalOffset, y, rowHeight);
                 Brush foreground = selected ? CustomTableScoreBrushProvider.SelectedForeground : column.GetForeground(row);
                 string text = column.GetText(row);
-                if (column.UseIconText)
+                if (column.CellKind == CustomTableCellKind.DownloadIcon)
                 {
                     DrawDownloadIcon(drawingContext, text, cellRect, foreground);
+                }
+                else if (column.CellKind == CustomTableCellKind.StatusIcon)
+                {
+                    DrawStatusIcon(drawingContext, text, cellRect, foreground);
                 }
                 else
                 {
@@ -1155,6 +1174,104 @@ internal sealed class CustomTableSurface : FrameworkElement
         }
         arrow.Freeze();
         drawingContext.DrawGeometry(null, pen, arrow);
+    }
+
+    private static void DrawStatusIcon(DrawingContext drawingContext, string text, Rect cellRect, Brush foreground)
+    {
+        if (string.IsNullOrEmpty(text) || cellRect.Width <= 6d || cellRect.Height <= 6d)
+        {
+            return;
+        }
+        if (!Enum.TryParse(text, out CustomTableStatusIconKind iconKind) || iconKind == CustomTableStatusIconKind.None)
+        {
+            return;
+        }
+        Brush iconBrush = foreground ?? CustomTableScoreBrushProvider.DefaultForeground;
+        double size = Math.Max(7d, Math.Min(12d, Math.Min(cellRect.Width - 4d, cellRect.Height - 4d)));
+        double left = cellRect.Left + (cellRect.Width - size) / 2d;
+        double top = cellRect.Top + (cellRect.Height - size) / 2d;
+        Rect iconRect = new Rect(left, top, size, size);
+        Pen pen = new Pen(iconBrush, 1.5d)
+        {
+            StartLineCap = PenLineCap.Round,
+            EndLineCap = PenLineCap.Round,
+            LineJoin = PenLineJoin.Round
+        };
+        if (pen.CanFreeze)
+        {
+            pen.Freeze();
+        }
+        switch (iconKind)
+        {
+            case CustomTableStatusIconKind.Forward:
+                DrawTrianglePair(drawingContext, iconBrush, iconRect, forward: true);
+                break;
+            case CustomTableStatusIconKind.Backward:
+                DrawTrianglePair(drawingContext, iconBrush, iconRect, forward: false);
+                break;
+            case CustomTableStatusIconKind.Play:
+                DrawTriangle(drawingContext, iconBrush, new Point(iconRect.Left + 2d, iconRect.Top + 1d), new Point(iconRect.Left + 2d, iconRect.Bottom - 1d), new Point(iconRect.Right - 1d, iconRect.Top + iconRect.Height / 2d));
+                break;
+            case CustomTableStatusIconKind.Loading:
+                drawingContext.DrawEllipse(iconBrush, null, new Point(iconRect.Left + 2d, iconRect.Top + iconRect.Height / 2d), 1.2d, 1.2d);
+                drawingContext.DrawEllipse(iconBrush, null, new Point(iconRect.Left + iconRect.Width / 2d, iconRect.Top + iconRect.Height / 2d), 1.2d, 1.2d);
+                drawingContext.DrawEllipse(iconBrush, null, new Point(iconRect.Right - 2d, iconRect.Top + iconRect.Height / 2d), 1.2d, 1.2d);
+                break;
+            case CustomTableStatusIconKind.Pause:
+                drawingContext.DrawRectangle(iconBrush, null, new Rect(iconRect.Left + 2d, iconRect.Top + 1d, 2d, iconRect.Height - 2d));
+                drawingContext.DrawRectangle(iconBrush, null, new Rect(iconRect.Right - 4d, iconRect.Top + 1d, 2d, iconRect.Height - 2d));
+                break;
+            case CustomTableStatusIconKind.Searching:
+                drawingContext.DrawEllipse(null, pen, new Point(iconRect.Left + iconRect.Width * 0.43d, iconRect.Top + iconRect.Height * 0.43d), iconRect.Width * 0.28d, iconRect.Height * 0.28d);
+                drawingContext.DrawLine(pen, new Point(iconRect.Left + iconRect.Width * 0.63d, iconRect.Top + iconRect.Height * 0.63d), new Point(iconRect.Right - 1d, iconRect.Bottom - 1d));
+                break;
+            case CustomTableStatusIconKind.ScoreUnsent:
+                DrawRefreshIcon(drawingContext, iconBrush, pen, iconRect);
+                break;
+        }
+    }
+
+    private static void DrawRefreshIcon(DrawingContext drawingContext, Brush brush, Pen pen, Rect rect)
+    {
+        Point start = new Point(rect.Right - 2d, rect.Top + rect.Height * 0.45d);
+        Point end = new Point(rect.Left + 2d, rect.Top + rect.Height * 0.58d);
+        StreamGeometry arc = new StreamGeometry();
+        using (StreamGeometryContext context = arc.Open())
+        {
+            context.BeginFigure(start, isFilled: false, isClosed: false);
+            context.ArcTo(end, new Size(rect.Width * 0.42d, rect.Height * 0.42d), 0d, isLargeArc: true, SweepDirection.Counterclockwise, isStroked: true, isSmoothJoin: false);
+        }
+        arc.Freeze();
+        drawingContext.DrawGeometry(null, pen, arc);
+        DrawTriangle(drawingContext, brush, new Point(end.X, end.Y), new Point(end.X + 4d, end.Y - 1d), new Point(end.X + 2d, end.Y + 3d));
+    }
+
+    private static void DrawTrianglePair(DrawingContext drawingContext, Brush brush, Rect rect, bool forward)
+    {
+        double mid = rect.Left + rect.Width / 2d;
+        if (forward)
+        {
+            DrawTriangle(drawingContext, brush, new Point(rect.Left, rect.Top + 1d), new Point(rect.Left, rect.Bottom - 1d), new Point(mid, rect.Top + rect.Height / 2d));
+            DrawTriangle(drawingContext, brush, new Point(mid - 1d, rect.Top + 1d), new Point(mid - 1d, rect.Bottom - 1d), new Point(rect.Right, rect.Top + rect.Height / 2d));
+        }
+        else
+        {
+            DrawTriangle(drawingContext, brush, new Point(rect.Right, rect.Top + 1d), new Point(rect.Right, rect.Bottom - 1d), new Point(mid, rect.Top + rect.Height / 2d));
+            DrawTriangle(drawingContext, brush, new Point(mid + 1d, rect.Top + 1d), new Point(mid + 1d, rect.Bottom - 1d), new Point(rect.Left, rect.Top + rect.Height / 2d));
+        }
+    }
+
+    private static void DrawTriangle(DrawingContext drawingContext, Brush brush, Point p1, Point p2, Point p3)
+    {
+        StreamGeometry geometry = new StreamGeometry();
+        using (StreamGeometryContext context = geometry.Open())
+        {
+            context.BeginFigure(p1, isFilled: true, isClosed: true);
+            context.LineTo(p2, isStroked: true, isSmoothJoin: false);
+            context.LineTo(p3, isStroked: true, isSmoothJoin: false);
+        }
+        geometry.Freeze();
+        drawingContext.DrawGeometry(brush, null, geometry);
     }
 
     private void DrawSortGlyph(DrawingContext drawingContext, CustomTableColumn column, Rect cellRect)

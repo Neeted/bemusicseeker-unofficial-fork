@@ -1,12 +1,34 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Windows;
 using System.Windows.Media;
+using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 
 namespace BeMusicSeeker.Views;
+
+public enum CustomTableCellKind
+{
+    Text,
+    DownloadIcon,
+    StatusIcon
+}
+
+internal enum CustomTableStatusIconKind
+{
+    None,
+    Forward,
+    Backward,
+    Play,
+    Loading,
+    Pause,
+    Searching,
+    ScoreUnsent
+}
 
 public sealed class CustomTableColumn
 {
@@ -24,7 +46,7 @@ public sealed class CustomTableColumn
         int minWidth = 40,
         int? maxWidth = null,
         bool canResize = true,
-        bool useIconText = false)
+        CustomTableCellKind cellKind = CustomTableCellKind.Text)
     {
         Id = id;
         Header = header;
@@ -39,7 +61,7 @@ public sealed class CustomTableColumn
         MinWidth = Math.Max(1, minWidth);
         MaxWidth = maxWidth.HasValue ? Math.Max(MinWidth, maxWidth.Value) : int.MaxValue;
         CanResize = canResize;
-        UseIconText = useIconText;
+        CellKind = cellKind;
     }
 
     public string Id { get; }
@@ -62,7 +84,9 @@ public sealed class CustomTableColumn
 
     public bool CanResize { get; }
 
-    public bool UseIconText { get; }
+    public bool UseIconText => CellKind != CustomTableCellKind.Text;
+
+    public CustomTableCellKind CellKind { get; }
 
     public int DisplayIndex => Layout?.DisplayIndex ?? -1;
 
@@ -112,23 +136,7 @@ internal static class CustomTableColumnFactory
         {
             return Array.Empty<CustomTableColumn>();
         }
-        CustomTableColumn[] columns =
-        {
-            new CustomTableColumn("Title", "TITLE", settings.Title, 0, nameof(LibraryChartRow.Title), TextAlignment.Left, row => GetString(row, nameof(LibraryChartRow.Title))),
-            new CustomTableColumn("Artist", "ARTIST", settings.Artist, 1, nameof(LibraryChartRow.Artist), TextAlignment.Left, row => GetString(row, nameof(LibraryChartRow.Artist)), minWidth: 50),
-            new CustomTableColumn("Url1", "URL1", settings.Url1, 2, null, TextAlignment.Center, row => ConvertLigatureSymbolText(GetString(row, nameof(PlaylistDetailRow.UrlDownloadIconText))), tooltipSelector: row => GetString(row, nameof(PlaylistDetailRow.UrlToolTipText)), minWidth: 40, maxWidth: 40, canResize: false, useIconText: true),
-            new CustomTableColumn("Url2", "URL2", settings.Url2, 3, null, TextAlignment.Center, row => ConvertLigatureSymbolText(GetString(row, nameof(PlaylistDetailRow.UrlDiffDownloadIconText))), tooltipSelector: row => GetString(row, nameof(PlaylistDetailRow.UrlDiffToolTipText)), minWidth: 40, maxWidth: 40, canResize: false, useIconText: true),
-            new CustomTableColumn("Warning", "WARNING", settings.Warning, 4, nameof(LibraryChartRow.DisplayWarning), TextAlignment.Left, row => GetString(row, nameof(LibraryChartRow.DisplayWarning)), tooltipSelector: row => GetString(row, nameof(LibraryChartRow.DisplayWarning))),
-            new CustomTableColumn("Comment", "COMMENT", settings.Comment, 5, null, TextAlignment.Left, row => GetString(row, "comment"), tooltipSelector: row => GetString(row, "comment")),
-            new CustomTableColumn("Memo", "MEMO", settings.Memo, 6, null, TextAlignment.Left, row => GetString(row, "memo"), tooltipSelector: row => GetString(row, "memo")),
-            new CustomTableColumn("Path", "PATH", settings.Path, 7, "path", TextAlignment.Left, row => GetString(row, "path")),
-            new CustomTableColumn("PlaylistSymbols", "PLAYLIST", settings.PlaylistSymbols, 8, nameof(LibraryChartRow.RefTablesSymbols), TextAlignment.Left, row => GetString(row, nameof(LibraryChartRow.RefTablesSymbols)), tooltipSelector: row => GetString(row, nameof(LibraryChartRow.RefTablesNames))),
-            new CustomTableColumn("Clear", "CLEAR", settings.Clear, 9, nameof(LibraryChartRow.ClearDisplayText), TextAlignment.Center, row => GetString(row, nameof(LibraryChartRow.ClearDisplayText)), row => GetClearBrush(row), useBoldText: true),
-            new CustomTableColumn("Rank", "DJ LEVEL", settings.Rank, 10, nameof(LibraryChartRow.RankDisplayText), TextAlignment.Center, row => GetString(row, nameof(LibraryChartRow.RankDisplayText)), row => GetRankBrush(row), useBoldText: true),
-            new CustomTableColumn("Level", "LEVEL", settings.Level, 11, nameof(LibraryChartRow.ChartLevelSortKey), TextAlignment.Right, row => GetString(row, nameof(LibraryChartRow.ChartLevelText))),
-            new CustomTableColumn("ChartDifficulty", "DIFFICULTY", settings.ChartDifficulty, 12, nameof(LibraryChartRow.ChartDifficultySortKey), TextAlignment.Center, row => GetString(row, nameof(LibraryChartRow.ChartDifficultyText)), row => GetDifficultyBrush(row), useBoldText: true),
-            new CustomTableColumn("ChartJudge", "JUDGE", settings.ChartJudge, 13, nameof(LibraryChartRow.ChartJudgeSortKey), TextAlignment.Center, row => GetString(row, nameof(LibraryChartRow.ChartJudgeText)), row => GetJudgeBrush(row), useBoldText: true)
-        };
+        CustomTableColumn[] columns = CreateAllMainColumns(settings);
         return columns
             .Where(column => column.IsVisible)
             .OrderBy(column => column.DisplayIndex >= 0 ? column.DisplayIndex : int.MaxValue)
@@ -142,20 +150,72 @@ internal static class CustomTableColumnFactory
         {
             yield break;
         }
-        yield return settings.Title;
-        yield return settings.Artist;
-        yield return settings.Url1;
-        yield return settings.Url2;
-        yield return settings.Warning;
-        yield return settings.Comment;
-        yield return settings.Memo;
-        yield return settings.Path;
-        yield return settings.PlaylistSymbols;
-        yield return settings.Clear;
-        yield return settings.Rank;
-        yield return settings.Level;
-        yield return settings.ChartDifficulty;
-        yield return settings.ChartJudge;
+        foreach (CustomTableColumn column in CreateAllMainColumns(settings))
+        {
+            if (column.Layout != null)
+            {
+                yield return column.Layout;
+            }
+        }
+    }
+
+    private static CustomTableColumn[] CreateAllMainColumns(dataGridColumnsSettings settings)
+    {
+        return new[]
+        {
+            new CustomTableColumn("Status", "♬", settings.Status, 0, null, TextAlignment.Center, row => GetStatusIconText(row), tooltipSelector: GetStatusTooltip, minWidth: 18, maxWidth: 18, canResize: false, cellKind: CustomTableCellKind.StatusIcon),
+            new CustomTableColumn("EntryLevel", "ENTRY LEVEL", settings.EntryLevel, 1, "EntryLevelSortKey", TextAlignment.Right, row => GetString(row, "Level")),
+            new CustomTableColumn("Title", "TITLE", settings.Title, 2, nameof(LibraryChartRow.Title), TextAlignment.Left, row => GetString(row, nameof(LibraryChartRow.Title))),
+            new CustomTableColumn("Artist", "ARTIST", settings.Artist, 3, nameof(LibraryChartRow.Artist), TextAlignment.Left, row => GetString(row, nameof(LibraryChartRow.Artist)), minWidth: 50),
+            new CustomTableColumn("Genre", "GENRE", settings.Genre, 4, "genre", TextAlignment.Left, row => GetString(row, "genre")),
+            new CustomTableColumn("Mode", "KEYS", settings.Mode, 5, "mode", TextAlignment.Right, row => FormatSuffix(GetValue(row, "mode"), "KEYS", "?KEYS"), maxWidth: 50),
+            new CustomTableColumn("Tag", "TAG", settings.Tag, 6, "tag", TextAlignment.Left, row => GetString(row, "tag")),
+            new CustomTableColumn("Url1", "URL1", settings.Url1, 7, null, TextAlignment.Center, row => ConvertLigatureSymbolText(GetString(row, nameof(PlaylistDetailRow.UrlDownloadIconText))), tooltipSelector: row => GetString(row, nameof(PlaylistDetailRow.UrlToolTipText)), minWidth: 40, maxWidth: 40, canResize: false, cellKind: CustomTableCellKind.DownloadIcon),
+            new CustomTableColumn("Url2", "URL2", settings.Url2, 8, null, TextAlignment.Center, row => ConvertLigatureSymbolText(GetString(row, nameof(PlaylistDetailRow.UrlDiffDownloadIconText))), tooltipSelector: row => GetString(row, nameof(PlaylistDetailRow.UrlDiffToolTipText)), minWidth: 40, maxWidth: 40, canResize: false, cellKind: CustomTableCellKind.DownloadIcon),
+            new CustomTableColumn("Warning", "WARNING", settings.Warning, 9, nameof(LibraryChartRow.DisplayWarning), TextAlignment.Left, row => GetString(row, nameof(LibraryChartRow.DisplayWarning)), tooltipSelector: row => GetString(row, nameof(LibraryChartRow.DisplayWarning))),
+            new CustomTableColumn("Comment", "COMMENT", settings.Comment, 10, null, TextAlignment.Left, row => GetString(row, "comment"), tooltipSelector: row => GetString(row, "comment")),
+            new CustomTableColumn("Memo", "MEMO", settings.Memo, 11, null, TextAlignment.Left, row => GetString(row, "memo"), tooltipSelector: row => GetString(row, "memo")),
+            new CustomTableColumn("Hash", "MD5 HASH", settings.Hash, 12, "hash", TextAlignment.Center, row => GetString(row, "hash"), minWidth: 240, maxWidth: 240),
+            new CustomTableColumn("Sha256", "SHA256 HASH", settings.Sha256, 13, "sha256", TextAlignment.Center, row => GetString(row, "sha256"), maxWidth: 480),
+            new CustomTableColumn("Folder", "FOLDER", settings.Folder, 14, "Folder", TextAlignment.Left, row => GetString(row, "Folder")),
+            new CustomTableColumn("Path", "PATH", settings.Path, 15, "path", TextAlignment.Left, row => GetString(row, "path")),
+            new CustomTableColumn("InstallDst", "INSTL DST", settings.InstallDst, 16, "instl_dst", TextAlignment.Left, row => GetString(row, "instl_dst")),
+            new CustomTableColumn("InstallDstTitle", Resources.Header_InstallDstTitle, settings.InstallDstTitle, 17, "InstallDestinationTitle", TextAlignment.Left, row => GetString(row, "InstallDestinationTitle")),
+            new CustomTableColumn("InstallDstArtist", Resources.Header_InstallDstArtist, settings.InstallDstArtist, 18, "InstallDestinationArtist", TextAlignment.Left, row => GetString(row, "InstallDestinationArtist")),
+            new CustomTableColumn("WavHealth", "WAV", settings.WavHealth, 19, "WAVHealth", TextAlignment.Right, row => FormatSuffix(GetValue(row, "WAVHealth"), "%", string.Empty), maxWidth: 50),
+            new CustomTableColumn("BgaHealth", "BGA", settings.BgaHealth, 20, "BGAHealth", TextAlignment.Right, row => FormatSuffix(GetValue(row, "BGAHealth"), "%", string.Empty), maxWidth: 50),
+            new CustomTableColumn("MovieHealth", "MOVIE", settings.MovieHealth, 21, "MovieHealth", TextAlignment.Right, row => FormatSuffix(GetValue(row, "MovieHealth"), "%", string.Empty), maxWidth: 50),
+            new CustomTableColumn("CharcterEncoding", "ENCODING", settings.CharcterEncoding, 22, "encoding", TextAlignment.Left, row => GetString(row, "encoding"), maxWidth: 130),
+            new CustomTableColumn("PlaylistSymbols", "PLAYLIST", settings.PlaylistSymbols, 23, nameof(LibraryChartRow.RefTablesSymbols), TextAlignment.Left, row => GetString(row, nameof(LibraryChartRow.RefTablesSymbols)), tooltipSelector: row => GetString(row, nameof(LibraryChartRow.RefTablesNames))),
+            new CustomTableColumn("Level", "LEVEL", settings.Level, 24, nameof(LibraryChartRow.ChartLevelSortKey), TextAlignment.Right, row => GetString(row, nameof(LibraryChartRow.ChartLevelText))),
+            new CustomTableColumn("ChartDifficulty", "DIFFICULTY", settings.ChartDifficulty, 25, nameof(LibraryChartRow.ChartDifficultySortKey), TextAlignment.Center, row => GetString(row, nameof(LibraryChartRow.ChartDifficultyText)), row => GetDifficultyBrush(row), useBoldText: true),
+            new CustomTableColumn("ChartMainBpm", "MAINBPM", settings.ChartMainBpm, 26, "ChartMainBpmSortKey", TextAlignment.Right, row => GetString(row, "ChartMainBpmText")),
+            new CustomTableColumn("ChartMaxBpm", "MAXBPM", settings.ChartMaxBpm, 27, "ChartMaxBpmSortKey", TextAlignment.Right, row => GetString(row, "ChartMaxBpmText")),
+            new CustomTableColumn("ChartMinBpm", "MINBPM", settings.ChartMinBpm, 28, "ChartMinBpmSortKey", TextAlignment.Right, row => GetString(row, "ChartMinBpmText")),
+            new CustomTableColumn("ChartDuration", "DURATION", settings.ChartDuration, 29, "ChartDurationSortKey", TextAlignment.Right, row => GetString(row, "ChartDurationText")),
+            new CustomTableColumn("ChartJudge", "JUDGE", settings.ChartJudge, 30, nameof(LibraryChartRow.ChartJudgeSortKey), TextAlignment.Center, row => GetString(row, nameof(LibraryChartRow.ChartJudgeText)), row => GetJudgeBrush(row), useBoldText: true),
+            new CustomTableColumn("ChartJudgePercent", "JUDGE%", settings.ChartJudgePercent, 31, "ChartJudgeSortKey", TextAlignment.Right, row => GetString(row, "ChartJudgePercentText")),
+            new CustomTableColumn("ChartFeature", "FEATURE", settings.ChartFeature, 32, "ChartFeatureSortKey", TextAlignment.Left, row => GetString(row, "ChartFeatureText")),
+            new CustomTableColumn("Notes", "NOTES", settings.Notes, 33, "ChartNotes", TextAlignment.Right, row => GetString(row, "ChartNotes")),
+            new CustomTableColumn("ChartLongNotes", "LONG", settings.ChartLongNotes, 34, "ChartLongNotes", TextAlignment.Right, row => GetString(row, "ChartLongNotes")),
+            new CustomTableColumn("ChartScratchNotes", "SCRATCH", settings.ChartScratchNotes, 35, "ChartScratchNotes", TextAlignment.Right, row => GetString(row, "ChartScratchNotes")),
+            new CustomTableColumn("ChartTotal", "TOTAL", settings.ChartTotal, 36, "ChartTotalSortKey", TextAlignment.Right, row => GetString(row, "ChartTotalText")),
+            new CustomTableColumn("ChartTotalPerNote", "T/N", settings.ChartTotalPerNote, 37, "ChartTotalPerNoteSortKey", TextAlignment.Right, row => GetString(row, "ChartTotalPerNoteText")),
+            new CustomTableColumn("ChartDensity", "DENSITY", settings.ChartDensity, 38, "ChartDensitySortKey", TextAlignment.Right, row => GetString(row, "ChartDensityText")),
+            new CustomTableColumn("ChartPeakDensity", "PEAK", settings.ChartPeakDensity, 39, "ChartPeakDensitySortKey", TextAlignment.Right, row => GetString(row, "ChartPeakDensityText")),
+            new CustomTableColumn("ChartEndDensity", "END", settings.ChartEndDensity, 40, "ChartEndDensitySortKey", TextAlignment.Right, row => GetString(row, "ChartEndDensityText")),
+            new CustomTableColumn("ChartSoflan", "SOFLAN", settings.ChartSoflan, 41, "ChartSoflanCount", TextAlignment.Right, row => GetString(row, "ChartSoflanCount")),
+            new CustomTableColumn("Clear", "CLEAR", settings.Clear, 42, nameof(LibraryChartRow.ClearDisplayText), TextAlignment.Center, row => GetString(row, nameof(LibraryChartRow.ClearDisplayText)), row => GetClearBrush(row), useBoldText: true),
+            new CustomTableColumn("Rank", "DJ LEVEL", settings.Rank, 43, nameof(LibraryChartRow.RankDisplayText), TextAlignment.Center, row => GetString(row, nameof(LibraryChartRow.RankDisplayText)), row => GetRankBrush(row), useBoldText: true),
+            new CustomTableColumn("Rate", "RATE", settings.Rate, 44, "rate", TextAlignment.Right, row => FormatSuffix(GetValue(row, "rate"), "%", string.Empty)),
+            new CustomTableColumn("Score", "SCORE", settings.Score, 45, "score", TextAlignment.Right, row => GetString(row, "score")),
+            new CustomTableColumn("Combo", "COMBO", settings.Combo, 46, "maxcombo", TextAlignment.Right, row => GetString(row, "maxcombo")),
+            new CustomTableColumn("Bp", "BP", settings.Bp, 47, "minbp", TextAlignment.Right, row => GetString(row, "minbp")),
+            new CustomTableColumn("Ranking", "RANKING", settings.Ranking, 48, "rankingString", TextAlignment.Center, row => GetString(row, "rankingString"), minWidth: 95),
+            new CustomTableColumn("RankingLastupdate", "RANK UPDATE", settings.RankingLastupdate, 49, "rankingLastupdate", TextAlignment.Center, row => FormatShortDate(GetValue(row, "rankingLastupdate"))),
+            new CustomTableColumn("TScore", "T-SCORE", settings.TScore, 50, "stddevVal", TextAlignment.Right, row => FormatFixedTwo(GetValue(row, "stddevVal"))),
+            new CustomTableColumn("ScoreDifficulty", "ΔMAX", settings.ScoreDifficulty, 51, "scoreDifficulty", TextAlignment.Right, row => FormatFixedTwo(GetValue(row, "scoreDifficulty")))
+        };
     }
 
     private static string GetString(object row, string propertyName)
@@ -196,6 +256,91 @@ internal static class CustomTableColumnFactory
     internal static string ConvertLigatureSymbolText(string text)
     {
         return string.Equals(text, "download", StringComparison.Ordinal) ? DownloadIconGlyphText : text;
+    }
+
+    internal static string ConvertStatusToIconText(BMSFile.BMSFileStatus status)
+    {
+        return ConvertStatusToIconKind(status).ToString();
+    }
+
+    internal static CustomTableStatusIconKind ConvertStatusToIconKind(BMSFile.BMSFileStatus status)
+    {
+        if (status == BMSFile.BMSFileStatus.NONE)
+        {
+            return CustomTableStatusIconKind.None;
+        }
+        if (status.HasFlag(BMSFile.BMSFileStatus.FORWARD))
+        {
+            return CustomTableStatusIconKind.Forward;
+        }
+        if (status.HasFlag(BMSFile.BMSFileStatus.BACKWARD))
+        {
+            return CustomTableStatusIconKind.Backward;
+        }
+        if (status.HasFlag(BMSFile.BMSFileStatus.PLAY))
+        {
+            return CustomTableStatusIconKind.Play;
+        }
+        if (status.HasFlag(BMSFile.BMSFileStatus.LOADING))
+        {
+            return CustomTableStatusIconKind.Loading;
+        }
+        if (status.HasFlag(BMSFile.BMSFileStatus.PAUSE))
+        {
+            return CustomTableStatusIconKind.Pause;
+        }
+        if (status.HasFlag(BMSFile.BMSFileStatus.SEARCHING))
+        {
+            return CustomTableStatusIconKind.Searching;
+        }
+        if (status.HasFlag(BMSFile.BMSFileStatus.SCORE_UNSENT))
+        {
+            return CustomTableStatusIconKind.ScoreUnsent;
+        }
+        return CustomTableStatusIconKind.None;
+    }
+
+    private static string GetStatusIconText(object row)
+    {
+        return ConvertStatusToIconText(GetStatus(row));
+    }
+
+    private static string GetStatusTooltip(object row)
+    {
+        BMSFile.BMSFileStatus status = GetStatus(row);
+        if (status == BMSFile.BMSFileStatus.NONE)
+        {
+            return null;
+        }
+        if (status.HasFlag(BMSFile.BMSFileStatus.PLAY))
+        {
+            return Resources.Tooltip_play;
+        }
+        if (status.HasFlag(BMSFile.BMSFileStatus.LOADING))
+        {
+            return Resources.Tooltip_loading;
+        }
+        if (status.HasFlag(BMSFile.BMSFileStatus.PAUSE))
+        {
+            return Resources.Tooltip_pause;
+        }
+        if (status.HasFlag(BMSFile.BMSFileStatus.FORWARD))
+        {
+            return Resources.Tooltip_fast_forward;
+        }
+        if (status.HasFlag(BMSFile.BMSFileStatus.BACKWARD))
+        {
+            return Resources.Tooltip_rewind;
+        }
+        if (status.HasFlag(BMSFile.BMSFileStatus.SEARCHING))
+        {
+            return Resources.Tooltip_searching;
+        }
+        if (status.HasFlag(BMSFile.BMSFileStatus.SCORE_UNSENT))
+        {
+            return Resources.Tooltip_score_unsent;
+        }
+        return null;
     }
 
     private static string GetTitle(object row)
@@ -255,8 +400,58 @@ internal static class CustomTableColumnFactory
 
     private static string GetReflectionString(object row, string propertyName)
     {
-        object value = row.GetType().GetProperty(propertyName)?.GetValue(row, null);
-        return value?.ToString() ?? string.Empty;
+        return FormatValue(GetValue(row, propertyName));
+    }
+
+    private static object GetValue(object row, string propertyName)
+    {
+        return row?.GetType().GetProperty(propertyName)?.GetValue(row, null);
+    }
+
+    private static string FormatValue(object value)
+    {
+        return value switch
+        {
+            null => string.Empty,
+            double d => d.ToString(CultureInfo.CurrentCulture),
+            float f => f.ToString(CultureInfo.CurrentCulture),
+            decimal m => m.ToString(CultureInfo.CurrentCulture),
+            IFormattable formattable => formattable.ToString(null, CultureInfo.CurrentCulture),
+            _ => value.ToString()
+        };
+    }
+
+    private static string FormatSuffix(object value, string suffix, string nullValue)
+    {
+        return value == null ? nullValue : FormatValue(value) + suffix;
+    }
+
+    private static string FormatShortDate(object value)
+    {
+        if (value is DateTime dateTime)
+        {
+            return dateTime.ToShortDateString();
+        }
+        return string.Empty;
+    }
+
+    private static string FormatFixedTwo(object value)
+    {
+        return value is IFormattable formattable ? formattable.ToString("F2", CultureInfo.CurrentCulture) : string.Empty;
+    }
+
+    private static BMSFile.BMSFileStatus GetStatus(object row)
+    {
+        if (row is LibraryChartRow libraryRow)
+        {
+            return libraryRow.status;
+        }
+        if (row is PlaylistDetailRow playlistRow)
+        {
+            return playlistRow.status;
+        }
+        object value = GetValue(row, "status");
+        return value is BMSFile.BMSFileStatus status ? status : BMSFile.BMSFileStatus.NONE;
     }
 
     private static Brush GetClearBrush(object row)

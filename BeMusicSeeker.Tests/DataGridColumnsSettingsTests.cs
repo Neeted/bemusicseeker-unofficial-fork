@@ -16,6 +16,7 @@ public sealed class DataGridColumnsSettingsTests
     {
         AssertVisibleColumnOrder(
             new dataGridColumnsSettings(dataGridColumnsSettings.viewType.PLAYLIST),
+            "Status",
             "Folder",
             "Title",
             "Artist",
@@ -50,6 +51,7 @@ public sealed class DataGridColumnsSettingsTests
     {
         AssertVisibleColumnOrder(
             new dataGridColumnsSettings(dataGridColumnsSettings.viewType.STANDARD),
+            "Status",
             "Title",
             "Artist",
             "Genre",
@@ -86,6 +88,7 @@ public sealed class DataGridColumnsSettingsTests
     {
         string[] expected =
         {
+            "Status",
             "PlaylistSymbols",
             "WavHealth",
             "BgaHealth",
@@ -111,6 +114,7 @@ public sealed class DataGridColumnsSettingsTests
     {
         AssertVisibleColumnOrder(
             new dataGridColumnsSettings(dataGridColumnsSettings.viewType.ZERO_NOTE),
+            "Status",
             "Title",
             "Artist",
             "Mode",
@@ -127,6 +131,7 @@ public sealed class DataGridColumnsSettingsTests
     {
         AssertVisibleColumnOrder(
             new dataGridColumnsSettings(dataGridColumnsSettings.viewType.DUPLICATE),
+            "Status",
             "PlaylistSymbols",
             "WavHealth",
             "BgaHealth",
@@ -145,6 +150,7 @@ public sealed class DataGridColumnsSettingsTests
     {
         AssertVisibleColumnOrder(
             new dataGridColumnsSettings(dataGridColumnsSettings.viewType.ENCODING),
+            "Status",
             "CharcterEncoding",
             "Title",
             "Artist",
@@ -178,11 +184,30 @@ public sealed class DataGridColumnsSettingsTests
 
         settings.EnsureChartInfoColumnDefaults(dataGridColumnsSettings.viewType.PLAYLIST);
 
+        Assert.AreEqual(Visibility.Visible, settings.Status.Visibility);
+        Assert.AreEqual(0, settings.Status.DisplayIndex);
+        Assert.AreEqual(18, settings.Status.Width);
         Assert.IsNotNull(settings.ChartDifficulty);
         Assert.AreEqual(Visibility.Visible, settings.EntryLevel.Visibility);
         Assert.AreEqual(77, settings.EntryLevel.DisplayIndex);
         Assert.AreEqual(Visibility.Visible, settings.Level.Visibility);
         Assert.AreEqual(78, settings.Level.DisplayIndex);
+    }
+
+    [TestMethod]
+    public void EnsureChartInfoColumnDefaults_RecreatesMissingStatusLayout()
+    {
+        dataGridColumnsSettings settings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.STANDARD)
+        {
+            Status = null
+        };
+
+        settings.EnsureChartInfoColumnDefaults(dataGridColumnsSettings.viewType.STANDARD);
+
+        Assert.IsNotNull(settings.Status);
+        Assert.AreEqual(Visibility.Visible, settings.Status.Visibility);
+        Assert.AreEqual(0, settings.Status.DisplayIndex);
+        Assert.AreEqual(18, settings.Status.Width);
     }
 
     private static void AssertVisibleColumnOrder(dataGridColumnsSettings settings, params string[] expectedNames)

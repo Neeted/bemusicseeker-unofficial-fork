@@ -304,16 +304,20 @@ Phase 3 完了判断:
 - 最新ログでは `visibleCellCount=882` のプレイリスト詳細で `buildToVisibleRenderMs=168-266ms` 程度、通常ライブラリの描画で `renderWorkMs=216ms` 程度に収まっている。
 - 通常ライブラリの `main_view_build` は描画とは別の一覧生成/ソート側の課題として扱う。
 
-## Phase 3.5: 残り列表示と横スクロール自然化
+## Phase 3.5: 残り列表示、Status 左端固定、横スクロール自然化
 
-目的: 編集に進む前に、表示専用テーブルとして既存 `DataGrid` の主要列を一通り描ける状態へ近づける。
+目的: 編集に進む前に、表示専用テーブルとして既存 `DataGrid` の非ダミー列を一通り描ける状態へ近づける。
 
 実装内容:
 
 - Phase 3 の 14 列以外のメイン一覧列を `CustomTableColumnFactory` に追加する。
+- 対象は `dataGridColumnDummyFill` / `dataGridColumnDummyLast` を除くメイン `DataGrid` の全列とする。
 - 既存 `dataGridColumnsSettings` の幅、表示/非表示、DisplayIndex、sort path を引き続き使う。
 - `GENRE`, `KEYS`, `HASH`, `FOLDER`, `RATE`, `BP`, chart_info 系、health 系など、編集を伴わない列は表示専用として先に対応する。
 - `INSTL DST` など編集予定列も、Phase 3.5 では通常テキスト表示だけに留める。
+- `Status` は初期値 `Visible` / `DisplayIndex=0` / `Width=18` に補正し、表示順の左端固定、幅変更不可、sort 不可にする。
+- `Status` は freeze column ではないため、横スクロール時は通常列と同じく画面外へ流れる。
+- `Status` の表示は LigatureSymbols 依存ではなく、`BMSFileStatus` を軽量なベクターアイコンへ変換して描画する。
 - 横スクロール時の描画を一般的な挙動へ修正する。
   - 列の本来位置は `columnX - HorizontalOffset` のまま負の X も許す。
   - viewport で clip し、左端列の幅が縮んだように見える描画にはしない。
@@ -323,6 +327,7 @@ Phase 3 完了判断:
 完了条件:
 
 - 表示/非表示メニューで有効にした主要列が `CustomTableView` にも表示される。
+- `Status` が初期状態で左端に表示され、幅変更や sort の対象にならない。
 - 横スクロール時に列幅が縮むように見えず、一般的な表と同じ見え方になる。
 - 全列寄りの表示でも初回描画が大きく悪化しない。
 - 編集、URL click、DnD、コピー、列順変更保存は引き続き Phase 4/5 に残す。
@@ -344,6 +349,10 @@ Phase 3 完了判断:
 
 実装内容:
 
+- Phase 3.5 時点のログ整理を先に行う。
+  - `viewCount > 0` なのに `rowCount=0` / `visibleCellCount=0` の `custom_onrender` は、空の準備描画として扱い `playlist_open_visible completed` の対象にしない。
+  - `table_first_visible` は必要なら空描画ログとして残すが、本描画と区別できる field を追加する。
+  - 表示完了判定は、`CustomTableView` に実データ行が反映され、`visibleRowCount > 0` または `viewCount == 0` が確定した描画 checkpoint に寄せる。
 - `BeginEdit(rowIndex, columnId)` でセル矩形に `TextBox` を重ねる。
 - Enter/Tab/フォーカス喪失で commit、Escape で cancel。
 - URL 編集中の列幅一時拡大は、列そのものではなく overlay 幅を広げる。

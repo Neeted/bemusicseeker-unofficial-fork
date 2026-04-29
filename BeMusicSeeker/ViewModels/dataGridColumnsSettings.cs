@@ -1035,6 +1035,7 @@ public class dataGridColumnsSettings : NotificationObject
         {
             case viewType.STANDARD:
                 ApplyVisibleColumnOrder(
+                    Status,
                     Title,
                     Artist,
                     Genre,
@@ -1067,6 +1068,7 @@ public class dataGridColumnsSettings : NotificationObject
                 break;
             case viewType.ZERO_NOTE:
                 ApplyVisibleColumnOrder(
+                    Status,
                     Title,
                     Artist,
                     Mode,
@@ -1080,6 +1082,7 @@ public class dataGridColumnsSettings : NotificationObject
             case viewType.PLAYLIST:
                 {
                     ApplyVisibleColumnOrder(
+                        Status,
                         Folder,
                         Title,
                         Artist,
@@ -1117,6 +1120,7 @@ public class dataGridColumnsSettings : NotificationObject
                 }
             case viewType.DUPLICATE:
                 ApplyVisibleColumnOrder(
+                    Status,
                     PlaylistSymbols,
                     WavHealth,
                     BgaHealth,
@@ -1131,6 +1135,7 @@ public class dataGridColumnsSettings : NotificationObject
                 break;
             case viewType.ENCODING:
                 ApplyVisibleColumnOrder(
+                    Status,
                     CharcterEncoding,
                     Title,
                     Artist,
@@ -1209,6 +1214,7 @@ public class dataGridColumnsSettings : NotificationObject
     private void ApplyInstallAndFullScanDefaults()
     {
         ApplyVisibleColumnOrder(
+            Status,
             PlaylistSymbols,
             WavHealth,
             BgaHealth,
@@ -1256,6 +1262,7 @@ public class dataGridColumnsSettings : NotificationObject
 
     public void EnsureChartInfoColumnDefaults(viewType type)
     {
+        EnsureStatusColumnDefaults();
         _ = EntryLevel;
         _ = ChartDifficulty;
         _ = ChartMainBpm;
@@ -1282,5 +1289,16 @@ public class dataGridColumnsSettings : NotificationObject
             Width = width,
             Visibility = Visibility.Hidden
         };
+    }
+
+    private void EnsureStatusColumnDefaults()
+    {
+        if (_Status == null)
+        {
+            Status = new dataGridColumnlayouts();
+        }
+        Status.Width = 18;
+        Status.Visibility = Visibility.Visible;
+        Status.DisplayIndex = 0;
     }
 }
