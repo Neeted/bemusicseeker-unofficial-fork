@@ -48,7 +48,11 @@ public sealed class CustomTableColumn
         bool canResize = true,
         CustomTableCellKind cellKind = CustomTableCellKind.Text,
         string editPropertyName = null,
-        bool editTextWrapping = false)
+        bool editTextWrapping = false,
+        bool editOnRepeatClick = true,
+        int? editOverlayWidth = null,
+        Func<object, string> editTextSelector = null,
+        Func<object, IEnumerable<string>> editSuggestionsSelector = null)
     {
         Id = id;
         Header = header;
@@ -66,6 +70,10 @@ public sealed class CustomTableColumn
         CellKind = cellKind;
         EditPropertyName = editPropertyName;
         EditTextWrapping = editTextWrapping;
+        EditOnRepeatClick = editOnRepeatClick;
+        EditOverlayWidth = editOverlayWidth;
+        EditTextSelector = editTextSelector;
+        EditSuggestionsSelector = editSuggestionsSelector;
     }
 
     public string Id { get; }
@@ -96,6 +104,10 @@ public sealed class CustomTableColumn
 
     public bool EditTextWrapping { get; }
 
+    public bool EditOnRepeatClick { get; }
+
+    public int? EditOverlayWidth { get; }
+
     public int DisplayIndex => Layout?.DisplayIndex ?? -1;
 
     public int Width => ClampWidth(Layout?.Width ?? 50);
@@ -108,6 +120,10 @@ public sealed class CustomTableColumn
 
     internal Func<object, string> TooltipSelector { get; }
 
+    internal Func<object, string> EditTextSelector { get; }
+
+    internal Func<object, IEnumerable<string>> EditSuggestionsSelector { get; }
+
     internal string GetText(object row)
     {
         return TextSelector == null ? string.Empty : TextSelector(row) ?? string.Empty;
@@ -119,9 +135,21 @@ public sealed class CustomTableColumn
         return string.IsNullOrWhiteSpace(tooltip) ? null : tooltip;
     }
 
+    internal string GetEditText(object row)
+    {
+        return EditTextSelector == null ? GetText(row) : EditTextSelector(row) ?? string.Empty;
+    }
+
     internal Brush GetForeground(object row)
     {
         return ForegroundSelector == null ? CustomTableScoreBrushProvider.DefaultForeground : ForegroundSelector(row) ?? CustomTableScoreBrushProvider.DefaultForeground;
+    }
+
+    internal IReadOnlyList<string> GetEditSuggestions(object row)
+    {
+        return EditSuggestionsSelector == null
+            ? Array.Empty<string>()
+            : EditSuggestionsSelector(row)?.Where(item => !string.IsNullOrWhiteSpace(item)).ToArray() ?? Array.Empty<string>();
     }
 
     internal int ClampWidth(double width)
@@ -178,16 +206,16 @@ internal static class CustomTableColumnFactory
             new CustomTableColumn("Genre", "GENRE", settings.Genre, 4, "genre", TextAlignment.Left, row => GetString(row, "genre")),
             new CustomTableColumn("Mode", "KEYS", settings.Mode, 5, "mode", TextAlignment.Right, row => FormatSuffix(GetValue(row, "mode"), "KEYS", "?KEYS"), maxWidth: 50),
             new CustomTableColumn("Tag", "TAG", settings.Tag, 6, "tag", TextAlignment.Left, row => GetString(row, "tag")),
-            new CustomTableColumn("Url1", "URL1", settings.Url1, 7, null, TextAlignment.Center, row => ConvertLigatureSymbolText(GetString(row, nameof(PlaylistDetailRow.UrlDownloadIconText))), tooltipSelector: row => GetString(row, nameof(PlaylistDetailRow.UrlToolTipText)), minWidth: 40, maxWidth: 40, canResize: false, cellKind: CustomTableCellKind.DownloadIcon),
-            new CustomTableColumn("Url2", "URL2", settings.Url2, 8, null, TextAlignment.Center, row => ConvertLigatureSymbolText(GetString(row, nameof(PlaylistDetailRow.UrlDiffDownloadIconText))), tooltipSelector: row => GetString(row, nameof(PlaylistDetailRow.UrlDiffToolTipText)), minWidth: 40, maxWidth: 40, canResize: false, cellKind: CustomTableCellKind.DownloadIcon),
+            new CustomTableColumn("Url1", "URL1", settings.Url1, 7, null, TextAlignment.Center, row => ConvertLigatureSymbolText(GetString(row, nameof(PlaylistDetailRow.UrlDownloadIconText))), tooltipSelector: row => GetString(row, nameof(PlaylistDetailRow.UrlToolTipText)), minWidth: 40, maxWidth: 40, canResize: false, cellKind: CustomTableCellKind.DownloadIcon, editPropertyName: nameof(PlaylistDetailRow.Url), editOnRepeatClick: false, editOverlayWidth: 250, editTextSelector: row => GridRowResolver.GetUrl(row)?.ToString()),
+            new CustomTableColumn("Url2", "URL2", settings.Url2, 8, null, TextAlignment.Center, row => ConvertLigatureSymbolText(GetString(row, nameof(PlaylistDetailRow.UrlDiffDownloadIconText))), tooltipSelector: row => GetString(row, nameof(PlaylistDetailRow.UrlDiffToolTipText)), minWidth: 40, maxWidth: 40, canResize: false, cellKind: CustomTableCellKind.DownloadIcon, editPropertyName: nameof(PlaylistDetailRow.Url_diff), editOnRepeatClick: false, editOverlayWidth: 250, editTextSelector: row => GridRowResolver.GetUrlDiff(row)?.ToString()),
             new CustomTableColumn("Warning", "WARNING", settings.Warning, 9, nameof(LibraryChartRow.DisplayWarning), TextAlignment.Left, row => GetString(row, nameof(LibraryChartRow.DisplayWarning)), tooltipSelector: row => GetString(row, nameof(LibraryChartRow.DisplayWarning))),
             new CustomTableColumn("Comment", "COMMENT", settings.Comment, 10, null, TextAlignment.Left, row => GetString(row, "comment"), tooltipSelector: row => GetString(row, "comment"), editPropertyName: "comment", editTextWrapping: true),
             new CustomTableColumn("Memo", "MEMO", settings.Memo, 11, null, TextAlignment.Left, row => GetString(row, "memo"), tooltipSelector: row => GetString(row, "memo"), editPropertyName: "memo", editTextWrapping: true),
             new CustomTableColumn("Hash", "MD5 HASH", settings.Hash, 12, "hash", TextAlignment.Center, row => GetString(row, "hash"), minWidth: 240, maxWidth: 240),
             new CustomTableColumn("Sha256", "SHA256 HASH", settings.Sha256, 13, "sha256", TextAlignment.Center, row => GetString(row, "sha256"), maxWidth: 480),
-            new CustomTableColumn("Folder", "FOLDER", settings.Folder, 14, "Folder", TextAlignment.Left, row => GetString(row, "Folder")),
+            new CustomTableColumn("Folder", "FOLDER", settings.Folder, 14, "Folder", TextAlignment.Left, row => GetString(row, "Folder"), editPropertyName: "Folder"),
             new CustomTableColumn("Path", "PATH", settings.Path, 15, "path", TextAlignment.Left, row => GetString(row, "path")),
-            new CustomTableColumn("InstallDst", "INSTL DST", settings.InstallDst, 16, "instl_dst", TextAlignment.Left, row => GetString(row, "instl_dst")),
+            new CustomTableColumn("InstallDst", "INSTL DST", settings.InstallDst, 16, "instl_dst", TextAlignment.Left, row => GetString(row, "instl_dst"), editPropertyName: "instl_dst", editSuggestionsSelector: GetInstallDestinationSuggestions),
             new CustomTableColumn("InstallDstTitle", Resources.Header_InstallDstTitle, settings.InstallDstTitle, 17, "InstallDestinationTitle", TextAlignment.Left, row => GetString(row, "InstallDestinationTitle")),
             new CustomTableColumn("InstallDstArtist", Resources.Header_InstallDstArtist, settings.InstallDstArtist, 18, "InstallDestinationArtist", TextAlignment.Left, row => GetString(row, "InstallDestinationArtist")),
             new CustomTableColumn("WavHealth", "WAV", settings.WavHealth, 19, "WAVHealth", TextAlignment.Right, row => FormatSuffix(GetValue(row, "WAVHealth"), "%", string.Empty), maxWidth: 50),
@@ -259,6 +287,11 @@ internal static class CustomTableColumnFactory
             default:
                 return GetReflectionString(row, propertyName);
         }
+    }
+
+    private static IEnumerable<string> GetInstallDestinationSuggestions(object row)
+    {
+        return GridRowResolver.GetOperationBmsFile(row)?.InstallDestinationSuggestions;
     }
 
     internal static string ConvertLigatureSymbolText(string text)

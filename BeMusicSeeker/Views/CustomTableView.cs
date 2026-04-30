@@ -105,6 +105,8 @@ public sealed class CustomTableView : Grid
     private readonly ScrollBar verticalScrollBar;
     private readonly ScrollBar horizontalScrollBar;
     private readonly ToolTip cellToolTip;
+    private readonly Popup editSuggestionPopup;
+    private readonly ListBox editSuggestionListBox;
     private readonly CustomTableSelectionModel selectionModel = new CustomTableSelectionModel();
     private readonly List<INotifyPropertyChanged> subscribedColumnLayouts = new List<INotifyPropertyChanged>();
     private INotifyCollectionChanged itemsCollectionChanged;
@@ -123,6 +125,7 @@ public sealed class CustomTableView : Grid
     private CustomTableHitTestResult activeEditHit;
     private TextBox activeEditor;
     private bool completingEdit;
+    private bool completingSuggestionSelection;
     private bool preparationRenderLogged;
 
     public CustomTableView()
@@ -152,6 +155,25 @@ public sealed class CustomTableView : Grid
         {
             PlacementTarget = this,
             Placement = PlacementMode.MousePoint
+        };
+        editSuggestionListBox = new ListBox
+        {
+            BorderThickness = new Thickness(0d),
+            Padding = new Thickness(0d)
+        };
+        editSuggestionPopup = new Popup
+        {
+            Placement = PlacementMode.Bottom,
+            StaysOpen = true,
+            AllowsTransparency = true,
+            Child = new Border
+            {
+                Background = Brushes.White,
+                BorderBrush = new SolidColorBrush(Color.FromRgb(0x82, 0x87, 0x90)),
+                BorderThickness = new Thickness(1d),
+                MaxWidth = 600d,
+                Child = editSuggestionListBox
+            }
         };
         editorLayer = new Canvas
         {
@@ -183,6 +205,8 @@ public sealed class CustomTableView : Grid
         PreviewMouseWheel += CustomTableViewPreviewMouseWheel;
         PreviewKeyDown += CustomTableViewPreviewKeyDown;
         PreviewTextInput += CustomTableViewPreviewTextInput;
+        editSuggestionListBox.PreviewMouseLeftButtonDown += EditSuggestionListBoxPreviewMouseLeftButtonDown;
+        editSuggestionListBox.PreviewKeyDown += EditSuggestionListBoxPreviewKeyDown;
         MouseLeave += delegate
         {
             CloseCellToolTip();
@@ -221,6 +245,8 @@ public sealed class CustomTableView : Grid
     public event EventHandler<CustomTableHeaderRequestedEventArgs> HeaderContextMenuRequested;
 
     public event EventHandler<CustomTableCellEditBeginningEventArgs> CellEditBeginning;
+
+    public event EventHandler<CustomTableCellActionRequestedEventArgs> CellActionRequested;
 
     public event EventHandler<CustomTableCellEditEndedEventArgs> CellEditEnded;
 
@@ -513,6 +539,11 @@ public sealed class CustomTableView : Grid
         }
     }
 
+    public void RefreshDisplay()
+    {
+        surface.InvalidateVisual();
+    }
+
     internal CustomTableHitTestResult HitTestTable(Point surfacePoint)
     {
         IReadOnlyList<CustomTableColumn> columns = VisibleColumns;
@@ -551,7 +582,7 @@ public sealed class CustomTableView : Grid
 
     private void CustomTableViewPreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
-        if (IsDescendantOfActiveEditor(e.OriginalSource as DependencyObject))
+        if (IsDescendantOfActiveEditControl(e.OriginalSource as DependencyObject))
         {
             return;
         }
@@ -587,6 +618,15 @@ public sealed class CustomTableView : Grid
             {
                 RaiseSelectionChanged();
             }
+            if (e.ClickCount == 1
+                && hit.Column?.CellKind == CustomTableCellKind.DownloadIcon
+                && !string.IsNullOrWhiteSpace(hit.Column.GetText(hit.Row))
+                && (Keyboard.Modifiers & (ModifierKeys.Control | ModifierKeys.Shift | ModifierKeys.Alt)) == ModifierKeys.None)
+            {
+                CellActionRequested?.Invoke(this, new CustomTableCellActionRequestedEventArgs(hit));
+                e.Handled = true;
+                return;
+            }
             if (shouldBeginEditOnRepeatClick && BeginCellEdit(hit, null))
             {
                 e.Handled = true;
@@ -610,7 +650,7 @@ public sealed class CustomTableView : Grid
 
     private void CustomTableViewPreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)
     {
-        if (IsDescendantOfActiveEditor(e.OriginalSource as DependencyObject))
+        if (IsDescendantOfActiveEditControl(e.OriginalSource as DependencyObject))
         {
             return;
         }
@@ -693,10 +733,21 @@ public sealed class CustomTableView : Grid
             switch (e.Key)
             {
                 case Key.Escape:
+                    if (editSuggestionPopup.IsOpen)
+                    {
+                        CloseEditSuggestions();
+                        e.Handled = true;
+                        return;
+                    }
                     CancelActiveEdit();
                     e.Handled = true;
                     return;
                 case Key.Return:
+                    if (CommitSelectedEditSuggestion())
+                    {
+                        e.Handled = true;
+                        return;
+                    }
                     CommitActiveEdit();
                     e.Handled = true;
                     return;
@@ -705,6 +756,20 @@ public sealed class CustomTableView : Grid
                     e.Handled = true;
                     MoveFocus(new TraversalRequest(FocusNavigationDirection.Next));
                     return;
+                case Key.Down:
+                    if (MoveEditSuggestionSelection(1))
+                    {
+                        e.Handled = true;
+                        return;
+                    }
+                    break;
+                case Key.Up:
+                    if (MoveEditSuggestionSelection(-1))
+                    {
+                        e.Handled = true;
+                        return;
+                    }
+                    break;
             }
         }
         switch (e.Key)
@@ -764,6 +829,7 @@ public sealed class CustomTableView : Grid
             && next?.Kind == CustomTableHitKind.Cell
             && current.RowIndex == next.RowIndex
             && string.Equals(current.Column?.Id, next.Column?.Id, StringComparison.Ordinal)
+            && next.Column.EditOnRepeatClick
             && !string.IsNullOrWhiteSpace(next.Column?.EditPropertyName);
     }
 
@@ -833,10 +899,11 @@ public sealed class CustomTableView : Grid
         {
             return false;
         }
+        Rect editorRect = CreateEditorRect(hit.Column, rect);
         TextBox textBox = new TextBox
         {
-            Text = replacementText ?? hit.Column.GetText(hit.Row),
-            TextAlignment = hit.Column.Alignment,
+            Text = replacementText ?? hit.Column.GetEditText(hit.Row),
+            TextAlignment = hit.Column.CellKind == CustomTableCellKind.DownloadIcon ? TextAlignment.Left : hit.Column.Alignment,
             TextWrapping = hit.Column.EditTextWrapping ? TextWrapping.Wrap : TextWrapping.NoWrap,
             AcceptsReturn = false,
             BorderThickness = new Thickness(1d),
@@ -847,13 +914,14 @@ public sealed class CustomTableView : Grid
             DataContext = hit.Row
         };
         textBox.LostKeyboardFocus += ActiveEditorLostKeyboardFocus;
-        Canvas.SetLeft(textBox, rect.Left);
-        Canvas.SetTop(textBox, rect.Top);
-        textBox.Width = rect.Width;
-        textBox.Height = rect.Height;
+        Canvas.SetLeft(textBox, editorRect.Left);
+        Canvas.SetTop(textBox, editorRect.Top);
+        textBox.Width = editorRect.Width;
+        textBox.Height = editorRect.Height;
         activeEditHit = hit;
         activeEditor = textBox;
         editorLayer.Children.Add(textBox);
+        UpdateEditSuggestions();
         textBox.Focus();
         if (replacementText == null)
         {
@@ -866,9 +934,16 @@ public sealed class CustomTableView : Grid
         return true;
     }
 
+    private Rect CreateEditorRect(CustomTableColumn column, Rect cellRect)
+    {
+        double width = column?.EditOverlayWidth.HasValue == true ? Math.Max(cellRect.Width, column.EditOverlayWidth.Value) : cellRect.Width;
+        width = Math.Min(width, Math.Max(cellRect.Width, surface.ActualWidth - cellRect.Left));
+        return new Rect(cellRect.Left, cellRect.Top, width, cellRect.Height);
+    }
+
     private void ActiveEditorLostKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)
     {
-        if (!completingEdit && activeEditor != null && !activeEditor.IsKeyboardFocusWithin)
+        if (!completingEdit && !completingSuggestionSelection && activeEditor != null && !activeEditor.IsKeyboardFocusWithin && !editSuggestionListBox.IsKeyboardFocusWithin)
         {
             CommitActiveEdit();
         }
@@ -896,6 +971,7 @@ public sealed class CustomTableView : Grid
             TextBox editor = activeEditor;
             CustomTableHitTestResult hit = activeEditHit;
             string text = editor.Text ?? string.Empty;
+            CloseEditSuggestions();
             editor.LostKeyboardFocus -= ActiveEditorLostKeyboardFocus;
             editorLayer.Children.Remove(editor);
             activeEditor = null;
@@ -911,6 +987,112 @@ public sealed class CustomTableView : Grid
         {
             completingEdit = false;
         }
+    }
+
+    private void UpdateEditSuggestions()
+    {
+        IReadOnlyList<string> suggestions = activeEditHit?.Column?.GetEditSuggestions(activeEditHit.Row) ?? Array.Empty<string>();
+        editSuggestionListBox.ItemsSource = suggestions;
+        editSuggestionListBox.SelectedIndex = suggestions.Count > 0 ? 0 : -1;
+        if (activeEditor == null || suggestions.Count == 0)
+        {
+            CloseEditSuggestions();
+            return;
+        }
+        editSuggestionPopup.PlacementTarget = activeEditor;
+        if (editSuggestionPopup.Child is Border border)
+        {
+            border.MinWidth = activeEditor.Width;
+        }
+        editSuggestionPopup.IsOpen = true;
+    }
+
+    private void CloseEditSuggestions()
+    {
+        if (editSuggestionPopup.IsOpen)
+        {
+            editSuggestionPopup.IsOpen = false;
+        }
+        editSuggestionListBox.ItemsSource = null;
+        editSuggestionListBox.SelectedIndex = -1;
+    }
+
+    private bool MoveEditSuggestionSelection(int delta)
+    {
+        if (activeEditor == null || editSuggestionListBox.Items.Count == 0)
+        {
+            return false;
+        }
+        if (!editSuggestionPopup.IsOpen)
+        {
+            editSuggestionPopup.IsOpen = true;
+        }
+        int nextIndex = editSuggestionListBox.SelectedIndex < 0 ? 0 : editSuggestionListBox.SelectedIndex + delta;
+        nextIndex = Math.Max(0, Math.Min(editSuggestionListBox.Items.Count - 1, nextIndex));
+        editSuggestionListBox.SelectedIndex = nextIndex;
+        editSuggestionListBox.ScrollIntoView(editSuggestionListBox.SelectedItem);
+        return true;
+    }
+
+    private bool CommitSelectedEditSuggestion()
+    {
+        if (!editSuggestionPopup.IsOpen || activeEditor == null || editSuggestionListBox.SelectedItem is not string selectedSuggestion || string.IsNullOrWhiteSpace(selectedSuggestion))
+        {
+            return false;
+        }
+        completingSuggestionSelection = true;
+        try
+        {
+            activeEditor.Text = selectedSuggestion;
+            activeEditor.CaretIndex = activeEditor.Text.Length;
+            CommitActiveEdit();
+            return true;
+        }
+        finally
+        {
+            completingSuggestionSelection = false;
+        }
+    }
+
+    private void EditSuggestionListBoxPreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        DependencyObject source = e.OriginalSource as DependencyObject;
+        ListBoxItem item = source == null ? null : FindVisualParent<ListBoxItem>(source);
+        if (item != null)
+        {
+            editSuggestionListBox.SelectedItem = item.DataContext;
+            if (CommitSelectedEditSuggestion())
+            {
+                e.Handled = true;
+            }
+        }
+    }
+
+    private void EditSuggestionListBoxPreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Return)
+        {
+            e.Handled = CommitSelectedEditSuggestion();
+        }
+        else if (e.Key == Key.Escape)
+        {
+            CloseEditSuggestions();
+            activeEditor?.Focus();
+            e.Handled = true;
+        }
+    }
+
+    private static T FindVisualParent<T>(DependencyObject source) where T : DependencyObject
+    {
+        while (source != null)
+        {
+            if (source is T typed)
+            {
+                return typed;
+            }
+            source = VisualTreeHelper.GetParent(source);
+        }
+        return null;
     }
 
     private bool TryCreateCellHit(int rowIndex, string columnId, out CustomTableHitTestResult hit)
@@ -952,15 +1134,15 @@ public sealed class CustomTableView : Grid
         return false;
     }
 
-    private bool IsDescendantOfActiveEditor(DependencyObject source)
+    private bool IsDescendantOfActiveEditControl(DependencyObject source)
     {
-        if (activeEditor == null)
+        if (activeEditor == null && editSuggestionPopup.IsOpen == false)
         {
             return false;
         }
         while (source != null)
         {
-            if (ReferenceEquals(source, activeEditor))
+            if (ReferenceEquals(source, activeEditor) || ReferenceEquals(source, editSuggestionListBox))
             {
                 return true;
             }

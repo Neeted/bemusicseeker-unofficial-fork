@@ -1213,17 +1213,55 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             e.Cancel = true;
             return;
         }
-        if (!(base.DataContext is MainWindowViewModel viewModel) || !(e.Row is PlaylistDetailRow) || string.IsNullOrWhiteSpace(e.EditPropertyName))
+        if (!(base.DataContext is MainWindowViewModel viewModel) || string.IsNullOrWhiteSpace(e.EditPropertyName))
         {
             e.Cancel = true;
             return;
         }
-        if (!GridRowResolver.CanEditPlaylistCell(e.Row, e.EditPropertyName))
+        if (e.Row is PlaylistDetailRow)
+        {
+            if (!IsCustomTablePlaylistEditableProperty(e.EditPropertyName) || !GridRowResolver.CanEditPlaylistCell(e.Row, e.EditPropertyName))
+            {
+                e.Cancel = true;
+                return;
+            }
+            viewModel.NotifyPlaylistCellEditStarted();
+            return;
+        }
+        BMSFile bmsFile = GridRowResolver.GetOperationBmsFile(e.Row);
+        if (bmsFile == null)
         {
             e.Cancel = true;
             return;
         }
-        viewModel.NotifyPlaylistCellEditStarted();
+        if (string.Equals(e.EditPropertyName, bmsFile.GetName((BMSFile f) => f.Folder), StringComparison.Ordinal))
+        {
+            e.Cancel = _currentTreeSelectionSection == TreeSelectionSection.InstallPending;
+            return;
+        }
+        if (string.Equals(e.EditPropertyName, bmsFile.GetName((BMSFile f) => f.instl_dst), StringComparison.Ordinal))
+        {
+            if (!CanEditInstallDestinationInCurrentSection())
+            {
+                e.Cancel = true;
+                return;
+            }
+            _pendingInstallDestinationEditStates[bmsFile] = CapturePendingInstallDestinationEditState(bmsFile);
+            bmsFile.IsInstallDestinationSuggestionPopupOpen = bmsFile.HasInstallDestinationSuggestions;
+            return;
+        }
+        e.Cancel = true;
+    }
+
+    private async void customTableView_CellActionRequested(object sender, CustomTableCellActionRequestedEventArgs e)
+    {
+        bool isUrlDiff = string.Equals(e.Column?.Id, "Url2", StringComparison.Ordinal);
+        bool isUrl = isUrlDiff || string.Equals(e.Column?.Id, "Url1", StringComparison.Ordinal);
+        if (!isUrl)
+        {
+            return;
+        }
+        await OpenUrlFromRowAsync(e.Row, isUrlDiff, isUrlDiff ? "custom_table_open_url_diff" : "custom_table_open_url");
     }
 
     private void customTableView_CellEditEnded(object sender, CustomTableCellEditEndedEventArgs e)
@@ -1234,38 +1272,146 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         try
         {
-            if (!e.Commit || !(e.Row is PlaylistDetailRow playlistRow) || string.IsNullOrWhiteSpace(e.EditPropertyName))
+            if (string.IsNullOrWhiteSpace(e.EditPropertyName))
             {
                 return;
             }
-            if (!GridRowResolver.CanEditPlaylistCell(e.Row, e.EditPropertyName))
+            if (e.Row is PlaylistDetailRow playlistRow)
             {
-                return;
-            }
-            switch (e.EditPropertyName)
-            {
-                case nameof(PlaylistDetailRow.Level):
-                    playlistRow.Level = e.Text;
-                    break;
-                case nameof(PlaylistDetailRow.comment):
-                    playlistRow.comment = e.Text;
-                    break;
-                case nameof(PlaylistDetailRow.memo):
-                    playlistRow.memo = e.Text;
-                    break;
-                default:
+                if (!e.Commit || !IsCustomTablePlaylistEditableProperty(e.EditPropertyName) || !GridRowResolver.CanEditPlaylistCell(e.Row, e.EditPropertyName))
+                {
                     return;
+                }
+                switch (e.EditPropertyName)
+                {
+                    case nameof(PlaylistDetailRow.Level):
+                        playlistRow.Level = e.Text;
+                        break;
+                    case nameof(PlaylistDetailRow.Url):
+                        if (!Uri.TryCreate(e.Text, UriKind.Absolute, out Uri url))
+                        {
+                            return;
+                        }
+                        playlistRow.Url = url;
+                        break;
+                    case nameof(PlaylistDetailRow.Url_diff):
+                        if (!Uri.TryCreate(e.Text, UriKind.Absolute, out Uri urlDiff))
+                        {
+                            return;
+                        }
+                        playlistRow.Url_diff = urlDiff;
+                        break;
+                    case nameof(PlaylistDetailRow.comment):
+                        playlistRow.comment = e.Text;
+                        break;
+                    case nameof(PlaylistDetailRow.memo):
+                        playlistRow.memo = e.Text;
+                        break;
+                    default:
+                        return;
+                }
+                viewModel.SyncPlaylistSourceRowFromEditedViewRow(playlistRow);
+                Task.Run(delegate
+                {
+                    viewModel.CommitPlaylistRow(playlistRow);
+                }).Logging("customTableView_CellEditEnded");
+                return;
             }
-            viewModel.SyncPlaylistSourceRowFromEditedViewRow(playlistRow);
-            Task.Run(delegate
+            BMSFile bmsFile = GridRowResolver.GetOperationBmsFile(e.Row);
+            if (bmsFile == null)
             {
-                viewModel.CommitPlaylistRow(playlistRow);
-            }).Logging("customTableView_CellEditEnded");
+                return;
+            }
+            if (string.Equals(e.EditPropertyName, bmsFile.GetName((BMSFile f) => f.Folder), StringComparison.Ordinal))
+            {
+                if (!e.Commit || _currentTreeSelectionSection == TreeSelectionSection.InstallPending)
+                {
+                    return;
+                }
+                string newFolder = e.Text;
+                Task.Run(delegate
+                {
+                    try
+                    {
+                        viewModel.RenameBMSFolder(bmsFile, newFolder);
+                    }
+                    finally
+                    {
+                        RefreshCustomTableViewDisplayAsync();
+                    }
+                }).Logging("customTableView_CellEditEnded");
+                return;
+            }
+            if (string.Equals(e.EditPropertyName, bmsFile.GetName((BMSFile f) => f.instl_dst), StringComparison.Ordinal))
+            {
+                bmsFile.IsInstallDestinationSuggestionPopupOpen = false;
+                if (!e.Commit)
+                {
+                    ClearPendingInstallDestinationEditState(bmsFile);
+                    return;
+                }
+                if (!CanEditInstallDestinationInCurrentSection())
+                {
+                    return;
+                }
+                string destinationDirectory = e.Text;
+                PendingInstallDestinationEditState originalState = CaptureOrGetPendingInstallDestinationEditState(bmsFile);
+                bmsFile.instl_dst = destinationDirectory;
+                Task.Run(delegate
+                {
+                    bool succeeded = viewModel.SetPendingInstallDestination(bmsFile, destinationDirectory);
+                    base.Dispatcher.BeginInvoke((Action)delegate
+                    {
+                        if (_isClosingOrClosed)
+                        {
+                            return;
+                        }
+                        if (!succeeded)
+                        {
+                            RestorePendingInstallDestinationEditState(bmsFile, originalState);
+                        }
+                        else
+                        {
+                            ClearPendingInstallDestinationEditState(bmsFile);
+                        }
+                        RefreshCustomTableViewDisplay();
+                    }, DispatcherPriority.Background);
+                }).Logging("customTableView_CellEditEnded");
+            }
         }
         finally
         {
-            viewModel.NotifyPlaylistCellEditCompleted();
+            if (e.Row is PlaylistDetailRow)
+            {
+                viewModel.NotifyPlaylistCellEditCompleted();
+            }
         }
+    }
+
+    private static bool IsCustomTablePlaylistEditableProperty(string propertyName)
+    {
+        return string.Equals(propertyName, nameof(PlaylistDetailRow.Level), StringComparison.Ordinal)
+            || string.Equals(propertyName, nameof(PlaylistDetailRow.Url), StringComparison.Ordinal)
+            || string.Equals(propertyName, nameof(PlaylistDetailRow.Url_diff), StringComparison.Ordinal)
+            || string.Equals(propertyName, nameof(PlaylistDetailRow.comment), StringComparison.Ordinal)
+            || string.Equals(propertyName, nameof(PlaylistDetailRow.memo), StringComparison.Ordinal);
+    }
+
+    private void RefreshCustomTableViewDisplayAsync()
+    {
+        base.Dispatcher.BeginInvoke((Action)delegate
+        {
+            RefreshCustomTableViewDisplay();
+        }, DispatcherPriority.Background);
+    }
+
+    private void RefreshCustomTableViewDisplay()
+    {
+        if (_isClosingOrClosed || customTableView == null)
+        {
+            return;
+        }
+        customTableView.RefreshDisplay();
     }
 
     private void RememberMainDataGridTargetUpdated(DataGrid targetDataGrid)
@@ -3197,16 +3343,33 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private async void dataGridCellOpenURLClick(object sender, MouseButtonEventArgs e)
     {
-        if (ShouldBlockStartupUiInteraction("datagrid_cell_open_url"))
-        {
-            e.Handled = true;
-            return;
-        }
         if (!(sender is TextBlock textBlock))
         {
             return;
         }
-        Uri url = GridRowResolver.GetUrl(textBlock.DataContext);
+        await OpenUrlFromRowAsync(textBlock.DataContext, isDiffUrl: false, blockReason: "datagrid_cell_open_url", e);
+    }
+
+    private async void dataGridCellOpenURLDiffClick(object sender, MouseButtonEventArgs e)
+    {
+        if (!(sender is TextBlock textBlock))
+        {
+            return;
+        }
+        await OpenUrlFromRowAsync(textBlock.DataContext, isDiffUrl: true, blockReason: "datagrid_cell_open_url_diff", e);
+    }
+
+    private async Task OpenUrlFromRowAsync(object row, bool isDiffUrl, string blockReason, MouseButtonEventArgs mouseEventArgs = null)
+    {
+        if (ShouldBlockStartupUiInteraction(blockReason))
+        {
+            if (mouseEventArgs != null)
+            {
+                mouseEventArgs.Handled = true;
+            }
+            return;
+        }
+        Uri url = isDiffUrl ? GridRowResolver.GetUrlDiff(row) : GridRowResolver.GetUrl(row);
         if (url == null || !url.IsAbsoluteUri)
         {
             return;
@@ -3215,7 +3378,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             try
             {
-                if (!url.ToString().EndsWith("/") && !url.ToString().EndsWith(".htm") && !url.ToString().EndsWith(".html"))
+                string urlText = url.ToString();
+                if (!urlText.EndsWith("/") && !urlText.EndsWith(".htm") && !urlText.EndsWith(".html"))
                 {
                     switch (await downloadAndInstall(url))
                     {
@@ -3232,45 +3396,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             }
         }
         Process.Start(url.ToString());
-    }
-
-    private async void dataGridCellOpenURLDiffClick(object sender, MouseButtonEventArgs e)
-    {
-        if (ShouldBlockStartupUiInteraction("datagrid_cell_open_url_diff"))
-        {
-            e.Handled = true;
-            return;
-        }
-        if (!(sender is TextBlock textBlock))
-        {
-            return;
-        }
-        Uri urlDiff = GridRowResolver.GetUrlDiff(textBlock.DataContext);
-        if (urlDiff == null || !urlDiff.IsAbsoluteUri)
-        {
-            return;
-        }
-        if (!Settings.Default.SkipInitFileCheck && Settings.Default.AutoInstall)
-        {
-            try
-            {
-                if (!urlDiff.ToString().EndsWith("/") && !urlDiff.ToString().EndsWith(".htm") && !urlDiff.ToString().EndsWith(".html"))
-                {
-                    switch (await downloadAndInstall(urlDiff))
-                    {
-                        case DownloadAndInstallResult.Installed:
-                            newlyInstalledTreeViewItem.IsExpanded = true;
-                            return;
-                        case DownloadAndInstallResult.BlockedBySizeLimit:
-                            return;
-                    }
-                }
-            }
-            catch
-            {
-            }
-        }
-        Process.Start(urlDiff.ToString());
     }
 
     private void dataGridEditingCellPreviewMouseDoubleClicked(object sender, RoutedEventArgs e)
@@ -5139,7 +5264,14 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             Task.Run(delegate
             {
-                viewModel.AutoRenameAllBMSFolder(path);
+                try
+                {
+                    viewModel.AutoRenameAllBMSFolder(path);
+                }
+                finally
+                {
+                    RefreshCustomTableViewDisplayAsync();
+                }
             }).Logging("treeViewLibraryFolderContextMenuItemAutoRenameAllFoldersClick");
         }
     }
@@ -7856,7 +7988,14 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             Task.Run(delegate
             {
-                viewModel.AutoRenameBMSFolder(bmsFiles);
+                try
+                {
+                    viewModel.AutoRenameBMSFolder(bmsFiles);
+                }
+                finally
+                {
+                    RefreshCustomTableViewDisplayAsync();
+                }
             }).Logging("dataGridContextMenuItemAutoRenameFolderClick");
         }
     }

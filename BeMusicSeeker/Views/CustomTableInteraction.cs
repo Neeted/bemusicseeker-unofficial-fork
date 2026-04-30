@@ -123,6 +123,22 @@ public sealed class CustomTableCellEditBeginningEventArgs : EventArgs
     public bool Cancel { get; set; }
 }
 
+public sealed class CustomTableCellActionRequestedEventArgs : EventArgs
+{
+    internal CustomTableCellActionRequestedEventArgs(CustomTableHitTestResult hit)
+    {
+        Hit = hit;
+    }
+
+    public CustomTableHitTestResult Hit { get; }
+
+    public object Row => Hit?.Row;
+
+    public int RowIndex => Hit?.RowIndex ?? -1;
+
+    public CustomTableColumn Column => Hit?.Column;
+}
+
 public sealed class CustomTableCellEditEndedEventArgs : EventArgs
 {
     internal CustomTableCellEditEndedEventArgs(CustomTableHitTestResult hit, string editPropertyName, string text, bool commit)

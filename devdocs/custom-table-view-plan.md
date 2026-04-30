@@ -341,7 +341,7 @@ Phase 3 完了判断:
 - プレイリスト詳細: `ENTRY LEVEL`
 - プレイリスト詳細: `COMMENT` / `MEMO`
 
-後続対象:
+後続実装対象:
 
 - `URL1` / `URL2`
 - `FOLDER`
@@ -353,12 +353,19 @@ Phase 3 完了判断:
   - `viewCount > 0` なのに `rowCount=0` / `visibleCellCount=0` の `custom_onrender` は、空の準備描画として扱い `playlist_open_visible completed` の対象にしない。
   - `table_first_visible` は必要なら空描画ログとして残すが、本描画と区別できる field を追加する。
   - 表示完了判定は、`CustomTableView` に実データ行が反映され、`visibleRowCount > 0` または `viewCount == 0` が確定した描画 checkpoint に寄せる。
-- `ENTRY LEVEL` / `COMMENT` / `MEMO` だけを editable metadata 付き列にし、他列は Phase 4 では編集不可にする。
+- 初期実装では `ENTRY LEVEL` / `COMMENT` / `MEMO` を editable metadata 付き列にした。
 - `F2`、editable current cell 上での文字入力、または選択済み editable cell の再クリックで、セル矩形に `TextBox` を重ねる。
 - Enter/Tab/フォーカス喪失で commit、Escape で cancel。
 - 縦横スクロール、列幅変更、sort、ItemsSource 差し替え、非表示化の前には編集中セルを commit する。
-- URL 編集中の列幅一時拡大は Phase 4 では実装せず、URL 編集対応時に overlay 幅だけで扱う。
 - playlist 行は `SyncPlaylistSourceRowFromEditedViewRow` / `CommitPlaylistRow` へ接続する。
+- 後続実装では `URL1` / `URL2`, `FOLDER`, `INSTL DST` も editable metadata 付き列にした。
+- `URL1` / `URL2` はクリック操作を既存 DataGrid と同じ URL open に使い、編集開始は `F2` または文字入力だけに限定する。
+- URL 編集の commit は absolute URI のみ反映し、空文字や invalid URI は rollback 扱いで row/source/runtime completion を変更しない。
+- URL 編集中は列幅を変えず、overlay editor の幅だけを最大 250px へ広げる。
+- `FOLDER` rename は playlist 行では不可、保留インストール選択中も不可とし、commit は `MainWindowViewModel.RenameBMSFolder` へ委譲する。
+- `INSTL DST` は `InstallPending` / `FullScanCheck` のみ編集可とし、編集開始時の `PendingInstallDestinationEditState` を capture する。
+- `INSTL DST` commit は `SetPendingInstallDestination` へ委譲し、失敗時は `instl_dst`, title/artist, warning, suggestions, low-confidence flag を snapshot から復元する。
+- `INSTL DST` 候補は `CustomTableView` の owner-level `Popup` / `ListBox` で表示し、`Down` / `Up` / `Enter` / mouse click / `Escape` に対応する。
 
 完了条件:
 
@@ -372,7 +379,6 @@ Phase 3 完了判断:
 
 実装内容:
 
-- `INSTL DST` の候補 `Popup` / `ListBox` を overlay として実装する。
 - playlist tree への DnD を実装する。
 - 既存 drop 側が期待する `System.Windows.Controls.SelectedItemCollection` 互換を見直し、独自 data format を追加する。
 - `Apps` / `Shift+F10` / Enter / Ctrl+C / Esc / F2 などのキー操作を整理する。

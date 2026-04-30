@@ -1,5 +1,7 @@
 using System.Linq;
+using System;
 using System.Windows;
+using BeMusicSeeker.Models;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
@@ -217,9 +219,43 @@ public sealed class CustomTableColumnFactoryTests
         Assert.IsTrue(columns["Comment"].EditTextWrapping);
         Assert.AreEqual("memo", columns["Memo"].EditPropertyName);
         Assert.IsTrue(columns["Memo"].EditTextWrapping);
-        Assert.IsNull(columns["Url1"].EditPropertyName);
-        Assert.IsNull(columns["Url2"].EditPropertyName);
-        Assert.IsNull(columns["InstallDst"].EditPropertyName);
+        Assert.AreEqual("Url", columns["Url1"].EditPropertyName);
+        Assert.IsFalse(columns["Url1"].EditOnRepeatClick);
+        Assert.AreEqual(250, columns["Url1"].EditOverlayWidth);
+        Assert.AreEqual("Url_diff", columns["Url2"].EditPropertyName);
+        Assert.IsFalse(columns["Url2"].EditOnRepeatClick);
+        Assert.AreEqual(250, columns["Url2"].EditOverlayWidth);
+        Assert.AreEqual("Folder", columns["Folder"].EditPropertyName);
+        Assert.AreEqual("instl_dst", columns["InstallDst"].EditPropertyName);
+
+        var bmsFile = new BMSFile
+        {
+            InstallDestinationSuggestions = new[] { "C:\\BMS\\A", "", "C:\\BMS\\B" }
+        };
+        CollectionAssert.AreEqual(
+            new[] { "C:\\BMS\\A", "C:\\BMS\\B" },
+            columns["InstallDst"].GetEditSuggestions(bmsFile).ToArray());
+    }
+
+    [TestMethod]
+    public void CreateMainColumns_UsesActualUrlTextForUrlEditing()
+    {
+        dataGridColumnsSettings settings = new dataGridColumnsSettings();
+        settings.Url1.Visibility = Visibility.Visible;
+        settings.Url2.Visibility = Visibility.Visible;
+        var entry = new BMSTableEntry
+        {
+            Url = new Uri("https://example.test/main"),
+            Url_diff = new Uri("https://example.test/diff")
+        };
+        PlaylistDetailRow row = new PlaylistDetailSourceRow(entry, null).CreateViewRow();
+
+        var columns = CustomTableColumnFactory.CreateMainColumns(settings).ToDictionary(column => column.Id);
+
+        Assert.AreEqual("\uE14F", columns["Url1"].GetText(row));
+        Assert.AreEqual("https://example.test/main", columns["Url1"].GetEditText(row));
+        Assert.AreEqual("\uE14F", columns["Url2"].GetText(row));
+        Assert.AreEqual("https://example.test/diff", columns["Url2"].GetEditText(row));
     }
 
     [TestMethod]
