@@ -115,7 +115,15 @@ internal static class LibraryChartRowSortEngine
 
         Type nonNullableType = Nullable.GetUnderlyingType(property.PropertyType) ?? property.PropertyType;
         propertyTypeName = property.PropertyType.Name;
-        if (nonNullableType == typeof(string) || property.PropertyType.IsEnum)
+        if (property.PropertyType.IsEnum)
+        {
+            sortProfile = "library_chart_typed";
+            stringSortKind = "typed";
+            sortedRows = SortByComparable(safeSource, row => property.GetValue(row) as IComparable, direction);
+            metrics = CreateMetrics(safeSource.Count, columnName, direction, propertyTypeName, sortProfile, stringSortKind, stopwatch);
+            return sortedRows;
+        }
+        if (nonNullableType == typeof(string))
         {
             if (string.Equals(columnName, nameof(LibraryChartRow.Folder), StringComparison.Ordinal) && isPlaylistDetailView)
             {

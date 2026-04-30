@@ -1611,7 +1611,7 @@ public partial class BMSPlaylist : NotificationObject
                         select new
                         {
                             bmsid = t.bmsid,
-                            lamp = (int)((s.clear == ClearType.PA) ? ClearType.FC : s.clear),
+                            lamp = ClearTypeStorageConverter.ToLr2Value(s.clear),
                             rank = (int)s.rank
                         } into s
                         where s.lamp >= thresh && s.lamp <= 5 && s.rank != 0
@@ -1621,7 +1621,7 @@ public partial class BMSPlaylist : NotificationObject
                           select new
                           {
                               bmsid = (t.Key + 100000000).ToString(),
-                              lamp = (int)((s.clear == ClearType.PA) ? ClearType.FC : s.clear),
+                              lamp = ClearTypeStorageConverter.ToLr2Value(s.clear),
                               rank = (int)s.rank
                           } into s
                           where s.lamp >= thresh && s.lamp <= 5 && s.rank != 0

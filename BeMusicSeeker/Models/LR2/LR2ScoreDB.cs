@@ -5,15 +5,71 @@ namespace BeMusicSeeker.Models.LR2;
 
 public enum ClearType
 {
-    NO_SONG = -2,
-    INVALID = -1,
+    NO_SONG = -1,
     NO_PLAY = 0,
     FAILED = 1,
-    EASY = 2,
-    CLEAR = 3,
-    HARD = 4,
-    FC = 5,
-    PA = 21
+    INVALID = 2,
+    L_ASSIST = 3,
+    EASY = 4,
+    CLEAR = 5,
+    HARD = 6,
+    EX_HARD = 7,
+    FC = 8,
+    PA = 9,
+    MAX = 10
+}
+
+internal static class ClearTypeStorageConverter
+{
+    internal static ClearType FromLr2Value(int value)
+    {
+        switch (value)
+        {
+            case 0:
+                return ClearType.NO_PLAY;
+            case 1:
+                return ClearType.FAILED;
+            case 2:
+                return ClearType.EASY;
+            case 3:
+                return ClearType.CLEAR;
+            case 4:
+                return ClearType.HARD;
+            case 5:
+                return ClearType.FC;
+            case 21:
+                return ClearType.PA;
+            default:
+                return (ClearType)value;
+        }
+    }
+
+    internal static int ToLr2Value(ClearType clear)
+    {
+        switch (clear)
+        {
+            case ClearType.NO_SONG:
+            case ClearType.NO_PLAY:
+                return 0;
+            case ClearType.FAILED:
+            case ClearType.INVALID:
+            case ClearType.L_ASSIST:
+                return 1;
+            case ClearType.EASY:
+                return 2;
+            case ClearType.CLEAR:
+                return 3;
+            case ClearType.HARD:
+            case ClearType.EX_HARD:
+                return 4;
+            case ClearType.FC:
+            case ClearType.PA:
+            case ClearType.MAX:
+                return 5;
+            default:
+                return (int)clear;
+        }
+    }
 }
 
 public enum RankType
@@ -104,6 +160,20 @@ public class LR2ScoreDB : SQLiteConnectionEx
         [PrimaryKey]
         public string hash { get; set; }
 
+        [Column("clear")]
+        public int clearValue
+        {
+            get
+            {
+                return ClearTypeStorageConverter.ToLr2Value(_clear);
+            }
+            set
+            {
+                _clear = ClearTypeStorageConverter.FromLr2Value(value);
+            }
+        }
+
+        [Ignore]
         public ClearType clear
         {
             get
@@ -116,10 +186,6 @@ public class LR2ScoreDB : SQLiteConnectionEx
             }
             set
             {
-                if (value == ClearType.PA)
-                {
-                    _clear = ClearType.FC;
-                }
                 _clear = value;
             }
         }

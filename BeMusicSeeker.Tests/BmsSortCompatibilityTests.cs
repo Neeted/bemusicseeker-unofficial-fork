@@ -9,7 +9,9 @@ using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.Views;
 using BeMusicSeeker.ViewModels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Ribbit.Util;
@@ -449,7 +451,7 @@ public sealed class BmsSortCompatibilityTests
 
         MainWindowViewModel.cSortParameters clearSort = new MainWindowViewModel.cSortParameters
         {
-            ColumnsName = nameof(PlaylistDetailRow.ClearDisplayText),
+            ColumnsName = nameof(PlaylistDetailRow.clear),
             Direction = ListSortDirection.Ascending
         };
         MainWindowViewModel.cSortParameters rankSort = new MainWindowViewModel.cSortParameters
@@ -463,8 +465,81 @@ public sealed class BmsSortCompatibilityTests
 
         CollectionAssert.AreEqual(new[] { "a_easy_aa.bms", "z_hard_aaa.bms" }, clearSorted.Select(row => row.path).ToArray());
         CollectionAssert.AreEqual(new[] { "a_easy_aa.bms", "z_hard_aaa.bms" }, rankSorted.Select(row => row.path).ToArray());
-        Assert.AreEqual("string_fast_ordinal_ignore_case", clearProfile);
+        Assert.AreEqual("enum", clearProfile);
         Assert.AreEqual("string_fast_ordinal_ignore_case", rankProfile);
+    }
+
+    [TestMethod]
+    [TestCategory("SortEngine")]
+    public void ClearType_DisplayAndSortUseNumericLampOrder()
+    {
+        Assert.AreEqual(-1, (int)ClearType.NO_SONG);
+        Assert.AreEqual(0, (int)ClearType.NO_PLAY);
+        Assert.AreEqual(1, (int)ClearType.FAILED);
+        Assert.AreEqual(2, (int)ClearType.INVALID);
+        Assert.AreEqual(3, (int)ClearType.L_ASSIST);
+        Assert.AreEqual(4, (int)ClearType.EASY);
+        Assert.AreEqual(5, (int)ClearType.CLEAR);
+        Assert.AreEqual(6, (int)ClearType.HARD);
+        Assert.AreEqual(7, (int)ClearType.EX_HARD);
+        Assert.AreEqual(8, (int)ClearType.FC);
+        Assert.AreEqual(9, (int)ClearType.PA);
+        Assert.AreEqual(10, (int)ClearType.MAX);
+
+        Assert.AreEqual("ASSIST", ScoreDisplayTextFormatter.FormatClear(ClearType.INVALID));
+        Assert.AreEqual("L-ASSIST", ScoreDisplayTextFormatter.FormatClear(ClearType.L_ASSIST));
+        Assert.AreEqual("EX HARD", ScoreDisplayTextFormatter.FormatClear(ClearType.EX_HARD));
+        Assert.AreEqual("PERFECT", ScoreDisplayTextFormatter.FormatClear(ClearType.PA));
+        Assert.AreEqual("MAX", ScoreDisplayTextFormatter.FormatClear(ClearType.MAX));
+        Assert.AreEqual("99", ScoreDisplayTextFormatter.FormatClear((ClearType)99));
+
+        cleartypeToStringConvberter converter = new cleartypeToStringConvberter();
+        Assert.AreEqual("PERFECT", converter.Convert(ClearType.PA, typeof(string), null, CultureInfo.InvariantCulture));
+        Assert.AreEqual("99", converter.Convert((ClearType)99, typeof(string), null, CultureInfo.InvariantCulture));
+    }
+
+    [TestMethod]
+    [TestCategory("SortEngine")]
+    public void LibraryChartAndBmsFileClearSortUseNumericClearType()
+    {
+        LibraryChartRow max = CreateLibraryChartRow("z_max.bms", "Max", 1, clear: ClearType.MAX);
+        LibraryChartRow assist = CreateLibraryChartRow("m_assist.bms", "Assist", 1, clear: ClearType.INVALID);
+        LibraryChartRow easy = CreateLibraryChartRow("a_easy.bms", "Easy", 1, clear: ClearType.EASY);
+        LibraryChartRow failed = CreateLibraryChartRow("b_failed.bms", "Failed", 1, clear: ClearType.FAILED);
+
+        MainWindowViewModel.cSortParameters clearSort = new MainWindowViewModel.cSortParameters
+        {
+            ColumnsName = nameof(LibraryChartRow.clear),
+            Direction = ListSortDirection.Ascending
+        };
+        List<LibraryChartRow> librarySorted = LibraryChartRowSortEngine.SortForMainView(new[] { max, assist, easy, failed }, clearSort, isPlaylistDetailView: false, useLegacySortForDataGrid: true, out string libraryProfile);
+
+        CollectionAssert.AreEqual(new[] { "b_failed.bms", "m_assist.bms", "a_easy.bms", "z_max.bms" }, librarySorted.Select(row => row.path).ToArray());
+        Assert.AreEqual("library_chart_typed", libraryProfile);
+
+        List<BMSFile> bmsSorted = BMSFileSortEngine.SortForMainView(new[] { max.BmsFile, assist.BmsFile, easy.BmsFile, failed.BmsFile }, new MainWindowViewModel.cSortParameters
+        {
+            ColumnsName = nameof(BMSFile.clear),
+            Direction = ListSortDirection.Ascending
+        }, isPlaylistDetailView: false, out string bmsProfile);
+
+        CollectionAssert.AreEqual(new[] { "b_failed.bms", "m_assist.bms", "a_easy.bms", "z_max.bms" }, bmsSorted.Select(row => row.path).ToArray());
+        Assert.AreEqual("enum", bmsProfile);
+    }
+
+    [TestMethod]
+    [TestCategory("SortEngine")]
+    public void Lr2StorageConverterKeepsNativeClearValuesCompatible()
+    {
+        Assert.AreEqual(ClearType.EASY, ClearTypeStorageConverter.FromLr2Value(2));
+        Assert.AreEqual(ClearType.CLEAR, ClearTypeStorageConverter.FromLr2Value(3));
+        Assert.AreEqual(ClearType.HARD, ClearTypeStorageConverter.FromLr2Value(4));
+        Assert.AreEqual(ClearType.FC, ClearTypeStorageConverter.FromLr2Value(5));
+        Assert.AreEqual(ClearType.PA, ClearTypeStorageConverter.FromLr2Value(21));
+        Assert.AreEqual(1, ClearTypeStorageConverter.ToLr2Value(ClearType.INVALID));
+        Assert.AreEqual(1, ClearTypeStorageConverter.ToLr2Value(ClearType.L_ASSIST));
+        Assert.AreEqual(4, ClearTypeStorageConverter.ToLr2Value(ClearType.EX_HARD));
+        Assert.AreEqual(5, ClearTypeStorageConverter.ToLr2Value(ClearType.MAX));
     }
 
     /// <summary>
@@ -623,7 +698,7 @@ public sealed class BmsSortCompatibilityTests
         Assert.AreEqual("library_chart_string_fast_ordinal_ignore_case", sortProfile);
     }
 
-    private static LibraryChartRow CreateLibraryChartRow(string path, string title, int level, string folder = "", int? chartNotes = null, double? chartTotal = null, double? chartMainBpm = null, int? rateScorePerfect = null)
+    private static LibraryChartRow CreateLibraryChartRow(string path, string title, int level, string folder = "", int? chartNotes = null, double? chartTotal = null, double? chartMainBpm = null, int? rateScorePerfect = null, ClearType? clear = null)
     {
         string hash = CreateMd5FromPath(path);
         TestableBmsFile file = new TestableBmsFile();
@@ -648,6 +723,17 @@ public sealed class BmsSortCompatibilityTests
             {
                 hash = hash,
                 perfect = rateScorePerfect.Value,
+                totalnotes = 100
+            };
+        }
+        if (clear.HasValue)
+        {
+            file.bmsScore = new BMSScore
+            {
+                hash = hash,
+                clear = clear.Value,
+                rank = RankType.A,
+                perfect = 80,
                 totalnotes = 100
             };
         }

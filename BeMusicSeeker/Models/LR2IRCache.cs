@@ -59,7 +59,7 @@ public class LR2IRCache : NotificationObject
                        select new LR2IRData(md5)
                        {
                            lr2id = int.Parse(e.Element("id").Value),
-                           clear = (ClearType)int.Parse(e.Element("clear").Value),
+                           clear = ClearTypeStorageConverter.FromLr2Value(int.Parse(e.Element("clear").Value)),
                            notes = int.Parse(e.Element("notes").Value),
                            combo = int.Parse(e.Element("combo").Value),
                            pg = int.Parse(e.Element("pg").Value),
@@ -106,7 +106,7 @@ public class LR2IRCache : NotificationObject
                         return new LR2IRData(md5)
                         {
                             lr2id = int.Parse(m.Groups[1].Value),
-                            clear = (ClearType)int.Parse(m.Groups[2].Value),
+                            clear = ClearTypeStorageConverter.FromLr2Value(int.Parse(m.Groups[2].Value)),
                             notes = int.Parse(m.Groups[3].Value),
                             combo = int.Parse(m.Groups[4].Value),
                             pg = int.Parse(m.Groups[5].Value),

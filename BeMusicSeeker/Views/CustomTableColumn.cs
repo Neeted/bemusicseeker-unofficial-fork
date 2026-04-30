@@ -372,7 +372,7 @@ internal static class CustomTableColumnFactory
             new CustomTableColumn("ChartPeakDensity", "PEAK", settings.ChartPeakDensity, 39, "ChartPeakDensitySortKey", TextAlignment.Right, row => GetString(row, "ChartPeakDensityText")),
             new CustomTableColumn("ChartEndDensity", "END", settings.ChartEndDensity, 40, "ChartEndDensitySortKey", TextAlignment.Right, row => GetString(row, "ChartEndDensityText")),
             new CustomTableColumn("ChartSoflan", "SOFLAN", settings.ChartSoflan, 41, "ChartSoflanCount", TextAlignment.Right, row => GetString(row, "ChartSoflanCount")),
-            new CustomTableColumn("Clear", "CLEAR", settings.Clear, 42, nameof(LibraryChartRow.ClearDisplayText), TextAlignment.Center, row => GetString(row, nameof(LibraryChartRow.ClearDisplayText)), row => GetClearBrush(row), textStyle: CustomTableTextStyle.Score),
+            new CustomTableColumn("Clear", "CLEAR", settings.Clear, 42, nameof(LibraryChartRow.clear), TextAlignment.Center, row => GetString(row, nameof(LibraryChartRow.ClearDisplayText)), row => GetClearBrush(row), textStyle: CustomTableTextStyle.Score),
             new CustomTableColumn("Rank", "DJ LEVEL", settings.Rank, 43, nameof(LibraryChartRow.RankDisplayText), TextAlignment.Center, row => GetString(row, nameof(LibraryChartRow.RankDisplayText)), row => GetRankBrush(row), textStyle: CustomTableTextStyle.Rank),
             new CustomTableColumn("Rate", "RATE", settings.Rate, 44, "rate", TextAlignment.Right, row => FormatSuffix(GetValue(row, "rate"), "%", string.Empty)),
             new CustomTableColumn("Score", "SCORE", settings.Score, 45, "score", TextAlignment.Right, row => GetString(row, "score")),

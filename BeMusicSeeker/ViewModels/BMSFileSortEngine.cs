@@ -78,6 +78,7 @@ internal static class BMSFileSortEngine
     {
         return !string.IsNullOrWhiteSpace(columnName)
             && (columnName.StartsWith("Chart", StringComparison.Ordinal)
+                || string.Equals(columnName, nameof(BMSFile.clear), StringComparison.Ordinal)
                 || string.Equals(columnName, nameof(BMSFile.rateDouble), StringComparison.Ordinal));
     }
 
@@ -137,6 +138,11 @@ internal static class BMSFileSortEngine
                 return SortByTypedKey(safeSource, GetTypedSortKeySelector<DateTime>(columnName, property), direction);
             }
             return SortByTypedKey(safeSource, GetTypedSortKeySelector<DateTime?>(columnName, property), direction);
+        }
+        if (propertyType.IsEnum)
+        {
+            sortProfile = "enum";
+            return SortByTypedKey(safeSource, GetTypedSortKeySelector<int>(columnName, property), direction);
         }
 
         switch (Type.GetTypeCode(nonNullableType))
@@ -201,12 +207,6 @@ internal static class BMSFileSortEngine
                 return (propertyType == typeof(bool))
                     ? SortByTypedKey(safeSource, GetTypedSortKeySelector<bool>(columnName, property), direction)
                     : SortByTypedKey(safeSource, GetTypedSortKeySelector<bool?>(columnName, property), direction);
-        }
-
-        if (propertyType.IsEnum)
-        {
-            sortProfile = "enum";
-            return SortByTypedKey(safeSource, GetTypedSortKeySelector<int>(columnName, property), direction);
         }
 
         sortProfile = "string_fast_fallback";

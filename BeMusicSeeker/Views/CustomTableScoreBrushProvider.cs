@@ -17,6 +17,8 @@ internal static class CustomTableScoreBrushProvider
     internal static readonly Brush DeepSkyBlueBrush = CreateBrush(Colors.DeepSkyBlue);
     internal static readonly Brush HotPinkBrush = CreateBrush(Colors.HotPink);
     internal static readonly Brush PurpleBrush = CreateBrush(Color.FromRgb(0x7B, 0x1F, 0xA2));
+    internal static readonly Brush LightPurpleBrush = CreateBrush(Color.FromRgb(0xBA, 0x68, 0xC8));
+    internal static readonly Brush YellowBrush = CreateBrush(Color.FromRgb(0xF9, 0xA8, 0x25));
     internal static readonly Brush YellowOrangeBrush = CreateBrush(Color.FromRgb(0xD9, 0x82, 0x00));
     internal static readonly Brush VeryHardBrush = CreateBrush(Color.FromRgb(0x8B, 0x00, 0x00));
     internal static readonly Brush VeryEasyBrush = CreateBrush(Color.FromRgb(0x66, 0xA0, 0x00));
@@ -73,14 +75,20 @@ internal static class CustomTableScoreBrushProvider
                 return GreenBrush;
             case ClearType.INVALID:
                 return PurpleBrush;
+            case ClearType.L_ASSIST:
+                return LightPurpleBrush;
             case ClearType.CLEAR:
                 return BlueBrush;
             case ClearType.HARD:
                 return RedBrush;
+            case ClearType.EX_HARD:
+                return YellowBrush;
             case ClearType.FC:
                 return DeepSkyBlueBrush;
             case ClearType.PA:
                 return HotPinkBrush;
+            case ClearType.MAX:
+                return YellowOrangeBrush;
             default:
                 return Binding.DoNothing;
         }

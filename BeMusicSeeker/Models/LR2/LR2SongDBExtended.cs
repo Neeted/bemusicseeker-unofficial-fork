@@ -840,6 +840,20 @@ public sealed class LR2SongDBExtended : LR2SongDB
             }
         }
 
+        [Column("clear")]
+        public int clearValue
+        {
+            get
+            {
+                return ClearTypeStorageConverter.ToLr2Value(_clear);
+            }
+            set
+            {
+                _clear = ClearTypeStorageConverter.FromLr2Value(value);
+            }
+        }
+
+        [Ignore]
         public ClearType clear
         {
             get
@@ -852,10 +866,6 @@ public sealed class LR2SongDBExtended : LR2SongDB
             }
             set
             {
-                if (value == ClearType.PA)
-                {
-                    _clear = ClearType.FC;
-                }
                 _clear = value;
             }
         }
@@ -888,6 +898,8 @@ public sealed class LR2SongDBExtended : LR2SongDB
 
         private string _hash;
 
+        private ClearType _clear;
+
         public string hash
         {
             get
@@ -916,7 +928,31 @@ public sealed class LR2SongDBExtended : LR2SongDB
 
         public int lr2id { get; set; }
 
-        public ClearType clear { get; set; }
+        [Column("clear")]
+        public int clearValue
+        {
+            get
+            {
+                return ClearTypeStorageConverter.ToLr2Value(_clear);
+            }
+            set
+            {
+                _clear = ClearTypeStorageConverter.FromLr2Value(value);
+            }
+        }
+
+        [Ignore]
+        public ClearType clear
+        {
+            get
+            {
+                return _clear;
+            }
+            set
+            {
+                _clear = value;
+            }
+        }
 
         public int notes { get; set; }
 

@@ -174,7 +174,7 @@ internal sealed class BmsLibraryIrService
                     {
                         return new LR2IRScore(m.Groups[1].Value)
                         {
-                            clear = (ClearType)int.Parse(m.Groups[2].Value),
+                            clear = ClearTypeStorageConverter.FromLr2Value(int.Parse(m.Groups[2].Value)),
                             notes = int.Parse(m.Groups[3].Value),
                             combo = int.Parse(m.Groups[4].Value),
                             pg = int.Parse(m.Groups[5].Value),

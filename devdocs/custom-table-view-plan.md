@@ -244,7 +244,7 @@ Phase 1 完了判断:
   - `TITLE`: `Title`
   - `ARTIST`: `Artist`
   - `PATH`: `path`
-  - `CLEAR`: `ClearDisplayText`
+  - `CLEAR`: `clear`
   - `DJ LEVEL`: `RankDisplayText`
   - `LEVEL`: `ChartLevelSortKey`
   - `DIFFICULTY`: `ChartDifficultySortKey`
@@ -259,7 +259,7 @@ Phase 1 完了判断:
 - 行右クリックで既存 `dataGridContextMenu` / `dataGridContextMenuPlaylistMissing` を開く。
 - `ContextMenu.Tag` に `CustomTableContextMenuContext(row, rowIndex)` を入れ、既存 click handler は `TryGetContextMenuRow` 経由で DataGridRow と CustomTableView の両方を解決する。
 - 列ヘッダー右クリックの列表示メニューへ接続する。
-- プレイリスト詳細 source row に `ClearDisplayText` / `RankDisplayText` を持たせ、Phase 1 対象列の `CLEAR` / `DJ LEVEL` sort path が通常一覧と同じ名前で効くようにする。
+- プレイリスト詳細 source row に `ClearDisplayText` / `RankDisplayText` を持たせる。`CLEAR` は表示名ではなく `ClearType` の数値順で sort するため、sort path は `clear` を使う。
 
 設計メモ:
 
@@ -698,6 +698,10 @@ Phase 3 完了判断:
    - `main_sort_detail` に `sortReuse`, `sortCacheKey`, `sortCacheGeneration`, `sortCacheHit` を追加し、同じ Title/path sort に戻した時の hit と `sortMs` 低下を確認する。
    - Desc は Asc の reverse ではなく、既存 sort engine の結果を個別に cache する。既存 sort は secondary key を持つため reverse では互換性が崩れる可能性がある。
    - `Title`, `path`, `Folder` など sort/filter key に関わる row 更新では sort cache を破棄する。bmson の同一 path metadata 更新も Title/path cache の無効化対象にする。
+   - 追加方針: `CLEAR` は表示文字列順ではなく `ClearType` の数値順で sort する。`ClearType` は beatoraja 専用値を予約し、`NO_SONG=-1`, `NO_PLAY=0`, `FAILED=1`, `ASSIST=2`, `L_ASSIST=3`, `EASY=4`, `CLEAR=5`, `HARD=6`, `EX_HARD=7`, `FC=8`, `PA=9`, `MAX=10` の順序に揃える。
+   - LR2 native の `score.clear` / `ir_score.clear` は従来どおり 0-5 / 21 の保存値を使うため、DB 境界で `ClearTypeStorageConverter` により表示・sort 用 enum と LR2 保存値を変換する。
+   - CLEAR 表示は `ScoreDisplayTextFormatter.FormatClear` に一本化し、`ASSIST`, `L-ASSIST`, `EX HARD`, `PERFECT`, `MAX` の短縮表記を使う。既存 XAML converter も同 formatter を呼ぶ。
+   - CLEAR 色分けは既存 LR2 値を維持し、`L_ASSIST` は薄紫、`EX_HARD` は黄色系、`MAX` は DJ LEVEL `MAX` と同じ黄色橙にする。
 
 5. 描画側は `custom_table_render reason=...` ごとに後半改善を判断する。
    - `items_source_changed`, `columns_changed`, `scroll_vertical`, `selection`, `row_property_changed` を reason 別に比較する。

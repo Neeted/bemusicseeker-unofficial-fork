@@ -2,6 +2,7 @@ using System.Linq;
 using System;
 using System.Windows;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -283,13 +284,22 @@ public sealed class CustomTableColumnFactoryTests
         Assert.AreEqual("ChartMainBpmSortKey", paths["ChartMainBpm"]);
         Assert.AreEqual("ChartJudgeSortKey", paths["ChartJudgePercent"]);
         Assert.AreEqual("RefTablesSymbols", paths["PlaylistSymbols"]);
-        Assert.AreEqual("ClearDisplayText", paths["Clear"]);
+        Assert.AreEqual("clear", paths["Clear"]);
         Assert.AreEqual("RankDisplayText", paths["Rank"]);
         Assert.AreEqual("rate", paths["Rate"]);
         Assert.AreEqual("stddevVal", paths["TScore"]);
         Assert.AreEqual("ChartLevelSortKey", paths["Level"]);
         Assert.AreEqual("ChartDifficultySortKey", paths["ChartDifficulty"]);
         Assert.AreEqual("ChartJudgeSortKey", paths["ChartJudge"]);
+    }
+
+    [TestMethod]
+    public void ScoreBrushProvider_MapsFutureClearTypes()
+    {
+        Assert.AreSame(CustomTableScoreBrushProvider.PurpleBrush, CustomTableScoreBrushProvider.ConvertClear(ClearType.INVALID));
+        Assert.AreSame(CustomTableScoreBrushProvider.LightPurpleBrush, CustomTableScoreBrushProvider.ConvertClear(ClearType.L_ASSIST));
+        Assert.AreSame(CustomTableScoreBrushProvider.YellowBrush, CustomTableScoreBrushProvider.ConvertClear(ClearType.EX_HARD));
+        Assert.AreSame(CustomTableScoreBrushProvider.YellowOrangeBrush, CustomTableScoreBrushProvider.ConvertClear(ClearType.MAX));
     }
 
     [TestMethod]

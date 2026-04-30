@@ -68,6 +68,11 @@ internal static class PlaylistDetailSortEngine
                 ? SortByTypedKey(safeSource, GetTypedSelector<DateTime>(columnName, property), direction)
                 : SortByTypedKey(safeSource, GetTypedSelector<DateTime?>(columnName, property), direction);
         }
+        if (propertyType.IsEnum)
+        {
+            sortProfile = "enum";
+            return SortByTypedKey(safeSource, GetTypedSelector<int>(columnName, property), direction);
+        }
 
         switch (Type.GetTypeCode(nonNullableType))
         {
@@ -88,12 +93,6 @@ internal static class PlaylistDetailSortEngine
                     : SortByTypedKey(safeSource, GetTypedSelector<double?>(columnName, property), direction);
             case TypeCode.String:
                 break;
-        }
-
-        if (propertyType.IsEnum)
-        {
-            sortProfile = "enum";
-            return SortByTypedKey(safeSource, GetTypedSelector<int>(columnName, property), direction);
         }
 
         sortProfile = "string_fast_fallback";
