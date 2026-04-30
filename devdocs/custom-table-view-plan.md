@@ -416,12 +416,17 @@ Phase 3 完了判断:
 実装内容:
 
 - `CustomTableView` が `ItemsSource` 内の row object を購読する。
-  - `INotifyPropertyChanged` を実装している row は `PropertyChanged` を購読する。
-  - `ItemsSource` 差し替え、`INotifyCollectionChanged` の add / remove / reset に合わせて購読を更新する。
+  - 2026-04 時点の性能確認で、20 万行規模の `ItemsSource` 全行を購読すると sort / ItemsSource 差し替え時に数秒の UI block が出ることが分かったため、全行購読は採用しない。
+  - `INotifyPropertyChanged` を実装している row のうち、現在の可視行 + 上下 overscan 5 行だけを購読する。
+  - `ItemsSource` 差し替え、`INotifyCollectionChanged` の add / remove / replace / move / reset、縦スクロール、行高 / header 高 / size / visibility 変更に合わせて可視購読範囲を更新する。
   - `LibraryChartRow` / `PlaylistDetailRow` 経由で underlying `BMSFile` の変更が通知される前提をまず活用する。
 - row `PropertyChanged` を受けたら、Dispatcher 上で redraw を coalesce する。
   - 連続更新時に property changed の回数だけ `InvalidateVisual()` しない。
   - Phase 5.5 では全面 `InvalidateVisual()` でよい。行単位 dirty は Phase 6 の対象に残す。
+  - 画面外 row は即時 redraw 対象外とし、スクロールで可視化された時点で最新値を読む。
+- 可視購読の診断ログを追加する。
+  - `custom_table_row_subscription` で `reason`, `firstIndex`, `requestedCount`, `subscribedRowCount`, `elapsedMs` を確認できるようにする。
+  - ItemsSource 変更 / reset / 100ms 以上の slow case を中心に出し、通常スクロール時のログ量は抑える。
 - 一覧構成が変わる操作は、ViewModel 側の更新通知を明確にする。
   - playlist 行削除 / folder 移動など、row 値変更ではなく `BMSFilesView` の構成が変わる操作では、`BMSFilesView` 置換、collection change、または明示的な refresh token で CustomTableView に伝わるようにする。
   - 個別 command 完了後に `customTableView.RefreshDisplay()` を足し続ける方針は避け、標準通知経路に寄せる。
@@ -438,6 +443,13 @@ Phase 3 完了判断:
 - ゼロノート検索 tree の右クリック「ゼロノート再判定する」で `WARNING` / highlight が即時反映される。
 - 文字化け修正機能で `ENCODING` / `TITLE` / `ARTIST` が即時反映される。
 - 大量更新時も redraw request が coalesce され、操作が極端に重くならない。
+- ライブラリ一覧の PATH sort で、可視購読数が 20 万行ではなく可視行 + overscan 程度に収まり、`buildToVisibleRenderMs` / `callback_exec_sort buildToRenderMs` が Phase 5.5 回帰前相当に戻る。
+
+実装後確認:
+
+- 最新ログでは、ライブラリ一覧 `rowCount=209960` に対して `custom_table_row_subscription subscribedRowCount=47 elapsedMs=0-3` となり、全行購読は解消した。
+- PATH sort の `callback_exec_sort buildToRenderMs` は、回帰時の約 4 秒から `211-292ms` 程度へ戻った。
+- 初回表示や sort の残コストは `main_view_build` の `folderMs` / `sortMs` が中心で、CustomTableView の row 購読とは別件として扱う。
 
 ## Phase 6: 描画キャッシュ、行単位再描画、DrawingVisual 分割
 

@@ -14,6 +14,7 @@ using System.Windows.Media;
 using System.Windows.Media.Media3D;
 using BeMusicSeeker.Diagnostics;
 using BeMusicSeeker.ViewModels;
+using NLog;
 
 namespace BeMusicSeeker.Views;
 
@@ -51,6 +52,9 @@ public sealed class CustomTableFirstRenderCompletedEventArgs : EventArgs
 public sealed class CustomTableView : Grid
 {
     private const double ColumnResizeHitTestMargin = 4d;
+    private const int RowSubscriptionOverscan = 5;
+    private const long RowSubscriptionSlowLogThresholdMs = 100L;
+    private static readonly Logger installPerformanceLogger = LogManager.GetLogger("InstallPerformance.CustomTableView");
 
     public static readonly DependencyProperty ItemsSourceProperty = DependencyProperty.Register(
         nameof(ItemsSource),
@@ -210,6 +214,7 @@ public sealed class CustomTableView : Grid
         SizeChanged += delegate
         {
             UpdateScrollBars();
+            UpdateVisibleRowSubscriptions("size_changed");
             surface.InvalidateVisual();
         };
         PreviewMouseLeftButtonDown += CustomTableViewPreviewMouseLeftButtonDown;
@@ -237,12 +242,14 @@ public sealed class CustomTableView : Grid
             {
                 MarkItemsApplied();
                 UpdateScrollBars();
+                UpdateVisibleRowSubscriptions("visible_changed", logAlways: true);
                 surface.InvalidateVisual();
             }
             else
             {
                 CommitActiveEdit();
                 CloseCellToolTip();
+                rowChangeTracker.DetachAllRows();
                 EndColumnResize();
                 ClearDragState();
                 ClearHeaderDragState();
@@ -359,11 +366,11 @@ public sealed class CustomTableView : Grid
         view.CommitActiveEdit();
         view.currentCellHit = null;
         view.DetachCollectionChanged(e.OldValue as INotifyCollectionChanged);
-        view.rowChangeTracker.ReplaceRows(e.NewValue as IEnumerable);
         view.AttachCollectionChanged(e.NewValue as INotifyCollectionChanged);
         view.MarkItemsApplied();
         view.CoerceSelectionToCurrentRows();
         view.UpdateScrollBars();
+        view.UpdateVisibleRowSubscriptions("items_source_changed", logAlways: true);
         view.surface.InvalidateVisual();
     }
 
@@ -391,6 +398,7 @@ public sealed class CustomTableView : Grid
         CustomTableView view = (CustomTableView)d;
         view.CommitActiveEdit();
         view.UpdateScrollBars();
+        view.UpdateVisibleRowSubscriptions("layout_metric_changed");
         view.surface.InvalidateVisual();
     }
 
@@ -441,10 +449,10 @@ public sealed class CustomTableView : Grid
     {
         CommitActiveEdit();
         currentCellHit = null;
-        rowChangeTracker.ApplyCollectionChanged(ItemsSource, e);
         MarkItemsApplied();
         CoerceSelectionToCurrentRows();
         UpdateScrollBars();
+        UpdateVisibleRowSubscriptions(GetCollectionChangedSubscriptionReason(e), logAlways: e?.Action == NotifyCollectionChangedAction.Reset);
         surface.InvalidateVisual();
     }
 
@@ -514,6 +522,7 @@ public sealed class CustomTableView : Grid
     {
         CommitActiveEdit();
         CloseCellToolTip();
+        UpdateVisibleRowSubscriptions("vertical_scroll");
         surface.InvalidateVisual();
     }
 
@@ -553,6 +562,49 @@ public sealed class CustomTableView : Grid
         double rowHeight = Math.Max(1d, RowHeight);
         double bodyHeight = Math.Max(0d, surface.ActualHeight - HeaderHeight);
         return Math.Max(1, (int)Math.Ceiling(bodyHeight / rowHeight));
+    }
+
+    private void UpdateVisibleRowSubscriptions(string reason, bool logAlways = false)
+    {
+        Stopwatch stopwatch = Stopwatch.StartNew();
+        int firstIndex = 0;
+        int requestedCount = 0;
+        if (IsVisible)
+        {
+            int rowCount = RowCount;
+            if (rowCount > 0)
+            {
+                int firstVisibleIndex = FirstVisibleRowIndex;
+                int viewportRows = CalculateViewportRowCapacity();
+                firstIndex = Math.Max(0, firstVisibleIndex - RowSubscriptionOverscan);
+                int lastExclusive = Math.Min(rowCount, firstVisibleIndex + viewportRows + RowSubscriptionOverscan);
+                requestedCount = Math.Max(0, lastExclusive - firstIndex);
+                rowChangeTracker.ReplaceVisibleRows(ItemsSource, firstIndex, requestedCount);
+            }
+            else
+            {
+                rowChangeTracker.DetachAllRows();
+            }
+        }
+        else
+        {
+            rowChangeTracker.DetachAllRows();
+        }
+        stopwatch.Stop();
+        if (logAlways || stopwatch.ElapsedMilliseconds >= RowSubscriptionSlowLogThresholdMs)
+        {
+            installPerformanceLogger?.Info(
+                "custom_table_row_subscription reason=" + reason
+                + " firstIndex=" + firstIndex
+                + " requestedCount=" + requestedCount
+                + " subscribedRowCount=" + rowChangeTracker.SubscribedRowCount
+                + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
+        }
+    }
+
+    private static string GetCollectionChangedSubscriptionReason(NotifyCollectionChangedEventArgs e)
+    {
+        return e == null ? "collection_changed" : "collection_" + e.Action.ToString().ToLowerInvariant();
     }
 
     public IReadOnlyList<object> GetSelectedRowsSnapshot()

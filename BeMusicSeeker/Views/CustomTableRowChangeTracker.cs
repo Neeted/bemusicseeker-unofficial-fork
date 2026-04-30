@@ -1,8 +1,8 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
-using System.Collections.Specialized;
 using System.ComponentModel;
+using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Windows.Threading;
@@ -21,61 +21,44 @@ internal sealed class CustomTableRowChangeTracker
 
     internal int SubscribedRowCount => subscribedRows.Count;
 
-    internal void ReplaceRows(IEnumerable rows)
+    internal void ReplaceVisibleRows(IList rows, int firstIndex, int count)
     {
-        DetachAllRows();
-        AttachRows(rows);
-    }
-
-    internal void ApplyCollectionChanged(IEnumerable currentRows, NotifyCollectionChangedEventArgs e)
-    {
-        if (e == null)
+        if (rows == null || rows.Count == 0 || count <= 0)
         {
-            ReplaceRows(currentRows);
+            DetachAllRows();
             return;
         }
-        switch (e.Action)
+        int startIndex = Math.Max(0, firstIndex);
+        if (startIndex >= rows.Count)
         {
-            case NotifyCollectionChangedAction.Add:
-                AttachRows(e.NewItems);
-                break;
-            case NotifyCollectionChangedAction.Remove:
-                DetachRows(e.OldItems);
-                break;
-            case NotifyCollectionChangedAction.Replace:
-                DetachRows(e.OldItems);
-                AttachRows(e.NewItems);
-                break;
-            case NotifyCollectionChangedAction.Move:
-                break;
-            case NotifyCollectionChangedAction.Reset:
-            default:
-                ReplaceRows(currentRows);
-                break;
-        }
-    }
-
-    private void AttachRows(IEnumerable rows)
-    {
-        if (rows == null)
-        {
+            DetachAllRows();
             return;
         }
-        foreach (object row in rows)
+        int endIndex = Math.Min(rows.Count, startIndex + count);
+        Dictionary<INotifyPropertyChanged, int> targetRows = new Dictionary<INotifyPropertyChanged, int>(ReferenceEqualityComparer<INotifyPropertyChanged>.Instance);
+        for (int i = startIndex; i < endIndex; i++)
         {
-            AttachRow(row as INotifyPropertyChanged);
+            if (rows[i] is INotifyPropertyChanged row)
+            {
+                targetRows.TryGetValue(row, out int existingCount);
+                targetRows[row] = existingCount + 1;
+            }
         }
-    }
-
-    private void DetachRows(IEnumerable rows)
-    {
-        if (rows == null)
+        foreach (KeyValuePair<INotifyPropertyChanged, int> currentRow in subscribedRows.ToArray())
         {
-            return;
+            targetRows.TryGetValue(currentRow.Key, out int targetCount);
+            for (int i = currentRow.Value; i > targetCount; i--)
+            {
+                DetachRow(currentRow.Key);
+            }
         }
-        foreach (object row in rows)
+        foreach (KeyValuePair<INotifyPropertyChanged, int> targetRow in targetRows)
         {
-            DetachRow(row as INotifyPropertyChanged);
+            subscribedRows.TryGetValue(targetRow.Key, out int currentCount);
+            for (int i = currentCount; i < targetRow.Value; i++)
+            {
+                AttachRow(targetRow.Key);
+            }
         }
     }
 
@@ -109,7 +92,7 @@ internal sealed class CustomTableRowChangeTracker
         PropertyChangedEventManager.RemoveHandler(row, RowPropertyChanged, string.Empty);
     }
 
-    private void DetachAllRows()
+    internal void DetachAllRows()
     {
         foreach (INotifyPropertyChanged row in subscribedRows.Keys)
         {

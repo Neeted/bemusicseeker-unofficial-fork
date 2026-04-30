@@ -1,6 +1,4 @@
 using System;
-using System.Collections.ObjectModel;
-using System.Collections.Specialized;
 using System.ComponentModel;
 using System.Runtime.ExceptionServices;
 using System.Threading;
@@ -14,66 +12,79 @@ namespace BeMusicSeeker.Tests;
 public sealed class CustomTableRowChangeTrackerTests
 {
     [TestMethod]
-    public void ReplaceRows_OnlyTracksCurrentRows()
+    public void ReplaceVisibleRows_OnlyTracksVisibleRows()
     {
         int changedCount = 0;
-        TestRow oldRow = new TestRow();
-        TestRow newRow = new TestRow();
+        TestRow row0 = new TestRow();
+        TestRow row1 = new TestRow();
+        TestRow row2 = new TestRow();
         CustomTableRowChangeTracker tracker = new CustomTableRowChangeTracker(delegate { changedCount++; });
 
-        tracker.ReplaceRows(new object[] { oldRow });
-        oldRow.RaiseChanged();
-        tracker.ReplaceRows(new object[] { newRow });
-        oldRow.RaiseChanged();
-        newRow.RaiseChanged();
+        tracker.ReplaceVisibleRows(new object[] { row0, row1, row2 }, 1, 1);
+        row0.RaiseChanged();
+        row1.RaiseChanged();
+        row2.RaiseChanged();
 
-        Assert.AreEqual(2, changedCount);
+        Assert.AreEqual(1, changedCount);
         Assert.AreEqual(1, tracker.SubscribedRowCount);
     }
 
     [TestMethod]
-    public void ApplyCollectionChanged_UpdatesSubscriptions()
+    public void ReplaceVisibleRows_ScrollsSubscriptions()
     {
         int changedCount = 0;
         TestRow row1 = new TestRow();
         TestRow row2 = new TestRow();
         TestRow row3 = new TestRow();
-        ObservableCollection<object> rows = new ObservableCollection<object> { row1 };
+        object[] rows = { row1, row2, row3 };
         CustomTableRowChangeTracker tracker = new CustomTableRowChangeTracker(delegate { changedCount++; });
-        tracker.ReplaceRows(rows);
 
-        rows.Add(row2);
-        tracker.ApplyCollectionChanged(rows, new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Add, row2, 1));
-        rows[1] = row3;
-        tracker.ApplyCollectionChanged(rows, new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Replace, row3, row2, 1));
-        rows.RemoveAt(0);
-        tracker.ApplyCollectionChanged(rows, new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Remove, row1, 0));
+        tracker.ReplaceVisibleRows(rows, 0, 2);
+        tracker.ReplaceVisibleRows(rows, 1, 2);
 
         row1.RaiseChanged();
         row2.RaiseChanged();
         row3.RaiseChanged();
+
+        Assert.AreEqual(2, changedCount);
+        Assert.AreEqual(2, tracker.SubscribedRowCount);
+    }
+
+    [TestMethod]
+    public void ReplaceVisibleRows_RebuildsSubscriptionsAndIgnoresNonNotifyRows()
+    {
+        int changedCount = 0;
+        TestRow oldRow = new TestRow();
+        TestRow newRow = new TestRow();
+        object plainRow = new object();
+        object[] rows = { newRow, plainRow };
+        CustomTableRowChangeTracker tracker = new CustomTableRowChangeTracker(delegate { changedCount++; });
+        tracker.ReplaceVisibleRows(new object[] { oldRow }, 0, 1);
+
+        tracker.ReplaceVisibleRows(rows, 0, 2);
+        oldRow.RaiseChanged();
+        newRow.RaiseChanged();
 
         Assert.AreEqual(1, changedCount);
         Assert.AreEqual(1, tracker.SubscribedRowCount);
     }
 
     [TestMethod]
-    public void ApplyCollectionChanged_ResetRebuildsSubscriptionsAndIgnoresNonNotifyRows()
+    public void ReplaceVisibleRows_TracksDuplicateRowReferencesWithReferenceCount()
     {
         int changedCount = 0;
-        TestRow oldRow = new TestRow();
-        TestRow newRow = new TestRow();
-        object plainRow = new object();
-        ObservableCollection<object> rows = new ObservableCollection<object> { newRow, plainRow };
+        TestRow duplicatedRow = new TestRow();
+        TestRow otherRow = new TestRow();
         CustomTableRowChangeTracker tracker = new CustomTableRowChangeTracker(delegate { changedCount++; });
-        tracker.ReplaceRows(new object[] { oldRow });
 
-        tracker.ApplyCollectionChanged(rows, new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Reset));
-        oldRow.RaiseChanged();
-        newRow.RaiseChanged();
+        tracker.ReplaceVisibleRows(new object[] { duplicatedRow, duplicatedRow, otherRow }, 0, 2);
+        tracker.ReplaceVisibleRows(new object[] { duplicatedRow, duplicatedRow, otherRow }, 1, 2);
 
-        Assert.AreEqual(1, changedCount);
-        Assert.AreEqual(1, tracker.SubscribedRowCount);
+        duplicatedRow.RaiseChanged();
+        otherRow.RaiseChanged();
+
+        Assert.AreEqual(2, changedCount);
+        Assert.AreEqual(2, tracker.SubscribedRowCount);
     }
 
     [TestMethod]
