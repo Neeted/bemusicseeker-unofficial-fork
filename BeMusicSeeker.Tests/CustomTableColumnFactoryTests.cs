@@ -285,8 +285,8 @@ public sealed class CustomTableColumnFactoryTests
         Assert.AreEqual("ChartJudgeSortKey", paths["ChartJudgePercent"]);
         Assert.AreEqual("RefTablesSymbols", paths["PlaylistSymbols"]);
         Assert.AreEqual("clear", paths["Clear"]);
-        Assert.AreEqual("RankDisplayText", paths["Rank"]);
-        Assert.AreEqual("rate", paths["Rate"]);
+        Assert.AreEqual("rank", paths["Rank"]);
+        Assert.AreEqual("rateDouble", paths["Rate"]);
         Assert.AreEqual("stddevVal", paths["TScore"]);
         Assert.AreEqual("ChartLevelSortKey", paths["Level"]);
         Assert.AreEqual("ChartDifficultySortKey", paths["ChartDifficulty"]);
@@ -458,7 +458,7 @@ public sealed class CustomTableColumnFactoryTests
         {
             status = BeMusicSeeker.Models.BMSFile.BMSFileStatus.PLAY | BeMusicSeeker.Models.BMSFile.BMSFileStatus.SCORE_UNSENT,
             mode = 7,
-            rate = 98,
+            rateDouble = 0.912345,
             WAVHealth = 100,
             stddevVal = 12.345,
             scoreDifficulty = 6.789
@@ -466,7 +466,7 @@ public sealed class CustomTableColumnFactoryTests
 
         Assert.AreEqual("Play", columns["Status"].GetText(row));
         Assert.AreEqual("7KEYS", columns["Mode"].GetText(row));
-        Assert.AreEqual("98%", columns["Rate"].GetText(row));
+        Assert.AreEqual("91.23%", columns["Rate"].GetText(row));
         Assert.AreEqual("100%", columns["WavHealth"].GetText(row));
         Assert.AreEqual("12.35", columns["TScore"].GetText(row));
         Assert.AreEqual("6.79", columns["ScoreDifficulty"].GetText(row));

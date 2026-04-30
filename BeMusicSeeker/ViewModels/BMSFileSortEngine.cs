@@ -79,6 +79,7 @@ internal static class BMSFileSortEngine
         return !string.IsNullOrWhiteSpace(columnName)
             && (columnName.StartsWith("Chart", StringComparison.Ordinal)
                 || string.Equals(columnName, nameof(BMSFile.clear), StringComparison.Ordinal)
+                || string.Equals(columnName, nameof(BMSFile.rank), StringComparison.Ordinal)
                 || string.Equals(columnName, nameof(BMSFile.rateDouble), StringComparison.Ordinal));
     }
 

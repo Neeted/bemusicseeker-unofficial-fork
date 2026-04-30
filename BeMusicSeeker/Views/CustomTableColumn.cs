@@ -373,8 +373,8 @@ internal static class CustomTableColumnFactory
             new CustomTableColumn("ChartEndDensity", "END", settings.ChartEndDensity, 40, "ChartEndDensitySortKey", TextAlignment.Right, row => GetString(row, "ChartEndDensityText")),
             new CustomTableColumn("ChartSoflan", "SOFLAN", settings.ChartSoflan, 41, "ChartSoflanCount", TextAlignment.Right, row => GetString(row, "ChartSoflanCount")),
             new CustomTableColumn("Clear", "CLEAR", settings.Clear, 42, nameof(LibraryChartRow.clear), TextAlignment.Center, row => GetString(row, nameof(LibraryChartRow.ClearDisplayText)), row => GetClearBrush(row), textStyle: CustomTableTextStyle.Score),
-            new CustomTableColumn("Rank", "DJ LEVEL", settings.Rank, 43, nameof(LibraryChartRow.RankDisplayText), TextAlignment.Center, row => GetString(row, nameof(LibraryChartRow.RankDisplayText)), row => GetRankBrush(row), textStyle: CustomTableTextStyle.Rank),
-            new CustomTableColumn("Rate", "RATE", settings.Rate, 44, "rate", TextAlignment.Right, row => FormatSuffix(GetValue(row, "rate"), "%", string.Empty)),
+            new CustomTableColumn("Rank", "DJ LEVEL", settings.Rank, 43, nameof(LibraryChartRow.rank), TextAlignment.Center, row => GetString(row, nameof(LibraryChartRow.RankDisplayText)), row => GetRankBrush(row), textStyle: CustomTableTextStyle.Rank),
+            new CustomTableColumn("Rate", "RATE", settings.Rate, 44, nameof(LibraryChartRow.rateDouble), TextAlignment.Right, row => FormatPercentTwo(GetValue(row, nameof(LibraryChartRow.rateDouble)))),
             new CustomTableColumn("Score", "SCORE", settings.Score, 45, "score", TextAlignment.Right, row => GetString(row, "score")),
             new CustomTableColumn("Combo", "COMBO", settings.Combo, 46, "maxcombo", TextAlignment.Right, row => GetString(row, "maxcombo")),
             new CustomTableColumn("Bp", "BP", settings.Bp, 47, "minbp", TextAlignment.Right, row => GetString(row, "minbp")),
@@ -639,6 +639,20 @@ internal static class CustomTableColumnFactory
     private static string FormatPercentOne(object value)
     {
         return value is IFormattable formattable ? formattable.ToString("F1", CultureInfo.CurrentCulture) + "%" : string.Empty;
+    }
+
+    private static string FormatPercentTwo(object value)
+    {
+        if (value == null)
+        {
+            return string.Empty;
+        }
+        if (value is IConvertible convertible)
+        {
+            double ratio = convertible.ToDouble(CultureInfo.CurrentCulture);
+            return (ratio * 100.0).ToString("F2", CultureInfo.CurrentCulture) + "%";
+        }
+        return string.Empty;
     }
 
     private static string GetPlaylistSummaryLinkText(object row)

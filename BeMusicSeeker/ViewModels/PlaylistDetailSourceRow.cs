@@ -100,7 +100,7 @@ internal sealed class PlaylistDetailSourceRow
 
     internal double? rate { get; }
 
-    internal double? rateDouble => rate;
+    internal double? rateDouble => score.HasValue && totalnotes.HasValue && totalnotes.Value > 0 ? (double?)((double)score.Value / 2.0 / totalnotes.Value) : null;
 
     internal int? score { get; }
 

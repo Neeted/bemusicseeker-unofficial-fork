@@ -702,6 +702,9 @@ Phase 3 完了判断:
    - LR2 native の `score.clear` / `ir_score.clear` は従来どおり 0-5 / 21 の保存値を使うため、DB 境界で `ClearTypeStorageConverter` により表示・sort 用 enum と LR2 保存値を変換する。
    - CLEAR 表示は `ScoreDisplayTextFormatter.FormatClear` に一本化し、`ASSIST`, `L-ASSIST`, `EX HARD`, `PERFECT`, `MAX` の短縮表記を使う。既存 XAML converter も同 formatter を呼ぶ。
    - CLEAR 色分けは既存 LR2 値を維持し、`L_ASSIST` は薄紫、`EX_HARD` は黄色系、`MAX` は DJ LEVEL `MAX` と同じ黄色橙にする。
+   - 追加方針: `RATE` は LR2 DB の保存値 `score.rate` ではなく、アプリ内で `score / (2 * totalnotes)` から再計算した `rateDouble` を正本にする。
+   - `RATE` 表示は `rateDouble * 100` を小数点以下 2 桁の `%` 表示にし、`RATE` sort は `rateDouble` の typed numeric sort に接続する。
+   - `DJ LEVEL` は表示を `RankDisplayText` のまま維持し、sort path だけ `rank` にして既存の `rank -> rateDouble` remap を使う。これにより `RATE` と `DJ LEVEL` は同じ数値基準で並ぶ。
 
 5. 描画側は `custom_table_render reason=...` ごとに後半改善を判断する。
    - `items_source_changed`, `columns_changed`, `scroll_vertical`, `selection`, `row_property_changed` を reason 別に比較する。

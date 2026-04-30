@@ -852,7 +852,7 @@ public class BMSFile : LR2SongDB.song
     {
         get
         {
-            if (bmsScore != null)
+            if (bmsScore != null && bmsScore.totalnotes > 0)
             {
                 return (double)bmsScore.score / 2.0 / (double)bmsScore.totalnotes;
             }
@@ -1109,6 +1109,12 @@ public class BMSFile : LR2SongDB.song
                 RaisePropertyChanged(() => rank);
                 RaisePropertyChanged(() => ClearDisplayText);
                 RaisePropertyChanged(() => RankDisplayText);
+                RaisePropertyChanged(() => score);
+                RaisePropertyChanged(() => rate);
+                RaisePropertyChanged(() => rateDouble);
+                RaisePropertyChanged(() => totalnotes);
+                RaisePropertyChanged(() => minbp);
+                RaisePropertyChanged(() => maxcombo);
                 RaisePropertyChanged(() => ranking);
                 RaisePropertyChanged(() => rankingNum);
                 RaisePropertyChanged(() => rankingString);

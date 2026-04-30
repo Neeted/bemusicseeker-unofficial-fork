@@ -99,7 +99,7 @@ internal sealed class PlaylistDetailRow : NotificationObject
 
     public double? rate { get; }
 
-    public double? rateDouble => rate;
+    public double? rateDouble => score.HasValue && totalnotes.HasValue && totalnotes.Value > 0 ? (double?)((double)score.Value / 2.0 / totalnotes.Value) : null;
 
     public int? score { get; }
 

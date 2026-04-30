@@ -408,6 +408,22 @@ public sealed class BmsSortCompatibilityTests
         AssertTypedSort(nameof(LibraryChartRow.rateDouble), new[] { high, low }, new[] { "a_low.bms", "z_high.bms" });
     }
 
+    [TestMethod]
+    [TestCategory("SortEngine")]
+    public void RateDouble_ComputesFromScoreAndIgnoresStoredRate()
+    {
+        LibraryChartRow row = CreateLibraryChartRow("rate.bms", "Rate", level: 1, rateScorePerfect: 91);
+        row.BmsFile.bmsScore.rate = 12;
+
+        Assert.AreEqual(0.91, row.rateDouble.GetValueOrDefault(), 0.000001);
+
+        TestableBmsFile zeroNotes = new TestableBmsFile();
+        zeroNotes.ApplySnapshot(new SongSnapshotRow { path = "zero.bms", title = "Zero", level = 1, hash = "55555555555555555555555555555555" });
+        zeroNotes.bmsScore = new BMSScore { hash = zeroNotes.hash, perfect = 10, totalnotes = 0 };
+
+        Assert.IsFalse(zeroNotes.rateDouble.HasValue);
+    }
+
     /// <summary>
     /// PlaylistSummary 専用ソートが昇順/降順で正しく切り替わることを検証します。
     /// </summary>
@@ -456,7 +472,7 @@ public sealed class BmsSortCompatibilityTests
         };
         MainWindowViewModel.cSortParameters rankSort = new MainWindowViewModel.cSortParameters
         {
-            ColumnsName = nameof(PlaylistDetailRow.RankDisplayText),
+            ColumnsName = nameof(PlaylistDetailRow.rank),
             Direction = ListSortDirection.Ascending
         };
 
@@ -466,7 +482,9 @@ public sealed class BmsSortCompatibilityTests
         CollectionAssert.AreEqual(new[] { "a_easy_aa.bms", "z_hard_aaa.bms" }, clearSorted.Select(row => row.path).ToArray());
         CollectionAssert.AreEqual(new[] { "a_easy_aa.bms", "z_hard_aaa.bms" }, rankSorted.Select(row => row.path).ToArray());
         Assert.AreEqual("enum", clearProfile);
-        Assert.AreEqual("string_fast_ordinal_ignore_case", rankProfile);
+        Assert.AreEqual("numeric_double", rankProfile);
+        Assert.AreEqual(0.95, hardAaa.rateDouble.GetValueOrDefault(), 0.000001);
+        Assert.AreEqual(0.95, hardAaa.CreateViewRow().rateDouble.GetValueOrDefault(), 0.000001);
     }
 
     [TestMethod]
