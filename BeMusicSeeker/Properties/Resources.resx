@@ -326,10 +326,10 @@ title:re:^alpha
 詳細は docs/keyword-search-syntax-guide.md を参照してください。</value>
   </data>
   <data name="Keyword_search_help_fields_bmsfile" xml:space="preserve">
-    <value>title, artist, genre, tag, path, playlist/ref, md5/hash, sha256, level, difficulty, mainbpm, maxbpm, minbpm, duration, judge, judge%, feature, notes, long/ln, scratch, total, tn/t/n, density, peak, end, soflan</value>
+    <value>title, artist, genre, tag, path, playlist/ref, md5/hash, sha256, level, difficulty, mainbpm, maxbpm, minbpm, duration, judge/judge%/judgepct, feature, notes, long/ln, scratch, total, tn/t/n, density, peak, end, soflan, clear, rank/djlevel/dj, rate, score, combo, bp</value>
   </data>
   <data name="Keyword_search_help_fields_playlist_detail" xml:space="preserve">
-    <value>title, artist, genre, tag, path, playlist/ref, md5/hash, sha256, memo, comment, level, difficulty, mainbpm, maxbpm, minbpm, duration, judge, judge%, feature, notes, long/ln, scratch, total, tn/t/n, density, peak, end, soflan</value>
+    <value>title, artist, genre, tag, path, playlist/ref, md5/hash, sha256, memo, comment, level, difficulty, mainbpm, maxbpm, minbpm, duration, judge/judge%/judgepct, feature, notes, long/ln, scratch, total, tn/t/n, density, peak, end, soflan, clear, rank/djlevel/dj, rate, score, combo, bp</value>
   </data>
   <data name="Keyword_search_help_fields_playlist_summary" xml:space="preserve">
     <value>id, name, symbol</value>

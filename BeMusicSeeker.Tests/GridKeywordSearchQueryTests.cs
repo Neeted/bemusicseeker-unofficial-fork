@@ -175,6 +175,42 @@ public sealed class GridKeywordSearchQueryTests
     }
 
     [TestMethod]
+    public void MatchesBmsFile_ScoreFieldsSupportAliasesAndNumericRanges()
+    {
+        TestableBmsFile file = CreateFile();
+        file.SetScoreForTest(ClearType.HARD, RankType.AAA, perfect: 900, great: 100, totalnotes: 1000, maxcombo: 1200, minbp: 5);
+
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("clear:HC").MatchesBmsFile(file));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("clear:\"HARD CLEAR\"").MatchesBmsFile(file));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("rank:AAA").MatchesBmsFile(file));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("djlevel:AAA").MatchesBmsFile(file));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("rate:0.95").MatchesBmsFile(file));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("rate:>=0.9").MatchesBmsFile(file));
+        Assert.IsFalse(GridKeywordSearchQuery.Parse("rate:95").MatchesBmsFile(file));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("score:>=1700 combo:1000.. bp:0..10").MatchesBmsFile(file));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("clear:defined score:defined").MatchesBmsFile(file));
+
+        file.bmsScore.clear = ClearType.EX_HARD;
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("clear:EXH").MatchesBmsFile(file));
+        file.bmsScore.clear = ClearType.PA;
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("clear:PF").MatchesBmsFile(file));
+        file.bmsScore.clear = ClearType.MAX;
+        file.bmsScore.rank = RankType.MAX;
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("clear:MAX dj:MAX").MatchesBmsFile(file));
+    }
+
+    [TestMethod]
+    public void MatchesBmsFile_ScoreFieldsSupportUndefinedTerms()
+    {
+        TestableBmsFile file = CreateFile();
+
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("rank:undefined score:undefined rate:undefined combo:undefined bp:undefined").MatchesBmsFile(file));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("clear:defined").MatchesBmsFile(file));
+        Assert.IsFalse(GridKeywordSearchQuery.Parse("rank:defined").MatchesBmsFile(file));
+        Assert.IsFalse(GridKeywordSearchQuery.Parse("score:defined").MatchesBmsFile(file));
+    }
+
+    [TestMethod]
     public void CreateFromBmsonSong_ExposesChartInfoForDisplayAndSearch()
     {
         LR2SongDBExtended.chart_info chartInfo = CreateChartInfo();
@@ -226,17 +262,45 @@ public sealed class GridKeywordSearchQueryTests
     }
 
     [TestMethod]
+    public void MatchesLibraryChartRow_ScoreFieldsUseBmsFileScore()
+    {
+        TestableBmsFile file = CreateFile();
+        file.SetScoreForTest(ClearType.HARD, RankType.AA, perfect: 850, great: 100, totalnotes: 1000, maxcombo: 900, minbp: 8);
+        LibraryChartRow row = LibraryChartRow.FromBmsFile(file);
+
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("clear:HC rank:AA score:>=1800 bp:<10").MatchesLibraryChartRow(row));
+    }
+
+    [TestMethod]
+    public void MatchesPlaylistDetail_ScoreFieldsUseSourceSnapshot()
+    {
+        TestableBmsFile file = CreateFile();
+        file.SetScoreForTest(ClearType.HARD, RankType.AA, perfect: 850, great: 100, totalnotes: 1000, maxcombo: 900, minbp: 8);
+        PlaylistDetailSourceRow row = new PlaylistDetailSourceRow(new BMSTableEntry(file), file);
+
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("clear:\"HARD CLEAR\" score:>=1800 bp:0..10").MatchesPlaylistDetail(row));
+    }
+
+    [TestMethod]
     public void CreateFieldCompletion_CompletesContextSpecificFields()
     {
         GridKeywordSearchCompletionResult bmsResult = GridKeywordSearchCompletion.CreateFieldCompletion("tit", 3, GridKeywordSearchContext.BmsFile);
         GridKeywordSearchCompletionResult negatedResult = GridKeywordSearchCompletion.CreateFieldCompletion("-ar", 3, GridKeywordSearchContext.BmsFile);
         GridKeywordSearchCompletionResult detailResult = GridKeywordSearchCompletion.CreateFieldCompletion("mem", 3, GridKeywordSearchContext.PlaylistDetail);
         GridKeywordSearchCompletionResult summaryResult = GridKeywordSearchCompletion.CreateFieldCompletion("na", 2, GridKeywordSearchContext.PlaylistSummary);
+        GridKeywordSearchCompletionResult clearResult = GridKeywordSearchCompletion.CreateFieldCompletion("cle", 3, GridKeywordSearchContext.BmsFile);
+        GridKeywordSearchCompletionResult djResult = GridKeywordSearchCompletion.CreateFieldCompletion("dj", 2, GridKeywordSearchContext.BmsFile);
+        GridKeywordSearchCompletionResult rateRankResult = GridKeywordSearchCompletion.CreateFieldCompletion("ra", 2, GridKeywordSearchContext.BmsFile);
 
         Assert.IsTrue(bmsResult.Items.Any((KeywordSearchSuggestionItem item) => item.DisplayText == "title:"));
         Assert.IsTrue(negatedResult.Items.Any((KeywordSearchSuggestionItem item) => item.DisplayText == "-artist:"));
         Assert.IsTrue(detailResult.Items.Any((KeywordSearchSuggestionItem item) => item.DisplayText == "memo:"));
         Assert.IsTrue(summaryResult.Items.Any((KeywordSearchSuggestionItem item) => item.DisplayText == "name:"));
+        Assert.IsTrue(clearResult.Items.Any((KeywordSearchSuggestionItem item) => item.DisplayText == "clear:"));
+        Assert.IsTrue(djResult.Items.Any((KeywordSearchSuggestionItem item) => item.DisplayText == "dj:"));
+        Assert.IsTrue(djResult.Items.Any((KeywordSearchSuggestionItem item) => item.DisplayText == "djlevel:"));
+        Assert.IsTrue(rateRankResult.Items.Any((KeywordSearchSuggestionItem item) => item.DisplayText == "rank:"));
+        Assert.IsTrue(rateRankResult.Items.Any((KeywordSearchSuggestionItem item) => item.DisplayText == "rate:"));
         Assert.AreEqual(0, GridKeywordSearchCompletion.CreateFieldCompletion("mem", 3, GridKeywordSearchContext.BmsFile).Items.Count);
     }
 
@@ -339,6 +403,21 @@ public sealed class GridKeywordSearchQueryTests
         internal void SetTitleForTest(string value)
         {
             Title = value;
+        }
+
+        internal void SetScoreForTest(ClearType clear, RankType rank, int perfect, int great, int totalnotes, int maxcombo, int minbp)
+        {
+            bmsScore = new BMSScore
+            {
+                hash = hash,
+                clear = clear,
+                rank = rank,
+                perfect = perfect,
+                great = great,
+                totalnotes = totalnotes,
+                maxcombo = maxcombo,
+                minbp = minbp
+            };
         }
     }
 }

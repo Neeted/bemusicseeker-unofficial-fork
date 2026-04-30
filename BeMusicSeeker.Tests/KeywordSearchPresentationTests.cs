@@ -37,7 +37,13 @@ public sealed class KeywordSearchPresentationTests
         string summaryHelp = MainWindowViewModel.BuildKeywordSearchHelpText(GridKeywordSearchContext.PlaylistSummary);
 
         StringAssert.Contains(bmsFileHelp, "sha256");
+        StringAssert.Contains(bmsFileHelp, "clear");
+        StringAssert.Contains(bmsFileHelp, "rate");
+        StringAssert.Contains(bmsFileHelp, "bp");
         StringAssert.Contains(playlistDetailHelp, "memo");
+        StringAssert.Contains(playlistDetailHelp, "clear");
+        StringAssert.Contains(playlistDetailHelp, "rate");
+        StringAssert.Contains(playlistDetailHelp, "bp");
         StringAssert.Contains(summaryHelp, "symbol");
     }
 

@@ -148,7 +148,7 @@ title:alpha artist:xi
 | `maxbpm` | `chart_info.maxbpm` |
 | `minbpm` | `chart_info.minbpm` |
 | `duration` / `length` | 演奏時間。秒単位で指定 |
-| `judge` / `judge%` | 判定幅倍率。`judge` は `veryhard`, `hard`, `normal`, `easy`, `veryeasy` も指定可 |
+| `judge` / `judge%` / `judgepct` | 判定幅倍率。`judge` は `veryhard`, `hard`, `normal`, `easy`, `veryeasy` も指定可 |
 | `feature` | `ln`, `mine`, `random`, `lnmode`, `cn`, `hcn`, `stop`, `scroll` |
 | `notes` | 総ノーツ数 |
 | `long` / `ln` | ロングノーツ数 |
@@ -159,6 +159,12 @@ title:alpha artist:xi
 | `peak` / `peakdensity` | 1 秒窓の最大密度 |
 | `end` / `enddensity` | 終盤密度 |
 | `soflan` | 変速回数 |
+| `clear` | CLEAR。`NP`, `F`, `AE`, `LAE`, `EC`, `NC`, `HC`, `EXH`, `FC`, `PF`, `MAX` または表示名で指定可 |
+| `rank` / `djlevel` / `dj` | DJ LEVEL。`F`, `E`, `D`, `C`, `B`, `A`, `AA`, `AAA`, `MAX` を指定可 |
+| `rate` | RATE。`rateDouble` の値で、`0.95` が 95% を表す |
+| `score` | SCORE |
+| `combo` | COMBO |
+| `bp` | BP |
 | `memo` | memo。プレイリスト詳細のみ |
 | `comment` | comment。プレイリスト詳細のみ |
 
@@ -169,15 +175,35 @@ level:10..12
 notes:>=2000
 duration:<120
 tn:2.0..
+rate:0.95..
+bp:0..10
 ```
 
-`defined` / `undefined` も利用できます。`chart_info` が未構築の場合や、`level` が NULL の場合、`difficulty_defined=false` / `total_defined=false` の場合は `undefined` に一致します。
+`defined` / `undefined` も利用できます。`chart_info` が未構築の場合や、`level` が NULL の場合、`difficulty_defined=false` / `total_defined=false` の場合は `undefined` に一致します。数値のスコア系 field ではスコア未取得などで値がない場合に `undefined` に一致します。`rank` は DJ LEVEL が空の場合に `undefined` に一致します。`clear` は `NO SONG` / `NO PLAY` も CLEAR 種別として扱うため、常に `defined` に一致します。
 
 ```text
 total:undefined
 difficulty:defined
 -feature:random
+score:defined
+rank:undefined
 ```
+
+`clear` は CLEAR 種別の完全一致です。表示名に加えて、以下の短縮表現を利用できます。
+
+| 入力 | 対象 |
+| :--- | :--- |
+| `NP` | NO PLAY |
+| `F` | FAILED |
+| `AE` | ASSIST |
+| `LAE` | L-ASSIST |
+| `EC` | EASY CLEAR |
+| `NC` | CLEAR |
+| `HC` | HARD CLEAR |
+| `EXH` | EX HARD |
+| `FC` | FULL COMBO |
+| `PF` | PERFECT |
+| `MAX` | MAX |
 
 ### プレイリスト一覧で使える field
 

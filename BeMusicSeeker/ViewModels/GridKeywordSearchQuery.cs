@@ -51,12 +51,19 @@ internal sealed class GridKeywordSearchQuery
         "end", "enddensity", "soflan"
     };
 
+    private static readonly string[] ScoreFields =
+    {
+        "clear", "rank", "djlevel", "dj", "rate", "score", "combo", "bp"
+    };
+
     private static readonly string[] BmsFileFields = new[] { "title", "artist", "genre", "tag", "path", "playlist", "ref", "md5", "hash", "sha256" }
         .Concat(BaseChartFields)
+        .Concat(ScoreFields)
         .ToArray();
 
     private static readonly string[] PlaylistDetailFields = new[] { "title", "artist", "genre", "tag", "path", "playlist", "ref", "md5", "hash", "sha256", "memo", "comment" }
         .Concat(BaseChartFields)
+        .Concat(ScoreFields)
         .ToArray();
 
     private static readonly string[] PlaylistSummaryFields = { "id", "name", "symbol" };
@@ -486,7 +493,9 @@ internal sealed class GridKeywordSearchQuery
         }
         bool matched = IsChartInfoField(condition.Field) && !condition.IsRegex
             ? condition.Alternatives.Any((SearchAlternative alternative) => MatchesChartInfoAlternative(alternative, file.ChartInfo, condition.Field))
-            : condition.Alternatives.Any((SearchAlternative alternative) => MatchesAlternative(alternative, GetBmsFileValues(file, condition.Field)));
+            : IsScoreField(condition.Field) && !condition.IsRegex
+                ? condition.Alternatives.Any((SearchAlternative alternative) => MatchesScoreAlternative(alternative, condition.Field, file.clear, file.rank, file.rateDouble, file.score, file.maxcombo, file.minbp))
+                : condition.Alternatives.Any((SearchAlternative alternative) => MatchesAlternative(alternative, GetBmsFileValues(file, condition.Field)));
         return condition.IsNegated ? !matched : matched;
     }
 
@@ -498,7 +507,9 @@ internal sealed class GridKeywordSearchQuery
         }
         bool matched = IsChartInfoField(condition.Field) && !condition.IsRegex
             ? condition.Alternatives.Any((SearchAlternative alternative) => MatchesChartInfoAlternative(alternative, row.ChartInfo, condition.Field))
-            : condition.Alternatives.Any((SearchAlternative alternative) => MatchesAlternative(alternative, GetLibraryChartRowValues(row, condition.Field)));
+            : IsScoreField(condition.Field) && !condition.IsRegex
+                ? condition.Alternatives.Any((SearchAlternative alternative) => MatchesScoreAlternative(alternative, condition.Field, row.clear, row.rank, row.rateDouble, row.score, row.maxcombo, row.minbp))
+                : condition.Alternatives.Any((SearchAlternative alternative) => MatchesAlternative(alternative, GetLibraryChartRowValues(row, condition.Field)));
         return condition.IsNegated ? !matched : matched;
     }
 
@@ -510,7 +521,9 @@ internal sealed class GridKeywordSearchQuery
         }
         bool matched = IsChartInfoField(condition.Field) && !condition.IsRegex
             ? condition.Alternatives.Any((SearchAlternative alternative) => MatchesChartInfoAlternative(alternative, row.ChartInfo, condition.Field))
-            : condition.Alternatives.Any((SearchAlternative alternative) => MatchesAlternative(alternative, GetPlaylistDetailValues(row, condition.Field)));
+            : IsScoreField(condition.Field) && !condition.IsRegex
+                ? condition.Alternatives.Any((SearchAlternative alternative) => MatchesScoreAlternative(alternative, condition.Field, row.clear, row.rank, row.rateDouble, row.score, row.maxcombo, row.minbp))
+                : condition.Alternatives.Any((SearchAlternative alternative) => MatchesAlternative(alternative, GetPlaylistDetailValues(row, condition.Field)));
         return condition.IsNegated ? !matched : matched;
     }
 
@@ -587,6 +600,11 @@ internal sealed class GridKeywordSearchQuery
         return field != null && BaseChartFields.Contains(field);
     }
 
+    private static bool IsScoreField(string field)
+    {
+        return field != null && ScoreFields.Contains(field);
+    }
+
     private static IEnumerable<string> GetBmsFileValues(BMSFile file, string field)
     {
         switch (field)
@@ -626,6 +644,26 @@ internal sealed class GridKeywordSearchQuery
                 break;
             case "sha256":
                 yield return file.sha256;
+                break;
+            case "clear":
+                yield return ScoreDisplayTextFormatter.FormatClear(file.clear);
+                break;
+            case "rank":
+            case "djlevel":
+            case "dj":
+                yield return ScoreDisplayTextFormatter.FormatRank(file.rank);
+                break;
+            case "rate":
+                yield return FormatNullableDoubleInvariant(file.rateDouble);
+                break;
+            case "score":
+                yield return FormatNullableIntInvariant(file.score);
+                break;
+            case "combo":
+                yield return FormatNullableIntInvariant(file.maxcombo);
+                break;
+            case "bp":
+                yield return FormatNullableIntInvariant(file.minbp);
                 break;
             default:
                 foreach (string value in GetChartInfoValues(file.ChartInfo, field))
@@ -675,6 +713,26 @@ internal sealed class GridKeywordSearchQuery
                 break;
             case "sha256":
                 yield return row.sha256;
+                break;
+            case "clear":
+                yield return ScoreDisplayTextFormatter.FormatClear(row.clear);
+                break;
+            case "rank":
+            case "djlevel":
+            case "dj":
+                yield return ScoreDisplayTextFormatter.FormatRank(row.rank);
+                break;
+            case "rate":
+                yield return FormatNullableDoubleInvariant(row.rateDouble);
+                break;
+            case "score":
+                yield return FormatNullableIntInvariant(row.score);
+                break;
+            case "combo":
+                yield return FormatNullableIntInvariant(row.maxcombo);
+                break;
+            case "bp":
+                yield return FormatNullableIntInvariant(row.minbp);
                 break;
             default:
                 foreach (string value in GetChartInfoValues(row.ChartInfo, field))
@@ -733,6 +791,26 @@ internal sealed class GridKeywordSearchQuery
             case "comment":
                 yield return row.comment;
                 break;
+            case "clear":
+                yield return ScoreDisplayTextFormatter.FormatClear(row.clear);
+                break;
+            case "rank":
+            case "djlevel":
+            case "dj":
+                yield return ScoreDisplayTextFormatter.FormatRank(row.rank);
+                break;
+            case "rate":
+                yield return FormatNullableDoubleInvariant(row.rateDouble);
+                break;
+            case "score":
+                yield return FormatNullableIntInvariant(row.score);
+                break;
+            case "combo":
+                yield return FormatNullableIntInvariant(row.maxcombo);
+                break;
+            case "bp":
+                yield return FormatNullableIntInvariant(row.minbp);
+                break;
             default:
                 foreach (string value in GetChartInfoValues(row.ChartInfo, field))
                 {
@@ -740,6 +818,177 @@ internal sealed class GridKeywordSearchQuery
                 }
                 break;
         }
+    }
+
+    private static bool MatchesScoreAlternative(SearchAlternative alternative, string field, ClearType clear, RankType rank, double? rate, int? score, int? combo, int? bp)
+    {
+        if (alternative.IsInvalid || alternative.IsEmpty)
+        {
+            return false;
+        }
+        string term = alternative.Term?.Trim() ?? string.Empty;
+        if (string.Equals(field, "clear", StringComparison.Ordinal))
+        {
+            if (IsDefinedTerm(term, out bool clearDefined))
+            {
+                return clearDefined;
+            }
+            return TryParseClearTerm(term, out ClearType expectedClear) && clear == expectedClear;
+        }
+        if (IsRankField(field))
+        {
+            if (IsDefinedTerm(term, out bool rankDefined))
+            {
+                return (rank != RankType.INVALID) == rankDefined;
+            }
+            return TryParseRankTerm(term, out RankType expectedRank) && rank == expectedRank;
+        }
+        double? value = GetScoreNumericValue(field, rate, score, combo, bp);
+        if (IsDefinedTerm(term, out bool numericDefined))
+        {
+            return value.HasValue == numericDefined;
+        }
+        return MatchesNumericTerm(value, term);
+    }
+
+    private static bool IsRankField(string field)
+    {
+        return string.Equals(field, "rank", StringComparison.Ordinal)
+            || string.Equals(field, "djlevel", StringComparison.Ordinal)
+            || string.Equals(field, "dj", StringComparison.Ordinal);
+    }
+
+    private static double? GetScoreNumericValue(string field, double? rate, int? score, int? combo, int? bp)
+    {
+        switch (field)
+        {
+            case "rate":
+                return rate;
+            case "score":
+                return score;
+            case "combo":
+                return combo;
+            case "bp":
+                return bp;
+            default:
+                return null;
+        }
+    }
+
+    private static bool TryParseClearTerm(string term, out ClearType clear)
+    {
+        switch (NormalizeEnumTerm(term))
+        {
+            case "nosong":
+                clear = ClearType.NO_SONG;
+                return true;
+            case "np":
+            case "noplay":
+                clear = ClearType.NO_PLAY;
+                return true;
+            case "f":
+            case "failed":
+                clear = ClearType.FAILED;
+                return true;
+            case "ae":
+            case "assist":
+                clear = ClearType.INVALID;
+                return true;
+            case "lae":
+            case "lassist":
+                clear = ClearType.L_ASSIST;
+                return true;
+            case "ec":
+            case "easyclear":
+                clear = ClearType.EASY;
+                return true;
+            case "nc":
+            case "clear":
+                clear = ClearType.CLEAR;
+                return true;
+            case "hc":
+            case "hardclear":
+                clear = ClearType.HARD;
+                return true;
+            case "exh":
+            case "exhard":
+                clear = ClearType.EX_HARD;
+                return true;
+            case "fc":
+            case "fullcombo":
+                clear = ClearType.FC;
+                return true;
+            case "pf":
+            case "perfect":
+                clear = ClearType.PA;
+                return true;
+            case "max":
+                clear = ClearType.MAX;
+                return true;
+            default:
+                clear = ClearType.NO_PLAY;
+                return false;
+        }
+    }
+
+    private static bool TryParseRankTerm(string term, out RankType rank)
+    {
+        switch (NormalizeEnumTerm(term))
+        {
+            case "f":
+                rank = RankType.F;
+                return true;
+            case "e":
+                rank = RankType.E;
+                return true;
+            case "d":
+                rank = RankType.D;
+                return true;
+            case "c":
+                rank = RankType.C;
+                return true;
+            case "b":
+                rank = RankType.B;
+                return true;
+            case "a":
+                rank = RankType.A;
+                return true;
+            case "aa":
+                rank = RankType.AA;
+                return true;
+            case "aaa":
+                rank = RankType.AAA;
+                return true;
+            case "max":
+                rank = RankType.MAX;
+                return true;
+            default:
+                rank = RankType.INVALID;
+                return false;
+        }
+    }
+
+    private static string NormalizeEnumTerm(string term)
+    {
+        StringBuilder builder = new StringBuilder();
+        foreach (char c in term ?? string.Empty)
+        {
+            if (!char.IsWhiteSpace(c) && c != '-' && c != '_')
+            {
+                builder.Append(char.ToLowerInvariant(c));
+            }
+        }
+        return builder.ToString();
+    }
+
+    private static string FormatNullableIntInvariant(int? value)
+    {
+        return value.HasValue ? value.Value.ToString(CultureInfo.InvariantCulture) : string.Empty;
+    }
+
+    private static string FormatNullableDoubleInvariant(double? value)
+    {
+        return value.HasValue ? value.Value.ToString(CultureInfo.InvariantCulture) : string.Empty;
     }
 
     private static IEnumerable<string> GetChartInfoValues(LR2SongDBExtended.chart_info chartInfo, string field)
