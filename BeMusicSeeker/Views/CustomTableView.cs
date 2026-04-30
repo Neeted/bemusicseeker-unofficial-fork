@@ -54,6 +54,7 @@ public sealed class CustomTableView : Grid
     private const double ColumnResizeHitTestMargin = 4d;
     private const int RowSubscriptionOverscan = 5;
     private const long RowSubscriptionSlowLogThresholdMs = 100L;
+    private const long RenderSlowLogThresholdMs = 100L;
     private static readonly Logger installPerformanceLogger = LogManager.GetLogger("InstallPerformance.CustomTableView");
 
     public static readonly DependencyProperty ItemsSourceProperty = DependencyProperty.Register(
@@ -112,10 +113,19 @@ public sealed class CustomTableView : Grid
     private readonly Popup editSuggestionPopup;
     private readonly ListBox editSuggestionListBox;
     private readonly CustomTableSelectionModel selectionModel = new CustomTableSelectionModel();
+    private readonly CustomTableCellValueCache cellValueCache = new CustomTableCellValueCache();
     private readonly CustomTableRowChangeTracker rowChangeTracker;
+    private readonly CustomTableRowInvalidationQueue pendingRowInvalidations = new CustomTableRowInvalidationQueue();
     private readonly CustomTableRedrawScheduler rowPropertyChangedRedrawScheduler;
     private readonly List<INotifyPropertyChanged> subscribedColumnLayouts = new List<INotifyPropertyChanged>();
+    private readonly HashSet<string> loggedRenderReasons = new HashSet<string>();
+    private CustomTableColumnLayoutSnapshot columnLayoutSnapshot;
     private INotifyCollectionChanged itemsCollectionChanged;
+    private string pendingRedrawReason = "initial";
+    private int lastVisibleSubscriptionFirstIndex = -1;
+    private int lastVisibleSubscriptionCount = -1;
+    private int rowValueGeneration;
+    private int columnValueGeneration;
     private long itemsAppliedTimestamp;
     private bool firstRenderLogged = true;
     private bool updatingSelectedIndexFromSelection;
@@ -192,10 +202,10 @@ public sealed class CustomTableView : Grid
         {
             ClipToBounds = true
         };
-        rowPropertyChangedRedrawScheduler = new CustomTableRedrawScheduler(Dispatcher, () => surface.InvalidateVisual());
-        rowChangeTracker = new CustomTableRowChangeTracker(delegate
+        rowPropertyChangedRedrawScheduler = new CustomTableRedrawScheduler(Dispatcher, FlushPendingRowInvalidations);
+        rowChangeTracker = new CustomTableRowChangeTracker(delegate(INotifyPropertyChanged row, PropertyChangedEventArgs e)
         {
-            rowPropertyChangedRedrawScheduler.Request();
+            EnqueueRowInvalidation(row);
         });
         verticalScrollBar.ValueChanged += VerticalScrollBarValueChanged;
         horizontalScrollBar.ValueChanged += HorizontalScrollBarValueChanged;
@@ -213,9 +223,10 @@ public sealed class CustomTableView : Grid
         SetRow(horizontalScrollBar, 1);
         SizeChanged += delegate
         {
+            InvalidateColumnLayoutSnapshot();
             UpdateScrollBars();
             UpdateVisibleRowSubscriptions("size_changed");
-            surface.InvalidateVisual();
+            RequestRedraw("size_changed");
         };
         PreviewMouseLeftButtonDown += CustomTableViewPreviewMouseLeftButtonDown;
         PreviewMouseLeftButtonUp += CustomTableViewPreviewMouseLeftButtonUp;
@@ -241,9 +252,10 @@ public sealed class CustomTableView : Grid
             if (IsVisible)
             {
                 MarkItemsApplied();
+                InvalidateColumnLayoutSnapshot();
                 UpdateScrollBars();
                 UpdateVisibleRowSubscriptions("visible_changed", logAlways: true);
-                surface.InvalidateVisual();
+                RequestRedraw("visible_changed");
             }
             else
             {
@@ -368,10 +380,12 @@ public sealed class CustomTableView : Grid
         view.DetachCollectionChanged(e.OldValue as INotifyCollectionChanged);
         view.AttachCollectionChanged(e.NewValue as INotifyCollectionChanged);
         view.MarkItemsApplied();
+        view.InvalidateAllCellValues();
         view.CoerceSelectionToCurrentRows();
+        view.InvalidateColumnLayoutSnapshot();
         view.UpdateScrollBars();
         view.UpdateVisibleRowSubscriptions("items_source_changed", logAlways: true);
-        view.surface.InvalidateVisual();
+        view.RequestRedraw("items_source_changed");
     }
 
     private static void OnColumnsChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
@@ -379,8 +393,10 @@ public sealed class CustomTableView : Grid
         CustomTableView view = (CustomTableView)d;
         view.CommitActiveEdit();
         view.currentCellHit = null;
+        view.InvalidateColumnLayoutSnapshot();
+        view.InvalidateColumnCellValues();
         view.UpdateScrollBars();
-        view.surface.InvalidateVisual();
+        view.RequestRedraw("columns_changed");
     }
 
     private static void OnColumnsSettingsChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
@@ -397,9 +413,10 @@ public sealed class CustomTableView : Grid
     {
         CustomTableView view = (CustomTableView)d;
         view.CommitActiveEdit();
+        view.InvalidateColumnLayoutSnapshot();
         view.UpdateScrollBars();
         view.UpdateVisibleRowSubscriptions("layout_metric_changed");
-        view.surface.InvalidateVisual();
+        view.RequestRedraw("layout_metric_changed");
     }
 
     private static void OnSelectedIndexChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
@@ -414,14 +431,14 @@ public sealed class CustomTableView : Grid
                 view.selectionModel.SyncCurrentIndex(selectedIndex);
             }
         }
-        view.surface.InvalidateVisual();
+        view.RequestRedraw("selection");
     }
 
     private static void OnSortStateChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
     {
         CustomTableView view = (CustomTableView)d;
         view.CommitActiveEdit();
-        view.surface.InvalidateVisual();
+        view.RequestRedraw("sort_state");
     }
 
     private void AttachCollectionChanged(INotifyCollectionChanged collection)
@@ -450,10 +467,12 @@ public sealed class CustomTableView : Grid
         CommitActiveEdit();
         currentCellHit = null;
         MarkItemsApplied();
+        InvalidateAllCellValues();
         CoerceSelectionToCurrentRows();
+        InvalidateColumnLayoutSnapshot();
         UpdateScrollBars();
         UpdateVisibleRowSubscriptions(GetCollectionChangedSubscriptionReason(e), logAlways: e?.Action == NotifyCollectionChangedAction.Reset);
-        surface.InvalidateVisual();
+        RequestRedraw("items_source_changed");
     }
 
     private void AttachColumnLayoutHandlers(dataGridColumnsSettings settings)
@@ -491,6 +510,8 @@ public sealed class CustomTableView : Grid
     private void RebuildColumns(bool markItemsApplied = true)
     {
         Columns = CustomTableColumnFactory.CreateMainColumns(ColumnsSettings).ToArray();
+        InvalidateColumnLayoutSnapshot();
+        InvalidateColumnCellValues();
         if (markItemsApplied)
         {
             MarkItemsApplied();
@@ -523,14 +544,14 @@ public sealed class CustomTableView : Grid
         CommitActiveEdit();
         CloseCellToolTip();
         UpdateVisibleRowSubscriptions("vertical_scroll");
-        surface.InvalidateVisual();
+        RequestRedraw("scroll_vertical");
     }
 
     private void HorizontalScrollBarValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
     {
         CommitActiveEdit();
         CloseCellToolTip();
-        surface.InvalidateVisual();
+        RequestRedraw("scroll_horizontal");
     }
 
     private void UpdateScrollBars()
@@ -545,7 +566,7 @@ public sealed class CustomTableView : Grid
         {
             verticalScrollBar.Value = verticalScrollBar.Maximum;
         }
-        double extentWidth = CustomTableColumnLayout.CalculateExtentWidth(VisibleColumns);
+        double extentWidth = GetColumnLayoutSnapshot().ExtentWidth;
         double viewportWidth = Math.Max(0d, surface.ActualWidth);
         horizontalScrollBar.ViewportSize = viewportWidth;
         horizontalScrollBar.LargeChange = Math.Max(1d, viewportWidth);
@@ -564,6 +585,94 @@ public sealed class CustomTableView : Grid
         return Math.Max(1, (int)Math.Ceiling(bodyHeight / rowHeight));
     }
 
+    internal CustomTableColumnLayoutSnapshot GetColumnLayoutSnapshot()
+    {
+        IReadOnlyList<CustomTableColumn> columns = VisibleColumns;
+        double horizontalOffset = HorizontalOffset;
+        double viewportWidth = Math.Max(0d, surface.ActualWidth);
+        if (columnLayoutSnapshot == null || !columnLayoutSnapshot.Matches(columns, horizontalOffset, viewportWidth))
+        {
+            columnLayoutSnapshot = CustomTableColumnLayoutSnapshot.Create(columns, horizontalOffset, viewportWidth);
+        }
+        return columnLayoutSnapshot;
+    }
+
+    private void InvalidateColumnLayoutSnapshot()
+    {
+        columnLayoutSnapshot = null;
+    }
+
+    internal CustomTableCellValue GetCellValue(object row, CustomTableColumn column, out bool cacheHit)
+    {
+        return cellValueCache.GetOrCreate(row, column, rowValueGeneration, columnValueGeneration, out cacheHit);
+    }
+
+    internal bool HasHighlightedWarning(object row)
+    {
+        return cellValueCache.HasHighlightedWarning(row);
+    }
+
+    private void InvalidateAllCellValues()
+    {
+        unchecked
+        {
+            rowValueGeneration++;
+        }
+        pendingRowInvalidations.Clear();
+        cellValueCache.Clear();
+    }
+
+    private void InvalidateColumnCellValues()
+    {
+        unchecked
+        {
+            columnValueGeneration++;
+        }
+        cellValueCache.Clear();
+    }
+
+    private void EnqueueRowInvalidation(INotifyPropertyChanged row)
+    {
+        if (row == null)
+        {
+            return;
+        }
+        pendingRowInvalidations.Enqueue(row);
+        rowPropertyChangedRedrawScheduler.Request();
+    }
+
+    private void FlushPendingRowInvalidations()
+    {
+        object[] rows = pendingRowInvalidations.Drain();
+        if (rows.Length == 0)
+        {
+            return;
+        }
+        foreach (object row in rows)
+        {
+            cellValueCache.InvalidateRow(row);
+        }
+        RequestRedraw("row_property_changed");
+    }
+
+    private void RequestRedraw(string reason)
+    {
+        pendingRedrawReason = NormalizeRedrawReason(reason);
+        surface.InvalidateVisual();
+    }
+
+    internal string ConsumeRedrawReason()
+    {
+        string reason = pendingRedrawReason;
+        pendingRedrawReason = "implicit";
+        return NormalizeRedrawReason(reason);
+    }
+
+    private static string NormalizeRedrawReason(string reason)
+    {
+        return string.IsNullOrWhiteSpace(reason) ? "unknown" : reason;
+    }
+
     private void UpdateVisibleRowSubscriptions(string reason, bool logAlways = false)
     {
         Stopwatch stopwatch = Stopwatch.StartNew();
@@ -579,15 +688,25 @@ public sealed class CustomTableView : Grid
                 firstIndex = Math.Max(0, firstVisibleIndex - RowSubscriptionOverscan);
                 int lastExclusive = Math.Min(rowCount, firstVisibleIndex + viewportRows + RowSubscriptionOverscan);
                 requestedCount = Math.Max(0, lastExclusive - firstIndex);
+                if (firstIndex != lastVisibleSubscriptionFirstIndex || requestedCount != lastVisibleSubscriptionCount)
+                {
+                    InvalidateAllCellValues();
+                    lastVisibleSubscriptionFirstIndex = firstIndex;
+                    lastVisibleSubscriptionCount = requestedCount;
+                }
                 rowChangeTracker.ReplaceVisibleRows(ItemsSource, firstIndex, requestedCount);
             }
             else
             {
+                lastVisibleSubscriptionFirstIndex = -1;
+                lastVisibleSubscriptionCount = -1;
                 rowChangeTracker.DetachAllRows();
             }
         }
         else
         {
+            lastVisibleSubscriptionFirstIndex = -1;
+            lastVisibleSubscriptionCount = -1;
             rowChangeTracker.DetachAllRows();
         }
         stopwatch.Stop();
@@ -627,35 +746,36 @@ public sealed class CustomTableView : Grid
         {
             UpdateSelectedIndexFromSelectionModel();
             RaiseSelectionChanged();
-            surface.InvalidateVisual();
+            RequestRedraw("selection");
         }
     }
 
     public void RefreshDisplay()
     {
-        surface.InvalidateVisual();
+        InvalidateAllCellValues();
+        RequestRedraw("refresh_display");
     }
 
     internal CustomTableHitTestResult HitTestTable(Point surfacePoint)
     {
-        IReadOnlyList<CustomTableColumn> columns = VisibleColumns;
         if (surfacePoint.X < 0d || surfacePoint.Y < 0d || surfacePoint.X >= surface.ActualWidth || surfacePoint.Y >= surface.ActualHeight)
         {
             return CreateEmptyHit();
         }
         double horizontalOffset = HorizontalOffset;
         double tableX = surfacePoint.X + horizontalOffset;
+        CustomTableColumnLayoutSnapshot layout = GetColumnLayoutSnapshot();
         if (surfacePoint.Y < HeaderHeight)
         {
-            if (CustomTableColumnLayout.TryResolveResizeColumn(columns, surfacePoint.X, horizontalOffset, surface.ActualWidth, ColumnResizeHitTestMargin, out CustomTableColumn resizeColumn, out int resizeColumnIndex, out Rect resizeRect))
+            if (layout.TryResolveResizeColumn(surfacePoint.X, ColumnResizeHitTestMargin, out CustomTableColumnLayoutEntry resizeEntry, out Rect resizeRect))
             {
-                return new CustomTableHitTestResult(CustomTableHitKind.HeaderResize, -1, null, resizeColumn, resizeColumnIndex, resizeRect);
+                return new CustomTableHitTestResult(CustomTableHitKind.HeaderResize, -1, null, resizeEntry.Column, resizeEntry.ColumnIndex, resizeRect);
             }
-            bool hasHeaderColumn = CustomTableColumnLayout.TryResolveColumn(columns, tableX, out CustomTableColumn headerColumn, out int headerColumnIndex, out double headerColumnX);
-            Rect headerRect = hasHeaderColumn ? CustomTableColumnLayout.CreateVisibleColumnRect(headerColumnX, headerColumn.Width, horizontalOffset, surface.ActualWidth, 0d, HeaderHeight) : new Rect(0d, 0d, surface.ActualWidth, HeaderHeight);
-            return new CustomTableHitTestResult(CustomTableHitKind.Header, -1, null, headerColumn, headerColumnIndex, headerRect);
+            bool hasHeaderColumn = layout.TryResolveColumn(tableX, out CustomTableColumnLayoutEntry headerEntry);
+            Rect headerRect = hasHeaderColumn ? headerEntry.CreateVisibleRect(horizontalOffset, surface.ActualWidth, 0d, HeaderHeight) : new Rect(0d, 0d, surface.ActualWidth, HeaderHeight);
+            return new CustomTableHitTestResult(CustomTableHitKind.Header, -1, null, headerEntry.Column, hasHeaderColumn ? headerEntry.ColumnIndex : -1, headerRect);
         }
-        bool hasColumn = CustomTableColumnLayout.TryResolveColumn(columns, tableX, out CustomTableColumn column, out int columnIndex, out double columnX);
+        bool hasColumn = layout.TryResolveColumn(tableX, out CustomTableColumnLayoutEntry cellEntry);
         if (!hasColumn)
         {
             return CreateEmptyHit();
@@ -668,8 +788,8 @@ public sealed class CustomTableView : Grid
             return CreateEmptyHit();
         }
         double rowY = HeaderHeight + (rowIndex - FirstVisibleRowIndex) * rowHeight;
-        Rect cellRect = CustomTableColumnLayout.CreateVisibleColumnRect(columnX, column.Width, horizontalOffset, surface.ActualWidth, rowY, rowHeight);
-        return new CustomTableHitTestResult(CustomTableHitKind.Cell, rowIndex, rows[rowIndex], column, columnIndex, cellRect);
+        Rect cellRect = cellEntry.CreateVisibleRect(horizontalOffset, surface.ActualWidth, rowY, rowHeight);
+        return new CustomTableHitTestResult(CustomTableHitKind.Cell, rowIndex, rows[rowIndex], cellEntry.Column, cellEntry.ColumnIndex, cellRect);
     }
 
     private void CustomTableViewPreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
@@ -741,7 +861,7 @@ public sealed class CustomTableView : Grid
         {
             UpdateSelectedIndexFromSelectionModel();
             RaiseSelectionChanged();
-            surface.InvalidateVisual();
+            RequestRedraw("selection");
             e.Handled = true;
         }
         ClearDragState();
@@ -778,7 +898,7 @@ public sealed class CustomTableView : Grid
             {
                 UpdateSelectedIndexFromSelectionModel();
                 RaiseSelectionChanged();
-                surface.InvalidateVisual();
+                RequestRedraw("selection");
             }
             RowContextMenuRequested?.Invoke(this, new CustomTableRowRequestedEventArgs(hit, openAtMousePosition: true));
             e.Handled = true;
@@ -976,7 +1096,7 @@ public sealed class CustomTableView : Grid
                 ? selectionModel.Toggle(rowIndex)
                 : selectionModel.SelectForLeftMouseDown(rowIndex);
         UpdateSelectedIndexFromSelectionModel();
-        surface.InvalidateVisual();
+        RequestRedraw("selection");
         return changed;
     }
 
@@ -991,7 +1111,7 @@ public sealed class CustomTableView : Grid
         {
             RaiseSelectionChanged();
         }
-        surface.InvalidateVisual();
+        RequestRedraw("selection");
         return RowCount > 0;
     }
 
@@ -1006,7 +1126,7 @@ public sealed class CustomTableView : Grid
         {
             RaiseSelectionChanged();
         }
-        surface.InvalidateVisual();
+        RequestRedraw("selection");
         return RowCount > 0;
     }
 
@@ -1119,7 +1239,9 @@ public sealed class CustomTableView : Grid
             return;
         }
         double tableX = surfacePoint.X + HorizontalOffset;
-        CustomTableColumnLayout.TryResolveColumn(VisibleColumns, tableX, out CustomTableColumn targetColumn, out _, out double targetColumnX);
+        GetColumnLayoutSnapshot().TryResolveColumn(tableX, out CustomTableColumnLayoutEntry targetEntry);
+        CustomTableColumn targetColumn = targetEntry.Column;
+        double targetColumnX = targetEntry.TableX;
         bool insertAfter = targetColumn != null && tableX >= targetColumnX + targetColumn.Width / 2d;
         if (CustomTableDataTransfer.TryReorderVisibleColumns(VisibleColumns, sourceColumn, targetColumn, insertAfter))
         {
@@ -1134,7 +1256,7 @@ public sealed class CustomTableView : Grid
         if (!AreClose(reorderPreviewInsertX, nextInsertX))
         {
             reorderPreviewInsertX = nextInsertX;
-            surface.InvalidateVisual();
+            RequestRedraw("column_reorder");
         }
     }
 
@@ -1142,11 +1264,13 @@ public sealed class CustomTableView : Grid
     {
         IReadOnlyList<CustomTableColumn> columns = VisibleColumns;
         double tableX = surfacePoint.X + HorizontalOffset;
-        double extentWidth = CustomTableColumnLayout.CalculateExtentWidth(columns);
-        if (!CustomTableColumnLayout.TryResolveColumn(columns, tableX, out CustomTableColumn targetColumn, out _, out double targetColumnX))
+        CustomTableColumnLayoutSnapshot layout = GetColumnLayoutSnapshot();
+        if (!layout.TryResolveColumn(tableX, out CustomTableColumnLayoutEntry targetEntry))
         {
-            return Math.Max(GetLeadingFixedColumnWidth(columns), extentWidth);
+            return Math.Max(GetLeadingFixedColumnWidth(columns), layout.ExtentWidth);
         }
+        CustomTableColumn targetColumn = targetEntry.Column;
+        double targetColumnX = targetEntry.TableX;
         bool insertAfter = targetColumn != null && tableX >= targetColumnX + targetColumn.Width / 2d;
         double insertTableX = insertAfter ? targetColumnX + targetColumn.Width : targetColumnX;
         return Math.Max(GetLeadingFixedColumnWidth(columns), insertTableX);
@@ -1187,7 +1311,7 @@ public sealed class CustomTableView : Grid
             ReleaseMouseCapture();
         }
         Cursor = null;
-        surface.InvalidateVisual();
+        RequestRedraw("column_reorder");
     }
 
     private static bool AreClose(double left, double right)
@@ -1226,7 +1350,7 @@ public sealed class CustomTableView : Grid
             : ListSortDirection.Ascending;
         SetCurrentValue(SortColumnNameProperty, column.SortMemberPath);
         SetCurrentValue(SortDirectionProperty, newDirection);
-        surface.InvalidateVisual();
+        RequestRedraw("sort_state");
         SortRequested?.Invoke(this, new CustomTableSortRequestedEventArgs(column, newDirection));
     }
 
@@ -1360,9 +1484,10 @@ public sealed class CustomTableView : Grid
             activeEditHit = null;
             if (hit != null)
             {
+                cellValueCache.InvalidateRow(hit.Row);
                 CellEditEnded?.Invoke(this, new CustomTableCellEditEndedEventArgs(hit, hit.Column?.EditPropertyName, text, commit));
             }
-            surface.InvalidateVisual();
+            RequestRedraw("edit");
             return true;
         }
         finally
@@ -1583,8 +1708,10 @@ public sealed class CustomTableView : Grid
         if (resizingColumnLayout.Width != width)
         {
             resizingColumnLayout.Width = width;
+            InvalidateColumnLayoutSnapshot();
+            InvalidateColumnCellValues();
             UpdateScrollBars();
-            surface.InvalidateVisual();
+            RequestRedraw("column_resize");
         }
     }
 
@@ -1605,8 +1732,9 @@ public sealed class CustomTableView : Grid
             ReleaseMouseCapture();
         }
         Cursor = null;
+        InvalidateColumnLayoutSnapshot();
         UpdateScrollBars();
-        surface.InvalidateVisual();
+        RequestRedraw("column_resize");
     }
 
     private void UpdateCellToolTip(CustomTableHitTestResult hit)
@@ -1667,14 +1795,15 @@ public sealed class CustomTableView : Grid
         return false;
     }
 
-    internal void NotifySurfaceRendered(int visibleRowCount, int visibleColumnCount, long renderWorkMs, double textCacheHitRate)
+    internal void NotifySurfaceRendered(int visibleRowCount, int visibleColumnCount, long renderWorkMs, double textCacheHitRate, string redrawReason)
     {
+        int visibleCellCount = TableFirstVisibleMetrics.CalculateVisibleCellCount(visibleRowCount, visibleColumnCount);
+        TryLogRenderMetrics(redrawReason, visibleRowCount, visibleColumnCount, visibleCellCount, renderWorkMs, textCacheHitRate);
         if (firstRenderLogged || !IsVisible || itemsAppliedTimestamp <= 0L)
         {
             return;
         }
         long firstRenderMs = (Stopwatch.GetTimestamp() - itemsAppliedTimestamp) * 1000L / Stopwatch.Frequency;
-        int visibleCellCount = TableFirstVisibleMetrics.CalculateVisibleCellCount(visibleRowCount, visibleColumnCount);
         bool isPreparationRender = RowCount == 0 && visibleCellCount == 0;
         if (isPreparationRender)
         {
@@ -1689,6 +1818,30 @@ public sealed class CustomTableView : Grid
             firstRenderLogged = true;
         }
         FirstRenderCompleted?.Invoke(this, new CustomTableFirstRenderCompletedEventArgs(RowCount, visibleRowCount, visibleColumnCount, visibleCellCount, firstRenderMs, renderWorkMs, textCacheHitRate, isPreparationRender));
+    }
+
+    private void TryLogRenderMetrics(string redrawReason, int visibleRowCount, int visibleColumnCount, int visibleCellCount, long renderWorkMs, double textCacheHitRate)
+    {
+        string reason = NormalizeRedrawReason(redrawReason);
+        bool firstForReason = loggedRenderReasons.Add(reason);
+        if (renderWorkMs < RenderSlowLogThresholdMs && !firstForReason && !IsAlwaysLoggedRenderReason(reason))
+        {
+            return;
+        }
+        installPerformanceLogger?.Info(
+            "custom_table_render reason=" + reason
+            + " rowCount=" + RowCount
+            + " visibleRowCount=" + visibleRowCount
+            + " visibleColumnCount=" + visibleColumnCount
+            + " visibleCellCount=" + visibleCellCount
+            + " renderWorkMs=" + renderWorkMs
+            + " textCacheHitRate=" + textCacheHitRate
+            + " cellValueCacheCount=" + cellValueCache.Count);
+    }
+
+    private static bool IsAlwaysLoggedRenderReason(string reason)
+    {
+        return string.Equals(reason, "items_source_changed", StringComparison.Ordinal);
     }
 }
 
@@ -1831,19 +1984,21 @@ internal sealed class CustomTableSurface : FrameworkElement
         double height = ActualHeight;
         if (width <= 0d || height <= 0d)
         {
-            owner.NotifySurfaceRendered(0, 0, 0L, -1d);
+            owner.NotifySurfaceRendered(0, 0, 0L, -1d, owner.ConsumeRedrawReason());
             return;
         }
-        IReadOnlyList<CustomTableColumn> columns = owner.VisibleColumns;
+        string redrawReason = owner.ConsumeRedrawReason();
+        CustomTableColumnLayoutSnapshot layout = owner.GetColumnLayoutSnapshot();
         DrawBackground(drawingContext, width, height);
-        DrawHeader(drawingContext, columns, width);
-        int visibleRowCount = DrawRows(drawingContext, columns, width, height);
+        DrawHeader(drawingContext, layout, width);
+        int visibleRowCount = DrawRows(drawingContext, layout, width, height);
         renderStopwatch.Stop();
         owner.NotifySurfaceRendered(
             visibleRowCount,
-            CustomTableColumnLayout.CountColumnsWithinViewport(columns, owner.HorizontalOffset, width),
+            layout.VisibleColumnCount,
             renderStopwatch.ElapsedMilliseconds,
-            CustomTableTextLayoutCache.CalculateHitRate(renderTextCacheHits, renderTextCacheMisses));
+            CustomTableTextLayoutCache.CalculateHitRate(renderTextCacheHits, renderTextCacheMisses),
+            redrawReason);
     }
 
     private void DrawBackground(DrawingContext drawingContext, double width, double height)
@@ -1851,39 +2006,32 @@ internal sealed class CustomTableSurface : FrameworkElement
         drawingContext.DrawRectangle(RowBackgroundBrush, null, new Rect(0d, 0d, width, height));
     }
 
-    private void DrawHeader(DrawingContext drawingContext, IReadOnlyList<CustomTableColumn> columns, double width)
+    private void DrawHeader(DrawingContext drawingContext, CustomTableColumnLayoutSnapshot layout, double width)
     {
         double headerHeight = owner.HeaderHeight;
         double horizontalOffset = owner.HorizontalOffset;
         drawingContext.DrawRectangle(HeaderBackgroundBrush, null, new Rect(0d, 0d, width, headerHeight));
-        double x = 0d;
-        foreach (CustomTableColumn column in columns)
+        foreach (CustomTableColumnLayoutEntry entry in layout.VisibleEntries)
         {
-            double columnWidth = column.Width;
-            double screenX = x - horizontalOffset;
-            if (screenX >= width)
+            CustomTableColumn column = entry.Column;
+            if (column != null)
             {
-                break;
-            }
-            if (screenX + columnWidth > 0d)
-            {
-                Rect cellRect = CustomTableColumnLayout.CreateContentColumnRect(x, columnWidth, horizontalOffset, 0d, headerHeight);
+                Rect cellRect = entry.CreateContentRect(horizontalOffset, 0d, headerHeight);
                 if (owner.IsReorderSourceColumn(column))
                 {
                     drawingContext.DrawRectangle(
                         ReorderSourceHeaderBrush,
                         null,
-                        CustomTableColumnLayout.CreateVisibleColumnRect(x, columnWidth, horizontalOffset, width, 0d, headerHeight));
+                        entry.CreateVisibleRect(horizontalOffset, width, 0d, headerHeight));
                 }
                 DrawCellText(drawingContext, column.Header, cellRect, CustomTableScoreBrushProvider.DefaultForeground, TextAlignment.Center, useBoldText: false);
                 DrawSortGlyph(drawingContext, column, cellRect);
-                double borderX = x + columnWidth - horizontalOffset - 0.5d;
+                double borderX = entry.TableX + entry.Width - horizontalOffset - 0.5d;
                 if (borderX >= 0d && borderX <= width)
                 {
                     drawingContext.DrawLine(HeaderBorderPen, new Point(borderX, 0d), new Point(borderX, headerHeight));
                 }
             }
-            x += columnWidth;
         }
         drawingContext.DrawLine(HeaderBorderPen, new Point(0d, headerHeight - 0.5d), new Point(width, headerHeight - 0.5d));
         if (owner.IsColumnReorderPreviewActive)
@@ -1893,7 +2041,7 @@ internal sealed class CustomTableSurface : FrameworkElement
         }
     }
 
-    private int DrawRows(DrawingContext drawingContext, IReadOnlyList<CustomTableColumn> columns, double width, double height)
+    private int DrawRows(DrawingContext drawingContext, CustomTableColumnLayoutSnapshot layout, double width, double height)
     {
         IList rows = owner.ItemsSource;
         int rowCount = rows?.Count ?? 0;
@@ -1913,14 +2061,14 @@ internal sealed class CustomTableSurface : FrameworkElement
             bool selected = owner.IsRowSelected(rowIndex);
             Brush rowBackground = selected
                 ? SelectedRowBackgroundBrush
-                : CustomTableColumnFactory.HasHighlightedWarning(row)
+                : owner.HasHighlightedWarning(row)
                     ? WarningRowBackgroundBrush
                     : (rowIndex & 1) == 1
                         ? AlternatingRowBackgroundBrush
                         : RowBackgroundBrush;
             Rect rowRect = new Rect(0d, y, width, Math.Min(rowHeight, height - y));
             drawingContext.DrawRectangle(rowBackground, null, rowRect);
-            DrawRowCells(drawingContext, columns, rowIndex, row, width, y, rowHeight);
+            DrawRowCells(drawingContext, layout, rowIndex, row, width, y, rowHeight);
             drawingContext.DrawLine(CellBorderPen, new Point(0d, y + rowHeight - 0.5d), new Point(width, y + rowHeight - 0.5d));
             y += rowHeight;
             drawnRows++;
@@ -1928,47 +2076,41 @@ internal sealed class CustomTableSurface : FrameworkElement
         return drawnRows;
     }
 
-    private void DrawRowCells(DrawingContext drawingContext, IReadOnlyList<CustomTableColumn> columns, int rowIndex, object row, double width, double y, double rowHeight)
+    private void DrawRowCells(DrawingContext drawingContext, CustomTableColumnLayoutSnapshot layout, int rowIndex, object row, double width, double y, double rowHeight)
     {
         double horizontalOffset = owner.HorizontalOffset;
-        double x = 0d;
-        foreach (CustomTableColumn column in columns)
+        foreach (CustomTableColumnLayoutEntry entry in layout.VisibleEntries)
         {
-            double columnWidth = column.Width;
-            double screenX = x - horizontalOffset;
-            if (screenX >= width)
+            CustomTableColumn column = entry.Column;
+            if (column == null)
             {
-                break;
+                continue;
             }
-            if (screenX + columnWidth > 0d)
+            Rect cellRect = entry.CreateContentRect(horizontalOffset, y, rowHeight);
+            bool currentCell = owner.IsCurrentCell(rowIndex, column);
+            if (currentCell)
             {
-                Rect cellRect = CustomTableColumnLayout.CreateContentColumnRect(x, columnWidth, horizontalOffset, y, rowHeight);
-                bool currentCell = owner.IsCurrentCell(rowIndex, column);
-                if (currentCell)
-                {
-                    drawingContext.DrawRectangle(CurrentCellBackgroundBrush, null, CustomTableColumnLayout.CreateVisibleColumnRect(x, columnWidth, horizontalOffset, width, y, rowHeight));
-                }
-                Brush foreground = currentCell ? CustomTableScoreBrushProvider.SelectedForeground : column.GetForeground(row);
-                string text = column.GetText(row);
-                if (column.CellKind == CustomTableCellKind.DownloadIcon)
-                {
-                    DrawDownloadIcon(drawingContext, text, cellRect, foreground);
-                }
-                else if (column.CellKind == CustomTableCellKind.StatusIcon)
-                {
-                    DrawStatusIcon(drawingContext, text, cellRect, foreground);
-                }
-                else
-                {
-                    DrawCellText(drawingContext, text, cellRect, foreground, column.Alignment, column.UseBoldText);
-                }
-                double borderX = x + columnWidth - horizontalOffset - 0.5d;
-                if (borderX >= 0d && borderX <= width)
-                {
-                    drawingContext.DrawLine(CellBorderPen, new Point(borderX, y), new Point(borderX, y + rowHeight));
-                }
+                drawingContext.DrawRectangle(CurrentCellBackgroundBrush, null, entry.CreateVisibleRect(horizontalOffset, width, y, rowHeight));
             }
-            x += columnWidth;
+            CustomTableCellValue cellValue = owner.GetCellValue(row, column, out _);
+            Brush foreground = currentCell ? CustomTableScoreBrushProvider.SelectedForeground : cellValue.Foreground;
+            if (cellValue.CellKind == CustomTableCellKind.DownloadIcon)
+            {
+                DrawDownloadIcon(drawingContext, cellValue.Text, cellRect, foreground);
+            }
+            else if (cellValue.CellKind == CustomTableCellKind.StatusIcon)
+            {
+                DrawStatusIcon(drawingContext, cellValue.Text, cellRect, foreground);
+            }
+            else
+            {
+                DrawCellText(drawingContext, cellValue.Text, cellRect, foreground, cellValue.Alignment, cellValue.UseBoldText);
+            }
+            double borderX = entry.TableX + entry.Width - horizontalOffset - 0.5d;
+            if (borderX >= 0d && borderX <= width)
+            {
+                drawingContext.DrawLine(CellBorderPen, new Point(borderX, y), new Point(borderX, y + rowHeight));
+            }
         }
     }
 

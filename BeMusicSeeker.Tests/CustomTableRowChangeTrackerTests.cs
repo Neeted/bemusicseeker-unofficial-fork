@@ -116,6 +116,54 @@ public sealed class CustomTableRowChangeTrackerTests
         });
     }
 
+    [TestMethod]
+    public void RedrawScheduler_BackgroundRequestRunsActionOnDispatcherThread()
+    {
+        RunOnSta(delegate
+        {
+            int dispatcherThreadId = Thread.CurrentThread.ManagedThreadId;
+            int actionThreadId = -1;
+            CustomTableRedrawScheduler scheduler = new CustomTableRedrawScheduler(
+                Dispatcher.CurrentDispatcher,
+                delegate { actionThreadId = Thread.CurrentThread.ManagedThreadId; });
+
+            Thread worker = new Thread((ThreadStart)delegate
+            {
+                scheduler.Request();
+                scheduler.Request();
+            });
+            worker.Start();
+            worker.Join();
+
+            Assert.AreEqual(-1, actionThreadId);
+
+            DrainDispatcher();
+
+            Assert.AreEqual(dispatcherThreadId, actionThreadId);
+            Assert.AreEqual(1, scheduler.ScheduledCount);
+        });
+    }
+
+    [TestMethod]
+    public void RowInvalidationQueue_CoalescesDuplicateRowsUntilDrain()
+    {
+        CustomTableRowInvalidationQueue queue = new CustomTableRowInvalidationQueue();
+        object row = new object();
+        object otherRow = new object();
+
+        Assert.IsTrue(queue.Enqueue(row));
+        Assert.IsFalse(queue.Enqueue(row));
+        Assert.IsTrue(queue.Enqueue(otherRow));
+
+        object[] rows = queue.Drain();
+
+        Assert.AreEqual(2, rows.Length);
+        CollectionAssert.Contains(rows, row);
+        CollectionAssert.Contains(rows, otherRow);
+        Assert.AreEqual(0, queue.Count);
+        Assert.AreEqual(0, queue.Drain().Length);
+    }
+
     private static void DrainDispatcher()
     {
         DispatcherFrame frame = new DispatcherFrame();

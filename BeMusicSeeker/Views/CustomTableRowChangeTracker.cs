@@ -146,6 +146,57 @@ internal sealed class CustomTableRedrawScheduler
     }
 }
 
+internal sealed class CustomTableRowInvalidationQueue
+{
+    private readonly object syncRoot = new object();
+    private readonly HashSet<object> rows = new HashSet<object>(ReferenceEqualityComparer<object>.Instance);
+
+    internal int Count
+    {
+        get
+        {
+            lock (syncRoot)
+            {
+                return rows.Count;
+            }
+        }
+    }
+
+    internal bool Enqueue(object row)
+    {
+        if (row == null)
+        {
+            return false;
+        }
+        lock (syncRoot)
+        {
+            return rows.Add(row);
+        }
+    }
+
+    internal object[] Drain()
+    {
+        lock (syncRoot)
+        {
+            if (rows.Count == 0)
+            {
+                return Array.Empty<object>();
+            }
+            object[] drainedRows = rows.ToArray();
+            rows.Clear();
+            return drainedRows;
+        }
+    }
+
+    internal void Clear()
+    {
+        lock (syncRoot)
+        {
+            rows.Clear();
+        }
+    }
+}
+
 internal sealed class ReferenceEqualityComparer<T> : IEqualityComparer<T> where T : class
 {
     internal static readonly ReferenceEqualityComparer<T> Instance = new ReferenceEqualityComparer<T>();

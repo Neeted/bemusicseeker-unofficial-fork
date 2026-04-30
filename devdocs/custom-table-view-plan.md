@@ -453,21 +453,53 @@ Phase 3 完了判断:
 
 ## Phase 6: 描画キャッシュ、行単位再描画、DrawingVisual 分割
 
-目的: 5000 セル以上の可視表示やスクロール時にも余裕を持たせる。
+目的: 5000 セル以上の可視表示、スクロール、選択変更、row 更新時の再描画に余裕を持たせる。初回表示全体の残コストは `main_view_build` の `folderMs` / `sortMs` が中心なので、Phase 6 は主に CustomTableView 内の redraw 体感改善を対象にする。
 
 実装内容:
 
-- テキスト layout cache を導入する。
+- redraw reason 計測を追加する。
+  - `scroll`, `selection`, `row_property_changed`, `column_resize`, `items_source_changed`, `columns_changed` など、どの経路で redraw したかを分けて見る。
+  - `renderWorkMs`, `visibleCellCount`, `textCacheHitRate` と合わせて、次に cache すべき場所を判断する。
+- 既存の `CustomTableTextLayoutCache` は維持し、hit 率改善対象として扱う。
+  - Phase 1 追加作業で導入済みなので、Phase 6 では再導入しない。
+  - cache key の妥当性、列幅変更時の miss、同一文字列が多い score 列での hit 率を確認する。
 - 列レイアウト cache を導入する。
+  - visible columns、column start X、width、viewport 交差判定、extent width をまとめて cache し、`OnRender` / hit-test / scroll bar 更新で共有する。
+  - columns、visibility、width、display index、horizontal offset、viewport width が変わった時だけ更新する。
 - セル値 cache を導入する。
-- スクロール中は簡易描画、停止後に詳細描画するか検討する。
-- 必要なら行単位 `DrawingVisual` cache へ進む。
-- 選択変更時は前行/新行だけ再生成する構造を検討する。
+  - 可視 row × visible column の表示文字列、foreground、cell kind 判定を cache する。
+  - row property changed、ItemsSource 差し替え、columns 変更、該当 row の編集 commit で invalidation する。
+  - reflection fallback の多い列を優先して効果を測る。
+- 選択変更時の redraw 負荷を下げる。
+  - まずは cache により全面 `InvalidateVisual()` のまま軽くする。
+  - 必要なら、current row / previous row を dirty row として記録できる構造へ広げる。
+- 行単位 `DrawingVisual` cache は条件付きで検討する。
+  - cache 改善後もスクロール、選択変更、row property changed でフレーム落ちが残る場合に進む。
+  - 導入する場合は row 単位で visual を分け、dirty row だけ再生成する。
+- スクロール中の簡易描画は後半候補にする。
+  - 見た目の切り替わりと分岐が増えるため、列レイアウト cache / セル値 cache 後も不足する場合だけ検討する。
 
 判断基準:
 
-- 全面 `InvalidateVisual()` で目標を満たすなら、`DrawingVisual` 分割は見送る。
-- スクロールや選択変更でフレーム落ちが目立つ場合だけ分割する。
+- redraw reason 別ログで、CustomTableView 内の `renderWorkMs` が継続して高い経路を優先する。
+- cache 改善後に全面 `InvalidateVisual()` で目標を満たすなら、`DrawingVisual` 分割は見送る。
+- スクロールや選択変更でフレーム落ちが目立つ場合だけ、行単位 visual 分割または簡易描画へ進む。
+
+第一段階の実装結果:
+
+- `RequestRedraw(reason)` を追加し、`custom_table_render` で redraw reason、表示規模、`renderWorkMs`、`textCacheHitRate` を確認できるようにした。
+- column layout snapshot を追加し、描画、hit-test、resize 判定、scrollbar 更新で列位置 / viewport 交差 / extent width を共有するようにした。
+- cell value cache を追加し、可視 row × column の text / foreground / cell kind / alignment / bold 設定を再利用するようにした。
+- row `PropertyChanged`、ItemsSource / collection / columns 変更、編集 commit、可視範囲変更、明示 refresh では必要な cache を invalidation する。
+- 行単位 `DrawingVisual` 分割、スクロール中簡易描画、部分再描画はまだ未実装。ログで必要性が見えた場合に後続作業とする。
+
+2026-04-30 ログ確認:
+
+- 初回ライブラリ表示は `main_view_build folderMs` / `sortMs` が支配的で、CustomTableView 描画とは別件として扱う。
+- `CustomTableView` 側は `visibleCellCount=1200` 程度で初回 / sort 後の `renderWorkMs=171-234ms`、横スクロール / 列操作 / 選択では `textCacheHitRate` がほぼ 1 まで上がり、cache は機能している。
+- 縦スクロールは可視 row が入れ替わるため cell value cache が効きにくく、`renderWorkMs=148-295ms` 程度が残る。次に改善するなら行単位 visual cache またはスクロール専用最適化を検討する。
+- ゼロノート再判定で、background thread 由来の row `PropertyChanged` が cell value cache を直接 invalidation し、UI thread の描画と競合して `InvalidOperationException: コレクションが変更されました` が発生した。
+- 修正として、row `PropertyChanged` handler は row 参照を thread-safe queue に積むだけにし、Dispatcher 上で pending row の cache invalidation と `RequestRedraw("row_property_changed")` を行う。`CustomTableCellValueCache` は UI thread 専用 state として扱う。
 
 ## 移行順序
 
