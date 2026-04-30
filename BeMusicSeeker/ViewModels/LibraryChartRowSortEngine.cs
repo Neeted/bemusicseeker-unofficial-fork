@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Globalization;
 using System.Linq;
 using System.Reflection;
@@ -8,6 +9,41 @@ using BeMusicSeeker.Models;
 using Ribbit.Util;
 
 namespace BeMusicSeeker.ViewModels;
+
+internal readonly struct LibraryChartSortMetrics
+{
+    internal LibraryChartSortMetrics(
+        int rowCount,
+        string columnName,
+        ListSortDirection direction,
+        string propertyTypeName,
+        string sortProfile,
+        string stringSortKind,
+        long sortMs)
+    {
+        RowCount = rowCount;
+        ColumnName = columnName;
+        Direction = direction;
+        PropertyTypeName = propertyTypeName;
+        SortProfile = sortProfile;
+        StringSortKind = stringSortKind;
+        SortMs = sortMs;
+    }
+
+    internal int RowCount { get; }
+
+    internal string ColumnName { get; }
+
+    internal ListSortDirection Direction { get; }
+
+    internal string PropertyTypeName { get; }
+
+    internal string SortProfile { get; }
+
+    internal string StringSortKind { get; }
+
+    internal long SortMs { get; }
+}
 
 /// <summary>
 /// 通常一覧の BMS / bmson 共通 row をソートします。
@@ -22,9 +58,18 @@ internal static class LibraryChartRowSortEngine
 
     internal static List<LibraryChartRow> SortForMainView(IEnumerable<LibraryChartRow> source, MainWindowViewModel.cSortParameters sortParameters, bool isPlaylistDetailView, bool useLegacySortForDataGrid, out string sortProfile)
     {
-        IEnumerable<LibraryChartRow> safeSource = source ?? Enumerable.Empty<LibraryChartRow>();
+        return SortForMainView(source, sortParameters, isPlaylistDetailView, useLegacySortForDataGrid, out sortProfile, out _);
+    }
+
+    internal static List<LibraryChartRow> SortForMainView(IEnumerable<LibraryChartRow> source, MainWindowViewModel.cSortParameters sortParameters, bool isPlaylistDetailView, bool useLegacySortForDataGrid, out string sortProfile, out LibraryChartSortMetrics metrics)
+    {
+        List<LibraryChartRow> safeSource = source as List<LibraryChartRow> ?? (source ?? Enumerable.Empty<LibraryChartRow>()).ToList();
+        Stopwatch stopwatch = Stopwatch.StartNew();
         string columnName = sortParameters?.ColumnsName;
         ListSortDirection direction = sortParameters?.Direction ?? ListSortDirection.Ascending;
+        string propertyTypeName = "(null)";
+        string stringSortKind = "fallback";
+        List<LibraryChartRow> sortedRows;
         if (string.IsNullOrWhiteSpace(columnName))
         {
             columnName = nameof(LibraryChartRow.Title);
@@ -36,35 +81,60 @@ internal static class LibraryChartRowSortEngine
         if (string.Equals(columnName, nameof(LibraryChartRow.Level), StringComparison.Ordinal) || string.Equals(columnName, nameof(LibraryChartRow.level), StringComparison.Ordinal))
         {
             sortProfile = "library_chart_level_mixed_double";
-            return SortByLevelKey(safeSource, direction);
+            stringSortKind = "level";
+            sortedRows = SortByLevelKey(safeSource, direction);
+            metrics = CreateMetrics(safeSource.Count, columnName, direction, propertyTypeName, sortProfile, stringSortKind, stopwatch);
+            return sortedRows;
         }
 
         PropertyInfo property = typeof(LibraryChartRow).GetProperty(columnName);
         if (property == null)
         {
             sortProfile = useLegacySortForDataGrid ? "library_chart_legacy_string_fallback" : "library_chart_string_fast_fallback";
-            return SortByString(safeSource, _ => string.Empty, direction, useLegacySortForDataGrid);
+            stringSortKind = useLegacySortForDataGrid ? "natural" : "fallback";
+            sortedRows = SortByString(safeSource, _ => string.Empty, direction, useLegacySortForDataGrid);
+            metrics = CreateMetrics(safeSource.Count, columnName, direction, propertyTypeName, sortProfile, stringSortKind, stopwatch);
+            return sortedRows;
         }
 
         Type nonNullableType = Nullable.GetUnderlyingType(property.PropertyType) ?? property.PropertyType;
+        propertyTypeName = property.PropertyType.Name;
         if (nonNullableType == typeof(string) || property.PropertyType.IsEnum)
         {
             if (string.Equals(columnName, nameof(LibraryChartRow.Folder), StringComparison.Ordinal) && isPlaylistDetailView)
             {
                 sortProfile = "library_chart_folder_natural_legacy";
-                return SortByString(safeSource, row => NormalizeSortKey(property.GetValue(row), property.PropertyType), direction, useLegacySort: true);
+                stringSortKind = "natural";
+                sortedRows = SortByString(safeSource, row => NormalizeSortKey(property.GetValue(row), property.PropertyType), direction, useLegacySort: true);
+                metrics = CreateMetrics(safeSource.Count, columnName, direction, propertyTypeName, sortProfile, stringSortKind, stopwatch);
+                return sortedRows;
             }
             sortProfile = useLegacySortForDataGrid ? "library_chart_legacy_string" : "library_chart_string_fast_ordinal_ignore_case";
-            return SortByString(safeSource, row => NormalizeSortKey(property.GetValue(row), property.PropertyType), direction, useLegacySortForDataGrid);
+            stringSortKind = useLegacySortForDataGrid ? "natural" : "ordinal_ignore_case";
+            sortedRows = SortByString(safeSource, row => NormalizeSortKey(property.GetValue(row), property.PropertyType), direction, useLegacySortForDataGrid);
+            metrics = CreateMetrics(safeSource.Count, columnName, direction, propertyTypeName, sortProfile, stringSortKind, stopwatch);
+            return sortedRows;
         }
         if (IsNumericOrDate(nonNullableType))
         {
             sortProfile = "library_chart_typed";
-            return SortByComparable(safeSource, row => property.GetValue(row) as IComparable, direction);
+            stringSortKind = "typed";
+            sortedRows = SortByComparable(safeSource, row => property.GetValue(row) as IComparable, direction);
+            metrics = CreateMetrics(safeSource.Count, columnName, direction, propertyTypeName, sortProfile, stringSortKind, stopwatch);
+            return sortedRows;
         }
 
         sortProfile = useLegacySortForDataGrid ? "library_chart_legacy_string_fallback" : "library_chart_string_fast_fallback";
-        return SortByString(safeSource, row => NormalizeSortKey(property.GetValue(row), property.PropertyType), direction, useLegacySortForDataGrid);
+        stringSortKind = useLegacySortForDataGrid ? "natural" : "fallback";
+        sortedRows = SortByString(safeSource, row => NormalizeSortKey(property.GetValue(row), property.PropertyType), direction, useLegacySortForDataGrid);
+        metrics = CreateMetrics(safeSource.Count, columnName, direction, propertyTypeName, sortProfile, stringSortKind, stopwatch);
+        return sortedRows;
+    }
+
+    private static LibraryChartSortMetrics CreateMetrics(int rowCount, string columnName, ListSortDirection direction, string propertyTypeName, string sortProfile, string stringSortKind, Stopwatch stopwatch)
+    {
+        stopwatch.Stop();
+        return new LibraryChartSortMetrics(rowCount, columnName, direction, propertyTypeName, sortProfile, stringSortKind, stopwatch.ElapsedMilliseconds);
     }
 
     private static List<LibraryChartRow> SortByString(IEnumerable<LibraryChartRow> source, Func<LibraryChartRow, string> keySelector, ListSortDirection direction, bool useLegacySort)

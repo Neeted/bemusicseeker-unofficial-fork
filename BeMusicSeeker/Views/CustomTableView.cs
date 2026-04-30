@@ -67,7 +67,7 @@ public sealed class CustomTableView : Grid
         nameof(Columns),
         typeof(IList<CustomTableColumn>),
         typeof(CustomTableView),
-        new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender, OnColumnsChanged));
+        new FrameworkPropertyMetadata(null, OnColumnsChanged));
 
     public static readonly DependencyProperty ColumnsSettingsProperty = DependencyProperty.Register(
         nameof(ColumnsSettings),
@@ -162,6 +162,7 @@ public sealed class CustomTableView : Grid
     private bool completingEdit;
     private bool completingSuggestionSelection;
     private bool preparationRenderLogged;
+    private bool suppressColumnRedrawUntilItemsSourceChanged;
 
     public CustomTableView()
     {
@@ -388,6 +389,8 @@ public sealed class CustomTableView : Grid
 
     internal double ColumnReorderPreviewInsertX => reorderPreviewInsertX;
 
+    internal bool IsItemsSourceSwapPending => suppressColumnRedrawUntilItemsSourceChanged;
+
     internal bool IsReorderSourceColumn(CustomTableColumn column)
     {
         return isReorderingColumn
@@ -401,6 +404,7 @@ public sealed class CustomTableView : Grid
         CustomTableView view = (CustomTableView)d;
         view.CommitActiveEdit();
         view.currentCellHit = null;
+        view.ClearPendingItemsSourceSwapColumnRedrawSuppression();
         view.DetachCollectionChanged(e.OldValue as INotifyCollectionChanged);
         view.AttachCollectionChanged(e.NewValue as INotifyCollectionChanged);
         view.MarkItemsApplied();
@@ -420,6 +424,10 @@ public sealed class CustomTableView : Grid
         view.InvalidateColumnLayoutSnapshot();
         view.InvalidateColumnCellValues();
         view.UpdateScrollBars();
+        if (view.suppressColumnRedrawUntilItemsSourceChanged)
+        {
+            return;
+        }
         view.RequestRedraw("columns_changed");
     }
 
@@ -507,6 +515,7 @@ public sealed class CustomTableView : Grid
     {
         CommitActiveEdit();
         currentCellHit = null;
+        ClearPendingItemsSourceSwapColumnRedrawSuppression();
         MarkItemsApplied();
         InvalidateAllCellValues();
         CoerceSelectionToCurrentRows();
@@ -554,7 +563,7 @@ public sealed class CustomTableView : Grid
             : CustomTableColumnFactory.CreateMainColumns(ColumnsSettings).ToArray();
         InvalidateColumnLayoutSnapshot();
         InvalidateColumnCellValues();
-        if (markItemsApplied)
+        if (markItemsApplied && !suppressColumnRedrawUntilItemsSourceChanged)
         {
             MarkItemsApplied();
         }
@@ -794,6 +803,7 @@ public sealed class CustomTableView : Grid
 
     public void RefreshDisplay()
     {
+        ClearPendingItemsSourceSwapColumnRedrawSuppression();
         InvalidateAllCellValues();
         RequestRedraw("refresh_display");
     }
@@ -802,7 +812,17 @@ public sealed class CustomTableView : Grid
     {
         CommitActiveEdit();
         currentCellHit = null;
-        RequestRedraw("prepare_items_source_swap");
+        BeginPendingItemsSourceSwapColumnRedrawSuppression();
+    }
+
+    private void BeginPendingItemsSourceSwapColumnRedrawSuppression()
+    {
+        suppressColumnRedrawUntilItemsSourceChanged = true;
+    }
+
+    private void ClearPendingItemsSourceSwapColumnRedrawSuppression()
+    {
+        suppressColumnRedrawUntilItemsSourceChanged = false;
     }
 
     public void ScrollSelectedRowIntoView()
@@ -1872,7 +1892,7 @@ public sealed class CustomTableView : Grid
     {
         int visibleCellCount = TableFirstVisibleMetrics.CalculateVisibleCellCount(visibleRowCount, visibleColumnCount);
         TryLogRenderMetrics(redrawReason, visibleRowCount, visibleColumnCount, visibleCellCount, renderWorkMs, textCacheHitRate);
-        if (firstRenderLogged || !IsVisible || itemsAppliedTimestamp <= 0L)
+        if (firstRenderLogged || !IsVisible || itemsAppliedTimestamp <= 0L || suppressColumnRedrawUntilItemsSourceChanged)
         {
             return;
         }
@@ -1914,7 +1934,8 @@ public sealed class CustomTableView : Grid
 
     private static bool IsAlwaysLoggedRenderReason(string reason)
     {
-        return string.Equals(reason, "items_source_changed", StringComparison.Ordinal);
+        return string.Equals(reason, "items_source_changed", StringComparison.Ordinal)
+            || string.Equals(reason, "pending_items_source_swap_skipped", StringComparison.Ordinal);
     }
 }
 
@@ -2069,6 +2090,17 @@ internal sealed class CustomTableSurface : FrameworkElement
         CustomTableColumnLayoutSnapshot layout = owner.GetColumnLayoutSnapshot();
         DrawBackground(drawingContext, width, height);
         DrawHeader(drawingContext, layout, width);
+        if (owner.IsItemsSourceSwapPending)
+        {
+            renderStopwatch.Stop();
+            owner.NotifySurfaceRendered(
+                visibleRowCount: 0,
+                visibleColumnCount: layout.VisibleColumnCount,
+                renderWorkMs: renderStopwatch.ElapsedMilliseconds,
+                textCacheHitRate: -1d,
+                redrawReason: "pending_items_source_swap_skipped");
+            return;
+        }
         int visibleRowCount = DrawRows(drawingContext, layout, width, height);
         renderStopwatch.Stop();
         owner.NotifySurfaceRendered(

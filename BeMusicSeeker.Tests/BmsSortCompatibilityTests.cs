@@ -292,6 +292,31 @@ public sealed class BmsSortCompatibilityTests
 
     [TestMethod]
     [TestCategory("SortEngine")]
+    public void LibraryChartRowSortEngine_StringSortMetricsDescribeFastPath()
+    {
+        LibraryChartRow title10 = CreateLibraryChartRow("z_item10.bms", "item10", level: 1);
+        LibraryChartRow title2 = CreateLibraryChartRow("a_item2.bms", "item2", level: 1);
+        MainWindowViewModel.cSortParameters sortParameters = new MainWindowViewModel.cSortParameters
+        {
+            ColumnsName = nameof(LibraryChartRow.Title),
+            Direction = ListSortDirection.Ascending
+        };
+
+        List<LibraryChartRow> fastSorted = LibraryChartRowSortEngine.SortForMainView(new[] { title10, title2 }, sortParameters, isPlaylistDetailView: false, useLegacySortForDataGrid: false, out string fastProfile, out LibraryChartSortMetrics metrics);
+
+        CollectionAssert.AreEqual(new[] { "z_item10.bms", "a_item2.bms" }, fastSorted.Select((LibraryChartRow row) => row.path).ToArray());
+        Assert.AreEqual("library_chart_string_fast_ordinal_ignore_case", fastProfile);
+        Assert.AreEqual(2, metrics.RowCount);
+        Assert.AreEqual(nameof(LibraryChartRow.Title), metrics.ColumnName);
+        Assert.AreEqual(ListSortDirection.Ascending, metrics.Direction);
+        Assert.AreEqual("String", metrics.PropertyTypeName);
+        Assert.AreEqual("library_chart_string_fast_ordinal_ignore_case", metrics.SortProfile);
+        Assert.AreEqual("ordinal_ignore_case", metrics.StringSortKind);
+        Assert.IsTrue(metrics.SortMs >= 0);
+    }
+
+    [TestMethod]
+    [TestCategory("SortEngine")]
     public void LibraryChartRowSortEngine_LevelColumnUsesNumericKey()
     {
         LibraryChartRow level12 = CreateLibraryChartRow("z_level12.bms", "Level12", level: 12);

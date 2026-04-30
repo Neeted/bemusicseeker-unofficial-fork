@@ -634,6 +634,80 @@ Phase 3 完了判断:
 - 右クリック、複数選択、DnD、編集、URL open、summary reload / remove / sync / root が維持される。
 - 既存の DataGrid fallback を使った性能ログや状態ログが残っていない、または明示的に legacy として隔離されている。
 
+## Phase 10: CustomTableView 移行後の性能改善
+
+目的: CustomTableView への構造移行後に残った表示遅延を、ログで支配要因を分けながら順に削る。2026-04-30 のログでは、プレイリスト詳細は描画、通常ライブラリは `main_view_build` が主因になっている。
+
+現状ログの読み取り:
+
+- プレイリスト詳細 `viewCount=7742`:
+  - `main_view_build totalMs=310` に対し、`buildToVisibleRenderMs=1517`。
+  - `prepare_items_source_swap renderWorkMs=590` と `items_source_changed renderWorkMs=879` が支配的。
+  - `prepare_items_source_swap` は旧 `rowCount=794` の準備描画であり、直後に新 `ItemsSource` の本描画が走るため、捨て描画になっている可能性が高い。
+- Phase 10 初回実装後のプレイリスト詳細:
+  - `prepare_items_source_swap` の明示 redraw は消えた。
+  - ただし `PrepareMainTableSwap` 後、`ItemsSource` 差し替え前の `loadColumnSetting(...)` によって `columns_changed` が発生し、旧ライブラリ `rowCount=209972` のまま描画されるケースが残った。
+  - この stale `columns_changed` が `table_first_visible` / `playlist_open_visible completed` として扱われると、実際にはまだ playlist detail が見えていないのに表示完了ログになり、さらに 600ms 前後の捨て描画にもなる。
+- その後のログ:
+  - stale `columns_changed` は表示完了ログから外れたが、WPF の暗黙 render が `custom_table_render reason=implicit rowCount=209972` として走り、`ItemsSource` 差し替え前に旧行を 400-550ms 程度描くケースが残った。
+  - これは redraw 要求の抑制だけでは防げないため、pending swap 中は `OnRender` の行描画自体を skip する必要がある。
+- 通常ライブラリ `rowCount=209972`:
+  - `main_view_build totalMs=1543` が支配的で、内訳は `folderMs=1034`, `sortMs=506`。
+  - 描画は `columns_changed renderWorkMs=652` で、無視はできないが表示前 pipeline の方が大きい。
+- 追加ログ後の通常ライブラリ:
+  - `main_view_folder_detail` では、フォルダなしの通常ライブラリ表示で `regularRowMaterializeMs` が 1 秒台後半まで伸びるケースが見えた。CustomTableView 描画とは別に、20 万件の `LibraryChartRow` 生成が支配的になりうる。
+  - `main_sort_detail` では、`PATH` / `TITLE` の大規模 sort が 800ms 前後になるケースがあり、row 生成の次に大きい候補になっている。
+- `textCacheHitRate` は通常ライブラリで `0.99` 近くまで出ているため、`FormattedText` 生成 miss だけが描画コストの主因ではない。全セルの背景・罫線・テキスト描画、全面 redraw そのものが効いている可能性が高い。
+
+改善順序:
+
+1. `PrepareMainTableSwap` 中の stale row render を止める。
+   - `PrepareForItemsSourceSwap()` で `ItemsSource` 差し替え待ち状態を記録する。
+   - `loadColumnSetting(...)` による `ColumnsSettings` / `Columns` rebuild は許可するが、`ItemsSource` が変わるまでは `columns_changed` redraw と first-render marking を抑制する。
+   - `ItemsSource` 変更または collection change で抑制を解除し、`items_source_changed` を正本の初回描画として扱う。
+   - 目標: 旧 `rowCount=209972` の stale `columns_changed` が `playlist_open_visible completed` にならないこと、かつ捨て描画自体を避けること。
+   - 実装済み: `Columns` DP の暗黙 `AffectsRender` を外し、pending swap 中の `OnColumnsChanged` では layout/cache 更新だけ行って redraw を要求しない。
+   - `Dispatcher` idle での復旧 redraw は、実 `ItemsSource` 差し替え前に旧 row の stale `columns_changed` を描いてしまうため採用しない。抑制は `ItemsSource` 変更、collection change、明示 `RefreshDisplay()` まで維持する。
+   - pending swap 中に別理由の render が発生しても、`table_first_visible` / `playlist_open_visible completed` にはしない。
+   - 実装済み: pending swap 中の `OnRender` では背景とヘッダーだけを描き、`DrawRows()` を呼ばない。ログ reason は `pending_items_source_swap_skipped` とする。
+   - 実装済み: 通常ライブラリ / sort / filter の最終反映も、可能な範囲で `PrepareMainTableSwap -> loadColumnSetting -> SetChartRowsView` の順に寄せる。
+
+2. `prepare_items_source_swap` の不要 redraw を止める。
+   - `PrepareForItemsSourceSwap()` は active edit の commit と current cell 解除に集中し、通常は `RequestRedraw("prepare_items_source_swap")` を呼ばない。
+   - playlist 詳細のように直後に `ItemsSource` が差し替わるケースでは、旧 row の描画を避ける。
+   - 目標: `buildToVisibleRenderMs` から 500ms 前後の捨て描画を削る。
+   - 実装済み: `PrepareForItemsSourceSwap()` から明示 redraw を削除し、active editor commit 時の `edit` redraw は維持する。
+
+3. 通常ライブラリの `main_view_build folderMs` を分解し、row materialize を削る。
+   - `folderMs=1034` の内訳を追加ログで分ける。
+   - 候補: 対象 row 抽出、`LibraryChartRow` materialize、bmson/BMS 共通 row 化、mode/tag/keyword 前処理、リストコピー。
+   - ここは CustomTableView 描画とは別作業として扱うが、ユーザー体感の初回表示には最も効く。
+   - 実装済み: `main_view_folder_detail` を追加し、`sourceBmsCount`, `sourceBmsonCount`, `filteredBmsCount`, `filteredBmsonCount`, `regularFilterMs`, `bmsonFilterMs`, `regularRowMaterializeMs`, `bmsonRowMaterializeMs`, `concatToListMs`, `folderMs`, `folderCount` を出す。
+   - 次候補: 全件表示時の `LibraryChartRow` 再生成を避ける cache / reuse、または sort/filter 前後で必要な row 化範囲を絞る。
+
+4. 通常ライブラリの `sortMs` をさらに削る。
+   - `sortMs=506` は 20 万行規模では十分大きい。
+   - sort key の事前計算、PATH/TITLE の比較 profile、文字列比較回数、`DisplayIndex` や列設定の影響がないかを確認する。
+   - 既存の fast sort を正本としつつ、列別の hot path だけを絞って改善する。
+   - 実装済み: 最適化本体はまだ入れず、`main_sort_detail` で `rowCount`, `columnName`, `direction`, `propertyType`, `sortProfile`, `stringSortKind`, `sortMs` を出す。
+   - 次候補: `PATH` / `TITLE` の sort key cache、比較対象文字列の事前正規化、sort reuse 条件の拡張。
+
+5. 描画側は `custom_table_render reason=...` ごとに後半改善を判断する。
+   - `items_source_changed`, `columns_changed`, `scroll_vertical`, `selection`, `row_property_changed` を reason 別に比較する。
+   - cache 改善だけで `renderWorkMs` が十分下がらない場合、行単位 `DrawingVisual` 分割、dirty row 再描画、スクロール中簡易描画を検討する。
+   - ただし実装コストが高いため、まず 1-4 の低リスク・高効果候補を優先する。
+
+確認対象:
+
+- playlist 詳細で `prepare_items_source_swap` の `custom_table_render` が出ない、または描画コストが無視できること。
+- playlist 詳細で、旧ライブラリ行数の `columns_changed` が `playlist_open_visible completed` にならないこと。
+- playlist 詳細で `columns_changed` による旧 `ItemsSource` の捨て描画が出ないこと。
+- playlist 詳細で、旧ライブラリ行数の `implicit` 捨て描画が `pending_items_source_swap_skipped visibleRowCount=0 visibleCellCount=0` になること。
+- playlist 詳細の `buildToVisibleRenderMs` が、同条件で `prepare_items_source_swap` 分だけ短縮されること。
+- 通常ライブラリの `main_view_build` に `folderMs` 内訳ログが出て、次の改善対象を特定できること。
+- PATH/TITLE sort で `sortMs` の改善前後を比較できること。
+- 描画改善を入れる場合は `custom_table_render reason` 別に `renderWorkMs` が悪化していないこと。
+
 ## 移行順序
 
 推奨順序:

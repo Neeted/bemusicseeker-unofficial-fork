@@ -41,6 +41,61 @@ using Ribbit.Util.Extensions;
 
 namespace BeMusicSeeker.ViewModels;
 
+internal readonly struct LibraryRowsBuildMetrics
+{
+    internal LibraryRowsBuildMetrics(
+        int sourceBmsCount,
+        int sourceBmsonCount,
+        int filteredBmsCount,
+        int filteredBmsonCount,
+        bool folderFilterApplied,
+        long regularFilterMs,
+        long bmsonFilterMs,
+        long regularRowMaterializeMs,
+        long bmsonRowMaterializeMs,
+        long concatToListMs,
+        long folderMs,
+        int folderCount)
+    {
+        SourceBmsCount = sourceBmsCount;
+        SourceBmsonCount = sourceBmsonCount;
+        FilteredBmsCount = filteredBmsCount;
+        FilteredBmsonCount = filteredBmsonCount;
+        FolderFilterApplied = folderFilterApplied;
+        RegularFilterMs = regularFilterMs;
+        BmsonFilterMs = bmsonFilterMs;
+        RegularRowMaterializeMs = regularRowMaterializeMs;
+        BmsonRowMaterializeMs = bmsonRowMaterializeMs;
+        ConcatToListMs = concatToListMs;
+        FolderMs = folderMs;
+        FolderCount = folderCount;
+    }
+
+    internal int SourceBmsCount { get; }
+
+    internal int SourceBmsonCount { get; }
+
+    internal int FilteredBmsCount { get; }
+
+    internal int FilteredBmsonCount { get; }
+
+    internal bool FolderFilterApplied { get; }
+
+    internal long RegularFilterMs { get; }
+
+    internal long BmsonFilterMs { get; }
+
+    internal long RegularRowMaterializeMs { get; }
+
+    internal long BmsonRowMaterializeMs { get; }
+
+    internal long ConcatToListMs { get; }
+
+    internal long FolderMs { get; }
+
+    internal int FolderCount { get; }
+}
+
 /// <summary>
 /// BeMusicSeeker のメイン画面を制御する ViewModel です。
 /// ライブラリ（BMSファイル群）やプレイリストの管理、各ビュー状態の維持、内蔵および外部BMSプレイヤー機能の連携のほか、
@@ -11054,10 +11109,12 @@ public class MainWindowViewModel : ViewModel
         switch (mode)
         {
             case viewUpdateMode.FolderFilterSelected:
-                ChartRowsFolderView = BuildStandardLibraryRowsForView(BMSFiles, includeBmsonRows ? GetBmsonLibraryRowsSnapshot() : Enumerable.Empty<LibraryChartRow>(), FolderFilter);
+                ChartRowsFolderView = BuildStandardLibraryRowsForView(BMSFiles, includeBmsonRows ? GetBmsonLibraryRowsSnapshot() : Array.Empty<LibraryChartRow>(), FolderFilter, out LibraryRowsBuildMetrics folderMetrics);
+                LogMainViewFolderDetail(mode, folderMetrics);
                 break;
             case viewUpdateMode.FullScanAllChartsFilterSelected:
-                ChartRowsFolderView = BuildStandardLibraryRowsForView(BMSFiles, includeBmsonRows ? GetBmsonLibraryRowsSnapshot() : Enumerable.Empty<LibraryChartRow>(), null);
+                ChartRowsFolderView = BuildStandardLibraryRowsForView(BMSFiles, includeBmsonRows ? GetBmsonLibraryRowsSnapshot() : Array.Empty<LibraryChartRow>(), null, out LibraryRowsBuildMetrics fullScanMetrics);
+                LogMainViewFolderDetail(mode, fullScanMetrics);
                 break;
             case viewUpdateMode.FileMissingFilterSelected:
                 ChartRowsFolderView = ToLibraryChartRows(BMSFilesToBeFixed);
@@ -11283,6 +11340,7 @@ public class MainWindowViewModel : ViewModel
         modeStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
         modeCount = ChartRowsModeFilterView.Count();
         stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
+        IList nextRowsView;
         if (mode <= viewUpdateMode.SortUpdated)
         {
             bool useLegacySortForMainView = false;
@@ -11307,16 +11365,18 @@ public class MainWindowViewModel : ViewModel
             List<LibraryChartRow> modeFilterList = ChartRowsModeFilterView as List<LibraryChartRow>;
             if (isFolderMode && isTreeSelectionRequest && modeFilterList != null && folderSortSourceSnapshot != null && folderSortResultSnapshot != null && string.Equals(folderSortColumnName, columnName, StringComparison.Ordinal) && folderSortDirection == direction && IsSameReferenceSequence(modeFilterList, folderSortSourceSnapshot))
             {
-                SetChartRowsView(folderSortResultSnapshot);
+                nextRowsView = folderSortResultSnapshot;
                 sortReuse = true;
                 sortProfile = "reuse";
             }
             else
             {
-                SetChartRowsView(LibraryChartRowSortEngine.SortForMainView(ChartRowsModeFilterView, SortParameters, isPlaylistDetailView, useLegacySortForMainView, out sortProfile));
+                List<LibraryChartRow> sortedRows = LibraryChartRowSortEngine.SortForMainView(ChartRowsModeFilterView, SortParameters, isPlaylistDetailView, useLegacySortForMainView, out sortProfile, out LibraryChartSortMetrics sortMetrics);
+                nextRowsView = sortedRows;
+                LogMainSortDetail(sortMetrics);
                 if (isFolderMode)
                 {
-                    folderSortResultSnapshot = BMSFilesView as List<LibraryChartRow>;
+                    folderSortResultSnapshot = sortedRows;
                 }
             }
             if (isFolderMode)
@@ -11335,14 +11395,19 @@ public class MainWindowViewModel : ViewModel
         }
         else
         {
-            SetChartRowsView(ChartRowsModeFilterView.ToList());
+            nextRowsView = ChartRowsModeFilterView.ToList();
             sortProfile = "bypass";
         }
         sortStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
-        viewCount = BMSFilesView.Count;
+        viewCount = nextRowsView?.Count ?? 0;
         stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
+        if (!ReferenceEquals(BMSFilesView, nextRowsView))
+        {
+            base.Messenger.Raise(new InteractionMessage("PrepareMainTableSwap"));
+        }
         loadColumnSetting((mode < viewUpdateMode.KeywordFilterUpdated) ? mode : treeViewFilterTypeSelected);
         columnStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
+        SetChartRowsView(nextRowsView);
         callbackStageMs = 0L;
         string sortColumn = SortParameters?.ColumnsName ?? "(default_title)";
         string sortDirection = SortParameters?.Direction.ToString() ?? "Ascending";
@@ -11368,14 +11433,119 @@ public class MainWindowViewModel : ViewModel
         IEnumerable<LibraryChartRow> bmsonRows,
         Func<BeMusicSeeker.Models.BMSFile, bool> folderFilter)
     {
+        return BuildStandardLibraryRowsForView(bmsFiles, bmsonRows, folderFilter, out _);
+    }
+
+    internal static List<LibraryChartRow> BuildStandardLibraryRowsForView(
+        IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles,
+        IEnumerable<LibraryChartRow> bmsonRows,
+        Func<BeMusicSeeker.Models.BMSFile, bool> folderFilter,
+        out LibraryRowsBuildMetrics metrics)
+    {
+        Stopwatch totalStopwatch = Stopwatch.StartNew();
+        long regularFilterMs = 0L;
+        long bmsonFilterMs = 0L;
+        long regularRowMaterializeMs;
+        long bmsonRowMaterializeMs = 0L;
+        long concatToListMs;
+        int sourceBmsCount = CountIfCheap(bmsFiles);
+        int sourceBmsonCount = CountIfCheap(bmsonRows);
         IEnumerable<BeMusicSeeker.Models.BMSFile> regularRows = (bmsFiles ?? Enumerable.Empty<BeMusicSeeker.Models.BMSFile>()).Where((BeMusicSeeker.Models.BMSFile file) => file != null);
         IEnumerable<LibraryChartRow> normalizedBmsonRows = (bmsonRows ?? Enumerable.Empty<LibraryChartRow>()).Where((LibraryChartRow row) => row != null);
         if (folderFilter != null)
         {
+            Stopwatch filterStopwatch = Stopwatch.StartNew();
             regularRows = regularRows.AsParallel().Where(folderFilter);
+            List<BeMusicSeeker.Models.BMSFile> filteredRegularRows = regularRows.ToList();
+            filterStopwatch.Stop();
+            regularFilterMs = filterStopwatch.ElapsedMilliseconds;
+            regularRows = filteredRegularRows;
+
+            filterStopwatch.Restart();
             normalizedBmsonRows = normalizedBmsonRows.AsParallel().Where((LibraryChartRow row) => folderFilter(row.BmsFile ?? PendingChartEntry.CreateFromBmsonSong(row.BmsonSong)));
+            List<LibraryChartRow> filteredBmsonRows = normalizedBmsonRows.ToList();
+            filterStopwatch.Stop();
+            bmsonFilterMs = filterStopwatch.ElapsedMilliseconds;
+            normalizedBmsonRows = filteredBmsonRows;
         }
-        return ToLibraryChartRows(regularRows).Concat(normalizedBmsonRows).ToList();
+
+        Stopwatch materializeStopwatch = Stopwatch.StartNew();
+        List<LibraryChartRow> regularLibraryRows = ToLibraryChartRows(regularRows);
+        materializeStopwatch.Stop();
+        regularRowMaterializeMs = materializeStopwatch.ElapsedMilliseconds;
+
+        materializeStopwatch.Restart();
+        List<LibraryChartRow> bmsonLibraryRows = normalizedBmsonRows.ToList();
+        materializeStopwatch.Stop();
+        bmsonRowMaterializeMs = materializeStopwatch.ElapsedMilliseconds;
+
+        Stopwatch concatStopwatch = Stopwatch.StartNew();
+        List<LibraryChartRow> rows = new List<LibraryChartRow>(regularLibraryRows.Count + bmsonLibraryRows.Count);
+        rows.AddRange(regularLibraryRows);
+        rows.AddRange(bmsonLibraryRows);
+        concatStopwatch.Stop();
+        concatToListMs = concatStopwatch.ElapsedMilliseconds;
+        totalStopwatch.Stop();
+
+        metrics = new LibraryRowsBuildMetrics(
+            sourceBmsCount,
+            sourceBmsonCount,
+            regularLibraryRows.Count,
+            bmsonLibraryRows.Count,
+            folderFilter != null,
+            regularFilterMs,
+            bmsonFilterMs,
+            regularRowMaterializeMs,
+            bmsonRowMaterializeMs,
+            concatToListMs,
+            totalStopwatch.ElapsedMilliseconds,
+            rows.Count);
+        return rows;
+    }
+
+    private static int CountIfCheap<T>(IEnumerable<T> source)
+    {
+        if (source == null)
+        {
+            return 0;
+        }
+        if (source is ICollection<T> genericCollection)
+        {
+            return genericCollection.Count;
+        }
+        if (source is ICollection collection)
+        {
+            return collection.Count;
+        }
+        return -1;
+    }
+
+    private static void LogMainViewFolderDetail(viewUpdateMode mode, LibraryRowsBuildMetrics metrics)
+    {
+        LogMainViewBuild("main_view_folder_detail mode=" + mode
+            + " folderFilterApplied=" + metrics.FolderFilterApplied
+            + " sourceBmsCount=" + metrics.SourceBmsCount
+            + " sourceBmsonCount=" + metrics.SourceBmsonCount
+            + " filteredBmsCount=" + metrics.FilteredBmsCount
+            + " filteredBmsonCount=" + metrics.FilteredBmsonCount
+            + " regularFilterMs=" + metrics.RegularFilterMs
+            + " bmsonFilterMs=" + metrics.BmsonFilterMs
+            + " regularRowMaterializeMs=" + metrics.RegularRowMaterializeMs
+            + " bmsonRowMaterializeMs=" + metrics.BmsonRowMaterializeMs
+            + " concatToListMs=" + metrics.ConcatToListMs
+            + " folderMs=" + metrics.FolderMs
+            + " folderCount=" + metrics.FolderCount);
+    }
+
+    private static void LogMainSortDetail(LibraryChartSortMetrics metrics)
+    {
+        LogMainViewBuild("main_sort_detail rowCount=" + metrics.RowCount
+            + " columnName=" + (metrics.ColumnName ?? string.Empty)
+            + " direction=" + metrics.Direction
+            + " propertyType=" + (metrics.PropertyTypeName ?? "(null)")
+            + " sortProfile=" + (metrics.SortProfile ?? string.Empty)
+            + " stringSortKind=" + (metrics.StringSortKind ?? string.Empty)
+            + " sortMs=" + metrics.SortMs);
     }
 
     private static List<LibraryChartRow> ToLibraryChartRows(IEnumerable<BeMusicSeeker.Models.BMSFile> files)

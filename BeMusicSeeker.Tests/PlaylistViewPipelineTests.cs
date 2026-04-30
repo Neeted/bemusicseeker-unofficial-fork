@@ -1177,7 +1177,8 @@ public sealed class PlaylistViewPipelineTests
         List<LibraryChartRow> rows = MainWindowViewModel.BuildStandardLibraryRowsForView(
             new[] { keepBms, skipBms },
             new[] { keepBmson, skipBmson },
-            file => file.path.StartsWith("C:\\Keep", StringComparison.OrdinalIgnoreCase));
+            file => file.path.StartsWith("C:\\Keep", StringComparison.OrdinalIgnoreCase),
+            out LibraryRowsBuildMetrics metrics);
 
         Assert.AreEqual(2, rows.Count);
         CollectionAssert.AreEquivalent(new[] { "Keep Bms", "Keep Bmson" }, rows.Select((LibraryChartRow row) => row.Title).ToArray());
@@ -1185,6 +1186,13 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsTrue(rows.Any((LibraryChartRow row) => row.Chart.Kind == OwnedChartKind.Bmson && row.BmsonSong == keepBmson.BmsonSong));
         Assert.IsFalse(rows.Any((LibraryChartRow row) => row.Title == "Skip Bms" || row.Title == "Skip Bmson"));
         Assert.IsTrue(rows.All((LibraryChartRow row) => row.GetType() == typeof(LibraryChartRow)));
+        Assert.IsTrue(metrics.FolderFilterApplied);
+        Assert.AreEqual(2, metrics.SourceBmsCount);
+        Assert.AreEqual(2, metrics.SourceBmsonCount);
+        Assert.AreEqual(1, metrics.FilteredBmsCount);
+        Assert.AreEqual(1, metrics.FilteredBmsonCount);
+        Assert.AreEqual(2, metrics.FolderCount);
+        Assert.IsTrue(metrics.FolderMs >= 0);
     }
 
     [TestMethod]
