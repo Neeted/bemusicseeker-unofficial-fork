@@ -544,7 +544,7 @@ Phase 3 完了判断:
 
 ## Phase 8: プレイリストサマリーを CustomTableView 化する
 
-目的: `dataGridPlaylistSummary` を廃止し、プレイリストサマリー画面も CustomTableView 系で描画・操作する。これにより本アプリの実質的な DataGrid 使用箇所をなくす。
+目的: `dataGridPlaylistSummary` を通常表示経路から外し、プレイリストサマリー画面も CustomTableView 系で描画・操作する。これにより本アプリの実質的な DataGrid 使用箇所をなくす。
 
 前提:
 
@@ -554,11 +554,10 @@ Phase 3 完了判断:
 
 実装内容:
 
-- CustomTableView を summary 用 ItemsSource / ColumnsSettings にも使えるようにする。
-  - 既存の main 用 column factory とは分け、`CustomTableColumnFactory.CreatePlaylistSummaryColumns(PlaylistSummaryColumnSettings settings)` を追加する。
-  - `PlaylistSummaryColumnSettings.ColumnLayout` と `dataGridColumnsSettings.dataGridColumnlayouts` は型が異なるため、共通 interface / adapter / 小さな layout snapshot DTO のいずれかで扱う。
-  - 行高、横スクロール、列 resize / reorder、sort glyph、tooltip、selection model、copy、context menu は main と共通実装を使う。
-- プレイリストサマリー列を CustomTable column として定義する。
+- `ICustomTableColumnLayout` を追加し、main 用 `dataGridColumnsSettings.dataGridColumnlayouts` と summary 用 `PlaylistSummaryColumnSettings.ColumnLayout` を同じ列 layout として扱う。
+  - `CustomTableColumn.Layout`、列 resize、列 reorder、layout 変更監視は interface 経由にした。
+  - main 用 `ColumnsSettings` 経路は維持し、summary 用には `PlaylistSummaryColumnsSettings` DP を追加した。
+- `CustomTableColumnFactory.CreatePlaylistSummaryColumns(PlaylistSummaryColumnSettings settings)` を追加し、summary 用 12 列を CustomTable column として定義した。
   - `ID`: `PlaylistId`, right, sort `PlaylistId`
   - `NAME`: `Name`, left, sort `Name`
   - `SYMBOL`: `Symbol`, center, sort `Symbol`
@@ -571,29 +570,29 @@ Phase 3 完了判断:
   - `SYNC`: `IsExternalSync` の checked/unchecked 表示、sort `IsExternalSync`
   - `STATUS`: `Status`, center, tooltip `StatusDetail`, sort `StatusSortOrder`
   - `ROOT`: `IsRootFolder` の checked/unchecked 表示、sort `IsRootFolder`
-- summary 用 cell kind を追加する。
-  - `LinkAction`: `Open` text または軽量 icon を描画し、クリックで `LinkUri` を開く。
-  - `BooleanCheck`: check mark / empty box を DrawingContext で描画し、クリックで toggle event を発火する。
+- summary 用 cell kind と checked selector を追加した。
+  - `ActionText`: `Open` text を描画し、クリックで `CellActionRequested` を発火する。
+  - `CheckBox`: check mark / empty box を DrawingContext で描画し、クリックで `CellActionRequested` を発火する。
   - WPF `Button` / `CheckBox` をセルごとに生成しない。
-- summary 操作 event を MainWindow に橋渡しする。
-  - `CellActionRequested` のような event で `LINK` click、`SYNC` toggle、`ROOT` toggle を通知する。
-  - `LINK` は既存 `playlistSummaryLinkClick` / `playlistSummaryContextMenuOpenPageClick` と同じく `Process.Start(row.LinkUri.ToString())` を使う。
+- `customTablePlaylistSummary` を `dataGridPlaylistSummary` の sibling として追加し、`IsPlaylistSummaryMode=True` の通常表示を CustomTableView にした。
+  - `dataGridPlaylistSummary` は Phase 9 の構造削除まで XAML に残すが、通常経路では collapsed にした。
+  - `ItemsSource=PlaylistSummaryView`、`PlaylistSummaryColumnsSettings=PlaylistSummaryColumnsSettings`、`SortColumnName/SortDirection=PlaylistSummarySortParameters` を binding した。
+- summary 操作 event を MainWindow に橋渡しした。
+  - `CellActionRequested` で `LINK` click、`SYNC` toggle、`ROOT` toggle を通知する。
+  - `LINK` は DataGrid fallback と同じ `Process.Start(row.LinkUri.ToString())` を使う。
   - `SYNC` は既存と同じ確認 dialog を出し、選択中 rows 全体へ `ApplyPlaylistSummaryFlags(selectedRows, flag, null)` を適用する。
   - `ROOT` は選択中 rows 全体へ `ApplyPlaylistSummaryFlags(selectedRows, null, flag)` を適用する。
-- summary 選択・右クリックを DataGrid 依存から切り離す。
-  - `getSelectedPlaylistSummaryRows()` は `customTablePlaylistSummary.GetSelectedRowsSnapshot()` を読む。
-  - `resolvePlaylistSummaryRowFromSender()` は CustomTable の context object / menu tag / selected row から解決できるようにする。
+- summary 選択・右クリックを DataGrid 依存から切り離した。
+  - `getSelectedPlaylistSummaryRows()` は `customTablePlaylistSummary.IsVisible` のとき `GetSelectedRowsSnapshot()` を優先する。
+  - `resolvePlaylistSummaryRowFromSender()` は `CustomTableContextMenuContext` / `DataContext` / selected row から解決できるようにした。
   - row context menu は既存 `playlistSummaryContextMenu` を再利用し、menu handler は `PlaylistSummaryRow` 中心に処理する。
   - double click は `TrySelectPlaylistTreeItemFromSummary(row)` に接続する。
-- summary sort を CustomTable header click へ接続する。
-  - 現行 `dataGridPlaylistSummarySorting` と同じく `PlaylistSummarySortParameters` を更新し、`ApplyPlaylistSummaryPresentation()` / `RebuildPlaylistSummaryView()` の既存 pipeline に乗せる。
+- summary sort を CustomTable header click へ接続した。
+  - `SortRequested` から `ExecPlaylistSummarySort(sortMemberPath, direction)` を呼び、既存 pipeline に乗せる。
   - sort glyph は `PlaylistSummarySortParameters.ColumnsName` / `Direction` を CustomTable に binding する。
-- summary の failure row highlight を反映する。
+- summary の failure row highlight を反映した。
   - `HasFailureStatus` の row は DataGrid と同じ `#FFFDE4E4` 系背景を使う。
   - 選択表示は main CustomTable と同じく row 選択色 / current cell 色を優先する。
-- `dataGridPlaylistSummary` は Phase 8 完了時点では XAML に残してもよいが、通常表示経路からは外す。
-  - まず sibling `customTablePlaylistSummary` を追加して機能同等性を確認する。
-  - 問題なければ Phase 9 で DataGrid fallback と一緒に削除する。
 
 確認対象:
 

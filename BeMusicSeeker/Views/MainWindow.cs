@@ -1130,6 +1130,22 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }).Logging("customTableView_SortRequested");
     }
 
+    private async void customTablePlaylistSummary_SortRequested(object sender, CustomTableSortRequestedEventArgs e)
+    {
+        if (ShouldBlockStartupUiInteraction("custom_table_playlist_summary_sort"))
+        {
+            return;
+        }
+        if (!(base.DataContext is MainWindowViewModel viewModel) || string.IsNullOrWhiteSpace(e.SortMemberPath))
+        {
+            return;
+        }
+        await Task.Run(delegate
+        {
+            viewModel.ExecPlaylistSummarySort(e.SortMemberPath, e.Direction);
+        }).Logging("customTablePlaylistSummary_SortRequested");
+    }
+
     private void customTableView_SelectionChanged(object sender, CustomTableSelectionChangedEventArgs e)
     {
         if (base.DataContext is MainWindowViewModel { NowPlayingBMS: null } viewModel)
@@ -1172,6 +1188,18 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }).Logging("customTableView_RowActivated");
     }
 
+    private void customTablePlaylistSummary_RowActivated(object sender, CustomTableRowRequestedEventArgs e)
+    {
+        if (ShouldBlockStartupUiInteraction("custom_table_playlist_summary_row_activate"))
+        {
+            return;
+        }
+        if (e.Row is PlaylistSummaryRow playlistSummaryRow)
+        {
+            TrySelectPlaylistTreeItemFromSummary(playlistSummaryRow);
+        }
+    }
+
     private void customTableView_RowContextMenuRequested(object sender, CustomTableRowRequestedEventArgs e)
     {
         if (ShouldBlockStartupUiInteraction("custom_table_row_context_menu"))
@@ -1189,6 +1217,27 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         contextMenu.IsOpen = true;
     }
 
+    private void customTablePlaylistSummary_RowContextMenuRequested(object sender, CustomTableRowRequestedEventArgs e)
+    {
+        if (ShouldBlockStartupUiInteraction("custom_table_playlist_summary_context_menu"))
+        {
+            return;
+        }
+        if (e.Row is not PlaylistSummaryRow)
+        {
+            return;
+        }
+        if (TryFindResource("playlistSummaryContextMenu") is not ContextMenu contextMenu)
+        {
+            return;
+        }
+        CloseContextMenuIfOpen(contextMenu);
+        contextMenu.Tag = new CustomTableContextMenuContext(e.Row, e.RowIndex);
+        contextMenu.PlacementTarget = customTablePlaylistSummary;
+        contextMenu.Placement = e.OpenAtMousePosition ? PlacementMode.MousePoint : PlacementMode.Bottom;
+        contextMenu.IsOpen = true;
+    }
+
     private void customTableView_HeaderContextMenuRequested(object sender, CustomTableHeaderRequestedEventArgs e)
     {
         if (ShouldBlockStartupUiInteraction("custom_table_column_header_context_menu"))
@@ -1202,6 +1251,23 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         CloseContextMenuIfOpen(contextMenu);
         contextMenu.Tag = null;
         contextMenu.PlacementTarget = customTableView;
+        contextMenu.Placement = e.OpenAtMousePosition ? PlacementMode.MousePoint : PlacementMode.Bottom;
+        contextMenu.IsOpen = true;
+    }
+
+    private void customTablePlaylistSummary_HeaderContextMenuRequested(object sender, CustomTableHeaderRequestedEventArgs e)
+    {
+        if (ShouldBlockStartupUiInteraction("custom_table_playlist_summary_column_header_context_menu"))
+        {
+            return;
+        }
+        if (TryFindResource("playlistSummaryColumnHeaderContextMenu") is not ContextMenu contextMenu)
+        {
+            return;
+        }
+        CloseContextMenuIfOpen(contextMenu);
+        contextMenu.Tag = null;
+        contextMenu.PlacementTarget = customTablePlaylistSummary;
         contextMenu.Placement = e.OpenAtMousePosition ? PlacementMode.MousePoint : PlacementMode.Bottom;
         contextMenu.IsOpen = true;
     }
@@ -1262,6 +1328,30 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return;
         }
         await OpenUrlFromRowAsync(e.Row, isUrlDiff, isUrlDiff ? "custom_table_open_url_diff" : "custom_table_open_url");
+    }
+
+    private async void customTablePlaylistSummary_CellActionRequested(object sender, CustomTableCellActionRequestedEventArgs e)
+    {
+        if (ShouldBlockStartupUiInteraction("custom_table_playlist_summary_cell_action"))
+        {
+            return;
+        }
+        if (e.Row is not PlaylistSummaryRow playlistSummaryRow)
+        {
+            return;
+        }
+        switch (e.Column?.Id)
+        {
+            case "Link":
+                await OpenPlaylistSummaryLinkAsync(playlistSummaryRow).Logging("customTablePlaylistSummary_CellActionRequested_Link");
+                break;
+            case "IsExternalSync":
+                await ApplyPlaylistSummarySyncFromCustomTableAsync(playlistSummaryRow, !(playlistSummaryRow.IsExternalSync)).Logging("customTablePlaylistSummary_CellActionRequested_Sync");
+                break;
+            case "IsRootFolder":
+                await ApplyPlaylistSummaryRootFromCustomTableAsync(playlistSummaryRow, !(playlistSummaryRow.IsRootFolder)).Logging("customTablePlaylistSummary_CellActionRequested_Root");
+                break;
+        }
     }
 
     private void customTableView_CellEditEnded(object sender, CustomTableCellEditEndedEventArgs e)
@@ -3935,7 +4025,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     private List<PlaylistSummaryRow> getSelectedPlaylistSummaryRows(PlaylistSummaryRow fallback = null)
     {
         List<PlaylistSummaryRow> list = new List<PlaylistSummaryRow>();
-        if (dataGridPlaylistSummary != null && dataGridPlaylistSummary.SelectedItems != null)
+        if (customTablePlaylistSummary != null && customTablePlaylistSummary.IsVisible)
+        {
+            list = customTablePlaylistSummary.GetSelectedRowsSnapshot().OfType<PlaylistSummaryRow>().Where((PlaylistSummaryRow r) => r != null).ToList();
+        }
+        if ((list == null || list.Count == 0) && dataGridPlaylistSummary != null && dataGridPlaylistSummary.SelectedItems != null)
         {
             list = dataGridPlaylistSummary.SelectedItems.Cast<PlaylistSummaryRow>().Where((PlaylistSummaryRow r) => r != null).ToList();
         }
@@ -3948,6 +4042,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private PlaylistSummaryRow resolvePlaylistSummaryRowFromSender(object sender)
     {
+        if (TryGetContextMenuRow(sender, out object row) && row is PlaylistSummaryRow contextRow)
+        {
+            return contextRow;
+        }
         PlaylistSummaryRow playlistSummaryRow = (sender as FrameworkElement)?.DataContext as PlaylistSummaryRow;
         if (playlistSummaryRow != null)
         {
@@ -4186,7 +4284,16 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        await Task.Run(delegate
+        await OpenPlaylistSummaryLinkAsync(playlistSummaryRow).Logging("playlistSummaryLinkClick");
+    }
+
+    private Task OpenPlaylistSummaryLinkAsync(PlaylistSummaryRow playlistSummaryRow)
+    {
+        if (playlistSummaryRow?.LinkUri == null)
+        {
+            return Task.CompletedTask;
+        }
+        return Task.Run(delegate
         {
             try
             {
@@ -4195,7 +4302,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             catch
             {
             }
-        }).Logging("playlistSummaryLinkClick");
+        });
     }
 
     private async void playlistSummarySyncCheckBoxClick(object sender, RoutedEventArgs e)
@@ -4228,6 +4335,30 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         e.Handled = true;
     }
 
+    private async Task ApplyPlaylistSummarySyncFromCustomTableAsync(PlaylistSummaryRow playlistSummaryRow, bool flag)
+    {
+        List<PlaylistSummaryRow> selectedPlaylistSummaryRows = getSelectedPlaylistSummaryRows(playlistSummaryRow);
+        if (selectedPlaylistSummaryRows.Count == 0)
+        {
+            return;
+        }
+        ConfirmationMessage confirmationMessage = new ConfirmationMessage((!flag) ? ("同期モードを解除するとリモートの変更が反映されなくなります。" + Environment.NewLine + "よろしいですか？") : ("同期モードに設定するとローカルの変更が失われます。" + Environment.NewLine + "よろしいですか？"), "警告", MessageBoxImage.Exclamation, MessageBoxButton.OKCancel, "ConfirmationDialog");
+        (base.DataContext as MainWindowViewModel)?.Messenger.Raise(confirmationMessage);
+        if (!confirmationMessage.Response.HasValue || !confirmationMessage.Response.Value)
+        {
+            customTablePlaylistSummary?.RefreshDisplay();
+            return;
+        }
+        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
+        if (viewModel != null)
+        {
+            await Task.Run(delegate
+            {
+                viewModel.ApplyPlaylistSummaryFlags(selectedPlaylistSummaryRows, flag, null);
+            });
+        }
+    }
+
     private async void playlistSummaryRootCheckBoxClick(object sender, RoutedEventArgs e)
     {
         if (!(sender is CheckBox { DataContext: PlaylistSummaryRow playlistSummaryRow } checkBox))
@@ -4249,6 +4380,23 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             }).Logging("playlistSummaryRootCheckBoxClick");
         }
         e.Handled = true;
+    }
+
+    private async Task ApplyPlaylistSummaryRootFromCustomTableAsync(PlaylistSummaryRow playlistSummaryRow, bool flag)
+    {
+        List<PlaylistSummaryRow> selectedPlaylistSummaryRows = getSelectedPlaylistSummaryRows(playlistSummaryRow);
+        if (selectedPlaylistSummaryRows.Count == 0)
+        {
+            return;
+        }
+        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
+        if (viewModel != null)
+        {
+            await Task.Run(delegate
+            {
+                viewModel.ApplyPlaylistSummaryFlags(selectedPlaylistSummaryRows, null, flag);
+            });
+        }
     }
 
     private async void playlistSummaryContextMenuResyncClick(object sender, RoutedEventArgs e)

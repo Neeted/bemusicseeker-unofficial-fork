@@ -8,7 +8,7 @@ namespace BeMusicSeeker.ViewModels;
 public class PlaylistSummaryColumnSettings : NotificationObject
 {
     [Serializable]
-    public class ColumnLayout : NotificationObject
+    public class ColumnLayout : NotificationObject, ICustomTableColumnLayout
     {
         private int _Width = 80;
 

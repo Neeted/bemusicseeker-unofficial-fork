@@ -15,7 +15,9 @@ public enum CustomTableCellKind
 {
     Text,
     DownloadIcon,
-    StatusIcon
+    StatusIcon,
+    ActionText,
+    CheckBox
 }
 
 internal sealed class CustomTableTextStyle
@@ -108,7 +110,7 @@ public sealed class CustomTableColumn
     internal CustomTableColumn(
         string id,
         string header,
-        dataGridColumnsSettings.dataGridColumnlayouts layout,
+        ICustomTableColumnLayout layout,
         int fallbackOrder,
         string sortMemberPath,
         TextAlignment alignment,
@@ -118,6 +120,7 @@ public sealed class CustomTableColumn
         CustomTableTextStyle textStyle = null,
         bool useBoldText = false,
         Func<object, string> tooltipSelector = null,
+        Func<object, bool?> checkedSelector = null,
         int minWidth = 40,
         int? maxWidth = null,
         bool canResize = true,
@@ -142,6 +145,7 @@ public sealed class CustomTableColumn
         TextStyle = textStyle ?? (useBoldText ? CustomTableTextStyle.NormalBold : CustomTableTextStyle.Normal);
         UseBoldText = TextStyle.UseBoldText;
         TooltipSelector = tooltipSelector;
+        CheckedSelector = checkedSelector;
         MinWidth = Math.Max(1, minWidth);
         MaxWidth = maxWidth.HasValue ? Math.Max(MinWidth, maxWidth.Value) : int.MaxValue;
         CanResize = canResize;
@@ -159,7 +163,7 @@ public sealed class CustomTableColumn
 
     public string Header { get; }
 
-    public dataGridColumnsSettings.dataGridColumnlayouts Layout { get; }
+    public ICustomTableColumnLayout Layout { get; }
 
     public int FallbackOrder { get; }
 
@@ -205,6 +209,8 @@ public sealed class CustomTableColumn
 
     internal Func<object, string> TooltipSelector { get; }
 
+    internal Func<object, bool?> CheckedSelector { get; }
+
     internal Func<object, string> EditTextSelector { get; }
 
     internal Func<object, IEnumerable<string>> EditSuggestionsSelector { get; }
@@ -233,6 +239,11 @@ public sealed class CustomTableColumn
     internal Brush GetBackground(object row)
     {
         return BackgroundSelector == null ? null : BackgroundSelector(row);
+    }
+
+    internal bool? GetChecked(object row)
+    {
+        return CheckedSelector == null ? null : CheckedSelector(row);
     }
 
     internal IReadOnlyList<string> GetEditSuggestions(object row)
@@ -279,9 +290,38 @@ internal static class CustomTableColumnFactory
         }
         foreach (CustomTableColumn column in CreateAllMainColumns(settings))
         {
-            if (column.Layout != null)
+            if (column.Layout is dataGridColumnsSettings.dataGridColumnlayouts layout)
             {
-                yield return column.Layout;
+                yield return layout;
+            }
+        }
+    }
+
+    internal static IReadOnlyList<CustomTableColumn> CreatePlaylistSummaryColumns(PlaylistSummaryColumnSettings settings)
+    {
+        if (settings == null)
+        {
+            return Array.Empty<CustomTableColumn>();
+        }
+        CustomTableColumn[] columns = CreateAllPlaylistSummaryColumns(settings);
+        return columns
+            .Where(column => column.IsVisible)
+            .OrderBy(column => column.DisplayIndex >= 0 ? column.DisplayIndex : int.MaxValue)
+            .ThenBy(column => column.FallbackOrder)
+            .ToArray();
+    }
+
+    internal static IEnumerable<PlaylistSummaryColumnSettings.ColumnLayout> EnumeratePlaylistSummaryColumnLayouts(PlaylistSummaryColumnSettings settings)
+    {
+        if (settings == null)
+        {
+            yield break;
+        }
+        foreach (CustomTableColumn column in CreateAllPlaylistSummaryColumns(settings))
+        {
+            if (column.Layout is PlaylistSummaryColumnSettings.ColumnLayout layout)
+            {
+                yield return layout;
             }
         }
     }
@@ -342,6 +382,25 @@ internal static class CustomTableColumnFactory
             new CustomTableColumn("RankingLastupdate", "RANK UPDATE", settings.RankingLastupdate, 49, "rankingLastupdate", TextAlignment.Center, row => FormatShortDate(GetValue(row, "rankingLastupdate"))),
             new CustomTableColumn("TScore", "T-SCORE", settings.TScore, 50, "stddevVal", TextAlignment.Right, row => FormatFixedTwo(GetValue(row, "stddevVal"))),
             new CustomTableColumn("ScoreDifficulty", "ΔMAX", settings.ScoreDifficulty, 51, "scoreDifficulty", TextAlignment.Right, row => FormatFixedTwo(GetValue(row, "scoreDifficulty")))
+        };
+    }
+
+    private static CustomTableColumn[] CreateAllPlaylistSummaryColumns(PlaylistSummaryColumnSettings settings)
+    {
+        return new[]
+        {
+            new CustomTableColumn("PlaylistId", "ID", settings.PlaylistId, 0, nameof(PlaylistSummaryRow.PlaylistId), TextAlignment.Right, row => GetString(row, nameof(PlaylistSummaryRow.PlaylistId))),
+            new CustomTableColumn("Name", "NAME", settings.Name, 1, nameof(PlaylistSummaryRow.Name), TextAlignment.Left, row => GetString(row, nameof(PlaylistSummaryRow.Name))),
+            new CustomTableColumn("Symbol", "SYMBOL", settings.Symbol, 2, nameof(PlaylistSummaryRow.Symbol), TextAlignment.Center, row => GetString(row, nameof(PlaylistSummaryRow.Symbol))),
+            new CustomTableColumn("LastUpdate", "LAST UPDATE", settings.LastUpdate, 3, nameof(PlaylistSummaryRow.LastUpdate), TextAlignment.Center, row => FormatDateTime(GetValue(row, nameof(PlaylistSummaryRow.LastUpdate)))),
+            new CustomTableColumn("TotalCharts", "TOTAL", settings.TotalCharts, 4, nameof(PlaylistSummaryRow.TotalCharts), TextAlignment.Right, row => GetString(row, nameof(PlaylistSummaryRow.TotalCharts))),
+            new CustomTableColumn("OwnedCharts", "OWNED", settings.OwnedCharts, 5, nameof(PlaylistSummaryRow.OwnedCharts), TextAlignment.Right, row => GetString(row, nameof(PlaylistSummaryRow.OwnedCharts))),
+            new CustomTableColumn("MissingCharts", "MISSING", settings.MissingCharts, 6, nameof(PlaylistSummaryRow.MissingCharts), TextAlignment.Right, row => GetString(row, nameof(PlaylistSummaryRow.MissingCharts))),
+            new CustomTableColumn("OwnedRatio", "OWNED %", settings.OwnedRatio, 7, nameof(PlaylistSummaryRow.OwnedRatio), TextAlignment.Right, row => FormatPercentOne(GetValue(row, nameof(PlaylistSummaryRow.OwnedRatio)))),
+            new CustomTableColumn("Link", "LINK", settings.Link, 8, null, TextAlignment.Center, row => GetPlaylistSummaryLinkText(row), cellKind: CustomTableCellKind.ActionText),
+            new CustomTableColumn("IsExternalSync", "SYNC", settings.IsExternalSync, 9, nameof(PlaylistSummaryRow.IsExternalSync), TextAlignment.Center, row => string.Empty, checkedSelector: row => GetNullableBool(row, nameof(PlaylistSummaryRow.IsExternalSync)), cellKind: CustomTableCellKind.CheckBox),
+            new CustomTableColumn("Status", Resources.Playlist_summary_status_header, settings.Status, 10, nameof(PlaylistSummaryRow.StatusSortOrder), TextAlignment.Center, row => GetString(row, nameof(PlaylistSummaryRow.Status)), tooltipSelector: row => GetString(row, nameof(PlaylistSummaryRow.StatusDetail))),
+            new CustomTableColumn("IsRootFolder", "ROOT", settings.IsRootFolder, 11, nameof(PlaylistSummaryRow.IsRootFolder), TextAlignment.Center, row => string.Empty, checkedSelector: row => GetNullableBool(row, nameof(PlaylistSummaryRow.IsRootFolder)), cellKind: CustomTableCellKind.CheckBox)
         };
     }
 
@@ -572,6 +631,27 @@ internal static class CustomTableColumnFactory
         return value is IFormattable formattable ? formattable.ToString("F2", CultureInfo.CurrentCulture) : string.Empty;
     }
 
+    private static string FormatDateTime(object value)
+    {
+        return value is DateTime dateTime ? dateTime.ToString("yyyy/MM/dd HH:mm:ss", CultureInfo.CurrentCulture) : string.Empty;
+    }
+
+    private static string FormatPercentOne(object value)
+    {
+        return value is IFormattable formattable ? formattable.ToString("F1", CultureInfo.CurrentCulture) + "%" : string.Empty;
+    }
+
+    private static string GetPlaylistSummaryLinkText(object row)
+    {
+        return row is PlaylistSummaryRow { LinkUri: not null } ? "Open" : string.Empty;
+    }
+
+    private static bool? GetNullableBool(object row, string propertyName)
+    {
+        object value = GetValue(row, propertyName);
+        return value is bool flag ? flag : null;
+    }
+
     private static BMSFile.BMSFileStatus GetStatus(object row)
     {
         if (row is LibraryChartRow libraryRow)
@@ -691,7 +771,16 @@ internal static class CustomTableColumnFactory
         {
             return playlistRow.HasHighlightedWarning;
         }
+        if (row is PlaylistSummaryRow summaryRow)
+        {
+            return summaryRow.HasFailureStatus;
+        }
         object value = row?.GetType().GetProperty(nameof(LibraryChartRow.HasHighlightedWarning))?.GetValue(row, null);
-        return value is bool highlighted && highlighted;
+        if (value is bool highlighted)
+        {
+            return highlighted;
+        }
+        value = row?.GetType().GetProperty(nameof(PlaylistSummaryRow.HasFailureStatus))?.GetValue(row, null);
+        return value is bool failed && failed;
     }
 }

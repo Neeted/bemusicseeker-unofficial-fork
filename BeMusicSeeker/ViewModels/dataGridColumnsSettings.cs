@@ -8,7 +8,7 @@ namespace BeMusicSeeker.ViewModels;
 public class dataGridColumnsSettings : NotificationObject
 {
     [Serializable]
-    public class dataGridColumnlayouts : NotificationObject
+    public class dataGridColumnlayouts : NotificationObject, ICustomTableColumnLayout
     {
         private int _Width = 50;
 

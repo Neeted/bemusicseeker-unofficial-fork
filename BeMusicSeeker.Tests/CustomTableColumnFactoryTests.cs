@@ -165,6 +165,103 @@ public sealed class CustomTableColumnFactoryTests
     }
 
     [TestMethod]
+    public void CreatePlaylistSummaryColumns_CreatesAllSummaryColumns()
+    {
+        PlaylistSummaryColumnSettings settings = new PlaylistSummaryColumnSettings();
+        foreach (PlaylistSummaryColumnSettings.ColumnLayout layout in CustomTableColumnFactory.EnumeratePlaylistSummaryColumnLayouts(settings))
+        {
+            layout.DisplayIndex = -1;
+            layout.Visibility = Visibility.Visible;
+        }
+
+        string[] ids = CustomTableColumnFactory.CreatePlaylistSummaryColumns(settings).Select(column => column.Id).ToArray();
+
+        CollectionAssert.AreEqual(
+            new[]
+            {
+                "PlaylistId",
+                "Name",
+                "Symbol",
+                "LastUpdate",
+                "TotalCharts",
+                "OwnedCharts",
+                "MissingCharts",
+                "OwnedRatio",
+                "Link",
+                "IsExternalSync",
+                "Status",
+                "IsRootFolder"
+            },
+            ids);
+    }
+
+    [TestMethod]
+    public void CreatePlaylistSummaryColumns_ReflectsVisibilityWidthAndDisplayIndex()
+    {
+        PlaylistSummaryColumnSettings settings = new PlaylistSummaryColumnSettings();
+        settings.PlaylistId.Visibility = Visibility.Hidden;
+        settings.Name.DisplayIndex = 20;
+        settings.Status.DisplayIndex = 0;
+        settings.Status.Width = 123;
+
+        CustomTableColumn[] columns = CustomTableColumnFactory.CreatePlaylistSummaryColumns(settings).ToArray();
+
+        Assert.IsFalse(columns.Any(column => column.Id == "PlaylistId"));
+        Assert.AreEqual("Status", columns[0].Id);
+        Assert.AreEqual(123, columns[0].Width);
+        Assert.AreEqual("Name", columns.Last().Id);
+    }
+
+    [TestMethod]
+    public void CreatePlaylistSummaryColumns_AssignsSortPathsAndActionMetadata()
+    {
+        PlaylistSummaryColumnSettings settings = new PlaylistSummaryColumnSettings();
+        var columns = CustomTableColumnFactory.CreatePlaylistSummaryColumns(settings).ToDictionary(column => column.Id);
+
+        Assert.AreEqual(nameof(PlaylistSummaryRow.PlaylistId), columns["PlaylistId"].SortMemberPath);
+        Assert.AreEqual(nameof(PlaylistSummaryRow.Name), columns["Name"].SortMemberPath);
+        Assert.AreEqual(nameof(PlaylistSummaryRow.Symbol), columns["Symbol"].SortMemberPath);
+        Assert.AreEqual(nameof(PlaylistSummaryRow.LastUpdate), columns["LastUpdate"].SortMemberPath);
+        Assert.AreEqual(nameof(PlaylistSummaryRow.TotalCharts), columns["TotalCharts"].SortMemberPath);
+        Assert.AreEqual(nameof(PlaylistSummaryRow.OwnedCharts), columns["OwnedCharts"].SortMemberPath);
+        Assert.AreEqual(nameof(PlaylistSummaryRow.MissingCharts), columns["MissingCharts"].SortMemberPath);
+        Assert.AreEqual(nameof(PlaylistSummaryRow.OwnedRatio), columns["OwnedRatio"].SortMemberPath);
+        Assert.IsNull(columns["Link"].SortMemberPath);
+        Assert.AreEqual(nameof(PlaylistSummaryRow.IsExternalSync), columns["IsExternalSync"].SortMemberPath);
+        Assert.AreEqual(nameof(PlaylistSummaryRow.StatusSortOrder), columns["Status"].SortMemberPath);
+        Assert.AreEqual(nameof(PlaylistSummaryRow.IsRootFolder), columns["IsRootFolder"].SortMemberPath);
+        Assert.AreEqual(CustomTableCellKind.ActionText, columns["Link"].CellKind);
+        Assert.AreEqual(CustomTableCellKind.CheckBox, columns["IsExternalSync"].CellKind);
+        Assert.AreEqual(CustomTableCellKind.CheckBox, columns["IsRootFolder"].CellKind);
+    }
+
+    [TestMethod]
+    public void CreatePlaylistSummaryColumns_FormatsActionsTooltipsAndFailureBackground()
+    {
+        PlaylistSummaryColumnSettings settings = new PlaylistSummaryColumnSettings();
+        var columns = CustomTableColumnFactory.CreatePlaylistSummaryColumns(settings).ToDictionary(column => column.Id);
+        PlaylistSummaryRow row = new PlaylistSummaryRow
+        {
+            LinkUri = new Uri("https://example.com/"),
+            IsExternalSync = true,
+            IsRootFolder = false,
+            Status = "-",
+            StatusDetail = "detail",
+            HasFailureStatus = true,
+            LastUpdate = new DateTime(2026, 4, 30, 12, 34, 56),
+            OwnedRatio = 99.8
+        };
+
+        Assert.AreEqual("Open", columns["Link"].GetText(row));
+        Assert.AreEqual(true, columns["IsExternalSync"].GetChecked(row));
+        Assert.AreEqual(false, columns["IsRootFolder"].GetChecked(row));
+        Assert.AreEqual("detail", columns["Status"].GetTooltip(row));
+        Assert.AreEqual("2026/04/30 12:34:56", columns["LastUpdate"].GetText(row));
+        Assert.AreEqual("99.8%", columns["OwnedRatio"].GetText(row));
+        Assert.IsTrue(CustomTableColumnFactory.HasHighlightedWarning(row));
+    }
+
+    [TestMethod]
     public void CreateMainColumns_AssignsPhaseTwoSortMemberPaths()
     {
         dataGridColumnsSettings settings = new dataGridColumnsSettings();

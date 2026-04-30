@@ -152,7 +152,7 @@ internal sealed class CustomTableCellValueCache
 
 internal readonly struct CustomTableCellValue
 {
-    private CustomTableCellValue(string text, Brush foreground, Brush background, CustomTableCellKind cellKind, CustomTableTextStyle textStyle, System.Windows.TextAlignment alignment)
+    private CustomTableCellValue(string text, Brush foreground, Brush background, CustomTableCellKind cellKind, CustomTableTextStyle textStyle, System.Windows.TextAlignment alignment, bool? isChecked)
     {
         Text = text ?? string.Empty;
         Foreground = foreground ?? CustomTableScoreBrushProvider.DefaultForeground;
@@ -160,9 +160,10 @@ internal readonly struct CustomTableCellValue
         CellKind = cellKind;
         TextStyle = textStyle ?? CustomTableTextStyle.Normal;
         Alignment = alignment;
+        IsChecked = isChecked;
     }
 
-    internal static CustomTableCellValue Empty { get; } = new CustomTableCellValue(string.Empty, CustomTableScoreBrushProvider.DefaultForeground, null, CustomTableCellKind.Text, CustomTableTextStyle.Normal, System.Windows.TextAlignment.Left);
+    internal static CustomTableCellValue Empty { get; } = new CustomTableCellValue(string.Empty, CustomTableScoreBrushProvider.DefaultForeground, null, CustomTableCellKind.Text, CustomTableTextStyle.Normal, System.Windows.TextAlignment.Left, null);
 
     internal string Text { get; }
 
@@ -178,6 +179,8 @@ internal readonly struct CustomTableCellValue
 
     internal System.Windows.TextAlignment Alignment { get; }
 
+    internal bool? IsChecked { get; }
+
     internal static CustomTableCellValue Create(object row, CustomTableColumn column)
     {
         return new CustomTableCellValue(
@@ -186,6 +189,7 @@ internal readonly struct CustomTableCellValue
             column.GetBackground(row),
             column.CellKind,
             column.TextStyle,
-            column.Alignment);
+            column.Alignment,
+            column.GetChecked(row));
     }
 }

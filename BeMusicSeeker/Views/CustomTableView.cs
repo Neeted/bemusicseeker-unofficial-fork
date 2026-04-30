@@ -75,6 +75,12 @@ public sealed class CustomTableView : Grid
         typeof(CustomTableView),
         new FrameworkPropertyMetadata(null, OnColumnsSettingsChanged));
 
+    public static readonly DependencyProperty PlaylistSummaryColumnsSettingsProperty = DependencyProperty.Register(
+        nameof(PlaylistSummaryColumnsSettings),
+        typeof(PlaylistSummaryColumnSettings),
+        typeof(CustomTableView),
+        new FrameworkPropertyMetadata(null, OnPlaylistSummaryColumnsSettingsChanged));
+
     public static readonly DependencyProperty RowHeightProperty = DependencyProperty.Register(
         nameof(RowHeight),
         typeof(double),
@@ -136,7 +142,7 @@ public sealed class CustomTableView : Grid
     private bool firstRenderLogged = true;
     private bool updatingSelectedIndexFromSelection;
     private bool isResizingColumn;
-    private dataGridColumnsSettings.dataGridColumnlayouts resizingColumnLayout;
+    private ICustomTableColumnLayout resizingColumnLayout;
     private int resizingColumnMinWidth;
     private int resizingColumnMaxWidth;
     private double resizingStartMouseX;
@@ -311,6 +317,12 @@ public sealed class CustomTableView : Grid
         set => SetValue(ColumnsSettingsProperty, value);
     }
 
+    public PlaylistSummaryColumnSettings PlaylistSummaryColumnsSettings
+    {
+        get => (PlaylistSummaryColumnSettings)GetValue(PlaylistSummaryColumnsSettingsProperty);
+        set => SetValue(PlaylistSummaryColumnsSettingsProperty, value);
+    }
+
     public double RowHeight
     {
         get => (double)GetValue(RowHeightProperty);
@@ -417,7 +429,17 @@ public sealed class CustomTableView : Grid
         view.CommitActiveEdit();
         view.currentCellHit = null;
         view.DetachColumnLayoutHandlers();
-        view.AttachColumnLayoutHandlers(e.NewValue as dataGridColumnsSettings);
+        view.AttachColumnLayoutHandlers();
+        view.RebuildColumns();
+    }
+
+    private static void OnPlaylistSummaryColumnsSettingsChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+    {
+        CustomTableView view = (CustomTableView)d;
+        view.CommitActiveEdit();
+        view.currentCellHit = null;
+        view.DetachColumnLayoutHandlers();
+        view.AttachColumnLayoutHandlers();
         view.RebuildColumns();
     }
 
@@ -494,15 +516,14 @@ public sealed class CustomTableView : Grid
         RequestRedraw("items_source_changed");
     }
 
-    private void AttachColumnLayoutHandlers(dataGridColumnsSettings settings)
+    private void AttachColumnLayoutHandlers()
     {
-        if (settings == null)
+        IEnumerable<ICustomTableColumnLayout> layouts = PlaylistSummaryColumnsSettings != null
+            ? CustomTableColumnFactory.EnumeratePlaylistSummaryColumnLayouts(PlaylistSummaryColumnsSettings).Cast<ICustomTableColumnLayout>()
+            : CustomTableColumnFactory.EnumerateMainColumnLayouts(ColumnsSettings).Cast<ICustomTableColumnLayout>();
+        foreach (ICustomTableColumnLayout layoutCandidate in layouts)
         {
-            return;
-        }
-        foreach (dataGridColumnsSettings.dataGridColumnlayouts layoutCandidate in CustomTableColumnFactory.EnumerateMainColumnLayouts(settings))
-        {
-            if (layoutCandidate is INotifyPropertyChanged layout)
+            if (layoutCandidate is INotifyPropertyChanged layout && !subscribedColumnLayouts.Contains(layout))
             {
                 layout.PropertyChanged += ColumnLayoutPropertyChanged;
                 subscribedColumnLayouts.Add(layout);
@@ -523,12 +544,14 @@ public sealed class CustomTableView : Grid
     {
         CommitActiveEdit();
         currentCellHit = null;
-        RebuildColumns(!string.Equals(e.PropertyName, nameof(dataGridColumnsSettings.dataGridColumnlayouts.Width), StringComparison.Ordinal));
+        RebuildColumns(!string.Equals(e.PropertyName, nameof(ICustomTableColumnLayout.Width), StringComparison.Ordinal));
     }
 
     private void RebuildColumns(bool markItemsApplied = true)
     {
-        Columns = CustomTableColumnFactory.CreateMainColumns(ColumnsSettings).ToArray();
+        Columns = PlaylistSummaryColumnsSettings != null
+            ? CustomTableColumnFactory.CreatePlaylistSummaryColumns(PlaylistSummaryColumnsSettings).ToArray()
+            : CustomTableColumnFactory.CreateMainColumns(ColumnsSettings).ToArray();
         InvalidateColumnLayoutSnapshot();
         InvalidateColumnCellValues();
         if (markItemsApplied)
@@ -855,8 +878,7 @@ public sealed class CustomTableView : Grid
             rowDragStartPoint = e.ClickCount == 1 ? e.GetPosition(this) : null;
             rowDragStartHit = e.ClickCount == 1 ? hit : null;
             if (e.ClickCount == 1
-                && hit.Column?.CellKind == CustomTableCellKind.DownloadIcon
-                && !string.IsNullOrWhiteSpace(hit.Column.GetText(hit.Row))
+                && IsActionCell(hit)
                 && (Keyboard.Modifiers & (ModifierKeys.Control | ModifierKeys.Shift | ModifierKeys.Alt)) == ModifierKeys.None)
             {
                 ClearDragState();
@@ -884,6 +906,24 @@ public sealed class CustomTableView : Grid
             e.Handled = true;
         }
         ClearDragState();
+    }
+
+    private static bool IsActionCell(CustomTableHitTestResult hit)
+    {
+        if (hit?.Column == null)
+        {
+            return false;
+        }
+        switch (hit.Column.CellKind)
+        {
+            case CustomTableCellKind.DownloadIcon:
+            case CustomTableCellKind.ActionText:
+                return !string.IsNullOrWhiteSpace(hit.Column.GetText(hit.Row));
+            case CustomTableCellKind.CheckBox:
+                return hit.Column.GetChecked(hit.Row).HasValue;
+            default:
+                return false;
+        }
     }
 
     private void CustomTableViewPreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)
@@ -1980,6 +2020,8 @@ internal sealed class CustomTableSurface : FrameworkElement
     private static readonly Pen CellBorderPen = CreatePen(Color.FromRgb(0xE7, 0xE9, 0xEC));
     private static readonly Pen HeaderBorderPen = CreatePen(Color.FromRgb(0xC8, 0xCC, 0xD1));
     private static readonly Pen ColumnReorderInsertPen = CreatePen(Colors.Black, 3d);
+    private static readonly Pen CheckBoxBorderPen = CreatePen(Color.FromRgb(0x45, 0x4A, 0x50));
+    private static readonly Pen CheckBoxCheckPen = CreatePen(Color.FromRgb(0x20, 0x20, 0x20), 1.8d);
     private readonly CustomTableView owner;
     private readonly CustomTableTextLayoutCache textLayoutCache = new CustomTableTextLayoutCache();
     private int renderTextCacheHits;
@@ -2128,6 +2170,10 @@ internal sealed class CustomTableSurface : FrameworkElement
             {
                 DrawStatusIcon(drawingContext, cellValue.Text, cellRect, foreground);
             }
+            else if (cellValue.CellKind == CustomTableCellKind.CheckBox)
+            {
+                DrawCheckBox(drawingContext, cellValue.IsChecked, cellRect, foreground);
+            }
             else
             {
                 DrawCellText(drawingContext, cellValue.Text, cellRect, foreground, cellValue.Alignment, cellValue.TextStyle);
@@ -2266,6 +2312,27 @@ internal sealed class CustomTableSurface : FrameworkElement
             case CustomTableStatusIconKind.ScoreUnsent:
                 DrawRefreshIcon(drawingContext, iconBrush, pen, iconRect);
                 break;
+        }
+    }
+
+    private static void DrawCheckBox(DrawingContext drawingContext, bool? isChecked, Rect cellRect, Brush foreground)
+    {
+        if (!isChecked.HasValue || cellRect.Width <= 8d || cellRect.Height <= 8d)
+        {
+            return;
+        }
+        double size = Math.Max(8d, Math.Min(12d, Math.Min(cellRect.Width - 4d, cellRect.Height - 4d)));
+        double left = cellRect.Left + (cellRect.Width - size) / 2d;
+        double top = cellRect.Top + (cellRect.Height - size) / 2d;
+        Rect rect = new Rect(left, top, size, size);
+        drawingContext.DrawRectangle(Brushes.White, CheckBoxBorderPen, rect);
+        if (isChecked.Value)
+        {
+            Pen checkPen = foreground == null || ReferenceEquals(foreground, CustomTableScoreBrushProvider.DefaultForeground)
+                ? CheckBoxCheckPen
+                : new Pen(foreground, 1.8d);
+            drawingContext.DrawLine(checkPen, new Point(rect.Left + 2.5d, rect.Top + size * 0.55d), new Point(rect.Left + size * 0.43d, rect.Bottom - 2.5d));
+            drawingContext.DrawLine(checkPen, new Point(rect.Left + size * 0.43d, rect.Bottom - 2.5d), new Point(rect.Right - 2d, rect.Top + 2.5d));
         }
     }
 
