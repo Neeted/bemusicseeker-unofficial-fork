@@ -7,7 +7,7 @@ using Ribbit.Util;
 namespace BeMusicSeeker.ViewModels;
 
 /// <summary>
-/// PlaylistSummary DataGrid のソート処理を集約します。
+/// PlaylistSummary 一覧のソート処理を集約します。
 /// </summary>
 internal static class PlaylistSummarySortEngine
 {

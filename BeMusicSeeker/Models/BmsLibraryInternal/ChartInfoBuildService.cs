@@ -326,7 +326,7 @@ internal sealed class ChartInfoBuildService
         }
         try
         {
-            // maintenance.encoding is for DataGrid/LR2 song display correction. chart_info must use
+            // maintenance.encoding is for list/LR2 song display correction. chart_info must use
             // the parser's beatoraja-compatible default BMS decoding instead of that UI hint.
             ChartInfoParser.ChartInfoParseResult parseResult = ChartInfoParser.ParseBytesDetailed(item.Bytes, target.Path, md5, sha256, encodingName: null, timeout: parseTimeout);
             LogParseDiagnostics(logInstallPerformance, target, md5, sha256, parseResult.Diagnostics);

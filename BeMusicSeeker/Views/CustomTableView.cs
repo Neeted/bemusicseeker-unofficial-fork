@@ -798,6 +798,20 @@ public sealed class CustomTableView : Grid
         RequestRedraw("refresh_display");
     }
 
+    public void PrepareForItemsSourceSwap()
+    {
+        CommitActiveEdit();
+        currentCellHit = null;
+        RequestRedraw("prepare_items_source_swap");
+    }
+
+    public void ScrollSelectedRowIntoView()
+    {
+        int rowIndex = selectionModel.CurrentIndex >= 0 ? selectionModel.CurrentIndex : SelectedIndex;
+        EnsureRowVisible(rowIndex);
+        RequestRedraw("scroll_into_view");
+    }
+
     internal CustomTableHitTestResult HitTestTable(Point surfacePoint)
     {
         if (surfacePoint.X < 0d || surfacePoint.Y < 0d || surfacePoint.X >= surface.ActualWidth || surfacePoint.Y >= surface.ActualHeight)

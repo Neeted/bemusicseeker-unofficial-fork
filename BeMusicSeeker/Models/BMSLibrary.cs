@@ -3804,7 +3804,7 @@ public class BMSLibrary : NotificationObject
 
     /// <summary>
     /// 既存 chart_info 行を起動後にメモリ上の譜面へ適用します。
-    /// DataGrid 表示用メタデータであり、導入先推定の critical path からは外します。
+    /// 一覧表示用メタデータであり、導入先推定の critical path からは外します。
     /// </summary>
     private void QueueDeferredChartInfoHydration(string reason, bool queueFullBackfillAfterHydration)
     {

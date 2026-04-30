@@ -9,7 +9,7 @@ using Livet;
 namespace BeMusicSeeker.ViewModels;
 
 /// <summary>
-/// 通常 DataGrid に表示する所持譜面 row です。
+/// 通常一覧に表示する所持譜面 row です。
 /// BMS / bmson の storage model はそのままに、表示境界だけを共通化します。
 /// </summary>
 internal sealed class LibraryChartRow : NotificationObject

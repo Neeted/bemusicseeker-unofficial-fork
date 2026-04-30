@@ -190,12 +190,6 @@ public class MainWindowViewModel : ViewModel
 
         private bool tempEnableAutoInstall;
 
-        private bool tempUseFastSortInDataGridExperimental;
-
-        private bool tempUseDataGridColumnVirtualizationExperimental;
-
-        private bool tempUseCustomTableView;
-
         private bool tempKeepInstallablePackagesPending;
 
         private bool tempUseEverythingForPendingPackageSourceScan;
@@ -1086,66 +1080,6 @@ public class MainWindowViewModel : ViewModel
                 {
                     Settings.Default.AutoInstall = value;
                     RaisePropertyChanged("EnableAutoInstall");
-                }
-            }
-        }
-
-        /// <summary>
-        /// BMS 一覧画面のソートで高速化実験経路を使うかどうかを取得または設定します。
-        /// </summary>
-        /// <remarks>
-        /// 既定値は false で、従来の自然順ソートを維持します。
-        /// </remarks>
-        public bool UseFastSortInDataGridExperimental
-        {
-            get
-            {
-                return Settings.Default.UseFastSortInDataGridExperimental;
-            }
-            set
-            {
-                if (Settings.Default.UseFastSortInDataGridExperimental != value)
-                {
-                    Settings.Default.UseFastSortInDataGridExperimental = value;
-                    RaisePropertyChanged("UseFastSortInDataGridExperimental");
-                }
-            }
-        }
-
-        /// <summary>
-        /// BMS 一覧画面の DataGrid で列仮想化を試験導入するかどうかを取得または設定します。
-        /// </summary>
-        /// <remarks>
-        /// 既定値は false で、従来の列生成挙動を維持します。
-        /// </remarks>
-        public bool UseDataGridColumnVirtualizationExperimental
-        {
-            get
-            {
-                return Settings.Default.UseDataGridColumnVirtualizationExperimental;
-            }
-            set
-            {
-                if (Settings.Default.UseDataGridColumnVirtualizationExperimental != value)
-                {
-                    Settings.Default.UseDataGridColumnVirtualizationExperimental = value;
-                    RaisePropertyChanged("UseDataGridColumnVirtualizationExperimental");
-                }
-            }
-        }
-
-        public bool UseCustomTableView
-        {
-            get
-            {
-                return Settings.Default.UseCustomTableView;
-            }
-            set
-            {
-                if (Settings.Default.UseCustomTableView != value)
-                {
-                    Settings.Default.UseCustomTableView = value;
-                    RaisePropertyChanged("UseCustomTableView");
                 }
             }
         }
@@ -2312,9 +2246,6 @@ public class MainWindowViewModel : ViewModel
             tempEnableReadOptimizedPragmas = Settings.Default.EnableReadOptimizedPragmas;
             tempSkipEstimateOfflineScoreRanking = Settings.Default.SkipEstimateOfflineScoreRanking;
             tempEnableAutoInstall = Settings.Default.AutoInstall;
-            tempUseFastSortInDataGridExperimental = Settings.Default.UseFastSortInDataGridExperimental;
-            tempUseDataGridColumnVirtualizationExperimental = Settings.Default.UseDataGridColumnVirtualizationExperimental;
-            tempUseCustomTableView = Settings.Default.UseCustomTableView;
             tempKeepInstallablePackagesPending = Settings.Default.KeepInstallablePackagesPending;
             tempUseEverythingForPendingPackageSourceScan = Settings.Default.UseEverythingForPendingPackageSourceScan;
             tempAutoApplyAmbiguousInstallDestination = Settings.Default.AutoApplyAmbiguousInstallDestination;
@@ -2587,9 +2518,6 @@ public class MainWindowViewModel : ViewModel
             Settings.Default.EnableReadOptimizedPragmas = tempEnableReadOptimizedPragmas;
             Settings.Default.SkipEstimateOfflineScoreRanking = tempSkipEstimateOfflineScoreRanking;
             Settings.Default.AutoInstall = tempEnableAutoInstall;
-            Settings.Default.UseFastSortInDataGridExperimental = tempUseFastSortInDataGridExperimental;
-            Settings.Default.UseDataGridColumnVirtualizationExperimental = tempUseDataGridColumnVirtualizationExperimental;
-            Settings.Default.UseCustomTableView = tempUseCustomTableView;
             Settings.Default.KeepInstallablePackagesPending = tempKeepInstallablePackagesPending;
             Settings.Default.UseEverythingForPendingPackageSourceScan = tempUseEverythingForPendingPackageSourceScan;
             Settings.Default.AutoApplyAmbiguousInstallDestination = tempAutoApplyAmbiguousInstallDestination;
@@ -2663,9 +2591,6 @@ public class MainWindowViewModel : ViewModel
             RaisePropertyChanged(() => EnableReadOptimizedPragmas);
             RaisePropertyChanged(() => SkipEstimateOfflineScoreRanking);
             RaisePropertyChanged(() => EnableAutoInstall);
-            RaisePropertyChanged(() => UseFastSortInDataGridExperimental);
-            RaisePropertyChanged(() => UseDataGridColumnVirtualizationExperimental);
-            RaisePropertyChanged(() => UseCustomTableView);
             RaisePropertyChanged(() => KeepInstallablePackagesPending);
             RaisePropertyChanged(() => UseEverythingForPendingPackageSourceScan);
             RaisePropertyChanged(() => AutoApplyAmbiguousInstallDestination);
@@ -4017,7 +3942,7 @@ public class MainWindowViewModel : ViewModel
         internal List<PlaylistDetailSourceRow> SourceRows = new List<PlaylistDetailSourceRow>();
 
         /// <summary>
-        /// 現在 DataGrid へ反映している表示用 snapshot です。
+        /// 現在一覧へ反映している表示用 snapshot です。
         /// source と別インスタンスで保持し、UI 側の retained reference と source 正本を切り分けます。
         /// </summary>
         internal IList CurrentViewRows = new List<object>();
@@ -4355,10 +4280,6 @@ public class MainWindowViewModel : ViewModel
 
     private readonly Dictionary<LR2SongDBExtended.bmson_song, LibraryChartRow> bmsonLibraryRowsBySong = new Dictionary<LR2SongDBExtended.bmson_song, LibraryChartRow>(BmsonSongReferenceComparer.Instance);
 
-    private static long callbackExecSortRaiseRequestId;
-
-    private const long CallbackExecSortSlowLogThresholdMs = 100L;
-
     private const long ColumnSettingSlowLogThresholdMs = 100L;
 
     private const int PlaylistBuildCoalescingWindowMs = 50;
@@ -4368,12 +4289,6 @@ public class MainWindowViewModel : ViewModel
     private const long PlaylistScoreProbeSlowLogThresholdMs = 500L;
 
     private const long PlaylistScoreProbeChunkSlowLogThresholdMs = 250L;
-
-    private long lastExecSortCallbackRequestId;
-
-    private long lastExecSortCallbackRaiseStartTimestamp;
-
-    private int lastExecSortCallbackRaiseStartThreadId;
 
     private static long mainViewBuildRequestIdSeed;
 
@@ -4988,7 +4903,7 @@ public class MainWindowViewModel : ViewModel
     }
 
     /// <summary>
-    /// playlist 詳細表示時の DataGrid binding 方式を更新します。
+    /// playlist 詳細表示時の一覧反映方式を更新します。
     /// </summary>
     /// <param name="playlistDetailActive">playlist 詳細表示中かどうか。</param>
     private void UpdateBmsFilesViewBindingMode(bool playlistDetailActive)
@@ -7188,7 +7103,7 @@ public class MainWindowViewModel : ViewModel
     }
 
     /// <summary>
-    /// メインリスト (DataGrid) 上に実際に表示されるBMS楽曲データ群です。
+    /// メインリスト上に実際に表示されるBMS楽曲データ群です。
     /// ツリーでのフォルダ選択や、各種フィルタリング（キーワード検索、モード絞り込みなど）による抽出結果が反映されます。
     /// </summary>
     public IList BMSFilesView
@@ -7444,12 +7359,6 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
-    public long LastExecSortCallbackRequestId => Interlocked.Read(ref lastExecSortCallbackRequestId);
-
-    public long LastExecSortCallbackRaiseStartTimestamp => Interlocked.Read(ref lastExecSortCallbackRaiseStartTimestamp);
-
-    public int LastExecSortCallbackRaiseStartThreadId => Volatile.Read(ref lastExecSortCallbackRaiseStartThreadId);
-
     /// <summary>
     /// 最新の一覧更新要求を識別するIDを返します。
     /// MainWindow 側の描画遅延計測ログを main_view_build と突き合わせるために使用します。
@@ -7553,7 +7462,6 @@ public class MainWindowViewModel : ViewModel
             }
             _ColumnsSettingsBMSFilesView = value;
             RaisePropertyChanged("ColumnsSettingsBMSFilesView");
-            base.Messenger.Raise(new InteractionMessage("CallbackColumnsSetingsChanged"));
         }
     }
 
@@ -7618,7 +7526,7 @@ public class MainWindowViewModel : ViewModel
     }
 
     /// <summary>
-    /// 現在のメイン DataGrid がプレイリスト詳細表示モードかどうかを示します。
+    /// 現在のメイン一覧がプレイリスト詳細表示モードかどうかを示します。
     /// </summary>
     public bool IsPlaylistDetailViewActive
     {
@@ -7629,7 +7537,7 @@ public class MainWindowViewModel : ViewModel
     }
 
     /// <summary>
-    /// メイン DataGrid の ItemsSource binding を非同期で張るかどうかを示します。
+    /// メイン一覧の表示コレクションを非同期で張るかどうかを示します。
     /// playlist 詳細表示では同期反映に切り替えて旧 ItemsSource の保持を減らします。
     /// </summary>
     public bool UseAsyncBMSFilesViewBinding
@@ -7687,7 +7595,7 @@ public class MainWindowViewModel : ViewModel
     }
 
     /// <summary>
-    /// playlist DataGrid 側の描画・待機完了後に retention 状態を追加計測します。
+    /// playlist 一覧側の描画・待機完了後に retention 状態を追加計測します。
     /// </summary>
     /// <param name="checkpoint">計測契機名。</param>
     /// <param name="expectedSourceGenerationId">UI で観測した source 世代。</param>
@@ -8188,7 +8096,6 @@ public class MainWindowViewModel : ViewModel
             }
             _PlaylistSummaryColumnsSettings = value;
             RaisePropertyChanged("PlaylistSummaryColumnsSettings");
-            base.Messenger.Raise(new InteractionMessage("CallbackColumnsSetingsChanged"));
         }
     }
 
@@ -10414,8 +10321,7 @@ public class MainWindowViewModel : ViewModel
         string sortColumn = SortParameters?.ColumnsName ?? "(default_title)";
         string sortDirection = SortParameters?.Direction.ToString() ?? "Ascending";
         string parameterType = parameter?.GetType().Name ?? "(null)";
-        bool fastSortEnabled = Settings.Default.UseFastSortInDataGridExperimental;
-        bool dataGridColumnVirtualizationEnabled = Settings.Default.UseDataGridColumnVirtualizationExperimental;
+        bool fastSortEnabled = true;
         bool isPlaylistDetailForLog = IsPlaylistViewMode(mode) || IsPlaylistViewMode(treeViewFilterTypeSelected);
         long mainViewBuildRequestId = Interlocked.Increment(ref mainViewBuildRequestIdSeed);
         long mainViewBuildEndTimestamp = Stopwatch.GetTimestamp();
@@ -10428,33 +10334,7 @@ public class MainWindowViewModel : ViewModel
             Interlocked.Exchange(ref lastPlaylistDetailBuildCompletedTimestamp, mainViewBuildEndTimestamp);
             Interlocked.Exchange(ref lastPlaylistDetailBuildElapsedMs, viewBuildStopwatch.ElapsedMilliseconds);
         }
-        LogMainViewBuild("main_view_build mode=" + mode + " requestedMode=" + requestedMode + " parameterType=" + parameterType + " folderMs=" + folderStageMs + " keywordMs=" + keywordStageMs + " modeMs=" + modeStageMs + " sortMs=" + sortStageMs + " sortReuse=" + sortReuse + " sortProfile=" + sortProfile + " sortEngine=" + (fastSortEnabled ? "fast" : "legacy") + " fastSortEnabled=" + fastSortEnabled + " dataGridColumnVirtualizationEnabled=" + dataGridColumnVirtualizationEnabled + " isPlaylistDetailView=" + isPlaylistDetailForLog + " columnMs=" + columnStageMs + " callbackMs=" + callbackStageMs + " totalMs=" + viewBuildStopwatch.ElapsedMilliseconds + " folderCount=" + folderCount + " keywordCount=" + keywordCount + " modeCount=" + modeCount + " viewCount=" + viewCount + " sortColumn=" + sortColumn + " sortDirection=" + sortDirection);
-    }
-
-    /// <summary>
-    /// メインビュー更新後にソートアイコン再同期コールバックを非同期要求します。
-    /// </summary>
-    private long RaiseCallbackExecSort(viewUpdateMode mode)
-    {
-        string sortColumn = SortParameters?.ColumnsName ?? "(default_title)";
-        string sortDirection = SortParameters?.Direction.ToString() ?? "Ascending";
-        long callbackRequestId = Interlocked.Increment(ref callbackExecSortRaiseRequestId);
-        long callbackRaiseStartTimestamp = Stopwatch.GetTimestamp();
-        int callbackRaiseStartThreadId = Thread.CurrentThread.ManagedThreadId;
-        Interlocked.Exchange(ref lastExecSortCallbackRequestId, callbackRequestId);
-        Interlocked.Exchange(ref lastExecSortCallbackRaiseStartTimestamp, callbackRaiseStartTimestamp);
-        Volatile.Write(ref lastExecSortCallbackRaiseStartThreadId, callbackRaiseStartThreadId);
-        _ = Task.Run(delegate
-        {
-            Stopwatch dispatchStopwatch = Stopwatch.StartNew();
-            base.Messenger.Raise(new InteractionMessage("CallbackExecSort"));
-            long dispatchElapsedMs = dispatchStopwatch.ElapsedMilliseconds;
-            if (dispatchElapsedMs >= CallbackExecSortSlowLogThresholdMs)
-            {
-                LogMainViewBuild("callback_exec_sort_dispatch slow request=" + callbackRequestId + " elapsedMs=" + dispatchElapsedMs + " mode=" + mode + " sortColumn=" + sortColumn + " sortDirection=" + sortDirection + " threadId=" + Thread.CurrentThread.ManagedThreadId + " thresholdMs=" + CallbackExecSortSlowLogThresholdMs);
-            }
-        }).Logging("callback_exec_sort_dispatch");
-        return callbackRequestId;
+        LogMainViewBuild("main_view_build mode=" + mode + " requestedMode=" + requestedMode + " parameterType=" + parameterType + " folderMs=" + folderStageMs + " keywordMs=" + keywordStageMs + " modeMs=" + modeStageMs + " sortMs=" + sortStageMs + " sortReuse=" + sortReuse + " sortProfile=" + sortProfile + " sortEngine=fast fastSortEnabled=" + fastSortEnabled + " isPlaylistDetailView=" + isPlaylistDetailForLog + " columnMs=" + columnStageMs + " callbackMs=" + callbackStageMs + " totalMs=" + viewBuildStopwatch.ElapsedMilliseconds + " folderCount=" + folderCount + " keywordCount=" + keywordCount + " modeCount=" + modeCount + " viewCount=" + viewCount + " sortColumn=" + sortColumn + " sortDirection=" + sortDirection);
     }
 
     /// <summary>
@@ -10893,7 +10773,7 @@ public class MainWindowViewModel : ViewModel
             previousSourceRows = ReplacePlaylistSourceRows(sourceRows, bmsTable, folderName, filterType, request.Identity);
             sourceRows = null;
             SelectedIndexBMSFilesView = -1;
-            base.Messenger.Raise(new InteractionMessage("PreparePlaylistDataGridSwap"));
+            base.Messenger.Raise(new InteractionMessage("PrepareMainTableSwap"));
             stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
             loadColumnSetting(ResolvePlaylistColumnSettingMode(filterType));
             columnStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
@@ -10962,7 +10842,7 @@ public class MainWindowViewModel : ViewModel
             return true;
         }
         SelectedIndexBMSFilesView = -1;
-        base.Messenger.Raise(new InteractionMessage("PreparePlaylistDataGridSwap"));
+        base.Messenger.Raise(new InteractionMessage("PrepareMainTableSwap"));
         long stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
         loadColumnSetting(ResolvePlaylistColumnSettingMode(request.Identity.FilterType));
         columnStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
@@ -11112,7 +10992,7 @@ public class MainWindowViewModel : ViewModel
     }
 
     /// <summary>
-    /// 指定された更新モードとパラメータに基づいて、メインのBMS一覧（DataGrid表示用コレクション）を生成・更新します。
+    /// 指定された更新モードとパラメータに基づいて、メインのBMS一覧表示用コレクションを生成・更新します。
     /// ツリーでのフォルダ選択、プレイリストや難易度表の適用、Missingファイル等の保守フィルタ、およびキーワードやキーモードでの絞り込み等を行います。<br/>
     /// このメソッドの実行には、規模に応じて時間がかかるため内部でタイマー計測し遅延を制御・ロギングする機構が含まれています。
     /// </summary>
@@ -11405,7 +11285,7 @@ public class MainWindowViewModel : ViewModel
         stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
         if (mode <= viewUpdateMode.SortUpdated)
         {
-            bool useLegacySortForDataGrid = !Settings.Default.UseFastSortInDataGridExperimental;
+            bool useLegacySortForMainView = false;
             bool isPlaylistDetailView = mode == viewUpdateMode.PlaylistFilterSelected || mode == viewUpdateMode.PlaylistNotOwnedFilterSelected || treeViewFilterTypeSelected == viewUpdateMode.PlaylistFilterSelected || treeViewFilterTypeSelected == viewUpdateMode.PlaylistNotOwnedFilterSelected;
             string columnName = nameof(BeMusicSeeker.Models.BMSFile.Title);
             ListSortDirection direction = ListSortDirection.Ascending;
@@ -11433,7 +11313,7 @@ public class MainWindowViewModel : ViewModel
             }
             else
             {
-                SetChartRowsView(LibraryChartRowSortEngine.SortForMainView(ChartRowsModeFilterView, SortParameters, isPlaylistDetailView, useLegacySortForDataGrid, out sortProfile));
+                SetChartRowsView(LibraryChartRowSortEngine.SortForMainView(ChartRowsModeFilterView, SortParameters, isPlaylistDetailView, useLegacySortForMainView, out sortProfile));
                 if (isFolderMode)
                 {
                     folderSortResultSnapshot = BMSFilesView as List<LibraryChartRow>;
@@ -11463,33 +11343,11 @@ public class MainWindowViewModel : ViewModel
         stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
         loadColumnSetting((mode < viewUpdateMode.KeywordFilterUpdated) ? mode : treeViewFilterTypeSelected);
         columnStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
-        stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
+        callbackStageMs = 0L;
         string sortColumn = SortParameters?.ColumnsName ?? "(default_title)";
         string sortDirection = SortParameters?.Direction.ToString() ?? "Ascending";
-        long callbackRequestId = Interlocked.Increment(ref callbackExecSortRaiseRequestId);
-        long callbackRaiseStartTimestamp = Stopwatch.GetTimestamp();
-        int callbackRaiseStartThreadId = Thread.CurrentThread.ManagedThreadId;
-        Interlocked.Exchange(ref lastExecSortCallbackRequestId, callbackRequestId);
-        Interlocked.Exchange(ref lastExecSortCallbackRaiseStartTimestamp, callbackRaiseStartTimestamp);
-        Volatile.Write(ref lastExecSortCallbackRaiseStartThreadId, callbackRaiseStartThreadId);
-        _ = Task.Run(delegate
-        {
-            Stopwatch dispatchStopwatch = Stopwatch.StartNew();
-            base.Messenger.Raise(new InteractionMessage("CallbackExecSort"));
-            long dispatchElapsedMs = dispatchStopwatch.ElapsedMilliseconds;
-            if (dispatchElapsedMs >= CallbackExecSortSlowLogThresholdMs)
-            {
-                LogMainViewBuild("callback_exec_sort_dispatch slow request=" + callbackRequestId + " elapsedMs=" + dispatchElapsedMs + " mode=" + mode + " sortColumn=" + sortColumn + " sortDirection=" + sortDirection + " threadId=" + Thread.CurrentThread.ManagedThreadId + " thresholdMs=" + CallbackExecSortSlowLogThresholdMs);
-            }
-        }).Logging("callback_exec_sort_dispatch");
-        callbackStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
-        if (callbackStageMs >= CallbackExecSortSlowLogThresholdMs)
-        {
-            LogMainViewBuild("callback_exec_sort_raise slow request=" + callbackRequestId + " callbackMs=" + callbackStageMs + " enqueued=True threadId=" + callbackRaiseStartThreadId + " thresholdMs=" + CallbackExecSortSlowLogThresholdMs);
-        }
         string parameterType = parameter?.GetType().Name ?? "(null)";
-        bool fastSortEnabled = Settings.Default.UseFastSortInDataGridExperimental;
-        bool dataGridColumnVirtualizationEnabled = Settings.Default.UseDataGridColumnVirtualizationExperimental;
+        bool fastSortEnabled = true;
         bool isPlaylistDetailForLog = mode == viewUpdateMode.PlaylistFilterSelected || mode == viewUpdateMode.PlaylistNotOwnedFilterSelected || treeViewFilterTypeSelected == viewUpdateMode.PlaylistFilterSelected || treeViewFilterTypeSelected == viewUpdateMode.PlaylistNotOwnedFilterSelected;
         long mainViewBuildRequestId = Interlocked.Increment(ref mainViewBuildRequestIdSeed);
         long mainViewBuildEndTimestamp = Stopwatch.GetTimestamp();
@@ -11502,7 +11360,7 @@ public class MainWindowViewModel : ViewModel
             Interlocked.Exchange(ref lastPlaylistDetailBuildCompletedTimestamp, mainViewBuildEndTimestamp);
             Interlocked.Exchange(ref lastPlaylistDetailBuildElapsedMs, viewBuildStopwatch.ElapsedMilliseconds);
         }
-        LogMainViewBuild("main_view_build mode=" + mode + " requestedMode=" + requestedMode + " parameterType=" + parameterType + " folderMs=" + folderStageMs + " keywordMs=" + keywordStageMs + " modeMs=" + modeStageMs + " sortMs=" + sortStageMs + " sortReuse=" + sortReuse + " sortProfile=" + sortProfile + " sortEngine=" + (fastSortEnabled ? "fast" : "legacy") + " fastSortEnabled=" + fastSortEnabled + " dataGridColumnVirtualizationEnabled=" + dataGridColumnVirtualizationEnabled + " isPlaylistDetailView=" + isPlaylistDetailForLog + " columnMs=" + columnStageMs + " callbackMs=" + callbackStageMs + " totalMs=" + viewBuildStopwatch.ElapsedMilliseconds + " folderCount=" + folderCount + " keywordCount=" + keywordCount + " modeCount=" + modeCount + " viewCount=" + viewCount + " sortColumn=" + sortColumn + " sortDirection=" + sortDirection);
+        LogMainViewBuild("main_view_build mode=" + mode + " requestedMode=" + requestedMode + " parameterType=" + parameterType + " folderMs=" + folderStageMs + " keywordMs=" + keywordStageMs + " modeMs=" + modeStageMs + " sortMs=" + sortStageMs + " sortReuse=" + sortReuse + " sortProfile=" + sortProfile + " sortEngine=fast fastSortEnabled=" + fastSortEnabled + " isPlaylistDetailView=" + isPlaylistDetailForLog + " columnMs=" + columnStageMs + " callbackMs=" + callbackStageMs + " totalMs=" + viewBuildStopwatch.ElapsedMilliseconds + " folderCount=" + folderCount + " keywordCount=" + keywordCount + " modeCount=" + modeCount + " viewCount=" + viewCount + " sortColumn=" + sortColumn + " sortDirection=" + sortDirection);
     }
 
     internal static List<LibraryChartRow> BuildStandardLibraryRowsForView(
@@ -13514,7 +13372,7 @@ public class MainWindowViewModel : ViewModel
     private void ApplyPlaylistSummaryPresentation(List<PlaylistSummaryRow> rawRows, Stopwatch stopwatch, long buildMs)
     {
         List<PlaylistSummaryRow> safeRawRows = rawRows ?? new List<PlaylistSummaryRow>();
-        PlaylistSummaryPresentationResult presentationResult = BuildPlaylistSummaryPresentationRows(safeRawRows, PlaylistSummaryKeywordFilter, PlaylistSummaryOwnedFilter, PlaylistSummarySortParameters, !Settings.Default.UseFastSortInDataGridExperimental);
+        PlaylistSummaryPresentationResult presentationResult = BuildPlaylistSummaryPresentationRows(safeRawRows, PlaylistSummaryKeywordFilter, PlaylistSummaryOwnedFilter, PlaylistSummarySortParameters, false);
         Action reflect = delegate
         {
             PlaylistSummaryView = new ObservableCollection<PlaylistSummaryRow>(presentationResult.Rows);
@@ -14849,7 +14707,7 @@ public class MainWindowViewModel : ViewModel
     }
 
     /// <summary>
-    /// DataGrid row から LR2IR キャッシュを取得します。
+    /// 一覧 row から LR2IR キャッシュを取得します。
     /// lightweight playlist row は hash / lr2_bmsid snapshot を使って解決します。
     /// </summary>
     /// <param name="row">対象 row。</param>

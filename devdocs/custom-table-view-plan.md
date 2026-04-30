@@ -608,28 +608,24 @@ Phase 3 完了判断:
 
 目的: メイン一覧とプレイリストサマリーの CustomTableView 化が完了した後、DataGrid との共存をやめ、実質的・構造的な二重保守をなくす。
 
-実装内容:
+実装結果:
 
-- `UseCustomTableView` を通常機能として固定する。
-  - 既定値を `true` にするだけでなく、切り戻し UI を残す必要があるか判断する。
-  - DataGrid fallback を削除する場合は、設定項目と高度な設定の表示文言も削除または obsolete 扱いにする。
-- `MainWindow.xaml` からメイン `dataGrid` と `dataGridPlaylistSummary` を削除する。
-  - DataGrid 専用 style / resource / column 定義 / editing template / column header context menu setter を整理する。
-  - CustomTableView で使う context menu resource は名前を DataGrid 依存でないものへ改名する。
-- `MainWindow.cs` の DataGrid 依存 helper を削る。
-  - `DataGridRow`, `DataGridCell`, `DataGridColumn`, `SelectedItems`, `CurrentColumn`, `CommitEdit` 前提の分岐を削除または CustomTable 中心の API に一本化する。
-  - `PreparePlaylistDataGridSwap`, `playlist_datagrid_state`, `target_updated_render` など DataGrid 計測を CustomTable 用計測へ置換する。
-  - `TryGetContextMenuRow`, `GetSelectedGridRowsSnapshot`, playlist summary row resolver など、移行済み helper は命名を DataGrid から離す。
-- DataGrid 専用 converter / behavior / extension を棚卸しする。
-  - `DataGridExt.cs`, `DragBehavior.cs`, DataGrid column length converter など、他 UI で使っていないものは削除候補にする。
-  - `statusToStringConverterForLigatureSymbols` など CustomTable で置き換え済みの converter は参照を確認して整理する。
-- テストとログを CustomTable 正本へ更新する。
-  - `TableFirstVisibleMetricsTests` は `controlType=CustomTableView` を正本にする。
-  - DataGrid fallback 前提のテストは、互換テストから移行完了後の regression test へ書き換える。
-  - `playlist_datagrid_state` ログが不要になったら削除し、`custom_table_render` / `table_first_visible` / summary 用ログへ統合する。
-- ドキュメントと命名を整理する。
-  - `CustomDrawTableView` / `CustomTableView` の表記揺れを解消する。
-  - `DataGrid 表示用 row` など歴史的なコメントは、必要に応じて「一覧表示 row」へ変更する。
+- メイン一覧とプレイリストサマリーの実表示は `CustomTableView` に一本化した。
+  - `MainWindow.xaml` からメイン `dataGrid` / `dataGridPlaylistSummary` を削除した。
+  - summary mode は `customTablePlaylistSummary`、通常一覧 / playlist 詳細は `customTableView` を表示する。
+- 切り戻し設定と DataGrid 専用設定を削除した。
+  - `UseCustomTableView`、列仮想化設定、DataGrid 高速ソート切替を `Settings.cs` / `app.config` / 高度な設定 UI / resource から削除した。
+  - fast sort は現行の正本経路として常時使用する。
+- DataGrid 専用コードを削除した。
+  - `DataGridExt.cs`、`DragBehavior.cs`、DataGrid column length converter、DataGrid foreground converter を削除した。
+  - `MainWindow.cs` の `DataGridRow` / `DataGridCell` / `DataGridColumn` / DataGrid sort glyph / target updated 計測 / DataGrid edit 経路は削除した。
+  - playlist 差し替え前メッセージは `PrepareMainTableSwap` へ改名した。
+  - DataGrid sort glyph 用の `CallbackExecSort` と列設定同期用の `CallbackColumnsSetingsChanged` は削除し、CustomTable の binding / rebuild を正本にした。
+- 計測は CustomTable 正本にした。
+  - `table_first_visible controlType=CustomTableView` と `custom_table_render` を表示計測の基準にする。
+  - DataGrid の `target_updated_render` / `playlist_datagrid_state` 系ログは実表示経路から外した。
+- 列設定の保存形式互換は維持する。
+  - `dataGridColumnsSettings` は既存設定ファイルとの互換のため型名を残し、CustomTable の column layout source として扱う。
 
 確認対象:
 

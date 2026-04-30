@@ -541,7 +541,7 @@ public sealed class LR2SongDBExtended : LR2SongDB
         public string speedchange { get; set; }
 
         /// <summary>
-        /// DataGrid 表示向けに保持する変速回数です。
+        /// 一覧表示向けに保持する変速回数です。
         /// </summary>
         public int speedchange_count { get; set; }
 

@@ -15,7 +15,7 @@ namespace BeMusicSeeker.ViewModels;
 /// 旧 BMSFile 行のソート互換確認用処理を集約します。
 /// </summary>
 /// <remarks>
-/// 通常 DataGrid の正本は LibraryChartRowSortEngine です。
+/// 通常一覧の正本は LibraryChartRowSortEngine です。
 /// この型は BMSFileSortCompatibilityTests と旧 BMSFile ソート規則の検証用に残しています。
 /// </remarks>
 internal static class BMSFileSortEngine
@@ -28,7 +28,7 @@ internal static class BMSFileSortEngine
     /// 旧 BMSFile ソート互換検証で legacy natural sort を利用するかを示します。
     /// </summary>
     /// <remarks>
-    /// 通常 DataGrid の実ソート切り替えは LibraryChartRowSortEngine 側で行います。
+    /// 通常一覧の実ソート切り替えは LibraryChartRowSortEngine 側で行います。
     /// </remarks>
     internal static bool UseLegacySortForDataGrid { get; set; } = true;
 

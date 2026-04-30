@@ -8,7 +8,7 @@ using BeMusicSeeker.Models.LR2;
 namespace BeMusicSeeker.ViewModels;
 
 /// <summary>
-/// main DataGrid の行オブジェクトを、通常譜面行と playlist lightweight row の両方に対して解決します。
+/// main 一覧の行オブジェクトを、通常譜面行と playlist lightweight row の両方に対して解決します。
 /// </summary>
 internal static class GridRowResolver
 {

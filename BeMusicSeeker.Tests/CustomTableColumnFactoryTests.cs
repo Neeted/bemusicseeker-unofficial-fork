@@ -2,7 +2,6 @@ using System.Linq;
 using System;
 using System.Windows;
 using BeMusicSeeker.Models;
-using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -12,12 +11,6 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class CustomTableColumnFactoryTests
 {
-    [TestMethod]
-    public void UseCustomTableView_DefaultValueIsFalse()
-    {
-        Assert.AreEqual("False", Settings.Default.Properties["UseCustomTableView"].DefaultValue);
-    }
-
     [TestMethod]
     public void CreateMainColumns_UsesVisiblePhaseThreePointFiveColumnsForStandardView()
     {
@@ -63,7 +56,7 @@ public sealed class CustomTableColumnFactoryTests
     }
 
     [TestMethod]
-    public void CreateMainColumns_CanCreateAllMainDataGridColumns()
+    public void CreateMainColumns_CanCreateAllMainTableColumns()
     {
         dataGridColumnsSettings settings = new dataGridColumnsSettings();
         foreach (dataGridColumnsSettings.dataGridColumnlayouts layout in CustomTableColumnFactory.EnumerateMainColumnLayouts(settings))

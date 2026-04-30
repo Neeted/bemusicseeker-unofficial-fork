@@ -278,7 +278,7 @@ internal sealed class PlaylistDetailSourceRow
     /// <summary>
     /// UI 表示用の lightweight row を生成します。
     /// </summary>
-    /// <returns>DataGrid 表示用 row。</returns>
+    /// <returns>一覧表示用 row。</returns>
     internal PlaylistDetailRow CreateViewRow()
     {
         return new PlaylistDetailRow(this);

@@ -10,7 +10,7 @@ using Ribbit.Util;
 namespace BeMusicSeeker.ViewModels;
 
 /// <summary>
-/// 通常 DataGrid の BMS / bmson 共通 row をソートします。
+/// 通常一覧の BMS / bmson 共通 row をソートします。
 /// 既存 BMSFile sort と同じ列名を受け、bmson row を BMSFile 前提から切り離します。
 /// </summary>
 internal static class LibraryChartRowSortEngine

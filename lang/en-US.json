@@ -182,8 +182,6 @@
   "Player_LR2_savewpos": "Save window position",
   "Details_show_diag_diff_install": "Show confirmation message on diff install",
   "Details_test_download_and_install": "[TEST] Try to run installation automatically after download",
-  "Details_test_fast_sort_list_view": "[TEST] Use fast sort (non-natural) in list views",
-  "Details_test_column_virtualization_list_view": "[TEST] Enable column virtualization in list views (Not recommended: tested, no speed gain)",
   "Full_scan_check": "Full scan check",
   "Full_scan_all_charts": "All charts",
   "Custom_folder": "Custom folder",

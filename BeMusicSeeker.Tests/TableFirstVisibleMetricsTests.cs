@@ -30,8 +30,8 @@ public sealed class TableFirstVisibleMetricsTests
             buildToVisibleRenderMs: 70,
             viewCount: 979);
         TableFirstVisibleMetrics metrics = new TableFirstVisibleMetrics(
-            controlType: "DataGrid",
-            trigger: "target_updated_render",
+            controlType: "CustomTableView",
+            trigger: "custom_onrender",
             sourceGenerationId: 11,
             viewGenerationId: 12,
             rowCount: 979,
@@ -39,7 +39,7 @@ public sealed class TableFirstVisibleMetricsTests
             visibleColumnCount: 50,
             visibleCellCount: 5000,
             firstRenderMs: 80,
-            renderWorkMs: -1,
+            renderWorkMs: 12,
             textCacheHitRate: 0.5d,
             stateLogMs: 1,
             timing: timing);
@@ -47,13 +47,13 @@ public sealed class TableFirstVisibleMetricsTests
         string message = TableFirstVisibleLogFormatter.Format(metrics);
 
         StringAssert.StartsWith(message, "table_first_visible ");
-        StringAssert.Contains(message, "controlType=DataGrid");
-        StringAssert.Contains(message, "trigger=target_updated_render");
+        StringAssert.Contains(message, "controlType=CustomTableView");
+        StringAssert.Contains(message, "trigger=custom_onrender");
         StringAssert.Contains(message, "requestVersion=7");
         StringAssert.Contains(message, "visibleCellCount=5000");
         StringAssert.Contains(message, "isPreparationRender=False");
         StringAssert.Contains(message, "firstRenderMs=80");
-        StringAssert.Contains(message, "renderWorkMs=-1");
+        StringAssert.Contains(message, "renderWorkMs=12");
         StringAssert.Contains(message, "textCacheHitRate=0.5");
         StringAssert.Contains(message, "stateLogMs=1");
     }

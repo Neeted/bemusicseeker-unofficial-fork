@@ -61,37 +61,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private static readonly MethodInfo playlistTreeBringIndexIntoViewMethod = typeof(System.Windows.Controls.VirtualizingStackPanel).GetMethod("BringIndexIntoView", BindingFlags.Instance | BindingFlags.NonPublic) ?? typeof(System.Windows.Controls.VirtualizingPanel).GetMethod("BringIndexIntoView", BindingFlags.Instance | BindingFlags.NonPublic);
 
-    private static long callbackExecSortRequestId;
-
-    private DispatcherOperation _mainDataGridSortGlyphRefreshOperation;
-
-    private DispatcherOperation _playlistSummarySortGlyphRefreshOperation;
-
     private bool _isClosingOrClosed;
 
     private ContextMenu _lastOpenedContextMenu;
-
-    private bool _mainDataGridUsesAsyncBinding = true;
-
-    private MainWindowViewModel _mainWindowViewModelForDataGridBinding;
-
-    private PropertyChangedEventHandler _mainWindowViewModelDataGridBindingHandler;
-
-    private long _mainDataGridLastTargetUpdatedSourceGenerationId;
-
-    private long _mainDataGridLastTargetUpdatedViewGenerationId;
-
-    private long _mainDataGridLastTargetUpdatedTimestamp;
-
-    private long _mainDataGridLastTableFirstVisibleSourceGenerationId = -1L;
-
-    private long _mainDataGridLastTableFirstVisibleViewGenerationId = -1L;
-
-    private long _mainDataGridLastScheduledSortGlyphGeneration;
-
-    private long _mainDataGridLastCompletedSortGlyphGeneration;
-
-    private const long CallbackExecSortSlowLogThresholdMs = 100L;
 
     // NOTE:
     // TreeView の仮想化 (Recycling) 有効時は、画面外ノードのコンテナが VisualTree から外れる。
@@ -122,7 +94,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private BMSLibrary.IRSongInfo songInfoCache;
 
-    private CancellationTokenSource dataGridContextMenuTaskTokenSource;
+    private CancellationTokenSource tableContextMenuTaskTokenSource;
 
     private Task getSongInfoCacheTask;
 
@@ -153,8 +125,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     private bool startupInitialSelectionApplied;
 
     private PropertyChangedEventHandler _startupInitialSelectionReadyHandler;
-
-    private bool _pendingInstallDestinationSelectionCommitInProgress;
 
     private readonly Dictionary<BMSFile, PendingInstallDestinationEditState> _pendingInstallDestinationEditStates = new Dictionary<BMSFile, PendingInstallDestinationEditState>();
 
@@ -234,7 +204,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     public MainWindow()
     {
         InitializeComponent();
-        DataContextChanged += MainWindow_DataContextChanged;
         AddHandler(UIElement.PreviewMouseDownEvent, new MouseButtonEventHandler(keywordSearchWindowPreviewMouseDown), true);
         Deactivated += MainWindow_Deactivated;
 
@@ -249,17 +218,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         settingsDefaultEventListnener.RegisterHandler(() => Settings.Default.StagefilePath, delegate
         {
             _panelImage = null;
-        });
-        settingsDefaultEventListnener.RegisterHandler(() => Settings.Default.UseCustomTableView, delegate
-        {
-            Dispatcher.BeginInvoke(DispatcherPriority.Background, (Action)delegate
-            {
-                if (_isClosingOrClosed)
-                {
-                    return;
-                }
-                ApplyMainDataGridItemsSourceBinding(forceRebind: true);
-            });
         });
         gridBMSPlayerImage.Source = panelImage;
 
@@ -375,365 +333,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     }
 
     /// <summary>
-    /// DataContext 変更時にメイン DataGrid binding 監視先を差し替えます。
-    /// </summary>
-    private void MainWindow_DataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
-    {
-        if (ReferenceEquals(e.OldValue, e.NewValue))
-        {
-            return;
-        }
-        DetachMainDataGridBindingOwner();
-        AttachMainDataGridBindingOwner(e.NewValue as MainWindowViewModel);
-        if (dataGrid != null && dataGrid.IsLoaded)
-        {
-            ApplyMainDataGridItemsSourceBinding(forceRebind: true);
-        }
-    }
-
-    /// <summary>
-    /// メイン DataGrid の binding 切り替えを監視する ViewModel を登録します。
-    /// </summary>
-    /// <param name="viewModel">監視対象 ViewModel。</param>
-    private void AttachMainDataGridBindingOwner(MainWindowViewModel viewModel)
-    {
-        if (viewModel == null)
-        {
-            return;
-        }
-        if (ReferenceEquals(_mainWindowViewModelForDataGridBinding, viewModel) && _mainWindowViewModelDataGridBindingHandler != null)
-        {
-            return;
-        }
-        DetachMainDataGridBindingOwner();
-        _mainWindowViewModelForDataGridBinding = viewModel;
-        _mainWindowViewModelDataGridBindingHandler = delegate(object _, PropertyChangedEventArgs args)
-        {
-            if (args == null)
-            {
-                return;
-            }
-            if (args.PropertyName == "UseAsyncBMSFilesViewBinding" || args.PropertyName == "IsPlaylistDetailViewActive")
-            {
-                Dispatcher.BeginInvoke(DispatcherPriority.Background, (Action)delegate
-                {
-                    if (_isClosingOrClosed)
-                    {
-                        return;
-                    }
-                    ApplyMainDataGridItemsSourceBinding(forceRebind: false);
-                });
-            }
-        };
-        viewModel.PropertyChanged += _mainWindowViewModelDataGridBindingHandler;
-    }
-
-    /// <summary>
-    /// 現在登録中の ViewModel 監視を解除します。
-    /// </summary>
-    private void DetachMainDataGridBindingOwner()
-    {
-        if (_mainWindowViewModelForDataGridBinding != null && _mainWindowViewModelDataGridBindingHandler != null)
-        {
-            _mainWindowViewModelForDataGridBinding.PropertyChanged -= _mainWindowViewModelDataGridBindingHandler;
-        }
-        _mainWindowViewModelForDataGridBinding = null;
-        _mainWindowViewModelDataGridBindingHandler = null;
-    }
-
-    /// <summary>
-    /// 現在の ViewModel 状態に応じてメイン DataGrid の ItemsSource binding を再構成します。
-    /// playlist 詳細表示では同期 binding に切り替えて旧 ItemsSource の保持を減らします。
-    /// </summary>
-    /// <param name="forceRebind">現在の設定と同一でも binding を再構成する場合は <see langword="true"/>。</param>
-    private void ApplyMainDataGridItemsSourceBinding(bool forceRebind)
-    {
-        if (dataGrid == null)
-        {
-            return;
-        }
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        bool useAsyncBinding = viewModel == null || viewModel.UseAsyncBMSFilesViewBinding;
-        if (Settings.Default.UseCustomTableView)
-        {
-            if (BindingOperations.GetBinding(dataGrid, ItemsControl.ItemsSourceProperty) != null || dataGrid.ItemsSource != null || forceRebind)
-            {
-                BindingOperations.ClearBinding(dataGrid, ItemsControl.ItemsSourceProperty);
-                dataGrid.ItemsSource = null;
-                _mainDataGridUsesAsyncBinding = useAsyncBinding;
-                LogPlaylistDataGridState("binding_detached_custom_table", dataGrid, "useAsync=" + useAsyncBinding);
-            }
-            return;
-        }
-        if (!forceRebind && _mainDataGridUsesAsyncBinding == useAsyncBinding && BindingOperations.GetBinding(dataGrid, ItemsControl.ItemsSourceProperty) != null)
-        {
-            return;
-        }
-        Binding itemsSourceBinding = new Binding("BMSFilesView")
-        {
-            Mode = BindingMode.OneWay,
-            NotifyOnTargetUpdated = true,
-            IsAsync = useAsyncBinding
-        };
-        BindingOperations.SetBinding(dataGrid, ItemsControl.ItemsSourceProperty, itemsSourceBinding);
-        _mainDataGridUsesAsyncBinding = useAsyncBinding;
-        LogPlaylistDataGridState("binding_applied", dataGrid, "useAsync=" + useAsyncBinding);
-    }
-
-    /// <summary>
-    /// playlist 詳細表示の差し替え直前に DataGrid の選択・編集状態を解除します。
-    /// ItemsSource は空表示 pass を挟まず、ViewModel の BMSFilesView 置換で更新します。
-    /// </summary>
-    /// <param name="targetDataGrid">対象 DataGrid。</param>
-    public void PreparePlaylistDataGridSwap(DataGrid targetDataGrid)
-    {
-        if (!Dispatcher.CheckAccess())
-        {
-            Dispatcher.Invoke((Action)delegate
-            {
-                if (_isClosingOrClosed)
-                {
-                    return;
-                }
-                PreparePlaylistDataGridSwap(targetDataGrid);
-            }, DispatcherPriority.Send);
-            return;
-        }
-        DataGrid effectiveDataGrid = targetDataGrid ?? dataGrid;
-        if (effectiveDataGrid == null)
-        {
-            return;
-        }
-        DispatcherOperation pendingSortGlyphRefresh = GetSortGlyphRefreshOperation(effectiveDataGrid);
-        if (pendingSortGlyphRefresh != null && (pendingSortGlyphRefresh.Status == DispatcherOperationStatus.Pending || pendingSortGlyphRefresh.Status == DispatcherOperationStatus.Executing))
-        {
-            pendingSortGlyphRefresh.Abort();
-            SetSortGlyphRefreshOperation(effectiveDataGrid, null);
-        }
-        try
-        {
-            effectiveDataGrid.CancelEdit(DataGridEditingUnit.Cell);
-            effectiveDataGrid.CancelEdit(DataGridEditingUnit.Row);
-        }
-        catch
-        {
-        }
-        effectiveDataGrid.CurrentCell = default(DataGridCellInfo);
-        if (effectiveDataGrid.SelectionMode != DataGridSelectionMode.Single && effectiveDataGrid.SelectedItems != null)
-        {
-            effectiveDataGrid.SelectedItems.Clear();
-        }
-        effectiveDataGrid.SelectedItem = null;
-        effectiveDataGrid.SelectedIndex = -1;
-        LogPlaylistDataGridState("prepare_swap", effectiveDataGrid, "useAsync=" + _mainDataGridUsesAsyncBinding + " itemsSourceUpdate=BMSFilesView");
-        SchedulePlaylistRetentionCheckpoint(effectiveDataGrid, "prepare_swap");
-    }
-
-    /// <summary>
-    /// playlist 詳細表示中の DataGrid 状態を診断ログへ出力します。
-    /// </summary>
-    /// <param name="eventName">出力イベント名。</param>
-    /// <param name="targetDataGrid">対象 DataGrid。</param>
-    /// <param name="details">追加情報。</param>
-    private void LogPlaylistDataGridState(string eventName, DataGrid targetDataGrid, string details = null)
-    {
-        if (!installPerformanceLoggingEnabled)
-        {
-            return;
-        }
-        Stopwatch stateLogStopwatch = Stopwatch.StartNew();
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        bool isPlaylistDetailViewActive = viewModel != null && viewModel.IsPlaylistDetailViewActive;
-        int itemCount = 0;
-        int selectedCount = 0;
-        string itemsSourceType = "(null)";
-        int realizedRowCount = -1;
-        int visibleColumnCount = -1;
-        int visibleCellCount = -1;
-        string generatorStatus = "(unknown)";
-        if (targetDataGrid != null)
-        {
-            itemCount = targetDataGrid.Items?.Count ?? 0;
-            selectedCount = targetDataGrid.SelectedItems?.Count ?? 0;
-            itemsSourceType = targetDataGrid.ItemsSource?.GetType().FullName ?? "(null)";
-            visibleColumnCount = CountVisibleDataGridColumns(targetDataGrid);
-            if (ShouldCountRealizedRowsForLog(eventName))
-            {
-                realizedRowCount = CountVisualDescendants<DataGridRow>(targetDataGrid, maxCount: 2000);
-            }
-            visibleCellCount = TableFirstVisibleMetrics.CalculateVisibleCellCount(realizedRowCount, visibleColumnCount);
-            generatorStatus = targetDataGrid.ItemContainerGenerator?.Status.ToString() ?? "(null)";
-        }
-        long stateLogMs = stateLogStopwatch.ElapsedMilliseconds;
-        string suffix = string.IsNullOrWhiteSpace(details) ? string.Empty : " " + details;
-        long sourceGenerationId = viewModel?.PlaylistSourceGenerationId ?? 0L;
-        long viewGenerationId = viewModel?.PlaylistAdoptedViewGenerationId ?? 0L;
-        installPerformanceLogger.Info("playlist_datagrid_state event=" + eventName + " playlistActive=" + isPlaylistDetailViewActive + " useAsync=" + _mainDataGridUsesAsyncBinding + " itemsCount=" + itemCount + " rowCount=" + itemCount + " selectedCount=" + selectedCount + " realizedRowCount=" + realizedRowCount + " visibleRowCount=" + realizedRowCount + " visibleColumnCount=" + visibleColumnCount + " visibleCellCount=" + visibleCellCount + " generatorStatus=" + generatorStatus + " itemsSourceType=" + itemsSourceType + " sourceGenerationId=" + sourceGenerationId + " viewGenerationId=" + viewGenerationId + " stateLogMs=" + stateLogMs + suffix);
-        TryLogMainDataGridTableFirstVisible(eventName, targetDataGrid, viewModel, itemCount, realizedRowCount, visibleColumnCount, visibleCellCount, stateLogMs, sourceGenerationId, viewGenerationId);
-    }
-
-    private static int CountVisibleDataGridColumns(DataGrid targetDataGrid)
-    {
-        if (targetDataGrid?.Columns == null)
-        {
-            return -1;
-        }
-        int count = 0;
-        foreach (DataGridColumn column in targetDataGrid.Columns)
-        {
-            if (column.Visibility == Visibility.Visible)
-            {
-                count++;
-            }
-        }
-        return count;
-    }
-
-    private void TryLogMainDataGridTableFirstVisible(string eventName, DataGrid targetDataGrid, MainWindowViewModel viewModel, int rowCount, int visibleRowCount, int visibleColumnCount, int visibleCellCount, long stateLogMs, long sourceGenerationId, long viewGenerationId)
-    {
-        if (!string.Equals(eventName, "target_updated_render", StringComparison.Ordinal)
-            || viewModel == null
-            || !viewModel.IsPlaylistDetailViewActive
-            || !ReferenceEquals(targetDataGrid, dataGrid)
-            || visibleRowCount < 0
-            || visibleColumnCount < 0)
-        {
-            return;
-        }
-        if (_mainDataGridLastTableFirstVisibleSourceGenerationId == sourceGenerationId && _mainDataGridLastTableFirstVisibleViewGenerationId == viewGenerationId)
-        {
-            return;
-        }
-        if (!viewModel.TryCreatePlaylistOpenVisibleTiming(sourceGenerationId, viewGenerationId, out TableFirstVisibleTiming timing))
-        {
-            return;
-        }
-        long firstRenderMs = -1L;
-        if (_mainDataGridLastTargetUpdatedTimestamp > 0L
-            && _mainDataGridLastTargetUpdatedSourceGenerationId == sourceGenerationId
-            && _mainDataGridLastTargetUpdatedViewGenerationId == viewGenerationId)
-        {
-            firstRenderMs = (Stopwatch.GetTimestamp() - _mainDataGridLastTargetUpdatedTimestamp) * 1000L / Stopwatch.Frequency;
-        }
-        TableFirstVisibleMetrics metrics = new TableFirstVisibleMetrics(
-            "DataGrid",
-            eventName,
-            sourceGenerationId,
-            viewGenerationId,
-            rowCount,
-            visibleRowCount,
-            visibleColumnCount,
-            visibleCellCount,
-            firstRenderMs,
-            -1L,
-            -1d,
-            stateLogMs,
-            timing);
-        installPerformanceLogger.Info(TableFirstVisibleLogFormatter.Format(metrics));
-        _mainDataGridLastTableFirstVisibleSourceGenerationId = sourceGenerationId;
-        _mainDataGridLastTableFirstVisibleViewGenerationId = viewGenerationId;
-    }
-
-    private static bool ShouldCountRealizedRowsForLog(string eventName)
-    {
-        if (string.IsNullOrWhiteSpace(eventName))
-        {
-            return false;
-        }
-        return eventName.EndsWith("_render", StringComparison.Ordinal)
-            || eventName.EndsWith("_idle", StringComparison.Ordinal)
-            || eventName.EndsWith("_containers_generated", StringComparison.Ordinal)
-            || eventName.EndsWith("_composition", StringComparison.Ordinal)
-            || eventName == "selection_changed"
-            || eventName == "visible_changed"
-            || eventName == "loaded"
-            || eventName == "unloaded";
-    }
-
-    /// <summary>
-    /// playlist DataGrid の描画完了後に retention 状態を再観測するチェックポイントを遅延投入します。
-    /// </summary>
-    /// <param name="targetDataGrid">対象 DataGrid。</param>
-    /// <param name="eventName">契機名。</param>
-    private void SchedulePlaylistRetentionCheckpoint(DataGrid targetDataGrid, string eventName)
-    {
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        if (targetDataGrid == null || viewModel == null || !viewModel.IsPlaylistDetailViewActive)
-        {
-            return;
-        }
-        long sourceGenerationId = viewModel.PlaylistSourceGenerationId;
-        long viewGenerationId = viewModel.PlaylistAdoptedViewGenerationId;
-        if (string.Equals(eventName, "target_updated", StringComparison.Ordinal))
-        {
-            SchedulePlaylistGeneratorCheckpoint(targetDataGrid, eventName, sourceGenerationId, viewGenerationId);
-            SchedulePlaylistCompositionRenderingCheckpoint(targetDataGrid, eventName, sourceGenerationId, viewGenerationId);
-        }
-        Dispatcher.BeginInvoke(DispatcherPriority.Render, (Action)delegate
-        {
-            if (_isClosingOrClosed)
-            {
-                return;
-            }
-            LogPlaylistDataGridState(eventName + "_render", targetDataGrid, "scheduledSourceGenerationId=" + sourceGenerationId + " scheduledViewGenerationId=" + viewGenerationId);
-            viewModel.TryLogPlaylistOpenVisibleCompleted(eventName + "_render", sourceGenerationId, viewGenerationId);
-            viewModel.LogPlaylistUiRetentionCheckpoint(eventName + "_render", sourceGenerationId, viewGenerationId);
-        });
-        Dispatcher.BeginInvoke(DispatcherPriority.ContextIdle, (Action)delegate
-        {
-            if (_isClosingOrClosed)
-            {
-                return;
-            }
-            LogPlaylistDataGridState(eventName + "_idle", targetDataGrid, "scheduledSourceGenerationId=" + sourceGenerationId + " scheduledViewGenerationId=" + viewGenerationId);
-            viewModel.LogPlaylistUiRetentionCheckpoint(eventName + "_idle", sourceGenerationId, viewGenerationId);
-        });
-    }
-
-    private void SchedulePlaylistGeneratorCheckpoint(DataGrid targetDataGrid, string eventName, long sourceGenerationId, long viewGenerationId)
-    {
-        if (targetDataGrid?.ItemContainerGenerator == null)
-        {
-            return;
-        }
-        EventHandler handler = null;
-        handler = delegate
-        {
-            if (targetDataGrid.ItemContainerGenerator.Status != GeneratorStatus.ContainersGenerated)
-            {
-                return;
-            }
-            targetDataGrid.ItemContainerGenerator.StatusChanged -= handler;
-            if (_isClosingOrClosed)
-            {
-                return;
-            }
-            LogPlaylistDataGridState(eventName + "_containers_generated", targetDataGrid, "scheduledSourceGenerationId=" + sourceGenerationId + " scheduledViewGenerationId=" + viewGenerationId);
-        };
-        targetDataGrid.ItemContainerGenerator.StatusChanged += handler;
-        handler(targetDataGrid.ItemContainerGenerator, EventArgs.Empty);
-    }
-
-    private void SchedulePlaylistCompositionRenderingCheckpoint(DataGrid targetDataGrid, string eventName, long sourceGenerationId, long viewGenerationId)
-    {
-        long scheduledTimestamp = Stopwatch.GetTimestamp();
-        EventHandler handler = null;
-        handler = delegate
-        {
-            CompositionTarget.Rendering -= handler;
-            if (_isClosingOrClosed)
-            {
-                return;
-            }
-            long compositionRenderingMs = (Stopwatch.GetTimestamp() - scheduledTimestamp) * 1000L / Stopwatch.Frequency;
-            MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-            LogPlaylistDataGridState(eventName + "_composition", targetDataGrid, "scheduledSourceGenerationId=" + sourceGenerationId + " scheduledViewGenerationId=" + viewGenerationId + " compositionRenderingMs=" + compositionRenderingMs);
-            viewModel?.LogPlaylistUiRetentionCheckpoint(eventName + "_composition", sourceGenerationId, viewGenerationId);
-        };
-        CompositionTarget.Rendering += handler;
-    }
-
-    /// <summary>
     /// 指定 Visual 配下に存在する特定型の子要素数を数えます。
     /// </summary>
     /// <typeparam name="T">数えたい Visual 型。</typeparam>
@@ -819,12 +418,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     }
     /// <summary>
     /// メインウィンドウ上でマウスの左ボタンが押し込まれた際の処理。
-    /// DataGrid等の特定の操作可能要素以外をクリックしたと判定された場合、
+    /// 一覧やツリーなどの操作可能要素以外をクリックしたと判定された場合、
     /// ウィンドウ全体をドラッグ移動できるようにします (DragMove)。
     /// </summary>
     private void Window_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
-        if (!dataGrid.IsMouseOver)
+        if (!(customTableView?.IsMouseOver ?? false) && !(customTablePlaylistSummary?.IsMouseOver ?? false) && !(treeView?.IsMouseOver ?? false))
         {
             DragMove();
         }
@@ -893,14 +492,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             _startupInitialSelectionReadyHandler = null;
         }
         viewModel?.SetStartupUiInteractionBlocked(false);
-        AbortSortGlyphRefreshOperation(dataGrid);
-        AbortSortGlyphRefreshOperation(dataGridPlaylistSummary);
         calcelAllContextMenuTasks();
         CloseContextMenuIfOpen(_lastOpenedContextMenu);
-        CloseContextMenuIfOpen(dataGrid?.ContextMenu);
-        CloseContextMenuIfOpen(dataGridPlaylistSummary?.ContextMenu);
         base.OnClosing(e);
-        DetachMainDataGridBindingOwner();
         try
         {
             Settings.Default.TreeViewWidth = treeView.ActualWidth + gridSplitter.ActualWidth;
@@ -928,25 +522,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             NLogWrapper.FileLogger?.Warn("Failed to save settings on closing: " + ex.Message);
         }
     }
-
-    private void AbortSortGlyphRefreshOperation(DataGrid targetDataGrid)
-    {
-        if (targetDataGrid == null)
-        {
-            return;
-        }
-        DispatcherOperation operation = GetSortGlyphRefreshOperation(targetDataGrid);
-        if (operation == null)
-        {
-            return;
-        }
-        if (operation.Status == DispatcherOperationStatus.Pending || operation.Status == DispatcherOperationStatus.Executing)
-        {
-            operation.Abort();
-        }
-        SetSortGlyphRefreshOperation(targetDataGrid, null);
-    }
-
     private static void CloseContextMenuIfOpen(ContextMenu contextMenu)
     {
         if (contextMenu != null && contextMenu.IsOpen)
@@ -974,105 +549,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     private static void LogStartupUiBlocked(string action, string reason)
     {
         installPerformanceLogger?.Info("startup_ui_blocked action=" + action + " reason=" + reason);
-    }
-
-    /// <summary>
-    /// メインプレイリスト一覧 (DataGrid) の列ヘッダクリック時に発生するソート処理をハンドリングします。
-    /// 現在のソート方向を反転（未設定時は昇順）させ、非同期でバックグラウンド実行をリクエストします。
-    /// 一時的にソートアイコン（Glyph）を即反映させ、実際の並び替え完了後にアイコン状態を同期します。
-    /// </summary>
-    private async void dataGridSorting(object sender, DataGridSortingEventArgs e)
-    {
-        e.Handled = true;
-        if (ShouldBlockStartupUiInteraction("datagrid_sort"))
-        {
-            return;
-        }
-        if (!(sender is DataGrid dataGrid))
-        {
-            return;
-        }
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        if (viewModel == null)
-        {
-            return;
-        }
-        string sortMemberPath = GetSortMemberPath(e.Column);
-        if (string.IsNullOrWhiteSpace(sortMemberPath))
-        {
-            return;
-        }
-        LogPlaylistDataGridState("sorting", dataGrid, "column=" + sortMemberPath);
-        ListSortDirection? effectiveCurrentDirection = e.Column.SortDirection;
-        if (!effectiveCurrentDirection.HasValue && viewModel.SortParameters != null && string.Equals(viewModel.SortParameters.ColumnsName, sortMemberPath, StringComparison.Ordinal))
-        {
-            effectiveCurrentDirection = viewModel.SortParameters.Direction;
-        }
-        ListSortDirection newDir = ((effectiveCurrentDirection == ListSortDirection.Ascending) ? ListSortDirection.Descending : ListSortDirection.Ascending);
-        ApplyImmediateSortGlyph(dataGrid, e.Column, newDir);
-
-        await Task.Run(delegate
-        {
-            viewModel.ExecSort(sortMemberPath, newDir);
-        }).Logging("dataGridSorting");
-        RequestSortGlyphRefresh(dataGrid, "sorting");
-    }
-
-    /// <summary>
-    /// プレイリストサマリー一覧 (DataGrid) の列ヘッダクリック時に発生するソート処理をハンドリングします。
-    /// <see cref="dataGridSorting"/> と同様に、ソートの非同期実行とアイコン即時・事後同期を行います。
-    /// </summary>
-    private async void dataGridPlaylistSummarySorting(object sender, DataGridSortingEventArgs e)
-    {
-        e.Handled = true;
-        if (ShouldBlockStartupUiInteraction("playlist_summary_sort"))
-        {
-            return;
-        }
-        if (!(sender is DataGrid dataGrid))
-        {
-            return;
-        }
-        if (!(base.DataContext is MainWindowViewModel viewModel))
-        {
-            return;
-        }
-        string sortMemberPath = GetSortMemberPath(e.Column);
-        if (string.IsNullOrWhiteSpace(sortMemberPath))
-        {
-            return;
-        }
-        ListSortDirection? effectiveCurrentDirection = e.Column.SortDirection;
-        if (!effectiveCurrentDirection.HasValue && viewModel.PlaylistSummarySortParameters != null && string.Equals(viewModel.PlaylistSummarySortParameters.ColumnsName, sortMemberPath, StringComparison.Ordinal))
-        {
-            effectiveCurrentDirection = viewModel.PlaylistSummarySortParameters.Direction;
-        }
-        ListSortDirection newDirection = ((effectiveCurrentDirection == ListSortDirection.Ascending) ? ListSortDirection.Descending : ListSortDirection.Ascending);
-        ApplyImmediateSortGlyph(dataGrid, e.Column, newDirection);
-        await Task.Run(delegate
-        {
-            viewModel.ExecPlaylistSummarySort(sortMemberPath, newDirection);
-        }).Logging("dataGridPlaylistSummarySorting");
-        RequestSortGlyphRefresh(dataGrid, "playlist_summary_sorting");
-    }
-
-    /// <summary>
-    /// DataGridのItemsSourceなどデータ転送対象が更新された際に実行されます。
-    /// コレクション再生成やアイテム群の大幅変更が発生したと見なし、ソートアイコンの再同期をスケジュールします。
-    /// </summary>
-    private void dataGridTargetUpdated(object sender, DataTransferEventArgs e)
-    {
-        if (!ReferenceEquals(e.Property, ItemsControl.ItemsSourceProperty))
-        {
-            return;
-        }
-        if (sender is DataGrid dataGrid2)
-        {
-            RememberMainDataGridTargetUpdated(dataGrid2);
-            LogPlaylistDataGridState("target_updated", dataGrid2);
-            SchedulePlaylistRetentionCheckpoint(dataGrid2, "target_updated");
-            RequestSortGlyphRefresh(dataGrid2, "target_updated");
-        }
     }
 
     private void customTableView_FirstRenderCompleted(object sender, CustomTableFirstRenderCompletedEventArgs e)
@@ -1206,7 +682,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        if (e.Row == null || !TryGetDataGridContextMenuResource(e.Row, "custom_table_context_menu_assign", out ContextMenu contextMenu, out _))
+        if (e.Row == null || !TryGetTableContextMenuResource(e.Row, "custom_table_context_menu_assign", out ContextMenu contextMenu, out _))
         {
             return;
         }
@@ -1244,7 +720,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        if (TryFindResource("dataGridColumnHeaderContextMenu") is not ContextMenu contextMenu)
+        if (TryFindResource("tableColumnHeaderContextMenu") is not ContextMenu contextMenu)
         {
             return;
         }
@@ -1503,271 +979,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         customTableView.RefreshDisplay();
     }
-
-    private void RememberMainDataGridTargetUpdated(DataGrid targetDataGrid)
-    {
-        if (!ReferenceEquals(targetDataGrid, dataGrid))
-        {
-            return;
-        }
-        if (base.DataContext is MainWindowViewModel viewModel)
-        {
-            _mainDataGridLastTargetUpdatedSourceGenerationId = viewModel.PlaylistSourceGenerationId;
-            _mainDataGridLastTargetUpdatedViewGenerationId = viewModel.PlaylistAdoptedViewGenerationId;
-            _mainDataGridLastTargetUpdatedTimestamp = Stopwatch.GetTimestamp();
-        }
-    }
-
-    /// <summary>
-    /// Livet の MethodAction 互換のための単引数エントリです。
-    /// </summary>
-    /// <param name="dataGrid">対象 DataGrid。</param>
-    public void renewSortIcon(DataGrid dataGrid)
-    {
-        RequestSortGlyphRefresh(dataGrid, "callback");
-    }
-
-    /// <summary>
-    /// DataGrid のソートアイコン同期を行い、必要に応じて遅延計測ログを出力します。
-    /// </summary>
-    /// <param name="dataGrid">対象 DataGrid。</param>
-    /// <param name="trigger">呼び出し契機。ログ相関用。</param>
-    public void renewSortIcon(DataGrid dataGrid, string trigger = "unspecified")
-    {
-        RequestSortGlyphRefresh(dataGrid, trigger);
-    }
-
-    private void RequestSortGlyphRefresh(DataGrid dataGrid, string trigger)
-    {
-        if (dataGrid == null)
-        {
-            return;
-        }
-        if (!base.Dispatcher.CheckAccess())
-        {
-            base.Dispatcher.BeginInvoke((Action)delegate
-            {
-                if (_isClosingOrClosed)
-                {
-                    return;
-                }
-                RequestSortGlyphRefresh(dataGrid, trigger);
-            }, DispatcherPriority.Normal);
-            return;
-        }
-        if (_isClosingOrClosed)
-        {
-            return;
-        }
-        DispatcherOperation currentOperation = GetSortGlyphRefreshOperation(dataGrid);
-        if (currentOperation != null)
-        {
-            if (currentOperation.Status == DispatcherOperationStatus.Pending || currentOperation.Status == DispatcherOperationStatus.Executing)
-            {
-                return;
-            }
-            SetSortGlyphRefreshOperation(dataGrid, null);
-        }
-        bool isMainDataGrid = !ReferenceEquals(dataGrid, dataGridPlaylistSummary);
-        MainWindowViewModel mainWindowViewModel = base.DataContext as MainWindowViewModel;
-        long playlistViewGenerationId = (isMainDataGrid && mainWindowViewModel != null && mainWindowViewModel.IsPlaylistDetailViewActive) ? mainWindowViewModel.PlaylistAdoptedViewGenerationId : 0L;
-        if (isMainDataGrid && playlistViewGenerationId > 0L && (_mainDataGridLastScheduledSortGlyphGeneration == playlistViewGenerationId || _mainDataGridLastCompletedSortGlyphGeneration == playlistViewGenerationId))
-        {
-            if (installPerformanceLoggingEnabled)
-            {
-                installPerformanceLogger.Info("playlist_sortglyph_refresh event=skipped generationId=" + playlistViewGenerationId + " trigger=" + trigger + " completedGenerationId=" + _mainDataGridLastCompletedSortGlyphGeneration + " scheduledGenerationId=" + _mainDataGridLastScheduledSortGlyphGeneration);
-            }
-            return;
-        }
-        long requestId = Interlocked.Increment(ref callbackExecSortRequestId);
-        Stopwatch queueStopwatch = Stopwatch.StartNew();
-        bool hasRaiseCallbackContext = isMainDataGrid && !string.Equals(trigger, "target_updated", StringComparison.Ordinal);
-        long raiseRequestId = hasRaiseCallbackContext ? (mainWindowViewModel?.LastExecSortCallbackRequestId ?? 0L) : 0L;
-        long raiseStartTimestamp = hasRaiseCallbackContext ? (mainWindowViewModel?.LastExecSortCallbackRaiseStartTimestamp ?? 0L) : 0L;
-        int raiseStartThreadId = hasRaiseCallbackContext ? (mainWindowViewModel?.LastExecSortCallbackRaiseStartThreadId ?? 0) : 0;
-        long mainViewBuildRequestId = isMainDataGrid ? (mainWindowViewModel?.LastMainViewBuildRequestId ?? 0L) : 0L;
-        long mainViewBuildEndTimestamp = isMainDataGrid ? (mainWindowViewModel?.LastMainViewBuildEndTimestamp ?? 0L) : 0L;
-        int mainViewBuildThreadId = isMainDataGrid ? (mainWindowViewModel?.LastMainViewBuildThreadId ?? 0) : 0;
-        int mainViewBuildMode = isMainDataGrid ? (mainWindowViewModel?.LastMainViewBuildMode ?? 0) : 0;
-        DispatcherOperation scheduledOperation = null;
-        if (isMainDataGrid && playlistViewGenerationId > 0L)
-        {
-            _mainDataGridLastScheduledSortGlyphGeneration = playlistViewGenerationId;
-            if (installPerformanceLoggingEnabled)
-            {
-                installPerformanceLogger.Info("playlist_sortglyph_refresh event=scheduled generationId=" + playlistViewGenerationId + " trigger=" + trigger + " request=" + requestId);
-            }
-        }
-        scheduledOperation = base.Dispatcher.BeginInvoke((Action)delegate
-        {
-            if (_isClosingOrClosed)
-            {
-                return;
-            }
-            if (ReferenceEquals(GetSortGlyphRefreshOperation(dataGrid), scheduledOperation))
-            {
-                SetSortGlyphRefreshOperation(dataGrid, null);
-            }
-            long raiseToHandlerMs = (raiseStartTimestamp > 0L) ? ((Stopwatch.GetTimestamp() - raiseStartTimestamp) * 1000L / Stopwatch.Frequency) : (-1L);
-            long buildToHandlerMs = (mainViewBuildEndTimestamp > 0L) ? ((Stopwatch.GetTimestamp() - mainViewBuildEndTimestamp) * 1000L / Stopwatch.Frequency) : (-1L);
-            if (raiseToHandlerMs >= CallbackExecSortSlowLogThresholdMs || buildToHandlerMs >= CallbackExecSortSlowLogThresholdMs)
-            {
-                installPerformanceLogger?.Info("callback_exec_sort handler_slow request=" + requestId + " trigger=" + trigger + " raiseRequest=" + raiseRequestId + " raiseToHandlerMs=" + raiseToHandlerMs + " buildRequest=" + mainViewBuildRequestId + " buildToHandlerMs=" + buildToHandlerMs + " handlerThreadId=" + Thread.CurrentThread.ManagedThreadId + " raiseThreadId=" + raiseStartThreadId + " buildThreadId=" + mainViewBuildThreadId + " buildMode=" + mainViewBuildMode + " handlerOnUiThread=" + base.Dispatcher.CheckAccess() + " columns=" + dataGrid.Columns?.Count + " thresholdMs=" + CallbackExecSortSlowLogThresholdMs);
-            }
-            long queueMs = queueStopwatch.ElapsedMilliseconds;
-            Stopwatch runStopwatch = Stopwatch.StartNew();
-            long applyStartTimestamp = Stopwatch.GetTimestamp();
-            bool appliedAtLoaded = ApplySortGlyphNow(dataGrid, requestId, raiseRequestId, trigger, logWhenTargetMissing: false);
-            long runMs = runStopwatch.ElapsedMilliseconds;
-            if (queueMs >= CallbackExecSortSlowLogThresholdMs || runMs >= CallbackExecSortSlowLogThresholdMs)
-            {
-                installPerformanceLogger?.Info("callback_exec_sort run_slow request=" + requestId + " trigger=" + trigger + " raiseRequest=" + raiseRequestId + " queueMs=" + queueMs + " runMs=" + runMs + " runThreadId=" + Thread.CurrentThread.ManagedThreadId + " applied=" + appliedAtLoaded + " grid=" + GetSortGlyphGridName(dataGrid) + " thresholdMs=" + CallbackExecSortSlowLogThresholdMs);
-            }
-            base.Dispatcher.BeginInvoke((Action)delegate
-            {
-                if (_isClosingOrClosed)
-                {
-                    return;
-                }
-                bool appliedAtRender = ApplySortGlyphNow(dataGrid, requestId, raiseRequestId, trigger + "_render", logWhenTargetMissing: true);
-                if (isMainDataGrid && playlistViewGenerationId > 0L)
-                {
-                    if (appliedAtRender)
-                    {
-                        _mainDataGridLastCompletedSortGlyphGeneration = playlistViewGenerationId;
-                    }
-                    else if (_mainDataGridLastScheduledSortGlyphGeneration == playlistViewGenerationId)
-                    {
-                        _mainDataGridLastScheduledSortGlyphGeneration = 0L;
-                    }
-                    if (installPerformanceLoggingEnabled)
-                    {
-                        installPerformanceLogger.Info("playlist_sortglyph_refresh event=completed generationId=" + playlistViewGenerationId + " trigger=" + trigger + " request=" + requestId + " applied=" + appliedAtRender);
-                    }
-                }
-                long applyToRenderMs = (Stopwatch.GetTimestamp() - applyStartTimestamp) * 1000L / Stopwatch.Frequency;
-                long raiseToRenderMs = (raiseStartTimestamp > 0L) ? ((Stopwatch.GetTimestamp() - raiseStartTimestamp) * 1000L / Stopwatch.Frequency) : (-1L);
-                long buildToRenderMs = (mainViewBuildEndTimestamp > 0L) ? ((Stopwatch.GetTimestamp() - mainViewBuildEndTimestamp) * 1000L / Stopwatch.Frequency) : (-1L);
-                if (applyToRenderMs >= CallbackExecSortSlowLogThresholdMs || raiseToRenderMs >= CallbackExecSortSlowLogThresholdMs || buildToRenderMs >= CallbackExecSortSlowLogThresholdMs)
-                {
-                    installPerformanceLogger?.Info("callback_exec_sort render_slow request=" + requestId + " trigger=" + trigger + " raiseRequest=" + raiseRequestId + " buildRequest=" + mainViewBuildRequestId + " applyToRenderMs=" + applyToRenderMs + " raiseToRenderMs=" + raiseToRenderMs + " buildToRenderMs=" + buildToRenderMs + " renderThreadId=" + Thread.CurrentThread.ManagedThreadId + " applied=" + appliedAtRender + " grid=" + GetSortGlyphGridName(dataGrid) + " thresholdMs=" + CallbackExecSortSlowLogThresholdMs);
-                }
-            }, DispatcherPriority.Render);
-        }, DispatcherPriority.Loaded);
-        SetSortGlyphRefreshOperation(dataGrid, scheduledOperation);
-    }
-
-    private static string GetSortMemberPath(DataGridColumn column)
-    {
-        if (column == null)
-        {
-            return null;
-        }
-        if (!string.IsNullOrWhiteSpace(column.SortMemberPath))
-        {
-            return column.SortMemberPath;
-        }
-        if (column is DataGridBoundColumn dataGridBoundColumn && dataGridBoundColumn.Binding is Binding binding && binding.Path != null && !string.IsNullOrWhiteSpace(binding.Path.Path))
-        {
-            return binding.Path.Path;
-        }
-        return null;
-    }
-
-    private void ApplyImmediateSortGlyph(DataGrid dataGrid, DataGridColumn targetColumn, ListSortDirection direction)
-    {
-        if (dataGrid == null || targetColumn == null)
-        {
-            return;
-        }
-        foreach (DataGridColumn column in dataGrid.Columns)
-        {
-            column.SortDirection = ReferenceEquals(column, targetColumn) ? direction : ((ListSortDirection?)null);
-        }
-    }
-
-    private bool ApplySortGlyphNow(DataGrid dataGrid, long requestId, long raiseRequestId, string trigger, bool logWhenTargetMissing)
-    {
-        MainWindowViewModel.cSortParameters sortParameters = GetSortParametersForGrid(dataGrid);
-        if (sortParameters == null)
-        {
-            installPerformanceLogger?.Info("callback_exec_sort run request=" + requestId + " trigger=" + trigger + " raiseRequest=" + raiseRequestId + " runThreadId=" + Thread.CurrentThread.ManagedThreadId + " reason=sort_parameters_null grid=" + GetSortGlyphGridName(dataGrid));
-            return false;
-        }
-        if (!TryFindSortColumn(dataGrid, sortParameters.ColumnsName, out var targetColumn))
-        {
-            if (logWhenTargetMissing)
-            {
-                installPerformanceLogger?.Warn("callback_exec_sort run request=" + requestId + " trigger=" + trigger + " raiseRequest=" + raiseRequestId + " runThreadId=" + Thread.CurrentThread.ManagedThreadId + " reason=column_not_found column=" + sortParameters.ColumnsName + " grid=" + GetSortGlyphGridName(dataGrid));
-            }
-            return false;
-        }
-        foreach (DataGridColumn column in dataGrid.Columns)
-        {
-            column.SortDirection = ReferenceEquals(column, targetColumn) ? sortParameters.Direction : ((ListSortDirection?)null);
-        }
-        return true;
-    }
-
-    private MainWindowViewModel.cSortParameters GetSortParametersForGrid(DataGrid dataGrid)
-    {
-        MainWindowViewModel mainWindowViewModel = base.DataContext as MainWindowViewModel;
-        if (ReferenceEquals(dataGrid, dataGridPlaylistSummary))
-        {
-            return mainWindowViewModel?.PlaylistSummarySortParameters;
-        }
-        return mainWindowViewModel?.SortParameters;
-    }
-
-    private bool TryFindSortColumn(DataGrid dataGrid, string columnName, out DataGridColumn targetColumn)
-    {
-        targetColumn = null;
-        if (dataGrid?.Columns == null || string.IsNullOrWhiteSpace(columnName))
-        {
-            return false;
-        }
-        foreach (DataGridColumn column in dataGrid.Columns)
-        {
-            if (string.Equals(GetSortMemberPath(column), columnName, StringComparison.Ordinal))
-            {
-                targetColumn = column;
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private DispatcherOperation GetSortGlyphRefreshOperation(DataGrid dataGrid)
-    {
-        if (ReferenceEquals(dataGrid, dataGridPlaylistSummary))
-        {
-            return _playlistSummarySortGlyphRefreshOperation;
-        }
-        return _mainDataGridSortGlyphRefreshOperation;
-    }
-
-    private void SetSortGlyphRefreshOperation(DataGrid dataGrid, DispatcherOperation operation)
-    {
-        if (ReferenceEquals(dataGrid, dataGridPlaylistSummary))
-        {
-            _playlistSummarySortGlyphRefreshOperation = operation;
-        }
-        else
-        {
-            _mainDataGridSortGlyphRefreshOperation = operation;
-        }
-    }
-
-    private string GetSortGlyphGridName(DataGrid dataGrid)
-    {
-        if (ReferenceEquals(dataGrid, dataGridPlaylistSummary))
-        {
-            return "playlist_summary";
-        }
-        return "main";
-    }
-
-    private void dataGridInitializeColumnSetting(object sender, RoutedEventArgs e)
+    private void tableInitializeColumnSetting(object sender, RoutedEventArgs e)
     {
         if (ShouldBlockStartupUiInteraction("column_setting_initialize"))
         {
@@ -1784,59 +996,19 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
     }
 
-    /// <summary>
-    /// メインDataGridにおいて、VirtualizingStackPanel等のUI仮想化が有効な環境下で、
-    /// ViewModel上で選択されたBMSファイル（SelectedIndexBMSFilesView）の行が
-    /// 表示領域（Viewport）内に収まるようにスクロール位置を調整します。
-    /// </summary>
     public void scrollIntoView()
     {
-        base.Dispatcher.BeginInvoke((Action)delegate
-        {
-            if (_isClosingOrClosed)
-            {
-                return;
-            }
-            try
-            {
-                MainWindowViewModel mainWindowViewModel = base.DataContext as MainWindowViewModel;
-                dataGrid.UpdateLayout();
-                object obj = dataGrid.Items[mainWindowViewModel.SelectedIndexBMSFilesView];
-                if (obj != null)
-                {
-                    dataGrid.ScrollIntoView(obj);
-                }
-            }
-            catch
-            {
-            }
-        });
+        customTableView?.ScrollSelectedRowIntoView();
     }
 
-    /// <summary>
-    /// DataGridのカラム表示順序（列入れ替え結果）をViewModelや設定用データソースに書き戻します。
-    /// ウィンドウ終了時などに列の順序状態を永続化するための情報を取得します。
-    /// </summary>
-    public void getDisplayIndices()
+    public void PrepareMainTableSwap()
     {
-        base.Dispatcher.BeginInvoke((Action)delegate
-        {
-            if (_isClosingOrClosed)
-            {
-                return;
-            }
-            _ = base.DataContext;
-            _ = new DataGridColumn[dataGrid.Columns.Count];
-            foreach (var item in dataGrid.Columns.Where((DataGridColumn col) => BindingOperations.GetBinding(col, DataGridColumn.WidthProperty) != null).OrderBy(delegate (DataGridColumn col)
-            {
-                Binding binding = BindingOperations.GetBinding(col, DataGridColumn.WidthProperty);
-                object obj = _getValueOfPropertyPath(binding.Source, binding.Path.Path.Substring(0, binding.Path.Path.LastIndexOf('.')) + ".DisplayIndex");
-                return (obj is int) ? ((int)obj) : 0;
-            }).Select((DataGridColumn v, int i) => new { v, i }))
-            {
-                item.v.DisplayIndex = item.i;
-            }
-        });
+        customTableView?.PrepareForItemsSourceSwap();
+    }
+
+    private void ClearMainGridSelection()
+    {
+        customTableView?.ClearSelection();
     }
 
     private static object _getValueOfPropertyPath(object value, string path)
@@ -1864,138 +1036,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         return value;
     }
-
-    private void setDisplayIndices(object sender, DataGridColumnEventArgs e)
-    {
-        setDisplayIndices();
-    }
-
-    /// <summary>
-    /// ViewModelや設定データソースから取得したカラムの表示順序（DisplayIndex）を、
-    /// 現在のDataGridのカラム群に適用してUIレイアウトを復元します。
-    /// 最後に配置すべきダミーカラムなどは固定インデックスで調整します。
-    /// </summary>
-    private void setDisplayIndices()
-    {
-        base.Dispatcher.BeginInvoke((Action)delegate
-        {
-            if (_isClosingOrClosed)
-            {
-                return;
-            }
-            _ = base.DataContext;
-            dataGridColumnDummyLast.DisplayIndex = dataGrid.Columns.Count - 1;
-            dataGridColumnDummyFill.DisplayIndex = dataGrid.Columns.Count - 2;
-            foreach (var item in (from c in dataGrid.Columns
-                                  where c != null
-                                  orderby c.DisplayIndex
-                                  select c).Select((DataGridColumn v, int i) => new { v, i }))
-            {
-                Binding binding = BindingOperations.GetBinding(item.v, DataGridColumn.WidthProperty);
-                if (binding != null)
-                {
-                    _getSetterOfPropertyPath<int>(binding.Source, binding.Path.Path.Substring(0, binding.Path.Path.LastIndexOf('.')) + ".DisplayIndex")(item.i);
-                }
-            }
-        });
-    }
-
-    private void setDisplayIndicesPlaylistSummary(object sender, DataGridColumnEventArgs e)
-    {
-        setDisplayIndicesPlaylistSummary();
-    }
-
-    private void setDisplayIndicesPlaylistSummary()
-    {
-        base.Dispatcher.BeginInvoke((Action)delegate
-        {
-            if (_isClosingOrClosed)
-            {
-                return;
-            }
-            foreach (var item in (from c in dataGridPlaylistSummary.Columns
-                                  where c != null
-                                  orderby c.DisplayIndex
-                                  select c).Select((DataGridColumn v, int i) => new { v, i }))
-            {
-                Binding binding = BindingOperations.GetBinding(item.v, DataGridColumn.WidthProperty);
-                if (binding != null)
-                {
-                    _getSetterOfPropertyPath<int>(binding.Source, binding.Path.Path.Substring(0, binding.Path.Path.LastIndexOf('.')) + ".DisplayIndex")(item.i);
-                }
-            }
-        });
-    }
-
-    public void getDisplayIndicesPlaylistSummary()
-    {
-        base.Dispatcher.BeginInvoke((Action)delegate
-        {
-            if (_isClosingOrClosed)
-            {
-                return;
-            }
-            foreach (var item in dataGridPlaylistSummary.Columns.Where((DataGridColumn col) => BindingOperations.GetBinding(col, DataGridColumn.WidthProperty) != null).OrderBy(delegate (DataGridColumn col)
-            {
-                Binding binding = BindingOperations.GetBinding(col, DataGridColumn.WidthProperty);
-                object obj = _getValueOfPropertyPath(binding.Source, binding.Path.Path.Substring(0, binding.Path.Path.LastIndexOf('.')) + ".DisplayIndex");
-                return (obj is int) ? ((int)obj) : 0;
-            }).Select((DataGridColumn v, int i) => new { v, i }))
-            {
-                item.v.DisplayIndex = item.i;
-            }
-        });
-    }
-
-    private void dataGrid_IsVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
-    {
-        if ((bool)e.NewValue && sender is DataGrid dataGrid2)
-        {
-            LogPlaylistDataGridState("visible_changed", dataGrid2);
-            RequestSortGlyphRefresh(dataGrid2, "visible_changed");
-        }
-    }
-
-    /// <summary>
-    /// メイン DataGrid のロード完了時に binding と診断状態を初期化します。
-    /// </summary>
-    private void dataGrid_Loaded(object sender, RoutedEventArgs e)
-    {
-        AttachMainDataGridBindingOwner(base.DataContext as MainWindowViewModel);
-        ApplyMainDataGridItemsSourceBinding(forceRebind: true);
-        LogPlaylistDataGridState("loaded", sender as DataGrid);
-        SchedulePlaylistRetentionCheckpoint(sender as DataGrid, "loaded");
-    }
-
-    /// <summary>
-    /// メイン DataGrid のアンロード時に診断ログと監視状態を整理します。
-    /// </summary>
-    private void dataGrid_Unloaded(object sender, RoutedEventArgs e)
-    {
-        LogPlaylistDataGridState("unloaded", sender as DataGrid);
-    }
-
-    /// <summary>
-    /// メイン DataGrid の選択状態変化を診断ログへ出力します。
-    /// </summary>
-    private void dataGrid_SelectionChanged(object sender, SelectionChangedEventArgs e)
-    {
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        if (viewModel != null && viewModel.IsPlaylistDetailViewActive)
-        {
-            LogPlaylistDataGridState("selection_changed", sender as DataGrid);
-        }
-    }
-
-    private void dataGridPlaylistSummary_IsVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
-    {
-        if ((bool)e.NewValue && sender is DataGrid dataGrid2)
-        {
-            getDisplayIndicesPlaylistSummary();
-            RequestSortGlyphRefresh(dataGrid2, "visible_changed");
-        }
-    }
-
     private static Action<T> _getSetterOfPropertyPath<T>(object value, string path)
     {
         if (value == null)
@@ -2030,70 +1070,15 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         return Delegate.CreateDelegate(typeof(Action<T>), firstArgument, setMethod) as Action<T>;
     }
-
-    private async void dataGridRowDoubleClicked(object sender, MouseButtonEventArgs e)
-    {
-        if (ShouldBlockStartupUiInteraction("datagrid_row_double_click"))
-        {
-            e.Handled = true;
-            return;
-        }
-        if (!(sender is DataGridRow dataGridRow))
-        {
-            return;
-        }
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        _renewBMSPlayerControlInfo(dataGridRow);
-        e.Handled = true;
-        if (e.ChangedButton == MouseButton.Left)
-        {
-            if ((viewModel.NowPlayingBMS == null || viewModel.NowPlayingBMS.status.HasFlag(BMSFile.BMSFileStatus.PAUSE)) && isPanelStateValid(MainWindowViewModel.PanelState.BMS_PLAYER))
-            {
-                NowPanelState = MainWindowViewModel.PanelState.BMS_PLAYER;
-            }
-            await Task.Run(delegate
-            {
-                viewModel.PlayStartBMSfile();
-            }).Logging("dataGridRowDoubleClicked");
-        }
-    }
-
-    private void dataGridRowSelected(object sender, RoutedEventArgs e)
-    {
-        if (sender is DataGridRow dataGridRow && base.DataContext is MainWindowViewModel { NowPlayingBMS: null })
-        {
-            _renewBMSPlayerControlInfo(dataGridRow);
-        }
-    }
-
     /// <summary>
     /// 現在 ViewModel で選択されている（再生中の）BMSファイルの情報を取得し、
     /// BMSPlayerコントロール（プレビュー画像やバナー、曲名などのUI情報）を最新状態に更新します。
     /// </summary>
-    public void _renewBMSPlayerControlInfo()
-    {
-        if (base.DataContext is MainWindowViewModel { NowPlayingBMS: not null } mainWindowViewModel)
-        {
-            _renewBMSPlayerControlInfo(mainWindowViewModel.NowPlayingBMS);
-        }
-    }
-
     private List<object> GetSelectedGridRowsSnapshot()
     {
-        if (IsCustomTableViewActive())
-        {
-            try
-            {
-                return customTableView.GetSelectedRowsSnapshot().Where((object row) => row != null).ToList();
-            }
-            catch
-            {
-                return new List<object>();
-            }
-        }
         try
         {
-            return dataGrid.SelectedItems.Cast<object>().Where((object row) => row != null).ToList();
+            return customTableView?.GetSelectedRowsSnapshot().Where((object row) => row != null).ToList() ?? new List<object>();
         }
         catch
         {
@@ -2235,10 +1220,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         return null;
     }
 
-    private bool TryGetContextMenuRow(object source, out ContextMenu contextMenu, out DataGridRow dataGridRow, out object row)
+    private bool TryGetContextMenuRow(object source, out ContextMenu contextMenu, out object row)
     {
         contextMenu = GetOwningContextMenu(source);
-        dataGridRow = null;
         row = null;
         if (contextMenu?.PlacementTarget is not FrameworkElement placementTarget)
         {
@@ -2249,34 +1233,15 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             row = customTableContext.Row;
             return row != null;
         }
-        dataGridRow = placementTarget as DataGridRow ?? WPFUtil.FindVisualParent<DataGridRow>(placementTarget);
-        row = dataGridRow?.DataContext ?? placementTarget.DataContext;
+        row = placementTarget.DataContext;
         return row != null;
     }
 
     private bool TryGetContextMenuRow(object source, out object row)
     {
-        return TryGetContextMenuRow(source, out _, out _, out row);
+        return TryGetContextMenuRow(source, out _, out row);
     }
-
-    private bool TryGetDataGridRowFromSource(object source, out DataGridRow dataGridRow, out object row)
-    {
-        dataGridRow = null;
-        row = null;
-        FrameworkElement frameworkElement = source as FrameworkElement;
-        if (frameworkElement == null && source is DependencyObject dependencyObject)
-        {
-            dataGridRow = WPFUtil.FindVisualParent<DataGridRow>(dependencyObject);
-        }
-        else
-        {
-            dataGridRow = frameworkElement as DataGridRow ?? WPFUtil.FindVisualParent<DataGridRow>(frameworkElement);
-        }
-        row = dataGridRow?.DataContext ?? frameworkElement?.DataContext;
-        return row != null;
-    }
-
-    private bool TryGetDataGridContextMenuResource(object row, string logPrefix, out ContextMenu contextMenu, out bool usePlaylistMissingContextMenu)
+    private bool TryGetTableContextMenuResource(object row, string logPrefix, out ContextMenu contextMenu, out bool usePlaylistMissingContextMenu)
     {
         contextMenu = null;
         if (row == null)
@@ -2287,7 +1252,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         usePlaylistMissingContextMenu = GridRowResolver.TryGetOperationChartTarget(row, GetCurrentChartOperationSourceScope(), out ChartOperationTarget target)
             ? target.IsPlaylistMissing
             : GridRowResolver.IsPlaylistRow(row) && GridRowResolver.GetOperationBmsFile(row) == null;
-        string resourceKey = usePlaylistMissingContextMenu ? "dataGridContextMenuPlaylistMissing" : "dataGridContextMenu";
+        string resourceKey = usePlaylistMissingContextMenu ? "tableContextMenuPlaylistMissing" : "tableContextMenu";
         if (TryFindResource(resourceKey) is not ContextMenu foundContextMenu)
         {
             return false;
@@ -2296,174 +1261,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         NLogWrapper.FileLogger?.Info(logPrefix + " rowType=" + row?.GetType().FullName + " missing=" + usePlaylistMissingContextMenu + " resourceKey=" + resourceKey);
         return true;
     }
-
-    private bool TryAssignDataGridContextMenu(DataGridRow dataGridRow, object row, string logPrefix, out bool usePlaylistMissingContextMenu)
-    {
-        usePlaylistMissingContextMenu = false;
-        if (dataGridRow == null || !TryGetDataGridContextMenuResource(row, logPrefix, out ContextMenu contextMenu, out usePlaylistMissingContextMenu))
-        {
-            return false;
-        }
-        contextMenu.Tag = null;
-        dataGridRow.ContextMenu = contextMenu;
-        return true;
-    }
-
-    private bool TryAssignDataGridColumnHeaderContextMenu(DataGridColumnHeader columnHeader)
-    {
-        if (columnHeader == null)
-        {
-            return false;
-        }
-        if (columnHeader.ContextMenu != null)
-        {
-            return true;
-        }
-        if (TryFindResource("dataGridColumnHeaderContextMenu") is not ContextMenu contextMenu)
-        {
-            return false;
-        }
-        columnHeader.ContextMenu = contextMenu;
-        return true;
-    }
-
-    private void dataGridPreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)
-    {
-        if (ShouldBlockStartupUiInteraction("datagrid_row_context_menu"))
-        {
-            e.Handled = true;
-            return;
-        }
-        if (!TryGetDataGridRowFromSource(e.OriginalSource, out DataGridRow dataGridRow, out object row))
-        {
-            return;
-        }
-        if (!(sender is DataGrid dataGrid))
-        {
-            return;
-        }
-        if (!TryAssignDataGridContextMenu(dataGridRow, row, "playlist_context_menu_prepare", out bool usePlaylistMissingContextMenu))
-        {
-            return;
-        }
-        if (!usePlaylistMissingContextMenu)
-        {
-            return;
-        }
-        dataGrid.SelectedItem = row;
-        dataGridRow.IsSelected = true;
-        dataGridRow.Focus();
-        if (dataGridRow.ContextMenu == null)
-        {
-            return;
-        }
-        dataGridRow.ContextMenu.PlacementTarget = dataGridRow;
-        dataGridRow.ContextMenu.Placement = System.Windows.Controls.Primitives.PlacementMode.MousePoint;
-        dataGridRow.ContextMenu.IsOpen = true;
-        e.Handled = true;
-        NLogWrapper.FileLogger?.Info("playlist_context_menu_manual_open rowType=" + row?.GetType().FullName + " missing=True");
-    }
-
-    private void dataGridRowContextMenuOpening(object sender, ContextMenuEventArgs e)
-    {
-        if (ShouldBlockStartupUiInteraction("datagrid_row_context_menu"))
-        {
-            e.Handled = true;
-            return;
-        }
-        if (!(sender is DataGridRow dataGridRow))
-        {
-            return;
-        }
-        object row = dataGridRow.DataContext;
-        bool hadContextMenu = dataGridRow.ContextMenu != null;
-        if (!TryAssignDataGridContextMenu(dataGridRow, row, "playlist_context_menu_assign", out _))
-        {
-            return;
-        }
-        if (!hadContextMenu)
-        {
-            dataGridRow.ContextMenu.PlacementTarget = dataGridRow;
-            dataGridRow.ContextMenu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom;
-            dataGridRow.ContextMenu.IsOpen = true;
-            e.Handled = true;
-        }
-    }
-
-    private bool IsCustomTableViewActive()
-    {
-        return Settings.Default.UseCustomTableView && customTableView != null && customTableView.IsVisible;
-    }
-
-    private void ClearMainGridSelection()
-    {
-        if (IsCustomTableViewActive())
-        {
-            customTableView.ClearSelection();
-            return;
-        }
-        if (dataGrid.SelectionMode == DataGridSelectionMode.Extended)
-        {
-            dataGrid.SelectedItems.Clear();
-        }
-        else
-        {
-            dataGrid.SelectedItem = null;
-        }
-    }
-
-    private void dataGridColumnHeaderPreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)
-    {
-        if (ShouldBlockStartupUiInteraction("column_header_context_menu"))
-        {
-            e.Handled = true;
-            return;
-        }
-        if (sender is DataGridColumnHeader columnHeader)
-        {
-            TryAssignDataGridColumnHeaderContextMenu(columnHeader);
-        }
-    }
-
-    private void dataGridColumnHeaderContextMenuOpening(object sender, ContextMenuEventArgs e)
-    {
-        if (ShouldBlockStartupUiInteraction("column_header_context_menu"))
-        {
-            e.Handled = true;
-            return;
-        }
-        if (sender is not DataGridColumnHeader columnHeader)
-        {
-            return;
-        }
-        bool hadContextMenu = columnHeader.ContextMenu != null;
-        if (!TryAssignDataGridColumnHeaderContextMenu(columnHeader))
-        {
-            return;
-        }
-        if (!hadContextMenu)
-        {
-            columnHeader.ContextMenu.PlacementTarget = columnHeader;
-            columnHeader.ContextMenu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom;
-            columnHeader.ContextMenu.IsOpen = true;
-            e.Handled = true;
-        }
-    }
-
-    /// <summary>
-    /// 指定された DataGridRow にバインドされている BMSFile の情報を用いて、
-    /// BMSPlayerコントロールのUI（画像・付帯情報）を更新します。
-    /// </summary>
-    /// <param name="dataGridRow">対象の BMSFile が存在する DataGridRow。</param>
-    private void _renewBMSPlayerControlInfo(DataGridRow dataGridRow)
-    {
-        BMSFile bmsFile = GridRowResolver.GetOperationBmsFile(dataGridRow?.DataContext);
-        if (bmsFile != null)
-        {
-            _renewBMSPlayerControlInfo(bmsFile);
-        }
-    }
-
     /// <summary>
     /// 指定された確定的 BMSFile インスタンス情報を用いて、
     /// BMSPlayerコントロールのUI（バナー画像レイアウト、タイトル文字列等）を同期します。
@@ -2539,366 +1336,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         gridBMSPlayerControlsSubtitle.Text = GridRowResolver.GetDisplaySubtitle(bmsFile);
         gridBMSPlayerControlsArtist.Text = GridRowResolver.GetDisplayArtist(bmsFile);
     }
-
-    private void dataGridCellBeginningEdit(object sender, DataGridBeginningEditEventArgs e)
-    {
-        if (ShouldBlockStartupUiInteraction("datagrid_cell_beginning_edit"))
-        {
-            e.Cancel = true;
-            return;
-        }
-        object row = e.Row.DataContext;
-        BMSTableEntry playlistEntry = GridRowResolver.GetPlaylistEntry(row);
-        BMSFile bMSFile = GridRowResolver.GetOperationBmsFile(row);
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        string path;
-        try
-        {
-            path = GetDataGridColumnBindingPath(e.Column);
-        }
-        catch
-        {
-            return;
-        }
-        if (string.IsNullOrWhiteSpace(path))
-        {
-            return;
-        }
-        if (playlistEntry != null)
-        {
-            int num = 250;
-            if (path == nameof(PlaylistDetailRow.Url))
-            {
-                if (!GridRowResolver.CanEditPlaylistCell(row, path))
-                {
-                    e.Cancel = true;
-                    return;
-                }
-                dataGridLengthConverterForURL1.IsEditingMode = true;
-                e.Column.Width = num;
-                e.Column.MaxWidth = double.MaxValue;
-            }
-            else if (path == nameof(PlaylistDetailRow.Url_diff))
-            {
-                if (!GridRowResolver.CanEditPlaylistCell(row, path))
-                {
-                    e.Cancel = true;
-                    return;
-                }
-                dataGridLengthConverterForURL2.IsEditingMode = true;
-                e.Column.Width = num;
-                e.Column.MaxWidth = double.MaxValue;
-            }
-            else if ((path == nameof(PlaylistDetailRow.Level) || path == nameof(PlaylistDetailRow.comment) || path == nameof(PlaylistDetailRow.memo)) && !GridRowResolver.CanEditPlaylistCell(row, path))
-            {
-                e.Cancel = true;
-            }
-            if (!e.Cancel)
-            {
-                viewModel?.NotifyPlaylistCellEditStarted();
-            }
-        }
-        else if (bMSFile != null)
-        {
-            bool isPendingSelected = _currentTreeSelectionSection == TreeSelectionSection.InstallPending;
-            bool canEditInstallDestination = CanEditInstallDestinationInCurrentSection();
-            if (path == bMSFile.GetName((BMSFile f) => f.Folder) && isPendingSelected)
-            {
-                e.Cancel = true;
-            }
-            else if (path == bMSFile.GetName((BMSFile f) => f.instl_dst) && !canEditInstallDestination)
-            {
-                e.Cancel = true;
-            }
-            else if (path == bMSFile.GetName((BMSFile f) => f.instl_dst))
-            {
-                _pendingInstallDestinationEditStates[bMSFile] = CapturePendingInstallDestinationEditState(bMSFile);
-                bMSFile.IsInstallDestinationSuggestionPopupOpen = canEditInstallDestination && bMSFile.HasInstallDestinationSuggestions;
-            }
-        }
-    }
-
-    private void dataGridCellEditEnding(object sender, DataGridCellEditEndingEventArgs e)
-    {
-        if (ShouldBlockStartupUiInteraction("datagrid_cell_edit_ending"))
-        {
-            return;
-        }
-        object row = e.Row.DataContext;
-        PlaylistDetailRow playlistRow = row as PlaylistDetailRow;
-        BMSFile bmsFile = GridRowResolver.GetOperationBmsFile(row);
-        string editingText = GetEditingElementText(e.EditingElement);
-        BindingExpression bindingExpression = GetEditingElementTextBindingExpression(e.EditingElement);
-        string path;
-        try
-        {
-            path = GetDataGridColumnBindingPath(e.Column);
-        }
-        catch
-        {
-            return;
-        }
-        if (string.IsNullOrWhiteSpace(path))
-        {
-            return;
-        }
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        if (viewModel == null)
-        {
-            return;
-        }
-        if (playlistRow != null)
-        {
-            try
-            {
-                if (path == nameof(PlaylistDetailRow.Url))
-                {
-                    dataGridLengthConverterForURL1.IsEditingMode = false;
-                    Binding binding = BindingOperations.GetBinding(e.Column, DataGridColumn.WidthProperty);
-                    e.Column.Width = (int)_getValueOfPropertyPath(binding.Source, binding.Path.Path);
-                    e.Column.MaxWidth = e.Column.MinWidth;
-                }
-                else if (path == nameof(PlaylistDetailRow.Url_diff))
-                {
-                    dataGridLengthConverterForURL2.IsEditingMode = false;
-                    Binding binding2 = BindingOperations.GetBinding(e.Column, DataGridColumn.WidthProperty);
-                    e.Column.Width = (int)_getValueOfPropertyPath(binding2.Source, binding2.Path.Path);
-                    e.Column.MaxWidth = e.Column.MinWidth;
-                }
-                if (e.EditAction != DataGridEditAction.Commit)
-                {
-                    return;
-                }
-                if (bindingExpression == null)
-                {
-                    return;
-                }
-                if (!GridRowResolver.CanEditPlaylistCell(row, path))
-                {
-                    bindingExpression.UpdateTarget();
-                    return;
-                }
-                if ((path == nameof(PlaylistDetailRow.Url) || path == nameof(PlaylistDetailRow.Url_diff)) && !Uri.TryCreate(editingText, UriKind.Absolute, out var _))
-                {
-                    bindingExpression.UpdateTarget();
-                    return;
-                }
-                bindingExpression.UpdateSource();
-                viewModel.SyncPlaylistSourceRowFromEditedViewRow(playlistRow);
-                base.Dispatcher.BeginInvoke((Action)async delegate
-                {
-                    if (_isClosingOrClosed)
-                    {
-                        return;
-                    }
-                    await Task.Run(delegate
-                    {
-                        viewModel.CommitPlaylistRow(playlistRow);
-                    }).Logging("dataGridCellEditEnding");
-                }, DispatcherPriority.Background);
-            }
-            finally
-            {
-                base.Dispatcher.BeginInvoke((Action)delegate
-                {
-                    if (_isClosingOrClosed)
-                    {
-                        return;
-                    }
-                    viewModel.NotifyPlaylistCellEditCompleted();
-                }, DispatcherPriority.Background);
-            }
-        }
-        else if (bmsFile != null && e.EditAction == DataGridEditAction.Commit)
-        {
-            bool canEditInstallDestination = CanEditInstallDestinationInCurrentSection();
-            bmsFile.IsInstallDestinationSuggestionPopupOpen = false;
-            if (path == bmsFile.GetName((BMSFile f) => f.Folder))
-            {
-                string newFolder = editingText;
-                dataGrid.CancelEdit();
-                Task.Run(delegate
-                {
-                    viewModel.RenameBMSFolder(bmsFile, newFolder);
-                }).Logging("dataGridCellEditEnding");
-            }
-              else if (path == bmsFile.GetName((BMSFile f) => f.instl_dst) && canEditInstallDestination)
-              {
-                  if (_pendingInstallDestinationSelectionCommitInProgress)
-                  {
-                      _pendingInstallDestinationSelectionCommitInProgress = false;
-                      ClearPendingInstallDestinationEditState(bmsFile);
-                      return;
-                  }
-                  string destinationDirectory = editingText;
-                  PendingInstallDestinationEditState originalState = CaptureOrGetPendingInstallDestinationEditState(bmsFile);
-                  dataGrid.CancelEdit();
-                  Task.Run(delegate
-                  {
-                      bool succeeded = viewModel.SetPendingInstallDestination(bmsFile, destinationDirectory);
-                      if (!succeeded)
-                      {
-                          base.Dispatcher.BeginInvoke((Action)delegate
-                          {
-                              if (_isClosingOrClosed)
-                              {
-                                  return;
-                              }
-                              RestorePendingInstallDestinationEditState(bmsFile, originalState);
-                          }, DispatcherPriority.Background);
-                          return;
-                      }
-                      base.Dispatcher.BeginInvoke((Action)delegate
-                      {
-                          if (_isClosingOrClosed)
-                          {
-                              return;
-                          }
-                          ClearPendingInstallDestinationEditState(bmsFile);
-                      }, DispatcherPriority.Background);
-                  }).Logging("dataGridCellEditEnding");
-              }
-            else if (path == bmsFile.GetName((BMSFile f) => f.instl_dst))
-            {
-                bindingExpression?.UpdateTarget();
-            }
-        }
-    }
-
-    private void dataGridInstallDestinationTextBoxLoaded(object sender, RoutedEventArgs e)
-    {
-        if (!CanEditInstallDestinationInCurrentSection())
-        {
-            return;
-        }
-        if (!(sender is TextBox textBox))
-        {
-            return;
-        }
-        BMSFile bmsFile = GridRowResolver.GetOperationBmsFile(textBox.DataContext);
-        if (bmsFile == null)
-        {
-            return;
-        }
-        base.Dispatcher.BeginInvoke((Action)delegate
-        {
-            if (_isClosingOrClosed)
-            {
-                return;
-            }
-            bmsFile.IsInstallDestinationSuggestionPopupOpen = bmsFile.HasInstallDestinationSuggestions;
-        }, DispatcherPriority.Input);
-    }
-
-    private void dataGridInstallDestinationTextBoxPreviewKeyDown(object sender, KeyEventArgs e)
-    {
-        if (!CanEditInstallDestinationInCurrentSection())
-        {
-            return;
-        }
-        if (!(sender is TextBox textBox))
-        {
-            return;
-        }
-        BMSFile bmsFile = GridRowResolver.GetOperationBmsFile(textBox.DataContext);
-        if (bmsFile == null)
-        {
-            return;
-        }
-        ListBox suggestionListBox = FindTemplateElement<ListBox>(textBox, "listBoxInstallDestinationSuggestions");
-        if (suggestionListBox == null)
-        {
-            return;
-        }
-        if (e.Key == Key.Escape)
-        {
-            bmsFile.IsInstallDestinationSuggestionPopupOpen = false;
-            e.Handled = true;
-            return;
-        }
-        if (!bmsFile.HasInstallDestinationSuggestions)
-        {
-            return;
-        }
-        if (e.Key == Key.Down || e.Key == Key.Up)
-        {
-            bmsFile.IsInstallDestinationSuggestionPopupOpen = true;
-            if (suggestionListBox.Items.Count == 0)
-            {
-                return;
-            }
-            int selectedIndex = suggestionListBox.SelectedIndex;
-            if (selectedIndex < 0)
-            {
-                selectedIndex = (e.Key == Key.Down) ? 0 : suggestionListBox.Items.Count - 1;
-            }
-            else
-            {
-                selectedIndex += (e.Key == Key.Down) ? 1 : -1;
-                if (selectedIndex < 0)
-                {
-                    selectedIndex = suggestionListBox.Items.Count - 1;
-                }
-                else if (selectedIndex >= suggestionListBox.Items.Count)
-                {
-                    selectedIndex = 0;
-                }
-            }
-            suggestionListBox.SelectedIndex = selectedIndex;
-            suggestionListBox.ScrollIntoView(suggestionListBox.SelectedItem);
-            suggestionListBox.Focus();
-            e.Handled = true;
-        }
-    }
-
-    private void dataGridInstallDestinationSuggestionPreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
-    {
-        if (!(sender is ListBox listBox))
-        {
-            return;
-        }
-        BMSFile bmsFile = GridRowResolver.GetOperationBmsFile(listBox.DataContext);
-        if (bmsFile == null)
-        {
-            return;
-        }
-        ListBoxItem listBoxItem = ItemsControl.ContainerFromElement(listBox, e.OriginalSource as DependencyObject) as ListBoxItem;
-        string destinationDirectory = listBoxItem?.DataContext as string ?? listBoxItem?.Content as string;
-        if (string.IsNullOrWhiteSpace(destinationDirectory))
-        {
-            return;
-        }
-        listBox.SelectedItem = destinationDirectory;
-        CommitInstallDestinationSuggestionSelection(bmsFile, destinationDirectory);
-        e.Handled = true;
-    }
-
-    private void dataGridInstallDestinationSuggestionPreviewKeyDown(object sender, KeyEventArgs e)
-    {
-        if (!(sender is ListBox listBox))
-        {
-            return;
-        }
-        BMSFile bmsFile = GridRowResolver.GetOperationBmsFile(listBox.DataContext);
-        if (bmsFile == null)
-        {
-            return;
-        }
-        if (e.Key == Key.Enter)
-        {
-            CommitInstallDestinationSuggestionSelection(bmsFile, listBox.SelectedItem as string);
-            e.Handled = true;
-            return;
-        }
-        if (e.Key == Key.Escape)
-        {
-            bmsFile.IsInstallDestinationSuggestionPopupOpen = false;
-            TextBox textBox = FindTemplateElement<TextBox>(listBox, "textBoxInstallDestination");
-            textBox?.Focus();
-            e.Handled = true;
-        }
-    }
-
     private void keywordSearchBoxTextChanged(object sender, TextChangedEventArgs e)
     {
         if (sender is TextBox textBox)
@@ -3201,16 +1638,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         return false;
     }
-
-    private static string GetDataGridColumnBindingPath(DataGridColumn column)
-    {
-        if (column is DataGridBoundColumn dataGridBoundColumn && dataGridBoundColumn.Binding is Binding binding)
-        {
-            return binding.Path?.Path;
-        }
-        return column?.SortMemberPath;
-    }
-
     private PendingInstallDestinationEditState CapturePendingInstallDestinationEditState(BMSFile bmsFile)
     {
         if (bmsFile == null)
@@ -3265,48 +1692,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         bmsFile.IsInstallDestinationSuggestionPopupOpen = false;
         ClearPendingInstallDestinationEditState(bmsFile);
     }
-
-    private void CommitInstallDestinationSuggestionSelection(BMSFile bmsFile, string destinationDirectory)
-    {
-        if (!CanEditInstallDestinationInCurrentSection())
-        {
-            return;
-        }
-        if (bmsFile == null || string.IsNullOrWhiteSpace(destinationDirectory))
-        {
-            return;
-        }
-        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        if (viewModel == null)
-        {
-            return;
-        }
-        PendingInstallDestinationEditState originalState = CaptureOrGetPendingInstallDestinationEditState(bmsFile);
-        _pendingInstallDestinationSelectionCommitInProgress = true;
-        bmsFile.IsInstallDestinationSuggestionPopupOpen = false;
-        dataGrid.CancelEdit();
-        Task.Run(delegate
-        {
-            bool succeeded = viewModel.SetPendingInstallDestination(bmsFile, destinationDirectory);
-            base.Dispatcher.BeginInvoke((Action)delegate
-            {
-                if (_isClosingOrClosed)
-                {
-                    return;
-                }
-                _pendingInstallDestinationSelectionCommitInProgress = false;
-                if (!succeeded)
-                {
-                    RestorePendingInstallDestinationEditState(bmsFile, originalState);
-                }
-                else
-                {
-                    ClearPendingInstallDestinationEditState(bmsFile);
-                }
-            }, DispatcherPriority.Background);
-        }).Logging("CommitInstallDestinationSuggestionSelection");
-    }
-
     private bool CanEditInstallDestinationInCurrentSection()
     {
         return _currentTreeSelectionSection == TreeSelectionSection.InstallPending
@@ -3327,61 +1712,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         return null;
     }
-
-    private static string GetEditingElementText(FrameworkElement editingElement)
-    {
-        TextBox installDestinationTextBox = ResolveEditingElementTextBox(editingElement);
-        if (installDestinationTextBox != null)
-        {
-            return installDestinationTextBox.Text;
-        }
-        if (editingElement is TextBox textBox)
-        {
-            return textBox.Text;
-        }
-        if (editingElement is ComboBox comboBox)
-        {
-            return comboBox.Text;
-        }
-        return string.Empty;
-    }
-
-    private static BindingExpression GetEditingElementTextBindingExpression(FrameworkElement editingElement)
-    {
-        TextBox installDestinationTextBox = ResolveEditingElementTextBox(editingElement);
-        if (installDestinationTextBox != null)
-        {
-            return installDestinationTextBox.GetBindingExpression(TextBox.TextProperty);
-        }
-        if (editingElement is TextBox textBox)
-        {
-            return textBox.GetBindingExpression(TextBox.TextProperty);
-        }
-        if (editingElement is ComboBox comboBox)
-        {
-            return comboBox.GetBindingExpression(ComboBox.TextProperty);
-        }
-        return null;
-    }
-
-    private static TextBox ResolveEditingElementTextBox(FrameworkElement editingElement)
-    {
-        if (editingElement == null)
-        {
-            return null;
-        }
-        if (editingElement is TextBox textBox)
-        {
-            return textBox;
-        }
-        TextBox namedTextBox = FindNamedDescendant<TextBox>(editingElement, "textBoxInstallDestination");
-        if (namedTextBox != null)
-        {
-            return namedTextBox;
-        }
-        return FindVisualDescendant<TextBox>(editingElement);
-    }
-
     private static T FindNamedDescendant<T>(FrameworkElement root, string elementName) where T : class
     {
         if (root == null)
@@ -3430,25 +1760,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         return null;
     }
-
-    private async void dataGridCellOpenURLClick(object sender, MouseButtonEventArgs e)
-    {
-        if (!(sender is TextBlock textBlock))
-        {
-            return;
-        }
-        await OpenUrlFromRowAsync(textBlock.DataContext, isDiffUrl: false, blockReason: "datagrid_cell_open_url", e);
-    }
-
-    private async void dataGridCellOpenURLDiffClick(object sender, MouseButtonEventArgs e)
-    {
-        if (!(sender is TextBlock textBlock))
-        {
-            return;
-        }
-        await OpenUrlFromRowAsync(textBlock.DataContext, isDiffUrl: true, blockReason: "datagrid_cell_open_url_diff", e);
-    }
-
     private async Task OpenUrlFromRowAsync(object row, bool isDiffUrl, string blockReason, MouseButtonEventArgs mouseEventArgs = null)
     {
         if (ShouldBlockStartupUiInteraction(blockReason))
@@ -3487,12 +1798,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         Process.Start(url.ToString());
     }
-
-    private void dataGridEditingCellPreviewMouseDoubleClicked(object sender, RoutedEventArgs e)
-    {
-        e.Handled = true;
-    }
-
     private void playlistRootSelect(object sender, RoutedEventArgs e)
     {
         e.Handled = true;
@@ -4029,10 +2334,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             list = customTablePlaylistSummary.GetSelectedRowsSnapshot().OfType<PlaylistSummaryRow>().Where((PlaylistSummaryRow r) => r != null).ToList();
         }
-        if ((list == null || list.Count == 0) && dataGridPlaylistSummary != null && dataGridPlaylistSummary.SelectedItems != null)
-        {
-            list = dataGridPlaylistSummary.SelectedItems.Cast<PlaylistSummaryRow>().Where((PlaylistSummaryRow r) => r != null).ToList();
-        }
         if ((list == null || list.Count == 0) && fallback != null)
         {
             list = new List<PlaylistSummaryRow> { fallback };
@@ -4058,30 +2359,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     /// プレイリストサマリー行のダブルクリック時に、対応するプレイリストを左ツリーで選択します。
     /// 既存のツリー選択イベントを再利用し、プレイリスト絞り込み表示への遷移も従来の選択経路に委ねます。
     /// </summary>
-    /// <param name="sender">ダブルクリックされた <see cref="DataGridRow"/>。</param>
+    /// <param name="sender">操作元。</param>
     /// <param name="e">マウス入力情報。</param>
-    private void playlistSummaryRowDoubleClicked(object sender, MouseButtonEventArgs e)
-    {
-        if (ShouldBlockStartupUiInteraction("playlist_summary_row_double_click"))
-        {
-            e.Handled = true;
-            return;
-        }
-        if (e.ChangedButton != MouseButton.Left || !(sender is DataGridRow { DataContext: PlaylistSummaryRow playlistSummaryRow }) || playlistSummaryRow.TableRef == null)
-        {
-            return;
-        }
-        DependencyObject originalSource = e.OriginalSource as DependencyObject;
-        // NOTE:
-        // サマリー行には Button / CheckBox を含むため、行ダブルクリックがそれらの既存操作を横取りしないように除外します。
-        if (FindAncestor<Button>(originalSource) != null || FindAncestor<CheckBox>(originalSource) != null || FindAncestor<System.Windows.Controls.Primitives.ScrollBar>(originalSource) != null || FindAncestor<System.Windows.Controls.Primitives.DataGridColumnHeader>(originalSource) != null)
-        {
-            return;
-        }
-        e.Handled = true;
-        TrySelectPlaylistTreeItemFromSummary(playlistSummaryRow);
-    }
-
     /// <summary>
     /// プレイリストサマリー行に対応するプレイリストをプレイリストツリー上で選択します。
     /// 再読み込み後に <see cref="PlaylistSummaryRow.TableRef"/> が古い参照になっていても、既存の再選択補助ロジックで解決を試みます。
@@ -6374,9 +4653,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void calcelAllContextMenuTasks()
     {
-        if (new Task[4] { getSongInfoCacheTask, changeSubmenuOpenVideoTask, changeSubmenuOpenDocumentTask, changeSubmenuOpenSearchLinkTask }.Where((Task t) => t != null).Any((Task t) => !t.IsCompleted) && dataGridContextMenuTaskTokenSource != null)
+        if (new Task[4] { getSongInfoCacheTask, changeSubmenuOpenVideoTask, changeSubmenuOpenDocumentTask, changeSubmenuOpenSearchLinkTask }.Where((Task t) => t != null).Any((Task t) => !t.IsCompleted) && tableContextMenuTaskTokenSource != null)
         {
-            dataGridContextMenuTaskTokenSource.Cancel();
+            tableContextMenuTaskTokenSource.Cancel();
             NLogWrapper.DebuggerLogger?.Trace("Cancel data grid context menu async tasks");
         }
     }
@@ -6384,21 +4663,21 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     private void initContextMenuTasks()
     {
         songInfoCache = null;
-        dataGridContextMenuTaskTokenSource = new CancellationTokenSource();
+        tableContextMenuTaskTokenSource = new CancellationTokenSource();
         getSongInfoCacheTask = null;
         changeSubmenuOpenVideoTask = null;
         changeSubmenuOpenDocumentTask = null;
         changeSubmenuOpenSearchLinkTask = null;
     }
 
-    private void dataGridContextMenuOpened(object sender, RoutedEventArgs e)
+    private void tableContextMenuOpened(object sender, RoutedEventArgs e)
     {
         if (ShouldBlockStartupUiInteraction("datagrid_context_menu_opened"))
         {
             e.Handled = true;
             return;
         }
-        if (!TryGetContextMenuRow(sender, out ContextMenu contextMenu, out DataGridRow placementTarget, out object row))
+        if (!TryGetContextMenuRow(sender, out ContextMenu contextMenu, out object row))
         {
             NLogWrapper.FileLogger?.Info("playlist_context_menu rowResolve=False sourceType=" + sender?.GetType().FullName);
             return;
@@ -6474,59 +4753,59 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             switch (item.Name)
             {
-                case "dataGridContextMenuItemOpenLR2IR":
+                case "tableContextMenuItemOpenLR2IR":
                     menuItemOpenLr2Ir = item as MenuItem;
                     break;
-                case "dataGridContextMenuItemOpenMocha":
+                case "tableContextMenuItemOpenMocha":
                     menuItemOpenMocha = item as MenuItem;
                     break;
-                case "dataGridContextMenuItemOpenMinIR":
+                case "tableContextMenuItemOpenMinIR":
                     menuItemOpenMinIr = item as MenuItem;
                     break;
-                case "dataGridContextMenuItemOpenURL":
+                case "tableContextMenuItemOpenURL":
                     menuItem = item as MenuItem;
                     break;
-                case "dataGridContextMenuItemOpenURLdiff":
+                case "tableContextMenuItemOpenURLdiff":
                     menuItem2 = item as MenuItem;
                     break;
-                case "dataGridContextMenuItemOpenExplorer":
+                case "tableContextMenuItemOpenExplorer":
                     menuItem3 = item as MenuItem;
                     break;
-                case "dataGridContextMenuItemOpenInstallDestination":
+                case "tableContextMenuItemOpenInstallDestination":
                     menuItemOpenInstallDestination = item as MenuItem;
                     break;
-                case "dataGridContextMenuItemOpenBMSFile":
+                case "tableContextMenuItemOpenBMSFile":
                     menuItem4 = item as MenuItem;
                     break;
-                case "dataGridContextMenuItemRegisterScore":
+                case "tableContextMenuItemRegisterScore":
                     menuItem18 = item as MenuItem;
                     break;
-                case "dataGridContextMenuItemOpenDocument":
+                case "tableContextMenuItemOpenDocument":
                     menuItemOpenDocument = item as MenuItem;
                     break;
-                case "dataGridContextMenuItemOpenVideo":
+                case "tableContextMenuItemOpenVideo":
                     menuItem5 = item as MenuItem;
                     break;
-                case "dataGridContextMenuItemSearchLink":
+                case "tableContextMenuItemSearchLink":
                     menuItem6 = item as MenuItem;
                     break;
-                case "dataGridContextMenuItemUpdateRankingData":
+                case "tableContextMenuItemUpdateRankingData":
                     menuItem7 = item as MenuItem;
                     break;
-                case "dataGridContextMenuItemInstall":
+                case "tableContextMenuItemInstall":
                     menuItem8 = item as MenuItem;
                     break;
-                case "dataGridContextMenuItemFixInstall":
+                case "tableContextMenuItemFixInstall":
                     menuItem9 = item as MenuItem;
                     break;
-                case "dataGridContextMenuItemFullScanCheck":
+                case "tableContextMenuItemFullScanCheck":
                     menuItem10 = item as MenuItem;
                     foreach (Control item2 in (IEnumerable)menuItem10.Items)
                     {
                         string name = item2.Name;
-                        if (!(name == "dataGridContextMenuItemIgnoreFileScanCheck"))
+                        if (!(name == "tableContextMenuItemIgnoreFileScanCheck"))
                         {
-                            if (name == "dataGridContextMenuItemNotIgnoreFileScanCheck")
+                            if (name == "tableContextMenuItemNotIgnoreFileScanCheck")
                             {
                                 menuItem12 = item2 as MenuItem;
                             }
@@ -6537,35 +4816,35 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                         }
                     }
                     break;
-                case "dataGridContextMenuItemMoveFile":
+                case "tableContextMenuItemMoveFile":
                     menuItem13 = item as MenuItem;
                     break;
-                case "dataGridContextMenuItemDeleteEntry":
+                case "tableContextMenuItemDeleteEntry":
                     menuItem14 = item as MenuItem;
                     break;
-                case "dataGridContextMenuItemDeleteFile":
+                case "tableContextMenuItemDeleteFile":
                     menuItem15 = item as MenuItem;
                     foreach (Control item3 in (IEnumerable)menuItem15.Items)
                     {
-                        if (item3.Name == "dataGridContextMenuItemRenameInvalidExt")
+                        if (item3.Name == "tableContextMenuItemRenameInvalidExt")
                         {
                             menuItemRenameInvalidExt = item3 as MenuItem;
                         }
                     }
                     break;
-                case "dataGridContextMenuItemAutoRenameFolder":
+                case "tableContextMenuItemAutoRenameFolder":
                     menuItem16 = item as MenuItem;
                     break;
-                case "dataGridContextMenuItemFixEncoding":
+                case "tableContextMenuItemFixEncoding":
                     menuItem17 = item as MenuItem;
                     break;
-                case "dataGridContextMenuSeparatorForFolderview":
+                case "tableContextMenuSeparatorForFolderview":
                     separator = item as Separator;
                     break;
-                case "dataGridContextMenuItemConvertToAudioFile":
+                case "tableContextMenuItemConvertToAudioFile":
                     menuItem19 = item as MenuItem;
                     break;
-                case "dataGridContextMenuSeparatorForConvert":
+                case "tableContextMenuSeparatorForConvert":
                     separator2 = item as Separator;
                     break;
             }
@@ -6639,7 +4918,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 changeSubmenuOpenDocumentTask = Task.Run(delegate
                 {
                     NLogWrapper.DebuggerLogger?.Trace("Test starts: changeSubmenuOpenDocumentTask");
-                    CancellationToken token = dataGridContextMenuTaskTokenSource.Token;
+                    CancellationToken token = tableContextMenuTaskTokenSource.Token;
                     string directoryNameSimple = DirectoryExt.GetDirectoryNameSimple(chartPath);
                     if (token.IsCancellationRequested)
                     {
@@ -6670,7 +4949,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                             }
                         });
                     }
-                }, dataGridContextMenuTaskTokenSource.Token).Logging("dataGridContextMenuOpened");
+                }, tableContextMenuTaskTokenSource.Token).Logging("tableContextMenuOpened");
             }
             else
             {
@@ -6734,7 +5013,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 menuItem7.IsEnabled = true;
             }
         }
-        MenuItem menuItemDeleteInstallPackages = contextMenu.Items.OfType<MenuItem>().FirstOrDefault((MenuItem item) => item.Name == "dataGridContextMenuItemDeleteInstallPackages");
+        MenuItem menuItemDeleteInstallPackages = contextMenu.Items.OfType<MenuItem>().FirstOrDefault((MenuItem item) => item.Name == "tableContextMenuItemDeleteInstallPackages");
         bool isNotOwnedPlaylistRow = rowTarget?.IsPlaylistMissing == true;
         NLogWrapper.FileLogger?.Info("playlist_context_menu rowType=" + row?.GetType().FullName + " isPlaylistRow=" + isPlaylistRow + " isPlaylistContext=" + isPlaylistContext + " isNotOwned=" + isNotOwnedPlaylistRow + " section=" + _currentTreeSelectionSection + " kind=" + rowTarget?.Chart.Kind + " path=" + (chartPath ?? string.Empty));
         if (menuItemOpenInstallDestination != null)
@@ -6784,7 +5063,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             if (menuItem15.Items.Count == 0)
             {
                 Ribbit.Logging.NLogWrapper.FileLogger?.Warn(
-                    "dataGridContextMenuItemDeleteFile has lost its child items. " +
+                    "tableContextMenuItemDeleteFile has lost its child items. " +
                     "Culture=" + System.Threading.Thread.CurrentThread.CurrentUICulture.Name +
                     " Lang=" + Settings.Default.Lang +
                     " Header=" + menuItem15.Header);
@@ -6969,14 +5248,14 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
     }
 
-    private void dataGridContextMenuPlaylistMissingOpened(object sender, RoutedEventArgs e)
+    private void tableContextMenuPlaylistMissingOpened(object sender, RoutedEventArgs e)
     {
         if (ShouldBlockStartupUiInteraction("datagrid_playlist_missing_context_menu_opened"))
         {
             e.Handled = true;
             return;
         }
-        if (!TryGetContextMenuRow(sender, out ContextMenu contextMenu, out DataGridRow placementTarget, out object row))
+        if (!TryGetContextMenuRow(sender, out ContextMenu contextMenu, out object row))
         {
             NLogWrapper.FileLogger?.Info("playlist_missing_context_menu rowResolve=False sourceType=" + sender?.GetType().FullName);
             return;
@@ -6997,34 +5276,34 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             switch (item.Name)
             {
-                case "dataGridContextMenuItemOpenLR2IR":
+                case "tableContextMenuItemOpenLR2IR":
                     item.Visibility = canOpenLr2Ir ? Visibility.Visible : Visibility.Collapsed;
                     item.IsEnabled = canOpenLr2Ir;
                     break;
-                case "dataGridContextMenuItemOpenMocha":
-                case "dataGridContextMenuItemOpenMinIR":
+                case "tableContextMenuItemOpenMocha":
+                case "tableContextMenuItemOpenMinIR":
                     item.Visibility = canOpenRepository ? Visibility.Visible : Visibility.Collapsed;
                     item.IsEnabled = canOpenRepository;
                     break;
-                case "dataGridContextMenuItemOpenURL":
+                case "tableContextMenuItemOpenURL":
                     item.Visibility = Visibility.Visible;
                     item.IsEnabled = rowUrl != null && rowUrl.IsAbsoluteUri;
                     break;
-                case "dataGridContextMenuItemOpenURLdiff":
+                case "tableContextMenuItemOpenURLdiff":
                     item.Visibility = Visibility.Visible;
                     item.IsEnabled = rowUrlDiff != null && rowUrlDiff.IsAbsoluteUri;
                     break;
-                case "dataGridContextMenuItemOpenVideo":
-                case "dataGridContextMenuItemSearchLink":
-                case "dataGridContextMenuItemDeleteEntry":
+                case "tableContextMenuItemOpenVideo":
+                case "tableContextMenuItemSearchLink":
+                case "tableContextMenuItemDeleteEntry":
                     item.Visibility = Visibility.Visible;
                     item.IsEnabled = entry != null;
                     break;
-                case "dataGridContextMenuItemRegisterScore":
+                case "tableContextMenuItemRegisterScore":
                     item.Visibility = canOpenScoreViewer ? Visibility.Visible : Visibility.Collapsed;
                     item.IsEnabled = canOpenScoreViewer;
                     break;
-                case "dataGridContextMenuItemUpdateRankingData":
+                case "tableContextMenuItemUpdateRankingData":
                     item.Visibility = canUpdateRanking ? Visibility.Visible : Visibility.Collapsed;
                     item.IsEnabled = canUpdateRanking;
                     break;
@@ -7033,7 +5312,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         NLogWrapper.FileLogger?.Info("playlist_missing_context_menu rowType=" + row?.GetType().FullName + " entryParent=" + entry?.parent?.name + " isBmson=" + isBmsonContextRow + " url=" + (rowUrl != null) + " urlDiff=" + (rowUrlDiff != null) + " canOpenLr2Ir=" + canOpenLr2Ir + " canOpenRepository=" + canOpenRepository + " canOpenScoreViewer=" + canOpenScoreViewer + " canUpdateRanking=" + canUpdateRanking);
     }
 
-    private void dataGridContextMenuItemOpenExplorerClick(object sender, RoutedEventArgs e)
+    private void tableContextMenuItemOpenExplorerClick(object sender, RoutedEventArgs e)
     {
         if (!TryGetContextMenuRow(e.Source, out object row))
         {
@@ -7124,7 +5403,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
     }
 
-    private void dataGridContextMenuItemOpenInstallDestinationClick(object sender, RoutedEventArgs e)
+    private void tableContextMenuItemOpenInstallDestinationClick(object sender, RoutedEventArgs e)
     {
         if (!(base.DataContext is MainWindowViewModel) || _currentTreeSelectionSection != TreeSelectionSection.InstallPending)
         {
@@ -7198,7 +5477,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
     }
 
-    private void dataGridContextMenuItemOpenBMSFileClick(object sender, RoutedEventArgs e)
+    private void tableContextMenuItemOpenBMSFileClick(object sender, RoutedEventArgs e)
     {
         if (!TryGetContextMenuRow(e.Source, out object row))
         {
@@ -7222,7 +5501,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
     }
 
-    private void dataGridContextMenuItemOpenLR2IRClick(object sender, RoutedEventArgs e)
+    private void tableContextMenuItemOpenLR2IRClick(object sender, RoutedEventArgs e)
     {
         if (!TryGetContextMenuRow(e.Source, out object row))
         {
@@ -7253,7 +5532,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
     }
 
-    private void dataGridContextMenuItemOpenMochaClick(object sender, RoutedEventArgs e)
+    private void tableContextMenuItemOpenMochaClick(object sender, RoutedEventArgs e)
     {
         if (TryGetContextMenuRow(e.Source, out object row))
         {
@@ -7261,7 +5540,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
     }
 
-    private void dataGridContextMenuItemOpenMinIRClick(object sender, RoutedEventArgs e)
+    private void tableContextMenuItemOpenMinIRClick(object sender, RoutedEventArgs e)
     {
         if (TryGetContextMenuRow(e.Source, out object row))
         {
@@ -7269,7 +5548,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
     }
 
-    private void dataGridContextMenuItemOpenURLClick(object sender, RoutedEventArgs e)
+    private void tableContextMenuItemOpenURLClick(object sender, RoutedEventArgs e)
     {
         if (TryGetContextMenuRow(e.Source, out object item))
         {
@@ -7281,7 +5560,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
     }
 
-    private void dataGridContextMenuItemOpenURLdiffClick(object sender, RoutedEventArgs e)
+    private void tableContextMenuItemOpenURLdiffClick(object sender, RoutedEventArgs e)
     {
         if (TryGetContextMenuRow(e.Source, out object item))
         {
@@ -7293,7 +5572,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
     }
 
-    private void dataGridContextMenuItemOpenDocumentFileClick(object sender, RoutedEventArgs e)
+    private void tableContextMenuItemOpenDocumentFileClick(object sender, RoutedEventArgs e)
     {
         if (e.Source is MenuItem { DataContext: string dataContext } && File.Exists(dataContext))
         {
@@ -7301,7 +5580,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
     }
 
-    private void dataGridContextMenuOpenVideoSubmenuOpened(object sender, RoutedEventArgs e)
+    private void tableContextMenuOpenVideoSubmenuOpened(object sender, RoutedEventArgs e)
     {
         if (ShouldBlockStartupUiInteraction("datagrid_context_menu_open_video"))
         {
@@ -7333,13 +5612,13 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             switch (item.Name)
             {
-                case "dataGridContextMenuItemOpenVideoSubmenuStatus":
+                case "tableContextMenuItemOpenVideoSubmenuStatus":
                     menuItemOpenVideoSubmenuStatus = item as MenuItem;
                     break;
-                case "dataGridContextMenuItemOpenVideoSubmenuYouTube":
+                case "tableContextMenuItemOpenVideoSubmenuYouTube":
                     menuItemOpenVideoSubmenuYouTube = item as MenuItem;
                     break;
-                case "dataGridContextMenuItemOpenVideoSubmenuNiconico":
+                case "tableContextMenuItemOpenVideoSubmenuNiconico":
                     menuItemOpenVideoSubmenuNiconico = item as MenuItem;
                     break;
             }
@@ -7363,7 +5642,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         changeSubmenuOpenVideoTask = Task.Run(delegate
         {
             NLogWrapper.DebuggerLogger?.Trace("Test starts: changeSubmenuOpenVideoTask");
-            CancellationToken token = dataGridContextMenuTaskTokenSource.Token;
+            CancellationToken token = tableContextMenuTaskTokenSource.Token;
             if (getSongInfoCacheTask == null)
             {
                 getSongInfoCacheTask = Task.Run(delegate
@@ -7441,10 +5720,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                     });
                 }
             }
-        }, dataGridContextMenuTaskTokenSource.Token).Logging("dataGridContextMenuOpenVideoSubmenuOpened");
+        }, tableContextMenuTaskTokenSource.Token).Logging("tableContextMenuOpenVideoSubmenuOpened");
     }
 
-    private void dataGridContextMenuItemOpenVideoSubmenuClick(object sender, RoutedEventArgs e)
+    private void tableContextMenuItemOpenVideoSubmenuClick(object sender, RoutedEventArgs e)
     {
         if (!(e.Source is MenuItem menuItem) || !(base.DataContext is MainWindowViewModel mainWindowViewModel) || webBrowser == null)
         {
@@ -7540,7 +5819,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
     }
 
-    private void dataGridContextMenuSearchLinkOpened(object sender, RoutedEventArgs e)
+    private void tableContextMenuSearchLinkOpened(object sender, RoutedEventArgs e)
     {
         if (ShouldBlockStartupUiInteraction("datagrid_context_menu_search_link"))
         {
@@ -7577,7 +5856,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         changeSubmenuOpenSearchLinkTask = Task.Run(delegate
         {
             NLogWrapper.DebuggerLogger?.Trace("Test starts: changeSubmenuOpenSearchLinkTask");
-            CancellationToken token = dataGridContextMenuTaskTokenSource.Token;
+            CancellationToken token = tableContextMenuTaskTokenSource.Token;
             if (getSongInfoCacheTask == null)
             {
                 getSongInfoCacheTask = Task.Run(delegate
@@ -7613,7 +5892,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                             menuItem2.Visibility = Visibility.Visible;
                             menuItem2.Tag = url;
                             menuItem2.ToolTip = url.ToString();
-                            menuItem2.Click += dataGridContextMenuItemSearchLinkSubmenuClick;
+                            menuItem2.Click += tableContextMenuItemSearchLinkSubmenuClick;
                             return menuItem2;
                         }
                         catch
@@ -7637,7 +5916,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                                 menuItem2.Visibility = Visibility.Visible;
                                 menuItem2.Tag = url2;
                                 menuItem2.ToolTip = url2.ToString();
-                                menuItem2.Click += dataGridContextMenuItemSearchLinkSubmenuClick;
+                                menuItem2.Click += tableContextMenuItemSearchLinkSubmenuClick;
                                 return menuItem2;
                             }
                             catch
@@ -7670,7 +5949,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                                     menuItem2.Visibility = Visibility.Visible;
                                     menuItem2.Tag = uri;
                                     menuItem2.ToolTip = uri.ToString();
-                                    menuItem2.Click += dataGridContextMenuItemSearchLinkSubmenuClick;
+                                    menuItem2.Click += tableContextMenuItemSearchLinkSubmenuClick;
                                     return menuItem2;
                                 }
                                 catch
@@ -7711,7 +5990,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                     });
                 }
             }
-        }, dataGridContextMenuTaskTokenSource.Token).Logging("dataGridContextMenuSearchLinkOpened");
+        }, tableContextMenuTaskTokenSource.Token).Logging("tableContextMenuSearchLinkOpened");
     }
 
     /// <summary>
@@ -7929,7 +6208,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         (base.DataContext as MainWindowViewModel)?.CancelDroppedInstallQueue();
     }
 
-    private async void dataGridContextMenuItemSearchLinkSubmenuClick(object sender, RoutedEventArgs e)
+    private async void tableContextMenuItemSearchLinkSubmenuClick(object sender, RoutedEventArgs e)
     {
         if (!(e.Source is MenuItem menuItem))
         {
@@ -7969,7 +6248,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
     }
 
-    private void dataGridContextMenuItemUpdateRankingDataClick(object sender, RoutedEventArgs e)
+    private void tableContextMenuItemUpdateRankingDataClick(object sender, RoutedEventArgs e)
     {
         if (!TryGetContextMenuRow(e.Source, out _))
         {
@@ -7982,12 +6261,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             Task.Run(delegate
             {
                 viewModel.GetLR2IRCacheHashes(hashes);
-            }).Logging("dataGridContextMenuItemUpdateRankingDataClick");
+            }).Logging("tableContextMenuItemUpdateRankingDataClick");
             e.Handled = true;
         }
     }
 
-    private void dataGridContextMenuItemRegisterBMSFileToScoreViwer(object sender, RoutedEventArgs e)
+    private void tableContextMenuItemRegisterBMSFileToScoreViwer(object sender, RoutedEventArgs e)
     {
         if (!TryGetContextMenuRow(e.Source, out _))
         {
@@ -8014,10 +6293,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             catch
             {
             }
-        }).Logging("dataGridContextMenuItemRegisterBMSFileToScoreViwer");
+        }).Logging("tableContextMenuItemRegisterBMSFileToScoreViwer");
     }
 
-    private void dataGridContextMenuItemForceFileScanCheckSelectedBMS(object sender, RoutedEventArgs e)
+    private void tableContextMenuItemForceFileScanCheckSelectedBMS(object sender, RoutedEventArgs e)
     {
         if (!TryGetContextMenuRow(e.Source, out _))
         {
@@ -8030,12 +6309,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             Task.Run(delegate
             {
                 viewModel.ForceResourceHealthCheckCharts(chartFiles);
-            }).Logging("dataGridContextMenuItemForceFileScanCheckSelectedBMS");
+            }).Logging("tableContextMenuItemForceFileScanCheckSelectedBMS");
             e.Handled = true;
         }
     }
 
-    private void dataGridContextMenuRemoveInstallDestinationClick(object sender, RoutedEventArgs e)
+    private void tableContextMenuRemoveInstallDestinationClick(object sender, RoutedEventArgs e)
     {
         if (!TryGetContextMenuRow(e.Source, out _))
         {
@@ -8062,11 +6341,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 {
                     viewModel.ClearInstallDestinationForPendingCharts(chartFiles);
                 }
-            }).Logging("dataGridContextMenuRemoveInstallDestinationClick");
+            }).Logging("tableContextMenuRemoveInstallDestinationClick");
         }
     }
 
-    private void dataGridContextMenuSearchCorrectInstallationDirectoryClick(object sender, RoutedEventArgs e)
+    private void tableContextMenuSearchCorrectInstallationDirectoryClick(object sender, RoutedEventArgs e)
     {
         if (!TryGetContextMenuRow(e.Source, out _))
         {
@@ -8079,12 +6358,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             Task.Run(delegate
             {
                 viewModel.SearchCorrectInstallationDirectoryCharts(bmsFiles);
-            }).Logging("dataGridContextMenuSearchCorrectInstallationDirectoryClick");
+            }).Logging("tableContextMenuSearchCorrectInstallationDirectoryClick");
             e.Handled = true;
         }
     }
 
-    private void dataGridContextMenuFixInstallationDirectoryClick(object sender, RoutedEventArgs e)
+    private void tableContextMenuFixInstallationDirectoryClick(object sender, RoutedEventArgs e)
     {
         if (!TryGetContextMenuRow(e.Source, out _))
         {
@@ -8106,11 +6385,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             Task.Run(delegate
             {
                 viewModel.FixInstallationDirectoryCharts(bmsFiles);
-            }).Logging("dataGridContextMenuFixInstallationDirectoryClick");
+            }).Logging("tableContextMenuFixInstallationDirectoryClick");
         }
     }
 
-    private void dataGridContextMenuItemDeleteEntryClick(object sender, RoutedEventArgs e)
+    private void tableContextMenuItemDeleteEntryClick(object sender, RoutedEventArgs e)
     {
         List<BMSTableEntry> list2 = GetSelectedGridPlaylistEntries();
         MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
@@ -8124,11 +6403,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             Task.Run(delegate
             {
                 viewModel.DeleteBMSTableEntries(enGrp.AsEnumerable(), enGrp.Key);
-            }).Logging("dataGridContextMenuItemDeleteEntryClick");
+            }).Logging("tableContextMenuItemDeleteEntryClick");
         }
     }
 
-    private void dataGridContextMenuItemAutoRenameFolderClick(object sender, RoutedEventArgs e)
+    private void tableContextMenuItemAutoRenameFolderClick(object sender, RoutedEventArgs e)
     {
         List<BMSFile> bmsFiles = GetSelectedBmsChartFiles(ChartOperationCapabilities.None);
         MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
@@ -8144,11 +6423,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 {
                     RefreshCustomTableViewDisplayAsync();
                 }
-            }).Logging("dataGridContextMenuItemAutoRenameFolderClick");
+            }).Logging("tableContextMenuItemAutoRenameFolderClick");
         }
     }
 
-    private void dataGridContextMenuItemRenameBMSFileClick(object sender, RoutedEventArgs e)
+    private void tableContextMenuItemRenameBMSFileClick(object sender, RoutedEventArgs e)
     {
         List<BMSFile> bmsFiles = GetSelectedBmsChartFiles(ChartOperationCapabilities.RenameInvalidExtension);
         MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
@@ -8183,10 +6462,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                     viewModel.RenameBMSFilesExtensions(list2, ".pmx");
                 }
             }
-        }).Logging("dataGridContextMenuItemRenameBMSFileClick");
+        }).Logging("tableContextMenuItemRenameBMSFileClick");
     }
 
-    private void dataGridContextMenuItemRemoveBMSFileClick(object sender, RoutedEventArgs e)
+    private void tableContextMenuItemRemoveBMSFileClick(object sender, RoutedEventArgs e)
     {
         MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
         bool isPendingSelected = _currentTreeSelectionSection == TreeSelectionSection.InstallPending;
@@ -8219,7 +6498,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             {
                 viewModel.RemoveLibraryCharts(targets);
             }
-        }).Logging("dataGridContextMenuItemRemoveBMSFileClick");
+        }).Logging("tableContextMenuItemRemoveBMSFileClick");
     }
 
     private bool ShowPendingDeleteConfirmDialog(out bool deleteContainingPackageFoldersWhenNoBms)
@@ -8233,7 +6512,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         return flag == true;
     }
 
-    private async void dataGridContextMenuItemMoveFileClick(object sender, RoutedEventArgs e)
+    private async void tableContextMenuItemMoveFileClick(object sender, RoutedEventArgs e)
     {
         List<ChartOperationTarget> targets = GetSelectedChartTargets()
             .Where((ChartOperationTarget target) => target.HasCapability(ChartOperationCapabilities.MoveInLibrary) && !string.IsNullOrWhiteSpace(target.Chart?.Path))
@@ -8249,7 +6528,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             await Task.Run(delegate
             {
                 viewModel.MoveLibraryCharts(targets, dstDir);
-            }).Logging("dataGridContextMenuItemMoveFileClick");
+            }).Logging("tableContextMenuItemMoveFileClick");
         }
     }
 
@@ -8369,7 +6648,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
     }
 
-    private async void dataGridContextMenuItemDeleteInstallPackagesClick(object sender, RoutedEventArgs e)
+    private async void tableContextMenuItemDeleteInstallPackagesClick(object sender, RoutedEventArgs e)
     {
         if (!TryGetContextMenuRow(e.Source, out _))
         {
@@ -8398,36 +6677,36 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        NLogWrapper.FileLogger?.Info("dataGrid_delete_install_packages requested section=" + _currentTreeSelectionSection + " selectedRows=" + selectedBmsFiles.Count);
+        NLogWrapper.FileLogger?.Info("table_delete_install_packages requested section=" + _currentTreeSelectionSection + " selectedRows=" + selectedBmsFiles.Count);
         e.Handled = true;
         ClearMainGridSelection();
         if (isPendingSelected)
         {
-            SelectNextSiblingOrRoot(treeViewItemInstallPending, treeView.SelectedItem, "dataGridContextMenuItemDeleteInstallPackagesClick");
+            SelectNextSiblingOrRoot(treeViewItemInstallPending, treeView.SelectedItem, "tableContextMenuItemDeleteInstallPackagesClick");
             await Task.Run(delegate
             {
                 viewModel.RemoveBMSPackagesPending(selectedBmsFiles);
-            }).Logging("dataGridContextMenuItemDeleteInstallPackagesClick");
+            }).Logging("tableContextMenuItemDeleteInstallPackagesClick");
             if (treeViewItemInstallPending.IsSelected && treeViewItemInstallPending.Items.Count == 0)
             {
                 await Task.Run(delegate
                 {
                     viewModel.ExecInstallFilter(MainWindowViewModel.InstallFilterType.PendingInstallFilter);
-                }).Logging("dataGridContextMenuItemDeleteInstallPackagesClick");
+                }).Logging("tableContextMenuItemDeleteInstallPackagesClick");
             }
             return;
         }
-        SelectNextSiblingOrRoot(newlyInstalledTreeViewItem, treeView.SelectedItem, "dataGridContextMenuItemDeleteInstallPackagesClick");
+        SelectNextSiblingOrRoot(newlyInstalledTreeViewItem, treeView.SelectedItem, "tableContextMenuItemDeleteInstallPackagesClick");
         await Task.Run(delegate
         {
             viewModel.RemoveBMSPackagesInstalled(selectedBmsFiles);
-        }).Logging("dataGridContextMenuItemDeleteInstallPackagesClick");
+        }).Logging("tableContextMenuItemDeleteInstallPackagesClick");
         if (newlyInstalledTreeViewItem.IsSelected && newlyInstalledTreeViewItem.Items.Count == 0)
         {
             await Task.Run(delegate
             {
                 viewModel.ExecInstallFilter(MainWindowViewModel.InstallFilterType.NewlyInstalledFilter);
-            }).Logging("dataGridContextMenuItemDeleteInstallPackagesClick");
+            }).Logging("tableContextMenuItemDeleteInstallPackagesClick");
         }
     }
 
@@ -8455,7 +6734,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         return MessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_estimate_merge_confirm, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Asterisk) == MessageBoxResult.OK;
     }
 
-    private void dataGridContextMenuItemConvertToAudioFileClick(object sender, RoutedEventArgs e)
+    private void tableContextMenuItemConvertToAudioFileClick(object sender, RoutedEventArgs e)
     {
         BMSFile[] bmsFiles = GetSelectedBmsChartFiles(ChartOperationCapabilities.ConvertToAudio)
             .Where((BMSFile f) => File.Exists(f.path))
@@ -8488,7 +6767,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                     failNum++;
                 }
             });
-        }, cancelTokenSource.Token).Logging("dataGridContextMenuItemConvertToAudioFileClick");
+        }, cancelTokenSource.Token).Logging("tableContextMenuItemConvertToAudioFileClick");
         ProgressDialog.Execute(this, BeMusicSeeker.Properties.Resources.Converting, viewModel.settingDialog.EncoderNames[(int)Settings.Default.Encoder] + " - " + BeMusicSeeker.Properties.Resources.Sampling_rate + ":" + viewModel.settingDialog.PlayerSampleRateNames[Settings.Default.EncoderSampleRate] + " " + BeMusicSeeker.Properties.Resources.Sampling_format + ":" + viewModel.settingDialog.PlayerFormatNames[Settings.Default.EncoderFormat], delegate
         {
             while (task.Status != TaskStatus.RanToCompletion)
@@ -8872,88 +7151,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
     }
 
-    /// <summary>
-    /// メインリスト (DataGrid) 上でのキー入力イベントを処理します。
-    /// Enterキー押下時に、選択中のBMS楽曲のプレビュー再生（BMSPlayerパネル展開および再生開始）を開始します。
-    /// 編集モード中の場合は変更の確定のみ行います。UI仮想化でコンテナが未生成でも再生可能なフォールバックを含みます。
-    /// </summary>
-    private async void dataGridKeyDown(object sender, KeyEventArgs e)
-    {
-        if (ShouldBlockStartupUiInteraction("datagrid_key_down"))
-        {
-            e.Handled = true;
-            return;
-        }
-        if (!(sender is DataGrid dataGrid))
-        {
-            return;
-        }
-        switch (e.Key)
-        {
-            case Key.Apps:
-            case Key.F10 when (Keyboard.Modifiers & ModifierKeys.Shift) == ModifierKeys.Shift:
-                e.Handled = true;
-                if (dataGrid.TryGetSelectedRowRealized(out DataGridRow contextMenuRow))
-                {
-                    object row = contextMenuRow.DataContext;
-                    if (TryAssignDataGridContextMenu(contextMenuRow, row, "playlist_context_menu_keyboard", out _) && contextMenuRow.ContextMenu != null)
-                    {
-                        contextMenuRow.ContextMenu.PlacementTarget = contextMenuRow;
-                        contextMenuRow.ContextMenu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom;
-                        contextMenuRow.ContextMenu.IsOpen = true;
-                    }
-                }
-                break;
-            case Key.Return:
-                {
-                    e.Handled = true;
-                    bool hasSelectedRow = dataGrid.TryGetSelectedRowRealized(out DataGridRow selectedRow);
-                    BMSFile selectedBmsFile = GridRowResolver.GetOperationBmsFile(dataGrid.SelectedItem);
-                    if (!hasSelectedRow && selectedBmsFile == null)
-                    {
-                        break;
-                    }
-                    if (hasSelectedRow && selectedRow.IsEditing)
-                    {
-                        dataGrid.CommitEdit();
-                        break;
-                    }
-                    MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-                    if (viewModel != null)
-                    {
-                        if (hasSelectedRow)
-                        {
-                            _renewBMSPlayerControlInfo(selectedRow);
-                        }
-                        else
-                        {
-                            // NOTE:
-                            // 行仮想化により選択行のコンテナが未実体化でも、SelectedItem が有効なら再生処理は継続する。
-                            // Enter が無反応になるのを防ぐため、BMSFileベースでプレイヤー情報を更新する。
-                            _renewBMSPlayerControlInfo(selectedBmsFile);
-                            NLogWrapper.FileLogger?.Info("datagrid_selected_row_realize_fallback used=True selectedIndex=" + dataGrid.SelectedIndex);
-                        }
-                        if ((viewModel.NowPlayingBMS == null || viewModel.NowPlayingBMS.status.HasFlag(BMSFile.BMSFileStatus.PAUSE)) && isPanelStateValid(MainWindowViewModel.PanelState.BMS_PLAYER))
-                        {
-                            NowPanelState = MainWindowViewModel.PanelState.BMS_PLAYER;
-                        }
-                        await Task.Run(delegate
-                        {
-                            viewModel.PlayStartBMSfile();
-                        }).Logging("dataGridKeyDown");
-                    }
-                    break;
-                }
-            case Key.LeftShift:
-            case Key.RightShift:
-            case Key.LeftCtrl:
-            case Key.RightCtrl:
-                e.Handled = true;
-                dataGrid.SelectionMode = DataGridSelectionMode.Extended;
-                break;
-        }
-    }
-
     private void showBMSPlayerPanel()
     {
         if (_isClosingOrClosed)
@@ -9003,7 +7200,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 {
                     break;
                 }
-                NLogWrapper.DebuggerLogger?.Trace("try to set focus on datagrid row");
+                NLogWrapper.DebuggerLogger?.Trace("try to set focus on custom table");
                 IntPtr currentHandle;
                 try
                 {
@@ -9017,7 +7214,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 {
                     break;
                 }
-                Keyboard.Focus(dataGrid);
+                Keyboard.Focus(customTableView);
                 await Task.Delay(100);
             }
         });

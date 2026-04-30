@@ -9,7 +9,7 @@ using Livet;
 namespace BeMusicSeeker.ViewModels;
 
 /// <summary>
-/// プレイリスト詳細表示の DataGrid 行です。
+/// プレイリスト詳細表示の一覧行です。
 /// 表示値は source snapshot から複製し、playlist 編集に必要な一部プロパティだけを更新可能にします。
 /// </summary>
 internal sealed class PlaylistDetailRow : NotificationObject

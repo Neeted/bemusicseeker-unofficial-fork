@@ -20,9 +20,6 @@
       <v:IconToImageSourceConverter x:Key="IconToImageSourceConverter" />
       <v:modeFilterConverter x:Key="modeFilterConverter" />
       <v:playlistSummaryOwnedFilterConverter x:Key="playlistSummaryOwnedFilterConverter" />
-      <v:dataGridLengthConverter x:Key="dataGridLengthConverter" />
-      <v:dataGridLengthConverterForURL1 x:Key="dataGridLengthConverterForURL1" />
-      <v:dataGridLengthConverterForURL2 x:Key="dataGridLengthConverterForURL2" />
       <v:vbmsFileUrlToDownloadTextConverter x:Key="vbmsFileUrlToDownloadTextConverter" />
       <v:vbmsFileUrlDiffToDownloadTextConverter x:Key="vbmsFileUrlDiffToDownloadTextConverter" />
       <v:vbmsFileUrlToTooltipTextConverter x:Key="vbmsFileUrlToTooltipTextConverter" />
@@ -33,7 +30,6 @@
       <v:pathAbbreviationConvberter x:Key="pathAbbreviationConvberter" />
       <v:cleartypeToStringConvberter x:Key="cleartypeToStringConvberter" />
       <v:ranktypeToStringConvberter x:Key="ranktypeToStringConvberter" />
-      <v:dataGridForegroundBrushConverter x:Key="dataGridForegroundBrushConverter" />
       <v:dateTimeToDateStringConverter x:Key="dateTimeToDateStringConverter" />
       <v:statusToStringConverterForLigatureSymbols x:Key="statusToStringConverterForLigatureSymbols" />
       <v:statusToTooltipStringConverter x:Key="statusToTooltipStringConverter" />
@@ -126,43 +122,43 @@
         </Setter>
         <Setter Property="FrameworkElement.FocusVisualStyle" Value="{x:Null}" />
       </Style>
-      <ContextMenu x:Key="dataGridContextMenu" x:Shared="False" HasDropShadow="True" Opened="dataGridContextMenuOpened">
-        <MenuItem Name="dataGridContextMenuItemOpenLR2IR" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_lr2ir, Mode=OneWay}" Click="dataGridContextMenuItemOpenLR2IRClick" />
-        <MenuItem Name="dataGridContextMenuItemOpenMocha" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_mocha, Mode=OneWay}" Click="dataGridContextMenuItemOpenMochaClick" />
-        <MenuItem Name="dataGridContextMenuItemOpenMinIR" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_minir, Mode=OneWay}" Click="dataGridContextMenuItemOpenMinIRClick" />
-        <MenuItem Name="dataGridContextMenuItemOpenURL" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_Url, Mode=OneWay}" Click="dataGridContextMenuItemOpenURLClick" />
-        <MenuItem Name="dataGridContextMenuItemOpenURLdiff" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_Url_diff, Mode=OneWay}" Click="dataGridContextMenuItemOpenURLdiffClick" />
+      <ContextMenu x:Key="tableContextMenu" x:Shared="False" HasDropShadow="True" Opened="tableContextMenuOpened">
+        <MenuItem Name="tableContextMenuItemOpenLR2IR" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_lr2ir, Mode=OneWay}" Click="tableContextMenuItemOpenLR2IRClick" />
+        <MenuItem Name="tableContextMenuItemOpenMocha" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_mocha, Mode=OneWay}" Click="tableContextMenuItemOpenMochaClick" />
+        <MenuItem Name="tableContextMenuItemOpenMinIR" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_minir, Mode=OneWay}" Click="tableContextMenuItemOpenMinIRClick" />
+        <MenuItem Name="tableContextMenuItemOpenURL" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_Url, Mode=OneWay}" Click="tableContextMenuItemOpenURLClick" />
+        <MenuItem Name="tableContextMenuItemOpenURLdiff" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_Url_diff, Mode=OneWay}" Click="tableContextMenuItemOpenURLdiffClick" />
         <Separator />
-        <MenuItem Name="dataGridContextMenuItemOpenExplorer" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_file_explorer, Mode=OneWay}" Click="dataGridContextMenuItemOpenExplorerClick" />
-        <MenuItem Name="dataGridContextMenuItemOpenInstallDestination" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_install_destination, Mode=OneWay}" Click="dataGridContextMenuItemOpenInstallDestinationClick" />
-        <MenuItem Name="dataGridContextMenuItemOpenBMSFile" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_association, Mode=OneWay}" Click="dataGridContextMenuItemOpenBMSFileClick" />
-        <MenuItem Name="dataGridContextMenuItemOpenDocument" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_document, Mode=OneWay}">
+        <MenuItem Name="tableContextMenuItemOpenExplorer" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_file_explorer, Mode=OneWay}" Click="tableContextMenuItemOpenExplorerClick" />
+        <MenuItem Name="tableContextMenuItemOpenInstallDestination" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_install_destination, Mode=OneWay}" Click="tableContextMenuItemOpenInstallDestinationClick" />
+        <MenuItem Name="tableContextMenuItemOpenBMSFile" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_association, Mode=OneWay}" Click="tableContextMenuItemOpenBMSFileClick" />
+        <MenuItem Name="tableContextMenuItemOpenDocument" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_document, Mode=OneWay}">
           <ItemsControl.ItemContainerStyle>
             <Style TargetType="{x:Type MenuItem}">
               <Setter Property="Header" Value="{qc:Binding Path.GetFileName($P), P={Binding Mode=OneWay}}" />
-              <EventSetter Event="Click" Handler="dataGridContextMenuItemOpenDocumentFileClick" />
+              <EventSetter Event="Click" Handler="tableContextMenuItemOpenDocumentFileClick" />
             </Style>
           </ItemsControl.ItemContainerStyle>
         </MenuItem>
-        <MenuItem Name="dataGridContextMenuItemOpenVideo" SubmenuOpened="dataGridContextMenuOpenVideoSubmenuOpened">
+        <MenuItem Name="tableContextMenuItemOpenVideo" SubmenuOpened="tableContextMenuOpenVideoSubmenuOpened">
           <MenuItem.Header>
             <TextBlock Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_video, Mode=OneWay}" />
           </MenuItem.Header>
-          <MenuItem Name="dataGridContextMenuItemOpenVideoSubmenuStatus" IsEnabled="False" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Searching, Mode=OneWay}" />
-          <MenuItem Name="dataGridContextMenuItemOpenVideoSubmenuYouTube" IsEnabled="False" Visibility="Collapsed" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.YouTube, Mode=OneWay}" Click="dataGridContextMenuItemOpenVideoSubmenuClick" />
-          <MenuItem Name="dataGridContextMenuItemOpenVideoSubmenuNiconico" IsEnabled="False" Visibility="Collapsed" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.NicoNico, Mode=OneWay}" Click="dataGridContextMenuItemOpenVideoSubmenuClick" />
+          <MenuItem Name="tableContextMenuItemOpenVideoSubmenuStatus" IsEnabled="False" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Searching, Mode=OneWay}" />
+          <MenuItem Name="tableContextMenuItemOpenVideoSubmenuYouTube" IsEnabled="False" Visibility="Collapsed" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.YouTube, Mode=OneWay}" Click="tableContextMenuItemOpenVideoSubmenuClick" />
+          <MenuItem Name="tableContextMenuItemOpenVideoSubmenuNiconico" IsEnabled="False" Visibility="Collapsed" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.NicoNico, Mode=OneWay}" Click="tableContextMenuItemOpenVideoSubmenuClick" />
         </MenuItem>
-        <MenuItem Name="dataGridContextMenuItemSearchLink" SubmenuOpened="dataGridContextMenuSearchLinkOpened">
+        <MenuItem Name="tableContextMenuItemSearchLink" SubmenuOpened="tableContextMenuSearchLinkOpened">
           <MenuItem.Header>
             <TextBlock Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Search_downalods, Mode=OneWay}" />
           </MenuItem.Header>
           <MenuItem Name="dummy" Header="" Visibility="Hidden" />
         </MenuItem>
-        <MenuItem Name="dataGridContextMenuItemRegisterScore" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_chart_viewer, Mode=OneWay}" Click="dataGridContextMenuItemRegisterBMSFileToScoreViwer" />
+        <MenuItem Name="tableContextMenuItemRegisterScore" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_chart_viewer, Mode=OneWay}" Click="tableContextMenuItemRegisterBMSFileToScoreViwer" />
         <Separator />
-        <MenuItem Name="dataGridContextMenuItemUpdateRankingData" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Update_ranking_data, Mode=OneWay}" Click="dataGridContextMenuItemUpdateRankingDataClick" />
+        <MenuItem Name="tableContextMenuItemUpdateRankingData" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Update_ranking_data, Mode=OneWay}" Click="tableContextMenuItemUpdateRankingDataClick" />
         <Separator />
-        <MenuItem Name="dataGridContextMenuItemFixEncoding">
+        <MenuItem Name="tableContextMenuItemFixEncoding">
           <MenuItem.Header>
             <TextBlock Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Fix_character_encoding, Mode=OneWay}" />
           </MenuItem.Header>
@@ -173,15 +169,15 @@
           <MenuItem Tag="big5" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Encoding_ChineseTraditional_Big5, Mode=OneWay}" Click="fixEncodingSelectedBMS" />
           <MenuItem Tag="" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Mark_fixed, Mode=OneWay}" Click="fixEncodingSelectedBMS" />
         </MenuItem>
-        <MenuItem Name="dataGridContextMenuItemFullScanCheck">
+        <MenuItem Name="tableContextMenuItemFullScanCheck">
           <MenuItem.Header>
             <TextBlock Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.File_scan, Mode=OneWay}" />
           </MenuItem.Header>
-          <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Rescan, Mode=OneWay}" Click="dataGridContextMenuItemForceFileScanCheckSelectedBMS" />
-          <MenuItem Name="dataGridContextMenuItemIgnoreFileScanCheck" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Add_ignore, Mode=OneWay}" Click="ignoreFileScanCheckSelectedBMS" />
-          <MenuItem Name="dataGridContextMenuItemNotIgnoreFileScanCheck" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Remove_ignore, Mode=OneWay}" Click="notIgnoredFileScanCheckSelectedBMS" />
+          <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Rescan, Mode=OneWay}" Click="tableContextMenuItemForceFileScanCheckSelectedBMS" />
+          <MenuItem Name="tableContextMenuItemIgnoreFileScanCheck" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Add_ignore, Mode=OneWay}" Click="ignoreFileScanCheckSelectedBMS" />
+          <MenuItem Name="tableContextMenuItemNotIgnoreFileScanCheck" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Remove_ignore, Mode=OneWay}" Click="notIgnoredFileScanCheckSelectedBMS" />
         </MenuItem>
-        <MenuItem Name="dataGridContextMenuItemInstall">
+        <MenuItem Name="tableContextMenuItemInstall">
           <MenuItem.Header>
             <TextBlock Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Install, Mode=OneWay}" />
           </MenuItem.Header>
@@ -189,66 +185,66 @@
           <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Estimate_merge_loc, Mode=OneWay}" Click="searchMergeDestinationSelectedBMS" />
           <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Install_to_estimation, Mode=OneWay}" Click="manualInstallSelectedBMS" />
           <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Force_install, Mode=OneWay}" Click="forceInstallSelectedBMS" />
-          <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Clear_estimation, Mode=OneWay}" Click="dataGridContextMenuRemoveInstallDestinationClick" />
+          <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Clear_estimation, Mode=OneWay}" Click="tableContextMenuRemoveInstallDestinationClick" />
         </MenuItem>
-        <MenuItem Name="dataGridContextMenuItemFixInstall">
+        <MenuItem Name="tableContextMenuItemFixInstall">
           <MenuItem.Header>
             <TextBlock Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Fix_installed_loc, Mode=OneWay}" />
           </MenuItem.Header>
-          <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Estimate_reinstall_loc, Mode=OneWay}" Click="dataGridContextMenuSearchCorrectInstallationDirectoryClick" />
-          <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Reinstall_to_estimation, Mode=OneWay}" Click="dataGridContextMenuFixInstallationDirectoryClick" />
-          <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Clear_reinstall_estimation, Mode=OneWay}" Click="dataGridContextMenuRemoveInstallDestinationClick" />
+          <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Estimate_reinstall_loc, Mode=OneWay}" Click="tableContextMenuSearchCorrectInstallationDirectoryClick" />
+          <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Reinstall_to_estimation, Mode=OneWay}" Click="tableContextMenuFixInstallationDirectoryClick" />
+          <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Clear_reinstall_estimation, Mode=OneWay}" Click="tableContextMenuRemoveInstallDestinationClick" />
         </MenuItem>
-        <Separator Name="dataGridContextMenuSeparatorForFolderview" />
-        <MenuItem Name="dataGridContextMenuItemMoveFile" ItemsSource="{Binding BMSParentFolderList, Source={StaticResource vm}}">
+        <Separator Name="tableContextMenuSeparatorForFolderview" />
+        <MenuItem Name="tableContextMenuItemMoveFile" ItemsSource="{Binding BMSParentFolderList, Source={StaticResource vm}}">
           <MenuItem.Header>
             <TextBlock Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Move_to, Mode=OneWay}" />
           </MenuItem.Header>
           <ItemsControl.ItemContainerStyle>
             <Style TargetType="{x:Type MenuItem}">
-              <EventSetter Event="Click" Handler="dataGridContextMenuItemMoveFileClick" />
+              <EventSetter Event="Click" Handler="tableContextMenuItemMoveFileClick" />
             </Style>
           </ItemsControl.ItemContainerStyle>
         </MenuItem>
-        <MenuItem Name="dataGridContextMenuItemDeleteEntry" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Remove, Mode=OneWay}" Click="dataGridContextMenuItemDeleteEntryClick" />
-        <MenuItem Name="dataGridContextMenuItemDeleteFile">
+        <MenuItem Name="tableContextMenuItemDeleteEntry" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Remove, Mode=OneWay}" Click="tableContextMenuItemDeleteEntryClick" />
+        <MenuItem Name="tableContextMenuItemDeleteFile">
           <MenuItem.Header>
             <TextBlock Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Remove, Mode=OneWay}" />
           </MenuItem.Header>
-          <MenuItem Name="dataGridContextMenuItemRenameInvalidExt" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Rename_invalid_ext, Mode=OneWay}" Click="dataGridContextMenuItemRenameBMSFileClick" />
-          <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Move_to_recycle, Mode=OneWay}" Click="dataGridContextMenuItemRemoveBMSFileClick" />
+          <MenuItem Name="tableContextMenuItemRenameInvalidExt" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Rename_invalid_ext, Mode=OneWay}" Click="tableContextMenuItemRenameBMSFileClick" />
+          <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Move_to_recycle, Mode=OneWay}" Click="tableContextMenuItemRemoveBMSFileClick" />
         </MenuItem>
-        <MenuItem Name="dataGridContextMenuItemAutoRenameFolder" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Rename_folder_auto, Mode=OneWay}" Click="dataGridContextMenuItemAutoRenameFolderClick" />
-        <Separator Name="dataGridContextMenuSeparatorForConvert" />
-        <MenuItem Name="dataGridContextMenuItemConvertToAudioFile" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Convert_to_audio_file, Mode=OneWay}" Click="dataGridContextMenuItemConvertToAudioFileClick" />
-        <MenuItem Name="dataGridContextMenuItemDeleteInstallPackages" Visibility="Collapsed" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Delete_from_list, Mode=OneWay}" Click="dataGridContextMenuItemDeleteInstallPackagesClick" />
+        <MenuItem Name="tableContextMenuItemAutoRenameFolder" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Rename_folder_auto, Mode=OneWay}" Click="tableContextMenuItemAutoRenameFolderClick" />
+        <Separator Name="tableContextMenuSeparatorForConvert" />
+        <MenuItem Name="tableContextMenuItemConvertToAudioFile" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Convert_to_audio_file, Mode=OneWay}" Click="tableContextMenuItemConvertToAudioFileClick" />
+        <MenuItem Name="tableContextMenuItemDeleteInstallPackages" Visibility="Collapsed" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Delete_from_list, Mode=OneWay}" Click="tableContextMenuItemDeleteInstallPackagesClick" />
       </ContextMenu>
-      <ContextMenu x:Key="dataGridContextMenuPlaylistMissing" x:Shared="False" HasDropShadow="True" Opened="dataGridContextMenuPlaylistMissingOpened">
-        <MenuItem Name="dataGridContextMenuItemOpenLR2IR" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_lr2ir, Mode=OneWay}" Click="dataGridContextMenuItemOpenLR2IRClick" />
-        <MenuItem Name="dataGridContextMenuItemOpenMocha" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_mocha, Mode=OneWay}" Click="dataGridContextMenuItemOpenMochaClick" />
-        <MenuItem Name="dataGridContextMenuItemOpenMinIR" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_minir, Mode=OneWay}" Click="dataGridContextMenuItemOpenMinIRClick" />
-        <MenuItem Name="dataGridContextMenuItemOpenURL" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_Url, Mode=OneWay}" Click="dataGridContextMenuItemOpenURLClick" />
-        <MenuItem Name="dataGridContextMenuItemOpenURLdiff" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_Url_diff, Mode=OneWay}" Click="dataGridContextMenuItemOpenURLdiffClick" />
+      <ContextMenu x:Key="tableContextMenuPlaylistMissing" x:Shared="False" HasDropShadow="True" Opened="tableContextMenuPlaylistMissingOpened">
+        <MenuItem Name="tableContextMenuItemOpenLR2IR" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_lr2ir, Mode=OneWay}" Click="tableContextMenuItemOpenLR2IRClick" />
+        <MenuItem Name="tableContextMenuItemOpenMocha" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_mocha, Mode=OneWay}" Click="tableContextMenuItemOpenMochaClick" />
+        <MenuItem Name="tableContextMenuItemOpenMinIR" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_minir, Mode=OneWay}" Click="tableContextMenuItemOpenMinIRClick" />
+        <MenuItem Name="tableContextMenuItemOpenURL" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_Url, Mode=OneWay}" Click="tableContextMenuItemOpenURLClick" />
+        <MenuItem Name="tableContextMenuItemOpenURLdiff" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_Url_diff, Mode=OneWay}" Click="tableContextMenuItemOpenURLdiffClick" />
         <Separator />
-        <MenuItem Name="dataGridContextMenuItemOpenVideo" SubmenuOpened="dataGridContextMenuOpenVideoSubmenuOpened">
+        <MenuItem Name="tableContextMenuItemOpenVideo" SubmenuOpened="tableContextMenuOpenVideoSubmenuOpened">
           <MenuItem.Header>
             <TextBlock Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_video, Mode=OneWay}" />
           </MenuItem.Header>
-          <MenuItem Name="dataGridContextMenuItemOpenVideoSubmenuStatus" IsEnabled="False" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Searching, Mode=OneWay}" />
-          <MenuItem Name="dataGridContextMenuItemOpenVideoSubmenuYouTube" IsEnabled="False" Visibility="Collapsed" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.YouTube, Mode=OneWay}" Click="dataGridContextMenuItemOpenVideoSubmenuClick" />
-          <MenuItem Name="dataGridContextMenuItemOpenVideoSubmenuNiconico" IsEnabled="False" Visibility="Collapsed" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.NicoNico, Mode=OneWay}" Click="dataGridContextMenuItemOpenVideoSubmenuClick" />
+          <MenuItem Name="tableContextMenuItemOpenVideoSubmenuStatus" IsEnabled="False" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Searching, Mode=OneWay}" />
+          <MenuItem Name="tableContextMenuItemOpenVideoSubmenuYouTube" IsEnabled="False" Visibility="Collapsed" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.YouTube, Mode=OneWay}" Click="tableContextMenuItemOpenVideoSubmenuClick" />
+          <MenuItem Name="tableContextMenuItemOpenVideoSubmenuNiconico" IsEnabled="False" Visibility="Collapsed" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.NicoNico, Mode=OneWay}" Click="tableContextMenuItemOpenVideoSubmenuClick" />
         </MenuItem>
-        <MenuItem Name="dataGridContextMenuItemSearchLink" SubmenuOpened="dataGridContextMenuSearchLinkOpened">
+        <MenuItem Name="tableContextMenuItemSearchLink" SubmenuOpened="tableContextMenuSearchLinkOpened">
           <MenuItem.Header>
             <TextBlock Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Search_downalods, Mode=OneWay}" />
           </MenuItem.Header>
           <MenuItem Name="dummy" Header="" Visibility="Hidden" />
         </MenuItem>
-        <MenuItem Name="dataGridContextMenuItemRegisterScore" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_chart_viewer, Mode=OneWay}" Click="dataGridContextMenuItemRegisterBMSFileToScoreViwer" />
+        <MenuItem Name="tableContextMenuItemRegisterScore" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_chart_viewer, Mode=OneWay}" Click="tableContextMenuItemRegisterBMSFileToScoreViwer" />
         <Separator />
-        <MenuItem Name="dataGridContextMenuItemUpdateRankingData" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Update_ranking_data, Mode=OneWay}" Click="dataGridContextMenuItemUpdateRankingDataClick" />
+        <MenuItem Name="tableContextMenuItemUpdateRankingData" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Update_ranking_data, Mode=OneWay}" Click="tableContextMenuItemUpdateRankingDataClick" />
         <Separator />
-        <MenuItem Name="dataGridContextMenuItemDeleteEntry" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Remove, Mode=OneWay}" Click="dataGridContextMenuItemDeleteEntryClick" />
+        <MenuItem Name="tableContextMenuItemDeleteEntry" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Remove, Mode=OneWay}" Click="tableContextMenuItemDeleteEntryClick" />
       </ContextMenu>
       <ContextMenu x:Key="treeViewPlaylistRootContextMenu" HasDropShadow="True" Opened="treeViewPlaylistRootContextMenuOpend">
         <MenuItem Name="treeViewPlaylistRootContextMenuItemCreateNewPlaylist" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Create_new, Mode=OneWay}" Click="treeViewPlaylistRootContextMenuItemCreateNewPlaylistClick" />
@@ -385,7 +381,7 @@
           </i:Interaction.Triggers>
         </MenuItem>
       </ContextMenu>
-      <ContextMenu x:Key="dataGridColumnHeaderContextMenu" x:Shared="False">
+      <ContextMenu x:Key="tableColumnHeaderContextMenu" x:Shared="False">
         <FrameworkElement.Resources>
           <ResourceDictionary>
             <Style x:Key="styleContextMenuLeftAlignment" TargetType="{x:Type MenuItem}">
@@ -448,7 +444,7 @@
         <MenuItem Header="T-SCORE" IsCheckable="True" Style="{StaticResource styleContextMenuLeftAlignment}" IsChecked="{Binding ColumnsSettingsBMSFilesView.TScore.Visibility, Source={StaticResource vm}, Converter={qc:QuickConverter '$P == Visibility.Visible ? true : false', ConvertBack='$value ? Visibility.Visible : Visibility.Hidden'}}" />
         <MenuItem Header="ΔMAX" IsCheckable="True" Style="{StaticResource styleContextMenuLeftAlignment}" IsChecked="{Binding ColumnsSettingsBMSFilesView.ScoreDifficulty.Visibility, Source={StaticResource vm}, Converter={qc:QuickConverter '$P == Visibility.Visible ? true : false', ConvertBack='$value ? Visibility.Visible : Visibility.Hidden'}}" />
         <Separator />
-        <MenuItem Style="{StaticResource styleContextMenuLeftAlignment}" StaysOpenOnClick="False" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Init_column_setting, Mode=OneWay}" Click="dataGridInitializeColumnSetting" />
+        <MenuItem Style="{StaticResource styleContextMenuLeftAlignment}" StaysOpenOnClick="False" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Init_column_setting, Mode=OneWay}" Click="tableInitializeColumnSetting" />
       </ContextMenu>
       <ContextMenu x:Key="playlistSummaryColumnHeaderContextMenu" x:Shared="False">
         <FrameworkElement.Resources>
@@ -1679,7 +1675,7 @@
               <TextBlock DockPanel.Dock="Left" FontFamily="Meiryo" FontSize="14" VerticalAlignment="Center" Margin="5,0" Foreground="#FF202020" TextTrimming="CharacterEllipsis" Visibility="{Binding IsPlaylistSummaryMode, Converter={qc:QuickConverter '$P ? Visibility.Visible : Visibility.Collapsed'}}" Text="{Binding GridHeaderText}" />
             </DockPanel>
           </Border>
-            <DataGrid Name="dataGrid" Grid.Row="2" Grid.ColumnSpan="1" Margin="0,0,0,0" Grid.Column="1" IsReadOnly="False" SelectionMode="Single" CanUserResizeRows="False" RowHeight="19" MinRowHeight="19" VirtualizingPanel.VirtualizationMode="Recycling" ScrollViewer.CanContentScroll="True" EnableColumnVirtualization="{Binding Source={x:Static prop:Settings.Default}, Path=UseDataGridColumnVirtualizationExperimental, Mode=OneWay}" EnableRowVirtualization="True" AutoGenerateColumns="False" CanUserAddRows="False" CanUserDeleteRows="False" HeadersVisibility="Column" GridLinesVisibility="None" BorderBrush="#FF828790" BorderThickness="1,1,0,0" AlternationCount="2" TargetUpdated="dataGridTargetUpdated" SelectedIndex="{Binding SelectedIndexBMSFilesView, Mode=TwoWay}" Sorting="dataGridSorting" ColumnReordered="setDisplayIndices" BeginningEdit="dataGridCellBeginningEdit" CellEditEnding="dataGridCellEditEnding" PreviewKeyDown="dataGridKeyDown" PreviewMouseRightButtonDown="dataGridPreviewMouseRightButtonDown" v:DragBehavior.IsEnable="True" IsVisibleChanged="dataGrid_IsVisibleChanged" Loaded="dataGrid_Loaded" Unloaded="dataGrid_Unloaded" SelectionChanged="dataGrid_SelectionChanged" Visibility="{qc:MultiBinding '(!$P0 &amp;&amp; !$P1) ? Visibility.Visible : Visibility.Collapsed', P0={Binding Source={x:Static prop:Settings.Default}, Path=UseCustomTableView}, P1={Binding IsPlaylistSummaryMode}}">
+          <v:CustomTableView x:Name="customTableView" Grid.Row="2" Grid.ColumnSpan="1" Grid.Column="1" RowHeight="19" HeaderHeight="22" ScoreFontFamily="{StaticResource SovjetBox}" ItemsSource="{Binding BMSFilesView, Mode=OneWay}" ColumnsSettings="{Binding ColumnsSettingsBMSFilesView, Mode=OneWay}" SelectedIndex="{Binding SelectedIndexBMSFilesView, Mode=TwoWay}" SortColumnName="{Binding SortParameters.ColumnsName, Mode=OneWay}" SortDirection="{Binding SortParameters.Direction, Mode=OneWay}" FirstRenderCompleted="customTableView_FirstRenderCompleted" SortRequested="customTableView_SortRequested" SelectionChanged="customTableView_SelectionChanged" RowActivated="customTableView_RowActivated" RowContextMenuRequested="customTableView_RowContextMenuRequested" HeaderContextMenuRequested="customTableView_HeaderContextMenuRequested" CellEditBeginning="customTableView_CellEditBeginning" CellActionRequested="customTableView_CellActionRequested" CellEditEnded="customTableView_CellEditEnded" Visibility="{Binding IsPlaylistSummaryMode, Converter={qc:QuickConverter '!$P ? Visibility.Visible : Visibility.Collapsed'}}" >
             <i:Interaction.Triggers>
               <l:InteractionMessageTrigger MessageKey="CallbackPlayStartBMSfile" Messenger="{Binding Messenger}">
                 <l:LivetCallMethodAction MethodName="_renewBMSPlayerControlInfo" MethodTarget="{Binding ElementName=window, Mode=OneWay}" />
@@ -1688,391 +1684,11 @@
               <l:InteractionMessageTrigger MessageKey="CallbackPlayStartedBMSfile" Messenger="{Binding Messenger}">
                 <l:LivetCallMethodAction MethodName="tryShowBMSPlayerPanel" MethodTarget="{Binding ElementName=window, Mode=OneWay}" />
               </l:InteractionMessageTrigger>
-              <l:InteractionMessageTrigger MessageKey="CallbackExecSort" Messenger="{Binding Messenger}">
-                <l:LivetCallMethodAction MethodName="renewSortIcon" MethodTarget="{Binding ElementName=window, Mode=OneWay}" MethodParameter="{Binding ElementName=dataGrid, Mode=OneWay}" />
-              </l:InteractionMessageTrigger>
-              <l:InteractionMessageTrigger MessageKey="PreparePlaylistDataGridSwap" Messenger="{Binding Messenger}">
-                <l:LivetCallMethodAction MethodName="PreparePlaylistDataGridSwap" MethodTarget="{Binding ElementName=window, Mode=OneWay}" MethodParameter="{Binding ElementName=dataGrid, Mode=OneWay}" />
-              </l:InteractionMessageTrigger>
-              <l:InteractionMessageTrigger MessageKey="CallbackColumnsSetingsChanged" Messenger="{Binding Messenger}">
-                <l:LivetCallMethodAction MethodName="getDisplayIndices" MethodTarget="{Binding ElementName=window, Mode=OneWay}" />
+              <l:InteractionMessageTrigger MessageKey="PrepareMainTableSwap" Messenger="{Binding Messenger}">
+                <l:LivetCallMethodAction MethodName="PrepareMainTableSwap" MethodTarget="{Binding ElementName=window, Mode=OneWay}" />
               </l:InteractionMessageTrigger>
             </i:Interaction.Triggers>
-            <FrameworkElement.Resources>
-              <ResourceDictionary>
-                <Style x:Key="styleDataGridCellNonFocusable" TargetType="{x:Type DataGridCell}">
-                  <Setter Property="BorderThickness" Value="0,0,1,0" />
-                  <Setter Property="BorderBrush" Value="#E7E9EC" />
-                  <Setter Property="FrameworkElement.FocusVisualStyle" Value="{x:Null}" />
-                </Style>
-                <Style x:Key="styleDataGridCellDummy" BasedOn="{StaticResource styleDataGridCellNonFocusable}" TargetType="{x:Type DataGridCell}">
-                  <Setter Property="BorderThickness" Value="0" />
-                  <Setter Property="BorderBrush" Value="{x:Null}" />
-                </Style>
-                <Style x:Key="styleDataGridEditingCell" TargetType="{x:Type TextBox}">
-                  <Setter Property="BorderThickness" Value="1" />
-                  <Setter Property="BorderBrush" Value="#FF000000" />
-                  <Setter Property="Padding" Value="0,0,-1,-1" />
-                  <Setter Property="Margin" Value="0,0,1,1" />
-                  <Setter Property="TextBox.TextWrapping" Value="Wrap" />
-                  <Setter Property="TextBoxBase.IsReadOnly" Value="{Binding DataContext, RelativeSource={x:Static RelativeSource.Self}, Converter={StaticResource vbmsFileToIsReadOnlyConverter}}" />
-                  <EventSetter Event="PreviewMouseDoubleClick" Handler="dataGridEditingCellPreviewMouseDoubleClicked" />
-                </Style>
-                <Style x:Key="styleDataGridEditingCellForMemo" BasedOn="{StaticResource styleDataGridEditingCell}" TargetType="{x:Type TextBox}">
-                  <Setter Property="TextBoxBase.IsReadOnly" Value="{Binding DataContext, RelativeSource={x:Static RelativeSource.Self}, Converter={StaticResource vbmsFileToIsReadOnlyConverterForMemo}}" />
-                </Style>
-                  <Style x:Key="styleDataGridEditingCellForUrl" BasedOn="{StaticResource styleDataGridEditingCell}" TargetType="{x:Type TextBox}">
-                    <Setter Property="TextBox.TextWrapping" Value="NoWrap" />
-                  </Style>
-                  <Style x:Key="styleDataGridEditingCellForInstallDestination" BasedOn="{StaticResource styleDataGridEditingCell}" TargetType="{x:Type TextBox}">
-                    <Setter Property="TextBoxBase.IsReadOnly" Value="False" />
-                    <Setter Property="TextBox.TextWrapping" Value="NoWrap" />
-                  </Style>
-                  <Style x:Key="styleDataGridEditingCellForFolder" BasedOn="{StaticResource styleDataGridEditingCell}" TargetType="{x:Type TextBox}">
-                    <Setter Property="TextBoxBase.IsReadOnly" Value="False" />
-                  </Style>
-                <Style x:Key="styleDataGridEditingCellRightAlignment" BasedOn="{StaticResource styleDataGridEditingCell}" TargetType="{x:Type TextBox}">
-                  <Setter Property="TextBox.TextAlignment" Value="Right" />
-                </Style>
-                <Style x:Key="styleDataGridNotEditingCell" TargetType="{x:Type TextBlock}">
-                  <Setter Property="TextBlock.Padding" Value="2,1,1,1" />
-                  <Setter Property="TextTrimming" Value="CharacterEllipsis" />
-                </Style>
-                <Style x:Key="styleDataGridNotEditingCellRightAlignment" BasedOn="{StaticResource styleDataGridNotEditingCell}" TargetType="{x:Type TextBlock}">
-                  <Setter Property="HorizontalAlignment" Value="Right" />
-                  <Setter Property="TextBlock.Padding" Value="1,1,2,1" />
-                </Style>
-                <Style x:Key="styleDataGridNotEditingCellCenterAlignment" BasedOn="{StaticResource styleDataGridNotEditingCell}" TargetType="{x:Type TextBlock}">
-                  <Setter Property="HorizontalAlignment" Value="Center" />
-                  <Setter Property="TextBlock.Padding" Value="1,1,1,1" />
-                </Style>
-                <Style x:Key="styleDataGridNotEditingCellMusic" BasedOn="{StaticResource styleDataGridNotEditingCellCenterAlignment}" TargetType="{x:Type TextBlock}">
-                  <Setter Property="FontFamily" Value="{StaticResource LigatureSymbols}" />
-                  <Setter Property="FontSize" Value="16" />
-                  <Setter Property="Margin" Value="-6" />
-                  <Setter Property="HorizontalAlignment" Value="Center" />
-                  <Setter Property="VerticalAlignment" Value="Center" />
-                  <Setter Property="FrameworkElement.ToolTip" Value="{Binding status, Converter={StaticResource statusToTooltipStringConverter}}" />
-                </Style>
-                <Style x:Key="styleDataGridNotEditingCellScoreText" BasedOn="{StaticResource styleDataGridNotEditingCellCenterAlignment}" TargetType="{x:Type TextBlock}">
-                  <Setter Property="FontFamily" Value="{StaticResource SovjetBox}" />
-                  <Setter Property="Margin" Value="-2" />
-                  <Setter Property="HorizontalAlignment" Value="Center" />
-                  <Setter Property="VerticalAlignment" Value="Center" />
-                  <Setter Property="TextBlock.Padding" Value="0,2,0,0" />
-                </Style>
-                <Style x:Key="styleDataGridNotEditingCellClear" BasedOn="{StaticResource styleDataGridNotEditingCellScoreText}" TargetType="{x:Type TextBlock}">
-                  <Setter Property="Foreground" Value="{Binding clear, Converter={StaticResource dataGridForegroundBrushConverter}, ConverterParameter=clear}" />
-                </Style>
-                <Style x:Key="styleDataGridCellChartLevelUndefined" BasedOn="{StaticResource styleDataGridCellNonFocusable}" TargetType="{x:Type DataGridCell}">
-                  <Style.Triggers>
-                    <MultiDataTrigger>
-                      <MultiDataTrigger.Conditions>
-                        <Condition Value="True" Binding="{Binding ChartLevelUndefined}" />
-                        <Condition Value="False" Binding="{Binding IsSelected, RelativeSource={RelativeSource Self}}" />
-                      </MultiDataTrigger.Conditions>
-                      <Setter Property="Background" Value="#FFFFF6D5" />
-                    </MultiDataTrigger>
-                  </Style.Triggers>
-                </Style>
-                <Style x:Key="styleDataGridCellChartDifficultyUndefined" BasedOn="{StaticResource styleDataGridCellNonFocusable}" TargetType="{x:Type DataGridCell}">
-                  <Style.Triggers>
-                    <MultiDataTrigger>
-                      <MultiDataTrigger.Conditions>
-                        <Condition Value="True" Binding="{Binding ChartDifficultyUndefined}" />
-                        <Condition Value="False" Binding="{Binding IsSelected, RelativeSource={RelativeSource Self}}" />
-                      </MultiDataTrigger.Conditions>
-                      <Setter Property="Background" Value="#FFFFF6D5" />
-                    </MultiDataTrigger>
-                  </Style.Triggers>
-                </Style>
-                <Style x:Key="styleDataGridCellChartTotalUndefined" BasedOn="{StaticResource styleDataGridCellNonFocusable}" TargetType="{x:Type DataGridCell}">
-                  <Style.Triggers>
-                    <MultiDataTrigger>
-                      <MultiDataTrigger.Conditions>
-                        <Condition Value="True" Binding="{Binding ChartTotalUndefined}" />
-                        <Condition Value="False" Binding="{Binding IsSelected, RelativeSource={RelativeSource Self}}" />
-                      </MultiDataTrigger.Conditions>
-                      <Setter Property="Background" Value="#FFFFF6D5" />
-                    </MultiDataTrigger>
-                  </Style.Triggers>
-                </Style>
-                <Style x:Key="styleDataGridNotEditingCellChartDifficulty" BasedOn="{StaticResource styleDataGridNotEditingCellScoreText}" TargetType="{x:Type TextBlock}">
-                  <Setter Property="Foreground" Value="{Binding ChartDifficultyColorKey, Converter={StaticResource dataGridForegroundBrushConverter}, ConverterParameter=difficulty}" />
-                </Style>
-                <Style x:Key="styleDataGridNotEditingCellChartJudge" BasedOn="{StaticResource styleDataGridNotEditingCellScoreText}" TargetType="{x:Type TextBlock}">
-                  <Setter Property="Foreground" Value="{Binding ChartJudgeColorKey, Converter={StaticResource dataGridForegroundBrushConverter}, ConverterParameter=judge}" />
-                </Style>
-                <Style x:Key="styleDataGridNotEditingCellRank" BasedOn="{StaticResource styleDataGridNotEditingCellScoreText}" TargetType="{x:Type TextBlock}">
-                  <Setter Property="FontSize" Value="16" />
-                  <Setter Property="Margin" Value="-4" />
-                  <Setter Property="TextBlock.Padding" Value="0,4,0,0" />
-                  <Setter Property="Foreground" Value="{Binding rank, Converter={StaticResource dataGridForegroundBrushConverter}, ConverterParameter=rank}" />
-                </Style>
-                <Style x:Key="styleDataGridNotEditingCellWithTooltip" BasedOn="{StaticResource styleDataGridNotEditingCell}" TargetType="{x:Type TextBlock}">
-                  <Setter Property="TextWrapping" Value="NoWrap" />
-                  <Setter Property="FrameworkElement.ToolTip" Value="{Binding Text, RelativeSource={x:Static RelativeSource.Self}}" />
-                </Style>
-                <Style x:Key="styleDataGridNotEditingCellPlaylist" BasedOn="{StaticResource styleDataGridNotEditingCell}" TargetType="{x:Type TextBlock}">
-                  <Setter Property="FrameworkElement.ToolTip" Value="{Binding RefTablesNames}" />
-                </Style>
-                <Style x:Key="styleDataGridColumnHeaderDefault" TargetType="{x:Type DataGridColumnHeader}">
-                  <EventSetter Event="PreviewMouseRightButtonDown" Handler="dataGridColumnHeaderPreviewMouseRightButtonDown" />
-                  <EventSetter Event="FrameworkElement.ContextMenuOpening" Handler="dataGridColumnHeaderContextMenuOpening" />
-                </Style>
-                <Style x:Key="styleDataGridColumnHeaderCenter" BasedOn="{StaticResource styleDataGridColumnHeaderDefault}" TargetType="{x:Type DataGridColumnHeader}">
-                  <Setter Property="TextBlock.TextAlignment" Value="Center" />
-                  <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-                </Style>
-                <SolidColorBrush x:Key="{x:Static SystemColors.HighlightBrushKey}" Color="DodgerBlue" />
-                <SolidColorBrush x:Key="{x:Static SystemColors.InactiveSelectionHighlightBrushKey}" Color="LightSteelBlue" />
-              </ResourceDictionary>
-            </FrameworkElement.Resources>
-            <DataGrid.RowStyle>
-              <Style TargetType="{x:Type DataGridRow}">
-                <Setter Property="Background" Value="#FFFFFFFF" />
-                <Setter Property="BorderThickness" Value="0,0,0,1" />
-                <Setter Property="BorderBrush" Value="#E7E9EC" />
-                <EventSetter Event="MouseDoubleClick" Handler="dataGridRowDoubleClicked" />
-                <EventSetter Event="Selected" Handler="dataGridRowSelected" />
-                <EventSetter Event="FrameworkElement.ContextMenuOpening" Handler="dataGridRowContextMenuOpening" />
-                <Style.Triggers>
-                  <Trigger Property="ItemsControl.AlternationIndex" Value="1">
-                    <Setter Property="Background" Value="#F1F4F7" />
-                  </Trigger>
-                  <DataTrigger Value="True" Binding="{Binding HasHighlightedWarning}">
-                    <Setter Property="Background" Value="#FFFDE4E4" />
-                  </DataTrigger>
-                </Style.Triggers>
-              </Style>
-            </DataGrid.RowStyle>
-            <DataGrid.Columns>
-              <DataGridTextColumn Header="music" CanUserReorder="False" CanUserSort="False" CanUserResize="False" IsReadOnly="True" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCellMusic}" Binding="{Binding status, Converter={StaticResource statusToStringConverterForLigatureSymbols}}" Width="{Binding ColumnsSettingsBMSFilesView.Status.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding ColumnsSettingsBMSFilesView.Status.Visibility, Source={StaticResource vm}, Mode=TwoWay}">
-                <DataGridColumn.HeaderStyle>
-                  <Style TargetType="{x:Type DataGridColumnHeader}">
-                    <Setter Property="FontFamily" Value="{StaticResource LigatureSymbols}" />
-                    <Setter Property="FontSize" Value="16" />
-                    <Setter Property="Margin" Value="-6" />
-                    <Setter Property="HorizontalAlignment" Value="Center" />
-                    <Setter Property="VerticalAlignment" Value="Center" />
-                  </Style>
-                </DataGridColumn.HeaderStyle>
-              </DataGridTextColumn>
-              <DataGridTextColumn Header="ENTRY LEVEL" SortMemberPath="EntryLevelSortKey" MinWidth="40" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCellRightAlignment}" EditingElementStyle="{StaticResource styleDataGridEditingCellRightAlignment}" HeaderStyle="{StaticResource styleDataGridColumnHeaderDefault}" Binding="{Binding Level}" Width="{Binding ColumnsSettingsBMSFilesView.EntryLevel.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{qc:MultiBinding '$P1 == Visibility.Visible ? $P0 : Visibility.Hidden', P0={Binding ColumnsSettingsBMSFilesView.EntryLevel.Visibility, Source={StaticResource vm}}, P1={Binding ColumnSettingsVisibilityForPlaylist, Source={StaticResource vm}}}" IsReadOnly="{qc:Binding '$P == Visibility.Visible ? False : True', P={Binding ColumnSettingsVisibilityForPlaylist, Source={StaticResource vm}}}" />
-              <DataGridTextColumn Header="TITLE" MinWidth="40" IsReadOnly="True" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCell}" HeaderStyle="{StaticResource styleDataGridColumnHeaderDefault}" Binding="{Binding Title}" Width="{Binding ColumnsSettingsBMSFilesView.Title.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding ColumnsSettingsBMSFilesView.Title.Visibility, Source={StaticResource vm}, Mode=TwoWay}" />
-              <DataGridTextColumn Header="ARTIST" MinWidth="50" IsReadOnly="True" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCell}" HeaderStyle="{StaticResource styleDataGridColumnHeaderDefault}" Binding="{Binding Artist}" Width="{Binding ColumnsSettingsBMSFilesView.Artist.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding ColumnsSettingsBMSFilesView.Artist.Visibility, Source={StaticResource vm}, Mode=TwoWay}" />
-              <DataGridTextColumn Header="GENRE" MinWidth="40" IsReadOnly="True" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCell}" HeaderStyle="{StaticResource styleDataGridColumnHeaderDefault}" Binding="{Binding genre}" Width="{Binding ColumnsSettingsBMSFilesView.Genre.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding ColumnsSettingsBMSFilesView.Genre.Visibility, Source={StaticResource vm}, Mode=TwoWay}" />
-              <DataGridTextColumn Header="KEYS" MaxWidth="50" MinWidth="40" IsReadOnly="True" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCellRightAlignment}" HeaderStyle="{StaticResource styleDataGridColumnHeaderDefault}" Binding="{Binding mode, Converter={StaticResource addStringToEndConverter}, ConverterParameter=KEYS|?KEYS}" Width="{Binding ColumnsSettingsBMSFilesView.Mode.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding ColumnsSettingsBMSFilesView.Mode.Visibility, Source={StaticResource vm}, Mode=TwoWay}" />
-              <DataGridTextColumn Header="TAG" MinWidth="40" IsReadOnly="True" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCell}" HeaderStyle="{StaticResource styleDataGridColumnHeaderDefault}" Binding="{Binding tag}" Width="{Binding ColumnsSettingsBMSFilesView.Tag.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding ColumnsSettingsBMSFilesView.Tag.Visibility, Source={StaticResource vm}, Mode=TwoWay}" />
-              <DataGridHyperlinkColumn Header="URL1" CanUserSort="False" MinWidth="40" MaxWidth="40" IsReadOnly="False" CellStyle="{StaticResource styleDataGridCellNonFocusable}" EditingElementStyle="{StaticResource styleDataGridEditingCellForUrl}" HeaderStyle="{StaticResource styleDataGridColumnHeaderCenter}" Binding="{Binding Url}" Width="{Binding ColumnsSettingsBMSFilesView.Url1.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverterForURL1}}" Visibility="{qc:MultiBinding '$P1 == Visibility.Visible ? $P0 : Visibility.Hidden', P0={Binding ColumnsSettingsBMSFilesView.Url1.Visibility, Source={StaticResource vm}}, P1={Binding ColumnSettingsVisibilityForPlaylist, Source={StaticResource vm}}}">
-                <DataGridBoundColumn.ElementStyle>
-                  <Style TargetType="{x:Type TextBlock}">
-                    <Setter Property="FontFamily" Value="{StaticResource LigatureSymbols}" />
-                    <Setter Property="FontSize" Value="20" />
-                    <Setter Property="Margin" Value="-6" />
-                    <Setter Property="HorizontalAlignment" Value="Center" />
-                    <Setter Property="VerticalAlignment" Value="Center" />
-                    <Setter Property="Text" Value="{Binding UrlDownloadIconText}" />
-                    <Setter Property="FrameworkElement.ToolTip" Value="{Binding UrlToolTipText}" />
-                    <Setter Property="FrameworkElement.Cursor" Value="Hand" />
-                    <Setter Property="TextBlock.Padding" Value="0" />
-                    <EventSetter Event="PreviewMouseLeftButtonDown" Handler="dataGridCellOpenURLClick" />
-                  </Style>
-                </DataGridBoundColumn.ElementStyle>
-              </DataGridHyperlinkColumn>
-              <DataGridHyperlinkColumn Header="URL2" CanUserSort="False" MinWidth="40" MaxWidth="40" IsReadOnly="False" CellStyle="{StaticResource styleDataGridCellNonFocusable}" EditingElementStyle="{StaticResource styleDataGridEditingCellForUrl}" HeaderStyle="{StaticResource styleDataGridColumnHeaderCenter}" Binding="{Binding Url_diff}" Width="{Binding ColumnsSettingsBMSFilesView.Url2.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverterForURL2}}" Visibility="{qc:MultiBinding '$P1 == Visibility.Visible ? $P0 : Visibility.Hidden', P0={Binding ColumnsSettingsBMSFilesView.Url2.Visibility, Source={StaticResource vm}}, P1={Binding ColumnSettingsVisibilityForPlaylist, Source={StaticResource vm}}}">
-                <DataGridBoundColumn.ElementStyle>
-                  <Style TargetType="{x:Type TextBlock}">
-                    <Setter Property="FontFamily" Value="{StaticResource LigatureSymbols}" />
-                    <Setter Property="FontSize" Value="20" />
-                    <Setter Property="Margin" Value="-6" />
-                    <Setter Property="HorizontalAlignment" Value="Center" />
-                    <Setter Property="VerticalAlignment" Value="Center" />
-                    <Setter Property="Text" Value="{Binding UrlDiffDownloadIconText}" />
-                    <Setter Property="FrameworkElement.ToolTip" Value="{Binding UrlDiffToolTipText}" />
-                    <Setter Property="FrameworkElement.Cursor" Value="Hand" />
-                    <Setter Property="TextBlock.Padding" Value="0" />
-                    <EventSetter Event="PreviewMouseLeftButtonDown" Handler="dataGridCellOpenURLDiffClick" />
-                  </Style>
-                </DataGridBoundColumn.ElementStyle>
-              </DataGridHyperlinkColumn>
-              <DataGridTextColumn Header="WARNING" MinWidth="40" IsReadOnly="True" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCellWithTooltip}" HeaderStyle="{StaticResource styleDataGridColumnHeaderDefault}" Binding="{Binding DisplayWarning}" Width="{Binding ColumnsSettingsBMSFilesView.Warning.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding ColumnsSettingsBMSFilesView.Warning.Visibility, Source={StaticResource vm}, Mode=TwoWay}" />
-              <DataGridTextColumn Header="COMMENT" CanUserSort="False" MinWidth="40" IsReadOnly="False" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCellWithTooltip}" EditingElementStyle="{StaticResource styleDataGridEditingCell}" HeaderStyle="{StaticResource styleDataGridColumnHeaderDefault}" Binding="{Binding comment}" Width="{Binding ColumnsSettingsBMSFilesView.Comment.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{qc:MultiBinding '$P1 == Visibility.Visible ? $P0 : Visibility.Hidden', P0={Binding ColumnsSettingsBMSFilesView.Comment.Visibility, Source={StaticResource vm}}, P1={Binding ColumnSettingsVisibilityForPlaylist, Source={StaticResource vm}}}" />
-              <DataGridTextColumn Header="MEMO" CanUserSort="False" MinWidth="40" IsReadOnly="False" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCellWithTooltip}" EditingElementStyle="{StaticResource styleDataGridEditingCellForMemo}" HeaderStyle="{StaticResource styleDataGridColumnHeaderDefault}" Binding="{Binding memo}" Width="{Binding ColumnsSettingsBMSFilesView.Memo.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{qc:MultiBinding '$P1 == Visibility.Visible ? $P0 : Visibility.Hidden', P0={Binding ColumnsSettingsBMSFilesView.Memo.Visibility, Source={StaticResource vm}}, P1={Binding ColumnSettingsVisibilityForPlaylist, Source={StaticResource vm}}}" />
-              <DataGridTextColumn Header="MD5 HASH" FontFamily="Courier New" MinWidth="240" MaxWidth="240" IsReadOnly="True" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCellCenterAlignment}" HeaderStyle="{StaticResource styleDataGridColumnHeaderCenter}" Binding="{Binding hash}" Width="{Binding ColumnsSettingsBMSFilesView.Hash.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding ColumnsSettingsBMSFilesView.Hash.Visibility, Source={StaticResource vm}, Mode=TwoWay}" />
-              <DataGridTextColumn Header="SHA256 HASH" FontFamily="Courier New" MinWidth="40" MaxWidth="480" IsReadOnly="True" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCellCenterAlignment}" HeaderStyle="{StaticResource styleDataGridColumnHeaderCenter}" Binding="{Binding sha256}" Width="{Binding ColumnsSettingsBMSFilesView.Sha256.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding ColumnsSettingsBMSFilesView.Sha256.Visibility, Source={StaticResource vm}, Mode=TwoWay}" />
-              <DataGridTextColumn Header="FOLDER" MinWidth="40" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCell}" EditingElementStyle="{StaticResource styleDataGridEditingCellForFolder}" HeaderStyle="{StaticResource styleDataGridColumnHeaderDefault}" Binding="{Binding Folder}" Width="{Binding ColumnsSettingsBMSFilesView.Folder.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding ColumnsSettingsBMSFilesView.Folder.Visibility, Source={StaticResource vm}, Mode=TwoWay}" IsReadOnly="{qc:Binding '$P == Visibility.Visible ? True : False', P={Binding ColumnSettingsVisibilityForPlaylist, Source={StaticResource vm}}}" />
-              <DataGridTextColumn Header="PATH" MinWidth="40" IsReadOnly="True" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCell}" HeaderStyle="{StaticResource styleDataGridColumnHeaderDefault}" Binding="{Binding path}" Width="{Binding ColumnsSettingsBMSFilesView.Path.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding ColumnsSettingsBMSFilesView.Path.Visibility, Source={StaticResource vm}, Mode=TwoWay}" />
-              <DataGridTemplateColumn Header="INSTL DST" SortMemberPath="instl_dst" Width="{Binding ColumnsSettingsBMSFilesView.InstallDst.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding ColumnsSettingsBMSFilesView.InstallDst.Visibility, Source={StaticResource vm}, Mode=TwoWay}" CellStyle="{StaticResource styleDataGridCellNonFocusable}" HeaderStyle="{StaticResource styleDataGridColumnHeaderDefault}">
-                <DataGridTemplateColumn.CellTemplate>
-                  <DataTemplate>
-                    <TextBlock Style="{StaticResource styleDataGridNotEditingCell}" Text="{Binding instl_dst}" />
-                  </DataTemplate>
-                </DataGridTemplateColumn.CellTemplate>
-                <DataGridTemplateColumn.CellEditingTemplate>
-                  <DataTemplate>
-                      <Grid>
-                        <TextBox x:Name="textBoxInstallDestination" Style="{StaticResource styleDataGridEditingCellForInstallDestination}" Text="{Binding instl_dst, UpdateSourceTrigger=PropertyChanged}" Loaded="dataGridInstallDestinationTextBoxLoaded" PreviewKeyDown="dataGridInstallDestinationTextBoxPreviewKeyDown" />
-                        <Popup x:Name="popupInstallDestinationSuggestions" Placement="Bottom" PlacementTarget="{Binding ElementName=textBoxInstallDestination}" StaysOpen="True" AllowsTransparency="True" IsOpen="{Binding IsInstallDestinationSuggestionPopupOpen, Mode=TwoWay}">
-                          <Border Background="White" BorderBrush="#FF828790" BorderThickness="1" MinWidth="{Binding ActualWidth, ElementName=textBoxInstallDestination}" MaxWidth="600">
-                            <ListBox x:Name="listBoxInstallDestinationSuggestions" BorderThickness="0" Padding="0" ItemsSource="{Binding InstallDestinationSuggestions}" PreviewMouseLeftButtonDown="dataGridInstallDestinationSuggestionPreviewMouseLeftButtonDown" PreviewKeyDown="dataGridInstallDestinationSuggestionPreviewKeyDown" />
-                          </Border>
-                      </Popup>
-                    </Grid>
-                  </DataTemplate>
-                </DataGridTemplateColumn.CellEditingTemplate>
-              </DataGridTemplateColumn>
-              <DataGridTextColumn Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Header_InstallDstTitle, Mode=OneWay}" IsReadOnly="True" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCell}" HeaderStyle="{StaticResource styleDataGridColumnHeaderDefault}" Binding="{Binding InstallDestinationTitle}" Width="{Binding ColumnsSettingsBMSFilesView.InstallDstTitle.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding ColumnsSettingsBMSFilesView.InstallDstTitle.Visibility, Source={StaticResource vm}, Mode=TwoWay}" />
-              <DataGridTextColumn Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Header_InstallDstArtist, Mode=OneWay}" IsReadOnly="True" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCell}" HeaderStyle="{StaticResource styleDataGridColumnHeaderDefault}" Binding="{Binding InstallDestinationArtist}" Width="{Binding ColumnsSettingsBMSFilesView.InstallDstArtist.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding ColumnsSettingsBMSFilesView.InstallDstArtist.Visibility, Source={StaticResource vm}, Mode=TwoWay}" />
-              <DataGridTextColumn Header="WAV" MinWidth="40" MaxWidth="50" IsReadOnly="True" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCellRightAlignment}" HeaderStyle="{StaticResource styleDataGridColumnHeaderCenter}" Binding="{Binding WAVHealth, Converter={StaticResource addStringToEndConverter}, ConverterParameter=%|}" Width="{Binding ColumnsSettingsBMSFilesView.WavHealth.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding ColumnsSettingsBMSFilesView.WavHealth.Visibility, Source={StaticResource vm}, Mode=TwoWay}" />
-              <DataGridTextColumn Header="BGA" MinWidth="40" MaxWidth="50" IsReadOnly="True" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCellRightAlignment}" HeaderStyle="{StaticResource styleDataGridColumnHeaderCenter}" Binding="{Binding BGAHealth, Converter={StaticResource addStringToEndConverter}, ConverterParameter=%|}" Width="{Binding ColumnsSettingsBMSFilesView.BgaHealth.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding ColumnsSettingsBMSFilesView.BgaHealth.Visibility, Source={StaticResource vm}, Mode=TwoWay}" />
-              <DataGridTextColumn Header="MOVIE" MinWidth="40" MaxWidth="50" IsReadOnly="True" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCellRightAlignment}" HeaderStyle="{StaticResource styleDataGridColumnHeaderCenter}" Binding="{Binding MovieHealth, Converter={StaticResource addStringToEndConverter}, ConverterParameter=%|}" Width="{Binding ColumnsSettingsBMSFilesView.MovieHealth.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding ColumnsSettingsBMSFilesView.MovieHealth.Visibility, Source={StaticResource vm}, Mode=TwoWay}" />
-              <DataGridTextColumn Header="ENCODING" MinWidth="40" MaxWidth="130" IsReadOnly="True" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCell}" HeaderStyle="{StaticResource styleDataGridColumnHeaderDefault}" Binding="{Binding encoding}" Width="{Binding ColumnsSettingsBMSFilesView.CharcterEncoding.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding ColumnsSettingsBMSFilesView.CharcterEncoding.Visibility, Source={StaticResource vm}, Mode=TwoWay}" />
-              <DataGridTextColumn Header="PLAYLIST" MinWidth="40" IsReadOnly="True" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCellPlaylist}" HeaderStyle="{StaticResource styleDataGridColumnHeaderDefault}" Binding="{Binding RefTablesSymbols}" Width="{Binding ColumnsSettingsBMSFilesView.PlaylistSymbols.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding ColumnsSettingsBMSFilesView.PlaylistSymbols.Visibility, Source={StaticResource vm}, Mode=TwoWay}" />
-              <DataGridTextColumn Header="LEVEL" SortMemberPath="ChartLevelSortKey" MinWidth="40" IsReadOnly="True" CellStyle="{StaticResource styleDataGridCellChartLevelUndefined}" ElementStyle="{StaticResource styleDataGridNotEditingCellRightAlignment}" HeaderStyle="{StaticResource styleDataGridColumnHeaderCenter}" Binding="{Binding ChartLevelText}" Width="{Binding ColumnsSettingsBMSFilesView.Level.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding ColumnsSettingsBMSFilesView.Level.Visibility, Source={StaticResource vm}, Mode=TwoWay}" />
-              <DataGridTextColumn Header="DIFFICULTY" SortMemberPath="ChartDifficultySortKey" MinWidth="40" IsReadOnly="True" CellStyle="{StaticResource styleDataGridCellChartDifficultyUndefined}" ElementStyle="{StaticResource styleDataGridNotEditingCellChartDifficulty}" HeaderStyle="{StaticResource styleDataGridColumnHeaderCenter}" Binding="{Binding ChartDifficultyText}" Width="{Binding ColumnsSettingsBMSFilesView.ChartDifficulty.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding ColumnsSettingsBMSFilesView.ChartDifficulty.Visibility, Source={StaticResource vm}, Mode=TwoWay}" />
-              <DataGridTextColumn Header="MAINBPM" SortMemberPath="ChartMainBpmSortKey" MinWidth="40" IsReadOnly="True" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCellRightAlignment}" HeaderStyle="{StaticResource styleDataGridColumnHeaderCenter}" Binding="{Binding ChartMainBpmText}" Width="{Binding ColumnsSettingsBMSFilesView.ChartMainBpm.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding ColumnsSettingsBMSFilesView.ChartMainBpm.Visibility, Source={StaticResource vm}, Mode=TwoWay}" />
-              <DataGridTextColumn Header="MAXBPM" SortMemberPath="ChartMaxBpmSortKey" MinWidth="40" IsReadOnly="True" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCellRightAlignment}" HeaderStyle="{StaticResource styleDataGridColumnHeaderCenter}" Binding="{Binding ChartMaxBpmText}" Width="{Binding ColumnsSettingsBMSFilesView.ChartMaxBpm.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding ColumnsSettingsBMSFilesView.ChartMaxBpm.Visibility, Source={StaticResource vm}, Mode=TwoWay}" />
-              <DataGridTextColumn Header="MINBPM" SortMemberPath="ChartMinBpmSortKey" MinWidth="40" IsReadOnly="True" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCellRightAlignment}" HeaderStyle="{StaticResource styleDataGridColumnHeaderCenter}" Binding="{Binding ChartMinBpmText}" Width="{Binding ColumnsSettingsBMSFilesView.ChartMinBpm.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding ColumnsSettingsBMSFilesView.ChartMinBpm.Visibility, Source={StaticResource vm}, Mode=TwoWay}" />
-              <DataGridTextColumn Header="DURATION" SortMemberPath="ChartDurationSortKey" MinWidth="40" IsReadOnly="True" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCellRightAlignment}" HeaderStyle="{StaticResource styleDataGridColumnHeaderCenter}" Binding="{Binding ChartDurationText}" Width="{Binding ColumnsSettingsBMSFilesView.ChartDuration.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding ColumnsSettingsBMSFilesView.ChartDuration.Visibility, Source={StaticResource vm}, Mode=TwoWay}" />
-              <DataGridTextColumn Header="JUDGE" SortMemberPath="ChartJudgeSortKey" MinWidth="40" IsReadOnly="True" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCellChartJudge}" HeaderStyle="{StaticResource styleDataGridColumnHeaderCenter}" Binding="{Binding ChartJudgeText}" Width="{Binding ColumnsSettingsBMSFilesView.ChartJudge.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding ColumnsSettingsBMSFilesView.ChartJudge.Visibility, Source={StaticResource vm}, Mode=TwoWay}" />
-              <DataGridTextColumn Header="JUDGE%" SortMemberPath="ChartJudgeSortKey" MinWidth="40" IsReadOnly="True" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCellRightAlignment}" HeaderStyle="{StaticResource styleDataGridColumnHeaderCenter}" Binding="{Binding ChartJudgePercentText}" Width="{Binding ColumnsSettingsBMSFilesView.ChartJudgePercent.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding ColumnsSettingsBMSFilesView.ChartJudgePercent.Visibility, Source={StaticResource vm}, Mode=TwoWay}" />
-              <DataGridTextColumn Header="FEATURE" SortMemberPath="ChartFeatureSortKey" MinWidth="40" IsReadOnly="True" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCell}" HeaderStyle="{StaticResource styleDataGridColumnHeaderDefault}" Binding="{Binding ChartFeatureText}" Width="{Binding ColumnsSettingsBMSFilesView.ChartFeature.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding ColumnsSettingsBMSFilesView.ChartFeature.Visibility, Source={StaticResource vm}, Mode=TwoWay}" />
-              <!-- NOTES は旧 LR2 score/karinotes 系ではなく、chart_info.notes 由来の譜面メタデータとして表示する。 -->
-              <DataGridTextColumn Header="NOTES" SortMemberPath="ChartNotes" MinWidth="40" IsReadOnly="True" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCellRightAlignment}" HeaderStyle="{StaticResource styleDataGridColumnHeaderCenter}" Binding="{Binding ChartNotes}" Width="{Binding ColumnsSettingsBMSFilesView.Notes.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding ColumnsSettingsBMSFilesView.Notes.Visibility, Source={StaticResource vm}, Mode=TwoWay}" />
-              <DataGridTextColumn Header="LONG" SortMemberPath="ChartLongNotes" MinWidth="40" IsReadOnly="True" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCellRightAlignment}" HeaderStyle="{StaticResource styleDataGridColumnHeaderCenter}" Binding="{Binding ChartLongNotes}" Width="{Binding ColumnsSettingsBMSFilesView.ChartLongNotes.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding ColumnsSettingsBMSFilesView.ChartLongNotes.Visibility, Source={StaticResource vm}, Mode=TwoWay}" />
-              <DataGridTextColumn Header="SCRATCH" SortMemberPath="ChartScratchNotes" MinWidth="40" IsReadOnly="True" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCellRightAlignment}" HeaderStyle="{StaticResource styleDataGridColumnHeaderCenter}" Binding="{Binding ChartScratchNotes}" Width="{Binding ColumnsSettingsBMSFilesView.ChartScratchNotes.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding ColumnsSettingsBMSFilesView.ChartScratchNotes.Visibility, Source={StaticResource vm}, Mode=TwoWay}" />
-              <DataGridTextColumn Header="TOTAL" SortMemberPath="ChartTotalSortKey" MinWidth="40" IsReadOnly="True" CellStyle="{StaticResource styleDataGridCellChartTotalUndefined}" ElementStyle="{StaticResource styleDataGridNotEditingCellRightAlignment}" HeaderStyle="{StaticResource styleDataGridColumnHeaderCenter}" Binding="{Binding ChartTotalText}" Width="{Binding ColumnsSettingsBMSFilesView.ChartTotal.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding ColumnsSettingsBMSFilesView.ChartTotal.Visibility, Source={StaticResource vm}, Mode=TwoWay}" />
-              <DataGridTextColumn Header="T/N" SortMemberPath="ChartTotalPerNoteSortKey" MinWidth="40" IsReadOnly="True" CellStyle="{StaticResource styleDataGridCellChartTotalUndefined}" ElementStyle="{StaticResource styleDataGridNotEditingCellRightAlignment}" HeaderStyle="{StaticResource styleDataGridColumnHeaderCenter}" Binding="{Binding ChartTotalPerNoteText}" Width="{Binding ColumnsSettingsBMSFilesView.ChartTotalPerNote.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding ColumnsSettingsBMSFilesView.ChartTotalPerNote.Visibility, Source={StaticResource vm}, Mode=TwoWay}" />
-              <DataGridTextColumn Header="DENSITY" SortMemberPath="ChartDensitySortKey" MinWidth="40" IsReadOnly="True" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCellRightAlignment}" HeaderStyle="{StaticResource styleDataGridColumnHeaderCenter}" Binding="{Binding ChartDensityText}" Width="{Binding ColumnsSettingsBMSFilesView.ChartDensity.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding ColumnsSettingsBMSFilesView.ChartDensity.Visibility, Source={StaticResource vm}, Mode=TwoWay}" />
-              <DataGridTextColumn Header="PEAK" SortMemberPath="ChartPeakDensitySortKey" MinWidth="40" IsReadOnly="True" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCellRightAlignment}" HeaderStyle="{StaticResource styleDataGridColumnHeaderCenter}" Binding="{Binding ChartPeakDensityText}" Width="{Binding ColumnsSettingsBMSFilesView.ChartPeakDensity.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding ColumnsSettingsBMSFilesView.ChartPeakDensity.Visibility, Source={StaticResource vm}, Mode=TwoWay}" />
-              <DataGridTextColumn Header="END" SortMemberPath="ChartEndDensitySortKey" MinWidth="40" IsReadOnly="True" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCellRightAlignment}" HeaderStyle="{StaticResource styleDataGridColumnHeaderCenter}" Binding="{Binding ChartEndDensityText}" Width="{Binding ColumnsSettingsBMSFilesView.ChartEndDensity.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding ColumnsSettingsBMSFilesView.ChartEndDensity.Visibility, Source={StaticResource vm}, Mode=TwoWay}" />
-              <DataGridTextColumn Header="SOFLAN" SortMemberPath="ChartSoflanCount" MinWidth="40" IsReadOnly="True" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCellRightAlignment}" HeaderStyle="{StaticResource styleDataGridColumnHeaderCenter}" Binding="{Binding ChartSoflanCount}" Width="{Binding ColumnsSettingsBMSFilesView.ChartSoflan.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding ColumnsSettingsBMSFilesView.ChartSoflan.Visibility, Source={StaticResource vm}, Mode=TwoWay}" />
-              <DataGridTextColumn Header="CLEAR" MinWidth="40" IsReadOnly="True" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCellClear}" HeaderStyle="{StaticResource styleDataGridColumnHeaderCenter}" Binding="{Binding ClearDisplayText}" Width="{Binding ColumnsSettingsBMSFilesView.Clear.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding ColumnsSettingsBMSFilesView.Clear.Visibility, Source={StaticResource vm}, Mode=TwoWay}" />
-              <DataGridTextColumn Header="DJ LEVEL" MinWidth="40" IsReadOnly="True" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCellRank}" HeaderStyle="{StaticResource styleDataGridColumnHeaderCenter}" Binding="{Binding RankDisplayText}" Width="{Binding ColumnsSettingsBMSFilesView.Rank.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding ColumnsSettingsBMSFilesView.Rank.Visibility, Source={StaticResource vm}, Mode=TwoWay}" />
-              <DataGridTextColumn Header="RATE" MinWidth="40" IsReadOnly="True" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCellRightAlignment}" HeaderStyle="{StaticResource styleDataGridColumnHeaderCenter}" Binding="{Binding rate, Converter={StaticResource addStringToEndConverter}, ConverterParameter=%|}" Width="{Binding ColumnsSettingsBMSFilesView.Rate.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding ColumnsSettingsBMSFilesView.Rate.Visibility, Source={StaticResource vm}, Mode=TwoWay}" />
-              <DataGridTextColumn Header="SCORE" MinWidth="40" IsReadOnly="True" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCellRightAlignment}" HeaderStyle="{StaticResource styleDataGridColumnHeaderCenter}" Binding="{Binding score}" Width="{Binding ColumnsSettingsBMSFilesView.Score.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding ColumnsSettingsBMSFilesView.Score.Visibility, Source={StaticResource vm}, Mode=TwoWay}" />
-              <DataGridTextColumn Header="COMBO" MinWidth="40" IsReadOnly="True" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCellRightAlignment}" HeaderStyle="{StaticResource styleDataGridColumnHeaderCenter}" Binding="{Binding maxcombo}" Width="{Binding ColumnsSettingsBMSFilesView.Combo.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding ColumnsSettingsBMSFilesView.Combo.Visibility, Source={StaticResource vm}, Mode=TwoWay}" />
-              <DataGridTextColumn Header="BP" MinWidth="40" IsReadOnly="True" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCellRightAlignment}" HeaderStyle="{StaticResource styleDataGridColumnHeaderCenter}" Binding="{Binding minbp}" Width="{Binding ColumnsSettingsBMSFilesView.Bp.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding ColumnsSettingsBMSFilesView.Bp.Visibility, Source={StaticResource vm}, Mode=TwoWay}" />
-              <DataGridTextColumn Header="RANKING" MinWidth="95" IsReadOnly="True" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCellCenterAlignment}" HeaderStyle="{StaticResource styleDataGridColumnHeaderCenter}" Binding="{Binding rankingString}" Width="{Binding ColumnsSettingsBMSFilesView.Ranking.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding ColumnsSettingsBMSFilesView.Ranking.Visibility, Source={StaticResource vm}, Mode=TwoWay}" />
-              <DataGridTextColumn Header="RANK UPDATE" MinWidth="40" IsReadOnly="True" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCellCenterAlignment}" HeaderStyle="{StaticResource styleDataGridColumnHeaderCenter}" Binding="{Binding rankingLastupdate, Converter={StaticResource dateTimeToDateStringConverter}}" Width="{Binding ColumnsSettingsBMSFilesView.RankingLastupdate.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding ColumnsSettingsBMSFilesView.RankingLastupdate.Visibility, Source={StaticResource vm}, Mode=TwoWay}" />
-              <DataGridTextColumn Header="T-SCORE" MinWidth="40" IsReadOnly="True" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCellRightAlignment}" HeaderStyle="{StaticResource styleDataGridColumnHeaderCenter}" Binding="{Binding stddevVal, StringFormat={}{0:F2}}" Width="{Binding ColumnsSettingsBMSFilesView.TScore.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding ColumnsSettingsBMSFilesView.TScore.Visibility, Source={StaticResource vm}, Mode=TwoWay}" />
-              <DataGridTextColumn Header="ΔMAX" MinWidth="40" IsReadOnly="True" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCellRightAlignment}" HeaderStyle="{StaticResource styleDataGridColumnHeaderCenter}" Binding="{Binding scoreDifficulty, StringFormat={}{0:F2}}" Width="{Binding ColumnsSettingsBMSFilesView.ScoreDifficulty.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding ColumnsSettingsBMSFilesView.ScoreDifficulty.Visibility, Source={StaticResource vm}, Mode=TwoWay}" />
-              <DataGridTemplateColumn x:Name="dataGridColumnDummyFill" Visibility="Visible" MinWidth="1" MaxWidth="9000" Width="*" CanUserResize="True" CanUserSort="False" CanUserReorder="False" DisplayIndex="31" CellStyle="{StaticResource styleDataGridCellDummy}" HeaderStyle="{StaticResource styleDataGridColumnHeaderDefault}" />
-              <DataGridTemplateColumn x:Name="dataGridColumnDummyLast" Visibility="Collapsed" MinWidth="0" Width="0" CanUserResize="False" CanUserSort="False" CanUserReorder="False" DisplayIndex="32" />
-            </DataGrid.Columns>
-          </DataGrid>
-          <v:CustomTableView x:Name="customTableView" Grid.Row="2" Grid.ColumnSpan="1" Grid.Column="1" RowHeight="19" HeaderHeight="22" ScoreFontFamily="{StaticResource SovjetBox}" ItemsSource="{Binding BMSFilesView, Mode=OneWay}" ColumnsSettings="{Binding ColumnsSettingsBMSFilesView, Mode=OneWay}" SelectedIndex="{Binding SelectedIndexBMSFilesView, Mode=TwoWay}" SortColumnName="{Binding SortParameters.ColumnsName, Mode=OneWay}" SortDirection="{Binding SortParameters.Direction, Mode=OneWay}" FirstRenderCompleted="customTableView_FirstRenderCompleted" SortRequested="customTableView_SortRequested" SelectionChanged="customTableView_SelectionChanged" RowActivated="customTableView_RowActivated" RowContextMenuRequested="customTableView_RowContextMenuRequested" HeaderContextMenuRequested="customTableView_HeaderContextMenuRequested" CellEditBeginning="customTableView_CellEditBeginning" CellActionRequested="customTableView_CellActionRequested" CellEditEnded="customTableView_CellEditEnded" Visibility="{qc:MultiBinding '($P0 &amp;&amp; !$P1) ? Visibility.Visible : Visibility.Collapsed', P0={Binding Source={x:Static prop:Settings.Default}, Path=UseCustomTableView}, P1={Binding IsPlaylistSummaryMode}}" />
-          <DataGrid Name="dataGridPlaylistSummary" Grid.Row="2" Grid.ColumnSpan="1" Margin="0,0,0,0" Grid.Column="1" IsReadOnly="False" SelectionMode="Extended" CanUserResizeRows="False" EnableColumnVirtualization="False" EnableRowVirtualization="True" AutoGenerateColumns="False" CanUserAddRows="False" CanUserDeleteRows="False" HeadersVisibility="Column" GridLinesVisibility="None" BorderBrush="#FF828790" BorderThickness="1,1,0,0" ItemsSource="{Binding PlaylistSummaryView, IsAsync=True, Mode=OneWay, NotifyOnTargetUpdated=True}" TargetUpdated="dataGridTargetUpdated" Sorting="dataGridPlaylistSummarySorting" ColumnReordered="setDisplayIndicesPlaylistSummary" Visibility="Collapsed" IsVisibleChanged="dataGridPlaylistSummary_IsVisibleChanged" AlternationCount="2">
-            <i:Interaction.Triggers>
-              <l:InteractionMessageTrigger MessageKey="CallbackColumnsSetingsChanged" Messenger="{Binding Messenger}">
-                <l:LivetCallMethodAction MethodName="getDisplayIndicesPlaylistSummary" MethodTarget="{Binding ElementName=window, Mode=OneWay}" />
-              </l:InteractionMessageTrigger>
-            </i:Interaction.Triggers>
-            <FrameworkElement.Resources>
-              <ResourceDictionary>
-                <Style x:Key="styleDataGridCellNonFocusable" TargetType="{x:Type DataGridCell}">
-                  <Setter Property="BorderThickness" Value="0,0,1,0" />
-                  <Setter Property="BorderBrush" Value="#E7E9EC" />
-                  <Setter Property="FrameworkElement.FocusVisualStyle" Value="{x:Null}" />
-                  <Style.Triggers>
-                    <Trigger Property="DataGridCell.IsSelected" Value="True">
-                      <Setter Property="BorderThickness" Value="0" />
-                      <Setter Property="Margin" Value="0,0,-1,0" />
-                      <Setter Property="BorderBrush" Value="{x:Null}" />
-                    </Trigger>
-                  </Style.Triggers>
-                </Style>
-                <Style x:Key="styleDataGridNotEditingCell" TargetType="{x:Type TextBlock}">
-                  <Setter Property="Padding" Value="2,0,2,0" />
-                  <Setter Property="VerticalAlignment" Value="Center" />
-                </Style>
-                <Style x:Key="styleDataGridNotEditingCellRightAlignment" BasedOn="{StaticResource styleDataGridNotEditingCell}" TargetType="{x:Type TextBlock}">
-                  <Setter Property="TextAlignment" Value="Right" />
-                </Style>
-                <Style x:Key="styleDataGridNotEditingCellCenterAlignment" BasedOn="{StaticResource styleDataGridNotEditingCell}" TargetType="{x:Type TextBlock}">
-                  <Setter Property="TextAlignment" Value="Center" />
-                </Style>
-                <Style x:Key="stylePlaylistSummaryColumnHeaderDefault" TargetType="{x:Type DataGridColumnHeader}">
-                  <Setter Property="FrameworkElement.ContextMenu" Value="{StaticResource playlistSummaryColumnHeaderContextMenu}" />
-                  <EventSetter Event="FrameworkElement.ContextMenuOpening" Handler="dataGridColumnHeaderContextMenuOpening" />
-                </Style>
-                <Style x:Key="stylePlaylistSummaryColumnHeaderCenter" BasedOn="{StaticResource stylePlaylistSummaryColumnHeaderDefault}" TargetType="{x:Type DataGridColumnHeader}">
-                  <Setter Property="TextBlock.TextAlignment" Value="Center" />
-                  <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-                </Style>
-              </ResourceDictionary>
-            </FrameworkElement.Resources>
-            <DataGrid.RowStyle>
-              <Style TargetType="{x:Type DataGridRow}">
-                <Setter Property="Background" Value="White" />
-                <Setter Property="FrameworkElement.ContextMenu" Value="{StaticResource playlistSummaryContextMenu}" />
-                <Setter Property="BorderThickness" Value="0,0,0,1" />
-                <Setter Property="BorderBrush" Value="#E7E9EC" />
-                <EventSetter Event="MouseDoubleClick" Handler="playlistSummaryRowDoubleClicked" />
-                <Style.Triggers>
-                  <Trigger Property="ItemsControl.AlternationIndex" Value="1">
-                    <Setter Property="Background" Value="#F1F4F7" />
-                  </Trigger>
-                  <DataTrigger Value="True" Binding="{Binding HasFailureStatus}">
-                    <Setter Property="Background" Value="#FFFDE4E4" />
-                  </DataTrigger>
-                  <Trigger Property="DataGridRow.IsSelected" Value="True">
-                    <Setter Property="BorderThickness" Value="0" />
-                    <Setter Property="Margin" Value="0,0,0,-1" />
-                    <Setter Property="BorderBrush" Value="{x:Null}" />
-                  </Trigger>
-                </Style.Triggers>
-              </Style>
-            </DataGrid.RowStyle>
-            <DataGrid.Columns>
-              <DataGridTextColumn Header="ID" IsReadOnly="True" MinWidth="40" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCellRightAlignment}" HeaderStyle="{StaticResource stylePlaylistSummaryColumnHeaderCenter}" SortMemberPath="PlaylistId" Binding="{Binding PlaylistId}" Width="{Binding PlaylistSummaryColumnsSettings.PlaylistId.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding PlaylistSummaryColumnsSettings.PlaylistId.Visibility, Source={StaticResource vm}, Mode=TwoWay}" />
-              <DataGridTextColumn Header="NAME" IsReadOnly="True" MinWidth="40" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCell}" HeaderStyle="{StaticResource stylePlaylistSummaryColumnHeaderDefault}" SortMemberPath="Name" Binding="{Binding Name}" Width="{Binding PlaylistSummaryColumnsSettings.Name.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding PlaylistSummaryColumnsSettings.Name.Visibility, Source={StaticResource vm}, Mode=TwoWay}" />
-              <DataGridTextColumn Header="SYMBOL" IsReadOnly="True" MinWidth="40" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCellCenterAlignment}" HeaderStyle="{StaticResource stylePlaylistSummaryColumnHeaderCenter}" SortMemberPath="Symbol" Binding="{Binding Symbol}" Width="{Binding PlaylistSummaryColumnsSettings.Symbol.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding PlaylistSummaryColumnsSettings.Symbol.Visibility, Source={StaticResource vm}, Mode=TwoWay}" />
-              <DataGridTextColumn Header="LAST UPDATE" IsReadOnly="True" MinWidth="40" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCellCenterAlignment}" HeaderStyle="{StaticResource stylePlaylistSummaryColumnHeaderCenter}" SortMemberPath="LastUpdate" Binding="{Binding LastUpdate, StringFormat={}{0:yyyy/MM/dd HH:mm:ss}}" Width="{Binding PlaylistSummaryColumnsSettings.LastUpdate.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding PlaylistSummaryColumnsSettings.LastUpdate.Visibility, Source={StaticResource vm}, Mode=TwoWay}" />
-              <DataGridTextColumn Header="TOTAL" IsReadOnly="True" MinWidth="40" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCellRightAlignment}" HeaderStyle="{StaticResource stylePlaylistSummaryColumnHeaderCenter}" SortMemberPath="TotalCharts" Binding="{Binding TotalCharts}" Width="{Binding PlaylistSummaryColumnsSettings.TotalCharts.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding PlaylistSummaryColumnsSettings.TotalCharts.Visibility, Source={StaticResource vm}, Mode=TwoWay}" />
-              <DataGridTextColumn Header="OWNED" IsReadOnly="True" MinWidth="40" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCellRightAlignment}" HeaderStyle="{StaticResource stylePlaylistSummaryColumnHeaderCenter}" SortMemberPath="OwnedCharts" Binding="{Binding OwnedCharts}" Width="{Binding PlaylistSummaryColumnsSettings.OwnedCharts.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding PlaylistSummaryColumnsSettings.OwnedCharts.Visibility, Source={StaticResource vm}, Mode=TwoWay}" />
-              <DataGridTextColumn Header="MISSING" IsReadOnly="True" MinWidth="40" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCellRightAlignment}" HeaderStyle="{StaticResource stylePlaylistSummaryColumnHeaderCenter}" SortMemberPath="MissingCharts" Binding="{Binding MissingCharts}" Width="{Binding PlaylistSummaryColumnsSettings.MissingCharts.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding PlaylistSummaryColumnsSettings.MissingCharts.Visibility, Source={StaticResource vm}, Mode=TwoWay}" />
-              <DataGridTextColumn Header="OWNED %" IsReadOnly="True" MinWidth="40" CellStyle="{StaticResource styleDataGridCellNonFocusable}" ElementStyle="{StaticResource styleDataGridNotEditingCellRightAlignment}" HeaderStyle="{StaticResource stylePlaylistSummaryColumnHeaderCenter}" SortMemberPath="OwnedRatio" Binding="{Binding OwnedRatio, StringFormat={}{0:F1}%}" Width="{Binding PlaylistSummaryColumnsSettings.OwnedRatio.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding PlaylistSummaryColumnsSettings.OwnedRatio.Visibility, Source={StaticResource vm}, Mode=TwoWay}" />
-              <DataGridTemplateColumn Header="LINK" MinWidth="40" HeaderStyle="{StaticResource stylePlaylistSummaryColumnHeaderCenter}" Width="{Binding PlaylistSummaryColumnsSettings.Link.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding PlaylistSummaryColumnsSettings.Link.Visibility, Source={StaticResource vm}, Mode=TwoWay}">
-                <DataGridTemplateColumn.CellStyle>
-                  <Style TargetType="{x:Type DataGridCell}" BasedOn="{StaticResource styleDataGridCellNonFocusable}" />
-                </DataGridTemplateColumn.CellStyle>
-                <DataGridTemplateColumn.CellTemplate>
-                  <DataTemplate>
-                    <Button Content="Open" Padding="2,0" Click="playlistSummaryLinkClick" IsEnabled="{qc:Binding '$P != null', P={Binding LinkUri}}" />
-                  </DataTemplate>
-                </DataGridTemplateColumn.CellTemplate>
-              </DataGridTemplateColumn>
-              <DataGridTemplateColumn Header="SYNC" MinWidth="40" HeaderStyle="{StaticResource stylePlaylistSummaryColumnHeaderCenter}" SortMemberPath="IsExternalSync" Width="{Binding PlaylistSummaryColumnsSettings.IsExternalSync.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding PlaylistSummaryColumnsSettings.IsExternalSync.Visibility, Source={StaticResource vm}, Mode=TwoWay}">
-                <DataGridTemplateColumn.CellStyle>
-                  <Style TargetType="{x:Type DataGridCell}" BasedOn="{StaticResource styleDataGridCellNonFocusable}" />
-                </DataGridTemplateColumn.CellStyle>
-                <DataGridTemplateColumn.CellTemplate>
-                  <DataTemplate>
-                    <CheckBox IsChecked="{Binding IsExternalSync}" HorizontalAlignment="Center" VerticalAlignment="Center" Click="playlistSummarySyncCheckBoxClick" />
-                  </DataTemplate>
-                </DataGridTemplateColumn.CellTemplate>
-              </DataGridTemplateColumn>
-              <DataGridTextColumn Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_summary_status_header, Mode=OneWay}" IsReadOnly="True" MinWidth="40" CellStyle="{StaticResource styleDataGridCellNonFocusable}" HeaderStyle="{StaticResource stylePlaylistSummaryColumnHeaderCenter}" SortMemberPath="StatusSortOrder" Binding="{Binding Status}" Width="{Binding PlaylistSummaryColumnsSettings.Status.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding PlaylistSummaryColumnsSettings.Status.Visibility, Source={StaticResource vm}, Mode=TwoWay}">
-                <DataGridTextColumn.ElementStyle>
-                  <Style TargetType="{x:Type TextBlock}" BasedOn="{StaticResource styleDataGridNotEditingCellCenterAlignment}">
-                    <Setter Property="ToolTip" Value="{Binding StatusDetail}" />
-                  </Style>
-                </DataGridTextColumn.ElementStyle>
-              </DataGridTextColumn>
-              <DataGridTemplateColumn Header="ROOT" MinWidth="40" HeaderStyle="{StaticResource stylePlaylistSummaryColumnHeaderCenter}" SortMemberPath="IsRootFolder" Width="{Binding PlaylistSummaryColumnsSettings.IsRootFolder.Width, Source={StaticResource vm}, Mode=TwoWay, Converter={StaticResource dataGridLengthConverter}}" Visibility="{Binding PlaylistSummaryColumnsSettings.IsRootFolder.Visibility, Source={StaticResource vm}, Mode=TwoWay}">
-                <DataGridTemplateColumn.CellStyle>
-                  <Style TargetType="{x:Type DataGridCell}" BasedOn="{StaticResource styleDataGridCellNonFocusable}" />
-                </DataGridTemplateColumn.CellStyle>
-                <DataGridTemplateColumn.CellTemplate>
-                  <DataTemplate>
-                    <CheckBox IsChecked="{Binding IsRootFolder}" HorizontalAlignment="Center" VerticalAlignment="Center" Click="playlistSummaryRootCheckBoxClick" />
-                  </DataTemplate>
-                </DataGridTemplateColumn.CellTemplate>
-              </DataGridTemplateColumn>
-            </DataGrid.Columns>
-          </DataGrid>
+          </v:CustomTableView>
           <v:CustomTableView x:Name="customTablePlaylistSummary" Grid.Row="2" Grid.ColumnSpan="1" Grid.Column="1" RowHeight="19" HeaderHeight="22" ItemsSource="{Binding PlaylistSummaryView, Mode=OneWay}" PlaylistSummaryColumnsSettings="{Binding PlaylistSummaryColumnsSettings, Mode=OneWay}" SortColumnName="{Binding PlaylistSummarySortParameters.ColumnsName, Mode=OneWay}" SortDirection="{Binding PlaylistSummarySortParameters.Direction, Mode=OneWay}" SortRequested="customTablePlaylistSummary_SortRequested" RowActivated="customTablePlaylistSummary_RowActivated" RowContextMenuRequested="customTablePlaylistSummary_RowContextMenuRequested" HeaderContextMenuRequested="customTablePlaylistSummary_HeaderContextMenuRequested" CellActionRequested="customTablePlaylistSummary_CellActionRequested" Visibility="{Binding IsPlaylistSummaryMode, Converter={qc:QuickConverter '$P ? Visibility.Visible : Visibility.Collapsed'}}" />
           <Grid Name="gridTreePane" Margin="0,0,5,0" Grid.Row="1" Grid.RowSpan="2" TreeViewItem.Selected="gridTreePane_TreeViewItemSelected">
   <Grid.Resources>
