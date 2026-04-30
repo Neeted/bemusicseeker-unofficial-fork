@@ -1,0 +1,104 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Windows;
+using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
+using Microsoft.VisualStudio.TestTools.UnitTesting;
+
+namespace BeMusicSeeker.Tests;
+
+[TestClass]
+public sealed class BmsLibraryZeroNoteRefreshTests
+{
+    [TestMethod]
+    public void RecheckZeroNoteWarnings_RaisesBmsFilesZeroNoteWhenWarningsChange()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate(string songDbPath)
+        {
+            BMSLibrary library = new BMSLibrary(songDbPath, null, null, null, new RecordingDialogService());
+            TestableBmsFile file = new TestableBmsFile
+            {
+                path = "C:\\charts\\normal.bms",
+                HasZeroNoteMismatchWarning = true
+            };
+            file.SetNotes(1200);
+            library.BMSFiles = new List<BMSFile> { file };
+            List<string> changedProperties = new List<string>();
+            library.PropertyChanged += delegate(object _, System.ComponentModel.PropertyChangedEventArgs e)
+            {
+                changedProperties.Add(e.PropertyName);
+            };
+
+            library.RecheckZeroNoteWarnings();
+
+            CollectionAssert.Contains(changedProperties, nameof(BMSLibrary.BMSFilesZeroNote));
+            Assert.IsFalse(file.HasZeroNoteMismatchWarning);
+        });
+    }
+
+    [TestMethod]
+    public void RecheckZeroNoteWarnings_DoesNotRaiseBmsFilesZeroNoteWhenWarningsDoNotChange()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate(string songDbPath)
+        {
+            string chartPath = Path.Combine(Path.GetDirectoryName(songDbPath), "chart.bms");
+            File.WriteAllText(chartPath, "#00111:01\r\n");
+            BMSLibrary library = new BMSLibrary(songDbPath, null, null, null, new RecordingDialogService());
+            TestableBmsFile file = new TestableBmsFile
+            {
+                path = chartPath,
+                HasZeroNoteMismatchWarning = true
+            };
+            file.SetNotes(0);
+            library.BMSFiles = new List<BMSFile> { file };
+            List<string> changedProperties = new List<string>();
+            library.PropertyChanged += delegate(object _, System.ComponentModel.PropertyChangedEventArgs e)
+            {
+                changedProperties.Add(e.PropertyName);
+            };
+
+            library.RecheckZeroNoteWarnings();
+
+            CollectionAssert.DoesNotContain(changedProperties, nameof(BMSLibrary.BMSFilesZeroNote));
+            Assert.IsTrue(file.HasZeroNoteMismatchWarning);
+        });
+    }
+
+    private static void WithTemporarySongDb(Action<string> testAction)
+    {
+        string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_ZeroNoteRefreshTests_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempRootPath);
+        string songDbPath = Path.Combine(tempRootPath, "song.db");
+        File.WriteAllBytes(songDbPath, Array.Empty<byte>());
+        try
+        {
+            testAction(songDbPath);
+        }
+        finally
+        {
+            if (Directory.Exists(tempRootPath))
+            {
+                Directory.Delete(tempRootPath, recursive: true);
+            }
+        }
+    }
+
+    private sealed class TestableBmsFile : BMSFile
+    {
+        internal void SetNotes(int? value)
+        {
+            notes = value;
+        }
+    }
+
+    private sealed class RecordingDialogService : IBmsLibraryDialogService
+    {
+        public MessageBoxResult Show(string messageBoxText, string caption, MessageBoxButton button, MessageBoxImage icon, MessageBoxResult defaultResult = MessageBoxResult.None)
+        {
+            return MessageBoxResult.OK;
+        }
+    }
+}

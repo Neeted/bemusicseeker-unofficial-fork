@@ -6044,7 +6044,11 @@ public class BMSLibrary : NotificationObject
             allFiles = ((BMSFiles == null) ? new List<BMSFile>() : BMSFiles.Where((BMSFile f) => f != null).ToList());
         }
         ZeroNoteRecheckResult result = maintenanceService.RecheckZeroNoteWarnings(allFiles, (ex, message) => NLogWrapper.FileLogger?.Warn(ex, message));
-        NLogWrapper.FileLogger?.Info(string.Format("zero_note_recheck total={0} mismatch={1} cleared={2} skipped={3}", result.Total, result.MismatchCount, result.ClearedCount, result.SkippedCount));
+        if (result.ChangedCount > 0)
+        {
+            RaisePropertyChanged(() => BMSFilesZeroNote);
+        }
+        NLogWrapper.FileLogger?.Info(string.Format("zero_note_recheck total={0} mismatch={1} cleared={2} skipped={3} changed={4}", result.Total, result.MismatchCount, result.ClearedCount, result.SkippedCount, result.ChangedCount));
     }
 
     /// <summary>

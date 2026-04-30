@@ -189,6 +189,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
         Assert.AreEqual(1, result.Total);
         Assert.AreEqual(1, result.ClearedCount);
         Assert.AreEqual(1, result.SkippedCount);
+        Assert.AreEqual(1, result.ChangedCount);
         Assert.IsFalse(zeroNoteFile.HasZeroNoteMismatchWarning);
     }
 

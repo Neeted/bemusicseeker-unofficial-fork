@@ -403,6 +403,42 @@ Phase 3 完了判断:
 - 選択セル内容のコピーができる。
 - 主要キーボード操作が DataGrid 版と同等に動く。
 
+## Phase 5.5: データ変更通知と再描画の基盤整理
+
+目的: DataGrid の Binding が暗黙に行っていた「データ変更後の即時表示反映」を、独自表側の標準経路として実装する。Phase 6 の描画 cache / 行単位 dirty 管理へ進む前に、まず変更通知の入口を揃える。
+
+背景:
+
+- `CustomTableView` は `OnRender` 時に row / column から値を読むだけなので、row の値が変わっても `InvalidateVisual()` されない限り表示が更新されない。
+- セル編集 commit は局所的に `RefreshDisplay()` しているが、右クリック menu やメンテナンス系処理など別経路の変更では反映漏れが起きやすい。
+- 例: playlist 行からの削除 / 別 folder への移動、ゼロノート再判定での warning 更新、文字化け修正による `encoding` / `title` / `artist` 更新。
+
+実装内容:
+
+- `CustomTableView` が `ItemsSource` 内の row object を購読する。
+  - `INotifyPropertyChanged` を実装している row は `PropertyChanged` を購読する。
+  - `ItemsSource` 差し替え、`INotifyCollectionChanged` の add / remove / reset に合わせて購読を更新する。
+  - `LibraryChartRow` / `PlaylistDetailRow` 経由で underlying `BMSFile` の変更が通知される前提をまず活用する。
+- row `PropertyChanged` を受けたら、Dispatcher 上で redraw を coalesce する。
+  - 連続更新時に property changed の回数だけ `InvalidateVisual()` しない。
+  - Phase 5.5 では全面 `InvalidateVisual()` でよい。行単位 dirty は Phase 6 の対象に残す。
+- 一覧構成が変わる操作は、ViewModel 側の更新通知を明確にする。
+  - playlist 行削除 / folder 移動など、row 値変更ではなく `BMSFilesView` の構成が変わる操作では、`BMSFilesView` 置換、collection change、または明示的な refresh token で CustomTableView に伝わるようにする。
+  - 個別 command 完了後に `customTableView.RefreshDisplay()` を足し続ける方針は避け、標準通知経路に寄せる。
+- 既存の局所 `RefreshDisplay()` は当面残す。
+  - 編集 commit 後など、既に安全に動いている箇所は互換目的で残してよい。
+  - 新規の反映漏れ修正は、原則として row / collection / view refresh 通知側を直す。
+- Phase 6 に向けた dirty 情報の設計を決める。
+  - row property changed を受けた row index を記録できる形にしておく。
+  - Phase 5.5 では全面 redraw、Phase 6 で row 単位 DrawingVisual / cell value cache invalidation に発展させる。
+
+確認対象:
+
+- playlist 行からの削除、playlist 内の別 folder への移動が、行選択変更なしで表示に反映される。
+- ゼロノート検索 tree の右クリック「ゼロノート再判定する」で `WARNING` / highlight が即時反映される。
+- 文字化け修正機能で `ENCODING` / `TITLE` / `ARTIST` が即時反映される。
+- 大量更新時も redraw request が coalesce され、操作が極端に重くならない。
+
 ## Phase 6: 描画キャッシュ、行単位再描画、DrawingVisual 分割
 
 目的: 5000 セル以上の可視表示やスクロール時にも余裕を持たせる。
@@ -431,7 +467,8 @@ Phase 3 完了判断:
 4. 通常ライブラリ表示とプレイリスト詳細表示の読み取り専用を広げる。
 5. 操作系を追加する。
 6. 編集系を追加する。
-7. DataGrid 使用箇所の置換範囲を広げる。
+7. DataGrid Binding 相当の変更通知 / 再描画経路を揃える。
+8. DataGrid 使用箇所の置換範囲を広げる。
 
 別案として、`dataGridPlaylistSummary` は列数が少なく編集もないため、独自表コントロールの安全な試験場にできる。ただし性能課題の本命はメイン `dataGrid` なので、サマリーだけで完結しない。
 

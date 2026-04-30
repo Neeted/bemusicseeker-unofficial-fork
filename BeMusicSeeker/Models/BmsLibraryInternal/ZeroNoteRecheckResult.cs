@@ -9,4 +9,6 @@ internal sealed class ZeroNoteRecheckResult
     public int ClearedCount { get; set; }
 
     public int SkippedCount { get; set; }
+
+    public int ChangedCount { get; set; }
 }

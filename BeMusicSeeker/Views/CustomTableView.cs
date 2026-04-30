@@ -108,6 +108,8 @@ public sealed class CustomTableView : Grid
     private readonly Popup editSuggestionPopup;
     private readonly ListBox editSuggestionListBox;
     private readonly CustomTableSelectionModel selectionModel = new CustomTableSelectionModel();
+    private readonly CustomTableRowChangeTracker rowChangeTracker;
+    private readonly CustomTableRedrawScheduler rowPropertyChangedRedrawScheduler;
     private readonly List<INotifyPropertyChanged> subscribedColumnLayouts = new List<INotifyPropertyChanged>();
     private INotifyCollectionChanged itemsCollectionChanged;
     private long itemsAppliedTimestamp;
@@ -186,6 +188,11 @@ public sealed class CustomTableView : Grid
         {
             ClipToBounds = true
         };
+        rowPropertyChangedRedrawScheduler = new CustomTableRedrawScheduler(Dispatcher, () => surface.InvalidateVisual());
+        rowChangeTracker = new CustomTableRowChangeTracker(delegate
+        {
+            rowPropertyChangedRedrawScheduler.Request();
+        });
         verticalScrollBar.ValueChanged += VerticalScrollBarValueChanged;
         horizontalScrollBar.ValueChanged += HorizontalScrollBarValueChanged;
         Children.Add(surface);
@@ -352,6 +359,7 @@ public sealed class CustomTableView : Grid
         view.CommitActiveEdit();
         view.currentCellHit = null;
         view.DetachCollectionChanged(e.OldValue as INotifyCollectionChanged);
+        view.rowChangeTracker.ReplaceRows(e.NewValue as IEnumerable);
         view.AttachCollectionChanged(e.NewValue as INotifyCollectionChanged);
         view.MarkItemsApplied();
         view.CoerceSelectionToCurrentRows();
@@ -433,6 +441,7 @@ public sealed class CustomTableView : Grid
     {
         CommitActiveEdit();
         currentCellHit = null;
+        rowChangeTracker.ApplyCollectionChanged(ItemsSource, e);
         MarkItemsApplied();
         CoerceSelectionToCurrentRows();
         UpdateScrollBars();

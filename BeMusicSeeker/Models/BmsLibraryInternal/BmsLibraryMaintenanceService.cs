@@ -180,6 +180,7 @@ internal sealed class BmsLibraryMaintenanceService
             {
                 staleMismatchFile.HasZeroNoteMismatchWarning = false;
                 result.ClearedCount++;
+                result.ChangedCount++;
             }
         }
         foreach (BMSFile zeroNoteFile in zeroNoteFiles)
@@ -189,7 +190,11 @@ internal sealed class BmsLibraryMaintenanceService
                 bool isZeroNoteByFile = BMSFile.IsZeroNoteBMSFile(zeroNoteFile.path);
                 if (!isZeroNoteByFile)
                 {
-                    zeroNoteFile.HasZeroNoteMismatchWarning = true;
+                    if (!zeroNoteFile.HasZeroNoteMismatchWarning)
+                    {
+                        zeroNoteFile.HasZeroNoteMismatchWarning = true;
+                        result.ChangedCount++;
+                    }
                     result.MismatchCount++;
                 }
                 else
@@ -197,6 +202,7 @@ internal sealed class BmsLibraryMaintenanceService
                     if (zeroNoteFile.HasZeroNoteMismatchWarning)
                     {
                         result.ClearedCount++;
+                        result.ChangedCount++;
                     }
                     zeroNoteFile.HasZeroNoteMismatchWarning = false;
                 }
@@ -206,6 +212,7 @@ internal sealed class BmsLibraryMaintenanceService
                 if (zeroNoteFile.HasZeroNoteMismatchWarning)
                 {
                     result.ClearedCount++;
+                    result.ChangedCount++;
                 }
                 zeroNoteFile.HasZeroNoteMismatchWarning = false;
                 result.SkippedCount++;
