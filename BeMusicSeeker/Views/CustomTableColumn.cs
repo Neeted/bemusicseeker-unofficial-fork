@@ -18,6 +18,79 @@ public enum CustomTableCellKind
     StatusIcon
 }
 
+internal sealed class CustomTableTextStyle
+{
+    private static readonly FontFamily DefaultFontFamily = new FontFamily("Meiryo UI");
+
+    private CustomTableTextStyle(string cacheKey, FontFamily fontFamily, double fontSize, double verticalOffset, bool useBoldText, bool usesScoreFontFamily = false)
+    {
+        CacheKey = cacheKey;
+        FontFamily = fontFamily;
+        FontSize = fontSize;
+        VerticalOffset = verticalOffset;
+        UseBoldText = useBoldText;
+        UsesScoreFontFamily = usesScoreFontFamily;
+    }
+
+    internal static CustomTableTextStyle Normal { get; } = new CustomTableTextStyle(
+        "normal",
+        DefaultFontFamily,
+        11d,
+        0d,
+        false);
+
+    internal static CustomTableTextStyle NormalBold { get; } = new CustomTableTextStyle(
+        "normal-bold",
+        DefaultFontFamily,
+        11d,
+        0d,
+        true);
+
+    internal static CustomTableTextStyle Score { get; } = new CustomTableTextStyle(
+        "score-sovjetbox",
+        DefaultFontFamily,
+        11d,
+        1d,
+        false,
+        usesScoreFontFamily: true);
+
+    internal static CustomTableTextStyle Rank { get; } = new CustomTableTextStyle(
+        "rank-sovjetbox",
+        DefaultFontFamily,
+        16d,
+        3d,
+        false,
+        usesScoreFontFamily: true);
+
+    internal string CacheKey { get; }
+
+    private FontFamily FontFamily { get; }
+
+    internal double FontSize { get; }
+
+    internal double VerticalOffset { get; }
+
+    internal bool UseBoldText { get; }
+
+    private bool UsesScoreFontFamily { get; }
+
+    internal Typeface CreateTypeface(FontFamily scoreFontFamily)
+    {
+        FontFamily fontFamily = UsesScoreFontFamily && scoreFontFamily != null ? scoreFontFamily : FontFamily;
+        FontWeight fontWeight = UseBoldText ? FontWeights.Bold : FontWeights.Normal;
+        return new Typeface(fontFamily, FontStyles.Normal, fontWeight, FontStretches.Normal);
+    }
+
+    internal string CreateCacheKey(FontFamily scoreFontFamily)
+    {
+        if (!UsesScoreFontFamily || scoreFontFamily == null)
+        {
+            return CacheKey;
+        }
+        return CacheKey + ":" + scoreFontFamily.Source;
+    }
+}
+
 internal enum CustomTableStatusIconKind
 {
     None,
@@ -41,6 +114,8 @@ public sealed class CustomTableColumn
         TextAlignment alignment,
         Func<object, string> textSelector,
         Func<object, Brush> foregroundSelector = null,
+        Func<object, Brush> backgroundSelector = null,
+        CustomTableTextStyle textStyle = null,
         bool useBoldText = false,
         Func<object, string> tooltipSelector = null,
         int minWidth = 40,
@@ -63,7 +138,9 @@ public sealed class CustomTableColumn
         Alignment = alignment;
         TextSelector = textSelector;
         ForegroundSelector = foregroundSelector;
-        UseBoldText = useBoldText;
+        BackgroundSelector = backgroundSelector;
+        TextStyle = textStyle ?? (useBoldText ? CustomTableTextStyle.NormalBold : CustomTableTextStyle.Normal);
+        UseBoldText = TextStyle.UseBoldText;
         TooltipSelector = tooltipSelector;
         MinWidth = Math.Max(1, minWidth);
         MaxWidth = maxWidth.HasValue ? Math.Max(MinWidth, maxWidth.Value) : int.MaxValue;
@@ -91,6 +168,8 @@ public sealed class CustomTableColumn
     public TextAlignment Alignment { get; }
 
     public bool UseBoldText { get; }
+
+    internal CustomTableTextStyle TextStyle { get; }
 
     public int MinWidth { get; }
 
@@ -122,6 +201,8 @@ public sealed class CustomTableColumn
 
     internal Func<object, Brush> ForegroundSelector { get; }
 
+    internal Func<object, Brush> BackgroundSelector { get; }
+
     internal Func<object, string> TooltipSelector { get; }
 
     internal Func<object, string> EditTextSelector { get; }
@@ -149,6 +230,11 @@ public sealed class CustomTableColumn
         return ForegroundSelector == null ? CustomTableScoreBrushProvider.DefaultForeground : ForegroundSelector(row) ?? CustomTableScoreBrushProvider.DefaultForeground;
     }
 
+    internal Brush GetBackground(object row)
+    {
+        return BackgroundSelector == null ? null : BackgroundSelector(row);
+    }
+
     internal IReadOnlyList<string> GetEditSuggestions(object row)
     {
         return EditSuggestionsSelector == null
@@ -169,6 +255,7 @@ public sealed class CustomTableColumn
 internal static class CustomTableColumnFactory
 {
     private const string DownloadIconGlyphText = "\uE14F";
+    private static readonly Brush UndefinedCellBackgroundBrush = CreateFrozenBrush(Color.FromRgb(0xFF, 0xF6, 0xD5));
 
     internal static IReadOnlyList<CustomTableColumn> CreateMainColumns(dataGridColumnsSettings settings)
     {
@@ -227,26 +314,26 @@ internal static class CustomTableColumnFactory
             new CustomTableColumn("MovieHealth", "MOVIE", settings.MovieHealth, 21, "MovieHealth", TextAlignment.Right, row => FormatSuffix(GetValue(row, "MovieHealth"), "%", string.Empty), maxWidth: 50),
             new CustomTableColumn("CharcterEncoding", "ENCODING", settings.CharcterEncoding, 22, "encoding", TextAlignment.Left, row => GetString(row, "encoding"), maxWidth: 130),
             new CustomTableColumn("PlaylistSymbols", "PLAYLIST", settings.PlaylistSymbols, 23, nameof(LibraryChartRow.RefTablesSymbols), TextAlignment.Left, row => GetString(row, nameof(LibraryChartRow.RefTablesSymbols)), tooltipSelector: row => GetString(row, nameof(LibraryChartRow.RefTablesNames))),
-            new CustomTableColumn("Level", "LEVEL", settings.Level, 24, nameof(LibraryChartRow.ChartLevelSortKey), TextAlignment.Right, row => GetString(row, nameof(LibraryChartRow.ChartLevelText))),
-            new CustomTableColumn("ChartDifficulty", "DIFFICULTY", settings.ChartDifficulty, 25, nameof(LibraryChartRow.ChartDifficultySortKey), TextAlignment.Center, row => GetString(row, nameof(LibraryChartRow.ChartDifficultyText)), row => GetDifficultyBrush(row), useBoldText: true),
+            new CustomTableColumn("Level", "LEVEL", settings.Level, 24, nameof(LibraryChartRow.ChartLevelSortKey), TextAlignment.Right, row => GetString(row, nameof(LibraryChartRow.ChartLevelText)), backgroundSelector: row => GetUndefinedCellBackground(row, nameof(LibraryChartRow.ChartLevelUndefined))),
+            new CustomTableColumn("ChartDifficulty", "DIFFICULTY", settings.ChartDifficulty, 25, nameof(LibraryChartRow.ChartDifficultySortKey), TextAlignment.Center, row => GetString(row, nameof(LibraryChartRow.ChartDifficultyText)), row => GetDifficultyBrush(row), backgroundSelector: row => GetUndefinedCellBackground(row, nameof(LibraryChartRow.ChartDifficultyUndefined)), textStyle: CustomTableTextStyle.Score),
             new CustomTableColumn("ChartMainBpm", "MAINBPM", settings.ChartMainBpm, 26, "ChartMainBpmSortKey", TextAlignment.Right, row => GetString(row, "ChartMainBpmText")),
             new CustomTableColumn("ChartMaxBpm", "MAXBPM", settings.ChartMaxBpm, 27, "ChartMaxBpmSortKey", TextAlignment.Right, row => GetString(row, "ChartMaxBpmText")),
             new CustomTableColumn("ChartMinBpm", "MINBPM", settings.ChartMinBpm, 28, "ChartMinBpmSortKey", TextAlignment.Right, row => GetString(row, "ChartMinBpmText")),
             new CustomTableColumn("ChartDuration", "DURATION", settings.ChartDuration, 29, "ChartDurationSortKey", TextAlignment.Right, row => GetString(row, "ChartDurationText")),
-            new CustomTableColumn("ChartJudge", "JUDGE", settings.ChartJudge, 30, nameof(LibraryChartRow.ChartJudgeSortKey), TextAlignment.Center, row => GetString(row, nameof(LibraryChartRow.ChartJudgeText)), row => GetJudgeBrush(row), useBoldText: true),
+            new CustomTableColumn("ChartJudge", "JUDGE", settings.ChartJudge, 30, nameof(LibraryChartRow.ChartJudgeSortKey), TextAlignment.Center, row => GetString(row, nameof(LibraryChartRow.ChartJudgeText)), row => GetJudgeBrush(row), textStyle: CustomTableTextStyle.Score),
             new CustomTableColumn("ChartJudgePercent", "JUDGE%", settings.ChartJudgePercent, 31, "ChartJudgeSortKey", TextAlignment.Right, row => GetString(row, "ChartJudgePercentText")),
             new CustomTableColumn("ChartFeature", "FEATURE", settings.ChartFeature, 32, "ChartFeatureSortKey", TextAlignment.Left, row => GetString(row, "ChartFeatureText")),
             new CustomTableColumn("Notes", "NOTES", settings.Notes, 33, "ChartNotes", TextAlignment.Right, row => GetString(row, "ChartNotes")),
             new CustomTableColumn("ChartLongNotes", "LONG", settings.ChartLongNotes, 34, "ChartLongNotes", TextAlignment.Right, row => GetString(row, "ChartLongNotes")),
             new CustomTableColumn("ChartScratchNotes", "SCRATCH", settings.ChartScratchNotes, 35, "ChartScratchNotes", TextAlignment.Right, row => GetString(row, "ChartScratchNotes")),
-            new CustomTableColumn("ChartTotal", "TOTAL", settings.ChartTotal, 36, "ChartTotalSortKey", TextAlignment.Right, row => GetString(row, "ChartTotalText")),
-            new CustomTableColumn("ChartTotalPerNote", "T/N", settings.ChartTotalPerNote, 37, "ChartTotalPerNoteSortKey", TextAlignment.Right, row => GetString(row, "ChartTotalPerNoteText")),
+            new CustomTableColumn("ChartTotal", "TOTAL", settings.ChartTotal, 36, "ChartTotalSortKey", TextAlignment.Right, row => GetString(row, "ChartTotalText"), backgroundSelector: row => GetUndefinedCellBackground(row, nameof(LibraryChartRow.ChartTotalUndefined))),
+            new CustomTableColumn("ChartTotalPerNote", "T/N", settings.ChartTotalPerNote, 37, "ChartTotalPerNoteSortKey", TextAlignment.Right, row => GetString(row, "ChartTotalPerNoteText"), backgroundSelector: row => GetUndefinedCellBackground(row, nameof(LibraryChartRow.ChartTotalUndefined))),
             new CustomTableColumn("ChartDensity", "DENSITY", settings.ChartDensity, 38, "ChartDensitySortKey", TextAlignment.Right, row => GetString(row, "ChartDensityText")),
             new CustomTableColumn("ChartPeakDensity", "PEAK", settings.ChartPeakDensity, 39, "ChartPeakDensitySortKey", TextAlignment.Right, row => GetString(row, "ChartPeakDensityText")),
             new CustomTableColumn("ChartEndDensity", "END", settings.ChartEndDensity, 40, "ChartEndDensitySortKey", TextAlignment.Right, row => GetString(row, "ChartEndDensityText")),
             new CustomTableColumn("ChartSoflan", "SOFLAN", settings.ChartSoflan, 41, "ChartSoflanCount", TextAlignment.Right, row => GetString(row, "ChartSoflanCount")),
-            new CustomTableColumn("Clear", "CLEAR", settings.Clear, 42, nameof(LibraryChartRow.ClearDisplayText), TextAlignment.Center, row => GetString(row, nameof(LibraryChartRow.ClearDisplayText)), row => GetClearBrush(row), useBoldText: true),
-            new CustomTableColumn("Rank", "DJ LEVEL", settings.Rank, 43, nameof(LibraryChartRow.RankDisplayText), TextAlignment.Center, row => GetString(row, nameof(LibraryChartRow.RankDisplayText)), row => GetRankBrush(row), useBoldText: true),
+            new CustomTableColumn("Clear", "CLEAR", settings.Clear, 42, nameof(LibraryChartRow.ClearDisplayText), TextAlignment.Center, row => GetString(row, nameof(LibraryChartRow.ClearDisplayText)), row => GetClearBrush(row), textStyle: CustomTableTextStyle.Score),
+            new CustomTableColumn("Rank", "DJ LEVEL", settings.Rank, 43, nameof(LibraryChartRow.RankDisplayText), TextAlignment.Center, row => GetString(row, nameof(LibraryChartRow.RankDisplayText)), row => GetRankBrush(row), textStyle: CustomTableTextStyle.Rank),
             new CustomTableColumn("Rate", "RATE", settings.Rate, 44, "rate", TextAlignment.Right, row => FormatSuffix(GetValue(row, "rate"), "%", string.Empty)),
             new CustomTableColumn("Score", "SCORE", settings.Score, 45, "score", TextAlignment.Right, row => GetString(row, "score")),
             new CustomTableColumn("Combo", "COMBO", settings.Combo, 46, "maxcombo", TextAlignment.Right, row => GetString(row, "maxcombo")),
@@ -543,6 +630,55 @@ internal static class CustomTableColumnFactory
                 ? playlistRow.ChartJudgeColorKey
                 : GetReflectionString(row, nameof(LibraryChartRow.ChartJudgeColorKey));
         return CustomTableScoreBrushProvider.ResolveBrush(CustomTableScoreBrushProvider.ConvertJudge(key), CustomTableScoreBrushProvider.DefaultForeground);
+    }
+
+    internal static Brush GetUndefinedCellBackground(object row, string propertyName)
+    {
+        return GetBoolean(row, propertyName) ? UndefinedCellBackgroundBrush : null;
+    }
+
+    private static bool GetBoolean(object row, string propertyName)
+    {
+        if (row == null)
+        {
+            return false;
+        }
+        if (row is LibraryChartRow libraryRow)
+        {
+            switch (propertyName)
+            {
+                case nameof(LibraryChartRow.ChartLevelUndefined):
+                    return libraryRow.ChartLevelUndefined;
+                case nameof(LibraryChartRow.ChartDifficultyUndefined):
+                    return libraryRow.ChartDifficultyUndefined;
+                case nameof(LibraryChartRow.ChartTotalUndefined):
+                    return libraryRow.ChartTotalUndefined;
+            }
+        }
+        if (row is PlaylistDetailRow playlistRow)
+        {
+            switch (propertyName)
+            {
+                case nameof(LibraryChartRow.ChartLevelUndefined):
+                    return playlistRow.ChartLevelUndefined;
+                case nameof(LibraryChartRow.ChartDifficultyUndefined):
+                    return playlistRow.ChartDifficultyUndefined;
+                case nameof(LibraryChartRow.ChartTotalUndefined):
+                    return playlistRow.ChartTotalUndefined;
+            }
+        }
+        object value = GetValue(row, propertyName);
+        return value is bool flag && flag;
+    }
+
+    private static Brush CreateFrozenBrush(Color color)
+    {
+        SolidColorBrush brush = new SolidColorBrush(color);
+        if (brush.CanFreeze)
+        {
+            brush.Freeze();
+        }
+        return brush;
     }
 
     internal static bool HasHighlightedWarning(object row)

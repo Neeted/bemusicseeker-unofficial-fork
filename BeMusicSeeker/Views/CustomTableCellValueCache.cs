@@ -152,24 +152,29 @@ internal sealed class CustomTableCellValueCache
 
 internal readonly struct CustomTableCellValue
 {
-    private CustomTableCellValue(string text, Brush foreground, CustomTableCellKind cellKind, bool useBoldText, System.Windows.TextAlignment alignment)
+    private CustomTableCellValue(string text, Brush foreground, Brush background, CustomTableCellKind cellKind, CustomTableTextStyle textStyle, System.Windows.TextAlignment alignment)
     {
         Text = text ?? string.Empty;
         Foreground = foreground ?? CustomTableScoreBrushProvider.DefaultForeground;
+        Background = background;
         CellKind = cellKind;
-        UseBoldText = useBoldText;
+        TextStyle = textStyle ?? CustomTableTextStyle.Normal;
         Alignment = alignment;
     }
 
-    internal static CustomTableCellValue Empty { get; } = new CustomTableCellValue(string.Empty, CustomTableScoreBrushProvider.DefaultForeground, CustomTableCellKind.Text, false, System.Windows.TextAlignment.Left);
+    internal static CustomTableCellValue Empty { get; } = new CustomTableCellValue(string.Empty, CustomTableScoreBrushProvider.DefaultForeground, null, CustomTableCellKind.Text, CustomTableTextStyle.Normal, System.Windows.TextAlignment.Left);
 
     internal string Text { get; }
 
     internal Brush Foreground { get; }
 
+    internal Brush Background { get; }
+
     internal CustomTableCellKind CellKind { get; }
 
-    internal bool UseBoldText { get; }
+    internal CustomTableTextStyle TextStyle { get; }
+
+    internal bool UseBoldText => TextStyle.UseBoldText;
 
     internal System.Windows.TextAlignment Alignment { get; }
 
@@ -178,8 +183,9 @@ internal readonly struct CustomTableCellValue
         return new CustomTableCellValue(
             column.GetText(row),
             column.GetForeground(row),
+            column.GetBackground(row),
             column.CellKind,
-            column.UseBoldText,
+            column.TextStyle,
             column.Alignment);
     }
 }

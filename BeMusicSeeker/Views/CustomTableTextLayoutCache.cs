@@ -24,22 +24,28 @@ internal sealed class CustomTableTextLayoutCache
 
     internal int Count => cache.Count;
 
+    internal void Clear()
+    {
+        cache.Clear();
+        insertionOrder.Clear();
+    }
+
     internal FormattedText GetOrCreate(
         string text,
         double maxTextWidth,
         double maxTextHeight,
         TextAlignment alignment,
-        bool useBoldText,
+        CustomTableTextStyle textStyle,
+        FontFamily scoreFontFamily,
         Brush foreground,
         double pixelsPerDip,
         CultureInfo culture,
-        Typeface typeface,
-        double fontSize,
         out bool hit)
     {
         Brush effectiveForeground = foreground ?? Brushes.Black;
         CultureInfo effectiveCulture = culture ?? CultureInfo.CurrentUICulture;
-        Key key = Key.Create(text, maxTextWidth, maxTextHeight, alignment, useBoldText, effectiveForeground, pixelsPerDip, effectiveCulture);
+        CustomTableTextStyle effectiveTextStyle = textStyle ?? CustomTableTextStyle.Normal;
+        Key key = Key.Create(text, maxTextWidth, maxTextHeight, alignment, effectiveTextStyle, scoreFontFamily, effectiveForeground, pixelsPerDip, effectiveCulture);
         if (cache.TryGetValue(key, out FormattedText formattedText))
         {
             hit = true;
@@ -51,8 +57,8 @@ internal sealed class CustomTableTextLayoutCache
             text,
             effectiveCulture,
             FlowDirection.LeftToRight,
-            typeface,
-            fontSize,
+            effectiveTextStyle.CreateTypeface(scoreFontFamily),
+            effectiveTextStyle.FontSize,
             effectiveForeground,
             pixelsPerDip)
         {
@@ -88,7 +94,7 @@ internal sealed class CustomTableTextLayoutCache
             double maxTextWidth,
             double maxTextHeight,
             TextAlignment alignment,
-            bool useBoldText,
+            string textStyleKey,
             Color foregroundColor,
             int foregroundReferenceHash,
             bool usesForegroundColor,
@@ -99,7 +105,7 @@ internal sealed class CustomTableTextLayoutCache
             MaxTextWidth = maxTextWidth;
             MaxTextHeight = maxTextHeight;
             Alignment = alignment;
-            UseBoldText = useBoldText;
+            TextStyleKey = textStyleKey;
             ForegroundColor = foregroundColor;
             ForegroundReferenceHash = foregroundReferenceHash;
             UsesForegroundColor = usesForegroundColor;
@@ -115,7 +121,7 @@ internal sealed class CustomTableTextLayoutCache
 
         private TextAlignment Alignment { get; }
 
-        private bool UseBoldText { get; }
+        private string TextStyleKey { get; }
 
         private Color ForegroundColor { get; }
 
@@ -127,17 +133,18 @@ internal sealed class CustomTableTextLayoutCache
 
         private string CultureName { get; }
 
-        internal static Key Create(string text, double maxTextWidth, double maxTextHeight, TextAlignment alignment, bool useBoldText, Brush foreground, double pixelsPerDip, CultureInfo culture)
+        internal static Key Create(string text, double maxTextWidth, double maxTextHeight, TextAlignment alignment, CustomTableTextStyle textStyle, FontFamily scoreFontFamily, Brush foreground, double pixelsPerDip, CultureInfo culture)
         {
             bool usesForegroundColor = foreground is SolidColorBrush;
             Color foregroundColor = usesForegroundColor ? ((SolidColorBrush)foreground).Color : default;
             int foregroundReferenceHash = usesForegroundColor || foreground == null ? 0 : RuntimeHelpers.GetHashCode(foreground);
+            CustomTableTextStyle effectiveTextStyle = textStyle ?? CustomTableTextStyle.Normal;
             return new Key(
                 text ?? string.Empty,
                 maxTextWidth,
                 maxTextHeight,
                 alignment,
-                useBoldText,
+                effectiveTextStyle.CreateCacheKey(scoreFontFamily),
                 foregroundColor,
                 foregroundReferenceHash,
                 usesForegroundColor,
@@ -151,7 +158,7 @@ internal sealed class CustomTableTextLayoutCache
                 && MaxTextWidth.Equals(other.MaxTextWidth)
                 && MaxTextHeight.Equals(other.MaxTextHeight)
                 && Alignment == other.Alignment
-                && UseBoldText == other.UseBoldText
+                && TextStyleKey == other.TextStyleKey
                 && ForegroundColor.Equals(other.ForegroundColor)
                 && ForegroundReferenceHash == other.ForegroundReferenceHash
                 && UsesForegroundColor == other.UsesForegroundColor
@@ -173,7 +180,7 @@ internal sealed class CustomTableTextLayoutCache
                 hash = (hash * 31) + MaxTextWidth.GetHashCode();
                 hash = (hash * 31) + MaxTextHeight.GetHashCode();
                 hash = (hash * 31) + (int)Alignment;
-                hash = (hash * 31) + UseBoldText.GetHashCode();
+                hash = (hash * 31) + TextStyleKey.GetHashCode();
                 hash = (hash * 31) + ForegroundColor.GetHashCode();
                 hash = (hash * 31) + ForegroundReferenceHash;
                 hash = (hash * 31) + UsesForegroundColor.GetHashCode();

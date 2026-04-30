@@ -534,6 +534,14 @@ Phase 3 完了判断:
 - 通常ライブラリ表示、プレイリスト詳細表示、横スクロール、列 resize / reorder、sort、編集、DnD、コピーで表示崩れがない。
 - text layout cache の hit 率と `renderWorkMs` が大きく悪化しない。
 
+実装後確認:
+
+- `CustomTableTextStyle` を追加し、通常文字、通常太字、score 用 `SovjetBox`、rank 用 `SovjetBox 16px` を列ごとに選べるようにした。
+- `CustomTableTextLayoutCache` の key を text style 対応にし、`Meiryo UI` / `SovjetBox` / 11px / 16px の `FormattedText` が混ざらないようにした。
+- `CustomTableColumn` / `CustomTableCellValue` に cell background を追加し、未選択時の `LEVEL` / `DIFFICULTY` / `TOTAL` / `T/N` に `#FFFFF6D5` を描けるようにした。
+- 描画順は、行背景、未選択セル背景、current cell 背景、text / icon の順にした。
+- Phase 7 ではメイン表だけを変更し、プレイリストサマリーと DataGrid fallback は未変更。
+
 ## Phase 8: プレイリストサマリーを CustomTableView 化する
 
 目的: `dataGridPlaylistSummary` を廃止し、プレイリストサマリー画面も CustomTableView 系で描画・操作する。これにより本アプリの実質的な DataGrid 使用箇所をなくす。

@@ -12,9 +12,6 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class CustomTableTextLayoutCacheTests
 {
-    private static readonly Typeface NormalTypeface = new Typeface(new FontFamily("Meiryo UI"), FontStyles.Normal, FontWeights.Normal, FontStretches.Normal);
-    private static readonly Typeface BoldTypeface = new Typeface(new FontFamily("Meiryo UI"), FontStyles.Normal, FontWeights.Bold, FontStretches.Normal);
-
     [TestMethod]
     public void GetOrCreate_ReusesSameKey()
     {
@@ -41,7 +38,10 @@ public sealed class CustomTableTextLayoutCacheTests
             AssertKeyChangeMisses(cache => Create(cache, out _, maxTextWidth: 80d), cache => { Create(cache, out bool hit, maxTextWidth: 81d); return hit; });
             AssertKeyChangeMisses(cache => Create(cache, out _, maxTextHeight: 18d), cache => { Create(cache, out bool hit, maxTextHeight: 19d); return hit; });
             AssertKeyChangeMisses(cache => Create(cache, out _, alignment: TextAlignment.Left), cache => { Create(cache, out bool hit, alignment: TextAlignment.Center); return hit; });
-            AssertKeyChangeMisses(cache => Create(cache, out _, useBoldText: false), cache => { Create(cache, out bool hit, useBoldText: true); return hit; });
+            AssertKeyChangeMisses(cache => Create(cache, out _, textStyle: CustomTableTextStyle.Normal), cache => { Create(cache, out bool hit, textStyle: CustomTableTextStyle.NormalBold); return hit; });
+            AssertKeyChangeMisses(cache => Create(cache, out _, textStyle: CustomTableTextStyle.Normal), cache => { Create(cache, out bool hit, textStyle: CustomTableTextStyle.Score); return hit; });
+            AssertKeyChangeMisses(cache => Create(cache, out _, textStyle: CustomTableTextStyle.Score), cache => { Create(cache, out bool hit, textStyle: CustomTableTextStyle.Rank); return hit; });
+            AssertKeyChangeMisses(cache => Create(cache, out _, textStyle: CustomTableTextStyle.Score), cache => { Create(cache, out bool hit, textStyle: CustomTableTextStyle.Score, scoreFontFamily: new FontFamily("Arial")); return hit; });
             AssertKeyChangeMisses(cache => Create(cache, out _, foreground: Brushes.Black), cache => { Create(cache, out bool hit, foreground: Brushes.Red); return hit; });
             AssertKeyChangeMisses(cache => Create(cache, out _, pixelsPerDip: 1d), cache => { Create(cache, out bool hit, pixelsPerDip: 1.25d); return hit; });
             AssertKeyChangeMisses(cache => Create(cache, out _, culture: CultureInfo.GetCultureInfo("en-US")), cache => { Create(cache, out bool hit, culture: CultureInfo.GetCultureInfo("ja-JP")); return hit; });
@@ -88,7 +88,8 @@ public sealed class CustomTableTextLayoutCacheTests
         double maxTextWidth = 80d,
         double maxTextHeight = 18d,
         TextAlignment alignment = TextAlignment.Left,
-        bool useBoldText = false,
+        CustomTableTextStyle textStyle = null!,
+        FontFamily scoreFontFamily = null!,
         Brush foreground = null!,
         double pixelsPerDip = 1d,
         CultureInfo culture = null!)
@@ -98,12 +99,11 @@ public sealed class CustomTableTextLayoutCacheTests
             maxTextWidth,
             maxTextHeight,
             alignment,
-            useBoldText,
+            textStyle ?? CustomTableTextStyle.Normal,
+            scoreFontFamily,
             foreground ?? Brushes.Black,
             pixelsPerDip,
             culture ?? CultureInfo.GetCultureInfo("ja-JP"),
-            useBoldText ? BoldTypeface : NormalTypeface,
-            11d,
             out hit);
     }
 

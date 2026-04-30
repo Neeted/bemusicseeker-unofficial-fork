@@ -48,7 +48,9 @@ public sealed class CustomTablePhase6CacheTests
     {
         int textCalls = 0;
         int foregroundCalls = 0;
+        int backgroundCalls = 0;
         object row = new object();
+        bool undefined = true;
         CustomTableColumn column = new CustomTableColumn(
             "Title",
             "TITLE",
@@ -65,11 +67,18 @@ public sealed class CustomTablePhase6CacheTests
             {
                 foregroundCalls++;
                 return Brushes.Red;
-            });
+            },
+            backgroundSelector: delegate
+            {
+                backgroundCalls++;
+                return undefined ? Brushes.Yellow : null;
+            },
+            textStyle: CustomTableTextStyle.Score);
         CustomTableCellValueCache cache = new CustomTableCellValueCache();
 
         CustomTableCellValue first = cache.GetOrCreate(row, column, 0, 0, out bool firstHit);
         CustomTableCellValue second = cache.GetOrCreate(row, column, 0, 0, out bool secondHit);
+        undefined = false;
         cache.InvalidateRow(row);
         CustomTableCellValue third = cache.GetOrCreate(row, column, 0, 0, out bool thirdHit);
 
@@ -79,8 +88,14 @@ public sealed class CustomTablePhase6CacheTests
         Assert.AreEqual("hello", first.Text);
         Assert.AreEqual("hello", second.Text);
         Assert.AreEqual("hello", third.Text);
+        Assert.AreSame(Brushes.Yellow, first.Background);
+        Assert.AreSame(Brushes.Yellow, second.Background);
+        Assert.IsNull(third.Background);
+        Assert.AreSame(CustomTableTextStyle.Score, first.TextStyle);
+        Assert.AreSame(CustomTableTextStyle.Score, third.TextStyle);
         Assert.AreEqual(2, textCalls);
         Assert.AreEqual(2, foregroundCalls);
+        Assert.AreEqual(2, backgroundCalls);
     }
 
     [TestMethod]

@@ -105,6 +105,12 @@ public sealed class CustomTableView : Grid
         typeof(CustomTableView),
         new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender, OnSortStateChanged));
 
+    public static readonly DependencyProperty ScoreFontFamilyProperty = DependencyProperty.Register(
+        nameof(ScoreFontFamily),
+        typeof(FontFamily),
+        typeof(CustomTableView),
+        new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender, OnScoreFontFamilyChanged));
+
     private readonly CustomTableSurface surface;
     private readonly Canvas editorLayer;
     private readonly ScrollBar verticalScrollBar;
@@ -335,6 +341,12 @@ public sealed class CustomTableView : Grid
         set => SetValue(SortDirectionProperty, value);
     }
 
+    public FontFamily ScoreFontFamily
+    {
+        get => (FontFamily)GetValue(ScoreFontFamilyProperty);
+        set => SetValue(ScoreFontFamilyProperty, value);
+    }
+
     internal int FirstVisibleRowIndex => (int)Math.Max(0d, Math.Floor(verticalScrollBar.Value));
 
     internal double HorizontalOffset => Math.Max(0d, horizontalScrollBar.Value);
@@ -439,6 +451,13 @@ public sealed class CustomTableView : Grid
         CustomTableView view = (CustomTableView)d;
         view.CommitActiveEdit();
         view.RequestRedraw("sort_state");
+    }
+
+    private static void OnScoreFontFamilyChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+    {
+        CustomTableView view = (CustomTableView)d;
+        view.surface?.ClearTextLayoutCache();
+        view.RequestRedraw("layout_metric_changed");
     }
 
     private void AttachCollectionChanged(INotifyCollectionChanged collection)
@@ -1961,8 +1980,6 @@ internal sealed class CustomTableSurface : FrameworkElement
     private static readonly Pen CellBorderPen = CreatePen(Color.FromRgb(0xE7, 0xE9, 0xEC));
     private static readonly Pen HeaderBorderPen = CreatePen(Color.FromRgb(0xC8, 0xCC, 0xD1));
     private static readonly Pen ColumnReorderInsertPen = CreatePen(Colors.Black, 3d);
-    private static readonly Typeface NormalTypeface = new Typeface(new FontFamily("Meiryo UI"), FontStyles.Normal, FontWeights.Normal, FontStretches.Normal);
-    private static readonly Typeface BoldTypeface = new Typeface(new FontFamily("Meiryo UI"), FontStyles.Normal, FontWeights.Bold, FontStretches.Normal);
     private readonly CustomTableView owner;
     private readonly CustomTableTextLayoutCache textLayoutCache = new CustomTableTextLayoutCache();
     private int renderTextCacheHits;
@@ -1973,6 +1990,11 @@ internal sealed class CustomTableSurface : FrameworkElement
         this.owner = owner;
         ClipToBounds = true;
         SnapsToDevicePixels = true;
+    }
+
+    internal void ClearTextLayoutCache()
+    {
+        textLayoutCache.Clear();
     }
 
     protected override void OnRender(DrawingContext drawingContext)
@@ -2024,7 +2046,7 @@ internal sealed class CustomTableSurface : FrameworkElement
                         null,
                         entry.CreateVisibleRect(horizontalOffset, width, 0d, headerHeight));
                 }
-                DrawCellText(drawingContext, column.Header, cellRect, CustomTableScoreBrushProvider.DefaultForeground, TextAlignment.Center, useBoldText: false);
+                DrawCellText(drawingContext, column.Header, cellRect, CustomTableScoreBrushProvider.DefaultForeground, TextAlignment.Center, CustomTableTextStyle.Normal);
                 DrawSortGlyph(drawingContext, column, cellRect);
                 double borderX = entry.TableX + entry.Width - horizontalOffset - 0.5d;
                 if (borderX >= 0d && borderX <= width)
@@ -2088,11 +2110,15 @@ internal sealed class CustomTableSurface : FrameworkElement
             }
             Rect cellRect = entry.CreateContentRect(horizontalOffset, y, rowHeight);
             bool currentCell = owner.IsCurrentCell(rowIndex, column);
+            CustomTableCellValue cellValue = owner.GetCellValue(row, column, out _);
+            if (!owner.IsRowSelected(rowIndex) && cellValue.Background != null)
+            {
+                drawingContext.DrawRectangle(cellValue.Background, null, entry.CreateVisibleRect(horizontalOffset, width, y, rowHeight));
+            }
             if (currentCell)
             {
                 drawingContext.DrawRectangle(CurrentCellBackgroundBrush, null, entry.CreateVisibleRect(horizontalOffset, width, y, rowHeight));
             }
-            CustomTableCellValue cellValue = owner.GetCellValue(row, column, out _);
             Brush foreground = currentCell ? CustomTableScoreBrushProvider.SelectedForeground : cellValue.Foreground;
             if (cellValue.CellKind == CustomTableCellKind.DownloadIcon)
             {
@@ -2104,7 +2130,7 @@ internal sealed class CustomTableSurface : FrameworkElement
             }
             else
             {
-                DrawCellText(drawingContext, cellValue.Text, cellRect, foreground, cellValue.Alignment, cellValue.UseBoldText);
+                DrawCellText(drawingContext, cellValue.Text, cellRect, foreground, cellValue.Alignment, cellValue.TextStyle);
             }
             double borderX = entry.TableX + entry.Width - horizontalOffset - 0.5d;
             if (borderX >= 0d && borderX <= width)
@@ -2114,26 +2140,26 @@ internal sealed class CustomTableSurface : FrameworkElement
         }
     }
 
-    private void DrawCellText(DrawingContext drawingContext, string text, Rect cellRect, Brush foreground, TextAlignment alignment, bool useBoldText)
+    private void DrawCellText(DrawingContext drawingContext, string text, Rect cellRect, Brush foreground, TextAlignment alignment, CustomTableTextStyle textStyle)
     {
         if (string.IsNullOrEmpty(text) || cellRect.Width <= 2d || cellRect.Height <= 1d)
         {
             return;
         }
+        CustomTableTextStyle effectiveTextStyle = textStyle ?? CustomTableTextStyle.Normal;
         double pixelsPerDip = VisualTreeHelper.GetDpi(this).PixelsPerDip;
         double maxTextWidth = Math.Max(1d, cellRect.Width - 4d);
-        double maxTextHeight = Math.Max(1d, cellRect.Height);
+        double maxTextHeight = Math.Max(Math.Max(1d, cellRect.Height), effectiveTextStyle.FontSize * 2d);
         FormattedText formattedText = textLayoutCache.GetOrCreate(
             text,
             maxTextWidth,
             maxTextHeight,
             alignment,
-            useBoldText,
+            effectiveTextStyle,
+            owner.ScoreFontFamily,
             foreground,
             pixelsPerDip,
             CultureInfo.CurrentUICulture,
-            useBoldText ? BoldTypeface : NormalTypeface,
-            11d,
             out bool cacheHit);
         if (cacheHit)
         {
@@ -2144,7 +2170,7 @@ internal sealed class CustomTableSurface : FrameworkElement
             renderTextCacheMisses++;
         }
         double x = cellRect.X + 2d;
-        double y = cellRect.Y + Math.Max(0d, (cellRect.Height - formattedText.Height) / 2d);
+        double y = cellRect.Y + Math.Max(0d, (cellRect.Height - formattedText.Height) / 2d) + effectiveTextStyle.VerticalOffset;
         drawingContext.PushClip(new RectangleGeometry(cellRect));
         drawingContext.DrawText(formattedText, new Point(x, y));
         drawingContext.Pop();

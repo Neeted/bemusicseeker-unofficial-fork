@@ -260,6 +260,53 @@ public sealed class CustomTableColumnFactoryTests
     }
 
     [TestMethod]
+    public void CreateMainColumns_AssignsPhaseSevenTextStyles()
+    {
+        dataGridColumnsSettings settings = new dataGridColumnsSettings();
+        foreach (dataGridColumnsSettings.dataGridColumnlayouts layout in CustomTableColumnFactory.EnumerateMainColumnLayouts(settings))
+        {
+            layout.DisplayIndex = -1;
+            layout.Visibility = Visibility.Visible;
+        }
+
+        var columns = CustomTableColumnFactory.CreateMainColumns(settings).ToDictionary(column => column.Id);
+
+        Assert.AreSame(CustomTableTextStyle.Score, columns["Clear"].TextStyle);
+        Assert.AreSame(CustomTableTextStyle.Rank, columns["Rank"].TextStyle);
+        Assert.AreSame(CustomTableTextStyle.Score, columns["ChartDifficulty"].TextStyle);
+        Assert.AreSame(CustomTableTextStyle.Score, columns["ChartJudge"].TextStyle);
+        Assert.AreSame(CustomTableTextStyle.Normal, columns["Level"].TextStyle);
+    }
+
+    [TestMethod]
+    public void CreateMainColumns_AssignsUndefinedBackgroundSelectors()
+    {
+        dataGridColumnsSettings settings = new dataGridColumnsSettings();
+        foreach (dataGridColumnsSettings.dataGridColumnlayouts layout in CustomTableColumnFactory.EnumerateMainColumnLayouts(settings))
+        {
+            layout.DisplayIndex = -1;
+            layout.Visibility = Visibility.Visible;
+        }
+        var columns = CustomTableColumnFactory.CreateMainColumns(settings).ToDictionary(column => column.Id);
+        UndefinedChartInfoRow undefinedRow = new UndefinedChartInfoRow
+        {
+            ChartLevelUndefined = true,
+            ChartDifficultyUndefined = true,
+            ChartTotalUndefined = true
+        };
+        UndefinedChartInfoRow definedRow = new UndefinedChartInfoRow();
+
+        Assert.IsNotNull(columns["Level"].GetBackground(undefinedRow));
+        Assert.IsNotNull(columns["ChartDifficulty"].GetBackground(undefinedRow));
+        Assert.IsNotNull(columns["ChartTotal"].GetBackground(undefinedRow));
+        Assert.IsNotNull(columns["ChartTotalPerNote"].GetBackground(undefinedRow));
+        Assert.IsNull(columns["Level"].GetBackground(definedRow));
+        Assert.IsNull(columns["ChartDifficulty"].GetBackground(definedRow));
+        Assert.IsNull(columns["ChartTotal"].GetBackground(definedRow));
+        Assert.IsNull(columns["ChartTotalPerNote"].GetBackground(definedRow));
+    }
+
+    [TestMethod]
     public void CreateMainColumns_AssignsTooltipSelectors()
     {
         dataGridColumnsSettings settings = new dataGridColumnsSettings();
@@ -533,5 +580,14 @@ public sealed class CustomTableColumnFactoryTests
         settings.Title.Width = 100;
         settings.Artist.Width = 100;
         return settings;
+    }
+
+    private sealed class UndefinedChartInfoRow
+    {
+        public bool ChartLevelUndefined { get; set; }
+
+        public bool ChartDifficultyUndefined { get; set; }
+
+        public bool ChartTotalUndefined { get; set; }
     }
 }
