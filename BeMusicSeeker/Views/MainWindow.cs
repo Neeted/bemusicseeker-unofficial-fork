@@ -8385,16 +8385,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return;
         }
         treeViewItem2.Background = Brushes.Transparent;
-        if (!e.Data.GetDataPresent("System.Windows.Controls.SelectedItemCollection"))
-        {
-            return;
-        }
-        List<object> selectedRows;
-        try
-        {
-            selectedRows = ((IList)e.Data.GetData("System.Windows.Controls.SelectedItemCollection")).Cast<object>().Where((object row) => row != null).ToList();
-        }
-        catch
+        if (!CustomTableDataTransfer.TryGetSelectedRows(e.Data, out List<object> selectedRows))
         {
             return;
         }

@@ -46,6 +46,7 @@ public sealed class CustomTableColumn
         int minWidth = 40,
         int? maxWidth = null,
         bool canResize = true,
+        bool canReorder = true,
         CustomTableCellKind cellKind = CustomTableCellKind.Text,
         string editPropertyName = null,
         bool editTextWrapping = false,
@@ -67,6 +68,7 @@ public sealed class CustomTableColumn
         MinWidth = Math.Max(1, minWidth);
         MaxWidth = maxWidth.HasValue ? Math.Max(MinWidth, maxWidth.Value) : int.MaxValue;
         CanResize = canResize;
+        CanReorder = canReorder;
         CellKind = cellKind;
         EditPropertyName = editPropertyName;
         EditTextWrapping = editTextWrapping;
@@ -95,6 +97,8 @@ public sealed class CustomTableColumn
     public int MaxWidth { get; }
 
     public bool CanResize { get; }
+
+    public bool CanReorder { get; }
 
     public bool UseIconText => CellKind != CustomTableCellKind.Text;
 
@@ -199,7 +203,7 @@ internal static class CustomTableColumnFactory
     {
         return new[]
         {
-            new CustomTableColumn("Status", "♬", settings.Status, 0, null, TextAlignment.Center, row => GetStatusIconText(row), tooltipSelector: GetStatusTooltip, minWidth: 18, maxWidth: 18, canResize: false, cellKind: CustomTableCellKind.StatusIcon),
+            new CustomTableColumn("Status", "♬", settings.Status, 0, null, TextAlignment.Center, row => GetStatusIconText(row), tooltipSelector: GetStatusTooltip, minWidth: 18, maxWidth: 18, canResize: false, canReorder: false, cellKind: CustomTableCellKind.StatusIcon),
             new CustomTableColumn("EntryLevel", "ENTRY LEVEL", settings.EntryLevel, 1, "EntryLevelSortKey", TextAlignment.Right, row => GetString(row, "Level"), editPropertyName: "Level"),
             new CustomTableColumn("Title", "TITLE", settings.Title, 2, nameof(LibraryChartRow.Title), TextAlignment.Left, row => GetString(row, nameof(LibraryChartRow.Title))),
             new CustomTableColumn("Artist", "ARTIST", settings.Artist, 3, nameof(LibraryChartRow.Artist), TextAlignment.Left, row => GetString(row, nameof(LibraryChartRow.Artist)), minWidth: 50),

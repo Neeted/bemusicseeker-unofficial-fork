@@ -143,6 +143,7 @@ public sealed class CustomTableColumnFactoryTests
         Assert.AreEqual("Status", status.Id);
         Assert.AreEqual(18, status.Width);
         Assert.IsFalse(status.CanResize);
+        Assert.IsFalse(status.CanReorder);
         Assert.IsNull(status.SortMemberPath);
         Assert.AreEqual(CustomTableCellKind.StatusIcon, status.CellKind);
     }
@@ -466,5 +467,71 @@ public sealed class CustomTableColumnFactoryTests
         Assert.AreEqual("Title", titleColumn.Id);
         Assert.IsFalse(fixedUrlResize);
         Assert.IsNull(urlColumn);
+    }
+
+    [TestMethod]
+    public void CustomTableDataTransfer_BuildsVisibleColumnTsvAndNormalizesCellText()
+    {
+        dataGridColumnsSettings settings = CreateOnlyTitleArtistSettings();
+        CustomTableColumn[] columns = CustomTableColumnFactory.CreateMainColumns(settings).ToArray();
+        var rows = new[]
+        {
+            new { Title = "A\tTitle", Artist = "Artist\r\nOne" },
+            new { Title = "B", Artist = "Artist Two" }
+        };
+
+        string tsv = CustomTableDataTransfer.BuildTsv(rows, columns);
+
+        Assert.AreEqual("A Title\tArtist  One\r\nB\tArtist Two", tsv);
+    }
+
+    [TestMethod]
+    public void CustomTableDataTransfer_CreatesLegacyAndCustomDragFormats()
+    {
+        object[] rows = { new object(), new object() };
+
+        DataObject dataObject = CustomTableDataTransfer.CreateSelectedRowsDataObject(rows);
+
+        Assert.IsTrue(dataObject.GetDataPresent(CustomTableDataTransfer.SelectedRowsDataFormat));
+        Assert.IsTrue(dataObject.GetDataPresent(CustomTableDataTransfer.LegacySelectedRowsDataFormat));
+        Assert.IsTrue(CustomTableDataTransfer.TryGetSelectedRows(dataObject, out var resolvedRows));
+        Assert.AreEqual(2, resolvedRows.Count);
+    }
+
+    [TestMethod]
+    public void CustomTableDataTransfer_ReordersColumnsWithoutMovingStatus()
+    {
+        dataGridColumnsSettings settings = CreateOnlyTitleArtistSettings(includeStatus: true);
+        CustomTableColumn[] columns = CustomTableColumnFactory.CreateMainColumns(settings).ToArray();
+        CustomTableColumn title = columns.Single(column => column.Id == "Title");
+        CustomTableColumn artist = columns.Single(column => column.Id == "Artist");
+        CustomTableColumn status = columns.Single(column => column.Id == "Status");
+
+        bool reordered = CustomTableDataTransfer.TryReorderVisibleColumns(columns, artist, status, insertAfterTarget: false);
+
+        Assert.IsTrue(reordered);
+        CustomTableColumn[] reorderedColumns = CustomTableColumnFactory.CreateMainColumns(settings).ToArray();
+        CollectionAssert.AreEqual(new[] { "Status", "Artist", "Title" }, reorderedColumns.Select(column => column.Id).ToArray());
+        Assert.IsFalse(status.CanReorder);
+        Assert.IsTrue(title.CanReorder);
+    }
+
+    private static dataGridColumnsSettings CreateOnlyTitleArtistSettings(bool includeStatus = false)
+    {
+        dataGridColumnsSettings settings = new dataGridColumnsSettings();
+        foreach (dataGridColumnsSettings.dataGridColumnlayouts layout in CustomTableColumnFactory.EnumerateMainColumnLayouts(settings))
+        {
+            layout.DisplayIndex = -1;
+            layout.Visibility = Visibility.Hidden;
+        }
+        settings.Status.Visibility = includeStatus ? Visibility.Visible : Visibility.Hidden;
+        settings.Title.Visibility = Visibility.Visible;
+        settings.Artist.Visibility = Visibility.Visible;
+        settings.Status.DisplayIndex = 0;
+        settings.Title.DisplayIndex = 1;
+        settings.Artist.DisplayIndex = 2;
+        settings.Title.Width = 100;
+        settings.Artist.Width = 100;
+        return settings;
     }
 }

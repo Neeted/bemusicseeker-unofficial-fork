@@ -380,15 +380,26 @@ Phase 3 完了判断:
 実装内容:
 
 - playlist tree への DnD を実装する。
-- 既存 drop 側が期待する `System.Windows.Controls.SelectedItemCollection` 互換を見直し、独自 data format を追加する。
+- DnD data は既存 drop 側が期待する `System.Windows.Controls.SelectedItemCollection` 互換 format と、独自 `BeMusicSeeker.CustomTable.SelectedRows` format の両方を入れる。
 - `Apps` / `Shift+F10` / Enter / Ctrl+C / Esc / F2 などのキー操作を整理する。
-- 選択セル/選択行の内容を TSV として clipboard に入れる機能を追加する。
-- 列リサイズ保存、表示順保存を実装する。
+- 行選択とセル選択の見た目を分ける。
+  - 行選択は薄い選択色で描画する。
+  - current cell / focused cell は現在の濃い選択色で描画する。
+  - 複数行選択中でも、操作対象セルが分かるようにする。
+- キーボードによる行選択を追加する。
+  - `Ctrl+A`: 全行選択。
+  - `Up` / `Down`: current row を上下へ移動し、単一行選択にする。
+  - `Shift+Up` / `Shift+Down`: anchor から範囲選択を伸縮し、複数行選択にする。
+- `Ctrl+C` は選択行と表示中の列を TSV として clipboard に入れる。セル内の tab / 改行は空白へ正規化する。
+- 列リサイズ保存は既存 `Layout.Width` 共有を継続し、Phase 5 では header drag による表示順保存を追加する。
+  - header drag 中は、drag 元 header を薄く描画し、drop した場合の挿入位置を header 境界の太線で示す。
+- `Status` は表示順の左端固定列として reorder 対象外にする。
 
 完了条件:
 
 - 保留インストール画面の `INSTL DST` 候補操作が使える。
 - 複数行を playlist tree へ drag できる。
+- 行選択とセル選択が視覚的に区別でき、キーボードだけで単一行/範囲/全行選択できる。
 - 選択セル内容のコピーができる。
 - 主要キーボード操作が DataGrid 版と同等に動く。
 

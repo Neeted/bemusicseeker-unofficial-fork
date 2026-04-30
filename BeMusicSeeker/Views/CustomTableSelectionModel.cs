@@ -81,6 +81,35 @@ internal sealed class CustomTableSelectionModel
         return !before.SetEquals(selectedIndices);
     }
 
+    internal bool SelectAll()
+    {
+        if (itemCount <= 0)
+        {
+            return Clear();
+        }
+        bool changed = selectedIndices.Count != itemCount || CurrentIndex != 0 || AnchorIndex != 0;
+        selectedIndices.Clear();
+        for (int i = 0; i < itemCount; i++)
+        {
+            selectedIndices.Add(i);
+        }
+        CurrentIndex = 0;
+        AnchorIndex = 0;
+        return changed;
+    }
+
+    internal bool MoveCurrent(int delta)
+    {
+        int nextIndex = GetMovedIndex(delta);
+        return SelectSingle(nextIndex);
+    }
+
+    internal bool ExtendRangeBy(int delta)
+    {
+        int nextIndex = GetMovedIndex(delta);
+        return SelectRange(nextIndex);
+    }
+
     internal bool SelectForRightClick(int index)
     {
         if (!IsValidIndex(index))
@@ -88,6 +117,21 @@ internal sealed class CustomTableSelectionModel
             return Clear();
         }
         if (selectedIndices.Contains(index))
+        {
+            bool changed = CurrentIndex != index;
+            CurrentIndex = index;
+            return changed;
+        }
+        return SelectSingle(index);
+    }
+
+    internal bool SelectForLeftMouseDown(int index)
+    {
+        if (!IsValidIndex(index))
+        {
+            return Clear();
+        }
+        if (selectedIndices.Count > 1 && selectedIndices.Contains(index))
         {
             bool changed = CurrentIndex != index;
             CurrentIndex = index;
@@ -137,5 +181,24 @@ internal sealed class CustomTableSelectionModel
     private bool IsValidIndex(int index)
     {
         return index >= 0 && index < itemCount;
+    }
+
+    private int GetMovedIndex(int delta)
+    {
+        if (itemCount <= 0)
+        {
+            return -1;
+        }
+        int current = IsValidIndex(CurrentIndex) ? CurrentIndex : (delta >= 0 ? -1 : itemCount);
+        int nextIndex = current + delta;
+        if (nextIndex < 0)
+        {
+            return 0;
+        }
+        if (nextIndex >= itemCount)
+        {
+            return itemCount - 1;
+        }
+        return nextIndex;
     }
 }

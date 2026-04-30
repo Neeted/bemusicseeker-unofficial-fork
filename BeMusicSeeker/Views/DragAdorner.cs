@@ -77,6 +77,25 @@ public class DragAdorner : Adorner
 		AdornerLayer.GetAdornerLayer((Visual)WPFUtil.FindVisualParent<Window>(base.AdornedElement).Content)?.Add(this);
 	}
 
+	public DragAdorner(UIElement adornedElement, UIElement ghost, Point point)
+		: base(adornedElement)
+	{
+		_ghost = ghost;
+		_move = (Vector)Window.GetWindow(adornedElement).PointFromScreen(adornedElement.PointToScreen(point));
+		_move.Negate();
+		AdornerLayer.GetAdornerLayer((Visual)WPFUtil.FindVisualParent<Window>(base.AdornedElement).Content)?.Add(this);
+	}
+
+	public DragAdorner(UIElement adornedElement, UIElement ghost, Vector cursorOffset)
+		: base(adornedElement)
+	{
+		_ghost = ghost;
+		_move = (Vector)Window.GetWindow(adornedElement).PointFromScreen(adornedElement.PointToScreen(new Point()));
+		_move.Negate();
+		_move += cursorOffset;
+		AdornerLayer.GetAdornerLayer((Visual)WPFUtil.FindVisualParent<Window>(base.AdornedElement).Content)?.Add(this);
+	}
+
 	public void Remove()
 	{
 		if (base.Parent is AdornerLayer adornerLayer)

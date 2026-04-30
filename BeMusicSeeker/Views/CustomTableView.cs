@@ -122,6 +122,13 @@ public sealed class CustomTableView : Grid
     private int toolTipRowIndex = -1;
     private string toolTipColumnId;
     private CustomTableHitTestResult currentCellHit;
+    private Point? rowDragStartPoint;
+    private CustomTableHitTestResult rowDragStartHit;
+    private DragAdorner rowDragAdorner;
+    private Point? headerDragStartPoint;
+    private CustomTableHitTestResult pendingHeaderHit;
+    private bool isReorderingColumn;
+    private double reorderPreviewInsertX = double.NaN;
     private CustomTableHitTestResult activeEditHit;
     private TextBox activeEditor;
     private bool completingEdit;
@@ -205,6 +212,7 @@ public sealed class CustomTableView : Grid
         PreviewMouseWheel += CustomTableViewPreviewMouseWheel;
         PreviewKeyDown += CustomTableViewPreviewKeyDown;
         PreviewTextInput += CustomTableViewPreviewTextInput;
+        QueryContinueDrag += CustomTableViewQueryContinueDrag;
         editSuggestionListBox.PreviewMouseLeftButtonDown += EditSuggestionListBoxPreviewMouseLeftButtonDown;
         editSuggestionListBox.PreviewKeyDown += EditSuggestionListBoxPreviewKeyDown;
         MouseLeave += delegate
@@ -214,6 +222,7 @@ public sealed class CustomTableView : Grid
         LostMouseCapture += delegate
         {
             EndColumnResize();
+            ClearHeaderDragState();
         };
         IsVisibleChanged += delegate
         {
@@ -228,6 +237,8 @@ public sealed class CustomTableView : Grid
                 CommitActiveEdit();
                 CloseCellToolTip();
                 EndColumnResize();
+                ClearDragState();
+                ClearHeaderDragState();
             }
         };
     }
@@ -313,6 +324,26 @@ public sealed class CustomTableView : Grid
     internal bool IsRowSelected(int rowIndex)
     {
         return selectionModel.IsSelected(rowIndex);
+    }
+
+    internal bool IsCurrentCell(int rowIndex, CustomTableColumn column)
+    {
+        return currentCellHit?.Kind == CustomTableHitKind.Cell
+            && currentCellHit.RowIndex == rowIndex
+            && column != null
+            && string.Equals(currentCellHit.Column?.Id, column.Id, StringComparison.Ordinal);
+    }
+
+    internal bool IsColumnReorderPreviewActive => isReorderingColumn && !double.IsNaN(reorderPreviewInsertX);
+
+    internal double ColumnReorderPreviewInsertX => reorderPreviewInsertX;
+
+    internal bool IsReorderSourceColumn(CustomTableColumn column)
+    {
+        return isReorderingColumn
+            && column != null
+            && pendingHeaderHit?.Column != null
+            && ReferenceEquals(pendingHeaderHit.Column, column);
     }
 
     private static void OnItemsSourceChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
@@ -603,7 +634,10 @@ public sealed class CustomTableView : Grid
         if (hit.Kind == CustomTableHitKind.Header)
         {
             CommitActiveEdit();
-            RequestSort(hit.Column);
+            pendingHeaderHit = hit;
+            headerDragStartPoint = e.GetPosition(surface);
+            isReorderingColumn = false;
+            CaptureMouse();
             e.Handled = true;
             return;
         }
@@ -618,11 +652,14 @@ public sealed class CustomTableView : Grid
             {
                 RaiseSelectionChanged();
             }
+            rowDragStartPoint = e.ClickCount == 1 ? e.GetPosition(this) : null;
+            rowDragStartHit = e.ClickCount == 1 ? hit : null;
             if (e.ClickCount == 1
                 && hit.Column?.CellKind == CustomTableCellKind.DownloadIcon
                 && !string.IsNullOrWhiteSpace(hit.Column.GetText(hit.Row))
                 && (Keyboard.Modifiers & (ModifierKeys.Control | ModifierKeys.Shift | ModifierKeys.Alt)) == ModifierKeys.None)
             {
+                ClearDragState();
                 CellActionRequested?.Invoke(this, new CustomTableCellActionRequestedEventArgs(hit));
                 e.Handled = true;
                 return;
@@ -646,6 +683,7 @@ public sealed class CustomTableView : Grid
             surface.InvalidateVisual();
             e.Handled = true;
         }
+        ClearDragState();
     }
 
     private void CustomTableViewPreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)
@@ -695,6 +733,29 @@ public sealed class CustomTableView : Grid
             e.Handled = true;
             return;
         }
+        if (pendingHeaderHit?.Kind == CustomTableHitKind.Header && headerDragStartPoint.HasValue && e.LeftButton == MouseButtonState.Pressed)
+        {
+            if (!isReorderingColumn && IsDragging(headerDragStartPoint.Value, position) && pendingHeaderHit.Column?.CanReorder == true)
+            {
+                isReorderingColumn = true;
+                Cursor = Cursors.SizeWE;
+            }
+            if (isReorderingColumn)
+            {
+                UpdateColumnReorderPreview(position);
+                e.Handled = true;
+                return;
+            }
+        }
+        if (rowDragStartHit?.Kind == CustomTableHitKind.Cell && rowDragStartPoint.HasValue && e.LeftButton == MouseButtonState.Pressed)
+        {
+            if (IsDragging(rowDragStartPoint.Value, e.GetPosition(this)))
+            {
+                StartRowDrag();
+                e.Handled = true;
+                return;
+            }
+        }
         CustomTableHitTestResult hit = HitTestTable(position);
         Cursor = hit.Kind == CustomTableHitKind.HeaderResize ? Cursors.SizeWE : null;
         UpdateCellToolTip(hit);
@@ -706,7 +767,23 @@ public sealed class CustomTableView : Grid
         {
             EndColumnResize();
             e.Handled = true;
+            return;
         }
+        if (pendingHeaderHit?.Kind == CustomTableHitKind.Header)
+        {
+            if (isReorderingColumn)
+            {
+                CompleteColumnReorder(e.GetPosition(surface));
+            }
+            else
+            {
+                RequestSort(pendingHeaderHit.Column);
+            }
+            ClearHeaderDragState();
+            e.Handled = true;
+            return;
+        }
+        ClearDragState();
     }
 
     private void CustomTableViewPreviewMouseWheel(object sender, MouseWheelEventArgs e)
@@ -772,10 +849,29 @@ public sealed class CustomTableView : Grid
                     break;
             }
         }
+        if ((Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control)
+        {
+            if (e.Key == Key.A)
+            {
+                e.Handled = SelectAllRows();
+                return;
+            }
+            if (e.Key == Key.C)
+            {
+                e.Handled = CopySelectedRowsToClipboard();
+                return;
+            }
+        }
         switch (e.Key)
         {
             case Key.F2:
                 e.Handled = TryBeginEditCurrentCell(null);
+                break;
+            case Key.Up:
+                e.Handled = MoveKeyboardSelection(-1, (Keyboard.Modifiers & ModifierKeys.Shift) == ModifierKeys.Shift);
+                break;
+            case Key.Down:
+                e.Handled = MoveKeyboardSelection(1, (Keyboard.Modifiers & ModifierKeys.Shift) == ModifierKeys.Shift);
                 break;
             case Key.Apps:
             case Key.F10 when (Keyboard.Modifiers & ModifierKeys.Shift) == ModifierKeys.Shift:
@@ -817,10 +913,235 @@ public sealed class CustomTableView : Grid
             ? selectionModel.SelectRange(rowIndex)
             : (modifiers & ModifierKeys.Control) == ModifierKeys.Control
                 ? selectionModel.Toggle(rowIndex)
-                : selectionModel.SelectSingle(rowIndex);
+                : selectionModel.SelectForLeftMouseDown(rowIndex);
         UpdateSelectedIndexFromSelectionModel();
         surface.InvalidateVisual();
         return changed;
+    }
+
+    private bool SelectAllRows()
+    {
+        selectionModel.SetItemCount(RowCount);
+        bool changed = selectionModel.SelectAll();
+        UpdateSelectedIndexFromSelectionModel();
+        EnsureRowVisible(selectionModel.CurrentIndex);
+        EnsureCurrentCellForCurrentRow();
+        if (changed)
+        {
+            RaiseSelectionChanged();
+        }
+        surface.InvalidateVisual();
+        return RowCount > 0;
+    }
+
+    private bool MoveKeyboardSelection(int delta, bool extendRange)
+    {
+        selectionModel.SetItemCount(RowCount);
+        bool changed = extendRange ? selectionModel.ExtendRangeBy(delta) : selectionModel.MoveCurrent(delta);
+        UpdateSelectedIndexFromSelectionModel();
+        EnsureRowVisible(selectionModel.CurrentIndex);
+        EnsureCurrentCellForCurrentRow();
+        if (changed)
+        {
+            RaiseSelectionChanged();
+        }
+        surface.InvalidateVisual();
+        return RowCount > 0;
+    }
+
+    private bool CopySelectedRowsToClipboard()
+    {
+        string text = CustomTableDataTransfer.BuildTsv(GetSelectedRowsSnapshot(), VisibleColumns);
+        if (string.IsNullOrEmpty(text))
+        {
+            return false;
+        }
+        Clipboard.SetText(text);
+        return true;
+    }
+
+    private void EnsureCurrentCellForCurrentRow()
+    {
+        int rowIndex = selectionModel.CurrentIndex;
+        if (rowIndex < 0)
+        {
+            currentCellHit = null;
+            return;
+        }
+        string columnId = currentCellHit?.Column?.Id;
+        if (!TryCreateCellHit(rowIndex, columnId, out CustomTableHitTestResult hit))
+        {
+            CustomTableColumn firstColumn = VisibleColumns.FirstOrDefault();
+            if (firstColumn != null)
+            {
+                TryCreateCellHit(rowIndex, firstColumn.Id, out hit);
+            }
+        }
+        currentCellHit = hit;
+    }
+
+    private void EnsureRowVisible(int rowIndex)
+    {
+        if (rowIndex < 0 || verticalScrollBar.Visibility != Visibility.Visible)
+        {
+            return;
+        }
+        int first = FirstVisibleRowIndex;
+        int capacity = Math.Max(1, CalculateViewportRowCapacity());
+        if (rowIndex < first)
+        {
+            verticalScrollBar.Value = Math.Max(verticalScrollBar.Minimum, rowIndex);
+        }
+        else if (rowIndex >= first + capacity)
+        {
+            verticalScrollBar.Value = Math.Min(verticalScrollBar.Maximum, rowIndex - capacity + 1);
+        }
+    }
+
+    private void StartRowDrag()
+    {
+        if (rowDragStartHit?.Kind != CustomTableHitKind.Cell)
+        {
+            return;
+        }
+        IReadOnlyList<object> rows = GetSelectedRowsSnapshot();
+        if (rows.Count == 0 || !rows.Contains(rowDragStartHit.Row))
+        {
+            return;
+        }
+        DataObject dataObject = CustomTableDataTransfer.CreateSelectedRowsDataObject(rows);
+        CloseCellToolTip();
+        rowDragAdorner = new DragAdorner(this, CreateRowDragGhost(rows.Count), new Vector(12d, 12d));
+        rowDragAdorner.Position = WPFUtil.GetMousePosition(this);
+        ClearDragState();
+        try
+        {
+            DragDrop.DoDragDrop(this, dataObject, DragDropEffects.Copy | DragDropEffects.Move);
+        }
+        finally
+        {
+            rowDragAdorner?.Remove();
+            rowDragAdorner = null;
+        }
+    }
+
+    private static UIElement CreateRowDragGhost(int rowCount)
+    {
+        return new Border
+        {
+            Background = new SolidColorBrush(Color.FromArgb(0xDD, 0xFF, 0xFF, 0xFF)),
+            BorderBrush = new SolidColorBrush(Color.FromRgb(0x66, 0x88, 0xAA)),
+            BorderThickness = new Thickness(1d),
+            Padding = new Thickness(8d, 3d, 8d, 3d),
+            Child = new TextBlock
+            {
+                Text = rowCount <= 1 ? "1 row" : rowCount.ToString(CultureInfo.InvariantCulture) + " rows",
+                Foreground = Brushes.Black,
+                FontSize = 11d
+            }
+        };
+    }
+
+    private void CustomTableViewQueryContinueDrag(object sender, QueryContinueDragEventArgs e)
+    {
+        if (rowDragAdorner != null)
+        {
+            rowDragAdorner.Position = WPFUtil.GetMousePosition(this);
+        }
+    }
+
+    private void CompleteColumnReorder(Point surfacePoint)
+    {
+        CustomTableColumn sourceColumn = pendingHeaderHit?.Column;
+        if (sourceColumn?.CanReorder != true)
+        {
+            return;
+        }
+        double tableX = surfacePoint.X + HorizontalOffset;
+        CustomTableColumnLayout.TryResolveColumn(VisibleColumns, tableX, out CustomTableColumn targetColumn, out _, out double targetColumnX);
+        bool insertAfter = targetColumn != null && tableX >= targetColumnX + targetColumn.Width / 2d;
+        if (CustomTableDataTransfer.TryReorderVisibleColumns(VisibleColumns, sourceColumn, targetColumn, insertAfter))
+        {
+            RebuildColumns(markItemsApplied: false);
+        }
+    }
+
+    private void UpdateColumnReorderPreview(Point surfacePoint)
+    {
+        double insertTableX = CalculateColumnReorderInsertTableX(surfacePoint);
+        double nextInsertX = Math.Max(0d, Math.Min(surface.ActualWidth, insertTableX - HorizontalOffset));
+        if (!AreClose(reorderPreviewInsertX, nextInsertX))
+        {
+            reorderPreviewInsertX = nextInsertX;
+            surface.InvalidateVisual();
+        }
+    }
+
+    private double CalculateColumnReorderInsertTableX(Point surfacePoint)
+    {
+        IReadOnlyList<CustomTableColumn> columns = VisibleColumns;
+        double tableX = surfacePoint.X + HorizontalOffset;
+        double extentWidth = CustomTableColumnLayout.CalculateExtentWidth(columns);
+        if (!CustomTableColumnLayout.TryResolveColumn(columns, tableX, out CustomTableColumn targetColumn, out _, out double targetColumnX))
+        {
+            return Math.Max(GetLeadingFixedColumnWidth(columns), extentWidth);
+        }
+        bool insertAfter = targetColumn != null && tableX >= targetColumnX + targetColumn.Width / 2d;
+        double insertTableX = insertAfter ? targetColumnX + targetColumn.Width : targetColumnX;
+        return Math.Max(GetLeadingFixedColumnWidth(columns), insertTableX);
+    }
+
+    private static double GetLeadingFixedColumnWidth(IReadOnlyList<CustomTableColumn> columns)
+    {
+        double width = 0d;
+        if (columns == null)
+        {
+            return width;
+        }
+        foreach (CustomTableColumn column in columns)
+        {
+            if (column?.CanReorder == true)
+            {
+                break;
+            }
+            width += column?.Width ?? 0d;
+        }
+        return width;
+    }
+
+    private void ClearDragState()
+    {
+        rowDragStartPoint = null;
+        rowDragStartHit = null;
+    }
+
+    private void ClearHeaderDragState()
+    {
+        pendingHeaderHit = null;
+        headerDragStartPoint = null;
+        isReorderingColumn = false;
+        reorderPreviewInsertX = double.NaN;
+        if (IsMouseCaptured)
+        {
+            ReleaseMouseCapture();
+        }
+        Cursor = null;
+        surface.InvalidateVisual();
+    }
+
+    private static bool AreClose(double left, double right)
+    {
+        if (double.IsNaN(left) || double.IsNaN(right))
+        {
+            return double.IsNaN(left) && double.IsNaN(right);
+        }
+        return Math.Abs(left - right) < 0.5d;
+    }
+
+    private static bool IsDragging(Point start, Point current)
+    {
+        return Math.Abs(start.X - current.X) > SystemParameters.MinimumHorizontalDragDistance
+            || Math.Abs(start.Y - current.Y) > SystemParameters.MinimumVerticalDragDistance;
     }
 
     private static bool IsSameEditableCell(CustomTableHitTestResult current, CustomTableHitTestResult next)
@@ -1419,10 +1740,13 @@ internal sealed class CustomTableSurface : FrameworkElement
     private static readonly Brush RowBackgroundBrush = CreateBrush(Colors.White);
     private static readonly Brush AlternatingRowBackgroundBrush = CreateBrush(Color.FromRgb(0xF1, 0xF4, 0xF7));
     private static readonly Brush WarningRowBackgroundBrush = CreateBrush(Color.FromRgb(0xFD, 0xE4, 0xE4));
-    private static readonly Brush SelectedRowBackgroundBrush = CreateBrush(Colors.DodgerBlue);
+    private static readonly Brush SelectedRowBackgroundBrush = CreateBrush(Color.FromRgb(0xD7, 0xE9, 0xFF));
+    private static readonly Brush CurrentCellBackgroundBrush = CreateBrush(Colors.DodgerBlue);
+    private static readonly Brush ReorderSourceHeaderBrush = CreateBrush(Color.FromRgb(0xE1, 0xE5, 0xEA));
     private static readonly Brush SortGlyphBrush = CreateBrush(Color.FromRgb(0x45, 0x4A, 0x50));
     private static readonly Pen CellBorderPen = CreatePen(Color.FromRgb(0xE7, 0xE9, 0xEC));
     private static readonly Pen HeaderBorderPen = CreatePen(Color.FromRgb(0xC8, 0xCC, 0xD1));
+    private static readonly Pen ColumnReorderInsertPen = CreatePen(Colors.Black, 3d);
     private static readonly Typeface NormalTypeface = new Typeface(new FontFamily("Meiryo UI"), FontStyles.Normal, FontWeights.Normal, FontStretches.Normal);
     private static readonly Typeface BoldTypeface = new Typeface(new FontFamily("Meiryo UI"), FontStyles.Normal, FontWeights.Bold, FontStretches.Normal);
     private readonly CustomTableView owner;
@@ -1483,6 +1807,13 @@ internal sealed class CustomTableSurface : FrameworkElement
             if (screenX + columnWidth > 0d)
             {
                 Rect cellRect = CustomTableColumnLayout.CreateContentColumnRect(x, columnWidth, horizontalOffset, 0d, headerHeight);
+                if (owner.IsReorderSourceColumn(column))
+                {
+                    drawingContext.DrawRectangle(
+                        ReorderSourceHeaderBrush,
+                        null,
+                        CustomTableColumnLayout.CreateVisibleColumnRect(x, columnWidth, horizontalOffset, width, 0d, headerHeight));
+                }
                 DrawCellText(drawingContext, column.Header, cellRect, CustomTableScoreBrushProvider.DefaultForeground, TextAlignment.Center, useBoldText: false);
                 DrawSortGlyph(drawingContext, column, cellRect);
                 double borderX = x + columnWidth - horizontalOffset - 0.5d;
@@ -1494,6 +1825,11 @@ internal sealed class CustomTableSurface : FrameworkElement
             x += columnWidth;
         }
         drawingContext.DrawLine(HeaderBorderPen, new Point(0d, headerHeight - 0.5d), new Point(width, headerHeight - 0.5d));
+        if (owner.IsColumnReorderPreviewActive)
+        {
+            double insertX = Math.Max(0d, Math.Min(width, owner.ColumnReorderPreviewInsertX));
+            drawingContext.DrawLine(ColumnReorderInsertPen, new Point(insertX, 0d), new Point(insertX, headerHeight));
+        }
     }
 
     private int DrawRows(DrawingContext drawingContext, IReadOnlyList<CustomTableColumn> columns, double width, double height)
@@ -1523,7 +1859,7 @@ internal sealed class CustomTableSurface : FrameworkElement
                         : RowBackgroundBrush;
             Rect rowRect = new Rect(0d, y, width, Math.Min(rowHeight, height - y));
             drawingContext.DrawRectangle(rowBackground, null, rowRect);
-            DrawRowCells(drawingContext, columns, row, selected, width, y, rowHeight);
+            DrawRowCells(drawingContext, columns, rowIndex, row, width, y, rowHeight);
             drawingContext.DrawLine(CellBorderPen, new Point(0d, y + rowHeight - 0.5d), new Point(width, y + rowHeight - 0.5d));
             y += rowHeight;
             drawnRows++;
@@ -1531,7 +1867,7 @@ internal sealed class CustomTableSurface : FrameworkElement
         return drawnRows;
     }
 
-    private void DrawRowCells(DrawingContext drawingContext, IReadOnlyList<CustomTableColumn> columns, object row, bool selected, double width, double y, double rowHeight)
+    private void DrawRowCells(DrawingContext drawingContext, IReadOnlyList<CustomTableColumn> columns, int rowIndex, object row, double width, double y, double rowHeight)
     {
         double horizontalOffset = owner.HorizontalOffset;
         double x = 0d;
@@ -1546,7 +1882,12 @@ internal sealed class CustomTableSurface : FrameworkElement
             if (screenX + columnWidth > 0d)
             {
                 Rect cellRect = CustomTableColumnLayout.CreateContentColumnRect(x, columnWidth, horizontalOffset, y, rowHeight);
-                Brush foreground = selected ? CustomTableScoreBrushProvider.SelectedForeground : column.GetForeground(row);
+                bool currentCell = owner.IsCurrentCell(rowIndex, column);
+                if (currentCell)
+                {
+                    drawingContext.DrawRectangle(CurrentCellBackgroundBrush, null, CustomTableColumnLayout.CreateVisibleColumnRect(x, columnWidth, horizontalOffset, width, y, rowHeight));
+                }
+                Brush foreground = currentCell ? CustomTableScoreBrushProvider.SelectedForeground : column.GetForeground(row);
                 string text = column.GetText(row);
                 if (column.CellKind == CustomTableCellKind.DownloadIcon)
                 {
@@ -1774,7 +2115,12 @@ internal sealed class CustomTableSurface : FrameworkElement
 
     private static Pen CreatePen(Color color)
     {
-        Pen pen = new Pen(CreateBrush(color), 1d);
+        return CreatePen(color, 1d);
+    }
+
+    private static Pen CreatePen(Color color, double thickness)
+    {
+        Pen pen = new Pen(CreateBrush(color), thickness);
         pen.Freeze();
         return pen;
     }
