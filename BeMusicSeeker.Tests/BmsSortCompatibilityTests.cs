@@ -317,6 +317,48 @@ public sealed class BmsSortCompatibilityTests
 
     [TestMethod]
     [TestCategory("SortEngine")]
+    public void NormalLibrarySortCacheCandidate_OnlyAllowsTitleAndLowercasePath()
+    {
+        Assert.IsTrue(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(null));
+        Assert.IsTrue(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(string.Empty));
+        Assert.IsTrue(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(nameof(LibraryChartRow.Title)));
+        Assert.IsTrue(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(nameof(LibraryChartRow.path)));
+        Assert.IsFalse(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest("Path"));
+        Assert.IsFalse(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(nameof(LibraryChartRow.Artist)));
+    }
+
+    [TestMethod]
+    [TestCategory("SortEngine")]
+    public void LibraryChartRowSortEngine_TitleAndPathSupportAscendingAndDescending()
+    {
+        LibraryChartRow alphaLatePath = CreateLibraryChartRow("z_alpha.bms", "Alpha", level: 1);
+        LibraryChartRow betaEarlyPath = CreateLibraryChartRow("a_beta.bms", "Beta", level: 1);
+        LibraryChartRow gammaMiddlePath = CreateLibraryChartRow("m_gamma.bms", "Gamma", level: 1);
+
+        AssertLibraryChartSort(
+            nameof(LibraryChartRow.Title),
+            ListSortDirection.Ascending,
+            new[] { alphaLatePath, betaEarlyPath, gammaMiddlePath },
+            new[] { "z_alpha.bms", "a_beta.bms", "m_gamma.bms" });
+        AssertLibraryChartSort(
+            nameof(LibraryChartRow.Title),
+            ListSortDirection.Descending,
+            new[] { alphaLatePath, betaEarlyPath, gammaMiddlePath },
+            new[] { "m_gamma.bms", "a_beta.bms", "z_alpha.bms" });
+        AssertLibraryChartSort(
+            nameof(LibraryChartRow.path),
+            ListSortDirection.Ascending,
+            new[] { alphaLatePath, betaEarlyPath, gammaMiddlePath },
+            new[] { "a_beta.bms", "m_gamma.bms", "z_alpha.bms" });
+        AssertLibraryChartSort(
+            nameof(LibraryChartRow.path),
+            ListSortDirection.Descending,
+            new[] { alphaLatePath, betaEarlyPath, gammaMiddlePath },
+            new[] { "z_alpha.bms", "m_gamma.bms", "a_beta.bms" });
+    }
+
+    [TestMethod]
+    [TestCategory("SortEngine")]
     public void LibraryChartRowSortEngine_LevelColumnUsesNumericKey()
     {
         LibraryChartRow level12 = CreateLibraryChartRow("z_level12.bms", "Level12", level: 12);
@@ -565,6 +607,20 @@ public sealed class BmsSortCompatibilityTests
 
         CollectionAssert.AreEqual(expectedPaths, sorted.Select((LibraryChartRow row) => row.path).ToArray(), columnName + " must use typed sort.");
         Assert.AreEqual("library_chart_typed", sortProfile, columnName + " must report typed sort profile.");
+    }
+
+    private static void AssertLibraryChartSort(string columnName, ListSortDirection direction, IReadOnlyList<LibraryChartRow> source, string[] expectedPaths)
+    {
+        MainWindowViewModel.cSortParameters sortParameters = new MainWindowViewModel.cSortParameters
+        {
+            ColumnsName = columnName,
+            Direction = direction
+        };
+
+        List<LibraryChartRow> sorted = LibraryChartRowSortEngine.SortForMainView(source, sortParameters, isPlaylistDetailView: false, useLegacySortForDataGrid: false, out string sortProfile);
+
+        CollectionAssert.AreEqual(expectedPaths, sorted.Select((LibraryChartRow row) => row.path).ToArray(), columnName + " " + direction + " order mismatch.");
+        Assert.AreEqual("library_chart_string_fast_ordinal_ignore_case", sortProfile);
     }
 
     private static LibraryChartRow CreateLibraryChartRow(string path, string title, int level, string folder = "", int? chartNotes = null, double? chartTotal = null, double? chartMainBpm = null, int? rateScorePerfect = null)

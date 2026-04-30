@@ -1196,6 +1196,62 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
+    public void NormalLibraryRowCache_ReusesRowsAndPrunesRemovedFiles()
+    {
+        TestableBmsFile fileA = new TestableBmsFile();
+        fileA.ApplySnapshot("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "A", 7);
+        TestableBmsFile fileB = new TestableBmsFile();
+        fileB.ApplySnapshot("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "B", 7);
+        int sortKeyChangedCount = 0;
+        NormalLibraryRowCache cache = new NormalLibraryRowCache(_ => sortKeyChangedCount++);
+        LibraryRowCacheBuildStats firstStats = new LibraryRowCacheBuildStats();
+        LibraryChartRow firstA = cache.GetOrCreate(fileA, firstStats);
+        LibraryChartRow firstB = cache.GetOrCreate(fileB, firstStats);
+        LibraryRowCacheBuildStats secondStats = new LibraryRowCacheBuildStats();
+        LibraryChartRow secondA = cache.GetOrCreate(fileA, secondStats);
+
+        Assert.AreSame(firstA, secondA);
+        Assert.AreEqual(0, firstStats.HitCount);
+        Assert.AreEqual(2, firstStats.MissCount);
+        Assert.AreEqual(1, secondStats.HitCount);
+        Assert.AreEqual(0, secondStats.MissCount);
+        Assert.AreEqual(1, cache.Prune(new[] { fileA }));
+        Assert.AreEqual(1, cache.Count);
+        fileB.SetTitle("B2");
+        Assert.AreEqual(0, sortKeyChangedCount, "Pruned rows must not keep sort invalidation subscriptions.");
+        fileA.SetTitle("A2");
+        Assert.AreEqual(1, sortKeyChangedCount);
+        Assert.AreSame(firstA, cache.GetOrCreate(fileA, new LibraryRowCacheBuildStats()));
+    }
+
+    [TestMethod]
+    public void BuildStandardLibraryRowsForView_UsesProvidedBmsRowFactoryAndReportsCacheMetrics()
+    {
+        TestableBmsFile file = new TestableBmsFile();
+        file.ApplySnapshot("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "A", 7);
+        LibraryChartRow cachedRow = LibraryChartRow.FromBmsFile(file);
+        LibraryRowCacheBuildStats stats = new LibraryRowCacheBuildStats
+        {
+            HitCount = 1,
+            PrunedCount = 2
+        };
+
+        List<LibraryChartRow> rows = MainWindowViewModel.BuildStandardLibraryRowsForView(
+            new[] { file },
+            Array.Empty<LibraryChartRow>(),
+            null,
+            _ => cachedRow,
+            stats,
+            out LibraryRowsBuildMetrics metrics);
+
+        Assert.AreEqual(1, rows.Count);
+        Assert.AreSame(cachedRow, rows[0]);
+        Assert.AreEqual(1, metrics.RegularRowCacheHitCount);
+        Assert.AreEqual(0, metrics.RegularRowCacheMissCount);
+        Assert.AreEqual(2, metrics.RegularRowCachePrunedCount);
+    }
+
+    [TestMethod]
     public void ResolvePlaylistColumnSettingMode_ReturnsPlaylistViewModesForBothPlaylistFilters()
     {
         Assert.AreEqual(
@@ -1319,6 +1375,11 @@ public sealed class PlaylistViewPipelineTests
         public void SetSha256(string value)
         {
             sha256 = value;
+        }
+
+        public void SetTitle(string value)
+        {
+            Title = value;
         }
     }
 }

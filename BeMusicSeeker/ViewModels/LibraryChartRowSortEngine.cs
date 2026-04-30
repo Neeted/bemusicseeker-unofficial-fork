@@ -19,7 +19,11 @@ internal readonly struct LibraryChartSortMetrics
         string propertyTypeName,
         string sortProfile,
         string stringSortKind,
-        long sortMs)
+        long sortMs,
+        bool sortReuse = false,
+        string sortCacheKey = "",
+        long sortCacheGeneration = 0L,
+        bool sortCacheHit = false)
     {
         RowCount = rowCount;
         ColumnName = columnName;
@@ -28,6 +32,10 @@ internal readonly struct LibraryChartSortMetrics
         SortProfile = sortProfile;
         StringSortKind = stringSortKind;
         SortMs = sortMs;
+        SortReuse = sortReuse;
+        SortCacheKey = sortCacheKey ?? string.Empty;
+        SortCacheGeneration = sortCacheGeneration;
+        SortCacheHit = sortCacheHit;
     }
 
     internal int RowCount { get; }
@@ -43,6 +51,14 @@ internal readonly struct LibraryChartSortMetrics
     internal string StringSortKind { get; }
 
     internal long SortMs { get; }
+
+    internal bool SortReuse { get; }
+
+    internal string SortCacheKey { get; }
+
+    internal long SortCacheGeneration { get; }
+
+    internal bool SortCacheHit { get; }
 }
 
 /// <summary>

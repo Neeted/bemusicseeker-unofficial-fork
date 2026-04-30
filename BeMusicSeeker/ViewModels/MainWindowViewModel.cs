@@ -55,7 +55,10 @@ internal readonly struct LibraryRowsBuildMetrics
         long bmsonRowMaterializeMs,
         long concatToListMs,
         long folderMs,
-        int folderCount)
+        int folderCount,
+        int regularRowCacheHitCount = 0,
+        int regularRowCacheMissCount = 0,
+        int regularRowCachePrunedCount = 0)
     {
         SourceBmsCount = sourceBmsCount;
         SourceBmsonCount = sourceBmsonCount;
@@ -69,6 +72,9 @@ internal readonly struct LibraryRowsBuildMetrics
         ConcatToListMs = concatToListMs;
         FolderMs = folderMs;
         FolderCount = folderCount;
+        RegularRowCacheHitCount = regularRowCacheHitCount;
+        RegularRowCacheMissCount = regularRowCacheMissCount;
+        RegularRowCachePrunedCount = regularRowCachePrunedCount;
     }
 
     internal int SourceBmsCount { get; }
@@ -94,6 +100,74 @@ internal readonly struct LibraryRowsBuildMetrics
     internal long FolderMs { get; }
 
     internal int FolderCount { get; }
+
+    internal int RegularRowCacheHitCount { get; }
+
+    internal int RegularRowCacheMissCount { get; }
+
+    internal int RegularRowCachePrunedCount { get; }
+}
+
+internal readonly struct BmsonLibraryRowCacheSyncResult
+{
+    internal BmsonLibraryRowCacheSyncResult(bool membershipChanged, bool sortKeyChanged)
+    {
+        MembershipChanged = membershipChanged;
+        SortKeyChanged = sortKeyChanged;
+    }
+
+    internal bool MembershipChanged { get; }
+
+    internal bool SortKeyChanged { get; }
+}
+
+internal readonly struct NormalLibrarySortCacheKey : IEquatable<NormalLibrarySortCacheKey>
+{
+    internal NormalLibrarySortCacheKey(long sourceGeneration, long sortKeyGeneration, string columnName, ListSortDirection direction, int rowCount)
+    {
+        SourceGeneration = sourceGeneration;
+        SortKeyGeneration = sortKeyGeneration;
+        ColumnName = columnName ?? string.Empty;
+        Direction = direction;
+        RowCount = rowCount;
+    }
+
+    internal long SourceGeneration { get; }
+
+    internal long SortKeyGeneration { get; }
+
+    internal string ColumnName { get; }
+
+    internal ListSortDirection Direction { get; }
+
+    internal int RowCount { get; }
+
+    public bool Equals(NormalLibrarySortCacheKey other)
+    {
+        return SourceGeneration == other.SourceGeneration
+            && SortKeyGeneration == other.SortKeyGeneration
+            && string.Equals(ColumnName, other.ColumnName, StringComparison.Ordinal)
+            && Direction == other.Direction
+            && RowCount == other.RowCount;
+    }
+
+    public override bool Equals(object obj)
+    {
+        return obj is NormalLibrarySortCacheKey other && Equals(other);
+    }
+
+    public override int GetHashCode()
+    {
+        unchecked
+        {
+            int hashCode = SourceGeneration.GetHashCode();
+            hashCode = (hashCode * 397) ^ SortKeyGeneration.GetHashCode();
+            hashCode = (hashCode * 397) ^ StringComparer.Ordinal.GetHashCode(ColumnName ?? string.Empty);
+            hashCode = (hashCode * 397) ^ (int)Direction;
+            hashCode = (hashCode * 397) ^ RowCount;
+            return hashCode;
+        }
+    }
 }
 
 /// <summary>
@@ -4331,6 +4405,18 @@ public class MainWindowViewModel : ViewModel
 
     private ListSortDirection? folderSortDirection;
 
+    private readonly NormalLibraryRowCache regularBmsLibraryRowCache;
+
+    private readonly Dictionary<NormalLibrarySortCacheKey, List<LibraryChartRow>> normalLibrarySortCache = new Dictionary<NormalLibrarySortCacheKey, List<LibraryChartRow>>();
+
+    private readonly object normalLibrarySortCacheLock = new object();
+
+    private long normalLibrarySourceGeneration;
+
+    private long normalLibrarySortKeyGeneration;
+
+    private int pendingRegularBmsRowCachePrunedCount;
+
     private readonly Dictionary<string, LibraryChartRow> bmsonLibraryRowsByPath = new Dictionary<string, LibraryChartRow>(StringComparer.OrdinalIgnoreCase);
 
     private readonly Dictionary<LR2SongDBExtended.bmson_song, LibraryChartRow> bmsonLibraryRowsBySong = new Dictionary<LR2SongDBExtended.bmson_song, LibraryChartRow>(BmsonSongReferenceComparer.Instance);
@@ -7223,6 +7309,44 @@ public class MainWindowViewModel : ViewModel
         folderSortResultSnapshot = null;
         folderSortColumnName = null;
         folderSortDirection = null;
+        ClearNormalLibrarySortCache();
+    }
+
+    private void IncrementNormalLibrarySourceGeneration(string reason)
+    {
+        lock (normalLibrarySortCacheLock)
+        {
+            normalLibrarySourceGeneration++;
+            normalLibrarySortCache.Clear();
+        }
+    }
+
+    private void OnNormalLibrarySortKeyChanged(string propertyName)
+    {
+        lock (normalLibrarySortCacheLock)
+        {
+            normalLibrarySortKeyGeneration++;
+            normalLibrarySortCache.Clear();
+        }
+    }
+
+    private void ClearNormalLibrarySortCache()
+    {
+        lock (normalLibrarySortCacheLock)
+        {
+            normalLibrarySortCache.Clear();
+        }
+    }
+
+    private int PruneRegularBmsLibraryRowCache(IEnumerable<BeMusicSeeker.Models.BMSFile> currentFiles)
+    {
+        if (regularBmsLibraryRowCache == null)
+        {
+            return 0;
+        }
+        int pruned = regularBmsLibraryRowCache.Prune(currentFiles);
+        pendingRegularBmsRowCachePrunedCount += pruned;
+        return pruned;
     }
 
     /// <summary>
@@ -9001,6 +9125,7 @@ public class MainWindowViewModel : ViewModel
     /// </summary>
     public MainWindowViewModel()
     {
+        regularBmsLibraryRowCache = new NormalLibraryRowCache(OnNormalLibrarySortKeyChanged);
         _IsPlaylistTreeExpanded = Settings.Default.StartupExpandPlaylistTree;
         ReplaceKeywordSearchHistory(keywordSearchHistory, KeywordSearchHistoryStore.Deserialize(Settings.Default.KeywordSearchHistory));
         ReplaceKeywordSearchHistory(playlistSummaryKeywordSearchHistory, KeywordSearchHistoryStore.Deserialize(Settings.Default.PlaylistSummaryKeywordSearchHistory));
@@ -9337,6 +9462,8 @@ public class MainWindowViewModel : ViewModel
         listenerForBMSLibrary.RegisterHandler(() => files.BMSFiles, delegate
         {
             InvalidatePlaylistLibraryIndexSnapshot("library_bmsfiles_changed");
+            PruneRegularBmsLibraryRowCache(files?.BMSFiles);
+            IncrementNormalLibrarySourceGeneration("library_bmsfiles_changed");
             ResetRegularDerivedViewCaches();
             if (TrySuppress(UiRefreshChannel.LibraryMainView))
             {
@@ -9360,7 +9487,11 @@ public class MainWindowViewModel : ViewModel
         listenerForBMSLibrary.RegisterHandler(() => files.BmsonSongs, delegate
         {
             InvalidatePlaylistLibraryIndexSnapshot("library_bmsons_changed");
-            bool membershipChanged = SyncBmsonLibraryRowCache(files?.BmsonSongs);
+            BmsonLibraryRowCacheSyncResult syncResult = SyncBmsonLibraryRowCache(files?.BmsonSongs);
+            if (syncResult.SortKeyChanged)
+            {
+                OnNormalLibrarySortKeyChanged("bmson_sort_key_changed");
+            }
             RefreshPlaylistSummaryIfVisible();
             if (TrySuppress(UiRefreshChannel.LibraryMainView))
             {
@@ -9370,8 +9501,9 @@ public class MainWindowViewModel : ViewModel
             {
                 return;
             }
-            if (membershipChanged)
+            if (syncResult.MembershipChanged)
             {
+                IncrementNormalLibrarySourceGeneration("library_bmsons_membership_changed");
                 ResetRegularDerivedViewCaches();
                 makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
             }
@@ -11098,7 +11230,15 @@ public class MainWindowViewModel : ViewModel
         bool includeBmsonRows = ShouldIncludeBmsonLibraryRowsInMainView(mode, treeViewFilterTypeSelected);
         if (includeBmsonRows)
         {
-            SyncBmsonLibraryRowCache(files?.BmsonSongs);
+            BmsonLibraryRowCacheSyncResult bmsonSyncResult = SyncBmsonLibraryRowCache(files?.BmsonSongs);
+            if (bmsonSyncResult.SortKeyChanged)
+            {
+                OnNormalLibrarySortKeyChanged("bmson_sort_key_changed");
+            }
+            if (bmsonSyncResult.MembershipChanged)
+            {
+                IncrementNormalLibrarySourceGeneration("bmson_membership_changed");
+            }
         }
         ClearPlaylistSourceRows();
         if (ShouldRebuildRegularFolderStage(mode, ChartRowsFolderView, ChartRowsKeywordFilterView, ChartRowsModeFilterView, treeViewFilterTypeSelected))
@@ -11109,11 +11249,13 @@ public class MainWindowViewModel : ViewModel
         switch (mode)
         {
             case viewUpdateMode.FolderFilterSelected:
-                ChartRowsFolderView = BuildStandardLibraryRowsForView(BMSFiles, includeBmsonRows ? GetBmsonLibraryRowsSnapshot() : Array.Empty<LibraryChartRow>(), FolderFilter, out LibraryRowsBuildMetrics folderMetrics);
+                LibraryRowCacheBuildStats folderRowCacheStats = CreateRegularRowCacheBuildStats();
+                ChartRowsFolderView = BuildStandardLibraryRowsForView(BMSFiles, includeBmsonRows ? GetBmsonLibraryRowsSnapshot() : Array.Empty<LibraryChartRow>(), FolderFilter, file => regularBmsLibraryRowCache.GetOrCreate(file, folderRowCacheStats), folderRowCacheStats, out LibraryRowsBuildMetrics folderMetrics);
                 LogMainViewFolderDetail(mode, folderMetrics);
                 break;
             case viewUpdateMode.FullScanAllChartsFilterSelected:
-                ChartRowsFolderView = BuildStandardLibraryRowsForView(BMSFiles, includeBmsonRows ? GetBmsonLibraryRowsSnapshot() : Array.Empty<LibraryChartRow>(), null, out LibraryRowsBuildMetrics fullScanMetrics);
+                LibraryRowCacheBuildStats fullScanRowCacheStats = CreateRegularRowCacheBuildStats();
+                ChartRowsFolderView = BuildStandardLibraryRowsForView(BMSFiles, includeBmsonRows ? GetBmsonLibraryRowsSnapshot() : Array.Empty<LibraryChartRow>(), null, file => regularBmsLibraryRowCache.GetOrCreate(file, fullScanRowCacheStats), fullScanRowCacheStats, out LibraryRowsBuildMetrics fullScanMetrics);
                 LogMainViewFolderDetail(mode, fullScanMetrics);
                 break;
             case viewUpdateMode.FileMissingFilterSelected:
@@ -11363,16 +11505,55 @@ public class MainWindowViewModel : ViewModel
             bool isTreeSelectionRequest = requestedMode != viewUpdateMode.TreeViewFilterNotChanged && requestedMode < viewUpdateMode.KeywordFilterUpdated;
             bool isFolderMode = mode == viewUpdateMode.FolderFilterSelected;
             List<LibraryChartRow> modeFilterList = ChartRowsModeFilterView as List<LibraryChartRow>;
+            bool isFullNormalLibraryResult = treeViewFilterTypeSelected == viewUpdateMode.FolderFilterSelected
+                && FolderFilter == null
+                && string.IsNullOrWhiteSpace(KeywordFilter)
+                && ModeFilter == ModeFilterType.All
+                && !isPlaylistDetailView
+                && modeFilterList != null
+                && modeFilterList.Count == folderCount
+                && modeFilterList.Count == keywordCount
+                && modeFilterList.Count == modeCount;
             if (isFolderMode && isTreeSelectionRequest && modeFilterList != null && folderSortSourceSnapshot != null && folderSortResultSnapshot != null && string.Equals(folderSortColumnName, columnName, StringComparison.Ordinal) && folderSortDirection == direction && IsSameReferenceSequence(modeFilterList, folderSortSourceSnapshot))
             {
                 nextRowsView = folderSortResultSnapshot;
                 sortReuse = true;
                 sortProfile = "reuse";
             }
+            else if (TryGetNormalLibrarySortCache(isFullNormalLibraryResult, columnName, direction, modeFilterList?.Count ?? modeCount, out List<LibraryChartRow> cachedRows, out NormalLibrarySortCacheKey sortCacheKey, out _))
+            {
+                Stopwatch sortCacheStopwatch = Stopwatch.StartNew();
+                nextRowsView = cachedRows;
+                sortCacheStopwatch.Stop();
+                sortReuse = true;
+                sortProfile = "reuse";
+                LogMainSortDetail(CreateNormalLibrarySortCacheMetrics(sortCacheKey, sortCacheStopwatch.ElapsedMilliseconds, cacheHit: true));
+            }
             else
             {
                 List<LibraryChartRow> sortedRows = LibraryChartRowSortEngine.SortForMainView(ChartRowsModeFilterView, SortParameters, isPlaylistDetailView, useLegacySortForMainView, out sortProfile, out LibraryChartSortMetrics sortMetrics);
                 nextRowsView = sortedRows;
+                if (isFullNormalLibraryResult && TryNormalizeNormalLibrarySortCacheColumn(columnName, out string normalizedCacheColumnName))
+                {
+                    NormalLibrarySortCacheKey newCacheKey;
+                    lock (normalLibrarySortCacheLock)
+                    {
+                        newCacheKey = new NormalLibrarySortCacheKey(normalLibrarySourceGeneration, normalLibrarySortKeyGeneration, normalizedCacheColumnName, direction, sortedRows.Count);
+                    }
+                    StoreNormalLibrarySortCache(newCacheKey, sortedRows);
+                    sortMetrics = new LibraryChartSortMetrics(
+                        sortMetrics.RowCount,
+                        sortMetrics.ColumnName,
+                        sortMetrics.Direction,
+                        sortMetrics.PropertyTypeName,
+                        sortMetrics.SortProfile,
+                        sortMetrics.StringSortKind,
+                        sortMetrics.SortMs,
+                        sortReuse: false,
+                        sortCacheKey: normalizedCacheColumnName,
+                        sortCacheGeneration: newCacheKey.SortKeyGeneration,
+                        sortCacheHit: false);
+                }
                 LogMainSortDetail(sortMetrics);
                 if (isFolderMode)
                 {
@@ -11442,6 +11623,17 @@ public class MainWindowViewModel : ViewModel
         Func<BeMusicSeeker.Models.BMSFile, bool> folderFilter,
         out LibraryRowsBuildMetrics metrics)
     {
+        return BuildStandardLibraryRowsForView(bmsFiles, bmsonRows, folderFilter, LibraryChartRow.FromBmsFile, null, out metrics);
+    }
+
+    internal static List<LibraryChartRow> BuildStandardLibraryRowsForView(
+        IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles,
+        IEnumerable<LibraryChartRow> bmsonRows,
+        Func<BeMusicSeeker.Models.BMSFile, bool> folderFilter,
+        Func<BeMusicSeeker.Models.BMSFile, LibraryChartRow> bmsRowFactory,
+        LibraryRowCacheBuildStats rowCacheStats,
+        out LibraryRowsBuildMetrics metrics)
+    {
         Stopwatch totalStopwatch = Stopwatch.StartNew();
         long regularFilterMs = 0L;
         long bmsonFilterMs = 0L;
@@ -11470,7 +11662,7 @@ public class MainWindowViewModel : ViewModel
         }
 
         Stopwatch materializeStopwatch = Stopwatch.StartNew();
-        List<LibraryChartRow> regularLibraryRows = ToLibraryChartRows(regularRows);
+        List<LibraryChartRow> regularLibraryRows = ToLibraryChartRows(regularRows, bmsRowFactory ?? LibraryChartRow.FromBmsFile);
         materializeStopwatch.Stop();
         regularRowMaterializeMs = materializeStopwatch.ElapsedMilliseconds;
 
@@ -11499,8 +11691,21 @@ public class MainWindowViewModel : ViewModel
             bmsonRowMaterializeMs,
             concatToListMs,
             totalStopwatch.ElapsedMilliseconds,
-            rows.Count);
+            rows.Count,
+            rowCacheStats?.HitCount ?? 0,
+            rowCacheStats?.MissCount ?? 0,
+            rowCacheStats?.PrunedCount ?? 0);
         return rows;
+    }
+
+    private LibraryRowCacheBuildStats CreateRegularRowCacheBuildStats()
+    {
+        LibraryRowCacheBuildStats stats = new LibraryRowCacheBuildStats
+        {
+            PrunedCount = pendingRegularBmsRowCachePrunedCount
+        };
+        pendingRegularBmsRowCachePrunedCount = 0;
+        return stats;
     }
 
     private static int CountIfCheap<T>(IEnumerable<T> source)
@@ -11533,6 +11738,9 @@ public class MainWindowViewModel : ViewModel
             + " regularRowMaterializeMs=" + metrics.RegularRowMaterializeMs
             + " bmsonRowMaterializeMs=" + metrics.BmsonRowMaterializeMs
             + " concatToListMs=" + metrics.ConcatToListMs
+            + " regularRowCacheHitCount=" + metrics.RegularRowCacheHitCount
+            + " regularRowCacheMissCount=" + metrics.RegularRowCacheMissCount
+            + " regularRowCachePrunedCount=" + metrics.RegularRowCachePrunedCount
             + " folderMs=" + metrics.FolderMs
             + " folderCount=" + metrics.FolderCount);
     }
@@ -11545,13 +11753,99 @@ public class MainWindowViewModel : ViewModel
             + " propertyType=" + (metrics.PropertyTypeName ?? "(null)")
             + " sortProfile=" + (metrics.SortProfile ?? string.Empty)
             + " stringSortKind=" + (metrics.StringSortKind ?? string.Empty)
+            + " sortReuse=" + metrics.SortReuse
+            + " sortCacheKey=" + (metrics.SortCacheKey ?? string.Empty)
+            + " sortCacheGeneration=" + metrics.SortCacheGeneration
+            + " sortCacheHit=" + metrics.SortCacheHit
             + " sortMs=" + metrics.SortMs);
+    }
+
+    private static bool TryNormalizeNormalLibrarySortCacheColumn(string columnName, out string normalizedColumnName)
+    {
+        if (string.IsNullOrWhiteSpace(columnName))
+        {
+            normalizedColumnName = nameof(LibraryChartRow.Title);
+            return true;
+        }
+        if (string.Equals(columnName, nameof(LibraryChartRow.Title), StringComparison.Ordinal))
+        {
+            normalizedColumnName = nameof(LibraryChartRow.Title);
+            return true;
+        }
+        if (string.Equals(columnName, nameof(LibraryChartRow.path), StringComparison.Ordinal))
+        {
+            normalizedColumnName = nameof(LibraryChartRow.path);
+            return true;
+        }
+        normalizedColumnName = null;
+        return false;
+    }
+
+    internal static bool IsNormalLibrarySortCacheCandidateForTest(string columnName)
+    {
+        return TryNormalizeNormalLibrarySortCacheColumn(columnName, out _);
+    }
+
+    private bool TryGetNormalLibrarySortCache(
+        bool isEligible,
+        string columnName,
+        ListSortDirection direction,
+        int rowCount,
+        out List<LibraryChartRow> rows,
+        out NormalLibrarySortCacheKey cacheKey,
+        out string cacheColumnName)
+    {
+        rows = null;
+        cacheKey = default;
+        cacheColumnName = string.Empty;
+        if (!isEligible || !TryNormalizeNormalLibrarySortCacheColumn(columnName, out cacheColumnName))
+        {
+            return false;
+        }
+        lock (normalLibrarySortCacheLock)
+        {
+            cacheKey = new NormalLibrarySortCacheKey(normalLibrarySourceGeneration, normalLibrarySortKeyGeneration, cacheColumnName, direction, rowCount);
+            return normalLibrarySortCache.TryGetValue(cacheKey, out rows);
+        }
+    }
+
+    private void StoreNormalLibrarySortCache(NormalLibrarySortCacheKey cacheKey, List<LibraryChartRow> rows)
+    {
+        if (rows == null || string.IsNullOrWhiteSpace(cacheKey.ColumnName))
+        {
+            return;
+        }
+        lock (normalLibrarySortCacheLock)
+        {
+            normalLibrarySortCache[cacheKey] = rows;
+        }
+    }
+
+    private static LibraryChartSortMetrics CreateNormalLibrarySortCacheMetrics(NormalLibrarySortCacheKey cacheKey, long sortMs, bool cacheHit)
+    {
+        return new LibraryChartSortMetrics(
+            cacheKey.RowCount,
+            cacheKey.ColumnName,
+            cacheKey.Direction,
+            nameof(String),
+            "library_chart_string_fast_ordinal_ignore_case",
+            "ordinal_ignore_case",
+            sortMs,
+            sortReuse: cacheHit,
+            sortCacheKey: cacheKey.ColumnName,
+            sortCacheGeneration: cacheKey.SortKeyGeneration,
+            sortCacheHit: cacheHit);
     }
 
     private static List<LibraryChartRow> ToLibraryChartRows(IEnumerable<BeMusicSeeker.Models.BMSFile> files)
     {
+        return ToLibraryChartRows(files, LibraryChartRow.FromBmsFile);
+    }
+
+    private static List<LibraryChartRow> ToLibraryChartRows(IEnumerable<BeMusicSeeker.Models.BMSFile> files, Func<BeMusicSeeker.Models.BMSFile, LibraryChartRow> rowFactory)
+    {
         return (files ?? Enumerable.Empty<BeMusicSeeker.Models.BMSFile>())
-            .Select(LibraryChartRow.FromBmsFile)
+            .Select(rowFactory ?? LibraryChartRow.FromBmsFile)
             .Where((LibraryChartRow row) => row != null)
             .ToList();
     }
@@ -11601,7 +11895,7 @@ public class MainWindowViewModel : ViewModel
             .ToList();
     }
 
-    private bool SyncBmsonLibraryRowCache(IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs)
+    private BmsonLibraryRowCacheSyncResult SyncBmsonLibraryRowCache(IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs)
     {
         List<LR2SongDBExtended.bmson_song> snapshot = (bmsonSongs ?? Enumerable.Empty<LR2SongDBExtended.bmson_song>())
             .Where((LR2SongDBExtended.bmson_song song) => song != null && !string.IsNullOrWhiteSpace(song.path))
@@ -11609,6 +11903,7 @@ public class MainWindowViewModel : ViewModel
             .ToList();
         HashSet<string> nextPaths = new HashSet<string>(snapshot.Select((LR2SongDBExtended.bmson_song song) => song.path), StringComparer.OrdinalIgnoreCase);
         bool membershipChanged = bmsonLibraryRowsByPath.Count != nextPaths.Count || bmsonLibraryRowsByPath.Keys.Any((string path) => !nextPaths.Contains(path));
+        bool sortKeyChanged = membershipChanged;
         Dictionary<string, LibraryChartRow> nextByPath = new Dictionary<string, LibraryChartRow>(StringComparer.OrdinalIgnoreCase);
         Dictionary<LR2SongDBExtended.bmson_song, LibraryChartRow> nextBySong = new Dictionary<LR2SongDBExtended.bmson_song, LibraryChartRow>(BmsonSongReferenceComparer.Instance);
         foreach (LR2SongDBExtended.bmson_song song in snapshot)
@@ -11622,10 +11917,18 @@ public class MainWindowViewModel : ViewModel
             {
                 row = LibraryChartRow.FromBmsonSong(song);
                 membershipChanged = true;
+                sortKeyChanged = true;
             }
             else
             {
+                string previousTitle = row.Title;
+                string previousPath = row.path;
                 row.UpdateFromBmsonSong(song);
+                if (!string.Equals(previousTitle, row.Title, StringComparison.Ordinal)
+                    || !string.Equals(previousPath, row.path, StringComparison.Ordinal))
+                {
+                    sortKeyChanged = true;
+                }
             }
             if (row != null)
             {
@@ -11643,7 +11946,7 @@ public class MainWindowViewModel : ViewModel
         {
             bmsonLibraryRowsBySong[item3.Key] = item3.Value;
         }
-        return membershipChanged;
+        return new BmsonLibraryRowCacheSyncResult(membershipChanged, sortKeyChanged);
     }
 
     private void SyncBmsonLibraryRowCacheWithoutRebuild()

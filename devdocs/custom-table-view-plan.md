@@ -683,14 +683,21 @@ Phase 3 完了判断:
    - 候補: 対象 row 抽出、`LibraryChartRow` materialize、bmson/BMS 共通 row 化、mode/tag/keyword 前処理、リストコピー。
    - ここは CustomTableView 描画とは別作業として扱うが、ユーザー体感の初回表示には最も効く。
    - 実装済み: `main_view_folder_detail` を追加し、`sourceBmsCount`, `sourceBmsonCount`, `filteredBmsCount`, `filteredBmsonCount`, `regularFilterMs`, `bmsonFilterMs`, `regularRowMaterializeMs`, `bmsonRowMaterializeMs`, `concatToListMs`, `folderMs`, `folderCount` を出す。
-   - 次候補: 全件表示時の `LibraryChartRow` 再生成を避ける cache / reuse、または sort/filter 前後で必要な row 化範囲を絞る。
+   - 追加実装: 通常ライブラリ用の `BMSFile -> LibraryChartRow` cache を追加し、全件表示やフィルター解除時に BMS row wrapper を再利用する。
+   - 追加実装: `main_view_folder_detail` に `regularRowCacheHitCount`, `regularRowCacheMissCount`, `regularRowCachePrunedCount` を追加し、20 万件 row materialize が cache hit で下がるか確認できるようにする。
+   - 削除済み `BMSFile` を保持しないよう、`BMSFiles` membership 変更時に row cache を prune する。
+   - 検索・フィルターで変化する result set の高速化は後続とし、まず未絞り込み通常ライブラリの軽い遷移を優先する。
 
 4. 通常ライブラリの `sortMs` をさらに削る。
    - `sortMs=506` は 20 万行規模では十分大きい。
    - sort key の事前計算、PATH/TITLE の比較 profile、文字列比較回数、`DisplayIndex` や列設定の影響がないかを確認する。
    - 既存の fast sort を正本としつつ、列別の hot path だけを絞って改善する。
    - 実装済み: 最適化本体はまだ入れず、`main_sort_detail` で `rowCount`, `columnName`, `direction`, `propertyType`, `sortProfile`, `stringSortKind`, `sortMs` を出す。
-   - 次候補: `PATH` / `TITLE` の sort key cache、比較対象文字列の事前正規化、sort reuse 条件の拡張。
+   - 追加実装: 未絞り込み通常ライブラリだけ、`Title` Asc/Desc と lowercase `path` Asc/Desc の sorted list を最大 4 件 reuse する。
+   - cache key は通常ライブラリ source generation、Title/path sort-key generation、column、direction、rowCount で構成する。
+   - `main_sort_detail` に `sortReuse`, `sortCacheKey`, `sortCacheGeneration`, `sortCacheHit` を追加し、同じ Title/path sort に戻した時の hit と `sortMs` 低下を確認する。
+   - Desc は Asc の reverse ではなく、既存 sort engine の結果を個別に cache する。既存 sort は secondary key を持つため reverse では互換性が崩れる可能性がある。
+   - `Title`, `path`, `Folder` など sort/filter key に関わる row 更新では sort cache を破棄する。bmson の同一 path metadata 更新も Title/path cache の無効化対象にする。
 
 5. 描画側は `custom_table_render reason=...` ごとに後半改善を判断する。
    - `items_source_changed`, `columns_changed`, `scroll_vertical`, `selection`, `row_property_changed` を reason 別に比較する。
