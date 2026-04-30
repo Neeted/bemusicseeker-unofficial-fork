@@ -501,6 +501,136 @@ Phase 3 完了判断:
 - ゼロノート再判定で、background thread 由来の row `PropertyChanged` が cell value cache を直接 invalidation し、UI thread の描画と競合して `InvalidOperationException: コレクションが変更されました` が発生した。
 - 修正として、row `PropertyChanged` handler は row 参照を thread-safe queue に積むだけにし、Dispatcher 上で pending row の cache invalidation と `RequestRedraw("row_property_changed")` を行う。`CustomTableCellValueCache` は UI thread 専用 state として扱う。
 
+## Phase 7: メイン表の DataGrid 表示差分を埋める
+
+目的: メイン一覧について、DataGrid fallback を外す前に残っている見た目差分を CustomTableView 側へ移す。性能は現状で許容できているため、この Phase は表示互換を優先する。
+
+実装内容:
+
+- `CLEAR` / `DJ LEVEL` / `DIFFICULTY` / `JUDGE` のフォントを DataGrid と同じ `SovjetBox` 表示へ戻す。
+  - DataGrid の `styleDataGridNotEditingCellScoreText` 相当として、`FontFamily=/BeMusicSeeker;component/resources/#Sovjet Box`、中央寄せ、単色 foreground を CustomTable 側で表現する。
+  - `DJ LEVEL` は DataGrid 側と同じく大きめ表示として扱い、必要なら `CLEAR` / `DIFFICULTY` / `JUDGE` とは別の font size / vertical offset を持たせる。
+  - `DropShadowEffect` / gradient は戻さず、現行の cached brush provider を維持する。
+- CustomTable の text layout cache key を font role に対応させる。
+  - 現状の `UseBoldText` だけでは typeface / font size 差分を表現しにくいため、`CustomTableTextStyle` のような軽量 value を導入する。
+  - cache key は `Text`, `MaxTextWidth`, `MaxTextHeight`, alignment, foreground, DPI, culture に加え、typeface / font size / weight を区別する。
+  - 既存の通常 text は `Meiryo UI` 系、score text は `SovjetBox` 系として分ける。
+- `DIFFICULTY` / `LEVEL` / `TOTAL` / `T/N` の未定義警告セル背景を反映する。
+  - DataGrid の `#FFFFF6D5` を基準色にする。
+  - `LEVEL`: `ChartLevelUndefined`
+  - `DIFFICULTY`: `ChartDifficultyUndefined`
+  - `TOTAL`: `ChartTotalUndefined`
+  - `T/N`: `ChartTotalUndefined`
+  - 選択行の薄い選択色と current cell の濃い選択色を優先し、未選択セルだけ未定義背景を出す。
+  - 実装は row 全体 warning とは別に、`CustomTableColumn` / `CustomTableCellValue` へ cell background selector を追加する。
+- 既存 DataGrid の列定義、sort path、列幅設定は変更しない。
+  - Phase 7 は「DataGrid を消す前の表示差分吸収」であり、列構成や ViewModel の値生成は変えない。
+
+確認対象:
+
+- `CLEAR` / `DJ LEVEL` / `DIFFICULTY` / `JUDGE` が DataGrid 時代と同系統の `SovjetBox` 表示になる。
+- 4 列の色分けは現行 CustomTableView と同じ mapping のまま維持される。
+- `LEVEL` / `DIFFICULTY` / `TOTAL` / `T/N` の未定義セルだけ薄黄色になり、選択中の current cell 表示を邪魔しない。
+- 通常ライブラリ表示、プレイリスト詳細表示、横スクロール、列 resize / reorder、sort、編集、DnD、コピーで表示崩れがない。
+- text layout cache の hit 率と `renderWorkMs` が大きく悪化しない。
+
+## Phase 8: プレイリストサマリーを CustomTableView 化する
+
+目的: `dataGridPlaylistSummary` を廃止し、プレイリストサマリー画面も CustomTableView 系で描画・操作する。これにより本アプリの実質的な DataGrid 使用箇所をなくす。
+
+前提:
+
+- 元の DataGrid の template UI を完全再現することは目的にしない。
+- `LINK` はリンクを開けること、`SYNC` / `ROOT` は状態表示と切り替えができることを優先する。
+- 右クリックリロード、`SYNC` / `ROOT` の切り替え、プレイリスト削除などの複数行選択対応は維持する。
+
+実装内容:
+
+- CustomTableView を summary 用 ItemsSource / ColumnsSettings にも使えるようにする。
+  - 既存の main 用 column factory とは分け、`CustomTableColumnFactory.CreatePlaylistSummaryColumns(PlaylistSummaryColumnSettings settings)` を追加する。
+  - `PlaylistSummaryColumnSettings.ColumnLayout` と `dataGridColumnsSettings.dataGridColumnlayouts` は型が異なるため、共通 interface / adapter / 小さな layout snapshot DTO のいずれかで扱う。
+  - 行高、横スクロール、列 resize / reorder、sort glyph、tooltip、selection model、copy、context menu は main と共通実装を使う。
+- プレイリストサマリー列を CustomTable column として定義する。
+  - `ID`: `PlaylistId`, right, sort `PlaylistId`
+  - `NAME`: `Name`, left, sort `Name`
+  - `SYMBOL`: `Symbol`, center, sort `Symbol`
+  - `LAST UPDATE`: `LastUpdate`, center, `yyyy/MM/dd HH:mm:ss`, sort `LastUpdate`
+  - `TOTAL`: `TotalCharts`, right, sort `TotalCharts`
+  - `OWNED`: `OwnedCharts`, right, sort `OwnedCharts`
+  - `MISSING`: `MissingCharts`, right, sort `MissingCharts`
+  - `OWNED %`: `OwnedRatio`, right, `F1%`, sort `OwnedRatio`
+  - `LINK`: `LinkUri != null` のときだけ `Open` 相当の表示、sort なし
+  - `SYNC`: `IsExternalSync` の checked/unchecked 表示、sort `IsExternalSync`
+  - `STATUS`: `Status`, center, tooltip `StatusDetail`, sort `StatusSortOrder`
+  - `ROOT`: `IsRootFolder` の checked/unchecked 表示、sort `IsRootFolder`
+- summary 用 cell kind を追加する。
+  - `LinkAction`: `Open` text または軽量 icon を描画し、クリックで `LinkUri` を開く。
+  - `BooleanCheck`: check mark / empty box を DrawingContext で描画し、クリックで toggle event を発火する。
+  - WPF `Button` / `CheckBox` をセルごとに生成しない。
+- summary 操作 event を MainWindow に橋渡しする。
+  - `CellActionRequested` のような event で `LINK` click、`SYNC` toggle、`ROOT` toggle を通知する。
+  - `LINK` は既存 `playlistSummaryLinkClick` / `playlistSummaryContextMenuOpenPageClick` と同じく `Process.Start(row.LinkUri.ToString())` を使う。
+  - `SYNC` は既存と同じ確認 dialog を出し、選択中 rows 全体へ `ApplyPlaylistSummaryFlags(selectedRows, flag, null)` を適用する。
+  - `ROOT` は選択中 rows 全体へ `ApplyPlaylistSummaryFlags(selectedRows, null, flag)` を適用する。
+- summary 選択・右クリックを DataGrid 依存から切り離す。
+  - `getSelectedPlaylistSummaryRows()` は `customTablePlaylistSummary.GetSelectedRowsSnapshot()` を読む。
+  - `resolvePlaylistSummaryRowFromSender()` は CustomTable の context object / menu tag / selected row から解決できるようにする。
+  - row context menu は既存 `playlistSummaryContextMenu` を再利用し、menu handler は `PlaylistSummaryRow` 中心に処理する。
+  - double click は `TrySelectPlaylistTreeItemFromSummary(row)` に接続する。
+- summary sort を CustomTable header click へ接続する。
+  - 現行 `dataGridPlaylistSummarySorting` と同じく `PlaylistSummarySortParameters` を更新し、`ApplyPlaylistSummaryPresentation()` / `RebuildPlaylistSummaryView()` の既存 pipeline に乗せる。
+  - sort glyph は `PlaylistSummarySortParameters.ColumnsName` / `Direction` を CustomTable に binding する。
+- summary の failure row highlight を反映する。
+  - `HasFailureStatus` の row は DataGrid と同じ `#FFFDE4E4` 系背景を使う。
+  - 選択表示は main CustomTable と同じく row 選択色 / current cell 色を優先する。
+- `dataGridPlaylistSummary` は Phase 8 完了時点では XAML に残してもよいが、通常表示経路からは外す。
+  - まず sibling `customTablePlaylistSummary` を追加して機能同等性を確認する。
+  - 問題なければ Phase 9 で DataGrid fallback と一緒に削除する。
+
+確認対象:
+
+- プレイリストサマリー表示で全列が既存の列幅 / visibility / display index を反映する。
+- `LINK` click と context menu の open page が同等に動く。
+- `SYNC` / `ROOT` を単一行・複数選択で切り替えられる。
+- reload、property、remove playlist が複数選択を維持して動く。
+- row double click で対応する playlist tree item を選択できる。
+- header sort / glyph / column resize / reorder / copy / keyboard selection が main CustomTable と同じように動く。
+- `dataGridPlaylistSummary` の `SelectedItems` や `DataGridRow` を前提にした処理が summary 通常経路に残っていない。
+
+## Phase 9: DataGrid fallback と二重保守の削除
+
+目的: メイン一覧とプレイリストサマリーの CustomTableView 化が完了した後、DataGrid との共存をやめ、実質的・構造的な二重保守をなくす。
+
+実装内容:
+
+- `UseCustomTableView` を通常機能として固定する。
+  - 既定値を `true` にするだけでなく、切り戻し UI を残す必要があるか判断する。
+  - DataGrid fallback を削除する場合は、設定項目と高度な設定の表示文言も削除または obsolete 扱いにする。
+- `MainWindow.xaml` からメイン `dataGrid` と `dataGridPlaylistSummary` を削除する。
+  - DataGrid 専用 style / resource / column 定義 / editing template / column header context menu setter を整理する。
+  - CustomTableView で使う context menu resource は名前を DataGrid 依存でないものへ改名する。
+- `MainWindow.cs` の DataGrid 依存 helper を削る。
+  - `DataGridRow`, `DataGridCell`, `DataGridColumn`, `SelectedItems`, `CurrentColumn`, `CommitEdit` 前提の分岐を削除または CustomTable 中心の API に一本化する。
+  - `PreparePlaylistDataGridSwap`, `playlist_datagrid_state`, `target_updated_render` など DataGrid 計測を CustomTable 用計測へ置換する。
+  - `TryGetContextMenuRow`, `GetSelectedGridRowsSnapshot`, playlist summary row resolver など、移行済み helper は命名を DataGrid から離す。
+- DataGrid 専用 converter / behavior / extension を棚卸しする。
+  - `DataGridExt.cs`, `DragBehavior.cs`, DataGrid column length converter など、他 UI で使っていないものは削除候補にする。
+  - `statusToStringConverterForLigatureSymbols` など CustomTable で置き換え済みの converter は参照を確認して整理する。
+- テストとログを CustomTable 正本へ更新する。
+  - `TableFirstVisibleMetricsTests` は `controlType=CustomTableView` を正本にする。
+  - DataGrid fallback 前提のテストは、互換テストから移行完了後の regression test へ書き換える。
+  - `playlist_datagrid_state` ログが不要になったら削除し、`custom_table_render` / `table_first_visible` / summary 用ログへ統合する。
+- ドキュメントと命名を整理する。
+  - `CustomDrawTableView` / `CustomTableView` の表記揺れを解消する。
+  - `DataGrid 表示用 row` など歴史的なコメントは、必要に応じて「一覧表示 row」へ変更する。
+
+確認対象:
+
+- XAML 上の実表示表に `DataGrid` が残っていない。
+- 通常ライブラリ、プレイリスト詳細、プレイリストサマリーの主要操作が CustomTableView のみで動く。
+- 右クリック、複数選択、DnD、編集、URL open、summary reload / remove / sync / root が維持される。
+- 既存の DataGrid fallback を使った性能ログや状態ログが残っていない、または明示的に legacy として隔離されている。
+
 ## 移行順序
 
 推奨順序:
@@ -512,7 +642,9 @@ Phase 3 完了判断:
 5. 操作系を追加する。
 6. 編集系を追加する。
 7. DataGrid Binding 相当の変更通知 / 再描画経路を揃える。
-8. DataGrid 使用箇所の置換範囲を広げる。
+8. メイン表の DataGrid 表示差分を CustomTableView 側で吸収する。
+9. プレイリストサマリーも CustomTableView 化する。
+10. DataGrid fallback と DataGrid 専用コードを削除する。
 
 別案として、`dataGridPlaylistSummary` は列数が少なく編集もないため、独自表コントロールの安全な試験場にできる。ただし性能課題の本命はメイン `dataGrid` なので、サマリーだけで完結しない。
 
