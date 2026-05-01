@@ -165,10 +165,19 @@ import は `ATTACH DATABASE` を使い、SQLite 側で差分投入する。大�
 `publish.ps1` の拡張候補:
 
 - `-IncludeMetadata`
-- `-MetadataSource artifacts/chart-info-metadata/latest/chart-info-metadata.7z`
+- `-MetadataSource artifacts\chart-info-metadata\latest\chart-info-metadata.7z`
 - `-MetadataPackageSuffix "-with-metadata"`
 
-`release.ps1` は `dist/bemusicseeker-unofficial-fork-${tag}*.zip` を release asset に添付できるようにする。
+`-IncludeMetadata` 指定時のみ metadata 同梱版を追加作成する。通常実行では従来通り通常版 zip だけを作る。
+
+metadata source は `.7z` と `.db` を許可する。zip 内 root にはアプリの起動時探索名に正規化して配置する。
+
+- `.7z`: `chart-info-metadata.7z`
+- `.db`: `chart-info-metadata.db`
+
+通常版 zip には `chart-info-metadata.*` を含めない。
+
+`release.ps1` は通常版 `dist\bemusicseeker-unofficial-fork-${tag}.zip` を必須とし、`dist\bemusicseeker-unofficial-fork-${tag}*.zip` を release asset に添付できるようにする。既存 release がある場合も `gh release upload --clobber` で matching zip を補完アップロードする。
 
 ## Unit 4: Import 済み Bundle の退避
 

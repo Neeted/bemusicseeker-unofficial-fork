@@ -4,12 +4,16 @@
 
 .DESCRIPTION
     1. クリーンビルド後、dist\ にリリース用 zip パッケージを作成
-    2. パッケージおよび公開対象ファイルを公開リポジトリへコピー
+    2. -IncludeMetadata 指定時は chart_info metadata 同梱 zip も追加作成
+    3. パッケージおよび公開対象ファイルを公開リポジトリへコピー
 #>
 param(
     [switch]$SkipBuild,
     [switch]$PackageOnly,
-    [switch]$SyncOnly
+    [switch]$SyncOnly,
+    [switch]$IncludeMetadata,
+    [string]$MetadataSource = "artifacts\chart-info-metadata\latest\chart-info-metadata.7z",
+    [string]$MetadataPackageSuffix = "-with-metadata"
 )
 
 $ErrorActionPreference = "Stop"
@@ -19,7 +23,7 @@ $devRoot = "D:\work\BeMusicSeeker-decomp"
 $pubRoot = "D:\github\bemusicseeker-unofficial-fork"
 $buildOutput = Join-Path $devRoot "bin\Release\net472"
 $distDir = Join-Path $devRoot "dist"
-$stagingDir = Join-Path $distDir "_staging"
+$stagingRoot = Join-Path $distDir "_staging"
 
 # AssemblyInformationalVersion を読み取る
 function Get-AppVersion {
@@ -31,9 +35,103 @@ function Get-AppVersion {
     throw "AssemblyInformationalVersion が見つかりません: $asmInfoPath"
 }
 
+function Resolve-MetadataSource {
+    if ([string]::IsNullOrWhiteSpace($MetadataSource)) {
+        throw "MetadataSource が空です。"
+    }
+
+    $sourcePath = $MetadataSource
+    if (-not [System.IO.Path]::IsPathRooted($sourcePath)) {
+        $sourcePath = Join-Path $devRoot $sourcePath
+    }
+    $sourcePath = [System.IO.Path]::GetFullPath($sourcePath)
+    if (-not (Test-Path $sourcePath -PathType Leaf)) {
+        throw "metadata source が見つかりません: $sourcePath"
+    }
+
+    $extension = [System.IO.Path]::GetExtension($sourcePath).ToLowerInvariant()
+    if ($extension -eq ".7z") {
+        $targetName = "chart-info-metadata.7z"
+    }
+    elseif ($extension -eq ".db") {
+        $targetName = "chart-info-metadata.db"
+    }
+    else {
+        throw "metadata source は .7z または .db を指定してください: $sourcePath"
+    }
+
+    return [PSCustomObject]@{
+        SourcePath = $sourcePath
+        TargetName = $targetName
+    }
+}
+
+function Copy-AppFilesToStaging($targetStagingDir) {
+    if (Test-Path $targetStagingDir) { Remove-Item $targetStagingDir -Recurse -Force }
+    New-Item -ItemType Directory -Path $targetStagingDir -Force | Out-Null
+
+    # アプリ本体のコピー (config, .pdb, *.log は除外)
+    Copy-Item (Join-Path $buildOutput "BeMusicSeeker.exe")        $targetStagingDir
+    Copy-Item (Join-Path $buildOutput "BeMusicSeeker.exe.config") $targetStagingDir
+    Copy-Item (Join-Path $buildOutput "libs")   (Join-Path $targetStagingDir "libs")   -Recurse
+    Copy-Item (Join-Path $buildOutput "native") (Join-Path $targetStagingDir "native") -Recurse
+    Copy-Item (Join-Path $buildOutput "lang")   (Join-Path $targetStagingDir "lang")   -Recurse
+
+    # LaunchWithInfoLog.bat
+    Copy-Item (Join-Path $devRoot "scripts\LaunchWithInfoLog.bat") $targetStagingDir
+
+    # README, LICENSE, ThirdPartyNotices
+    Copy-Item (Join-Path $devRoot "README.md")               $targetStagingDir
+    Copy-Item (Join-Path $devRoot "README.ja.md")            $targetStagingDir
+    Copy-Item (Join-Path $devRoot "LICENSE")                  $targetStagingDir
+    Copy-Item (Join-Path $devRoot "ThirdPartyNotices.txt")    $targetStagingDir
+    Copy-Item (Join-Path $devRoot "ThirdPartyNotices.ja.txt") $targetStagingDir
+
+    # third_party
+    Copy-Item (Join-Path $devRoot "third_party") (Join-Path $targetStagingDir "third_party") -Recurse
+}
+
+function New-ZipPackage($version, $packageSuffix, $metadataInfo) {
+    $stagingName = "_staging"
+    if (-not [string]::IsNullOrWhiteSpace($packageSuffix)) {
+        $safeSuffix = $packageSuffix -replace '[^A-Za-z0-9_-]', '_'
+        $stagingName = "_staging$safeSuffix"
+    }
+    $targetStagingDir = Join-Path $distDir $stagingName
+
+    Write-Host "  アプリ本体をコピー中: $stagingName"
+    Copy-AppFilesToStaging $targetStagingDir
+
+    if ($metadataInfo -ne $null) {
+        Write-Host "  metadata bundle をコピー中: $($metadataInfo.TargetName)"
+        Copy-Item $metadataInfo.SourcePath (Join-Path $targetStagingDir $metadataInfo.TargetName) -Force
+    }
+
+    $zipName = "bemusicseeker-unofficial-fork-v$version$packageSuffix.zip"
+    $zipPath = Join-Path $distDir $zipName
+
+    if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
+    Write-Host "  パッケージ作成中: $zipName"
+    Compress-Archive -Path "$targetStagingDir\*" -DestinationPath $zipPath -CompressionLevel Optimal
+
+    Remove-Item $targetStagingDir -Recurse -Force
+
+    Write-Host "  パッケージ作成完了: $zipPath" -ForegroundColor Green
+    return $zipPath
+}
+
 # ========== ステップ 1: リリースパッケージの作成 ==========
 function New-ReleasePackage {
     Write-Host "=== ステップ 1: リリースパッケージの作成 ===" -ForegroundColor Cyan
+
+    $metadataInfo = $null
+    if ($IncludeMetadata) {
+        if ([string]::IsNullOrWhiteSpace($MetadataPackageSuffix)) {
+            throw "MetadataPackageSuffix が空です。通常版 package を上書きしないため suffix を指定してください。"
+        }
+        $metadataInfo = Resolve-MetadataSource
+        Write-Host "  metadata source: $($metadataInfo.SourcePath)"
+    }
 
     # クリーンビルド
     if (-not $SkipBuild) {
@@ -52,44 +150,15 @@ function New-ReleasePackage {
     $version = Get-AppVersion
     Write-Host "  バージョン: $version"
 
-    # ステージングディレクトリの準備
-    if (Test-Path $stagingDir) { Remove-Item $stagingDir -Recurse -Force }
-    New-Item -ItemType Directory -Path $stagingDir -Force | Out-Null
+    if (Test-Path $stagingRoot) { Remove-Item $stagingRoot -Recurse -Force }
 
-    # アプリ本体のコピー (config, .pdb, *.log は除外)
-    Write-Host "  アプリ本体をコピー中..."
-    Copy-Item (Join-Path $buildOutput "BeMusicSeeker.exe")        $stagingDir
-    Copy-Item (Join-Path $buildOutput "BeMusicSeeker.exe.config") $stagingDir
-    Copy-Item (Join-Path $buildOutput "libs")   (Join-Path $stagingDir "libs")   -Recurse
-    Copy-Item (Join-Path $buildOutput "native") (Join-Path $stagingDir "native") -Recurse
-    Copy-Item (Join-Path $buildOutput "lang")   (Join-Path $stagingDir "lang")   -Recurse
+    $packages = @()
+    $packages += New-ZipPackage $version "" $null
+    if ($IncludeMetadata) {
+        $packages += New-ZipPackage $version $MetadataPackageSuffix $metadataInfo
+    }
 
-    # LaunchWithInfoLog.bat
-    Copy-Item (Join-Path $devRoot "scripts\LaunchWithInfoLog.bat") $stagingDir
-
-    # README, LICENSE, ThirdPartyNotices
-    Copy-Item (Join-Path $devRoot "README.md")               $stagingDir
-    Copy-Item (Join-Path $devRoot "README.ja.md")            $stagingDir
-    Copy-Item (Join-Path $devRoot "LICENSE")                  $stagingDir
-    Copy-Item (Join-Path $devRoot "ThirdPartyNotices.txt")    $stagingDir
-    Copy-Item (Join-Path $devRoot "ThirdPartyNotices.ja.txt") $stagingDir
-
-    # third_party
-    Copy-Item (Join-Path $devRoot "third_party") (Join-Path $stagingDir "third_party") -Recurse
-
-    # zip 作成
-    $zipName = "bemusicseeker-unofficial-fork-v$version.zip"
-    $zipPath = Join-Path $distDir $zipName
-
-    if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
-    Write-Host "  パッケージ作成中: $zipName"
-    Compress-Archive -Path "$stagingDir\*" -DestinationPath $zipPath -CompressionLevel Optimal
-
-    # ステージングの削除
-    Remove-Item $stagingDir -Recurse -Force
-
-    Write-Host "  パッケージ作成完了: $zipPath" -ForegroundColor Green
-    return $zipPath
+    return $packages
 }
 
 # ========== ステップ 2: 公開リポジトリへコピー ==========
