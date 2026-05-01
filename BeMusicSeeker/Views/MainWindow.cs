@@ -1006,6 +1006,18 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         customTableView?.PrepareForItemsSourceSwap();
     }
 
+    /// <summary>
+    /// 現在 ViewModel で再生対象になっている BMS ファイルの情報で、プレイヤー UI を更新します。
+    /// LivetCallMethodAction から引数なしで呼ばれる entrypoint です。
+    /// </summary>
+    public void _renewBMSPlayerControlInfo()
+    {
+        if (base.DataContext is MainWindowViewModel { NowPlayingBMS: not null } mainWindowViewModel)
+        {
+            _renewBMSPlayerControlInfo(mainWindowViewModel.NowPlayingBMS);
+        }
+    }
+
     private void ClearMainGridSelection()
     {
         customTableView?.ClearSelection();
