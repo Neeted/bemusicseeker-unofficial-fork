@@ -9497,6 +9497,11 @@ public class MainWindowViewModel : ViewModel
             {
                 return;
             }
+            if (ShouldRefreshPlaylistViewAfterBmsonSongsChanged(treeViewFilterTypeSelected))
+            {
+                makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
+                return;
+            }
             if (!ShouldIncludeBmsonLibraryRowsInMainView(treeViewFilterTypeSelected, treeViewFilterTypeSelected))
             {
                 return;
@@ -11869,6 +11874,16 @@ public class MainWindowViewModel : ViewModel
             return false;
         }
         return true;
+    }
+
+    private static bool ShouldRefreshPlaylistViewAfterBmsonSongsChanged(viewUpdateMode currentTreeMode)
+    {
+        return IsPlaylistTreeActive(currentTreeMode, currentTreeMode);
+    }
+
+    internal static bool ShouldRefreshPlaylistViewAfterBmsonSongsChangedForTest(int currentTreeMode)
+    {
+        return ShouldRefreshPlaylistViewAfterBmsonSongsChanged((viewUpdateMode)currentTreeMode);
     }
 
     private static object NormalizeDuplicateViewParameter(object parameter)

@@ -425,6 +425,12 @@ LR2をプレイヤーとして使用すると再生できない場合があり�
   <data name="Remove" xml:space="preserve">
     <value>削除</value>
   </data>
+  <data name="Remove_playlist_entry" xml:space="preserve">
+    <value>エントリー削除</value>
+  </data>
+  <data name="Remove_chart_file" xml:space="preserve">
+    <value>ファイル削除</value>
+  </data>
   <data name="Reload" xml:space="preserve">
     <value>リロード</value>
   </data>
@@ -474,7 +480,7 @@ LR2をプレイヤーとして使用すると再生できない場合があり�
     <value>プレイリストが存在しないためバックアップの必要がありません。</value>
   </data>
   <data name="Msg_move_to_recycle" xml:space="preserve">
-    <value>BMSファイルをごみ箱へ移動し一覧から削除します
+    <value>譜面ファイルをごみ箱へ移動し一覧から削除します
 よろしいですか？</value>
   </data>
   <data name="Msg_delete_pending_installed_only_packages_permanently" xml:space="preserve">

@@ -696,6 +696,10 @@ public class Resources
 
     public static string Remove => ResourceManager.GetString("Remove", resourceCulture);
 
+    public static string Remove_playlist_entry => ResourceManager.GetString("Remove_playlist_entry", resourceCulture);
+
+    public static string Remove_chart_file => ResourceManager.GetString("Remove_chart_file", resourceCulture);
+
     public static string Remove_folder => ResourceManager.GetString("Remove_folder", resourceCulture);
 
     public static string Remove_ignore => ResourceManager.GetString("Remove_ignore", resourceCulture);

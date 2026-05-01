@@ -206,10 +206,10 @@
             </Style>
           </ItemsControl.ItemContainerStyle>
         </MenuItem>
-        <MenuItem Name="tableContextMenuItemDeleteEntry" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Remove, Mode=OneWay}" Click="tableContextMenuItemDeleteEntryClick" />
+        <MenuItem Name="tableContextMenuItemDeleteEntry" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Remove_playlist_entry, Mode=OneWay}" Click="tableContextMenuItemDeleteEntryClick" />
         <MenuItem Name="tableContextMenuItemDeleteFile">
           <MenuItem.Header>
-            <TextBlock Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Remove, Mode=OneWay}" />
+            <TextBlock Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Remove_chart_file, Mode=OneWay}" />
           </MenuItem.Header>
           <MenuItem Name="tableContextMenuItemRenameInvalidExt" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Rename_invalid_ext, Mode=OneWay}" Click="tableContextMenuItemRenameBMSFileClick" />
           <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Move_to_recycle, Mode=OneWay}" Click="tableContextMenuItemRemoveBMSFileClick" />
@@ -244,7 +244,7 @@
         <Separator />
         <MenuItem Name="tableContextMenuItemUpdateRankingData" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Update_ranking_data, Mode=OneWay}" Click="tableContextMenuItemUpdateRankingDataClick" />
         <Separator />
-        <MenuItem Name="tableContextMenuItemDeleteEntry" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Remove, Mode=OneWay}" Click="tableContextMenuItemDeleteEntryClick" />
+        <MenuItem Name="tableContextMenuItemDeleteEntry" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Remove_playlist_entry, Mode=OneWay}" Click="tableContextMenuItemDeleteEntryClick" />
       </ContextMenu>
       <ContextMenu x:Key="treeViewPlaylistRootContextMenu" HasDropShadow="True" Opened="treeViewPlaylistRootContextMenuOpend">
         <MenuItem Name="treeViewPlaylistRootContextMenuItemCreateNewPlaylist" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Create_new, Mode=OneWay}" Click="treeViewPlaylistRootContextMenuItemCreateNewPlaylistClick" />

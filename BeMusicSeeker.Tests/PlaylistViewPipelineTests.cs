@@ -547,6 +547,8 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.RunBmsEncodingFix));
         Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.RunZeroNoteCheck));
         Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.RepairInstalledLocation));
+        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.MoveInLibrary));
+        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.RemoveFromLibrary));
     }
 
     [TestMethod]
@@ -902,6 +904,89 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.RemoveFromLibrary));
         Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.RepairInstalledLocation));
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.UseLr2Ir));
+    }
+
+    [TestMethod]
+    public void PlaylistDetailContextMenuPolicy_OwnedRowsAllowEntryAndFileDeleteButMissingRowsAllowEntryOnly()
+    {
+        TestableBmsFile bms = new TestableBmsFile();
+        bms.ApplySnapshot("abababababababababababababababab", "Owned Bms", 7);
+        PlaylistDetailRow ownedBmsRow = new PlaylistDetailSourceRow(new TestablePlaylistEntry(bms), bms).CreateViewRow();
+
+        LR2SongDBExtended.bmson_song bmson = new LR2SongDBExtended.bmson_song
+        {
+            path = "C:\\Songs\\Bmson\\chart.bmson",
+            folder = "C:\\Songs\\Bmson",
+            title = "Owned Bmson",
+            md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            sha256 = new string('b', 64)
+        };
+        TestablePlaylistEntry bmsonEntry = new TestablePlaylistEntry();
+        bmsonEntry.SetMd5(bmson.md5);
+        bmsonEntry.SetSha256(bmson.sha256);
+        PlaylistDetailRow ownedBmsonRow = new PlaylistDetailSourceRow(bmsonEntry, realFile: null, resolvedBmson: bmson).CreateViewRow();
+
+        TestablePlaylistEntry missingEntry = new TestablePlaylistEntry();
+        missingEntry.SetMd5("cccccccccccccccccccccccccccccccc");
+        PlaylistDetailRow missingRow = new PlaylistDetailSourceRow(missingEntry, realFile: null, resolvedBmson: null).CreateViewRow();
+
+        AssertPlaylistRowFileDeletePolicy(ownedBmsRow, expectedRemoveFromLibrary: true);
+        AssertPlaylistRowFileDeletePolicy(ownedBmsonRow, expectedRemoveFromLibrary: true);
+        AssertPlaylistRowFileDeletePolicy(missingRow, expectedRemoveFromLibrary: false);
+    }
+
+    [TestMethod]
+    public void PlaylistDetailSourceRow_AfterBmsRemoval_RematerializesEntryAsMissingNoSong()
+    {
+        TestableBmsFile file = new TestableBmsFile();
+        file.ApplySnapshot("abababababababababababababababab", "Owned Bms", 7);
+        TestablePlaylistEntry entry = new TestablePlaylistEntry(file);
+
+        PlaylistDetailSourceRow ownedSource = new PlaylistDetailSourceRow(entry, file);
+        PlaylistDetailSourceRow missingSource = new PlaylistDetailSourceRow(entry, realFile: null, resolvedBmson: null);
+        PlaylistDetailRow missingRow = missingSource.CreateViewRow();
+
+        Assert.IsTrue(ownedSource.IsOwned);
+        Assert.IsFalse(missingSource.IsOwned);
+        Assert.AreEqual(ClearType.NO_SONG, missingSource.clear);
+        Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(missingRow, out ChartOperationTarget target));
+        Assert.IsTrue(target.IsPlaylistMissing);
+        Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.RemoveFromLibrary));
+    }
+
+    [TestMethod]
+    public void PlaylistDetailSourceRow_AfterBmsonRemoval_RematerializesEntryAsMissingNoSong()
+    {
+        LR2SongDBExtended.bmson_song bmson = new LR2SongDBExtended.bmson_song
+        {
+            path = "C:\\Songs\\Bmson\\chart.bmson",
+            folder = "C:\\Songs\\Bmson",
+            title = "Owned Bmson",
+            md5 = "dddddddddddddddddddddddddddddddd",
+            sha256 = new string('d', 64)
+        };
+        TestablePlaylistEntry entry = new TestablePlaylistEntry();
+        entry.SetMd5(bmson.md5);
+        entry.SetSha256(bmson.sha256);
+
+        PlaylistDetailSourceRow ownedSource = new PlaylistDetailSourceRow(entry, realFile: null, resolvedBmson: bmson);
+        PlaylistDetailSourceRow missingSource = new PlaylistDetailSourceRow(entry, realFile: null, resolvedBmson: null);
+        PlaylistDetailRow missingRow = missingSource.CreateViewRow();
+
+        Assert.IsTrue(ownedSource.IsOwned);
+        Assert.IsFalse(missingSource.IsOwned);
+        Assert.AreEqual(ClearType.NO_SONG, missingSource.clear);
+        Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(missingRow, out ChartOperationTarget target));
+        Assert.IsTrue(target.IsPlaylistMissing);
+        Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.RemoveFromLibrary));
+    }
+
+    [TestMethod]
+    public void BmsonSongsChangedRefreshPolicy_RefreshesPlaylistDetailModes()
+    {
+        Assert.IsTrue(MainWindowViewModel.ShouldRefreshPlaylistViewAfterBmsonSongsChangedForTest((int)MainWindowViewModel.PlaylistFilterType.PlaylistFilter));
+        Assert.IsTrue(MainWindowViewModel.ShouldRefreshPlaylistViewAfterBmsonSongsChangedForTest((int)MainWindowViewModel.PlaylistFilterType.PlaylistNotOwnedFilterSelected));
+        Assert.IsFalse(MainWindowViewModel.ShouldRefreshPlaylistViewAfterBmsonSongsChangedForTest(17));
     }
 
     [TestMethod]
@@ -1285,6 +1370,14 @@ public sealed class PlaylistViewPipelineTests
             entry.SetSha256(sha256);
         }
         return new PlaylistDetailSourceRow(entry, file);
+    }
+
+    private static void AssertPlaylistRowFileDeletePolicy(PlaylistDetailRow row, bool expectedRemoveFromLibrary)
+    {
+        Assert.IsTrue(GridRowResolver.IsPlaylistRow(row));
+        Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(row, out ChartOperationTarget target));
+        Assert.AreEqual(expectedRemoveFromLibrary, target.HasCapability(ChartOperationCapabilities.RemoveFromLibrary));
+        Assert.AreEqual(expectedRemoveFromLibrary, target.HasCapability(ChartOperationCapabilities.MoveInLibrary));
     }
 
     private static PlaylistDetailSourceRow CreateMissingSourceRow(string title, LR2SongDBExtended.chart_info chartInfo)
