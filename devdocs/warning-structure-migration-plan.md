@@ -2,348 +2,109 @@
 
 ## 目的
 
-譜面行の `WARNING` 表示を単純な文字列連結から、種類・優先度・行ハイライト・ダイジェスト表示を持つ構造化 warning へ移行する。
+譜面行の `WARNING` 表示を、単純な文字列連結から、種類・優先度・行ハイライト・ダイジェスト表示を持つ構造化 warning へ移行する。
 
-現在は `BMSFile.warning` が主な表示本文で、行の警告色は `HasHighlightedWarning` / `HasLowConfidenceInstallWarning` / `HasZeroNoteMismatchWarning` / `IsHashDuplicated` などの別フラグで制御されている。このため、warning 文字列と行色の寿命がずれやすく、導入先推定 warning のように導入後も色だけ残るケースが起こり得る。
-
-構造化後は、warning の種類を identity として扱い、表示文字列・tooltip・ダイジェスト・行色を同じ warning collection から算出する。
-
-## 前提
-
-- 移行期間中は動作確認目的のみでアプリを起動する。
-- 移行途中の状態はリリース品質でなくてよい。
-- 最終的には既存の `WARNING` 列、tooltip、行ハイライト、pending install 判定、テストを安定させる。
-- `warning` / `DisplayWarning` / `HasHighlightedWarning` は当面互換プロパティとして残す。
-- 既存 DB や設定ファイルの互換性を壊さない。
-- 既存のリソース文字列はできるだけ再利用する。
+構造化後は warning の種類を identity として扱い、一覧セルの digest、tooltip 詳細、行色を同じ warning collection から算出する。固定行高の一覧では digest を主表示にし、詳細は tooltip に寄せる。
 
 ## 現状
 
-### 表示経路
+Phase 1-6 は実装済み。`WARNING` 列は `WarningDigestText` を表示し、tooltip は `WarningTooltipText`、sort は `WarningDigestText` を使う。
 
-- `BMSFile.warning`
-  - 旧来の warning 本文。
-  - null は getter で空文字扱い。
-  - setter で `warning` と `DisplayWarning` の変更通知を出す。
-- `BMSFile.DisplayWarning`
-  - `warning` に `Warning_ZeroNoteMismatch` を表示時合成する。
-- `BMSFile.HasHighlightedWarning`
-  - `IsHashDuplicated || HasZeroNoteMismatchWarning || HasLowConfidenceInstallWarning`
-  - `warning` が空でなくても、それだけでは行色は付かない。
-- `CustomTableColumnFactory`
-  - `WARNING` 列は `DisplayWarning` を表示本文、tooltip、sort 対象として使う。
-- `CustomTableView`
-  - `HasHighlightedWarning` が true の行を警告色で描画する。
+`BMSFile.warning` と `ChartWarningLegacyClassifier` は撤去済み。warning 表示・tooltip・digest・行ハイライトは structured warning と既存互換フラグから算出する。
 
-### 主な warning 生成元
+根拠:
 
-- リソース不足
-  - `BmsLibraryMaintenanceService.ApplyNeedToBeFixedWarnings()`
-  - 既存 `warning` を一度 null にしてから WAV/BGA/MOVIE/STAGEFILE/BACKBMP/BANNER warning を作り直す。
-- 導入先推定
-  - `BMSLibrary.ApplyInstallEstimationResultToFiles()`
-  - 文字列は `AppendWarningLine()`、行色は `HasLowConfidenceInstallWarning`。
-  - 削除は `RemoveInstallEstimationWarnings()` の翻訳済み文字列 prefix 依存。
+- `song` table は `LR2SongDB.song` として作成・保存され、warning 列は存在しない。
+- `UpsertSongs()` は `typeof(LR2SongDB.song)` で保存するため、`BMSFile` の追加プロパティは song DB に書かれない。
+- pending/install table は `install.path` と `delete_parent` のみを保存する。
+- maintenance table にも warning 列は存在しない。
+- pending package は install row からパスを読み直し、起動時・復元時に warning を再初期化する。
+- pending install destination 編集状態、pending chart snapshot、playlist snapshot は structured warning snapshot または表示用 digest/tooltip を扱う。
+
+このため、Phase 6 に DB migration は不要だった。
+
+## 実装済み
+
+- Phase 1: `ChartWarningKind` / `ChartWarningCategory` / `ChartWarning` / `ChartWarningCollection` を追加。
+- Phase 2: `WarningDigestText` / `WarningTooltipText` を追加し、WARNING 列を digest/tooltip 分離。
+- Phase 3: 導入先推定 warning を structured warning として設定し、導入後・導入先確定後に category 削除する経路を追加。
+- Phase 4: nested / resource / package-state warning を structured warning へ移行。
+- Phase 5: duplicate / zero-note warning を structured warning へ移行し、互換フラグは既存ロジック用に維持。
+- Phase 6: legacy `BMSFile.warning` / classifier / legacy kind/category を削除し、snapshot とテストを structured warning 前提へ更新。
+
+## 現在の warning 生成元
+
 - nested chart
-  - `BmsLibraryPackageInstallService.ApplyNestedChartFileWarnings()`
-  - `PrependWarningLine()` で先頭へ挿入する。
-- duplicate
-  - `IsHashDuplicated` と duplicate warning 文字列の両方を更新する。
-- zero-note mismatch
-  - `HasZeroNoteMismatchWarning` のみを持ち、`DisplayWarning` で表示時に文言を足す。
-
-## 課題
-
-- warning の identity が文字列なので、翻訳やテンプレート変更に弱い。
-- warning の追加・削除が `Environment.NewLine` と prefix 判定に依存している。
-- 行ハイライトの有無が warning 本文と別管理になっている。
-- warning の表示順を個別 helper で制御しており、種類が増えるほど破綻しやすい。
-- 固定行高化により、一覧セルでは 1 行目しか実質見えないため、1 行目を明示的な digest にしたい。
-- リソース不足 warning は詳細としては重要だが、譜面単体や nested 譜面では発生しやすく、常に digest 優先表示するとノイズになる。
-
-## 目標 UI
-
-### 一覧セル
-
-`WARNING` 列の 1 行目は digest 表示にする。
-
-想定形式:
-
-```text
-[KindCount] DigestLabel_priority_1st, DigestLabel_priority_2nd
-```
-
-例:
-
-```text
-[3] サブフォルダ譜面, 推定先複数, リソース不足
-```
-
-### Tooltip
-
-tooltip は詳細表示にする。
-
-想定形式:
-
-```text
-サブフォルダ譜面:
-パッケージ直下以外に有効な譜面ファイルがあります。必要に応じて移動または無効な拡張子へ変更してください。
-
-推定先複数:
-D:\BMS\foo
-D:\BMS\bar
-
-リソース不足:
-WAV: 12 / 20
-BGA: 0 / 3
-```
-
-### 行ハイライト
-
-行ハイライトは warning 種別の `HighlightRow` から算出する。
-
-ただし、既存の見た目互換を優先するため、初期案では次を維持する。
-
-- duplicate: highlight
-- zero-note mismatch: highlight
-- 導入先推定低信頼: highlight
-- nested chart: no highlight
-- resource missing: no highlight
-- already installed: no highlight
-- single file package: no highlight
-
-## 構造案
-
-### ChartWarning
-
-```csharp
-internal sealed class ChartWarning
-{
-    public ChartWarningKind Kind { get; }
-    public ChartWarningCategory Category { get; }
-    public int Priority { get; }
-    public string DigestLabel { get; }
-    public string Message { get; }
-    public bool HighlightRow { get; }
-    public bool ShowInDigest { get; }
-    public bool ShowInTooltip { get; }
-    public IReadOnlyDictionary<string, string> Details { get; }
-}
-```
-
-### ChartWarningKind
-
-```csharp
-internal enum ChartWarningKind
-{
-    LegacyText,
-    NestedChartFileInPackage,
-    AlreadyInstalled,
-    SingleBmsFile,
-    SingleBmsonFile,
-    ResourceWavMissing,
-    ResourceBgaMissing,
-    ResourceMovieMissing,
-    ResourceStagefileMissing,
-    ResourceBackbmpMissing,
-    ResourceBannerMissing,
-    InstallEstimationAmbiguous,
-    InstallEstimationMetadataMismatch,
-    InstallEstimationReinstallNotImproved,
-    InstalledDestinationResolveFailed,
-    DuplicateChart,
-    ZeroNoteMismatch
-}
-```
-
-### ChartWarningCategory
-
-```csharp
-internal enum ChartWarningCategory
-{
-    PackageLayout,
-    InstalledState,
-    ResourceHealth,
-    InstallEstimation,
-    Duplicate,
-    ChartContent,
-    Legacy
-}
-```
-
-### BMSFile 側
-
-`BMSFile` に warning collection を持たせる。
-
-```csharp
-private ChartWarningCollection _warnings;
-
-internal ChartWarningCollection Warnings => _warnings ??= new ChartWarningCollection(this);
-
-public string warning
-{
-    get => Warnings.LegacyText;
-    set => Warnings.SetLegacyText(value);
-}
-
-public string DisplayWarning => Warnings.BuildDisplayText(this);
-
-public string WarningDigestText => Warnings.BuildDigestText(this);
-
-public string WarningTooltipText => Warnings.BuildTooltipText(this);
-
-public bool HasHighlightedWarning => Warnings.HasHighlightedWarning;
-```
-
-初期移行では `warning` setter は legacy text として扱い、既存コードをすぐには壊さない。段階的に既存コードを `Warnings.Set(...)` / `Warnings.RemoveCategory(...)` へ置き換える。
-
-## 仮 priority / digest label 案
-
-| Kind | Category | Priority | DigestLabel | HighlightRow | Digest 条件 |
-| --- | --- | ---: | --- | --- | --- |
-| NestedChartFileInPackage | PackageLayout | 10 | サブフォルダ譜面 | false | true |
-| ZeroNoteMismatch | ChartContent | 20 | ゼロノート不整合 | true | true |
-| DuplicateChart | Duplicate | 30 | 重複譜面 | true | true |
-| InstallEstimationAmbiguous | InstallEstimation | 40 | 推定先複数 | true | true |
-| InstallEstimationMetadataMismatch | InstallEstimation | 41 | TITLE/ARTIST不一致 | true | true |
-| InstallEstimationReinstallNotImproved | InstallEstimation | 42 | 再導入改善なし | true | true |
-| InstalledDestinationResolveFailed | InstallEstimation | 43 | 導入先不明 | false | true |
-| AlreadyInstalled | InstalledState | 50 | 既に導入済み | false | true |
-| SingleBmsFile | PackageLayout | 60 | 単体BMS | false | true |
-| SingleBmsonFile | PackageLayout | 60 | 単体BMSON | false | true |
-| ResourceWavMissing | ResourceHealth | 80 | リソース不足 | false | `instl_dst` 未設定時のみ |
-| ResourceBgaMissing | ResourceHealth | 81 | リソース不足 | false | `instl_dst` 未設定時のみ |
-| ResourceMovieMissing | ResourceHealth | 82 | リソース不足 | false | `instl_dst` 未設定時のみ |
-| ResourceStagefileMissing | ResourceHealth | 83 | 画像不足 | false | false |
-| ResourceBackbmpMissing | ResourceHealth | 84 | 画像不足 | false | false |
-| ResourceBannerMissing | ResourceHealth | 85 | 画像不足 | false | false |
-| LegacyText | Legacy | 1000 | その他 | false | true |
-
-同一 digest label が複数ある場合、digest では重複表示しない。
-
-例:
-
-```text
-[4] サブフォルダ譜面, TITLE/ARTIST不一致, リソース不足
-```
-
-この場合の `[4]` は warning object の総数、label は priority 順の distinct label。
-
-## 移行手順
-
-### Phase 1: 互換レイヤ追加
-
-- `ChartWarningKind` / `ChartWarningCategory` / `ChartWarning` / `ChartWarningCollection` を追加する。
-- `BMSFile` に `Warnings` を追加する。
-- 既存 `warning` は legacy warning として collection へ入れる。
-- `DisplayWarning` / `HasHighlightedWarning` は collection から算出する。
-- 既存の `HasLowConfidenceInstallWarning` / `HasZeroNoteMismatchWarning` / `IsHashDuplicated` は当面残す。
-- UI はまだ `DisplayWarning` を使い続ける。
-
-目的:
-
-- 既存コードの大半を触らずに、構造化 warning の算出経路を作る。
-
-### Phase 2: 表示プロパティ分離
-
-- `BMSFile.WarningDigestText` を追加する。
-- `BMSFile.WarningTooltipText` を追加する。
-- `LibraryChartRow` / `PlaylistDetailRow` / `PlaylistDetailSourceRow` に透過プロパティを追加する。
-- `CustomTableColumnFactory` の `WARNING` 列を次へ変更する。
-  - セル本文: `WarningDigestText`
-  - tooltip: `WarningTooltipText`
-  - sort: 当面 `WarningDigestText`
-- 既存 `DisplayWarning` は tooltip 互換用として残す。
-
-目的:
-
-- 固定行高表示に合わせて、一覧と tooltip の責務を分ける。
-
-### Phase 3: 導入先推定 warning を構造化
-
-- `ApplyInstallEstimationResultToFiles()` を `Warnings.Set(...)` へ移行する。
-- `RemoveInstallEstimationWarnings()` を `Warnings.RemoveCategory(InstallEstimation)` へ置き換える。
-- `HasLowConfidenceInstallWarning` は `Warnings.HasHighlightedWarningByCategory(InstallEstimation)` から算出するか、互換 setter として残す。
-- 導入後・導入先確定後に `InstallEstimation` category が必ず消えるようにする。
-
-目的:
-
-- 「導入後も警告色が残る」問題を最初に潰す。
-
-### Phase 4: nested / resource warning を構造化
-
-- `ApplyNestedChartFileWarnings()` を `NestedChartFileInPackage` warning 付与へ変更する。
-- `ApplyNeedToBeFixedWarnings()` を `ResourceHealth` category だけ remove + rebuild に変更する。
-- resource warning の digest 表示条件を `instl_dst` 未設定時のみへ寄せる。
-- stagefile/backbmp/banner は tooltip には出すが、digest には出さない仮仕様にする。
-
-目的:
-
-- priority 制御と nested warning の先頭表示を文字列 prepend から解放する。
-
-### Phase 5: duplicate / zero-note warning を構造化
-
-- duplicate warning を `DuplicateChart` warning と `IsHashDuplicated` 互換フラグに分離する。
-- zero-note mismatch を `ZeroNoteMismatch` warning へ移す。
-- `DisplayWarning` の zero-note 特別合成を廃止する。
-
-目的:
-
-- 行ハイライト対象も warning object に一本化する。
-
-### Phase 6: legacy 文字列依存の撤去
-
-- `AppendWarningLine()` / `PrependWarningLine()` / `RemoveInstallEstimationWarnings()` を削除または legacy 専用へ隔離する。
-- テストを文字列全文比較から、warning kind / digest / tooltip / highlight の検証へ寄せる。
-- `warning` setter の利用箇所を必要最小限にする。
-
-目的:
-
-- warning identity を localized text から kind へ完全移行する。
-
-## テスト方針
-
-### Unit
-
-- `ChartWarningCollection`
-  - priority 順に digest が作られること。
-  - 同一 digest label は 1 回だけ表示されること。
-  - `[KindCount]` が warning object 数になること。
-  - category remove が対象 warning だけ消すこと。
-  - `HighlightRow` が collection 全体に反映されること。
-- `BMSFile`
-  - `warning` legacy setter が `DisplayWarning` に反映されること。
-  - `WarningDigestText` と `WarningTooltipText` が別々に算出されること。
-  - warning collection 変更時に `DisplayWarning` / `WarningDigestText` / `WarningTooltipText` / `HasHighlightedWarning` の変更通知が出ること。
-
-### Integration
-
-- pending 復元
-  - nested chart warning が priority 先頭に来ること。
-  - resource warning は tooltip に残ること。
-- 導入先推定
-  - ambiguous / metadata mismatch / reinstall not improved が kind として付くこと。
-  - 手動導入先確定後に install estimation category が消えること。
-  - 導入後に warning 色が残らないこと。
+  - `NestedChartFileInPackage` structured warning。
 - resource health
-  - 再計算時に resource category だけが更新され、nested や install estimation 以外の warning を誤って消さないこと。
-- zero-note / duplicate
-  - 既存の行ハイライト互換が維持されること。
+  - `ResourceHealth` category だけを remove + rebuild。
+  - WAV/BGA/MOVIE は digest に `リソース不足` として出る。
+  - STAGEFILE/BACKBMP/BANNER は tooltip には出るが digest には出さない。
+  - resource digest は `instl_dst` 未設定時のみ表示。
+- package-state
+  - `AlreadyInstalled`、`SingleBmsFile`、`SingleBmsonFile` structured warning。
+- duplicate
+  - `DuplicateChart` structured warning。
+  - `IsHashDuplicated` は互換フラグとして維持。
+- zero-note mismatch
+  - `ZeroNoteMismatch` structured warning。
+  - `HasZeroNoteMismatchWarning` は互換フラグとして維持。
+- install estimation
+  - ambiguous / metadata mismatch / reinstall not improved / installed destination resolve failed を structured warning として設定する。
+  - 導入先確定、導入成功、推定状態 clear では `InstallEstimation` category、suggestions、low-confidence flag を消す。
 
-## 既知リスク
+## Phase 6 実装結果
 
-- 既存 `warning` 文字列が DB や pending table に保存されている場合、移行中は legacy text として扱う必要がある。
-- `RemoveInstallEstimationWarnings()` は翻訳済み文字列 prefix に依存しているため、移行途中は legacy warning と structured warning が混在する。
-- `BmsLibraryMaintenanceService.ApplyNeedToBeFixedWarnings()` は現在 `warning` 全体を消すため、先に構造化 collection を入れないと他 warning を消し続ける。
-- `PlaylistDetailRow` は snapshot 行なので、元 `BMSFile` の warning 更新が即時反映されない。必要に応じて view 再構築が必要。
-- `CustomTableCellValueCache` は PropertyChanged を契機に row cache を破棄するため、構造化 collection 更新時の通知漏れは表示不整合になる。
+Phase 6 では legacy warning 互換を完全撤去した。外部永続化がないため、既存 DB や pending table の migration は行っていない。
 
-## 最初に着手する候補
+### Phase 6A: structured warning snapshot
 
-1. `ChartWarning` 系の型を追加する。
-2. `BMSFile` に warning collection と digest/tooltip プロパティを追加する。
-3. `CustomTableColumnFactory` の WARNING 列を digest/tooltip 分離へ変更する。
-4. 導入先推定 warning だけを構造化へ移す。
-5. 導入後の install estimation warning / highlight 残留をテストで固定する。
+- pending install destination 編集状態は structured warning snapshot を保持し、restore 時に `Warnings.ReplaceAll(...)` 相当で戻す。
+- `PendingChartEntry.CreateFromBmsFile()` は structured warnings のみをコピーする。
+- playlist snapshot row / library row は `DisplayWarning` / `WarningDigestText` / `WarningTooltipText` を使う。
 
-この順で進めると、最初にユーザー影響の大きい警告色残留を解消しつつ、nested chart warning や resource warning の priority 制御へ進める。
+### Phase 6B: legacy warning 生成停止
+
+- `BMSLibrary.ApplyInstallEstimationResultToFiles()` は `SetWarning()` のみを使う。
+- `ApplyInstalledDestinationResolveFailedToFilesUnsafe()` も structured warning のみを設定する。
+- `AppendWarningLine()`、duplicate 用 legacy helper、`RemoveInstallEstimationWarnings()` は削除済み。
+- 以降の新規実装では `SetWarning()` / `ClearWarning()` / `ClearWarningsByCategory()` / `ReplaceWarningsByCategory()` を使う。
+
+### Phase 6C: legacy classifier と `BMSFile.warning` の削除
+
+- `BMSFile.warning` backing field / property は削除済み。
+- `ChartWarningLegacyClassifier` は削除済み。
+- `ChartWarningKind.LegacyText` と `ChartWarningCategory.Legacy` は削除済み。
+- `ChartWarningCollection.EnumerateEffectiveWarnings()` は structured warnings と互換フラグ由来の仮想 warning だけを統合する。
+- `ClearWarning()` / `ClearWarningsByCategory()` / `ReplaceWarningsByCategory()` は structured warning だけを操作する。
+- `DisplayWarning` / `WarningDigestText` / `WarningTooltipText` / `HasHighlightedWarning` は structured warnings と必要な互換フラグだけから算出する。
+
+`HasLowConfidenceInstallWarning` / `HasZeroNoteMismatchWarning` / `IsHashDuplicated` は Phase 6 では削除しない。検索、通知、既存フィルタ、既存 UI 状態に関わるため、別途専用の整理計画で扱う。
+
+## Phase 6 テスト方針と確認観点
+
+- persistence
+  - song DB / install table / maintenance table に warning が保存されないことを確認する。
+  - pending package reload で warning が保存値ではなく再初期化処理から復元されること。
+- install estimation
+  - ambiguous / metadata mismatch / reinstall not improved / resolve failed が structured warning として表示されること。
+  - digest / tooltip / highlight が structured warning だけで維持されること。
+  - 手動導入先確定、導入成功、推定状態クリアで `InstallEstimation` category、suggestions、low-confidence flag が消えること。
+- UI 編集状態
+  - pending install destination 編集の cancel/restore で structured warning が失われないこと。
+  - 候補から選択する場合は従来通り低信頼 warning と suggestions を維持すること。
+- snapshot / row
+  - pending chart snapshot、playlist detail snapshot、library row が `warning` ではなく `DisplayWarning` / `WarningDigestText` / `WarningTooltipText` を使うこと。
+- legacy removal
+  - `ChartWarningLegacyClassifier` が存在しないこと。
+  - `BMSFile.warning`、`LegacyText`、`ChartWarningCategory.Legacy`、`AppendWarningLine`、`RemoveInstallEstimationWarnings` が残っていないこと。
+  - tests は `Warnings.Contains(kind)`、digest、tooltip、highlight を検証すること。
+- 回帰
+  - `dotnet test BeMusicSeeker-decomp.sln /p:Configuration=Release`
+  - `dotnet build BeMusicSeeker-decomp.sln /p:Configuration=Release`
+
+## 残リスク
+
+- `warning` 名の reflection / column / test helper が残っているとビルドまたは UI 表示で壊れる。禁止対象シンボルの `rg` 確認を継続する。
+- `Warnings.Contains(kind)` は stored structured warning だけを見る。互換フラグ由来の warning を検証する場合は digest / tooltip / highlight を見る。
+- `ChartWarningCollection` は structured warning を保持するが、DB 永続化はしない。起動時に必要な warning は既存の初期化処理で再構築する前提。

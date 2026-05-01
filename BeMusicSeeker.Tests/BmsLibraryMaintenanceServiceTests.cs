@@ -33,7 +33,6 @@ public sealed class BmsLibraryMaintenanceServiceTests
         bool needsFix = service.ApplyNeedToBeFixedWarnings(file, info);
 
         Assert.IsTrue(needsFix);
-        Assert.AreEqual(string.Empty, file.warning);
         Assert.IsTrue(file.Warnings.Contains(ChartWarningKind.ResourceWavMissing));
         Assert.IsTrue(file.Warnings.Contains(ChartWarningKind.ResourceStagefileMissing));
         StringAssert.Contains(file.WarningTooltipText, string.Format(Resources.Warning_WavFilesNotFound, info.GetWAVHealth(), 5, 10));
@@ -52,7 +51,6 @@ public sealed class BmsLibraryMaintenanceServiceTests
         file.SetWarning(ChartWarningKind.DuplicateChart, Resources.Warning_DuplicateBmsFile);
         file.SetWarning(ChartWarningKind.ZeroNoteMismatch, Resources.Warning_ZeroNoteMismatch);
         file.SetWarning(ChartWarningKind.ResourceWavMissing, "stale wav");
-        file.warning = string.Format(Resources.Warning_WavFilesNotFound, 50, 1, 2) + "\r\nlegacy note";
         BMSFileMaintenanceInfo info = new BMSFileMaintenanceInfo(file)
         {
             hash = file.hash,
@@ -70,7 +68,6 @@ public sealed class BmsLibraryMaintenanceServiceTests
         Assert.IsTrue(file.Warnings.Contains(ChartWarningKind.InstallEstimationAmbiguous));
         Assert.IsTrue(file.Warnings.Contains(ChartWarningKind.DuplicateChart));
         Assert.IsTrue(file.Warnings.Contains(ChartWarningKind.ZeroNoteMismatch));
-        Assert.AreEqual("legacy note", file.warning);
     }
 
     [TestMethod]

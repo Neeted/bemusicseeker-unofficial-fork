@@ -830,7 +830,7 @@ public sealed class BmsLibraryInitializationServiceTests
                 file => string.Equals(file?.hash, installedHash, StringComparison.OrdinalIgnoreCase),
                 file =>
                 {
-                    file.warning = "strict";
+                    file.SetWarning(ChartWarningKind.ResourceWavMissing, "strict");
                     return true;
                 });
 
@@ -845,8 +845,6 @@ public sealed class BmsLibraryInitializationServiceTests
             Assert.IsTrue(result.TotalMs >= 0);
             BMSPackage installedWarningPackage = result.PendingPackages.Single((BMSPackage pkg) => pkg.path.Equals(directoryPackagePath, StringComparison.OrdinalIgnoreCase));
             BMSPackage singleFileWarningPackage = result.PendingPackages.Single((BMSPackage pkg) => pkg.path.Equals(singleFileChartPath, StringComparison.OrdinalIgnoreCase));
-            Assert.AreEqual(string.Empty, installedWarningPackage.BMSFiles[0].warning);
-            Assert.AreEqual(string.Empty, singleFileWarningPackage.BMSFiles[0].warning);
             Assert.IsTrue(installedWarningPackage.BMSFiles[0].Warnings.Contains(ChartWarningKind.AlreadyInstalled));
             Assert.IsTrue(singleFileWarningPackage.BMSFiles[0].Warnings.Contains(ChartWarningKind.SingleBmsFile));
         });
@@ -968,14 +966,13 @@ public sealed class BmsLibraryInitializationServiceTests
                 file => false,
                 file =>
                 {
-                    file.warning = "strict";
+                    file.SetWarning(ChartWarningKind.ResourceWavMissing, "strict");
                     return true;
                 });
 
             Assert.AreEqual(1, result.PendingPackages.Count);
             Assert.AreEqual(1, result.PendingWarningInitTargets.Count);
             Assert.AreEqual(1, result.SingleFileWarningCount);
-            Assert.AreEqual(string.Empty, result.PendingPackages[0].BMSFiles[0].warning);
             Assert.IsTrue(result.PendingPackages[0].BMSFiles[0].Warnings.Contains(ChartWarningKind.SingleBmsonFile));
         });
     }

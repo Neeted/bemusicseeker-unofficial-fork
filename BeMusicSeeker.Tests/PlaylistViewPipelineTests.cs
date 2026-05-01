@@ -657,7 +657,7 @@ public sealed class PlaylistViewPipelineTests
         bmson.MaintenanceInfo.wav_files_existing = 1;
 
         PendingChartEntry pending = PendingChartEntry.CreateFromBmsonSong(bmson);
-        pending.warning = "installed chart warning";
+        pending.SetWarning(ChartWarningKind.AlreadyInstalled, "installed chart warning");
         pending.instl_dst = "C:\\Library\\Destination";
         LibraryChartRow row = LibraryChartRow.FromBmsFile(pending);
 
@@ -667,7 +667,9 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreSame(pending, row.Chart.BmsFile);
         Assert.AreSame(bmson, row.Chart.BmsonSong);
         Assert.AreSame(pending, GridRowResolver.GetOperationBmsFile(row));
-        Assert.AreEqual(pending.warning, row.warning);
+        Assert.AreEqual(pending.DisplayWarning, row.DisplayWarning);
+        Assert.AreEqual(pending.WarningDigestText, row.WarningDigestText);
+        Assert.AreEqual(pending.WarningTooltipText, row.WarningTooltipText);
         Assert.AreEqual(pending.instl_dst, row.instl_dst);
         Assert.AreEqual(pending.WAVHealth, row.WAVHealth);
 
@@ -683,7 +685,9 @@ public sealed class PlaylistViewPipelineTests
         LibraryChartRef chartRef = LibraryChartRef.FromBmsFile(pending);
         BMSFile compatibilityFile = chartRef.ToCompatibilityBmsFile();
         Assert.AreSame(pending, compatibilityFile);
-        Assert.AreEqual(pending.warning, compatibilityFile.warning);
+        Assert.AreEqual(pending.DisplayWarning, compatibilityFile.DisplayWarning);
+        Assert.AreEqual(pending.WarningDigestText, compatibilityFile.WarningDigestText);
+        Assert.AreEqual(pending.WarningTooltipText, compatibilityFile.WarningTooltipText);
         Assert.AreEqual(pending.instl_dst, compatibilityFile.instl_dst);
     }
 

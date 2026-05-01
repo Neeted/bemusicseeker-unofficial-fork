@@ -55,8 +55,6 @@ internal sealed class PlaylistDetailRow : NotificationObject
 
     public string tag { get; }
 
-    public string warning { get; }
-
     public bool HasZeroNoteMismatchWarning { get; }
 
     public bool HasHighlightedWarning { get; }
@@ -246,7 +244,6 @@ internal sealed class PlaylistDetailRow : NotificationObject
         genre = source.genre;
         mode = source.mode;
         tag = source.tag;
-        warning = source.warning;
         HasZeroNoteMismatchWarning = source.HasZeroNoteMismatchWarning;
         HasHighlightedWarning = source.HasHighlightedWarning;
         DisplayWarning = source.DisplayWarning;

@@ -173,21 +173,4 @@ internal sealed class BmsLibraryDuplicateService
         return root;
     }
 
-    private static bool HasDuplicateWarning(string warning, string duplicateWarningMessage)
-    {
-        return warning?.Split(new char[2] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
-            .Any((string line) => string.Equals(line.Trim(), duplicateWarningMessage, StringComparison.Ordinal)) ?? false;
-    }
-
-    private static string RemoveDuplicateWarning(string warning, string duplicateWarningMessage)
-    {
-        if (string.IsNullOrWhiteSpace(warning))
-        {
-            return string.Empty;
-        }
-        return string.Join(Environment.NewLine, warning.Split(new char[2] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
-            .Select((string line) => line.Trim())
-            .Where((string line) => !string.Equals(line, duplicateWarningMessage, StringComparison.Ordinal))
-            .ToArray());
-    }
 }

@@ -6140,43 +6140,6 @@ public class BMSLibrary : NotificationObject
         file.SetWarning(ChartWarningKind.DuplicateChart, DuplicateWarningMessage);
     }
 
-    private static bool HasDuplicateWarning(string warning)
-    {
-        return warning?.Split(new char[2] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries).Any((string line) => string.Equals(line.Trim(), DuplicateWarningMessage, StringComparison.Ordinal)) ?? false;
-    }
-
-    private static string RemoveDuplicateWarning(string warning)
-    {
-        if (string.IsNullOrWhiteSpace(warning))
-        {
-            return string.Empty;
-        }
-        return string.Join(Environment.NewLine, warning.Split(new char[2] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries).Select((string line) => line.Trim()).Where((string line) => !string.Equals(line, DuplicateWarningMessage, StringComparison.Ordinal)).ToArray());
-    }
-
-    private static string AppendWarningLine(string warning, string warningLine)
-    {
-        if (string.IsNullOrWhiteSpace(warningLine))
-        {
-            return warning ?? string.Empty;
-        }
-        List<string> lines = (warning ?? string.Empty)
-            .Split(new char[2] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
-            .Select((string line) => line.Trim())
-            .Where((string line) => !string.IsNullOrWhiteSpace(line))
-            .ToList();
-        if (!lines.Contains(warningLine, StringComparer.Ordinal))
-        {
-            lines.Add(warningLine);
-        }
-        return string.Join(Environment.NewLine, lines);
-    }
-
-    private static string RemoveInstallEstimationWarnings(string warning)
-    {
-        return ChartWarningLegacyClassifier.RemoveCategory(warning, ChartWarningCategory.InstallEstimation);
-    }
-
     private sealed class InstalledChartMetadataCandidate
     {
         internal string Title { get; set; }
@@ -6376,17 +6339,14 @@ public class BMSLibrary : NotificationObject
             if (isLowConfidenceAmbiguous && !string.IsNullOrWhiteSpace(ambiguousWarning))
             {
                 bmsFile.SetWarning(ChartWarningKind.InstallEstimationAmbiguous, ambiguousWarning);
-                bmsFile.warning = AppendWarningLine(bmsFile.warning, ambiguousWarning);
             }
             else if (isLowConfidenceMetadataMismatch && !string.IsNullOrWhiteSpace(metadataMismatchWarning))
             {
                 bmsFile.SetWarning(ChartWarningKind.InstallEstimationMetadataMismatch, metadataMismatchWarning);
-                bmsFile.warning = AppendWarningLine(bmsFile.warning, metadataMismatchWarning);
             }
             else if (isLowConfidenceReinstallNotImproved && !string.IsNullOrWhiteSpace(reinstallNotImprovedWarning))
             {
                 bmsFile.SetWarning(ChartWarningKind.InstallEstimationReinstallNotImproved, reinstallNotImprovedWarning);
-                bmsFile.warning = AppendWarningLine(bmsFile.warning, reinstallNotImprovedWarning);
             }
         }
     }
@@ -7001,7 +6961,6 @@ public class BMSLibrary : NotificationObject
             bmsFile.instl_dst = null;
             bmsFile.ClearWarningsByCategory(ChartWarningCategory.InstallEstimation);
             bmsFile.SetWarning(ChartWarningKind.InstalledDestinationResolveFailed, Resources.Warning_InstalledDestinationResolveFailed);
-            bmsFile.warning = AppendWarningLine(RemoveInstallEstimationWarnings(bmsFile.warning), Resources.Warning_InstalledDestinationResolveFailed);
             bmsFile.InstallDestinationTitle = string.Empty;
             bmsFile.InstallDestinationArtist = string.Empty;
             bmsFile.InstallDestinationSuggestions = Array.Empty<string>();
@@ -7920,7 +7879,6 @@ public class BMSLibrary : NotificationObject
             bool isBmson = PendingChartEntry.IsBmsonChartFile(bmsFile);
             bmsFile.SetHealthStatus(null, forceUpdate: false, memClear: false);
             bmsFile.ClearStructuredWarnings();
-            bmsFile.warning = null;
             string key = PendingChartEntry.GetPrimaryLookupHash(bmsFile);
             if (!string.IsNullOrWhiteSpace(key) && installedHashSet.Contains(key))
             {

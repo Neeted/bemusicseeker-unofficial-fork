@@ -159,7 +159,6 @@ public sealed class PendingChartEntry : BMSFile
             InstallDestinationTitle = source.InstallDestinationTitle,
             InstallDestinationArtist = source.InstallDestinationArtist,
             InstallDestinationSuggestions = source.InstallDestinationSuggestions?.ToArray() ?? Array.Empty<string>(),
-            warning = source.warning,
             status = source.status,
             HasZeroNoteMismatchWarning = source.HasZeroNoteMismatchWarning,
             HasLowConfidenceInstallWarning = source.HasLowConfidenceInstallWarning,

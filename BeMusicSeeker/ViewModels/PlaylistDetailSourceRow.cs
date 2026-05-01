@@ -52,8 +52,6 @@ internal sealed class PlaylistDetailSourceRow
 
     internal string name_diff { get; }
 
-    internal string warning { get; }
-
     internal bool HasZeroNoteMismatchWarning { get; }
 
     internal bool HasHighlightedWarning { get; }
@@ -228,10 +226,9 @@ internal sealed class PlaylistDetailSourceRow
         Url = entry.EffectiveUrl;
         Url_diff = entry.EffectiveUrlDiff;
         name_diff = entry.name_diff ?? string.Empty;
-        warning = snapshotSource?.warning ?? string.Empty;
         HasZeroNoteMismatchWarning = snapshotSource?.HasZeroNoteMismatchWarning ?? false;
         HasHighlightedWarning = snapshotSource?.HasHighlightedWarning ?? false;
-        DisplayWarning = snapshotSource?.DisplayWarning ?? warning;
+        DisplayWarning = snapshotSource?.DisplayWarning ?? string.Empty;
         WarningDigestText = snapshotSource?.WarningDigestText ?? DisplayWarning;
         WarningTooltipText = snapshotSource?.WarningTooltipText ?? DisplayWarning;
         comment = entry.comment ?? string.Empty;

@@ -136,7 +136,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
         public string InstallDestinationArtist { get; set; }
 
-        public string Warning { get; set; }
+        public IReadOnlyList<ChartWarning> Warnings { get; set; }
 
         public IReadOnlyList<string> Suggestions { get; set; }
 
@@ -1661,7 +1661,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             InstallDestination = bmsFile.instl_dst,
             InstallDestinationTitle = bmsFile.InstallDestinationTitle,
             InstallDestinationArtist = bmsFile.InstallDestinationArtist,
-            Warning = bmsFile.warning,
+            Warnings = bmsFile.Warnings.ToStructuredList(),
             Suggestions = (bmsFile.InstallDestinationSuggestions ?? Array.Empty<string>()).ToArray(),
             HasLowConfidenceInstallWarning = bmsFile.HasLowConfidenceInstallWarning
         };
@@ -1698,7 +1698,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         bmsFile.instl_dst = state.InstallDestination;
         bmsFile.InstallDestinationTitle = state.InstallDestinationTitle;
         bmsFile.InstallDestinationArtist = state.InstallDestinationArtist;
-        bmsFile.warning = state.Warning;
+        bmsFile.ReplaceStructuredWarnings(state.Warnings ?? Array.Empty<ChartWarning>());
         bmsFile.InstallDestinationSuggestions = state.Suggestions ?? Array.Empty<string>();
         bmsFile.HasLowConfidenceInstallWarning = state.HasLowConfidenceInstallWarning;
         bmsFile.IsInstallDestinationSuggestionPopupOpen = false;

@@ -118,15 +118,13 @@ internal sealed class LibraryChartRow : NotificationObject
 
     public double? level => BmsFile?.level ?? BmsonSong?.level;
 
-    public string warning => BmsFile?.warning ?? string.Empty;
-
     public bool HasZeroNoteMismatchWarning => BmsFile?.HasZeroNoteMismatchWarning ?? false;
 
     public bool HasHighlightedWarning => BmsFile?.HasHighlightedWarning ?? false;
 
     public bool HasFailureStatus => false;
 
-    public string DisplayWarning => BmsFile?.DisplayWarning ?? warning;
+    public string DisplayWarning => BmsFile?.DisplayWarning ?? string.Empty;
 
     public string WarningDigestText => BmsFile?.WarningDigestText ?? DisplayWarning;
 

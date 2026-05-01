@@ -78,8 +78,6 @@ public class BMSFile : LR2SongDB.song
         SCORE_UNSENT = 0x800
     }
 
-    private string _warning;
-
     private string _instl_dst;
 
     private string _installDestinationTitle;
@@ -578,13 +576,11 @@ public class BMSFile : LR2SongDB.song
     internal void ClearWarningsByCategory(ChartWarningCategory category)
     {
         Warnings.RemoveCategory(category);
-        warning = ChartWarningLegacyClassifier.RemoveCategory(warning, category);
     }
 
     internal void ClearWarning(ChartWarningKind kind)
     {
         Warnings.Remove(kind);
-        warning = ChartWarningLegacyClassifier.RemoveKind(warning, kind);
     }
 
     internal void ClearStructuredWarnings()
@@ -600,12 +596,16 @@ public class BMSFile : LR2SongDB.song
     internal void ReplaceWarningsByCategory(ChartWarningCategory category, IEnumerable<ChartWarning> warnings)
     {
         Warnings.ReplaceCategory(category, warnings);
-        warning = ChartWarningLegacyClassifier.RemoveCategory(warning, category);
     }
 
     internal void CopyStructuredWarningsFrom(BMSFile source)
     {
         Warnings.ReplaceAll(source?.Warnings.ToStructuredList() ?? Enumerable.Empty<ChartWarning>());
+    }
+
+    internal void ReplaceStructuredWarnings(IEnumerable<ChartWarning> warnings)
+    {
+        Warnings.ReplaceAll(warnings);
     }
 
     internal void RaiseWarningPresentationChanged()
@@ -614,23 +614,6 @@ public class BMSFile : LR2SongDB.song
         RaisePropertyChanged(() => WarningDigestText);
         RaisePropertyChanged(() => WarningTooltipText);
         RaisePropertyChanged(() => HasHighlightedWarning);
-    }
-
-    public virtual string warning
-    {
-        get
-        {
-            return _warning ?? string.Empty;
-        }
-        set
-        {
-            if (!(_warning == value))
-            {
-                _warning = value;
-                RaisePropertyChanged("warning");
-                RaiseWarningPresentationChanged();
-            }
-        }
     }
 
     public virtual bool HasZeroNoteMismatchWarning

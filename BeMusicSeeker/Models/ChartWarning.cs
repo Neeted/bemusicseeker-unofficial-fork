@@ -11,7 +11,6 @@ namespace BeMusicSeeker.Models;
 /// </summary>
 internal enum ChartWarningKind
 {
-    LegacyText,
     NestedChartFileInPackage,
     AlreadyInstalled,
     SingleBmsFile,
@@ -37,7 +36,6 @@ internal enum ChartWarningKind
 /// </summary>
 internal enum ChartWarningCategory
 {
-    Legacy,
     PackageLayout,
     InstalledState,
     ResourceHealth,
@@ -211,14 +209,14 @@ internal sealed class ChartWarningDefinition
             case ChartWarningKind.ResourceBannerMissing:
                 return new ChartWarningDefinition(ChartWarningCategory.ResourceHealth, 83, Resources.WarningDigest_ImageMissing, highlightRow: false, showInDigest: false);
             default:
-                return new ChartWarningDefinition(ChartWarningCategory.Legacy, 1000, Resources.WarningDigest_Other, highlightRow: false);
+                throw new ArgumentOutOfRangeException(nameof(kind), kind, null);
         }
     }
 }
 
 /// <summary>
 /// BMSFile が保持する構造化 warning collection です。
-/// 既存の文字列 warning と移行済み warning を統合して、表示用文字列と行色を計算します。
+/// 構造化 warning と互換フラグを統合して、表示用文字列と行色を計算します。
 /// </summary>
 internal sealed class ChartWarningCollection
 {
@@ -430,14 +428,6 @@ internal sealed class ChartWarningCollection
             effective[warning.Kind] = warning;
         }
 
-        foreach (ChartWarning warning in ChartWarningLegacyClassifier.Classify(owner.warning))
-        {
-            if (!effective.ContainsKey(warning.Kind))
-            {
-                effective[warning.Kind] = warning;
-            }
-        }
-
         if (owner.HasZeroNoteMismatchWarning && !effective.ContainsKey(ChartWarningKind.ZeroNoteMismatch))
         {
             effective[ChartWarningKind.ZeroNoteMismatch] = ChartWarning.Create(ChartWarningKind.ZeroNoteMismatch, Resources.Warning_ZeroNoteMismatch);
@@ -452,226 +442,5 @@ internal sealed class ChartWarningCollection
         }
 
         return effective.Values;
-    }
-}
-
-/// <summary>
-/// 既存の文字列 warning を表示用の仮想 warning に分類します。
-/// 移行途中に保存済み pending row と未移行生成元を digest 表示へ乗せるための互換層です。
-/// </summary>
-internal static class ChartWarningLegacyClassifier
-{
-    /// <summary>
-    /// 改行区切りの legacy warning を構造化 warning として解釈します。
-    /// </summary>
-    /// <param name="warningText">既存 warning 文字列。</param>
-    /// <returns>分類済み warning の列挙。</returns>
-    internal static IEnumerable<ChartWarning> Classify(string warningText)
-    {
-        if (string.IsNullOrWhiteSpace(warningText))
-        {
-            yield break;
-        }
-
-        Dictionary<ChartWarningKind, List<string>> linesByKind = new Dictionary<ChartWarningKind, List<string>>();
-        foreach (string line in SplitWarningLines(warningText))
-        {
-            ChartWarningKind kind = ClassifyLine(line);
-            if (!linesByKind.TryGetValue(kind, out List<string> lines))
-            {
-                lines = new List<string>();
-                linesByKind.Add(kind, lines);
-            }
-            lines.Add(line);
-        }
-
-        foreach (KeyValuePair<ChartWarningKind, List<string>> pair in linesByKind)
-        {
-            yield return ChartWarning.Create(pair.Key, string.Join(Environment.NewLine, pair.Value));
-        }
-    }
-
-    /// <summary>
-    /// legacy warning 文字列から指定カテゴリに分類される行だけを取り除きます。
-    /// 構造化 warning と文字列 warning が混在する移行期間の cleanup に使います。
-    /// </summary>
-    /// <param name="warningText">既存 warning 文字列。</param>
-    /// <param name="category">取り除くカテゴリ。</param>
-    /// <returns>対象カテゴリを除いた warning 文字列。</returns>
-    internal static string RemoveCategory(string warningText, ChartWarningCategory category)
-    {
-        if (string.IsNullOrWhiteSpace(warningText))
-        {
-            return string.Empty;
-        }
-        return string.Join(
-            Environment.NewLine,
-            SplitWarningLines(warningText)
-                .Where(line => ChartWarningDefinition.ForKind(ClassifyLine(line)).Category != category)
-                .ToArray());
-    }
-
-    /// <summary>
-    /// legacy warning 文字列から指定 kind に分類される行だけを取り除きます。
-    /// </summary>
-    /// <param name="warningText">既存 warning 文字列。</param>
-    /// <param name="kind">取り除く warning kind。</param>
-    /// <returns>対象 kind を除いた warning 文字列。</returns>
-    internal static string RemoveKind(string warningText, ChartWarningKind kind)
-    {
-        if (string.IsNullOrWhiteSpace(warningText))
-        {
-            return string.Empty;
-        }
-        return string.Join(
-            Environment.NewLine,
-            SplitWarningLines(warningText)
-                .Where(line => ClassifyLine(line) != kind)
-                .ToArray());
-    }
-
-    private static IEnumerable<string> SplitWarningLines(string warningText)
-    {
-        return (warningText ?? string.Empty)
-            .Split(new char[2] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
-            .Select(line => line.Trim())
-            .Where(line => !string.IsNullOrWhiteSpace(line));
-    }
-
-    private static ChartWarningKind ClassifyLine(string line)
-    {
-        if (string.Equals(line, Resources.Warning_NestedChartFileInPackage, StringComparison.Ordinal))
-        {
-            return ChartWarningKind.NestedChartFileInPackage;
-        }
-        if (string.Equals(line, Resources.Warning_AlreadyInstalled, StringComparison.Ordinal))
-        {
-            return ChartWarningKind.AlreadyInstalled;
-        }
-        if (string.Equals(line, Resources.Warning_SingleBmsFile, StringComparison.Ordinal))
-        {
-            return ChartWarningKind.SingleBmsFile;
-        }
-        if (string.Equals(line, Resources.Warning_SingleBmsonFile, StringComparison.Ordinal))
-        {
-            return ChartWarningKind.SingleBmsonFile;
-        }
-        if (string.Equals(line, Resources.Warning_DuplicateBmsFile, StringComparison.Ordinal))
-        {
-            return ChartWarningKind.DuplicateChart;
-        }
-        if (string.Equals(line, Resources.Warning_ZeroNoteMismatch, StringComparison.Ordinal))
-        {
-            return ChartWarningKind.ZeroNoteMismatch;
-        }
-        if (IsResourceWarningLine(line, Resources.Warning_WavFilesNotFound))
-        {
-            return ChartWarningKind.ResourceWavMissing;
-        }
-        if (IsResourceWarningLine(line, Resources.Warning_BgaFilesNotFound))
-        {
-            return ChartWarningKind.ResourceBgaMissing;
-        }
-        if (IsResourceWarningLine(line, Resources.Warning_MovieFilesNotFound))
-        {
-            return ChartWarningKind.ResourceMovieMissing;
-        }
-        if (string.Equals(line, Resources.Warning_StagefileNotFound, StringComparison.Ordinal))
-        {
-            return ChartWarningKind.ResourceStagefileMissing;
-        }
-        if (string.Equals(line, Resources.Warning_BackbmpNotFound, StringComparison.Ordinal))
-        {
-            return ChartWarningKind.ResourceBackbmpMissing;
-        }
-        if (string.Equals(line, Resources.Warning_BannerNotFound, StringComparison.Ordinal))
-        {
-            return ChartWarningKind.ResourceBannerMissing;
-        }
-        if (StartsWithResource(line, Resources.Warning_InstallEstimationAmbiguousPrefix) || StartsWithAnyResourceLine(line, Resources.Warning_InstallEstimationAmbiguous))
-        {
-            return ChartWarningKind.InstallEstimationAmbiguous;
-        }
-        if (StartsWithResource(line, Resources.Warning_InstallEstimationMetadataMismatchPrefix) || StartsWithAnyResourceLine(line, Resources.Warning_InstallEstimationMetadataMismatch))
-        {
-            return ChartWarningKind.InstallEstimationMetadataMismatch;
-        }
-        if (StartsWithResource(line, Resources.Warning_InstallEstimationReinstallNotImprovedPrefix) || StartsWithAnyResourceLine(line, Resources.Warning_InstallEstimationReinstallNotImproved))
-        {
-            return ChartWarningKind.InstallEstimationReinstallNotImproved;
-        }
-        if (StartsWithResource(line, Resources.Warning_InstalledDestinationResolveFailed))
-        {
-            return ChartWarningKind.InstalledDestinationResolveFailed;
-        }
-        return ChartWarningKind.LegacyText;
-    }
-
-    private static bool IsResourceWarningLine(string line, string template)
-    {
-        int percentIndex = line.IndexOf('%');
-        string suffix = GetTemplateSuffixAfterPercent(template);
-        return percentIndex >= 0
-            && !string.IsNullOrWhiteSpace(suffix)
-            && line.Substring(percentIndex + 1).TrimStart().StartsWith(suffix, StringComparison.Ordinal);
-    }
-
-    private static string GetTemplateSuffixAfterPercent(string template)
-    {
-        if (string.IsNullOrWhiteSpace(template))
-        {
-            return string.Empty;
-        }
-        int percentIndex = template.IndexOf('%');
-        if (percentIndex < 0 || percentIndex + 1 >= template.Length)
-        {
-            return string.Empty;
-        }
-        string suffix = template.Substring(percentIndex + 1).TrimStart();
-        int placeholderIndex = suffix.IndexOf('{');
-        return placeholderIndex >= 0 ? suffix.Substring(0, placeholderIndex).TrimEnd() : suffix;
-    }
-
-    private static bool StartsWithResource(string line, string resourceText)
-    {
-        if (string.IsNullOrWhiteSpace(resourceText))
-        {
-            return false;
-        }
-        string prefix = resourceText.Split(new char[2] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
-            .Select(part => part.Trim())
-            .FirstOrDefault(part => !string.IsNullOrWhiteSpace(part));
-        if (string.IsNullOrWhiteSpace(prefix))
-        {
-            return false;
-        }
-        int placeholderIndex = prefix.IndexOf('{');
-        if (placeholderIndex >= 0)
-        {
-            prefix = prefix.Substring(0, placeholderIndex).TrimEnd();
-        }
-        return !string.IsNullOrWhiteSpace(prefix) && line.StartsWith(prefix, StringComparison.Ordinal);
-    }
-
-    private static bool StartsWithAnyResourceLine(string line, string resourceText)
-    {
-        if (string.IsNullOrWhiteSpace(resourceText))
-        {
-            return false;
-        }
-        foreach (string resourceLine in resourceText.Split(new char[2] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries).Select(part => part.Trim()).Where(part => !string.IsNullOrWhiteSpace(part)))
-        {
-            string prefix = resourceLine;
-            int placeholderIndex = prefix.IndexOf('{');
-            if (placeholderIndex >= 0)
-            {
-                prefix = prefix.Substring(0, placeholderIndex).TrimEnd();
-            }
-            if (!string.IsNullOrWhiteSpace(prefix) && line.StartsWith(prefix, StringComparison.Ordinal))
-            {
-                return true;
-            }
-        }
-        return false;
     }
 }

@@ -174,7 +174,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
         Assert.AreEqual(1, plan.Groups[0].Items.Count);
         Assert.AreEqual(1, plan.Groups[0].Items[0].InstallWorkPackage.BMSFiles.Count);
         Assert.AreSame(pendingFile, plan.Groups[0].Items[0].InstallWorkPackage.BMSFiles[0]);
-        Assert.IsTrue(string.IsNullOrWhiteSpace(pendingFile.warning));
+        Assert.AreEqual(string.Empty, pendingFile.WarningDigestText);
     }
 
     [TestMethod]
@@ -555,7 +555,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.IsTrue(chart.IsBmsonChart);
             Assert.AreEqual(1, chart.maintenanceInfo.wav_files_defined);
             Assert.AreEqual(1, chart.maintenanceInfo.wav_files_existing);
-            Assert.IsTrue(string.IsNullOrWhiteSpace(chart.warning));
+            Assert.AreEqual(string.Empty, chart.WarningDigestText);
         });
     }
 
@@ -719,7 +719,6 @@ public sealed class BmsLibraryPackageInstallServiceTests
         TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "C:\\Installed\\chart.bms");
         string installWarning = string.Format(Resources.Warning_InstallEstimationAmbiguous, "C:\\Installed\\A", "C:\\Installed\\B");
         file.SetWarning(ChartWarningKind.InstallEstimationAmbiguous, installWarning);
-        file.warning = installWarning;
         file.HasLowConfidenceInstallWarning = true;
         file.InstallDestinationSuggestions = new[] { "C:\\Installed\\A", "C:\\Installed\\B" };
         BMSPackage package = new BMSPackage(new BMSFile[] { file })
