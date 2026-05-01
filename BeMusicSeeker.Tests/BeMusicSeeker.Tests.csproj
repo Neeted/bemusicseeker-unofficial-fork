@@ -16,6 +16,7 @@
   <ItemGroup>
     <ProjectReference Include="..\BeMusicSeeker.csproj" />
     <Compile Include="..\tools\chart-info-compare\ChartInfoCompareCore.cs" Link="Tools\ChartInfoCompareCore.cs" />
+    <Compile Include="..\tools\chart-info-export\ChartInfoExportCore.cs" Link="Tools\ChartInfoExportCore.cs" />
   </ItemGroup>
 
   <ItemGroup>

@@ -676,6 +676,34 @@ public sealed class LR2SongDBExtended : LR2SongDB
         public virtual int version { get; set; }
     }
 
+    /// <summary>
+    /// 同梱 chart_info metadata bundle の import 済み履歴です。
+    /// 同じ bundle を起動のたびに再 import しないために保持します。
+    /// </summary>
+    [Table("chart_info_import_history")]
+    public class chart_info_import_history : SQLiteTable<chart_info_import_history>
+    {
+        /// <summary>
+        /// bundle SHA-256 と parser version から作る import identity です。
+        /// </summary>
+        [PrimaryKey]
+        public virtual string import_key { get; set; }
+
+        public virtual string bundle_id { get; set; }
+
+        public virtual string bundle_sha256 { get; set; }
+
+        public int parser_version { get; set; }
+
+        public int chart_info_imported_count { get; set; }
+
+        public int chart_digest_imported_count { get; set; }
+
+        public int failure_cleared_count { get; set; }
+
+        public DateTime imported_at { get; set; }
+    }
+
     [Table("bmson_song")]
     public class bmson_song : SQLiteTable<bmson_song>
     {
@@ -1133,6 +1161,7 @@ public sealed class LR2SongDBExtended : LR2SongDB
         DropTable<playlist_entry>();
         DropTable<chart_digest_map>();
         DropTable<chart_info>();
+        DropTable<chart_info_import_history>();
         DropTable<bmson_song>();
         DropTable<ir_score>();
         DropTable<ir_data>();

@@ -3477,6 +3477,10 @@ public class BMSLibrary : NotificationObject
         DateTime now;
         InitializationExecutionResult initializeResult;
         LogInstallPerformance("init_library_enter reloadScoresOnly=" + (reloadScoresOnly?.ToString() ?? "(null)") + " songTblLoad=" + songTblLoad.ToString().ToLowerInvariant() + " songTblFileCheck=" + songTblFileCheck.ToString().ToLowerInvariant() + " setMaintenanceInfo=" + setMaintenanceInfo.ToString().ToLowerInvariant() + " installTblCheck=" + flag.ToString().ToLowerInvariant() + " rwlockInitAll currentRead=" + rwlockBMSFilesInitializedAll.CurrentReadCount + " lockingRead=" + rwlockBMSFilesInitializedAll.LockingReadCount + " lockingWrite=" + rwlockBMSFilesInitializedAll.LockingWriteCount + " waitingWrite=" + rwlockBMSFilesInitializedAll.WaitingWriteCount);
+        if (reloadScoresOnly != true)
+        {
+            TryImportChartInfoMetadataBundleAtStartup();
+        }
         using (rwlockBMSFilesInitializedAll.GetWriterGuard())
         {
             LogInstallPerformance("init_library_lock_acquired rwlockInitAll currentRead=" + rwlockBMSFilesInitializedAll.CurrentReadCount + " lockingRead=" + rwlockBMSFilesInitializedAll.LockingReadCount + " lockingWrite=" + rwlockBMSFilesInitializedAll.LockingWriteCount + " waitingWrite=" + rwlockBMSFilesInitializedAll.WaitingWriteCount);
@@ -3587,6 +3591,40 @@ public class BMSLibrary : NotificationObject
         GC.Collect();
         NLogWrapper.DebuggerLogger?.Trace("owari: " + GC.GetTotalMemory(forceFullCollection: false));
         LogInstallPerformance("init_library phase1_min_load_ms=" + initializeResult.Phase1MinLoadMs + " phase2_scan_maint_ms=" + initializeResult.Phase2ScanMaintMs + " phase3_install_maintenance_ms=" + initializeResult.Phase3InstallMaintenanceMs + " wait_continuation_ms=" + initializeResult.WaitContinuationMs + " total_ms=" + initializeResult.TotalMs + " maintenance_tbl_check_deferred=" + scheduleDeferredMaintenanceTableCheck.ToString().ToLowerInvariant() + " set_maintenance_enabled=" + setMaintenanceInfo.ToString().ToLowerInvariant());
+    }
+
+    private void TryImportChartInfoMetadataBundleAtStartup()
+    {
+        string bundlePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "chart-info-metadata.db");
+        if (!File.Exists(bundlePath))
+        {
+            LogInstallPerformance("chart_info_metadata_import skipped reason=missing_bundle");
+            return;
+        }
+        try
+        {
+            string bundleSha256 = BMSFile.GetSHA256Hash(bundlePath);
+            LogInstallPerformance("chart_info_metadata_import start path=\"" + bundlePath + "\" bundleSha256=" + bundleSha256);
+            ChartInfoMetadataBundleImportResult result = dbGateway.ImportChartInfoMetadataBundle(bundlePath, bundleSha256);
+            if (result.Skipped)
+            {
+                LogInstallPerformance("chart_info_metadata_import skipped reason=" + (result.SkipReason ?? "unknown") + " bundleSha256=" + bundleSha256 + " elapsedMs=" + result.ElapsedMs);
+                return;
+            }
+            LogInstallPerformance("chart_info_metadata_import done"
+                + " bundleId=" + (result.BundleId ?? string.Empty)
+                + " bundleSha256=" + bundleSha256
+                + " sourceChartInfo=" + result.SourceChartInfoCount
+                + " sourceDigest=" + result.SourceDigestCount
+                + " chartInfoImported=" + result.ImportedChartInfoCount
+                + " digestImported=" + result.ImportedDigestCount
+                + " failureCleared=" + result.FailureClearedCount
+                + " elapsedMs=" + result.ElapsedMs);
+        }
+        catch (Exception ex)
+        {
+            LogInstallPerformance("chart_info_metadata_import failed message=" + ex.Message);
+        }
     }
 
     private static bool IsLikelyCrcHex(string value)

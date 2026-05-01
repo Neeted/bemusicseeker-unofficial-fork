@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Security;
@@ -58,15 +59,20 @@ internal sealed class BmsLibraryDbGateway
     private const string ChartInfoParseFailureDeleteSql =
         "DELETE FROM chart_info_parse_failure WHERE md5 = ?;";
 
+    private const string ChartInfoColumnList =
+        "sha256, md5, charthash, level, difficulty, difficulty_defined, mainbpm, maxbpm, minbpm, length, mode, judge, feature, notes, n, ln, s, ls, total, total_defined, density, peakdensity, enddensity, distribution, speedchange, speedchange_count, lanenotes, parser_version, updated_at";
+
     internal const string BmsonAppSchemaVersionName = "bmson_app_schema";
 
     internal const int CurrentBmsonAppSchemaVersion = 1;
 
     internal const string ChartInfoSchemaVersionName = "chart_info_schema";
 
-    internal const int CurrentChartInfoSchemaVersion = 3;
+    internal const int CurrentChartInfoSchemaVersion = 4;
 
     internal const int CurrentChartInfoParserVersion = 20;
+
+    internal const int ChartInfoMetadataBundleFormatVersion = 1;
 
     public string SongDbPath { get; }
 
@@ -563,6 +569,119 @@ internal sealed class BmsLibraryDbGateway
         }
     }
 
+    public ChartInfoMetadataBundleImportResult ImportChartInfoMetadataBundle(string bundleDbPath, string bundleSha256)
+    {
+        if (string.IsNullOrWhiteSpace(bundleDbPath))
+        {
+            throw new ArgumentNullException(nameof(bundleDbPath));
+        }
+        if (!File.Exists(bundleDbPath))
+        {
+            throw new FileNotFoundException("chart_info metadata bundle was not found.", bundleDbPath);
+        }
+        if (string.IsNullOrWhiteSpace(bundleSha256))
+        {
+            throw new ArgumentNullException(nameof(bundleSha256));
+        }
+        bundleSha256 = bundleSha256.Trim().ToLowerInvariant();
+        Stopwatch stopwatch = Stopwatch.StartNew();
+        ChartInfoMetadataBundleImportResult result = new ChartInfoMetadataBundleImportResult
+        {
+            BundleSha256 = bundleSha256
+        };
+        using LR2SongDBExtended songDb = OpenSongDb();
+        bool attached = false;
+        string savepoint = null;
+        Exception importException = null;
+        try
+        {
+            songDb.Execute("ATTACH DATABASE ? AS bundle;", bundleDbPath);
+            attached = true;
+            savepoint = songDb.SaveTransactionPoint();
+            EnsureChartInfoSchema(songDb);
+            EnsureBmsonSchema(songDb);
+            ChartInfoMetadataBundleManifest manifest = LoadChartInfoMetadataBundleManifest(songDb);
+            result.BundleId = manifest.bundle_id;
+            result.SourceChartInfoCount = Math.Max(0, manifest.chart_info_count);
+            result.SourceDigestCount = Math.Max(0, manifest.chart_digest_count);
+
+            string importKey = BuildChartInfoMetadataBundleImportKey(bundleSha256);
+            if (IsChartInfoMetadataBundleImported(songDb, importKey))
+            {
+                result.Skipped = true;
+                result.SkipReason = "already_imported";
+                songDb.Commit();
+                stopwatch.Stop();
+                result.ElapsedMs = stopwatch.ElapsedMilliseconds;
+                return result;
+            }
+
+            PrepareChartInfoMetadataImportTempTables(songDb);
+            result.ImportedChartInfoCount = songDb.ExecuteScalar<int>("SELECT COUNT(1) FROM temp.chart_info_metadata_import_info_to_import;");
+            result.ImportedDigestCount = songDb.ExecuteScalar<int>("SELECT COUNT(1) FROM temp.chart_info_metadata_import_digest_to_import;");
+            result.FailureClearedCount = songDb.ExecuteScalar<int>("SELECT COUNT(1) FROM temp.chart_info_metadata_import_failure_to_clear;");
+
+            songDb.Execute(
+                "INSERT OR REPLACE INTO main.chart_info ("
+                + ChartInfoColumnList
+                + ") SELECT "
+                + ChartInfoColumnList
+                + " FROM temp.chart_info_metadata_import_info_to_import;");
+            songDb.Execute(
+                "INSERT OR IGNORE INTO main.chart_digest_map (md5, sha256) "
+                + "SELECT md5, sha256 FROM temp.chart_info_metadata_import_digest_to_import;");
+            songDb.Execute(
+                "DELETE FROM main.chart_info_parse_failure WHERE md5 IN (SELECT md5 FROM temp.chart_info_metadata_import_failure_to_clear);");
+            songDb.InsertOrReplace(new LR2SongDBExtended.chart_info_import_history
+            {
+                import_key = importKey,
+                bundle_id = result.BundleId,
+                bundle_sha256 = bundleSha256,
+                parser_version = CurrentChartInfoParserVersion,
+                chart_info_imported_count = result.ImportedChartInfoCount,
+                chart_digest_imported_count = result.ImportedDigestCount,
+                failure_cleared_count = result.FailureClearedCount,
+                imported_at = DateTime.UtcNow
+            }, typeof(LR2SongDBExtended.chart_info_import_history));
+            songDb.Commit();
+        }
+        catch (Exception ex)
+        {
+            importException = ex;
+            if (savepoint != null)
+            {
+                try
+                {
+                    songDb.RollbackTo(savepoint);
+                }
+                catch
+                {
+                }
+            }
+            throw;
+        }
+        finally
+        {
+            if (attached)
+            {
+                try
+                {
+                    songDb.Execute("DETACH DATABASE bundle;");
+                }
+                catch
+                {
+                    if (importException == null)
+                    {
+                        throw;
+                    }
+                }
+            }
+            stopwatch.Stop();
+            result.ElapsedMs = stopwatch.ElapsedMilliseconds;
+        }
+        return result;
+    }
+
     /// <summary>
     /// chart_info backfill の1 chunk 分を短い transaction で保存します。
     /// digest と chart_info をまとめて保存し、途中終了時は次回 backfill が未保存分だけを再開します。
@@ -907,6 +1026,13 @@ internal sealed class BmsLibraryDbGateway
         songDb.CreateTable<LR2SongDBExtended.chart_info_parse_failure>();
         EnsureIndex(songDb, "chart_info_parse_failure_idx_sha256", failureTableName, SQLiteTable<LR2SongDBExtended.chart_info_parse_failure>.GetColumnName((LR2SongDBExtended.chart_info_parse_failure row) => row.sha256));
         EnsureIndex(songDb, "chart_info_parse_failure_idx_parser_version", failureTableName, SQLiteTable<LR2SongDBExtended.chart_info_parse_failure>.GetColumnName((LR2SongDBExtended.chart_info_parse_failure row) => row.parser_version));
+        string importHistoryTableName = SQLiteTable<LR2SongDBExtended.chart_info_import_history>.GetTableName();
+        if (TableExists(songDb, importHistoryTableName) && !IsChartInfoImportHistoryTableCompatible(songDb))
+        {
+            songDb.DropTable<LR2SongDBExtended.chart_info_import_history>();
+        }
+        songDb.CreateTable<LR2SongDBExtended.chart_info_import_history>();
+        EnsureIndex(songDb, "chart_info_import_history_idx_bundle_sha256", importHistoryTableName, SQLiteTable<LR2SongDBExtended.chart_info_import_history>.GetColumnName((LR2SongDBExtended.chart_info_import_history row) => row.bundle_sha256));
         SetChartInfoSchemaVersion(songDb, CurrentChartInfoSchemaVersion);
     }
 
@@ -979,7 +1105,13 @@ internal sealed class BmsLibraryDbGateway
 
     private static bool TableExists(LR2SongDBExtended songDb, string tableName)
     {
-        return songDb.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_master WHERE type = 'table' AND name = " + BMSPlaylist.SqlQuoteForTest(tableName) + ";") > 0;
+        return TableExists(songDb, null, tableName);
+    }
+
+    private static bool TableExists(LR2SongDBExtended songDb, string schemaName, string tableName)
+    {
+        string masterTableName = string.IsNullOrWhiteSpace(schemaName) ? "sqlite_master" : schemaName + ".sqlite_master";
+        return songDb.ExecuteScalar<long>("SELECT COUNT(1) FROM " + masterTableName + " WHERE type = 'table' AND name = " + BMSPlaylist.SqlQuoteForTest(tableName) + ";") > 0;
     }
 
     private static bool IndexExists(LR2SongDBExtended songDb, string indexName)
@@ -1027,6 +1159,10 @@ internal sealed class BmsLibraryDbGateway
         {
             return false;
         }
+        if (!TableExists(songDb, SQLiteTable<LR2SongDBExtended.chart_info_import_history>.GetTableName()) || !IsChartInfoImportHistoryTableCompatible(songDb))
+        {
+            return false;
+        }
         long count = songDb.ExecuteScalar<long>(
             "SELECT COUNT(1) FROM " + SQLiteTable<LR2SongDBExtended.app_schema_version>.GetTableName()
             + " WHERE " + SQLiteTable<LR2SongDBExtended.app_schema_version>.GetColumnName((LR2SongDBExtended.app_schema_version row) => row.name)
@@ -1071,6 +1207,176 @@ internal sealed class BmsLibraryDbGateway
             name = BmsonAppSchemaVersionName,
             version = version
         }, typeof(LR2SongDBExtended.app_schema_version));
+    }
+
+    private static string BuildChartInfoMetadataBundleImportKey(string bundleSha256)
+    {
+        return (bundleSha256 ?? string.Empty).Trim().ToLowerInvariant() + ":" + CurrentChartInfoParserVersion;
+    }
+
+    private static bool IsChartInfoMetadataBundleImported(LR2SongDBExtended songDb, string importKey)
+    {
+        return songDb.ExecuteScalar<long>(
+            "SELECT COUNT(1) FROM " + SQLiteTable<LR2SongDBExtended.chart_info_import_history>.GetTableName()
+            + " WHERE " + SQLiteTable<LR2SongDBExtended.chart_info_import_history>.GetColumnName((LR2SongDBExtended.chart_info_import_history row) => row.import_key)
+            + " = ?;",
+            importKey) > 0L;
+    }
+
+    private static ChartInfoMetadataBundleManifest LoadChartInfoMetadataBundleManifest(LR2SongDBExtended songDb)
+    {
+        RequireAttachedTableColumns(
+            songDb,
+            "bundle",
+            "chart_info_metadata_bundle",
+            new[]
+            {
+                "bundle_id",
+                "format_version",
+                "generated_at",
+                "chart_info_schema_version",
+                "chart_info_parser_version",
+                "chart_info_count",
+                "chart_digest_count"
+            });
+        RequireAttachedTableColumns(songDb, "bundle", "chart_info", ChartInfoColumnList.Split(new[] { ", " }, StringSplitOptions.None));
+        RequireAttachedTableColumns(songDb, "bundle", "chart_digest_map", new[] { "md5", "sha256" });
+        ChartInfoMetadataBundleManifest manifest = songDb.Query<ChartInfoMetadataBundleManifest>(
+            "SELECT bundle_id, format_version, generated_at, chart_info_schema_version, chart_info_parser_version, chart_info_count, chart_digest_count "
+            + "FROM bundle.chart_info_metadata_bundle ORDER BY bundle_id COLLATE NOCASE ASC LIMIT 1;").FirstOrDefault();
+        if (manifest == null || string.IsNullOrWhiteSpace(manifest.bundle_id))
+        {
+            throw new InvalidDataException("chart_info metadata bundle manifest is missing.");
+        }
+        if (manifest.format_version != ChartInfoMetadataBundleFormatVersion)
+        {
+            throw new InvalidDataException("Unsupported chart_info metadata bundle format version: " + manifest.format_version);
+        }
+        if (manifest.chart_info_schema_version < CurrentChartInfoSchemaVersion)
+        {
+            throw new InvalidDataException("Stale chart_info metadata bundle schema version: " + manifest.chart_info_schema_version);
+        }
+        if (manifest.chart_info_parser_version < CurrentChartInfoParserVersion)
+        {
+            throw new InvalidDataException("Stale chart_info metadata bundle parser version: " + manifest.chart_info_parser_version);
+        }
+        return manifest;
+    }
+
+    private static void PrepareChartInfoMetadataImportTempTables(LR2SongDBExtended songDb)
+    {
+        DropChartInfoMetadataImportTempTables(songDb);
+        songDb.Execute(
+            "CREATE TEMP TABLE chart_info_metadata_import_info AS SELECT "
+            + "lower(trim(b.sha256)) AS sha256, "
+            + "lower(trim(b.md5)) AS md5, "
+            + NormalizedOptionalSha256Expression("b.charthash") + " AS charthash, "
+            + "b.level AS level, "
+            + "b.difficulty AS difficulty, "
+            + "b.difficulty_defined AS difficulty_defined, "
+            + "b.mainbpm AS mainbpm, "
+            + "b.maxbpm AS maxbpm, "
+            + "b.minbpm AS minbpm, "
+            + "b.length AS length, "
+            + "b.mode AS mode, "
+            + "b.judge AS judge, "
+            + "b.feature AS feature, "
+            + "b.notes AS notes, "
+            + "b.n AS n, "
+            + "b.ln AS ln, "
+            + "b.s AS s, "
+            + "b.ls AS ls, "
+            + "b.total AS total, "
+            + "b.total_defined AS total_defined, "
+            + "b.density AS density, "
+            + "b.peakdensity AS peakdensity, "
+            + "b.enddensity AS enddensity, "
+            + "b.distribution AS distribution, "
+            + "b.speedchange AS speedchange, "
+            + "b.speedchange_count AS speedchange_count, "
+            + "b.lanenotes AS lanenotes, "
+            + "b.parser_version AS parser_version, "
+            + "b.updated_at AS updated_at "
+            + "FROM bundle.chart_info b WHERE "
+            + ValidSha256Condition("b.sha256")
+            + " AND " + ValidMd5Condition("b.md5")
+            + " AND b.parser_version >= " + CurrentChartInfoParserVersion + ";");
+        songDb.Execute(
+            "CREATE TEMP TABLE chart_info_metadata_import_info_to_import AS "
+            + "SELECT s.* FROM temp.chart_info_metadata_import_info s "
+            + "LEFT JOIN main.chart_info d ON d.sha256 = s.sha256 "
+            + "WHERE d.sha256 IS NULL OR IFNULL(d.parser_version, 0) < " + CurrentChartInfoParserVersion + ";");
+        songDb.Execute("CREATE TEMP TABLE chart_info_metadata_import_digest_source (md5 TEXT PRIMARY KEY, sha256 TEXT);");
+        songDb.Execute(
+            "INSERT OR IGNORE INTO temp.chart_info_metadata_import_digest_source (md5, sha256) "
+            + "SELECT lower(trim(d.md5)), lower(trim(d.sha256)) FROM bundle.chart_digest_map d WHERE "
+            + ValidMd5Condition("d.md5")
+            + " AND " + ValidSha256Condition("d.sha256")
+            + " ORDER BY lower(trim(d.md5)) COLLATE NOCASE ASC, lower(trim(d.sha256)) COLLATE NOCASE ASC;");
+        songDb.Execute(
+            "INSERT OR IGNORE INTO temp.chart_info_metadata_import_digest_source (md5, sha256) "
+            + "SELECT md5, sha256 FROM temp.chart_info_metadata_import_info WHERE "
+            + ValidMd5Condition("md5")
+            + " AND " + ValidSha256Condition("sha256")
+            + " ORDER BY md5 COLLATE NOCASE ASC, sha256 COLLATE NOCASE ASC;");
+        songDb.Execute(
+            "CREATE TEMP TABLE chart_info_metadata_import_digest_to_import AS "
+            + "SELECT s.* FROM temp.chart_info_metadata_import_digest_source s "
+            + "LEFT JOIN main.chart_digest_map d ON d.md5 = s.md5 "
+            + "WHERE d.md5 IS NULL;");
+        songDb.Execute(
+            "CREATE TEMP TABLE chart_info_metadata_import_failure_to_clear AS "
+            + "SELECT DISTINCT f.md5 FROM main.chart_info_parse_failure f "
+            + "JOIN temp.chart_info_metadata_import_info s ON s.md5 = f.md5;");
+    }
+
+    private static void DropChartInfoMetadataImportTempTables(LR2SongDBExtended songDb)
+    {
+        songDb.Execute("DROP TABLE IF EXISTS temp.chart_info_metadata_import_failure_to_clear;");
+        songDb.Execute("DROP TABLE IF EXISTS temp.chart_info_metadata_import_digest_to_import;");
+        songDb.Execute("DROP TABLE IF EXISTS temp.chart_info_metadata_import_digest_source;");
+        songDb.Execute("DROP TABLE IF EXISTS temp.chart_info_metadata_import_info_to_import;");
+        songDb.Execute("DROP TABLE IF EXISTS temp.chart_info_metadata_import_info;");
+    }
+
+    private static string NormalizedOptionalSha256Expression(string column)
+    {
+        return "CASE WHEN " + ValidSha256Condition(column) + " THEN lower(trim(" + column + ")) ELSE NULL END";
+    }
+
+    private static string ValidSha256Condition(string column)
+    {
+        return column + " IS NOT NULL AND length(trim(" + column + ")) = 64 AND lower(trim(" + column + ")) NOT GLOB '*[^0-9a-f]*'";
+    }
+
+    private static string ValidMd5Condition(string column)
+    {
+        return column + " IS NOT NULL AND length(trim(" + column + ")) = 32 AND lower(trim(" + column + ")) NOT GLOB '*[^0-9a-f]*'";
+    }
+
+    private static void RequireAttachedTableColumns(LR2SongDBExtended songDb, string schemaName, string tableName, IEnumerable<string> requiredColumns)
+    {
+        if (!TableExists(songDb, schemaName, tableName))
+        {
+            throw new InvalidDataException("Attached chart_info metadata bundle does not contain required table: " + tableName);
+        }
+        HashSet<string> columns = GetTableColumns(songDb, schemaName, tableName);
+        foreach (string column in requiredColumns ?? Enumerable.Empty<string>())
+        {
+            if (!columns.Contains(column))
+            {
+                throw new InvalidDataException("Attached chart_info metadata bundle table " + tableName + " does not contain required column: " + column);
+            }
+        }
+    }
+
+    private static HashSet<string> GetTableColumns(LR2SongDBExtended songDb, string schemaName, string tableName)
+    {
+        string pragmaPrefix = string.IsNullOrWhiteSpace(schemaName) ? string.Empty : schemaName + ".";
+        return new HashSet<string>(
+            songDb.Query<TableInfoRow>("PRAGMA " + pragmaPrefix + "table_info('" + tableName.Replace("'", "''") + "');")
+                .Select((TableInfoRow row) => row.name),
+            StringComparer.OrdinalIgnoreCase);
     }
 
     private static Dictionary<string, string> LoadReusableChartDigestMap(LR2SongDBExtended songDb)
@@ -1274,6 +1580,31 @@ internal sealed class BmsLibraryDbGateway
         return requiredColumns.All((string columnName) => columns.Contains(columnName));
     }
 
+    private static bool IsChartInfoImportHistoryTableCompatible(LR2SongDBExtended songDb)
+    {
+        string tableName = SQLiteTable<LR2SongDBExtended.chart_info_import_history>.GetTableName();
+        if (!TableExists(songDb, tableName))
+        {
+            return false;
+        }
+        HashSet<string> columns = new HashSet<string>(
+            songDb.Query<TableInfoRow>("PRAGMA table_info('" + tableName.Replace("'", "''") + "');")
+                .Select((TableInfoRow row) => row.name),
+            StringComparer.OrdinalIgnoreCase);
+        string[] requiredColumns =
+        {
+            "import_key",
+            "bundle_id",
+            "bundle_sha256",
+            "parser_version",
+            "chart_info_imported_count",
+            "chart_digest_imported_count",
+            "failure_cleared_count",
+            "imported_at"
+        };
+        return requiredColumns.All((string columnName) => columns.Contains(columnName));
+    }
+
     private static void RebuildChartDigestMap(LR2SongDBExtended songDb, IDictionary<string, string> digests)
     {
         string tableName = SQLiteTable<LR2SongDBExtended.chart_digest_map>.GetTableName();
@@ -1297,6 +1628,23 @@ internal sealed class BmsLibraryDbGateway
         public string md5 { get; set; }
 
         public string sha256 { get; set; }
+    }
+
+    private sealed class ChartInfoMetadataBundleManifest
+    {
+        public string bundle_id { get; set; }
+
+        public int format_version { get; set; }
+
+        public string generated_at { get; set; }
+
+        public int chart_info_schema_version { get; set; }
+
+        public int chart_info_parser_version { get; set; }
+
+        public int chart_info_count { get; set; }
+
+        public int chart_digest_count { get; set; }
     }
 
     private sealed class TableInfoRow
