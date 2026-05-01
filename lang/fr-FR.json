@@ -418,6 +418,7 @@
     "Warning_AlreadyInstalled": "Déjà installé",
   "Warning_SingleBmsFile": "Fichier BMS unique",
   "Warning_SingleBmsonFile": "Fichier BMSON unique",
+  "Warning_NestedChartFileInPackage": "Un fichier de chart jouable se trouve hors de la racine du package. Déplacez-le ou changez son extension si nécessaire.",
   "Warning_InstallEstimationAmbiguousPrefix": "Plusieurs destinations d'installation candidates existent, la destination n'a donc pas été fixée automatiquement.",
   "Warning_InstallEstimationAmbiguous": "Plusieurs destinations d'installation candidates existent, la destination n'a donc pas été fixée automatiquement.\n1er candidat : {0}\n2e candidat : {1}",
   "Warning_InstallEstimationMetadataMismatchPrefix": "La similarité TITLE / ARTIST est trop faible, la destination n'a donc pas été fixée automatiquement.",

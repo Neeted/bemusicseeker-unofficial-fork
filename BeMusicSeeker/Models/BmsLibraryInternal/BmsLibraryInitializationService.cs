@@ -691,6 +691,7 @@ internal sealed class BmsLibraryInitializationService
                     result.StrictWarningCount++;
                 }
             }
+            BmsLibraryPackageInstallService.ApplyNestedChartFileWarnings(pendingPackage);
         }
         warningStopwatch.Stop();
         result.WarningInitMs = warningStopwatch.ElapsedMilliseconds;

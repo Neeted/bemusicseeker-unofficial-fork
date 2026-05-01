@@ -404,6 +404,29 @@ public sealed class BmsLibraryPackageInstallServiceTests
     }
 
     [TestMethod]
+    public void SearchBmsFilesRecursivelyWithMetadata_DetectsRootAndNestedChartsAsOneDirectoryPackage()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string packageDirectoryPath = Path.Combine(tempDirectoryPath, "Pkg");
+            string nestedDirectoryPath = Path.Combine(packageDirectoryPath, "sub");
+            Directory.CreateDirectory(nestedDirectoryPath);
+            File.WriteAllText(Path.Combine(packageDirectoryPath, "root.bms"), "#PLAYER 1\r\n#TITLE Root\r\n");
+            File.WriteAllText(Path.Combine(nestedDirectoryPath, "another.bms"), "#PLAYER 1\r\n#TITLE Nested\r\n");
+
+            BmsLibraryPackageInstallService service = new BmsLibraryPackageInstallService();
+            BmsPackageDiscoveryResult result = service.SearchBmsFilesRecursivelyWithMetadata(packageDirectoryPath, 0.6);
+
+            Assert.AreEqual(1, result.Packages.Count);
+            Assert.AreEqual(packageDirectoryPath, result.Packages[0].path);
+            CollectionAssert.AreEquivalent(
+                new[] { "root.bms", "another.bms" },
+                result.Packages[0].BMSFiles.Select((BMSFile file) => Path.GetFileName(file.path)).ToArray());
+        });
+    }
+
+    [TestMethod]
     public void PrepareAutoInstallWorkflow_DetectsSingleBmsonFileSelection()
     {
         TestResourceInitializer.EnsureJapaneseResources();
@@ -461,6 +484,38 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(1, chart.maintenanceInfo.wav_files_defined);
             Assert.AreEqual(0, chart.maintenanceInfo.wav_files_existing);
             StringAssert.Contains(chart.warning, "WAV");
+        });
+    }
+
+    [TestMethod]
+    public void PrepareAutoInstallWorkflow_PrependsNestedChartWarningBeforeResourceWarnings()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string packageDirectoryPath = Path.Combine(tempDirectoryPath, "Pkg");
+            string nestedDirectoryPath = Path.Combine(packageDirectoryPath, "sub");
+            Directory.CreateDirectory(nestedDirectoryPath);
+            File.WriteAllText(Path.Combine(packageDirectoryPath, "root.bms"), "#PLAYER 1\r\n#TITLE Root\r\n#WAVAA sound.wav\r\n#00111:AA\r\n");
+            File.WriteAllText(Path.Combine(packageDirectoryPath, "sound.wav"), "dummy");
+            File.WriteAllText(Path.Combine(nestedDirectoryPath, "another.bms"), "#PLAYER 1\r\n#TITLE Nested\r\n#WAVAA missing.wav\r\n#00111:AA\r\n");
+            BmsLibraryMaintenanceService maintenanceService = new BmsLibraryMaintenanceService();
+            BmsLibraryPackageInstallService service = new BmsLibraryPackageInstallService();
+
+            AutoInstallWorkflowResult result = service.PrepareAutoInstallWorkflow(
+                new[] { packageDirectoryPath },
+                Array.Empty<BMSPackage>(),
+                Array.Empty<string>(),
+                _ => false,
+                0.6,
+                file => maintenanceService.ApplyNeedToBeFixedWarnings(file, file.maintenanceInfo, strictCheck: true));
+
+            Assert.AreEqual(1, result.PendingPackagesToAdd.Count);
+            Assert.AreEqual(0, result.AutoInstallCandidates.Count);
+            BMSFile nestedChart = result.PendingPackagesToAdd[0].BMSFiles.Single((BMSFile file) => Path.GetFileName(file.path).Equals("another.bms", StringComparison.OrdinalIgnoreCase));
+            string[] warningLines = nestedChart.warning.Split(new char[2] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+            Assert.AreEqual(BeMusicSeeker.Properties.Resources.Warning_NestedChartFileInPackage, warningLines[0]);
+            Assert.IsTrue(warningLines.Skip(1).Any((string line) => line.Contains("WAV")));
         });
     }
 
@@ -696,6 +751,38 @@ public sealed class BmsLibraryPackageInstallServiceTests
     }
 
     [TestMethod]
+    public void InstallPackages_RegistersNestedChartsWhenPackageContainsThem()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        BmsLibraryPackageInstallService service = new BmsLibraryPackageInstallService();
+        TestableBmsFile rootFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "C:\\Pending\\Pkg1\\root.bms");
+        TestableBmsFile nestedFile = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "C:\\Pending\\Pkg1\\sub\\another.bms");
+        BMSPackage package = new BMSPackage(new BMSFile[] { rootFile, nestedFile })
+        {
+            path = "C:\\Pending\\Pkg1",
+            delete_parent = false
+        };
+        List<BMSFile> songUpserts = new List<BMSFile>();
+        List<BMSFile> maintenanceTargets = new List<BMSFile>();
+        List<BMSFile> applyTargets = new List<BMSFile>();
+
+        PackageInstallExecutionResult result = service.InstallPackages(
+            new[] { package },
+            "C:\\Installed",
+            (_, _, _, _, _) => true,
+            (files) => songUpserts.AddRange(files),
+            (files) => maintenanceTargets.AddRange(files),
+            _ => { },
+            _ => { },
+            (files) => applyTargets.AddRange(files));
+
+        Assert.AreEqual(2, result.AddedFiles.Count);
+        CollectionAssert.AreEquivalent(new BMSFile[] { rootFile, nestedFile }, songUpserts);
+        CollectionAssert.AreEquivalent(new BMSFile[] { rootFile, nestedFile }, maintenanceTargets);
+        CollectionAssert.AreEquivalent(new BMSFile[] { rootFile, nestedFile }, applyTargets);
+    }
+
+    [TestMethod]
     public void ExecuteInstalledOnlyResourceOverwrite_CategorizesCleanupInstallAndMissingCases()
     {
         TestResourceInitializer.EnsureJapaneseResources();
@@ -755,14 +842,19 @@ public sealed class BmsLibraryPackageInstallServiceTests
             string sourceDirectoryPath = Path.Combine(tempDirectoryPath, "PendingPkg");
             string destinationDirectoryPath = Path.Combine(tempDirectoryPath, "Installed", "Pkg");
             Directory.CreateDirectory(sourceDirectoryPath);
+            string nestedDirectoryPath = Path.Combine(sourceDirectoryPath, "sub");
+            Directory.CreateDirectory(nestedDirectoryPath);
             string chartPath = Path.Combine(sourceDirectoryPath, "chart.bms");
+            string nestedChartPath = Path.Combine(nestedDirectoryPath, "another.bms");
             string resourcePath = Path.Combine(sourceDirectoryPath, "readme.txt");
             File.WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE Move\r\n");
+            File.WriteAllText(nestedChartPath, "#PLAYER 1\r\n#TITLE Nested\r\n");
             File.WriteAllText(resourcePath, "resource");
 
             BmsLibraryPackageInstallService service = new BmsLibraryPackageInstallService();
             TestableBmsFile chart = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", chartPath);
-            BMSPackage package = new BMSPackage(new BMSFile[] { chart })
+            TestableBmsFile nestedChart = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", nestedChartPath);
+            BMSPackage package = new BMSPackage(new BMSFile[] { chart, nestedChart })
             {
                 path = sourceDirectoryPath,
                 delete_parent = false
@@ -788,7 +880,9 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.IsTrue(moved);
             Assert.AreEqual(destinationDirectoryPath, package.path);
             Assert.AreEqual(Path.Combine(destinationDirectoryPath, "chart.bms"), package.BMSFiles[0].path);
+            Assert.AreEqual(Path.Combine(destinationDirectoryPath, "sub", "another.bms"), package.BMSFiles[1].path);
             Assert.IsTrue(File.Exists(Path.Combine(destinationDirectoryPath, "chart.bms")));
+            Assert.IsTrue(File.Exists(Path.Combine(destinationDirectoryPath, "sub", "another.bms")));
             Assert.IsTrue(File.Exists(Path.Combine(destinationDirectoryPath, "readme.txt")));
             Assert.IsFalse(Directory.Exists(sourceDirectoryPath));
         });

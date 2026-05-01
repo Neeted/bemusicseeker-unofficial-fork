@@ -418,6 +418,7 @@
     "Warning_AlreadyInstalled": "Already installed",
   "Warning_SingleBmsFile": "Single BMS file",
   "Warning_SingleBmsonFile": "Single BMSON file",
+  "Warning_NestedChartFileInPackage": "A playable chart file exists outside the package root. Move it or change it to an invalid extension if needed.",
   "Warning_InstallEstimationAmbiguousPrefix": "Multiple installation destination candidates were found, so the destination was not auto-selected.",
   "Warning_InstallEstimationAmbiguous": "Multiple installation destination candidates were found, so the destination was not auto-selected.\n1st candidate: {0}\n2nd candidate: {1}",
   "Warning_InstallEstimationMetadataMismatchPrefix": "The TITLE / ARTIST similarity was too low, so the destination was not auto-selected.",

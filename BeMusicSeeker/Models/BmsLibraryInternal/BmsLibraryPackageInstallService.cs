@@ -401,6 +401,19 @@ internal sealed class BmsLibraryPackageInstallService
     private static BMSPackage CreatePackageWithKnownCharts(string packagePath, bool deleteParent, IEnumerable<BMSFile> knownCharts)
     {
         List<BMSFile> knownChartList = (knownCharts ?? Enumerable.Empty<BMSFile>()).Where((BMSFile file) => file != null).ToList();
+        if (Directory.Exists(packagePath))
+        {
+            List<BMSFile> recursiveChartList = PackageInstallEstimationSnapshotBuilder
+                .BuildPackageChartDiscoverySnapshot(packagePath, useEverythingForPendingPackageSourceScan: false)
+                .BmsFiles
+                .Where((BMSFile file) => file != null)
+                .ToList();
+            if (recursiveChartList.Count > 0)
+            {
+                knownChartList = recursiveChartList;
+            }
+        }
+
         if (knownChartList.Count == 0)
         {
             return new BMSPackage
@@ -415,6 +428,71 @@ internal sealed class BmsLibraryPackageInstallService
             path = packagePath,
             delete_parent = deleteParent
         };
+    }
+
+    /// <summary>
+    /// パッケージ直下以外にある譜面へ、保留画面で最優先表示する警告を付与します。
+    /// </summary>
+    /// <param name="package">判定対象の保留パッケージ。</param>
+    /// <returns>入れ子譜面の警告を付与または維持した場合は true。</returns>
+    internal static bool ApplyNestedChartFileWarnings(BMSPackage package)
+    {
+        if (package == null || string.IsNullOrWhiteSpace(package.path) || !Directory.Exists(package.path))
+        {
+            return false;
+        }
+
+        bool hasNestedChart = false;
+        foreach (BMSFile chartFile in (package.BMSFiles ?? new List<BMSFile>()).Where((BMSFile file) => file != null))
+        {
+            if (!IsNestedChartFileInPackage(package.path, chartFile.path))
+            {
+                continue;
+            }
+
+            chartFile.warning = PrependWarningLine(chartFile.warning, Resources.Warning_NestedChartFileInPackage);
+            hasNestedChart = true;
+        }
+
+        return hasNestedChart;
+    }
+
+    private static bool IsNestedChartFileInPackage(string packageDirectoryPath, string chartFilePath)
+    {
+        if (string.IsNullOrWhiteSpace(packageDirectoryPath) || string.IsNullOrWhiteSpace(chartFilePath))
+        {
+            return false;
+        }
+
+        try
+        {
+            string normalizedPackageDirectory = Path.GetFullPath(packageDirectoryPath)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            string chartDirectory = Path.GetDirectoryName(Path.GetFullPath(chartFilePath)) ?? string.Empty;
+            chartDirectory = chartDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            return !string.Equals(normalizedPackageDirectory, chartDirectory, StringComparison.OrdinalIgnoreCase)
+                && chartDirectory.StartsWith(normalizedPackageDirectory + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static string PrependWarningLine(string warning, string warningLine)
+    {
+        if (string.IsNullOrWhiteSpace(warningLine))
+        {
+            return warning ?? string.Empty;
+        }
+
+        List<string> lines = (warning ?? string.Empty)
+            .Split(new char[2] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
+            .Select((string line) => line.Trim())
+            .Where((string line) => !string.IsNullOrWhiteSpace(line) && !string.Equals(line, warningLine, StringComparison.Ordinal))
+            .ToList();
+        lines.Insert(0, warningLine);
+        return string.Join(Environment.NewLine, lines);
     }
 
     private static string ResolveBundledSevenZipLibraryPath()
@@ -1269,7 +1347,13 @@ internal sealed class BmsLibraryPackageInstallService
         result.WarningClassificationMs = warningClassificationStopwatch.ElapsedMilliseconds;
         foreach (BMSPackage discoveredPackage in discoveredPackages)
         {
-            if (pendingByPackage.TryGetValue(discoveredPackage, out bool isPending) && isPending)
+            bool isPending = pendingByPackage.TryGetValue(discoveredPackage, out bool pendingValue) && pendingValue;
+            if (ApplyNestedChartFileWarnings(discoveredPackage))
+            {
+                isPending = true;
+            }
+
+            if (isPending)
             {
                 result.PendingPackagesToAdd.Add(discoveredPackage);
             }

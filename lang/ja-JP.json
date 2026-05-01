@@ -418,6 +418,7 @@
   "Warning_AlreadyInstalled": "インストールされています",
   "Warning_SingleBmsFile": "BMSファイル単体です",
   "Warning_SingleBmsonFile": "BMSONファイル単体です",
+  "Warning_NestedChartFileInPackage": "パッケージ直下以外に有効な譜面ファイルがあります。必要に応じて移動または無効な拡張子へ変更してください。",
   "Warning_InstallEstimationAmbiguousPrefix": "導入先推定候補が複数あるため自動確定していません。",
   "Warning_InstallEstimationAmbiguous": "導入先推定候補が複数あるため自動確定していません。\n第1候補: {0}\n第2候補: {1}",
   "Warning_InstallEstimationMetadataMismatchPrefix": "TITLE / ARTIST の一致度が低いため自動確定していません。",

@@ -418,6 +418,7 @@
     "Warning_AlreadyInstalled": "已安装",
   "Warning_SingleBmsFile": "单个BMS文件",
   "Warning_SingleBmsonFile": "单个BMSON文件",
+  "Warning_NestedChartFileInPackage": "包根目录以外存在有效谱面文件。请根据需要移动它或改为无效扩展名。",
   "Warning_InstallEstimationAmbiguousPrefix": "存在多个导入目标候选，因此未自动确定导入目标。",
   "Warning_InstallEstimationAmbiguous": "存在多个导入目标候选，因此未自动确定导入目标。\n第1候选: {0}\n第2候选: {1}",
   "Warning_InstallEstimationMetadataMismatchPrefix": "TITLE / ARTIST 的相似度过低，因此未自动确定导入目标。",

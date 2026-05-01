@@ -884,6 +884,9 @@ public class Resources
     public static string Warning_SingleBmsonFile => ResourceManager.GetString("Warning_SingleBmsonFile", resourceCulture);
 
 
+    public static string Warning_NestedChartFileInPackage => ResourceManager.GetString("Warning_NestedChartFileInPackage", resourceCulture);
+
+
     public static string Warning_InstallEstimationAmbiguousPrefix => ResourceManager.GetString("Warning_InstallEstimationAmbiguousPrefix", resourceCulture);
 
 

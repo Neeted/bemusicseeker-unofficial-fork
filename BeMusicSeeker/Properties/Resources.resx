@@ -1379,6 +1379,9 @@ BMSファイルが重複しないようにマージします。
   <data name="Warning_SingleBmsonFile" xml:space="preserve">
     <value>BMSONファイル単体です</value>
   </data>
+  <data name="Warning_NestedChartFileInPackage" xml:space="preserve">
+    <value>パッケージ直下以外に有効な譜面ファイルがあります。必要に応じて移動または無効な拡張子へ変更してください。</value>
+  </data>
   <data name="Warning_InstallEstimationAmbiguousPrefix" xml:space="preserve">
     <value>導入先推定候補が複数あるため自動確定していません。</value>
   </data>

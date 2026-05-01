@@ -7973,6 +7973,7 @@ public class BMSLibrary : NotificationObject
                 checkBMSFileNeedToBeFixedAndSetWarnings(bmsFile, bmsFile.maintenanceInfo, strictCheck: true);
             }
         }
+        BmsLibraryPackageInstallService.ApplyNestedChartFileWarnings(package);
     }
 
     private void ReplacePendingPackagesWithRegroupedPackageUnsafe(List<BMSPackage> sourcePackages, BMSPackage regroupedPackage)

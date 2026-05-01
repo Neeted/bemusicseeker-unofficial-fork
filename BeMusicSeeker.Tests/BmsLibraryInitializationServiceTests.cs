@@ -851,6 +851,44 @@ public sealed class BmsLibraryInitializationServiceTests
     }
 
     [TestMethod]
+    public void LoadInstallTable_RestoresNestedChartsAndPrependsNestedWarning()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
+        {
+            string directoryPackagePath = Path.Combine(lr2RootPath, "PendingDir");
+            string nestedDirectoryPath = Path.Combine(directoryPackagePath, "sub");
+            Directory.CreateDirectory(nestedDirectoryPath);
+            File.WriteAllText(Path.Combine(directoryPackagePath, "root.bms"), "#PLAYER 1\r\n#TITLE Root\r\n");
+            File.WriteAllText(Path.Combine(nestedDirectoryPath, "another.bms"), "#PLAYER 1\r\n#TITLE Nested\r\n#WAVAA missing.wav\r\n#00111:AA\r\n");
+
+            using (LR2SongDBExtended songDb = new LR2SongDBExtended(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDBExtended.install>();
+                songDb.InsertOrReplace(new BMSPackage
+                {
+                    path = directoryPackagePath,
+                    delete_parent = false
+                }, typeof(LR2SongDBExtended.install));
+            }
+
+            BmsLibraryMaintenanceService maintenanceService = new BmsLibraryMaintenanceService();
+            BmsLibraryInitializationService service = new BmsLibraryInitializationService();
+            InstallTableLoadResult result = service.LoadInstallTable(
+                new BmsLibraryDbGateway(songDbPath),
+                file => false,
+                file => maintenanceService.ApplyNeedToBeFixedWarnings(file, file.maintenanceInfo, strictCheck: true));
+
+            Assert.AreEqual(1, result.PendingPackages.Count);
+            Assert.AreEqual(2, result.PendingPackages[0].BMSFiles.Count);
+            BMSFile nestedChart = result.PendingPackages[0].BMSFiles.Single((BMSFile file) => Path.GetFileName(file.path).Equals("another.bms", StringComparison.OrdinalIgnoreCase));
+            string[] warningLines = nestedChart.warning.Split(new char[2] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+            Assert.AreEqual(BeMusicSeeker.Properties.Resources.Warning_NestedChartFileInPackage, warningLines[0]);
+            Assert.IsTrue(warningLines.Skip(1).Any((string line) => line.Contains("WAV")));
+        });
+    }
+
+    [TestMethod]
     public void LoadSongTable_DetectsLeapYearFolderTimestampInAnyLeapYear()
     {
         TestResourceInitializer.EnsureJapaneseResources();
