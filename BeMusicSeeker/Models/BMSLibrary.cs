@@ -3595,36 +3595,7 @@ public class BMSLibrary : NotificationObject
 
     private void TryImportChartInfoMetadataBundleAtStartup()
     {
-        string bundlePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "chart-info-metadata.db");
-        if (!File.Exists(bundlePath))
-        {
-            LogInstallPerformance("chart_info_metadata_import skipped reason=missing_bundle");
-            return;
-        }
-        try
-        {
-            string bundleSha256 = BMSFile.GetSHA256Hash(bundlePath);
-            LogInstallPerformance("chart_info_metadata_import start path=\"" + bundlePath + "\" bundleSha256=" + bundleSha256);
-            ChartInfoMetadataBundleImportResult result = dbGateway.ImportChartInfoMetadataBundle(bundlePath, bundleSha256);
-            if (result.Skipped)
-            {
-                LogInstallPerformance("chart_info_metadata_import skipped reason=" + (result.SkipReason ?? "unknown") + " bundleSha256=" + bundleSha256 + " elapsedMs=" + result.ElapsedMs);
-                return;
-            }
-            LogInstallPerformance("chart_info_metadata_import done"
-                + " bundleId=" + (result.BundleId ?? string.Empty)
-                + " bundleSha256=" + bundleSha256
-                + " sourceChartInfo=" + result.SourceChartInfoCount
-                + " sourceDigest=" + result.SourceDigestCount
-                + " chartInfoImported=" + result.ImportedChartInfoCount
-                + " digestImported=" + result.ImportedDigestCount
-                + " failureCleared=" + result.FailureClearedCount
-                + " elapsedMs=" + result.ElapsedMs);
-        }
-        catch (Exception ex)
-        {
-            LogInstallPerformance("chart_info_metadata_import failed message=" + ex.Message);
-        }
+        ChartInfoMetadataBundleStartupImporter.TryImportFromBaseDirectory(AppDomain.CurrentDomain.BaseDirectory, dbGateway, LogInstallPerformance);
     }
 
     private static bool IsLikelyCrcHex(string value)

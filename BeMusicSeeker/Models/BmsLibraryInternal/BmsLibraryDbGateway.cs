@@ -435,6 +435,29 @@ internal sealed class BmsLibraryDbGateway
         return result;
     }
 
+    public bool IsChartInfoMetadataBundleImportRecorded(string bundleSha256)
+    {
+        if (string.IsNullOrWhiteSpace(bundleSha256))
+        {
+            return false;
+        }
+
+        using LR2SongDBExtended songDb = OpenSongDb();
+        string savepoint = songDb.SaveTransactionPoint();
+        try
+        {
+            EnsureChartInfoSchema(songDb);
+            bool imported = IsChartInfoMetadataBundleImported(songDb, BuildChartInfoMetadataBundleImportKey(bundleSha256));
+            songDb.Commit();
+            return imported;
+        }
+        catch (Exception)
+        {
+            songDb.RollbackTo(savepoint);
+            throw;
+        }
+    }
+
     /// <summary>
     /// 指定された MD5 だけに対応する chart_info を読み込みます。
     /// 同一 MD5 に複数 SHA-256 が存在する場合は SHA-256 昇順で最初の行を採用します。
