@@ -190,6 +190,7 @@ metadata bundle を exe と同階層に置きっぱなしにすると、起動�
 - import 成功、または `already_imported` 確認後に、元 bundle を `imported_metadata/` へ移動する。
 - import 失敗時は移動しない。ユーザーがファイルを直して再起動できるよう、exe 同階層に残す。
 - `missing_bundle` は従来通り no-op。
+- `.db` と `.7z` が両方ある場合は探索優先順位で使った bundle だけを退避し、未使用の bundle には触らない。
 - 退避後の次回起動では exe 同階層に bundle がないため、SHA-256 計算自体が発生しない。
 - `song.db` 再構築などで再 import したい場合は、ユーザーが `imported_metadata/` から exe 同階層へ戻す。
 
@@ -231,7 +232,7 @@ metadata bundle を exe と同階層に置きっぱなしにすると、起動�
 - `chart_info_metadata_bundle_archive skipped reason=... source=...`
 - `chart_info_metadata_bundle_archive failed source=... message=...`
 
-退避失敗は起動失敗にしない。import 自体は完了済みなので、ログに残して続行する。
+退避失敗は起動失敗にしない。import 自体は完了済みなので、ログに残して続行する。退避先の既存ファイルは同一内容でも上書きしない。
 
 ### Test Plan
 
