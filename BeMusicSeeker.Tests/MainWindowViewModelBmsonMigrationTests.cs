@@ -118,6 +118,7 @@ public sealed class MainWindowViewModelBmsonMigrationTests
         Settings settings = new Settings();
         bool saveCalled = false;
         PlaylistSummaryColumnSettings playlistSummaryColumnsSettings = new PlaylistSummaryColumnSettings();
+        dataGridColumnsSettings expectedStandardColumnsSettings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.STANDARD);
         settings.BmsonColumnSettingsMigrationVersion = 0;
         settings.StandardColumnsSettings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.STANDARD);
         settings.StandardColumnsSettings.Title.Visibility = Visibility.Hidden;
@@ -132,8 +133,8 @@ public sealed class MainWindowViewModelBmsonMigrationTests
         Assert.IsTrue(reset);
         Assert.IsTrue(saveCalled);
         Assert.AreEqual(MainWindowViewModel.CurrentBmsonColumnSettingsMigrationVersion, settings.BmsonColumnSettingsMigrationVersion);
-        Assert.AreEqual(Visibility.Visible, settings.StandardColumnsSettings.Title.Visibility);
-        Assert.AreEqual(0, settings.StandardColumnsSettings.Title.DisplayIndex);
+        Assert.AreEqual(expectedStandardColumnsSettings.Title.Visibility, settings.StandardColumnsSettings.Title.Visibility);
+        Assert.AreEqual(expectedStandardColumnsSettings.Title.DisplayIndex, settings.StandardColumnsSettings.Title.DisplayIndex);
         Assert.AreSame(playlistSummaryColumnsSettings, settings.PlaylistSummaryColumnsSettings);
     }
 
