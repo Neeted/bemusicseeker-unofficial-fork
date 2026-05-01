@@ -464,6 +464,8 @@ public class Resources
 
     public static string Msg_register_chart => ResourceManager.GetString("Msg_register_chart", resourceCulture);
 
+    public static string Msg_remove_chart_info_parse_failure_record => ResourceManager.GetString("Msg_remove_chart_info_parse_failure_record", resourceCulture);
+
     public static string Msg_remove_folder => ResourceManager.GetString("Msg_remove_folder", resourceCulture);
 
     public static string Msg_remove_playlist => ResourceManager.GetString("Msg_remove_playlist", resourceCulture);
@@ -699,6 +701,8 @@ public class Resources
     public static string Remove_playlist_entry => ResourceManager.GetString("Remove_playlist_entry", resourceCulture);
 
     public static string Remove_chart_file => ResourceManager.GetString("Remove_chart_file", resourceCulture);
+
+    public static string Remove_chart_info_parse_failure_record => ResourceManager.GetString("Remove_chart_info_parse_failure_record", resourceCulture);
 
     public static string Remove_folder => ResourceManager.GetString("Remove_folder", resourceCulture);
 

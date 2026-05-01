@@ -431,6 +431,9 @@ LR2をプレイヤーとして使用すると再生できない場合があり�
   <data name="Remove_chart_file" xml:space="preserve">
     <value>ファイル削除</value>
   </data>
+  <data name="Remove_chart_info_parse_failure_record" xml:space="preserve">
+    <value>メタデータ解析失敗記録を除去</value>
+  </data>
   <data name="Reload" xml:space="preserve">
     <value>リロード</value>
   </data>
@@ -1005,6 +1008,9 @@ BMSファイルが重複しないようにマージします。
   </data>
   <data name="Delete_from_list" xml:space="preserve">
     <value>一覧から削除</value>
+  </data>
+  <data name="Msg_remove_chart_info_parse_failure_record" xml:space="preserve">
+    <value>メタデータ解析の失敗記録を除去します。次回起動時または再解析時に再解析の対象になります。高負荷時のタイムアウト以外の理由で失敗した譜面は再度失敗する可能性が高いので、特別な理由がない限り除去しないでください。</value>
   </data>
   <data name="Delete_pending_installed_only_packages_permanently" xml:space="preserve">
     <value>既所持譜面のみのパッケージをごみ箱を経由せずに削除</value>

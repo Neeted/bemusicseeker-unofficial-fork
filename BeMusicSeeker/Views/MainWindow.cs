@@ -76,6 +76,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         InstallPending,
         InstallInstalled,
         FullScanCheck,
+        ChartInfoParseError,
         Other
     }
 
@@ -1180,6 +1181,20 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             .Where((string hash) => !string.IsNullOrWhiteSpace(hash))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
+    }
+
+    private List<string> GetSelectedChartInfoParseFailureMd5s()
+    {
+        return GetSelectedChartTargets()
+            .Select((ChartOperationTarget target) => target.Chart?.Md5)
+            .Where((string md5) => !string.IsNullOrWhiteSpace(md5))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    internal static bool ShouldShowChartInfoParseFailureRemovalMenuForTest(bool isChartInfoParseErrorSection, IEnumerable<string> selectedMd5s)
+    {
+        return isChartInfoParseErrorSection && (selectedMd5s ?? Enumerable.Empty<string>()).Any((string md5) => !string.IsNullOrWhiteSpace(md5));
     }
 
     private List<ScoreViewerTarget> GetSelectedGridScoreViewerTargets()
@@ -4772,6 +4787,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         Separator separator = null;
         MenuItem menuItem19 = null;
         Separator separator2 = null;
+        MenuItem menuItemRemoveChartInfoParseFailure = null;
         foreach (Control item in (IEnumerable)contextMenu.Items)
         {
             switch (item.Name)
@@ -4869,6 +4885,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                     break;
                 case "tableContextMenuSeparatorForConvert":
                     separator2 = item as Separator;
+                    break;
+                case "tableContextMenuItemRemoveChartInfoParseFailure":
+                    menuItemRemoveChartInfoParseFailure = item as MenuItem;
                     break;
             }
         }
@@ -5037,6 +5056,13 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             }
         }
         MenuItem menuItemDeleteInstallPackages = contextMenu.Items.OfType<MenuItem>().FirstOrDefault((MenuItem item) => item.Name == "tableContextMenuItemDeleteInstallPackages");
+        List<string> selectedChartInfoParseFailureMd5s = GetSelectedChartInfoParseFailureMd5s();
+        if (menuItemRemoveChartInfoParseFailure != null)
+        {
+            bool canRemoveChartInfoParseFailure = ShouldShowChartInfoParseFailureRemovalMenuForTest(_currentTreeSelectionSection == TreeSelectionSection.ChartInfoParseError, selectedChartInfoParseFailureMd5s);
+            menuItemRemoveChartInfoParseFailure.Visibility = canRemoveChartInfoParseFailure ? Visibility.Visible : Visibility.Collapsed;
+            menuItemRemoveChartInfoParseFailure.IsEnabled = canRemoveChartInfoParseFailure;
+        }
         bool isNotOwnedPlaylistRow = rowTarget?.IsPlaylistMissing == true;
         NLogWrapper.FileLogger?.Info("playlist_context_menu rowType=" + row?.GetType().FullName + " isPlaylistRow=" + isPlaylistRow + " isPlaylistContext=" + isPlaylistContext + " isNotOwned=" + isNotOwnedPlaylistRow + " section=" + _currentTreeSelectionSection + " kind=" + rowTarget?.Chart.Kind + " path=" + (chartPath ?? string.Empty));
         if (menuItemOpenInstallDestination != null)
@@ -6430,6 +6456,29 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
     }
 
+    private void tableContextMenuItemRemoveChartInfoParseFailureClick(object sender, RoutedEventArgs e)
+    {
+        if (!TryGetContextMenuRow(e.Source, out _) || _currentTreeSelectionSection != TreeSelectionSection.ChartInfoParseError)
+        {
+            return;
+        }
+        List<string> md5s = GetSelectedChartInfoParseFailureMd5s();
+        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
+        if (viewModel == null || md5s.Count == 0)
+        {
+            return;
+        }
+        if (MessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_remove_chart_info_parse_failure_record, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) == MessageBoxResult.Cancel)
+        {
+            return;
+        }
+        e.Handled = true;
+        Task.Run(delegate
+        {
+            viewModel.RemoveChartInfoParseFailuresByMd5(md5s);
+        }).Logging("tableContextMenuItemRemoveChartInfoParseFailureClick");
+    }
+
     private void tableContextMenuItemAutoRenameFolderClick(object sender, RoutedEventArgs e)
     {
         List<BMSFile> bmsFiles = GetSelectedBmsChartFiles(ChartOperationCapabilities.None);
@@ -7472,6 +7521,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         if (IsSameOrDescendantOf(selectedTreeViewItem, treeViewItemFullScanCheck))
         {
             return TreeSelectionSection.FullScanCheck;
+        }
+        if (IsSameOrDescendantOf(selectedTreeViewItem, treeViewItemChartInfoParseError))
+        {
+            return TreeSelectionSection.ChartInfoParseError;
         }
         return TreeSelectionSection.Other;
     }

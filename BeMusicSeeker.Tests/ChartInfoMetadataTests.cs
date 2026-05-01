@@ -11,6 +11,7 @@ using System.Windows;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.ViewModels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using SQLite;
 
@@ -2445,6 +2446,73 @@ public sealed class ChartInfoMetadataTests
             Assert.IsFalse(bmsFile.Warnings.Contains(ChartWarningKind.ChartInfoParseFailure));
             Assert.IsFalse(staleBmsFile.Warnings.Contains(ChartWarningKind.ChartInfoParseFailure));
         });
+    }
+
+    [TestMethod]
+    public void RemoveChartInfoParseFailuresByMd5_RemovesFailureRowsAndRefreshesProjectionOnly()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        {
+            string sharedMd5 = new string('a', 32);
+            string sharedSha256 = new string('1', 64);
+            TestableBmsFile bmsFile = new TestableBmsFile
+            {
+                path = Path.Combine(tempRootPath, "bad.bms")
+            };
+            bmsFile.SetHash(sharedMd5);
+            bmsFile.SetSha256(sharedSha256);
+            LR2SongDBExtended.bmson_song bmsonSong = new LR2SongDBExtended.bmson_song
+            {
+                path = Path.Combine(tempRootPath, "bad.bmson"),
+                folder = tempRootPath,
+                md5 = sharedMd5,
+                sha256 = sharedSha256,
+                title = "bad bmson"
+            };
+            BmsLibraryDbGateway gateway = new BmsLibraryDbGateway(songDbPath);
+            gateway.EnsureChartInfoSchema();
+            using (LR2SongDBExtended songDb = new LR2SongDBExtended(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDB.song>();
+            }
+            gateway.UpsertSongs(new[] { bmsFile });
+            gateway.UpsertBmsonSongs(new[] { bmsonSong });
+            gateway.UpsertChartInfos(new[] { CreateChartInfoRow(sharedSha256, sharedMd5, BmsLibraryDbGateway.CurrentChartInfoParserVersion) });
+            gateway.UpsertChartInfoParseFailures(new[]
+            {
+                CreateChartInfoParseFailureRow(sharedMd5, sharedSha256, bmsFile.path, BmsLibraryDbGateway.CurrentChartInfoParserVersion, "parse_failed", "InvalidDataException", "bad", null)
+            });
+            BMSLibrary library = new BMSLibrary(songDbPath, null, null, null, new RecordingDialogService())
+            {
+                BMSFiles = new List<BMSFile> { bmsFile },
+                BmsonSongs = new List<LR2SongDBExtended.bmson_song> { bmsonSong }
+            };
+            List<string> changedProperties = new List<string>();
+            library.PropertyChanged += delegate(object sender, System.ComponentModel.PropertyChangedEventArgs args)
+            {
+                changedProperties.Add(args.PropertyName);
+            };
+            Assert.AreEqual(2, library.BMSFilesChartInfoParseFailed.Count());
+
+            library.RemoveChartInfoParseFailuresByMd5(new[] { sharedMd5, sharedMd5.ToUpperInvariant(), " " });
+
+            CollectionAssert.Contains(changedProperties, nameof(BMSLibrary.BMSFilesChartInfoParseFailed));
+            Assert.AreEqual(0, library.BMSFilesChartInfoParseFailed.Count());
+            using LR2SongDBExtended verify = new LR2SongDBExtended(songDbPath);
+            Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info_parse_failure WHERE md5 = ?;", sharedMd5));
+            Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM song WHERE hash = ?;", sharedMd5));
+            Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM bmson_song WHERE md5 = ?;", sharedMd5));
+            Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info WHERE md5 = ?;", sharedMd5));
+        });
+    }
+
+    [TestMethod]
+    public void NormalizeChartInfoParseFailureMd5s_RemovesBlankDuplicatesAndNormalizesCase()
+    {
+        CollectionAssert.AreEqual(
+            new[] { new string('a', 32), new string('b', 32) },
+            MainWindowViewModel.NormalizeChartInfoParseFailureMd5s(new[] { null, " ", new string('A', 32), new string('a', 32), " " + new string('B', 32) + " " }));
     }
 
     [TestMethod]

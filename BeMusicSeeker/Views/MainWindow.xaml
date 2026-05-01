@@ -218,6 +218,7 @@
         <Separator Name="tableContextMenuSeparatorForConvert" />
         <MenuItem Name="tableContextMenuItemConvertToAudioFile" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Convert_to_audio_file, Mode=OneWay}" Click="tableContextMenuItemConvertToAudioFileClick" />
         <MenuItem Name="tableContextMenuItemDeleteInstallPackages" Visibility="Collapsed" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Delete_from_list, Mode=OneWay}" Click="tableContextMenuItemDeleteInstallPackagesClick" />
+        <MenuItem Name="tableContextMenuItemRemoveChartInfoParseFailure" Visibility="Collapsed" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Remove_chart_info_parse_failure_record, Mode=OneWay}" Click="tableContextMenuItemRemoveChartInfoParseFailureClick" />
       </ContextMenu>
       <ContextMenu x:Key="tableContextMenuPlaylistMissing" x:Shared="False" HasDropShadow="True" Opened="tableContextMenuPlaylistMissingOpened">
         <MenuItem Name="tableContextMenuItemOpenLR2IR" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_lr2ir, Mode=OneWay}" Click="tableContextMenuItemOpenLR2IRClick" />
@@ -2116,7 +2117,7 @@
               </FrameworkElement.Resources>
               <TreeViewItem HeaderTemplate="{StaticResource templateTreeViewItemHeaderMaintenance}" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Unregistered_in_lr2_db, Mode=OneWay}" Selected="unregisteredToDBFolderSelect" />
               <TreeViewItem HeaderTemplate="{StaticResource templateTreeViewItemHeaderMaintenanceZeroNote}" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Search_zero_note, Mode=OneWay}" Selected="zeronoteFolderSelect" ContextMenu="{StaticResource treeViewZeroNoteContextMenu}" />
-              <TreeViewItem HeaderTemplate="{StaticResource templateTreeViewItemHeaderMaintenance}" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Chart_info_parse_errors, Mode=OneWay}" Selected="chartInfoParseErrorFolderSelect" />
+              <TreeViewItem Name="treeViewItemChartInfoParseError" HeaderTemplate="{StaticResource templateTreeViewItemHeaderMaintenance}" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Chart_info_parse_errors, Mode=OneWay}" Selected="chartInfoParseErrorFolderSelect" />
               <TreeViewItem Name="treeViewItemFullScanCheck" HeaderTemplate="{StaticResource templateTreeViewItemHeaderMaintenanceHealthStatus}" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Full_scan_check, Mode=OneWay}" Selected="fullScanCheckFolderSelect">
                 <ItemsControl.ItemContainerStyle>
                   <Style TargetType="{x:Type TreeViewItem}">

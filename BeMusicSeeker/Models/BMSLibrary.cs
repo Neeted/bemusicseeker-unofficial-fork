@@ -6130,6 +6130,26 @@ public class BMSLibrary : NotificationObject
         return string.Format(CultureInfo.CurrentCulture, Resources.Warning_ChartInfoParseFailure, reason, message);
     }
 
+    public void RemoveChartInfoParseFailuresByMd5(IEnumerable<string> md5s)
+    {
+        string[] normalizedMd5s = NormalizeChartInfoParseFailureMd5s(md5s);
+        if (normalizedMd5s.Length == 0)
+        {
+            return;
+        }
+        dbGateway.DeleteChartInfoParseFailuresByMd5(normalizedMd5s);
+        RaisePropertyChanged(() => BMSFilesChartInfoParseFailed);
+    }
+
+    internal static string[] NormalizeChartInfoParseFailureMd5s(IEnumerable<string> md5s)
+    {
+        return (md5s ?? Enumerable.Empty<string>())
+            .Where((string md5) => !string.IsNullOrWhiteSpace(md5))
+            .Select((string md5) => md5.Trim().ToLowerInvariant())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
     /// <summary>
     /// BMS ファイル群のモード（SP/DP等）を検出し、song.db にコミットします。
     /// </summary>

@@ -12245,6 +12245,16 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
+    public void RemoveChartInfoParseFailuresByMd5(IEnumerable<string> md5s)
+    {
+        files?.RemoveChartInfoParseFailuresByMd5(NormalizeChartInfoParseFailureMd5s(md5s));
+    }
+
+    internal static string[] NormalizeChartInfoParseFailureMd5s(IEnumerable<string> md5s)
+    {
+        return BMSLibrary.NormalizeChartInfoParseFailureMd5s(md5s);
+    }
+
     public void ExecInstallFilter(InstallFilterType type, object parameter = null)
     {
         SetPlaylistSummaryMode(enabled: false);
