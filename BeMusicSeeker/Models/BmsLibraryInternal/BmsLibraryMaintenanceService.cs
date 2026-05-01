@@ -166,7 +166,7 @@ internal sealed class BmsLibraryMaintenanceService
     {
         List<BMSFile> files = EnumerateBmsChartFiles(allFiles).ToList();
         List<BMSFile> zeroNoteFiles = files.Where((BMSFile f) => f.notes == 0 && !string.IsNullOrWhiteSpace(f.path)).ToList();
-        List<BMSFile> staleMismatchFiles = files.Where((BMSFile f) => f.notes != 0 && (f.HasZeroNoteMismatchWarning || f.Warnings.Contains(ChartWarningKind.ZeroNoteMismatch))).ToList();
+        List<BMSFile> staleMismatchFiles = files.Where((BMSFile f) => f.notes != 0 && f.Warnings.Contains(ChartWarningKind.ZeroNoteMismatch)).ToList();
         ZeroNoteRecheckResult result = new ZeroNoteRecheckResult
         {
             Total = zeroNoteFiles.Count
@@ -217,23 +217,15 @@ internal sealed class BmsLibraryMaintenanceService
 
     private static bool SetZeroNoteMismatchWarning(BMSFile file)
     {
-        bool changed = file != null && (!file.HasZeroNoteMismatchWarning || !file.Warnings.Contains(ChartWarningKind.ZeroNoteMismatch));
+        bool changed = file != null && !file.Warnings.Contains(ChartWarningKind.ZeroNoteMismatch);
         file?.SetWarning(ChartWarningKind.ZeroNoteMismatch, Resources.Warning_ZeroNoteMismatch);
-        if (file != null)
-        {
-            file.HasZeroNoteMismatchWarning = true;
-        }
         return changed;
     }
 
     private static bool ClearZeroNoteMismatchWarning(BMSFile file)
     {
-        bool changed = file != null && (file.HasZeroNoteMismatchWarning || file.Warnings.Contains(ChartWarningKind.ZeroNoteMismatch));
+        bool changed = file != null && file.Warnings.Contains(ChartWarningKind.ZeroNoteMismatch);
         file?.ClearWarning(ChartWarningKind.ZeroNoteMismatch);
-        if (file != null)
-        {
-            file.HasZeroNoteMismatchWarning = false;
-        }
         return changed;
     }
 

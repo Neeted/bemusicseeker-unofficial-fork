@@ -8,9 +8,9 @@
 
 ## 現状
 
-Phase 1-6 は実装済み。`WARNING` 列は `WarningDigestText` を表示し、tooltip は `WarningTooltipText`、sort は `WarningDigestText` を使う。
+Phase 1-7 は実装済み。`WARNING` 列は `WarningDigestText` を表示し、tooltip は `WarningTooltipText`、sort は `WarningDigestText` を使う。
 
-`BMSFile.warning` と `ChartWarningLegacyClassifier` は撤去済み。warning 表示・tooltip・digest・行ハイライトは structured warning と既存互換フラグから算出する。
+`BMSFile.warning` と `ChartWarningLegacyClassifier` は撤去済み。warning 表示・tooltip・digest・行ハイライトは structured warning だけから算出する。
 
 根拠:
 
@@ -31,6 +31,7 @@ Phase 1-6 は実装済み。`WARNING` 列は `WarningDigestText` を表示し、
 - Phase 4: nested / resource / package-state warning を structured warning へ移行。
 - Phase 5: duplicate / zero-note warning を structured warning へ移行し、互換フラグは既存ロジック用に維持。
 - Phase 6: legacy `BMSFile.warning` / classifier / legacy kind/category を削除し、snapshot とテストを structured warning 前提へ更新。
+- Phase 7: `HasLowConfidenceInstallWarning` / `HasZeroNoteMismatchWarning` / `IsHashDuplicated` を structured warning から導出する互換 alias に変更。
 
 ## 現在の warning 生成元
 
@@ -45,13 +46,14 @@ Phase 1-6 は実装済み。`WARNING` 列は `WarningDigestText` を表示し、
   - `AlreadyInstalled`、`SingleBmsFile`、`SingleBmsonFile` structured warning。
 - duplicate
   - `DuplicateChart` structured warning。
-  - `IsHashDuplicated` は互換フラグとして維持。
+  - `IsHashDuplicated` は `DuplicateChart` から導出する互換 alias。
 - zero-note mismatch
   - `ZeroNoteMismatch` structured warning。
-  - `HasZeroNoteMismatchWarning` は互換フラグとして維持。
+  - `HasZeroNoteMismatchWarning` は `ZeroNoteMismatch` から導出する互換 alias。
 - install estimation
   - ambiguous / metadata mismatch / reinstall not improved / installed destination resolve failed を structured warning として設定する。
-  - 導入先確定、導入成功、推定状態 clear では `InstallEstimation` category、suggestions、low-confidence flag を消す。
+  - `HasLowConfidenceInstallWarning` は ambiguous / metadata mismatch / reinstall not improved / generic low-confidence warning から導出する互換 alias。`InstalledDestinationResolveFailed` は含めない。
+  - 導入先確定、導入成功、推定状態 clear では `InstallEstimation` category と suggestions を消す。
 
 ## Phase 6 実装結果
 
@@ -75,13 +77,21 @@ Phase 6 では legacy warning 互換を完全撤去した。外部永続化が�
 - `BMSFile.warning` backing field / property は削除済み。
 - `ChartWarningLegacyClassifier` は削除済み。
 - `ChartWarningKind.LegacyText` と `ChartWarningCategory.Legacy` は削除済み。
-- `ChartWarningCollection.EnumerateEffectiveWarnings()` は structured warnings と互換フラグ由来の仮想 warning だけを統合する。
+- Phase 6 時点の `ChartWarningCollection.EnumerateEffectiveWarnings()` は structured warnings と互換フラグ由来の仮想 warning を統合していた。
 - `ClearWarning()` / `ClearWarningsByCategory()` / `ReplaceWarningsByCategory()` は structured warning だけを操作する。
-- `DisplayWarning` / `WarningDigestText` / `WarningTooltipText` / `HasHighlightedWarning` は structured warnings と必要な互換フラグだけから算出する。
+- `DisplayWarning` / `WarningDigestText` / `WarningTooltipText` / `HasHighlightedWarning` は structured warnings と必要な互換フラグから算出していた。
 
-`HasLowConfidenceInstallWarning` / `HasZeroNoteMismatchWarning` / `IsHashDuplicated` は Phase 6 では削除しない。検索、通知、既存フィルタ、既存 UI 状態に関わるため、別途専用の整理計画で扱う。
+## Phase 7 実装結果
 
-## Phase 6 テスト方針と確認観点
+Phase 7 では warning 表示状態の source of truth を structured warning に統一した。`HasLowConfidenceInstallWarning` / `HasZeroNoteMismatchWarning` / `IsHashDuplicated` は public property 名を残しているが、backing field は持たず、対応する `ChartWarningKind` の有無から導出する。
+
+- `ChartWarningCollection.EnumerateEffectiveWarnings()` は stored structured warning だけを列挙する。
+- duplicate / zero-note / install estimation の生成元は `SetWarning()` / `ClearWarning()` / `ClearWarningsByCategory()` を直接使う。
+- pending chart snapshot と pending install destination 編集状態は structured warning snapshot と suggestions だけをコピーする。
+- 低信頼候補選択の preserve 判定は、低信頼 install-estimation warning と `InstallDestinationSuggestions` の一致で行う。
+- alias setter は互換用途として残すが、新規コードでは `SetWarning()` / `ClearWarning()` を使う。
+
+## Phase 6-7 テスト方針と確認観点
 
 - persistence
   - song DB / install table / maintenance table に warning が保存されないことを確認する。
@@ -89,7 +99,7 @@ Phase 6 では legacy warning 互換を完全撤去した。外部永続化が�
 - install estimation
   - ambiguous / metadata mismatch / reinstall not improved / resolve failed が structured warning として表示されること。
   - digest / tooltip / highlight が structured warning だけで維持されること。
-  - 手動導入先確定、導入成功、推定状態クリアで `InstallEstimation` category、suggestions、low-confidence flag が消えること。
+  - 手動導入先確定、導入成功、推定状態クリアで `InstallEstimation` category と suggestions が消えること。
 - UI 編集状態
   - pending install destination 編集の cancel/restore で structured warning が失われないこと。
   - 候補から選択する場合は従来通り低信頼 warning と suggestions を維持すること。
@@ -106,5 +116,15 @@ Phase 6 では legacy warning 互換を完全撤去した。外部永続化が�
 ## 残リスク
 
 - `warning` 名の reflection / column / test helper が残っているとビルドまたは UI 表示で壊れる。禁止対象シンボルの `rg` 確認を継続する。
-- `Warnings.Contains(kind)` は stored structured warning だけを見る。互換フラグ由来の warning を検証する場合は digest / tooltip / highlight を見る。
 - `ChartWarningCollection` は structured warning を保持するが、DB 永続化はしない。起動時に必要な warning は既存の初期化処理で再構築する前提。
+
+## 今後の改善候補
+
+- `DisplayWarning` の役割整理
+  - WARNING 列の主表示は `WarningDigestText` なので、`DisplayWarning` は互換・詳細表示 alias としての用途を明文化する。
+- warning 定義の調整
+  - priority、digest label、highlight、resource digest 条件は実利用を見て調整する。
+- テスト helper 整理
+  - install estimation warning / suggestions / digest / tooltip の繰り返し assertion を helper 化する。
+- 現行仕様資料の分離
+  - この移行記録とは別に、`current-warning-model.md` のような現行 warning model だけの短い資料を作る。

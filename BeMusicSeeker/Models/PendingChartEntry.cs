@@ -160,10 +160,7 @@ public sealed class PendingChartEntry : BMSFile
             InstallDestinationArtist = source.InstallDestinationArtist,
             InstallDestinationSuggestions = source.InstallDestinationSuggestions?.ToArray() ?? Array.Empty<string>(),
             status = source.status,
-            HasZeroNoteMismatchWarning = source.HasZeroNoteMismatchWarning,
-            HasLowConfidenceInstallWarning = source.HasLowConfidenceInstallWarning,
             IsInstallDestinationSuggestionPopupOpen = false,
-            IsHashDuplicated = source.IsHashDuplicated,
             WAVfiles = source.WAVfiles != null ? new HashSet<string>(source.WAVfiles, StringComparer.OrdinalIgnoreCase) : null,
             BGAfiles = source.BGAfiles != null ? new HashSet<string>(source.BGAfiles, StringComparer.OrdinalIgnoreCase) : null
         };
@@ -225,7 +222,6 @@ public sealed class PendingChartEntry : BMSFile
         InstallDestinationSuggestions = Array.Empty<string>();
         status = BMSFileStatus.NONE;
         tag = string.Empty;
-        HasLowConfidenceInstallWarning = false;
         IsInstallDestinationSuggestionPopupOpen = false;
         folder = song.folder;
         parent = null;

@@ -1399,13 +1399,13 @@ internal sealed class BmsLibraryInstallEstimationService
 
     public void ClearInstallDestinations(IEnumerable<BMSFile> bmsFiles)
     {
-        foreach (BMSFile bmsFile in (bmsFiles ?? Enumerable.Empty<BMSFile>()).Where((BMSFile file) => file != null && (!string.IsNullOrWhiteSpace(file.instl_dst) || !string.IsNullOrWhiteSpace(file.InstallDestinationTitle) || !string.IsNullOrWhiteSpace(file.InstallDestinationArtist) || (file.InstallDestinationSuggestions?.Count ?? 0) > 0 || file.HasLowConfidenceInstallWarning)))
+        foreach (BMSFile bmsFile in (bmsFiles ?? Enumerable.Empty<BMSFile>()).Where((BMSFile file) => file != null && (!string.IsNullOrWhiteSpace(file.instl_dst) || !string.IsNullOrWhiteSpace(file.InstallDestinationTitle) || !string.IsNullOrWhiteSpace(file.InstallDestinationArtist) || (file.InstallDestinationSuggestions?.Count ?? 0) > 0 || file.HasLowConfidenceInstallEstimationWarning())))
         {
             bmsFile.instl_dst = null;
             bmsFile.InstallDestinationTitle = string.Empty;
             bmsFile.InstallDestinationArtist = string.Empty;
             bmsFile.InstallDestinationSuggestions = Array.Empty<string>();
-            bmsFile.HasLowConfidenceInstallWarning = false;
+            bmsFile.ClearWarningsByCategory(ChartWarningCategory.InstallEstimation);
             bmsFile.IsInstallDestinationSuggestionPopupOpen = false;
         }
     }

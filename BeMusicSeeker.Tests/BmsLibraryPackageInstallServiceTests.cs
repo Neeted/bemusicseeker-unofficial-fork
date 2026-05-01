@@ -719,7 +719,6 @@ public sealed class BmsLibraryPackageInstallServiceTests
         TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "C:\\Installed\\chart.bms");
         string installWarning = string.Format(Resources.Warning_InstallEstimationAmbiguous, "C:\\Installed\\A", "C:\\Installed\\B");
         file.SetWarning(ChartWarningKind.InstallEstimationAmbiguous, installWarning);
-        file.HasLowConfidenceInstallWarning = true;
         file.InstallDestinationSuggestions = new[] { "C:\\Installed\\A", "C:\\Installed\\B" };
         BMSPackage package = new BMSPackage(new BMSFile[] { file })
         {

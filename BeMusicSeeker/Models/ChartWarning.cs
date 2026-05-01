@@ -216,7 +216,7 @@ internal sealed class ChartWarningDefinition
 
 /// <summary>
 /// BMSFile が保持する構造化 warning collection です。
-/// 構造化 warning と互換フラグを統合して、表示用文字列と行色を計算します。
+/// 構造化 warning から表示用文字列と行色を計算します。
 /// </summary>
 internal sealed class ChartWarningCollection
 {
@@ -426,19 +426,6 @@ internal sealed class ChartWarningCollection
         foreach (ChartWarning warning in structuredWarnings.Values)
         {
             effective[warning.Kind] = warning;
-        }
-
-        if (owner.HasZeroNoteMismatchWarning && !effective.ContainsKey(ChartWarningKind.ZeroNoteMismatch))
-        {
-            effective[ChartWarningKind.ZeroNoteMismatch] = ChartWarning.Create(ChartWarningKind.ZeroNoteMismatch, Resources.Warning_ZeroNoteMismatch);
-        }
-        if (owner.IsHashDuplicated && !effective.ContainsKey(ChartWarningKind.DuplicateChart))
-        {
-            effective[ChartWarningKind.DuplicateChart] = ChartWarning.Create(ChartWarningKind.DuplicateChart, Resources.Warning_DuplicateBmsFile);
-        }
-        if (owner.HasLowConfidenceInstallWarning && !effective.Values.Any(warning => warning.Category == ChartWarningCategory.InstallEstimation))
-        {
-            effective[ChartWarningKind.InstallEstimationLowConfidence] = ChartWarning.Create(ChartWarningKind.InstallEstimationLowConfidence, Resources.WarningDigest_InstallEstimationLowConfidence);
         }
 
         return effective.Values;

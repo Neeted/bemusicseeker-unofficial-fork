@@ -86,15 +86,9 @@ public class BMSFile : LR2SongDB.song
 
     private IReadOnlyList<string> _installDestinationSuggestions = Array.Empty<string>();
 
-    private bool _hasLowConfidenceInstallWarning;
-
     private bool _isInstallDestinationSuggestionPopupOpen;
 
     private BMSFileStatus _status;
-
-    private bool _isHashDuplicated;
-
-    private bool _hasZeroNoteMismatchWarning;
 
     private ChartWarningCollection _warnings;
 
@@ -614,21 +608,30 @@ public class BMSFile : LR2SongDB.song
         RaisePropertyChanged(() => WarningDigestText);
         RaisePropertyChanged(() => WarningTooltipText);
         RaisePropertyChanged(() => HasHighlightedWarning);
+        RaisePropertyChanged(() => HasZeroNoteMismatchWarning);
+        RaisePropertyChanged(() => HasLowConfidenceInstallWarning);
+        RaisePropertyChanged(() => IsHashDuplicated);
     }
 
     public virtual bool HasZeroNoteMismatchWarning
     {
         get
         {
-            return _hasZeroNoteMismatchWarning;
+            return Warnings.Contains(ChartWarningKind.ZeroNoteMismatch);
         }
         set
         {
-            if (_hasZeroNoteMismatchWarning != value)
+            if (HasZeroNoteMismatchWarning == value)
             {
-                _hasZeroNoteMismatchWarning = value;
-                RaisePropertyChanged("HasZeroNoteMismatchWarning");
-                RaiseWarningPresentationChanged();
+                return;
+            }
+            if (value)
+            {
+                SetWarning(ChartWarningKind.ZeroNoteMismatch, Resources.Warning_ZeroNoteMismatch);
+            }
+            else
+            {
+                ClearWarning(ChartWarningKind.ZeroNoteMismatch);
             }
         }
     }
@@ -639,15 +642,21 @@ public class BMSFile : LR2SongDB.song
     {
         get
         {
-            return _hasLowConfidenceInstallWarning;
+            return HasLowConfidenceInstallEstimationWarning();
         }
         set
         {
-            if (_hasLowConfidenceInstallWarning != value)
+            if (HasLowConfidenceInstallWarning == value)
             {
-                _hasLowConfidenceInstallWarning = value;
-                RaisePropertyChanged("HasLowConfidenceInstallWarning");
-                RaiseWarningPresentationChanged();
+                return;
+            }
+            if (value)
+            {
+                SetWarning(ChartWarningKind.InstallEstimationLowConfidence, Resources.WarningDigest_InstallEstimationLowConfidence);
+            }
+            else
+            {
+                ClearLowConfidenceInstallEstimationWarnings();
             }
         }
     }
@@ -1012,17 +1021,39 @@ public class BMSFile : LR2SongDB.song
     {
         get
         {
-            return _isHashDuplicated;
+            return Warnings.Contains(ChartWarningKind.DuplicateChart);
         }
         set
         {
-            if (_isHashDuplicated != value)
+            if (IsHashDuplicated == value)
             {
-                _isHashDuplicated = value;
-                RaisePropertyChanged("IsHashDuplicated");
-                RaiseWarningPresentationChanged();
+                return;
+            }
+            if (value)
+            {
+                SetWarning(ChartWarningKind.DuplicateChart, Resources.Warning_DuplicateBmsFile);
+            }
+            else
+            {
+                ClearWarning(ChartWarningKind.DuplicateChart);
             }
         }
+    }
+
+    internal bool HasLowConfidenceInstallEstimationWarning()
+    {
+        return Warnings.Contains(ChartWarningKind.InstallEstimationAmbiguous)
+            || Warnings.Contains(ChartWarningKind.InstallEstimationMetadataMismatch)
+            || Warnings.Contains(ChartWarningKind.InstallEstimationReinstallNotImproved)
+            || Warnings.Contains(ChartWarningKind.InstallEstimationLowConfidence);
+    }
+
+    private void ClearLowConfidenceInstallEstimationWarnings()
+    {
+        ClearWarning(ChartWarningKind.InstallEstimationAmbiguous);
+        ClearWarning(ChartWarningKind.InstallEstimationMetadataMismatch);
+        ClearWarning(ChartWarningKind.InstallEstimationReinstallNotImproved);
+        ClearWarning(ChartWarningKind.InstallEstimationLowConfidence);
     }
 
     public void SetMaintenanceInfo(BMSFileMaintenanceInfo value, bool suppressPropertyChanged = false, bool registerEventHandlers = true)

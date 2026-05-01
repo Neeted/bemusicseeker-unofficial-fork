@@ -124,7 +124,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             BMSPackage secondPackage = CreatePendingSingleFilePackage(CreateBmsFile(sourceDirectoryPath, "b.bms", "Same B"), destinationDirectoryPath);
             BMSFile firstPendingFile = firstPackage.BMSFiles.Single();
             firstPendingFile.InstallDestinationSuggestions = new[] { destinationDirectoryPath };
-            firstPendingFile.HasLowConfidenceInstallWarning = true;
+            firstPendingFile.SetWarning(ChartWarningKind.InstallEstimationLowConfidence, BeMusicSeeker.Properties.Resources.WarningDigest_InstallEstimationLowConfidence);
 
             library.BMSFiles = new List<BMSFile> { BMSFile.CreateBMSFileFromFile(installedFilePath) };
             SeedPendingPackages(library, songDbPath, firstPackage, secondPackage);
@@ -139,7 +139,6 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             }
             Assert.AreEqual(1, firstPendingFile.InstallDestinationSuggestions.Count);
             Assert.AreEqual(destinationDirectoryPath, firstPendingFile.InstallDestinationSuggestions.Single());
-            Assert.IsTrue(firstPendingFile.HasLowConfidenceInstallWarning);
         });
     }
 

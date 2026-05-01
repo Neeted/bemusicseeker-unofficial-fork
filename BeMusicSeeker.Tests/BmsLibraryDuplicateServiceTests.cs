@@ -46,7 +46,6 @@ public sealed class BmsLibraryDuplicateServiceTests
         service.ApplyDuplicateWarnings(new[] { file }, Resources.Warning_DuplicateBmsFile);
 
         Assert.IsTrue(file.Warnings.Contains(ChartWarningKind.DuplicateChart));
-        Assert.IsTrue(file.IsHashDuplicated);
         Assert.IsTrue(file.HasHighlightedWarning);
         Assert.AreEqual("[1] 重複譜面", file.WarningDigestText);
     }
@@ -59,11 +58,9 @@ public sealed class BmsLibraryDuplicateServiceTests
         TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\BMS", "DirA", "a.bms"));
         file.SetWarning(ChartWarningKind.DuplicateChart, Resources.Warning_DuplicateBmsFile);
         file.SetWarning(ChartWarningKind.NestedChartFileInPackage, Resources.Warning_NestedChartFileInPackage);
-        file.IsHashDuplicated = true;
 
         service.ClearDuplicateState(new[] { file }, Resources.Warning_DuplicateBmsFile);
 
-        Assert.IsFalse(file.IsHashDuplicated);
         Assert.IsFalse(file.Warnings.Contains(ChartWarningKind.DuplicateChart));
         Assert.IsTrue(file.Warnings.Contains(ChartWarningKind.NestedChartFileInPackage));
         Assert.AreEqual("[1] サブフォルダ譜面", file.WarningDigestText);

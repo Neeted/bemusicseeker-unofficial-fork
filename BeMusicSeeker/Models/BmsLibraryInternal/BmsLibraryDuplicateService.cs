@@ -28,7 +28,6 @@ internal sealed class BmsLibraryDuplicateService
             {
                 continue;
             }
-            file.IsHashDuplicated = false;
             file.ClearWarning(ChartWarningKind.DuplicateChart);
         }
     }
@@ -41,7 +40,6 @@ internal sealed class BmsLibraryDuplicateService
             {
                 continue;
             }
-            file.IsHashDuplicated = true;
             file.ClearWarning(ChartWarningKind.DuplicateChart);
             file.SetWarning(ChartWarningKind.DuplicateChart, duplicateWarningMessage);
         }

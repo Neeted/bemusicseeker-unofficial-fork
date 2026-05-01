@@ -1850,7 +1850,6 @@ internal sealed class BmsLibraryPackageInstallService
         {
             addedFile.ClearWarningsByCategory(ChartWarningCategory.InstallEstimation);
             addedFile.InstallDestinationSuggestions = Array.Empty<string>();
-            addedFile.HasLowConfidenceInstallWarning = false;
             addedFile.IsInstallDestinationSuggestionPopupOpen = false;
         }
 

@@ -215,7 +215,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
         TestableBmsFile zeroNoteFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
         zeroNoteFile.SetNotes(0);
         zeroNoteFile.path = "C:\\missing\\chart.bms";
-        zeroNoteFile.HasZeroNoteMismatchWarning = true;
+        zeroNoteFile.SetWarning(ChartWarningKind.ZeroNoteMismatch, Resources.Warning_ZeroNoteMismatch);
 
         ZeroNoteRecheckResult result = service.RecheckZeroNoteWarnings(new BMSFile[] { zeroNoteFile });
 
@@ -223,7 +223,6 @@ public sealed class BmsLibraryMaintenanceServiceTests
         Assert.AreEqual(1, result.ClearedCount);
         Assert.AreEqual(1, result.SkippedCount);
         Assert.AreEqual(1, result.ChangedCount);
-        Assert.IsFalse(zeroNoteFile.HasZeroNoteMismatchWarning);
         Assert.IsFalse(zeroNoteFile.Warnings.Contains(ChartWarningKind.ZeroNoteMismatch));
     }
 

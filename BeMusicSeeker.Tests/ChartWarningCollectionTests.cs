@@ -64,25 +64,65 @@ public sealed class ChartWarningCollectionTests
     }
 
     [TestMethod]
-    public void CompatibilityFlags_CreateVirtualWarningsForHighlightAndDigest()
+    public void StructuredWarnings_DriveCompatibilityAliasesHighlightAndDigest()
     {
         TestResourceInitializer.EnsureJapaneseResources();
-        BMSFile file = new BMSFile
-        {
-            HasZeroNoteMismatchWarning = true,
-            HasLowConfidenceInstallWarning = true,
-            IsHashDuplicated = true
-        };
+        BMSFile file = new BMSFile();
 
+        file.SetWarning(ChartWarningKind.ZeroNoteMismatch, Resources.Warning_ZeroNoteMismatch);
+        file.SetWarning(ChartWarningKind.InstallEstimationAmbiguous, "ambiguous");
+        file.SetWarning(ChartWarningKind.DuplicateChart, Resources.Warning_DuplicateBmsFile);
+
+        Assert.IsTrue(file.HasZeroNoteMismatchWarning);
+        Assert.IsTrue(file.HasLowConfidenceInstallWarning);
+        Assert.IsTrue(file.IsHashDuplicated);
         Assert.IsTrue(file.HasHighlightedWarning);
-        Assert.AreEqual("[3] ゼロノート不整合, 重複譜面, 導入先推定", file.WarningDigestText);
+        Assert.AreEqual("[3] ゼロノート不整合, 重複譜面, 推定先複数", file.WarningDigestText);
+
+        file.ClearWarning(ChartWarningKind.ZeroNoteMismatch);
+        file.ClearWarningsByCategory(ChartWarningCategory.InstallEstimation);
+        file.ClearWarning(ChartWarningKind.DuplicateChart);
+
+        Assert.IsFalse(file.HasZeroNoteMismatchWarning);
+        Assert.IsFalse(file.HasLowConfidenceInstallWarning);
+        Assert.IsFalse(file.IsHashDuplicated);
+        Assert.IsFalse(file.HasHighlightedWarning);
+        Assert.AreEqual(string.Empty, file.WarningDigestText);
+    }
+
+    [TestMethod]
+    public void CompatibilityAliasSetters_MutateStructuredWarnings()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        BMSFile file = new BMSFile();
+
+        file.HasZeroNoteMismatchWarning = true;
+        file.HasLowConfidenceInstallWarning = true;
+        file.IsHashDuplicated = true;
+
+        Assert.IsTrue(file.Warnings.Contains(ChartWarningKind.ZeroNoteMismatch));
+        Assert.IsTrue(file.Warnings.Contains(ChartWarningKind.InstallEstimationLowConfidence));
+        Assert.IsTrue(file.Warnings.Contains(ChartWarningKind.DuplicateChart));
 
         file.HasZeroNoteMismatchWarning = false;
         file.HasLowConfidenceInstallWarning = false;
         file.IsHashDuplicated = false;
 
-        Assert.IsFalse(file.HasHighlightedWarning);
-        Assert.AreEqual(string.Empty, file.WarningDigestText);
+        Assert.IsFalse(file.Warnings.Contains(ChartWarningKind.ZeroNoteMismatch));
+        Assert.IsFalse(file.Warnings.Contains(ChartWarningKind.InstallEstimationLowConfidence));
+        Assert.IsFalse(file.Warnings.Contains(ChartWarningKind.DuplicateChart));
+    }
+
+    [TestMethod]
+    public void InstalledDestinationResolveFailed_IsNotLowConfidenceAlias()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        BMSFile file = new BMSFile();
+
+        file.SetWarning(ChartWarningKind.InstalledDestinationResolveFailed, Resources.Warning_InstalledDestinationResolveFailed);
+
+        Assert.IsFalse(file.HasLowConfidenceInstallWarning);
+        Assert.IsTrue(file.Warnings.Contains(ChartWarningKind.InstalledDestinationResolveFailed));
     }
 
     [TestMethod]

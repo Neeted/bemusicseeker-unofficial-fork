@@ -139,8 +139,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         public IReadOnlyList<ChartWarning> Warnings { get; set; }
 
         public IReadOnlyList<string> Suggestions { get; set; }
-
-        public bool HasLowConfidenceInstallWarning { get; set; }
     }
 
     private BitmapSource panelImage
@@ -1662,8 +1660,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             InstallDestinationTitle = bmsFile.InstallDestinationTitle,
             InstallDestinationArtist = bmsFile.InstallDestinationArtist,
             Warnings = bmsFile.Warnings.ToStructuredList(),
-            Suggestions = (bmsFile.InstallDestinationSuggestions ?? Array.Empty<string>()).ToArray(),
-            HasLowConfidenceInstallWarning = bmsFile.HasLowConfidenceInstallWarning
+            Suggestions = (bmsFile.InstallDestinationSuggestions ?? Array.Empty<string>()).ToArray()
         };
     }
 
@@ -1700,7 +1697,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         bmsFile.InstallDestinationArtist = state.InstallDestinationArtist;
         bmsFile.ReplaceStructuredWarnings(state.Warnings ?? Array.Empty<ChartWarning>());
         bmsFile.InstallDestinationSuggestions = state.Suggestions ?? Array.Empty<string>();
-        bmsFile.HasLowConfidenceInstallWarning = state.HasLowConfidenceInstallWarning;
         bmsFile.IsInstallDestinationSuggestionPopupOpen = false;
         ClearPendingInstallDestinationEditState(bmsFile);
     }
