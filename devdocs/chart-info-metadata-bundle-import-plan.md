@@ -4,7 +4,7 @@
 
 `chart_info` の解析は大規模ライブラリでは時間がかかるため、あらかじめ解析済みの `chart_info` / `chart_digest_map` をリリース物に同梱し、アプリ起動時に差分 import できるようにする。
 
-初回実装単位では、独立した export tool と、未圧縮 SQLite sidecar DB の import までを実装する。7z 圧縮同梱、リリーススクリプトの二系統 package 化、parse failure 同梱は後続 Unit に分ける。
+初回実装単位では、独立した export tool と、未圧縮 SQLite sidecar DB の import までを実装する。7z 圧縮同梱、リリーススクリプトの二系統 package 化、import 済み bundle の退避、parse failure 同梱は後続 Unit に分ける。
 
 ## Goals
 
@@ -17,7 +17,7 @@
 ## Non-Goals
 
 - `chart_info` テーブルを削除して入れ替えることはしない。
-- 初回実装では 7z 展開、release zip 二系統化、GitHub release asset 添付変更は行わない。
+- 初回実装では 7z 展開、release zip 二系統化、GitHub release asset 添付変更、import 済み bundle の退避は行わない。
 - 初回実装では `chart_info_parse_failure` の同梱 import は行わない。
 - import 直後に backfill を強制実行する UI は作らない。
 
@@ -170,12 +170,80 @@ import は `ATTACH DATABASE` を使い、SQLite 側で差分投入する。大�
 
 `release.ps1` は `dist/bemusicseeker-unofficial-fork-${tag}*.zip` を release asset に添付できるようにする。
 
-## Unit 4: Future Improvements
+## Unit 4: Import 済み Bundle の退避
+
+metadata bundle を exe と同階層に置きっぱなしにすると、起動のたびに `chart-info-metadata.db` / `.7z` の SHA-256 計算が走る。`.7z` は import history 済みなら展開されないが、archive hash 計算だけでも大容量ファイルでは無視できない。
+
+削除でも実運用上は困りにくいが、`song.db` を再構築したい場合や、同じ配布 metadata を再利用したい場合に備えて、削除ではなく退避を基本方針にする。
+
+### Policy
+
+- import 成功、または `already_imported` 確認後に、元 bundle を `imported_metadata/` へ移動する。
+- import 失敗時は移動しない。ユーザーがファイルを直して再起動できるよう、exe 同階層に残す。
+- `missing_bundle` は従来通り no-op。
+- 退避後の次回起動では exe 同階層に bundle がないため、SHA-256 計算自体が発生しない。
+- `song.db` 再構築などで再 import したい場合は、ユーザーが `imported_metadata/` から exe 同階層へ戻す。
+
+### Target Files
+
+- `chart-info-metadata.db`
+- `chart-info-metadata.7z`
+
+探索順は Unit 2 と同じく `.db` 優先、`.db` がなければ `.7z` とする。退避対象も実際に import / skip 判定に使ったファイルだけにする。
+
+### Destination
+
+退避先:
+
+```text
+<exe directory>/imported_metadata/
+```
+
+通常の移動先:
+
+- `imported_metadata/chart-info-metadata.db`
+- `imported_metadata/chart-info-metadata.7z`
+
+同名ファイルが存在する場合は衝突を避ける。
+
+候補:
+
+- `chart-info-metadata.<sha256-prefix>.db`
+- `chart-info-metadata.<sha256-prefix>.7z`
+- それでも衝突する場合は連番 suffix を付ける。
+
+`sha256-prefix` は 12 文字程度で十分だが、実装上は後から調整可能にする。
+
+### Logging
+
+`install-performance.log` に以下を追加する。
+
+- `chart_info_metadata_bundle_archive moved bundleType=... source=... destination=...`
+- `chart_info_metadata_bundle_archive skipped reason=... source=...`
+- `chart_info_metadata_bundle_archive failed source=... message=...`
+
+退避失敗は起動失敗にしない。import 自体は完了済みなので、ログに残して続行する。
+
+### Test Plan
+
+- `.db` import 成功後、`imported_metadata/` に移動されること。
+- `.7z` import 成功後、`imported_metadata/` に移動されること。
+- `.7z` が `already_imported` の場合、展開せずに退避されること。
+- import 失敗時は移動されないこと。
+- 同名退避先がある場合、衝突しないファイル名へ移動されること。
+- 退避後の次回起動では `missing_bundle` になり、SHA-256 計算や展開が走らないこと。
+- 退避失敗時も起動処理が継続すること。
+
+### Notes
+
+初回 import のためには SHA-256 計算が必要なので、配置直後の1回分のコストは残る。Unit 4 の目的は、import 済み bundle を置きっぱなしにした場合の毎回起動コストをなくすこと。
+
+## Unit 5: Future Improvements
 
 - `chart_info_parse_failure` の export / import。
 - bundle manifest の署名または checksum file 分離。
 - UI からの手動 import / reimport。
-- import 済み bundle の状態表示。
+- import 済み bundle の状態表示と、退避済み bundle を戻す導線。
 - parser version 更新時の stale bundle warning。
 - 差分 bundle 作成。
 
