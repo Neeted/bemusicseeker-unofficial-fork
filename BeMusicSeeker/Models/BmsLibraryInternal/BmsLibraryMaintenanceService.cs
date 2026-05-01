@@ -39,16 +39,13 @@ internal sealed class BmsLibraryMaintenanceService
         _ = strictCheck;
         bool hasAnyWarning = false;
         maintenanceInfo ??= bmsFile.maintenanceInfo;
-        if (!string.IsNullOrWhiteSpace(bmsFile.warning))
-        {
-            bmsFile.warning = null;
-        }
-        hasAnyWarning |= AppendHealthWarning(bmsFile, maintenanceInfo.GetWAVHealth(), maintenanceInfo.wav_files_defined, maintenanceInfo.wav_files_existing, Resources.Warning_WavFilesNotFound);
-        hasAnyWarning |= AppendHealthWarning(bmsFile, maintenanceInfo.GetBGAHealth(), maintenanceInfo.bga_files_defined, maintenanceInfo.bga_files_existing, Resources.Warning_BgaFilesNotFound);
-        hasAnyWarning |= AppendHealthWarning(bmsFile, maintenanceInfo.GetMovieHealth(), maintenanceInfo.movie_files_defined, maintenanceInfo.movie_files_existing, Resources.Warning_MovieFilesNotFound);
-        hasAnyWarning |= AppendFlagWarning(bmsFile, maintenanceInfo.GetStagefileHealth(), Resources.Warning_StagefileNotFound);
-        hasAnyWarning |= AppendFlagWarning(bmsFile, maintenanceInfo.GetBackbmpHealth(), Resources.Warning_BackbmpNotFound);
-        hasAnyWarning |= AppendFlagWarning(bmsFile, maintenanceInfo.GetBannerHealth(), Resources.Warning_BannerNotFound);
+        bmsFile.ClearWarningsByCategory(ChartWarningCategory.ResourceHealth);
+        hasAnyWarning |= AppendHealthWarning(bmsFile, maintenanceInfo.GetWAVHealth(), maintenanceInfo.wav_files_defined, maintenanceInfo.wav_files_existing, ChartWarningKind.ResourceWavMissing, Resources.Warning_WavFilesNotFound);
+        hasAnyWarning |= AppendHealthWarning(bmsFile, maintenanceInfo.GetBGAHealth(), maintenanceInfo.bga_files_defined, maintenanceInfo.bga_files_existing, ChartWarningKind.ResourceBgaMissing, Resources.Warning_BgaFilesNotFound);
+        hasAnyWarning |= AppendHealthWarning(bmsFile, maintenanceInfo.GetMovieHealth(), maintenanceInfo.movie_files_defined, maintenanceInfo.movie_files_existing, ChartWarningKind.ResourceMovieMissing, Resources.Warning_MovieFilesNotFound);
+        hasAnyWarning |= AppendFlagWarning(bmsFile, maintenanceInfo.GetStagefileHealth(), ChartWarningKind.ResourceStagefileMissing, Resources.Warning_StagefileNotFound);
+        hasAnyWarning |= AppendFlagWarning(bmsFile, maintenanceInfo.GetBackbmpHealth(), ChartWarningKind.ResourceBackbmpMissing, Resources.Warning_BackbmpNotFound);
+        hasAnyWarning |= AppendFlagWarning(bmsFile, maintenanceInfo.GetBannerHealth(), ChartWarningKind.ResourceBannerMissing, Resources.Warning_BannerNotFound);
         return hasAnyWarning;
     }
 
@@ -169,16 +166,15 @@ internal sealed class BmsLibraryMaintenanceService
     {
         List<BMSFile> files = EnumerateBmsChartFiles(allFiles).ToList();
         List<BMSFile> zeroNoteFiles = files.Where((BMSFile f) => f.notes == 0 && !string.IsNullOrWhiteSpace(f.path)).ToList();
-        List<BMSFile> staleMismatchFiles = files.Where((BMSFile f) => f.notes != 0 && f.HasZeroNoteMismatchWarning).ToList();
+        List<BMSFile> staleMismatchFiles = files.Where((BMSFile f) => f.notes != 0 && (f.HasZeroNoteMismatchWarning || f.Warnings.Contains(ChartWarningKind.ZeroNoteMismatch))).ToList();
         ZeroNoteRecheckResult result = new ZeroNoteRecheckResult
         {
             Total = zeroNoteFiles.Count
         };
         foreach (BMSFile staleMismatchFile in staleMismatchFiles)
         {
-            if (staleMismatchFile.HasZeroNoteMismatchWarning)
+            if (ClearZeroNoteMismatchWarning(staleMismatchFile))
             {
-                staleMismatchFile.HasZeroNoteMismatchWarning = false;
                 result.ClearedCount++;
                 result.ChangedCount++;
             }
@@ -190,36 +186,55 @@ internal sealed class BmsLibraryMaintenanceService
                 bool isZeroNoteByFile = BMSFile.IsZeroNoteBMSFile(zeroNoteFile.path);
                 if (!isZeroNoteByFile)
                 {
-                    if (!zeroNoteFile.HasZeroNoteMismatchWarning)
+                    if (SetZeroNoteMismatchWarning(zeroNoteFile))
                     {
-                        zeroNoteFile.HasZeroNoteMismatchWarning = true;
                         result.ChangedCount++;
                     }
                     result.MismatchCount++;
                 }
                 else
                 {
-                    if (zeroNoteFile.HasZeroNoteMismatchWarning)
+                    if (ClearZeroNoteMismatchWarning(zeroNoteFile))
                     {
                         result.ClearedCount++;
                         result.ChangedCount++;
                     }
-                    zeroNoteFile.HasZeroNoteMismatchWarning = false;
                 }
             }
             catch (Exception ex) when (ex is DirectoryNotFoundException || ex is FileNotFoundException || ex is IOException || ex is PathTooLongException || ex is System.Security.SecurityException || ex is UnauthorizedAccessException)
             {
-                if (zeroNoteFile.HasZeroNoteMismatchWarning)
+                if (ClearZeroNoteMismatchWarning(zeroNoteFile))
                 {
                     result.ClearedCount++;
                     result.ChangedCount++;
                 }
-                zeroNoteFile.HasZeroNoteMismatchWarning = false;
                 result.SkippedCount++;
                 logWarn?.Invoke(ex, "zero_note_recheck skipped: path=" + zeroNoteFile.path);
             }
         }
         return result;
+    }
+
+    private static bool SetZeroNoteMismatchWarning(BMSFile file)
+    {
+        bool changed = file != null && (!file.HasZeroNoteMismatchWarning || !file.Warnings.Contains(ChartWarningKind.ZeroNoteMismatch));
+        file?.SetWarning(ChartWarningKind.ZeroNoteMismatch, Resources.Warning_ZeroNoteMismatch);
+        if (file != null)
+        {
+            file.HasZeroNoteMismatchWarning = true;
+        }
+        return changed;
+    }
+
+    private static bool ClearZeroNoteMismatchWarning(BMSFile file)
+    {
+        bool changed = file != null && (file.HasZeroNoteMismatchWarning || file.Warnings.Contains(ChartWarningKind.ZeroNoteMismatch));
+        file?.ClearWarning(ChartWarningKind.ZeroNoteMismatch);
+        if (file != null)
+        {
+            file.HasZeroNoteMismatchWarning = false;
+        }
+        return changed;
     }
 
     public List<BMSFile> DetectModeChanges(IEnumerable<BMSFile> bmsFiles, bool forceUpdate)
@@ -478,32 +493,23 @@ internal sealed class BmsLibraryMaintenanceService
         return result;
     }
 
-    private static bool AppendHealthWarning(BMSFile bmsFile, int? health, int? defined, int? existing, string warningFormat)
+    private static bool AppendHealthWarning(BMSFile bmsFile, int? health, int? defined, int? existing, ChartWarningKind kind, string warningFormat)
     {
         if (!health.HasValue || health.Value >= 100)
         {
             return false;
         }
-        AppendWarningLine(bmsFile, string.Format(warningFormat, health, defined - existing, defined));
+        bmsFile.SetWarning(kind, string.Format(warningFormat, health, defined - existing, defined));
         return true;
     }
 
-    private static bool AppendFlagWarning(BMSFile bmsFile, bool? isHealthy, string warningText)
+    private static bool AppendFlagWarning(BMSFile bmsFile, bool? isHealthy, ChartWarningKind kind, string warningText)
     {
         if (isHealthy != false)
         {
             return false;
         }
-        AppendWarningLine(bmsFile, warningText);
+        bmsFile.SetWarning(kind, warningText);
         return true;
-    }
-
-    private static void AppendWarningLine(BMSFile bmsFile, string warningText)
-    {
-        if (!string.IsNullOrWhiteSpace(bmsFile.warning))
-        {
-            bmsFile.warning += Environment.NewLine;
-        }
-        bmsFile.warning += warningText;
     }
 }

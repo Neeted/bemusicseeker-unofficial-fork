@@ -24,8 +24,12 @@ internal sealed class BmsLibraryDuplicateService
     {
         foreach (BMSFile file in files ?? Enumerable.Empty<BMSFile>())
         {
+            if (file == null)
+            {
+                continue;
+            }
             file.IsHashDuplicated = false;
-            file.warning = RemoveDuplicateWarning(file.warning, duplicateWarningMessage);
+            file.ClearWarning(ChartWarningKind.DuplicateChart);
         }
     }
 
@@ -38,18 +42,8 @@ internal sealed class BmsLibraryDuplicateService
                 continue;
             }
             file.IsHashDuplicated = true;
-            if (HasDuplicateWarning(file.warning, duplicateWarningMessage))
-            {
-                continue;
-            }
-            if (string.IsNullOrWhiteSpace(file.warning))
-            {
-                file.warning = duplicateWarningMessage;
-            }
-            else
-            {
-                file.warning = file.warning + Environment.NewLine + duplicateWarningMessage;
-            }
+            file.ClearWarning(ChartWarningKind.DuplicateChart);
+            file.SetWarning(ChartWarningKind.DuplicateChart, duplicateWarningMessage);
         }
     }
 

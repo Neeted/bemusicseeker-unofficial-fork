@@ -15,7 +15,7 @@ namespace BeMusicSeeker.Tests;
 public sealed class BmsLibraryMaintenanceServiceTests
 {
     [TestMethod]
-    public void ApplyNeedToBeFixedWarnings_AppendsMissingResourceWarnings()
+    public void ApplyNeedToBeFixedWarnings_SetsStructuredMissingResourceWarnings()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         BmsLibraryMaintenanceService service = new BmsLibraryMaintenanceService();
@@ -33,8 +33,44 @@ public sealed class BmsLibraryMaintenanceServiceTests
         bool needsFix = service.ApplyNeedToBeFixedWarnings(file, info);
 
         Assert.IsTrue(needsFix);
-        StringAssert.Contains(file.warning, string.Format(Resources.Warning_WavFilesNotFound, info.GetWAVHealth(), 5, 10));
-        StringAssert.Contains(file.warning, Resources.Warning_StagefileNotFound);
+        Assert.AreEqual(string.Empty, file.warning);
+        Assert.IsTrue(file.Warnings.Contains(ChartWarningKind.ResourceWavMissing));
+        Assert.IsTrue(file.Warnings.Contains(ChartWarningKind.ResourceStagefileMissing));
+        StringAssert.Contains(file.WarningTooltipText, string.Format(Resources.Warning_WavFilesNotFound, info.GetWAVHealth(), 5, 10));
+        StringAssert.Contains(file.WarningTooltipText, Resources.Warning_StagefileNotFound);
+        Assert.AreEqual("[2] リソース不足", file.WarningDigestText);
+    }
+
+    [TestMethod]
+    public void ApplyNeedToBeFixedWarnings_ReplacesOnlyResourceHealthWarnings()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        BmsLibraryMaintenanceService service = new BmsLibraryMaintenanceService();
+        TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        file.SetWarning(ChartWarningKind.NestedChartFileInPackage, Resources.Warning_NestedChartFileInPackage);
+        file.SetWarning(ChartWarningKind.InstallEstimationAmbiguous, "install estimate");
+        file.SetWarning(ChartWarningKind.DuplicateChart, Resources.Warning_DuplicateBmsFile);
+        file.SetWarning(ChartWarningKind.ZeroNoteMismatch, Resources.Warning_ZeroNoteMismatch);
+        file.SetWarning(ChartWarningKind.ResourceWavMissing, "stale wav");
+        file.warning = string.Format(Resources.Warning_WavFilesNotFound, 50, 1, 2) + "\r\nlegacy note";
+        BMSFileMaintenanceInfo info = new BMSFileMaintenanceInfo(file)
+        {
+            hash = file.hash,
+            bga_files_defined = 4,
+            bga_files_existing = 3
+        };
+        file.SetMaintenanceInfo(info, suppressPropertyChanged: true, registerEventHandlers: false);
+
+        bool needsFix = service.ApplyNeedToBeFixedWarnings(file, info);
+
+        Assert.IsTrue(needsFix);
+        Assert.IsFalse(file.Warnings.Contains(ChartWarningKind.ResourceWavMissing));
+        Assert.IsTrue(file.Warnings.Contains(ChartWarningKind.ResourceBgaMissing));
+        Assert.IsTrue(file.Warnings.Contains(ChartWarningKind.NestedChartFileInPackage));
+        Assert.IsTrue(file.Warnings.Contains(ChartWarningKind.InstallEstimationAmbiguous));
+        Assert.IsTrue(file.Warnings.Contains(ChartWarningKind.DuplicateChart));
+        Assert.IsTrue(file.Warnings.Contains(ChartWarningKind.ZeroNoteMismatch));
+        Assert.AreEqual("legacy note", file.warning);
     }
 
     [TestMethod]
@@ -191,6 +227,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
         Assert.AreEqual(1, result.SkippedCount);
         Assert.AreEqual(1, result.ChangedCount);
         Assert.IsFalse(zeroNoteFile.HasZeroNoteMismatchWarning);
+        Assert.IsFalse(zeroNoteFile.Warnings.Contains(ChartWarningKind.ZeroNoteMismatch));
     }
 
     [TestMethod]

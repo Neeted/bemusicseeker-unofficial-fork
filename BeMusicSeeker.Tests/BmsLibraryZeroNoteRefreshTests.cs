@@ -35,6 +35,7 @@ public sealed class BmsLibraryZeroNoteRefreshTests
 
             CollectionAssert.Contains(changedProperties, nameof(BMSLibrary.BMSFilesZeroNote));
             Assert.IsFalse(file.HasZeroNoteMismatchWarning);
+            Assert.IsFalse(file.Warnings.Contains(ChartWarningKind.ZeroNoteMismatch));
         });
     }
 
@@ -52,6 +53,7 @@ public sealed class BmsLibraryZeroNoteRefreshTests
                 path = chartPath,
                 HasZeroNoteMismatchWarning = true
             };
+            file.SetWarning(ChartWarningKind.ZeroNoteMismatch, BeMusicSeeker.Properties.Resources.Warning_ZeroNoteMismatch);
             file.SetNotes(0);
             library.BMSFiles = new List<BMSFile> { file };
             List<string> changedProperties = new List<string>();
@@ -64,6 +66,34 @@ public sealed class BmsLibraryZeroNoteRefreshTests
 
             CollectionAssert.DoesNotContain(changedProperties, nameof(BMSLibrary.BMSFilesZeroNote));
             Assert.IsTrue(file.HasZeroNoteMismatchWarning);
+            Assert.IsTrue(file.Warnings.Contains(ChartWarningKind.ZeroNoteMismatch));
+            Assert.IsTrue(file.HasHighlightedWarning);
+            Assert.AreEqual("[1] ゼロノート不整合", file.WarningDigestText);
+        });
+    }
+
+    [TestMethod]
+    public void RecheckZeroNoteWarnings_SetsStructuredWarningWhenMismatchIsDetected()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate(string songDbPath)
+        {
+            string chartPath = Path.Combine(Path.GetDirectoryName(songDbPath), "chart.bms");
+            File.WriteAllText(chartPath, "#00111:01\r\n");
+            BMSLibrary library = new BMSLibrary(songDbPath, null, null, null, new RecordingDialogService());
+            TestableBmsFile file = new TestableBmsFile
+            {
+                path = chartPath
+            };
+            file.SetNotes(0);
+            library.BMSFiles = new List<BMSFile> { file };
+
+            library.RecheckZeroNoteWarnings();
+
+            Assert.IsTrue(file.HasZeroNoteMismatchWarning);
+            Assert.IsTrue(file.Warnings.Contains(ChartWarningKind.ZeroNoteMismatch));
+            Assert.IsTrue(file.HasHighlightedWarning);
+            Assert.AreEqual("[1] ゼロノート不整合", file.WarningDigestText);
         });
     }
 

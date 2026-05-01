@@ -678,12 +678,14 @@ internal sealed class BmsLibraryInitializationService
                 result.PendingWarningInitTargets.Add(bmsFile);
                 if (isInstalledChart != null && isInstalledChart(bmsFile))
                 {
-                    bmsFile.warning = Resources.Warning_AlreadyInstalled;
+                    bmsFile.ClearWarningsByCategory(ChartWarningCategory.InstalledState);
+                    bmsFile.SetWarning(ChartWarningKind.AlreadyInstalled, Resources.Warning_AlreadyInstalled);
                     result.InstalledWarningCount++;
                 }
                 else if (isSingleFilePackage)
                 {
-                    bmsFile.warning = isBmson ? Resources.Warning_SingleBmsonFile : Resources.Warning_SingleBmsFile;
+                    bmsFile.ClearWarningsByCategory(ChartWarningCategory.PackageLayout);
+                    bmsFile.SetWarning(isBmson ? ChartWarningKind.SingleBmsonFile : ChartWarningKind.SingleBmsFile, isBmson ? Resources.Warning_SingleBmsonFile : Resources.Warning_SingleBmsFile);
                     result.SingleFileWarningCount++;
                 }
                 else if (applyStrictWarning != null && applyStrictWarning(bmsFile))

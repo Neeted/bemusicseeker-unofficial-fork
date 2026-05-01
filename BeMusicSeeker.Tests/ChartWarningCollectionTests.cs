@@ -1,5 +1,6 @@
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Properties;
+using System.Collections.Generic;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
@@ -64,12 +65,19 @@ public sealed class ChartWarningCollectionTests
         TestResourceInitializer.EnsureJapaneseResources();
         BMSFile file = new BMSFile
         {
-            instl_dst = "C:\\Installed",
             warning = string.Format(Resources.Warning_WavFilesNotFound, 50, 1, 2)
         };
+        List<string> changedProperties = new List<string>();
+        file.PropertyChanged += delegate(object sender, System.ComponentModel.PropertyChangedEventArgs e)
+        {
+            changedProperties.Add(e.PropertyName);
+        };
+
+        file.instl_dst = "C:\\Installed";
 
         Assert.AreEqual(string.Empty, file.WarningDigestText);
         StringAssert.Contains(file.WarningTooltipText, "WAV");
+        CollectionAssert.Contains(changedProperties, nameof(BMSFile.WarningDigestText));
     }
 
     [TestMethod]
@@ -92,5 +100,38 @@ public sealed class ChartWarningCollectionTests
 
         Assert.IsFalse(file.HasHighlightedWarning);
         Assert.AreEqual(string.Empty, file.WarningDigestText);
+    }
+
+    [TestMethod]
+    public void ClearWarning_RemovesMatchingStructuredAndLegacyWarning()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        BMSFile file = new BMSFile();
+        file.SetWarning(ChartWarningKind.DuplicateChart, Resources.Warning_DuplicateBmsFile);
+        file.SetWarning(ChartWarningKind.NestedChartFileInPackage, Resources.Warning_NestedChartFileInPackage);
+        file.warning = Resources.Warning_DuplicateBmsFile + "\r\n" + Resources.Warning_NestedChartFileInPackage;
+
+        file.ClearWarning(ChartWarningKind.DuplicateChart);
+
+        Assert.IsFalse(file.Warnings.Contains(ChartWarningKind.DuplicateChart));
+        Assert.IsTrue(file.Warnings.Contains(ChartWarningKind.NestedChartFileInPackage));
+        Assert.AreEqual(Resources.Warning_NestedChartFileInPackage, file.warning);
+        Assert.AreEqual("[1] サブフォルダ譜面", file.WarningDigestText);
+    }
+
+    [TestMethod]
+    public void CopyStructuredWarningsFrom_CopiesStructuredWarningsToSnapshot()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        BMSFile source = new BMSFile();
+        source.SetWarning(ChartWarningKind.NestedChartFileInPackage, Resources.Warning_NestedChartFileInPackage);
+        source.SetWarning(ChartWarningKind.ResourceWavMissing, "wav missing");
+        BMSFile copy = new BMSFile();
+
+        copy.CopyStructuredWarningsFrom(source);
+
+        Assert.IsTrue(copy.Warnings.Contains(ChartWarningKind.NestedChartFileInPackage));
+        Assert.IsTrue(copy.Warnings.Contains(ChartWarningKind.ResourceWavMissing));
+        Assert.AreEqual(source.WarningDigestText, copy.WarningDigestText);
     }
 }

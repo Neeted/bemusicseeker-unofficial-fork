@@ -6122,7 +6122,7 @@ public class BMSLibrary : NotificationObject
         foreach (BMSFile file in files)
         {
             file.IsHashDuplicated = false;
-            file.warning = RemoveDuplicateWarning(file.warning);
+            file.ClearWarning(ChartWarningKind.DuplicateChart);
         }
     }
 
@@ -6135,18 +6135,9 @@ public class BMSLibrary : NotificationObject
         {
             return;
         }
-        if (HasDuplicateWarning(file.warning))
-        {
-            return;
-        }
-        if (string.IsNullOrWhiteSpace(file.warning))
-        {
-            file.warning = DuplicateWarningMessage;
-        }
-        else
-        {
-            file.warning = file.warning + Environment.NewLine + DuplicateWarningMessage;
-        }
+        file.IsHashDuplicated = true;
+        file.ClearWarning(ChartWarningKind.DuplicateChart);
+        file.SetWarning(ChartWarningKind.DuplicateChart, DuplicateWarningMessage);
     }
 
     private static bool HasDuplicateWarning(string warning)
@@ -6988,7 +6979,8 @@ public class BMSLibrary : NotificationObject
         {
             if (item != null)
             {
-                item.warning = Resources.Warning_AlreadyInstalled;
+                item.ClearWarningsByCategory(ChartWarningCategory.InstalledState);
+                item.SetWarning(ChartWarningKind.AlreadyInstalled, Resources.Warning_AlreadyInstalled);
             }
         }
     }
@@ -7932,11 +7924,11 @@ public class BMSLibrary : NotificationObject
             string key = PendingChartEntry.GetPrimaryLookupHash(bmsFile);
             if (!string.IsNullOrWhiteSpace(key) && installedHashSet.Contains(key))
             {
-                bmsFile.warning = Resources.Warning_AlreadyInstalled;
+                bmsFile.SetWarning(ChartWarningKind.AlreadyInstalled, Resources.Warning_AlreadyInstalled);
             }
             else if (isSingleFilePackage)
             {
-                bmsFile.warning = isBmson ? Resources.Warning_SingleBmsonFile : Resources.Warning_SingleBmsFile;
+                bmsFile.SetWarning(isBmson ? ChartWarningKind.SingleBmsonFile : ChartWarningKind.SingleBmsFile, isBmson ? Resources.Warning_SingleBmsonFile : Resources.Warning_SingleBmsFile);
             }
             else
             {

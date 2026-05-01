@@ -135,7 +135,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
         Assert.AreEqual(1, groupedItem.InstallWorkPackage.BMSFiles.Count);
         Assert.AreSame(newFile, groupedItem.InstallWorkPackage.BMSFiles[0]);
         CollectionAssert.Contains(groupedItem.ExcludedComponentPaths.ToList(), alreadyInstalledInPackage.path);
-        Assert.AreEqual(BeMusicSeeker.Properties.Resources.Warning_AlreadyInstalled, alreadyInstalledInPackage.warning);
+        Assert.IsTrue(alreadyInstalledInPackage.Warnings.Contains(ChartWarningKind.AlreadyInstalled));
+        Assert.AreEqual("[1] " + BeMusicSeeker.Properties.Resources.WarningDigest_AlreadyInstalled, alreadyInstalledInPackage.WarningDigestText);
         Assert.IsTrue(plan.FilterMs >= 0);
         Assert.IsTrue(plan.GroupBuildMs >= 0);
         Assert.IsTrue(plan.PlanBuildMs >= 0);
@@ -484,12 +485,13 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.IsTrue(chart.IsBmsonChart);
             Assert.AreEqual(1, chart.maintenanceInfo.wav_files_defined);
             Assert.AreEqual(0, chart.maintenanceInfo.wav_files_existing);
-            StringAssert.Contains(chart.warning, "WAV");
+            Assert.IsTrue(chart.Warnings.Contains(ChartWarningKind.ResourceWavMissing));
+            StringAssert.Contains(chart.WarningTooltipText, "WAV");
         });
     }
 
     [TestMethod]
-    public void PrepareAutoInstallWorkflow_PrependsNestedChartWarningBeforeResourceWarnings()
+    public void PrepareAutoInstallWorkflow_PrioritizesNestedChartWarningBeforeResourceWarnings()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
@@ -514,11 +516,11 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(1, result.PendingPackagesToAdd.Count);
             Assert.AreEqual(0, result.AutoInstallCandidates.Count);
             BMSFile nestedChart = result.PendingPackagesToAdd[0].BMSFiles.Single((BMSFile file) => Path.GetFileName(file.path).Equals("another.bms", StringComparison.OrdinalIgnoreCase));
-            string[] warningLines = nestedChart.warning.Split(new char[2] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
-            Assert.AreEqual(BeMusicSeeker.Properties.Resources.Warning_NestedChartFileInPackage, warningLines[0]);
-            Assert.IsTrue(warningLines.Skip(1).Any((string line) => line.Contains("WAV")));
-            StringAssert.Contains(nestedChart.WarningDigestText, BeMusicSeeker.Properties.Resources.WarningDigest_NestedChart);
+            Assert.IsTrue(nestedChart.Warnings.Contains(ChartWarningKind.NestedChartFileInPackage));
+            Assert.IsTrue(nestedChart.Warnings.Contains(ChartWarningKind.ResourceWavMissing));
+            Assert.AreEqual("[2] " + BeMusicSeeker.Properties.Resources.WarningDigest_NestedChart + ", " + BeMusicSeeker.Properties.Resources.WarningDigest_ResourceMissing, nestedChart.WarningDigestText);
             StringAssert.Contains(nestedChart.WarningTooltipText, BeMusicSeeker.Properties.Resources.Warning_NestedChartFileInPackage);
+            StringAssert.Contains(nestedChart.WarningTooltipText, "WAV");
         });
     }
 

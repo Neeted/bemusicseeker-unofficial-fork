@@ -249,6 +249,18 @@ internal sealed class ChartWarningCollection
     }
 
     /// <summary>
+    /// 指定 kind の構造化 warning を削除します。
+    /// </summary>
+    /// <param name="kind">削除する warning kind。</param>
+    internal void Remove(ChartWarningKind kind)
+    {
+        if (structuredWarnings.Remove(kind))
+        {
+            owner.RaiseWarningPresentationChanged();
+        }
+    }
+
+    /// <summary>
     /// 指定カテゴリの構造化 warning を削除します。
     /// </summary>
     /// <param name="category">削除するカテゴリ。</param>
@@ -264,6 +276,51 @@ internal sealed class ChartWarningCollection
         {
             owner.RaiseWarningPresentationChanged();
         }
+    }
+
+    /// <summary>
+    /// 指定カテゴリの構造化 warning をまとめて入れ替えます。
+    /// </summary>
+    /// <param name="category">入れ替えるカテゴリ。</param>
+    /// <param name="warnings">新しい warning 一覧。</param>
+    internal void ReplaceCategory(ChartWarningCategory category, IEnumerable<ChartWarning> warnings)
+    {
+        bool changed = false;
+        foreach (ChartWarningKind kind in structuredWarnings.Where(pair => pair.Value.Category == category).Select(pair => pair.Key).ToList())
+        {
+            structuredWarnings.Remove(kind);
+            changed = true;
+        }
+        foreach (ChartWarning warning in warnings ?? Enumerable.Empty<ChartWarning>())
+        {
+            if (warning == null || warning.Category != category)
+            {
+                continue;
+            }
+            structuredWarnings[warning.Kind] = warning;
+            changed = true;
+        }
+        if (changed)
+        {
+            owner.RaiseWarningPresentationChanged();
+        }
+    }
+
+    /// <summary>
+    /// 構造化 warning の内容をコピーします。
+    /// </summary>
+    /// <param name="warnings">コピー元 warning。</param>
+    internal void ReplaceAll(IEnumerable<ChartWarning> warnings)
+    {
+        structuredWarnings.Clear();
+        foreach (ChartWarning warning in warnings ?? Enumerable.Empty<ChartWarning>())
+        {
+            if (warning != null)
+            {
+                structuredWarnings[warning.Kind] = warning;
+            }
+        }
+        owner.RaiseWarningPresentationChanged();
     }
 
     /// <summary>
@@ -288,6 +345,15 @@ internal sealed class ChartWarningCollection
     internal bool Contains(ChartWarningKind kind)
     {
         return structuredWarnings.ContainsKey(kind);
+    }
+
+    /// <summary>
+    /// 現在保持している構造化 warning を列挙します。
+    /// </summary>
+    /// <returns>構造化 warning の snapshot。</returns>
+    internal IReadOnlyList<ChartWarning> ToStructuredList()
+    {
+        return structuredWarnings.Values.ToList();
     }
 
     /// <summary>
@@ -442,6 +508,25 @@ internal static class ChartWarningLegacyClassifier
             Environment.NewLine,
             SplitWarningLines(warningText)
                 .Where(line => ChartWarningDefinition.ForKind(ClassifyLine(line)).Category != category)
+                .ToArray());
+    }
+
+    /// <summary>
+    /// legacy warning 文字列から指定 kind に分類される行だけを取り除きます。
+    /// </summary>
+    /// <param name="warningText">既存 warning 文字列。</param>
+    /// <param name="kind">取り除く warning kind。</param>
+    /// <returns>対象 kind を除いた warning 文字列。</returns>
+    internal static string RemoveKind(string warningText, ChartWarningKind kind)
+    {
+        if (string.IsNullOrWhiteSpace(warningText))
+        {
+            return string.Empty;
+        }
+        return string.Join(
+            Environment.NewLine,
+            SplitWarningLines(warningText)
+                .Where(line => ClassifyLine(line) != kind)
                 .ToArray());
     }
 

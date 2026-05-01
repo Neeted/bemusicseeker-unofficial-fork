@@ -104,8 +104,9 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             BMSPackage regroupedPackage = AssertRegroupedPendingPackage(library, sourceDirectoryPath, destinationDirectoryPath, expectedFileCount: 2);
             BMSFile strictWarningFile = regroupedPackage.BMSFiles.Single((BMSFile file) => Path.GetFileName(file.path).Equals("strict.bms", StringComparison.OrdinalIgnoreCase));
             BMSFile normalFile = regroupedPackage.BMSFiles.Single((BMSFile file) => Path.GetFileName(file.path).Equals("normal.bms", StringComparison.OrdinalIgnoreCase));
-            StringAssert.Contains(strictWarningFile.warning ?? string.Empty, "WAV");
-            Assert.AreNotEqual(BeMusicSeeker.Properties.Resources.Warning_SingleBmsFile, strictWarningFile.warning);
+            Assert.IsTrue(strictWarningFile.Warnings.Contains(ChartWarningKind.ResourceWavMissing));
+            StringAssert.Contains(strictWarningFile.WarningTooltipText, "WAV");
+            Assert.IsFalse(strictWarningFile.Warnings.Contains(ChartWarningKind.SingleBmsFile));
             Assert.IsTrue(string.IsNullOrWhiteSpace(normalFile.warning));
         });
     }
@@ -269,8 +270,8 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             library.SearchEstimatedInstallationDirectory(pendingPackage);
 
             Assert.AreEqual(PendingEstimateDeferredReason.InstalledDestinationResolveFailed, pendingPackage.DeferredEstimateReason);
-            Assert.AreEqual(BeMusicSeeker.Properties.Resources.Warning_AlreadyInstalled, pendingInstalledA.warning);
-            Assert.AreEqual(BeMusicSeeker.Properties.Resources.Warning_AlreadyInstalled, pendingInstalledB.warning);
+            Assert.IsTrue(pendingInstalledA.Warnings.Contains(ChartWarningKind.AlreadyInstalled));
+            Assert.IsTrue(pendingInstalledB.Warnings.Contains(ChartWarningKind.AlreadyInstalled));
             Assert.IsTrue(string.IsNullOrWhiteSpace(pendingMissing.instl_dst));
             Assert.IsTrue(string.IsNullOrWhiteSpace(pendingMissing.InstallDestinationTitle));
             Assert.AreEqual(0, pendingMissing.InstallDestinationSuggestions.Count);

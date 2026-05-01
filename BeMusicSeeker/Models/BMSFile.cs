@@ -581,6 +581,12 @@ public class BMSFile : LR2SongDB.song
         warning = ChartWarningLegacyClassifier.RemoveCategory(warning, category);
     }
 
+    internal void ClearWarning(ChartWarningKind kind)
+    {
+        Warnings.Remove(kind);
+        warning = ChartWarningLegacyClassifier.RemoveKind(warning, kind);
+    }
+
     internal void ClearStructuredWarnings()
     {
         Warnings.Clear();
@@ -589,6 +595,17 @@ public class BMSFile : LR2SongDB.song
     internal void SetWarning(ChartWarningKind kind, string message)
     {
         Warnings.Set(ChartWarning.Create(kind, message));
+    }
+
+    internal void ReplaceWarningsByCategory(ChartWarningCategory category, IEnumerable<ChartWarning> warnings)
+    {
+        Warnings.ReplaceCategory(category, warnings);
+        warning = ChartWarningLegacyClassifier.RemoveCategory(warning, category);
+    }
+
+    internal void CopyStructuredWarningsFrom(BMSFile source)
+    {
+        Warnings.ReplaceAll(source?.Warnings.ToStructuredList() ?? Enumerable.Empty<ChartWarning>());
     }
 
     internal void RaiseWarningPresentationChanged()
@@ -702,6 +719,7 @@ public class BMSFile : LR2SongDB.song
                     InstallDestinationArtist = string.Empty;
                 }
                 RaisePropertyChanged("instl_dst");
+                RaiseWarningPresentationChanged();
             }
         }
     }

@@ -168,6 +168,7 @@ public sealed class PendingChartEntry : BMSFile
             WAVfiles = source.WAVfiles != null ? new HashSet<string>(source.WAVfiles, StringComparer.OrdinalIgnoreCase) : null,
             BGAfiles = source.BGAfiles != null ? new HashSet<string>(source.BGAfiles, StringComparer.OrdinalIgnoreCase) : null
         };
+        entry.CopyStructuredWarningsFrom(source);
         entry.hash = source.hash;
         entry.sha256 = source.sha256;
         entry.title = source.title;

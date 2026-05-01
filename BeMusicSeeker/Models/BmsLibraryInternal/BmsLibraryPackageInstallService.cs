@@ -450,7 +450,8 @@ internal sealed class BmsLibraryPackageInstallService
                 continue;
             }
 
-            chartFile.warning = PrependWarningLine(chartFile.warning, Resources.Warning_NestedChartFileInPackage);
+            chartFile.ClearWarning(ChartWarningKind.NestedChartFileInPackage);
+            chartFile.SetWarning(ChartWarningKind.NestedChartFileInPackage, Resources.Warning_NestedChartFileInPackage);
             hasNestedChart = true;
         }
 
@@ -477,22 +478,6 @@ internal sealed class BmsLibraryPackageInstallService
         {
             return false;
         }
-    }
-
-    private static string PrependWarningLine(string warning, string warningLine)
-    {
-        if (string.IsNullOrWhiteSpace(warningLine))
-        {
-            return warning ?? string.Empty;
-        }
-
-        List<string> lines = (warning ?? string.Empty)
-            .Split(new char[2] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
-            .Select((string line) => line.Trim())
-            .Where((string line) => !string.IsNullOrWhiteSpace(line) && !string.Equals(line, warningLine, StringComparison.Ordinal))
-            .ToList();
-        lines.Insert(0, warningLine);
-        return string.Join(Environment.NewLine, lines);
     }
 
     private static string ResolveBundledSevenZipLibraryPath()
@@ -1305,7 +1290,8 @@ internal sealed class BmsLibraryPackageInstallService
             {
                 if (isInstalledChart != null && isInstalledChart(bmsFile))
                 {
-                    bmsFile.warning = Resources.Warning_AlreadyInstalled;
+                    bmsFile.ClearWarningsByCategory(ChartWarningCategory.InstalledState);
+                    bmsFile.SetWarning(ChartWarningKind.AlreadyInstalled, Resources.Warning_AlreadyInstalled);
                     hasInstalledChart = true;
                 }
             }
@@ -1326,7 +1312,9 @@ internal sealed class BmsLibraryPackageInstallService
             {
                 if (isSingleFilePackage)
                 {
-                    bmsFile.warning = PendingChartEntry.IsBmsonChartFile(bmsFile) ? Resources.Warning_SingleBmsonFile : Resources.Warning_SingleBmsFile;
+                    bool isBmson = PendingChartEntry.IsBmsonChartFile(bmsFile);
+                    bmsFile.ClearWarningsByCategory(ChartWarningCategory.PackageLayout);
+                    bmsFile.SetWarning(isBmson ? ChartWarningKind.SingleBmsonFile : ChartWarningKind.SingleBmsFile, isBmson ? Resources.Warning_SingleBmsonFile : Resources.Warning_SingleBmsFile);
                     pendingByPackage[pkg] = true;
                     break;
                 }
@@ -2392,7 +2380,8 @@ internal sealed class BmsLibraryPackageInstallService
         {
             if (file != null)
             {
-                file.warning = Properties.Resources.Warning_AlreadyInstalled;
+                file.ClearWarningsByCategory(ChartWarningCategory.InstalledState);
+                file.SetWarning(ChartWarningKind.AlreadyInstalled, Properties.Resources.Warning_AlreadyInstalled);
             }
         }
     }

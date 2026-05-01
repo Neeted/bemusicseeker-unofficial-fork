@@ -36,7 +36,7 @@ public sealed class BmsLibraryDuplicateServiceTests
     }
 
     [TestMethod]
-    public void ApplyDuplicateWarnings_DoesNotDuplicateWarningText()
+    public void ApplyDuplicateWarnings_SetsStructuredWarningWithoutDuplicatingLegacyText()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         BmsLibraryDuplicateService service = new BmsLibraryDuplicateService();
@@ -45,8 +45,31 @@ public sealed class BmsLibraryDuplicateServiceTests
 
         service.ApplyDuplicateWarnings(new[] { file }, Resources.Warning_DuplicateBmsFile);
 
-        Assert.AreEqual(Resources.Warning_DuplicateBmsFile, file.warning);
+        Assert.AreEqual(string.Empty, file.warning);
+        Assert.IsTrue(file.Warnings.Contains(ChartWarningKind.DuplicateChart));
         Assert.IsTrue(file.IsHashDuplicated);
+        Assert.IsTrue(file.HasHighlightedWarning);
+        Assert.AreEqual("[1] 重複譜面", file.WarningDigestText);
+    }
+
+    [TestMethod]
+    public void ClearDuplicateState_RemovesStructuredAndLegacyDuplicateWarningsOnly()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        BmsLibraryDuplicateService service = new BmsLibraryDuplicateService();
+        TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\BMS", "DirA", "a.bms"));
+        file.SetWarning(ChartWarningKind.DuplicateChart, Resources.Warning_DuplicateBmsFile);
+        file.SetWarning(ChartWarningKind.NestedChartFileInPackage, Resources.Warning_NestedChartFileInPackage);
+        file.warning = Resources.Warning_DuplicateBmsFile + "\r\n" + Resources.Warning_NestedChartFileInPackage;
+        file.IsHashDuplicated = true;
+
+        service.ClearDuplicateState(new[] { file }, Resources.Warning_DuplicateBmsFile);
+
+        Assert.IsFalse(file.IsHashDuplicated);
+        Assert.IsFalse(file.Warnings.Contains(ChartWarningKind.DuplicateChart));
+        Assert.IsTrue(file.Warnings.Contains(ChartWarningKind.NestedChartFileInPackage));
+        Assert.AreEqual(Resources.Warning_NestedChartFileInPackage, file.warning);
+        Assert.AreEqual("[1] サブフォルダ譜面", file.WarningDigestText);
     }
 
     [TestMethod]
