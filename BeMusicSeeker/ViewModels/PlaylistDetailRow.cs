@@ -63,6 +63,10 @@ internal sealed class PlaylistDetailRow : NotificationObject
 
     public string DisplayWarning { get; }
 
+    public string WarningDigestText { get; }
+
+    public string WarningTooltipText { get; }
+
     public string hash { get; }
 
     public string sha256 { get; }
@@ -246,6 +250,8 @@ internal sealed class PlaylistDetailRow : NotificationObject
         HasZeroNoteMismatchWarning = source.HasZeroNoteMismatchWarning;
         HasHighlightedWarning = source.HasHighlightedWarning;
         DisplayWarning = source.DisplayWarning;
+        WarningDigestText = source.WarningDigestText;
+        WarningTooltipText = source.WarningTooltipText;
         hash = source.hash;
         sha256 = source.sha256;
         Folder = source.Folder;

@@ -1382,6 +1382,48 @@ BMSファイルが重複しないようにマージします。
   <data name="Warning_NestedChartFileInPackage" xml:space="preserve">
     <value>パッケージ直下以外に有効な譜面ファイルがあります。必要に応じて移動または無効な拡張子へ変更してください。</value>
   </data>
+  <data name="WarningDigest_NestedChart" xml:space="preserve">
+    <value>サブフォルダ譜面</value>
+  </data>
+  <data name="WarningDigest_ZeroNoteMismatch" xml:space="preserve">
+    <value>ゼロノート不整合</value>
+  </data>
+  <data name="WarningDigest_DuplicateChart" xml:space="preserve">
+    <value>重複譜面</value>
+  </data>
+  <data name="WarningDigest_InstallEstimationAmbiguous" xml:space="preserve">
+    <value>推定先複数</value>
+  </data>
+  <data name="WarningDigest_InstallEstimationMetadataMismatch" xml:space="preserve">
+    <value>TITLE/ARTIST不一致</value>
+  </data>
+  <data name="WarningDigest_InstallEstimationReinstallNotImproved" xml:space="preserve">
+    <value>再導入改善なし</value>
+  </data>
+  <data name="WarningDigest_InstalledDestinationResolveFailed" xml:space="preserve">
+    <value>導入先不明</value>
+  </data>
+  <data name="WarningDigest_InstallEstimationLowConfidence" xml:space="preserve">
+    <value>導入先推定</value>
+  </data>
+  <data name="WarningDigest_AlreadyInstalled" xml:space="preserve">
+    <value>既に導入済み</value>
+  </data>
+  <data name="WarningDigest_SingleBmsFile" xml:space="preserve">
+    <value>単体BMS</value>
+  </data>
+  <data name="WarningDigest_SingleBmsonFile" xml:space="preserve">
+    <value>単体BMSON</value>
+  </data>
+  <data name="WarningDigest_ResourceMissing" xml:space="preserve">
+    <value>リソース不足</value>
+  </data>
+  <data name="WarningDigest_ImageMissing" xml:space="preserve">
+    <value>画像不足</value>
+  </data>
+  <data name="WarningDigest_Other" xml:space="preserve">
+    <value>その他</value>
+  </data>
   <data name="Warning_InstallEstimationAmbiguousPrefix" xml:space="preserve">
     <value>導入先推定候補が複数あるため自動確定していません。</value>
   </data>

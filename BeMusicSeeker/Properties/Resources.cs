@@ -887,6 +887,48 @@ public class Resources
     public static string Warning_NestedChartFileInPackage => ResourceManager.GetString("Warning_NestedChartFileInPackage", resourceCulture);
 
 
+    public static string WarningDigest_NestedChart => ResourceManager.GetString("WarningDigest_NestedChart", resourceCulture);
+
+
+    public static string WarningDigest_ZeroNoteMismatch => ResourceManager.GetString("WarningDigest_ZeroNoteMismatch", resourceCulture);
+
+
+    public static string WarningDigest_DuplicateChart => ResourceManager.GetString("WarningDigest_DuplicateChart", resourceCulture);
+
+
+    public static string WarningDigest_InstallEstimationAmbiguous => ResourceManager.GetString("WarningDigest_InstallEstimationAmbiguous", resourceCulture);
+
+
+    public static string WarningDigest_InstallEstimationMetadataMismatch => ResourceManager.GetString("WarningDigest_InstallEstimationMetadataMismatch", resourceCulture);
+
+
+    public static string WarningDigest_InstallEstimationReinstallNotImproved => ResourceManager.GetString("WarningDigest_InstallEstimationReinstallNotImproved", resourceCulture);
+
+
+    public static string WarningDigest_InstalledDestinationResolveFailed => ResourceManager.GetString("WarningDigest_InstalledDestinationResolveFailed", resourceCulture);
+
+
+    public static string WarningDigest_InstallEstimationLowConfidence => ResourceManager.GetString("WarningDigest_InstallEstimationLowConfidence", resourceCulture);
+
+
+    public static string WarningDigest_AlreadyInstalled => ResourceManager.GetString("WarningDigest_AlreadyInstalled", resourceCulture);
+
+
+    public static string WarningDigest_SingleBmsFile => ResourceManager.GetString("WarningDigest_SingleBmsFile", resourceCulture);
+
+
+    public static string WarningDigest_SingleBmsonFile => ResourceManager.GetString("WarningDigest_SingleBmsonFile", resourceCulture);
+
+
+    public static string WarningDigest_ResourceMissing => ResourceManager.GetString("WarningDigest_ResourceMissing", resourceCulture);
+
+
+    public static string WarningDigest_ImageMissing => ResourceManager.GetString("WarningDigest_ImageMissing", resourceCulture);
+
+
+    public static string WarningDigest_Other => ResourceManager.GetString("WarningDigest_Other", resourceCulture);
+
+
     public static string Warning_InstallEstimationAmbiguousPrefix => ResourceManager.GetString("Warning_InstallEstimationAmbiguousPrefix", resourceCulture);
 
 

@@ -128,6 +128,10 @@ internal sealed class LibraryChartRow : NotificationObject
 
     public string DisplayWarning => BmsFile?.DisplayWarning ?? warning;
 
+    public string WarningDigestText => BmsFile?.WarningDigestText ?? DisplayWarning;
+
+    public string WarningTooltipText => BmsFile?.WarningTooltipText ?? DisplayWarning;
+
     public string hash => BmsFile?.hash ?? BmsonSong?.md5 ?? string.Empty;
 
     public string sha256 => BmsFile?.sha256 ?? BmsonSong?.sha256 ?? string.Empty;

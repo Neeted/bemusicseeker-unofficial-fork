@@ -3295,7 +3295,7 @@ public class BMSLibrary : NotificationObject
         foreach (BMSFile bmsFile in (bmsFiles ?? Enumerable.Empty<BMSFile>()).Where((BMSFile file) => file != null))
         {
             bmsFile.instl_dst = null;
-            bmsFile.warning = RemoveInstallEstimationWarnings(bmsFile.warning);
+            bmsFile.ClearWarningsByCategory(ChartWarningCategory.InstallEstimation);
             bmsFile.InstallDestinationTitle = string.Empty;
             bmsFile.InstallDestinationArtist = string.Empty;
             bmsFile.InstallDestinationSuggestions = Array.Empty<string>();
@@ -6183,43 +6183,7 @@ public class BMSLibrary : NotificationObject
 
     private static string RemoveInstallEstimationWarnings(string warning)
     {
-        if (string.IsNullOrWhiteSpace(warning))
-        {
-            return string.Empty;
-        }
-        string[] warningPrefixes = new[]
-            {
-                Resources.Warning_InstallEstimationAmbiguousPrefix,
-                Resources.Warning_InstallEstimationMetadataMismatchPrefix,
-                Resources.Warning_InstallEstimationReinstallNotImprovedPrefix,
-                Resources.Warning_InstalledDestinationResolveFailed
-            }
-            .Concat(new[]
-            {
-                Resources.Warning_InstallEstimationAmbiguous,
-                Resources.Warning_InstallEstimationMetadataMismatch,
-                Resources.Warning_InstallEstimationReinstallNotImproved,
-                Resources.Warning_InstalledDestinationResolveFailed
-            }
-                .Where((string template) => !string.IsNullOrWhiteSpace(template))
-                .SelectMany((string template) => template.Split(new char[2] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
-                .Select((string line) => line.Trim())
-                .Where((string line) => !string.IsNullOrWhiteSpace(line))
-                .Select(delegate (string line)
-                {
-                    int placeholderIndex = line.IndexOf('{');
-                    return placeholderIndex >= 0 ? line.Substring(0, placeholderIndex).TrimEnd() : line;
-                }))
-            .Where((string line) => !string.IsNullOrWhiteSpace(line))
-            .Distinct(StringComparer.Ordinal)
-            .ToArray();
-        return string.Join(
-            Environment.NewLine,
-            warning
-                .Split(new char[2] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
-                .Select((string line) => line.Trim())
-                .Where((string line) => !string.IsNullOrWhiteSpace(line)
-                    && !warningPrefixes.Any((string prefix) => line.StartsWith(prefix, StringComparison.Ordinal))));
+        return ChartWarningLegacyClassifier.RemoveCategory(warning, ChartWarningCategory.InstallEstimation);
     }
 
     private sealed class InstalledChartMetadataCandidate
@@ -6361,7 +6325,7 @@ public class BMSLibrary : NotificationObject
             bmsFile.IsInstallDestinationSuggestionPopupOpen = false;
             if (!preserveAmbiguousInstallContext)
             {
-                bmsFile.warning = RemoveInstallEstimationWarnings(bmsFile.warning);
+                bmsFile.ClearWarningsByCategory(ChartWarningCategory.InstallEstimation);
             }
             if (!preserveAmbiguousInstallContext)
             {
@@ -6396,7 +6360,7 @@ public class BMSLibrary : NotificationObject
             : string.Format(Resources.Warning_InstallEstimationReinstallNotImproved, selectedCandidate.DirectoryPath);
         foreach (BMSFile bmsFile in (bmsFiles ?? Enumerable.Empty<BMSFile>()).Where((BMSFile file) => file != null))
         {
-            bmsFile.warning = RemoveInstallEstimationWarnings(bmsFile.warning);
+            bmsFile.ClearWarningsByCategory(ChartWarningCategory.InstallEstimation);
             bmsFile.IsInstallDestinationSuggestionPopupOpen = false;
             if (result?.ShouldAutoApplyDestination == true && !string.IsNullOrWhiteSpace(result.DestinationDirectory))
             {
@@ -6420,14 +6384,17 @@ public class BMSLibrary : NotificationObject
             bmsFile.HasLowConfidenceInstallWarning = isLowConfidenceAmbiguous || isLowConfidenceMetadataMismatch || isLowConfidenceReinstallNotImproved;
             if (isLowConfidenceAmbiguous && !string.IsNullOrWhiteSpace(ambiguousWarning))
             {
+                bmsFile.SetWarning(ChartWarningKind.InstallEstimationAmbiguous, ambiguousWarning);
                 bmsFile.warning = AppendWarningLine(bmsFile.warning, ambiguousWarning);
             }
             else if (isLowConfidenceMetadataMismatch && !string.IsNullOrWhiteSpace(metadataMismatchWarning))
             {
+                bmsFile.SetWarning(ChartWarningKind.InstallEstimationMetadataMismatch, metadataMismatchWarning);
                 bmsFile.warning = AppendWarningLine(bmsFile.warning, metadataMismatchWarning);
             }
             else if (isLowConfidenceReinstallNotImproved && !string.IsNullOrWhiteSpace(reinstallNotImprovedWarning))
             {
+                bmsFile.SetWarning(ChartWarningKind.InstallEstimationReinstallNotImproved, reinstallNotImprovedWarning);
                 bmsFile.warning = AppendWarningLine(bmsFile.warning, reinstallNotImprovedWarning);
             }
         }
@@ -7040,6 +7007,8 @@ public class BMSLibrary : NotificationObject
         foreach (BMSFile bmsFile in (missingFiles ?? Enumerable.Empty<BMSFile>()).Where((BMSFile file) => file != null))
         {
             bmsFile.instl_dst = null;
+            bmsFile.ClearWarningsByCategory(ChartWarningCategory.InstallEstimation);
+            bmsFile.SetWarning(ChartWarningKind.InstalledDestinationResolveFailed, Resources.Warning_InstalledDestinationResolveFailed);
             bmsFile.warning = AppendWarningLine(RemoveInstallEstimationWarnings(bmsFile.warning), Resources.Warning_InstalledDestinationResolveFailed);
             bmsFile.InstallDestinationTitle = string.Empty;
             bmsFile.InstallDestinationArtist = string.Empty;
@@ -7958,6 +7927,7 @@ public class BMSLibrary : NotificationObject
         {
             bool isBmson = PendingChartEntry.IsBmsonChartFile(bmsFile);
             bmsFile.SetHealthStatus(null, forceUpdate: false, memClear: false);
+            bmsFile.ClearStructuredWarnings();
             bmsFile.warning = null;
             string key = PendingChartEntry.GetPrimaryLookupHash(bmsFile);
             if (!string.IsNullOrWhiteSpace(key) && installedHashSet.Contains(key))
@@ -8254,7 +8224,7 @@ public class BMSLibrary : NotificationObject
                 CreateInstallEstimationService().ClearInstallDestinations(bmsFiles);
                 foreach (BMSFile bmsFile in bmsFiles.Where((BMSFile file) => file != null))
                 {
-                    bmsFile.warning = RemoveInstallEstimationWarnings(bmsFile.warning);
+                    bmsFile.ClearWarningsByCategory(ChartWarningCategory.InstallEstimation);
                     bmsFile.InstallDestinationTitle = string.Empty;
                     bmsFile.InstallDestinationArtist = string.Empty;
                     bmsFile.InstallDestinationSuggestions = Array.Empty<string>();

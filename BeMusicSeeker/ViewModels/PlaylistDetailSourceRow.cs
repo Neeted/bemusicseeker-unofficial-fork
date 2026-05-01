@@ -60,6 +60,10 @@ internal sealed class PlaylistDetailSourceRow
 
     internal string DisplayWarning { get; }
 
+    internal string WarningDigestText { get; }
+
+    internal string WarningTooltipText { get; }
+
     internal string comment { get; private set; }
 
     internal string memo { get; private set; }
@@ -228,6 +232,8 @@ internal sealed class PlaylistDetailSourceRow
         HasZeroNoteMismatchWarning = snapshotSource?.HasZeroNoteMismatchWarning ?? false;
         HasHighlightedWarning = snapshotSource?.HasHighlightedWarning ?? false;
         DisplayWarning = snapshotSource?.DisplayWarning ?? warning;
+        WarningDigestText = snapshotSource?.WarningDigestText ?? DisplayWarning;
+        WarningTooltipText = snapshotSource?.WarningTooltipText ?? DisplayWarning;
         comment = entry.comment ?? string.Empty;
         memo = entry.memo ?? string.Empty;
         hash = FirstNonEmpty(realFile?.hash, resolvedBmson?.md5, entry.md5);

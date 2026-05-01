@@ -1858,6 +1858,14 @@ internal sealed class BmsLibraryPackageInstallService
         moveStopwatch.Stop();
         result.MoveMs = moveStopwatch.ElapsedMilliseconds;
 
+        foreach (BMSFile addedFile in result.AddedFiles.Where((BMSFile file) => file != null))
+        {
+            addedFile.ClearWarningsByCategory(ChartWarningCategory.InstallEstimation);
+            addedFile.InstallDestinationSuggestions = Array.Empty<string>();
+            addedFile.HasLowConfidenceInstallWarning = false;
+            addedFile.IsInstallDestinationSuggestionPopupOpen = false;
+        }
+
         Stopwatch songDbStopwatch = Stopwatch.StartNew();
         List<BMSFile> addedBmsFiles = result.AddedFiles.Where((BMSFile file) => PendingChartEntry.IsBmsChartFile(file)).ToList();
         List<BMSFile> addedChartFiles = result.AddedFiles.Where((BMSFile file) => PendingChartEntry.IsBmsChartFile(file) || PendingChartEntry.IsBmsonChartFile(file)).ToList();

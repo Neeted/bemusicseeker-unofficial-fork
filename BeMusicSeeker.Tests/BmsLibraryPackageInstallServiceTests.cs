@@ -7,6 +7,7 @@ using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
+using BeMusicSeeker.Properties;
 using Microsoft.VisualBasic.FileIO;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -516,6 +517,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
             string[] warningLines = nestedChart.warning.Split(new char[2] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
             Assert.AreEqual(BeMusicSeeker.Properties.Resources.Warning_NestedChartFileInPackage, warningLines[0]);
             Assert.IsTrue(warningLines.Skip(1).Any((string line) => line.Contains("WAV")));
+            StringAssert.Contains(nestedChart.WarningDigestText, BeMusicSeeker.Properties.Resources.WarningDigest_NestedChart);
+            StringAssert.Contains(nestedChart.WarningTooltipText, BeMusicSeeker.Properties.Resources.Warning_NestedChartFileInPackage);
         });
     }
 
@@ -712,6 +715,11 @@ public sealed class BmsLibraryPackageInstallServiceTests
         TestResourceInitializer.EnsureJapaneseResources();
         BmsLibraryPackageInstallService service = new BmsLibraryPackageInstallService();
         TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "C:\\Installed\\chart.bms");
+        string installWarning = string.Format(Resources.Warning_InstallEstimationAmbiguous, "C:\\Installed\\A", "C:\\Installed\\B");
+        file.SetWarning(ChartWarningKind.InstallEstimationAmbiguous, installWarning);
+        file.warning = installWarning;
+        file.HasLowConfidenceInstallWarning = true;
+        file.InstallDestinationSuggestions = new[] { "C:\\Installed\\A", "C:\\Installed\\B" };
         BMSPackage package = new BMSPackage(new BMSFile[] { file })
         {
             path = "C:\\Pending\\Pkg1",
@@ -741,6 +749,10 @@ public sealed class BmsLibraryPackageInstallServiceTests
         CollectionAssert.AreEqual(new[] { file }, zeroNoteTargets);
         CollectionAssert.AreEqual(new[] { file }, scoreTargets);
         CollectionAssert.AreEqual(new[] { file }, applyTargets);
+        Assert.IsFalse(file.HasLowConfidenceInstallWarning);
+        Assert.AreEqual(0, file.InstallDestinationSuggestions.Count);
+        Assert.IsFalse(file.WarningTooltipText.Contains(Resources.Warning_InstallEstimationAmbiguousPrefix));
+        Assert.AreEqual(string.Empty, file.WarningDigestText);
         Assert.IsTrue(result.MoveMs >= 0);
         Assert.IsTrue(result.SongDbMs >= 0);
         Assert.IsTrue(result.MaintenanceMs >= 0);

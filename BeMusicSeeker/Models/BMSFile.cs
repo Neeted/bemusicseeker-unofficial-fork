@@ -98,6 +98,8 @@ public class BMSFile : LR2SongDB.song
 
     private bool _hasZeroNoteMismatchWarning;
 
+    private ChartWarningCollection _warnings;
+
     private string _cachedComposedTitle;
 
     private string _cachedComposedTitleSource;
@@ -571,6 +573,32 @@ public class BMSFile : LR2SongDB.song
 
     public HashSet<string> BGAfiles { get; set; }
 
+    internal ChartWarningCollection Warnings => _warnings ?? (_warnings = new ChartWarningCollection(this));
+
+    internal void ClearWarningsByCategory(ChartWarningCategory category)
+    {
+        Warnings.RemoveCategory(category);
+        warning = ChartWarningLegacyClassifier.RemoveCategory(warning, category);
+    }
+
+    internal void ClearStructuredWarnings()
+    {
+        Warnings.Clear();
+    }
+
+    internal void SetWarning(ChartWarningKind kind, string message)
+    {
+        Warnings.Set(ChartWarning.Create(kind, message));
+    }
+
+    internal void RaiseWarningPresentationChanged()
+    {
+        RaisePropertyChanged(() => DisplayWarning);
+        RaisePropertyChanged(() => WarningDigestText);
+        RaisePropertyChanged(() => WarningTooltipText);
+        RaisePropertyChanged(() => HasHighlightedWarning);
+    }
+
     public virtual string warning
     {
         get
@@ -583,7 +611,7 @@ public class BMSFile : LR2SongDB.song
             {
                 _warning = value;
                 RaisePropertyChanged("warning");
-                RaisePropertyChanged(() => DisplayWarning);
+                RaiseWarningPresentationChanged();
             }
         }
     }
@@ -600,13 +628,12 @@ public class BMSFile : LR2SongDB.song
             {
                 _hasZeroNoteMismatchWarning = value;
                 RaisePropertyChanged("HasZeroNoteMismatchWarning");
-                RaisePropertyChanged(() => HasHighlightedWarning);
-                RaisePropertyChanged(() => DisplayWarning);
+                RaiseWarningPresentationChanged();
             }
         }
     }
 
-    public virtual bool HasHighlightedWarning => IsHashDuplicated || HasZeroNoteMismatchWarning || HasLowConfidenceInstallWarning;
+    public virtual bool HasHighlightedWarning => Warnings.HasHighlightedWarning;
 
     public virtual bool HasLowConfidenceInstallWarning
     {
@@ -620,7 +647,7 @@ public class BMSFile : LR2SongDB.song
             {
                 _hasLowConfidenceInstallWarning = value;
                 RaisePropertyChanged("HasLowConfidenceInstallWarning");
-                RaisePropertyChanged(() => HasHighlightedWarning);
+                RaiseWarningPresentationChanged();
             }
         }
     }
@@ -650,17 +677,13 @@ public class BMSFile : LR2SongDB.song
     {
         get
         {
-            if (!HasZeroNoteMismatchWarning)
-            {
-                return warning;
-            }
-            if (string.IsNullOrWhiteSpace(warning))
-            {
-                return Resources.Warning_ZeroNoteMismatch;
-            }
-            return warning + Environment.NewLine + Resources.Warning_ZeroNoteMismatch;
+            return Warnings.BuildDisplayText();
         }
     }
+
+    public virtual string WarningDigestText => Warnings.BuildDigestText();
+
+    public virtual string WarningTooltipText => Warnings.BuildTooltipText();
 
     public virtual string instl_dst
     {
@@ -996,7 +1019,7 @@ public class BMSFile : LR2SongDB.song
             {
                 _isHashDuplicated = value;
                 RaisePropertyChanged("IsHashDuplicated");
-                RaisePropertyChanged(() => HasHighlightedWarning);
+                RaiseWarningPresentationChanged();
             }
         }
     }

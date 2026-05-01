@@ -339,7 +339,7 @@ internal static class CustomTableColumnFactory
             new CustomTableColumn("Tag", "TAG", settings.Tag, 6, "tag", TextAlignment.Left, row => GetString(row, "tag")),
             new CustomTableColumn("Url1", "URL1", settings.Url1, 7, null, TextAlignment.Center, row => ConvertLigatureSymbolText(GetString(row, nameof(PlaylistDetailRow.UrlDownloadIconText))), tooltipSelector: row => GetString(row, nameof(PlaylistDetailRow.UrlToolTipText)), minWidth: 40, maxWidth: 40, canResize: false, cellKind: CustomTableCellKind.DownloadIcon, editPropertyName: nameof(PlaylistDetailRow.Url), editOnRepeatClick: false, editOverlayWidth: 250, editTextSelector: row => GridRowResolver.GetUrl(row)?.ToString()),
             new CustomTableColumn("Url2", "URL2", settings.Url2, 8, null, TextAlignment.Center, row => ConvertLigatureSymbolText(GetString(row, nameof(PlaylistDetailRow.UrlDiffDownloadIconText))), tooltipSelector: row => GetString(row, nameof(PlaylistDetailRow.UrlDiffToolTipText)), minWidth: 40, maxWidth: 40, canResize: false, cellKind: CustomTableCellKind.DownloadIcon, editPropertyName: nameof(PlaylistDetailRow.Url_diff), editOnRepeatClick: false, editOverlayWidth: 250, editTextSelector: row => GridRowResolver.GetUrlDiff(row)?.ToString()),
-            new CustomTableColumn("Warning", "WARNING", settings.Warning, 9, nameof(LibraryChartRow.DisplayWarning), TextAlignment.Left, row => GetString(row, nameof(LibraryChartRow.DisplayWarning)), tooltipSelector: row => GetString(row, nameof(LibraryChartRow.DisplayWarning))),
+            new CustomTableColumn("Warning", "WARNING", settings.Warning, 9, nameof(LibraryChartRow.WarningDigestText), TextAlignment.Left, row => GetString(row, nameof(LibraryChartRow.WarningDigestText)), tooltipSelector: row => GetString(row, nameof(LibraryChartRow.WarningTooltipText))),
             new CustomTableColumn("Comment", "COMMENT", settings.Comment, 10, null, TextAlignment.Left, row => GetString(row, "comment"), tooltipSelector: row => GetString(row, "comment"), editPropertyName: "comment", editTextWrapping: true),
             new CustomTableColumn("Memo", "MEMO", settings.Memo, 11, null, TextAlignment.Left, row => GetString(row, "memo"), tooltipSelector: row => GetString(row, "memo"), editPropertyName: "memo", editTextWrapping: true),
             new CustomTableColumn("Hash", "MD5 HASH", settings.Hash, 12, "hash", TextAlignment.Center, row => GetString(row, "hash"), minWidth: 240, maxWidth: 240),
@@ -420,6 +420,10 @@ internal static class CustomTableColumnFactory
                 return GetPath(row);
             case nameof(LibraryChartRow.DisplayWarning):
                 return GetDisplayWarning(row);
+            case nameof(LibraryChartRow.WarningDigestText):
+                return GetWarningDigestText(row);
+            case nameof(LibraryChartRow.WarningTooltipText):
+                return GetWarningTooltipText(row);
             case nameof(LibraryChartRow.RefTablesSymbols):
                 return GetRefTablesSymbols(row);
             case nameof(LibraryChartRow.RefTablesNames):
@@ -552,6 +556,16 @@ internal static class CustomTableColumnFactory
     private static string GetDisplayWarning(object row)
     {
         return row is LibraryChartRow libraryRow ? libraryRow.DisplayWarning : row is PlaylistDetailRow playlistRow ? playlistRow.DisplayWarning : GetReflectionString(row, nameof(LibraryChartRow.DisplayWarning));
+    }
+
+    private static string GetWarningDigestText(object row)
+    {
+        return row is LibraryChartRow libraryRow ? libraryRow.WarningDigestText : row is PlaylistDetailRow playlistRow ? playlistRow.WarningDigestText : GetReflectionString(row, nameof(LibraryChartRow.WarningDigestText));
+    }
+
+    private static string GetWarningTooltipText(object row)
+    {
+        return row is LibraryChartRow libraryRow ? libraryRow.WarningTooltipText : row is PlaylistDetailRow playlistRow ? playlistRow.WarningTooltipText : GetReflectionString(row, nameof(LibraryChartRow.WarningTooltipText));
     }
 
     private static string GetRefTablesSymbols(object row)

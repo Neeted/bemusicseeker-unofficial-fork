@@ -276,7 +276,7 @@ public sealed class CustomTableColumnFactoryTests
         Assert.AreEqual("sha256", paths["Sha256"]);
         Assert.IsNull(paths["Url1"]);
         Assert.IsNull(paths["Url2"]);
-        Assert.AreEqual("DisplayWarning", paths["Warning"]);
+        Assert.AreEqual("WarningDigestText", paths["Warning"]);
         Assert.IsNull(paths["Comment"]);
         Assert.IsNull(paths["Memo"]);
         Assert.AreEqual("instl_dst", paths["InstallDst"]);
@@ -419,6 +419,8 @@ public sealed class CustomTableColumnFactoryTests
         var row = new
         {
             DisplayWarning = "warning text",
+            WarningDigestText = "[1] digest",
+            WarningTooltipText = "warning text",
             comment = "comment text",
             memo = "memo text",
             UrlToolTipText = "https://example.test/main",
@@ -426,6 +428,7 @@ public sealed class CustomTableColumnFactoryTests
             RefTablesNames = "table A"
         };
 
+        Assert.AreEqual("[1] digest", columns["Warning"].GetText(row));
         Assert.AreEqual("warning text", columns["Warning"].GetTooltip(row));
         Assert.AreEqual("comment text", columns["Comment"].GetTooltip(row));
         Assert.AreEqual("memo text", columns["Memo"].GetTooltip(row));
