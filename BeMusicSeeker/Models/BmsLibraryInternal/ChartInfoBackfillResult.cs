@@ -59,6 +59,21 @@ internal sealed class ChartInfoBackfillResult
     public int TimeoutFailedCount { get; set; }
 
     /// <summary>
+    /// 永続化済みの解析失敗記録により再解析をスキップした譜面数です。
+    /// </summary>
+    public int FailureSkippedCount { get; set; }
+
+    /// <summary>
+    /// 新たに保存または更新した解析失敗記録数です。
+    /// </summary>
+    public int FailurePersistedCount { get; set; }
+
+    /// <summary>
+    /// 解析成功により削除した解析失敗記録数です。
+    /// </summary>
+    public int FailureClearedCount { get; set; }
+
+    /// <summary>
     /// 解析に失敗した譜面パスです。
     /// </summary>
     public List<string> FailedPaths { get; } = new List<string>();

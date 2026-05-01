@@ -50,13 +50,21 @@ internal sealed class BmsLibraryDbGateway
         + "sha256, md5, charthash, level, difficulty, difficulty_defined, mainbpm, maxbpm, minbpm, length, mode, judge, feature, notes, n, ln, s, ls, total, total_defined, density, peakdensity, enddensity, distribution, speedchange, speedchange_count, lanenotes, parser_version, updated_at"
         + ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);";
 
+    private const string ChartInfoParseFailureUpsertSql =
+        "INSERT OR REPLACE INTO chart_info_parse_failure ("
+        + "md5, sha256, path, parser_version, failure_kind, exception_type, message, parse_timeout_ms, updated_at"
+        + ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);";
+
+    private const string ChartInfoParseFailureDeleteSql =
+        "DELETE FROM chart_info_parse_failure WHERE md5 = ?;";
+
     internal const string BmsonAppSchemaVersionName = "bmson_app_schema";
 
     internal const int CurrentBmsonAppSchemaVersion = 1;
 
     internal const string ChartInfoSchemaVersionName = "chart_info_schema";
 
-    internal const int CurrentChartInfoSchemaVersion = 2;
+    internal const int CurrentChartInfoSchemaVersion = 3;
 
     internal const int CurrentChartInfoParserVersion = 20;
 
@@ -447,6 +455,60 @@ internal sealed class BmsLibraryDbGateway
         return result;
     }
 
+    /// <summary>
+    /// 現行 parser / timeout 条件で有効な chart_info 解析失敗記録を MD5 keyed dictionary として読み込みます。
+    /// </summary>
+    /// <param name="parseTimeout">今回の解析 timeout。</param>
+    /// <returns>MD5 をキーにした解析失敗記録。</returns>
+    public Dictionary<string, LR2SongDBExtended.chart_info_parse_failure> LoadCurrentChartInfoParseFailureMap(TimeSpan parseTimeout)
+    {
+        using LR2SongDBExtended songDb = OpenSongDb();
+        EnsureChartInfoSchema(songDb);
+        Dictionary<string, LR2SongDBExtended.chart_info_parse_failure> result = new Dictionary<string, LR2SongDBExtended.chart_info_parse_failure>(StringComparer.OrdinalIgnoreCase);
+        foreach (LR2SongDBExtended.chart_info_parse_failure row in songDb.Table<LR2SongDBExtended.chart_info_parse_failure>())
+        {
+            if (IsCurrentChartInfoParseFailure(row, parseTimeout))
+            {
+                result[row.md5] = row;
+            }
+        }
+        return result;
+    }
+
+    public void UpsertChartInfoParseFailures(IEnumerable<LR2SongDBExtended.chart_info_parse_failure> rows)
+    {
+        List<LR2SongDBExtended.chart_info_parse_failure> sourceRows = NormalizeChartInfoParseFailureRows(rows);
+        if (sourceRows.Count == 0)
+        {
+            return;
+        }
+        ExecuteSongDbTransaction(delegate (LR2SongDBExtended songDb)
+        {
+            EnsureChartInfoSchema(songDb);
+            foreach (LR2SongDBExtended.chart_info_parse_failure row in sourceRows)
+            {
+                ExecuteChartInfoParseFailureUpsert(songDb, row);
+            }
+        });
+    }
+
+    public void DeleteChartInfoParseFailuresByMd5(IEnumerable<string> md5s)
+    {
+        List<string> sourceMd5s = NormalizeChartInfoLookupKeys(md5s);
+        if (sourceMd5s.Count == 0)
+        {
+            return;
+        }
+        ExecuteSongDbTransaction(delegate (LR2SongDBExtended songDb)
+        {
+            EnsureChartInfoSchema(songDb);
+            foreach (string md5 in sourceMd5s)
+            {
+                songDb.Execute(ChartInfoParseFailureDeleteSql, md5);
+            }
+        });
+    }
+
     public List<LR2SongDBExtended.bmson_song> LoadBmsonSongs()
     {
         using LR2SongDBExtended songDb = OpenSongDb();
@@ -507,7 +569,13 @@ internal sealed class BmsLibraryDbGateway
     /// </summary>
     /// <param name="digestEntries">補完した MD5/SHA-256 対応。</param>
     /// <param name="rows">保存する譜面解析メタデータ。</param>
-    public void UpsertChartInfoBackfillChunk(IEnumerable<ChartDigestBackfillEntry> digestEntries, IEnumerable<LR2SongDBExtended.chart_info> rows)
+    /// <param name="parseFailureRows">保存する解析失敗記録。</param>
+    /// <param name="parseFailureDeleteMd5s">削除する解析失敗記録の MD5。</param>
+    public void UpsertChartInfoBackfillChunk(
+        IEnumerable<ChartDigestBackfillEntry> digestEntries,
+        IEnumerable<LR2SongDBExtended.chart_info> rows,
+        IEnumerable<LR2SongDBExtended.chart_info_parse_failure> parseFailureRows = null,
+        IEnumerable<string> parseFailureDeleteMd5s = null)
     {
         List<ChartDigestBackfillEntry> sourceDigestEntries = (digestEntries ?? Enumerable.Empty<ChartDigestBackfillEntry>())
             .Where((ChartDigestBackfillEntry entry) => entry != null && !string.IsNullOrWhiteSpace(entry.Md5) && !string.IsNullOrWhiteSpace(entry.Sha256))
@@ -515,7 +583,9 @@ internal sealed class BmsLibraryDbGateway
         List<LR2SongDBExtended.chart_info> sourceRows = (rows ?? Enumerable.Empty<LR2SongDBExtended.chart_info>())
             .Where((LR2SongDBExtended.chart_info row) => row != null && !string.IsNullOrWhiteSpace(row.sha256))
             .ToList();
-        if (sourceDigestEntries.Count == 0 && sourceRows.Count == 0)
+        List<LR2SongDBExtended.chart_info_parse_failure> sourceParseFailureRows = NormalizeChartInfoParseFailureRows(parseFailureRows);
+        List<string> sourceParseFailureDeleteMd5s = NormalizeChartInfoLookupKeys(parseFailureDeleteMd5s);
+        if (sourceDigestEntries.Count == 0 && sourceRows.Count == 0 && sourceParseFailureRows.Count == 0 && sourceParseFailureDeleteMd5s.Count == 0)
         {
             return;
         }
@@ -528,6 +598,14 @@ internal sealed class BmsLibraryDbGateway
             foreach (LR2SongDBExtended.chart_info row in sourceRows)
             {
                 ExecuteChartInfoUpsert(songDb, row);
+            }
+            foreach (string md5 in sourceParseFailureDeleteMd5s)
+            {
+                songDb.Execute(ChartInfoParseFailureDeleteSql, md5);
+            }
+            foreach (LR2SongDBExtended.chart_info_parse_failure row in sourceParseFailureRows)
+            {
+                ExecuteChartInfoParseFailureUpsert(songDb, row);
             }
         });
     }
@@ -564,6 +642,21 @@ internal sealed class BmsLibraryDbGateway
             row.speedchange_count,
             row.lanenotes,
             row.parser_version,
+            row.updated_at);
+    }
+
+    private static void ExecuteChartInfoParseFailureUpsert(LR2SongDBExtended songDb, LR2SongDBExtended.chart_info_parse_failure row)
+    {
+        songDb.Execute(
+            ChartInfoParseFailureUpsertSql,
+            row.md5,
+            row.sha256,
+            row.path,
+            row.parser_version,
+            row.failure_kind,
+            row.exception_type,
+            row.message,
+            row.parse_timeout_ms,
             row.updated_at);
     }
 
@@ -806,6 +899,14 @@ internal sealed class BmsLibraryDbGateway
         EnsureIndex(songDb, "chart_info_idx_md5", tableName, SQLiteTable<LR2SongDBExtended.chart_info>.GetColumnName((LR2SongDBExtended.chart_info row) => row.md5));
         EnsureIndex(songDb, "chart_info_idx_charthash", tableName, SQLiteTable<LR2SongDBExtended.chart_info>.GetColumnName((LR2SongDBExtended.chart_info row) => row.charthash));
         EnsureIndex(songDb, "chart_info_idx_parser_version", tableName, SQLiteTable<LR2SongDBExtended.chart_info>.GetColumnName((LR2SongDBExtended.chart_info row) => row.parser_version));
+        string failureTableName = SQLiteTable<LR2SongDBExtended.chart_info_parse_failure>.GetTableName();
+        if (TableExists(songDb, failureTableName) && !IsChartInfoParseFailureTableCompatible(songDb))
+        {
+            songDb.DropTable<LR2SongDBExtended.chart_info_parse_failure>();
+        }
+        songDb.CreateTable<LR2SongDBExtended.chart_info_parse_failure>();
+        EnsureIndex(songDb, "chart_info_parse_failure_idx_sha256", failureTableName, SQLiteTable<LR2SongDBExtended.chart_info_parse_failure>.GetColumnName((LR2SongDBExtended.chart_info_parse_failure row) => row.sha256));
+        EnsureIndex(songDb, "chart_info_parse_failure_idx_parser_version", failureTableName, SQLiteTable<LR2SongDBExtended.chart_info_parse_failure>.GetColumnName((LR2SongDBExtended.chart_info_parse_failure row) => row.parser_version));
         SetChartInfoSchemaVersion(songDb, CurrentChartInfoSchemaVersion);
     }
 
@@ -922,6 +1023,10 @@ internal sealed class BmsLibraryDbGateway
         {
             return false;
         }
+        if (!TableExists(songDb, SQLiteTable<LR2SongDBExtended.chart_info_parse_failure>.GetTableName()) || !IsChartInfoParseFailureTableCompatible(songDb))
+        {
+            return false;
+        }
         long count = songDb.ExecuteScalar<long>(
             "SELECT COUNT(1) FROM " + SQLiteTable<LR2SongDBExtended.app_schema_version>.GetTableName()
             + " WHERE " + SQLiteTable<LR2SongDBExtended.app_schema_version>.GetColumnName((LR2SongDBExtended.app_schema_version row) => row.name)
@@ -1031,6 +1136,35 @@ internal sealed class BmsLibraryDbGateway
         }
     }
 
+    private static List<LR2SongDBExtended.chart_info_parse_failure> NormalizeChartInfoParseFailureRows(IEnumerable<LR2SongDBExtended.chart_info_parse_failure> rows)
+    {
+        return (rows ?? Enumerable.Empty<LR2SongDBExtended.chart_info_parse_failure>())
+            .Where((LR2SongDBExtended.chart_info_parse_failure row) => row != null && !string.IsNullOrWhiteSpace(row.md5))
+            .ToList();
+    }
+
+    private static bool IsCurrentChartInfoParseFailure(LR2SongDBExtended.chart_info_parse_failure row, TimeSpan parseTimeout)
+    {
+        if (row == null || string.IsNullOrWhiteSpace(row.md5))
+        {
+            return false;
+        }
+        if (row.parser_version != CurrentChartInfoParserVersion)
+        {
+            return false;
+        }
+        if (!string.Equals(row.failure_kind, "timeout", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+        if (!row.parse_timeout_ms.HasValue)
+        {
+            return false;
+        }
+        long timeoutMs = Math.Max(0L, (long)Math.Ceiling(parseTimeout.TotalMilliseconds));
+        return row.parse_timeout_ms.Value >= timeoutMs;
+    }
+
     private static void RepairChartDigestMapConsistency(LR2SongDBExtended songDb, Dictionary<string, string> reusableDigests)
     {
         if (songDb == null)
@@ -1109,6 +1243,32 @@ internal sealed class BmsLibraryDbGateway
             "speedchange_count",
             "lanenotes",
             "parser_version",
+            "updated_at"
+        };
+        return requiredColumns.All((string columnName) => columns.Contains(columnName));
+    }
+
+    private static bool IsChartInfoParseFailureTableCompatible(LR2SongDBExtended songDb)
+    {
+        string tableName = SQLiteTable<LR2SongDBExtended.chart_info_parse_failure>.GetTableName();
+        if (!TableExists(songDb, tableName))
+        {
+            return false;
+        }
+        HashSet<string> columns = new HashSet<string>(
+            songDb.Query<TableInfoRow>("PRAGMA table_info('" + tableName.Replace("'", "''") + "');")
+                .Select((TableInfoRow row) => row.name),
+            StringComparer.OrdinalIgnoreCase);
+        string[] requiredColumns =
+        {
+            "md5",
+            "sha256",
+            "path",
+            "parser_version",
+            "failure_kind",
+            "exception_type",
+            "message",
+            "parse_timeout_ms",
             "updated_at"
         };
         return requiredColumns.All((string columnName) => columns.Contains(columnName));

@@ -64,7 +64,10 @@ public sealed class ChartInfoMetadataTests
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_master WHERE type = 'index' AND name = 'chart_info_idx_md5';"));
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_master WHERE type = 'index' AND name = 'chart_info_idx_charthash';"));
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_master WHERE type = 'index' AND name = 'chart_info_idx_parser_version';"));
-            Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM app_schema_version WHERE name = 'chart_info_schema' AND version = 2;"));
+            Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_master WHERE type = 'table' AND name = 'chart_info_parse_failure';"));
+            Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_master WHERE type = 'index' AND name = 'chart_info_parse_failure_idx_sha256';"));
+            Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_master WHERE type = 'index' AND name = 'chart_info_parse_failure_idx_parser_version';"));
+            Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM app_schema_version WHERE name = 'chart_info_schema' AND version = 3;"));
             CollectionAssert.AreEquivalent(
                 new[]
                 {
@@ -99,6 +102,20 @@ public sealed class ChartInfoMetadataTests
                     "updated_at"
                 },
                 verify.Query<ColumnNameRow>("PRAGMA table_info(chart_info);").Select((ColumnNameRow row) => row.name).ToArray());
+            CollectionAssert.AreEquivalent(
+                new[]
+                {
+                    "md5",
+                    "sha256",
+                    "path",
+                    "parser_version",
+                    "failure_kind",
+                    "exception_type",
+                    "message",
+                    "parse_timeout_ms",
+                    "updated_at"
+                },
+                verify.Query<ColumnNameRow>("PRAGMA table_info(chart_info_parse_failure);").Select((ColumnNameRow row) => row.name).ToArray());
             Assert.IsTrue(gateway.IsChartInfoSchemaCurrent());
         });
     }
@@ -129,6 +146,7 @@ public sealed class ChartInfoMetadataTests
             using LR2SongDBExtended verify = new LR2SongDBExtended(songDbPath);
             Assert.IsTrue(verify.Query<ColumnNameRow>("PRAGMA table_info(chart_info);").Any((ColumnNameRow row) => row.name == "difficulty_defined"));
             Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info;"));
+            Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_master WHERE type = 'table' AND name = 'chart_info_parse_failure';"));
             Assert.IsTrue(gateway.IsChartInfoSchemaCurrent());
         });
     }
@@ -2209,6 +2227,14 @@ public sealed class ChartInfoMetadataTests
             using LR2SongDBExtended verify = new LR2SongDBExtended(songDbPath);
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_digest_map WHERE md5 = '" + file.hash + "' AND sha256 = '" + file.sha256 + "';"));
             Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info;"));
+            LR2SongDBExtended.chart_info_parse_failure failure = verify.Query<LR2SongDBExtended.chart_info_parse_failure>("SELECT * FROM chart_info_parse_failure WHERE md5 = ?;", file.hash).Single();
+            Assert.AreEqual(file.sha256, failure.sha256);
+            Assert.AreEqual(chartPath, failure.path);
+            Assert.AreEqual(BmsLibraryDbGateway.CurrentChartInfoParserVersion, failure.parser_version);
+            Assert.AreEqual("parse_failed", failure.failure_kind);
+            Assert.AreEqual("JsonReaderException", failure.exception_type);
+            StringAssert.Contains(failure.message, "Unexpected character");
+            Assert.IsFalse(failure.parse_timeout_ms.HasValue);
         });
     }
 
@@ -2402,6 +2428,211 @@ public sealed class ChartInfoMetadataTests
     }
 
     [TestMethod]
+    public void BackfillChartInfos_SkipsCurrentPersistedParseFailure()
+    {
+        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        {
+            string chartPath = Path.Combine(tempRootPath, "bad-skip.bmson");
+            File.WriteAllText(chartPath, "not json", Encoding.ASCII);
+            TestableBmsFile firstFile = new TestableBmsFile
+            {
+                path = chartPath
+            };
+            firstFile.SetHash(new string('a', 32));
+            BmsLibraryDbGateway gateway = new BmsLibraryDbGateway(songDbPath);
+            ChartInfoBuildService firstService = new ChartInfoBuildService(File.ReadAllBytes, workerCountOverride: 1);
+
+            ChartInfoBackfillResult first = firstService.BackfillChartInfos(
+                gateway,
+                new[] { firstFile },
+                Array.Empty<LR2SongDBExtended.bmson_song>(),
+                null,
+                null);
+
+            Assert.AreEqual(1, first.ParseFailedCount);
+            Assert.AreEqual(1, first.FailurePersistedCount);
+
+            int readCount = 0;
+            TestableBmsFile secondFile = new TestableBmsFile
+            {
+                path = chartPath
+            };
+            secondFile.SetHash(firstFile.hash);
+            ChartInfoBuildService secondService = new ChartInfoBuildService(delegate(string path)
+            {
+                readCount++;
+                return File.ReadAllBytes(path);
+            }, workerCountOverride: 1);
+            List<string> logs = new List<string>();
+
+            ChartInfoBackfillResult second = secondService.BackfillChartInfos(
+                gateway,
+                new[] { secondFile },
+                Array.Empty<LR2SongDBExtended.bmson_song>(),
+                (int current, int total, string target) => { },
+                (string message) => logs.Add("INFO " + message),
+                (string message) => logs.Add("WARN " + message));
+
+            Assert.AreEqual(0, second.TargetCount);
+            Assert.AreEqual(1, second.FailureSkippedCount);
+            Assert.AreEqual(0, second.ParseFailedCount);
+            Assert.AreEqual(0, second.FailedCount);
+            Assert.AreEqual(0, readCount);
+            Assert.IsFalse(logs.Any((string message) => message.StartsWith("WARN chart_info_backfill parse_failed", StringComparison.Ordinal)));
+        });
+    }
+
+    [TestMethod]
+    public void BackfillChartInfosForTargets_SkipsCurrentPersistedParseFailure()
+    {
+        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        {
+            string chartPath = Path.Combine(tempRootPath, "bad-targeted-skip.bmson");
+            File.WriteAllText(chartPath, "not json", Encoding.ASCII);
+            TestableBmsFile file = new TestableBmsFile
+            {
+                path = chartPath
+            };
+            file.SetHash(new string('a', 32));
+            BmsLibraryDbGateway gateway = new BmsLibraryDbGateway(songDbPath);
+            gateway.EnsureChartInfoBackfillSchema();
+            gateway.UpsertChartInfoParseFailures(new[]
+            {
+                CreateChartInfoParseFailureRow(file.hash, string.Empty, chartPath, BmsLibraryDbGateway.CurrentChartInfoParserVersion, "parse_failed", "JsonReaderException", "bad json", null)
+            });
+            int readCount = 0;
+            ChartInfoBuildService service = new ChartInfoBuildService(delegate(string path)
+            {
+                readCount++;
+                return File.ReadAllBytes(path);
+            }, workerCountOverride: 1);
+
+            ChartInfoBackfillResult result = service.BackfillChartInfosForTargets(
+                gateway,
+                new[] { file },
+                Array.Empty<LR2SongDBExtended.bmson_song>(),
+                null,
+                null);
+
+            Assert.AreEqual(0, result.TargetCount);
+            Assert.AreEqual(1, result.FailureSkippedCount);
+            Assert.AreEqual(0, result.ParseFailedCount);
+            Assert.AreEqual(0, readCount);
+        });
+    }
+
+    [TestMethod]
+    public void BackfillChartInfos_ReparsesStalePersistedParseFailureAndUpdatesRecord()
+    {
+        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        {
+            string chartPath = Path.Combine(tempRootPath, "bad-stale.bmson");
+            File.WriteAllText(chartPath, "not json", Encoding.ASCII);
+            TestableBmsFile file = new TestableBmsFile
+            {
+                path = chartPath
+            };
+            file.SetHash(new string('a', 32));
+            BmsLibraryDbGateway gateway = new BmsLibraryDbGateway(songDbPath);
+            gateway.EnsureChartInfoBackfillSchema();
+            gateway.UpsertChartInfoParseFailures(new[]
+            {
+                CreateChartInfoParseFailureRow(file.hash, string.Empty, chartPath, 0, "parse_failed", "JsonReaderException", "old failure", null)
+            });
+            ChartInfoBuildService service = new ChartInfoBuildService(File.ReadAllBytes, workerCountOverride: 1);
+
+            ChartInfoBackfillResult result = service.BackfillChartInfos(
+                gateway,
+                new[] { file },
+                Array.Empty<LR2SongDBExtended.bmson_song>(),
+                null,
+                null);
+
+            Assert.AreEqual(1, result.TargetCount);
+            Assert.AreEqual(0, result.FailureSkippedCount);
+            Assert.AreEqual(1, result.ParseFailedCount);
+            using LR2SongDBExtended verify = new LR2SongDBExtended(songDbPath);
+            LR2SongDBExtended.chart_info_parse_failure failure = verify.Query<LR2SongDBExtended.chart_info_parse_failure>("SELECT * FROM chart_info_parse_failure WHERE md5 = ?;", file.hash).Single();
+            Assert.AreEqual(BmsLibraryDbGateway.CurrentChartInfoParserVersion, failure.parser_version);
+            Assert.AreEqual("parse_failed", failure.failure_kind);
+            Assert.AreNotEqual("old failure", failure.message);
+        });
+    }
+
+    [TestMethod]
+    public void BackfillChartInfos_ReparsesShorterTimeoutFailure()
+    {
+        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        {
+            string chartPath = Path.Combine(tempRootPath, "bad-timeout-stale.bmson");
+            File.WriteAllText(chartPath, "not json", Encoding.ASCII);
+            TestableBmsFile file = new TestableBmsFile
+            {
+                path = chartPath
+            };
+            file.SetHash(new string('a', 32));
+            BmsLibraryDbGateway gateway = new BmsLibraryDbGateway(songDbPath);
+            gateway.EnsureChartInfoBackfillSchema();
+            gateway.UpsertChartInfoParseFailures(new[]
+            {
+                CreateChartInfoParseFailureRow(file.hash, string.Empty, chartPath, BmsLibraryDbGateway.CurrentChartInfoParserVersion, "timeout", "ChartInfoParseTimeoutException", "old timeout", 0)
+            });
+            ChartInfoBuildService service = new ChartInfoBuildService(File.ReadAllBytes, workerCountOverride: 1, parseTimeoutOverride: TimeSpan.FromSeconds(1));
+
+            ChartInfoBackfillResult result = service.BackfillChartInfos(
+                gateway,
+                new[] { file },
+                Array.Empty<LR2SongDBExtended.bmson_song>(),
+                null,
+                null);
+
+            Assert.AreEqual(1, result.TargetCount);
+            Assert.AreEqual(0, result.FailureSkippedCount);
+            Assert.AreEqual(1, result.ParseFailedCount);
+            using LR2SongDBExtended verify = new LR2SongDBExtended(songDbPath);
+            LR2SongDBExtended.chart_info_parse_failure failure = verify.Query<LR2SongDBExtended.chart_info_parse_failure>("SELECT * FROM chart_info_parse_failure WHERE md5 = ?;", file.hash).Single();
+            Assert.AreEqual("parse_failed", failure.failure_kind);
+            Assert.IsFalse(failure.parse_timeout_ms.HasValue);
+        });
+    }
+
+    [TestMethod]
+    public void BackfillChartInfos_SuccessClearsStaleParseFailure()
+    {
+        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        {
+            string chartPath = Path.Combine(tempRootPath, "good-clear.bms");
+            File.WriteAllText(chartPath, "#PLAYER 1\r\n#BPM 120\r\n#00111:01\r\n", Encoding.ASCII);
+            BMSFile digest = BMSFile.CreateBMSFileFromFile(chartPath);
+            TestableBmsFile file = new TestableBmsFile
+            {
+                path = chartPath
+            };
+            file.SetHash(digest.hash);
+            BmsLibraryDbGateway gateway = new BmsLibraryDbGateway(songDbPath);
+            gateway.EnsureChartInfoBackfillSchema();
+            gateway.UpsertChartInfoParseFailures(new[]
+            {
+                CreateChartInfoParseFailureRow(file.hash, string.Empty, chartPath, 0, "parse_failed", "InvalidDataException", "old failure", null)
+            });
+            ChartInfoBuildService service = new ChartInfoBuildService(File.ReadAllBytes, workerCountOverride: 1);
+
+            ChartInfoBackfillResult result = service.BackfillChartInfos(
+                gateway,
+                new[] { file },
+                Array.Empty<LR2SongDBExtended.bmson_song>(),
+                null,
+                null);
+
+            Assert.AreEqual(1, result.BackfilledCount);
+            Assert.AreEqual(1, result.FailureClearedCount);
+            using LR2SongDBExtended verify = new LR2SongDBExtended(songDbPath);
+            Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info WHERE md5 = ?;", file.hash));
+            Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info_parse_failure WHERE md5 = ?;", file.hash));
+        });
+    }
+
+    [TestMethod]
     public void BackfillChartInfos_ReadFailureLogsWarnImmediately()
     {
         WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
@@ -2434,6 +2665,8 @@ public sealed class ChartInfoMetadataTests
             Assert.IsTrue(logs.Count >= 2);
             Assert.IsTrue(logs.Any((string message) => message.StartsWith("WARN chart_info_backfill read_failed", StringComparison.Ordinal)));
             StringAssert.StartsWith(logs[logs.Count - 1], "INFO chart_info_backfill total=");
+            using LR2SongDBExtended verify = new LR2SongDBExtended(songDbPath);
+            Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info_parse_failure;"));
         });
     }
 
@@ -2487,6 +2720,11 @@ public sealed class ChartInfoMetadataTests
             using LR2SongDBExtended verify = new LR2SongDBExtended(songDbPath);
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_digest_map WHERE md5 = '" + file.hash + "' AND sha256 = '" + file.sha256 + "';"));
             Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info;"));
+            LR2SongDBExtended.chart_info_parse_failure failure = verify.Query<LR2SongDBExtended.chart_info_parse_failure>("SELECT * FROM chart_info_parse_failure WHERE md5 = ?;", file.hash).Single();
+            Assert.AreEqual(file.sha256, failure.sha256);
+            Assert.AreEqual("timeout", failure.failure_kind);
+            Assert.AreEqual("ChartInfoParseTimeoutException", failure.exception_type);
+            Assert.AreEqual(0, failure.parse_timeout_ms);
         });
     }
 
@@ -2752,6 +2990,22 @@ public sealed class ChartInfoMetadataTests
             speedchange_count = 0,
             lanenotes = "1,0,0",
             parser_version = parserVersion,
+            updated_at = DateTime.UtcNow
+        };
+    }
+
+    private static LR2SongDBExtended.chart_info_parse_failure CreateChartInfoParseFailureRow(string md5, string sha256, string path, int parserVersion, string failureKind, string exceptionType, string message, int? parseTimeoutMs)
+    {
+        return new LR2SongDBExtended.chart_info_parse_failure
+        {
+            md5 = md5,
+            sha256 = sha256,
+            path = path,
+            parser_version = parserVersion,
+            failure_kind = failureKind,
+            exception_type = exceptionType,
+            message = message,
+            parse_timeout_ms = parseTimeoutMs,
             updated_at = DateTime.UtcNow
         };
     }

@@ -560,7 +560,7 @@ public sealed class LR2SongDBExtended : LR2SongDB
         /// </summary>
         public DateTime updated_at { get; set; }
 
-        private static string NormalizeSha256(string value)
+        internal static string NormalizeSha256ForInternalUse(string value)
         {
             if (string.IsNullOrWhiteSpace(value))
             {
@@ -572,6 +572,99 @@ public sealed class LR2SongDBExtended : LR2SongDB
             }
             return value.ToLowerInvariant();
         }
+
+        private static string NormalizeSha256(string value)
+        {
+            return NormalizeSha256ForInternalUse(value);
+        }
+    }
+
+    /// <summary>
+    /// chart_info 解析に失敗した譜面を記録するアプリ独自テーブルです。
+    /// 成功済みメタデータと混同しないよう、chart_info とは別テーブルで保持します。
+    /// </summary>
+    [Table("chart_info_parse_failure")]
+    public class chart_info_parse_failure : SQLiteTable<chart_info_parse_failure>
+    {
+        private string _md5;
+
+        private string _sha256;
+
+        /// <summary>
+        /// LR2 song.hash と対応する MD5 です。
+        /// path が変わっても同一譜面内容なら再解析を避けるため主キーにします。
+        /// </summary>
+        [PrimaryKey]
+        public virtual string md5
+        {
+            get
+            {
+                return _md5;
+            }
+            set
+            {
+                if (string.IsNullOrWhiteSpace(value))
+                {
+                    _md5 = null;
+                    return;
+                }
+                if (!LR2SongDB.md5HashRegex.IsMatch(value))
+                {
+                    throw new FormatException("MD5 HASH ではありません");
+                }
+                _md5 = value.ToLowerInvariant();
+            }
+        }
+
+        /// <summary>
+        /// 譜面ファイル内容の SHA-256 です。
+        /// </summary>
+        public virtual string sha256
+        {
+            get
+            {
+                return _sha256;
+            }
+            set
+            {
+                _sha256 = chart_info.NormalizeSha256ForInternalUse(value);
+            }
+        }
+
+        /// <summary>
+        /// 最後に解析失敗した path です。
+        /// </summary>
+        public string path { get; set; }
+
+        /// <summary>
+        /// この失敗記録を生成した解析器のバージョンです。
+        /// </summary>
+        public int parser_version { get; set; }
+
+        /// <summary>
+        /// 失敗種別です。parse_failed または timeout を保存します。
+        /// </summary>
+        public string failure_kind { get; set; }
+
+        /// <summary>
+        /// 例外型名です。
+        /// </summary>
+        public string exception_type { get; set; }
+
+        /// <summary>
+        /// 表示用に短縮・正規化した例外メッセージです。
+        /// </summary>
+        public string message { get; set; }
+
+        /// <summary>
+        /// timeout 失敗時に使用した timeout ミリ秒です。
+        /// </summary>
+        public int? parse_timeout_ms { get; set; }
+
+        /// <summary>
+        /// この行を最後に更新した UTC 時刻です。
+        /// </summary>
+        public DateTime updated_at { get; set; }
     }
 
     [Table("app_schema_version")]

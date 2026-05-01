@@ -22,6 +22,8 @@ internal sealed class ChartInfoBuildService
 
     private static readonly TimeSpan DefaultParseTimeout = TimeSpan.FromSeconds(60.0);
 
+    private const int MaxPersistedParseFailureMessageLength = 1024;
+
     private readonly Func<string, byte[]> readAllBytes;
 
     private readonly int? workerCountOverride;
@@ -166,10 +168,11 @@ internal sealed class ChartInfoBuildService
             existingRowsSource = "db";
             existingRows = dbGateway.LoadChartInfoMap();
         }
+        Dictionary<string, LR2SongDBExtended.chart_info_parse_failure> currentFailures = dbGateway.LoadCurrentChartInfoParseFailureMap(parseTimeout);
         existingRowsStopwatch.Stop();
         string existingRowsLogValue = isAddedMode ? "targeted:" + existingRows.Count : existingRows.Count.ToString();
         Stopwatch targetBuildStopwatch = Stopwatch.StartNew();
-        List<ChartInfoBuildTarget> targets = BuildTargets(fileList, bmsonSongList, existingRows, result);
+        List<ChartInfoBuildTarget> targets = BuildTargets(fileList, bmsonSongList, existingRows, currentFailures, result);
         targetBuildStopwatch.Stop();
         result.TargetCount = targets.Count;
         result.WorkerCount = ResolveWorkerCount();
@@ -227,7 +230,7 @@ internal sealed class ChartInfoBuildService
                 foreach (QueuedChartBytes item in queue.GetConsumingEnumerable())
                 {
                     Stopwatch parseStopwatch = Stopwatch.StartNew();
-                    ChartInfoBuildItemResult itemResult = ParseQueuedItem(item, existingRows, logInstallPerformance, logInstallPerformanceWarn, parseTimeout);
+                    ChartInfoBuildItemResult itemResult = ParseQueuedItem(item, existingRows, currentFailures, logInstallPerformance, logInstallPerformanceWarn, parseTimeout);
                     parseStopwatch.Stop();
                     Interlocked.Add(ref parseTicks, parseStopwatch.ElapsedTicks);
                     itemResult.ParseMs = parseStopwatch.ElapsedMilliseconds;
@@ -313,6 +316,7 @@ internal sealed class ChartInfoBuildService
     private ChartInfoBuildItemResult ParseQueuedItem(
         QueuedChartBytes item,
         IDictionary<string, LR2SongDBExtended.chart_info> existingRows,
+        IDictionary<string, LR2SongDBExtended.chart_info_parse_failure> currentFailures,
         Action<string> logInstallPerformance,
         Action<string> logInstallPerformanceWarn,
         TimeSpan parseTimeout)
@@ -320,6 +324,10 @@ internal sealed class ChartInfoBuildService
         ChartInfoBuildTarget target = item.Target;
         string md5 = string.IsNullOrWhiteSpace(target.Md5) ? ComputeHash(item.Bytes, MD5.Create()) : target.Md5;
         string sha256 = string.IsNullOrWhiteSpace(target.Sha256) ? ComputeHash(item.Bytes, SHA256.Create()) : target.Sha256;
+        if (IsCurrentParseFailure(currentFailures, md5))
+        {
+            return new ChartInfoBuildItemResult(target, sha256, null, reusedExistingRow: false, parseFailed: false, skippedPersistedFailure: true);
+        }
         if (IsCurrent(existingRows, sha256))
         {
             return new ChartInfoBuildItemResult(target, sha256, existingRows[sha256], reusedExistingRow: true, parseFailed: false);
@@ -336,7 +344,17 @@ internal sealed class ChartInfoBuildService
         catch (Exception ex)
         {
             logInstallPerformanceWarn?.Invoke(BuildParseFailureLogMessage(target, md5, sha256, ex));
-            return new ChartInfoBuildItemResult(target, sha256, null, reusedExistingRow: false, parseFailed: true, timeoutFailed: ex is ChartInfoParser.ChartInfoParseTimeoutException);
+            bool timeoutFailed = ex is ChartInfoParser.ChartInfoParseTimeoutException;
+            return new ChartInfoBuildItemResult(
+                target,
+                sha256,
+                null,
+                reusedExistingRow: false,
+                parseFailed: true,
+                timeoutFailed: timeoutFailed,
+                failureExceptionType: ex.GetType().Name,
+                failureMessage: NormalizePersistedParseFailureMessage(ex.Message),
+                parseTimeoutMs: ResolveTimeoutMilliseconds(parseTimeout));
         }
     }
 
@@ -406,6 +424,11 @@ internal sealed class ChartInfoBuildService
         {
             result.DigestFailedCount += itemResult.Target.MissingDigestOwnerCount;
         }
+        if (itemResult.SkippedPersistedFailure)
+        {
+            result.FailureSkippedCount += itemResult.Target?.OwnerCount ?? 1;
+            return;
+        }
         if (itemResult.Row != null)
         {
             parseSucceededCount++;
@@ -417,6 +440,7 @@ internal sealed class ChartInfoBuildService
             {
                 commitBuffer.AddChartInfo(itemResult.Target, itemResult.Row);
             }
+            commitBuffer.AddParseFailureDelete(itemResult.Target);
         }
         if (itemResult.ParseFailed)
         {
@@ -426,6 +450,7 @@ internal sealed class ChartInfoBuildService
             {
                 result.TimeoutFailedCount++;
             }
+            commitBuffer.AddParseFailure(itemResult);
             result.FailedPaths.Add(itemResult.Target.Path);
         }
     }
@@ -470,7 +495,7 @@ internal sealed class ChartInfoBuildService
         Stopwatch stopwatch = Stopwatch.StartNew();
         try
         {
-            dbGateway.UpsertChartInfoBackfillChunk(commitChunk.DigestEntries, commitChunk.ChartInfoRows);
+            dbGateway.UpsertChartInfoBackfillChunk(commitChunk.DigestEntries, commitChunk.ChartInfoRows, commitChunk.ParseFailureRows, commitChunk.ParseFailureDeleteMd5s);
         }
         catch (Exception ex)
         {
@@ -495,6 +520,8 @@ internal sealed class ChartInfoBuildService
             application.Target.ApplyChartInfo(application.Row);
             result.BackfilledCount++;
         }
+        result.FailurePersistedCount += commitChunk.ParseFailureRows.Count;
+        result.FailureClearedCount += commitChunk.ParseFailureDeleteMd5s.Count;
         logInstallPerformance?.Invoke(BuildCommitDoneLogMessage(chunkNumber, commitChunk, stopwatch.ElapsedMilliseconds));
     }
 
@@ -571,6 +598,7 @@ internal sealed class ChartInfoBuildService
         IEnumerable<BMSFile> currentFiles,
         IEnumerable<LR2SongDBExtended.bmson_song> currentBmsonSongs,
         IDictionary<string, LR2SongDBExtended.chart_info> existingRows,
+        IDictionary<string, LR2SongDBExtended.chart_info_parse_failure> currentFailures,
         ChartInfoBackfillResult result)
     {
         Dictionary<string, ChartInfoBuildTarget> targets = new Dictionary<string, ChartInfoBuildTarget>(StringComparer.OrdinalIgnoreCase);
@@ -587,6 +615,11 @@ internal sealed class ChartInfoBuildService
             }
             if (string.IsNullOrWhiteSpace(file.sha256) && string.IsNullOrWhiteSpace(file.hash))
             {
+                continue;
+            }
+            if (IsCurrentParseFailure(currentFailures, file.hash))
+            {
+                result.FailureSkippedCount++;
                 continue;
             }
             string key = BuildBmsTargetKey(file.sha256, file.hash, file.path);
@@ -613,6 +646,11 @@ internal sealed class ChartInfoBuildService
             if (!string.IsNullOrWhiteSpace(song.sha256) && IsCurrent(existingRows, song.sha256))
             {
                 song.ChartInfo = existingRows[song.sha256];
+                continue;
+            }
+            if (IsCurrentParseFailure(currentFailures, song.md5))
+            {
+                result.FailureSkippedCount++;
                 continue;
             }
             string key = BuildTargetKey(song.sha256, song.md5, song.path);
@@ -687,6 +725,13 @@ internal sealed class ChartInfoBuildService
             && row.parser_version >= BmsLibraryDbGateway.CurrentChartInfoParserVersion;
     }
 
+    private static bool IsCurrentParseFailure(IDictionary<string, LR2SongDBExtended.chart_info_parse_failure> currentFailures, string md5)
+    {
+        return currentFailures != null
+            && !string.IsNullOrWhiteSpace(md5)
+            && currentFailures.ContainsKey(md5);
+    }
+
     private int ResolveWorkerCount()
     {
         if (workerCountOverride.HasValue)
@@ -739,6 +784,9 @@ internal sealed class ChartInfoBuildService
             + " readFailed=" + result.ReadFailedCount
             + " parseFailed=" + result.ParseFailedCount
             + " timeoutFailed=" + result.TimeoutFailedCount
+            + " failureSkipped=" + result.FailureSkippedCount
+            + " failurePersisted=" + result.FailurePersistedCount
+            + " failureCleared=" + result.FailureClearedCount
             + " workerCount=" + result.WorkerCount
             + " queueCapacity=" + result.QueueCapacity
             + " readMs=" + result.ReadMs
@@ -759,6 +807,7 @@ internal sealed class ChartInfoBuildService
             + " mode=" + (string.IsNullOrWhiteSpace(mode) ? "full" : mode)
             + " targets=" + result.TargetCount
             + " digestTargets=" + result.DigestTargetCount
+            + " failureSkipped=" + result.FailureSkippedCount
             + " existingRows=" + (existingRowCount ?? "0")
             + " existingRowsSource=" + (string.IsNullOrWhiteSpace(existingRowsSource) ? "db" : existingRowsSource)
             + " existingRowsLoadMs=" + existingRowsLoadMs
@@ -776,6 +825,7 @@ internal sealed class ChartInfoBuildService
             + " processed=" + result.ProcessedCount
             + " success=" + parseSucceededCount
             + " failed=" + result.FailedCount
+            + " failureSkipped=" + result.FailureSkippedCount
             + " timeoutFailed=" + result.TimeoutFailedCount
             + " avgParseMs=" + result.ParseAvgMs
             + " maxParseMs=" + result.ParseMaxMs
@@ -788,7 +838,9 @@ internal sealed class ChartInfoBuildService
             + " chunk=" + chunkNumber
             + " targets=" + commitChunk.TargetCount
             + " digestRows=" + commitChunk.DigestEntries.Count
-            + " infoRows=" + commitChunk.ChartInfoRows.Count;
+            + " infoRows=" + commitChunk.ChartInfoRows.Count
+            + " failureRows=" + commitChunk.ParseFailureRows.Count
+            + " failureDeletes=" + commitChunk.ParseFailureDeleteMd5s.Count;
     }
 
     private static string BuildCommitDoneLogMessage(int chunkNumber, ChartInfoCommitChunk commitChunk, long elapsedMs)
@@ -798,6 +850,8 @@ internal sealed class ChartInfoBuildService
             + " targets=" + commitChunk.TargetCount
             + " digestRows=" + commitChunk.DigestEntries.Count
             + " infoRows=" + commitChunk.ChartInfoRows.Count
+            + " failureRows=" + commitChunk.ParseFailureRows.Count
+            + " failureDeletes=" + commitChunk.ParseFailureDeleteMd5s.Count
             + " elapsedMs=" + elapsedMs;
     }
 
@@ -808,6 +862,8 @@ internal sealed class ChartInfoBuildService
             + " targets=" + commitChunk.TargetCount
             + " digestRows=" + commitChunk.DigestEntries.Count
             + " infoRows=" + commitChunk.ChartInfoRows.Count
+            + " failureRows=" + commitChunk.ParseFailureRows.Count
+            + " failureDeletes=" + commitChunk.ParseFailureDeleteMd5s.Count
             + " elapsedMs=" + elapsedMs
             + " exception=" + QuoteLogValue(ex?.GetType().Name)
             + " message=" + QuoteLogValue(ex?.Message);
@@ -856,6 +912,33 @@ internal sealed class ChartInfoBuildService
         return "\"" + escaped + "\"";
     }
 
+    private static string NormalizePersistedParseFailureMessage(string message)
+    {
+        string normalized = (message ?? string.Empty)
+            .Replace("\r", " ")
+            .Replace("\n", " ")
+            .Trim();
+        if (normalized.Length <= MaxPersistedParseFailureMessageLength)
+        {
+            return normalized;
+        }
+        return normalized.Substring(0, MaxPersistedParseFailureMessageLength);
+    }
+
+    private static int ResolveTimeoutMilliseconds(TimeSpan parseTimeout)
+    {
+        double milliseconds = Math.Ceiling(parseTimeout.TotalMilliseconds);
+        if (milliseconds <= 0.0)
+        {
+            return 0;
+        }
+        if (milliseconds >= int.MaxValue)
+        {
+            return int.MaxValue;
+        }
+        return (int)milliseconds;
+    }
+
     private sealed class QueuedChartBytes
     {
         public QueuedChartBytes(ChartInfoBuildTarget target, byte[] bytes)
@@ -871,7 +954,18 @@ internal sealed class ChartInfoBuildService
 
     private sealed class ChartInfoBuildItemResult
     {
-        public ChartInfoBuildItemResult(ChartInfoBuildTarget target, string sha256, LR2SongDBExtended.chart_info row, bool reusedExistingRow, bool parseFailed, bool timeoutFailed = false, bool readFailed = false)
+        public ChartInfoBuildItemResult(
+            ChartInfoBuildTarget target,
+            string sha256,
+            LR2SongDBExtended.chart_info row,
+            bool reusedExistingRow,
+            bool parseFailed,
+            bool timeoutFailed = false,
+            bool readFailed = false,
+            bool skippedPersistedFailure = false,
+            string failureExceptionType = null,
+            string failureMessage = null,
+            int? parseTimeoutMs = null)
         {
             Target = target;
             Sha256 = sha256;
@@ -880,6 +974,10 @@ internal sealed class ChartInfoBuildService
             ParseFailed = parseFailed;
             TimeoutFailed = timeoutFailed;
             ReadFailed = readFailed;
+            SkippedPersistedFailure = skippedPersistedFailure;
+            FailureExceptionType = failureExceptionType;
+            FailureMessage = failureMessage;
+            ParseTimeoutMs = parseTimeoutMs;
         }
 
         public ChartInfoBuildTarget Target { get; }
@@ -895,6 +993,14 @@ internal sealed class ChartInfoBuildService
         public bool TimeoutFailed { get; }
 
         public bool ReadFailed { get; }
+
+        public bool SkippedPersistedFailure { get; }
+
+        public string FailureExceptionType { get; }
+
+        public string FailureMessage { get; }
+
+        public int? ParseTimeoutMs { get; }
 
         public long ParseMs { get; set; }
 
@@ -915,6 +1021,10 @@ internal sealed class ChartInfoBuildService
                 if (ParseFailed)
                 {
                     return "failed";
+                }
+                if (SkippedPersistedFailure)
+                {
+                    return "skipped_failure";
                 }
                 return ReusedExistingRow ? "reused" : "success";
             }
@@ -938,9 +1048,13 @@ internal sealed class ChartInfoBuildService
 
         public List<PendingChartInfoApplication> ChartInfoApplications { get; } = new List<PendingChartInfoApplication>();
 
+        public List<LR2SongDBExtended.chart_info_parse_failure> ParseFailureRows { get; } = new List<LR2SongDBExtended.chart_info_parse_failure>();
+
+        public List<string> ParseFailureDeleteMd5s { get; } = new List<string>();
+
         public int TargetCount { get; set; }
 
-        public bool HasPendingDbRows => DigestEntries.Count > 0 || ChartInfoRows.Count > 0;
+        public bool HasPendingDbRows => DigestEntries.Count > 0 || ChartInfoRows.Count > 0 || ParseFailureRows.Count > 0 || ParseFailureDeleteMd5s.Count > 0;
 
         public void AddDigest(ChartInfoBuildTarget target, string sha256)
         {
@@ -962,12 +1076,46 @@ internal sealed class ChartInfoBuildService
             ChartInfoApplications.Add(new PendingChartInfoApplication(target, row));
         }
 
+        public void AddParseFailure(ChartInfoBuildItemResult itemResult)
+        {
+            if (itemResult?.Target == null || string.IsNullOrWhiteSpace(itemResult.Target.Md5))
+            {
+                return;
+            }
+            ParseFailureRows.Add(new LR2SongDBExtended.chart_info_parse_failure
+            {
+                md5 = itemResult.Target.Md5,
+                sha256 = itemResult.Sha256,
+                path = itemResult.Target.Path,
+                parser_version = BmsLibraryDbGateway.CurrentChartInfoParserVersion,
+                failure_kind = itemResult.TimeoutFailed ? "timeout" : "parse_failed",
+                exception_type = itemResult.FailureExceptionType,
+                message = itemResult.FailureMessage,
+                parse_timeout_ms = itemResult.TimeoutFailed ? itemResult.ParseTimeoutMs : null,
+                updated_at = DateTime.UtcNow
+            });
+        }
+
+        public void AddParseFailureDelete(ChartInfoBuildTarget target)
+        {
+            if (target == null || string.IsNullOrWhiteSpace(target.Md5))
+            {
+                return;
+            }
+            if (!ParseFailureDeleteMd5s.Contains(target.Md5, StringComparer.OrdinalIgnoreCase))
+            {
+                ParseFailureDeleteMd5s.Add(target.Md5);
+            }
+        }
+
         public void Clear()
         {
             DigestEntries.Clear();
             DigestApplications.Clear();
             ChartInfoRows.Clear();
             ChartInfoApplications.Clear();
+            ParseFailureRows.Clear();
+            ParseFailureDeleteMd5s.Clear();
             TargetCount = 0;
         }
 
@@ -978,7 +1126,9 @@ internal sealed class ChartInfoBuildService
                 DigestEntries.ToList(),
                 DigestApplications.ToList(),
                 ChartInfoRows.ToList(),
-                ChartInfoApplications.ToList());
+                ChartInfoApplications.ToList(),
+                ParseFailureRows.ToList(),
+                ParseFailureDeleteMd5s.ToList());
         }
     }
 
@@ -989,13 +1139,17 @@ internal sealed class ChartInfoBuildService
             IReadOnlyList<ChartDigestBackfillEntry> digestEntries,
             IReadOnlyList<PendingDigestApplication> digestApplications,
             IReadOnlyList<LR2SongDBExtended.chart_info> chartInfoRows,
-            IReadOnlyList<PendingChartInfoApplication> chartInfoApplications)
+            IReadOnlyList<PendingChartInfoApplication> chartInfoApplications,
+            IReadOnlyList<LR2SongDBExtended.chart_info_parse_failure> parseFailureRows,
+            IReadOnlyList<string> parseFailureDeleteMd5s)
         {
             TargetCount = targetCount;
             DigestEntries = digestEntries ?? Array.Empty<ChartDigestBackfillEntry>();
             DigestApplications = digestApplications ?? Array.Empty<PendingDigestApplication>();
             ChartInfoRows = chartInfoRows ?? Array.Empty<LR2SongDBExtended.chart_info>();
             ChartInfoApplications = chartInfoApplications ?? Array.Empty<PendingChartInfoApplication>();
+            ParseFailureRows = parseFailureRows ?? Array.Empty<LR2SongDBExtended.chart_info_parse_failure>();
+            ParseFailureDeleteMd5s = parseFailureDeleteMd5s ?? Array.Empty<string>();
         }
 
         public int TargetCount { get; }
@@ -1007,6 +1161,10 @@ internal sealed class ChartInfoBuildService
         public IReadOnlyList<LR2SongDBExtended.chart_info> ChartInfoRows { get; }
 
         public IReadOnlyList<PendingChartInfoApplication> ChartInfoApplications { get; }
+
+        public IReadOnlyList<LR2SongDBExtended.chart_info_parse_failure> ParseFailureRows { get; }
+
+        public IReadOnlyList<string> ParseFailureDeleteMd5s { get; }
     }
 
     private sealed class PendingDigestApplication
@@ -1082,6 +1240,8 @@ internal sealed class ChartInfoBuildService
         public bool NeedsDigest => bmsFiles.Any((BMSFile file) => file != null && string.IsNullOrWhiteSpace(file.sha256));
 
         public int MissingDigestOwnerCount => bmsFiles.Count((BMSFile file) => file != null && string.IsNullOrWhiteSpace(file.sha256));
+
+        public int OwnerCount => bmsFiles.Count + bmsonSongs.Count;
 
         public static ChartInfoBuildTarget FromBmsFile(BMSFile file)
         {
