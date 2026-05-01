@@ -126,6 +126,23 @@ public sealed class ChartWarningCollectionTests
     }
 
     [TestMethod]
+    public void ChartInfoParseFailure_HighlightsAndUsesDedicatedDigest()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        BMSFile file = new BMSFile();
+
+        file.SetWarning(
+            ChartWarningKind.ChartInfoParseFailure,
+            string.Format(Resources.Warning_ChartInfoParseFailure, "InvalidDataException", "開始BPM未定義"));
+
+        Assert.IsTrue(file.HasChartInfoParseFailureWarning);
+        Assert.IsTrue(file.HasHighlightedWarning);
+        Assert.AreEqual("[1] メタデータ解析エラー", file.WarningDigestText);
+        StringAssert.Contains(file.WarningTooltipText, "InvalidDataException");
+        StringAssert.Contains(file.WarningTooltipText, "開始BPM未定義");
+    }
+
+    [TestMethod]
     public void ClearWarning_RemovesMatchingStructuredWarning()
     {
         TestResourceInitializer.EnsureJapaneseResources();

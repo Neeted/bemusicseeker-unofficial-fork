@@ -300,6 +300,7 @@ public partial class App : System.Windows.Application
             Settings.Default.DuplicateColumnsSettings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.DUPLICATE);
             Settings.Default.EncodingColumnsSettings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.ENCODING);
             Settings.Default.InstallColumnsSettings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.INSTALL);
+            Settings.Default.ChartInfoParseErrorColumnsSettings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.CHART_INFO_PARSE_ERROR);
         }
         if (Settings.Default.AssemblyVersion == null || Settings.Default.AssemblyVersion <= new SerializableVersion(0, 1, 5803, 41786))
         {

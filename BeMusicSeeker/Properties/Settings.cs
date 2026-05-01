@@ -418,6 +418,20 @@ internal sealed class Settings : ApplicationSettingsBase
 
 	[UserScopedSetting]
 	[DebuggerNonUserCode]
+	public dataGridColumnsSettings ChartInfoParseErrorColumnsSettings
+	{
+		get
+		{
+			return (dataGridColumnsSettings)this["ChartInfoParseErrorColumnsSettings"];
+		}
+		set
+		{
+			this["ChartInfoParseErrorColumnsSettings"] = value;
+		}
+	}
+
+	[UserScopedSetting]
+	[DebuggerNonUserCode]
 	[DefaultSettingValue("")]
 	public string BMSInstallDir
 	{
@@ -1318,6 +1332,10 @@ internal sealed class Settings : ApplicationSettingsBase
 		{
 			((Settings)sender).InstallColumnsSettings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.INSTALL);
 		}
+		if (((Settings)sender).ChartInfoParseErrorColumnsSettings == null)
+		{
+			((Settings)sender).ChartInfoParseErrorColumnsSettings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.CHART_INFO_PARSE_ERROR);
+		}
 		if (((Settings)sender).PlaylistSummaryColumnsSettings == null)
 		{
 			((Settings)sender).PlaylistSummaryColumnsSettings = new PlaylistSummaryColumnSettings();
@@ -1329,6 +1347,7 @@ internal sealed class Settings : ApplicationSettingsBase
 		((Settings)sender).DuplicateColumnsSettings.EnsureChartInfoColumnDefaults(dataGridColumnsSettings.viewType.DUPLICATE);
 		((Settings)sender).EncodingColumnsSettings.EnsureChartInfoColumnDefaults(dataGridColumnsSettings.viewType.ENCODING);
 		((Settings)sender).InstallColumnsSettings.EnsureChartInfoColumnDefaults(dataGridColumnsSettings.viewType.INSTALL);
+		((Settings)sender).ChartInfoParseErrorColumnsSettings.EnsureChartInfoColumnDefaults(dataGridColumnsSettings.viewType.CHART_INFO_PARSE_ERROR);
 		if (((Settings)sender).WindowPlacement.NormalPosition.Left >= ((Settings)sender).WindowPlacement.NormalPosition.Right || ((Settings)sender).WindowPlacement.NormalPosition.Top >= ((Settings)sender).WindowPlacement.NormalPosition.Bottom)
 		{
 			Win32API.WINDOWPLACEMENT windowPlacement = ((Settings)sender).WindowPlacement;

@@ -2939,6 +2939,21 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }).Logging("zeronoteFolderSelect");
     }
 
+    private async void chartInfoParseErrorFolderSelect(object sender, RoutedEventArgs e)
+    {
+        if (ShouldBlockStartupUiInteraction("tree_chart_info_parse_error_select"))
+        {
+            e.Handled = true;
+            return;
+        }
+        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
+        e.Handled = true;
+        await Task.Run(delegate
+        {
+            viewModel.ExecMaintenanceFilter(MainWindowViewModel.MaintenanceFilterType.ChartInfoParseErrorFilter);
+        }).Logging("chartInfoParseErrorFolderSelect");
+    }
+
     private void treeViewZeroNoteContextMenuItemRecheckClick(object sender, RoutedEventArgs e)
     {
         MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;

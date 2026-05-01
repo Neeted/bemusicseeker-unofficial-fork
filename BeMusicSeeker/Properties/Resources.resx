@@ -1394,6 +1394,9 @@ BMSファイルが重複しないようにマージします。
   <data name="WarningDigest_ZeroNoteMismatch" xml:space="preserve">
     <value>ゼロノート不整合</value>
   </data>
+  <data name="WarningDigest_ChartInfoParseFailure" xml:space="preserve">
+    <value>メタデータ解析エラー</value>
+  </data>
   <data name="WarningDigest_DuplicateChart" xml:space="preserve">
     <value>重複譜面</value>
   </data>
@@ -1470,6 +1473,12 @@ BMSファイルが重複しないようにマージします。
   </data>
   <data name="Warning_ZeroNoteMismatch" xml:space="preserve">
     <value>DBに0notesと記録されていますが可視ノートが存在します</value>
+  </data>
+  <data name="Warning_ChartInfoParseFailure" xml:space="preserve">
+    <value>メタデータ解析に失敗しました。{0}: {1}</value>
+  </data>
+  <data name="Chart_info_parse_errors" xml:space="preserve">
+    <value>解析エラー</value>
   </data>
   <data name="Header_InstallDstTitle" xml:space="preserve">
     <value>INSTL DST TITLE</value>

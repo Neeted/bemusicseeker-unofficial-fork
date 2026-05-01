@@ -755,6 +755,8 @@ internal sealed class ChartInfoBuildService
         return parseTimeoutOverride ?? DefaultParseTimeout;
     }
 
+    internal TimeSpan CurrentParseTimeout => ResolveParseTimeout();
+
     private static long TicksToMilliseconds(long ticks)
     {
         return (long)(ticks * 1000.0 / Stopwatch.Frequency);

@@ -74,7 +74,8 @@ public class dataGridColumnsSettings : NotificationObject
         DUPLICATE,
         ENCODING,
         INSTALL,
-        ZERO_NOTE
+        ZERO_NOTE,
+        CHART_INFO_PARSE_ERROR
     }
 
     private dataGridColumnlayouts _Status;
@@ -1075,6 +1076,21 @@ public class dataGridColumnsSettings : NotificationObject
                     Warning,
                     Notes,
                     PlaylistSymbols,
+                    Folder,
+                    Path,
+                    Hash);
+                break;
+            case viewType.CHART_INFO_PARSE_ERROR:
+                ApplyVisibleColumnOrder(
+                    Status,
+                    PlaylistSymbols,
+                    WavHealth,
+                    BgaHealth,
+                    MovieHealth,
+                    Warning,
+                    Title,
+                    Artist,
+                    Mode,
                     Folder,
                     Path,
                     Hash);

@@ -611,6 +611,7 @@ public class BMSFile : LR2SongDB.song
         RaisePropertyChanged(() => HasZeroNoteMismatchWarning);
         RaisePropertyChanged(() => HasLowConfidenceInstallWarning);
         RaisePropertyChanged(() => IsHashDuplicated);
+        RaisePropertyChanged(() => HasChartInfoParseFailureWarning);
     }
 
     public virtual bool HasZeroNoteMismatchWarning
@@ -635,6 +636,8 @@ public class BMSFile : LR2SongDB.song
             }
         }
     }
+
+    public virtual bool HasChartInfoParseFailureWarning => Warnings.Contains(ChartWarningKind.ChartInfoParseFailure);
 
     public virtual bool HasHighlightedWarning => Warnings.HasHighlightedWarning;
 

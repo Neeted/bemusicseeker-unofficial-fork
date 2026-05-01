@@ -897,6 +897,9 @@ public class Resources
     public static string WarningDigest_ZeroNoteMismatch => ResourceManager.GetString("WarningDigest_ZeroNoteMismatch", resourceCulture);
 
 
+    public static string WarningDigest_ChartInfoParseFailure => ResourceManager.GetString("WarningDigest_ChartInfoParseFailure", resourceCulture);
+
+
     public static string WarningDigest_DuplicateChart => ResourceManager.GetString("WarningDigest_DuplicateChart", resourceCulture);
 
 
@@ -964,6 +967,12 @@ public class Resources
 
 
     public static string Warning_ZeroNoteMismatch => ResourceManager.GetString("Warning_ZeroNoteMismatch", resourceCulture);
+
+
+    public static string Warning_ChartInfoParseFailure => ResourceManager.GetString("Warning_ChartInfoParseFailure", resourceCulture);
+
+
+    public static string Chart_info_parse_errors => ResourceManager.GetString("Chart_info_parse_errors", resourceCulture);
 
 
     public static string Header_InstallDstTitle => ResourceManager.GetString("Header_InstallDstTitle", resourceCulture);

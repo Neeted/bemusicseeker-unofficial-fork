@@ -1004,6 +1004,7 @@ public class BMSLibrary : NotificationObject
                 Task.Run(delegate
                 {
                     RaisePropertyChanged("BMSFiles");
+                    RaisePropertyChanged(() => BMSFilesChartInfoParseFailed);
                 }).Logging("BMSFiles");
                 RaisePropertyChanged(() => BMSParentFolderListCacheVersion);
             }
@@ -1038,6 +1039,7 @@ public class BMSLibrary : NotificationObject
                 Task.Run(delegate
                 {
                     RaisePropertyChanged("BmsonSongs");
+                    RaisePropertyChanged(() => BMSFilesChartInfoParseFailed);
                 }).Logging("BmsonSongs");
             }
         }
@@ -1077,6 +1079,8 @@ public class BMSLibrary : NotificationObject
     public IEnumerable<BMSFile> BMSFilesGarbledFixed => GetBMSFilesGarbled(BMSFiles, forceUpdate: false, isInFixedList: true);
 
     public IEnumerable<BMSFile> BMSFilesZeroNote => GetBMSFilesZeroNote(BMSFiles);
+
+    public IEnumerable<BMSFile> BMSFilesChartInfoParseFailed => GetBMSFilesChartInfoParseFailed();
 
     /// <summary>
     /// インストール待ち（Pending状態）の BMS パッケージのコレクションです。UIスレッドへのディスパッチに対応しています。
@@ -4371,6 +4375,7 @@ public class BMSLibrary : NotificationObject
             {
                 ChartInfoBackfillCurrentPath = string.Empty;
                 ChartInfoBackfillCompletedVersion = requestVersion;
+                RaisePropertyChanged(() => BMSFilesChartInfoParseFailed);
                 lock (lockChartInfoBackfill)
                 {
                     chartInfoBackfillCompletedVersion = requestVersion;
@@ -6064,6 +6069,65 @@ public class BMSLibrary : NotificationObject
             return new List<BMSFile>();
         }
         return maintenanceService.GetZeroNoteFiles(bmsFiles);
+    }
+
+    public List<BMSFile> GetBMSFilesChartInfoParseFailed()
+    {
+        Dictionary<string, LR2SongDBExtended.chart_info_parse_failure> failures = dbGateway.LoadCurrentChartInfoParseFailureMap(chartInfoBuildService.CurrentParseTimeout);
+        if (failures.Count == 0)
+        {
+            return new List<BMSFile>();
+        }
+        List<BMSFile> bmsSnapshot;
+        List<LR2SongDBExtended.bmson_song> bmsonSnapshot;
+        using (rwlockBMSFiles.GetReaderGuard())
+        {
+            bmsSnapshot = (BMSFiles ?? new List<BMSFile>()).Where((BMSFile file) => file != null).ToList();
+            bmsonSnapshot = (BmsonSongs ?? new List<LR2SongDBExtended.bmson_song>()).Where((LR2SongDBExtended.bmson_song song) => song != null).ToList();
+        }
+        List<BMSFile> result = new List<BMSFile>();
+        foreach (BMSFile file in bmsSnapshot)
+        {
+            if (string.IsNullOrWhiteSpace(file.hash) || !failures.TryGetValue(file.hash, out LR2SongDBExtended.chart_info_parse_failure failure))
+            {
+                continue;
+            }
+            PendingChartEntry entry = PendingChartEntry.CreateFromBmsFile(file);
+            ApplyChartInfoParseFailureWarning(entry, failure);
+            result.Add(entry);
+        }
+        foreach (LR2SongDBExtended.bmson_song song in bmsonSnapshot)
+        {
+            if (string.IsNullOrWhiteSpace(song.md5) || !failures.TryGetValue(song.md5, out LR2SongDBExtended.chart_info_parse_failure failure))
+            {
+                continue;
+            }
+            PendingChartEntry entry = PendingChartEntry.CreateFromBmsonSong(song);
+            ApplyChartInfoParseFailureWarning(entry, failure);
+            result.Add(entry);
+        }
+        return result
+            .Where((BMSFile file) => file != null)
+            .OrderBy((BMSFile file) => file.path ?? string.Empty, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private static void ApplyChartInfoParseFailureWarning(BMSFile file, LR2SongDBExtended.chart_info_parse_failure failure)
+    {
+        if (file == null || failure == null)
+        {
+            return;
+        }
+        file.SetWarning(ChartWarningKind.ChartInfoParseFailure, BuildChartInfoParseFailureWarningMessage(failure));
+    }
+
+    private static string BuildChartInfoParseFailureWarningMessage(LR2SongDBExtended.chart_info_parse_failure failure)
+    {
+        string reason = !string.IsNullOrWhiteSpace(failure.exception_type)
+            ? failure.exception_type
+            : (!string.IsNullOrWhiteSpace(failure.failure_kind) ? failure.failure_kind : Resources.WarningDigest_ChartInfoParseFailure);
+        string message = !string.IsNullOrWhiteSpace(failure.message) ? failure.message : Resources.WarningDigest_ChartInfoParseFailure;
+        return string.Format(CultureInfo.CurrentCulture, Resources.Warning_ChartInfoParseFailure, reason, message);
     }
 
     /// <summary>

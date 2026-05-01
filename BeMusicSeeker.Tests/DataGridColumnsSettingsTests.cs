@@ -146,6 +146,25 @@ public sealed class DataGridColumnsSettingsTests
     }
 
     [TestMethod]
+    public void Constructor_ChartInfoParseErrorDefaultsMatchInitialColumnOrder()
+    {
+        AssertVisibleColumnOrder(
+            new dataGridColumnsSettings(dataGridColumnsSettings.viewType.CHART_INFO_PARSE_ERROR),
+            "Status",
+            "PlaylistSymbols",
+            "WavHealth",
+            "BgaHealth",
+            "MovieHealth",
+            "Warning",
+            "Title",
+            "Artist",
+            "Mode",
+            "Folder",
+            "Path",
+            "Hash");
+    }
+
+    [TestMethod]
     public void Constructor_EncodingDefaultsMatchInitialColumnOrder()
     {
         AssertVisibleColumnOrder(
@@ -170,6 +189,13 @@ public sealed class DataGridColumnsSettingsTests
 
             Assert.AreEqual(displayIndexes.Length, displayIndexes.Distinct().Count(), viewType.ToString());
         }
+    }
+
+    [TestMethod]
+    public void MaintenanceFilterType_ChartInfoParseErrorKeepsExplicitValue()
+    {
+        Assert.AreEqual(40, (int)MainWindowViewModel.MaintenanceFilterType.ChartInfoParseErrorFilter);
+        Assert.AreEqual(255, (int)MainWindowViewModel.MaintenanceFilterType.FilterNone);
     }
 
     [TestMethod]

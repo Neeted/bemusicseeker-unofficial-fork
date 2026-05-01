@@ -3564,6 +3564,7 @@ public class MainWindowViewModel : ViewModel
         GarbleFixedFilterSelected = 37,
         UnregisteredFilterSelected = 38,
         ZeroNoteFilterSelected = 39,
+        ChartInfoParseErrorFilterSelected = 40,
         NewlyInstalledFolderSelected = 49,
         PendingInstallFolderSelected = 50,
         KeywordFilterUpdated = 65,
@@ -4237,7 +4238,8 @@ public class MainWindowViewModel : ViewModel
         GarbleFixedFilter,
         UnregisteredFilter,
         ZeroNoteFilter,
-        FilterNone
+        ChartInfoParseErrorFilter,
+        FilterNone = 255
     }
 
     public enum InstallFilterType
@@ -7203,6 +7205,18 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
+    private IEnumerable<BeMusicSeeker.Models.BMSFile> BMSFilesChartInfoParseFailed
+    {
+        get
+        {
+            if (files != null)
+            {
+                return files.BMSFilesChartInfoParseFailed;
+            }
+            return null;
+        }
+    }
+
     public DispatcherCollection<BMSPackage> BMSPackagesInstalled
     {
         get
@@ -9285,6 +9299,7 @@ public class MainWindowViewModel : ViewModel
         settings.DuplicateColumnsSettings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.DUPLICATE);
         settings.EncodingColumnsSettings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.ENCODING);
         settings.InstallColumnsSettings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.INSTALL);
+        settings.ChartInfoParseErrorColumnsSettings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.CHART_INFO_PARSE_ERROR);
         settings.BmsonColumnSettingsMigrationVersion = CurrentBmsonColumnSettingsMigrationVersion;
         if (saveSettings != null)
         {
@@ -9694,6 +9709,17 @@ public class MainWindowViewModel : ViewModel
         listenerForBMSLibrary.RegisterHandler(() => files.BMSFilesZeroNote, delegate
         {
             if (treeViewFilterTypeSelected == viewUpdateMode.ZeroNoteFilterSelected)
+            {
+                if (TrySuppress(UiRefreshChannel.LibraryMainView))
+                {
+                    return;
+                }
+                makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
+            }
+        });
+        listenerForBMSLibrary.RegisterHandler(() => files.BMSFilesChartInfoParseFailed, delegate
+        {
+            if (treeViewFilterTypeSelected == viewUpdateMode.ChartInfoParseErrorFilterSelected)
             {
                 if (TrySuppress(UiRefreshChannel.LibraryMainView))
                 {
@@ -11355,6 +11381,9 @@ public class MainWindowViewModel : ViewModel
             case viewUpdateMode.ZeroNoteFilterSelected:
                 ChartRowsFolderView = ToLibraryChartRows(BMSFilesZeroNote);
                 break;
+            case viewUpdateMode.ChartInfoParseErrorFilterSelected:
+                ChartRowsFolderView = ToLibraryChartRows(BMSFilesChartInfoParseFailed);
+                break;
             case viewUpdateMode.NewlyInstalledFolderSelected:
                 if (BMSPackagesInstalled == null)
                 {
@@ -12046,6 +12075,18 @@ public class MainWindowViewModel : ViewModel
                 caseEnsureMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 stageStartMs = stopwatch.ElapsedMilliseconds;
                 ColumnsSettingsBMSFilesView = Settings.Default.ZeroNoteColumnsSettings;
+                caseAssignMs = stopwatch.ElapsedMilliseconds - stageStartMs;
+                break;
+            case viewUpdateMode.ChartInfoParseErrorFilterSelected:
+                caseLabel = "chart-info-parse-error";
+                stageStartMs = stopwatch.ElapsedMilliseconds;
+                if (isInit || Settings.Default.ChartInfoParseErrorColumnsSettings == null)
+                {
+                    Settings.Default.ChartInfoParseErrorColumnsSettings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.CHART_INFO_PARSE_ERROR);
+                }
+                caseEnsureMs = stopwatch.ElapsedMilliseconds - stageStartMs;
+                stageStartMs = stopwatch.ElapsedMilliseconds;
+                ColumnsSettingsBMSFilesView = Settings.Default.ChartInfoParseErrorColumnsSettings;
                 caseAssignMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 break;
             case viewUpdateMode.FileMissingFilterSelected:

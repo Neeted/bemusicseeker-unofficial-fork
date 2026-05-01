@@ -2387,6 +2387,67 @@ public sealed class ChartInfoMetadataTests
     }
 
     [TestMethod]
+    public void BMSFilesChartInfoParseFailed_ProjectsCurrentFailuresAsWarningShims()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        {
+            TestableBmsFile bmsFile = new TestableBmsFile
+            {
+                path = Path.Combine(tempRootPath, "bad.bms")
+            };
+            bmsFile.SetHash(new string('a', 32));
+            bmsFile.SetSha256(new string('1', 64));
+            TestableBmsFile staleBmsFile = new TestableBmsFile
+            {
+                path = Path.Combine(tempRootPath, "stale.bms")
+            };
+            staleBmsFile.SetHash(new string('d', 32));
+            staleBmsFile.SetSha256(new string('4', 64));
+            LR2SongDBExtended.bmson_song bmsonSong = new LR2SongDBExtended.bmson_song
+            {
+                path = Path.Combine(tempRootPath, "bad.bmson"),
+                folder = tempRootPath,
+                md5 = new string('b', 32),
+                sha256 = new string('2', 64),
+                title = "bad bmson",
+                artist = "artist"
+            };
+            BmsLibraryDbGateway gateway = new BmsLibraryDbGateway(songDbPath);
+            gateway.EnsureChartInfoSchema();
+            gateway.UpsertChartInfoParseFailures(new[]
+            {
+                CreateChartInfoParseFailureRow(bmsFile.hash, bmsFile.sha256, bmsFile.path, BmsLibraryDbGateway.CurrentChartInfoParserVersion, "parse_failed", "InvalidDataException", "BMS initial BPM is not defined or invalid.", null),
+                CreateChartInfoParseFailureRow(bmsonSong.md5, bmsonSong.sha256, bmsonSong.path, BmsLibraryDbGateway.CurrentChartInfoParserVersion, "parse_failed", "JsonReaderException", "bad json", null),
+                CreateChartInfoParseFailureRow(new string('c', 32), string.Empty, Path.Combine(tempRootPath, "missing.bms"), BmsLibraryDbGateway.CurrentChartInfoParserVersion, "parse_failed", "InvalidDataException", "missing", null),
+                CreateChartInfoParseFailureRow(staleBmsFile.hash, staleBmsFile.sha256, staleBmsFile.path, 0, "parse_failed", "InvalidDataException", "old", null)
+            });
+            BMSLibrary library = new BMSLibrary(songDbPath, null, null, null, new RecordingDialogService())
+            {
+                BMSFiles = new List<BMSFile> { bmsFile, staleBmsFile },
+                BmsonSongs = new List<LR2SongDBExtended.bmson_song> { bmsonSong }
+            };
+
+            List<BMSFile> rows = library.BMSFilesChartInfoParseFailed.ToList();
+
+            Assert.AreEqual(2, rows.Count);
+            CollectionAssert.AreEqual(
+                new[] { bmsFile.path, bmsonSong.path }.OrderBy((string path) => path, StringComparer.OrdinalIgnoreCase).ToArray(),
+                rows.Select((BMSFile row) => row.path).ToArray());
+            foreach (BMSFile row in rows)
+            {
+                Assert.IsInstanceOfType(row, typeof(PendingChartEntry));
+                Assert.IsTrue(row.Warnings.Contains(ChartWarningKind.ChartInfoParseFailure));
+                Assert.IsTrue(row.HasHighlightedWarning);
+                Assert.AreEqual("[1] メタデータ解析エラー", row.WarningDigestText);
+                StringAssert.Contains(row.WarningTooltipText, "メタデータ解析に失敗しました。");
+            }
+            Assert.IsFalse(bmsFile.Warnings.Contains(ChartWarningKind.ChartInfoParseFailure));
+            Assert.IsFalse(staleBmsFile.Warnings.Contains(ChartWarningKind.ChartInfoParseFailure));
+        });
+    }
+
+    [TestMethod]
     public void BackfillChartInfos_ParseFailureStillPersistsDigest()
     {
         WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
