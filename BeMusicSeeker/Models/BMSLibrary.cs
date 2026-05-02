@@ -3983,7 +3983,8 @@ public class BMSLibrary : NotificationObject
                             currentPath: path,
                             force: processed >= total);
                     }
-                });
+                },
+                LogInstallPerformanceWarn);
             completeFileEnumerationOnce();
             using (rwlockBMSFiles.GetWriterGuard())
             {
@@ -3992,6 +3993,14 @@ public class BMSLibrary : NotificationObject
                 bmsFolderAllFileList = fileCheckResult.NextFolderAllFileList ?? new BMSDirectoryFileNameHash();
                 directoryResourceLookupCache = fileCheckResult.NextDirectoryResourceLookupCache ?? new DirectoryResourceLookupCache();
                 directoryRelativePathHashIndex = fileCheckResult.NextDirectoryRelativePathHashIndex ?? new DirectoryRelativePathHashIndex();
+            }
+            if (fileCheckResult.InlineChartInfoAppliedRows.Count > 0)
+            {
+                UpsertChartInfoIndexRows(fileCheckResult.InlineChartInfoAppliedRows, "file_diff_inline");
+            }
+            if (fileCheckResult.InlineChartInfoParseFailureRows.Count > 0 || fileCheckResult.InlineChartInfoParseFailureDeleteMd5s.Count > 0)
+            {
+                RaisePropertyChanged(() => BMSFilesChartInfoParseFailed);
             }
             if (fileCheckResult.HasDbDiff)
             {

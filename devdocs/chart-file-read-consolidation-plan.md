@@ -167,13 +167,17 @@ file diff の PLINQ 無制限並列をやめ、chart_info と近い bounded 方�
   - `inline_chart_info_current_skipped_count`
   - `inline_chart_info_failure_skipped_count`
   - `inline_chart_info_parse_failed_count`
+  - `inline_chart_info_failure_persisted_count`
+  - `inline_chart_info_failure_cleared_count`
   - `inline_chart_info_parse_ms`
+  - `inline_chart_info_batch_size`
 
 ### 注意点
 
 - lightweight parse が失敗した譜面は従来通り追加対象にならないため、inline chart_info も行わない。
 - chart_info parse failure は lightweight parse 成功後の追加登録を止めない。
 - chart_info parser は beatoraja 互換 decode を使う。maintenance encoding hint は使わない。
+- snapshot bytes は file diff batch 内だけで保持し、後続 backfill へ渡さない。既定 batch size は 512。
 - full backfill の reader pipeline は変更しない。
 
 ### 完了条件

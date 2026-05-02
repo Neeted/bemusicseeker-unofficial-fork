@@ -733,23 +733,50 @@ internal sealed class BmsLibraryDbGateway
         }
         ExecuteSongDbTransaction(delegate (LR2SongDBExtended songDb)
         {
-            foreach (ChartDigestBackfillEntry entry in sourceDigestEntries)
-            {
-                songDb.Execute(ChartDigestMapUpsertSql, entry.Md5, entry.Sha256);
-            }
-            foreach (LR2SongDBExtended.chart_info row in sourceRows)
-            {
-                ExecuteChartInfoUpsert(songDb, row);
-            }
-            foreach (string md5 in sourceParseFailureDeleteMd5s)
-            {
-                songDb.Execute(ChartInfoParseFailureDeleteSql, md5);
-            }
-            foreach (LR2SongDBExtended.chart_info_parse_failure row in sourceParseFailureRows)
-            {
-                ExecuteChartInfoParseFailureUpsert(songDb, row);
-            }
+            UpsertChartInfoBackfillChunk(songDb, sourceDigestEntries, sourceRows, sourceParseFailureRows, sourceParseFailureDeleteMd5s);
         });
+    }
+
+    internal static void UpsertChartInfoBackfillChunk(
+        LR2SongDBExtended songDb,
+        IEnumerable<ChartDigestBackfillEntry> digestEntries,
+        IEnumerable<LR2SongDBExtended.chart_info> rows,
+        IEnumerable<LR2SongDBExtended.chart_info_parse_failure> parseFailureRows = null,
+        IEnumerable<string> parseFailureDeleteMd5s = null)
+    {
+        if (songDb == null)
+        {
+            throw new ArgumentNullException(nameof(songDb));
+        }
+        List<ChartDigestBackfillEntry> sourceDigestEntries = (digestEntries ?? Enumerable.Empty<ChartDigestBackfillEntry>())
+            .Where((ChartDigestBackfillEntry entry) => entry != null && !string.IsNullOrWhiteSpace(entry.Md5) && !string.IsNullOrWhiteSpace(entry.Sha256))
+            .ToList();
+        List<LR2SongDBExtended.chart_info> sourceRows = (rows ?? Enumerable.Empty<LR2SongDBExtended.chart_info>())
+            .Where((LR2SongDBExtended.chart_info row) => row != null && !string.IsNullOrWhiteSpace(row.sha256))
+            .ToList();
+        List<LR2SongDBExtended.chart_info_parse_failure> sourceParseFailureRows = NormalizeChartInfoParseFailureRows(parseFailureRows);
+        List<string> sourceParseFailureDeleteMd5s = NormalizeChartInfoLookupKeys(parseFailureDeleteMd5s);
+        if (sourceDigestEntries.Count == 0 && sourceRows.Count == 0 && sourceParseFailureRows.Count == 0 && sourceParseFailureDeleteMd5s.Count == 0)
+        {
+            return;
+        }
+        EnsureChartInfoSchema(songDb);
+        foreach (ChartDigestBackfillEntry entry in sourceDigestEntries)
+        {
+            songDb.Execute(ChartDigestMapUpsertSql, entry.Md5, entry.Sha256);
+        }
+        foreach (LR2SongDBExtended.chart_info row in sourceRows)
+        {
+            ExecuteChartInfoUpsert(songDb, row);
+        }
+        foreach (string md5 in sourceParseFailureDeleteMd5s)
+        {
+            songDb.Execute(ChartInfoParseFailureDeleteSql, md5);
+        }
+        foreach (LR2SongDBExtended.chart_info_parse_failure row in sourceParseFailureRows)
+        {
+            ExecuteChartInfoParseFailureUpsert(songDb, row);
+        }
     }
 
     private static void ExecuteChartInfoUpsert(LR2SongDBExtended songDb, LR2SongDBExtended.chart_info row)

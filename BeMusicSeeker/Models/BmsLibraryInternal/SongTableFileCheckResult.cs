@@ -12,6 +12,14 @@ internal sealed class SongTableFileCheckResult
 
     public List<LR2SongDBExtended.bmson_song> AddedBmsonSongs { get; } = new List<LR2SongDBExtended.bmson_song>();
 
+    public List<LR2SongDBExtended.chart_info> InlineChartInfoRows { get; } = new List<LR2SongDBExtended.chart_info>();
+
+    public List<LR2SongDBExtended.chart_info> InlineChartInfoAppliedRows { get; } = new List<LR2SongDBExtended.chart_info>();
+
+    public List<LR2SongDBExtended.chart_info_parse_failure> InlineChartInfoParseFailureRows { get; } = new List<LR2SongDBExtended.chart_info_parse_failure>();
+
+    public List<string> InlineChartInfoParseFailureDeleteMd5s { get; } = new List<string>();
+
     public List<BMSFile> NextFiles { get; } = new List<BMSFile>();
 
     public List<LR2SongDBExtended.bmson_song> NextBmsonSongs { get; } = new List<LR2SongDBExtended.bmson_song>();
@@ -67,6 +75,24 @@ internal sealed class SongTableFileCheckResult
     public long BmsParseMs { get; set; }
 
     public long BmsonParseMs { get; set; }
+
+    public int InlineChartInfoTargetCount { get; set; }
+
+    public int InlineChartInfoSuccessCount { get; set; }
+
+    public int InlineChartInfoCurrentSkippedCount { get; set; }
+
+    public int InlineChartInfoFailureSkippedCount { get; set; }
+
+    public int InlineChartInfoParseFailedCount { get; set; }
+
+    public int InlineChartInfoFailurePersistedCount { get; set; }
+
+    public int InlineChartInfoFailureClearedCount { get; set; }
+
+    public long InlineChartInfoParseMs { get; set; }
+
+    public int InlineChartInfoBatchSize { get; set; }
 
     public long ParseReadBytesEstimate { get; set; }
 

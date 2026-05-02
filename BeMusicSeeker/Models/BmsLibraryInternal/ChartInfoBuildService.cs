@@ -120,6 +120,84 @@ internal sealed class ChartInfoBuildService
             null);
     }
 
+    internal InlineChartInfoBuildResult BuildInlineChartInfo(
+        ChartFileSnapshot snapshot,
+        BMSFile bmsFile,
+        LR2SongDBExtended.bmson_song bmsonSong,
+        IDictionary<string, LR2SongDBExtended.chart_info> existingRows,
+        IDictionary<string, LR2SongDBExtended.chart_info_parse_failure> currentFailures,
+        Action<string> logInstallPerformance = null,
+        Action<string> logInstallPerformanceWarn = null)
+    {
+        if (snapshot == null)
+        {
+            throw new ArgumentNullException(nameof(snapshot));
+        }
+        if ((bmsFile == null) == (bmsonSong == null))
+        {
+            throw new ArgumentException("Exactly one chart model must be specified.");
+        }
+
+        ChartInfoBuildTarget target = bmsFile != null
+            ? ChartInfoBuildTarget.FromBmsFile(bmsFile)
+            : ChartInfoBuildTarget.FromBmsonSong(bmsonSong);
+        string md5 = string.IsNullOrWhiteSpace(snapshot.Md5) ? target.Md5 : snapshot.Md5;
+        string sha256 = string.IsNullOrWhiteSpace(snapshot.Sha256) ? target.Sha256 : snapshot.Sha256;
+        TimeSpan parseTimeout = ResolveParseTimeout();
+
+        if (IsCurrent(existingRows, sha256))
+        {
+            LR2SongDBExtended.chart_info row = existingRows[sha256];
+            target.ApplyChartInfo(row);
+            return InlineChartInfoBuildResult.CreateCurrentRowSkipped(row, snapshot.Length);
+        }
+        if (IsCurrentParseFailure(currentFailures, md5))
+        {
+            return InlineChartInfoBuildResult.CreateFailureSkipped(snapshot.Length);
+        }
+
+        Stopwatch stopwatch = Stopwatch.StartNew();
+        try
+        {
+            // maintenance.encoding is for list/LR2 song display correction. chart_info must use
+            // the parser's beatoraja-compatible default BMS decoding instead of that UI hint.
+            ChartInfoParser.ChartInfoParseResult parseResult = ChartInfoParser.ParseBytesDetailed(
+                snapshot.Bytes,
+                target.Path,
+                md5,
+                sha256,
+                encodingName: null,
+                timeout: parseTimeout);
+            stopwatch.Stop();
+            LogParseDiagnostics(logInstallPerformance, target, md5, sha256, parseResult.Diagnostics);
+            LR2SongDBExtended.chart_info row = parseResult.Row;
+            target.ApplyChartInfo(row);
+            return InlineChartInfoBuildResult.CreateSuccess(row, md5, stopwatch.ElapsedMilliseconds, snapshot.Length);
+        }
+        catch (Exception ex)
+        {
+            stopwatch.Stop();
+            logInstallPerformanceWarn?.Invoke(BuildParseFailureLogMessage(target, md5, sha256, ex));
+            bool timeoutFailed = ex is ChartInfoParser.ChartInfoParseTimeoutException;
+            return InlineChartInfoBuildResult.CreateParseFailure(
+                new LR2SongDBExtended.chart_info_parse_failure
+                {
+                    md5 = md5,
+                    sha256 = sha256,
+                    path = target.Path,
+                    parser_version = BmsLibraryDbGateway.CurrentChartInfoParserVersion,
+                    failure_kind = timeoutFailed ? "timeout" : "parse_failed",
+                    exception_type = ex.GetType().Name,
+                    message = NormalizePersistedParseFailureMessage(ex.Message),
+                    parse_timeout_ms = timeoutFailed ? ResolveTimeoutMilliseconds(parseTimeout) : null,
+                    updated_at = DateTime.UtcNow
+                },
+                timeoutFailed,
+                stopwatch.ElapsedMilliseconds,
+                snapshot.Length);
+        }
+    }
+
     private ChartInfoBackfillResult BackfillChartInfosCore(
         BmsLibraryDbGateway dbGateway,
         IEnumerable<BMSFile> currentFiles,
@@ -973,6 +1051,113 @@ internal sealed class ChartInfoBuildService
         public ChartInfoBuildTarget Target { get; }
 
         public byte[] Bytes { get; }
+    }
+
+    internal sealed class InlineChartInfoBuildResult
+    {
+        private InlineChartInfoBuildResult(
+            LR2SongDBExtended.chart_info row,
+            bool shouldPersistRow,
+            bool currentRowSkipped,
+            bool skippedPersistedFailure,
+            bool parseFailed,
+            bool timeoutFailed,
+            LR2SongDBExtended.chart_info_parse_failure parseFailureRow,
+            string parseFailureDeleteMd5,
+            long parseMs,
+            long byteCount)
+        {
+            Row = row;
+            ShouldPersistRow = shouldPersistRow;
+            CurrentRowSkipped = currentRowSkipped;
+            SkippedPersistedFailure = skippedPersistedFailure;
+            ParseFailed = parseFailed;
+            TimeoutFailed = timeoutFailed;
+            ParseFailureRow = parseFailureRow;
+            ParseFailureDeleteMd5 = parseFailureDeleteMd5;
+            ParseMs = parseMs;
+            ByteCount = byteCount;
+        }
+
+        public LR2SongDBExtended.chart_info Row { get; }
+
+        public bool ShouldPersistRow { get; }
+
+        public bool CurrentRowSkipped { get; }
+
+        public bool SkippedPersistedFailure { get; }
+
+        public bool ParseFailed { get; }
+
+        public bool TimeoutFailed { get; }
+
+        public LR2SongDBExtended.chart_info_parse_failure ParseFailureRow { get; }
+
+        public string ParseFailureDeleteMd5 { get; }
+
+        public long ParseMs { get; }
+
+        public long ByteCount { get; }
+
+        public static InlineChartInfoBuildResult CreateSuccess(LR2SongDBExtended.chart_info row, string parseFailureDeleteMd5, long parseMs, long byteCount)
+        {
+            return new InlineChartInfoBuildResult(
+                row,
+                shouldPersistRow: true,
+                currentRowSkipped: false,
+                skippedPersistedFailure: false,
+                parseFailed: false,
+                timeoutFailed: false,
+                parseFailureRow: null,
+                parseFailureDeleteMd5: parseFailureDeleteMd5,
+                parseMs: parseMs,
+                byteCount: byteCount);
+        }
+
+        public static InlineChartInfoBuildResult CreateCurrentRowSkipped(LR2SongDBExtended.chart_info row, long byteCount)
+        {
+            return new InlineChartInfoBuildResult(
+                row,
+                shouldPersistRow: false,
+                currentRowSkipped: true,
+                skippedPersistedFailure: false,
+                parseFailed: false,
+                timeoutFailed: false,
+                parseFailureRow: null,
+                parseFailureDeleteMd5: null,
+                parseMs: 0L,
+                byteCount: byteCount);
+        }
+
+        public static InlineChartInfoBuildResult CreateFailureSkipped(long byteCount)
+        {
+            return new InlineChartInfoBuildResult(
+                null,
+                shouldPersistRow: false,
+                currentRowSkipped: false,
+                skippedPersistedFailure: true,
+                parseFailed: false,
+                timeoutFailed: false,
+                parseFailureRow: null,
+                parseFailureDeleteMd5: null,
+                parseMs: 0L,
+                byteCount: byteCount);
+        }
+
+        public static InlineChartInfoBuildResult CreateParseFailure(LR2SongDBExtended.chart_info_parse_failure parseFailureRow, bool timeoutFailed, long parseMs, long byteCount)
+        {
+            return new InlineChartInfoBuildResult(
+                null,
+                shouldPersistRow: false,
+                currentRowSkipped: false,
+                skippedPersistedFailure: false,
+                parseFailed: true,
+                timeoutFailed: timeoutFailed,
+                parseFailureRow: parseFailureRow,
+                parseFailureDeleteMd5: null,
+                parseMs: parseMs,
+                byteCount: byteCount);
+        }
     }
 
     private sealed class ChartInfoBuildItemResult
