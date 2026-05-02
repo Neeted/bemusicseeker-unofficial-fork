@@ -227,6 +227,111 @@ public sealed class ChartInfoMetadataTests
     }
 
     [TestMethod]
+    public void ChartInfoExport_CreatesArchiveWithRootMetadataDbAndStartupImporterCanImport()
+    {
+        string sevenZipPath = ResolveInstalledSevenZipPathOrInconclusive();
+        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        {
+            string md5 = new string('a', 32);
+            string sha = new string('1', 64);
+            using (LR2SongDBExtended songDb = new LR2SongDBExtended(songDbPath))
+            {
+                BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
+                BmsLibraryDbGateway.EnsureChartInfoSchema(songDb);
+                songDb.InsertOrReplace(CreateChartInfoRow(sha, md5, BmsLibraryDbGateway.CurrentChartInfoParserVersion), typeof(LR2SongDBExtended.chart_info));
+            }
+
+            string outputPath = Path.Combine(tempRootPath, "chart-info-metadata.db");
+            string archivePath = Path.Combine(tempRootPath, "chart-info-metadata.7z");
+            ChartInfoExportResult result = ChartInfoExportRunner.Export(new ChartInfoExportOptions
+            {
+                SourceSongDbPath = songDbPath,
+                OutputDbPath = outputPath,
+                ArchiveOutputPath = archivePath,
+                SevenZipExecutablePath = sevenZipPath
+            });
+
+            Assert.IsTrue(File.Exists(outputPath));
+            Assert.IsTrue(File.Exists(archivePath));
+            Assert.AreEqual(archivePath, result.ArchiveOutputPath);
+            Assert.IsTrue(result.ArchiveSizeBytes > 0L);
+            StringAssert.Contains(result.ToConsoleSummary(), "archive=\"");
+            string listOutput = RunSevenZip(sevenZipPath, "l " + QuoteProcessArgument(archivePath));
+            StringAssert.Contains(listOutput, "chart-info-metadata.db");
+
+            string appBaseDirectory = Path.Combine(tempRootPath, "app");
+            Directory.CreateDirectory(appBaseDirectory);
+            string appArchivePath = Path.Combine(appBaseDirectory, ChartInfoMetadataBundleStartupImporter.MetadataArchiveFileName);
+            File.Copy(archivePath, appArchivePath);
+            string importDbDirectoryPath = Path.Combine(tempRootPath, "import");
+            Directory.CreateDirectory(importDbDirectoryPath);
+            string importDbPath = Path.Combine(importDbDirectoryPath, "song.db");
+            File.Copy(songDbPath, importDbPath);
+            using (LR2SongDBExtended importDb = new LR2SongDBExtended(importDbPath))
+            {
+                importDb.Execute("DELETE FROM chart_info;");
+                importDb.Execute("DELETE FROM chart_digest_map;");
+            }
+            ChartInfoMetadataBundleStartupImporter.TryImportFromBaseDirectory(
+                appBaseDirectory,
+                new BmsLibraryDbGateway(importDbPath),
+                null,
+                delegate(string sourceArchivePath, string destinationDirectoryPath)
+                {
+                    RunSevenZip(sevenZipPath, "x -y " + QuoteProcessArgument(sourceArchivePath) + " -o" + QuoteProcessArgument(destinationDirectoryPath));
+                    return Array.Empty<ArchiveEntryMetadata>();
+                });
+
+            using LR2SongDBExtended verify = new LR2SongDBExtended(importDbPath);
+            Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info WHERE sha256 = ? AND md5 = ?;", sha, md5));
+            Assert.IsFalse(File.Exists(appArchivePath));
+            Assert.IsTrue(File.Exists(Path.Combine(appBaseDirectory, ChartInfoMetadataBundleStartupImporter.ImportedMetadataDirectoryName, ChartInfoMetadataBundleStartupImporter.MetadataArchiveFileName)));
+        });
+    }
+
+    [TestMethod]
+    public void ChartInfoExport_RejectsArchiveOutputSameAsDbOutput()
+    {
+        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        {
+            using (LR2SongDBExtended songDb = new LR2SongDBExtended(songDbPath))
+            {
+                BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
+                BmsLibraryDbGateway.EnsureChartInfoSchema(songDb);
+            }
+
+            string outputPath = Path.Combine(tempRootPath, "chart-info-metadata.db");
+            Assert.ThrowsException<ArgumentException>(() => ChartInfoExportRunner.Export(new ChartInfoExportOptions
+            {
+                SourceSongDbPath = songDbPath,
+                OutputDbPath = outputPath,
+                ArchiveOutputPath = outputPath
+            }));
+        });
+    }
+
+    [TestMethod]
+    public void ChartInfoExport_ArchiveOutputRequiresSevenZip()
+    {
+        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        {
+            using (LR2SongDBExtended songDb = new LR2SongDBExtended(songDbPath))
+            {
+                BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
+                BmsLibraryDbGateway.EnsureChartInfoSchema(songDb);
+            }
+
+            Assert.ThrowsException<FileNotFoundException>(() => ChartInfoExportRunner.Export(new ChartInfoExportOptions
+            {
+                SourceSongDbPath = songDbPath,
+                OutputDbPath = Path.Combine(tempRootPath, "chart-info-metadata.db"),
+                ArchiveOutputPath = Path.Combine(tempRootPath, "chart-info-metadata.7z"),
+                SevenZipExecutablePath = Path.Combine(tempRootPath, "missing-7z.exe")
+            }));
+        });
+    }
+
+    [TestMethod]
     public void ImportChartInfoMetadataBundle_ImportsMissingAndStaleRowsAndClearsFailures()
     {
         WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
@@ -3547,6 +3652,50 @@ public sealed class ChartInfoMetadataTests
             return;
         }
         Assert.IsTrue(Math.Abs(expected.Value - actual.Value) <= 0.000001, message + " expected=" + expected.Value.ToString("R", CultureInfo.InvariantCulture) + " actual=" + actual.Value.ToString("R", CultureInfo.InvariantCulture));
+    }
+
+    private static string ResolveInstalledSevenZipPathOrInconclusive()
+    {
+        string[] candidates =
+        {
+            @"C:\Program Files\7-Zip\7z.exe",
+            @"C:\Program Files (x86)\7-Zip\7z.exe"
+        };
+        foreach (string candidate in candidates)
+        {
+            if (File.Exists(candidate))
+            {
+                return candidate;
+            }
+        }
+
+        Assert.Inconclusive("7-Zip CLI is not installed.");
+        return null;
+    }
+
+    private static string RunSevenZip(string sevenZipPath, string arguments)
+    {
+        ProcessStartInfo startInfo = new ProcessStartInfo
+        {
+            FileName = sevenZipPath,
+            Arguments = arguments,
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            CreateNoWindow = true
+        };
+        using Process process = Process.Start(startInfo);
+        Assert.IsNotNull(process, "Failed to start 7z.exe.");
+        string stdout = process.StandardOutput.ReadToEnd();
+        string stderr = process.StandardError.ReadToEnd();
+        Assert.IsTrue(process.WaitForExit(30000), "7z.exe timed out." + Environment.NewLine + stdout + Environment.NewLine + stderr);
+        Assert.AreEqual(0, process.ExitCode, stdout + Environment.NewLine + stderr);
+        return stdout + Environment.NewLine + stderr;
+    }
+
+    private static string QuoteProcessArgument(string value)
+    {
+        return "\"" + (value ?? string.Empty).Replace("\"", "\\\"") + "\"";
     }
 
     private static LR2SongDBExtended.chart_info CreateChartInfoRow(string sha256, string md5, int parserVersion)

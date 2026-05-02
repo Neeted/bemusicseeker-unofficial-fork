@@ -43,6 +43,12 @@ internal static class Program
                 case "--out":
                     options.OutputDbPath = Value();
                     break;
+                case "--archive-out":
+                    options.ArchiveOutputPath = Value();
+                    break;
+                case "--sevenzip":
+                    options.SevenZipExecutablePath = Value();
+                    break;
                 case "--help":
                 case "-h":
                     PrintHelp();
@@ -58,7 +64,9 @@ internal static class Program
     private static void PrintHelp()
     {
         Console.WriteLine("chart-info-export");
-        Console.WriteLine("  --source <path>   source song.db path");
-        Console.WriteLine("  --out <path>      output chart-info-metadata.db path");
+        Console.WriteLine("  --source <path>       source song.db path");
+        Console.WriteLine("  --out <path>          output chart-info-metadata.db path");
+        Console.WriteLine("  --archive-out <path>  optional output chart-info-metadata.7z path");
+        Console.WriteLine("  --sevenzip <path>     optional 7z.exe path");
     }
 }

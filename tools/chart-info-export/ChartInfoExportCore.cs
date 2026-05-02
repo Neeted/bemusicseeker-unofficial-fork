@@ -1,6 +1,7 @@
 #nullable disable
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -13,6 +14,10 @@ public sealed class ChartInfoExportOptions
     public string SourceSongDbPath { get; set; }
 
     public string OutputDbPath { get; set; }
+
+    public string ArchiveOutputPath { get; set; }
+
+    public string SevenZipExecutablePath { get; set; }
 }
 
 public sealed class ChartInfoExportResult
@@ -20,6 +25,10 @@ public sealed class ChartInfoExportResult
     public string SourceSongDbPath { get; set; }
 
     public string OutputDbPath { get; set; }
+
+    public string ArchiveOutputPath { get; set; }
+
+    public long ArchiveSizeBytes { get; set; }
 
     public string BundleId { get; set; }
 
@@ -35,7 +44,10 @@ public sealed class ChartInfoExportResult
             + " chartInfo=" + ChartInfoCount.ToString(CultureInfo.InvariantCulture)
             + " chartDigest=" + ChartDigestCount.ToString(CultureInfo.InvariantCulture)
             + " bundleId=" + (BundleId ?? string.Empty)
-            + " out=\"" + (OutputDbPath ?? string.Empty) + "\"";
+            + " out=\"" + (OutputDbPath ?? string.Empty) + "\""
+            + (string.IsNullOrWhiteSpace(ArchiveOutputPath)
+                ? string.Empty
+                : " archive=\"" + ArchiveOutputPath + "\" archiveBytes=" + ArchiveSizeBytes.ToString(CultureInfo.InvariantCulture));
     }
 }
 
@@ -46,6 +58,8 @@ public static class ChartInfoExportRunner
     public const int CurrentChartInfoParserVersion = 20;
 
     public const int MetadataBundleFormatVersion = 1;
+
+    private const string MetadataDbFileName = "chart-info-metadata.db";
 
     private static readonly string[] ChartInfoColumns =
     {
@@ -85,9 +99,21 @@ public static class ChartInfoExportRunner
         options ??= new ChartInfoExportOptions();
         string sourcePath = Path.GetFullPath(RequireFile(options.SourceSongDbPath, "source song.db"));
         string outputPath = Path.GetFullPath(RequirePath(options.OutputDbPath, "output path"));
+        string archiveOutputPath = string.IsNullOrWhiteSpace(options.ArchiveOutputPath) ? null : Path.GetFullPath(options.ArchiveOutputPath);
         if (string.Equals(sourcePath, outputPath, StringComparison.OrdinalIgnoreCase))
         {
             throw new ArgumentException("Output DB must be different from source DB.", nameof(options.OutputDbPath));
+        }
+        if (!string.IsNullOrWhiteSpace(archiveOutputPath))
+        {
+            if (string.Equals(outputPath, archiveOutputPath, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new ArgumentException("Archive output must be different from output DB.", nameof(options.ArchiveOutputPath));
+            }
+            if (string.Equals(sourcePath, archiveOutputPath, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new ArgumentException("Archive output must be different from source DB.", nameof(options.ArchiveOutputPath));
+            }
         }
 
         ValidateSourceDatabase(sourcePath);
@@ -102,40 +128,154 @@ public static class ChartInfoExportRunner
             File.Delete(outputPath);
         }
 
+        ChartInfoExportResult result;
         DateTime generatedAtUtc = DateTime.UtcNow;
         string bundleId = Guid.NewGuid().ToString("N");
-        using SQLiteConnection output = new SQLiteConnection(outputPath, storeDateTimeAsTicks: true);
-        CreateOutputSchema(output);
-        output.Execute("ATTACH DATABASE " + SqlQuote(sourcePath) + " AS src;");
+        using (SQLiteConnection output = new SQLiteConnection(outputPath, storeDateTimeAsTicks: true))
+        {
+            CreateOutputSchema(output);
+            output.Execute("ATTACH DATABASE " + SqlQuote(sourcePath) + " AS src;");
+            try
+            {
+                InsertChartInfoRows(output);
+                InsertChartDigestRows(output);
+                int chartInfoCount = output.ExecuteScalar<int>("SELECT COUNT(1) FROM chart_info;");
+                int chartDigestCount = output.ExecuteScalar<int>("SELECT COUNT(1) FROM chart_digest_map;");
+                output.Execute(
+                    "INSERT INTO chart_info_metadata_bundle (bundle_id, format_version, generated_at, chart_info_schema_version, chart_info_parser_version, chart_info_count, chart_digest_count) VALUES (?, ?, ?, ?, ?, ?, ?);",
+                    bundleId,
+                    MetadataBundleFormatVersion,
+                    generatedAtUtc.ToString("o", CultureInfo.InvariantCulture),
+                    CurrentChartInfoSchemaVersion,
+                    CurrentChartInfoParserVersion,
+                    chartInfoCount,
+                    chartDigestCount);
+                result = new ChartInfoExportResult
+                {
+                    SourceSongDbPath = sourcePath,
+                    OutputDbPath = outputPath,
+                    BundleId = bundleId,
+                    ChartInfoCount = chartInfoCount,
+                    ChartDigestCount = chartDigestCount,
+                    GeneratedAtUtc = generatedAtUtc
+                };
+            }
+            finally
+            {
+                output.Execute("DETACH DATABASE src;");
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(archiveOutputPath))
+        {
+            result.ArchiveOutputPath = archiveOutputPath;
+            result.ArchiveSizeBytes = CreateArchive(outputPath, archiveOutputPath, options.SevenZipExecutablePath);
+        }
+        return result;
+    }
+
+    private static long CreateArchive(string outputDbPath, string archiveOutputPath, string sevenZipExecutablePath)
+    {
+        string sevenZipPath = ResolveSevenZipExecutablePath(sevenZipExecutablePath);
+        string archiveDirectory = Path.GetDirectoryName(archiveOutputPath);
+        if (!string.IsNullOrWhiteSpace(archiveDirectory))
+        {
+            Directory.CreateDirectory(archiveDirectory);
+        }
+        if (File.Exists(archiveOutputPath))
+        {
+            File.Delete(archiveOutputPath);
+        }
+
+        string stagingDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_ChartInfoExport_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(stagingDirectoryPath);
         try
         {
-            InsertChartInfoRows(output);
-            InsertChartDigestRows(output);
-            int chartInfoCount = output.ExecuteScalar<int>("SELECT COUNT(1) FROM chart_info;");
-            int chartDigestCount = output.ExecuteScalar<int>("SELECT COUNT(1) FROM chart_digest_map;");
-            output.Execute(
-                "INSERT INTO chart_info_metadata_bundle (bundle_id, format_version, generated_at, chart_info_schema_version, chart_info_parser_version, chart_info_count, chart_digest_count) VALUES (?, ?, ?, ?, ?, ?, ?);",
-                bundleId,
-                MetadataBundleFormatVersion,
-                generatedAtUtc.ToString("o", CultureInfo.InvariantCulture),
-                CurrentChartInfoSchemaVersion,
-                CurrentChartInfoParserVersion,
-                chartInfoCount,
-                chartDigestCount);
-            return new ChartInfoExportResult
+            string stagedDbPath = Path.Combine(stagingDirectoryPath, MetadataDbFileName);
+            File.Copy(outputDbPath, stagedDbPath, overwrite: true);
+            RunSevenZip(sevenZipPath, archiveOutputPath, stagingDirectoryPath);
+            if (!File.Exists(archiveOutputPath))
             {
-                SourceSongDbPath = sourcePath,
-                OutputDbPath = outputPath,
-                BundleId = bundleId,
-                ChartInfoCount = chartInfoCount,
-                ChartDigestCount = chartDigestCount,
-                GeneratedAtUtc = generatedAtUtc
-            };
+                throw new IOException("7z completed but archive was not created: " + archiveOutputPath);
+            }
+
+            return new FileInfo(archiveOutputPath).Length;
         }
         finally
         {
-            output.Execute("DETACH DATABASE src;");
+            try
+            {
+                if (Directory.Exists(stagingDirectoryPath))
+                {
+                    Directory.Delete(stagingDirectoryPath, recursive: true);
+                }
+            }
+            catch
+            {
+            }
         }
+    }
+
+    private static string ResolveSevenZipExecutablePath(string sevenZipExecutablePath)
+    {
+        if (!string.IsNullOrWhiteSpace(sevenZipExecutablePath))
+        {
+            string explicitPath = Path.GetFullPath(sevenZipExecutablePath);
+            if (!File.Exists(explicitPath))
+            {
+                throw new FileNotFoundException("7z.exe was not found.", explicitPath);
+            }
+            return explicitPath;
+        }
+
+        string[] candidates =
+        {
+            @"C:\Program Files\7-Zip\7z.exe",
+            @"C:\Program Files (x86)\7-Zip\7z.exe"
+        };
+        foreach (string candidate in candidates)
+        {
+            if (File.Exists(candidate))
+            {
+                return candidate;
+            }
+        }
+
+        throw new FileNotFoundException("7z.exe was not found. Install 7-Zip or pass --sevenzip <path>.");
+    }
+
+    private static void RunSevenZip(string sevenZipPath, string archiveOutputPath, string stagingDirectoryPath)
+    {
+        ProcessStartInfo startInfo = new ProcessStartInfo
+        {
+            FileName = sevenZipPath,
+            Arguments = "a -t7z -mx=9 -mmt=on -bd -y " + QuoteProcessArgument(archiveOutputPath) + " " + QuoteProcessArgument(MetadataDbFileName),
+            WorkingDirectory = stagingDirectoryPath,
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            CreateNoWindow = true
+        };
+        using Process process = Process.Start(startInfo);
+        if (process == null)
+        {
+            throw new InvalidOperationException("Failed to start 7z.exe.");
+        }
+
+        string stdout = process.StandardOutput.ReadToEnd();
+        string stderr = process.StandardError.ReadToEnd();
+        process.WaitForExit();
+        if (process.ExitCode != 0)
+        {
+            throw new InvalidOperationException("7z.exe failed with exit code " + process.ExitCode.ToString(CultureInfo.InvariantCulture)
+                + Environment.NewLine + stdout
+                + Environment.NewLine + stderr);
+        }
+    }
+
+    private static string QuoteProcessArgument(string value)
+    {
+        return "\"" + (value ?? string.Empty).Replace("\"", "\\\"") + "\"";
     }
 
     private static string RequireFile(string path, string label)
