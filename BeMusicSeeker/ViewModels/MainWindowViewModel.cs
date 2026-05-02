@@ -13293,9 +13293,11 @@ public class MainWindowViewModel : ViewModel
     private void TrackStartupProgressChartInfoHydrationRequested(int requestedVersion)
     {
         bool shouldTrack;
+        int expectedBackfillVersion;
         lock (startupProgressLock)
         {
             shouldTrack = startupProgressState.IsActive && requestedVersion > startupProgressState.ChartInfoHydrationBaselineCompletedVersion;
+            expectedBackfillVersion = (files?.ChartInfoBackfillRequestedVersion ?? 0) + 1;
         }
         if (!shouldTrack)
         {
@@ -13306,6 +13308,11 @@ public class MainWindowViewModel : ViewModel
             requestedVersion,
             "chart_info_hydration",
             state => state.RequiredChartInfoHydrationCompletedVersion = Math.Max(state.RequiredChartInfoHydrationCompletedVersion, requestedVersion));
+        TryTrackStartupProgressPhaseRequest(
+            StartupProgressPhase.ChartInfoBackfillDone,
+            expectedBackfillVersion,
+            "chart_info_backfill_after_hydration",
+            state => state.RequiredChartInfoBackfillCompletedVersion = Math.Max(state.RequiredChartInfoBackfillCompletedVersion, expectedBackfillVersion));
     }
 
     private void TrackStartupProgressPlaylistEntriesHydrationRequested(int requestedVersion)
@@ -13448,7 +13455,7 @@ public class MainWindowViewModel : ViewModel
         bool shouldComplete = false;
         lock (startupProgressLock)
         {
-            if (!startupProgressState.IsActive || (startupProgressState.ExpectedPhases & StartupProgressPhase.ChartDigestBackfillDone) == 0)
+            if (!startupProgressState.IsActive || !CanCompleteStartupProgressPhase(startupProgressState, StartupProgressPhase.ChartDigestBackfillDone))
             {
                 return;
             }
@@ -13465,7 +13472,7 @@ public class MainWindowViewModel : ViewModel
         bool shouldComplete = false;
         lock (startupProgressLock)
         {
-            if (!startupProgressState.IsActive || (startupProgressState.ExpectedPhases & StartupProgressPhase.ChartInfoBackfillDone) == 0)
+            if (!startupProgressState.IsActive || !CanCompleteStartupProgressPhase(startupProgressState, StartupProgressPhase.ChartInfoBackfillDone))
             {
                 return;
             }
@@ -13482,7 +13489,7 @@ public class MainWindowViewModel : ViewModel
         bool shouldComplete = false;
         lock (startupProgressLock)
         {
-            if (!startupProgressState.IsActive || (startupProgressState.ExpectedPhases & StartupProgressPhase.ChartInfoHydrationDone) == 0)
+            if (!startupProgressState.IsActive || !CanCompleteStartupProgressPhase(startupProgressState, StartupProgressPhase.ChartInfoHydrationDone))
             {
                 return;
             }

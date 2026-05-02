@@ -34,6 +34,8 @@ background 系 phase は request 済みでなければ complete できない。�
 - `LibraryFileEnumerationDone`
 - `LibraryFileDiffDone`
 
+`ChartInfoHydrationDone` は完了後に full `ChartInfoBackfillDone` を queue するため、hydration request を受けた時点で `ChartInfoBackfillDone` も request 済みとして扱う。これにより、`Initialize` 完了直後の未 request phase skip で譜面メタデータ解析が完了扱いにならず、backfill 開始後に `[processed/total] 譜面メタデータ解析 fileName` が表示される。
+
 ## Operation 別 ExpectedPhases
 
 | Operation | Expected count | Expected phases |

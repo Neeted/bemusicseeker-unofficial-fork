@@ -44,6 +44,21 @@ public sealed class MainWindowViewModelStartupProgressTests
     }
 
     [TestMethod]
+    public void StartupProgress_ChartInfoCompletionWithoutRequest_DoesNotCompleteBackgroundPhase()
+    {
+        MainWindowViewModel.StartupProgressTestResult result = MainWindowViewModel.ReduceStartupProgressForTest(
+            "Startup",
+            "complete:ChartInfoHydrationDone",
+            "complete:ChartInfoBackfillDone",
+            "complete:ChartDigestBackfillDone");
+
+        Assert.AreEqual(16, result.ExpectedCount);
+        Assert.AreEqual(1, result.CompletedCount);
+        Assert.AreEqual(3, result.IgnoredCompleteCount);
+        Assert.IsFalse(result.IsCompleted);
+    }
+
+    [TestMethod]
     public void StartupProgress_SkipCompletesWithoutIncreasingMaximum()
     {
         MainWindowViewModel.StartupProgressTestResult result = MainWindowViewModel.ReduceStartupProgressForTest(
@@ -130,6 +145,30 @@ public sealed class MainWindowViewModelStartupProgressTests
             "chartinfo:209999|6695|C:\\BMS\\metadata.bms");
 
         Assert.AreEqual("[6695/209999] " + Resources.Statusbar_progress_phase_chart_info + " metadata.bms", result.SubLabel);
+    }
+
+    [TestMethod]
+    public void StartupProgress_ChartInfoBackfillRequestedBeforeSkip_RemainsVisibleAfterHydration()
+    {
+        MainWindowViewModel.StartupProgressTestResult result = MainWindowViewModel.ReduceStartupProgressForTest(
+            "Startup",
+            "complete:LibraryDatabaseLoadDone",
+            "complete:LibraryFileEnumerationDone",
+            "complete:LibraryFileDiffDone",
+            "complete:StartupReadyData",
+            "complete:StartupReadyUi",
+            "complete:StartupReadyOperable",
+            "skip:PlaylistEntriesHydrationDone",
+            "request:ChartInfoHydrationDone",
+            "request:ChartInfoBackfillDone",
+            "skip:ChartInfoBackfillDone",
+            "complete:ChartInfoHydrationDone",
+            "chartinfo:209875|6695|C:\\BMS\\metadata.bms");
+
+        Assert.IsFalse(result.IsCompleted);
+        Assert.AreEqual(Resources.Statusbar_progress_operable_background, result.Label);
+        Assert.AreEqual("[6695/209875] " + Resources.Statusbar_progress_phase_chart_info + " metadata.bms", result.SubLabel);
+        Assert.AreEqual(1, result.SkippedCount);
     }
 
     [TestMethod]
