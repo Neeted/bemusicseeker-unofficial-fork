@@ -246,11 +246,13 @@ BeMusicSeeker が `karinotes = 0` を入れる経路は、`setZeroNoteAndCommitT
 - `lazy` は主戦略にしない。欠損一覧は membership 判定で全件評価が必要なため、速度面では side-effect-free index を一度作る方を正とする。
 - `resource_health_index_build` / `resource_health_projection` log を追加し、`maintenance_update` / `installable_maintenance_deferred` には `resourceHealthIndexMs`, `warningReapplyTargets=0`, `warningChanged=0` を出す。
 
-### Phase 6: file diff pipeline 化と chunk commit
+### Phase 6: file diff chunk commit と進捗粒度改善
 
-次に優先する。目的は、初回空DBの file diff で全件 staging を抱えたまま最後に一括 commit する構造をやめ、backfill と同じ pipeline / chunk 方針へ寄せることである。
+完了済み。
 
-#### 現状
+目的は、初回空DBの file diff で最後に単一 transaction を長時間保持する構造をやめ、DB 永続化を backfill と同じ 1000 件 chunk 方針へ寄せることである。
+
+#### 旧課題
 
 - `ApplyFileScanDiff()` は `addedPaths` / `addedOrUpdatedBmsonPaths` を 512 件 batch に分ける。
 - batch 内では `AsParallel()` で `ChartFileContentReader.ReadSnapshot()`、lightweight parse、inline `chart_info` parse を行う。
@@ -265,53 +267,62 @@ BeMusicSeeker が `karinotes = 0` を入れる経路は、`setZeroNoteAndCommitT
 - DB 保存は最後に `song` / `bmson_song` / `chart_digest_map` / `chart_info` / `chart_info_parse_failure` を同一 transaction でまとめて行う。
 - 進捗通知は batch の `ToList()` が完了した後に candidate を列挙するため、実際には 512 件単位で進んで見える。
 
-#### 修正方針
+#### 現行仕様
 
-- file diff も backfill と同じく pipeline 化する。
-  - 単一 reader が `ChartFileSnapshot` を読み、bounded queue へ投入する。
-  - parser worker が lightweight parse と inline `chart_info` を行う。
-  - result collector が 1 件ごとに結果を集計し、進捗 callback を呼ぶ。
-  - commit writer が chunk ごとに DB 永続化する。
-- commit chunk size は `chart_info` backfill と揃えて 1000 件を既定にする。
-- 進捗 callback は 1 件ごとに呼ぶ。
+- file diff の lightweight parse は reader / parser workers / collector の bounded pipeline で行う。
+  - reader は 1 本で `ChartFileContentReader.ReadSnapshot()` を実行し、bounded queue に `ChartFileSnapshot` を流す。
+  - queue capacity は `fileDiffParserDegree * 2`。
+  - parser worker degree は `min(4, max(1, Environment.ProcessorCount - 1))`。
+  - worker は BMS / bmson lightweight parse を行い、collector が inline `chart_info` 解析 batch へ渡す。
+  - snapshot bytes は collector の batch flush 後に破棄され、全件分を保持しない。
+- progress callback は parsed candidate の collector 到達ごとに 1 件単位で呼ぶ。
   - UI 側の `ReportLibraryInitializationProgress()` は 150ms throttle を持つため、1 件ごとに通知しても UI 更新は過剰になりにくい。
   - sub label は従来通り `ファイル差分確認 [processed/total] fileName` とする。
-- DB 保存対象を `FileDiffCommitChunk` のような短命構造にまとめ、保存後は chunk list を破棄する。
-- `NextFiles` / `NextBmsonSongs` は最終 in-memory catalog 用に必要だが、commit 用 staging と二重に全件保持しない。
-  - 追加 BMS は parse 成功後に最終 builder へ append する。
-  - DB commit 用 list は chunk 保存後に clear する。
-- inline `chart_info` の成功 row / failure row / delete md5 も chunk commit 後に破棄する。
-- 削除 row / update row も 1000 件単位で保存できるよう、既存の一括 transaction から chunk transaction へ移す。
-- `SongTableFileCheckResult` は全件 row を返すのではなく、count / elapsed / changed summary と最終 catalog を返す形に寄せる。
+- DB 保存対象を `FileScanDiffCommitChunk` にまとめ、1000 件単位で transaction commit する。
+  - BMS追加/削除、bmson追加/更新/削除、`chart_digest_map`、inline `chart_info`、parse failure upsert/delete を同じ chunk 保存経路で扱う。
+  - 同一譜面由来の `chart_info` / failure delete は、可能な範囲で同じ chunk に寄せる。
+- 全体 atomicity は持たない。
+  - chunk 単位で atomic。
+  - 途中失敗時は例外を伝播し、in-memory catalog は切り替えない。
+  - DB の部分反映は次回 scan で収束させる。
+- `SongTableFileCheckResult` に次の観測値を追加した。
+  - `DbCommitChunkSize`
+  - `DbCommitChunks`
+  - `DbCommitMaxChunkMs`
+  - `FileDiffReadMs`
+  - `FileDiffParseMs`
+  - `SnapshotQueueHighWatermark`
 
 #### byte cap について
 
-Phase 6 では byte cap は必須にしない。bounded queue によって reader が先行しすぎない設計にする。
+Phase 6 では byte cap は入れていない。件数ベースの bounded parallelism を維持し、必要性は追加ログで判断する。
 
-- reader queue capacity は `parserDegree * 2` 程度を既定にする。
-- parser が遅い場合は queue が詰まり reader が止まる。
-- file read が遅い場合は worker が待つ。
-- どちらが bottleneck かは `readMs` / `parseMs` / queue wait 系 log で見る。
+- `file_diff_read_ms`
+- `file_diff_parse_ms`
+- `snapshot_queue_high_watermark`
+- `db_commit_chunks`
+- `db_commit_chunk_size`
+- `db_commit_max_chunk_ms`
 
-将来、大きい譜面が多く byte peak が問題になった場合に備え、観測 log は追加する。
+将来、大きい譜面が多く byte peak が問題になった場合は、次を追加候補にする。
 
-- `file_diff_queue_capacity`
-- `file_diff_commit_chunk_count`
 - `file_diff_snapshot_bytes_max`
-- `file_diff_snapshot_queue_high_watermark`
 - `file_diff_added_files_buffered_max`
 - `file_diff_inline_rows_buffered_max`
 
 #### 期待効果
 
-- file diff 中のメモリピークを下げる。
 - DB commit のロック時間を短くし、失敗時の rollback 範囲を小さくする。
 - `ファイル差分確認` の進捗が 1 件単位で滑らかになる。
-- backfill と file diff の読み取り/解析/commit 方針が揃い、以後の調整がしやすくなる。
+- backfill と file diff の commit 方針が揃い、以後の調整がしやすくなる。
+- snapshot bytes の全件 staging は解消する。
+- `AddedFiles` / `AddedBmsonSongs` / `NextFiles` / `NextBmsonSongs` など最終 catalog 用 list は互換のため残す。ここがメモリピークになる場合は、次段で catalog 切替単位そのものを見直す。
 
 ### Phase 7: chart_info backfill の事前候補判定
 
-Phase 6 の次に行う。目的は、full backfill が不要なときに全 owner を走査してから 0 件と判定する固定費をなくすことである。
+完了済み。
+
+目的は、full backfill が不要なときに全 owner を走査してから 0 件と判定する固定費をなくすことである。
 
 #### 現状
 
@@ -322,11 +333,10 @@ Phase 6 の次に行う。目的は、full backfill が不要なときに全 own
 - current parse failure がある場合も file read 前に skip する。
 - ただし全件 current の場合でも `BuildTargets()` 自体は全件走査するため、実 target 0 件でも `targetBuildMs` が大きくなる。
 
-#### 修正方針
+#### 現行仕様
 
-- `BmsLibraryDbGateway` に backfill 候補数を DB 側で集計する API を追加する。
-  - 例: `GetChartInfoBackfillCandidateSummary(parseTimeout)`
-- summary は少なくとも次を返す。
+- `BmsLibraryDbGateway.GetChartInfoBackfillCandidateSummary(parseTimeout)` で、backfill 候補数を DB 側で集計する。
+- summary は次を返す。
   - `MissingDigestOwnerCount`
   - `MissingChartInfoOwnerCount`
   - `StaleChartInfoOwnerCount`
@@ -338,7 +348,7 @@ Phase 6 の次に行う。目的は、full backfill が不要なときに全 own
   - parse failure は parser version と timeout 条件を満たすものだけ current
 - `CandidateOwnerCount == 0` の場合は full backfill を queue しない。
   - log: `chart_info_backfill skipped reason=no_candidates ...`
-  - progress phase は request しない、または request 済みの場合は skip 完了にする。
+  - progress phase は request しない。
 - `CandidateOwnerCount > 0` の場合だけ従来 pipeline を起動する。
 - `BuildTargets()` は残す。
   - DB summary は起動判断用。

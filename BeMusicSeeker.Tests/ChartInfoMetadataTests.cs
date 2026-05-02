@@ -2873,7 +2873,7 @@ public sealed class ChartInfoMetadataTests
     }
 
     [TestMethod]
-    public void DeferredChartInfoHydration_QueuesFullBackfillAfterHydration()
+    public void DeferredChartInfoHydration_SkipsFullBackfillWhenNoCandidates()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
@@ -2883,8 +2883,53 @@ public sealed class ChartInfoMetadataTests
             InvokeDeferredChartInfoHydration(library, "unit_test", queueFullBackfillAfterHydration: true);
 
             Assert.IsTrue(WaitForChartInfoHydration(library), "chart_info hydration did not complete.");
-            Assert.IsTrue(WaitForChartInfoBackfill(library), "chart_info full backfill was not queued after hydration.");
-            Assert.AreEqual(library.ChartInfoBackfillRequestedVersion, library.ChartInfoBackfillCompletedVersion);
+            Assert.AreEqual(0, library.ChartInfoBackfillRequestedVersion);
+            Assert.AreEqual(0, library.ChartInfoBackfillCompletedVersion);
+        });
+    }
+
+    [TestMethod]
+    public void GetChartInfoBackfillCandidateSummary_ClassifiesCurrentFailureAndStaleRows()
+    {
+        WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)
+        {
+            BmsLibraryDbGateway gateway = new BmsLibraryDbGateway(songDbPath);
+            string currentMd5 = new string('a', 32);
+            string missingDigestMd5 = new string('b', 32);
+            string staleMd5 = new string('c', 32);
+            string failureMd5 = new string('d', 32);
+            string currentSha = new string('1', 64);
+            string staleSha = new string('2', 64);
+            string failureSha = new string('3', 64);
+            using (LR2SongDBExtended songDb = new LR2SongDBExtended(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDB.song>();
+                BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
+                BmsLibraryDbGateway.EnsureChartInfoSchema(songDb);
+                InsertSongForSummary(songDb, Path.Combine(tempRootPath, "current.bms"), currentMd5);
+                InsertSongForSummary(songDb, Path.Combine(tempRootPath, "missing-digest.bms"), missingDigestMd5);
+                InsertSongForSummary(songDb, Path.Combine(tempRootPath, "stale.bms"), staleMd5);
+                InsertSongForSummary(songDb, Path.Combine(tempRootPath, "failure.bms"), failureMd5);
+                songDb.InsertOrReplace(CreateChartDigestRow(currentMd5, currentSha), typeof(LR2SongDBExtended.chart_digest_map));
+                songDb.InsertOrReplace(CreateChartDigestRow(staleMd5, staleSha), typeof(LR2SongDBExtended.chart_digest_map));
+                songDb.InsertOrReplace(CreateChartDigestRow(failureMd5, failureSha), typeof(LR2SongDBExtended.chart_digest_map));
+                songDb.InsertOrReplace(CreateChartInfoRow(currentSha, currentMd5, BmsLibraryDbGateway.CurrentChartInfoParserVersion), typeof(LR2SongDBExtended.chart_info));
+                songDb.InsertOrReplace(CreateChartInfoRow(staleSha, staleMd5, BmsLibraryDbGateway.CurrentChartInfoParserVersion - 1), typeof(LR2SongDBExtended.chart_info));
+                songDb.InsertOrReplace(
+                    CreateChartInfoParseFailureRow(failureMd5, failureSha, Path.Combine(tempRootPath, "failure.bms"), BmsLibraryDbGateway.CurrentChartInfoParserVersion, "parse_failed", "InvalidDataException", "bad", null),
+                    typeof(LR2SongDBExtended.chart_info_parse_failure));
+            }
+
+            ChartInfoBackfillCandidateSummary summary = gateway.GetChartInfoBackfillCandidateSummary(TimeSpan.FromSeconds(30));
+
+            Assert.AreEqual(4, summary.BmsOwnerCount);
+            Assert.AreEqual(0, summary.BmsonOwnerCount);
+            Assert.AreEqual(1, summary.CurrentChartInfoOwnerCount);
+            Assert.AreEqual(1, summary.CurrentParseFailureOwnerCount);
+            Assert.AreEqual(1, summary.MissingDigestOwnerCount);
+            Assert.AreEqual(0, summary.MissingChartInfoOwnerCount);
+            Assert.AreEqual(1, summary.StaleChartInfoOwnerCount);
+            Assert.AreEqual(2, summary.CandidateOwnerCount);
         });
     }
 
@@ -3781,6 +3826,16 @@ public sealed class ChartInfoMetadataTests
             md5 = md5,
             sha256 = sha256
         };
+    }
+
+    private static void InsertSongForSummary(LR2SongDBExtended songDb, string path, string md5)
+    {
+        TestableBmsFile file = new TestableBmsFile
+        {
+            path = path
+        };
+        file.SetHash(md5);
+        songDb.InsertOrReplace(file, typeof(LR2SongDB.song));
     }
 
     private static LR2SongDBExtended.chart_info_parse_failure CreateChartInfoParseFailureRow(string md5, string sha256, string path, int parserVersion, string failureKind, string exceptionType, string message, int? parseTimeoutMs)

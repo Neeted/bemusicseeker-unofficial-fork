@@ -1,0 +1,136 @@
+using System.Collections.Generic;
+using BeMusicSeeker.Models.LR2;
+
+namespace BeMusicSeeker.Models.BmsLibraryInternal;
+
+internal sealed class FileScanDiffCommitChunk
+{
+    public List<string> DeletedBmsPaths { get; } = new List<string>();
+
+    public List<BMSFile> AddedBmsFiles { get; } = new List<BMSFile>();
+
+    public List<string> DeletedBmsonPaths { get; } = new List<string>();
+
+    public List<LR2SongDBExtended.bmson_song> UpsertBmsonSongs { get; } = new List<LR2SongDBExtended.bmson_song>();
+
+    public List<LR2SongDBExtended.chart_info> ChartInfoRows { get; } = new List<LR2SongDBExtended.chart_info>();
+
+    public List<LR2SongDBExtended.chart_info> AppliedChartInfoRows { get; } = new List<LR2SongDBExtended.chart_info>();
+
+    public List<LR2SongDBExtended.chart_info_parse_failure> ParseFailureRows { get; } = new List<LR2SongDBExtended.chart_info_parse_failure>();
+
+    public List<string> ParseFailureDeleteMd5s { get; } = new List<string>();
+
+    public int MutationCount { get; private set; }
+
+    public bool HasItems => MutationCount > 0
+        || ChartInfoRows.Count > 0
+        || AppliedChartInfoRows.Count > 0
+        || ParseFailureRows.Count > 0
+        || ParseFailureDeleteMd5s.Count > 0;
+
+    public void AddDeletedBmsPath(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return;
+        }
+        DeletedBmsPaths.Add(path);
+        MutationCount++;
+    }
+
+    public void AddAddedBmsFile(BMSFile file)
+    {
+        if (file == null)
+        {
+            return;
+        }
+        AddedBmsFiles.Add(file);
+        MutationCount++;
+    }
+
+    public void AddDeletedBmsonPath(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return;
+        }
+        DeletedBmsonPaths.Add(path);
+        MutationCount++;
+    }
+
+    public void AddUpsertBmsonSong(LR2SongDBExtended.bmson_song song)
+    {
+        if (song == null)
+        {
+            return;
+        }
+        UpsertBmsonSongs.Add(song);
+        MutationCount++;
+    }
+
+    public void AddChartInfoRow(LR2SongDBExtended.chart_info row, bool countMutation = true)
+    {
+        if (row == null)
+        {
+            return;
+        }
+        ChartInfoRows.Add(row);
+        if (countMutation)
+        {
+            MutationCount++;
+        }
+    }
+
+    public void AddAppliedChartInfoRow(LR2SongDBExtended.chart_info row)
+    {
+        if (row == null)
+        {
+            return;
+        }
+        AppliedChartInfoRows.Add(row);
+    }
+
+    public void AddParseFailureRow(LR2SongDBExtended.chart_info_parse_failure row, bool countMutation = true)
+    {
+        if (row == null)
+        {
+            return;
+        }
+        ParseFailureRows.Add(row);
+        if (countMutation)
+        {
+            MutationCount++;
+        }
+    }
+
+    public void AddParseFailureDeleteMd5(string md5, bool countMutation = true)
+    {
+        if (string.IsNullOrWhiteSpace(md5))
+        {
+            return;
+        }
+        ParseFailureDeleteMd5s.Add(md5);
+        if (countMutation)
+        {
+            MutationCount++;
+        }
+    }
+
+    public void AddFrom(FileScanDiffCommitChunk source)
+    {
+        if (source == null || !source.HasItems)
+        {
+            return;
+        }
+        DeletedBmsPaths.AddRange(source.DeletedBmsPaths);
+        AddedBmsFiles.AddRange(source.AddedBmsFiles);
+        DeletedBmsonPaths.AddRange(source.DeletedBmsonPaths);
+        UpsertBmsonSongs.AddRange(source.UpsertBmsonSongs);
+        ChartInfoRows.AddRange(source.ChartInfoRows);
+        AppliedChartInfoRows.AddRange(source.AppliedChartInfoRows);
+        ParseFailureRows.AddRange(source.ParseFailureRows);
+        ParseFailureDeleteMd5s.AddRange(source.ParseFailureDeleteMd5s);
+        MutationCount += source.MutationCount;
+    }
+}

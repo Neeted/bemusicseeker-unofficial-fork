@@ -168,6 +168,63 @@ internal sealed class BmsLibraryDbGateway
         });
     }
 
+    internal static void CommitFileScanDiffChunk(LR2SongDBExtended songDb, FileScanDiffCommitChunk chunk)
+    {
+        if (songDb == null)
+        {
+            throw new ArgumentNullException(nameof(songDb));
+        }
+        if (chunk == null || !chunk.HasItems)
+        {
+            return;
+        }
+
+        EnsureBmsonSchema(songDb);
+        EnsureChartInfoSchema(songDb);
+        foreach (string deletedPath in chunk.DeletedBmsPaths)
+        {
+            if (string.IsNullOrWhiteSpace(deletedPath))
+            {
+                continue;
+            }
+            string deletedHash = GetSongHashByPath(songDb, deletedPath);
+            songDb.Delete<LR2SongDB.song>(deletedPath);
+            DeleteChartDigestIfOrphaned(songDb, deletedHash);
+        }
+        foreach (BMSFile addedFile in chunk.AddedBmsFiles)
+        {
+            if (addedFile == null)
+            {
+                continue;
+            }
+            Lr2SongFolderParentNormalizer.ApplyIfMissingOrInvalid(addedFile);
+            string previousHash = GetSongHashByPath(songDb, addedFile.path);
+            songDb.InsertOrReplace(addedFile, typeof(LR2SongDB.song));
+            UpsertChartDigest(songDb, addedFile);
+            DeleteChartDigestIfOrphaned(songDb, previousHash, addedFile.hash);
+        }
+        foreach (string deletedBmsonPath in chunk.DeletedBmsonPaths)
+        {
+            if (!string.IsNullOrWhiteSpace(deletedBmsonPath))
+            {
+                songDb.Delete<LR2SongDBExtended.bmson_song>(deletedBmsonPath);
+            }
+        }
+        foreach (LR2SongDBExtended.bmson_song addedBmsonSong in chunk.UpsertBmsonSongs)
+        {
+            if (addedBmsonSong != null)
+            {
+                songDb.InsertOrReplace(addedBmsonSong, typeof(LR2SongDBExtended.bmson_song));
+            }
+        }
+        UpsertChartInfoBackfillChunk(
+            songDb,
+            Enumerable.Empty<ChartDigestBackfillEntry>(),
+            chunk.ChartInfoRows,
+            chunk.ParseFailureRows,
+            chunk.ParseFailureDeleteMd5s);
+    }
+
     public void DeleteSongsAndMaintenance(IEnumerable<BMSFile> bmsFiles)
     {
         List<BMSFile> files = (bmsFiles ?? Enumerable.Empty<BMSFile>()).Where((BMSFile file) => file != null && !string.IsNullOrWhiteSpace(file.path)).ToList();
@@ -504,6 +561,52 @@ internal sealed class BmsLibraryDbGateway
             }
         }
         return result;
+    }
+
+    public ChartInfoBackfillCandidateSummary GetChartInfoBackfillCandidateSummary(TimeSpan parseTimeout)
+    {
+        using LR2SongDBExtended songDb = OpenSongDb();
+        EnsureBmsonSchema(songDb);
+        EnsureChartInfoSchema(songDb);
+
+        ChartInfoBackfillCandidateSummary summary = new ChartInfoBackfillCandidateSummary();
+        string currentFailureJoinCondition = BuildCurrentParseFailureJoinCondition("f", parseTimeout);
+        string currentFailureJoinConditionBmson = BuildCurrentParseFailureJoinCondition("fb", parseTimeout);
+        string songTable = SQLiteTable<LR2SongDB.song>.GetTableName();
+        string bmsonTable = SQLiteTable<LR2SongDBExtended.bmson_song>.GetTableName();
+
+        summary.BmsOwnerCount = SafeExecuteScalarInt(songDb,
+            "SELECT COUNT(1) FROM " + songTable + " s WHERE s.hash IS NOT NULL AND TRIM(s.hash) <> '';");
+        summary.BmsonOwnerCount = SafeExecuteScalarInt(songDb,
+            "SELECT COUNT(1) FROM " + bmsonTable + " b WHERE b.path IS NOT NULL AND TRIM(b.path) <> '';");
+
+        string bmsFrom =
+            " FROM " + songTable + " s"
+            + " LEFT JOIN chart_digest_map d ON lower(trim(d.md5)) = lower(trim(s.hash))"
+            + " LEFT JOIN chart_info ci_current ON ci_current.sha256 = d.sha256 AND ci_current.parser_version >= " + CurrentChartInfoParserVersion
+            + " LEFT JOIN chart_info ci_any ON ci_any.sha256 = d.sha256"
+            + " LEFT JOIN chart_info_parse_failure f ON lower(trim(f.md5)) = lower(trim(s.hash)) AND " + currentFailureJoinCondition
+            + " WHERE s.hash IS NOT NULL AND TRIM(s.hash) <> ''";
+        summary.CurrentChartInfoOwnerCount += SafeExecuteScalarInt(songDb, "SELECT COUNT(1)" + bmsFrom + " AND ci_current.sha256 IS NOT NULL;");
+        summary.CurrentParseFailureOwnerCount += SafeExecuteScalarInt(songDb, "SELECT COUNT(1)" + bmsFrom + " AND ci_current.sha256 IS NULL AND f.md5 IS NOT NULL;");
+        summary.MissingDigestOwnerCount += SafeExecuteScalarInt(songDb, "SELECT COUNT(1)" + bmsFrom + " AND ci_current.sha256 IS NULL AND f.md5 IS NULL AND d.sha256 IS NULL;");
+        summary.MissingChartInfoOwnerCount += SafeExecuteScalarInt(songDb, "SELECT COUNT(1)" + bmsFrom + " AND ci_current.sha256 IS NULL AND f.md5 IS NULL AND d.sha256 IS NOT NULL AND ci_any.sha256 IS NULL;");
+        summary.StaleChartInfoOwnerCount += SafeExecuteScalarInt(songDb, "SELECT COUNT(1)" + bmsFrom + " AND ci_current.sha256 IS NULL AND f.md5 IS NULL AND d.sha256 IS NOT NULL AND ci_any.sha256 IS NOT NULL;");
+        summary.CandidateOwnerCount += SafeExecuteScalarInt(songDb, "SELECT COUNT(1)" + bmsFrom + " AND ci_current.sha256 IS NULL AND f.md5 IS NULL;");
+
+        string bmsonFrom =
+            " FROM " + bmsonTable + " b"
+            + " LEFT JOIN chart_info cb_current ON cb_current.sha256 = b.sha256 AND cb_current.parser_version >= " + CurrentChartInfoParserVersion
+            + " LEFT JOIN chart_info cb_any ON cb_any.sha256 = b.sha256"
+            + " LEFT JOIN chart_info_parse_failure fb ON lower(trim(fb.md5)) = lower(trim(b.md5)) AND " + currentFailureJoinConditionBmson
+            + " WHERE b.path IS NOT NULL AND TRIM(b.path) <> ''";
+        summary.CurrentChartInfoOwnerCount += SafeExecuteScalarInt(songDb, "SELECT COUNT(1)" + bmsonFrom + " AND cb_current.sha256 IS NOT NULL;");
+        summary.CurrentParseFailureOwnerCount += SafeExecuteScalarInt(songDb, "SELECT COUNT(1)" + bmsonFrom + " AND cb_current.sha256 IS NULL AND fb.md5 IS NOT NULL;");
+        summary.MissingDigestOwnerCount += SafeExecuteScalarInt(songDb, "SELECT COUNT(1)" + bmsonFrom + " AND cb_current.sha256 IS NULL AND fb.md5 IS NULL AND (b.sha256 IS NULL OR TRIM(b.sha256) = '');");
+        summary.MissingChartInfoOwnerCount += SafeExecuteScalarInt(songDb, "SELECT COUNT(1)" + bmsonFrom + " AND cb_current.sha256 IS NULL AND fb.md5 IS NULL AND b.sha256 IS NOT NULL AND TRIM(b.sha256) <> '' AND cb_any.sha256 IS NULL;");
+        summary.StaleChartInfoOwnerCount += SafeExecuteScalarInt(songDb, "SELECT COUNT(1)" + bmsonFrom + " AND cb_current.sha256 IS NULL AND fb.md5 IS NULL AND b.sha256 IS NOT NULL AND TRIM(b.sha256) <> '' AND cb_any.sha256 IS NOT NULL;");
+        summary.CandidateOwnerCount += SafeExecuteScalarInt(songDb, "SELECT COUNT(1)" + bmsonFrom + " AND cb_current.sha256 IS NULL AND fb.md5 IS NULL;");
+        return summary;
     }
 
     public void UpsertChartInfoParseFailures(IEnumerable<LR2SongDBExtended.chart_info_parse_failure> rows)
@@ -1499,6 +1602,39 @@ internal sealed class BmsLibraryDbGateway
         return (rows ?? Enumerable.Empty<LR2SongDBExtended.chart_info_parse_failure>())
             .Where((LR2SongDBExtended.chart_info_parse_failure row) => row != null && !string.IsNullOrWhiteSpace(row.md5))
             .ToList();
+    }
+
+    private static int SafeExecuteScalarInt(LR2SongDBExtended songDb, string sql)
+    {
+        if (songDb == null || string.IsNullOrWhiteSpace(sql))
+        {
+            return 0;
+        }
+        try
+        {
+            long value = songDb.ExecuteScalar<long>(sql);
+            if (value <= 0L)
+            {
+                return 0;
+            }
+            return value >= int.MaxValue ? int.MaxValue : (int)value;
+        }
+        catch
+        {
+            return 0;
+        }
+    }
+
+    private static string BuildCurrentParseFailureJoinCondition(string alias, TimeSpan parseTimeout)
+    {
+        string effectiveAlias = string.IsNullOrWhiteSpace(alias) ? string.Empty : alias.Trim() + ".";
+        long timeoutMs = Math.Max(0L, (long)Math.Ceiling(parseTimeout.TotalMilliseconds));
+        return effectiveAlias + "parser_version = " + CurrentChartInfoParserVersion
+            + " AND ("
+            + effectiveAlias + "failure_kind IS NULL"
+            + " OR lower(" + effectiveAlias + "failure_kind) <> 'timeout'"
+            + " OR COALESCE(" + effectiveAlias + "parse_timeout_ms, -1) >= " + timeoutMs
+            + ")";
     }
 
     private static bool IsCurrentChartInfoParseFailure(LR2SongDBExtended.chart_info_parse_failure row, TimeSpan parseTimeout)

@@ -3984,6 +3984,7 @@ public class BMSLibrary : NotificationObject
                     CompleteLibraryFileEnumerationProgress();
                 }
             };
+            bool inlineChartInfoAppliedFromCallback = false;
             SongTableFileCheckResult fileCheckResult = initializationService.ApplyFileScanDiff(
                 dbGateway,
                 options,
@@ -4027,7 +4028,16 @@ public class BMSLibrary : NotificationObject
                             force: processed >= total);
                     }
                 },
-                LogInstallPerformanceWarn);
+                LogInstallPerformanceWarn,
+                delegate(IReadOnlyList<LR2SongDBExtended.chart_info> rows)
+                {
+                    if (rows == null || rows.Count == 0)
+                    {
+                        return;
+                    }
+                    inlineChartInfoAppliedFromCallback = true;
+                    UpsertChartInfoIndexRows(rows, "file_diff_inline");
+                });
             completeFileEnumerationOnce();
             using (rwlockBMSFiles.GetWriterGuard())
             {
@@ -4040,9 +4050,16 @@ public class BMSLibrary : NotificationObject
             if (fileCheckResult.InlineChartInfoAppliedRows.Count > 0)
             {
                 UpsertChartInfoIndexRows(fileCheckResult.InlineChartInfoAppliedRows, "file_diff_inline");
+                inlineChartInfoAppliedFromCallback = true;
+            }
+            if (inlineChartInfoAppliedFromCallback)
+            {
                 RaisePropertyChanged(() => BMSFilesZeroNote);
             }
-            if (fileCheckResult.InlineChartInfoParseFailureRows.Count > 0 || fileCheckResult.InlineChartInfoParseFailureDeleteMd5s.Count > 0)
+            if (fileCheckResult.InlineChartInfoParseFailureRows.Count > 0
+                || fileCheckResult.InlineChartInfoParseFailureDeleteMd5s.Count > 0
+                || fileCheckResult.InlineChartInfoFailurePersistedCount > 0
+                || fileCheckResult.InlineChartInfoFailureClearedCount > 0)
             {
                 RaisePropertyChanged(() => BMSFilesChartInfoParseFailed);
             }
@@ -4230,26 +4247,45 @@ public class BMSLibrary : NotificationObject
                 + " totalMs=" + result.TotalMs);
 
             bool completedLatestRequest = false;
+            bool shouldQueueBackfillAfterCompletion = false;
             lock (lockChartInfoHydration)
             {
                 if (!chartInfoHydrationPending)
                 {
-                    chartInfoHydrationRunning = false;
-                    ChartInfoHydrationRunning = false;
                     completedLatestRequest = true;
+                    shouldQueueBackfillAfterCompletion = queueBackfillAfterHydration;
                 }
                 else if (queueBackfillAfterHydration)
                 {
                     chartInfoHydrationPendingQueueBackfill = true;
                 }
             }
-            if (completedLatestRequest && queueBackfillAfterHydration)
-            {
-                QueueChartInfoBackfill(reason);
-            }
             if (completedLatestRequest)
             {
-                return;
+                bool shouldReturnAfterCompletion = false;
+                try
+                {
+                    if (shouldQueueBackfillAfterCompletion)
+                    {
+                        QueueChartInfoBackfill(reason);
+                    }
+                }
+                finally
+                {
+                    lock (lockChartInfoHydration)
+                    {
+                        if (!chartInfoHydrationPending)
+                        {
+                            chartInfoHydrationRunning = false;
+                            ChartInfoHydrationRunning = false;
+                            shouldReturnAfterCompletion = true;
+                        }
+                    }
+                }
+                if (shouldReturnAfterCompletion)
+                {
+                    return;
+                }
             }
         }
     }
@@ -4566,6 +4602,42 @@ public class BMSLibrary : NotificationObject
     /// <param name="reason">ログに残す要求理由。</param>
     private void QueueChartInfoBackfill(string reason)
     {
+        ChartInfoBackfillCandidateSummary summary = null;
+        try
+        {
+            summary = dbGateway.GetChartInfoBackfillCandidateSummary(chartInfoBuildService.CurrentParseTimeout);
+        }
+        catch (Exception ex)
+        {
+            LogInstallPerformance("chart_info_backfill candidate_summary_failed reason=" + (reason ?? "unknown") + " message=" + ex.Message);
+        }
+        if (summary != null && summary.CandidateOwnerCount <= 0)
+        {
+            LogInstallPerformance("chart_info_backfill skipped reason=no_candidates"
+                + " requestReason=" + (reason ?? "unknown")
+                + " bmsOwners=" + summary.BmsOwnerCount
+                + " bmsonOwners=" + summary.BmsonOwnerCount
+                + " candidates=" + summary.CandidateOwnerCount
+                + " missingDigest=" + summary.MissingDigestOwnerCount
+                + " missingChartInfo=" + summary.MissingChartInfoOwnerCount
+                + " staleChartInfo=" + summary.StaleChartInfoOwnerCount
+                + " currentParseFailure=" + summary.CurrentParseFailureOwnerCount
+                + " currentChartInfo=" + summary.CurrentChartInfoOwnerCount);
+            return;
+        }
+        if (summary != null)
+        {
+            LogInstallPerformance("chart_info_backfill candidates"
+                + " reason=" + (reason ?? "unknown")
+                + " bmsOwners=" + summary.BmsOwnerCount
+                + " bmsonOwners=" + summary.BmsonOwnerCount
+                + " candidates=" + summary.CandidateOwnerCount
+                + " missingDigest=" + summary.MissingDigestOwnerCount
+                + " missingChartInfo=" + summary.MissingChartInfoOwnerCount
+                + " staleChartInfo=" + summary.StaleChartInfoOwnerCount
+                + " currentParseFailure=" + summary.CurrentParseFailureOwnerCount
+                + " currentChartInfo=" + summary.CurrentChartInfoOwnerCount);
+        }
         QueueChartInfoBackfillRequest(ChartInfoBackfillRequest.Full(reason));
     }
 

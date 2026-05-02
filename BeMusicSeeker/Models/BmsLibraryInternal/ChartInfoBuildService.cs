@@ -760,7 +760,7 @@ internal sealed class ChartInfoBuildService
         {
             return Math.Max(1, workerCountOverride.Value);
         }
-        return Math.Min(4, Math.Max(1, Environment.ProcessorCount - 1));
+        return Math.Max(1, Environment.ProcessorCount - 1);
     }
 
     private int ResolveCommitChunkSize()

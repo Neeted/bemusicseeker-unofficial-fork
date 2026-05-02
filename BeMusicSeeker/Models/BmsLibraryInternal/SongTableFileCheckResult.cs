@@ -96,11 +96,23 @@ internal sealed class SongTableFileCheckResult
 
     public long ParseReadBytesEstimate { get; set; }
 
+    public long FileDiffReadMs { get; set; }
+
+    public long FileDiffParseMs { get; set; }
+
+    public int SnapshotQueueHighWatermark { get; set; }
+
     public long NewFileParseMs { get; set; }
 
     public long ApplyMs { get; set; }
 
     public long DbCommitMs { get; set; }
+
+    public int DbCommitChunkSize { get; set; }
+
+    public int DbCommitChunks { get; set; }
+
+    public long DbCommitMaxChunkMs { get; set; }
 
     public long InstlDstCleanupMs { get; set; }
 

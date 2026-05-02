@@ -422,6 +422,12 @@ public sealed class BmsLibraryInitializationServiceTests
             Assert.IsTrue(result.BmsonParseMs >= 0);
             long expectedReadBytesEstimate = new FileInfo(bmsPath).Length + new FileInfo(bmsonPath).Length;
             Assert.AreEqual(expectedReadBytesEstimate, result.ParseReadBytesEstimate);
+            Assert.AreEqual(1, result.DbCommitChunks);
+            Assert.AreEqual(1000, result.DbCommitChunkSize);
+            Assert.IsTrue(result.DbCommitMaxChunkMs >= 0);
+            Assert.IsTrue(result.FileDiffReadMs >= 0);
+            Assert.IsTrue(result.FileDiffParseMs >= 0);
+            Assert.IsTrue(result.SnapshotQueueHighWatermark > 0);
             Assert.IsTrue(progress.Any(item => item.Total == 2 && item.Processed == 0));
             Assert.IsTrue(progress.Any(item => item.Total == 2 && item.Processed == 2));
             Assert.IsTrue(progress.All(item => item.Total == 2));
@@ -429,7 +435,82 @@ public sealed class BmsLibraryInitializationServiceTests
                 && message.Contains("bmson_upsert_target_count=1")
                 && message.Contains("file_diff_parser_degree=1")
                 && message.Contains("inline_chart_info_target_count=2")
-                && message.Contains("parse_read_bytes_estimate=" + expectedReadBytesEstimate)));
+                && message.Contains("parse_read_bytes_estimate=" + expectedReadBytesEstimate)
+                && message.Contains("db_commit_chunks=1")
+                && message.Contains("db_commit_chunk_size=1000")));
+            Assert.IsTrue(logs.Any((string message) => message.Contains("song_tbl_file_check db_commit_chunk_done chunk=1")));
+        });
+    }
+
+    [TestMethod]
+    public void ApplyFileScanDiff_CommitsChunksWhileParseProgressIsStillRunning()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
+        {
+            string chartDirectoryPath = Path.Combine(lr2RootPath, "ManyAdded");
+            Directory.CreateDirectory(chartDirectoryPath);
+            List<string> paths = new List<string>();
+            for (int i = 0; i < 1100; i++)
+            {
+                string path = Path.Combine(chartDirectoryPath, "added-" + i.ToString("D4") + ".bms");
+                File.WriteAllText(path, "#PLAYER 1\r\n#TITLE Added " + i.ToString("D4") + "\r\n", Encoding.ASCII);
+                paths.Add(path);
+            }
+
+            using (LR2SongDBExtended songDbConnection = new LR2SongDBExtended(songDbPath))
+            {
+                songDbConnection.CreateTable<LR2SongDB.song>();
+            }
+
+            List<string> events = new List<string>();
+            object eventLock = new object();
+            BmsLibraryInitializationService service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
+            SongTableFileCheckResult result = service.ApplyFileScanDiff(
+                new BmsLibraryDbGateway(songDbPath),
+                new BmsLibraryOptionsSnapshot(),
+                Array.Empty<BMSFile>(),
+                new BmsScanExecutionResult
+                {
+                    Success = true,
+                    Result = CreateScanResult(
+                        paths,
+                        new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
+                        {
+                            { chartDirectoryPath, Array.Empty<string>() }
+                        })
+                },
+                0L,
+                () => null,
+                null,
+                logInstallPerformance: delegate(string message)
+                {
+                    lock (eventLock)
+                    {
+                        if (message.Contains("song_tbl_file_check db_commit_chunk_done"))
+                        {
+                            events.Add(message);
+                        }
+                    }
+                },
+                reportParseProgress: delegate(int total, int processed, string path)
+                {
+                    lock (eventLock)
+                    {
+                        events.Add("progress " + processed + "/" + total);
+                    }
+                });
+
+            Assert.AreEqual(1100, result.AddedFiles.Count);
+            Assert.AreEqual(2, result.DbCommitChunks);
+            Assert.AreEqual(1000, result.DbCommitChunkSize);
+            int firstCommitIndex = events.FindIndex((string item) => item.Contains("db_commit_chunk_done chunk=1"));
+            int finalProgressIndex = events.FindIndex((string item) => item == "progress 1100/1100");
+            Assert.IsTrue(firstCommitIndex >= 0, "first commit chunk log was not recorded.");
+            Assert.IsTrue(finalProgressIndex >= 0, "final parse progress was not recorded.");
+            Assert.IsTrue(firstCommitIndex < finalProgressIndex, "first DB commit should complete before parse progress reaches the final item.");
+            using LR2SongDBExtended verify = new LR2SongDBExtended(songDbPath);
+            Assert.AreEqual(1100L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM song;"));
         });
     }
 
@@ -813,7 +894,7 @@ public sealed class BmsLibraryInitializationServiceTests
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
-            int expectedDefault = Math.Min(4, Math.Max(1, Environment.ProcessorCount - 1));
+            int expectedDefault = Math.Max(1, Environment.ProcessorCount - 1);
             Assert.AreEqual(expectedDefault, BmsLibraryInitializationService.ResolveDefaultFileDiffParserDegree());
 
             Assert.AreEqual(expectedDefault, RunWithParserDegreeOverride(null, songDbPath).FileDiffParserDegree);
