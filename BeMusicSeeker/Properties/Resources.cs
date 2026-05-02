@@ -283,6 +283,12 @@ public class Resources
 
     public static string Statusbar_progress_phase_library_load => ResourceManager.GetString("Statusbar_progress_phase_library_load", resourceCulture);
 
+    public static string Statusbar_progress_phase_library_db_load => ResourceManager.GetString("Statusbar_progress_phase_library_db_load", resourceCulture);
+
+    public static string Statusbar_progress_phase_file_enumeration => ResourceManager.GetString("Statusbar_progress_phase_file_enumeration", resourceCulture);
+
+    public static string Statusbar_progress_phase_file_diff => ResourceManager.GetString("Statusbar_progress_phase_file_diff", resourceCulture);
+
     public static string Statusbar_progress_phase_ui_prepare => ResourceManager.GetString("Statusbar_progress_phase_ui_prepare", resourceCulture);
 
     public static string Statusbar_progress_phase_playlist_ref => ResourceManager.GetString("Statusbar_progress_phase_playlist_ref", resourceCulture);

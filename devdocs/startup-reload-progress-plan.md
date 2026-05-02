@@ -34,6 +34,9 @@ StartupProgressValue   = ExpectedPhases かつ CompletedPhases に含まれる�
 | Phase | 主な意味 | 現状の追加タイミング |
 | --- | --- | --- |
 | `CoreInitializeStarted` | 進捗 operation 開始 | 開始時に常に expected / completed |
+| `LibraryDatabaseLoadDone` | song.db / bmson_song / maintenance / digest map の読み込み完了 | Startup / ReloadFiles では開始時に expected |
+| `LibraryFileEnumerationDone` | BMS root 配下のファイル列挙完了 | Startup / ReloadFiles では開始時に expected |
+| `LibraryFileDiffDone` | DB と列挙結果の差分確認・追加譜面パース完了 | Startup / ReloadFiles では開始時に expected |
 | `StartupReadyData` | 起動時の主要データ読込完了 | Startup のみ開始時に expected |
 | `StartupReadyUi` | 起動時の UI 準備完了 | Startup のみ開始時に expected |
 | `StartupReadyOperable` | 操作可能状態 | 開始時に常に expected |
@@ -212,6 +215,9 @@ Startup は起動直後に起こり得る全フェーズを expected に入れ�
 | Phase | 扱い |
 | --- | --- |
 | `CoreInitializeStarted` | 開始時に completed |
+| `LibraryDatabaseLoadDone` | 必須。`DB読み込み` として表示 |
+| `LibraryFileEnumerationDone` | expected。BMS root なし等なら skip 完了。`ファイル列挙 (Everything/Fallback)` として表示 |
+| `LibraryFileDiffDone` | expected。file check なしなら skip 完了。追加 BMS / 追加・更新 bmson のパースがある場合は `[processed/total] fileName` を表示 |
 | `StartupReadyData` | 必須 |
 | `StartupReadyUi` | 必須 |
 | `StartupReadyOperable` | 必須 |
@@ -232,6 +238,9 @@ Startup は起動直後に起こり得る全フェーズを expected に入れ�
 | Phase | 扱い |
 | --- | --- |
 | `CoreInitializeStarted` | 開始時に completed |
+| `LibraryDatabaseLoadDone` | 必須。`DB読み込み` として表示 |
+| `LibraryFileEnumerationDone` | expected。BMS root なし等なら skip 完了。`ファイル列挙 (Everything/Fallback)` として表示 |
+| `LibraryFileDiffDone` | expected。file check なしなら skip 完了。追加 BMS / 追加・更新 bmson のパースがある場合は `[processed/total] fileName` を表示 |
 | `StartupReadyOperable` | 必須 |
 | `PlaylistEntriesHydrationDone` | expected。playlist 側更新がない場合は skip 完了 |
 | `ChartInfoHydrationDone` | expected。不要なら skip 完了 |
@@ -257,6 +266,22 @@ table / playlist 再読込では playlist entry hydration、外部同期、参�
 | `PlaylistReferenceApplied` | expected。参照更新なしなら skip 完了 |
 
 score / ranking / maintenance / chart_info / chart digest 系は ReloadTables の主対象ではないため、開始時 expected には含めない。将来 table reload からそれらの更新が明示的に必要になった場合は、その時点で expected 案を見直す。
+
+DB 読み込み / ファイル列挙 / ファイル差分確認も ReloadTables の expected には含めない。ReloadTables は `reloadScoresOnly: true` 経路であり、BMS root の再列挙や song table 差分確認を行わないため。
+
+## ライブラリ読込の細分化
+
+`ライブラリ読込` として見えていた長い区間は、Startup / ReloadFiles で次の 3 フェーズに分ける。
+
+| Phase | 表示 | 進捗詳細 |
+| --- | --- | --- |
+| `LibraryDatabaseLoadDone` | `DB読み込み` | 件数表示なし。`LoadSongTable()` の完了で進む |
+| `LibraryFileEnumerationDone` | `ファイル列挙` | Everything 試行中は `(Everything)`、fallback 使用時は `(Fallback)` を付ける。列挙件数は表示しない |
+| `LibraryFileDiffDone` | `ファイル差分確認` | 追加 BMS と追加/更新 bmson のパース対象件数を合算し、`[processed/total] fileName` を表示する。対象 0 件の場合は件数なし |
+
+Everything scan は DB 読み込みと並列に prefetch されることがある。表示上は `LibraryDatabaseLoadDone` が完了するまでは `DB読み込み` を優先し、その後 `LibraryFileEnumerationDone` が未完了なら `ファイル列挙` を表示する。これにより、並列実行順によってゲージやサブラベルが戻って見えることを避ける。
+
+`ApplyFileScanDiff()` の譜面パースは PLINQ で並列実行されるため、件数更新は `Interlocked` で集計し、UI への反映は軽く throttle する。成功・失敗のどちらも processed に含め、最終件数は必ず反映する。
 
 ## 実装案
 

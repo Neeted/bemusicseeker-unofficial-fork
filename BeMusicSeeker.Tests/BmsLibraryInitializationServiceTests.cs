@@ -262,6 +262,68 @@ public sealed class BmsLibraryInitializationServiceTests
     }
 
     [TestMethod]
+    public void ApplyFileScanDiff_ReportsCombinedBmsAndBmsonParseProgress()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
+        {
+            string chartDirectoryPath = Path.Combine(lr2RootPath, "Added");
+            Directory.CreateDirectory(chartDirectoryPath);
+            string bmsPath = Path.Combine(chartDirectoryPath, "added.bms");
+            string bmsonPath = Path.Combine(chartDirectoryPath, "added.bmson");
+            File.WriteAllText(bmsPath, "#PLAYER 1\r\n#TITLE Added\r\n");
+            File.WriteAllText(bmsonPath, CreateBmsonJson("Added", "", "", "Artist", "Genre", 7, "beat-7k"));
+
+            using (LR2SongDBExtended songDbConnection = new LR2SongDBExtended(songDbPath))
+            {
+                songDbConnection.CreateTable<LR2SongDB.song>();
+                BmsLibraryDbGateway.EnsureBmsonSchema(songDbConnection);
+            }
+
+            int scanCompletedCount = 0;
+            int fileDiffStartedCount = 0;
+            object progressLock = new object();
+            List<(int Total, int Processed, string Path)> progress = new List<(int, int, string)>();
+            BmsLibraryInitializationService service = new BmsLibraryInitializationService();
+            SongTableFileCheckResult result = service.ApplyFileScanDiff(
+                new BmsLibraryDbGateway(songDbPath),
+                new BmsLibraryOptionsSnapshot(),
+                Array.Empty<BMSFile>(),
+                new BmsScanExecutionResult
+                {
+                    Success = true,
+                    Result = CreateScanResult(
+                        new[] { bmsPath, bmsonPath },
+                        new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
+                        {
+                            { chartDirectoryPath, Array.Empty<string>() }
+                        })
+                },
+                0L,
+                () => null,
+                null,
+                currentBmsonSongs: Array.Empty<LR2SongDBExtended.bmson_song>(),
+                scanCompleted: () => scanCompletedCount++,
+                fileDiffStarted: () => fileDiffStartedCount++,
+                reportParseProgress: (total, processed, path) =>
+                {
+                    lock (progressLock)
+                    {
+                        progress.Add((total, processed, path));
+                    }
+                });
+
+            Assert.AreEqual(1, scanCompletedCount);
+            Assert.AreEqual(1, fileDiffStartedCount);
+            Assert.AreEqual(1, result.AddedFiles.Count);
+            Assert.AreEqual(1, result.AddedBmsonSongs.Count);
+            Assert.IsTrue(progress.Any(item => item.Total == 2 && item.Processed == 0));
+            Assert.IsTrue(progress.Any(item => item.Total == 2 && item.Processed == 2));
+            Assert.IsTrue(progress.All(item => item.Total == 2));
+        });
+    }
+
+    [TestMethod]
     public void ApplyFileScanDiff_BuildsCachesDirectlyFromScanHashes()
     {
         TestResourceInitializer.EnsureJapaneseResources();

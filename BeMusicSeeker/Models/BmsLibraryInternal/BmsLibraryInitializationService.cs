@@ -243,7 +243,10 @@ internal sealed class BmsLibraryInitializationService
         Action<string> logInstallPerformance = null,
         Action<string> logEverythingScan = null,
         IEnumerable<LR2SongDBExtended.bmson_song> currentBmsonSongs = null,
-        Func<BmsScanExecutionResult> executeBmsonScan = null)
+        Func<BmsScanExecutionResult> executeBmsonScan = null,
+        Action scanCompleted = null,
+        Action fileDiffStarted = null,
+        Action<int, int, string> reportParseProgress = null)
     {
         SongTableFileCheckResult result = new SongTableFileCheckResult();
         Stopwatch stopwatchScan = Stopwatch.StartNew();
@@ -257,10 +260,12 @@ internal sealed class BmsLibraryInitializationService
             scanResult = executeScan?.Invoke();
         }
         stopwatchScan.Stop();
+        scanCompleted?.Invoke();
         if (scanResult?.Result == null)
         {
             return result;
         }
+        fileDiffStarted?.Invoke();
         BmsScanResult mergedScanResult = scanResult.Result;
         if (executeBmsonScan != null)
         {
@@ -322,10 +327,35 @@ internal sealed class BmsLibraryInitializationService
         HashSet<string> currentPaths = new HashSet<string>(currentFileList.Select((BMSFile file) => file.path), StringComparer.OrdinalIgnoreCase);
         result.DeletedPaths.AddRange(currentPaths.Except(scannedPaths, StringComparer.OrdinalIgnoreCase));
         List<string> addedPaths = scannedPaths.Except(currentPaths, StringComparer.OrdinalIgnoreCase).ToList();
+        List<LR2SongDBExtended.bmson_song> currentBmsonList = (currentBmsonSongs ?? Enumerable.Empty<LR2SongDBExtended.bmson_song>())
+            .Where((LR2SongDBExtended.bmson_song song) => song != null && !string.IsNullOrWhiteSpace(song.path))
+            .ToList();
+        HashSet<string> scannedBmsonPaths = new HashSet<string>(
+            (mergedScanResult.ChartFilePaths ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase))
+                .Where((string path) => string.Equals(Path.GetExtension(path), ".bmson", StringComparison.OrdinalIgnoreCase)),
+            StringComparer.OrdinalIgnoreCase);
+        Dictionary<string, LR2SongDBExtended.bmson_song> currentBmsonByPath = currentBmsonList.ToDictionary((LR2SongDBExtended.bmson_song song) => song.path, StringComparer.OrdinalIgnoreCase);
+        result.DeletedBmsonPaths.AddRange(currentBmsonByPath.Keys.Except(scannedBmsonPaths, StringComparer.OrdinalIgnoreCase));
+        List<string> addedOrUpdatedBmsonPaths = scannedBmsonPaths
+            .Where(delegate (string path)
+            {
+                if (!currentBmsonByPath.TryGetValue(path, out LR2SongDBExtended.bmson_song existing))
+                {
+                    return true;
+                }
+                return existing.updated_at != SafeGetLastWriteTimeUtc(path);
+            })
+            .ToList();
         stopwatchDiff.Stop();
         result.DiffMs = stopwatchDiff.ElapsedMilliseconds;
 
         Stopwatch stopwatchNewFileParse = Stopwatch.StartNew();
+        int parseTargetCount = addedPaths.Count + addedOrUpdatedBmsonPaths.Count;
+        int parseProcessedCount = 0;
+        if (parseTargetCount > 0)
+        {
+            reportParseProgress?.Invoke(parseTargetCount, 0, string.Empty);
+        }
         List<BMSFile> addedFiles = addedPaths.Count <= 0
             ? new List<BMSFile>()
             : (from x in addedPaths.AsParallel().Select(delegate (string path)
@@ -339,6 +369,8 @@ internal sealed class BmsLibraryInitializationService
                     {
                         dialogService?.Show(string.Format(Resources.Error_InitializationFailed, path, ex.Message), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
                     }
+                    int processed = Interlocked.Increment(ref parseProcessedCount);
+                    reportParseProgress?.Invoke(parseTargetCount, processed, path);
                     return file;
                 })
                where x != null
@@ -365,35 +397,17 @@ internal sealed class BmsLibraryInitializationService
         stopwatchApply.Stop();
         result.ApplyMs = stopwatchApply.ElapsedMilliseconds;
 
-        List<LR2SongDBExtended.bmson_song> currentBmsonList = (currentBmsonSongs ?? Enumerable.Empty<LR2SongDBExtended.bmson_song>())
-            .Where((LR2SongDBExtended.bmson_song song) => song != null && !string.IsNullOrWhiteSpace(song.path))
-            .ToList();
         result.NextBmsonSongs.AddRange(currentBmsonList);
         {
-            HashSet<string> scannedBmsonPaths = new HashSet<string>(
-                (mergedScanResult.ChartFilePaths ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase))
-                    .Where((string path) => string.Equals(Path.GetExtension(path), ".bmson", StringComparison.OrdinalIgnoreCase)),
-                StringComparer.OrdinalIgnoreCase);
-            Dictionary<string, LR2SongDBExtended.bmson_song> currentBmsonByPath = currentBmsonList.ToDictionary((LR2SongDBExtended.bmson_song song) => song.path, StringComparer.OrdinalIgnoreCase);
-            result.DeletedBmsonPaths.AddRange(currentBmsonByPath.Keys.Except(scannedBmsonPaths, StringComparer.OrdinalIgnoreCase));
-            List<string> addedOrUpdatedBmsonPaths = scannedBmsonPaths
-                .Where(delegate (string path)
-                {
-                    if (!currentBmsonByPath.TryGetValue(path, out LR2SongDBExtended.bmson_song existing))
-                    {
-                        return true;
-                    }
-                    return existing.updated_at != SafeGetLastWriteTimeUtc(path);
-                })
-                .ToList();
             HashSet<string> successfullyParsedBmsonPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             List<LR2SongDBExtended.bmson_song> parsedBmsonSongs = addedOrUpdatedBmsonPaths.Count <= 0
                 ? new List<LR2SongDBExtended.bmson_song>()
                 : (from x in addedOrUpdatedBmsonPaths.AsParallel().Select(delegate (string path)
                     {
+                        LR2SongDBExtended.bmson_song parsed = null;
                         try
                         {
-                            LR2SongDBExtended.bmson_song parsed = BmsonSongParser.Parse(path);
+                            parsed = BmsonSongParser.Parse(path);
                             lock (successfullyParsedBmsonPaths)
                             {
                                 successfullyParsedBmsonPaths.Add(path);
@@ -404,6 +418,11 @@ internal sealed class BmsLibraryInitializationService
                         {
                             logEverythingScan?.Invoke("bmson_parse_failed path=" + path + " message=" + ex.Message);
                             return null;
+                        }
+                        finally
+                        {
+                            int processed = Interlocked.Increment(ref parseProcessedCount);
+                            reportParseProgress?.Invoke(parseTargetCount, processed, path);
                         }
                     })
                    where x != null

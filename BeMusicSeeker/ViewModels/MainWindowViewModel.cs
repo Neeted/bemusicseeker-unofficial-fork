@@ -3886,7 +3886,10 @@ public class MainWindowViewModel : ViewModel
         ChartDigestBackfillDone = 512,
         ChartInfoBackfillDone = 1024,
         ChartInfoHydrationDone = 2048,
-        PlaylistEntriesHydrationDone = 4096
+        PlaylistEntriesHydrationDone = 4096,
+        LibraryDatabaseLoadDone = 8192,
+        LibraryFileEnumerationDone = 16384,
+        LibraryFileDiffDone = 32768
     }
 
     /// <summary>
@@ -3935,6 +3938,12 @@ public class MainWindowViewModel : ViewModel
 
         internal int PlaylistEntriesHydrationBaselineCompletedVersion;
 
+        internal int LibraryDatabaseLoadBaselineCompletedVersion;
+
+        internal int LibraryFileEnumerationBaselineCompletedVersion;
+
+        internal int LibraryFileDiffBaselineCompletedVersion;
+
         internal int RequiredPlaylistReferenceVersion;
 
         internal int RequiredExternalSyncVersion;
@@ -3964,6 +3973,16 @@ public class MainWindowViewModel : ViewModel
         internal int ChartInfoHydrationTotalCount;
 
         internal int ChartInfoHydrationAppliedCount;
+
+        internal BMSLibrary.LibraryInitializationProgressStage LibraryInitializationProgressStage;
+
+        internal string LibraryInitializationProgressScannerLabel = string.Empty;
+
+        internal int LibraryInitializationProgressTotalCount;
+
+        internal int LibraryInitializationProgressProcessedCount;
+
+        internal string LibraryInitializationProgressCurrentPath = string.Empty;
 
         internal bool CompletionHideScheduled;
 
@@ -9571,6 +9590,38 @@ public class MainWindowViewModel : ViewModel
                 makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
             }
         });
+        listenerForBMSLibrary.RegisterHandler(() => files.LibraryInitializationProgress, delegate
+        {
+            UpdateStartupProgressLibraryInitializationStatus(files.LibraryInitializationProgress, files.LibraryInitializationProgressScannerLabel, files.LibraryInitializationProgressTotalCount, files.LibraryInitializationProgressProcessedCount, files.LibraryInitializationProgressCurrentPath);
+        });
+        listenerForBMSLibrary.RegisterHandler(() => files.LibraryInitializationProgressScannerLabel, delegate
+        {
+            UpdateStartupProgressLibraryInitializationStatus(files.LibraryInitializationProgress, files.LibraryInitializationProgressScannerLabel, files.LibraryInitializationProgressTotalCount, files.LibraryInitializationProgressProcessedCount, files.LibraryInitializationProgressCurrentPath);
+        });
+        listenerForBMSLibrary.RegisterHandler(() => files.LibraryInitializationProgressTotalCount, delegate
+        {
+            UpdateStartupProgressLibraryInitializationStatus(files.LibraryInitializationProgress, files.LibraryInitializationProgressScannerLabel, files.LibraryInitializationProgressTotalCount, files.LibraryInitializationProgressProcessedCount, files.LibraryInitializationProgressCurrentPath);
+        });
+        listenerForBMSLibrary.RegisterHandler(() => files.LibraryInitializationProgressProcessedCount, delegate
+        {
+            UpdateStartupProgressLibraryInitializationStatus(files.LibraryInitializationProgress, files.LibraryInitializationProgressScannerLabel, files.LibraryInitializationProgressTotalCount, files.LibraryInitializationProgressProcessedCount, files.LibraryInitializationProgressCurrentPath);
+        });
+        listenerForBMSLibrary.RegisterHandler(() => files.LibraryInitializationProgressCurrentPath, delegate
+        {
+            UpdateStartupProgressLibraryInitializationStatus(files.LibraryInitializationProgress, files.LibraryInitializationProgressScannerLabel, files.LibraryInitializationProgressTotalCount, files.LibraryInitializationProgressProcessedCount, files.LibraryInitializationProgressCurrentPath);
+        });
+        listenerForBMSLibrary.RegisterHandler(() => files.LibraryDatabaseLoadCompletedVersion, delegate
+        {
+            TryCompleteStartupProgressLibraryDatabaseLoad(files.LibraryDatabaseLoadCompletedVersion);
+        });
+        listenerForBMSLibrary.RegisterHandler(() => files.LibraryFileEnumerationCompletedVersion, delegate
+        {
+            TryCompleteStartupProgressLibraryFileEnumeration(files.LibraryFileEnumerationCompletedVersion);
+        });
+        listenerForBMSLibrary.RegisterHandler(() => files.LibraryFileDiffCompletedVersion, delegate
+        {
+            TryCompleteStartupProgressLibraryFileDiff(files.LibraryFileDiffCompletedVersion);
+        });
         listenerForBMSLibrary.RegisterHandler(() => files.ScoreHydrationRequestedVersion, delegate
         {
             TrackStartupProgressScoreHydrationRequested(files.ScoreHydrationRequestedVersion);
@@ -12902,7 +12953,10 @@ public class MainWindowViewModel : ViewModel
             ChartDigestBackfillBaselineCompletedVersion = files?.ChartDigestBackfillCompletedVersion ?? 0,
             ChartInfoBackfillBaselineCompletedVersion = files?.ChartInfoBackfillCompletedVersion ?? 0,
             ChartInfoHydrationBaselineCompletedVersion = files?.ChartInfoHydrationCompletedVersion ?? 0,
-            PlaylistEntriesHydrationBaselineCompletedVersion = tables?.PlaylistEntriesHydrationCompletedVersion ?? 0
+            PlaylistEntriesHydrationBaselineCompletedVersion = tables?.PlaylistEntriesHydrationCompletedVersion ?? 0,
+            LibraryDatabaseLoadBaselineCompletedVersion = files?.LibraryDatabaseLoadCompletedVersion ?? 0,
+            LibraryFileEnumerationBaselineCompletedVersion = files?.LibraryFileEnumerationCompletedVersion ?? 0,
+            LibraryFileDiffBaselineCompletedVersion = files?.LibraryFileDiffCompletedVersion ?? 0
         };
         lock (startupProgressLock)
         {
@@ -13042,7 +13096,10 @@ public class MainWindowViewModel : ViewModel
         return phase != StartupProgressPhase.CoreInitializeStarted
             && phase != StartupProgressPhase.StartupReadyData
             && phase != StartupProgressPhase.StartupReadyUi
-            && phase != StartupProgressPhase.StartupReadyOperable;
+            && phase != StartupProgressPhase.StartupReadyOperable
+            && phase != StartupProgressPhase.LibraryDatabaseLoadDone
+            && phase != StartupProgressPhase.LibraryFileEnumerationDone
+            && phase != StartupProgressPhase.LibraryFileDiffDone;
     }
 
     private static bool CanCompleteStartupProgressPhase(StartupProgressState state, StartupProgressPhase phase)
@@ -13289,6 +13346,23 @@ public class MainWindowViewModel : ViewModel
         RecomputeStartupProgressPresentation();
     }
 
+    private void UpdateStartupProgressLibraryInitializationStatus(BMSLibrary.LibraryInitializationProgressStage stage, string scannerLabel, int totalCount, int processedCount, string currentPath)
+    {
+        lock (startupProgressLock)
+        {
+            if (!startupProgressState.IsActive)
+            {
+                return;
+            }
+            startupProgressState.LibraryInitializationProgressStage = stage;
+            startupProgressState.LibraryInitializationProgressScannerLabel = scannerLabel ?? string.Empty;
+            startupProgressState.LibraryInitializationProgressTotalCount = Math.Max(0, totalCount);
+            startupProgressState.LibraryInitializationProgressProcessedCount = Math.Max(0, processedCount);
+            startupProgressState.LibraryInitializationProgressCurrentPath = currentPath ?? string.Empty;
+        }
+        RecomputeStartupProgressPresentation();
+    }
+
     private void UpdateStartupProgressChartInfoBackfillStatus(int totalCount, int processedCount, string currentPath)
     {
         lock (startupProgressLock)
@@ -13316,6 +13390,57 @@ public class MainWindowViewModel : ViewModel
             startupProgressState.ChartInfoHydrationAppliedCount = appliedCount;
         }
         RecomputeStartupProgressPresentation();
+    }
+
+    private void TryCompleteStartupProgressLibraryDatabaseLoad(int completedVersion)
+    {
+        bool shouldComplete = false;
+        lock (startupProgressLock)
+        {
+            if (!startupProgressState.IsActive || (startupProgressState.ExpectedPhases & StartupProgressPhase.LibraryDatabaseLoadDone) == 0)
+            {
+                return;
+            }
+            shouldComplete = completedVersion > startupProgressState.LibraryDatabaseLoadBaselineCompletedVersion;
+        }
+        if (shouldComplete)
+        {
+            MarkStartupProgressPhaseCompleted(StartupProgressPhase.LibraryDatabaseLoadDone);
+        }
+    }
+
+    private void TryCompleteStartupProgressLibraryFileEnumeration(int completedVersion)
+    {
+        bool shouldComplete = false;
+        lock (startupProgressLock)
+        {
+            if (!startupProgressState.IsActive || (startupProgressState.ExpectedPhases & StartupProgressPhase.LibraryFileEnumerationDone) == 0)
+            {
+                return;
+            }
+            shouldComplete = completedVersion > startupProgressState.LibraryFileEnumerationBaselineCompletedVersion;
+        }
+        if (shouldComplete)
+        {
+            MarkStartupProgressPhaseCompleted(StartupProgressPhase.LibraryFileEnumerationDone);
+        }
+    }
+
+    private void TryCompleteStartupProgressLibraryFileDiff(int completedVersion)
+    {
+        bool shouldComplete = false;
+        lock (startupProgressLock)
+        {
+            if (!startupProgressState.IsActive || (startupProgressState.ExpectedPhases & StartupProgressPhase.LibraryFileDiffDone) == 0)
+            {
+                return;
+            }
+            shouldComplete = completedVersion > startupProgressState.LibraryFileDiffBaselineCompletedVersion;
+        }
+        if (shouldComplete)
+        {
+            MarkStartupProgressPhaseCompleted(StartupProgressPhase.LibraryFileDiffDone);
+        }
     }
 
     private void TryCompleteStartupProgressChartDigestBackfill(int completedVersion)
@@ -13627,7 +13752,7 @@ public class MainWindowViewModel : ViewModel
     {
         if (!IsStartupProgressLibraryLoadCompleted(state))
         {
-            return BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_library_load;
+            return GetStartupProgressLibraryLoadSubLabel(state);
         }
         if (!IsStartupProgressUiPrepareCompleted(state))
         {
@@ -13643,17 +13768,17 @@ public class MainWindowViewModel : ViewModel
         }
         if (!IsStartupProgressPhaseCompletedOrNotExpected(state, StartupProgressPhase.ChartInfoHydrationDone))
         {
-            return BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_chart_info_load + " [" + state.ChartInfoHydrationAppliedCount + "/" + state.ChartInfoHydrationTotalCount + "]";
+            return FormatStartupProgressCountLabel(BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_chart_info_load, state.ChartInfoHydrationAppliedCount, state.ChartInfoHydrationTotalCount, null);
         }
         if (!IsStartupProgressPhaseCompletedOrNotExpected(state, StartupProgressPhase.ChartInfoBackfillDone))
         {
             string fileName = string.IsNullOrWhiteSpace(state.ChartInfoBackfillCurrentPath) ? string.Empty : Path.GetFileName(state.ChartInfoBackfillCurrentPath);
-            return BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_chart_info + " [" + state.ChartInfoBackfillProcessedCount + "/" + state.ChartInfoBackfillTotalCount + "] " + fileName;
+            return FormatStartupProgressCountLabel(BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_chart_info, state.ChartInfoBackfillProcessedCount, state.ChartInfoBackfillTotalCount, fileName);
         }
         if (!IsStartupProgressPhaseCompletedOrNotExpected(state, StartupProgressPhase.ChartDigestBackfillDone))
         {
             string fileName = string.IsNullOrWhiteSpace(state.ChartDigestBackfillCurrentPath) ? string.Empty : Path.GetFileName(state.ChartDigestBackfillCurrentPath);
-            return BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_chart_info + " [" + state.ChartDigestBackfillProcessedCount + "/" + state.ChartDigestBackfillTotalCount + "] " + fileName;
+            return FormatStartupProgressCountLabel(BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_chart_info, state.ChartDigestBackfillProcessedCount, state.ChartDigestBackfillTotalCount, fileName);
         }
         if (!IsStartupProgressPhaseCompletedOrNotExpected(state, StartupProgressPhase.PlaylistReferenceApplied) || !IsStartupProgressPhaseCompletedOrNotExpected(state, StartupProgressPhase.ExternalPlaylistSyncDone))
         {
@@ -13672,6 +13797,43 @@ public class MainWindowViewModel : ViewModel
             return BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_maintenance;
         }
         return BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_background;
+    }
+
+    private static string GetStartupProgressLibraryLoadSubLabel(StartupProgressState state)
+    {
+        if (!IsStartupProgressPhaseCompletedOrNotExpected(state, StartupProgressPhase.LibraryDatabaseLoadDone))
+        {
+            return BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_library_db_load;
+        }
+        if (!IsStartupProgressPhaseCompletedOrNotExpected(state, StartupProgressPhase.LibraryFileEnumerationDone))
+        {
+            string scanner = state.LibraryInitializationProgressScannerLabel;
+            if (!string.IsNullOrWhiteSpace(scanner))
+            {
+                return BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_file_enumeration + " (" + scanner + ")";
+            }
+            return BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_file_enumeration;
+        }
+        if (!IsStartupProgressPhaseCompletedOrNotExpected(state, StartupProgressPhase.LibraryFileDiffDone))
+        {
+            if (state.LibraryInitializationProgressTotalCount > 0)
+            {
+                string fileName = string.IsNullOrWhiteSpace(state.LibraryInitializationProgressCurrentPath) ? string.Empty : Path.GetFileName(state.LibraryInitializationProgressCurrentPath);
+                return FormatStartupProgressCountLabel(BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_file_diff, state.LibraryInitializationProgressProcessedCount, state.LibraryInitializationProgressTotalCount, fileName);
+            }
+            return BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_file_diff;
+        }
+        return BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_library_load;
+    }
+
+    private static string FormatStartupProgressCountLabel(string phaseLabel, int processedCount, int totalCount, string fileName)
+    {
+        string prefix = "[" + Math.Max(0, processedCount) + "/" + Math.Max(0, totalCount) + "] " + (phaseLabel ?? string.Empty);
+        if (string.IsNullOrWhiteSpace(fileName))
+        {
+            return prefix;
+        }
+        return prefix + " " + fileName;
     }
 
     /// <summary>
@@ -13710,6 +13872,9 @@ public class MainWindowViewModel : ViewModel
     {
         int count = 0;
         CountExpectedStartupProgressPhase(state, StartupProgressPhase.CoreInitializeStarted, ref count);
+        CountExpectedStartupProgressPhase(state, StartupProgressPhase.LibraryDatabaseLoadDone, ref count);
+        CountExpectedStartupProgressPhase(state, StartupProgressPhase.LibraryFileEnumerationDone, ref count);
+        CountExpectedStartupProgressPhase(state, StartupProgressPhase.LibraryFileDiffDone, ref count);
         CountExpectedStartupProgressPhase(state, StartupProgressPhase.StartupReadyData, ref count);
         CountExpectedStartupProgressPhase(state, StartupProgressPhase.StartupReadyUi, ref count);
         CountExpectedStartupProgressPhase(state, StartupProgressPhase.StartupReadyOperable, ref count);
@@ -13731,6 +13896,9 @@ public class MainWindowViewModel : ViewModel
         {
             case StartupProgressOperationKind.Startup:
                 return StartupProgressPhase.CoreInitializeStarted
+                    | StartupProgressPhase.LibraryDatabaseLoadDone
+                    | StartupProgressPhase.LibraryFileEnumerationDone
+                    | StartupProgressPhase.LibraryFileDiffDone
                     | StartupProgressPhase.StartupReadyData
                     | StartupProgressPhase.StartupReadyUi
                     | StartupProgressPhase.StartupReadyOperable
@@ -13745,6 +13913,9 @@ public class MainWindowViewModel : ViewModel
                     | StartupProgressPhase.PlaylistEntriesHydrationDone;
             case StartupProgressOperationKind.ReloadFiles:
                 return StartupProgressPhase.CoreInitializeStarted
+                    | StartupProgressPhase.LibraryDatabaseLoadDone
+                    | StartupProgressPhase.LibraryFileEnumerationDone
+                    | StartupProgressPhase.LibraryFileDiffDone
                     | StartupProgressPhase.StartupReadyOperable
                     | StartupProgressPhase.PlaylistReferenceApplied
                     | StartupProgressPhase.ScoreHydrationDone
@@ -13769,6 +13940,9 @@ public class MainWindowViewModel : ViewModel
     {
         int count = 0;
         CountCompletedExpectedStartupProgressPhase(state, StartupProgressPhase.CoreInitializeStarted, ref count);
+        CountCompletedExpectedStartupProgressPhase(state, StartupProgressPhase.LibraryDatabaseLoadDone, ref count);
+        CountCompletedExpectedStartupProgressPhase(state, StartupProgressPhase.LibraryFileEnumerationDone, ref count);
+        CountCompletedExpectedStartupProgressPhase(state, StartupProgressPhase.LibraryFileDiffDone, ref count);
         CountCompletedExpectedStartupProgressPhase(state, StartupProgressPhase.StartupReadyData, ref count);
         CountCompletedExpectedStartupProgressPhase(state, StartupProgressPhase.StartupReadyUi, ref count);
         CountCompletedExpectedStartupProgressPhase(state, StartupProgressPhase.StartupReadyOperable, ref count);
@@ -13808,9 +13982,9 @@ public class MainWindowViewModel : ViewModel
                 throw new ArgumentException("Action must be formatted as verb:PhaseName.", nameof(actions));
             }
             string verb = parts[0].Trim();
-            StartupProgressPhase phase = ParseStartupProgressPhaseForTest(parts[1].Trim());
             if (string.Equals(verb, "request", StringComparison.OrdinalIgnoreCase))
             {
+                StartupProgressPhase phase = ParseStartupProgressPhaseForTest(parts[1].Trim());
                 if ((state.ExpectedPhases & phase) == 0)
                 {
                     ignoredRequests++;
@@ -13820,6 +13994,7 @@ public class MainWindowViewModel : ViewModel
             }
             else if (string.Equals(verb, "complete", StringComparison.OrdinalIgnoreCase))
             {
+                StartupProgressPhase phase = ParseStartupProgressPhaseForTest(parts[1].Trim());
                 if (CanCompleteStartupProgressPhase(state, phase))
                 {
                     state.CompletedPhases |= phase;
@@ -13831,10 +14006,48 @@ public class MainWindowViewModel : ViewModel
             }
             else if (string.Equals(verb, "skip", StringComparison.OrdinalIgnoreCase))
             {
+                StartupProgressPhase phase = ParseStartupProgressPhaseForTest(parts[1].Trim());
                 if ((state.ExpectedPhases & phase) != 0 && (state.RequestedPhases & phase) == 0)
                 {
                     state.CompletedPhases |= phase;
                     state.SkippedPhases |= phase;
+                }
+            }
+            else if (string.Equals(verb, "library", StringComparison.OrdinalIgnoreCase))
+            {
+                string[] statusParts = parts[1].Split('|');
+                state.LibraryInitializationProgressStage = (BMSLibrary.LibraryInitializationProgressStage)Enum.Parse(typeof(BMSLibrary.LibraryInitializationProgressStage), statusParts[0], ignoreCase: true);
+                if (statusParts.Length > 1)
+                {
+                    state.LibraryInitializationProgressTotalCount = int.Parse(statusParts[1], CultureInfo.InvariantCulture);
+                }
+                if (statusParts.Length > 2)
+                {
+                    state.LibraryInitializationProgressProcessedCount = int.Parse(statusParts[2], CultureInfo.InvariantCulture);
+                }
+                if (statusParts.Length > 3)
+                {
+                    state.LibraryInitializationProgressCurrentPath = statusParts[3];
+                }
+                if (statusParts.Length > 4)
+                {
+                    state.LibraryInitializationProgressScannerLabel = statusParts[4];
+                }
+            }
+            else if (string.Equals(verb, "chartinfo", StringComparison.OrdinalIgnoreCase))
+            {
+                string[] statusParts = parts[1].Split('|');
+                if (statusParts.Length > 0)
+                {
+                    state.ChartInfoBackfillTotalCount = int.Parse(statusParts[0], CultureInfo.InvariantCulture);
+                }
+                if (statusParts.Length > 1)
+                {
+                    state.ChartInfoBackfillProcessedCount = int.Parse(statusParts[1], CultureInfo.InvariantCulture);
+                }
+                if (statusParts.Length > 2)
+                {
+                    state.ChartInfoBackfillCurrentPath = statusParts[2];
                 }
             }
             else
@@ -13875,6 +14088,9 @@ public class MainWindowViewModel : ViewModel
     {
         int count = 0;
         CountStartupProgressPhase(phases, StartupProgressPhase.CoreInitializeStarted, ref count);
+        CountStartupProgressPhase(phases, StartupProgressPhase.LibraryDatabaseLoadDone, ref count);
+        CountStartupProgressPhase(phases, StartupProgressPhase.LibraryFileEnumerationDone, ref count);
+        CountStartupProgressPhase(phases, StartupProgressPhase.LibraryFileDiffDone, ref count);
         CountStartupProgressPhase(phases, StartupProgressPhase.StartupReadyData, ref count);
         CountStartupProgressPhase(phases, StartupProgressPhase.StartupReadyUi, ref count);
         CountStartupProgressPhase(phases, StartupProgressPhase.StartupReadyOperable, ref count);

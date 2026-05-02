@@ -969,7 +969,7 @@
             <Separator />
           </StatusBarItem>
           <StatusBarItem Style="{StaticResource styleStartupProgressStatusBarItem}">
-            <TextBlock Width="160" TextTrimming="CharacterEllipsis" Text="{Binding StartupProgressSubLabel}" />
+            <TextBlock Width="200" TextTrimming="CharacterEllipsis" Text="{Binding StartupProgressSubLabel}" ToolTip="{Binding StartupProgressSubLabel}" />
           </StatusBarItem>
           <StatusBarItem Style="{StaticResource styleStartupProgressStatusBarItem}">
             <Separator />

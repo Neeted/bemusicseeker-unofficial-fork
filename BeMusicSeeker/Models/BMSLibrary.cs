@@ -41,6 +41,14 @@ public class BMSLibrary : NotificationObject
 {
     internal Func<string, string, string, Func<Task>, bool> StartupBackgroundTaskScheduler { get; set; }
 
+    public enum LibraryInitializationProgressStage
+    {
+        None = 0,
+        DatabaseLoad = 1,
+        FileEnumeration = 2,
+        FileDiff = 3
+    }
+
     /// <summary>
     /// BMS 親フォルダ一覧キャッシュのスナップショットを格納するクラスです。
     /// バックグラウンドスレッドで構築し、UIスレッドで適用する2段階方式に利用されます。
@@ -937,6 +945,26 @@ public class BMSLibrary : NotificationObject
 
     private int _ChartInfoHydrationAppliedCount;
 
+    private LibraryInitializationProgressStage _LibraryInitializationProgressStage;
+
+    private string _LibraryInitializationProgressScannerLabel = string.Empty;
+
+    private int _LibraryInitializationProgressTotalCount;
+
+    private int _LibraryInitializationProgressProcessedCount;
+
+    private string _LibraryInitializationProgressCurrentPath = string.Empty;
+
+    private int _LibraryDatabaseLoadCompletedVersion;
+
+    private int _LibraryFileEnumerationCompletedVersion;
+
+    private int _LibraryFileDiffCompletedVersion;
+
+    private long lastLibraryInitializationProgressReportTimestamp;
+
+    private readonly object lockLibraryInitializationProgress = new object();
+
     private int _ChartInfoIndexVersion;
 
     private bool _ChartInfoIndexHydrated;
@@ -1750,6 +1778,136 @@ public class BMSLibrary : NotificationObject
             {
                 _ChartInfoBackfillCurrentPath = value;
                 RaisePropertyChanged(() => ChartInfoBackfillCurrentPath);
+            }
+        }
+    }
+
+    public LibraryInitializationProgressStage LibraryInitializationProgress
+    {
+        get
+        {
+            return _LibraryInitializationProgressStage;
+        }
+        private set
+        {
+            if (_LibraryInitializationProgressStage != value)
+            {
+                _LibraryInitializationProgressStage = value;
+                RaisePropertyChanged(() => LibraryInitializationProgress);
+            }
+        }
+    }
+
+    public string LibraryInitializationProgressScannerLabel
+    {
+        get
+        {
+            return _LibraryInitializationProgressScannerLabel;
+        }
+        private set
+        {
+            value = value ?? string.Empty;
+            if (_LibraryInitializationProgressScannerLabel != value)
+            {
+                _LibraryInitializationProgressScannerLabel = value;
+                RaisePropertyChanged(() => LibraryInitializationProgressScannerLabel);
+            }
+        }
+    }
+
+    public int LibraryInitializationProgressTotalCount
+    {
+        get
+        {
+            return _LibraryInitializationProgressTotalCount;
+        }
+        private set
+        {
+            if (_LibraryInitializationProgressTotalCount != value)
+            {
+                _LibraryInitializationProgressTotalCount = value;
+                RaisePropertyChanged(() => LibraryInitializationProgressTotalCount);
+            }
+        }
+    }
+
+    public int LibraryInitializationProgressProcessedCount
+    {
+        get
+        {
+            return _LibraryInitializationProgressProcessedCount;
+        }
+        private set
+        {
+            if (_LibraryInitializationProgressProcessedCount != value)
+            {
+                _LibraryInitializationProgressProcessedCount = value;
+                RaisePropertyChanged(() => LibraryInitializationProgressProcessedCount);
+            }
+        }
+    }
+
+    public string LibraryInitializationProgressCurrentPath
+    {
+        get
+        {
+            return _LibraryInitializationProgressCurrentPath;
+        }
+        private set
+        {
+            value = value ?? string.Empty;
+            if (_LibraryInitializationProgressCurrentPath != value)
+            {
+                _LibraryInitializationProgressCurrentPath = value;
+                RaisePropertyChanged(() => LibraryInitializationProgressCurrentPath);
+            }
+        }
+    }
+
+    public int LibraryDatabaseLoadCompletedVersion
+    {
+        get
+        {
+            return _LibraryDatabaseLoadCompletedVersion;
+        }
+        private set
+        {
+            if (_LibraryDatabaseLoadCompletedVersion != value)
+            {
+                _LibraryDatabaseLoadCompletedVersion = value;
+                RaisePropertyChanged(() => LibraryDatabaseLoadCompletedVersion);
+            }
+        }
+    }
+
+    public int LibraryFileEnumerationCompletedVersion
+    {
+        get
+        {
+            return _LibraryFileEnumerationCompletedVersion;
+        }
+        private set
+        {
+            if (_LibraryFileEnumerationCompletedVersion != value)
+            {
+                _LibraryFileEnumerationCompletedVersion = value;
+                RaisePropertyChanged(() => LibraryFileEnumerationCompletedVersion);
+            }
+        }
+    }
+
+    public int LibraryFileDiffCompletedVersion
+    {
+        get
+        {
+            return _LibraryFileDiffCompletedVersion;
+        }
+        private set
+        {
+            if (_LibraryFileDiffCompletedVersion != value)
+            {
+                _LibraryFileDiffCompletedVersion = value;
+                RaisePropertyChanged(() => LibraryFileDiffCompletedVersion);
             }
         }
     }
@@ -3387,6 +3545,50 @@ public class BMSLibrary : NotificationObject
         }
     }
 
+    private void ReportLibraryInitializationProgress(
+        LibraryInitializationProgressStage stage,
+        string scannerLabel = null,
+        int totalCount = 0,
+        int processedCount = 0,
+        string currentPath = null,
+        bool force = false)
+    {
+        long now = Stopwatch.GetTimestamp();
+        if (!force)
+        {
+            long last = Interlocked.Read(ref lastLibraryInitializationProgressReportTimestamp);
+            double elapsedMs = (now - last) * 1000.0 / Stopwatch.Frequency;
+            if (last != 0L && elapsedMs < 150.0)
+            {
+                return;
+            }
+        }
+        Interlocked.Exchange(ref lastLibraryInitializationProgressReportTimestamp, now);
+        lock (lockLibraryInitializationProgress)
+        {
+            LibraryInitializationProgress = stage;
+            LibraryInitializationProgressScannerLabel = scannerLabel ?? string.Empty;
+            LibraryInitializationProgressTotalCount = Math.Max(0, totalCount);
+            LibraryInitializationProgressProcessedCount = Math.Max(0, processedCount);
+            LibraryInitializationProgressCurrentPath = currentPath ?? string.Empty;
+        }
+    }
+
+    private void CompleteLibraryDatabaseLoadProgress()
+    {
+        LibraryDatabaseLoadCompletedVersion = LibraryDatabaseLoadCompletedVersion + 1;
+    }
+
+    private void CompleteLibraryFileEnumerationProgress()
+    {
+        LibraryFileEnumerationCompletedVersion = LibraryFileEnumerationCompletedVersion + 1;
+    }
+
+    private void CompleteLibraryFileDiffProgress()
+    {
+        LibraryFileDiffCompletedVersion = LibraryFileDiffCompletedVersion + 1;
+    }
+
     /// <summary>
     /// BMS ファイル走査のプリフェッチ結果（走査結果と所要時間）を保持するクラスです。
     /// </summary>
@@ -3400,14 +3602,16 @@ public class BMSLibrary : NotificationObject
     /// <summary>
     /// Everything ファイルスキャナーで走査を試み、失敗時にはディレクトリ形式のフォールバックスキャナーを使用します。
     /// </summary>
-    private BmsScanExecutionResult ExecuteBmsScanWithFallback(List<string> bmsDirectories)
+    private BmsScanExecutionResult ExecuteBmsScanWithFallback(List<string> bmsDirectories, Action<string> reportScanner = null)
     {
         IBmsFileScanner fallbackScanner = new FastDirectoryFileScanner();
         IBmsFileScanner scanner = new EverythingFileScanner();
+        reportScanner?.Invoke("Everything");
         BmsScanExecutionResult scanResult = scanner.Scan(bmsDirectories, ChartDirectoryScanBuilder.ChartExtensions, everythingScanLoggingEnabled);
         if (!scanResult.Success || scanResult.Result == null)
         {
             LogEverythingScan("BMS file scan fallback reason=" + (scanResult?.ErrorReason ?? "unknown"));
+            reportScanner?.Invoke("Fallback");
             scanResult = fallbackScanner.Scan(bmsDirectories, ChartDirectoryScanBuilder.ChartExtensions, everythingScanLoggingEnabled);
         }
         if (scanResult?.Result == null)
@@ -3462,7 +3666,12 @@ public class BMSLibrary : NotificationObject
                 bmsScanPrefetchTask = Task.Run(delegate
                 {
                     Stopwatch stopwatchPrefetch = Stopwatch.StartNew();
-                    BmsScanExecutionResult scanResult = ExecuteBmsScanWithFallback(prefetchDirectories);
+                    BmsScanExecutionResult scanResult = ExecuteBmsScanWithFallback(
+                        prefetchDirectories,
+                        scannerLabel => ReportLibraryInitializationProgress(
+                            LibraryInitializationProgressStage.FileEnumeration,
+                            scannerLabel,
+                            force: true));
                     stopwatchPrefetch.Stop();
                     return new BmsScanPrefetchInfo
                     {
@@ -3492,7 +3701,7 @@ public class BMSLibrary : NotificationObject
                 {
                     using (rwlockBMSFilesInitializedMin.GetWriterGuard())
                     {
-                        _initialize(songTblLoad, scoreTblrLoad: true, songTblFileCheck: false, setMainteInfo: false, updateIrScore: false, installTblCheck: false, maintenanceTblCheck: false);
+                        _initialize(songTblLoad, scoreTblrLoad: true, songTblFileCheck: false, setMainteInfo: false, updateIrScore: false, installTblCheck: false, maintenanceTblCheck: false, bmsScanPrefetchInfo: null, trackLibraryDatabaseProgress: true);
                     }
                 },
                 delegate
@@ -3510,7 +3719,7 @@ public class BMSLibrary : NotificationObject
                             bmsScanPrefetchInfo = null;
                         }
                     }
-                    _initialize(songTblLoad: false, scoreTblrLoad: false, songTblFileCheck, setMainteInfo: false, updateIrScore: true, installTblCheck: false, maintenanceTblCheck: false, bmsScanPrefetchInfo);
+                    _initialize(songTblLoad: false, scoreTblrLoad: false, songTblFileCheck, setMainteInfo: false, updateIrScore: true, installTblCheck: false, maintenanceTblCheck: false, bmsScanPrefetchInfo, trackLibraryFileCheckProgress: true);
                 },
                 delegate
                 {
@@ -3624,7 +3833,17 @@ public class BMSLibrary : NotificationObject
     /// Initialize から呼ばれる実際の初期化内部ロジックです。
     /// song.db からのデータ再取得、BMS ファイルのディレクトリ走査、スコア反映、保守テーブルチェックを順次実行します。
     /// </summary>
-    private void _initialize(bool songTblLoad = true, bool scoreTblrLoad = true, bool songTblFileCheck = true, bool setMainteInfo = true, bool updateIrScore = true, bool installTblCheck = true, bool maintenanceTblCheck = true, BmsScanPrefetchInfo bmsScanPrefetchInfo = null)
+    private void _initialize(
+        bool songTblLoad = true,
+        bool scoreTblrLoad = true,
+        bool songTblFileCheck = true,
+        bool setMainteInfo = true,
+        bool updateIrScore = true,
+        bool installTblCheck = true,
+        bool maintenanceTblCheck = true,
+        BmsScanPrefetchInfo bmsScanPrefetchInfo = null,
+        bool trackLibraryDatabaseProgress = false,
+        bool trackLibraryFileCheckProgress = false)
     {
         Stopwatch stopwatchInitialize = Stopwatch.StartNew();
         long songTblLoadMs = 0L;
@@ -3646,6 +3865,10 @@ public class BMSLibrary : NotificationObject
         if (songTblLoad)
         {
             Stopwatch stopwatchSongTblLoad = Stopwatch.StartNew();
+            if (trackLibraryDatabaseProgress)
+            {
+                ReportLibraryInitializationProgress(LibraryInitializationProgressStage.DatabaseLoad, force: true);
+            }
             using (rwlockBMSFiles.GetWriterGuard())
             {
                 SongTableLoadResult songTableLoadResult = initializationService.LoadSongTable(
@@ -3666,6 +3889,10 @@ public class BMSLibrary : NotificationObject
             }
             stopwatchSongTblLoad.Stop();
             songTblLoadMs = stopwatchSongTblLoad.ElapsedMilliseconds;
+            if (trackLibraryDatabaseProgress)
+            {
+                CompleteLibraryDatabaseLoadProgress();
+            }
         }
         if (scoreTblrLoad)
         {
@@ -3701,18 +3928,63 @@ public class BMSLibrary : NotificationObject
         if (songTblFileCheck)
         {
             Stopwatch stopwatchSongTblFileCheck = Stopwatch.StartNew();
+            bool fileEnumerationCompleted = false;
+            Action completeFileEnumerationOnce = delegate
+            {
+                if (fileEnumerationCompleted)
+                {
+                    return;
+                }
+                fileEnumerationCompleted = true;
+                if (trackLibraryFileCheckProgress)
+                {
+                    CompleteLibraryFileEnumerationProgress();
+                }
+            };
             SongTableFileCheckResult fileCheckResult = initializationService.ApplyFileScanDiff(
                 dbGateway,
                 options,
                 BMSFiles,
                 bmsScanPrefetchInfo?.ScanResult,
                 bmsScanPrefetchInfo?.ElapsedMs ?? 0L,
-                () => ExecuteBmsScanWithFallback(bMSDirectories),
+                () => ExecuteBmsScanWithFallback(
+                    bMSDirectories,
+                    scannerLabel =>
+                    {
+                        if (trackLibraryFileCheckProgress)
+                        {
+                            ReportLibraryInitializationProgress(
+                                LibraryInitializationProgressStage.FileEnumeration,
+                                scannerLabel,
+                                force: true);
+                        }
+                    }),
                 dialogService,
                 LogInstallPerformance,
                 LogEverythingScan,
                 BmsonSongs,
-                null);
+                null,
+                completeFileEnumerationOnce,
+                () =>
+                {
+                    if (trackLibraryFileCheckProgress)
+                    {
+                        ReportLibraryInitializationProgress(LibraryInitializationProgressStage.FileDiff, force: true);
+                    }
+                },
+                (total, processed, path) =>
+                {
+                    if (trackLibraryFileCheckProgress)
+                    {
+                        ReportLibraryInitializationProgress(
+                            LibraryInitializationProgressStage.FileDiff,
+                            totalCount: total,
+                            processedCount: processed,
+                            currentPath: path,
+                            force: processed >= total);
+                    }
+                });
+            completeFileEnumerationOnce();
             using (rwlockBMSFiles.GetWriterGuard())
             {
                 BMSFiles = fileCheckResult.NextFiles;
@@ -3729,6 +4001,15 @@ public class BMSLibrary : NotificationObject
             }
             stopwatchSongTblFileCheck.Stop();
             songTblFileCheckMs = stopwatchSongTblFileCheck.ElapsedMilliseconds;
+            if (trackLibraryFileCheckProgress)
+            {
+                CompleteLibraryFileDiffProgress();
+            }
+        }
+        else if (trackLibraryFileCheckProgress)
+        {
+            CompleteLibraryFileEnumerationProgress();
+            CompleteLibraryFileDiffProgress();
         }
         RunChartDigestBackfill();
         if (setMainteInfo)

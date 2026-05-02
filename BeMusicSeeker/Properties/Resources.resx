@@ -1147,6 +1147,15 @@ BMSファイルが重複しないようにマージします。
   <data name="Statusbar_progress_phase_library_load" xml:space="preserve">
     <value>ライブラリ読込</value>
   </data>
+  <data name="Statusbar_progress_phase_library_db_load" xml:space="preserve">
+    <value>DB読み込み</value>
+  </data>
+  <data name="Statusbar_progress_phase_file_enumeration" xml:space="preserve">
+    <value>ファイル列挙</value>
+  </data>
+  <data name="Statusbar_progress_phase_file_diff" xml:space="preserve">
+    <value>ファイル差分確認</value>
+  </data>
   <data name="Statusbar_progress_phase_ui_prepare" xml:space="preserve">
     <value>画面準備</value>
   </data>

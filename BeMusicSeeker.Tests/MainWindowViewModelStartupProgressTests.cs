@@ -10,8 +10,8 @@ public sealed class MainWindowViewModelStartupProgressTests
     [TestMethod]
     public void StartupProgress_InitialExpectedCounts_AreFixedByOperation()
     {
-        Assert.AreEqual(13, MainWindowViewModel.GetInitialStartupProgressExpectedCountForTest("Startup"));
-        Assert.AreEqual(10, MainWindowViewModel.GetInitialStartupProgressExpectedCountForTest("ReloadFiles"));
+        Assert.AreEqual(16, MainWindowViewModel.GetInitialStartupProgressExpectedCountForTest("Startup"));
+        Assert.AreEqual(13, MainWindowViewModel.GetInitialStartupProgressExpectedCountForTest("ReloadFiles"));
         Assert.AreEqual(5, MainWindowViewModel.GetInitialStartupProgressExpectedCountForTest("ReloadTables"));
     }
 
@@ -37,7 +37,7 @@ public sealed class MainWindowViewModelStartupProgressTests
             "ReloadFiles",
             "complete:ScoreHydrationDone");
 
-        Assert.AreEqual(10, result.ExpectedCount);
+        Assert.AreEqual(13, result.ExpectedCount);
         Assert.AreEqual(1, result.CompletedCount);
         Assert.AreEqual(1, result.IgnoredCompleteCount);
         Assert.IsFalse(result.IsCompleted);
@@ -50,7 +50,7 @@ public sealed class MainWindowViewModelStartupProgressTests
             "ReloadFiles",
             "skip:ChartDigestBackfillDone");
 
-        Assert.AreEqual(10, result.ExpectedCount);
+        Assert.AreEqual(13, result.ExpectedCount);
         Assert.AreEqual(2, result.CompletedCount);
         Assert.AreEqual(1, result.SkippedCount);
     }
@@ -63,7 +63,7 @@ public sealed class MainWindowViewModelStartupProgressTests
             "skip:ChartDigestBackfillDone",
             "request:ChartDigestBackfillDone");
 
-        Assert.AreEqual(10, result.ExpectedCount);
+        Assert.AreEqual(13, result.ExpectedCount);
         Assert.AreEqual(2, result.CompletedCount);
         Assert.AreEqual(1, result.RequestedCount);
         Assert.AreEqual(1, result.SkippedCount);
@@ -88,9 +88,48 @@ public sealed class MainWindowViewModelStartupProgressTests
             "request:PlaylistEntriesHydrationDone",
             "complete:PlaylistEntriesHydrationDone");
 
-        Assert.AreEqual(10, result.ExpectedCount);
+        Assert.AreEqual(13, result.ExpectedCount);
         Assert.AreEqual(2, result.CompletedCount);
         Assert.AreEqual(0, result.IgnoredCompleteCount);
+    }
+
+    [TestMethod]
+    public void StartupProgress_LibraryLoadSubLabel_FollowsSubPhase()
+    {
+        MainWindowViewModel.StartupProgressTestResult db = MainWindowViewModel.ReduceStartupProgressForTest("Startup");
+        Assert.AreEqual(Resources.Statusbar_progress_phase_library_db_load, db.SubLabel);
+
+        MainWindowViewModel.StartupProgressTestResult enumeration = MainWindowViewModel.ReduceStartupProgressForTest(
+            "Startup",
+            "complete:LibraryDatabaseLoadDone",
+            "library:FileEnumeration|0|0||Everything");
+        Assert.AreEqual(Resources.Statusbar_progress_phase_file_enumeration + " (Everything)", enumeration.SubLabel);
+
+        MainWindowViewModel.StartupProgressTestResult diff = MainWindowViewModel.ReduceStartupProgressForTest(
+            "Startup",
+            "complete:LibraryDatabaseLoadDone",
+            "complete:LibraryFileEnumerationDone",
+            "library:FileDiff|10|3|C:\\BMS\\added.bms|");
+        Assert.AreEqual("[3/10] " + Resources.Statusbar_progress_phase_file_diff + " added.bms", diff.SubLabel);
+    }
+
+    [TestMethod]
+    public void StartupProgress_CountSubLabel_PutsFractionFirst()
+    {
+        MainWindowViewModel.StartupProgressTestResult result = MainWindowViewModel.ReduceStartupProgressForTest(
+            "Startup",
+            "complete:LibraryDatabaseLoadDone",
+            "complete:LibraryFileEnumerationDone",
+            "complete:LibraryFileDiffDone",
+            "complete:StartupReadyData",
+            "complete:StartupReadyUi",
+            "complete:StartupReadyOperable",
+            "skip:PlaylistEntriesHydrationDone",
+            "skip:ChartInfoHydrationDone",
+            "request:ChartInfoBackfillDone",
+            "chartinfo:209999|6695|C:\\BMS\\metadata.bms");
+
+        Assert.AreEqual("[6695/209999] " + Resources.Statusbar_progress_phase_chart_info + " metadata.bms", result.SubLabel);
     }
 
     [TestMethod]
