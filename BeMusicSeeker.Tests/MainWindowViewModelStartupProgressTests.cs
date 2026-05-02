@@ -10,8 +10,8 @@ public sealed class MainWindowViewModelStartupProgressTests
     [TestMethod]
     public void StartupProgress_InitialExpectedCounts_AreFixedByOperation()
     {
-        Assert.AreEqual(16, MainWindowViewModel.GetInitialStartupProgressExpectedCountForTest("Startup"));
-        Assert.AreEqual(13, MainWindowViewModel.GetInitialStartupProgressExpectedCountForTest("ReloadFiles"));
+        Assert.AreEqual(17, MainWindowViewModel.GetInitialStartupProgressExpectedCountForTest("Startup"));
+        Assert.AreEqual(14, MainWindowViewModel.GetInitialStartupProgressExpectedCountForTest("ReloadFiles"));
         Assert.AreEqual(5, MainWindowViewModel.GetInitialStartupProgressExpectedCountForTest("ReloadTables"));
     }
 
@@ -22,12 +22,13 @@ public sealed class MainWindowViewModelStartupProgressTests
             "ReloadTables",
             "request:ScoreHydrationDone",
             "request:RankingRefreshDone",
-            "request:MaintenanceDeferredDone");
+            "request:MaintenanceDeferredDone",
+            "request:InstallableMaintenanceDeferredDone");
 
         Assert.AreEqual(5, result.ExpectedCount);
         Assert.AreEqual(1, result.CompletedCount);
         Assert.AreEqual(0, result.RequestedCount);
-        Assert.AreEqual(3, result.IgnoredRequestCount);
+        Assert.AreEqual(4, result.IgnoredRequestCount);
     }
 
     [TestMethod]
@@ -37,7 +38,7 @@ public sealed class MainWindowViewModelStartupProgressTests
             "ReloadFiles",
             "complete:ScoreHydrationDone");
 
-        Assert.AreEqual(13, result.ExpectedCount);
+        Assert.AreEqual(14, result.ExpectedCount);
         Assert.AreEqual(1, result.CompletedCount);
         Assert.AreEqual(1, result.IgnoredCompleteCount);
         Assert.IsFalse(result.IsCompleted);
@@ -52,7 +53,7 @@ public sealed class MainWindowViewModelStartupProgressTests
             "complete:ChartInfoBackfillDone",
             "complete:ChartDigestBackfillDone");
 
-        Assert.AreEqual(16, result.ExpectedCount);
+        Assert.AreEqual(17, result.ExpectedCount);
         Assert.AreEqual(1, result.CompletedCount);
         Assert.AreEqual(3, result.IgnoredCompleteCount);
         Assert.IsFalse(result.IsCompleted);
@@ -65,7 +66,7 @@ public sealed class MainWindowViewModelStartupProgressTests
             "ReloadFiles",
             "skip:ChartDigestBackfillDone");
 
-        Assert.AreEqual(13, result.ExpectedCount);
+        Assert.AreEqual(14, result.ExpectedCount);
         Assert.AreEqual(2, result.CompletedCount);
         Assert.AreEqual(1, result.SkippedCount);
     }
@@ -78,7 +79,7 @@ public sealed class MainWindowViewModelStartupProgressTests
             "skip:ChartDigestBackfillDone",
             "request:ChartDigestBackfillDone");
 
-        Assert.AreEqual(13, result.ExpectedCount);
+        Assert.AreEqual(14, result.ExpectedCount);
         Assert.AreEqual(2, result.CompletedCount);
         Assert.AreEqual(1, result.RequestedCount);
         Assert.AreEqual(1, result.SkippedCount);
@@ -103,9 +104,69 @@ public sealed class MainWindowViewModelStartupProgressTests
             "request:PlaylistEntriesHydrationDone",
             "complete:PlaylistEntriesHydrationDone");
 
-        Assert.AreEqual(13, result.ExpectedCount);
+        Assert.AreEqual(14, result.ExpectedCount);
         Assert.AreEqual(2, result.CompletedCount);
         Assert.AreEqual(0, result.IgnoredCompleteCount);
+    }
+
+    [TestMethod]
+    public void StartupProgress_InstallableMaintenanceRequiresRequestBeforeCompletion()
+    {
+        MainWindowViewModel.StartupProgressTestResult stale = MainWindowViewModel.ReduceStartupProgressForTest(
+            "ReloadFiles",
+            "complete:InstallableMaintenanceDeferredDone");
+
+        Assert.AreEqual(14, stale.ExpectedCount);
+        Assert.AreEqual(1, stale.CompletedCount);
+        Assert.AreEqual(1, stale.IgnoredCompleteCount);
+
+        MainWindowViewModel.StartupProgressTestResult requested = MainWindowViewModel.ReduceStartupProgressForTest(
+            "ReloadFiles",
+            "request:InstallableMaintenanceDeferredDone",
+            "complete:InstallableMaintenanceDeferredDone");
+
+        Assert.AreEqual(14, requested.ExpectedCount);
+        Assert.AreEqual(2, requested.CompletedCount);
+        Assert.AreEqual(1, requested.RequestedCount);
+        Assert.AreEqual(0, requested.IgnoredCompleteCount);
+    }
+
+    [TestMethod]
+    public void StartupProgress_InstallableMaintenanceRequestAfterSkip_DoesNotMoveBackToPending()
+    {
+        MainWindowViewModel.StartupProgressTestResult result = MainWindowViewModel.ReduceStartupProgressForTest(
+            "ReloadFiles",
+            "skip:InstallableMaintenanceDeferredDone",
+            "request:InstallableMaintenanceDeferredDone");
+
+        Assert.AreEqual(14, result.ExpectedCount);
+        Assert.AreEqual(2, result.CompletedCount);
+        Assert.AreEqual(1, result.RequestedCount);
+        Assert.AreEqual(1, result.SkippedCount);
+    }
+
+    [TestMethod]
+    public void StartupProgress_InstallableMaintenanceUsesDedicatedSubLabel()
+    {
+        MainWindowViewModel.StartupProgressTestResult result = MainWindowViewModel.ReduceStartupProgressForTest(
+            "ReloadFiles",
+            "complete:LibraryDatabaseLoadDone",
+            "complete:LibraryFileEnumerationDone",
+            "complete:LibraryFileDiffDone",
+            "complete:StartupReadyOperable",
+            "skip:PlaylistEntriesHydrationDone",
+            "skip:ChartInfoHydrationDone",
+            "skip:ChartInfoBackfillDone",
+            "skip:ChartDigestBackfillDone",
+            "skip:PlaylistReferenceApplied",
+            "skip:ScoreHydrationDone",
+            "skip:RankingRefreshDone",
+            "skip:MaintenanceDeferredDone",
+            "request:InstallableMaintenanceDeferredDone");
+
+        Assert.AreEqual(Resources.Statusbar_progress_operable_background, result.Label);
+        Assert.AreEqual(Resources.Statusbar_progress_phase_installable_maintenance, result.SubLabel);
+        Assert.IsFalse(result.IsCompleted);
     }
 
     [TestMethod]

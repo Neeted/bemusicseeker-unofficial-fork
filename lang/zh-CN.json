@@ -24,6 +24,7 @@
   "Statusbar_progress_phase_ui_prepare": "准备界面",
   "Statusbar_progress_phase_playlist_ref": "更新播放列表引用",
   "Statusbar_progress_phase_maintenance": "更新维护引用",
+  "Statusbar_progress_phase_installable_maintenance": "更新维护信息",
   "Statusbar_progress_phase_score_hydration": "反映分数",
   "Statusbar_progress_phase_ranking_refresh": "更新排名",
   "Statusbar_progress_phase_chart_info": "分析谱面元数据",

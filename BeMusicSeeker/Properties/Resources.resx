@@ -1165,6 +1165,9 @@ BMSファイルが重複しないようにマージします。
   <data name="Statusbar_progress_phase_maintenance" xml:space="preserve">
     <value>保守参照更新</value>
   </data>
+  <data name="Statusbar_progress_phase_installable_maintenance" xml:space="preserve">
+    <value>保守情報更新</value>
+  </data>
   <data name="Statusbar_progress_phase_score_hydration" xml:space="preserve">
     <value>スコア反映</value>
   </data>

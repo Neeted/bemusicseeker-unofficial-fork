@@ -1570,6 +1570,63 @@ public class BMSLibrary : NotificationObject
         }
     }
 
+    /// <summary>
+    /// installable maintenance deferred worker が現在実行中かどうかを返します。
+    /// </summary>
+    public bool InstallableMaintenanceDeferredRunning
+    {
+        get
+        {
+            return deferredInstallableMaintenanceRunning;
+        }
+        private set
+        {
+            if (deferredInstallableMaintenanceRunning != value)
+            {
+                deferredInstallableMaintenanceRunning = value;
+                RaisePropertyChanged(() => InstallableMaintenanceDeferredRunning);
+            }
+        }
+    }
+
+    /// <summary>
+    /// 最後に要求された installable maintenance deferred worker の版数です。
+    /// </summary>
+    public int InstallableMaintenanceDeferredRequestedVersion
+    {
+        get
+        {
+            return deferredInstallableMaintenanceRequestedVersion;
+        }
+        private set
+        {
+            if (deferredInstallableMaintenanceRequestedVersion != value)
+            {
+                deferredInstallableMaintenanceRequestedVersion = value;
+                RaisePropertyChanged(() => InstallableMaintenanceDeferredRequestedVersion);
+            }
+        }
+    }
+
+    /// <summary>
+    /// 最後に完了した installable maintenance deferred worker の版数です。
+    /// </summary>
+    public int InstallableMaintenanceDeferredCompletedVersion
+    {
+        get
+        {
+            return deferredInstallableMaintenanceLastCompletedVersion;
+        }
+        private set
+        {
+            if (deferredInstallableMaintenanceLastCompletedVersion != value)
+            {
+                deferredInstallableMaintenanceLastCompletedVersion = value;
+                RaisePropertyChanged(() => InstallableMaintenanceDeferredCompletedVersion);
+            }
+        }
+    }
+
     public bool ChartDigestBackfillRunning
     {
         get
@@ -4700,16 +4757,20 @@ public class BMSLibrary : NotificationObject
         bool shouldStartWorker = false;
         lock (lockDeferredInstallableMaintenance)
         {
-            deferredInstallableMaintenanceRequestedVersion++;
-            version = deferredInstallableMaintenanceRequestedVersion;
+            InstallableMaintenanceDeferredRequestedVersion = InstallableMaintenanceDeferredRequestedVersion + 1;
+            version = InstallableMaintenanceDeferredRequestedVersion;
             deferredInstallableMaintenanceCriticalElapsedMs = criticalElapsedMs;
-            if (!deferredInstallableMaintenanceRunning)
+            if (!InstallableMaintenanceDeferredRunning)
             {
-                deferredInstallableMaintenanceRunning = true;
+                InstallableMaintenanceDeferredRunning = true;
                 shouldStartWorker = true;
             }
         }
-        LogInstallPerformance("installable_maintenance_deferred queue reason=" + (reason ?? "unknown") + " version=" + version + " criticalMs=" + criticalElapsedMs);
+        int queueSnapshotCount = CountInstallableMaintenanceSnapshotTargets();
+        LogInstallPerformance("installable_maintenance_deferred queue reason=" + (reason ?? "unknown")
+            + " version=" + version
+            + " snapshotCount=" + queueSnapshotCount
+            + " criticalMs=" + criticalElapsedMs);
         if (!shouldStartWorker)
         {
             return;
@@ -4729,20 +4790,24 @@ public class BMSLibrary : NotificationObject
                 long setModeMs = 0L;
                 long setHealthMs = 0L;
                 long setZeroNoteMs = 0L;
+                int snapshotCount = 0;
+                int setModeTargetCount = 0;
+                MaintenanceWorkflowResult maintenanceResult = new MaintenanceWorkflowResult();
                 try
                 {
                     List<BMSFile> filesSnapshot;
                     using (rwlockBMSFiles.GetReaderGuard())
                     {
                         filesSnapshot = (BMSFiles ?? new List<BMSFile>()).Where((BMSFile file) => file != null).ToList();
+                        snapshotCount = filesSnapshot.Count + ((BmsonSongs ?? new List<LR2SongDBExtended.bmson_song>()).Count((LR2SongDBExtended.bmson_song song) => song != null));
                     }
                     Stopwatch stopwatchSetMode = Stopwatch.StartNew();
-                    setModeAndCommitToDB(filesSnapshot);
+                    setModeTargetCount = setModeAndCommitToDB(filesSnapshot);
                     stopwatchSetMode.Stop();
                     setModeMs = stopwatchSetMode.ElapsedMilliseconds;
 
                     Stopwatch stopwatchSetHealth = Stopwatch.StartNew();
-                    setMaintenanceInfo(filesSnapshot, includeInstalledBmson: true);
+                    maintenanceResult = setMaintenanceInfo(filesSnapshot, includeInstalledBmson: true) ?? new MaintenanceWorkflowResult();
                     stopwatchSetHealth.Stop();
                     setHealthMs = stopwatchSetHealth.ElapsedMilliseconds;
                     IsWriteLockHeldInitializdBMSFilesHealthStatus = false;
@@ -4753,6 +4818,15 @@ public class BMSLibrary : NotificationObject
                     stopwatch.Stop();
                     LogInstallPerformance("installable_maintenance_deferred done version=" + requestVersion
                         + " criticalMs=" + requestCriticalElapsedMs
+                        + " snapshotCount=" + snapshotCount
+                        + " setModeTargets=" + setModeTargetCount
+                        + " maintenanceChecked=" + maintenanceResult.CheckedFileCount
+                        + " bmsResourceTargets=" + maintenanceResult.BmsResourceTargetCount
+                        + " bmsonResourceTargets=" + maintenanceResult.BmsonResourceTargetCount
+                        + " maintenanceUpserted=" + maintenanceResult.MaintenanceInfoUpsertCount
+                        + " bmsonReparsed=" + maintenanceResult.BmsonReparsedCount
+                        + " bmsonReparseFailed=" + maintenanceResult.BmsonReparseFailedCount
+                        + " songReloaded=" + maintenanceResult.ReloadedSongCount
                         + " set_mode_ms=" + setModeMs
                         + " set_health_ms=" + setHealthMs
                         + " set_zero_note_ms=" + setZeroNoteMs
@@ -4764,6 +4838,15 @@ public class BMSLibrary : NotificationObject
                     stopwatch.Stop();
                     LogInstallPerformance("installable_maintenance_deferred failed version=" + requestVersion
                         + " criticalMs=" + requestCriticalElapsedMs
+                        + " snapshotCount=" + snapshotCount
+                        + " setModeTargets=" + setModeTargetCount
+                        + " maintenanceChecked=" + maintenanceResult.CheckedFileCount
+                        + " bmsResourceTargets=" + maintenanceResult.BmsResourceTargetCount
+                        + " bmsonResourceTargets=" + maintenanceResult.BmsonResourceTargetCount
+                        + " maintenanceUpserted=" + maintenanceResult.MaintenanceInfoUpsertCount
+                        + " bmsonReparsed=" + maintenanceResult.BmsonReparsedCount
+                        + " bmsonReparseFailed=" + maintenanceResult.BmsonReparseFailedCount
+                        + " songReloaded=" + maintenanceResult.ReloadedSongCount
                         + " set_mode_ms=" + setModeMs
                         + " set_health_ms=" + setHealthMs
                         + " set_zero_note_ms=" + setZeroNoteMs
@@ -4779,15 +4862,25 @@ public class BMSLibrary : NotificationObject
 
                 lock (lockDeferredInstallableMaintenance)
                 {
-                    deferredInstallableMaintenanceLastCompletedVersion = requestVersion;
-                    if (requestVersion == deferredInstallableMaintenanceRequestedVersion)
+                    InstallableMaintenanceDeferredCompletedVersion = requestVersion;
+                    if (requestVersion == InstallableMaintenanceDeferredRequestedVersion)
                     {
-                        deferredInstallableMaintenanceRunning = false;
+                        InstallableMaintenanceDeferredRunning = false;
                         return;
                     }
                 }
             }
         }).Logging("ProcessDeferredInstallableMaintenance");
+    }
+
+    private int CountInstallableMaintenanceSnapshotTargets()
+    {
+        using (rwlockBMSFiles.GetReaderGuard())
+        {
+            int bmsCount = (BMSFiles ?? new List<BMSFile>()).Count((BMSFile file) => file != null);
+            int bmsonCount = (BmsonSongs ?? new List<LR2SongDBExtended.bmson_song>()).Count((LR2SongDBExtended.bmson_song song) => song != null);
+            return bmsCount + bmsonCount;
+        }
     }
 
     private void LogReverseLookupMutationAndQueueWarmupIfNeeded(string reason, DirectoryResourceLookupCache.ReverseLookupMutationResult mutationResult)
@@ -6070,18 +6163,19 @@ public class BMSLibrary : NotificationObject
         return targets;
     }
 
-    private void setMaintenanceInfo(IEnumerable<BMSFile> bmsFiles, bool forceUpdate = false, bool includeInstalledBmson = false)
+    private MaintenanceWorkflowResult setMaintenanceInfo(IEnumerable<BMSFile> bmsFiles, bool forceUpdate = false, bool includeInstalledBmson = false)
     {
         if (bmsFiles == null)
         {
-            return;
+            return new MaintenanceWorkflowResult();
         }
         using (rwlockBMSFiles.GetReaderGuard())
         {
             List<BMSFile> maintenanceTargets = CreateResourceMaintenanceTargets(bmsFiles, includeInstalledBmson);
+            MaintenanceWorkflowResult workflowResult;
             using (rwlockSongDBMaintenance.GetWriterGuard())
             {
-                MaintenanceWorkflowResult workflowResult = maintenanceService.UpdateMaintenanceInfo(maintenanceTargets, forceUpdate, bmsFolderAllFileList, dbGateway, dialogService);
+                workflowResult = maintenanceService.UpdateMaintenanceInfo(maintenanceTargets, forceUpdate, bmsFolderAllFileList, dbGateway, dialogService);
                 if (workflowResult.CheckedFileCount > 0 || workflowResult.BmsonReparsedCount > 0 || workflowResult.BmsonReparseFailedCount > 0)
                 {
                     LogInstallPerformance("maintenance_update checked=" + workflowResult.CheckedFileCount
@@ -6108,6 +6202,7 @@ public class BMSLibrary : NotificationObject
             {
                 checkBMSFileNeedToBeFixedAndSetWarnings(bmsFile);
             }
+            return workflowResult;
         }
     }
 
@@ -6361,16 +6456,17 @@ public class BMSLibrary : NotificationObject
     /// <summary>
     /// BMS ファイル群のモード（SP/DP等）を検出し、song.db にコミットします。
     /// </summary>
-    private void setModeAndCommitToDB(IEnumerable<BMSFile> bmsFiles, bool forceUpdate = false)
+    private int setModeAndCommitToDB(IEnumerable<BMSFile> bmsFiles, bool forceUpdate = false)
     {
         using (rwlockBMSFiles.GetReaderGuard())
         {
             List<BMSFile> list = maintenanceService.DetectModeChanges(bmsFiles, forceUpdate);
             if (list.Count <= 0)
             {
-                return;
+                return 0;
             }
             dbGateway.UpsertSongs(list);
+            return list.Count;
         }
     }
 

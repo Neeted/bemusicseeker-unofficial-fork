@@ -32,6 +32,7 @@
   "Statusbar_progress_phase_ui_prepare": "画面準備",
   "Statusbar_progress_phase_playlist_ref": "プレイリスト参照更新",
   "Statusbar_progress_phase_maintenance": "保守参照更新",
+  "Statusbar_progress_phase_installable_maintenance": "保守情報更新",
   "Statusbar_progress_phase_score_hydration": "スコア反映",
   "Statusbar_progress_phase_ranking_refresh": "ランキング更新",
   "Statusbar_progress_phase_chart_info": "譜面メタデータ解析",

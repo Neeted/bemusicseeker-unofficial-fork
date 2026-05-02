@@ -3889,7 +3889,8 @@ public class MainWindowViewModel : ViewModel
         PlaylistEntriesHydrationDone = 4096,
         LibraryDatabaseLoadDone = 8192,
         LibraryFileEnumerationDone = 16384,
-        LibraryFileDiffDone = 32768
+        LibraryFileDiffDone = 32768,
+        InstallableMaintenanceDeferredDone = 65536
     }
 
     /// <summary>
@@ -3930,6 +3931,8 @@ public class MainWindowViewModel : ViewModel
 
         internal int MaintenanceRequestedBaselineVersion;
 
+        internal int InstallableMaintenanceRequestedBaselineVersion;
+
         internal int ChartDigestBackfillBaselineCompletedVersion;
 
         internal int ChartInfoBackfillBaselineCompletedVersion;
@@ -3951,6 +3954,8 @@ public class MainWindowViewModel : ViewModel
         internal int RequiredPlaylistEntriesHydrationCompletedVersion;
 
         internal int RequiredMaintenanceCompletedVersion;
+
+        internal int RequiredInstallableMaintenanceCompletedVersion;
 
         internal int RequiredChartDigestBackfillCompletedVersion;
 
@@ -9301,7 +9306,8 @@ public class MainWindowViewModel : ViewModel
             StartupProgressPhase.ChartDigestBackfillDone,
             StartupProgressPhase.ScoreHydrationDone,
             StartupProgressPhase.RankingRefreshDone,
-            StartupProgressPhase.MaintenanceDeferredDone);
+            StartupProgressPhase.MaintenanceDeferredDone,
+            StartupProgressPhase.InstallableMaintenanceDeferredDone);
     }
 
     internal static string BuildBmsonMigrationWarningMessage(BmsonMigrationPreflightResult preflightResult)
@@ -9666,6 +9672,14 @@ public class MainWindowViewModel : ViewModel
         listenerForBMSLibrary.RegisterHandler(() => files.MaintenanceDeferredCompletedVersion, delegate
         {
             TryCompleteStartupProgressMaintenance(files.MaintenanceDeferredCompletedVersion);
+        });
+        listenerForBMSLibrary.RegisterHandler(() => files.InstallableMaintenanceDeferredRequestedVersion, delegate
+        {
+            TrackStartupProgressInstallableMaintenanceRequested(files.InstallableMaintenanceDeferredRequestedVersion);
+        });
+        listenerForBMSLibrary.RegisterHandler(() => files.InstallableMaintenanceDeferredCompletedVersion, delegate
+        {
+            TryCompleteStartupProgressInstallableMaintenance(files.InstallableMaintenanceDeferredCompletedVersion);
         });
         listenerForBMSLibrary.RegisterHandler(() => files.ChartDigestBackfillRequestedVersion, delegate
         {
@@ -10072,7 +10086,8 @@ public class MainWindowViewModel : ViewModel
             StartupProgressPhase.PlaylistReferenceApplied,
             StartupProgressPhase.ScoreHydrationDone,
             StartupProgressPhase.RankingRefreshDone,
-            StartupProgressPhase.MaintenanceDeferredDone);
+            StartupProgressPhase.MaintenanceDeferredDone,
+            StartupProgressPhase.InstallableMaintenanceDeferredDone);
     }
 
     public void SetuBMplayPanel()
@@ -12950,6 +12965,7 @@ public class MainWindowViewModel : ViewModel
             RankingRefreshBaselineCompletedVersion = files?.RankingRefreshCompletedVersion ?? 0,
             RankingRefreshRequestedBaselineVersion = files?.RankingRefreshRequestedVersion ?? 0,
             MaintenanceRequestedBaselineVersion = files?.MaintenanceDeferredRequestedVersion ?? 0,
+            InstallableMaintenanceRequestedBaselineVersion = files?.InstallableMaintenanceDeferredRequestedVersion ?? 0,
             ChartDigestBackfillBaselineCompletedVersion = files?.ChartDigestBackfillCompletedVersion ?? 0,
             ChartInfoBackfillBaselineCompletedVersion = files?.ChartInfoBackfillCompletedVersion ?? 0,
             ChartInfoHydrationBaselineCompletedVersion = files?.ChartInfoHydrationCompletedVersion ?? 0,
@@ -12998,7 +13014,9 @@ public class MainWindowViewModel : ViewModel
                 return;
             }
             startupProgressState.CompletedPhases |= phase;
-            if (phase == StartupProgressPhase.RankingRefreshDone || phase == StartupProgressPhase.MaintenanceDeferredDone)
+            if (phase == StartupProgressPhase.RankingRefreshDone
+                || phase == StartupProgressPhase.MaintenanceDeferredDone
+                || phase == StartupProgressPhase.InstallableMaintenanceDeferredDone)
             {
                 startupProgressState.LastCompletedAtUtc = DateTime.UtcNow;
             }
@@ -13216,6 +13234,28 @@ public class MainWindowViewModel : ViewModel
             requestedVersion,
             "maintenance_deferred",
             state => state.RequiredMaintenanceCompletedVersion = Math.Max(state.RequiredMaintenanceCompletedVersion, requestedVersion));
+    }
+
+    /// <summary>
+    /// installable maintenance deferred 要求を起動・リロード進捗へ反映します。
+    /// </summary>
+    /// <param name="requestedVersion">要求版数。</param>
+    private void TrackStartupProgressInstallableMaintenanceRequested(int requestedVersion)
+    {
+        bool shouldTrack;
+        lock (startupProgressLock)
+        {
+            shouldTrack = startupProgressState.IsActive && requestedVersion > startupProgressState.InstallableMaintenanceRequestedBaselineVersion;
+        }
+        if (!shouldTrack)
+        {
+            return;
+        }
+        TryTrackStartupProgressPhaseRequest(
+            StartupProgressPhase.InstallableMaintenanceDeferredDone,
+            requestedVersion,
+            "installable_maintenance_deferred",
+            state => state.RequiredInstallableMaintenanceCompletedVersion = Math.Max(state.RequiredInstallableMaintenanceCompletedVersion, requestedVersion));
     }
 
     private void TrackStartupProgressScoreHydrationRequested(int requestedVersion)
@@ -13540,6 +13580,27 @@ public class MainWindowViewModel : ViewModel
     }
 
     /// <summary>
+    /// installable maintenance deferred 完了を起動・リロード進捗へ反映します。
+    /// </summary>
+    /// <param name="completedVersion">完了版数。</param>
+    private void TryCompleteStartupProgressInstallableMaintenance(int completedVersion)
+    {
+        bool shouldComplete = false;
+        lock (startupProgressLock)
+        {
+            if (!startupProgressState.IsActive || !CanCompleteStartupProgressPhase(startupProgressState, StartupProgressPhase.InstallableMaintenanceDeferredDone))
+            {
+                return;
+            }
+            shouldComplete = completedVersion >= startupProgressState.RequiredInstallableMaintenanceCompletedVersion;
+        }
+        if (shouldComplete)
+        {
+            MarkStartupProgressPhaseCompleted(StartupProgressPhase.InstallableMaintenanceDeferredDone);
+        }
+    }
+
+    /// <summary>
     /// 起動・リロード進捗で deferred score hydration 完了を反映します。
     /// </summary>
     /// <param name="completedVersion">完了版数。</param>
@@ -13803,6 +13864,10 @@ public class MainWindowViewModel : ViewModel
         {
             return BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_maintenance;
         }
+        if (!IsStartupProgressPhaseCompletedOrNotExpected(state, StartupProgressPhase.InstallableMaintenanceDeferredDone))
+        {
+            return BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_installable_maintenance;
+        }
         return BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_background;
     }
 
@@ -13872,7 +13937,10 @@ public class MainWindowViewModel : ViewModel
     /// </summary>
     private static bool IsStartupProgressReferencePhaseCompleted(StartupProgressState state)
     {
-        return IsStartupProgressPhaseCompletedOrNotExpected(state, StartupProgressPhase.PlaylistReferenceApplied) && IsStartupProgressPhaseCompletedOrNotExpected(state, StartupProgressPhase.ExternalPlaylistSyncDone) && IsStartupProgressPhaseCompletedOrNotExpected(state, StartupProgressPhase.MaintenanceDeferredDone);
+        return IsStartupProgressPhaseCompletedOrNotExpected(state, StartupProgressPhase.PlaylistReferenceApplied)
+            && IsStartupProgressPhaseCompletedOrNotExpected(state, StartupProgressPhase.ExternalPlaylistSyncDone)
+            && IsStartupProgressPhaseCompletedOrNotExpected(state, StartupProgressPhase.MaintenanceDeferredDone)
+            && IsStartupProgressPhaseCompletedOrNotExpected(state, StartupProgressPhase.InstallableMaintenanceDeferredDone);
     }
 
     private static int CountExpectedStartupProgressPhases(StartupProgressState state)
@@ -13889,6 +13957,7 @@ public class MainWindowViewModel : ViewModel
         CountExpectedStartupProgressPhase(state, StartupProgressPhase.ExternalPlaylistSyncDone, ref count);
         CountExpectedStartupProgressPhase(state, StartupProgressPhase.PlaylistEntriesHydrationDone, ref count);
         CountExpectedStartupProgressPhase(state, StartupProgressPhase.MaintenanceDeferredDone, ref count);
+        CountExpectedStartupProgressPhase(state, StartupProgressPhase.InstallableMaintenanceDeferredDone, ref count);
         CountExpectedStartupProgressPhase(state, StartupProgressPhase.ChartDigestBackfillDone, ref count);
         CountExpectedStartupProgressPhase(state, StartupProgressPhase.ChartInfoHydrationDone, ref count);
         CountExpectedStartupProgressPhase(state, StartupProgressPhase.ChartInfoBackfillDone, ref count);
@@ -13914,6 +13983,7 @@ public class MainWindowViewModel : ViewModel
                     | StartupProgressPhase.ScoreHydrationDone
                     | StartupProgressPhase.RankingRefreshDone
                     | StartupProgressPhase.MaintenanceDeferredDone
+                    | StartupProgressPhase.InstallableMaintenanceDeferredDone
                     | StartupProgressPhase.ChartDigestBackfillDone
                     | StartupProgressPhase.ChartInfoBackfillDone
                     | StartupProgressPhase.ChartInfoHydrationDone
@@ -13928,6 +13998,7 @@ public class MainWindowViewModel : ViewModel
                     | StartupProgressPhase.ScoreHydrationDone
                     | StartupProgressPhase.RankingRefreshDone
                     | StartupProgressPhase.MaintenanceDeferredDone
+                    | StartupProgressPhase.InstallableMaintenanceDeferredDone
                     | StartupProgressPhase.ChartDigestBackfillDone
                     | StartupProgressPhase.ChartInfoBackfillDone
                     | StartupProgressPhase.ChartInfoHydrationDone
@@ -13957,6 +14028,7 @@ public class MainWindowViewModel : ViewModel
         CountCompletedExpectedStartupProgressPhase(state, StartupProgressPhase.ExternalPlaylistSyncDone, ref count);
         CountCompletedExpectedStartupProgressPhase(state, StartupProgressPhase.PlaylistEntriesHydrationDone, ref count);
         CountCompletedExpectedStartupProgressPhase(state, StartupProgressPhase.MaintenanceDeferredDone, ref count);
+        CountCompletedExpectedStartupProgressPhase(state, StartupProgressPhase.InstallableMaintenanceDeferredDone, ref count);
         CountCompletedExpectedStartupProgressPhase(state, StartupProgressPhase.ChartDigestBackfillDone, ref count);
         CountCompletedExpectedStartupProgressPhase(state, StartupProgressPhase.ChartInfoHydrationDone, ref count);
         CountCompletedExpectedStartupProgressPhase(state, StartupProgressPhase.ChartInfoBackfillDone, ref count);
@@ -14105,6 +14177,7 @@ public class MainWindowViewModel : ViewModel
         CountStartupProgressPhase(phases, StartupProgressPhase.ExternalPlaylistSyncDone, ref count);
         CountStartupProgressPhase(phases, StartupProgressPhase.PlaylistEntriesHydrationDone, ref count);
         CountStartupProgressPhase(phases, StartupProgressPhase.MaintenanceDeferredDone, ref count);
+        CountStartupProgressPhase(phases, StartupProgressPhase.InstallableMaintenanceDeferredDone, ref count);
         CountStartupProgressPhase(phases, StartupProgressPhase.ChartDigestBackfillDone, ref count);
         CountStartupProgressPhase(phases, StartupProgressPhase.ChartInfoHydrationDone, ref count);
         CountStartupProgressPhase(phases, StartupProgressPhase.ChartInfoBackfillDone, ref count);

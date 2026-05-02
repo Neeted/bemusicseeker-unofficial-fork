@@ -40,8 +40,8 @@ background 系 phase は request 済みでなければ complete できない。�
 
 | Operation | Expected count | Expected phases |
 | --- | ---: | --- |
-| `Startup` | 16 | 全 phase |
-| `ReloadFiles` | 13 | `CoreInitializeStarted`, library load 3 phase, `StartupReadyOperable`, playlist reference, playlist entries hydration, chart info hydration/backfill, chart digest backfill, score hydration, ranking refresh, maintenance deferred |
+| `Startup` | 17 | 全 phase |
+| `ReloadFiles` | 14 | `CoreInitializeStarted`, library load 3 phase, `StartupReadyOperable`, playlist reference, playlist entries hydration, chart info hydration/backfill, chart digest backfill, score hydration, ranking refresh, maintenance deferred, installable maintenance deferred |
 | `ReloadTables` | 5 | `CoreInitializeStarted`, `StartupReadyOperable`, `PlaylistReferenceApplied`, `ExternalPlaylistSyncDone`, `PlaylistEntriesHydrationDone` |
 
 `ReloadTables` は file scan / chart_info / chart digest / score / ranking / maintenance を expected に含めない。
@@ -66,6 +66,7 @@ background 系 phase は request 済みでなければ complete できない。�
 | `ScoreHydrationDone` | score 反映 | `スコア反映` |
 | `RankingRefreshDone` | ranking refresh | `ランキング更新` |
 | `MaintenanceDeferredDone` | maintenance deferred 更新 | `保守参照更新` |
+| `InstallableMaintenanceDeferredDone` | installable maintenance deferred 更新 | `保守情報更新` |
 
 ## Library Load の細分化
 

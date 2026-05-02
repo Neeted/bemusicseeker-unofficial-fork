@@ -115,7 +115,6 @@ BeMusicSeeker が `karinotes = 0` を入れる経路は、`setZeroNoteAndCommitT
 
 1. `setModeAndCommitToDB()`
 2. `setMaintenanceInfo(... includeInstalledBmson: true)`
-3. `setZeroNoteAndCommitToDB()`
 
 初回空DBでは `maintenance` が空のため、`setMaintenanceInfo` が全譜面を未チェックとして処理する。bmson は file diff で一度 `ParseSnapshot()` されているが、maintenance 側で resource references のため再度 `BmsonSongParser.Parse()` される。
 
@@ -126,11 +125,11 @@ BeMusicSeeker が `karinotes = 0` を入れる経路は、`setZeroNoteAndCommitT
 #### 進捗
 
 - `installable_maintenance_deferred` を startup / reload progress の expected phase に含める。
-- phase 名案: `InstallableMaintenanceDeferredDone`
-- sublabel 案:
-  - `保守情報更新`
-  - 件数が取れる段階では `[checked/total] 保守情報更新 fileName`
+- phase 名は `InstallableMaintenanceDeferredDone` とする。
+- sublabel は `保守情報更新` とする。
 - 操作可能後に残る場合は、既存と同じく `操作可能(バックグラウンド更新中)` と表示する。
+- requested / completed version を public property として公開し、ViewModel が request-before-complete 方式で tracking する。
+- 失敗時も completed version を進め、進捗が詰まらないようにする。
 
 #### bmson 再パース削減
 
@@ -159,7 +158,7 @@ BeMusicSeeker が `karinotes = 0` を入れる経路は、`setZeroNoteAndCommitT
 - 進捗ゲージが消えた後も重い処理が続く状態を解消できる。
 - 初回の bmson 二重 parse を削減できる。
 - 2回目以降の `set_health_ms` 固定費を減らせる。
-- ゼロノート正規表現 scan を廃止することで、`set_zero_note_ms` を大きく削減できる。
+- ゼロノート正規表現 scan は Phase 2 で production flow から外れたため、`set_zero_note_ms` は互換ログとして 0 を維持する。
 
 ## 実装 Phase 案
 
@@ -184,14 +183,22 @@ BeMusicSeeker が `karinotes = 0` を入れる経路は、`setZeroNoteAndCommitT
 
 ### Phase 3: installable maintenance 進捗と観測性
 
-- `InstallableMaintenanceDeferredDone` phase を追加する。
-- requested / completed version を public property 化し、ViewModel が tracking できるようにする。
-- queue / done log に対象件数を追加する。
-  - snapshot count
-  - mode targets
-  - health targets
-  - bmson resource targets
-  - zero-note legacy targets は Phase 2 後は 0 または削除
+完了済み。
+
+- `InstallableMaintenanceDeferredDone` phase を追加し、Startup / ReloadFiles の expected phase に含めた。
+- requested / completed version と running state を public property 化し、ViewModel が tracking できるようにした。
+- 操作可能後に残る場合は `操作可能(バックグラウンド更新中)`、sub label は `保守情報更新` と表示する。
+- queue / done / failed log に対象件数を追加した。
+  - `snapshotCount`
+  - `setModeTargets`
+  - `maintenanceChecked`
+  - `bmsResourceTargets`
+  - `bmsonResourceTargets`
+  - `maintenanceUpserted`
+  - `bmsonReparsed`
+  - `bmsonReparseFailed`
+  - `songReloaded`
+- zero-note legacy scan は行わず、`set_zero_note_ms=0` を互換ログとして維持する。
 
 ### Phase 4: bmson maintenance 再パース削減
 
