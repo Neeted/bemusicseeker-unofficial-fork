@@ -9,6 +9,11 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 internal sealed class ChartInfoBackfillResult
 {
     /// <summary>
+    /// バックフィルの実行モードです。
+    /// </summary>
+    public string Mode { get; set; }
+
+    /// <summary>
     /// 解析対象として選ばれた譜面数です。
     /// </summary>
     public int TargetCount { get; set; }
@@ -59,6 +64,11 @@ internal sealed class ChartInfoBackfillResult
     public int TimeoutFailedCount { get; set; }
 
     /// <summary>
+    /// current chart_info 行によりファイル読み取り前にスキップした譜面数です。
+    /// </summary>
+    public int CurrentRowSkippedCount { get; set; }
+
+    /// <summary>
     /// 永続化済みの解析失敗記録により再解析をスキップした譜面数です。
     /// </summary>
     public int FailureSkippedCount { get; set; }
@@ -87,6 +97,16 @@ internal sealed class ChartInfoBackfillResult
     /// ファイル読み取りに要した時間です。
     /// </summary>
     public long ReadMs { get; set; }
+
+    /// <summary>
+    /// 実際にファイル読み取りに成功した譜面数です。
+    /// </summary>
+    public int FileReadCount { get; set; }
+
+    /// <summary>
+    /// 実際に読み取った譜面ファイル bytes の合計です。
+    /// </summary>
+    public long FileReadBytes { get; set; }
 
     /// <summary>
     /// インメモリ解析に要した時間です。

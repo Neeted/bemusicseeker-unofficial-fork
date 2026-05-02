@@ -348,6 +348,11 @@ internal sealed class BmsLibraryInitializationService
             .ToList();
         stopwatchDiff.Stop();
         result.DiffMs = stopwatchDiff.ElapsedMilliseconds;
+        result.BmsAddedTargetCount = addedPaths.Count;
+        result.BmsonUpsertTargetCount = addedOrUpdatedBmsonPaths.Count;
+        result.ParseReadBytesEstimate = SaturatingAdd(
+            EstimateCurrentFileDiffReadBytes(addedPaths),
+            EstimateCurrentFileDiffReadBytes(addedOrUpdatedBmsonPaths));
 
         Stopwatch stopwatchNewFileParse = Stopwatch.StartNew();
         int parseTargetCount = addedPaths.Count + addedOrUpdatedBmsonPaths.Count;
@@ -377,6 +382,7 @@ internal sealed class BmsLibraryInitializationService
                select x).ToList();
         stopwatchNewFileParse.Stop();
         result.NewFileParseMs = stopwatchNewFileParse.ElapsedMilliseconds;
+        result.BmsParseMs = result.NewFileParseMs;
         result.AddedFiles.AddRange(addedFiles);
 
         Stopwatch stopwatchApply = Stopwatch.StartNew();
@@ -399,6 +405,7 @@ internal sealed class BmsLibraryInitializationService
 
         result.NextBmsonSongs.AddRange(currentBmsonList);
         {
+            Stopwatch stopwatchBmsonParse = Stopwatch.StartNew();
             HashSet<string> successfullyParsedBmsonPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             List<LR2SongDBExtended.bmson_song> parsedBmsonSongs = addedOrUpdatedBmsonPaths.Count <= 0
                 ? new List<LR2SongDBExtended.bmson_song>()
@@ -427,6 +434,8 @@ internal sealed class BmsLibraryInitializationService
                     })
                    where x != null
                    select x).ToList();
+            stopwatchBmsonParse.Stop();
+            result.BmsonParseMs = stopwatchBmsonParse.ElapsedMilliseconds;
             result.AddedBmsonSongs.AddRange(parsedBmsonSongs);
 
             HashSet<string> removedBmsonPaths = new HashSet<string>(result.DeletedBmsonPaths, StringComparer.OrdinalIgnoreCase);
@@ -498,9 +507,14 @@ internal sealed class BmsLibraryInitializationService
             + " diff_ms=" + result.DiffMs
             + " deleted_count=" + result.DeletedPaths.Count
             + " added_count=" + result.AddedFiles.Count
+            + " bms_added_target_count=" + result.BmsAddedTargetCount
             + " bmson_deleted_count=" + result.DeletedBmsonPaths.Count
             + " bmson_upsert_count=" + result.AddedBmsonSongs.Count
+            + " bmson_upsert_target_count=" + result.BmsonUpsertTargetCount
             + " newfile_parse_ms=" + result.NewFileParseMs
+            + " bms_parse_ms=" + result.BmsParseMs
+            + " bmson_parse_ms=" + result.BmsonParseMs
+            + " parse_read_bytes_estimate=" + result.ParseReadBytesEstimate
             + " apply_ms=" + result.ApplyMs
             + " db_commit_ms=" + result.DbCommitMs
             + " instl_dst_cleanup_ms=" + result.InstlDstCleanupMs);
@@ -526,6 +540,43 @@ internal sealed class BmsLibraryInitializationService
             + " dirs=" + result.DirectoryCount
             + " prefetched=" + result.PrefetchedScanUsed.ToString().ToLowerInvariant());
         return result;
+    }
+
+    private static long EstimateCurrentFileDiffReadBytes(IEnumerable<string> paths)
+    {
+        long total = 0L;
+        foreach (string path in paths ?? Enumerable.Empty<string>())
+        {
+            long length;
+            try
+            {
+                length = new FileInfo(path).Length;
+            }
+            catch
+            {
+                continue;
+            }
+            if (length <= 0L)
+            {
+                continue;
+            }
+            long estimated = length > long.MaxValue / 3L ? long.MaxValue : length * 3L;
+            if (long.MaxValue - total < estimated)
+            {
+                return long.MaxValue;
+            }
+            total += estimated;
+        }
+        return total;
+    }
+
+    private static long SaturatingAdd(long left, long right)
+    {
+        if (left >= long.MaxValue || right >= long.MaxValue || long.MaxValue - left < right)
+        {
+            return long.MaxValue;
+        }
+        return left + right;
     }
 
     private static BmsScanResult MergeScanResults(params BmsScanResult[] scanResults)

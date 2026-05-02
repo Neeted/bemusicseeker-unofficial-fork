@@ -132,6 +132,7 @@ internal sealed class ChartInfoBuildService
         IReadOnlyDictionary<string, LR2SongDBExtended.chart_info> existingRowsSnapshot)
     {
         ChartInfoBackfillResult result = new ChartInfoBackfillResult();
+        result.Mode = string.IsNullOrWhiteSpace(mode) ? "full" : mode;
         if (dbGateway == null)
         {
             return result;
@@ -251,6 +252,8 @@ internal sealed class ChartInfoBuildService
                     byte[] bytes = readAllBytes(target.Path);
                     readStopwatch.Stop();
                     Interlocked.Add(ref readTicks, readStopwatch.ElapsedTicks);
+                    result.FileReadCount++;
+                    result.FileReadBytes = SaturatingAdd(result.FileReadBytes, bytes?.LongLength ?? 0L);
                     queue.Add(new QueuedChartBytes(target, bytes));
                 }
                 catch (Exception ex)
@@ -611,6 +614,7 @@ internal sealed class ChartInfoBuildService
             if (!string.IsNullOrWhiteSpace(file.sha256) && IsCurrent(existingRows, file.sha256))
             {
                 file.SetChartInfo(existingRows[file.sha256]);
+                result.CurrentRowSkippedCount++;
                 continue;
             }
             if (string.IsNullOrWhiteSpace(file.sha256) && string.IsNullOrWhiteSpace(file.hash))
@@ -646,6 +650,7 @@ internal sealed class ChartInfoBuildService
             if (!string.IsNullOrWhiteSpace(song.sha256) && IsCurrent(existingRows, song.sha256))
             {
                 song.ChartInfo = existingRows[song.sha256];
+                result.CurrentRowSkippedCount++;
                 continue;
             }
             if (IsCurrentParseFailure(currentFailures, song.md5))
@@ -776,9 +781,19 @@ internal sealed class ChartInfoBuildService
         }
     }
 
+    private static long SaturatingAdd(long left, long right)
+    {
+        if (left >= long.MaxValue || right >= long.MaxValue || long.MaxValue - left < right)
+        {
+            return long.MaxValue;
+        }
+        return left + right;
+    }
+
     private static string BuildLogMessage(ChartInfoBackfillResult result)
     {
         return "chart_info_backfill total=" + result.TargetCount
+            + " mode=" + (string.IsNullOrWhiteSpace(result.Mode) ? "full" : result.Mode)
             + " success=" + result.BackfilledCount
             + " failed=" + result.FailedCount
             + " digestBackfilled=" + result.DigestBackfilledCount
@@ -786,9 +801,13 @@ internal sealed class ChartInfoBuildService
             + " readFailed=" + result.ReadFailedCount
             + " parseFailed=" + result.ParseFailedCount
             + " timeoutFailed=" + result.TimeoutFailedCount
+            + " currentRowSkipped=" + result.CurrentRowSkippedCount
             + " failureSkipped=" + result.FailureSkippedCount
+            + " parseFailureSkipped=" + result.FailureSkippedCount
             + " failurePersisted=" + result.FailurePersistedCount
             + " failureCleared=" + result.FailureClearedCount
+            + " fileReadCount=" + result.FileReadCount
+            + " fileReadBytes=" + result.FileReadBytes
             + " workerCount=" + result.WorkerCount
             + " queueCapacity=" + result.QueueCapacity
             + " readMs=" + result.ReadMs
@@ -809,7 +828,9 @@ internal sealed class ChartInfoBuildService
             + " mode=" + (string.IsNullOrWhiteSpace(mode) ? "full" : mode)
             + " targets=" + result.TargetCount
             + " digestTargets=" + result.DigestTargetCount
+            + " currentRowSkipped=" + result.CurrentRowSkippedCount
             + " failureSkipped=" + result.FailureSkippedCount
+            + " parseFailureSkipped=" + result.FailureSkippedCount
             + " existingRows=" + (existingRowCount ?? "0")
             + " existingRowsSource=" + (string.IsNullOrWhiteSpace(existingRowsSource) ? "db" : existingRowsSource)
             + " existingRowsLoadMs=" + existingRowsLoadMs

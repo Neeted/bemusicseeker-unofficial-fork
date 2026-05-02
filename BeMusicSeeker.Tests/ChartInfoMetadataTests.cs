@@ -2529,6 +2529,9 @@ public sealed class ChartInfoMetadataTests
             Assert.AreEqual(1, first.ProcessedCount);
             Assert.AreEqual(1, first.BackfilledCount);
             Assert.AreEqual(0, first.FailedCount);
+            Assert.AreEqual("full", first.Mode);
+            Assert.AreEqual(1, first.FileReadCount);
+            Assert.AreEqual(new FileInfo(chartPath).Length, first.FileReadBytes);
             Assert.IsNotNull(file.ChartInfo);
             Assert.AreEqual(file.sha256, file.ChartInfo.sha256);
             Assert.AreEqual(1L, CountChartInfoRows(songDbPath, file.sha256));
@@ -2542,6 +2545,9 @@ public sealed class ChartInfoMetadataTests
 
             Assert.AreEqual(0, second.TargetCount);
             Assert.AreEqual(0, second.BackfilledCount);
+            Assert.AreEqual(1, second.CurrentRowSkippedCount);
+            Assert.AreEqual(0, second.FileReadCount);
+            Assert.AreEqual(0L, second.FileReadBytes);
 
             gateway.UpsertChartInfos(new[] { CreateChartInfoRow(file.sha256, file.hash, parserVersion: 0) });
             ChartInfoBackfillResult third = service.BackfillChartInfos(
@@ -2594,11 +2600,14 @@ public sealed class ChartInfoMetadataTests
             Assert.AreEqual(1, result.BackfilledCount);
             Assert.AreEqual(0, result.FailedCount);
             Assert.AreEqual(1, readCounts[chartPath]);
+            Assert.AreEqual(1, result.FileReadCount);
+            Assert.AreEqual(new FileInfo(chartPath).Length, result.FileReadBytes);
             Assert.IsFalse(string.IsNullOrWhiteSpace(file.sha256));
             Assert.IsNotNull(file.ChartInfo);
             using LR2SongDBExtended verify = new LR2SongDBExtended(songDbPath);
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_digest_map WHERE md5 = '" + file.hash + "' AND sha256 = '" + file.sha256 + "';"));
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info WHERE sha256 = '" + file.sha256 + "';"));
+            Assert.IsTrue(logs.Any((string message) => message.StartsWith("INFO chart_info_backfill total=", StringComparison.Ordinal) && message.Contains("fileReadCount=1") && message.Contains("fileReadBytes=" + new FileInfo(chartPath).Length)));
         });
     }
 
@@ -2729,6 +2738,7 @@ public sealed class ChartInfoMetadataTests
             Assert.IsNull(untouchedFile.ChartInfo);
             Assert.IsTrue(logs.Any((string message) => message.StartsWith("INFO chart_info_backfill start mode=added", StringComparison.Ordinal)));
             Assert.IsTrue(logs.Any((string message) => message.Contains("existingRows=targeted:0")));
+            Assert.IsTrue(logs.Any((string message) => message.StartsWith("INFO chart_info_backfill total=", StringComparison.Ordinal) && message.Contains("mode=added") && message.Contains("fileReadCount=1")));
             using LR2SongDBExtended verify = new LR2SongDBExtended(songDbPath);
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info WHERE sha256 = '" + targetFile.sha256 + "';"));
             Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info WHERE sha256 = '" + untouchedDigest.sha256 + "';"));
@@ -2761,6 +2771,9 @@ public sealed class ChartInfoMetadataTests
 
             Assert.AreEqual(0, result.TargetCount);
             Assert.AreEqual(0, result.BackfilledCount);
+            Assert.AreEqual(1, result.CurrentRowSkippedCount);
+            Assert.AreEqual(0, result.FileReadCount);
+            Assert.AreEqual(0L, result.FileReadBytes);
             Assert.IsNotNull(file.ChartInfo);
             Assert.AreEqual(expected.sha256, file.ChartInfo.sha256);
             Assert.AreEqual(expected.md5, file.ChartInfo.md5);
@@ -3174,7 +3187,10 @@ public sealed class ChartInfoMetadataTests
             Assert.AreEqual(0, second.ParseFailedCount);
             Assert.AreEqual(0, second.FailedCount);
             Assert.AreEqual(0, readCount);
+            Assert.AreEqual(0, second.FileReadCount);
+            Assert.AreEqual(0L, second.FileReadBytes);
             Assert.IsFalse(logs.Any((string message) => message.StartsWith("WARN chart_info_backfill parse_failed", StringComparison.Ordinal)));
+            Assert.IsTrue(logs.Any((string message) => message.Contains("parseFailureSkipped=1")));
         });
     }
 
@@ -3214,6 +3230,8 @@ public sealed class ChartInfoMetadataTests
             Assert.AreEqual(1, result.FailureSkippedCount);
             Assert.AreEqual(0, result.ParseFailedCount);
             Assert.AreEqual(0, readCount);
+            Assert.AreEqual(0, result.FileReadCount);
+            Assert.AreEqual(0L, result.FileReadBytes);
         });
     }
 
@@ -3358,6 +3376,8 @@ public sealed class ChartInfoMetadataTests
             Assert.AreEqual(1, result.ReadFailedCount);
             Assert.AreEqual(0, result.ParseFailedCount);
             Assert.AreEqual(1, result.FailedCount);
+            Assert.AreEqual(0, result.FileReadCount);
+            Assert.AreEqual(0L, result.FileReadBytes);
             Assert.IsTrue(logs.Count >= 2);
             Assert.IsTrue(logs.Any((string message) => message.StartsWith("WARN chart_info_backfill read_failed", StringComparison.Ordinal)));
             StringAssert.StartsWith(logs[logs.Count - 1], "INFO chart_info_backfill total=");

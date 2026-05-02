@@ -284,6 +284,7 @@ public sealed class BmsLibraryInitializationServiceTests
             int fileDiffStartedCount = 0;
             object progressLock = new object();
             List<(int Total, int Processed, string Path)> progress = new List<(int, int, string)>();
+            List<string> logs = new List<string>();
             BmsLibraryInitializationService service = new BmsLibraryInitializationService();
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(songDbPath),
@@ -302,6 +303,7 @@ public sealed class BmsLibraryInitializationServiceTests
                 0L,
                 () => null,
                 null,
+                logInstallPerformance: (string message) => logs.Add(message),
                 currentBmsonSongs: Array.Empty<LR2SongDBExtended.bmson_song>(),
                 scanCompleted: () => scanCompletedCount++,
                 fileDiffStarted: () => fileDiffStartedCount++,
@@ -317,9 +319,16 @@ public sealed class BmsLibraryInitializationServiceTests
             Assert.AreEqual(1, fileDiffStartedCount);
             Assert.AreEqual(1, result.AddedFiles.Count);
             Assert.AreEqual(1, result.AddedBmsonSongs.Count);
+            Assert.AreEqual(1, result.BmsAddedTargetCount);
+            Assert.AreEqual(1, result.BmsonUpsertTargetCount);
+            Assert.AreEqual(result.NewFileParseMs, result.BmsParseMs);
+            Assert.IsTrue(result.BmsonParseMs >= 0);
+            long expectedReadBytesEstimate = (new FileInfo(bmsPath).Length + new FileInfo(bmsonPath).Length) * 3L;
+            Assert.AreEqual(expectedReadBytesEstimate, result.ParseReadBytesEstimate);
             Assert.IsTrue(progress.Any(item => item.Total == 2 && item.Processed == 0));
             Assert.IsTrue(progress.Any(item => item.Total == 2 && item.Processed == 2));
             Assert.IsTrue(progress.All(item => item.Total == 2));
+            Assert.IsTrue(logs.Any((string message) => message.Contains("bms_added_target_count=1") && message.Contains("bmson_upsert_target_count=1") && message.Contains("parse_read_bytes_estimate=" + expectedReadBytesEstimate)));
         });
     }
 

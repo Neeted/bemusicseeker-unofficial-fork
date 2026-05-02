@@ -4655,7 +4655,7 @@ public class BMSLibrary : NotificationObject
                         playlistSummaryOwnedHashSnapshot = null;
                     }
                 }
-                LogInstallPerformance("chart_info_backfill done version=" + requestVersion + " mode=" + (isFullRequest ? "full" : "added") + " total=" + result.TargetCount + " success=" + result.BackfilledCount + " failed=" + result.FailedCount + " timeoutFailed=" + result.TimeoutFailedCount + " digestBackfilled=" + result.DigestBackfilledCount + " digestFailed=" + result.DigestFailedCount);
+                LogInstallPerformance("chart_info_backfill done version=" + requestVersion + " mode=" + (isFullRequest ? "full" : "added") + " total=" + result.TargetCount + " success=" + result.BackfilledCount + " failed=" + result.FailedCount + " timeoutFailed=" + result.TimeoutFailedCount + " digestBackfilled=" + result.DigestBackfilledCount + " digestFailed=" + result.DigestFailedCount + " fileReadCount=" + result.FileReadCount + " fileReadBytes=" + result.FileReadBytes + " currentRowSkipped=" + result.CurrentRowSkippedCount + " parseFailureSkipped=" + result.FailureSkippedCount);
             }
             catch (Exception ex)
             {

@@ -86,15 +86,21 @@ cap 超過時は bytes を保持せず、`chart_info` 側で従来通り read fa
 ### 変更案
 
 - `ApplyFileScanDiff()` の result / log に次を追加する。
-  - added BMS count
-  - added / updated bmson count
-  - parsed bytes estimate
-  - elapsed ms
-- `ChartInfoBuildService` の targeted backfill log に次を追加する。
-  - file read count
-  - file read bytes
-  - existing current skip count
-  - parse failure skip count
+  - `BmsAddedTargetCount`
+  - `BmsonUpsertTargetCount`
+  - `BmsParseMs`
+  - `BmsonParseMs`
+  - `ParseReadBytesEstimate`
+- `ParseReadBytesEstimate` は現行実装の概算として、BMS / bmson target file の `FileInfo.Length * 3` を合算する。length 取得に失敗した file は 0 扱いにし、差分確認自体は失敗させない。
+- `song_tbl_file_check_breakdown` に `bms_added_target_count`, `bmson_upsert_target_count`, `bms_parse_ms`, `bmson_parse_ms`, `parse_read_bytes_estimate` を出す。
+- `ChartInfoBuildService` の result / log に次を追加する。
+  - `Mode`
+  - `FileReadCount`
+  - `FileReadBytes`
+  - `CurrentRowSkippedCount`
+- `chart_info_backfill total=...` と `chart_info_backfill done ...` に `mode`, `fileReadCount`, `fileReadBytes`, `currentRowSkipped`, `parseFailureSkipped` を出す。
+- `chart_info_backfill start ...` に `currentRowSkipped`, `parseFailureSkipped` を出す。
+- `parseFailureSkipped` は既存 `failureSkipped` の読みやすい alias として追加し、既存 field は残す。
 - `devdocs/current-startup-reload-progress.md` には進捗仕様だけを残し、本資料に read pipeline の整理を集約する。
 
 ### 完了条件
