@@ -1129,6 +1129,9 @@ BMSファイルが重複しないようにマージします。
   <data name="Statusbar_progress_operable" xml:space="preserve">
     <value>操作可能</value>
   </data>
+  <data name="Statusbar_progress_operable_background" xml:space="preserve">
+    <value>操作可能(バックグラウンド更新中)</value>
+  </data>
   <data name="Statusbar_progress_complete" xml:space="preserve">
     <value>初期化完了</value>
   </data>

@@ -15,6 +15,7 @@
   "Statusbar_progress_reload_files": "正在更新库",
   "Statusbar_progress_reload_tables": "正在更新库",
   "Statusbar_progress_operable": "可操作",
+  "Statusbar_progress_operable_background": "可操作（后台更新中）",
   "Statusbar_progress_complete": "初始化完成",
   "Statusbar_progress_complete_reload": "库更新完成",
   "Statusbar_progress_failed": "初始化失败",

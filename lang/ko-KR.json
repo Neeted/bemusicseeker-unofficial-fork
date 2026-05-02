@@ -15,6 +15,7 @@
   "Statusbar_progress_reload_files": "라이브러리 갱신 중",
   "Statusbar_progress_reload_tables": "라이브러리 갱신 중",
   "Statusbar_progress_operable": "조작 가능",
+  "Statusbar_progress_operable_background": "조작 가능(백그라운드 갱신 중)",
   "Statusbar_progress_complete": "초기화 완료",
   "Statusbar_progress_complete_reload": "라이브러리 갱신 완료",
   "Statusbar_progress_failed": "초기화 실패",

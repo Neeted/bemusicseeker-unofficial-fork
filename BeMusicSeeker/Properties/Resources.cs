@@ -271,6 +271,8 @@ public class Resources
 
     public static string Statusbar_progress_operable => ResourceManager.GetString("Statusbar_progress_operable", resourceCulture);
 
+    public static string Statusbar_progress_operable_background => ResourceManager.GetString("Statusbar_progress_operable_background", resourceCulture);
+
     public static string Statusbar_progress_complete => ResourceManager.GetString("Statusbar_progress_complete", resourceCulture);
 
     public static string Statusbar_progress_complete_reload => ResourceManager.GetString("Statusbar_progress_complete_reload", resourceCulture);

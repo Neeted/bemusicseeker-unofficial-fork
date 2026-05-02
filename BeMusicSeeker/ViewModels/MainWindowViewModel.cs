@@ -3909,6 +3909,10 @@ public class MainWindowViewModel : ViewModel
 
         internal StartupProgressPhase ExpectedPhases;
 
+        internal StartupProgressPhase RequestedPhases;
+
+        internal StartupProgressPhase SkippedPhases;
+
         internal int ScoreHydrationBaselineCompletedVersion;
 
         internal int ScoreHydrationRequestedBaselineVersion;
@@ -3964,6 +3968,27 @@ public class MainWindowViewModel : ViewModel
         internal bool CompletionHideScheduled;
 
         internal DateTime? LastCompletedAtUtc;
+    }
+
+    internal sealed class StartupProgressTestResult
+    {
+        internal int ExpectedCount { get; set; }
+
+        internal int CompletedCount { get; set; }
+
+        internal int RequestedCount { get; set; }
+
+        internal int SkippedCount { get; set; }
+
+        internal int IgnoredRequestCount { get; set; }
+
+        internal int IgnoredCompleteCount { get; set; }
+
+        internal string Label { get; set; } = string.Empty;
+
+        internal string SubLabel { get; set; } = string.Empty;
+
+        internal bool IsCompleted { get; set; }
     }
 
     /// <summary>
@@ -6907,6 +6932,7 @@ public class MainWindowViewModel : ViewModel
             }
         }
         TrackStartupProgressPlaylistReferenceRequest(reason, version);
+        TrackStartupProgressPlaylistEntriesHydrationDirectRequest(version, "playlist_ref_deferred:" + reason);
         LogDeferredPlaylistReference("playlist_ref_deferred queue reason=" + reason + " version=" + version);
         if (!shouldStartWorker)
         {
@@ -6922,10 +6948,11 @@ public class MainWindowViewModel : ViewModel
                     requestVersion = deferredPlaylistRefRequestedVersion;
                 }
                 DateTime startedAt = DateTime.UtcNow;
-                try
-                {
-                    tables.EnsureAllPlaylistEntriesLoadedAsync("playlist_ref_deferred").GetAwaiter().GetResult();
-                    List<BMSTable> list = new List<BMSTable>();
+                    try
+                    {
+                        tables.EnsureAllPlaylistEntriesLoadedAsync("playlist_ref_deferred").GetAwaiter().GetResult();
+                        TryCompleteStartupProgressPlaylistEntriesHydration(requestVersion);
+                        List<BMSTable> list = new List<BMSTable>();
                     tables.AcquireReaderLockBMSTables();
                     try
                     {
@@ -6949,6 +6976,7 @@ public class MainWindowViewModel : ViewModel
                 {
                     LogDeferredPlaylistReference("playlist_ref_deferred failed version=" + requestVersion + " elapsedMs=" + (long)(DateTime.UtcNow - startedAt).TotalMilliseconds + " message=" + ex.Message);
                     deferredPlaylistRefLastCompletedVersion = requestVersion;
+                    TryCompleteStartupProgressPlaylistEntriesHydration(requestVersion);
                     TryCompleteStartupProgressPlaylistReference(requestVersion);
                 }
                 lock (lockDeferredPlaylistRef)
@@ -9190,6 +9218,11 @@ public class MainWindowViewModel : ViewModel
         {
             StartDeferredExternalPlaylistSync("ReloadTables", fromReloadTables: true, updateCallbackAction);
         }
+        SkipUnrequestedStartupProgressPhases(
+            "ReloadTables:scheduled",
+            StartupProgressPhase.PlaylistEntriesHydrationDone,
+            StartupProgressPhase.ExternalPlaylistSyncDone,
+            StartupProgressPhase.PlaylistReferenceApplied);
     }
 
     /// <summary>
@@ -9240,6 +9273,16 @@ public class MainWindowViewModel : ViewModel
             ScheduleDeferredPlaylistReferenceApply("ReloadFiles");
             LogInitStage("deferred_playlist_ref_queued", "ReloadFiles");
         }
+        SkipUnrequestedStartupProgressPhases(
+            "ReloadFiles:scheduled",
+            StartupProgressPhase.PlaylistReferenceApplied,
+            StartupProgressPhase.PlaylistEntriesHydrationDone,
+            StartupProgressPhase.ChartInfoHydrationDone,
+            StartupProgressPhase.ChartInfoBackfillDone,
+            StartupProgressPhase.ChartDigestBackfillDone,
+            StartupProgressPhase.ScoreHydrationDone,
+            StartupProgressPhase.RankingRefreshDone,
+            StartupProgressPhase.MaintenanceDeferredDone);
     }
 
     internal static string BuildBmsonMigrationWarningMessage(BmsonMigrationPreflightResult preflightResult)
@@ -9968,6 +10011,17 @@ public class MainWindowViewModel : ViewModel
         {
             StartDeferredExternalPlaylistSync("Initialize", fromReloadTables: false, CreatePlaylistReferenceReplaceUpdateCallback());
         }
+        SkipUnrequestedStartupProgressPhases(
+            "Initialize:scheduled",
+            StartupProgressPhase.PlaylistEntriesHydrationDone,
+            StartupProgressPhase.ChartInfoHydrationDone,
+            StartupProgressPhase.ChartInfoBackfillDone,
+            StartupProgressPhase.ChartDigestBackfillDone,
+            StartupProgressPhase.ExternalPlaylistSyncDone,
+            StartupProgressPhase.PlaylistReferenceApplied,
+            StartupProgressPhase.ScoreHydrationDone,
+            StartupProgressPhase.RankingRefreshDone,
+            StartupProgressPhase.MaintenanceDeferredDone);
     }
 
     public void SetuBMplayPanel()
@@ -12839,7 +12893,7 @@ public class MainWindowViewModel : ViewModel
             OperationToken = Interlocked.Increment(ref startupProgressOperationTokenSeed),
             IsActive = true,
             CompletedPhases = StartupProgressPhase.CoreInitializeStarted,
-            ExpectedPhases = StartupProgressPhase.CoreInitializeStarted | StartupProgressPhase.StartupReadyOperable,
+            ExpectedPhases = GetInitialExpectedStartupProgressPhases(operationKind),
             ScoreHydrationBaselineCompletedVersion = files?.ScoreHydrationCompletedVersion ?? 0,
             ScoreHydrationRequestedBaselineVersion = files?.ScoreHydrationRequestedVersion ?? 0,
             RankingRefreshBaselineCompletedVersion = files?.RankingRefreshCompletedVersion ?? 0,
@@ -12850,10 +12904,6 @@ public class MainWindowViewModel : ViewModel
             ChartInfoHydrationBaselineCompletedVersion = files?.ChartInfoHydrationCompletedVersion ?? 0,
             PlaylistEntriesHydrationBaselineCompletedVersion = tables?.PlaylistEntriesHydrationCompletedVersion ?? 0
         };
-        if (operationKind == StartupProgressOperationKind.Startup)
-        {
-            state.ExpectedPhases |= StartupProgressPhase.StartupReadyData | StartupProgressPhase.StartupReadyUi;
-        }
         lock (startupProgressLock)
         {
             startupProgressState = state;
@@ -12902,6 +12952,105 @@ public class MainWindowViewModel : ViewModel
         RecomputeStartupProgressPresentation();
     }
 
+    private void SkipStartupProgressPhaseIfExpected(StartupProgressPhase phase, string reason)
+    {
+        bool skipped = false;
+        StartupProgressOperationKind operationKind = StartupProgressOperationKind.None;
+        lock (startupProgressLock)
+        {
+            if (!startupProgressState.IsActive || (startupProgressState.ExpectedPhases & phase) == 0 || (startupProgressState.CompletedPhases & phase) != 0)
+            {
+                return;
+            }
+            operationKind = startupProgressState.OperationKind;
+            startupProgressState.CompletedPhases |= phase;
+            startupProgressState.SkippedPhases |= phase;
+            skipped = true;
+        }
+        if (skipped)
+        {
+            LogUiSuppression("startup_progress_phase_skipped operation=" + operationKind + " phase=" + phase + " reason=" + (reason ?? string.Empty));
+            RecomputeStartupProgressPresentation();
+        }
+    }
+
+    private void SkipUnrequestedStartupProgressPhases(string reason, params StartupProgressPhase[] phases)
+    {
+        if (phases == null || phases.Length == 0)
+        {
+            return;
+        }
+        foreach (StartupProgressPhase phase in phases)
+        {
+            bool shouldSkip;
+            lock (startupProgressLock)
+            {
+                shouldSkip = startupProgressState.IsActive
+                    && (startupProgressState.ExpectedPhases & phase) != 0
+                    && (startupProgressState.RequestedPhases & phase) == 0
+                    && (startupProgressState.CompletedPhases & phase) == 0;
+            }
+            if (shouldSkip)
+            {
+                SkipStartupProgressPhaseIfExpected(phase, reason);
+            }
+        }
+    }
+
+    private bool TryTrackStartupProgressPhaseRequest(StartupProgressPhase phase, int version, string reason, Action<StartupProgressState> updateRequiredVersion)
+    {
+        bool ignored = false;
+        bool requestAfterSkip = false;
+        StartupProgressOperationKind operationKind = StartupProgressOperationKind.None;
+        lock (startupProgressLock)
+        {
+            if (!startupProgressState.IsActive)
+            {
+                return false;
+            }
+            operationKind = startupProgressState.OperationKind;
+            if ((startupProgressState.ExpectedPhases & phase) == 0)
+            {
+                ignored = true;
+            }
+            else
+            {
+                startupProgressState.RequestedPhases |= phase;
+                updateRequiredVersion?.Invoke(startupProgressState);
+                requestAfterSkip = (startupProgressState.SkippedPhases & phase) != 0;
+                if ((startupProgressState.CompletedPhases & phase) == 0)
+                {
+                    startupProgressState.CompletionHideScheduled = false;
+                }
+            }
+        }
+        if (ignored)
+        {
+            LogUiSuppression("startup_progress_request_ignored operation=" + operationKind + " phase=" + phase + " reason=not_expected requestReason=" + (reason ?? string.Empty) + " version=" + version);
+            return false;
+        }
+        if (requestAfterSkip)
+        {
+            LogUiSuppression("startup_progress_request_after_skip operation=" + operationKind + " phase=" + phase + " requestReason=" + (reason ?? string.Empty) + " version=" + version);
+        }
+        RecomputeStartupProgressPresentation();
+        return true;
+    }
+
+    private static bool RequiresStartupProgressRequestBeforeCompletion(StartupProgressPhase phase)
+    {
+        return phase != StartupProgressPhase.CoreInitializeStarted
+            && phase != StartupProgressPhase.StartupReadyData
+            && phase != StartupProgressPhase.StartupReadyUi
+            && phase != StartupProgressPhase.StartupReadyOperable;
+    }
+
+    private static bool CanCompleteStartupProgressPhase(StartupProgressState state, StartupProgressPhase phase)
+    {
+        return (state.ExpectedPhases & phase) != 0
+            && (!RequiresStartupProgressRequestBeforeCompletion(phase) || (state.RequestedPhases & phase) != 0);
+    }
+
     /// <summary>
     /// 起動・リロード進捗で deferred playlist 参照適用を待機対象に追加します。
     /// </summary>
@@ -12909,17 +13058,20 @@ public class MainWindowViewModel : ViewModel
     /// <param name="version">要求版数。</param>
     private void TrackStartupProgressPlaylistReferenceRequest(string reason, int version)
     {
+        bool shouldTrack;
         lock (startupProgressLock)
         {
-            if (!startupProgressState.IsActive || !ShouldTrackStartupProgressPlaylistReference(reason, startupProgressState.OperationKind))
-            {
-                return;
-            }
-            startupProgressState.ExpectedPhases |= StartupProgressPhase.PlaylistReferenceApplied;
-            startupProgressState.RequiredPlaylistReferenceVersion = Math.Max(startupProgressState.RequiredPlaylistReferenceVersion, version);
-            startupProgressState.CompletionHideScheduled = false;
+            shouldTrack = startupProgressState.IsActive && ShouldTrackStartupProgressPlaylistReference(reason, startupProgressState.OperationKind);
         }
-        RecomputeStartupProgressPresentation();
+        if (!shouldTrack)
+        {
+            return;
+        }
+        TryTrackStartupProgressPhaseRequest(
+            StartupProgressPhase.PlaylistReferenceApplied,
+            version,
+            reason,
+            state => state.RequiredPlaylistReferenceVersion = Math.Max(state.RequiredPlaylistReferenceVersion, version));
     }
 
     /// <summary>
@@ -12931,7 +13083,7 @@ public class MainWindowViewModel : ViewModel
         bool shouldComplete = false;
         lock (startupProgressLock)
         {
-            if (!startupProgressState.IsActive || (startupProgressState.ExpectedPhases & StartupProgressPhase.PlaylistReferenceApplied) == 0)
+            if (!startupProgressState.IsActive || !CanCompleteStartupProgressPhase(startupProgressState, StartupProgressPhase.PlaylistReferenceApplied))
             {
                 return;
             }
@@ -12950,17 +13102,20 @@ public class MainWindowViewModel : ViewModel
     /// <param name="version">要求版数。</param>
     private void TrackStartupProgressExternalSyncRequest(string reason, int version)
     {
+        bool shouldTrack;
         lock (startupProgressLock)
         {
-            if (!startupProgressState.IsActive || !ShouldTrackStartupProgressExternalSync(reason, startupProgressState.OperationKind))
-            {
-                return;
-            }
-            startupProgressState.ExpectedPhases |= StartupProgressPhase.ExternalPlaylistSyncDone;
-            startupProgressState.RequiredExternalSyncVersion = Math.Max(startupProgressState.RequiredExternalSyncVersion, version);
-            startupProgressState.CompletionHideScheduled = false;
+            shouldTrack = startupProgressState.IsActive && ShouldTrackStartupProgressExternalSync(reason, startupProgressState.OperationKind);
         }
-        RecomputeStartupProgressPresentation();
+        if (!shouldTrack)
+        {
+            return;
+        }
+        TryTrackStartupProgressPhaseRequest(
+            StartupProgressPhase.ExternalPlaylistSyncDone,
+            version,
+            reason,
+            state => state.RequiredExternalSyncVersion = Math.Max(state.RequiredExternalSyncVersion, version));
     }
 
     /// <summary>
@@ -12972,7 +13127,7 @@ public class MainWindowViewModel : ViewModel
         bool shouldComplete = false;
         lock (startupProgressLock)
         {
-            if (!startupProgressState.IsActive || (startupProgressState.ExpectedPhases & StartupProgressPhase.ExternalPlaylistSyncDone) == 0)
+            if (!startupProgressState.IsActive || !CanCompleteStartupProgressPhase(startupProgressState, StartupProgressPhase.ExternalPlaylistSyncDone))
             {
                 return;
             }
@@ -12990,114 +13145,140 @@ public class MainWindowViewModel : ViewModel
     /// <param name="requestedVersion">要求版数。</param>
     private void TrackStartupProgressMaintenanceRequested(int requestedVersion)
     {
+        bool shouldTrack;
         lock (startupProgressLock)
         {
-            if (!startupProgressState.IsActive || requestedVersion <= startupProgressState.MaintenanceRequestedBaselineVersion)
-            {
-                return;
-            }
-            startupProgressState.ExpectedPhases |= StartupProgressPhase.MaintenanceDeferredDone;
-            startupProgressState.RequiredMaintenanceCompletedVersion = Math.Max(startupProgressState.RequiredMaintenanceCompletedVersion, requestedVersion);
-            startupProgressState.CompletionHideScheduled = false;
+            shouldTrack = startupProgressState.IsActive && requestedVersion > startupProgressState.MaintenanceRequestedBaselineVersion;
         }
-        RecomputeStartupProgressPresentation();
+        if (!shouldTrack)
+        {
+            return;
+        }
+        TryTrackStartupProgressPhaseRequest(
+            StartupProgressPhase.MaintenanceDeferredDone,
+            requestedVersion,
+            "maintenance_deferred",
+            state => state.RequiredMaintenanceCompletedVersion = Math.Max(state.RequiredMaintenanceCompletedVersion, requestedVersion));
     }
 
     private void TrackStartupProgressScoreHydrationRequested(int requestedVersion)
     {
+        bool shouldTrack;
         lock (startupProgressLock)
         {
-            if (!startupProgressState.IsActive || requestedVersion <= startupProgressState.ScoreHydrationRequestedBaselineVersion)
-            {
-                return;
-            }
-            startupProgressState.ExpectedPhases |= StartupProgressPhase.ScoreHydrationDone;
-            startupProgressState.RequiredScoreHydrationCompletedVersion = Math.Max(startupProgressState.RequiredScoreHydrationCompletedVersion, requestedVersion);
-            startupProgressState.CompletionHideScheduled = false;
+            shouldTrack = startupProgressState.IsActive && requestedVersion > startupProgressState.ScoreHydrationRequestedBaselineVersion;
         }
-        RecomputeStartupProgressPresentation();
+        if (!shouldTrack)
+        {
+            return;
+        }
+        TryTrackStartupProgressPhaseRequest(
+            StartupProgressPhase.ScoreHydrationDone,
+            requestedVersion,
+            "score_hydration",
+            state => state.RequiredScoreHydrationCompletedVersion = Math.Max(state.RequiredScoreHydrationCompletedVersion, requestedVersion));
     }
 
     private void TrackStartupProgressRankingRefreshRequested(int requestedVersion)
     {
+        bool shouldTrack;
         lock (startupProgressLock)
         {
-            if (!startupProgressState.IsActive || requestedVersion <= startupProgressState.RankingRefreshRequestedBaselineVersion)
-            {
-                return;
-            }
-            startupProgressState.ExpectedPhases |= StartupProgressPhase.RankingRefreshDone;
-            startupProgressState.RequiredRankingRefreshCompletedVersion = Math.Max(startupProgressState.RequiredRankingRefreshCompletedVersion, requestedVersion);
-            startupProgressState.CompletionHideScheduled = false;
+            shouldTrack = startupProgressState.IsActive && requestedVersion > startupProgressState.RankingRefreshRequestedBaselineVersion;
         }
-        RecomputeStartupProgressPresentation();
+        if (!shouldTrack)
+        {
+            return;
+        }
+        TryTrackStartupProgressPhaseRequest(
+            StartupProgressPhase.RankingRefreshDone,
+            requestedVersion,
+            "ranking_refresh",
+            state => state.RequiredRankingRefreshCompletedVersion = Math.Max(state.RequiredRankingRefreshCompletedVersion, requestedVersion));
     }
 
     private void TrackStartupProgressChartDigestBackfillRequested(int requestedVersion)
     {
+        bool shouldTrack;
         lock (startupProgressLock)
         {
-            if (!startupProgressState.IsActive || requestedVersion <= startupProgressState.ChartDigestBackfillBaselineCompletedVersion)
-            {
-                return;
-            }
-            startupProgressState.ExpectedPhases |= StartupProgressPhase.ChartDigestBackfillDone;
-            startupProgressState.RequiredChartDigestBackfillCompletedVersion = Math.Max(startupProgressState.RequiredChartDigestBackfillCompletedVersion, requestedVersion);
-            startupProgressState.CompletionHideScheduled = false;
+            shouldTrack = startupProgressState.IsActive && requestedVersion > startupProgressState.ChartDigestBackfillBaselineCompletedVersion;
         }
-        RecomputeStartupProgressPresentation();
+        if (!shouldTrack)
+        {
+            return;
+        }
+        TryTrackStartupProgressPhaseRequest(
+            StartupProgressPhase.ChartDigestBackfillDone,
+            requestedVersion,
+            "chart_digest_backfill",
+            state => state.RequiredChartDigestBackfillCompletedVersion = Math.Max(state.RequiredChartDigestBackfillCompletedVersion, requestedVersion));
     }
 
     private void TrackStartupProgressChartInfoBackfillRequested(int requestedVersion)
     {
+        bool shouldTrack;
         lock (startupProgressLock)
         {
-            if (!startupProgressState.IsActive || requestedVersion <= startupProgressState.ChartInfoBackfillBaselineCompletedVersion)
-            {
-                return;
-            }
-            startupProgressState.ExpectedPhases |= StartupProgressPhase.ChartInfoBackfillDone;
-            startupProgressState.RequiredChartInfoBackfillCompletedVersion = Math.Max(startupProgressState.RequiredChartInfoBackfillCompletedVersion, requestedVersion);
-            startupProgressState.CompletionHideScheduled = false;
+            shouldTrack = startupProgressState.IsActive && requestedVersion > startupProgressState.ChartInfoBackfillBaselineCompletedVersion;
         }
-        RecomputeStartupProgressPresentation();
+        if (!shouldTrack)
+        {
+            return;
+        }
+        TryTrackStartupProgressPhaseRequest(
+            StartupProgressPhase.ChartInfoBackfillDone,
+            requestedVersion,
+            "chart_info_backfill",
+            state => state.RequiredChartInfoBackfillCompletedVersion = Math.Max(state.RequiredChartInfoBackfillCompletedVersion, requestedVersion));
     }
 
     private void TrackStartupProgressChartInfoHydrationRequested(int requestedVersion)
     {
+        bool shouldTrack;
         lock (startupProgressLock)
         {
-            if (!startupProgressState.IsActive || requestedVersion <= startupProgressState.ChartInfoHydrationBaselineCompletedVersion)
-            {
-                return;
-            }
-            startupProgressState.ExpectedPhases |= StartupProgressPhase.ChartInfoHydrationDone;
-            startupProgressState.RequiredChartInfoHydrationCompletedVersion = Math.Max(startupProgressState.RequiredChartInfoHydrationCompletedVersion, requestedVersion);
-            startupProgressState.CompletionHideScheduled = false;
+            shouldTrack = startupProgressState.IsActive && requestedVersion > startupProgressState.ChartInfoHydrationBaselineCompletedVersion;
         }
-        RecomputeStartupProgressPresentation();
+        if (!shouldTrack)
+        {
+            return;
+        }
+        TryTrackStartupProgressPhaseRequest(
+            StartupProgressPhase.ChartInfoHydrationDone,
+            requestedVersion,
+            "chart_info_hydration",
+            state => state.RequiredChartInfoHydrationCompletedVersion = Math.Max(state.RequiredChartInfoHydrationCompletedVersion, requestedVersion));
     }
 
     private void TrackStartupProgressPlaylistEntriesHydrationRequested(int requestedVersion)
     {
+        bool shouldTrack;
         lock (startupProgressLock)
         {
-            if (!startupProgressState.IsActive || requestedVersion <= startupProgressState.PlaylistEntriesHydrationBaselineCompletedVersion)
-            {
-                return;
-            }
-            startupProgressState.ExpectedPhases |= StartupProgressPhase.PlaylistEntriesHydrationDone;
-            startupProgressState.RequiredPlaylistEntriesHydrationCompletedVersion = Math.Max(startupProgressState.RequiredPlaylistEntriesHydrationCompletedVersion, requestedVersion);
-            startupProgressState.CompletionHideScheduled = false;
+            shouldTrack = startupProgressState.IsActive && requestedVersion > startupProgressState.PlaylistEntriesHydrationBaselineCompletedVersion;
         }
-        RecomputeStartupProgressPresentation();
+        if (!shouldTrack)
+        {
+            return;
+        }
+        TrackStartupProgressPlaylistEntriesHydrationDirectRequest(requestedVersion, "playlist_entries_hydration");
+    }
+
+    private void TrackStartupProgressPlaylistEntriesHydrationDirectRequest(int requestedVersion, string reason)
+    {
+        TryTrackStartupProgressPhaseRequest(
+            StartupProgressPhase.PlaylistEntriesHydrationDone,
+            requestedVersion,
+            reason,
+            state => state.RequiredPlaylistEntriesHydrationCompletedVersion = Math.Max(state.RequiredPlaylistEntriesHydrationCompletedVersion, requestedVersion));
     }
 
     private void UpdateStartupProgressChartDigestBackfillStatus(int totalCount, int processedCount, string currentPath)
     {
         lock (startupProgressLock)
         {
-            if (!startupProgressState.IsActive || (startupProgressState.ExpectedPhases & StartupProgressPhase.ChartDigestBackfillDone) == 0)
+            if (!startupProgressState.IsActive || !CanCompleteStartupProgressPhase(startupProgressState, StartupProgressPhase.ChartDigestBackfillDone))
             {
                 return;
             }
@@ -13112,7 +13293,7 @@ public class MainWindowViewModel : ViewModel
     {
         lock (startupProgressLock)
         {
-            if (!startupProgressState.IsActive || (startupProgressState.ExpectedPhases & StartupProgressPhase.ChartInfoBackfillDone) == 0)
+            if (!startupProgressState.IsActive || !CanCompleteStartupProgressPhase(startupProgressState, StartupProgressPhase.ChartInfoBackfillDone))
             {
                 return;
             }
@@ -13127,7 +13308,7 @@ public class MainWindowViewModel : ViewModel
     {
         lock (startupProgressLock)
         {
-            if (!startupProgressState.IsActive || (startupProgressState.ExpectedPhases & StartupProgressPhase.ChartInfoHydrationDone) == 0)
+            if (!startupProgressState.IsActive || !CanCompleteStartupProgressPhase(startupProgressState, StartupProgressPhase.ChartInfoHydrationDone))
             {
                 return;
             }
@@ -13193,7 +13374,7 @@ public class MainWindowViewModel : ViewModel
         bool shouldComplete = false;
         lock (startupProgressLock)
         {
-            if (!startupProgressState.IsActive || (startupProgressState.ExpectedPhases & StartupProgressPhase.PlaylistEntriesHydrationDone) == 0)
+            if (!startupProgressState.IsActive || !CanCompleteStartupProgressPhase(startupProgressState, StartupProgressPhase.PlaylistEntriesHydrationDone))
             {
                 return;
             }
@@ -13214,7 +13395,7 @@ public class MainWindowViewModel : ViewModel
         bool shouldComplete = false;
         lock (startupProgressLock)
         {
-            if (!startupProgressState.IsActive || (startupProgressState.ExpectedPhases & StartupProgressPhase.MaintenanceDeferredDone) == 0)
+            if (!startupProgressState.IsActive || !CanCompleteStartupProgressPhase(startupProgressState, StartupProgressPhase.MaintenanceDeferredDone))
             {
                 return;
             }
@@ -13235,7 +13416,7 @@ public class MainWindowViewModel : ViewModel
         bool shouldComplete = false;
         lock (startupProgressLock)
         {
-            if (!startupProgressState.IsActive || (startupProgressState.ExpectedPhases & StartupProgressPhase.ScoreHydrationDone) == 0)
+            if (!startupProgressState.IsActive || !CanCompleteStartupProgressPhase(startupProgressState, StartupProgressPhase.ScoreHydrationDone))
             {
                 return;
             }
@@ -13257,7 +13438,7 @@ public class MainWindowViewModel : ViewModel
         bool shouldComplete = false;
         lock (startupProgressLock)
         {
-            if (!startupProgressState.IsActive || (startupProgressState.ExpectedPhases & StartupProgressPhase.RankingRefreshDone) == 0)
+            if (!startupProgressState.IsActive || !CanCompleteStartupProgressPhase(startupProgressState, StartupProgressPhase.RankingRefreshDone))
             {
                 return;
             }
@@ -13282,10 +13463,12 @@ public class MainWindowViewModel : ViewModel
         double maximum;
         bool shouldHideLater = false;
         long hideOperationToken = 0L;
+        long reflectOperationToken = 0L;
         lock (startupProgressLock)
         {
             StartupProgressState state = startupProgressState;
             isActive = state.IsActive;
+            reflectOperationToken = state.OperationToken;
             if (!isActive)
             {
                 label = string.Empty;
@@ -13318,7 +13501,7 @@ public class MainWindowViewModel : ViewModel
                 }
                 else if (operableCompleted)
                 {
-                    label = BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_background;
+                    label = BeMusicSeeker.Properties.Resources.Statusbar_progress_operable_background;
                     subLabel = GetStartupProgressSubLabel(state);
                 }
                 else
@@ -13330,6 +13513,20 @@ public class MainWindowViewModel : ViewModel
         }
         Action reflect = delegate
         {
+            lock (startupProgressLock)
+            {
+                if (isActive)
+                {
+                    if (!startupProgressState.IsActive || startupProgressState.OperationToken != reflectOperationToken)
+                    {
+                        return;
+                    }
+                }
+                else if (startupProgressState.IsActive)
+                {
+                    return;
+                }
+            }
             IsStartupProgressActive = isActive;
             StartupProgressLabel = label;
             StartupProgressSubLabel = subLabel;
@@ -13528,6 +13725,46 @@ public class MainWindowViewModel : ViewModel
         return count;
     }
 
+    private static StartupProgressPhase GetInitialExpectedStartupProgressPhases(StartupProgressOperationKind operationKind)
+    {
+        switch (operationKind)
+        {
+            case StartupProgressOperationKind.Startup:
+                return StartupProgressPhase.CoreInitializeStarted
+                    | StartupProgressPhase.StartupReadyData
+                    | StartupProgressPhase.StartupReadyUi
+                    | StartupProgressPhase.StartupReadyOperable
+                    | StartupProgressPhase.PlaylistReferenceApplied
+                    | StartupProgressPhase.ExternalPlaylistSyncDone
+                    | StartupProgressPhase.ScoreHydrationDone
+                    | StartupProgressPhase.RankingRefreshDone
+                    | StartupProgressPhase.MaintenanceDeferredDone
+                    | StartupProgressPhase.ChartDigestBackfillDone
+                    | StartupProgressPhase.ChartInfoBackfillDone
+                    | StartupProgressPhase.ChartInfoHydrationDone
+                    | StartupProgressPhase.PlaylistEntriesHydrationDone;
+            case StartupProgressOperationKind.ReloadFiles:
+                return StartupProgressPhase.CoreInitializeStarted
+                    | StartupProgressPhase.StartupReadyOperable
+                    | StartupProgressPhase.PlaylistReferenceApplied
+                    | StartupProgressPhase.ScoreHydrationDone
+                    | StartupProgressPhase.RankingRefreshDone
+                    | StartupProgressPhase.MaintenanceDeferredDone
+                    | StartupProgressPhase.ChartDigestBackfillDone
+                    | StartupProgressPhase.ChartInfoBackfillDone
+                    | StartupProgressPhase.ChartInfoHydrationDone
+                    | StartupProgressPhase.PlaylistEntriesHydrationDone;
+            case StartupProgressOperationKind.ReloadTables:
+                return StartupProgressPhase.CoreInitializeStarted
+                    | StartupProgressPhase.StartupReadyOperable
+                    | StartupProgressPhase.PlaylistReferenceApplied
+                    | StartupProgressPhase.ExternalPlaylistSyncDone
+                    | StartupProgressPhase.PlaylistEntriesHydrationDone;
+            default:
+                return StartupProgressPhase.CoreInitializeStarted | StartupProgressPhase.StartupReadyOperable;
+        }
+    }
+
     private static int CountCompletedExpectedStartupProgressPhases(StartupProgressState state)
     {
         int count = 0;
@@ -13545,6 +13782,130 @@ public class MainWindowViewModel : ViewModel
         CountCompletedExpectedStartupProgressPhase(state, StartupProgressPhase.ScoreHydrationDone, ref count);
         CountCompletedExpectedStartupProgressPhase(state, StartupProgressPhase.RankingRefreshDone, ref count);
         return count;
+    }
+
+    internal static StartupProgressTestResult ReduceStartupProgressForTest(string operationKindName, params string[] actions)
+    {
+        StartupProgressOperationKind operationKind = ParseStartupProgressOperationKindForTest(operationKindName);
+        StartupProgressState state = new StartupProgressState
+        {
+            OperationKind = operationKind,
+            IsActive = true,
+            ExpectedPhases = GetInitialExpectedStartupProgressPhases(operationKind),
+            CompletedPhases = StartupProgressPhase.CoreInitializeStarted
+        };
+        int ignoredRequests = 0;
+        int ignoredCompletes = 0;
+        foreach (string rawAction in actions ?? Array.Empty<string>())
+        {
+            if (string.IsNullOrWhiteSpace(rawAction))
+            {
+                continue;
+            }
+            string[] parts = rawAction.Split(new[] { ':' }, 2);
+            if (parts.Length != 2)
+            {
+                throw new ArgumentException("Action must be formatted as verb:PhaseName.", nameof(actions));
+            }
+            string verb = parts[0].Trim();
+            StartupProgressPhase phase = ParseStartupProgressPhaseForTest(parts[1].Trim());
+            if (string.Equals(verb, "request", StringComparison.OrdinalIgnoreCase))
+            {
+                if ((state.ExpectedPhases & phase) == 0)
+                {
+                    ignoredRequests++;
+                    continue;
+                }
+                state.RequestedPhases |= phase;
+            }
+            else if (string.Equals(verb, "complete", StringComparison.OrdinalIgnoreCase))
+            {
+                if (CanCompleteStartupProgressPhase(state, phase))
+                {
+                    state.CompletedPhases |= phase;
+                }
+                else
+                {
+                    ignoredCompletes++;
+                }
+            }
+            else if (string.Equals(verb, "skip", StringComparison.OrdinalIgnoreCase))
+            {
+                if ((state.ExpectedPhases & phase) != 0 && (state.RequestedPhases & phase) == 0)
+                {
+                    state.CompletedPhases |= phase;
+                    state.SkippedPhases |= phase;
+                }
+            }
+            else
+            {
+                throw new ArgumentException("Unsupported action verb: " + verb, nameof(actions));
+            }
+        }
+        bool completed = AreExpectedStartupProgressPhasesCompleted(state);
+        bool operableCompleted = (state.CompletedPhases & StartupProgressPhase.StartupReadyOperable) != 0;
+        string label = completed
+            ? GetStartupProgressCompletedLabel(operationKind)
+            : (operableCompleted ? BeMusicSeeker.Properties.Resources.Statusbar_progress_operable_background : GetStartupProgressRunningLabel(operationKind));
+        return new StartupProgressTestResult
+        {
+            ExpectedCount = CountExpectedStartupProgressPhases(state),
+            CompletedCount = CountCompletedExpectedStartupProgressPhases(state),
+            RequestedCount = CountStartupProgressPhases(state.RequestedPhases & state.ExpectedPhases),
+            SkippedCount = CountStartupProgressPhases(state.SkippedPhases & state.ExpectedPhases),
+            IgnoredRequestCount = ignoredRequests,
+            IgnoredCompleteCount = ignoredCompletes,
+            Label = label,
+            SubLabel = completed ? string.Empty : GetStartupProgressSubLabel(state),
+            IsCompleted = completed
+        };
+    }
+
+    internal static int GetInitialStartupProgressExpectedCountForTest(string operationKindName)
+    {
+        StartupProgressState state = new StartupProgressState
+        {
+            OperationKind = ParseStartupProgressOperationKindForTest(operationKindName),
+            ExpectedPhases = GetInitialExpectedStartupProgressPhases(ParseStartupProgressOperationKindForTest(operationKindName))
+        };
+        return CountExpectedStartupProgressPhases(state);
+    }
+
+    private static int CountStartupProgressPhases(StartupProgressPhase phases)
+    {
+        int count = 0;
+        CountStartupProgressPhase(phases, StartupProgressPhase.CoreInitializeStarted, ref count);
+        CountStartupProgressPhase(phases, StartupProgressPhase.StartupReadyData, ref count);
+        CountStartupProgressPhase(phases, StartupProgressPhase.StartupReadyUi, ref count);
+        CountStartupProgressPhase(phases, StartupProgressPhase.StartupReadyOperable, ref count);
+        CountStartupProgressPhase(phases, StartupProgressPhase.PlaylistReferenceApplied, ref count);
+        CountStartupProgressPhase(phases, StartupProgressPhase.ExternalPlaylistSyncDone, ref count);
+        CountStartupProgressPhase(phases, StartupProgressPhase.PlaylistEntriesHydrationDone, ref count);
+        CountStartupProgressPhase(phases, StartupProgressPhase.MaintenanceDeferredDone, ref count);
+        CountStartupProgressPhase(phases, StartupProgressPhase.ChartDigestBackfillDone, ref count);
+        CountStartupProgressPhase(phases, StartupProgressPhase.ChartInfoHydrationDone, ref count);
+        CountStartupProgressPhase(phases, StartupProgressPhase.ChartInfoBackfillDone, ref count);
+        CountStartupProgressPhase(phases, StartupProgressPhase.ScoreHydrationDone, ref count);
+        CountStartupProgressPhase(phases, StartupProgressPhase.RankingRefreshDone, ref count);
+        return count;
+    }
+
+    private static void CountStartupProgressPhase(StartupProgressPhase phases, StartupProgressPhase phase, ref int count)
+    {
+        if ((phases & phase) != 0)
+        {
+            count++;
+        }
+    }
+
+    private static StartupProgressOperationKind ParseStartupProgressOperationKindForTest(string operationKindName)
+    {
+        return (StartupProgressOperationKind)Enum.Parse(typeof(StartupProgressOperationKind), operationKindName, ignoreCase: true);
+    }
+
+    private static StartupProgressPhase ParseStartupProgressPhaseForTest(string phaseName)
+    {
+        return (StartupProgressPhase)Enum.Parse(typeof(StartupProgressPhase), phaseName, ignoreCase: true);
     }
 
     private static void CountExpectedStartupProgressPhase(StartupProgressState state, StartupProgressPhase phase, ref int count)

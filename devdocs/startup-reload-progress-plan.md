@@ -8,6 +8,8 @@
 
 今後は、各 operation で発生し得るフェーズを開始時点で `ExpectedPhases` に入れ、不要・未発生・スキップが確定したフェーズは即座に完了扱いにする方針へ寄せる。これにより、ゲージの分母を operation 中に増やさず、見た目の巻き戻りを避ける。
 
+実装では `RequestedPhases` と `SkippedPhases` を追加し、`ExpectedPhases` は operation 開始時に固定する。後続 request は `RequestedPhases` と required version だけを更新し、expected 外 request はログに残して進捗には反映しない。
+
 ## 現状の表示モデル
 
 UI は `MainWindow.xaml` のステータスバーで以下に binding されている。
@@ -44,6 +46,8 @@ StartupProgressValue   = ExpectedPhases かつ CompletedPhases に含まれる�
 | `ScoreHydrationDone` | score hydration | request 発生時に expected 追加 |
 | `RankingRefreshDone` | ranking refresh | request 発生時に expected 追加 |
 | `MaintenanceDeferredDone` | maintenance deferred 更新 | request 発生時に expected 追加 |
+
+実装後は、上記の「現状の追加タイミング」は `RequestedPhases` 更新タイミングになる。`ExpectedPhases` の追加タイミングではない。
 
 ## 現状の operation ごとの粒度
 
@@ -135,7 +139,7 @@ deferred 追加: Completed 3 / Expected 10
 | `ReloadFiles` | ファイル再読込で発生し得るフェーズ |
 | `ReloadTables` | playlist/table 再読込で発生し得るフェーズ |
 
-開始後の `TrackStartupProgress*Requested()` は、原則として `ExpectedPhases` を増やさない。役割は required version の更新、カウンタ初期化、完了待ち解除のみに寄せる。
+開始後の `TrackStartupProgress*Requested()` は `ExpectedPhases` を増やさない。役割は `RequestedPhases`、required version、カウンタ初期化、完了待ち解除の更新に限定する。
 
 ### 2. 不要フェーズは skip 完了する
 
@@ -147,6 +151,7 @@ deferred 追加: Completed 3 / Expected 10
 - `ReloadFiles` で chart_info backfill が不要と判断されたら `ChartInfoBackfillDone` を完了扱いにする。
 - `Startup` で score DB がない、または score hydration が要求されない場合は `ScoreHydrationDone` を完了扱いにする。
 - 外部 playlist 同期を行わない設定なら `ExternalPlaylistSyncDone` を完了扱いにする。
+- `ChartDigestBackfillDone` は producer が実質 disabled のため、Startup / ReloadFiles で request が出なければ skip 完了する。
 
 この処理は「待たない」ではなく「この operation では完了済みとして扱う」という意味にする。そうすると `AreExpectedStartupProgressPhasesCompleted()` の完了判定と整合する。
 
@@ -174,7 +179,25 @@ startup_progress_expected_late_add operation=ReloadFiles phase=ChartInfoBackfill
 
 最終的には late add が出ない状態を目標にする。
 
-### 5. Dispatcher 反映も operation token で守る
+実装では late add は行わない。expected 外 request は次のようにログへ残す。
+
+```text
+startup_progress_request_ignored operation=ReloadTables phase=ScoreHydrationDone reason=not_expected
+```
+
+skip 後に request が来た場合も pending には戻さず、単調表示を優先して次のログを出す。
+
+```text
+startup_progress_request_after_skip operation=ReloadFiles phase=ChartDigestBackfillDone
+```
+
+### 5. request-before-complete を導入する
+
+background 系フェーズは request 済みでなければ complete できない。これにより、古い completion event や required version `0` のままの completion で、未要求フェーズが完了扱いになることを防ぐ。
+
+`CoreInitializeStarted`、`StartupReadyData`、`StartupReadyUi`、`StartupReadyOperable` は request 不要の基礎フェーズとして扱う。
+
+### 6. Dispatcher 反映も operation token で守る
 
 別要因として、`Dispatcher.BeginInvoke` に古い表示値が遅れて反映される可能性がある。`RecomputeStartupProgressPresentation()` で capture した `OperationToken` を UI 反映時にも確認し、現在の token と違う場合は捨てる。
 
@@ -267,16 +290,21 @@ startup_progress_phase_skipped operation=ReloadFiles phase=ScoreHydrationDone re
 `TrackStartupProgress*Requested()` は次の役割に限定する。
 
 - 現在 operation が対象 reason / version を追跡すべきか判断する。
+- 対象 phase を `RequestedPhases` に入れる。
 - required version を更新する。
-- 対象 phase が expected に含まれていない場合は late add せずログに残す。
+- 対象 phase が expected に含まれていない場合は進捗へ反映せずログに残す。
 
-late add を完全禁止するか、移行期間のみ許可するかは実装時に選ぶ。巻き戻り抑止を優先するなら禁止が望ましい。
+late add は行わない。
 
 ### operation 終了前の skip 確定を行う
 
 `ReloadFiles` / `ReloadTables` / `Initialize` の `finally` や deferred scheduling 分岐で、request が来なかったフェーズを skip 完了する。
 
 特に `StartupReadyOperable` を完了する直前に、未要求 deferred フェーズを整理しておくと、操作可能後に「背景フェーズの分母だけが残る」状態を制御しやすい。
+
+ReloadFiles の `ScheduleDeferredPlaylistReferenceApply()` は `EnsureAllPlaylistEntriesLoadedAsync()` を直接呼ぶため、この経路では playlist reference request と同じ version で `PlaylistEntriesHydrationDone` を request / complete する。entries が既に loaded の場合も complete する。
+
+Startup / ReloadTables の callback 付き external sync は `ReplaceReferenceBMSTable` を external sync 内で行うため、明示的な deferred playlist reference がない場合は `PlaylistReferenceApplied` を skip する。
 
 ### サブラベル順は維持する
 

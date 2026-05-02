@@ -15,6 +15,7 @@
   "Statusbar_progress_reload_files": "Mise a jour de la bibliotheque",
   "Statusbar_progress_reload_tables": "Mise a jour de la bibliotheque",
   "Statusbar_progress_operable": "Pret",
+  "Statusbar_progress_operable_background": "Pret (mise a jour en arriere-plan)",
   "Statusbar_progress_complete": "Initialisation terminee",
   "Statusbar_progress_complete_reload": "Mise a jour terminee",
   "Statusbar_progress_failed": "Initialisation echouee",
