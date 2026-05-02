@@ -170,10 +170,12 @@ public class BMSFile : LR2SongDB.song
 
     private static Regex bgafileRegex = new Regex("^[\\s\u3000]*#BMP[A-Z0-9]{2}(?>\\s+)(.*)", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
-    // Note: Although ':' is the common delimiter in BMS channel lines, some charts used in the wild
-    // are accepted by LR2/beatoraja even when the command/value boundary is written with whitespace only.
-    // Zero-note detection follows that de facto parsing behavior and treats ':' or whitespace runs as delimiters.
-    private static Regex visibleObjectChRegex = new Regex("^[\\s\u3000]*#[0-9]{3}[12][1-9A-Z][:\\s\u3000]+[\\s0]*[^\\s0]", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    // BMS のチャンネル行は ':' 区切りが一般的だが、LR2/beatoraja では空白だけで
+    // コマンドと値を区切る譜面も実質的に受け入れられているため、ゼロノート検出でも
+    // ':' または空白列を区切りとして扱う。
+    // 通常ノート (11-19/21-29) に加え、RDM 記法の LN チャンネル (51-69 系。互換のため 5Z/6Z まで)
+    // も可視ノートとして扱う。データ部は 2 桁 object 列として見て、00 だけの行は無視する。
+    private static Regex visibleObjectChRegex = new Regex("^[\\s\u3000]*#[0-9]{3}(?:[12][1-9A-Z]|[56][1-9A-Z])(?:[\\s\u3000]*:[\\s\u3000]*|[\\s\u3000]+)(?:[\\s\u3000]*00)*[\\s\u3000]*(?!00)[0-9A-Z]{2}", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     private static Regex objectCh11Regex = new Regex("^[\\s\u3000]*#[0-9]{3}[13]1\\s*:[\\s0]*[^\\s0]", RegexOptions.Compiled);
 

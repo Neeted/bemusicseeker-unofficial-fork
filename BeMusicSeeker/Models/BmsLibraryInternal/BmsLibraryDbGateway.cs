@@ -159,6 +159,7 @@ internal sealed class BmsLibraryDbGateway
             EnsureBmsonSchema(songDb);
             foreach (BMSFile file in files)
             {
+                Lr2SongFolderParentNormalizer.ApplyIfMissingOrInvalid(file);
                 string previousHash = GetSongHashByPath(songDb, file.path);
                 songDb.InsertOrReplace(file, typeof(LR2SongDB.song));
                 UpsertChartDigest(songDb, file);
@@ -265,6 +266,7 @@ internal sealed class BmsLibraryDbGateway
             {
                 songDb.InsertOrReplace(bmsFile.maintenanceInfo, typeof(LR2SongDBExtended.maintenance));
             }
+            Lr2SongFolderParentNormalizer.ApplyIfMissingOrInvalid(bmsFile);
             songDb.InsertOrReplace(bmsFile, typeof(LR2SongDB.song));
             UpsertChartDigest(songDb, bmsFile);
         });

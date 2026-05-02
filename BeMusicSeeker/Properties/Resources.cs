@@ -912,6 +912,9 @@ public class Resources
     public static string WarningDigest_ChartInfoParseFailure => ResourceManager.GetString("WarningDigest_ChartInfoParseFailure", resourceCulture);
 
 
+    public static string WarningDigest_Lr2PathEncodingUnsupported => ResourceManager.GetString("WarningDigest_Lr2PathEncodingUnsupported", resourceCulture);
+
+
     public static string WarningDigest_DuplicateChart => ResourceManager.GetString("WarningDigest_DuplicateChart", resourceCulture);
 
 
@@ -982,6 +985,9 @@ public class Resources
 
 
     public static string Warning_ChartInfoParseFailure => ResourceManager.GetString("Warning_ChartInfoParseFailure", resourceCulture);
+
+
+    public static string Warning_Lr2PathEncodingUnsupported => ResourceManager.GetString("Warning_Lr2PathEncodingUnsupported", resourceCulture);
 
 
     public static string Chart_info_parse_errors => ResourceManager.GetString("Chart_info_parse_errors", resourceCulture);

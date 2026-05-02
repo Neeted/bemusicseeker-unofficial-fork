@@ -174,6 +174,101 @@ public sealed class BmsLibraryInitializationServiceTests
     }
 
     [TestMethod]
+    public void LoadSongTable_PreservesShiftJisUnsupportedExistingSongAndWarns()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
+        {
+            string chartDirectoryPath = Path.Combine(lr2RootPath, "Songs😀");
+            Directory.CreateDirectory(chartDirectoryPath);
+            string chartPath = Path.Combine(chartDirectoryPath, "chart.bms");
+            File.WriteAllText(chartPath, CreateValidBmsText("Emoji Path"), Encoding.ASCII);
+
+            using (LR2SongDBExtended songDb = new LR2SongDBExtended(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDB.song>();
+                songDb.CreateTable<LR2SongDB.folder>();
+                songDb.CreateTable<LR2SongDBExtended.maintenance>();
+                TestableBmsFile song = new TestableBmsFile
+                {
+                    path = chartPath,
+                    folder = "folder",
+                    parent = "parent"
+                };
+                song.SetHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+                songDb.InsertOrReplace(song, typeof(LR2SongDB.song));
+            }
+
+            BmsLibraryInitializationService service = new BmsLibraryInitializationService();
+            SongTableLoadResult result = service.LoadSongTable(
+                new BmsLibraryDbGateway(songDbPath),
+                new BmsLibraryOptionsSnapshot(),
+                null,
+                new TestFileMutationService(),
+                null,
+                ex => ex.Message);
+
+            Assert.AreEqual(1, result.LoadedFiles.Count);
+            Assert.AreEqual(0, result.DeletedSongPaths.Count);
+            Assert.AreEqual(chartPath, result.LoadedFiles[0].path);
+            Assert.IsTrue(string.IsNullOrWhiteSpace(result.LoadedFiles[0].folder));
+            Assert.IsTrue(string.IsNullOrWhiteSpace(result.LoadedFiles[0].parent));
+            Assert.IsTrue(result.LoadedFiles[0].Warnings.Contains(ChartWarningKind.Lr2PathEncodingUnsupported));
+
+            using LR2SongDBExtended verify = new LR2SongDBExtended(songDbPath);
+            Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM song WHERE path = ?;", chartPath));
+            Assert.IsTrue(string.IsNullOrWhiteSpace(verify.ExecuteScalar<string>("SELECT parent FROM song WHERE path = ?;", chartPath)));
+        });
+    }
+
+    [TestMethod]
+    public void LoadSongTable_DoesNotPartiallyFixRelativeShiftJisUnsupportedPath()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
+        {
+            string relativePath = Path.Combine("Songs😀", "chart.bms");
+            string chartPath = Path.Combine(lr2RootPath, relativePath);
+            Directory.CreateDirectory(Path.GetDirectoryName(chartPath));
+            File.WriteAllText(chartPath, CreateValidBmsText("Relative Emoji Path"), Encoding.ASCII);
+
+            using (LR2SongDBExtended songDb = new LR2SongDBExtended(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDB.song>();
+                songDb.CreateTable<LR2SongDB.folder>();
+                songDb.CreateTable<LR2SongDBExtended.maintenance>();
+                TestableBmsFile song = new TestableBmsFile
+                {
+                    path = relativePath,
+                    folder = "folder",
+                    parent = "parent"
+                };
+                song.SetHash("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+                songDb.InsertOrReplace(song, typeof(LR2SongDB.song));
+            }
+
+            BmsLibraryInitializationService service = new BmsLibraryInitializationService();
+            SongTableLoadResult result = service.LoadSongTable(
+                new BmsLibraryDbGateway(songDbPath),
+                new BmsLibraryOptionsSnapshot(),
+                null,
+                new TestFileMutationService(),
+                null,
+                ex => ex.Message);
+
+            Assert.AreEqual(1, result.LoadedFiles.Count);
+            Assert.AreEqual(0, result.DeletedSongPaths.Count);
+            Assert.AreEqual(relativePath, result.LoadedFiles[0].path);
+            Assert.IsTrue(string.IsNullOrWhiteSpace(result.LoadedFiles[0].parent));
+            Assert.IsTrue(result.LoadedFiles[0].Warnings.Contains(ChartWarningKind.Lr2PathEncodingUnsupported));
+
+            using LR2SongDBExtended verify = new LR2SongDBExtended(songDbPath);
+            Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM song WHERE path = ?;", relativePath));
+            Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM song WHERE path = ?;", chartPath));
+        });
+    }
+
+    [TestMethod]
     public void ApplyFileScanDiff_UsesPrefetchedScanAndClearsStaleInstallDestination()
     {
         TestResourceInitializer.EnsureJapaneseResources();
@@ -335,6 +430,172 @@ public sealed class BmsLibraryInitializationServiceTests
                 && message.Contains("file_diff_parser_degree=1")
                 && message.Contains("inline_chart_info_target_count=2")
                 && message.Contains("parse_read_bytes_estimate=" + expectedReadBytesEstimate)));
+        });
+    }
+
+    [TestMethod]
+    public void ApplyFileScanDiff_AddsBmsWithLr2FolderAndParentHashes()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
+        {
+            string chartDirectoryPath = Path.Combine(lr2RootPath, "Lr2Crc");
+            Directory.CreateDirectory(chartDirectoryPath);
+            string bmsPath = Path.Combine(chartDirectoryPath, "added.bms");
+            File.WriteAllText(bmsPath, CreateValidBmsText("CRC Added"), Encoding.ASCII);
+
+            using (LR2SongDBExtended songDbConnection = new LR2SongDBExtended(songDbPath))
+            {
+                songDbConnection.CreateTable<LR2SongDB.song>();
+            }
+
+            BmsLibraryInitializationService service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
+            SongTableFileCheckResult result = service.ApplyFileScanDiff(
+                new BmsLibraryDbGateway(songDbPath),
+                new BmsLibraryOptionsSnapshot(),
+                Array.Empty<BMSFile>(),
+                new BmsScanExecutionResult
+                {
+                    Success = true,
+                    Result = CreateScanResult(
+                        new[] { bmsPath },
+                        new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
+                        {
+                            { chartDirectoryPath, Array.Empty<string>() }
+                        })
+                },
+                0L,
+                () => null,
+                null,
+                currentBmsonSongs: Array.Empty<LR2SongDBExtended.bmson_song>());
+
+            Assert.AreEqual(1, result.AddedFiles.Count);
+            BMSFile added = result.AddedFiles[0];
+            Assert.IsFalse(string.IsNullOrWhiteSpace(added.folder));
+            Assert.IsFalse(string.IsNullOrWhiteSpace(added.parent));
+            Assert.IsTrue(added.parent.Length <= 8);
+            Assert.IsFalse(added.Warnings.Contains(ChartWarningKind.Lr2PathEncodingUnsupported));
+            Assert.AreEqual(0, result.NextFiles.Count((BMSFile file) => string.IsNullOrWhiteSpace(file.parent)));
+
+            using LR2SongDBExtended verify = new LR2SongDBExtended(songDbPath);
+            Assert.AreEqual(added.folder, verify.ExecuteScalar<string>("SELECT folder FROM song WHERE path = ?;", bmsPath));
+            Assert.AreEqual(added.parent, verify.ExecuteScalar<string>("SELECT parent FROM song WHERE path = ?;", bmsPath));
+        });
+    }
+
+    [TestMethod]
+    public void ApplyFileScanDiff_PreservesShiftJisUnsupportedPathWithoutParentAndWarns()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
+        {
+            string chartDirectoryPath = Path.Combine(lr2RootPath, "Emoji😀");
+            Directory.CreateDirectory(chartDirectoryPath);
+            string bmsPath = Path.Combine(chartDirectoryPath, "added.bms");
+            File.WriteAllText(bmsPath, CreateValidBmsText("Emoji Added"), Encoding.ASCII);
+
+            using (LR2SongDBExtended songDbConnection = new LR2SongDBExtended(songDbPath))
+            {
+                songDbConnection.CreateTable<LR2SongDB.song>();
+            }
+
+            BmsLibraryInitializationService service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
+            SongTableFileCheckResult result = service.ApplyFileScanDiff(
+                new BmsLibraryDbGateway(songDbPath),
+                new BmsLibraryOptionsSnapshot(),
+                Array.Empty<BMSFile>(),
+                new BmsScanExecutionResult
+                {
+                    Success = true,
+                    Result = CreateScanResult(
+                        new[] { bmsPath },
+                        new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
+                        {
+                            { chartDirectoryPath, Array.Empty<string>() }
+                        })
+                },
+                0L,
+                () => null,
+                null,
+                currentBmsonSongs: Array.Empty<LR2SongDBExtended.bmson_song>());
+
+            Assert.AreEqual(1, result.AddedFiles.Count);
+            BMSFile added = result.AddedFiles[0];
+            Assert.IsTrue(string.IsNullOrWhiteSpace(added.folder));
+            Assert.IsTrue(string.IsNullOrWhiteSpace(added.parent));
+            Assert.IsTrue(added.Warnings.Contains(ChartWarningKind.Lr2PathEncodingUnsupported));
+            StringAssert.Contains(added.WarningTooltipText, "Shift_JIS");
+            Assert.AreEqual(1, result.NextFiles.Count((BMSFile file) => string.IsNullOrWhiteSpace(file.parent)));
+
+            using LR2SongDBExtended verify = new LR2SongDBExtended(songDbPath);
+            Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM song WHERE path = ?;", bmsPath));
+            Assert.IsTrue(string.IsNullOrWhiteSpace(verify.ExecuteScalar<string>("SELECT parent FROM song WHERE path = ?;", bmsPath)));
+        });
+    }
+
+    [TestMethod]
+    public void UpsertSongs_FillsLr2FolderAndParentForInstalledBmsRows()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
+        {
+            string chartDirectoryPath = Path.Combine(lr2RootPath, "Installed");
+            Directory.CreateDirectory(chartDirectoryPath);
+            string bmsPath = Path.Combine(chartDirectoryPath, "chart.bms");
+            File.WriteAllText(bmsPath, CreateValidBmsText("Installed"), Encoding.ASCII);
+            using (LR2SongDBExtended songDbConnection = new LR2SongDBExtended(songDbPath))
+            {
+                songDbConnection.CreateTable<LR2SongDB.song>();
+            }
+
+            TestableBmsFile file = new TestableBmsFile
+            {
+                path = bmsPath,
+                folder = null,
+                parent = null
+            };
+            file.SetHash("cccccccccccccccccccccccccccccccc");
+
+            new BmsLibraryDbGateway(songDbPath).UpsertSongs(new[] { file });
+
+            Assert.IsFalse(string.IsNullOrWhiteSpace(file.folder));
+            Assert.IsFalse(string.IsNullOrWhiteSpace(file.parent));
+            using LR2SongDBExtended verify = new LR2SongDBExtended(songDbPath);
+            Assert.AreEqual(file.folder, verify.ExecuteScalar<string>("SELECT folder FROM song WHERE path = ?;", bmsPath));
+            Assert.AreEqual(file.parent, verify.ExecuteScalar<string>("SELECT parent FROM song WHERE path = ?;", bmsPath));
+        });
+    }
+
+    [TestMethod]
+    public void UpsertSongs_PreservesShiftJisUnsupportedInstalledBmsRowsWithWarning()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
+        {
+            string chartDirectoryPath = Path.Combine(lr2RootPath, "Installed😀");
+            Directory.CreateDirectory(chartDirectoryPath);
+            string bmsPath = Path.Combine(chartDirectoryPath, "chart.bms");
+            File.WriteAllText(bmsPath, CreateValidBmsText("Installed Emoji"), Encoding.ASCII);
+            using (LR2SongDBExtended songDbConnection = new LR2SongDBExtended(songDbPath))
+            {
+                songDbConnection.CreateTable<LR2SongDB.song>();
+            }
+
+            TestableBmsFile file = new TestableBmsFile
+            {
+                path = bmsPath,
+                folder = null,
+                parent = null
+            };
+            file.SetHash("dddddddddddddddddddddddddddddddd");
+
+            new BmsLibraryDbGateway(songDbPath).UpsertSongs(new[] { file });
+
+            Assert.IsTrue(string.IsNullOrWhiteSpace(file.parent));
+            Assert.IsTrue(file.Warnings.Contains(ChartWarningKind.Lr2PathEncodingUnsupported));
+            using LR2SongDBExtended verify = new LR2SongDBExtended(songDbPath);
+            Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM song WHERE path = ?;", bmsPath));
+            Assert.IsTrue(string.IsNullOrWhiteSpace(verify.ExecuteScalar<string>("SELECT parent FROM song WHERE path = ?;", bmsPath)));
         });
     }
 

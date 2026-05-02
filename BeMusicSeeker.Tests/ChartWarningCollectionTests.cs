@@ -143,6 +143,19 @@ public sealed class ChartWarningCollectionTests
     }
 
     [TestMethod]
+    public void Lr2PathEncodingUnsupported_HighlightsAndUsesDedicatedDigest()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        BMSFile file = new BMSFile();
+
+        file.SetWarning(ChartWarningKind.Lr2PathEncodingUnsupported, Resources.Warning_Lr2PathEncodingUnsupported);
+
+        Assert.IsTrue(file.HasHighlightedWarning);
+        Assert.AreEqual("[1] LR2パス非対応", file.WarningDigestText);
+        StringAssert.Contains(file.WarningTooltipText, "Shift_JIS");
+    }
+
+    [TestMethod]
     public void ClearWarning_RemovesMatchingStructuredWarning()
     {
         TestResourceInitializer.EnsureJapaneseResources();

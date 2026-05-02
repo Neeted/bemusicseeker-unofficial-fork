@@ -399,7 +399,9 @@ internal sealed class BmsLibraryInitializationService
                     try
                     {
                         ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(path);
-                        return InlineBmsParseCandidate.CreateSuccess(path, snapshot, BMSFile.CreateBMSFileFromSnapshot(snapshot));
+                        BMSFile file = BMSFile.CreateBMSFileFromSnapshot(snapshot);
+                        Lr2SongFolderParentNormalizer.ApplyIfMissingOrInvalid(file);
+                        return InlineBmsParseCandidate.CreateSuccess(path, snapshot, file);
                     }
                     catch (IOException ex)
                     {
@@ -526,6 +528,7 @@ internal sealed class BmsLibraryInitializationService
                 }
                 foreach (BMSFile addedFile in result.AddedFiles)
                 {
+                    Lr2SongFolderParentNormalizer.ApplyIfMissingOrInvalid(addedFile);
                     string previousHash = songDb.ExecuteScalar<string>("SELECT hash FROM song WHERE path = " + BMSPlaylist.SqlQuoteForTest(addedFile.path) + " LIMIT 1;");
                     songDb.InsertOrReplace(addedFile, typeof(LR2SongDB.song));
                     BmsLibraryDbGateway.UpsertChartDigest(songDb, addedFile);
@@ -1113,16 +1116,20 @@ internal sealed class BmsLibraryInitializationService
                     deletedFiles.Add(song);
                     continue;
                 }
-                if (!Path.IsPathRooted(song.path))
+                bool wasRelativePath = !Path.IsPathRooted(song.path);
+                string originalPath = song.path;
+                if (wasRelativePath)
                 {
-                    result.DeletedSongPaths.Add(song.path);
-                    song.path = Path.Combine(songDb.LR2RootPath, song.path);
-                    string directoryName = Path.GetDirectoryName(song.path);
-                    song.folder = ComputeLR2DirectoryHash(directoryName, crcEncoding);
-                    song.parent = ComputeLR2DirectoryHash(Path.GetDirectoryName(directoryName), crcEncoding);
-                    result.UpdatedSongs.Add(song);
-                    result.RelativePathFixedCount++;
-                    result.CrcRecalculatedCount++;
+                    if (Lr2SongFolderParentNormalizer.ApplyExpected(song, songDb.LR2RootPath, fixRelativePath: true))
+                    {
+                        if (Path.IsPathRooted(song.path))
+                        {
+                            result.DeletedSongPaths.Add(originalPath);
+                            result.RelativePathFixedCount++;
+                        }
+                        result.UpdatedSongs.Add(song);
+                        result.CrcRecalculatedCount++;
+                    }
                     continue;
                 }
                 if (song.adddate < 0 || song.adddate > unixtime)
@@ -1133,18 +1140,17 @@ internal sealed class BmsLibraryInitializationService
                     result.UpdatedSongs.Add(song);
                     continue;
                 }
-                if (IsLikelyCrcHex(song.folder) && IsLikelyCrcHex(song.parent))
+                if (Lr2SongFolderParentNormalizer.IsLikelyCrcHex(song.folder) && Lr2SongFolderParentNormalizer.IsLikelyCrcHex(song.parent))
                 {
+                    if (Lr2SongFolderParentNormalizer.ApplyIfMissingOrInvalid(song))
+                    {
+                        result.UpdatedSongs.Add(song);
+                    }
                     result.CrcSkippedCount++;
                     continue;
                 }
-                string directoryName2 = Path.GetDirectoryName(song.path);
-                string expectedFolder = ComputeLR2DirectoryHash(directoryName2, crcEncoding);
-                string expectedParent = ComputeLR2DirectoryHash(Path.GetDirectoryName(directoryName2), crcEncoding);
-                if (expectedFolder != song.folder || expectedParent != song.parent)
+                if (Lr2SongFolderParentNormalizer.ApplyExpected(song, songDb.LR2RootPath, fixRelativePath: false))
                 {
-                    song.folder = expectedFolder;
-                    song.parent = expectedParent;
                     result.UpdatedSongs.Add(song);
                 }
                 result.CrcRecalculatedCount++;
@@ -1222,6 +1228,10 @@ internal sealed class BmsLibraryInitializationService
                     }
                 }
             }
+            catch (EncoderFallbackException)
+            {
+                return false;
+            }
             catch
             {
                 result.DeletedFolderPaths.Add(folder.path);
@@ -1280,23 +1290,6 @@ internal sealed class BmsLibraryInitializationService
             + " crcSkipped=" + result.CrcSkippedCount
             + " updatedFolders=" + result.UpdatedFolders.Count
             + " deletedFolders=" + result.DeletedFolderPaths.Count);
-    }
-
-    private static bool IsLikelyCrcHex(string value)
-    {
-        if (string.IsNullOrWhiteSpace(value) || value.Length < 1 || value.Length > 8)
-        {
-            return false;
-        }
-        for (int i = 0; i < value.Length; i++)
-        {
-            char c = value[i];
-            if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')))
-            {
-                return false;
-            }
-        }
-        return true;
     }
 
     private static string ComputeLR2DirectoryHash(string directoryPath, Encoding encoding)

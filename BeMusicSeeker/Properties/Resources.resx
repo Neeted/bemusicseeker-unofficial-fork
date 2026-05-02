@@ -840,7 +840,7 @@ LR2IRにスコアやクリアが自動送信されるわけではありません
     <value>※出力先には重要なデータを含まないようにして下さい</value>
   </data>
   <data name="Unregistered_in_lr2_db" xml:space="preserve">
-    <value>LR2データベース未登録</value>
+    <value>LR2非対応パス</value>
   </data>
   <data name="PlaylistProp_sortkey" xml:space="preserve">
     <value>ソートキー: </value>
@@ -1415,6 +1415,9 @@ BMSファイルが重複しないようにマージします。
   <data name="WarningDigest_ChartInfoParseFailure" xml:space="preserve">
     <value>メタデータ解析エラー</value>
   </data>
+  <data name="WarningDigest_Lr2PathEncodingUnsupported" xml:space="preserve">
+    <value>LR2パス非対応</value>
+  </data>
   <data name="WarningDigest_DuplicateChart" xml:space="preserve">
     <value>重複譜面</value>
   </data>
@@ -1494,6 +1497,9 @@ BMSファイルが重複しないようにマージします。
   </data>
   <data name="Warning_ChartInfoParseFailure" xml:space="preserve">
     <value>メタデータ解析に失敗しました。{0}: {1}</value>
+  </data>
+  <data name="Warning_Lr2PathEncodingUnsupported" xml:space="preserve">
+    <value>譜面パスに Shift_JIS で表現できない文字が含まれているため、LR2 の folder/parent ID を計算できません。Shift_JIS 互換のパスへリネームまたは移動してください。</value>
   </data>
   <data name="Chart_info_parse_errors" xml:space="preserve">
     <value>解析エラー</value>

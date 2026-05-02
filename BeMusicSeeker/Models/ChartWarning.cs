@@ -28,7 +28,8 @@ internal enum ChartWarningKind
     InstallEstimationLowConfidence,
     DuplicateChart,
     ZeroNoteMismatch,
-    ChartInfoParseFailure
+    ChartInfoParseFailure,
+    Lr2PathEncodingUnsupported
 }
 
 /// <summary>
@@ -43,7 +44,8 @@ internal enum ChartWarningCategory
     InstallEstimation,
     Duplicate,
     ChartContent,
-    ChartMetadata
+    ChartMetadata,
+    Lr2Compatibility
 }
 
 /// <summary>
@@ -186,6 +188,8 @@ internal sealed class ChartWarningDefinition
                 return new ChartWarningDefinition(ChartWarningCategory.ChartContent, 20, Resources.WarningDigest_ZeroNoteMismatch, highlightRow: true);
             case ChartWarningKind.ChartInfoParseFailure:
                 return new ChartWarningDefinition(ChartWarningCategory.ChartMetadata, 15, Resources.WarningDigest_ChartInfoParseFailure, highlightRow: true);
+            case ChartWarningKind.Lr2PathEncodingUnsupported:
+                return new ChartWarningDefinition(ChartWarningCategory.Lr2Compatibility, 18, Resources.WarningDigest_Lr2PathEncodingUnsupported, highlightRow: true);
             case ChartWarningKind.DuplicateChart:
                 return new ChartWarningDefinition(ChartWarningCategory.Duplicate, 30, Resources.WarningDigest_DuplicateChart, highlightRow: true);
             case ChartWarningKind.InstallEstimationAmbiguous:

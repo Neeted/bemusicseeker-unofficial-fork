@@ -25,6 +25,7 @@
 | --- | --- | ---: | --- | --- | --- |
 | `NestedChartFileInPackage` | `PackageLayout` | 10 | `サブフォルダ譜面` | false | warning が存在する場合 |
 | `ChartInfoParseFailure` | `ChartMetadata` | 15 | `メタデータ解析エラー` | true | warning が存在する場合 |
+| `Lr2PathEncodingUnsupported` | `Lr2Compatibility` | 18 | `LR2パス非対応` | true | warning が存在する場合 |
 | `ZeroNoteMismatch` | `ChartContent` | 20 | `ゼロノート不整合` | true | warning が存在する場合 |
 | `DuplicateChart` | `Duplicate` | 30 | `重複譜面` | true | warning が存在する場合 |
 | `InstallEstimationAmbiguous` | `InstallEstimation` | 40 | `推定先複数` | true | warning が存在する場合 |
@@ -48,6 +49,7 @@
 - `InstallEstimation` は導入先推定結果の適用、手動導入先確定、導入成功、推定状態クリアで category 単位に扱います。
 - `DuplicateChart` と `ZeroNoteMismatch` は kind 単位で set / clear します。
 - `ChartInfoParseFailure` は解析エラー画面用の表示 shim 行に付与します。通常ライブラリの元行へは mutation しません。
+- `Lr2PathEncodingUnsupported` は起動時の `song` 正規化、file diff 追加、`UpsertSongs()` 前補正で付与します。Shift_JIS 互換 path として LR2 `folder` / `parent` CRC を計算できる場合は clear します。
 - `NestedChartFileInPackage`、`AlreadyInstalled`、`SingleBmsFile`、`SingleBmsonFile` は保留パッケージや復元時の状態初期化で付与します。
 
 ## 参照実装
