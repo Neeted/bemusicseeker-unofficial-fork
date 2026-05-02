@@ -1634,6 +1634,46 @@ public class BMSFile : LR2SongDB.song
     public static BMSFile CreateBMSFileFromFile(string filePath, string codepageName = "shift_jis")
     {
         IEnumerable<string> enumerable = File.ReadLines(filePath, Encoding.GetEncoding(codepageName));
+        return CreateBMSFileFromLines(
+            enumerable,
+            filePath,
+            () => getMD5Hash(filePath),
+            () => GetSHA256Hash(filePath));
+    }
+
+    internal static BMSFile CreateBMSFileFromSnapshot(ChartFileSnapshot snapshot, string codepageName = "shift_jis")
+    {
+        if (snapshot == null)
+        {
+            throw new ArgumentNullException(nameof(snapshot));
+        }
+        Encoding encoding = Encoding.GetEncoding(codepageName);
+        return CreateBMSFileFromLines(
+            ReadSnapshotLines(snapshot, encoding),
+            snapshot.Path,
+            () => snapshot.Md5,
+            () => snapshot.Sha256);
+    }
+
+    private static IEnumerable<string> ReadSnapshotLines(ChartFileSnapshot snapshot, Encoding encoding)
+    {
+        using (MemoryStream stream = new MemoryStream(snapshot.Bytes, writable: false))
+        using (StreamReader reader = new StreamReader(stream, encoding, detectEncodingFromByteOrderMarks: true))
+        {
+            string line;
+            while ((line = reader.ReadLine()) != null)
+            {
+                yield return line;
+            }
+        }
+    }
+
+    private static BMSFile CreateBMSFileFromLines(
+        IEnumerable<string> enumerable,
+        string filePath,
+        Func<string> md5Provider,
+        Func<string> sha256Provider)
+    {
         BMSFile bMSFile = new BMSFile();
         HashSet<string> hashSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         HashSet<string> hashSet2 = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -1816,8 +1856,8 @@ public class BMSFile : LR2SongDB.song
         }
         bMSFile.WAVfiles = hashSet;
         bMSFile.BGAfiles = hashSet2;
-        bMSFile.hash = getMD5Hash(filePath);
-        bMSFile.ApplySha256(GetSHA256Hash(filePath));
+        bMSFile.hash = md5Provider();
+        bMSFile.ApplySha256(sha256Provider());
         bMSFile.path = filePath;
         if (bMSFile.path.EndsWith(".pms", StringComparison.OrdinalIgnoreCase))
         {

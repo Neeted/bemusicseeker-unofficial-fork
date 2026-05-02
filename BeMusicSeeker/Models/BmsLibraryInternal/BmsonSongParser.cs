@@ -19,9 +19,34 @@ internal static class BmsonSongParser
         string fullPath = Path.GetFullPath(filePath);
         string json = File.ReadAllText(fullPath, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: false));
         BmsonDocument root = BmsonJsonParser.Parse(json);
-        BmsonInfo info = root?.Info ?? new BmsonInfo();
         DateTime updatedAt = File.GetLastWriteTimeUtc(fullPath);
+        return CreateSong(
+            fullPath,
+            root,
+            ComputeHash(fullPath, MD5.Create()),
+            BMSFile.GetSHA256Hash(fullPath),
+            updatedAt);
+    }
 
+    internal static LR2SongDBExtended.bmson_song ParseSnapshot(ChartFileSnapshot snapshot)
+    {
+        if (snapshot == null)
+        {
+            throw new ArgumentNullException(nameof(snapshot));
+        }
+        string json = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: false).GetString(snapshot.Bytes);
+        BmsonDocument root = BmsonJsonParser.Parse(json);
+        return CreateSong(snapshot.Path, root, snapshot.Md5, snapshot.Sha256, snapshot.LastWriteTimeUtc);
+    }
+
+    private static LR2SongDBExtended.bmson_song CreateSong(
+        string fullPath,
+        BmsonDocument root,
+        string md5,
+        string sha256,
+        DateTime updatedAt)
+    {
+        BmsonInfo info = root?.Info ?? new BmsonInfo();
         LR2SongDBExtended.bmson_song result = new LR2SongDBExtended.bmson_song
         {
             path = fullPath,
@@ -32,8 +57,8 @@ internal static class BmsonSongParser
             genre = info.Genre ?? string.Empty,
             level = info.Level.HasValue ? (double?)info.Level.Value : null,
             mode_hint = info.ModeHint ?? string.Empty,
-            md5 = ComputeHash(fullPath, MD5.Create()),
-            sha256 = BMSFile.GetSHA256Hash(fullPath),
+            md5 = md5,
+            sha256 = sha256,
             banner = ChartResourcePathNormalizer.NormalizeReferencePathForLookup(info.BannerImage),
             backbmp = ChartResourcePathNormalizer.NormalizeReferencePathForLookup(info.BackImage),
             stagefile = ChartResourcePathNormalizer.NormalizeReferencePathForLookup(info.EyecatchImage),

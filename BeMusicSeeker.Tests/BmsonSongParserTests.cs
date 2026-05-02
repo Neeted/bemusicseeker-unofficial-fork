@@ -159,6 +159,123 @@ public sealed class BmsonSongParserTests
     }
 
     [TestMethod]
+    public void ParseSnapshot_MatchesParse()
+    {
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsonSongParserTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        string filePath = Path.Combine(tempDirectory, "chart.bmson");
+        try
+        {
+            File.WriteAllText(filePath,
+                "{"
+                + "\"version\":\"1.0.0\","
+                + "\"info\":{"
+                + "\"title\":\"Main\","
+                + "\"subtitle\":\"Sub\","
+                + "\"chart_name\":\"Another\","
+                + "\"artist\":\"Artist\","
+                + "\"genre\":\"Genre\","
+                + "\"level\":12,"
+                + "\"mode_hint\":\"beat-14k\","
+                + "\"banner_image\":\"banner.png\","
+                + "\"back_image\":\"back.png\","
+                + "\"eyecatch_image\":\"stage.png\","
+                + "\"preview_music\":\"preview.ogg\","
+                + "\"subartists\":[\"Sub1\",\"Sub2\"]"
+                + "},"
+                + "\"sound_channels\":[{\"name\":\"keysound.wav\",\"notes\":[]}],"
+                + "\"bga\":{\"bga_header\":[{\"id\":1,\"name\":\"image.png\"}]},"
+                + "\"bpm_events\":[],"
+                + "\"lines\":[{\"y\":0}]"
+                + "}");
+            DateTime lastWriteTimeUtc = new DateTime(2026, 5, 2, 4, 5, 6, DateTimeKind.Utc);
+            File.SetLastWriteTimeUtc(filePath, lastWriteTimeUtc);
+
+            var expected = BmsonSongParser.Parse(filePath);
+            var actual = BmsonSongParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(filePath));
+
+            AssertBmsonEqual(expected, actual);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void ParseSnapshot_UsesSnapshotBytesAfterFileChanges()
+    {
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsonSongParserTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        string filePath = Path.Combine(tempDirectory, "chart.bmson");
+        try
+        {
+            File.WriteAllText(filePath,
+                "{"
+                + "\"version\":\"1.0.0\","
+                + "\"info\":{\"title\":\"Before\",\"artist\":\"Artist\",\"level\":7,\"mode_hint\":\"beat-7k\"},"
+                + "\"sound_channels\":[],"
+                + "\"lines\":[{\"y\":0}]"
+                + "}");
+            ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(filePath);
+
+            File.WriteAllText(filePath,
+                "{"
+                + "\"version\":\"1.0.0\","
+                + "\"info\":{\"title\":\"After\",\"artist\":\"Artist\",\"level\":7,\"mode_hint\":\"beat-7k\"},"
+                + "\"sound_channels\":[],"
+                + "\"lines\":[{\"y\":0}]"
+                + "}");
+
+            var actual = BmsonSongParser.ParseSnapshot(snapshot);
+
+            Assert.AreEqual("Before", actual.title);
+            Assert.AreEqual(snapshot.Md5, actual.md5);
+            Assert.AreEqual(snapshot.Sha256, actual.sha256);
+            Assert.AreNotEqual(BmsonSongParser.Parse(filePath).md5, actual.md5);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void ParseSnapshot_InvalidJsonThrowsParserException()
+    {
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsonSongParserTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        string filePath = Path.Combine(tempDirectory, "chart.bmson");
+        try
+        {
+            ChartFileSnapshot snapshot = ChartFileContentReader.CreateSnapshot(filePath, System.Text.Encoding.UTF8.GetBytes("{\"version\":\"1.0.0\",\"info\":"), DateTime.UtcNow);
+
+            try
+            {
+                BmsonSongParser.ParseSnapshot(snapshot);
+                Assert.Fail("Expected bmson parser to throw for invalid JSON.");
+            }
+            catch (Exception ex)
+            {
+                StringAssert.Contains(ex.GetType().Name, "Json");
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
     public void ResolvePlaylistMode_MapsPhase5DisplayModes()
     {
         Assert.AreEqual(5, BmsonSongParser.ResolvePlaylistMode("beat-5k"));
@@ -198,5 +315,26 @@ public sealed class BmsonSongParserTests
         Assert.AreEqual("NewTitle", row.Title);
         Assert.AreEqual("NewArtist", row.Artist);
         Assert.AreEqual(24, row.mode);
+    }
+
+    private static void AssertBmsonEqual(BeMusicSeeker.Models.LR2.LR2SongDBExtended.bmson_song expected, BeMusicSeeker.Models.LR2.LR2SongDBExtended.bmson_song actual)
+    {
+        Assert.AreEqual(expected.path, actual.path);
+        Assert.AreEqual(expected.folder, actual.folder);
+        Assert.AreEqual(expected.title, actual.title);
+        Assert.AreEqual(expected.subtitle, actual.subtitle);
+        Assert.AreEqual(expected.artist, actual.artist);
+        Assert.AreEqual(expected.genre, actual.genre);
+        Assert.AreEqual(expected.level, actual.level);
+        Assert.AreEqual(expected.mode_hint, actual.mode_hint);
+        Assert.AreEqual(expected.banner, actual.banner);
+        Assert.AreEqual(expected.backbmp, actual.backbmp);
+        Assert.AreEqual(expected.stagefile, actual.stagefile);
+        Assert.AreEqual(expected.preview_music, actual.preview_music);
+        Assert.AreEqual(expected.md5, actual.md5);
+        Assert.AreEqual(expected.sha256, actual.sha256);
+        Assert.AreEqual(expected.updated_at, actual.updated_at);
+        CollectionAssert.AreEquivalent(expected.wav_files.ToArray(), actual.wav_files.ToArray());
+        CollectionAssert.AreEquivalent(expected.bga_files.ToArray(), actual.bga_files.ToArray());
     }
 }

@@ -19,11 +19,11 @@
 
 | 処理 | 対象 | 読み込み | 並列化 | 出力 |
 | --- | --- | --- | --- | --- |
-| `ApplyFileScanDiff()` BMS 追加 | 新規 `.bms/.bme/.bml/.pms` | `File.ReadLines` で軽量 parse、別 stream で MD5、別 stream で SHA-256 | PLINQ `AsParallel()` | `song`, `chart_digest_map`, `BMSFile` |
-| `ApplyFileScanDiff()` bmson 追加/更新 | 新規・更新 `.bmson` | `File.ReadAllText` で JSON parse、別 stream で MD5、別 stream で SHA-256 | PLINQ `AsParallel()` | `bmson_song`, `BmsonSong` |
+| `ApplyFileScanDiff()` BMS 追加 | 新規 `.bms/.bme/.bml/.pms` | `ChartFileContentReader.ReadSnapshot()` で bytes / MD5 / SHA-256 / 更新時刻を取得し、snapshot bytes から軽量 parse | PLINQ `AsParallel()` | `song`, `chart_digest_map`, `BMSFile` |
+| `ApplyFileScanDiff()` bmson 追加/更新 | 新規・更新 `.bmson` | `ChartFileContentReader.ReadSnapshot()` で bytes / MD5 / SHA-256 / 更新時刻を取得し、snapshot bytes から JSON parse | PLINQ `AsParallel()` | `bmson_song`, `BmsonSong` |
 | `ChartInfoBuildService` | `chart_info` 不足・stale・targeted 追加 | `File.ReadAllBytes`。MD5 / SHA-256 は不足時だけ bytes から計算 | reader 1本、bounded queue、worker 最大4本 | `chart_info`, `chart_digest_map`, `chart_info_parse_failure` |
 
-新規 BMS は差分確認で少なくとも 3 回相当読み、その後 `chart_info` が必要ならさらに 1 回 bytes 読みする。新規・更新 bmson も同様に、差分確認と `chart_info` の両方で JSON parse が行われる。
+Phase 1 後は、file diff 内の BMS / bmson 追加・更新 parse は原則 1 read になっている。ただし、その後 `chart_info` が必要なら `ChartInfoBuildService` がもう一度 bytes 読みするため、file diff と metadata 解析の間にはまだ二重 read が残る。
 
 ただし次のケースでは `chart_info` 側の追加 read は避けられる。
 
@@ -91,7 +91,7 @@ cap 超過時は bytes を保持せず、`chart_info` 側で従来通り read fa
   - `BmsParseMs`
   - `BmsonParseMs`
   - `ParseReadBytesEstimate`
-- `ParseReadBytesEstimate` は現行実装の概算として、BMS / bmson target file の `FileInfo.Length * 3` を合算する。length 取得に失敗した file は 0 扱いにし、差分確認自体は失敗させない。
+- `ParseReadBytesEstimate` は Phase 0 時点では旧実装の概算として `FileInfo.Length * 3` を合算していた。Phase 1 後は file diff 内の single-read 化に合わせ、BMS / bmson target file の `FileInfo.Length` 合算へ更新する。length 取得に失敗した file は 0 扱いにし、差分確認自体は失敗させない。
 - `song_tbl_file_check_breakdown` に `bms_added_target_count`, `bmson_upsert_target_count`, `bms_parse_ms`, `bmson_parse_ms`, `parse_read_bytes_estimate` を出す。
 - `ChartInfoBuildService` の result / log に次を追加する。
   - `Mode`
@@ -129,11 +129,12 @@ cap 超過時は bytes を保持せず、`chart_info` 側で従来通り read fa
     - bytes から MD5 / SHA-256 を計算
 - BMS 用 parser を追加する。
   - `BMSFile.CreateBMSFileFromSnapshot(ChartFileSnapshot snapshot, string codepageName = "shift_jis")`
-  - 既存 `CreateBMSFileFromFile()` は互換用に残し、内部で snapshot 版を呼ぶか、段階的に使い分ける。
+  - 既存 `CreateBMSFileFromFile()` は互換用に残し、直接呼び出し時の read / exception behavior は大きく変えない。
 - bmson 用 parser を追加する。
   - `BmsonSongParser.ParseSnapshot(ChartFileSnapshot snapshot)`
   - 既存 `Parse(path)` は互換用に残す。
 - `ApplyFileScanDiff()` の追加 BMS / 追加更新 bmson は snapshot 版を使う。
+- `ParseReadBytesEstimate` は single-read の実態に合わせて対象 file length の合算にする。
 
 ### 注意点
 
@@ -146,6 +147,7 @@ cap 超過時は bytes を保持せず、`chart_info` 側で従来通り read fa
 
 - file diff 内で BMS / bmson の hash 用 stream read が消える。
 - `song` / `bmson_song` / `chart_digest_map` の出力は現状と一致する。
+- `CreateBMSFileFromFile()` / `BmsonSongParser.Parse(path)` は互換 API として残り、file diff 経路だけ snapshot API を使う。
 
 ## Phase 2: file diff 並列化方針の統一
 

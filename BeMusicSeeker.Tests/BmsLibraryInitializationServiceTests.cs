@@ -323,12 +323,71 @@ public sealed class BmsLibraryInitializationServiceTests
             Assert.AreEqual(1, result.BmsonUpsertTargetCount);
             Assert.AreEqual(result.NewFileParseMs, result.BmsParseMs);
             Assert.IsTrue(result.BmsonParseMs >= 0);
-            long expectedReadBytesEstimate = (new FileInfo(bmsPath).Length + new FileInfo(bmsonPath).Length) * 3L;
+            long expectedReadBytesEstimate = new FileInfo(bmsPath).Length + new FileInfo(bmsonPath).Length;
             Assert.AreEqual(expectedReadBytesEstimate, result.ParseReadBytesEstimate);
             Assert.IsTrue(progress.Any(item => item.Total == 2 && item.Processed == 0));
             Assert.IsTrue(progress.Any(item => item.Total == 2 && item.Processed == 2));
             Assert.IsTrue(progress.All(item => item.Total == 2));
             Assert.IsTrue(logs.Any((string message) => message.Contains("bms_added_target_count=1") && message.Contains("bmson_upsert_target_count=1") && message.Contains("parse_read_bytes_estimate=" + expectedReadBytesEstimate)));
+        });
+    }
+
+    [TestMethod]
+    public void ApplyFileScanDiff_InvalidBmsonLogsAndReportsProgress()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
+        {
+            string chartDirectoryPath = Path.Combine(lr2RootPath, "InvalidBmson");
+            Directory.CreateDirectory(chartDirectoryPath);
+            string bmsonPath = Path.Combine(chartDirectoryPath, "invalid.bmson");
+            File.WriteAllText(bmsonPath, "{\"version\":\"1.0.0\",\"info\":");
+
+            using (LR2SongDBExtended songDbConnection = new LR2SongDBExtended(songDbPath))
+            {
+                songDbConnection.CreateTable<LR2SongDB.song>();
+                BmsLibraryDbGateway.EnsureBmsonSchema(songDbConnection);
+            }
+
+            object progressLock = new object();
+            List<(int Total, int Processed, string Path)> progress = new List<(int, int, string)>();
+            List<string> logs = new List<string>();
+            BmsLibraryInitializationService service = new BmsLibraryInitializationService();
+            SongTableFileCheckResult result = service.ApplyFileScanDiff(
+                new BmsLibraryDbGateway(songDbPath),
+                new BmsLibraryOptionsSnapshot(),
+                Array.Empty<BMSFile>(),
+                new BmsScanExecutionResult
+                {
+                    Success = true,
+                    Result = CreateScanResult(
+                        new[] { bmsonPath },
+                        new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
+                        {
+                            { chartDirectoryPath, Array.Empty<string>() }
+                        })
+                },
+                0L,
+                () => null,
+                null,
+                logEverythingScan: (string message) => logs.Add(message),
+                currentBmsonSongs: Array.Empty<LR2SongDBExtended.bmson_song>(),
+                reportParseProgress: (total, processed, path) =>
+                {
+                    lock (progressLock)
+                    {
+                        progress.Add((total, processed, path));
+                    }
+                });
+
+            Assert.AreEqual(0, result.AddedFiles.Count);
+            Assert.AreEqual(0, result.AddedBmsonSongs.Count);
+            Assert.AreEqual(0, result.BmsAddedTargetCount);
+            Assert.AreEqual(1, result.BmsonUpsertTargetCount);
+            Assert.AreEqual(new FileInfo(bmsonPath).Length, result.ParseReadBytesEstimate);
+            Assert.IsTrue(progress.Any(item => item.Total == 1 && item.Processed == 0));
+            Assert.IsTrue(progress.Any(item => item.Total == 1 && item.Processed == 1 && string.Equals(item.Path, bmsonPath, StringComparison.OrdinalIgnoreCase)));
+            Assert.IsTrue(logs.Any((string message) => message.Contains("bmson_parse_failed") && message.Contains("invalid.bmson")));
         });
     }
 
@@ -739,6 +798,63 @@ public sealed class BmsLibraryInitializationServiceTests
             Assert.IsTrue(rows.Any((LR2SongDBExtended.bmson_song song) => string.Equals(song.path, keepBmsonPath, StringComparison.OrdinalIgnoreCase)));
             Assert.IsTrue(rows.Any((LR2SongDBExtended.bmson_song song) => string.Equals(song.path, addedBmsonPath, StringComparison.OrdinalIgnoreCase)));
             Assert.IsFalse(rows.Any((LR2SongDBExtended.bmson_song song) => string.Equals(song.path, deletedBmsonPath, StringComparison.OrdinalIgnoreCase)));
+        });
+    }
+
+    [TestMethod]
+    public void ApplyFileScanDiff_UpdatedBmsonUsesSnapshotTimestamp()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
+        {
+            string bmsonPath = Path.Combine(lr2RootPath, "Updated", "chart.bmson");
+            Directory.CreateDirectory(Path.GetDirectoryName(bmsonPath));
+            File.WriteAllText(bmsonPath, CreateBmsonJson("Old", "", "", "Artist", "Genre", 5, "beat-5k"));
+            DateTime oldTimestamp = new DateTime(2026, 5, 1, 1, 0, 0, DateTimeKind.Utc);
+            File.SetLastWriteTimeUtc(bmsonPath, oldTimestamp);
+            LR2SongDBExtended.bmson_song existingSong = BmsonSongParser.Parse(bmsonPath);
+
+            File.WriteAllText(bmsonPath, CreateBmsonJson("New", "", "", "Artist", "Genre", 7, "beat-7k"));
+            DateTime newTimestamp = new DateTime(2026, 5, 2, 1, 0, 0, DateTimeKind.Utc);
+            File.SetLastWriteTimeUtc(bmsonPath, newTimestamp);
+
+            using (LR2SongDBExtended songDb = new LR2SongDBExtended(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDB.song>();
+                BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
+                songDb.InsertOrReplace(existingSong, typeof(LR2SongDBExtended.bmson_song));
+            }
+
+            BmsLibraryInitializationService service = new BmsLibraryInitializationService();
+            SongTableFileCheckResult result = service.ApplyFileScanDiff(
+                new BmsLibraryDbGateway(songDbPath),
+                new BmsLibraryOptionsSnapshot(),
+                Array.Empty<BMSFile>(),
+                new BmsScanExecutionResult
+                {
+                    Success = true,
+                    Result = CreateScanResult(
+                        new[] { bmsonPath },
+                        new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
+                        {
+                            { Path.GetDirectoryName(bmsonPath), Array.Empty<string>() }
+                        })
+                },
+                0L,
+                () => null,
+                null,
+                currentBmsonSongs: new[] { existingSong });
+
+            Assert.AreEqual(1, result.AddedBmsonSongs.Count);
+            Assert.AreEqual("New", result.AddedBmsonSongs[0].title);
+            Assert.AreEqual(newTimestamp, result.AddedBmsonSongs[0].updated_at);
+            Assert.AreEqual(1, result.NextBmsonSongs.Count);
+            Assert.AreEqual("New", result.NextBmsonSongs[0].title);
+
+            using LR2SongDBExtended verify = new LR2SongDBExtended(songDbPath);
+            LR2SongDBExtended.bmson_song row = verify.Table<LR2SongDBExtended.bmson_song>().Single();
+            Assert.AreEqual("New", row.title);
+            Assert.AreEqual(newTimestamp, row.updated_at);
         });
     }
 

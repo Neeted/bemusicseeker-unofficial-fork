@@ -368,7 +368,8 @@ internal sealed class BmsLibraryInitializationService
                     BMSFile file = null;
                     try
                     {
-                        file = BMSFile.CreateBMSFileFromFile(path);
+                        ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(path);
+                        file = BMSFile.CreateBMSFileFromSnapshot(snapshot);
                     }
                     catch (IOException ex)
                     {
@@ -414,7 +415,8 @@ internal sealed class BmsLibraryInitializationService
                         LR2SongDBExtended.bmson_song parsed = null;
                         try
                         {
-                            parsed = BmsonSongParser.Parse(path);
+                            ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(path);
+                            parsed = BmsonSongParser.ParseSnapshot(snapshot);
                             lock (successfullyParsedBmsonPaths)
                             {
                                 successfullyParsedBmsonPaths.Add(path);
@@ -560,12 +562,11 @@ internal sealed class BmsLibraryInitializationService
             {
                 continue;
             }
-            long estimated = length > long.MaxValue / 3L ? long.MaxValue : length * 3L;
-            if (long.MaxValue - total < estimated)
+            if (long.MaxValue - total < length)
             {
                 return long.MaxValue;
             }
-            total += estimated;
+            total += length;
         }
         return total;
     }
