@@ -1,0 +1,125 @@
+# 初期化・リロード進捗ゲージ 現行仕様
+
+## 概要
+
+ステータスバーの初期化・リロード進捗は `MainWindowViewModel` の `StartupProgressPhase` を基に表示する。
+
+進捗の分母は operation 開始時に固定され、後続の background request で増えない。発生しない phase は skip 完了扱いにし、ゲージが巻き戻って見えないようにしている。
+
+表示は `MainWindow.xaml` のステータスバーに出る。
+
+- main label: `StartupProgressLabel`
+- sub label: `StartupProgressSubLabel`
+- progress value: `StartupProgressValue`
+- progress maximum: `StartupProgressMaximum`
+
+`StartupProgressSubLabel` は幅 200、長い文字列は省略表示し、tooltip に全文を出す。
+
+## 計算モデル
+
+```text
+StartupProgressMaximum = ExpectedPhases に含まれる phase 数
+StartupProgressValue   = ExpectedPhases かつ CompletedPhases に含まれる phase 数
+```
+
+`ExpectedPhases` は `Startup` / `ReloadFiles` / `ReloadTables` の開始時に固定される。request 済みだが不要になった phase、または request されなかった phase は `SkippedPhases` と `CompletedPhases` に入る。
+
+background 系 phase は request 済みでなければ complete できない。ただし次の基礎 phase と library load phase は request 不要で complete できる。
+
+- `CoreInitializeStarted`
+- `StartupReadyData`
+- `StartupReadyUi`
+- `StartupReadyOperable`
+- `LibraryDatabaseLoadDone`
+- `LibraryFileEnumerationDone`
+- `LibraryFileDiffDone`
+
+## Operation 別 ExpectedPhases
+
+| Operation | Expected count | Expected phases |
+| --- | ---: | --- |
+| `Startup` | 16 | 全 phase |
+| `ReloadFiles` | 13 | `CoreInitializeStarted`, library load 3 phase, `StartupReadyOperable`, playlist reference, playlist entries hydration, chart info hydration/backfill, chart digest backfill, score hydration, ranking refresh, maintenance deferred |
+| `ReloadTables` | 5 | `CoreInitializeStarted`, `StartupReadyOperable`, `PlaylistReferenceApplied`, `ExternalPlaylistSyncDone`, `PlaylistEntriesHydrationDone` |
+
+`ReloadTables` は file scan / chart_info / chart digest / score / ranking / maintenance を expected に含めない。
+
+## Phase 一覧
+
+| Phase | 意味 | 主な表示 |
+| --- | --- | --- |
+| `CoreInitializeStarted` | operation 開始 | なし。開始時点で completed |
+| `LibraryDatabaseLoadDone` | song.db / bmson_song / maintenance / digest map 読み込み | `DB読み込み` |
+| `LibraryFileEnumerationDone` | BMS root 配下のファイル列挙 | `ファイル列挙`、scanner 判明時は `(Everything)` / `(Fallback)` 付き |
+| `LibraryFileDiffDone` | DB と列挙結果の差分確認、追加譜面の読み込み | `ファイル差分確認` |
+| `StartupReadyData` | Startup の主要データ読込完了 | Startup 専用 gate |
+| `StartupReadyUi` | Startup の初期 UI 構築完了 | `画面準備` |
+| `StartupReadyOperable` | ユーザー操作可能 | 操作可能後に未完了 phase があれば `操作可能(バックグラウンド更新中)` |
+| `PlaylistReferenceApplied` | playlist 参照解決反映 | `プレイリスト参照更新` |
+| `ExternalPlaylistSyncDone` | 外部 playlist 同期 | `プレイリスト参照更新` |
+| `PlaylistEntriesHydrationDone` | playlist entry hydration | `プレイリスト読込` |
+| `ChartInfoHydrationDone` | 既存 chart_info のメモリ適用 | `[applied/total] 譜面メタデータ読込` |
+| `ChartInfoBackfillDone` | chart_info 解析 | `[processed/total] 譜面メタデータ解析 fileName` |
+| `ChartDigestBackfillDone` | chart digest 補完 | `[processed/total] 譜面メタデータ解析 fileName` |
+| `ScoreHydrationDone` | score 反映 | `スコア反映` |
+| `RankingRefreshDone` | ranking refresh | `ランキング更新` |
+| `MaintenanceDeferredDone` | maintenance deferred 更新 | `保守参照更新` |
+
+## Library Load の細分化
+
+`Startup` と `ReloadFiles` では、従来 `ライブラリ読込` として見えていた区間を 3 phase に分ける。
+
+| Phase | 完了条件 | 件数表示 |
+| --- | --- | --- |
+| `LibraryDatabaseLoadDone` | `LoadSongTable()` 完了 | なし |
+| `LibraryFileEnumerationDone` | `ExecuteBmsScanWithFallback()` の結果取得 | なし |
+| `LibraryFileDiffDone` | `ApplyFileScanDiff()` 完了 | 追加 BMS + 追加/更新 bmson の parse 件数 |
+
+Everything scan は DB 読み込みと並列 prefetch される場合がある。表示上は DB 読み込みを優先し、DB 完了後に file enumeration が未完了なら `ファイル列挙` を表示する。
+
+`ApplyFileScanDiff()` の parse 進捗は BMS と bmson を合算する。成功・失敗のどちらも processed に含める。
+
+## 件数付き SubLabel
+
+件数付き表示は、狭いステータスバーでも分母が残りやすいように count を先頭に置く。
+
+```text
+[processed/total] phaseLabel fileName
+```
+
+例:
+
+```text
+[6695/209999] ファイル差分確認 added.bms
+[6695/209999] 譜面メタデータ解析 chart.bms
+[1200/209999] 譜面メタデータ読込
+```
+
+file name がない場合は末尾を省略する。
+
+## Label 遷移
+
+main label は operation kind と完了状態で決まる。
+
+| 状態 | Startup | ReloadFiles / ReloadTables |
+| --- | --- | --- |
+| 実行中 | `初期化中` | `ライブラリ更新中` |
+| 操作可能だが background phase が残る | `操作可能(バックグラウンド更新中)` | `操作可能(バックグラウンド更新中)` |
+| 全 expected phase 完了 | `初期化完了` | `ライブラリ更新完了` |
+| 失敗 | `初期化失敗` | `ライブラリ更新失敗` |
+
+## ログとガード
+
+expected 外の request は進捗へ反映せず、ログへ出す。
+
+```text
+startup_progress_request_ignored operation=... phase=... reason=not_expected
+```
+
+skip 後に request が来ても pending には戻さず、ログへ出す。
+
+```text
+startup_progress_request_after_skip operation=... phase=...
+```
+
+Dispatcher 反映は operation token で guard される。古い operation の delayed reflect は UI に反映しない。
