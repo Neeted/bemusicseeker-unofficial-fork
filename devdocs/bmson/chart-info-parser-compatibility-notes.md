@@ -615,15 +615,17 @@ parse failure でも bytes から digest 計算できている場合:
 
 ## backfill / timeout / commit
 
-chart_info backfill は「単一 file reader + in-memory parallel parse + chunk commit」。
+chart_info full backfill は「単一 file reader + in-memory parallel parse + chunk commit」。
 
 - file IO は reader 1 本。
 - `byte[]` を bounded queue に積む。
 - worker は `byte[]` から digest と chart_info を生成する。
 - DB commit は writer 側で chunk 単位に行う。
-- per-chart timeout は backfill 限定で 60 秒。
+- per-chart timeout は 60 秒。full backfill と inline chart_info 生成の両方で使う。
 - timeout は parse failure として扱う。
 - parser version は結果意味が変わる時だけ上げる。
+
+新規追加・更新譜面と package install 譜面は、現在は dedicated added backfill へ回さず、file diff / install 処理中の `ChartFileSnapshot` bytes から inline chart_info を生成する。full backfill は、旧バージョンや外部操作で作られた既存 DB の補完用として残す。
 
 ログで見るべき境界:
 

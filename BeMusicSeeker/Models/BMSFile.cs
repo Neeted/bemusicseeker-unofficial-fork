@@ -1631,6 +1631,10 @@ public class BMSFile : LR2SongDB.song
         mode = bMSFile.mode;
     }
 
+    /// <summary>
+    /// Path-based compatibility API. New single-read flows should prefer
+    /// <see cref="CreateBMSFileFromSnapshot"/> so lightweight metadata and chart_info can share bytes.
+    /// </summary>
     public static BMSFile CreateBMSFileFromFile(string filePath, string codepageName = "shift_jis")
     {
         IEnumerable<string> enumerable = File.ReadLines(filePath, Encoding.GetEncoding(codepageName));

@@ -9,6 +9,8 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 internal sealed class ChartInfoInlineBuildService
 {
+    // Shared inline chart_info builder for file diff and package install.
+    // It consumes short-lived ChartFileSnapshot bytes and never keeps them in long-lived models.
     public const int DefaultBatchSize = 512;
 
     private readonly ChartInfoBuildService chartInfoBuildService;

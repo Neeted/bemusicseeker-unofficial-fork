@@ -80,7 +80,9 @@ internal static class ChartInfoParser
 
     /// <summary>
     /// 既に読み込まれた譜面バイト列を解析し、診断情報と検証用 chart string も返します。
-    /// backfill では timeout を渡し、協調 checkpoint で長時間解析を parse failure として扱います。
+    /// chart_info 生成の正規 entry point です。file diff / package install inline 解析と full backfill は、
+    /// どちらもこの bytes entry point に寄せ、ファイル読み込みと詳細 metadata 解析を分離します。
+    /// timeout を渡すと、協調 checkpoint で長時間解析を parse failure として扱います。
     /// </summary>
     /// <param name="bytes">譜面ファイルのバイト列。</param>
     /// <param name="fileNameOrExtension">拡張子判定に使うファイル名または拡張子。</param>

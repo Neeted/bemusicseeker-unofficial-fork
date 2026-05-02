@@ -165,7 +165,7 @@
 - `chart_info` メタデータ基盤は実用状態まで到達
   - `song` テーブルを変更せず、アプリ独自の `chart_info` に譜面メタデータを保存
   - BMS / BMSON の beatoraja / jbms-parser 互換 parser を実装
-  - 起動時 full backfill と新規追加譜面 targeted backfill に対応
+  - 既存 DB 補完用の起動時 full backfill と、新規追加・install 譜面の inline chart_info 生成に対応
   - production DB compare で non-RANDOM 差分 0 を確認
   - 約 20.9 万譜面の full backfill が timeout 0 で完走
 
