@@ -213,9 +213,15 @@ BeMusicSeeker が `karinotes = 0` を入れる経路は、`setZeroNoteAndCommitT
 
 ### Phase 5: health / warning 適用の軽量化
 
-- `UpdateMaintenanceInfo()` の実チェック対象と warning 再適用対象を分離する。
-- 2回目以降、maintenance 不足がない場合は全件 warning eager 再構築を避ける。
-- 必要なら `BMSFilesNeedToBeFixed` 系 filter で lazy warning / lazy health projection を導入する。
+完了済み。
+
+- `maintenanceInfo` から resource health issue を判定する処理を副作用なし helper として分離した。
+- `ResourceHealthIndexSnapshot` を runtime-only で作成し、欠損あり / 無視リストの所属は index から返す。
+- `BMSFilesNeedToBeFixed` / `BMSFilesNeedToBeFixedIgnored` の取得では、全件 `ResourceHealth` warning 再構築を行わない。
+- `LibraryChartRow` は source `BMSFile` の non-resource warning と、resource health index 由来の projection を合成して WARNING 列を表示する。
+- `setMaintenanceInfo()` 後の全件 `ApplyNeedToBeFixedWarnings()` loop を廃止した。
+- `lazy` は主戦略にしない。欠損一覧は membership 判定で全件評価が必要なため、速度面では side-effect-free index を一度作る方を正とする。
+- `resource_health_index_build` / `resource_health_projection` log を追加し、`maintenance_update` / `installable_maintenance_deferred` には `resourceHealthIndexMs`, `warningReapplyTargets=0`, `warningChanged=0` を出す。
 
 ## Test Plan
 
@@ -227,11 +233,11 @@ BeMusicSeeker が `karinotes = 0` を入れる経路は、`setZeroNoteAndCommitT
 - `RecheckZeroNoteWarnings()` が `chart_info.notes == 0` 譜面を対象に、正規表現上の可視ノート風記述を warning 化すること。
 - `installable_maintenance_deferred` が進捗ゲージに含まれ、完了前に progress が非表示にならないこと。
 - bmson 初回追加で maintenance 再パースが発生しないこと。
-- 2回目起動で maintenance 不足がない場合、全件 warning 再適用を避けられること。
+- 2回目起動で maintenance 不足がない場合、全件 warning 再適用を避け、resource health index だけで欠損一覧を表示できること。
 
 ## 注意点
 
 - Shift_JIS 非対応 path は LR2 で選曲不能の可能性が高い。アプリ上では削除せず可視化するが、最終対応は改名/移動である。
 - `chart_info.notes` は parser failure の譜面では存在しない。その譜面はゼロノート検索から除外する。
 - 正規表現ベースの zero-note 判定は詳細 parser より粗い。今後は「安全側の補助チェック」として扱う。
-- health warning は runtime structured warning であり、DB 永続化されない。lazy 化する場合、フィルタ・ソート・行ハイライトの整合性テストが必要になる。
+- resource health warning は DB 永続化されない。通常一覧の WARNING 表示では `maintenanceInfo` / resource health index から投影される。

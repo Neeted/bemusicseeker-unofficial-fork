@@ -68,6 +68,8 @@ background 系 phase は request 済みでなければ complete できない。�
 | `MaintenanceDeferredDone` | maintenance deferred 更新 | `保守参照更新` |
 | `InstallableMaintenanceDeferredDone` | installable maintenance deferred 更新 | `保守情報更新` |
 
+`InstallableMaintenanceDeferredDone` には resource health 実チェックと、その結果を通常一覧へ投影するための runtime resource health index build が含まれる。WARNING 表示用の全件 `BMSFile.Warnings` 再構築は行わない。
+
 ## Library Load の細分化
 
 `Startup` と `ReloadFiles` では、従来 `ライブラリ読込` として見えていた区間を 3 phase に分ける。

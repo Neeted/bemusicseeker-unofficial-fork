@@ -7415,6 +7415,42 @@ public class MainWindowViewModel : ViewModel
         return pruned;
     }
 
+    private LibraryChartRow CreateLibraryChartRowWithResourceHealthProjection(BeMusicSeeker.Models.BMSFile file)
+    {
+        LibraryChartRow row = LibraryChartRow.FromBmsFile(file);
+        ApplyResourceHealthProjectionProvider(row);
+        return row;
+    }
+
+    private LibraryChartRow GetOrCreateRegularBmsLibraryRow(BeMusicSeeker.Models.BMSFile file, LibraryRowCacheBuildStats stats)
+    {
+        LibraryChartRow row = regularBmsLibraryRowCache.GetOrCreate(file, stats);
+        ApplyResourceHealthProjectionProvider(row);
+        return row;
+    }
+
+    private void ApplyResourceHealthProjectionProvider(LibraryChartRow row)
+    {
+        row?.SetResourceHealthProjectionProvider(GetResourceHealthProjectionForRow);
+    }
+
+    private ResourceHealthWarningProjection GetResourceHealthProjectionForRow(LibraryChartRow row)
+    {
+        if (files == null || row == null)
+        {
+            return ResourceHealthWarningProjection.Empty;
+        }
+        if (row.BmsFile != null)
+        {
+            return files.GetResourceHealthWarningProjection(row.BmsFile);
+        }
+        if (row.BmsonSong != null)
+        {
+            return files.GetResourceHealthWarningProjection(row.BmsonSong);
+        }
+        return ResourceHealthWarningProjection.Empty;
+    }
+
     /// <summary>
     /// 通常一覧の incremental 更新で folder 段から再構築が必要かを返します。
     /// </summary>
@@ -11401,19 +11437,22 @@ public class MainWindowViewModel : ViewModel
         {
             case viewUpdateMode.FolderFilterSelected:
                 LibraryRowCacheBuildStats folderRowCacheStats = CreateRegularRowCacheBuildStats();
-                ChartRowsFolderView = BuildStandardLibraryRowsForView(BMSFiles, includeBmsonRows ? GetBmsonLibraryRowsSnapshot() : Array.Empty<LibraryChartRow>(), FolderFilter, file => regularBmsLibraryRowCache.GetOrCreate(file, folderRowCacheStats), folderRowCacheStats, out LibraryRowsBuildMetrics folderMetrics);
+                ChartRowsFolderView = BuildStandardLibraryRowsForView(BMSFiles, includeBmsonRows ? GetBmsonLibraryRowsSnapshot() : Array.Empty<LibraryChartRow>(), FolderFilter, file => GetOrCreateRegularBmsLibraryRow(file, folderRowCacheStats), folderRowCacheStats, out LibraryRowsBuildMetrics folderMetrics);
                 LogMainViewFolderDetail(mode, folderMetrics);
                 break;
             case viewUpdateMode.FullScanAllChartsFilterSelected:
                 LibraryRowCacheBuildStats fullScanRowCacheStats = CreateRegularRowCacheBuildStats();
-                ChartRowsFolderView = BuildStandardLibraryRowsForView(BMSFiles, includeBmsonRows ? GetBmsonLibraryRowsSnapshot() : Array.Empty<LibraryChartRow>(), null, file => regularBmsLibraryRowCache.GetOrCreate(file, fullScanRowCacheStats), fullScanRowCacheStats, out LibraryRowsBuildMetrics fullScanMetrics);
+                ChartRowsFolderView = BuildStandardLibraryRowsForView(BMSFiles, includeBmsonRows ? GetBmsonLibraryRowsSnapshot() : Array.Empty<LibraryChartRow>(), null, file => GetOrCreateRegularBmsLibraryRow(file, fullScanRowCacheStats), fullScanRowCacheStats, out LibraryRowsBuildMetrics fullScanMetrics);
                 LogMainViewFolderDetail(mode, fullScanMetrics);
+                LogResourceHealthProjection(mode, ChartRowsFolderView);
                 break;
             case viewUpdateMode.FileMissingFilterSelected:
-                ChartRowsFolderView = ToLibraryChartRows(BMSFilesToBeFixed);
+                ChartRowsFolderView = ToLibraryChartRows(BMSFilesToBeFixed, CreateLibraryChartRowWithResourceHealthProjection);
+                LogResourceHealthProjection(mode, ChartRowsFolderView);
                 break;
             case viewUpdateMode.FileMissingIgnoredFilterSelected:
-                ChartRowsFolderView = ToLibraryChartRows(BMSFilesToBeFixedIgnored);
+                ChartRowsFolderView = ToLibraryChartRows(BMSFilesToBeFixedIgnored, CreateLibraryChartRowWithResourceHealthProjection);
+                LogResourceHealthProjection(mode, ChartRowsFolderView);
                 break;
             case viewUpdateMode.DuplicateFilterSelected:
                 if (BMSFilesDuplicated == null)
@@ -11899,6 +11938,25 @@ public class MainWindowViewModel : ViewModel
             + " folderCount=" + metrics.FolderCount);
     }
 
+    private void LogResourceHealthProjection(viewUpdateMode mode, IEnumerable<LibraryChartRow> rows)
+    {
+        ResourceHealthIndexSnapshot snapshot = files?.GetResourceHealthIndexSnapshotForView("view_projection_" + mode);
+        int overlayCount = 0;
+        if (snapshot != null)
+        {
+            overlayCount = mode == viewUpdateMode.FileMissingFilterSelected
+                ? snapshot.ActiveFiles.Count
+                : mode == viewUpdateMode.FileMissingIgnoredFilterSelected
+                    ? snapshot.IgnoredFiles.Count
+                    : snapshot.NeedFixCount;
+        }
+        LogMainViewBuild("resource_health_projection reason=" + mode
+            + " rowCount=" + CountIfCheap(rows)
+            + " overlayCount=" + overlayCount
+            + " ignored=" + (snapshot?.IgnoredCount ?? 0)
+            + " version=" + (snapshot?.Version ?? 0));
+    }
+
     private static void LogMainSortDetail(LibraryChartSortMetrics metrics)
     {
         LogMainViewBuild("main_sort_detail rowCount=" + metrics.RowCount
@@ -12080,6 +12138,7 @@ public class MainWindowViewModel : ViewModel
             if (row == null)
             {
                 row = LibraryChartRow.FromBmsonSong(song);
+                ApplyResourceHealthProjectionProvider(row);
                 membershipChanged = true;
                 sortKeyChanged = true;
             }
@@ -12088,6 +12147,7 @@ public class MainWindowViewModel : ViewModel
                 string previousTitle = row.Title;
                 string previousPath = row.path;
                 row.UpdateFromBmsonSong(song);
+                ApplyResourceHealthProjectionProvider(row);
                 if (!string.Equals(previousTitle, row.Title, StringComparison.Ordinal)
                     || !string.Equals(previousPath, row.path, StringComparison.Ordinal))
                 {

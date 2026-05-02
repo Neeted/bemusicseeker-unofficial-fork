@@ -368,14 +368,19 @@ internal sealed class ChartWarningCollection
     /// <returns>digest 表示文字列。</returns>
     internal string BuildDigestText()
     {
-        List<ChartWarning> warnings = EnumerateEffectiveWarnings().ToList();
+        return BuildDigestText(EnumerateEffectiveWarnings(), owner?.instl_dst);
+    }
+
+    internal static string BuildDigestText(IEnumerable<ChartWarning> sourceWarnings, string installDestination)
+    {
+        List<ChartWarning> warnings = EnumerateEffectiveWarnings(sourceWarnings).ToList();
         if (warnings.Count == 0)
         {
             return string.Empty;
         }
 
         string[] labels = warnings
-            .Where(warning => warning.ShowInDigest && ShouldShowInDigest(warning))
+            .Where(warning => warning.ShowInDigest && ShouldShowInDigest(warning, installDestination))
             .OrderBy(warning => warning.Priority)
             .Select(warning => warning.DigestLabel)
             .Where(label => !string.IsNullOrWhiteSpace(label))
@@ -394,9 +399,14 @@ internal sealed class ChartWarningCollection
     /// <returns>tooltip 表示文字列。</returns>
     internal string BuildTooltipText()
     {
+        return BuildTooltipText(EnumerateEffectiveWarnings());
+    }
+
+    internal static string BuildTooltipText(IEnumerable<ChartWarning> sourceWarnings)
+    {
         return string.Join(
             Environment.NewLine,
-            EnumerateEffectiveWarnings()
+            EnumerateEffectiveWarnings(sourceWarnings)
                 .Where(warning => warning.ShowInTooltip)
                 .OrderBy(warning => warning.Priority)
                 .Select(warning => warning.Message)
@@ -414,16 +424,26 @@ internal sealed class ChartWarningCollection
         return BuildTooltipText();
     }
 
+    internal static string BuildDisplayText(IEnumerable<ChartWarning> sourceWarnings)
+    {
+        return BuildTooltipText(sourceWarnings);
+    }
+
     /// <summary>
     /// いずれかの warning が行ハイライトを要求しているかどうかです。
     /// </summary>
-    internal bool HasHighlightedWarning => EnumerateEffectiveWarnings().Any(warning => warning.HighlightRow);
+    internal bool HasHighlightedWarning => HasAnyHighlightedWarning(EnumerateEffectiveWarnings());
 
-    private bool ShouldShowInDigest(ChartWarning warning)
+    internal static bool HasAnyHighlightedWarning(IEnumerable<ChartWarning> sourceWarnings)
+    {
+        return EnumerateEffectiveWarnings(sourceWarnings).Any(warning => warning.HighlightRow);
+    }
+
+    private static bool ShouldShowInDigest(ChartWarning warning, string installDestination)
     {
         if (warning.Category == ChartWarningCategory.ResourceHealth)
         {
-            return string.IsNullOrWhiteSpace(owner.instl_dst);
+            return string.IsNullOrWhiteSpace(installDestination);
         }
         return true;
     }
@@ -436,6 +456,19 @@ internal sealed class ChartWarningCollection
             effective[warning.Kind] = warning;
         }
 
+        return effective.Values;
+    }
+
+    private static IEnumerable<ChartWarning> EnumerateEffectiveWarnings(IEnumerable<ChartWarning> sourceWarnings)
+    {
+        Dictionary<ChartWarningKind, ChartWarning> effective = new Dictionary<ChartWarningKind, ChartWarning>();
+        foreach (ChartWarning warning in sourceWarnings ?? Enumerable.Empty<ChartWarning>())
+        {
+            if (warning != null)
+            {
+                effective[warning.Kind] = warning;
+            }
+        }
         return effective.Values;
     }
 }

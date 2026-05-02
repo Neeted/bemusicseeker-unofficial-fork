@@ -32,21 +32,31 @@ internal sealed class BmsLibraryMaintenanceService
 
     public bool ApplyNeedToBeFixedWarnings(BMSFile bmsFile, BMSFileMaintenanceInfo maintenanceInfo = null, bool strictCheck = false)
     {
+        IReadOnlyList<ChartWarning> warnings = BuildResourceHealthWarnings(bmsFile, maintenanceInfo, strictCheck);
+        bmsFile?.ReplaceWarningsByCategory(ChartWarningCategory.ResourceHealth, warnings);
+        return warnings.Count > 0;
+    }
+
+    public IReadOnlyList<ChartWarning> BuildResourceHealthWarnings(BMSFile bmsFile, BMSFileMaintenanceInfo maintenanceInfo = null, bool strictCheck = false)
+    {
         if (bmsFile == null || (!PendingChartEntry.IsBmsChartFile(bmsFile) && !PendingChartEntry.IsBmsonChartFile(bmsFile)))
         {
-            return false;
+            return Array.Empty<ChartWarning>();
         }
         _ = strictCheck;
-        bool hasAnyWarning = false;
         maintenanceInfo ??= bmsFile.maintenanceInfo;
-        bmsFile.ClearWarningsByCategory(ChartWarningCategory.ResourceHealth);
-        hasAnyWarning |= AppendHealthWarning(bmsFile, maintenanceInfo.GetWAVHealth(), maintenanceInfo.wav_files_defined, maintenanceInfo.wav_files_existing, ChartWarningKind.ResourceWavMissing, Resources.Warning_WavFilesNotFound);
-        hasAnyWarning |= AppendHealthWarning(bmsFile, maintenanceInfo.GetBGAHealth(), maintenanceInfo.bga_files_defined, maintenanceInfo.bga_files_existing, ChartWarningKind.ResourceBgaMissing, Resources.Warning_BgaFilesNotFound);
-        hasAnyWarning |= AppendHealthWarning(bmsFile, maintenanceInfo.GetMovieHealth(), maintenanceInfo.movie_files_defined, maintenanceInfo.movie_files_existing, ChartWarningKind.ResourceMovieMissing, Resources.Warning_MovieFilesNotFound);
-        hasAnyWarning |= AppendFlagWarning(bmsFile, maintenanceInfo.GetStagefileHealth(), ChartWarningKind.ResourceStagefileMissing, Resources.Warning_StagefileNotFound);
-        hasAnyWarning |= AppendFlagWarning(bmsFile, maintenanceInfo.GetBackbmpHealth(), ChartWarningKind.ResourceBackbmpMissing, Resources.Warning_BackbmpNotFound);
-        hasAnyWarning |= AppendFlagWarning(bmsFile, maintenanceInfo.GetBannerHealth(), ChartWarningKind.ResourceBannerMissing, Resources.Warning_BannerNotFound);
-        return hasAnyWarning;
+        if (maintenanceInfo == null)
+        {
+            return Array.Empty<ChartWarning>();
+        }
+        List<ChartWarning> warnings = new List<ChartWarning>();
+        AppendHealthWarning(warnings, maintenanceInfo.GetWAVHealth(), maintenanceInfo.wav_files_defined, maintenanceInfo.wav_files_existing, ChartWarningKind.ResourceWavMissing, Resources.Warning_WavFilesNotFound);
+        AppendHealthWarning(warnings, maintenanceInfo.GetBGAHealth(), maintenanceInfo.bga_files_defined, maintenanceInfo.bga_files_existing, ChartWarningKind.ResourceBgaMissing, Resources.Warning_BgaFilesNotFound);
+        AppendHealthWarning(warnings, maintenanceInfo.GetMovieHealth(), maintenanceInfo.movie_files_defined, maintenanceInfo.movie_files_existing, ChartWarningKind.ResourceMovieMissing, Resources.Warning_MovieFilesNotFound);
+        AppendFlagWarning(warnings, maintenanceInfo.GetStagefileHealth(), ChartWarningKind.ResourceStagefileMissing, Resources.Warning_StagefileNotFound);
+        AppendFlagWarning(warnings, maintenanceInfo.GetBackbmpHealth(), ChartWarningKind.ResourceBackbmpMissing, Resources.Warning_BackbmpNotFound);
+        AppendFlagWarning(warnings, maintenanceInfo.GetBannerHealth(), ChartWarningKind.ResourceBannerMissing, Resources.Warning_BannerNotFound);
+        return warnings;
     }
 
     public List<BMSFile> GetGarbledFiles(IEnumerable<BMSFile> bmsFiles, bool isInFixedList)
@@ -473,23 +483,21 @@ internal sealed class BmsLibraryMaintenanceService
         }
     }
 
-    private static bool AppendHealthWarning(BMSFile bmsFile, int? health, int? defined, int? existing, ChartWarningKind kind, string warningFormat)
+    private static void AppendHealthWarning(List<ChartWarning> warnings, int? health, int? defined, int? existing, ChartWarningKind kind, string warningFormat)
     {
         if (!health.HasValue || health.Value >= 100)
         {
-            return false;
+            return;
         }
-        bmsFile.SetWarning(kind, string.Format(warningFormat, health, defined - existing, defined));
-        return true;
+        warnings.Add(ChartWarning.Create(kind, string.Format(warningFormat, health, defined - existing, defined)));
     }
 
-    private static bool AppendFlagWarning(BMSFile bmsFile, bool? isHealthy, ChartWarningKind kind, string warningText)
+    private static void AppendFlagWarning(List<ChartWarning> warnings, bool? isHealthy, ChartWarningKind kind, string warningText)
     {
         if (isHealthy != false)
         {
-            return false;
+            return;
         }
-        bmsFile.SetWarning(kind, warningText);
-        return true;
+        warnings.Add(ChartWarning.Create(kind, warningText));
     }
 }

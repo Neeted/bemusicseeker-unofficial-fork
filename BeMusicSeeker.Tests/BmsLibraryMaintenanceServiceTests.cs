@@ -7,6 +7,7 @@ using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Properties;
+using BeMusicSeeker.ViewModels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
@@ -38,6 +39,93 @@ public sealed class BmsLibraryMaintenanceServiceTests
         StringAssert.Contains(file.WarningTooltipText, string.Format(Resources.Warning_WavFilesNotFound, info.GetWAVHealth(), 5, 10));
         StringAssert.Contains(file.WarningTooltipText, Resources.Warning_StagefileNotFound);
         Assert.AreEqual("[2] リソース不足", file.WarningDigestText);
+    }
+
+    [TestMethod]
+    public void BuildResourceHealthWarnings_DoesNotMutateSourceWarnings()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        BmsLibraryMaintenanceService service = new BmsLibraryMaintenanceService();
+        TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        BMSFileMaintenanceInfo info = new BMSFileMaintenanceInfo(file)
+        {
+            hash = file.hash,
+            wav_files_defined = 2,
+            wav_files_existing = 1
+        };
+        file.SetMaintenanceInfo(info, suppressPropertyChanged: true, registerEventHandlers: false);
+
+        IReadOnlyList<ChartWarning> warnings = service.BuildResourceHealthWarnings(file, info);
+
+        Assert.AreEqual(1, warnings.Count);
+        Assert.AreEqual(ChartWarningKind.ResourceWavMissing, warnings[0].Kind);
+        Assert.IsFalse(file.Warnings.Contains(ChartWarningKind.ResourceWavMissing));
+        Assert.AreEqual(string.Empty, file.WarningDigestText);
+    }
+
+    [TestMethod]
+    public void LibraryChartRow_ProjectsResourceHealthWarningsWithoutMutatingSource()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        BmsLibraryMaintenanceService service = new BmsLibraryMaintenanceService();
+        TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        file.SetWarning(ChartWarningKind.DuplicateChart, Resources.Warning_DuplicateBmsFile);
+        file.SetWarning(ChartWarningKind.ResourceWavMissing, "stale resource warning");
+        BMSFileMaintenanceInfo info = new BMSFileMaintenanceInfo(file)
+        {
+            hash = file.hash,
+            bga_files_defined = 4,
+            bga_files_existing = 3
+        };
+        file.SetMaintenanceInfo(info, suppressPropertyChanged: true, registerEventHandlers: false);
+        LibraryChartRow row = LibraryChartRow.FromBmsFile(file);
+        row.SetResourceHealthProjectionProvider(_ => new ResourceHealthWarningProjection(1, service.BuildResourceHealthWarnings(file, info), isIgnored: false));
+
+        StringAssert.Contains(row.WarningDigestText, Resources.WarningDigest_DuplicateChart);
+        StringAssert.Contains(row.WarningDigestText, Resources.WarningDigest_ResourceMissing);
+        StringAssert.Contains(row.WarningTooltipText, "BGA");
+        Assert.IsFalse(row.WarningTooltipText.Contains("stale resource warning"));
+        Assert.IsTrue(file.Warnings.Contains(ChartWarningKind.ResourceWavMissing));
+
+        file.instl_dst = @"C:\Installed";
+        Assert.IsFalse(row.WarningDigestText.Contains(Resources.WarningDigest_ResourceMissing));
+        StringAssert.Contains(row.WarningDigestText, Resources.WarningDigest_DuplicateChart);
+        StringAssert.Contains(row.WarningTooltipText, "BGA");
+    }
+
+    [TestMethod]
+    public void ResourceHealthIndexSnapshot_GroupsActiveAndIgnoredWithoutMutatingWarnings()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        BmsLibraryMaintenanceService service = new BmsLibraryMaintenanceService();
+        TestableBmsFile active = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        active.path = @"C:\Library\active.bms";
+        active.SetMaintenanceInfo(new BMSFileMaintenanceInfo(active)
+        {
+            hash = active.hash,
+            wav_files_defined = 2,
+            wav_files_existing = 1,
+            is_files_warning_ignored = false
+        }, suppressPropertyChanged: true, registerEventHandlers: false);
+        TestableBmsFile ignored = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+        ignored.path = @"C:\Library\ignored.bms";
+        ignored.SetMaintenanceInfo(new BMSFileMaintenanceInfo(ignored)
+        {
+            hash = ignored.hash,
+            bga_files_defined = 2,
+            bga_files_existing = 1,
+            is_files_warning_ignored = true
+        }, suppressPropertyChanged: true, registerEventHandlers: false);
+
+        ResourceHealthIndexSnapshot snapshot = ResourceHealthIndexSnapshot.Build(new BMSFile[] { active, ignored }, service, version: 3);
+
+        CollectionAssert.AreEqual(new[] { active }, snapshot.ActiveFiles.ToArray());
+        CollectionAssert.AreEqual(new[] { ignored }, snapshot.IgnoredFiles.ToArray());
+        Assert.IsTrue(snapshot.GetProjection(active).HasIssues);
+        Assert.IsFalse(snapshot.GetProjection(active).IsIgnored);
+        Assert.IsTrue(snapshot.GetProjection(ignored).IsIgnored);
+        Assert.IsFalse(active.Warnings.Contains(ChartWarningKind.ResourceWavMissing));
+        Assert.IsFalse(ignored.Warnings.Contains(ChartWarningKind.ResourceBgaMissing));
     }
 
     [TestMethod]

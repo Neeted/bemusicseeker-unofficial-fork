@@ -1,6 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.Globalization;
+using System.Linq;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
@@ -17,6 +19,8 @@ internal sealed class LibraryChartRow : NotificationObject
     internal BMSFile BmsFile { get; }
 
     internal LR2SongDBExtended.bmson_song BmsonSong { get; private set; }
+
+    private Func<LibraryChartRow, ResourceHealthWarningProjection> resourceHealthProjectionProvider;
 
     internal bool IsBmson => (BmsFile is PendingChartEntry pending && pending.IsBmsonChart) || (BmsonSong != null && BmsFile == null);
 
@@ -94,6 +98,11 @@ internal sealed class LibraryChartRow : NotificationObject
         RaisePropertyChanged(string.Empty);
     }
 
+    internal void SetResourceHealthProjectionProvider(Func<LibraryChartRow, ResourceHealthWarningProjection> provider)
+    {
+        resourceHealthProjectionProvider = provider;
+    }
+
     public string Title => BmsFile?.Title ?? BmsonSongParser.ComposeDisplayTitle(BmsonSong);
 
     public string Artist => BmsFile?.Artist ?? BmsonSong?.artist ?? string.Empty;
@@ -120,15 +129,15 @@ internal sealed class LibraryChartRow : NotificationObject
 
     public bool HasZeroNoteMismatchWarning => BmsFile?.HasZeroNoteMismatchWarning ?? false;
 
-    public bool HasHighlightedWarning => BmsFile?.HasHighlightedWarning ?? false;
+    public bool HasHighlightedWarning => ChartWarningCollection.HasAnyHighlightedWarning(GetProjectedWarnings());
 
     public bool HasFailureStatus => false;
 
-    public string DisplayWarning => BmsFile?.DisplayWarning ?? string.Empty;
+    public string DisplayWarning => ChartWarningCollection.BuildDisplayText(GetProjectedWarnings());
 
-    public string WarningDigestText => BmsFile?.WarningDigestText ?? DisplayWarning;
+    public string WarningDigestText => ChartWarningCollection.BuildDigestText(GetProjectedWarnings(), instl_dst);
 
-    public string WarningTooltipText => BmsFile?.WarningTooltipText ?? DisplayWarning;
+    public string WarningTooltipText => ChartWarningCollection.BuildTooltipText(GetProjectedWarnings());
 
     public string hash => BmsFile?.hash ?? BmsonSong?.md5 ?? string.Empty;
 
@@ -317,6 +326,24 @@ internal sealed class LibraryChartRow : NotificationObject
         return (BmsFile as PendingChartEntry)?.IsBmsonChart == true
             ? ((PendingChartEntry)BmsFile).BmsonSong
             : BmsonSong;
+    }
+
+    private IEnumerable<ChartWarning> GetProjectedWarnings()
+    {
+        bool hasResourceHealthProjection = resourceHealthProjectionProvider != null;
+        IEnumerable<ChartWarning> sourceWarnings = BmsFile?.Warnings.ToStructuredList() ?? Enumerable.Empty<ChartWarning>();
+        foreach (ChartWarning warning in sourceWarnings.Where((ChartWarning warning) => warning != null && (!hasResourceHealthProjection || warning.Category != ChartWarningCategory.ResourceHealth)))
+        {
+            yield return warning;
+        }
+        ResourceHealthWarningProjection projection = hasResourceHealthProjection ? resourceHealthProjectionProvider?.Invoke(this) ?? ResourceHealthWarningProjection.Empty : ResourceHealthWarningProjection.Empty;
+        foreach (ChartWarning warning in projection.Warnings ?? Array.Empty<ChartWarning>())
+        {
+            if (warning != null)
+            {
+                yield return warning;
+            }
+        }
     }
 
     private static double? ParseNullableDouble(string value)

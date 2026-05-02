@@ -4,7 +4,8 @@
 
 ## 基本モデル
 
-- WARNING は `BMSFile.Warnings` が保持する `ChartWarning` の集合です。
+- WARNING は主に `BMSFile.Warnings` が保持する `ChartWarning` の集合です。
+- 通常一覧の `ResourceHealth` warning は例外的に、`maintenanceInfo` から構築した runtime `ResourceHealthIndexSnapshot` を `LibraryChartRow` が投影して表示します。DB 永続 warning ではありません。
 - 旧来の自由文字列 `warning` は廃止済みで、表示・tooltip・行ハイライトは structured warning から算出します。
 - `DisplayWarning` は tooltip と同じ詳細全文、`WarningDigestText` は一覧セル用 digest、`WarningTooltipText` は tooltip 詳細です。
 - `HasLowConfidenceInstallWarning` / `HasZeroNoteMismatchWarning` / `IsHashDuplicated` は互換用 property として残っていますが、状態の正本は warning kind の有無です。
@@ -18,6 +19,7 @@
 - tooltip は `ShowInTooltip = true` の warning message を `Priority` 昇順で改行連結します。
 - 行ハイライトは、いずれかの warning が `HighlightRow = true` の場合に有効です。
 - `ResourceHealth` category の warning は、`instl_dst` が未設定の間だけ digest に出ます。tooltip には導入先設定後も詳細が残ります。
+- resource health の一覧所属判定は `BMSFile.Warnings` を mutation せず、`maintenanceInfo` 由来の side-effect-free index で行います。
 
 ## Warning 定義
 
@@ -45,7 +47,7 @@
 
 ## 主な生成・削除単位
 
-- `ResourceHealth` はメンテナンス情報再計算時に category 単位で再構築します。他 category の warning は消しません。
+- `ResourceHealth` は保留パッケージなど互換経路では category 単位で再構築します。通常ライブラリ一覧では `maintenanceInfo` / resource health index から表示時に投影し、一覧取得時に source `BMSFile.Warnings` を変更しません。
 - `InstallEstimation` は導入先推定結果の適用、手動導入先確定、導入成功、推定状態クリアで category 単位に扱います。
 - `DuplicateChart` は kind 単位で set / clear します。
 - `ZeroNoteMismatch` は `chart_info.notes == 0` の BMS を正規表現で確認したとき、本文に可視ノート風記述がある場合に set し、`chart_info` が未生成または 0 notes ではなくなった場合は stale warning として clear します。

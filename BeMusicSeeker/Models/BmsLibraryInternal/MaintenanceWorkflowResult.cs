@@ -24,5 +24,11 @@ internal sealed class MaintenanceWorkflowResult
 
     public int ZeroNoteChangedCount { get; set; }
 
+    public long ResourceHealthIndexMs { get; set; }
+
+    public int WarningReapplyTargets { get; set; }
+
+    public int WarningChangedCount { get; set; }
+
     public long TotalMs { get; set; }
 }
