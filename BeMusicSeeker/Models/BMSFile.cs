@@ -1966,6 +1966,15 @@ public class BMSFile : LR2SongDB.song
         sha256 = value;
     }
 
+    internal void ApplySnapshotDigest(string md5, string sha256Value)
+    {
+        if (!string.IsNullOrWhiteSpace(md5))
+        {
+            hash = md5;
+        }
+        ApplySha256(sha256Value);
+    }
+
     private static string NormalizeSha256(string value)
     {
         if (string.IsNullOrWhiteSpace(value))

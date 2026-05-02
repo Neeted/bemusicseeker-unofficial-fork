@@ -637,26 +637,15 @@ internal sealed class BmsLibraryInitializationService
         {
             return;
         }
-        Dictionary<string, LR2SongDBExtended.chart_info> currentRows = LoadInlineCurrentChartInfoRows(dbGateway, parsedCandidates.Select((InlineBmsParseCandidate candidate) => candidate.Snapshot));
-        Stopwatch stopwatch = Stopwatch.StartNew();
-        List<ChartInfoBuildService.InlineChartInfoBuildResult> inlineResults = parsedCandidates.AsParallel()
-            .WithDegreeOfParallelism(result.FileDiffParserDegree)
-            .Select((InlineBmsParseCandidate candidate) => chartInfoBuildService.BuildInlineChartInfo(
-                candidate.Snapshot,
-                candidate.File,
-                null,
-                currentRows,
-                currentFailures,
-                logInstallPerformance,
-                logInstallPerformanceWarn))
-            .ToList();
-        stopwatch.Stop();
-        result.InlineChartInfoParseMs += stopwatch.ElapsedMilliseconds;
-        result.InlineChartInfoTargetCount += parsedCandidates.Count;
-        foreach (ChartInfoBuildService.InlineChartInfoBuildResult inlineResult in inlineResults)
-        {
-            ApplyInlineChartInfoResult(result, inlineResult);
-        }
+        ChartInfoInlineBuildService inlineBuildService = new ChartInfoInlineBuildService(chartInfoBuildService, result.FileDiffParserDegree, result.InlineChartInfoBatchSize);
+        ChartInfoInlineBuildResult inlineResult = inlineBuildService.BuildForSnapshots(
+            dbGateway,
+            parsedCandidates.Select((InlineBmsParseCandidate candidate) => new InlineBmsChartSnapshot(candidate.File, candidate.Snapshot)),
+            null,
+            currentFailures,
+            logInstallPerformance,
+            logInstallPerformanceWarn);
+        ApplyInlineChartInfoResult(result, inlineResult);
     }
 
     private void ProcessInlineBmsonChartInfo(
@@ -678,82 +667,41 @@ internal sealed class BmsLibraryInitializationService
         {
             return;
         }
-        Dictionary<string, LR2SongDBExtended.chart_info> currentRows = LoadInlineCurrentChartInfoRows(dbGateway, parsedCandidates.Select((InlineBmsonParseCandidate candidate) => candidate.Snapshot));
-        Stopwatch stopwatch = Stopwatch.StartNew();
-        List<ChartInfoBuildService.InlineChartInfoBuildResult> inlineResults = parsedCandidates.AsParallel()
-            .WithDegreeOfParallelism(result.FileDiffParserDegree)
-            .Select((InlineBmsonParseCandidate candidate) => chartInfoBuildService.BuildInlineChartInfo(
-                candidate.Snapshot,
-                null,
-                candidate.Song,
-                currentRows,
-                currentFailures,
-                logInstallPerformance,
-                logInstallPerformanceWarn))
-            .ToList();
-        stopwatch.Stop();
-        result.InlineChartInfoParseMs += stopwatch.ElapsedMilliseconds;
-        result.InlineChartInfoTargetCount += parsedCandidates.Count;
-        foreach (ChartInfoBuildService.InlineChartInfoBuildResult inlineResult in inlineResults)
-        {
-            ApplyInlineChartInfoResult(result, inlineResult);
-        }
+        ChartInfoInlineBuildService inlineBuildService = new ChartInfoInlineBuildService(chartInfoBuildService, result.FileDiffParserDegree, result.InlineChartInfoBatchSize);
+        ChartInfoInlineBuildResult inlineResult = inlineBuildService.BuildForSnapshots(
+            dbGateway,
+            null,
+            parsedCandidates.Select((InlineBmsonParseCandidate candidate) => new InlineBmsonChartSnapshot(candidate.Song, candidate.Snapshot)),
+            currentFailures,
+            logInstallPerformance,
+            logInstallPerformanceWarn);
+        ApplyInlineChartInfoResult(result, inlineResult);
     }
 
-    private static Dictionary<string, LR2SongDBExtended.chart_info> LoadInlineCurrentChartInfoRows(BmsLibraryDbGateway dbGateway, IEnumerable<ChartFileSnapshot> snapshots)
-    {
-        if (dbGateway == null)
-        {
-            return new Dictionary<string, LR2SongDBExtended.chart_info>(StringComparer.OrdinalIgnoreCase);
-        }
-        HashSet<string> sha256s = new HashSet<string>(
-            (snapshots ?? Enumerable.Empty<ChartFileSnapshot>())
-                .Where((ChartFileSnapshot snapshot) => snapshot != null && !string.IsNullOrWhiteSpace(snapshot.Sha256))
-                .Select((ChartFileSnapshot snapshot) => snapshot.Sha256),
-            StringComparer.OrdinalIgnoreCase);
-        return sha256s.Count == 0
-            ? new Dictionary<string, LR2SongDBExtended.chart_info>(StringComparer.OrdinalIgnoreCase)
-            : dbGateway.LoadChartInfosBySha256(sha256s);
-    }
-
-    private static void ApplyInlineChartInfoResult(SongTableFileCheckResult result, ChartInfoBuildService.InlineChartInfoBuildResult inlineResult)
+    private static void ApplyInlineChartInfoResult(SongTableFileCheckResult result, ChartInfoInlineBuildResult inlineResult)
     {
         if (result == null || inlineResult == null)
         {
             return;
         }
-        if (inlineResult.Row != null)
+        result.InlineChartInfoRows.AddRange(inlineResult.ChartInfoRows);
+        result.InlineChartInfoAppliedRows.AddRange(inlineResult.AppliedRows);
+        result.InlineChartInfoParseFailureRows.AddRange(inlineResult.ParseFailureRows);
+        foreach (string md5 in inlineResult.ParseFailureDeleteMd5s)
         {
-            result.InlineChartInfoAppliedRows.Add(inlineResult.Row);
+            if (!result.InlineChartInfoParseFailureDeleteMd5s.Contains(md5, StringComparer.OrdinalIgnoreCase))
+            {
+                result.InlineChartInfoParseFailureDeleteMd5s.Add(md5);
+            }
         }
-        if (inlineResult.ShouldPersistRow && inlineResult.Row != null)
-        {
-            result.InlineChartInfoRows.Add(inlineResult.Row);
-            result.InlineChartInfoSuccessCount++;
-        }
-        if (inlineResult.CurrentRowSkipped)
-        {
-            result.InlineChartInfoCurrentSkippedCount++;
-        }
-        if (inlineResult.SkippedPersistedFailure)
-        {
-            result.InlineChartInfoFailureSkippedCount++;
-        }
-        if (inlineResult.ParseFailed)
-        {
-            result.InlineChartInfoParseFailedCount++;
-        }
-        if (inlineResult.ParseFailureRow != null)
-        {
-            result.InlineChartInfoParseFailureRows.Add(inlineResult.ParseFailureRow);
-            result.InlineChartInfoFailurePersistedCount++;
-        }
-        if (!string.IsNullOrWhiteSpace(inlineResult.ParseFailureDeleteMd5)
-            && !result.InlineChartInfoParseFailureDeleteMd5s.Contains(inlineResult.ParseFailureDeleteMd5, StringComparer.OrdinalIgnoreCase))
-        {
-            result.InlineChartInfoParseFailureDeleteMd5s.Add(inlineResult.ParseFailureDeleteMd5);
-            result.InlineChartInfoFailureClearedCount++;
-        }
+        result.InlineChartInfoTargetCount += inlineResult.TargetCount;
+        result.InlineChartInfoSuccessCount += inlineResult.SuccessCount;
+        result.InlineChartInfoCurrentSkippedCount += inlineResult.CurrentSkippedCount;
+        result.InlineChartInfoFailureSkippedCount += inlineResult.FailureSkippedCount;
+        result.InlineChartInfoParseFailedCount += inlineResult.ParseFailedCount;
+        result.InlineChartInfoFailurePersistedCount += inlineResult.FailurePersistedCount;
+        result.InlineChartInfoFailureClearedCount += inlineResult.FailureClearedCount;
+        result.InlineChartInfoParseMs += inlineResult.ParseMs;
     }
 
     private static IEnumerable<List<string>> CreateBatches(IEnumerable<string> paths, int batchSize)

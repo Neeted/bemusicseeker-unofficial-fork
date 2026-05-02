@@ -88,38 +88,6 @@ internal sealed class ChartInfoBuildService
             existingRowsSnapshot);
     }
 
-    /// <summary>
-    /// 新規追加された譜面だけを対象に、不足または古い chart_info 行と不足している BMS SHA-256 digest を構築します。
-    /// </summary>
-    /// <param name="dbGateway">song.db へのアクセス手段。</param>
-    /// <param name="targetFiles">新規追加された BMS 譜面。</param>
-    /// <param name="targetBmsonSongs">新規追加された bmson 譜面。</param>
-    /// <param name="reportProgress">進捗通知 callback。total, processed, currentPath を渡します。</param>
-    /// <param name="logInstallPerformance">性能ログ callback。</param>
-    /// <param name="logInstallPerformanceWarn">解析を継続できない譜面を逐次 WARN 出力する callback。</param>
-    /// <param name="chartInfoRowsCommitted">DB commit 成功後に保存済み chart_info 行を通知する callback。</param>
-    /// <returns>構築結果。</returns>
-    public ChartInfoBackfillResult BackfillChartInfosForTargets(
-        BmsLibraryDbGateway dbGateway,
-        IEnumerable<BMSFile> targetFiles,
-        IEnumerable<LR2SongDBExtended.bmson_song> targetBmsonSongs,
-        Action<int, int, string> reportProgress = null,
-        Action<string> logInstallPerformance = null,
-        Action<string> logInstallPerformanceWarn = null,
-        Action<IReadOnlyList<LR2SongDBExtended.chart_info>> chartInfoRowsCommitted = null)
-    {
-        return BackfillChartInfosCore(
-            dbGateway,
-            targetFiles,
-            targetBmsonSongs,
-            "added",
-            reportProgress,
-            logInstallPerformance,
-            logInstallPerformanceWarn,
-            chartInfoRowsCommitted,
-            null);
-    }
-
     internal InlineChartInfoBuildResult BuildInlineChartInfo(
         ChartFileSnapshot snapshot,
         BMSFile bmsFile,
@@ -221,16 +189,10 @@ internal sealed class ChartInfoBuildService
         List<BMSFile> fileList = (currentFiles ?? Enumerable.Empty<BMSFile>()).ToList();
         List<LR2SongDBExtended.bmson_song> bmsonSongList = (currentBmsonSongs ?? Enumerable.Empty<LR2SongDBExtended.bmson_song>()).ToList();
         dbGateway.EnsureChartInfoBackfillSchema();
-        bool isAddedMode = string.Equals(mode, "added", StringComparison.OrdinalIgnoreCase);
         Stopwatch existingRowsStopwatch = Stopwatch.StartNew();
         string existingRowsSource;
         Dictionary<string, LR2SongDBExtended.chart_info> existingRows;
-        if (isAddedMode)
-        {
-            existingRowsSource = "targeted";
-            existingRows = LoadExistingChartInfoRowsForTargets(dbGateway, fileList, bmsonSongList);
-        }
-        else if (existingRowsSnapshot != null)
+        if (existingRowsSnapshot != null)
         {
             existingRowsSource = "index";
             existingRows = new Dictionary<string, LR2SongDBExtended.chart_info>(StringComparer.OrdinalIgnoreCase);
@@ -249,7 +211,7 @@ internal sealed class ChartInfoBuildService
         }
         Dictionary<string, LR2SongDBExtended.chart_info_parse_failure> currentFailures = dbGateway.LoadCurrentChartInfoParseFailureMap(parseTimeout);
         existingRowsStopwatch.Stop();
-        string existingRowsLogValue = isAddedMode ? "targeted:" + existingRows.Count : existingRows.Count.ToString();
+        string existingRowsLogValue = existingRows.Count.ToString();
         Stopwatch targetBuildStopwatch = Stopwatch.StartNew();
         List<ChartInfoBuildTarget> targets = BuildTargets(fileList, bmsonSongList, existingRows, currentFailures, result);
         targetBuildStopwatch.Stop();
@@ -748,29 +710,6 @@ internal sealed class ChartInfoBuildService
             }
         }
         return targets.Values.ToList();
-    }
-
-    private static Dictionary<string, LR2SongDBExtended.chart_info> LoadExistingChartInfoRowsForTargets(
-        BmsLibraryDbGateway dbGateway,
-        IEnumerable<BMSFile> currentFiles,
-        IEnumerable<LR2SongDBExtended.bmson_song> currentBmsonSongs)
-    {
-        HashSet<string> sha256s = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (BMSFile file in currentFiles ?? Enumerable.Empty<BMSFile>())
-        {
-            if (file != null && !string.IsNullOrWhiteSpace(file.sha256))
-            {
-                sha256s.Add(file.sha256);
-            }
-        }
-        foreach (LR2SongDBExtended.bmson_song song in currentBmsonSongs ?? Enumerable.Empty<LR2SongDBExtended.bmson_song>())
-        {
-            if (song != null && !string.IsNullOrWhiteSpace(song.sha256))
-            {
-                sha256s.Add(song.sha256);
-            }
-        }
-        return dbGateway.LoadChartInfosBySha256(sha256s);
     }
 
     private static string BuildTargetKey(string sha256, string md5, string path)

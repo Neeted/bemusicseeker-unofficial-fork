@@ -411,7 +411,7 @@ internal sealed class BmsLibraryDbGateway
 
     /// <summary>
     /// 指定された SHA-256 だけに対応する chart_info を読み込みます。
-    /// playlist の未所持行解決や targeted backfill で全件読み込みを避けるために使用します。
+    /// playlist の未所持行解決や inline chart_info で全件読み込みを避けるために使用します。
     /// </summary>
     /// <param name="sha256s">検索対象 SHA-256。</param>
     /// <returns>SHA-256 をキーにした chart_info。</returns>

@@ -76,7 +76,7 @@ File scan
 | total cap | 原則不要。処理中の bounded parallelism が上限になる |
 | per file cap | Phase 3 では設けない。異常に大きい file への対策が必要なら別途追加 |
 | full backfill | snapshot handoff なし。従来の reader pipeline を維持 |
-| install package 追加 | 将来的に同様の inline chart_info 化対象にする |
+| install package 追加 | Phase 4 で同様の inline chart_info 化対象にする |
 
 大量追加時のメモリ使用量は、おおむね `file diff parser degree` × `同時処理中 snapshot bytes` に収まる。数万譜面をすべて保持する設計にはしない。
 
@@ -190,51 +190,31 @@ file diff の PLINQ 無制限並列をやめ、chart_info と近い bounded 方�
 
 ### 目的
 
-追加・更新譜面を後続 added backfill へ回す経路を整理し、追加譜面の二重 read をなくす。
+追加・更新譜面を後続 added backfill へ回す経路を削除し、追加譜面の二重 read をなくす。旧 Phase 5 の install package inline 化もこの Phase に含める。
 
 ### 変更案
 
-- `QueueChartInfoBackfillForAddedCharts(...)` の用途を見直す。
-  - file diff 由来の追加・更新譜面では呼ばない。
-  - install package 由来の追加譜面は、Phase 4 または Phase 5 で inline chart_info 化するまで一時的に残してよい。
+- inline chart_info 処理を file diff / install package の両方から使える internal helper に切り出す。
+- 通常 package install と推定先 install は、最終配置後 path を `ChartFileSnapshot` で 1 read し、同じ bytes で chart_info を作る。
+- inline 成功 row は DB と memory index へ反映し、parse failure は `chart_info_parse_failure` に保存する。
+- `QueueChartInfoBackfillForAddedCharts(...)`、`ChartInfoBackfillRequestKind.AddedCharts`、`BackfillChartInfosForTargets(...)` を削除する。
 - startup / reload 後の full backfill は、既存DB補完専用として維持する。
 - full backfill の target build では、inline chart_info 済みの新規譜面は current row により file read 前 skip されることを確認する。
-- added request mode が不要になった場合は、`ChartInfoBackfillRequestKind.AddedCharts` を削除する。install package でまだ使う場合は残す。
 
 ### 注意点
 
 - 「アプリ外で作られた既存DBに chart_info がない」ケースは full backfill で処理する。
 - full backfill は引き続き background 処理でよい。
 - UI の `ChartInfoBackfillRunning` / progress 表示は full backfill 用に維持する。
+- package install の inline chart_info parse failure は install 成功を取り消さない。
 
 ### 完了条件
 
 - file diff で追加・更新された譜面が added backfill で再 read されない。
-- 空DB初回起動では、追加譜面の chart_info が file diff 内で作られ、後続 full backfill では current row skip になる。
-
-## Phase 5: install package 追加の inline chart_info 化
-
-### 目的
-
-保留画面からのインストールなど、file diff 以外で新規追加される譜面も 1 read に近づける。
-
-### 変更案
-
-- package install 時に `BMSFile` / bmson row を生成または移動後更新する箇所で、可能なら `ChartFileSnapshot` を使う。
-- 移動後 path が確定した snapshot bytes から chart_info helper を呼び、`chart_info` / `chart_info_parse_failure` を DB に反映する。
-- install package 後の `QueueChartInfoBackfillForAddedCharts(...)` は削除または fallback のみにする。
-
-### 注意点
-
-- package install は move / path update / maintenance / score / state apply と絡むため、file diff より後の独立 Phase にする。
-- 既に `BMSFile` を持っている pending package では bytes がないことが多い。必要なら移動後に 1 read するが、後続 backfill の再 read は避ける。
-
-### 完了条件
-
 - install package で追加された譜面も、追加直後に chart_info まで作られる。
 - install package added backfill が不要になる。
 
-## Phase 6: parser bytes entry point と旧 API 整理
+## Phase 5: parser bytes entry point と旧 API 整理
 
 ### 目的
 
@@ -269,12 +249,13 @@ inline 経路と backfill 経路の parser 呼び出しを整理し、single-rea
 - file diff 追加譜面が added backfill queue に積まれない。
 - 空DB初回相当で、file diff 後の full backfill が inline 済み row を current skip する。
 - 既存DB補完では full backfill が従来通り missing chart_info を解析する。
-
-### Phase 5
-
 - package install 追加譜面で chart_info が追加直後に作られる。
 - package install 後の added backfill が不要になる。
 - bmson / BMS 混在 package で DB 登録、maintenance、chart_info が揃う。
+
+### Phase 5
+
+- inline helper / parser bytes entry point / 現行仕様資料を整理する。
 
 ### Regression
 
@@ -294,14 +275,12 @@ inline 経路と backfill 経路の parser 呼び出しを整理し、single-rea
 | chart_info parse failure で追加登録が止まる | failure は永続化するが、`song` / `bmson_song` 登録は継続する |
 | full backfill と inline 経路で結果がずれる | ChartInfoBuildService の parse / failure / commit helper を共有する |
 | 空DB初回で full backfill が再解析する | inline chart_info row を DB と memory index に反映し、full backfill では current row skip させる |
-| install package 経路だけ二重 read が残る | Phase 5 で別途 inline 化する |
+| install package 経路だけ二重 read が残る | Phase 4 で inline 化し、added backfill を削除する |
 
 ## 実装順の推奨
 
 Phase 3 ではまず file diff の追加・更新譜面だけ inline chart_info 化する。これで空DB初回起動やライブラリリロード時の大量追加に対する二重 read を大きく減らせる。
 
-Phase 4 で added backfill queue の役割を縮小し、file diff 由来の追加譜面が再 read されないことを保証する。
+Phase 4 で package install 経路も inline chart_info 化し、added backfill queue を削除する。
 
-Phase 5 で package install 経路を同様に整理する。
-
-Phase 6 は安定後の API / docs 整理として扱う。
+Phase 5 は安定後の API / docs 整理として扱う。
