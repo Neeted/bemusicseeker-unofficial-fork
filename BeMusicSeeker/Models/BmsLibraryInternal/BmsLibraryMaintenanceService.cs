@@ -60,7 +60,7 @@ internal sealed class BmsLibraryMaintenanceService
 
     public List<BMSFile> GetZeroNoteFiles(IEnumerable<BMSFile> bmsFiles)
     {
-        return EnumerateBmsChartFiles(bmsFiles).Where((BMSFile file) => file.notes == 0).ToList();
+        return EnumerateBmsChartFiles(bmsFiles).Where((BMSFile file) => file.ChartInfo?.notes == 0).ToList();
     }
 
     public int CleanupMaintenanceTable(IEnumerable<BMSFile> bmsFiles, BmsLibraryDbGateway dbGateway)
@@ -165,8 +165,8 @@ internal sealed class BmsLibraryMaintenanceService
     public ZeroNoteRecheckResult RecheckZeroNoteWarnings(IEnumerable<BMSFile> allFiles, Action<Exception, string> logWarn = null)
     {
         List<BMSFile> files = EnumerateBmsChartFiles(allFiles).ToList();
-        List<BMSFile> zeroNoteFiles = files.Where((BMSFile f) => f.notes == 0 && !string.IsNullOrWhiteSpace(f.path)).ToList();
-        List<BMSFile> staleMismatchFiles = files.Where((BMSFile f) => f.notes != 0 && f.Warnings.Contains(ChartWarningKind.ZeroNoteMismatch)).ToList();
+        List<BMSFile> zeroNoteFiles = files.Where((BMSFile f) => f.ChartInfo?.notes == 0 && !string.IsNullOrWhiteSpace(f.path)).ToList();
+        List<BMSFile> staleMismatchFiles = files.Where((BMSFile f) => f.ChartInfo?.notes != 0 && f.Warnings.Contains(ChartWarningKind.ZeroNoteMismatch)).ToList();
         ZeroNoteRecheckResult result = new ZeroNoteRecheckResult
         {
             Total = zeroNoteFiles.Count
@@ -440,49 +440,6 @@ internal sealed class BmsLibraryMaintenanceService
         {
             return new MaintenanceSnapshot(file?.maintenanceInfo);
         }
-    }
-
-    public MaintenanceWorkflowResult UpdateZeroNoteAndCommit(
-        IEnumerable<BMSFile> bmsFiles,
-        BmsLibraryDbGateway dbGateway,
-        IBmsLibraryDialogService dialogService)
-    {
-        MaintenanceWorkflowResult result = new MaintenanceWorkflowResult();
-        if (bmsFiles == null || dbGateway == null)
-        {
-            return result;
-        }
-        Stopwatch stopwatch = Stopwatch.StartNew();
-        List<BMSFile> targetFiles = EnumerateBmsChartFiles(bmsFiles).Where((BMSFile file) => !string.IsNullOrWhiteSpace(file.path))
-            .GroupBy((BMSFile file) => file.path, StringComparer.OrdinalIgnoreCase)
-            .Select((IGrouping<string, BMSFile> group) => group.First())
-            .ToList();
-        List<BMSFile> changedFiles = targetFiles.Where((BMSFile file) => !file.notes.HasValue && File.Exists(file.path)).AsParallel().Where(delegate (BMSFile file)
-        {
-            try
-            {
-                return file.SetNotesIfZeroNote();
-            }
-            catch (Exception ex)
-            {
-                if (ex is DirectoryNotFoundException || ex is FileNotFoundException || ex is IOException || ex is PathTooLongException || ex is SecurityException || ex is UnauthorizedAccessException)
-                {
-                    dialogService?.Show(string.Format(Resources.Error_BmsLoadFailedSkip, file.path, ex.Message), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
-                    return false;
-                }
-                throw;
-            }
-        }).ToList();
-        if (changedFiles.Count > 0)
-        {
-            dbGateway.UpsertSongs(changedFiles);
-            result.HasUpdates = true;
-            result.SongUpsertCount = changedFiles.Count;
-            result.ZeroNoteChangedCount = changedFiles.Count;
-        }
-        stopwatch.Stop();
-        result.TotalMs = stopwatch.ElapsedMilliseconds;
-        return result;
     }
 
     private static bool AppendHealthWarning(BMSFile bmsFile, int? health, int? defined, int? existing, ChartWarningKind kind, string warningFormat)

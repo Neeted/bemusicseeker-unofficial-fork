@@ -3973,6 +3973,7 @@ public class BMSLibrary : NotificationObject
             if (fileCheckResult.InlineChartInfoAppliedRows.Count > 0)
             {
                 UpsertChartInfoIndexRows(fileCheckResult.InlineChartInfoAppliedRows, "file_diff_inline");
+                RaisePropertyChanged(() => BMSFilesZeroNote);
             }
             if (fileCheckResult.InlineChartInfoParseFailureRows.Count > 0 || fileCheckResult.InlineChartInfoParseFailureDeleteMd5s.Count > 0)
             {
@@ -4010,10 +4011,6 @@ public class BMSLibrary : NotificationObject
                 setMaintenanceInfo(BMSFiles, includeInstalledBmson: true);
                 stopwatchSetHealth.Stop();
                 setHealthMs = stopwatchSetHealth.ElapsedMilliseconds;
-                Stopwatch stopwatchSetZeroNote = Stopwatch.StartNew();
-                setZeroNoteAndCommitToDB(BMSFiles);
-                stopwatchSetZeroNote.Stop();
-                setZeroNoteMs = stopwatchSetZeroNote.ElapsedMilliseconds;
             }
             finally
             {
@@ -4345,6 +4342,7 @@ public class BMSLibrary : NotificationObject
         {
             RaisePropertyChanged(() => ChartInfoIndexHydrated);
         }
+        RaisePropertyChanged(() => BMSFilesZeroNote);
         return result;
     }
 
@@ -4383,6 +4381,7 @@ public class BMSLibrary : NotificationObject
             result.ByMd5Count = chartInfoIndexByMd5.Count;
         }
         RaisePropertyChanged(() => ChartInfoIndexVersion);
+        RaisePropertyChanged(() => BMSFilesZeroNote);
         LogInstallPerformance("chart_info_index_delta upserted=" + rowList.Count
             + " bySha256=" + result.BySha256Count
             + " byMd5=" + result.ByMd5Count
@@ -4579,6 +4578,7 @@ public class BMSLibrary : NotificationObject
         if (result.AppliedRows.Count > 0)
         {
             UpsertChartInfoIndexRows(result.AppliedRows, reason ?? "install_package_inline");
+            RaisePropertyChanged(() => BMSFilesZeroNote);
         }
         if (result.ParseFailureRows.Count > 0 || result.ParseFailureDeleteMd5s.Count > 0)
         {
@@ -4748,10 +4748,6 @@ public class BMSLibrary : NotificationObject
                     IsWriteLockHeldInitializdBMSFilesHealthStatus = false;
                     IsWriteLockHeldInitializeBMSFilesEncodingInfo = false;
 
-                    Stopwatch stopwatchSetZeroNote = Stopwatch.StartNew();
-                    setZeroNoteAndCommitToDB(filesSnapshot);
-                    stopwatchSetZeroNote.Stop();
-                    setZeroNoteMs = stopwatchSetZeroNote.ElapsedMilliseconds;
                     IsWriteLockHeldInitializeBMSFilesZeroNote = false;
 
                     stopwatch.Stop();
@@ -6250,30 +6246,7 @@ public class BMSLibrary : NotificationObject
     }
 
     /// <summary>
-    /// BMS ファイルのノート数がゼロかどうかをチェックし、該当する場合は DB にコミットします。
-    /// </summary>
-    private void setZeroNoteAndCommitToDB(IEnumerable<BMSFile> bmsFiles)
-    {
-        if (bmsFiles == null)
-        {
-            bmsFiles = BMSFiles;
-        }
-        using (rwlockBMSFiles.GetWriterGuard())
-        {
-            MaintenanceWorkflowResult workflowResult = maintenanceService.UpdateZeroNoteAndCommit(bmsFiles, dbGateway, dialogService);
-            if (!workflowResult.HasUpdates)
-            {
-                return;
-            }
-            Task.Run(delegate
-            {
-                RaisePropertyChanged(() => BMSFilesZeroNote);
-            }).Logging("setZeroNoteAndCommitToDB");
-        }
-    }
-
-    /// <summary>
-    /// DB 上のノート数が 0 のファイルについて、実際のファイルを再パースしてゼロノートかどうかを再検証します。
+    /// chart_info 上のノート数が 0 のファイルについて、実際のファイルを再確認して可視ノート風記述がないか検出します。
     /// </summary>
     public void RecheckZeroNoteWarnings()
     {
@@ -7055,7 +7028,7 @@ public class BMSLibrary : NotificationObject
                     setMaintenanceInfo(files, forceUpdate: true);
                 }
             },
-            (files) => setZeroNoteAndCommitToDB(files),
+            null,
             (files) => SetBMSScore(files),
             delegate (IEnumerable<BMSFile> files)
             {

@@ -539,7 +539,7 @@ LR2をプレイヤーとして使用すると再生できない場合があり�
     <value>ゼロノート検索</value>
   </data>
   <data name="Recheck_zero_note" xml:space="preserve">
-    <value>ゼロノート再判定する</value>
+    <value>ゼロノート記述確認</value>
   </data>
   <data name="Msg_conversion_stopped" xml:space="preserve">
     <value>変換を中断しました</value>
@@ -1493,7 +1493,7 @@ BMSファイルが重複しないようにマージします。
     <value>BMSファイルが重複しています</value>
   </data>
   <data name="Warning_ZeroNoteMismatch" xml:space="preserve">
-    <value>DBに0notesと記録されていますが可視ノートが存在します</value>
+    <value>譜面メタデータ解析では 0 notes ですが、本文に可視ノート風の記述があります</value>
   </data>
   <data name="Warning_ChartInfoParseFailure" xml:space="preserve">
     <value>メタデータ解析に失敗しました。{0}: {1}</value>

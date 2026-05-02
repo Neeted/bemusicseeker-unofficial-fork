@@ -76,13 +76,18 @@ public sealed class BmsLibraryMaintenanceServiceTests
         TestResourceInitializer.EnsureJapaneseResources();
         BmsLibraryMaintenanceService service = new BmsLibraryMaintenanceService();
         TestableBmsFile zeroNoteFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-        zeroNoteFile.SetNotes(0);
+        zeroNoteFile.SetNotes(1200);
+        zeroNoteFile.SetChartInfo(CreateChartInfo(zeroNoteFile.hash, notes: 0));
         TestableBmsFile normalFile = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
-        normalFile.SetNotes(1200);
+        normalFile.SetNotes(0);
+        normalFile.SetChartInfo(CreateChartInfo(normalFile.hash, notes: 1200));
+        TestableBmsFile missingChartInfoFile = CreateFile("dddddddddddddddddddddddddddddddd");
+        missingChartInfoFile.SetNotes(0);
         PendingChartEntry bmsonRow = CreateBmsonRow("C:\\Library\\chart.bmson", "cccccccccccccccccccccccccccccccc");
         SetNotes(bmsonRow, 0);
+        bmsonRow.SetChartInfo(CreateChartInfo(bmsonRow.hash, notes: 0));
 
-        List<BMSFile> result = service.GetZeroNoteFiles(new BMSFile[] { zeroNoteFile, normalFile, bmsonRow });
+        List<BMSFile> result = service.GetZeroNoteFiles(new BMSFile[] { zeroNoteFile, normalFile, missingChartInfoFile, bmsonRow });
 
         CollectionAssert.AreEqual(new[] { zeroNoteFile }, result);
     }
@@ -214,6 +219,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
         BmsLibraryMaintenanceService service = new BmsLibraryMaintenanceService();
         TestableBmsFile zeroNoteFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
         zeroNoteFile.SetNotes(0);
+        zeroNoteFile.SetChartInfo(CreateChartInfo(zeroNoteFile.hash, notes: 0));
         zeroNoteFile.path = "C:\\missing\\chart.bms";
         zeroNoteFile.SetWarning(ChartWarningKind.ZeroNoteMismatch, Resources.Warning_ZeroNoteMismatch);
 
@@ -760,6 +766,17 @@ public sealed class BmsLibraryMaintenanceServiceTests
     private static void SetNotes(BMSFile file, int? value)
     {
         typeof(BMSFile).GetProperty(nameof(BMSFile.notes))!.GetSetMethod(nonPublic: true)!.Invoke(file, new object?[] { value });
+    }
+
+    private static LR2SongDBExtended.chart_info CreateChartInfo(string md5, int notes)
+    {
+        return new LR2SongDBExtended.chart_info
+        {
+            md5 = md5,
+            sha256 = new string('a', 64),
+            parser_version = BmsLibraryDbGateway.CurrentChartInfoParserVersion,
+            notes = notes
+        };
     }
 
     private sealed class TestableBmsFile : BMSFile

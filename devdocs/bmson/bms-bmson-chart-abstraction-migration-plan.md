@@ -67,7 +67,7 @@ bmson では不可にするもの:
 - LR2 IR / score viewer / ranking 更新
 - BMS parser reload
 - BMS encoding detection / fix
-- zero-note check based on LR2 `song.notes`
+- zero-note notation check for BMS charts whose `chart_info.notes == 0`
 - BMS playback preview
 
 ### bmson 専用処理も BMS 互換 API に押し込めない
@@ -167,7 +167,7 @@ UI は `Kind` 直接判定ではなく capability を見る。これにより「
 | resource health | Yes | Yes | 計算元は format 別 |
 | maintenance table 反映 | Yes | Yes | テーブルは共有し、workflow は分離する |
 | BMS encoding check / fix | Yes | No | bmson JSON には適用しない |
-| zero-note check | Yes | No | `chart_info.notes` ではなく BMS/LR2 警告 |
+| zero-note check | Yes | No | BMS の `chart_info.notes == 0` と本文正規表現確認 |
 | `song` / `folder` 更新 | Yes | No | LR2 互換領域 |
 | `bmson_song` 更新 | No | Yes | アプリ独自領域 |
 | `chart_digest_map` | Yes | No | BMS 用 SHA-256 map |

@@ -47,7 +47,8 @@
 
 - `ResourceHealth` はメンテナンス情報再計算時に category 単位で再構築します。他 category の warning は消しません。
 - `InstallEstimation` は導入先推定結果の適用、手動導入先確定、導入成功、推定状態クリアで category 単位に扱います。
-- `DuplicateChart` と `ZeroNoteMismatch` は kind 単位で set / clear します。
+- `DuplicateChart` は kind 単位で set / clear します。
+- `ZeroNoteMismatch` は `chart_info.notes == 0` の BMS を正規表現で確認したとき、本文に可視ノート風記述がある場合に set し、`chart_info` が未生成または 0 notes ではなくなった場合は stale warning として clear します。
 - `ChartInfoParseFailure` は解析エラー画面用の表示 shim 行に付与します。通常ライブラリの元行へは mutation しません。
 - `Lr2PathEncodingUnsupported` は起動時の `song` 正規化、file diff 追加、`UpsertSongs()` 前補正で付与します。Shift_JIS 互換 path として LR2 `folder` / `parent` CRC を計算できる場合は clear します。
 - `NestedChartFileInPackage`、`AlreadyInstalled`、`SingleBmsFile`、`SingleBmsonFile` は保留パッケージや復元時の状態初期化で付与します。

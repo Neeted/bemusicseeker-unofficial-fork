@@ -763,6 +763,31 @@ public sealed class BmsLibraryPackageInstallServiceTests
     }
 
     [TestMethod]
+    public void InstallPackages_LeavesZeroNoteTimingAtZeroWhenCallbackIsNotProvided()
+    {
+        BmsLibraryPackageInstallService service = new BmsLibraryPackageInstallService();
+        TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "C:\\Installed\\chart.bms");
+        BMSPackage package = new BMSPackage(new BMSFile[] { file })
+        {
+            path = "C:\\Pending\\Pkg1",
+            delete_parent = false
+        };
+
+        PackageInstallExecutionResult result = service.InstallPackages(
+            new[] { package },
+            "C:\\Installed",
+            (_, _, _, _, _) => true,
+            files => { },
+            files => { },
+            null,
+            files => { },
+            files => { });
+
+        Assert.AreEqual(1, result.AddedFiles.Count);
+        Assert.AreEqual(0L, result.ZeroNoteMs);
+    }
+
+    [TestMethod]
     public void InstallPackages_RegistersNestedChartsWhenPackageContainsThem()
     {
         TestResourceInitializer.EnsureJapaneseResources();

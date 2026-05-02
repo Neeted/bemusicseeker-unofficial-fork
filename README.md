@@ -126,10 +126,10 @@ The list below focuses on the main differences from the traditional build.
 
 #### Zero-note search
 
-- **Added `Recheck zero-note`**
+- **Added `Check zero-note notation`**
   - This is available from the right-click menu of the `Zero-note search` tree.
-  - It lets you manually identify suspicious charts where LR2 or BeMusicSeeker recorded `karinotes = 0` in the song table, but the actual file still contains visible notes.
-  - Such charts are shown with the warning `Recorded as 0 notes in DB, but visible notes exist`, and their rows are highlighted, similar to duplicate-file checking.
+  - It lets you manually identify suspicious charts where metadata parsing reports `0 notes`, but the actual file still contains visible-note-like notation.
+  - Such charts are shown with the warning `Metadata parsing reports 0 notes, but the chart text contains visible-note-like notation`, and their rows are highlighted, similar to duplicate-file checking.
 
 #### Garbled text check
 

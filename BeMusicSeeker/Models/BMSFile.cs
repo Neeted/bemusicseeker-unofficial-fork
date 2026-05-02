@@ -1617,16 +1617,6 @@ public class BMSFile : LR2SongDB.song
         }
     }
 
-    public bool SetNotesIfZeroNote()
-    {
-        if (IsZeroNoteBMSFile(path))
-        {
-            notes = 0;
-            return true;
-        }
-        return false;
-    }
-
     public void SetMode()
     {
         BMSFile bMSFile = CreateBMSFileFromFile(path);

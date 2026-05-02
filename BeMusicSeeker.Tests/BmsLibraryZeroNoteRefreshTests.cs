@@ -4,6 +4,7 @@ using System.IO;
 using System.Windows;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Models.LR2;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
@@ -53,6 +54,7 @@ public sealed class BmsLibraryZeroNoteRefreshTests
             };
             file.SetWarning(ChartWarningKind.ZeroNoteMismatch, BeMusicSeeker.Properties.Resources.Warning_ZeroNoteMismatch);
             file.SetNotes(0);
+            file.SetChartInfo(CreateChartInfo(file.hash, notes: 0));
             library.BMSFiles = new List<BMSFile> { file };
             List<string> changedProperties = new List<string>();
             library.PropertyChanged += delegate(object _, System.ComponentModel.PropertyChangedEventArgs e)
@@ -83,6 +85,7 @@ public sealed class BmsLibraryZeroNoteRefreshTests
                 path = chartPath
             };
             file.SetNotes(0);
+            file.SetChartInfo(CreateChartInfo(file.hash, notes: 0));
             library.BMSFiles = new List<BMSFile> { file };
 
             library.RecheckZeroNoteWarnings();
@@ -114,10 +117,27 @@ public sealed class BmsLibraryZeroNoteRefreshTests
 
     private sealed class TestableBmsFile : BMSFile
     {
+        public TestableBmsFile()
+        {
+            hash = Guid.NewGuid().ToString("N");
+            sha256 = new string('a', 64);
+        }
+
         internal void SetNotes(int? value)
         {
             notes = value;
         }
+    }
+
+    private static LR2SongDBExtended.chart_info CreateChartInfo(string md5, int notes)
+    {
+        return new LR2SongDBExtended.chart_info
+        {
+            md5 = md5,
+            sha256 = new string('a', 64),
+            parser_version = BmsLibraryDbGateway.CurrentChartInfoParserVersion,
+            notes = notes
+        };
     }
 
     private sealed class RecordingDialogService : IBmsLibraryDialogService

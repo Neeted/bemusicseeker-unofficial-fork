@@ -1695,10 +1695,13 @@ internal sealed class BmsLibraryPackageInstallService
         maintenanceStopwatch.Stop();
         result.MaintenanceMs = maintenanceStopwatch.ElapsedMilliseconds;
 
-        Stopwatch zeroNoteStopwatch = Stopwatch.StartNew();
-        updateZeroNote?.Invoke(addedBmsFiles);
-        zeroNoteStopwatch.Stop();
-        result.ZeroNoteMs = zeroNoteStopwatch.ElapsedMilliseconds;
+        if (updateZeroNote != null)
+        {
+            Stopwatch zeroNoteStopwatch = Stopwatch.StartNew();
+            updateZeroNote(addedBmsFiles);
+            zeroNoteStopwatch.Stop();
+            result.ZeroNoteMs = zeroNoteStopwatch.ElapsedMilliseconds;
+        }
 
         Stopwatch scoreStopwatch = Stopwatch.StartNew();
         applyScores?.Invoke(addedBmsFiles);

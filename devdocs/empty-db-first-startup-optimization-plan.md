@@ -68,7 +68,7 @@ warning は DB 永続化しない。起動時・file diff 追加時の判定で�
 
 ## ゼロノート
 
-### 現状
+### 旧仕様
 
 `BMSFilesZeroNote` は `file.notes == 0` を見る。`file.notes` は LR2 `song.karinotes` の wrapper であり、`chart_info.notes` ではない。
 
@@ -76,26 +76,25 @@ BeMusicSeeker が `karinotes = 0` を入れる経路は、`setZeroNoteAndCommitT
 
 この挙動はゼロノート検索画面のための補助だったと考えられるが、現在は `chart_info` parser があり、より正確な note count を持てる。
 
-### 修正方針
+### 現行仕様
 
-- BeMusicSeeker から LR2 `song.karinotes` を補完する処理を廃止する。
-  - `setZeroNoteAndCommitToDB()` は削除または no-op 化する。
-  - package install 後の zero-note commit も廃止する。
-  - `UpdateZeroNoteAndCommit()` / `SetNotesIfZeroNote()` は production flow から外す。
-- `ゼロノート検索` は `chart_info.notes == 0` の BMS 譜面を表示する画面に変更する。
-  - bmson を含めるかは別判断。現状のメンテナンス系画面は BMS 専用意味が強いため、まず BMS のみでよい。
-  - `chart_info` 未生成 / parse failure は表示対象外にする。
+- BeMusicSeeker から LR2 `song.karinotes` を補完する処理は廃止済み。
+  - 起動時、遅延メンテナンス、package install 後の zero-note commit は行わない。
+  - `UpdateZeroNoteAndCommit()` / `SetNotesIfZeroNote()` は production flow から削除した。
+- `ゼロノート検索` は `chart_info.notes == 0` の BMS 譜面を表示する。
+  - bmson は対象外。
+  - `chart_info` 未生成 / parse failure は表示対象外。
 - `karinotes` は LR2 が管理する値として扱い、本アプリでは書き換えない。
 
 ### 正規表現ベース機能として残すもの
 
 `BMSFile.IsZeroNoteBMSFile()` は、詳細 parser とは別用途で残す。
 
-- `ゼロノート再判定する`
+- `ゼロノート記述確認`
   - 旧: `karinotes = 0` の妥当性再確認。
   - 新: `chart_info.notes = 0` の譜面について、正規表現上は可視ノートらしき記述が存在するか確認する。
   - RANDOM 分岐、不正な LN ペア、構文不整合などにより parser では 0 notes になるが、譜面本文には可視ノート風の記述があるケースを `ZeroNoteMismatch` warning として検出する。
-  - UI 文言は「ゼロノート再判定」よりも「ゼロノート記述確認」などへ変更する余地がある。
+  - UI 文言は `ゼロノート記述確認` とする。
 - 保留画面の「ゼロノート譜面を無効な拡張子に変更」
   - 詳細 parse をせず、本文に確実に可視ノートらしき記述がない譜面だけを安全側に処理する用途として残す。
   - 現行の正規表現は RDM 記法 LN も可視ノート扱いにする。
@@ -176,10 +175,12 @@ BeMusicSeeker が `karinotes = 0` を入れる経路は、`setZeroNoteAndCommitT
 
 ### Phase 2: zero-note source of truth 移行
 
-- `setZeroNoteAndCommitToDB()` を production flow から外す。
-- `BMSFilesZeroNote` を `chart_info.notes == 0` ベースへ変更する。
-- `RecheckZeroNoteWarnings()` の候補を `chart_info.notes == 0` へ移す。
-- 正規表現ベース機能の UI 文言を「parser ではゼロだが可視ノート風記述がある譜面の確認」へ寄せる。
+完了済み。
+
+- `setZeroNoteAndCommitToDB()` を production flow から外した。
+- `BMSFilesZeroNote` を `chart_info.notes == 0` ベースへ変更した。
+- `RecheckZeroNoteWarnings()` の候補を `chart_info.notes == 0` へ移した。
+- 正規表現ベース機能の UI 文言を `ゼロノート記述確認` へ変更した。
 
 ### Phase 3: installable maintenance 進捗と観測性
 

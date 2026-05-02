@@ -440,7 +440,7 @@ Phase 3 完了判断:
 確認対象:
 
 - playlist 行からの削除、playlist 内の別 folder への移動が、行選択変更なしで表示に反映される。
-- ゼロノート検索 tree の右クリック「ゼロノート再判定する」で `WARNING` / highlight が即時反映される。
+- ゼロノート検索 tree の右クリック「ゼロノート記述確認」で `WARNING` / highlight が即時反映される。
 - 文字化け修正機能で `ENCODING` / `TITLE` / `ARTIST` が即時反映される。
 - 大量更新時も redraw request が coalesce され、操作が極端に重くならない。
 - ライブラリ一覧の PATH sort で、可視購読数が 20 万行ではなく可視行 + overscan 程度に収まり、`buildToVisibleRenderMs` / `callback_exec_sort buildToRenderMs` が Phase 5.5 回帰前相当に戻る。
