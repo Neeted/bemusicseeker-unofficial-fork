@@ -14,6 +14,8 @@ internal sealed class MaintenanceWorkflowResult
 
     public int BmsonReparseFailedCount { get; set; }
 
+    public int BmsonResourceReferenceReusedCount { get; set; }
+
     public int MaintenanceInfoUpsertCount { get; set; }
 
     public int SongUpsertCount { get; set; }

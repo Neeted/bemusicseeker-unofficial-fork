@@ -267,6 +267,7 @@ internal sealed class BmsLibraryMaintenanceService
             object bmsonReparseLock = new object();
             int bmsonReparsedInSection = 0;
             int bmsonReparseFailedInSection = 0;
+            int bmsonResourceReferencesReusedInSection = 0;
             List<BMSFile> filesInSection = section.Where((BMSFile file) => file != null).ToList();
             filesInSection.AsParallel().ForAll(delegate (BMSFile file)
             {
@@ -277,7 +278,7 @@ internal sealed class BmsLibraryMaintenanceService
                     file.maintenanceInfo.NormalizeForBmson(file.path, file.hash);
                     if (forceUpdate || !file.maintenanceInfo.IsInformationChecked())
                     {
-                        BmsonResourceRefreshResult refreshResult = TryRefreshBmsonResourceReferences(file);
+                        BmsonResourceRefreshResult refreshResult = TryRefreshBmsonResourceReferences(file, forceUpdate);
                         if (refreshResult == BmsonResourceRefreshResult.Success)
                         {
                             lock (bmsonReparseLock)
@@ -292,6 +293,13 @@ internal sealed class BmsLibraryMaintenanceService
                                 bmsonReparseFailedInSection++;
                             }
                             return;
+                        }
+                        else if (refreshResult == BmsonResourceRefreshResult.Reused)
+                        {
+                            lock (bmsonReparseLock)
+                            {
+                                bmsonResourceReferencesReusedInSection++;
+                            }
                         }
                     }
                 }
@@ -378,17 +386,22 @@ internal sealed class BmsLibraryMaintenanceService
             }
             result.BmsonReparsedCount += bmsonReparsedInSection;
             result.BmsonReparseFailedCount += bmsonReparseFailedInSection;
+            result.BmsonResourceReferenceReusedCount += bmsonResourceReferencesReusedInSection;
         }
         stopwatch.Stop();
         result.TotalMs = stopwatch.ElapsedMilliseconds;
         return result;
     }
 
-    private static BmsonResourceRefreshResult TryRefreshBmsonResourceReferences(BMSFile file)
+    private static BmsonResourceRefreshResult TryRefreshBmsonResourceReferences(BMSFile file, bool forceUpdate)
     {
         if (file is not PendingChartEntry pending || !pending.IsBmsonChart || string.IsNullOrWhiteSpace(pending.path) || !File.Exists(pending.path))
         {
             return BmsonResourceRefreshResult.NotApplicable;
+        }
+        if (!forceUpdate && HasFreshCurrentBmsonResourceReferences(pending))
+        {
+            return BmsonResourceRefreshResult.Reused;
         }
         try
         {
@@ -402,9 +415,27 @@ internal sealed class BmsLibraryMaintenanceService
         }
     }
 
+    private static bool HasFreshCurrentBmsonResourceReferences(PendingChartEntry pending)
+    {
+        LR2SongDBExtended.bmson_song song = pending?.BmsonSong;
+        if (song == null || !song.HasFreshResourceReferences || string.IsNullOrWhiteSpace(song.path))
+        {
+            return false;
+        }
+        try
+        {
+            return File.Exists(song.path) && File.GetLastWriteTimeUtc(song.path) == song.updated_at;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     private enum BmsonResourceRefreshResult
     {
         NotApplicable,
+        Reused,
         Success,
         Failed
     }

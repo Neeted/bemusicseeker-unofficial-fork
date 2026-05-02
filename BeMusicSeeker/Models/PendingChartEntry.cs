@@ -250,6 +250,7 @@ public sealed class PendingChartEntry : BMSFile
         mode = BmsonSongParser.ResolvePlaylistMode(song.mode_hint);
         WAVfiles = new HashSet<string>(song.wav_files ?? Enumerable.Empty<string>(), StringComparer.OrdinalIgnoreCase);
         BGAfiles = new HashSet<string>(song.bga_files ?? Enumerable.Empty<string>(), StringComparer.OrdinalIgnoreCase);
+        ClearComponentFileCache();
         SetDisplayValue(ref displayTitle, BmsonSongParser.ComposeDisplayTitle(song), nameof(Title));
         SetDisplayValue(ref displayArtist, song.artist ?? string.Empty, nameof(Artist));
         SetDisplayValue(ref displayLevel, song.level?.ToString() ?? string.Empty, nameof(Level));
@@ -269,6 +270,7 @@ public sealed class PendingChartEntry : BMSFile
         target.preview_music = parsed.preview_music;
         target.wav_files = parsed.wav_files ?? new List<string>();
         target.bga_files = parsed.bga_files ?? new List<string>();
+        target.HasFreshResourceReferences = parsed.HasFreshResourceReferences;
         if (target.MaintenanceInfo == null)
         {
             target.MaintenanceInfo = maintenanceInfo;
@@ -278,6 +280,7 @@ public sealed class PendingChartEntry : BMSFile
         backbmp = target.backbmp;
         WAVfiles = new HashSet<string>(target.wav_files ?? Enumerable.Empty<string>(), StringComparer.OrdinalIgnoreCase);
         BGAfiles = new HashSet<string>(target.bga_files ?? Enumerable.Empty<string>(), StringComparer.OrdinalIgnoreCase);
+        ClearComponentFileCache();
     }
 
     internal void ReplaceBmsonSongReferenceAfterInstall(LR2SongDBExtended.bmson_song installedSong)
@@ -298,6 +301,7 @@ public sealed class PendingChartEntry : BMSFile
         installedSong.MaintenanceInfo = nextMaintenanceInfo;
         WAVfiles = new HashSet<string>(installedSong.wav_files ?? Enumerable.Empty<string>(), StringComparer.OrdinalIgnoreCase);
         BGAfiles = new HashSet<string>(installedSong.bga_files ?? Enumerable.Empty<string>(), StringComparer.OrdinalIgnoreCase);
+        ClearComponentFileCache();
     }
 
     public static bool IsBmsonFilePath(string filePath)

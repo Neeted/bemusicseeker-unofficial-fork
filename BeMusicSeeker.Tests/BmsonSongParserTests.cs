@@ -195,6 +195,8 @@ public sealed class BmsonSongParserTests
             var actual = BmsonSongParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(filePath));
 
             AssertBmsonEqual(expected, actual);
+            Assert.IsTrue(expected.HasFreshResourceReferences);
+            Assert.IsTrue(actual.HasFreshResourceReferences);
         }
         finally
         {
@@ -235,6 +237,7 @@ public sealed class BmsonSongParserTests
             Assert.AreEqual("Before", actual.title);
             Assert.AreEqual(snapshot.Md5, actual.md5);
             Assert.AreEqual(snapshot.Sha256, actual.sha256);
+            Assert.IsTrue(actual.HasFreshResourceReferences);
             Assert.AreNotEqual(BmsonSongParser.Parse(filePath).md5, actual.md5);
         }
         finally

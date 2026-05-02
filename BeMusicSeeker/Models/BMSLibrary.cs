@@ -4826,6 +4826,7 @@ public class BMSLibrary : NotificationObject
                         + " maintenanceUpserted=" + maintenanceResult.MaintenanceInfoUpsertCount
                         + " bmsonReparsed=" + maintenanceResult.BmsonReparsedCount
                         + " bmsonReparseFailed=" + maintenanceResult.BmsonReparseFailedCount
+                        + " bmsonResourceRefsReused=" + maintenanceResult.BmsonResourceReferenceReusedCount
                         + " songReloaded=" + maintenanceResult.ReloadedSongCount
                         + " set_mode_ms=" + setModeMs
                         + " set_health_ms=" + setHealthMs
@@ -4846,6 +4847,7 @@ public class BMSLibrary : NotificationObject
                         + " maintenanceUpserted=" + maintenanceResult.MaintenanceInfoUpsertCount
                         + " bmsonReparsed=" + maintenanceResult.BmsonReparsedCount
                         + " bmsonReparseFailed=" + maintenanceResult.BmsonReparseFailedCount
+                        + " bmsonResourceRefsReused=" + maintenanceResult.BmsonResourceReferenceReusedCount
                         + " songReloaded=" + maintenanceResult.ReloadedSongCount
                         + " set_mode_ms=" + setModeMs
                         + " set_health_ms=" + setHealthMs
@@ -6176,7 +6178,7 @@ public class BMSLibrary : NotificationObject
             using (rwlockSongDBMaintenance.GetWriterGuard())
             {
                 workflowResult = maintenanceService.UpdateMaintenanceInfo(maintenanceTargets, forceUpdate, bmsFolderAllFileList, dbGateway, dialogService);
-                if (workflowResult.CheckedFileCount > 0 || workflowResult.BmsonReparsedCount > 0 || workflowResult.BmsonReparseFailedCount > 0)
+                if (workflowResult.CheckedFileCount > 0 || workflowResult.BmsonReparsedCount > 0 || workflowResult.BmsonReparseFailedCount > 0 || workflowResult.BmsonResourceReferenceReusedCount > 0)
                 {
                     LogInstallPerformance("maintenance_update checked=" + workflowResult.CheckedFileCount
                         + " bmsResourceTargets=" + workflowResult.BmsResourceTargetCount
@@ -6184,6 +6186,7 @@ public class BMSLibrary : NotificationObject
                         + " maintenanceUpserted=" + workflowResult.MaintenanceInfoUpsertCount
                         + " bmsonReparsed=" + workflowResult.BmsonReparsedCount
                         + " bmsonReparseFailed=" + workflowResult.BmsonReparseFailedCount
+                        + " bmsonResourceRefsReused=" + workflowResult.BmsonResourceReferenceReusedCount
                         + " songReloaded=" + workflowResult.ReloadedSongCount
                         + " elapsedMs=" + workflowResult.TotalMs);
                 }

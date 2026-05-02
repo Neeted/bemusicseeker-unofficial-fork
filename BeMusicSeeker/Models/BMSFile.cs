@@ -1617,6 +1617,20 @@ public class BMSFile : LR2SongDB.song
         }
     }
 
+    internal void ClearComponentFileCache()
+    {
+        lock (filesCacheLock)
+        {
+            localWAVfilesNameHashArray = null;
+            localBGAfilesNameHashArray = null;
+            localBGAfilesMovieNameHashArray = null;
+            nonlocalWAVfiles = null;
+            nonlocalBGAfiles = null;
+            nonlocalBGAfilesMovie = null;
+            directoryStructureCache = null;
+        }
+    }
+
     public void SetMode()
     {
         BMSFile bMSFile = CreateBMSFileFromFile(path);

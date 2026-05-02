@@ -919,6 +919,13 @@ public sealed class LR2SongDBExtended : LR2SongDB
         public List<string> bga_files { get; set; } = new List<string>();
 
         /// <summary>
+        /// この実行中に parser から resource reference を構築済みかどうか。
+        /// DB へ保存せず、file diff 直後の maintenance で再パースを避けるためだけに使います。
+        /// </summary>
+        [Ignore]
+        public bool HasFreshResourceReferences { get; set; }
+
+        /// <summary>
         /// sha256 で照合した譜面解析メタデータです。
         /// </summary>
         [Ignore]

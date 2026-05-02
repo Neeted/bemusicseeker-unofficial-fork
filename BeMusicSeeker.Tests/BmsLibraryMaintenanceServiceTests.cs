@@ -537,6 +537,202 @@ public sealed class BmsLibraryMaintenanceServiceTests
     }
 
     [TestMethod]
+    public void UpdateMaintenanceInfo_BmsonUsesFreshResourceReferencesWithoutReparse()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        BmsLibraryMaintenanceService service = new BmsLibraryMaintenanceService();
+        string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectoryPath);
+        string bmsonFilePath = Path.Combine(tempDirectoryPath, "chart.bmson");
+        string songDbPath = Path.Combine(tempDirectoryPath, "song.db");
+        File.WriteAllText(
+            bmsonFilePath,
+            "{ \"info\": { \"title\": \"Bmson\", \"artist\": \"Artist\", \"eyecatch_image\": \"missing.png\" }, \"sound_channels\": [{ \"name\": \"missing.wav\", \"notes\": [] }] }",
+            new UTF8Encoding(false));
+        try
+        {
+            LR2SongDBExtended.bmson_song song = BmsonSongParser.Parse(bmsonFilePath);
+            DateTime timestamp = song.updated_at;
+            PendingChartEntry file = PendingChartEntry.CreateFromBmsonSong(song);
+            File.WriteAllText(bmsonFilePath, "{ \"info\": { \"title\": \"Broken\" }, \"bga\": \"unterminated", new UTF8Encoding(false));
+            File.SetLastWriteTimeUtc(bmsonFilePath, timestamp);
+            using (LR2SongDBExtended songDb = new LR2SongDBExtended(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDBExtended.maintenance>();
+                songDb.CreateTable<LR2SongDB.song>();
+            }
+
+            MaintenanceWorkflowResult result = service.UpdateMaintenanceInfo(
+                new[] { file },
+                forceUpdate: false,
+                new BMSDirectoryFileNameHash(),
+                new BmsLibraryDbGateway(songDbPath),
+                null);
+
+            Assert.IsTrue(result.HasUpdates);
+            Assert.AreEqual(1, result.BmsonResourceTargetCount);
+            Assert.AreEqual(0, result.BmsonReparsedCount);
+            Assert.AreEqual(0, result.BmsonReparseFailedCount);
+            Assert.AreEqual(1, result.BmsonResourceReferenceReusedCount);
+            Assert.AreEqual(1, file.maintenanceInfo.wav_files_defined);
+            Assert.AreEqual(0, file.maintenanceInfo.wav_files_existing);
+            Assert.AreEqual(true, file.maintenanceInfo.is_stagefile_defined);
+            Assert.AreEqual(false, file.maintenanceInfo.is_stagefile_existing);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectoryPath))
+            {
+                Directory.Delete(tempDirectoryPath, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void UpdateMaintenanceInfo_BmsonFreshReferencesAreStaleWhenTimestampChanges()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        BmsLibraryMaintenanceService service = new BmsLibraryMaintenanceService();
+        string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectoryPath);
+        string bmsonFilePath = Path.Combine(tempDirectoryPath, "chart.bmson");
+        string songDbPath = Path.Combine(tempDirectoryPath, "song.db");
+        File.WriteAllText(
+            bmsonFilePath,
+            "{ \"info\": { \"title\": \"Bmson\" }, \"sound_channels\": [{ \"name\": \"missing.wav\", \"notes\": [] }] }",
+            new UTF8Encoding(false));
+        try
+        {
+            PendingChartEntry file = PendingChartEntry.CreateFromBmsonSong(BmsonSongParser.Parse(bmsonFilePath));
+            File.WriteAllText(bmsonFilePath, "{ \"info\": { \"title\": \"Broken\" }, \"bga\": \"unterminated", new UTF8Encoding(false));
+            File.SetLastWriteTimeUtc(bmsonFilePath, file.BmsonSong.updated_at.AddMinutes(1));
+            using (LR2SongDBExtended songDb = new LR2SongDBExtended(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDBExtended.maintenance>();
+                songDb.CreateTable<LR2SongDB.song>();
+            }
+
+            MaintenanceWorkflowResult result = service.UpdateMaintenanceInfo(
+                new[] { file },
+                forceUpdate: false,
+                new BMSDirectoryFileNameHash(),
+                new BmsLibraryDbGateway(songDbPath),
+                null);
+
+            Assert.IsFalse(result.HasUpdates);
+            Assert.AreEqual(1, result.BmsonResourceTargetCount);
+            Assert.AreEqual(0, result.BmsonReparsedCount);
+            Assert.AreEqual(1, result.BmsonReparseFailedCount);
+            Assert.AreEqual(0, result.BmsonResourceReferenceReusedCount);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectoryPath))
+            {
+                Directory.Delete(tempDirectoryPath, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void UpdateMaintenanceInfo_BmsonNonFreshRowReparsesResourceReferences()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        BmsLibraryMaintenanceService service = new BmsLibraryMaintenanceService();
+        string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectoryPath);
+        string bmsonFilePath = Path.Combine(tempDirectoryPath, "chart.bmson");
+        string songDbPath = Path.Combine(tempDirectoryPath, "song.db");
+        File.WriteAllText(
+            bmsonFilePath,
+            "{ \"info\": { \"title\": \"Bmson\" }, \"sound_channels\": [{ \"name\": \"missing.wav\", \"notes\": [] }] }",
+            new UTF8Encoding(false));
+        try
+        {
+            LR2SongDBExtended.bmson_song parsed = BmsonSongParser.Parse(bmsonFilePath);
+            LR2SongDBExtended.bmson_song loadedLikeRow = new LR2SongDBExtended.bmson_song
+            {
+                path = parsed.path,
+                folder = parsed.folder,
+                title = parsed.title,
+                md5 = parsed.md5,
+                sha256 = parsed.sha256,
+                updated_at = parsed.updated_at
+            };
+            PendingChartEntry file = PendingChartEntry.CreateFromBmsonSong(loadedLikeRow);
+            using (LR2SongDBExtended songDb = new LR2SongDBExtended(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDBExtended.maintenance>();
+                songDb.CreateTable<LR2SongDB.song>();
+            }
+
+            MaintenanceWorkflowResult result = service.UpdateMaintenanceInfo(
+                new[] { file },
+                forceUpdate: false,
+                new BMSDirectoryFileNameHash(),
+                new BmsLibraryDbGateway(songDbPath),
+                null);
+
+            Assert.IsTrue(result.HasUpdates);
+            Assert.AreEqual(1, result.BmsonResourceTargetCount);
+            Assert.AreEqual(1, result.BmsonReparsedCount);
+            Assert.AreEqual(0, result.BmsonReparseFailedCount);
+            Assert.AreEqual(0, result.BmsonResourceReferenceReusedCount);
+            Assert.AreEqual(1, file.maintenanceInfo.wav_files_defined);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectoryPath))
+            {
+                Directory.Delete(tempDirectoryPath, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void UpdateMaintenanceInfo_BmsonForceUpdateReparsesFreshResourceReferences()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        BmsLibraryMaintenanceService service = new BmsLibraryMaintenanceService();
+        string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectoryPath);
+        string bmsonFilePath = Path.Combine(tempDirectoryPath, "chart.bmson");
+        string songDbPath = Path.Combine(tempDirectoryPath, "song.db");
+        File.WriteAllText(
+            bmsonFilePath,
+            "{ \"info\": { \"title\": \"Bmson\" }, \"sound_channels\": [{ \"name\": \"missing.wav\", \"notes\": [] }] }",
+            new UTF8Encoding(false));
+        try
+        {
+            PendingChartEntry file = PendingChartEntry.CreateFromBmsonSong(BmsonSongParser.Parse(bmsonFilePath));
+            using (LR2SongDBExtended songDb = new LR2SongDBExtended(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDBExtended.maintenance>();
+                songDb.CreateTable<LR2SongDB.song>();
+            }
+
+            MaintenanceWorkflowResult result = service.UpdateMaintenanceInfo(
+                new[] { file },
+                forceUpdate: true,
+                new BMSDirectoryFileNameHash(),
+                new BmsLibraryDbGateway(songDbPath),
+                null);
+
+            Assert.IsTrue(result.HasUpdates);
+            Assert.AreEqual(1, result.BmsonResourceTargetCount);
+            Assert.AreEqual(1, result.BmsonReparsedCount);
+            Assert.AreEqual(0, result.BmsonResourceReferenceReusedCount);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectoryPath))
+            {
+                Directory.Delete(tempDirectoryPath, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
     public void UpdateMaintenanceInfo_MixedBmsAndBmsonResourceHealth_ScansBothButDoesNotCreateBmsonSongRows()
     {
         TestResourceInitializer.EnsureJapaneseResources();

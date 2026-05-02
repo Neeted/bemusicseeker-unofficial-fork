@@ -70,6 +70,7 @@ internal static class BmsonSongParser
         result.wav_files = ReadBmsonWavFiles(root, result.preview_music);
         result.bga_files = ReadBmsonBgaFiles(root);
         result.MaintenanceInfo = BMSFileMaintenanceInfo.CreateForBmson(result.path, result.md5);
+        result.HasFreshResourceReferences = true;
         return result;
     }
 

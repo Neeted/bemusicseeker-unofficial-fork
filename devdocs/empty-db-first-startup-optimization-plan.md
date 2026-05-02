@@ -202,9 +202,14 @@ BeMusicSeeker が `karinotes = 0` を入れる経路は、`setZeroNoteAndCommitT
 
 ### Phase 4: bmson maintenance 再パース削減
 
-- file diff の `BmsonSongParser.ParseSnapshot()` 結果から resource refs を maintenance に渡す。
-- 初回追加 bmson は `TryRefreshBmsonResourceReferences()` を skip する。
-- 既存 bmson / stale bmson は従来通り再パースする。
+完了済み。
+
+- `bmson_song` に runtime-only の fresh resource refs state を追加した。
+- `BmsonSongParser.Parse()` / `ParseSnapshot()` で構築した `wav_files` / `bga_files` / stage/banner/backbmp/preview を、同一プロセス内の maintenance へ引き継ぐ。
+- `forceUpdate == false`、fresh state あり、かつ `updated_at` が現在の `LastWriteTimeUtc` と一致する bmson は、`TryRefreshBmsonResourceReferences()` の再パースを skip する。
+- DB からロードした bmson は fresh state を持たないため、安全側で従来通り再パースする。
+- `forceUpdate == true` は明示再確認として従来通り再パースする。
+- `maintenance_update` と `installable_maintenance_deferred` log に `bmsonResourceRefsReused` を追加した。
 
 ### Phase 5: health / warning 適用の軽量化
 
