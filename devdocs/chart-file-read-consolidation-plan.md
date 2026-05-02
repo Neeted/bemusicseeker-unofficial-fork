@@ -4,28 +4,29 @@
 
 初期化・リロード時の `ファイル差分確認` と、background の `譜面メタデータ解析` は、どちらも譜面ファイル本体を読む。
 
-現状は役割が分かれているため動作としては正しいが、新規追加・更新譜面では同じファイルを複数回読む可能性がある。
+Phase 1-2 で、`ApplyFileScanDiff()` 内の BMS / bmson 追加・更新 parse は `ChartFileSnapshot` による single-read と bounded parallelism になった。残る大きな重複は、追加・更新譜面を lightweight parser で登録した後、別の `ChartInfoBuildService` backfill が同じ譜面を再 read する点である。
 
-- `ファイル差分確認`
-  - `song` / `bmson_song` 登録に必要な軽量 metadata、resource 参照、MD5 / SHA-256 を作る。
-  - BMS / bmson の parser はアプリ内一覧・検索・保守用の登録を優先する。
-- `譜面メタデータ解析`
-  - `chart_info` 用の詳細 metadata を作る。
-  - beatoraja 相当の解析、parser version、timeout、parse failure 永続化を持つ。
+今後の方針は、追加・更新譜面については `ApplyFileScanDiff()` の snapshot bytes を使って lightweight parse と chart_info parse を同じ処理単位内で連続実行することに寄せる。これにより、空DBに数万譜面を追加する初回起動でも「数万件分の bytes を長時間保持して後続 backfill に渡す」のではなく、各譜面の snapshot が生きている間に chart_info まで処理する。
 
-この計画では parser の役割は最後まで分けたままにする。まず read / hash 計算 / bytes 受け渡しを整理し、最終的に追加・更新譜面の二重 read をほとんど消すことを目標にする。
+既存 DB に多数の `song` / `bmson_song` があり、現在のアプリの `chart_info` が未整備なケースは、引き続き full / legacy backfill の役割とする。
+
+この計画では parser の役割は最後まで分けたままにする。
+
+- lightweight parser: `song` / `bmson_song` 登録、一覧・検索・保守用 metadata を作る。
+- chart_info parser: beatoraja 相当の詳細 metadata、parser version、timeout、parse failure 永続化を担う。
 
 ## 現状
 
 | 処理 | 対象 | 読み込み | 並列化 | 出力 |
 | --- | --- | --- | --- | --- |
-| `ApplyFileScanDiff()` BMS 追加 | 新規 `.bms/.bme/.bml/.pms` | `ChartFileContentReader.ReadSnapshot()` で bytes / MD5 / SHA-256 / 更新時刻を取得し、snapshot bytes から軽量 parse | PLINQ `AsParallel()` | `song`, `chart_digest_map`, `BMSFile` |
-| `ApplyFileScanDiff()` bmson 追加/更新 | 新規・更新 `.bmson` | `ChartFileContentReader.ReadSnapshot()` で bytes / MD5 / SHA-256 / 更新時刻を取得し、snapshot bytes から JSON parse | PLINQ `AsParallel()` | `bmson_song`, `BmsonSong` |
-| `ChartInfoBuildService` | `chart_info` 不足・stale・targeted 追加 | `File.ReadAllBytes`。MD5 / SHA-256 は不足時だけ bytes から計算 | reader 1本、bounded queue、worker 最大4本 | `chart_info`, `chart_digest_map`, `chart_info_parse_failure` |
+| `ApplyFileScanDiff()` BMS 追加 | 新規 `.bms/.bme/.bml/.pms` | `ChartFileContentReader.ReadSnapshot()` で bytes / MD5 / SHA-256 / 更新時刻を取得し、snapshot bytes から lightweight parse | bounded PLINQ | `song`, `chart_digest_map`, `BMSFile` |
+| `ApplyFileScanDiff()` bmson 追加/更新 | 新規・更新 `.bmson` | `ChartFileContentReader.ReadSnapshot()` で bytes / MD5 / SHA-256 / 更新時刻を取得し、snapshot bytes から JSON parse | bounded PLINQ | `bmson_song`, `BmsonSong` |
+| `ChartInfoBuildService` added request | インストール等で追加された譜面 | `File.ReadAllBytes` で再 read | reader 1本、bounded queue、worker 最大4本 | `chart_info`, `chart_digest_map`, `chart_info_parse_failure` |
+| `ChartInfoBuildService` full request | 既存DB補完、stale parser version 補完 | `File.ReadAllBytes` | reader 1本、bounded queue、worker 最大4本 | `chart_info`, `chart_digest_map`, `chart_info_parse_failure` |
 
-Phase 1 後は、file diff 内の BMS / bmson 追加・更新 parse は原則 1 read になっている。ただし、その後 `chart_info` が必要なら `ChartInfoBuildService` がもう一度 bytes 読みするため、file diff と metadata 解析の間にはまだ二重 read が残る。
+Phase 1-2 後も、追加・更新譜面は lightweight parse 後に added request / full request へ回ると二重 read になり得る。
 
-ただし次のケースでは `chart_info` 側の追加 read は避けられる。
+ただし次のケースでは chart_info 側の追加 read は避けられる。
 
 - metadata bundle import などで current `chart_info` が既に存在する。
 - current `chart_info_parse_failure` が md5 に存在する。
@@ -33,13 +34,11 @@ Phase 1 後は、file diff 内の BMS / bmson 追加・更新 parse は原則 1 
 
 ## 目標
 
-- 追加・更新譜面の file diff 内 read を原則 1 回にする。
-- file diff で読んだ bytes と digest を targeted `chart_info` backfill に渡す。
-- full backfill や大量 legacy 補完では、従来通り bounded reader pipeline を使う。
+- 追加・更新譜面は file diff の snapshot bytes から lightweight metadata と chart_info metadata の両方を作る。
+- 追加・更新譜面を後続 added backfill に回す必要をなくす。
+- full / legacy backfill は「既にDBにある譜面の chart_info 補完」専用に近づける。
+- 大量追加時でも snapshot bytes を長時間保持しない。
 - parser は統合しない。
-  - 軽量登録 parser は `song` / `bmson_song` のために残す。
-  - `chart_info` parser は詳細解析・timeout・parse failure 管理のために残す。
-- bytes 保持は積極的に使うが、上限と fallback を必ず持つ。
 
 ## 最終形
 
@@ -53,60 +52,58 @@ File scan
   -> lightweight parser
        BMSFile.CreateBMSFileFromSnapshot(...)
        BmsonSongParser.ParseSnapshot(...)
-  -> DB upsert song / bmson_song / chart_digest_map
-  -> targeted chart_info request with optional snapshots
-  -> ChartInfoBuildService
-       if usable snapshot exists, parse chart_info from snapshot bytes
-       otherwise File.ReadAllBytes fallback
+  -> chart_info parser
+       ChartInfoParser.ParseBytesDetailed(snapshot.Bytes, snapshot.Path, snapshot.Md5, snapshot.Sha256, ...)
+       or skip if current chart_info / parse failure already covers the snapshot
+  -> DB transaction
+       upsert song / bmson_song
+       upsert chart_digest_map
+       upsert chart_info or chart_info_parse_failure
+  -> memory apply
+       BMSFile.ChartInfo / bmson_song.ChartInfo
+       chart_info index delta
 ```
 
-`ChartFileSnapshot` は file diff の結果に紐付く一時データであり、DB には保存しない。
+`ChartFileSnapshot` は各譜面の処理中だけ使う一時データであり、DB や長期 model へ保持しない。full backfill は従来通り path から read する。
 
-## Bytes 保持ポリシー
+## Snapshot 利用ポリシー
 
-大量追加時でも二重 read を避けるため、追加・更新譜面の bytes はできるだけ保持する。
+以前の計画では追加・更新譜面の snapshot bytes を result に保持し、後続 targeted backfill へ渡す想定だった。新方針では長期保持を行わない。
 
-推奨初期値:
+| 項目 | 方針 |
+| --- | --- |
+| retention scope | 追加・更新譜面 1 件の parse 処理中のみ |
+| total cap | 原則不要。処理中の bounded parallelism が上限になる |
+| per file cap | Phase 3 では設けない。異常に大きい file への対策が必要なら別途追加 |
+| full backfill | snapshot handoff なし。従来の reader pipeline を維持 |
+| install package 追加 | 将来的に同様の inline chart_info 化対象にする |
 
-| 項目 | 値 | 意図 |
-| --- | ---: | --- |
-| 64bit process total cap | 1024 MiB | 平均的な譜面なら 1 万譜面程度を保持しやすい |
-| 32bit process total cap | 256 MiB | address space 圧迫を避ける |
-| per file cap | 16 MiB | 異常に大きい譜面で cache を占有しない |
-| retention scope | targeted added / updated charts only | full backfill では保持しない |
-
-cap 超過時は bytes を保持せず、`chart_info` 側で従来通り read fallback する。処理結果は変えず、log で `retainedBytes`, `droppedBytes`, `droppedCount`, `reason=cache_limit` を見られるようにする。
+大量追加時のメモリ使用量は、おおむね `file diff parser degree` × `同時処理中 snapshot bytes` に収まる。数万譜面をすべて保持する設計にはしない。
 
 ## Phase 0: 現状計測と安全網
 
 ### 目的
 
-実装前に、実際の重複 read の規模と bytes 保持の効果を見積もれるようにする。
+実装前に、実際の重複 read の規模を見積もれるようにする。
 
-### 変更案
+### 完了済み内容
 
-- `ApplyFileScanDiff()` の result / log に次を追加する。
+- `ApplyFileScanDiff()` の result / log に次を追加した。
   - `BmsAddedTargetCount`
   - `BmsonUpsertTargetCount`
   - `BmsParseMs`
   - `BmsonParseMs`
   - `ParseReadBytesEstimate`
-- `ParseReadBytesEstimate` は Phase 0 時点では旧実装の概算として `FileInfo.Length * 3` を合算していた。Phase 1 後は file diff 内の single-read 化に合わせ、BMS / bmson target file の `FileInfo.Length` 合算へ更新する。length 取得に失敗した file は 0 扱いにし、差分確認自体は失敗させない。
-- `song_tbl_file_check_breakdown` に `bms_added_target_count`, `bmson_upsert_target_count`, `bms_parse_ms`, `bmson_parse_ms`, `parse_read_bytes_estimate` を出す。
-- `ChartInfoBuildService` の result / log に次を追加する。
+- `ChartInfoBuildService` の result / log に次を追加した。
   - `Mode`
   - `FileReadCount`
   - `FileReadBytes`
   - `CurrentRowSkippedCount`
-- `chart_info_backfill total=...` と `chart_info_backfill done ...` に `mode`, `fileReadCount`, `fileReadBytes`, `currentRowSkipped`, `parseFailureSkipped` を出す。
-- `chart_info_backfill start ...` に `currentRowSkipped`, `parseFailureSkipped` を出す。
-- `parseFailureSkipped` は既存 `failureSkipped` の読みやすい alias として追加し、既存 field は残す。
-- `devdocs/current-startup-reload-progress.md` には進捗仕様だけを残し、本資料に read pipeline の整理を集約する。
+  - `parseFailureSkipped` alias
 
 ### 完了条件
 
 - 起動ログから file diff と chart_info の対象数・read 量を比較できる。
-- 挙動変更なし。
 
 ## Phase 1: file diff の single-read 化
 
@@ -114,40 +111,18 @@ cap 超過時は bytes を保持せず、`chart_info` 側で従来通り read fa
 
 `ApplyFileScanDiff()` 内で BMS / bmson を読む回数を減らす。
 
-### 変更案
+### 完了済み内容
 
-- internal 型を追加する。
-  - `ChartFileSnapshot`
-    - `Path`
-    - `Bytes`
-    - `Length`
-    - `LastWriteTimeUtc`
-    - `Md5`
-    - `Sha256`
-  - `ChartFileContentReader`
-    - `ReadSnapshot(path)`
-    - bytes から MD5 / SHA-256 を計算
-- BMS 用 parser を追加する。
-  - `BMSFile.CreateBMSFileFromSnapshot(ChartFileSnapshot snapshot, string codepageName = "shift_jis")`
-  - 既存 `CreateBMSFileFromFile()` は互換用に残し、直接呼び出し時の read / exception behavior は大きく変えない。
-- bmson 用 parser を追加する。
-  - `BmsonSongParser.ParseSnapshot(ChartFileSnapshot snapshot)`
-  - 既存 `Parse(path)` は互換用に残す。
+- `ChartFileSnapshot` / `ChartFileContentReader` を追加した。
+- `BMSFile.CreateBMSFileFromSnapshot(...)` を追加した。
+- `BmsonSongParser.ParseSnapshot(...)` を追加した。
 - `ApplyFileScanDiff()` の追加 BMS / 追加更新 bmson は snapshot 版を使う。
-- `ParseReadBytesEstimate` は single-read の実態に合わせて対象 file length の合算にする。
-
-### 注意点
-
-- BMS の encoding は現状と同じ `shift_jis` default を維持する。
-- bmson は UTF-8 decode を snapshot bytes から行う。
-- parser 失敗時も progress processed は進める。
-- MD5 / SHA-256 は bytes から一度だけ作る。
+- `ParseReadBytesEstimate` は single-read の実態に合わせて対象 file length の合算にした。
 
 ### 完了条件
 
 - file diff 内で BMS / bmson の hash 用 stream read が消える。
 - `song` / `bmson_song` / `chart_digest_map` の出力は現状と一致する。
-- `CreateBMSFileFromFile()` / `BmsonSongParser.Parse(path)` は互換 API として残り、file diff 経路だけ snapshot API を使う。
 
 ## Phase 2: file diff 並列化方針の統一
 
@@ -155,164 +130,147 @@ cap 超過時は bytes を保持せず、`chart_info` 側で従来通り read fa
 
 file diff の PLINQ 無制限並列をやめ、chart_info と近い bounded 方針へ寄せる。
 
-### 変更案
+### 完了済み内容
 
-- `ApplyFileScanDiff()` の parser 並列数を内部設定化する。
+- `ApplyFileScanDiff()` の parser 並列数を内部設定化した。
   - default: `min(4, max(1, Environment.ProcessorCount - 1))`
-  - test override 可能にする。
-- BMS / bmson を別々の PLINQ で無制限に回すのではなく、同じ degree を使う。
-- file diff progress は既存通り BMS + bmson 合算で出す。
+  - test override 可能
+- BMS / bmson は同じ degree を使う。
 - `SongTableFileCheckResult` と `song_tbl_file_check_breakdown` log に `file_diff_parser_degree` を出す。
-
-### 注意点
-
-- HDD / network drive では並列 read が強すぎると悪化するため、まず chart_info と同じ保守的な値に寄せる。
-- Everything scan / fallback enumeration とは別の制御にする。
-- Phase 2 では BMS / bmson の parse block は統合しない。`BmsParseMs` / `BmsonParseMs` の意味を維持する。
-- Phase 2 では reader 1本 + bounded queue 方式へは変更しない。snapshot retention と chart_info handoff の設計に関わるため、Phase 3 以降で扱う。
 
 ### 完了条件
 
 - file diff の CPU / disk 負荷が chart_info と同程度に制御される。
 - 進捗表示と result count は変わらない。
-- 既定 degree と test override がテストで確認できる。
 
-## Phase 3: snapshot retention を result に載せる
+## Phase 3: file diff 内 chart_info inline 解析
 
 ### 目的
 
-file diff で読んだ bytes を、後続 targeted `chart_info` backfill に渡せる形で保持する。
+追加・更新譜面を後続 added backfill に回さず、`ApplyFileScanDiff()` 内で同じ snapshot bytes から chart_info まで生成する。
 
 ### 変更案
 
-- `ApplyFileScanDiffResult` に optional snapshot collection を追加する。
-  - key は sha256 優先、md5、path の順で引けるようにする。
-  - BMS と bmson の両方を扱う。
-- retention policy を実装する。
-  - 64bit total cap 1024 MiB
-  - 32bit total cap 256 MiB
-  - per file cap 16 MiB
-- cap 超過時は snapshot metadata は残しても bytes は破棄する。
-- result log に retention summary を出す。
+- `ChartInfoBuildService` から、単一 snapshot を処理できる internal helper を切り出す。
+  - 入力: `ChartFileSnapshot`, chart kind, current chart_info / parse failure lookup, parse timeout。
+  - 出力: chart_info row、parse failure row、digest entry、skip reason、diagnostics。
+  - 既存 `ParseQueuedItem()` と commit buffer logic の重複を避ける。
+- `ApplyFileScanDiff()` の BMS / bmson parse worker 内で、lightweight parse 成功後に同じ snapshot bytes から chart_info helper を呼ぶ。
+- current `chart_info` が snapshot sha256 で current の場合は chart_info parse を skip し、その row を model に適用する。
+- current `chart_info_parse_failure` が snapshot md5 で current の場合は chart_info parse を skip し、parse failure warning 用情報を維持する。
+- chart_info parse 成功時は、生成 row を `BMSFile.ChartInfo` / `bmson_song.ChartInfo` に適用し、DB commit buffer に入れる。
+- chart_info parse 失敗時は、既存 backfill と同じ形式で `chart_info_parse_failure` row を保存する。`song` / `bmson_song` 登録は失敗させない。
+- file diff の DB transaction で、`song` / `bmson_song` / `chart_digest_map` と一緒に chart_info / parse_failure を upsert する。
+- log に inline chart_info summary を追加する。
+  - `inline_chart_info_target_count`
+  - `inline_chart_info_success_count`
+  - `inline_chart_info_current_skipped_count`
+  - `inline_chart_info_failure_skipped_count`
+  - `inline_chart_info_parse_failed_count`
+  - `inline_chart_info_parse_ms`
 
 ### 注意点
 
-- snapshot は `Initialize()` 内の一時データとして扱い、長期保持しない。
-- `BMSFiles` / `BmsonSongs` model に bytes を直接持たせない。
-- full backfill 用に全ライブラリ bytes を cache しない。
+- lightweight parse が失敗した譜面は従来通り追加対象にならないため、inline chart_info も行わない。
+- chart_info parse failure は lightweight parse 成功後の追加登録を止めない。
+- chart_info parser は beatoraja 互換 decode を使う。maintenance encoding hint は使わない。
+- full backfill の reader pipeline は変更しない。
 
 ### 完了条件
 
-- added / updated charts の bytes が cap 内で result から参照できる。
-- cap 超過時も従来通り動作する。
+- 新規・更新譜面は file diff の 1 read で lightweight metadata と chart_info metadata の両方を得られる。
+- inline chart_info 成功 row が DB と memory index に反映される。
+- inline chart_info parse failure が DB に永続化され、次回以降の full backfill で skip される。
 
-## Phase 4: targeted chart_info backfill への bytes handoff
+## Phase 4: added chart_info backfill の縮小・除去
 
 ### 目的
 
-追加・更新直後の `chart_info` 解析で、file diff が読んだ bytes を再利用する。
+追加・更新譜面を後続 added backfill へ回す経路を整理し、追加譜面の二重 read をなくす。
 
 ### 変更案
 
-- `QueueChartInfoBackfillForAddedCharts(...)` に optional snapshot provider を渡せるようにする。
-- `ChartInfoBackfillRequest` に optional snapshot map を持たせる。
-- `ChartInfoBuildTarget` に optional snapshot reference を持たせる。
-- `ChartInfoBuildService` の reader loop を変更する。
-  - target に usable snapshot bytes がある場合は `File.ReadAllBytes` しない。
-  - usable 判定:
-    - sha256 が一致する、または
-    - path + length + lastWriteTimeUtc が一致し、必要なら bytes から sha256 を確認する。
-  - 判定できない場合は従来 read fallback。
-- log に `snapshotBytesUsedCount`, `snapshotBytesUsedBytes`, `fileReadFallbackCount` を出す。
+- `QueueChartInfoBackfillForAddedCharts(...)` の用途を見直す。
+  - file diff 由来の追加・更新譜面では呼ばない。
+  - install package 由来の追加譜面は、Phase 4 または Phase 5 で inline chart_info 化するまで一時的に残してよい。
+- startup / reload 後の full backfill は、既存DB補完専用として維持する。
+- full backfill の target build では、inline chart_info 済みの新規譜面は current row により file read 前 skip されることを確認する。
+- added request mode が不要になった場合は、`ChartInfoBackfillRequestKind.AddedCharts` を削除する。install package でまだ使う場合は残す。
 
 ### 注意点
 
-- current `chart_info` / parse failure で skip できる場合は、snapshot bytes も使わず skip する。
-- snapshot bytes を使うのは targeted request のみ。
-- full request では従来の bounded reader pipeline を維持する。
+- 「アプリ外で作られた既存DBに chart_info がない」ケースは full backfill で処理する。
+- full backfill は引き続き background 処理でよい。
+- UI の `ChartInfoBackfillRunning` / progress 表示は full backfill 用に維持する。
 
 ### 完了条件
 
-- 新規追加・更新譜面で `chart_info` が必要な場合、cap 内なら追加の file read が発生しない。
-- metadata bundle などで skip される場合も余計な bytes 消費はしない。
+- file diff で追加・更新された譜面が added backfill で再 read されない。
+- 空DB初回起動では、追加譜面の chart_info が file diff 内で作られ、後続 full backfill では current row skip になる。
 
-## Phase 5: chart_info parser 入力の整理
+## Phase 5: install package 追加の inline chart_info 化
 
 ### 目的
 
-`ChartInfoParser` が file path と bytes の両方から自然に呼べる形にし、snapshot 利用と通常 read fallback の差を小さくする。
+保留画面からのインストールなど、file diff 以外で新規追加される譜面も 1 read に近づける。
 
 ### 変更案
 
-- `ChartInfoParser.ParseBytesDetailed(...)` を正規 entry point として整理する。
-- `ChartInfoBuildService` は常に `ChartInfoQueuedItem.Bytes` を worker に渡す。
-  - bytes の由来だけが snapshot / file read で異なる。
-- parse failure log には従来通り path / md5 / sha256 / parser version を出す。
+- package install 時に `BMSFile` / bmson row を生成または移動後更新する箇所で、可能なら `ChartFileSnapshot` を使う。
+- 移動後 path が確定した snapshot bytes から chart_info helper を呼び、`chart_info` / `chart_info_parse_failure` を DB に反映する。
+- install package 後の `QueueChartInfoBackfillForAddedCharts(...)` は削除または fallback のみにする。
 
 ### 注意点
 
-- parser の実装統合は行わない。
-- bmson JSON parse の共有もしない。
-  - file diff と chart_info は同じ bytes を使うが、JSON document はそれぞれ parse する。
+- package install は move / path update / maintenance / score / state apply と絡むため、file diff より後の独立 Phase にする。
+- 既に `BMSFile` を持っている pending package では bytes がないことが多い。必要なら移動後に 1 read するが、後続 backfill の再 read は避ける。
 
 ### 完了条件
 
-- chart_info 側の parser 呼び出し経路が snapshot / file read fallback で共通化される。
-- timeout / parse failure 永続化の仕様が変わらない。
+- install package で追加された譜面も、追加直後に chart_info まで作られる。
+- install package added backfill が不要になる。
 
-## Phase 6: 旧 API とテスト helper の整理
+## Phase 6: parser bytes entry point と旧 API 整理
 
 ### 目的
 
-single-read / handoff 完了後、互換 API とテスト helper を整理する。
+inline 経路と backfill 経路の parser 呼び出しを整理し、single-read 化後の現行仕様を明確にする。
 
 ### 変更案
 
-- `CreateBMSFileFromFile()` / `BmsonSongParser.Parse(path)` は残すが、内部では snapshot reader を使う。
-- test helper は snapshot builder を使う。
-- read count を検証する fake reader を追加する。
-- docs を更新する。
-  - `current-startup-reload-progress.md`
-  - 必要なら `current-chart-file-read-pipeline.md` を作成し、実装後の現行仕様を分離する。
+- `ChartInfoParser.ParseBytesDetailed(...)` を正規 entry point として文書化する。
+- `ChartInfoBuildService` と inline helper は同じ parse helper / failure row builder / commit buffer を使う。
+- `CreateBMSFileFromFile()` / `BmsonSongParser.Parse(path)` は互換 API として残すが、必要なら内部で snapshot reader を使う。
+- `current-chart-file-read-pipeline.md` のような現行仕様資料を作る。
 
 ### 完了条件
 
 - 新規コードは snapshot / bytes entry point を使う。
-- path-only API は互換 wrapper になる。
+- path-only API は互換 wrapper として位置づけられる。
+- 実装後の read pipeline が資料化される。
 
 ## Test Plan
 
-### Phase 1
-
-- BMS snapshot parse が既存 `CreateBMSFileFromFile()` と同じ metadata / resource / md5 / sha256 を返す。
-- bmson snapshot parse が既存 `Parse(path)` と同じ metadata / resource / md5 / sha256 / updated_at を返す。
-- parse failure でも processed count が進む。
-
-### Phase 2
-
-- file diff parser degree override が効く。
-- BMS / bmson 合算 progress が単調に進む。
-- 並列数を 1 にしても結果が変わらない。
-
 ### Phase 3
 
-- cap 内では snapshot bytes が保持される。
-- per file cap 超過では bytes が保持されない。
-- total cap 超過では一部 bytes が破棄され、summary log が出る。
-- 32bit / 64bit 判定の cap が期待通りになる。
+- BMS / bmson 追加で lightweight parse と chart_info parse が同じ snapshot bytes から行われる。
+- fake file reader により、inline chart_info で追加 read が発生しないことを確認する。
+- current chart_info row がある場合は inline chart_info parse を skip し、row が model に適用される。
+- current parse failure がある場合は inline chart_info parse を skip し、追加登録は継続する。
+- inline chart_info parse failure は `chart_info_parse_failure` に保存され、`song` / `bmson_song` は登録される。
+- `song_tbl_file_check_breakdown` に inline chart_info counters が出る。
 
 ### Phase 4
 
-- targeted chart_info backfill が snapshot bytes を使い、fake file reader が呼ばれない。
-- snapshot sha256 不一致では file read fallback する。
-- current chart_info row がある場合は snapshot bytes も file read も使わない。
-- current parse failure がある場合も read しない。
-- full backfill は snapshot を使わず従来 path を維持する。
+- file diff 追加譜面が added backfill queue に積まれない。
+- 空DB初回相当で、file diff 後の full backfill が inline 済み row を current skip する。
+- 既存DB補完では full backfill が従来通り missing chart_info を解析する。
 
 ### Phase 5
 
-- timeout / parse failure 永続化が snapshot bytes 経由でも従来通り動く。
-- BMS / bmson の chart_info row が file read fallback と同じ内容になる。
+- package install 追加譜面で chart_info が追加直後に作られる。
+- package install 後の added backfill が不要になる。
+- bmson / BMS 混在 package で DB 登録、maintenance、chart_info が揃う。
 
 ### Regression
 
@@ -328,16 +286,18 @@ single-read / handoff 完了後、互換 API とテスト helper を整理する
 
 | リスク | 対応 |
 | --- | --- |
-| 大量追加時のメモリ増加 | 64bit 1024 MiB / 32bit 256 MiB / per file 16 MiB cap を設ける |
-| ファイルが diff 後に変更される | sha256、length、lastWriteTimeUtc で usable 判定し、怪しければ read fallback |
-| chart_info parser の厳密さにより軽量登録と結果がずれる | parser は統合せず、役割を分ける |
-| full backfill で全ファイル bytes を持ってしまう | snapshot handoff は targeted added / updated charts 限定にする |
-| PLINQ 並列変更で速度が落ちる | degree override と log を用意し、必要なら調整できるようにする |
+| file diff が重くなる | 追加・更新譜面では最終的に chart_info も必要なため、同じ read 中に行う。進捗と log で inline chart_info 時間を見える化する |
+| chart_info parse failure で追加登録が止まる | failure は永続化するが、`song` / `bmson_song` 登録は継続する |
+| full backfill と inline 経路で結果がずれる | ChartInfoBuildService の parse / failure / commit helper を共有する |
+| 空DB初回で full backfill が再解析する | inline chart_info row を DB と memory index に反映し、full backfill では current row skip させる |
+| install package 経路だけ二重 read が残る | Phase 5 で別途 inline 化する |
 
 ## 実装順の推奨
 
-最初の実装単位は Phase 1-2 が良い。これだけで file diff 内の read 回数と並列負荷が整理され、挙動変更も比較的小さい。
+Phase 3 ではまず file diff の追加・更新譜面だけ inline chart_info 化する。これで空DB初回起動やライブラリリロード時の大量追加に対する二重 read を大きく減らせる。
 
-次に Phase 3-4 をまとめて進めると、目的である targeted `chart_info` への bytes handoff が完成する。
+Phase 4 で added backfill queue の役割を縮小し、file diff 由来の追加譜面が再 read されないことを保証する。
 
-Phase 5-6 は安定後の整理として扱う。
+Phase 5 で package install 経路を同様に整理する。
+
+Phase 6 は安定後の API / docs 整理として扱う。
