@@ -285,7 +285,7 @@ public sealed class BmsLibraryInitializationServiceTests
             object progressLock = new object();
             List<(int Total, int Processed, string Path)> progress = new List<(int, int, string)>();
             List<string> logs = new List<string>();
-            BmsLibraryInitializationService service = new BmsLibraryInitializationService();
+            BmsLibraryInitializationService service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(songDbPath),
                 new BmsLibraryOptionsSnapshot(),
@@ -321,6 +321,7 @@ public sealed class BmsLibraryInitializationServiceTests
             Assert.AreEqual(1, result.AddedBmsonSongs.Count);
             Assert.AreEqual(1, result.BmsAddedTargetCount);
             Assert.AreEqual(1, result.BmsonUpsertTargetCount);
+            Assert.AreEqual(1, result.FileDiffParserDegree);
             Assert.AreEqual(result.NewFileParseMs, result.BmsParseMs);
             Assert.IsTrue(result.BmsonParseMs >= 0);
             long expectedReadBytesEstimate = new FileInfo(bmsPath).Length + new FileInfo(bmsonPath).Length;
@@ -328,7 +329,23 @@ public sealed class BmsLibraryInitializationServiceTests
             Assert.IsTrue(progress.Any(item => item.Total == 2 && item.Processed == 0));
             Assert.IsTrue(progress.Any(item => item.Total == 2 && item.Processed == 2));
             Assert.IsTrue(progress.All(item => item.Total == 2));
-            Assert.IsTrue(logs.Any((string message) => message.Contains("bms_added_target_count=1") && message.Contains("bmson_upsert_target_count=1") && message.Contains("parse_read_bytes_estimate=" + expectedReadBytesEstimate)));
+            Assert.IsTrue(logs.Any((string message) => message.Contains("bms_added_target_count=1") && message.Contains("bmson_upsert_target_count=1") && message.Contains("file_diff_parser_degree=1") && message.Contains("parse_read_bytes_estimate=" + expectedReadBytesEstimate)));
+        });
+    }
+
+    [TestMethod]
+    public void ApplyFileScanDiff_FileDiffParserDegree_UsesDefaultAndNormalizesOverrides()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
+        {
+            int expectedDefault = Math.Min(4, Math.Max(1, Environment.ProcessorCount - 1));
+            Assert.AreEqual(expectedDefault, BmsLibraryInitializationService.ResolveDefaultFileDiffParserDegree());
+
+            Assert.AreEqual(expectedDefault, RunWithParserDegreeOverride(null, songDbPath).FileDiffParserDegree);
+            Assert.AreEqual(1, RunWithParserDegreeOverride(0, songDbPath).FileDiffParserDegree);
+            Assert.AreEqual(1, RunWithParserDegreeOverride(-10, songDbPath).FileDiffParserDegree);
+            Assert.AreEqual(2, RunWithParserDegreeOverride(2, songDbPath).FileDiffParserDegree);
         });
     }
 
@@ -1257,6 +1274,26 @@ public sealed class BmsLibraryInitializationServiceTests
             + "\"bpm_events\":[],"
             + "\"lines\":[{\"y\":0}]"
             + "}";
+    }
+
+    private static SongTableFileCheckResult RunWithParserDegreeOverride(int? overrideValue, string songDbPath)
+    {
+        BmsLibraryInitializationService service = overrideValue.HasValue
+            ? new BmsLibraryInitializationService(overrideValue.Value)
+            : new BmsLibraryInitializationService();
+        return service.ApplyFileScanDiff(
+            new BmsLibraryDbGateway(songDbPath),
+            new BmsLibraryOptionsSnapshot(),
+            Array.Empty<BMSFile>(),
+            new BmsScanExecutionResult
+            {
+                Success = true,
+                Result = CreateScanResult(Array.Empty<string>(), new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase))
+            },
+            0L,
+            () => null,
+            null,
+            currentBmsonSongs: Array.Empty<LR2SongDBExtended.bmson_song>());
     }
 
     private static LR2SongDBExtended.chart_info CreateMinimalChartInfoRow(string sha256, string md5)

@@ -162,16 +162,20 @@ file diff の PLINQ 無制限並列をやめ、chart_info と近い bounded 方�
   - test override 可能にする。
 - BMS / bmson を別々の PLINQ で無制限に回すのではなく、同じ degree を使う。
 - file diff progress は既存通り BMS + bmson 合算で出す。
+- `SongTableFileCheckResult` と `song_tbl_file_check_breakdown` log に `file_diff_parser_degree` を出す。
 
 ### 注意点
 
 - HDD / network drive では並列 read が強すぎると悪化するため、まず chart_info と同じ保守的な値に寄せる。
 - Everything scan / fallback enumeration とは別の制御にする。
+- Phase 2 では BMS / bmson の parse block は統合しない。`BmsParseMs` / `BmsonParseMs` の意味を維持する。
+- Phase 2 では reader 1本 + bounded queue 方式へは変更しない。snapshot retention と chart_info handoff の設計に関わるため、Phase 3 以降で扱う。
 
 ### 完了条件
 
 - file diff の CPU / disk 負荷が chart_info と同程度に制御される。
 - 進捗表示と result count は変わらない。
+- 既定 degree と test override がテストで確認できる。
 
 ## Phase 3: snapshot retention を result に載せる
 

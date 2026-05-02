@@ -21,6 +21,18 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 /// </summary>
 internal sealed class BmsLibraryInitializationService
 {
+    private readonly int? fileDiffParserDegreeOverride;
+
+    public BmsLibraryInitializationService()
+        : this(null)
+    {
+    }
+
+    internal BmsLibraryInitializationService(int? fileDiffParserDegreeOverride)
+    {
+        this.fileDiffParserDegreeOverride = fileDiffParserDegreeOverride;
+    }
+
     public SongTableLoadResult LoadSongTable(
         BmsLibraryDbGateway dbGateway,
         BmsLibraryOptionsSnapshot options,
@@ -350,6 +362,7 @@ internal sealed class BmsLibraryInitializationService
         result.DiffMs = stopwatchDiff.ElapsedMilliseconds;
         result.BmsAddedTargetCount = addedPaths.Count;
         result.BmsonUpsertTargetCount = addedOrUpdatedBmsonPaths.Count;
+        result.FileDiffParserDegree = ResolveFileDiffParserDegree();
         result.ParseReadBytesEstimate = SaturatingAdd(
             EstimateCurrentFileDiffReadBytes(addedPaths),
             EstimateCurrentFileDiffReadBytes(addedOrUpdatedBmsonPaths));
@@ -363,7 +376,7 @@ internal sealed class BmsLibraryInitializationService
         }
         List<BMSFile> addedFiles = addedPaths.Count <= 0
             ? new List<BMSFile>()
-            : (from x in addedPaths.AsParallel().Select(delegate (string path)
+            : (from x in addedPaths.AsParallel().WithDegreeOfParallelism(result.FileDiffParserDegree).Select(delegate (string path)
                 {
                     BMSFile file = null;
                     try
@@ -410,7 +423,7 @@ internal sealed class BmsLibraryInitializationService
             HashSet<string> successfullyParsedBmsonPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             List<LR2SongDBExtended.bmson_song> parsedBmsonSongs = addedOrUpdatedBmsonPaths.Count <= 0
                 ? new List<LR2SongDBExtended.bmson_song>()
-                : (from x in addedOrUpdatedBmsonPaths.AsParallel().Select(delegate (string path)
+                : (from x in addedOrUpdatedBmsonPaths.AsParallel().WithDegreeOfParallelism(result.FileDiffParserDegree).Select(delegate (string path)
                     {
                         LR2SongDBExtended.bmson_song parsed = null;
                         try
@@ -513,6 +526,7 @@ internal sealed class BmsLibraryInitializationService
             + " bmson_deleted_count=" + result.DeletedBmsonPaths.Count
             + " bmson_upsert_count=" + result.AddedBmsonSongs.Count
             + " bmson_upsert_target_count=" + result.BmsonUpsertTargetCount
+            + " file_diff_parser_degree=" + result.FileDiffParserDegree
             + " newfile_parse_ms=" + result.NewFileParseMs
             + " bms_parse_ms=" + result.BmsParseMs
             + " bmson_parse_ms=" + result.BmsonParseMs
@@ -569,6 +583,20 @@ internal sealed class BmsLibraryInitializationService
             total += length;
         }
         return total;
+    }
+
+    internal static int ResolveDefaultFileDiffParserDegree()
+    {
+        return Math.Min(4, Math.Max(1, Environment.ProcessorCount - 1));
+    }
+
+    private int ResolveFileDiffParserDegree()
+    {
+        if (fileDiffParserDegreeOverride.HasValue)
+        {
+            return Math.Max(1, fileDiffParserDegreeOverride.Value);
+        }
+        return ResolveDefaultFileDiffParserDegree();
     }
 
     private static long SaturatingAdd(long left, long right)
