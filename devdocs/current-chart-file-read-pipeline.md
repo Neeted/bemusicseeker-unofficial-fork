@@ -13,6 +13,7 @@
 - lightweight parser と `chart_info` parser は統合しない。同じ bytes を使うが、役割は分ける。
 - 新規・更新ファイル由来の補助情報は、snapshot が生きている間に作る。
 - DB に既に存在する owner 由来の補助情報だけを background hydration/backfill へ回す。
+- BMS の `WAVfiles` / `BGAfiles` は譜面が要求するリソース参照集合であり、空DB初回起動では memory peak の大きな要因になり得る。新規 file diff 由来では、これらを長期 model field として保持せず、chunk 内で maintenance row へ畳み込んだら破棄することを目指す。
 
 ## 正規 Entry Point
 
@@ -43,6 +44,7 @@ changed path
        chart_digest_map
        generated chart_info / chart_info_parse_failure
        generated maintenance row when available
+       resource refs are folded into maintenance row and released
   -> memory apply
        model ChartInfo
        session chart_info index for generated rows
@@ -53,6 +55,20 @@ file diff の progress target は lightweight parse 対象数で、BMS 追加件
 current `chart_info` row が存在する場合、inline parser は詳細 parse を skip できる。この row は対象 model に適用してよいが、file diff の成果物として全件蓄積しない。session chart_info index の全量更新は `chart_info_hydration` が担当し、`file_diff_inline` で publish するのは新規生成または更新した row に限定する。
 
 `song_tbl_file_check_breakdown` の `inline_chart_info_index_published_count` は、file diff から runtime index delta へ流した row 数を表す。metadata bundle current skip が大半のケースでは、この値は `inline_chart_info_current_skipped_count` ではなく `inline_chart_info_success_count` 近辺になる。
+
+### Resource Ref Lifetime
+
+`BMSFile.CreateBMSFileFromSnapshot()` は BMS metadata と同時に `WAVfiles` / `BGAfiles` を構築する。これは health 判定に必要だが、BMSFile 正本へ長期保持すると大量追加時に heap を大きく押し上げる。
+
+正本方針:
+
+- file diff 由来の新規/更新 BMS では、`WAVfiles` / `BGAfiles` を chunk 内の一時入力として扱う。
+- Everything / fallback scan から作った `BMSDirectoryFileNameHash`、`DirectoryResourceLookupCache`、`DirectoryRelativePathHashIndex` と照合し、`maintenance` row を作る。
+- `maintenance` row 作成後は、BMSFile に残る `WAVfiles` / `BGAfiles` / 派生 hash/list cache を破棄する。
+- DB 由来の既存 BMS で refs がない場合だけ、background maintenance が path read fallback で補完してよい。
+- bmson は `ParseSnapshot()` 済みの fresh resource refs を同じ chunk 内で使い、再パースを避ける。
+
+この方針では、追加ファイル由来の resource health は `installable_maintenance_deferred` へ押し出さない。deferred は DB 由来の missing/stale maintenance 補完、force update、file diff で扱えなかった例外的対象に寄せる。
 
 ## Package Install
 
@@ -112,3 +128,7 @@ full backfill は新規ファイル追加の後処理ではない。新規・更
 - path-only API を新しい大量処理で使う場合は、二重 read にならないか確認する。
 - parser の挙動差を避けるため、inline と full backfill は `ChartInfoParser.ParseBytesDetailed(...)` を共通入口にする。
 - current skip した既存 row を、file diff result や commit callback に全件載せない。これは bounded queue / chunk commit を無効化する大きなメモリ要因になる。
+- chunk commit 後は、DB 保存用 staging、inline `chart_info` staging、parse failure staging を速やかに破棄する。
+- file diff 由来の `WAVfiles` / `BGAfiles` は、maintenance row 作成後に速やかに破棄する。これを `installable_maintenance_deferred` まで保持すると、大量追加時の memory peak を作る。
+- 大量初期化では、file diff / chart_info / maintenance の phase 境界で一時参照を切り、必要なら明示 GC / LOH compact を行う。GC は譜面ごとの inner loop、DB transaction、library write lock、UI dispatcher 同期処理の内側では行わない。
+- commit chunk size はメモリ保持上限ではなく transaction 範囲の調整値として扱う。snapshot bytes と current skip row を chunk 外へ持ち越さない前提で、file diff / chart_info backfill の既定は 10000 件とする。

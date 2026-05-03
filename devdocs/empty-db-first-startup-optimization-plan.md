@@ -46,6 +46,9 @@ main_view_build mode=FileMissingIgnoredFilterSelected ... folderMs=0 totalMs=3 f
 - full `chart_info` backfill は実 target 0 件でも全 owner を走査しており、約95秒の固定費が出ている。
 - 初回 `installable_maintenance_deferred` の health 計算は約6分で、resource health index 化後も実 health 判定そのものが重い。
 - Everything scan の raw buffer と resource hash index は数百MB級になり、file diff の全件 staging と重なるとメモリピークが高くなりやすい。
+- Phase 6/7.5 後も、初期化中に Private Bytes が数GB級まで上がり、`startup_background_task done` 後に一気に下がるケースがある。
+  - 完了後に下がるため恒久的な leak というより、background task の scope が終わるまで一時 collection / parser result / maintenance working set が root され続ける構造が疑わしい。
+  - 初期化中は多少の停止を許容できるため、メモリ逼迫で処理全体が遅くなるより、phase 境界で参照を切り、必要なら明示 GC / LOH compact を行う方針へ寄せる。
 
 ## 目標
 
@@ -148,10 +151,25 @@ background task は「現在の file diff で直接扱っていない DB 由来�
 ### メモリ方針
 
 - snapshot bytes は bounded queue と parser worker の寿命を超えて保持しない。
-- commit chunk は 1000 件程度を上限にし、DB commit 後に chunk staging を破棄する。
+- commit chunk は「メモリ制御」ではなく「transaction 範囲と rollback 範囲」の制御として扱う。
+  - 1000 件固定は安全側だが、`song.db` は 21 万件規模でも 800MB 程度であり、chunk staging が bounded に破棄されるなら 5000-10000 件程度へ粗くしてもよい。
+  - 目安は `db_commit_max_chunk_ms` と memory checkpoint で判断する。commit 時間が安定しており、rollback 範囲を許容できるなら 10000 件を候補にする。
+  - commit chunk を粗くしても、snapshot bytes や current skip row を chunk 外へ持ち越さないことを前提にする。
 - current skip した `chart_info` row は大量に `SongTableFileCheckResult` や callback collection へ載せない。
 - final catalog 用 list は必要最小限にし、`AddedFiles` / `NextFiles` の二重保持がピークになる場合は、次段で catalog builder 方式へ移行する。
 - resource index は導入先推定と health 判定の共通基盤として使い、同じ情報を別構造で重複構築しない。
+- 大量初期化中は managed heap / LOH が膨らみやすい。常時動作の低停止アプリではないため、初期化 phase 境界では明示 GC を許容する。
+  - inner loop や各譜面ごとの GC は行わない。
+  - `file diff commit/catalog switch`、`chart_info hydration/backfill done`、`installable_maintenance_deferred done` など、大きな一時 collection の寿命が終わった直後だけを候補にする。
+  - phase 終了時は、まず large local collection / staging / diagnostic row list を clear/null 化し、その後に必要なら blocking full GC + LOH compact を行う。
+  - DB transaction、library write lock、UI dispatcher 同期処理の内側では GC しない。
+- メモリ調整は必ず log で観測する。
+  - `PrivateBytes`
+  - `WorkingSet`
+  - `GC.GetTotalMemory(false)`
+  - Gen0/1/2 collection count
+  - phase before / after / after explicit GC
+  - chunk high-watermark
 
 ### 責務境界
 
@@ -369,7 +387,7 @@ BeMusicSeeker が `karinotes = 0` を入れる経路は、`setZeroNoteAndCommitT
 
 完了済み。
 
-目的は、初回空DBの file diff で最後に単一 transaction を長時間保持する構造をやめ、DB 永続化を backfill と同じ 1000 件 chunk 方針へ寄せることである。
+目的は、初回空DBの file diff で最後に単一 transaction を長時間保持する構造をやめ、DB 永続化を bounded chunk 方針へ寄せることである。Phase 7.7 以降の既定 chunk は 10000 件で、rollback 範囲と commit overhead のバランスを取る。
 
 #### 旧課題
 
@@ -398,11 +416,11 @@ BeMusicSeeker が `karinotes = 0` を入れる経路は、`setZeroNoteAndCommitT
 - progress callback は parsed candidate の collector 到達ごとに 1 件単位で呼ぶ。
   - UI 側の `ReportLibraryInitializationProgress()` は 150ms throttle を持つため、1 件ごとに通知しても UI 更新は過剰になりにくい。
   - sub label は従来通り `ファイル差分確認 [processed/total] fileName` とする。
-- DB 保存対象を `FileScanDiffCommitChunk` にまとめ、1000 件単位で transaction commit する。
+- DB 保存対象を `FileScanDiffCommitChunk` にまとめ、既定 10000 件単位で transaction commit する。
   - BMS追加/削除、bmson追加/更新/削除、`chart_digest_map`、inline `chart_info`、parse failure upsert/delete を同じ chunk 保存経路で扱う。
   - 同一譜面由来の `chart_info` / failure delete は、可能な範囲で同じ chunk に寄せる。
 - runtime の chart_info index / UI 通知は chunk ごとには行わない。
-  - DB commit は 1000 件単位で進める。
+  - DB commit は既定 10000 件単位で進める。
   - `BMSFiles` / `BmsonSongs` の in-memory catalog を切り替えた後、file diff で新規生成または更新した inline row だけを `file_diff_inline` として index に公開する。
   - current `chart_info` skip で取得した既存 row は、対象 model へ一時適用してもよいが、file diff の runtime index delta として全件蓄積しない。
   - current row の session index 正本更新は、直後の `chart_info_hydration` が担当する。
@@ -537,13 +555,76 @@ metadata bundle は「所持譜面から生成された DB 由来補助情報」
 - import 済み bundle は退避され、毎回 SHA-256 / 展開 / import 判定が critical path を圧迫しない。
 - bundle がない通常起動では、起動直後 import check は軽い no-op になる。
 
+### Phase 7.7: 初期化メモリ圧整理
+
+Phase 8 の health 高速化へ進む前に、初期化中のメモリピークを抑える。対象は `file diff`、inline/full `chart_info`、`installable_maintenance_deferred` の一時 object lifetime と GC 境界である。
+
+#### 追加で判明した前提
+
+- `WAVfiles` / `BGAfiles` は BMS 本文の `#WAVxx` / `#BMPxx` などから得た、譜面が要求するリソース参照名の集合である。
+- BMS では `#WAV` 定義が数百から 1000 件近くになる譜面も珍しくない。空DB初回起動で 20 万件規模を追加すると、この `HashSet<string>` と派生 cache が memory peak の支配要因になり得る。
+- 現状の file diff では、`CreateBMSFileFromSnapshot()` 直後に `BMSFile.WAVfiles` / `BGAfiles` が作られ、その `BMSFile` が `AddedFiles` / `NextFiles` / 最終 `BMSFiles` へ進む。
+- `WAVfiles` / `BGAfiles` は `SetHealthStatus(..., memClear: true)` の後に null 化されるが、その呼び出しは後続 `installable_maintenance_deferred` 側である。つまり file diff 完了から maintenance 完了まで、大量の要求リソース集合が正本 model にぶら下がったままになる。
+- Phase 7.7 の明示 GC / LOH compact は「参照が切れた後の heap 整理」には有効だが、`BMSFile` 正本が参照を保持している間は大きく回収できない。
+
+#### 前提
+
+- メモリの山は maintenance 周辺で特に大きいが、軽量 parse / inline `chart_info` / chunk commit 周辺でも staging が重なる。
+- `startup_background_task done` 後に Private Bytes が一気に下がる場合、恒久的 leak ではなく、task scope 内の一時参照が長く残っている可能性が高い。
+- 初期化処理中は多少の停止を許容する。メモリ逼迫で paging や GC 遅延を起こすより、明示的に停止してでも heap を整理し、総初期化時間を短くすることを優先する。
+
+#### 実装済み/短期方針
+
+- memory checkpoint log を追加する。
+  - `startup_memory_checkpoint phase=... point=before|after|after_gc privateBytes=... workingSet=... managedBytes=... gen0=... gen1=... gen2=...`
+  - 主な checkpoint は `file_diff_start/done`、`chart_info_hydration_done`、`chart_info_backfill_done/skipped`、`installable_maintenance_deferred_start/done`、`startup_background_task_done`。
+- phase 境界で大きな一時参照を明示的に切る。
+  - file diff: commit 済み chunk staging、current skip row、inline result、diagnostic rows。
+  - chart_info: hydration/backfill の snapshot map、commit buffer、current map。
+  - maintenance: `filesSnapshot`、section targets、resource health working set、upsert rows、workflow 内の一時 collection。
+  - 長寿命 object が持つ巨大 `List<T>` は `Clear()` だけでは backing array が残るため、空 list への差し替え、専用 `ReleaseLargeBuffers()`、または owner ごとの short-lived scope 化を優先する。
+- explicit GC は phase 境界だけで行う。
+  - `GCSettings.LargeObjectHeapCompactionMode = CompactOnce` を設定し、blocking full GC を行う helper を用意する。
+  - 実行条件は「startup/reload の heavy phase 完了後」かつ「PrivateBytes または managedBytes がしきい値以上」を基本にする。
+  - 初期値としては、初回空DBや大量追加のような heavy path ではしきい値に関係なく `installable_maintenance_deferred done` 後に 1 回実行してよい。
+  - GC 実行は DB transaction / write lock / UI dispatcher 同期処理の外で行う。
+  - 進捗 phase は増やさない。必要なら log だけで `startup_memory_cleanup` として観測する。
+- DB commit chunk size を見直す。
+  - 1000 件は rollback 範囲を小さくするには安全だが、DB commit 回数と commit-side staging / callback overhead を増やす。
+  - snapshot bytes を持ち越さず、current skip row も持ち越さない前提なら、5000-10000 件の方が総時間と heap churn のバランスがよい可能性がある。
+  - Phase 7.7 では `FileDiffCommitChunkSize` を internal constant / test override 化し、既定を 10000 件にする。実測で `db_commit_max_chunk_ms` が悪化する場合は 5000 件へ戻す。
+- Everything scan の raw buffer と resource index の寿命を明確化する。
+  - raw buffer は resource index 構築後に不要なら破棄する。
+  - resource index は導入先推定と Phase 8 health 判定で使うため保持するが、同等情報の二重構造を作らない。
+
+#### 次に必要な寿命設計
+
+Phase 7.7 の GC 境界だけでは、`WAVfiles` / `BGAfiles` が `BMSFile` 正本に残っている間の memory peak は解決しない。次の実装単位では、Phase 9 の file diff chunk maintenance 連携を前倒しし、譜面要求リソース参照の寿命を file diff chunk 内へ閉じる。
+
+- 新規 BMS は `CreateBMSFileFromSnapshot()` 直後に `WAVfiles` / `BGAfiles` を使い、Everything / fallback scan 由来の resource index と照合して maintenance row を作る。
+- maintenance row 作成後、最終 `BMSFiles` に載せる前、または遅くとも chunk commit 直後に `WAVfiles` / `BGAfiles` / 派生 hash cache を破棄する。
+- 新規 bmson は `ParseSnapshot()` 済みの fresh resource refs を使い、同じく chunk 近傍で maintenance row を作る。
+- 追加ファイル由来の maintenance row は `installable_maintenance_deferred` へ送らない。deferred は DB 由来の missing/stale maintenance 補完、force update、file diff で扱えなかった例外的対象に寄せる。
+- `WAVfiles` / `BGAfiles` を「長期保持して後で使う」のではなく、「chunk 内で health/maintenance row へ畳み込み、破棄する」ことを正とする。
+
+#### 完了条件
+
+- 初期化中の memory checkpoint で、重い phase の after_gc で PrivateBytes / managedBytes が明確に下がることを確認できる。
+- `startup_background_task done` まで一時 collection が残り続ける箇所を減らし、phase done 直後に解放できる。
+- `startup_memory_cleanup reason=... elapsedMs=... managedBefore=... managedAfter=... privateBefore=... privateAfter=... compactLoh=...` で明示 GC の効果を確認できる。
+- `inline_chart_info_current_skipped_count` が大きいケースでも、current skip row が heap peak の主因にならない。
+- DB commit chunk size 変更後も、途中失敗時は chunk 単位 rollback と次回 scan 収束の方針を維持する。既定値は file diff / chart_info backfill とも 10000 件とする。
+- GC は inner loop では発生させず、phase 境界のみで観測可能に実行される。
+
 ### Phase 8: health 計算の cache-aware 化と bounded 並列
 
 Phase 8 では `installable_maintenance_deferred` の `set_health_ms` を下げる。Phase 5 で warning projection は軽くなったため、残る対象は実 health 判定である。
 
+ただし、空DB初回起動の memory peak という観点では、Phase 8 単体よりも Phase 9 の「file diff chunk 内 maintenance 作成」と組み合わせることが重要である。Phase 8 の cache-aware 判定は、Phase 9 で新規追加譜面の `WAVfiles` / `BGAfiles` を早期に破棄するための共通 helper としても使う。
+
 #### 現状
 
-- `UpdateMaintenanceInfo()` は未チェック、または `forceUpdate` 対象を抽出し、1000 件 section に分ける。
+- `UpdateMaintenanceInfo()` は未チェック、または `forceUpdate` 対象を抽出し、section に分ける。
 - section 内は `AsParallel().ForAll()` で処理するが、degree は明示されていない。
 - BMS health は `BMSFile.SetHealthStatus(folderAllFileList, ...)` が担当する。
 - `SetHealthStatus()` は以下を行う。
@@ -563,6 +644,8 @@ Phase 8 では `installable_maintenance_deferred` の `set_health_ms` を下げ�
   - `BMSDirectoryFileNameHash` に加えて `DirectoryResourceLookupCache` / `DirectoryRelativePathHashIndex` を受け取れるようにする。
   - local basename だけでなく、relative path hash / category hash で見られるものは scan result から判定する。
   - `File.Exists` は fallback に寄せる。
+- 新規 file diff 由来の BMS では、BMS 本文再読込を避け、軽量 parse 済みの `WAVfiles` / `BGAfiles` を入力として health 判定する。
+- DB 由来補完で refs がない場合のみ、安全側として path read / fallback 経路を許容する。
 - `maintenance_update` log に health 判定の内訳を追加する。
   - `healthDegree`
   - `healthTargetCount`
@@ -579,20 +662,25 @@ Phase 8 では `installable_maintenance_deferred` の `set_health_ms` を下げ�
 - I/O と CPU のスパイクを抑える。
 - 導入先推定用に作っている resource index を health にも使い、scan 結果の再利用率を上げる。
 
-### Phase 9: 新規追加分 maintenance の file diff chunk 連携
+### Phase 9: 譜面要求リソース参照の寿命整理と file diff chunk maintenance 連携
 
-Phase 9 は Phase 6 / 8 の後に検討する。目的は、新規追加譜面について file diff で得た parse 結果と scan cache を使い、maintenance 作成をより近い場所で行うことである。
+Phase 9 は Phase 8 後の単なる高速化ではなく、Phase 7.7 の memory peak を根本的に下げるために前倒しする。目的は、新規追加譜面について file diff で得た parse 結果と scan cache を使い、maintenance row 作成と `WAVfiles` / `BGAfiles` 破棄を同じ chunk 内で完了させることである。
 
 #### 方針
 
 - file diff pipeline で lightweight parse が成功した譜面について、同じ chunk 内で maintenance row を作れるようにする。
 - BMS は `CreateBMSFileFromSnapshot()` で `WAVfiles` / `BGAfiles` を持っているため、health 計算に再読込は不要。
+  - この集合は BMSFile 正本の長期 field として残すのではなく、chunk 内で maintenance row へ畳み込む一時入力として扱う。
+  - maintenance row 作成後は `WAVfiles` / `BGAfiles` / `localWAVfilesNameHashArray` / `localBGAfilesNameHashArray` / nonlocal list などを破棄する。
 - bmson は Phase 4 の fresh resource refs を使う。
-- health 計算には Phase 8 の cache-aware 判定を使う。
+- health 計算には Phase 8 の cache-aware 判定を使う。ただし Phase 8 の全体実装を待たず、file diff 由来の refs と scan cache を入力にできる最小 helper を先に切り出してよい。
 - DB 保存は file diff commit chunk に含めることを第一候補にする。
-  - `song` / `bmson_song` と同じ mutation count に紐づけ、同じ 1000 件 chunk で保存する。
+  - `song` / `bmson_song` と同じ mutation count に紐づけ、同じ既定 10000 件 chunk で保存する。
   - 追加ファイル由来の maintenance row は `installable_maintenance_deferred` へ送らない。
   - 失敗時は対象 chunk のみ rollback し、次回 scan で収束させる。
+- inline maintenance rows は inline `chart_info` と同じく chunk commit 後に長期 staging しない。
+  - `committedInlineChartInfoRows` のような全件集約 collection を maintenance では作らない。
+  - commit callback や diagnostic result に current/生成済み maintenance row を大量保持しない。
 - 操作可能化の critical path へ入れる範囲は「新規ファイル由来の row 作成」に限定する。
   - DB 由来の missing/stale maintenance 補完は引き続き `installable_maintenance_deferred` でよい。
   - 新規ファイル由来の処理まで deferred へ押し出すと、初回と再起動後で欠損一覧・警告件数が揺れるため避ける。
@@ -604,6 +692,7 @@ Phase 9 は Phase 6 / 8 の後に検討する。目的は、新規追加譜面�
 
 - 初回 `installable_maintenance_deferred` の対象を「既存DB補完」や「file diff で扱えなかったもの」中心へ減らせる。
 - 新規追加譜面の refs / resource cache を近いタイミングで使える。
+- `WAVfiles` / `BGAfiles` の大量 `HashSet<string>` を `BMSFiles` 正本へ長時間ぶら下げずに済む。
 - 初回空DBでの総完了時間を短縮できる可能性が高い。
 - 差分ファイルがある起動でも、操作可能直後のメンテナンス画面が再起動後に近い状態になる。
 
@@ -619,7 +708,7 @@ Phase 9 は Phase 6 / 8 の後に検討する。目的は、新規追加譜面�
 - bmson 初回追加で maintenance 再パースが発生しないこと。
 - 2回目起動で maintenance 不足がない場合、全件 warning 再適用を避け、resource health index だけで欠損一覧を表示できること。
 - file diff pipeline 化後、進捗 callback が 1 件単位で呼ばれ、UI 表示は throttle されつつ `[processed/total]` が滑らかに進むこと。
-- file diff の DB 永続化が 1000 件前後の chunk に分割され、chunk 保存後に inline `chart_info` row / failure row / commit staging が破棄されること。
+- file diff の DB 永続化が既定 10000 件前後の chunk に分割され、chunk 保存後に inline `chart_info` row / failure row / commit staging が破棄されること。
 - file diff chunk commit 中に例外が発生した場合、失敗 chunk の transaction だけ rollback され、既に commit 済みの chunk と in-memory catalog の整合性が保たれること。
 - full `chart_info` backfill の事前候補判定で candidate 0 の場合、backfill request が queue されず `chart_info_backfill skipped reason=no_candidates` が出ること。
 - stale parser version、digest missing、current parse failure、current chart_info の各条件で backfill candidate summary が期待通りになること。

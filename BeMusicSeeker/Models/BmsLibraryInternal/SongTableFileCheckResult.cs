@@ -131,4 +131,18 @@ internal sealed class SongTableFileCheckResult
     public ulong ImageRelativeHashEntryCount { get; set; }
 
     public ulong MovieRelativeHashEntryCount { get; set; }
+
+    public void ReleasePostApplyTransientBuffers()
+    {
+        AddedFiles.Clear();
+        AddedBmsonSongs.Clear();
+        InlineChartInfoRows.Clear();
+        InlineChartInfoAppliedRows.Clear();
+        InlineChartInfoParseFailureRows.Clear();
+        InlineChartInfoParseFailureDeleteMd5s.Clear();
+        DeletedPaths.Clear();
+        DeletedBmsonPaths.Clear();
+        ClearedInstallDestinations.Clear();
+        Pragmas.Clear();
+    }
 }

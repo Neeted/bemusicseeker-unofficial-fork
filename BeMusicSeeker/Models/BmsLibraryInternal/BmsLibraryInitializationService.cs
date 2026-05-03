@@ -24,7 +24,7 @@ internal sealed class BmsLibraryInitializationService
 {
     private const int DefaultInlineChartInfoBatchSize = 512;
 
-    private const int DefaultFileDiffCommitChunkSize = 1000;
+    private const int DefaultFileDiffCommitChunkSize = 10000;
 
     private readonly int? fileDiffParserDegreeOverride;
 
@@ -32,16 +32,19 @@ internal sealed class BmsLibraryInitializationService
 
     private readonly int? inlineChartInfoBatchSizeOverride;
 
+    private readonly int? fileDiffCommitChunkSizeOverride;
+
     public BmsLibraryInitializationService()
-        : this(null, null, null)
+        : this(null, null, null, null)
     {
     }
 
-    internal BmsLibraryInitializationService(int? fileDiffParserDegreeOverride, ChartInfoBuildService chartInfoBuildService = null, int? inlineChartInfoBatchSizeOverride = null)
+    internal BmsLibraryInitializationService(int? fileDiffParserDegreeOverride, ChartInfoBuildService chartInfoBuildService = null, int? inlineChartInfoBatchSizeOverride = null, int? fileDiffCommitChunkSizeOverride = null)
     {
         this.fileDiffParserDegreeOverride = fileDiffParserDegreeOverride;
         this.chartInfoBuildService = chartInfoBuildService ?? new ChartInfoBuildService();
         this.inlineChartInfoBatchSizeOverride = inlineChartInfoBatchSizeOverride;
+        this.fileDiffCommitChunkSizeOverride = fileDiffCommitChunkSizeOverride;
     }
 
     public SongTableLoadResult LoadSongTable(
@@ -388,7 +391,7 @@ internal sealed class BmsLibraryInitializationService
             reportParseProgress?.Invoke(parseTargetCount, 0, string.Empty);
         }
         result.InlineChartInfoBatchSize = ResolveInlineChartInfoBatchSize();
-        result.DbCommitChunkSize = DefaultFileDiffCommitChunkSize;
+        result.DbCommitChunkSize = ResolveFileDiffCommitChunkSize();
         Dictionary<string, LR2SongDBExtended.chart_info_parse_failure> currentChartInfoParseFailures =
             parseTargetCount > 0 && dbGateway != null
                 ? dbGateway.LoadCurrentChartInfoParseFailureMap(chartInfoBuildService.CurrentParseTimeout)
@@ -1422,6 +1425,20 @@ internal sealed class BmsLibraryInitializationService
             return Math.Max(1, inlineChartInfoBatchSizeOverride.Value);
         }
         return DefaultInlineChartInfoBatchSize;
+    }
+
+    internal static int ResolveDefaultFileDiffCommitChunkSize()
+    {
+        return DefaultFileDiffCommitChunkSize;
+    }
+
+    private int ResolveFileDiffCommitChunkSize()
+    {
+        if (fileDiffCommitChunkSizeOverride.HasValue)
+        {
+            return Math.Max(1, fileDiffCommitChunkSizeOverride.Value);
+        }
+        return ResolveDefaultFileDiffCommitChunkSize();
     }
 
     private static long TicksToMilliseconds(long ticks)

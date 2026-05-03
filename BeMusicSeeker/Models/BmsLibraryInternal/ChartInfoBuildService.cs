@@ -18,7 +18,7 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 /// </summary>
 internal sealed class ChartInfoBuildService
 {
-    private const int DefaultCommitChunkSize = 1000;
+    private const int DefaultCommitChunkSize = 10000;
 
     private static readonly TimeSpan DefaultParseTimeout = TimeSpan.FromSeconds(60.0);
 
@@ -769,6 +769,11 @@ internal sealed class ChartInfoBuildService
         {
             return Math.Max(1, commitChunkSizeOverride.Value);
         }
+        return DefaultCommitChunkSize;
+    }
+
+    internal static int ResolveDefaultCommitChunkSize()
+    {
         return DefaultCommitChunkSize;
     }
 

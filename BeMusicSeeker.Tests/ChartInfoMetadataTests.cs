@@ -3565,6 +3565,12 @@ public sealed class ChartInfoMetadataTests
     }
 
     [TestMethod]
+    public void ChartInfoBuildService_DefaultCommitChunkSize_Is10000()
+    {
+        Assert.AreEqual(10000, ChartInfoBuildService.ResolveDefaultCommitChunkSize());
+    }
+
+    [TestMethod]
     public void UpsertChartInfoBackfillChunk_UsesExplicitSqlAndReplacesRows()
     {
         WithTemporarySongDb(delegate(string tempRootPath, string songDbPath)

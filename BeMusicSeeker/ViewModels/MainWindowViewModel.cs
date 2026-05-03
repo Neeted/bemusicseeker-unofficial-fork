@@ -6596,11 +6596,13 @@ public class MainWindowViewModel : ViewModel
                     await request.Work().ConfigureAwait(false);
                     stopwatch.Stop();
                     LogUiSuppression("startup_background_task done name=" + request.Name + " version=" + request.Version + " reason=" + request.Reason + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
+                    StartupMemoryPressureService.LogCheckpoint(LogUiSuppression, "startup_background_task", request.Name + "_done");
                 }
                 catch (Exception ex)
                 {
                     stopwatch.Stop();
                     LogUiSuppressionWarning("startup_background_task failed name=" + request.Name + " version=" + request.Version + " reason=" + request.Reason + " elapsedMs=" + stopwatch.ElapsedMilliseconds + " message=" + ex.Message);
+                    StartupMemoryPressureService.LogCheckpoint(LogUiSuppression, "startup_background_task", request.Name + "_failed");
                 }
                 lock (startupBackgroundTaskLock)
                 {

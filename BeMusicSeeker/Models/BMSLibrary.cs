@@ -49,6 +49,8 @@ public class BMSLibrary : NotificationObject
         FileDiff = 3
     }
 
+    private const int StartupMemoryCleanupHeavyTargetCount = 10000;
+
     /// <summary>
     /// BMS 親フォルダ一覧キャッシュのスナップショットを格納するクラスです。
     /// バックグラウンドスレッドで構築し、UIスレッドで適用する2段階方式に利用されます。
@@ -191,6 +193,16 @@ public class BMSLibrary : NotificationObject
         {
             installPerformanceLogger.Warn(message);
         }
+    }
+
+    private static void LogStartupMemoryCheckpoint(string phase, string point)
+    {
+        StartupMemoryPressureService.LogCheckpoint(LogInstallPerformance, phase, point);
+    }
+
+    private static void CleanupStartupMemoryPressure(string reason, bool force)
+    {
+        StartupMemoryPressureService.CleanupIfNeeded(LogInstallPerformance, reason, force);
     }
 
     /// <summary>
@@ -3978,6 +3990,7 @@ public class BMSLibrary : NotificationObject
         if (songTblFileCheck)
         {
             Stopwatch stopwatchSongTblFileCheck = Stopwatch.StartNew();
+            LogStartupMemoryCheckpoint("file_diff", "before");
             bool fileEnumerationCompleted = false;
             Action completeFileEnumerationOnce = delegate
             {
@@ -4058,6 +4071,7 @@ public class BMSLibrary : NotificationObject
             {
                 UpsertChartInfoIndexRows(committedInlineChartInfoRows, "file_diff_inline");
                 inlineChartInfoApplied = true;
+                committedInlineChartInfoRows.Clear();
             }
             if (inlineChartInfoApplied)
             {
@@ -4082,6 +4096,10 @@ public class BMSLibrary : NotificationObject
             {
                 CompleteLibraryFileDiffProgress();
             }
+            int fileDiffTargetCount = fileCheckResult.BmsAddedTargetCount + fileCheckResult.BmsonUpsertTargetCount;
+            fileCheckResult.ReleasePostApplyTransientBuffers();
+            LogStartupMemoryCheckpoint("file_diff", "after_release");
+            CleanupStartupMemoryPressure("file_diff", fileDiffTargetCount >= StartupMemoryCleanupHeavyTargetCount);
         }
         else if (trackLibraryFileCheckProgress)
         {
@@ -4252,6 +4270,8 @@ public class BMSLibrary : NotificationObject
                 + " indexBuildMs=" + result.IndexBuildMs
                 + " ownerApplyMs=" + result.OwnerApplyMs
                 + " totalMs=" + result.TotalMs);
+            LogStartupMemoryCheckpoint("chart_info_hydration", "after");
+            CleanupStartupMemoryPressure("chart_info_hydration", result.TotalRows >= StartupMemoryCleanupHeavyTargetCount);
 
             bool completedLatestRequest = false;
             bool shouldQueueBackfillAfterCompletion = false;
@@ -4655,6 +4675,8 @@ public class BMSLibrary : NotificationObject
                 + " staleChartInfo=" + summary.StaleChartInfoOwnerCount
                 + " currentParseFailure=" + summary.CurrentParseFailureOwnerCount
                 + " currentChartInfo=" + summary.CurrentChartInfoOwnerCount);
+            LogStartupMemoryCheckpoint("chart_info_backfill", "skipped");
+            CleanupStartupMemoryPressure("chart_info_backfill_skipped", (summary.BmsOwnerCount + summary.BmsonOwnerCount) >= StartupMemoryCleanupHeavyTargetCount);
             return;
         }
         if (summary != null)
@@ -4862,7 +4884,10 @@ public class BMSLibrary : NotificationObject
                 filesSnapshot = (BMSFiles ?? new List<BMSFile>()).Where((BMSFile file) => file != null).ToList();
                 bmsonSongsSnapshot = (BmsonSongs ?? new List<LR2SongDBExtended.bmson_song>()).Where((LR2SongDBExtended.bmson_song song) => song != null).ToList();
             }
+            int snapshotCount = filesSnapshot.Count + bmsonSongsSnapshot.Count;
             bool completedLatestRequest = false;
+            Dictionary<string, LR2SongDBExtended.chart_info> existingRowsSnapshot = null;
+            ChartInfoBackfillResult result = null;
             try
             {
                 ChartInfoBackfillRunning = true;
@@ -4875,8 +4900,8 @@ public class BMSLibrary : NotificationObject
                     ChartInfoBackfillProcessedCount = processed;
                     ChartInfoBackfillCurrentPath = currentPath ?? string.Empty;
                 };
-                Dictionary<string, LR2SongDBExtended.chart_info> existingRowsSnapshot = CreateHydratedChartInfoIndexSha256Snapshot();
-                ChartInfoBackfillResult result = chartInfoBuildService.BackfillChartInfos(
+                existingRowsSnapshot = CreateHydratedChartInfoIndexSha256Snapshot();
+                result = chartInfoBuildService.BackfillChartInfos(
                     dbGateway,
                     filesSnapshot,
                     bmsonSongsSnapshot,
@@ -4916,6 +4941,11 @@ public class BMSLibrary : NotificationObject
                         completedLatestRequest = true;
                     }
                 }
+                filesSnapshot?.Clear();
+                bmsonSongsSnapshot?.Clear();
+                existingRowsSnapshot?.Clear();
+                LogStartupMemoryCheckpoint("chart_info_backfill", "after_release");
+                CleanupStartupMemoryPressure("chart_info_backfill", snapshotCount >= StartupMemoryCleanupHeavyTargetCount || (result?.TargetCount ?? 0) >= StartupMemoryCleanupHeavyTargetCount);
             }
             if (completedLatestRequest)
             {
@@ -4977,9 +5007,9 @@ public class BMSLibrary : NotificationObject
                 int snapshotCount = 0;
                 int setModeTargetCount = 0;
                 MaintenanceWorkflowResult maintenanceResult = new MaintenanceWorkflowResult();
+                List<BMSFile> filesSnapshot = null;
                 try
                 {
-                    List<BMSFile> filesSnapshot;
                     using (rwlockBMSFiles.GetReaderGuard())
                     {
                         filesSnapshot = (BMSFiles ?? new List<BMSFile>()).Where((BMSFile file) => file != null).ToList();
@@ -5067,6 +5097,10 @@ public class BMSLibrary : NotificationObject
                     IsWriteLockHeldInitializdBMSFilesHealthStatus = false;
                     IsWriteLockHeldInitializeBMSFilesEncodingInfo = false;
                     IsWriteLockHeldInitializeBMSFilesZeroNote = false;
+                    filesSnapshot?.Clear();
+                    filesSnapshot = null;
+                    LogStartupMemoryCheckpoint("installable_maintenance_deferred", "after_release");
+                    CleanupStartupMemoryPressure("installable_maintenance_deferred", snapshotCount >= StartupMemoryCleanupHeavyTargetCount);
                 }
 
                 lock (lockDeferredInstallableMaintenance)

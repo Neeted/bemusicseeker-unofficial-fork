@@ -181,7 +181,7 @@ file diff の PLINQ 無制限並列をやめ、chart_info と近い bounded 方�
 - chart_info parse failure は lightweight parse 成功後の追加登録を止めない。
 - chart_info parser は beatoraja 互換 decode を使う。maintenance encoding hint は使わない。
 - snapshot bytes は file diff pipeline 内だけで保持し、後続 backfill へ渡さない。
-- DB commit は 1000 件 chunk で行うが、runtime chart_info index への公開は chunk ごとに行わない。
+- DB commit は既定 10000 件 chunk で行うが、runtime chart_info index への公開は chunk ごとに行わない。
   - `BMSFiles` / `BmsonSongs` の in-memory catalog 切り替え後に、新規生成または更新した inline row だけを `file_diff_inline` として反映する。
   - chunk ごとの大量 `PropertyChanged` と、catalog 切替前の row property 更新を避ける。
 - inline chart_info build は file diff collector 側で順次処理する。reader / parser worker と chart_info parser の入れ子並列を避けるため、ここでは PLINQ を使わない。

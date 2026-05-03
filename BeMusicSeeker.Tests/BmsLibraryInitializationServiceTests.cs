@@ -423,7 +423,7 @@ public sealed class BmsLibraryInitializationServiceTests
             long expectedReadBytesEstimate = new FileInfo(bmsPath).Length + new FileInfo(bmsonPath).Length;
             Assert.AreEqual(expectedReadBytesEstimate, result.ParseReadBytesEstimate);
             Assert.AreEqual(1, result.DbCommitChunks);
-            Assert.AreEqual(1000, result.DbCommitChunkSize);
+            Assert.AreEqual(10000, result.DbCommitChunkSize);
             Assert.IsTrue(result.DbCommitMaxChunkMs >= 0);
             Assert.IsTrue(result.FileDiffReadMs >= 0);
             Assert.IsTrue(result.FileDiffParseMs >= 0);
@@ -437,7 +437,7 @@ public sealed class BmsLibraryInitializationServiceTests
                 && message.Contains("inline_chart_info_target_count=2")
                 && message.Contains("parse_read_bytes_estimate=" + expectedReadBytesEstimate)
                 && message.Contains("db_commit_chunks=1")
-                && message.Contains("db_commit_chunk_size=1000")));
+                && message.Contains("db_commit_chunk_size=10000")));
             Assert.IsTrue(logs.Any((string message) => message.Contains("song_tbl_file_check db_commit_chunk_done chunk=1")));
         });
     }
@@ -465,7 +465,7 @@ public sealed class BmsLibraryInitializationServiceTests
 
             List<string> events = new List<string>();
             object eventLock = new object();
-            BmsLibraryInitializationService service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
+            BmsLibraryInitializationService service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1, fileDiffCommitChunkSizeOverride: 1000);
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(songDbPath),
                 new BmsLibraryOptionsSnapshot(),
@@ -1014,6 +1014,67 @@ public sealed class BmsLibraryInitializationServiceTests
             Assert.AreEqual(1, RunWithParserDegreeOverride(-10, songDbPath).FileDiffParserDegree);
             Assert.AreEqual(2, RunWithParserDegreeOverride(2, songDbPath).FileDiffParserDegree);
         });
+    }
+
+    [TestMethod]
+    public void ApplyFileScanDiff_FileDiffCommitChunkSize_UsesDefaultAndNormalizesOverrides()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
+        {
+            Assert.AreEqual(10000, BmsLibraryInitializationService.ResolveDefaultFileDiffCommitChunkSize());
+
+            Assert.AreEqual(10000, RunWithCommitChunkSizeOverride(null, songDbPath).DbCommitChunkSize);
+            Assert.AreEqual(1, RunWithCommitChunkSizeOverride(0, songDbPath).DbCommitChunkSize);
+            Assert.AreEqual(1, RunWithCommitChunkSizeOverride(-10, songDbPath).DbCommitChunkSize);
+            Assert.AreEqual(2, RunWithCommitChunkSizeOverride(2, songDbPath).DbCommitChunkSize);
+            Assert.AreEqual(1000, RunWithCommitChunkSizeOverride(1000, songDbPath).DbCommitChunkSize);
+        });
+    }
+
+    [TestMethod]
+    public void SongTableFileCheckResult_ReleasePostApplyTransientBuffers_ClearsTransientListsOnly()
+    {
+        SongTableFileCheckResult result = new SongTableFileCheckResult();
+        BMSFile added = new BMSFile();
+        LR2SongDBExtended.bmson_song addedBmson = new LR2SongDBExtended.bmson_song();
+        BMSFile next = new BMSFile();
+        LR2SongDBExtended.bmson_song nextBmson = new LR2SongDBExtended.bmson_song();
+        result.Pragmas.Add("pragma");
+        result.AddedFiles.Add(added);
+        result.AddedBmsonSongs.Add(addedBmson);
+        result.InlineChartInfoRows.Add(new LR2SongDBExtended.chart_info());
+        result.InlineChartInfoAppliedRows.Add(new LR2SongDBExtended.chart_info());
+        result.InlineChartInfoParseFailureRows.Add(new LR2SongDBExtended.chart_info_parse_failure());
+        result.InlineChartInfoParseFailureDeleteMd5s.Add("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        result.DeletedPaths.Add("deleted.bms");
+        result.DeletedBmsonPaths.Add("deleted.bmson");
+        result.ClearedInstallDestinations.Add(new BMSFile());
+        result.NextFiles.Add(next);
+        result.NextBmsonSongs.Add(nextBmson);
+        result.NextFolderAllFileList = new BMSDirectoryFileNameHash();
+        result.NextDirectoryResourceLookupCache = new DirectoryResourceLookupCache();
+        result.NextDirectoryRelativePathHashIndex = new DirectoryRelativePathHashIndex();
+
+        result.ReleasePostApplyTransientBuffers();
+
+        Assert.AreEqual(0, result.Pragmas.Count);
+        Assert.AreEqual(0, result.AddedFiles.Count);
+        Assert.AreEqual(0, result.AddedBmsonSongs.Count);
+        Assert.AreEqual(0, result.InlineChartInfoRows.Count);
+        Assert.AreEqual(0, result.InlineChartInfoAppliedRows.Count);
+        Assert.AreEqual(0, result.InlineChartInfoParseFailureRows.Count);
+        Assert.AreEqual(0, result.InlineChartInfoParseFailureDeleteMd5s.Count);
+        Assert.AreEqual(0, result.DeletedPaths.Count);
+        Assert.AreEqual(0, result.DeletedBmsonPaths.Count);
+        Assert.AreEqual(0, result.ClearedInstallDestinations.Count);
+        Assert.AreEqual(1, result.NextFiles.Count);
+        Assert.AreSame(next, result.NextFiles[0]);
+        Assert.AreEqual(1, result.NextBmsonSongs.Count);
+        Assert.AreSame(nextBmson, result.NextBmsonSongs[0]);
+        Assert.IsNotNull(result.NextFolderAllFileList);
+        Assert.IsNotNull(result.NextDirectoryResourceLookupCache);
+        Assert.IsNotNull(result.NextDirectoryRelativePathHashIndex);
     }
 
     [TestMethod]
@@ -2067,6 +2128,26 @@ public sealed class BmsLibraryInitializationServiceTests
         BmsLibraryInitializationService service = overrideValue.HasValue
             ? new BmsLibraryInitializationService(overrideValue.Value)
             : new BmsLibraryInitializationService();
+        return service.ApplyFileScanDiff(
+            new BmsLibraryDbGateway(songDbPath),
+            new BmsLibraryOptionsSnapshot(),
+            Array.Empty<BMSFile>(),
+            new BmsScanExecutionResult
+            {
+                Success = true,
+                Result = CreateScanResult(Array.Empty<string>(), new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase))
+            },
+            0L,
+            () => null,
+            null,
+            currentBmsonSongs: Array.Empty<LR2SongDBExtended.bmson_song>());
+    }
+
+    private static SongTableFileCheckResult RunWithCommitChunkSizeOverride(int? overrideValue, string songDbPath)
+    {
+        BmsLibraryInitializationService service = overrideValue.HasValue
+            ? new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1, fileDiffCommitChunkSizeOverride: overrideValue.Value)
+            : new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
         return service.ApplyFileScanDiff(
             new BmsLibraryDbGateway(songDbPath),
             new BmsLibraryOptionsSnapshot(),
