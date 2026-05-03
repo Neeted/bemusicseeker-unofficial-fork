@@ -5,7 +5,7 @@
 ## 基本モデル
 
 - WARNING は主に `BMSFile.Warnings` が保持する `ChartWarning` の集合です。
-- 通常一覧の `ResourceHealth` warning は例外的に、cache-aware health 判定で更新した `maintenanceInfo` から構築する runtime `ResourceHealthIndexSnapshot` を `LibraryChartRow` が投影して表示します。DB 永続 warning ではありません。
+- 通常一覧と導入済み直後の `新規` 画面の `ResourceHealth` warning は例外的に、cache-aware health 判定で更新した `maintenanceInfo` から構築する runtime `ResourceHealthIndexSnapshot` を `LibraryChartRow` が投影して表示します。DB 永続 warning ではありません。
 - 旧来の自由文字列 `warning` は廃止済みで、表示・tooltip・行ハイライトは structured warning から算出します。
 - `DisplayWarning` は tooltip と同じ詳細全文、`WarningDigestText` は一覧セル用 digest、`WarningTooltipText` は tooltip 詳細です。
 - `HasLowConfidenceInstallWarning` / `HasZeroNoteMismatchWarning` / `IsHashDuplicated` は互換用 property として残っていますが、状態の正本は warning kind の有無です。
@@ -20,6 +20,7 @@
 - 行ハイライトは、いずれかの warning が `HighlightRow = true` の場合に有効です。
 - `ResourceHealth` category の warning は、`instl_dst` が未設定の間だけ digest に出ます。tooltip には導入先設定後も詳細が残ります。
 - resource health の一覧所属判定は `BMSFile.Warnings` を mutation せず、`maintenanceInfo` 由来の side-effect-free index で行います。`maintenanceInfo` の resource health は file scan 由来の directory resource index を優先し、必要時のみ実ファイル確認へ fallback します。
+- 保留画面の `ResourceHealth` warning は導入前配置を評価するための一時状態です。導入成功時に source `BMSFile.Warnings` から `ResourceHealth` category を消し、導入後の通常一覧・新規画面では `maintenanceInfo` / resource health index から投影します。
 
 ## Warning 定義
 
@@ -47,7 +48,7 @@
 
 ## 主な生成・削除単位
 
-- `ResourceHealth` は保留パッケージなど互換経路では category 単位で再構築します。通常ライブラリ一覧では `maintenanceInfo` / resource health index から表示時に投影し、一覧取得時に source `BMSFile.Warnings` を変更しません。
+- `ResourceHealth` は保留パッケージなど導入前評価では category 単位で再構築します。導入成功時に category 単位で clear し、導入後の通常ライブラリ一覧と新規画面では `maintenanceInfo` / resource health index から表示時に投影します。これにより、保留時の「単体譜面なので WAV 0%」という warning が、導入後に WAV 100% へ更新された行へ残りません。
 - `InstallEstimation` は導入先推定結果の適用、手動導入先確定、導入成功、推定状態クリアで category 単位に扱います。
 - `DuplicateChart` は kind 単位で set / clear します。
 - `ZeroNoteMismatch` は `chart_info.notes == 0` の BMS を正規表現で確認したとき、本文に可視ノート風記述がある場合に set し、`chart_info` が未生成または 0 notes ではなくなった場合は stale warning として clear します。

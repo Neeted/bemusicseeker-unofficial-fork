@@ -1679,6 +1679,7 @@ internal sealed class BmsLibraryPackageInstallService
         foreach (BMSFile addedFile in result.AddedFiles.Where((BMSFile file) => file != null))
         {
             addedFile.ClearWarningsByCategory(ChartWarningCategory.InstallEstimation);
+            addedFile.ClearWarningsByCategory(ChartWarningCategory.ResourceHealth);
             addedFile.InstallDestinationSuggestions = Array.Empty<string>();
             addedFile.IsInstallDestinationSuggestionPopupOpen = false;
         }

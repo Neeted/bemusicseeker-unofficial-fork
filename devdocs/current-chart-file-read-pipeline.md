@@ -77,10 +77,12 @@ current `chart_info` row が存在する場合、inline parser は詳細 parse �
 ## Package Install
 
 package install は、保留で読んだ bytes を長期保持しない。インストール後の最終配置 path を対象に snapshot を 1 回 read し、inline `chart_info` を作る。
+保留中に付いた `ResourceHealth` warning は導入前配置の一時評価なので、導入成功時に source `BMSFile.Warnings` から消す。導入後の `ResourceHealth` warning 表示は、通常ライブラリと同じく `maintenanceInfo` / resource health index の projection に任せる。
 
 ```text
 package install / move
   -> song / bmson_song registration
+  -> clear pending ResourceHealth source warnings
   -> final path snapshot read
   -> inline chart_info
   -> DB apply + session chart_info index apply

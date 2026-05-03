@@ -719,6 +719,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
         TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "C:\\Installed\\chart.bms");
         string installWarning = string.Format(Resources.Warning_InstallEstimationAmbiguous, "C:\\Installed\\A", "C:\\Installed\\B");
         file.SetWarning(ChartWarningKind.InstallEstimationAmbiguous, installWarning);
+        file.SetWarning(ChartWarningKind.ResourceWavMissing, "pending resource warning");
         file.InstallDestinationSuggestions = new[] { "C:\\Installed\\A", "C:\\Installed\\B" };
         BMSPackage package = new BMSPackage(new BMSFile[] { file })
         {
@@ -752,6 +753,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
         Assert.IsFalse(file.HasLowConfidenceInstallWarning);
         Assert.AreEqual(0, file.InstallDestinationSuggestions.Count);
         Assert.IsFalse(file.WarningTooltipText.Contains(Resources.Warning_InstallEstimationAmbiguousPrefix));
+        Assert.IsFalse(file.Warnings.Contains(ChartWarningKind.ResourceWavMissing));
         Assert.AreEqual(string.Empty, file.WarningDigestText);
         Assert.IsTrue(result.MoveMs >= 0);
         Assert.IsTrue(result.SongDbMs >= 0);

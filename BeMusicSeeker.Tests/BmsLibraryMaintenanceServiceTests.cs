@@ -94,6 +94,26 @@ public sealed class BmsLibraryMaintenanceServiceTests
     }
 
     [TestMethod]
+    public void LibraryChartRow_ResourceProjectionSuppressesStaleSourceResourceWarnings()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        file.SetWarning(ChartWarningKind.ResourceWavMissing, "pending resource warning");
+        file.SetMaintenanceInfo(new BMSFileMaintenanceInfo(file)
+        {
+            hash = file.hash,
+            wav_files_defined = 2,
+            wav_files_existing = 2
+        }, suppressPropertyChanged: true, registerEventHandlers: false);
+        LibraryChartRow row = LibraryChartRow.FromBmsFile(file);
+        row.SetResourceHealthProjectionProvider(_ => ResourceHealthWarningProjection.Empty);
+
+        Assert.IsTrue(file.Warnings.Contains(ChartWarningKind.ResourceWavMissing));
+        Assert.AreEqual(string.Empty, row.WarningDigestText);
+        Assert.IsFalse(row.WarningTooltipText.Contains("pending resource warning"));
+    }
+
+    [TestMethod]
     public void ResourceHealthIndexSnapshot_GroupsActiveAndIgnoredWithoutMutatingWarnings()
     {
         TestResourceInitializer.EnsureJapaneseResources();
