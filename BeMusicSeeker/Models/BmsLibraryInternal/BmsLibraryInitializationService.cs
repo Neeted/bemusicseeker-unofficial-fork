@@ -376,7 +376,9 @@ internal sealed class BmsLibraryInitializationService
         stopwatchDiff.Stop();
         result.DiffMs = stopwatchDiff.ElapsedMilliseconds;
         result.BmsAddedTargetCount = addedPaths.Count;
+        result.BmsDeletedTargetCount = result.DeletedPaths.Count;
         result.BmsonUpsertTargetCount = addedOrUpdatedBmsonPaths.Count;
+        result.BmsonDeletedTargetCount = result.DeletedBmsonPaths.Count;
         result.FileDiffParserDegree = ResolveFileDiffParserDegree();
         result.ParseReadBytesEstimate = SaturatingAdd(
             EstimateCurrentFileDiffReadBytes(addedPaths),

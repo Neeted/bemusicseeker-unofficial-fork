@@ -11,7 +11,8 @@ public sealed class MainWindowViewModelStartupProgressTests
     public void StartupProgress_InitialExpectedCounts_AreFixedByOperation()
     {
         Assert.AreEqual(17, MainWindowViewModel.GetInitialStartupProgressExpectedCountForTest("Startup"));
-        Assert.AreEqual(14, MainWindowViewModel.GetInitialStartupProgressExpectedCountForTest("ReloadFiles"));
+        Assert.AreEqual(6, MainWindowViewModel.GetInitialStartupProgressExpectedCountForTest("ReloadFileDiff"));
+        Assert.AreEqual(14, MainWindowViewModel.GetInitialStartupProgressExpectedCountForTest("FullReinitialize"));
         Assert.AreEqual(5, MainWindowViewModel.GetInitialStartupProgressExpectedCountForTest("ReloadTables"));
     }
 
@@ -32,10 +33,31 @@ public sealed class MainWindowViewModelStartupProgressTests
     }
 
     [TestMethod]
+    public void StartupProgress_ReloadFileDiff_TracksOnlyFileDiffAndPlaylistPhases()
+    {
+        MainWindowViewModel.StartupProgressTestResult result = MainWindowViewModel.ReduceStartupProgressForTest(
+            "ReloadFileDiff",
+            "complete:LibraryFileEnumerationDone",
+            "complete:LibraryFileDiffDone",
+            "complete:StartupReadyOperable",
+            "request:ChartInfoHydrationDone",
+            "request:InstallableMaintenanceDeferredDone",
+            "request:PlaylistReferenceApplied",
+            "request:PlaylistEntriesHydrationDone",
+            "complete:PlaylistReferenceApplied",
+            "complete:PlaylistEntriesHydrationDone");
+
+        Assert.AreEqual(6, result.ExpectedCount);
+        Assert.AreEqual(6, result.CompletedCount);
+        Assert.AreEqual(2, result.IgnoredRequestCount);
+        Assert.IsTrue(result.IsCompleted);
+    }
+
+    [TestMethod]
     public void StartupProgress_StaleCompletionWithoutRequest_DoesNotCompleteBackgroundPhase()
     {
         MainWindowViewModel.StartupProgressTestResult result = MainWindowViewModel.ReduceStartupProgressForTest(
-            "ReloadFiles",
+            "FullReinitialize",
             "complete:ScoreHydrationDone");
 
         Assert.AreEqual(14, result.ExpectedCount);
@@ -63,7 +85,7 @@ public sealed class MainWindowViewModelStartupProgressTests
     public void StartupProgress_SkipCompletesWithoutIncreasingMaximum()
     {
         MainWindowViewModel.StartupProgressTestResult result = MainWindowViewModel.ReduceStartupProgressForTest(
-            "ReloadFiles",
+            "FullReinitialize",
             "skip:ChartDigestBackfillDone");
 
         Assert.AreEqual(14, result.ExpectedCount);
@@ -75,7 +97,7 @@ public sealed class MainWindowViewModelStartupProgressTests
     public void StartupProgress_RequestAfterSkip_DoesNotMovePhaseBackToPending()
     {
         MainWindowViewModel.StartupProgressTestResult result = MainWindowViewModel.ReduceStartupProgressForTest(
-            "ReloadFiles",
+            "FullReinitialize",
             "skip:ChartDigestBackfillDone",
             "request:ChartDigestBackfillDone");
 
@@ -89,7 +111,7 @@ public sealed class MainWindowViewModelStartupProgressTests
     public void StartupProgress_OperableWithBackgroundWork_UsesOperableBackgroundLabel()
     {
         MainWindowViewModel.StartupProgressTestResult result = MainWindowViewModel.ReduceStartupProgressForTest(
-            "ReloadFiles",
+            "FullReinitialize",
             "complete:StartupReadyOperable");
 
         Assert.AreEqual(Resources.Statusbar_progress_operable_background, result.Label);
@@ -97,10 +119,10 @@ public sealed class MainWindowViewModelStartupProgressTests
     }
 
     [TestMethod]
-    public void StartupProgress_ReloadFiles_DirectPlaylistEntriesHydrationCanComplete()
+    public void StartupProgress_FullReinitialize_DirectPlaylistEntriesHydrationCanComplete()
     {
         MainWindowViewModel.StartupProgressTestResult result = MainWindowViewModel.ReduceStartupProgressForTest(
-            "ReloadFiles",
+            "FullReinitialize",
             "request:PlaylistEntriesHydrationDone",
             "complete:PlaylistEntriesHydrationDone");
 
@@ -113,7 +135,7 @@ public sealed class MainWindowViewModelStartupProgressTests
     public void StartupProgress_InstallableMaintenanceRequiresRequestBeforeCompletion()
     {
         MainWindowViewModel.StartupProgressTestResult stale = MainWindowViewModel.ReduceStartupProgressForTest(
-            "ReloadFiles",
+            "FullReinitialize",
             "complete:InstallableMaintenanceDeferredDone");
 
         Assert.AreEqual(14, stale.ExpectedCount);
@@ -121,7 +143,7 @@ public sealed class MainWindowViewModelStartupProgressTests
         Assert.AreEqual(1, stale.IgnoredCompleteCount);
 
         MainWindowViewModel.StartupProgressTestResult requested = MainWindowViewModel.ReduceStartupProgressForTest(
-            "ReloadFiles",
+            "FullReinitialize",
             "request:InstallableMaintenanceDeferredDone",
             "complete:InstallableMaintenanceDeferredDone");
 
@@ -135,7 +157,7 @@ public sealed class MainWindowViewModelStartupProgressTests
     public void StartupProgress_InstallableMaintenanceRequestAfterSkip_DoesNotMoveBackToPending()
     {
         MainWindowViewModel.StartupProgressTestResult result = MainWindowViewModel.ReduceStartupProgressForTest(
-            "ReloadFiles",
+            "FullReinitialize",
             "skip:InstallableMaintenanceDeferredDone",
             "request:InstallableMaintenanceDeferredDone");
 
@@ -149,7 +171,7 @@ public sealed class MainWindowViewModelStartupProgressTests
     public void StartupProgress_InstallableMaintenanceUsesDedicatedSubLabel()
     {
         MainWindowViewModel.StartupProgressTestResult result = MainWindowViewModel.ReduceStartupProgressForTest(
-            "ReloadFiles",
+            "FullReinitialize",
             "complete:LibraryDatabaseLoadDone",
             "complete:LibraryFileEnumerationDone",
             "complete:LibraryFileDiffDone",

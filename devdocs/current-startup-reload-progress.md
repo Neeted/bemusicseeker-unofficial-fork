@@ -24,7 +24,7 @@ StartupProgressMaximum = ExpectedPhases に含まれる phase 数
 StartupProgressValue   = ExpectedPhases かつ CompletedPhases に含まれる phase 数
 ```
 
-`ExpectedPhases` は `Startup` / `ReloadFiles` / `ReloadTables` の開始時に固定される。request 済みだが不要になった phase、または request されなかった phase は `SkippedPhases` と `CompletedPhases` に入る。
+`ExpectedPhases` は `Startup` / `ReloadFileDiff` / `FullReinitialize` / `ReloadTables` の開始時に固定される。request 済みだが不要になった phase、または request されなかった phase は `SkippedPhases` と `CompletedPhases` に入る。
 
 background 系 phase は request 済みでなければ complete できない。ただし次の基礎 phase と library load phase は request 不要で complete できる。
 
@@ -43,8 +43,11 @@ background 系 phase は request 済みでなければ complete できない。�
 | Operation | Expected count | Expected phases |
 | --- | ---: | --- |
 | `Startup` | 17 | 全 phase |
-| `ReloadFiles` | 14 | `CoreInitializeStarted`, library load 3 phase, `StartupReadyOperable`, playlist reference, playlist entries hydration, chart info hydration/backfill, chart digest backfill, score hydration, ranking refresh, maintenance deferred, installable maintenance deferred |
+| `ReloadFileDiff` | 6 | `CoreInitializeStarted`, file enumeration, file diff, `StartupReadyOperable`, playlist reference, playlist entries hydration |
+| `FullReinitialize` | 14 | `CoreInitializeStarted`, library load 3 phase, `StartupReadyOperable`, playlist reference, playlist entries hydration, chart info hydration/backfill, chart digest backfill, score hydration, ranking refresh, maintenance deferred, installable maintenance deferred |
 | `ReloadTables` | 5 | `CoreInitializeStarted`, `StartupReadyOperable`, `PlaylistReferenceApplied`, `ExternalPlaylistSyncDone`, `PlaylistEntriesHydrationDone` |
+
+`ReloadFileDiff` は外部ファイル操作による追加・削除・移動検出用の軽量 reload で、DB 読み込み、chart_info hydration/backfill、score/ranking、maintenance deferred、installable maintenance deferred を expected に含めない。`FullReinitialize` は旧 ReloadFiles 相当の初期化再実行として残す。
 
 `ReloadTables` は file scan / chart_info / chart digest / score / ranking / maintenance を expected に含めない。
 
@@ -72,7 +75,7 @@ background 系 phase は request 済みでなければ complete できない。�
 
 `InstallableMaintenanceDeferredDone` には bounded 並列の cache-aware resource health 実チェックと、その結果を通常一覧へ投影するための runtime resource health index build が含まれる。WARNING 表示用の全件 `BMSFile.Warnings` 再構築は行わない。
 
-Startup / ReloadFiles では `chart_info_hydration` background task が必要な full backfill まで完了してから、`InstallableMaintenanceDeferredDone` の task を開始する。これにより、譜面メタデータの大量 hydration/backfill と保守情報更新が同時に走って UI 更新や DB commit が競合する状態を避ける。
+Startup / FullReinitialize では `chart_info_hydration` background task が必要な full backfill まで完了してから、`InstallableMaintenanceDeferredDone` の task を開始する。これにより、譜面メタデータの大量 hydration/backfill と保守情報更新が同時に走って UI 更新や DB commit が競合する状態を避ける。
 
 新規・更新ファイル由来の `chart_info` / maintenance は background phase へ送らず、`LibraryFileDiffDone` の内側で扱う。`ChartInfoBackfillDone` と `InstallableMaintenanceDeferredDone` は、DB に既に存在する owner の補助情報を補完する phase として扱う。
 
@@ -80,7 +83,7 @@ Startup / ReloadFiles では `chart_info_hydration` background task が必要な
 
 ## Library Load の細分化
 
-`Startup` と `ReloadFiles` では、従来 `ライブラリ読込` として見えていた区間を 3 phase に分ける。
+`Startup` と `FullReinitialize` では、従来 `ライブラリ読込` として見えていた区間を 3 phase に分ける。`ReloadFileDiff` は DB load phase を持たず、file enumeration / file diff だけを表示する。
 
 | Phase | 完了条件 | 件数表示 |
 | --- | --- | --- |
@@ -132,12 +135,12 @@ file name がない場合は末尾を省略する。
 
 main label は operation kind と完了状態で決まる。
 
-| 状態 | Startup | ReloadFiles / ReloadTables |
-| --- | --- | --- |
-| 実行中 | `初期化中` | `ライブラリ更新中` |
-| 操作可能だが background phase が残る | `操作可能(バックグラウンド更新中)` | `操作可能(バックグラウンド更新中)` |
-| 全 expected phase 完了 | `初期化完了` | `ライブラリ更新完了` |
-| 失敗 | `初期化失敗` | `ライブラリ更新失敗` |
+| 状態 | Startup | ReloadFileDiff / ReloadTables | FullReinitialize |
+| --- | --- | --- | --- |
+| 実行中 | `初期化中` | `ライブラリ更新中` | `初期化再実行中` |
+| 操作可能だが background phase が残る | `操作可能(バックグラウンド更新中)` | `操作可能(バックグラウンド更新中)` | `操作可能(バックグラウンド更新中)` |
+| 全 expected phase 完了 | `初期化完了` | `ライブラリ更新完了` | `初期化再実行完了` |
+| 失敗 | `初期化失敗` | `ライブラリ更新失敗` | `初期化再実行失敗` |
 
 ## ログとガード
 

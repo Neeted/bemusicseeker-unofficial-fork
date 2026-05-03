@@ -41,6 +41,13 @@ public class BMSLibrary : NotificationObject
 {
     internal Func<string, string, string, Func<Task>, bool> StartupBackgroundTaskScheduler { get; set; }
 
+    public enum LibraryInitializeMode
+    {
+        Startup,
+        FullReinitialize,
+        ScoreOnly
+    }
+
     public enum LibraryInitializationProgressStage
     {
         None = 0,
@@ -3690,23 +3697,48 @@ public class BMSLibrary : NotificationObject
         return scanResult;
     }
 
+    public void Initialize(List<Action> tasksContinuation, SemaphoreSlim semaphore = null, bool? reloadScoresOnly = null)
+    {
+        LibraryInitializeMode mode = reloadScoresOnly == true
+            ? LibraryInitializeMode.ScoreOnly
+            : (reloadScoresOnly == false ? LibraryInitializeMode.FullReinitialize : LibraryInitializeMode.Startup);
+        Initialize(tasksContinuation, semaphore, mode);
+    }
+
+    public void InitializeStartup(List<Action> tasksContinuation, SemaphoreSlim semaphore = null)
+    {
+        Initialize(tasksContinuation, semaphore, LibraryInitializeMode.Startup);
+    }
+
+    public void Reinitialize(List<Action> tasksContinuation = null, SemaphoreSlim semaphore = null)
+    {
+        Initialize(tasksContinuation, semaphore, LibraryInitializeMode.FullReinitialize);
+    }
+
+    public void InitializeScoresOnly(List<Action> tasksContinuation, SemaphoreSlim semaphore = null)
+    {
+        Initialize(tasksContinuation, semaphore, LibraryInitializeMode.ScoreOnly);
+    }
+
     /// <summary>
     /// BMS ライブラリの初期化を行います。song.db からの譜面データ読み込み、ファイルスキャン、
     /// スコア / 保守情報の取得を統合的に実行します。
     /// </summary>
     /// <param name="tasksContinuation">初期化中に並行で実行する追加タスクのリスト。</param>
     /// <param name="semaphore">追加タスクの同期用セマフォ。</param>
-    /// <param name="reloadScoresOnly">スコアのみの再読み込み指定。</param>
-    public void Initialize(List<Action> tasksContinuation, SemaphoreSlim semaphore = null, bool? reloadScoresOnly = null)
+    /// <param name="mode">初期化 mode。</param>
+    public void Initialize(List<Action> tasksContinuation, SemaphoreSlim semaphore, LibraryInitializeMode mode)
     {
         BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
         bool scheduleDeferredMaintenanceTableCheck = false;
         bool scheduleDeferredInstallableMaintenance = false;
-        string deferredMaintenanceReason = ((reloadScoresOnly == false) ? "reload_files" : "initialize");
-        bool songTblLoad = reloadScoresOnly != true;
-        bool songTblFileCheck = reloadScoresOnly == false || (reloadScoresOnly != true && !options.SkipInitFileCheck);
-        bool setMaintenanceInfo = reloadScoresOnly != true;
-        bool flag = reloadScoresOnly != true;
+        string deferredMaintenanceReason = mode == LibraryInitializeMode.FullReinitialize ? "full_reinitialize" : "initialize";
+        bool isScoreOnly = mode == LibraryInitializeMode.ScoreOnly;
+        bool isStartup = mode == LibraryInitializeMode.Startup;
+        bool songTblLoad = !isScoreOnly;
+        bool songTblFileCheck = mode == LibraryInitializeMode.FullReinitialize || (isStartup && !options.SkipInitFileCheck);
+        bool setMaintenanceInfo = !isScoreOnly;
+        bool flag = !isScoreOnly;
         Task<BmsScanPrefetchInfo> bmsScanPrefetchTask = null;
         if (songTblFileCheck)
         {
@@ -3735,8 +3767,8 @@ public class BMSLibrary : NotificationObject
         NLogWrapper.DebuggerLogger?.Trace("hazimari: " + GC.GetTotalMemory(forceFullCollection: false));
         DateTime now;
         InitializationExecutionResult initializeResult;
-        LogInstallPerformance("init_library_enter reloadScoresOnly=" + (reloadScoresOnly?.ToString() ?? "(null)") + " songTblLoad=" + songTblLoad.ToString().ToLowerInvariant() + " songTblFileCheck=" + songTblFileCheck.ToString().ToLowerInvariant() + " setMaintenanceInfo=" + setMaintenanceInfo.ToString().ToLowerInvariant() + " installTblCheck=" + flag.ToString().ToLowerInvariant() + " rwlockInitAll currentRead=" + rwlockBMSFilesInitializedAll.CurrentReadCount + " lockingRead=" + rwlockBMSFilesInitializedAll.LockingReadCount + " lockingWrite=" + rwlockBMSFilesInitializedAll.LockingWriteCount + " waitingWrite=" + rwlockBMSFilesInitializedAll.WaitingWriteCount);
-        if (reloadScoresOnly != true)
+        LogInstallPerformance("init_library_enter mode=" + mode + " songTblLoad=" + songTblLoad.ToString().ToLowerInvariant() + " songTblFileCheck=" + songTblFileCheck.ToString().ToLowerInvariant() + " setMaintenanceInfo=" + setMaintenanceInfo.ToString().ToLowerInvariant() + " installTblCheck=" + flag.ToString().ToLowerInvariant() + " rwlockInitAll currentRead=" + rwlockBMSFilesInitializedAll.CurrentReadCount + " lockingRead=" + rwlockBMSFilesInitializedAll.LockingReadCount + " lockingWrite=" + rwlockBMSFilesInitializedAll.LockingWriteCount + " waitingWrite=" + rwlockBMSFilesInitializedAll.WaitingWriteCount);
+        if (isStartup)
         {
             TryImportChartInfoMetadataBundleAtStartup();
         }
@@ -3836,7 +3868,7 @@ public class BMSLibrary : NotificationObject
             ScheduleDeferredMaintenanceTableCheck(deferredMaintenanceReason);
         }
         bool chartInfoHydrationScheduled = false;
-        if (reloadScoresOnly != true)
+        if (!isScoreOnly)
         {
             QueueDeferredChartInfoHydration(deferredMaintenanceReason, queueFullBackfillAfterHydration: true);
             chartInfoHydrationScheduled = true;
@@ -3983,114 +4015,9 @@ public class BMSLibrary : NotificationObject
         if (songTblFileCheck)
         {
             Stopwatch stopwatchSongTblFileCheck = Stopwatch.StartNew();
-            LogStartupMemoryCheckpoint("file_diff", "before");
-            bool fileEnumerationCompleted = false;
-            Action completeFileEnumerationOnce = delegate
-            {
-                if (fileEnumerationCompleted)
-                {
-                    return;
-                }
-                fileEnumerationCompleted = true;
-                if (trackLibraryFileCheckProgress)
-                {
-                    CompleteLibraryFileEnumerationProgress();
-                }
-            };
-            bool inlineChartInfoApplied = false;
-            List<LR2SongDBExtended.chart_info> committedInlineChartInfoRows = new List<LR2SongDBExtended.chart_info>();
-            SongTableFileCheckResult fileCheckResult = initializationService.ApplyFileScanDiff(
-                dbGateway,
-                options,
-                BMSFiles,
-                bmsScanPrefetchInfo?.ScanResult,
-                bmsScanPrefetchInfo?.ElapsedMs ?? 0L,
-                () => ExecuteBmsScanWithFallback(
-                    bMSDirectories,
-                    scannerLabel =>
-                    {
-                        if (trackLibraryFileCheckProgress)
-                        {
-                            ReportLibraryInitializationProgress(
-                                LibraryInitializationProgressStage.FileEnumeration,
-                                scannerLabel,
-                                force: true);
-                        }
-                    }),
-                dialogService,
-                LogInstallPerformance,
-                LogEverythingScan,
-                BmsonSongs,
-                null,
-                completeFileEnumerationOnce,
-                () =>
-                {
-                    if (trackLibraryFileCheckProgress)
-                    {
-                        ReportLibraryInitializationProgress(LibraryInitializationProgressStage.FileDiff, force: true);
-                    }
-                },
-                (total, processed, path) =>
-                {
-                    if (trackLibraryFileCheckProgress)
-                    {
-                        ReportLibraryInitializationProgress(
-                            LibraryInitializationProgressStage.FileDiff,
-                            totalCount: total,
-                            processedCount: processed,
-                            currentPath: path,
-                            force: processed >= total);
-                    }
-                },
-                LogInstallPerformanceWarn,
-                delegate(IReadOnlyList<LR2SongDBExtended.chart_info> rows)
-                {
-                    if (rows == null || rows.Count == 0)
-                    {
-                        return;
-                    }
-                    committedInlineChartInfoRows.AddRange(rows.Where((LR2SongDBExtended.chart_info row) => row != null));
-                });
-            completeFileEnumerationOnce();
-            using (rwlockBMSFiles.GetWriterGuard())
-            {
-                BMSFiles = fileCheckResult.NextFiles;
-                BmsonSongs = fileCheckResult.NextBmsonSongs;
-                bmsFolderAllFileList = fileCheckResult.NextFolderAllFileList ?? new BMSDirectoryFileNameHash();
-                directoryResourceLookupCache = fileCheckResult.NextDirectoryResourceLookupCache ?? new DirectoryResourceLookupCache();
-                directoryRelativePathHashIndex = fileCheckResult.NextDirectoryRelativePathHashIndex ?? new DirectoryRelativePathHashIndex();
-            }
-            if (committedInlineChartInfoRows.Count > 0)
-            {
-                UpsertChartInfoIndexRows(committedInlineChartInfoRows, "file_diff_inline");
-                inlineChartInfoApplied = true;
-                committedInlineChartInfoRows.Clear();
-            }
-            if (inlineChartInfoApplied)
-            {
-                RaisePropertyChanged(() => BMSFilesZeroNote);
-            }
-            if (fileCheckResult.InlineChartInfoParseFailureRows.Count > 0
-                || fileCheckResult.InlineChartInfoParseFailureDeleteMd5s.Count > 0
-                || fileCheckResult.InlineChartInfoFailurePersistedCount > 0
-                || fileCheckResult.InlineChartInfoFailureClearedCount > 0)
-            {
-                RaisePropertyChanged(() => BMSFilesChartInfoParseFailed);
-            }
-            if (fileCheckResult.HasDbDiff)
-            {
-                InvalidateBMSHashIndex();
-                InvalidateInstalledDirectoryIndex();
-                InvalidateBMSParentFolderListCache();
-            }
+            ApplyLibraryFileScanDiff(options, bMSDirectories, bmsScanPrefetchInfo, trackLibraryFileCheckProgress, "initialize");
             stopwatchSongTblFileCheck.Stop();
             songTblFileCheckMs = stopwatchSongTblFileCheck.ElapsedMilliseconds;
-            if (trackLibraryFileCheckProgress)
-            {
-                CompleteLibraryFileDiffProgress();
-            }
-            fileCheckResult.ReleasePostApplyTransientBuffers();
-            LogStartupMemoryCheckpoint("file_diff", "after_release");
         }
         else if (trackLibraryFileCheckProgress)
         {
@@ -4166,6 +4093,164 @@ public class BMSLibrary : NotificationObject
         }
         stopwatchInitialize.Stop();
         LogInstallPerformance("init_library_internal song_tbl_load_ms=" + songTblLoadMs + " score_tbl_load_ms=" + scoreTblLoadMs + " song_tbl_file_check_ms=" + songTblFileCheckMs + " set_maintenance_ms=" + setMaintenanceMs + " set_mode_ms=" + setModeMs + " set_health_ms=" + setHealthMs + " set_zero_note_ms=" + setZeroNoteMs + " install_tbl_check_ms=" + installTblCheckMs + " rebuild_hash_index_ms=" + rebuildHashIndexMs + " maintenance_tbl_check_ms=" + maintenanceTblCheckMs + " total_ms=" + stopwatchInitialize.ElapsedMilliseconds);
+    }
+
+    public void ReloadFileDiff()
+    {
+        BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
+        List<string> bmsDirectories = getBMSDirectories();
+        Stopwatch stopwatch = Stopwatch.StartNew();
+        LogInstallPerformance("library_file_diff_reload start directories=" + bmsDirectories.Count);
+        try
+        {
+            using (rwlockBMSFilesInitializedAll.GetWriterGuard())
+            {
+                SongTableFileCheckResult result = ApplyLibraryFileScanDiff(options, bmsDirectories, null, trackLibraryFileCheckProgress: true, "reload_file_diff");
+                stopwatch.Stop();
+                LogInstallPerformance("library_file_diff_reload done added=" + result.BmsAddedTargetCount
+                    + " deleted=" + result.BmsDeletedTargetCount
+                    + " bmsonUpserted=" + result.BmsonUpsertTargetCount
+                    + " bmsonDeleted=" + result.BmsonDeletedTargetCount
+                    + " dbCommitChunks=" + result.DbCommitChunks
+                    + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
+                return;
+            }
+        }
+        catch (Exception ex)
+        {
+            stopwatch.Stop();
+            LogInstallPerformance("library_file_diff_reload failed elapsedMs=" + stopwatch.ElapsedMilliseconds + " message=" + ex.Message);
+            throw;
+        }
+    }
+
+    private SongTableFileCheckResult ApplyLibraryFileScanDiff(
+        BmsLibraryOptionsSnapshot options,
+        List<string> bmsDirectories,
+        BmsScanPrefetchInfo bmsScanPrefetchInfo,
+        bool trackLibraryFileCheckProgress,
+        string reason)
+    {
+        SongTableFileCheckResult emptyResult = new SongTableFileCheckResult();
+        if (bmsDirectories == null || bmsDirectories.Count == 0)
+        {
+            if (trackLibraryFileCheckProgress)
+            {
+                CompleteLibraryFileEnumerationProgress();
+                CompleteLibraryFileDiffProgress();
+            }
+            LogInstallPerformance("song_tbl_file_check skipped reason=no_bms_directories operation=" + (reason ?? string.Empty));
+            return emptyResult;
+        }
+
+        LogStartupMemoryCheckpoint("file_diff", "before");
+        bool fileEnumerationCompleted = false;
+        Action completeFileEnumerationOnce = delegate
+        {
+            if (fileEnumerationCompleted)
+            {
+                return;
+            }
+            fileEnumerationCompleted = true;
+            if (trackLibraryFileCheckProgress)
+            {
+                CompleteLibraryFileEnumerationProgress();
+            }
+        };
+
+        bool inlineChartInfoApplied = false;
+        List<LR2SongDBExtended.chart_info> committedInlineChartInfoRows = new List<LR2SongDBExtended.chart_info>();
+        SongTableFileCheckResult fileCheckResult = initializationService.ApplyFileScanDiff(
+            dbGateway,
+            options,
+            BMSFiles,
+            bmsScanPrefetchInfo?.ScanResult,
+            bmsScanPrefetchInfo?.ElapsedMs ?? 0L,
+            () => ExecuteBmsScanWithFallback(
+                bmsDirectories,
+                scannerLabel =>
+                {
+                    if (trackLibraryFileCheckProgress)
+                    {
+                        ReportLibraryInitializationProgress(
+                            LibraryInitializationProgressStage.FileEnumeration,
+                            scannerLabel,
+                            force: true);
+                    }
+                }),
+            dialogService,
+            LogInstallPerformance,
+            LogEverythingScan,
+            BmsonSongs,
+            null,
+            completeFileEnumerationOnce,
+            () =>
+            {
+                if (trackLibraryFileCheckProgress)
+                {
+                    ReportLibraryInitializationProgress(LibraryInitializationProgressStage.FileDiff, force: true);
+                }
+            },
+            (total, processed, path) =>
+            {
+                if (trackLibraryFileCheckProgress)
+                {
+                    ReportLibraryInitializationProgress(
+                        LibraryInitializationProgressStage.FileDiff,
+                        totalCount: total,
+                        processedCount: processed,
+                        currentPath: path,
+                        force: processed >= total);
+                }
+            },
+            LogInstallPerformanceWarn,
+            delegate(IReadOnlyList<LR2SongDBExtended.chart_info> rows)
+            {
+                if (rows == null || rows.Count == 0)
+                {
+                    return;
+                }
+                committedInlineChartInfoRows.AddRange(rows.Where((LR2SongDBExtended.chart_info row) => row != null));
+            });
+        completeFileEnumerationOnce();
+        using (rwlockBMSFiles.GetWriterGuard())
+        {
+            BMSFiles = fileCheckResult.NextFiles;
+            BmsonSongs = fileCheckResult.NextBmsonSongs;
+            bmsFolderAllFileList = fileCheckResult.NextFolderAllFileList ?? new BMSDirectoryFileNameHash();
+            directoryResourceLookupCache = fileCheckResult.NextDirectoryResourceLookupCache ?? new DirectoryResourceLookupCache();
+            directoryRelativePathHashIndex = fileCheckResult.NextDirectoryRelativePathHashIndex ?? new DirectoryRelativePathHashIndex();
+        }
+        if (committedInlineChartInfoRows.Count > 0)
+        {
+            UpsertChartInfoIndexRows(committedInlineChartInfoRows, "file_diff_inline");
+            inlineChartInfoApplied = true;
+            committedInlineChartInfoRows.Clear();
+        }
+        if (inlineChartInfoApplied)
+        {
+            RaisePropertyChanged(() => BMSFilesZeroNote);
+        }
+        if (fileCheckResult.InlineChartInfoParseFailureRows.Count > 0
+            || fileCheckResult.InlineChartInfoParseFailureDeleteMd5s.Count > 0
+            || fileCheckResult.InlineChartInfoFailurePersistedCount > 0
+            || fileCheckResult.InlineChartInfoFailureClearedCount > 0)
+        {
+            RaisePropertyChanged(() => BMSFilesChartInfoParseFailed);
+        }
+        if (fileCheckResult.HasDbDiff)
+        {
+            InvalidateBMSHashIndex();
+            InvalidateInstalledDirectoryIndex();
+            InvalidateBMSParentFolderListCache();
+        }
+        if (trackLibraryFileCheckProgress)
+        {
+            CompleteLibraryFileDiffProgress();
+        }
+        fileCheckResult.ReleasePostApplyTransientBuffers();
+        LogStartupMemoryCheckpoint("file_diff", "after_release");
+        return fileCheckResult;
     }
 
     private void RunChartDigestBackfill()

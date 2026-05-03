@@ -46,7 +46,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
 			}
 			else if (restartMode.HasFlag(MainWindowViewModel.SettingDialogViewModel.RestartMode.FolderOnly))
 			{
-				mainWindowViewModel.ReloadFiles();
+				mainWindowViewModel.ReloadFileDiff();
 			}
 		}
 	}
@@ -75,7 +75,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
 			}
 			else if (needRestart.HasFlag(MainWindowViewModel.SettingDialogViewModel.RestartMode.FolderOnly))
 			{
-				viewModel.ReloadFiles();
+				viewModel.ReloadFileDiff();
 			}
 			settingDialog.Visibility = Visibility.Hidden;
 		}

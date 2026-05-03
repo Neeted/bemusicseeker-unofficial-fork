@@ -437,6 +437,9 @@ LR2をプレイヤーとして使用すると再生できない場合があり�
   <data name="Reload" xml:space="preserve">
     <value>リロード</value>
   </data>
+  <data name="Reinitialize_library" xml:space="preserve">
+    <value>初期化再実行</value>
+  </data>
   <data name="Msg_warn_cache_download" xml:space="preserve">
     <value>スコアDBと接続されていないかプレイヤーがLR2IRに登録されていないため
 ランキングデータの閲覧機能がオフになっています。</value>
@@ -1126,6 +1129,9 @@ BMSファイルが重複しないようにマージします。
   <data name="Statusbar_progress_reload_tables" xml:space="preserve">
     <value>ライブラリ更新中</value>
   </data>
+  <data name="Statusbar_progress_full_reinitialize" xml:space="preserve">
+    <value>初期化再実行中</value>
+  </data>
   <data name="Statusbar_progress_operable" xml:space="preserve">
     <value>操作可能</value>
   </data>
@@ -1138,11 +1144,17 @@ BMSファイルが重複しないようにマージします。
   <data name="Statusbar_progress_complete_reload" xml:space="preserve">
     <value>ライブラリ更新完了</value>
   </data>
+  <data name="Statusbar_progress_complete_reinitialize" xml:space="preserve">
+    <value>初期化再実行完了</value>
+  </data>
   <data name="Statusbar_progress_failed" xml:space="preserve">
     <value>初期化失敗</value>
   </data>
   <data name="Statusbar_progress_failed_reload" xml:space="preserve">
     <value>ライブラリ更新失敗</value>
+  </data>
+  <data name="Statusbar_progress_failed_reinitialize" xml:space="preserve">
+    <value>初期化再実行失敗</value>
   </data>
   <data name="Statusbar_progress_phase_library_load" xml:space="preserve">
     <value>ライブラリ読込</value>

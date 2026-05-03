@@ -27,7 +27,7 @@
 
 ## File Diff
 
-初期化やライブラリリロードで追加・更新譜面を検出した場合は、`ApplyFileScanDiff()` の中で次の順に処理する。
+初期化、`FullReinitialize`、軽量 `ReloadFileDiff` で追加・更新譜面を検出した場合は、`ApplyFileScanDiff()` の中で次の順に処理する。
 
 ```text
 changed path
@@ -53,6 +53,8 @@ changed path
 file diff の progress target は lightweight parse 対象数で、BMS 追加件数と bmson 追加・更新件数の合算。`chart_info` parse failure は `song` / `bmson_song` 登録を止めない。
 
 current `chart_info` row が存在する場合、inline parser は詳細 parse を skip できる。この row は対象 model に適用してよいが、file diff の成果物として全件蓄積しない。session chart_info index の全量更新は `chart_info_hydration` が担当し、`file_diff_inline` で publish するのは新規生成または更新した row に限定する。
+
+軽量 `ReloadFileDiff` では、現在の in-memory `BMSFiles` / `BmsonSongs` と scan result だけを比較する。DB 再読込、metadata bundle import、full `chart_info` hydration/backfill、installable maintenance deferred は行わない。DB 外部編集や互換修復まで拾う場合は `FullReinitialize` を使う。
 
 `song_tbl_file_check_breakdown` の `inline_chart_info_index_published_count` は、file diff から runtime index delta へ流した row 数を表す。metadata bundle current skip が大半のケースでは、この値は `inline_chart_info_current_skipped_count` ではなく `inline_chart_info_success_count` 近辺になる。
 

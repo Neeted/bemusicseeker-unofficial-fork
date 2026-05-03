@@ -305,6 +305,21 @@
         <MenuItem Name="treeViewPlaylistTableFolderContextMenuItemChangeFolderName" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Rename_folder, Mode=OneWay}" Click="treeViewPlaylistTableFolderContextMenuItemChangeFolderNameClick" />
       </ContextMenu>
       <ContextMenu x:Key="treeViewLibraryFolderContextMenu" HasDropShadow="True">
+        <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Reload, Mode=OneWay}">
+          <i:Interaction.Triggers>
+            <i:EventTrigger EventName="Click">
+              <l:LivetCallMethodAction MethodName="ReloadFileDiff" MethodTarget="{Binding Source={StaticResource vm}}" />
+            </i:EventTrigger>
+          </i:Interaction.Triggers>
+        </MenuItem>
+        <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Reinitialize_library, Mode=OneWay}">
+          <i:Interaction.Triggers>
+            <i:EventTrigger EventName="Click">
+              <l:LivetCallMethodAction MethodName="ReinitializeLibrary" MethodTarget="{Binding Source={StaticResource vm}}" />
+            </i:EventTrigger>
+          </i:Interaction.Triggers>
+        </MenuItem>
+        <Separator />
         <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_folder_explorer, Mode=OneWay}" Click="treeViewLibraryFolderContextMenuItemOpenExplorerClick" />
         <Separator />
         <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Cancel_root_folder, Mode=OneWay}" Click="treeViewLibraryFolderContextMenuItemUnregisterRootFolder" />
@@ -362,6 +377,21 @@
         </MenuItem>
       </ContextMenu>
       <ContextMenu x:Key="treeViewLibraryFolderRootContextMenu" HasDropShadow="True">
+        <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Reload, Mode=OneWay}">
+          <i:Interaction.Triggers>
+            <i:EventTrigger EventName="Click">
+              <l:LivetCallMethodAction MethodName="ReloadFileDiff" MethodTarget="{Binding Source={StaticResource vm}}" />
+            </i:EventTrigger>
+          </i:Interaction.Triggers>
+        </MenuItem>
+        <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Reinitialize_library, Mode=OneWay}">
+          <i:Interaction.Triggers>
+            <i:EventTrigger EventName="Click">
+              <l:LivetCallMethodAction MethodName="ReinitializeLibrary" MethodTarget="{Binding Source={StaticResource vm}}" />
+            </i:EventTrigger>
+          </i:Interaction.Triggers>
+        </MenuItem>
+        <Separator />
         <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Add_root_folder, Mode=OneWay}">
           <i:Interaction.Triggers>
             <i:EventTrigger EventName="Click">
@@ -370,14 +400,6 @@
                   <l:FolderSelectionMessage DialogPreference="FolderBrowser" SelectedPath="{qc:Binding '$P == null ? null : $P.FirstOrDefault()', P={Binding BMSParentFolderList, Source={StaticResource vm}}}" />
                 </l:DirectInteractionMessage>
               </l:FolderBrowserDialogInteractionMessageAction>
-            </i:EventTrigger>
-          </i:Interaction.Triggers>
-        </MenuItem>
-        <Separator />
-        <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Reload, Mode=OneWay}">
-          <i:Interaction.Triggers>
-            <i:EventTrigger EventName="Click">
-              <l:LivetCallMethodAction MethodName="ReloadFiles" MethodTarget="{Binding Source={StaticResource vm}}" />
             </i:EventTrigger>
           </i:Interaction.Triggers>
         </MenuItem>

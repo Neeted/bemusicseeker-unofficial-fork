@@ -2171,7 +2171,7 @@ public class MainWindowViewModel : ViewModel
                 AddBMSDirectoryToLR2Config(parameter);
                 if (isBMSDirectoryAdded)
                 {
-                    ownerViewModel.ReloadFiles();
+                    ownerViewModel.ReloadFileDiff();
                     isBMSDirectoryAdded = false;
                 }
                 else
@@ -2226,7 +2226,7 @@ public class MainWindowViewModel : ViewModel
                 RemoveBMSDirectoryFromLR2Config(dir);
                 if (isBMSDirectoryRemoved)
                 {
-                    ownerViewModel.ReloadFiles();
+                    ownerViewModel.ReloadFileDiff();
                     isBMSDirectoryRemoved = false;
                 }
                 else
@@ -3863,7 +3863,8 @@ public class MainWindowViewModel : ViewModel
     {
         None,
         Startup,
-        ReloadFiles,
+        ReloadFileDiff,
+        FullReinitialize,
         ReloadTables
     }
 
@@ -9265,7 +9266,7 @@ public class MainWindowViewModel : ViewModel
             };
             await Task.Run(delegate
             {
-                files.Initialize(new List<Action> { taskAdd1 }, semaphore, true);
+                files.InitializeScoresOnly(new List<Action> { taskAdd1 }, semaphore);
             }).Logging("ReloadTables");
             scheduleDeferredExternalSync = true;
         }
@@ -9291,30 +9292,26 @@ public class MainWindowViewModel : ViewModel
             StartupProgressPhase.PlaylistReferenceApplied);
     }
 
-    /// <summary>
-    /// データベース側およびファイルシステム上の BMS ファイル情報 (BMSLibrary) を再読み込みし、コレクションを更新します。<br/>
-    /// UI スレッドでの不要な描画を抑制しながらバックグラウンドで処理し、プレイリストの参照解決を再スケジュールします。
-    /// </summary>
-    public async void ReloadFiles()
+    public async void ReloadFileDiff()
     {
         if (!initializationCompleted)
         {
             return;
         }
-        StartStartupProgressOperation(StartupProgressOperationKind.ReloadFiles);
-        LogInitStage("start", "ReloadFiles");
+        StartStartupProgressOperation(StartupProgressOperationKind.ReloadFileDiff);
+        LogInitStage("start", "ReloadFileDiff");
         bool scheduleDeferredPlaylistRef = false;
         await _semaphore.WaitAsync();
         try
         {
             BeginUiUpdateSuppression(UiRefreshChannel.LibraryMainView | UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.InstallTree | UiRefreshChannel.DuplicateTree);
-            LogInitStage("files_initialize_task_start", "ReloadFiles");
+            LogInitStage("file_diff_reload_task_start", "ReloadFileDiff");
             await Task.Run(delegate
             {
-                LogInitStage("files_initialize_call", "ReloadFiles");
-                files.Initialize(null, null, false);
-            }).Logging("ReloadFiles");
-            LogInitStage("files_initialize_done", "ReloadFiles");
+                LogInitStage("file_diff_reload_call", "ReloadFileDiff");
+                files.ReloadFileDiff();
+            }).Logging("ReloadFileDiff");
+            LogInitStage("file_diff_reload_done", "ReloadFileDiff");
             scheduleDeferredPlaylistRef = true;
             if (!TrySuppress(UiRefreshChannel.LibraryFolderTree))
             {
@@ -9331,16 +9328,66 @@ public class MainWindowViewModel : ViewModel
         {
             EndUiUpdateSuppression();
             MarkStartupProgressPhaseCompleted(StartupProgressPhase.StartupReadyOperable);
-            LogInitStage("ui_suppress_end_called", "ReloadFiles");
+            LogInitStage("ui_suppress_end_called", "ReloadFileDiff");
             _semaphore.Release();
         }
         if (scheduleDeferredPlaylistRef)
         {
-            ScheduleDeferredPlaylistReferenceApply("ReloadFiles");
-            LogInitStage("deferred_playlist_ref_queued", "ReloadFiles");
+            ScheduleDeferredPlaylistReferenceApply("ReloadFileDiff");
+            LogInitStage("deferred_playlist_ref_queued", "ReloadFileDiff");
         }
         SkipUnrequestedStartupProgressPhases(
-            "ReloadFiles:scheduled",
+            "ReloadFileDiff:scheduled",
+            StartupProgressPhase.PlaylistReferenceApplied,
+            StartupProgressPhase.PlaylistEntriesHydrationDone);
+    }
+
+    public async void ReinitializeLibrary()
+    {
+        if (!initializationCompleted)
+        {
+            return;
+        }
+        StartStartupProgressOperation(StartupProgressOperationKind.FullReinitialize);
+        LogInitStage("start", "FullReinitialize");
+        bool scheduleDeferredPlaylistRef = false;
+        await _semaphore.WaitAsync();
+        try
+        {
+            BeginUiUpdateSuppression(UiRefreshChannel.LibraryMainView | UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.InstallTree | UiRefreshChannel.DuplicateTree);
+            LogInitStage("files_initialize_task_start", "FullReinitialize");
+            await Task.Run(delegate
+            {
+                LogInitStage("files_initialize_call", "FullReinitialize");
+                files.Reinitialize();
+            }).Logging("FullReinitialize");
+            LogInitStage("files_initialize_done", "FullReinitialize");
+            scheduleDeferredPlaylistRef = true;
+            if (!TrySuppress(UiRefreshChannel.LibraryFolderTree))
+            {
+                bmsParentFolderListViewInitialized = false;
+                ScheduleDeferredLibraryFolderTreeRefresh();
+            }
+        }
+        catch (Exception ex)
+        {
+            FailStartupProgressOperation(ex.Message);
+            throw;
+        }
+        finally
+        {
+            EndUiUpdateSuppression();
+            MarkStartupProgressPhaseCompleted(StartupProgressPhase.StartupReadyOperable);
+            LogInitStage("ui_suppress_end_called", "FullReinitialize");
+            _semaphore.Release();
+        }
+        if (scheduleDeferredPlaylistRef)
+        {
+            ScheduleDeferredPlaylistReferenceApply("FullReinitialize");
+            LogInitStage("deferred_playlist_ref_queued", "FullReinitialize");
+        }
+        SkipUnrequestedStartupProgressPhases(
+            "FullReinitialize:scheduled",
             StartupProgressPhase.PlaylistReferenceApplied,
             StartupProgressPhase.PlaylistEntriesHydrationDone,
             StartupProgressPhase.ChartInfoHydrationDone,
@@ -10085,7 +10132,7 @@ public class MainWindowViewModel : ViewModel
         {
             await Task.Run(delegate
             {
-                files.Initialize(new List<Action> { taskAdd1, taskAdd2 }, semaphore);
+                files.InitializeStartup(new List<Action> { taskAdd1, taskAdd2 }, semaphore);
             }).Logging("Initialize");
             LogInitStage("files_initialize_done", "Initialize");
             TryLogStartupReadyData();
@@ -13844,8 +13891,10 @@ public class MainWindowViewModel : ViewModel
     {
         switch (operationKind)
         {
-            case StartupProgressOperationKind.ReloadFiles:
+            case StartupProgressOperationKind.ReloadFileDiff:
                 return BeMusicSeeker.Properties.Resources.Statusbar_progress_reload_files;
+            case StartupProgressOperationKind.FullReinitialize:
+                return BeMusicSeeker.Properties.Resources.Statusbar_progress_full_reinitialize;
             case StartupProgressOperationKind.ReloadTables:
                 return BeMusicSeeker.Properties.Resources.Statusbar_progress_reload_tables;
             default:
@@ -13864,6 +13913,10 @@ public class MainWindowViewModel : ViewModel
         {
             return BeMusicSeeker.Properties.Resources.Statusbar_progress_complete;
         }
+        if (operationKind == StartupProgressOperationKind.FullReinitialize)
+        {
+            return BeMusicSeeker.Properties.Resources.Statusbar_progress_complete_reinitialize;
+        }
         return BeMusicSeeker.Properties.Resources.Statusbar_progress_complete_reload;
     }
 
@@ -13877,6 +13930,10 @@ public class MainWindowViewModel : ViewModel
         if (operationKind == StartupProgressOperationKind.Startup)
         {
             return BeMusicSeeker.Properties.Resources.Statusbar_progress_failed;
+        }
+        if (operationKind == StartupProgressOperationKind.FullReinitialize)
+        {
+            return BeMusicSeeker.Properties.Resources.Statusbar_progress_failed_reinitialize;
         }
         return BeMusicSeeker.Properties.Resources.Statusbar_progress_failed_reload;
     }
@@ -14058,7 +14115,7 @@ public class MainWindowViewModel : ViewModel
                     | StartupProgressPhase.ChartInfoBackfillDone
                     | StartupProgressPhase.ChartInfoHydrationDone
                     | StartupProgressPhase.PlaylistEntriesHydrationDone;
-            case StartupProgressOperationKind.ReloadFiles:
+            case StartupProgressOperationKind.FullReinitialize:
                 return StartupProgressPhase.CoreInitializeStarted
                     | StartupProgressPhase.LibraryDatabaseLoadDone
                     | StartupProgressPhase.LibraryFileEnumerationDone
@@ -14072,6 +14129,13 @@ public class MainWindowViewModel : ViewModel
                     | StartupProgressPhase.ChartDigestBackfillDone
                     | StartupProgressPhase.ChartInfoBackfillDone
                     | StartupProgressPhase.ChartInfoHydrationDone
+                    | StartupProgressPhase.PlaylistEntriesHydrationDone;
+            case StartupProgressOperationKind.ReloadFileDiff:
+                return StartupProgressPhase.CoreInitializeStarted
+                    | StartupProgressPhase.LibraryFileEnumerationDone
+                    | StartupProgressPhase.LibraryFileDiffDone
+                    | StartupProgressPhase.StartupReadyOperable
+                    | StartupProgressPhase.PlaylistReferenceApplied
                     | StartupProgressPhase.PlaylistEntriesHydrationDone;
             case StartupProgressOperationKind.ReloadTables:
                 return StartupProgressPhase.CoreInitializeStarted
@@ -14321,8 +14385,10 @@ public class MainWindowViewModel : ViewModel
         {
             case StartupProgressOperationKind.Startup:
                 return string.Equals(reason, "Initialize", StringComparison.Ordinal) || string.Equals(reason, "DeferredExternalSync:Initialize", StringComparison.Ordinal);
-            case StartupProgressOperationKind.ReloadFiles:
-                return string.Equals(reason, "ReloadFiles", StringComparison.Ordinal);
+            case StartupProgressOperationKind.ReloadFileDiff:
+                return string.Equals(reason, "ReloadFileDiff", StringComparison.Ordinal);
+            case StartupProgressOperationKind.FullReinitialize:
+                return string.Equals(reason, "FullReinitialize", StringComparison.Ordinal);
             case StartupProgressOperationKind.ReloadTables:
                 return string.Equals(reason, "DeferredExternalSync:ReloadTables", StringComparison.Ordinal);
             default:

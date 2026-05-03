@@ -269,6 +269,8 @@ public class Resources
 
     public static string Statusbar_progress_reload_tables => ResourceManager.GetString("Statusbar_progress_reload_tables", resourceCulture);
 
+    public static string Statusbar_progress_full_reinitialize => ResourceManager.GetString("Statusbar_progress_full_reinitialize", resourceCulture);
+
     public static string Statusbar_progress_operable => ResourceManager.GetString("Statusbar_progress_operable", resourceCulture);
 
     public static string Statusbar_progress_operable_background => ResourceManager.GetString("Statusbar_progress_operable_background", resourceCulture);
@@ -277,9 +279,13 @@ public class Resources
 
     public static string Statusbar_progress_complete_reload => ResourceManager.GetString("Statusbar_progress_complete_reload", resourceCulture);
 
+    public static string Statusbar_progress_complete_reinitialize => ResourceManager.GetString("Statusbar_progress_complete_reinitialize", resourceCulture);
+
     public static string Statusbar_progress_failed => ResourceManager.GetString("Statusbar_progress_failed", resourceCulture);
 
     public static string Statusbar_progress_failed_reload => ResourceManager.GetString("Statusbar_progress_failed_reload", resourceCulture);
+
+    public static string Statusbar_progress_failed_reinitialize => ResourceManager.GetString("Statusbar_progress_failed_reinitialize", resourceCulture);
 
     public static string Statusbar_progress_phase_library_load => ResourceManager.GetString("Statusbar_progress_phase_library_load", resourceCulture);
 
@@ -703,6 +709,8 @@ public class Resources
     public static string Recheck_zero_note => ResourceManager.GetString("Recheck_zero_note", resourceCulture);
 
     public static string Reload => ResourceManager.GetString("Reload", resourceCulture);
+
+    public static string Reinitialize_library => ResourceManager.GetString("Reinitialize_library", resourceCulture);
 
     public static string Remarks_URL => ResourceManager.GetString("Remarks_URL", resourceCulture);
 

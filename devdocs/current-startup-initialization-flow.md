@@ -7,7 +7,7 @@
 ## 正本フロー
 
 ```text
-Initialize
+Startup
   -> bmson migration preflight inspect
        read-only
   -> warning required?
@@ -31,6 +31,17 @@ Initialize
        installable maintenance for DB-derived missing/stale rows
        score / ranking refresh
 ```
+
+## Operation Modes
+
+| Mode | 入口 | 目的 | DB read / background 補完 |
+| --- | --- | --- | --- |
+| `Startup` | アプリ起動時 | migration と metadata import 済み DB から正本を構築する | 行う |
+| `ReloadFileDiff` | ライブラリ右クリック `リロード` | アプリ外のファイル追加・削除・移動だけを検出し、memory / DB に反映する | 行わない |
+| `FullReinitialize` | ライブラリ右クリック `初期化再実行` | DB 外部編集や状態修復を想定し、起動時に近い初期化を再実行する | 行う |
+| `ReloadTables` | playlist/table reload | table / playlist / score 系を更新する | ライブラリ file diff は行わない |
+
+起動中の `song.db` は原則 BeMusicSeeker が更新するため、通常の `リロード` は in-memory catalog と file scan result の差分だけを見る。LR2 や手動編集で DB が変わった可能性まで拾う場合は `FullReinitialize` を使う。
 
 ## bmson Migration
 
@@ -91,7 +102,7 @@ metadata bundle は、リリースパッケージ同梱または外部配布の 
 
 ## Library Load
 
-`BMSLibrary.Initialize()` の本体は、migration と metadata import が終わった DB を前提に動く。
+`Startup` / `FullReinitialize` の本体は、migration と metadata import が終わった DB を前提に動く。metadata bundle import は `Startup` 専用で、`FullReinitialize` と `ReloadFileDiff` では再 import しない。
 
 | Phase | 主な処理 | 備考 |
 | --- | --- | --- |
@@ -102,6 +113,28 @@ metadata bundle は、リリースパッケージ同梱または外部配布の 
 差分なしの場合は、導入先推定に必要な index を最速で公開し、DB 由来の補助情報は background へ回す。
 
 差分ありの場合は、読んだファイルの近くで DB と memory へ反映し、再起動しないと正しくならない状態を作らない。
+
+## ReloadFileDiff
+
+`ReloadFileDiff` は DB を読み直さず、現在の `BMSFiles` / `BmsonSongs` を正本として file scan result と比較する。
+
+```text
+ReloadFileDiff
+  -> file enumeration / resource index build
+  -> file diff against in-memory catalog
+  -> added/updated charts
+       snapshot read
+       lightweight parse
+       inline chart_info
+       inline maintenance
+       chunk commit
+  -> deleted charts
+       unregister from DB / memory
+  -> memory catalog and resource index swap
+  -> playlist reference apply
+```
+
+差分が 0 件の場合は DB commit、chart_info hydration/backfill、installable maintenance deferred を発生させない。
 
 ## Startup Background Tasks
 

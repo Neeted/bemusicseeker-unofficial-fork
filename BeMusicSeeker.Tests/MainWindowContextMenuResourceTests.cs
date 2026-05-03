@@ -34,6 +34,17 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(MainWindow.ShouldShowChartInfoParseFailureRemovalMenuForTest(true, new[] { " " }));
     }
 
+    [TestMethod]
+    public void LibraryFolderContextMenus_ExposeLightReloadAndFullReinitialize()
+    {
+        string xaml = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "MainWindow.xaml"));
+
+        Assert.AreEqual(2, CountOccurrences(xaml, "MethodName=\"ReloadFileDiff\""));
+        Assert.AreEqual(2, CountOccurrences(xaml, "MethodName=\"ReinitializeLibrary\""));
+        Assert.AreEqual(2, CountOccurrences(xaml, "Path=Resources.Reinitialize_library, Mode=OneWay"));
+        Assert.IsFalse(string.IsNullOrWhiteSpace(Resources.Reinitialize_library));
+    }
+
     private static string FindRepositoryRoot()
     {
         DirectoryInfo directory = new DirectoryInfo(AppContext.BaseDirectory);
