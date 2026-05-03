@@ -4054,12 +4054,9 @@ public class BMSLibrary : NotificationObject
                 directoryResourceLookupCache = fileCheckResult.NextDirectoryResourceLookupCache ?? new DirectoryResourceLookupCache();
                 directoryRelativePathHashIndex = fileCheckResult.NextDirectoryRelativePathHashIndex ?? new DirectoryRelativePathHashIndex();
             }
-            IReadOnlyList<LR2SongDBExtended.chart_info> inlineChartInfoRowsToPublish = committedInlineChartInfoRows.Count > 0
-                ? committedInlineChartInfoRows
-                : fileCheckResult.InlineChartInfoAppliedRows;
-            if (inlineChartInfoRowsToPublish.Count > 0)
+            if (committedInlineChartInfoRows.Count > 0)
             {
-                UpsertChartInfoIndexRows(inlineChartInfoRowsToPublish, "file_diff_inline");
+                UpsertChartInfoIndexRows(committedInlineChartInfoRows, "file_diff_inline");
                 inlineChartInfoApplied = true;
             }
             if (inlineChartInfoApplied)

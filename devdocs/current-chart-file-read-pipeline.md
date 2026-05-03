@@ -52,6 +52,8 @@ file diff の progress target は lightweight parse 対象数で、BMS 追加件
 
 current `chart_info` row が存在する場合、inline parser は詳細 parse を skip できる。この row は対象 model に適用してよいが、file diff の成果物として全件蓄積しない。session chart_info index の全量更新は `chart_info_hydration` が担当し、`file_diff_inline` で publish するのは新規生成または更新した row に限定する。
 
+`song_tbl_file_check_breakdown` の `inline_chart_info_index_published_count` は、file diff から runtime index delta へ流した row 数を表す。metadata bundle current skip が大半のケースでは、この値は `inline_chart_info_current_skipped_count` ではなく `inline_chart_info_success_count` 近辺になる。
+
 ## Package Install
 
 package install は、保留で読んだ bytes を長期保持しない。インストール後の最終配置 path を対象に snapshot を 1 回 read し、inline `chart_info` を作る。

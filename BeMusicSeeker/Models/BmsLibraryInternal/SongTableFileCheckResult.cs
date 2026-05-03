@@ -90,6 +90,8 @@ internal sealed class SongTableFileCheckResult
 
     public int InlineChartInfoFailureClearedCount { get; set; }
 
+    public int InlineChartInfoIndexPublishedCount { get; set; }
+
     public long InlineChartInfoParseMs { get; set; }
 
     public int InlineChartInfoBatchSize { get; set; }

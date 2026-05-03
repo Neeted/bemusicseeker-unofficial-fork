@@ -511,6 +511,7 @@ internal sealed class BmsLibraryInitializationService
             + " inline_chart_info_parse_failed_count=" + result.InlineChartInfoParseFailedCount
             + " inline_chart_info_failure_persisted_count=" + result.InlineChartInfoFailurePersistedCount
             + " inline_chart_info_failure_cleared_count=" + result.InlineChartInfoFailureClearedCount
+            + " inline_chart_info_index_published_count=" + result.InlineChartInfoIndexPublishedCount
             + " inline_chart_info_parse_ms=" + result.InlineChartInfoParseMs
             + " inline_chart_info_batch_size=" + result.InlineChartInfoBatchSize
             + " parse_read_bytes_estimate=" + result.ParseReadBytesEstimate
@@ -965,9 +966,10 @@ internal sealed class BmsLibraryInitializationService
                 + " appliedChartInfo=" + chunk.AppliedChartInfoRows.Count
                 + " failures=" + chunk.ParseFailureRows.Count
                 + " failureDeletes=" + chunk.ParseFailureDeleteMd5s.Count);
-            if (chunk.AppliedChartInfoRows.Count > 0)
+            if (chunk.ChartInfoRows.Count > 0 && inlineChartInfoRowsCommitted != null)
             {
-                inlineChartInfoRowsCommitted?.Invoke(chunk.AppliedChartInfoRows);
+                result.InlineChartInfoIndexPublishedCount += chunk.ChartInfoRows.Count;
+                inlineChartInfoRowsCommitted(chunk.ChartInfoRows);
             }
         }
 

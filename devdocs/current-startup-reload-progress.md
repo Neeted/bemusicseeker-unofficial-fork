@@ -92,7 +92,9 @@ Everything scan は DB 読み込みと並列 prefetch される場合がある�
 
 差分ファイルがない場合は、file diff phase は DB と列挙結果の比較、および導入先推定用 index の公開だけで完了する。譜面本文 read は行わず、操作可能化を優先する。
 
-差分なし fast path では、metadata bundle import や full `chart_info` hydration/backfill は導入先推定に不要な DB 由来補助情報として background 側へ寄せる。大量差分がある場合だけ、inline `chart_info` parse を避ける目的で file diff 前に同期 import する余地がある。
+metadata bundle import はリリース同梱または外部配布 metadata の取り込みであり、差分ファイル由来/DB由来 background 補完とは別枠で扱う。配置されている場合は起動直後に一度 import を試み、import 済み bundle は `imported_metadata/` 退避により通常起動の critical path から外す。
+
+差分なし fast path では、full `chart_info` hydration/backfill は導入先推定に不要な DB 由来補助情報として background 側へ寄せる。
 
 差分ファイルがある場合は、`LibraryFileDiffDone` が次を含む。
 

@@ -64,7 +64,7 @@ main_view_build mode=FileMissingIgnoredFilterSelected ... folderMs=0 totalMs=3 f
 - 差分ファイルがない場合は、導入先推定に必要な情報を最速で使える状態にする。
   - DB load、ファイル列挙、resource hash/index 構築を優先する。
   - 譜面ファイル本文の read は行わない。
-  - `chart_info` metadata bundle import、`chart_info` hydration/backfill、maintenance 補完、score/ranking など DB 由来の補助情報は background に回してよい。
+  - `chart_info` hydration/backfill、maintenance 補完、score/ranking など DB 由来の補助情報は background に回してよい。
 - 差分ファイル、つまり新規・更新ファイルがある場合は、ファイル read 直後の近い場所で必要な反映を終わらせる。
   - lightweight parse。
   - LR2 `folder` / `parent` 正規化。
@@ -79,10 +79,11 @@ main_view_build mode=FileMissingIgnoredFilterSelected ... folderMs=0 totalMs=3 f
 - 補助情報であっても、新規・更新ファイル由来なら後回しにしない。
   - そのファイルの snapshot bytes、軽量 parse 結果、resource refs、scan cache が生きている間に処理する。
   - 「追加直後は未反映で、再起動または background 補完後に初めて正しくなる」状態を作らない。
-- metadata bundle import は DB 由来補助情報だが、新規・更新ファイルの inline `chart_info` parse を避けるために使える場合だけ file diff 前へ寄せる。
-  - 差分 0 の場合は導入先推定に不要なので background でよい。
-  - 差分が多い場合は、snapshot read 前に import して current row skip を効かせる価値がある。
-  - 差分が少ない場合の同期 import 可否は、bundle size と target count の実測で閾値化する。
+- metadata bundle import は、本アプリのリリースパッケージ同梱物または外部配布物から取り込むメタデータであり、「所持譜面から生成された DB 由来補助情報」ではない。
+  - 頻繁に import するためのデータではなく、リリース直後またはユーザーが bundle を配置した起動時に一度だけ取り込む。
+  - import タイミングは起動直後に固定する。
+  - 差分有無や target count によって background / foreground を切り替えない。
+  - import 済み bundle は `imported_metadata/` 退避と import history で再処理を避ける。
 
 ### 差分なし fast path
 
@@ -96,13 +97,14 @@ DB load
   -> 導入先推定に必要な index を公開
   -> 操作可能
   -> background:
-       chart_info metadata bundle import if present
        chart_info hydration/backfill if DB-derived candidates exist
        maintenance補完 if DB-derived missing/stale rows exist
        score/ranking/playlist hydration
 ```
 
-差分なし fast path では、`song` / `bmson_song` を作り直すための譜面 read、同期 metadata bundle import、current `chart_info` row の大量再 publish、resource health warning の全件 mutation を行わない。
+metadata bundle import はこの fast path の前段で一度だけ試行する。bundle が存在しない、または import history 済みで退避済みの場合は、通常の差分なし fast path に影響しない。
+
+差分なし fast path では、`song` / `bmson_song` を作り直すための譜面 read、current `chart_info` row の大量再 publish、resource health warning の全件 mutation を行わない。
 
 ### 差分あり path
 
@@ -135,8 +137,7 @@ background task は「現在の file diff で直接扱っていない DB 由来�
 
 | 処理 | background 可否 | 理由 |
 | --- | --- | --- |
-| 差分なし時の metadata bundle import | 可 | 導入先推定には不要で、DB 補助情報の取り込みに過ぎない |
-| 差分あり時の metadata bundle import | 条件付きで不可 | inline `chart_info` parse を大量に避けられる場合は file diff 前に同期実行する価値がある |
+| metadata bundle import | 不可 | リリース同梱または外部配布 metadata を起動直後に一度取り込む処理で、差分ファイル由来/DB由来補完とは別枠 |
 | 旧DBの full `chart_info` backfill | 可 | 譜面は既に DB catalog に存在し、新規 file read の近傍ではない |
 | current `chart_info` hydration | 可 | DB row を memory index / owner へ適用する処理 |
 | 新規・更新ファイルの `chart_info` 生成 | 不可 | snapshot bytes がある間に処理すべき |
@@ -496,11 +497,11 @@ Phase 6 では byte cap は入れていない。件数ベースの bounded paral
 
 ### Phase 7.5: file diff inline result の責務修正
 
-追加で実施する。Phase 6/7 の後、metadata bundle import 済みの空DB初回起動で、`inline_chart_info_current_skipped_count` が約 20 万件あるにもかかわらず `chart_info_index_delta reason=file_diff_inline` も約 20 万件になり、メモリピークが 15GB 前後まで上がるケースが観測された。
+完了済み。Phase 6/7 の後、metadata bundle import 済みの空DB初回起動で、`inline_chart_info_current_skipped_count` が約 20 万件あるにもかかわらず `chart_info_index_delta reason=file_diff_inline` も約 20 万件になり、メモリピークが 15GB 前後まで上がるケースが観測された。
 
 これは bounded queue や chunk commit の問題ではなく、current skip した既存 `chart_info` row を file diff の成果物として後段に蓄積していることが主因である。
 
-#### 修正方針
+#### 現行仕様
 
 - `FileScanDiffCommitChunk` は DB へ新規 upsert する `chart_info` row と、model に適用した既存 current row を区別する。
 - chunk commit callback が `BMSLibrary` 側へ渡す row は、新規生成・更新した `chart_info` row に限定する。
@@ -508,6 +509,7 @@ Phase 6 では byte cap は入れていない。件数ベースの bounded paral
 - `SongTableFileCheckResult.InlineChartInfoAppliedRows` は、テストや診断で必要な最小範囲に縮小する。production で callback がある場合は current skip row を保持しない。
 - `UpsertChartInfoIndexRows(..., "file_diff_inline")` の入力件数は、`inline_chart_info_success_count` 近辺になることを期待値にする。
 - 既存 DB row の全量 index 構築は `chart_info_hydration` の `ReplaceChartInfoIndex(...)` が担当する。
+- `song_tbl_file_check_breakdown` には `inline_chart_info_index_published_count` を出し、runtime index delta に流した row 数を確認できるようにする。
 
 #### 完了条件
 
@@ -515,27 +517,25 @@ Phase 6 では byte cap は入れていない。件数ベースの bounded paral
 - file diff 中の `AppliedChartInfoRows` / `committedInlineChartInfoRows` がメモリピークの支配要因にならない。
 - `BMSFilesZeroNote` など chart_info 依存 view は、inline 新規 row と後続 hydration の組み合わせで正しく更新される。
 
-### Phase 7.6: metadata bundle import の配置見直し
+### Phase 7.6: metadata bundle import の位置づけ整理
 
-追加で検討する。現状は `chart_info_metadata_import` が `Initialize()` の本体前段で同期実行されるため、差分ファイルがない起動でも導入先推定の critical path に乗る。
+資料上の方針を整理済み。実装変更は不要とする。
 
-metadata bundle は DB 由来の補助情報なので、差分なし fast path では background に回すのが正本である。一方で、空DB初回の大量追加では、bundle import が済んでいると inline `chart_info` が current row skip になり、詳細 parse を大幅に避けられる。このため単純に常時 background 化するのではなく、diff target count と bundle 状態で配置を決める。
+metadata bundle は「所持譜面から生成された DB 由来補助情報」ではなく、「本アプリのリリースパッケージ同梱物、または外部から取得できるメタデータ」である。頻繁に import するデータではないため、import タイミングは起動直後に固定する。
 
-#### 修正方針
+#### 現行仕様
 
-- startup 冒頭では bundle の存在確認と lightweight manifest / hash cache 判定だけにする。
-- file enumeration と diff target count 判定後、次のように分岐する。
-  - target count 0: import は background。
-  - target count が十分大きい: file diff parse 前に同期 import し、inline `chart_info` current skip を効かせる。
-  - target count が小さい: import cost と parse cost の比較で、同期 import しない選択を許容する。
-- `.7z` の archive SHA-256 計算と展開は高コストなので、既に `imported_metadata/` へ退避済み、または history hit が明らかな場合は critical path に載せない。
-- bundle import が同期実行された場合でも、import row の全量 runtime index publish は `chart_info_hydration` に任せる。
+- 起動直後、`Initialize()` 本体の前に bundle import を試みる。
+- `.db` / `.7z` が存在しない場合は何もしない。
+- 同じ bundle が import 済みの場合は skip し、import 完了済み bundle は `imported_metadata/` へ退避する。
+- import 成功 row の runtime index 全量 publish は行わず、後続 `chart_info_hydration` が session index の正本更新を担当する。
+- diff target count によって import を background 化したり、file diff 後へ遅延したりしない。
 
 #### 完了条件
 
-- 差分なし起動で `chart_info_metadata_import` が導入先推定の critical path を長くしない。
-- 大量追加時は bundle import によって inline `chart_info` parse を避けられる。
-- import 済み bundle が置きっぱなしの場合でも、毎回 SHA-256 / 展開 / import 判定が critical path を圧迫しない。
+- bundle が配置された起動では、file diff より前に import が完了し、inline `chart_info` current skip に利用できる。
+- import 済み bundle は退避され、毎回 SHA-256 / 展開 / import 判定が critical path を圧迫しない。
+- bundle がない通常起動では、起動直後 import check は軽い no-op になる。
 
 ### Phase 8: health 計算の cache-aware 化と bounded 並列
 
