@@ -26,8 +26,6 @@ internal sealed class BmsonMigrationPreflightResult
 
     public bool NeedsBmsonSongSchema { get; }
 
-    public bool NeedsInitialSha256BackfillWarning { get; }
-
     public bool NeedsBmsonAppSchemaMigration { get; }
 
     public RepairableBmsonSchemaIssues RepairableBmsonSchemaIssues { get; }
@@ -38,12 +36,11 @@ internal sealed class BmsonMigrationPreflightResult
 
     public bool RequiresWarning => WarnRequired;
 
-    public BmsonMigrationPreflightResult(bool needsPlaylistEntrySha256Migration, bool needsChartDigestMapSchema, bool needsBmsonSongSchema, bool needsInitialSha256BackfillWarning, bool needsBmsonAppSchemaMigration, RepairableBmsonSchemaIssues repairableBmsonSchemaIssues)
+    public BmsonMigrationPreflightResult(bool needsPlaylistEntrySha256Migration, bool needsChartDigestMapSchema, bool needsBmsonSongSchema, bool needsBmsonAppSchemaMigration, RepairableBmsonSchemaIssues repairableBmsonSchemaIssues)
     {
         NeedsPlaylistEntrySha256Migration = needsPlaylistEntrySha256Migration;
         NeedsChartDigestMapSchema = needsChartDigestMapSchema;
         NeedsBmsonSongSchema = needsBmsonSongSchema;
-        NeedsInitialSha256BackfillWarning = needsInitialSha256BackfillWarning;
         NeedsBmsonAppSchemaMigration = needsBmsonAppSchemaMigration;
         RepairableBmsonSchemaIssues = repairableBmsonSchemaIssues;
     }
@@ -81,7 +78,7 @@ internal sealed class BmsonMigrationPreflightService
             || repairableBmsonSchemaIssues.HasFlag(RepairableBmsonSchemaIssues.BmsonSongSha256IndexMissing)
             || repairableBmsonSchemaIssues.HasFlag(RepairableBmsonSchemaIssues.BmsonSongFolderIndexMissing);
         bool needsBmsonAppSchemaMigration = NeedsBmsonAppSchemaMigration(db);
-        return new BmsonMigrationPreflightResult(needsPlaylistEntrySha256Migration, needsChartDigestMapSchema, needsBmsonSongSchema, needsBmsonAppSchemaMigration, needsBmsonAppSchemaMigration, repairableBmsonSchemaIssues);
+        return new BmsonMigrationPreflightResult(needsPlaylistEntrySha256Migration, needsChartDigestMapSchema, needsBmsonSongSchema, needsBmsonAppSchemaMigration, repairableBmsonSchemaIssues);
     }
 
     private static bool NeedsPlaylistEntrySha256Migration(SQLiteConnection db)
@@ -182,20 +179,6 @@ internal sealed class BmsonMigrationPreflightService
             return false;
         }
         return true;
-    }
-
-    internal static string BuildMissingSha256BackfillExistsSql()
-    {
-        string digestTableName = SQLiteTable<LR2SongDBExtended.chart_digest_map>.GetTableName();
-        return "SELECT EXISTS("
-            + "SELECT 1 FROM song s "
-            + "WHERE s.hash IS NOT NULL AND TRIM(s.hash) <> '' "
-            + "AND NOT EXISTS ("
-            + "SELECT 1 FROM " + digestTableName + " d "
-            + "WHERE d.md5 = s.hash AND d.sha256 IS NOT NULL AND TRIM(d.sha256) <> ''"
-            + ") "
-            + "LIMIT 1"
-            + ");";
     }
 
     private static bool TableExists(SQLiteConnection db, string tableName)

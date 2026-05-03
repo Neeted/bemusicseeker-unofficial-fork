@@ -132,5 +132,5 @@ full backfill は新規ファイル追加の後処理ではない。新規・更
 - current skip した既存 row を、file diff result や commit callback に全件載せない。これは bounded queue / chunk commit を無効化する大きなメモリ要因になる。
 - chunk commit 後は、DB 保存用 staging、inline `chart_info` staging、parse failure staging を速やかに破棄する。
 - file diff 由来の `WAVfiles` / `BGAfiles` は、maintenance row 作成後に速やかに破棄する。これを `installable_maintenance_deferred` まで保持すると、大量追加時の memory peak を作る。
-- 大量初期化では、file diff / chart_info / maintenance の phase 境界で一時参照を切り、必要なら明示 GC / LOH compact を行う。GC は譜面ごとの inner loop、DB transaction、library write lock、UI dispatcher 同期処理の内側では行わない。
+- 大量初期化では、file diff / chart_info / maintenance の phase 境界で一時参照を切り、memory checkpoint log で推移を観測する。現行では初期化処理側から明示 GC / LOH compact は行わない。
 - commit chunk size はメモリ保持上限ではなく transaction 範囲の調整値として扱う。snapshot bytes と current skip row を chunk 外へ持ち越さない前提で、file diff / chart_info backfill の既定は 10000 件とする。

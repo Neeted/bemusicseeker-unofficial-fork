@@ -49,8 +49,6 @@ public class BMSLibrary : NotificationObject
         FileDiff = 3
     }
 
-    private const int StartupMemoryCleanupHeavyTargetCount = 10000;
-
     /// <summary>
     /// BMS 親フォルダ一覧キャッシュのスナップショットを格納するクラスです。
     /// バックグラウンドスレッドで構築し、UIスレッドで適用する2段階方式に利用されます。
@@ -198,11 +196,6 @@ public class BMSLibrary : NotificationObject
     private static void LogStartupMemoryCheckpoint(string phase, string point)
     {
         StartupMemoryPressureService.LogCheckpoint(LogInstallPerformance, phase, point);
-    }
-
-    private static void CleanupStartupMemoryPressure(string reason, bool force)
-    {
-        StartupMemoryPressureService.CleanupIfNeeded(LogInstallPerformance, reason, force);
     }
 
     /// <summary>
@@ -4096,10 +4089,8 @@ public class BMSLibrary : NotificationObject
             {
                 CompleteLibraryFileDiffProgress();
             }
-            int fileDiffTargetCount = fileCheckResult.BmsAddedTargetCount + fileCheckResult.BmsonUpsertTargetCount;
             fileCheckResult.ReleasePostApplyTransientBuffers();
             LogStartupMemoryCheckpoint("file_diff", "after_release");
-            CleanupStartupMemoryPressure("file_diff", fileDiffTargetCount >= StartupMemoryCleanupHeavyTargetCount);
         }
         else if (trackLibraryFileCheckProgress)
         {
@@ -4271,7 +4262,6 @@ public class BMSLibrary : NotificationObject
                 + " ownerApplyMs=" + result.OwnerApplyMs
                 + " totalMs=" + result.TotalMs);
             LogStartupMemoryCheckpoint("chart_info_hydration", "after");
-            CleanupStartupMemoryPressure("chart_info_hydration", result.TotalRows >= StartupMemoryCleanupHeavyTargetCount);
 
             bool completedLatestRequest = false;
             bool shouldQueueBackfillAfterCompletion = false;
@@ -4676,7 +4666,6 @@ public class BMSLibrary : NotificationObject
                 + " currentParseFailure=" + summary.CurrentParseFailureOwnerCount
                 + " currentChartInfo=" + summary.CurrentChartInfoOwnerCount);
             LogStartupMemoryCheckpoint("chart_info_backfill", "skipped");
-            CleanupStartupMemoryPressure("chart_info_backfill_skipped", (summary.BmsOwnerCount + summary.BmsonOwnerCount) >= StartupMemoryCleanupHeavyTargetCount);
             return;
         }
         if (summary != null)
@@ -4910,10 +4899,6 @@ public class BMSLibrary : NotificationObject
                     LogInstallPerformanceWarn,
                     (IReadOnlyList<LR2SongDBExtended.chart_info> rows) => UpsertChartInfoIndexRows(rows, "backfill"),
                     existingRowsSnapshot);
-                if (result.DigestFailedCount <= 0)
-                {
-                    dbGateway.MarkBmsonAppSchemaCurrent();
-                }
                 if (result.DigestBackfilledCount > 0)
                 {
                     lock (lockPlaylistSummaryOwnedHashSnapshot)
@@ -4945,7 +4930,6 @@ public class BMSLibrary : NotificationObject
                 bmsonSongsSnapshot?.Clear();
                 existingRowsSnapshot?.Clear();
                 LogStartupMemoryCheckpoint("chart_info_backfill", "after_release");
-                CleanupStartupMemoryPressure("chart_info_backfill", snapshotCount >= StartupMemoryCleanupHeavyTargetCount || (result?.TargetCount ?? 0) >= StartupMemoryCleanupHeavyTargetCount);
             }
             if (completedLatestRequest)
             {
@@ -5100,7 +5084,6 @@ public class BMSLibrary : NotificationObject
                     filesSnapshot?.Clear();
                     filesSnapshot = null;
                     LogStartupMemoryCheckpoint("installable_maintenance_deferred", "after_release");
-                    CleanupStartupMemoryPressure("installable_maintenance_deferred", snapshotCount >= StartupMemoryCleanupHeavyTargetCount);
                 }
 
                 lock (lockDeferredInstallableMaintenance)

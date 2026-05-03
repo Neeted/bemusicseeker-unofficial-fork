@@ -9361,15 +9361,15 @@ public class MainWindowViewModel : ViewModel
         return BeMusicSeeker.Properties.Resources.BmsonMigrationWarningMessage;
     }
 
-    internal static bool ApplyBmsonMigrationPreflightForStartup(BmsonMigrationPreflightResult preflightResult, ref bool approvedForSession, Func<string, bool?> confirmWarning, Action ensureSchema, Action shutdown, Action resetColumnSettings = null)
+    internal static bool ApplyBmsonMigrationPreflightForStartup(BmsonMigrationPreflightResult preflightResult, ref bool approvedForSession, Func<string, bool?> confirmWarning, Action applyStartupMigration, Action shutdown, Action resetColumnSettings = null)
     {
         if (preflightResult == null)
         {
             throw new ArgumentNullException(nameof(preflightResult));
         }
-        if (ensureSchema == null)
+        if (applyStartupMigration == null)
         {
-            throw new ArgumentNullException(nameof(ensureSchema));
+            throw new ArgumentNullException(nameof(applyStartupMigration));
         }
         if (preflightResult.WarnRequired && !approvedForSession)
         {
@@ -9384,7 +9384,7 @@ public class MainWindowViewModel : ViewModel
             }
             approvedForSession = true;
         }
-        ensureSchema();
+        applyStartupMigration();
         if (preflightResult.WarnRequired)
         {
             resetColumnSettings?.Invoke();
@@ -9428,19 +9428,6 @@ public class MainWindowViewModel : ViewModel
         BmsonMigrationPreflightService bmsonMigrationPreflightService = new BmsonMigrationPreflightService();
         BmsonMigrationPreflightResult preflightResult = bmsonMigrationPreflightService.Inspect(Settings.Default.LR2SongDBPath);
         LogInitStage("bmson_preflight_inspect_done", "Initialize");
-        if (preflightResult.RepairRequired && !preflightResult.WarnRequired)
-        {
-            LogInitStage("bmson_preflight_repair_start", "Initialize");
-            new BmsLibraryDbGateway(Settings.Default.LR2SongDBPath).EnsureBmsonSchema();
-            LogInitStage("bmson_preflight_repair_done", "Initialize");
-            LogInitStage("bmson_preflight_reinspect_start", "Initialize");
-            preflightResult = bmsonMigrationPreflightService.Inspect(Settings.Default.LR2SongDBPath);
-            LogInitStage("bmson_preflight_reinspect_done", "Initialize");
-            if (preflightResult.RepairRequired)
-            {
-                throw new InvalidOperationException("bmson app-owned schema repair did not converge.");
-            }
-        }
         return ApplyBmsonMigrationPreflightForStartup(preflightResult, ref bmsonMigrationApprovedForSession, delegate (string message)
         {
             LogInitStage("bmson_preflight_prompt_show", "Initialize");
@@ -9450,24 +9437,7 @@ public class MainWindowViewModel : ViewModel
             return confirmationMessage.Response;
         }, delegate
         {
-            LogInitStage("bmson_preflight_ensure_schema_start", "Initialize");
-            BmsLibraryDbGateway gateway = new BmsLibraryDbGateway(Settings.Default.LR2SongDBPath);
-            if (preflightResult.RepairRequired)
-            {
-                LogInitStage("bmson_preflight_deferred_repair_start", "Initialize");
-                gateway.EnsureBmsonSchema();
-                LogInitStage("bmson_preflight_deferred_repair_done", "Initialize");
-                LogInitStage("bmson_preflight_deferred_reinspect_start", "Initialize");
-                preflightResult = bmsonMigrationPreflightService.Inspect(Settings.Default.LR2SongDBPath);
-                LogInitStage("bmson_preflight_deferred_reinspect_done", "Initialize");
-                if (preflightResult.RepairRequired)
-                {
-                    throw new InvalidOperationException("bmson app-owned schema repair did not converge.");
-                }
-            }
-            BMSPlaylist.EnsureSchema(Settings.Default.LR2SongDBPath);
-            gateway.EnsureBmsonSchema();
-            LogInitStage("bmson_preflight_ensure_schema_done", "Initialize");
+            ApplyBmsonStartupMigrationOrThrow(bmsonMigrationPreflightService, preflightResult);
         }, delegate
         {
             System.Windows.Application.Current?.Shutdown();
@@ -9478,6 +9448,31 @@ public class MainWindowViewModel : ViewModel
                 LogInitStage("bmson_column_settings_reset", "Initialize");
             }
         });
+    }
+
+    private void ApplyBmsonStartupMigrationOrThrow(BmsonMigrationPreflightService bmsonMigrationPreflightService, BmsonMigrationPreflightResult preflightResult)
+    {
+        LogInitStage("bmson_startup_migration_start", "Initialize");
+        BmsLibraryDbGateway gateway = new BmsLibraryDbGateway(Settings.Default.LR2SongDBPath);
+        BMSPlaylist.EnsureSchema(Settings.Default.LR2SongDBPath);
+        if (preflightResult.NeedsBmsonAppSchemaMigration || preflightResult.RepairRequired)
+        {
+            gateway.CompleteBmsonStartupMigration();
+        }
+        else
+        {
+            gateway.EnsureBmsonSchema();
+        }
+        LogInitStage("bmson_preflight_final_reinspect_start", "Initialize");
+        BmsonMigrationPreflightResult finalResult = bmsonMigrationPreflightService.Inspect(Settings.Default.LR2SongDBPath);
+        LogInitStage("bmson_preflight_final_reinspect_done", "Initialize");
+        if (finalResult.NeedsPlaylistEntrySha256Migration
+            || finalResult.NeedsBmsonAppSchemaMigration
+            || finalResult.RepairRequired)
+        {
+            throw new InvalidOperationException("bmson startup migration did not converge.");
+        }
+        LogInitStage("bmson_startup_migration_done", "Initialize");
     }
 
     /// <summary>

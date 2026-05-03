@@ -4,6 +4,8 @@
 
 ステータスバーの初期化・リロード進捗は `MainWindowViewModel` の `StartupProgressPhase` を基に表示する。
 
+起動時の bmson migration preflight / startup migration は、`BMSLibrary.Initialize()` 本体に入る前の前提整備として扱う。詳細は `devdocs/current-startup-initialization-flow.md` を参照する。
+
 進捗の分母は operation 開始時に固定され、後続の background request で増えない。発生しない phase は skip 完了扱いにし、ゲージが巻き戻って見えないようにしている。
 
 表示は `MainWindow.xaml` のステータスバーに出る。

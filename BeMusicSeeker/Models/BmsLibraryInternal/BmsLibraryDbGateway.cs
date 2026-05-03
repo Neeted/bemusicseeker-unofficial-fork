@@ -374,13 +374,13 @@ internal sealed class BmsLibraryDbGateway
         }
     }
 
-    public void RunBmsonSchemaMigration()
+    public void CompleteBmsonStartupMigration()
     {
         using LR2SongDBExtended songDb = OpenSongDb();
         string savepoint = songDb.SaveTransactionPoint();
         try
         {
-            RunBmsonSchemaMigration(songDb);
+            CompleteBmsonStartupMigration(songDb);
             songDb.Commit();
         }
         catch (Exception)
@@ -388,12 +388,6 @@ internal sealed class BmsLibraryDbGateway
             songDb.RollbackTo(savepoint);
             throw;
         }
-    }
-
-    public bool IsBmsonAppSchemaCurrent()
-    {
-        using LR2SongDBExtended songDb = OpenSongDb();
-        return IsBmsonAppSchemaCurrent(songDb);
     }
 
     /// <summary>
@@ -404,22 +398,6 @@ internal sealed class BmsLibraryDbGateway
     {
         using LR2SongDBExtended songDb = OpenSongDb();
         return IsChartInfoSchemaCurrent(songDb);
-    }
-
-    public void MarkBmsonAppSchemaCurrent()
-    {
-        using LR2SongDBExtended songDb = OpenSongDb();
-        string savepoint = songDb.SaveTransactionPoint();
-        try
-        {
-            SetBmsonAppSchemaVersion(songDb, CurrentBmsonAppSchemaVersion);
-            songDb.Commit();
-        }
-        catch (Exception)
-        {
-            songDb.RollbackTo(savepoint);
-            throw;
-        }
     }
 
     /// <summary>
@@ -1234,7 +1212,7 @@ internal sealed class BmsLibraryDbGateway
         songDb.InsertOrReplace(row, typeof(LR2SongDBExtended.chart_digest_map));
     }
 
-    internal static void RunBmsonSchemaMigration(LR2SongDBExtended songDb)
+    internal static void CompleteBmsonStartupMigration(LR2SongDBExtended songDb)
     {
         if (songDb == null)
         {
@@ -1349,25 +1327,6 @@ internal sealed class BmsLibraryDbGateway
             + " = " + BMSPlaylist.SqlQuoteForTest(ChartInfoSchemaVersionName)
             + " AND " + SQLiteTable<LR2SongDBExtended.app_schema_version>.GetColumnName((LR2SongDBExtended.app_schema_version row) => row.version)
             + " >= " + CurrentChartInfoSchemaVersion + ";");
-        return count > 0;
-    }
-
-    private static bool IsBmsonAppSchemaCurrent(LR2SongDBExtended songDb)
-    {
-        if (songDb == null)
-        {
-            return false;
-        }
-        if (!TableExists(songDb, SQLiteTable<LR2SongDBExtended.app_schema_version>.GetTableName()))
-        {
-            return false;
-        }
-        long count = songDb.ExecuteScalar<long>(
-            "SELECT COUNT(1) FROM " + SQLiteTable<LR2SongDBExtended.app_schema_version>.GetTableName()
-            + " WHERE " + SQLiteTable<LR2SongDBExtended.app_schema_version>.GetColumnName((LR2SongDBExtended.app_schema_version row) => row.name)
-            + " = " + BMSPlaylist.SqlQuoteForTest(BmsonAppSchemaVersionName)
-            + " AND " + SQLiteTable<LR2SongDBExtended.app_schema_version>.GetColumnName((LR2SongDBExtended.app_schema_version row) => row.version)
-            + " >= " + CurrentBmsonAppSchemaVersion + ";");
         return count > 0;
     }
 
