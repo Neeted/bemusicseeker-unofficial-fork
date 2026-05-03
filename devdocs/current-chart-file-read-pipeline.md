@@ -13,7 +13,7 @@
 - lightweight parser と `chart_info` parser は統合しない。同じ bytes を使うが、役割は分ける。
 - 新規・更新ファイル由来の補助情報は、snapshot が生きている間に作る。
 - DB に既に存在する owner 由来の補助情報だけを background hydration/backfill へ回す。
-- BMS の `WAVfiles` / `BGAfiles` は譜面が要求するリソース参照集合であり、空DB初回起動では memory peak の大きな要因になり得る。新規 file diff 由来では、これらを長期 model field として保持せず、chunk 内で maintenance row へ畳み込んだら破棄することを目指す。
+- BMS の `WAVfiles` / `BGAfiles` は譜面が要求するリソース参照集合であり、空DB初回起動では memory peak の大きな要因になり得る。新規 file diff 由来では、これらを長期 model field として保持せず、chunk 内で maintenance row へ畳み込んだら破棄する。
 
 ## 正規 Entry Point
 
@@ -55,6 +55,8 @@ file diff の progress target は lightweight parse 対象数で、BMS 追加件
 current `chart_info` row が存在する場合、inline parser は詳細 parse を skip できる。この row は対象 model に適用してよいが、file diff の成果物として全件蓄積しない。session chart_info index の全量更新は `chart_info_hydration` が担当し、`file_diff_inline` で publish するのは新規生成または更新した row に限定する。
 
 `song_tbl_file_check_breakdown` の `inline_chart_info_index_published_count` は、file diff から runtime index delta へ流した row 数を表す。metadata bundle current skip が大半のケースでは、この値は `inline_chart_info_current_skipped_count` ではなく `inline_chart_info_success_count` 近辺になる。
+
+`song_tbl_file_check_breakdown` の `inline_maintenance_*` は、file diff chunk 内で作った `maintenance` row の対象数、成功/失敗、BMS/bmson 内訳、cache hit / `File.Exists` fallback を表す。chunk commit log の `maintenance=` は、その chunk で `maintenance` table へ保存した row 数を表す。
 
 ### Resource Ref Lifetime
 

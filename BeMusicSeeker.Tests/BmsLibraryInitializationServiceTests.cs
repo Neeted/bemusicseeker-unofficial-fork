@@ -732,6 +732,118 @@ public sealed class BmsLibraryInitializationServiceTests
     }
 
     [TestMethod]
+    public void ApplyFileScanDiff_AddsBmsPersistsInlineMaintenanceAndClearsResourceRefs()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
+        {
+            string chartDirectoryPath = Path.Combine(lr2RootPath, "InlineMaintenance");
+            Directory.CreateDirectory(chartDirectoryPath);
+            string bmsPath = Path.Combine(chartDirectoryPath, "added.bms");
+            string wavPath = Path.Combine(chartDirectoryPath, "sound.wav");
+            File.WriteAllText(bmsPath, CreateValidBmsText("Inline Maintenance"), Encoding.ASCII);
+            File.WriteAllBytes(wavPath, new byte[] { 1, 2, 3 });
+
+            using (LR2SongDBExtended songDbConnection = new LR2SongDBExtended(songDbPath))
+            {
+                songDbConnection.CreateTable<LR2SongDB.song>();
+            }
+
+            BmsLibraryInitializationService service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
+            SongTableFileCheckResult result = service.ApplyFileScanDiff(
+                new BmsLibraryDbGateway(songDbPath),
+                new BmsLibraryOptionsSnapshot(),
+                Array.Empty<BMSFile>(),
+                new BmsScanExecutionResult
+                {
+                    Success = true,
+                    Result = CreateScanResult(
+                        new[] { bmsPath },
+                        new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
+                        {
+                            { chartDirectoryPath, new[] { "sound.wav" } }
+                        })
+                },
+                0L,
+                () => null,
+                null,
+                currentBmsonSongs: Array.Empty<LR2SongDBExtended.bmson_song>());
+
+            BMSFile added = result.AddedFiles.Single();
+            Assert.AreEqual(1, result.InlineMaintenanceTargetCount);
+            Assert.AreEqual(1, result.InlineMaintenanceSuccessCount);
+            Assert.AreEqual(0, result.InlineMaintenanceFailedCount);
+            Assert.AreEqual(1, result.InlineMaintenanceBmsCount);
+            Assert.IsNull(added.WAVfiles);
+            Assert.IsNull(added.BGAfiles);
+            Assert.AreEqual(1, added.maintenanceInfo.wav_files_defined);
+            Assert.AreEqual(1, added.maintenanceInfo.wav_files_existing);
+
+            using LR2SongDBExtended verify = new LR2SongDBExtended(songDbPath);
+            LR2SongDBExtended.maintenance maintenance = verify.Query<LR2SongDBExtended.maintenance>("SELECT * FROM maintenance WHERE path = ?;", bmsPath).Single();
+            Assert.AreEqual(added.hash, maintenance.hash);
+            Assert.AreEqual(1, maintenance.wav_files_defined);
+            Assert.AreEqual(1, maintenance.wav_files_existing);
+        });
+    }
+
+    [TestMethod]
+    public void ApplyFileScanDiff_DeletesBmsAndMaintenanceInSameChunk()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
+        {
+            string chartDirectoryPath = Path.Combine(lr2RootPath, "DeleteMaintenance");
+            Directory.CreateDirectory(chartDirectoryPath);
+            string bmsPath = Path.Combine(chartDirectoryPath, "deleted.bms");
+
+            TestableBmsFile existing = new TestableBmsFile
+            {
+                path = bmsPath
+            };
+            existing.SetHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+
+            using (LR2SongDBExtended songDbConnection = new LR2SongDBExtended(songDbPath))
+            {
+                songDbConnection.CreateTable<LR2SongDB.song>();
+                songDbConnection.CreateTable<LR2SongDBExtended.maintenance>();
+                songDbConnection.InsertOrReplace(existing, typeof(LR2SongDB.song));
+                songDbConnection.InsertOrReplace(new BMSFileMaintenanceInfo
+                {
+                    path = bmsPath,
+                    hash = existing.hash,
+                    encoding = "shift_jis"
+                }, typeof(LR2SongDBExtended.maintenance));
+            }
+
+            BmsLibraryInitializationService service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
+            SongTableFileCheckResult result = service.ApplyFileScanDiff(
+                new BmsLibraryDbGateway(songDbPath),
+                new BmsLibraryOptionsSnapshot(),
+                new[] { existing },
+                new BmsScanExecutionResult
+                {
+                    Success = true,
+                    Result = CreateScanResult(
+                        Array.Empty<string>(),
+                        new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
+                        {
+                            { chartDirectoryPath, Array.Empty<string>() }
+                        })
+                },
+                0L,
+                () => null,
+                null,
+                currentBmsonSongs: Array.Empty<LR2SongDBExtended.bmson_song>());
+
+            Assert.AreEqual(1, result.DeletedPaths.Count);
+            using LR2SongDBExtended verify = new LR2SongDBExtended(songDbPath);
+            Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM song WHERE path = ?;", bmsPath));
+            Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM maintenance WHERE path = ?;", bmsPath));
+        });
+    }
+
+    [TestMethod]
     public void ApplyFileScanDiff_AddsBmsPublishesGeneratedInlineChartInfoToCallback()
     {
         TestResourceInitializer.EnsureJapaneseResources();

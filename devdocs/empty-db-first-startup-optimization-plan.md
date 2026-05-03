@@ -664,17 +664,17 @@ Phase 8 では `installable_maintenance_deferred` の `set_health_ms` を下げ�
 
 ### Phase 9: 譜面要求リソース参照の寿命整理と file diff chunk maintenance 連携
 
-Phase 9 は Phase 8 後の単なる高速化ではなく、Phase 7.7 の memory peak を根本的に下げるために前倒しする。目的は、新規追加譜面について file diff で得た parse 結果と scan cache を使い、maintenance row 作成と `WAVfiles` / `BGAfiles` 破棄を同じ chunk 内で完了させることである。
+Phase 9 は Phase 8 後の単なる高速化ではなく、Phase 7.7 の memory peak を根本的に下げるために前倒しした。目的は、新規追加譜面について file diff で得た parse 結果と scan cache を使い、maintenance row 作成と `WAVfiles` / `BGAfiles` 破棄を同じ chunk 内で完了させることである。
 
 #### 方針
 
-- file diff pipeline で lightweight parse が成功した譜面について、同じ chunk 内で maintenance row を作れるようにする。
+- file diff pipeline で lightweight parse が成功した譜面について、同じ commit chunk 内で maintenance row を作る。
 - BMS は `CreateBMSFileFromSnapshot()` で `WAVfiles` / `BGAfiles` を持っているため、health 計算に再読込は不要。
   - この集合は BMSFile 正本の長期 field として残すのではなく、chunk 内で maintenance row へ畳み込む一時入力として扱う。
   - maintenance row 作成後は `WAVfiles` / `BGAfiles` / `localWAVfilesNameHashArray` / `localBGAfilesNameHashArray` / nonlocal list などを破棄する。
 - bmson は Phase 4 の fresh resource refs を使う。
-- health 計算には Phase 8 の cache-aware 判定を使う。ただし Phase 8 の全体実装を待たず、file diff 由来の refs と scan cache を入力にできる最小 helper を先に切り出してよい。
-- DB 保存は file diff commit chunk に含めることを第一候補にする。
+- health 計算には cache-aware 判定を使い、file diff 由来の refs と scan cache を入力にする。
+- DB 保存は file diff commit chunk に含める。
   - `song` / `bmson_song` と同じ mutation count に紐づけ、同じ既定 10000 件 chunk で保存する。
   - 追加ファイル由来の maintenance row は `installable_maintenance_deferred` へ送らない。
   - 失敗時は対象 chunk のみ rollback し、次回 scan で収束させる。
@@ -686,7 +686,7 @@ Phase 9 は Phase 8 後の単なる高速化ではなく、Phase 7.7 の memory 
   - 新規ファイル由来の処理まで deferred へ押し出すと、初回と再起動後で欠損一覧・警告件数が揺れるため避ける。
 - 進捗上は `LibraryFileDiffDone` に含める。
   - 進捗 sublabel は当面 `ファイル差分確認` のままでよい。
-  - 必要なら詳細 counter として `inline_maintenance_*` log を追加する。
+  - 詳細 counter として `inline_maintenance_*` log を出す。
 
 #### 期待効果
 
@@ -716,7 +716,8 @@ Phase 9 は Phase 8 後の単なる高速化ではなく、Phase 7.7 の memory 
 - current skip row が大量にある file diff で、`committedInlineChartInfoRows` 相当の collection がメモリピークを作らないこと。
 - maintenance の bounded degree が適用され、`healthDegree` log と実処理の並列度が一致すること。
 - cache-aware health 判定で `DirectoryResourceLookupCache` / `DirectoryRelativePathHashIndex` が使われ、`File.Exists` fallback 数が観測できること。
-- 新規追加分 maintenance を file diff chunk と連携する場合、追加 BMS / bmson の maintenance row が chunk 単位で保存され、後続 `installable_maintenance_deferred` の対象数が減ること。
+- 新規追加分 maintenance が file diff chunk と連携し、追加 BMS / bmson の maintenance row が chunk 単位で保存され、後続 `installable_maintenance_deferred` の対象数が減ること。
+- file diff 後の追加 BMS が `WAVfiles` / `BGAfiles` / 派生 cache を保持せず、`maintenanceInfo` と DB `maintenance` row に resource health が残ること。
 
 ## 注意点
 

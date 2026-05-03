@@ -96,6 +96,22 @@ internal sealed class SongTableFileCheckResult
 
     public int InlineChartInfoBatchSize { get; set; }
 
+    public int InlineMaintenanceTargetCount { get; set; }
+
+    public int InlineMaintenanceSuccessCount { get; set; }
+
+    public int InlineMaintenanceFailedCount { get; set; }
+
+    public int InlineMaintenanceBmsCount { get; set; }
+
+    public int InlineMaintenanceBmsonCount { get; set; }
+
+    public long InlineMaintenanceMs { get; set; }
+
+    public long InlineMaintenanceCacheHitCount { get; set; }
+
+    public long InlineMaintenanceFileExistsFallbackCount { get; set; }
+
     public long ParseReadBytesEstimate { get; set; }
 
     public long FileDiffReadMs { get; set; }

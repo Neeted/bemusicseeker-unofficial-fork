@@ -181,6 +181,7 @@ internal sealed class BmsLibraryDbGateway
 
         EnsureBmsonSchema(songDb);
         EnsureChartInfoSchema(songDb);
+        songDb.CreateTable<LR2SongDBExtended.maintenance>();
         foreach (string deletedPath in chunk.DeletedBmsPaths)
         {
             if (string.IsNullOrWhiteSpace(deletedPath))
@@ -189,6 +190,7 @@ internal sealed class BmsLibraryDbGateway
             }
             string deletedHash = GetSongHashByPath(songDb, deletedPath);
             songDb.Delete<LR2SongDB.song>(deletedPath);
+            songDb.Delete<LR2SongDBExtended.maintenance>(deletedPath);
             DeleteChartDigestIfOrphaned(songDb, deletedHash);
         }
         foreach (BMSFile addedFile in chunk.AddedBmsFiles)
@@ -208,6 +210,7 @@ internal sealed class BmsLibraryDbGateway
             if (!string.IsNullOrWhiteSpace(deletedBmsonPath))
             {
                 songDb.Delete<LR2SongDBExtended.bmson_song>(deletedBmsonPath);
+                songDb.Delete<LR2SongDBExtended.maintenance>(deletedBmsonPath);
             }
         }
         foreach (LR2SongDBExtended.bmson_song addedBmsonSong in chunk.UpsertBmsonSongs)
@@ -215,6 +218,13 @@ internal sealed class BmsLibraryDbGateway
             if (addedBmsonSong != null)
             {
                 songDb.InsertOrReplace(addedBmsonSong, typeof(LR2SongDBExtended.bmson_song));
+            }
+        }
+        foreach (BMSFileMaintenanceInfo maintenanceInfo in chunk.MaintenanceInfoRows)
+        {
+            if (maintenanceInfo != null && !string.IsNullOrWhiteSpace(maintenanceInfo.path))
+            {
+                songDb.InsertOrReplace(maintenanceInfo, typeof(LR2SongDBExtended.maintenance));
             }
         }
         UpsertChartInfoBackfillChunk(
