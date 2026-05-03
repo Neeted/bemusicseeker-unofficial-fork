@@ -616,51 +616,84 @@ Phase 7.7 の checkpoint で、`WAVfiles` / `BGAfiles` が `BMSFile` 正本に�
 - DB commit chunk size 変更後も、途中失敗時は chunk 単位 rollback と次回 scan 収束の方針を維持する。既定値は file diff / chart_info backfill とも 10000 件とする。
 - GC は初期化処理側から明示実行しない。
 
-### Phase 8: health 計算の cache-aware 化と bounded 並列
+### Phase 8: DB 由来 maintenance health の高速化
 
-Phase 8 では `installable_maintenance_deferred` の `set_health_ms` を下げる。Phase 5 で warning projection は軽くなったため、残る対象は実 health 判定である。
+Phase 8 の目的は、`installable_maintenance_deferred` のうち **DB 由来の missing/stale maintenance 補完**を速くすることである。空DB初回の新規追加分は Phase 9 の file diff inline maintenance で処理済みなので、Phase 8 は「新規追加分を後から全件なめる」ための phase ではない。
 
-ただし、空DB初回起動の memory peak という観点では、Phase 8 単体よりも Phase 9 の「file diff chunk 内 maintenance 作成」と組み合わせることが重要である。Phase 8 の cache-aware 判定は、Phase 9 で新規追加譜面の `WAVfiles` / `BGAfiles` を早期に破棄するための共通 helper としても使う。
+bounded 並列、cache-aware lookup、resource health index projection は現行実装に入っている。したがって今後の Phase 8 は、既存 helper を前提にして、対象抽出・fallback 削減・allocation 削減・no-op fast path を詰める。
 
-#### 現状
+#### 現行仕様
 
-- `UpdateMaintenanceInfo()` は未チェック、または `forceUpdate` 対象を抽出し、section に分ける。
-- section 内は `AsParallel().ForAll()` で処理するが、degree は明示されていない。
-- BMS health は `BMSFile.SetHealthStatus(folderAllFileList, ...)` が担当する。
-- `SetHealthStatus()` は以下を行う。
-  - `WAVfiles` / `BGAfiles` が null の場合は BMS ファイルを再読込して refs を作る。
-  - local refs は `BMSDirectoryFileNameHash` の basename hash で確認する。
-  - nonlocal refs は `File.Exists` で相対パスを確認する。
-  - stagefile / backbmp / banner も `File.Exists` 系で確認する。
-- file scan で作った `DirectoryResourceLookupCache` / `DirectoryRelativePathHashIndex` は主に導入先推定用で、health には使っていない。
-
-#### 実装後仕様
-
-- maintenance の並列度を bounded にする。
-  - file diff / chart_info と同じく `max(1, Environment.ProcessorCount - 1)` を既定にする。
-  - internal override を持たせてテスト可能にする。
-  - `AsParallel()` ではなく `Parallel.ForEach` + 明示 degree を使い、他の background pipeline と多重並列になりにくい形にする。
-- `SetHealthStatus()` の cache-aware 経路を追加する。
-  - `BMSDirectoryFileNameHash` に加えて `DirectoryResourceLookupCache` / `DirectoryRelativePathHashIndex` を受け取れるようにする。
-  - local basename だけでなく、relative path hash / category hash で見られるものは scan result から判定する。
-  - `File.Exists` は fallback に寄せる。
-- 新規 file diff 由来の BMS では、BMS 本文再読込を避け、軽量 parse 済みの `WAVfiles` / `BGAfiles` を入力として health 判定する。
-- DB 由来補完で refs がない場合のみ、安全側として path read / fallback 経路を許容する。
-- `maintenance_update` log に health 判定の内訳を追加する。
-  - `healthDegree`
+- `BmsLibraryMaintenanceService` は `maintenanceHealthDegree = max(1, Environment.ProcessorCount - 1)` を既定にする。
+- `UpdateMaintenanceInfo()` は section 1000 件ごとに `Parallel.ForEach(... MaxDegreeOfParallelism = maintenanceHealthDegree)` で health / encoding / bmson refs refresh を処理する。
+- `ResourceHealthLookupContext` は次を束ねる。
+  - `BMSDirectoryFileNameHash`
+  - `DirectoryResourceLookupCache`
+  - `DirectoryRelativePathHashIndex`
+- `BMSFile.SetHealthStatusUsingLookupContext()` は、relative path hash / resource hash で判定できる場合は scan cache を使い、判定できない場合だけ `File.Exists` fallback に落ちる。
+- `maintenance_update` / `installable_maintenance_deferred done` には以下が出る。
   - `healthTargetCount`
+  - `healthDegree`
   - `healthMs`
   - `encodingMs`
   - `bmsonRefreshMs`
   - `healthCacheHit`
   - `healthFileExistsFallback`
-- 初回と2回目以降で対象数と fallback 数がどう変わるかを観測できるようにする。
+  - `maintenanceUpserted`
+  - `resourceHealthIndexMs`
+- file diff 由来の新規 BMS / bmson は、chunk 内 inline maintenance で `maintenance` row を作る。
+  - BMS は lightweight parse 済みの `WAVfiles` / `BGAfiles` を使い、row 作成後に破棄する。
+  - bmson は `ParseSnapshot()` 済みの fresh refs を使う。
+  - 成功した row は後続 `installable_maintenance_deferred` の通常対象から外れる。
+
+#### Phase 8 実装後仕様
+
+- `UpdateMaintenanceInfo()` は health worker を走らせる前に target summary を出す。
+  - `maintenance_target_summary total=... sourceCount=... force=... missingInfo=... missingEncoding=... bmsonMissingFreshRefs=... healthDegree=...`
+  - `missingInfo` は `maintenanceInfo.IsInformationChecked()` が false の対象。
+  - `missingEncoding` は BMS で encoding が未設定の対象。
+  - `bmsonMissingFreshRefs` は fresh resource refs を持たない bmson target。
+- target 0 の場合、section loop / health worker / DB transaction を起動せず `maintenance_update no_targets ...` で完了する。
+- `setMaintenanceInfo()` は `maintenance` 更新がなく、resource health index も current の場合、index rebuild を行わない。
+  - index が stale の場合だけ、health 再計算ではなく resource health index rebuild を行う。
+- `healthFileExistsFallback` は内訳を持つ。
+  - `healthFileExistsFallbackAudio`
+  - `healthFileExistsFallbackImage`
+  - `healthFileExistsFallbackMovie`
+  - `healthFileExistsFallbackOptionalImage`
+- local basename hash の欠損数計算は LINQ `Except()` 連鎖ではなく、section 内で作る `HashSet<uint>` lookup へ寄せた。
+  - BMS refs 側の `WAVfiles` / `BGAfiles` は `HashSet<string>` なので、実質的な重複 count は従来と揃う。
+  - relative path refs / optional image は従来通り cache 判定を優先し、必要時のみ `File.Exists` fallback に落ちる。
+
+#### 現在残っている問題
+
+- DB 由来の missing maintenance が大量にある場合、BMS は本文 read に戻る。これは避けきれないが、読んだ後の `WAVfiles` / `BGAfiles` と派生 collection は section 内で確実に破棄し、追加の long-lived collection を作らない必要がある。
+- `SetHealthStatusCore()` 内では `ToLookup()` と複数 `List<string>` 作成がまだある。新規追加分の長期保持は解消したが、DB 補完で大量 target がある場合は CPU/GC の hotspot になり得る。
+- `healthFileExistsFallback` が多い場合、scan cache を活かせていない。Phase 8 で大分類は出るようになったが、互換拡張子 fallback / 正規化不能 path / 実際の欠損が混ざるため、必要なら次段でさらに細分化する。
+- `forceUpdate=true` の health 再確認は、安全側で従来 `SetHealthStatus(folderAllFileList, forceUpdate)` 経路を使っており、cache-aware lookup を使わない。明示再確認の意味を壊さず cache-aware 化できるかは別途判断が必要。
+- file diff inline maintenance は collector 近傍で実行されるため、`inline_maintenance_ms` は `LibraryFileDiffDone` の critical path に乗る。Phase 8 では deferred 側だけでなく、inline maintenance の cost も log で見て、必要なら後続で parser worker 側へ寄せるか検討する。
+
+#### 後続候補
+
+- `ToLookup()` と複数 `List<string>` 作成を避け、BMS parse 結果から local/nonlocal/audio/image/movie を一度だけ分類する軽量 helper を検討する。
+- fallback 内訳を、cache miss / compatible extension / normalize failure / true missing まで細分化する。
+- `forceUpdate=true` の cache-aware 化を、明示再確認としての意味を保てる範囲で検討する。
+- **DB 補完と file diff inline の境界を守る。**
+  - 新規・更新ファイル由来の maintenance は file diff chunk 内で完了させる。
+  - Phase 8 の deferred 側は、旧 DB・外部更新・force update・inline maintenance 失敗など、DB 由来または例外的対象に限定する。
+- **ログで効果を判断する。**
+  - 成功条件は `maintenanceChecked` だけではなく、`healthTargetCount`, `healthMs`, `healthCacheHit`, `healthFileExistsFallback`, `maintenanceUpserted`, `resourceHealthIndexMs` の組み合わせで見る。
+  - 2回目以降の通常起動では `healthTargetCount=0` または小さい値になり、`set_health_ms` が index rebuild 程度に収まることを目標にする。
+- **scope を広げすぎない。**
+  - mode 検出、encoding reload、resource health index の構造変更は Phase 8 の主対象にしない。
+  - Phase 8 は health 判定と maintenance row 作成の効率化に絞り、導入先推定や WARNING projection の設計は既存方針を維持する。
 
 #### 期待効果
 
-- 初回全件 health の `set_health_ms` を下げる。
-- I/O と CPU のスパイクを抑える。
-- 導入先推定用に作っている resource index を health にも使い、scan 結果の再利用率を上げる。
+- file diff inline maintenance 済みの空DB初回では、`installable_maintenance_deferred` の target が大きく減る。
+- 旧 DB や外部更新 DB で missing maintenance が多い場合でも、bounded 並列と allocation 削減により、health 作成時間と GC 圧を下げられる。
+- 2回目以降の通常起動では、maintenance target 0 fast path により、導入先推定と一覧表示に必要な状態へ早く到達できる。
+- fallback 内訳が出ることで、scan cache が効いていないケースを次の改善単位へ切り出せる。
 
 ### Phase 9: 譜面要求リソース参照の寿命整理と file diff chunk maintenance 連携
 
@@ -714,8 +747,11 @@ Phase 9 は Phase 8 後の単なる高速化ではなく、Phase 7.7 の memory 
 - stale parser version、digest missing、current parse failure、current chart_info の各条件で backfill candidate summary が期待通りになること。
 - current `chart_info` skip が大量にある file diff で、`file_diff_inline` の runtime index delta と retained row count が current skip 件数に比例しないこと。
 - current skip row が大量にある file diff で、`committedInlineChartInfoRows` 相当の collection がメモリピークを作らないこと。
-- maintenance の bounded degree が適用され、`healthDegree` log と実処理の並列度が一致すること。
-- cache-aware health 判定で `DirectoryResourceLookupCache` / `DirectoryRelativePathHashIndex` が使われ、`File.Exists` fallback 数が観測できること。
+- maintenance の bounded degree が維持され、`healthDegree` log と実処理の並列度が一致すること。
+- maintenance target summary により、missing info / missing encoding / force / bmson refs refresh の対象数が分かること。
+- target 0 かつ resource health index current の場合、health worker / DB transaction を起動せず fast path で完了すること。
+- cache-aware health 判定で `DirectoryResourceLookupCache` / `DirectoryRelativePathHashIndex` が使われ、`File.Exists` fallback 数と fallback 種別が観測できること。
+- DB 由来 missing maintenance が大量にある場合でも、health 判定後の `WAVfiles` / `BGAfiles` / 派生 collection が section を越えて残らないこと。
 - 新規追加分 maintenance が file diff chunk と連携し、追加 BMS / bmson の maintenance row が chunk 単位で保存され、後続 `installable_maintenance_deferred` の対象数が減ること。
 - file diff 後の追加 BMS が `WAVfiles` / `BGAfiles` / 派生 cache を保持せず、`maintenanceInfo` と DB `maintenance` row に resource health が残ること。
 

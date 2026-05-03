@@ -286,15 +286,65 @@ internal sealed class BmsLibraryMaintenanceService
             return result;
         }
         Stopwatch stopwatch = Stopwatch.StartNew();
-        List<BMSFile> targets = (forceUpdate
-            ? EnumerateResourceHealthChartFiles(bmsFiles).ToList()
-            : EnumerateResourceHealthChartFiles(bmsFiles).Where((BMSFile file) => !file.maintenanceInfo.IsInformationChecked() || (PendingChartEntry.IsBmsChartFile(file) && string.IsNullOrWhiteSpace(file.maintenanceInfo.encoding))).ToList());
+        List<BMSFile> sourceFiles = EnumerateResourceHealthChartFiles(bmsFiles).ToList();
+        List<BMSFile> targets = new List<BMSFile>();
+        foreach (BMSFile file in sourceFiles)
+        {
+            bool isBms = PendingChartEntry.IsBmsChartFile(file);
+            bool isBmson = PendingChartEntry.IsBmsonChartFile(file);
+            bool missingInfo = file?.maintenanceInfo?.IsInformationChecked() != true;
+            bool missingEncoding = isBms && string.IsNullOrWhiteSpace(file?.maintenanceInfo?.encoding);
+            bool isTarget = forceUpdate || missingInfo || missingEncoding;
+            if (!isTarget)
+            {
+                continue;
+            }
+            targets.Add(file);
+            if (forceUpdate)
+            {
+                result.ForceTargetCount++;
+            }
+            if (missingInfo)
+            {
+                result.MissingInfoTargetCount++;
+            }
+            if (missingEncoding)
+            {
+                result.MissingEncodingTargetCount++;
+            }
+            if (isBmson && !HasFreshCurrentBmsonResourceReferences(file as PendingChartEntry))
+            {
+                result.BmsonMissingFreshResourceReferenceCount++;
+            }
+        }
         result.CheckedFileCount = targets.Count;
         result.BmsResourceTargetCount = targets.Count(PendingChartEntry.IsBmsChartFile);
         result.BmsonResourceTargetCount = targets.Count(PendingChartEntry.IsBmsonChartFile);
         result.HealthTargetCount = targets.Count;
         result.HealthDegree = maintenanceHealthDegree;
         resourceLookupContext ??= new ResourceHealthLookupContext(folderAllFileList, null, null);
+        progressLogger?.Invoke("maintenance_target_summary total=" + targets.Count
+            + " sourceCount=" + sourceFiles.Count
+            + " force=" + result.ForceTargetCount
+            + " missingInfo=" + result.MissingInfoTargetCount
+            + " missingEncoding=" + result.MissingEncodingTargetCount
+            + " bmsonMissingFreshRefs=" + result.BmsonMissingFreshResourceReferenceCount
+            + " healthDegree=" + maintenanceHealthDegree);
+        if (targets.Count <= 0)
+        {
+            stopwatch.Stop();
+            result.HealthCacheHitCount = resourceLookupContext.CacheHitCount;
+            result.HealthFileExistsFallbackCount = resourceLookupContext.FileExistsFallbackCount;
+            result.HealthAudioFileExistsFallbackCount = resourceLookupContext.AudioFileExistsFallbackCount;
+            result.HealthImageFileExistsFallbackCount = resourceLookupContext.ImageFileExistsFallbackCount;
+            result.HealthMovieFileExistsFallbackCount = resourceLookupContext.MovieFileExistsFallbackCount;
+            result.HealthOptionalImageFileExistsFallbackCount = resourceLookupContext.OptionalImageFileExistsFallbackCount;
+            result.TotalMs = stopwatch.ElapsedMilliseconds;
+            progressLogger?.Invoke("maintenance_update no_targets sourceCount=" + sourceFiles.Count
+                + " healthDegree=" + maintenanceHealthDegree
+                + " elapsedMs=" + result.TotalMs);
+            return result;
+        }
         long healthTicks = 0L;
         long encodingTicks = 0L;
         long bmsonRefreshTicks = 0L;
@@ -475,6 +525,10 @@ internal sealed class BmsLibraryMaintenanceService
         result.BmsonRefreshMs = TicksToMilliseconds(Interlocked.Read(ref bmsonRefreshTicks));
         result.HealthCacheHitCount = resourceLookupContext.CacheHitCount;
         result.HealthFileExistsFallbackCount = resourceLookupContext.FileExistsFallbackCount;
+        result.HealthAudioFileExistsFallbackCount = resourceLookupContext.AudioFileExistsFallbackCount;
+        result.HealthImageFileExistsFallbackCount = resourceLookupContext.ImageFileExistsFallbackCount;
+        result.HealthMovieFileExistsFallbackCount = resourceLookupContext.MovieFileExistsFallbackCount;
+        result.HealthOptionalImageFileExistsFallbackCount = resourceLookupContext.OptionalImageFileExistsFallbackCount;
         result.TotalMs = stopwatch.ElapsedMilliseconds;
         return result;
     }

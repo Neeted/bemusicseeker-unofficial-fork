@@ -1507,17 +1507,28 @@ public class BMSFile : LR2SongDB.song
             DirectoryRelativePathHashIndex.Entry relativePathEntry = lookupContext?.GetRelativePathEntryOrNull(lookupDir);
             DirectoryResourceLookupCache.Entry resourceEntry = relativePathEntry == null ? lookupContext?.GetResourceEntryOrNull(lookupDir) : null;
             long cacheHitCount = 0L;
-            long fileExistsFallbackCount = 0L;
+            long audioFileExistsFallbackCount = 0L;
+            long imageFileExistsFallbackCount = 0L;
+            long movieFileExistsFallbackCount = 0L;
+            long optionalImageFileExistsFallbackCount = 0L;
             dir = lookupDir + Path.DirectorySeparatorChar;
+            HashSet<uint> curDirFileNameHashSet = null;
+            HashSet<uint> curDirFileNameHashArrayAddSet = null;
             Func<uint[], List<string>, IEnumerable<string>, ChartResourceKind, int> func = delegate (uint[] localHashSet, List<string> nonlocalFileList, IEnumerable<string> extensions, ChartResourceKind resourceKind)
             {
                 int num = 0;
                 if (localHashSet.Length != 0)
                 {
-                    num = ((curDirFileNameHashArrayAdd == null || curDirFileNameHashArrayAdd.Length == 0 || string.IsNullOrWhiteSpace(altSearchDir)) ? (num + localHashSet.Except(curDirFileNameHashArray).Count()) : (num + localHashSet.Except(curDirFileNameHashArray).Except(curDirFileNameHashArrayAdd).Count()));
+                    num += CountMissingLocalHashes(
+                        localHashSet,
+                        curDirFileNameHashArray,
+                        ref curDirFileNameHashSet,
+                        string.IsNullOrWhiteSpace(altSearchDir) ? null : curDirFileNameHashArrayAdd,
+                        ref curDirFileNameHashArrayAddSet);
                 }
                 if (nonlocalFileList.Count > 0)
                 {
+                    ResourceHealthFallbackKind fallbackKind = GetFallbackKind(resourceKind);
                     foreach (string file in nonlocalFileList)
                     {
                         if (TryResolveResourceReferenceFromCache(relativePathEntry, resourceEntry, file, resourceKind, out bool existsInCache))
@@ -1530,7 +1541,7 @@ public class BMSFile : LR2SongDB.song
                             continue;
                         }
 
-                        fileExistsFallbackCount++;
+                        IncrementFallbackCounter(fallbackKind, ref audioFileExistsFallbackCount, ref imageFileExistsFallbackCount, ref movieFileExistsFallbackCount, ref optionalImageFileExistsFallbackCount);
                         if (!ExistsWithCompatibleExtensions(dir, file, extensions))
                         {
                             num++;
@@ -1550,7 +1561,7 @@ public class BMSFile : LR2SongDB.song
                         return existsInCache;
                     }
 
-                    fileExistsFallbackCount++;
+                    optionalImageFileExistsFallbackCount++;
                     return ExistsWithCompatibleExtensions(dir, text, extensions);
                 }
                 return false;
@@ -1601,7 +1612,62 @@ public class BMSFile : LR2SongDB.song
                 nonlocalBGAfilesMovie = null;
             }
             lookupContext?.AddCacheHits(cacheHitCount);
-            lookupContext?.AddFileExistsFallbacks(fileExistsFallbackCount);
+            lookupContext?.AddFileExistsFallbacks(ResourceHealthFallbackKind.Audio, audioFileExistsFallbackCount);
+            lookupContext?.AddFileExistsFallbacks(ResourceHealthFallbackKind.Image, imageFileExistsFallbackCount);
+            lookupContext?.AddFileExistsFallbacks(ResourceHealthFallbackKind.Movie, movieFileExistsFallbackCount);
+            lookupContext?.AddFileExistsFallbacks(ResourceHealthFallbackKind.OptionalImage, optionalImageFileExistsFallbackCount);
+        }
+    }
+
+    private static int CountMissingLocalHashes(uint[] requiredHashes, uint[] availableHashes, ref HashSet<uint> availableHashSet, uint[] additionalHashes, ref HashSet<uint> additionalHashSet)
+    {
+        if (requiredHashes == null || requiredHashes.Length == 0)
+        {
+            return 0;
+        }
+        availableHashSet ??= new HashSet<uint>(availableHashes ?? Array.Empty<uint>());
+        if (additionalHashes != null && additionalHashes.Length > 0)
+        {
+            additionalHashSet ??= new HashSet<uint>(additionalHashes);
+        }
+        int missing = 0;
+        foreach (uint requiredHash in requiredHashes)
+        {
+            if (!availableHashSet.Contains(requiredHash) && (additionalHashSet == null || !additionalHashSet.Contains(requiredHash)))
+            {
+                missing++;
+            }
+        }
+        return missing;
+    }
+
+    private static ResourceHealthFallbackKind GetFallbackKind(ChartResourceKind resourceKind)
+    {
+        return resourceKind switch
+        {
+            ChartResourceKind.Audio => ResourceHealthFallbackKind.Audio,
+            ChartResourceKind.Image => ResourceHealthFallbackKind.Image,
+            ChartResourceKind.Movie => ResourceHealthFallbackKind.Movie,
+            _ => ResourceHealthFallbackKind.Unknown
+        };
+    }
+
+    private static void IncrementFallbackCounter(ResourceHealthFallbackKind kind, ref long audio, ref long image, ref long movie, ref long optionalImage)
+    {
+        switch (kind)
+        {
+            case ResourceHealthFallbackKind.Audio:
+                audio++;
+                break;
+            case ResourceHealthFallbackKind.Image:
+                image++;
+                break;
+            case ResourceHealthFallbackKind.Movie:
+                movie++;
+                break;
+            case ResourceHealthFallbackKind.OptionalImage:
+                optionalImage++;
+                break;
         }
     }
 

@@ -5026,11 +5026,19 @@ public class BMSLibrary : NotificationObject
                         + " bmsonResourceTargets=" + maintenanceResult.BmsonResourceTargetCount
                         + " healthTargetCount=" + maintenanceResult.HealthTargetCount
                         + " healthDegree=" + maintenanceResult.HealthDegree
+                        + " forceTargets=" + maintenanceResult.ForceTargetCount
+                        + " missingInfoTargets=" + maintenanceResult.MissingInfoTargetCount
+                        + " missingEncodingTargets=" + maintenanceResult.MissingEncodingTargetCount
+                        + " bmsonMissingFreshRefs=" + maintenanceResult.BmsonMissingFreshResourceReferenceCount
                         + " healthMs=" + maintenanceResult.HealthMs
                         + " encodingMs=" + maintenanceResult.EncodingMs
                         + " bmsonRefreshMs=" + maintenanceResult.BmsonRefreshMs
                         + " healthCacheHit=" + maintenanceResult.HealthCacheHitCount
                         + " healthFileExistsFallback=" + maintenanceResult.HealthFileExistsFallbackCount
+                        + " healthFileExistsFallbackAudio=" + maintenanceResult.HealthAudioFileExistsFallbackCount
+                        + " healthFileExistsFallbackImage=" + maintenanceResult.HealthImageFileExistsFallbackCount
+                        + " healthFileExistsFallbackMovie=" + maintenanceResult.HealthMovieFileExistsFallbackCount
+                        + " healthFileExistsFallbackOptionalImage=" + maintenanceResult.HealthOptionalImageFileExistsFallbackCount
                         + " maintenanceUpserted=" + maintenanceResult.MaintenanceInfoUpsertCount
                         + " bmsonReparsed=" + maintenanceResult.BmsonReparsedCount
                         + " bmsonReparseFailed=" + maintenanceResult.BmsonReparseFailedCount
@@ -5057,11 +5065,19 @@ public class BMSLibrary : NotificationObject
                         + " bmsonResourceTargets=" + maintenanceResult.BmsonResourceTargetCount
                         + " healthTargetCount=" + maintenanceResult.HealthTargetCount
                         + " healthDegree=" + maintenanceResult.HealthDegree
+                        + " forceTargets=" + maintenanceResult.ForceTargetCount
+                        + " missingInfoTargets=" + maintenanceResult.MissingInfoTargetCount
+                        + " missingEncodingTargets=" + maintenanceResult.MissingEncodingTargetCount
+                        + " bmsonMissingFreshRefs=" + maintenanceResult.BmsonMissingFreshResourceReferenceCount
                         + " healthMs=" + maintenanceResult.HealthMs
                         + " encodingMs=" + maintenanceResult.EncodingMs
                         + " bmsonRefreshMs=" + maintenanceResult.BmsonRefreshMs
                         + " healthCacheHit=" + maintenanceResult.HealthCacheHitCount
                         + " healthFileExistsFallback=" + maintenanceResult.HealthFileExistsFallbackCount
+                        + " healthFileExistsFallbackAudio=" + maintenanceResult.HealthAudioFileExistsFallbackCount
+                        + " healthFileExistsFallbackImage=" + maintenanceResult.HealthImageFileExistsFallbackCount
+                        + " healthFileExistsFallbackMovie=" + maintenanceResult.HealthMovieFileExistsFallbackCount
+                        + " healthFileExistsFallbackOptionalImage=" + maintenanceResult.HealthOptionalImageFileExistsFallbackCount
                         + " maintenanceUpserted=" + maintenanceResult.MaintenanceInfoUpsertCount
                         + " bmsonReparsed=" + maintenanceResult.BmsonReparsedCount
                         + " bmsonReparseFailed=" + maintenanceResult.BmsonReparseFailedCount
@@ -6406,6 +6422,12 @@ public class BMSLibrary : NotificationObject
         Volatile.Write(ref resourceHealthIndexInvalidated, true);
     }
 
+    private bool IsResourceHealthIndexCurrent()
+    {
+        return !Volatile.Read(ref resourceHealthIndexInvalidated)
+            && Volatile.Read(ref resourceHealthIndexSnapshot) != null;
+    }
+
     private ResourceHealthIndexSnapshot GetResourceHealthIndexSnapshot(string reason)
     {
         ResourceHealthIndexSnapshot currentSnapshot = Volatile.Read(ref resourceHealthIndexSnapshot);
@@ -6474,8 +6496,11 @@ public class BMSLibrary : NotificationObject
                 ResourceHealthLookupContext resourceLookupContext = new ResourceHealthLookupContext(bmsFolderAllFileList, directoryResourceLookupCache, directoryRelativePathHashIndex);
                 workflowResult = maintenanceService.UpdateMaintenanceInfo(maintenanceTargets, forceUpdate, bmsFolderAllFileList, dbGateway, dialogService, resourceLookupContext, LogInstallPerformance);
             }
-            ResourceHealthIndexSnapshot resourceHealthSnapshot = RebuildResourceHealthIndexSnapshotLocked("setMaintenanceInfo");
-            workflowResult.ResourceHealthIndexMs = resourceHealthSnapshot.BuildMs;
+            bool rebuildResourceHealthIndex = workflowResult.HasUpdates || !IsResourceHealthIndexCurrent();
+            ResourceHealthIndexSnapshot resourceHealthSnapshot = rebuildResourceHealthIndex
+                ? RebuildResourceHealthIndexSnapshotLocked("setMaintenanceInfo")
+                : Volatile.Read(ref resourceHealthIndexSnapshot) ?? ResourceHealthIndexSnapshot.Empty;
+            workflowResult.ResourceHealthIndexMs = rebuildResourceHealthIndex ? resourceHealthSnapshot.BuildMs : 0L;
             workflowResult.WarningReapplyTargets = 0;
             workflowResult.WarningChangedCount = 0;
             if (workflowResult.CheckedFileCount > 0 || workflowResult.BmsonReparsedCount > 0 || workflowResult.BmsonReparseFailedCount > 0 || workflowResult.BmsonResourceReferenceReusedCount > 0 || resourceHealthSnapshot.TargetCount > 0)
@@ -6485,11 +6510,19 @@ public class BMSLibrary : NotificationObject
                     + " bmsonResourceTargets=" + workflowResult.BmsonResourceTargetCount
                     + " healthTargetCount=" + workflowResult.HealthTargetCount
                     + " healthDegree=" + workflowResult.HealthDegree
+                    + " forceTargets=" + workflowResult.ForceTargetCount
+                    + " missingInfoTargets=" + workflowResult.MissingInfoTargetCount
+                    + " missingEncodingTargets=" + workflowResult.MissingEncodingTargetCount
+                    + " bmsonMissingFreshRefs=" + workflowResult.BmsonMissingFreshResourceReferenceCount
                     + " healthMs=" + workflowResult.HealthMs
                     + " encodingMs=" + workflowResult.EncodingMs
                     + " bmsonRefreshMs=" + workflowResult.BmsonRefreshMs
                     + " healthCacheHit=" + workflowResult.HealthCacheHitCount
                     + " healthFileExistsFallback=" + workflowResult.HealthFileExistsFallbackCount
+                    + " healthFileExistsFallbackAudio=" + workflowResult.HealthAudioFileExistsFallbackCount
+                    + " healthFileExistsFallbackImage=" + workflowResult.HealthImageFileExistsFallbackCount
+                    + " healthFileExistsFallbackMovie=" + workflowResult.HealthMovieFileExistsFallbackCount
+                    + " healthFileExistsFallbackOptionalImage=" + workflowResult.HealthOptionalImageFileExistsFallbackCount
                     + " maintenanceUpserted=" + workflowResult.MaintenanceInfoUpsertCount
                     + " bmsonReparsed=" + workflowResult.BmsonReparsedCount
                     + " bmsonReparseFailed=" + workflowResult.BmsonReparseFailedCount

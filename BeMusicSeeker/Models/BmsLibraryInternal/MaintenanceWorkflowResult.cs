@@ -14,6 +14,14 @@ internal sealed class MaintenanceWorkflowResult
 
     public int HealthDegree { get; set; }
 
+    public int ForceTargetCount { get; set; }
+
+    public int MissingInfoTargetCount { get; set; }
+
+    public int MissingEncodingTargetCount { get; set; }
+
+    public int BmsonMissingFreshResourceReferenceCount { get; set; }
+
     public long HealthMs { get; set; }
 
     public long EncodingMs { get; set; }
@@ -23,6 +31,14 @@ internal sealed class MaintenanceWorkflowResult
     public long HealthCacheHitCount { get; set; }
 
     public long HealthFileExistsFallbackCount { get; set; }
+
+    public long HealthAudioFileExistsFallbackCount { get; set; }
+
+    public long HealthImageFileExistsFallbackCount { get; set; }
+
+    public long HealthMovieFileExistsFallbackCount { get; set; }
+
+    public long HealthOptionalImageFileExistsFallbackCount { get; set; }
 
     public int BmsonReparsedCount { get; set; }
 
