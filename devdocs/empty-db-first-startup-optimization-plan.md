@@ -38,13 +38,24 @@ main_view_build mode=FileMissingFilterSelected ... folderMs=242 totalMs=293 fold
 main_view_build mode=FileMissingIgnoredFilterSelected ... folderMs=0 totalMs=3 folderCount=0
 ```
 
+Phase 8/9 後の空DB初回ログでは、追加ファイル由来の maintenance は file diff 内で作られ、後続 `installable_maintenance_deferred` は DB 由来補完対象 0 件として完了している。
+
+```text
+song_tbl_file_check_breakdown ... added_count=208938 ... inline_maintenance_target_count=209986 inline_maintenance_success_count=209986 inline_maintenance_ms=387703 inline_maintenance_cache_hit=1064088 inline_maintenance_file_exists_fallback=0 db_commit_chunks=21 db_commit_chunk_size=10000
+maintenance_target_summary total=0 sourceCount=209986 force=0 missingInfo=0 missingEncoding=0 bmsonMissingFreshRefs=0 healthDegree=7
+maintenance_update checked=0 ... healthTargetCount=0 healthMs=0 ... maintenanceUpserted=0 resourceHealthIndexMs=426
+installable_maintenance_deferred done ... maintenanceChecked=0 healthMs=0 ... set_health_ms=1154 deferred_ms=1196
+```
+
+このログから、初回の health/maintenance コストは `installable_maintenance_deferred` から `LibraryFileDiffDone` の内側へ移動したと読める。これは初回と再起動後の表示整合性を優先する設計として想定どおりである。今後の高速化対象は、deferred health ではなく `inline_maintenance_ms` と file diff parse 全体になる。
+
 この時点で `LR2非対応パス` / `ゼロノート検索` / `解析エラー` / `構成ファイルフルスキャン` の件数は初回と再起動後で大きく揺れにくくなった。一方で、性能面では次が残っている。
 
 - 初回 file diff の BMS lightweight parse が約22分で、操作可能化までの支配要因になっている。
 - file diff は 512 件ごとに parse しているが、DB 永続化は最後に全件まとめて行うため、`AddedFiles` / `NextFiles` / inline `chart_info` row などの staging が長時間・大量に残る。
 - file diff の進捗は batch 完了後にまとめて進むため、表示粒度が 512 件単位に見える。
 - full `chart_info` backfill は実 target 0 件でも全 owner を走査しており、約95秒の固定費が出ている。
-- 初回 `installable_maintenance_deferred` の health 計算は約6分で、resource health index 化後も実 health 判定そのものが重い。
+- 初回の maintenance health 計算は file diff inline maintenance へ前倒しされ、`inline_maintenance_ms` として critical path に乗る。後続 `installable_maintenance_deferred` の実 health 計算は 0 件になっている。
 - Everything scan の raw buffer と resource hash index は数百MB級になり、file diff の全件 staging と重なるとメモリピークが高くなりやすい。
 - Phase 6/7.5 後も、初期化中に Private Bytes が数GB級まで上がり、`startup_background_task done` 後に一気に下がるケースがある。
   - 完了後に下がるため恒久的な leak というより、background task の scope が終わるまで一時 collection / parser result / maintenance working set が root され続ける構造が疑わしい。
@@ -665,6 +676,14 @@ bounded 並列、cache-aware lookup、resource health index projection は現行
   - BMS refs 側の `WAVfiles` / `BGAfiles` は `HashSet<string>` なので、実質的な重複 count は従来と揃う。
   - relative path refs / optional image は従来通り cache 判定を優先し、必要時のみ `File.Exists` fallback に落ちる。
 
+#### 実測での評価
+
+- 2回目以降の通常起動では、`maintenance_target_summary total=0`、`healthMs=0`、`maintenanceUpserted=0` となり、Phase 8 の no-op fast path は想定どおり効いている。
+- 空DB初回でも、file diff inline maintenance が全件成功した後は `maintenance_target_summary total=0` になり、`installable_maintenance_deferred` では health 再計算を行っていない。
+- `set_health_ms` は `healthMs=0` でも 1 秒前後出ることがある。これは snapshot 作成、target 抽出、resource health index build などを含む外側の計測名であり、実 health 計算時間ではない。
+- `resourceHealthIndexMs` は 20 万件規模で 400ms 前後であり、現時点では大きな問題ではない。
+- 空DB初回の大きな残コストは `inline_maintenance_ms` と file diff parse/read である。これは Phase 8 の deferred health 最適化ではなく、file diff critical path の改善対象として扱う。
+
 #### 現在残っている問題
 
 - DB 由来の missing maintenance が大量にある場合、BMS は本文 read に戻る。これは避けきれないが、読んだ後の `WAVfiles` / `BGAfiles` と派生 collection は section 内で確実に破棄し、追加の long-lived collection を作らない必要がある。
@@ -694,6 +713,12 @@ bounded 並列、cache-aware lookup、resource health index projection は現行
 - 旧 DB や外部更新 DB で missing maintenance が多い場合でも、bounded 並列と allocation 削減により、health 作成時間と GC 圧を下げられる。
 - 2回目以降の通常起動では、maintenance target 0 fast path により、導入先推定と一覧表示に必要な状態へ早く到達できる。
 - fallback 内訳が出ることで、scan cache が効いていないケースを次の改善単位へ切り出せる。
+
+#### Phase 8 として当面気にしなくてよいもの
+
+- 通常起動・空DB初回のどちらも `healthTargetCount=0` で deferred health は走っていないため、`forceUpdate=true` の cache-aware 化は通常起動の優先課題ではない。
+- `healthFileExistsFallback=0` の実測では fallback 細分化は診断用に十分で、追加分類は fallback が増えた実データを見てからでよい。
+- `SetHealthStatusCore()` の `ToLookup()` / allocation 削減は、DB 由来 missing maintenance が大量にあるケースや manual force 再確認向けの改善として残す。通常起動・空DB初回の主因ではない。
 
 ### Phase 9: 譜面要求リソース参照の寿命整理と file diff chunk maintenance 連携
 
