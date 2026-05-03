@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Security;
 using System.Threading;
+using System.Threading.Tasks;
 using BeMusicSeeker.Properties;
 using System.Windows;
 using BeMusicSeeker.Models.LR2;
@@ -18,6 +19,25 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 /// </summary>
 internal sealed class BmsLibraryMaintenanceService
 {
+    private readonly int maintenanceHealthDegree;
+
+    public BmsLibraryMaintenanceService()
+        : this(null)
+    {
+    }
+
+    internal BmsLibraryMaintenanceService(int? maintenanceHealthDegreeOverride)
+    {
+        maintenanceHealthDegree = maintenanceHealthDegreeOverride.HasValue
+            ? Math.Max(1, maintenanceHealthDegreeOverride.Value)
+            : ResolveDefaultMaintenanceHealthDegree();
+    }
+
+    internal static int ResolveDefaultMaintenanceHealthDegree()
+    {
+        return Math.Max(1, Environment.ProcessorCount - 1);
+    }
+
     private static IEnumerable<BMSFile> EnumerateBmsChartFiles(IEnumerable<BMSFile> bmsFiles)
     {
         return (bmsFiles ?? Enumerable.Empty<BMSFile>())
@@ -256,7 +276,9 @@ internal sealed class BmsLibraryMaintenanceService
         bool forceUpdate,
         BMSDirectoryFileNameHash folderAllFileList,
         BmsLibraryDbGateway dbGateway,
-        IBmsLibraryDialogService dialogService)
+        IBmsLibraryDialogService dialogService,
+        ResourceHealthLookupContext resourceLookupContext = null,
+        Action<string> progressLogger = null)
     {
         MaintenanceWorkflowResult result = new MaintenanceWorkflowResult();
         if (bmsFiles == null || dbGateway == null)
@@ -270,8 +292,17 @@ internal sealed class BmsLibraryMaintenanceService
         result.CheckedFileCount = targets.Count;
         result.BmsResourceTargetCount = targets.Count(PendingChartEntry.IsBmsChartFile);
         result.BmsonResourceTargetCount = targets.Count(PendingChartEntry.IsBmsonChartFile);
+        result.HealthTargetCount = targets.Count;
+        result.HealthDegree = maintenanceHealthDegree;
+        resourceLookupContext ??= new ResourceHealthLookupContext(folderAllFileList, null, null);
+        long healthTicks = 0L;
+        long encodingTicks = 0L;
+        long bmsonRefreshTicks = 0L;
+        int sectionIndex = 0;
         foreach (IEnumerable<BMSFile> section in targets.Section(1000))
         {
+            sectionIndex++;
+            Stopwatch sectionStopwatch = Stopwatch.StartNew();
             object reloadedLock = new object();
             List<BMSFile> reloadedFiles = new List<BMSFile>();
             object bmsonReparseLock = new object();
@@ -279,128 +310,189 @@ internal sealed class BmsLibraryMaintenanceService
             int bmsonReparseFailedInSection = 0;
             int bmsonResourceReferencesReusedInSection = 0;
             List<BMSFile> filesInSection = section.Where((BMSFile file) => file != null).ToList();
-            filesInSection.AsParallel().ForAll(delegate (BMSFile file)
+            progressLogger?.Invoke("maintenance_update section_start section=" + sectionIndex
+                + " targetCount=" + filesInSection.Count
+                + " total=" + targets.Count
+                + " healthDegree=" + maintenanceHealthDegree);
+            try
             {
-                bool isBmson = PendingChartEntry.IsBmsonChartFile(file);
-                string originalHash = file.hash;
-                if (isBmson)
+                Parallel.ForEach(filesInSection, new ParallelOptions { MaxDegreeOfParallelism = maintenanceHealthDegree }, delegate (BMSFile file)
                 {
-                    file.maintenanceInfo.NormalizeForBmson(file.path, file.hash);
-                    if (forceUpdate || !file.maintenanceInfo.IsInformationChecked())
+                    bool isBmson = PendingChartEntry.IsBmsonChartFile(file);
+                    string originalHash = file.hash;
+                    if (isBmson)
                     {
-                        BmsonResourceRefreshResult refreshResult = TryRefreshBmsonResourceReferences(file, forceUpdate);
-                        if (refreshResult == BmsonResourceRefreshResult.Success)
+                        file.maintenanceInfo.NormalizeForBmson(file.path, file.hash);
+                        if (forceUpdate || !file.maintenanceInfo.IsInformationChecked())
                         {
-                            lock (bmsonReparseLock)
+                            long bmsonRefreshStart = Stopwatch.GetTimestamp();
+                            BmsonResourceRefreshResult refreshResult = TryRefreshBmsonResourceReferences(file, forceUpdate);
+                            AddElapsedTicks(ref bmsonRefreshTicks, bmsonRefreshStart);
+                            if (refreshResult == BmsonResourceRefreshResult.Success)
                             {
-                                bmsonReparsedInSection++;
+                                lock (bmsonReparseLock)
+                                {
+                                    bmsonReparsedInSection++;
+                                }
+                            }
+                            else if (refreshResult == BmsonResourceRefreshResult.Failed)
+                            {
+                                lock (bmsonReparseLock)
+                                {
+                                    bmsonReparseFailedInSection++;
+                                }
+                                return;
+                            }
+                            else if (refreshResult == BmsonResourceRefreshResult.Reused)
+                            {
+                                lock (bmsonReparseLock)
+                                {
+                                    bmsonResourceReferencesReusedInSection++;
+                                }
                             }
                         }
-                        else if (refreshResult == BmsonResourceRefreshResult.Failed)
+                    }
+                    MaintenanceSnapshot beforeSnapshot = MaintenanceSnapshot.FromFile(file);
+                    int retryCount = 0;
+                    while (true)
+                    {
+                        try
                         {
-                            lock (bmsonReparseLock)
+                            long healthStart = Stopwatch.GetTimestamp();
+                            if (!forceUpdate)
                             {
-                                bmsonReparseFailedInSection++;
+                                file.SetHealthStatusUsingLookupContext(resourceLookupContext, forceUpdate, memClear: !isBmson);
                             }
-                            return;
+                            else
+                            {
+                                file.SetHealthStatus(folderAllFileList, forceUpdate, memClear: !isBmson);
+                            }
+                            AddElapsedTicks(ref healthTicks, healthStart);
+                            break;
                         }
-                        else if (refreshResult == BmsonResourceRefreshResult.Reused)
+                        catch (Exception ex)
                         {
-                            lock (bmsonReparseLock)
+                            if (ex is DirectoryNotFoundException || ex is FileNotFoundException || ex is IOException || ex is PathTooLongException || ex is SecurityException || ex is UnauthorizedAccessException)
                             {
-                                bmsonResourceReferencesReusedInSection++;
+                                if (retryCount < 3)
+                                {
+                                    retryCount++;
+                                    Thread.Sleep(200);
+                                    continue;
+                                }
+                                dialogService?.Show(string.Format(Resources.Error_BmsLoadFailedSkip, file.path, ex.Message), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+                                return;
                             }
+                            throw;
                         }
                     }
-                }
-                MaintenanceSnapshot beforeSnapshot = MaintenanceSnapshot.FromFile(file);
-                int retryCount = 0;
-                while (true)
-                {
-                    try
+                    if (isBmson)
                     {
-                        file.SetHealthStatus(folderAllFileList, forceUpdate, memClear: !isBmson);
-                        break;
+                        file.maintenanceInfo.NormalizeForBmson(file.path, file.hash);
                     }
-                    catch (Exception ex)
+                    else if (forceUpdate || string.IsNullOrWhiteSpace(file.maintenanceInfo.encoding))
                     {
-                        if (ex is DirectoryNotFoundException || ex is FileNotFoundException || ex is IOException || ex is PathTooLongException || ex is SecurityException || ex is UnauthorizedAccessException)
+                        long encodingStart = Stopwatch.GetTimestamp();
+                        file.SetEncosingInfo();
+                        AddElapsedTicks(ref encodingTicks, encodingStart);
+                    }
+                    if (!isBmson && !string.IsNullOrWhiteSpace(file.maintenanceInfo.encoding) && !file.maintenanceInfo.encoding.StartsWith("shift_jis") && !file.maintenanceInfo.encoding.EndsWith("?") && file.maintenanceInfo.encoding != "unknown")
+                    {
+                        long encodingStart = Stopwatch.GetTimestamp();
+                        BMSFile.ReloadBMSFileWithEncoding(file, file.maintenanceInfo.encoding);
+                        file.maintenanceInfo.is_encoding_fixed = true;
+                        AddElapsedTicks(ref encodingTicks, encodingStart);
+                        lock (reloadedLock)
                         {
-                            if (retryCount < 3)
-                            {
-                                retryCount++;
-                                Thread.Sleep(200);
-                                continue;
-                            }
-                            dialogService?.Show(string.Format(Resources.Error_BmsLoadFailedSkip, file.path, ex.Message), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
-                            return;
+                            reloadedFiles.Add(file);
                         }
-                        throw;
                     }
-                }
-                if (isBmson)
-                {
-                    file.maintenanceInfo.NormalizeForBmson(file.path, file.hash);
-                }
-                else if (forceUpdate || string.IsNullOrWhiteSpace(file.maintenanceInfo.encoding))
-                {
-                    file.SetEncosingInfo();
-                }
-                if (!isBmson && !string.IsNullOrWhiteSpace(file.maintenanceInfo.encoding) && !file.maintenanceInfo.encoding.StartsWith("shift_jis") && !file.maintenanceInfo.encoding.EndsWith("?") && file.maintenanceInfo.encoding != "unknown")
-                {
-                    BMSFile.ReloadBMSFileWithEncoding(file, file.maintenanceInfo.encoding);
-                    file.maintenanceInfo.is_encoding_fixed = true;
-                    lock (reloadedLock)
+                    else if (!isBmson && originalHash != file.hash)
                     {
-                        reloadedFiles.Add(file);
+                        lock (reloadedLock)
+                        {
+                            reloadedFiles.Add(file);
+                        }
                     }
-                }
-                else if (!isBmson && originalHash != file.hash)
-                {
-                    lock (reloadedLock)
+                    MaintenanceSnapshot afterSnapshot = MaintenanceSnapshot.FromFile(file);
+                    bool encodingChanged = !string.Equals(beforeSnapshot.Encoding, afterSnapshot.Encoding, StringComparison.Ordinal);
+                    bool healthChanged = beforeSnapshot.WAVHealth != afterSnapshot.WAVHealth
+                        || beforeSnapshot.BGAHealth != afterSnapshot.BGAHealth
+                        || beforeSnapshot.MovieHealth != afterSnapshot.MovieHealth
+                        || beforeSnapshot.StagefileHealth != afterSnapshot.StagefileHealth
+                        || beforeSnapshot.BannerHealth != afterSnapshot.BannerHealth
+                        || beforeSnapshot.BackbmpHealth != afterSnapshot.BackbmpHealth;
+                    if (encodingChanged || healthChanged)
                     {
-                        reloadedFiles.Add(file);
-                    }
-                }
-                MaintenanceSnapshot afterSnapshot = MaintenanceSnapshot.FromFile(file);
-                bool encodingChanged = !string.Equals(beforeSnapshot.Encoding, afterSnapshot.Encoding, StringComparison.Ordinal);
-                bool healthChanged = beforeSnapshot.WAVHealth != afterSnapshot.WAVHealth
-                    || beforeSnapshot.BGAHealth != afterSnapshot.BGAHealth
-                    || beforeSnapshot.MovieHealth != afterSnapshot.MovieHealth
-                    || beforeSnapshot.StagefileHealth != afterSnapshot.StagefileHealth
-                    || beforeSnapshot.BannerHealth != afterSnapshot.BannerHealth
-                    || beforeSnapshot.BackbmpHealth != afterSnapshot.BackbmpHealth;
-                if (encodingChanged || healthChanged)
-                {
-                    file.NotifyMaintenanceInfoChanged(encodingChanged, healthChanged);
-                }
-            });
-            List<BMSFileMaintenanceInfo> maintenanceInfos = filesInSection.Where((BMSFile file) => file.maintenanceInfo.IsInformationChecked()).Select((BMSFile file) => file.maintenanceInfo).ToList();
-            if (maintenanceInfos.Count > 0 || reloadedFiles.Count > 0)
-            {
-                dbGateway.ExecuteSongDbTransaction(delegate (Models.LR2.LR2SongDBExtended songDb)
-                {
-                    foreach (BMSFileMaintenanceInfo maintenanceInfo in maintenanceInfos)
-                    {
-                        songDb.InsertOrReplace(maintenanceInfo, typeof(Models.LR2.LR2SongDBExtended.maintenance));
-                    }
-                    foreach (BMSFile reloadedFile in reloadedFiles)
-                    {
-                        songDb.InsertOrReplace(reloadedFile, typeof(Models.LR2.LR2SongDB.song));
+                        file.NotifyMaintenanceInfoChanged(encodingChanged, healthChanged);
                     }
                 });
-                result.HasUpdates = true;
-                result.MaintenanceInfoUpsertCount += maintenanceInfos.Count;
-                result.ReloadedSongCount += reloadedFiles.Count;
-                result.SongUpsertCount += reloadedFiles.Count;
+                List<BMSFileMaintenanceInfo> maintenanceInfos = filesInSection.Where((BMSFile file) => file.maintenanceInfo.IsInformationChecked()).Select((BMSFile file) => file.maintenanceInfo).ToList();
+                if (maintenanceInfos.Count > 0 || reloadedFiles.Count > 0)
+                {
+                    dbGateway.ExecuteSongDbTransaction(delegate (Models.LR2.LR2SongDBExtended songDb)
+                    {
+                        foreach (BMSFileMaintenanceInfo maintenanceInfo in maintenanceInfos)
+                        {
+                            songDb.InsertOrReplace(maintenanceInfo, typeof(Models.LR2.LR2SongDBExtended.maintenance));
+                        }
+                        foreach (BMSFile reloadedFile in reloadedFiles)
+                        {
+                            songDb.InsertOrReplace(reloadedFile, typeof(Models.LR2.LR2SongDB.song));
+                        }
+                    });
+                    result.HasUpdates = true;
+                    result.MaintenanceInfoUpsertCount += maintenanceInfos.Count;
+                    result.ReloadedSongCount += reloadedFiles.Count;
+                    result.SongUpsertCount += reloadedFiles.Count;
+                }
+                result.BmsonReparsedCount += bmsonReparsedInSection;
+                result.BmsonReparseFailedCount += bmsonReparseFailedInSection;
+                result.BmsonResourceReferenceReusedCount += bmsonResourceReferencesReusedInSection;
+                sectionStopwatch.Stop();
+                progressLogger?.Invoke("maintenance_update section_done section=" + sectionIndex
+                    + " targetCount=" + filesInSection.Count
+                    + " maintenanceUpserted=" + maintenanceInfos.Count
+                    + " songReloaded=" + reloadedFiles.Count
+                    + " bmsonReparsed=" + bmsonReparsedInSection
+                    + " bmsonReparseFailed=" + bmsonReparseFailedInSection
+                    + " bmsonResourceRefsReused=" + bmsonResourceReferencesReusedInSection
+                    + " elapsedMs=" + sectionStopwatch.ElapsedMilliseconds);
             }
-            result.BmsonReparsedCount += bmsonReparsedInSection;
-            result.BmsonReparseFailedCount += bmsonReparseFailedInSection;
-            result.BmsonResourceReferenceReusedCount += bmsonResourceReferencesReusedInSection;
+            catch (Exception ex)
+            {
+                sectionStopwatch.Stop();
+                progressLogger?.Invoke("maintenance_update section_failed section=" + sectionIndex
+                    + " targetCount=" + filesInSection.Count
+                    + " elapsedMs=" + sectionStopwatch.ElapsedMilliseconds
+                    + " message=" + SanitizeLogValue(ex.Message));
+                throw;
+            }
         }
         stopwatch.Stop();
+        result.HealthMs = TicksToMilliseconds(Interlocked.Read(ref healthTicks));
+        result.EncodingMs = TicksToMilliseconds(Interlocked.Read(ref encodingTicks));
+        result.BmsonRefreshMs = TicksToMilliseconds(Interlocked.Read(ref bmsonRefreshTicks));
+        result.HealthCacheHitCount = resourceLookupContext.CacheHitCount;
+        result.HealthFileExistsFallbackCount = resourceLookupContext.FileExistsFallbackCount;
         result.TotalMs = stopwatch.ElapsedMilliseconds;
         return result;
+    }
+
+    private static void AddElapsedTicks(ref long targetTicks, long startTimestamp)
+    {
+        long elapsedTicks = Stopwatch.GetTimestamp() - startTimestamp;
+        Interlocked.Add(ref targetTicks, elapsedTicks);
+    }
+
+    private static string SanitizeLogValue(string value)
+    {
+        return (value ?? string.Empty).Replace('\r', ' ').Replace('\n', ' ');
+    }
+
+    private static long TicksToMilliseconds(long stopwatchTicks)
+    {
+        return stopwatchTicks <= 0L ? 0L : (long)(stopwatchTicks * 1000.0 / Stopwatch.Frequency);
     }
 
     private static BmsonResourceRefreshResult TryRefreshBmsonResourceReferences(BMSFile file, bool forceUpdate)

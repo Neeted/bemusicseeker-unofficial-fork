@@ -55,6 +55,124 @@ main_view_build mode=FileMissingIgnoredFilterSelected ... folderMs=0 totalMs=3 f
 - `installable_maintenance_deferred` を進捗に含め、重い background 更新を見える化する。
 - bmson 再パースや 2 回目以降の全件 warning 再適用を減らす。
 
+## 初期化フローの正本
+
+今後の設計では、処理を「新規・更新ファイル由来」と「DB 由来の補助情報」に分けて考える。
+
+### 基本原則
+
+- 差分ファイルがない場合は、導入先推定に必要な情報を最速で使える状態にする。
+  - DB load、ファイル列挙、resource hash/index 構築を優先する。
+  - 譜面ファイル本文の read は行わない。
+  - `chart_info` metadata bundle import、`chart_info` hydration/backfill、maintenance 補完、score/ranking など DB 由来の補助情報は background に回してよい。
+- 差分ファイル、つまり新規・更新ファイルがある場合は、ファイル read 直後の近い場所で必要な反映を終わらせる。
+  - lightweight parse。
+  - LR2 `folder` / `parent` 正規化。
+  - `chart_digest_map` 更新。
+  - inline `chart_info` 解析または current row / parse failure 判定。
+  - 新規ファイル由来の maintenance row / resource health 判定。
+  - DB chunk commit と in-memory catalog 反映。
+- background 処理へ回してよいのは、既に DB に存在している owner に対する補助情報の補完である。
+  - 旧バージョン DB の `chart_info` 補完。
+  - DB load 済み row の maintenance 補完。
+  - score / ranking / playlist hydration。
+- 補助情報であっても、新規・更新ファイル由来なら後回しにしない。
+  - そのファイルの snapshot bytes、軽量 parse 結果、resource refs、scan cache が生きている間に処理する。
+  - 「追加直後は未反映で、再起動または background 補完後に初めて正しくなる」状態を作らない。
+- metadata bundle import は DB 由来補助情報だが、新規・更新ファイルの inline `chart_info` parse を避けるために使える場合だけ file diff 前へ寄せる。
+  - 差分 0 の場合は導入先推定に不要なので background でよい。
+  - 差分が多い場合は、snapshot read 前に import して current row skip を効かせる価値がある。
+  - 差分が少ない場合の同期 import 可否は、bundle size と target count の実測で閾値化する。
+
+### 差分なし fast path
+
+差分なしの起動・ReloadFiles は次を最短経路にする。
+
+```text
+DB load
+  -> file enumeration / resource index build
+  -> diff 0 判定
+  -> in-memory catalog は DB 由来のまま維持
+  -> 導入先推定に必要な index を公開
+  -> 操作可能
+  -> background:
+       chart_info metadata bundle import if present
+       chart_info hydration/backfill if DB-derived candidates exist
+       maintenance補完 if DB-derived missing/stale rows exist
+       score/ranking/playlist hydration
+```
+
+差分なし fast path では、`song` / `bmson_song` を作り直すための譜面 read、同期 metadata bundle import、current `chart_info` row の大量再 publish、resource health warning の全件 mutation を行わない。
+
+### 差分あり path
+
+新規・更新ファイルがある場合は、1 件の譜面を次の単位で処理する。
+
+```text
+changed path
+  -> ChartFileSnapshot read
+  -> lightweight parse
+  -> LR2 parent/folder normalize
+  -> inline chart_info
+       current row exists: modelへ適用するが file_diff result として大量保持しない
+       current parse failure exists: parse skip
+       missing/stale: parseして新規 row / failure row を作る
+  -> maintenance row / resource health
+       新規ファイル由来の refs と scan cache を利用
+  -> commit chunk
+       song / bmson_song
+       chart_digest_map
+       generated chart_info / parse failure
+       generated maintenance
+  -> memory catalog apply
+```
+
+ここで重要なのは、`current chart_info` で parse skip した row を file diff の成果物として全件蓄積しないことである。current row は DB 由来の既存補助情報であり、session index の正本更新は hydration が担当する。file diff inline が runtime index に公開するのは、原則としてその場で新規生成または更新した `chart_info` row だけにする。
+
+### background の責務
+
+background task は「現在の file diff で直接扱っていない DB 由来の補助情報」を補完する。
+
+| 処理 | background 可否 | 理由 |
+| --- | --- | --- |
+| 差分なし時の metadata bundle import | 可 | 導入先推定には不要で、DB 補助情報の取り込みに過ぎない |
+| 差分あり時の metadata bundle import | 条件付きで不可 | inline `chart_info` parse を大量に避けられる場合は file diff 前に同期実行する価値がある |
+| 旧DBの full `chart_info` backfill | 可 | 譜面は既に DB catalog に存在し、新規 file read の近傍ではない |
+| current `chart_info` hydration | 可 | DB row を memory index / owner へ適用する処理 |
+| 新規・更新ファイルの `chart_info` 生成 | 不可 | snapshot bytes がある間に処理すべき |
+| 新規・更新ファイルの maintenance row 作成 | 原則不可 | lightweight parse refs と scan cache がある間に処理すべき |
+| DB 由来の missing/stale maintenance 補完 | 可 | file diff 由来ではない補助情報の補完 |
+| score / ranking / playlist hydration | 可 | song catalog 反映後に遅延適用可能 |
+
+### メモリ方針
+
+- snapshot bytes は bounded queue と parser worker の寿命を超えて保持しない。
+- commit chunk は 1000 件程度を上限にし、DB commit 後に chunk staging を破棄する。
+- current skip した `chart_info` row は大量に `SongTableFileCheckResult` や callback collection へ載せない。
+- final catalog 用 list は必要最小限にし、`AddedFiles` / `NextFiles` の二重保持がピークになる場合は、次段で catalog builder 方式へ移行する。
+- resource index は導入先推定と health 判定の共通基盤として使い、同じ情報を別構造で重複構築しない。
+
+### 責務境界
+
+| Component | 責務 |
+| --- | --- |
+| `BMSLibrary` | 初期化 orchestration、locks、progress、background task 依存関係、in-memory catalog 切替 |
+| `BmsLibraryInitializationService` | scan / diff 判定、新規・更新ファイル由来の chunk assembly、file-derived progress |
+| `ChartInfoInlineBuildService` | snapshot から `chart_info` row / parse failure row を作る。current row skip 判定は行うが、大量保持はしない |
+| `BmsLibraryMaintenanceService` | maintenance row / resource health issue の生成。file-derived と DB-derived の呼び出し元を分ける |
+| `BmsLibraryDbGateway` | schema、transaction、chunk upsert、candidate summary。workflow 判断は持たない |
+| `MainWindowViewModel` | progress phase の表示、startup background scheduler の dependency 実行 |
+
+`chart_info_hydration -> full backfill -> installable maintenance` の順序保証は、アプリ起動時の startup background scheduler 配下で成立する。`BMSLibrary` 単体の fallback `Task.Run` 経路では dependency scheduler がないため、将来的には fallback 側でも同じ順序を保つか、アプリ起動時のみの保証として明示する。
+
+### 進捗方針
+
+- `LibraryFileDiffDone` は、新規・更新ファイル由来の DB / memory 反映が完了するまで完了にしない。
+- `ChartInfoBackfillDone` は DB 由来の full backfill のみを表す。
+- 新規・更新ファイルの inline `chart_info` は `LibraryFileDiffDone` の内側に含める。
+- 新規・更新ファイルの inline maintenance も、実装後は `LibraryFileDiffDone` または専用 sublabel の内側で扱う。
+- `InstallableMaintenanceDeferredDone` は DB 由来の missing/stale maintenance 補完を表す。新規ファイル由来の大量 maintenance 作成をここへ押し出さない。
+
 ## LR2データベース未登録
 
 ### 現状
@@ -272,8 +390,9 @@ BeMusicSeeker が `karinotes = 0` を入れる経路は、`setZeroNoteAndCommitT
 - file diff の lightweight parse は reader / parser workers / collector の bounded pipeline で行う。
   - reader は 1 本で `ChartFileContentReader.ReadSnapshot()` を実行し、bounded queue に `ChartFileSnapshot` を流す。
   - queue capacity は `fileDiffParserDegree * 2`。
-  - parser worker degree は `min(4, max(1, Environment.ProcessorCount - 1))`。
+  - parser worker degree は `max(1, Environment.ProcessorCount - 1)`。
   - worker は BMS / bmson lightweight parse を行い、collector が inline `chart_info` 解析 batch へ渡す。
+  - inline `chart_info` 解析は collector 側で順次実行し、pipeline worker と chart_info parser の入れ子並列を避ける。
   - snapshot bytes は collector の batch flush 後に破棄され、全件分を保持しない。
 - progress callback は parsed candidate の collector 到達ごとに 1 件単位で呼ぶ。
   - UI 側の `ReportLibraryInitializationProgress()` は 150ms throttle を持つため、1 件ごとに通知しても UI 更新は過剰になりにくい。
@@ -281,6 +400,12 @@ BeMusicSeeker が `karinotes = 0` を入れる経路は、`setZeroNoteAndCommitT
 - DB 保存対象を `FileScanDiffCommitChunk` にまとめ、1000 件単位で transaction commit する。
   - BMS追加/削除、bmson追加/更新/削除、`chart_digest_map`、inline `chart_info`、parse failure upsert/delete を同じ chunk 保存経路で扱う。
   - 同一譜面由来の `chart_info` / failure delete は、可能な範囲で同じ chunk に寄せる。
+- runtime の chart_info index / UI 通知は chunk ごとには行わない。
+  - DB commit は 1000 件単位で進める。
+  - `BMSFiles` / `BmsonSongs` の in-memory catalog を切り替えた後、file diff で新規生成または更新した inline row だけを `file_diff_inline` として index に公開する。
+  - current `chart_info` skip で取得した既存 row は、対象 model へ一時適用してもよいが、file diff の runtime index delta として全件蓄積しない。
+  - current row の session index 正本更新は、直後の `chart_info_hydration` が担当する。
+  - chunk ごとの `chart_info_index_delta` と大量の `PropertyChanged` を避ける。
 - 全体 atomicity は持たない。
   - chunk 単位で atomic。
   - 途中失敗時は例外を伝播し、in-memory catalog は切り替えない。
@@ -316,7 +441,8 @@ Phase 6 では byte cap は入れていない。件数ベースの bounded paral
 - `ファイル差分確認` の進捗が 1 件単位で滑らかになる。
 - backfill と file diff の commit 方針が揃い、以後の調整がしやすくなる。
 - snapshot bytes の全件 staging は解消する。
-- `AddedFiles` / `AddedBmsonSongs` / `NextFiles` / `NextBmsonSongs` など最終 catalog 用 list は互換のため残す。ここがメモリピークになる場合は、次段で catalog 切替単位そのものを見直す。
+- `AddedFiles` / `AddedBmsonSongs` / `NextFiles` / `NextBmsonSongs` など最終 catalog 用 list は互換のため残す。ここがメモリピークになる場合は、次段で catalog builder 方式へ移行し、重複 list を減らす。
+- `inline_chart_info_current_skipped_count` が大きい環境でも、`chart_info_index_delta reason=file_diff_inline` の upsert 件数は新規生成 row 近辺に収まることを期待値にする。
 
 ### Phase 7: chart_info backfill の事前候補判定
 
@@ -335,7 +461,10 @@ Phase 6 では byte cap は入れていない。件数ベースの bounded paral
 
 #### 現行仕様
 
-- `BmsLibraryDbGateway.GetChartInfoBackfillCandidateSummary(parseTimeout)` で、backfill 候補数を DB 側で集計する。
+- `BmsLibraryDbGateway.GetChartInfoBackfillCandidateSummary(parseTimeout)` で、backfill 候補数を事前集計する。
+  - 複雑な multi JOIN / multi COUNT SQL は使わない。
+  - `chart_digest_map`、`chart_info`、current `chart_info_parse_failure` を最小列で読み、C# の `Dictionary` / `HashSet` で `song` / `bmson_song` owner を一回ずつ分類する。
+  - `lower(trim(...))` 付き JOIN により SQLite index が効かなくなる回帰を避ける。
 - summary は次を返す。
   - `MissingDigestOwnerCount`
   - `MissingChartInfoOwnerCount`
@@ -348,17 +477,65 @@ Phase 6 では byte cap は入れていない。件数ベースの bounded paral
   - parse failure は parser version と timeout 条件を満たすものだけ current
 - `CandidateOwnerCount == 0` の場合は full backfill を queue しない。
   - log: `chart_info_backfill skipped reason=no_candidates ...`
-  - progress phase は request しない。
+  - 実処理は起動しないが、progress phase 用に no-op の requested/completed version を発行する。
 - `CandidateOwnerCount > 0` の場合だけ従来 pipeline を起動する。
 - `BuildTargets()` は残す。
   - DB summary は起動判断用。
   - 実行時の race や memory model 反映のため、最終 target selection は従来通り service 内で行う。
+- Startup / ReloadFiles では `chart_info_hydration` background task の中で、必要な full backfill まで同期的に完了させる。
+  - その後に `installable_maintenance` task を実行する。
+  - 起動直後の `chart_info` 大量反映と maintenance resource health 計算が同時に走ることを避ける。
+  - progress 上は `ChartInfoHydrationDone` / `ChartInfoBackfillDone` / `InstallableMaintenanceDeferredDone` の順に進む。
+  - ただし新規・更新ファイル由来の inline `chart_info` は hydration/backfill に回さず、file diff 内で完了済みにする。
 
 #### 期待効果
 
 - metadata bundle import + file diff inline で全件 current になっている初回空DBでは、full backfill の 95 秒級固定費を消せる。
 - 旧バージョン DB / 外部で更新された DB / digest 欠落 DB では、必要なときだけ backfill を実行できる。
 - 「0件 fast path」ではなく「backfill が必要かどうかの事前判定」として仕様化できる。
+
+### Phase 7.5: file diff inline result の責務修正
+
+追加で実施する。Phase 6/7 の後、metadata bundle import 済みの空DB初回起動で、`inline_chart_info_current_skipped_count` が約 20 万件あるにもかかわらず `chart_info_index_delta reason=file_diff_inline` も約 20 万件になり、メモリピークが 15GB 前後まで上がるケースが観測された。
+
+これは bounded queue や chunk commit の問題ではなく、current skip した既存 `chart_info` row を file diff の成果物として後段に蓄積していることが主因である。
+
+#### 修正方針
+
+- `FileScanDiffCommitChunk` は DB へ新規 upsert する `chart_info` row と、model に適用した既存 current row を区別する。
+- chunk commit callback が `BMSLibrary` 側へ渡す row は、新規生成・更新した `chart_info` row に限定する。
+- current skip row は、必要なら parse 中の model へ直接適用するだけにし、`committedInlineChartInfoRows` へ蓄積しない。
+- `SongTableFileCheckResult.InlineChartInfoAppliedRows` は、テストや診断で必要な最小範囲に縮小する。production で callback がある場合は current skip row を保持しない。
+- `UpsertChartInfoIndexRows(..., "file_diff_inline")` の入力件数は、`inline_chart_info_success_count` 近辺になることを期待値にする。
+- 既存 DB row の全量 index 構築は `chart_info_hydration` の `ReplaceChartInfoIndex(...)` が担当する。
+
+#### 完了条件
+
+- metadata bundle import 済みで `inline_chart_info_current_skipped_count` が大きい場合でも、file diff 由来の `chart_info_index_delta upserted=` が current skip 件数に比例しない。
+- file diff 中の `AppliedChartInfoRows` / `committedInlineChartInfoRows` がメモリピークの支配要因にならない。
+- `BMSFilesZeroNote` など chart_info 依存 view は、inline 新規 row と後続 hydration の組み合わせで正しく更新される。
+
+### Phase 7.6: metadata bundle import の配置見直し
+
+追加で検討する。現状は `chart_info_metadata_import` が `Initialize()` の本体前段で同期実行されるため、差分ファイルがない起動でも導入先推定の critical path に乗る。
+
+metadata bundle は DB 由来の補助情報なので、差分なし fast path では background に回すのが正本である。一方で、空DB初回の大量追加では、bundle import が済んでいると inline `chart_info` が current row skip になり、詳細 parse を大幅に避けられる。このため単純に常時 background 化するのではなく、diff target count と bundle 状態で配置を決める。
+
+#### 修正方針
+
+- startup 冒頭では bundle の存在確認と lightweight manifest / hash cache 判定だけにする。
+- file enumeration と diff target count 判定後、次のように分岐する。
+  - target count 0: import は background。
+  - target count が十分大きい: file diff parse 前に同期 import し、inline `chart_info` current skip を効かせる。
+  - target count が小さい: import cost と parse cost の比較で、同期 import しない選択を許容する。
+- `.7z` の archive SHA-256 計算と展開は高コストなので、既に `imported_metadata/` へ退避済み、または history hit が明らかな場合は critical path に載せない。
+- bundle import が同期実行された場合でも、import row の全量 runtime index publish は `chart_info_hydration` に任せる。
+
+#### 完了条件
+
+- 差分なし起動で `chart_info_metadata_import` が導入先推定の critical path を長くしない。
+- 大量追加時は bundle import によって inline `chart_info` parse を避けられる。
+- import 済み bundle が置きっぱなしの場合でも、毎回 SHA-256 / 展開 / import 判定が critical path を圧迫しない。
 
 ### Phase 8: health 計算の cache-aware 化と bounded 並列
 
@@ -376,22 +553,24 @@ Phase 8 では `installable_maintenance_deferred` の `set_health_ms` を下げ�
   - stagefile / backbmp / banner も `File.Exists` 系で確認する。
 - file scan で作った `DirectoryResourceLookupCache` / `DirectoryRelativePathHashIndex` は主に導入先推定用で、health には使っていない。
 
-#### 修正方針
+#### 実装後仕様
 
 - maintenance の並列度を bounded にする。
-  - file diff / chart_info と同じ `min(4, max(1, Environment.ProcessorCount - 1))` を既定にする。
+  - file diff / chart_info と同じく `max(1, Environment.ProcessorCount - 1)` を既定にする。
   - internal override を持たせてテスト可能にする。
-- `SetHealthStatus()` の cache-aware 版を追加する。
+  - `AsParallel()` ではなく `Parallel.ForEach` + 明示 degree を使い、他の background pipeline と多重並列になりにくい形にする。
+- `SetHealthStatus()` の cache-aware 経路を追加する。
   - `BMSDirectoryFileNameHash` に加えて `DirectoryResourceLookupCache` / `DirectoryRelativePathHashIndex` を受け取れるようにする。
   - local basename だけでなく、relative path hash / category hash で見られるものは scan result から判定する。
   - `File.Exists` は fallback に寄せる。
 - `maintenance_update` log に health 判定の内訳を追加する。
   - `healthDegree`
+  - `healthTargetCount`
+  - `healthMs`
+  - `encodingMs`
+  - `bmsonRefreshMs`
   - `healthCacheHit`
   - `healthFileExistsFallback`
-  - `healthNonlocalRefs`
-  - `healthOptionalRefs`
-  - `healthSections`
 - 初回と2回目以降で対象数と fallback 数がどう変わるかを観測できるようにする。
 
 #### 期待効果
@@ -410,16 +589,23 @@ Phase 9 は Phase 6 / 8 の後に検討する。目的は、新規追加譜面�
 - BMS は `CreateBMSFileFromSnapshot()` で `WAVfiles` / `BGAfiles` を持っているため、health 計算に再読込は不要。
 - bmson は Phase 4 の fresh resource refs を使う。
 - health 計算には Phase 8 の cache-aware 判定を使う。
-- DB 保存は file diff commit chunk に含めるか、maintenance 専用 chunk として直後に流す。
-- 操作可能化の critical path に入れすぎないよう、次のどちらにするかは実測で判断する。
-  - file diff commit に含めて初回表示の整合性を最大化する。
-  - file diff 後の deferred chunk として流し、操作可能化を優先する。
+- DB 保存は file diff commit chunk に含めることを第一候補にする。
+  - `song` / `bmson_song` と同じ mutation count に紐づけ、同じ 1000 件 chunk で保存する。
+  - 追加ファイル由来の maintenance row は `installable_maintenance_deferred` へ送らない。
+  - 失敗時は対象 chunk のみ rollback し、次回 scan で収束させる。
+- 操作可能化の critical path へ入れる範囲は「新規ファイル由来の row 作成」に限定する。
+  - DB 由来の missing/stale maintenance 補完は引き続き `installable_maintenance_deferred` でよい。
+  - 新規ファイル由来の処理まで deferred へ押し出すと、初回と再起動後で欠損一覧・警告件数が揺れるため避ける。
+- 進捗上は `LibraryFileDiffDone` に含める。
+  - 進捗 sublabel は当面 `ファイル差分確認` のままでよい。
+  - 必要なら詳細 counter として `inline_maintenance_*` log を追加する。
 
 #### 期待効果
 
 - 初回 `installable_maintenance_deferred` の対象を「既存DB補完」や「file diff で扱えなかったもの」中心へ減らせる。
 - 新規追加譜面の refs / resource cache を近いタイミングで使える。
 - 初回空DBでの総完了時間を短縮できる可能性が高い。
+- 差分ファイルがある起動でも、操作可能直後のメンテナンス画面が再起動後に近い状態になる。
 
 ## Test Plan
 
@@ -437,6 +623,8 @@ Phase 9 は Phase 6 / 8 の後に検討する。目的は、新規追加譜面�
 - file diff chunk commit 中に例外が発生した場合、失敗 chunk の transaction だけ rollback され、既に commit 済みの chunk と in-memory catalog の整合性が保たれること。
 - full `chart_info` backfill の事前候補判定で candidate 0 の場合、backfill request が queue されず `chart_info_backfill skipped reason=no_candidates` が出ること。
 - stale parser version、digest missing、current parse failure、current chart_info の各条件で backfill candidate summary が期待通りになること。
+- current `chart_info` skip が大量にある file diff で、`file_diff_inline` の runtime index delta と retained row count が current skip 件数に比例しないこと。
+- current skip row が大量にある file diff で、`committedInlineChartInfoRows` 相当の collection がメモリピークを作らないこと。
 - maintenance の bounded degree が適用され、`healthDegree` log と実処理の並列度が一致すること。
 - cache-aware health 判定で `DirectoryResourceLookupCache` / `DirectoryRelativePathHashIndex` が使われ、`File.Exists` fallback 数が観測できること。
 - 新規追加分 maintenance を file diff chunk と連携する場合、追加 BMS / bmson の maintenance row が chunk 単位で保存され、後続 `installable_maintenance_deferred` の対象数が減ること。

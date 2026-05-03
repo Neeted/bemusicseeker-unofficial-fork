@@ -6513,6 +6513,10 @@ public class MainWindowViewModel : ViewModel
         {
             return 50;
         }
+        if (string.Equals(name, "installable_maintenance", StringComparison.OrdinalIgnoreCase))
+        {
+            return 60;
+        }
         return 100;
     }
 
@@ -7018,7 +7022,7 @@ public class MainWindowViewModel : ViewModel
             workBody();
             return Task.CompletedTask;
         };
-        if (QueueStartupBackgroundTask("playlist_ref_apply", reason, "playlist_entries_hydration", work))
+        if (QueueStartupBackgroundTask("playlist_ref_apply", reason, null, work))
         {
             return;
         }
@@ -13013,6 +13017,7 @@ public class MainWindowViewModel : ViewModel
     /// <param name="operationKind">進捗対象の operation 種別。</param>
     private void StartStartupProgressOperation(StartupProgressOperationKind operationKind)
     {
+        ResetStartupBackgroundTaskSchedulerState();
         StartupProgressState state = new StartupProgressState
         {
             OperationKind = operationKind,
@@ -13082,6 +13087,14 @@ public class MainWindowViewModel : ViewModel
             }
         }
         RecomputeStartupProgressPresentation();
+    }
+
+    private void ResetStartupBackgroundTaskSchedulerState()
+    {
+        lock (startupBackgroundTaskLock)
+        {
+            startupBackgroundTaskCompletedNames.Clear();
+        }
     }
 
     private void SkipStartupProgressPhaseIfExpected(StartupProgressPhase phase, string reason)

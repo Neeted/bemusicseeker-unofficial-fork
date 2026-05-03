@@ -68,7 +68,13 @@ background 系 phase は request 済みでなければ complete できない。�
 | `MaintenanceDeferredDone` | maintenance deferred 更新 | `保守参照更新` |
 | `InstallableMaintenanceDeferredDone` | installable maintenance deferred 更新 | `保守情報更新` |
 
-`InstallableMaintenanceDeferredDone` には resource health 実チェックと、その結果を通常一覧へ投影するための runtime resource health index build が含まれる。WARNING 表示用の全件 `BMSFile.Warnings` 再構築は行わない。
+`InstallableMaintenanceDeferredDone` には bounded 並列の cache-aware resource health 実チェックと、その結果を通常一覧へ投影するための runtime resource health index build が含まれる。WARNING 表示用の全件 `BMSFile.Warnings` 再構築は行わない。
+
+Startup / ReloadFiles では `chart_info_hydration` background task が必要な full backfill まで完了してから、`InstallableMaintenanceDeferredDone` の task を開始する。これにより、譜面メタデータの大量 hydration/backfill と保守情報更新が同時に走って UI 更新や DB commit が競合する状態を避ける。
+
+新規・更新ファイル由来の `chart_info` / maintenance は background phase へ送らず、`LibraryFileDiffDone` の内側で扱う。`ChartInfoBackfillDone` と `InstallableMaintenanceDeferredDone` は、DB に既に存在する owner の補助情報を補完する phase として扱う。
+
+`chart_info` backfill の事前候補が 0 件の場合も、no-op の requested/completed version を発行して `ChartInfoBackfillDone` を完了させる。これは hydration 時点で progress が backfill phase を expected に含めるためで、実処理は起動しない。
 
 ## Library Load の細分化
 
@@ -83,6 +89,22 @@ background 系 phase は request 済みでなければ complete できない。�
 Everything scan は DB 読み込みと並列 prefetch される場合がある。表示上は DB 読み込みを優先し、DB 完了後に file enumeration が未完了なら `ファイル列挙` を表示する。
 
 `ApplyFileScanDiff()` の parse 進捗は BMS と bmson を合算する。成功・失敗のどちらも processed に含める。
+
+差分ファイルがない場合は、file diff phase は DB と列挙結果の比較、および導入先推定用 index の公開だけで完了する。譜面本文 read は行わず、操作可能化を優先する。
+
+差分なし fast path では、metadata bundle import や full `chart_info` hydration/backfill は導入先推定に不要な DB 由来補助情報として background 側へ寄せる。大量差分がある場合だけ、inline `chart_info` parse を避ける目的で file diff 前に同期 import する余地がある。
+
+差分ファイルがある場合は、`LibraryFileDiffDone` が次を含む。
+
+- snapshot read。
+- lightweight parse。
+- LR2 parent/folder 正規化。
+- inline `chart_info` 解析または current skip 判定。
+- 新規・更新ファイル由来の maintenance row / resource health 判定。
+- DB chunk commit。
+- in-memory catalog 反映。
+
+このため、`LibraryFileDiffDone` は単なる差分検出ではなく、新規・更新ファイルを DB と memory に反映しきる phase として扱う。
 
 ## 件数付き SubLabel
 

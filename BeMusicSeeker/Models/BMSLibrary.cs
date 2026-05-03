@@ -821,6 +821,8 @@ public class BMSLibrary : NotificationObject
 
     private int chartInfoBackfillCompletedVersion;
 
+    private int chartInfoBackfillHydrationBypassUntilVersion;
+
     private int chartInfoHydrationRequestedVersion;
 
     private readonly object lockDeferredScoreHydration = new object();
@@ -3822,23 +3824,28 @@ public class BMSLibrary : NotificationObject
             + " lazy_hash_build_ms=" + (installableLookupCacheSnapshot?.LazyHashBuildMs ?? 0L)
             + " lazy_hash_lookup_count=" + (installableLookupCacheSnapshot?.LazyHashLookupCount ?? 0L));
         QueueDeferredReverseLookupWarmup(deferredMaintenanceReason);
-        if (scheduleDeferredInstallableMaintenance)
-        {
-            QueueDeferredInstallableMaintenance(deferredMaintenanceReason, installableElapsedMs);
-        }
-        else
-        {
-            LogInstallPerformance("init_library_installable critical_ms=" + installableElapsedMs + " deferred_ms=0");
-        }
         TimeSpan timeSpan2 = DateTime.Now - now;
         NLogWrapper.DebuggerLogger?.Trace(timeSpan2.ToString());
         if (scheduleDeferredMaintenanceTableCheck)
         {
             ScheduleDeferredMaintenanceTableCheck(deferredMaintenanceReason);
         }
+        bool chartInfoHydrationScheduled = false;
         if (reloadScoresOnly != true)
         {
             QueueDeferredChartInfoHydration(deferredMaintenanceReason, queueFullBackfillAfterHydration: true);
+            chartInfoHydrationScheduled = true;
+        }
+        if (scheduleDeferredInstallableMaintenance)
+        {
+            QueueDeferredInstallableMaintenance(
+                deferredMaintenanceReason,
+                installableElapsedMs,
+                chartInfoHydrationScheduled ? "chart_info_hydration" : null);
+        }
+        else
+        {
+            LogInstallPerformance("init_library_installable critical_ms=" + installableElapsedMs + " deferred_ms=0");
         }
         GC.Collect();
         NLogWrapper.DebuggerLogger?.Trace("owari: " + GC.GetTotalMemory(forceFullCollection: false));
@@ -3984,7 +3991,8 @@ public class BMSLibrary : NotificationObject
                     CompleteLibraryFileEnumerationProgress();
                 }
             };
-            bool inlineChartInfoAppliedFromCallback = false;
+            bool inlineChartInfoApplied = false;
+            List<LR2SongDBExtended.chart_info> committedInlineChartInfoRows = new List<LR2SongDBExtended.chart_info>();
             SongTableFileCheckResult fileCheckResult = initializationService.ApplyFileScanDiff(
                 dbGateway,
                 options,
@@ -4035,8 +4043,7 @@ public class BMSLibrary : NotificationObject
                     {
                         return;
                     }
-                    inlineChartInfoAppliedFromCallback = true;
-                    UpsertChartInfoIndexRows(rows, "file_diff_inline");
+                    committedInlineChartInfoRows.AddRange(rows.Where((LR2SongDBExtended.chart_info row) => row != null));
                 });
             completeFileEnumerationOnce();
             using (rwlockBMSFiles.GetWriterGuard())
@@ -4047,12 +4054,15 @@ public class BMSLibrary : NotificationObject
                 directoryResourceLookupCache = fileCheckResult.NextDirectoryResourceLookupCache ?? new DirectoryResourceLookupCache();
                 directoryRelativePathHashIndex = fileCheckResult.NextDirectoryRelativePathHashIndex ?? new DirectoryRelativePathHashIndex();
             }
-            if (fileCheckResult.InlineChartInfoAppliedRows.Count > 0)
+            IReadOnlyList<LR2SongDBExtended.chart_info> inlineChartInfoRowsToPublish = committedInlineChartInfoRows.Count > 0
+                ? committedInlineChartInfoRows
+                : fileCheckResult.InlineChartInfoAppliedRows;
+            if (inlineChartInfoRowsToPublish.Count > 0)
             {
-                UpsertChartInfoIndexRows(fileCheckResult.InlineChartInfoAppliedRows, "file_diff_inline");
-                inlineChartInfoAppliedFromCallback = true;
+                UpsertChartInfoIndexRows(inlineChartInfoRowsToPublish, "file_diff_inline");
+                inlineChartInfoApplied = true;
             }
-            if (inlineChartInfoAppliedFromCallback)
+            if (inlineChartInfoApplied)
             {
                 RaisePropertyChanged(() => BMSFilesZeroNote);
             }
@@ -4267,7 +4277,7 @@ public class BMSLibrary : NotificationObject
                 {
                     if (shouldQueueBackfillAfterCompletion)
                     {
-                        QueueChartInfoBackfill(reason);
+                        QueueChartInfoBackfill(reason, processSynchronously: true);
                     }
                 }
                 finally
@@ -4592,6 +4602,13 @@ public class BMSLibrary : NotificationObject
                     return;
                 }
             }
+            lock (lockChartInfoBackfill)
+            {
+                if (chartInfoBackfillHydrationBypassUntilVersion > chartInfoBackfillCompletedVersion)
+                {
+                    return;
+                }
+            }
             Thread.Sleep(50);
         }
     }
@@ -4600,20 +4617,38 @@ public class BMSLibrary : NotificationObject
     /// chart_info の不足分構築をバックグラウンドへ要求します。
     /// </summary>
     /// <param name="reason">ログに残す要求理由。</param>
-    private void QueueChartInfoBackfill(string reason)
+    private void QueueChartInfoBackfill(string reason, bool processSynchronously = false)
     {
         ChartInfoBackfillCandidateSummary summary = null;
+        Stopwatch candidateSummaryStopwatch = Stopwatch.StartNew();
         try
         {
+            LogInstallPerformance("chart_info_backfill candidate_summary_start reason=" + (reason ?? "unknown"));
             summary = dbGateway.GetChartInfoBackfillCandidateSummary(chartInfoBuildService.CurrentParseTimeout);
+            candidateSummaryStopwatch.Stop();
+            LogInstallPerformance("chart_info_backfill candidate_summary_done reason=" + (reason ?? "unknown")
+                + " elapsedMs=" + candidateSummaryStopwatch.ElapsedMilliseconds
+                + " bmsOwners=" + summary.BmsOwnerCount
+                + " bmsonOwners=" + summary.BmsonOwnerCount
+                + " candidates=" + summary.CandidateOwnerCount
+                + " missingDigest=" + summary.MissingDigestOwnerCount
+                + " missingChartInfo=" + summary.MissingChartInfoOwnerCount
+                + " staleChartInfo=" + summary.StaleChartInfoOwnerCount
+                + " currentParseFailure=" + summary.CurrentParseFailureOwnerCount
+                + " currentChartInfo=" + summary.CurrentChartInfoOwnerCount);
         }
         catch (Exception ex)
         {
-            LogInstallPerformance("chart_info_backfill candidate_summary_failed reason=" + (reason ?? "unknown") + " message=" + ex.Message);
+            candidateSummaryStopwatch.Stop();
+            LogInstallPerformance("chart_info_backfill candidate_summary_failed reason=" + (reason ?? "unknown")
+                + " elapsedMs=" + candidateSummaryStopwatch.ElapsedMilliseconds
+                + " message=" + ex.Message);
         }
         if (summary != null && summary.CandidateOwnerCount <= 0)
         {
+            int skippedVersion = CompleteSkippedChartInfoBackfillRequestIfIdle();
             LogInstallPerformance("chart_info_backfill skipped reason=no_candidates"
+                + " version=" + skippedVersion
                 + " requestReason=" + (reason ?? "unknown")
                 + " bmsOwners=" + summary.BmsOwnerCount
                 + " bmsonOwners=" + summary.BmsonOwnerCount
@@ -4638,13 +4673,36 @@ public class BMSLibrary : NotificationObject
                 + " currentParseFailure=" + summary.CurrentParseFailureOwnerCount
                 + " currentChartInfo=" + summary.CurrentChartInfoOwnerCount);
         }
-        QueueChartInfoBackfillRequest(ChartInfoBackfillRequest.Full(reason));
+        QueueChartInfoBackfillRequest(ChartInfoBackfillRequest.Full(reason), processSynchronously);
     }
 
-    private void QueueChartInfoBackfillRequest(ChartInfoBackfillRequest request)
+    private int CompleteSkippedChartInfoBackfillRequestIfIdle()
+    {
+        int requestVersion = 0;
+        lock (lockChartInfoBackfill)
+        {
+            if (ChartInfoBackfillRunning)
+            {
+                return chartInfoBackfillRequestedVersion;
+            }
+            chartInfoBackfillRequestedVersion++;
+            requestVersion = chartInfoBackfillRequestedVersion;
+            chartInfoBackfillCompletedVersion = requestVersion;
+        }
+        ChartInfoBackfillRequestedVersion = requestVersion;
+        ChartInfoBackfillTotalCount = 0;
+        ChartInfoBackfillProcessedCount = 0;
+        ChartInfoBackfillCurrentPath = string.Empty;
+        ChartInfoBackfillCompletedVersion = requestVersion;
+        ChartInfoBackfillRunning = false;
+        return requestVersion;
+    }
+
+    private void QueueChartInfoBackfillRequest(ChartInfoBackfillRequest request, bool processSynchronously = false)
     {
         int requestVersion;
         bool shouldStartWorker = false;
+        bool shouldWaitForCompletion = false;
         if (request == null)
         {
             return;
@@ -4659,6 +4717,11 @@ public class BMSLibrary : NotificationObject
                 shouldStartWorker = true;
                 ChartInfoBackfillRunning = true;
             }
+            shouldWaitForCompletion = processSynchronously && !shouldStartWorker;
+            if (shouldWaitForCompletion)
+            {
+                chartInfoBackfillHydrationBypassUntilVersion = Math.Max(chartInfoBackfillHydrationBypassUntilVersion, requestVersion);
+            }
         }
         ChartInfoBackfillRequestedVersion = requestVersion;
         ChartInfoBackfillTotalCount = 0;
@@ -4670,7 +4733,46 @@ public class BMSLibrary : NotificationObject
             + " version=" + requestVersion);
         if (shouldStartWorker)
         {
-            Task.Run(ProcessChartInfoBackfillRequests).Logging("ProcessChartInfoBackfillRequests");
+            if (processSynchronously)
+            {
+                ProcessChartInfoBackfillRequests(waitForChartInfoHydrationIdle: false);
+                return;
+            }
+            Task.Run(() => ProcessChartInfoBackfillRequests()).Logging("ProcessChartInfoBackfillRequests");
+        }
+        if (shouldWaitForCompletion)
+        {
+            WaitForChartInfoBackfillVersion(requestVersion);
+        }
+    }
+
+    private void WaitForChartInfoBackfillVersion(int requestVersion)
+    {
+        try
+        {
+            while (true)
+            {
+                bool completed;
+                lock (lockChartInfoBackfill)
+                {
+                    completed = chartInfoBackfillCompletedVersion >= requestVersion;
+                }
+                if (completed)
+                {
+                    return;
+                }
+                Thread.Sleep(50);
+            }
+        }
+        finally
+        {
+            lock (lockChartInfoBackfill)
+            {
+                if (chartInfoBackfillHydrationBypassUntilVersion <= requestVersion)
+                {
+                    chartInfoBackfillHydrationBypassUntilVersion = 0;
+                }
+            }
         }
     }
 
@@ -4740,11 +4842,14 @@ public class BMSLibrary : NotificationObject
     /// 最新の chart_info 構築要求を処理します。
     /// 譜面削除時も chart_info は残すため、この worker は upsert のみ行います。
     /// </summary>
-    private void ProcessChartInfoBackfillRequests()
+    private void ProcessChartInfoBackfillRequests(bool waitForChartInfoHydrationIdle = true)
     {
         while (true)
         {
-            WaitForChartInfoHydrationIdle();
+            if (waitForChartInfoHydrationIdle)
+            {
+                WaitForChartInfoHydrationIdle();
+            }
             int requestVersion;
             List<ChartInfoBackfillRequest> requests;
             lock (lockChartInfoBackfill)
@@ -4833,7 +4938,7 @@ public class BMSLibrary : NotificationObject
         }
     }
 
-    private void QueueDeferredInstallableMaintenance(string reason, long criticalElapsedMs)
+    private void QueueDeferredInstallableMaintenance(string reason, long criticalElapsedMs, string dependency = null)
     {
         int version;
         bool shouldStartWorker = false;
@@ -4857,7 +4962,7 @@ public class BMSLibrary : NotificationObject
         {
             return;
         }
-        Task.Run(delegate
+        Action worker = delegate
         {
             while (true)
             {
@@ -4883,6 +4988,9 @@ public class BMSLibrary : NotificationObject
                         filesSnapshot = (BMSFiles ?? new List<BMSFile>()).Where((BMSFile file) => file != null).ToList();
                         snapshotCount = filesSnapshot.Count + ((BmsonSongs ?? new List<LR2SongDBExtended.bmson_song>()).Count((LR2SongDBExtended.bmson_song song) => song != null));
                     }
+                    LogInstallPerformance("installable_maintenance_deferred run version=" + requestVersion
+                        + " snapshotCount=" + snapshotCount
+                        + " criticalMs=" + requestCriticalElapsedMs);
                     Stopwatch stopwatchSetMode = Stopwatch.StartNew();
                     setModeTargetCount = setModeAndCommitToDB(filesSnapshot);
                     stopwatchSetMode.Stop();
@@ -4905,6 +5013,13 @@ public class BMSLibrary : NotificationObject
                         + " maintenanceChecked=" + maintenanceResult.CheckedFileCount
                         + " bmsResourceTargets=" + maintenanceResult.BmsResourceTargetCount
                         + " bmsonResourceTargets=" + maintenanceResult.BmsonResourceTargetCount
+                        + " healthTargetCount=" + maintenanceResult.HealthTargetCount
+                        + " healthDegree=" + maintenanceResult.HealthDegree
+                        + " healthMs=" + maintenanceResult.HealthMs
+                        + " encodingMs=" + maintenanceResult.EncodingMs
+                        + " bmsonRefreshMs=" + maintenanceResult.BmsonRefreshMs
+                        + " healthCacheHit=" + maintenanceResult.HealthCacheHitCount
+                        + " healthFileExistsFallback=" + maintenanceResult.HealthFileExistsFallbackCount
                         + " maintenanceUpserted=" + maintenanceResult.MaintenanceInfoUpsertCount
                         + " bmsonReparsed=" + maintenanceResult.BmsonReparsedCount
                         + " bmsonReparseFailed=" + maintenanceResult.BmsonReparseFailedCount
@@ -4929,6 +5044,13 @@ public class BMSLibrary : NotificationObject
                         + " maintenanceChecked=" + maintenanceResult.CheckedFileCount
                         + " bmsResourceTargets=" + maintenanceResult.BmsResourceTargetCount
                         + " bmsonResourceTargets=" + maintenanceResult.BmsonResourceTargetCount
+                        + " healthTargetCount=" + maintenanceResult.HealthTargetCount
+                        + " healthDegree=" + maintenanceResult.HealthDegree
+                        + " healthMs=" + maintenanceResult.HealthMs
+                        + " encodingMs=" + maintenanceResult.EncodingMs
+                        + " bmsonRefreshMs=" + maintenanceResult.BmsonRefreshMs
+                        + " healthCacheHit=" + maintenanceResult.HealthCacheHitCount
+                        + " healthFileExistsFallback=" + maintenanceResult.HealthFileExistsFallbackCount
                         + " maintenanceUpserted=" + maintenanceResult.MaintenanceInfoUpsertCount
                         + " bmsonReparsed=" + maintenanceResult.BmsonReparsedCount
                         + " bmsonReparseFailed=" + maintenanceResult.BmsonReparseFailedCount
@@ -4960,7 +5082,18 @@ public class BMSLibrary : NotificationObject
                     }
                 }
             }
-        }).Logging("ProcessDeferredInstallableMaintenance");
+        };
+        Func<Task> work = delegate
+        {
+            worker();
+            return Task.CompletedTask;
+        };
+        if (StartupBackgroundTaskScheduler != null
+            && StartupBackgroundTaskScheduler("installable_maintenance", reason ?? "queue", dependency, work))
+        {
+            return;
+        }
+        Task.Run(worker).Logging("ProcessDeferredInstallableMaintenance");
     }
 
     private int CountInstallableMaintenanceSnapshotTargets()
@@ -6318,10 +6451,14 @@ public class BMSLibrary : NotificationObject
         using (rwlockBMSFiles.GetReaderGuard())
         {
             List<BMSFile> maintenanceTargets = CreateResourceMaintenanceTargets(bmsFiles, includeInstalledBmson);
+            LogInstallPerformance("maintenance_update start inputCount=" + maintenanceTargets.Count
+                + " forceUpdate=" + forceUpdate
+                + " includeInstalledBmson=" + includeInstalledBmson);
             MaintenanceWorkflowResult workflowResult;
             using (rwlockSongDBMaintenance.GetWriterGuard())
             {
-                workflowResult = maintenanceService.UpdateMaintenanceInfo(maintenanceTargets, forceUpdate, bmsFolderAllFileList, dbGateway, dialogService);
+                ResourceHealthLookupContext resourceLookupContext = new ResourceHealthLookupContext(bmsFolderAllFileList, directoryResourceLookupCache, directoryRelativePathHashIndex);
+                workflowResult = maintenanceService.UpdateMaintenanceInfo(maintenanceTargets, forceUpdate, bmsFolderAllFileList, dbGateway, dialogService, resourceLookupContext, LogInstallPerformance);
             }
             ResourceHealthIndexSnapshot resourceHealthSnapshot = RebuildResourceHealthIndexSnapshotLocked("setMaintenanceInfo");
             workflowResult.ResourceHealthIndexMs = resourceHealthSnapshot.BuildMs;
@@ -6332,6 +6469,13 @@ public class BMSLibrary : NotificationObject
                 LogInstallPerformance("maintenance_update checked=" + workflowResult.CheckedFileCount
                     + " bmsResourceTargets=" + workflowResult.BmsResourceTargetCount
                     + " bmsonResourceTargets=" + workflowResult.BmsonResourceTargetCount
+                    + " healthTargetCount=" + workflowResult.HealthTargetCount
+                    + " healthDegree=" + workflowResult.HealthDegree
+                    + " healthMs=" + workflowResult.HealthMs
+                    + " encodingMs=" + workflowResult.EncodingMs
+                    + " bmsonRefreshMs=" + workflowResult.BmsonRefreshMs
+                    + " healthCacheHit=" + workflowResult.HealthCacheHitCount
+                    + " healthFileExistsFallback=" + workflowResult.HealthFileExistsFallbackCount
                     + " maintenanceUpserted=" + workflowResult.MaintenanceInfoUpsertCount
                     + " bmsonReparsed=" + workflowResult.BmsonReparsedCount
                     + " bmsonReparseFailed=" + workflowResult.BmsonReparseFailedCount

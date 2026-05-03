@@ -137,11 +137,14 @@ internal sealed class DirectoryRelativePathHashIndex
             {
                 return Array.Empty<uint>();
             }
-            if (hashes is uint[] hashArray)
+            uint[] hashArray = hashes as uint[] ?? hashes.Distinct().ToArray();
+            if (hashArray.Length <= 1)
             {
                 return hashArray;
             }
-            return hashes.Distinct().ToArray();
+            uint[] sorted = hashArray.Distinct().ToArray();
+            Array.Sort(sorted);
+            return sorted;
         }
 
         private static uint[] MaterializeHashes(IEnumerable<uint> hashes, uint[] fallback)

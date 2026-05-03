@@ -10,6 +10,20 @@ internal sealed class MaintenanceWorkflowResult
 
     public int BmsonResourceTargetCount { get; set; }
 
+    public int HealthTargetCount { get; set; }
+
+    public int HealthDegree { get; set; }
+
+    public long HealthMs { get; set; }
+
+    public long EncodingMs { get; set; }
+
+    public long BmsonRefreshMs { get; set; }
+
+    public long HealthCacheHitCount { get; set; }
+
+    public long HealthFileExistsFallbackCount { get; set; }
+
     public int BmsonReparsedCount { get; set; }
 
     public int BmsonReparseFailedCount { get; set; }

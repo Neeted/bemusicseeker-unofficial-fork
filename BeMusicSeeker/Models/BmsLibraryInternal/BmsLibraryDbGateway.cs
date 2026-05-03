@@ -570,42 +570,57 @@ internal sealed class BmsLibraryDbGateway
         EnsureChartInfoSchema(songDb);
 
         ChartInfoBackfillCandidateSummary summary = new ChartInfoBackfillCandidateSummary();
-        string currentFailureJoinCondition = BuildCurrentParseFailureJoinCondition("f", parseTimeout);
-        string currentFailureJoinConditionBmson = BuildCurrentParseFailureJoinCondition("fb", parseTimeout);
         string songTable = SQLiteTable<LR2SongDB.song>.GetTableName();
         string bmsonTable = SQLiteTable<LR2SongDBExtended.bmson_song>.GetTableName();
+        Dictionary<string, string> digestByMd5 = LoadChartDigestMapForCandidateSummary(songDb);
+        HashSet<string> anyChartInfoSha256 = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        HashSet<string> currentChartInfoSha256 = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (ChartInfoSummaryRow row in songDb.Query<ChartInfoSummaryRow>("SELECT sha256, parser_version FROM chart_info WHERE sha256 IS NOT NULL AND TRIM(sha256) <> '';"))
+        {
+            string sha256 = NormalizeLookupKey(row.sha256);
+            if (string.IsNullOrWhiteSpace(sha256))
+            {
+                continue;
+            }
+            anyChartInfoSha256.Add(sha256);
+            if (row.parser_version >= CurrentChartInfoParserVersion)
+            {
+                currentChartInfoSha256.Add(sha256);
+            }
+        }
+        HashSet<string> currentParseFailureMd5 = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (ChartInfoParseFailureSummaryRow row in songDb.Query<ChartInfoParseFailureSummaryRow>("SELECT md5, parser_version, failure_kind, parse_timeout_ms FROM chart_info_parse_failure WHERE md5 IS NOT NULL AND TRIM(md5) <> '';"))
+        {
+            string md5 = NormalizeLookupKey(row.md5);
+            if (string.IsNullOrWhiteSpace(md5))
+            {
+                continue;
+            }
+            if (IsCurrentChartInfoParseFailure(row.parser_version, row.failure_kind, row.parse_timeout_ms, parseTimeout))
+            {
+                currentParseFailureMd5.Add(md5);
+            }
+        }
 
-        summary.BmsOwnerCount = SafeExecuteScalarInt(songDb,
-            "SELECT COUNT(1) FROM " + songTable + " s WHERE s.hash IS NOT NULL AND TRIM(s.hash) <> '';");
-        summary.BmsonOwnerCount = SafeExecuteScalarInt(songDb,
-            "SELECT COUNT(1) FROM " + bmsonTable + " b WHERE b.path IS NOT NULL AND TRIM(b.path) <> '';");
+        foreach (ChartInfoOwnerMd5Row row in songDb.Query<ChartInfoOwnerMd5Row>("SELECT hash AS md5 FROM " + songTable + " WHERE hash IS NOT NULL AND TRIM(hash) <> '';"))
+        {
+            string md5 = NormalizeLookupKey(row.md5);
+            if (string.IsNullOrWhiteSpace(md5))
+            {
+                continue;
+            }
+            summary.BmsOwnerCount++;
+            digestByMd5.TryGetValue(md5, out string sha256);
+            ClassifyChartInfoBackfillCandidate(summary, md5, sha256, currentChartInfoSha256, anyChartInfoSha256, currentParseFailureMd5, missingDigestWhenShaMissing: true);
+        }
 
-        string bmsFrom =
-            " FROM " + songTable + " s"
-            + " LEFT JOIN chart_digest_map d ON lower(trim(d.md5)) = lower(trim(s.hash))"
-            + " LEFT JOIN chart_info ci_current ON ci_current.sha256 = d.sha256 AND ci_current.parser_version >= " + CurrentChartInfoParserVersion
-            + " LEFT JOIN chart_info ci_any ON ci_any.sha256 = d.sha256"
-            + " LEFT JOIN chart_info_parse_failure f ON lower(trim(f.md5)) = lower(trim(s.hash)) AND " + currentFailureJoinCondition
-            + " WHERE s.hash IS NOT NULL AND TRIM(s.hash) <> ''";
-        summary.CurrentChartInfoOwnerCount += SafeExecuteScalarInt(songDb, "SELECT COUNT(1)" + bmsFrom + " AND ci_current.sha256 IS NOT NULL;");
-        summary.CurrentParseFailureOwnerCount += SafeExecuteScalarInt(songDb, "SELECT COUNT(1)" + bmsFrom + " AND ci_current.sha256 IS NULL AND f.md5 IS NOT NULL;");
-        summary.MissingDigestOwnerCount += SafeExecuteScalarInt(songDb, "SELECT COUNT(1)" + bmsFrom + " AND ci_current.sha256 IS NULL AND f.md5 IS NULL AND d.sha256 IS NULL;");
-        summary.MissingChartInfoOwnerCount += SafeExecuteScalarInt(songDb, "SELECT COUNT(1)" + bmsFrom + " AND ci_current.sha256 IS NULL AND f.md5 IS NULL AND d.sha256 IS NOT NULL AND ci_any.sha256 IS NULL;");
-        summary.StaleChartInfoOwnerCount += SafeExecuteScalarInt(songDb, "SELECT COUNT(1)" + bmsFrom + " AND ci_current.sha256 IS NULL AND f.md5 IS NULL AND d.sha256 IS NOT NULL AND ci_any.sha256 IS NOT NULL;");
-        summary.CandidateOwnerCount += SafeExecuteScalarInt(songDb, "SELECT COUNT(1)" + bmsFrom + " AND ci_current.sha256 IS NULL AND f.md5 IS NULL;");
-
-        string bmsonFrom =
-            " FROM " + bmsonTable + " b"
-            + " LEFT JOIN chart_info cb_current ON cb_current.sha256 = b.sha256 AND cb_current.parser_version >= " + CurrentChartInfoParserVersion
-            + " LEFT JOIN chart_info cb_any ON cb_any.sha256 = b.sha256"
-            + " LEFT JOIN chart_info_parse_failure fb ON lower(trim(fb.md5)) = lower(trim(b.md5)) AND " + currentFailureJoinConditionBmson
-            + " WHERE b.path IS NOT NULL AND TRIM(b.path) <> ''";
-        summary.CurrentChartInfoOwnerCount += SafeExecuteScalarInt(songDb, "SELECT COUNT(1)" + bmsonFrom + " AND cb_current.sha256 IS NOT NULL;");
-        summary.CurrentParseFailureOwnerCount += SafeExecuteScalarInt(songDb, "SELECT COUNT(1)" + bmsonFrom + " AND cb_current.sha256 IS NULL AND fb.md5 IS NOT NULL;");
-        summary.MissingDigestOwnerCount += SafeExecuteScalarInt(songDb, "SELECT COUNT(1)" + bmsonFrom + " AND cb_current.sha256 IS NULL AND fb.md5 IS NULL AND (b.sha256 IS NULL OR TRIM(b.sha256) = '');");
-        summary.MissingChartInfoOwnerCount += SafeExecuteScalarInt(songDb, "SELECT COUNT(1)" + bmsonFrom + " AND cb_current.sha256 IS NULL AND fb.md5 IS NULL AND b.sha256 IS NOT NULL AND TRIM(b.sha256) <> '' AND cb_any.sha256 IS NULL;");
-        summary.StaleChartInfoOwnerCount += SafeExecuteScalarInt(songDb, "SELECT COUNT(1)" + bmsonFrom + " AND cb_current.sha256 IS NULL AND fb.md5 IS NULL AND b.sha256 IS NOT NULL AND TRIM(b.sha256) <> '' AND cb_any.sha256 IS NOT NULL;");
-        summary.CandidateOwnerCount += SafeExecuteScalarInt(songDb, "SELECT COUNT(1)" + bmsonFrom + " AND cb_current.sha256 IS NULL AND fb.md5 IS NULL;");
+        foreach (BmsonChartInfoOwnerRow row in songDb.Query<BmsonChartInfoOwnerRow>("SELECT md5, sha256 FROM " + bmsonTable + " WHERE path IS NOT NULL AND TRIM(path) <> '';"))
+        {
+            string md5 = NormalizeLookupKey(row.md5);
+            string sha256 = NormalizeLookupKey(row.sha256);
+            summary.BmsonOwnerCount++;
+            ClassifyChartInfoBackfillCandidate(summary, md5, sha256, currentChartInfoSha256, anyChartInfoSha256, currentParseFailureMd5, missingDigestWhenShaMissing: true);
+        }
         return summary;
     }
 
@@ -1570,6 +1585,71 @@ internal sealed class BmsLibraryDbGateway
             .ToList();
     }
 
+    private static string NormalizeLookupKey(string value)
+    {
+        return string.IsNullOrWhiteSpace(value) ? null : value.Trim().ToLowerInvariant();
+    }
+
+    private static Dictionary<string, string> LoadChartDigestMapForCandidateSummary(LR2SongDBExtended songDb)
+    {
+        Dictionary<string, string> result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        string tableName = SQLiteTable<LR2SongDBExtended.chart_digest_map>.GetTableName();
+        if (!TableExists(songDb, tableName))
+        {
+            return result;
+        }
+        foreach (ChartDigestQueryRow row in songDb.Query<ChartDigestQueryRow>("SELECT md5, sha256 FROM " + tableName + " WHERE md5 IS NOT NULL AND TRIM(md5) <> '' AND sha256 IS NOT NULL AND TRIM(sha256) <> '';"))
+        {
+            string md5 = NormalizeLookupKey(row.md5);
+            string sha256 = NormalizeLookupKey(row.sha256);
+            if (!string.IsNullOrWhiteSpace(md5) && !string.IsNullOrWhiteSpace(sha256))
+            {
+                result[md5] = sha256;
+            }
+        }
+        return result;
+    }
+
+    private static void ClassifyChartInfoBackfillCandidate(
+        ChartInfoBackfillCandidateSummary summary,
+        string md5,
+        string sha256,
+        HashSet<string> currentChartInfoSha256,
+        HashSet<string> anyChartInfoSha256,
+        HashSet<string> currentParseFailureMd5,
+        bool missingDigestWhenShaMissing)
+    {
+        if (!string.IsNullOrWhiteSpace(sha256) && currentChartInfoSha256.Contains(sha256))
+        {
+            summary.CurrentChartInfoOwnerCount++;
+            return;
+        }
+        if (!string.IsNullOrWhiteSpace(md5) && currentParseFailureMd5.Contains(md5))
+        {
+            summary.CurrentParseFailureOwnerCount++;
+            return;
+        }
+        summary.CandidateOwnerCount++;
+        if (string.IsNullOrWhiteSpace(sha256))
+        {
+            if (missingDigestWhenShaMissing)
+            {
+                summary.MissingDigestOwnerCount++;
+            }
+            else
+            {
+                summary.MissingChartInfoOwnerCount++;
+            }
+            return;
+        }
+        if (anyChartInfoSha256.Contains(sha256))
+        {
+            summary.StaleChartInfoOwnerCount++;
+            return;
+        }
+        summary.MissingChartInfoOwnerCount++;
+    }
+
     private static IEnumerable<LR2SongDBExtended.chart_info> QueryChartInfosByColumn(LR2SongDBExtended songDb, string columnName, IReadOnlyList<string> keys, bool orderBySha256)
     {
         if (songDb == null || keys == null || keys.Count == 0)
@@ -1643,20 +1723,25 @@ internal sealed class BmsLibraryDbGateway
         {
             return false;
         }
-        if (row.parser_version != CurrentChartInfoParserVersion)
+        return IsCurrentChartInfoParseFailure(row.parser_version, row.failure_kind, row.parse_timeout_ms, parseTimeout);
+    }
+
+    private static bool IsCurrentChartInfoParseFailure(int parserVersion, string failureKind, int? parseTimeoutMs, TimeSpan parseTimeout)
+    {
+        if (parserVersion != CurrentChartInfoParserVersion)
         {
             return false;
         }
-        if (!string.Equals(row.failure_kind, "timeout", StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(failureKind, "timeout", StringComparison.OrdinalIgnoreCase))
         {
             return true;
         }
-        if (!row.parse_timeout_ms.HasValue)
+        if (!parseTimeoutMs.HasValue)
         {
             return false;
         }
         long timeoutMs = Math.Max(0L, (long)Math.Ceiling(parseTimeout.TotalMilliseconds));
-        return row.parse_timeout_ms.Value >= timeoutMs;
+        return parseTimeoutMs.Value >= timeoutMs;
     }
 
     private static void RepairChartDigestMapConsistency(LR2SongDBExtended songDb, Dictionary<string, string> reusableDigests)
@@ -1812,6 +1897,36 @@ internal sealed class BmsLibraryDbGateway
     }
 
     private sealed class ChartDigestQueryRow
+    {
+        public string md5 { get; set; }
+
+        public string sha256 { get; set; }
+    }
+
+    private sealed class ChartInfoSummaryRow
+    {
+        public string sha256 { get; set; }
+
+        public int parser_version { get; set; }
+    }
+
+    private sealed class ChartInfoParseFailureSummaryRow
+    {
+        public string md5 { get; set; }
+
+        public int parser_version { get; set; }
+
+        public string failure_kind { get; set; }
+
+        public int? parse_timeout_ms { get; set; }
+    }
+
+    private sealed class ChartInfoOwnerMd5Row
+    {
+        public string md5 { get; set; }
+    }
+
+    private sealed class BmsonChartInfoOwnerRow
     {
         public string md5 { get; set; }
 

@@ -132,8 +132,6 @@ public class BMSFile : LR2SongDB.song
 
     private List<string> nonlocalBGAfilesMovie;
 
-    private Dictionary<List<string>, SimpleDirectoryStructure> directoryStructureCache;
-
     private ReaderWriterLockSlim rwlock = new ReaderWriterLockSlim();
 
     private object filesCacheLock = new object();
@@ -1451,6 +1449,16 @@ public class BMSFile : LR2SongDB.song
 
     public void SetHealthStatus(BMSDirectoryFileNameHash fListCache = null, bool forceUpdate = false, bool memClear = true, BMSFileMaintenanceInfo mtInfo = null, string altSearchDir = null, uint[] curDirFileNameHashArrayAdd = null)
     {
+        SetHealthStatusCore(fListCache, forceUpdate, memClear, mtInfo, altSearchDir, curDirFileNameHashArrayAdd, null);
+    }
+
+    internal void SetHealthStatusUsingLookupContext(ResourceHealthLookupContext lookupContext, bool forceUpdate = false, bool memClear = true, BMSFileMaintenanceInfo mtInfo = null)
+    {
+        SetHealthStatusCore(lookupContext?.FolderAllFileList, forceUpdate, memClear, mtInfo, null, null, lookupContext);
+    }
+
+    private void SetHealthStatusCore(BMSDirectoryFileNameHash fListCache, bool forceUpdate, bool memClear, BMSFileMaintenanceInfo mtInfo, string altSearchDir, uint[] curDirFileNameHashArrayAdd, ResourceHealthLookupContext lookupContext)
+    {
         if (!File.Exists(path) || (altSearchDir != null && !Directory.Exists(altSearchDir)))
         {
             return;
@@ -1479,7 +1487,7 @@ public class BMSFile : LR2SongDB.song
                 {
                     SetBMSComponentFilesFromBMSFile(this);
                 }
-                if (localWAVfilesNameHashArray == null || localBGAfilesNameHashArray == null || localBGAfilesMovieNameHashArray == null || directoryStructureCache == null)
+                if (localWAVfilesNameHashArray == null || localBGAfilesNameHashArray == null || localBGAfilesMovieNameHashArray == null)
                 {
                     ILookup<bool, string> lookup = BGAfiles.ToLookup((string f) => bgaMovieExtensions.Any((string e) => f.EndsWith(e, StringComparison.OrdinalIgnoreCase)));
                     ILookup<bool, string> lookup2 = lookup[false].ToLookup((string f) => !f.Contains('\\'));
@@ -1491,13 +1499,17 @@ public class BMSFile : LR2SongDB.song
                     ILookup<bool, string> lookup4 = WAVfiles.ToLookup((string f) => !f.Contains('\\'));
                     nonlocalWAVfiles = lookup4[false].ToList();
                     localWAVfilesNameHashArray = BMSDirectoryFileNameHash.GetFileNameHashArray(lookup4[true]);
-                    directoryStructureCache = new Dictionary<List<string>, SimpleDirectoryStructure>();
                 }
             }
             string dir = (string.IsNullOrWhiteSpace(altSearchDir) ? DirectoryExt.GetDirectoryNameSimple(path) : altSearchDir.TrimEnd('\\'));
-            uint[] curDirFileNameHashArray = ((fListCache != null) ? fListCache.GetFileNameHashArray(dir, forceUpdate) : BMSDirectoryFileNameHash.GetFileNameHashArray(dir));
-            dir = dir.TrimEnd('\\') + Path.DirectorySeparatorChar;
-            Func<uint[], List<string>, IEnumerable<string>, int> func = delegate (uint[] localHashSet, List<string> nonlocalFileList, IEnumerable<string> extensions)
+            string lookupDir = dir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            uint[] curDirFileNameHashArray = ((fListCache != null) ? fListCache.GetFileNameHashArray(lookupDir, forceUpdate) : BMSDirectoryFileNameHash.GetFileNameHashArray(lookupDir));
+            DirectoryRelativePathHashIndex.Entry relativePathEntry = lookupContext?.GetRelativePathEntryOrNull(lookupDir);
+            DirectoryResourceLookupCache.Entry resourceEntry = relativePathEntry == null ? lookupContext?.GetResourceEntryOrNull(lookupDir) : null;
+            long cacheHitCount = 0L;
+            long fileExistsFallbackCount = 0L;
+            dir = lookupDir + Path.DirectorySeparatorChar;
+            Func<uint[], List<string>, IEnumerable<string>, ChartResourceKind, int> func = delegate (uint[] localHashSet, List<string> nonlocalFileList, IEnumerable<string> extensions, ChartResourceKind resourceKind)
             {
                 int num = 0;
                 if (localHashSet.Length != 0)
@@ -1506,46 +1518,24 @@ public class BMSFile : LR2SongDB.song
                 }
                 if (nonlocalFileList.Count > 0)
                 {
-                    SimpleDirectoryStructure simpleDirectoryStructure = null;
-                    lock (filesCacheLock)
+                    foreach (string file in nonlocalFileList)
                     {
-                        simpleDirectoryStructure = directoryStructureCache.TryGetValue(nonlocalFileList);
-                        if (simpleDirectoryStructure == null)
+                        if (TryResolveResourceReferenceFromCache(relativePathEntry, resourceEntry, file, resourceKind, out bool existsInCache))
                         {
-                            simpleDirectoryStructure = new SimpleDirectoryStructure(nonlocalFileList);
-                            directoryStructureCache[nonlocalFileList] = simpleDirectoryStructure;
+                            cacheHitCount++;
+                            if (!existsInCache)
+                            {
+                                num++;
+                            }
+                            continue;
+                        }
+
+                        fileExistsFallbackCount++;
+                        if (!ExistsWithCompatibleExtensions(dir, file, extensions))
+                        {
+                            num++;
                         }
                     }
-                    new List<string>();
-                    Func<SimpleDirectoryStructure, IEnumerable<string>> fileNotFound = null;
-                    fileNotFound = (SimpleDirectoryStructure fileStructures) => (fileStructures.DirName != null) ? ((!Directory.Exists(dir + fileStructures.DirName)) ? fileStructures.GetAllFiles() : fileStructures.FileList.Where(delegate (string file)
-                    {
-                        try
-                        {
-                            string fullPath = Path.GetFullPath(dir + file);
-                            string dirname = DirectoryExt.GetDirectoryNameSimple(fullPath) + Path.DirectorySeparatorChar;
-                            string basename = Path.GetFileNameWithoutExtension(fullPath);
-                            return !File.Exists(fullPath) && extensions.All((string ext) => !File.Exists(dirname + basename + ext));
-                        }
-                        catch
-                        {
-                            return true;
-                        }
-                    }).Concat(fileStructures.DirList.SelectMany((SimpleDirectoryStructure dirStr) => fileNotFound(dirStr)))) : fileStructures.FileList.Where(delegate (string file)
-                    {
-                        try
-                        {
-                            string fullPath = Path.GetFullPath(dir + file);
-                            string dirname = DirectoryExt.GetDirectoryNameSimple(fullPath) + Path.DirectorySeparatorChar;
-                            string basename = Path.GetFileNameWithoutExtension(fullPath);
-                            return !File.Exists(fullPath) && extensions.All((string ext) => !File.Exists(dirname + basename + ext));
-                        }
-                        catch
-                        {
-                            return true;
-                        }
-                    }).Concat(fileStructures.DirList.SelectMany((SimpleDirectoryStructure dirStr) => fileNotFound(dirStr)));
-                    num += fileNotFound(simpleDirectoryStructure).Count();
                 }
                 return num;
             };
@@ -1554,34 +1544,31 @@ public class BMSFile : LR2SongDB.song
                 string text = ChartResourcePathNormalizer.NormalizeReferencePathForLookup(filename);
                 if (!string.IsNullOrWhiteSpace(text))
                 {
-                    try
+                    if (TryResolveResourceReferenceFromCache(relativePathEntry, resourceEntry, text, ChartResourceKind.Image, out bool existsInCache))
                     {
-                        text = Path.GetFullPath(dir + text);
-                        string dirname = DirectoryExt.GetDirectoryNameSimple(text) + Path.DirectorySeparatorChar;
-                        string basename = Path.GetFileNameWithoutExtension(text);
-                        return extensions.Any((string ext) => File.Exists(dirname + basename + ext));
+                        cacheHitCount++;
+                        return existsInCache;
                     }
-                    catch
-                    {
-                        return false;
-                    }
+
+                    fileExistsFallbackCount++;
+                    return ExistsWithCompatibleExtensions(dir, text, extensions);
                 }
                 return false;
             };
             mtInfo.wav_files_defined = WAVfiles.Count;
             if (mtInfo.wav_files_defined > 0)
             {
-                mtInfo.wav_files_existing = mtInfo.wav_files_defined - func(localWAVfilesNameHashArray, nonlocalWAVfiles, wavExtensions);
+                mtInfo.wav_files_existing = mtInfo.wav_files_defined - func(localWAVfilesNameHashArray, nonlocalWAVfiles, wavExtensions, ChartResourceKind.Audio);
             }
             mtInfo.bga_files_defined = localBGAfilesNameHashArray.Length + nonlocalBGAfiles.Count;
             if (mtInfo.bga_files_defined > 0)
             {
-                mtInfo.bga_files_existing = mtInfo.bga_files_defined - func(localBGAfilesNameHashArray, nonlocalBGAfiles, bgaImageExtensions);
+                mtInfo.bga_files_existing = mtInfo.bga_files_defined - func(localBGAfilesNameHashArray, nonlocalBGAfiles, bgaImageExtensions, ChartResourceKind.Image);
             }
             mtInfo.movie_files_defined = localBGAfilesMovieNameHashArray.Length + nonlocalBGAfilesMovie.Count;
             if (mtInfo.movie_files_defined > 0)
             {
-                mtInfo.movie_files_existing = mtInfo.movie_files_defined - func(localBGAfilesMovieNameHashArray, nonlocalBGAfilesMovie, Enumerable.Empty<string>());
+                mtInfo.movie_files_existing = mtInfo.movie_files_defined - func(localBGAfilesMovieNameHashArray, nonlocalBGAfilesMovie, Enumerable.Empty<string>(), ChartResourceKind.Movie);
             }
             mtInfo.is_stagefile_defined = !string.IsNullOrWhiteSpace(stagefile);
             if (mtInfo.is_stagefile_defined == true)
@@ -1612,9 +1599,90 @@ public class BMSFile : LR2SongDB.song
                 nonlocalWAVfiles = null;
                 nonlocalBGAfiles = null;
                 nonlocalBGAfilesMovie = null;
-                directoryStructureCache = null;
             }
+            lookupContext?.AddCacheHits(cacheHitCount);
+            lookupContext?.AddFileExistsFallbacks(fileExistsFallbackCount);
         }
+    }
+
+    private static bool ExistsWithCompatibleExtensions(string directoryWithSeparator, string file, IEnumerable<string> extensions)
+    {
+        try
+        {
+            string fullPath = Path.GetFullPath(directoryWithSeparator + file);
+            string dirname = DirectoryExt.GetDirectoryNameSimple(fullPath) + Path.DirectorySeparatorChar;
+            string basename = Path.GetFileNameWithoutExtension(fullPath);
+            return File.Exists(fullPath) || extensions.Any((string ext) => File.Exists(dirname + basename + ext));
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool TryResolveResourceReferenceFromCache(DirectoryRelativePathHashIndex.Entry relativeEntry, DirectoryResourceLookupCache.Entry resourceEntry, string referencePath, ChartResourceKind resourceKind, out bool exists)
+    {
+        exists = false;
+        if ((relativeEntry == null && resourceEntry == null) || resourceKind == ChartResourceKind.Unknown)
+        {
+            return false;
+        }
+        string normalized = ChartResourcePathNormalizer.NormalizeReferencePathForLookup(referencePath);
+        if (string.IsNullOrWhiteSpace(normalized))
+        {
+            return false;
+        }
+        bool hasDirectorySegments = ChartResourcePathNormalizer.HasDirectorySegments(normalized);
+        uint hash = BMSDirectoryFileNameHash.GetLookupHash(hasDirectorySegments ? normalized : ChartResourcePathNormalizer.NormalizeFileNameForLookup(normalized));
+        if (hash == 0u)
+        {
+            return false;
+        }
+
+        if (relativeEntry != null)
+        {
+            exists = ContainsRelativePathHash(relativeEntry, resourceKind, hasDirectorySegments, hash);
+            return true;
+        }
+
+        if (resourceEntry != null)
+        {
+            exists = ContainsResourceHash(resourceEntry, resourceKind, hasDirectorySegments, hash);
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool ContainsRelativePathHash(DirectoryRelativePathHashIndex.Entry entry, ChartResourceKind resourceKind, bool hasDirectorySegments, uint hash)
+    {
+        return resourceKind switch
+        {
+            ChartResourceKind.Audio => ContainsHash(hasDirectorySegments ? entry.AudioRelativePathHashArray : entry.SelfOwnedAudioBaseNameHashArray, hash),
+            ChartResourceKind.Image => ContainsHash(hasDirectorySegments ? entry.ImageRelativePathHashArray : entry.SelfOwnedImageBaseNameHashArray, hash),
+            ChartResourceKind.Movie => ContainsHash(hasDirectorySegments ? entry.MovieRelativePathHashArray : entry.SelfOwnedMovieBaseNameHashArray, hash),
+            _ => false
+        };
+    }
+
+    private static bool ContainsResourceHash(DirectoryResourceLookupCache.Entry entry, ChartResourceKind resourceKind, bool hasDirectorySegments, uint hash)
+    {
+        return resourceKind switch
+        {
+            ChartResourceKind.Audio => ContainsHash(hasDirectorySegments ? entry.AudioRelativePathHashArray : entry.SelfOwnedAudioBaseNameHashArray, hash),
+            ChartResourceKind.Image => ContainsHash(hasDirectorySegments ? entry.ImageRelativePathHashArray : entry.SelfOwnedImageBaseNameHashArray, hash),
+            ChartResourceKind.Movie => ContainsHash(hasDirectorySegments ? entry.MovieRelativePathHashArray : entry.SelfOwnedMovieBaseNameHashArray, hash),
+            _ => false
+        };
+    }
+
+    private static bool ContainsHash(uint[] hashes, uint hash)
+    {
+        if (hashes == null || hashes.Length == 0 || hash == 0u)
+        {
+            return false;
+        }
+        return Array.BinarySearch(hashes, hash) >= 0;
     }
 
     internal void ClearComponentFileCache()
@@ -1627,7 +1695,6 @@ public class BMSFile : LR2SongDB.song
             nonlocalWAVfiles = null;
             nonlocalBGAfiles = null;
             nonlocalBGAfilesMovie = null;
-            directoryStructureCache = null;
         }
     }
 

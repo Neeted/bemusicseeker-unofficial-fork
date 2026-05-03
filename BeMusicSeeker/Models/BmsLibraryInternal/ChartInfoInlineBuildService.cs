@@ -48,17 +48,18 @@ internal sealed class ChartInfoInlineBuildService
         {
             Dictionary<string, LR2SongDBExtended.chart_info> currentRows = LoadCurrentRows(dbGateway, batch.Select((InlineChartSnapshotTarget target) => target.Snapshot));
             Stopwatch stopwatch = Stopwatch.StartNew();
-            List<ChartInfoBuildService.InlineChartInfoBuildResult> inlineResults = batch.AsParallel()
-                .WithDegreeOfParallelism(parserDegree)
-                .Select((InlineChartSnapshotTarget target) => chartInfoBuildService.BuildInlineChartInfo(
+            List<ChartInfoBuildService.InlineChartInfoBuildResult> inlineResults = new List<ChartInfoBuildService.InlineChartInfoBuildResult>(batch.Count);
+            foreach (InlineChartSnapshotTarget target in batch)
+            {
+                inlineResults.Add(chartInfoBuildService.BuildInlineChartInfo(
                     target.Snapshot,
                     target.BmsFile,
                     target.BmsonSong,
                     currentRows,
                     currentFailures,
                     logInstallPerformance,
-                    logInstallPerformanceWarn))
-                .ToList();
+                    logInstallPerformanceWarn));
+            }
             stopwatch.Stop();
             result.ParseMs += stopwatch.ElapsedMilliseconds;
             result.TargetCount += batch.Count;

@@ -2883,8 +2883,9 @@ public sealed class ChartInfoMetadataTests
             InvokeDeferredChartInfoHydration(library, "unit_test", queueFullBackfillAfterHydration: true);
 
             Assert.IsTrue(WaitForChartInfoHydration(library), "chart_info hydration did not complete.");
-            Assert.AreEqual(0, library.ChartInfoBackfillRequestedVersion);
-            Assert.AreEqual(0, library.ChartInfoBackfillCompletedVersion);
+            Assert.AreEqual(1, library.ChartInfoBackfillRequestedVersion);
+            Assert.AreEqual(1, library.ChartInfoBackfillCompletedVersion);
+            Assert.IsFalse(library.ChartInfoBackfillRunning);
         });
     }
 

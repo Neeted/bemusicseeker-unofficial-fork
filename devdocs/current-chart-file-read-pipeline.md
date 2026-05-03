@@ -1,6 +1,6 @@
 # 現行の譜面ファイル読み込みパイプライン
 
-この資料は、`2026-05-02` 時点の譜面ファイル読み込みと `chart_info` 生成の現行仕様をまとめる。
+この資料は、`2026-05-03` 時点の譜面ファイル読み込みと `chart_info` 生成の正本仕様をまとめる。実装中の初期化軽量化では、この資料の責務分離に合わせて差分ファイル由来の処理と DB 由来の background 補完を分ける。
 
 目的は、追加・更新譜面で同じファイルを軽量 parser と `chart_info` parser が別々に読む状態を避け、どの入口を使うべきかを明確にすること。
 
@@ -11,6 +11,8 @@
 - snapshot には `Path`, `Bytes`, `Length`, `LastWriteTimeUtc`, `Md5`, `Sha256` が入る。
 - snapshot bytes は処理中だけ保持し、DB や長期 model へ保存しない。
 - lightweight parser と `chart_info` parser は統合しない。同じ bytes を使うが、役割は分ける。
+- 新規・更新ファイル由来の補助情報は、snapshot が生きている間に作る。
+- DB に既に存在する owner 由来の補助情報だけを background hydration/backfill へ回す。
 
 ## 正規 Entry Point
 
@@ -39,13 +41,16 @@ changed path
   -> same transaction
        song / bmson_song
        chart_digest_map
-       chart_info / chart_info_parse_failure
+       generated chart_info / chart_info_parse_failure
+       generated maintenance row when available
   -> memory apply
        model ChartInfo
-       session chart_info index
+       session chart_info index for generated rows
 ```
 
 file diff の progress target は lightweight parse 対象数で、BMS 追加件数と bmson 追加・更新件数の合算。`chart_info` parse failure は `song` / `bmson_song` 登録を止めない。
+
+current `chart_info` row が存在する場合、inline parser は詳細 parse を skip できる。この row は対象 model に適用してよいが、file diff の成果物として全件蓄積しない。session chart_info index の全量更新は `chart_info_hydration` が担当し、`file_diff_inline` で publish するのは新規生成または更新した row に限定する。
 
 ## Package Install
 
@@ -72,6 +77,8 @@ full backfill は、既存 DB 補完用の background 処理として残す。
 - metadata bundle で補完されなかった譜面。
 
 full backfill は path から bytes を read する reader pipeline を維持する。file diff / package install で inline 済みの譜面は、current `chart_info` により file read 前に skip される。
+
+full backfill は新規ファイル追加の後処理ではない。新規・更新ファイルの lightweight parse、chart_info、可能な範囲の maintenance は file diff / install の処理単位で完了させる。
 
 ## Skip 判定
 
@@ -102,3 +109,4 @@ full backfill は path から bytes を read する reader pipeline を維持す
 - full backfill は「既にライブラリにある譜面の補完」用と考える。
 - path-only API を新しい大量処理で使う場合は、二重 read にならないか確認する。
 - parser の挙動差を避けるため、inline と full backfill は `ChartInfoParser.ParseBytesDetailed(...)` を共通入口にする。
+- current skip した既存 row を、file diff result や commit callback に全件載せない。これは bounded queue / chunk commit を無効化する大きなメモリ要因になる。
