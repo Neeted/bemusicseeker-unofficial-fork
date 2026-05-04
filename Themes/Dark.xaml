@@ -21,6 +21,17 @@
   <SolidColorBrush x:Key="App.PopupBackgroundBrush" Color="#FF2D2D30" />
   <SolidColorBrush x:Key="App.SearchGlyphBrush" Color="#FFB6B6B6" />
 
+  <SolidColorBrush x:Key="ScrollBar.TrackBackgroundBrush" Color="#FF1E1E1E" />
+  <SolidColorBrush x:Key="ScrollBar.ThumbBackgroundBrush" Color="#FF4A4A4A" />
+  <SolidColorBrush x:Key="ScrollBar.ThumbHoverBackgroundBrush" Color="#FF5A5A5A" />
+  <SolidColorBrush x:Key="ScrollBar.ThumbDraggingBackgroundBrush" Color="#FF6A6A6A" />
+  <SolidColorBrush x:Key="ScrollBar.ThumbBorderBrush" Color="#FF606060" />
+  <SolidColorBrush x:Key="ScrollBar.ButtonBackgroundBrush" Color="#FF1E1E1E" />
+  <SolidColorBrush x:Key="ScrollBar.ButtonHoverBackgroundBrush" Color="#FF2A2A2A" />
+  <SolidColorBrush x:Key="ScrollBar.ButtonPressedBackgroundBrush" Color="#FF333333" />
+  <SolidColorBrush x:Key="ScrollBar.ButtonBorderBrush" Color="#FF1E1E1E" />
+  <SolidColorBrush x:Key="ScrollBar.ArrowBrush" Color="#FFD4D4D4" />
+
   <SolidColorBrush x:Key="Table.HeaderBackgroundBrush" Color="#FF2D2D30" />
   <SolidColorBrush x:Key="Table.RowBackgroundBrush" Color="#FF1F1F1F" />
   <SolidColorBrush x:Key="Table.AlternatingRowBackgroundBrush" Color="#FF252525" />
