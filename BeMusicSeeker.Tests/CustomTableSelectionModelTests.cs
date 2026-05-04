@@ -71,26 +71,26 @@ public sealed class CustomTableSelectionModelTests
     }
 
     [TestMethod]
-    public void SelectForLeftMouseDown_PreservesExistingMultiSelectionForDragStart()
+    public void SelectForLeftMouseDownDragCandidate_PreservesExistingMultiSelectionForDragStart()
     {
         CustomTableSelectionModel model = CreateModel(10);
         model.SelectSingle(2);
         model.Toggle(4);
 
-        model.SelectForLeftMouseDown(2);
+        model.SelectForLeftMouseDownDragCandidate(2);
 
         CollectionAssert.AreEqual(new[] { 2, 4 }, model.SelectedIndices.ToArray());
         Assert.AreEqual(2, model.CurrentIndex);
     }
 
     [TestMethod]
-    public void SelectForLeftMouseDown_SelectsUnselectedRow()
+    public void SelectForLeftMouseDownDragCandidate_SelectsUnselectedRow()
     {
         CustomTableSelectionModel model = CreateModel(10);
         model.SelectSingle(2);
         model.Toggle(4);
 
-        model.SelectForLeftMouseDown(7);
+        model.SelectForLeftMouseDownDragCandidate(7);
 
         CollectionAssert.AreEqual(new[] { 7 }, model.SelectedIndices.ToArray());
         Assert.AreEqual(7, model.CurrentIndex);

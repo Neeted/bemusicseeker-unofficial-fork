@@ -125,7 +125,7 @@ internal sealed class CustomTableSelectionModel
         return SelectSingle(index);
     }
 
-    internal bool SelectForLeftMouseDown(int index)
+    internal bool SelectForLeftMouseDownDragCandidate(int index)
     {
         if (!IsValidIndex(index))
         {

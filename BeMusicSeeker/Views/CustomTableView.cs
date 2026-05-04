@@ -163,6 +163,7 @@ public sealed class CustomTableView : Grid
     private CustomTableHitTestResult currentCellHit;
     private Point? rowDragStartPoint;
     private CustomTableHitTestResult rowDragStartHit;
+    private int pendingSingleSelectionOnMouseUpRowIndex = -1;
     private DragAdorner rowDragAdorner;
     private Point? headerDragStartPoint;
     private CustomTableHitTestResult pendingHeaderHit;
@@ -977,6 +978,7 @@ public sealed class CustomTableView : Grid
         CustomTableHitTestResult hit = HitTestTable(e.GetPosition(surface));
         if (hit.Kind == CustomTableHitKind.HeaderResize)
         {
+            ClearPendingSingleSelectionOnMouseUp();
             CommitActiveEdit();
             BeginColumnResize(hit, e.GetPosition(surface).X);
             e.Handled = true;
@@ -984,6 +986,7 @@ public sealed class CustomTableView : Grid
         }
         if (hit.Kind == CustomTableHitKind.Header)
         {
+            ClearPendingSingleSelectionOnMouseUp();
             CommitActiveEdit();
             pendingHeaderHit = hit;
             headerDragStartPoint = e.GetPosition(surface);
@@ -994,6 +997,11 @@ public sealed class CustomTableView : Grid
         }
         if (hit.Kind == CustomTableHitKind.Cell)
         {
+            bool plainSingleClick = e.ClickCount == 1
+                && (Keyboard.Modifiers & (ModifierKeys.Control | ModifierKeys.Shift | ModifierKeys.Alt)) == ModifierKeys.None;
+            bool delaySingleSelectionUntilMouseUp = plainSingleClick
+                && selectionModel.SelectedIndices.Count > 1
+                && selectionModel.IsSelected(hit.RowIndex);
             bool shouldBeginEditOnRepeatClick = e.ClickCount == 1
                 && IsSameEditableCell(currentCellHit, hit)
                 && (Keyboard.Modifiers & (ModifierKeys.Control | ModifierKeys.Shift | ModifierKeys.Alt)) == ModifierKeys.None;
@@ -1005,6 +1013,7 @@ public sealed class CustomTableView : Grid
             }
             rowDragStartPoint = e.ClickCount == 1 ? e.GetPosition(this) : null;
             rowDragStartHit = e.ClickCount == 1 ? hit : null;
+            pendingSingleSelectionOnMouseUpRowIndex = delaySingleSelectionUntilMouseUp ? hit.RowIndex : -1;
             if (e.ClickCount == 1
                 && IsActionCell(hit)
                 && (Keyboard.Modifiers & (ModifierKeys.Control | ModifierKeys.Shift | ModifierKeys.Alt)) == ModifierKeys.None)
@@ -1016,11 +1025,13 @@ public sealed class CustomTableView : Grid
             }
             if (shouldBeginEditOnRepeatClick && BeginCellEdit(hit, null))
             {
+                ClearDragState();
                 e.Handled = true;
                 return;
             }
             if (e.ClickCount >= 2)
             {
+                ClearDragState();
                 RowActivated?.Invoke(this, new CustomTableRowRequestedEventArgs(hit, openAtMousePosition: true));
             }
             e.Handled = true;
@@ -1028,6 +1039,7 @@ public sealed class CustomTableView : Grid
         }
         if ((Keyboard.Modifiers & (ModifierKeys.Control | ModifierKeys.Shift)) == ModifierKeys.None && selectionModel.Clear())
         {
+            ClearPendingSingleSelectionOnMouseUp();
             UpdateSelectedIndexFromSelectionModel();
             RaiseSelectionChanged();
             RequestRedraw("selection");
@@ -1133,6 +1145,7 @@ public sealed class CustomTableView : Grid
     {
         if (isResizingColumn)
         {
+            ClearPendingSingleSelectionOnMouseUp();
             EndColumnResize();
             e.Handled = true;
             return;
@@ -1151,7 +1164,12 @@ public sealed class CustomTableView : Grid
             e.Handled = true;
             return;
         }
+        bool committedPendingSingleSelection = CommitPendingSingleSelectionOnMouseUp();
         ClearDragState();
+        if (committedPendingSingleSelection)
+        {
+            e.Handled = true;
+        }
     }
 
     private void CustomTableViewPreviewMouseWheel(object sender, MouseWheelEventArgs e)
@@ -1296,10 +1314,35 @@ public sealed class CustomTableView : Grid
             ? selectionModel.SelectRange(rowIndex)
             : (modifiers & ModifierKeys.Control) == ModifierKeys.Control
                 ? selectionModel.Toggle(rowIndex)
-                : selectionModel.SelectForLeftMouseDown(rowIndex);
+                : selectionModel.SelectForLeftMouseDownDragCandidate(rowIndex);
         UpdateSelectedIndexFromSelectionModel();
         RequestRedraw("selection");
         return changed;
+    }
+
+    private bool CommitPendingSingleSelectionOnMouseUp()
+    {
+        int rowIndex = pendingSingleSelectionOnMouseUpRowIndex;
+        ClearPendingSingleSelectionOnMouseUp();
+        if (rowIndex < 0)
+        {
+            return false;
+        }
+        selectionModel.SetItemCount(RowCount);
+        bool changed = selectionModel.SelectSingle(rowIndex);
+        UpdateSelectedIndexFromSelectionModel();
+        EnsureCurrentCellForCurrentRow();
+        if (changed)
+        {
+            RaiseSelectionChanged();
+        }
+        RequestRedraw("selection");
+        return changed;
+    }
+
+    private void ClearPendingSingleSelectionOnMouseUp()
+    {
+        pendingSingleSelectionOnMouseUpRowIndex = -1;
     }
 
     private bool SelectAllRows()
@@ -1525,6 +1568,7 @@ public sealed class CustomTableView : Grid
     {
         rowDragStartPoint = null;
         rowDragStartHit = null;
+        ClearPendingSingleSelectionOnMouseUp();
     }
 
     private void ClearHeaderDragState()
