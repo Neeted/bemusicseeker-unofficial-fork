@@ -245,6 +245,13 @@ public sealed class CustomTableView : Grid
         SetRow(horizontalScrollBar, 1);
         SetColumn(scrollBarCorner, 1);
         SetRow(scrollBarCorner, 1);
+        surface.SizeChanged += delegate
+        {
+            InvalidateColumnLayoutSnapshot();
+            UpdateScrollBars();
+            UpdateVisibleRowSubscriptions("surface_size_changed");
+            RequestRedraw("surface_size_changed");
+        };
         SizeChanged += delegate
         {
             InvalidateColumnLayoutSnapshot();
@@ -663,11 +670,11 @@ public sealed class CustomTableView : Grid
     private void UpdateScrollBars()
     {
         int rowCount = RowCount;
-        int viewportRows = CalculateViewportRowCapacity();
-        verticalScrollBar.ViewportSize = viewportRows;
-        verticalScrollBar.LargeChange = Math.Max(1, viewportRows);
-        verticalScrollBar.Maximum = Math.Max(0, rowCount - viewportRows);
-        verticalScrollBar.Visibility = rowCount > viewportRows ? Visibility.Visible : Visibility.Collapsed;
+        int fullVisibleRows = CalculateFullVisibleRowCapacity();
+        verticalScrollBar.ViewportSize = fullVisibleRows;
+        verticalScrollBar.LargeChange = Math.Max(1, fullVisibleRows);
+        verticalScrollBar.Maximum = CalculateVerticalScrollMaximum(rowCount, fullVisibleRows);
+        verticalScrollBar.Visibility = rowCount > fullVisibleRows ? Visibility.Visible : Visibility.Collapsed;
         if (verticalScrollBar.Value > verticalScrollBar.Maximum)
         {
             verticalScrollBar.Value = verticalScrollBar.Maximum;
@@ -685,11 +692,34 @@ public sealed class CustomTableView : Grid
         scrollBarCorner.Visibility = verticalScrollBar.Visibility == Visibility.Visible && horizontalScrollBar.Visibility == Visibility.Visible ? Visibility.Visible : Visibility.Collapsed;
     }
 
-    internal int CalculateViewportRowCapacity()
+    internal int CalculateFullVisibleRowCapacity()
     {
-        double rowHeight = Math.Max(1d, RowHeight);
-        double bodyHeight = Math.Max(0d, surface.ActualHeight - HeaderHeight);
-        return Math.Max(1, (int)Math.Ceiling(bodyHeight / rowHeight));
+        return CalculateFullVisibleRowCapacity(CalculateBodyHeight(), RowHeight);
+    }
+
+    internal int CalculateDrawableRowCapacity()
+    {
+        return CalculateDrawableRowCapacity(CalculateBodyHeight(), RowHeight);
+    }
+
+    internal static int CalculateFullVisibleRowCapacity(double bodyHeight, double rowHeight)
+    {
+        return Math.Max(1, (int)Math.Floor(Math.Max(0d, bodyHeight) / Math.Max(1d, rowHeight)));
+    }
+
+    internal static int CalculateDrawableRowCapacity(double bodyHeight, double rowHeight)
+    {
+        return Math.Max(1, (int)Math.Ceiling(Math.Max(0d, bodyHeight) / Math.Max(1d, rowHeight)));
+    }
+
+    internal static int CalculateVerticalScrollMaximum(int rowCount, int fullVisibleRows)
+    {
+        return Math.Max(0, Math.Max(0, rowCount) - Math.Max(1, fullVisibleRows));
+    }
+
+    private double CalculateBodyHeight()
+    {
+        return Math.Max(0d, surface.ActualHeight - HeaderHeight);
     }
 
     internal CustomTableColumnLayoutSnapshot GetColumnLayoutSnapshot()
@@ -791,9 +821,9 @@ public sealed class CustomTableView : Grid
             if (rowCount > 0)
             {
                 int firstVisibleIndex = FirstVisibleRowIndex;
-                int viewportRows = CalculateViewportRowCapacity();
+                int drawableRows = CalculateDrawableRowCapacity();
                 firstIndex = Math.Max(0, firstVisibleIndex - RowSubscriptionOverscan);
-                int lastExclusive = Math.Min(rowCount, firstVisibleIndex + viewportRows + RowSubscriptionOverscan);
+                int lastExclusive = Math.Min(rowCount, firstVisibleIndex + drawableRows + RowSubscriptionOverscan);
                 requestedCount = Math.Max(0, lastExclusive - firstIndex);
                 if (firstIndex != lastVisibleSubscriptionFirstIndex || requestedCount != lastVisibleSubscriptionCount)
                 {
@@ -1317,7 +1347,7 @@ public sealed class CustomTableView : Grid
             return;
         }
         int first = FirstVisibleRowIndex;
-        int capacity = Math.Max(1, CalculateViewportRowCapacity());
+        int capacity = Math.Max(1, CalculateFullVisibleRowCapacity());
         if (rowIndex < first)
         {
             verticalScrollBar.Value = Math.Max(verticalScrollBar.Minimum, rowIndex);
@@ -1756,7 +1786,7 @@ public sealed class CustomTableView : Grid
     private bool TryCreateCellHit(int rowIndex, string columnId, out CustomTableHitTestResult hit)
     {
         hit = null;
-        if (rowIndex < FirstVisibleRowIndex || rowIndex >= FirstVisibleRowIndex + CalculateViewportRowCapacity() || string.IsNullOrWhiteSpace(columnId))
+        if (rowIndex < FirstVisibleRowIndex || rowIndex >= FirstVisibleRowIndex + CalculateDrawableRowCapacity() || string.IsNullOrWhiteSpace(columnId))
         {
             return false;
         }
@@ -1773,13 +1803,7 @@ public sealed class CustomTableView : Grid
             double width = column?.Width ?? 0d;
             if (column != null && string.Equals(column.Id, columnId, StringComparison.Ordinal))
             {
-                Rect rect = CustomTableColumnLayout.CreateVisibleColumnRect(
-                    x,
-                    width,
-                    HorizontalOffset,
-                    surface.ActualWidth,
-                    HeaderHeight + (rowIndex - FirstVisibleRowIndex) * Math.Max(1d, RowHeight),
-                    Math.Max(1d, RowHeight));
+                Rect rect = CreateVisibleCellRect(x, width, rowIndex);
                 if (rect.Width <= 0d || rect.Height <= 0d)
                 {
                     return false;
@@ -1822,8 +1846,22 @@ public sealed class CustomTableView : Grid
         }
         IReadOnlyList<CustomTableColumn> columns = VisibleColumns;
         CustomTableColumn column = columns.Count == 0 ? null : columns[0];
-        Rect cellRect = column == null ? Rect.Empty : CustomTableColumnLayout.CreateVisibleColumnRect(0d, column.Width, HorizontalOffset, surface.ActualWidth, HeaderHeight + (rowIndex - FirstVisibleRowIndex) * Math.Max(1d, RowHeight), Math.Max(1d, RowHeight));
+        Rect cellRect = column == null ? Rect.Empty : CreateVisibleCellRect(0d, column.Width, rowIndex);
         return new CustomTableHitTestResult(CustomTableHitKind.Cell, rowIndex, rows[rowIndex], column, column == null ? -1 : 0, cellRect);
+    }
+
+    private Rect CreateVisibleCellRect(double columnX, double columnWidth, int rowIndex)
+    {
+        double rowHeight = Math.Max(1d, RowHeight);
+        double rowY = HeaderHeight + (rowIndex - FirstVisibleRowIndex) * rowHeight;
+        double visibleHeight = Math.Min(rowHeight, Math.Max(0d, surface.ActualHeight - rowY));
+        return CustomTableColumnLayout.CreateVisibleColumnRect(
+            columnX,
+            columnWidth,
+            HorizontalOffset,
+            surface.ActualWidth,
+            rowY,
+            visibleHeight);
     }
 
     private static bool IsStatusColumn(CustomTableColumn column)
@@ -2208,8 +2246,8 @@ internal sealed class CustomTableSurface : FrameworkElement
         double rowHeight = Math.Max(1d, owner.RowHeight);
         double y = owner.HeaderHeight;
         int firstRowIndex = owner.FirstVisibleRowIndex;
-        int visibleRowCapacity = owner.CalculateViewportRowCapacity();
-        int lastRowExclusive = Math.Min(rowCount, firstRowIndex + visibleRowCapacity);
+        int drawableRowCapacity = owner.CalculateDrawableRowCapacity();
+        int lastRowExclusive = Math.Min(rowCount, firstRowIndex + drawableRowCapacity);
         int drawnRows = 0;
         for (int rowIndex = firstRowIndex; rowIndex < lastRowExclusive && y < height; rowIndex++)
         {
