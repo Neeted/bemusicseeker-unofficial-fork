@@ -43,6 +43,8 @@ Startup
 
 起動中の `song.db` は原則 BeMusicSeeker が更新するため、通常の `リロード` は in-memory catalog と file scan result の差分だけを見る。LR2 や手動編集で DB が変わった可能性まで拾う場合は `FullReinitialize` を使う。
 
+起動時 UI ではプレイリスト root を常に展開する。これは root item の展開だけであり、配下プレイリストを再帰展開しない。
+
 ## bmson Migration
 
 ### Preflight
@@ -113,6 +115,8 @@ metadata bundle は、リリースパッケージ同梱または外部配布の 
 差分なしの場合は、導入先推定に必要な index を最速で公開し、DB 由来の補助情報は background へ回す。
 
 差分ありの場合は、読んだファイルの近くで DB と memory へ反映し、再起動しないと正しくならない状態を作らない。
+
+`song.dbアクセス最適化PRAGMAを有効にする` が有効な場合、`song.db` の DB load と file diff commit 用接続へ `temp_store=MEMORY`、`cache_size=-262144`、`mmap_size=2147483648` を接続ローカルに適用する。設定キーと既存ログ名は互換性のため `EnableReadOptimizedPragmas` / `db_read_pragmas` を維持する。
 
 ## ReloadFileDiff
 

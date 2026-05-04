@@ -155,8 +155,6 @@ public class Resources
     /// </summary>
     public static string Details_test_delete_pending_source_after_install => ResourceManager.GetString("Details_test_delete_pending_source_after_install", resourceCulture);
 
-    public static string Details_test_startup_expand_playlist_tree => ResourceManager.GetString("Details_test_startup_expand_playlist_tree", resourceCulture);
-
     public static string Details_test_startup_select_install_pending => ResourceManager.GetString("Details_test_startup_select_install_pending", resourceCulture);
 
     public static string Details_test_smart_component_overwrite => ResourceManager.GetString("Details_test_smart_component_overwrite", resourceCulture);

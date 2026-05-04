@@ -66,11 +66,8 @@
   <data name="Details_test_startup_select_install_pending" xml:space="preserve">
     <value>[テスト中] 起動時の初期選択を インストール &gt; 保留 にする</value>
   </data>
-  <data name="Details_test_startup_expand_playlist_tree" xml:space="preserve">
-    <value>[テスト中] 起動時にプレイリストを自動展開する</value>
-  </data>
   <data name="Details_test_db_read_optimized_pragmas" xml:space="preserve">
-    <value>[テスト中] DB読込最適化PRAGMAを有効にする</value>
+    <value>song.dbアクセス最適化PRAGMAを有効にする</value>
   </data>
   <data name="Details_test_delete_pending_source_after_install" xml:space="preserve">
     <value>[テスト中] 通常インストール時、既所持譜面が残っていても元パッケージを削除する</value>

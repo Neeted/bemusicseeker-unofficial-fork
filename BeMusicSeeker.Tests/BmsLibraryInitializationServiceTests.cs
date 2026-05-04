@@ -1145,6 +1145,36 @@ public sealed class BmsLibraryInitializationServiceTests
     }
 
     [TestMethod]
+    public void SQLiteConnectionEx_ReadOptimizedPragmas_AppliesAndReportsState()
+    {
+        string dbPath = Path.Combine(Path.GetTempPath(), "bemusicseeker-pragmas-" + Guid.NewGuid().ToString("N") + ".db");
+        try
+        {
+            using (SQLiteConnectionEx disabled = new SQLiteConnectionEx(dbPath))
+            {
+                List<string> disabledLogs = disabled.TryApplyReadOptimizedPragmas(enabled: false);
+                CollectionAssert.AreEqual(new[] { "enabled=false" }, disabledLogs);
+            }
+
+            using (SQLiteConnectionEx enabled = new SQLiteConnectionEx(dbPath))
+            {
+                List<string> enabledLogs = enabled.TryApplyReadOptimizedPragmas(enabled: true);
+                Assert.AreEqual(3, enabledLogs.Count);
+                Assert.AreEqual("temp_store=MEMORY:ok", enabledLogs[0]);
+                Assert.AreEqual("cache_size=-262144:ok", enabledLogs[1]);
+                StringAssert.StartsWith(enabledLogs[2], "mmap_size=2147483648:ok(");
+            }
+        }
+        finally
+        {
+            if (File.Exists(dbPath))
+            {
+                File.Delete(dbPath);
+            }
+        }
+    }
+
+    [TestMethod]
     public void SongTableFileCheckResult_ReleasePostApplyTransientBuffers_ClearsTransientListsOnly()
     {
         SongTableFileCheckResult result = new SongTableFileCheckResult();

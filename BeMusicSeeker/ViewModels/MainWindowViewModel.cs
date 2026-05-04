@@ -315,8 +315,6 @@ public class MainWindowViewModel : ViewModel
 
         private bool tempStartupSelectInstallPending;
 
-        private bool tempStartupExpandPlaylistTree;
-
         private bool tempEnableReadOptimizedPragmas;
 
         private bool tempSkipEstimateOfflineScoreRanking;
@@ -1197,22 +1195,6 @@ public class MainWindowViewModel : ViewModel
                 {
                     Settings.Default.StartupSelectInstallPending = value;
                     RaisePropertyChanged("StartupSelectInstallPending");
-                }
-            }
-        }
-
-        public bool StartupExpandPlaylistTree
-        {
-            get
-            {
-                return Settings.Default.StartupExpandPlaylistTree;
-            }
-            set
-            {
-                if (Settings.Default.StartupExpandPlaylistTree != value)
-                {
-                    Settings.Default.StartupExpandPlaylistTree = value;
-                    RaisePropertyChanged("StartupExpandPlaylistTree");
                 }
             }
         }
@@ -2446,7 +2428,6 @@ public class MainWindowViewModel : ViewModel
             tempSkipInitFileCheck = Settings.Default.SkipInitFileCheck;
             tempSkipInitPlaylistLoad = Settings.Default.SkipInitPlaylistLoad;
             tempStartupSelectInstallPending = Settings.Default.StartupSelectInstallPending;
-            tempStartupExpandPlaylistTree = Settings.Default.StartupExpandPlaylistTree;
             tempEnableReadOptimizedPragmas = Settings.Default.EnableReadOptimizedPragmas;
             tempSkipEstimateOfflineScoreRanking = Settings.Default.SkipEstimateOfflineScoreRanking;
             tempEnableAutoInstall = Settings.Default.AutoInstall;
@@ -2722,7 +2703,6 @@ public class MainWindowViewModel : ViewModel
             Settings.Default.SkipInitFileCheck = tempSkipInitFileCheck;
             Settings.Default.SkipInitPlaylistLoad = tempSkipInitPlaylistLoad;
             Settings.Default.StartupSelectInstallPending = tempStartupSelectInstallPending;
-            Settings.Default.StartupExpandPlaylistTree = tempStartupExpandPlaylistTree;
             Settings.Default.EnableReadOptimizedPragmas = tempEnableReadOptimizedPragmas;
             Settings.Default.SkipEstimateOfflineScoreRanking = tempSkipEstimateOfflineScoreRanking;
             Settings.Default.AutoInstall = tempEnableAutoInstall;
@@ -2798,7 +2778,6 @@ public class MainWindowViewModel : ViewModel
             RaisePropertyChanged(() => SkipInitFileCheck);
             RaisePropertyChanged(() => SkipInitPlaylistLoad);
             RaisePropertyChanged(() => StartupSelectInstallPending);
-            RaisePropertyChanged(() => StartupExpandPlaylistTree);
             RaisePropertyChanged(() => EnableReadOptimizedPragmas);
             RaisePropertyChanged(() => SkipEstimateOfflineScoreRanking);
             RaisePropertyChanged(() => EnableAutoInstall);
@@ -9397,7 +9376,6 @@ public class MainWindowViewModel : ViewModel
     public MainWindowViewModel()
     {
         regularBmsLibraryRowCache = new NormalLibraryRowCache(OnNormalLibrarySortKeyChanged);
-        _IsPlaylistTreeExpanded = Settings.Default.StartupExpandPlaylistTree;
         ReplaceKeywordSearchHistory(keywordSearchHistory, KeywordSearchHistoryStore.Deserialize(Settings.Default.KeywordSearchHistory));
         ReplaceKeywordSearchHistory(playlistSummaryKeywordSearchHistory, KeywordSearchHistoryStore.Deserialize(Settings.Default.PlaylistSummaryKeywordSearchHistory));
         settingDialog = new SettingDialogViewModel(this);

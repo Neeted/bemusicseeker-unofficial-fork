@@ -75,7 +75,7 @@ public class SQLiteConnectionEx : SQLiteConnection
 		}, null, 10u);
 	}
 
-	public List<string> TryApplyReadOptimizedPragmas(bool enabled, int cacheSizeKb = 131072, int mmapSizeBytes = 1073741824)
+	public List<string> TryApplyReadOptimizedPragmas(bool enabled, int cacheSizeKb = 262144, long mmapSizeBytes = 2147483648L)
 	{
 		List<string> list = new List<string>();
 		if (!enabled)

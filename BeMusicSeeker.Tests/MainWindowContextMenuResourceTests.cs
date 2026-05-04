@@ -322,6 +322,29 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.AreEqual(Settings.DefaultTreeViewWidth, MainWindow.ResolveTreeViewWidthForSave(0d, double.NaN, 0d));
     }
 
+    [TestMethod]
+    public void AdvancedSettings_RemovePlaylistExpandSettingAndPromoteSongDbPragmaLabel()
+    {
+        string root = FindRepositoryRoot();
+        string viewModel = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
+        string settings = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Properties", "Settings.cs"));
+        string appConfig = File.ReadAllText(Path.Combine(root, "app.config"));
+        string settingDialog = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingDialog.xaml"));
+
+        Assert.AreEqual("song.dbアクセス最適化PRAGMAを有効にする", Resources.Details_test_db_read_optimized_pragmas);
+        StringAssert.Contains(viewModel, "private bool _IsPlaylistTreeExpanded = true;");
+        Assert.AreEqual(0, CountOccurrences(viewModel + settings + appConfig + settingDialog, "StartupExpandPlaylistTree"));
+        Assert.AreEqual(0, CountOccurrences(File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Properties", "Resources.resx"))
+            + File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Properties", "Resources.cs")), "Details_test_startup_expand_playlist_tree"));
+
+        foreach (string languagePath in Directory.GetFiles(Path.Combine(root, "lang"), "*.json"))
+        {
+            string json = File.ReadAllText(languagePath);
+            Assert.AreEqual(0, CountOccurrences(json, "Details_test_startup_expand_playlist_tree"), languagePath);
+            Assert.AreEqual(1, CountOccurrences(json, "Details_test_db_read_optimized_pragmas"), languagePath);
+        }
+    }
+
     private static string FindRepositoryRoot()
     {
         DirectoryInfo directory = new DirectoryInfo(AppContext.BaseDirectory);
