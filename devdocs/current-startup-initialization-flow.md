@@ -125,12 +125,25 @@ metadata bundle は、リリースパッケージ同梱または外部配布の 
 | Log | 意味 | UI operable との関係 |
 | --- | --- | --- |
 | `startup_install_estimation_ready` | catalog、destination resource index、pending package state が揃い、pending estimate queue を開始できる | UI refresh 完了を待たない |
-| `startup_install_ready` | 手動導入を安全に開始できる前提が揃った | 現状は enable 条件や lock 構造を変更しない |
+| `startup_install_ready` | 現時点では `InstallEstimationReady` 直後の導入 readiness ログ境界 | 現状は enable 条件や lock 構造を変更しない |
+| `startup_initialization_complete` | startup progress の expected background phase と startup scheduler queue が完了した | 導入可能より後。初期化全体の比較用 |
+| `startup_background_summary` | startup background task の queue / start / complete / failed / elapsed summary | `startup_initialization_complete` と同じタイミングで出る |
 | `startup_ready_data` / `startup_ready_ui` / `startup_ready_install` / `startup_ready_operable` | UI refresh / 操作可能表示の進捗 | install readiness とは別の観測点 |
 
 Phase 0-1 時点では、`InstallEstimationReady` の完了位置は旧 `startup_ready_installable` と同じである。これは高速化ではなく、後続の DB projection / resource index 統合で「導入可能まで」と「初期化全体」を分けて測るための境界固定である。
 
-2026-05-05 07:14 の実測では、`startup_install_estimation_ready` / `startup_install_ready` は `elapsedMs=39235`、`startup_ready_operable` は `elapsedMs=41471` だった。`wait_continuation_start_ms`、`wait_continuation_signal_ms`、`wait_continuation_tasks_ms` はすべて 0ms であり、この回の critical path は DB load / materialize と file enumeration / resource index build である。
+2026-05-05 08:23 の実測では、`startup_install_estimation_ready` / `startup_install_ready` は `elapsedMs=37971`、`startup_ready_operable` は `elapsedMs=39914`、`startup_initialization_complete` は `elapsedMs=99997` だった。`wait_continuation_start_ms`、`wait_continuation_signal_ms`、`wait_continuation_tasks_ms` はすべて 0ms であり、この回の critical path は DB load / materialize と file enumeration / resource index build である。
+
+同じ実測で `startup_background_summary` は `queued=10 started=10 completed=10 failed=0` だった。background 側の重い処理は `ranking_refresh_deferred=53007ms`、`playlist_entries_hydration=31501ms`、`maintenance_tbl_check_deferred=22749ms`、`chart_info_hydration=17103ms`、`reverse_lookup_warmup_deferred=16586ms` であり、導入可能までとは別に初期化全体の短縮対象として扱う。
+
+導入先推定に必要な情報は次の 3 つに整理する。
+
+- 所持 catalog: BMS / BMSON の path、hash、timestamp、installed membership、推定用代表 metadata。
+- destination resource index: file enumeration 由来の audio / image / movie resource lookup と chart-relative key。
+- pending package state: pending package list と、source package resource surface を復元済みまたは推定開始時に構築可能であること。
+
+playlist hydration、score / ranking refresh、chart_info hydration / backfill、maintenance hydration、reverse lookup warmup は install readiness の blocker にしない。
+ただし `startup_initialization_complete` と `startup_background_summary` で background を含む初期化完了も観測し、導入可能までの短縮が初期化全体の悪化を隠さないようにする。
 
 ## ReloadFileDiff
 

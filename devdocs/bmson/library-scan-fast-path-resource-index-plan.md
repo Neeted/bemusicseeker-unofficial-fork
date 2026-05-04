@@ -13,40 +13,42 @@
 
 ## Phase 0 Log Findings
 
-2026-05-05 07:14 頃の Phase 0-1 実装後ログでは、旧 chart-only 実験ログと旧 `startup_ready_installable` は出ていない。
+2026-05-05 08:23 頃の Phase 0-1 / Remaining Before Phase 2 実装後ログでは、旧 chart-only 実験ログと旧 `startup_ready_installable` は出ていない。
 
 導入可能までの critical path は概ね次の通り。
 
 - DB load / materialize
-  - `phase1_min_load_ms=20855`
-  - `song_tbl_load_ms=20055`
-  - `song_read_ms=9520`
-  - `maintenance_read_ms=4646`
+  - `phase1_min_load_ms=19694`
+  - `song_tbl_load_ms=18933`
+  - `song_read_ms=8829`
+  - `maintenance_read_ms=3967`
 - file enumeration / resource index
-  - `song_tbl_file_check_ms=11484`
-  - `nativeBridgeMs=26321`
+  - `song_tbl_file_check_ms=11348`
+  - `nativeBridgeMs=25249`
   - `bridgeRawBufferBytes=331802176`
-  - `dirhash_build_ms=10608`
-  - `resource_lookup_cache_ms=6829`
-  - `relative_path_hash_index_ms=3752`
+  - `dirhash_build_ms=10490`
+  - `resource_lookup_cache_ms=6704`
+  - `relative_path_hash_index_ms=3751`
 - diff / apply
-  - `diff_ms=636`
-  - `apply_ms=39`
+  - `diff_ms=626`
+  - `apply_ms=40`
   - `db_commit_chunks=0`
 - readiness
-  - `startup_install_estimation_ready elapsedMs=39235`
-  - `startup_install_ready elapsedMs=39235`
-  - `startup_ready_operable elapsedMs=41471`
+  - `startup_install_estimation_ready elapsedMs=37971`
+  - `startup_install_ready elapsedMs=37971`
+  - `startup_ready_operable elapsedMs=39914`
+  - `startup_initialization_complete elapsedMs=99997`
+  - `startup_background_summary queued=10 started=10 completed=10 failed=0`
 
 `init_library` の latest log では `wait_continuation_start_ms=0`、`wait_continuation_signal_ms=0`、`wait_continuation_tasks_ms=0` で、continuation wait は今回の critical path ではない。次の主対象は `song.db` load / materialize と file enumeration / resource index build である。
 
 初期化全体の後半では次が重い。
 
-- `playlist_entries_hydration totalMs=29232`
-- `chart_info_hydration totalMs=11818`
-- `chart_info_backfill candidate_summary_done elapsedMs=4522` かつ `candidates=0`
-- `reverse_lookup_warmup_deferred elapsedMs=15191`
-- `ranking_refresh_deferred elapsedMs=49692`
+- `playlist_entries_hydration totalMs=31501`
+- `chart_info_hydration totalMs=17103`。
+  - 内訳として `chart_info_hydration totalMs=12337`、`chart_info_backfill candidate_summary_done elapsedMs=4733` かつ `candidates=0`。
+- `reverse_lookup_warmup_deferred elapsedMs=16586`
+- `ranking_refresh_deferred elapsedMs=53007`
 
 このため、差分検出だけを速くしても主目的には届かない。導入可能までを短縮するには DB load と resource index 構築を削る必要があり、初期化全体を短縮するには background hydration / warmup の重複 work も削る必要がある。
 
@@ -78,11 +80,27 @@
 - deferred maintenance。
 - reverse lookup warmup。
 
+現行コード確認では、起動時の pending estimate queue は
+`CatalogLoaded && DestinationResourceIndexReady && PendingPackagesRestored`
+を満たすまで開始しない。これは妥当である。導入先推定本体は
+`BMSLibrary.EvaluateInstallEstimation()` から
+`BmsLibraryInstallEstimationService.EstimateInstallationDirectory(...)` へ入り、
+所持 catalog、`BMSDirectoryFileNameHash`、`DirectoryResourceLookupCache`、
+`DirectoryRelativePathHashIndex`、pending package の source surface を使う。
+
+一方、実際の導入開始は推定済み `instl_dst` と pending package state を消費する段階であり、
+導入開始時に resource index を再構築する必要はない。
+ただし、推定が未完了の pending package を安全に導入可能扱いにしない。
+
 ### Install Ready
 
 実際の導入操作を開始してよい状態。
 
-`Install Estimation Ready` に加えて、次を満たす。
+Phase 0-1 時点では `Install Ready` は `Install Estimation Ready` 直後に出るログ境界であり、
+UI enable 条件や lock 構造をまだ変更していない。Phase 2 以降で readiness を早める場合は、
+このログ境界を実際の導入開始条件へ寄せる。
+
+最終的には `Install Estimation Ready` に加えて、次を満たす。
 
 - pending package list が UI/model で確定している。
 - file move と DB write が同じ排他方針で実行できる。
@@ -121,17 +139,26 @@ revert 後の状態を基準にし、導入可能までと初期化完了まで�
   - catalog / resource index / pending package state が揃った時点。
 - `startup_install_ready` を追加済み。
   - 手動導入を安全に開始できる時点。
-- `startup_initialization_complete` を追加する。
-  - background hydration / warmup / refresh が完了した時点。
+- `startup_initialization_complete` を追加済み。
+  - startup progress の expected background phase がすべて完了し、scheduler queue が空になった時点。
 - `RunInitialize` の continuation wait を明示ログ化済み。
   - `wait_continuation_start_ms`: continuation task 起動前の semaphore wait。
   - `wait_continuation_signal_ms`: phase 後の semaphore signal wait。
   - `wait_continuation_tasks_ms`: `Task.WaitAll` による continuation task 完了待ち。
   - latest log ではいずれも 0ms のため、次フェーズの短縮対象からは外す。
-- `startup_background_summary` を追加する。
-  - playlist、chart_info、ranking、reverse lookup、maintenance の elapsed / rows / skipped reason をまとめる。
+- `startup_background_summary` を追加済み。
+  - startup scheduler 経由 task と BMSLibrary 直実行 task の queue / start / complete / failed / elapsed をまとめる。
+  - reverse lookup warmup は progress phase として tracking し、summary に含める。
 - `startup_ready_installable` は導入 readiness と意味が重複するため削除済み。
 - 旧実験ログ名や旧 fast path 用ログは、実装が存在しないなら残さない。
+
+### Remaining Before Phase 2
+
+実装済み。Phase 2 に入る前の観測点として、次を現行仕様に固定した。
+
+- `startup_initialization_complete`: background を含む初期化完了 elapsed。
+- `startup_background_summary`: playlist / chart_info / ranking / reverse lookup / maintenance などの startup background task summary。
+- `InstallReady`: 現時点ではログ境界であり、UI enable / file operation safety の実条件変更は未実装。
 
 ### Acceptance Criteria
 
@@ -167,14 +194,24 @@ revert 後の状態を基準にし、導入可能までと初期化完了まで�
 
 起動 early path で読む DB projection を、導入可能に必要な情報へ絞る。これにより導入可能までを短縮し、不要な再 materialize を消して初期化全体も短縮する。
 
+Phase 2 の前提は、partial `BMSFile` を UI 正本として出さないことである。
+install-ready projection を導入する場合は、次のどちらかを実装単位で明確に選ぶ。
+
+- install readiness 専用 DTO / index を作り、UI `BMSFiles` は display hydration 後に現行と同じ full model として公開する。
+- 既存 `BMSFile` を正本にする場合は、early projection object を後続 hydration で in-place に埋め、同じ DB row を再 materialize しない。
+
+どちらの場合も、early object を捨てて full object を作り直す二重 materialize は行わない。
+
 ### Key Changes
 
 - install-ready catalog projection を定義する。
-  - path / parent path / folder id。
-  - md5 / sha256 / last write timestamp。
-  - BMS / BMSON identity。
-  - install destination / package membership。
-  - install safety に必要な最小 maintenance fields。
+  - chart identity: path、parent path、folder id、BMS / BMSON 種別。
+  - installed membership 判定: md5、sha256、last write timestamp、DB row identity。
+  - install estimation の代表 metadata に必要な title / artist / subartist / genre / level などの最小 fields。
+  - package restore / install plan に必要な package membership と pending install row identity。
+- maintenance は install readiness の必須条件にしない。
+  - resource health warning、WAV/BGA 率、encoding 補完は導入先推定 / 導入開始の blocker ではない。
+  - pending source baseline は pending package source surface と chart resource refs から評価するため、DB `maintenance` 全件 materialize に依存させない。
 - display-only fields、playlist-only fields、ranking / score、chart_info owner apply 用 data は early projection から外す。
 - full model hydration が必要な場合も、early projection の object を捨てて再構築しない。
 - `song_tbl_load_io` を projection 単位で出す。
@@ -187,6 +224,8 @@ revert 後の状態を基準にし、導入可能までと初期化完了まで�
 - `song_read_ms` / `song_materialize_ms` / `maintenance_read_ms` の early path が下がる。
 - display hydration 後の UI 表示、sort、filter、warning projection は現行と一致する。
 - 同じ DB rows を early path と background path で重複 materialize しない。
+- `InstallEstimationReady` は playlist / score / chart_info / maintenance hydration を待たず、resource index と pending package state が揃った時点で出る。
+- partial model が UI に出て、空 title / 空 artist / stale warning で表示される状態を作らない。
 
 ## Phase 3: Enumeration-Based Resource Index Consolidation
 

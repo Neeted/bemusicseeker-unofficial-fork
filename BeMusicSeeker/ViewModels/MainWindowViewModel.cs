@@ -3962,7 +3962,8 @@ public class MainWindowViewModel : ViewModel
         LibraryDatabaseLoadDone = 8192,
         LibraryFileEnumerationDone = 16384,
         LibraryFileDiffDone = 32768,
-        InstallableMaintenanceDeferredDone = 65536
+        InstallableMaintenanceDeferredDone = 65536,
+        ReverseLookupWarmupDone = 131072
     }
 
     /// <summary>
@@ -4005,6 +4006,8 @@ public class MainWindowViewModel : ViewModel
 
         internal int InstallableMaintenanceRequestedBaselineVersion;
 
+        internal int ReverseLookupWarmupRequestedBaselineVersion;
+
         internal int ChartDigestBackfillBaselineCompletedVersion;
 
         internal int ChartInfoBackfillBaselineCompletedVersion;
@@ -4028,6 +4031,8 @@ public class MainWindowViewModel : ViewModel
         internal int RequiredMaintenanceCompletedVersion;
 
         internal int RequiredInstallableMaintenanceCompletedVersion;
+
+        internal int RequiredReverseLookupWarmupCompletedVersion;
 
         internal int RequiredChartDigestBackfillCompletedVersion;
 
@@ -4349,6 +4354,31 @@ public class MainWindowViewModel : ViewModel
         internal Func<Task> Work;
     }
 
+    private sealed class StartupBackgroundTaskMetric
+    {
+        internal string Name = string.Empty;
+
+        internal string Reason = string.Empty;
+
+        internal string Dependency = string.Empty;
+
+        internal long QueuedCount;
+
+        internal long StartedCount;
+
+        internal long CompletedCount;
+
+        internal long FailedCount;
+
+        internal long TotalElapsedMs;
+
+        internal long LastElapsedMs;
+
+        internal string LastStatus = string.Empty;
+
+        internal string LastDetail = string.Empty;
+    }
+
     public enum MaintenanceFilterType
     {
         FullScanAllChartsFilter = 32,
@@ -4472,11 +4502,19 @@ public class MainWindowViewModel : ViewModel
 
     private readonly HashSet<string> startupBackgroundTaskCompletedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
+    private readonly Dictionary<string, StartupBackgroundTaskMetric> startupBackgroundTaskMetrics = new Dictionary<string, StartupBackgroundTaskMetric>(StringComparer.OrdinalIgnoreCase);
+
     private bool startupBackgroundTaskSchedulerStarted;
 
     private bool startupBackgroundTaskWorkerRunning;
 
     private long startupBackgroundTaskVersion;
+
+    private Stopwatch startupInitializationCompleteStopwatch;
+
+    private bool startupInitializationCompleteLogged;
+
+    private bool startupInitializationCompleteRetryQueued;
 
     private Stopwatch startupReadyInstallStopwatch;
 
@@ -6557,6 +6595,7 @@ public class MainWindowViewModel : ViewModel
         bool shouldStartWorker = false;
         lock (startupBackgroundTaskLock)
         {
+            RecordStartupBackgroundTaskQueuedUnsafe(normalizedName, normalizedReason, normalizedDependency);
             version = ++startupBackgroundTaskVersion;
             StartupBackgroundTaskRequest existing = startupBackgroundTaskQueue.LastOrDefault((StartupBackgroundTaskRequest item) => string.Equals(item.CoalesceKey, coalesceKey, StringComparison.OrdinalIgnoreCase));
             if (existing != null)
@@ -6589,6 +6628,74 @@ public class MainWindowViewModel : ViewModel
             TryStartStartupBackgroundTaskWorker();
         }
         return true;
+    }
+
+    private StartupBackgroundTaskMetric GetOrCreateStartupBackgroundTaskMetricUnsafe(string name)
+    {
+        string normalizedName = string.IsNullOrWhiteSpace(name) ? "unknown" : name;
+        if (!startupBackgroundTaskMetrics.TryGetValue(normalizedName, out StartupBackgroundTaskMetric metric))
+        {
+            metric = new StartupBackgroundTaskMetric
+            {
+                Name = normalizedName
+            };
+            startupBackgroundTaskMetrics[normalizedName] = metric;
+        }
+        return metric;
+    }
+
+    private void RecordStartupBackgroundTaskQueuedUnsafe(string name, string reason, string dependency)
+    {
+        StartupBackgroundTaskMetric metric = GetOrCreateStartupBackgroundTaskMetricUnsafe(name);
+        metric.QueuedCount++;
+        metric.Reason = reason ?? string.Empty;
+        metric.Dependency = dependency ?? string.Empty;
+        metric.LastStatus = "queued";
+    }
+
+    private void RecordStartupBackgroundTaskStarted(string name)
+    {
+        lock (startupBackgroundTaskLock)
+        {
+            StartupBackgroundTaskMetric metric = GetOrCreateStartupBackgroundTaskMetricUnsafe(name);
+            metric.StartedCount++;
+            metric.LastStatus = "running";
+        }
+    }
+
+    private void RecordStartupBackgroundTaskCompleted(string name, string status, long elapsedMs, bool failed, string detail)
+    {
+        lock (startupBackgroundTaskLock)
+        {
+            StartupBackgroundTaskMetric metric = GetOrCreateStartupBackgroundTaskMetricUnsafe(name);
+            if (string.Equals(status, "queued", StringComparison.OrdinalIgnoreCase))
+            {
+                metric.QueuedCount++;
+                metric.Reason = detail ?? string.Empty;
+                metric.LastStatus = "queued";
+                return;
+            }
+            if (string.Equals(status, "start", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(status, "running", StringComparison.OrdinalIgnoreCase))
+            {
+                metric.StartedCount++;
+                metric.LastStatus = "running";
+                metric.LastDetail = detail ?? string.Empty;
+                return;
+            }
+            if (failed)
+            {
+                metric.FailedCount++;
+            }
+            else
+            {
+                metric.CompletedCount++;
+            }
+            metric.LastStatus = string.IsNullOrWhiteSpace(status) ? (failed ? "failed" : "done") : status;
+            metric.LastElapsedMs = Math.Max(0L, elapsedMs);
+            metric.TotalElapsedMs += Math.Max(0L, elapsedMs);
+            metric.LastDetail = detail ?? string.Empty;
+        }
     }
 
     private static int GetStartupBackgroundTaskPriority(string name)
@@ -6695,17 +6802,20 @@ public class MainWindowViewModel : ViewModel
                 }
                 Stopwatch stopwatch = Stopwatch.StartNew();
                 LogUiSuppression("startup_background_task start name=" + request.Name + " version=" + request.Version + " reason=" + request.Reason + " dependency=" + (request.Dependency ?? "(none)"));
+                RecordStartupBackgroundTaskStarted(request.Name);
                 try
                 {
                     await request.Work().ConfigureAwait(false);
                     stopwatch.Stop();
                     LogUiSuppression("startup_background_task done name=" + request.Name + " version=" + request.Version + " reason=" + request.Reason + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
+                    RecordStartupBackgroundTaskCompleted(request.Name, "done", stopwatch.ElapsedMilliseconds, failed: false, detail: "reason=" + request.Reason);
                     StartupMemoryPressureService.LogCheckpoint(LogUiSuppression, "startup_background_task", request.Name + "_done");
                 }
                 catch (Exception ex)
                 {
                     stopwatch.Stop();
                     LogUiSuppressionWarning("startup_background_task failed name=" + request.Name + " version=" + request.Version + " reason=" + request.Reason + " elapsedMs=" + stopwatch.ElapsedMilliseconds + " message=" + ex.Message);
+                    RecordStartupBackgroundTaskCompleted(request.Name, "failed", stopwatch.ElapsedMilliseconds, failed: true, detail: ex.Message);
                     StartupMemoryPressureService.LogCheckpoint(LogUiSuppression, "startup_background_task", request.Name + "_failed");
                 }
                 lock (startupBackgroundTaskLock)
@@ -9536,7 +9646,8 @@ public class MainWindowViewModel : ViewModel
             StartupProgressPhase.ScoreHydrationDone,
             StartupProgressPhase.RankingRefreshDone,
             StartupProgressPhase.MaintenanceDeferredDone,
-            StartupProgressPhase.InstallableMaintenanceDeferredDone);
+            StartupProgressPhase.InstallableMaintenanceDeferredDone,
+            StartupProgressPhase.ReverseLookupWarmupDone);
     }
 
     internal static string BuildBmsonMigrationWarningMessage(BmsonMigrationPreflightResult preflightResult)
@@ -9729,12 +9840,14 @@ public class MainWindowViewModel : ViewModel
                 files = new BMSLibrary(Settings.Default.LR2SongDBPath, () => lr2config, text2);
                 tables = new BMSPlaylist(Settings.Default.LR2SongDBPath, () => lr2config, text2, () => files.GetBMSScores());
                 files.StartupBackgroundTaskScheduler = QueueStartupBackgroundTask;
+                files.StartupBackgroundTaskReporter = RecordStartupBackgroundTaskCompleted;
                 tables.StartupBackgroundTaskScheduler = QueueStartupBackgroundTask;
             }
             else
             {
                 files = new BMSLibrary(Settings.Default.LR2SongDBPath);
                 files.StartupBackgroundTaskScheduler = QueueStartupBackgroundTask;
+                files.StartupBackgroundTaskReporter = RecordStartupBackgroundTaskCompleted;
                 files.SearchTargets.Add(Settings.Default.BMSRootPath);
             }
             if (Settings.Default.UsePlayeruBMplay)
@@ -9904,6 +10017,14 @@ public class MainWindowViewModel : ViewModel
         listenerForBMSLibrary.RegisterHandler(() => files.InstallableMaintenanceDeferredCompletedVersion, delegate
         {
             TryCompleteStartupProgressInstallableMaintenance(files.InstallableMaintenanceDeferredCompletedVersion);
+        });
+        listenerForBMSLibrary.RegisterHandler(() => files.ReverseLookupWarmupRequestedVersion, delegate
+        {
+            TrackStartupProgressReverseLookupWarmupRequested(files.ReverseLookupWarmupRequestedVersion);
+        });
+        listenerForBMSLibrary.RegisterHandler(() => files.ReverseLookupWarmupCompletedVersion, delegate
+        {
+            TryCompleteStartupProgressReverseLookupWarmup(files.ReverseLookupWarmupCompletedVersion);
         });
         listenerForBMSLibrary.RegisterHandler(() => files.ChartDigestBackfillRequestedVersion, delegate
         {
@@ -10310,7 +10431,8 @@ public class MainWindowViewModel : ViewModel
             StartupProgressPhase.ScoreHydrationDone,
             StartupProgressPhase.RankingRefreshDone,
             StartupProgressPhase.MaintenanceDeferredDone,
-            StartupProgressPhase.InstallableMaintenanceDeferredDone);
+            StartupProgressPhase.InstallableMaintenanceDeferredDone,
+            StartupProgressPhase.ReverseLookupWarmupDone);
     }
 
     public void SetuBMplayPanel()
@@ -13207,6 +13329,11 @@ public class MainWindowViewModel : ViewModel
     private void StartStartupProgressOperation(StartupProgressOperationKind operationKind)
     {
         ResetStartupBackgroundTaskSchedulerState();
+        if (operationKind == StartupProgressOperationKind.Startup)
+        {
+            startupInitializationCompleteStopwatch = Stopwatch.StartNew();
+            startupInitializationCompleteLogged = false;
+        }
         StartupProgressState state = new StartupProgressState
         {
             OperationKind = operationKind,
@@ -13220,6 +13347,7 @@ public class MainWindowViewModel : ViewModel
             RankingRefreshRequestedBaselineVersion = files?.RankingRefreshRequestedVersion ?? 0,
             MaintenanceRequestedBaselineVersion = files?.MaintenanceDeferredRequestedVersion ?? 0,
             InstallableMaintenanceRequestedBaselineVersion = files?.InstallableMaintenanceDeferredRequestedVersion ?? 0,
+            ReverseLookupWarmupRequestedBaselineVersion = files?.ReverseLookupWarmupRequestedVersion ?? 0,
             ChartDigestBackfillBaselineCompletedVersion = files?.ChartDigestBackfillCompletedVersion ?? 0,
             ChartInfoBackfillBaselineCompletedVersion = files?.ChartInfoBackfillCompletedVersion ?? 0,
             ChartInfoHydrationBaselineCompletedVersion = files?.ChartInfoHydrationCompletedVersion ?? 0,
@@ -13270,7 +13398,8 @@ public class MainWindowViewModel : ViewModel
             startupProgressState.CompletedPhases |= phase;
             if (phase == StartupProgressPhase.RankingRefreshDone
                 || phase == StartupProgressPhase.MaintenanceDeferredDone
-                || phase == StartupProgressPhase.InstallableMaintenanceDeferredDone)
+                || phase == StartupProgressPhase.InstallableMaintenanceDeferredDone
+                || phase == StartupProgressPhase.ReverseLookupWarmupDone)
             {
                 startupProgressState.LastCompletedAtUtc = DateTime.UtcNow;
             }
@@ -13283,7 +13412,11 @@ public class MainWindowViewModel : ViewModel
         lock (startupBackgroundTaskLock)
         {
             startupBackgroundTaskCompletedNames.Clear();
+            startupBackgroundTaskMetrics.Clear();
         }
+        startupInitializationCompleteStopwatch = null;
+        startupInitializationCompleteLogged = false;
+        startupInitializationCompleteRetryQueued = false;
     }
 
     private void SkipStartupProgressPhaseIfExpected(StartupProgressPhase phase, string reason)
@@ -13518,6 +13651,24 @@ public class MainWindowViewModel : ViewModel
             requestedVersion,
             "installable_maintenance_deferred",
             state => state.RequiredInstallableMaintenanceCompletedVersion = Math.Max(state.RequiredInstallableMaintenanceCompletedVersion, requestedVersion));
+    }
+
+    private void TrackStartupProgressReverseLookupWarmupRequested(int requestedVersion)
+    {
+        bool shouldTrack;
+        lock (startupProgressLock)
+        {
+            shouldTrack = startupProgressState.IsActive && requestedVersion > startupProgressState.ReverseLookupWarmupRequestedBaselineVersion;
+        }
+        if (!shouldTrack)
+        {
+            return;
+        }
+        TryTrackStartupProgressPhaseRequest(
+            StartupProgressPhase.ReverseLookupWarmupDone,
+            requestedVersion,
+            "reverse_lookup_warmup",
+            state => state.RequiredReverseLookupWarmupCompletedVersion = Math.Max(state.RequiredReverseLookupWarmupCompletedVersion, requestedVersion));
     }
 
     private void TrackStartupProgressScoreHydrationRequested(int requestedVersion)
@@ -13862,6 +14013,23 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
+    private void TryCompleteStartupProgressReverseLookupWarmup(int completedVersion)
+    {
+        bool shouldComplete = false;
+        lock (startupProgressLock)
+        {
+            if (!startupProgressState.IsActive || !CanCompleteStartupProgressPhase(startupProgressState, StartupProgressPhase.ReverseLookupWarmupDone))
+            {
+                return;
+            }
+            shouldComplete = completedVersion >= startupProgressState.RequiredReverseLookupWarmupCompletedVersion;
+        }
+        if (shouldComplete)
+        {
+            MarkStartupProgressPhaseCompleted(StartupProgressPhase.ReverseLookupWarmupDone);
+        }
+    }
+
     /// <summary>
     /// 起動・リロード進捗で deferred score hydration 完了を反映します。
     /// </summary>
@@ -13919,11 +14087,14 @@ public class MainWindowViewModel : ViewModel
         bool shouldHideLater = false;
         long hideOperationToken = 0L;
         long reflectOperationToken = 0L;
+        bool operationCompletedForLog = false;
+        StartupProgressOperationKind operationKindForLog = StartupProgressOperationKind.None;
         lock (startupProgressLock)
         {
             StartupProgressState state = startupProgressState;
             isActive = state.IsActive;
             reflectOperationToken = state.OperationToken;
+            operationKindForLog = state.OperationKind;
             if (!isActive)
             {
                 label = string.Empty;
@@ -13937,6 +14108,7 @@ public class MainWindowViewModel : ViewModel
                 value = CountCompletedExpectedStartupProgressPhases(state);
                 bool operableCompleted = (state.CompletedPhases & StartupProgressPhase.StartupReadyOperable) != 0;
                 bool operationCompleted = !state.IsFailed && AreExpectedStartupProgressPhasesCompleted(state);
+                operationCompletedForLog = operationCompleted;
                 if (state.IsFailed)
                 {
                     label = GetStartupProgressFailedLabel(state.OperationKind);
@@ -14000,6 +14172,125 @@ public class MainWindowViewModel : ViewModel
         {
             ScheduleStartupProgressHide(hideOperationToken);
         }
+        if (operationCompletedForLog && operationKindForLog == StartupProgressOperationKind.Startup)
+        {
+            TryLogStartupInitializationComplete();
+        }
+    }
+
+    private void TryLogStartupInitializationComplete()
+    {
+        long elapsedMs;
+        lock (startupBackgroundTaskLock)
+        {
+            if (startupInitializationCompleteLogged || startupInitializationCompleteStopwatch == null)
+            {
+                return;
+            }
+            bool schedulerIdle = startupBackgroundTaskQueue.Count == 0 && !startupBackgroundTaskWorkerRunning;
+            if (!schedulerIdle)
+            {
+                QueueStartupInitializationCompleteRetryUnsafe();
+                return;
+            }
+            startupInitializationCompleteLogged = true;
+            elapsedMs = startupInitializationCompleteStopwatch.ElapsedMilliseconds;
+        }
+        LogUiSuppression("startup_initialization_complete elapsedMs=" + elapsedMs);
+        LogUiSuppression(BuildStartupBackgroundSummaryLog(elapsedMs));
+    }
+
+    private void QueueStartupInitializationCompleteRetryUnsafe()
+    {
+        if (startupInitializationCompleteRetryQueued)
+        {
+            return;
+        }
+        startupInitializationCompleteRetryQueued = true;
+        Task.Run(async delegate
+        {
+            await Task.Delay(250).ConfigureAwait(false);
+            lock (startupBackgroundTaskLock)
+            {
+                startupInitializationCompleteRetryQueued = false;
+            }
+            TryLogStartupInitializationComplete();
+        });
+    }
+
+    private string BuildStartupBackgroundSummaryLog(long elapsedMs)
+    {
+        List<StartupBackgroundTaskMetric> metrics;
+        lock (startupBackgroundTaskLock)
+        {
+            metrics = startupBackgroundTaskMetrics.Values
+                .OrderBy((StartupBackgroundTaskMetric metric) => metric.Name, StringComparer.OrdinalIgnoreCase)
+                .Select(CloneStartupBackgroundTaskMetric)
+                .ToList();
+        }
+        long queued = metrics.Sum((StartupBackgroundTaskMetric metric) => metric.QueuedCount);
+        long started = metrics.Sum((StartupBackgroundTaskMetric metric) => metric.StartedCount);
+        long completed = metrics.Sum((StartupBackgroundTaskMetric metric) => metric.CompletedCount);
+        long failed = metrics.Sum((StartupBackgroundTaskMetric metric) => metric.FailedCount);
+        string taskSummary = metrics.Count == 0
+            ? "(none)"
+            : string.Join(";", metrics.Select(FormatStartupBackgroundTaskMetric));
+        return "startup_background_summary elapsedMs=" + elapsedMs
+            + " queued=" + queued
+            + " started=" + started
+            + " completed=" + completed
+            + " failed=" + failed
+            + " tasks=" + taskSummary;
+    }
+
+    private static StartupBackgroundTaskMetric CloneStartupBackgroundTaskMetric(StartupBackgroundTaskMetric metric)
+    {
+        return new StartupBackgroundTaskMetric
+        {
+            Name = metric.Name,
+            Reason = metric.Reason,
+            Dependency = metric.Dependency,
+            QueuedCount = metric.QueuedCount,
+            StartedCount = metric.StartedCount,
+            CompletedCount = metric.CompletedCount,
+            FailedCount = metric.FailedCount,
+            TotalElapsedMs = metric.TotalElapsedMs,
+            LastElapsedMs = metric.LastElapsedMs,
+            LastStatus = metric.LastStatus,
+            LastDetail = metric.LastDetail
+        };
+    }
+
+    private static string FormatStartupBackgroundTaskMetric(StartupBackgroundTaskMetric metric)
+    {
+        return SanitizeStartupBackgroundSummaryValue(metric.Name)
+            + "{queued=" + metric.QueuedCount
+            + ",started=" + metric.StartedCount
+            + ",completed=" + metric.CompletedCount
+            + ",failed=" + metric.FailedCount
+            + ",lastStatus=" + SanitizeStartupBackgroundSummaryValue(metric.LastStatus)
+            + ",lastMs=" + metric.LastElapsedMs
+            + ",totalMs=" + metric.TotalElapsedMs
+            + ",reason=" + SanitizeStartupBackgroundSummaryValue(metric.Reason)
+            + ",dependency=" + SanitizeStartupBackgroundSummaryValue(metric.Dependency)
+            + ",detail=" + SanitizeStartupBackgroundSummaryValue(metric.LastDetail)
+            + "}";
+    }
+
+    private static string SanitizeStartupBackgroundSummaryValue(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return "-";
+        }
+        return value
+            .Replace(Environment.NewLine, " ")
+            .Replace("\r", " ")
+            .Replace("\n", " ")
+            .Replace(";", ",")
+            .Replace("{", "(")
+            .Replace("}", ")")
+            .Replace(" ", "_");
     }
 
     /// <summary>
@@ -14140,6 +14431,10 @@ public class MainWindowViewModel : ViewModel
         {
             return BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_installable_maintenance;
         }
+        if (!IsStartupProgressPhaseCompletedOrNotExpected(state, StartupProgressPhase.ReverseLookupWarmupDone))
+        {
+            return "逆引きインデックス準備";
+        }
         return BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_background;
     }
 
@@ -14235,6 +14530,7 @@ public class MainWindowViewModel : ViewModel
         CountExpectedStartupProgressPhase(state, StartupProgressPhase.ChartInfoBackfillDone, ref count);
         CountExpectedStartupProgressPhase(state, StartupProgressPhase.ScoreHydrationDone, ref count);
         CountExpectedStartupProgressPhase(state, StartupProgressPhase.RankingRefreshDone, ref count);
+        CountExpectedStartupProgressPhase(state, StartupProgressPhase.ReverseLookupWarmupDone, ref count);
         return count;
     }
 
@@ -14256,6 +14552,7 @@ public class MainWindowViewModel : ViewModel
                     | StartupProgressPhase.RankingRefreshDone
                     | StartupProgressPhase.MaintenanceDeferredDone
                     | StartupProgressPhase.InstallableMaintenanceDeferredDone
+                    | StartupProgressPhase.ReverseLookupWarmupDone
                     | StartupProgressPhase.ChartDigestBackfillDone
                     | StartupProgressPhase.ChartInfoBackfillDone
                     | StartupProgressPhase.ChartInfoHydrationDone
@@ -14271,6 +14568,7 @@ public class MainWindowViewModel : ViewModel
                     | StartupProgressPhase.RankingRefreshDone
                     | StartupProgressPhase.MaintenanceDeferredDone
                     | StartupProgressPhase.InstallableMaintenanceDeferredDone
+                    | StartupProgressPhase.ReverseLookupWarmupDone
                     | StartupProgressPhase.ChartDigestBackfillDone
                     | StartupProgressPhase.ChartInfoBackfillDone
                     | StartupProgressPhase.ChartInfoHydrationDone
@@ -14313,6 +14611,7 @@ public class MainWindowViewModel : ViewModel
         CountCompletedExpectedStartupProgressPhase(state, StartupProgressPhase.ChartInfoBackfillDone, ref count);
         CountCompletedExpectedStartupProgressPhase(state, StartupProgressPhase.ScoreHydrationDone, ref count);
         CountCompletedExpectedStartupProgressPhase(state, StartupProgressPhase.RankingRefreshDone, ref count);
+        CountCompletedExpectedStartupProgressPhase(state, StartupProgressPhase.ReverseLookupWarmupDone, ref count);
         return count;
     }
 
@@ -14462,6 +14761,7 @@ public class MainWindowViewModel : ViewModel
         CountStartupProgressPhase(phases, StartupProgressPhase.ChartInfoBackfillDone, ref count);
         CountStartupProgressPhase(phases, StartupProgressPhase.ScoreHydrationDone, ref count);
         CountStartupProgressPhase(phases, StartupProgressPhase.RankingRefreshDone, ref count);
+        CountStartupProgressPhase(phases, StartupProgressPhase.ReverseLookupWarmupDone, ref count);
         return count;
     }
 

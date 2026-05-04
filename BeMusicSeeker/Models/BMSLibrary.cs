@@ -41,6 +41,8 @@ public class BMSLibrary : NotificationObject
 {
     internal Func<string, string, string, Func<Task>, bool> StartupBackgroundTaskScheduler { get; set; }
 
+    internal Action<string, string, long, bool, string> StartupBackgroundTaskReporter { get; set; }
+
     public enum LibraryInitializeMode
     {
         Startup,
@@ -203,6 +205,17 @@ public class BMSLibrary : NotificationObject
     private static void LogStartupMemoryCheckpoint(string phase, string point)
     {
         StartupMemoryPressureService.LogCheckpoint(LogInstallPerformance, phase, point);
+    }
+
+    private void ReportStartupBackgroundTask(string name, string status, long elapsedMs, bool failed, string detail = null)
+    {
+        try
+        {
+            StartupBackgroundTaskReporter?.Invoke(name ?? "unknown", status ?? string.Empty, elapsedMs, failed, detail ?? string.Empty);
+        }
+        catch
+        {
+        }
     }
 
     /// <summary>
@@ -1649,6 +1662,54 @@ public class BMSLibrary : NotificationObject
             {
                 deferredInstallableMaintenanceLastCompletedVersion = value;
                 RaisePropertyChanged(() => InstallableMaintenanceDeferredCompletedVersion);
+            }
+        }
+    }
+
+    public bool ReverseLookupWarmupRunning
+    {
+        get
+        {
+            return deferredReverseLookupWarmupRunning;
+        }
+        private set
+        {
+            if (deferredReverseLookupWarmupRunning != value)
+            {
+                deferredReverseLookupWarmupRunning = value;
+                RaisePropertyChanged(() => ReverseLookupWarmupRunning);
+            }
+        }
+    }
+
+    public int ReverseLookupWarmupRequestedVersion
+    {
+        get
+        {
+            return deferredReverseLookupWarmupRequestedVersion;
+        }
+        private set
+        {
+            if (deferredReverseLookupWarmupRequestedVersion != value)
+            {
+                deferredReverseLookupWarmupRequestedVersion = value;
+                RaisePropertyChanged(() => ReverseLookupWarmupRequestedVersion);
+            }
+        }
+    }
+
+    public int ReverseLookupWarmupCompletedVersion
+    {
+        get
+        {
+            return deferredReverseLookupWarmupLastCompletedVersion;
+        }
+        private set
+        {
+            if (deferredReverseLookupWarmupLastCompletedVersion != value)
+            {
+                deferredReverseLookupWarmupLastCompletedVersion = value;
+                RaisePropertyChanged(() => ReverseLookupWarmupCompletedVersion);
             }
         }
     }
@@ -5301,15 +5362,16 @@ public class BMSLibrary : NotificationObject
         bool shouldStartWorker = false;
         lock (lockDeferredReverseLookupWarmup)
         {
-            deferredReverseLookupWarmupRequestedVersion++;
-            version = deferredReverseLookupWarmupRequestedVersion;
-            if (!deferredReverseLookupWarmupRunning)
+            ReverseLookupWarmupRequestedVersion = ReverseLookupWarmupRequestedVersion + 1;
+            version = ReverseLookupWarmupRequestedVersion;
+            if (!ReverseLookupWarmupRunning)
             {
-                deferredReverseLookupWarmupRunning = true;
+                ReverseLookupWarmupRunning = true;
                 shouldStartWorker = true;
             }
         }
         LogInstallPerformance("reverse_lookup_warmup_deferred queue reason=" + (reason ?? "unknown") + " version=" + version);
+        ReportStartupBackgroundTask("reverse_lookup_warmup_deferred", "queued", 0L, failed: false, detail: reason ?? string.Empty);
         if (!shouldStartWorker)
         {
             return;
@@ -5324,11 +5386,12 @@ public class BMSLibrary : NotificationObject
             int requestVersion;
             lock (lockDeferredReverseLookupWarmup)
             {
-                requestVersion = deferredReverseLookupWarmupRequestedVersion;
+                requestVersion = ReverseLookupWarmupRequestedVersion;
             }
 
             Stopwatch stopwatch = Stopwatch.StartNew();
             bool superseded = false;
+            ReportStartupBackgroundTask("reverse_lookup_warmup_deferred", "start", 0L, failed: false, detail: "version=" + requestVersion);
             try
             {
                 DirectoryResourceLookupCache lookupCacheSnapshot;
@@ -5340,6 +5403,7 @@ public class BMSLibrary : NotificationObject
                 {
                     stopwatch.Stop();
                     LogInstallPerformance("reverse_lookup_warmup_deferred done version=" + requestVersion + " warmedHashes=0 elapsedMs=" + stopwatch.ElapsedMilliseconds);
+                    ReportStartupBackgroundTask("reverse_lookup_warmup_deferred", "done", stopwatch.ElapsedMilliseconds, failed: false, detail: "warmedHashes=0");
                 }
                 else
                 {
@@ -5354,7 +5418,7 @@ public class BMSLibrary : NotificationObject
 
                         lock (lockDeferredReverseLookupWarmup)
                         {
-                            if (requestVersion != deferredReverseLookupWarmupRequestedVersion)
+                            if (requestVersion != ReverseLookupWarmupRequestedVersion)
                             {
                                 superseded = true;
                             }
@@ -5363,6 +5427,7 @@ public class BMSLibrary : NotificationObject
                         {
                             stopwatch.Stop();
                             LogInstallPerformance("reverse_lookup_warmup_deferred cancelled version=" + requestVersion + " totalBuildMs=" + totalBuildMs + " elapsedMs=" + stopwatch.ElapsedMilliseconds + " reason=superseded");
+                            ReportStartupBackgroundTask("reverse_lookup_warmup_deferred", "cancelled", stopwatch.ElapsedMilliseconds, failed: false, detail: "reason=superseded totalBuildMs=" + totalBuildMs);
                             break;
                         }
 
@@ -5375,6 +5440,7 @@ public class BMSLibrary : NotificationObject
                         {
                             stopwatch.Stop();
                             LogInstallPerformance("reverse_lookup_warmup_deferred cancelled version=" + requestVersion + " totalBuildMs=" + totalBuildMs + " elapsedMs=" + stopwatch.ElapsedMilliseconds + " reason=cache_replaced");
+                            ReportStartupBackgroundTask("reverse_lookup_warmup_deferred", "cancelled", stopwatch.ElapsedMilliseconds, failed: false, detail: "reason=cache_replaced totalBuildMs=" + totalBuildMs);
                             break;
                         }
 
@@ -5386,6 +5452,7 @@ public class BMSLibrary : NotificationObject
                         {
                             stopwatch.Stop();
                             LogInstallPerformance("reverse_lookup_warmup_deferred cancelled version=" + requestVersion + " totalBuildMs=" + totalBuildMs + " elapsedMs=" + stopwatch.ElapsedMilliseconds + " reason=token");
+                            ReportStartupBackgroundTask("reverse_lookup_warmup_deferred", "cancelled", stopwatch.ElapsedMilliseconds, failed: false, detail: "reason=token totalBuildMs=" + totalBuildMs);
                             break;
                         }
                         if (stepResult.Paused)
@@ -5408,6 +5475,7 @@ public class BMSLibrary : NotificationObject
                         {
                             stopwatch.Stop();
                             LogInstallPerformance("reverse_lookup_warmup_deferred done version=" + requestVersion + " warmedHashes=" + warmedHashes + " totalBuildMs=" + totalBuildMs + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
+                            ReportStartupBackgroundTask("reverse_lookup_warmup_deferred", "done", stopwatch.ElapsedMilliseconds, failed: false, detail: "warmedHashes=" + warmedHashes + " totalBuildMs=" + totalBuildMs);
                             break;
                         }
                     }
@@ -5417,14 +5485,15 @@ public class BMSLibrary : NotificationObject
             {
                 stopwatch.Stop();
                 LogInstallPerformance("reverse_lookup_warmup_deferred failed version=" + requestVersion + " elapsedMs=" + stopwatch.ElapsedMilliseconds + " message=" + ex.Message);
+                ReportStartupBackgroundTask("reverse_lookup_warmup_deferred", "failed", stopwatch.ElapsedMilliseconds, failed: true, detail: ex.Message);
             }
 
             lock (lockDeferredReverseLookupWarmup)
             {
-                deferredReverseLookupWarmupLastCompletedVersion = requestVersion;
-                if (requestVersion == deferredReverseLookupWarmupRequestedVersion)
+                ReverseLookupWarmupCompletedVersion = requestVersion;
+                if (requestVersion == ReverseLookupWarmupRequestedVersion)
                 {
-                    deferredReverseLookupWarmupRunning = false;
+                    ReverseLookupWarmupRunning = false;
                     return;
                 }
             }
@@ -5467,6 +5536,7 @@ public class BMSLibrary : NotificationObject
             MaintenanceDeferredRunning = true;
         }
         LogInstallPerformance("maintenance_tbl_check_deferred queue reason=" + (reason ?? "unknown") + " version=" + version);
+        ReportStartupBackgroundTask("maintenance_tbl_check_deferred", "queued", 0L, failed: false, detail: reason ?? string.Empty);
         if (!shouldStartWorker)
         {
             return;
@@ -5481,17 +5551,20 @@ public class BMSLibrary : NotificationObject
                     requestVersion = deferredMaintenanceTableCheckRequestedVersion;
                 }
                 Stopwatch stopwatch = Stopwatch.StartNew();
+                ReportStartupBackgroundTask("maintenance_tbl_check_deferred", "start", 0L, failed: false, detail: "version=" + requestVersion);
                 try
                 {
                     LogInstallPerformance("maintenance_tbl_check_deferred run version=" + requestVersion);
                     int maintenanceDeleted = CleanupMaintenanceTable();
                     stopwatch.Stop();
                     LogInstallPerformance("maintenance_tbl_check_deferred done version=" + requestVersion + " deleted=" + maintenanceDeleted + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
+                    ReportStartupBackgroundTask("maintenance_tbl_check_deferred", "done", stopwatch.ElapsedMilliseconds, failed: false, detail: "deleted=" + maintenanceDeleted);
                 }
                 catch (Exception ex)
                 {
                     stopwatch.Stop();
                     LogInstallPerformance("maintenance_tbl_check_deferred failed version=" + requestVersion + " elapsedMs=" + stopwatch.ElapsedMilliseconds + " message=" + ex.Message);
+                    ReportStartupBackgroundTask("maintenance_tbl_check_deferred", "failed", stopwatch.ElapsedMilliseconds, failed: true, detail: ex.Message);
                 }
                 bool markRunningFalse = false;
                 lock (lockDeferredMaintenanceTableCheck)
@@ -5540,6 +5613,7 @@ public class BMSLibrary : NotificationObject
         }
         ScoreHydrationRequestedVersion = version;
         LogInstallPerformance("score_hydration_deferred queue reason=" + (reason ?? "unknown") + " version=" + version);
+        ReportStartupBackgroundTask("score_hydration_deferred", "queued", 0L, failed: false, detail: reason ?? string.Empty);
         if (shouldStartWorker)
         {
             Task.Run(ProcessDeferredScoreHydrationRequests).Logging("ProcessDeferredScoreHydrationRequests");
@@ -5573,6 +5647,7 @@ public class BMSLibrary : NotificationObject
         }
         RankingRefreshRequestedVersion = version;
         LogInstallPerformance("ranking_refresh_deferred queue reason=" + (reason ?? "unknown") + " version=" + version);
+        ReportStartupBackgroundTask("ranking_refresh_deferred", "queued", 0L, failed: false, detail: reason ?? string.Empty);
         if (shouldStartWorker)
         {
             Task.Run(ProcessDeferredRankingRefreshRequests).Logging("ProcessDeferredRankingRefreshRequests");
@@ -5622,22 +5697,26 @@ public class BMSLibrary : NotificationObject
                 requestVersion = deferredScoreHydrationRequestedVersion;
             }
             Stopwatch stopwatch = Stopwatch.StartNew();
+            ReportStartupBackgroundTask("score_hydration_deferred", "start", 0L, failed: false, detail: "version=" + requestVersion);
             try
             {
                 LogInstallPerformance("score_hydration_deferred run version=" + requestVersion);
                 RunDeferredScoreHydration(requestVersion);
                 stopwatch.Stop();
                 LogInstallPerformance("score_hydration_deferred done version=" + requestVersion + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
+                ReportStartupBackgroundTask("score_hydration_deferred", "done", stopwatch.ElapsedMilliseconds, failed: false);
             }
             catch (OperationCanceledException)
             {
                 stopwatch.Stop();
                 LogInstallPerformance("score_hydration_deferred cancelled version=" + requestVersion + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
+                ReportStartupBackgroundTask("score_hydration_deferred", "cancelled", stopwatch.ElapsedMilliseconds, failed: false);
             }
             catch (Exception ex)
             {
                 stopwatch.Stop();
                 LogInstallPerformance("score_hydration_deferred failed version=" + requestVersion + " elapsedMs=" + stopwatch.ElapsedMilliseconds + " message=" + ex.Message);
+                ReportStartupBackgroundTask("score_hydration_deferred", "failed", stopwatch.ElapsedMilliseconds, failed: true, detail: ex.Message);
             }
             bool shouldStop = false;
             bool markRunningFalse = false;
@@ -5678,22 +5757,26 @@ public class BMSLibrary : NotificationObject
                 requestVersion = deferredRankingRefreshRequestedVersion;
             }
             Stopwatch stopwatch = Stopwatch.StartNew();
+            ReportStartupBackgroundTask("ranking_refresh_deferred", "start", 0L, failed: false, detail: "version=" + requestVersion);
             try
             {
                 LogInstallPerformance("ranking_refresh_deferred run version=" + requestVersion);
                 RunDeferredRankingRefresh(requestVersion);
                 stopwatch.Stop();
                 LogInstallPerformance("ranking_refresh_deferred done version=" + requestVersion + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
+                ReportStartupBackgroundTask("ranking_refresh_deferred", "done", stopwatch.ElapsedMilliseconds, failed: false);
             }
             catch (OperationCanceledException)
             {
                 stopwatch.Stop();
                 LogInstallPerformance("ranking_refresh_deferred cancelled version=" + requestVersion + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
+                ReportStartupBackgroundTask("ranking_refresh_deferred", "cancelled", stopwatch.ElapsedMilliseconds, failed: false);
             }
             catch (Exception ex)
             {
                 stopwatch.Stop();
                 LogInstallPerformance("ranking_refresh_deferred failed version=" + requestVersion + " elapsedMs=" + stopwatch.ElapsedMilliseconds + " message=" + ex.Message);
+                ReportStartupBackgroundTask("ranking_refresh_deferred", "failed", stopwatch.ElapsedMilliseconds, failed: true, detail: ex.Message);
             }
             bool shouldStop = false;
             bool markRunningFalse = false;
