@@ -135,7 +135,7 @@ source 前提の confidence reason は現在の主経路では使いません。
 ## Perf-2b で追加したこと
 
 - background `pending_estimate_batch` を `evaluate parallel / apply serial` に再編
-- package 間だけ bounded parallel にし、package 内 candidate 評価は background path で `asParallel: false`
+- package 間だけ bounded parallel にし、package 内 candidate 評価は background path で degree `1`
 - package-level の `estimate_install ...` ログと `completed=x/y` progress は request / apply 順を維持
 - manual estimate の優先順位や精度ロジック自体は変更しない
 

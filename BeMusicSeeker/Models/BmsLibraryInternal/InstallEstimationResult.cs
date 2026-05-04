@@ -160,6 +160,8 @@ internal sealed class InstallEstimationResult
 
     public int CandidateDirectoryCount { get; set; }
 
+    public int CandidateEvaluationDegree { get; set; }
+
     public bool UsedFallbackCandidateExpansion { get; set; }
 
     public int CandidateDirectoryCountBeforeHashFilter { get; set; }

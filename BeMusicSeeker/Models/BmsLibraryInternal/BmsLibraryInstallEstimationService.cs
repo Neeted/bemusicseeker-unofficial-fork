@@ -15,6 +15,21 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 /// </summary>
 internal sealed class BmsLibraryInstallEstimationService
 {
+    internal static int ResolveDefaultCandidateEvaluationDegree()
+    {
+        return Math.Max(1, Environment.ProcessorCount - 1);
+    }
+
+    internal static int NormalizeCandidateEvaluationDegree(int candidateEvaluationDegree)
+    {
+        return Math.Max(1, candidateEvaluationDegree);
+    }
+
+    internal static int ResolveCandidateEvaluationDegree(bool asParallel)
+    {
+        return asParallel ? ResolveDefaultCandidateEvaluationDegree() : 1;
+    }
+
     private enum MetadataEvidenceStrength
     {
         None,
@@ -650,12 +665,24 @@ internal sealed class BmsLibraryInstallEstimationService
 
     public InstallEstimationResult EstimateInstallationDirectory(IEnumerable<BMSFile> bmsFiles, HashSet<string> installedHashes, BMSDirectoryFileNameHash folderAllFileList, DirectoryResourceLookupCache directoryLookupCache, bool asParallel, BmsInstallationEstimateMode estimateMode, Func<string, InstallDestinationRepresentativeMetadata> representativeMetadataResolver = null, Func<string, InstallEstimationMetadataProfile> metadataProfileResolver = null, DirectoryRelativePathHashIndex relativePathHashIndex = null)
     {
-        return EstimateInstallationDirectory(BuildLooseFileSnapshot(bmsFiles, installedHashes, estimateMode), folderAllFileList, directoryLookupCache, asParallel, estimateMode, representativeMetadataResolver, metadataProfileResolver, relativePathHashIndex);
+        return EstimateInstallationDirectory(BuildLooseFileSnapshot(bmsFiles, installedHashes, estimateMode), folderAllFileList, directoryLookupCache, ResolveCandidateEvaluationDegree(asParallel), estimateMode, representativeMetadataResolver, metadataProfileResolver, relativePathHashIndex);
     }
 
     public InstallEstimationResult EstimateInstallationDirectory(PackageInstallEstimationSnapshot snapshot, BMSDirectoryFileNameHash folderAllFileList, DirectoryResourceLookupCache directoryLookupCache, bool asParallel, BmsInstallationEstimateMode estimateMode, Func<string, InstallDestinationRepresentativeMetadata> representativeMetadataResolver = null, Func<string, InstallEstimationMetadataProfile> metadataProfileResolver = null, DirectoryRelativePathHashIndex relativePathHashIndex = null)
     {
+        return EstimateInstallationDirectory(snapshot, folderAllFileList, directoryLookupCache, ResolveCandidateEvaluationDegree(asParallel), estimateMode, representativeMetadataResolver, metadataProfileResolver, relativePathHashIndex);
+    }
+
+    public InstallEstimationResult EstimateInstallationDirectory(IEnumerable<BMSFile> bmsFiles, HashSet<string> installedHashes, BMSDirectoryFileNameHash folderAllFileList, DirectoryResourceLookupCache directoryLookupCache, int candidateEvaluationDegree, BmsInstallationEstimateMode estimateMode, Func<string, InstallDestinationRepresentativeMetadata> representativeMetadataResolver = null, Func<string, InstallEstimationMetadataProfile> metadataProfileResolver = null, DirectoryRelativePathHashIndex relativePathHashIndex = null)
+    {
+        return EstimateInstallationDirectory(BuildLooseFileSnapshot(bmsFiles, installedHashes, estimateMode), folderAllFileList, directoryLookupCache, candidateEvaluationDegree, estimateMode, representativeMetadataResolver, metadataProfileResolver, relativePathHashIndex);
+    }
+
+    public InstallEstimationResult EstimateInstallationDirectory(PackageInstallEstimationSnapshot snapshot, BMSDirectoryFileNameHash folderAllFileList, DirectoryResourceLookupCache directoryLookupCache, int candidateEvaluationDegree, BmsInstallationEstimateMode estimateMode, Func<string, InstallDestinationRepresentativeMetadata> representativeMetadataResolver = null, Func<string, InstallEstimationMetadataProfile> metadataProfileResolver = null, DirectoryRelativePathHashIndex relativePathHashIndex = null)
+    {
         InstallEstimationResult result = new InstallEstimationResult();
+        int effectiveCandidateEvaluationDegree = NormalizeCandidateEvaluationDegree(candidateEvaluationDegree);
+        result.CandidateEvaluationDegree = effectiveCandidateEvaluationDegree;
         bool isMergeMode = estimateMode == BmsInstallationEstimateMode.MergeCandidateOnly;
         bool isReinstallCorrectionMode = estimateMode == BmsInstallationEstimateMode.ReinstallCorrection;
         bool useBundledResources = !(isMergeMode || isReinstallCorrectionMode);
@@ -738,7 +765,7 @@ internal sealed class BmsLibraryInstallEstimationService
         {
             candidateDirList = directoryLookupCache != null
                 ? ApplyPathAwareBroadFilter(allCandidateDirs, resourceSnapshot, directoryLookupCache)
-                : ApplyPathAwareBroadFilter(allCandidateDirs, resourceSnapshot, folderAllFileList, relativePathHashIndex, asParallel);
+                : ApplyPathAwareBroadFilter(allCandidateDirs, resourceSnapshot, folderAllFileList, relativePathHashIndex, effectiveCandidateEvaluationDegree);
             result.CandidateDirectoryCountAfterBroadFilter = candidateDirList.Count;
             if (candidateDirList.Count == 0)
             {
@@ -780,7 +807,7 @@ internal sealed class BmsLibraryInstallEstimationService
             ? CreateCandidateResourceView(bundledResources, null, null)
             : null;
         Stopwatch evaluationStopwatch = Stopwatch.StartNew();
-        IEnumerable<string> candidateSource = asParallel ? candidateDirList.AsParallel() : candidateDirList.AsParallel().WithDegreeOfParallelism(1);
+        IEnumerable<string> candidateSource = candidateDirList.AsParallel().WithDegreeOfParallelism(effectiveCandidateEvaluationDegree);
         List<CandidateEvaluation> candidateInfos = candidateSource
             .Select((string candidateDir) => EvaluateDirectoryCandidate(
                 candidateDir,
@@ -1025,7 +1052,7 @@ internal sealed class BmsLibraryInstallEstimationService
             .ToList();
     }
 
-    private static List<string> ApplyPathAwareBroadFilter(IEnumerable<string> candidateDirectories, ChartResourceSnapshot resourceSnapshot, BMSDirectoryFileNameHash folderAllFileList, DirectoryRelativePathHashIndex relativePathHashIndex, bool asParallel)
+    private static List<string> ApplyPathAwareBroadFilter(IEnumerable<string> candidateDirectories, ChartResourceSnapshot resourceSnapshot, BMSDirectoryFileNameHash folderAllFileList, DirectoryRelativePathHashIndex relativePathHashIndex, int candidateEvaluationDegree)
     {
         List<string> candidates = (candidateDirectories ?? Enumerable.Empty<string>())
             .Where((string dir) => !string.IsNullOrWhiteSpace(dir))
@@ -1037,7 +1064,8 @@ internal sealed class BmsLibraryInstallEstimationService
         }
 
         HashSet<uint> broadFilterBaseHashes = resourceSnapshot.EnumerateBroadFilterBaseNameHashes();
-        IEnumerable<string> filtered = (asParallel ? candidates.AsParallel() : candidates.AsParallel().WithDegreeOfParallelism(1))
+        IEnumerable<string> filtered = candidates.AsParallel()
+            .WithDegreeOfParallelism(NormalizeCandidateEvaluationDegree(candidateEvaluationDegree))
             .Where(delegate (string dir)
             {
                 CandidateResourceSource candidateResourceSource = ResolveCandidateResourceSource(

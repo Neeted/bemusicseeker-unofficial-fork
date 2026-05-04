@@ -545,18 +545,30 @@ Perf-2a は一度、
 - package-level の `estimate_install ...` ログ出力
 - regroup
 
-また、Perf-2b では nested parallelism を避けるため、background parallel path の package 内 candidate 評価は `asParallel: false` に固定する。
+また、Perf-2b 以降は nested parallelism を避けるため、background parallel path の package 内 candidate 評価は degree `1` に固定する。
 
 manual estimate の優先順位は変更しておらず、batch 全体を `RunPendingEstimateExclusive(...)` で囲うことで、**manual estimate は background batch 完了待ち**のまま維持する。
 
-### 3.5 Perf-2b の設定
+### 3.5 現行の並列度設定
 
-Perf-2b では hidden setting として次を追加した。
+導入先推定の並列度は `Math.Max(1, Environment.ProcessorCount - 1)` を既定値にする。
+
+- background pending estimate
+  - package 間並列度として使う
+  - package 内 candidate 評価は degree `1`
+  - 入れ子並列を避け、複数 package を同時に評価する
+- manual estimate
+  - candidate 評価並列度として使う
+  - 単発操作の応答速度を優先する
+  - PLINQ の既定並列度には依存せず、常に明示 degree を渡す
+
+hidden setting は次の意味で残す。
 
 - `PendingInstallEstimateMaxParallelPackages`
   - `0` は auto
-  - auto は `min(4, max(1, Environment.ProcessorCount / 2))`
-  - 実効値は `1..8` に clamp
+  - auto は `Math.Max(1, Environment.ProcessorCount - 1)`
+  - 明示値は `Math.Max(1, configured)` のみで正規化する
+  - 旧 `1..8` clamp は廃止し、`8` 超の明示値もそのまま有効にする
 
 この設定は UI には出さず、background pending estimate の package 間並列度だけを制御する。
 
@@ -569,6 +581,8 @@ Perf-2b はあくまで **background 実行モデルの変更**であり、次�
 - confidence / warning / suggestion の semantics
 - source baseline defer 判定
 - manual estimate / manual merge の動作意味
+
+ただし manual estimate の candidate 評価は、現行では `CPU - 1` 既定の明示 degree を使う。`asParallel: false` 互換経路や fix mode など逐次評価が必要な経路は degree `1` として扱う。
 
 ### 3.7 Perf-2b の実測
 
@@ -600,7 +614,7 @@ Perf-2b はあくまで **background 実行モデルの変更**であり、次�
   - `evaluationMs` 合計 `1605`
   - 平均 `11.8`
 
-これは Perf-2b で background path の package 内 candidate 評価を `asParallel: false` に固定したためであり、**package 単体ではやや重くなるが、package 間並列化で batch 全体は大きく短縮する**という狙いどおりの結果である。
+これは Perf-2b で background path の package 内 candidate 評価を degree `1` に固定したためであり、**package 単体ではやや重くなるが、package 間並列化で batch 全体は大きく短縮する**という狙いどおりの結果である。
 
 また、候補数そのものはほぼ不変だった。
 

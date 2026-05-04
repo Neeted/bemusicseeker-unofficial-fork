@@ -15,6 +15,62 @@ namespace BeMusicSeeker.Tests;
 public sealed class BmsLibraryInstallEstimationServiceTests
 {
     [TestMethod]
+    public void InstallEstimationDegreeResolvers_UseProcessorCountMinusOneAndDoNotClampConfiguredPackages()
+    {
+        int expectedDefault = Math.Max(1, Environment.ProcessorCount - 1);
+
+        Assert.AreEqual(expectedDefault, BmsLibraryInstallEstimationService.ResolveDefaultCandidateEvaluationDegree());
+        Assert.AreEqual(expectedDefault, BmsLibraryInstallEstimationService.ResolveCandidateEvaluationDegree(asParallel: true));
+        Assert.AreEqual(1, BmsLibraryInstallEstimationService.ResolveCandidateEvaluationDegree(asParallel: false));
+        Assert.AreEqual(1, BmsLibraryInstallEstimationService.NormalizeCandidateEvaluationDegree(0));
+        Assert.AreEqual(1, BmsLibraryInstallEstimationService.NormalizeCandidateEvaluationDegree(-10));
+        Assert.AreEqual(16, BmsLibraryInstallEstimationService.NormalizeCandidateEvaluationDegree(16));
+
+        Assert.AreEqual(expectedDefault, BMSLibrary.ResolveInstallEstimationDefaultDegree());
+        Assert.AreEqual(expectedDefault, BMSLibrary.ResolvePendingInstallEstimateParallelPackageDegree(0));
+        Assert.AreEqual(1, BMSLibrary.ResolvePendingInstallEstimateParallelPackageDegree(-10));
+        Assert.AreEqual(1, BMSLibrary.ResolvePendingInstallEstimateParallelPackageDegree(1));
+        Assert.AreEqual(8, BMSLibrary.ResolvePendingInstallEstimateParallelPackageDegree(8));
+        Assert.AreEqual(16, BMSLibrary.ResolvePendingInstallEstimateParallelPackageDegree(16));
+    }
+
+    [TestMethod]
+    public void EstimateInstallationDirectory_RecordsExplicitCandidateDegree()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        BmsLibraryInstallEstimationService service = CreateService();
+        TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Pending", "chart.bms"), "sound.wav");
+        file.SetMaintenanceInfo(CreateMaintenanceInfo(file, wavDefined: 1, wavExisting: 0), suppressPropertyChanged: true, registerEventHandlers: false);
+        BMSDirectoryFileNameHash cache = new BMSDirectoryFileNameHash();
+
+        InstallEstimationResult sequential = service.EstimateInstallationDirectory(
+            new[] { file },
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+            cache,
+            directoryLookupCache: null,
+            asParallel: false,
+            BmsInstallationEstimateMode.Normal);
+        InstallEstimationResult defaultParallel = service.EstimateInstallationDirectory(
+            new[] { file },
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+            cache,
+            directoryLookupCache: null,
+            asParallel: true,
+            BmsInstallationEstimateMode.Normal);
+        InstallEstimationResult explicitDegree = service.EstimateInstallationDirectory(
+            new[] { file },
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+            cache,
+            directoryLookupCache: null,
+            candidateEvaluationDegree: 16,
+            BmsInstallationEstimateMode.Normal);
+
+        Assert.AreEqual(1, sequential.CandidateEvaluationDegree);
+        Assert.AreEqual(BmsLibraryInstallEstimationService.ResolveDefaultCandidateEvaluationDegree(), defaultParallel.CandidateEvaluationDegree);
+        Assert.AreEqual(16, explicitDegree.CandidateEvaluationDegree);
+    }
+
+    [TestMethod]
     public void TryResolveInstalledDestinationFromPackage_PrefersDirectoryWithMostMatchingCharts()
     {
         TestResourceInitializer.EnsureJapaneseResources();

@@ -2269,10 +2269,6 @@ public class BMSLibrary : NotificationObject
         return new BmsLibraryInstallEstimationService(optionsSnapshot ?? CurrentOptionsSnapshot, innerWavHealthThreshForNormalBMSFile);
     }
 
-    private const int PendingInstallEstimateAutoParallelismMax = 4;
-
-    private const int PendingInstallEstimateParallelismHardMax = 8;
-
     private const int PendingEstimateSourceBatchMaxRootsPerChunk = 256;
 
     private enum PendingInstallEstimateEvaluationOutcomeKind
@@ -2673,7 +2669,8 @@ public class BMSLibrary : NotificationObject
         string source = ToPendingEstimateBatchSourceLogValue(request.Source);
         int lowConfidenceCount = 0;
         int completed = 0;
-        LogInstallPerformance("pending_estimate_batch start source=" + source + " packages=" + request.PackageCount + " totalPackages=" + request.TotalPackageCount + " deferredPackages=" + request.DeferredPackageCount + " display=" + (request.DisplayName ?? string.Empty));
+        int maxParallelPackages = ResolvePendingInstallEstimateParallelPackageDegree();
+        LogInstallPerformance("pending_estimate_batch start source=" + source + " packages=" + request.PackageCount + " totalPackages=" + request.TotalPackageCount + " deferredPackages=" + request.DeferredPackageCount + " packageDegree=" + maxParallelPackages + " display=" + (request.DisplayName ?? string.Empty));
         try
         {
             RunPendingEstimateExclusive(delegate
@@ -2682,7 +2679,6 @@ public class BMSLibrary : NotificationObject
                 SetInstallEstimationProgress(ToInstallEstimationProgressSource(request.Source), request.PackageCount, 0, request.DisplayName ?? string.Empty);
                 PendingInstallEstimateEvaluationContext evaluationContext = CreatePendingInstallEstimateEvaluationContext();
                 List<PendingInstallEstimateEvaluationRequest> evaluationRequests = PreparePendingInstallEstimateEvaluationRequests(request);
-                int maxParallelPackages = ResolvePendingInstallEstimateMaxParallelPackages();
                 ProcessPendingInstallEstimateEvaluationPipeline(request, source, token, evaluationContext, evaluationRequests, maxParallelPackages, ref completed, ref lowConfidenceCount);
                 if (!token.IsCancellationRequested && request.RegroupEligibleSourceDirectories.Length > 0)
                 {
@@ -2699,7 +2695,7 @@ public class BMSLibrary : NotificationObject
                 }
             });
             stopwatch.Stop();
-            LogInstallPerformance("pending_estimate_batch done source=" + source + " packages=" + request.PackageCount + " totalPackages=" + request.TotalPackageCount + " deferredPackages=" + request.DeferredPackageCount + " estimated=" + completed + " completed=" + (completed + request.DeferredPackageCount) + " elapsedMs=" + stopwatch.ElapsedMilliseconds + " lowConfidence=" + lowConfidenceCount);
+            LogInstallPerformance("pending_estimate_batch done source=" + source + " packages=" + request.PackageCount + " totalPackages=" + request.TotalPackageCount + " deferredPackages=" + request.DeferredPackageCount + " packageDegree=" + maxParallelPackages + " estimated=" + completed + " completed=" + (completed + request.DeferredPackageCount) + " elapsedMs=" + stopwatch.ElapsedMilliseconds + " lowConfidence=" + lowConfidenceCount);
         }
         finally
         {
@@ -2856,13 +2852,20 @@ public class BMSLibrary : NotificationObject
         return requests;
     }
 
-    private int ResolvePendingInstallEstimateMaxParallelPackages()
+    internal static int ResolveInstallEstimationDefaultDegree()
     {
-        int configured = Settings.Default.PendingInstallEstimateMaxParallelPackages;
-        int resolved = (configured == 0)
-            ? Math.Min(PendingInstallEstimateAutoParallelismMax, Math.Max(1, Environment.ProcessorCount / 2))
-            : configured;
-        return Math.Max(1, Math.Min(PendingInstallEstimateParallelismHardMax, resolved));
+        return BmsLibraryInstallEstimationService.ResolveDefaultCandidateEvaluationDegree();
+    }
+
+    internal static int ResolvePendingInstallEstimateParallelPackageDegree(int configured)
+    {
+        int resolved = configured == 0 ? ResolveInstallEstimationDefaultDegree() : configured;
+        return Math.Max(1, resolved);
+    }
+
+    private int ResolvePendingInstallEstimateParallelPackageDegree()
+    {
+        return ResolvePendingInstallEstimateParallelPackageDegree(Settings.Default.PendingInstallEstimateMaxParallelPackages);
     }
 
     private void ProcessPendingInstallEstimateEvaluationPipeline(PendingInstallEstimateBatchRequest request, string source, CancellationToken token, PendingInstallEstimateEvaluationContext evaluationContext, List<PendingInstallEstimateEvaluationRequest> evaluationRequests, int maxParallelPackages, ref int completed, ref int lowConfidenceCount)
@@ -2894,14 +2897,14 @@ public class BMSLibrary : NotificationObject
             (PendingInstallEstimateEvaluationRequest Request, Task<PendingInstallEstimateEvaluationResult> Task) applySlot = inFlight[applySlotIndex];
             PendingInstallEstimateEvaluationResult evaluationResult = applySlot.Task.GetAwaiter().GetResult();
             inFlight.RemoveAt(applySlotIndex);
-            ApplyPendingInstallEstimateEvaluationResult(request, source, evaluationResult, ref completed, ref lowConfidenceCount);
+            ApplyPendingInstallEstimateEvaluationResult(request, source, evaluationResult, maxParallelPackages, ref completed, ref lowConfidenceCount);
             nextApplyIndex++;
         }
 
         foreach ((PendingInstallEstimateEvaluationRequest Request, Task<PendingInstallEstimateEvaluationResult> Task) item in inFlight)
         {
             PendingInstallEstimateEvaluationResult evaluationResult = item.Task.GetAwaiter().GetResult();
-            ApplyPendingInstallEstimateEvaluationResult(request, source, evaluationResult, ref completed, ref lowConfidenceCount);
+            ApplyPendingInstallEstimateEvaluationResult(request, source, evaluationResult, maxParallelPackages, ref completed, ref lowConfidenceCount);
         }
     }
 
@@ -2966,7 +2969,7 @@ public class BMSLibrary : NotificationObject
         return installEstimationService.TryResolveInstalledDestinationFromPackage(package, missingFiles, evaluationContext?.InstalledDirectoryIndexSnapshot ?? new InstalledChartDirectoryIndexSnapshot(), evaluationContext?.FolderAllFileListSnapshot ?? bmsFolderAllFileList);
     }
 
-    private void ApplyPendingInstallEstimateEvaluationResult(PendingInstallEstimateBatchRequest batchRequest, string source, PendingInstallEstimateEvaluationResult evaluationResult, ref int completed, ref int lowConfidenceCount)
+    private void ApplyPendingInstallEstimateEvaluationResult(PendingInstallEstimateBatchRequest batchRequest, string source, PendingInstallEstimateEvaluationResult evaluationResult, int packageDegree, ref int completed, ref int lowConfidenceCount)
     {
         PendingInstallEstimateEvaluationRequest request = evaluationResult?.Request;
         string currentDisplayName = request?.DisplayName ?? string.Empty;
@@ -2992,7 +2995,7 @@ public class BMSLibrary : NotificationObject
         }
         SetInstallEstimationProgress(ToInstallEstimationProgressSource(batchRequest.Source), batchRequest.PackageCount, completed, currentDisplayName);
         pendingInstallEstimateQueueProcessor.ReportActiveBatchProgress(completed);
-        LogInstallPerformance("pending_estimate_batch progress source=" + source + " completed=" + completed + "/" + batchRequest.PackageCount + " current=" + currentDisplayName);
+        LogInstallPerformance("pending_estimate_batch progress source=" + source + " packageDegree=" + packageDegree + " completed=" + completed + "/" + batchRequest.PackageCount + " current=" + currentDisplayName);
     }
 
     private bool ApplyPendingInstallEstimateEvaluationResultUnsafe(PendingInstallEstimateEvaluationResult evaluationResult)
@@ -7257,7 +7260,7 @@ public class BMSLibrary : NotificationObject
         {
             LogInstallPerformance("package_surface_build backend=" + (estimationData.SourceSurfaceScanBackend ?? string.Empty) + " trackedFileCount=" + estimationData.SourceSurfaceTrackedFileCount + " chartFileCount=" + estimationData.SourceSurfaceChartFileCount + " resourceFileCount=" + estimationData.SourceSurfaceResourceFileCount + " scanMs=" + estimationData.SourceSurfaceScanMs + " hashMaterializeMs=" + estimationData.SourceSurfaceHashMaterializeMs);
         }
-        LogInstallPerformance("estimate_install start chartCount=" + estimationData.ChartCount + " targetHashes=" + result.TargetResourceHashCount + " targetResources=" + result.TargetResourceCount + " pathAwareRefs=" + result.TargetPathAwareHashCount + " pathAwareAudioRefs=" + result.TargetPathAwareAudioHashCount + " pathAwareVisualRefs=" + result.TargetPathAwareVisualHashCount + " pathAwareMovieRefs=" + result.TargetPathAwareMovieHashCount + " pathAwareOptionalRefs=" + result.TargetPathAwareOptionalImageHashCount + " bundledAudioCount=" + result.BundledAudioCount + " bundledImageCount=" + result.BundledImageCount + " bundledMovieCount=" + result.BundledMovieCount + " evalMode=" + (result.FinalEvaluationMode == InstallEstimationFinalEvaluationMode.BasenameOnlyFastPath ? "basename_fast_path" : "relative_strict") + " candidateMode=" + (result.CandidateMode ?? string.Empty) + " coarseFilterMode=" + (result.CoarseFilterMode ?? string.Empty) + " audioRefs=" + result.AudioReferenceCount + " visualRefs=" + result.VisualReferenceCount + " movieRefs=" + result.MovieReferenceCount + " optionalRefs=" + result.OptionalImageReferenceCount + " audioMinMatchRequired=" + result.AudioMinimumMatchRequired + " candidateDirsBefore=" + result.CandidateDirectoryCountBeforeHashFilter + " candidateDirsAfterBroadFilter=" + result.CandidateDirectoryCountAfterBroadFilter + " candidateDirsAfterAudioGate=" + result.CandidateDirectoryCountAfterAudioGate + " candidateDirsInHierarchy=" + result.HierarchyCandidateDirectoryCount + " shadowSuppressed=" + result.AncestorShadowSuppressedCount + " lazySelfOwnedCandidates=" + result.LazySelfOwnedEvaluationCount + " shadowMs=" + result.AncestorShadowEvaluationMs + " candidateViewBuildMs=" + result.CandidateViewBuildMs + " candidateMatchMs=" + result.CandidateMatchMs + " candidateViewBuildCount=" + result.CandidateViewBuildCount + " candidateViewFallbackCount=" + result.CandidateViewFallbackCount + " sourceSurfaceScanMs=" + estimationData.SourceSurfaceScanMs + " sourceSurfaceChartFileCount=" + estimationData.SourceSurfaceChartFileCount + " sourceSurfaceResourceFileCount=" + estimationData.SourceSurfaceResourceFileCount + " sourceSurfaceTrackedFileCount=" + estimationData.SourceSurfaceTrackedFileCount + " sourceSurfaceHashMaterializeMs=" + estimationData.SourceSurfaceHashMaterializeMs + " sourceSurfaceCacheHit=" + estimationData.SourceSurfaceCacheHit.ToString().ToLowerInvariant() + " sourceSurfaceBatchHit=" + estimationData.SourceSurfaceBatchHit.ToString().ToLowerInvariant() + " sourceSurfaceScanBackend=" + (estimationData.SourceSurfaceScanBackend ?? string.Empty) + " candidateDirsAfter=" + result.CandidateDirectoryCountAfterHashFilter + " candidateDirs=" + result.CandidateDirectoryCount + " evaluationMs=" + result.EvaluationMs + " fallback=" + result.UsedFallbackCandidateExpansion + " confidence=" + result.Confidence + " autoApplied=" + result.ShouldAutoApplyDestination + " confidenceReason=" + (result.ConfidenceReason ?? string.Empty) + " lazyHashBuildMsDelta=" + estimationData.LazyHashBuildMsDelta + " lazyHashEntriesAdded=" + estimationData.LazyHashEntriesAdded + " lazyHashLookupCountDelta=" + estimationData.LazyHashLookupCountDelta + " lazyHashBuildReason=" + (estimationData.LazyHashBuildReason ?? string.Empty) + " summary=" + (result.ResourceSummary ?? string.Empty));
+        LogInstallPerformance("estimate_install start chartCount=" + estimationData.ChartCount + " targetHashes=" + result.TargetResourceHashCount + " targetResources=" + result.TargetResourceCount + " pathAwareRefs=" + result.TargetPathAwareHashCount + " pathAwareAudioRefs=" + result.TargetPathAwareAudioHashCount + " pathAwareVisualRefs=" + result.TargetPathAwareVisualHashCount + " pathAwareMovieRefs=" + result.TargetPathAwareMovieHashCount + " pathAwareOptionalRefs=" + result.TargetPathAwareOptionalImageHashCount + " bundledAudioCount=" + result.BundledAudioCount + " bundledImageCount=" + result.BundledImageCount + " bundledMovieCount=" + result.BundledMovieCount + " evalMode=" + (result.FinalEvaluationMode == InstallEstimationFinalEvaluationMode.BasenameOnlyFastPath ? "basename_fast_path" : "relative_strict") + " candidateMode=" + (result.CandidateMode ?? string.Empty) + " coarseFilterMode=" + (result.CoarseFilterMode ?? string.Empty) + " candidateDegree=" + result.CandidateEvaluationDegree + " audioRefs=" + result.AudioReferenceCount + " visualRefs=" + result.VisualReferenceCount + " movieRefs=" + result.MovieReferenceCount + " optionalRefs=" + result.OptionalImageReferenceCount + " audioMinMatchRequired=" + result.AudioMinimumMatchRequired + " candidateDirsBefore=" + result.CandidateDirectoryCountBeforeHashFilter + " candidateDirsAfterBroadFilter=" + result.CandidateDirectoryCountAfterBroadFilter + " candidateDirsAfterAudioGate=" + result.CandidateDirectoryCountAfterAudioGate + " candidateDirsInHierarchy=" + result.HierarchyCandidateDirectoryCount + " shadowSuppressed=" + result.AncestorShadowSuppressedCount + " lazySelfOwnedCandidates=" + result.LazySelfOwnedEvaluationCount + " shadowMs=" + result.AncestorShadowEvaluationMs + " candidateViewBuildMs=" + result.CandidateViewBuildMs + " candidateMatchMs=" + result.CandidateMatchMs + " candidateViewBuildCount=" + result.CandidateViewBuildCount + " candidateViewFallbackCount=" + result.CandidateViewFallbackCount + " sourceSurfaceScanMs=" + estimationData.SourceSurfaceScanMs + " sourceSurfaceChartFileCount=" + estimationData.SourceSurfaceChartFileCount + " sourceSurfaceResourceFileCount=" + estimationData.SourceSurfaceResourceFileCount + " sourceSurfaceTrackedFileCount=" + estimationData.SourceSurfaceTrackedFileCount + " sourceSurfaceHashMaterializeMs=" + estimationData.SourceSurfaceHashMaterializeMs + " sourceSurfaceCacheHit=" + estimationData.SourceSurfaceCacheHit.ToString().ToLowerInvariant() + " sourceSurfaceBatchHit=" + estimationData.SourceSurfaceBatchHit.ToString().ToLowerInvariant() + " sourceSurfaceScanBackend=" + (estimationData.SourceSurfaceScanBackend ?? string.Empty) + " candidateDirsAfter=" + result.CandidateDirectoryCountAfterHashFilter + " candidateDirs=" + result.CandidateDirectoryCount + " evaluationMs=" + result.EvaluationMs + " fallback=" + result.UsedFallbackCandidateExpansion + " confidence=" + result.Confidence + " autoApplied=" + result.ShouldAutoApplyDestination + " confidenceReason=" + (result.ConfidenceReason ?? string.Empty) + " lazyHashBuildMsDelta=" + estimationData.LazyHashBuildMsDelta + " lazyHashEntriesAdded=" + estimationData.LazyHashEntriesAdded + " lazyHashLookupCountDelta=" + estimationData.LazyHashLookupCountDelta + " lazyHashBuildReason=" + (estimationData.LazyHashBuildReason ?? string.Empty) + " summary=" + (result.ResourceSummary ?? string.Empty));
         if (!string.IsNullOrWhiteSpace(result.TopCandidateSummary))
         {
             LogInstallPerformance("estimate_install candidates " + result.TopCandidateSummary);
