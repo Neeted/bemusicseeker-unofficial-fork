@@ -203,6 +203,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     public MainWindow()
     {
         InitializeComponent();
+        ApplySavedTreeViewWidth();
         AddHandler(UIElement.PreviewMouseDownEvent, new MouseButtonEventHandler(keywordSearchWindowPreviewMouseDown), true);
         Deactivated += MainWindow_Deactivated;
 
@@ -222,6 +223,31 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
         // Start async update check
         Task.Run(async () => await CheckForUpdatesAsync());
+    }
+
+    private void ApplySavedTreeViewWidth()
+    {
+        double normalizedWidth = Settings.NormalizeTreeViewWidth(Settings.Default.TreeViewWidth);
+        Settings.Default.TreeViewWidth = normalizedWidth;
+        gridColumn0.Width = new GridLength(normalizedWidth);
+    }
+
+    internal static double ResolveTreeViewWidthForSave(double actualColumnWidth, double assignedColumnWidth, double currentSettingWidth)
+    {
+        if (IsUsableTreeViewWidth(actualColumnWidth))
+        {
+            return actualColumnWidth;
+        }
+        if (IsUsableTreeViewWidth(assignedColumnWidth))
+        {
+            return assignedColumnWidth;
+        }
+        return Settings.NormalizeTreeViewWidth(currentSettingWidth);
+    }
+
+    private static bool IsUsableTreeViewWidth(double width)
+    {
+        return !double.IsNaN(width) && !double.IsInfinity(width) && width >= Settings.MinTreeViewWidth;
     }
 
     /// <summary>
@@ -496,7 +522,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         base.OnClosing(e);
         try
         {
-            Settings.Default.TreeViewWidth = treeView.ActualWidth + gridSplitter.ActualWidth;
+            Settings.Default.TreeViewWidth = ResolveTreeViewWidthForSave(
+                gridColumn0.ActualWidth,
+                gridColumn0.Width.IsAbsolute ? gridColumn0.Width.Value : double.NaN,
+                Settings.Default.TreeViewWidth);
         }
         catch (Exception ex)
         {

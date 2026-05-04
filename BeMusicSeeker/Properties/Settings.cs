@@ -20,6 +20,10 @@ namespace BeMusicSeeker.Properties;
 [SettingsProvider(typeof(PortableSettingsProvider))]
 internal sealed class Settings : ApplicationSettingsBase
 {
+	internal const double DefaultTreeViewWidth = 250d;
+
+	internal const double MinTreeViewWidth = 160d;
+
 	private static Settings defaultInstance = (Settings)SettingsBase.Synchronized(new Settings());
 
 	public static Settings Default => defaultInstance;
@@ -466,12 +470,21 @@ internal sealed class Settings : ApplicationSettingsBase
 	{
 		get
 		{
-			return (double)this["TreeViewWidth"];
+			return NormalizeTreeViewWidth((double)this["TreeViewWidth"]);
 		}
 		set
 		{
-			this["TreeViewWidth"] = value;
+			this["TreeViewWidth"] = NormalizeTreeViewWidth(value);
 		}
+	}
+
+	internal static double NormalizeTreeViewWidth(double width)
+	{
+		if (double.IsNaN(width) || double.IsInfinity(width) || width < MinTreeViewWidth)
+		{
+			return DefaultTreeViewWidth;
+		}
+		return width;
 	}
 
 	[UserScopedSetting]
@@ -1304,55 +1317,62 @@ internal sealed class Settings : ApplicationSettingsBase
 
 	private void SettingsLoadedEventHandler(object sender, SettingsLoadedEventArgs e)
 	{
-		if (((Settings)sender).StandardColumnsSettings == null)
+		Settings settings = (Settings)sender;
+		double rawTreeViewWidth = (double)settings["TreeViewWidth"];
+		double normalizedTreeViewWidth = NormalizeTreeViewWidth(rawTreeViewWidth);
+		if (!normalizedTreeViewWidth.Equals(rawTreeViewWidth))
 		{
-			((Settings)sender).StandardColumnsSettings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.STANDARD);
+			settings["TreeViewWidth"] = normalizedTreeViewWidth;
 		}
-		if (((Settings)sender).ZeroNoteColumnsSettings == null)
+		if (settings.StandardColumnsSettings == null)
 		{
-			((Settings)sender).ZeroNoteColumnsSettings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.ZERO_NOTE);
+			settings.StandardColumnsSettings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.STANDARD);
 		}
-		if (((Settings)sender).PlaylistColumnsSettings == null)
+		if (settings.ZeroNoteColumnsSettings == null)
 		{
-			((Settings)sender).PlaylistColumnsSettings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.PLAYLIST);
+			settings.ZeroNoteColumnsSettings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.ZERO_NOTE);
 		}
-		if (((Settings)sender).FullScanColumnsSettings == null)
+		if (settings.PlaylistColumnsSettings == null)
 		{
-			((Settings)sender).FullScanColumnsSettings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.FULLSCAN);
+			settings.PlaylistColumnsSettings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.PLAYLIST);
 		}
-		if (((Settings)sender).DuplicateColumnsSettings == null)
+		if (settings.FullScanColumnsSettings == null)
 		{
-			((Settings)sender).DuplicateColumnsSettings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.DUPLICATE);
+			settings.FullScanColumnsSettings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.FULLSCAN);
 		}
-		if (((Settings)sender).EncodingColumnsSettings == null)
+		if (settings.DuplicateColumnsSettings == null)
 		{
-			((Settings)sender).EncodingColumnsSettings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.ENCODING);
+			settings.DuplicateColumnsSettings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.DUPLICATE);
 		}
-		if (((Settings)sender).InstallColumnsSettings == null)
+		if (settings.EncodingColumnsSettings == null)
 		{
-			((Settings)sender).InstallColumnsSettings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.INSTALL);
+			settings.EncodingColumnsSettings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.ENCODING);
 		}
-		if (((Settings)sender).ChartInfoParseErrorColumnsSettings == null)
+		if (settings.InstallColumnsSettings == null)
 		{
-			((Settings)sender).ChartInfoParseErrorColumnsSettings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.CHART_INFO_PARSE_ERROR);
+			settings.InstallColumnsSettings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.INSTALL);
 		}
-		if (((Settings)sender).PlaylistSummaryColumnsSettings == null)
+		if (settings.ChartInfoParseErrorColumnsSettings == null)
 		{
-			((Settings)sender).PlaylistSummaryColumnsSettings = new PlaylistSummaryColumnSettings();
+			settings.ChartInfoParseErrorColumnsSettings = new dataGridColumnsSettings(dataGridColumnsSettings.viewType.CHART_INFO_PARSE_ERROR);
 		}
-		((Settings)sender).StandardColumnsSettings.EnsureChartInfoColumnDefaults(dataGridColumnsSettings.viewType.STANDARD);
-		((Settings)sender).ZeroNoteColumnsSettings.EnsureChartInfoColumnDefaults(dataGridColumnsSettings.viewType.ZERO_NOTE);
-		((Settings)sender).PlaylistColumnsSettings.EnsureChartInfoColumnDefaults(dataGridColumnsSettings.viewType.PLAYLIST);
-		((Settings)sender).FullScanColumnsSettings.EnsureChartInfoColumnDefaults(dataGridColumnsSettings.viewType.FULLSCAN);
-		((Settings)sender).DuplicateColumnsSettings.EnsureChartInfoColumnDefaults(dataGridColumnsSettings.viewType.DUPLICATE);
-		((Settings)sender).EncodingColumnsSettings.EnsureChartInfoColumnDefaults(dataGridColumnsSettings.viewType.ENCODING);
-		((Settings)sender).InstallColumnsSettings.EnsureChartInfoColumnDefaults(dataGridColumnsSettings.viewType.INSTALL);
-		((Settings)sender).ChartInfoParseErrorColumnsSettings.EnsureChartInfoColumnDefaults(dataGridColumnsSettings.viewType.CHART_INFO_PARSE_ERROR);
-		if (((Settings)sender).WindowPlacement.NormalPosition.Left >= ((Settings)sender).WindowPlacement.NormalPosition.Right || ((Settings)sender).WindowPlacement.NormalPosition.Top >= ((Settings)sender).WindowPlacement.NormalPosition.Bottom)
+		if (settings.PlaylistSummaryColumnsSettings == null)
 		{
-			Win32API.WINDOWPLACEMENT windowPlacement = ((Settings)sender).WindowPlacement;
+			settings.PlaylistSummaryColumnsSettings = new PlaylistSummaryColumnSettings();
+		}
+		settings.StandardColumnsSettings.EnsureChartInfoColumnDefaults(dataGridColumnsSettings.viewType.STANDARD);
+		settings.ZeroNoteColumnsSettings.EnsureChartInfoColumnDefaults(dataGridColumnsSettings.viewType.ZERO_NOTE);
+		settings.PlaylistColumnsSettings.EnsureChartInfoColumnDefaults(dataGridColumnsSettings.viewType.PLAYLIST);
+		settings.FullScanColumnsSettings.EnsureChartInfoColumnDefaults(dataGridColumnsSettings.viewType.FULLSCAN);
+		settings.DuplicateColumnsSettings.EnsureChartInfoColumnDefaults(dataGridColumnsSettings.viewType.DUPLICATE);
+		settings.EncodingColumnsSettings.EnsureChartInfoColumnDefaults(dataGridColumnsSettings.viewType.ENCODING);
+		settings.InstallColumnsSettings.EnsureChartInfoColumnDefaults(dataGridColumnsSettings.viewType.INSTALL);
+		settings.ChartInfoParseErrorColumnsSettings.EnsureChartInfoColumnDefaults(dataGridColumnsSettings.viewType.CHART_INFO_PARSE_ERROR);
+		if (settings.WindowPlacement.NormalPosition.Left >= settings.WindowPlacement.NormalPosition.Right || settings.WindowPlacement.NormalPosition.Top >= settings.WindowPlacement.NormalPosition.Bottom)
+		{
+			Win32API.WINDOWPLACEMENT windowPlacement = settings.WindowPlacement;
 			windowPlacement.NormalPosition = new Win32API.RECT(0, 0, 1000, 800);
-			((Settings)sender).WindowPlacement = windowPlacement;
+			settings.WindowPlacement = windowPlacement;
 		}
 	}
 }
