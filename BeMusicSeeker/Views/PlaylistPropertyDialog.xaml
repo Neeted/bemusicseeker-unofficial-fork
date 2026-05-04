@@ -1,6 +1,6 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <UserControl x:Class="BeMusicSeeker.Views.PlaylistPropertyDialog" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:i="http://schemas.microsoft.com/expression/2010/interactivity" xmlns:l="http://schemas.livet-mvvm.net/2011/wpf" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" xmlns:v="clr-namespace:BeMusicSeeker.Views" xmlns:vm="clr-namespace:BeMusicSeeker.ViewModels" xmlns:d="http://schemas.microsoft.com/expression/blend/2008" xmlns:qc="http://QuickConverter.CodePlex.com/" x:Name="playlistPropertyDialog">
-  <Grid>
+  <Grid TextElement.Foreground="{DynamicResource App.TextBrush}">
     <FrameworkElement.Resources>
       <ResourceDictionary>
         <v:objectToBoolConverter x:Key="objectToBoolConverter" />
@@ -14,8 +14,8 @@
         <v:entryUnitTypeIsFileConverter x:Key="entryUnitTypeIsFileConverter" />
       </ResourceDictionary>
     </FrameworkElement.Resources>
-    <Rectangle Fill="#FF000000" Opacity="0.5" />
-    <Border Width="500" Height="300" CornerRadius="10" Background="#FFFFFFFF" Padding="10">
+    <Rectangle Fill="{DynamicResource App.DialogOverlayBrush}" Opacity="0.5" />
+    <Border Width="500" Height="300" CornerRadius="10" Background="{DynamicResource App.DialogBackgroundBrush}" BorderBrush="{DynamicResource App.DialogBorderBrush}" BorderThickness="1" Padding="10">
       <DockPanel HorizontalAlignment="Stretch" VerticalAlignment="Stretch" LastChildFill="True">
         <DockPanel Dock="Bottom" VerticalAlignment="Bottom">
           <Label ContentStringFormat="Update: {0:yyyy/MM/dd}" DockPanel.Dock="Left" Content="{Binding playlistPropertyDialog.last_update}" />

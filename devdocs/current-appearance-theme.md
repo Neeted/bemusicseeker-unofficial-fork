@@ -4,7 +4,7 @@
 
 BeMusicSeeker は外観テーマとして `Light` / `Dark` を持つ。既定は `Light` で、設定ダイアログの `一般 > 外観 > テーマ` から変更できる。
 
-テーマはアプリ全体の配色リソースを差し替える仕組みであり、現時点では主にメイン画面、左ツリー、CustomTableView、検索欄、ステータスバー、設定ダイアログの一部を対象にしている。フォントや行高はまだテーマ設定の対象外。
+テーマはアプリ全体の配色リソースを差し替える仕組みであり、現時点では主にメイン画面、左ツリー、CustomTableView、検索欄、ステータスバー、スクロールバー、コンテキストメニュー、標準 control、設定ダイアログ、主要なアプリ内ダイアログを対象にしている。フォントや行高はまだテーマ設定の対象外。
 
 ## 設定値
 
@@ -44,18 +44,23 @@ BeMusicSeeker は外観テーマとして `Light` / `Dark` を持つ。既定は
 - `App.ControlBackgroundActiveBrush`
 - `App.ControlHoverBrush`
 - `App.ControlSelectedBrush`
+- `App.ControlPressedBrush`
 - `App.TextBrush`
 - `App.SubtleTextBrush`
 - `App.DisabledTextBrush`
 - `App.BorderBrush`
 - `App.StrongBorderBrush`
 - `App.SeparatorBrush`
+- `App.InputFocusBorderBrush`
 - `App.AccentBrush`
 - `App.AccentSubtleBrush`
 - `App.WarningTextBrush`
 - `App.DialogOverlayBrush`
 - `App.DialogBackgroundBrush`
+- `App.DialogBorderBrush`
 - `App.PopupBackgroundBrush`
+- `App.MenuSelectedBackgroundBrush`
+- `App.MenuSelectedTextBrush`
 - `App.SearchGlyphBrush`
 
 ### Table 系
@@ -99,6 +104,32 @@ BeMusicSeeker は外観テーマとして `Light` / `Dark` を持つ。既定は
 
 ScrollBar は `SimpleScrollBar` を `ScrollBar.*` key に接続し、標準 `ScrollBar` の implicit style としても適用する。CustomTableView の縦横スクロールバーも標準 `ScrollBar` を使うため、この style 経由でテーマ色になる。
 
+## 標準 Control / Menu
+
+`Simple Styles.xaml` は主要な標準 WPF control に implicit style を定義している。動的生成された control でも、アプリ内の visual tree 上にあればテーマ resource が適用される。
+
+対応済みの主な control:
+
+- `Button`
+- `TextBox`
+- `ComboBox` / `ComboBoxItem`
+- `CheckBox`
+- `RadioButton`
+- `Label`
+- `GroupBox`
+- `TabControl` / `TabItem`
+- `Expander`
+- `Menu`
+- `ContextMenu`
+- `MenuItem`
+- `Separator`
+
+`SimpleMenuItem` は `SystemColors.*` ではなく、`App.PopupBackgroundBrush` / `App.TextBrush` / `App.ControlHoverBrush` / `App.MenuSelectedBackgroundBrush` / `App.MenuSelectedTextBrush` / `App.DisabledTextBrush` / `App.BorderBrush` を使う。MainWindow の column header など局所 `MenuItem` style は implicit style を `BasedOn` で継承する。
+
+`Label` / `TextBox` / `ComboBox` の標準 style は、フォーム行の高さに対して内容が上下中央に見えることを既定とする。個別画面で上寄せが必要な場合だけ明示 override する。
+
+`ProgressBar` はライト / ダークの配色差を付けず、従来のステータスバーに近い共通の緑色 indicator と薄い track を使う。進捗ゲージは状態表示であり、テーマ accent 色の一部としては扱わない。
+
 ## MainWindow
 
 メインウィンドウは `Background` / `Foreground` をテーマ resource へ接続する。
@@ -116,6 +147,8 @@ ScrollBar は `SimpleScrollBar` を `ScrollBar.*` key に接続し、標準 `Scr
 - CustomTableView
 
 ツリーの子ノードは `TextBlock` と `EditableTextBlock` が混在するため、通常時 `App.TextBrush`、選択時 `Table.SelectedTextBrush`、無効時 `App.DisabledTextBrush` を明示している。
+
+検索欄は入力文字列がある場合に `App.ControlBackgroundActiveBrush` を使う。これは一覧が keyword filter 済みであることを示す注意色で、ライトモードでは従来の `LightPink` 相当、ダークモードでは暗色 palette に馴染む muted color とする。構文警告の `!` 表示とは別の状態表示である。
 
 ## CustomTableView
 
@@ -137,16 +170,40 @@ CustomTableView は WPF 標準 control template ではなく独自描画のた�
 - キャンセル時は保存済みのテーマへ戻し、即時に `AppThemeService.ApplyTheme()` を呼ぶ。
 - ダイアログは非表示で再利用されるため、再表示時にも ComboBox 選択を現在設定へ同期する。
 
-設定ダイアログ全体の完全なダークテーマ対応は未完了。背景、文字、更新履歴欄など主要部分はテーマ化済みだが、標準 WPF control の細部は今後の対象。
+設定ダイアログは標準 control の implicit style を使う。タブやグループ枠、入力欄、ボタンなどは `Simple Styles.xaml` のテーマ resource 参照に寄せている。
+
+## アプリ内ダイアログ
+
+アプリが描画する主要なダイアログは `App.DialogOverlayBrush` / `App.DialogBackgroundBrush` / `App.DialogBorderBrush` / `App.TextBrush` を参照する。
+
+対応済み:
+
+- `SettingDialog`
+- `PlaylistPropertyDialog`
+- `LoadPlaylistURIDialog`
+- `PendingDeleteConfirmDialog`
+- `Parago/Windows/ProgressDialog`
+
+OS 標準の `OpenFileDialog` / `SaveFileDialog` / folder picker は Windows 管理 UI のためテーマ対象外。
+
+## MessageBox
+
+アプリ内の確認 / 情報 MessageBox は `ThemedMessageBox` 経由で表示する。`DispatcherMessageBox.Show(...)` は UI dispatcher marshal と owner 解決を維持したまま、内部で themed dialog を使う。
+
+- `MessageBoxButton.OK`
+- `MessageBoxButton.OKCancel`
+- `MessageBoxButton.YesNo`
+- `MessageBoxButton.YesNoCancel`
+- `MessageBoxImage` の warning / error / question / information 表示
+- `defaultResult` による close / cancel 時の戻り値
+
+Livet の `InformationDialogInteractionMessageAction` / `ConfirmationDialogInteractionMessageAction` は themed action に置き換えている。起動前の致命的エラーなど、テーマ resource がまだ安全に使えない箇所では OS native dialog へ fallback する。
 
 ## 未調整 / 今後の課題
 
-- コンテキストメニューの全面的なテーマ化。
-- 各種ダイアログの全面的なテーマ化。
-- 設定ダイアログの全 control template 明示化。
-- TextBox / ComboBox / Button / TabControl / GroupBox など標準 WPF control の暗色時 hover / focus / disabled 表現。
-- 画像 asset の白背景前提アンチエイリアス確認。
-- ツリーやボタンのアイコン色調整。
+- 新しく追加される個別 dialog / popup が direct color を持たないか継続確認する。
+- OS 標準 file/folder dialog はテーマ対象外。
+- コンテキストメニューやダイアログ内のアイコンは既存 asset を維持している。必要が出た場合のみ個別に調整する。
 - フォント設定、テーブル行高設定。
 - ユーザー定義テーマ、色の個別カスタマイズ。
 - OS テーマ追従。

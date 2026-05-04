@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Windows;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.Views;
@@ -122,6 +123,12 @@ public sealed class MainWindowContextMenuResourceTests
             "App.SurfaceBrush",
             "App.TextBrush",
             "App.BorderBrush",
+            "App.DialogBorderBrush",
+            "App.ControlPressedBrush",
+            "App.ControlBackgroundActiveBrush",
+            "App.InputFocusBorderBrush",
+            "App.MenuSelectedBackgroundBrush",
+            "App.MenuSelectedTextBrush",
             "ScrollBar.TrackBackgroundBrush",
             "ScrollBar.ThumbBackgroundBrush",
             "ScrollBar.ThumbHoverBackgroundBrush",
@@ -154,6 +161,113 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.AreEqual(1, CountOccurrences(xaml, "ItemsSource=\"{Binding settingDialog.AppearanceThemeOptions}\""));
         Assert.AreEqual(1, CountOccurrences(xaml, "SelectedValue=\"{Binding settingDialog.AppearanceTheme, Mode=TwoWay}\""));
         Assert.AreEqual(1, CountOccurrences(xaml, "Path=Resources.Appearance_theme, Mode=OneWay"));
+    }
+
+    [TestMethod]
+    public void ThemeStyles_ApplyToMenusAndStandardControls()
+    {
+        string styles = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "Simple Styles.xaml"));
+        string mainWindow = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "MainWindow.xaml"));
+
+        foreach (string targetType in new[]
+        {
+            "ContextMenu",
+            "MenuItem",
+            "Separator",
+            "Button",
+            "TextBox",
+            "ComboBox",
+            "ComboBoxItem",
+            "CheckBox",
+            "RadioButton",
+            "Label",
+            "GroupBox",
+            "TabControl",
+            "TabItem",
+            "Expander"
+        })
+        {
+            StringAssert.Contains(styles, "Style TargetType=\"{x:Type " + targetType + "}\"");
+        }
+
+        string simpleMenuItem = styles.Substring(styles.IndexOf("x:Key=\"SimpleMenuItem\"", StringComparison.Ordinal));
+        simpleMenuItem = simpleMenuItem.Substring(0, simpleMenuItem.IndexOf("x:Key=\"SimpleSeparator\"", StringComparison.Ordinal));
+        Assert.IsFalse(simpleMenuItem.Contains("SystemColors.MenuTextBrushKey"));
+        Assert.IsFalse(simpleMenuItem.Contains("SystemColors.HighlightBrushKey"));
+        Assert.IsFalse(simpleMenuItem.Contains("SystemColors.HighlightTextBrushKey"));
+        Assert.IsFalse(simpleMenuItem.Contains("SystemColors.GrayTextBrushKey"));
+        StringAssert.Contains(simpleMenuItem, "App.PopupBackgroundBrush");
+        StringAssert.Contains(simpleMenuItem, "ArrowPanelPath");
+        StringAssert.Contains(simpleMenuItem, "Data=\"M0,0 L4,4 L0,8 Z\"");
+
+        string simpleSeparator = styles.Substring(styles.IndexOf("x:Key=\"SimpleSeparator\"", StringComparison.Ordinal));
+        simpleSeparator = simpleSeparator.Substring(0, simpleSeparator.IndexOf("x:Key=\"SimpleTabControl\"", StringComparison.Ordinal));
+        StringAssert.Contains(simpleSeparator, "OverridesDefaultStyle");
+        StringAssert.Contains(simpleSeparator, "App.SeparatorBrush");
+        StringAssert.Contains(simpleSeparator, "x:Static MenuItem.SeparatorStyleKey");
+        Assert.IsFalse(simpleSeparator.Contains("MinWidth=\"{Binding ActualWidth"));
+
+        foreach (string controlStyle in new[] { "SimpleButton", "SimpleCheckBox", "SimpleRadioButton", "SimpleLabel", "SimpleListBox", "SimpleListBoxItem", "SimpleExpander", "SimpleTabItem" })
+        {
+            string marker = "x:Key=\"" + controlStyle + "\"";
+            string snippet = styles.Substring(styles.IndexOf(marker, StringComparison.Ordinal), Math.Min(900, styles.Length - styles.IndexOf(marker, StringComparison.Ordinal)));
+            StringAssert.Contains(snippet, "App.TextBrush");
+        }
+        string simpleLabel = styles.Substring(styles.IndexOf("x:Key=\"SimpleLabel\"", StringComparison.Ordinal), 500);
+        StringAssert.Contains(simpleLabel, "VerticalContentAlignment\" Value=\"Center\"");
+        string simpleTextBox = styles.Substring(styles.IndexOf("x:Key=\"SimpleTextBox\"", StringComparison.Ordinal), 1200);
+        StringAssert.Contains(simpleTextBox, "VerticalContentAlignment\" Value=\"Center\"");
+        StringAssert.Contains(simpleTextBox, "VerticalAlignment=\"{TemplateBinding Control.VerticalContentAlignment}\"");
+        string simpleComboBox = styles.Substring(styles.IndexOf("x:Key=\"SimpleComboBox\"", StringComparison.Ordinal), 1200);
+        StringAssert.Contains(simpleComboBox, "VerticalContentAlignment\" Value=\"Center\"");
+        StringAssert.Contains(simpleComboBox, "VerticalAlignment=\"{TemplateBinding Control.VerticalContentAlignment}\"");
+        string simpleProgressBar = styles.Substring(styles.IndexOf("x:Key=\"SimpleProgressBar\"", StringComparison.Ordinal), 700);
+        StringAssert.Contains(simpleProgressBar, "ProgressBar.TrackBrush");
+        StringAssert.Contains(simpleProgressBar, "ProgressBar.IndicatorBrush");
+        StringAssert.Contains(styles, "x:Key=\"ProgressBar.IndicatorBrush\" Color=\"#FF06B025\"");
+        StringAssert.Contains(mainWindow, "App.ControlBackgroundActiveBrush");
+        StringAssert.Contains(mainWindow, "ElementName=KeywordSearchBox, Mode=OneWay, Converter={qc:QuickConverter '!String.IsNullOrWhiteSpace($P)'}");
+        StringAssert.Contains(mainWindow, "ElementName=KeywordSearchBoxPlaylistSummary, Mode=OneWay, Converter={qc:QuickConverter '!String.IsNullOrWhiteSpace($P)'}");
+        StringAssert.Contains(styles, "Data=\"M2,6 L5,9 L11,2\"");
+        StringAssert.Contains(styles, "Name=\"IndeterminateMark\"");
+
+        StringAssert.Contains(mainWindow, "x:Key=\"styleContextMenuLeftAlignment\" TargetType=\"{x:Type MenuItem}\" BasedOn=\"{StaticResource {x:Type MenuItem}}\"");
+        StringAssert.Contains(mainWindow, "x:Key=\"stylePlaylistSummaryContextMenuLeftAlignment\" TargetType=\"{x:Type MenuItem}\" BasedOn=\"{StaticResource {x:Type MenuItem}}\"");
+        Assert.AreEqual(4, CountOccurrences(mainWindow, "<Style TargetType=\"{x:Type MenuItem}\" BasedOn=\"{StaticResource {x:Type MenuItem}}\">"));
+    }
+
+    [TestMethod]
+    public void AppDialogs_UseThemeResourcesAndThemedMessageActions()
+    {
+        string root = FindRepositoryRoot();
+        string mainWindow = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "MainWindow.xaml"));
+
+        StringAssert.Contains(mainWindow, "<v:ThemedInformationDialogInteractionMessageAction />");
+        StringAssert.Contains(mainWindow, "<v:ThemedConfirmationDialogInteractionMessageAction />");
+
+        foreach (string relativePath in new[]
+        {
+            Path.Combine("BeMusicSeeker", "Views", "SettingDialog.xaml"),
+            Path.Combine("BeMusicSeeker", "Views", "PlaylistPropertyDialog.xaml"),
+            Path.Combine("BeMusicSeeker", "Views", "LoadPlaylistURIDialog.xaml"),
+            Path.Combine("BeMusicSeeker", "Views", "PendingDeleteConfirmDialog.xaml"),
+            Path.Combine("Parago", "Windows", "ProgressDialog.xaml")
+        })
+        {
+            string xaml = File.ReadAllText(Path.Combine(root, relativePath));
+            StringAssert.Contains(xaml, "App.TextBrush");
+            StringAssert.Contains(xaml, "App.DialogBackgroundBrush");
+        }
+
+        string settingDialog = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingDialog.xaml"));
+        StringAssert.Contains(settingDialog, "App.WarningTextBrush");
+        Assert.IsFalse(settingDialog.Contains("Foreground=\"#FFFF0000\""));
+
+        Assert.AreEqual(MessageBoxResult.Cancel, ThemedMessageBox.NormalizeDefaultResult(MessageBoxButton.OKCancel, MessageBoxResult.None));
+        Assert.AreEqual(MessageBoxResult.No, ThemedMessageBox.NormalizeDefaultResult(MessageBoxButton.YesNo, MessageBoxResult.None));
+        Assert.AreEqual(true, ThemedMessageBox.ToConfirmationResponse(MessageBoxResult.Yes));
+        Assert.AreEqual(false, ThemedMessageBox.ToConfirmationResponse(MessageBoxResult.No));
+        Assert.AreEqual(null, ThemedMessageBox.ToConfirmationResponse(MessageBoxResult.Cancel));
     }
 
     [TestMethod]

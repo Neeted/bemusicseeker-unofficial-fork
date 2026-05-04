@@ -41,7 +41,7 @@
           <TabControl DockPanel.Dock="Top">
             <FrameworkElement.Resources>
               <ResourceDictionary>
-                <Style x:Key="{x:Type TabItem}" TargetType="{x:Type TabItem}">
+                <Style x:Key="{x:Type TabItem}" TargetType="{x:Type TabItem}" BasedOn="{StaticResource {x:Type TabItem}}">
                   <Setter Property="Padding" Value="5,1,5,1" />
                   <Setter Property="FontFamily" Value="Meiryo UI" />
                 </Style>
@@ -295,7 +295,7 @@
                               <Style TargetType="{x:Type TextBlock}">
                                 <Style.Triggers>
                                   <Trigger Property="IsEnabled" Value="False">
-                                    <Setter Property="Foreground" Value="{StaticResource {x:Static SystemColors.GrayTextBrushKey}}" />
+                                    <Setter Property="Foreground" Value="{DynamicResource App.DisabledTextBrush}" />
                                   </Trigger>
                                 </Style.Triggers>
                               </Style>
@@ -336,7 +336,7 @@
                             <Style TargetType="{x:Type TextBlock}">
                               <Style.Triggers>
                                 <Trigger Property="IsEnabled" Value="False">
-                                  <Setter Property="Foreground" Value="{StaticResource {x:Static SystemColors.GrayTextBrushKey}}" />
+                                  <Setter Property="Foreground" Value="{DynamicResource App.DisabledTextBrush}" />
                                 </Trigger>
                               </Style.Triggers>
                             </Style>
@@ -632,7 +632,7 @@
                     <TextBlock Margin="0">Original work: Copyright © 2018 <Hyperlink NavigateUri="http://tumblr.ribbit.xyz" RequestNavigate="hyperlinkRequestNavigate">ribbit.xyz</Hyperlink></TextBlock>
                     <TextBlock Margin="0">Fork modifications: Copyright © 2026 <Hyperlink NavigateUri="https://x.com/CyanHowan" RequestNavigate="hyperlinkRequestNavigate">ﾏﾝﾊｯﾀﾝｶﾞｯﾌｪ</Hyperlink></TextBlock>
                     <TextBlock Margin="0">This software is released under the <Hyperlink NavigateUri="http://opensource.org/licenses/mit-license.php" RequestNavigate="hyperlinkRequestNavigate">MIT License</Hyperlink>.</TextBlock>
-                    <TextBlock Name="textBlockVersionUpMessage" HorizontalAlignment="Center" FontWeight="Bold" Foreground="#FFFF0000" Margin="0,10,0,0" Visibility="Hidden">バージョンアップが完了しました</TextBlock>
+                    <TextBlock Name="textBlockVersionUpMessage" HorizontalAlignment="Center" FontWeight="Bold" Foreground="{DynamicResource App.WarningTextBrush}" Margin="0,10,0,0" Visibility="Hidden">バージョンアップが完了しました</TextBlock>
                   </StackPanel>
                 </DockPanel>
                 <GroupBox DockPanel.Dock="Bottom" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Update_history, Mode=OneWay}">
@@ -643,6 +643,9 @@
                           <Style x:Key="{x:Type List}" TargetType="{x:Type List}">
                             <Setter Property="Block.Padding" Value="10,0,0,0" />
                             <Setter Property="Block.Margin" Value="5,5,5,5" />
+                          </Style>
+                          <Style TargetType="{x:Type Hyperlink}">
+                            <Setter Property="Foreground" Value="{DynamicResource App.AccentSubtleBrush}" />
                           </Style>
                         </ResourceDictionary>
                       </FrameworkContentElement.Resources>

@@ -101,7 +101,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
 		}
 		else
 		{
-			MessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_invalid_setting + Environment.NewLine + Environment.NewLine + errMsg, BeMusicSeeker.Properties.Resources.Error, MessageBoxButton.OK, MessageBoxImage.Hand);
+			DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_invalid_setting + Environment.NewLine + Environment.NewLine + errMsg, BeMusicSeeker.Properties.Resources.Error, MessageBoxButton.OK, MessageBoxImage.Hand);
 		}
 		buttonOK.IsEnabled = true;
 		buttonCancel.IsEnabled = true;
@@ -132,7 +132,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
 	private async void detailTabItemRestoreButtonClicked(object sender, RoutedEventArgs e)
 	{
 		MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-		if (viewModel == null || viewModel.BMSTables == null || MessageBox.Show(Window.GetWindow(this), "プレイリストをバックアップから復元します。" + Environment.NewLine + "現在のプレイリストは全て削除され置き換えられます。" + Environment.NewLine + "バックアップデータが不正な場合元に戻せなくなるかもしれません。" + Environment.NewLine + Environment.NewLine + "続行しますか？", "確認", MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) != MessageBoxResult.OK)
+		if (viewModel == null || viewModel.BMSTables == null || DispatcherMessageBox.Show(Window.GetWindow(this), "プレイリストをバックアップから復元します。" + Environment.NewLine + "現在のプレイリストは全て削除され置き換えられます。" + Environment.NewLine + "バックアップデータが不正な場合元に戻せなくなるかもしれません。" + Environment.NewLine + Environment.NewLine + "続行しますか？", "確認", MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) != MessageBoxResult.OK)
 		{
 			return;
 		}
@@ -149,7 +149,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
 			}).Logging("detailTabItemRestoreButtonClicked");
 			await base.Dispatcher.BeginInvoke((Action)delegate
 			{
-				MessageBox.Show(Application.Current.MainWindow, "アプリケーションを終了します。", "確認", MessageBoxButton.OK, MessageBoxImage.Question, MessageBoxResult.OK);
+				DispatcherMessageBox.Show(Application.Current.MainWindow, "アプリケーションを終了します。", "確認", MessageBoxButton.OK, MessageBoxImage.Question, MessageBoxResult.OK);
 				Application.Current.MainWindow.Close();
 			}, DispatcherPriority.Normal);
 		}
@@ -158,7 +158,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
 	private async void detailTabItemUninstallButtonClicked(object sender, RoutedEventArgs e)
 	{
 		MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-		if (viewModel != null && viewModel.BMSTables != null && MessageBox.Show(Window.GetWindow(this), "BeMusicSeekerのデータをLR2データベースから削除します。" + Environment.NewLine + "続行した場合この操作を取り消しすることは出来ません。" + Environment.NewLine + "必要に応じて事前にバックアップを取得してください。" + Environment.NewLine + Environment.NewLine + "続行しますか？", "確認", MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) == MessageBoxResult.OK)
+		if (viewModel != null && viewModel.BMSTables != null && DispatcherMessageBox.Show(Window.GetWindow(this), "BeMusicSeekerのデータをLR2データベースから削除します。" + Environment.NewLine + "続行した場合この操作を取り消しすることは出来ません。" + Environment.NewLine + "必要に応じて事前にバックアップを取得してください。" + Environment.NewLine + Environment.NewLine + "続行しますか？", "確認", MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) == MessageBoxResult.OK)
 		{
 			await Task.Run(delegate
 			{
@@ -166,7 +166,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
 			}).Logging("detailTabItemUninstallButtonClicked");
 			await base.Dispatcher.BeginInvoke((Action)delegate
 			{
-				MessageBox.Show(Application.Current.MainWindow, "アプリケーションを終了します。", "確認", MessageBoxButton.OK, MessageBoxImage.Question, MessageBoxResult.OK);
+				DispatcherMessageBox.Show(Application.Current.MainWindow, "アプリケーションを終了します。", "確認", MessageBoxButton.OK, MessageBoxImage.Question, MessageBoxResult.OK);
 				Application.Current.MainWindow.Close();
 			}, DispatcherPriority.Normal);
 		}

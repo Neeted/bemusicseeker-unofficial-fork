@@ -6,8 +6,10 @@
         SizeToContent="WidthAndHeight"
         ResizeMode="NoResize"
         WindowStartupLocation="CenterOwner"
-        ShowInTaskbar="False">
-  <Border Padding="14">
+        ShowInTaskbar="False"
+        Background="{DynamicResource App.DialogBackgroundBrush}"
+        Foreground="{DynamicResource App.TextBrush}">
+  <Border Padding="14" Background="{DynamicResource App.DialogBackgroundBrush}">
     <StackPanel MinWidth="420">
       <TextBlock Margin="0,0,0,12"
                  Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Msg_move_to_recycle, Mode=OneWay}"

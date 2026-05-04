@@ -37,7 +37,7 @@ public partial class LoadPlaylistURIDialog : UserControl, IComponentConnector
 			}
 			catch
 			{
-				MessageBox.Show(Window.GetWindow(this), "入力された値が正しくありません。" + Environment.NewLine + "絶対URIであることを確認してください。", "エラー", MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+				DispatcherMessageBox.Show(Window.GetWindow(this), "入力された値が正しくありません。" + Environment.NewLine + "絶対URIであることを確認してください。", "エラー", MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
 				return;
 			}
 			textBoxURIInput.Text = string.Empty;

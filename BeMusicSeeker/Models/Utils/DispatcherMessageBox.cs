@@ -1,6 +1,7 @@
 using System;
 using System.Windows;
 using System.Windows.Threading;
+using BeMusicSeeker.Views;
 
 namespace BeMusicSeeker.Models.Utils;
 
@@ -8,27 +9,25 @@ internal static class DispatcherMessageBox
 {
 	public static MessageBoxResult Show(string messageBoxText, string caption, MessageBoxButton button, MessageBoxImage icon, MessageBoxResult defaultResult = MessageBoxResult.Cancel, MessageBoxOptions options = MessageBoxOptions.None)
 	{
+		return Show(Application.Current?.MainWindow, messageBoxText, caption, button, icon, defaultResult, options);
+	}
+
+	public static MessageBoxResult Show(Window owner, string messageBoxText, string caption, MessageBoxButton button, MessageBoxImage icon, MessageBoxResult defaultResult = MessageBoxResult.Cancel, MessageBoxOptions options = MessageBoxOptions.None)
+	{
 		try
 		{
+			if (Application.Current == null)
+			{
+				return MessageBox.Show(messageBoxText, caption, button, icon, defaultResult, options);
+			}
 			if (Application.Current.Dispatcher.CheckAccess())
 			{
-				if (Application.Current.MainWindow == null)
-				{
-					throw new InvalidOperationException("MainWindowが表示されていません。");
-				}
-				return MessageBox.Show(Application.Current.MainWindow, messageBoxText, caption, button, icon, defaultResult, options);
+				return ThemedMessageBox.Show(owner ?? Application.Current.MainWindow, messageBoxText, caption, button, icon, defaultResult, options);
 			}
 			MessageBoxResult result = MessageBoxResult.None;
 			Application.Current.Dispatcher.Invoke(DispatcherPriority.Background, (Action)delegate
 			{
-				if (Application.Current.MainWindow == null)
-				{
-					result = MessageBox.Show(messageBoxText, caption, button, icon, defaultResult, options);
-				}
-				else
-				{
-					result = MessageBox.Show(Application.Current.MainWindow, messageBoxText, caption, button, icon, defaultResult, options);
-				}
+				result = ThemedMessageBox.Show(owner ?? Application.Current.MainWindow, messageBoxText, caption, button, icon, defaultResult, options);
 			});
 			return result;
 		}

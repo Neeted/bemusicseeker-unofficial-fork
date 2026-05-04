@@ -22,6 +22,9 @@
     <GradientStop Color="#EEE" Offset="0.9" />
     <GradientStop Color="#FFF" Offset="1.0" />
   </LinearGradientBrush>
+  <SolidColorBrush x:Key="ProgressBar.TrackBrush" Color="#FFE5E5E5" />
+  <SolidColorBrush x:Key="ProgressBar.IndicatorBrush" Color="#FF06B025" />
+  <SolidColorBrush x:Key="ProgressBar.BorderBrush" Color="#FFBCBCBC" />
   <LinearGradientBrush x:Key="PressedBorderBrush" EndPoint="0,1" StartPoint="0,0">
     <GradientStop Color="#444" Offset="0.0" />
     <GradientStop Color="#888" Offset="1.0" />
@@ -54,12 +57,13 @@
     <Setter Property="FrameworkElement.FocusVisualStyle" Value="{DynamicResource SimpleButtonFocusVisual}" />
     <Setter Property="Background" Value="{DynamicResource NormalBrush}" />
     <Setter Property="BorderBrush" Value="{DynamicResource NormalBorderBrush}" />
+    <Setter Property="Foreground" Value="{DynamicResource App.TextBrush}" />
     <Setter Property="Template">
       <Setter.Value>
         <ControlTemplate TargetType="{x:Type Button}">
           <Grid Name="Grid">
             <Border Name="Border" Background="{TemplateBinding Control.Background}" BorderBrush="{TemplateBinding Control.BorderBrush}" BorderThickness="{TemplateBinding Control.BorderThickness}" Padding="{TemplateBinding Control.Padding}" />
-            <ContentPresenter HorizontalAlignment="{TemplateBinding Control.HorizontalContentAlignment}" Margin="{TemplateBinding Control.Padding}" VerticalAlignment="{TemplateBinding Control.VerticalContentAlignment}" RecognizesAccessKey="True" />
+            <ContentPresenter HorizontalAlignment="{TemplateBinding Control.HorizontalContentAlignment}" Margin="{TemplateBinding Control.Padding}" VerticalAlignment="{TemplateBinding Control.VerticalContentAlignment}" RecognizesAccessKey="True" TextElement.Foreground="{TemplateBinding Control.Foreground}" />
           </Grid>
           <ControlTemplate.Triggers>
             <Trigger Property="UIElement.IsKeyboardFocused" Value="True">
@@ -110,6 +114,7 @@
     <Setter Property="FrameworkElement.FocusVisualStyle" Value="{DynamicResource CheckBoxFocusVisual}" />
     <Setter Property="Background" Value="{DynamicResource NormalBrush}" />
     <Setter Property="BorderBrush" Value="{DynamicResource NormalBorderBrush}" />
+    <Setter Property="Foreground" Value="{DynamicResource App.TextBrush}" />
     <Setter Property="Template">
       <Setter.Value>
         <ControlTemplate TargetType="{x:Type CheckBox}">
@@ -117,14 +122,20 @@
             <BulletDecorator.Bullet>
               <Grid Width="13" Height="13">
                 <Border Name="Border" Background="{TemplateBinding Control.Background}" BorderBrush="{TemplateBinding Control.BorderBrush}" BorderThickness="{TemplateBinding Control.BorderThickness}" />
-                <Path Name="CheckMark" Stroke="{DynamicResource GlyphBrush}" StrokeThickness="2" SnapsToDevicePixels="False" Data="M0,0 L13,13 M0,13 L13,0" />
+                <Path Name="CheckMark" Stroke="{DynamicResource GlyphBrush}" StrokeThickness="2" StrokeLineJoin="Miter" SnapsToDevicePixels="False" Data="M2,6 L5,9 L11,2" />
+                <Rectangle Name="IndeterminateMark" Visibility="Collapsed" Margin="3" Fill="{DynamicResource GlyphBrush}" />
               </Grid>
             </BulletDecorator.Bullet>
-            <ContentPresenter HorizontalAlignment="{TemplateBinding Control.HorizontalContentAlignment}" Margin="{TemplateBinding Control.Padding}" VerticalAlignment="{TemplateBinding Control.VerticalContentAlignment}" RecognizesAccessKey="True" />
+            <ContentPresenter HorizontalAlignment="{TemplateBinding Control.HorizontalContentAlignment}" Margin="{TemplateBinding Control.Padding}" VerticalAlignment="{TemplateBinding Control.VerticalContentAlignment}" RecognizesAccessKey="True" TextElement.Foreground="{TemplateBinding Control.Foreground}" />
           </BulletDecorator>
           <ControlTemplate.Triggers>
             <Trigger Property="ToggleButton.IsChecked" Value="false">
               <Setter TargetName="CheckMark" Property="Visibility" Value="Collapsed" />
+              <Setter TargetName="IndeterminateMark" Property="Visibility" Value="Collapsed" />
+            </Trigger>
+            <Trigger Property="ToggleButton.IsChecked" Value="{x:Null}">
+              <Setter TargetName="CheckMark" Property="Visibility" Value="Collapsed" />
+              <Setter TargetName="IndeterminateMark" Property="Visibility" Value="Visible" />
             </Trigger>
             <Trigger Property="UIElement.IsMouseOver" Value="True">
               <Setter Value="{DynamicResource MouseOverBrush}" TargetName="Border" Property="Border.Background" />
@@ -136,6 +147,7 @@
             <Trigger Property="IsEnabled" Value="False">
               <Setter Value="{DynamicResource DisabledBackgroundBrush}" TargetName="Border" Property="Border.Background" />
               <Setter Value="{DynamicResource DisabledBorderBrush}" TargetName="Border" Property="Border.BorderBrush" />
+              <Setter Property="Foreground" Value="{DynamicResource DisabledForegroundBrush}" />
             </Trigger>
           </ControlTemplate.Triggers>
         </ControlTemplate>
@@ -147,6 +159,7 @@
     <Setter Property="FrameworkElement.FocusVisualStyle" Value="{DynamicResource RadioButtonFocusVisual}" />
     <Setter Property="Background" Value="{DynamicResource NormalBrush}" />
     <Setter Property="BorderBrush" Value="{DynamicResource NormalBorderBrush}" />
+    <Setter Property="Foreground" Value="{DynamicResource App.TextBrush}" />
     <Setter Property="Template">
       <Setter.Value>
         <ControlTemplate TargetType="{x:Type RadioButton}">
@@ -157,7 +170,7 @@
                 <Ellipse Name="CheckMark" Margin="4" Fill="{DynamicResource GlyphBrush}" />
               </Grid>
             </BulletDecorator.Bullet>
-            <ContentPresenter HorizontalAlignment="{TemplateBinding Control.HorizontalContentAlignment}" Margin="{TemplateBinding Control.Padding}" VerticalAlignment="{TemplateBinding Control.VerticalContentAlignment}" RecognizesAccessKey="True" />
+            <ContentPresenter HorizontalAlignment="{TemplateBinding Control.HorizontalContentAlignment}" Margin="{TemplateBinding Control.Padding}" VerticalAlignment="{TemplateBinding Control.VerticalContentAlignment}" RecognizesAccessKey="True" TextElement.Foreground="{TemplateBinding Control.Foreground}" />
           </BulletDecorator>
           <ControlTemplate.Triggers>
             <Trigger Property="ToggleButton.IsChecked" Value="false">
@@ -172,8 +185,8 @@
             </Trigger>
             <Trigger Property="IsEnabled" Value="False">
               <Setter Value="{DynamicResource DisabledBackgroundBrush}" TargetName="Ellipse_Border" Property="Shape.Fill" />
-              <Setter TargetName="Ellipse_Border" Property="Shape.Stroke" Value="#40000000" />
-              <Setter Property="Foreground" Value="#80000000" />
+              <Setter TargetName="Ellipse_Border" Property="Shape.Stroke" Value="{DynamicResource DisabledBorderBrush}" />
+              <Setter Property="Foreground" Value="{DynamicResource DisabledForegroundBrush}" />
             </Trigger>
           </ControlTemplate.Triggers>
         </ControlTemplate>
@@ -327,6 +340,7 @@
     <Setter Property="UIElement.SnapsToDevicePixels" Value="True" />
     <Setter Property="Background" Value="{DynamicResource WindowBackgroundBrush}" />
     <Setter Property="BorderBrush" Value="{DynamicResource SolidBorderBrush}" />
+    <Setter Property="Foreground" Value="{DynamicResource App.TextBrush}" />
     <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Auto" />
     <Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Auto" />
     <Setter Property="ScrollViewer.CanContentScroll" Value="True" />
@@ -334,7 +348,7 @@
       <Setter.Value>
         <ControlTemplate TargetType="{x:Type ListBox}">
           <Grid>
-            <Border Name="Border" BorderBrush="{TemplateBinding Control.BorderBrush}" BorderThickness="{TemplateBinding Control.BorderThickness}" />
+            <Border Name="Border" Background="{TemplateBinding Control.Background}" BorderBrush="{TemplateBinding Control.BorderBrush}" BorderThickness="{TemplateBinding Control.BorderThickness}" />
             <ScrollViewer Margin="1" Style="{DynamicResource SimpleScrollViewer}" Focusable="False" Background="{TemplateBinding Control.Background}">
               <StackPanel Margin="2" IsItemsHost="True" />
             </ScrollViewer>
@@ -355,16 +369,18 @@
   <Style x:Key="SimpleListBoxItem" TargetType="{x:Type ListBoxItem}">
     <Setter Property="UIElement.SnapsToDevicePixels" Value="True" />
     <Setter Property="FrameworkElement.OverridesDefaultStyle" Value="True" />
+    <Setter Property="Foreground" Value="{DynamicResource App.TextBrush}" />
     <Setter Property="Template">
       <Setter.Value>
         <ControlTemplate TargetType="{x:Type ListBoxItem}">
           <Grid SnapsToDevicePixels="True">
             <Border Name="Border" Background="{TemplateBinding Control.Background}" BorderBrush="{TemplateBinding Control.BorderBrush}" BorderThickness="{TemplateBinding Control.BorderThickness}" />
-            <ContentPresenter HorizontalAlignment="{TemplateBinding Control.HorizontalContentAlignment}" VerticalAlignment="{TemplateBinding Control.VerticalContentAlignment}" />
+            <ContentPresenter HorizontalAlignment="{TemplateBinding Control.HorizontalContentAlignment}" VerticalAlignment="{TemplateBinding Control.VerticalContentAlignment}" TextElement.Foreground="{TemplateBinding Control.Foreground}" />
           </Grid>
           <ControlTemplate.Triggers>
             <Trigger Property="ListBoxItem.IsSelected" Value="True">
               <Setter Value="{DynamicResource SelectedBackgroundBrush}" TargetName="Border" Property="Border.Background" />
+              <Setter Value="{DynamicResource Table.SelectedTextBrush}" Property="Foreground" />
             </Trigger>
             <Trigger Property="IsEnabled" Value="False">
               <Setter Value="{DynamicResource DisabledForegroundBrush}" Property="Foreground" />
@@ -402,6 +418,7 @@
   <Style x:Key="SimpleExpander" TargetType="{x:Type Expander}">
     <Setter Property="Background" Value="{DynamicResource LightBrush}" />
     <Setter Property="BorderBrush" Value="{DynamicResource NormalBorderBrush}" />
+    <Setter Property="Foreground" Value="{DynamicResource App.TextBrush}" />
     <Setter Property="Template">
       <Setter.Value>
         <ControlTemplate TargetType="{x:Type Expander}">
@@ -417,7 +434,7 @@
                   <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
                 <ToggleButton Template="{DynamicResource ExpanderToggleButton}" Background="{DynamicResource NormalBrush}" OverridesDefaultStyle="True" IsChecked="{Binding Path=IsExpanded, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}" />
-                <ContentPresenter Grid.Column="1" Margin="4" RecognizesAccessKey="True" ContentSource="Header" />
+                <ContentPresenter Grid.Column="1" Margin="4" RecognizesAccessKey="True" ContentSource="Header" TextElement.Foreground="{TemplateBinding Control.Foreground}" />
               </Grid>
             </Border>
             <Border Name="ExpandSite" Visibility="Collapsed" Grid.Row="1" Background="{DynamicResource WindowBackgroundBrush}" BorderBrush="{DynamicResource SolidBorderBrush}" BorderThickness="1,0,1,1" CornerRadius="0,0,2,2">
@@ -468,13 +485,17 @@
   </ControlTemplate>
   <Style x:Key="SimpleComboBox" TargetType="{x:Type ComboBox}">
     <Setter Property="UIElement.SnapsToDevicePixels" Value="True" />
+    <Setter Property="HorizontalContentAlignment" Value="Left" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+    <Setter Property="Foreground" Value="{DynamicResource App.TextBrush}" />
+    <Setter Property="Background" Value="{DynamicResource WindowBackgroundBrush}" />
     <Setter Property="Template">
       <Setter.Value>
         <ControlTemplate TargetType="{x:Type ComboBox}">
           <Grid>
             <ToggleButton Name="ToggleButton" Grid.Column="2" Template="{DynamicResource ComboBoxToggleButton}" Focusable="False" ClickMode="Press" IsChecked="{Binding Path=IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}" />
-            <ContentPresenter Name="ContentSite" HorizontalAlignment="Left" Margin="3,3,23,3" VerticalAlignment="Center" Content="{TemplateBinding ComboBox.SelectionBoxItem}" ContentTemplate="{TemplateBinding ComboBox.SelectionBoxItemTemplate}" ContentTemplateSelector="{TemplateBinding ItemsControl.ItemTemplateSelector}" IsHitTestVisible="False" />
-            <TextBox Name="PART_EditableTextBox" Visibility="Hidden" Template="{DynamicResource ComboBoxTextBox}" HorizontalAlignment="Left" Margin="3,3,23,3" VerticalAlignment="Center" Focusable="True" Background="#00FFFFFF" IsReadOnly="{TemplateBinding ComboBox.IsReadOnly}" Style="{x:Null}" />
+            <ContentPresenter Name="ContentSite" HorizontalAlignment="{TemplateBinding Control.HorizontalContentAlignment}" Margin="3,3,23,3" VerticalAlignment="{TemplateBinding Control.VerticalContentAlignment}" Content="{TemplateBinding ComboBox.SelectionBoxItem}" ContentTemplate="{TemplateBinding ComboBox.SelectionBoxItemTemplate}" ContentTemplateSelector="{TemplateBinding ItemsControl.ItemTemplateSelector}" IsHitTestVisible="False" />
+            <TextBox Name="PART_EditableTextBox" Visibility="Hidden" Template="{DynamicResource ComboBoxTextBox}" HorizontalAlignment="{TemplateBinding Control.HorizontalContentAlignment}" Margin="3,3,23,3" VerticalAlignment="{TemplateBinding Control.VerticalContentAlignment}" Focusable="True" Background="#00FFFFFF" IsReadOnly="{TemplateBinding ComboBox.IsReadOnly}" Style="{x:Null}" />
             <Popup Name="Popup" IsOpen="{TemplateBinding ComboBox.IsDropDownOpen}" Placement="Bottom" Focusable="False" AllowsTransparency="True" PopupAnimation="Slide">
               <Grid Name="DropDown" MaxHeight="{TemplateBinding ComboBox.MaxDropDownHeight}" MinWidth="{TemplateBinding FrameworkElement.ActualWidth}" SnapsToDevicePixels="True">
                 <Border Name="DropDownBorder" Background="{DynamicResource WindowBackgroundBrush}" BorderBrush="{DynamicResource SolidBorderBrush}" BorderThickness="1" />
@@ -510,6 +531,7 @@
   </Style>
   <Style x:Key="SimpleComboBoxItem" TargetType="{x:Type ComboBoxItem}">
     <Setter Property="UIElement.SnapsToDevicePixels" Value="True" />
+    <Setter Property="Foreground" Value="{DynamicResource App.TextBrush}" />
     <Setter Property="Template">
       <Setter.Value>
         <ControlTemplate TargetType="{x:Type ComboBoxItem}">
@@ -534,8 +556,8 @@
       <Setter.Value>
         <ControlTemplate TargetType="{x:Type ProgressBar}">
           <Grid>
-            <Border Name="PART_Track" Background="{DynamicResource PressedBrush}" BorderBrush="{DynamicResource SolidBorderBrush}" BorderThickness="1" CornerRadius="2" />
-            <Border Name="PART_Indicator" HorizontalAlignment="Left" Background="{DynamicResource MouseOverBrush}" BorderBrush="{DynamicResource NormalBorderBrush}" BorderThickness="1" CornerRadius="2" />
+            <Border Name="PART_Track" Background="{StaticResource ProgressBar.TrackBrush}" BorderBrush="{StaticResource ProgressBar.BorderBrush}" BorderThickness="1" CornerRadius="2" />
+            <Border Name="PART_Indicator" HorizontalAlignment="Left" Background="{StaticResource ProgressBar.IndicatorBrush}" BorderBrush="{StaticResource ProgressBar.IndicatorBrush}" BorderThickness="1" CornerRadius="2" />
           </Grid>
         </ControlTemplate>
       </Setter.Value>
@@ -545,15 +567,22 @@
     <Setter Property="KeyboardNavigation.TabNavigation" Value="None" />
     <Setter Property="FrameworkElement.FocusVisualStyle" Value="{x:Null}" />
     <Setter Property="UIElement.AllowDrop" Value="True" />
+    <Setter Property="Background" Value="{DynamicResource WindowBackgroundBrush}" />
+    <Setter Property="Foreground" Value="{DynamicResource App.TextBrush}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource SolidBorderBrush}" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
     <Setter Property="Template">
       <Setter.Value>
         <ControlTemplate TargetType="{x:Type TextBox}">
           <Grid>
-            <Border Name="Border" Background="{DynamicResource WindowBackgroundBrush}" BorderBrush="{DynamicResource SolidBorderBrush}" BorderThickness="1" Padding="2" CornerRadius="2">
-              <ScrollViewer Name="PART_ContentHost" Margin="0" Style="{DynamicResource SimpleScrollViewer}" Background="{TemplateBinding Control.Background}" />
+            <Border Name="Border" Background="{TemplateBinding Control.Background}" BorderBrush="{TemplateBinding Control.BorderBrush}" BorderThickness="1" Padding="2" CornerRadius="2">
+              <ScrollViewer Name="PART_ContentHost" Margin="0" VerticalAlignment="{TemplateBinding Control.VerticalContentAlignment}" Style="{DynamicResource SimpleScrollViewer}" Background="{TemplateBinding Control.Background}" />
             </Border>
           </Grid>
           <ControlTemplate.Triggers>
+            <Trigger Property="IsKeyboardFocusWithin" Value="True">
+              <Setter Value="{DynamicResource App.InputFocusBorderBrush}" TargetName="Border" Property="Border.BorderBrush" />
+            </Trigger>
             <Trigger Property="IsEnabled" Value="False">
               <Setter Value="{DynamicResource DisabledBackgroundBrush}" TargetName="Border" Property="Border.Background" />
               <Setter Value="{DynamicResource DisabledBackgroundBrush}" TargetName="Border" Property="Border.BorderBrush" />
@@ -565,16 +594,49 @@
     </Setter>
   </Style>
   <Style x:Key="SimpleLabel" TargetType="{x:Type Label}">
+    <Setter Property="Foreground" Value="{DynamicResource App.TextBrush}" />
     <Setter Property="HorizontalContentAlignment" Value="Left" />
-    <Setter Property="VerticalContentAlignment" Value="Top" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
     <Setter Property="Template">
       <Setter.Value>
         <ControlTemplate TargetType="{x:Type Label}">
           <Grid>
-            <ContentPresenter HorizontalAlignment="{TemplateBinding Control.HorizontalContentAlignment}" VerticalAlignment="{TemplateBinding Control.VerticalContentAlignment}" RecognizesAccessKey="True" />
+            <ContentPresenter HorizontalAlignment="{TemplateBinding Control.HorizontalContentAlignment}" VerticalAlignment="{TemplateBinding Control.VerticalContentAlignment}" RecognizesAccessKey="True" TextElement.Foreground="{TemplateBinding Control.Foreground}" />
           </Grid>
           <ControlTemplate.Triggers>
-            <Trigger Property="IsEnabled" Value="False" />
+            <Trigger Property="IsEnabled" Value="False">
+              <Setter Property="Foreground" Value="{DynamicResource DisabledForegroundBrush}" />
+            </Trigger>
+          </ControlTemplate.Triggers>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+  <Style x:Key="SimpleGroupBox" TargetType="{x:Type GroupBox}">
+    <Setter Property="Foreground" Value="{DynamicResource App.TextBrush}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource App.BorderBrush}" />
+    <Setter Property="Background" Value="{DynamicResource App.DialogBackgroundBrush}" />
+    <Setter Property="Padding" Value="4" />
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="{x:Type GroupBox}">
+          <Grid SnapsToDevicePixels="True">
+            <Grid.RowDefinitions>
+              <RowDefinition Height="Auto" />
+              <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+            <Border Grid.Row="0" Margin="8,0,0,-1" Padding="4,0" Background="{TemplateBinding Background}" HorizontalAlignment="Left">
+              <ContentPresenter ContentSource="Header" RecognizesAccessKey="True" TextElement.Foreground="{TemplateBinding Control.Foreground}" />
+            </Border>
+            <Border Grid.Row="1" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" Background="{TemplateBinding Background}" CornerRadius="2">
+              <ContentPresenter Margin="{TemplateBinding Padding}" TextElement.Foreground="{TemplateBinding Control.Foreground}" />
+            </Border>
+          </Grid>
+          <ControlTemplate.Triggers>
+            <Trigger Property="IsEnabled" Value="False">
+              <Setter Property="Foreground" Value="{DynamicResource DisabledForegroundBrush}" />
+              <Setter Property="BorderBrush" Value="{DynamicResource DisabledBorderBrush}" />
+            </Trigger>
           </ControlTemplate.Triggers>
         </ControlTemplate>
       </Setter.Value>
@@ -601,12 +663,28 @@
       </Setter.Value>
     </Setter>
   </Style>
+  <Style x:Key="SimpleContextMenu" TargetType="{x:Type ContextMenu}">
+    <Setter Property="Background" Value="{DynamicResource App.PopupBackgroundBrush}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource App.BorderBrush}" />
+    <Setter Property="Foreground" Value="{DynamicResource App.TextBrush}" />
+    <Setter Property="Grid.IsSharedSizeScope" Value="True" />
+    <Setter Property="SnapsToDevicePixels" Value="True" />
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="{x:Type ContextMenu}">
+          <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" Padding="2">
+            <StackPanel IsItemsHost="True" KeyboardNavigation.DirectionalNavigation="Cycle" />
+          </Border>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
   <DropShadowBitmapEffect x:Key="PopupDropShadow" ShadowDepth="1.5" Softness="0.15" />
   <Style x:Key="SimpleMenuItem" TargetType="{x:Type MenuItem}">
     <Setter Property="HorizontalContentAlignment" Value="{Binding Path=HorizontalContentAlignment, RelativeSource={RelativeSource AncestorType={x:Type ItemsControl}}}" />
     <Setter Property="VerticalContentAlignment" Value="{Binding Path=VerticalContentAlignment, RelativeSource={RelativeSource AncestorType={x:Type ItemsControl}}}" />
     <Setter Property="Background" Value="#00FFFFFF" />
-    <Setter Property="Foreground" Value="{DynamicResource {x:Static SystemColors.MenuTextBrushKey}}" />
+    <Setter Property="Foreground" Value="{DynamicResource App.TextBrush}" />
     <Setter Property="Template">
       <Setter.Value>
         <ControlTemplate TargetType="{x:Type MenuItem}">
@@ -622,14 +700,14 @@
               <Grid Name="GlyphPanel" Visibility="Hidden" Margin="4,0,6,0" VerticalAlignment="Center">
                 <Path Name="GlyphPanelpath" VerticalAlignment="Center" Fill="{TemplateBinding Control.Foreground}" Data="M0,2 L0,4.8 L2.5,7.4 L7.1,2.8 L7.1,0 L2.5,4.6" FlowDirection="LeftToRight" />
               </Grid>
-              <ContentPresenter Name="HeaderHost" Grid.Column="1" Margin="{TemplateBinding Control.Padding}" RecognizesAccessKey="True" ContentSource="Header" />
+              <ContentPresenter Name="HeaderHost" Grid.Column="1" Margin="{TemplateBinding Control.Padding}" RecognizesAccessKey="True" ContentSource="Header" TextElement.Foreground="{TemplateBinding Control.Foreground}" />
               <Grid Name="ArrowPanel" Column="3" Margin="4,0,6,0" VerticalAlignment="Center">
-                <Path Name="ArrowPanelPath" VerticalAlignment="Center" Fill="{TemplateBinding Control.Foreground}" Data="M0,0 L0,8 L4,4" />
+                <Path Name="ArrowPanelPath" VerticalAlignment="Center" Fill="{TemplateBinding Control.Foreground}" Data="M0,0 L4,4 L0,8 Z" />
               </Grid>
               <Popup Name="SubMenuPopup" Placement="Right" Focusable="False" AllowsTransparency="True" PopupAnimation="{DynamicResource {x:Static SystemParameters.MenuPopupAnimationKey}}" VerticalOffset="-3" IsOpen="{Binding Path=IsSubmenuOpen, RelativeSource={RelativeSource TemplatedParent}}">
-                <Grid Name="SubMenu">
-                  <Border Name="SubMenuBorder" Background="{DynamicResource WindowBackgroundBrush}" BorderBrush="{DynamicResource SolidBorderBrush}" BorderThickness="1" />
-                  <StackPanel IsItemsHost="True" KeyboardNavigation.DirectionalNavigation="Cycle" />
+                <Grid Name="SubMenu" Background="{DynamicResource App.PopupBackgroundBrush}" Grid.IsSharedSizeScope="True">
+                  <Border Name="SubMenuBorder" Background="{DynamicResource App.PopupBackgroundBrush}" BorderBrush="{DynamicResource App.BorderBrush}" BorderThickness="1" />
+                  <StackPanel Background="{DynamicResource App.PopupBackgroundBrush}" IsItemsHost="True" KeyboardNavigation.DirectionalNavigation="Cycle" />
                 </Grid>
               </Popup>
             </Grid>
@@ -673,11 +751,11 @@
               <Setter Value="{DynamicResource PopupDropShadow}" TargetName="SubMenuBorder" Property="UIElement.BitmapEffect" />
             </Trigger>
             <Trigger Property="MenuItem.IsHighlighted" Value="True">
-              <Setter Value="{DynamicResource {x:Static SystemColors.HighlightBrushKey}}" TargetName="Border" Property="Border.Background" />
-              <Setter Value="{DynamicResource {x:Static SystemColors.HighlightTextBrushKey}}" Property="Foreground" />
+              <Setter Value="{DynamicResource App.MenuSelectedBackgroundBrush}" TargetName="Border" Property="Border.Background" />
+              <Setter Value="{DynamicResource App.MenuSelectedTextBrush}" Property="Foreground" />
             </Trigger>
             <Trigger Property="IsEnabled" Value="False">
-              <Setter Value="{DynamicResource {x:Static SystemColors.GrayTextBrushKey}}" Property="Foreground" />
+              <Setter Value="{DynamicResource App.DisabledTextBrush}" Property="Foreground" />
             </Trigger>
           </ControlTemplate.Triggers>
         </ControlTemplate>
@@ -685,17 +763,23 @@
     </Setter>
   </Style>
   <Style x:Key="SimpleSeparator" TargetType="{x:Type Separator}">
-    <Setter Property="Height" Value="1" />
+    <Setter Property="OverridesDefaultStyle" Value="True" />
+    <Setter Property="Height" Value="5" />
+    <Setter Property="HorizontalAlignment" Value="Stretch" />
     <Setter Property="Margin" Value="0,2,0,2" />
     <Setter Property="Focusable" Value="False" />
+    <Setter Property="Background" Value="{DynamicResource App.SeparatorBrush}" />
     <Setter Property="Template">
       <Setter.Value>
         <ControlTemplate TargetType="{x:Type Separator}">
-          <Border BorderBrush="{DynamicResource SolidBorderBrush}" BorderThickness="1" />
+          <Grid Background="{DynamicResource App.PopupBackgroundBrush}" SnapsToDevicePixels="True">
+            <Rectangle Height="1" HorizontalAlignment="Stretch" VerticalAlignment="Center" Fill="{TemplateBinding Control.Background}" />
+          </Grid>
         </ControlTemplate>
       </Setter.Value>
     </Setter>
   </Style>
+  <Style x:Key="{x:Static MenuItem.SeparatorStyleKey}" TargetType="{x:Type Separator}" BasedOn="{StaticResource SimpleSeparator}" />
   <Style x:Key="SimpleTabControl" TargetType="{x:Type TabControl}">
     <Setter Property="Template">
       <Setter.Value>
@@ -721,12 +805,14 @@
     </Setter>
   </Style>
   <Style x:Key="SimpleTabItem" TargetType="{x:Type TabItem}">
+    <Setter Property="Foreground" Value="{DynamicResource App.TextBrush}" />
+    <Setter Property="Padding" Value="5,1,5,1" />
     <Setter Property="Template">
       <Setter.Value>
         <ControlTemplate TargetType="{x:Type TabItem}">
           <Grid>
             <Border Name="Border" Margin="0,0,-4,0" Background="{DynamicResource LightBrush}" BorderBrush="{DynamicResource SolidBorderBrush}" BorderThickness="1,1,1,1" CornerRadius="2,12,0,0">
-              <ContentPresenter Name="ContentSite" HorizontalAlignment="Center" Margin="12,2,12,2" VerticalAlignment="Center" RecognizesAccessKey="True" ContentSource="Header" />
+              <ContentPresenter Name="ContentSite" HorizontalAlignment="Center" Margin="{TemplateBinding Control.Padding}" VerticalAlignment="Center" RecognizesAccessKey="True" ContentSource="Header" TextElement.Foreground="{TemplateBinding Control.Foreground}" />
             </Border>
           </Grid>
           <ControlTemplate.Triggers>
@@ -907,4 +993,24 @@
       </Setter.Value>
     </Setter>
   </Style>
+  <Style TargetType="{x:Type Button}" BasedOn="{StaticResource SimpleButton}" />
+  <Style TargetType="{x:Type CheckBox}" BasedOn="{StaticResource SimpleCheckBox}" />
+  <Style TargetType="{x:Type RadioButton}" BasedOn="{StaticResource SimpleRadioButton}" />
+  <Style TargetType="{x:Type ScrollViewer}" BasedOn="{StaticResource SimpleScrollViewer}" />
+  <Style TargetType="{x:Type ListBox}" BasedOn="{StaticResource SimpleListBox}" />
+  <Style TargetType="{x:Type ListBoxItem}" BasedOn="{StaticResource SimpleListBoxItem}" />
+  <Style TargetType="{x:Type Expander}" BasedOn="{StaticResource SimpleExpander}" />
+  <Style TargetType="{x:Type ComboBox}" BasedOn="{StaticResource SimpleComboBox}" />
+  <Style TargetType="{x:Type ComboBoxItem}" BasedOn="{StaticResource SimpleComboBoxItem}" />
+  <Style TargetType="{x:Type ProgressBar}" BasedOn="{StaticResource SimpleProgressBar}" />
+  <Style TargetType="{x:Type TextBox}" BasedOn="{StaticResource SimpleTextBox}" />
+  <Style TargetType="{x:Type Label}" BasedOn="{StaticResource SimpleLabel}" />
+  <Style TargetType="{x:Type GroupBox}" BasedOn="{StaticResource SimpleGroupBox}" />
+  <Style TargetType="{x:Type Menu}" BasedOn="{StaticResource SimpleMenu}" />
+  <Style TargetType="{x:Type ContextMenu}" BasedOn="{StaticResource SimpleContextMenu}" />
+  <Style TargetType="{x:Type MenuItem}" BasedOn="{StaticResource SimpleMenuItem}" />
+  <Style TargetType="{x:Type Separator}" BasedOn="{StaticResource SimpleSeparator}" />
+  <Style TargetType="{x:Type TabControl}" BasedOn="{StaticResource SimpleTabControl}" />
+  <Style TargetType="{x:Type TabItem}" BasedOn="{StaticResource SimpleTabItem}" />
+  <Style TargetType="{x:Type Slider}" BasedOn="{StaticResource SimpleSlider}" />
 </ResourceDictionary>

@@ -18,8 +18,13 @@
   <SolidColorBrush x:Key="App.WarningTextBrush" Color="#FFFFB454" />
   <SolidColorBrush x:Key="App.DialogOverlayBrush" Color="#FF000000" />
   <SolidColorBrush x:Key="App.DialogBackgroundBrush" Color="#FF252526" />
+  <SolidColorBrush x:Key="App.DialogBorderBrush" Color="#FF4A4A4A" />
   <SolidColorBrush x:Key="App.PopupBackgroundBrush" Color="#FF2D2D30" />
   <SolidColorBrush x:Key="App.SearchGlyphBrush" Color="#FFB6B6B6" />
+  <SolidColorBrush x:Key="App.ControlPressedBrush" Color="#FF3E3E42" />
+  <SolidColorBrush x:Key="App.InputFocusBorderBrush" Color="#FF58A6FF" />
+  <SolidColorBrush x:Key="App.MenuSelectedBackgroundBrush" Color="#FF264F78" />
+  <SolidColorBrush x:Key="App.MenuSelectedTextBrush" Color="#FFFFFFFF" />
 
   <SolidColorBrush x:Key="ScrollBar.TrackBackgroundBrush" Color="#FF1E1E1E" />
   <SolidColorBrush x:Key="ScrollBar.ThumbBackgroundBrush" Color="#FF4A4A4A" />

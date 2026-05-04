@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Markup;
+using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.ViewModels;
 using Livet;
 using Ribbit.Util;
@@ -31,7 +32,7 @@ public partial class PlaylistPropertyDialog : UserControl, IComponentConnector
 			}
 			else
 			{
-				MessageBox.Show(Window.GetWindow(this), "プレイリスト名・URI・出力先フォルダ名を確認して下さい。", "エラー", MessageBoxButton.OK, MessageBoxImage.Hand);
+				DispatcherMessageBox.Show(Window.GetWindow(this), "プレイリスト名・URI・出力先フォルダ名を確認して下さい。", "エラー", MessageBoxButton.OK, MessageBoxImage.Hand);
 			}
 		}
 	}
@@ -48,7 +49,7 @@ public partial class PlaylistPropertyDialog : UserControl, IComponentConnector
             }
             else
             {
-                MessageBox.Show(Window.GetWindow(this), "プレイリスト名・URI・出力先フォルダ名を確認して下さい。", "エラー", MessageBoxButton.OK, MessageBoxImage.Hand);
+                DispatcherMessageBox.Show(Window.GetWindow(this), "プレイリスト名・URI・出力先フォルダ名を確認して下さい。", "エラー", MessageBoxButton.OK, MessageBoxImage.Hand);
             }
 		}
 	}
