@@ -3550,7 +3550,7 @@ public class MainWindowViewModel : ViewModel
         OwnedIncomplete
     }
 
-    private enum viewUpdateMode
+    internal enum viewUpdateMode
     {
         TreeViewFilterNotChanged = 0,
         PlaylistFilterSelected = 1,
@@ -3571,6 +3571,16 @@ public class MainWindowViewModel : ViewModel
         ModeFilterUpdated = 66,
         SortUpdated = 81,
         UpdatedNone = 255
+    }
+
+    internal enum MainViewOperationSection
+    {
+        Library,
+        Playlist,
+        InstallPending,
+        InstallInstalled,
+        FullScanCheck,
+        ChartInfoParseError
     }
 
     public enum FolderFilterType
@@ -7422,6 +7432,45 @@ public class MainWindowViewModel : ViewModel
         {
             normalLibrarySourceGeneration++;
             normalLibrarySortCache.Clear();
+        }
+    }
+
+    internal MainViewOperationSection CurrentMainViewOperationSection => ResolveMainViewOperationSection(treeViewFilterTypeSelected);
+
+    internal ChartOperationSourceScope CurrentMainViewChartOperationSourceScope => ResolveMainViewChartOperationSourceScope(CurrentMainViewOperationSection);
+
+    internal static MainViewOperationSection ResolveMainViewOperationSection(viewUpdateMode mode)
+    {
+        switch (mode)
+        {
+            case viewUpdateMode.PendingInstallFolderSelected:
+                return MainViewOperationSection.InstallPending;
+            case viewUpdateMode.NewlyInstalledFolderSelected:
+                return MainViewOperationSection.InstallInstalled;
+            case viewUpdateMode.PlaylistFilterSelected:
+            case viewUpdateMode.PlaylistNotOwnedFilterSelected:
+                return MainViewOperationSection.Playlist;
+            case viewUpdateMode.FullScanAllChartsFilterSelected:
+            case viewUpdateMode.FileMissingFilterSelected:
+            case viewUpdateMode.FileMissingIgnoredFilterSelected:
+                return MainViewOperationSection.FullScanCheck;
+            case viewUpdateMode.ChartInfoParseErrorFilterSelected:
+                return MainViewOperationSection.ChartInfoParseError;
+            default:
+                return MainViewOperationSection.Library;
+        }
+    }
+
+    internal static ChartOperationSourceScope ResolveMainViewChartOperationSourceScope(MainViewOperationSection section)
+    {
+        switch (section)
+        {
+            case MainViewOperationSection.InstallPending:
+                return ChartOperationSourceScope.PendingPackage;
+            case MainViewOperationSection.InstallInstalled:
+                return ChartOperationSourceScope.NewlyInstalledPackage;
+            default:
+                return ChartOperationSourceScope.Library;
         }
     }
 
@@ -11467,6 +11516,7 @@ public class MainWindowViewModel : ViewModel
         int modeCount = 0;
         int viewCount = 0;
         viewUpdateMode requestedMode = mode;
+        MainViewOperationSection previousOperationSection = CurrentMainViewOperationSection;
         if (mode == viewUpdateMode.TreeViewFilterNotChanged)
         {
             mode = treeViewFilterTypeSelected;
@@ -11481,6 +11531,11 @@ public class MainWindowViewModel : ViewModel
             treeViewFilterTypeSelected = mode;
             treeViewFilterParameterSelected = parameter;
             UpdateKeywordSearchPresentation();
+        }
+        if (previousOperationSection != CurrentMainViewOperationSection)
+        {
+            RaisePropertyChanged(() => CurrentMainViewOperationSection);
+            RaisePropertyChanged(() => CurrentMainViewChartOperationSourceScope);
         }
         if (BMSFiles == null)
         {

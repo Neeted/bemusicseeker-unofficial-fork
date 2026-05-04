@@ -777,7 +777,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         if (string.Equals(e.EditPropertyName, bmsFile.GetName((BMSFile f) => f.Folder), StringComparison.Ordinal))
         {
-            e.Cancel = _currentTreeSelectionSection == TreeSelectionSection.InstallPending;
+            e.Cancel = IsPendingMainViewSection(GetCurrentMainViewOperationSection());
             return;
         }
         if (string.Equals(e.EditPropertyName, bmsFile.GetName((BMSFile f) => f.instl_dst), StringComparison.Ordinal))
@@ -889,7 +889,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             }
             if (string.Equals(e.EditPropertyName, bmsFile.GetName((BMSFile f) => f.Folder), StringComparison.Ordinal))
             {
-                if (!e.Commit || _currentTreeSelectionSection == TreeSelectionSection.InstallPending)
+                if (!e.Commit || IsPendingMainViewSection(GetCurrentMainViewOperationSection()))
                 {
                     return;
                 }
@@ -1120,12 +1120,37 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private ChartOperationSourceScope GetCurrentChartOperationSourceScope()
     {
-        return _currentTreeSelectionSection switch
-        {
-            TreeSelectionSection.InstallPending => ChartOperationSourceScope.PendingPackage,
-            TreeSelectionSection.InstallInstalled => ChartOperationSourceScope.NewlyInstalledPackage,
-            _ => ChartOperationSourceScope.Library
-        };
+        return (base.DataContext as MainWindowViewModel)?.CurrentMainViewChartOperationSourceScope ?? ChartOperationSourceScope.Library;
+    }
+
+    private MainWindowViewModel.MainViewOperationSection GetCurrentMainViewOperationSection()
+    {
+        return (base.DataContext as MainWindowViewModel)?.CurrentMainViewOperationSection ?? MainWindowViewModel.MainViewOperationSection.Library;
+    }
+
+    private static bool IsPendingMainViewSection(MainWindowViewModel.MainViewOperationSection section)
+    {
+        return section == MainWindowViewModel.MainViewOperationSection.InstallPending;
+    }
+
+    private static bool IsInstalledMainViewSection(MainWindowViewModel.MainViewOperationSection section)
+    {
+        return section == MainWindowViewModel.MainViewOperationSection.InstallInstalled;
+    }
+
+    private static bool IsPlaylistMainViewSection(MainWindowViewModel.MainViewOperationSection section)
+    {
+        return section == MainWindowViewModel.MainViewOperationSection.Playlist;
+    }
+
+    private static bool IsFullScanMainViewSection(MainWindowViewModel.MainViewOperationSection section)
+    {
+        return section == MainWindowViewModel.MainViewOperationSection.FullScanCheck;
+    }
+
+    private static bool IsChartInfoParseErrorMainViewSection(MainWindowViewModel.MainViewOperationSection section)
+    {
+        return section == MainWindowViewModel.MainViewOperationSection.ChartInfoParseError;
     }
 
     private static BMSFile GetOperationFileFromTarget(ChartOperationTarget target)
@@ -1717,8 +1742,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     }
     private bool CanEditInstallDestinationInCurrentSection()
     {
-        return _currentTreeSelectionSection == TreeSelectionSection.InstallPending
-            || _currentTreeSelectionSection == TreeSelectionSection.FullScanCheck;
+        MainWindowViewModel.MainViewOperationSection section = GetCurrentMainViewOperationSection();
+        return IsPendingMainViewSection(section) || IsFullScanMainViewSection(section);
     }
 
     private static T FindTemplateElement<T>(FrameworkElement source, string elementName) where T : class
@@ -4720,16 +4745,21 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             NLogWrapper.FileLogger?.Info("playlist_context_menu rowResolve=False sourceType=" + sender?.GetType().FullName);
             return;
         }
+        if (!(base.DataContext is MainWindowViewModel mainWindowViewModel))
+        {
+            return;
+        }
         _lastOpenedContextMenu = contextMenu;
         bool isPlaylistRow = GridRowResolver.IsPlaylistRow(row);
         Uri rowUrl = GridRowResolver.GetUrl(row);
         Uri rowUrlDiff = GridRowResolver.GetUrlDiff(row);
-        bool isPendingSelected = _currentTreeSelectionSection == TreeSelectionSection.InstallPending;
-        bool isInstalledSelected = _currentTreeSelectionSection == TreeSelectionSection.InstallInstalled;
+        MainWindowViewModel.MainViewOperationSection effectiveSection = mainWindowViewModel.CurrentMainViewOperationSection;
+        bool isPendingSelected = IsPendingMainViewSection(effectiveSection);
+        bool isInstalledSelected = IsInstalledMainViewSection(effectiveSection);
         bool isInstallListSelected = isPendingSelected || isInstalledSelected;
-        bool isPlaylistSelected = _currentTreeSelectionSection == TreeSelectionSection.Playlist;
+        bool isPlaylistSelected = IsPlaylistMainViewSection(effectiveSection);
         bool isPlaylistContext = isPlaylistSelected || isPlaylistRow;
-        ChartOperationSourceScope sourceScope = GetCurrentChartOperationSourceScope();
+        ChartOperationSourceScope sourceScope = mainWindowViewModel.CurrentMainViewChartOperationSourceScope;
         if (!GridRowResolver.TryGetOperationChartTarget(row, sourceScope, out ChartOperationTarget rowTarget))
         {
             rowTarget = null;
@@ -4750,10 +4780,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         bool isBmsonContextRow = rowTarget?.Chart.Kind == OwnedChartKind.Bmson;
         bool hasBmsonSelection = selectedTargets.Any((ChartOperationTarget target) => target.Chart.Kind == OwnedChartKind.Bmson);
         bool hasBmsSelection = selectedTargets.Any((ChartOperationTarget target) => target.Chart.Kind == OwnedChartKind.Bms);
-        if (!(base.DataContext is MainWindowViewModel mainWindowViewModel))
-        {
-            return;
-        }
         string rowHash = rowTarget?.Chart?.Md5 ?? GridRowResolver.GetHash(row);
         if (songInfoCache == null || songInfoCache.md5 != rowHash)
         {
@@ -5059,12 +5085,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         List<string> selectedChartInfoParseFailureMd5s = GetSelectedChartInfoParseFailureMd5s();
         if (menuItemRemoveChartInfoParseFailure != null)
         {
-            bool canRemoveChartInfoParseFailure = ShouldShowChartInfoParseFailureRemovalMenuForTest(_currentTreeSelectionSection == TreeSelectionSection.ChartInfoParseError, selectedChartInfoParseFailureMd5s);
+            bool canRemoveChartInfoParseFailure = ShouldShowChartInfoParseFailureRemovalMenuForTest(IsChartInfoParseErrorMainViewSection(effectiveSection), selectedChartInfoParseFailureMd5s);
             menuItemRemoveChartInfoParseFailure.Visibility = canRemoveChartInfoParseFailure ? Visibility.Visible : Visibility.Collapsed;
             menuItemRemoveChartInfoParseFailure.IsEnabled = canRemoveChartInfoParseFailure;
         }
         bool isNotOwnedPlaylistRow = rowTarget?.IsPlaylistMissing == true;
-        NLogWrapper.FileLogger?.Info("playlist_context_menu rowType=" + row?.GetType().FullName + " isPlaylistRow=" + isPlaylistRow + " isPlaylistContext=" + isPlaylistContext + " isNotOwned=" + isNotOwnedPlaylistRow + " section=" + _currentTreeSelectionSection + " kind=" + rowTarget?.Chart.Kind + " path=" + (chartPath ?? string.Empty));
+        NLogWrapper.FileLogger?.Info("playlist_context_menu rowType=" + row?.GetType().FullName + " isPlaylistRow=" + isPlaylistRow + " isPlaylistContext=" + isPlaylistContext + " isNotOwned=" + isNotOwnedPlaylistRow + " section=" + effectiveSection + " treeSection=" + _currentTreeSelectionSection + " sourceScope=" + sourceScope + " kind=" + rowTarget?.Chart.Kind + " path=" + (chartPath ?? string.Empty));
         if (menuItemOpenInstallDestination != null)
         {
             bool canOpenInstallDestination = rowTarget != null && rowTarget.HasCapability(ChartOperationCapabilities.UpdateInstallDestination) && !isPlaylistRow;
@@ -5105,18 +5131,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 menuItemRenameInvalidExt.Visibility = canRenameInvalidExt ? Visibility.Visible : Visibility.Collapsed;
                 menuItemRenameInvalidExt.IsEnabled = canRenameInvalidExt;
             }
-            Ribbit.Logging.NLogWrapper.FileLogger?.Info(
-                $"[ContextMenu] DeleteFile Header='{menuItem15.Header}', HasItems={menuItem15.HasItems}, Items.Count={menuItem15.Items.Count}");
-
-            // 診断ログ: サブアイテム消失の調査用
-            if (menuItem15.Items.Count == 0)
-            {
-                Ribbit.Logging.NLogWrapper.FileLogger?.Warn(
-                    "tableContextMenuItemDeleteFile has lost its child items. " +
-                    "Culture=" + System.Threading.Thread.CurrentThread.CurrentUICulture.Name +
-                    " Lang=" + Settings.Default.Lang +
-                    " Header=" + menuItem15.Header);
-            }
         }
         if (separator != null)
         {
@@ -5138,7 +5152,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         if (menuItem9 != null)
         {
-            bool isInstalledLocationFixVisible = _currentTreeSelectionSection == TreeSelectionSection.FullScanCheck && !isPlaylistContext;
+            bool isInstalledLocationFixVisible = IsFullScanMainViewSection(effectiveSection) && !isPlaylistContext;
             menuItem9.Visibility = ((!isInstalledLocationFixVisible) ? Visibility.Collapsed : Visibility.Visible);
             menuItem9.IsEnabled = isInstalledLocationFixVisible && selectedTargets.Any((ChartOperationTarget target) => target.HasCapability(ChartOperationCapabilities.RepairInstalledLocation));
         }
@@ -5454,7 +5468,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void tableContextMenuItemOpenInstallDestinationClick(object sender, RoutedEventArgs e)
     {
-        if (!(base.DataContext is MainWindowViewModel) || _currentTreeSelectionSection != TreeSelectionSection.InstallPending)
+        if (!(base.DataContext is MainWindowViewModel) || !IsPendingMainViewSection(GetCurrentMainViewOperationSection()))
         {
             return;
         }
@@ -6369,7 +6383,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        bool isInstalledLocationRepair = _currentTreeSelectionSection == TreeSelectionSection.FullScanCheck;
+        bool isInstalledLocationRepair = IsFullScanMainViewSection(GetCurrentMainViewOperationSection());
         ChartOperationCapabilities capability = isInstalledLocationRepair
             ? ChartOperationCapabilities.RepairInstalledLocation
             : ChartOperationCapabilities.UpdateInstallDestination;
@@ -6458,7 +6472,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void tableContextMenuItemRemoveChartInfoParseFailureClick(object sender, RoutedEventArgs e)
     {
-        if (!TryGetContextMenuRow(e.Source, out _) || _currentTreeSelectionSection != TreeSelectionSection.ChartInfoParseError)
+        if (!TryGetContextMenuRow(e.Source, out _) || !IsChartInfoParseErrorMainViewSection(GetCurrentMainViewOperationSection()))
         {
             return;
         }
@@ -6503,7 +6517,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     {
         List<BMSFile> bmsFiles = GetSelectedBmsChartFiles(ChartOperationCapabilities.RenameInvalidExtension);
         MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        bool isPendingSelected = _currentTreeSelectionSection == TreeSelectionSection.InstallPending;
+        bool isPendingSelected = IsPendingMainViewSection(GetCurrentMainViewOperationSection());
         if (bmsFiles.Count <= 0 || MessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_rename_to_invalid, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) == MessageBoxResult.Cancel)
         {
             return;
@@ -6540,7 +6554,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     private void tableContextMenuItemRemoveBMSFileClick(object sender, RoutedEventArgs e)
     {
         MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        bool isPendingSelected = _currentTreeSelectionSection == TreeSelectionSection.InstallPending;
+        bool isPendingSelected = IsPendingMainViewSection(GetCurrentMainViewOperationSection());
         List<ChartOperationTarget> targets = GetSelectedChartTargets(isPendingSelected)
             .Where((ChartOperationTarget target) => target.HasCapability(isPendingSelected ? ChartOperationCapabilities.UpdateInstallDestination : ChartOperationCapabilities.RemoveFromLibrary))
             .ToList();
@@ -6726,8 +6740,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        bool isPendingSelected = _currentTreeSelectionSection == TreeSelectionSection.InstallPending;
-        bool isInstalledSelected = _currentTreeSelectionSection == TreeSelectionSection.InstallInstalled;
+        MainWindowViewModel.MainViewOperationSection section = GetCurrentMainViewOperationSection();
+        bool isPendingSelected = IsPendingMainViewSection(section);
+        bool isInstalledSelected = IsInstalledMainViewSection(section);
         if (!isPendingSelected && !isInstalledSelected)
         {
             return;
@@ -6749,7 +6764,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        NLogWrapper.FileLogger?.Info("table_delete_install_packages requested section=" + _currentTreeSelectionSection + " selectedRows=" + selectedBmsFiles.Count);
+        NLogWrapper.FileLogger?.Info("table_delete_install_packages requested section=" + section + " treeSection=" + _currentTreeSelectionSection + " selectedRows=" + selectedBmsFiles.Count);
         e.Handled = true;
         ClearMainGridSelection();
         if (isPendingSelected)

@@ -727,6 +727,64 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
+    public void MainViewOperationContext_MapsViewModeToRowOperationScope()
+    {
+        AssertMainViewOperationContext(
+            MainWindowViewModel.viewUpdateMode.PendingInstallFolderSelected,
+            MainWindowViewModel.MainViewOperationSection.InstallPending,
+            ChartOperationSourceScope.PendingPackage);
+        AssertMainViewOperationContext(
+            MainWindowViewModel.viewUpdateMode.NewlyInstalledFolderSelected,
+            MainWindowViewModel.MainViewOperationSection.InstallInstalled,
+            ChartOperationSourceScope.NewlyInstalledPackage);
+        AssertMainViewOperationContext(
+            MainWindowViewModel.viewUpdateMode.PlaylistFilterSelected,
+            MainWindowViewModel.MainViewOperationSection.Playlist,
+            ChartOperationSourceScope.Library);
+        AssertMainViewOperationContext(
+            MainWindowViewModel.viewUpdateMode.PlaylistNotOwnedFilterSelected,
+            MainWindowViewModel.MainViewOperationSection.Playlist,
+            ChartOperationSourceScope.Library);
+        AssertMainViewOperationContext(
+            MainWindowViewModel.viewUpdateMode.FullScanAllChartsFilterSelected,
+            MainWindowViewModel.MainViewOperationSection.FullScanCheck,
+            ChartOperationSourceScope.Library);
+        AssertMainViewOperationContext(
+            MainWindowViewModel.viewUpdateMode.FileMissingFilterSelected,
+            MainWindowViewModel.MainViewOperationSection.FullScanCheck,
+            ChartOperationSourceScope.Library);
+        AssertMainViewOperationContext(
+            MainWindowViewModel.viewUpdateMode.FileMissingIgnoredFilterSelected,
+            MainWindowViewModel.MainViewOperationSection.FullScanCheck,
+            ChartOperationSourceScope.Library);
+        AssertMainViewOperationContext(
+            MainWindowViewModel.viewUpdateMode.ChartInfoParseErrorFilterSelected,
+            MainWindowViewModel.MainViewOperationSection.ChartInfoParseError,
+            ChartOperationSourceScope.Library);
+        AssertMainViewOperationContext(
+            MainWindowViewModel.viewUpdateMode.FolderFilterSelected,
+            MainWindowViewModel.MainViewOperationSection.Library,
+            ChartOperationSourceScope.Library);
+    }
+
+    [TestMethod]
+    public void MainViewOperationContext_PendingModeMakesLibraryChartRowPendingScoped()
+    {
+        TestableBmsFile file = new TestableBmsFile();
+        file.ApplySnapshot("abababababababababababababababab", "Pending Bms", 7);
+        LibraryChartRow row = LibraryChartRow.FromBmsFile(file);
+        ChartOperationSourceScope sourceScope = MainWindowViewModel.ResolveMainViewChartOperationSourceScope(
+            MainWindowViewModel.ResolveMainViewOperationSection(MainWindowViewModel.viewUpdateMode.PendingInstallFolderSelected));
+
+        Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(row, sourceScope, out ChartOperationTarget target));
+
+        Assert.AreEqual(ChartOperationSourceScope.PendingPackage, target.SourceScope);
+        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.UpdateInstallDestination));
+        Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.MoveInLibrary));
+        Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.RemoveFromLibrary));
+    }
+
+    [TestMethod]
     public void ChartOperationTarget_NewlyInstalledBmson_UsesInstalledPathAndLibraryCapabilities()
     {
         LR2SongDBExtended.bmson_song original = new LR2SongDBExtended.bmson_song
@@ -883,6 +941,17 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(OwnedChartKind.Bms, target.Chart.Kind);
         Assert.AreSame(file, GridRowResolver.GetOperationBmsFile(file));
         Assert.AreSame(file, target.Chart.BmsFile);
+    }
+
+    private static void AssertMainViewOperationContext(
+        MainWindowViewModel.viewUpdateMode mode,
+        MainWindowViewModel.MainViewOperationSection expectedSection,
+        ChartOperationSourceScope expectedScope)
+    {
+        MainWindowViewModel.MainViewOperationSection section = MainWindowViewModel.ResolveMainViewOperationSection(mode);
+
+        Assert.AreEqual(expectedSection, section);
+        Assert.AreEqual(expectedScope, MainWindowViewModel.ResolveMainViewChartOperationSourceScope(section));
     }
 
     [TestMethod]
