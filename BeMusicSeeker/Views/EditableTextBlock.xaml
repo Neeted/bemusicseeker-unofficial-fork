@@ -13,10 +13,17 @@
         </Grid>
       </DataTemplate>
       <DataTemplate x:Key="DisplayModeTemplate">
-        <TextBlock Margin="1,0" Padding="1,0,5,0" Text="{Binding ElementName=mainControl, Path=Text}" />
+        <TextBlock Margin="1,0" Padding="1,0,5,0" Foreground="{Binding Foreground, ElementName=mainControl}" Text="{Binding ElementName=mainControl, Path=Text}" />
       </DataTemplate>
       <Style x:Key="{x:Type v:EditableTextBlock}" TargetType="{x:Type v:EditableTextBlock}">
+        <Setter Property="Foreground" Value="{DynamicResource App.TextBrush}" />
         <Style.Triggers>
+          <DataTrigger Binding="{Binding IsSelected, RelativeSource={RelativeSource AncestorType={x:Type TreeViewItem}}}" Value="True">
+            <Setter Property="Foreground" Value="{DynamicResource Table.SelectedTextBrush}" />
+          </DataTrigger>
+          <DataTrigger Binding="{Binding IsEnabled, RelativeSource={RelativeSource AncestorType={x:Type TreeViewItem}}}" Value="False">
+            <Setter Property="Foreground" Value="{DynamicResource App.DisabledTextBrush}" />
+          </DataTrigger>
           <Trigger Property="v:EditableTextBlock.IsInEditMode" Value="True">
             <Setter Property="ContentTemplate" Value="{StaticResource EditModeTemplate}" />
             <Setter Property="Width" Value="{qc:Binding $P + 20, P={Binding ActualWidth, Mode=OneTime, RelativeSource={RelativeSource Self}}}" />

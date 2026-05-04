@@ -857,6 +857,15 @@ LR2IRにスコアやクリアが自動送信されるわけではありません
   <data name="Appearance" xml:space="preserve">
     <value>外観</value>
   </data>
+  <data name="Appearance_theme" xml:space="preserve">
+    <value>テーマ:</value>
+  </data>
+  <data name="Appearance_theme_dark" xml:space="preserve">
+    <value>ダーク</value>
+  </data>
+  <data name="Appearance_theme_light" xml:space="preserve">
+    <value>ライト</value>
+  </data>
   <data name="Details_test_notscan" xml:space="preserve">
     <value>[テスト中] 起動時にBMSファイルと構成ファイルのスキャンを行わない</value>
   </data>

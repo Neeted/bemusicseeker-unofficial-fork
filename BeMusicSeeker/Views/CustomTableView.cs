@@ -13,6 +13,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Media3D;
 using BeMusicSeeker.Diagnostics;
+using BeMusicSeeker.Models;
 using BeMusicSeeker.ViewModels;
 using NLog;
 
@@ -204,8 +205,8 @@ public sealed class CustomTableView : Grid
             AllowsTransparency = true,
             Child = new Border
             {
-                Background = Brushes.White,
-                BorderBrush = new SolidColorBrush(Color.FromRgb(0x82, 0x87, 0x90)),
+                Background = CustomTablePalette.Current.RowBackground,
+                BorderBrush = CustomTablePalette.Current.HeaderBorder.Brush,
                 BorderThickness = new Thickness(1d),
                 MaxWidth = 600d,
                 Child = editSuggestionListBox
@@ -251,6 +252,8 @@ public sealed class CustomTableView : Grid
         QueryContinueDrag += CustomTableViewQueryContinueDrag;
         editSuggestionListBox.PreviewMouseLeftButtonDown += EditSuggestionListBoxPreviewMouseLeftButtonDown;
         editSuggestionListBox.PreviewKeyDown += EditSuggestionListBoxPreviewKeyDown;
+        Loaded += CustomTableViewLoaded;
+        Unloaded += CustomTableViewUnloaded;
         MouseLeave += delegate
         {
             CloseCellToolTip();
@@ -280,6 +283,48 @@ public sealed class CustomTableView : Grid
                 ClearHeaderDragState();
             }
         };
+    }
+
+    private void CustomTableViewLoaded(object sender, RoutedEventArgs e)
+    {
+        AppThemeService.ThemeChanged += AppThemeServiceThemeChanged;
+        RefreshTheme("loaded");
+    }
+
+    private void CustomTableViewUnloaded(object sender, RoutedEventArgs e)
+    {
+        AppThemeService.ThemeChanged -= AppThemeServiceThemeChanged;
+    }
+
+    private void AppThemeServiceThemeChanged(object sender, EventArgs e)
+    {
+        if (Dispatcher.CheckAccess())
+        {
+            RefreshTheme("theme_changed");
+            return;
+        }
+        Dispatcher.BeginInvoke(new Action(() => RefreshTheme("theme_changed")));
+    }
+
+    private void RefreshTheme(string reason)
+    {
+        CustomTablePalette.Invalidate();
+        cellValueCache.Clear();
+        surface.ClearTextLayoutCache();
+        ApplyOverlayTheme();
+        RequestRedraw(reason);
+    }
+
+    private void ApplyOverlayTheme()
+    {
+        CustomTablePalette palette = CustomTablePalette.Current;
+        if (editSuggestionPopup.Child is Border border)
+        {
+            border.Background = palette.RowBackground;
+            border.BorderBrush = palette.HeaderBorder.Brush;
+        }
+        editSuggestionListBox.Background = palette.RowBackground;
+        editSuggestionListBox.Foreground = palette.DefaultForeground;
     }
 
     public event EventHandler<CustomTableFirstRenderCompletedEventArgs> FirstRenderCompleted;
@@ -1506,7 +1551,9 @@ public sealed class CustomTableView : Grid
             TextWrapping = hit.Column.EditTextWrapping ? TextWrapping.Wrap : TextWrapping.NoWrap,
             AcceptsReturn = false,
             BorderThickness = new Thickness(1d),
-            BorderBrush = Brushes.Black,
+            BorderBrush = CustomTablePalette.Current.HeaderBorder.Brush,
+            Background = CustomTablePalette.Current.RowBackground,
+            Foreground = CustomTablePalette.Current.DefaultForeground,
             Padding = new Thickness(0d),
             Margin = new Thickness(0d),
             VerticalContentAlignment = VerticalAlignment.Center,
@@ -2044,19 +2091,6 @@ internal static class CustomTableColumnLayout
 
 internal sealed class CustomTableSurface : FrameworkElement
 {
-    private static readonly Brush HeaderBackgroundBrush = CreateBrush(Color.FromRgb(0xF6, 0xF7, 0xF8));
-    private static readonly Brush RowBackgroundBrush = CreateBrush(Colors.White);
-    private static readonly Brush AlternatingRowBackgroundBrush = CreateBrush(Color.FromRgb(0xF1, 0xF4, 0xF7));
-    private static readonly Brush WarningRowBackgroundBrush = CreateBrush(Color.FromRgb(0xFD, 0xE4, 0xE4));
-    private static readonly Brush SelectedRowBackgroundBrush = CreateBrush(Color.FromRgb(0xD7, 0xE9, 0xFF));
-    private static readonly Brush CurrentCellBackgroundBrush = CreateBrush(Colors.DodgerBlue);
-    private static readonly Brush ReorderSourceHeaderBrush = CreateBrush(Color.FromRgb(0xE1, 0xE5, 0xEA));
-    private static readonly Brush SortGlyphBrush = CreateBrush(Color.FromRgb(0x45, 0x4A, 0x50));
-    private static readonly Pen CellBorderPen = CreatePen(Color.FromRgb(0xE7, 0xE9, 0xEC));
-    private static readonly Pen HeaderBorderPen = CreatePen(Color.FromRgb(0xC8, 0xCC, 0xD1));
-    private static readonly Pen ColumnReorderInsertPen = CreatePen(Colors.Black, 3d);
-    private static readonly Pen CheckBoxBorderPen = CreatePen(Color.FromRgb(0x45, 0x4A, 0x50));
-    private static readonly Pen CheckBoxCheckPen = CreatePen(Color.FromRgb(0x20, 0x20, 0x20), 1.8d);
     private readonly CustomTableView owner;
     private readonly CustomTableTextLayoutCache textLayoutCache = new CustomTableTextLayoutCache();
     private int renderTextCacheHits;
@@ -2113,14 +2147,15 @@ internal sealed class CustomTableSurface : FrameworkElement
 
     private void DrawBackground(DrawingContext drawingContext, double width, double height)
     {
-        drawingContext.DrawRectangle(RowBackgroundBrush, null, new Rect(0d, 0d, width, height));
+        drawingContext.DrawRectangle(CustomTablePalette.Current.RowBackground, null, new Rect(0d, 0d, width, height));
     }
 
     private void DrawHeader(DrawingContext drawingContext, CustomTableColumnLayoutSnapshot layout, double width)
     {
         double headerHeight = owner.HeaderHeight;
         double horizontalOffset = owner.HorizontalOffset;
-        drawingContext.DrawRectangle(HeaderBackgroundBrush, null, new Rect(0d, 0d, width, headerHeight));
+        CustomTablePalette palette = CustomTablePalette.Current;
+        drawingContext.DrawRectangle(palette.HeaderBackground, null, new Rect(0d, 0d, width, headerHeight));
         foreach (CustomTableColumnLayoutEntry entry in layout.VisibleEntries)
         {
             CustomTableColumn column = entry.Column;
@@ -2130,7 +2165,7 @@ internal sealed class CustomTableSurface : FrameworkElement
                 if (owner.IsReorderSourceColumn(column))
                 {
                     drawingContext.DrawRectangle(
-                        ReorderSourceHeaderBrush,
+                        palette.ReorderSourceHeader,
                         null,
                         entry.CreateVisibleRect(horizontalOffset, width, 0d, headerHeight));
                 }
@@ -2139,15 +2174,15 @@ internal sealed class CustomTableSurface : FrameworkElement
                 double borderX = entry.TableX + entry.Width - horizontalOffset - 0.5d;
                 if (borderX >= 0d && borderX <= width)
                 {
-                    drawingContext.DrawLine(HeaderBorderPen, new Point(borderX, 0d), new Point(borderX, headerHeight));
+                    drawingContext.DrawLine(palette.HeaderBorder, new Point(borderX, 0d), new Point(borderX, headerHeight));
                 }
             }
         }
-        drawingContext.DrawLine(HeaderBorderPen, new Point(0d, headerHeight - 0.5d), new Point(width, headerHeight - 0.5d));
+        drawingContext.DrawLine(palette.HeaderBorder, new Point(0d, headerHeight - 0.5d), new Point(width, headerHeight - 0.5d));
         if (owner.IsColumnReorderPreviewActive)
         {
             double insertX = Math.Max(0d, Math.Min(width, owner.ColumnReorderPreviewInsertX));
-            drawingContext.DrawLine(ColumnReorderInsertPen, new Point(insertX, 0d), new Point(insertX, headerHeight));
+            drawingContext.DrawLine(palette.ColumnReorderInsert, new Point(insertX, 0d), new Point(insertX, headerHeight));
         }
     }
 
@@ -2169,17 +2204,18 @@ internal sealed class CustomTableSurface : FrameworkElement
         {
             object row = rows[rowIndex];
             bool selected = owner.IsRowSelected(rowIndex);
+            CustomTablePalette palette = CustomTablePalette.Current;
             Brush rowBackground = selected
-                ? SelectedRowBackgroundBrush
+                ? palette.SelectedRowBackground
                 : owner.HasHighlightedWarning(row)
-                    ? WarningRowBackgroundBrush
+                    ? palette.WarningRowBackground
                     : (rowIndex & 1) == 1
-                        ? AlternatingRowBackgroundBrush
-                        : RowBackgroundBrush;
+                        ? palette.AlternatingRowBackground
+                        : palette.RowBackground;
             Rect rowRect = new Rect(0d, y, width, Math.Min(rowHeight, height - y));
             drawingContext.DrawRectangle(rowBackground, null, rowRect);
             DrawRowCells(drawingContext, layout, rowIndex, row, width, y, rowHeight);
-            drawingContext.DrawLine(CellBorderPen, new Point(0d, y + rowHeight - 0.5d), new Point(width, y + rowHeight - 0.5d));
+            drawingContext.DrawLine(palette.CellBorder, new Point(0d, y + rowHeight - 0.5d), new Point(width, y + rowHeight - 0.5d));
             y += rowHeight;
             drawnRows++;
         }
@@ -2205,9 +2241,13 @@ internal sealed class CustomTableSurface : FrameworkElement
             }
             if (currentCell)
             {
-                drawingContext.DrawRectangle(CurrentCellBackgroundBrush, null, entry.CreateVisibleRect(horizontalOffset, width, y, rowHeight));
+                drawingContext.DrawRectangle(CustomTablePalette.Current.CurrentCellBackground, null, entry.CreateVisibleRect(horizontalOffset, width, y, rowHeight));
             }
-            Brush foreground = currentCell ? CustomTableScoreBrushProvider.SelectedForeground : cellValue.Foreground;
+            Brush foreground = currentCell
+                ? CustomTablePalette.Current.CurrentCellForeground
+                : owner.IsRowSelected(rowIndex)
+                    ? CustomTableScoreBrushProvider.SelectedForeground
+                    : cellValue.Foreground;
             if (cellValue.CellKind == CustomTableCellKind.DownloadIcon)
             {
                 DrawDownloadIcon(drawingContext, cellValue.Text, cellRect, foreground);
@@ -2227,7 +2267,7 @@ internal sealed class CustomTableSurface : FrameworkElement
             double borderX = entry.TableX + entry.Width - horizontalOffset - 0.5d;
             if (borderX >= 0d && borderX <= width)
             {
-                drawingContext.DrawLine(CellBorderPen, new Point(borderX, y), new Point(borderX, y + rowHeight));
+                drawingContext.DrawLine(CustomTablePalette.Current.CellBorder, new Point(borderX, y), new Point(borderX, y + rowHeight));
             }
         }
     }
@@ -2371,11 +2411,12 @@ internal sealed class CustomTableSurface : FrameworkElement
         double left = cellRect.Left + (cellRect.Width - size) / 2d;
         double top = cellRect.Top + (cellRect.Height - size) / 2d;
         Rect rect = new Rect(left, top, size, size);
-        drawingContext.DrawRectangle(Brushes.White, CheckBoxBorderPen, rect);
+        CustomTablePalette palette = CustomTablePalette.Current;
+        drawingContext.DrawRectangle(palette.CheckBoxBackground, palette.CheckBoxBorder, rect);
         if (isChecked.Value)
         {
             Pen checkPen = foreground == null || ReferenceEquals(foreground, CustomTableScoreBrushProvider.DefaultForeground)
-                ? CheckBoxCheckPen
+                ? palette.CheckBoxCheck
                 : new Pen(foreground, 1.8d);
             drawingContext.DrawLine(checkPen, new Point(rect.Left + 2.5d, rect.Top + size * 0.55d), new Point(rect.Left + size * 0.43d, rect.Bottom - 2.5d));
             drawingContext.DrawLine(checkPen, new Point(rect.Left + size * 0.43d, rect.Bottom - 2.5d), new Point(rect.Right - 2d, rect.Top + 2.5d));
@@ -2445,25 +2486,6 @@ internal sealed class CustomTableSurface : FrameworkElement
             context.LineTo(p3, isStroked: true, isSmoothJoin: false);
         }
         geometry.Freeze();
-        drawingContext.DrawGeometry(SortGlyphBrush, null, geometry);
-    }
-
-    private static Brush CreateBrush(Color color)
-    {
-        SolidColorBrush brush = new SolidColorBrush(color);
-        brush.Freeze();
-        return brush;
-    }
-
-    private static Pen CreatePen(Color color)
-    {
-        return CreatePen(color, 1d);
-    }
-
-    private static Pen CreatePen(Color color, double thickness)
-    {
-        Pen pen = new Pen(CreateBrush(color), thickness);
-        pen.Freeze();
-        return pen;
+        drawingContext.DrawGeometry(CustomTablePalette.Current.SortGlyph, null, geometry);
     }
 }

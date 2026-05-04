@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using BeMusicSeeker.Models;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.Views;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -55,8 +56,8 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.AreEqual(1, CountOccurrences(xaml, "Name=\"gridSplitter\" Style=\"{StaticResource SidebarSplitterStyle}\" ResizeDirection=\"Columns\" ResizeBehavior=\"CurrentAndNext\" Margin=\"0\" Grid.RowSpan=\"2\" Width=\"5\""));
         Assert.AreEqual(1, CountOccurrences(xaml, "Name=\"gridSplitterTree\" Style=\"{StaticResource SidebarSplitterStyle}\" Grid.Row=\"1\" Height=\"5\""));
         Assert.AreEqual(1, CountOccurrences(xaml, "Name=\"gridColumn0\" MinWidth=\"160\" Width=\"{Binding TreeViewWidth, Source={x:Static prop:Settings.Default}, Mode=OneTime}\""));
-        Assert.AreEqual(1, CountOccurrences(xaml, "Name=\"gridTreePane\" Margin=\"0,0,5,0\" Grid.Row=\"1\" Grid.RowSpan=\"2\""));
-        Assert.AreEqual(1, CountOccurrences(xaml, "<Border BorderThickness=\"0\" Grid.Row=\"1\" Grid.ColumnSpan=\"1\" Grid.Column=\"1\" Background=\"#FFF0F0F0\">"));
+        Assert.AreEqual(1, CountOccurrences(xaml, "Name=\"gridTreePane\" Margin=\"0,0,5,0\" Grid.Row=\"1\" Grid.RowSpan=\"2\" Background=\"{DynamicResource App.BackgroundBrush}\""));
+        Assert.AreEqual(1, CountOccurrences(xaml, "<Border BorderThickness=\"0\" Grid.Row=\"1\" Grid.ColumnSpan=\"1\" Grid.Column=\"1\" Background=\"{DynamicResource App.SurfaceBrush}\">"));
         Assert.AreEqual(0, CountOccurrences(xaml, "BorderBrush=\"#FF828790\" BorderThickness=\"1,0,0,0\" Grid.Row=\"1\" Grid.ColumnSpan=\"1\" Grid.Column=\"1\""));
     }
 
@@ -87,6 +88,62 @@ public sealed class MainWindowContextMenuResourceTests
 
         settings.TreeViewWidth = Settings.MinTreeViewWidth;
         Assert.AreEqual(Settings.MinTreeViewWidth, (double)settings["TreeViewWidth"]);
+    }
+
+    [TestMethod]
+    public void AppearanceThemeSetting_NormalizesValuesAndResourcesExist()
+    {
+        Settings settings = new Settings();
+
+        settings["AppearanceTheme"] = "Dark";
+        Assert.AreEqual(AppThemeService.Dark, settings.AppearanceTheme);
+
+        settings["AppearanceTheme"] = "Unknown";
+        Assert.AreEqual(AppThemeService.Light, settings.AppearanceTheme);
+
+        settings.AppearanceTheme = "dark";
+        Assert.AreEqual(AppThemeService.Dark, (string)settings["AppearanceTheme"]);
+
+        Assert.IsFalse(string.IsNullOrWhiteSpace(Resources.Appearance_theme));
+        Assert.IsFalse(string.IsNullOrWhiteSpace(Resources.Appearance_theme_light));
+        Assert.IsFalse(string.IsNullOrWhiteSpace(Resources.Appearance_theme_dark));
+    }
+
+    [TestMethod]
+    public void ThemeResourceDictionaries_DefineRequiredTableAndAppKeys()
+    {
+        string root = FindRepositoryRoot();
+        string light = File.ReadAllText(Path.Combine(root, "Themes", "Light.xaml"));
+        string dark = File.ReadAllText(Path.Combine(root, "Themes", "Dark.xaml"));
+
+        foreach (string key in new[]
+        {
+            "App.BackgroundBrush",
+            "App.SurfaceBrush",
+            "App.TextBrush",
+            "App.BorderBrush",
+            "Table.RowBackgroundBrush",
+            "Table.AlternatingRowBackgroundBrush",
+            "Table.SelectedRowBackgroundBrush",
+            "Table.CurrentCellTextBrush",
+            "Table.TextBrush",
+            "Table.SelectedTextBrush",
+            "Table.CheckBoxBackgroundBrush"
+        })
+        {
+            StringAssert.Contains(light, "x:Key=\"" + key + "\"");
+            StringAssert.Contains(dark, "x:Key=\"" + key + "\"");
+        }
+    }
+
+    [TestMethod]
+    public void SettingDialog_ExposesAppearanceThemeSelector()
+    {
+        string xaml = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "SettingDialog.xaml"));
+
+        Assert.AreEqual(1, CountOccurrences(xaml, "ItemsSource=\"{Binding settingDialog.AppearanceThemeOptions}\""));
+        Assert.AreEqual(1, CountOccurrences(xaml, "SelectedValue=\"{Binding settingDialog.AppearanceTheme, Mode=TwoWay}\""));
+        Assert.AreEqual(1, CountOccurrences(xaml, "Path=Resources.Appearance_theme, Mode=OneWay"));
     }
 
     [TestMethod]

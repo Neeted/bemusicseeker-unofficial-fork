@@ -58,6 +58,12 @@ public class Resources
 
     public static string Appearance => ResourceManager.GetString("Appearance", resourceCulture);
 
+    public static string Appearance_theme => ResourceManager.GetString("Appearance_theme", resourceCulture);
+
+    public static string Appearance_theme_dark => ResourceManager.GetString("Appearance_theme_dark", resourceCulture);
+
+    public static string Appearance_theme_light => ResourceManager.GetString("Appearance_theme_light", resourceCulture);
+
     public static string Artist => ResourceManager.GetString("Artist", resourceCulture);
 
     public static string Auto => ResourceManager.GetString("Auto", resourceCulture);

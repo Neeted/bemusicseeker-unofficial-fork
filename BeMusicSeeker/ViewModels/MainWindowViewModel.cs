@@ -299,6 +299,10 @@ public class MainWindowViewModel : ViewModel
 
         private bool tempUseExternalPanelImage;
 
+        private string tempAppearanceTheme;
+
+        private readonly IReadOnlyList<AppearanceThemeOption> appearanceThemeOptions;
+
         private bool tempShowScoreViewerRegisterConfirmMsg;
 
         private bool tempShowDiffBMSInstallConfirmMsg;
@@ -390,6 +394,8 @@ public class MainWindowViewModel : ViewModel
         private ListenerCommand<string> _RemoveDirCommand;
 
         private string tempLanguage;
+
+        private string tempLanguageDisplayName;
 
         public bool OperationModeLR2DB
         {
@@ -1019,6 +1025,62 @@ public class MainWindowViewModel : ViewModel
                 {
                     Settings.Default.UseExternalPanelImage = value;
                     RaisePropertyChanged("UseExternalPanelImage");
+                }
+            }
+        }
+
+        public sealed class AppearanceThemeOption : ViewModel
+        {
+            internal AppearanceThemeOption(string key)
+            {
+                Key = key;
+            }
+
+            public string Key { get; }
+
+            public string DisplayName
+            {
+                get
+                {
+                    return string.Equals(Key, AppThemeService.Dark, StringComparison.Ordinal)
+                        ? BeMusicSeeker.Properties.Resources.Appearance_theme_dark
+                        : BeMusicSeeker.Properties.Resources.Appearance_theme_light;
+                }
+            }
+
+            internal void RefreshDisplayName()
+            {
+                RaisePropertyChanged(() => DisplayName);
+            }
+        }
+
+        public IReadOnlyList<AppearanceThemeOption> AppearanceThemeOptions
+        {
+            get
+            {
+                return appearanceThemeOptions;
+            }
+        }
+
+        public string AppearanceTheme
+        {
+            get
+            {
+                return Settings.Default.AppearanceTheme;
+            }
+            set
+            {
+                if (string.IsNullOrWhiteSpace(value))
+                {
+                    RaisePropertyChanged("AppearanceTheme");
+                    return;
+                }
+                string normalizedTheme = AppThemeService.NormalizeTheme(value);
+                if (Settings.Default.AppearanceTheme != normalizedTheme)
+                {
+                    Settings.Default.AppearanceTheme = normalizedTheme;
+                    AppThemeService.ApplyTheme(normalizedTheme);
+                    RaisePropertyChanged("AppearanceTheme");
                 }
             }
         }
@@ -1879,6 +1941,11 @@ public class MainWindowViewModel : ViewModel
         {
             SettingDialogViewModel settingDialogViewModel = this;
             ownerViewModel = owner;
+            appearanceThemeOptions = new[]
+            {
+                new AppearanceThemeOption(AppThemeService.Light),
+                new AppearanceThemeOption(AppThemeService.Dark)
+            };
             ownerViewModelEventListener = new PropertyChangedEventListener(ownerViewModel);
             ownerViewModelEventListener.RegisterHandler(() => owner.BMSTables, delegate
             {
@@ -1892,6 +1959,13 @@ public class MainWindowViewModel : ViewModel
             resourceServiceEventListener.RegisterHandler(() => ResourceService.Current.Resources, delegate
             {
                 settingDialogViewModel.RaisePropertyChanged(() => settingDialogViewModel.EncoderNormalization);
+            });
+            resourceServiceEventListener.RegisterHandler(() => ResourceService.Current.Resources, delegate
+            {
+                foreach (AppearanceThemeOption option in settingDialogViewModel.appearanceThemeOptions)
+                {
+                    option.RefreshDisplayName();
+                }
             });
             Settings.Default.Reload();
             try
@@ -2362,6 +2436,7 @@ public class MainWindowViewModel : ViewModel
             tempLR2BackupNum = Settings.Default.LR2BackupNum;
             tempUseExternalWebBrowser = Settings.Default.UseExternalWebBrowser;
             tempUseExternalPanelImage = Settings.Default.UseExternalPanelImage;
+            tempAppearanceTheme = AppThemeService.NormalizeTheme(Settings.Default.AppearanceTheme);
             tempStagefilePath = Settings.Default.StagefilePath;
             tempFolderNameFormat = Settings.Default.FolderNameFormat;
             tempUseOnlyShiftJISChars = Settings.Default.UseOnlyShiftJISChars;
@@ -2397,6 +2472,7 @@ public class MainWindowViewModel : ViewModel
             tempPlayerBufferSize = Settings.Default.PlayerBufferSize;
             tempPlayerWASAPIParam = Settings.Default.PlayerWASAPIParam;
             tempLanguage = Settings.Default.Lang;
+            tempLanguageDisplayName = Settings.Default.LangDisplayName;
             isBMSDirectoryAdded = false;
             isBMSDirectoryRemoved = false;
         }
@@ -2634,6 +2710,9 @@ public class MainWindowViewModel : ViewModel
             Settings.Default.LR2BackupNum = tempLR2BackupNum;
             Settings.Default.UseExternalWebBrowser = tempUseExternalWebBrowser;
             Settings.Default.UseExternalPanelImage = tempUseExternalPanelImage;
+            string restoredAppearanceTheme = AppThemeService.NormalizeTheme(tempAppearanceTheme);
+            Settings.Default.AppearanceTheme = restoredAppearanceTheme;
+            AppThemeService.ApplyTheme(restoredAppearanceTheme);
             Settings.Default.StagefilePath = tempStagefilePath;
             Settings.Default.FolderNameFormat = tempFolderNameFormat;
             Settings.Default.UseOnlyShiftJISChars = tempUseOnlyShiftJISChars;
@@ -2670,7 +2749,9 @@ public class MainWindowViewModel : ViewModel
             Settings.Default.PlayerFormat = tempPlayerFormat;
             Settings.Default.PlayerBufferSize = tempPlayerBufferSize;
             Settings.Default.PlayerWASAPIParam = tempPlayerWASAPIParam;
-            Language = tempLanguage;
+            Settings.Default.Lang = tempLanguage;
+            Settings.Default.LangDisplayName = tempLanguageDisplayName;
+            ResourceService.Current.ChangeCulture(tempLanguage);
             try
             {
                 lr2config = new LR2Config(Settings.Default.LR2ConfigXmlPath);
@@ -2707,6 +2788,7 @@ public class MainWindowViewModel : ViewModel
             RaisePropertyChanged(() => LR2BackupNum);
             RaisePropertyChanged(() => UseExternalWebBrowser);
             RaisePropertyChanged(() => UseExternalPanelImage);
+            RaisePropertyChanged(() => AppearanceTheme);
             RaisePropertyChanged(() => StagefilePath);
             RaisePropertyChanged(() => FolderNameFormat);
             RaisePropertyChanged(() => UseOnlyShiftJISChars);

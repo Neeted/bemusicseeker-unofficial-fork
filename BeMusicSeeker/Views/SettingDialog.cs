@@ -4,6 +4,7 @@ using System.Reflection;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Data;
 using System.Windows.Markup;
 using System.Windows.Navigation;
@@ -26,6 +27,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
 	public SettingDialog()
 	{
 		InitializeComponent();
+		IsVisibleChanged += SettingDialogIsVisibleChanged;
 		Assembly entryAssembly = Assembly.GetEntryAssembly();
 		string text = entryAssembly?.GetName().Version?.ToString() ?? string.Empty;
 		string text2 = entryAssembly?.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
@@ -39,6 +41,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
 		{
 			MainWindowViewModel.SettingDialogViewModel.RestartMode restartMode = settingDialogViewModel.IsNeedRestartForSaveOrCancel();
 			settingDialogViewModel.ResetSettings();
+			SyncAppearanceThemeSelection(settingDialogViewModel);
 			settingDialog.Visibility = Visibility.Hidden;
 			if (restartMode.HasFlag(MainWindowViewModel.SettingDialogViewModel.RestartMode.All))
 			{
@@ -48,6 +51,23 @@ public partial class SettingDialog : UserControl, IComponentConnector
 			{
 				mainWindowViewModel.ReloadFileDiff();
 			}
+		}
+	}
+
+	private void SettingDialogIsVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
+	{
+		if (e.NewValue is true && base.DataContext is MainWindowViewModel { settingDialog: { } settingDialogViewModel })
+		{
+			SyncAppearanceThemeSelection(settingDialogViewModel);
+		}
+	}
+
+	private void SyncAppearanceThemeSelection(MainWindowViewModel.SettingDialogViewModel settingDialogViewModel)
+	{
+		comboBoxAppearanceTheme.GetBindingExpression(Selector.SelectedValueProperty)?.UpdateTarget();
+		if (comboBoxAppearanceTheme.SelectedValue == null)
+		{
+			comboBoxAppearanceTheme.SelectedValue = settingDialogViewModel.AppearanceTheme;
 		}
 	}
 

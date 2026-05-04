@@ -266,7 +266,7 @@ public sealed class CustomTableColumn
 internal static class CustomTableColumnFactory
 {
     private const string DownloadIconGlyphText = "\uE14F";
-    private static readonly Brush UndefinedCellBackgroundBrush = CreateFrozenBrush(Color.FromRgb(0xFF, 0xF6, 0xD5));
+    private static Brush UndefinedCellBackgroundBrush => CustomTablePalette.Current.UndefinedCellBackground;
 
     internal static IReadOnlyList<CustomTableColumn> CreateMainColumns(dataGridColumnsSettings settings)
     {
@@ -777,16 +777,6 @@ internal static class CustomTableColumnFactory
         }
         object value = GetValue(row, propertyName);
         return value is bool flag && flag;
-    }
-
-    private static Brush CreateFrozenBrush(Color color)
-    {
-        SolidColorBrush brush = new SolidColorBrush(color);
-        if (brush.CanFreeze)
-        {
-            brush.Freeze();
-        }
-        return brush;
     }
 
     internal static bool HasHighlightedWarning(object row)

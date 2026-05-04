@@ -6,10 +6,10 @@ namespace BeMusicSeeker.Views;
 
 internal static class CustomTableScoreBrushProvider
 {
-    internal static readonly Brush DefaultForeground = CreateBrush(Colors.Black);
-    internal static readonly Brush SelectedForeground = CreateBrush(Colors.White);
-    internal static readonly Brush GrayBrush = CreateBrush(Colors.Gray);
-    internal static readonly Brush BlackBrush = CreateBrush(Colors.Black);
+    internal static Brush DefaultForeground => CustomTablePalette.Current.DefaultForeground;
+    internal static Brush SelectedForeground => CustomTablePalette.Current.SelectedForeground;
+    internal static Brush GrayBrush => CustomTablePalette.Current.SubtleForeground;
+    internal static Brush BlackBrush => CustomTablePalette.Current.DefaultForeground;
     internal static readonly Brush DarkBrownBrush = CreateBrush(Color.FromRgb(0x8B, 0x45, 0x13));
     internal static readonly Brush GreenBrush = CreateBrush(Color.FromRgb(0x2E, 0x7D, 0x32));
     internal static readonly Brush BlueBrush = CreateBrush(Color.FromRgb(0x00, 0x87, 0xB0));

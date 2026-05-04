@@ -5,6 +5,7 @@ using System.Configuration;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Windows;
+using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.ViewModels;
@@ -23,6 +24,8 @@ internal sealed class Settings : ApplicationSettingsBase
 	internal const double DefaultTreeViewWidth = 250d;
 
 	internal const double MinTreeViewWidth = 160d;
+
+	internal const string DefaultAppearanceTheme = AppThemeService.Light;
 
 	private static Settings defaultInstance = (Settings)SettingsBase.Synchronized(new Settings());
 
@@ -697,6 +700,26 @@ internal sealed class Settings : ApplicationSettingsBase
 	}
 
 	[UserScopedSetting]
+	[DefaultSettingValue(DefaultAppearanceTheme)]
+	public string AppearanceTheme
+	{
+		get
+		{
+			string rawTheme = (string)this["AppearanceTheme"];
+			string normalizedTheme = AppThemeService.NormalizeTheme(rawTheme);
+			if (!string.Equals(rawTheme, normalizedTheme, StringComparison.Ordinal))
+			{
+				this["AppearanceTheme"] = normalizedTheme;
+			}
+			return normalizedTheme;
+		}
+		set
+		{
+			this["AppearanceTheme"] = AppThemeService.NormalizeTheme(value);
+		}
+	}
+
+	[UserScopedSetting]
 	[DebuggerNonUserCode]
 	[DefaultSettingValue("")]
 	public string StagefilePath
@@ -1323,6 +1346,12 @@ internal sealed class Settings : ApplicationSettingsBase
 		if (!normalizedTreeViewWidth.Equals(rawTreeViewWidth))
 		{
 			settings["TreeViewWidth"] = normalizedTreeViewWidth;
+		}
+		string rawAppearanceTheme = settings["AppearanceTheme"] as string;
+		string normalizedAppearanceTheme = AppThemeService.NormalizeTheme(rawAppearanceTheme);
+		if (!string.Equals(rawAppearanceTheme, normalizedAppearanceTheme, StringComparison.Ordinal))
+		{
+			settings["AppearanceTheme"] = normalizedAppearanceTheme;
 		}
 		if (settings.StandardColumnsSettings == null)
 		{

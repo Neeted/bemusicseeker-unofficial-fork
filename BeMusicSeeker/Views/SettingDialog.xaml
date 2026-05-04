@@ -1,6 +1,6 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <UserControl x:Class="BeMusicSeeker.Views.SettingDialog" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:i="http://schemas.microsoft.com/expression/2010/interactivity" xmlns:ei="http://schemas.microsoft.com/expression/2010/interactions" xmlns:l="http://schemas.livet-mvvm.net/2011/wpf" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" xmlns:v="clr-namespace:BeMusicSeeker.Views" xmlns:vm="clr-namespace:BeMusicSeeker.ViewModels" xmlns:d="http://schemas.microsoft.com/expression/blend/2008" xmlns:qc="http://QuickConverter.CodePlex.com/" xmlns:sys="clr-namespace:System;assembly=mscorlib" xmlns:prop="clr-namespace:BeMusicSeeker.Properties" x:Name="settingDialog">
-  <Grid Name="settingDialogRootGrid">
+  <Grid Name="settingDialogRootGrid" TextElement.Foreground="{DynamicResource App.TextBrush}">
     <FrameworkElement.Resources>
       <ResourceDictionary>
         <v:expanderDetailedLR2PathConverter x:Key="expanderDetailedLR2PathConverter" />
@@ -10,17 +10,17 @@
         <v:firstNonEmptyStringConverter x:Key="firstNonEmptyStringConverter" />
         <v:firstNonEmptyStringOrDirectoryOfSecondConverter x:Key="firstNonEmptyStringOrDirectoryOfSecondConverter" />
         <Style x:Key="styleTextBlockActiveForeground" TargetType="{x:Type TextBlock}">
-          <Setter Property="Foreground" Value="Gray" />
+          <Setter Property="Foreground" Value="{DynamicResource App.DisabledTextBrush}" />
           <Style.Triggers>
             <DataTrigger Binding="{Binding Tag, RelativeSource={RelativeSource Self}}" Value="True">
-              <Setter Property="Foreground" Value="Black" />
+              <Setter Property="Foreground" Value="{DynamicResource App.TextBrush}" />
             </DataTrigger>
           </Style.Triggers>
         </Style>
       </ResourceDictionary>
     </FrameworkElement.Resources>
-    <Rectangle Fill="#FF000000" Opacity="0.5" />
-    <Border Width="570" Height="450" CornerRadius="10" Background="#FFFFFFFF" Padding="10">
+    <Rectangle Fill="{DynamicResource App.DialogOverlayBrush}" Opacity="0.5" />
+    <Border Width="570" Height="450" CornerRadius="10" Background="{DynamicResource App.DialogBackgroundBrush}" Padding="10">
       <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
         <FrameworkElement.Style>
           <Style TargetType="{x:Type ScrollViewer}">
@@ -148,6 +148,10 @@
                 </GroupBox>
                 <GroupBox Padding="5,5,5,0" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Appearance, Mode=OneWay}">
                   <StackPanel>
+                    <DockPanel LastChildFill="False" Margin="0,0,0,4">
+                      <ComboBox Name="comboBoxAppearanceTheme" Width="120" Height="24" DockPanel.Dock="Right" ItemsSource="{Binding settingDialog.AppearanceThemeOptions}" DisplayMemberPath="DisplayName" SelectedValuePath="Key" SelectedValue="{Binding settingDialog.AppearanceTheme, Mode=TwoWay}" />
+                      <Label Height="28" HorizontalContentAlignment="Right" DockPanel.Dock="Right" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Appearance_theme, Mode=OneWay}" />
+                    </DockPanel>
                     <CheckBox Name="checkBoxUseExternalPanelImage" IsChecked="{Binding settingDialog.UseExternalPanelImage}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Change_stage_file, Mode=OneWay}" />
                     <DockPanel LastChildFill="False" IsEnabled="{Binding IsChecked, ElementName=checkBoxUseExternalPanelImage}">
                       <Button Width="75" DockPanel.Dock="Right" Height="24" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Browse, Mode=OneWay}">
@@ -632,8 +636,8 @@
                   </StackPanel>
                 </DockPanel>
                 <GroupBox DockPanel.Dock="Bottom" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Update_history, Mode=OneWay}">
-                  <FlowDocumentScrollViewer BorderBrush="#FF808080" BorderThickness="1" Height="190">
-                    <FlowDocument FontSize="12" FontFamily="Meiryo UI" Background="#FFFFFFFF" PagePadding="5">
+                  <FlowDocumentScrollViewer BorderBrush="{DynamicResource App.BorderBrush}" BorderThickness="1" Height="190">
+                    <FlowDocument FontSize="12" FontFamily="Meiryo UI" Background="{DynamicResource App.ControlBackgroundBrush}" Foreground="{DynamicResource App.TextBrush}" PagePadding="5">
                       <FrameworkContentElement.Resources>
                         <ResourceDictionary>
                           <Style x:Key="{x:Type List}" TargetType="{x:Type List}">

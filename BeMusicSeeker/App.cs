@@ -110,6 +110,7 @@ public partial class App : System.Windows.Application
         {
             Settings.Default.Lang = "ja-JP";
         }
+        Settings.Default.AppearanceTheme = AppThemeService.NormalizeTheme(Settings.Default.AppearanceTheme);
         BeMusicSeeker.Properties.Resources.Culture = CultureInfo.GetCultureInfo(Settings.Default.Lang);
     }
 
@@ -185,6 +186,7 @@ public partial class App : System.Windows.Application
             Shutdown();
         }
         DispatcherHelper.UIDispatcher = base.Dispatcher;
+        AppThemeService.ApplyTheme(Settings.Default.AppearanceTheme);
         AppDomain.CurrentDomain.UnhandledException += CurrentDomain_UnhandledException;
         base.DispatcherUnhandledException += Application_DispatcherUnhandledException;
     }
