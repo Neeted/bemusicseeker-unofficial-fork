@@ -105,6 +105,69 @@ public sealed class PlaylistSummaryAggregationTests
     }
 
     [TestMethod]
+    public void GetPlaylistSummaryOwnedHashSnapshot_RebuildsAfterLibraryOwnershipChanges()
+    {
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            BMSLibrary library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
+            library.BMSFiles = new List<BMSFile>
+            {
+                CreateLibraryFile(@"C:\Songs\old.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+            };
+            BMSLibrary.PlaylistSummaryOwnedHashSnapshot first = library.GetPlaylistSummaryOwnedHashSnapshot();
+
+            library.BMSFiles = new List<BMSFile>
+            {
+                CreateLibraryFile(@"C:\Songs\new.bms", "cccccccccccccccccccccccccccccccc", "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd")
+            };
+            BMSLibrary.PlaylistSummaryOwnedHashSnapshot second = library.GetPlaylistSummaryOwnedHashSnapshot();
+
+            Assert.IsTrue(second.Version > first.Version);
+            CollectionAssert.DoesNotContain(new List<string>(second.Md5Hashes), "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+            CollectionAssert.Contains(new List<string>(second.Md5Hashes), "cccccccccccccccccccccccccccccccc");
+        });
+    }
+
+    [TestMethod]
+    public void PlaylistSummaryDataRefreshDecision_InvalidatesRowsEvenWhenHidden()
+    {
+        MainWindowViewModel.PlaylistSummaryDataRefreshDecision decision =
+            MainWindowViewModel.BuildPlaylistSummaryDataRefreshDecisionForTest(
+                isPlaylistSummaryMode: false,
+                isUiUpdateSuppressed: false,
+                invalidateTableCountCache: false);
+
+        Assert.IsTrue(decision.InvalidateRowsCache);
+        Assert.IsFalse(decision.InvalidateTableCountCache);
+        Assert.IsFalse(decision.RebuildImmediately);
+        Assert.IsFalse(decision.RequestDeferredRefresh);
+    }
+
+    [TestMethod]
+    public void PlaylistSummaryDataRefreshDecision_RebuildsOrDefersOnlyWhenVisible()
+    {
+        MainWindowViewModel.PlaylistSummaryDataRefreshDecision visible =
+            MainWindowViewModel.BuildPlaylistSummaryDataRefreshDecisionForTest(
+                isPlaylistSummaryMode: true,
+                isUiUpdateSuppressed: false,
+                invalidateTableCountCache: true);
+        MainWindowViewModel.PlaylistSummaryDataRefreshDecision suppressed =
+            MainWindowViewModel.BuildPlaylistSummaryDataRefreshDecisionForTest(
+                isPlaylistSummaryMode: true,
+                isUiUpdateSuppressed: true,
+                invalidateTableCountCache: true);
+
+        Assert.IsTrue(visible.InvalidateRowsCache);
+        Assert.IsTrue(visible.InvalidateTableCountCache);
+        Assert.IsTrue(visible.RebuildImmediately);
+        Assert.IsFalse(visible.RequestDeferredRefresh);
+        Assert.IsTrue(suppressed.InvalidateRowsCache);
+        Assert.IsTrue(suppressed.InvalidateTableCountCache);
+        Assert.IsFalse(suppressed.RebuildImmediately);
+        Assert.IsTrue(suppressed.RequestDeferredRefresh);
+    }
+
+    [TestMethod]
     public void BuildPlaylistSummaryPresentationRows_AppliesFilterAndSortWithoutRebuildLogic()
     {
         List<PlaylistSummaryRow> rows = new List<PlaylistSummaryRow>
