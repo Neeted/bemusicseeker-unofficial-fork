@@ -719,6 +719,8 @@ public class BMSLibrary : NotificationObject
 
     private DirectoryRelativePathHashIndex directoryRelativePathHashIndex = new DirectoryRelativePathHashIndex();
 
+    private readonly StartupInstallReadinessState startupInstallReadinessState = new StartupInstallReadinessState();
+
     private readonly int innerWavHealthThreshForNormalBMSFile = 70;
 
     private readonly double dupRateThreshInOnePkg = 0.9;
@@ -3775,6 +3777,7 @@ public class BMSLibrary : NotificationObject
         {
             TryImportChartInfoMetadataBundleAtStartup();
         }
+        startupInstallReadinessState.Reset();
         using (rwlockBMSFilesInitializedAll.GetWriterGuard())
         {
             LogInstallPerformance("init_library_lock_acquired rwlockInitAll currentRead=" + rwlockBMSFilesInitializedAll.CurrentReadCount + " lockingRead=" + rwlockBMSFilesInitializedAll.LockingReadCount + " lockingWrite=" + rwlockBMSFilesInitializedAll.LockingWriteCount + " waitingWrite=" + rwlockBMSFilesInitializedAll.WaitingWriteCount);
@@ -3787,6 +3790,10 @@ public class BMSLibrary : NotificationObject
                     using (rwlockBMSFilesInitializedMin.GetWriterGuard())
                     {
                         _initialize(songTblLoad, scoreTblrLoad: true, songTblFileCheck: false, setMainteInfo: false, updateIrScore: false, installTblCheck: false, maintenanceTblCheck: false, bmsScanPrefetchInfo: null, trackLibraryDatabaseProgress: true);
+                        if (songTblLoad)
+                        {
+                            startupInstallReadinessState.MarkCatalogLoaded();
+                        }
                     }
                 },
                 delegate
@@ -3805,10 +3812,18 @@ public class BMSLibrary : NotificationObject
                         }
                     }
                     _initialize(songTblLoad: false, scoreTblrLoad: false, songTblFileCheck, setMainteInfo: false, updateIrScore: true, installTblCheck: false, maintenanceTblCheck: false, bmsScanPrefetchInfo, trackLibraryFileCheckProgress: true);
+                    if (!isScoreOnly)
+                    {
+                        startupInstallReadinessState.MarkDestinationResourceIndexReady();
+                    }
                 },
                 delegate
                 {
                     _initialize(songTblLoad: false, scoreTblrLoad: false, songTblFileCheck: false, setMainteInfo: false, updateIrScore: false, flag, maintenanceTblCheck: false);
+                    if (flag)
+                    {
+                        startupInstallReadinessState.MarkPendingPackagesRestored();
+                    }
                 });
             scheduleDeferredMaintenanceTableCheck = flag;
             scheduleDeferredInstallableMaintenance = setMaintenanceInfo;
@@ -3817,39 +3832,52 @@ public class BMSLibrary : NotificationObject
         }
         if (flag)
         {
-            BackgroundPendingEstimatePreparationResult startupEstimatePreparation;
-            using (rwlockBMSFilesInitializedAll.GetReaderGuard())
+            if (startupInstallReadinessState.CanStartInstallEstimation())
             {
-                using (rwlockBMSFilesPendingInstall.GetWriterGuard())
+                BackgroundPendingEstimatePreparationResult startupEstimatePreparation;
+                using (rwlockBMSFilesInitializedAll.GetReaderGuard())
                 {
-                    using (rwlockBMSFiles.GetReaderGuard())
+                    using (rwlockBMSFilesPendingInstall.GetWriterGuard())
                     {
-                        startupEstimatePreparation = PrepareBackgroundPendingEstimatePackagesUnsafe(BMSPackagesPending, PendingInstallEstimateBatchSource.StartupRestore);
+                        using (rwlockBMSFiles.GetReaderGuard())
+                        {
+                            startupEstimatePreparation = PrepareBackgroundPendingEstimatePackagesUnsafe(BMSPackagesPending, PendingInstallEstimateBatchSource.StartupRestore);
+                        }
                     }
                 }
+                foreach (BMSPackage deferredPackage in startupEstimatePreparation.DeferredPackages)
+                {
+                    int sourceHealth = 0;
+                    startupEstimatePreparation.DeferredSourceHealthByPackage.TryGetValue(deferredPackage, out sourceHealth);
+                    LogPendingEstimateSkippedPackage("startup_restore", deferredPackage, sourceHealth);
+                }
+                if (startupEstimatePreparation.EstimablePackages.Count > 0)
+                {
+                    QueuePendingInstallEstimateBatch(new PendingInstallEstimateBatchRequest(
+                        PendingInstallEstimateBatchSource.StartupRestore,
+                        startupEstimatePreparation.EstimablePackages,
+                        Resources.Pending_estimate_queue_startup_display_name,
+                        deferredPackageCount: startupEstimatePreparation.DeferredPackages.Count,
+                        batchSourceSnapshot: startupEstimatePreparation.BatchSourceSnapshot));
+                }
             }
-            foreach (BMSPackage deferredPackage in startupEstimatePreparation.DeferredPackages)
+            else
             {
-                int sourceHealth = 0;
-                startupEstimatePreparation.DeferredSourceHealthByPackage.TryGetValue(deferredPackage, out sourceHealth);
-                LogPendingEstimateSkippedPackage("startup_restore", deferredPackage, sourceHealth);
-            }
-            if (startupEstimatePreparation.EstimablePackages.Count > 0)
-            {
-                QueuePendingInstallEstimateBatch(new PendingInstallEstimateBatchRequest(
-                    PendingInstallEstimateBatchSource.StartupRestore,
-                    startupEstimatePreparation.EstimablePackages,
-                    Resources.Pending_estimate_queue_startup_display_name,
-                    deferredPackageCount: startupEstimatePreparation.DeferredPackages.Count,
-                    batchSourceSnapshot: startupEstimatePreparation.BatchSourceSnapshot));
+                LogInstallPerformance("startup_install_estimation_blocked reason=" + startupInstallReadinessState.GetInstallEstimationBlockedReason());
             }
         }
         DirectoryResourceLookupCache installableLookupCacheSnapshot = null;
+        int catalogRowCount = 0;
+        int bmsonRowCount = 0;
+        int resourceIndexDirectoryCount = 0;
         int pendingPackageCount = 0;
         int pendingEstimateQueueBatchCount = 0;
         using (rwlockBMSFiles.GetReaderGuard())
         {
             installableLookupCacheSnapshot = directoryResourceLookupCache;
+            catalogRowCount = BMSFiles?.Count ?? 0;
+            bmsonRowCount = BmsonSongs?.Count ?? 0;
+            resourceIndexDirectoryCount = installableLookupCacheSnapshot?.Count ?? 0;
         }
         using (rwlockBMSFilesPendingInstall.GetReaderGuard())
         {
@@ -3857,12 +3885,24 @@ public class BMSLibrary : NotificationObject
         }
         pendingEstimateQueueBatchCount = GetPendingEstimateQueuedBatchCount(GetPendingEstimateQueueStatusSnapshot());
         long installableElapsedMs = (long)(DateTime.Now - now).TotalMilliseconds;
-        LogInstallPerformance("startup_ready_installable elapsedMs=" + installableElapsedMs
-            + " pendingPackages=" + pendingPackageCount
-            + " pendingEstimateQueueBatches=" + pendingEstimateQueueBatchCount
-            + " lazy_hash_cache_entries=" + (installableLookupCacheSnapshot?.LazyHashCacheEntryCount ?? 0)
-            + " lazy_hash_build_ms=" + (installableLookupCacheSnapshot?.LazyHashBuildMs ?? 0L)
-            + " lazy_hash_lookup_count=" + (installableLookupCacheSnapshot?.LazyHashLookupCount ?? 0L));
+        if (startupInstallReadinessState.TryMarkInstallEstimationReady())
+        {
+            LogInstallPerformance("startup_install_estimation_ready elapsedMs=" + installableElapsedMs
+                + " catalogRows=" + catalogRowCount
+                + " bmsonRows=" + bmsonRowCount
+                + " resourceIndexReady=" + startupInstallReadinessState.DestinationResourceIndexReady.ToString().ToLowerInvariant()
+                + " resourceIndexDirectories=" + resourceIndexDirectoryCount
+                + " pendingPackages=" + pendingPackageCount
+                + " pendingEstimateQueueBatches=" + pendingEstimateQueueBatchCount
+                + " lazy_hash_cache_entries=" + (installableLookupCacheSnapshot?.LazyHashCacheEntryCount ?? 0)
+                + " lazy_hash_build_ms=" + (installableLookupCacheSnapshot?.LazyHashBuildMs ?? 0L)
+                + " lazy_hash_lookup_count=" + (installableLookupCacheSnapshot?.LazyHashLookupCount ?? 0L));
+        }
+        if (startupInstallReadinessState.TryMarkInstallReady())
+        {
+            LogInstallPerformance("startup_install_ready elapsedMs=" + installableElapsedMs
+                + " pendingPackages=" + pendingPackageCount);
+        }
         QueueDeferredReverseLookupWarmup(deferredMaintenanceReason);
         TimeSpan timeSpan2 = DateTime.Now - now;
         NLogWrapper.DebuggerLogger?.Trace(timeSpan2.ToString());
@@ -3889,7 +3929,7 @@ public class BMSLibrary : NotificationObject
         }
         GC.Collect();
         NLogWrapper.DebuggerLogger?.Trace("owari: " + GC.GetTotalMemory(forceFullCollection: false));
-        LogInstallPerformance("init_library phase1_min_load_ms=" + initializeResult.Phase1MinLoadMs + " phase2_scan_maint_ms=" + initializeResult.Phase2ScanMaintMs + " phase3_install_maintenance_ms=" + initializeResult.Phase3InstallMaintenanceMs + " wait_continuation_ms=" + initializeResult.WaitContinuationMs + " total_ms=" + initializeResult.TotalMs + " maintenance_tbl_check_deferred=" + scheduleDeferredMaintenanceTableCheck.ToString().ToLowerInvariant() + " set_maintenance_enabled=" + setMaintenanceInfo.ToString().ToLowerInvariant());
+        LogInstallPerformance("init_library phase1_min_load_ms=" + initializeResult.Phase1MinLoadMs + " phase2_scan_maint_ms=" + initializeResult.Phase2ScanMaintMs + " phase3_install_maintenance_ms=" + initializeResult.Phase3InstallMaintenanceMs + " wait_continuation_ms=" + initializeResult.WaitContinuationMs + " wait_continuation_start_ms=" + initializeResult.WaitBeforeContinuationStartMs + " wait_continuation_signal_ms=" + initializeResult.WaitForContinuationSignalMs + " wait_continuation_tasks_ms=" + initializeResult.WaitForContinuationTasksMs + " total_ms=" + initializeResult.TotalMs + " maintenance_tbl_check_deferred=" + scheduleDeferredMaintenanceTableCheck.ToString().ToLowerInvariant() + " set_maintenance_enabled=" + setMaintenanceInfo.ToString().ToLowerInvariant());
     }
 
     private void TryImportChartInfoMetadataBundleAtStartup()

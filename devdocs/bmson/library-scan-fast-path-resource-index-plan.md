@@ -13,29 +13,32 @@
 
 ## Phase 0 Log Findings
 
-2026-05-05 06:05 頃の reverted 後ログでは、旧 chart-only 実験ログは出ていない。
+2026-05-05 07:14 頃の Phase 0-1 実装後ログでは、旧 chart-only 実験ログと旧 `startup_ready_installable` は出ていない。
 
 導入可能までの critical path は概ね次の通り。
 
 - DB load / materialize
-  - `phase1_min_load_ms=20619`
-  - `song_tbl_load_ms=19922`
-  - `song_read_ms=9591`
-  - `maintenance_read_ms=4476`
+  - `phase1_min_load_ms=20855`
+  - `song_tbl_load_ms=20055`
+  - `song_read_ms=9520`
+  - `maintenance_read_ms=4646`
 - file enumeration / resource index
-  - `everything_scan totalMs=27183`
-  - `nativeBridgeMs=26202`
+  - `song_tbl_file_check_ms=11484`
+  - `nativeBridgeMs=26321`
   - `bridgeRawBufferBytes=331802176`
-  - `dirhash_build_ms=10406`
-  - `resource_lookup_cache_ms=6677`
-  - `relative_path_hash_index_ms=3702`
+  - `dirhash_build_ms=10608`
+  - `resource_lookup_cache_ms=6829`
+  - `relative_path_hash_index_ms=3752`
 - diff / apply
-  - `diff_ms=615`
+  - `diff_ms=636`
   - `apply_ms=39`
   - `db_commit_chunks=0`
 - readiness
-  - `startup_ready_installable elapsedMs=38825`
-  - `startup_ready_operable elapsedMs=40895`
+  - `startup_install_estimation_ready elapsedMs=39235`
+  - `startup_install_ready elapsedMs=39235`
+  - `startup_ready_operable elapsedMs=41471`
+
+`init_library` の latest log では `wait_continuation_start_ms=0`、`wait_continuation_signal_ms=0`、`wait_continuation_tasks_ms=0` で、continuation wait は今回の critical path ではない。次の主対象は `song.db` load / materialize と file enumeration / resource index build である。
 
 初期化全体の後半では次が重い。
 
@@ -110,18 +113,24 @@ background を含む初期化が完了した状態。
 
 ## Phase 0: Re-baseline And Metrics
 
-revert 後の状態を基準にし、導入可能までと初期化完了までを別々に観測する。
+revert 後の状態を基準にし、導入可能までと初期化完了までを別々に観測する。Phase 0-1 の初回実装では、導入 readiness の token とログを追加し、完了位置は従来の `startup_ready_installable` と同じ場所に置く。
 
 ### Key Changes
 
-- `startup_install_estimation_ready` を追加する。
+- `startup_install_estimation_ready` を追加済み。
   - catalog / resource index / pending package state が揃った時点。
-- `startup_install_ready` を追加する。
+- `startup_install_ready` を追加済み。
   - 手動導入を安全に開始できる時点。
 - `startup_initialization_complete` を追加する。
   - background hydration / warmup / refresh が完了した時点。
+- `RunInitialize` の continuation wait を明示ログ化済み。
+  - `wait_continuation_start_ms`: continuation task 起動前の semaphore wait。
+  - `wait_continuation_signal_ms`: phase 後の semaphore signal wait。
+  - `wait_continuation_tasks_ms`: `Task.WaitAll` による continuation task 完了待ち。
+  - latest log ではいずれも 0ms のため、次フェーズの短縮対象からは外す。
 - `startup_background_summary` を追加する。
   - playlist、chart_info、ranking、reverse lookup、maintenance の elapsed / rows / skipped reason をまとめる。
+- `startup_ready_installable` は導入 readiness と意味が重複するため削除済み。
 - 旧実験ログ名や旧 fast path 用ログは、実装が存在しないなら残さない。
 
 ### Acceptance Criteria
@@ -132,19 +141,19 @@ revert 後の状態を基準にし、導入可能までと初期化完了まで�
 
 ## Phase 1: Install Readiness Contract
 
-導入先推定 / 導入の readiness を `InitializedAll` や UI operable から分離する。
+導入先推定 / 導入の readiness を `InitializedAll` や UI operable から分離する。初回実装では UI enable 条件と lock 構造は変えず、model 側の readiness token とログだけを固定する。
 
 ### Key Changes
 
-- internal readiness state を定義する。
+- internal readiness state を定義済み。
   - `CatalogLoaded`
   - `DestinationResourceIndexReady`
   - `PendingPackagesRestored`
   - `InstallEstimationReady`
   - `InstallReady`
   - `InitializationComplete`
-- pending estimate queue は `InstallEstimationReady` 後に開始する。
-- 手動推定 / 手動導入 UI は `InstallEstimationReady` / `InstallReady` を見る。
+- pending estimate queue は `CanStartInstallEstimation()` を通して開始する。
+- 手動推定 / 手動導入 UI の enable 条件切り替えは次単位に残す。
 - playlist、score、ranking、chart_info、deferred maintenance は install readiness blocker にしない。
 - readiness token は一方向遷移にし、後続 task の失敗で意味が曖昧にならないようにする。
 

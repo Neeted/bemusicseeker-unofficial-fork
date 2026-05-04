@@ -118,6 +118,20 @@ metadata bundle は、リリースパッケージ同梱または外部配布の 
 
 `song.dbアクセス最適化PRAGMAを有効にする` が有効な場合、`song.db` の DB load と file diff commit 用接続へ `temp_store=MEMORY`、`cache_size=-262144`、`mmap_size=2147483648` を接続ローカルに適用する。設定キーと既存ログ名は互換性のため `EnableReadOptimizedPragmas` / `db_read_pragmas` を維持する。
 
+## Install Readiness
+
+導入先推定 / 導入の readiness は、UI の `startup_ready_*` とは別に model 側で判定する。
+
+| Log | 意味 | UI operable との関係 |
+| --- | --- | --- |
+| `startup_install_estimation_ready` | catalog、destination resource index、pending package state が揃い、pending estimate queue を開始できる | UI refresh 完了を待たない |
+| `startup_install_ready` | 手動導入を安全に開始できる前提が揃った | 現状は enable 条件や lock 構造を変更しない |
+| `startup_ready_data` / `startup_ready_ui` / `startup_ready_install` / `startup_ready_operable` | UI refresh / 操作可能表示の進捗 | install readiness とは別の観測点 |
+
+Phase 0-1 時点では、`InstallEstimationReady` の完了位置は旧 `startup_ready_installable` と同じである。これは高速化ではなく、後続の DB projection / resource index 統合で「導入可能まで」と「初期化全体」を分けて測るための境界固定である。
+
+2026-05-05 07:14 の実測では、`startup_install_estimation_ready` / `startup_install_ready` は `elapsedMs=39235`、`startup_ready_operable` は `elapsedMs=41471` だった。`wait_continuation_start_ms`、`wait_continuation_signal_ms`、`wait_continuation_tasks_ms` はすべて 0ms であり、この回の critical path は DB load / materialize と file enumeration / resource index build である。
+
 ## ReloadFileDiff
 
 `ReloadFileDiff` は DB を読み直さず、現在の `BMSFiles` / `BmsonSongs` を正本として file scan result と比較する。

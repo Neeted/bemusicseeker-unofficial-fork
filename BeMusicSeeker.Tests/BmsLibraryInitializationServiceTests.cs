@@ -1966,6 +1966,12 @@ public sealed class BmsLibraryInitializationServiceTests
         Assert.IsTrue(result.Phase2ScanMaintMs >= 0);
         Assert.IsTrue(result.Phase3InstallMaintenanceMs >= 0);
         Assert.IsTrue(result.WaitContinuationMs >= 0);
+        Assert.IsTrue(result.WaitBeforeContinuationStartMs >= 0);
+        Assert.IsTrue(result.WaitForContinuationSignalMs >= 0);
+        Assert.IsTrue(result.WaitForContinuationTasksMs >= 0);
+        Assert.AreEqual(
+            result.WaitBeforeContinuationStartMs + result.WaitForContinuationSignalMs + result.WaitForContinuationTasksMs,
+            result.WaitContinuationMs);
         Assert.IsTrue(result.TotalMs >= 0);
     }
 

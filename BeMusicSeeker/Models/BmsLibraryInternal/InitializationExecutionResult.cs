@@ -10,5 +10,11 @@ internal sealed class InitializationExecutionResult
 
     public long WaitContinuationMs { get; set; }
 
+    public long WaitBeforeContinuationStartMs { get; set; }
+
+    public long WaitForContinuationSignalMs { get; set; }
+
+    public long WaitForContinuationTasksMs { get; set; }
+
     public long TotalMs { get; set; }
 }

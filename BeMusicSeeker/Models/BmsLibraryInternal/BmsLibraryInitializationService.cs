@@ -1816,7 +1816,8 @@ internal sealed class BmsLibraryInitializationService
         result.Phase1MinLoadMs = stopwatchPhase1.ElapsedMilliseconds;
 
         long waitBeforeContinuationStartMs = 0L;
-        long waitForContinuationCompleteMs = 0L;
+        long waitForContinuationSignalMs = 0L;
+        long waitForContinuationTasksMs = 0L;
         Stopwatch stopwatchWaitBeforeContinuationStart = Stopwatch.StartNew();
         semaphore?.Wait();
         stopwatchWaitBeforeContinuationStart.Stop();
@@ -1844,14 +1845,21 @@ internal sealed class BmsLibraryInitializationService
 
         if (semaphore != null && tasksContinuation != null && tasksContinuation.Count > 0)
         {
-            Stopwatch stopwatchWaitForContinuationComplete = Stopwatch.StartNew();
+            Stopwatch stopwatchWaitForContinuationSignal = Stopwatch.StartNew();
             semaphore.Wait();
-            stopwatchWaitForContinuationComplete.Stop();
-            waitForContinuationCompleteMs = stopwatchWaitForContinuationComplete.ElapsedMilliseconds;
+            stopwatchWaitForContinuationSignal.Stop();
+            waitForContinuationSignalMs = stopwatchWaitForContinuationSignal.ElapsedMilliseconds;
         }
-        result.WaitContinuationMs = waitBeforeContinuationStartMs + waitForContinuationCompleteMs;
 
+        Stopwatch stopwatchWaitForContinuationTasks = Stopwatch.StartNew();
         Task.WaitAll(continuationTasks.ToArray());
+        stopwatchWaitForContinuationTasks.Stop();
+        waitForContinuationTasksMs = stopwatchWaitForContinuationTasks.ElapsedMilliseconds;
+
+        result.WaitBeforeContinuationStartMs = waitBeforeContinuationStartMs;
+        result.WaitForContinuationSignalMs = waitForContinuationSignalMs;
+        result.WaitForContinuationTasksMs = waitForContinuationTasksMs;
+        result.WaitContinuationMs = waitBeforeContinuationStartMs + waitForContinuationSignalMs + waitForContinuationTasksMs;
         stopwatchTotal.Stop();
         result.TotalMs = stopwatchTotal.ElapsedMilliseconds;
         return result;
