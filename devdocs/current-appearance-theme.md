@@ -148,6 +148,14 @@ ScrollBar は `SimpleScrollBar` を `ScrollBar.*` key に接続し、標準 `Scr
 
 ツリーの子ノードは `TextBlock` と `EditableTextBlock` が混在するため、通常時 `App.TextBrush`、選択時 `Table.SelectedTextBrush`、無効時 `App.DisabledTextBrush` を明示している。
 
+サイドバー splitter は、操作しやすいように 5px の hit target を維持しつつ、見た目は 1px の `App.SeparatorBrush` 線だけを描画する。縦 splitter は sidebar 側の右端に透明 overlay として置き、線は hit target の右端に描画する。上下 splitter は layout 上の separator row を 1px にし、5px の hit target を隣接 TreeView 上へ overlay する。これによりツリーのスクロールバーと separator、separator と一覧画面の両方に余白が出ないようにする。
+
+CustomTableView の内蔵スクロールバーは 15px の厚みに統一し、control 背景と縦横スクロールバー同時表示時の右下 corner を `ScrollBar.TrackBackgroundBrush` で埋める。これにより横スクロールバーとステータスバーの間、またはスクロールバー交差部分に背景色の隙間が出ないようにする。
+
+メインウィンドウと CustomTableView は layout rounding / device pixel snap を有効にし、1px separator やスクロールバー境界が fractional DPI で半端な背景色を残さないようにする。通常の `ScrollViewer` も縦横スクロールバー交差 corner を `ScrollBar.TrackBackgroundBrush` で埋める。通常の `ScrollViewer` 内の vertical / horizontal `ScrollBar` は control 自体の `Width` / `Height` も 15px に固定し、template 内の 15px track と実測 control 幅がずれて余白を作らないようにする。
+
+スクロールバーの thumb は縦横とも track 内で中央寄せにする。sidebar の隙間対策は thumb の寄せではなく、`gridTreePane` の余白を持たせないことと、splitter を一覧側 overlay に置くことで行う。
+
 検索欄は入力文字列がある場合に `App.ControlBackgroundActiveBrush` を使う。これは一覧が keyword filter 済みであることを示す注意色で、ライトモードでは従来の `LightPink` 相当、ダークモードでは暗色 palette に馴染む muted color とする。構文警告の `!` 表示とは別の状態表示である。
 
 ## CustomTableView

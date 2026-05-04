@@ -53,6 +53,7 @@ public sealed class CustomTableFirstRenderCompletedEventArgs : EventArgs
 public sealed class CustomTableView : Grid
 {
     private const double ColumnResizeHitTestMargin = 4d;
+    private const double ScrollBarThickness = 15d;
     private const int RowSubscriptionOverscan = 5;
     private const long RowSubscriptionSlowLogThresholdMs = 100L;
     private const long RenderSlowLogThresholdMs = 100L;
@@ -122,6 +123,7 @@ public sealed class CustomTableView : Grid
     private readonly Canvas editorLayer;
     private readonly ScrollBar verticalScrollBar;
     private readonly ScrollBar horizontalScrollBar;
+    private readonly Border scrollBarCorner;
     private readonly ToolTip cellToolTip;
     private readonly Popup editSuggestionPopup;
     private readonly ListBox editSuggestionListBox;
@@ -169,6 +171,9 @@ public sealed class CustomTableView : Grid
     {
         ClipToBounds = true;
         Focusable = true;
+        UseLayoutRounding = true;
+        SnapsToDevicePixels = true;
+        SetResourceReference(Panel.BackgroundProperty, "ScrollBar.TrackBackgroundBrush");
         RowDefinitions.Add(new RowDefinition { Height = new GridLength(1d, GridUnitType.Star) });
         RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1d, GridUnitType.Star) });
@@ -177,17 +182,19 @@ public sealed class CustomTableView : Grid
         verticalScrollBar = new ScrollBar
         {
             Orientation = Orientation.Vertical,
-            Width = SystemParameters.VerticalScrollBarWidth,
+            Width = ScrollBarThickness,
             Minimum = 0d,
             SmallChange = 3d
         };
         horizontalScrollBar = new ScrollBar
         {
             Orientation = Orientation.Horizontal,
-            Height = SystemParameters.HorizontalScrollBarHeight,
+            Height = ScrollBarThickness,
             Minimum = 0d,
             SmallChange = 16d
         };
+        scrollBarCorner = new Border();
+        scrollBarCorner.SetResourceReference(Border.BackgroundProperty, "ScrollBar.TrackBackgroundBrush");
         cellToolTip = new ToolTip
         {
             PlacementTarget = this,
@@ -227,6 +234,7 @@ public sealed class CustomTableView : Grid
         Children.Add(editorLayer);
         Children.Add(verticalScrollBar);
         Children.Add(horizontalScrollBar);
+        Children.Add(scrollBarCorner);
         SetColumn(surface, 0);
         SetRow(surface, 0);
         SetColumn(editorLayer, 0);
@@ -235,6 +243,8 @@ public sealed class CustomTableView : Grid
         SetRow(verticalScrollBar, 0);
         SetColumn(horizontalScrollBar, 0);
         SetRow(horizontalScrollBar, 1);
+        SetColumn(scrollBarCorner, 1);
+        SetRow(scrollBarCorner, 1);
         SizeChanged += delegate
         {
             InvalidateColumnLayoutSnapshot();
@@ -672,6 +682,7 @@ public sealed class CustomTableView : Grid
         {
             horizontalScrollBar.Value = horizontalScrollBar.Maximum;
         }
+        scrollBarCorner.Visibility = verticalScrollBar.Visibility == Visibility.Visible && horizontalScrollBar.Visibility == Visibility.Visible ? Visibility.Visible : Visibility.Collapsed;
     }
 
     internal int CalculateViewportRowCapacity()

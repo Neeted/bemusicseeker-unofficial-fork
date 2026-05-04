@@ -54,12 +54,55 @@ public sealed class MainWindowContextMenuResourceTests
 
         Assert.AreEqual(1, CountOccurrences(xaml, "x:Key=\"SidebarSplitterStyle\""));
         Assert.AreEqual(2, CountOccurrences(xaml, "Style=\"{StaticResource SidebarSplitterStyle}\""));
-        Assert.AreEqual(1, CountOccurrences(xaml, "Name=\"gridSplitter\" Style=\"{StaticResource SidebarSplitterStyle}\" ResizeDirection=\"Columns\" ResizeBehavior=\"CurrentAndNext\" Margin=\"0\" Grid.RowSpan=\"2\" Width=\"5\""));
-        Assert.AreEqual(1, CountOccurrences(xaml, "Name=\"gridSplitterTree\" Style=\"{StaticResource SidebarSplitterStyle}\" Grid.Row=\"1\" Height=\"5\""));
+        StringAssert.Contains(xaml, "<Grid Background=\"Transparent\" SnapsToDevicePixels=\"True\">");
+        StringAssert.Contains(xaml, "<Border x:Name=\"SeparatorLine\" Width=\"1\" HorizontalAlignment=\"Right\" Background=\"{TemplateBinding Background}\" />");
+        StringAssert.Contains(xaml, "<Trigger Property=\"ResizeDirection\" Value=\"Rows\">");
+        StringAssert.Contains(xaml, "<Setter TargetName=\"SeparatorLine\" Property=\"Width\" Value=\"{x:Static s:Double.NaN}\" />");
+        StringAssert.Contains(xaml, "<Setter TargetName=\"SeparatorLine\" Property=\"Height\" Value=\"1\" />");
+        StringAssert.Contains(xaml, "<Setter TargetName=\"SeparatorLine\" Property=\"VerticalAlignment\" Value=\"Center\" />");
+        Assert.AreEqual(1, CountOccurrences(xaml, "Name=\"gridSplitter\" Style=\"{StaticResource SidebarSplitterStyle}\" ResizeDirection=\"Columns\" ResizeBehavior=\"CurrentAndNext\" Margin=\"0\" Grid.RowSpan=\"2\" Width=\"5\" HorizontalAlignment=\"Right\" Grid.Row=\"1\" Grid.Column=\"0\" Panel.ZIndex=\"1\""));
+        Assert.AreEqual(1, CountOccurrences(xaml, "<RowDefinition Height=\"1\" />"));
+        Assert.AreEqual(1, CountOccurrences(xaml, "Name=\"gridSplitterTree\" Style=\"{StaticResource SidebarSplitterStyle}\" Grid.Row=\"1\" Height=\"5\" HorizontalAlignment=\"Stretch\" VerticalAlignment=\"Center\" ResizeDirection=\"Rows\" ResizeBehavior=\"PreviousAndNext\" Margin=\"0\" Panel.ZIndex=\"1\""));
         Assert.AreEqual(1, CountOccurrences(xaml, "Name=\"gridColumn0\" MinWidth=\"160\" Width=\"{Binding TreeViewWidth, Source={x:Static prop:Settings.Default}, Mode=OneTime}\""));
-        Assert.AreEqual(1, CountOccurrences(xaml, "Name=\"gridTreePane\" Margin=\"0,0,5,0\" Grid.Row=\"1\" Grid.RowSpan=\"2\" Background=\"{DynamicResource App.BackgroundBrush}\""));
+        Assert.AreEqual(1, CountOccurrences(xaml, "Name=\"gridTreePane\" Margin=\"0\" Grid.Row=\"1\" Grid.RowSpan=\"2\" Background=\"{DynamicResource App.BackgroundBrush}\""));
         Assert.AreEqual(1, CountOccurrences(xaml, "<Border BorderThickness=\"0\" Grid.Row=\"1\" Grid.ColumnSpan=\"1\" Grid.Column=\"1\" Background=\"{DynamicResource App.SurfaceBrush}\">"));
+        StringAssert.Contains(xaml, "UseLayoutRounding=\"True\" SnapsToDevicePixels=\"True\"");
         Assert.AreEqual(0, CountOccurrences(xaml, "BorderBrush=\"#FF828790\" BorderThickness=\"1,0,0,0\" Grid.Row=\"1\" Grid.ColumnSpan=\"1\" Grid.Column=\"1\""));
+    }
+
+    [TestMethod]
+    public void CustomTableScrollBars_UseThemeThicknessAndCornerFiller()
+    {
+        string source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "CustomTableView.cs"));
+
+        StringAssert.Contains(source, "private const double ScrollBarThickness = 15d;");
+        StringAssert.Contains(source, "UseLayoutRounding = true;");
+        StringAssert.Contains(source, "SnapsToDevicePixels = true;");
+        StringAssert.Contains(source, "SetResourceReference(Panel.BackgroundProperty, \"ScrollBar.TrackBackgroundBrush\")");
+        StringAssert.Contains(source, "Width = ScrollBarThickness");
+        StringAssert.Contains(source, "Height = ScrollBarThickness");
+        StringAssert.Contains(source, "scrollBarCorner.SetResourceReference(Border.BackgroundProperty, \"ScrollBar.TrackBackgroundBrush\")");
+        StringAssert.Contains(source, "SetColumn(scrollBarCorner, 1);");
+        StringAssert.Contains(source, "SetRow(scrollBarCorner, 1);");
+        StringAssert.Contains(source, "scrollBarCorner.Visibility = verticalScrollBar.Visibility == Visibility.Visible && horizontalScrollBar.Visibility == Visibility.Visible ? Visibility.Visible : Visibility.Collapsed;");
+    }
+
+    [TestMethod]
+    public void SimpleScrollViewer_FillsScrollBarCorner()
+    {
+        string styles = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "Simple Styles.xaml"));
+
+        StringAssert.Contains(styles, "<Border Grid.Column=\"1\" Grid.Row=\"1\" Background=\"{DynamicResource ScrollBar.TrackBackgroundBrush}\" />");
+        StringAssert.Contains(styles, "Name=\"PART_HorizontalScrollBar\" Visibility=\"{TemplateBinding ScrollViewer.ComputedHorizontalScrollBarVisibility}\" Grid.Column=\"0\" Grid.Row=\"1\" Height=\"15\"");
+        StringAssert.Contains(styles, "Name=\"PART_VerticalScrollBar\" Visibility=\"{TemplateBinding ScrollViewer.ComputedVerticalScrollBarVisibility}\" Grid.Column=\"1\" Grid.Row=\"0\" Width=\"15\"");
+        StringAssert.Contains(styles, "<Thumb Style=\"{DynamicResource SimpleThumbStyle}\" />");
+        StringAssert.Contains(styles, "HorizontalAlignment=\"Center\"");
+        Assert.IsFalse(styles.Contains("HorizontalContentAlignment=\"Right\""));
+        Assert.IsFalse(styles.Contains("TargetName=\"PART_Thumb\""));
+        string simpleTreeView = styles.Substring(styles.IndexOf("x:Key=\"SimpleTreeView\"", StringComparison.Ordinal), 900);
+        StringAssert.Contains(simpleTreeView, "BorderThickness=\"{TemplateBinding Control.BorderThickness}\"");
+        StringAssert.Contains(simpleTreeView, "BorderBrush=\"{TemplateBinding Control.BorderBrush}\"");
+        StringAssert.Contains(simpleTreeView, "Padding=\"{TemplateBinding Control.Padding}\"");
     }
 
     [TestMethod]
