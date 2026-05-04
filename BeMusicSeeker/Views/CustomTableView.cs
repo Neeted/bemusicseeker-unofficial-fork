@@ -50,6 +50,14 @@ public sealed class CustomTableFirstRenderCompletedEventArgs : EventArgs
     public bool IsPreparationRender { get; }
 }
 
+internal enum CustomTableKeyboardCommand
+{
+    None,
+    SelectAllRows,
+    CopyCurrentCell,
+    CopySelectedRowsTsv
+}
+
 public sealed class CustomTableView : Grid
 {
     private const double ColumnResizeHitTestMargin = 4d;
@@ -1208,19 +1216,19 @@ public sealed class CustomTableView : Grid
                     }
                     break;
             }
+            return;
         }
-        if ((Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control)
+        switch (ResolveKeyboardCommand(e.Key, Keyboard.Modifiers))
         {
-            if (e.Key == Key.A)
-            {
+            case CustomTableKeyboardCommand.SelectAllRows:
                 e.Handled = SelectAllRows();
                 return;
-            }
-            if (e.Key == Key.C)
-            {
+            case CustomTableKeyboardCommand.CopyCurrentCell:
+                e.Handled = CopyCurrentCellToClipboard();
+                return;
+            case CustomTableKeyboardCommand.CopySelectedRowsTsv:
                 e.Handled = CopySelectedRowsToClipboard();
                 return;
-            }
         }
         switch (e.Key)
         {
@@ -1250,6 +1258,21 @@ public sealed class CustomTableView : Grid
                     RowActivated?.Invoke(this, new CustomTableRowRequestedEventArgs(selectedHit, openAtMousePosition: false));
                 }
                 break;
+        }
+    }
+
+    internal static CustomTableKeyboardCommand ResolveKeyboardCommand(Key key, ModifierKeys modifiers)
+    {
+        switch (key)
+        {
+            case Key.A when modifiers == ModifierKeys.Control:
+                return CustomTableKeyboardCommand.SelectAllRows;
+            case Key.C when modifiers == ModifierKeys.Control:
+                return CustomTableKeyboardCommand.CopyCurrentCell;
+            case Key.C when modifiers == (ModifierKeys.Control | ModifierKeys.Shift):
+                return CustomTableKeyboardCommand.CopySelectedRowsTsv;
+            default:
+                return CustomTableKeyboardCommand.None;
         }
     }
 
@@ -1316,6 +1339,31 @@ public sealed class CustomTableView : Grid
         {
             return false;
         }
+        Clipboard.SetText(text);
+        return true;
+    }
+
+    private bool CopyCurrentCellToClipboard()
+    {
+        if (currentCellHit?.Kind != CustomTableHitKind.Cell || currentCellHit.Column == null)
+        {
+            return false;
+        }
+        IList rows = ItemsSource;
+        int rowIndex = currentCellHit.RowIndex;
+        if (rows == null || rowIndex < 0 || rowIndex >= rows.Count)
+        {
+            return false;
+        }
+        CustomTableColumn column = VisibleColumns.FirstOrDefault(candidate =>
+            candidate != null
+            && candidate.IsVisible
+            && string.Equals(candidate.Id, currentCellHit.Column.Id, StringComparison.Ordinal));
+        if (column == null)
+        {
+            return false;
+        }
+        string text = CustomTableDataTransfer.BuildCellText(rows[rowIndex], column);
         Clipboard.SetText(text);
         return true;
     }

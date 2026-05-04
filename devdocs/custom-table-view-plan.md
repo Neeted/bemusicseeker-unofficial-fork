@@ -392,7 +392,7 @@ Phase 3 完了判断:
   - `Ctrl+A`: 全行選択。
   - `Up` / `Down`: current row を上下へ移動し、単一行選択にする。
   - `Shift+Up` / `Shift+Down`: anchor から範囲選択を伸縮し、複数行選択にする。
-- `Ctrl+C` は選択行と表示中の列を TSV として clipboard に入れる。セル内の tab / 改行は空白へ正規化する。
+- `Ctrl+C` は current cell の値を clipboard に入れる。`Ctrl+Shift+C` は選択行と表示中の列を TSV として clipboard に入れる。どちらもセル内の tab / 改行は空白へ正規化する。
 - 列リサイズ保存は既存 `Layout.Width` 共有を継続し、Phase 5 では header drag による表示順保存を追加する。
   - header drag 中は、drag 元 header を薄く描画し、drop した場合の挿入位置を header 境界の太線で示す。
 - `Status` は表示順の左端固定列として reorder 対象外にする。

@@ -56,11 +56,20 @@ internal static class CustomTableDataTransfer
                 {
                     builder.Append('\t');
                 }
-                builder.Append(NormalizeCellText(column.GetEditText(row)));
+                builder.Append(BuildCellText(row, column));
                 firstColumn = false;
             }
         }
         return builder.ToString();
+    }
+
+    internal static string BuildCellText(object row, CustomTableColumn column)
+    {
+        if (row == null || column == null)
+        {
+            return string.Empty;
+        }
+        return NormalizeCellText(column.GetEditText(row));
     }
 
     internal static bool TryReorderVisibleColumns(IReadOnlyList<CustomTableColumn> visibleColumns, CustomTableColumn sourceColumn, CustomTableColumn targetColumn, bool insertAfterTarget)
@@ -131,7 +140,7 @@ internal static class CustomTableDataTransfer
         return false;
     }
 
-    private static string NormalizeCellText(string text)
+    internal static string NormalizeCellText(string text)
     {
         if (string.IsNullOrEmpty(text))
         {

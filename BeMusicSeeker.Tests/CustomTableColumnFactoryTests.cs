@@ -1,6 +1,7 @@
 using System.Linq;
 using System;
 using System.Windows;
+using System.Windows.Input;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.ViewModels;
@@ -633,6 +634,36 @@ public sealed class CustomTableColumnFactoryTests
         string tsv = CustomTableDataTransfer.BuildTsv(rows, columns);
 
         Assert.AreEqual("A Title\tArtist  One\r\nB\tArtist Two", tsv);
+    }
+
+    [TestMethod]
+    public void CustomTableDataTransfer_BuildsSingleCellTextFromEditTextAndNormalizes()
+    {
+        CustomTableColumn column = new CustomTableColumn(
+            "Url",
+            "URL",
+            null,
+            0,
+            null,
+            TextAlignment.Left,
+            row => "display icon",
+            editTextSelector: row => "https://example.test/a\tb\r\nc");
+
+        string text = CustomTableDataTransfer.BuildCellText(new object(), column);
+
+        Assert.AreEqual("https://example.test/a b  c", text);
+        Assert.AreEqual(string.Empty, CustomTableDataTransfer.BuildCellText(null, column));
+        Assert.AreEqual(string.Empty, CustomTableDataTransfer.BuildCellText(new object(), null));
+    }
+
+    [TestMethod]
+    public void CustomTableView_ResolvesCopyKeyboardShortcuts()
+    {
+        Assert.AreEqual(CustomTableKeyboardCommand.CopyCurrentCell, CustomTableView.ResolveKeyboardCommand(Key.C, ModifierKeys.Control));
+        Assert.AreEqual(CustomTableKeyboardCommand.CopySelectedRowsTsv, CustomTableView.ResolveKeyboardCommand(Key.C, ModifierKeys.Control | ModifierKeys.Shift));
+        Assert.AreEqual(CustomTableKeyboardCommand.None, CustomTableView.ResolveKeyboardCommand(Key.C, ModifierKeys.Control | ModifierKeys.Alt));
+        Assert.AreEqual(CustomTableKeyboardCommand.None, CustomTableView.ResolveKeyboardCommand(Key.C, ModifierKeys.Control | ModifierKeys.Shift | ModifierKeys.Alt));
+        Assert.AreEqual(CustomTableKeyboardCommand.SelectAllRows, CustomTableView.ResolveKeyboardCommand(Key.A, ModifierKeys.Control));
     }
 
     [TestMethod]
