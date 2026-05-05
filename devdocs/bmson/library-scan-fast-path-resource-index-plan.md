@@ -557,6 +557,24 @@ Phase 4 / Phase 5 を前倒しして、native chart-relative resource index cont
 
 残る 30 秒超過分の主因は Everything query (`audioQueryMs` が約 13 秒) と、全 resource entry を managed model へ materialize する約 5 秒である。これは lazy warmup に逃がす対象ではなく、次に削る場合は native payload / managed index representation のさらなる圧縮で扱う。
 
+2026-05-06 の追加実装で、`EBridge_ScanChartAndResources` は chart / audio / image / movie query を別 Everything client / 別 search state で並列取得するようにした。query 結果は category ごとの raw hit buffer に集め、全 query 完了後に従来どおり chart directory owner assign、dedupe、pack を行うため、resource key semantics は変えない。
+
+実機確認では、同一ライブラリ規模で次の結果になった。
+
+- 変更前代表値:
+  - `everything_scan totalMs=31860`
+  - `nativeBridgeMs=26675`
+  - `audioQueryMs=13990 imageQueryMs=1339 movieQueryMs=246`
+  - `bms_scan totalMs=31886`
+- 変更後確認値:
+  - `everything_scan totalMs=30243`
+  - `nativeBridgeMs=25187`
+  - `audioQueryMs=13905 imageQueryMs=6066 movieQueryMs=5226`
+  - `bms_scan totalMs=30267`
+  - `startup_install_estimation_ready elapsedMs=31694`
+
+Everything service 側で同時 query の内部競合があるため、個別の `imageQueryMs` / `movieQueryMs` は伸びる。ただし wall clock としては `nativeBridgeMs` が約 1 秒短縮した。次に同じ領域を触る場合は、query 並列度を増やすよりも、`bridgeRawBufferBytes=379540328` 規模の native payload / managed decode / managed materialize を削る方が効果見込みが大きい。
+
 ### Phase 4B / 5A Normal Startup Baseline
 
 2026-05-05 17:40 の保留 package なし通常起動ログでは、Phase 8D 後の通常起動想定として次の状態になった。17:41:48 以降に手動の `全譜面を再スキャン` が開始されているが、ここでは `startup_initialization_complete` までの通常起動分だけを評価する。

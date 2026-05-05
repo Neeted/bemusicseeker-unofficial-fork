@@ -361,6 +361,10 @@ struct CategoryRawHits {
 	std::unordered_map<std::wstring, std::vector<std::wstring>> fileNamesByDirectory;
 };
 
+struct ChartRawHits {
+	std::vector<std::pair<std::wstring, std::wstring>> files;
+};
+
 struct WorkerCategoryBuffers {
 	std::unordered_map<uint32_t, std::vector<uint32_t>> allBaseHashesByChartIndex;
 	std::unordered_map<uint32_t, std::vector<uint32_t>> categoryBaseHashesByChartIndex;
@@ -867,6 +871,18 @@ bool ExecuteQuery(void* client, const wchar_t* query, Callback&& onResult, Query
 	if (stats) {
 		stats->elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - startedAt).count();
 	}
+	return ok;
+}
+
+template <typename Callback>
+bool ExecuteQueryWithNewClient(const wchar_t* query, Callback&& onResult, QueryExecutionStats* stats = nullptr) {
+	unsigned int connectError = EVERYTHING3_OK;
+	void* client = TryConnectClient(&connectError);
+	if (!client) {
+		return false;
+	}
+	bool ok = ExecuteQuery(client, query, std::forward<Callback>(onResult), stats);
+	g_api.DestroyClient(client);
 	return ok;
 }
 
@@ -1840,63 +1856,78 @@ extern "C" __declspec(dllexport) int __cdecl EBridge_ScanChartAndResources(const
 		return BRIDGE_LOAD_API_FAILED;
 	}
 
-	unsigned int connectError = EVERYTHING3_OK;
-	void* client = TryConnectClient(&connectError);
-	if (!client) {
-		return BRIDGE_CONNECT_FAILED;
-	}
-
 	ScanAggregate aggregate;
 	BridgeExecutionStats stats;
 	ResourceAssignmentContext assignmentContext;
+	ChartRawHits chartRawHits;
 	CategoryRawHits audioRawHits;
 	CategoryRawHits imageRawHits;
 	CategoryRawHits movieRawHits;
-	bool okChart = ExecuteQuery(client, chartQuery, [&aggregate](const std::wstring& path, const std::wstring& name) {
-		if (path.empty() || name.empty()) {
-			return;
-		}
-		std::wstring chartDirectory = TrimTrailingSeparators(ReplaceAltSeparators(path));
-		std::wstring chartPath = CombinePathAndName(chartDirectory, name);
-		aggregate.chartPaths.push_back(chartPath);
-		EnsureChartDirectory(aggregate, chartDirectory);
-	}, &stats.chartQuery);
+	QueryExecutionStats chartQueryStats;
+	QueryExecutionStats audioQueryStats;
+	QueryExecutionStats imageQueryStats;
+	QueryExecutionStats movieQueryStats;
+	bool okChart = false;
+	bool okAudio = false;
+	bool okImage = false;
+	bool okMovie = false;
+	std::thread chartQueryWorker([&]() {
+		okChart = ExecuteQueryWithNewClient(chartQuery, [&chartRawHits](const std::wstring& path, const std::wstring& name) {
+			if (path.empty() || name.empty()) {
+				return;
+			}
+			chartRawHits.files.emplace_back(path, name);
+		}, &chartQueryStats);
+	});
+	std::thread audioQueryWorker([&]() {
+		okAudio = ExecuteQueryWithNewClient(audioQuery, [&audioRawHits](const std::wstring& path, const std::wstring& name) {
+			if (path.empty() || name.empty()) {
+				return;
+			}
+			audioRawHits.fileNamesByDirectory[TrimTrailingSeparators(ReplaceAltSeparators(path))].push_back(name);
+		}, &audioQueryStats);
+	});
+	std::thread imageQueryWorker([&]() {
+		okImage = ExecuteQueryWithNewClient(imageQuery, [&imageRawHits](const std::wstring& path, const std::wstring& name) {
+			if (path.empty() || name.empty()) {
+				return;
+			}
+			imageRawHits.fileNamesByDirectory[TrimTrailingSeparators(ReplaceAltSeparators(path))].push_back(name);
+		}, &imageQueryStats);
+	});
+	std::thread movieQueryWorker([&]() {
+		okMovie = ExecuteQueryWithNewClient(movieQuery, [&movieRawHits](const std::wstring& path, const std::wstring& name) {
+			if (path.empty() || name.empty()) {
+				return;
+			}
+			movieRawHits.fileNamesByDirectory[TrimTrailingSeparators(ReplaceAltSeparators(path))].push_back(name);
+		}, &movieQueryStats);
+	});
+	chartQueryWorker.join();
+	audioQueryWorker.join();
+	imageQueryWorker.join();
+	movieQueryWorker.join();
+	stats.chartQuery = chartQueryStats;
+	stats.audioQuery = audioQueryStats;
+	stats.imageQuery = imageQueryStats;
+	stats.movieQuery = movieQueryStats;
 	if (!okChart) {
-		g_api.DestroyClient(client);
 		return BRIDGE_CHART_QUERY_FAILED;
 	}
-
-	bool okAudio = ExecuteQuery(client, audioQuery, [&audioRawHits](const std::wstring& path, const std::wstring& name) {
-		if (path.empty() || name.empty()) {
-			return;
-		}
-		audioRawHits.fileNamesByDirectory[TrimTrailingSeparators(ReplaceAltSeparators(path))].push_back(name);
-	}, &stats.audioQuery);
 	if (!okAudio) {
-		g_api.DestroyClient(client);
 		return BRIDGE_AUDIO_QUERY_FAILED;
 	}
-
-	bool okImage = ExecuteQuery(client, imageQuery, [&imageRawHits](const std::wstring& path, const std::wstring& name) {
-		if (path.empty() || name.empty()) {
-			return;
-		}
-		imageRawHits.fileNamesByDirectory[TrimTrailingSeparators(ReplaceAltSeparators(path))].push_back(name);
-	}, &stats.imageQuery);
 	if (!okImage) {
-		g_api.DestroyClient(client);
 		return BRIDGE_IMAGE_QUERY_FAILED;
 	}
-
-	bool okMovie = ExecuteQuery(client, movieQuery, [&movieRawHits](const std::wstring& path, const std::wstring& name) {
-		if (path.empty() || name.empty()) {
-			return;
-		}
-		movieRawHits.fileNamesByDirectory[TrimTrailingSeparators(ReplaceAltSeparators(path))].push_back(name);
-	}, &stats.movieQuery);
-	g_api.DestroyClient(client);
 	if (!okMovie) {
 		return BRIDGE_MOVIE_QUERY_FAILED;
+	}
+	for (const auto& hit : chartRawHits.files) {
+		std::wstring chartDirectory = TrimTrailingSeparators(ReplaceAltSeparators(hit.first));
+		std::wstring chartPath = CombinePathAndName(chartDirectory, hit.second);
+		aggregate.chartPaths.push_back(chartPath);
+		EnsureChartDirectory(aggregate, chartDirectory);
 	}
 	ProcessResourceCategory(aggregate, assignmentContext, stats, ResourceCategory::Audio, std::move(audioRawHits));
 	ProcessResourceCategory(aggregate, assignmentContext, stats, ResourceCategory::Image, std::move(imageRawHits));
