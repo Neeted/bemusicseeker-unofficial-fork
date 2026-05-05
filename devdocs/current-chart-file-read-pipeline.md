@@ -67,7 +67,7 @@ current `chart_info` row が存在する場合、inline parser は詳細 parse �
 正本方針:
 
 - file diff 由来の新規/更新 BMS では、`WAVfiles` / `BGAfiles` を chunk 内の一時入力として扱う。
-- Everything / fallback scan から作った `BMSDirectoryFileNameHash`、`DirectoryResourceLookupCache`、`DirectoryRelativePathHashIndex` と照合し、`maintenance` row を作る。
+- native bridge scan から作った canonical resource index と照合し、`maintenance` row を作る。Everything API / service が使えない場合は managed scan から同じ semantics の resource index を作る。resource reference は拡張子を落とした chart-relative resource key として扱い、`foo.wav` は `foo`、`sound/foo.wav` は `sound/foo` になる。
 - `maintenance` row 作成後は、BMSFile に残る `WAVfiles` / `BGAfiles` / 派生 hash/list cache を破棄する。
 - DB 由来の既存 BMS で refs がない場合だけ、background maintenance が path read fallback で補完してよい。
 - bmson は `ParseSnapshot()` 済みの fresh resource refs を同じ chunk 内で使い、再パースを避ける。

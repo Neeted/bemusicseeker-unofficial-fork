@@ -303,7 +303,10 @@ internal sealed class BmsLibraryInitializationService
         result.ManagedDecodeMs = scanResult.ManagedDecodeMs;
         result.ManagedMaterializeMs = scanResult.ManagedMaterializeMs;
         result.BridgeRawBufferBytes = scanResult.BridgeRawBufferBytes;
-        result.NextResourceIndex = LibraryResourceIndex.CreateFromScanResult(mergedScanResult);
+        bool canUseNativeResourceIndex = executeBmsonScan == null && scanResult.ResourceIndex != null && ReferenceEquals(mergedScanResult, scanResult.Result);
+        result.NextResourceIndex = canUseNativeResourceIndex
+            ? scanResult.ResourceIndex
+            : LibraryResourceIndex.CreateFromScanResult(mergedScanResult);
         result.NextFolderAllFileList = result.NextResourceIndex.FolderAllFileList;
         result.NextDirectoryResourceLookupCache = result.NextResourceIndex.DirectoryLookupCache;
         result.NextDirectoryRelativePathHashIndex = result.NextResourceIndex.RelativePathHashIndex;
@@ -312,13 +315,18 @@ internal sealed class BmsLibraryInitializationService
         result.FolderHashIndexMs = result.NextResourceIndex.FolderHashIndexMs;
         result.ResourceLookupCacheMs = result.NextResourceIndex.ResourceLookupMs;
         result.RelativePathHashIndexMs = result.NextResourceIndex.RelativePathIndexMs;
-        logInstallPerformance?.Invoke("resource_index_build source=enumeration"
+        logInstallPerformance?.Invoke("resource_index_build source=" + (result.NextResourceIndex.Source ?? "managed")
             + " directories=" + result.NextResourceIndex.DirectoryCount
             + " resources=" + CountHashEntries(mergedScanResult.AllResourceBaseNameHashesByChartDirectory)
+            + " chartRelativeKeys=" + (CountHashEntries(mergedScanResult.AudioRelativePathHashesByChartDirectory) + CountHashEntries(mergedScanResult.ImageRelativePathHashesByChartDirectory) + CountHashEntries(mergedScanResult.MovieRelativePathHashesByChartDirectory))
+            + " reverseLookupKeys=" + (result.NextDirectoryResourceLookupCache?.CategoryReverseLookupEntryCount ?? 0)
+            + " reverseLookupSource=" + (string.Equals(result.NextResourceIndex.Source, "native_canonical", StringComparison.OrdinalIgnoreCase) ? "native" : "managed")
             + " buildMs=" + result.ResourceIndexBuildMs
             + " folderMs=" + result.FolderHashIndexMs
             + " lookupMs=" + result.ResourceLookupCacheMs
             + " relativeMs=" + result.RelativePathHashIndexMs
+            + " nativePackMs=" + scanResult.PackMs
+            + " managedMaterializeMs=" + result.ManagedMaterializeMs
             + " payloadBytes=" + result.BridgeRawBufferBytes);
         result.AllBaseHashEntryCount = CountHashEntries(mergedScanResult.AllResourceBaseNameHashesByChartDirectory);
         result.AudioBaseHashEntryCount = CountHashEntries(mergedScanResult.AudioBaseNameHashesByChartDirectory);

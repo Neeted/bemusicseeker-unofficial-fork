@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Collections.Generic;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 
@@ -24,6 +25,8 @@ internal sealed class LibraryResourceIndex
 
     public long RelativePathIndexMs { get; private set; }
 
+    public string Source { get; private set; } = "managed";
+
     public int DirectoryCount => FolderAllFileList?.Keys.Count ?? 0;
 
     public static LibraryResourceIndex CreateFromScanResult(BmsScanResult scanResult)
@@ -45,10 +48,60 @@ internal sealed class LibraryResourceIndex
         lookupStopwatch.Stop();
         index.ResourceLookupMs = lookupStopwatch.ElapsedMilliseconds;
 
-        Stopwatch relativeStopwatch = Stopwatch.StartNew();
-        index.RelativePathHashIndex = DirectoryRelativePathHashIndex.CreateFromScanResult(scanResult);
-        relativeStopwatch.Stop();
-        index.RelativePathIndexMs = relativeStopwatch.ElapsedMilliseconds;
+        index.RelativePathHashIndex = new DirectoryRelativePathHashIndex();
+        index.RelativePathIndexMs = 0L;
+
+        totalStopwatch.Stop();
+        index.BuildMs = totalStopwatch.ElapsedMilliseconds;
+        return index;
+    }
+
+    public static LibraryResourceIndex CreateFromNativeCanonical(
+        BmsScanResult scanResult,
+        IDictionary<uint, string[]> allBaseReverseDirectories,
+        IDictionary<uint, string[]> audioRelativeReverseDirectories,
+        IDictionary<uint, string[]> imageRelativeReverseDirectories,
+        IDictionary<uint, string[]> movieRelativeReverseDirectories)
+    {
+        LibraryResourceIndex index = new LibraryResourceIndex();
+        Stopwatch totalStopwatch = Stopwatch.StartNew();
+        index.Source = "native_canonical";
+
+        Stopwatch folderStopwatch = Stopwatch.StartNew();
+        index.FolderAllFileList = BMSDirectoryFileNameHash.CreateFromHashedDirectories(
+            scanResult?.ChartDirectories,
+            (scanResult?.SelfOwnedAllResourceBaseNameHashesByChartDirectory?.Count ?? 0) > 0
+                ? scanResult.SelfOwnedAllResourceBaseNameHashesByChartDirectory
+                : scanResult?.AllResourceBaseNameHashesByChartDirectory);
+        folderStopwatch.Stop();
+        index.FolderHashIndexMs = folderStopwatch.ElapsedMilliseconds;
+
+        Stopwatch lookupStopwatch = Stopwatch.StartNew();
+        index.DirectoryLookupCache = DirectoryResourceLookupCache.CreateFromNativeCanonical(
+            scanResult?.ChartDirectories,
+            scanResult?.AllResourceBaseNameHashesByChartDirectory,
+            scanResult?.AudioBaseNameHashesByChartDirectory,
+            scanResult?.ImageBaseNameHashesByChartDirectory,
+            scanResult?.MovieBaseNameHashesByChartDirectory,
+            scanResult?.AudioRelativePathHashesByChartDirectory,
+            scanResult?.ImageRelativePathHashesByChartDirectory,
+            scanResult?.MovieRelativePathHashesByChartDirectory,
+            scanResult?.SelfOwnedAllResourceBaseNameHashesByChartDirectory,
+            scanResult?.SelfOwnedAudioBaseNameHashesByChartDirectory,
+            scanResult?.SelfOwnedImageBaseNameHashesByChartDirectory,
+            scanResult?.SelfOwnedMovieBaseNameHashesByChartDirectory,
+            scanResult?.SelfOwnedAudioRelativePathHashesByChartDirectory,
+            scanResult?.SelfOwnedImageRelativePathHashesByChartDirectory,
+            scanResult?.SelfOwnedMovieRelativePathHashesByChartDirectory,
+            allBaseReverseDirectories,
+            audioRelativeReverseDirectories,
+            imageRelativeReverseDirectories,
+            movieRelativeReverseDirectories);
+        lookupStopwatch.Stop();
+        index.ResourceLookupMs = lookupStopwatch.ElapsedMilliseconds;
+
+        index.RelativePathHashIndex = new DirectoryRelativePathHashIndex();
+        index.RelativePathIndexMs = 0L;
 
         totalStopwatch.Stop();
         index.BuildMs = totalStopwatch.ElapsedMilliseconds;

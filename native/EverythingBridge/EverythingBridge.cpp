@@ -16,6 +16,8 @@
 extern "C" {
 
 struct EBridgeResult {
+	unsigned int contract_version;
+	unsigned int header_size;
 	int status;
 	int error_code;
 	unsigned long long chart_count;
@@ -105,7 +107,29 @@ struct EBridgeResult {
 	unsigned int* self_movie_relative_hash_offsets;
 	unsigned int* self_movie_relative_hash_lengths;
 	unsigned char* self_movie_relative_hashes_blob;
+	unsigned long long all_base_reverse_key_count;
+	unsigned int* all_base_reverse_keys;
+	unsigned int* all_base_reverse_offsets;
+	unsigned int* all_base_reverse_lengths;
+	unsigned char* all_base_reverse_indices_blob;
+	unsigned long long audio_relative_reverse_key_count;
+	unsigned int* audio_relative_reverse_keys;
+	unsigned int* audio_relative_reverse_offsets;
+	unsigned int* audio_relative_reverse_lengths;
+	unsigned char* audio_relative_reverse_indices_blob;
+	unsigned long long image_relative_reverse_key_count;
+	unsigned int* image_relative_reverse_keys;
+	unsigned int* image_relative_reverse_offsets;
+	unsigned int* image_relative_reverse_lengths;
+	unsigned char* image_relative_reverse_indices_blob;
+	unsigned long long movie_relative_reverse_key_count;
+	unsigned int* movie_relative_reverse_keys;
+	unsigned int* movie_relative_reverse_offsets;
+	unsigned int* movie_relative_reverse_lengths;
+	unsigned char* movie_relative_reverse_indices_blob;
 };
+
+static constexpr unsigned int EBRIDGE_SCAN_CONTRACT_VERSION = 2026050503u;
 
 struct EBridgeGroupedQuery {
 	unsigned int group_id;
@@ -271,6 +295,11 @@ struct ScanAggregate {
 	std::vector<std::vector<uint32_t>> selfAudioRelativeHashes;
 	std::vector<std::vector<uint32_t>> selfImageRelativeHashes;
 	std::vector<std::vector<uint32_t>> selfMovieRelativeHashes;
+};
+
+struct ReverseHashGroup {
+	std::vector<uint32_t> keys;
+	std::vector<std::vector<uint32_t>> directoryIndicesByKey;
 };
 
 struct QueryExecutionStats {
@@ -564,6 +593,18 @@ std::wstring NormalizeExtensionAlias(const std::wstring& value) {
 	return value.substr(0, dot) + alias;
 }
 
+std::wstring StripLookupExtension(const std::wstring& value) {
+	if (value.empty()) {
+		return value;
+	}
+	size_t slash = value.find_last_of(L"\\/");
+	size_t dot = value.find_last_of(L'.');
+	if (dot == std::wstring::npos || (slash != std::wstring::npos && dot < slash)) {
+		return value;
+	}
+	return value.substr(0, dot);
+}
+
 std::wstring NormalizeFileNameForLookup(const std::wstring& fileName) {
 	if (fileName.empty()) {
 		return std::wstring();
@@ -573,7 +614,7 @@ std::wstring NormalizeFileNameForLookup(const std::wstring& fileName) {
 	if (pos != std::wstring::npos) {
 		normalized = normalized.substr(pos + 1);
 	}
-	return NormalizeExtensionAlias(normalized);
+	return StripLookupExtension(NormalizeExtensionAlias(normalized));
 }
 
 std::wstring NormalizeLookupFileNameFast(const std::wstring& fileName) {
@@ -622,6 +663,10 @@ std::wstring NormalizeReferencePathForLookup(const std::wstring& path) {
 		joined += segments[i];
 	}
 	return NormalizeExtensionAlias(joined);
+}
+
+std::wstring NormalizeResourceKeyForLookup(const std::wstring& path) {
+	return StripLookupExtension(NormalizeReferencePathForLookup(path));
 }
 
 bool StartsWithDirectoryPrefix(const std::wstring& filePath, const std::wstring& directoryPath) {
@@ -862,14 +907,13 @@ void ProcessSourceRootResourcePaths(
 {
 	for (const std::wstring& fullPath : fullPaths) {
 		std::wstring normalizedBaseName = NormalizeLookupFileNameFast(fullPath);
-		std::wstring normalizedRelativePath = NormalizeRelativePathForLookup(rootPath, fullPath);
+		std::wstring normalizedRelativePath = NormalizeResourceKeyForLookup(NormalizeRelativePathForLookup(rootPath, fullPath));
 		if (normalizedBaseName.empty() || normalizedRelativePath.empty()) {
 			continue;
 		}
-		uint32_t baseHash = GetLookupHashFast(normalizedBaseName);
 		uint32_t relativeHash = GetLookupHashFast(normalizedRelativePath);
-		AddUniqueHash(allBaseHashes, baseHash);
-		AddUniqueHash(categoryBaseHashes, baseHash);
+		AddUniqueHash(allBaseHashes, relativeHash);
+		AddUniqueHash(categoryBaseHashes, relativeHash);
 		AddUniqueHash(categoryRelativeHashes, relativeHash);
 		resourceTrackedPaths.insert(fullPath);
 		trackedPaths.insert(fullPath);
@@ -1174,9 +1218,6 @@ unsigned int GetWorkerCount(size_t workItemCount) {
 		return 1;
 	}
 	unsigned int desired = concurrency - 1;
-	if (desired > 8u) {
-		desired = 8u;
-	}
 	if (desired == 0u) {
 		desired = 1u;
 	}
@@ -1322,19 +1363,18 @@ void ProcessResourceCategory(
 					if (normalizedBaseName.empty()) {
 						continue;
 					}
-					uint32_t baseHash = GetLookupHashFast(normalizedBaseName);
 					for (const ResourceOwnerInfo& ownerInfo : info.owners) {
 						std::wstring normalizedRelativePath = NormalizeRelativeLookupPathFast(ownerInfo.relativePrefix, normalizedBaseName);
 						if (normalizedRelativePath.empty()) {
 							continue;
 						}
 						uint32_t relativeHash = GetLookupHashFast(normalizedRelativePath);
-						AppendHashVector(buffers.allBaseHashesByChartIndex, ownerInfo.chartDirIndex, baseHash);
-						AppendHashVector(buffers.categoryBaseHashesByChartIndex, ownerInfo.chartDirIndex, baseHash);
+						AppendHashVector(buffers.allBaseHashesByChartIndex, ownerInfo.chartDirIndex, relativeHash);
+						AppendHashVector(buffers.categoryBaseHashesByChartIndex, ownerInfo.chartDirIndex, relativeHash);
 						AppendHashVector(buffers.categoryRelativeHashesByChartIndex, ownerInfo.chartDirIndex, relativeHash);
 						if (ownerInfo.selfOwned) {
-							AppendHashVector(buffers.selfAllBaseHashesByChartIndex, ownerInfo.chartDirIndex, baseHash);
-							AppendHashVector(buffers.selfCategoryBaseHashesByChartIndex, ownerInfo.chartDirIndex, baseHash);
+							AppendHashVector(buffers.selfAllBaseHashesByChartIndex, ownerInfo.chartDirIndex, relativeHash);
+							AppendHashVector(buffers.selfCategoryBaseHashesByChartIndex, ownerInfo.chartDirIndex, relativeHash);
 							AppendHashVector(buffers.selfCategoryRelativeHashesByChartIndex, ownerInfo.chartDirIndex, relativeHash);
 						}
 					}
@@ -1384,11 +1424,44 @@ void ProcessResourceCategory(
 void DedupeAggregate(ScanAggregate& aggregate) {
 	std::sort(aggregate.chartPaths.begin(), aggregate.chartPaths.end());
 	aggregate.chartPaths.erase(std::unique(aggregate.chartPaths.begin(), aggregate.chartPaths.end()), aggregate.chartPaths.end());
-	for (auto* hashes : { &aggregate.allBaseHashes, &aggregate.audioBaseHashes, &aggregate.imageBaseHashes, &aggregate.movieBaseHashes, &aggregate.audioRelativeHashes, &aggregate.imageRelativeHashes, &aggregate.movieRelativeHashes, &aggregate.selfAllBaseHashes, &aggregate.selfAudioBaseHashes, &aggregate.selfImageBaseHashes, &aggregate.selfMovieBaseHashes, &aggregate.selfAudioRelativeHashes, &aggregate.selfImageRelativeHashes, &aggregate.selfMovieRelativeHashes }) {
-		for (auto& vector : *hashes) {
-			std::sort(vector.begin(), vector.end());
-			vector.erase(std::unique(vector.begin(), vector.end()), vector.end());
-		}
+	std::vector<std::vector<std::vector<uint32_t>>*> groups = {
+		&aggregate.allBaseHashes,
+		&aggregate.audioBaseHashes,
+		&aggregate.imageBaseHashes,
+		&aggregate.movieBaseHashes,
+		&aggregate.audioRelativeHashes,
+		&aggregate.imageRelativeHashes,
+		&aggregate.movieRelativeHashes,
+		&aggregate.selfAllBaseHashes,
+		&aggregate.selfAudioBaseHashes,
+		&aggregate.selfImageBaseHashes,
+		&aggregate.selfMovieBaseHashes,
+		&aggregate.selfAudioRelativeHashes,
+		&aggregate.selfImageRelativeHashes,
+		&aggregate.selfMovieRelativeHashes
+	};
+	unsigned int workerCount = GetWorkerCount(groups.size());
+	std::vector<std::thread> workers;
+	workers.reserve(workerCount);
+	size_t baseChunkSize = groups.size() / workerCount;
+	size_t remainder = groups.size() % workerCount;
+	size_t offset = 0;
+	for (unsigned int workerIndex = 0; workerIndex < workerCount; workerIndex++) {
+		size_t count = baseChunkSize + (workerIndex < remainder ? 1 : 0);
+		size_t startIndex = offset;
+		size_t endIndex = startIndex + count;
+		offset = endIndex;
+		workers.emplace_back([&groups, startIndex, endIndex]() {
+			for (size_t groupIndex = startIndex; groupIndex < endIndex; groupIndex++) {
+				for (auto& vector : *groups[groupIndex]) {
+					std::sort(vector.begin(), vector.end());
+					vector.erase(std::unique(vector.begin(), vector.end()), vector.end());
+				}
+			}
+		});
+	}
+	for (std::thread& worker : workers) {
+		worker.join();
 	}
 }
 
@@ -1408,6 +1481,55 @@ size_t SumHashCount(const std::vector<std::vector<uint32_t>>& hashGroups) {
 	size_t total = 0;
 	for (const auto& hashes : hashGroups) {
 		total += hashes.size();
+	}
+	return total;
+}
+
+ReverseHashGroup BuildReverseHashGroup(const std::vector<std::vector<uint32_t>>& hashGroups) {
+	std::vector<std::pair<uint32_t, uint32_t>> hashDirectoryPairs;
+	hashDirectoryPairs.reserve(SumHashCount(hashGroups));
+	for (uint32_t directoryIndex = 0; directoryIndex < hashGroups.size(); directoryIndex++) {
+		for (uint32_t hash : hashGroups[directoryIndex]) {
+			if (hash == 0u) {
+				continue;
+			}
+			hashDirectoryPairs.emplace_back(hash, directoryIndex);
+		}
+	}
+
+	ReverseHashGroup result;
+	if (hashDirectoryPairs.empty()) {
+		return result;
+	}
+
+	std::sort(hashDirectoryPairs.begin(), hashDirectoryPairs.end(), [](const auto& left, const auto& right) {
+		if (left.first != right.first) {
+			return left.first < right.first;
+		}
+		return left.second < right.second;
+	});
+
+	size_t index = 0;
+	while (index < hashDirectoryPairs.size()) {
+		uint32_t key = hashDirectoryPairs[index].first;
+		std::vector<uint32_t> directories;
+		while (index < hashDirectoryPairs.size() && hashDirectoryPairs[index].first == key) {
+			uint32_t directoryIndex = hashDirectoryPairs[index].second;
+			if (directories.empty() || directories.back() != directoryIndex) {
+				directories.push_back(directoryIndex);
+			}
+			index++;
+		}
+		result.keys.push_back(key);
+		result.directoryIndicesByKey.push_back(std::move(directories));
+	}
+	return result;
+}
+
+size_t SumReverseIndexCount(const ReverseHashGroup& group) {
+	size_t total = 0;
+	for (const auto& indices : group.directoryIndicesByKey) {
+		total += indices.size();
 	}
 	return total;
 }
@@ -1442,6 +1564,35 @@ void WriteHashGroup(uint8_t* raw, size_t offsetsPos, size_t lengthsPos, size_t b
 	}
 }
 
+void WriteReverseHashGroup(
+	uint8_t* raw,
+	size_t keysPos,
+	size_t offsetsPos,
+	size_t lengthsPos,
+	size_t indicesPos,
+	const ReverseHashGroup& group,
+	unsigned int*& outKeys,
+	unsigned int*& outOffsets,
+	unsigned int*& outLengths,
+	unsigned char*& outIndicesBlob)
+{
+	outKeys = reinterpret_cast<unsigned int*>(raw + keysPos);
+	outOffsets = reinterpret_cast<unsigned int*>(raw + offsetsPos);
+	outLengths = reinterpret_cast<unsigned int*>(raw + lengthsPos);
+	outIndicesBlob = reinterpret_cast<unsigned char*>(raw + indicesPos);
+	auto* indicesBlob = reinterpret_cast<unsigned int*>(raw + indicesPos);
+	uint32_t indexCursor = 0;
+	for (size_t i = 0; i < group.keys.size(); i++) {
+		outKeys[i] = group.keys[i];
+		outOffsets[i] = indexCursor * sizeof(uint32_t);
+		const std::vector<uint32_t>& indices = group.directoryIndicesByKey[i];
+		outLengths[i] = static_cast<unsigned int>(indices.size());
+		for (uint32_t index : indices) {
+			indicesBlob[indexCursor++] = index;
+		}
+	}
+}
+
 int BuildResultBuffer(const ScanAggregate& aggregate, const BridgeExecutionStats& stats, EBridgeResult** outResult) {
 	if (!outResult) {
 		return BRIDGE_INVALID_ARGUMENT;
@@ -1466,6 +1617,26 @@ int BuildResultBuffer(const ScanAggregate& aggregate, const BridgeExecutionStats
 	size_t selfAudioRelativeHashCount = SumHashCount(aggregate.selfAudioRelativeHashes);
 	size_t selfImageRelativeHashCount = SumHashCount(aggregate.selfImageRelativeHashes);
 	size_t selfMovieRelativeHashCount = SumHashCount(aggregate.selfMovieRelativeHashes);
+	const bool aliasAudioRelativeToBase = true;
+	const bool aliasImageRelativeToBase = true;
+	const bool aliasMovieRelativeToBase = true;
+	const bool aliasSelfAudioRelativeToBase = true;
+	const bool aliasSelfImageRelativeToBase = true;
+	const bool aliasSelfMovieRelativeToBase = true;
+	ReverseHashGroup allBaseReverse;
+	ReverseHashGroup audioRelativeReverse;
+	ReverseHashGroup imageRelativeReverse;
+	ReverseHashGroup movieRelativeReverse;
+	std::thread audioReverseWorker([&]() { audioRelativeReverse = BuildReverseHashGroup(aggregate.audioRelativeHashes); });
+	std::thread imageReverseWorker([&]() { imageRelativeReverse = BuildReverseHashGroup(aggregate.imageRelativeHashes); });
+	std::thread movieReverseWorker([&]() { movieRelativeReverse = BuildReverseHashGroup(aggregate.movieRelativeHashes); });
+	audioReverseWorker.join();
+	imageReverseWorker.join();
+	movieReverseWorker.join();
+	size_t allBaseReverseIndexCount = SumReverseIndexCount(allBaseReverse);
+	size_t audioRelativeReverseIndexCount = SumReverseIndexCount(audioRelativeReverse);
+	size_t imageRelativeReverseIndexCount = SumReverseIndexCount(imageRelativeReverse);
+	size_t movieRelativeReverseIndexCount = SumReverseIndexCount(movieRelativeReverse);
 
 	size_t cursor = AlignUp(sizeof(EBridgeResult), 8);
 	size_t chartOffsetsPos = cursor; cursor += chartCount * sizeof(uint32_t);
@@ -1479,12 +1650,12 @@ int BuildResultBuffer(const ScanAggregate& aggregate, const BridgeExecutionStats
 	size_t imageBaseLengthsPos = cursor; cursor += dirCount * sizeof(uint32_t);
 	size_t movieBaseOffsetsPos = cursor; cursor += dirCount * sizeof(uint32_t);
 	size_t movieBaseLengthsPos = cursor; cursor += dirCount * sizeof(uint32_t);
-	size_t audioRelativeOffsetsPos = cursor; cursor += dirCount * sizeof(uint32_t);
-	size_t audioRelativeLengthsPos = cursor; cursor += dirCount * sizeof(uint32_t);
-	size_t imageRelativeOffsetsPos = cursor; cursor += dirCount * sizeof(uint32_t);
-	size_t imageRelativeLengthsPos = cursor; cursor += dirCount * sizeof(uint32_t);
-	size_t movieRelativeOffsetsPos = cursor; cursor += dirCount * sizeof(uint32_t);
-	size_t movieRelativeLengthsPos = cursor; cursor += dirCount * sizeof(uint32_t);
+	size_t audioRelativeOffsetsPos = aliasAudioRelativeToBase ? audioBaseOffsetsPos : cursor; if (!aliasAudioRelativeToBase) cursor += dirCount * sizeof(uint32_t);
+	size_t audioRelativeLengthsPos = aliasAudioRelativeToBase ? audioBaseLengthsPos : cursor; if (!aliasAudioRelativeToBase) cursor += dirCount * sizeof(uint32_t);
+	size_t imageRelativeOffsetsPos = aliasImageRelativeToBase ? imageBaseOffsetsPos : cursor; if (!aliasImageRelativeToBase) cursor += dirCount * sizeof(uint32_t);
+	size_t imageRelativeLengthsPos = aliasImageRelativeToBase ? imageBaseLengthsPos : cursor; if (!aliasImageRelativeToBase) cursor += dirCount * sizeof(uint32_t);
+	size_t movieRelativeOffsetsPos = aliasMovieRelativeToBase ? movieBaseOffsetsPos : cursor; if (!aliasMovieRelativeToBase) cursor += dirCount * sizeof(uint32_t);
+	size_t movieRelativeLengthsPos = aliasMovieRelativeToBase ? movieBaseLengthsPos : cursor; if (!aliasMovieRelativeToBase) cursor += dirCount * sizeof(uint32_t);
 	size_t selfAllOffsetsPos = cursor; cursor += dirCount * sizeof(uint32_t);
 	size_t selfAllLengthsPos = cursor; cursor += dirCount * sizeof(uint32_t);
 	size_t selfAudioBaseOffsetsPos = cursor; cursor += dirCount * sizeof(uint32_t);
@@ -1493,12 +1664,24 @@ int BuildResultBuffer(const ScanAggregate& aggregate, const BridgeExecutionStats
 	size_t selfImageBaseLengthsPos = cursor; cursor += dirCount * sizeof(uint32_t);
 	size_t selfMovieBaseOffsetsPos = cursor; cursor += dirCount * sizeof(uint32_t);
 	size_t selfMovieBaseLengthsPos = cursor; cursor += dirCount * sizeof(uint32_t);
-	size_t selfAudioRelativeOffsetsPos = cursor; cursor += dirCount * sizeof(uint32_t);
-	size_t selfAudioRelativeLengthsPos = cursor; cursor += dirCount * sizeof(uint32_t);
-	size_t selfImageRelativeOffsetsPos = cursor; cursor += dirCount * sizeof(uint32_t);
-	size_t selfImageRelativeLengthsPos = cursor; cursor += dirCount * sizeof(uint32_t);
-	size_t selfMovieRelativeOffsetsPos = cursor; cursor += dirCount * sizeof(uint32_t);
-	size_t selfMovieRelativeLengthsPos = cursor; cursor += dirCount * sizeof(uint32_t);
+	size_t selfAudioRelativeOffsetsPos = aliasSelfAudioRelativeToBase ? selfAudioBaseOffsetsPos : cursor; if (!aliasSelfAudioRelativeToBase) cursor += dirCount * sizeof(uint32_t);
+	size_t selfAudioRelativeLengthsPos = aliasSelfAudioRelativeToBase ? selfAudioBaseLengthsPos : cursor; if (!aliasSelfAudioRelativeToBase) cursor += dirCount * sizeof(uint32_t);
+	size_t selfImageRelativeOffsetsPos = aliasSelfImageRelativeToBase ? selfImageBaseOffsetsPos : cursor; if (!aliasSelfImageRelativeToBase) cursor += dirCount * sizeof(uint32_t);
+	size_t selfImageRelativeLengthsPos = aliasSelfImageRelativeToBase ? selfImageBaseLengthsPos : cursor; if (!aliasSelfImageRelativeToBase) cursor += dirCount * sizeof(uint32_t);
+	size_t selfMovieRelativeOffsetsPos = aliasSelfMovieRelativeToBase ? selfMovieBaseOffsetsPos : cursor; if (!aliasSelfMovieRelativeToBase) cursor += dirCount * sizeof(uint32_t);
+	size_t selfMovieRelativeLengthsPos = aliasSelfMovieRelativeToBase ? selfMovieBaseLengthsPos : cursor; if (!aliasSelfMovieRelativeToBase) cursor += dirCount * sizeof(uint32_t);
+	size_t allBaseReverseKeysPos = cursor; cursor += allBaseReverse.keys.size() * sizeof(uint32_t);
+	size_t allBaseReverseOffsetsPos = cursor; cursor += allBaseReverse.keys.size() * sizeof(uint32_t);
+	size_t allBaseReverseLengthsPos = cursor; cursor += allBaseReverse.keys.size() * sizeof(uint32_t);
+	size_t audioRelativeReverseKeysPos = cursor; cursor += audioRelativeReverse.keys.size() * sizeof(uint32_t);
+	size_t audioRelativeReverseOffsetsPos = cursor; cursor += audioRelativeReverse.keys.size() * sizeof(uint32_t);
+	size_t audioRelativeReverseLengthsPos = cursor; cursor += audioRelativeReverse.keys.size() * sizeof(uint32_t);
+	size_t imageRelativeReverseKeysPos = cursor; cursor += imageRelativeReverse.keys.size() * sizeof(uint32_t);
+	size_t imageRelativeReverseOffsetsPos = cursor; cursor += imageRelativeReverse.keys.size() * sizeof(uint32_t);
+	size_t imageRelativeReverseLengthsPos = cursor; cursor += imageRelativeReverse.keys.size() * sizeof(uint32_t);
+	size_t movieRelativeReverseKeysPos = cursor; cursor += movieRelativeReverse.keys.size() * sizeof(uint32_t);
+	size_t movieRelativeReverseOffsetsPos = cursor; cursor += movieRelativeReverse.keys.size() * sizeof(uint32_t);
+	size_t movieRelativeReverseLengthsPos = cursor; cursor += movieRelativeReverse.keys.size() * sizeof(uint32_t);
 
 	cursor = AlignUp(cursor, alignof(wchar_t));
 	size_t chartBlobPos = cursor; cursor += chartBlobChars * sizeof(wchar_t);
@@ -1509,42 +1692,88 @@ int BuildResultBuffer(const ScanAggregate& aggregate, const BridgeExecutionStats
 	size_t audioBaseHashesPos = cursor; cursor += audioBaseHashCount * sizeof(uint32_t);
 	size_t imageBaseHashesPos = cursor; cursor += imageBaseHashCount * sizeof(uint32_t);
 	size_t movieBaseHashesPos = cursor; cursor += movieBaseHashCount * sizeof(uint32_t);
-	size_t audioRelativeHashesPos = cursor; cursor += audioRelativeHashCount * sizeof(uint32_t);
-	size_t imageRelativeHashesPos = cursor; cursor += imageRelativeHashCount * sizeof(uint32_t);
-	size_t movieRelativeHashesPos = cursor; cursor += movieRelativeHashCount * sizeof(uint32_t);
+	size_t audioRelativeHashesPos = aliasAudioRelativeToBase ? audioBaseHashesPos : cursor; if (!aliasAudioRelativeToBase) cursor += audioRelativeHashCount * sizeof(uint32_t);
+	size_t imageRelativeHashesPos = aliasImageRelativeToBase ? imageBaseHashesPos : cursor; if (!aliasImageRelativeToBase) cursor += imageRelativeHashCount * sizeof(uint32_t);
+	size_t movieRelativeHashesPos = aliasMovieRelativeToBase ? movieBaseHashesPos : cursor; if (!aliasMovieRelativeToBase) cursor += movieRelativeHashCount * sizeof(uint32_t);
 	size_t selfAllHashesPos = cursor; cursor += selfAllHashCount * sizeof(uint32_t);
 	size_t selfAudioBaseHashesPos = cursor; cursor += selfAudioBaseHashCount * sizeof(uint32_t);
 	size_t selfImageBaseHashesPos = cursor; cursor += selfImageBaseHashCount * sizeof(uint32_t);
 	size_t selfMovieBaseHashesPos = cursor; cursor += selfMovieBaseHashCount * sizeof(uint32_t);
-	size_t selfAudioRelativeHashesPos = cursor; cursor += selfAudioRelativeHashCount * sizeof(uint32_t);
-	size_t selfImageRelativeHashesPos = cursor; cursor += selfImageRelativeHashCount * sizeof(uint32_t);
-	size_t selfMovieRelativeHashesPos = cursor; cursor += selfMovieRelativeHashCount * sizeof(uint32_t);
+	size_t selfAudioRelativeHashesPos = aliasSelfAudioRelativeToBase ? selfAudioBaseHashesPos : cursor; if (!aliasSelfAudioRelativeToBase) cursor += selfAudioRelativeHashCount * sizeof(uint32_t);
+	size_t selfImageRelativeHashesPos = aliasSelfImageRelativeToBase ? selfImageBaseHashesPos : cursor; if (!aliasSelfImageRelativeToBase) cursor += selfImageRelativeHashCount * sizeof(uint32_t);
+	size_t selfMovieRelativeHashesPos = aliasSelfMovieRelativeToBase ? selfMovieBaseHashesPos : cursor; if (!aliasSelfMovieRelativeToBase) cursor += selfMovieRelativeHashCount * sizeof(uint32_t);
+	size_t allBaseReverseIndicesPos = cursor; cursor += allBaseReverseIndexCount * sizeof(uint32_t);
+	size_t audioRelativeReverseIndicesPos = cursor; cursor += audioRelativeReverseIndexCount * sizeof(uint32_t);
+	size_t imageRelativeReverseIndicesPos = cursor; cursor += imageRelativeReverseIndexCount * sizeof(uint32_t);
+	size_t movieRelativeReverseIndicesPos = cursor; cursor += movieRelativeReverseIndexCount * sizeof(uint32_t);
 	size_t totalBytes = cursor;
 
 	uint8_t* raw = reinterpret_cast<uint8_t*>(std::malloc(totalBytes));
 	if (!raw) {
 		return BRIDGE_OUT_OF_MEMORY;
 	}
-	std::memset(raw, 0, totalBytes);
 
 	auto* result = reinterpret_cast<EBridgeResult*>(raw);
+	std::memset(result, 0, sizeof(EBridgeResult));
 	WriteStringBlob(raw, chartOffsetsPos, chartBlobPos, aggregate.chartPaths, result->chart_offsets, result->chart_blob);
 	WriteStringBlob(raw, dirOffsetsPos, dirBlobPos, aggregate.chartDirectories, result->dir_offsets, result->dir_blob);
 	WriteHashGroup(raw, allOffsetsPos, allLengthsPos, allHashesPos, aggregate.allBaseHashes, result->all_hash_offsets, result->all_hash_lengths, result->all_hashes_blob);
 	WriteHashGroup(raw, audioBaseOffsetsPos, audioBaseLengthsPos, audioBaseHashesPos, aggregate.audioBaseHashes, result->audio_base_hash_offsets, result->audio_base_hash_lengths, result->audio_base_hashes_blob);
 	WriteHashGroup(raw, imageBaseOffsetsPos, imageBaseLengthsPos, imageBaseHashesPos, aggregate.imageBaseHashes, result->image_base_hash_offsets, result->image_base_hash_lengths, result->image_base_hashes_blob);
 	WriteHashGroup(raw, movieBaseOffsetsPos, movieBaseLengthsPos, movieBaseHashesPos, aggregate.movieBaseHashes, result->movie_base_hash_offsets, result->movie_base_hash_lengths, result->movie_base_hashes_blob);
-	WriteHashGroup(raw, audioRelativeOffsetsPos, audioRelativeLengthsPos, audioRelativeHashesPos, aggregate.audioRelativeHashes, result->audio_relative_hash_offsets, result->audio_relative_hash_lengths, result->audio_relative_hashes_blob);
-	WriteHashGroup(raw, imageRelativeOffsetsPos, imageRelativeLengthsPos, imageRelativeHashesPos, aggregate.imageRelativeHashes, result->image_relative_hash_offsets, result->image_relative_hash_lengths, result->image_relative_hashes_blob);
-	WriteHashGroup(raw, movieRelativeOffsetsPos, movieRelativeLengthsPos, movieRelativeHashesPos, aggregate.movieRelativeHashes, result->movie_relative_hash_offsets, result->movie_relative_hash_lengths, result->movie_relative_hashes_blob);
+	if (aliasAudioRelativeToBase) {
+		result->audio_relative_hash_offsets = result->audio_base_hash_offsets;
+		result->audio_relative_hash_lengths = result->audio_base_hash_lengths;
+		result->audio_relative_hashes_blob = result->audio_base_hashes_blob;
+	} else {
+		WriteHashGroup(raw, audioRelativeOffsetsPos, audioRelativeLengthsPos, audioRelativeHashesPos, aggregate.audioRelativeHashes, result->audio_relative_hash_offsets, result->audio_relative_hash_lengths, result->audio_relative_hashes_blob);
+	}
+	if (aliasImageRelativeToBase) {
+		result->image_relative_hash_offsets = result->image_base_hash_offsets;
+		result->image_relative_hash_lengths = result->image_base_hash_lengths;
+		result->image_relative_hashes_blob = result->image_base_hashes_blob;
+	} else {
+		WriteHashGroup(raw, imageRelativeOffsetsPos, imageRelativeLengthsPos, imageRelativeHashesPos, aggregate.imageRelativeHashes, result->image_relative_hash_offsets, result->image_relative_hash_lengths, result->image_relative_hashes_blob);
+	}
+	if (aliasMovieRelativeToBase) {
+		result->movie_relative_hash_offsets = result->movie_base_hash_offsets;
+		result->movie_relative_hash_lengths = result->movie_base_hash_lengths;
+		result->movie_relative_hashes_blob = result->movie_base_hashes_blob;
+	} else {
+		WriteHashGroup(raw, movieRelativeOffsetsPos, movieRelativeLengthsPos, movieRelativeHashesPos, aggregate.movieRelativeHashes, result->movie_relative_hash_offsets, result->movie_relative_hash_lengths, result->movie_relative_hashes_blob);
+	}
 	WriteHashGroup(raw, selfAllOffsetsPos, selfAllLengthsPos, selfAllHashesPos, aggregate.selfAllBaseHashes, result->self_all_hash_offsets, result->self_all_hash_lengths, result->self_all_hashes_blob);
 	WriteHashGroup(raw, selfAudioBaseOffsetsPos, selfAudioBaseLengthsPos, selfAudioBaseHashesPos, aggregate.selfAudioBaseHashes, result->self_audio_base_hash_offsets, result->self_audio_base_hash_lengths, result->self_audio_base_hashes_blob);
 	WriteHashGroup(raw, selfImageBaseOffsetsPos, selfImageBaseLengthsPos, selfImageBaseHashesPos, aggregate.selfImageBaseHashes, result->self_image_base_hash_offsets, result->self_image_base_hash_lengths, result->self_image_base_hashes_blob);
 	WriteHashGroup(raw, selfMovieBaseOffsetsPos, selfMovieBaseLengthsPos, selfMovieBaseHashesPos, aggregate.selfMovieBaseHashes, result->self_movie_base_hash_offsets, result->self_movie_base_hash_lengths, result->self_movie_base_hashes_blob);
-	WriteHashGroup(raw, selfAudioRelativeOffsetsPos, selfAudioRelativeLengthsPos, selfAudioRelativeHashesPos, aggregate.selfAudioRelativeHashes, result->self_audio_relative_hash_offsets, result->self_audio_relative_hash_lengths, result->self_audio_relative_hashes_blob);
-	WriteHashGroup(raw, selfImageRelativeOffsetsPos, selfImageRelativeLengthsPos, selfImageRelativeHashesPos, aggregate.selfImageRelativeHashes, result->self_image_relative_hash_offsets, result->self_image_relative_hash_lengths, result->self_image_relative_hashes_blob);
-	WriteHashGroup(raw, selfMovieRelativeOffsetsPos, selfMovieRelativeLengthsPos, selfMovieRelativeHashesPos, aggregate.selfMovieRelativeHashes, result->self_movie_relative_hash_offsets, result->self_movie_relative_hash_lengths, result->self_movie_relative_hashes_blob);
+	if (aliasSelfAudioRelativeToBase) {
+		result->self_audio_relative_hash_offsets = result->self_audio_base_hash_offsets;
+		result->self_audio_relative_hash_lengths = result->self_audio_base_hash_lengths;
+		result->self_audio_relative_hashes_blob = result->self_audio_base_hashes_blob;
+	} else {
+		WriteHashGroup(raw, selfAudioRelativeOffsetsPos, selfAudioRelativeLengthsPos, selfAudioRelativeHashesPos, aggregate.selfAudioRelativeHashes, result->self_audio_relative_hash_offsets, result->self_audio_relative_hash_lengths, result->self_audio_relative_hashes_blob);
+	}
+	if (aliasSelfImageRelativeToBase) {
+		result->self_image_relative_hash_offsets = result->self_image_base_hash_offsets;
+		result->self_image_relative_hash_lengths = result->self_image_base_hash_lengths;
+		result->self_image_relative_hashes_blob = result->self_image_base_hashes_blob;
+	} else {
+		WriteHashGroup(raw, selfImageRelativeOffsetsPos, selfImageRelativeLengthsPos, selfImageRelativeHashesPos, aggregate.selfImageRelativeHashes, result->self_image_relative_hash_offsets, result->self_image_relative_hash_lengths, result->self_image_relative_hashes_blob);
+	}
+	if (aliasSelfMovieRelativeToBase) {
+		result->self_movie_relative_hash_offsets = result->self_movie_base_hash_offsets;
+		result->self_movie_relative_hash_lengths = result->self_movie_base_hash_lengths;
+		result->self_movie_relative_hashes_blob = result->self_movie_base_hashes_blob;
+	} else {
+		WriteHashGroup(raw, selfMovieRelativeOffsetsPos, selfMovieRelativeLengthsPos, selfMovieRelativeHashesPos, aggregate.selfMovieRelativeHashes, result->self_movie_relative_hash_offsets, result->self_movie_relative_hash_lengths, result->self_movie_relative_hashes_blob);
+	}
+	WriteReverseHashGroup(raw, allBaseReverseKeysPos, allBaseReverseOffsetsPos, allBaseReverseLengthsPos, allBaseReverseIndicesPos, allBaseReverse, result->all_base_reverse_keys, result->all_base_reverse_offsets, result->all_base_reverse_lengths, result->all_base_reverse_indices_blob);
+	WriteReverseHashGroup(raw, audioRelativeReverseKeysPos, audioRelativeReverseOffsetsPos, audioRelativeReverseLengthsPos, audioRelativeReverseIndicesPos, audioRelativeReverse, result->audio_relative_reverse_keys, result->audio_relative_reverse_offsets, result->audio_relative_reverse_lengths, result->audio_relative_reverse_indices_blob);
+	WriteReverseHashGroup(raw, imageRelativeReverseKeysPos, imageRelativeReverseOffsetsPos, imageRelativeReverseLengthsPos, imageRelativeReverseIndicesPos, imageRelativeReverse, result->image_relative_reverse_keys, result->image_relative_reverse_offsets, result->image_relative_reverse_lengths, result->image_relative_reverse_indices_blob);
+	WriteReverseHashGroup(raw, movieRelativeReverseKeysPos, movieRelativeReverseOffsetsPos, movieRelativeReverseLengthsPos, movieRelativeReverseIndicesPos, movieRelativeReverse, result->movie_relative_reverse_keys, result->movie_relative_reverse_offsets, result->movie_relative_reverse_lengths, result->movie_relative_reverse_indices_blob);
 
+	result->contract_version = EBRIDGE_SCAN_CONTRACT_VERSION;
+	result->header_size = static_cast<unsigned int>(sizeof(EBridgeResult));
 	result->status = 0;
 	result->error_code = 0;
 	result->chart_count = static_cast<unsigned long long>(chartCount);
@@ -1588,6 +1817,10 @@ int BuildResultBuffer(const ScanAggregate& aggregate, const BridgeExecutionStats
 	result->movie_assign_ms = stats.movieAssignMs;
 	result->movie_merge_ms = stats.movieMergeMs;
 	result->raw_buffer_size = static_cast<unsigned long long>(totalBytes);
+	result->all_base_reverse_key_count = static_cast<unsigned long long>(allBaseReverse.keys.size());
+	result->audio_relative_reverse_key_count = static_cast<unsigned long long>(audioRelativeReverse.keys.size());
+	result->image_relative_reverse_key_count = static_cast<unsigned long long>(imageRelativeReverse.keys.size());
+	result->movie_relative_reverse_key_count = static_cast<unsigned long long>(movieRelativeReverse.keys.size());
 
 	*outResult = result;
 	return BRIDGE_OK;

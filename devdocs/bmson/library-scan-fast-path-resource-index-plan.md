@@ -283,7 +283,7 @@ install-ready projection を導入する場合は、次のどちらかを実装�
   - `BMSDirectoryFileNameHash`
   - `DirectoryResourceLookupCache`
   - `DirectoryRelativePathHashIndex`
-- 旧 index を別々の top-level build step として作る流れはやめ、`resource_index_build source=enumeration ...` を正本ログにした。
+- 旧 index を別々の top-level build step として作る流れはやめ、`resource_index_build source=native_canonical ...` を正本ログにした。
 - `song_tbl_file_check_breakdown` / `bms_scan` の内訳は `resource_index_build_ms` 系へ寄せた。
 - Phase 3A では resource matching semantics は変更しない。
   - basename / relative path の既存互換 view は `LibraryResourceIndex` 内部で維持する。
@@ -292,8 +292,7 @@ install-ready projection を導入する場合は、次のどちらかを実装�
 
 - install estimation / resource health / file operation の引数を `LibraryResourceIndex` API へ完全移行する。
 - 互換 view が不要になった時点で旧 index class と旧 tests を削除する。
-- chart-relative semantics cleanup は Phase 4/5 の native contract rebuild と同時に扱う。
-- `reverse_lookup_warmup_deferred` が必要な C# 後段 reverse index build をなくす。
+- chart-relative semantics cleanup と C# 後段 reverse index build 削除は Phase 4B / 5A で実施済み。
 
 ### Key Changes
 
@@ -313,7 +312,7 @@ install-ready projection を導入する場合は、次のどちらかを実装�
 - `resource_lookup_cache_ms + relative_path_hash_index_ms` 相当の重複構築が消える。
 - `dirhash_build_ms` の主成分が説明でき、不要な owner / relative prefix rebuild が消える。
 - `reverse_lookup_warmup_deferred` が不要になり、resource-key reverse lookup を含む初期化全体が短縮する。
-- install estimation / maintenance / file operation の結果が現行と一致する。
+- install estimation は chart-relative semantics に更新され、maintenance / file operation は既存挙動を維持する。
 - memory peak が下がる。
 
 ## Phase 4: Native Chart-Relative Resource Index Contract
@@ -322,7 +321,9 @@ install-ready projection を導入する場合は、次のどちらかを実装�
 
 この phase では、単に payload を小さくするだけでなく、C# 側で `DirectoryResourceLookupCache` / `DirectoryRelativePathHashIndex` / reverse lookup warmup を再構築する必要がない native contract へ寄せる。
 
-譜面 resource reference はすべて chart-relative path として扱う。`foo.wav` は chart-relative path `foo.wav`、`sound/foo.wav` は chart-relative path `sound/foo.wav` であり、basename-only と subdirectory relative path を別系統の推定材料として扱わない。
+譜面 resource reference はすべて chart-relative resource key として扱う。resource key は拡張子を落とした path 込みファイル名であり、`foo.wav` は key `foo`、`sound/foo.wav` は key `sound/foo` である。basename-only と subdirectory relative path を別系統の推定材料として扱わない。
+
+2026-05-05 の Phase 4B / 5A 追加修正では、native contract を `2026050503` へ更新し、native 側の `base` 系 hash もこの resource key を返すようにした。これにより C# 側では `DirectoryRelativePathHashIndex` を startup 正本として構築せず、`DirectoryResourceLookupCache` だけで health / install estimation を処理する。native packed result では `base` と `relative` が同じ category は同じ blob / offset / length を指し、managed decoder も同じ配列 / dictionary を再利用する。
 
 ### Key Changes
 
@@ -331,34 +332,35 @@ install-ready projection を導入する場合は、次のどちらかを実装�
 - audio / image / movie の group / assign / merge / pack を native 側で完結させる。
 - resource-key -> candidate directory reverse lookup を native 側で構築、または packed result から C# が単純に詰め替えるだけにする。
 - pending package / zip ごとの推定 batch では destination reverse lookup を構築しない。batch 側は package source surface と完成済み destination index を照合するだけにする。
-- basename hash は chart-relative path の副産物として必要な期間だけ返す。basename-only fast path の正本にはしない。
+- basename hash という名前の旧 field は互換名として残っているが、中身は chart-relative resource key hash である。basename-only fast path の正本にはしない。
 - `__all__` 的な総列挙を main path に入れない。
-- fallback scanner も同じ canonical resource index builder を通す。
+- native bridge と managed decoder は 1 つの contract に固定する。bridge DLL が不一致なら fallback せず初期化失敗として扱う。
 
 ### Acceptance Criteria
 
-- `bridgeRawBufferBytes` が下がる。
-- `nativeBridgeMs`、managed decode、managed materialize が下がる。
+- `bridgeRawBufferBytes` が下がる。特に base / relative の二重 blob を持たない。
+- `nativeBridgeMs`、managed decode、managed materialize、`resource_index_build lookupMs` が下がる。
 - `reverse_lookup_warmup_deferred` が起動 background task として不要になる。
 - `startup_initialization_complete` が reverse lookup 完了込みで 30 秒台へ戻る方向に進む。
 - 複数 zip の保留投入で、各 zip の初回推定が destination reverse lookup 構築を再実行しない。
-- 同じファイル集合から同じ install estimation / health 結果が得られる。
+- 同じファイル集合から chart-relative semantics に基づく install estimation / health 結果が得られる。
 - 初期化全体の elapsed が下がる。
 
 ## Phase 5: Chart-Relative Resource Semantics Cleanup
 
-譜面の resource reference はすべて chart-relative path として扱う。隣接ファイル名と subdirectory file を別ルールで扱わない。
+譜面の resource reference はすべて chart-relative resource key として扱う。隣接ファイル名と subdirectory file を別ルールで扱わない。
 
 ### Target Semantics
 
-- `foo.wav` は chart-relative path `foo.wav`。
-- `sound/foo.wav` は chart-relative path `sound/foo.wav`。
+- `foo.wav` は chart-relative resource key `foo`。
+- `sound/foo.wav` は chart-relative resource key `sound/foo`。
 - `foo.wav` と `sound/foo.wav` は別 key。
+- `.ogg` / `.mp3` / `.flac`、`.bmp` / `.jpg` / `.jpeg` は従来どおり互換拡張子として扱った上で拡張子を落とす。
 - source package 側も destination library 側も同じ key 体系で評価する。
 
 ### Key Changes
 
-- BMS / BMSON health 判定を chart-relative key に統一する。
+- BMS / BMSON health 判定を chart-relative resource key に統一する。
 - install estimation の broad filter / final evaluation を chart-relative key で統一する。
 - basename-only の alternate correctness path は削除する。
 - `BMSDirectoryFileNameHash` を推定の正本から外す。
@@ -370,7 +372,7 @@ install-ready projection を導入する場合は、次のどちらかを実装�
 
 - `foo.wav` と `sound/foo.wav` の混同が起きない。
 - relative path resource を持つ譜面の導入先推定で、basename だけの候補が残らない。
-- bare filename resource だけの譜面は `foo.wav` という relative path として評価される。
+- bare filename resource だけの譜面は `foo` という chart-relative resource key として評価される。
 - source / destination / maintenance の resource matching 結果が同じ semantics になる。
 - basename-only fast path、relative-strict path の二重設計が残らない。
 
@@ -419,7 +421,7 @@ diff 自体は軽いが、差分 0 件時の catalog apply / property notificati
 
 - `maintenance_hydration` を startup background task として明示し、`startup_background_summary` の対象にした。
 - `installable_maintenance_deferred` は `maintenance_hydration,chart_info_hydration` の両方を dependency として待つ。
-- `reverse_lookup_warmup_deferred` は `DirectoryResourceLookupCache` の reverse lookup が既に full warmup 済みなら queue しない。
+- `reverse_lookup_warmup_deferred` は Phase 4B / 5A で廃止した。導入先推定に必要な reverse lookup surface は native canonical resource index の成果物として持つ。
 - `maintenance_tbl_check_deferred` は廃止した。
   - orphan maintenance cleanup は `maintenance_hydration` が読み込んだ `maintenance` key と current owner path set の差分から算出する。
   - cleanup は stale path がある場合だけ `DeleteMaintenanceRows(...)` の短い transaction で実行する。
@@ -505,28 +507,82 @@ Phase 8B 実測の `ranking_refresh_deferred=43091ms` と比べると、ranking 
 - playlist entries hydration の同一 startup 内二重 hydrate / presentation rebuild 削減。
 - `updateLR2IRScoreTable()` の no-op 判定 / DB replace 条件整理。
 
-## Next Implementation Unit: Phase 4B / 5A
+## Phase 4B / 5A: Native Canonical Resource Index
 
-次に進むべき単位は、Phase 4 / Phase 5 を前倒しして、native chart-relative resource index contract を再構築することである。目的は、`reverse_lookup_warmup_deferred` を初期化完了から外すことではなく、deferred warmup が不要な index を起動時 scan の成果物として作ることである。
+Phase 4 / Phase 5 を前倒しして、native chart-relative resource index contract を再構築した。目的は、`reverse_lookup_warmup_deferred` を初期化完了から外すことではなく、deferred warmup が不要な index を起動時 scan の成果物として作ることである。
 
 相対パス対応以前の目標水準である「導入先推定に必要な情報まで含めて 30 秒程度」を比較対象に戻す。maintenance / playlist / chart_info の background 削減は残るが、現時点で最も設計負債が大きいのは basename-only と relative path を別系統にしている resource index / install estimation である。
 
-### Phase 4B: Native Resource Index Payload Rebuild
+### Phase 4B: Native Resource Index Payload Rebuild (implemented)
 
-- `EBridge_ScanChartAndResources` の result contract を拡張し、chart-relative resource key と candidate directory reverse lookup surface を返す。
-- native 側で root / directory / resource category / normalized chart-relative key を集約する。
-- managed 側は native packed result から `LibraryResourceIndex` へ 1 パス詰め替えする。
-- C# 側の `DirectoryResourceLookupCache.WarmupReverseLookupStep()` 相当の全量 build は mainline から削除する。
-- ABI 互換名目の旧 bridge path を長期併存させない。fallback は fast scanner + same builder に限定する。
+- `EBridge_ScanChartAndResources` の result contract は、chart-relative resource key と candidate directory reverse lookup surface を返す唯一の contract に置き換えた。
+- native 側で root / directory / resource category / normalized chart-relative key / reverse lookup を集約し、packed arrays として返す。
+- managed 側は native packed result から `LibraryResourceIndex` / `DirectoryResourceLookupCache` へ materialize する。reverse lookup は native result で完成済みとして扱う。
+- C# 側の `DirectoryResourceLookupCache.WarmupReverseLookupStep()` 相当の全量 build と `reverse_lookup_warmup_deferred` task は削除した。
+- C# と native bridge DLL は同一ビルド成果物としてセット配布する。旧 native ABI / V1 decode / verify compare は残さない。旧 bridge DLL や header contract 不一致は fallback せず初期化失敗にする。
+- Everything API / service が使えない場合は managed file scan に fallback する。これは旧 native ABI 互換ではなく、同じ chart-relative semantics の managed scan result から `LibraryResourceIndex` を作る経路である。
+- `resource key` は拡張子を落とした path 込み key とし、`foo.wav -> foo`、`sound/foo.wav -> sound/foo` に統一した。
+- native packed result では base / relative が同一 semantics の category blob を alias し、managed decode / materialize でも配列と dictionary を再利用する。
+- startup では `DirectoryRelativePathHashIndex` を構築しない。`resource_index_build relativeMs=0` が期待値である。
+- native reverse map は巨大 `unordered_map<uint, vector<uint>>` ではなく、`(hash, directoryIndex)` の flat pair を sort して構築する。これにより 800 万 key 規模の allocation / pack cost を抑える。
+- managed reverse map decode は `int[] + List<string>` の二重詰め替えを避け、native indices から `string[]` を直接作る。
 
-### Phase 5A: Chart-Relative Install Estimation Cleanup
+### Phase 5A: Chart-Relative Install Estimation Cleanup (implemented)
 
 - `ChartResourceSnapshot` の basename-only / path-aware dual source を chart-relative key source へ統一する。
 - `BmsLibraryInstallEstimationService` の broad filter は canonical resource-key reverse lookup だけを使う。
-- `EvaluateCandidateBasenameOnlyFastPath` と relative strict の二重評価を廃止し、single chart-relative evaluation にする。
-- `foo.wav` と `sound/foo.wav` の混同を防ぎつつ、bare filename は `foo.wav` という chart-relative path として評価する。
-- `BMSDirectoryFileNameHash` を導入先推定の正本から外し、必要な移行期間の view だけにする。
+- `EvaluateCandidateBasenameOnlyFastPath` と relative strict の二重評価を廃止し、single chart-relative evaluation にした。
+- `foo.wav` と `sound/foo.wav` は別 key として扱う。bare filename は `foo.wav` という chart-relative path であり、subdirectory file へは一致しない。
+- `BMSDirectoryFileNameHash` の basename-only matching は導入先推定の正本から外した。残る production use は health / file operation など別 surface の互換ではなく、今後 canonical resource index API へ畳み込む整理対象である。
 - zip ごとに独立した pending estimate batch という性質は維持する。高速化は batch 統合ではなく、batch が参照する destination index の完成度と materialize cost 削減で行う。
+
+### Phase 4B / 5A Performance Check
+
+2026-05-05 15:25 の実環境ログでは、同一ライブラリ規模で次の状態になった。
+
+- `everything_scan totalMs=30495`
+  - `nativeBridgeMs=25424`
+  - `managedDecodeMs=2659`
+  - `managedMaterializeMs=2375`
+  - `bridgeRawBufferBytes=379540328`
+  - `packMs=2808`
+- `resource_index_build buildMs=2206`
+  - `lookupMs=2179`
+  - `relativeMs=0`
+  - `reverseLookupKeys=8123464`
+- `startup_install_estimation_ready elapsedMs=35895`
+- `pending_estimate_batch done source=startup_restore elapsedMs=32379`
+
+比較対象として、修正前の Phase 4B / 5A 直後ログでは `everything_scan totalMs=107748`、`nativeBridgeMs=50980`、`managedDecodeMs=24061`、`managedMaterializeMs=32652`、`resource_index_build buildMs=32436`、`pending_estimate_batch done source=auto_install elapsedMs=326822` だった。最新実装では resource index は reverse lookup 完成込みで約 30 秒、startup restore の導入先推定 batch は約 32 秒まで戻っている。
+
+残る 30 秒超過分の主因は Everything query (`audioQueryMs` が約 13 秒) と、全 resource entry を managed model へ materialize する約 5 秒である。これは lazy warmup に逃がす対象ではなく、次に削る場合は native payload / managed index representation のさらなる圧縮で扱う。
+
+### Phase 4B / 5A Normal Startup Baseline
+
+2026-05-05 15:35 の保留 package なし通常起動ログでは、現行の通常起動想定として次の状態になった。
+
+- install readiness / UI readiness
+  - `startup_install_estimation_ready elapsedMs=31696`
+  - `startup_install_ready elapsedMs=31696`
+  - `startup_ready_operable elapsedMs=32875`
+  - `pendingPackages=0`
+  - `pendingEstimateQueueBatches=0`
+- DB catalog / file scan
+  - `song_tbl_load_projection projection=catalog readMs=8998 materializeMs=8989 rows=208979 bmsonRows=1051`
+  - `everything_scan totalMs=30357 nativeBridgeMs=25252 managedDecodeMs=2638 managedMaterializeMs=2431`
+  - `resource_index_build buildMs=2245 lookupMs=2218 relativeMs=0 reverseLookupKeys=8123464`
+  - `song_tbl_file_check_breakdown db_commit_chunks=0 deleted_count=0 added_count=0`
+- startup background / initialization complete
+  - `startup_initialization_complete elapsedMs=75018`
+  - `playlist_entries_hydration lastMs=11093`
+  - `ranking_refresh_deferred lastMs=10678`
+  - `chart_info_hydration lastMs=10651`
+  - `maintenance_hydration lastMs=14578`
+  - `installable_maintenance lastMs=702`
+
+保留なし通常起動では、導入可能までの critical path は resource index 完成込みで約 32 秒まで戻っている。`pendingEstimateQueueBatches=0` なので、起動直後に推定 batch は走らない。初期化全体は約 75 秒で、残る支配要因は background の `maintenance_hydration`、`playlist_entries_hydration`、`chart_info_hydration`、`ranking_refresh_deferred` である。
+
+次の優先は `startup_install_estimation_ready` を無理に短く見せることではなく、通常起動で 75 秒残っている background critical path を短縮することである。特に `maintenance_hydration applyMs=11572` は DB read より大きく、Phase 8D の最優先対象とする。
 
 ### Phase 8D: Maintenance Apply / Hydration Micro Reduction
 
@@ -535,6 +591,9 @@ Phase 4B / 5A の後に実施する。
 - `maintenance_hydration` の apply を chunk / aggregate notification 化する。
 - warning / health projection の row ごとの property chain を抑え、UI rebuild をまとめる。
 - orphan cleanup は Phase 8B の統合済み経路を維持し、別 task を再導入しない。
+- no-op 通常起動では `cleanupDeleted=0` のため cleanup は問題ではない。主対象は `readMs=2822` ではなく `applyMs=11572` と `resource_health_index_build buildMs=379` を含む model apply / notification / health index update である。
+- `maintenance` row を `BMSFile` / `BmsonSong` へ適用するとき、値が既に同一なら property update と downstream warning/health invalidation を skip する。
+- apply 後の resource health index rebuild は、maintenance hydrate で変化した owner の有無を見て no-op skip できるようにする。
 
 ### Phase 2B: Catalog Load Micro Reduction
 
@@ -545,6 +604,14 @@ Phase 4B / 5A の後に実施する。
 ### Phase 8E: Chart Info Hydration No-op Reduction
 
 - `chart_info_hydration` は DB count / schema version / hydrated index state から no-op 判定できる範囲を増やす。ただし session index が未 hydrated の通常起動では必要な load と owner apply は維持する。
+- 現行通常起動では `backfillCandidateOwners=0` で backfill skip は効いている。残りは `dbLoadMs=10104` が支配的で、owner apply は `229ms` と軽い。次に触るなら DB projection / persistent hydrated index の設計が必要で、Phase 8D より後に回す。
+
+### Phase 8G: Playlist Entries Hydration Projection Reduction
+
+- 現行通常起動では `playlist_entries_hydration totalMs=10943`、うち `dbLoadMs=10584` が支配的である。
+- playlist summary / detail / reference apply が必要とする projection を分け、通常起動で全 entry row を毎回 full model として materialize しない。
+- `playlist_ref_apply` は `1822ms` なので、まずは `playlist_entries_hydration` の DB load / materialize を削る。
+- external sync / URL completion とは責務を分け、DB projection 短縮で `startup_initialization_complete` の tail を削る。
 
 ### Phase 8F: Ranking Score Table No-op Reduction
 
@@ -561,9 +628,9 @@ Phase 4B / 5A の後に実施する。
   - `candidates=0` を確認するためだけの高コスト summary を避ける。
   - version / count / dirty marker で no-op を判定できる場合は DB full scan をしない。
 - reverse lookup / resource index
-  - `reverse_lookup_warmup_deferred` を初期化完了から外すだけの対応は行わない。
-  - native chart-relative resource index contract により、導入先推定に必要な reverse lookup surface を scan/index build の成果物に含める。
-  - C# 側では resource index を詰め替えるだけにし、basename-only cache と relative-path cache を後段で二重構築しない。
+  - `reverse_lookup_warmup_deferred` は存在しない。
+  - native chart-relative resource index contract により、導入先推定に必要な reverse lookup surface は scan/index build の成果物に含める。
+  - C# 側では native canonical result を materialize し、導入先推定では chart-relative key の single evaluator を使う。
 - ranking refresh
   - network / DB / materialize の内訳を分け、初期化完了 metric で観測する。
   - no-op refresh を短くする。
@@ -598,12 +665,12 @@ Phase 4B / 5A の後に実施する。
   - `reverseLookupMs`
   - `maintenanceMs`
 - `resource_index_build`
-  - `source=enumeration|memory|affected_refresh`
+  - `source=native_canonical|managed`
   - `directories`
   - `resources`
   - `chartRelativeKeys`
   - `reverseLookupKeys`
-  - `reverseLookupSource=native|managed_transitional`
+  - `reverseLookupSource=native|managed`
   - `nativePackMs`
   - `managedMaterializeMs`
   - `buildMs`
@@ -644,9 +711,11 @@ Phase 4B / 5A の後に実施する。
 - resource index
   - file enumeration から canonical resource index が作られる。
   - native scan result から chart-relative resource key と reverse lookup surface が得られる。
+  - Everything API / service unavailable 時は managed scan result から同じ semantics の resource index が作られる。
+  - native bridge contract mismatch / header mismatch / missing fixed scan export は fallback せず失敗する。
   - install estimation / maintenance / file operations が canonical resource index で同じ結果になる。
   - duplicate index build が残っていないことを resource tests で確認する。
-  - `reverse_lookup_warmup_deferred` なしで導入先推定が同じ結果になる。
+  - `reverse_lookup_warmup_deferred` なしで導入先推定が動作する。
   - 複数 pending zip を別 batch のまま推定しても、destination reverse lookup の lazy build が batch ごとに発生しない。
 - chart-relative semantics
   - `foo.wav` と `sound/foo.wav` が別 key。

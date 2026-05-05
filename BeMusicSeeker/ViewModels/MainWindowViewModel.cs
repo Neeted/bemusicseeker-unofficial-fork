@@ -3962,8 +3962,7 @@ public class MainWindowViewModel : ViewModel
         LibraryDatabaseLoadDone = 8192,
         LibraryFileEnumerationDone = 16384,
         LibraryFileDiffDone = 32768,
-        InstallableMaintenanceDeferredDone = 65536,
-        ReverseLookupWarmupDone = 131072
+        InstallableMaintenanceDeferredDone = 65536
     }
 
     /// <summary>
@@ -4006,8 +4005,6 @@ public class MainWindowViewModel : ViewModel
 
         internal int InstallableMaintenanceRequestedBaselineVersion;
 
-        internal int ReverseLookupWarmupRequestedBaselineVersion;
-
         internal int ChartDigestBackfillBaselineCompletedVersion;
 
         internal int ChartInfoBackfillBaselineCompletedVersion;
@@ -4031,8 +4028,6 @@ public class MainWindowViewModel : ViewModel
         internal int RequiredMaintenanceCompletedVersion;
 
         internal int RequiredInstallableMaintenanceCompletedVersion;
-
-        internal int RequiredReverseLookupWarmupCompletedVersion;
 
         internal int RequiredChartDigestBackfillCompletedVersion;
 
@@ -9663,8 +9658,7 @@ public class MainWindowViewModel : ViewModel
             StartupProgressPhase.ScoreHydrationDone,
             StartupProgressPhase.RankingRefreshDone,
             StartupProgressPhase.MaintenanceDeferredDone,
-            StartupProgressPhase.InstallableMaintenanceDeferredDone,
-            StartupProgressPhase.ReverseLookupWarmupDone);
+            StartupProgressPhase.InstallableMaintenanceDeferredDone);
     }
 
     internal static string BuildBmsonMigrationWarningMessage(BmsonMigrationPreflightResult preflightResult)
@@ -10034,14 +10028,6 @@ public class MainWindowViewModel : ViewModel
         listenerForBMSLibrary.RegisterHandler(() => files.InstallableMaintenanceDeferredCompletedVersion, delegate
         {
             TryCompleteStartupProgressInstallableMaintenance(files.InstallableMaintenanceDeferredCompletedVersion);
-        });
-        listenerForBMSLibrary.RegisterHandler(() => files.ReverseLookupWarmupRequestedVersion, delegate
-        {
-            TrackStartupProgressReverseLookupWarmupRequested(files.ReverseLookupWarmupRequestedVersion);
-        });
-        listenerForBMSLibrary.RegisterHandler(() => files.ReverseLookupWarmupCompletedVersion, delegate
-        {
-            TryCompleteStartupProgressReverseLookupWarmup(files.ReverseLookupWarmupCompletedVersion);
         });
         listenerForBMSLibrary.RegisterHandler(() => files.ChartDigestBackfillRequestedVersion, delegate
         {
@@ -10448,8 +10434,7 @@ public class MainWindowViewModel : ViewModel
             StartupProgressPhase.ScoreHydrationDone,
             StartupProgressPhase.RankingRefreshDone,
             StartupProgressPhase.MaintenanceDeferredDone,
-            StartupProgressPhase.InstallableMaintenanceDeferredDone,
-            StartupProgressPhase.ReverseLookupWarmupDone);
+            StartupProgressPhase.InstallableMaintenanceDeferredDone);
     }
 
     public void SetuBMplayPanel()
@@ -13364,7 +13349,6 @@ public class MainWindowViewModel : ViewModel
             RankingRefreshRequestedBaselineVersion = files?.RankingRefreshRequestedVersion ?? 0,
             MaintenanceRequestedBaselineVersion = files?.MaintenanceHydrationRequestedVersion ?? 0,
             InstallableMaintenanceRequestedBaselineVersion = files?.InstallableMaintenanceDeferredRequestedVersion ?? 0,
-            ReverseLookupWarmupRequestedBaselineVersion = files?.ReverseLookupWarmupRequestedVersion ?? 0,
             ChartDigestBackfillBaselineCompletedVersion = files?.ChartDigestBackfillCompletedVersion ?? 0,
             ChartInfoBackfillBaselineCompletedVersion = files?.ChartInfoBackfillCompletedVersion ?? 0,
             ChartInfoHydrationBaselineCompletedVersion = files?.ChartInfoHydrationCompletedVersion ?? 0,
@@ -13415,8 +13399,7 @@ public class MainWindowViewModel : ViewModel
             startupProgressState.CompletedPhases |= phase;
             if (phase == StartupProgressPhase.RankingRefreshDone
                 || phase == StartupProgressPhase.MaintenanceDeferredDone
-                || phase == StartupProgressPhase.InstallableMaintenanceDeferredDone
-                || phase == StartupProgressPhase.ReverseLookupWarmupDone)
+                || phase == StartupProgressPhase.InstallableMaintenanceDeferredDone)
             {
                 startupProgressState.LastCompletedAtUtc = DateTime.UtcNow;
             }
@@ -13668,24 +13651,6 @@ public class MainWindowViewModel : ViewModel
             requestedVersion,
             "installable_maintenance_deferred",
             state => state.RequiredInstallableMaintenanceCompletedVersion = Math.Max(state.RequiredInstallableMaintenanceCompletedVersion, requestedVersion));
-    }
-
-    private void TrackStartupProgressReverseLookupWarmupRequested(int requestedVersion)
-    {
-        bool shouldTrack;
-        lock (startupProgressLock)
-        {
-            shouldTrack = startupProgressState.IsActive && requestedVersion > startupProgressState.ReverseLookupWarmupRequestedBaselineVersion;
-        }
-        if (!shouldTrack)
-        {
-            return;
-        }
-        TryTrackStartupProgressPhaseRequest(
-            StartupProgressPhase.ReverseLookupWarmupDone,
-            requestedVersion,
-            "reverse_lookup_warmup",
-            state => state.RequiredReverseLookupWarmupCompletedVersion = Math.Max(state.RequiredReverseLookupWarmupCompletedVersion, requestedVersion));
     }
 
     private void TrackStartupProgressScoreHydrationRequested(int requestedVersion)
@@ -14027,23 +13992,6 @@ public class MainWindowViewModel : ViewModel
         if (shouldComplete)
         {
             MarkStartupProgressPhaseCompleted(StartupProgressPhase.InstallableMaintenanceDeferredDone);
-        }
-    }
-
-    private void TryCompleteStartupProgressReverseLookupWarmup(int completedVersion)
-    {
-        bool shouldComplete = false;
-        lock (startupProgressLock)
-        {
-            if (!startupProgressState.IsActive || !CanCompleteStartupProgressPhase(startupProgressState, StartupProgressPhase.ReverseLookupWarmupDone))
-            {
-                return;
-            }
-            shouldComplete = completedVersion >= startupProgressState.RequiredReverseLookupWarmupCompletedVersion;
-        }
-        if (shouldComplete)
-        {
-            MarkStartupProgressPhaseCompleted(StartupProgressPhase.ReverseLookupWarmupDone);
         }
     }
 
@@ -14448,10 +14396,6 @@ public class MainWindowViewModel : ViewModel
         {
             return BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_installable_maintenance;
         }
-        if (!IsStartupProgressPhaseCompletedOrNotExpected(state, StartupProgressPhase.ReverseLookupWarmupDone))
-        {
-            return "逆引きインデックス準備";
-        }
         return BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_background;
     }
 
@@ -14547,7 +14491,6 @@ public class MainWindowViewModel : ViewModel
         CountExpectedStartupProgressPhase(state, StartupProgressPhase.ChartInfoBackfillDone, ref count);
         CountExpectedStartupProgressPhase(state, StartupProgressPhase.ScoreHydrationDone, ref count);
         CountExpectedStartupProgressPhase(state, StartupProgressPhase.RankingRefreshDone, ref count);
-        CountExpectedStartupProgressPhase(state, StartupProgressPhase.ReverseLookupWarmupDone, ref count);
         return count;
     }
 
@@ -14569,7 +14512,6 @@ public class MainWindowViewModel : ViewModel
                     | StartupProgressPhase.RankingRefreshDone
                     | StartupProgressPhase.MaintenanceDeferredDone
                     | StartupProgressPhase.InstallableMaintenanceDeferredDone
-                    | StartupProgressPhase.ReverseLookupWarmupDone
                     | StartupProgressPhase.ChartDigestBackfillDone
                     | StartupProgressPhase.ChartInfoBackfillDone
                     | StartupProgressPhase.ChartInfoHydrationDone
@@ -14585,7 +14527,6 @@ public class MainWindowViewModel : ViewModel
                     | StartupProgressPhase.RankingRefreshDone
                     | StartupProgressPhase.MaintenanceDeferredDone
                     | StartupProgressPhase.InstallableMaintenanceDeferredDone
-                    | StartupProgressPhase.ReverseLookupWarmupDone
                     | StartupProgressPhase.ChartDigestBackfillDone
                     | StartupProgressPhase.ChartInfoBackfillDone
                     | StartupProgressPhase.ChartInfoHydrationDone
@@ -14628,7 +14569,6 @@ public class MainWindowViewModel : ViewModel
         CountCompletedExpectedStartupProgressPhase(state, StartupProgressPhase.ChartInfoBackfillDone, ref count);
         CountCompletedExpectedStartupProgressPhase(state, StartupProgressPhase.ScoreHydrationDone, ref count);
         CountCompletedExpectedStartupProgressPhase(state, StartupProgressPhase.RankingRefreshDone, ref count);
-        CountCompletedExpectedStartupProgressPhase(state, StartupProgressPhase.ReverseLookupWarmupDone, ref count);
         return count;
     }
 
@@ -14778,7 +14718,6 @@ public class MainWindowViewModel : ViewModel
         CountStartupProgressPhase(phases, StartupProgressPhase.ChartInfoBackfillDone, ref count);
         CountStartupProgressPhase(phases, StartupProgressPhase.ScoreHydrationDone, ref count);
         CountStartupProgressPhase(phases, StartupProgressPhase.RankingRefreshDone, ref count);
-        CountStartupProgressPhase(phases, StartupProgressPhase.ReverseLookupWarmupDone, ref count);
         return count;
     }
 

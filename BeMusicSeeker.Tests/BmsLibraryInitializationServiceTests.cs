@@ -1329,9 +1329,9 @@ public sealed class BmsLibraryInitializationServiceTests
             };
             keepFile.SetHash(BMSFile.CreateBMSFileFromFile(chartPath).hash);
 
-            uint audioBaseHash = BMSDirectoryFileNameHash.GetFileNameHash("sound.wav");
-            uint imageBaseHash = BMSDirectoryFileNameHash.GetFileNameHash("bg.png");
-            uint audioRelativeHash = BMSDirectoryFileNameHash.GetLookupHash("sound\\sound.wav");
+            uint audioBaseHash = BMSDirectoryFileNameHash.GetLookupHash("sound\\sound");
+            uint imageBaseHash = BMSDirectoryFileNameHash.GetLookupHash("bg");
+            uint audioRelativeHash = audioBaseHash;
             uint[] allBaseHashes = new[] { audioBaseHash, imageBaseHash };
 
             BmsLibraryInitializationService service = new BmsLibraryInitializationService();
@@ -1391,10 +1391,7 @@ public sealed class BmsLibraryInitializationServiceTests
             Assert.IsTrue(entry.ImageBaseNameHashes.Contains(imageBaseHash));
             Assert.IsTrue(entry.AudioRelativePathHashes.Contains(audioRelativeHash));
             DirectoryRelativePathHashIndex.Entry? relativePathEntry = result.NextDirectoryRelativePathHashIndex?.GetEntryOrNull(chartDirectoryPath);
-            Assert.IsNotNull(relativePathEntry);
-            DirectoryRelativePathHashIndex.Entry actualRelativePathEntry = relativePathEntry!;
-            Assert.IsTrue(actualRelativePathEntry.AudioBaseNameHashes.Contains(audioBaseHash));
-            Assert.IsTrue(actualRelativePathEntry.AudioRelativePathHashes.Contains(audioRelativeHash));
+            Assert.IsNull(relativePathEntry);
             Assert.AreEqual((ulong)2, result.AllBaseHashEntryCount);
             Assert.AreEqual((ulong)1, result.AudioBaseHashEntryCount);
             Assert.AreEqual((ulong)1, result.ImageBaseHashEntryCount);

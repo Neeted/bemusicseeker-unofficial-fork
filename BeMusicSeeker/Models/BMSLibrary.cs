@@ -157,11 +157,7 @@ public class BMSLibrary : NotificationObject
 
     private static readonly Logger installPerformanceLogger = LogManager.GetLogger("InstallPerformance.BMSLibrary");
 
-    private static readonly Logger everythingVerifyLogger = LogManager.GetLogger("Verify.Everything");
-
     private static readonly bool installPerformanceLoggingEnabled = CommandLineSwitches.IsInfoLoggingEnabled;
-
-    private static readonly bool everythingVerifyEnabled = CommandLineSwitches.IsEverythingVerifyEnabled;
 
     private static readonly bool everythingScanLoggingEnabled = installPerformanceLoggingEnabled;
 
@@ -214,17 +210,6 @@ public class BMSLibrary : NotificationObject
         if (everythingScanLoggingEnabled)
         {
             installPerformanceLogger.Info(message);
-        }
-    }
-
-    /// <summary>
-    /// Everything 検証ログを出力します。検証ロギングが有効な場合のみ動作します。
-    /// </summary>
-    private static void LogEverythingVerify(string message)
-    {
-        if (everythingVerifyEnabled)
-        {
-            everythingVerifyLogger.Info(message);
         }
     }
 
@@ -858,14 +843,6 @@ public class BMSLibrary : NotificationObject
 
     private int deferredRankingRefreshLastCompletedVersion;
 
-    private readonly object lockDeferredReverseLookupWarmup = new object();
-
-    private int deferredReverseLookupWarmupRequestedVersion;
-
-    private bool deferredReverseLookupWarmupRunning;
-
-    private int deferredReverseLookupWarmupLastCompletedVersion;
-
     private readonly object lockPendingEstimateQueueStatus = new object();
 
     private readonly object lockInstallEstimationProgress = new object();
@@ -1007,10 +984,6 @@ public class BMSLibrary : NotificationObject
     private const int deferredScoreHydrationChunkSize = 4096;
 
     private const int deferredScoreHydrationChunkSlowLogThresholdMs = 500;
-
-    private const int reverseLookupWarmupChunkEntryCount = 1024;
-
-    private const int reverseLookupWarmupChunkCpuBudgetMs = 250;
 
     private static Regex customTrimStartRegex1 = new Regex("^(\\d+(S|D)P|midi|bms|music)[.:・\\s]+", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
@@ -1637,54 +1610,6 @@ public class BMSLibrary : NotificationObject
             {
                 deferredMaintenanceHydrationLastCompletedVersion = value;
                 RaisePropertyChanged(() => MaintenanceHydrationCompletedVersion);
-            }
-        }
-    }
-
-    public bool ReverseLookupWarmupRunning
-    {
-        get
-        {
-            return deferredReverseLookupWarmupRunning;
-        }
-        private set
-        {
-            if (deferredReverseLookupWarmupRunning != value)
-            {
-                deferredReverseLookupWarmupRunning = value;
-                RaisePropertyChanged(() => ReverseLookupWarmupRunning);
-            }
-        }
-    }
-
-    public int ReverseLookupWarmupRequestedVersion
-    {
-        get
-        {
-            return deferredReverseLookupWarmupRequestedVersion;
-        }
-        private set
-        {
-            if (deferredReverseLookupWarmupRequestedVersion != value)
-            {
-                deferredReverseLookupWarmupRequestedVersion = value;
-                RaisePropertyChanged(() => ReverseLookupWarmupRequestedVersion);
-            }
-        }
-    }
-
-    public int ReverseLookupWarmupCompletedVersion
-    {
-        get
-        {
-            return deferredReverseLookupWarmupLastCompletedVersion;
-        }
-        private set
-        {
-            if (deferredReverseLookupWarmupLastCompletedVersion != value)
-            {
-                deferredReverseLookupWarmupLastCompletedVersion = value;
-                RaisePropertyChanged(() => ReverseLookupWarmupCompletedVersion);
             }
         }
     }
@@ -2725,7 +2650,6 @@ public class BMSLibrary : NotificationObject
         {
             RunPendingEstimateExclusive(delegate
             {
-                PreparePendingInstallEstimateBatchDemandBuildCore(request, source, token);
                 SetInstallEstimationProgress(ToInstallEstimationProgressSource(request.Source), request.PackageCount, 0, request.DisplayName ?? string.Empty);
                 PendingInstallEstimateEvaluationContext evaluationContext = CreatePendingInstallEstimateEvaluationContext();
                 List<PendingInstallEstimateEvaluationRequest> evaluationRequests = PreparePendingInstallEstimateEvaluationRequests(request);
@@ -2751,81 +2675,6 @@ public class BMSLibrary : NotificationObject
         {
             ClearInstallEstimationProgress();
         }
-    }
-
-    private void PreparePendingInstallEstimateBatchDemandBuild(PendingInstallEstimateBatchRequest request, string source, CancellationToken token)
-    {
-        if (request == null || request.PackageCount == 0 || token.IsCancellationRequested)
-        {
-            return;
-        }
-
-        RunPendingEstimateExclusive(delegate
-        {
-            PreparePendingInstallEstimateBatchDemandBuildCore(request, source, token);
-        });
-    }
-
-    private void PreparePendingInstallEstimateBatchDemandBuildCore(PendingInstallEstimateBatchRequest request, string source, CancellationToken token)
-    {
-        if (request == null || request.PackageCount == 0 || token.IsCancellationRequested)
-        {
-            return;
-        }
-
-        HashSet<uint> targetHashes = new HashSet<uint>();
-        DirectoryResourceLookupCache directoryLookupCacheSnapshot;
-        long lazyHashBuildMsBefore;
-        int lazyHashCacheEntriesBefore;
-
-        if (request.BatchSourceSnapshot?.UnionTargetHashes != null)
-        {
-            targetHashes.UnionWith(request.BatchSourceSnapshot.UnionTargetHashes);
-        }
-
-        using (rwlockBMSFilesInitializedAll.GetReaderGuard())
-        {
-            using (rwlockBMSFilesPendingInstall.GetReaderGuard())
-            {
-                using (rwlockBMSFiles.GetReaderGuard())
-                {
-                    directoryLookupCacheSnapshot = directoryResourceLookupCache;
-                    if (targetHashes.Count == 0)
-                    {
-                        BmsLibraryInstallEstimationService installEstimationService = CreateInstallEstimationService();
-
-                        foreach (BMSPackage package in request.Packages.Where((BMSPackage package) => package != null))
-                        {
-                            List<BMSFile> packageFiles = (package.BMSFiles ?? new List<BMSFile>()).Where((BMSFile file) => file != null).ToList();
-                            if (packageFiles.Count == 0)
-                            {
-                                continue;
-                            }
-                            List<BMSFile> missingFiles = packageFiles.Where((BMSFile file) => !ContainsInstalledChartUnsafe(file)).ToList();
-                            if (missingFiles.Count == 0)
-                            {
-                                continue;
-                            }
-                            targetHashes.UnionWith(installEstimationService.CollectTargetResourceHashes(package.GetOrBuildInstallEstimationSnapshot(missingFiles)));
-                        }
-                    }
-
-                    lazyHashBuildMsBefore = directoryLookupCacheSnapshot?.LazyHashBuildMs ?? 0L;
-                    lazyHashCacheEntriesBefore = directoryLookupCacheSnapshot?.LazyHashCacheEntryCount ?? 0;
-                }
-            }
-        }
-
-        if (directoryLookupCacheSnapshot == null || targetHashes.Count == 0)
-        {
-            LogInstallPerformance("pending_estimate_batch demand_build source=" + source + " packages=" + request.PackageCount + " estimablePackages=" + request.PackageCount + " deferredPackages=" + request.DeferredPackageCount + " targetHashes=" + targetHashes.Count + " builtMs=0 entriesAdded=0");
-            return;
-        }
-
-        directoryLookupCacheSnapshot.EnsureDirectoriesByHashes(targetHashes);
-        long lazyHashBuildMsAfter = directoryLookupCacheSnapshot.LazyHashBuildMs;
-        int lazyHashCacheEntriesAfter = directoryLookupCacheSnapshot.LazyHashCacheEntryCount;
-        LogInstallPerformance("pending_estimate_batch demand_build source=" + source + " packages=" + request.PackageCount + " estimablePackages=" + request.PackageCount + " deferredPackages=" + request.DeferredPackageCount + " targetHashes=" + targetHashes.Count + " builtMs=" + (lazyHashBuildMsAfter - lazyHashBuildMsBefore) + " entriesAdded=" + (lazyHashCacheEntriesAfter - lazyHashCacheEntriesBefore));
     }
 
     private PendingInstallEstimateEvaluationContext CreatePendingInstallEstimateEvaluationContext()
@@ -3335,8 +3184,6 @@ public class BMSLibrary : NotificationObject
                 ChartResources = ChartResourceSnapshot.CreateAggregate(missingFiles),
                 EstimateMode = BmsInstallationEstimateMode.Normal
             };
-            state.TargetResourceHashes = installEstimationService.CollectTargetResourceHashes(state.ChartResources);
-
             if (state.AttemptInstalledResolve)
             {
                 state.PreparationInstalledResolution = installEstimationService.TryResolveInstalledDestinationFromPackage(package, missingFiles, installedDirectoryIndexSnapshot, bmsFolderAllFileList);
@@ -3708,44 +3555,49 @@ public class BMSLibrary : NotificationObject
     }
 
     /// <summary>
-    /// Everything ファイルスキャナーで走査を試み、失敗時にはディレクトリ形式のフォールバックスキャナーを使用します。
+    /// native bridge を優先し、Everything API が使えない場合は managed scan で BMS ファイルを走査します。
     /// </summary>
-    private BmsScanExecutionResult ExecuteBmsScanWithFallback(List<string> bmsDirectories, Action<string> reportScanner = null)
+    private BmsScanExecutionResult ExecuteBmsScanWithManagedFallback(List<string> bmsDirectories, Action<string> reportScanner = null)
     {
-        IBmsFileScanner fallbackScanner = new FastDirectoryFileScanner();
         IBmsFileScanner scanner = new EverythingFileScanner();
-        reportScanner?.Invoke("Everything");
+        reportScanner?.Invoke("Native");
         BmsScanExecutionResult scanResult = scanner.Scan(bmsDirectories, ChartDirectoryScanBuilder.ChartExtensions, everythingScanLoggingEnabled);
-        if (!scanResult.Success || scanResult.Result == null)
+        if (scanResult.Success && scanResult.Result != null)
         {
-            LogEverythingScan("BMS file scan fallback reason=" + (scanResult?.ErrorReason ?? "unknown"));
-            reportScanner?.Invoke("Fallback");
-            scanResult = fallbackScanner.Scan(bmsDirectories, ChartDirectoryScanBuilder.ChartExtensions, everythingScanLoggingEnabled);
+            return scanResult;
         }
-        if (scanResult?.Result == null)
+
+        string nativeFailureReason = scanResult?.ErrorReason ?? "unknown";
+        if (IsNativeBridgeContractFailure(nativeFailureReason))
         {
-            throw new InvalidOperationException("BMS file scan failed");
+            LogEverythingScan("BMS native file scan failed reason=" + nativeFailureReason);
+            throw new InvalidOperationException("BMS native file scan failed: " + nativeFailureReason);
         }
-        if (everythingVerifyEnabled)
+
+        LogEverythingScan("BMS native file scan unavailable reason=" + nativeFailureReason + " fallback=managed");
+        reportScanner?.Invoke("Fallback");
+        BmsScanExecutionResult fallbackResult = new FastDirectoryFileScanner().Scan(bmsDirectories, ChartDirectoryScanBuilder.ChartExtensions, everythingScanLoggingEnabled);
+        if (!fallbackResult.Success || fallbackResult.Result == null)
         {
-            Stopwatch stopwatchVerify = Stopwatch.StartNew();
-            BmsScanExecutionResult fastScanResult = fallbackScanner.Scan(bmsDirectories, ChartDirectoryScanBuilder.ChartExtensions, everythingVerifyEnabled);
-            stopwatchVerify.Stop();
-            if (fastScanResult.Success && fastScanResult.Result != null)
-            {
-                BmsScanDiffReport report = BmsScanResultComparer.Compare(scanResult.Result, fastScanResult.Result);
-                LogEverythingVerify("everything_verify comparedMs=" + stopwatchVerify.ElapsedMilliseconds + " chartDiff=" + report.ChartPathDiffCount + " dirDiff=" + report.ChartDirectoryDiffCount + " hashDiff=" + report.CategoryHashDiffCount + " match=" + report.IsMatch.ToString().ToLowerInvariant());
-                foreach (string sample in report.Samples.Take(10))
-                {
-                    LogEverythingVerify("everything_verify sample " + sample);
-                }
-            }
-            else
-            {
-                LogEverythingVerify("everything_verify fast_scan_failed reason=" + (fastScanResult?.ErrorReason ?? "unknown"));
-            }
+            string fallbackFailureReason = fallbackResult?.ErrorReason ?? "unknown";
+            LogEverythingScan("BMS fallback file scan failed nativeReason=" + nativeFailureReason + " fallbackReason=" + fallbackFailureReason);
+            throw new InvalidOperationException("BMS fallback file scan failed: " + fallbackFailureReason + " (native: " + nativeFailureReason + ")");
         }
-        return scanResult;
+        LogEverythingScan("BMS fallback file scan succeeded nativeReason=" + nativeFailureReason + " charts=" + fallbackResult.Result.ChartFilePaths.Count + " dirs=" + fallbackResult.Result.ChartDirectories.Count);
+        return fallbackResult;
+    }
+
+    private static bool IsNativeBridgeContractFailure(string reason)
+    {
+        if (string.IsNullOrWhiteSpace(reason))
+        {
+            return false;
+        }
+        return reason.StartsWith("bridge_contract_mismatch:", StringComparison.OrdinalIgnoreCase)
+            || reason.StartsWith("bridge_header_size_mismatch:", StringComparison.OrdinalIgnoreCase)
+            || reason.StartsWith("bridge_fixed_scan_export_missing", StringComparison.OrdinalIgnoreCase)
+            || reason.StartsWith("bridge_dll_not_found:", StringComparison.OrdinalIgnoreCase)
+            || reason.StartsWith("bridge_dll_load_failed:", StringComparison.OrdinalIgnoreCase);
     }
 
     public void Initialize(List<Action> tasksContinuation, SemaphoreSlim semaphore = null, bool? reloadScoresOnly = null)
@@ -3798,7 +3650,7 @@ public class BMSLibrary : NotificationObject
                 bmsScanPrefetchTask = Task.Run(delegate
                 {
                     Stopwatch stopwatchPrefetch = Stopwatch.StartNew();
-                    BmsScanExecutionResult scanResult = ExecuteBmsScanWithFallback(
+                    BmsScanExecutionResult scanResult = ExecuteBmsScanWithManagedFallback(
                         prefetchDirectories,
                         scannerLabel => ReportLibraryInitializationProgress(
                             LibraryInitializationProgressStage.FileEnumeration,
@@ -3948,7 +3800,6 @@ public class BMSLibrary : NotificationObject
             LogInstallPerformance("startup_install_ready elapsedMs=" + installableElapsedMs
                 + " pendingPackages=" + pendingPackageCount);
         }
-        QueueDeferredReverseLookupWarmup(deferredMaintenanceReason);
         TimeSpan timeSpan2 = DateTime.Now - now;
         NLogWrapper.DebuggerLogger?.Trace(timeSpan2.ToString());
         bool chartInfoHydrationScheduled = false;
@@ -4251,7 +4102,7 @@ public class BMSLibrary : NotificationObject
             BMSFiles,
             bmsScanPrefetchInfo?.ScanResult,
             bmsScanPrefetchInfo?.ElapsedMs ?? 0L,
-            () => ExecuteBmsScanWithFallback(
+            () => ExecuteBmsScanWithManagedFallback(
                 bmsDirectories,
                 scannerLabel =>
                 {
@@ -5572,174 +5423,6 @@ public class BMSLibrary : NotificationObject
             + " cancelledWarmup=" + mutationResult.CancelledWarmup
             + " fullMaintained=" + mutationResult.MaintainedFullReverseLookup
             + " requiresWarmup=" + mutationResult.RequiresDeferredWarmup);
-
-        if (mutationResult.RequiresDeferredWarmup)
-        {
-            QueueDeferredReverseLookupWarmup(sourceReason);
-            return;
-        }
-
-        LogInstallPerformance("reverse_lookup_warmup_deferred skip reason=incremental_maintained"
-            + " sourceReason=" + sourceReason
-            + " addedDirs=" + mutationResult.AddedDirectoryCount
-            + " removedDirs=" + mutationResult.RemovedDirectoryCount
-            + " replacedDirs=" + mutationResult.ReplacedDirectoryCount
-            + " updatedHashes=" + mutationResult.UpdatedHashCount);
-    }
-
-    private void QueueDeferredReverseLookupWarmup(string reason)
-    {
-        DirectoryResourceLookupCache lookupCacheSnapshot;
-        using (rwlockBMSFiles.GetReaderGuard())
-        {
-            lookupCacheSnapshot = directoryResourceLookupCache;
-        }
-        if (lookupCacheSnapshot == null || lookupCacheSnapshot.IsFullReverseLookupBuilt)
-        {
-            LogInstallPerformance("reverse_lookup_warmup_deferred skip reason=" + (lookupCacheSnapshot == null ? "no_cache" : "already_warm")
-                + " sourceReason=" + (reason ?? "unknown"));
-            return;
-        }
-        int version;
-        bool shouldStartWorker = false;
-        lock (lockDeferredReverseLookupWarmup)
-        {
-            ReverseLookupWarmupRequestedVersion = ReverseLookupWarmupRequestedVersion + 1;
-            version = ReverseLookupWarmupRequestedVersion;
-            if (!ReverseLookupWarmupRunning)
-            {
-                ReverseLookupWarmupRunning = true;
-                shouldStartWorker = true;
-            }
-        }
-        LogInstallPerformance("reverse_lookup_warmup_deferred queue reason=" + (reason ?? "unknown") + " version=" + version);
-        ReportStartupBackgroundTask("reverse_lookup_warmup_deferred", "queued", 0L, failed: false, detail: reason ?? string.Empty);
-        if (!shouldStartWorker)
-        {
-            return;
-        }
-        Task.Run(ProcessDeferredReverseLookupWarmupRequests).Logging("ProcessDeferredReverseLookupWarmupRequests");
-    }
-
-    private async Task ProcessDeferredReverseLookupWarmupRequests()
-    {
-        while (true)
-        {
-            int requestVersion;
-            lock (lockDeferredReverseLookupWarmup)
-            {
-                requestVersion = ReverseLookupWarmupRequestedVersion;
-            }
-
-            Stopwatch stopwatch = Stopwatch.StartNew();
-            bool superseded = false;
-            ReportStartupBackgroundTask("reverse_lookup_warmup_deferred", "start", 0L, failed: false, detail: "version=" + requestVersion);
-            try
-            {
-                DirectoryResourceLookupCache lookupCacheSnapshot;
-                using (rwlockBMSFiles.GetReaderGuard())
-                {
-                    lookupCacheSnapshot = directoryResourceLookupCache;
-                }
-                if (lookupCacheSnapshot == null)
-                {
-                    stopwatch.Stop();
-                    LogInstallPerformance("reverse_lookup_warmup_deferred done version=" + requestVersion + " warmedHashes=0 elapsedMs=" + stopwatch.ElapsedMilliseconds);
-                    ReportStartupBackgroundTask("reverse_lookup_warmup_deferred", "done", stopwatch.ElapsedMilliseconds, failed: false, detail: "warmedHashes=0");
-                }
-                else
-                {
-                    int warmupVersion = lookupCacheSnapshot.WarmupVersion;
-                    int totalEntries = lookupCacheSnapshot.PrepareWarmupState();
-                    LogInstallPerformance("reverse_lookup_warmup_deferred run version=" + requestVersion + " totalEntries=" + totalEntries + " warmupVersion=" + warmupVersion);
-                    int warmedHashes = 0;
-                    long totalBuildMs = 0L;
-                    while (true)
-                    {
-                        await WaitForUiIdleAsync().ConfigureAwait(false);
-
-                        lock (lockDeferredReverseLookupWarmup)
-                        {
-                            if (requestVersion != ReverseLookupWarmupRequestedVersion)
-                            {
-                                superseded = true;
-                            }
-                        }
-                        if (superseded)
-                        {
-                            stopwatch.Stop();
-                            LogInstallPerformance("reverse_lookup_warmup_deferred cancelled version=" + requestVersion + " totalBuildMs=" + totalBuildMs + " elapsedMs=" + stopwatch.ElapsedMilliseconds + " reason=superseded");
-                            ReportStartupBackgroundTask("reverse_lookup_warmup_deferred", "cancelled", stopwatch.ElapsedMilliseconds, failed: false, detail: "reason=superseded totalBuildMs=" + totalBuildMs);
-                            break;
-                        }
-
-                        DirectoryResourceLookupCache currentLookupCache;
-                        using (rwlockBMSFiles.GetReaderGuard())
-                        {
-                            currentLookupCache = directoryResourceLookupCache;
-                        }
-                        if (!object.ReferenceEquals(lookupCacheSnapshot, currentLookupCache) || lookupCacheSnapshot.WarmupVersion != warmupVersion)
-                        {
-                            stopwatch.Stop();
-                            LogInstallPerformance("reverse_lookup_warmup_deferred cancelled version=" + requestVersion + " totalBuildMs=" + totalBuildMs + " elapsedMs=" + stopwatch.ElapsedMilliseconds + " reason=cache_replaced");
-                            ReportStartupBackgroundTask("reverse_lookup_warmup_deferred", "cancelled", stopwatch.ElapsedMilliseconds, failed: false, detail: "reason=cache_replaced totalBuildMs=" + totalBuildMs);
-                            break;
-                        }
-
-                        DirectoryResourceLookupCache.ReverseLookupWarmupStepResult stepResult = lookupCacheSnapshot.WarmupReverseLookupStep(
-                            reverseLookupWarmupChunkEntryCount,
-                            reverseLookupWarmupChunkCpuBudgetMs,
-                            CancellationToken.None);
-                        if (stepResult.Cancelled)
-                        {
-                            stopwatch.Stop();
-                            LogInstallPerformance("reverse_lookup_warmup_deferred cancelled version=" + requestVersion + " totalBuildMs=" + totalBuildMs + " elapsedMs=" + stopwatch.ElapsedMilliseconds + " reason=token");
-                            ReportStartupBackgroundTask("reverse_lookup_warmup_deferred", "cancelled", stopwatch.ElapsedMilliseconds, failed: false, detail: "reason=token totalBuildMs=" + totalBuildMs);
-                            break;
-                        }
-                        if (stepResult.Paused)
-                        {
-                            continue;
-                        }
-                        if (stepResult.ChunkEntryCount > 0)
-                        {
-                            warmedHashes = stepResult.BuiltHashCount;
-                            totalBuildMs = stepResult.TotalBuildMs;
-                            LogInstallPerformance("reverse_lookup_warmup_chunk version=" + requestVersion
-                                + " chunkEntries=" + stepResult.ChunkEntryCount
-                                + " processedEntries=" + stepResult.ProcessedEntryCount
-                                + " chunkBuildMs=" + stepResult.ChunkBuildMs
-                                + " totalBuildMs=" + stepResult.TotalBuildMs
-                                + " elapsedMs=" + stopwatch.ElapsedMilliseconds
-                                + " totalEntries=" + stepResult.TotalEntryCount);
-                        }
-                        if (stepResult.Completed)
-                        {
-                            stopwatch.Stop();
-                            LogInstallPerformance("reverse_lookup_warmup_deferred done version=" + requestVersion + " warmedHashes=" + warmedHashes + " totalBuildMs=" + totalBuildMs + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
-                            ReportStartupBackgroundTask("reverse_lookup_warmup_deferred", "done", stopwatch.ElapsedMilliseconds, failed: false, detail: "warmedHashes=" + warmedHashes + " totalBuildMs=" + totalBuildMs);
-                            break;
-                        }
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                stopwatch.Stop();
-                LogInstallPerformance("reverse_lookup_warmup_deferred failed version=" + requestVersion + " elapsedMs=" + stopwatch.ElapsedMilliseconds + " message=" + ex.Message);
-                ReportStartupBackgroundTask("reverse_lookup_warmup_deferred", "failed", stopwatch.ElapsedMilliseconds, failed: true, detail: ex.Message);
-            }
-
-            lock (lockDeferredReverseLookupWarmup)
-            {
-                ReverseLookupWarmupCompletedVersion = requestVersion;
-                if (requestVersion == ReverseLookupWarmupRequestedVersion)
-                {
-                    ReverseLookupWarmupRunning = false;
-                    return;
-                }
-            }
-        }
     }
 
     private static async Task WaitForUiIdleAsync()
@@ -7568,7 +7251,7 @@ public class BMSLibrary : NotificationObject
         {
             LogInstallPerformance("package_surface_build backend=" + (estimationData.SourceSurfaceScanBackend ?? string.Empty) + " trackedFileCount=" + estimationData.SourceSurfaceTrackedFileCount + " chartFileCount=" + estimationData.SourceSurfaceChartFileCount + " resourceFileCount=" + estimationData.SourceSurfaceResourceFileCount + " scanMs=" + estimationData.SourceSurfaceScanMs + " hashMaterializeMs=" + estimationData.SourceSurfaceHashMaterializeMs);
         }
-        LogInstallPerformance("estimate_install start chartCount=" + estimationData.ChartCount + " targetHashes=" + result.TargetResourceHashCount + " targetResources=" + result.TargetResourceCount + " pathAwareRefs=" + result.TargetPathAwareHashCount + " pathAwareAudioRefs=" + result.TargetPathAwareAudioHashCount + " pathAwareVisualRefs=" + result.TargetPathAwareVisualHashCount + " pathAwareMovieRefs=" + result.TargetPathAwareMovieHashCount + " pathAwareOptionalRefs=" + result.TargetPathAwareOptionalImageHashCount + " bundledAudioCount=" + result.BundledAudioCount + " bundledImageCount=" + result.BundledImageCount + " bundledMovieCount=" + result.BundledMovieCount + " evalMode=" + (result.FinalEvaluationMode == InstallEstimationFinalEvaluationMode.BasenameOnlyFastPath ? "basename_fast_path" : "relative_strict") + " candidateMode=" + (result.CandidateMode ?? string.Empty) + " coarseFilterMode=" + (result.CoarseFilterMode ?? string.Empty) + " candidateDegree=" + result.CandidateEvaluationDegree + " audioRefs=" + result.AudioReferenceCount + " visualRefs=" + result.VisualReferenceCount + " movieRefs=" + result.MovieReferenceCount + " optionalRefs=" + result.OptionalImageReferenceCount + " audioMinMatchRequired=" + result.AudioMinimumMatchRequired + " candidateDirsBefore=" + result.CandidateDirectoryCountBeforeHashFilter + " candidateDirsAfterBroadFilter=" + result.CandidateDirectoryCountAfterBroadFilter + " candidateDirsAfterAudioGate=" + result.CandidateDirectoryCountAfterAudioGate + " candidateDirsInHierarchy=" + result.HierarchyCandidateDirectoryCount + " shadowSuppressed=" + result.AncestorShadowSuppressedCount + " lazySelfOwnedCandidates=" + result.LazySelfOwnedEvaluationCount + " shadowMs=" + result.AncestorShadowEvaluationMs + " candidateViewBuildMs=" + result.CandidateViewBuildMs + " candidateMatchMs=" + result.CandidateMatchMs + " candidateViewBuildCount=" + result.CandidateViewBuildCount + " candidateViewFallbackCount=" + result.CandidateViewFallbackCount + " sourceSurfaceScanMs=" + estimationData.SourceSurfaceScanMs + " sourceSurfaceChartFileCount=" + estimationData.SourceSurfaceChartFileCount + " sourceSurfaceResourceFileCount=" + estimationData.SourceSurfaceResourceFileCount + " sourceSurfaceTrackedFileCount=" + estimationData.SourceSurfaceTrackedFileCount + " sourceSurfaceHashMaterializeMs=" + estimationData.SourceSurfaceHashMaterializeMs + " sourceSurfaceCacheHit=" + estimationData.SourceSurfaceCacheHit.ToString().ToLowerInvariant() + " sourceSurfaceBatchHit=" + estimationData.SourceSurfaceBatchHit.ToString().ToLowerInvariant() + " sourceSurfaceScanBackend=" + (estimationData.SourceSurfaceScanBackend ?? string.Empty) + " candidateDirsAfter=" + result.CandidateDirectoryCountAfterHashFilter + " candidateDirs=" + result.CandidateDirectoryCount + " evaluationMs=" + result.EvaluationMs + " fallback=" + result.UsedFallbackCandidateExpansion + " confidence=" + result.Confidence + " autoApplied=" + result.ShouldAutoApplyDestination + " confidenceReason=" + (result.ConfidenceReason ?? string.Empty) + " lazyHashBuildMsDelta=" + estimationData.LazyHashBuildMsDelta + " lazyHashEntriesAdded=" + estimationData.LazyHashEntriesAdded + " lazyHashLookupCountDelta=" + estimationData.LazyHashLookupCountDelta + " lazyHashBuildReason=" + (estimationData.LazyHashBuildReason ?? string.Empty) + " summary=" + (result.ResourceSummary ?? string.Empty));
+        LogInstallPerformance("estimate_install start chartCount=" + estimationData.ChartCount + " targetHashes=" + result.TargetResourceHashCount + " targetResources=" + result.TargetResourceCount + " pathAwareRefs=" + result.TargetPathAwareHashCount + " pathAwareAudioRefs=" + result.TargetPathAwareAudioHashCount + " pathAwareVisualRefs=" + result.TargetPathAwareVisualHashCount + " pathAwareMovieRefs=" + result.TargetPathAwareMovieHashCount + " pathAwareOptionalRefs=" + result.TargetPathAwareOptionalImageHashCount + " bundledAudioCount=" + result.BundledAudioCount + " bundledImageCount=" + result.BundledImageCount + " bundledMovieCount=" + result.BundledMovieCount + " evalMode=relative_strict candidateMode=" + (result.CandidateMode ?? string.Empty) + " coarseFilterMode=" + (result.CoarseFilterMode ?? string.Empty) + " candidateDegree=" + result.CandidateEvaluationDegree + " audioRefs=" + result.AudioReferenceCount + " visualRefs=" + result.VisualReferenceCount + " movieRefs=" + result.MovieReferenceCount + " optionalRefs=" + result.OptionalImageReferenceCount + " audioMinMatchRequired=" + result.AudioMinimumMatchRequired + " candidateDirsBefore=" + result.CandidateDirectoryCountBeforeHashFilter + " candidateDirsAfterBroadFilter=" + result.CandidateDirectoryCountAfterBroadFilter + " candidateDirsAfterAudioGate=" + result.CandidateDirectoryCountAfterAudioGate + " candidateDirsInHierarchy=" + result.HierarchyCandidateDirectoryCount + " shadowSuppressed=" + result.AncestorShadowSuppressedCount + " lazySelfOwnedCandidates=" + result.LazySelfOwnedEvaluationCount + " shadowMs=" + result.AncestorShadowEvaluationMs + " candidateViewBuildMs=" + result.CandidateViewBuildMs + " candidateMatchMs=" + result.CandidateMatchMs + " candidateViewBuildCount=" + result.CandidateViewBuildCount + " candidateViewFallbackCount=" + result.CandidateViewFallbackCount + " sourceSurfaceScanMs=" + estimationData.SourceSurfaceScanMs + " sourceSurfaceChartFileCount=" + estimationData.SourceSurfaceChartFileCount + " sourceSurfaceResourceFileCount=" + estimationData.SourceSurfaceResourceFileCount + " sourceSurfaceTrackedFileCount=" + estimationData.SourceSurfaceTrackedFileCount + " sourceSurfaceHashMaterializeMs=" + estimationData.SourceSurfaceHashMaterializeMs + " sourceSurfaceCacheHit=" + estimationData.SourceSurfaceCacheHit.ToString().ToLowerInvariant() + " sourceSurfaceBatchHit=" + estimationData.SourceSurfaceBatchHit.ToString().ToLowerInvariant() + " sourceSurfaceScanBackend=" + (estimationData.SourceSurfaceScanBackend ?? string.Empty) + " candidateDirsAfter=" + result.CandidateDirectoryCountAfterHashFilter + " candidateDirs=" + result.CandidateDirectoryCount + " evaluationMs=" + result.EvaluationMs + " fallback=" + result.UsedFallbackCandidateExpansion + " confidence=" + result.Confidence + " autoApplied=" + result.ShouldAutoApplyDestination + " confidenceReason=" + (result.ConfidenceReason ?? string.Empty) + " lazyHashBuildMsDelta=" + estimationData.LazyHashBuildMsDelta + " lazyHashEntriesAdded=" + estimationData.LazyHashEntriesAdded + " lazyHashLookupCountDelta=" + estimationData.LazyHashLookupCountDelta + " lazyHashBuildReason=" + (estimationData.LazyHashBuildReason ?? string.Empty) + " summary=" + (result.ResourceSummary ?? string.Empty));
         if (!string.IsNullOrWhiteSpace(result.TopCandidateSummary))
         {
             LogInstallPerformance("estimate_install candidates " + result.TopCandidateSummary);

@@ -24,13 +24,6 @@ public static class CommandLineSwitches
 
 	public static string InvalidLogLevelValue => parsedLogLevelResult.InvalidValue ?? string.Empty;
 
-	public static bool IsEverythingVerifyEnabled => HasArg("--everything-verify");
-
-	private static bool HasArg(string arg)
-	{
-		return args.Any((string x) => string.Equals(x, arg, StringComparison.OrdinalIgnoreCase));
-	}
-
 	private static (NormalLogLevel Level, string InvalidValue) ParseLogLevel()
 	{
 		string[] source = args.Where((string x) => x.StartsWith("--log-level=", StringComparison.OrdinalIgnoreCase)).ToArray();

@@ -79,77 +79,6 @@ internal sealed class DirectoryResourceLookupCache
         }
     }
 
-    internal readonly struct ReverseLookupWarmupStepResult
-    {
-        public int ChunkEntryCount { get; }
-
-        public int ProcessedEntryCount { get; }
-
-        public int TotalEntryCount { get; }
-
-        public int BuiltHashCount { get; }
-
-        public long ChunkBuildMs { get; }
-
-        public long TotalBuildMs { get; }
-
-        public bool Completed { get; }
-
-        public bool Paused { get; }
-
-        public bool Cancelled { get; }
-
-        public ReverseLookupWarmupStepResult(
-            int chunkEntryCount,
-            int processedEntryCount,
-            int totalEntryCount,
-            int builtHashCount,
-            long chunkBuildMs,
-            long totalBuildMs,
-            bool completed,
-            bool paused,
-            bool cancelled)
-        {
-            ChunkEntryCount = chunkEntryCount;
-            ProcessedEntryCount = processedEntryCount;
-            TotalEntryCount = totalEntryCount;
-            BuiltHashCount = builtHashCount;
-            ChunkBuildMs = chunkBuildMs;
-            TotalBuildMs = totalBuildMs;
-            Completed = completed;
-            Paused = paused;
-            Cancelled = cancelled;
-        }
-    }
-
-    private sealed class ReverseLookupWarmupState
-    {
-        public int Version { get; }
-
-        public KeyValuePair<string, Entry>[] EntrySnapshot { get; }
-
-        public int NextEntryIndex { get; set; }
-
-        public Dictionary<uint, List<string>> AccumulatedDirectoriesByHash { get; }
-
-        public long BuildCpuMs { get; set; }
-
-        public bool Completed { get; set; }
-
-        public int TotalEntryCount => EntrySnapshot.Length;
-
-        public int BuiltHashCount => AccumulatedDirectoriesByHash.Count;
-
-        public int ProcessedEntryCount => Math.Min(NextEntryIndex, TotalEntryCount);
-
-        public ReverseLookupWarmupState(int version, KeyValuePair<string, Entry>[] entrySnapshot)
-        {
-            Version = version;
-            EntrySnapshot = entrySnapshot ?? Array.Empty<KeyValuePair<string, Entry>>();
-            AccumulatedDirectoriesByHash = new Dictionary<uint, List<string>>();
-        }
-    }
-
     internal sealed class Entry
     {
         private readonly uint[] allBaseNameHashArray;
@@ -294,21 +223,90 @@ internal sealed class DirectoryResourceLookupCache
             IEnumerable<uint> selfOwnedAudioRelativePathHashes = null,
             IEnumerable<uint> selfOwnedImageRelativePathHashes = null,
             IEnumerable<uint> selfOwnedMovieRelativePathHashes = null)
+            : this(
+                allBaseNameHashes,
+                audioBaseNameHashes,
+                imageBaseNameHashes,
+                movieBaseNameHashes,
+                audioRelativePathHashes,
+                imageRelativePathHashes,
+                movieRelativePathHashes,
+                selfOwnedAllBaseNameHashes,
+                selfOwnedAudioBaseNameHashes,
+                selfOwnedImageBaseNameHashes,
+                selfOwnedMovieBaseNameHashes,
+                selfOwnedAudioRelativePathHashes,
+                selfOwnedImageRelativePathHashes,
+                selfOwnedMovieRelativePathHashes,
+                trustSortedDistinctArrays: false)
         {
-            allBaseNameHashArray = MaterializeHashes(allBaseNameHashes);
-            audioBaseNameHashArray = MaterializeHashes(audioBaseNameHashes);
-            imageBaseNameHashArray = MaterializeHashes(imageBaseNameHashes);
-            movieBaseNameHashArray = MaterializeHashes(movieBaseNameHashes);
-            audioRelativePathHashArray = MaterializeHashes(audioRelativePathHashes);
-            imageRelativePathHashArray = MaterializeHashes(imageRelativePathHashes);
-            movieRelativePathHashArray = MaterializeHashes(movieRelativePathHashes);
-            selfOwnedAllBaseNameHashArray = MaterializeHashes(selfOwnedAllBaseNameHashes, allBaseNameHashArray);
-            selfOwnedAudioBaseNameHashArray = MaterializeHashes(selfOwnedAudioBaseNameHashes, audioBaseNameHashArray);
-            selfOwnedImageBaseNameHashArray = MaterializeHashes(selfOwnedImageBaseNameHashes, imageBaseNameHashArray);
-            selfOwnedMovieBaseNameHashArray = MaterializeHashes(selfOwnedMovieBaseNameHashes, movieBaseNameHashArray);
-            selfOwnedAudioRelativePathHashArray = MaterializeHashes(selfOwnedAudioRelativePathHashes, audioRelativePathHashArray);
-            selfOwnedImageRelativePathHashArray = MaterializeHashes(selfOwnedImageRelativePathHashes, imageRelativePathHashArray);
-            selfOwnedMovieRelativePathHashArray = MaterializeHashes(selfOwnedMovieRelativePathHashes, movieRelativePathHashArray);
+        }
+
+        private Entry(
+            IEnumerable<uint> allBaseNameHashes,
+            IEnumerable<uint> audioBaseNameHashes,
+            IEnumerable<uint> imageBaseNameHashes,
+            IEnumerable<uint> movieBaseNameHashes,
+            IEnumerable<uint> audioRelativePathHashes,
+            IEnumerable<uint> imageRelativePathHashes,
+            IEnumerable<uint> movieRelativePathHashes,
+            IEnumerable<uint> selfOwnedAllBaseNameHashes,
+            IEnumerable<uint> selfOwnedAudioBaseNameHashes,
+            IEnumerable<uint> selfOwnedImageBaseNameHashes,
+            IEnumerable<uint> selfOwnedMovieBaseNameHashes,
+            IEnumerable<uint> selfOwnedAudioRelativePathHashes,
+            IEnumerable<uint> selfOwnedImageRelativePathHashes,
+            IEnumerable<uint> selfOwnedMovieRelativePathHashes,
+            bool trustSortedDistinctArrays)
+        {
+            allBaseNameHashArray = MaterializeHashes(allBaseNameHashes, trustSortedDistinctArrays);
+            audioBaseNameHashArray = MaterializeHashes(audioBaseNameHashes, trustSortedDistinctArrays);
+            imageBaseNameHashArray = MaterializeHashes(imageBaseNameHashes, trustSortedDistinctArrays);
+            movieBaseNameHashArray = MaterializeHashes(movieBaseNameHashes, trustSortedDistinctArrays);
+            audioRelativePathHashArray = MaterializeHashes(audioRelativePathHashes, trustSortedDistinctArrays);
+            imageRelativePathHashArray = MaterializeHashes(imageRelativePathHashes, trustSortedDistinctArrays);
+            movieRelativePathHashArray = MaterializeHashes(movieRelativePathHashes, trustSortedDistinctArrays);
+            selfOwnedAllBaseNameHashArray = MaterializeHashes(selfOwnedAllBaseNameHashes, allBaseNameHashArray, trustSortedDistinctArrays);
+            selfOwnedAudioBaseNameHashArray = MaterializeHashes(selfOwnedAudioBaseNameHashes, audioBaseNameHashArray, trustSortedDistinctArrays);
+            selfOwnedImageBaseNameHashArray = MaterializeHashes(selfOwnedImageBaseNameHashes, imageBaseNameHashArray, trustSortedDistinctArrays);
+            selfOwnedMovieBaseNameHashArray = MaterializeHashes(selfOwnedMovieBaseNameHashes, movieBaseNameHashArray, trustSortedDistinctArrays);
+            selfOwnedAudioRelativePathHashArray = MaterializeHashes(selfOwnedAudioRelativePathHashes, audioRelativePathHashArray, trustSortedDistinctArrays);
+            selfOwnedImageRelativePathHashArray = MaterializeHashes(selfOwnedImageRelativePathHashes, imageRelativePathHashArray, trustSortedDistinctArrays);
+            selfOwnedMovieRelativePathHashArray = MaterializeHashes(selfOwnedMovieRelativePathHashes, movieRelativePathHashArray, trustSortedDistinctArrays);
+        }
+
+        internal static Entry FromNativeSorted(
+            IEnumerable<uint> allBaseNameHashes,
+            IEnumerable<uint> audioBaseNameHashes,
+            IEnumerable<uint> imageBaseNameHashes,
+            IEnumerable<uint> movieBaseNameHashes,
+            IEnumerable<uint> audioRelativePathHashes,
+            IEnumerable<uint> imageRelativePathHashes,
+            IEnumerable<uint> movieRelativePathHashes,
+            IEnumerable<uint> selfOwnedAllBaseNameHashes = null,
+            IEnumerable<uint> selfOwnedAudioBaseNameHashes = null,
+            IEnumerable<uint> selfOwnedImageBaseNameHashes = null,
+            IEnumerable<uint> selfOwnedMovieBaseNameHashes = null,
+            IEnumerable<uint> selfOwnedAudioRelativePathHashes = null,
+            IEnumerable<uint> selfOwnedImageRelativePathHashes = null,
+            IEnumerable<uint> selfOwnedMovieRelativePathHashes = null)
+        {
+            return new Entry(
+                allBaseNameHashes,
+                audioBaseNameHashes,
+                imageBaseNameHashes,
+                movieBaseNameHashes,
+                audioRelativePathHashes,
+                imageRelativePathHashes,
+                movieRelativePathHashes,
+                selfOwnedAllBaseNameHashes,
+                selfOwnedAudioBaseNameHashes,
+                selfOwnedImageBaseNameHashes,
+                selfOwnedMovieBaseNameHashes,
+                selfOwnedAudioRelativePathHashes,
+                selfOwnedImageRelativePathHashes,
+                selfOwnedMovieRelativePathHashes,
+                trustSortedDistinctArrays: true);
         }
 
         public Entry Clone()
@@ -330,13 +328,17 @@ internal sealed class DirectoryResourceLookupCache
                 selfOwnedMovieRelativePathHashArray);
         }
 
-        private static uint[] MaterializeHashes(IEnumerable<uint> hashes)
+        private static uint[] MaterializeHashes(IEnumerable<uint> hashes, bool trustSortedDistinctArrays = false)
         {
             if (hashes == null)
             {
                 return Array.Empty<uint>();
             }
-            uint[] hashArray = hashes as uint[] ?? hashes.Distinct().ToArray();
+            uint[] hashArray = hashes as uint[] ?? hashes.ToArray();
+            if (trustSortedDistinctArrays)
+            {
+                return hashArray;
+            }
             if (hashArray.Length <= 1)
             {
                 return hashArray;
@@ -346,13 +348,13 @@ internal sealed class DirectoryResourceLookupCache
             return sorted;
         }
 
-        private static uint[] MaterializeHashes(IEnumerable<uint> hashes, uint[] fallback)
+        private static uint[] MaterializeHashes(IEnumerable<uint> hashes, uint[] fallback, bool trustSortedDistinctArrays = false)
         {
             if (hashes == null)
             {
                 return fallback ?? Array.Empty<uint>();
             }
-            return MaterializeHashes(hashes);
+            return MaterializeHashes(hashes, trustSortedDistinctArrays);
         }
 
         private static HashSet<uint> CreateHashSet(IEnumerable<uint> hashes)
@@ -375,13 +377,9 @@ internal sealed class DirectoryResourceLookupCache
 
     private readonly object lockLazyDirectoriesByHash = new object();
 
-    private ReverseLookupWarmupState warmupState;
-
     private long lazyHashBuildMs;
 
     private long lazyHashLookupCount;
-
-    private int warmupVersion = 1;
 
     private bool isFullReverseLookupBuilt;
 
@@ -413,17 +411,6 @@ internal sealed class DirectoryResourceLookupCache
 
     public long LazyHashLookupCount => Interlocked.Read(ref lazyHashLookupCount);
 
-    public int WarmupVersion
-    {
-        get
-        {
-            lock (lockLazyDirectoriesByHash)
-            {
-                return warmupVersion;
-            }
-        }
-    }
-
     public int LazyHashCacheEntryCount
     {
         get
@@ -435,6 +422,17 @@ internal sealed class DirectoryResourceLookupCache
         }
     }
 
+    public int CategoryReverseLookupEntryCount
+    {
+        get
+        {
+            lock (lockLazyDirectoriesByHash)
+            {
+                return audioDirectoriesByRelativeHash.Count + imageDirectoriesByRelativeHash.Count + movieDirectoriesByRelativeHash.Count;
+            }
+        }
+    }
+
     public static DirectoryResourceLookupCache CreateFromScanResult(BmsScanResult scanResult)
     {
         DirectoryResourceLookupCache cache = new DirectoryResourceLookupCache();
@@ -442,6 +440,58 @@ internal sealed class DirectoryResourceLookupCache
         {
             cache.SetEntry(chartDirectory, CreateEntry(scanResult, chartDirectory));
         }
+        return cache;
+    }
+
+    public static DirectoryResourceLookupCache CreateFromNativeCanonical(
+        IEnumerable<string> chartDirectories,
+        IDictionary<string, uint[]> allBaseNameHashesByDirectory,
+        IDictionary<string, uint[]> audioBaseNameHashesByDirectory,
+        IDictionary<string, uint[]> imageBaseNameHashesByDirectory,
+        IDictionary<string, uint[]> movieBaseNameHashesByDirectory,
+        IDictionary<string, uint[]> audioRelativePathHashesByDirectory,
+        IDictionary<string, uint[]> imageRelativePathHashesByDirectory,
+        IDictionary<string, uint[]> movieRelativePathHashesByDirectory,
+        IDictionary<string, uint[]> selfOwnedAllBaseNameHashesByDirectory,
+        IDictionary<string, uint[]> selfOwnedAudioBaseNameHashesByDirectory,
+        IDictionary<string, uint[]> selfOwnedImageBaseNameHashesByDirectory,
+        IDictionary<string, uint[]> selfOwnedMovieBaseNameHashesByDirectory,
+        IDictionary<string, uint[]> selfOwnedAudioRelativePathHashesByDirectory,
+        IDictionary<string, uint[]> selfOwnedImageRelativePathHashesByDirectory,
+        IDictionary<string, uint[]> selfOwnedMovieRelativePathHashesByDirectory,
+        IDictionary<uint, string[]> allBaseReverseDirectories,
+        IDictionary<uint, string[]> audioRelativeReverseDirectories,
+        IDictionary<uint, string[]> imageRelativeReverseDirectories,
+        IDictionary<uint, string[]> movieRelativeReverseDirectories)
+    {
+        DirectoryResourceLookupCache cache = new DirectoryResourceLookupCache();
+        foreach (string chartDirectory in chartDirectories ?? Enumerable.Empty<string>())
+        {
+            if (string.IsNullOrWhiteSpace(chartDirectory))
+            {
+                continue;
+            }
+            cache.entries[chartDirectory] = Entry.FromNativeSorted(
+                TryGetHashes(allBaseNameHashesByDirectory, chartDirectory),
+                TryGetHashes(audioBaseNameHashesByDirectory, chartDirectory),
+                TryGetHashes(imageBaseNameHashesByDirectory, chartDirectory),
+                TryGetHashes(movieBaseNameHashesByDirectory, chartDirectory),
+                TryGetHashes(audioRelativePathHashesByDirectory, chartDirectory),
+                TryGetHashes(imageRelativePathHashesByDirectory, chartDirectory),
+                TryGetHashes(movieRelativePathHashesByDirectory, chartDirectory),
+                TryGetHashes(selfOwnedAllBaseNameHashesByDirectory, chartDirectory),
+                TryGetHashes(selfOwnedAudioBaseNameHashesByDirectory, chartDirectory),
+                TryGetHashes(selfOwnedImageBaseNameHashesByDirectory, chartDirectory),
+                TryGetHashes(selfOwnedMovieBaseNameHashesByDirectory, chartDirectory),
+                TryGetHashes(selfOwnedAudioRelativePathHashesByDirectory, chartDirectory),
+                TryGetHashes(selfOwnedImageRelativePathHashesByDirectory, chartDirectory),
+                TryGetHashes(selfOwnedMovieRelativePathHashesByDirectory, chartDirectory));
+        }
+        cache.LoadNativeReverseMap(cache.directoriesByHash, allBaseReverseDirectories);
+        cache.LoadNativeReverseMap(cache.audioDirectoriesByRelativeHash, audioRelativeReverseDirectories);
+        cache.LoadNativeReverseMap(cache.imageDirectoriesByRelativeHash, imageRelativeReverseDirectories);
+        cache.LoadNativeReverseMap(cache.movieDirectoriesByRelativeHash, movieRelativeReverseDirectories);
+        cache.isFullReverseLookupBuilt = cache.directoriesByHash.Count > 0;
         return cache;
     }
 
@@ -501,35 +551,36 @@ internal sealed class DirectoryResourceLookupCache
         HashSet<uint> movieRelativePathHashes = new HashSet<uint>();
         foreach (string fileName in fileNames ?? Enumerable.Empty<string>())
         {
-            string normalizedPath = ChartResourcePathNormalizer.NormalizeReferencePathForLookup(fileName);
+            string normalizedPath = ChartResourcePathNormalizer.NormalizeResourceKeyForLookup(fileName);
             string normalizedFileName = ChartResourcePathNormalizer.NormalizeFileNameForLookup(fileName);
             if (string.IsNullOrWhiteSpace(normalizedFileName))
             {
                 continue;
             }
-            uint baseNameHash = BMSDirectoryFileNameHash.GetLookupHash(normalizedFileName);
-            allBaseNameHashes.Add(baseNameHash);
+            uint resourceKeyHash = BMSDirectoryFileNameHash.GetLookupHash(
+                string.IsNullOrWhiteSpace(normalizedPath) ? normalizedFileName : normalizedPath);
+            allBaseNameHashes.Add(resourceKeyHash);
             switch (ChartResourcePathNormalizer.ClassifyPath(fileName))
             {
                 case ChartResourceKind.Audio:
-                    audioBaseNameHashes.Add(baseNameHash);
+                    audioBaseNameHashes.Add(resourceKeyHash);
                     if (!string.IsNullOrWhiteSpace(normalizedPath))
                     {
-                        audioRelativePathHashes.Add(BMSDirectoryFileNameHash.GetLookupHash(normalizedPath));
+                        audioRelativePathHashes.Add(resourceKeyHash);
                     }
                     break;
                 case ChartResourceKind.Image:
-                    imageBaseNameHashes.Add(baseNameHash);
+                    imageBaseNameHashes.Add(resourceKeyHash);
                     if (!string.IsNullOrWhiteSpace(normalizedPath))
                     {
-                        imageRelativePathHashes.Add(BMSDirectoryFileNameHash.GetLookupHash(normalizedPath));
+                        imageRelativePathHashes.Add(resourceKeyHash);
                     }
                     break;
                 case ChartResourceKind.Movie:
-                    movieBaseNameHashes.Add(baseNameHash);
+                    movieBaseNameHashes.Add(resourceKeyHash);
                     if (!string.IsNullOrWhiteSpace(normalizedPath))
                     {
-                        movieRelativePathHashes.Add(BMSDirectoryFileNameHash.GetLookupHash(normalizedPath));
+                        movieRelativePathHashes.Add(resourceKeyHash);
                     }
                     break;
             }
@@ -731,34 +782,6 @@ internal sealed class DirectoryResourceLookupCache
         EnsureRelativeDirectoriesByHashes(movieDirectoriesByRelativeHash, (Entry entry) => entry?.MovieRelativePathHashArray, hashes);
     }
 
-    public int PrepareWarmupState()
-    {
-        lock (lockLazyDirectoriesByHash)
-        {
-            if (isFullReverseLookupBuilt)
-            {
-                return 0;
-            }
-            if (warmupState != null)
-            {
-                return warmupState.TotalEntryCount;
-            }
-        }
-        KeyValuePair<string, Entry>[] entrySnapshot = SnapshotEntries();
-        lock (lockLazyDirectoriesByHash)
-        {
-            if (isFullReverseLookupBuilt)
-            {
-                return 0;
-            }
-            if (warmupState == null)
-            {
-                warmupState = new ReverseLookupWarmupState(warmupVersion, entrySnapshot);
-            }
-            return warmupState.TotalEntryCount;
-        }
-    }
-
     public bool IsFullReverseLookupBuilt
     {
         get
@@ -768,93 +791,6 @@ internal sealed class DirectoryResourceLookupCache
                 return isFullReverseLookupBuilt;
             }
         }
-    }
-
-    public ReverseLookupWarmupStepResult WarmupReverseLookupStep(int maxEntryCount, int maxCpuMs, CancellationToken token)
-    {
-        if (token.IsCancellationRequested)
-        {
-            return new ReverseLookupWarmupStepResult(0, 0, 0, 0, 0L, 0L, completed: false, paused: false, cancelled: true);
-        }
-
-        PrepareWarmupState();
-        ReverseLookupWarmupState currentWarmupState;
-        lock (lockLazyDirectoriesByHash)
-        {
-            currentWarmupState = warmupState;
-            if (currentWarmupState == null)
-            {
-                return new ReverseLookupWarmupStepResult(0, 0, 0, directoriesByHash.Count, 0L, 0L, completed: true, paused: false, cancelled: false);
-            }
-            if (Volatile.Read(ref highPriorityBuildCount) > 0)
-            {
-                return CreateWarmupProgressResult(currentWarmupState, 0, 0L, completed: false, paused: true, cancelled: false);
-            }
-        }
-
-        int processedInChunk = 0;
-        Stopwatch stopwatch = Stopwatch.StartNew();
-        while (processedInChunk < maxEntryCount
-            && currentWarmupState.NextEntryIndex < currentWarmupState.TotalEntryCount
-            && (maxCpuMs <= 0 || stopwatch.ElapsedMilliseconds < maxCpuMs))
-        {
-            if (token.IsCancellationRequested)
-            {
-                stopwatch.Stop();
-                return CreateWarmupProgressResult(currentWarmupState, processedInChunk, stopwatch.ElapsedMilliseconds, completed: false, paused: false, cancelled: true);
-            }
-            KeyValuePair<string, Entry> entryPair = currentWarmupState.EntrySnapshot[currentWarmupState.NextEntryIndex++];
-            uint[] allBaseNameHashes = entryPair.Value?.AllBaseNameHashArray;
-            if (allBaseNameHashes != null)
-            {
-                foreach (uint hash in allBaseNameHashes)
-                {
-                    if (!currentWarmupState.AccumulatedDirectoriesByHash.TryGetValue(hash, out List<string> directories))
-                    {
-                        directories = new List<string>();
-                        currentWarmupState.AccumulatedDirectoriesByHash[hash] = directories;
-                    }
-                    directories.Add(entryPair.Key);
-                }
-            }
-            processedInChunk++;
-        }
-
-        bool completed = currentWarmupState.NextEntryIndex >= currentWarmupState.TotalEntryCount;
-        Dictionary<uint, string[]> completedIndex = null;
-        if (completed)
-        {
-            completedIndex = new Dictionary<uint, string[]>(currentWarmupState.AccumulatedDirectoriesByHash.Count);
-            foreach (KeyValuePair<uint, List<string>> hashDirectoriesPair in currentWarmupState.AccumulatedDirectoriesByHash)
-            {
-                completedIndex[hashDirectoriesPair.Key] = hashDirectoriesPair.Value.ToArray();
-            }
-            currentWarmupState.Completed = true;
-        }
-
-        stopwatch.Stop();
-        currentWarmupState.BuildCpuMs += stopwatch.ElapsedMilliseconds;
-
-        lock (lockLazyDirectoriesByHash)
-        {
-            if (!ReferenceEquals(warmupState, currentWarmupState) || currentWarmupState.Version != warmupVersion)
-            {
-                return CreateWarmupProgressResult(currentWarmupState, processedInChunk, stopwatch.ElapsedMilliseconds, completed: false, paused: false, cancelled: true);
-            }
-
-            if (completed)
-            {
-                directoriesByHash.Clear();
-                foreach (KeyValuePair<uint, string[]> hashDirectoriesPair in completedIndex)
-                {
-                    directoriesByHash[hashDirectoriesPair.Key] = hashDirectoriesPair.Value;
-                }
-                warmupState = null;
-                isFullReverseLookupBuilt = true;
-            }
-        }
-
-        return CreateWarmupProgressResult(currentWarmupState, processedInChunk, stopwatch.ElapsedMilliseconds, completed: completed, paused: false, cancelled: false);
     }
 
     public Entry GetEntryOrNull(string directoryPath)
@@ -888,6 +824,28 @@ internal sealed class DirectoryResourceLookupCache
         return TryGetHashes(fallbackHashesByDirectory, directoryPath);
     }
 
+    private static IEnumerable<uint> TryGetHashes(IDictionary<string, uint[]> hashesByDirectory, string directoryPath)
+    {
+        if (hashesByDirectory != null && hashesByDirectory.TryGetValue(directoryPath, out uint[] hashes))
+        {
+            return hashes ?? Array.Empty<uint>();
+        }
+        return Array.Empty<uint>();
+    }
+
+    private void LoadNativeReverseMap(Dictionary<uint, string[]> target, IDictionary<uint, string[]> source)
+    {
+        target.Clear();
+        foreach (KeyValuePair<uint, string[]> item in source ?? new Dictionary<uint, string[]>())
+        {
+            if (item.Key == 0u)
+            {
+                continue;
+            }
+            target[item.Key] = item.Value ?? Array.Empty<string>();
+        }
+    }
+
     private ReverseLookupMutationResult SetEntry(string directoryPath, Entry entry)
     {
         Entry oldEntry = null;
@@ -912,9 +870,7 @@ internal sealed class DirectoryResourceLookupCache
             audioDirectoriesByRelativeHash.Clear();
             imageDirectoriesByRelativeHash.Clear();
             movieDirectoriesByRelativeHash.Clear();
-            warmupState = null;
             isFullReverseLookupBuilt = false;
-            warmupVersion++;
         }
         Interlocked.Exchange(ref lazyHashBuildMs, 0L);
         Interlocked.Exchange(ref lazyHashLookupCount, 0L);
@@ -935,17 +891,10 @@ internal sealed class DirectoryResourceLookupCache
         }
 
         int updatedHashCount = 0;
-        bool cancelledWarmup;
         bool maintainedFullReverseLookup;
         bool requiresDeferredWarmup;
         lock (lockLazyDirectoriesByHash)
         {
-            cancelledWarmup = warmupState != null;
-            if (cancelledWarmup)
-            {
-                warmupState = null;
-            }
-
             if (hasRemoved)
             {
                 updatedHashCount += RemoveDirectoryFromCachedHashes(directoriesByHash, removedDirectoryPath, removedEntry.AllBaseNameHashArray);
@@ -957,14 +906,13 @@ internal sealed class DirectoryResourceLookupCache
             if (hasAdded)
             {
                 updatedHashCount += AddDirectoryToCachedHashes(directoriesByHash, addedDirectoryPath, addedEntry.AllBaseNameHashArray, addMissingKeys: isFullReverseLookupBuilt);
-                updatedHashCount += AddDirectoryToCachedHashes(audioDirectoriesByRelativeHash, addedDirectoryPath, addedEntry.AudioRelativePathHashArray, addMissingKeys: false);
-                updatedHashCount += AddDirectoryToCachedHashes(imageDirectoriesByRelativeHash, addedDirectoryPath, addedEntry.ImageRelativePathHashArray, addMissingKeys: false);
-                updatedHashCount += AddDirectoryToCachedHashes(movieDirectoriesByRelativeHash, addedDirectoryPath, addedEntry.MovieRelativePathHashArray, addMissingKeys: false);
+                updatedHashCount += AddDirectoryToCachedHashes(audioDirectoriesByRelativeHash, addedDirectoryPath, addedEntry.AudioRelativePathHashArray, addMissingKeys: isFullReverseLookupBuilt);
+                updatedHashCount += AddDirectoryToCachedHashes(imageDirectoriesByRelativeHash, addedDirectoryPath, addedEntry.ImageRelativePathHashArray, addMissingKeys: isFullReverseLookupBuilt);
+                updatedHashCount += AddDirectoryToCachedHashes(movieDirectoriesByRelativeHash, addedDirectoryPath, addedEntry.MovieRelativePathHashArray, addMissingKeys: isFullReverseLookupBuilt);
             }
 
             maintainedFullReverseLookup = isFullReverseLookupBuilt;
-            requiresDeferredWarmup = !isFullReverseLookupBuilt;
-            warmupVersion++;
+            requiresDeferredWarmup = false;
         }
 
         return new ReverseLookupMutationResult(
@@ -973,7 +921,7 @@ internal sealed class DirectoryResourceLookupCache
             removedDirectoryCount: hasRemoved ? 1 : 0,
             replacedDirectoryCount: replacedDirectoryCount,
             updatedHashCount: updatedHashCount,
-            cancelledWarmup: cancelledWarmup,
+            cancelledWarmup: false,
             maintainedFullReverseLookup: maintainedFullReverseLookup,
             requiresDeferredWarmup: requiresDeferredWarmup);
     }
@@ -1049,6 +997,10 @@ internal sealed class DirectoryResourceLookupCache
         lock (lockLazyDirectoriesByHash)
         {
             missingHashes.RemoveWhere((uint hash) => targetDirectoriesByHash.ContainsKey(hash));
+            if (isFullReverseLookupBuilt)
+            {
+                return;
+            }
         }
         if (missingHashes.Count == 0)
         {
@@ -1121,6 +1073,10 @@ internal sealed class DirectoryResourceLookupCache
         lock (lockLazyDirectoriesByHash)
         {
             missingHashes.RemoveWhere((uint hash) => directoriesByHash.ContainsKey(hash));
+            if (isFullReverseLookupBuilt)
+            {
+                return ReverseLookupBuildResult.Empty;
+            }
         }
         if (missingHashes.Count == 0)
         {
@@ -1200,20 +1156,6 @@ internal sealed class DirectoryResourceLookupCache
         {
             return entries.ToArray();
         }
-    }
-
-    private static ReverseLookupWarmupStepResult CreateWarmupProgressResult(ReverseLookupWarmupState currentWarmupState, int chunkEntryCount, long chunkBuildMs, bool completed, bool paused, bool cancelled)
-    {
-        return new ReverseLookupWarmupStepResult(
-            chunkEntryCount,
-            currentWarmupState?.ProcessedEntryCount ?? 0,
-            currentWarmupState?.TotalEntryCount ?? 0,
-            currentWarmupState?.BuiltHashCount ?? 0,
-            chunkBuildMs,
-            currentWarmupState?.BuildCpuMs ?? 0L,
-            completed,
-            paused,
-            cancelled);
     }
 
     private static Entry CreateEntry(BmsScanResult scanResult, string directoryPath)

@@ -48,16 +48,16 @@ internal static class ResourceSurfaceMaterializer
             .Distinct(StringComparer.OrdinalIgnoreCase))
         {
             string baseName = ChartResourcePathNormalizer.NormalizeFileNameForLookup(Path.GetFileName(absolutePath));
-            string relativePath = ChartResourcePathNormalizer.NormalizeRelativePathForLookup(rootDirectory, absolutePath);
+            string relativePath = ChartResourcePathNormalizer.NormalizeResourceKeyForLookup(
+                ChartResourcePathNormalizer.NormalizeRelativePathForLookup(rootDirectory, absolutePath));
             if (string.IsNullOrWhiteSpace(baseName) || string.IsNullOrWhiteSpace(relativePath))
             {
                 continue;
             }
 
-            uint baseNameHash = BMSDirectoryFileNameHash.GetLookupHash(baseName);
             uint relativePathHash = BMSDirectoryFileNameHash.GetLookupHash(relativePath);
-            allBaseNameHashes.Add(baseNameHash);
-            categoryBaseNameHashes.Add(baseNameHash);
+            allBaseNameHashes.Add(relativePathHash);
+            categoryBaseNameHashes.Add(relativePathHash);
             categoryRelativePathHashes.Add(relativePathHash);
         }
     }

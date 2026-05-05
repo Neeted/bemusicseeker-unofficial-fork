@@ -22,8 +22,7 @@ internal enum InstallEstimationLowConfidenceKind
 
 internal enum InstallEstimationFinalEvaluationMode
 {
-    RelativeStrict,
-    BasenameOnlyFastPath
+    RelativeStrict
 }
 
 /// <summary>

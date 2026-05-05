@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using BeMusicSeeker.Models.Utils;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
@@ -47,8 +46,6 @@ internal sealed class PendingEstimateSourceBatchPackageState
 
     public ChartResourceSnapshot ChartResources { get; set; } = new ChartResourceSnapshot();
 
-    public HashSet<uint> TargetResourceHashes { get; set; } = new HashSet<uint>();
-
     public BmsInstallationEstimateMode EstimateMode { get; set; }
 
     public InstalledDirectoryLookupResult PreparationInstalledResolution { get; set; }
@@ -69,8 +66,6 @@ internal sealed class PendingEstimateSourceBatchSnapshot
     private readonly Dictionary<BMSPackage, PendingEstimateSourceBatchPackageState> packageStatesByPackage = new Dictionary<BMSPackage, PendingEstimateSourceBatchPackageState>();
 
     public List<PendingEstimateSourceBatchPackageState> PackageStates { get; } = new List<PendingEstimateSourceBatchPackageState>();
-
-    public HashSet<uint> UnionTargetHashes { get; } = new HashSet<uint>();
 
     public int RootCount { get; set; }
 
@@ -101,7 +96,6 @@ internal sealed class PendingEstimateSourceBatchSnapshot
 
         PackageStates.Add(state);
         packageStatesByPackage[state.Package] = state;
-        UnionTargetHashes.UnionWith(state.TargetResourceHashes ?? Enumerable.Empty<uint>());
     }
 
     public bool TryGetState(BMSPackage package, out PendingEstimateSourceBatchPackageState state)

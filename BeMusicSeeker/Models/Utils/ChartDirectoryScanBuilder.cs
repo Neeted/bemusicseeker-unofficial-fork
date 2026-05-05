@@ -163,23 +163,23 @@ internal static class ChartDirectoryScanBuilder
             {
                 continue;
             }
-            uint baseNameHash = BMSDirectoryFileNameHash.GetLookupHash(baseName);
             for (int i = 0; i < ownerDirectories.Count; i++)
             {
                 string ownerDirectory = ownerDirectories[i];
-                string relativePath = ChartResourcePathNormalizer.NormalizeRelativePathForLookup(ownerDirectory, absolutePath);
+                string relativePath = ChartResourcePathNormalizer.NormalizeResourceKeyForLookup(
+                    ChartResourcePathNormalizer.NormalizeRelativePathForLookup(ownerDirectory, absolutePath));
                 if (string.IsNullOrWhiteSpace(relativePath))
                 {
                     continue;
                 }
                 uint relativePathHash = BMSDirectoryFileNameHash.GetLookupHash(relativePath);
-                allBaseNameHashes[ownerDirectory].Add(baseNameHash);
-                categoryBaseNameHashes[ownerDirectory].Add(baseNameHash);
+                allBaseNameHashes[ownerDirectory].Add(relativePathHash);
+                categoryBaseNameHashes[ownerDirectory].Add(relativePathHash);
                 categoryRelativePathHashes[ownerDirectory].Add(relativePathHash);
                 if (i == 0)
                 {
-                    selfOwnedAllBaseNameHashes[ownerDirectory].Add(baseNameHash);
-                    selfOwnedCategoryBaseNameHashes[ownerDirectory].Add(baseNameHash);
+                    selfOwnedAllBaseNameHashes[ownerDirectory].Add(relativePathHash);
+                    selfOwnedCategoryBaseNameHashes[ownerDirectory].Add(relativePathHash);
                     selfOwnedCategoryRelativePathHashes[ownerDirectory].Add(relativePathHash);
                 }
             }

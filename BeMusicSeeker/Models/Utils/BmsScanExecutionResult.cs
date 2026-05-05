@@ -8,6 +8,8 @@ public class BmsScanExecutionResult
 
 	public BmsScanResult Result { get; set; }
 
+	internal LibraryResourceIndex ResourceIndex { get; set; }
+
 	public long ConnectMs { get; set; }
 
 	public long BmsQueryMs { get; set; }

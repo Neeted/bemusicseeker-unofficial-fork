@@ -146,24 +146,6 @@ public partial class App : System.Windows.Application
             LogManager.ReconfigExistingLoggers();
             NLogWrapper.TraceLogger?.Info("Install performance logging enabled: " + path);
         }
-        if (!CommandLineSwitches.IsEverythingVerifyEnabled)
-        {
-            return;
-        }
-        string path2 = Path.Combine(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location), "everything-verify.log");
-        FileTarget target2 = new FileTarget
-        {
-            Name = "EverythingVerifyFileTarget",
-            FileName = path2,
-            Layout = NLogWrapper.DefaultLayout
-        };
-        LogManager.Configuration?.AddTarget(target2);
-        LogManager.Configuration?.LoggingRules.Insert(0, new LoggingRule("Verify.Everything", LogLevel.Info, target2)
-        {
-            Final = true
-        });
-        LogManager.ReconfigExistingLoggers();
-        NLogWrapper.TraceLogger?.Info("Everything verify logging enabled: " + path2);
     }
 
     private void Application_Startup(object sender, StartupEventArgs e)

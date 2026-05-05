@@ -77,12 +77,18 @@ internal static class ChartResourcePathNormalizer
         {
             return string.Empty;
         }
-        return NormalizeExtensionAlias(normalized);
+        return StripLookupExtension(NormalizeExtensionAlias(normalized));
+    }
+
+    public static string NormalizeResourceKeyForLookup(string path)
+    {
+        string normalized = NormalizeReferencePathForLookup(path);
+        return StripLookupExtension(normalized);
     }
 
     public static string GetLookupFileName(string path)
     {
-        string normalized = NormalizeReferencePathForLookup(path);
+        string normalized = NormalizeResourceKeyForLookup(path);
         if (string.IsNullOrWhiteSpace(normalized))
         {
             return string.Empty;
@@ -151,5 +157,15 @@ internal static class ChartResourcePathNormalizer
             return value;
         }
         return Path.ChangeExtension(value, aliasExtension);
+    }
+
+    private static string StripLookupExtension(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return string.Empty;
+        }
+        string extension = Path.GetExtension(value);
+        return string.IsNullOrWhiteSpace(extension) ? value : Path.ChangeExtension(value, null);
     }
 }

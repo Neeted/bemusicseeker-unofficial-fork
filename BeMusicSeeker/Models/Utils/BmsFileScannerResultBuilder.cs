@@ -45,7 +45,8 @@ internal static class BmsFileScannerResultBuilder
             AudioResourceDirCount = (ulong)(scanResult.AudioBaseNameHashesByChartDirectory?.Count ?? 0),
             ImageResourceDirCount = (ulong)(scanResult.ImageBaseNameHashesByChartDirectory?.Count ?? 0),
             MovieResourceDirCount = (ulong)(scanResult.MovieBaseNameHashesByChartDirectory?.Count ?? 0),
-            Result = scanResult
+            Result = scanResult,
+            ResourceIndex = LibraryResourceIndex.CreateFromScanResult(scanResult)
         };
     }
 

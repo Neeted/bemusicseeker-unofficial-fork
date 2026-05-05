@@ -88,7 +88,7 @@ Startup / FullReinitialize では `chart_info_hydration` と `maintenance_hydrat
 | Phase | 完了条件 | 件数表示 |
 | --- | --- | --- |
 | `LibraryDatabaseLoadDone` | `LoadSongTable()` 完了 | なし |
-| `LibraryFileEnumerationDone` | `ExecuteBmsScanWithFallback()` の結果取得 | なし |
+| `LibraryFileEnumerationDone` | `ExecuteBmsScanWithManagedFallback()` の native canonical resource index 取得、または Everything unavailable 時の managed resource index 取得 | なし |
 | `LibraryFileDiffDone` | `ApplyFileScanDiff()` 完了 | 追加 BMS + 追加/更新 bmson の parse 件数 |
 
 Everything scan は DB 読み込みと並列 prefetch される場合がある。表示上は DB 読み込みを優先し、DB 完了後に file enumeration が未完了なら `ファイル列挙` を表示する。

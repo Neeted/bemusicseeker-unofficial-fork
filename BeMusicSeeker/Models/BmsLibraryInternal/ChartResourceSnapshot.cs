@@ -136,6 +136,15 @@ internal sealed class ChartResourceSnapshot
                 .Concat(OptionalImageBaseNameHashes));
     }
 
+    public HashSet<uint> EnumerateAllRelativePathHashes()
+    {
+        return new HashSet<uint>(
+            AudioRelativePathHashes
+                .Concat(VisualRelativePathHashes)
+                .Concat(MovieRelativePathHashes)
+                .Concat(OptionalImageRelativePathHashes));
+    }
+
     public HashSet<uint> EnumerateBroadFilterBaseNameHashes()
     {
         return new HashSet<uint>(
@@ -248,7 +257,7 @@ internal sealed class ChartResourceSnapshot
 
     private static void AddNormalized(ISet<string> relativePaths, ISet<uint> relativePathHashes, ISet<string> baseNames, ISet<uint> baseNameHashes, ISet<string> pathAwareRelativePaths, ISet<uint> pathAwareRelativePathHashes, ISet<uint> basenameOnlyBaseNameHashes, ICollection<ResourceReference> references, string path)
     {
-        string normalizedPath = ChartResourcePathNormalizer.NormalizeReferencePathForLookup(path);
+        string normalizedPath = ChartResourcePathNormalizer.NormalizeResourceKeyForLookup(path);
         string baseName = ChartResourcePathNormalizer.GetLookupFileName(path);
         if (string.IsNullOrWhiteSpace(normalizedPath) || string.IsNullOrWhiteSpace(baseName))
         {

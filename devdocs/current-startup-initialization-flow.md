@@ -112,7 +112,7 @@ metadata bundle は、リリースパッケージ同梱または外部配布の 
 | Phase | 主な処理 | 備考 |
 | --- | --- | --- |
 | Catalog DB load | `song`, `bmson_song`, `chart_digest_map` などを読む | `maintenance` と `chart_info` 全件 hydration は起動 critical path から外す |
-| File enumeration | Everything / fallback で root 配下を列挙し、resource index を作る | 導入先推定に必要な destination resource index の正本 |
+| File enumeration | native bridge `EBridge_ScanChartAndResources` で root 配下を列挙し、native canonical resource index を作る。Everything API / service が使えない場合は managed scan に fallback する | 導入先推定に必要な destination resource index の正本 |
 | File diff | 新規・更新譜面を snapshot read し、軽量 parse、LR2 parent/folder、inline `chart_info`、inline maintenance、chunk commit まで行う | 新規・更新ファイル由来の補助情報はここで処理する |
 
 差分なしの場合は、導入先推定に必要な index を最速で公開し、DB 由来の補助情報は background へ回す。
@@ -149,13 +149,17 @@ Phase 8B 以降、`maintenance_tbl_check_deferred` は存在しない。orphan m
 
 2026-05-05 10:09 の Phase 8B 実測では、`startup_install_estimation_ready=38926ms`、`startup_ready_operable=40209ms`、`startup_initialization_complete=103890ms` だった。`startup_background_summary` は `queued=10 started=10 completed=10 failed=0` で、`maintenance_tbl_check_deferred` は出ていない。`chart_info_hydration` は `ownerCount=210030 currentChartInfoOwners=210006 currentParseFailureOwners=24 backfillCandidateOwners=0 totalMs=16303` で、`chart_info_backfill skipped reason=hydration_all_current` により candidate summary を呼んでいない。`maintenance_hydration` は `readMs=3671 materializeMs=3655 mapBuildMs=170 applyMs=18447 cleanupDeleted=0 cleanupMs=0 ownerPathCount=210030 stalePathCount=0 elapsedMs=22308` で、cleanup 統合は成功しているが apply cost が次の大きな対象として残る。
 
+Phase 4B / 5A 以降、通常時の resource index は native bridge の canonical result を正本とする。`reverse_lookup_warmup_deferred` は存在せず、導入先推定に必要な resource-key -> candidate directory reverse lookup は file enumeration / resource index build 完了時点で揃う。Everything API / service が使えない場合は managed scan に fallback し、同じ chart-relative semantics の resource index を作る。native bridge contract mismatch / header mismatch / fixed scan export missing は古い DLL 不一致として扱い、fallback せず初期化失敗にする。導入先推定は `foo.wav` を `foo`、`sound/foo.wav` を `sound/foo` という拡張子なし chart-relative resource key として評価し、旧 basename-only fast path は使わない。
+
+Phase 4B / 5A 追加修正後、native contract `2026050503` では旧 `base` field も chart-relative resource key hash を返す。base / relative が同じ category は native packed result 内で同じ blob を指し、managed decode と `DirectoryResourceLookupCache` materialize も配列を再利用する。startup の正本として `DirectoryRelativePathHashIndex` は構築しない。native reverse map は flat pair sort で作り、managed decode は native indices から `string[]` を直接作る。
+
 導入先推定に必要な情報は次の 3 つに整理する。
 
 - 所持 catalog: BMS / BMSON の path、hash、timestamp、installed membership、推定用代表 metadata。
-- destination resource index: file enumeration 由来の audio / image / movie resource lookup と chart-relative key。
+- destination resource index: native file enumeration 由来の audio / image / movie chart-relative resource key と reverse lookup。
 - pending package state: pending package list と、source package resource surface を復元済みまたは推定開始時に構築可能であること。
 
-playlist hydration、score / ranking refresh、chart_info hydration / backfill、maintenance hydration、reverse lookup warmup は install readiness の blocker にしない。
+playlist hydration、score / ranking refresh、chart_info hydration / backfill、maintenance hydration は install readiness の blocker にしない。
 ただし `startup_initialization_complete` と `startup_background_summary` で background を含む初期化完了も観測し、導入可能までの短縮が初期化全体の悪化を隠さないようにする。
 
 ## ReloadFileDiff

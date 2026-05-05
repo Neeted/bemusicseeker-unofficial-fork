@@ -10,9 +10,9 @@ public sealed class MainWindowViewModelStartupProgressTests
     [TestMethod]
     public void StartupProgress_InitialExpectedCounts_AreFixedByOperation()
     {
-        Assert.AreEqual(18, MainWindowViewModel.GetInitialStartupProgressExpectedCountForTest("Startup"));
+        Assert.AreEqual(17, MainWindowViewModel.GetInitialStartupProgressExpectedCountForTest("Startup"));
         Assert.AreEqual(6, MainWindowViewModel.GetInitialStartupProgressExpectedCountForTest("ReloadFileDiff"));
-        Assert.AreEqual(15, MainWindowViewModel.GetInitialStartupProgressExpectedCountForTest("FullReinitialize"));
+        Assert.AreEqual(14, MainWindowViewModel.GetInitialStartupProgressExpectedCountForTest("FullReinitialize"));
         Assert.AreEqual(5, MainWindowViewModel.GetInitialStartupProgressExpectedCountForTest("ReloadTables"));
     }
 
@@ -60,7 +60,7 @@ public sealed class MainWindowViewModelStartupProgressTests
             "FullReinitialize",
             "complete:ScoreHydrationDone");
 
-        Assert.AreEqual(15, result.ExpectedCount);
+        Assert.AreEqual(14, result.ExpectedCount);
         Assert.AreEqual(1, result.CompletedCount);
         Assert.AreEqual(1, result.IgnoredCompleteCount);
         Assert.IsFalse(result.IsCompleted);
@@ -75,7 +75,7 @@ public sealed class MainWindowViewModelStartupProgressTests
             "complete:ChartInfoBackfillDone",
             "complete:ChartDigestBackfillDone");
 
-        Assert.AreEqual(18, result.ExpectedCount);
+        Assert.AreEqual(17, result.ExpectedCount);
         Assert.AreEqual(1, result.CompletedCount);
         Assert.AreEqual(3, result.IgnoredCompleteCount);
         Assert.IsFalse(result.IsCompleted);
@@ -88,7 +88,7 @@ public sealed class MainWindowViewModelStartupProgressTests
             "FullReinitialize",
             "skip:ChartDigestBackfillDone");
 
-        Assert.AreEqual(15, result.ExpectedCount);
+        Assert.AreEqual(14, result.ExpectedCount);
         Assert.AreEqual(2, result.CompletedCount);
         Assert.AreEqual(1, result.SkippedCount);
     }
@@ -101,7 +101,7 @@ public sealed class MainWindowViewModelStartupProgressTests
             "skip:ChartDigestBackfillDone",
             "request:ChartDigestBackfillDone");
 
-        Assert.AreEqual(15, result.ExpectedCount);
+        Assert.AreEqual(14, result.ExpectedCount);
         Assert.AreEqual(2, result.CompletedCount);
         Assert.AreEqual(1, result.RequestedCount);
         Assert.AreEqual(1, result.SkippedCount);
@@ -126,7 +126,7 @@ public sealed class MainWindowViewModelStartupProgressTests
             "request:PlaylistEntriesHydrationDone",
             "complete:PlaylistEntriesHydrationDone");
 
-        Assert.AreEqual(15, result.ExpectedCount);
+        Assert.AreEqual(14, result.ExpectedCount);
         Assert.AreEqual(2, result.CompletedCount);
         Assert.AreEqual(0, result.IgnoredCompleteCount);
     }
@@ -138,7 +138,7 @@ public sealed class MainWindowViewModelStartupProgressTests
             "FullReinitialize",
             "complete:InstallableMaintenanceDeferredDone");
 
-        Assert.AreEqual(15, stale.ExpectedCount);
+        Assert.AreEqual(14, stale.ExpectedCount);
         Assert.AreEqual(1, stale.CompletedCount);
         Assert.AreEqual(1, stale.IgnoredCompleteCount);
 
@@ -147,7 +147,7 @@ public sealed class MainWindowViewModelStartupProgressTests
             "request:InstallableMaintenanceDeferredDone",
             "complete:InstallableMaintenanceDeferredDone");
 
-        Assert.AreEqual(15, requested.ExpectedCount);
+        Assert.AreEqual(14, requested.ExpectedCount);
         Assert.AreEqual(2, requested.CompletedCount);
         Assert.AreEqual(1, requested.RequestedCount);
         Assert.AreEqual(0, requested.IgnoredCompleteCount);
@@ -161,70 +161,10 @@ public sealed class MainWindowViewModelStartupProgressTests
             "skip:InstallableMaintenanceDeferredDone",
             "request:InstallableMaintenanceDeferredDone");
 
-        Assert.AreEqual(15, result.ExpectedCount);
+        Assert.AreEqual(14, result.ExpectedCount);
         Assert.AreEqual(2, result.CompletedCount);
         Assert.AreEqual(1, result.RequestedCount);
         Assert.AreEqual(1, result.SkippedCount);
-    }
-
-    [TestMethod]
-    public void StartupProgress_ReverseLookupWarmupRequiresRequestBeforeCompletion()
-    {
-        MainWindowViewModel.StartupProgressTestResult stale = MainWindowViewModel.ReduceStartupProgressForTest(
-            "FullReinitialize",
-            "complete:ReverseLookupWarmupDone");
-
-        Assert.AreEqual(15, stale.ExpectedCount);
-        Assert.AreEqual(1, stale.CompletedCount);
-        Assert.AreEqual(1, stale.IgnoredCompleteCount);
-
-        MainWindowViewModel.StartupProgressTestResult requested = MainWindowViewModel.ReduceStartupProgressForTest(
-            "FullReinitialize",
-            "request:ReverseLookupWarmupDone",
-            "complete:ReverseLookupWarmupDone");
-
-        Assert.AreEqual(15, requested.ExpectedCount);
-        Assert.AreEqual(2, requested.CompletedCount);
-        Assert.AreEqual(1, requested.RequestedCount);
-        Assert.AreEqual(0, requested.IgnoredCompleteCount);
-    }
-
-    [TestMethod]
-    public void StartupProgress_ReverseLookupWarmupRequestAfterSkip_DoesNotMoveBackToPending()
-    {
-        MainWindowViewModel.StartupProgressTestResult result = MainWindowViewModel.ReduceStartupProgressForTest(
-            "FullReinitialize",
-            "skip:ReverseLookupWarmupDone",
-            "request:ReverseLookupWarmupDone");
-
-        Assert.AreEqual(15, result.ExpectedCount);
-        Assert.AreEqual(2, result.CompletedCount);
-        Assert.AreEqual(1, result.RequestedCount);
-        Assert.AreEqual(1, result.SkippedCount);
-    }
-
-    [TestMethod]
-    public void StartupProgress_ReverseLookupWarmupUsesDedicatedSubLabel()
-    {
-        MainWindowViewModel.StartupProgressTestResult result = MainWindowViewModel.ReduceStartupProgressForTest(
-            "FullReinitialize",
-            "complete:LibraryDatabaseLoadDone",
-            "complete:LibraryFileEnumerationDone",
-            "complete:LibraryFileDiffDone",
-            "complete:StartupReadyOperable",
-            "skip:PlaylistEntriesHydrationDone",
-            "skip:ChartInfoHydrationDone",
-            "skip:ChartInfoBackfillDone",
-            "skip:ChartDigestBackfillDone",
-            "skip:PlaylistReferenceApplied",
-            "skip:ScoreHydrationDone",
-            "skip:RankingRefreshDone",
-            "skip:MaintenanceDeferredDone",
-            "skip:InstallableMaintenanceDeferredDone",
-            "request:ReverseLookupWarmupDone");
-
-        Assert.AreEqual(Resources.Statusbar_progress_operable_background, result.Label);
-        Assert.AreEqual("逆引きインデックス準備", result.SubLabel);
     }
 
     [TestMethod]

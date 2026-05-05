@@ -1693,13 +1693,13 @@ public class BMSFile : LR2SongDB.song
         {
             return false;
         }
-        string normalized = ChartResourcePathNormalizer.NormalizeReferencePathForLookup(referencePath);
+        string normalized = ChartResourcePathNormalizer.NormalizeResourceKeyForLookup(referencePath);
         if (string.IsNullOrWhiteSpace(normalized))
         {
             return false;
         }
         bool hasDirectorySegments = ChartResourcePathNormalizer.HasDirectorySegments(normalized);
-        uint hash = BMSDirectoryFileNameHash.GetLookupHash(hasDirectorySegments ? normalized : ChartResourcePathNormalizer.NormalizeFileNameForLookup(normalized));
+        uint hash = BMSDirectoryFileNameHash.GetLookupHash(normalized);
         if (hash == 0u)
         {
             return false;

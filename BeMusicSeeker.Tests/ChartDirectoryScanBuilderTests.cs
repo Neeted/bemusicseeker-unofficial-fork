@@ -69,9 +69,9 @@ public sealed class ChartDirectoryScanBuilderTests
             Assert.AreEqual(0, rootSelfOwnedHashes.Length);
             Assert.IsTrue(result.AudioRelativePathHashesByChartDirectory.TryGetValue(rootChartDir, out uint[] rootRelativeHashes));
             Assert.IsTrue(result.AudioRelativePathHashesByChartDirectory.TryGetValue(nestedChartDir, out uint[] nestedRelativeHashes));
-            CollectionAssert.Contains(rootRelativeHashes, BMSDirectoryFileNameHash.GetLookupHash(Path.Combine("subchart", "sound", "01.wav")));
-            CollectionAssert.Contains(nestedRelativeHashes, BMSDirectoryFileNameHash.GetLookupHash(Path.Combine("sound", "01.wav")));
-            CollectionAssert.Contains(result.SelfOwnedAudioRelativePathHashesByChartDirectory[nestedChartDir], BMSDirectoryFileNameHash.GetLookupHash(Path.Combine("sound", "01.wav")));
+            CollectionAssert.Contains(rootRelativeHashes, BMSDirectoryFileNameHash.GetLookupHash(Path.Combine("subchart", "sound", "01")));
+            CollectionAssert.Contains(nestedRelativeHashes, BMSDirectoryFileNameHash.GetLookupHash(Path.Combine("sound", "01")));
+            CollectionAssert.Contains(result.SelfOwnedAudioRelativePathHashesByChartDirectory[nestedChartDir], BMSDirectoryFileNameHash.GetLookupHash(Path.Combine("sound", "01")));
         }
         finally
         {
@@ -83,7 +83,7 @@ public sealed class ChartDirectoryScanBuilderTests
     }
 
     [TestMethod]
-    public void BuildFromRoots_PathAwareResourcesKeepDistinctRelativeHashesWhileCollapsingBaseNames()
+    public void BuildFromRoots_PathAwareResourcesUseChartRelativeKeys()
     {
         string tempRoot = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_ChartDirRelative_" + Guid.NewGuid().ToString("N"));
         string chartDir = Path.Combine(tempRoot, "song");
@@ -103,12 +103,11 @@ public sealed class ChartDirectoryScanBuilderTests
             Assert.IsTrue(result.AudioRelativePathHashesByChartDirectory.TryGetValue(chartDir, out uint[] audioRelativeHashes));
             Assert.IsTrue(result.ImageRelativePathHashesByChartDirectory.TryGetValue(chartDir, out uint[] imageRelativeHashes));
 
-            uint baseHash = BMSDirectoryFileNameHash.GetFileNameHash("bgm1.wav");
-            uint flatRelativeHash = BMSDirectoryFileNameHash.GetLookupHash("bgm1.wav");
-            uint nestedRelativeHash = BMSDirectoryFileNameHash.GetLookupHash(Path.Combine("sound", "bgm1.wav"));
-            uint imageRelativeHash = BMSDirectoryFileNameHash.GetLookupHash(Path.Combine("clock", "00_001_00.png"));
+            uint flatRelativeHash = BMSDirectoryFileNameHash.GetLookupHash("bgm1");
+            uint nestedRelativeHash = BMSDirectoryFileNameHash.GetLookupHash(Path.Combine("sound", "bgm1"));
+            uint imageRelativeHash = BMSDirectoryFileNameHash.GetLookupHash(Path.Combine("clock", "00_001_00"));
 
-            CollectionAssert.AreEquivalent(new[] { baseHash }, audioBaseHashes);
+            CollectionAssert.AreEquivalent(new[] { flatRelativeHash, nestedRelativeHash }, audioBaseHashes);
             CollectionAssert.AreEquivalent(new[] { flatRelativeHash, nestedRelativeHash }, audioRelativeHashes);
             CollectionAssert.Contains(imageRelativeHashes.ToList(), imageRelativeHash);
             Assert.AreNotEqual(flatRelativeHash, nestedRelativeHash);
