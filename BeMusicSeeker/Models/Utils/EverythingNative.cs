@@ -18,7 +18,7 @@ internal static class EverythingNative
 
 	internal const string SourceRootScanBackendName = "everything_bridge_source_surface";
 
-	private const uint FixedScanContractVersion = 2026050503u;
+	private const uint FixedScanContractVersion = 2026050601u;
 
 	private static IntPtr loadedBridgeModule = IntPtr.Zero;
 
@@ -444,7 +444,6 @@ internal static class EverythingNative
 	{
 		string[] chartPaths = ReadStringArray(header.chart_count, header.chart_offsets, header.chart_blob);
 		string[] chartDirectories = ReadStringArray(header.dir_count, header.dir_offsets, header.dir_blob);
-		uint[][] allBaseHashes = ReadHashGroupArray(header.dir_count, header.all_hash_offsets, header.all_hash_lengths, header.all_hashes_blob);
 		uint[][] audioBaseHashes = ReadHashGroupArray(header.dir_count, header.audio_base_hash_offsets, header.audio_base_hash_lengths, header.audio_base_hashes_blob);
 		uint[][] imageBaseHashes = ReadHashGroupArray(header.dir_count, header.image_base_hash_offsets, header.image_base_hash_lengths, header.image_base_hashes_blob);
 		uint[][] movieBaseHashes = ReadHashGroupArray(header.dir_count, header.movie_base_hash_offsets, header.movie_base_hash_lengths, header.movie_base_hashes_blob);
@@ -457,7 +456,6 @@ internal static class EverythingNative
 		uint[][] movieRelativeHashes = IsSameHashGroup(header.movie_base_hash_offsets, header.movie_base_hash_lengths, header.movie_base_hashes_blob, header.movie_relative_hash_offsets, header.movie_relative_hash_lengths, header.movie_relative_hashes_blob)
 			? movieBaseHashes
 			: ReadHashGroupArray(header.dir_count, header.movie_relative_hash_offsets, header.movie_relative_hash_lengths, header.movie_relative_hashes_blob);
-		uint[][] selfOwnedAllBaseHashes = ReadHashGroupArray(header.dir_count, header.self_all_hash_offsets, header.self_all_hash_lengths, header.self_all_hashes_blob);
 		uint[][] selfOwnedAudioBaseHashes = ReadHashGroupArray(header.dir_count, header.self_audio_base_hash_offsets, header.self_audio_base_hash_lengths, header.self_audio_base_hashes_blob);
 		uint[][] selfOwnedImageBaseHashes = ReadHashGroupArray(header.dir_count, header.self_image_base_hash_offsets, header.self_image_base_hash_lengths, header.self_image_base_hashes_blob);
 		uint[][] selfOwnedMovieBaseHashes = ReadHashGroupArray(header.dir_count, header.self_movie_base_hash_offsets, header.self_movie_base_hash_lengths, header.self_movie_base_hashes_blob);
@@ -474,21 +472,18 @@ internal static class EverythingNative
 		{
 			ChartPaths = chartPaths,
 			ChartDirectories = chartDirectories,
-			AllBaseHashes = allBaseHashes,
 			AudioBaseHashes = audioBaseHashes,
 			ImageBaseHashes = imageBaseHashes,
 			MovieBaseHashes = movieBaseHashes,
 			AudioRelativeHashes = audioRelativeHashes,
 			ImageRelativeHashes = imageRelativeHashes,
 			MovieRelativeHashes = movieRelativeHashes,
-			SelfOwnedAllBaseHashes = selfOwnedAllBaseHashes,
 			SelfOwnedAudioBaseHashes = selfOwnedAudioBaseHashes,
 			SelfOwnedImageBaseHashes = selfOwnedImageBaseHashes,
 			SelfOwnedMovieBaseHashes = selfOwnedMovieBaseHashes,
 			SelfOwnedAudioRelativeHashes = selfOwnedAudioRelativeHashes,
 			SelfOwnedImageRelativeHashes = selfOwnedImageRelativeHashes,
 			SelfOwnedMovieRelativeHashes = selfOwnedMovieRelativeHashes,
-			AllBaseReverseDirectories = ReadReverseHashMap(header.all_base_reverse_key_count, header.all_base_reverse_keys, header.all_base_reverse_offsets, header.all_base_reverse_lengths, header.all_base_reverse_indices_blob, chartDirectories),
 			AudioRelativeReverseDirectories = ReadReverseHashMap(header.audio_relative_reverse_key_count, header.audio_relative_reverse_keys, header.audio_relative_reverse_offsets, header.audio_relative_reverse_lengths, header.audio_relative_reverse_indices_blob, chartDirectories),
 			ImageRelativeReverseDirectories = ReadReverseHashMap(header.image_relative_reverse_key_count, header.image_relative_reverse_keys, header.image_relative_reverse_offsets, header.image_relative_reverse_lengths, header.image_relative_reverse_indices_blob, chartDirectories),
 			MovieRelativeReverseDirectories = ReadReverseHashMap(header.movie_relative_reverse_key_count, header.movie_relative_reverse_keys, header.movie_relative_reverse_offsets, header.movie_relative_reverse_lengths, header.movie_relative_reverse_indices_blob, chartDirectories)
@@ -547,7 +542,6 @@ internal static class EverythingNative
 			{
 				RootId = entryHeader.root_id,
 				ChartPaths = ReadStringList(entryHeader.chart_count, entryHeader.chart_offsets, header.chart_blob).ToArray(),
-				AllBaseHashes = ReadHashArray(entryHeader.all_base_hash_offset, entryHeader.all_base_hash_length, header.all_base_hashes_blob),
 				AudioBaseHashes = ReadHashArray(entryHeader.audio_base_hash_offset, entryHeader.audio_base_hash_length, header.audio_base_hashes_blob),
 				ImageBaseHashes = ReadHashArray(entryHeader.image_base_hash_offset, entryHeader.image_base_hash_length, header.image_base_hashes_blob),
 				MovieBaseHashes = ReadHashArray(entryHeader.movie_base_hash_offset, entryHeader.movie_base_hash_length, header.movie_base_hashes_blob),
@@ -754,7 +748,6 @@ internal static class EverythingNative
 				RootPath = rootPath,
 				ChartPaths = decodedEntry.ChartPaths ?? Array.Empty<string>(),
 				ResourceEntry = new DirectoryResourceLookupCache.Entry(
-					decodedEntry.AllBaseHashes,
 					decodedEntry.AudioBaseHashes,
 					decodedEntry.ImageBaseHashes,
 					decodedEntry.MovieBaseHashes,
@@ -789,6 +782,96 @@ internal static class EverythingNative
 		return map;
 	}
 
+	private static ulong CountFolderUnionHashes(params uint[][][] hashGroups)
+	{
+		int count = 0;
+		if (hashGroups != null)
+		{
+			for (int i = 0; i < hashGroups.Length; i++)
+			{
+				uint[][] group = hashGroups[i];
+				if (group != null && group.Length > count)
+				{
+					count = group.Length;
+				}
+			}
+		}
+		ulong total = 0UL;
+		for (int i = 0; i < count; i++)
+		{
+			total += (ulong)CountSortedDistinctUnion(
+				GetHashes(hashGroups, 0, i),
+				GetHashes(hashGroups, 1, i),
+				GetHashes(hashGroups, 2, i));
+		}
+		return total;
+	}
+
+	private static int CountSortedDistinctUnion(uint[] first, uint[] second, uint[] third)
+	{
+		first ??= Array.Empty<uint>();
+		second ??= Array.Empty<uint>();
+		third ??= Array.Empty<uint>();
+
+		int i = 0;
+		int j = 0;
+		int k = 0;
+		uint previous = 0u;
+		bool hasPrevious = false;
+		int count = 0;
+		while (i < first.Length || j < second.Length || k < third.Length)
+		{
+			uint value = uint.MaxValue;
+			if (i < first.Length && first[i] < value)
+			{
+				value = first[i];
+			}
+			if (j < second.Length && second[j] < value)
+			{
+				value = second[j];
+			}
+			if (k < third.Length && third[k] < value)
+			{
+				value = third[k];
+			}
+
+			if (value != 0u && (!hasPrevious || previous != value))
+			{
+				count++;
+				previous = value;
+				hasPrevious = true;
+			}
+
+			while (i < first.Length && first[i] == value)
+			{
+				i++;
+			}
+			while (j < second.Length && second[j] == value)
+			{
+				j++;
+			}
+			while (k < third.Length && third[k] == value)
+			{
+				k++;
+			}
+		}
+		return count;
+	}
+
+	private static uint[] GetHashes(uint[][][] hashGroups, int groupIndex, int directoryIndex)
+	{
+		if (hashGroups == null || groupIndex < 0 || groupIndex >= hashGroups.Length)
+		{
+			return Array.Empty<uint>();
+		}
+		uint[][] group = hashGroups[groupIndex];
+		if (group == null || directoryIndex < 0 || directoryIndex >= group.Length)
+		{
+			return Array.Empty<uint>();
+		}
+		return group[directoryIndex] ?? Array.Empty<uint>();
+	}
+
 	private static string NormalizeSourceRootDirectory(string rootDirectory)
 	{
 		if (string.IsNullOrWhiteSpace(rootDirectory))
@@ -813,14 +896,12 @@ internal static class EverythingNative
 	{
 		HashSet<string> chartFilePaths = MaterializeStringSet(decodedResult?.ChartPaths);
 		HashSet<string> chartDirectories = MaterializeStringSet(decodedResult?.ChartDirectories);
-		Dictionary<string, uint[]> allBase = MaterializeHashMap(decodedResult?.ChartDirectories, decodedResult?.AllBaseHashes);
 		Dictionary<string, uint[]> audioBase = MaterializeHashMap(decodedResult?.ChartDirectories, decodedResult?.AudioBaseHashes);
 		Dictionary<string, uint[]> imageBase = MaterializeHashMap(decodedResult?.ChartDirectories, decodedResult?.ImageBaseHashes);
 		Dictionary<string, uint[]> movieBase = MaterializeHashMap(decodedResult?.ChartDirectories, decodedResult?.MovieBaseHashes);
 		Dictionary<string, uint[]> audioRelative = ReferenceEquals(decodedResult?.AudioRelativeHashes, decodedResult?.AudioBaseHashes) ? audioBase : MaterializeHashMap(decodedResult?.ChartDirectories, decodedResult?.AudioRelativeHashes);
 		Dictionary<string, uint[]> imageRelative = ReferenceEquals(decodedResult?.ImageRelativeHashes, decodedResult?.ImageBaseHashes) ? imageBase : MaterializeHashMap(decodedResult?.ChartDirectories, decodedResult?.ImageRelativeHashes);
 		Dictionary<string, uint[]> movieRelative = ReferenceEquals(decodedResult?.MovieRelativeHashes, decodedResult?.MovieBaseHashes) ? movieBase : MaterializeHashMap(decodedResult?.ChartDirectories, decodedResult?.MovieRelativeHashes);
-		Dictionary<string, uint[]> selfOwnedAllBase = MaterializeHashMap(decodedResult?.ChartDirectories, decodedResult?.SelfOwnedAllBaseHashes);
 		Dictionary<string, uint[]> selfOwnedAudioBase = MaterializeHashMap(decodedResult?.ChartDirectories, decodedResult?.SelfOwnedAudioBaseHashes);
 		Dictionary<string, uint[]> selfOwnedImageBase = MaterializeHashMap(decodedResult?.ChartDirectories, decodedResult?.SelfOwnedImageBaseHashes);
 		Dictionary<string, uint[]> selfOwnedMovieBase = MaterializeHashMap(decodedResult?.ChartDirectories, decodedResult?.SelfOwnedMovieBaseHashes);
@@ -828,19 +909,17 @@ internal static class EverythingNative
 		Dictionary<string, uint[]> selfOwnedImageRelative = ReferenceEquals(decodedResult?.SelfOwnedImageRelativeHashes, decodedResult?.SelfOwnedImageBaseHashes) ? selfOwnedImageBase : MaterializeHashMap(decodedResult?.ChartDirectories, decodedResult?.SelfOwnedImageRelativeHashes);
 		Dictionary<string, uint[]> selfOwnedMovieRelative = ReferenceEquals(decodedResult?.SelfOwnedMovieRelativeHashes, decodedResult?.SelfOwnedMovieBaseHashes) ? selfOwnedMovieBase : MaterializeHashMap(decodedResult?.ChartDirectories, decodedResult?.SelfOwnedMovieRelativeHashes);
 		ulong hashDirCount = (ulong)chartDirectories.Count;
-		ulong hashEntryCount = header.all_base_hash_count;
+		ulong hashEntryCount = CountFolderUnionHashes(decodedResult?.AudioBaseHashes, decodedResult?.ImageBaseHashes, decodedResult?.MovieBaseHashes);
 		BmsScanResult scanResult = new BmsScanResult
 		{
 			ChartFilePaths = chartFilePaths,
 			ChartDirectories = chartDirectories,
-			AllResourceBaseNameHashesByChartDirectory = allBase,
 			AudioBaseNameHashesByChartDirectory = audioBase,
 			ImageBaseNameHashesByChartDirectory = imageBase,
 			MovieBaseNameHashesByChartDirectory = movieBase,
 			AudioRelativePathHashesByChartDirectory = audioRelative,
 			ImageRelativePathHashesByChartDirectory = imageRelative,
 			MovieRelativePathHashesByChartDirectory = movieRelative,
-			SelfOwnedAllResourceBaseNameHashesByChartDirectory = selfOwnedAllBase,
 			SelfOwnedAudioBaseNameHashesByChartDirectory = selfOwnedAudioBase,
 			SelfOwnedImageBaseNameHashesByChartDirectory = selfOwnedImageBase,
 			SelfOwnedMovieBaseNameHashesByChartDirectory = selfOwnedMovieBase,
@@ -874,7 +953,7 @@ internal static class EverythingNative
 			AudioAssignedCount = header.audio_assigned_count,
 			ImageAssignedCount = header.image_assigned_count,
 			MovieAssignedCount = header.movie_assigned_count,
-			AllBaseHashCount = header.all_base_hash_count,
+			FolderUnionHashCount = hashEntryCount,
 			AudioBaseHashCount = header.audio_base_hash_count,
 			ImageBaseHashCount = header.image_base_hash_count,
 			MovieBaseHashCount = header.movie_base_hash_count,
@@ -900,21 +979,18 @@ internal static class EverythingNative
 			Result = scanResult,
 			ResourceIndex = LibraryResourceIndex.CreateFromNativeCanonicalArrays(
 				decodedResult?.ChartDirectories,
-				decodedResult?.AllBaseHashes,
 				decodedResult?.AudioBaseHashes,
 				decodedResult?.ImageBaseHashes,
 				decodedResult?.MovieBaseHashes,
 				decodedResult?.AudioRelativeHashes,
 				decodedResult?.ImageRelativeHashes,
 				decodedResult?.MovieRelativeHashes,
-				decodedResult?.SelfOwnedAllBaseHashes,
 				decodedResult?.SelfOwnedAudioBaseHashes,
 				decodedResult?.SelfOwnedImageBaseHashes,
 				decodedResult?.SelfOwnedMovieBaseHashes,
 				decodedResult?.SelfOwnedAudioRelativeHashes,
 				decodedResult?.SelfOwnedImageRelativeHashes,
 				decodedResult?.SelfOwnedMovieRelativeHashes,
-				decodedResult?.AllBaseReverseDirectories,
 				decodedResult?.AudioRelativeReverseDirectories,
 				decodedResult?.ImageRelativeReverseDirectories,
 				decodedResult?.MovieRelativeReverseDirectories)
@@ -1082,8 +1158,6 @@ internal static class EverythingNative
 
 		internal string[] ChartDirectories { get; set; } = Array.Empty<string>();
 
-		internal uint[][] AllBaseHashes { get; set; } = Array.Empty<uint[]>();
-
 		internal uint[][] AudioBaseHashes { get; set; } = Array.Empty<uint[]>();
 
 		internal uint[][] ImageBaseHashes { get; set; } = Array.Empty<uint[]>();
@@ -1095,8 +1169,6 @@ internal static class EverythingNative
 		internal uint[][] ImageRelativeHashes { get; set; } = Array.Empty<uint[]>();
 
 		internal uint[][] MovieRelativeHashes { get; set; } = Array.Empty<uint[]>();
-
-		internal uint[][] SelfOwnedAllBaseHashes { get; set; } = Array.Empty<uint[]>();
 
 		internal uint[][] SelfOwnedAudioBaseHashes { get; set; } = Array.Empty<uint[]>();
 
@@ -1110,8 +1182,6 @@ internal static class EverythingNative
 
 		internal uint[][] SelfOwnedMovieRelativeHashes { get; set; } = Array.Empty<uint[]>();
 
-		internal Dictionary<uint, string[]> AllBaseReverseDirectories { get; set; } = new Dictionary<uint, string[]>();
-
 		internal Dictionary<uint, string[]> AudioRelativeReverseDirectories { get; set; } = new Dictionary<uint, string[]>();
 
 		internal Dictionary<uint, string[]> ImageRelativeReverseDirectories { get; set; } = new Dictionary<uint, string[]>();
@@ -1124,8 +1194,6 @@ internal static class EverythingNative
 		internal uint RootId { get; set; }
 
 		internal string[] ChartPaths { get; set; } = Array.Empty<string>();
-
-		internal uint[] AllBaseHashes { get; set; } = Array.Empty<uint>();
 
 		internal uint[] AudioBaseHashes { get; set; } = Array.Empty<uint>();
 
@@ -1196,8 +1264,6 @@ internal static class EverythingNative
 		public uint root_id;
 		public ulong chart_count;
 		public IntPtr chart_offsets;
-		public uint all_base_hash_offset;
-		public uint all_base_hash_length;
 		public uint audio_base_hash_offset;
 		public uint audio_base_hash_length;
 		public uint image_base_hash_offset;
@@ -1225,7 +1291,6 @@ internal static class EverythingNative
 		public IntPtr root_offsets;
 		public IntPtr root_blob;
 		public IntPtr chart_blob;
-		public IntPtr all_base_hashes_blob;
 		public IntPtr audio_base_hashes_blob;
 		public IntPtr image_base_hashes_blob;
 		public IntPtr movie_base_hashes_blob;
@@ -1259,9 +1324,6 @@ internal static class EverythingNative
 		public ulong dir_count;
 		public IntPtr dir_offsets;
 		public IntPtr dir_blob;
-		public IntPtr all_hash_offsets;
-		public IntPtr all_hash_lengths;
-		public IntPtr all_hashes_blob;
 		public IntPtr audio_base_hash_offsets;
 		public IntPtr audio_base_hash_lengths;
 		public IntPtr audio_base_hashes_blob;
@@ -1295,7 +1357,6 @@ internal static class EverythingNative
 		public ulong audio_assigned_count;
 		public ulong image_assigned_count;
 		public ulong movie_assigned_count;
-		public ulong all_base_hash_count;
 		public ulong audio_base_hash_count;
 		public ulong image_base_hash_count;
 		public ulong movie_base_hash_count;
@@ -1319,9 +1380,6 @@ internal static class EverythingNative
 		public long movie_assign_ms;
 		public long movie_merge_ms;
 		public ulong raw_buffer_size;
-		public IntPtr self_all_hash_offsets;
-		public IntPtr self_all_hash_lengths;
-		public IntPtr self_all_hashes_blob;
 		public IntPtr self_audio_base_hash_offsets;
 		public IntPtr self_audio_base_hash_lengths;
 		public IntPtr self_audio_base_hashes_blob;
@@ -1340,11 +1398,6 @@ internal static class EverythingNative
 		public IntPtr self_movie_relative_hash_offsets;
 		public IntPtr self_movie_relative_hash_lengths;
 		public IntPtr self_movie_relative_hashes_blob;
-		public ulong all_base_reverse_key_count;
-		public IntPtr all_base_reverse_keys;
-		public IntPtr all_base_reverse_offsets;
-		public IntPtr all_base_reverse_lengths;
-		public IntPtr all_base_reverse_indices_blob;
 		public ulong audio_relative_reverse_key_count;
 		public IntPtr audio_relative_reverse_keys;
 		public IntPtr audio_relative_reverse_offsets;

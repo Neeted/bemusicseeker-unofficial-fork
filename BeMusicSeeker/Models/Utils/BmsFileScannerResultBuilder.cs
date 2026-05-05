@@ -22,7 +22,7 @@ internal static class BmsFileScannerResultBuilder
             BuildResultMs = buildMs,
             HashBuildMs = buildMs,
             HashDirCount = (ulong)(scanResult.ChartDirectories?.Count ?? 0),
-            HashEntryCount = CountHashEntries(scanResult.AllResourceBaseNameHashesByChartDirectory),
+            HashEntryCount = CountFolderUnionHashEntries(scanResult),
             ChartQueryHitCount = enumerationResult?.GetQueryHitCount(ChartDirectoryScanBuilder.ChartGroupName) ?? 0UL,
             AudioQueryHitCount = enumerationResult?.GetQueryHitCount(ChartDirectoryScanBuilder.AudioGroupName) ?? 0UL,
             ImageQueryHitCount = enumerationResult?.GetQueryHitCount(ChartDirectoryScanBuilder.ImageGroupName) ?? 0UL,
@@ -35,7 +35,7 @@ internal static class BmsFileScannerResultBuilder
             AudioAssignedCount = (ulong)(enumerationResult?.GetPaths(ChartDirectoryScanBuilder.AudioGroupName)?.Count ?? 0),
             ImageAssignedCount = (ulong)(enumerationResult?.GetPaths(ChartDirectoryScanBuilder.ImageGroupName)?.Count ?? 0),
             MovieAssignedCount = (ulong)(enumerationResult?.GetPaths(ChartDirectoryScanBuilder.MovieGroupName)?.Count ?? 0),
-            AllBaseHashCount = CountHashEntries(scanResult.AllResourceBaseNameHashesByChartDirectory),
+            FolderUnionHashCount = CountFolderUnionHashEntries(scanResult),
             AudioBaseHashCount = CountHashEntries(scanResult.AudioBaseNameHashesByChartDirectory),
             ImageBaseHashCount = CountHashEntries(scanResult.ImageBaseNameHashesByChartDirectory),
             MovieBaseHashCount = CountHashEntries(scanResult.MovieBaseNameHashesByChartDirectory),
@@ -53,5 +53,10 @@ internal static class BmsFileScannerResultBuilder
     private static ulong CountHashEntries(Dictionary<string, uint[]> hashesByDirectory)
     {
         return (ulong)((hashesByDirectory ?? new Dictionary<string, uint[]>()).Values.Sum((uint[] hashes) => hashes?.Length ?? 0));
+    }
+
+    private static ulong CountFolderUnionHashEntries(BmsScanResult scanResult)
+    {
+        return (ulong)((scanResult?.CreateResourceUnionHashesByChartDirectory(selfOwned: false) ?? new Dictionary<string, uint[]>()).Values.Sum((uint[] hashes) => hashes?.Length ?? 0));
     }
 }

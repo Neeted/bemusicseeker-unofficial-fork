@@ -7946,10 +7946,7 @@ public class BMSLibrary : NotificationObject
                 DirectoryResourceLookupCache.ReverseLookupMutationResult reverseLookupMutation = DirectoryResourceLookupCache.ReverseLookupMutationResult.Empty;
                 foreach (string dir in addedDirectoryScan.ChartDirectories)
                 {
-                    if (!addedDirectoryScan.SelfOwnedAllResourceBaseNameHashesByChartDirectory.TryGetValue(dir, out uint[] hashes))
-                    {
-                        addedDirectoryScan.AllResourceBaseNameHashesByChartDirectory.TryGetValue(dir, out hashes);
-                    }
+                    uint[] hashes = addedDirectoryScan.GetResourceUnionHashArray(dir, selfOwned: true);
                     if (hashes != null)
                     {
                         bmsFolderAllFileList.AddDirHashed(dir, hashes);
@@ -10009,10 +10006,7 @@ public class BMSLibrary : NotificationObject
                     BmsScanResult mergedDirectoryScan = ChartDirectoryScanBuilder.BuildFromRoots(new[] { dst });
                     foreach (string chartDirectory in mergedDirectoryScan.ChartDirectories)
                     {
-                        if (!mergedDirectoryScan.SelfOwnedAllResourceBaseNameHashesByChartDirectory.TryGetValue(chartDirectory, out uint[] hashes))
-                        {
-                            mergedDirectoryScan.AllResourceBaseNameHashesByChartDirectory.TryGetValue(chartDirectory, out hashes);
-                        }
+                        uint[] hashes = mergedDirectoryScan.GetResourceUnionHashArray(chartDirectory, selfOwned: true);
                         if (hashes != null)
                         {
                             bmsFolderAllFileList.AddDirHashed(chartDirectory, hashes);

@@ -589,6 +589,29 @@ Everything service 側で同時 query の内部競合があるため、個別の
 
 これにより `managedMaterializeMs` は約 2.3s から約 0.2s、`resource_index_build` は約 2.1s から約 0.05s まで縮小した。`bridgeRawBufferBytes` 自体はまだ約 380MB のままであり、次に同じ領域をさらに削る場合は native contract 側で送る hash group / reverse map payload そのものを小さくする必要がある。
 
+続く allBase 削除では、native bridge / managed scan result から旧 all-resource surface を削除した。保持する正本は audio / image / movie のカテゴリ別 base / chart-relative hash とカテゴリ別 reverse lookup だけである。
+
+- `EBridge_ScanChartAndResources` は `all_hash_*`, `self_all_hash_*`, `all_base_reverse_*`, `all_base_hash_count` を返さない。
+- `BmsScanResult` は `AllResourceBaseNameHashesByChartDirectory` / `SelfOwnedAllResourceBaseNameHashesByChartDirectory` を持たない。
+- `DirectoryResourceLookupCache.Entry` の `AllBaseNameHashArray` / `SelfOwnedAllBaseNameHashArray` 相当は保存値ではなく、audio / image / movie のカテゴリ配列から lazy に派生する union である。
+- `FolderAllFileList` は self-owned category union から構築する。managed fallback scan でも同じカテゴリ辞書を正本にし、Everything unavailable 時の fallback は維持する。
+- generic all-base reverse lookup は削除した。導入先推定と reverse lookup はカテゴリ別 chart-relative key を使う。
+
+この変更は payload 削減の第一段である。実機での効果確認は `everything_scan` の `bridgeRawBufferBytes`, `managedDecodeMs`, `managedMaterializeMs`, `folderUnionHashCount`、および `resource_index_build` の悪化有無で見る。
+
+2026-05-06 実機確認では次の状態になった。
+
+- `everything_scan totalMs=26640`
+- `nativeBridgeMs=23948`
+- `managedDecodeMs=2255`
+- `managedMaterializeMs=410`
+- `bridgeRawBufferBytes=281218408`
+- `folderUnionHashCount=12231908`
+- `resource_index_build buildMs=171 folderMs=144 lookupMs=26`
+- `startup_install_estimation_ready elapsedMs=29723`
+
+payload は約 379MB から約 281MB へ減少した。allBase union は managed 側で sorted category arrays から線形 merge して派生するため、`resource_index_build folderMs` は旧 allBase payload 直受けより増えるが、全体の `everything_scan totalMs` と install readiness は悪化していない。未分類 allBase reverse lookup は復活させない。
+
 ### Phase 4B / 5A Normal Startup Baseline
 
 2026-05-05 17:40 の保留 package なし通常起動ログでは、Phase 8D 後の通常起動想定として次の状態になった。17:41:48 以降に手動の `全譜面を再スキャン` が開始されているが、ここでは `startup_initialization_complete` までの通常起動分だけを評価する。

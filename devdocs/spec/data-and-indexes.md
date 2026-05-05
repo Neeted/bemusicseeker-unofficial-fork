@@ -25,7 +25,7 @@
 - `BMSPackagesInstalled`  
   導入済みパッケージ一覧（管理用）
 - `bmsFolderAllFileList : BMSDirectoryFileNameHash`  
-  「chart directory」ごとの all-resource basename hash 配列
+  「chart directory」ごとの resource hash union 配列。入力は audio / image / movie のカテゴリ別 index から派生する
 - `directoryResourceLookupCache : DirectoryResourceLookupCache`
   chart directory ごとのカテゴリ別 basename / relative-path hash 集合
   - aggregate ownership と self-only ownership の二重 view
@@ -39,6 +39,7 @@
 
 - キー: chart directory 絶対パス（`OrdinalIgnoreCase`）
 - 値: その chart directory に再集約された resource basename の `uint[]` ハッシュ列
+  - native payload から直接受け取る all-resource surface ではなく、audio / image / movie のカテゴリ hash union
 
 ハッシュ関数:
 
@@ -55,9 +56,9 @@
 
 補足:
 
-- `BMSDirectoryFileNameHash` は **basename-only index** であり、`sound\bgm1` のような path-aware key は保持しない
-- ownership fix 後も、この index は **self-only basename index** のまま維持する
-- basename-only broad filter の fallback や installed-dir tie-break はこの index を使う
+- `BMSDirectoryFileNameHash` は導入先推定の正本ではなく、カテゴリ別 canonical resource index から派生する folder-level union view である。
+- 導入先推定の照合本体と reverse lookup は `DirectoryResourceLookupCache` の audio / image / movie chart-relative key を使う。
+- `foo.wav` は `foo`、`sound/foo.wav` は `sound/foo` として扱われ、旧 basename-only matching は使わない。
 - relative path を含む source of truth は `DirectoryResourceLookupCache.Entry` / `DirectoryRelativePathHashIndex.Entry` 側に置く
 
 ## 4. `DirectoryRelativePathHashIndex` の仕様
@@ -101,7 +102,6 @@
 - `ChartFilePaths`
 - `ChartDirectories`
 - aggregate ownership
-  - `AllResourceBaseNameHashesByChartDirectory`
   - `AudioBaseNameHashesByChartDirectory`
   - `ImageBaseNameHashesByChartDirectory`
   - `MovieBaseNameHashesByChartDirectory`
@@ -109,7 +109,6 @@
   - `ImageRelativePathHashesByChartDirectory`
   - `MovieRelativePathHashesByChartDirectory`
 - self-only ownership
-  - `SelfOwnedAllResourceBaseNameHashesByChartDirectory`
   - `SelfOwnedAudioBaseNameHashesByChartDirectory`
   - `SelfOwnedImageBaseNameHashesByChartDirectory`
   - `SelfOwnedMovieBaseNameHashesByChartDirectory`
@@ -118,6 +117,7 @@
   - `SelfOwnedMovieRelativePathHashesByChartDirectory`
 
 resource は「存在ディレクトリ」ではなく、chart directory keyed に再集約する。  
+未分類 all-resource surface は保持しない。必要な folder-level hash は audio / image / movie のカテゴリ union から派生する。
 `2026-04-23` 時点では次の二重 semantics を持つ。
 
 - aggregate ownership

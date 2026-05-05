@@ -165,12 +165,12 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             BMSDirectoryFileNameHash folderHash = new BMSDirectoryFileNameHash();
             folderHash.AddDir(sourceRoot, update: true);
             folderHash.AddDir(nestedDirectoryPath, update: true);
-            uint sourceHash = BMSDirectoryFileNameHash.GetFileNameHash("root.wav");
-            uint nestedHash = BMSDirectoryFileNameHash.GetFileNameHash("chart.bms");
+            uint sourceHash = BMSDirectoryFileNameHash.GetLookupHash("root.wav");
+            uint nestedHash = BMSDirectoryFileNameHash.GetLookupHash("chart.bms");
             DirectoryResourceLookupCache lookupCache = new DirectoryResourceLookupCache();
-            lookupCache.AddDir(sourceRoot, new[] { sourceHash }, Array.Empty<uint>(), Array.Empty<uint>(), Array.Empty<uint>(), Array.Empty<uint>(), Array.Empty<uint>(), Array.Empty<uint>());
-            lookupCache.AddDir(nestedDirectoryPath, new[] { nestedHash }, Array.Empty<uint>(), Array.Empty<uint>(), Array.Empty<uint>(), Array.Empty<uint>(), Array.Empty<uint>(), Array.Empty<uint>());
-            lookupCache.EnsureDirectoriesByHashes(new[] { sourceHash, nestedHash });
+            lookupCache.AddDir(sourceRoot, Array.Empty<uint>(), Array.Empty<uint>(), Array.Empty<uint>(), new[] { sourceHash }, Array.Empty<uint>(), Array.Empty<uint>());
+            lookupCache.AddDir(nestedDirectoryPath, Array.Empty<uint>(), Array.Empty<uint>(), Array.Empty<uint>(), new[] { nestedHash }, Array.Empty<uint>(), Array.Empty<uint>());
+            lookupCache.EnsureAudioRelativeDirectoriesByHashes(new[] { sourceHash, nestedHash });
 
             TestableBmsFile libraryFile = CreateFile(Path.Combine(sourceRoot, "Nested", "chart.bms"));
             libraryFile.instl_dst = sourceRoot;
@@ -208,8 +208,8 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             Assert.IsTrue(Directory.Exists(destinationRoot));
             CollectionAssert.Contains(folderHash.Keys, destinationRoot);
             CollectionAssert.Contains(folderHash.Keys, Path.Combine(destinationRoot, "Nested"));
-            CollectionAssert.AreEquivalent(new[] { destinationRoot }, lookupCache.GetDirectoriesByHash(sourceHash).ToArray());
-            CollectionAssert.AreEquivalent(new[] { Path.Combine(destinationRoot, "Nested") }, lookupCache.GetDirectoriesByHash(nestedHash).ToArray());
+            CollectionAssert.AreEquivalent(new[] { destinationRoot }, lookupCache.GetDirectoriesByAudioRelativeHash(sourceHash).ToArray());
+            CollectionAssert.AreEquivalent(new[] { Path.Combine(destinationRoot, "Nested") }, lookupCache.GetDirectoriesByAudioRelativeHash(nestedHash).ToArray());
             Assert.AreEqual(2, delta.UpdatedInstallDestinations.Count);
             Assert.AreEqual(1, delta.UpdatedInstalledPackagePaths.Count);
             CollectionAssert.AreEquivalent(

@@ -18,7 +18,6 @@ internal static class ResourceSurfaceMaterializer
             return new DirectoryResourceLookupCache.Entry();
         }
 
-        HashSet<uint> allBaseNameHashes = new HashSet<uint>();
         HashSet<uint> audioBaseNameHashes = new HashSet<uint>();
         HashSet<uint> imageBaseNameHashes = new HashSet<uint>();
         HashSet<uint> movieBaseNameHashes = new HashSet<uint>();
@@ -26,12 +25,11 @@ internal static class ResourceSurfaceMaterializer
         HashSet<uint> imageRelativePathHashes = new HashSet<uint>();
         HashSet<uint> movieRelativePathHashes = new HashSet<uint>();
 
-        AddResourceHashes(rootDirectory, audioFilePaths, allBaseNameHashes, audioBaseNameHashes, audioRelativePathHashes);
-        AddResourceHashes(rootDirectory, imageFilePaths, allBaseNameHashes, imageBaseNameHashes, imageRelativePathHashes);
-        AddResourceHashes(rootDirectory, movieFilePaths, allBaseNameHashes, movieBaseNameHashes, movieRelativePathHashes);
+        AddResourceHashes(rootDirectory, audioFilePaths, audioBaseNameHashes, audioRelativePathHashes);
+        AddResourceHashes(rootDirectory, imageFilePaths, imageBaseNameHashes, imageRelativePathHashes);
+        AddResourceHashes(rootDirectory, movieFilePaths, movieBaseNameHashes, movieRelativePathHashes);
 
         return new DirectoryResourceLookupCache.Entry(
-            allBaseNameHashes.OrderBy((uint hash) => hash).ToArray(),
             audioBaseNameHashes.OrderBy((uint hash) => hash).ToArray(),
             imageBaseNameHashes.OrderBy((uint hash) => hash).ToArray(),
             movieBaseNameHashes.OrderBy((uint hash) => hash).ToArray(),
@@ -40,7 +38,7 @@ internal static class ResourceSurfaceMaterializer
             movieRelativePathHashes.OrderBy((uint hash) => hash).ToArray());
     }
 
-    private static void AddResourceHashes(string rootDirectory, IEnumerable<string> absolutePaths, ISet<uint> allBaseNameHashes, ISet<uint> categoryBaseNameHashes, ISet<uint> categoryRelativePathHashes)
+    private static void AddResourceHashes(string rootDirectory, IEnumerable<string> absolutePaths, ISet<uint> categoryBaseNameHashes, ISet<uint> categoryRelativePathHashes)
     {
         foreach (string absolutePath in (absolutePaths ?? Enumerable.Empty<string>())
             .Where((string path) => !string.IsNullOrWhiteSpace(path))
@@ -56,7 +54,6 @@ internal static class ResourceSurfaceMaterializer
             }
 
             uint relativePathHash = BMSDirectoryFileNameHash.GetLookupHash(relativePath);
-            allBaseNameHashes.Add(relativePathHash);
             categoryBaseNameHashes.Add(relativePathHash);
             categoryRelativePathHashes.Add(relativePathHash);
         }

@@ -708,9 +708,10 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             uint expectedMovieRelativePathHash = BMSDirectoryFileNameHash.GetLookupHash(ChartResourcePathNormalizer.NormalizeResourceKeyForLookup(ChartResourcePathNormalizer.NormalizeRelativePathForLookup(sourceDir, Path.Combine(movieDir, "pv.mp4"))));
 
             Assert.AreEqual(2, snapshot.ChartCount);
-            CollectionAssert.AreEquivalent(
-                ChartResourceSnapshot.CreateAggregate(new BMSFile[] { primary, secondary }).EnumerateAllBaseNameHashes().ToArray(),
-                snapshot.DefinedResources.EnumerateAllBaseNameHashes().ToArray());
+            ChartResourceSnapshot expectedDefinedResources = ChartResourceSnapshot.CreateAggregate(new BMSFile[] { primary, secondary });
+            CollectionAssert.AreEquivalent(expectedDefinedResources.AudioBaseNameHashes.ToArray(), snapshot.DefinedResources.AudioBaseNameHashes.ToArray());
+            CollectionAssert.AreEquivalent(expectedDefinedResources.VisualBaseNameHashes.ToArray(), snapshot.DefinedResources.VisualBaseNameHashes.ToArray());
+            CollectionAssert.AreEquivalent(expectedDefinedResources.MovieBaseNameHashes.ToArray(), snapshot.DefinedResources.MovieBaseNameHashes.ToArray());
             Assert.AreEqual(1, snapshot.BundledAudioCount);
             Assert.AreEqual(1, snapshot.BundledImageCount);
             Assert.AreEqual(1, snapshot.BundledMovieCount);
@@ -1986,11 +1987,9 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         lookupCache.AddDir(
             parentDir,
             new[] { zeroBaseHash, oneBaseHash },
-            new[] { zeroBaseHash, oneBaseHash },
             Array.Empty<uint>(),
             Array.Empty<uint>(),
             new[] { parentZeroRelativeHash, parentOneRelativeHash },
-            Array.Empty<uint>(),
             Array.Empty<uint>(),
             Array.Empty<uint>(),
             Array.Empty<uint>(),
@@ -2001,13 +2000,11 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         lookupCache.AddDir(
             childDir,
             new[] { zeroBaseHash, oneBaseHash },
-            new[] { zeroBaseHash, oneBaseHash },
             Array.Empty<uint>(),
             Array.Empty<uint>(),
             new[] { childZeroRelativeHash, childOneRelativeHash },
             Array.Empty<uint>(),
             Array.Empty<uint>(),
-            new[] { zeroBaseHash, oneBaseHash },
             new[] { zeroBaseHash, oneBaseHash },
             Array.Empty<uint>(),
             Array.Empty<uint>(),
@@ -2054,11 +2051,9 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         lookupCache.AddDir(
             parentDir,
             new[] { zeroBaseHash, oneBaseHash },
-            new[] { zeroBaseHash, oneBaseHash },
             Array.Empty<uint>(),
             Array.Empty<uint>(),
             new[] { parentZeroRelativeHash, parentOneRelativeHash },
-            Array.Empty<uint>(),
             Array.Empty<uint>(),
             Array.Empty<uint>(),
             Array.Empty<uint>(),
@@ -2069,13 +2064,11 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         lookupCache.AddDir(
             childDir,
             new[] { zeroBaseHash, oneBaseHash },
-            new[] { zeroBaseHash, oneBaseHash },
             Array.Empty<uint>(),
             Array.Empty<uint>(),
             new[] { childZeroRelativeHash, childOneRelativeHash },
             Array.Empty<uint>(),
             Array.Empty<uint>(),
-            new[] { zeroBaseHash, oneBaseHash },
             new[] { zeroBaseHash, oneBaseHash },
             Array.Empty<uint>(),
             Array.Empty<uint>(),
@@ -2402,11 +2395,9 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         lookupCache.AddDir(
             parentDir,
             new[] { zeroBaseHash, oneBaseHash },
-            new[] { zeroBaseHash, oneBaseHash },
             Array.Empty<uint>(),
             Array.Empty<uint>(),
             new[] { parentZeroRelativeHash, parentOneRelativeHash },
-            Array.Empty<uint>(),
             Array.Empty<uint>(),
             Array.Empty<uint>(),
             Array.Empty<uint>(),
@@ -2417,13 +2408,11 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         lookupCache.AddDir(
             childDir,
             new[] { zeroBaseHash, oneBaseHash },
-            new[] { zeroBaseHash, oneBaseHash },
             Array.Empty<uint>(),
             Array.Empty<uint>(),
             new[] { childZeroRelativeHash, childOneRelativeHash },
             Array.Empty<uint>(),
             Array.Empty<uint>(),
-            new[] { zeroBaseHash, oneBaseHash },
             new[] { zeroBaseHash, oneBaseHash },
             Array.Empty<uint>(),
             Array.Empty<uint>(),

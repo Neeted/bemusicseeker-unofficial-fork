@@ -319,7 +319,7 @@ internal sealed class BmsLibraryInitializationService
         result.RelativePathHashIndexMs = result.NextResourceIndex.RelativePathIndexMs;
         logInstallPerformance?.Invoke("resource_index_build source=" + (result.NextResourceIndex.Source ?? "managed")
             + " directories=" + result.NextResourceIndex.DirectoryCount
-            + " resources=" + CountHashEntries(mergedScanResult.AllResourceBaseNameHashesByChartDirectory)
+            + " resources=" + CountFolderUnionHashEntries(mergedScanResult)
             + " chartRelativeKeys=" + (CountHashEntries(mergedScanResult.AudioRelativePathHashesByChartDirectory) + CountHashEntries(mergedScanResult.ImageRelativePathHashesByChartDirectory) + CountHashEntries(mergedScanResult.MovieRelativePathHashesByChartDirectory))
             + " reverseLookupKeys=" + (result.NextDirectoryResourceLookupCache?.CategoryReverseLookupEntryCount ?? 0)
             + " reverseLookupSource=" + (string.Equals(result.NextResourceIndex.Source, "native_canonical", StringComparison.OrdinalIgnoreCase) ? "native" : "managed")
@@ -330,7 +330,7 @@ internal sealed class BmsLibraryInitializationService
             + " nativePackMs=" + scanResult.PackMs
             + " managedMaterializeMs=" + result.ManagedMaterializeMs
             + " payloadBytes=" + result.BridgeRawBufferBytes);
-        result.AllBaseHashEntryCount = CountHashEntries(mergedScanResult.AllResourceBaseNameHashesByChartDirectory);
+        result.FolderUnionHashEntryCount = CountFolderUnionHashEntries(mergedScanResult);
         result.AudioBaseHashEntryCount = CountHashEntries(mergedScanResult.AudioBaseNameHashesByChartDirectory);
         result.ImageBaseHashEntryCount = CountHashEntries(mergedScanResult.ImageBaseNameHashesByChartDirectory);
         result.MovieBaseHashEntryCount = CountHashEntries(mergedScanResult.MovieBaseNameHashesByChartDirectory);
@@ -536,7 +536,7 @@ internal sealed class BmsLibraryInitializationService
             + " instl_dst_cleanup_ms=" + result.InstlDstCleanupMs);
         logInstallPerformance?.Invoke(
             "song_tbl_file_check_cache_counts chartDirs=" + result.DirectoryCount
-            + " allBaseHashEntries=" + result.AllBaseHashEntryCount
+            + " folderUnionHashEntries=" + result.FolderUnionHashEntryCount
             + " audioBaseHashEntries=" + result.AudioBaseHashEntryCount
             + " imageBaseHashEntries=" + result.ImageBaseHashEntryCount
             + " movieBaseHashEntries=" + result.MovieBaseHashEntryCount
@@ -1610,14 +1610,12 @@ internal sealed class BmsLibraryInitializationService
         {
             merged.ChartFilePaths.UnionWith(scanResult.ChartFilePaths ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase));
             merged.ChartDirectories.UnionWith(scanResult.ChartDirectories ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase));
-            MergeHashDictionary(merged.AllResourceBaseNameHashesByChartDirectory, scanResult.AllResourceBaseNameHashesByChartDirectory);
             MergeHashDictionary(merged.AudioBaseNameHashesByChartDirectory, scanResult.AudioBaseNameHashesByChartDirectory);
             MergeHashDictionary(merged.ImageBaseNameHashesByChartDirectory, scanResult.ImageBaseNameHashesByChartDirectory);
             MergeHashDictionary(merged.MovieBaseNameHashesByChartDirectory, scanResult.MovieBaseNameHashesByChartDirectory);
             MergeHashDictionary(merged.AudioRelativePathHashesByChartDirectory, scanResult.AudioRelativePathHashesByChartDirectory);
             MergeHashDictionary(merged.ImageRelativePathHashesByChartDirectory, scanResult.ImageRelativePathHashesByChartDirectory);
             MergeHashDictionary(merged.MovieRelativePathHashesByChartDirectory, scanResult.MovieRelativePathHashesByChartDirectory);
-            MergeHashDictionary(merged.SelfOwnedAllResourceBaseNameHashesByChartDirectory, scanResult.SelfOwnedAllResourceBaseNameHashesByChartDirectory);
             MergeHashDictionary(merged.SelfOwnedAudioBaseNameHashesByChartDirectory, scanResult.SelfOwnedAudioBaseNameHashesByChartDirectory);
             MergeHashDictionary(merged.SelfOwnedImageBaseNameHashesByChartDirectory, scanResult.SelfOwnedImageBaseNameHashesByChartDirectory);
             MergeHashDictionary(merged.SelfOwnedMovieBaseNameHashesByChartDirectory, scanResult.SelfOwnedMovieBaseNameHashesByChartDirectory);
@@ -1653,6 +1651,11 @@ internal sealed class BmsLibraryInitializationService
             count += (ulong)(hashes?.Length ?? 0);
         }
         return count;
+    }
+
+    private static ulong CountFolderUnionHashEntries(BmsScanResult scanResult)
+    {
+        return CountHashEntries(scanResult?.CreateResourceUnionHashesByChartDirectory(selfOwned: false));
     }
 
     public ChartDigestBackfillResult BackfillChartDigests(

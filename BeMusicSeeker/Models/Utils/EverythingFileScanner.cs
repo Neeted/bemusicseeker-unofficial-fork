@@ -64,7 +64,7 @@ public class EverythingFileScanner : IBmsFileScanner
 		}
 		if (verboseLog)
 		{
-			logger.Info("everything_scan success charts={0} dirs={1} totalMs={2} nativeBridgeUsed={3} nativeBridgeMs={4} nativeBridgeReason={5} managedDecodeMs={6} managedMaterializeMs={7} bridgeRawBufferBytes={8} hashDirs={9} hashEntries={10} chartQueryHits={11} audioQueryHits={12} imageQueryHits={13} movieQueryHits={14} chartQueryMs={15} audioQueryMs={16} imageQueryMs={17} movieQueryMs={18} chartDirectoryCount={19} audioAssignedCount={20} imageAssignedCount={21} movieAssignedCount={22} allBaseHashCount={23} audioBaseHashCount={24} imageBaseHashCount={25} movieBaseHashCount={26} audioRelHashCount={27} imageRelHashCount={28} movieRelHashCount={29} audioResourceDirCount={30} imageResourceDirCount={31} movieResourceDirCount={32} ownerCacheHitCount={33} ownerCacheMissCount={34} relativePrefixCacheHitCount={35} relativePrefixCacheMissCount={36} audioGroupMs={37} audioAssignMs={38} audioMergeMs={39} imageGroupMs={40} imageAssignMs={41} imageMergeMs={42} movieGroupMs={43} movieAssignMs={44} movieMergeMs={45} assignMs={46} dedupeMs={47} packMs={48}",
+			logger.Info("everything_scan success charts={0} dirs={1} totalMs={2} nativeBridgeUsed={3} nativeBridgeMs={4} nativeBridgeReason={5} managedDecodeMs={6} managedMaterializeMs={7} bridgeRawBufferBytes={8} hashDirs={9} hashEntries={10} chartQueryHits={11} audioQueryHits={12} imageQueryHits={13} movieQueryHits={14} chartQueryMs={15} audioQueryMs={16} imageQueryMs={17} movieQueryMs={18} chartDirectoryCount={19} audioAssignedCount={20} imageAssignedCount={21} movieAssignedCount={22} folderUnionHashCount={23} audioBaseHashCount={24} imageBaseHashCount={25} movieBaseHashCount={26} audioRelHashCount={27} imageRelHashCount={28} movieRelHashCount={29} audioResourceDirCount={30} imageResourceDirCount={31} movieResourceDirCount={32} ownerCacheHitCount={33} ownerCacheMissCount={34} relativePrefixCacheHitCount={35} relativePrefixCacheMissCount={36} audioGroupMs={37} audioAssignMs={38} audioMergeMs={39} imageGroupMs={40} imageAssignMs={41} imageMergeMs={42} movieGroupMs={43} movieAssignMs={44} movieMergeMs={45} assignMs={46} dedupeMs={47} packMs={48}",
 				result.Result.ChartFilePaths.Count,
 				result.Result.ChartDirectories.Count,
 				stopwatch.ElapsedMilliseconds,
@@ -88,7 +88,7 @@ public class EverythingFileScanner : IBmsFileScanner
 				result.AudioAssignedCount,
 				result.ImageAssignedCount,
 				result.MovieAssignedCount,
-				result.AllBaseHashCount,
+				result.FolderUnionHashCount,
 				result.AudioBaseHashCount,
 				result.ImageBaseHashCount,
 				result.MovieBaseHashCount,

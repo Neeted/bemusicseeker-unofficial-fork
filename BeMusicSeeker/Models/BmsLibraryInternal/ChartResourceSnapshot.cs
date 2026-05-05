@@ -118,24 +118,6 @@ internal sealed class ChartResourceSnapshot
 
     public IReadOnlyList<ResourceReference> OptionalImageReferences => optionalImageReferences;
 
-    public IEnumerable<string> EnumerateAllBaseNames()
-    {
-        return AudioBaseNames
-            .Concat(VisualBaseNames)
-            .Concat(MovieBaseNames)
-            .Concat(OptionalImageBaseNames)
-            .Distinct(StringComparer.OrdinalIgnoreCase);
-    }
-
-    public HashSet<uint> EnumerateAllBaseNameHashes()
-    {
-        return new HashSet<uint>(
-            AudioBaseNameHashes
-                .Concat(VisualBaseNameHashes)
-                .Concat(MovieBaseNameHashes)
-                .Concat(OptionalImageBaseNameHashes));
-    }
-
     public HashSet<uint> EnumerateAllRelativePathHashes()
     {
         return new HashSet<uint>(

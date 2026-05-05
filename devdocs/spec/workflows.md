@@ -64,7 +64,7 @@ resource は `sibling:` ではなく roots 配下から列挙し、最長一致�
 概要:
 
 - 対象譜面の構成ファイル情報（WAV/BGA等）を基に、`bmsFolderAllFileList.Keys` の候補ディレクトリを評価。
-- `BMSDirectoryFileNameHash` の all-resource basename hash と、`DirectoryResourceLookupCache` のカテゴリ別 hash を使って一致度を計算。
+- `DirectoryResourceLookupCache` の audio / image / movie chart-relative key を使って一致度を計算する。`BMSDirectoryFileNameHash` はカテゴリ union から派生した broad filter 用 view であり、未分類 all-resource matching は行わない。
 - 最適候補を `instl_dst` に反映。
 
 ## 5. 再インストール補助

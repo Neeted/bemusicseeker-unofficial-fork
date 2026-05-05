@@ -78,7 +78,7 @@ public class BmsScanExecutionResult
 
 	public ulong MovieAssignedCount { get; set; }
 
-	public ulong AllBaseHashCount { get; set; }
+	public ulong FolderUnionHashCount { get; set; }
 
 	public ulong AudioBaseHashCount { get; set; }
 

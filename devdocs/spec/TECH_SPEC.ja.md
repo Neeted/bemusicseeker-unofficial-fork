@@ -203,10 +203,8 @@ private struct EBridgeResultHeader
     public ulong dir_count;        // ディレクトリの数
     public IntPtr dir_offsets;     // ディレクトリパスのオフセット配列
     public IntPtr dir_blob;        // ディレクトリパス文字列データの実体
-    public IntPtr all_hash_offsets; // chart directory ごとの all-resource basename hash オフセット
-    public IntPtr all_hash_lengths; // chart directory ごとの all-resource basename hash 長
-    public IntPtr all_hashes_blob;  // all-resource basename hash 実体
-    // audio/image/movie の basename hash と relative path hash も同様に保持
+    // audio/image/movie の basename hash と relative path hash をカテゴリ別に保持
+    // generic all-resource hash は payload として持たず、必要時だけカテゴリ union から派生する
     public ulong raw_buffer_size;  // 確保されたバッファの合計サイズ
 }
 ```
@@ -234,13 +232,18 @@ public class BmsScanResult
 {
     public HashSet<string> ChartFilePaths { get; set; }
     public HashSet<string> ChartDirectories { get; set; }
-    public Dictionary<string, uint[]> AllResourceBaseNameHashesByChartDirectory { get; set; }
     public Dictionary<string, uint[]> AudioBaseNameHashesByChartDirectory { get; set; }
     public Dictionary<string, uint[]> ImageBaseNameHashesByChartDirectory { get; set; }
     public Dictionary<string, uint[]> MovieBaseNameHashesByChartDirectory { get; set; }
     public Dictionary<string, uint[]> AudioRelativePathHashesByChartDirectory { get; set; }
     public Dictionary<string, uint[]> ImageRelativePathHashesByChartDirectory { get; set; }
     public Dictionary<string, uint[]> MovieRelativePathHashesByChartDirectory { get; set; }
+    public Dictionary<string, uint[]> SelfOwnedAudioBaseNameHashesByChartDirectory { get; set; }
+    public Dictionary<string, uint[]> SelfOwnedImageBaseNameHashesByChartDirectory { get; set; }
+    public Dictionary<string, uint[]> SelfOwnedMovieBaseNameHashesByChartDirectory { get; set; }
+    public Dictionary<string, uint[]> SelfOwnedAudioRelativePathHashesByChartDirectory { get; set; }
+    public Dictionary<string, uint[]> SelfOwnedImageRelativePathHashesByChartDirectory { get; set; }
+    public Dictionary<string, uint[]> SelfOwnedMovieRelativePathHashesByChartDirectory { get; set; }
 }
 ```
 

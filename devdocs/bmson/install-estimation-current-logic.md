@@ -47,8 +47,8 @@
   - chart directory ごとの resource hash cache
   - aggregate ownership と self-only ownership の二重 view を持つ
 - `BMSDirectoryFileNameHash`
-  - chart directory ごとの all-resource basename hash index
-  - self-only basename index
+  - chart directory ごとの resource hash union view
+  - audio / image / movie のカテゴリ別 index から派生する broad filter 用 view
 - `DirectoryRelativePathHashIndex`
   - cacheless path 用の chart directory ごとの aggregate / self-only resource hash index
 - `IRootFileEnumerator`
@@ -239,16 +239,13 @@ broad filter では:
 
 cache あり経路:
 
-- basename-only refs
-  - `DirectoryResourceLookupCache.EnsureDirectoriesByHashes(...)`
-  - `GetDirectoriesByHash(...)`
-- path-aware audio refs
+- audio refs
   - `EnsureAudioRelativeDirectoriesByHashes(...)`
   - `GetDirectoriesByAudioRelativeHash(...)`
-- path-aware visual / optional image refs
+- visual / optional image refs
   - `EnsureImageRelativeDirectoriesByHashes(...)`
   - `GetDirectoriesByImageRelativeHash(...)`
-- path-aware movie refs
+- movie refs
   - `EnsureMovieRelativeDirectoriesByHashes(...)`
   - `GetDirectoriesByMovieRelativeHash(...)`
 
@@ -739,7 +736,7 @@ startup restore / auto-install 由来の pending 推定は、現在は queue で
 
 - package 群は先に DataGrid に出る
 - 推定は batch worker が package 単位で進める
-- batch 開始前に package aggregate hash をまとめて `EnsureDirectoriesByHashes(...)` する
+- batch 開始前に package aggregate hash をカテゴリ別 reverse lookup (`EnsureAudioRelativeDirectoriesByHashes` など) へ渡す
 - ただし source baseline が高ヘルスなら、その package は deferred として skip する
 
 ## 関連資料

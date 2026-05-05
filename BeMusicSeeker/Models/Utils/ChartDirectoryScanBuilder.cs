@@ -90,14 +90,12 @@ internal static class ChartDirectoryScanBuilder
             }
         }
 
-        Dictionary<string, HashSet<uint>> allBaseNameHashes = InitializeDirectoryHashSets(result.ChartDirectories);
         Dictionary<string, HashSet<uint>> audioBaseNameHashes = InitializeDirectoryHashSets(result.ChartDirectories);
         Dictionary<string, HashSet<uint>> imageBaseNameHashes = InitializeDirectoryHashSets(result.ChartDirectories);
         Dictionary<string, HashSet<uint>> movieBaseNameHashes = InitializeDirectoryHashSets(result.ChartDirectories);
         Dictionary<string, HashSet<uint>> audioRelativePathHashes = InitializeDirectoryHashSets(result.ChartDirectories);
         Dictionary<string, HashSet<uint>> imageRelativePathHashes = InitializeDirectoryHashSets(result.ChartDirectories);
         Dictionary<string, HashSet<uint>> movieRelativePathHashes = InitializeDirectoryHashSets(result.ChartDirectories);
-        Dictionary<string, HashSet<uint>> selfOwnedAllBaseNameHashes = InitializeDirectoryHashSets(result.ChartDirectories);
         Dictionary<string, HashSet<uint>> selfOwnedAudioBaseNameHashes = InitializeDirectoryHashSets(result.ChartDirectories);
         Dictionary<string, HashSet<uint>> selfOwnedImageBaseNameHashes = InitializeDirectoryHashSets(result.ChartDirectories);
         Dictionary<string, HashSet<uint>> selfOwnedMovieBaseNameHashes = InitializeDirectoryHashSets(result.ChartDirectories);
@@ -105,18 +103,16 @@ internal static class ChartDirectoryScanBuilder
         Dictionary<string, HashSet<uint>> selfOwnedImageRelativePathHashes = InitializeDirectoryHashSets(result.ChartDirectories);
         Dictionary<string, HashSet<uint>> selfOwnedMovieRelativePathHashes = InitializeDirectoryHashSets(result.ChartDirectories);
 
-        AssignResourceFiles(result.ChartDirectories, audioFilePaths, ChartResourceKind.Audio, allBaseNameHashes, audioBaseNameHashes, audioRelativePathHashes, selfOwnedAllBaseNameHashes, selfOwnedAudioBaseNameHashes, selfOwnedAudioRelativePathHashes);
-        AssignResourceFiles(result.ChartDirectories, imageFilePaths, ChartResourceKind.Image, allBaseNameHashes, imageBaseNameHashes, imageRelativePathHashes, selfOwnedAllBaseNameHashes, selfOwnedImageBaseNameHashes, selfOwnedImageRelativePathHashes);
-        AssignResourceFiles(result.ChartDirectories, movieFilePaths, ChartResourceKind.Movie, allBaseNameHashes, movieBaseNameHashes, movieRelativePathHashes, selfOwnedAllBaseNameHashes, selfOwnedMovieBaseNameHashes, selfOwnedMovieRelativePathHashes);
+        AssignResourceFiles(result.ChartDirectories, audioFilePaths, ChartResourceKind.Audio, audioBaseNameHashes, audioRelativePathHashes, selfOwnedAudioBaseNameHashes, selfOwnedAudioRelativePathHashes);
+        AssignResourceFiles(result.ChartDirectories, imageFilePaths, ChartResourceKind.Image, imageBaseNameHashes, imageRelativePathHashes, selfOwnedImageBaseNameHashes, selfOwnedImageRelativePathHashes);
+        AssignResourceFiles(result.ChartDirectories, movieFilePaths, ChartResourceKind.Movie, movieBaseNameHashes, movieRelativePathHashes, selfOwnedMovieBaseNameHashes, selfOwnedMovieRelativePathHashes);
 
-        SetDictionary(result.AllResourceBaseNameHashesByChartDirectory, allBaseNameHashes);
         SetDictionary(result.AudioBaseNameHashesByChartDirectory, audioBaseNameHashes);
         SetDictionary(result.ImageBaseNameHashesByChartDirectory, imageBaseNameHashes);
         SetDictionary(result.MovieBaseNameHashesByChartDirectory, movieBaseNameHashes);
         SetDictionary(result.AudioRelativePathHashesByChartDirectory, audioRelativePathHashes);
         SetDictionary(result.ImageRelativePathHashesByChartDirectory, imageRelativePathHashes);
         SetDictionary(result.MovieRelativePathHashesByChartDirectory, movieRelativePathHashes);
-        SetDictionary(result.SelfOwnedAllResourceBaseNameHashesByChartDirectory, selfOwnedAllBaseNameHashes);
         SetDictionary(result.SelfOwnedAudioBaseNameHashesByChartDirectory, selfOwnedAudioBaseNameHashes);
         SetDictionary(result.SelfOwnedImageBaseNameHashesByChartDirectory, selfOwnedImageBaseNameHashes);
         SetDictionary(result.SelfOwnedMovieBaseNameHashesByChartDirectory, selfOwnedMovieBaseNameHashes);
@@ -140,10 +136,8 @@ internal static class ChartDirectoryScanBuilder
         IEnumerable<string> chartDirectories,
         IEnumerable<string> absolutePaths,
         ChartResourceKind kind,
-        Dictionary<string, HashSet<uint>> allBaseNameHashes,
         Dictionary<string, HashSet<uint>> categoryBaseNameHashes,
         Dictionary<string, HashSet<uint>> categoryRelativePathHashes,
-        Dictionary<string, HashSet<uint>> selfOwnedAllBaseNameHashes,
         Dictionary<string, HashSet<uint>> selfOwnedCategoryBaseNameHashes,
         Dictionary<string, HashSet<uint>> selfOwnedCategoryRelativePathHashes)
     {
@@ -173,12 +167,10 @@ internal static class ChartDirectoryScanBuilder
                     continue;
                 }
                 uint relativePathHash = BMSDirectoryFileNameHash.GetLookupHash(relativePath);
-                allBaseNameHashes[ownerDirectory].Add(relativePathHash);
                 categoryBaseNameHashes[ownerDirectory].Add(relativePathHash);
                 categoryRelativePathHashes[ownerDirectory].Add(relativePathHash);
                 if (i == 0)
                 {
-                    selfOwnedAllBaseNameHashes[ownerDirectory].Add(relativePathHash);
                     selfOwnedCategoryBaseNameHashes[ownerDirectory].Add(relativePathHash);
                     selfOwnedCategoryRelativePathHashes[ownerDirectory].Add(relativePathHash);
                 }
