@@ -107,4 +107,70 @@ internal sealed class LibraryResourceIndex
         index.BuildMs = totalStopwatch.ElapsedMilliseconds;
         return index;
     }
+
+    public static LibraryResourceIndex CreateFromNativeCanonicalArrays(
+        string[] chartDirectories,
+        uint[][] allBaseNameHashesByDirectoryIndex,
+        uint[][] audioBaseNameHashesByDirectoryIndex,
+        uint[][] imageBaseNameHashesByDirectoryIndex,
+        uint[][] movieBaseNameHashesByDirectoryIndex,
+        uint[][] audioRelativePathHashesByDirectoryIndex,
+        uint[][] imageRelativePathHashesByDirectoryIndex,
+        uint[][] movieRelativePathHashesByDirectoryIndex,
+        uint[][] selfOwnedAllBaseNameHashesByDirectoryIndex,
+        uint[][] selfOwnedAudioBaseNameHashesByDirectoryIndex,
+        uint[][] selfOwnedImageBaseNameHashesByDirectoryIndex,
+        uint[][] selfOwnedMovieBaseNameHashesByDirectoryIndex,
+        uint[][] selfOwnedAudioRelativePathHashesByDirectoryIndex,
+        uint[][] selfOwnedImageRelativePathHashesByDirectoryIndex,
+        uint[][] selfOwnedMovieRelativePathHashesByDirectoryIndex,
+        Dictionary<uint, string[]> allBaseReverseDirectories,
+        Dictionary<uint, string[]> audioRelativeReverseDirectories,
+        Dictionary<uint, string[]> imageRelativeReverseDirectories,
+        Dictionary<uint, string[]> movieRelativeReverseDirectories)
+    {
+        LibraryResourceIndex index = new LibraryResourceIndex();
+        Stopwatch totalStopwatch = Stopwatch.StartNew();
+        index.Source = "native_canonical";
+
+        Stopwatch folderStopwatch = Stopwatch.StartNew();
+        index.FolderAllFileList = BMSDirectoryFileNameHash.CreateFromNativeSortedArrays(
+            chartDirectories,
+            (selfOwnedAllBaseNameHashesByDirectoryIndex?.Length ?? 0) > 0
+                ? selfOwnedAllBaseNameHashesByDirectoryIndex
+                : allBaseNameHashesByDirectoryIndex);
+        folderStopwatch.Stop();
+        index.FolderHashIndexMs = folderStopwatch.ElapsedMilliseconds;
+
+        Stopwatch lookupStopwatch = Stopwatch.StartNew();
+        index.DirectoryLookupCache = DirectoryResourceLookupCache.CreateFromNativeCanonicalArrays(
+            chartDirectories,
+            allBaseNameHashesByDirectoryIndex,
+            audioBaseNameHashesByDirectoryIndex,
+            imageBaseNameHashesByDirectoryIndex,
+            movieBaseNameHashesByDirectoryIndex,
+            audioRelativePathHashesByDirectoryIndex,
+            imageRelativePathHashesByDirectoryIndex,
+            movieRelativePathHashesByDirectoryIndex,
+            selfOwnedAllBaseNameHashesByDirectoryIndex,
+            selfOwnedAudioBaseNameHashesByDirectoryIndex,
+            selfOwnedImageBaseNameHashesByDirectoryIndex,
+            selfOwnedMovieBaseNameHashesByDirectoryIndex,
+            selfOwnedAudioRelativePathHashesByDirectoryIndex,
+            selfOwnedImageRelativePathHashesByDirectoryIndex,
+            selfOwnedMovieRelativePathHashesByDirectoryIndex,
+            allBaseReverseDirectories,
+            audioRelativeReverseDirectories,
+            imageRelativeReverseDirectories,
+            movieRelativeReverseDirectories);
+        lookupStopwatch.Stop();
+        index.ResourceLookupMs = lookupStopwatch.ElapsedMilliseconds;
+
+        index.RelativePathHashIndex = new DirectoryRelativePathHashIndex();
+        index.RelativePathIndexMs = 0L;
+
+        totalStopwatch.Stop();
+        index.BuildMs = totalStopwatch.ElapsedMilliseconds;
+        return index;
+    }
 }

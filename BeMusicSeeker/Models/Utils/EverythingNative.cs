@@ -581,60 +581,81 @@ internal static class EverythingNative
 		return values;
 	}
 
-	private static uint[] ReadHashArray(uint byteOffset, uint length, IntPtr blob)
+	private static unsafe uint[] ReadHashArray(uint byteOffset, uint length, IntPtr blob)
 	{
 		if (blob == IntPtr.Zero || length == 0)
 		{
 			return Array.Empty<uint>();
 		}
-		int[] temp = new int[checked((int)length)];
-		Marshal.Copy(IntPtr.Add(blob, checked((int)byteOffset)), temp, 0, temp.Length);
-		uint[] hashes = new uint[temp.Length];
-		Buffer.BlockCopy(temp, 0, hashes, 0, temp.Length * sizeof(uint));
+		int count = checked((int)length);
+		uint[] hashes = new uint[count];
+		fixed (uint* destination = hashes)
+		{
+			Buffer.MemoryCopy(
+				(byte*)blob.ToPointer() + checked((int)byteOffset),
+				destination,
+				count * sizeof(uint),
+				count * sizeof(uint));
+		}
 		return hashes;
 	}
 
-	private static uint[][] ReadHashGroupArray(ulong dirCount, IntPtr hashOffsets, IntPtr hashLengths, IntPtr hashesBlob)
+	private static unsafe uint[][] ReadHashGroupArray(ulong dirCount, IntPtr hashOffsets, IntPtr hashLengths, IntPtr hashesBlob)
 	{
 		uint[][] hashesByDirectoryIndex = new uint[checked((int)dirCount)][];
-		for (ulong i = 0; i < dirCount; i += 1)
+		uint* offsets = (uint*)hashOffsets.ToPointer();
+		uint* lengths = (uint*)hashLengths.ToPointer();
+		byte* blob = (byte*)hashesBlob.ToPointer();
+		for (int i = 0; i < hashesByDirectoryIndex.Length; i += 1)
 		{
-			uint hashOffset = (uint)Marshal.ReadInt32(hashOffsets, checked((int)(i * 4)));
-			uint hashLength = (uint)Marshal.ReadInt32(hashLengths, checked((int)(i * 4)));
+			uint hashOffset = offsets[i];
+			uint hashLength = lengths[i];
 			if (hashLength == 0)
 			{
-				hashesByDirectoryIndex[checked((int)i)] = Array.Empty<uint>();
+				hashesByDirectoryIndex[i] = Array.Empty<uint>();
 				continue;
 			}
-			int[] temp = new int[checked((int)hashLength)];
-			Marshal.Copy(IntPtr.Add(hashesBlob, checked((int)hashOffset)), temp, 0, temp.Length);
-			uint[] hashes = new uint[temp.Length];
-			Buffer.BlockCopy(temp, 0, hashes, 0, temp.Length * 4);
-			hashesByDirectoryIndex[checked((int)i)] = hashes;
+			int count = checked((int)hashLength);
+			uint[] hashes = new uint[count];
+			fixed (uint* destination = hashes)
+			{
+				Buffer.MemoryCopy(
+					blob + checked((int)hashOffset),
+					destination,
+					count * sizeof(uint),
+					count * sizeof(uint));
+			}
+			hashesByDirectoryIndex[i] = hashes;
 		}
 		return hashesByDirectoryIndex;
 	}
 
-	private static Dictionary<uint, string[]> ReadReverseHashMap(ulong keyCount, IntPtr keys, IntPtr offsets, IntPtr lengths, IntPtr indicesBlob, string[] chartDirectories)
+	private static unsafe Dictionary<uint, string[]> ReadReverseHashMap(ulong keyCount, IntPtr keys, IntPtr offsets, IntPtr lengths, IntPtr indicesBlob, string[] chartDirectories)
 	{
 		Dictionary<uint, string[]> map = new Dictionary<uint, string[]>(checked((int)keyCount));
 		if (keyCount == 0 || keys == IntPtr.Zero || offsets == IntPtr.Zero || lengths == IntPtr.Zero || indicesBlob == IntPtr.Zero)
 		{
 			return map;
 		}
-		for (ulong i = 0; i < keyCount; i += 1)
+		uint* keyValues = (uint*)keys.ToPointer();
+		uint* offsetValues = (uint*)offsets.ToPointer();
+		uint* lengthValues = (uint*)lengths.ToPointer();
+		uint* indexValues = (uint*)indicesBlob.ToPointer();
+		int count = checked((int)keyCount);
+		for (int i = 0; i < count; i += 1)
 		{
-			uint key = unchecked((uint)Marshal.ReadInt32(keys, checked((int)(i * 4))));
-			uint byteOffset = unchecked((uint)Marshal.ReadInt32(offsets, checked((int)(i * 4))));
-			uint length = unchecked((uint)Marshal.ReadInt32(lengths, checked((int)(i * 4))));
+			uint key = keyValues[i];
+			uint byteOffset = offsetValues[i];
+			uint length = lengthValues[i];
 			if (length == 0)
 			{
 				map[key] = Array.Empty<string>();
 				continue;
 			}
+			int indexOffset = checked((int)(byteOffset / sizeof(uint)));
 			if (length == 1)
 			{
-				int directoryIndex = Marshal.ReadInt32(indicesBlob, checked((int)byteOffset));
+				int directoryIndex = checked((int)indexValues[indexOffset]);
 				if (directoryIndex >= 0 && directoryIndex < (chartDirectories?.Length ?? 0))
 				{
 					string directory = chartDirectories[directoryIndex];
@@ -652,7 +673,7 @@ internal static class EverythingNative
 			int outputCount = 0;
 			for (int j = 0; j < directories.Length; j++)
 			{
-				int directoryIndex = Marshal.ReadInt32(indicesBlob, checked((int)(byteOffset + (uint)(j * sizeof(uint)))));
+				int directoryIndex = checked((int)indexValues[indexOffset + j]);
 				if (directoryIndex < 0 || directoryIndex >= (chartDirectories?.Length ?? 0))
 				{
 					continue;
@@ -877,8 +898,22 @@ internal static class EverythingNative
 			MovieAssignMs = header.movie_assign_ms,
 			MovieMergeMs = header.movie_merge_ms,
 			Result = scanResult,
-			ResourceIndex = LibraryResourceIndex.CreateFromNativeCanonical(
-				scanResult,
+			ResourceIndex = LibraryResourceIndex.CreateFromNativeCanonicalArrays(
+				decodedResult?.ChartDirectories,
+				decodedResult?.AllBaseHashes,
+				decodedResult?.AudioBaseHashes,
+				decodedResult?.ImageBaseHashes,
+				decodedResult?.MovieBaseHashes,
+				decodedResult?.AudioRelativeHashes,
+				decodedResult?.ImageRelativeHashes,
+				decodedResult?.MovieRelativeHashes,
+				decodedResult?.SelfOwnedAllBaseHashes,
+				decodedResult?.SelfOwnedAudioBaseHashes,
+				decodedResult?.SelfOwnedImageBaseHashes,
+				decodedResult?.SelfOwnedMovieBaseHashes,
+				decodedResult?.SelfOwnedAudioRelativeHashes,
+				decodedResult?.SelfOwnedImageRelativeHashes,
+				decodedResult?.SelfOwnedMovieRelativeHashes,
 				decodedResult?.AllBaseReverseDirectories,
 				decodedResult?.AudioRelativeReverseDirectories,
 				decodedResult?.ImageRelativeReverseDirectories,

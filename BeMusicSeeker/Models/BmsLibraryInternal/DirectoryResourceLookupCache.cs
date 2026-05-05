@@ -367,13 +367,13 @@ internal sealed class DirectoryResourceLookupCache
 
     private readonly Dictionary<string, Entry> entries = new Dictionary<string, Entry>(StringComparer.OrdinalIgnoreCase);
 
-    private readonly Dictionary<uint, string[]> directoriesByHash = new Dictionary<uint, string[]>();
+    private readonly Dictionary<uint, string[]> directoriesByHash;
 
-    private readonly Dictionary<uint, string[]> audioDirectoriesByRelativeHash = new Dictionary<uint, string[]>();
+    private readonly Dictionary<uint, string[]> audioDirectoriesByRelativeHash;
 
-    private readonly Dictionary<uint, string[]> imageDirectoriesByRelativeHash = new Dictionary<uint, string[]>();
+    private readonly Dictionary<uint, string[]> imageDirectoriesByRelativeHash;
 
-    private readonly Dictionary<uint, string[]> movieDirectoriesByRelativeHash = new Dictionary<uint, string[]>();
+    private readonly Dictionary<uint, string[]> movieDirectoriesByRelativeHash;
 
     private readonly object lockLazyDirectoriesByHash = new object();
 
@@ -384,6 +384,27 @@ internal sealed class DirectoryResourceLookupCache
     private bool isFullReverseLookupBuilt;
 
     private int highPriorityBuildCount;
+
+    public DirectoryResourceLookupCache()
+        : this(
+            new Dictionary<uint, string[]>(),
+            new Dictionary<uint, string[]>(),
+            new Dictionary<uint, string[]>(),
+            new Dictionary<uint, string[]>())
+    {
+    }
+
+    private DirectoryResourceLookupCache(
+        Dictionary<uint, string[]> directoriesByHash,
+        Dictionary<uint, string[]> audioDirectoriesByRelativeHash,
+        Dictionary<uint, string[]> imageDirectoriesByRelativeHash,
+        Dictionary<uint, string[]> movieDirectoriesByRelativeHash)
+    {
+        this.directoriesByHash = directoriesByHash ?? new Dictionary<uint, string[]>();
+        this.audioDirectoriesByRelativeHash = audioDirectoriesByRelativeHash ?? new Dictionary<uint, string[]>();
+        this.imageDirectoriesByRelativeHash = imageDirectoriesByRelativeHash ?? new Dictionary<uint, string[]>();
+        this.movieDirectoriesByRelativeHash = movieDirectoriesByRelativeHash ?? new Dictionary<uint, string[]>();
+    }
 
     public IEnumerable<string> Keys
     {
@@ -491,6 +512,60 @@ internal sealed class DirectoryResourceLookupCache
         cache.LoadNativeReverseMap(cache.audioDirectoriesByRelativeHash, audioRelativeReverseDirectories);
         cache.LoadNativeReverseMap(cache.imageDirectoriesByRelativeHash, imageRelativeReverseDirectories);
         cache.LoadNativeReverseMap(cache.movieDirectoriesByRelativeHash, movieRelativeReverseDirectories);
+        cache.isFullReverseLookupBuilt = cache.directoriesByHash.Count > 0;
+        return cache;
+    }
+
+    public static DirectoryResourceLookupCache CreateFromNativeCanonicalArrays(
+        string[] chartDirectories,
+        uint[][] allBaseNameHashesByDirectoryIndex,
+        uint[][] audioBaseNameHashesByDirectoryIndex,
+        uint[][] imageBaseNameHashesByDirectoryIndex,
+        uint[][] movieBaseNameHashesByDirectoryIndex,
+        uint[][] audioRelativePathHashesByDirectoryIndex,
+        uint[][] imageRelativePathHashesByDirectoryIndex,
+        uint[][] movieRelativePathHashesByDirectoryIndex,
+        uint[][] selfOwnedAllBaseNameHashesByDirectoryIndex,
+        uint[][] selfOwnedAudioBaseNameHashesByDirectoryIndex,
+        uint[][] selfOwnedImageBaseNameHashesByDirectoryIndex,
+        uint[][] selfOwnedMovieBaseNameHashesByDirectoryIndex,
+        uint[][] selfOwnedAudioRelativePathHashesByDirectoryIndex,
+        uint[][] selfOwnedImageRelativePathHashesByDirectoryIndex,
+        uint[][] selfOwnedMovieRelativePathHashesByDirectoryIndex,
+        Dictionary<uint, string[]> allBaseReverseDirectories,
+        Dictionary<uint, string[]> audioRelativeReverseDirectories,
+        Dictionary<uint, string[]> imageRelativeReverseDirectories,
+        Dictionary<uint, string[]> movieRelativeReverseDirectories)
+    {
+        DirectoryResourceLookupCache cache = new DirectoryResourceLookupCache(
+            PrepareNativeReverseMap(allBaseReverseDirectories),
+            PrepareNativeReverseMap(audioRelativeReverseDirectories),
+            PrepareNativeReverseMap(imageRelativeReverseDirectories),
+            PrepareNativeReverseMap(movieRelativeReverseDirectories));
+        int count = chartDirectories?.Length ?? 0;
+        for (int i = 0; i < count; i++)
+        {
+            string chartDirectory = chartDirectories[i];
+            if (string.IsNullOrWhiteSpace(chartDirectory))
+            {
+                continue;
+            }
+            cache.entries[chartDirectory] = Entry.FromNativeSorted(
+                GetNativeHashes(allBaseNameHashesByDirectoryIndex, i),
+                GetNativeHashes(audioBaseNameHashesByDirectoryIndex, i),
+                GetNativeHashes(imageBaseNameHashesByDirectoryIndex, i),
+                GetNativeHashes(movieBaseNameHashesByDirectoryIndex, i),
+                GetNativeHashes(audioRelativePathHashesByDirectoryIndex, i),
+                GetNativeHashes(imageRelativePathHashesByDirectoryIndex, i),
+                GetNativeHashes(movieRelativePathHashesByDirectoryIndex, i),
+                GetNativeHashes(selfOwnedAllBaseNameHashesByDirectoryIndex, i),
+                GetNativeHashes(selfOwnedAudioBaseNameHashesByDirectoryIndex, i),
+                GetNativeHashes(selfOwnedImageBaseNameHashesByDirectoryIndex, i),
+                GetNativeHashes(selfOwnedMovieBaseNameHashesByDirectoryIndex, i),
+                GetNativeHashes(selfOwnedAudioRelativePathHashesByDirectoryIndex, i),
+                GetNativeHashes(selfOwnedImageRelativePathHashesByDirectoryIndex, i),
+                GetNativeHashes(selfOwnedMovieRelativePathHashesByDirectoryIndex, i));
+        }
         cache.isFullReverseLookupBuilt = cache.directoriesByHash.Count > 0;
         return cache;
     }
@@ -844,6 +919,25 @@ internal sealed class DirectoryResourceLookupCache
             }
             target[item.Key] = item.Value ?? Array.Empty<string>();
         }
+    }
+
+    private static Dictionary<uint, string[]> PrepareNativeReverseMap(Dictionary<uint, string[]> source)
+    {
+        if (source == null)
+        {
+            return new Dictionary<uint, string[]>();
+        }
+        source.Remove(0u);
+        return source;
+    }
+
+    private static uint[] GetNativeHashes(uint[][] hashesByDirectoryIndex, int directoryIndex)
+    {
+        if (hashesByDirectoryIndex == null || directoryIndex < 0 || directoryIndex >= hashesByDirectoryIndex.Length)
+        {
+            return Array.Empty<uint>();
+        }
+        return hashesByDirectoryIndex[directoryIndex] ?? Array.Empty<uint>();
     }
 
     private ReverseLookupMutationResult SetEntry(string directoryPath, Entry entry)

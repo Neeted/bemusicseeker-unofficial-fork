@@ -575,6 +575,20 @@ Phase 4 / Phase 5 を前倒しして、native chart-relative resource index cont
 
 Everything service 側で同時 query の内部競合があるため、個別の `imageQueryMs` / `movieQueryMs` は伸びる。ただし wall clock としては `nativeBridgeMs` が約 1 秒短縮した。次に同じ領域を触る場合は、query 並列度を増やすよりも、`bridgeRawBufferBytes=379540328` 規模の native payload / managed decode / managed materialize を削る方が効果見込みが大きい。
 
+続く 2026-05-06 の payload / managed materialize 改善では、native decoded arrays から `LibraryResourceIndex` / `DirectoryResourceLookupCache` を直接構築し、`Dictionary<string,uint[]>` 経由の再 lookup と native reverse map の dictionary 再コピーを避けるようにした。あわせて managed hash array decode は `int[]` temporary を経由せず `uint[]` へ直接 copy する。
+
+実機確認では次の状態になった。
+
+- `everything_scan totalMs=28253`
+- `nativeBridgeMs=25565`
+- `managedDecodeMs=2425`
+- `managedMaterializeMs=225`
+- `resource_index_build buildMs=53 folderMs=8 lookupMs=44`
+- `bms_scan totalMs=28279`
+- `startup_install_estimation_ready elapsedMs=29553`
+
+これにより `managedMaterializeMs` は約 2.3s から約 0.2s、`resource_index_build` は約 2.1s から約 0.05s まで縮小した。`bridgeRawBufferBytes` 自体はまだ約 380MB のままであり、次に同じ領域をさらに削る場合は native contract 側で送る hash group / reverse map payload そのものを小さくする必要がある。
+
 ### Phase 4B / 5A Normal Startup Baseline
 
 2026-05-05 17:40 の保留 package なし通常起動ログでは、Phase 8D 後の通常起動想定として次の状態になった。17:41:48 以降に手動の `全譜面を再スキャン` が開始されているが、ここでは `startup_initialization_complete` までの通常起動分だけを評価する。

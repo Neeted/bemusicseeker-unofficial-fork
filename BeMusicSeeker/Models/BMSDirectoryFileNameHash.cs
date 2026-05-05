@@ -32,6 +32,22 @@ public class BMSDirectoryFileNameHash
 		return hashIndex;
 	}
 
+    internal static BMSDirectoryFileNameHash CreateFromNativeSortedArrays(string[] directories, uint[][] fileNameHashesByDirectoryIndex)
+    {
+        BMSDirectoryFileNameHash hashIndex = new BMSDirectoryFileNameHash();
+        int count = Math.Min(directories?.Length ?? 0, fileNameHashesByDirectoryIndex?.Length ?? 0);
+        for (int i = 0; i < count; i++)
+        {
+            string directory = directories[i];
+            if (string.IsNullOrWhiteSpace(directory))
+            {
+                continue;
+            }
+            hashIndex.allFileList[directory] = fileNameHashesByDirectoryIndex[i] ?? Array.Empty<uint>();
+        }
+        return hashIndex;
+    }
+
 	public List<string> Keys
 	{
 		get
