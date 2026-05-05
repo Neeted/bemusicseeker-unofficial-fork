@@ -287,6 +287,30 @@ public sealed class BmsLibraryIrServiceTests
         Assert.AreEqual(0, second.DbReplaceMs);
     }
 
+    [TestMethod]
+    public void UpdateIrScoreTableWithMetrics_UsesPrefetchedScoreSnapshotWithoutFetchingAgain()
+    {
+        using TempIrEnvironment env = TempIrEnvironment.Create();
+        BmsLibraryIrService service = new BmsLibraryIrService();
+        BmsLibraryDbGateway gateway = env.CreateGateway();
+        string hash = "77777777777777777777777777777777";
+        FakeIrClient prefetchClient = new FakeIrClient(BuildPlayerScoreXml(hash, pg: 500, gr: 100));
+        IrScorePrefetchResult prefetch = service.PrefetchIrScoreTableWithMetrics(123, prefetchClient, PlayerScoreRegex);
+        FakeIrClient fallbackClient = new FakeIrClient(BuildPlayerScoreXml("88888888888888888888888888888888", pg: 1, gr: 1));
+
+        IrScoreTableUpdateResult result = service.UpdateIrScoreTableWithMetrics(123, gateway, fallbackClient, PlayerScoreRegex, prefetch);
+
+        Assert.IsTrue(prefetch.Succeeded);
+        Assert.AreEqual(1, prefetchClient.PlayerScoreXmlRequestCount);
+        Assert.AreEqual(0, fallbackClient.PlayerScoreXmlRequestCount);
+        Assert.IsTrue(result.PrefetchUsed);
+        Assert.AreEqual(0, result.XmlFetchMs);
+        Assert.AreEqual(0, result.XmlParseMs);
+        Assert.AreEqual(0, result.DigestMs);
+        Assert.AreEqual(1, result.ParsedRows);
+        Assert.AreEqual(hash, result.ScoreTable[0].hash);
+    }
+
     private static TestableBmsFile CreateFile(string hash)
     {
         TestableBmsFile file = new TestableBmsFile();
@@ -325,8 +349,11 @@ public sealed class BmsLibraryIrServiceTests
 
         public string PlayerScoreXml { get; set; }
 
+        public int PlayerScoreXmlRequestCount { get; private set; }
+
         public string GetPlayerScoresXml(int lr2Id)
         {
+            PlayerScoreXmlRequestCount++;
             return PlayerScoreXml;
         }
 

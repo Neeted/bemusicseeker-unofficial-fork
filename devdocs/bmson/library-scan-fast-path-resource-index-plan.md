@@ -745,6 +745,25 @@ Acceptance criteria:
 
 これにより、Phase 8K で観測していた「read-only task が song DB monitor で待つ」問題は解消した。残る tail は DB lock 待ちではなく、playlist / chart_info の実 materialize、LR2IR player score XML fetch、playlist URL completion / reference apply などの実処理時間として扱う。
 
+### Phase 8M: LR2IR Player Score XML Prefetch (implemented)
+
+Phase 8M では、LR2ID が確定した時点で LR2IR player score XML の network fetch / XML parse / normalized score digest 計算を先行開始する。
+
+- `LR2ID` は score table load 後に確定するため、`score_tbl_load` 完了直後に `ir_score_prefetch` を開始する。
+- prefetch は DB に触れない。実行するのは `GetPlayerScoresXml(lr2Id)`、regex parse、hash dedupe、normalized score digest 計算までである。
+- `ir_score_refresh_metadata` read、既存 `ir_score` read、digest 比較、`ir_score` replace、metadata upsert、`BMSScores` / `BMSFiles` への未送信反映は従来通り `ranking_refresh_deferred` 側で実行する。
+- `ranking_refresh_deferred` は prefetch result の `lr2Id` と現在の `LR2ID` / `scoreDbPath` / 設定を検証し、current の場合だけ consume する。
+- stale / failed / disabled / not started の場合は従来の同期 fetch 経路へ fallback する。
+- score hydration 完了前に `updateBMSScores()` は実行しない。score snapshot と file owner attach の順序は維持する。
+- log:
+  - `ir_score_prefetch start/done/failed`
+  - `ir_score_prefetch consume status=used|stale|failed|unavailable waitMs=...`
+  - `ranking_refresh_deferred done` に `irScorePrefetchUsed`, `irScorePrefetchStatus`, `irScorePrefetchWaitMs`, `irScorePrefetchFetchMs`, `irScorePrefetchParseMs`, `irScorePrefetchDigestMs` を出す。
+
+この変更により、player score XML の network 待ちを file scan / DB load / UI 初期化の裏に移せる。特に LR2IR 応答が数秒かかる起動では、`ranking_refresh_deferred` の synchronous `irScoreXmlFetchMs` が 0 に近づき、代わりに prefetch 側の timing と consume wait として観測できる。
+
+2026-05-06 の実機確認では、`score_tbl_load` 直後に `ir_score_prefetch` が開始し、`fetchMs=789 parseMs=383 digestMs=111 parsedRows=17202 elapsedMs=1287` で完了した。`ranking_refresh_deferred` 側では `irScorePrefetchUsed=True`, `irScorePrefetchWaitMs=0`, `irScoreXmlFetchMs=0`, `irScoreXmlParseMs=0`, `irScoreDigestMs=0` となり、`irScoreMs=558`, `elapsedMs=2562` まで短縮した。`ranking_cache_refresh` は従来通り実行され、`cacheMs=2002` だった。
+
 ### Key Changes
 
 - playlist entries hydration

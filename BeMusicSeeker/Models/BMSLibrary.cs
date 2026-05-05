@@ -843,6 +843,18 @@ public class BMSLibrary : NotificationObject
 
     private int deferredRankingRefreshLastCompletedVersion;
 
+    private readonly object lockIrScorePrefetch = new object();
+
+    private int irScorePrefetchGeneration;
+
+    private Task<IrScorePrefetchResult> irScorePrefetchTask;
+
+    private int irScorePrefetchLr2Id;
+
+    private string irScorePrefetchScoreDbPath;
+
+    private bool irScorePrefetchEnabled;
+
     private readonly object lockPendingEstimateQueueStatus = new object();
 
     private readonly object lockInstallEstimationProgress = new object();
@@ -3897,6 +3909,7 @@ public class BMSLibrary : NotificationObject
         long setZeroNoteMs = 0L;
         long installTblCheckMs = 0L;
         long rebuildHashIndexMs = 0L;
+        int lr2IdAfterScoreLoad = 0;
         BmsLibraryOptionsSnapshot options = BmsLibraryOptionsSnapshot.CreateCurrent();
         List<string> bMSDirectories = getBMSDirectories();
         if (bMSDirectories.Count == 0)
@@ -3967,12 +3980,14 @@ public class BMSLibrary : NotificationObject
                 }
             }
             RefreshScoreSnapshotFromCurrentScores("score_tbl_load");
+            lr2IdAfterScoreLoad = LR2ID;
             stopwatchScoreTblLoad.Stop();
             scoreTblLoadMs = stopwatchScoreTblLoad.ElapsedMilliseconds;
             if (!options.EnableDownloadLr2IrScoreAndDetectUnsent)
             {
                 ClearScoreUnsentStatus();
             }
+            TryStartIrScorePrefetch(lr2IdAfterScoreLoad, options, "score_tbl_load");
         }
         if (songTblFileCheck)
         {
@@ -5538,6 +5553,129 @@ public class BMSLibrary : NotificationObject
         }
     }
 
+    private void TryStartIrScorePrefetch(int lr2Id, BmsLibraryOptionsSnapshot options, string reason)
+    {
+        if (lr2Id == 0 || string.IsNullOrWhiteSpace(lr2ScoreDBPath) || options?.EnableDownloadLr2IrScoreAndDetectUnsent != true)
+        {
+            return;
+        }
+        int generation;
+        string scoreDbPathSnapshot = lr2ScoreDBPath;
+        lock (lockIrScorePrefetch)
+        {
+            if (irScorePrefetchTask != null
+                && !irScorePrefetchTask.IsCompleted
+                && irScorePrefetchLr2Id == lr2Id
+                && string.Equals(irScorePrefetchScoreDbPath, scoreDbPathSnapshot, StringComparison.OrdinalIgnoreCase)
+                && irScorePrefetchEnabled)
+            {
+                return;
+            }
+            generation = ++irScorePrefetchGeneration;
+            irScorePrefetchLr2Id = lr2Id;
+            irScorePrefetchScoreDbPath = scoreDbPathSnapshot;
+            irScorePrefetchEnabled = true;
+            LogInstallPerformance("ir_score_prefetch start generation=" + generation + " reason=" + (reason ?? "unknown") + " lr2Id=" + lr2Id);
+            irScorePrefetchTask = Task.Run(delegate
+            {
+                Stopwatch stopwatch = Stopwatch.StartNew();
+                try
+                {
+                    IrScorePrefetchResult result = irService.PrefetchIrScoreTableWithMetrics(lr2Id, irClient, lr2IRScoreRegex);
+                    stopwatch.Stop();
+                    LogInstallPerformance("ir_score_prefetch done generation=" + generation
+                        + " lr2Id=" + lr2Id
+                        + " succeeded=" + result.Succeeded.ToString().ToLowerInvariant()
+                        + " reason=" + (string.IsNullOrWhiteSpace(result.FailureReason) ? "ok" : result.FailureReason)
+                        + " fetchMs=" + result.XmlFetchMs
+                        + " parseMs=" + result.XmlParseMs
+                        + " digestMs=" + result.DigestMs
+                        + " parsedRows=" + result.ParsedRows
+                        + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
+                    return result;
+                }
+                catch (Exception ex)
+                {
+                    stopwatch.Stop();
+                    LogInstallPerformance("ir_score_prefetch failed generation=" + generation + " lr2Id=" + lr2Id + " elapsedMs=" + stopwatch.ElapsedMilliseconds + " message=" + ex.Message);
+                    return new IrScorePrefetchResult
+                    {
+                        Lr2Id = lr2Id,
+                        FailureReason = "exception"
+                    };
+                }
+            }).Logging("IrScorePrefetch");
+        }
+    }
+
+    private IrScorePrefetchResult TryConsumeIrScorePrefetch(int requestVersion, BmsLibraryOptionsSnapshot options, out long waitMs, out string status)
+    {
+        waitMs = 0L;
+        status = "not_started";
+        if (options?.EnableDownloadLr2IrScoreAndDetectUnsent != true)
+        {
+            status = "disabled";
+            return null;
+        }
+        Task<IrScorePrefetchResult> task;
+        int generation;
+        int lr2IdSnapshot;
+        string scoreDbPathSnapshot;
+        lock (lockIrScorePrefetch)
+        {
+            task = irScorePrefetchTask;
+            generation = irScorePrefetchGeneration;
+            lr2IdSnapshot = irScorePrefetchLr2Id;
+            scoreDbPathSnapshot = irScorePrefetchScoreDbPath;
+        }
+        if (task == null)
+        {
+            return null;
+        }
+        if (lr2IdSnapshot != LR2ID || !string.Equals(scoreDbPathSnapshot, lr2ScoreDBPath, StringComparison.OrdinalIgnoreCase))
+        {
+            status = "stale";
+            LogInstallPerformance("ir_score_prefetch consume generation=" + generation + " status=stale requestVersion=" + requestVersion + " prefetchedLr2Id=" + lr2IdSnapshot + " currentLr2Id=" + LR2ID);
+            return null;
+        }
+        Stopwatch waitStopwatch = Stopwatch.StartNew();
+        try
+        {
+            task.Wait();
+        }
+        catch
+        {
+            waitStopwatch.Stop();
+            waitMs = waitStopwatch.ElapsedMilliseconds;
+            status = "failed";
+            LogInstallPerformance("ir_score_prefetch consume generation=" + generation + " status=failed requestVersion=" + requestVersion + " waitMs=" + waitMs);
+            return null;
+        }
+        waitStopwatch.Stop();
+        waitMs = waitStopwatch.ElapsedMilliseconds;
+        IrScorePrefetchResult result = task.Result;
+        if (result == null || !result.Succeeded || result.Lr2Id != LR2ID)
+        {
+            status = "unavailable";
+            LogInstallPerformance("ir_score_prefetch consume generation=" + generation
+                + " status=unavailable requestVersion=" + requestVersion
+                + " waitMs=" + waitMs
+                + " reason=" + (result?.FailureReason ?? "null")
+                + " prefetchedLr2Id=" + (result?.Lr2Id ?? 0)
+                + " currentLr2Id=" + LR2ID);
+            return null;
+        }
+        status = "used";
+        LogInstallPerformance("ir_score_prefetch consume generation=" + generation
+            + " status=used requestVersion=" + requestVersion
+            + " waitMs=" + waitMs
+            + " fetchMs=" + result.XmlFetchMs
+            + " parseMs=" + result.XmlParseMs
+            + " digestMs=" + result.DigestMs
+            + " parsedRows=" + result.ParsedRows);
+        return result;
+    }
+
     /// <summary>
     /// deferred ranking refresh を要求します。
     /// score hydration 完了後に worker が実行されます。
@@ -5688,6 +5826,12 @@ public class BMSLibrary : NotificationObject
                     + " irScoreXmlFetchMs=" + result.IrScoreXmlFetchMs
                     + " irScoreXmlParseMs=" + result.IrScoreXmlParseMs
                     + " irScoreDigestMs=" + result.IrScoreDigestMs
+                    + " irScorePrefetchUsed=" + result.IrScorePrefetchUsed
+                    + " irScorePrefetchStatus=" + result.IrScorePrefetchStatus
+                    + " irScorePrefetchWaitMs=" + result.IrScorePrefetchWaitMs
+                    + " irScorePrefetchFetchMs=" + result.IrScorePrefetchFetchMs
+                    + " irScorePrefetchParseMs=" + result.IrScorePrefetchParseMs
+                    + " irScorePrefetchDigestMs=" + result.IrScorePrefetchDigestMs
                     + " irScoreDbLoadMs=" + result.IrScoreDbLoadMs
                     + " irScoreDbLockWaitMs=" + result.IrScoreDbLockWaitMs
                     + " irScoreDbReplaceMs=" + result.IrScoreDbReplaceMs
@@ -5801,6 +5945,18 @@ public class BMSLibrary : NotificationObject
 
         public long IrScoreDigestMs { get; set; }
 
+        public bool IrScorePrefetchUsed { get; set; }
+
+        public long IrScorePrefetchWaitMs { get; set; }
+
+        public long IrScorePrefetchFetchMs { get; set; }
+
+        public long IrScorePrefetchParseMs { get; set; }
+
+        public long IrScorePrefetchDigestMs { get; set; }
+
+        public string IrScorePrefetchStatus { get; set; } = "not_started";
+
         public long IrScoreDbLoadMs { get; set; }
 
         public long IrScoreDbLockWaitMs { get; set; }
@@ -5833,11 +5989,18 @@ public class BMSLibrary : NotificationObject
         BmsLibraryOptionsSnapshot optionsSnapshot = CurrentOptionsSnapshot;
         if (optionsSnapshot.EnableDownloadLr2IrScoreAndDetectUnsent)
         {
-            IrScoreTableUpdateResult irScoreUpdateResult = updateLR2IRScoreTableWithMetrics();
+            IrScorePrefetchResult prefetchedScore = TryConsumeIrScorePrefetch(requestVersion, optionsSnapshot, out long prefetchWaitMs, out string prefetchStatus);
+            IrScoreTableUpdateResult irScoreUpdateResult = updateLR2IRScoreTableWithMetrics(prefetchedScore);
             List<LR2IRScore> scoreTable = irScoreUpdateResult.ScoreTable;
             result.IrScoreXmlFetchMs = irScoreUpdateResult.XmlFetchMs;
             result.IrScoreXmlParseMs = irScoreUpdateResult.XmlParseMs;
             result.IrScoreDigestMs = irScoreUpdateResult.DigestMs;
+            result.IrScorePrefetchUsed = irScoreUpdateResult.PrefetchUsed;
+            result.IrScorePrefetchStatus = prefetchStatus;
+            result.IrScorePrefetchWaitMs = prefetchWaitMs;
+            result.IrScorePrefetchFetchMs = irScoreUpdateResult.PrefetchXmlFetchMs;
+            result.IrScorePrefetchParseMs = irScoreUpdateResult.PrefetchXmlParseMs;
+            result.IrScorePrefetchDigestMs = irScoreUpdateResult.PrefetchDigestMs;
             result.IrScoreDbLoadMs = irScoreUpdateResult.DbLoadMs;
             result.IrScoreDbLockWaitMs = irScoreUpdateResult.DbLockWaitMs;
             result.IrScoreDbReplaceMs = irScoreUpdateResult.DbReplaceMs;
@@ -6498,7 +6661,12 @@ public class BMSLibrary : NotificationObject
 
     private IrScoreTableUpdateResult updateLR2IRScoreTableWithMetrics()
     {
-        return irService.UpdateIrScoreTableWithMetrics(LR2ID, dbGateway, irClient, lr2IRScoreRegex);
+        return updateLR2IRScoreTableWithMetrics(null);
+    }
+
+    private IrScoreTableUpdateResult updateLR2IRScoreTableWithMetrics(IrScorePrefetchResult prefetchedScore)
+    {
+        return irService.UpdateIrScoreTableWithMetrics(LR2ID, dbGateway, irClient, lr2IRScoreRegex, prefetchedScore);
     }
 
     private void updateBMSScores(List<LR2IRScore> scoreTable)

@@ -13,6 +13,16 @@ internal sealed class IrScoreTableUpdateResult
 
     public long DigestMs { get; set; }
 
+    public bool PrefetchUsed { get; set; }
+
+    public long PrefetchWaitMs { get; set; }
+
+    public long PrefetchXmlFetchMs { get; set; }
+
+    public long PrefetchXmlParseMs { get; set; }
+
+    public long PrefetchDigestMs { get; set; }
+
     public long DbLoadMs { get; set; }
 
     public long DbLockWaitMs { get; set; }

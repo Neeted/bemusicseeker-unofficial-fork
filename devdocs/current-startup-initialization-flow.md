@@ -161,6 +161,10 @@ Phase 4B / 5A 追加修正後、native contract `2026050503` では旧 `base` fi
 
 LR2IR player score XML の `lastupdate` はプレイヤー単位の最終更新ではなく、譜面 hash 側の LR2IR 更新時刻として変わる可能性がある。`ir_score.lastupdate` は `SCORE_UNSENT` 判定や表示用 `rankingLastupdate` の正本ではないため、player score XML の normalized digest では無視する。表示用の ranking update は `ir_data` / ranking cache 側から反映する。
 
+Phase 8M 以降、`player score XML / ir_score` 系は LR2ID が score table load で確定した直後に `ir_score_prefetch` を開始する。prefetch は DB に触れず、LR2IR player score XML の fetch、XML parse、normalized digest 計算までを行う。`ranking_refresh_deferred` は score hydration 完了後に prefetch result を検証し、current な結果だけを consume する。DB metadata read、既存 `ir_score` read、replace / metadata upsert、`BMSScores` / `BMSFiles` への未送信反映は従来通り `ranking_refresh_deferred` 側に残す。これにより、LR2IR network 待ちを file scan / DB load / UI 初期化の裏へ移しつつ、score owner attach の順序は維持する。
+
+2026-05-06 の Phase 8M 実測では、`ir_score_prefetch` は `score_tbl_load` 直後に開始し `elapsedMs=1287` で完了した。`ranking_refresh_deferred` は `irScorePrefetchUsed=True`, `irScorePrefetchWaitMs=0`, `irScoreXmlFetchMs=0`, `irScoreXmlParseMs=0`, `irScoreDigestMs=0`, `irScoreMs=558`, `elapsedMs=2562` だった。player score XML fetch/parse/digest は初期化中の空き時間へ移動し、`ranking_refresh_deferred` の中では DB read と memory merge だけが残る。
+
 導入先推定に必要な情報は次の 3 つに整理する。
 
 - 所持 catalog: BMS / BMSON の path、hash、timestamp、installed membership、推定用代表 metadata。

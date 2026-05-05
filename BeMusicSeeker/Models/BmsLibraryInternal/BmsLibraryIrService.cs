@@ -238,7 +238,58 @@ internal sealed class BmsLibraryIrService
         return UpdateIrScoreTableWithMetrics(lr2Id, dbGateway, irClient, lr2IrScoreRegex).ScoreTable;
     }
 
-    public IrScoreTableUpdateResult UpdateIrScoreTableWithMetrics(int lr2Id, BmsLibraryDbGateway dbGateway, IBmsLibraryIrClient irClient, Regex lr2IrScoreRegex)
+    public IrScorePrefetchResult PrefetchIrScoreTableWithMetrics(int lr2Id, IBmsLibraryIrClient irClient, Regex lr2IrScoreRegex)
+    {
+        IrScorePrefetchResult result = new IrScorePrefetchResult
+        {
+            Lr2Id = lr2Id
+        };
+        if (irClient == null || lr2IrScoreRegex == null || lr2Id == 0)
+        {
+            result.FailureReason = "unavailable";
+            return result;
+        }
+        string playerXml;
+        try
+        {
+            Stopwatch fetchStopwatch = Stopwatch.StartNew();
+            playerXml = irClient.GetPlayerScoresXml(lr2Id);
+            fetchStopwatch.Stop();
+            result.XmlFetchMs = fetchStopwatch.ElapsedMilliseconds;
+        }
+        catch
+        {
+            result.FailureReason = "fetch_failed";
+            return result;
+        }
+        try
+        {
+            Stopwatch parseStopwatch = Stopwatch.StartNew();
+            result.ScoreTable.AddRange(ParsePlayerScoreXml(playerXml, lr2IrScoreRegex));
+            parseStopwatch.Stop();
+            result.XmlParseMs = parseStopwatch.ElapsedMilliseconds;
+            result.ParsedRows = result.ScoreTable.Count;
+        }
+        catch
+        {
+            result.FailureReason = "parse_failed";
+            return result;
+        }
+        try
+        {
+            Stopwatch digestStopwatch = Stopwatch.StartNew();
+            result.ScoreDigestSha256 = ComputeScoreDigest(result.ScoreTable);
+            digestStopwatch.Stop();
+            result.DigestMs = digestStopwatch.ElapsedMilliseconds;
+        }
+        catch
+        {
+            result.FailureReason = "digest_failed";
+        }
+        return result;
+    }
+
+    public IrScoreTableUpdateResult UpdateIrScoreTableWithMetrics(int lr2Id, BmsLibraryDbGateway dbGateway, IBmsLibraryIrClient irClient, Regex lr2IrScoreRegex, IrScorePrefetchResult prefetchedScore = null)
     {
         IrScoreTableUpdateResult result = new IrScoreTableUpdateResult();
         if (dbGateway == null || irClient == null || lr2IrScoreRegex == null || lr2Id == 0 || string.IsNullOrWhiteSpace(dbGateway.ScoreDbPath))
@@ -256,70 +307,57 @@ internal sealed class BmsLibraryIrService
         catch
         {
         }
-        try
-        {
-            Stopwatch fetchStopwatch = Stopwatch.StartNew();
-            playerXml = irClient.GetPlayerScoresXml(lr2Id);
-            fetchStopwatch.Stop();
-            result.XmlFetchMs = fetchStopwatch.ElapsedMilliseconds;
-        }
-        catch
-        {
-            result.SkipReason = "unavailable";
-            return result;
-        }
         List<LR2IRScore> scoreTable;
-        try
+        string scoreDigest;
+        if (prefetchedScore != null && prefetchedScore.Succeeded && prefetchedScore.Lr2Id == lr2Id)
         {
-            Stopwatch parseStopwatch = Stopwatch.StartNew();
-            scoreTable = (from e in lr2IrScoreRegex.Matches(playerXml).Cast<Match>().Select(delegate (Match m)
-                {
-                    try
-                    {
-                        return new LR2IRScore(m.Groups[1].Value)
-                        {
-                            clear = ClearTypeStorageConverter.FromLr2Value(int.Parse(m.Groups[2].Value)),
-                            notes = int.Parse(m.Groups[3].Value),
-                            combo = int.Parse(m.Groups[4].Value),
-                            pg = int.Parse(m.Groups[5].Value),
-                            gr = int.Parse(m.Groups[6].Value),
-                            gd = int.Parse(m.Groups[7].Value),
-                            bd = int.Parse(m.Groups[8].Value),
-                            pr = int.Parse(m.Groups[9].Value),
-                            minbp = int.Parse(m.Groups[10].Value),
-                            option = int.Parse(m.Groups[11].Value),
-                            lastupdate = int.Parse(m.Groups[12].Value)
-                        };
-                    }
-                    catch
-                    {
-                        return (LR2IRScore)null;
-                    }
-                })
-                          where e != null
-                          group e by e.hash into e
-                          select e.First()).ToList();
-            parseStopwatch.Stop();
-            result.XmlParseMs = parseStopwatch.ElapsedMilliseconds;
+            scoreTable = prefetchedScore.ScoreTable.ToList();
+            scoreDigest = prefetchedScore.ScoreDigestSha256;
+            result.PrefetchUsed = true;
+            result.PrefetchXmlFetchMs = prefetchedScore.XmlFetchMs;
+            result.PrefetchXmlParseMs = prefetchedScore.XmlParseMs;
+            result.PrefetchDigestMs = prefetchedScore.DigestMs;
             result.ParsedRows = scoreTable.Count;
         }
-        catch
+        else
         {
-            result.SkipReason = "unavailable";
-            return result;
-        }
-        string scoreDigest;
-        try
-        {
-            Stopwatch digestStopwatch = Stopwatch.StartNew();
-            scoreDigest = ComputeScoreDigest(scoreTable);
-            digestStopwatch.Stop();
-            result.DigestMs = digestStopwatch.ElapsedMilliseconds;
-        }
-        catch
-        {
-            result.SkipReason = "unavailable";
-            return result;
+            try
+            {
+                Stopwatch fetchStopwatch = Stopwatch.StartNew();
+                playerXml = irClient.GetPlayerScoresXml(lr2Id);
+                fetchStopwatch.Stop();
+                result.XmlFetchMs = fetchStopwatch.ElapsedMilliseconds;
+            }
+            catch
+            {
+                result.SkipReason = "unavailable";
+                return result;
+            }
+            try
+            {
+                Stopwatch parseStopwatch = Stopwatch.StartNew();
+                scoreTable = ParsePlayerScoreXml(playerXml, lr2IrScoreRegex);
+                parseStopwatch.Stop();
+                result.XmlParseMs = parseStopwatch.ElapsedMilliseconds;
+                result.ParsedRows = scoreTable.Count;
+            }
+            catch
+            {
+                result.SkipReason = "unavailable";
+                return result;
+            }
+            try
+            {
+                Stopwatch digestStopwatch = Stopwatch.StartNew();
+                scoreDigest = ComputeScoreDigest(scoreTable);
+                digestStopwatch.Stop();
+                result.DigestMs = digestStopwatch.ElapsedMilliseconds;
+            }
+            catch
+            {
+                result.SkipReason = "unavailable";
+                return result;
+            }
         }
         if (metadata != null && string.Equals(metadata.score_digest_sha256, scoreDigest, StringComparison.OrdinalIgnoreCase))
         {
@@ -369,6 +407,37 @@ internal sealed class BmsLibraryIrService
         result.Skipped = false;
         result.SkipReason = "changed";
         return result;
+    }
+
+    private static List<LR2IRScore> ParsePlayerScoreXml(string playerXml, Regex lr2IrScoreRegex)
+    {
+        return (from e in lr2IrScoreRegex.Matches(playerXml ?? string.Empty).Cast<Match>().Select(delegate (Match m)
+                {
+                    try
+                    {
+                        return new LR2IRScore(m.Groups[1].Value)
+                        {
+                            clear = ClearTypeStorageConverter.FromLr2Value(int.Parse(m.Groups[2].Value)),
+                            notes = int.Parse(m.Groups[3].Value),
+                            combo = int.Parse(m.Groups[4].Value),
+                            pg = int.Parse(m.Groups[5].Value),
+                            gr = int.Parse(m.Groups[6].Value),
+                            gd = int.Parse(m.Groups[7].Value),
+                            bd = int.Parse(m.Groups[8].Value),
+                            pr = int.Parse(m.Groups[9].Value),
+                            minbp = int.Parse(m.Groups[10].Value),
+                            option = int.Parse(m.Groups[11].Value),
+                            lastupdate = int.Parse(m.Groups[12].Value)
+                        };
+                    }
+                    catch
+                    {
+                        return (LR2IRScore)null;
+                    }
+                })
+                where e != null
+                group e by e.hash into e
+                select e.First()).ToList();
     }
 
     private static List<LR2IRScore> LoadExistingIrScoresForDigestComparison(BmsLibraryDbGateway dbGateway, IrScoreTableUpdateResult result)
