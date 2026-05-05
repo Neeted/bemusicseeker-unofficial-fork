@@ -1090,9 +1090,7 @@ internal sealed class BmsLibraryDbGateway
     public List<LR2IRData> LoadIrData(int lr2Id)
     {
         using LR2SongDBExtended songDb = OpenSongDb();
-        return (from s in songDb.Table<LR2IRData>().ToList()
-                where s.lr2id == lr2Id
-                select s).ToList();
+        return songDb.Table<LR2IRData>().Where((LR2IRData s) => s.lr2id == lr2Id).ToList();
     }
 
     public void UpsertIrData(IEnumerable<LR2IRData> irData)

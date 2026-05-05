@@ -1,6 +1,8 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -16,6 +18,17 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 /// </summary>
 internal sealed class BmsLibraryIrService
 {
+    internal sealed class IrCacheRefreshPlan
+    {
+        public List<LR2IRData> DbRows { get; } = new List<LR2IRData>();
+
+        public List<LR2IRData> XmlRows { get; } = new List<LR2IRData>();
+
+        public Dictionary<string, LR2IRCache> XmlCachesByHash { get; } = new Dictionary<string, LR2IRCache>(StringComparer.OrdinalIgnoreCase);
+
+        public IrCacheRefreshResult Result { get; } = new IrCacheRefreshResult();
+    }
+
     public void ApplyKnownScoresToFiles(IEnumerable<BMSFile> bmsFiles, IEnumerable<BMSScore> bmsScores)
     {
         ApplyKnownScoresToFilesAndCount(bmsFiles, bmsScores);
@@ -79,10 +92,77 @@ internal sealed class BmsLibraryIrService
         {
             return;
         }
+        Dictionary<string, BMSScore> scoresByHash = BuildScoreIndex(bmsScores);
+        Dictionary<string, List<BMSFile>> filesByHash = BuildFileIndex(bmsFiles);
+        int offlineEstimateXmlLoadCount = 0;
+        ApplyIrDataToScoresAndFilesIndexed(data, cache, scoreDbPath, bmsScores, scoresByHash, filesByHash, skipEstimateOfflineScoreRanking, ref offlineEstimateXmlLoadCount);
+    }
+
+    private static Dictionary<string, BMSScore> BuildScoreIndex(IEnumerable<BMSScore> bmsScores)
+    {
+        Dictionary<string, BMSScore> scoresByHash = new Dictionary<string, BMSScore>(StringComparer.OrdinalIgnoreCase);
+        foreach (BMSScore score in bmsScores ?? Enumerable.Empty<BMSScore>())
+        {
+            if (score != null && !string.IsNullOrWhiteSpace(score.hash) && !scoresByHash.ContainsKey(score.hash))
+            {
+                scoresByHash.Add(score.hash, score);
+            }
+        }
+        return scoresByHash;
+    }
+
+    private static Dictionary<string, List<BMSFile>> BuildFileIndex(IEnumerable<BMSFile> bmsFiles)
+    {
+        Dictionary<string, List<BMSFile>> filesByHash = new Dictionary<string, List<BMSFile>>(StringComparer.OrdinalIgnoreCase);
+        foreach (BMSFile bmsFile in bmsFiles ?? Enumerable.Empty<BMSFile>())
+        {
+            if (bmsFile == null || string.IsNullOrWhiteSpace(bmsFile.hash))
+            {
+                continue;
+            }
+            if (!filesByHash.TryGetValue(bmsFile.hash, out List<BMSFile> files))
+            {
+                files = new List<BMSFile>();
+                filesByHash.Add(bmsFile.hash, files);
+            }
+            files.Add(bmsFile);
+        }
+        return filesByHash;
+    }
+
+    private static void AttachScoreToFiles(BMSScore score, IReadOnlyDictionary<string, List<BMSFile>> filesByHash)
+    {
+        if (score == null || string.IsNullOrWhiteSpace(score.hash) || filesByHash == null || !filesByHash.TryGetValue(score.hash, out List<BMSFile> files))
+        {
+            return;
+        }
+        foreach (BMSFile file in files)
+        {
+            if (file != null)
+            {
+                file.bmsScore = score;
+            }
+        }
+    }
+
+    private void ApplyIrDataToScoresAndFilesIndexed(
+        LR2IRData data,
+        LR2IRCache cache,
+        string scoreDbPath,
+        List<BMSScore> bmsScores,
+        Dictionary<string, BMSScore> scoresByHash,
+        IReadOnlyDictionary<string, List<BMSFile>> filesByHash,
+        bool skipEstimateOfflineScoreRanking,
+        ref int offlineEstimateXmlLoadCount)
+    {
+        if (data == null || bmsScores == null || string.IsNullOrWhiteSpace(data.hash))
+        {
+            return;
+        }
         string cachePath = string.IsNullOrWhiteSpace(scoreDbPath)
             ? null
             : Path.Combine(Path.Combine(Path.GetDirectoryName(scoreDbPath), "..\\..\\Ir"), data.hash + ".xml");
-        BMSScore score = bmsScores.FirstOrDefault((BMSScore s) => s.hash == data.hash);
+        scoresByHash.TryGetValue(data.hash, out BMSScore score);
         if (data.score > 0)
         {
             if (score != null)
@@ -111,7 +191,7 @@ internal sealed class BmsLibraryIrService
                 {
                     if (!skipEstimateOfflineScoreRanking)
                     {
-                        cache = EnsureIrCacheLoaded(cache, cachePath);
+                        cache = EnsureIrCacheLoaded(cache, cachePath, ref offlineEstimateXmlLoadCount);
                         if (cache != null)
                         {
                             score.ranking = cache.GetRankFromScore(score.score);
@@ -126,14 +206,15 @@ internal sealed class BmsLibraryIrService
             }
             score = new BMSScore(data);
             bmsScores.Add(score);
-            ApplyKnownScoresToFiles(bmsFiles, new[] { score });
+            scoresByHash[data.hash] = score;
+            AttachScoreToFiles(score, filesByHash);
             return;
         }
         if (score != null)
         {
             if (!skipEstimateOfflineScoreRanking)
             {
-                cache = EnsureIrCacheLoaded(cache, cachePath);
+                cache = EnsureIrCacheLoaded(cache, cachePath, ref offlineEstimateXmlLoadCount);
                 if (cache != null)
                 {
                     score.ranking = cache.GetRankFromScore(score.score);
@@ -147,7 +228,8 @@ internal sealed class BmsLibraryIrService
         }
         score = new BMSScore(data);
         bmsScores.Add(score);
-        ApplyKnownScoresToFiles(bmsFiles, new[] { score });
+        scoresByHash[data.hash] = score;
+        AttachScoreToFiles(score, filesByHash);
     }
 
     public List<LR2IRScore> UpdateIrScoreTable(int lr2Id, BmsLibraryDbGateway dbGateway, IBmsLibraryIrClient irClient, Regex lr2IrScoreRegex)
@@ -349,10 +431,31 @@ internal sealed class BmsLibraryIrService
 
     public IrCacheRefreshResult RefreshRankingScoresFromCache(int lr2Id, string scoreDbPath, BmsLibraryDbGateway dbGateway, List<BMSScore> bmsScores, IEnumerable<BMSFile> bmsFiles, bool skipEstimateOfflineScoreRanking)
     {
-        IrCacheRefreshResult result = new IrCacheRefreshResult();
-        if (lr2Id == 0 || string.IsNullOrWhiteSpace(scoreDbPath) || dbGateway == null || bmsScores == null)
+        IrCacheRefreshPlan plan = BuildRankingScoresRefreshPlan(lr2Id, scoreDbPath, dbGateway);
+        ApplyRankingScoresRefreshPlan(plan, scoreDbPath, bmsScores, bmsFiles, skipEstimateOfflineScoreRanking);
+        return plan.Result;
+    }
+
+    internal IrCacheRefreshPlan PrepareRankingScoresRefreshPlanForLibrary(int lr2Id, string scoreDbPath, BmsLibraryDbGateway dbGateway)
+    {
+        return BuildRankingScoresRefreshPlan(lr2Id, scoreDbPath, dbGateway);
+    }
+
+    internal IrCacheRefreshResult ApplyPreparedRankingScoresRefreshPlanForLibrary(IrCacheRefreshPlan preparedPlan, string scoreDbPath, List<BMSScore> bmsScores, IEnumerable<BMSFile> bmsFiles, bool skipEstimateOfflineScoreRanking)
+    {
+        IrCacheRefreshPlan plan = preparedPlan ?? new IrCacheRefreshPlan();
+        ApplyRankingScoresRefreshPlan(plan, scoreDbPath, bmsScores, bmsFiles, skipEstimateOfflineScoreRanking);
+        return plan.Result;
+    }
+
+    private IrCacheRefreshPlan BuildRankingScoresRefreshPlan(int lr2Id, string scoreDbPath, BmsLibraryDbGateway dbGateway)
+    {
+        Stopwatch totalStopwatch = Stopwatch.StartNew();
+        IrCacheRefreshPlan plan = new IrCacheRefreshPlan();
+        IrCacheRefreshResult result = plan.Result;
+        if (lr2Id == 0 || string.IsNullOrWhiteSpace(scoreDbPath) || dbGateway == null)
         {
-            return result;
+            return plan;
         }
         string cacheDirectoryPath;
         try
@@ -361,27 +464,44 @@ internal sealed class BmsLibraryIrService
         }
         catch
         {
-            return result;
+            return plan;
         }
         if (!Directory.Exists(cacheDirectoryPath))
         {
-            return result;
+            return plan;
         }
         List<LR2IRData> irDataDb;
         try
         {
+            Stopwatch dbReadStopwatch = Stopwatch.StartNew();
             irDataDb = LoadIrData(lr2Id, dbGateway);
+            dbReadStopwatch.Stop();
+            result.DbReadMs = dbReadStopwatch.ElapsedMilliseconds;
         }
         catch
         {
-            return result;
+            return plan;
         }
         if (irDataDb == null)
         {
-            return result;
+            return plan;
         }
-        List<LR2IRData> irDataToBeCommitted = new List<LR2IRData>();
-        object commitLock = new object();
+        plan.DbRows.AddRange(irDataDb.Where((LR2IRData data) => data != null && !string.IsNullOrWhiteSpace(data.hash)));
+        result.DbRows = plan.DbRows.Count;
+        Stopwatch indexStopwatch = Stopwatch.StartNew();
+        Dictionary<string, LR2IRData> irDataByHash = new Dictionary<string, LR2IRData>(StringComparer.OrdinalIgnoreCase);
+        foreach (LR2IRData data in plan.DbRows)
+        {
+            if (!irDataByHash.ContainsKey(data.hash))
+            {
+                irDataByHash.Add(data.hash, data);
+            }
+        }
+        indexStopwatch.Stop();
+        result.IndexBuildMs = indexStopwatch.ElapsedMilliseconds;
+
+        ConcurrentBag<LR2IRData> irDataToBeCommitted = new ConcurrentBag<LR2IRData>();
+        Stopwatch xmlCheckStopwatch = Stopwatch.StartNew();
         List<string> cacheFilePaths = Directory.EnumerateFiles(cacheDirectoryPath).ToList();
         result.CacheFilesScanned = cacheFilePaths.Count;
         List<string> reloadTargets = cacheFilePaths.AsParallel().Where(delegate (string filePath)
@@ -393,7 +513,7 @@ internal sealed class BmsLibraryIrService
                 {
                     return false;
                 }
-                LR2IRData current = irDataDb.FirstOrDefault((LR2IRData data) => data.hash == md5);
+                irDataByHash.TryGetValue(md5, out LR2IRData current);
                 if (current == null)
                 {
                     return true;
@@ -415,11 +535,7 @@ internal sealed class BmsLibraryIrService
                 if (!current.lastcacheupdate.HasValue)
                 {
                     current.lastcacheupdate = lastWriteTime;
-                    lock (commitLock)
-                    {
-                        irDataToBeCommitted.Add(current);
-                    }
-                    ApplyIrDataToScoresAndFiles(current, null, scoreDbPath, bmsScores, bmsFiles, skipEstimateOfflineScoreRanking);
+                    irDataToBeCommitted.Add(current);
                 }
                 return false;
             }
@@ -428,6 +544,11 @@ internal sealed class BmsLibraryIrService
                 return false;
             }
         }).ToList();
+        xmlCheckStopwatch.Stop();
+        result.XmlCheckMs = xmlCheckStopwatch.ElapsedMilliseconds;
+
+        Stopwatch xmlReloadStopwatch = Stopwatch.StartNew();
+        object xmlRowsLock = new object();
         reloadTargets.AsParallel().ForAll(delegate (string filePath)
         {
             LR2IRCache irCache;
@@ -444,28 +565,62 @@ internal sealed class BmsLibraryIrService
             {
                 return;
             }
-            lock (commitLock)
+            irDataToBeCommitted.Add(irData);
+            lock (xmlRowsLock)
             {
-                irDataToBeCommitted.Add(irData);
+                plan.XmlRows.Add(irData);
+                plan.XmlCachesByHash[irData.hash] = irCache;
             }
-            ApplyIrDataToScoresAndFiles(irData, irCache, scoreDbPath, bmsScores, bmsFiles, skipEstimateOfflineScoreRanking);
         });
+        xmlReloadStopwatch.Stop();
+        result.XmlReloadMs = xmlReloadStopwatch.ElapsedMilliseconds;
         result.CacheFilesReloaded = reloadTargets.Count;
-        dbGateway.UpsertIrData(irDataToBeCommitted);
-        result.IrDataUpsertCount = irDataToBeCommitted.Count;
-        HashSet<string> updatedHashes = new HashSet<string>(irDataToBeCommitted.Select((LR2IRData data) => data.hash), StringComparer.OrdinalIgnoreCase);
-        foreach (LR2IRData irData in irDataDb)
+        List<LR2IRData> upsertRows = irDataToBeCommitted.Where((LR2IRData data) => data != null).ToList();
+        result.IrDataUpsertCount = upsertRows.Count;
+        if (upsertRows.Count > 0)
         {
-            if (irData != null && !updatedHashes.Contains(irData.hash))
-            {
-                ApplyIrDataToScoresAndFiles(irData, null, scoreDbPath, bmsScores, bmsFiles, skipEstimateOfflineScoreRanking);
-                result.DbFallbackAppliedCount++;
-            }
+            Stopwatch upsertStopwatch = Stopwatch.StartNew();
+            dbGateway.UpsertIrData(upsertRows);
+            upsertStopwatch.Stop();
+            result.UpsertMs = upsertStopwatch.ElapsedMilliseconds;
         }
-        return result;
+        totalStopwatch.Stop();
+        result.ElapsedMs = totalStopwatch.ElapsedMilliseconds;
+        return plan;
     }
 
-    private static LR2IRCache EnsureIrCacheLoaded(LR2IRCache cache, string cachePath)
+    private void ApplyRankingScoresRefreshPlan(IrCacheRefreshPlan plan, string scoreDbPath, List<BMSScore> bmsScores, IEnumerable<BMSFile> bmsFiles, bool skipEstimateOfflineScoreRanking)
+    {
+        if (plan == null || bmsScores == null)
+        {
+            return;
+        }
+        Dictionary<string, BMSScore> scoresByHash = BuildScoreIndex(bmsScores);
+        Dictionary<string, List<BMSFile>> filesByHash = BuildFileIndex(bmsFiles);
+        HashSet<string> xmlUpdatedHashes = new HashSet<string>(plan.XmlRows.Where((LR2IRData data) => data != null && !string.IsNullOrWhiteSpace(data.hash)).Select((LR2IRData data) => data.hash), StringComparer.OrdinalIgnoreCase);
+        int offlineEstimateXmlLoadCount = 0;
+        foreach (LR2IRData irData in plan.DbRows)
+        {
+            if (irData != null && !xmlUpdatedHashes.Contains(irData.hash))
+            {
+                ApplyIrDataToScoresAndFilesIndexed(irData, null, scoreDbPath, bmsScores, scoresByHash, filesByHash, skipEstimateOfflineScoreRanking, ref offlineEstimateXmlLoadCount);
+                plan.Result.DbFallbackAppliedCount++;
+            }
+        }
+        foreach (LR2IRData irData in plan.XmlRows)
+        {
+            if (irData == null)
+            {
+                continue;
+            }
+            plan.XmlCachesByHash.TryGetValue(irData.hash, out LR2IRCache cache);
+            ApplyIrDataToScoresAndFilesIndexed(irData, cache, scoreDbPath, bmsScores, scoresByHash, filesByHash, skipEstimateOfflineScoreRanking, ref offlineEstimateXmlLoadCount);
+            plan.Result.XmlAppliedCount++;
+        }
+        plan.Result.OfflineEstimateXmlLoadCount = offlineEstimateXmlLoadCount;
+    }
+
+    private static LR2IRCache EnsureIrCacheLoaded(LR2IRCache cache, string cachePath, ref int loadCount)
     {
         if (cache != null || string.IsNullOrWhiteSpace(cachePath) || !File.Exists(cachePath))
         {
@@ -473,7 +628,9 @@ internal sealed class BmsLibraryIrService
         }
         try
         {
-            return new LR2IRCache(File.ReadAllText(cachePath, Encoding.GetEncoding("shift_jis")), Path.GetFileNameWithoutExtension(cachePath), File.GetLastWriteTime(cachePath));
+            LR2IRCache loaded = new LR2IRCache(File.ReadAllText(cachePath, Encoding.GetEncoding("shift_jis")), Path.GetFileNameWithoutExtension(cachePath), File.GetLastWriteTime(cachePath));
+            loadCount++;
+            return loaded;
         }
         catch
         {

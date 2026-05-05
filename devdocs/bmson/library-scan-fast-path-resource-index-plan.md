@@ -424,17 +424,59 @@ Phase 8B で `maintenance_tbl_check_deferred` は `maintenance_hydration` へ統
 
 Phase 8B により、重複していた maintenance table check と chart_info backfill candidate summary は削れた。一方で `startup_initialization_complete` は Phase 2A 実測 `103325ms` とほぼ同等で、短縮はまだ支配的ではない。今回の実測では、残る主要 background cost は `ranking_refresh_deferred=43091ms`、`maintenance_hydration=22314ms`、`playlist_entries_hydration=17552ms`、`chart_info_hydration=16398ms`、`reverse_lookup_warmup_deferred=14943ms` である。次の実装単位では `maintenance_hydration applyMs=18447` を直接削るか、ranking / playlist / reverse lookup の no-op / materialize cost を削る必要がある。
 
+### Phase 8C Current Implementation: Ranking Cache Refresh Reduction
+
+実装済み。
+
+- `setRankingScore()` / `RefreshRankingScoresFromCache()` を DB ranking apply と XML delta refresh に分離した。
+  - `ir_data` は `lr2id` 条件付きで DB から 1 回読む。
+  - `irDataByHash`, `scoreByHash`, `filesByHash` を作り、DB row / score / file lookup の全件線形探索をやめた。
+  - XML cache は file mtime と tail timestamp で差分確認し、必要な file だけ full parse する。
+  - XML parse / delta 判定中に `BMSScores` / `BMSScore` を mutate せず、最後に単一 pass で in-memory apply する。
+  - DB upsert は更新 row がある場合だけ 1 回行う。
+- `setRankingScore()` の lock 範囲を縮小した。
+  - DB read / XML enumerate / XML parse は `BMSScores` / `BMSFiles` lock 外で行う。
+  - 最終 apply 時だけ `rwlockBMSScores` writer と `rwlockBMSFiles` reader を取る。
+- startup cache refresh 中の明示 `GC.Collect()` と旧 `IR CACHE` trace は削除した。
+- `ranking_cache_refresh done` と `ranking_refresh_deferred done` に内訳を追加した。
+  - `dbReadMs`, `dbRows`, `indexBuildMs`, `cacheFiles`, `xmlCheckMs`, `reloadTargets`, `xmlReloadMs`, `dbApplyCount`, `xmlApplyCount`, `upsertRows`, `upsertMs`, `offlineEstimateXmlLoads`
+  - `irScoreMs`, `cacheMs`, `elapsedMs`
+
+2026-05-05 12:16 の Phase 8C 実測では、ranking cache refresh は想定どおり大きく短縮した。
+
+- `ranking_cache_refresh done elapsedMs=2906 dbReadMs=280 dbRows=17708 indexBuildMs=4 cacheFiles=17950 xmlCheckMs=393 reloadTargets=99 xmlReloadMs=63 dbApplyCount=17708 xmlApplyCount=0 upsertRows=0 upsertMs=0 offlineEstimateXmlLoads=0`
+- `ranking_refresh_deferred done version=1 irScoreMs=10970 cacheMs=2916 elapsedMs=13888`
+- `score_snapshot_load completed reason=refresh_ranking_cache ... buildMs=4`
+
+Phase 8B 実測の `ranking_refresh_deferred=43091ms` と比べると、ranking refresh 全体は約 29 秒短縮した。cache XML がほぼ変わっていない通常起動では、XML full parse / DB upsert がほぼ発生しないという前提どおりである。
+
+残る ranking cost は主に `irScoreMs=10970`、つまり `updateLR2IRScoreTable()` による LR2IR player score XML 取得、`ir_score` replace、`BMSScores` merge、score snapshot refresh である。`setRankingScore()` 側は現時点では支配的ではないため、次に ranking を触る場合は `updateLR2IRScoreTable()` の no-op 判定 / fetch policy / DB replace 条件を別 phase として扱う。
+
+同じ実測での初期化全体は次の状態。
+
+- `startup_initialization_complete elapsedMs=93408`
+- `startup_background_summary queued=10 started=10 completed=10 failed=0`
+- major background:
+  - `playlist_entries_hydration lastMs=18419`
+  - `maintenance_hydration lastMs=16137`
+  - `reverse_lookup_warmup_deferred lastMs=16001`
+  - `ranking_refresh_deferred lastMs=13888`
+  - `chart_info_hydration lastMs=13591`
+
+この結果、Phase 8C 後は ranking cache refresh ではなく、playlist / maintenance / reverse lookup / chart_info が初期化全体短縮の主対象になった。
+
 未完了として次単位に残すもの:
 
 - `maintenance_hydration` の apply を chunk / aggregate notification 化し、1 件ごとの高コスト warning refresh を避ける。
 - `chart_info_hydration` の DB count / version による no-op skip。
 - playlist entries hydration の同一 startup 内二重 hydrate / presentation rebuild 削減。
+- `updateLR2IRScoreTable()` の no-op 判定 / DB replace 条件整理。
 
-## Next Implementation Unit: Phase 8C / 2B
+## Next Implementation Unit: Phase 8D / 2B
 
-次に進むべき単位は、install readiness のさらなる前倒しよりも、初期化全体を悪化させている background duplicate work の削減である。
+次に進むべき単位は、install readiness のさらなる前倒しよりも、初期化全体を悪化させている background duplicate work の削減である。Phase 8C の ranking cache refresh reduction は完了したため、次の主対象は maintenance / playlist / reverse lookup / chart_info のいずれかに絞る。
 
-### Phase 8C: Maintenance Apply / Hydration Micro Reduction
+### Phase 8D: Maintenance Apply / Hydration Micro Reduction
 
 - `maintenance_hydration` の apply を chunk / aggregate notification 化する。
 - warning / health projection の row ごとの property chain を抑え、UI rebuild をまとめる。
@@ -446,9 +488,15 @@ Phase 8B により、重複していた maintenance table check と chart_info b
 - `song_tbl_load_projection` は維持し、`maintenance` と `chart_info` を critical path に戻さない。
 - `startup_install_estimation_ready` の比較対象は Phase 2A 実測 `35961ms` とする。
 
-### Phase 8D: Chart Info Hydration No-op Reduction
+### Phase 8E: Chart Info Hydration No-op Reduction
 
 - `chart_info_hydration` は DB count / schema version / hydrated index state から no-op 判定できる範囲を増やす。ただし session index が未 hydrated の通常起動では必要な load と owner apply は維持する。
+
+### Phase 8F: Ranking Score Table No-op Reduction
+
+- `updateLR2IRScoreTable()` の network fetch / DB replace / score merge を対象にする。
+- LR2IR player score XML の取得結果が前回 DB 内容と同一なら、`ir_score` table replace と `BMSScores` merge を skip できるようにする。
+- 実装する場合も `setRankingScore()` の cache delta refresh は維持し、ranking cache と score table の責務を混ぜない。
 
 ### Key Changes
 
@@ -505,6 +553,21 @@ Phase 8B により、重複していた maintenance table check と chart_info b
   - `readMs`
   - `materializeMs`
   - `rows`
+- `ranking_cache_refresh`
+  - `dbReadMs`
+  - `dbRows`
+  - `cacheFiles`
+  - `xmlCheckMs`
+  - `reloadTargets`
+  - `xmlReloadMs`
+  - `dbApplyCount`
+  - `xmlApplyCount`
+  - `upsertRows`
+  - `offlineEstimateXmlLoads`
+- `ranking_refresh_deferred`
+  - `irScoreMs`
+  - `cacheMs`
+  - `elapsedMs`
 
 旧実装が存在しないログ、テスト専用のログ、判断に使わないログは追加しない。
 

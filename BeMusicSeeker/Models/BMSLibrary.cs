@@ -5931,9 +5931,9 @@ public class BMSLibrary : NotificationObject
             try
             {
                 LogInstallPerformance("ranking_refresh_deferred run version=" + requestVersion);
-                RunDeferredRankingRefresh(requestVersion);
+                RankingRefreshRunResult result = RunDeferredRankingRefresh(requestVersion);
                 stopwatch.Stop();
-                LogInstallPerformance("ranking_refresh_deferred done version=" + requestVersion + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
+                LogInstallPerformance("ranking_refresh_deferred done version=" + requestVersion + " irScoreMs=" + result.IrScoreMs + " cacheMs=" + result.CacheMs + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
                 ReportStartupBackgroundTask("ranking_refresh_deferred", "done", stopwatch.ElapsedMilliseconds, failed: false);
             }
             catch (OperationCanceledException)
@@ -6028,12 +6028,21 @@ public class BMSLibrary : NotificationObject
     /// 最新の ranking refresh 要求を実行し、score snapshot を更新します。
     /// </summary>
     /// <param name="requestVersion">処理対象の要求版数。</param>
-    private void RunDeferredRankingRefresh(int requestVersion)
+    private sealed class RankingRefreshRunResult
     {
+        public long IrScoreMs { get; set; }
+
+        public long CacheMs { get; set; }
+    }
+
+    private RankingRefreshRunResult RunDeferredRankingRefresh(int requestVersion)
+    {
+        RankingRefreshRunResult result = new RankingRefreshRunResult();
         if (lr2ScoreDBPath == null || LR2ID == 0)
         {
-            return;
+            return result;
         }
+        Stopwatch irScoreStopwatch = Stopwatch.StartNew();
         List<LR2IRScore> scoreTable = updateLR2IRScoreTable();
         if (IsDeferredRankingRefreshRequestSuperseded(requestVersion))
         {
@@ -6041,12 +6050,17 @@ public class BMSLibrary : NotificationObject
         }
         updateBMSScores(scoreTable);
         RefreshScoreSnapshotFromCurrentScores("deferred_ranking_refresh_ir_score");
+        irScoreStopwatch.Stop();
+        result.IrScoreMs = irScoreStopwatch.ElapsedMilliseconds;
         if (IsDeferredRankingRefreshRequestSuperseded(requestVersion))
         {
             throw new OperationCanceledException();
         }
+        Stopwatch cacheStopwatch = Stopwatch.StartNew();
         setRankingScore();
-        RefreshScoreSnapshotFromCurrentScores("deferred_ranking_refresh_cache");
+        cacheStopwatch.Stop();
+        result.CacheMs = cacheStopwatch.ElapsedMilliseconds;
+        return result;
     }
 
     /// <summary>
@@ -6687,29 +6701,44 @@ public class BMSLibrary : NotificationObject
         RefreshScoreSnapshotFromCurrentScores("update_ir_score_table");
     }
 
-    private void setRankingScore()
+    private IrCacheRefreshResult setRankingScore()
     {
         BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
-        NLogWrapper.DebuggerLogger?.Trace("IR CACHE START");
+        IrCacheRefreshResult result = new IrCacheRefreshResult();
         if (lr2ScoreDBPath == null || LR2ID == 0)
         {
-            return;
+            return result;
         }
+        LogInstallPerformance("ranking_cache_refresh start lr2Id=" + LR2ID);
+        Stopwatch stopwatch = Stopwatch.StartNew();
         using (rwlockLR2IrDir.GetWriterGuard())
         {
-            NLogWrapper.DebuggerLogger?.Trace("IR CACHE DIR END");
+            BmsLibraryIrService.IrCacheRefreshPlan preparedPlan = irService.PrepareRankingScoresRefreshPlanForLibrary(LR2ID, lr2ScoreDBPath, dbGateway);
             using (rwlockBMSScores.GetWriterGuard())
             {
                 using (rwlockBMSFiles.GetReaderGuard())
                 {
-                    irService.RefreshRankingScoresFromCache(LR2ID, lr2ScoreDBPath, dbGateway, BMSScores, BMSFiles, options.SkipEstimateOfflineScoreRanking);
+                    result = irService.ApplyPreparedRankingScoresRefreshPlanForLibrary(preparedPlan, lr2ScoreDBPath, BMSScores, BMSFiles, options.SkipEstimateOfflineScoreRanking);
                 }
             }
-            NLogWrapper.DebuggerLogger?.Trace("IR CACHE END");
-            GC.Collect();
-            NLogWrapper.DebuggerLogger?.Trace(GC.GetTotalMemory(forceFullCollection: false));
         }
+        stopwatch.Stop();
+        result.ElapsedMs = stopwatch.ElapsedMilliseconds;
+        LogInstallPerformance("ranking_cache_refresh done elapsedMs=" + result.ElapsedMs
+            + " dbReadMs=" + result.DbReadMs
+            + " dbRows=" + result.DbRows
+            + " indexBuildMs=" + result.IndexBuildMs
+            + " cacheFiles=" + result.CacheFilesScanned
+            + " xmlCheckMs=" + result.XmlCheckMs
+            + " reloadTargets=" + result.CacheFilesReloaded
+            + " xmlReloadMs=" + result.XmlReloadMs
+            + " dbApplyCount=" + result.DbFallbackAppliedCount
+            + " xmlApplyCount=" + result.XmlAppliedCount
+            + " upsertRows=" + result.IrDataUpsertCount
+            + " upsertMs=" + result.UpsertMs
+            + " offlineEstimateXmlLoads=" + result.OfflineEstimateXmlLoadCount);
         RefreshScoreSnapshotFromCurrentScores("refresh_ranking_cache");
+        return result;
     }
 
     public List<IRDataCacheInfo> GetIRDataNeedUpdates(IEnumerable<string> md5s)
