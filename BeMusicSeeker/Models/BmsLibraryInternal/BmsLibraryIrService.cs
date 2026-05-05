@@ -250,7 +250,8 @@ internal sealed class BmsLibraryIrService
         LR2SongDBExtended.ir_score_refresh_metadata metadata = null;
         try
         {
-            metadata = dbGateway.LoadIrScoreRefreshMetadata(lr2Id);
+            metadata = dbGateway.LoadIrScoreRefreshMetadata(lr2Id, out long metadataDbLockWaitMs);
+            result.DbLockWaitMs += metadataDbLockWaitMs;
         }
         catch
         {
@@ -375,9 +376,11 @@ internal sealed class BmsLibraryIrService
         try
         {
             Stopwatch loadStopwatch = Stopwatch.StartNew();
-            List<LR2IRScore> scoreTable = dbGateway.LoadIrScoreRows();
+            IrScoreRowsLoadResult loadResult = dbGateway.LoadIrScoreRowsWithMetrics();
             loadStopwatch.Stop();
+            List<LR2IRScore> scoreTable = loadResult.Rows;
             result.DbLoadMs = loadStopwatch.ElapsedMilliseconds;
+            result.DbLockWaitMs += loadResult.DbLockWaitMs;
             result.LoadedRows = scoreTable?.Count ?? 0;
             return scoreTable ?? new List<LR2IRScore>();
         }
@@ -392,9 +395,11 @@ internal sealed class BmsLibraryIrService
         try
         {
             Stopwatch loadStopwatch = Stopwatch.StartNew();
-            result.ScoreTable = dbGateway.LoadIrScoreRows();
+            IrScoreRowsLoadResult loadResult = dbGateway.LoadIrScoreRowsWithMetrics();
+            result.ScoreTable = loadResult.Rows;
             loadStopwatch.Stop();
             result.DbLoadMs = loadStopwatch.ElapsedMilliseconds;
+            result.DbLockWaitMs += loadResult.DbLockWaitMs;
             result.LoadedRows = result.ScoreTable?.Count ?? 0;
         }
         catch
@@ -630,6 +635,7 @@ internal sealed class BmsLibraryIrService
             result.DbReadMs = loadResult.DbReadMs;
             result.IrDataDbReadMs = loadResult.DbReadMs;
             result.IrDataMaterializeMs = loadResult.MaterializeMs;
+            result.IrDataDbLockWaitMs = loadResult.DbLockWaitMs;
         }
         catch
         {

@@ -15,6 +15,8 @@ internal sealed class IrScoreTableUpdateResult
 
     public long DbLoadMs { get; set; }
 
+    public long DbLockWaitMs { get; set; }
+
     public long DbReplaceMs { get; set; }
 
     public int ParsedRows { get; set; }

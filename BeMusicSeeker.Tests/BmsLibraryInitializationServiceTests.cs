@@ -103,6 +103,8 @@ public sealed class BmsLibraryInitializationServiceTests
 
             Assert.AreEqual(1L, result.MaintenanceTableCount);
             Assert.AreEqual(1, result.MaintenanceMap.Count);
+            Assert.IsTrue(result.ReadOnly);
+            Assert.AreEqual(0L, result.DbLockWaitMs);
             Assert.IsTrue(result.MaintenanceMap.TryGetValue(rootedChartPath, out BMSFileMaintenanceInfo info));
             Assert.AreEqual("shift_jis", info.encoding);
         });

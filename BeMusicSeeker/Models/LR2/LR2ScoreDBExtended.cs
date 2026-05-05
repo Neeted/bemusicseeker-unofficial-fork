@@ -1,5 +1,7 @@
 using System;
+using System.Diagnostics;
 using System.Threading;
+using SQLite;
 
 namespace BeMusicSeeker.Models.LR2;
 
@@ -31,15 +33,40 @@ public sealed class LR2ScoreDBExtended : LR2ScoreDB
 	public LR2ScoreDBExtended(string dbPath)
 		: base(dbPath)
 	{
-		if (Monitor.IsEntered(lockObject))
+		AcquireProcessLock();
+		base.BusyTimeout = new TimeSpan(0, 0, 60);
+	}
+
+	internal LR2ScoreDBExtended(string dbPath, SQLiteOpenFlags openFlags, bool acquireProcessLock)
+		: base(dbPath, openFlags)
+	{
+		IsReadOnlyConnection = (openFlags & SQLiteOpenFlags.ReadOnly) == SQLiteOpenFlags.ReadOnly;
+		if (acquireProcessLock)
 		{
-			doNotUnlock = true;
+			AcquireProcessLock();
 		}
 		else
 		{
-			Monitor.Enter(lockObject);
+			doNotUnlock = true;
 		}
 		base.BusyTimeout = new TimeSpan(0, 0, 60);
+	}
+
+	public bool IsReadOnlyConnection { get; }
+
+	public long ProcessLockWaitMs { get; private set; }
+
+	private void AcquireProcessLock()
+	{
+		if (Monitor.IsEntered(lockObject))
+		{
+			doNotUnlock = true;
+			return;
+		}
+		Stopwatch stopwatch = Stopwatch.StartNew();
+		Monitor.Enter(lockObject);
+		stopwatch.Stop();
+		ProcessLockWaitMs = stopwatch.ElapsedMilliseconds;
 	}
 
 	protected override void Dispose(bool disposing)

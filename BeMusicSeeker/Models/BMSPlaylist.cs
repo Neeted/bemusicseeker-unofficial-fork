@@ -753,7 +753,7 @@ public partial class BMSPlaylist : NotificationObject
                     {
                         List<BMSTable> list;
                         Stopwatch stopwatchLoadTables = new Stopwatch();
-                        using (LR2SongDBExtended lR2SongDBExtended = new LR2SongDBExtended(lr2SongDBPath))
+                        using (LR2SongDBExtended lR2SongDBExtended = new BmsLibraryDbGateway(lr2SongDBPath).OpenSongDbReadOnly())
                         {
                             stopwatchLoadTables.Start();
                             list = (from t in lR2SongDBExtended.Table<BMSTable>()
@@ -767,6 +767,8 @@ public partial class BMSPlaylist : NotificationObject
                         }
                         LogPlaylistPerformance("playlist_init_header loadTablesMs=" + stopwatchLoadTables.ElapsedMilliseconds
                             + " tableCount=" + list.Count
+                            + " readOnly=true"
+                            + " dbLockWaitMs=0"
                             + " entriesDeferred=true");
                         BMSTables.AddRange(list);
                     }
@@ -980,6 +982,8 @@ public partial class BMSPlaylist : NotificationObject
                 + " entryCount=" + source.Count
                 + " activeEntryCount=" + activeEntryCount
                 + " removedEntryCount=" + removedEntryCount
+                + " readOnly=" + loadResult.ReadOnly.ToString().ToLowerInvariant()
+                + " dbLockWaitMs=" + loadResult.DbLockWaitMs
                 + " dbReadMs=" + loadResult.DbReadMs
                 + " materializeMs=" + loadResult.MaterializeMs
                 + " groupMs=" + stopwatchGroup.ElapsedMilliseconds

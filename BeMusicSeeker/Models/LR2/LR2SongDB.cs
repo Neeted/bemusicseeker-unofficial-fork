@@ -381,4 +381,10 @@ public class LR2SongDB : SQLiteConnectionEx
 	{
 		DBPath = dbPath;
 	}
+
+	internal LR2SongDB(string dbPath, SQLiteOpenFlags openFlags)
+		: base(dbPath, openFlags)
+	{
+		DBPath = dbPath;
+	}
 }

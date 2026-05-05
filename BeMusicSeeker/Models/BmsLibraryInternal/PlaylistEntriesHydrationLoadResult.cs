@@ -13,4 +13,8 @@ internal sealed class PlaylistEntriesHydrationLoadResult
     public long DbReadMs { get; set; }
 
     public long MaterializeMs { get; set; }
+
+    public bool ReadOnly { get; set; }
+
+    public long DbLockWaitMs { get; set; }
 }

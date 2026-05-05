@@ -191,7 +191,9 @@ internal sealed class BmsLibraryInitializationService
         }
 
         Stopwatch totalStopwatch = Stopwatch.StartNew();
-        using LR2SongDBExtended songDb = dbGateway.OpenSongDb();
+        using LR2SongDBExtended songDb = dbGateway.OpenSongDbReadOnly();
+        result.ReadOnly = songDb.IsReadOnlyConnection;
+        result.DbLockWaitMs = songDb.ProcessLockWaitMs;
         result.Pragmas.AddRange(songDb.TryApplyReadOptimizedPragmas(options?.EnableReadOptimizedPragmas ?? false));
         if (result.Pragmas.Count > 0)
         {

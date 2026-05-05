@@ -9,4 +9,8 @@ internal sealed class IrDataLoadResult
     public long DbReadMs { get; set; }
 
     public long MaterializeMs { get; set; }
+
+    public bool ReadOnly { get; set; }
+
+    public long DbLockWaitMs { get; set; }
 }

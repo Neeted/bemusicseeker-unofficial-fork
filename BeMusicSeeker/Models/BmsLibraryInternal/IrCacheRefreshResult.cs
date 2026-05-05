@@ -10,6 +10,8 @@ internal sealed class IrCacheRefreshResult
 
     public long IrDataMaterializeMs { get; set; }
 
+    public long IrDataDbLockWaitMs { get; set; }
+
     public int DbRows { get; set; }
 
     public long IndexBuildMs { get; set; }

@@ -280,4 +280,10 @@ public class LR2ScoreDB : SQLiteConnectionEx
     {
         DBPath = dbPath;
     }
+
+    internal LR2ScoreDB(string dbPath, SQLiteOpenFlags openFlags)
+        : base(dbPath, openFlags)
+    {
+        DBPath = dbPath;
+    }
 }

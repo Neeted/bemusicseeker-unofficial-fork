@@ -9,4 +9,8 @@ internal sealed class ScoreTableLoadResult
     public int LR2Id { get; set; }
 
     public bool EnableDownloadLr2IrScoreAndDetectUnsent { get; set; } = true;
+
+    public bool ReadOnly { get; set; }
+
+    public long DbLockWaitMs { get; set; }
 }

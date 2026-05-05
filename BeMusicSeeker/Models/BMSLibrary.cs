@@ -2373,6 +2373,10 @@ public class BMSLibrary : NotificationObject
 
         public long DbMaterializeMs { get; set; }
 
+        public bool DbReadOnly { get; set; }
+
+        public long DbLockWaitMs { get; set; }
+
         public int ParseFailureRows { get; set; }
 
         public long IndexBuildMs { get; set; }
@@ -3939,6 +3943,10 @@ public class BMSLibrary : NotificationObject
                 if (lr2ScoreDBPath != null)
                 {
                     ScoreTableLoadResult scoreTableLoadResult = initializationService.LoadScoreTable(dbGateway, options);
+                    LogInstallPerformance("score_tbl_load readOnly=" + scoreTableLoadResult.ReadOnly.ToString().ToLowerInvariant()
+                        + " dbLockWaitMs=" + scoreTableLoadResult.DbLockWaitMs
+                        + " rows=" + scoreTableLoadResult.Scores.Count
+                        + " lr2Id=" + scoreTableLoadResult.LR2Id);
                     LR2ID = scoreTableLoadResult.LR2Id;
                     if (scoreTableLoadResult.Scores.Count > 0)
                     {
@@ -4296,6 +4304,8 @@ public class BMSLibrary : NotificationObject
                 + " backfillCandidateOwners=" + result.BackfillCandidateOwnerCount
                 + " dbLoadMs=" + result.DbLoadMs
                 + " dbMaterializeMs=" + result.DbMaterializeMs
+                + " readOnly=" + result.DbReadOnly.ToString().ToLowerInvariant()
+                + " dbLockWaitMs=" + result.DbLockWaitMs
                 + " parseFailureRows=" + result.ParseFailureRows
                 + " indexBuildMs=" + result.IndexBuildMs
                 + " ownerApplyMs=" + result.OwnerApplyMs
@@ -4364,6 +4374,8 @@ public class BMSLibrary : NotificationObject
             result.ChartInfoRows = loadResult.ChartInfoRows;
             result.DbMaterializeMs = loadResult.MaterializeMs;
             result.DbLoadMs = loadResult.DbReadMs;
+            result.DbReadOnly = loadResult.ReadOnly;
+            result.DbLockWaitMs = loadResult.DbLockWaitMs;
         }
         catch (Exception ex)
         {
@@ -5113,6 +5125,8 @@ public class BMSLibrary : NotificationObject
                 LogInstallPerformance("maintenance_hydration done version=" + requestVersion
                     + " rows=" + result.MaintenanceTableCount
                     + " keys=" + result.MaintenanceMap.Count
+                    + " readOnly=" + result.ReadOnly.ToString().ToLowerInvariant()
+                    + " dbLockWaitMs=" + result.DbLockWaitMs
                     + " readMs=" + result.MaintenanceTableLoadMs
                     + " countMs=" + result.MaintenanceCountMs
                     + " materializeMs=" + result.MaintenanceMaterializeMs
@@ -5675,6 +5689,7 @@ public class BMSLibrary : NotificationObject
                     + " irScoreXmlParseMs=" + result.IrScoreXmlParseMs
                     + " irScoreDigestMs=" + result.IrScoreDigestMs
                     + " irScoreDbLoadMs=" + result.IrScoreDbLoadMs
+                    + " irScoreDbLockWaitMs=" + result.IrScoreDbLockWaitMs
                     + " irScoreDbReplaceMs=" + result.IrScoreDbReplaceMs
                     + " irScoreMergeMs=" + result.IrScoreMergeMs
                     + " irScoreParsedRows=" + result.IrScoreParsedRows
@@ -5788,6 +5803,8 @@ public class BMSLibrary : NotificationObject
 
         public long IrScoreDbLoadMs { get; set; }
 
+        public long IrScoreDbLockWaitMs { get; set; }
+
         public long IrScoreDbReplaceMs { get; set; }
 
         public long IrScoreMergeMs { get; set; }
@@ -5822,6 +5839,7 @@ public class BMSLibrary : NotificationObject
             result.IrScoreXmlParseMs = irScoreUpdateResult.XmlParseMs;
             result.IrScoreDigestMs = irScoreUpdateResult.DigestMs;
             result.IrScoreDbLoadMs = irScoreUpdateResult.DbLoadMs;
+            result.IrScoreDbLockWaitMs = irScoreUpdateResult.DbLockWaitMs;
             result.IrScoreDbReplaceMs = irScoreUpdateResult.DbReplaceMs;
             result.IrScoreParsedRows = irScoreUpdateResult.ParsedRows;
             result.IrScoreLoadedRows = irScoreUpdateResult.LoadedRows;
@@ -6545,6 +6563,7 @@ public class BMSLibrary : NotificationObject
             + " dbReadMs=" + result.DbReadMs
             + " irDataDbReadMs=" + result.IrDataDbReadMs
             + " irDataMaterializeMs=" + result.IrDataMaterializeMs
+            + " irDataDbLockWaitMs=" + result.IrDataDbLockWaitMs
             + " dbRows=" + result.DbRows
             + " indexBuildMs=" + result.IndexBuildMs
             + " cacheFiles=" + result.CacheFilesScanned

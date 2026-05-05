@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using SQLite;
@@ -1160,15 +1161,40 @@ public sealed class LR2SongDBExtended : LR2SongDB
     public LR2SongDBExtended(string dbPath)
         : base(dbPath)
     {
-        if (Monitor.IsEntered(lockObject))
+        AcquireProcessLock();
+        base.BusyTimeout = new TimeSpan(0, 0, 60);
+    }
+
+    internal LR2SongDBExtended(string dbPath, SQLiteOpenFlags openFlags, bool acquireProcessLock)
+        : base(dbPath, openFlags)
+    {
+        IsReadOnlyConnection = (openFlags & SQLiteOpenFlags.ReadOnly) == SQLiteOpenFlags.ReadOnly;
+        if (acquireProcessLock)
         {
-            doNotUnlock = true;
+            AcquireProcessLock();
         }
         else
         {
-            Monitor.Enter(lockObject);
+            doNotUnlock = true;
         }
         base.BusyTimeout = new TimeSpan(0, 0, 60);
+    }
+
+    public bool IsReadOnlyConnection { get; }
+
+    public long ProcessLockWaitMs { get; private set; }
+
+    private void AcquireProcessLock()
+    {
+        if (Monitor.IsEntered(lockObject))
+        {
+            doNotUnlock = true;
+            return;
+        }
+        Stopwatch stopwatch = Stopwatch.StartNew();
+        Monitor.Enter(lockObject);
+        stopwatch.Stop();
+        ProcessLockWaitMs = stopwatch.ElapsedMilliseconds;
     }
 
     public void Uninstall()

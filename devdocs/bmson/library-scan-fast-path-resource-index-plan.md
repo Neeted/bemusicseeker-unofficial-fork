@@ -620,6 +620,10 @@ Phase 8K では player score XML の normalized score digest による no-op 判
 
 Phase 8J の chart_info は `chartInfoRows=209904`, `parseFailureRows=24`, `dbLoadMs=9773`, `indexBuildMs=291`, `ownerApplyMs=229`, `backfillCandidateOwners=0`, `totalMs=10303` だった。owner apply と index build は軽く、支配要因は full `chart_info` row load である。ここは単純な loader 整理では短くならないため、persistent hydrated index / no-op skip / projection の仕様判断が必要である。
 
+現行実装では、`LR2SongDBExtended` と `LR2ScoreDBExtended` が接続生成時に static `Monitor` を取得し、`Dispose()` まで保持する。したがって `playlist_entries_hydration`、`chart_info_hydration`、`maintenance_hydration`、`ranking_refresh_deferred` の `ir_score` / `ir_data` 読み取りは、read-only でも同じ song DB に対して接続寿命単位で直列化される。Phase 8H-8K で gateway loader と timing は整理したが、loader が `OpenSongDb()` を使う限り、read-only 同士の並行性は得られない。score DB 側も `LoadScoreTable()` など `OpenScoreDb()` を使う読み取りは同じ構造で直列化される。なお `score_hydration_deferred` 自体は DB を読まず、memory score snapshot を `BMSFile` へ反映する task である。
+
+2026-05-05 23:47 のログでは、`playlist_entries_hydration` が `23:47:24` から `23:47:35` まで song DB lock を保持している間に `ranking_refresh_deferred` が開始しており、`ranking_cache_refresh start` は playlist hydration 完了後の `23:47:36` まで遅れている。`ranking_refresh_deferred done` の `irScoreMs=9062` に対し、実処理内訳は `irScoreXmlFetchMs=737`, `irScoreXmlParseMs=363`, `irScoreDigestMs=92`, `irScoreDbLoadMs=229`, `irScoreMergeMs=378` 程度であり、多くは DB 接続取得待ちに見える。このため、次フェーズでは DB read phase と write phase の lock boundary を整理する。
+
 この実測では `startup_initialization_complete` は Phase 8D baseline の `73932ms` から `64765ms` へ短縮した。ただし scan や DB のばらつきも含まれるため、Phase 8H は「大幅短縮」ではなく、DB hydration 方針統一と次フェーズ判断用の内訳取得として扱う。
 
 ### Phase 8D: Maintenance Snapshot Attach / Manual Rescan (implemented)
@@ -676,11 +680,80 @@ Phase 8J の chart_info は `chartInfoRows=209904`, `parseFailureRows=24`, `dbLo
 - full `chart_info` row load は維持する。session index と owner apply の正本として row 実体が必要なため、projection 削減や persistent hydrated index は次単位に分ける。
 - log は `dbLoadMs` と `dbMaterializeMs`、`parseFailureRows`、owner counts を分け、`backfillCandidateOwners=0` の通常起動で no-op skip が維持されることを確認する。
 
+### Phase 8L: Startup Hydration Read-only DB Path / DB Lock Boundary (implemented)
+
+Phase 8L は、初期化全体を短縮するために DB lock boundary を整理する。目的は background を初期化完了対象から外すことではなく、read-only hydration が不必要に writer 相当の static lock を長時間保持し、他の read-only task を待たせる状態をなくすことである。
+
+実装済み仕様:
+
+- `LR2SongDBExtended` / `LR2ScoreDBExtended` は write-capable constructor では従来通り process-local static `Monitor` を保持する。
+- read-only constructor は `SQLiteOpenFlags.ReadOnly | SQLiteOpenFlags.FullMutex` で開き、process-local static `Monitor` を取得しない。
+- `BmsLibraryDbGateway.OpenSongDbReadOnly()` / `OpenScoreDbReadOnly()` を追加し、startup hydration の read phase の正本にした。
+- `LoadStartupPlaylistEntries()`、`LoadChartInfoHydrationData()`、`LoadMaintenanceTable()`、`LoadIrDataWithMetrics()`、`LoadIrScoreRows()`、`LoadIrScoreRefreshMetadata()`、起動時 `LoadScoresAndPlayerId()` は read-only connection を使う。
+- `BMSPlaylist.Initialize()` の playlist header load も read-only connection を使う。
+- `score_hydration_deferred` は DB を読まず、memory score snapshot の owner attach が中心であるため、Phase 8L の DB read-only 化対象には含めない。
+- `UpsertIrScoreRefreshMetadata()`、`ReplaceIrScoreTable()`、`UpsertIrData()`、maintenance cleanup、chart_info backfill / inline commit、file diff commit は write-capable path として短い writer boundary に残す。
+- `LoadChartInfoHydrationData()` と `ir_score` / `ir_data` read loader から schema ensure / table creation を外した。必要 schema は startup constructor / migration phase の責務であり、hydration loader 内では互換修復しない。
+- loader log には `readOnly=true` と `dbLockWaitMs` を追加した。read-only connection は static monitor を取らないため、ここで測る wait は writer monitor 起因では 0 になる。
+
+方針:
+
+- `BmsLibraryDbGateway` に startup hydration 用の read-only connection 経路を追加する。
+  - 例: `OpenSongDbReadOnly()` / `OpenScoreDbReadOnly()` または同等の read-only loader 専用 wrapper。
+  - read-only connection は schema ensure / migration / repair / table creation を行わない。
+  - 必要 schema がない場合は startup migration 漏れとして fail させ、hydration 内で互換修復しない。
+- DB read phase と memory apply phase を分離する。
+  - DB read phase は read-only connection で短寿命に行い、row / DTO / dictionary を返す。
+  - memory apply phase は DB connection を閉じた後、必要最小限の catalog / score lock で owner へ attach する。
+- read-only 同士は並行可能にする。
+  - 少なくとも `playlist_entries_hydration`, `chart_info_hydration`, `maintenance_hydration`, `ranking_refresh_deferred` の `ir_score` / `ir_data` read は互いの長い read を待たないようにする。
+  - 起動時 score DB load は `OpenScoreDbReadOnly()` 相当へ移す。`score_hydration_deferred` の残コストは memory apply / owner attach 側として別に扱う。
+  - write-capable path は短い writer lock / transaction に集約し、read-only loader と同じ helper 名・同じ task 内へ混ぜない。
+- 旧互換や fallback は残さない。
+  - 古い schema を hydration loader が別 query で読む経路は作らない。
+  - read-only loader 内で `CreateTable`, `EnsureBmsonSchema`, `EnsureChartInfoSchema`, `CompleteBmsonStartupMigration` を呼ばない。
+  - migration / repair が必要なら startup migration phase で完了させる。
+- lock wait を観測する。
+  - `dbLockWaitMs` / `dbOpenMs` / `readOnly=true|false` を loader log に追加し、改善後に DB query 自体と lock wait を分けて評価できるようにする。
+
+優先移行対象:
+
+- `playlist_entries_hydration`: row 数が多く、現状では song DB lock を長く保持しやすい。
+- `chart_info_hydration`: full `chart_info` row load が重く、read-only 化による並行性の効果が大きい。
+- `maintenance_hydration`: DB snapshot attach の read phase は read-only。orphan cleanup delete は別 writer phase に分ける。
+- `ranking_refresh_deferred`: `LoadIrScoreRefreshMetadata`, `LoadIrScoreRows`, `LoadIrDataWithMetrics` は read-only。metadata update / `ir_score` replace / `ir_data` upsert は writer phase に残す。
+- 起動時 score table load: `LoadScoresAndPlayerId()` を score DB read-only loader 化し、score DB 側 static monitor の長時間保持を避ける。
+- `score_hydration_deferred`: DB lock 分離対象ではない。必要なら別フェーズで memory apply / owner attach の chunking や notification を見る。
+
+Acceptance criteria:
+
+- `playlist_entries_hydration`、`chart_info_hydration`、`maintenance_hydration`、ranking の `ir_score` / `ir_data` read は write-capable monitor を保持しない。
+- write path は `OpenSongDb()` / `OpenScoreDb()` と明示 transaction に残し、DB mutation の安全性を維持する。
+- `startup_background_summary` と各 loader log で、read-only 化済みか、DB read/materialize elapsed、DB lock wait を分けて説明できる。
+- hydration worker 内の startup read loader には schema ensure / migration / repair / compatibility fallback を残さない。
+
+2026-05-06 の Phase 8L 実機確認では、主要 read loader は `readOnly=true dbLockWaitMs=0` になった。
+
+- `score_tbl_load readOnly=true dbLockWaitMs=0 rows=17560`
+- `playlist_init_header loadTablesMs=112 readOnly=true dbLockWaitMs=0`
+- `playlist_entries_hydration ... readOnly=true dbLockWaitMs=0 dbReadMs=10353 totalMs=10781`
+- `ranking_cache_refresh ... irDataDbReadMs=236 irDataDbLockWaitMs=0`
+- `ranking_refresh_deferred ... irScoreDbLoadMs=181 irScoreDbLockWaitMs=0 elapsedMs=10516`
+- `chart_info_hydration ... readOnly=true dbLockWaitMs=0 dbLoadMs=9556 totalMs=10079`
+- `maintenance_hydration ... readOnly=true dbLockWaitMs=0 readMs=3054 elapsedMs=4298`
+- `startup_initialization_complete elapsedMs=64012`
+
+これにより、Phase 8K で観測していた「read-only task が song DB monitor で待つ」問題は解消した。残る tail は DB lock 待ちではなく、playlist / chart_info の実 materialize、LR2IR player score XML fetch、playlist URL completion / reference apply などの実処理時間として扱う。
+
 ### Key Changes
 
 - playlist entries hydration
   - 必要 projection を整理し、summary / detail / reference apply で同じ rows を重複 materialize しない。
   - 非表示時は heavy presentation rebuild を避けるが、data load 自体の重複をなくす。
+- startup hydration DB lock boundary
+  - read-only hydration loader と write-capable transaction path を分離する。
+  - read-only DB access は schema repair や table creation を行わない。
+  - DB read phase と memory apply phase を分け、DB connection を保持したまま owner attach を行わない。
 - chart_info hydration / backfill
   - `candidates=0` を確認するためだけの高コスト summary を避ける。
   - version / count / dirty marker で no-op を判定できる場合は DB full scan をしない。
@@ -761,6 +834,8 @@ Phase 8J の chart_info は `chartInfoRows=209904`, `parseFailureRows=24`, `dbLo
   - `elapsedMs`
 - `playlist_entries_hydration`
   - `projection=startup_entries`
+  - `readOnly=true`
+  - `dbLockWaitMs`
   - `rows`
   - `dbReadMs`
   - `materializeMs`
@@ -768,12 +843,26 @@ Phase 8J の chart_info は `chartInfoRows=209904`, `parseFailureRows=24`, `dbLo
   - `assignMs`
   - `totalMs`
 - `chart_info_hydration`
+  - `readOnly=true`
+  - `dbLockWaitMs`
   - `dbLoadMs`
   - `dbMaterializeMs`
   - `chartInfoRows`
   - `parseFailureRows`
   - `ownerCount`
   - `backfillCandidateOwners`
+- `maintenance_hydration`
+  - `readOnly=true`
+  - `dbLockWaitMs`
+  - `readMs`
+  - `materializeMs`
+  - `attachMs`
+  - `indexBuildMs`
+- `ranking_refresh_deferred`
+  - `irScoreDbLockWaitMs`
+  - `irDataDbLockWaitMs`
+  - `irScoreDbLoadMs`
+  - `irDataDbReadMs`
 
 旧実装が存在しないログ、テスト専用のログ、判断に使わないログは追加しない。
 
@@ -807,6 +896,12 @@ Phase 8J の chart_info は `chartInfoRows=209904`, `parseFailureRows=24`, `dbLo
 - background
   - playlist / chart_info / ranking / reverse lookup の no-op path が短い。
   - `startup_initialization_complete` が全 background task 完了後に出る。
+- DB lock boundary
+  - read-only startup hydration loader が writer connection path を使わない。
+  - read-only loader 内で schema ensure / table creation / migration / repair を呼ばない。
+  - write path は `ExecuteSongDbTransaction` 相当の短い writer boundary に残る。
+  - `playlist_entries_hydration` と `ranking_refresh_deferred` の read phase が同じ song DB monitor で直列化されない。
+  - lock wait metrics が loader log に出る。
 
 ## Operational Notes
 
@@ -815,4 +910,6 @@ Phase 8J の chart_info は `chartInfoRows=209904`, `parseFailureRows=24`, `dbLo
 - 所持譜面差分がある場合も、列挙結果を正本として catalog / resource index を収束させる。
 - `ReloadFileDiff` は起動中の memory 正本を使えるため、通常起動とは別の軽量化を行う。
 - 導入可能までを短くするために無関係 task は blocker から外すが、初期化全体の短縮対象から外さない。
+- startup hydration は DB 補助情報の attach であり、migration / repair / compatibility fallback / hidden write の実行場所ではない。write が必要な cleanup / backfill / metadata update は明示的な write-capable path として分離する。
+- read-only DB connection は読み取り専用として扱い、`CreateTable` や schema ensure を行わない。必要な schema は startup migration で収束済みであることを前提にする。
 - 計画の各 phase は、不要になったコード、テスト、ログを同時に削除して完了とする。

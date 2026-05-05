@@ -18,6 +18,10 @@ internal sealed class MaintenanceTableHydrationResult
 
     public long MaintenanceMapBuildMs { get; set; }
 
+    public bool ReadOnly { get; set; }
+
+    public long DbLockWaitMs { get; set; }
+
     public long MaintenanceApplyMs { get; set; }
 
     public long MaintenanceAttachMs { get; set; }

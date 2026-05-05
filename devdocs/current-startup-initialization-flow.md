@@ -121,6 +121,8 @@ metadata bundle は、リリースパッケージ同梱または外部配布の 
 
 `song.dbアクセス最適化PRAGMAを有効にする` が有効な場合、`song.db` の DB load と file diff commit 用接続へ `temp_store=MEMORY`、`cache_size=-262144`、`mmap_size=2147483648` を接続ローカルに適用する。設定キーと既存ログ名は互換性のため `EnableReadOptimizedPragmas` / `db_read_pragmas` を維持する。
 
+現行の `LR2SongDBExtended` / `LR2ScoreDBExtended` は、接続生成時に process-local static `Monitor` を取得し、`Dispose()` まで保持する。これは write の安全性には寄与しているが、startup background の read-only hydration も writer 相当の排他として扱ってしまう。次フェーズでは、startup migration / schema repair が完了していることを前提に、hydration DB access を read-only loader へ移し、write-capable transaction path と分離する。
+
 ## Install Readiness
 
 導入先推定 / 導入の readiness は、UI の `startup_ready_*` とは別に model 側で判定する。
@@ -196,6 +198,17 @@ background task は、既に DB に存在している owner の補助情報を�
 
 Startup background の DB hydration は gateway 経由の明示 loader を使う。`Table<T>().ToList()` を worker 内で直接呼ぶ形は避け、loader ごとに projection 名、row count、SQLite query/materialize elapsed、group / assign の timing をログできるようにする。sqlite-net の `Query<T>` は reader と object materialize が一体なので、現行の `dbReadMs` / `materializeMs` は loader 境界の同一 elapsed を示す。これは playlist、chart_info、ranking のように初期化完了時間を支配しやすい処理で、DB 読み込み方針がばらつくことを防ぐためのルールである。
 
+Phase 8L 以降、startup hydration の主要 read phase は `OpenSongDbReadOnly()` / `OpenScoreDbReadOnly()` を使う。read-only connection は `SQLiteOpenFlags.ReadOnly | SQLiteOpenFlags.FullMutex` で開き、`LR2SongDBExtended` / `LR2ScoreDBExtended` の process-local static monitor を取得しない。これにより、`playlist_entries_hydration` の長い song DB read が `ranking_refresh_deferred` の `ir_score` / `ir_data` read を同じ monitor で待たせる状態を避ける。
+
+read-only hydration loader のルール:
+
+- `OpenSongDbReadOnly()` / `OpenScoreDbReadOnly()` 相当の読み取り専用経路を使う。
+- loader 内で `CreateTable`、`EnsureBmsonSchema`、`EnsureChartInfoSchema`、`CompleteBmsonStartupMigration` を呼ばない。
+- 必要 schema がない場合は、startup migration / preflight の漏れとして fail させる。
+- DB read phase は row / DTO / dictionary を返すだけにし、DB connection を保持したまま memory owner attach を行わない。
+- memory apply phase は DB connection を閉じた後、必要最小限の catalog / score lock で行う。
+- cleanup、backfill、metadata update、`ir_score` replace、`ir_data` upsert、file diff commit は read-only hydration と同じ loader に混ぜず、短い write-capable transaction path として明示する。
+
 | Task | 正本の責務 |
 | --- | --- |
 | `maintenance_hydration` | DB の既存 `maintenance` row を persisted health snapshot として memory owner へ in-place attach し、warning / health projection を更新する。orphan maintenance cleanup もここで行う |
@@ -205,6 +218,12 @@ Startup background の DB hydration は gateway 経由の明示 loader を使う
 | score / ranking / playlist hydration | 操作可能後に反映できる DB 由来データを適用する |
 
 `playlist_entries_hydration` は `projection=startup_entries` の gateway loader で `playlist_id IS NOT NULL` の playlist entry だけを読み、active / removed row の両方を既存 semantics のまま memory table へ attach する。`ranking_refresh_deferred` は `ir_data` を `WHERE lr2id = ?` で読み、`ranking_cache_refresh` と LR2IR score table 更新の内訳を分けてログする。`chart_info_hydration` は full row load を維持するが、`chart_info` と current parse failure を gateway loader で読み、DB read と materialize を分けて観測する。
+
+DB read-only 化済みの対象は、`playlist_entries_hydration`、`chart_info_hydration`、`maintenance_hydration`、`ranking_refresh_deferred` の `ir_score` / `ir_data` read、起動時 `LoadScoreTable()`、playlist header load である。`score_hydration_deferred` は DB を読まず、memory score snapshot を `BMSFile` へ反映する task なので、DB lock 分離ではなく memory apply 側の改善対象として扱う。
+
+各 loader log は `readOnly=true` と `dbLockWaitMs` を出す。read-only connection は static monitor を取らないため、writer monitor 起因の待ち時間は 0 になる。schema ensure、migration、repair、table creation は hydration loader 内では行わず、startup constructor / migration phase または明示 write path の責務にする。
+
+2026-05-06 の Phase 8L 実測では、`score_tbl_load`、`playlist_init_header`、`playlist_entries_hydration`、`ranking_cache_refresh`、`ranking_refresh_deferred` の `ir_score` load、`chart_info_hydration`、`maintenance_hydration` がすべて `readOnly=true dbLockWaitMs=0` で動作した。`startup_initialization_complete=64012ms`、`playlist_entries_hydration=10887ms`、`ranking_refresh_deferred=10516ms`、`chart_info_hydration=10115ms`、`maintenance_hydration=4305ms` であり、DB monitor 待ちは解消した。以後は DB lock ではなく、各 task の実 materialize / network / memory apply を個別に削る。
 
 新規・更新ファイル由来の `chart_info` と maintenance を background へ押し出さない。
 
@@ -222,6 +241,9 @@ Startup background の DB hydration は gateway 経由の明示 loader を使う
 - current `chart_info` skip row を file diff result / index delta として大量 publish しない。
 - file diff 由来の `WAVfiles` / `BGAfiles` を long-lived model に残さない。
 - 起動 critical path の判断を、後続 background task の偶然の完了順に依存させない。
+- startup hydration worker 内で schema ensure、migration、repair、compatibility fallback、hidden write を行わない。
+- read-only DB loader と write-capable transaction path を同じ helper / 同じ phase に混ぜない。
+- DB connection を保持したまま、大量の memory owner attach や UI notification を行わない。
 
 ## 関連資料
 

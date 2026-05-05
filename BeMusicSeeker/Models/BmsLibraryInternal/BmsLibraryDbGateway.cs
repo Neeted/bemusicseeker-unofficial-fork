@@ -8,6 +8,7 @@ using System.Text;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
+using SQLite;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
@@ -89,6 +90,11 @@ internal sealed class BmsLibraryDbGateway
         return new LR2SongDBExtended(SongDbPath);
     }
 
+    public LR2SongDBExtended OpenSongDbReadOnly()
+    {
+        return new LR2SongDBExtended(SongDbPath, SQLiteOpenFlags.ReadOnly | SQLiteOpenFlags.FullMutex, acquireProcessLock: false);
+    }
+
     public LR2ScoreDBExtended OpenScoreDb()
     {
         if (string.IsNullOrWhiteSpace(ScoreDbPath))
@@ -96,6 +102,15 @@ internal sealed class BmsLibraryDbGateway
             throw new InvalidOperationException("Score DB path is not configured.");
         }
         return new LR2ScoreDBExtended(ScoreDbPath);
+    }
+
+    public LR2ScoreDBExtended OpenScoreDbReadOnly()
+    {
+        if (string.IsNullOrWhiteSpace(ScoreDbPath))
+        {
+            throw new InvalidOperationException("Score DB path is not configured.");
+        }
+        return new LR2ScoreDBExtended(ScoreDbPath, SQLiteOpenFlags.ReadOnly | SQLiteOpenFlags.FullMutex, acquireProcessLock: false);
     }
 
     public void ExecuteSongDbTransaction(Action<LR2SongDBExtended> action)
@@ -324,7 +339,9 @@ internal sealed class BmsLibraryDbGateway
         {
             return result;
         }
-        using LR2ScoreDBExtended scoreDb = OpenScoreDb();
+        using LR2ScoreDBExtended scoreDb = OpenScoreDbReadOnly();
+        result.ReadOnly = scoreDb.IsReadOnlyConnection;
+        result.DbLockWaitMs = scoreDb.ProcessLockWaitMs;
         result.Scores.AddRange(scoreDb.Table<BMSScore>().ToList());
         result.LR2Id = scoreDb.Table<LR2ScoreDB.player>().ToList().FirstOrDefault()?.irid ?? 0;
         return result;
@@ -339,7 +356,9 @@ internal sealed class BmsLibraryDbGateway
     public PlaylistEntriesHydrationLoadResult LoadStartupPlaylistEntries()
     {
         PlaylistEntriesHydrationLoadResult result = new PlaylistEntriesHydrationLoadResult();
-        using LR2SongDBExtended songDb = OpenSongDb();
+        using LR2SongDBExtended songDb = OpenSongDbReadOnly();
+        result.ReadOnly = songDb.IsReadOnlyConnection;
+        result.DbLockWaitMs = songDb.ProcessLockWaitMs;
         string tableName = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetTableName();
         string playlistIdColumn = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry entry) => entry.playlist_id);
         string sql =
@@ -524,8 +543,9 @@ internal sealed class BmsLibraryDbGateway
     public ChartInfoHydrationLoadResult LoadChartInfoHydrationData(TimeSpan parseTimeout)
     {
         ChartInfoHydrationLoadResult result = new ChartInfoHydrationLoadResult();
-        using LR2SongDBExtended songDb = OpenSongDb();
-        EnsureChartInfoSchema(songDb);
+        using LR2SongDBExtended songDb = OpenSongDbReadOnly();
+        result.ReadOnly = songDb.IsReadOnlyConnection;
+        result.DbLockWaitMs = songDb.ProcessLockWaitMs;
         Stopwatch stopwatch = Stopwatch.StartNew();
         foreach (LR2SongDBExtended.chart_info item in songDb.Table<LR2SongDBExtended.chart_info>())
         {
@@ -1165,15 +1185,28 @@ internal sealed class BmsLibraryDbGateway
 
     public List<LR2IRScore> LoadIrScoreRows()
     {
-        using LR2SongDBExtended songDb = OpenSongDb();
-        songDb.CreateTable<LR2SongDBExtended.ir_score>();
-        return songDb.Query<LR2IRScore>("SELECT * FROM " + SQLiteTable<LR2SongDBExtended.ir_score>.GetTableName() + ";");
+        return LoadIrScoreRowsWithMetrics().Rows;
+    }
+
+    public IrScoreRowsLoadResult LoadIrScoreRowsWithMetrics()
+    {
+        IrScoreRowsLoadResult result = new IrScoreRowsLoadResult();
+        using LR2SongDBExtended songDb = OpenSongDbReadOnly();
+        result.ReadOnly = songDb.IsReadOnlyConnection;
+        result.DbLockWaitMs = songDb.ProcessLockWaitMs;
+        result.Rows.AddRange(songDb.Query<LR2IRScore>("SELECT * FROM " + SQLiteTable<LR2SongDBExtended.ir_score>.GetTableName() + ";"));
+        return result;
     }
 
     public LR2SongDBExtended.ir_score_refresh_metadata LoadIrScoreRefreshMetadata(int lr2Id)
     {
-        using LR2SongDBExtended songDb = OpenSongDb();
-        songDb.CreateTable<LR2SongDBExtended.ir_score_refresh_metadata>();
+        return LoadIrScoreRefreshMetadata(lr2Id, out _);
+    }
+
+    public LR2SongDBExtended.ir_score_refresh_metadata LoadIrScoreRefreshMetadata(int lr2Id, out long dbLockWaitMs)
+    {
+        using LR2SongDBExtended songDb = OpenSongDbReadOnly();
+        dbLockWaitMs = songDb.ProcessLockWaitMs;
         return songDb.Table<LR2SongDBExtended.ir_score_refresh_metadata>().FirstOrDefault((LR2SongDBExtended.ir_score_refresh_metadata row) => row.lr2id == lr2Id);
     }
 
@@ -1192,7 +1225,9 @@ internal sealed class BmsLibraryDbGateway
     public IrDataLoadResult LoadIrDataWithMetrics(int lr2Id)
     {
         IrDataLoadResult result = new IrDataLoadResult();
-        using LR2SongDBExtended songDb = OpenSongDb();
+        using LR2SongDBExtended songDb = OpenSongDbReadOnly();
+        result.ReadOnly = songDb.IsReadOnlyConnection;
+        result.DbLockWaitMs = songDb.ProcessLockWaitMs;
         string tableName = SQLiteTable<LR2SongDBExtended.ir_data>.GetTableName();
         string lr2IdColumn = SQLiteTable<LR2SongDBExtended.ir_data>.GetColumnName((LR2SongDBExtended.ir_data row) => row.lr2id);
         Stopwatch stopwatch = Stopwatch.StartNew();

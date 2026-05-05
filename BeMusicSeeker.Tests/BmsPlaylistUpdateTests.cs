@@ -184,6 +184,8 @@ public sealed class BmsPlaylistUpdateTests
             Assert.IsFalse(result.Entries.Any((BMSTableEntry entry) => entry.title == "orphan"));
             Assert.IsTrue(result.DbReadMs >= 0);
             Assert.IsTrue(result.MaterializeMs >= 0);
+            Assert.IsTrue(result.ReadOnly);
+            Assert.AreEqual(0L, result.DbLockWaitMs);
         }
         finally
         {

@@ -152,6 +152,8 @@ public sealed class BmsLibraryIrServiceTests
         Assert.AreEqual("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", result.Rows[0].hash);
         Assert.IsTrue(result.DbReadMs >= 0);
         Assert.IsTrue(result.MaterializeMs >= 0);
+        Assert.IsTrue(result.ReadOnly);
+        Assert.AreEqual(0L, result.DbLockWaitMs);
     }
 
     [TestMethod]
