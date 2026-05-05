@@ -407,6 +407,7 @@
   "Success": "Success",
   "Details_test_keep_installable_pending": "[TEST] Add to pending instead of auto-installing even for new entries",
   "Details_test_db_read_optimized_pragmas": "Enable song.db access optimization PRAGMAs",
+  "Details_download_lr2ir_score_and_detect_unsent": "Download LR2IR scores and detect unsent IR scores",
   "Details_test_startup_select_install_pending": "[TEST] Set initial selection to Install > Pending at startup",
   "Details_test_smart_component_overwrite": "[TEST] Optimize bundled file overwrite by comparing modified date and size on diff install",
   "Details_test_keep_smart_overwrite_protected_by_rename": "[TEST] During smart overwrite, keep *.bmx/*.pmx/*.txt/*.bmson by auto-renaming instead of overwriting",

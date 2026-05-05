@@ -676,6 +676,17 @@ public sealed class LR2SongDBExtended : LR2SongDB
         public virtual int version { get; set; }
     }
 
+    [Table("ir_score_refresh_metadata")]
+    public class ir_score_refresh_metadata : SQLiteTable<ir_score_refresh_metadata>
+    {
+        [PrimaryKey]
+        public virtual int lr2id { get; set; }
+
+        public virtual string score_digest_sha256 { get; set; }
+
+        public virtual DateTime updated_at { get; set; }
+    }
+
     /// <summary>
     /// 同梱 chart_info metadata bundle の import 済み履歴です。
     /// 同じ bundle を起動のたびに再 import しないために保持します。
@@ -1171,6 +1182,7 @@ public sealed class LR2SongDBExtended : LR2SongDB
         DropTable<chart_info_import_history>();
         DropTable<bmson_song>();
         DropTable<ir_score>();
+        DropTable<ir_score_refresh_metadata>();
         DropTable<ir_data>();
     }
 

@@ -319,6 +319,8 @@ public class MainWindowViewModel : ViewModel
 
         private bool tempSkipEstimateOfflineScoreRanking;
 
+        private bool tempEnableDownloadLr2IrScoreAndDetectUnsent;
+
         private bool tempEnableAutoInstall;
 
         private bool tempKeepInstallablePackagesPending;
@@ -1238,6 +1240,22 @@ public class MainWindowViewModel : ViewModel
                 }
                 Settings.Default.SkipEstimateOfflineScoreRanking = value;
                 RaisePropertyChanged("SkipEstimateOfflineScoreRanking");
+            }
+        }
+
+        public bool EnableDownloadLr2IrScoreAndDetectUnsent
+        {
+            get
+            {
+                return Settings.Default.EnableDownloadLr2IrScoreAndDetectUnsent;
+            }
+            set
+            {
+                if (Settings.Default.EnableDownloadLr2IrScoreAndDetectUnsent != value)
+                {
+                    Settings.Default.EnableDownloadLr2IrScoreAndDetectUnsent = value;
+                    RaisePropertyChanged("EnableDownloadLr2IrScoreAndDetectUnsent");
+                }
             }
         }
 
@@ -2430,6 +2448,7 @@ public class MainWindowViewModel : ViewModel
             tempStartupSelectInstallPending = Settings.Default.StartupSelectInstallPending;
             tempEnableReadOptimizedPragmas = Settings.Default.EnableReadOptimizedPragmas;
             tempSkipEstimateOfflineScoreRanking = Settings.Default.SkipEstimateOfflineScoreRanking;
+            tempEnableDownloadLr2IrScoreAndDetectUnsent = Settings.Default.EnableDownloadLr2IrScoreAndDetectUnsent;
             tempEnableAutoInstall = Settings.Default.AutoInstall;
             tempKeepInstallablePackagesPending = Settings.Default.KeepInstallablePackagesPending;
             tempUseEverythingForPendingPackageSourceScan = Settings.Default.UseEverythingForPendingPackageSourceScan;
@@ -2705,6 +2724,7 @@ public class MainWindowViewModel : ViewModel
             Settings.Default.StartupSelectInstallPending = tempStartupSelectInstallPending;
             Settings.Default.EnableReadOptimizedPragmas = tempEnableReadOptimizedPragmas;
             Settings.Default.SkipEstimateOfflineScoreRanking = tempSkipEstimateOfflineScoreRanking;
+            Settings.Default.EnableDownloadLr2IrScoreAndDetectUnsent = tempEnableDownloadLr2IrScoreAndDetectUnsent;
             Settings.Default.AutoInstall = tempEnableAutoInstall;
             Settings.Default.KeepInstallablePackagesPending = tempKeepInstallablePackagesPending;
             Settings.Default.UseEverythingForPendingPackageSourceScan = tempUseEverythingForPendingPackageSourceScan;
@@ -2780,6 +2800,7 @@ public class MainWindowViewModel : ViewModel
             RaisePropertyChanged(() => StartupSelectInstallPending);
             RaisePropertyChanged(() => EnableReadOptimizedPragmas);
             RaisePropertyChanged(() => SkipEstimateOfflineScoreRanking);
+            RaisePropertyChanged(() => EnableDownloadLr2IrScoreAndDetectUnsent);
             RaisePropertyChanged(() => EnableAutoInstall);
             RaisePropertyChanged(() => KeepInstallablePackagesPending);
             RaisePropertyChanged(() => UseEverythingForPendingPackageSourceScan);

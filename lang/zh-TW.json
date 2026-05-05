@@ -392,6 +392,7 @@
   "Success": "成功",
   "Details_test_keep_installable_pending": "[測試] 即使判定為新譜面也不自動安裝並加入保留清單",
   "Details_test_db_read_optimized_pragmas": "啟用 song.db 存取最佳化 PRAGMA",
+  "Details_download_lr2ir_score_and_detect_unsent": "下載 LR2IR 成績並偵測未傳送到 IR 的成績",
   "Details_test_startup_select_install_pending": "[測試] 啟動時將初始檢視鎖定為「安裝 > 已保留」項目",
   "Details_test_smart_component_overwrite": "[測試] 差分安裝時，透過比對修改日期與檔案大小來最佳化隨附檔案的覆寫邏輯",
   "Details_test_keep_smart_overwrite_protected_by_rename": "[測試] 智慧覆寫時，*.bmx/*.pmx/*.txt/*.bmson 不覆寫，改以自動編號保留",

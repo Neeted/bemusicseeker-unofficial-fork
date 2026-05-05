@@ -7,4 +7,6 @@ internal sealed class ScoreTableLoadResult
     public List<BMSScore> Scores { get; } = new List<BMSScore>();
 
     public int LR2Id { get; set; }
+
+    public bool EnableDownloadLr2IrScoreAndDetectUnsent { get; set; } = true;
 }

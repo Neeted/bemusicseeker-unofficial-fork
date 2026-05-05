@@ -146,6 +146,8 @@ public class Resources
 
     public static string Details_test_notcalc_offrank => ResourceManager.GetString("Details_test_notcalc_offrank", resourceCulture);
 
+    public static string Details_download_lr2ir_score_and_detect_unsent => ResourceManager.GetString("Details_download_lr2ir_score_and_detect_unsent", resourceCulture);
+
     public static string Details_test_notcheck_playlists => ResourceManager.GetString("Details_test_notcheck_playlists", resourceCulture);
 
     public static string Details_test_db_read_optimized_pragmas => ResourceManager.GetString("Details_test_db_read_optimized_pragmas", resourceCulture);

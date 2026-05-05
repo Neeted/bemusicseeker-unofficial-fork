@@ -69,6 +69,9 @@
   <data name="Details_test_db_read_optimized_pragmas" xml:space="preserve">
     <value>song.dbアクセス最適化PRAGMAを有効にする</value>
   </data>
+  <data name="Details_download_lr2ir_score_and_detect_unsent" xml:space="preserve">
+    <value>LR2IRのスコアをDLしIR未送信を検出する</value>
+  </data>
   <data name="Details_test_delete_pending_source_after_install" xml:space="preserve">
     <value>[テスト中] 通常インストール時、既所持譜面が残っていても元パッケージを削除する</value>
   </data>

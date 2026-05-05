@@ -900,6 +900,21 @@ internal sealed class Settings : ApplicationSettingsBase
 
 	[UserScopedSetting]
 	[DebuggerNonUserCode]
+	[DefaultSettingValue("True")]
+	public bool EnableDownloadLr2IrScoreAndDetectUnsent
+	{
+		get
+		{
+			return (bool)this["EnableDownloadLr2IrScoreAndDetectUnsent"];
+		}
+		set
+		{
+			this["EnableDownloadLr2IrScoreAndDetectUnsent"] = value;
+		}
+	}
+
+	[UserScopedSetting]
+	[DebuggerNonUserCode]
 	[DefaultSettingValue("0")]
 	public EncoderType Encoder
 	{

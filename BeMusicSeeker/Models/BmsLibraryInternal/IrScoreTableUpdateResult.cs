@@ -11,9 +11,21 @@ internal sealed class IrScoreTableUpdateResult
 
     public long XmlParseMs { get; set; }
 
+    public long DigestMs { get; set; }
+
+    public long DbLoadMs { get; set; }
+
     public long DbReplaceMs { get; set; }
 
     public int ParsedRows { get; set; }
+
+    public int LoadedRows { get; set; }
+
+    public bool MetadataUpdated { get; set; }
+
+    public bool Skipped { get; set; }
+
+    public string SkipReason { get; set; } = "unavailable";
 
     public bool Succeeded => ScoreTable != null;
 }

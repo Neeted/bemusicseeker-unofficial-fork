@@ -153,7 +153,11 @@ Phase 4B / 5A 以降、通常時の resource index は native bridge の canonic
 
 Phase 4B / 5A 追加修正後、native contract `2026050503` では旧 `base` field も chart-relative resource key hash を返す。base / relative が同じ category は native packed result 内で同じ blob を指し、managed decode と `DirectoryResourceLookupCache` materialize も配列を再利用する。startup の正本として `DirectoryRelativePathHashIndex` は構築しない。native reverse map は flat pair sort で作り、managed decode は native indices から `string[]` を直接作る。
 
-2026-05-05 19:15 の Phase 8H / 8I / 8J 実測では、`startup_install_estimation_ready=31712ms`、`startup_ready_operable=32899ms`、`startup_initialization_complete=64765ms` だった。`startup_background_summary` は `queued=9 started=9 completed=9 failed=0` で、主な内訳は `playlist_entries_hydration=11375ms`、`ranking_refresh_deferred=11004ms`、`chart_info_hydration=10337ms`、`score_hydration_deferred=4817ms`、`maintenance_hydration=4339ms` である。playlist は `projection=startup_entries` の gateway loader、ranking は `ir_data WHERE lr2id = ?` loader、chart_info は gateway hydration loader を使う。ranking の残コストは `irScoreDbReplaceMs=6617` が支配的であり、次に短縮する場合は player score XML が同一のときの `ir_score` replace skip を検討する。
+2026-05-05 19:15 の Phase 8H / 8I / 8J 実測では、`startup_install_estimation_ready=31712ms`、`startup_ready_operable=32899ms`、`startup_initialization_complete=64765ms` だった。`startup_background_summary` は `queued=9 started=9 completed=9 failed=0` で、主な内訳は `playlist_entries_hydration=11375ms`、`ranking_refresh_deferred=11004ms`、`chart_info_hydration=10337ms`、`score_hydration_deferred=4817ms`、`maintenance_hydration=4339ms` である。playlist は `projection=startup_entries` の gateway loader、ranking は `ir_data WHERE lr2id = ?` loader、chart_info は gateway hydration loader を使う。ranking の残コストは `irScoreDbReplaceMs=6617` が支配的であり、Phase 8K では player score XML が同一の場合に `ir_score` replace を skip する。
+
+`ranking_refresh_deferred` は 2 系統に分かれる。`player score XML / ir_score` 系は LR2IR の player score XML を取得し、ローカル score と IR score の差分から `SCORE_UNSENT` と LR2 custom folder `UNSENT SONGS` を作る。`ranking cache / ir_data` 系は譜面ごとの ranking cache XML と `ir_data` を使い、ランキング表示や offline score ranking estimation を行う。設定 `LR2IRのスコアをDLしIR未送信を検出する` が false の場合、前者だけを完全に無効化し、後者は維持する。
+
+LR2IR player score XML の `lastupdate` はプレイヤー単位の最終更新ではなく、譜面 hash 側の LR2IR 更新時刻として変わる可能性がある。`ir_score.lastupdate` は `SCORE_UNSENT` 判定や表示用 `rankingLastupdate` の正本ではないため、player score XML の normalized digest では無視する。表示用の ranking update は `ir_data` / ranking cache 側から反映する。
 
 導入先推定に必要な情報は次の 3 つに整理する。
 

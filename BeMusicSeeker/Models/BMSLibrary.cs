@@ -3938,7 +3938,7 @@ public class BMSLibrary : NotificationObject
             {
                 if (lr2ScoreDBPath != null)
                 {
-                    ScoreTableLoadResult scoreTableLoadResult = initializationService.LoadScoreTable(dbGateway);
+                    ScoreTableLoadResult scoreTableLoadResult = initializationService.LoadScoreTable(dbGateway, options);
                     LR2ID = scoreTableLoadResult.LR2Id;
                     if (scoreTableLoadResult.Scores.Count > 0)
                     {
@@ -3961,6 +3961,10 @@ public class BMSLibrary : NotificationObject
             RefreshScoreSnapshotFromCurrentScores("score_tbl_load");
             stopwatchScoreTblLoad.Stop();
             scoreTblLoadMs = stopwatchScoreTblLoad.ElapsedMilliseconds;
+            if (!options.EnableDownloadLr2IrScoreAndDetectUnsent)
+            {
+                ClearScoreUnsentStatus();
+            }
         }
         if (songTblFileCheck)
         {
@@ -5665,11 +5669,17 @@ public class BMSLibrary : NotificationObject
                 stopwatch.Stop();
                 LogInstallPerformance("ranking_refresh_deferred done version=" + requestVersion
                     + " irScoreMs=" + result.IrScoreMs
+                    + " irScoreSkipped=" + result.IrScoreSkipped
+                    + " irScoreSkipReason=" + result.IrScoreSkipReason
                     + " irScoreXmlFetchMs=" + result.IrScoreXmlFetchMs
                     + " irScoreXmlParseMs=" + result.IrScoreXmlParseMs
+                    + " irScoreDigestMs=" + result.IrScoreDigestMs
+                    + " irScoreDbLoadMs=" + result.IrScoreDbLoadMs
                     + " irScoreDbReplaceMs=" + result.IrScoreDbReplaceMs
                     + " irScoreMergeMs=" + result.IrScoreMergeMs
                     + " irScoreParsedRows=" + result.IrScoreParsedRows
+                    + " irScoreLoadedRows=" + result.IrScoreLoadedRows
+                    + " irScoreMetadataUpdated=" + result.IrScoreMetadataUpdated
                     + " cacheMs=" + result.CacheMs
                     + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
                 ReportStartupBackgroundTask("ranking_refresh_deferred", "done", stopwatch.ElapsedMilliseconds, failed: false);
@@ -5774,11 +5784,23 @@ public class BMSLibrary : NotificationObject
 
         public long IrScoreXmlParseMs { get; set; }
 
+        public long IrScoreDigestMs { get; set; }
+
+        public long IrScoreDbLoadMs { get; set; }
+
         public long IrScoreDbReplaceMs { get; set; }
 
         public long IrScoreMergeMs { get; set; }
 
         public int IrScoreParsedRows { get; set; }
+
+        public int IrScoreLoadedRows { get; set; }
+
+        public bool IrScoreSkipped { get; set; }
+
+        public string IrScoreSkipReason { get; set; } = "unavailable";
+
+        public bool IrScoreMetadataUpdated { get; set; }
 
         public long CacheMs { get; set; }
     }
@@ -5791,21 +5813,36 @@ public class BMSLibrary : NotificationObject
             return result;
         }
         Stopwatch irScoreStopwatch = Stopwatch.StartNew();
-        IrScoreTableUpdateResult irScoreUpdateResult = updateLR2IRScoreTableWithMetrics();
-        List<LR2IRScore> scoreTable = irScoreUpdateResult.ScoreTable;
-        result.IrScoreXmlFetchMs = irScoreUpdateResult.XmlFetchMs;
-        result.IrScoreXmlParseMs = irScoreUpdateResult.XmlParseMs;
-        result.IrScoreDbReplaceMs = irScoreUpdateResult.DbReplaceMs;
-        result.IrScoreParsedRows = irScoreUpdateResult.ParsedRows;
-        if (IsDeferredRankingRefreshRequestSuperseded(requestVersion))
+        BmsLibraryOptionsSnapshot optionsSnapshot = CurrentOptionsSnapshot;
+        if (optionsSnapshot.EnableDownloadLr2IrScoreAndDetectUnsent)
         {
-            throw new OperationCanceledException();
+            IrScoreTableUpdateResult irScoreUpdateResult = updateLR2IRScoreTableWithMetrics();
+            List<LR2IRScore> scoreTable = irScoreUpdateResult.ScoreTable;
+            result.IrScoreXmlFetchMs = irScoreUpdateResult.XmlFetchMs;
+            result.IrScoreXmlParseMs = irScoreUpdateResult.XmlParseMs;
+            result.IrScoreDigestMs = irScoreUpdateResult.DigestMs;
+            result.IrScoreDbLoadMs = irScoreUpdateResult.DbLoadMs;
+            result.IrScoreDbReplaceMs = irScoreUpdateResult.DbReplaceMs;
+            result.IrScoreParsedRows = irScoreUpdateResult.ParsedRows;
+            result.IrScoreLoadedRows = irScoreUpdateResult.LoadedRows;
+            result.IrScoreSkipped = irScoreUpdateResult.Skipped;
+            result.IrScoreSkipReason = irScoreUpdateResult.SkipReason ?? "unavailable";
+            result.IrScoreMetadataUpdated = irScoreUpdateResult.MetadataUpdated;
+            if (IsDeferredRankingRefreshRequestSuperseded(requestVersion))
+            {
+                throw new OperationCanceledException();
+            }
+            Stopwatch mergeStopwatch = Stopwatch.StartNew();
+            updateBMSScores(scoreTable, detectUnsentScores: true);
+            RefreshScoreSnapshotFromCurrentScores("deferred_ranking_refresh_ir_score");
+            mergeStopwatch.Stop();
+            result.IrScoreMergeMs = mergeStopwatch.ElapsedMilliseconds;
         }
-        Stopwatch mergeStopwatch = Stopwatch.StartNew();
-        updateBMSScores(scoreTable);
-        RefreshScoreSnapshotFromCurrentScores("deferred_ranking_refresh_ir_score");
-        mergeStopwatch.Stop();
-        result.IrScoreMergeMs = mergeStopwatch.ElapsedMilliseconds;
+        else
+        {
+            result.IrScoreSkipped = true;
+            result.IrScoreSkipReason = "disabled";
+        }
         irScoreStopwatch.Stop();
         result.IrScoreMs = irScoreStopwatch.ElapsedMilliseconds;
         if (IsDeferredRankingRefreshRequestSuperseded(requestVersion))
@@ -6448,6 +6485,11 @@ public class BMSLibrary : NotificationObject
 
     private void updateBMSScores(List<LR2IRScore> scoreTable)
     {
+        updateBMSScores(scoreTable, detectUnsentScores: true);
+    }
+
+    private void updateBMSScores(List<LR2IRScore> scoreTable, bool detectUnsentScores)
+    {
         if (lr2ScoreDBPath == null || LR2ID == 0 || scoreTable == null)
         {
             return;
@@ -6456,10 +6498,24 @@ public class BMSLibrary : NotificationObject
         {
             using (rwlockBMSFiles.GetReaderGuard())
             {
-                BMSScores = irService.UpdateBmsScores(scoreTable, BMSScores, BMSFiles);
+                BMSScores = irService.UpdateBmsScores(scoreTable, BMSScores, BMSFiles, detectUnsentScores);
             }
         }
         RefreshScoreSnapshotFromCurrentScores("update_ir_score_table");
+    }
+
+    private void ClearScoreUnsentStatus()
+    {
+        using (rwlockBMSFiles.GetReaderGuard())
+        {
+            foreach (BMSFile file in BMSFiles ?? Enumerable.Empty<BMSFile>())
+            {
+                if (file != null)
+                {
+                    file.status &= ~BMSFile.BMSFileStatus.SCORE_UNSENT;
+                }
+            }
+        }
     }
 
     private IrCacheRefreshResult setRankingScore()

@@ -1163,6 +1163,32 @@ internal sealed class BmsLibraryDbGateway
         return LoadIrDataWithMetrics(lr2Id).Rows;
     }
 
+    public List<LR2IRScore> LoadIrScoreRows()
+    {
+        using LR2SongDBExtended songDb = OpenSongDb();
+        songDb.CreateTable<LR2SongDBExtended.ir_score>();
+        return songDb.Query<LR2IRScore>("SELECT * FROM " + SQLiteTable<LR2SongDBExtended.ir_score>.GetTableName() + ";");
+    }
+
+    public LR2SongDBExtended.ir_score_refresh_metadata LoadIrScoreRefreshMetadata(int lr2Id)
+    {
+        using LR2SongDBExtended songDb = OpenSongDb();
+        songDb.CreateTable<LR2SongDBExtended.ir_score_refresh_metadata>();
+        return songDb.Table<LR2SongDBExtended.ir_score_refresh_metadata>().FirstOrDefault((LR2SongDBExtended.ir_score_refresh_metadata row) => row.lr2id == lr2Id);
+    }
+
+    public void UpsertIrScoreRefreshMetadata(int lr2Id, string scoreDigestSha256)
+    {
+        using LR2SongDBExtended songDb = OpenSongDb();
+        songDb.CreateTable<LR2SongDBExtended.ir_score_refresh_metadata>();
+        songDb.InsertOrReplace(new LR2SongDBExtended.ir_score_refresh_metadata
+        {
+            lr2id = lr2Id,
+            score_digest_sha256 = scoreDigestSha256 ?? string.Empty,
+            updated_at = DateTime.UtcNow
+        }, typeof(LR2SongDBExtended.ir_score_refresh_metadata));
+    }
+
     public IrDataLoadResult LoadIrDataWithMetrics(int lr2Id)
     {
         IrDataLoadResult result = new IrDataLoadResult();

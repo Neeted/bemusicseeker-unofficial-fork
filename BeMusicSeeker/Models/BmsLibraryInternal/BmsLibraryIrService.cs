@@ -5,6 +5,7 @@ using System.Globalization;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 using BeMusicSeeker.Models.LR2;
@@ -242,9 +243,18 @@ internal sealed class BmsLibraryIrService
         IrScoreTableUpdateResult result = new IrScoreTableUpdateResult();
         if (dbGateway == null || irClient == null || lr2IrScoreRegex == null || lr2Id == 0 || string.IsNullOrWhiteSpace(dbGateway.ScoreDbPath))
         {
+            result.SkipReason = "unavailable";
             return result;
         }
         string playerXml;
+        LR2SongDBExtended.ir_score_refresh_metadata metadata = null;
+        try
+        {
+            metadata = dbGateway.LoadIrScoreRefreshMetadata(lr2Id);
+        }
+        catch
+        {
+        }
         try
         {
             Stopwatch fetchStopwatch = Stopwatch.StartNew();
@@ -254,6 +264,7 @@ internal sealed class BmsLibraryIrService
         }
         catch
         {
+            result.SkipReason = "unavailable";
             return result;
         }
         List<LR2IRScore> scoreTable;
@@ -293,6 +304,44 @@ internal sealed class BmsLibraryIrService
         }
         catch
         {
+            result.SkipReason = "unavailable";
+            return result;
+        }
+        string scoreDigest;
+        try
+        {
+            Stopwatch digestStopwatch = Stopwatch.StartNew();
+            scoreDigest = ComputeScoreDigest(scoreTable);
+            digestStopwatch.Stop();
+            result.DigestMs = digestStopwatch.ElapsedMilliseconds;
+        }
+        catch
+        {
+            result.SkipReason = "unavailable";
+            return result;
+        }
+        if (metadata != null && string.Equals(metadata.score_digest_sha256, scoreDigest, StringComparison.OrdinalIgnoreCase))
+        {
+            LoadExistingIrScores(dbGateway, result);
+            result.Skipped = true;
+            result.SkipReason = "score_digest_same";
+            return result;
+        }
+        List<LR2IRScore> existingScoreTable = LoadExistingIrScoresForDigestComparison(dbGateway, result);
+        if (string.Equals(ComputeScoreDigest(existingScoreTable), scoreDigest, StringComparison.OrdinalIgnoreCase))
+        {
+            try
+            {
+                dbGateway.UpsertIrScoreRefreshMetadata(lr2Id, scoreDigest);
+                result.MetadataUpdated = true;
+            }
+            catch
+            {
+            }
+            result.ScoreTable = existingScoreTable;
+            result.LoadedRows = existingScoreTable.Count;
+            result.Skipped = true;
+            result.SkipReason = "score_digest_same";
             return result;
         }
         try
@@ -304,36 +353,117 @@ internal sealed class BmsLibraryIrService
         }
         catch
         {
+            result.SkipReason = "unavailable";
             return result;
         }
+        try
+        {
+            dbGateway.UpsertIrScoreRefreshMetadata(lr2Id, scoreDigest);
+            result.MetadataUpdated = true;
+        }
+        catch
+        {
+        }
         result.ScoreTable = scoreTable;
+        result.Skipped = false;
+        result.SkipReason = "changed";
         return result;
     }
 
-    public List<BMSScore> UpdateBmsScores(List<LR2IRScore> scoreTable, List<BMSScore> currentScores, IEnumerable<BMSFile> bmsFiles)
+    private static List<LR2IRScore> LoadExistingIrScoresForDigestComparison(BmsLibraryDbGateway dbGateway, IrScoreTableUpdateResult result)
+    {
+        try
+        {
+            Stopwatch loadStopwatch = Stopwatch.StartNew();
+            List<LR2IRScore> scoreTable = dbGateway.LoadIrScoreRows();
+            loadStopwatch.Stop();
+            result.DbLoadMs = loadStopwatch.ElapsedMilliseconds;
+            result.LoadedRows = scoreTable?.Count ?? 0;
+            return scoreTable ?? new List<LR2IRScore>();
+        }
+        catch
+        {
+            return new List<LR2IRScore>();
+        }
+    }
+
+    private static void LoadExistingIrScores(BmsLibraryDbGateway dbGateway, IrScoreTableUpdateResult result)
+    {
+        try
+        {
+            Stopwatch loadStopwatch = Stopwatch.StartNew();
+            result.ScoreTable = dbGateway.LoadIrScoreRows();
+            loadStopwatch.Stop();
+            result.DbLoadMs = loadStopwatch.ElapsedMilliseconds;
+            result.LoadedRows = result.ScoreTable?.Count ?? 0;
+        }
+        catch
+        {
+            result.ScoreTable = new List<LR2IRScore>();
+        }
+    }
+
+    internal static string ComputeScoreDigest(IEnumerable<LR2IRScore> scoreTable)
+    {
+        StringBuilder builder = new StringBuilder();
+        foreach (LR2IRScore score in (scoreTable ?? Enumerable.Empty<LR2IRScore>())
+            .Where((LR2IRScore score) => score != null && !string.IsNullOrWhiteSpace(score.hash))
+            .OrderBy((LR2IRScore score) => score.hash, StringComparer.OrdinalIgnoreCase))
+        {
+            builder.Append(score.hash.ToLowerInvariant()).Append('\t')
+                .Append(ClearTypeStorageConverter.ToLr2Value(score.clear)).Append('\t')
+                .Append(score.notes).Append('\t')
+                .Append(score.combo).Append('\t')
+                .Append(score.pg).Append('\t')
+                .Append(score.gr).Append('\t')
+                .Append(score.gd).Append('\t')
+                .Append(score.bd).Append('\t')
+                .Append(score.pr).Append('\t')
+                .Append(score.minbp).Append('\t')
+                .Append(score.option).Append('\n');
+        }
+        return ComputeSha256Hex(builder.ToString());
+    }
+
+    private static string ComputeSha256Hex(string value)
+    {
+        using SHA256 sha256 = SHA256.Create();
+        byte[] bytes = sha256.ComputeHash(Encoding.UTF8.GetBytes(value ?? string.Empty));
+        StringBuilder builder = new StringBuilder(bytes.Length * 2);
+        foreach (byte b in bytes)
+        {
+            builder.Append(b.ToString("x2"));
+        }
+        return builder.ToString();
+    }
+
+    public List<BMSScore> UpdateBmsScores(List<LR2IRScore> scoreTable, List<BMSScore> currentScores, IEnumerable<BMSFile> bmsFiles, bool detectUnsentScores = true)
     {
         if (scoreTable == null || currentScores == null)
         {
             return currentScores;
         }
         List<BMSScore> existingScores = currentScores.ToList();
-        foreach (BMSFile item in (from ls in existingScores
-                                  join os in scoreTable on ls.hash equals os.hash into os
-                                  select new
-                                  {
-                                      bmsScore = ls,
-                                      irScores = os.DefaultIfEmpty()
-                                  } into grp
-                                  from a in grp.irScores
-                                  select new
-                                  {
-                                      bmsScore = grp.bmsScore,
-                                      irScore = a
-                                  } into b
-                                  where b.irScore == null || b.bmsScore.score != b.irScore.score || b.bmsScore.minbp != b.irScore.minbp || (b.bmsScore.clear != b.irScore.clear && (b.bmsScore.clear != ClearType.PA || b.irScore.clear != ClearType.FC))
-                                  select b).Join(bmsFiles ?? Enumerable.Empty<BMSFile>(), b => b.bmsScore.hash, bmsFile => bmsFile.hash, (a, bmsFile) => bmsFile))
+        if (detectUnsentScores)
         {
-            item.status |= BMSFile.BMSFileStatus.SCORE_UNSENT;
+            foreach (BMSFile item in (from ls in existingScores
+                                      join os in scoreTable on ls.hash equals os.hash into os
+                                      select new
+                                      {
+                                          bmsScore = ls,
+                                          irScores = os.DefaultIfEmpty()
+                                      } into grp
+                                      from a in grp.irScores
+                                      select new
+                                      {
+                                          bmsScore = grp.bmsScore,
+                                          irScore = a
+                                      } into b
+                                      where b.irScore == null || b.bmsScore.score != b.irScore.score || b.bmsScore.minbp != b.irScore.minbp || (b.bmsScore.clear != b.irScore.clear && (b.bmsScore.clear != ClearType.PA || b.irScore.clear != ClearType.FC))
+                                      select b).Join(bmsFiles ?? Enumerable.Empty<BMSFile>(), b => b.bmsScore.hash, bmsFile => bmsFile.hash, (a, bmsFile) => bmsFile))
+            {
+                item.status |= BMSFile.BMSFileStatus.SCORE_UNSENT;
+            }
         }
         IEnumerable<BMSScore> appendedScores = (from os in scoreTable
                                                 join ls in existingScores on os.hash equals ls.hash into ls

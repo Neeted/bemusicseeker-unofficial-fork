@@ -612,7 +612,11 @@ Phase 8D 後の `maintenance_hydration` は、`rows=210027`, `readMs=3298`, `mat
 
 Phase 8H の playlist projection は `projection=startup_entries`, `rows=556649`, `activeEntryCount=550207`, `removedEntryCount=6442`, `dbReadMs=10838`, `groupMs=59`, `assignMs=311`, `totalMs=11245` だった。旧 `Table<BMSTableEntry>().ToList()` 直接呼びを gateway loader へ寄せる整理は完了しているが、row 数自体はほぼ変わらないため、短縮幅は限定的である。playlist をさらに短くするには、startup で全 entry を full `BMSTableEntry` として持つ前提そのものを見直す必要がある。
 
-Phase 8I の ranking は `ranking_cache_refresh done elapsedMs=2828`, `irDataDbReadMs=242`, `dbRows=17708`, `xmlCheckMs=232`, `reloadTargets=99`, `upsertRows=0` で、cache refresh は軽い。一方 `ranking_refresh_deferred` は `irScoreMs=8156`, `irScoreXmlFetchMs=821`, `irScoreXmlParseMs=403`, `irScoreDbReplaceMs=6617`, `irScoreMergeMs=312`, `cacheMs=2838`, `elapsedMs=11004` で、支配要因は `ir_score` table replace である。次に ranking を短くするなら、player score XML が同一の場合に `ir_score` replace を skip する設計が本丸になる。
+Phase 8I の ranking は `ranking_cache_refresh done elapsedMs=2828`, `irDataDbReadMs=242`, `dbRows=17708`, `xmlCheckMs=232`, `reloadTargets=99`, `upsertRows=0` で、cache refresh は軽い。一方 `ranking_refresh_deferred` は `irScoreMs=8156`, `irScoreXmlFetchMs=821`, `irScoreXmlParseMs=403`, `irScoreDbReplaceMs=6617`, `irScoreMergeMs=312`, `cacheMs=2838`, `elapsedMs=11004` で、支配要因は `ir_score` table replace である。`ir_score` は主に `SCORE_UNSENT` 付与と LR2 custom folder の `UNSENT SONGS` 条件生成に使う。ランキング表示 / ranking cache は `ir_data` 側であり、`ir_score` とは別系統である。
+
+Phase 8K では `LR2IRのスコアをDLしIR未送信を検出する` 設定を追加する。既定は有効。無効時は LR2IR player score XML fetch、`ir_score` DB 更新、`ir_score` 由来の未送信検出を完全に使わない。既存 `ir_score` table は削除しないが、無効時の `SCORE_UNSENT` 付与や `UNSENT SONGS` 生成には使わない。
+
+Phase 8K では player score XML の normalized score digest による no-op 判定も追加する。`ir_score_refresh_metadata` には LR2ID ごとの normalized score digest だけを保存し、digest が同じなら DB replace を skip して既存 `ir_score` rows を in-memory 反映に使う。digest が変わった場合だけ `ir_score` table replace を実行する。LR2IR player score XML の `lastupdate` はプレイヤーの最終スコア更新ではなく譜面 hash 側の更新時刻として揺れるため、normalized score digest から除外する。`ir_score.lastupdate` は未送信判定や表示の正本には使わず、表示用 ranking update は `ir_data` / ranking cache 側の `rankingLastupdate` を使う。
 
 Phase 8J の chart_info は `chartInfoRows=209904`, `parseFailureRows=24`, `dbLoadMs=9773`, `indexBuildMs=291`, `ownerApplyMs=229`, `backfillCandidateOwners=0`, `totalMs=10303` だった。owner apply と index build は軽く、支配要因は full `chart_info` row load である。ここは単純な loader 整理では短くならないため、persistent hydrated index / no-op skip / projection の仕様判断が必要である。
 
@@ -656,8 +660,15 @@ Phase 8J の chart_info は `chartInfoRows=209904`, `parseFailureRows=24`, `dbLo
 - `setRankingScore()` が読む `ir_data` は `BmsLibraryDbGateway.LoadIrDataWithMetrics(lr2Id)` を使い、`WHERE lr2id = ?` の SQL loader で対象 LR2ID の row だけを materialize する。
 - `ranking_cache_refresh done` は `irDataDbReadMs` / `irDataMaterializeMs` を出し、cache XML check / reload / upsert と分けて確認できる。
 - `updateLR2IRScoreTable()` の network fetch / XML parse / DB replace / in-memory merge を `ranking_refresh_deferred done` に出す。
-- LR2IR player score XML の取得結果が前回 DB 内容と同一なら、`ir_score` table replace と `BMSScores` merge を skip できるようにする。
-- 実装する場合も `setRankingScore()` の cache delta refresh は維持し、ranking cache と score table の責務を混ぜない。
+- `setRankingScore()` の cache delta refresh は維持し、ranking cache と score table の責務を混ぜない。
+
+### Phase 8K: LR2IR Player Score XML No-op / Unsent Detection Setting (implemented)
+
+- `EnableDownloadLr2IrScoreAndDetectUnsent` を追加し、設定画面では `LR2IRのスコアをDLしIR未送信を検出する` と表示する。
+- 設定が false の場合、`ranking_refresh_deferred` は player score XML fetch、XML parse、`ir_score` replace、`BMSScores` への `ir_score` 反映を行わない。`ranking_cache_refresh` は従来通り実行する。
+- 設定が false の場合、既存 `ir_score` table が残っていても `SCORE_UNSENT` と LR2 custom folder `UNSENT SONGS` には使わない。
+- 設定が true の場合、LR2ID ごとの normalized score digest で no-op 判定する。`score_digest_same` では DB replace を skip し、既存 `ir_score` rows を読み出して in-memory 反映する。normalized digest は `lastupdate` を含めず、score/clear/combo/minbp/option など未送信判定に関わる値だけを見る。
+- `ranking_refresh_deferred done` は `irScoreSkipped`, `irScoreSkipReason`, `irScoreDigestMs`, `irScoreDbLoadMs`, `irScoreDbReplaceMs`, `irScoreLoadedRows`, `irScoreMetadataUpdated` を出す。
 
 ### Phase 8J: Chart Info Hydration Loader Metrics (implemented)
 

@@ -1713,7 +1713,7 @@ internal sealed class BmsLibraryInitializationService
         return result;
     }
 
-    public ScoreTableLoadResult LoadScoreTable(BmsLibraryDbGateway dbGateway)
+    public ScoreTableLoadResult LoadScoreTable(BmsLibraryDbGateway dbGateway, BmsLibraryOptionsSnapshot options = null)
     {
         if (dbGateway == null || string.IsNullOrWhiteSpace(dbGateway.ScoreDbPath))
         {
@@ -1721,7 +1721,9 @@ internal sealed class BmsLibraryInitializationService
         }
         try
         {
-            return dbGateway.LoadScoresAndPlayerId();
+            ScoreTableLoadResult result = dbGateway.LoadScoresAndPlayerId();
+            result.EnableDownloadLr2IrScoreAndDetectUnsent = options?.EnableDownloadLr2IrScoreAndDetectUnsent ?? true;
+            return result;
         }
         catch
         {

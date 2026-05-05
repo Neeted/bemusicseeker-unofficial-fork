@@ -392,6 +392,7 @@
   "Success": "成功",
   "Details_test_keep_installable_pending": "[测试] 即使判定为新谱面也不自动安装并加入保留列表",
   "Details_test_db_read_optimized_pragmas": "启用 song.db 访问优化 PRAGMA",
+  "Details_download_lr2ir_score_and_detect_unsent": "下载 LR2IR 成绩并检测未发送到 IR 的成绩",
   "Details_test_startup_select_install_pending": "[测试] 启动时将初始视图锁定为“安装 > 已保留”项目",
   "Details_test_smart_component_overwrite": "[测试] 差分安装时，通过对比修改日期和文件大小来优化随附文件的覆盖逻辑",
   "Details_test_keep_smart_overwrite_protected_by_rename": "[测试] 智能覆盖时，*.bmx/*.pmx/*.txt/*.bmson 不覆盖，改为自动编号保留",

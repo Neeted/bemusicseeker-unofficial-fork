@@ -24,6 +24,8 @@ internal sealed class BmsLibraryOptionsSnapshot
 
     public bool SkipEstimateOfflineScoreRanking { get; set; }
 
+    public bool EnableDownloadLr2IrScoreAndDetectUnsent { get; set; }
+
     public bool EnableReadOptimizedPragmas { get; set; }
 
     public bool SkipInitFileCheck { get; set; }
@@ -48,6 +50,7 @@ internal sealed class BmsLibraryOptionsSnapshot
             UseEverythingForPendingPackageSourceScan = Settings.Default.UseEverythingForPendingPackageSourceScan,
             AutoApplyAmbiguousInstallDestination = Settings.Default.AutoApplyAmbiguousInstallDestination,
             SkipEstimateOfflineScoreRanking = Settings.Default.SkipEstimateOfflineScoreRanking,
+            EnableDownloadLr2IrScoreAndDetectUnsent = Settings.Default.EnableDownloadLr2IrScoreAndDetectUnsent,
             EnableReadOptimizedPragmas = Settings.Default.EnableReadOptimizedPragmas,
             SkipInitFileCheck = Settings.Default.SkipInitFileCheck,
             FolderNameFormat = Settings.Default.FolderNameFormat,

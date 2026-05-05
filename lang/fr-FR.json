@@ -392,6 +392,7 @@
   "Success": "Success",
   "Details_test_keep_installable_pending": "[TEST] Ajouter en attente au lieu d'installer automatiquement même pour les nouvelles entrées",
   "Details_test_db_read_optimized_pragmas": "Activer les PRAGMA d'optimisation d'accès à song.db",
+  "Details_download_lr2ir_score_and_detect_unsent": "Download LR2IR scores and detect unsent IR scores",
   "Details_test_startup_select_install_pending": "[TEST] Définir la sélection initiale sur Installation > En attente au démarrage",
   "Details_test_smart_component_overwrite": "[TEST] Optimiser l'écrasement des fichiers en comparant la date de modification et la taille lors de l'installation différentielle",
   "Details_test_keep_smart_overwrite_protected_by_rename": "[TEST] En écrasement intelligent, conserver *.bmx/*.pmx/*.txt/*.bmson via renommage auto au lieu d'écraser",
