@@ -17,7 +17,7 @@ namespace BeMusicSeeker.Tests;
 public sealed class BmsLibraryInitializationServiceTests
 {
     [TestMethod]
-    public void LoadSongTable_FixesRelativePathsAndAppliesMaintenanceMap()
+    public void LoadSongTable_FixesRelativePathsWithoutMaintenanceHydration()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
@@ -66,11 +66,45 @@ public sealed class BmsLibraryInitializationServiceTests
 
             Assert.AreEqual(1, result.LoadedFiles.Count);
             Assert.AreEqual(rootedChartPath, result.LoadedFiles[0].path);
-            Assert.AreEqual("shift_jis", result.LoadedFiles[0].maintenanceInfo.encoding);
+            Assert.IsNull(result.LoadedFiles[0].maintenanceInfo.encoding);
             Assert.AreEqual(1, result.RelativePathFixedCount);
             Assert.IsTrue(result.DbWriteRequired);
             CollectionAssert.Contains(result.DeletedSongPaths, Path.Combine("Songs", "chart.bms"));
             Assert.IsTrue(result.UpdatedSongs.Any((BMSFile file) => file.path == rootedChartPath));
+        });
+    }
+
+    [TestMethod]
+    public void LoadMaintenanceTable_LoadsMaintenanceMapAfterCatalogLoad()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
+        {
+            string rootedChartPath = Path.Combine(lr2RootPath, "Songs", "chart.bms");
+            Directory.CreateDirectory(Path.GetDirectoryName(rootedChartPath));
+            File.WriteAllText(rootedChartPath, "#PLAYER 1");
+
+            using (LR2SongDBExtended songDb = new LR2SongDBExtended(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDB.song>();
+                songDb.CreateTable<LR2SongDBExtended.maintenance>();
+                songDb.InsertOrReplace(new BMSFileMaintenanceInfo
+                {
+                    path = rootedChartPath,
+                    hash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    encoding = "shift_jis"
+                }, typeof(LR2SongDBExtended.maintenance));
+            }
+
+            BmsLibraryInitializationService service = new BmsLibraryInitializationService();
+            MaintenanceTableHydrationResult result = service.LoadMaintenanceTable(
+                new BmsLibraryDbGateway(songDbPath),
+                new BmsLibraryOptionsSnapshot());
+
+            Assert.AreEqual(1L, result.MaintenanceTableCount);
+            Assert.AreEqual(1, result.MaintenanceMap.Count);
+            Assert.IsTrue(result.MaintenanceMap.TryGetValue(rootedChartPath, out BMSFileMaintenanceInfo info));
+            Assert.AreEqual("shift_jis", info.encoding);
         });
     }
 
@@ -1610,8 +1644,6 @@ public sealed class BmsLibraryInitializationServiceTests
             Assert.AreEqual(1, result.LoadedFiles.Count);
             Assert.AreEqual(sha256, result.LoadedFiles[0].sha256);
             Assert.IsNull(result.LoadedFiles[0].ChartInfo);
-            Assert.AreEqual(0L, result.ChartInfoMapLoadMs);
-            Assert.AreEqual(0L, result.ChartInfoApplyMs);
         });
     }
 

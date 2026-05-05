@@ -19,11 +19,7 @@ internal sealed class SongTableLoadResult
 
     public List<string> DeletedFolderPaths { get; } = new List<string>();
 
-    public Dictionary<string, BMSFileMaintenanceInfo> MaintenanceMap { get; } = new Dictionary<string, BMSFileMaintenanceInfo>(System.StringComparer.OrdinalIgnoreCase);
-
     public Dictionary<string, string> ChartDigestMap { get; } = new Dictionary<string, string>(System.StringComparer.OrdinalIgnoreCase);
-
-    public Dictionary<string, LR2SongDBExtended.chart_info> ChartInfoMap { get; } = new Dictionary<string, LR2SongDBExtended.chart_info>(System.StringComparer.OrdinalIgnoreCase);
 
     public bool DbWriteRequired { get; set; }
 
@@ -36,8 +32,6 @@ internal sealed class SongTableLoadResult
     public int CrcSkippedCount { get; set; }
 
     public long SongTableCount { get; set; }
-
-    public long MaintenanceTableCount { get; set; }
 
     public long SongTableLoadMs { get; set; }
 
@@ -53,23 +47,9 @@ internal sealed class SongTableLoadResult
 
     public long FixApplyMs { get; set; }
 
-    public long MaintenanceTableLoadMs { get; set; }
-
-    public long MaintenanceCountMs { get; set; }
-
-    public long MaintenanceMaterializeMs { get; set; }
-
-    public long MaintenanceMapBuildMs { get; set; }
-
-    public long MaintenanceApplyMs { get; set; }
-
     public long ChartDigestMapLoadMs { get; set; }
 
     public long ChartDigestApplyMs { get; set; }
-
-    public long ChartInfoMapLoadMs { get; set; }
-
-    public long ChartInfoApplyMs { get; set; }
 
     public long BmsonTableLoadMs { get; set; }
 

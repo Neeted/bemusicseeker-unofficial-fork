@@ -194,6 +194,35 @@ revert 後の状態を基準にし、導入可能までと初期化完了まで�
 
 起動 early path で読む DB projection を、導入可能に必要な情報へ絞る。これにより導入可能までを短縮し、不要な再 materialize を消して初期化全体も短縮する。
 
+### Phase 2A Current Implementation
+
+実装済み。
+
+- 起動 critical path の DB load は catalog projection になった。
+  - 読むもの: `song`, `bmson_song`, `chart_digest_map`, folder normalization に必要な情報。
+  - 読まないもの: `maintenance` 全件、`chart_info` 全件、score / ranking、playlist entry。
+- `maintenance` 全件 hydration は `maintenance_hydration` background task へ分離した。
+  - `maintenance_hydration` は同じ `BMSFile` / `bmson_song` instance へ in-place apply する。
+  - hydration 後に warning / health projection を更新する。
+  - `installable_maintenance_deferred` は `maintenance_hydration` と `chart_info_hydration` の完了後に開始する。
+- install readiness は `CatalogLoaded && DestinationResourceIndexReady && PendingPackagesRestored` のまま維持する。
+  - `maintenance_hydration` は `startup_install_estimation_ready` の blocker ではない。
+- ログは `song_tbl_load_projection projection=catalog ...` と `maintenance_hydration start/done ...` へ分離した。
+  - catalog load の `song_tbl_load_io` には `maintenance_read_ms` を出さない。
+
+2026-05-05 09:09 頃の Phase 2A 実測では次の状態になった。
+
+- `song_tbl_load_projection projection=catalog readMs=8596 materializeMs=8590 rows=208979 bmsonRows=1051 chartDigestRows=208870`
+- `startup_install_estimation_ready elapsedMs=35961`
+  - Phase 0 の `37971ms` から約 2 秒短縮。
+  - `maintenance_hydration` はこの後に queue されており、install readiness の blocker から外れている。
+- `maintenance_hydration done ... readMs=2939 materializeMs=2932 mapBuildMs=169 applyMs=14697 elapsedMs=17814`
+  - DB read / materialize は critical path から外れた。
+  - 一方で in-place apply と warning / health projection 更新が background 側で大きい。
+- `installable_maintenance_deferred` は `dependency=chart_info_hydration,maintenance_hydration` で開始し、hydration 後の target は `maintenanceChecked=3` まで縮小した。
+
+このため Phase 2A の readiness 短縮は想定どおりだが、`startup_initialization_complete` は `elapsedMs=103325` で Phase 0 実測より短縮していない。次は background 側の duplicate / no-op work を削る必要がある。
+
 Phase 2 の前提は、partial `BMSFile` を UI 正本として出さないことである。
 install-ready projection を導入する場合は、次のどちらかを実装単位で明確に選ぶ。
 
@@ -230,6 +259,25 @@ install-ready projection を導入する場合は、次のどちらかを実装�
 ## Phase 3: Enumeration-Based Resource Index Consolidation
 
 通常起動では file enumeration を正本として destination resource index を作る。その前提で、重複 index と重複 materialize を削る。
+
+### Phase 3A Current Implementation
+
+実装済みの範囲は「構築境界の統合」である。
+
+- file enumeration result から `LibraryResourceIndex` を 1 回作り、その中に既存互換 view を保持する。
+  - `BMSDirectoryFileNameHash`
+  - `DirectoryResourceLookupCache`
+  - `DirectoryRelativePathHashIndex`
+- 旧 index を別々の top-level build step として作る流れはやめ、`resource_index_build source=enumeration ...` を正本ログにした。
+- `song_tbl_file_check_breakdown` / `bms_scan` の内訳は `resource_index_build_ms` 系へ寄せた。
+- Phase 3A では resource matching semantics は変更しない。
+  - basename / relative path の既存互換 view は `LibraryResourceIndex` 内部で維持する。
+
+未完了として次単位に残すもの:
+
+- install estimation / resource health / file operation の引数を `LibraryResourceIndex` API へ完全移行する。
+- 互換 view が不要になった時点で旧 index class と旧 tests を削除する。
+- chart-relative semantics cleanup は Phase 5 で行う。
 
 ### Key Changes
 
@@ -333,6 +381,57 @@ diff 自体は軽いが、差分 0 件時の catalog apply / property notificati
 ## Phase 8: Background Initialization Work Reduction
 
 導入可能後に走る task も、初期化全体の完了時間として短縮する。後回しにするだけでなく、重複 read / materialize / no-op scan を削る。
+
+### Phase 8A Current Implementation
+
+実装済み。
+
+- `maintenance_hydration` を startup background task として明示し、`startup_background_summary` の対象にした。
+- `installable_maintenance_deferred` は `maintenance_hydration,chart_info_hydration` の両方を dependency として待つ。
+- `reverse_lookup_warmup_deferred` は `DirectoryResourceLookupCache` の reverse lookup が既に full warmup 済みなら queue しない。
+
+Phase 2A 後の実測では、初期化完了を遅らせている候補は次の通り。
+
+- `ranking_refresh_deferred lastMs=47962`
+- `playlist_entries_hydration lastMs=26865`
+- `maintenance_tbl_check_deferred lastMs=18147`
+- `maintenance_hydration lastMs=17820`
+- `chart_info_hydration lastMs=15458`
+- `reverse_lookup_warmup_deferred lastMs=12633`
+
+特に `maintenance_tbl_check_deferred` は `deleted=0` の no-op で 18 秒かかっており、`maintenance_hydration` と同じ `maintenance` table 周辺を別 task で扱っている。次フェーズではこれを統合または cheap no-op 化する。
+
+未完了として次単位に残すもの:
+
+- `maintenance_tbl_check_deferred` を `maintenance_hydration` と統合し、deleted candidate がない場合は全件 scan しない。
+- `maintenance_hydration` の apply を chunk / aggregate notification 化し、1 件ごとの高コスト warning refresh を避ける。
+- `chart_info_hydration` の DB count / version による no-op skip。
+- `chart_info_backfill` の dirty marker / missing count による candidate summary skip。
+- playlist entries hydration の同一 startup 内二重 hydrate / presentation rebuild 削減。
+
+## Next Implementation Unit: Phase 8B / 2B
+
+次に進むべき単位は、install readiness のさらなる前倒しよりも、初期化全体を悪化させている background duplicate work の削減である。
+
+### Phase 8B: Maintenance Background Consolidation
+
+- `maintenance_hydration` と `maintenance_tbl_check_deferred` の責務を整理する。
+  - hydration は DB row を memory owner へ apply する。
+  - cleanup は DB に存在しない owner の orphan row 削除だけを扱う。
+- cleanup は catalog owner hash/path set を使って SQL / indexed probe で orphan 有無を判定し、orphan 0 件なら全 row materialize しない。
+- hydration 後の warning / health projection 更新はまとめて行い、row ごとの不要な UI rebuild / property chain を抑える。
+- `startup_background_summary` では maintenance 系 task が二重に 15 秒以上走らないことを acceptance とする。
+
+### Phase 2B: Catalog Load Micro Reduction
+
+- `song` materialize 後の normalize loop `1480ms` と `crcRecalculated=19` を確認し、DB write 不要時の normalize / CRC 再計算をさらに絞る。
+- `song_tbl_load_projection` は維持し、`maintenance` と `chart_info` を critical path に戻さない。
+- `startup_install_estimation_ready` の比較対象は Phase 2A 実測 `35961ms` とする。
+
+### Phase 8C: Chart Info No-op Reduction
+
+- current `chart_info` が owner 全件に揃っている場合、`chart_info_backfill candidate_summary` の 4 秒級 query を skip する。
+- `chart_info_hydration` は DB count / schema version / hydrated index state から no-op 判定できる範囲を増やす。ただし session index が未 hydrated の通常起動では必要な load と owner apply は維持する。
 
 ### Key Changes
 

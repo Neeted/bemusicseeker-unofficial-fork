@@ -6724,6 +6724,10 @@ public class MainWindowViewModel : ViewModel
         {
             return 50;
         }
+        if (string.Equals(name, "maintenance_hydration", StringComparison.OrdinalIgnoreCase))
+        {
+            return 55;
+        }
         if (string.Equals(name, "installable_maintenance", StringComparison.OrdinalIgnoreCase))
         {
             return 60;
@@ -6778,7 +6782,7 @@ public class MainWindowViewModel : ViewModel
                     for (int i = 0; i < startupBackgroundTaskQueue.Count; i++)
                     {
                         StartupBackgroundTaskRequest candidate = startupBackgroundTaskQueue[i];
-                        if (!string.IsNullOrWhiteSpace(candidate.Dependency) && !startupBackgroundTaskCompletedNames.Contains(candidate.Dependency))
+                        if (!AreStartupBackgroundDependenciesCompletedUnsafe(candidate.Dependency))
                         {
                             continue;
                         }
@@ -6824,6 +6828,24 @@ public class MainWindowViewModel : ViewModel
                 }
             }
         }).Logging("StartupBackgroundTaskScheduler");
+    }
+
+    private bool AreStartupBackgroundDependenciesCompletedUnsafe(string dependency)
+    {
+        if (string.IsNullOrWhiteSpace(dependency))
+        {
+            return true;
+        }
+        string[] dependencies = dependency.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries);
+        foreach (string item in dependencies)
+        {
+            string dependencyName = item.Trim();
+            if (dependencyName.Length > 0 && !startupBackgroundTaskCompletedNames.Contains(dependencyName))
+            {
+                return false;
+            }
+        }
+        return true;
     }
 
     private void RefreshLibraryMainViewForCurrentFilter()

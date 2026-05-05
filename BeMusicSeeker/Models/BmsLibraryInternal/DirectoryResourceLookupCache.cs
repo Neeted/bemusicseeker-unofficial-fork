@@ -759,6 +759,17 @@ internal sealed class DirectoryResourceLookupCache
         }
     }
 
+    public bool IsFullReverseLookupBuilt
+    {
+        get
+        {
+            lock (lockLazyDirectoriesByHash)
+            {
+                return isFullReverseLookupBuilt;
+            }
+        }
+    }
+
     public ReverseLookupWarmupStepResult WarmupReverseLookupStep(int maxEntryCount, int maxCpuMs, CancellationToken token)
     {
         if (token.IsCancellationRequested)

@@ -20,12 +20,15 @@ Startup
   -> final preflight inspect
        playlist sha256 migration, bmson app schema migration, repair issue が残れば fail
   -> metadata bundle import
-  -> DB load
+  -> catalog DB load
+       song / bmson_song / chart_digest_map
+       maintenance / chart_info are not loaded here
   -> file enumeration / resource index build
   -> file diff
        new/updated charts are read, parsed, committed, and reflected here
   -> operation ready
   -> startup background tasks
+       maintenance hydration
        playlist hydration
        chart_info hydration / full backfill for DB-derived candidates
        installable maintenance for DB-derived missing/stale rows
@@ -108,8 +111,8 @@ metadata bundle は、リリースパッケージ同梱または外部配布の 
 
 | Phase | 主な処理 | 備考 |
 | --- | --- | --- |
-| DB load | `song`, `bmson_song`, `maintenance`, `chart_digest_map` などを読む | 既存 row の正本構築 |
-| File enumeration | Everything / fallback で root 配下を列挙し、resource index を作る | 差分なし fast path では譜面本文を読まない |
+| Catalog DB load | `song`, `bmson_song`, `chart_digest_map` などを読む | `maintenance` と `chart_info` 全件 hydration は起動 critical path から外す |
+| File enumeration | Everything / fallback で root 配下を列挙し、resource index を作る | 導入先推定に必要な destination resource index の正本 |
 | File diff | 新規・更新譜面を snapshot read し、軽量 parse、LR2 parent/folder、inline `chart_info`、inline maintenance、chunk commit まで行う | 新規・更新ファイル由来の補助情報はここで処理する |
 
 差分なしの場合は、導入先推定に必要な index を最速で公開し、DB 由来の補助情報は background へ回す。
@@ -132,9 +135,15 @@ metadata bundle は、リリースパッケージ同梱または外部配布の 
 
 Phase 0-1 時点では、`InstallEstimationReady` の完了位置は旧 `startup_ready_installable` と同じである。これは高速化ではなく、後続の DB projection / resource index 統合で「導入可能まで」と「初期化全体」を分けて測るための境界固定である。
 
-2026-05-05 08:23 の実測では、`startup_install_estimation_ready` / `startup_install_ready` は `elapsedMs=37971`、`startup_ready_operable` は `elapsedMs=39914`、`startup_initialization_complete` は `elapsedMs=99997` だった。`wait_continuation_start_ms`、`wait_continuation_signal_ms`、`wait_continuation_tasks_ms` はすべて 0ms であり、この回の critical path は DB load / materialize と file enumeration / resource index build である。
+Phase 2A 以降、`startup_install_estimation_ready` は catalog load、file enumeration / resource index build、file diff apply、pending package restore が揃った時点で出る。DB `maintenance` 全件は `maintenance_hydration` background task で同じ `BMSFile` / `bmson_song` instance へ in-place apply されるため、導入先推定の blocker ではない。
+
+2026-05-05 08:23 の Phase 0 実測では、`startup_install_estimation_ready` / `startup_install_ready` は `elapsedMs=37971`、`startup_ready_operable` は `elapsedMs=39914`、`startup_initialization_complete` は `elapsedMs=99997` だった。`wait_continuation_start_ms`、`wait_continuation_signal_ms`、`wait_continuation_tasks_ms` はすべて 0ms であり、この回の critical path は DB load / materialize と file enumeration / resource index build である。
+
+2026-05-05 09:09 の Phase 2A 実測では、`startup_install_estimation_ready` / `startup_install_ready` は `elapsedMs=35961`、`startup_ready_operable` は `elapsedMs=37401`、`startup_initialization_complete` は `elapsedMs=103325` だった。catalog load から `maintenance` 全件が外れたため導入可能までは短縮しているが、初期化全体は `maintenance_hydration` と `maintenance_tbl_check_deferred` の background cost が残っている。
 
 同じ実測で `startup_background_summary` は `queued=10 started=10 completed=10 failed=0` だった。background 側の重い処理は `ranking_refresh_deferred=53007ms`、`playlist_entries_hydration=31501ms`、`maintenance_tbl_check_deferred=22749ms`、`chart_info_hydration=17103ms`、`reverse_lookup_warmup_deferred=16586ms` であり、導入可能までとは別に初期化全体の短縮対象として扱う。
+
+Phase 2A 後の `startup_background_summary` は `queued=11 started=11 completed=11 failed=0` で、主な内訳は `ranking_refresh_deferred=47962ms`、`playlist_entries_hydration=26865ms`、`maintenance_tbl_check_deferred=18147ms`、`maintenance_hydration=17820ms`、`chart_info_hydration=15458ms`、`reverse_lookup_warmup_deferred=12633ms` である。次フェーズでは maintenance 系 background task の統合 / no-op 削減を優先する。
 
 導入先推定に必要な情報は次の 3 つに整理する。
 
@@ -173,9 +182,10 @@ background task は、既に DB に存在している owner の補助情報を�
 
 | Task | 正本の責務 |
 | --- | --- |
+| `maintenance_hydration` | DB の既存 `maintenance` row を memory owner へ in-place apply し、warning / health projection を更新する |
 | `chart_info_hydration` | DB の current `chart_info` を memory owner / session index へ適用する |
 | full `chart_info` backfill | 旧 DB や外部操作により不足している `chart_info` を補完する |
-| `installable_maintenance_deferred` | DB 由来の missing/stale maintenance を補完する |
+| `installable_maintenance_deferred` | `maintenance_hydration` と `chart_info_hydration` の完了後、DB 由来の missing/stale maintenance を補完する |
 | score / ranking / playlist hydration | 操作可能後に反映できる DB 由来データを適用する |
 
 新規・更新ファイル由来の `chart_info` と maintenance を background へ押し出さない。

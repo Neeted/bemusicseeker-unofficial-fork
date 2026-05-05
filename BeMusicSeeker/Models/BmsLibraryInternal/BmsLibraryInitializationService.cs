@@ -136,45 +136,6 @@ internal sealed class BmsLibraryInitializationService
         stopwatchBmsonTableLoad.Stop();
         result.BmsonTableLoadMs = stopwatchBmsonTableLoad.ElapsedMilliseconds;
 
-        Stopwatch stopwatchMaintenanceTableLoad = Stopwatch.StartNew();
-        Stopwatch stopwatchMaintenanceCount = Stopwatch.StartNew();
-        try
-        {
-            result.MaintenanceTableCount = Math.Max(0L, songDb.ExecuteScalar<long>("SELECT COUNT(1) FROM maintenance;"));
-        }
-        catch
-        {
-        }
-        stopwatchMaintenanceCount.Stop();
-        result.MaintenanceCountMs = stopwatchMaintenanceCount.ElapsedMilliseconds;
-
-        List<BMSFileMaintenanceInfo> maintenanceInfos = (result.MaintenanceTableCount > 0L && result.MaintenanceTableCount <= int.MaxValue)
-            ? new List<BMSFileMaintenanceInfo>((int)result.MaintenanceTableCount)
-            : new List<BMSFileMaintenanceInfo>();
-        Stopwatch stopwatchMaintenanceMaterialize = Stopwatch.StartNew();
-        using (BMSFileMaintenanceInfo.SuppressPropertyChangedScope())
-        {
-            foreach (BMSFileMaintenanceInfo item in songDb.Table<BMSFileMaintenanceInfo>())
-            {
-                maintenanceInfos.Add(item);
-            }
-        }
-        stopwatchMaintenanceMaterialize.Stop();
-        result.MaintenanceMaterializeMs = stopwatchMaintenanceMaterialize.ElapsedMilliseconds;
-        stopwatchMaintenanceTableLoad.Stop();
-        result.MaintenanceTableLoadMs = stopwatchMaintenanceTableLoad.ElapsedMilliseconds;
-
-        Stopwatch stopwatchMaintenanceMapBuild = Stopwatch.StartNew();
-        foreach (BMSFileMaintenanceInfo maintenanceInfo in maintenanceInfos)
-        {
-            if (!string.IsNullOrWhiteSpace(maintenanceInfo.path) && !result.MaintenanceMap.ContainsKey(maintenanceInfo.path))
-            {
-                result.MaintenanceMap[maintenanceInfo.path] = maintenanceInfo;
-            }
-        }
-        stopwatchMaintenanceMapBuild.Stop();
-        result.MaintenanceMapBuildMs = stopwatchMaintenanceMapBuild.ElapsedMilliseconds;
-
         HashSet<BMSFile> deletedFileSet = deletedFiles.Count > 0 ? new HashSet<BMSFile>(deletedFiles) : null;
         Stopwatch stopwatchChartDigestApply = Stopwatch.StartNew();
         foreach (BMSFile item in loadedSongs)
@@ -192,68 +153,96 @@ internal sealed class BmsLibraryInitializationService
 
         // chart_info is display/search metadata. Loading and applying every row can dominate startup
         // on large libraries, so the application hydrates it after the core install workflow is operable.
-        result.ChartInfoMapLoadMs = 0L;
-        result.ChartInfoApplyMs = 0L;
-
-        Stopwatch stopwatchMaintenanceApply = Stopwatch.StartNew();
         foreach (BMSFile item in loadedSongs)
         {
             if (deletedFileSet != null && deletedFileSet.Contains(item))
             {
                 continue;
             }
-            if (result.MaintenanceMap.TryGetValue(item.path, out BMSFileMaintenanceInfo value))
-            {
-                if (item.HasMaintenanceInfoHash(value.hash) || string.Equals(value.hash, item.hash, StringComparison.OrdinalIgnoreCase))
-                {
-                    item.SetMaintenanceInfo(value, suppressPropertyChanged: true, registerEventHandlers: false);
-                }
-                else
-                {
-                    item.SetMaintenanceInfo(new BMSFileMaintenanceInfo(item), suppressPropertyChanged: true, registerEventHandlers: false);
-                }
-            }
-            else
-            {
-                item.SetMaintenanceInfo(new BMSFileMaintenanceInfo(item), suppressPropertyChanged: true, registerEventHandlers: false);
-            }
             result.LoadedFiles.Add(item);
         }
-        foreach (LR2SongDBExtended.bmson_song item in result.LoadedBmsonSongs)
-        {
-            if (result.MaintenanceMap.TryGetValue(item.path, out BMSFileMaintenanceInfo value)
-                && string.Equals(value.hash, item.md5, StringComparison.OrdinalIgnoreCase))
-            {
-                value.NormalizeForBmson(item.path, item.md5);
-                item.MaintenanceInfo = value;
-            }
-            else
-            {
-                item.MaintenanceInfo = BMSFileMaintenanceInfo.CreateForBmson(item.path, item.md5);
-            }
-        }
-        stopwatchMaintenanceApply.Stop();
-        result.MaintenanceApplyMs = stopwatchMaintenanceApply.ElapsedMilliseconds;
 
         logInstallPerformance?.Invoke(
-            "song_tbl_load_maintenance_detail bmsCount=" + result.LoadedFiles.Count
-            + " bmsonCount=" + result.LoadedBmsonSongs.Count
-            + " maintenanceCount=" + maintenanceInfos.Count
-            + " maintenanceKeyCount=" + result.MaintenanceMap.Count);
+            "song_tbl_load_projection projection=catalog readMs=" + result.SongTableLoadMs
+            + " materializeMs=" + result.SongMaterializeMs
+            + " rows=" + result.SongTableCount
+            + " bmsonRows=" + result.LoadedBmsonSongs.Count
+            + " chartDigestRows=" + result.ChartDigestMap.Count);
         logInstallPerformance?.Invoke(
             "song_tbl_load_io song_read_ms=" + result.SongTableLoadMs
             + " song_count_ms=" + result.SongCountMs
             + " song_materialize_ms=" + result.SongMaterializeMs
             + " song_count=" + result.SongTableCount
-            + " maintenance_read_ms=" + result.MaintenanceTableLoadMs
-            + " maintenance_count_ms=" + result.MaintenanceCountMs
-            + " maintenance_materialize_ms=" + result.MaintenanceMaterializeMs
-            + " maintenance_count=" + result.MaintenanceTableCount
-            + " chart_info_read_ms=" + result.ChartInfoMapLoadMs
-            + " chart_info_apply_ms=" + result.ChartInfoApplyMs
             + " folder_read_ms=" + result.FolderTableLoadMs
             + " db_write_required=" + result.DbWriteRequired.ToString().ToLowerInvariant()
             + " db_write_ms=" + result.DbWriteMs);
+        return result;
+    }
+
+    public MaintenanceTableHydrationResult LoadMaintenanceTable(
+        BmsLibraryDbGateway dbGateway,
+        BmsLibraryOptionsSnapshot options,
+        Action<string> logInstallPerformance = null)
+    {
+        MaintenanceTableHydrationResult result = new MaintenanceTableHydrationResult();
+        if (dbGateway == null)
+        {
+            return result;
+        }
+
+        Stopwatch totalStopwatch = Stopwatch.StartNew();
+        using LR2SongDBExtended songDb = dbGateway.OpenSongDb();
+        result.Pragmas.AddRange(songDb.TryApplyReadOptimizedPragmas(options?.EnableReadOptimizedPragmas ?? false));
+        if (result.Pragmas.Count > 0)
+        {
+            logInstallPerformance?.Invoke("db_read_pragmas scope=maintenance_hydration " + string.Join(" ", result.Pragmas));
+        }
+
+        Stopwatch stopwatchMaintenanceTableLoad = Stopwatch.StartNew();
+        Stopwatch stopwatchMaintenanceCount = Stopwatch.StartNew();
+        try
+        {
+            result.MaintenanceTableCount = TableExists(songDb, SQLiteTable<LR2SongDBExtended.maintenance>.GetTableName())
+                ? Math.Max(0L, songDb.ExecuteScalar<long>("SELECT COUNT(1) FROM maintenance;"))
+                : 0L;
+        }
+        catch
+        {
+        }
+        stopwatchMaintenanceCount.Stop();
+        result.MaintenanceCountMs = stopwatchMaintenanceCount.ElapsedMilliseconds;
+
+        List<BMSFileMaintenanceInfo> maintenanceInfos = (result.MaintenanceTableCount > 0L && result.MaintenanceTableCount <= int.MaxValue)
+            ? new List<BMSFileMaintenanceInfo>((int)result.MaintenanceTableCount)
+            : new List<BMSFileMaintenanceInfo>();
+        Stopwatch stopwatchMaintenanceMaterialize = Stopwatch.StartNew();
+        if (result.MaintenanceTableCount > 0L)
+        {
+            using (BMSFileMaintenanceInfo.SuppressPropertyChangedScope())
+            {
+                foreach (BMSFileMaintenanceInfo item in songDb.Table<BMSFileMaintenanceInfo>())
+                {
+                    maintenanceInfos.Add(item);
+                }
+            }
+        }
+        stopwatchMaintenanceMaterialize.Stop();
+        result.MaintenanceMaterializeMs = stopwatchMaintenanceMaterialize.ElapsedMilliseconds;
+        stopwatchMaintenanceTableLoad.Stop();
+        result.MaintenanceTableLoadMs = stopwatchMaintenanceTableLoad.ElapsedMilliseconds;
+
+        Stopwatch stopwatchMaintenanceMapBuild = Stopwatch.StartNew();
+        foreach (BMSFileMaintenanceInfo maintenanceInfo in maintenanceInfos)
+        {
+            if (!string.IsNullOrWhiteSpace(maintenanceInfo.path) && !result.MaintenanceMap.ContainsKey(maintenanceInfo.path))
+            {
+                result.MaintenanceMap[maintenanceInfo.path] = maintenanceInfo;
+            }
+        }
+        stopwatchMaintenanceMapBuild.Stop();
+        result.MaintenanceMapBuildMs = stopwatchMaintenanceMapBuild.ElapsedMilliseconds;
+        totalStopwatch.Stop();
+        result.TotalMs = totalStopwatch.ElapsedMilliseconds;
         return result;
     }
 
@@ -314,26 +303,23 @@ internal sealed class BmsLibraryInitializationService
         result.ManagedDecodeMs = scanResult.ManagedDecodeMs;
         result.ManagedMaterializeMs = scanResult.ManagedMaterializeMs;
         result.BridgeRawBufferBytes = scanResult.BridgeRawBufferBytes;
-        Stopwatch stopwatchDirhashBuild = Stopwatch.StartNew();
-        Stopwatch stopwatchFolderHashIndex = Stopwatch.StartNew();
-        result.NextFolderAllFileList = BMSDirectoryFileNameHash.CreateFromHashedDirectories(
-            mergedScanResult.ChartDirectories,
-            (mergedScanResult.SelfOwnedAllResourceBaseNameHashesByChartDirectory?.Count ?? 0) > 0
-                ? mergedScanResult.SelfOwnedAllResourceBaseNameHashesByChartDirectory
-                : mergedScanResult.AllResourceBaseNameHashesByChartDirectory);
-        stopwatchFolderHashIndex.Stop();
-        result.FolderHashIndexMs = stopwatchFolderHashIndex.ElapsedMilliseconds;
-
-        Stopwatch stopwatchResourceLookupCache = Stopwatch.StartNew();
-        result.NextDirectoryResourceLookupCache = DirectoryResourceLookupCache.CreateFromScanResult(mergedScanResult);
-        stopwatchResourceLookupCache.Stop();
-        result.ResourceLookupCacheMs = stopwatchResourceLookupCache.ElapsedMilliseconds;
-        Stopwatch stopwatchRelativePathHashIndex = Stopwatch.StartNew();
-        result.NextDirectoryRelativePathHashIndex = DirectoryRelativePathHashIndex.CreateFromScanResult(mergedScanResult);
-        stopwatchRelativePathHashIndex.Stop();
-        result.RelativePathHashIndexMs = stopwatchRelativePathHashIndex.ElapsedMilliseconds;
-        stopwatchDirhashBuild.Stop();
-        result.DirhashBuildMs = stopwatchDirhashBuild.ElapsedMilliseconds;
+        result.NextResourceIndex = LibraryResourceIndex.CreateFromScanResult(mergedScanResult);
+        result.NextFolderAllFileList = result.NextResourceIndex.FolderAllFileList;
+        result.NextDirectoryResourceLookupCache = result.NextResourceIndex.DirectoryLookupCache;
+        result.NextDirectoryRelativePathHashIndex = result.NextResourceIndex.RelativePathHashIndex;
+        result.ResourceIndexBuildMs = result.NextResourceIndex.BuildMs;
+        result.DirhashBuildMs = result.NextResourceIndex.BuildMs;
+        result.FolderHashIndexMs = result.NextResourceIndex.FolderHashIndexMs;
+        result.ResourceLookupCacheMs = result.NextResourceIndex.ResourceLookupMs;
+        result.RelativePathHashIndexMs = result.NextResourceIndex.RelativePathIndexMs;
+        logInstallPerformance?.Invoke("resource_index_build source=enumeration"
+            + " directories=" + result.NextResourceIndex.DirectoryCount
+            + " resources=" + CountHashEntries(mergedScanResult.AllResourceBaseNameHashesByChartDirectory)
+            + " buildMs=" + result.ResourceIndexBuildMs
+            + " folderMs=" + result.FolderHashIndexMs
+            + " lookupMs=" + result.ResourceLookupCacheMs
+            + " relativeMs=" + result.RelativePathHashIndexMs
+            + " payloadBytes=" + result.BridgeRawBufferBytes);
         result.AllBaseHashEntryCount = CountHashEntries(mergedScanResult.AllResourceBaseNameHashesByChartDirectory);
         result.AudioBaseHashEntryCount = CountHashEntries(mergedScanResult.AudioBaseNameHashesByChartDirectory);
         result.ImageBaseHashEntryCount = CountHashEntries(mergedScanResult.ImageBaseNameHashesByChartDirectory);
@@ -492,10 +478,10 @@ internal sealed class BmsLibraryInitializationService
             + " managed_decode_ms=" + result.ManagedDecodeMs
             + " managed_materialize_ms=" + result.ManagedMaterializeMs
             + " bridge_raw_buffer_bytes=" + result.BridgeRawBufferBytes
-            + " dirhash_build_ms=" + result.DirhashBuildMs
-            + " folder_hash_index_ms=" + result.FolderHashIndexMs
-            + " resource_lookup_cache_ms=" + result.ResourceLookupCacheMs
-            + " relative_path_hash_index_ms=" + result.RelativePathHashIndexMs
+            + " resource_index_build_ms=" + result.ResourceIndexBuildMs
+            + " resource_index_folder_ms=" + result.FolderHashIndexMs
+            + " resource_index_lookup_ms=" + result.ResourceLookupCacheMs
+            + " resource_index_relative_ms=" + result.RelativePathHashIndexMs
             + " lazy_hash_cache_entries=" + (result.NextDirectoryResourceLookupCache?.LazyHashCacheEntryCount ?? 0)
             + " lazy_hash_build_ms=" + (result.NextDirectoryResourceLookupCache?.LazyHashBuildMs ?? 0L)
             + " lazy_hash_lookup_count=" + (result.NextDirectoryResourceLookupCache?.LazyHashLookupCount ?? 0L)
@@ -551,10 +537,10 @@ internal sealed class BmsLibraryInitializationService
             + " nativeBridgeMs=" + result.NativeBridgeMs
             + " managedDecodeMs=" + result.ManagedDecodeMs
             + " managedMaterializeMs=" + result.ManagedMaterializeMs
-            + " indexBuildMs=" + result.DirhashBuildMs
-            + " folderHashIndexMs=" + result.FolderHashIndexMs
-            + " resourceLookupCacheMs=" + result.ResourceLookupCacheMs
-            + " relativePathHashIndexMs=" + result.RelativePathHashIndexMs
+            + " resourceIndexBuildMs=" + result.ResourceIndexBuildMs
+            + " resourceIndexFolderMs=" + result.FolderHashIndexMs
+            + " resourceIndexLookupMs=" + result.ResourceLookupCacheMs
+            + " resourceIndexRelativeMs=" + result.RelativePathHashIndexMs
             + " bridgeReason=" + (string.IsNullOrWhiteSpace(result.NativeBridgeReason) ? string.Empty : result.NativeBridgeReason)
             + " bmsPaths=" + result.BmsPathCount
             + " dirs=" + result.DirectoryCount
