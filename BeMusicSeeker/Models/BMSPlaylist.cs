@@ -12,6 +12,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Xml.Linq;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
@@ -917,16 +918,9 @@ public partial class BMSPlaylist : NotificationObject
             }
             PlaylistEntriesHydrationRunning = true;
             Stopwatch stopwatchTotal = Stopwatch.StartNew();
-            Stopwatch stopwatchDbLoad = Stopwatch.StartNew();
-            List<BMSTableEntry> source;
-            using (LR2SongDBExtended lR2SongDBExtended = new LR2SongDBExtended(lr2SongDBPath))
-            {
-                using (BMSTableEntry.BeginBulkLoadParseSuppression())
-                {
-                    source = lR2SongDBExtended.Table<BMSTableEntry>().ToList();
-                }
-            }
-            stopwatchDbLoad.Stop();
+            BmsLibraryDbGateway dbGateway = new BmsLibraryDbGateway(lr2SongDBPath);
+            PlaylistEntriesHydrationLoadResult loadResult = dbGateway.LoadStartupPlaylistEntries();
+            List<BMSTableEntry> source = loadResult.Entries;
             Stopwatch stopwatchGroup = Stopwatch.StartNew();
             Dictionary<int, List<BMSTableEntry>> entriesByPlaylistId = new Dictionary<int, List<BMSTableEntry>>();
             foreach (BMSTableEntry entryItem in source)
@@ -975,16 +969,19 @@ public partial class BMSPlaylist : NotificationObject
             }
             stopwatchAssign.Stop();
             stopwatchTotal.Stop();
-            long entryLoadRowsPerMs = stopwatchDbLoad.ElapsedMilliseconds <= 0
+            long entryLoadRowsPerMs = loadResult.DbReadMs <= 0
                 ? source.Count
-                : source.Count / Math.Max(1L, stopwatchDbLoad.ElapsedMilliseconds);
+                : source.Count / Math.Max(1L, loadResult.DbReadMs);
             LogPlaylistPerformance("playlist_entries_hydration done reason=" + (reason ?? string.Empty)
+                + " projection=" + loadResult.Projection
                 + " tableCount=" + tablesSnapshot.Count
                 + " assignedTableCount=" + assignedTableCount
+                + " rows=" + source.Count
                 + " entryCount=" + source.Count
                 + " activeEntryCount=" + activeEntryCount
                 + " removedEntryCount=" + removedEntryCount
-                + " dbLoadMs=" + stopwatchDbLoad.ElapsedMilliseconds
+                + " dbReadMs=" + loadResult.DbReadMs
+                + " materializeMs=" + loadResult.MaterializeMs
                 + " groupMs=" + stopwatchGroup.ElapsedMilliseconds
                 + " assignMs=" + stopwatchAssign.ElapsedMilliseconds
                 + " totalMs=" + stopwatchTotal.ElapsedMilliseconds

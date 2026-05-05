@@ -127,6 +127,33 @@ public sealed class BmsLibraryIrServiceTests
     }
 
     [TestMethod]
+    public void LoadIrDataWithMetrics_FiltersByLr2IdInSqlLoader()
+    {
+        using TempIrEnvironment env = TempIrEnvironment.Create();
+        BmsLibraryDbGateway gateway = env.CreateGateway();
+        gateway.UpsertIrData(new[]
+        {
+            new LR2IRData("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+            {
+                lr2id = 123,
+                rank = 10
+            },
+            new LR2IRData("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+            {
+                lr2id = 456,
+                rank = 20
+            }
+        });
+
+        IrDataLoadResult result = gateway.LoadIrDataWithMetrics(123);
+
+        Assert.AreEqual(1, result.Rows.Count);
+        Assert.AreEqual("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", result.Rows[0].hash);
+        Assert.IsTrue(result.DbReadMs >= 0);
+        Assert.IsTrue(result.MaterializeMs >= 0);
+    }
+
+    [TestMethod]
     public void RefreshRankingScoresFromCache_MissingDbRowReloadsXmlAndUpsertsOnce()
     {
         using TempIrEnvironment env = TempIrEnvironment.Create();

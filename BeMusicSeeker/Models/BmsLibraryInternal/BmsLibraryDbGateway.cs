@@ -336,6 +336,46 @@ internal sealed class BmsLibraryDbGateway
         return songDb.Table<BMSPackage>().ToList();
     }
 
+    public PlaylistEntriesHydrationLoadResult LoadStartupPlaylistEntries()
+    {
+        PlaylistEntriesHydrationLoadResult result = new PlaylistEntriesHydrationLoadResult();
+        using LR2SongDBExtended songDb = OpenSongDb();
+        string tableName = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetTableName();
+        string playlistIdColumn = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry entry) => entry.playlist_id);
+        string sql =
+            "SELECT "
+            + string.Join(", ", new[]
+            {
+                playlistIdColumn,
+                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry entry) => entry.md5),
+                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry entry) => entry.sha256),
+                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry entry) => entry.level),
+                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry entry) => entry.title),
+                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry entry) => entry.artist),
+                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry entry) => entry.folder),
+                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry entry) => entry.lr2_bmsid),
+                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry entry) => entry.url),
+                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry entry) => entry.url_diff),
+                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry entry) => entry.name_diff),
+                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry entry) => entry.org_md5),
+                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry entry) => entry.adddate),
+                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry entry) => entry.comment),
+                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry entry) => entry.memo),
+                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName((LR2SongDBExtended.playlist_entry entry) => entry.is_removed)
+            })
+            + " FROM " + tableName
+            + " WHERE " + playlistIdColumn + " IS NOT NULL;";
+        Stopwatch stopwatch = Stopwatch.StartNew();
+        using (BMSTableEntry.BeginBulkLoadParseSuppression())
+        {
+            result.Entries.AddRange(songDb.Query<BMSTableEntry>(sql));
+        }
+        stopwatch.Stop();
+        result.DbReadMs = stopwatch.ElapsedMilliseconds;
+        result.MaterializeMs = stopwatch.ElapsedMilliseconds;
+        return result;
+    }
+
     public void ReplaceSongPathWithMaintenance(BMSFile bmsFile, string oldPath)
     {
         if (bmsFile == null)
@@ -479,6 +519,34 @@ internal sealed class BmsLibraryDbGateway
             }
         }
         return dictionary;
+    }
+
+    public ChartInfoHydrationLoadResult LoadChartInfoHydrationData(TimeSpan parseTimeout)
+    {
+        ChartInfoHydrationLoadResult result = new ChartInfoHydrationLoadResult();
+        using LR2SongDBExtended songDb = OpenSongDb();
+        EnsureChartInfoSchema(songDb);
+        Stopwatch stopwatch = Stopwatch.StartNew();
+        foreach (LR2SongDBExtended.chart_info item in songDb.Table<LR2SongDBExtended.chart_info>())
+        {
+            result.ChartInfoRows++;
+            if (item != null && !string.IsNullOrWhiteSpace(item.sha256))
+            {
+                result.ChartInfoBySha256[item.sha256] = item;
+            }
+        }
+        foreach (LR2SongDBExtended.chart_info_parse_failure row in songDb.Table<LR2SongDBExtended.chart_info_parse_failure>())
+        {
+            result.ParseFailureRows++;
+            if (IsCurrentChartInfoParseFailure(row, parseTimeout))
+            {
+                result.CurrentParseFailuresByMd5[row.md5] = row;
+            }
+        }
+        stopwatch.Stop();
+        result.DbReadMs = stopwatch.ElapsedMilliseconds;
+        result.MaterializeMs = stopwatch.ElapsedMilliseconds;
+        return result;
     }
 
     /// <summary>
@@ -1092,8 +1160,21 @@ internal sealed class BmsLibraryDbGateway
 
     public List<LR2IRData> LoadIrData(int lr2Id)
     {
+        return LoadIrDataWithMetrics(lr2Id).Rows;
+    }
+
+    public IrDataLoadResult LoadIrDataWithMetrics(int lr2Id)
+    {
+        IrDataLoadResult result = new IrDataLoadResult();
         using LR2SongDBExtended songDb = OpenSongDb();
-        return songDb.Table<LR2IRData>().Where((LR2IRData s) => s.lr2id == lr2Id).ToList();
+        string tableName = SQLiteTable<LR2SongDBExtended.ir_data>.GetTableName();
+        string lr2IdColumn = SQLiteTable<LR2SongDBExtended.ir_data>.GetColumnName((LR2SongDBExtended.ir_data row) => row.lr2id);
+        Stopwatch stopwatch = Stopwatch.StartNew();
+        result.Rows.AddRange(songDb.Query<LR2IRData>("SELECT * FROM " + tableName + " WHERE " + lr2IdColumn + " = ?;", lr2Id));
+        stopwatch.Stop();
+        result.DbReadMs = stopwatch.ElapsedMilliseconds;
+        result.MaterializeMs = stopwatch.ElapsedMilliseconds;
+        return result;
     }
 
     public void UpsertIrData(IEnumerable<LR2IRData> irData)

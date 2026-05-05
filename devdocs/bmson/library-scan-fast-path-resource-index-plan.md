@@ -586,6 +586,38 @@ Phase 8D 後の `maintenance_hydration` は、`rows=210027`, `readMs=3298`, `mat
 
 次の優先は、通常起動の初期化全体を短くする観点では `playlist_entries_hydration` / `ranking_refresh_deferred` / `chart_info_hydration` の DB load・materialize 短縮、導入可能までを短くする観点では `everything_scan` / native bridge / catalog load の短縮である。
 
+### Phase 8H / 8I / 8J Normal Startup Measurement
+
+2026-05-05 19:15 の保留 package なし通常起動では、`--log-level=info` 付き Release 起動で次の結果になった。
+
+- install readiness / UI readiness
+  - `startup_install_estimation_ready elapsedMs=31712`
+  - `startup_ready_operable elapsedMs=32899`
+  - `pendingPackages=0`
+  - `pendingEstimateQueueBatches=0`
+- scan / file diff
+  - `song_tbl_file_check_breakdown scan_ms=30351`
+  - `native_bridge_ms=25275`
+  - `managed_decode_ms=2656`
+  - `managed_materialize_ms=2359`
+  - `resource_index_build_ms=2190`
+  - `deleted_count=0 added_count=0 db_commit_chunks=0`
+- startup background / initialization complete
+  - `startup_initialization_complete elapsedMs=64765`
+  - `playlist_entries_hydration lastMs=11375`
+  - `ranking_refresh_deferred lastMs=11004`
+  - `chart_info_hydration lastMs=10337`
+  - `maintenance_hydration lastMs=4339`
+  - `score_hydration_deferred lastMs=4817`
+
+Phase 8H の playlist projection は `projection=startup_entries`, `rows=556649`, `activeEntryCount=550207`, `removedEntryCount=6442`, `dbReadMs=10838`, `groupMs=59`, `assignMs=311`, `totalMs=11245` だった。旧 `Table<BMSTableEntry>().ToList()` 直接呼びを gateway loader へ寄せる整理は完了しているが、row 数自体はほぼ変わらないため、短縮幅は限定的である。playlist をさらに短くするには、startup で全 entry を full `BMSTableEntry` として持つ前提そのものを見直す必要がある。
+
+Phase 8I の ranking は `ranking_cache_refresh done elapsedMs=2828`, `irDataDbReadMs=242`, `dbRows=17708`, `xmlCheckMs=232`, `reloadTargets=99`, `upsertRows=0` で、cache refresh は軽い。一方 `ranking_refresh_deferred` は `irScoreMs=8156`, `irScoreXmlFetchMs=821`, `irScoreXmlParseMs=403`, `irScoreDbReplaceMs=6617`, `irScoreMergeMs=312`, `cacheMs=2838`, `elapsedMs=11004` で、支配要因は `ir_score` table replace である。次に ranking を短くするなら、player score XML が同一の場合に `ir_score` replace を skip する設計が本丸になる。
+
+Phase 8J の chart_info は `chartInfoRows=209904`, `parseFailureRows=24`, `dbLoadMs=9773`, `indexBuildMs=291`, `ownerApplyMs=229`, `backfillCandidateOwners=0`, `totalMs=10303` だった。owner apply と index build は軽く、支配要因は full `chart_info` row load である。ここは単純な loader 整理では短くならないため、persistent hydrated index / no-op skip / projection の仕様判断が必要である。
+
+この実測では `startup_initialization_complete` は Phase 8D baseline の `73932ms` から `64765ms` へ短縮した。ただし scan や DB のばらつきも含まれるため、Phase 8H は「大幅短縮」ではなく、DB hydration 方針統一と次フェーズ判断用の内訳取得として扱う。
+
 ### Phase 8D: Maintenance Snapshot Attach / Manual Rescan (implemented)
 
 - `maintenance` は通常、譜面が初めてライブラリへ導入された時点、または明示的な再スキャンで計算される persisted snapshot として扱う。通常起動では resource file の存在を全譜面で再検証しない。
@@ -610,18 +642,28 @@ Phase 8D 後の `maintenance_hydration` は、`rows=210027`, `readMs=3298`, `mat
 - `chart_info_hydration` は DB count / schema version / hydrated index state から no-op 判定できる範囲を増やす。ただし session index が未 hydrated の通常起動では必要な load と owner apply は維持する。
 - 現行通常起動では `backfillCandidateOwners=0` で backfill skip は効いている。残りは `dbLoadMs=10104` が支配的で、owner apply は `229ms` と軽い。次に触るなら DB projection / persistent hydrated index の設計が必要で、Phase 8D より後に回す。
 
-### Phase 8G: Playlist Entries Hydration Projection Reduction
+### Phase 8H: Playlist Entries Hydration Projection (implemented)
 
 - 現行通常起動では `playlist_entries_hydration totalMs=10943`、うち `dbLoadMs=10584` が支配的である。
-- playlist summary / detail / reference apply が必要とする projection を分け、通常起動で全 entry row を毎回 full model として materialize しない。
-- `playlist_ref_apply` は `1822ms` なので、まずは `playlist_entries_hydration` の DB load / materialize を削る。
-- external sync / URL completion とは責務を分け、DB projection 短縮で `startup_initialization_complete` の tail を削る。
+- startup hydration は `BmsLibraryDbGateway.LoadStartupPlaylistEntries()` を正本にし、`Table<BMSTableEntry>().ToList()` を直接呼ばない。
+- loader は `projection=startup_entries` として必要列を明示した SQL を使い、`playlist_id IS NOT NULL` の row だけを読む。
+- `is_removed` row は既存の playlist state 復元に必要なので読み込む。
+- grouping / assignment の意味は変えず、`playlist_id -> List<BMSTableEntry>` へまとめてから `BMSTable.entries` に attach する。
+- log は `playlist_entries_hydration projection=startup_entries rows=... dbReadMs=... materializeMs=... groupMs=... assignMs=... totalMs=...` とし、SQLite query/materialize elapsed と memory 側 grouping / assignment を分けて観測する。現行 sqlite-net `Query<T>` では reader と object materialize が一体なので、`dbReadMs` / `materializeMs` は同じ loader elapsed を示す。
 
-### Phase 8F: Ranking Score Table No-op Reduction
+### Phase 8I: Ranking DB Load Metrics / SQL Filter (implemented)
 
-- `updateLR2IRScoreTable()` の network fetch / DB replace / score merge を対象にする。
+- `setRankingScore()` が読む `ir_data` は `BmsLibraryDbGateway.LoadIrDataWithMetrics(lr2Id)` を使い、`WHERE lr2id = ?` の SQL loader で対象 LR2ID の row だけを materialize する。
+- `ranking_cache_refresh done` は `irDataDbReadMs` / `irDataMaterializeMs` を出し、cache XML check / reload / upsert と分けて確認できる。
+- `updateLR2IRScoreTable()` の network fetch / XML parse / DB replace / in-memory merge を `ranking_refresh_deferred done` に出す。
 - LR2IR player score XML の取得結果が前回 DB 内容と同一なら、`ir_score` table replace と `BMSScores` merge を skip できるようにする。
 - 実装する場合も `setRankingScore()` の cache delta refresh は維持し、ranking cache と score table の責務を混ぜない。
+
+### Phase 8J: Chart Info Hydration Loader Metrics (implemented)
+
+- `chart_info_hydration` は `BmsLibraryDbGateway.LoadChartInfoHydrationData()` を使い、`chart_info` と current parse failure を同一 gateway open の中で読む。
+- full `chart_info` row load は維持する。session index と owner apply の正本として row 実体が必要なため、projection 削減や persistent hydrated index は次単位に分ける。
+- log は `dbLoadMs` と `dbMaterializeMs`、`parseFailureRows`、owner counts を分け、`backfillCandidateOwners=0` の通常起動で no-op skip が維持されることを確認する。
 
 ### Key Changes
 
@@ -686,6 +728,8 @@ Phase 8D 後の `maintenance_hydration` は、`rows=210027`, `readMs=3298`, `mat
   - `rows`
 - `ranking_cache_refresh`
   - `dbReadMs`
+  - `irDataDbReadMs`
+  - `irDataMaterializeMs`
   - `dbRows`
   - `cacheFiles`
   - `xmlCheckMs`
@@ -697,8 +741,28 @@ Phase 8D 後の `maintenance_hydration` は、`rows=210027`, `readMs=3298`, `mat
   - `offlineEstimateXmlLoads`
 - `ranking_refresh_deferred`
   - `irScoreMs`
+  - `irScoreXmlFetchMs`
+  - `irScoreXmlParseMs`
+  - `irScoreDbReplaceMs`
+  - `irScoreMergeMs`
+  - `irScoreParsedRows`
   - `cacheMs`
   - `elapsedMs`
+- `playlist_entries_hydration`
+  - `projection=startup_entries`
+  - `rows`
+  - `dbReadMs`
+  - `materializeMs`
+  - `groupMs`
+  - `assignMs`
+  - `totalMs`
+- `chart_info_hydration`
+  - `dbLoadMs`
+  - `dbMaterializeMs`
+  - `chartInfoRows`
+  - `parseFailureRows`
+  - `ownerCount`
+  - `backfillCandidateOwners`
 
 旧実装が存在しないログ、テスト専用のログ、判断に使わないログは追加しない。
 

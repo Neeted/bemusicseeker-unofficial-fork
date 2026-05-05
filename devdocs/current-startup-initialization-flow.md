@@ -153,6 +153,8 @@ Phase 4B / 5A 以降、通常時の resource index は native bridge の canonic
 
 Phase 4B / 5A 追加修正後、native contract `2026050503` では旧 `base` field も chart-relative resource key hash を返す。base / relative が同じ category は native packed result 内で同じ blob を指し、managed decode と `DirectoryResourceLookupCache` materialize も配列を再利用する。startup の正本として `DirectoryRelativePathHashIndex` は構築しない。native reverse map は flat pair sort で作り、managed decode は native indices から `string[]` を直接作る。
 
+2026-05-05 19:15 の Phase 8H / 8I / 8J 実測では、`startup_install_estimation_ready=31712ms`、`startup_ready_operable=32899ms`、`startup_initialization_complete=64765ms` だった。`startup_background_summary` は `queued=9 started=9 completed=9 failed=0` で、主な内訳は `playlist_entries_hydration=11375ms`、`ranking_refresh_deferred=11004ms`、`chart_info_hydration=10337ms`、`score_hydration_deferred=4817ms`、`maintenance_hydration=4339ms` である。playlist は `projection=startup_entries` の gateway loader、ranking は `ir_data WHERE lr2id = ?` loader、chart_info は gateway hydration loader を使う。ranking の残コストは `irScoreDbReplaceMs=6617` が支配的であり、次に短縮する場合は player score XML が同一のときの `ir_score` replace skip を検討する。
+
 導入先推定に必要な情報は次の 3 つに整理する。
 
 - 所持 catalog: BMS / BMSON の path、hash、timestamp、installed membership、推定用代表 metadata。
@@ -188,6 +190,8 @@ ReloadFileDiff
 
 background task は、既に DB に存在している owner の補助情報を補完するためのものに限定する。
 
+Startup background の DB hydration は gateway 経由の明示 loader を使う。`Table<T>().ToList()` を worker 内で直接呼ぶ形は避け、loader ごとに projection 名、row count、SQLite query/materialize elapsed、group / assign の timing をログできるようにする。sqlite-net の `Query<T>` は reader と object materialize が一体なので、現行の `dbReadMs` / `materializeMs` は loader 境界の同一 elapsed を示す。これは playlist、chart_info、ranking のように初期化完了時間を支配しやすい処理で、DB 読み込み方針がばらつくことを防ぐためのルールである。
+
 | Task | 正本の責務 |
 | --- | --- |
 | `maintenance_hydration` | DB の既存 `maintenance` row を persisted health snapshot として memory owner へ in-place attach し、warning / health projection を更新する。orphan maintenance cleanup もここで行う |
@@ -195,6 +199,8 @@ background task は、既に DB に存在している owner の補助情報を�
 | full `chart_info` backfill | 旧 DB や外部操作により不足している `chart_info` を補完する。hydration 時点で全 owner が current 済みなら skip する |
 | `installable_maintenance_deferred` | `maintenance_hydration` と `chart_info_hydration` の完了後、DB 由来の missing/stale maintenance を補完する |
 | score / ranking / playlist hydration | 操作可能後に反映できる DB 由来データを適用する |
+
+`playlist_entries_hydration` は `projection=startup_entries` の gateway loader で `playlist_id IS NOT NULL` の playlist entry だけを読み、active / removed row の両方を既存 semantics のまま memory table へ attach する。`ranking_refresh_deferred` は `ir_data` を `WHERE lr2id = ?` で読み、`ranking_cache_refresh` と LR2IR score table 更新の内訳を分けてログする。`chart_info_hydration` は full row load を維持するが、`chart_info` と current parse failure を gateway loader で読み、DB read と materialize を分けて観測する。
 
 新規・更新ファイル由来の `chart_info` と maintenance を background へ押し出さない。
 

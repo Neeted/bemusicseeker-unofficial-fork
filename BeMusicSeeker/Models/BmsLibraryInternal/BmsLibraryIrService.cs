@@ -234,22 +234,32 @@ internal sealed class BmsLibraryIrService
 
     public List<LR2IRScore> UpdateIrScoreTable(int lr2Id, BmsLibraryDbGateway dbGateway, IBmsLibraryIrClient irClient, Regex lr2IrScoreRegex)
     {
+        return UpdateIrScoreTableWithMetrics(lr2Id, dbGateway, irClient, lr2IrScoreRegex).ScoreTable;
+    }
+
+    public IrScoreTableUpdateResult UpdateIrScoreTableWithMetrics(int lr2Id, BmsLibraryDbGateway dbGateway, IBmsLibraryIrClient irClient, Regex lr2IrScoreRegex)
+    {
+        IrScoreTableUpdateResult result = new IrScoreTableUpdateResult();
         if (dbGateway == null || irClient == null || lr2IrScoreRegex == null || lr2Id == 0 || string.IsNullOrWhiteSpace(dbGateway.ScoreDbPath))
         {
-            return null;
+            return result;
         }
         string playerXml;
         try
         {
+            Stopwatch fetchStopwatch = Stopwatch.StartNew();
             playerXml = irClient.GetPlayerScoresXml(lr2Id);
+            fetchStopwatch.Stop();
+            result.XmlFetchMs = fetchStopwatch.ElapsedMilliseconds;
         }
         catch
         {
-            return null;
+            return result;
         }
         List<LR2IRScore> scoreTable;
         try
         {
+            Stopwatch parseStopwatch = Stopwatch.StartNew();
             scoreTable = (from e in lr2IrScoreRegex.Matches(playerXml).Cast<Match>().Select(delegate (Match m)
                 {
                     try
@@ -277,20 +287,27 @@ internal sealed class BmsLibraryIrService
                           where e != null
                           group e by e.hash into e
                           select e.First()).ToList();
+            parseStopwatch.Stop();
+            result.XmlParseMs = parseStopwatch.ElapsedMilliseconds;
+            result.ParsedRows = scoreTable.Count;
         }
         catch
         {
-            return null;
+            return result;
         }
         try
         {
+            Stopwatch dbStopwatch = Stopwatch.StartNew();
             dbGateway.ReplaceIrScoreTable(scoreTable);
+            dbStopwatch.Stop();
+            result.DbReplaceMs = dbStopwatch.ElapsedMilliseconds;
         }
         catch
         {
-            return null;
+            return result;
         }
-        return scoreTable;
+        result.ScoreTable = scoreTable;
+        return result;
     }
 
     public List<BMSScore> UpdateBmsScores(List<LR2IRScore> scoreTable, List<BMSScore> currentScores, IEnumerable<BMSFile> bmsFiles)
@@ -349,7 +366,12 @@ internal sealed class BmsLibraryIrService
 
     public List<LR2IRData> LoadIrData(int lr2Id, BmsLibraryDbGateway dbGateway)
     {
-        return dbGateway?.LoadIrData(lr2Id) ?? new List<LR2IRData>();
+        return LoadIrDataWithMetrics(lr2Id, dbGateway).Rows;
+    }
+
+    public IrDataLoadResult LoadIrDataWithMetrics(int lr2Id, BmsLibraryDbGateway dbGateway)
+    {
+        return dbGateway?.LoadIrDataWithMetrics(lr2Id) ?? new IrDataLoadResult();
     }
 
     public List<BMSLibrary.IRDataCacheInfo> GetIRDataNeedUpdates(int lr2Id, IEnumerable<string> md5s, BmsLibraryDbGateway dbGateway, IBmsLibraryIrClient irClient, Uri rankingInfoUrl)
@@ -473,10 +495,11 @@ internal sealed class BmsLibraryIrService
         List<LR2IRData> irDataDb;
         try
         {
-            Stopwatch dbReadStopwatch = Stopwatch.StartNew();
-            irDataDb = LoadIrData(lr2Id, dbGateway);
-            dbReadStopwatch.Stop();
-            result.DbReadMs = dbReadStopwatch.ElapsedMilliseconds;
+            IrDataLoadResult loadResult = LoadIrDataWithMetrics(lr2Id, dbGateway);
+            irDataDb = loadResult.Rows;
+            result.DbReadMs = loadResult.DbReadMs;
+            result.IrDataDbReadMs = loadResult.DbReadMs;
+            result.IrDataMaterializeMs = loadResult.MaterializeMs;
         }
         catch
         {

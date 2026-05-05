@@ -2343,6 +2343,8 @@ public class BMSLibrary : NotificationObject
     {
         public int TotalRows { get; set; }
 
+        public int ChartInfoRows { get; set; }
+
         public int AppliedBmsCount { get; set; }
 
         public int AppliedBmsonCount { get; set; }
@@ -2368,6 +2370,10 @@ public class BMSLibrary : NotificationObject
         public long ApplyMs { get; set; }
 
         public long DbLoadMs { get; set; }
+
+        public long DbMaterializeMs { get; set; }
+
+        public int ParseFailureRows { get; set; }
 
         public long IndexBuildMs { get; set; }
 
@@ -4273,6 +4279,7 @@ public class BMSLibrary : NotificationObject
             LogInstallPerformance("chart_info_hydration done version=" + requestVersion
                 + " reason=" + (reason ?? "unknown")
                 + " totalRows=" + result.TotalRows
+                + " chartInfoRows=" + result.ChartInfoRows
                 + " appliedBms=" + result.AppliedBmsCount
                 + " appliedBmson=" + result.AppliedBmsonCount
                 + " ownerApplyUpdated=" + result.OwnerApplyUpdatedCount
@@ -4284,6 +4291,8 @@ public class BMSLibrary : NotificationObject
                 + " currentParseFailureOwners=" + result.CurrentParseFailureOwnerCount
                 + " backfillCandidateOwners=" + result.BackfillCandidateOwnerCount
                 + " dbLoadMs=" + result.DbLoadMs
+                + " dbMaterializeMs=" + result.DbMaterializeMs
+                + " parseFailureRows=" + result.ParseFailureRows
                 + " indexBuildMs=" + result.IndexBuildMs
                 + " ownerApplyMs=" + result.OwnerApplyMs
                 + " totalMs=" + result.TotalMs);
@@ -4344,23 +4353,35 @@ public class BMSLibrary : NotificationObject
         Stopwatch loadStopwatch = Stopwatch.StartNew();
         try
         {
-            chartInfoMap = dbGateway.LoadChartInfoMap();
-            currentParseFailures = dbGateway.LoadCurrentChartInfoParseFailureMap(chartInfoBuildService.CurrentParseTimeout);
+            ChartInfoHydrationLoadResult loadResult = dbGateway.LoadChartInfoHydrationData(chartInfoBuildService.CurrentParseTimeout);
+            chartInfoMap = loadResult.ChartInfoBySha256;
+            currentParseFailures = loadResult.CurrentParseFailuresByMd5;
+            result.ParseFailureRows = loadResult.ParseFailureRows;
+            result.ChartInfoRows = loadResult.ChartInfoRows;
+            result.DbMaterializeMs = loadResult.MaterializeMs;
+            result.DbLoadMs = loadResult.DbReadMs;
         }
         catch (Exception ex)
         {
             loadStopwatch.Stop();
             totalStopwatch.Stop();
-            result.DbLoadMs = loadStopwatch.ElapsedMilliseconds;
+            result.DbLoadMs = result.DbLoadMs == 0 ? loadStopwatch.ElapsedMilliseconds : result.DbLoadMs;
             result.LoadMs = result.DbLoadMs;
             result.TotalMs = totalStopwatch.ElapsedMilliseconds;
             LogInstallPerformance("chart_info_hydration failed reason=" + (reason ?? "unknown") + " message=" + ex.Message);
             return result;
         }
         loadStopwatch.Stop();
-        result.DbLoadMs = loadStopwatch.ElapsedMilliseconds;
+        if (result.DbLoadMs == 0)
+        {
+            result.DbLoadMs = loadStopwatch.ElapsedMilliseconds;
+        }
         result.LoadMs = result.DbLoadMs;
         result.TotalRows = chartInfoMap.Count;
+        if (result.ChartInfoRows == 0)
+        {
+            result.ChartInfoRows = chartInfoMap.Count;
+        }
         Stopwatch indexStopwatch = Stopwatch.StartNew();
         ChartInfoIndexUpdateResult indexUpdateResult = ReplaceChartInfoIndex(chartInfoMap.Values, hydrated: true);
         indexStopwatch.Stop();
@@ -5642,7 +5663,15 @@ public class BMSLibrary : NotificationObject
                 LogInstallPerformance("ranking_refresh_deferred run version=" + requestVersion);
                 RankingRefreshRunResult result = RunDeferredRankingRefresh(requestVersion);
                 stopwatch.Stop();
-                LogInstallPerformance("ranking_refresh_deferred done version=" + requestVersion + " irScoreMs=" + result.IrScoreMs + " cacheMs=" + result.CacheMs + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
+                LogInstallPerformance("ranking_refresh_deferred done version=" + requestVersion
+                    + " irScoreMs=" + result.IrScoreMs
+                    + " irScoreXmlFetchMs=" + result.IrScoreXmlFetchMs
+                    + " irScoreXmlParseMs=" + result.IrScoreXmlParseMs
+                    + " irScoreDbReplaceMs=" + result.IrScoreDbReplaceMs
+                    + " irScoreMergeMs=" + result.IrScoreMergeMs
+                    + " irScoreParsedRows=" + result.IrScoreParsedRows
+                    + " cacheMs=" + result.CacheMs
+                    + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
                 ReportStartupBackgroundTask("ranking_refresh_deferred", "done", stopwatch.ElapsedMilliseconds, failed: false);
             }
             catch (OperationCanceledException)
@@ -5741,6 +5770,16 @@ public class BMSLibrary : NotificationObject
     {
         public long IrScoreMs { get; set; }
 
+        public long IrScoreXmlFetchMs { get; set; }
+
+        public long IrScoreXmlParseMs { get; set; }
+
+        public long IrScoreDbReplaceMs { get; set; }
+
+        public long IrScoreMergeMs { get; set; }
+
+        public int IrScoreParsedRows { get; set; }
+
         public long CacheMs { get; set; }
     }
 
@@ -5752,13 +5791,21 @@ public class BMSLibrary : NotificationObject
             return result;
         }
         Stopwatch irScoreStopwatch = Stopwatch.StartNew();
-        List<LR2IRScore> scoreTable = updateLR2IRScoreTable();
+        IrScoreTableUpdateResult irScoreUpdateResult = updateLR2IRScoreTableWithMetrics();
+        List<LR2IRScore> scoreTable = irScoreUpdateResult.ScoreTable;
+        result.IrScoreXmlFetchMs = irScoreUpdateResult.XmlFetchMs;
+        result.IrScoreXmlParseMs = irScoreUpdateResult.XmlParseMs;
+        result.IrScoreDbReplaceMs = irScoreUpdateResult.DbReplaceMs;
+        result.IrScoreParsedRows = irScoreUpdateResult.ParsedRows;
         if (IsDeferredRankingRefreshRequestSuperseded(requestVersion))
         {
             throw new OperationCanceledException();
         }
+        Stopwatch mergeStopwatch = Stopwatch.StartNew();
         updateBMSScores(scoreTable);
         RefreshScoreSnapshotFromCurrentScores("deferred_ranking_refresh_ir_score");
+        mergeStopwatch.Stop();
+        result.IrScoreMergeMs = mergeStopwatch.ElapsedMilliseconds;
         irScoreStopwatch.Stop();
         result.IrScoreMs = irScoreStopwatch.ElapsedMilliseconds;
         if (IsDeferredRankingRefreshRequestSuperseded(requestVersion))
@@ -6391,7 +6438,12 @@ public class BMSLibrary : NotificationObject
 
     private List<LR2IRScore> updateLR2IRScoreTable()
     {
-        return irService.UpdateIrScoreTable(LR2ID, dbGateway, irClient, lr2IRScoreRegex);
+        return updateLR2IRScoreTableWithMetrics().ScoreTable;
+    }
+
+    private IrScoreTableUpdateResult updateLR2IRScoreTableWithMetrics()
+    {
+        return irService.UpdateIrScoreTableWithMetrics(LR2ID, dbGateway, irClient, lr2IRScoreRegex);
     }
 
     private void updateBMSScores(List<LR2IRScore> scoreTable)
@@ -6435,6 +6487,8 @@ public class BMSLibrary : NotificationObject
         result.ElapsedMs = stopwatch.ElapsedMilliseconds;
         LogInstallPerformance("ranking_cache_refresh done elapsedMs=" + result.ElapsedMs
             + " dbReadMs=" + result.DbReadMs
+            + " irDataDbReadMs=" + result.IrDataDbReadMs
+            + " irDataMaterializeMs=" + result.IrDataMaterializeMs
             + " dbRows=" + result.DbRows
             + " indexBuildMs=" + result.IndexBuildMs
             + " cacheFiles=" + result.CacheFilesScanned
