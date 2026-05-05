@@ -1201,9 +1201,8 @@ public sealed class BmsLibraryMaintenanceServiceTests
     }
 
     [TestMethod]
-    public void CleanupMaintenanceTable_KeepsBmsonRows()
+    public void DeleteMaintenanceRows_DeletesOnlyRequestedRows()
     {
-        BmsLibraryMaintenanceService service = new BmsLibraryMaintenanceService();
         string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectoryPath);
         string songDbPath = Path.Combine(tempDirectoryPath, "song.db");
@@ -1220,7 +1219,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
                 songDb.InsertOrReplace(new BMSFileMaintenanceInfo { path = Path.Combine(tempDirectoryPath, "stale.bms"), hash = "cccccccccccccccccccccccccccccccc" }, typeof(LR2SongDBExtended.maintenance));
             }
 
-            int deleted = service.CleanupMaintenanceTable(new BMSFile[] { bms, bmson }, new BmsLibraryDbGateway(songDbPath));
+            int deleted = new BmsLibraryDbGateway(songDbPath).DeleteMaintenanceRows(new[] { Path.Combine(tempDirectoryPath, "stale.bms") });
 
             Assert.AreEqual(1, deleted);
             using (LR2SongDBExtended songDb = new LR2SongDBExtended(songDbPath))

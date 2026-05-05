@@ -3906,9 +3906,9 @@ public class MainWindowViewModel : ViewModel
 
         internal int PlaylistRefDeferredLastCompletedVersion;
 
-        internal bool MaintenanceDeferredRunning;
+        internal bool MaintenanceHydrationRunning;
 
-        internal int MaintenanceDeferredLastCompletedVersion;
+        internal int MaintenanceHydrationLastCompletedVersion;
 
         internal string PlaylistLibraryIndexState = "inline";
 
@@ -5828,11 +5828,6 @@ public class MainWindowViewModel : ViewModel
             playlistRefRunning = deferredPlaylistRefRunning;
             playlistRefLastCompletedVersion = deferredPlaylistRefLastCompletedVersion;
         }
-        BeMusicSeeker.Models.BMSLibrary.DeferredMaintenanceTableCheckState maintenanceState = default(BeMusicSeeker.Models.BMSLibrary.DeferredMaintenanceTableCheckState);
-        if (files != null)
-        {
-            maintenanceState = files.GetDeferredMaintenanceTableCheckStateForDiagnostics();
-        }
         BeMusicSeeker.Models.BMSLibrary.ScoreRuntimeState scoreState = default(BeMusicSeeker.Models.BMSLibrary.ScoreRuntimeState);
         if (files != null)
         {
@@ -5846,8 +5841,8 @@ public class MainWindowViewModel : ViewModel
             StartupReadyOperableReached = startupReadyOperableReached,
             PlaylistRefDeferredRunning = playlistRefRunning,
             PlaylistRefDeferredLastCompletedVersion = playlistRefLastCompletedVersion,
-            MaintenanceDeferredRunning = maintenanceState.Running,
-            MaintenanceDeferredLastCompletedVersion = maintenanceState.LastCompletedVersion,
+            MaintenanceHydrationRunning = files?.MaintenanceHydrationRunning ?? false,
+            MaintenanceHydrationLastCompletedVersion = files?.MaintenanceHydrationCompletedVersion ?? 0,
             PlaylistLibraryIndexState = libraryIndexSnapshot.State,
             PlaylistLibraryIndexBuildMs = libraryIndexSnapshot.BuildElapsedMs,
             ScoreSnapshotReady = scoreState.SnapshotReady,
@@ -5913,7 +5908,7 @@ public class MainWindowViewModel : ViewModel
             playlistViewState.CurrentOpenInteraction = interaction;
         }
         LogPlaylistOpen("playlist_open_request requestVersion=" + request.RequestVersion + " requestedMode=" + request.RequestedMode + " mode=" + request.Mode + " table=" + FormatPlaylistTableNameForLog(request.Identity.Table) + " folder=" + FormatPlaylistFolderNameForLog(request.Identity.FolderName) + " filterType=" + request.Identity.FilterType);
-        LogPlaylistOpen("playlist_open_ready_state requestVersion=" + request.RequestVersion + " startupReadyDataReached=" + readiness.StartupReadyDataReached.ToString().ToLowerInvariant() + " startupReadyUiReached=" + readiness.StartupReadyUiReached.ToString().ToLowerInvariant() + " startupReadyOperableReached=" + readiness.StartupReadyOperableReached.ToString().ToLowerInvariant() + " playlistRefDeferredRunning=" + readiness.PlaylistRefDeferredRunning.ToString().ToLowerInvariant() + " playlistRefDeferredLastCompletedVersion=" + readiness.PlaylistRefDeferredLastCompletedVersion + " maintenanceDeferredRunning=" + readiness.MaintenanceDeferredRunning.ToString().ToLowerInvariant() + " maintenanceDeferredLastCompletedVersion=" + readiness.MaintenanceDeferredLastCompletedVersion + " playlistLibraryIndexState=" + readiness.PlaylistLibraryIndexState + " playlistLibraryIndexBuildMs=" + readiness.PlaylistLibraryIndexBuildMs + " scoreSnapshotReady=" + readiness.ScoreSnapshotReady.ToString().ToLowerInvariant() + " scoreSnapshotVersion=" + readiness.ScoreSnapshotVersion + " scoreHydrationRunning=" + readiness.ScoreHydrationRunning.ToString().ToLowerInvariant() + " scoreHydrationCompletedVersion=" + readiness.ScoreHydrationCompletedVersion + " rankingRefreshRunning=" + readiness.RankingRefreshRunning.ToString().ToLowerInvariant() + " rankingRefreshCompletedVersion=" + readiness.RankingRefreshCompletedVersion);
+        LogPlaylistOpen("playlist_open_ready_state requestVersion=" + request.RequestVersion + " startupReadyDataReached=" + readiness.StartupReadyDataReached.ToString().ToLowerInvariant() + " startupReadyUiReached=" + readiness.StartupReadyUiReached.ToString().ToLowerInvariant() + " startupReadyOperableReached=" + readiness.StartupReadyOperableReached.ToString().ToLowerInvariant() + " playlistRefDeferredRunning=" + readiness.PlaylistRefDeferredRunning.ToString().ToLowerInvariant() + " playlistRefDeferredLastCompletedVersion=" + readiness.PlaylistRefDeferredLastCompletedVersion + " maintenanceHydrationRunning=" + readiness.MaintenanceHydrationRunning.ToString().ToLowerInvariant() + " maintenanceHydrationLastCompletedVersion=" + readiness.MaintenanceHydrationLastCompletedVersion + " playlistLibraryIndexState=" + readiness.PlaylistLibraryIndexState + " playlistLibraryIndexBuildMs=" + readiness.PlaylistLibraryIndexBuildMs + " scoreSnapshotReady=" + readiness.ScoreSnapshotReady.ToString().ToLowerInvariant() + " scoreSnapshotVersion=" + readiness.ScoreSnapshotVersion + " scoreHydrationRunning=" + readiness.ScoreHydrationRunning.ToString().ToLowerInvariant() + " scoreHydrationCompletedVersion=" + readiness.ScoreHydrationCompletedVersion + " rankingRefreshRunning=" + readiness.RankingRefreshRunning.ToString().ToLowerInvariant() + " rankingRefreshCompletedVersion=" + readiness.RankingRefreshCompletedVersion);
     }
 
     /// <summary>
@@ -10024,13 +10019,13 @@ public class MainWindowViewModel : ViewModel
             RefreshLibraryMainViewForCurrentFilter();
             RefreshPlaylistSummaryIfVisible("ranking_refresh_completed");
         });
-        listenerForBMSLibrary.RegisterHandler(() => files.MaintenanceDeferredRequestedVersion, delegate
+        listenerForBMSLibrary.RegisterHandler(() => files.MaintenanceHydrationRequestedVersion, delegate
         {
-            TrackStartupProgressMaintenanceRequested(files.MaintenanceDeferredRequestedVersion);
+            TrackStartupProgressMaintenanceRequested(files.MaintenanceHydrationRequestedVersion);
         });
-        listenerForBMSLibrary.RegisterHandler(() => files.MaintenanceDeferredCompletedVersion, delegate
+        listenerForBMSLibrary.RegisterHandler(() => files.MaintenanceHydrationCompletedVersion, delegate
         {
-            TryCompleteStartupProgressMaintenance(files.MaintenanceDeferredCompletedVersion);
+            TryCompleteStartupProgressMaintenance(files.MaintenanceHydrationCompletedVersion);
         });
         listenerForBMSLibrary.RegisterHandler(() => files.InstallableMaintenanceDeferredRequestedVersion, delegate
         {
@@ -13367,7 +13362,7 @@ public class MainWindowViewModel : ViewModel
             ScoreHydrationRequestedBaselineVersion = files?.ScoreHydrationRequestedVersion ?? 0,
             RankingRefreshBaselineCompletedVersion = files?.RankingRefreshCompletedVersion ?? 0,
             RankingRefreshRequestedBaselineVersion = files?.RankingRefreshRequestedVersion ?? 0,
-            MaintenanceRequestedBaselineVersion = files?.MaintenanceDeferredRequestedVersion ?? 0,
+            MaintenanceRequestedBaselineVersion = files?.MaintenanceHydrationRequestedVersion ?? 0,
             InstallableMaintenanceRequestedBaselineVersion = files?.InstallableMaintenanceDeferredRequestedVersion ?? 0,
             ReverseLookupWarmupRequestedBaselineVersion = files?.ReverseLookupWarmupRequestedVersion ?? 0,
             ChartDigestBackfillBaselineCompletedVersion = files?.ChartDigestBackfillCompletedVersion ?? 0,

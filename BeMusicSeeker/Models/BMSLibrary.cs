@@ -155,18 +155,6 @@ public class BMSLibrary : NotificationObject
         internal PendingEstimateSourceBatchSnapshot BatchSourceSnapshot { get; set; }
     }
 
-    /// <summary>
-    /// deferred maintenance table check の進行状態を表します。
-    /// </summary>
-    internal struct DeferredMaintenanceTableCheckState
-    {
-        internal bool Running;
-
-        internal int RequestedVersion;
-
-        internal int LastCompletedVersion;
-    }
-
     private static readonly Logger installPerformanceLogger = LogManager.GetLogger("InstallPerformance.BMSLibrary");
 
     private static readonly Logger everythingVerifyLogger = LogManager.GetLogger("Verify.Everything");
@@ -796,14 +784,6 @@ public class BMSLibrary : NotificationObject
 
     private ReaderWriterLockSlimWrapper rwlockSongDBMaintenance = new ReaderWriterLockSlimWrapper();
 
-    private int deferredMaintenanceTableCheckRequestedVersion;
-
-    private bool deferredMaintenanceTableCheckRunning;
-
-    private int deferredMaintenanceTableCheckLastCompletedVersion;
-
-    private readonly object lockDeferredMaintenanceTableCheck = new object();
-
     private int deferredInstallableMaintenanceRequestedVersion;
 
     private bool deferredInstallableMaintenanceRunning;
@@ -948,15 +928,9 @@ public class BMSLibrary : NotificationObject
 
     private int _RankingRefreshCompletedVersion;
 
-    private bool _MaintenanceDeferredRunning;
-
     private int _PendingEstimateQueueStatusVersion;
 
     private int _InstallEstimationProgressVersion;
-
-    private int _MaintenanceDeferredRequestedVersion;
-
-    private int _MaintenanceDeferredCompletedVersion;
 
     private bool _ChartDigestBackfillRunning;
 
@@ -1530,25 +1504,6 @@ public class BMSLibrary : NotificationObject
         }
     }
 
-    /// <summary>
-    /// deferred maintenance table check worker が現在実行中かどうかを返します。
-    /// </summary>
-    public bool MaintenanceDeferredRunning
-    {
-        get
-        {
-            return _MaintenanceDeferredRunning;
-        }
-        private set
-        {
-            if (_MaintenanceDeferredRunning != value)
-            {
-                _MaintenanceDeferredRunning = value;
-                RaisePropertyChanged(() => MaintenanceDeferredRunning);
-            }
-        }
-    }
-
     public int PendingEstimateQueueStatusVersion
     {
         get
@@ -1577,44 +1532,6 @@ public class BMSLibrary : NotificationObject
             {
                 _InstallEstimationProgressVersion = value;
                 RaisePropertyChanged(() => InstallEstimationProgressVersion);
-            }
-        }
-    }
-
-    /// <summary>
-    /// 最後に要求された deferred maintenance table check の版数です。
-    /// </summary>
-    public int MaintenanceDeferredRequestedVersion
-    {
-        get
-        {
-            return _MaintenanceDeferredRequestedVersion;
-        }
-        private set
-        {
-            if (_MaintenanceDeferredRequestedVersion != value)
-            {
-                _MaintenanceDeferredRequestedVersion = value;
-                RaisePropertyChanged(() => MaintenanceDeferredRequestedVersion);
-            }
-        }
-    }
-
-    /// <summary>
-    /// 最後に完了した deferred maintenance table check の版数です。
-    /// </summary>
-    public int MaintenanceDeferredCompletedVersion
-    {
-        get
-        {
-            return _MaintenanceDeferredCompletedVersion;
-        }
-        private set
-        {
-            if (_MaintenanceDeferredCompletedVersion != value)
-            {
-                _MaintenanceDeferredCompletedVersion = value;
-                RaisePropertyChanged(() => MaintenanceDeferredCompletedVersion);
             }
         }
     }
@@ -2513,6 +2430,14 @@ public class BMSLibrary : NotificationObject
 
         public int OwnerApplyNotifiedCount { get; set; }
 
+        public int OwnerCount { get; set; }
+
+        public int CurrentChartInfoOwnerCount { get; set; }
+
+        public int CurrentParseFailureOwnerCount { get; set; }
+
+        public int BackfillCandidateOwnerCount { get; set; }
+
         public long LoadMs { get; set; }
 
         public long ApplyMs { get; set; }
@@ -2524,6 +2449,8 @@ public class BMSLibrary : NotificationObject
         public long OwnerApplyMs { get; set; }
 
         public long TotalMs { get; set; }
+
+        public bool Succeeded { get; set; }
     }
 
     private sealed class ChartInfoIndexUpdateResult
@@ -3854,7 +3781,6 @@ public class BMSLibrary : NotificationObject
     public void Initialize(List<Action> tasksContinuation, SemaphoreSlim semaphore, LibraryInitializeMode mode)
     {
         BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
-        bool scheduleDeferredMaintenanceTableCheck = false;
         bool scheduleDeferredInstallableMaintenance = false;
         string deferredMaintenanceReason = mode == LibraryInitializeMode.FullReinitialize ? "full_reinitialize" : "initialize";
         bool isScoreOnly = mode == LibraryInitializeMode.ScoreOnly;
@@ -3908,7 +3834,7 @@ public class BMSLibrary : NotificationObject
                 {
                     using (rwlockBMSFilesInitializedMin.GetWriterGuard())
                     {
-                        _initialize(songTblLoad, scoreTblrLoad: true, songTblFileCheck: false, setMainteInfo: false, updateIrScore: false, installTblCheck: false, maintenanceTblCheck: false, bmsScanPrefetchInfo: null, trackLibraryDatabaseProgress: true);
+                        _initialize(songTblLoad, scoreTblrLoad: true, songTblFileCheck: false, setMainteInfo: false, updateIrScore: false, installTblCheck: false, bmsScanPrefetchInfo: null, trackLibraryDatabaseProgress: true);
                         if (songTblLoad)
                         {
                             startupInstallReadinessState.MarkCatalogLoaded();
@@ -3930,7 +3856,7 @@ public class BMSLibrary : NotificationObject
                             bmsScanPrefetchInfo = null;
                         }
                     }
-                    _initialize(songTblLoad: false, scoreTblrLoad: false, songTblFileCheck, setMainteInfo: false, updateIrScore: true, installTblCheck: false, maintenanceTblCheck: false, bmsScanPrefetchInfo, trackLibraryFileCheckProgress: true);
+                    _initialize(songTblLoad: false, scoreTblrLoad: false, songTblFileCheck, setMainteInfo: false, updateIrScore: true, installTblCheck: false, bmsScanPrefetchInfo, trackLibraryFileCheckProgress: true);
                     if (!isScoreOnly)
                     {
                         startupInstallReadinessState.MarkDestinationResourceIndexReady();
@@ -3938,13 +3864,12 @@ public class BMSLibrary : NotificationObject
                 },
                 delegate
                 {
-                    _initialize(songTblLoad: false, scoreTblrLoad: false, songTblFileCheck: false, setMainteInfo: false, updateIrScore: false, flag, maintenanceTblCheck: false);
+                    _initialize(songTblLoad: false, scoreTblrLoad: false, songTblFileCheck: false, setMainteInfo: false, updateIrScore: false, flag);
                     if (flag)
                     {
                         startupInstallReadinessState.MarkPendingPackagesRestored();
                     }
                 });
-            scheduleDeferredMaintenanceTableCheck = flag;
             scheduleDeferredInstallableMaintenance = setMaintenanceInfo;
             TimeSpan timeSpan = DateTime.Now - now;
             NLogWrapper.DebuggerLogger?.Trace(timeSpan.ToString());
@@ -4026,10 +3951,6 @@ public class BMSLibrary : NotificationObject
         QueueDeferredReverseLookupWarmup(deferredMaintenanceReason);
         TimeSpan timeSpan2 = DateTime.Now - now;
         NLogWrapper.DebuggerLogger?.Trace(timeSpan2.ToString());
-        if (scheduleDeferredMaintenanceTableCheck)
-        {
-            ScheduleDeferredMaintenanceTableCheck(deferredMaintenanceReason);
-        }
         bool chartInfoHydrationScheduled = false;
         if (!isScoreOnly)
         {
@@ -4060,7 +3981,7 @@ public class BMSLibrary : NotificationObject
         }
         GC.Collect();
         NLogWrapper.DebuggerLogger?.Trace("owari: " + GC.GetTotalMemory(forceFullCollection: false));
-        LogInstallPerformance("init_library phase1_min_load_ms=" + initializeResult.Phase1MinLoadMs + " phase2_scan_maint_ms=" + initializeResult.Phase2ScanMaintMs + " phase3_install_maintenance_ms=" + initializeResult.Phase3InstallMaintenanceMs + " wait_continuation_ms=" + initializeResult.WaitContinuationMs + " wait_continuation_start_ms=" + initializeResult.WaitBeforeContinuationStartMs + " wait_continuation_signal_ms=" + initializeResult.WaitForContinuationSignalMs + " wait_continuation_tasks_ms=" + initializeResult.WaitForContinuationTasksMs + " total_ms=" + initializeResult.TotalMs + " maintenance_tbl_check_deferred=" + scheduleDeferredMaintenanceTableCheck.ToString().ToLowerInvariant() + " set_maintenance_enabled=" + setMaintenanceInfo.ToString().ToLowerInvariant());
+        LogInstallPerformance("init_library phase1_min_load_ms=" + initializeResult.Phase1MinLoadMs + " phase2_scan_maint_ms=" + initializeResult.Phase2ScanMaintMs + " phase3_install_maintenance_ms=" + initializeResult.Phase3InstallMaintenanceMs + " wait_continuation_ms=" + initializeResult.WaitContinuationMs + " wait_continuation_start_ms=" + initializeResult.WaitBeforeContinuationStartMs + " wait_continuation_signal_ms=" + initializeResult.WaitForContinuationSignalMs + " wait_continuation_tasks_ms=" + initializeResult.WaitForContinuationTasksMs + " total_ms=" + initializeResult.TotalMs + " set_maintenance_enabled=" + setMaintenanceInfo.ToString().ToLowerInvariant());
     }
 
     private void TryImportChartInfoMetadataBundleAtStartup()
@@ -4101,7 +4022,6 @@ public class BMSLibrary : NotificationObject
         bool setMainteInfo = true,
         bool updateIrScore = true,
         bool installTblCheck = true,
-        bool maintenanceTblCheck = true,
         BmsScanPrefetchInfo bmsScanPrefetchInfo = null,
         bool trackLibraryDatabaseProgress = false,
         bool trackLibraryFileCheckProgress = false)
@@ -4116,7 +4036,6 @@ public class BMSLibrary : NotificationObject
         long setZeroNoteMs = 0L;
         long installTblCheckMs = 0L;
         long rebuildHashIndexMs = 0L;
-        long maintenanceTblCheckMs = 0L;
         BmsLibraryOptionsSnapshot options = BmsLibraryOptionsSnapshot.CreateCurrent();
         List<string> bMSDirectories = getBMSDirectories();
         if (bMSDirectories.Count == 0)
@@ -4257,16 +4176,8 @@ public class BMSLibrary : NotificationObject
         }
         stopwatchRebuildHashIndex.Stop();
         rebuildHashIndexMs = stopwatchRebuildHashIndex.ElapsedMilliseconds;
-        if (maintenanceTblCheck)
-        {
-            Stopwatch stopwatchMaintenanceTblCheck = Stopwatch.StartNew();
-            int maintenanceDeleted = CleanupMaintenanceTable();
-            stopwatchMaintenanceTblCheck.Stop();
-            maintenanceTblCheckMs = stopwatchMaintenanceTblCheck.ElapsedMilliseconds;
-            LogInstallPerformance("maintenance_tbl_check mode=immediate deleted=" + maintenanceDeleted + " elapsedMs=" + maintenanceTblCheckMs);
-        }
         stopwatchInitialize.Stop();
-        LogInstallPerformance("init_library_internal song_tbl_load_ms=" + songTblLoadMs + " score_tbl_load_ms=" + scoreTblLoadMs + " song_tbl_file_check_ms=" + songTblFileCheckMs + " set_maintenance_ms=" + setMaintenanceMs + " set_mode_ms=" + setModeMs + " set_health_ms=" + setHealthMs + " set_zero_note_ms=" + setZeroNoteMs + " install_tbl_check_ms=" + installTblCheckMs + " rebuild_hash_index_ms=" + rebuildHashIndexMs + " maintenance_tbl_check_ms=" + maintenanceTblCheckMs + " total_ms=" + stopwatchInitialize.ElapsedMilliseconds);
+        LogInstallPerformance("init_library_internal song_tbl_load_ms=" + songTblLoadMs + " score_tbl_load_ms=" + scoreTblLoadMs + " song_tbl_file_check_ms=" + songTblFileCheckMs + " set_maintenance_ms=" + setMaintenanceMs + " set_mode_ms=" + setModeMs + " set_health_ms=" + setHealthMs + " set_zero_note_ms=" + setZeroNoteMs + " install_tbl_check_ms=" + installTblCheckMs + " rebuild_hash_index_ms=" + rebuildHashIndexMs + " total_ms=" + stopwatchInitialize.ElapsedMilliseconds);
     }
 
     public void ReloadFileDiff()
@@ -4517,6 +4428,10 @@ public class BMSLibrary : NotificationObject
                 + " ownerApplySkipped=" + result.OwnerApplySkippedCount
                 + " ownerApplySilent=" + result.OwnerApplySilentCount
                 + " ownerApplyNotified=" + result.OwnerApplyNotifiedCount
+                + " ownerCount=" + result.OwnerCount
+                + " currentChartInfoOwners=" + result.CurrentChartInfoOwnerCount
+                + " currentParseFailureOwners=" + result.CurrentParseFailureOwnerCount
+                + " backfillCandidateOwners=" + result.BackfillCandidateOwnerCount
                 + " dbLoadMs=" + result.DbLoadMs
                 + " indexBuildMs=" + result.IndexBuildMs
                 + " ownerApplyMs=" + result.OwnerApplyMs
@@ -4544,7 +4459,7 @@ public class BMSLibrary : NotificationObject
                 {
                     if (shouldQueueBackfillAfterCompletion)
                     {
-                        QueueChartInfoBackfill(reason, processSynchronously: true);
+                        QueueChartInfoBackfill(reason, processSynchronously: true, hydrationResult: result);
                     }
                 }
                 finally
@@ -4574,10 +4489,12 @@ public class BMSLibrary : NotificationObject
         LogInstallPerformance("chart_info_hydration start reason=" + (reason ?? "unknown"));
 
         Dictionary<string, LR2SongDBExtended.chart_info> chartInfoMap;
+        Dictionary<string, LR2SongDBExtended.chart_info_parse_failure> currentParseFailures;
         Stopwatch loadStopwatch = Stopwatch.StartNew();
         try
         {
             chartInfoMap = dbGateway.LoadChartInfoMap();
+            currentParseFailures = dbGateway.LoadCurrentChartInfoParseFailureMap(chartInfoBuildService.CurrentParseTimeout);
         }
         catch (Exception ex)
         {
@@ -4608,6 +4525,10 @@ public class BMSLibrary : NotificationObject
         {
             foreach (BMSFile file in BMSFiles ?? Enumerable.Empty<BMSFile>())
             {
+                if (file != null)
+                {
+                    ClassifyChartInfoHydrationOwner(result, file.sha256, file.hash, chartInfoMap, currentParseFailures);
+                }
                 if (file != null && !string.IsNullOrWhiteSpace(file.sha256) && chartInfoMap.TryGetValue(file.sha256, out LR2SongDBExtended.chart_info chartInfo))
                 {
                     if (IsSameChartInfoIdentity(file.ChartInfo, chartInfo))
@@ -4625,6 +4546,10 @@ public class BMSLibrary : NotificationObject
             }
             foreach (LR2SongDBExtended.bmson_song song in BmsonSongs ?? Enumerable.Empty<LR2SongDBExtended.bmson_song>())
             {
+                if (song != null)
+                {
+                    ClassifyChartInfoHydrationOwner(result, song.sha256, song.md5, chartInfoMap, currentParseFailures);
+                }
                 if (song != null && !string.IsNullOrWhiteSpace(song.sha256) && chartInfoMap.TryGetValue(song.sha256, out LR2SongDBExtended.chart_info chartInfo))
                 {
                     if (IsSameChartInfoIdentity(song.ChartInfo, chartInfo))
@@ -4644,7 +4569,43 @@ public class BMSLibrary : NotificationObject
         result.ApplyMs = result.OwnerApplyMs;
         totalStopwatch.Stop();
         result.TotalMs = totalStopwatch.ElapsedMilliseconds;
+        result.Succeeded = true;
         return result;
+    }
+
+    private static void ClassifyChartInfoHydrationOwner(
+        ChartInfoHydrationResult result,
+        string sha256,
+        string md5,
+        IDictionary<string, LR2SongDBExtended.chart_info> chartInfoBySha256,
+        IDictionary<string, LR2SongDBExtended.chart_info_parse_failure> currentParseFailuresByMd5)
+    {
+        if (result == null)
+        {
+            return;
+        }
+        result.OwnerCount++;
+        if (!string.IsNullOrWhiteSpace(sha256)
+            && chartInfoBySha256 != null
+            && chartInfoBySha256.TryGetValue(sha256, out LR2SongDBExtended.chart_info chartInfo)
+            && IsCurrentChartInfo(chartInfo))
+        {
+            result.CurrentChartInfoOwnerCount++;
+            return;
+        }
+        if (!string.IsNullOrWhiteSpace(md5)
+            && currentParseFailuresByMd5 != null
+            && currentParseFailuresByMd5.ContainsKey(md5))
+        {
+            result.CurrentParseFailureOwnerCount++;
+            return;
+        }
+        result.BackfillCandidateOwnerCount++;
+    }
+
+    private static bool IsCurrentChartInfo(LR2SongDBExtended.chart_info chartInfo)
+    {
+        return chartInfo != null && chartInfo.parser_version >= BmsLibraryDbGateway.CurrentChartInfoParserVersion;
     }
 
     internal LR2SongDBExtended.chart_info ResolveChartInfo(string sha256, string md5)
@@ -4884,8 +4845,21 @@ public class BMSLibrary : NotificationObject
     /// chart_info の不足分構築をバックグラウンドへ要求します。
     /// </summary>
     /// <param name="reason">ログに残す要求理由。</param>
-    private void QueueChartInfoBackfill(string reason, bool processSynchronously = false)
+    private void QueueChartInfoBackfill(string reason, bool processSynchronously = false, ChartInfoHydrationResult hydrationResult = null)
     {
+        if (hydrationResult != null && hydrationResult.Succeeded && hydrationResult.BackfillCandidateOwnerCount <= 0)
+        {
+            int skippedVersion = CompleteSkippedChartInfoBackfillRequestIfIdle();
+            LogInstallPerformance("chart_info_backfill skipped reason=hydration_all_current"
+                + " version=" + skippedVersion
+                + " requestReason=" + (reason ?? "unknown")
+                + " ownerCount=" + hydrationResult.OwnerCount
+                + " currentChartInfo=" + hydrationResult.CurrentChartInfoOwnerCount
+                + " currentParseFailure=" + hydrationResult.CurrentParseFailureOwnerCount
+                + " candidates=" + hydrationResult.BackfillCandidateOwnerCount);
+            LogStartupMemoryCheckpoint("chart_info_backfill", "skipped");
+            return;
+        }
         ChartInfoBackfillCandidateSummary summary = null;
         Stopwatch candidateSummaryStopwatch = Stopwatch.StartNew();
         try
@@ -5198,17 +5172,6 @@ public class BMSLibrary : NotificationObject
         }
     }
 
-    private int CleanupMaintenanceTable()
-    {
-        using (rwlockBMSFiles.GetReaderGuard())
-        {
-            using (rwlockSongDBMaintenance.GetWriterGuard())
-            {
-                return maintenanceService.CleanupMaintenanceTable(CreateResourceMaintenanceTargets(BMSFiles, includeInstalledBmson: true), dbGateway);
-            }
-        }
-    }
-
     private void QueueDeferredMaintenanceHydration(string reason)
     {
         int version;
@@ -5268,10 +5231,7 @@ public class BMSLibrary : NotificationObject
                     dbGateway,
                     options,
                     LogInstallPerformance);
-                Stopwatch applyStopwatch = Stopwatch.StartNew();
                 ApplyMaintenanceHydrationResult(result);
-                applyStopwatch.Stop();
-                result.MaintenanceApplyMs = applyStopwatch.ElapsedMilliseconds;
                 stopwatch.Stop();
                 result.TotalMs = stopwatch.ElapsedMilliseconds;
                 LogInstallPerformance("maintenance_hydration done version=" + requestVersion
@@ -5282,6 +5242,10 @@ public class BMSLibrary : NotificationObject
                     + " materializeMs=" + result.MaintenanceMaterializeMs
                     + " mapBuildMs=" + result.MaintenanceMapBuildMs
                     + " applyMs=" + result.MaintenanceApplyMs
+                    + " cleanupDeleted=" + result.CleanupDeletedCount
+                    + " cleanupMs=" + result.CleanupMs
+                    + " ownerPathCount=" + result.OwnerPathCount
+                    + " stalePathCount=" + result.StalePathCount
                     + " appliedBms=" + result.AppliedBmsCount
                     + " appliedBmson=" + result.AppliedBmsonCount
                     + " defaultBms=" + result.DefaultBmsCount
@@ -5320,6 +5284,8 @@ public class BMSLibrary : NotificationObject
         {
             return;
         }
+        HashSet<string> ownerPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        Stopwatch applyStopwatch = Stopwatch.StartNew();
         using (rwlockBMSFiles.GetWriterGuard())
         {
             foreach (BMSFile item in BMSFiles ?? Enumerable.Empty<BMSFile>())
@@ -5327,6 +5293,10 @@ public class BMSLibrary : NotificationObject
                 if (item == null)
                 {
                     continue;
+                }
+                if (!string.IsNullOrWhiteSpace(item.path))
+                {
+                    ownerPaths.Add(item.path);
                 }
                 BMSFileMaintenanceInfo nextInfo = null;
                 if (!string.IsNullOrWhiteSpace(item.path)
@@ -5351,6 +5321,10 @@ public class BMSLibrary : NotificationObject
                 {
                     continue;
                 }
+                if (!string.IsNullOrWhiteSpace(item.path))
+                {
+                    ownerPaths.Add(item.path);
+                }
                 if (!string.IsNullOrWhiteSpace(item.path)
                     && result.MaintenanceMap.TryGetValue(item.path, out BMSFileMaintenanceInfo value)
                     && string.Equals(value.hash, item.md5, StringComparison.OrdinalIgnoreCase))
@@ -5366,6 +5340,27 @@ public class BMSLibrary : NotificationObject
                 }
             }
             RebuildResourceHealthIndexSnapshotLocked("maintenance_hydration");
+            result.OwnerPathCount = ownerPaths.Count;
+            foreach (string maintenancePath in result.MaintenanceMap.Keys)
+            {
+                if (!string.IsNullOrWhiteSpace(maintenancePath) && !ownerPaths.Contains(maintenancePath))
+                {
+                    result.StaleMaintenancePaths.Add(maintenancePath);
+                }
+            }
+            result.StalePathCount = result.StaleMaintenancePaths.Count;
+            applyStopwatch.Stop();
+            result.MaintenanceApplyMs = applyStopwatch.ElapsedMilliseconds;
+            Stopwatch cleanupStopwatch = Stopwatch.StartNew();
+            if (result.StaleMaintenancePaths.Count > 0)
+            {
+                using (rwlockSongDBMaintenance.GetWriterGuard())
+                {
+                    result.CleanupDeletedCount = dbGateway.DeleteMaintenanceRows(result.StaleMaintenancePaths);
+                }
+            }
+            cleanupStopwatch.Stop();
+            result.CleanupMs = cleanupStopwatch.ElapsedMilliseconds;
         }
         RaisePropertyChanged(() => BMSFilesNeedToBeFixed);
         RaisePropertyChanged(() => BMSFilesNeedToBeFixedIgnored);
@@ -5759,78 +5754,6 @@ public class BMSLibrary : NotificationObject
         await DispatcherHelper.UIDispatcher.InvokeAsync(delegate
         {
         }, DispatcherPriority.ApplicationIdle).Task.ConfigureAwait(false);
-    }
-
-    private void ScheduleDeferredMaintenanceTableCheck(string reason)
-    {
-        int version = 0;
-        bool shouldStartWorker = false;
-        bool markRunning = false;
-        lock (lockDeferredMaintenanceTableCheck)
-        {
-            deferredMaintenanceTableCheckRequestedVersion++;
-            version = deferredMaintenanceTableCheckRequestedVersion;
-            if (!deferredMaintenanceTableCheckRunning)
-            {
-                deferredMaintenanceTableCheckRunning = true;
-                shouldStartWorker = true;
-                markRunning = true;
-            }
-        }
-        MaintenanceDeferredRequestedVersion = version;
-        if (markRunning)
-        {
-            MaintenanceDeferredRunning = true;
-        }
-        LogInstallPerformance("maintenance_tbl_check_deferred queue reason=" + (reason ?? "unknown") + " version=" + version);
-        ReportStartupBackgroundTask("maintenance_tbl_check_deferred", "queued", 0L, failed: false, detail: reason ?? string.Empty);
-        if (!shouldStartWorker)
-        {
-            return;
-        }
-        Task.Run(delegate
-        {
-            while (true)
-            {
-                int requestVersion = 0;
-                lock (lockDeferredMaintenanceTableCheck)
-                {
-                    requestVersion = deferredMaintenanceTableCheckRequestedVersion;
-                }
-                Stopwatch stopwatch = Stopwatch.StartNew();
-                ReportStartupBackgroundTask("maintenance_tbl_check_deferred", "start", 0L, failed: false, detail: "version=" + requestVersion);
-                try
-                {
-                    LogInstallPerformance("maintenance_tbl_check_deferred run version=" + requestVersion);
-                    int maintenanceDeleted = CleanupMaintenanceTable();
-                    stopwatch.Stop();
-                    LogInstallPerformance("maintenance_tbl_check_deferred done version=" + requestVersion + " deleted=" + maintenanceDeleted + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
-                    ReportStartupBackgroundTask("maintenance_tbl_check_deferred", "done", stopwatch.ElapsedMilliseconds, failed: false, detail: "deleted=" + maintenanceDeleted);
-                }
-                catch (Exception ex)
-                {
-                    stopwatch.Stop();
-                    LogInstallPerformance("maintenance_tbl_check_deferred failed version=" + requestVersion + " elapsedMs=" + stopwatch.ElapsedMilliseconds + " message=" + ex.Message);
-                    ReportStartupBackgroundTask("maintenance_tbl_check_deferred", "failed", stopwatch.ElapsedMilliseconds, failed: true, detail: ex.Message);
-                }
-                bool markRunningFalse = false;
-                lock (lockDeferredMaintenanceTableCheck)
-                {
-                    deferredMaintenanceTableCheckLastCompletedVersion = requestVersion;
-                    if (requestVersion == deferredMaintenanceTableCheckRequestedVersion)
-                    {
-                        deferredMaintenanceTableCheckRunning = false;
-                        markRunningFalse = true;
-                    }
-                }
-                MaintenanceDeferredCompletedVersion = requestVersion;
-                if (markRunningFalse)
-                {
-                    MaintenanceDeferredRunning = false;
-                    return;
-                }
-            }
-        });
     }
 
     /// <summary>
@@ -6647,20 +6570,6 @@ public class BMSLibrary : NotificationObject
     internal BmsScoreApplyMetrics SetBMSScoreWithMetrics(IReadOnlyCollection<BMSFile> bmsFiles)
     {
         return SetBMSScoreInternal(bmsFiles, collectMetrics: true);
-    }
-
-    /// <summary>
-    /// deferred maintenance table check の進行状態を診断用に返します。
-    /// </summary>
-    /// <returns>現在の deferred maintenance 状態。</returns>
-    internal DeferredMaintenanceTableCheckState GetDeferredMaintenanceTableCheckStateForDiagnostics()
-    {
-        return new DeferredMaintenanceTableCheckState
-        {
-            Running = MaintenanceDeferredRunning,
-            RequestedVersion = MaintenanceDeferredRequestedVersion,
-            LastCompletedVersion = MaintenanceDeferredCompletedVersion
-        };
     }
 
     /// <summary>

@@ -20,6 +20,8 @@ internal sealed class MaintenanceTableHydrationResult
 
     public long MaintenanceApplyMs { get; set; }
 
+    public long CleanupMs { get; set; }
+
     public int AppliedBmsCount { get; set; }
 
     public int AppliedBmsonCount { get; set; }
@@ -27,6 +29,14 @@ internal sealed class MaintenanceTableHydrationResult
     public int DefaultBmsCount { get; set; }
 
     public int DefaultBmsonCount { get; set; }
+
+    public int OwnerPathCount { get; set; }
+
+    public int StalePathCount { get; set; }
+
+    public int CleanupDeletedCount { get; set; }
+
+    public List<string> StaleMaintenancePaths { get; } = new List<string>();
 
     public long TotalMs { get; set; }
 }

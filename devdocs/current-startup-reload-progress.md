@@ -70,12 +70,12 @@ background 系 phase は request 済みでなければ complete できない。�
 | `ChartDigestBackfillDone` | chart digest 補完 | `[processed/total] 譜面メタデータ解析 fileName` |
 | `ScoreHydrationDone` | score 反映 | `スコア反映` |
 | `RankingRefreshDone` | ranking refresh | `ランキング更新` |
-| `MaintenanceDeferredDone` | maintenance deferred 更新 | `保守参照更新` |
+| `MaintenanceDeferredDone` | maintenance hydration / orphan cleanup | `保守参照更新` |
 | `InstallableMaintenanceDeferredDone` | installable maintenance deferred 更新 | `保守情報更新` |
 
 `InstallableMaintenanceDeferredDone` には bounded 並列の cache-aware resource health 実チェックと、その結果を通常一覧へ投影するための runtime resource health index build が含まれる。WARNING 表示用の全件 `BMSFile.Warnings` 再構築は行わない。
 
-Startup / FullReinitialize では `chart_info_hydration` background task が必要な full backfill まで完了してから、`InstallableMaintenanceDeferredDone` の task を開始する。これにより、譜面メタデータの大量 hydration/backfill と保守情報更新が同時に走って UI 更新や DB commit が競合する状態を避ける。
+Startup / FullReinitialize では `chart_info_hydration` と `maintenance_hydration` が完了してから、`InstallableMaintenanceDeferredDone` の task を開始する。これにより、譜面メタデータの大量 hydration/backfill と保守情報更新が同時に走って UI 更新や DB commit が競合する状態を避ける。
 
 新規・更新ファイル由来の `chart_info` / maintenance は background phase へ送らず、`LibraryFileDiffDone` の内側で扱う。`ChartInfoBackfillDone` と `InstallableMaintenanceDeferredDone` は、DB に既に存在する owner の補助情報を補完する phase として扱う。
 

@@ -382,13 +382,21 @@ diff 自体は軽いが、差分 0 件時の catalog apply / property notificati
 
 導入可能後に走る task も、初期化全体の完了時間として短縮する。後回しにするだけでなく、重複 read / materialize / no-op scan を削る。
 
-### Phase 8A Current Implementation
+### Phase 8A / 8B Current Implementation
 
 実装済み。
 
 - `maintenance_hydration` を startup background task として明示し、`startup_background_summary` の対象にした。
 - `installable_maintenance_deferred` は `maintenance_hydration,chart_info_hydration` の両方を dependency として待つ。
 - `reverse_lookup_warmup_deferred` は `DirectoryResourceLookupCache` の reverse lookup が既に full warmup 済みなら queue しない。
+- `maintenance_tbl_check_deferred` は廃止した。
+  - orphan maintenance cleanup は `maintenance_hydration` が読み込んだ `maintenance` key と current owner path set の差分から算出する。
+  - cleanup は stale path がある場合だけ `DeleteMaintenanceRows(...)` の短い transaction で実行する。
+  - stale 判定と delete は同じ BMS catalog lock の内側で行い、判定後の catalog mutation と競合させない。
+  - `maintenance_hydration done` は `cleanupDeleted`, `cleanupMs`, `ownerPathCount`, `stalePathCount` を出す。
+- `chart_info_hydration` は owner ごとの current 判定を集計する。
+  - current `chart_info` または current parse failure が全 owner に揃っている場合、`chart_info_backfill candidate_summary` を呼ばず `reason=hydration_all_current` で skip する。
+  - candidate が 1 件でもある場合は従来どおり candidate summary / backfill 経路へ進む。
 
 Phase 2A 後の実測では、初期化完了を遅らせている候補は次の通り。
 
@@ -399,28 +407,38 @@ Phase 2A 後の実測では、初期化完了を遅らせている候補は次�
 - `chart_info_hydration lastMs=15458`
 - `reverse_lookup_warmup_deferred lastMs=12633`
 
-特に `maintenance_tbl_check_deferred` は `deleted=0` の no-op で 18 秒かかっており、`maintenance_hydration` と同じ `maintenance` table 周辺を別 task で扱っている。次フェーズではこれを統合または cheap no-op 化する。
+Phase 8B で `maintenance_tbl_check_deferred` は `maintenance_hydration` へ統合済み。次回実測では `startup_background_summary` の queued count が 1 件減り、`maintenance_tbl_check_deferred` が出ないことを確認する。
+
+2026-05-05 10:09 の Phase 8B 実測では、統合自体は想定どおり動作している。
+
+- `startup_install_estimation_ready elapsedMs=38926`
+- `startup_ready_operable elapsedMs=40209`
+- `startup_initialization_complete elapsedMs=103890`
+- `startup_background_summary queued=10 started=10 completed=10 failed=0`
+- `maintenance_tbl_check_deferred` は出ていない。
+- `chart_info_hydration done ... ownerCount=210030 currentChartInfoOwners=210006 currentParseFailureOwners=24 backfillCandidateOwners=0 totalMs=16303`
+- `chart_info_backfill skipped reason=hydration_all_current ... candidates=0`
+  - `candidate_summary_start` は出ていない。
+- `maintenance_hydration done ... readMs=3671 materializeMs=3655 mapBuildMs=170 applyMs=18447 cleanupDeleted=0 cleanupMs=0 ownerPathCount=210030 stalePathCount=0 elapsedMs=22308`
+- `installable_maintenance_deferred done ... maintenanceChecked=3 ... deferred_ms=704`
+
+Phase 8B により、重複していた maintenance table check と chart_info backfill candidate summary は削れた。一方で `startup_initialization_complete` は Phase 2A 実測 `103325ms` とほぼ同等で、短縮はまだ支配的ではない。今回の実測では、残る主要 background cost は `ranking_refresh_deferred=43091ms`、`maintenance_hydration=22314ms`、`playlist_entries_hydration=17552ms`、`chart_info_hydration=16398ms`、`reverse_lookup_warmup_deferred=14943ms` である。次の実装単位では `maintenance_hydration applyMs=18447` を直接削るか、ranking / playlist / reverse lookup の no-op / materialize cost を削る必要がある。
 
 未完了として次単位に残すもの:
 
-- `maintenance_tbl_check_deferred` を `maintenance_hydration` と統合し、deleted candidate がない場合は全件 scan しない。
 - `maintenance_hydration` の apply を chunk / aggregate notification 化し、1 件ごとの高コスト warning refresh を避ける。
 - `chart_info_hydration` の DB count / version による no-op skip。
-- `chart_info_backfill` の dirty marker / missing count による candidate summary skip。
 - playlist entries hydration の同一 startup 内二重 hydrate / presentation rebuild 削減。
 
-## Next Implementation Unit: Phase 8B / 2B
+## Next Implementation Unit: Phase 8C / 2B
 
 次に進むべき単位は、install readiness のさらなる前倒しよりも、初期化全体を悪化させている background duplicate work の削減である。
 
-### Phase 8B: Maintenance Background Consolidation
+### Phase 8C: Maintenance Apply / Hydration Micro Reduction
 
-- `maintenance_hydration` と `maintenance_tbl_check_deferred` の責務を整理する。
-  - hydration は DB row を memory owner へ apply する。
-  - cleanup は DB に存在しない owner の orphan row 削除だけを扱う。
-- cleanup は catalog owner hash/path set を使って SQL / indexed probe で orphan 有無を判定し、orphan 0 件なら全 row materialize しない。
-- hydration 後の warning / health projection 更新はまとめて行い、row ごとの不要な UI rebuild / property chain を抑える。
-- `startup_background_summary` では maintenance 系 task が二重に 15 秒以上走らないことを acceptance とする。
+- `maintenance_hydration` の apply を chunk / aggregate notification 化する。
+- warning / health projection の row ごとの property chain を抑え、UI rebuild をまとめる。
+- orphan cleanup は Phase 8B の統合済み経路を維持し、別 task を再導入しない。
 
 ### Phase 2B: Catalog Load Micro Reduction
 
@@ -428,9 +446,8 @@ Phase 2A 後の実測では、初期化完了を遅らせている候補は次�
 - `song_tbl_load_projection` は維持し、`maintenance` と `chart_info` を critical path に戻さない。
 - `startup_install_estimation_ready` の比較対象は Phase 2A 実測 `35961ms` とする。
 
-### Phase 8C: Chart Info No-op Reduction
+### Phase 8D: Chart Info Hydration No-op Reduction
 
-- current `chart_info` が owner 全件に揃っている場合、`chart_info_backfill candidate_summary` の 4 秒級 query を skip する。
 - `chart_info_hydration` は DB count / schema version / hydrated index state から no-op 判定できる範囲を増やす。ただし session index が未 hydrated の通常起動では必要な load と owner apply は維持する。
 
 ### Key Changes

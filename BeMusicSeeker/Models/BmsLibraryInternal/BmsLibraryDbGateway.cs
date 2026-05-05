@@ -295,6 +295,28 @@ internal sealed class BmsLibraryDbGateway
         });
     }
 
+    public int DeleteMaintenanceRows(IEnumerable<string> paths)
+    {
+        List<string> entries = (paths ?? Enumerable.Empty<string>())
+            .Where((string path) => !string.IsNullOrWhiteSpace(path))
+            .Select((string path) => path.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (entries.Count == 0)
+        {
+            return 0;
+        }
+        int deleted = 0;
+        ExecuteSongDbTransaction(delegate (LR2SongDBExtended songDb)
+        {
+            foreach (string path in entries)
+            {
+                deleted += songDb.Delete<LR2SongDBExtended.maintenance>(path);
+            }
+        });
+        return deleted;
+    }
+
     public ScoreTableLoadResult LoadScoresAndPlayerId()
     {
         ScoreTableLoadResult result = new ScoreTableLoadResult();

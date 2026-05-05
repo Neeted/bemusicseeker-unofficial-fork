@@ -93,26 +93,6 @@ internal sealed class BmsLibraryMaintenanceService
         return EnumerateBmsChartFiles(bmsFiles).Where((BMSFile file) => file.ChartInfo?.notes == 0).ToList();
     }
 
-    public int CleanupMaintenanceTable(IEnumerable<BMSFile> bmsFiles, BmsLibraryDbGateway dbGateway)
-    {
-        List<string> currentPaths = EnumerateResourceHealthChartFiles(bmsFiles)
-            .Where((BMSFile file) => !string.IsNullOrWhiteSpace(file.path))
-            .Select((BMSFile file) => file.path)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
-        List<string> stalePaths = new List<string>();
-        dbGateway.ExecuteSongDbTransaction(delegate (Models.LR2.LR2SongDBExtended songDb)
-        {
-            stalePaths = (from m in songDb.Table<BMSFileMaintenanceInfo>().ToList()
-                          select m.path).Except(currentPaths, StringComparer.OrdinalIgnoreCase).ToList();
-            foreach (string stalePath in stalePaths)
-            {
-                songDb.Delete<Models.LR2.LR2SongDBExtended.maintenance>(stalePath);
-            }
-        });
-        return stalePaths.Count;
-    }
-
     public List<BMSFileMaintenanceInfo> SetFilesWarningIgnored(IEnumerable<BMSFile> bmsFiles, bool unset)
     {
         List<BMSFileMaintenanceInfo> changes = (from f in EnumerateResourceHealthChartFiles(bmsFiles)

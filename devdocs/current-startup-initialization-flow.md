@@ -139,11 +139,15 @@ Phase 2A 以降、`startup_install_estimation_ready` は catalog load、file enu
 
 2026-05-05 08:23 の Phase 0 実測では、`startup_install_estimation_ready` / `startup_install_ready` は `elapsedMs=37971`、`startup_ready_operable` は `elapsedMs=39914`、`startup_initialization_complete` は `elapsedMs=99997` だった。`wait_continuation_start_ms`、`wait_continuation_signal_ms`、`wait_continuation_tasks_ms` はすべて 0ms であり、この回の critical path は DB load / materialize と file enumeration / resource index build である。
 
-2026-05-05 09:09 の Phase 2A 実測では、`startup_install_estimation_ready` / `startup_install_ready` は `elapsedMs=35961`、`startup_ready_operable` は `elapsedMs=37401`、`startup_initialization_complete` は `elapsedMs=103325` だった。catalog load から `maintenance` 全件が外れたため導入可能までは短縮しているが、初期化全体は `maintenance_hydration` と `maintenance_tbl_check_deferred` の background cost が残っている。
+2026-05-05 09:09 の Phase 2A 実測では、`startup_install_estimation_ready` / `startup_install_ready` は `elapsedMs=35961`、`startup_ready_operable` は `elapsedMs=37401`、`startup_initialization_complete` は `elapsedMs=103325` だった。catalog load から `maintenance` 全件が外れたため導入可能までは短縮しているが、初期化全体は background cost が残っている。
 
 同じ実測で `startup_background_summary` は `queued=10 started=10 completed=10 failed=0` だった。background 側の重い処理は `ranking_refresh_deferred=53007ms`、`playlist_entries_hydration=31501ms`、`maintenance_tbl_check_deferred=22749ms`、`chart_info_hydration=17103ms`、`reverse_lookup_warmup_deferred=16586ms` であり、導入可能までとは別に初期化全体の短縮対象として扱う。
 
-Phase 2A 後の `startup_background_summary` は `queued=11 started=11 completed=11 failed=0` で、主な内訳は `ranking_refresh_deferred=47962ms`、`playlist_entries_hydration=26865ms`、`maintenance_tbl_check_deferred=18147ms`、`maintenance_hydration=17820ms`、`chart_info_hydration=15458ms`、`reverse_lookup_warmup_deferred=12633ms` である。次フェーズでは maintenance 系 background task の統合 / no-op 削減を優先する。
+Phase 2A 後の `startup_background_summary` は `queued=11 started=11 completed=11 failed=0` で、主な内訳は `ranking_refresh_deferred=47962ms`、`playlist_entries_hydration=26865ms`、`maintenance_tbl_check_deferred=18147ms`、`maintenance_hydration=17820ms`、`chart_info_hydration=15458ms`、`reverse_lookup_warmup_deferred=12633ms` である。
+
+Phase 8B 以降、`maintenance_tbl_check_deferred` は存在しない。orphan maintenance cleanup は `maintenance_hydration` 内で、DB から読んだ `maintenance` key と current `BMSFiles` / `BmsonSongs` owner path set の差分として処理する。stale 判定と DB delete は同じ BMS catalog lock の内側で行い、判定後に追加された live owner の row を削除しない。`chart_info_hydration` 後に全 owner が current `chart_info` または current parse failure で収束している場合は、`chart_info_backfill candidate_summary` を呼ばず `reason=hydration_all_current` で skip する。
+
+2026-05-05 10:09 の Phase 8B 実測では、`startup_install_estimation_ready=38926ms`、`startup_ready_operable=40209ms`、`startup_initialization_complete=103890ms` だった。`startup_background_summary` は `queued=10 started=10 completed=10 failed=0` で、`maintenance_tbl_check_deferred` は出ていない。`chart_info_hydration` は `ownerCount=210030 currentChartInfoOwners=210006 currentParseFailureOwners=24 backfillCandidateOwners=0 totalMs=16303` で、`chart_info_backfill skipped reason=hydration_all_current` により candidate summary を呼んでいない。`maintenance_hydration` は `readMs=3671 materializeMs=3655 mapBuildMs=170 applyMs=18447 cleanupDeleted=0 cleanupMs=0 ownerPathCount=210030 stalePathCount=0 elapsedMs=22308` で、cleanup 統合は成功しているが apply cost が次の大きな対象として残る。
 
 導入先推定に必要な情報は次の 3 つに整理する。
 
@@ -182,9 +186,9 @@ background task は、既に DB に存在している owner の補助情報を�
 
 | Task | 正本の責務 |
 | --- | --- |
-| `maintenance_hydration` | DB の既存 `maintenance` row を memory owner へ in-place apply し、warning / health projection を更新する |
+| `maintenance_hydration` | DB の既存 `maintenance` row を memory owner へ in-place apply し、warning / health projection を更新する。orphan maintenance cleanup もここで行う |
 | `chart_info_hydration` | DB の current `chart_info` を memory owner / session index へ適用する |
-| full `chart_info` backfill | 旧 DB や外部操作により不足している `chart_info` を補完する |
+| full `chart_info` backfill | 旧 DB や外部操作により不足している `chart_info` を補完する。hydration 時点で全 owner が current 済みなら skip する |
 | `installable_maintenance_deferred` | `maintenance_hydration` と `chart_info_hydration` の完了後、DB 由来の missing/stale maintenance を補完する |
 | score / ranking / playlist hydration | 操作可能後に反映できる DB 由来データを適用する |
 
