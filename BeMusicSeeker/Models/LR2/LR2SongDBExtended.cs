@@ -1133,6 +1133,35 @@ public sealed class LR2SongDBExtended : LR2SongDB
             Finalize(stmt);
             return list;
         }
+
+        public int ForEachRawValueAsString(Action<string[]> rowAction)
+        {
+            if (rowAction == null)
+            {
+                throw new ArgumentNullException(nameof(rowAction));
+            }
+            IntPtr stmt = Prepare();
+            int count = SQLite3.ColumnCount(stmt);
+            int rowCount = 0;
+            try
+            {
+                while (SQLite3.Step(stmt) == SQLite3.Result.Row)
+                {
+                    string[] values = new string[count];
+                    for (int i = 0; i < count; i++)
+                    {
+                        values[i] = SQLite3.ColumnString(stmt, i);
+                    }
+                    rowAction(values);
+                    rowCount++;
+                }
+            }
+            finally
+            {
+                Finalize(stmt);
+            }
+            return rowCount;
+        }
     }
 
     private static object lockObject = new object();

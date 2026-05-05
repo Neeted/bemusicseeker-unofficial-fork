@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Security;
@@ -385,14 +386,101 @@ internal sealed class BmsLibraryDbGateway
             + " FROM " + tableName
             + " WHERE " + playlistIdColumn + " IS NOT NULL;";
         Stopwatch stopwatch = Stopwatch.StartNew();
-        using (BMSTableEntry.BeginBulkLoadParseSuppression())
+        LR2SongDBExtended.SQLiteCommandExtended command = (LR2SongDBExtended.SQLiteCommandExtended)songDb.CreateCommand(sql);
+        command.ForEachRawValueAsString(delegate (string[] values)
         {
-            result.Entries.AddRange(songDb.Query<BMSTableEntry>(sql));
-        }
+            if (values == null || values.Length < 16 || !TryParseNullableInt(values[0], out int playlistId))
+            {
+                return;
+            }
+            result.Entries.Add(BMSTableEntry.CreateHydratedPlaylistEntry(
+                playlistId,
+                values[1],
+                values[2],
+                ParseNullableDouble(values[3]),
+                values[4],
+                values[5],
+                values[6],
+                values[7],
+                values[8],
+                values[9],
+                values[10],
+                values[11],
+                ParseNullableDateTime(values[12]),
+                values[13],
+                values[14],
+                ParseBoolean(values[15])));
+        });
         stopwatch.Stop();
         result.DbReadMs = stopwatch.ElapsedMilliseconds;
         result.MaterializeMs = stopwatch.ElapsedMilliseconds;
         return result;
+    }
+
+    private static bool TryParseNullableInt(string value, out int result)
+    {
+        return int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out result);
+    }
+
+    private static double? ParseNullableDouble(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+        if (double.TryParse(value, NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo.InvariantCulture, out double invariantValue))
+        {
+            return invariantValue;
+        }
+        if (double.TryParse(value, NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo.CurrentCulture, out double currentValue))
+        {
+            return currentValue;
+        }
+        return null;
+    }
+
+    private static DateTime? ParseNullableDateTime(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+        if (long.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out long ticks))
+        {
+            try
+            {
+                return new DateTime(ticks);
+            }
+            catch (ArgumentOutOfRangeException)
+            {
+            }
+        }
+        if (DateTime.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out DateTime invariantValue))
+        {
+            return invariantValue;
+        }
+        if (DateTime.TryParse(value, CultureInfo.CurrentCulture, DateTimeStyles.AssumeLocal, out DateTime currentValue))
+        {
+            return currentValue;
+        }
+        return null;
+    }
+
+    private static bool ParseBoolean(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return false;
+        }
+        if (bool.TryParse(value, out bool boolValue))
+        {
+            return boolValue;
+        }
+        if (long.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out long integerValue))
+        {
+            return integerValue != 0;
+        }
+        return false;
     }
 
     public void ReplaceSongPathWithMaintenance(BMSFile bmsFile, string oldPath)

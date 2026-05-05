@@ -340,6 +340,47 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
 		base.adddate = DateTime.Now;
 	}
 
+	internal static BMSTableEntry CreateHydratedPlaylistEntry(
+		int playlistId,
+		string md5Value,
+		string sha256Value,
+		double? levelValue,
+		string titleValue,
+		string artistValue,
+		string folderValue,
+		string lr2BmsIdValue,
+		string urlValue,
+		string urlDiffValue,
+		string nameDiffValue,
+		string orgMd5Value,
+		DateTime? addDateValue,
+		string commentValue,
+		string memoValue,
+		bool isRemovedValue)
+	{
+		BMSTableEntry entry = new BMSTableEntry();
+		entry.playlist_id = playlistId;
+		entry.md5 = md5Value;
+		entry.sha256 = sha256Value;
+		entry.level = levelValue;
+		entry.title = titleValue;
+		entry.artist = artistValue;
+		entry.folder = folderValue;
+		entry.lr2_bmsid = lr2BmsIdValue;
+		entry.deferredUrlRaw = urlValue;
+		entry.deferredUrlDiffRaw = urlDiffValue;
+		entry.name_diff = nameDiffValue;
+		entry.deferredOrgMd5Raw = orgMd5Value;
+		if (addDateValue.HasValue)
+		{
+			entry.adddate = addDateValue.Value;
+		}
+		entry.comment = commentValue;
+		entry.memo = memoValue;
+		entry.is_removed = isRemovedValue;
+		return entry;
+	}
+
 	public BMSTableEntry(BMSFile bmsFile)
 		: this()
 	{

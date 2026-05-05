@@ -33,6 +33,17 @@ public sealed class MainWindowViewModelStartupProgressTests
     }
 
     [TestMethod]
+    public void StartupBackgroundScheduler_ResetKeepsPostStartupReloadTasksRunnable()
+    {
+        Assert.IsFalse(MainWindowViewModel.ShouldStartStartupBackgroundTaskSchedulerAfterResetForTest("Startup", operableReached: false));
+        Assert.IsFalse(MainWindowViewModel.ShouldStartStartupBackgroundTaskSchedulerAfterResetForTest("Startup", operableReached: true));
+        Assert.IsFalse(MainWindowViewModel.ShouldStartStartupBackgroundTaskSchedulerAfterResetForTest("ReloadTables", operableReached: false));
+        Assert.IsTrue(MainWindowViewModel.ShouldStartStartupBackgroundTaskSchedulerAfterResetForTest("ReloadTables", operableReached: true));
+        Assert.IsTrue(MainWindowViewModel.ShouldStartStartupBackgroundTaskSchedulerAfterResetForTest("ReloadFileDiff", operableReached: true));
+        Assert.IsTrue(MainWindowViewModel.ShouldStartStartupBackgroundTaskSchedulerAfterResetForTest("FullReinitialize", operableReached: true));
+    }
+
+    [TestMethod]
     public void StartupProgress_ReloadFileDiff_TracksOnlyFileDiffAndPlaylistPhases()
     {
         MainWindowViewModel.StartupProgressTestResult result = MainWindowViewModel.ReduceStartupProgressForTest(

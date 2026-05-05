@@ -855,8 +855,7 @@ public partial class BMSPlaylist : NotificationObject
         {
             try
             {
-                await EnsureAllPlaylistEntriesLoadedAsync(reason ?? "queue").ConfigureAwait(false);
-                PlaylistEntriesHydrationCompletedVersion = PlaylistEntriesHydrationRequestedVersion;
+                await EnsureAllPlaylistEntriesLoadedAsync(reason ?? "queue", publishCompletedVersion: false).ConfigureAwait(false);
                 bool mergedRunExternalSync;
                 List<Action<PlaylistTableUpdateContext>> mergedUpdateCallbacks;
                 lock (playlistEntriesHydrationRequestLock)
@@ -873,6 +872,7 @@ public partial class BMSPlaylist : NotificationObject
                     stopwatchUpdateTables.Stop();
                     LogPlaylistPerformance("playlist_entries_hydration post_update_tables reason=" + (reason ?? string.Empty) + " reloadExtPlaylist=" + mergedRunExternalSync.ToString().ToLowerInvariant() + " callbackCount=" + mergedUpdateCallbacks.Count + " elapsedMs=" + stopwatchUpdateTables.ElapsedMilliseconds);
                 }
+                PlaylistEntriesHydrationCompletedVersion = PlaylistEntriesHydrationRequestedVersion;
             }
             finally
             {
@@ -896,7 +896,7 @@ public partial class BMSPlaylist : NotificationObject
         Task.Run(work).Logging("QueueDeferredPlaylistEntriesHydration");
     }
 
-    internal async Task EnsureAllPlaylistEntriesLoadedAsync(string reason)
+    internal async Task EnsureAllPlaylistEntriesLoadedAsync(string reason, bool publishCompletedVersion = true)
     {
         List<BMSTable> tablesSnapshot;
         using (rwlockBMSTables.GetReaderGuard())
@@ -997,7 +997,10 @@ public partial class BMSPlaylist : NotificationObject
             }
             if (allTablesLoaded)
             {
-                PlaylistEntriesHydrationCompletedVersion = PlaylistEntriesHydrationRequestedVersion;
+                if (publishCompletedVersion)
+                {
+                    PlaylistEntriesHydrationCompletedVersion = PlaylistEntriesHydrationRequestedVersion;
+                }
             }
         }
         catch (Exception ex)

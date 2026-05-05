@@ -764,6 +764,67 @@ Phase 8M では、LR2ID が確定した時点で LR2IR player score XML の netw
 
 2026-05-06 の実機確認では、`score_tbl_load` 直後に `ir_score_prefetch` が開始し、`fetchMs=789 parseMs=383 digestMs=111 parsedRows=17202 elapsedMs=1287` で完了した。`ranking_refresh_deferred` 側では `irScorePrefetchUsed=True`, `irScorePrefetchWaitMs=0`, `irScoreXmlFetchMs=0`, `irScoreXmlParseMs=0`, `irScoreDigestMs=0` となり、`irScoreMs=558`, `elapsedMs=2562` まで短縮した。`ranking_cache_refresh` は従来通り実行され、`cacheMs=2002` だった。
 
+### Phase 8N: Startup Background Scheduler / Playlist Hydration Materialize Improvement (implemented)
+
+Phase 8N は、DB lock 待ちが解消した後に残っている `startup_initialization_complete` の tail を削る。対象は 2 つに絞る。
+
+- startup background scheduler の直列実行を見直し、read-only hydration を安全に並列開始できるようにする。
+- `playlist_entries_hydration` の sqlite-net object materialize cost を削る。
+
+現状の scheduler は `MainWindowViewModel.QueueStartupBackgroundTask()` / `TryStartStartupBackgroundTaskWorker()` が 1 本の worker で priority 順に task を実行する。`playlist_entries_hydration` の priority は 10、`chart_info_hydration` は 50、`maintenance_hydration` は 55 であり、dependency がない task でも前の task が終わるまで start しない。そのため、DB read-only 化後も `playlist_entries_hydration` が約 11 秒かかると、`chart_info_hydration` と `maintenance_hydration` の開始が後ろへ寄る。
+
+Phase 8N では scheduler に lane を導入した。
+
+- `read_hydration` lane
+  - `playlist_entries_hydration`
+  - `chart_info_hydration`
+  - `maintenance_hydration`
+  - `ranking_refresh_deferred` の read phase は既に BMSLibrary 側 direct task なので、scheduler lane へ無理に戻さない。
+- `playlist_followup` lane
+  - `playlist_url_completion`
+  - `playlist_ref_apply`
+  - `external_playlist_sync`
+  - これらは `playlist_entries_hydration` 完了後にだけ実行する。
+- `dependent_maintenance` lane
+  - `installable_maintenance`
+  - `chart_info_hydration,maintenance_hydration` の完了後にだけ実行する。
+
+並列数は無制限にしない。初回実装では read hydration lane の並列数を 2、全体上限を 3 にした。`startup_background_summary` は lane を出し、単に task を expected phase から外して速く見せることはしない。
+
+`ReloadTables` / `ReloadFileDiff` / `FullReinitialize` は post-startup operation なので、operation 開始時に background scheduler の metrics / queue を reset しても scheduler 自体は runnable に保つ。`Startup` だけは `startup_ready_operable` まで scheduler を開始しない。`playlist_entries_hydration` は `UpdateBMSTables` callback を終えてから completed version を publish し、playlist follow-up が table replacement より先に走らないようにする。
+
+`playlist_entries_hydration` は `BMSPlaylist.EnsureAllPlaylistEntriesLoadedAsync()` から `BmsLibraryDbGateway.LoadStartupPlaylistEntries()` を呼び、`songDb.Query<BMSTableEntry>(sql)` で 556k rows を materialize している。現行ログでは `dbReadMs` と `materializeMs` が同じ値で、sqlite-net の reader + object materialize 境界の elapsed を示す。group / assign は 300ms 未満で、支配項は `BMSTableEntry` materialize である。
+
+Phase 8N では playlist entry loader を raw reader / lightweight row materializer へ寄せた。
+
+- `StartupPlaylistEntryRow` のような hydration 専用 DTO を追加し、DB read では property changed / dynamic parse / parent resolution を起動しない。
+- grouping は DTO の `playlist_id` で行い、table assign 直前に `BMSTableEntry` へ materialize するか、table entries の正本を `BMSTableEntry` のまま維持しつつ constructor side effect を抑えた bulk factory を使う。
+- `BMSTable.entries` setter が行う parent 付与、normalize、folder state rebuild、loaded mark は維持する。ここを迂回して高速化しない。
+- active / removed row、`url`, `url_diff`, `name_diff`, `org_md5`, `adddate`, `comment`, `memo`, `sha256` は現行 semantics のため維持する。
+- `playlist_id IS NULL` を読まない既存 projection は維持する。
+- single table lazy load、external sync、playlist reload merge、URL completion、LR2 custom folder export は現行結果と一致させる。
+
+2026-05-06 の Phase 8N 実機確認では、lane 化と raw materialize の両方が想定どおり動作した。
+
+- `startup_background_task start` は `playlist_entries_hydration` と `chart_info_hydration` を同時刻に開始し、`lane=read_hydration` / `laneRunning=1,2` を出した。
+- `playlist_entries_hydration done ... rows=556649 dbReadMs=8141 materializeMs=8141 groupMs=78 assignMs=317 totalMs=8570 entryLoadRowsPerMs=68`
+  - Phase 8M 実測の `totalMs=11448` から短縮。
+- `chart_info_hydration done ... totalMs=15563`
+  - 並列 read の影響で単体 elapsed は Phase 8M 実測より伸びた。
+  - ただし start が大きく前倒しされたため、初期化全体の tail は短縮した。
+- `maintenance_hydration done ... elapsedMs=6643`
+- `startup_initialization_complete elapsedMs=49733`
+  - Phase 8M 実測 `64764ms` から約 15 秒短縮。
+- `startup_background_summary` は各 task に `lane=read_hydration|playlist_followup|dependent_maintenance|default` を出した。
+
+Acceptance criteria:
+
+- `playlist_entries_hydration totalMs` が現行の 10-12 秒台から明確に下がる。
+- `chart_info_hydration` / `maintenance_hydration` の start が `playlist_entries_hydration` 完了待ちにならない。
+- `startup_initialization_complete` が短縮し、memory peak が許容範囲に収まる。
+- `startup_background_summary` で lane、parallel start、dependency wait を説明できる。
+- playlist hydration 後の table entries、removed entries、URL completion、playlist reference apply、playlist summary は現行と一致する。
+
 ### Key Changes
 
 - playlist entries hydration
