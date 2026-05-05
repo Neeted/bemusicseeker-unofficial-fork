@@ -596,8 +596,12 @@ Everything service 側で同時 query の内部競合があるため、個別の
 - `DirectoryResourceLookupCache.Entry` の `AllBaseNameHashArray` / `SelfOwnedAllBaseNameHashArray` 相当は保存値ではなく、audio / image / movie のカテゴリ配列から lazy に派生する union である。
 - `FolderAllFileList` は self-owned category union から構築する。managed fallback scan でも同じカテゴリ辞書を正本にし、Everything unavailable 時の fallback は維持する。
 - generic all-base reverse lookup は削除した。導入先推定と reverse lookup はカテゴリ別 chart-relative key を使う。
+- resource health の WAV / BGA / MOV 存在判定もカテゴリ別 index を正本にする。譜面ファイルや別カテゴリ resource は、同じ stem でも存在扱いしない。
+- 拡張子なし union は transitional view であり、health 判定の fallback には使わない。
 
 この変更は payload 削減の第一段である。実機での効果確認は `everything_scan` の `bridgeRawBufferBytes`, `managedDecodeMs`, `managedMaterializeMs`, `folderUnionHashCount`、および `resource_index_build` の悪化有無で見る。
+
+次フェーズでは、残っている extensionless resource union の利用箇所を全調査し、カテゴリ別 API へ置き換える。特に導入先 tie-break で union を使う必要は薄く、同率に近い候補は曖昧候補として提示し、順序安定だけが必要なら path 名順で十分とする。
 
 2026-05-06 実機確認では次の状態になった。
 

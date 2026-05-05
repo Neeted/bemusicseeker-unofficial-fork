@@ -1565,7 +1565,6 @@ public class BMSFile : LR2SongDB.song
             }
             string dir = (string.IsNullOrWhiteSpace(altSearchDir) ? DirectoryExt.GetDirectoryNameSimple(path) : altSearchDir.TrimEnd('\\'));
             string lookupDir = dir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-            uint[] curDirFileNameHashArray = ((fListCache != null) ? fListCache.GetFileNameHashArray(lookupDir, forceUpdate) : BMSDirectoryFileNameHash.GetFileNameHashArray(lookupDir));
             DirectoryRelativePathHashIndex.Entry relativePathEntry = lookupContext?.GetRelativePathEntryOrNull(lookupDir);
             DirectoryResourceLookupCache.Entry resourceEntry = relativePathEntry == null ? lookupContext?.GetResourceEntryOrNull(lookupDir) : null;
             long cacheHitCount = 0L;
@@ -1574,19 +1573,32 @@ public class BMSFile : LR2SongDB.song
             long movieFileExistsFallbackCount = 0L;
             long optionalImageFileExistsFallbackCount = 0L;
             dir = lookupDir + Path.DirectorySeparatorChar;
-            HashSet<uint> curDirFileNameHashSet = null;
-            HashSet<uint> curDirFileNameHashArrayAddSet = null;
+            uint[] localAudioResourceHashes = null;
+            uint[] localImageResourceHashes = null;
+            uint[] localMovieResourceHashes = null;
+            HashSet<uint> localAudioResourceHashSet = null;
+            HashSet<uint> localImageResourceHashSet = null;
+            HashSet<uint> localMovieResourceHashSet = null;
             Func<uint[], List<string>, IEnumerable<string>, ChartResourceKind, int> func = delegate (uint[] localHashSet, List<string> nonlocalFileList, IEnumerable<string> extensions, ChartResourceKind resourceKind)
             {
                 int num = 0;
                 if (localHashSet.Length != 0)
                 {
+                    uint[] categoryResourceHashes = GetLocalResourceHashesForHealth(
+                        lookupDir,
+                        resourceKind,
+                        relativePathEntry,
+                        resourceEntry,
+                        ref localAudioResourceHashes,
+                        ref localImageResourceHashes,
+                        ref localMovieResourceHashes);
                     num += CountMissingLocalHashes(
                         localHashSet,
-                        curDirFileNameHashArray,
-                        ref curDirFileNameHashSet,
-                        string.IsNullOrWhiteSpace(altSearchDir) ? null : curDirFileNameHashArrayAdd,
-                        ref curDirFileNameHashArrayAddSet);
+                        categoryResourceHashes,
+                        ref localAudioResourceHashSet,
+                        ref localImageResourceHashSet,
+                        ref localMovieResourceHashSet,
+                        resourceKind);
                 }
                 if (nonlocalFileList.Count > 0)
                 {
@@ -1685,26 +1697,133 @@ public class BMSFile : LR2SongDB.song
         }
     }
 
-    private static int CountMissingLocalHashes(uint[] requiredHashes, uint[] availableHashes, ref HashSet<uint> availableHashSet, uint[] additionalHashes, ref HashSet<uint> additionalHashSet)
+    private static uint[] GetLocalResourceHashesForHealth(
+        string directory,
+        ChartResourceKind resourceKind,
+        DirectoryRelativePathHashIndex.Entry relativeEntry,
+        DirectoryResourceLookupCache.Entry resourceEntry,
+        ref uint[] audioResourceHashes,
+        ref uint[] imageResourceHashes,
+        ref uint[] movieResourceHashes)
+    {
+        uint[] cachedHashes = GetSelfOwnedBaseNameHashArray(relativeEntry, resourceEntry, resourceKind);
+        if (cachedHashes != null)
+        {
+            return cachedHashes;
+        }
+
+        switch (resourceKind)
+        {
+            case ChartResourceKind.Audio:
+                return audioResourceHashes ??= GetDirectoryResourceHashArray(directory, ChartResourceKind.Audio);
+            case ChartResourceKind.Image:
+                return imageResourceHashes ??= GetDirectoryResourceHashArray(directory, ChartResourceKind.Image);
+            case ChartResourceKind.Movie:
+                return movieResourceHashes ??= GetDirectoryResourceHashArray(directory, ChartResourceKind.Movie);
+            default:
+                return Array.Empty<uint>();
+        }
+    }
+
+    private static uint[] GetSelfOwnedBaseNameHashArray(DirectoryRelativePathHashIndex.Entry relativeEntry, DirectoryResourceLookupCache.Entry resourceEntry, ChartResourceKind resourceKind)
+    {
+        if (relativeEntry != null)
+        {
+            return resourceKind switch
+            {
+                ChartResourceKind.Audio => relativeEntry.SelfOwnedAudioBaseNameHashArray,
+                ChartResourceKind.Image => relativeEntry.SelfOwnedImageBaseNameHashArray,
+                ChartResourceKind.Movie => relativeEntry.SelfOwnedMovieBaseNameHashArray,
+                _ => Array.Empty<uint>()
+            };
+        }
+
+        if (resourceEntry != null)
+        {
+            return resourceKind switch
+            {
+                ChartResourceKind.Audio => resourceEntry.SelfOwnedAudioBaseNameHashArray,
+                ChartResourceKind.Image => resourceEntry.SelfOwnedImageBaseNameHashArray,
+                ChartResourceKind.Movie => resourceEntry.SelfOwnedMovieBaseNameHashArray,
+                _ => Array.Empty<uint>()
+            };
+        }
+
+        return null;
+    }
+
+    private static uint[] GetDirectoryResourceHashArray(string directory, ChartResourceKind resourceKind)
+    {
+        if (string.IsNullOrWhiteSpace(directory) || !Directory.Exists(directory))
+        {
+            return Array.Empty<uint>();
+        }
+
+        return FastDirectoryEnumerator.GetFileNames(directory)
+            .Where((string fileName) => IsResourceFileNameForKind(fileName, resourceKind))
+            .Select(BMSDirectoryFileNameHash.GetFileNameHash)
+            .ToArray();
+    }
+
+    private static bool IsResourceFileNameForKind(string fileName, ChartResourceKind resourceKind)
+    {
+        if (string.IsNullOrWhiteSpace(fileName))
+        {
+            return false;
+        }
+
+        return resourceKind switch
+        {
+            ChartResourceKind.Audio => wavExtensions.Any((string extension) => fileName.EndsWith(extension, StringComparison.OrdinalIgnoreCase)),
+            ChartResourceKind.Image => bgaImageExtensions.Any((string extension) => fileName.EndsWith(extension, StringComparison.OrdinalIgnoreCase)),
+            ChartResourceKind.Movie => bgaMovieExtensions.Any((string extension) => fileName.EndsWith(extension, StringComparison.OrdinalIgnoreCase)),
+            _ => false
+        };
+    }
+
+    private static int CountMissingLocalHashes(
+        uint[] requiredHashes,
+        uint[] availableHashes,
+        ref HashSet<uint> audioHashSet,
+        ref HashSet<uint> imageHashSet,
+        ref HashSet<uint> movieHashSet,
+        ChartResourceKind resourceKind)
     {
         if (requiredHashes == null || requiredHashes.Length == 0)
         {
             return 0;
         }
-        availableHashSet ??= new HashSet<uint>(availableHashes ?? Array.Empty<uint>());
-        if (additionalHashes != null && additionalHashes.Length > 0)
-        {
-            additionalHashSet ??= new HashSet<uint>(additionalHashes);
-        }
+
+        HashSet<uint> availableHashSet = GetOrCreateLocalResourceHashSet(availableHashes, ref audioHashSet, ref imageHashSet, ref movieHashSet, resourceKind);
         int missing = 0;
         foreach (uint requiredHash in requiredHashes)
         {
-            if (!availableHashSet.Contains(requiredHash) && (additionalHashSet == null || !additionalHashSet.Contains(requiredHash)))
+            if (!availableHashSet.Contains(requiredHash))
             {
                 missing++;
             }
         }
         return missing;
+    }
+
+    private static HashSet<uint> GetOrCreateLocalResourceHashSet(
+        uint[] availableHashes,
+        ref HashSet<uint> audioHashSet,
+        ref HashSet<uint> imageHashSet,
+        ref HashSet<uint> movieHashSet,
+        ChartResourceKind resourceKind)
+    {
+        switch (resourceKind)
+        {
+            case ChartResourceKind.Audio:
+                return audioHashSet ??= new HashSet<uint>(availableHashes ?? Array.Empty<uint>());
+            case ChartResourceKind.Image:
+                return imageHashSet ??= new HashSet<uint>(availableHashes ?? Array.Empty<uint>());
+            case ChartResourceKind.Movie:
+                return movieHashSet ??= new HashSet<uint>(availableHashes ?? Array.Empty<uint>());
+            default:
+                return new HashSet<uint>(availableHashes ?? Array.Empty<uint>());
+        }
     }
 
     private static ResourceHealthFallbackKind GetFallbackKind(ChartResourceKind resourceKind)

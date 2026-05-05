@@ -491,6 +491,129 @@ public sealed class BmsLibraryPackageInstallServiceTests
     }
 
     [TestMethod]
+    public void PrepareAutoInstallWorkflow_KeepsBmsPackagePendingWhenOnlySameStemChartFileExists()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string packageDirectoryPath = Path.Combine(tempDirectoryPath, "BmsMissingSameStem");
+            Directory.CreateDirectory(packageDirectoryPath);
+            string bmsFilePath = Path.Combine(packageDirectoryPath, "chart.bme");
+            File.WriteAllText(
+                bmsFilePath,
+                "#PLAYER 1\r\n"
+                + "#TITLE Same Stem Missing\r\n"
+                + "#ARTIST Test\r\n"
+                + "#WAVAA chart.wav\r\n"
+                + "#BMP01 chart.mpg\r\n"
+                + "#00111:AA\r\n"
+                + "#00104:01\r\n");
+            BmsLibraryMaintenanceService maintenanceService = new BmsLibraryMaintenanceService();
+            BmsLibraryPackageInstallService service = new BmsLibraryPackageInstallService();
+
+            AutoInstallWorkflowResult result = service.PrepareAutoInstallWorkflow(
+                new[] { packageDirectoryPath },
+                Array.Empty<BMSPackage>(),
+                Array.Empty<string>(),
+                _ => false,
+                0.6,
+                file => maintenanceService.ApplyNeedToBeFixedWarnings(file, file.maintenanceInfo, strictCheck: true));
+
+            Assert.AreEqual(1, result.DiscoveredPackages.Count);
+            Assert.AreEqual(1, result.PendingPackagesToAdd.Count);
+            Assert.AreEqual(0, result.AutoInstallCandidates.Count);
+            PendingChartEntry chart = result.PendingPackagesToAdd[0].PendingCharts.Single();
+            Assert.AreEqual(1, chart.maintenanceInfo.wav_files_defined);
+            Assert.AreEqual(0, chart.maintenanceInfo.wav_files_existing);
+            Assert.AreEqual(1, chart.maintenanceInfo.movie_files_defined);
+            Assert.AreEqual(0, chart.maintenanceInfo.movie_files_existing);
+            Assert.IsTrue(chart.Warnings.Contains(ChartWarningKind.ResourceWavMissing));
+            Assert.IsTrue(chart.Warnings.Contains(ChartWarningKind.ResourceMovieMissing));
+        });
+    }
+
+    [TestMethod]
+    public void PrepareAutoInstallWorkflow_DoesNotUseImageAsAudioOrMovieResource()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string packageDirectoryPath = Path.Combine(tempDirectoryPath, "BmsImageOnlySameStem");
+            Directory.CreateDirectory(packageDirectoryPath);
+            string bmsFilePath = Path.Combine(packageDirectoryPath, "chart.bme");
+            File.WriteAllText(
+                bmsFilePath,
+                "#PLAYER 1\r\n"
+                + "#TITLE Image Only Same Stem\r\n"
+                + "#ARTIST Test\r\n"
+                + "#WAVAA chart.wav\r\n"
+                + "#BMP01 chart.mpg\r\n"
+                + "#00111:AA\r\n"
+                + "#00104:01\r\n");
+            File.WriteAllText(Path.Combine(packageDirectoryPath, "chart.png"), "image");
+            BmsLibraryMaintenanceService maintenanceService = new BmsLibraryMaintenanceService();
+            BmsLibraryPackageInstallService service = new BmsLibraryPackageInstallService();
+
+            AutoInstallWorkflowResult result = service.PrepareAutoInstallWorkflow(
+                new[] { packageDirectoryPath },
+                Array.Empty<BMSPackage>(),
+                Array.Empty<string>(),
+                _ => false,
+                0.6,
+                file => maintenanceService.ApplyNeedToBeFixedWarnings(file, file.maintenanceInfo, strictCheck: true));
+
+            Assert.AreEqual(1, result.PendingPackagesToAdd.Count);
+            Assert.AreEqual(0, result.AutoInstallCandidates.Count);
+            PendingChartEntry chart = result.PendingPackagesToAdd[0].PendingCharts.Single();
+            Assert.AreEqual(0, chart.maintenanceInfo.wav_files_existing);
+            Assert.AreEqual(0, chart.maintenanceInfo.movie_files_existing);
+            Assert.IsTrue(chart.Warnings.Contains(ChartWarningKind.ResourceWavMissing));
+            Assert.IsTrue(chart.Warnings.Contains(ChartWarningKind.ResourceMovieMissing));
+        });
+    }
+
+    [TestMethod]
+    public void PrepareAutoInstallWorkflow_UsesSameStemAudioAndMovieResourcesByCategory()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string packageDirectoryPath = Path.Combine(tempDirectoryPath, "BmsCompleteSameStem");
+            Directory.CreateDirectory(packageDirectoryPath);
+            string bmsFilePath = Path.Combine(packageDirectoryPath, "chart.bme");
+            File.WriteAllText(
+                bmsFilePath,
+                "#PLAYER 1\r\n"
+                + "#TITLE Complete Same Stem\r\n"
+                + "#ARTIST Test\r\n"
+                + "#WAVAA chart.wav\r\n"
+                + "#BMP01 chart.mpg\r\n"
+                + "#00111:AA\r\n"
+                + "#00104:01\r\n");
+            File.WriteAllText(Path.Combine(packageDirectoryPath, "chart.wav"), "audio");
+            File.WriteAllText(Path.Combine(packageDirectoryPath, "chart.mpg"), "movie");
+            BmsLibraryMaintenanceService maintenanceService = new BmsLibraryMaintenanceService();
+            BmsLibraryPackageInstallService service = new BmsLibraryPackageInstallService();
+
+            AutoInstallWorkflowResult result = service.PrepareAutoInstallWorkflow(
+                new[] { packageDirectoryPath },
+                Array.Empty<BMSPackage>(),
+                Array.Empty<string>(),
+                _ => false,
+                0.6,
+                file => maintenanceService.ApplyNeedToBeFixedWarnings(file, file.maintenanceInfo, strictCheck: true));
+
+            Assert.AreEqual(1, result.AutoInstallCandidates.Count);
+            Assert.AreEqual(0, result.PendingPackagesToAdd.Count);
+            PendingChartEntry chart = result.AutoInstallCandidates[0].PendingCharts.Single();
+            Assert.AreEqual(1, chart.maintenanceInfo.wav_files_existing);
+            Assert.AreEqual(1, chart.maintenanceInfo.movie_files_existing);
+            Assert.IsFalse(chart.Warnings.Contains(ChartWarningKind.ResourceWavMissing));
+            Assert.IsFalse(chart.Warnings.Contains(ChartWarningKind.ResourceMovieMissing));
+        });
+    }
+
+    [TestMethod]
     public void PrepareAutoInstallWorkflow_PrioritizesNestedChartWarningBeforeResourceWarnings()
     {
         TestResourceInitializer.EnsureJapaneseResources();
