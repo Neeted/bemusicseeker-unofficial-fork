@@ -4827,6 +4827,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         MenuItem menuItem10 = null;
         MenuItem menuItem11 = null;
         MenuItem menuItem12 = null;
+        MenuItem menuItemFullScanAllCharts = null;
         MenuItem menuItem13 = null;
         MenuItem menuItem14 = null;
         MenuItem menuItem15 = null;
@@ -4897,7 +4898,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                     foreach (Control item2 in (IEnumerable)menuItem10.Items)
                     {
                         string name = item2.Name;
-                        if (!(name == "tableContextMenuItemIgnoreFileScanCheck"))
+                        if (name == "tableContextMenuItemFullScanCheckAllCharts")
+                        {
+                            menuItemFullScanAllCharts = item2 as MenuItem;
+                        }
+                        else if (!(name == "tableContextMenuItemIgnoreFileScanCheck"))
                         {
                             if (name == "tableContextMenuItemNotIgnoreFileScanCheck")
                             {
@@ -5198,6 +5203,13 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             bool hasResourceHealthTarget = selectedTargets.Any((ChartOperationTarget target) => target.HasCapability(ChartOperationCapabilities.RunResourceHealthCheck));
             menuItem12.Visibility = ((!isSelected2) ? Visibility.Collapsed : Visibility.Visible);
             menuItem12.IsEnabled = isSelected2 && hasResourceHealthTarget;
+        }
+        if (menuItemFullScanAllCharts != null)
+        {
+            bool canRescanAllCharts = menuItem10?.Visibility == Visibility.Visible
+                && !mainWindowViewModel.IsMaintenanceRescanProgressActive;
+            menuItemFullScanAllCharts.Visibility = Visibility.Visible;
+            menuItemFullScanAllCharts.IsEnabled = canRescanAllCharts;
         }
         if (menuItem19 != null && separator2 != null)
         {
@@ -6300,6 +6312,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         (base.DataContext as MainWindowViewModel)?.CancelDroppedInstallQueue();
     }
 
+    private void cancelMaintenanceRescanClick(object sender, RoutedEventArgs e)
+    {
+        (base.DataContext as MainWindowViewModel)?.CancelMaintenanceRescan();
+    }
+
     private async void tableContextMenuItemSearchLinkSubmenuClick(object sender, RoutedEventArgs e)
     {
         if (!(e.Source is MenuItem menuItem))
@@ -6497,6 +6514,28 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 viewModel.DeleteBMSTableEntries(enGrp.AsEnumerable(), enGrp.Key);
             }).Logging("tableContextMenuItemDeleteEntryClick");
         }
+    }
+
+    private void tableContextMenuItemForceFileScanCheckAllCharts(object sender, RoutedEventArgs e)
+    {
+        if (ShouldBlockStartupUiInteraction("datagrid_context_menu_full_scan_all_charts"))
+        {
+            e.Handled = true;
+            return;
+        }
+        if (DispatcherMessageBox.Show(Window.GetWindow(this),
+            BeMusicSeeker.Properties.Resources.Msg_rescan_all_charts_confirm,
+            BeMusicSeeker.Properties.Resources.Confirm,
+            MessageBoxButton.OKCancel,
+            MessageBoxImage.Question,
+            MessageBoxResult.Cancel) == MessageBoxResult.Cancel)
+        {
+            e.Handled = true;
+            return;
+        }
+        MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
+        viewModel?.StartRescanAllOwnedChartMaintenance();
+        e.Handled = true;
     }
 
     private void tableContextMenuItemRemoveChartInfoParseFailureClick(object sender, RoutedEventArgs e)

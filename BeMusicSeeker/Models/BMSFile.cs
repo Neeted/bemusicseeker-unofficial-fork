@@ -18,6 +18,33 @@ using SQLite;
 
 namespace BeMusicSeeker.Models;
 
+/// <summary>
+/// `maintenanceInfo` がどの経路で得られた値かを表します。
+/// ResourceHealth の正本判定で lazy placeholder と DB/計算済み snapshot を区別するために使います。
+/// </summary>
+public enum MaintenanceInfoOrigin
+{
+    /// <summary>
+    /// maintenance 情報がまだ materialize されていない状態です。
+    /// </summary>
+    None,
+
+    /// <summary>
+    /// lazy getter などで作られた未検査の placeholder です。
+    /// </summary>
+    Placeholder,
+
+    /// <summary>
+    /// DB の maintenance table から hydrate された snapshot です。
+    /// </summary>
+    DbHydrated,
+
+    /// <summary>
+    /// file diff、導入処理、または明示的な再スキャンで計算された snapshot です。
+    /// </summary>
+    Calculated
+}
+
 public class BMSFile : LR2SongDB.song
 {
     private sealed class BulkLoadNotificationScope : IDisposable
@@ -101,6 +128,8 @@ public class BMSFile : LR2SongDB.song
     private PropertyChangedEventListener listenerForMaintenanceInfo;
 
     private BMSFileMaintenanceInfo _maintenanceInfo;
+
+    private MaintenanceInfoOrigin maintenanceInfoOrigin;
 
     private string _sha256;
 
@@ -553,9 +582,9 @@ public class BMSFile : LR2SongDB.song
         set
         {
             base.path = value;
-            if (hash != null)
+            if (hash != null && _maintenanceInfo != null)
             {
-                maintenanceInfo.path = value;
+                _maintenanceInfo.path = value;
             }
             RaisePropertyChanged(() => Folder);
         }
@@ -1011,6 +1040,7 @@ public class BMSFile : LR2SongDB.song
             if (_maintenanceInfo == null)
             {
                 _maintenanceInfo = new BMSFileMaintenanceInfo(this);
+                maintenanceInfoOrigin = MaintenanceInfoOrigin.Placeholder;
             }
             return _maintenanceInfo;
         }
@@ -1019,6 +1049,11 @@ public class BMSFile : LR2SongDB.song
             SetMaintenanceInfo(value, suppressPropertyChanged: false, registerEventHandlers: true);
         }
     }
+
+    /// <summary>
+    /// 現在保持している `maintenanceInfo` がどの経路で得られたかを返します。
+    /// </summary>
+    public MaintenanceInfoOrigin MaintenanceInfoOrigin => maintenanceInfoOrigin;
 
     public virtual bool IsHashDuplicated
     {
@@ -1059,14 +1094,24 @@ public class BMSFile : LR2SongDB.song
         ClearWarning(ChartWarningKind.InstallEstimationLowConfidence);
     }
 
-    public void SetMaintenanceInfo(BMSFileMaintenanceInfo value, bool suppressPropertyChanged = false, bool registerEventHandlers = true)
+    /// <summary>
+    /// maintenance snapshot を差し替えます。
+    /// origin を明示しない既存呼び出しは、null を placeholder、非 null を計算済み snapshot として扱います。
+    /// </summary>
+    /// <param name="value">設定する maintenance snapshot。null の場合は placeholder を作ります。</param>
+    /// <param name="suppressPropertyChanged">`maintenanceInfo` 自体の PropertyChanged を抑止するかどうか。</param>
+    /// <param name="registerEventHandlers">snapshot 内 property の変更を BMSFile へ転送する listener を登録するかどうか。</param>
+    /// <param name="origin">snapshot の由来。未指定の場合は互換既定値を使います。</param>
+    public void SetMaintenanceInfo(BMSFileMaintenanceInfo value, bool suppressPropertyChanged = false, bool registerEventHandlers = true, MaintenanceInfoOrigin? origin = null)
     {
+        MaintenanceInfoOrigin nextOrigin = origin ?? (value == null ? MaintenanceInfoOrigin.Placeholder : MaintenanceInfoOrigin.Calculated);
         if (value == null)
         {
             value = new BMSFileMaintenanceInfo(this);
         }
         if (_maintenanceInfo == value)
         {
+            maintenanceInfoOrigin = nextOrigin;
             return;
         }
         if (value.hash != hash)
@@ -1075,6 +1120,7 @@ public class BMSFile : LR2SongDB.song
         }
         DisposeMaintenanceInfoListener();
         _maintenanceInfo = value;
+        maintenanceInfoOrigin = nextOrigin;
         if (registerEventHandlers)
         {
             registrateMaintenanceInfoPropertyChangedEventHandlers();
@@ -1093,6 +1139,22 @@ public class BMSFile : LR2SongDB.song
         }
         return string.Equals(_maintenanceInfo.hash, expectedHash, StringComparison.OrdinalIgnoreCase);
     }
+
+    /// <summary>
+    /// lazy placeholder を生成せず、現在 materialize 済みの maintenance snapshot を返します。
+    /// </summary>
+    /// <returns>materialize 済み snapshot。未作成なら null。</returns>
+    internal BMSFileMaintenanceInfo TryGetMaintenanceInfoWithoutCreating()
+    {
+        return _maintenanceInfo;
+    }
+
+    /// <summary>
+    /// ResourceHealth の正本として使える DB 由来または計算済み snapshot を持つかどうかを返します。
+    /// </summary>
+    internal bool HasValidMaintenanceInfoSnapshot =>
+        _maintenanceInfo != null
+        && (maintenanceInfoOrigin == MaintenanceInfoOrigin.DbHydrated || maintenanceInfoOrigin == MaintenanceInfoOrigin.Calculated);
 
     internal void NotifyMaintenanceInfoChanged(bool encodingChanged, bool healthChanged)
     {
@@ -1616,6 +1678,10 @@ public class BMSFile : LR2SongDB.song
             lookupContext?.AddFileExistsFallbacks(ResourceHealthFallbackKind.Image, imageFileExistsFallbackCount);
             lookupContext?.AddFileExistsFallbacks(ResourceHealthFallbackKind.Movie, movieFileExistsFallbackCount);
             lookupContext?.AddFileExistsFallbacks(ResourceHealthFallbackKind.OptionalImage, optionalImageFileExistsFallbackCount);
+            if (ReferenceEquals(mtInfo, _maintenanceInfo))
+            {
+                maintenanceInfoOrigin = MaintenanceInfoOrigin.Calculated;
+            }
         }
     }
 

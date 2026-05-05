@@ -40,6 +40,28 @@ public sealed class PendingChartEntry : BMSFile
 
     public bool IsBmsChart => ChartKind == PendingChartKind.Bms;
 
+    private static bool IsMeaningfulResourceMaintenanceInfo(BMSFileMaintenanceInfo info)
+    {
+        if (info == null)
+        {
+            return false;
+        }
+        return info.IsInformationChecked()
+            || info.wav_files_defined.HasValue
+            || info.wav_files_existing.HasValue
+            || info.bga_files_defined.HasValue
+            || info.bga_files_existing.HasValue
+            || info.movie_files_defined.HasValue
+            || info.movie_files_existing.HasValue
+            || info.is_stagefile_defined.HasValue
+            || info.is_stagefile_existing.HasValue
+            || info.is_banner_defined.HasValue
+            || info.is_banner_existing.HasValue
+            || info.is_backbmp_defined.HasValue
+            || info.is_backbmp_existing.HasValue
+            || info.is_files_warning_ignored;
+    }
+
     public override LR2SongDBExtended.chart_info ChartInfo => IsBmsonChart
         ? BmsonSong?.ChartInfo ?? base.ChartInfo
         : base.ChartInfo;
@@ -175,13 +197,13 @@ public sealed class PendingChartEntry : BMSFile
         entry.stagefile = source.stagefile;
         entry.banner = source.banner;
         entry.backbmp = source.backbmp;
-        if (source.HasMaintenanceInfoHash(source.hash))
+        if (source.HasValidMaintenanceInfoSnapshot && source.HasMaintenanceInfoHash(source.hash))
         {
-            entry.SetMaintenanceInfo(source.maintenanceInfo, suppressPropertyChanged: true, registerEventHandlers: false);
+            entry.SetMaintenanceInfo(source.TryGetMaintenanceInfoWithoutCreating(), suppressPropertyChanged: true, registerEventHandlers: false, source.MaintenanceInfoOrigin);
         }
         else
         {
-            entry.SetMaintenanceInfo(new BMSFileMaintenanceInfo(entry), suppressPropertyChanged: true, registerEventHandlers: false);
+            entry.SetMaintenanceInfo(new BMSFileMaintenanceInfo(entry), suppressPropertyChanged: true, registerEventHandlers: false, MaintenanceInfoOrigin.Placeholder);
         }
         if (source.bmsScore != null)
         {
@@ -229,17 +251,24 @@ public sealed class PendingChartEntry : BMSFile
         hash = song.md5;
         sha256 = song.sha256;
         SetChartInfo(song.ChartInfo);
-        BMSFileMaintenanceInfo nextMaintenanceInfo = song.MaintenanceInfo ?? maintenanceInfo;
-        if (nextMaintenanceInfo == null || !string.Equals(nextMaintenanceInfo.hash, hash, StringComparison.OrdinalIgnoreCase))
+        BMSFileMaintenanceInfo nextMaintenanceInfo = song.MaintenanceInfo;
+        MaintenanceInfoOrigin origin = MaintenanceInfoOrigin.DbHydrated;
+        if (nextMaintenanceInfo == null
+            || !string.Equals(nextMaintenanceInfo.hash, hash, StringComparison.OrdinalIgnoreCase)
+            || !IsMeaningfulResourceMaintenanceInfo(nextMaintenanceInfo))
         {
             nextMaintenanceInfo = BMSFileMaintenanceInfo.CreateForBmson(path, hash);
+            origin = MaintenanceInfoOrigin.Placeholder;
         }
         else
         {
             nextMaintenanceInfo.NormalizeForBmson(path, hash);
         }
-        SetMaintenanceInfo(nextMaintenanceInfo, suppressPropertyChanged: true, registerEventHandlers: false);
-        song.MaintenanceInfo = nextMaintenanceInfo;
+        SetMaintenanceInfo(nextMaintenanceInfo, suppressPropertyChanged: true, registerEventHandlers: false, origin);
+        if (origin != MaintenanceInfoOrigin.Placeholder)
+        {
+            song.MaintenanceInfo = nextMaintenanceInfo;
+        }
         title = song.title;
         subtitle = song.subtitle;
         artist = song.artist;
@@ -295,10 +324,25 @@ public sealed class PendingChartEntry : BMSFile
         hash = installedSong.md5;
         sha256 = installedSong.sha256;
         SetChartInfo(installedSong.ChartInfo);
-        BMSFileMaintenanceInfo nextMaintenanceInfo = installedSong.MaintenanceInfo ?? maintenanceInfo ?? BMSFileMaintenanceInfo.CreateForBmson(path, hash);
+        bool installedMaintenanceValid = IsMeaningfulResourceMaintenanceInfo(installedSong.MaintenanceInfo);
+        MaintenanceInfoOrigin origin = installedMaintenanceValid
+            ? MaintenanceInfoOrigin.DbHydrated
+            : this.MaintenanceInfoOrigin;
+        BMSFileMaintenanceInfo nextMaintenanceInfo = installedMaintenanceValid
+            ? installedSong.MaintenanceInfo
+            : null
+            ?? (HasValidMaintenanceInfoSnapshot ? TryGetMaintenanceInfoWithoutCreating() : null)
+            ?? BMSFileMaintenanceInfo.CreateForBmson(path, hash);
+        if (!installedMaintenanceValid && !HasValidMaintenanceInfoSnapshot)
+        {
+            origin = MaintenanceInfoOrigin.Placeholder;
+        }
         nextMaintenanceInfo.NormalizeForBmson(path, hash);
-        SetMaintenanceInfo(nextMaintenanceInfo, suppressPropertyChanged: true, registerEventHandlers: false);
-        installedSong.MaintenanceInfo = nextMaintenanceInfo;
+        SetMaintenanceInfo(nextMaintenanceInfo, suppressPropertyChanged: true, registerEventHandlers: false, origin);
+        if (origin != MaintenanceInfoOrigin.Placeholder)
+        {
+            installedSong.MaintenanceInfo = nextMaintenanceInfo;
+        }
         WAVfiles = new HashSet<string>(installedSong.wav_files ?? Enumerable.Empty<string>(), StringComparer.OrdinalIgnoreCase);
         BGAfiles = new HashSet<string>(installedSong.bga_files ?? Enumerable.Empty<string>(), StringComparer.OrdinalIgnoreCase);
         ClearComponentFileCache();

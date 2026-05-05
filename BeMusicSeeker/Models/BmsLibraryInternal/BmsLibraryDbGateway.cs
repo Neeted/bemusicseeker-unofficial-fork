@@ -351,9 +351,12 @@ internal sealed class BmsLibraryDbGateway
             EnsureBmsonSchema(songDb);
             songDb.Delete<LR2SongDB.song>(oldPath);
             songDb.Delete<LR2SongDBExtended.maintenance>(oldPath);
-            if (bmsFile.maintenanceInfo != null)
+            BMSFileMaintenanceInfo maintenanceInfo = bmsFile.HasValidMaintenanceInfoSnapshot
+                ? bmsFile.TryGetMaintenanceInfoWithoutCreating()
+                : null;
+            if (maintenanceInfo != null)
             {
-                songDb.InsertOrReplace(bmsFile.maintenanceInfo, typeof(LR2SongDBExtended.maintenance));
+                songDb.InsertOrReplace(maintenanceInfo, typeof(LR2SongDBExtended.maintenance));
             }
             Lr2SongFolderParentNormalizer.ApplyIfMissingOrInvalid(bmsFile);
             songDb.InsertOrReplace(bmsFile, typeof(LR2SongDB.song));

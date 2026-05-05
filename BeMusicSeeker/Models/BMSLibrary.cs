@@ -4010,7 +4010,7 @@ public class BMSLibrary : NotificationObject
                     InstallTableLoadResult installTableLoadResult = initializationService.LoadInstallTable(
                         dbGateway,
                         ContainsInstalledChartUnsafe,
-                        (bmsFile) => checkBMSFileNeedToBeFixedAndSetWarnings(bmsFile, bmsFile.maintenanceInfo, strictCheck: true));
+                        (bmsFile) => checkBMSFileNeedToBeFixedAndSetWarnings(bmsFile, bmsFile?.HasValidMaintenanceInfoSnapshot == true ? bmsFile.TryGetMaintenanceInfoWithoutCreating() : null, strictCheck: true));
                     if (installTableLoadResult.StaleInstallPaths.Count > 0)
                     {
                         dbGateway.DeleteInstallRows(installTableLoadResult.StaleInstallPaths);
@@ -5093,10 +5093,15 @@ public class BMSLibrary : NotificationObject
                     + " materializeMs=" + result.MaintenanceMaterializeMs
                     + " mapBuildMs=" + result.MaintenanceMapBuildMs
                     + " applyMs=" + result.MaintenanceApplyMs
+                    + " attachMs=" + result.MaintenanceAttachMs
+                    + " indexBuildMs=" + result.ResourceHealthIndexMs
                     + " cleanupDeleted=" + result.CleanupDeletedCount
                     + " cleanupMs=" + result.CleanupMs
                     + " ownerPathCount=" + result.OwnerPathCount
                     + " stalePathCount=" + result.StalePathCount
+                    + " validSnapshotCount=" + result.ValidSnapshotCount
+                    + " placeholderCount=" + result.PlaceholderCount
+                    + " viewRefreshQueued=" + result.ViewRefreshQueued.ToString().ToLowerInvariant()
                     + " appliedBms=" + result.AppliedBmsCount
                     + " appliedBmson=" + result.AppliedBmsonCount
                     + " defaultBms=" + result.DefaultBmsCount
@@ -5139,6 +5144,7 @@ public class BMSLibrary : NotificationObject
         Stopwatch applyStopwatch = Stopwatch.StartNew();
         using (rwlockBMSFiles.GetWriterGuard())
         {
+            Stopwatch attachStopwatch = Stopwatch.StartNew();
             foreach (BMSFile item in BMSFiles ?? Enumerable.Empty<BMSFile>())
             {
                 if (item == null)
@@ -5156,15 +5162,23 @@ public class BMSLibrary : NotificationObject
                 {
                     nextInfo = value;
                     result.AppliedBmsCount++;
+                    item.SetMaintenanceInfo(nextInfo, suppressPropertyChanged: true, registerEventHandlers: false, MaintenanceInfoOrigin.DbHydrated);
+                    result.ValidSnapshotCount++;
                 }
                 else
                 {
-                    nextInfo = new BMSFileMaintenanceInfo(item);
                     result.DefaultBmsCount++;
+                    if (item.HasValidMaintenanceInfoSnapshot)
+                    {
+                        result.ValidSnapshotCount++;
+                    }
+                    else
+                    {
+                        nextInfo = item.TryGetMaintenanceInfoWithoutCreating() ?? new BMSFileMaintenanceInfo(item);
+                        item.SetMaintenanceInfo(nextInfo, suppressPropertyChanged: true, registerEventHandlers: false, MaintenanceInfoOrigin.Placeholder);
+                        result.PlaceholderCount++;
+                    }
                 }
-                item.SetMaintenanceInfo(nextInfo, suppressPropertyChanged: true, registerEventHandlers: false);
-                checkBMSFileNeedToBeFixedAndSetWarnings(item, nextInfo, strictCheck: true);
-                item.NotifyMaintenanceInfoChanged(encodingChanged: true, healthChanged: true);
             }
             foreach (LR2SongDBExtended.bmson_song item in BmsonSongs ?? Enumerable.Empty<LR2SongDBExtended.bmson_song>())
             {
@@ -5183,14 +5197,25 @@ public class BMSLibrary : NotificationObject
                     value.NormalizeForBmson(item.path, item.md5);
                     item.MaintenanceInfo = value;
                     result.AppliedBmsonCount++;
+                    result.ValidSnapshotCount++;
                 }
                 else
                 {
-                    item.MaintenanceInfo = BMSFileMaintenanceInfo.CreateForBmson(item.path, item.md5);
                     result.DefaultBmsonCount++;
+                    if (item.MaintenanceInfo != null)
+                    {
+                        result.ValidSnapshotCount++;
+                    }
+                    else
+                    {
+                        result.PlaceholderCount++;
+                    }
                 }
             }
-            RebuildResourceHealthIndexSnapshotLocked("maintenance_hydration");
+            attachStopwatch.Stop();
+            result.MaintenanceAttachMs = attachStopwatch.ElapsedMilliseconds;
+            ResourceHealthIndexSnapshot healthIndexSnapshot = RebuildResourceHealthIndexSnapshotLocked("maintenance_hydration");
+            result.ResourceHealthIndexMs = healthIndexSnapshot.BuildMs;
             result.OwnerPathCount = ownerPaths.Count;
             foreach (string maintenancePath in result.MaintenanceMap.Keys)
             {
@@ -5213,6 +5238,7 @@ public class BMSLibrary : NotificationObject
             cleanupStopwatch.Stop();
             result.CleanupMs = cleanupStopwatch.ElapsedMilliseconds;
         }
+        result.ViewRefreshQueued = true;
         RaisePropertyChanged(() => BMSFilesNeedToBeFixed);
         RaisePropertyChanged(() => BMSFilesNeedToBeFixedIgnored);
         RaisePropertyChanged(() => BMSFilesGarbled);
@@ -6557,7 +6583,12 @@ public class BMSLibrary : NotificationObject
         return GetResourceHealthIndexSnapshot(reason);
     }
 
-    private MaintenanceWorkflowResult setMaintenanceInfo(IEnumerable<BMSFile> bmsFiles, bool forceUpdate = false, bool includeInstalledBmson = false)
+    private MaintenanceWorkflowResult setMaintenanceInfo(
+        IEnumerable<BMSFile> bmsFiles,
+        bool forceUpdate = false,
+        bool includeInstalledBmson = false,
+        Action<MaintenanceWorkflowProgress> progressReporter = null,
+        CancellationToken cancellationToken = default)
     {
         if (bmsFiles == null)
         {
@@ -6573,7 +6604,7 @@ public class BMSLibrary : NotificationObject
             using (rwlockSongDBMaintenance.GetWriterGuard())
             {
                 ResourceHealthLookupContext resourceLookupContext = new ResourceHealthLookupContext(bmsFolderAllFileList, directoryResourceLookupCache, directoryRelativePathHashIndex);
-                workflowResult = maintenanceService.UpdateMaintenanceInfo(maintenanceTargets, forceUpdate, bmsFolderAllFileList, dbGateway, dialogService, resourceLookupContext, LogInstallPerformance);
+                workflowResult = maintenanceService.UpdateMaintenanceInfo(maintenanceTargets, forceUpdate, bmsFolderAllFileList, dbGateway, dialogService, resourceLookupContext, LogInstallPerformance, progressReporter, cancellationToken);
             }
             bool rebuildResourceHealthIndex = workflowResult.HasUpdates || !IsResourceHealthIndexCurrent();
             ResourceHealthIndexSnapshot resourceHealthSnapshot = rebuildResourceHealthIndex
@@ -6610,6 +6641,7 @@ public class BMSLibrary : NotificationObject
                     + " resourceHealthIndexMs=" + workflowResult.ResourceHealthIndexMs
                     + " warningReapplyTargets=" + workflowResult.WarningReapplyTargets
                     + " warningChanged=" + workflowResult.WarningChangedCount
+                    + " canceled=" + workflowResult.Canceled.ToString().ToLowerInvariant()
                     + " elapsedMs=" + workflowResult.TotalMs);
             }
             Task.Run(delegate
@@ -6654,7 +6686,7 @@ public class BMSLibrary : NotificationObject
             {
                 if (forceUpdate)
                 {
-                    setMaintenanceInfo(chartFiles, forceUpdate, includeInstalledBmson);
+                    RescanResourceHealthCharts(chartFiles, includeInstalledBmson);
                 }
                 ResourceHealthIndexSnapshot snapshot = GetResourceHealthIndexSnapshot(forceUpdate ? "force_resource_health_filter" : "resource_health_filter");
                 if (includeInstalledBmson)
@@ -6673,6 +6705,44 @@ public class BMSLibrary : NotificationObject
                 }).ToList();
             }
         }
+    }
+
+    /// <summary>
+    /// 指定された譜面の構成ファイル health を明示的に再計算します。
+    /// 通常の hydration とは異なり、ユーザー操作に基づいて実ファイル確認と DB 更新を行います。
+    /// </summary>
+    /// <param name="chartFiles">再スキャン対象。null の場合は全所持譜面を対象にします。</param>
+    /// <param name="includeInstalledBmson">installed bmson も対象に含めるかどうか。</param>
+    /// <param name="progressReporter">section 単位の進捗通知。</param>
+    /// <param name="cancellationToken">section 境界で確認するキャンセル token。</param>
+    /// <returns>再スキャン結果。</returns>
+    internal MaintenanceWorkflowResult RescanResourceHealthCharts(
+        IEnumerable<BMSFile> chartFiles,
+        bool includeInstalledBmson,
+        Action<MaintenanceWorkflowProgress> progressReporter = null,
+        CancellationToken cancellationToken = default)
+    {
+        IEnumerable<BMSFile> targets = chartFiles ?? BMSFiles;
+        MaintenanceWorkflowResult result = setMaintenanceInfo(targets, forceUpdate: true, includeInstalledBmson, progressReporter, cancellationToken);
+        RaisePropertyChanged(() => BMSFilesNeedToBeFixed);
+        RaisePropertyChanged(() => BMSFilesNeedToBeFixedIgnored);
+        RaisePropertyChanged(() => BMSFilesGarbled);
+        RaisePropertyChanged(() => BMSFilesGarbledFixed);
+        return result;
+    }
+
+    /// <summary>
+    /// 全所持譜面の構成ファイル health を明示的に再計算します。
+    /// 後から追加した BGA などを反映するための重い手動操作です。
+    /// </summary>
+    /// <param name="progressReporter">section 単位の進捗通知。</param>
+    /// <param name="cancellationToken">section 境界で確認するキャンセル token。</param>
+    /// <returns>再スキャン結果。</returns>
+    internal MaintenanceWorkflowResult RescanAllOwnedChartMaintenance(
+        Action<MaintenanceWorkflowProgress> progressReporter = null,
+        CancellationToken cancellationToken = default)
+    {
+        return RescanResourceHealthCharts(BMSFiles, includeInstalledBmson: true, progressReporter, cancellationToken);
     }
 
     /// <summary>
@@ -7324,7 +7394,7 @@ public class BMSLibrary : NotificationObject
                             CreateKnownChartDirectorySnapshotUnsafe(),
                             ContainsInstalledChartUnsafe,
                             dupRateThreshInOnePkg,
-                            (bmsFile) => checkBMSFileNeedToBeFixedAndSetWarnings(bmsFile, bmsFile.maintenanceInfo, strictCheck: true),
+                            (bmsFile) => checkBMSFileNeedToBeFixedAndSetWarnings(bmsFile, bmsFile?.HasValidMaintenanceInfoSnapshot == true ? bmsFile.TryGetMaintenanceInfoWithoutCreating() : null, strictCheck: true),
                             token);
                         List<BMSPackage> discoveredPackages = workflow.DiscoveredPackages.ToList();
                         LogInstallPerformance("auto_install_prepare discovered=" + discoveredPackages.Count + " autoInstall=" + workflow.AutoInstallCandidates.Count + " pendingAdd=" + workflow.PendingPackagesToAdd.Count + " pendingRemove=" + workflow.PendingPackagesToRemove.Count + " discoveryMs=" + workflow.DiscoveryMs + " installedCheckMs=" + workflow.InstalledCheckMs + " warningClassifyMs=" + workflow.WarningClassificationMs + " classificationMs=" + workflow.ClassificationMs + " totalMs=" + workflow.TotalMs);

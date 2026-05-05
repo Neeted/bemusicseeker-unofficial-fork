@@ -60,5 +60,7 @@ internal sealed class MaintenanceWorkflowResult
 
     public int WarningChangedCount { get; set; }
 
+    public bool Canceled { get; set; }
+
     public long TotalMs { get; set; }
 }

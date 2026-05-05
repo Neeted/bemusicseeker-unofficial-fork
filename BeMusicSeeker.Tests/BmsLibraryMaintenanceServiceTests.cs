@@ -64,6 +64,42 @@ public sealed class BmsLibraryMaintenanceServiceTests
     }
 
     [TestMethod]
+    public void LazyMaintenancePlaceholder_IsNotAValidResourceHealthSnapshot()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        BmsLibraryMaintenanceService service = new BmsLibraryMaintenanceService();
+        TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+
+        _ = file.maintenanceInfo;
+        IReadOnlyList<ChartWarning> warnings = service.BuildResourceHealthWarnings(file);
+        ResourceHealthIndexSnapshot snapshot = ResourceHealthIndexSnapshot.Build(new BMSFile[] { file }, service, version: 1);
+
+        Assert.AreEqual(MaintenanceInfoOrigin.Placeholder, file.MaintenanceInfoOrigin);
+        Assert.IsFalse(file.HasValidMaintenanceInfoSnapshot);
+        Assert.AreEqual(0, warnings.Count);
+        Assert.AreEqual(0, snapshot.ActiveFiles.Count);
+        Assert.AreEqual(0, snapshot.IgnoredFiles.Count);
+    }
+
+    [TestMethod]
+    public void PendingBmsonEncodingOnlyMaintenance_IsPlaceholder()
+    {
+        LR2SongDBExtended.bmson_song song = new LR2SongDBExtended.bmson_song
+        {
+            path = @"C:\Library\song.bmson",
+            md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            sha256 = new string('c', 64)
+        };
+        song.MaintenanceInfo = BMSFileMaintenanceInfo.CreateForBmson(song.path, song.md5);
+
+        PendingChartEntry entry = PendingChartEntry.CreateFromBmsonSong(song);
+
+        Assert.IsNotNull(entry);
+        Assert.AreEqual(MaintenanceInfoOrigin.Placeholder, entry.MaintenanceInfoOrigin);
+        Assert.IsFalse(entry.HasValidMaintenanceInfoSnapshot);
+    }
+
+    [TestMethod]
     public void LibraryChartRow_ProjectsResourceHealthWarningsWithoutMutatingSource()
     {
         TestResourceInitializer.EnsureJapaneseResources();

@@ -502,7 +502,7 @@ Phase 8B 実測の `ranking_refresh_deferred=43091ms` と比べると、ranking 
 
 未完了として次単位に残すもの:
 
-- `maintenance_hydration` の apply を chunk / aggregate notification 化し、1 件ごとの高コスト warning refresh を避ける。
+- `maintenance_hydration` を、全譜面の health 再計算ではなく DB に保存済みの maintenance snapshot を catalog owner へ高速に attach する処理として整理し、1 件ごとの高コスト warning refresh を避ける。
 - `chart_info_hydration` の DB count / version による no-op skip。
 - playlist entries hydration の同一 startup 内二重 hydrate / presentation rebuild 削減。
 - `updateLR2IRScoreTable()` の no-op 判定 / DB replace 条件整理。
@@ -559,41 +559,45 @@ Phase 4 / Phase 5 を前倒しして、native chart-relative resource index cont
 
 ### Phase 4B / 5A Normal Startup Baseline
 
-2026-05-05 15:35 の保留 package なし通常起動ログでは、現行の通常起動想定として次の状態になった。
+2026-05-05 17:40 の保留 package なし通常起動ログでは、Phase 8D 後の通常起動想定として次の状態になった。17:41:48 以降に手動の `全譜面を再スキャン` が開始されているが、ここでは `startup_initialization_complete` までの通常起動分だけを評価する。
 
 - install readiness / UI readiness
-  - `startup_install_estimation_ready elapsedMs=31696`
-  - `startup_install_ready elapsedMs=31696`
-  - `startup_ready_operable elapsedMs=32875`
+  - `startup_install_estimation_ready elapsedMs=38956`
+  - `startup_install_ready elapsedMs=38956`
+  - `startup_ready_operable elapsedMs=40189`
   - `pendingPackages=0`
   - `pendingEstimateQueueBatches=0`
 - DB catalog / file scan
-  - `song_tbl_load_projection projection=catalog readMs=8998 materializeMs=8989 rows=208979 bmsonRows=1051`
-  - `everything_scan totalMs=30357 nativeBridgeMs=25252 managedDecodeMs=2638 managedMaterializeMs=2431`
-  - `resource_index_build buildMs=2245 lookupMs=2218 relativeMs=0 reverseLookupKeys=8123464`
+  - `song_tbl_load_projection projection=catalog readMs=10617 materializeMs=10591 rows=208979 bmsonRows=1051`
+  - `everything_scan totalMs=37671 nativeBridgeMs=31279 managedDecodeMs=3689 managedMaterializeMs=2668`
+  - `resource_index_build buildMs=2318 lookupMs=2274 relativeMs=0 reverseLookupKeys=8123464 payloadBytes=379540328`
   - `song_tbl_file_check_breakdown db_commit_chunks=0 deleted_count=0 added_count=0`
 - startup background / initialization complete
-  - `startup_initialization_complete elapsedMs=75018`
-  - `playlist_entries_hydration lastMs=11093`
-  - `ranking_refresh_deferred lastMs=10678`
-  - `chart_info_hydration lastMs=10651`
-  - `maintenance_hydration lastMs=14578`
-  - `installable_maintenance lastMs=702`
+  - `startup_initialization_complete elapsedMs=73932`
+  - `playlist_entries_hydration lastMs=13031`
+  - `ranking_refresh_deferred lastMs=12821`
+  - `chart_info_hydration lastMs=10148`
+  - `maintenance_hydration lastMs=4575`
+  - `installable_maintenance lastMs=631`
 
-保留なし通常起動では、導入可能までの critical path は resource index 完成込みで約 32 秒まで戻っている。`pendingEstimateQueueBatches=0` なので、起動直後に推定 batch は走らない。初期化全体は約 75 秒で、残る支配要因は background の `maintenance_hydration`、`playlist_entries_hydration`、`chart_info_hydration`、`ranking_refresh_deferred` である。
+Phase 8D 後の `maintenance_hydration` は、`rows=210027`, `readMs=3298`, `materializeMs=3290`, `mapBuildMs=169`, `applyMs=1085`, `attachMs=280`, `indexBuildMs=396`, `validSnapshotCount=210027`, `placeholderCount=3` で完了した。Phase 8D 前に観測していた `applyMs=11572` / `lastMs=14578` から、通常起動の background tail は約 10 秒短縮されており、全譜面の resource 再検証ではなく DB snapshot attach として動いている。
 
-次の優先は `startup_install_estimation_ready` を無理に短く見せることではなく、通常起動で 75 秒残っている background critical path を短縮することである。特に `maintenance_hydration applyMs=11572` は DB read より大きく、Phase 8D の最優先対象とする。
+保留なし通常起動では、導入可能までの critical path は resource index 完成込みで約 39 秒である。`pendingEstimateQueueBatches=0` なので、起動直後に推定 batch は走らない。初期化全体は約 74 秒で、残る支配要因は `playlist_entries_hydration`、`ranking_refresh_deferred`、`chart_info_hydration`、および scan / DB catalog load 側である。`maintenance_hydration` はまだ 4.6 秒あるが、現時点では次の最優先ではない。
 
-### Phase 8D: Maintenance Apply / Hydration Micro Reduction
+次の優先は、通常起動の初期化全体を短くする観点では `playlist_entries_hydration` / `ranking_refresh_deferred` / `chart_info_hydration` の DB load・materialize 短縮、導入可能までを短くする観点では `everything_scan` / native bridge / catalog load の短縮である。
 
-Phase 4B / 5A の後に実施する。
+### Phase 8D: Maintenance Snapshot Attach / Manual Rescan (implemented)
 
-- `maintenance_hydration` の apply を chunk / aggregate notification 化する。
-- warning / health projection の row ごとの property chain を抑え、UI rebuild をまとめる。
+- `maintenance` は通常、譜面が初めてライブラリへ導入された時点、または明示的な再スキャンで計算される persisted snapshot として扱う。通常起動では resource file の存在を全譜面で再検証しない。
+- `BMSFile.MaintenanceInfoOrigin` を追加し、`None` / `Placeholder` / `DbHydrated` / `Calculated` を明示する。lazy getter で作られる default は `Placeholder` であり、valid health snapshot ではない。
+- `TryGetMaintenanceInfoWithoutCreating()` / `HasValidMaintenanceInfoSnapshot` を追加し、resource health warning / index build は lazy default を生成しない。ここでの valid は「DB hydrate または計算済み由来」を指し、WAV/BGA/MOV の一部だけが入った persisted snapshot も既存仕様どおり warning 投影に使う。一方、bmson parse 直後の encoding-only placeholder は valid snapshot に昇格しない。
+- `maintenance_hydration` は、DB の persisted snapshot を `BMSFile` / `BmsonSong` へ attach する処理として整理した。DB row は `DbHydrated`、file diff / install / manual rescan は `Calculated` として扱う。
+- hydration apply では全件 `checkBMSFileNeedToBeFixedAndSetWarnings()` と全件 `NotifyMaintenanceInfoChanged(true, true)` を行わない。ResourceHealth は valid snapshot から `ResourceHealthIndexSnapshot` を一括 build し、view-level refresh で反映する。
 - orphan cleanup は Phase 8B の統合済み経路を維持し、別 task を再導入しない。
-- no-op 通常起動では `cleanupDeleted=0` のため cleanup は問題ではない。主対象は `readMs=2822` ではなく `applyMs=11572` と `resource_health_index_build buildMs=379` を含む model apply / notification / health index update である。
-- `maintenance` row を `BMSFile` / `BmsonSong` へ適用するとき、値が既に同一なら property update と downstream warning/health invalidation を skip する。
-- apply 後の resource health index rebuild は、maintenance hydrate で変化した owner の有無を見て no-op skip できるようにする。
+- `maintenance_hydration done` は `attachMs`, `indexBuildMs`, `validSnapshotCount`, `placeholderCount`, `viewRefreshQueued` を出す。
+- `ファイルスキャン` 右クリックメニューに `全譜面を再スキャン` を追加した。これは owned BMS 全件 + installed bmson 全件を `forceUpdate=true` で再計算する重い明示操作で、通常起動や `ReloadFileDiff` には組み込まない。
+- manual rescan は `maintenance_rescan start/progress/done/canceled` を出し、startup / install / playlist sync とは別の status bar progress を使う。cancel は section 境界で反映する。
+- 2026-05-05 17:41 の手動 `全譜面を再スキャン` は未完了のため完了時間評価には含めない。ただし section 単位では `targetCount=1000` ごとにおおむね 9-14 秒、遅い section で 18 秒程度かかっており、全件再スキャンは意図どおり「重い明示操作」として扱うべき規模である。
 
 ### Phase 2B: Catalog Load Micro Reduction
 

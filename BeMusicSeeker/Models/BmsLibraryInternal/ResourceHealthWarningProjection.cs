@@ -95,7 +95,10 @@ internal sealed class ResourceHealthIndexSnapshot
             {
                 continue;
             }
-            bool isIgnored = target.maintenanceInfo?.is_files_warning_ignored == true;
+            BMSFileMaintenanceInfo maintenanceInfo = target.HasValidMaintenanceInfoSnapshot
+                ? target.TryGetMaintenanceInfoWithoutCreating()
+                : null;
+            bool isIgnored = maintenanceInfo?.is_files_warning_ignored == true;
             ResourceHealthWarningProjection projection = new ResourceHealthWarningProjection(version, warnings, isIgnored);
             projections[key] = projection;
             if (isIgnored)

@@ -742,6 +742,16 @@ public class Resources
 
     public static string Rescan => ResourceManager.GetString("Rescan", resourceCulture);
 
+    public static string Rescan_all_charts => ResourceManager.GetString("Rescan_all_charts", resourceCulture);
+
+    public static string Msg_rescan_all_charts_confirm => ResourceManager.GetString("Msg_rescan_all_charts_confirm", resourceCulture);
+
+    public static string Maintenance_rescan_progress_label_format => ResourceManager.GetString("Maintenance_rescan_progress_label_format", resourceCulture);
+
+    public static string Maintenance_rescan_complete => ResourceManager.GetString("Maintenance_rescan_complete", resourceCulture);
+
+    public static string Maintenance_rescan_canceled => ResourceManager.GetString("Maintenance_rescan_canceled", resourceCulture);
+
     public static string Sampling_format => ResourceManager.GetString("Sampling_format", resourceCulture);
 
     public static string Sampling_rate => ResourceManager.GetString("Sampling_rate", resourceCulture);

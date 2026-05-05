@@ -64,7 +64,7 @@ internal sealed class BmsLibraryMaintenanceService
             return Array.Empty<ChartWarning>();
         }
         _ = strictCheck;
-        maintenanceInfo ??= bmsFile.maintenanceInfo;
+        maintenanceInfo ??= bmsFile.HasValidMaintenanceInfoSnapshot ? bmsFile.TryGetMaintenanceInfoWithoutCreating() : null;
         if (maintenanceInfo == null)
         {
             return Array.Empty<ChartWarning>();
@@ -82,9 +82,13 @@ internal sealed class BmsLibraryMaintenanceService
     public List<BMSFile> GetGarbledFiles(IEnumerable<BMSFile> bmsFiles, bool isInFixedList)
     {
         return EnumerateBmsChartFiles(bmsFiles)
-            .Where((BMSFile file) => !string.IsNullOrWhiteSpace(file?.maintenanceInfo?.encoding)
-                && isInFixedList == file.maintenanceInfo.is_encoding_fixed
-                && !file.maintenanceInfo.encoding.StartsWith("shift_jis"))
+            .Where((BMSFile file) =>
+            {
+                BMSFileMaintenanceInfo info = file?.HasValidMaintenanceInfoSnapshot == true ? file.TryGetMaintenanceInfoWithoutCreating() : null;
+                return !string.IsNullOrWhiteSpace(info?.encoding)
+                    && isInFixedList == info.is_encoding_fixed
+                    && !info.encoding.StartsWith("shift_jis");
+            })
             .ToList();
     }
 
@@ -258,7 +262,9 @@ internal sealed class BmsLibraryMaintenanceService
         BmsLibraryDbGateway dbGateway,
         IBmsLibraryDialogService dialogService,
         ResourceHealthLookupContext resourceLookupContext = null,
-        Action<string> progressLogger = null)
+        Action<string> progressLogger = null,
+        Action<MaintenanceWorkflowProgress> progressReporter = null,
+        CancellationToken cancellationToken = default)
     {
         MaintenanceWorkflowResult result = new MaintenanceWorkflowResult();
         if (bmsFiles == null || dbGateway == null)
@@ -323,14 +329,32 @@ internal sealed class BmsLibraryMaintenanceService
             progressLogger?.Invoke("maintenance_update no_targets sourceCount=" + sourceFiles.Count
                 + " healthDegree=" + maintenanceHealthDegree
                 + " elapsedMs=" + result.TotalMs);
+            progressReporter?.Invoke(new MaintenanceWorkflowProgress
+            {
+                TotalCount = sourceFiles.Count,
+                ProcessedCount = sourceFiles.Count,
+                IsCompleted = true
+            });
             return result;
         }
         long healthTicks = 0L;
         long encodingTicks = 0L;
         long bmsonRefreshTicks = 0L;
         int sectionIndex = 0;
+        int processedCount = 0;
+        progressReporter?.Invoke(new MaintenanceWorkflowProgress
+        {
+            TotalCount = targets.Count,
+            ProcessedCount = 0,
+            CurrentPath = targets.FirstOrDefault()?.path ?? string.Empty
+        });
         foreach (IEnumerable<BMSFile> section in targets.Section(1000))
         {
+            if (cancellationToken.IsCancellationRequested)
+            {
+                result.Canceled = true;
+                break;
+            }
             sectionIndex++;
             Stopwatch sectionStopwatch = Stopwatch.StartNew();
             object reloadedLock = new object();
@@ -340,6 +364,12 @@ internal sealed class BmsLibraryMaintenanceService
             int bmsonReparseFailedInSection = 0;
             int bmsonResourceReferencesReusedInSection = 0;
             List<BMSFile> filesInSection = section.Where((BMSFile file) => file != null).ToList();
+            progressReporter?.Invoke(new MaintenanceWorkflowProgress
+            {
+                TotalCount = targets.Count,
+                ProcessedCount = processedCount,
+                CurrentPath = filesInSection.FirstOrDefault()?.path ?? string.Empty
+            });
             progressLogger?.Invoke("maintenance_update section_start section=" + sectionIndex
                 + " targetCount=" + filesInSection.Count
                 + " total=" + targets.Count
@@ -479,6 +509,7 @@ internal sealed class BmsLibraryMaintenanceService
                 result.BmsonReparsedCount += bmsonReparsedInSection;
                 result.BmsonReparseFailedCount += bmsonReparseFailedInSection;
                 result.BmsonResourceReferenceReusedCount += bmsonResourceReferencesReusedInSection;
+                processedCount += filesInSection.Count;
                 sectionStopwatch.Stop();
                 progressLogger?.Invoke("maintenance_update section_done section=" + sectionIndex
                     + " targetCount=" + filesInSection.Count
@@ -488,6 +519,13 @@ internal sealed class BmsLibraryMaintenanceService
                     + " bmsonReparseFailed=" + bmsonReparseFailedInSection
                     + " bmsonResourceRefsReused=" + bmsonResourceReferencesReusedInSection
                     + " elapsedMs=" + sectionStopwatch.ElapsedMilliseconds);
+                progressReporter?.Invoke(new MaintenanceWorkflowProgress
+                {
+                    TotalCount = targets.Count,
+                    ProcessedCount = processedCount,
+                    CurrentPath = filesInSection.LastOrDefault()?.path ?? string.Empty,
+                    IsCanceled = result.Canceled
+                });
             }
             catch (Exception ex)
             {
@@ -510,6 +548,14 @@ internal sealed class BmsLibraryMaintenanceService
         result.HealthMovieFileExistsFallbackCount = resourceLookupContext.MovieFileExistsFallbackCount;
         result.HealthOptionalImageFileExistsFallbackCount = resourceLookupContext.OptionalImageFileExistsFallbackCount;
         result.TotalMs = stopwatch.ElapsedMilliseconds;
+        progressReporter?.Invoke(new MaintenanceWorkflowProgress
+        {
+            TotalCount = targets.Count,
+            ProcessedCount = processedCount,
+            CurrentPath = string.Empty,
+            IsCompleted = !result.Canceled,
+            IsCanceled = result.Canceled
+        });
         return result;
     }
 

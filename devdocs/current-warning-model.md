@@ -6,6 +6,7 @@
 
 - WARNING は主に `BMSFile.Warnings` が保持する `ChartWarning` の集合です。
 - 通常一覧と導入済み直後の `新規` 画面の `ResourceHealth` warning は例外的に、cache-aware health 判定で更新した `maintenanceInfo` から構築する runtime `ResourceHealthIndexSnapshot` を `LibraryChartRow` が投影して表示します。DB 永続 warning ではありません。
+- `maintenanceInfo` は、`MaintenanceInfoOrigin.DbHydrated` または `MaintenanceInfoOrigin.Calculated` の値だけを resource health の正本として扱います。`BMSFile.maintenanceInfo` の lazy default は `Placeholder` であり、DB 由来または計算済みの health と同じ意味には扱いません。DB 由来の partial snapshot は既存仕様どおり該当カテゴリの warning 投影に使いますが、bmson parse 直後の encoding-only placeholder は正本に昇格しません。
 - 旧来の自由文字列 `warning` は廃止済みで、表示・tooltip・行ハイライトは structured warning から算出します。
 - `DisplayWarning` は tooltip と同じ詳細全文、`WarningDigestText` は一覧セル用 digest、`WarningTooltipText` は tooltip 詳細です。
 - `HasLowConfidenceInstallWarning` / `HasZeroNoteMismatchWarning` / `IsHashDuplicated` は互換用 property として残っていますが、状態の正本は warning kind の有無です。
@@ -49,6 +50,8 @@
 ## 主な生成・削除単位
 
 - `ResourceHealth` は保留パッケージなど導入前評価では category 単位で再構築します。導入成功時に category 単位で clear し、導入後の通常ライブラリ一覧と新規画面では `maintenanceInfo` / resource health index から表示時に投影します。これにより、保留時の「単体譜面なので WAV 0%」という warning が、導入後に WAV 100% へ更新された行へ残りません。
+- 導入後に不足 resource を追加した場合の再評価は、行右クリック `ファイルスキャン > 再スキャン` または `ファイルスキャン > 全譜面を再スキャン` で行います。通常起動の `maintenance_hydration` は DB snapshot attach であり、全譜面の resource 再検証は行いません。
+- `全譜面を再スキャン` は 1000 件 section 単位で進捗を出す重い明示操作です。通常起動ログ評価では、未完了の manual rescan と `maintenance_hydration` を分けて扱います。
 - `InstallEstimation` は導入先推定結果の適用、手動導入先確定、導入成功、推定状態クリアで category 単位に扱います。
 - `DuplicateChart` は kind 単位で set / clear します。
 - `ZeroNoteMismatch` は `chart_info.notes == 0` の BMS を正規表現で確認したとき、本文に可視ノート風記述がある場合に set し、`chart_info` が未生成または 0 notes ではなくなった場合は stale warning として clear します。

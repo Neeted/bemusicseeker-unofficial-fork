@@ -416,6 +416,23 @@ LR2をプレイヤーとして使用すると再生できない場合があり�
   <data name="Rescan" xml:space="preserve">
     <value>再スキャン</value>
   </data>
+  <data name="Rescan_all_charts" xml:space="preserve">
+    <value>全譜面を再スキャン</value>
+  </data>
+  <data name="Msg_rescan_all_charts_confirm" xml:space="preserve">
+    <value>全所持譜面の構成ファイル情報を再計算します。
+この処理には時間がかかります。
+続行しますか？</value>
+  </data>
+  <data name="Maintenance_rescan_progress_label_format" xml:space="preserve">
+    <value>再スキャン中 {0}/{1}</value>
+  </data>
+  <data name="Maintenance_rescan_complete" xml:space="preserve">
+    <value>再スキャン完了</value>
+  </data>
+  <data name="Maintenance_rescan_canceled" xml:space="preserve">
+    <value>再スキャン中断</value>
+  </data>
   <data name="Record" xml:space="preserve">
     <value>録音</value>
   </data>

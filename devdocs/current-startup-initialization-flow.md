@@ -190,13 +190,19 @@ background task は、既に DB に存在している owner の補助情報を�
 
 | Task | 正本の責務 |
 | --- | --- |
-| `maintenance_hydration` | DB の既存 `maintenance` row を memory owner へ in-place apply し、warning / health projection を更新する。orphan maintenance cleanup もここで行う |
+| `maintenance_hydration` | DB の既存 `maintenance` row を persisted health snapshot として memory owner へ in-place attach し、warning / health projection を更新する。orphan maintenance cleanup もここで行う |
 | `chart_info_hydration` | DB の current `chart_info` を memory owner / session index へ適用する |
 | full `chart_info` backfill | 旧 DB や外部操作により不足している `chart_info` を補完する。hydration 時点で全 owner が current 済みなら skip する |
 | `installable_maintenance_deferred` | `maintenance_hydration` と `chart_info_hydration` の完了後、DB 由来の missing/stale maintenance を補完する |
 | score / ranking / playlist hydration | 操作可能後に反映できる DB 由来データを適用する |
 
 新規・更新ファイル由来の `chart_info` と maintenance を background へ押し出さない。
+
+`maintenance` は通常、譜面がライブラリへ導入された時点、または明示的な再スキャンで計算された snapshot であり、通常起動のたびに全譜面の WAV/BGA/MOV health を再検証するものではない。catalog load 直後に `BMSFile.maintenanceInfo` の lazy default が作られても、それは `MaintenanceInfoOrigin.Placeholder` であり、DB 由来または正しく計算済みの health と同じ意味を持たない。resource health warning、WAV/BGA/MOV 率、ignored state の正本は、DB から hydrate された `DbHydrated`、file diff / 導入処理 / 手動再スキャンで計算された `Calculated` に限定する。DB 由来 snapshot は一部カテゴリだけが入った既存 row でも warning 投影に使えるが、bmson parse 直後の encoding-only placeholder は正本として扱わない。
+
+導入後に不足 resource を後から追加した場合や、隣接 resource を削除した場合の再評価は、通常起動の background hydration ではなく再スキャン操作で扱う。行右クリックの `ファイルスキャン > 再スキャン` は選択行だけ、`ファイルスキャン > 全譜面を再スキャン` は owned BMS 全件 + installed bmson 全件を重い明示操作として再計算し、専用 status bar progress を表示する。
+
+2026-05-05 17:40 の保留 package なし通常起動では、`maintenance_hydration done` は `rows=210027`, `readMs=3298`, `applyMs=1085`, `attachMs=280`, `indexBuildMs=396`, `validSnapshotCount=210027`, `placeholderCount=3`, `elapsedMs=4568` だった。通常起動では persisted snapshot attach と resource health index rebuild だけを行い、全譜面再計算は行っていない。
 
 ## 実装上の禁止事項
 

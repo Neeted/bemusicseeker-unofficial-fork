@@ -4669,6 +4669,20 @@ public class MainWindowViewModel : ViewModel
 
     private bool _InstallPipelineCanCancel;
 
+    private CancellationTokenSource maintenanceRescanCancellationTokenSource;
+
+    private bool _IsMaintenanceRescanProgressActive;
+
+    private string _MaintenanceRescanLabel = string.Empty;
+
+    private string _MaintenanceRescanSubLabel = string.Empty;
+
+    private double _MaintenanceRescanValue;
+
+    private double _MaintenanceRescanMaximum = 1.0;
+
+    private bool _MaintenanceRescanCanCancel;
+
     private readonly object playlistSyncProgressLock = new object();
 
     private int playlistSyncProgressActiveOperationCount;
@@ -8454,6 +8468,105 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
+    public bool IsMaintenanceRescanProgressActive
+    {
+        get
+        {
+            return _IsMaintenanceRescanProgressActive;
+        }
+        private set
+        {
+            if (_IsMaintenanceRescanProgressActive != value)
+            {
+                _IsMaintenanceRescanProgressActive = value;
+                RaisePropertyChanged("IsMaintenanceRescanProgressActive");
+            }
+        }
+    }
+
+    public string MaintenanceRescanLabel
+    {
+        get
+        {
+            return _MaintenanceRescanLabel;
+        }
+        private set
+        {
+            string normalized = value ?? string.Empty;
+            if (_MaintenanceRescanLabel != normalized)
+            {
+                _MaintenanceRescanLabel = normalized;
+                RaisePropertyChanged("MaintenanceRescanLabel");
+            }
+        }
+    }
+
+    public string MaintenanceRescanSubLabel
+    {
+        get
+        {
+            return _MaintenanceRescanSubLabel;
+        }
+        private set
+        {
+            string normalized = value ?? string.Empty;
+            if (_MaintenanceRescanSubLabel != normalized)
+            {
+                _MaintenanceRescanSubLabel = normalized;
+                RaisePropertyChanged("MaintenanceRescanSubLabel");
+            }
+        }
+    }
+
+    public double MaintenanceRescanValue
+    {
+        get
+        {
+            return _MaintenanceRescanValue;
+        }
+        private set
+        {
+            if (_MaintenanceRescanValue != value)
+            {
+                _MaintenanceRescanValue = value;
+                RaisePropertyChanged("MaintenanceRescanValue");
+            }
+        }
+    }
+
+    public double MaintenanceRescanMaximum
+    {
+        get
+        {
+            return _MaintenanceRescanMaximum;
+        }
+        private set
+        {
+            double normalized = Math.Max(1.0, value);
+            if (_MaintenanceRescanMaximum != normalized)
+            {
+                _MaintenanceRescanMaximum = normalized;
+                RaisePropertyChanged("MaintenanceRescanMaximum");
+            }
+        }
+    }
+
+    public bool MaintenanceRescanCanCancel
+    {
+        get
+        {
+            return _MaintenanceRescanCanCancel;
+        }
+        private set
+        {
+            if (_MaintenanceRescanCanCancel != value)
+            {
+                _MaintenanceRescanCanCancel = value;
+                RaisePropertyChanged("MaintenanceRescanCanCancel");
+            }
+        }
+    }
+
     public bool IsPlaylistSyncProgressActive
     {
         get
@@ -10020,6 +10133,7 @@ public class MainWindowViewModel : ViewModel
         listenerForBMSLibrary.RegisterHandler(() => files.MaintenanceHydrationCompletedVersion, delegate
         {
             TryCompleteStartupProgressMaintenance(files.MaintenanceHydrationCompletedVersion);
+            RefreshResourceHealthViewsAfterMaintenanceChanged();
         });
         listenerForBMSLibrary.RegisterHandler(() => files.InstallableMaintenanceDeferredRequestedVersion, delegate
         {
@@ -12778,7 +12892,133 @@ public class MainWindowViewModel : ViewModel
 
     public void ForceResourceHealthCheckCharts(IEnumerable<BeMusicSeeker.Models.BMSFile> chartFiles)
     {
-        files.GetChartsNeedResourceFix(chartFiles, forceUpdate: true);
+        files.RescanResourceHealthCharts(chartFiles, includeInstalledBmson: false);
+    }
+
+    public void StartRescanAllOwnedChartMaintenance()
+    {
+        if (files == null || IsMaintenanceRescanProgressActive)
+        {
+            return;
+        }
+        CancellationTokenSource cancellationSource = new CancellationTokenSource();
+        maintenanceRescanCancellationTokenSource = cancellationSource;
+        UpdateMaintenanceRescanProgressStatus(new MaintenanceWorkflowProgress
+        {
+            TotalCount = 1,
+            ProcessedCount = 0
+        });
+        Task.Run(delegate
+        {
+            Stopwatch stopwatch = Stopwatch.StartNew();
+            try
+            {
+                Ribbit.Logging.NLogWrapper.FileLogger?.Info("maintenance_rescan start scope=all_owned");
+                MaintenanceWorkflowResult result = files.RescanAllOwnedChartMaintenance(delegate (MaintenanceWorkflowProgress progress)
+                {
+                    if (progress != null && !progress.IsCompleted)
+                    {
+                        Ribbit.Logging.NLogWrapper.FileLogger?.Info("maintenance_rescan progress scope=all_owned processed=" + progress.ProcessedCount + "/" + progress.TotalCount + " current=" + (progress.CurrentPath ?? string.Empty));
+                    }
+                    UpdateMaintenanceRescanProgressStatus(progress);
+                }, cancellationSource.Token);
+                stopwatch.Stop();
+                bool canceled = result?.Canceled == true;
+                Ribbit.Logging.NLogWrapper.FileLogger?.Info("maintenance_rescan " + (canceled ? "canceled" : "done") + " scope=all_owned elapsedMs=" + stopwatch.ElapsedMilliseconds);
+                FinishMaintenanceRescanProgress(canceled);
+                RefreshResourceHealthViewsAfterMaintenanceChanged();
+            }
+            catch (Exception ex)
+            {
+                stopwatch.Stop();
+                Ribbit.Logging.NLogWrapper.FileLogger?.Info("maintenance_rescan failed scope=all_owned elapsedMs=" + stopwatch.ElapsedMilliseconds + " message=" + (ex.Message ?? string.Empty).Replace(Environment.NewLine, " "));
+                FinishMaintenanceRescanProgress(canceled: true);
+                throw;
+            }
+            finally
+            {
+                if (maintenanceRescanCancellationTokenSource == cancellationSource)
+                {
+                    maintenanceRescanCancellationTokenSource = null;
+                }
+                cancellationSource.Dispose();
+            }
+        }).Logging("StartRescanAllOwnedChartMaintenance");
+    }
+
+    public void CancelMaintenanceRescan()
+    {
+        maintenanceRescanCancellationTokenSource?.Cancel();
+        MaintenanceRescanCanCancel = false;
+    }
+
+    private void UpdateMaintenanceRescanProgressStatus(MaintenanceWorkflowProgress progress)
+    {
+        Action reflect = delegate
+        {
+            if (progress == null)
+            {
+                return;
+            }
+            IsMaintenanceRescanProgressActive = true;
+            int total = Math.Max(progress.TotalCount, 1);
+            int processed = Math.Max(0, Math.Min(progress.ProcessedCount, total));
+            MaintenanceRescanMaximum = total;
+            MaintenanceRescanValue = processed;
+            MaintenanceRescanLabel = string.Format(BeMusicSeeker.Properties.Resources.Maintenance_rescan_progress_label_format, processed, total);
+            MaintenanceRescanSubLabel = progress.CurrentPath ?? string.Empty;
+            MaintenanceRescanCanCancel = !progress.IsCompleted && !progress.IsCanceled;
+        };
+        if (DispatcherHelper.UIDispatcher == null || DispatcherHelper.UIDispatcher.CheckAccess())
+        {
+            reflect();
+        }
+        else
+        {
+            DispatcherHelper.UIDispatcher.BeginInvoke(reflect);
+        }
+    }
+
+    private void FinishMaintenanceRescanProgress(bool canceled)
+    {
+        Action reflect = delegate
+        {
+            MaintenanceRescanLabel = canceled
+                ? BeMusicSeeker.Properties.Resources.Maintenance_rescan_canceled
+                : BeMusicSeeker.Properties.Resources.Maintenance_rescan_complete;
+            MaintenanceRescanSubLabel = string.Empty;
+            MaintenanceRescanCanCancel = false;
+            IsMaintenanceRescanProgressActive = false;
+        };
+        if (DispatcherHelper.UIDispatcher == null || DispatcherHelper.UIDispatcher.CheckAccess())
+        {
+            reflect();
+        }
+        else
+        {
+            DispatcherHelper.UIDispatcher.BeginInvoke(reflect);
+        }
+    }
+
+    private void RefreshResourceHealthViewsAfterMaintenanceChanged()
+    {
+        Action refresh = delegate
+        {
+            if (treeViewFilterTypeSelected == viewUpdateMode.FileMissingFilterSelected
+                || treeViewFilterTypeSelected == viewUpdateMode.FileMissingIgnoredFilterSelected
+                || treeViewFilterTypeSelected == viewUpdateMode.FullScanAllChartsFilterSelected)
+            {
+                makeBMSFilesView(viewUpdateMode.TreeViewFilterNotChanged);
+            }
+        };
+        if (DispatcherHelper.UIDispatcher == null || DispatcherHelper.UIDispatcher.CheckAccess())
+        {
+            refresh();
+        }
+        else
+        {
+            DispatcherHelper.UIDispatcher.BeginInvoke(refresh);
+        }
     }
 
     public void IgnoreFileScanCheckBMSFiles(IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles)
