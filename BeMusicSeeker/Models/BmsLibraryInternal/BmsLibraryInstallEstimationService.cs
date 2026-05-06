@@ -324,18 +324,12 @@ internal sealed class BmsLibraryInstallEstimationService
 
     private readonly struct CandidateResourceSource
     {
-        internal CandidateResourceSource(DirectoryResourceLookupCache.Entry cacheEntry, DirectoryRelativePathHashIndex.Entry relativeEntry, uint[] fallbackBaseNameHashes)
+        internal CandidateResourceSource(DirectoryResourceLookupCache.Entry cacheEntry)
         {
             CacheEntry = cacheEntry;
-            RelativeEntry = relativeEntry;
-            FallbackBaseNameHashes = fallbackBaseNameHashes;
         }
 
         internal DirectoryResourceLookupCache.Entry CacheEntry { get; }
-
-        internal DirectoryRelativePathHashIndex.Entry RelativeEntry { get; }
-
-        internal uint[] FallbackBaseNameHashes { get; }
     }
 
     private sealed class EvaluationDiagnostics
@@ -346,24 +340,16 @@ internal sealed class BmsLibraryInstallEstimationService
 
         private int candidateViewBuildCount;
 
-        private int candidateViewFallbackCount;
-
         public long CandidateViewBuildMs => Interlocked.Read(ref candidateViewBuildMs);
 
         public long CandidateMatchMs => Interlocked.Read(ref candidateMatchMs);
 
         public int CandidateViewBuildCount => candidateViewBuildCount;
 
-        public int CandidateViewFallbackCount => candidateViewFallbackCount;
-
-        public void RecordCandidateViewBuild(long elapsedMs, bool usedFallback)
+        public void RecordCandidateViewBuild(long elapsedMs)
         {
             Interlocked.Add(ref candidateViewBuildMs, elapsedMs);
             Interlocked.Increment(ref candidateViewBuildCount);
-            if (usedFallback)
-            {
-                Interlocked.Increment(ref candidateViewFallbackCount);
-            }
         }
 
         public void RecordCandidateMatch(long elapsedMs)
@@ -531,11 +517,6 @@ internal sealed class BmsLibraryInstallEstimationService
         return result;
     }
 
-    public InstallEstimationResult EstimateInstallationDirectory(IEnumerable<BMSFile> bmsFiles, HashSet<string> installedHashes, BMSDirectoryFileNameHash folderAllFileList, bool asParallel, BmsInstallationEstimateMode estimateMode)
-    {
-        return EstimateInstallationDirectory(bmsFiles, installedHashes, folderAllFileList, null, asParallel, estimateMode, null);
-    }
-
     private static InstallEstimationFinalEvaluationMode GetFinalEvaluationMode(ChartResourceSnapshot resourceSnapshot)
     {
         return InstallEstimationFinalEvaluationMode.RelativeStrict;
@@ -578,17 +559,15 @@ internal sealed class BmsLibraryInstallEstimationService
         InstallEstimationFinalEvaluationMode evaluationMode = GetFinalEvaluationMode(effectiveSnapshot);
         DirectoryResourceLookupCache.Entry effectiveBundledResources = bundledResources ?? new DirectoryResourceLookupCache.Entry();
         CandidateResourceView bundledView = evaluationMode == InstallEstimationFinalEvaluationMode.RelativeStrict
-            ? CreateCandidateResourceView(effectiveBundledResources, null, null)
+            ? CreateCandidateResourceView(effectiveBundledResources)
             : null;
         CandidateEvaluation evaluation = EvaluateCandidate(
             sourceDirectory ?? string.Empty,
             effectiveSnapshot,
             null,
-            null,
             effectiveBundledResources,
             bundledView,
             sourceCandidateResources ?? new DirectoryResourceLookupCache.Entry(),
-            null,
             evaluationMode,
             diagnostics: null,
             isSourceCandidate: true);
@@ -600,50 +579,44 @@ internal sealed class BmsLibraryInstallEstimationService
 
     public InstallEstimationResult EstimateInstallationDirectory(IEnumerable<BMSFile> bmsFiles, HashSet<string> installedHashes, BMSDirectoryFileNameHash folderAllFileList, DirectoryResourceLookupCache directoryLookupCache, bool asParallel, BmsInstallationEstimateMode estimateMode, Func<string, InstallDestinationRepresentativeMetadata> representativeMetadataResolver = null, Func<string, InstallEstimationMetadataProfile> metadataProfileResolver = null, DirectoryRelativePathHashIndex relativePathHashIndex = null)
     {
-        return EstimateInstallationDirectory(BuildLooseFileSnapshot(bmsFiles, installedHashes, estimateMode), folderAllFileList, directoryLookupCache, ResolveCandidateEvaluationDegree(asParallel), estimateMode, representativeMetadataResolver, metadataProfileResolver, relativePathHashIndex);
+        return EstimateInstallationDirectory(BuildLooseFileSnapshot(bmsFiles, installedHashes, estimateMode), directoryLookupCache, ResolveCandidateEvaluationDegree(asParallel), estimateMode, representativeMetadataResolver, metadataProfileResolver, candidateDirectoryOverride: null);
     }
 
     public InstallEstimationResult EstimateInstallationDirectory(PackageInstallEstimationSnapshot snapshot, BMSDirectoryFileNameHash folderAllFileList, DirectoryResourceLookupCache directoryLookupCache, bool asParallel, BmsInstallationEstimateMode estimateMode, Func<string, InstallDestinationRepresentativeMetadata> representativeMetadataResolver = null, Func<string, InstallEstimationMetadataProfile> metadataProfileResolver = null, DirectoryRelativePathHashIndex relativePathHashIndex = null)
     {
-        return EstimateInstallationDirectory(snapshot, folderAllFileList, directoryLookupCache, ResolveCandidateEvaluationDegree(asParallel), estimateMode, representativeMetadataResolver, metadataProfileResolver, relativePathHashIndex);
+        return EstimateInstallationDirectory(snapshot, directoryLookupCache, ResolveCandidateEvaluationDegree(asParallel), estimateMode, representativeMetadataResolver, metadataProfileResolver, candidateDirectoryOverride: null);
     }
 
     internal InstallEstimationResult EstimateInstallationDirectoryForCandidateDirectories(PackageInstallEstimationSnapshot snapshot, IReadOnlyCollection<string> candidateDirectories, DirectoryResourceLookupCache directoryLookupCache, bool asParallel, BmsInstallationEstimateMode estimateMode, Func<string, InstallDestinationRepresentativeMetadata> representativeMetadataResolver = null, Func<string, InstallEstimationMetadataProfile> metadataProfileResolver = null)
     {
         return EstimateInstallationDirectory(
             snapshot,
-            folderAllFileList: null,
             directoryLookupCache,
             ResolveCandidateEvaluationDegree(asParallel),
             estimateMode,
             representativeMetadataResolver,
             metadataProfileResolver,
-            relativePathHashIndex: null,
-            candidateDirectoryOverride: candidateDirectories,
-            requireDirectoryLookupCache: true);
+            candidateDirectoryOverride: candidateDirectories);
     }
 
     public InstallEstimationResult EstimateInstallationDirectory(IEnumerable<BMSFile> bmsFiles, HashSet<string> installedHashes, BMSDirectoryFileNameHash folderAllFileList, DirectoryResourceLookupCache directoryLookupCache, int candidateEvaluationDegree, BmsInstallationEstimateMode estimateMode, Func<string, InstallDestinationRepresentativeMetadata> representativeMetadataResolver = null, Func<string, InstallEstimationMetadataProfile> metadataProfileResolver = null, DirectoryRelativePathHashIndex relativePathHashIndex = null)
     {
-        return EstimateInstallationDirectory(BuildLooseFileSnapshot(bmsFiles, installedHashes, estimateMode), folderAllFileList, directoryLookupCache, candidateEvaluationDegree, estimateMode, representativeMetadataResolver, metadataProfileResolver, relativePathHashIndex);
+        return EstimateInstallationDirectory(BuildLooseFileSnapshot(bmsFiles, installedHashes, estimateMode), directoryLookupCache, candidateEvaluationDegree, estimateMode, representativeMetadataResolver, metadataProfileResolver, candidateDirectoryOverride: null);
     }
 
     public InstallEstimationResult EstimateInstallationDirectory(PackageInstallEstimationSnapshot snapshot, BMSDirectoryFileNameHash folderAllFileList, DirectoryResourceLookupCache directoryLookupCache, int candidateEvaluationDegree, BmsInstallationEstimateMode estimateMode, Func<string, InstallDestinationRepresentativeMetadata> representativeMetadataResolver = null, Func<string, InstallEstimationMetadataProfile> metadataProfileResolver = null, DirectoryRelativePathHashIndex relativePathHashIndex = null)
     {
         return EstimateInstallationDirectory(
             snapshot,
-            folderAllFileList,
             directoryLookupCache,
             candidateEvaluationDegree,
             estimateMode,
             representativeMetadataResolver,
             metadataProfileResolver,
-            relativePathHashIndex,
-            candidateDirectoryOverride: null,
-            requireDirectoryLookupCache: false);
+            candidateDirectoryOverride: null);
     }
 
-    private InstallEstimationResult EstimateInstallationDirectory(PackageInstallEstimationSnapshot snapshot, BMSDirectoryFileNameHash folderAllFileList, DirectoryResourceLookupCache directoryLookupCache, int candidateEvaluationDegree, BmsInstallationEstimateMode estimateMode, Func<string, InstallDestinationRepresentativeMetadata> representativeMetadataResolver, Func<string, InstallEstimationMetadataProfile> metadataProfileResolver, DirectoryRelativePathHashIndex relativePathHashIndex, IReadOnlyCollection<string> candidateDirectoryOverride, bool requireDirectoryLookupCache)
+    private InstallEstimationResult EstimateInstallationDirectory(PackageInstallEstimationSnapshot snapshot, DirectoryResourceLookupCache directoryLookupCache, int candidateEvaluationDegree, BmsInstallationEstimateMode estimateMode, Func<string, InstallDestinationRepresentativeMetadata> representativeMetadataResolver, Func<string, InstallEstimationMetadataProfile> metadataProfileResolver, IReadOnlyCollection<string> candidateDirectoryOverride)
     {
         InstallEstimationResult result = new InstallEstimationResult();
         int effectiveCandidateEvaluationDegree = NormalizeCandidateEvaluationDegree(candidateEvaluationDegree);
@@ -651,14 +624,16 @@ internal sealed class BmsLibraryInstallEstimationService
         bool isMergeMode = estimateMode == BmsInstallationEstimateMode.MergeCandidateOnly;
         bool isReinstallCorrectionMode = estimateMode == BmsInstallationEstimateMode.ReinstallCorrection;
         bool useBundledResources = !(isMergeMode || isReinstallCorrectionMode);
-        if (snapshot?.RepresentativeFile == null || (candidateDirectoryOverride == null && folderAllFileList == null))
+        if (snapshot?.RepresentativeFile == null)
         {
             return result;
         }
-        if (requireDirectoryLookupCache && (directoryLookupCache == null || directoryLookupCache.Count == 0))
+        if (directoryLookupCache == null || directoryLookupCache.Count == 0)
         {
             result.ConfidenceReason = "resource_index_unavailable";
-            result.CandidateMode = "candidate_limited_resource_index_unavailable";
+            result.CandidateMode = candidateDirectoryOverride == null
+                ? "resource_index_unavailable"
+                : "candidate_limited_resource_index_unavailable";
             result.CoarseFilterMode = "resource_index_unavailable";
             return result;
         }
@@ -689,7 +664,7 @@ internal sealed class BmsLibraryInstallEstimationService
         {
             result.CandidateMode = "candidate_limited_" + result.CandidateMode;
         }
-        result.CoarseFilterMode = (directoryLookupCache != null) ? "path_aware_audio_gated" : "path_aware_hash_only";
+        result.CoarseFilterMode = "path_aware_audio_gated";
         result.AudioMinimumMatchRequired = GetAudioMinimumMatchRequired(resourceSnapshot);
         result.ResourceSummary = "chart=" + (snapshot.RepresentativeFile.path ?? string.Empty)
             + " chartCount=" + snapshot.ChartCount
@@ -717,9 +692,7 @@ internal sealed class BmsLibraryInstallEstimationService
             sourceBaselineEvaluation = EvaluateDirectoryCandidate(
                 sourceDir,
                 resourceSnapshot,
-                folderAllFileList,
                 directoryLookupCache,
-                relativePathHashIndex,
                 bundledResources: null,
                 bundledView: null,
                 evaluationMode,
@@ -727,7 +700,7 @@ internal sealed class BmsLibraryInstallEstimationService
                 isSourceCandidate: true);
             result.SourceBaselinePrimaryHealth = GetPrimaryHealth(resourceSnapshot, sourceBaselineEvaluation);
         }
-        List<string> allCandidateDirs = (candidateDirectoryOverride ?? folderAllFileList.Keys)
+        List<string> allCandidateDirs = (candidateDirectoryOverride ?? directoryLookupCache.Keys)
             .Where((string dir) => !string.IsNullOrWhiteSpace(dir))
             .Where((string dir) => !string.Equals(dir, sourceDir, StringComparison.OrdinalIgnoreCase))
             .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -741,9 +714,7 @@ internal sealed class BmsLibraryInstallEstimationService
         List<string> candidateDirList = allCandidateDirs;
         if (targetFileHashes.Count > 0 || result.TargetPathAwareHashCount > 0)
         {
-            candidateDirList = directoryLookupCache != null
-                ? ApplyPathAwareBroadFilter(allCandidateDirs, resourceSnapshot, directoryLookupCache)
-                : ApplyPathAwareBroadFilter(allCandidateDirs, resourceSnapshot, folderAllFileList, relativePathHashIndex, effectiveCandidateEvaluationDegree);
+            candidateDirList = ApplyPathAwareBroadFilter(allCandidateDirs, resourceSnapshot, directoryLookupCache);
             result.CandidateDirectoryCountAfterBroadFilter = candidateDirList.Count;
             if (candidateDirList.Count == 0)
             {
@@ -753,15 +724,12 @@ internal sealed class BmsLibraryInstallEstimationService
                 SetNoViableDestinationResult(result);
                 return result;
             }
-            if (directoryLookupCache != null)
-            {
-                candidateDirList = ApplyAudioCandidateGate(
-                    candidateDirList,
-                    resourceSnapshot,
-                    directoryLookupCache,
-                    bundledResources,
-                    evaluationMode);
-            }
+            candidateDirList = ApplyAudioCandidateGate(
+                candidateDirList,
+                resourceSnapshot,
+                directoryLookupCache,
+                bundledResources,
+                evaluationMode);
             result.CandidateDirectoryCountAfterAudioGate = candidateDirList.Count;
             if (candidateDirList.Count == 0)
             {
@@ -782,7 +750,7 @@ internal sealed class BmsLibraryInstallEstimationService
         CandidateHierarchyInfo hierarchyInfo = BuildCandidateHierarchyInfo(candidateDirList);
         result.HierarchyCandidateDirectoryCount = hierarchyInfo.HierarchyCandidateDirectoryCount;
         CandidateResourceView bundledView = evaluationMode == InstallEstimationFinalEvaluationMode.RelativeStrict
-            ? CreateCandidateResourceView(bundledResources, null, null)
+            ? CreateCandidateResourceView(bundledResources)
             : null;
         Stopwatch evaluationStopwatch = Stopwatch.StartNew();
         IEnumerable<string> candidateSource = candidateDirList.AsParallel().WithDegreeOfParallelism(effectiveCandidateEvaluationDegree);
@@ -790,9 +758,7 @@ internal sealed class BmsLibraryInstallEstimationService
             .Select((string candidateDir) => EvaluateDirectoryCandidate(
                 candidateDir,
                 resourceSnapshot,
-                folderAllFileList,
                 directoryLookupCache,
-                relativePathHashIndex,
                 bundledResources,
                 bundledView,
                 evaluationMode,
@@ -812,9 +778,7 @@ internal sealed class BmsLibraryInstallEstimationService
             orderedCandidates,
             hierarchyInfo,
             resourceSnapshot,
-            folderAllFileList,
             directoryLookupCache,
-            relativePathHashIndex,
             diagnostics,
             out int ancestorShadowSuppressedCount,
             out int lazySelfOwnedEvaluationCount);
@@ -824,7 +788,6 @@ internal sealed class BmsLibraryInstallEstimationService
         result.CandidateViewBuildMs = diagnostics.CandidateViewBuildMs;
         result.CandidateMatchMs = diagnostics.CandidateMatchMs;
         result.CandidateViewBuildCount = diagnostics.CandidateViewBuildCount;
-        result.CandidateViewFallbackCount = diagnostics.CandidateViewFallbackCount;
         result.AncestorShadowEvaluationMs = hierarchyInfo.HasHierarchy ? ancestorShadowStopwatch.ElapsedMilliseconds : 0L;
         if (orderedCandidates.Count > 0 && IsViableDestination(GetPrimaryHealth(resourceSnapshot, orderedCandidates[0])))
         {
@@ -1020,64 +983,6 @@ internal sealed class BmsLibraryInstallEstimationService
             .ToList();
     }
 
-    private static List<string> ApplyPathAwareBroadFilter(IEnumerable<string> candidateDirectories, ChartResourceSnapshot resourceSnapshot, BMSDirectoryFileNameHash folderAllFileList, DirectoryRelativePathHashIndex relativePathHashIndex, int candidateEvaluationDegree)
-    {
-        List<string> candidates = (candidateDirectories ?? Enumerable.Empty<string>())
-            .Where((string dir) => !string.IsNullOrWhiteSpace(dir))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
-        if (candidates.Count == 0 || resourceSnapshot == null || folderAllFileList == null)
-        {
-            return candidates;
-        }
-
-        IEnumerable<string> filtered = candidates.AsParallel()
-            .WithDegreeOfParallelism(NormalizeCandidateEvaluationDegree(candidateEvaluationDegree))
-            .Where(delegate (string dir)
-            {
-                CandidateResourceSource candidateResourceSource = ResolveCandidateResourceSource(
-                    dir,
-                    folderAllFileList,
-                    directoryLookupCache: null,
-                    relativePathHashIndex,
-                    includeRelativeWhenCachePresent: true);
-                if (!HasChartRelativeSeedMatch(resourceSnapshot, candidateResourceSource.RelativeEntry))
-                {
-                    return false;
-                }
-                return true;
-            });
-        return filtered.ToList();
-    }
-
-    private static bool HasChartRelativeSeedMatch(ChartResourceSnapshot resourceSnapshot, DirectoryRelativePathHashIndex.Entry relativeEntry)
-    {
-        if (resourceSnapshot == null)
-        {
-            return false;
-        }
-        return MatchesAny(resourceSnapshot.AudioRelativePathHashes, relativeEntry?.AudioRelativePathHashes)
-            || MatchesAny(resourceSnapshot.VisualRelativePathHashes, relativeEntry?.ImageRelativePathHashes)
-            || MatchesAny(resourceSnapshot.MovieRelativePathHashes, relativeEntry?.MovieRelativePathHashes)
-            || MatchesAny(resourceSnapshot.OptionalImageRelativePathHashes, relativeEntry?.ImageRelativePathHashes);
-    }
-
-    private static bool MatchesAny(ISet<uint> targetHashes, ISet<uint> candidateHashes)
-    {
-        if (targetHashes == null || targetHashes.Count == 0 || candidateHashes == null || candidateHashes.Count == 0)
-        {
-            return false;
-        }
-        foreach (uint targetHash in targetHashes)
-        {
-            if (candidateHashes.Contains(targetHash))
-            {
-                return true;
-            }
-        }
-        return false;
-    }
-
     private List<string> ApplyAudioCandidateGate(IEnumerable<string> candidateDirectories, ChartResourceSnapshot resourceSnapshot, DirectoryResourceLookupCache directoryLookupCache, DirectoryResourceLookupCache.Entry bundledResources, InstallEstimationFinalEvaluationMode evaluationMode)
     {
         List<string> candidates = (candidateDirectories ?? Enumerable.Empty<string>())
@@ -1096,13 +1001,13 @@ internal sealed class BmsLibraryInstallEstimationService
         }
 
         int requiredMatchedForViableHealth = GetRequiredMatchedForViableAudioHealth(resourceSnapshot.AudioReferenceCount);
-        CandidateResourceView bundledView = CreateCandidateResourceView(bundledResources, null, null);
+        CandidateResourceView bundledView = CreateCandidateResourceView(bundledResources);
 
         return candidates
             .Where(delegate (string candidateDir)
             {
                 DirectoryResourceLookupCache.Entry entry = directoryLookupCache.GetEntryOrNull(candidateDir);
-                CandidateResourceView candidateView = CreateCandidateResourceView(entry, null, null);
+                CandidateResourceView candidateView = CreateCandidateResourceView(entry);
                 if (candidateView.AudioBaseNameHashes.Count == 0 && candidateView.AudioRelativePathHashes.Count == 0)
                 {
                     return false;
@@ -1404,37 +1309,32 @@ internal sealed class BmsLibraryInstallEstimationService
         return ChartResourceSnapshot.Create(bmsFile).TotalReferenceCount;
     }
 
-    private static CandidateEvaluation EvaluateCandidate(string candidateDir, ChartResourceSnapshot snapshot, uint[] fileNameHashes, DirectoryResourceLookupCache.Entry entry, DirectoryResourceLookupCache.Entry bundledResources, CandidateResourceView bundledView, DirectoryResourceLookupCache.Entry transientCandidateEntry, DirectoryRelativePathHashIndex.Entry relativePathEntry, InstallEstimationFinalEvaluationMode evaluationMode, EvaluationDiagnostics diagnostics, bool isSourceCandidate)
+    private static CandidateEvaluation EvaluateCandidate(string candidateDir, ChartResourceSnapshot snapshot, DirectoryResourceLookupCache.Entry entry, DirectoryResourceLookupCache.Entry bundledResources, CandidateResourceView bundledView, DirectoryResourceLookupCache.Entry transientCandidateEntry, InstallEstimationFinalEvaluationMode evaluationMode, EvaluationDiagnostics diagnostics, bool isSourceCandidate)
     {
         DirectoryResourceLookupCache.Entry candidateEntry = transientCandidateEntry ?? entry;
-        return EvaluateCandidateRelativeStrict(candidateDir, snapshot, fileNameHashes, candidateEntry, bundledView, relativePathEntry, diagnostics, isSourceCandidate);
+        return EvaluateCandidateRelativeStrict(candidateDir, snapshot, candidateEntry, bundledView, diagnostics, isSourceCandidate);
     }
 
-    private static CandidateEvaluation EvaluateDirectoryCandidate(string candidateDir, ChartResourceSnapshot snapshot, BMSDirectoryFileNameHash folderAllFileList, DirectoryResourceLookupCache directoryLookupCache, DirectoryRelativePathHashIndex relativePathHashIndex, DirectoryResourceLookupCache.Entry bundledResources, CandidateResourceView bundledView, InstallEstimationFinalEvaluationMode evaluationMode, EvaluationDiagnostics diagnostics, bool isSourceCandidate)
+    private static CandidateEvaluation EvaluateDirectoryCandidate(string candidateDir, ChartResourceSnapshot snapshot, DirectoryResourceLookupCache directoryLookupCache, DirectoryResourceLookupCache.Entry bundledResources, CandidateResourceView bundledView, InstallEstimationFinalEvaluationMode evaluationMode, EvaluationDiagnostics diagnostics, bool isSourceCandidate)
     {
         CandidateResourceSource candidateResourceSource = ResolveCandidateResourceSource(
             candidateDir,
-            folderAllFileList,
-            directoryLookupCache,
-            relativePathHashIndex,
-            includeRelativeWhenCachePresent: false);
+            directoryLookupCache);
         return EvaluateCandidate(
             candidateDir,
             snapshot,
-            candidateResourceSource.FallbackBaseNameHashes,
             candidateResourceSource.CacheEntry,
             bundledResources,
             bundledView,
             null,
-            candidateResourceSource.RelativeEntry,
             evaluationMode,
             diagnostics,
             isSourceCandidate);
     }
 
-    private static CandidateEvaluation EvaluateCandidateRelativeStrict(string candidateDir, ChartResourceSnapshot snapshot, uint[] fileNameHashes, DirectoryResourceLookupCache.Entry entry, CandidateResourceView bundledView, DirectoryRelativePathHashIndex.Entry relativePathEntry, EvaluationDiagnostics diagnostics, bool isSourceCandidate)
+    private static CandidateEvaluation EvaluateCandidateRelativeStrict(string candidateDir, ChartResourceSnapshot snapshot, DirectoryResourceLookupCache.Entry entry, CandidateResourceView bundledView, EvaluationDiagnostics diagnostics, bool isSourceCandidate)
     {
-        CandidateResourceView candidateView = CreateCandidateResourceView(entry, relativePathEntry, fileNameHashes, diagnostics: diagnostics);
+        CandidateResourceView candidateView = CreateCandidateResourceView(entry, diagnostics: diagnostics);
         if (bundledView == null)
         {
             bundledView = CandidateResourceView.Empty;
@@ -1480,48 +1380,32 @@ internal sealed class BmsLibraryInstallEstimationService
         return evaluation;
     }
 
-    private static CandidateResourceView CreateCandidateResourceView(DirectoryResourceLookupCache.Entry entry, DirectoryRelativePathHashIndex.Entry relativePathEntry, uint[] fileNameHashes, EvaluationDiagnostics diagnostics = null)
+    private static CandidateResourceView CreateCandidateResourceView(DirectoryResourceLookupCache.Entry entry, EvaluationDiagnostics diagnostics = null)
     {
-        return CreateCandidateResourceView(entry, relativePathEntry, fileNameHashes, includeSelfOwned: false, diagnostics: diagnostics);
+        return CreateCandidateResourceView(entry, includeSelfOwned: false, diagnostics: diagnostics);
     }
 
-    private static CandidateResourceSource ResolveCandidateResourceSource(string directoryPath, BMSDirectoryFileNameHash folderAllFileList, DirectoryResourceLookupCache directoryLookupCache, DirectoryRelativePathHashIndex relativePathHashIndex, bool includeRelativeWhenCachePresent)
+    private static CandidateResourceSource ResolveCandidateResourceSource(string directoryPath, DirectoryResourceLookupCache directoryLookupCache)
     {
         DirectoryResourceLookupCache.Entry cacheEntry = directoryLookupCache?.GetEntryOrNull(directoryPath);
-        DirectoryRelativePathHashIndex.Entry relativeEntry = (includeRelativeWhenCachePresent || cacheEntry == null)
-            ? relativePathHashIndex?.GetEntryOrNull(directoryPath)
-            : null;
-        uint[] fallbackBaseNameHashes = cacheEntry == null && relativeEntry == null
-            ? folderAllFileList?.TryGetCachedFileNameHashArray(directoryPath)
-            : null;
-        return new CandidateResourceSource(cacheEntry, relativeEntry, fallbackBaseNameHashes);
+        return new CandidateResourceSource(cacheEntry);
     }
 
-    private static CandidateResourceView CreateCandidateResourceView(DirectoryResourceLookupCache.Entry entry, DirectoryRelativePathHashIndex.Entry relativePathEntry, uint[] fileNameHashes, bool includeSelfOwned, EvaluationDiagnostics diagnostics = null)
+    private static CandidateResourceView CreateCandidateResourceView(DirectoryResourceLookupCache.Entry entry, bool includeSelfOwned, EvaluationDiagnostics diagnostics = null)
     {
-        if (entry == null && relativePathEntry == null && (fileNameHashes == null || fileNameHashes.Length == 0))
+        if (entry == null)
         {
             return CandidateResourceView.Empty;
         }
 
         Stopwatch buildStopwatch = diagnostics == null ? null : Stopwatch.StartNew();
-        bool usedFallback = false;
-        ISet<uint> aggregateBaseNameHashesFromRelativeIndex = relativePathEntry == null
-            ? null
-            : CreateUnionSet(relativePathEntry.AudioBaseNameHashes, relativePathEntry.ImageBaseNameHashes, relativePathEntry.MovieBaseNameHashes);
-        ISet<uint> allBaseNameHashes = entry?.AllBaseNameHashes ?? aggregateBaseNameHashesFromRelativeIndex;
-        if ((allBaseNameHashes == null || allBaseNameHashes.Count == 0) && fileNameHashes != null && fileNameHashes.Length > 0)
-        {
-            allBaseNameHashes = new HashSet<uint>(fileNameHashes);
-            usedFallback = true;
-        }
-
-        ISet<uint> audioBaseNameHashes = entry?.AudioBaseNameHashes ?? relativePathEntry?.AudioBaseNameHashes ?? allBaseNameHashes ?? CandidateResourceView.Empty.AudioBaseNameHashes;
-        ISet<uint> visualBaseNameHashes = entry?.ImageBaseNameHashes ?? relativePathEntry?.ImageBaseNameHashes ?? allBaseNameHashes ?? CandidateResourceView.Empty.VisualBaseNameHashes;
-        ISet<uint> movieBaseNameHashes = entry?.MovieBaseNameHashes ?? relativePathEntry?.MovieBaseNameHashes ?? allBaseNameHashes ?? CandidateResourceView.Empty.MovieBaseNameHashes;
-        ISet<uint> audioRelativePathHashes = entry?.AudioRelativePathHashes ?? relativePathEntry?.AudioRelativePathHashes ?? CandidateResourceView.Empty.AudioRelativePathHashes;
-        ISet<uint> visualRelativePathHashes = entry?.ImageRelativePathHashes ?? relativePathEntry?.ImageRelativePathHashes ?? CandidateResourceView.Empty.VisualRelativePathHashes;
-        ISet<uint> movieRelativePathHashes = entry?.MovieRelativePathHashes ?? relativePathEntry?.MovieRelativePathHashes ?? CandidateResourceView.Empty.MovieRelativePathHashes;
+        ISet<uint> audioBaseNameHashes = entry.AudioBaseNameHashes;
+        ISet<uint> visualBaseNameHashes = entry.ImageBaseNameHashes;
+        ISet<uint> movieBaseNameHashes = entry.MovieBaseNameHashes;
+        ISet<uint> audioRelativePathHashes = entry.AudioRelativePathHashes;
+        ISet<uint> visualRelativePathHashes = entry.ImageRelativePathHashes;
+        ISet<uint> movieRelativePathHashes = entry.MovieRelativePathHashes;
+        ISet<uint> allBaseNameHashes = entry.AllBaseNameHashes;
 
         CandidateResourceView view = new CandidateResourceView
         {
@@ -1532,9 +1416,9 @@ internal sealed class BmsLibraryInstallEstimationService
             AudioRelativePathHashes = audioRelativePathHashes,
             VisualRelativePathHashes = visualRelativePathHashes,
             MovieRelativePathHashes = movieRelativePathHashes,
-            AudioResourceCount = entry?.AudioRelativePathHashArray.Length ?? relativePathEntry?.AudioRelativePathHashArray.Length ?? audioBaseNameHashes.Count,
-            VisualResourceCount = entry?.ImageRelativePathHashArray.Length ?? relativePathEntry?.ImageRelativePathHashArray.Length ?? visualBaseNameHashes.Count,
-            MovieResourceCount = entry?.MovieRelativePathHashArray.Length ?? relativePathEntry?.MovieRelativePathHashArray.Length ?? movieBaseNameHashes.Count,
+            AudioResourceCount = entry.AudioRelativePathHashArray.Length,
+            VisualResourceCount = entry.ImageRelativePathHashArray.Length,
+            MovieResourceCount = entry.MovieRelativePathHashArray.Length,
             TotalResourceCount = Math.Max(
                 CountUnion(audioRelativePathHashes, visualRelativePathHashes, movieRelativePathHashes),
                 (allBaseNameHashes ?? CreateUnionSet(audioBaseNameHashes, visualBaseNameHashes, movieBaseNameHashes)).Count)
@@ -1544,27 +1428,19 @@ internal sealed class BmsLibraryInstallEstimationService
             if (buildStopwatch != null)
             {
                 buildStopwatch.Stop();
-                diagnostics.RecordCandidateViewBuild(buildStopwatch.ElapsedMilliseconds, usedFallback);
+                diagnostics.RecordCandidateViewBuild(buildStopwatch.ElapsedMilliseconds);
             }
             return view;
         }
 
-        ISet<uint> selfOwnedAggregateBaseNameHashesFromRelativeIndex = relativePathEntry == null
-            ? null
-            : CreateUnionSet(relativePathEntry.SelfOwnedAudioBaseNameHashes, relativePathEntry.SelfOwnedImageBaseNameHashes, relativePathEntry.SelfOwnedMovieBaseNameHashes);
-        ISet<uint> selfOwnedAllBaseNameHashes = entry?.SelfOwnedAllBaseNameHashes ?? selfOwnedAggregateBaseNameHashesFromRelativeIndex;
-        if ((selfOwnedAllBaseNameHashes == null || selfOwnedAllBaseNameHashes.Count == 0) && fileNameHashes != null && fileNameHashes.Length > 0)
-        {
-            selfOwnedAllBaseNameHashes = new HashSet<uint>(fileNameHashes);
-            usedFallback = true;
-        }
+        ISet<uint> selfOwnedAllBaseNameHashes = entry.SelfOwnedAllBaseNameHashes;
         selfOwnedAllBaseNameHashes ??= view.AllBaseNameHashes;
-        ISet<uint> selfOwnedAudioBaseNameHashes = entry?.SelfOwnedAudioBaseNameHashes ?? relativePathEntry?.SelfOwnedAudioBaseNameHashes ?? view.AudioBaseNameHashes;
-        ISet<uint> selfOwnedVisualBaseNameHashes = entry?.SelfOwnedImageBaseNameHashes ?? relativePathEntry?.SelfOwnedImageBaseNameHashes ?? view.VisualBaseNameHashes;
-        ISet<uint> selfOwnedMovieBaseNameHashes = entry?.SelfOwnedMovieBaseNameHashes ?? relativePathEntry?.SelfOwnedMovieBaseNameHashes ?? view.MovieBaseNameHashes;
-        ISet<uint> selfOwnedAudioRelativePathHashes = entry?.SelfOwnedAudioRelativePathHashes ?? relativePathEntry?.SelfOwnedAudioRelativePathHashes ?? view.AudioRelativePathHashes;
-        ISet<uint> selfOwnedVisualRelativePathHashes = entry?.SelfOwnedImageRelativePathHashes ?? relativePathEntry?.SelfOwnedImageRelativePathHashes ?? view.VisualRelativePathHashes;
-        ISet<uint> selfOwnedMovieRelativePathHashes = entry?.SelfOwnedMovieRelativePathHashes ?? relativePathEntry?.SelfOwnedMovieRelativePathHashes ?? view.MovieRelativePathHashes;
+        ISet<uint> selfOwnedAudioBaseNameHashes = entry.SelfOwnedAudioBaseNameHashes;
+        ISet<uint> selfOwnedVisualBaseNameHashes = entry.SelfOwnedImageBaseNameHashes;
+        ISet<uint> selfOwnedMovieBaseNameHashes = entry.SelfOwnedMovieBaseNameHashes;
+        ISet<uint> selfOwnedAudioRelativePathHashes = entry.SelfOwnedAudioRelativePathHashes;
+        ISet<uint> selfOwnedVisualRelativePathHashes = entry.SelfOwnedImageRelativePathHashes;
+        ISet<uint> selfOwnedMovieRelativePathHashes = entry.SelfOwnedMovieRelativePathHashes;
         view.SelfOwnedAllBaseNameHashes = selfOwnedAllBaseNameHashes;
         view.SelfOwnedAudioBaseNameHashes = selfOwnedAudioBaseNameHashes;
         view.SelfOwnedVisualBaseNameHashes = selfOwnedVisualBaseNameHashes;
@@ -1572,16 +1448,16 @@ internal sealed class BmsLibraryInstallEstimationService
         view.SelfOwnedAudioRelativePathHashes = selfOwnedAudioRelativePathHashes;
         view.SelfOwnedVisualRelativePathHashes = selfOwnedVisualRelativePathHashes;
         view.SelfOwnedMovieRelativePathHashes = selfOwnedMovieRelativePathHashes;
-        view.SelfOwnedAudioResourceCount = entry?.SelfOwnedAudioRelativePathHashArray.Length ?? relativePathEntry?.SelfOwnedAudioRelativePathHashArray.Length ?? selfOwnedAudioBaseNameHashes.Count;
-        view.SelfOwnedVisualResourceCount = entry?.SelfOwnedImageRelativePathHashArray.Length ?? relativePathEntry?.SelfOwnedImageRelativePathHashArray.Length ?? selfOwnedVisualBaseNameHashes.Count;
-        view.SelfOwnedMovieResourceCount = entry?.SelfOwnedMovieRelativePathHashArray.Length ?? relativePathEntry?.SelfOwnedMovieRelativePathHashArray.Length ?? selfOwnedMovieBaseNameHashes.Count;
+        view.SelfOwnedAudioResourceCount = entry.SelfOwnedAudioRelativePathHashArray.Length;
+        view.SelfOwnedVisualResourceCount = entry.SelfOwnedImageRelativePathHashArray.Length;
+        view.SelfOwnedMovieResourceCount = entry.SelfOwnedMovieRelativePathHashArray.Length;
         view.SelfOwnedTotalResourceCount = Math.Max(
             CountUnion(selfOwnedAudioRelativePathHashes, selfOwnedVisualRelativePathHashes, selfOwnedMovieRelativePathHashes),
             selfOwnedAllBaseNameHashes.Count);
         if (buildStopwatch != null)
         {
             buildStopwatch.Stop();
-            diagnostics.RecordCandidateViewBuild(buildStopwatch.ElapsedMilliseconds, usedFallback);
+            diagnostics.RecordCandidateViewBuild(buildStopwatch.ElapsedMilliseconds);
         }
         return view;
     }
@@ -2061,7 +1937,7 @@ internal sealed class BmsLibraryInstallEstimationService
         return hierarchyInfo.HasHierarchy ? hierarchyInfo : CandidateHierarchyInfo.Empty;
     }
 
-    private int GetOrComputeSelfOwnedMatchedTotal(CandidateEvaluation evaluation, ChartResourceSnapshot snapshot, BMSDirectoryFileNameHash folderAllFileList, DirectoryResourceLookupCache directoryLookupCache, DirectoryRelativePathHashIndex relativePathHashIndex, Dictionary<string, int> matchedTotalsByDirectory, EvaluationDiagnostics diagnostics, ref int lazyEvaluationCount)
+    private int GetOrComputeSelfOwnedMatchedTotal(CandidateEvaluation evaluation, ChartResourceSnapshot snapshot, DirectoryResourceLookupCache directoryLookupCache, Dictionary<string, int> matchedTotalsByDirectory, EvaluationDiagnostics diagnostics, ref int lazyEvaluationCount)
     {
         if (evaluation == null)
         {
@@ -2081,14 +1957,9 @@ internal sealed class BmsLibraryInstallEstimationService
 
         CandidateResourceSource candidateResourceSource = ResolveCandidateResourceSource(
             directoryPath,
-            folderAllFileList,
-            directoryLookupCache,
-            relativePathHashIndex,
-            includeRelativeWhenCachePresent: true);
+            directoryLookupCache);
         CandidateResourceView selfOwnedView = CreateCandidateResourceView(
             candidateResourceSource.CacheEntry,
-            candidateResourceSource.RelativeEntry,
-            candidateResourceSource.FallbackBaseNameHashes,
             includeSelfOwned: true,
             diagnostics: diagnostics);
         Stopwatch matchStopwatch = diagnostics == null ? null : Stopwatch.StartNew();
@@ -2110,7 +1981,7 @@ internal sealed class BmsLibraryInstallEstimationService
         return matchedTotal;
     }
 
-    private List<CandidateEvaluation> SuppressAncestorShadowCandidates(List<CandidateEvaluation> orderedCandidates, CandidateHierarchyInfo hierarchyInfo, ChartResourceSnapshot snapshot, BMSDirectoryFileNameHash folderAllFileList, DirectoryResourceLookupCache directoryLookupCache, DirectoryRelativePathHashIndex relativePathHashIndex, EvaluationDiagnostics diagnostics, out int ancestorShadowSuppressedCount, out int lazySelfOwnedEvaluationCount)
+    private List<CandidateEvaluation> SuppressAncestorShadowCandidates(List<CandidateEvaluation> orderedCandidates, CandidateHierarchyInfo hierarchyInfo, ChartResourceSnapshot snapshot, DirectoryResourceLookupCache directoryLookupCache, EvaluationDiagnostics diagnostics, out int ancestorShadowSuppressedCount, out int lazySelfOwnedEvaluationCount)
     {
         ancestorShadowSuppressedCount = 0;
         lazySelfOwnedEvaluationCount = 0;
@@ -2151,14 +2022,14 @@ internal sealed class BmsLibraryInstallEstimationService
                 continue;
             }
 
-            if (GetOrComputeSelfOwnedMatchedTotal(ancestor, snapshot, folderAllFileList, directoryLookupCache, relativePathHashIndex, matchedTotalsByDirectory, diagnostics, ref lazySelfOwnedEvaluationCount) != 0)
+            if (GetOrComputeSelfOwnedMatchedTotal(ancestor, snapshot, directoryLookupCache, matchedTotalsByDirectory, diagnostics, ref lazySelfOwnedEvaluationCount) != 0)
             {
                 continue;
             }
 
             foreach (CandidateEvaluation descendant in viableDescendants)
             {
-                if (GetOrComputeSelfOwnedMatchedTotal(descendant, snapshot, folderAllFileList, directoryLookupCache, relativePathHashIndex, matchedTotalsByDirectory, diagnostics, ref lazySelfOwnedEvaluationCount) <= 0)
+                if (GetOrComputeSelfOwnedMatchedTotal(descendant, snapshot, directoryLookupCache, matchedTotalsByDirectory, diagnostics, ref lazySelfOwnedEvaluationCount) <= 0)
                 {
                     continue;
                 }

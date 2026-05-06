@@ -30,7 +30,7 @@
   chart directory ごとのカテゴリ別 basename / relative-path hash 集合
   - aggregate ownership と self-only ownership の二重 view
 - `directoryRelativePathHashIndex : DirectoryRelativePathHashIndex`
-  cacheless path 用の chart directory ごとのカテゴリ別 basename / relative-path hash 索引
+  resource health など、`DirectoryResourceLookupCache.Entry` と同じカテゴリ別 basename / relative-path hash を必要とする補助索引
   - aggregate ownership と self-only ownership の二重 view
 
 ## 3. `BMSDirectoryFileNameHash` の仕様
@@ -51,7 +51,7 @@
 
 目的:
 
-- 推定先探索の候補抽出を高速化
+- file operation / health / legacy surface で folder-level hash view が必要な箇所へ、カテゴリ別 canonical resource index から派生した union を渡す
 - Everything / Fast の両 scanner が同じ意味の chart-directory keyed hash を返せるようにする
 
 補足:
@@ -59,11 +59,12 @@
 - `BMSDirectoryFileNameHash` は導入先推定の正本ではなく、カテゴリ別 canonical resource index から派生する folder-level union view である。
 - 導入先推定の照合本体と reverse lookup は `DirectoryResourceLookupCache` の audio / image / movie chart-relative key を使う。
 - `foo.wav` は `foo`、`sound/foo.wav` は `sound/foo` として扱われ、旧 basename-only matching は使わない。
+- 導入先推定では candidate directory 集合も照合本体も `DirectoryResourceLookupCache` を使い、`BMSDirectoryFileNameHash` には fallback しない
 - relative path を含む source of truth は `DirectoryResourceLookupCache.Entry` / `DirectoryRelativePathHashIndex.Entry` 側に置く
 
 ## 4. `DirectoryRelativePathHashIndex` の仕様
 
-`DirectoryRelativePathHashIndex` は cacheless path 用の補助 index で、次を持つ。
+`DirectoryRelativePathHashIndex` は `DirectoryResourceLookupCache.Entry` と同じカテゴリ別 hash shape を持つ補助 index である。導入先推定では使わず、resource health など lookup context 側の補助に使う。
 
 - キー: chart directory 絶対パス（`OrdinalIgnoreCase`）
 - 値:
@@ -84,16 +85,14 @@
 
 目的:
 
-- `DirectoryResourceLookupCache` がない経路でも、path-aware ref を broad filter 入口で first-class key として扱う
-- `BMSDirectoryFileNameHash` の basename-only 意味を壊さずに、cacheless path の semantics を cache あり経路に揃える
+- resource health / maintenance 再確認で、カテゴリ別 basename / relative-path semantics を共有する
+- `BMSDirectoryFileNameHash` の extensionless union に頼らず、audio / image / movie 別に存在判定できる補助 surface を持つ
 
 この index は:
 
 - initial / reload では `BmsScanResult` から構築する
 - install / merge の増分更新でも同じ chart-directory keyed shape で `AddDir(..., scanResult)` する
-- cacheless broad filter に使う
-- cacheless final evaluation でも category-aware basename / relative-path semantics を揃えるために使う
-- aggregate ownership を install estimation の主 view にし、self-only ownership を suppression / tie-break 補助に使う
+- 導入先推定の broad filter / final evaluation には使わない
 
 ## 5. scan result / resource cache の形
 

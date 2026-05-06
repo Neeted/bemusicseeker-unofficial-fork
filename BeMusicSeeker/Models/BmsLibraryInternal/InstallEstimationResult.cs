@@ -162,8 +162,6 @@ internal sealed class InstallEstimationResult
 
     public int CandidateEvaluationDegree { get; set; }
 
-    public bool UsedFallbackCandidateExpansion { get; set; }
-
     public int CandidateDirectoryCountBeforeHashFilter { get; set; }
 
     public int CandidateDirectoryCountAfterHashFilter { get; set; }
@@ -225,8 +223,6 @@ internal sealed class InstallEstimationResult
     public long CandidateMatchMs { get; set; }
 
     public int CandidateViewBuildCount { get; set; }
-
-    public int CandidateViewFallbackCount { get; set; }
 
     public long AncestorShadowEvaluationMs { get; set; }
 

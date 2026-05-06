@@ -56,7 +56,9 @@ merge / reinstall correction では source/bundled resource を足さず、`cand
 - self-owned audio / image / movie
 - category reverse lookup
 
-`BMSDirectoryFileNameHash` / `FolderAllFileList` は正本ではありません。これはカテゴリ別 index から派生した folder-level extensionless union view で、候補 directory の一覧や cacheless 補助に残っています。
+`BMSDirectoryFileNameHash` / `FolderAllFileList` は導入先推定の正本ではありません。これはカテゴリ別 index から派生した folder-level extensionless union view ですが、導入先推定の candidate 列挙や matching には使いません。
+
+`DirectoryResourceLookupCache` がない状態では導入先推定を行いません。`SkipInitFileCheck` のように起動時 resource index を作らない設定では、推定不可になる場合があります。
 
 ## 推定入口
 
@@ -92,7 +94,7 @@ startup restore / auto-install 由来の pending estimate は package ごとの 
 
 候補は chart directory です。resource-only subdirectory は候補になりません。
 
-現在の候補一覧は `FolderAllFileList.Keys` から得ます。これは extensionless resource union view を保持する構造ですが、ここで使う主目的は「候補 chart directory の集合」です。
+候補一覧は `DirectoryResourceLookupCache.Keys` から得ます。これは file enumeration で chart directory として確定した directory 集合です。
 
 source directory は通常推定でも merge 推定でも候補に入れません。
 
@@ -102,15 +104,13 @@ source directory は通常推定でも merge 推定でも候補に入れませ�
 
 ### 1. Path-aware broad filter
 
-`DirectoryResourceLookupCache` がある通常経路では、カテゴリ別 reverse lookup を使います。
+カテゴリ別 reverse lookup を使います。
 
 - audio refs -> audio relative reverse map
 - image / optional image refs -> image relative reverse map
 - movie refs -> movie relative reverse map
 
-cacheless 経路では、`BMSDirectoryFileNameHash` と `DirectoryRelativePathHashIndex` の補助を使います。この経路では extensionless union が混ざり得ますが、通常の native canonical index 経路ではカテゴリ別 reverse lookup が正本です。
-
-mixed package の複数候補評価では cacheless 経路を使いません。`DirectoryResourceLookupCache` がない状態で複数候補になった場合は、導入先を推定不可として扱います。`SkipInitFileCheck` のように起動時 resource index を作らない設定では、この制約により導入先推定ができない場合があります。
+`DirectoryResourceLookupCache` がない場合は、`BMSDirectoryFileNameHash` や `DirectoryRelativePathHashIndex` へ fallback せず、`resource_index_unavailable` として推定不可にします。
 
 候補が 0 件になった場合、全 library への fallback はしません。`no_viable_destination_below_threshold` として扱います。
 
@@ -193,14 +193,12 @@ primary health は次の順で選ばれます。
 
 通常経路の `CandidateCount` はカテゴリ別 relative key set から出ます。つまり、audio / image / movie のそれぞれの candidate count が precision / jaccard に効きます。
 
-ただし union は次の補助に残っています。
+ただし union は導入先推定以外の補助、または診断寄りの派生値として残っています。
 
-- `FolderAllFileList.Keys` による candidate chart directory 集合
 - `DirectoryResourceLookupCache.Entry.AllBaseNameHashes` の lazy union
-- cacheless / fallback view で category set がない場合の補助
 - `AudioFileCount` など診断・表示寄りの派生値
 
-このため、現時点でも union が完全に無関係ではありません。ただし、カテゴリ別 index が使える通常経路では、導入先の primary matching と primary tie-break の正本は audio / image / movie のカテゴリ別 key です。
+このため、現時点でも union が完全に消えたわけではありません。ただし、導入先の candidate 列挙、primary matching、primary tie-break の正本は audio / image / movie のカテゴリ別 key です。
 
 mixed package の既存配置先再利用では、hash tie が複数候補になっても extensionless union の health 判定補助は使いません。候補限定 final evaluation の category resource metrics で評価し、曖昧なら suggestions と warning に落とします。
 
@@ -279,7 +277,6 @@ source baseline が十分に高い directory package は pending に残します
 - `candidateDirsAfter`
 - `candidateViewBuildMs`
 - `candidateMatchMs`
-- `candidateViewFallbackCount`
 - `shadowSuppressed`
 - `confidence`
 - `confidenceReason`

@@ -216,7 +216,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
 
             Assert.AreEqual(mergeDir, result.DestinationDirectory);
             Assert.AreEqual(1, result.CandidateDirectoryCount);
-            Assert.IsFalse(result.UsedFallbackCandidateExpansion);
         });
     }
 
@@ -252,7 +251,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 BmsInstallationEstimateMode.Normal);
 
             string debugSummary = (result.ResourceSummary ?? string.Empty) + " || " + (result.TopCandidateSummary ?? string.Empty) + " || " + (result.SelectedCandidateSummary ?? string.Empty);
-            Assert.IsFalse(result.UsedFallbackCandidateExpansion, debugSummary);
             Assert.AreEqual(1, result.CandidateDirectoryCount, debugSummary);
             Assert.AreEqual(candidateDir, result.DestinationDirectory, debugSummary);
         });
@@ -293,7 +291,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             Assert.AreEqual(0, result.CandidateDirectoryCountAfterAudioGate);
             Assert.AreEqual(0, result.CandidateDirectoryCountAfterHashFilter);
             Assert.AreEqual(0, result.CandidateDirectoryCount);
-            Assert.IsFalse(result.UsedFallbackCandidateExpansion);
             Assert.IsFalse(result.HasViableDestination);
             Assert.AreEqual("no_viable_destination_below_threshold", result.ConfidenceReason);
         });
@@ -1888,7 +1885,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     }
 
     [TestMethod]
-    public void EstimateInstallationDirectory_PathAwareAudioBroadFilter_DropsBasenameOnlyCandidate_WhenLookupCacheIsNull()
+    public void EstimateInstallationDirectory_PathAwareAudioBroadFilter_RequiresLookupCache()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         BmsLibraryInstallEstimationService service = CreateService();
@@ -1916,9 +1913,12 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             BmsInstallationEstimateMode.Normal,
             relativePathHashIndex: relativePathIndex);
 
-        Assert.AreEqual(1, result.CandidateDirectoryCountAfterBroadFilter);
-        Assert.AreEqual(nestedCandidateDir, result.SelectedCandidate?.DirectoryPath);
-        Assert.AreEqual(nestedCandidateDir, result.DestinationDirectory);
+        Assert.AreEqual("resource_index_unavailable", result.ConfidenceReason);
+        Assert.AreEqual("resource_index_unavailable", result.CandidateMode);
+        Assert.AreEqual("resource_index_unavailable", result.CoarseFilterMode);
+        Assert.AreEqual(0, result.CandidateDirectoryCountAfterBroadFilter);
+        Assert.IsNull(result.SelectedCandidate);
+        Assert.IsNull(result.DestinationDirectory);
     }
 
     [TestMethod]
@@ -2157,7 +2157,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         Assert.AreEqual(0, result.AncestorShadowSuppressedCount);
         Assert.AreEqual(0, result.LazySelfOwnedEvaluationCount);
         Assert.AreEqual(0, result.CandidateViewBuildCount);
-        Assert.AreEqual(0, result.CandidateViewFallbackCount);
         Assert.IsNull(result.SelectedCandidate);
         Assert.IsTrue(string.IsNullOrWhiteSpace(result.DestinationDirectory));
     }
@@ -2195,7 +2194,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         Assert.AreEqual(0, result.AncestorShadowSuppressedCount);
         Assert.AreEqual(0, result.LazySelfOwnedEvaluationCount);
         Assert.AreEqual(1, result.CandidateViewBuildCount);
-        Assert.AreEqual(0, result.CandidateViewFallbackCount);
         Assert.AreEqual(1, result.SelectedCandidate?.AudioMatched);
         Assert.AreEqual(1, result.SelectedCandidate?.AudioExactMatched);
         Assert.AreEqual(flatCandidateDir, result.SelectedCandidate?.DirectoryPath);
@@ -2272,7 +2270,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         Assert.AreEqual(50, result.SelectedCandidate?.AudioJaccard);
         Assert.AreEqual(2, result.SelectedCandidate?.AudioFileCount);
         Assert.AreEqual(1, result.CandidateViewBuildCount);
-        Assert.AreEqual(0, result.CandidateViewFallbackCount);
     }
 
     [TestMethod]
@@ -2334,7 +2331,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     }
 
     [TestMethod]
-    public void EstimateInstallationDirectory_CachelessPath_FinalEvaluationMatchesLookupCacheForRelativePathSemantics()
+    public void EstimateInstallationDirectory_WithoutResourceIndex_ReturnsUnavailableForRelativePathSemantics()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         BmsLibraryInstallEstimationService service = CreateService();
@@ -2366,7 +2363,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             asParallel: false,
             BmsInstallationEstimateMode.Normal);
 
-        InstallEstimationResult cachelessResult = service.EstimateInstallationDirectory(
+        InstallEstimationResult unavailableResult = service.EstimateInstallationDirectory(
             new[] { file },
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
             cache,
@@ -2376,18 +2373,15 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             relativePathHashIndex: relativePathIndex);
 
         Assert.AreEqual(InstallEstimationFinalEvaluationMode.RelativeStrict, lookupResult.FinalEvaluationMode);
-        Assert.AreEqual(InstallEstimationFinalEvaluationMode.RelativeStrict, cachelessResult.FinalEvaluationMode);
-        Assert.AreEqual(0, lookupResult.CandidateViewFallbackCount);
-        Assert.AreEqual(0, cachelessResult.CandidateViewFallbackCount);
-        Assert.AreEqual(lookupResult.DestinationDirectory, cachelessResult.DestinationDirectory);
-        Assert.AreEqual(lookupResult.Confidence, cachelessResult.Confidence);
-        Assert.AreEqual(lookupResult.SelectedCandidate?.AudioMatched, cachelessResult.SelectedCandidate?.AudioMatched);
-        Assert.AreEqual(lookupResult.SelectedCandidate?.AudioPrecision, cachelessResult.SelectedCandidate?.AudioPrecision);
-        Assert.AreEqual(lookupResult.SelectedCandidate?.AudioJaccard, cachelessResult.SelectedCandidate?.AudioJaccard);
+        Assert.AreEqual(candidateDir, lookupResult.DestinationDirectory);
+        Assert.IsNull(unavailableResult.DestinationDirectory);
+        Assert.AreEqual("resource_index_unavailable", unavailableResult.ConfidenceReason);
+        Assert.AreEqual("resource_index_unavailable", unavailableResult.CandidateMode);
+        Assert.AreEqual("resource_index_unavailable", unavailableResult.CoarseFilterMode);
     }
 
     [TestMethod]
-    public void EstimateInstallationDirectory_CachelessPath_ChartRelativeMatchesLookupCacheWithoutViewFallback()
+    public void EstimateInstallationDirectory_WithoutResourceIndex_DoesNotUseChartRelativeFallback()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         BmsLibraryInstallEstimationService service = CreateService();
@@ -2414,7 +2408,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             asParallel: false,
             BmsInstallationEstimateMode.Normal);
 
-        InstallEstimationResult cachelessResult = service.EstimateInstallationDirectory(
+        InstallEstimationResult unavailableResult = service.EstimateInstallationDirectory(
             new[] { file },
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
             cache,
@@ -2424,20 +2418,17 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             relativePathHashIndex: relativePathIndex);
 
         Assert.AreEqual(InstallEstimationFinalEvaluationMode.RelativeStrict, lookupResult.FinalEvaluationMode);
-        Assert.AreEqual(InstallEstimationFinalEvaluationMode.RelativeStrict, cachelessResult.FinalEvaluationMode);
-        Assert.AreEqual(lookupResult.DestinationDirectory, cachelessResult.DestinationDirectory);
-        Assert.AreEqual(lookupResult.Confidence, cachelessResult.Confidence);
-        Assert.AreEqual(lookupResult.SelectedCandidate?.AudioMatched, cachelessResult.SelectedCandidate?.AudioMatched);
-        Assert.AreEqual(lookupResult.SelectedCandidate?.AudioPrecision, cachelessResult.SelectedCandidate?.AudioPrecision);
-        Assert.AreEqual(lookupResult.SelectedCandidate?.AudioJaccard, cachelessResult.SelectedCandidate?.AudioJaccard);
+        Assert.AreEqual(candidateDir, lookupResult.DestinationDirectory);
+        Assert.IsNull(unavailableResult.DestinationDirectory);
+        Assert.AreEqual("resource_index_unavailable", unavailableResult.ConfidenceReason);
+        Assert.AreEqual("resource_index_unavailable", unavailableResult.CandidateMode);
+        Assert.AreEqual("resource_index_unavailable", unavailableResult.CoarseFilterMode);
         Assert.AreEqual(1, lookupResult.CandidateViewBuildCount);
-        Assert.AreEqual(1, cachelessResult.CandidateViewBuildCount);
-        Assert.AreEqual(0, lookupResult.CandidateViewFallbackCount);
-        Assert.AreEqual(0, cachelessResult.CandidateViewFallbackCount);
+        Assert.AreEqual(0, unavailableResult.CandidateViewBuildCount);
     }
 
     [TestMethod]
-    public void EstimateInstallationDirectory_CachelessPath_PreservesAncestorShadowDiagnosticsForNestedBasenameAudio()
+    public void EstimateInstallationDirectory_WithoutResourceIndex_SkipsAncestorShadowDiagnostics()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         BmsLibraryInstallEstimationService service = CreateService();
@@ -2525,7 +2516,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             asParallel: false,
             BmsInstallationEstimateMode.Normal);
 
-        InstallEstimationResult cachelessResult = service.EstimateInstallationDirectory(
+        InstallEstimationResult unavailableResult = service.EstimateInstallationDirectory(
             new[] { file },
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
             cache,
@@ -2535,19 +2526,14 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             relativePathHashIndex: relativePathIndex);
 
         Assert.AreEqual(InstallEstimationFinalEvaluationMode.RelativeStrict, lookupResult.FinalEvaluationMode);
-        Assert.AreEqual(InstallEstimationFinalEvaluationMode.RelativeStrict, cachelessResult.FinalEvaluationMode);
-        Assert.AreEqual(lookupResult.DestinationDirectory, cachelessResult.DestinationDirectory);
-        Assert.AreEqual(lookupResult.Confidence, cachelessResult.Confidence);
-        Assert.AreEqual(lookupResult.CandidateDirectoryCountAfterBroadFilter, cachelessResult.CandidateDirectoryCountAfterBroadFilter);
-        Assert.AreEqual(lookupResult.HierarchyCandidateDirectoryCount, cachelessResult.HierarchyCandidateDirectoryCount);
-        Assert.AreEqual(lookupResult.AncestorShadowSuppressedCount, cachelessResult.AncestorShadowSuppressedCount);
-        Assert.AreEqual(lookupResult.LazySelfOwnedEvaluationCount, cachelessResult.LazySelfOwnedEvaluationCount);
+        Assert.IsNull(unavailableResult.DestinationDirectory);
+        Assert.AreEqual("resource_index_unavailable", unavailableResult.ConfidenceReason);
+        Assert.AreEqual("resource_index_unavailable", unavailableResult.CandidateMode);
+        Assert.AreEqual("resource_index_unavailable", unavailableResult.CoarseFilterMode);
         Assert.AreEqual(0, lookupResult.CandidateDirectoryCountAfterBroadFilter);
-        Assert.AreEqual(0, cachelessResult.CandidateDirectoryCountAfterBroadFilter);
+        Assert.AreEqual(0, unavailableResult.CandidateDirectoryCountAfterBroadFilter);
         Assert.AreEqual(0, lookupResult.CandidateViewBuildCount);
-        Assert.AreEqual(0, cachelessResult.CandidateViewBuildCount);
-        Assert.AreEqual(0, lookupResult.CandidateViewFallbackCount);
-        Assert.AreEqual(0, cachelessResult.CandidateViewFallbackCount);
+        Assert.AreEqual(0, unavailableResult.CandidateViewBuildCount);
     }
 
     [TestMethod]
