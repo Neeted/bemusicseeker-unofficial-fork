@@ -390,7 +390,6 @@ internal sealed class BmsLibraryInitializationService
         result.InlineChartInfoBatchSize = ResolveInlineChartInfoBatchSize();
         result.DbCommitChunkSize = ResolveFileDiffCommitChunkSize();
         ResourceHealthLookupContext inlineMaintenanceLookupContext = new ResourceHealthLookupContext(
-            result.NextFolderAllFileList,
             result.NextDirectoryResourceLookupCache,
             result.NextDirectoryRelativePathHashIndex);
         Dictionary<string, LR2SongDBExtended.chart_info_parse_failure> currentChartInfoParseFailures =
@@ -1772,7 +1771,7 @@ internal sealed class BmsLibraryInitializationService
                 bool isBmson = PendingChartEntry.IsBmsonChartFile(bmsFile);
                 if (!isBmson)
                 {
-                    bmsFile.SetHealthStatus(null, forceUpdate: false, memClear: false);
+                    bmsFile.SetHealthStatus(forceUpdate: false, memClear: false);
                 }
                 result.PendingWarningInitTargets.Add(bmsFile);
                 if (isInstalledChart != null && isInstalledChart(bmsFile))

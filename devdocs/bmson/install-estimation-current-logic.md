@@ -199,7 +199,7 @@ primary health は次の順で選ばれます。
 
 mixed package の既存配置先再利用では、hash tie が複数候補になっても extensionless union の health 判定補助は使いません。候補限定 final evaluation の category resource metrics で評価し、曖昧なら suggestions と warning に落とします。
 
-今後の整理では、導入先推定以外に残る extensionless union の利用箇所を確認し、resource health / maintenance / file operation の文脈ごとにカテゴリ別 API へ置き換えます。順序安定だけが必要なら path 順などの明示的で安全な tie-break へ置き換えます。
+続く整理で resource health / maintenance もカテゴリ別 `ResourceHealthLookupContext` を正本にし、`BMSDirectoryFileNameHash` / `FolderAllFileList` には fallback しない形にした。残る extensionless union は folder move/delete や legacy folder-level surface の用途に限定して調査する。順序安定だけが必要なら path 順などの明示的で安全な tie-break へ置き換える。
 
 ## Metadata Tie-break
 

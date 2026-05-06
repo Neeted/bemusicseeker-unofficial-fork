@@ -6930,8 +6930,8 @@ public class BMSLibrary : NotificationObject
             MaintenanceWorkflowResult workflowResult;
             using (rwlockSongDBMaintenance.GetWriterGuard())
             {
-                ResourceHealthLookupContext resourceLookupContext = new ResourceHealthLookupContext(bmsFolderAllFileList, directoryResourceLookupCache, directoryRelativePathHashIndex);
-                workflowResult = maintenanceService.UpdateMaintenanceInfo(maintenanceTargets, forceUpdate, bmsFolderAllFileList, dbGateway, dialogService, resourceLookupContext, LogInstallPerformance, progressReporter, cancellationToken);
+                ResourceHealthLookupContext resourceLookupContext = new ResourceHealthLookupContext(directoryResourceLookupCache, directoryRelativePathHashIndex);
+                workflowResult = maintenanceService.UpdateMaintenanceInfo(maintenanceTargets, forceUpdate, dbGateway, dialogService, resourceLookupContext, LogInstallPerformance, progressReporter, cancellationToken);
             }
             bool rebuildResourceHealthIndex = workflowResult.HasUpdates || !IsResourceHealthIndexCurrent();
             ResourceHealthIndexSnapshot resourceHealthSnapshot = rebuildResourceHealthIndex
@@ -9131,7 +9131,7 @@ public class BMSLibrary : NotificationObject
         foreach (BMSFile bmsFile in (package.BMSFiles ?? new List<BMSFile>()).Where((BMSFile file) => file != null))
         {
             bool isBmson = PendingChartEntry.IsBmsonChartFile(bmsFile);
-            bmsFile.SetHealthStatus(null, forceUpdate: false, memClear: false);
+            bmsFile.SetHealthStatus(forceUpdate: false, memClear: false);
             bmsFile.ClearStructuredWarnings();
             string key = PendingChartEntry.GetPrimaryLookupHash(bmsFile);
             if (!string.IsNullOrWhiteSpace(key) && installedHashSet.Contains(key))
@@ -9931,7 +9931,8 @@ public class BMSLibrary : NotificationObject
                 {
                     return null;
                 }
-                file.SetHealthStatus(bmsFolderAllFileList);
+                ResourceHealthLookupContext lookupContext = new ResourceHealthLookupContext(directoryResourceLookupCache, directoryRelativePathHashIndex);
+                file.SetHealthStatusUsingLookupContext(lookupContext);
                 if (file.maintenanceInfo.GetWAVHealth() > innerWavHealthThreshForNormalBMSFile)
                 {
                     string dirname = DirectoryExt.GetDirectoryNameSimple(file.path);
@@ -9941,7 +9942,7 @@ public class BMSLibrary : NotificationObject
                             {
                                 return false;
                             }
-                            f.SetHealthStatus(bmsFolderAllFileList);
+                            f.SetHealthStatusUsingLookupContext(lookupContext);
                             return file.maintenanceInfo.GetWAVHealth() > innerWavHealthThreshForNormalBMSFile;
                         })
                             select f.hash).Distinct().ToList();

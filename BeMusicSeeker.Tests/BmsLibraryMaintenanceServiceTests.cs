@@ -589,8 +589,6 @@ public sealed class BmsLibraryMaintenanceServiceTests
             {
                 hash = file.hash
             }, suppressPropertyChanged: true, registerEventHandlers: false);
-            BMSDirectoryFileNameHash folderHash = new BMSDirectoryFileNameHash();
-            folderHash.AddDir(tempDirectoryPath, Directory.GetFiles(tempDirectoryPath));
             List<string> propertyNames = new List<string>();
             file.PropertyChanged += delegate (object sender, System.ComponentModel.PropertyChangedEventArgs e)
             {
@@ -606,7 +604,6 @@ public sealed class BmsLibraryMaintenanceServiceTests
             MaintenanceWorkflowResult result = service.UpdateMaintenanceInfo(
                 new[] { file },
                 forceUpdate: true,
-                folderHash,
                 new BmsLibraryDbGateway(songDbPath),
                 null);
 
@@ -649,7 +646,6 @@ public sealed class BmsLibraryMaintenanceServiceTests
             MaintenanceWorkflowResult result = service.UpdateMaintenanceInfo(
                 new[] { file },
                 forceUpdate: true,
-                new BMSDirectoryFileNameHash(),
                 new BmsLibraryDbGateway(songDbPath),
                 null);
 
@@ -709,7 +705,6 @@ public sealed class BmsLibraryMaintenanceServiceTests
             MaintenanceWorkflowResult result = service.UpdateMaintenanceInfo(
                 new[] { file },
                 forceUpdate: false,
-                new BMSDirectoryFileNameHash(),
                 new BmsLibraryDbGateway(songDbPath),
                 null);
 
@@ -759,7 +754,6 @@ public sealed class BmsLibraryMaintenanceServiceTests
             MaintenanceWorkflowResult result = service.UpdateMaintenanceInfo(
                 new[] { file },
                 forceUpdate: false,
-                new BMSDirectoryFileNameHash(),
                 new BmsLibraryDbGateway(songDbPath),
                 null);
 
@@ -813,7 +807,6 @@ public sealed class BmsLibraryMaintenanceServiceTests
             MaintenanceWorkflowResult result = service.UpdateMaintenanceInfo(
                 new[] { file },
                 forceUpdate: false,
-                new BMSDirectoryFileNameHash(),
                 new BmsLibraryDbGateway(songDbPath),
                 null);
 
@@ -858,7 +851,6 @@ public sealed class BmsLibraryMaintenanceServiceTests
             MaintenanceWorkflowResult result = service.UpdateMaintenanceInfo(
                 new[] { file },
                 forceUpdate: true,
-                new BMSDirectoryFileNameHash(),
                 new BmsLibraryDbGateway(songDbPath),
                 null);
 
@@ -898,8 +890,6 @@ public sealed class BmsLibraryMaintenanceServiceTests
         {
             BMSFile bmsFile = BMSFile.CreateBMSFileFromFile(bmsFilePath);
             PendingChartEntry bmsonFile = PendingChartEntry.CreateFromBmsonSong(BmsonSongParser.Parse(bmsonFilePath));
-            BMSDirectoryFileNameHash folderHash = new BMSDirectoryFileNameHash();
-            folderHash.AddDir(tempDirectoryPath, Directory.GetFiles(tempDirectoryPath));
             using (LR2SongDBExtended songDb = new LR2SongDBExtended(songDbPath))
             {
                 songDb.CreateTable<LR2SongDBExtended.maintenance>();
@@ -909,7 +899,6 @@ public sealed class BmsLibraryMaintenanceServiceTests
             MaintenanceWorkflowResult result = service.UpdateMaintenanceInfo(
                 new BMSFile[] { bmsFile, bmsonFile },
                 forceUpdate: true,
-                folderHash,
                 new BmsLibraryDbGateway(songDbPath),
                 null);
 
@@ -970,7 +959,6 @@ public sealed class BmsLibraryMaintenanceServiceTests
             MaintenanceWorkflowResult result = service.UpdateMaintenanceInfo(
                 new BMSFile[] { bmsFile },
                 forceUpdate: true,
-                new BMSDirectoryFileNameHash(),
                 new BmsLibraryDbGateway(songDbPath),
                 null);
 
@@ -1021,7 +1009,6 @@ public sealed class BmsLibraryMaintenanceServiceTests
             MaintenanceWorkflowResult result = service.UpdateMaintenanceInfo(
                 new BMSFile[] { bmsFile },
                 forceUpdate: false,
-                new BMSDirectoryFileNameHash(),
                 new BmsLibraryDbGateway(songDbPath),
                 null,
                 progressLogger: logs.Add);
@@ -1073,13 +1060,11 @@ public sealed class BmsLibraryMaintenanceServiceTests
         {
             BMSFile legacyFile = BMSFile.CreateBMSFileFromFile(bmsFilePath);
             BMSFile cacheAwareFile = BMSFile.CreateBMSFileFromFile(bmsFilePath);
-            BMSDirectoryFileNameHash folderHash = new BMSDirectoryFileNameHash();
-            folderHash.AddDir(tempDirectoryPath, Directory.GetFiles(tempDirectoryPath));
             BMSFileMaintenanceInfo legacyInfo = new BMSFileMaintenanceInfo(legacyFile)
             {
                 hash = legacyFile.hash
             };
-            legacyFile.SetHealthStatus(folderHash, forceUpdate: false, memClear: false, legacyInfo);
+            legacyFile.SetHealthStatus(forceUpdate: false, memClear: false, legacyInfo);
 
             DirectoryResourceLookupCache directoryLookupCache = new DirectoryResourceLookupCache();
             string[] relativeResources =
@@ -1107,7 +1092,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
                 entry.SelfOwnedAudioRelativePathHashArray,
                 entry.SelfOwnedImageRelativePathHashArray,
                 entry.SelfOwnedMovieRelativePathHashArray);
-            ResourceHealthLookupContext lookupContext = new ResourceHealthLookupContext(folderHash, directoryLookupCache, relativePathHashIndex);
+            ResourceHealthLookupContext lookupContext = new ResourceHealthLookupContext(directoryLookupCache, relativePathHashIndex);
             BMSFileMaintenanceInfo cacheInfo = new BMSFileMaintenanceInfo(cacheAwareFile)
             {
                 hash = cacheAwareFile.hash
@@ -1155,7 +1140,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
         try
         {
             BMSFile file = BMSFile.CreateBMSFileFromFile(bmsFilePath);
-            ResourceHealthLookupContext lookupContext = new ResourceHealthLookupContext(new BMSDirectoryFileNameHash(), null, null);
+            ResourceHealthLookupContext lookupContext = new ResourceHealthLookupContext(null, null);
             BMSFileMaintenanceInfo info = new BMSFileMaintenanceInfo(file)
             {
                 hash = file.hash
@@ -1206,7 +1191,6 @@ public sealed class BmsLibraryMaintenanceServiceTests
             MaintenanceWorkflowResult result = service.UpdateMaintenanceInfo(
                 new[] { invalidRow, validRow },
                 forceUpdate: true,
-                new BMSDirectoryFileNameHash(),
                 new BmsLibraryDbGateway(songDbPath),
                 null);
 

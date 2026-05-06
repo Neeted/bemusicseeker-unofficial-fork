@@ -28,16 +28,12 @@ internal sealed class ResourceHealthLookupContext
     private long unknownFileExistsFallbackCount;
 
     public ResourceHealthLookupContext(
-        BMSDirectoryFileNameHash folderAllFileList,
         DirectoryResourceLookupCache directoryLookupCache,
         DirectoryRelativePathHashIndex relativePathHashIndex)
     {
-        FolderAllFileList = folderAllFileList;
         DirectoryLookupCache = directoryLookupCache;
         RelativePathHashIndex = relativePathHashIndex;
     }
-
-    public BMSDirectoryFileNameHash FolderAllFileList { get; }
 
     public DirectoryResourceLookupCache DirectoryLookupCache { get; }
 

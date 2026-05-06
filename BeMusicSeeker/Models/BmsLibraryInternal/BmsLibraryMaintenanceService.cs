@@ -258,7 +258,6 @@ internal sealed class BmsLibraryMaintenanceService
     public MaintenanceWorkflowResult UpdateMaintenanceInfo(
         IEnumerable<BMSFile> bmsFiles,
         bool forceUpdate,
-        BMSDirectoryFileNameHash folderAllFileList,
         BmsLibraryDbGateway dbGateway,
         IBmsLibraryDialogService dialogService,
         ResourceHealthLookupContext resourceLookupContext = null,
@@ -308,7 +307,7 @@ internal sealed class BmsLibraryMaintenanceService
         result.BmsonResourceTargetCount = targets.Count(PendingChartEntry.IsBmsonChartFile);
         result.HealthTargetCount = targets.Count;
         result.HealthDegree = maintenanceHealthDegree;
-        resourceLookupContext ??= new ResourceHealthLookupContext(folderAllFileList, null, null);
+        resourceLookupContext ??= new ResourceHealthLookupContext(null, null);
         progressLogger?.Invoke("maintenance_target_summary total=" + targets.Count
             + " sourceCount=" + sourceFiles.Count
             + " force=" + result.ForceTargetCount
@@ -419,14 +418,7 @@ internal sealed class BmsLibraryMaintenanceService
                         try
                         {
                             long healthStart = Stopwatch.GetTimestamp();
-                            if (!forceUpdate)
-                            {
-                                file.SetHealthStatusUsingLookupContext(resourceLookupContext, forceUpdate, memClear: !isBmson);
-                            }
-                            else
-                            {
-                                file.SetHealthStatus(folderAllFileList, forceUpdate, memClear: !isBmson);
-                            }
+                            file.SetHealthStatusUsingLookupContext(resourceLookupContext, forceUpdate, memClear: !isBmson);
                             AddElapsedTicks(ref healthTicks, healthStart);
                             break;
                         }

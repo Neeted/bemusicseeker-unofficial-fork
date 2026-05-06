@@ -25,7 +25,7 @@
 - `BMSPackagesInstalled`  
   導入済みパッケージ一覧（管理用）
 - `bmsFolderAllFileList : BMSDirectoryFileNameHash`  
-  「chart directory」ごとの resource hash union 配列。入力は audio / image / movie のカテゴリ別 index から派生する
+  「chart directory」ごとの resource hash union 配列。入力は audio / image / movie のカテゴリ別 index から派生する。現在は folder move/delete や legacy folder-level surface 用であり、導入先推定・resource health・maintenance の正本ではない
 - `directoryResourceLookupCache : DirectoryResourceLookupCache`
   chart directory ごとのカテゴリ別 basename / relative-path hash 集合
   - aggregate ownership と self-only ownership の二重 view
@@ -51,13 +51,14 @@
 
 目的:
 
-- file operation / health / legacy surface で folder-level hash view が必要な箇所へ、カテゴリ別 canonical resource index から派生した union を渡す
+- file operation / legacy surface で folder-level hash view が必要な箇所へ、カテゴリ別 canonical resource index から派生した union を渡す
 - Everything / Fast の両 scanner が同じ意味の chart-directory keyed hash を返せるようにする
 
 補足:
 
 - `BMSDirectoryFileNameHash` は導入先推定の正本ではなく、カテゴリ別 canonical resource index から派生する folder-level union view である。
 - 導入先推定の照合本体と reverse lookup は `DirectoryResourceLookupCache` の audio / image / movie chart-relative key を使う。
+- resource health / maintenance も `DirectoryResourceLookupCache` / `DirectoryRelativePathHashIndex` のカテゴリ別 key を使い、`BMSDirectoryFileNameHash` には fallback しない。
 - `foo.wav` は `foo`、`sound/foo.wav` は `sound/foo` として扱われ、旧 basename-only matching は使わない。
 - 導入先推定では candidate directory 集合も照合本体も `DirectoryResourceLookupCache` を使い、`BMSDirectoryFileNameHash` には fallback しない
 - relative path を含む source of truth は `DirectoryResourceLookupCache.Entry` / `DirectoryRelativePathHashIndex.Entry` 側に置く

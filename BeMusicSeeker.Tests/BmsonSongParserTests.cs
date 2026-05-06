@@ -90,7 +90,7 @@ public sealed class BmsonSongParserTests
 
             var parsed = BmsonSongParser.Parse(filePath);
             PendingChartEntry pending = PendingChartEntry.CreateFromBmsonSong(parsed);
-            pending.SetHealthStatus(null, forceUpdate: false, memClear: false);
+            pending.SetHealthStatus(forceUpdate: false, memClear: false);
 
             CollectionAssert.AreEquivalent(new[] { "keysound.wav", "preview.wav" }, pending.WAVfiles.ToArray());
             CollectionAssert.AreEquivalent(new[] { "image.png", "movie.mp4" }, pending.BGAfiles.ToArray());

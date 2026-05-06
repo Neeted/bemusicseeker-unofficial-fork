@@ -1511,17 +1511,17 @@ public class BMSFile : LR2SongDB.song
         }
     }
 
-    public void SetHealthStatus(BMSDirectoryFileNameHash fListCache = null, bool forceUpdate = false, bool memClear = true, BMSFileMaintenanceInfo mtInfo = null, string altSearchDir = null, uint[] curDirFileNameHashArrayAdd = null)
+    public void SetHealthStatus(bool forceUpdate = false, bool memClear = true, BMSFileMaintenanceInfo mtInfo = null, string altSearchDir = null)
     {
-        SetHealthStatusCore(fListCache, forceUpdate, memClear, mtInfo, altSearchDir, curDirFileNameHashArrayAdd, null);
+        SetHealthStatusCore(forceUpdate, memClear, mtInfo, altSearchDir, null);
     }
 
     internal void SetHealthStatusUsingLookupContext(ResourceHealthLookupContext lookupContext, bool forceUpdate = false, bool memClear = true, BMSFileMaintenanceInfo mtInfo = null)
     {
-        SetHealthStatusCore(lookupContext?.FolderAllFileList, forceUpdate, memClear, mtInfo, null, null, lookupContext);
+        SetHealthStatusCore(forceUpdate, memClear, mtInfo, null, lookupContext);
     }
 
-    private void SetHealthStatusCore(BMSDirectoryFileNameHash fListCache, bool forceUpdate, bool memClear, BMSFileMaintenanceInfo mtInfo, string altSearchDir, uint[] curDirFileNameHashArrayAdd, ResourceHealthLookupContext lookupContext)
+    private void SetHealthStatusCore(bool forceUpdate, bool memClear, BMSFileMaintenanceInfo mtInfo, string altSearchDir, ResourceHealthLookupContext lookupContext)
     {
         if (!File.Exists(path) || (altSearchDir != null && !Directory.Exists(altSearchDir)))
         {

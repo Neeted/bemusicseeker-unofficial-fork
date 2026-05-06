@@ -372,7 +372,7 @@ internal sealed class BmsLibraryPackageInstallService
             }
             if (entry.IsBmsChart || entry.IsBmsonChart)
             {
-                entry.SetHealthStatus(null, forceUpdate: false, memClear: false);
+                entry.SetHealthStatus(forceUpdate: false, memClear: false);
             }
             return entry;
         }
@@ -1153,7 +1153,7 @@ internal sealed class BmsLibraryPackageInstallService
                 {
                     continue;
                 }
-                bmsFile.SetHealthStatus(null, forceUpdate: false, memClear: false);
+                bmsFile.SetHealthStatus(forceUpdate: false, memClear: false);
                 if (requiresPendingWarning != null && requiresPendingWarning(bmsFile))
                 {
                     pendingByPackage[pkg] = true;
