@@ -41,7 +41,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         BmsLibraryInstallEstimationService service = CreateService();
         TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Pending", "chart.bms"), "sound.wav");
         file.SetMaintenanceInfo(CreateMaintenanceInfo(file, wavDefined: 1, wavExisting: 0), suppressPropertyChanged: true, registerEventHandlers: false);
-        BMSDirectoryFileNameHash cache = new BMSDirectoryFileNameHash();
 
         InstallEstimationResult sequential = service.EstimateInstallationDirectory(
             new[] { file },
@@ -92,8 +91,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         InstalledDirectoryLookupResult result = service.TryResolveInstalledDestinationFromPackage(
             package,
             new List<BMSFile> { pendingC },
-            service.BuildInstalledHashToDirectoryMap(installedFiles),
-            new BMSDirectoryFileNameHash());
+            service.BuildInstalledHashToDirectoryMap(installedFiles));
 
         Assert.AreEqual(dirA, result.InstallDirectory);
         Assert.AreEqual(3, result.MatchedHashCount);
@@ -125,8 +123,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         InstalledDirectoryLookupResult result = service.TryResolveInstalledDestinationFromPackage(
             package,
             new List<BMSFile> { pendingMissing },
-            service.BuildInstalledHashToDirectoryMap(installedFiles),
-            new BMSDirectoryFileNameHash());
+            service.BuildInstalledHashToDirectoryMap(installedFiles));
 
         Assert.AreEqual(InstalledDirectoryResolveReason.MultipleCandidateDirectories, result.Reason);
         Assert.IsFalse(result.Success);
@@ -197,9 +194,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             };
             PackageInstallEstimationSnapshot snapshot = package.GetOrBuildInstallEstimationSnapshot(new[] { file });
 
-            BMSDirectoryFileNameHash cache = new BMSDirectoryFileNameHash();
-            cache.AddDir(sourceDir);
-            cache.AddDir(mergeDir);
             DirectoryResourceLookupCache lookupCache = new DirectoryResourceLookupCache();
             lookupCache.AddDir(sourceDir, new[] { "chart.bms", Path.Combine("sound", "01.wav") });
             lookupCache.AddDir(mergeDir, new[] { Path.Combine("sound", "00.wav"), Path.Combine("sound", "01.wav") });
@@ -231,9 +225,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(sourceDir, "chart.bms"), "sound.wav");
             file.SetMaintenanceInfo(CreateMaintenanceInfo(file, wavDefined: 1, wavExisting: 0), suppressPropertyChanged: true, registerEventHandlers: false);
 
-            BMSDirectoryFileNameHash cache = new BMSDirectoryFileNameHash();
-            cache.AddDirHashed(sourceDir, Array.Empty<uint>());
-            cache.AddDirHashed(candidateDir, Array.Empty<uint>());
             DirectoryResourceLookupCache lookupCache = new DirectoryResourceLookupCache();
             lookupCache.AddDir(sourceDir, new[] { "chart.bms" });
             lookupCache.AddDir(candidateDir, new[] { "sound.wav" });
@@ -267,9 +258,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(sourceDir, "chart.bms"), "sound.wav");
             file.SetMaintenanceInfo(CreateMaintenanceInfo(file, wavDefined: 1, wavExisting: 0), suppressPropertyChanged: true, registerEventHandlers: false);
 
-            BMSDirectoryFileNameHash cache = new BMSDirectoryFileNameHash();
-            cache.AddDir(sourceDir);
-            cache.AddDir(candidateDir);
             DirectoryResourceLookupCache lookupCache = new DirectoryResourceLookupCache();
             lookupCache.AddDir(sourceDir, new[] { "chart.bms" });
             lookupCache.AddDir(candidateDir, new[] { "other.wav" });
@@ -313,10 +301,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             file.BGAfiles = new HashSet<string>(new[] { "title.png" }, StringComparer.OrdinalIgnoreCase);
             file.SetMaintenanceInfo(CreateMaintenanceInfo(file, wavDefined: 2, wavExisting: 0), suppressPropertyChanged: true, registerEventHandlers: false);
 
-            BMSDirectoryFileNameHash cache = new BMSDirectoryFileNameHash();
-            cache.AddDir(sourceDir);
-            cache.AddDir(weakCandidateDir);
-            cache.AddDir(strongCandidateDir);
             DirectoryResourceLookupCache lookupCache = new DirectoryResourceLookupCache();
             lookupCache.AddDir(sourceDir, new[] { "chart.bms" });
             lookupCache.AddDir(weakCandidateDir, new[] { "00.wav", "title.png" });
@@ -355,9 +339,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             file.BGAfiles = new HashSet<string>(new[] { "title.png" }, StringComparer.OrdinalIgnoreCase);
             file.SetMaintenanceInfo(CreateMaintenanceInfo(file, wavDefined: 1, wavExisting: 0), suppressPropertyChanged: true, registerEventHandlers: false);
 
-            BMSDirectoryFileNameHash cache = new BMSDirectoryFileNameHash();
-            cache.AddDir(sourceDir);
-            cache.AddDir(candidateDir);
             DirectoryResourceLookupCache lookupCache = new DirectoryResourceLookupCache();
             lookupCache.AddDir(sourceDir, new[] { "chart.bms" });
             lookupCache.AddDir(candidateDir, new[] { "00.wav", "title.png" });
@@ -393,9 +374,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             file.BGAfiles = new HashSet<string>(new[] { "bg.png" }, StringComparer.OrdinalIgnoreCase);
             file.SetMaintenanceInfo(CreateMaintenanceInfo(file, wavDefined: 0, wavExisting: 0), suppressPropertyChanged: true, registerEventHandlers: false);
 
-            BMSDirectoryFileNameHash cache = new BMSDirectoryFileNameHash();
-            cache.AddDir(sourceDir);
-            cache.AddDir(candidateDir);
             DirectoryResourceLookupCache lookupCache = new DirectoryResourceLookupCache();
             lookupCache.AddDir(sourceDir, new[] { "chart.bms" });
             lookupCache.AddDir(candidateDir, new[] { "bg.png" });
@@ -431,9 +409,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(sourceDir, "chart.bms"), "00.wav", "01.wav", "02.wav");
             file.SetMaintenanceInfo(CreateMaintenanceInfo(file, wavDefined: 3, wavExisting: 0), suppressPropertyChanged: true, registerEventHandlers: false);
 
-            BMSDirectoryFileNameHash cache = new BMSDirectoryFileNameHash();
-            cache.AddDir(sourceDir);
-            cache.AddDir(candidateDir);
             DirectoryResourceLookupCache lookupCache = new DirectoryResourceLookupCache();
             lookupCache.AddDir(sourceDir, new[] { "chart.bms" });
             lookupCache.AddDir(candidateDir, new[] { "00.wav", "01.wav" });
@@ -477,9 +452,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             };
             PackageInstallEstimationSnapshot snapshot = package.GetOrBuildInstallEstimationSnapshot(new[] { file });
 
-            BMSDirectoryFileNameHash cache = new BMSDirectoryFileNameHash();
-            cache.AddDir(sourceDir);
-            cache.AddDir(candidateDir);
             DirectoryResourceLookupCache lookupCache = new DirectoryResourceLookupCache();
             lookupCache.AddDir(sourceDir, new[] { "chart.bms", "02.wav" });
             lookupCache.AddDir(candidateDir, new[] { "00.wav", "01.wav" });
@@ -536,9 +508,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             };
             PackageInstallEstimationSnapshot snapshot = package.GetOrBuildInstallEstimationSnapshot(new[] { file });
 
-            BMSDirectoryFileNameHash cache = new BMSDirectoryFileNameHash();
-            cache.AddDir(sourceDir);
-            cache.AddDir(candidateDir);
             DirectoryResourceLookupCache lookupCache = new DirectoryResourceLookupCache();
             lookupCache.AddDir(sourceDir, new[] { "chart.bms" }.Concat(Enumerable.Range(0, 71).Select((int i) => i.ToString("D2") + ".wav")).ToArray());
             lookupCache.AddDir(candidateDir, new[] { "title.png" });
@@ -583,10 +552,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(sourceDir, "chart.bms"), allAudio);
             file.SetMaintenanceInfo(CreateMaintenanceInfo(file, wavDefined: 100, wavExisting: 0), suppressPropertyChanged: true, registerEventHandlers: false);
 
-            BMSDirectoryFileNameHash cache = new BMSDirectoryFileNameHash();
-            cache.AddDir(sourceDir);
-            cache.AddDir(weakCandidateDir);
-            cache.AddDir(strongCandidateDir);
             DirectoryResourceLookupCache lookupCache = new DirectoryResourceLookupCache();
             lookupCache.AddDir(sourceDir, new[] { "chart.bms" });
             lookupCache.AddDir(weakCandidateDir, allAudio.Take(70).ToArray());
@@ -632,9 +597,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 Path.Combine("c", "01.wav"));
             file.SetMaintenanceInfo(CreateMaintenanceInfo(file, wavDefined: 3, wavExisting: 0), suppressPropertyChanged: true, registerEventHandlers: false);
 
-            BMSDirectoryFileNameHash cache = new BMSDirectoryFileNameHash();
-            cache.AddDir(sourceDir);
-            cache.AddDir(candidateDir);
             DirectoryResourceLookupCache lookupCache = new DirectoryResourceLookupCache();
             lookupCache.AddDir(sourceDir, new[] { "chart.bms" });
             lookupCache.AddDir(candidateDir, new[] { Path.Combine("a", "00.wav"), Path.Combine("b", "01.wav"), Path.Combine("c", "01.wav") });
@@ -665,9 +627,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(sourceDir, "chart.bms"), "keysound.wav");
         file.SetMaintenanceInfo(CreateMaintenanceInfo(file, wavDefined: 1, wavExisting: 0), suppressPropertyChanged: true, registerEventHandlers: false);
 
-        BMSDirectoryFileNameHash cache = new BMSDirectoryFileNameHash();
-        cache.AddDirHashed(sourceDir, new[] { BMSDirectoryFileNameHash.GetFileNameHash("chart.bms") });
-        cache.AddDirHashed(candidateDir, new[] { BMSDirectoryFileNameHash.GetFileNameHash("keysound.wav") });
         DirectoryResourceLookupCache lookupCache = new DirectoryResourceLookupCache();
         lookupCache.AddDir(sourceDir, new[] { "chart.bms" });
         lookupCache.AddDir(candidateDir, new[] { "keysound.wav" });
@@ -693,13 +652,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(sourceDir, "chart.bms"), "00.wav", "01.wav", "02.wav");
         file.SetMaintenanceInfo(CreateMaintenanceInfo(file, wavDefined: 3, wavExisting: 0), suppressPropertyChanged: true, registerEventHandlers: false);
 
-        BMSDirectoryFileNameHash cache = new BMSDirectoryFileNameHash();
-        cache.AddDirHashed(sourceDir, new[] { BMSDirectoryFileNameHash.GetFileNameHash("chart.bms") });
-        cache.AddDirHashed(candidateDir, new[]
-        {
-            BMSDirectoryFileNameHash.GetFileNameHash("00.wav"),
-            BMSDirectoryFileNameHash.GetFileNameHash("01.wav")
-        });
         DirectoryResourceLookupCache lookupCache = new DirectoryResourceLookupCache();
         lookupCache.AddDir(sourceDir, new[] { "chart.bms" });
         lookupCache.AddDir(candidateDir, new[] { "00.wav", "01.wav" });
@@ -972,9 +924,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             };
             PackageInstallEstimationSnapshot snapshot = package.GetOrBuildInstallEstimationSnapshot(new[] { file });
 
-            BMSDirectoryFileNameHash cache = new BMSDirectoryFileNameHash();
-            cache.AddDir(sourceDir);
-            cache.AddDir(expectedDir);
             DirectoryResourceLookupCache lookupCache = new DirectoryResourceLookupCache();
             lookupCache.AddDir(sourceDir, new[] { "chart.bms", "02.wav" });
             lookupCache.AddDir(expectedDir, new[] { "00.wav", "01.wav" });
@@ -1016,9 +965,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             };
             PackageInstallEstimationSnapshot snapshot = package.GetOrBuildInstallEstimationSnapshot(new[] { file });
 
-            BMSDirectoryFileNameHash cache = new BMSDirectoryFileNameHash();
-            cache.AddDir(sourceDir);
-            cache.AddDir(weakDir);
             DirectoryResourceLookupCache lookupCache = new DirectoryResourceLookupCache();
             lookupCache.AddDir(sourceDir, new[] { "chart.bms" });
             lookupCache.AddDir(weakDir, new[] { "00.wav" });
@@ -1091,9 +1037,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         string candidateDir = Path.Combine("C:\\Music", "Candidate");
         TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(sourceDir, "chart.bms"), "sound.wav");
 
-        BMSDirectoryFileNameHash cache = new BMSDirectoryFileNameHash();
-        cache.AddDirHashed(sourceDir, new[] { BMSDirectoryFileNameHash.GetFileNameHash("chart.bms") });
-        cache.AddDirHashed(candidateDir, new[] { BMSDirectoryFileNameHash.GetFileNameHash("sound.wav") });
         DirectoryResourceLookupCache lookupCache = new DirectoryResourceLookupCache();
         lookupCache.AddDir(sourceDir, new[] { "chart.bms" });
         lookupCache.AddDir(candidateDir, new[] { "sound.wav" });
@@ -1123,9 +1066,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         string candidateDir = Path.Combine("C:\\Music", "Candidate");
         TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(sourceDir, "chart.bms"), "sound.wav");
 
-        BMSDirectoryFileNameHash cache = new BMSDirectoryFileNameHash();
-        cache.AddDirHashed(sourceDir, new[] { BMSDirectoryFileNameHash.GetFileNameHash("chart.bms"), BMSDirectoryFileNameHash.GetFileNameHash("sound.wav") });
-        cache.AddDirHashed(candidateDir, new[] { BMSDirectoryFileNameHash.GetFileNameHash("sound.wav") });
         DirectoryResourceLookupCache lookupCache = new DirectoryResourceLookupCache();
         lookupCache.AddDir(sourceDir, new[] { "chart.bms", "sound.wav" });
         lookupCache.AddDir(candidateDir, new[] { "sound.wav" });
@@ -1154,9 +1094,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         string candidateDir = Path.Combine("C:\\Music", "Candidate");
         TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(sourceDir, "chart.bms"), "sound.wav");
 
-        BMSDirectoryFileNameHash cache = new BMSDirectoryFileNameHash();
-        cache.AddDirHashed(sourceDir, new[] { BMSDirectoryFileNameHash.GetFileNameHash("chart.bms"), BMSDirectoryFileNameHash.GetFileNameHash("sound.wav") });
-        cache.AddDirHashed(candidateDir, Array.Empty<uint>());
         DirectoryResourceLookupCache lookupCache = new DirectoryResourceLookupCache();
         lookupCache.AddDir(sourceDir, new[] { "chart.bms", "sound.wav" });
         lookupCache.AddDir(candidateDir, Array.Empty<string>());
@@ -1186,10 +1123,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             string candidateBDir = Path.Combine("C:\\Music", "CandidateB");
             TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(sourceDir, "chart.bms"), "sound.wav");
 
-            BMSDirectoryFileNameHash cache = new BMSDirectoryFileNameHash();
-            cache.AddDirHashed(sourceDir, new[] { BMSDirectoryFileNameHash.GetFileNameHash("chart.bms") });
-            cache.AddDirHashed(candidateADir, new[] { BMSDirectoryFileNameHash.GetFileNameHash("sound.wav") });
-            cache.AddDirHashed(candidateBDir, new[] { BMSDirectoryFileNameHash.GetFileNameHash("sound.wav") });
             DirectoryResourceLookupCache lookupCache = new DirectoryResourceLookupCache();
             lookupCache.AddDir(sourceDir, new[] { "chart.bms" });
             lookupCache.AddDir(candidateADir, new[] { "sound.wav" });
@@ -1228,9 +1161,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
 
             BMSFile file = BMSFile.CreateBMSFileFromFile(chartPath);
 
-            BMSDirectoryFileNameHash cache = new BMSDirectoryFileNameHash();
-            cache.AddDir(sourceDir);
-            cache.AddDir(candidateDir);
             DirectoryResourceLookupCache lookupCache = new DirectoryResourceLookupCache();
             lookupCache.AddDir(sourceDir, new[] { "chart.bms" });
             lookupCache.AddDir(candidateDir, new[] { "installed.bms", "sound.wav" });
@@ -1298,9 +1228,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             PendingChartEntry pending = PendingChartEntry.CreateFromFilePath(bmsonPath);
             pending.SetMaintenanceInfo(CreateMaintenanceInfo(pending, wavDefined: 1, wavExisting: 0), suppressPropertyChanged: true, registerEventHandlers: false);
 
-            BMSDirectoryFileNameHash cache = new BMSDirectoryFileNameHash();
-            cache.AddDir(sourceDir);
-            cache.AddDir(candidateDir);
             DirectoryResourceLookupCache lookupCache = new DirectoryResourceLookupCache();
             lookupCache.AddDir(sourceDir, new[] { "chart.bmson" });
             lookupCache.AddDir(candidateDir, new[] { "keysound.wav" });
@@ -1364,10 +1291,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
 
             PendingChartEntry pending = PendingChartEntry.CreateFromFilePath(bmsonPath);
 
-            BMSDirectoryFileNameHash cache = new BMSDirectoryFileNameHash();
-            cache.AddDir(sourceDir);
-            cache.AddDir(candidateDir);
-            cache.AddDir(decoyDir);
             DirectoryResourceLookupCache lookupCache = new DirectoryResourceLookupCache();
             lookupCache.AddDir(sourceDir, new[] { "_circ_double_hard.bmson" });
             lookupCache.AddDir(candidateDir, oggNames.Concat(new[] { "preview.ogg", "banner.png", "cover.jpg" }));
@@ -1399,10 +1322,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(sourceDir, "chart.bms"), "sound.wav");
         file.SetMaintenanceInfo(CreateMaintenanceInfo(file, wavDefined: 1, wavExisting: 0), suppressPropertyChanged: true, registerEventHandlers: false);
 
-        BMSDirectoryFileNameHash cache = new BMSDirectoryFileNameHash();
-        cache.AddDirHashed(sourceDir, new[] { BMSDirectoryFileNameHash.GetFileNameHash("chart.bms") });
-        cache.AddDirHashed(candidateADir, new[] { BMSDirectoryFileNameHash.GetFileNameHash("sound.wav") });
-        cache.AddDirHashed(candidateBDir, new[] { BMSDirectoryFileNameHash.GetFileNameHash("sound.wav") });
         DirectoryResourceLookupCache lookupCache = new DirectoryResourceLookupCache();
         lookupCache.AddDir(sourceDir, new[] { "chart.bms" });
         lookupCache.AddDir(candidateADir, new[] { "sound.wav" });
@@ -1443,10 +1362,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 BMSFile file = BMSFile.CreateBMSFileFromFile(chartPath);
                 file.SetMaintenanceInfo(CreateMaintenanceInfo(file, wavDefined: 1, wavExisting: 0), suppressPropertyChanged: true, registerEventHandlers: false);
 
-                BMSDirectoryFileNameHash cache = new BMSDirectoryFileNameHash();
-                cache.AddDirHashed(sourceDir, new[] { BMSDirectoryFileNameHash.GetFileNameHash("chart.bms") });
-                cache.AddDirHashed(candidateADir, new[] { BMSDirectoryFileNameHash.GetFileNameHash("sound.wav") });
-                cache.AddDirHashed(candidateBDir, new[] { BMSDirectoryFileNameHash.GetFileNameHash("sound.wav") });
                 DirectoryResourceLookupCache lookupCache = new DirectoryResourceLookupCache();
                 lookupCache.AddDir(sourceDir, new[] { "chart.bms" });
                 lookupCache.AddDir(candidateADir, new[] { "sound.wav" });
@@ -1529,10 +1444,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             BMSFile file = BMSFile.CreateBMSFileFromFile(chartPath);
             file.SetMaintenanceInfo(CreateMaintenanceInfo(file, wavDefined: 1, wavExisting: 0), suppressPropertyChanged: true, registerEventHandlers: false);
 
-            BMSDirectoryFileNameHash cache = new BMSDirectoryFileNameHash();
-            cache.AddDirHashed(sourceDir, new[] { BMSDirectoryFileNameHash.GetFileNameHash("chart.bms") });
-            cache.AddDirHashed(candidateADir, new[] { BMSDirectoryFileNameHash.GetFileNameHash("sound.wav") });
-            cache.AddDirHashed(candidateBDir, new[] { BMSDirectoryFileNameHash.GetFileNameHash("sound.wav") });
             DirectoryResourceLookupCache lookupCache = new DirectoryResourceLookupCache();
             lookupCache.AddDir(sourceDir, new[] { "chart.bms" });
             lookupCache.AddDir(candidateADir, new[] { "sound.wav" });
@@ -1591,9 +1502,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             };
             PackageInstallEstimationSnapshot snapshot = package.GetOrBuildInstallEstimationSnapshot(new[] { file });
 
-            BMSDirectoryFileNameHash cache = new BMSDirectoryFileNameHash();
-            cache.AddDir(sourceDir);
-            cache.AddDir(candidateDir);
             DirectoryResourceLookupCache lookupCache = new DirectoryResourceLookupCache();
             lookupCache.AddDir(sourceDir, new[] { "chart.bms", "sound.wav" });
             lookupCache.AddDir(candidateDir, new[] { "sound.wav" });
@@ -1635,9 +1543,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 BMSFile file = BMSFile.CreateBMSFileFromFile(chartPath);
                 file.SetMaintenanceInfo(CreateMaintenanceInfo(file, wavDefined: 1, wavExisting: 0), suppressPropertyChanged: true, registerEventHandlers: false);
 
-                BMSDirectoryFileNameHash cache = new BMSDirectoryFileNameHash();
-                cache.AddDir(sourceDir);
-                cache.AddDir(candidateDir);
                 DirectoryResourceLookupCache lookupCache = new DirectoryResourceLookupCache();
                 lookupCache.AddDir(sourceDir, new[] { "chart.bms" });
                 lookupCache.AddDir(candidateDir, new[] { "installed.bms", "sound.wav" });
@@ -1692,9 +1597,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             };
             PackageInstallEstimationSnapshot snapshot = package.GetOrBuildInstallEstimationSnapshot(new[] { file });
 
-            BMSDirectoryFileNameHash cache = new BMSDirectoryFileNameHash();
-            cache.AddDir(sourceDir);
-            cache.AddDir(candidateDir);
             DirectoryResourceLookupCache lookupCache = new DirectoryResourceLookupCache();
             lookupCache.AddDir(sourceDir, new[] { "chart.bms", Path.Combine("sound", "00.wav") });
             lookupCache.AddDir(candidateDir, new[] { "00.wav" });
@@ -1752,10 +1654,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", chartPath, wavReferences.ToArray());
             file.SetMaintenanceInfo(CreateMaintenanceInfo(file, wavDefined: wavReferences.Count, wavExisting: wavReferences.Count), suppressPropertyChanged: true, registerEventHandlers: false);
 
-            BMSDirectoryFileNameHash cache = new BMSDirectoryFileNameHash();
-            cache.AddDir(sourceDir);
-            cache.AddDir(candidateDir);
-            cache.AddDir(otherCandidateDir);
             DirectoryResourceLookupCache lookupCache = new DirectoryResourceLookupCache();
             lookupCache.AddDir(sourceDir, sourceFiles);
             lookupCache.AddDir(candidateDir, candidateFiles);
@@ -1785,9 +1683,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(sourceDir, "chart.bms"), "sound.wav");
         file.SetMaintenanceInfo(CreateMaintenanceInfo(file, wavDefined: 1, wavExisting: 0), suppressPropertyChanged: true, registerEventHandlers: false);
 
-        BMSDirectoryFileNameHash cache = new BMSDirectoryFileNameHash();
-        cache.AddDirHashed(sourceDir, new[] { BMSDirectoryFileNameHash.GetFileNameHash("chart.bms") });
-        cache.AddDirHashed(candidateDir, new[] { BMSDirectoryFileNameHash.GetFileNameHash("sound.wav") });
         DirectoryResourceLookupCache lookupCache = new DirectoryResourceLookupCache();
         lookupCache.AddDir(sourceDir, new[] { "chart.bms" });
         lookupCache.AddDir(candidateDir, new[] { "sound.wav" });
@@ -1826,10 +1721,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(sourceDir, "chart.bms"), "sound\\bgm1.wav");
         file.SetMaintenanceInfo(CreateMaintenanceInfo(file, wavDefined: 1, wavExisting: 0), suppressPropertyChanged: true, registerEventHandlers: false);
 
-        BMSDirectoryFileNameHash cache = new BMSDirectoryFileNameHash();
-        cache.AddDirHashed(sourceDir, new[] { BMSDirectoryFileNameHash.GetFileNameHash("chart.bms") });
-        cache.AddDirHashed(flatCandidateDir, new[] { BMSDirectoryFileNameHash.GetFileNameHash("bgm1.wav") });
-        cache.AddDirHashed(nestedCandidateDir, new[] { BMSDirectoryFileNameHash.GetFileNameHash("bgm1.wav") });
         DirectoryResourceLookupCache lookupCache = new DirectoryResourceLookupCache();
         lookupCache.AddDir(sourceDir, new[] { "chart.bms" });
         lookupCache.AddDir(flatCandidateDir, new[] { "bgm1.wav" });
@@ -1857,17 +1748,9 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         string sourceDir = Path.Combine("C:\\Pending", "Source");
         string flatCandidateDir = Path.Combine("C:\\Installed", "Flat");
         string nestedCandidateDir = Path.Combine("C:\\Installed", "Nested");
-        uint audioRelativeHash = BMSDirectoryFileNameHash.GetLookupHash("sound\\bgm1");
         TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(sourceDir, "chart.bms"), "sound\\bgm1.wav");
         file.SetMaintenanceInfo(CreateMaintenanceInfo(file, wavDefined: 1, wavExisting: 0), suppressPropertyChanged: true, registerEventHandlers: false);
 
-        BMSDirectoryFileNameHash cache = new BMSDirectoryFileNameHash();
-        cache.AddDirHashed(sourceDir, new[] { BMSDirectoryFileNameHash.GetFileNameHash("chart.bms") });
-        cache.AddDirHashed(flatCandidateDir, new[] { BMSDirectoryFileNameHash.GetFileNameHash("bgm1.wav") });
-        cache.AddDirHashed(nestedCandidateDir, new[] { BMSDirectoryFileNameHash.GetFileNameHash("bgm1.wav") });
-        DirectoryRelativePathHashIndex relativePathIndex = new DirectoryRelativePathHashIndex();
-        relativePathIndex.AddDir(flatCandidateDir, Array.Empty<uint>(), Array.Empty<uint>(), Array.Empty<uint>());
-        relativePathIndex.AddDir(nestedCandidateDir, new[] { audioRelativeHash }, Array.Empty<uint>(), Array.Empty<uint>());
 
         InstallEstimationResult result = service.EstimateInstallationDirectory(
             new[] { file },
@@ -1896,10 +1779,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         file.BGAfiles = new HashSet<string>(new[] { "clock\\00_001_00.bmp" }, StringComparer.OrdinalIgnoreCase);
         file.SetMaintenanceInfo(CreateVisualMaintenanceInfo(file, bgaDefined: 1, bgaExisting: 0), suppressPropertyChanged: true, registerEventHandlers: false);
 
-        BMSDirectoryFileNameHash cache = new BMSDirectoryFileNameHash();
-        cache.AddDirHashed(sourceDir, new[] { BMSDirectoryFileNameHash.GetFileNameHash("chart.bms") });
-        cache.AddDirHashed(flatCandidateDir, new[] { BMSDirectoryFileNameHash.GetFileNameHash("00_001_00.bmp") });
-        cache.AddDirHashed(nestedCandidateDir, new[] { BMSDirectoryFileNameHash.GetFileNameHash("00_001_00.bmp") });
         DirectoryResourceLookupCache lookupCache = new DirectoryResourceLookupCache();
         lookupCache.AddDir(sourceDir, new[] { "chart.bms" });
         lookupCache.AddDir(flatCandidateDir, new[] { "00_001_00.bmp" });
@@ -1929,10 +1808,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         file.SetStagefile("image\\logo.bmp");
         file.SetMaintenanceInfo(CreateVisualMaintenanceInfo(file, stagefileDefined: true, stagefileExisting: false), suppressPropertyChanged: true, registerEventHandlers: false);
 
-        BMSDirectoryFileNameHash cache = new BMSDirectoryFileNameHash();
-        cache.AddDirHashed(sourceDir, new[] { BMSDirectoryFileNameHash.GetFileNameHash("chart.bms") });
-        cache.AddDirHashed(flatCandidateDir, new[] { BMSDirectoryFileNameHash.GetFileNameHash("logo.bmp") });
-        cache.AddDirHashed(nestedCandidateDir, new[] { BMSDirectoryFileNameHash.GetFileNameHash("logo.bmp") });
         DirectoryResourceLookupCache lookupCache = new DirectoryResourceLookupCache();
         lookupCache.AddDir(sourceDir, new[] { "chart.bms" });
         lookupCache.AddDir(flatCandidateDir, new[] { "logo.bmp" });
@@ -1961,18 +1836,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(sourceDir, "chart.bms"), "sound\\bgm1.wav", "bgm2.wav");
         file.SetMaintenanceInfo(CreateMaintenanceInfo(file, wavDefined: 2, wavExisting: 0), suppressPropertyChanged: true, registerEventHandlers: false);
 
-        BMSDirectoryFileNameHash cache = new BMSDirectoryFileNameHash();
-        cache.AddDirHashed(sourceDir, new[] { BMSDirectoryFileNameHash.GetFileNameHash("chart.bms") });
-        cache.AddDirHashed(basenameOnlyCandidateDir, new[]
-        {
-            BMSDirectoryFileNameHash.GetFileNameHash("bgm1.wav"),
-            BMSDirectoryFileNameHash.GetFileNameHash("bgm2.wav")
-        });
-        cache.AddDirHashed(pathAwareCandidateDir, new[]
-        {
-            BMSDirectoryFileNameHash.GetFileNameHash("bgm1.wav"),
-            BMSDirectoryFileNameHash.GetFileNameHash("bgm2.wav")
-        });
         DirectoryResourceLookupCache lookupCache = new DirectoryResourceLookupCache();
         lookupCache.AddDir(basenameOnlyCandidateDir, new[] { "bgm1.wav", "bgm2.wav" });
         lookupCache.AddDir(pathAwareCandidateDir, new[] { "sound\\bgm1.wav", "bgm2.wav" });
@@ -2005,10 +1868,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(sourceDir, "chart.bms"), "Child\\sound\\00.wav", "Child\\sound\\01.wav");
         file.SetMaintenanceInfo(CreateMaintenanceInfo(file, wavDefined: 2, wavExisting: 0), suppressPropertyChanged: true, registerEventHandlers: false);
 
-        BMSDirectoryFileNameHash cache = new BMSDirectoryFileNameHash();
-        cache.AddDirHashed(sourceDir, new[] { BMSDirectoryFileNameHash.GetFileNameHash("chart.bms") });
-        cache.AddDirHashed(parentDir, Array.Empty<uint>());
-        cache.AddDirHashed(childDir, new[] { zeroBaseHash, oneBaseHash });
 
         DirectoryResourceLookupCache lookupCache = new DirectoryResourceLookupCache();
         lookupCache.AddDir(
@@ -2068,10 +1927,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(sourceDir, "chart.bms"), "00.wav", "01.wav");
         file.SetMaintenanceInfo(CreateMaintenanceInfo(file, wavDefined: 2, wavExisting: 0), suppressPropertyChanged: true, registerEventHandlers: false);
 
-        BMSDirectoryFileNameHash cache = new BMSDirectoryFileNameHash();
-        cache.AddDirHashed(sourceDir, new[] { BMSDirectoryFileNameHash.GetFileNameHash("chart.bms") });
-        cache.AddDirHashed(parentDir, Array.Empty<uint>());
-        cache.AddDirHashed(childDir, new[] { zeroBaseHash, oneBaseHash });
 
         DirectoryResourceLookupCache lookupCache = new DirectoryResourceLookupCache();
         lookupCache.AddDir(
@@ -2130,10 +1985,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(sourceDir, "chart.bms"), "bgm1.wav");
         file.SetMaintenanceInfo(CreateMaintenanceInfo(file, wavDefined: 1, wavExisting: 0), suppressPropertyChanged: true, registerEventHandlers: false);
 
-        BMSDirectoryFileNameHash cache = new BMSDirectoryFileNameHash();
-        cache.AddDirHashed(sourceDir, new[] { BMSDirectoryFileNameHash.GetFileNameHash("chart.bms") });
-        cache.AddDirHashed(nestedCandidateDir, new[] { BMSDirectoryFileNameHash.GetFileNameHash("bgm1.wav") });
-        cache.AddDirHashed(flatCandidateDir, new[] { BMSDirectoryFileNameHash.GetFileNameHash("bgm1.wav") });
         DirectoryResourceLookupCache lookupCache = new DirectoryResourceLookupCache();
         lookupCache.AddDir(nestedCandidateDir, new[] { "sound\\bgm1.wav" });
         lookupCache.AddDir(flatCandidateDir, new[] { "bgm1.wav" });
@@ -2166,13 +2017,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(sourceDir, "chart.bms"), "bgm1.wav", "sound\\bgm2.wav");
         file.SetMaintenanceInfo(CreateMaintenanceInfo(file, wavDefined: 2, wavExisting: 0), suppressPropertyChanged: true, registerEventHandlers: false);
 
-        BMSDirectoryFileNameHash cache = new BMSDirectoryFileNameHash();
-        cache.AddDirHashed(sourceDir, new[] { BMSDirectoryFileNameHash.GetFileNameHash("chart.bms") });
-        cache.AddDirHashed(candidateDir, new[]
-        {
-            BMSDirectoryFileNameHash.GetFileNameHash("bgm1.wav"),
-            BMSDirectoryFileNameHash.GetFileNameHash("bgm2.wav")
-        });
         DirectoryResourceLookupCache lookupCache = new DirectoryResourceLookupCache();
         lookupCache.AddDir(candidateDir, new[] { "bgm1.wav", "sound\\bgm2.wav" });
 
@@ -2201,13 +2045,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(sourceDir, "chart.bms"), "bgm1.wav");
         file.SetMaintenanceInfo(CreateMaintenanceInfo(file, wavDefined: 1, wavExisting: 0), suppressPropertyChanged: true, registerEventHandlers: false);
 
-        BMSDirectoryFileNameHash cache = new BMSDirectoryFileNameHash();
-        cache.AddDirHashed(sourceDir, new[] { BMSDirectoryFileNameHash.GetFileNameHash("chart.bms") });
-        cache.AddDirHashed(candidateDir, new[]
-        {
-            BMSDirectoryFileNameHash.GetFileNameHash("bgm1.wav"),
-            BMSDirectoryFileNameHash.GetFileNameHash("bgm1.wav")
-        });
         DirectoryResourceLookupCache lookupCache = new DirectoryResourceLookupCache();
         lookupCache.AddDir(candidateDir, new[] { "bgm1.wav", "sound\\bgm1.wav" });
 
@@ -2254,9 +2091,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             };
             PackageInstallEstimationSnapshot snapshot = package.GetOrBuildInstallEstimationSnapshot(new[] { file });
 
-            BMSDirectoryFileNameHash cache = new BMSDirectoryFileNameHash();
-            cache.AddDir(sourceDir);
-            cache.AddDir(candidateDir);
             DirectoryResourceLookupCache lookupCache = new DirectoryResourceLookupCache();
             lookupCache.AddDir(sourceDir, new[] { "chart.bms", "sound\\02.wav" });
             lookupCache.AddDir(candidateDir, new[] { "sound\\00.wav", "sound\\01.wav" });
@@ -2290,23 +2124,11 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         BmsLibraryInstallEstimationService service = CreateService();
         string sourceDir = Path.Combine("C:\\Pending", "Source");
         string candidateDir = Path.Combine("C:\\Installed", "Candidate");
-        uint bgm1BaseHash = BMSDirectoryFileNameHash.GetLookupHash("bgm1");
-        uint bgm2BaseHash = BMSDirectoryFileNameHash.GetLookupHash("bgm2");
-        uint pathAwareBgm2Hash = BMSDirectoryFileNameHash.GetLookupHash("sound\\bgm2");
         TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(sourceDir, "chart.bms"), "bgm1.wav", "sound\\bgm2.wav");
         file.SetMaintenanceInfo(CreateMaintenanceInfo(file, wavDefined: 2, wavExisting: 0), suppressPropertyChanged: true, registerEventHandlers: false);
 
-        BMSDirectoryFileNameHash cache = new BMSDirectoryFileNameHash();
-        cache.AddDirHashed(sourceDir, new[] { BMSDirectoryFileNameHash.GetFileNameHash("chart.bms") });
-        cache.AddDirHashed(candidateDir, new[]
-        {
-            BMSDirectoryFileNameHash.GetFileNameHash("bgm1.wav"),
-            BMSDirectoryFileNameHash.GetFileNameHash("bgm2.wav")
-        });
         DirectoryResourceLookupCache lookupCache = new DirectoryResourceLookupCache();
         lookupCache.AddDir(candidateDir, new[] { "bgm1.wav", "sound\\bgm2.wav" });
-        DirectoryRelativePathHashIndex relativePathIndex = new DirectoryRelativePathHashIndex();
-        relativePathIndex.AddDir(candidateDir, new[] { bgm1BaseHash, bgm2BaseHash }, Array.Empty<uint>(), Array.Empty<uint>(), new[] { BMSDirectoryFileNameHash.GetLookupHash("bgm1"), pathAwareBgm2Hash }, Array.Empty<uint>(), Array.Empty<uint>());
 
         InstallEstimationResult lookupResult = service.EstimateInstallationDirectory(
             new[] { file },
@@ -2337,18 +2159,11 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         BmsLibraryInstallEstimationService service = CreateService();
         string sourceDir = Path.Combine("C:\\Pending", "Source");
         string candidateDir = Path.Combine("C:\\Installed", "Candidate");
-        uint bgm1BaseHash = BMSDirectoryFileNameHash.GetLookupHash("bgm1");
-        uint nestedBgm1Hash = BMSDirectoryFileNameHash.GetLookupHash("sound\\bgm1");
         TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(sourceDir, "chart.bms"), "bgm1.wav");
         file.SetMaintenanceInfo(CreateMaintenanceInfo(file, wavDefined: 1, wavExisting: 0), suppressPropertyChanged: true, registerEventHandlers: false);
 
-        BMSDirectoryFileNameHash cache = new BMSDirectoryFileNameHash();
-        cache.AddDirHashed(sourceDir, new[] { BMSDirectoryFileNameHash.GetFileNameHash("chart.bms") });
-        cache.AddDirHashed(candidateDir, new[] { BMSDirectoryFileNameHash.GetFileNameHash("bgm1.wav") });
         DirectoryResourceLookupCache lookupCache = new DirectoryResourceLookupCache();
         lookupCache.AddDir(candidateDir, new[] { "bgm1.wav" });
-        DirectoryRelativePathHashIndex relativePathIndex = new DirectoryRelativePathHashIndex();
-        relativePathIndex.AddDir(candidateDir, new[] { bgm1BaseHash }, Array.Empty<uint>(), Array.Empty<uint>(), new[] { BMSDirectoryFileNameHash.GetLookupHash("bgm1") }, Array.Empty<uint>(), Array.Empty<uint>());
 
         InstallEstimationResult lookupResult = service.EstimateInstallationDirectory(
             new[] { file },
@@ -2391,10 +2206,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(sourceDir, "chart.bms"), "00.wav", "01.wav");
         file.SetMaintenanceInfo(CreateMaintenanceInfo(file, wavDefined: 2, wavExisting: 0), suppressPropertyChanged: true, registerEventHandlers: false);
 
-        BMSDirectoryFileNameHash cache = new BMSDirectoryFileNameHash();
-        cache.AddDirHashed(sourceDir, new[] { BMSDirectoryFileNameHash.GetFileNameHash("chart.bms") });
-        cache.AddDirHashed(parentDir, Array.Empty<uint>());
-        cache.AddDirHashed(childDir, new[] { zeroBaseHash, oneBaseHash });
 
         DirectoryResourceLookupCache lookupCache = new DirectoryResourceLookupCache();
         lookupCache.AddDir(
@@ -2425,35 +2236,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             Array.Empty<uint>(),
             Array.Empty<uint>());
 
-        DirectoryRelativePathHashIndex relativePathIndex = new DirectoryRelativePathHashIndex();
-        relativePathIndex.AddDir(
-            parentDir,
-            new[] { zeroBaseHash, oneBaseHash },
-            Array.Empty<uint>(),
-            Array.Empty<uint>(),
-            new[] { parentZeroRelativeHash, parentOneRelativeHash },
-            Array.Empty<uint>(),
-            Array.Empty<uint>(),
-            Array.Empty<uint>(),
-            Array.Empty<uint>(),
-            Array.Empty<uint>(),
-            Array.Empty<uint>(),
-            Array.Empty<uint>(),
-            Array.Empty<uint>());
-        relativePathIndex.AddDir(
-            childDir,
-            new[] { zeroBaseHash, oneBaseHash },
-            Array.Empty<uint>(),
-            Array.Empty<uint>(),
-            new[] { childZeroRelativeHash, childOneRelativeHash },
-            Array.Empty<uint>(),
-            Array.Empty<uint>(),
-            new[] { zeroBaseHash, oneBaseHash },
-            Array.Empty<uint>(),
-            Array.Empty<uint>(),
-            new[] { childZeroRelativeHash, childOneRelativeHash },
-            Array.Empty<uint>(),
-            Array.Empty<uint>());
 
         InstallEstimationResult lookupResult = service.EstimateInstallationDirectory(
             new[] { file },

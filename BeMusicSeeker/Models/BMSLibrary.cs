@@ -2285,10 +2285,6 @@ public class BMSLibrary : NotificationObject
 
         public DirectoryResourceLookupCache DirectoryLookupCacheSnapshot => ResourceIndexSnapshot?.DirectoryLookupCache;
 
-        public BMSDirectoryFileNameHash FolderAllFileListSnapshot => ResourceIndexSnapshot?.FolderAllFileList;
-
-        public DirectoryRelativePathHashIndex RelativePathHashIndexSnapshot => ResourceIndexSnapshot?.RelativePathHashIndex;
-
         public BmsLibraryOptionsSnapshot OptionsSnapshot { get; set; } = new BmsLibraryOptionsSnapshot();
     }
 
@@ -2911,7 +2907,7 @@ public class BMSLibrary : NotificationObject
             };
         }
         BmsLibraryInstallEstimationService installEstimationService = CreateInstallEstimationService(evaluationContext?.OptionsSnapshot);
-        return installEstimationService.TryResolveInstalledDestinationFromPackage(package, missingFiles, evaluationContext?.InstalledDirectoryIndexSnapshot ?? new InstalledChartDirectoryIndexSnapshot(), evaluationContext?.FolderAllFileListSnapshot ?? bmsFolderAllFileList);
+        return installEstimationService.TryResolveInstalledDestinationFromPackage(package, missingFiles, evaluationContext?.InstalledDirectoryIndexSnapshot ?? new InstalledChartDirectoryIndexSnapshot());
     }
 
     private void ApplyPendingInstallEstimateEvaluationResult(PendingInstallEstimateBatchRequest batchRequest, string source, PendingInstallEstimateEvaluationResult evaluationResult, int packageDegree, ref int completed, ref int lowConfidenceCount)
@@ -3241,7 +3237,7 @@ public class BMSLibrary : NotificationObject
             };
             if (state.AttemptInstalledResolve)
             {
-                state.PreparationInstalledResolution = installEstimationService.TryResolveInstalledDestinationFromPackage(package, missingFiles, installedDirectoryIndexSnapshot, bmsFolderAllFileList);
+                state.PreparationInstalledResolution = installEstimationService.TryResolveInstalledDestinationFromPackage(package, missingFiles, installedDirectoryIndexSnapshot);
             }
 
             if (state.HasMissingFiles && !HasInstalledDestinationResolveFailed(state) && !string.IsNullOrWhiteSpace(state.SourceDirectory) && Directory.Exists(state.SourceDirectory))
@@ -8236,7 +8232,7 @@ public class BMSLibrary : NotificationObject
             };
         }
         BmsLibraryInstallEstimationService installEstimationService = CreateInstallEstimationService();
-        return installEstimationService.TryResolveInstalledDestinationFromPackage(package, missingFiles, installedDirectoryIndex, bmsFolderAllFileList);
+        return installEstimationService.TryResolveInstalledDestinationFromPackage(package, missingFiles, installedDirectoryIndex);
     }
 
     /// <summary>

@@ -460,7 +460,7 @@ internal sealed class BmsLibraryInstallEstimationService
         return result;
     }
 
-    public InstalledDirectoryLookupResult TryResolveInstalledDestinationFromPackage(BMSPackage package, List<BMSFile> missingFiles, InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot, BMSDirectoryFileNameHash folderAllFileList)
+    public InstalledDirectoryLookupResult TryResolveInstalledDestinationFromPackage(BMSPackage package, List<BMSFile> missingFiles, InstalledChartDirectoryIndexSnapshot installedDirectoryIndexSnapshot)
     {
         InstalledDirectoryLookupResult result = new InstalledDirectoryLookupResult();
         if (package == null || missingFiles == null || missingFiles.Count == 0)
