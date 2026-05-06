@@ -311,12 +311,10 @@ internal sealed class BmsLibraryInitializationService
             : LibraryResourceIndex.CreateFromScanResult(mergedScanResult);
         result.NextFolderAllFileList = result.NextResourceIndex.FolderAllFileList;
         result.NextDirectoryResourceLookupCache = result.NextResourceIndex.DirectoryLookupCache;
-        result.NextDirectoryRelativePathHashIndex = result.NextResourceIndex.RelativePathHashIndex;
         result.ResourceIndexBuildMs = result.NextResourceIndex.BuildMs;
         result.DirhashBuildMs = result.NextResourceIndex.BuildMs;
         result.FolderHashIndexMs = result.NextResourceIndex.FolderHashIndexMs;
         result.ResourceLookupCacheMs = result.NextResourceIndex.ResourceLookupMs;
-        result.RelativePathHashIndexMs = result.NextResourceIndex.RelativePathIndexMs;
         logInstallPerformance?.Invoke("resource_index_build source=" + (result.NextResourceIndex.Source ?? "managed")
             + " directories=" + result.NextResourceIndex.DirectoryCount
             + " resources=" + CountFolderUnionHashEntries(mergedScanResult)
@@ -326,7 +324,6 @@ internal sealed class BmsLibraryInitializationService
             + " buildMs=" + result.ResourceIndexBuildMs
             + " folderMs=" + result.FolderHashIndexMs
             + " lookupMs=" + result.ResourceLookupCacheMs
-            + " relativeMs=" + result.RelativePathHashIndexMs
             + " nativePackMs=" + scanResult.PackMs
             + " managedMaterializeMs=" + result.ManagedMaterializeMs
             + " payloadBytes=" + result.BridgeRawBufferBytes);
@@ -390,8 +387,7 @@ internal sealed class BmsLibraryInitializationService
         result.InlineChartInfoBatchSize = ResolveInlineChartInfoBatchSize();
         result.DbCommitChunkSize = ResolveFileDiffCommitChunkSize();
         ResourceHealthLookupContext inlineMaintenanceLookupContext = new ResourceHealthLookupContext(
-            result.NextDirectoryResourceLookupCache,
-            result.NextDirectoryRelativePathHashIndex);
+            result.NextDirectoryResourceLookupCache);
         Dictionary<string, LR2SongDBExtended.chart_info_parse_failure> currentChartInfoParseFailures =
             parseTargetCount > 0 && dbGateway != null
                 ? dbGateway.LoadCurrentChartInfoParseFailureMap(chartInfoBuildService.CurrentParseTimeout)
@@ -490,7 +486,6 @@ internal sealed class BmsLibraryInitializationService
             + " resource_index_build_ms=" + result.ResourceIndexBuildMs
             + " resource_index_folder_ms=" + result.FolderHashIndexMs
             + " resource_index_lookup_ms=" + result.ResourceLookupCacheMs
-            + " resource_index_relative_ms=" + result.RelativePathHashIndexMs
             + " lazy_hash_cache_entries=" + (result.NextDirectoryResourceLookupCache?.LazyHashCacheEntryCount ?? 0)
             + " lazy_hash_build_ms=" + (result.NextDirectoryResourceLookupCache?.LazyHashBuildMs ?? 0L)
             + " lazy_hash_lookup_count=" + (result.NextDirectoryResourceLookupCache?.LazyHashLookupCount ?? 0L)
@@ -549,7 +544,6 @@ internal sealed class BmsLibraryInitializationService
             + " resourceIndexBuildMs=" + result.ResourceIndexBuildMs
             + " resourceIndexFolderMs=" + result.FolderHashIndexMs
             + " resourceIndexLookupMs=" + result.ResourceLookupCacheMs
-            + " resourceIndexRelativeMs=" + result.RelativePathHashIndexMs
             + " bridgeReason=" + (string.IsNullOrWhiteSpace(result.NativeBridgeReason) ? string.Empty : result.NativeBridgeReason)
             + " bmsPaths=" + result.BmsPathCount
             + " dirs=" + result.DirectoryCount

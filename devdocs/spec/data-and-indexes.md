@@ -29,9 +29,6 @@
 - `directoryResourceLookupCache : DirectoryResourceLookupCache`
   chart directory ごとのカテゴリ別 basename / relative-path hash 集合
   - aggregate ownership と self-only ownership の二重 view
-- `directoryRelativePathHashIndex : DirectoryRelativePathHashIndex`
-  resource health など、`DirectoryResourceLookupCache.Entry` と同じカテゴリ別 basename / relative-path hash を必要とする補助索引
-  - aggregate ownership と self-only ownership の二重 view
 
 ## 3. `BMSDirectoryFileNameHash` の仕様
 
@@ -58,44 +55,12 @@
 
 - `BMSDirectoryFileNameHash` は導入先推定の正本ではなく、カテゴリ別 canonical resource index から派生する folder-level union view である。
 - 導入先推定の照合本体と reverse lookup は `DirectoryResourceLookupCache` の audio / image / movie chart-relative key を使う。
-- resource health / maintenance も `DirectoryResourceLookupCache` / `DirectoryRelativePathHashIndex` のカテゴリ別 key を使い、`BMSDirectoryFileNameHash` には fallback しない。
+- resource health / maintenance も `DirectoryResourceLookupCache.Entry` のカテゴリ別 key を使い、`BMSDirectoryFileNameHash` には fallback しない。
 - `foo.wav` は `foo`、`sound/foo.wav` は `sound/foo` として扱われ、旧 basename-only matching は使わない。
 - 導入先推定では candidate directory 集合も照合本体も `DirectoryResourceLookupCache` を使い、`BMSDirectoryFileNameHash` には fallback しない
-- relative path を含む source of truth は `DirectoryResourceLookupCache.Entry` / `DirectoryRelativePathHashIndex.Entry` 側に置く
+- relative path を含む source of truth は `DirectoryResourceLookupCache.Entry` 側に置く
 
-## 4. `DirectoryRelativePathHashIndex` の仕様
-
-`DirectoryRelativePathHashIndex` は `DirectoryResourceLookupCache.Entry` と同じカテゴリ別 hash shape を持つ補助 index である。導入先推定では使わず、resource health など lookup context 側の補助に使う。
-
-- キー: chart directory 絶対パス（`OrdinalIgnoreCase`）
-- 値:
-  - aggregate ownership
-    - `AudioBaseNameHashArray`
-    - `ImageBaseNameHashArray`
-    - `MovieBaseNameHashArray`
-    - `AudioRelativePathHashArray`
-    - `ImageRelativePathHashArray`
-    - `MovieRelativePathHashArray`
-  - self-only ownership
-    - `SelfOwnedAudioBaseNameHashArray`
-    - `SelfOwnedImageBaseNameHashArray`
-    - `SelfOwnedMovieBaseNameHashArray`
-    - `SelfOwnedAudioRelativePathHashArray`
-    - `SelfOwnedImageRelativePathHashArray`
-    - `SelfOwnedMovieRelativePathHashArray`
-
-目的:
-
-- resource health / maintenance 再確認で、カテゴリ別 basename / relative-path semantics を共有する
-- `BMSDirectoryFileNameHash` の extensionless union に頼らず、audio / image / movie 別に存在判定できる補助 surface を持つ
-
-この index は:
-
-- initial / reload では `BmsScanResult` から構築する
-- install / merge の増分更新でも同じ chart-directory keyed shape で `AddDir(..., scanResult)` する
-- 導入先推定の broad filter / final evaluation には使わない
-
-## 5. scan result / resource cache の形
+## 4. scan result / resource cache の形
 
 初期化時の scan 結果は raw file name 一覧ではなく、次の hash-only shape を source of truth にする。
 
@@ -141,11 +106,10 @@ Everything と通常列挙の差は、設計上「速度だけ」に寄せる。
 
 - `DirectoryResourceLookupCache`
 - `BMSDirectoryFileNameHash`
-- `DirectoryRelativePathHashIndex`
 
 へ反映することを前提にする。
 
-## 6. DBテーブル（BMSLibraryコンストラクタで整備）
+## 5. DBテーブル（BMSLibraryコンストラクタで整備）
 
 - `song`（既存LR2）
 - `install`
@@ -158,13 +122,12 @@ Everything と通常列挙の差は、設計上「速度だけ」に寄せる。
 - `song_idx_folder`
 - `ir_data_idx`
 
-## 7. 一貫性更新の基本方針
+## 6. 一貫性更新の基本方針
 
 - ファイル実体変更後は次を同期:
   1. `BMSFiles`
   2. Song DB (`song`)
   3. `bmsFolderAllFileList`
   4. `directoryResourceLookupCache`
-  5. `directoryRelativePathHashIndex`
-  6. 必要に応じてハッシュ索引再構築
+  5. 必要に応じてハッシュ索引再構築
 - 導入待ち/導入済みは末尾一括反映を優先し、UI通知の過多を避ける。

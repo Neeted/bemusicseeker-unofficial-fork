@@ -307,7 +307,7 @@ internal sealed class BmsLibraryMaintenanceService
         result.BmsonResourceTargetCount = targets.Count(PendingChartEntry.IsBmsonChartFile);
         result.HealthTargetCount = targets.Count;
         result.HealthDegree = maintenanceHealthDegree;
-        resourceLookupContext ??= new ResourceHealthLookupContext(null, null);
+        resourceLookupContext ??= new ResourceHealthLookupContext(null);
         progressLogger?.Invoke("maintenance_target_summary total=" + targets.Count
             + " sourceCount=" + sourceFiles.Count
             + " force=" + result.ForceTargetCount

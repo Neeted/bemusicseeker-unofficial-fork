@@ -1232,7 +1232,6 @@ public sealed class BmsLibraryInitializationServiceTests
         result.NextBmsonSongs.Add(nextBmson);
         result.NextFolderAllFileList = new BMSDirectoryFileNameHash();
         result.NextDirectoryResourceLookupCache = new DirectoryResourceLookupCache();
-        result.NextDirectoryRelativePathHashIndex = new DirectoryRelativePathHashIndex();
 
         result.ReleasePostApplyTransientBuffers();
 
@@ -1252,7 +1251,6 @@ public sealed class BmsLibraryInitializationServiceTests
         Assert.AreSame(nextBmson, result.NextBmsonSongs[0]);
         Assert.IsNotNull(result.NextFolderAllFileList);
         Assert.IsNotNull(result.NextDirectoryResourceLookupCache);
-        Assert.IsNotNull(result.NextDirectoryRelativePathHashIndex);
     }
 
     [TestMethod]
@@ -1400,8 +1398,6 @@ public sealed class BmsLibraryInitializationServiceTests
             Assert.IsTrue(entry.AudioBaseNameHashes.Contains(audioBaseHash));
             Assert.IsTrue(entry.ImageBaseNameHashes.Contains(imageBaseHash));
             Assert.IsTrue(entry.AudioRelativePathHashes.Contains(audioRelativeHash));
-            DirectoryRelativePathHashIndex.Entry? relativePathEntry = result.NextDirectoryRelativePathHashIndex?.GetEntryOrNull(chartDirectoryPath);
-            Assert.IsNull(relativePathEntry);
             Assert.AreEqual((ulong)2, result.FolderUnionHashEntryCount);
             Assert.AreEqual((ulong)1, result.AudioBaseHashEntryCount);
             Assert.AreEqual((ulong)1, result.ImageBaseHashEntryCount);

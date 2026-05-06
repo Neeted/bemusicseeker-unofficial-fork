@@ -96,8 +96,7 @@ pending package は package / zip 単位で独立 batch として推定する。
 を満たすまで開始しない。これは妥当である。導入先推定本体は
 `BMSLibrary.EvaluateInstallEstimation()` から
 `BmsLibraryInstallEstimationService.EstimateInstallationDirectory(...)` へ入り、
-所持 catalog、`BMSDirectoryFileNameHash`、`DirectoryResourceLookupCache`、
-`DirectoryRelativePathHashIndex`、pending package の source surface を使う。
+所持 catalog、`DirectoryResourceLookupCache`、pending package の source surface を使う。
 
 一方、実際の導入開始は推定済み `instl_dst` と pending package state を消費する段階であり、
 導入開始時に resource index を再構築する必要はない。
@@ -282,7 +281,6 @@ install-ready projection を導入する場合は、次のどちらかを実装�
 - file enumeration result から `LibraryResourceIndex` を 1 回作り、その中に既存互換 view を保持する。
   - `BMSDirectoryFileNameHash`
   - `DirectoryResourceLookupCache`
-  - `DirectoryRelativePathHashIndex`
 - 旧 index を別々の top-level build step として作る流れはやめ、`resource_index_build source=native_canonical ...` を正本ログにした。
 - `song_tbl_file_check_breakdown` / `bms_scan` の内訳は `resource_index_build_ms` 系へ寄せた。
 - Phase 3A では resource matching semantics は変更しない。
@@ -290,8 +288,7 @@ install-ready projection を導入する場合は、次のどちらかを実装�
 
 未完了として次単位に残すもの:
 
-- install estimation / resource health / file operation の引数を `LibraryResourceIndex` API へ完全移行する。
-- 互換 view が不要になった時点で旧 index class と旧 tests を削除する。
+- file operation に残る `BMSDirectoryFileNameHash` 用途を `LibraryResourceIndex` / `DirectoryResourceLookupCache` API へ移行する。
 - chart-relative semantics cleanup と C# 後段 reverse index build 削除は Phase 4B / 5A で実施済み。
 
 ### Key Changes
@@ -302,7 +299,7 @@ install-ready projection を導入する場合は、次のどちらかを実装�
   - chart-relative resource key hash。
   - resource-key -> candidate directory reverse lookup。
   - candidate directory membership。
-- `DirectoryResourceLookupCache` と `DirectoryRelativePathHashIndex` を別々に構築しない。
+- `DirectoryResourceLookupCache` をカテゴリ別 resource index の正本にし、別の relative path 補助 index は構築しない。
 - `BMSDirectoryFileNameHash` / basename-only cache は正本から得られる transitional view に留め、最終的には削除する。
 - install estimation、resource health、file move、package install、folder rename は同じ resource index API を使う。
 - call site / tests を同時に現行 API へ置き換え、使われなくなった index API は削除する。
@@ -319,11 +316,11 @@ install-ready projection を導入する場合は、次のどちらかを実装�
 
 初回起動、通常起動、root 変更時に full file enumeration は必要である。その前提で native bridge payload と managed materialization を削る。
 
-この phase では、単に payload を小さくするだけでなく、C# 側で `DirectoryResourceLookupCache` / `DirectoryRelativePathHashIndex` / reverse lookup warmup を再構築する必要がない native contract へ寄せる。
+この phase では、単に payload を小さくするだけでなく、C# 側で `DirectoryResourceLookupCache` / reverse lookup warmup を再構築する必要がない native contract へ寄せる。
 
 譜面 resource reference はすべて chart-relative resource key として扱う。resource key は拡張子を落とした path 込みファイル名であり、`foo.wav` は key `foo`、`sound/foo.wav` は key `sound/foo` である。basename-only と subdirectory relative path を別系統の推定材料として扱わない。
 
-2026-05-05 の Phase 4B / 5A 追加修正では、native contract を `2026050503` へ更新し、native 側の `base` 系 hash もこの resource key を返すようにした。これにより C# 側では `DirectoryRelativePathHashIndex` を startup 正本として構築せず、`DirectoryResourceLookupCache` だけで health / install estimation を処理する。native packed result では `base` と `relative` が同じ category は同じ blob / offset / length を指し、managed decoder も同じ配列 / dictionary を再利用する。
+2026-05-05 の Phase 4B / 5A 追加修正では、native contract を `2026050503` へ更新し、native 側の `base` 系 hash もこの resource key を返すようにした。これにより C# 側では `DirectoryResourceLookupCache` だけで health / install estimation を処理する。native packed result では `base` と `relative` が同じ category は同じ blob / offset / length を指し、managed decoder も同じ配列 / dictionary を再利用する。
 
 ### Key Changes
 
@@ -364,7 +361,7 @@ install-ready projection を導入する場合は、次のどちらかを実装�
 - install estimation の broad filter / final evaluation を chart-relative key で統一する。
 - basename-only の alternate correctness path は削除する。
 - `BMSDirectoryFileNameHash` を推定の正本から外す。
-- `DirectoryRelativePathHashIndex` と `DirectoryResourceLookupCache` の二重 API を統合する。
+- `DirectoryResourceLookupCache` をカテゴリ別 resource key の単一 API にする。
 - path-aware resource がある package で、無関係な basename match が high confidence にならないようにする。
 - `install-estimation-relative-path-foundation.md` と用語を揃え、古い挙動を前提にした tests を置き換える。
 
@@ -523,7 +520,7 @@ Phase 4 / Phase 5 を前倒しして、native chart-relative resource index cont
 - Everything API / service が使えない場合は managed file scan に fallback する。これは旧 native ABI 互換ではなく、同じ chart-relative semantics の managed scan result から `LibraryResourceIndex` を作る経路である。
 - `resource key` は拡張子を落とした path 込み key とし、`foo.wav -> foo`、`sound/foo.wav -> sound/foo` に統一した。
 - native packed result では base / relative が同一 semantics の category blob を alias し、managed decode / materialize でも配列と dictionary を再利用する。
-- startup では `DirectoryRelativePathHashIndex` を構築しない。`resource_index_build relativeMs=0` が期待値である。
+- startup では別の relative path 補助 index を構築せず、resource index build log にも補助 index build 時間を出さない。
 - native reverse map は巨大 `unordered_map<uint, vector<uint>>` ではなく、`(hash, directoryIndex)` の flat pair を sort して構築する。これにより 800 万 key 規模の allocation / pack cost を抑える。
 - managed reverse map decode は `int[] + List<string>` の二重詰め替えを避け、native indices から `string[]` を直接作る。
 
@@ -548,7 +545,7 @@ Phase 4 / Phase 5 を前倒しして、native chart-relative resource index cont
   - `packMs=2808`
 - `resource_index_build buildMs=2206`
   - `lookupMs=2179`
-  - `relativeMs=0`
+  - relative path 補助 index の build log が出ない
   - `reverseLookupKeys=8123464`
 - `startup_install_estimation_ready elapsedMs=35895`
 - `pending_estimate_batch done source=startup_restore elapsedMs=32379`
@@ -603,7 +600,7 @@ Everything service 側で同時 query の内部競合があるため、個別の
 
 mixed package の既所持 chart hash から複数の配置先候補が見つかる場合も、extensionless union の health 補助では判定しない。候補集合を通常推定と同じ category resource final evaluation へ渡し、一意に勝つ candidate は自動設定、複数 viable candidate が残る場合は `InstalledDestinationAmbiguous` warning と suggestions に落とす。`DirectoryResourceLookupCache` がない場合は推定不可として `InstalledDestinationResolveFailed` を付ける。
 
-続く整理では、導入先推定から cacheless 経路を削除した。通常推定、候補限定推定、merge / reinstall correction はすべて `DirectoryResourceLookupCache` を必須とし、`BMSDirectoryFileNameHash` / `DirectoryRelativePathHashIndex` へ fallback しない。候補 directory 集合も `DirectoryResourceLookupCache.Keys` から得る。resource index がない場合は `resource_index_unavailable` として推定不可にする。さらに `BmsLibraryInstallEstimationService` の推定 API から `BMSDirectoryFileNameHash` / `DirectoryRelativePathHashIndex` 引数を外し、候補 view 内部の extensionless all-base union も使わない形にした。
+続く整理では、導入先推定から cacheless 経路を削除した。通常推定、候補限定推定、merge / reinstall correction はすべて `DirectoryResourceLookupCache` を必須とし、`BMSDirectoryFileNameHash` へ fallback しない。候補 directory 集合も `DirectoryResourceLookupCache.Keys` から得る。resource index がない場合は `resource_index_unavailable` として推定不可にする。さらに `BmsLibraryInstallEstimationService` の推定 API から `BMSDirectoryFileNameHash` 引数を外し、候補 view 内部の extensionless all-base union も使わない形にした。
 
 次フェーズでは、残っている extensionless resource union の利用箇所を全調査し、カテゴリ別 API へ置き換える。特に導入先 tie-break で union を使う必要は薄く、同率に近い候補は曖昧候補として提示し、順序安定だけが必要なら path 名順で十分とする。
 
@@ -633,7 +630,7 @@ payload は約 379MB から約 281MB へ減少した。allBase union は managed
 - DB catalog / file scan
   - `song_tbl_load_projection projection=catalog readMs=10617 materializeMs=10591 rows=208979 bmsonRows=1051`
   - `everything_scan totalMs=37671 nativeBridgeMs=31279 managedDecodeMs=3689 managedMaterializeMs=2668`
-  - `resource_index_build buildMs=2318 lookupMs=2274 relativeMs=0 reverseLookupKeys=8123464 payloadBytes=379540328`
+  - `resource_index_build buildMs=2318 lookupMs=2274 reverseLookupKeys=8123464 payloadBytes=379540328`
   - `song_tbl_file_check_breakdown db_commit_chunks=0 deleted_count=0 added_count=0`
 - startup background / initialization complete
   - `startup_initialization_complete elapsedMs=73932`

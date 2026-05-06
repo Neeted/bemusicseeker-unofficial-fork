@@ -703,8 +703,6 @@ public class BMSLibrary : NotificationObject
 
     private DirectoryResourceLookupCache directoryResourceLookupCache = new DirectoryResourceLookupCache();
 
-    private DirectoryRelativePathHashIndex directoryRelativePathHashIndex = new DirectoryRelativePathHashIndex();
-
     private LibraryResourceIndex libraryResourceIndex = LibraryResourceIndex.CreateFromScanResult(new BmsScanResult());
 
     private readonly StartupInstallReadinessState startupInstallReadinessState = new StartupInstallReadinessState();
@@ -4219,7 +4217,6 @@ public class BMSLibrary : NotificationObject
             libraryResourceIndex = fileCheckResult.NextResourceIndex ?? LibraryResourceIndex.CreateFromScanResult(new BmsScanResult());
             bmsFolderAllFileList = libraryResourceIndex.FolderAllFileList ?? new BMSDirectoryFileNameHash();
             directoryResourceLookupCache = libraryResourceIndex.DirectoryLookupCache ?? new DirectoryResourceLookupCache();
-            directoryRelativePathHashIndex = libraryResourceIndex.RelativePathHashIndex ?? new DirectoryRelativePathHashIndex();
         }
         if (committedInlineChartInfoRows.Count > 0)
         {
@@ -6930,7 +6927,7 @@ public class BMSLibrary : NotificationObject
             MaintenanceWorkflowResult workflowResult;
             using (rwlockSongDBMaintenance.GetWriterGuard())
             {
-                ResourceHealthLookupContext resourceLookupContext = new ResourceHealthLookupContext(directoryResourceLookupCache, directoryRelativePathHashIndex);
+                ResourceHealthLookupContext resourceLookupContext = new ResourceHealthLookupContext(directoryResourceLookupCache);
                 workflowResult = maintenanceService.UpdateMaintenanceInfo(maintenanceTargets, forceUpdate, dbGateway, dialogService, resourceLookupContext, LogInstallPerformance, progressReporter, cancellationToken);
             }
             bool rebuildResourceHealthIndex = workflowResult.HasUpdates || !IsResourceHealthIndexCurrent();
@@ -8003,7 +8000,6 @@ public class BMSLibrary : NotificationObject
                         bmsFolderAllFileList.AddDirHashed(dir, hashes);
                     }
                     reverseLookupMutation = reverseLookupMutation.Combine(directoryResourceLookupCache.AddDir(dir, addedDirectoryScan));
-                    directoryRelativePathHashIndex.AddDir(dir, addedDirectoryScan);
                 }
                 LogReverseLookupMutationAndQueueWarmupIfNeeded("install_package", reverseLookupMutation);
             },
@@ -9931,7 +9927,7 @@ public class BMSLibrary : NotificationObject
                 {
                     return null;
                 }
-                ResourceHealthLookupContext lookupContext = new ResourceHealthLookupContext(directoryResourceLookupCache, directoryRelativePathHashIndex);
+                ResourceHealthLookupContext lookupContext = new ResourceHealthLookupContext(directoryResourceLookupCache);
                 file.SetHealthStatusUsingLookupContext(lookupContext);
                 if (file.maintenanceInfo.GetWAVHealth() > innerWavHealthThreshForNormalBMSFile)
                 {
@@ -10075,7 +10071,6 @@ public class BMSLibrary : NotificationObject
                     {
                         bmsFolderAllFileList.RemoveDir(item);
                         reverseLookupMutation = reverseLookupMutation.Combine(directoryResourceLookupCache.RemoveDirWithResult(item));
-                        directoryRelativePathHashIndex.RemoveDir(item);
                     }
                     if (!moveBMSPackageFiles(mergeResult.Repackage, dst, showMessageBoxOnInstallFail: false, deleteAllContents: true, existingHashes: mergeResult.ExistingHashes))
                     {
@@ -10091,7 +10086,6 @@ public class BMSLibrary : NotificationObject
                             bmsFolderAllFileList.AddDirHashed(chartDirectory, hashes);
                         }
                         reverseLookupMutation = reverseLookupMutation.Combine(directoryResourceLookupCache.AddDir(chartDirectory, mergedDirectoryScan));
-                        directoryRelativePathHashIndex.AddDir(chartDirectory, mergedDirectoryScan);
                     }
                     LogReverseLookupMutationAndQueueWarmupIfNeeded("merge_folder", reverseLookupMutation);
                     ApplyLibraryMutationDelta(mergeResult.ReferenceMutationDelta);

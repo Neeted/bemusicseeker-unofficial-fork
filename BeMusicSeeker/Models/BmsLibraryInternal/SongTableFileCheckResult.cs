@@ -34,8 +34,6 @@ internal sealed class SongTableFileCheckResult
 
     public DirectoryResourceLookupCache NextDirectoryResourceLookupCache { get; set; }
 
-    public DirectoryRelativePathHashIndex NextDirectoryRelativePathHashIndex { get; set; }
-
     public LibraryResourceIndex NextResourceIndex { get; set; }
 
     public bool HasDbDiff { get; set; }
@@ -63,8 +61,6 @@ internal sealed class SongTableFileCheckResult
     public long FolderHashIndexMs { get; set; }
 
     public long ResourceLookupCacheMs { get; set; }
-
-    public long RelativePathHashIndexMs { get; set; }
 
     public long ResourceIndexBuildMs { get; set; }
 

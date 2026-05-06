@@ -17,15 +17,11 @@ internal sealed class LibraryResourceIndex
 
     public DirectoryResourceLookupCache DirectoryLookupCache { get; private set; } = new DirectoryResourceLookupCache();
 
-    public DirectoryRelativePathHashIndex RelativePathHashIndex { get; private set; } = new DirectoryRelativePathHashIndex();
-
     public long BuildMs { get; private set; }
 
     public long FolderHashIndexMs { get; private set; }
 
     public long ResourceLookupMs { get; private set; }
-
-    public long RelativePathIndexMs { get; private set; }
 
     public string Source { get; private set; } = "managed";
 
@@ -48,9 +44,6 @@ internal sealed class LibraryResourceIndex
         index.DirectoryLookupCache = DirectoryResourceLookupCache.CreateFromScanResult(scanResult);
         lookupStopwatch.Stop();
         index.ResourceLookupMs = lookupStopwatch.ElapsedMilliseconds;
-
-        index.RelativePathHashIndex = new DirectoryRelativePathHashIndex();
-        index.RelativePathIndexMs = 0L;
 
         totalStopwatch.Stop();
         index.BuildMs = totalStopwatch.ElapsedMilliseconds;
@@ -95,9 +88,6 @@ internal sealed class LibraryResourceIndex
             movieRelativeReverseDirectories);
         lookupStopwatch.Stop();
         index.ResourceLookupMs = lookupStopwatch.ElapsedMilliseconds;
-
-        index.RelativePathHashIndex = new DirectoryRelativePathHashIndex();
-        index.RelativePathIndexMs = 0L;
 
         totalStopwatch.Stop();
         index.BuildMs = totalStopwatch.ElapsedMilliseconds;
@@ -159,9 +149,6 @@ internal sealed class LibraryResourceIndex
             movieRelativeReverseDirectories);
         lookupStopwatch.Stop();
         index.ResourceLookupMs = lookupStopwatch.ElapsedMilliseconds;
-
-        index.RelativePathHashIndex = new DirectoryRelativePathHashIndex();
-        index.RelativePathIndexMs = 0L;
 
         totalStopwatch.Stop();
         index.BuildMs = totalStopwatch.ElapsedMilliseconds;

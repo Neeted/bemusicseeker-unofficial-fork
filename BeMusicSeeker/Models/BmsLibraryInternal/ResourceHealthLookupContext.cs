@@ -27,17 +27,12 @@ internal sealed class ResourceHealthLookupContext
 
     private long unknownFileExistsFallbackCount;
 
-    public ResourceHealthLookupContext(
-        DirectoryResourceLookupCache directoryLookupCache,
-        DirectoryRelativePathHashIndex relativePathHashIndex)
+    public ResourceHealthLookupContext(DirectoryResourceLookupCache directoryLookupCache)
     {
         DirectoryLookupCache = directoryLookupCache;
-        RelativePathHashIndex = relativePathHashIndex;
     }
 
     public DirectoryResourceLookupCache DirectoryLookupCache { get; }
-
-    public DirectoryRelativePathHashIndex RelativePathHashIndex { get; }
 
     public long CacheHitCount => Interlocked.Read(ref cacheHitCount);
 
@@ -56,11 +51,6 @@ internal sealed class ResourceHealthLookupContext
     public DirectoryResourceLookupCache.Entry GetResourceEntryOrNull(string directoryPath)
     {
         return DirectoryLookupCache?.GetEntryOrNull(directoryPath);
-    }
-
-    public DirectoryRelativePathHashIndex.Entry GetRelativePathEntryOrNull(string directoryPath)
-    {
-        return RelativePathHashIndex?.GetEntryOrNull(directoryPath);
     }
 
     public void RecordCacheHit()

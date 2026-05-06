@@ -110,7 +110,7 @@ source directory は通常推定でも merge 推定でも候補に入れませ�
 - image / optional image refs -> image relative reverse map
 - movie refs -> movie relative reverse map
 
-`DirectoryResourceLookupCache` がない場合は、`BMSDirectoryFileNameHash` や `DirectoryRelativePathHashIndex` へ fallback せず、`resource_index_unavailable` として推定不可にします。
+`DirectoryResourceLookupCache` がない場合は、`BMSDirectoryFileNameHash` などの旧 union view へ fallback せず、`resource_index_unavailable` として推定不可にします。
 
 候補が 0 件になった場合、全 library への fallback はしません。`no_viable_destination_below_threshold` として扱います。
 

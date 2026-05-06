@@ -1076,23 +1076,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
                 "banner.bmp"
             };
             directoryLookupCache.AddDir(tempDirectoryPath, relativeResources);
-            DirectoryRelativePathHashIndex relativePathHashIndex = new DirectoryRelativePathHashIndex();
-            DirectoryResourceLookupCache.Entry entry = directoryLookupCache.GetEntryOrNull(tempDirectoryPath);
-            relativePathHashIndex.AddDir(
-                tempDirectoryPath,
-                entry.AudioBaseNameHashArray,
-                entry.ImageBaseNameHashArray,
-                entry.MovieBaseNameHashArray,
-                entry.AudioRelativePathHashArray,
-                entry.ImageRelativePathHashArray,
-                entry.MovieRelativePathHashArray,
-                entry.SelfOwnedAudioBaseNameHashArray,
-                entry.SelfOwnedImageBaseNameHashArray,
-                entry.SelfOwnedMovieBaseNameHashArray,
-                entry.SelfOwnedAudioRelativePathHashArray,
-                entry.SelfOwnedImageRelativePathHashArray,
-                entry.SelfOwnedMovieRelativePathHashArray);
-            ResourceHealthLookupContext lookupContext = new ResourceHealthLookupContext(directoryLookupCache, relativePathHashIndex);
+            ResourceHealthLookupContext lookupContext = new ResourceHealthLookupContext(directoryLookupCache);
             BMSFileMaintenanceInfo cacheInfo = new BMSFileMaintenanceInfo(cacheAwareFile)
             {
                 hash = cacheAwareFile.hash
@@ -1140,7 +1124,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
         try
         {
             BMSFile file = BMSFile.CreateBMSFileFromFile(bmsFilePath);
-            ResourceHealthLookupContext lookupContext = new ResourceHealthLookupContext(null, null);
+            ResourceHealthLookupContext lookupContext = new ResourceHealthLookupContext(null);
             BMSFileMaintenanceInfo info = new BMSFileMaintenanceInfo(file)
             {
                 hash = file.hash
