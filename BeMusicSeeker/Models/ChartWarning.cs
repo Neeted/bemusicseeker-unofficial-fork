@@ -24,6 +24,7 @@ internal enum ChartWarningKind
     InstallEstimationAmbiguous,
     InstallEstimationMetadataMismatch,
     InstallEstimationReinstallNotImproved,
+    InstalledDestinationAmbiguous,
     InstalledDestinationResolveFailed,
     InstallEstimationLowConfidence,
     DuplicateChart,
@@ -198,10 +199,12 @@ internal sealed class ChartWarningDefinition
                 return new ChartWarningDefinition(ChartWarningCategory.InstallEstimation, 41, Resources.WarningDigest_InstallEstimationMetadataMismatch, highlightRow: true);
             case ChartWarningKind.InstallEstimationReinstallNotImproved:
                 return new ChartWarningDefinition(ChartWarningCategory.InstallEstimation, 42, Resources.WarningDigest_InstallEstimationReinstallNotImproved, highlightRow: true);
+            case ChartWarningKind.InstalledDestinationAmbiguous:
+                return new ChartWarningDefinition(ChartWarningCategory.InstallEstimation, 43, Resources.WarningDigest_InstalledDestinationAmbiguous, highlightRow: true);
             case ChartWarningKind.InstalledDestinationResolveFailed:
-                return new ChartWarningDefinition(ChartWarningCategory.InstallEstimation, 43, Resources.WarningDigest_InstalledDestinationResolveFailed, highlightRow: false);
+                return new ChartWarningDefinition(ChartWarningCategory.InstallEstimation, 44, Resources.WarningDigest_InstalledDestinationResolveFailed, highlightRow: false);
             case ChartWarningKind.InstallEstimationLowConfidence:
-                return new ChartWarningDefinition(ChartWarningCategory.InstallEstimation, 44, Resources.WarningDigest_InstallEstimationLowConfidence, highlightRow: true);
+                return new ChartWarningDefinition(ChartWarningCategory.InstallEstimation, 45, Resources.WarningDigest_InstallEstimationLowConfidence, highlightRow: true);
             case ChartWarningKind.AlreadyInstalled:
                 return new ChartWarningDefinition(ChartWarningCategory.InstalledState, 50, Resources.WarningDigest_AlreadyInstalled, highlightRow: false);
             case ChartWarningKind.SingleBmsFile:

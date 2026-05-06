@@ -16,6 +16,7 @@ internal enum InstallEstimationLowConfidenceKind
 {
     None,
     AmbiguousCandidates,
+    InstalledDestinationAmbiguous,
     MetadataMismatch,
     ReinstallNotImproved
 }

@@ -105,6 +105,73 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     }
 
     [TestMethod]
+    public void TryResolveInstalledDestinationFromPackage_ReturnsMultipleCandidateDirectoriesForTopTie()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        BmsLibraryInstallEstimationService service = CreateService();
+        string dirA = Path.Combine("C:\\Installed", "DirA");
+        string dirB = Path.Combine("C:\\Installed", "DirB");
+        List<BMSFile> installedFiles = new List<BMSFile>
+        {
+            CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(dirA, "a.bms")),
+            CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine(dirB, "b.bms"))
+        };
+        TestableBmsFile pendingA = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "C:\\Pending\\a.bms");
+        TestableBmsFile pendingB = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "C:\\Pending\\b.bms");
+        TestableBmsFile pendingMissing = CreateFile("cccccccccccccccccccccccccccccccc", "C:\\Pending\\missing.bms", "sound.wav");
+        BMSPackage package = new BMSPackage(new BMSFile[] { pendingA, pendingB, pendingMissing })
+        {
+            path = "C:\\Pending",
+            delete_parent = false
+        };
+
+        InstalledDirectoryLookupResult result = service.TryResolveInstalledDestinationFromPackage(
+            package,
+            new List<BMSFile> { pendingMissing },
+            service.BuildInstalledHashToDirectoryMap(installedFiles),
+            new BMSDirectoryFileNameHash());
+
+        Assert.AreEqual(InstalledDirectoryResolveReason.MultipleCandidateDirectories, result.Reason);
+        Assert.IsFalse(result.Success);
+        Assert.AreEqual(2, result.CandidateDirectoryCount);
+        CollectionAssert.AreEqual(new[] { dirA, dirB }, result.CandidateDirectories.ToArray());
+    }
+
+    [TestMethod]
+    public void EstimateInstallationDirectoryForCandidateDirectories_RequiresResourceIndex()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
+        {
+            string sourceDir = Path.Combine(tempRoot, "source");
+            string candidateDir = Path.Combine(tempRoot, "candidate");
+            Directory.CreateDirectory(sourceDir);
+            Directory.CreateDirectory(candidateDir);
+            TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(sourceDir, "chart.bms"), "sound.wav");
+            file.SetMaintenanceInfo(CreateMaintenanceInfo(file, wavDefined: 1, wavExisting: 0), suppressPropertyChanged: true, registerEventHandlers: false);
+            BMSPackage package = new BMSPackage(new BMSFile[] { file })
+            {
+                path = sourceDir,
+                delete_parent = true
+            };
+            PackageInstallEstimationSnapshot snapshot = package.GetOrBuildInstallEstimationSnapshot(new[] { file });
+
+            InstallEstimationResult result = service.EstimateInstallationDirectoryForCandidateDirectories(
+                snapshot,
+                new[] { candidateDir },
+                directoryLookupCache: null,
+                asParallel: false,
+                BmsInstallationEstimateMode.Normal);
+
+            Assert.IsFalse(result.HasViableDestination);
+            Assert.IsFalse(result.ShouldAutoApplyDestination);
+            Assert.AreEqual("resource_index_unavailable", result.ConfidenceReason);
+            Assert.AreEqual("candidate_limited_resource_index_unavailable", result.CandidateMode);
+            Assert.AreEqual("resource_index_unavailable", result.CoarseFilterMode);
+        });
+    }
+
+    [TestMethod]
     public void EstimateInstallationDirectory_MergeMode_SelectsExternalCandidateOnly()
     {
         TestResourceInitializer.EnsureJapaneseResources();

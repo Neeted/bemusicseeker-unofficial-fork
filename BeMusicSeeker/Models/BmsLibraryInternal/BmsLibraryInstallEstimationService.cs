@@ -516,56 +516,18 @@ internal sealed class BmsLibraryInstallEstimationService
             return result;
         }
         int maxMatchCount = directoryScores.Values.Max();
-        List<string> topCandidateDirs = directoryScores.Where((KeyValuePair<string, int> kv) => kv.Value == maxMatchCount).Select((KeyValuePair<string, int> kv) => kv.Key).ToList();
+        List<string> topCandidateDirs = directoryScores
+            .Where((KeyValuePair<string, int> kv) => kv.Value == maxMatchCount)
+            .Select((KeyValuePair<string, int> kv) => kv.Key)
+            .OrderBy((string dir) => dir, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        result.CandidateDirectories.AddRange(topCandidateDirs);
         if (topCandidateDirs.Count == 1)
         {
             result.InstallDirectory = topCandidateDirs[0];
             return result;
         }
-        BMSFile representativeFile = missingFiles.Where((BMSFile file) => PendingChartEntry.IsBmsChartFile(file)).OrderByDescending(GetDefinedResourceCount).FirstOrDefault();
-        if (representativeFile == null)
-        {
-            result.Reason = InstalledDirectoryResolveReason.MissingRepresentative;
-            return result;
-        }
-        List<BMSFileMaintenanceInfo> candidateInfos = new List<BMSFileMaintenanceInfo>();
-        foreach (string topCandidateDir in topCandidateDirs)
-        {
-            BMSFileMaintenanceInfo candidateInfo = new BMSFileMaintenanceInfo(representativeFile)
-            {
-                path = Path.Combine(topCandidateDir, Path.GetFileName(representativeFile.path))
-            };
-            representativeFile.SetHealthStatus(folderAllFileList, forceUpdate: false, memClear: false, candidateInfo, topCandidateDir, null);
-            if (candidateInfo.GetWAVHealth() > innerWavHealthThreshold)
-            {
-                candidateInfos.Add(candidateInfo);
-            }
-        }
-        if (candidateInfos.Count == 0)
-        {
-            result.Reason = InstalledDirectoryResolveReason.TieHealthBelowThreshold;
-            return result;
-        }
-        List<BMSFileMaintenanceInfo> orderedCandidates = candidateInfos.OrderByDescending((BMSFileMaintenanceInfo m) => m.GetWAVHealth())
-            .ThenByDescending((BMSFileMaintenanceInfo m) => m.GetBGAHealth())
-            .ThenByDescending((BMSFileMaintenanceInfo m) => m.GetMovieHealth())
-            .ThenByDescending((BMSFileMaintenanceInfo m) => m.GetOptIMGHealth())
-            .ToList();
-        int? wavHealth = orderedCandidates[0].GetWAVHealth();
-        int? bgaHealth = orderedCandidates[0].GetBGAHealth();
-        int? movieHealth = orderedCandidates[0].GetMovieHealth();
-        bool? optImgHealth = orderedCandidates[0].GetOptIMGHealth();
-        string bestDirectory = orderedCandidates.Where((BMSFileMaintenanceInfo m) => m.GetWAVHealth() == wavHealth && m.GetBGAHealth() == bgaHealth && m.GetMovieHealth() == movieHealth && m.GetOptIMGHealth() == optImgHealth)
-            .Select((BMSFileMaintenanceInfo m) => DirectoryExt.GetDirectoryNameSimple(m.path))
-            .Where((string dir) => !string.IsNullOrWhiteSpace(dir))
-            .OrderBy((string dir) => dir, StringComparer.OrdinalIgnoreCase)
-            .FirstOrDefault();
-        if (string.IsNullOrWhiteSpace(bestDirectory))
-        {
-            result.Reason = InstalledDirectoryResolveReason.TieBreakUnresolved;
-            return result;
-        }
-        result.InstallDirectory = bestDirectory;
+        result.Reason = InstalledDirectoryResolveReason.MultipleCandidateDirectories;
         return result;
     }
 
@@ -646,6 +608,21 @@ internal sealed class BmsLibraryInstallEstimationService
         return EstimateInstallationDirectory(snapshot, folderAllFileList, directoryLookupCache, ResolveCandidateEvaluationDegree(asParallel), estimateMode, representativeMetadataResolver, metadataProfileResolver, relativePathHashIndex);
     }
 
+    internal InstallEstimationResult EstimateInstallationDirectoryForCandidateDirectories(PackageInstallEstimationSnapshot snapshot, IReadOnlyCollection<string> candidateDirectories, DirectoryResourceLookupCache directoryLookupCache, bool asParallel, BmsInstallationEstimateMode estimateMode, Func<string, InstallDestinationRepresentativeMetadata> representativeMetadataResolver = null, Func<string, InstallEstimationMetadataProfile> metadataProfileResolver = null)
+    {
+        return EstimateInstallationDirectory(
+            snapshot,
+            folderAllFileList: null,
+            directoryLookupCache,
+            ResolveCandidateEvaluationDegree(asParallel),
+            estimateMode,
+            representativeMetadataResolver,
+            metadataProfileResolver,
+            relativePathHashIndex: null,
+            candidateDirectoryOverride: candidateDirectories,
+            requireDirectoryLookupCache: true);
+    }
+
     public InstallEstimationResult EstimateInstallationDirectory(IEnumerable<BMSFile> bmsFiles, HashSet<string> installedHashes, BMSDirectoryFileNameHash folderAllFileList, DirectoryResourceLookupCache directoryLookupCache, int candidateEvaluationDegree, BmsInstallationEstimateMode estimateMode, Func<string, InstallDestinationRepresentativeMetadata> representativeMetadataResolver = null, Func<string, InstallEstimationMetadataProfile> metadataProfileResolver = null, DirectoryRelativePathHashIndex relativePathHashIndex = null)
     {
         return EstimateInstallationDirectory(BuildLooseFileSnapshot(bmsFiles, installedHashes, estimateMode), folderAllFileList, directoryLookupCache, candidateEvaluationDegree, estimateMode, representativeMetadataResolver, metadataProfileResolver, relativePathHashIndex);
@@ -653,14 +630,36 @@ internal sealed class BmsLibraryInstallEstimationService
 
     public InstallEstimationResult EstimateInstallationDirectory(PackageInstallEstimationSnapshot snapshot, BMSDirectoryFileNameHash folderAllFileList, DirectoryResourceLookupCache directoryLookupCache, int candidateEvaluationDegree, BmsInstallationEstimateMode estimateMode, Func<string, InstallDestinationRepresentativeMetadata> representativeMetadataResolver = null, Func<string, InstallEstimationMetadataProfile> metadataProfileResolver = null, DirectoryRelativePathHashIndex relativePathHashIndex = null)
     {
+        return EstimateInstallationDirectory(
+            snapshot,
+            folderAllFileList,
+            directoryLookupCache,
+            candidateEvaluationDegree,
+            estimateMode,
+            representativeMetadataResolver,
+            metadataProfileResolver,
+            relativePathHashIndex,
+            candidateDirectoryOverride: null,
+            requireDirectoryLookupCache: false);
+    }
+
+    private InstallEstimationResult EstimateInstallationDirectory(PackageInstallEstimationSnapshot snapshot, BMSDirectoryFileNameHash folderAllFileList, DirectoryResourceLookupCache directoryLookupCache, int candidateEvaluationDegree, BmsInstallationEstimateMode estimateMode, Func<string, InstallDestinationRepresentativeMetadata> representativeMetadataResolver, Func<string, InstallEstimationMetadataProfile> metadataProfileResolver, DirectoryRelativePathHashIndex relativePathHashIndex, IReadOnlyCollection<string> candidateDirectoryOverride, bool requireDirectoryLookupCache)
+    {
         InstallEstimationResult result = new InstallEstimationResult();
         int effectiveCandidateEvaluationDegree = NormalizeCandidateEvaluationDegree(candidateEvaluationDegree);
         result.CandidateEvaluationDegree = effectiveCandidateEvaluationDegree;
         bool isMergeMode = estimateMode == BmsInstallationEstimateMode.MergeCandidateOnly;
         bool isReinstallCorrectionMode = estimateMode == BmsInstallationEstimateMode.ReinstallCorrection;
         bool useBundledResources = !(isMergeMode || isReinstallCorrectionMode);
-        if (snapshot?.RepresentativeFile == null || folderAllFileList == null)
+        if (snapshot?.RepresentativeFile == null || (candidateDirectoryOverride == null && folderAllFileList == null))
         {
+            return result;
+        }
+        if (requireDirectoryLookupCache && (directoryLookupCache == null || directoryLookupCache.Count == 0))
+        {
+            result.ConfidenceReason = "resource_index_unavailable";
+            result.CandidateMode = "candidate_limited_resource_index_unavailable";
+            result.CoarseFilterMode = "resource_index_unavailable";
             return result;
         }
         ChartResourceSnapshot resourceSnapshot = snapshot.DefinedResources ?? new ChartResourceSnapshot();
@@ -686,6 +685,10 @@ internal sealed class BmsLibraryInstallEstimationService
         result.BundledMovieCount = useBundledResources ? snapshot.BundledMovieCount : 0;
         result.FinalEvaluationMode = evaluationMode;
         result.CandidateMode = useBundledResources ? "package_union_source_excluded" : "candidate_only_source_excluded";
+        if (candidateDirectoryOverride != null)
+        {
+            result.CandidateMode = "candidate_limited_" + result.CandidateMode;
+        }
         result.CoarseFilterMode = (directoryLookupCache != null) ? "path_aware_audio_gated" : "path_aware_hash_only";
         result.AudioMinimumMatchRequired = GetAudioMinimumMatchRequired(resourceSnapshot);
         result.ResourceSummary = "chart=" + (snapshot.RepresentativeFile.path ?? string.Empty)
@@ -724,8 +727,10 @@ internal sealed class BmsLibraryInstallEstimationService
                 isSourceCandidate: true);
             result.SourceBaselinePrimaryHealth = GetPrimaryHealth(resourceSnapshot, sourceBaselineEvaluation);
         }
-        List<string> allCandidateDirs = folderAllFileList.Keys
+        List<string> allCandidateDirs = (candidateDirectoryOverride ?? folderAllFileList.Keys)
+            .Where((string dir) => !string.IsNullOrWhiteSpace(dir))
             .Where((string dir) => !string.Equals(dir, sourceDir, StringComparison.OrdinalIgnoreCase))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
         result.CandidateDirectoryCountBeforeHashFilter = allCandidateDirs.Count;
         if (allCandidateDirs.Count == 0)

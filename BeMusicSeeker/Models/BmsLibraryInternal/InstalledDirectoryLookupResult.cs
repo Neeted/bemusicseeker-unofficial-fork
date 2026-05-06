@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 internal sealed class InstalledDirectoryLookupResult
@@ -11,4 +13,6 @@ internal sealed class InstalledDirectoryLookupResult
     public int MatchedHashCount { get; set; }
 
     public int CandidateDirectoryCount { get; set; }
+
+    public List<string> CandidateDirectories { get; } = new List<string>();
 }

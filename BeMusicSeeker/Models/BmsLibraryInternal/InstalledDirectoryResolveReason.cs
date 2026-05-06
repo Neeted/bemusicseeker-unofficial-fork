@@ -6,6 +6,7 @@ internal enum InstalledDirectoryResolveReason
     InvalidInput,
     InstalledIndexEmpty,
     NoInstalledDirectoryMatch,
+    MultipleCandidateDirectories,
     MissingRepresentative,
     TieHealthBelowThreshold,
     TieBreakUnresolved,

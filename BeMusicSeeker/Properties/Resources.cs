@@ -953,6 +953,9 @@ public class Resources
     public static string WarningDigest_InstallEstimationReinstallNotImproved => ResourceManager.GetString("WarningDigest_InstallEstimationReinstallNotImproved", resourceCulture);
 
 
+    public static string WarningDigest_InstalledDestinationAmbiguous => ResourceManager.GetString("WarningDigest_InstalledDestinationAmbiguous", resourceCulture);
+
+
     public static string WarningDigest_InstalledDestinationResolveFailed => ResourceManager.GetString("WarningDigest_InstalledDestinationResolveFailed", resourceCulture);
 
 
@@ -993,6 +996,9 @@ public class Resources
 
 
     public static string Warning_InstallEstimationReinstallNotImproved => ResourceManager.GetString("Warning_InstallEstimationReinstallNotImproved", resourceCulture);
+
+
+    public static string Warning_InstalledDestinationAmbiguous => ResourceManager.GetString("Warning_InstalledDestinationAmbiguous", resourceCulture);
 
 
     public static string Warning_InstalledDestinationResolveFailed => ResourceManager.GetString("Warning_InstalledDestinationResolveFailed", resourceCulture);

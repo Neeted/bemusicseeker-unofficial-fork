@@ -1471,6 +1471,9 @@ BMSファイルが重複しないようにマージします。
   <data name="WarningDigest_InstallEstimationReinstallNotImproved" xml:space="preserve">
     <value>再導入改善なし</value>
   </data>
+  <data name="WarningDigest_InstalledDestinationAmbiguous" xml:space="preserve">
+    <value>導入先複数</value>
+  </data>
   <data name="WarningDigest_InstalledDestinationResolveFailed" xml:space="preserve">
     <value>導入先不明</value>
   </data>
@@ -1516,6 +1519,11 @@ BMSファイルが重複しないようにマージします。
   <data name="Warning_InstallEstimationReinstallNotImproved" xml:space="preserve">
     <value>現在の配置より健康度が改善しないため自動確定していません。
 候補: {0}</value>
+  </data>
+  <data name="Warning_InstalledDestinationAmbiguous" xml:space="preserve">
+    <value>既所持譜面から複数の導入先候補が見つかったため、自動確定していません。
+候補:
+{0}</value>
   </data>
   <data name="Warning_InstalledDestinationResolveFailed" xml:space="preserve">
     <value>既所持譜面から導入先を特定できません。ライブラリの状態を確認してください。</value>

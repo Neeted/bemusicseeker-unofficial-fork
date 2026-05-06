@@ -1,747 +1,297 @@
-# 現状の導入先推定ロジック整理
+# 導入先推定 現行仕様
+
+この資料は、BeMusicSeeker の導入先推定処理の正本です。実装履歴ではなく、現行コードが前提にしている入力、候補生成、評価、tie-break、confidence の意味をまとめます。
+
+関連する主な実装は `BMSLibrary` と `BmsLibraryInstallEstimationService` です。package 側の入力 snapshot は `PackageInstallEstimationSnapshot`、resource index は `LibraryResourceIndex` / `DirectoryResourceLookupCache` を正本にします。
 
 ## 目的
 
-この資料は、`2026-04-22` 時点の **実装上の現状** を整理するためのものです。  
-現在の推定は、通常の `インストール先を推定` と `マージ先を推定` を、**評価単位の違う 2 つの機能**として扱います。
+導入先推定は、保留 package や選択譜面について「どの既存 chart directory に入れると譜面が要求する resource を最も満たせるか」を推定します。
 
-## 先に結論
+推定結果は次へ反映されます。
 
-現在の推定は次の 2 系統に分かれます。
+- `INSTL DST`
+- `INSTL DST TITLE / ARTIST`
+- low-confidence warning
+- destination suggestions
+- auto install の可否判断
 
-1. `インストール先を推定`
-   - final evaluation は **`candidate + package bundled resources`**
-   - source は候補に入れない
-   - 「この package を外部のどこへ入れれば成立するか」を探す
-2. `マージ先を推定`
-   - final evaluation は **`candidate only`**
-   - source は候補に入れない
-   - 「source 以外に、既存リソースだけで成立する統合先があるか」を探す
+導入処理そのもの、ファイル移動、DB 更新はこの資料の対象外です。
 
-一方で source は完全に不要になったわけではなく、**background auto-estimate 抑制の source baseline health 判定**にだけ使います。
+## 入力
 
-さらに `2026-04-22` 時点では、`TITLE` / `ARTIST` の metadata を
+### Target chart set
 
-- resource 指標で僅差の上位候補群に対する **frontier tie-break**
-- 最終 1 位候補に対する **selected-candidate validation**
+推定対象は package または loose file の chart 群です。複数 chart の package では、対象 chart 群の resource reference を union して評価します。
 
-の 2 段で使います。
+target snapshot は `ChartResourceSnapshot` で、resource を次のカテゴリへ分けます。
 
-## 関連クラス
+- audio
+- image
+- movie
+- optional image
 
-- `BMSLibrary`
-  - 推定の入口
-  - pending / startup restore / auto-install / 手動再推定から推定を呼ぶ
-- `BmsLibraryInstallEstimationService`
-  - 候補評価ロジック本体
-- `PackageInstallEstimationSnapshot`
-  - package-aware 推定用 snapshot
-- `PackageInstallEstimationSnapshotBuilder`
-  - chart discovery cache と install-estimation surface cache から推定用 snapshot を構築する
-- `BMSPackage`
-  - chart discovery cache と install-estimation surface cache を別々に保持する
-  - `BMSFiles` は chart discovery 専用
-- `ChartResourceSnapshot`
-  - target 側の resource 定義 union
-- `DirectoryResourceLookupCache`
-  - chart directory ごとの resource hash cache
-  - aggregate ownership と self-only ownership の二重 view を持つ
-- `BMSDirectoryFileNameHash`
-  - chart directory ごとの resource hash union view
-  - audio / image / movie のカテゴリ別 index から派生する broad filter 用 view
-- `DirectoryRelativePathHashIndex`
-  - cacheless path 用の chart directory ごとの aggregate / self-only resource hash index
-- `IRootFileEnumerator`
-  - library scan と package source surface の共通 root 列挙 backend
-  - `EverythingRootFileEnumerator` / `FastRootFileEnumerator` を切り替える
-  - Everything 経路は `everything_bridge` backend として動き、managed 側は `EverythingBridge_x64.dll` だけを呼ぶ
+resource key は chart-relative な extensionless key です。
+
+- `foo.wav` は `foo`
+- `sound/foo.wav` は `sound/foo`
+
+`foo` と `sound/foo` は別 key です。`sound/foo.wav` が `foo` に fallback することはありません。
+
+### Source package surface
+
+package 内に同梱されている non-chart resource は `BundledResources` として持ちます。
+
+通常のインストール先推定では `candidate + bundled` を評価します。つまり、package が持ち込む resource も導入後に使えるものとして数えます。
+
+merge / reinstall correction では source/bundled resource を足さず、`candidate only` で評価します。
+
+### Library resource index
+
+通常起動の file enumeration 結果から `LibraryResourceIndex` を作ります。導入先推定で使う正本は `DirectoryResourceLookupCache` のカテゴリ別 index です。
+
+- audio basename / relative key
+- image basename / relative key
+- movie basename / relative key
+- self-owned audio / image / movie
+- category reverse lookup
+
+`BMSDirectoryFileNameHash` / `FolderAllFileList` は正本ではありません。これはカテゴリ別 index から派生した folder-level extensionless union view で、候補 directory の一覧や cacheless 補助に残っています。
 
 ## 推定入口
 
-### 1. package-aware 経路
+### 通常 package 推定
 
-主経路は `BMSLibrary.SearchEstimatedInstallationDirectoryCore(BMSPackage)` です。
+未所持 chart を含む package に対して、外部 chart directory を探します。
 
-- package を
-  - `alreadyInstalledFiles`
-  - `missingFiles`
-  に分ける
-- `missingFiles.Count == 0` なら通常推定は行わない
-- mixed package では、まず既存配置先再利用を試す
-  - 成功すれば推定に入らず適用
-  - 失敗時は `DeferredEstimateReason=InstalledDestinationResolveFailed` と警告を付け、推定フォールバックしない
-- 全未所持 package は `Normal` モードで package-aware 推定へ入る
+- 既所持 chart だけの package は通常推定しません。
+- mixed package では、まず既所持 chart の実配置先を hash index から候補 directory 集合として解決します。
+- 候補が 1 件なら、未所持 chart をその配置先へ寄せます。
+- 候補が 2 件以上なら、その候補集合だけを通常推定と同じ final evaluation へ渡します。
+  - 一意に勝つ viable candidate があれば `INSTL DST` を自動設定します。
+  - 複数 viable candidate が残る場合は `INSTL DST` を空にし、候補を suggestions に入れ、`InstalledDestinationAmbiguous` warning を付けます。
+- 候補が 0 件、または候補限定 final evaluation に必要な `DirectoryResourceLookupCache` がない場合は、通常推定へ fallback せず `InstalledDestinationResolveFailed` warning の対象にします。
 
-この経路では、`missingFiles` と package の source path から **package snapshot** を作って評価します。  
-`2026-04-24` 時点では、`BMSFiles` は chart discovery 専用で、install-estimation surface とは分離されています。  
-また source-side で Everything を使うかどうかは設定
+### マージ先推定
 
-- `保留パッケージの推定時に Everything を使用する`
+source package の resource を使わず、既存 library 側の resource だけで成立する統合先を探します。
 
-で切り替えます。既定値は無効で、無効時は source-side scan を fast-only で行います。
+評価は `candidate only` です。
 
-### 2. background pending estimate の抑制
+### 再インストール先推定
 
-startup restore と auto-install 後の background pending estimate では、package-aware 推定へ入る前に **source baseline viability** を見ます。
+既存 library chart を現在位置より良い既存 chart directory へ移せるかを探します。
 
-- directory package で source baseline の primary health が `innerWavHealthThreshold=70` 以上
-  - pending には残す
-  - ただし background auto-estimate は走らせない
-  - package には transient に `DeferredEstimateReason=HealthySourceBaseline` を付ける
-  - `INSTL DST` / suggestion / low-confidence warning / 推定 metadata は空に戻す
-- file package
-  - deferred 抑制対象外
-  - 従来どおり background estimate の候補になり得る
-- mixed package
-  - まず installed-directory reuse を試す
-  - reuse 不成立時は異常系として deferred/manual-hold にし、source baseline 判定や estimator へ進めない
+評価は `candidate only` です。現在配置 directory は候補から除外し、現在配置の health は baseline としてだけ使います。
 
-つまり現在は、**pending に残ること** と **background auto-estimate 対象になること** を分けています。
+### Background pending estimate
 
-### 2.1 background pending estimate の実行モデル
-
-`2026-04-22` 時点の background `pending_estimate_batch` は、次の順で進みます。
-
-1. demand build
-2. immutable request 準備
-3. bounded parallel evaluate
-4. request 順の serial apply
-5. regroup
-
-ここで並列化するのは **read-only evaluate phase** のみです。
-
-- mixed package の installed-dir resolve
-- package snapshot 構築
-- `EstimateInstallationDirectory(...)`
-- metadata tie-break / metadata validation を含む `InstallEstimationResult` 作成
-
-は bounded parallel に流します。
-
-一方で次は従来どおり serial のままです。
-
-- `BMSFile` への `instl_dst` / warning / suggestion / metadata 反映
-- progress 更新
-- package-level の `estimate_install ...` ログ
-- regroup
-
-manual estimate は `RunPendingEstimateExclusive(...)` の外には出しておらず、background batch 完了待ちのままです。
-
-### 3. loose-file 経路
-
-`IEnumerable<BMSFile>` / `BMSFile` から直接呼ぶ経路も残っています。
-
-- `PackageInstallEstimationSnapshotBuilder.BuildForLooseFiles(...)` を使う
-- `BundledResources` は空
-- `SourceCandidateResources` は source baseline health 判定用にだけ持つ
-
-pending package・startup restore・auto-install では通常この経路は使いません。
-
-## package snapshot の中身
-
-`PackageInstallEstimationSnapshot` は少なくとも次を持ちます。
-
-- `RepresentativeFile`
-- `DefinedResources`
-- `TargetMetadataProfile`
-- `BundledResources`
-- `SourceCandidateResources`
-- `SourceDirectory`
-- `ChartCount`
-
-この snapshot は、`BMSPackage` が保持する install-estimation surface cache から作ります。  
-`BMSFiles` は別の chart discovery cache を使うため、`BMSFiles` 参照で source-side full scan を起動しないのが現状です。
-
-### 1. `DefinedResources`
-
-`DefinedResources` は **package 内の対象 chart 群の union** です。  
-`ChartResourceSnapshot.CreateAggregate(...)` を使います。
-
-### 2. `BundledResources`
-
-`BundledResources` は **package が導入時に持ち込む non-chart resource 実体** です。  
-shape は `DirectoryResourceLookupCache.Entry` と揃えています。
-
-`2026-04-24` 時点では、package root 側の resource surface は source-side 専用の 4-query native surface か fast-only enumeration で構築します。  
-library build と query discipline は揃えていますが、mainline は grouped full-path enumeration を通りません。
-
-- library scan 側
-  - chart-directory keyed な `BmsScanResult`
-- package source 側
-  - single-root keyed な `PackageInstallSurfaceSnapshot` / `PackageInstallEstimationSnapshot`
-
-source-side で Everything を使う場合も bridge-only である。
-
-- query 文字列の組み立ては managed 側
-- query 実行と結果回収は `EverythingBridge_x64.dll`
-- managed 側から `Everything3_x64.dll` を直接呼ばない
-
-### 3. `SourceCandidateResources`
-
-source baseline health を判定するための transient entry です。
-
-- directory package: source root 全体
-- file package: 親 directory
-- loose files: 代表 file の親 directory
-
-### 4. `TargetMetadataProfile`
-
-target 側 metadata は、代表 1 件ではなく **対象 chart 群の最頻値 profile** を使います。
-
-- `DominantNormalizedTitle`
-- `DominantNormalizedArtist`
-- `DominantNormalizedTitleArtistPair`
-- support count
-
-package-aware 経路でも loose-file 経路でも同じ shape を持ちます。
+startup restore / auto-install 由来の pending estimate は package ごとの batch で走ります。zip/package ごとに batch を分け、重い package が他 package を巻き込まないようにします。
 
 ## 候補母集団
 
-現在の候補母集団は scan redesign 後の **chart directory** です。
+候補は chart directory です。resource-only subdirectory は候補になりません。
 
-- `folderAllFileList.Keys`
-- source directory は通常推定でも merge 推定でも候補に含めない
-- 比較対象は常に external candidate のみ
+現在の候補一覧は `FolderAllFileList.Keys` から得ます。これは extensionless resource union view を保持する構造ですが、ここで使う主目的は「候補 chart directory の集合」です。
 
-resource-only subdir は候補に入りません。
+source directory は通常推定でも merge 推定でも候補に入れません。
 
-ただし `2026-04-23` 時点では chart-directory ownership は次の二重 semantics を持ちます。
+## Coarse Filter
 
-- aggregate ownership
-  - descendant resource は path 上のすべての ancestor chart directory から見える
-- self-only ownership
-  - resource を最も近くで所有する chart directory だけが持つ
+候補を全件評価しないために、先に lightweight filter を通します。
 
-install estimation の broad filter / final evaluation は aggregate ownership を主に使い、installed-dir tie-break や ancestor-shadow rule では self-only ownership を参照します。  
-ただし final evaluation は hybrid 化されており、`pathAwareRefs > 0` の package では strict relative-path semantics を維持し、`pathAwareRefs = 0` の package だけ basename-only fast path を許します。
+### 1. Path-aware broad filter
 
-## coarse filter
+`DirectoryResourceLookupCache` がある通常経路では、カテゴリ別 reverse lookup を使います。
 
-`2026-04-23` 時点の coarse filter は、**path-aware broad filter + unified audio gate** です。
+- audio refs -> audio relative reverse map
+- image / optional image refs -> image relative reverse map
+- movie refs -> movie relative reverse map
 
-### 1. path-aware broad filter
+cacheless 経路では、`BMSDirectoryFileNameHash` と `DirectoryRelativePathHashIndex` の補助を使います。この経路では extensionless union が混ざり得ますが、通常の native canonical index 経路ではカテゴリ別 reverse lookup が正本です。
 
-target 側 resource は broad filter 用に次の 2 種へ分けます。
+mixed package の複数候補評価では cacheless 経路を使いません。`DirectoryResourceLookupCache` がない状態で複数候補になった場合は、導入先を推定不可として扱います。`SkipInitFileCheck` のように起動時 resource index を作らない設定では、この制約により導入先推定ができない場合があります。
 
-- basename-only refs
-  - 例: `bgm1.wav`
-- path-aware refs
-  - 例: `sound\bgm1.wav`
+候補が 0 件になった場合、全 library への fallback はしません。`no_viable_destination_below_threshold` として扱います。
 
-このとき `bgm1` と `sound\bgm1` は別 key です。  
-path-aware ref は basename key にフォールバックしません。
+### 2. Audio gate
 
-broad filter では:
+audio reference がある target では、candidate 自身に最低限の audio 一致を要求します。
 
-- basename-only refs
-  - `ChartResourceSnapshot.EnumerateBroadFilterBaseNameHashes()` を使う
-- path-aware refs
-  - category ごとの relative-path hash lookup を使う
+- audio refs が 2 件以上: candidate 自身で 2 件以上一致
+- audio refs が 1 件: candidate 自身で 1 件以上一致
+- audio refs が 0 件: audio gate なし
 
-cache あり経路:
+さらに viable audio health が `innerWavHealthThreshold` を超える見込みがない candidate は落とします。
 
-- audio refs
-  - `EnsureAudioRelativeDirectoriesByHashes(...)`
-  - `GetDirectoriesByAudioRelativeHash(...)`
-- visual / optional image refs
-  - `EnsureImageRelativeDirectoriesByHashes(...)`
-  - `GetDirectoriesByImageRelativeHash(...)`
-- movie refs
-  - `EnsureMovieRelativeDirectoriesByHashes(...)`
-  - `GetDirectoriesByMovieRelativeHash(...)`
+通常推定では `candidate + bundled` の effective health を使います。merge / reinstall correction では `candidate only` です。
 
-cacheless path:
+## Final Evaluation
 
-- basename-only refs
-  - `BMSDirectoryFileNameHash`
-- path-aware refs
-  - `DirectoryRelativePathHashIndex`
+各 candidate は `EvaluateDirectoryCandidate()` で評価されます。
 
-を併用します。
+評価対象:
 
-さらに seed 候補に対して **path-aware admission gate** をかけます。
+- 通常推定: `candidate + bundled`
+- merge: `candidate only`
+- reinstall correction: `candidate only`
+- source baseline: source directory のみ
 
-- target が path-aware audio ref を持つ
-  - candidate にも audio relative-path hit が 1 件以上必要
-- target が path-aware visual ref を持つ
-  - candidate にも image relative-path hit が 1 件以上必要
-- target が path-aware optional image ref を持つ
-  - candidate にも image relative-path hit が 1 件以上必要
-- target が path-aware movie ref を持つ
-  - candidate にも movie relative-path hit が 1 件以上必要
+resource match はカテゴリ別です。
 
-つまり、`sound\bgm1` を要求する譜面では、candidate discovery の入口で `bgm1` only の directory を落とします。
+- audio ref は audio key とだけ照合
+- image ref は image key とだけ照合
+- movie ref は movie key とだけ照合
+- optional image ref は image key と照合
 
-### 2. unified audio gate
+chart-relative key が一致した場合に match とします。basename-only reference も現在は extensionless relative key として扱われ、`foo` と `sound/foo` は別 key です。
 
-path-aware broad filter の後に、既存の **unified audio gate** をかけます。
+## 評価指標
 
-- `audioRefs >= 2`
-  - candidate 自身の audio basename hash 2 件以上一致必須
-- `audioRefs == 1`
-  - candidate 自身の audio basename hash 1 件以上一致必須
-- `audioRefs == 0`
-  - audio gate を適用しない
-
-さらに `audioRefs > 0` かつ `DirectoryResourceLookupCache` がある経路では、
-
-- 通常推定
-  - `candidate + bundled` の effective audio health が `innerWavHealthThreshold=70` 超でない候補を落とす
-- `ReinstallCorrection` / merge 推定
-  - `candidate only` の effective audio health が `innerWavHealthThreshold=70` 超でない候補を落とす
-
-つまり coarse filter は次の 2 段です。
-
-1. path-aware broad filter
-2. unified audio gate
-
-つまり、
-
-- `audioRefs > 0 && audioMatched == 0`
-  - image/movie/optional が一致していても候補に残さない
-- bundled だけで threshold を満たしても
-  - candidate 自身に最低限の audio 一致がなければ候補に残さない
-- `candidateDirsAfter=0`
-  - 全 library へ fallback せず、そのまま no destination に落とす
-
-`innerWavHealthThreshold=70` は、現在は
-
-- coarse filter の unified audio gate
-- 最終 confidence / viable 判定
-
-の **二段**で使います。
-
-Perf-2a 再修正では、この unified audio gate の仕様は変えず、内部実装だけを軽くしています。
-
-- `candidate self minimum match`
-  - basename-only audio ref は basename 一致
-  - path-aware audio ref は relative path 完全一致
-  - `requiredAudioMatchCount` に達した時点で打ち切る
-- `effective viability`
-  - basename-only / path-aware を同じ `1 ref = 1 点` として数える
-  - `health > 70` に到達した時点で打ち切る threshold-only check
-
-つまり現在は、
-
-- Phase 3 で broad filter を path-aware candidate discovery に更新
-- Perf-2a 再修正で unified audio gate の内部実装を軽量化
-
-した状態です。
-
-### 現状の `innerWavHealthThreshold` の位置づけ
-
-`innerWavHealthThreshold=70` は、`2026-04-22` 時点では **coarse filter と最終判定の両方**で使う。
-
-- coarse filter
-  - broad prefilter
-  - unified audio gate
-- final evaluation 後
-  - viable destination 判定
-  - `High + destination` / `High + no destination` / `Low + suggestions`
-- background pending estimate 抑制
-  - source baseline health 判定
-
-に分かれている。
-
-つまり現状は、
-
-- `audio gate`
-  - 軽量な候補縮小と viability gate
-- `innerWavHealthThreshold`
-  - 前段と最終段の両方で使う
-
-という役割分担である。  
-ただし threshold の意味自体は変えておらず、「宛先として有効なのは audio health が threshold を超える candidate」という前提を、前段 candidate 除外にも流用している。
-
-## 最終評価
-
-各候補は `EvaluateCandidate(...)` で評価します。
-
-### 通常推定
-
-比較対象:
-
-- `CandidateResources ∪ BundledResources`
-- `snapshot.DefinedResources`
-
-つまり **`candidate + package bundled resources`** を見ます。
-`pathAwareRefs > 0` の package では、この比較も relative-path exact 前提の strict semantics で行います。
-`pathAwareRefs = 0` の package では、candidateView と lookup-cache audio gate を basename-only fast path で処理できます。
-
-### `ReinstallCorrection`
-
-比較対象:
-
-- `CandidateResources`
-- `snapshot.DefinedResources`
-
-つまり **`candidate only`** を見ます。
-元フォルダの同梱リソースは使わず、現在配置フォルダも同じ candidate-only 評価で baseline として測ります。
-
-`ReinstallCorrection` は「既存ライブラリ譜面の再インストール先を推定」専用で、現在配置フォルダは候補から除外します。
-自動適用するのは、viable candidate が一意で、candidate の primary health が現在配置 baseline より高く、metadata evidence が applicable な場合は strong のときだけです。
-
-次の場合は `Low + suggestions` とし、`INSTL DST` は自動設定しません。
-
-- 複数 viable candidate がある
-- 一意候補だが現在配置より health が改善しない
-- `TITLE / ARTIST` の metadata mismatch がある
-
-### merge 推定
-
-比較対象:
-
-- `CandidateResources`
-- `snapshot.DefinedResources`
-
-つまり **`candidate only`** を見ます。  
-source の bundled resources は merge の final evaluation には足しません。
-`pathAwareRefs > 0` の package では、merge でも strict relative-path semantics を崩しません。
-`pathAwareRefs = 0` の package では、basename-only fast path を使って final evaluation と lookup-cache audio gate を軽くできます。
-
-### ancestor-shadow fast path
-
-`2026-04-23` 時点では、ownership fix の後段として **candidate hierarchy prepass** を入れています。
-
-- audio gate 後の candidate set に ancestor / descendant 関係が 1 組もなければ
-  - ancestor-shadow rule は完全にスキップ
-  - self-only matched total も一切計算しない
-- hierarchy があるときだけ
-  - viable な ancestor / descendant 候補ペアに対して
-  - `SelfOwnedMatchedTotal` を lazy に計算し
-  - chain-scoped に suppression を行う
-
-つまり現在の ancestor-shadow rule は、
-
-- aggregate ownership の correctness を守るための guard
-- ただし普通の non-hierarchical package では寝ている fast path
-
-として動いています。
-hybrid final evaluation になってもこの guard は残し、`pathAwareRefs > 0` の package では strict relative-path final evaluation の correctness を守り、`pathAwareRefs = 0` の package では basename-only fast path を安全に許可します。
-
-## 算出する指標
-
-カテゴリごとに次を算出します。
+カテゴリごとに以下を算出します。
 
 - `Matched`
-- `ExactMatched`
 - `Health`
+- `CandidateCount`
 - `Precision`
 - `Jaccard`
 
-`2026-04-23` 時点では、resource の数え方自体を relative-path semantics に揃えています。
+`Health` は `Matched / Defined` です。導入先として viable かどうかは primary health が `innerWavHealthThreshold` を超えるかで決まります。
 
-- basename-only ref
-  - 例: `bgm1.wav`
-  - candidate / bundled 側の basename 一致で `1` match
-- path-aware ref
-  - 例: `sound\\bgm1.wav`
-  - candidate / bundled 側の relative path 完全一致でのみ `1` match
-  - basename-only matchにはフォールバックしない
-- 各 ref は `1 ref = 1 点`
-  - path-aware ref に extra bonus は付けない
-- `Defined` / `Matched` / `CandidateCount`
-  - `pathAwareRefs > 0` の package では per-ref / total resource count 基準の strict relative-path semantics を使う
-  - `pathAwareRefs = 0` の package では distinct basename count 基準の basename-only fast path を使う
+primary health は次の順で選ばれます。
 
-`ExactMatched` は public shape 互換のため残していますが、現在は `Matched` と同値です。  
-relative path は独立 bonus 軸ではなく、**resource の定義方法に応じて match 条件が変わるだけ**という整理にしています。  
-ただし basename-only package では、final evaluation の後段だけを意図的に basename key ベースへ寄せて、nested path の数え分けコストを払わないようにしています。
+- audio ref がある場合: audio health
+- audio ref がない場合: image / movie / optional image の最大値
 
-`Precision` / `Jaccard` はログ/UI には整数 `%` を出しますが、**内部順位付けと tie 判定は raw ratio** を使います。
+## Tie-break
 
-### 診断ログ
+候補は `CompareCandidateEvaluations()` で並びます。順序は概ね次です。
 
-現在の final evaluation / candidate view まわりのログには、少なくとも次を出します。
+1. Audio health
+2. Audio matched
+3. Audio jaccard
+4. Audio precision
+5. Image health
+6. Image matched
+7. Image jaccard
+8. Image precision
+9. Movie health
+10. Movie matched
+11. Movie jaccard
+12. Movie precision
+13. Optional image health
+14. Optional image matched
+15. Optional image jaccard
+16. Optional image precision
+17. Directory path
+
+`Precision` / `Jaccard` は表示用の丸め値ではなく、raw ratio で比較します。これにより、整数表示では同じ `100%` に見える候補でも内部順位が潰れにくくなります。
+
+### extensionless resource union と tie-break
+
+現在の主 tie-break では、extensionless resource union そのものは直接の順位軸ではありません。
+
+通常経路の `CandidateCount` はカテゴリ別 relative key set から出ます。つまり、audio / image / movie のそれぞれの candidate count が precision / jaccard に効きます。
+
+ただし union は次の補助に残っています。
+
+- `FolderAllFileList.Keys` による candidate chart directory 集合
+- `DirectoryResourceLookupCache.Entry.AllBaseNameHashes` の lazy union
+- cacheless / fallback view で category set がない場合の補助
+- `AudioFileCount` など診断・表示寄りの派生値
+
+このため、現時点でも union が完全に無関係ではありません。ただし、カテゴリ別 index が使える通常経路では、導入先の primary matching と primary tie-break の正本は audio / image / movie のカテゴリ別 key です。
+
+mixed package の既存配置先再利用では、hash tie が複数候補になっても extensionless union の health 判定補助は使いません。候補限定 final evaluation の category resource metrics で評価し、曖昧なら suggestions と warning に落とします。
+
+今後の整理では、extensionless union を候補 directory list 以外の推定材料から外し、順序安定が必要なだけなら path 順などの明示的で安全な tie-break へ置き換えます。
+
+## Metadata Tie-break
+
+resource 指標が同一の viable frontier だけに metadata tie-break を適用します。
+
+対象は先頭 candidate と `HasSameRankingMetrics()` な候補群のうち最大 3 件です。
+
+比較順:
+
+1. Title + artist pair exact
+2. Title exact
+3. Artist exact
+4. Title fuzzy strength
+5. Pair support count
+6. Title support count
+7. Artist support count
+8. Resource metrics / path order
+
+metadata tie-break で明確に 1 位が分かれた場合、resource metrics 上は tie でも `metadata_tiebreak_distinct` として high confidence にできます。
+
+## Ancestor Shadow Suppression
+
+aggregate ownership では、child directory の resource が ancestor chart directory からも見えることがあります。
+
+candidate set に ancestor / descendant 関係がある場合だけ、ancestor-shadow suppression を行います。
+
+ancestor を抑制する条件:
+
+- ancestor と descendant が同等以上の ranking metrics
+- ancestor の self-owned matched total が 0
+- descendant の self-owned matched total が 1 以上
+
+self-owned match はこの比較が必要な候補だけ lazy に計算します。
+
+## Confidence
+
+推定結果は confidence と auto-apply 可否に変換されます。
+
+- viable candidate がない
+  - `Confidence=High`
+  - `DestinationDirectory=null`
+  - `ShouldAutoApplyDestination=false`
+- viable candidate が一意で metadata が妥当
+  - `Confidence=High`
+  - `ShouldAutoApplyDestination=true`
+- viable candidate が複数で resource metrics が同一
+  - metadata tie-break が distinct なら high
+  - そうでなければ low + suggestions
+- metadata mismatch
+  - low + suggestion
+- reinstall correction で現在配置より改善しない
+  - low + suggestion
+
+`INSTL DST` は `ShouldAutoApplyDestination=true` かつ destination がある場合だけ自動設定します。
+
+## Source Baseline
+
+source は候補 list には入りません。source は background pending estimate を抑制するための baseline health 判定に使います。
+
+source baseline が十分に高い directory package は pending に残しますが、background auto-estimate は省略します。手動推定ではこの抑制は適用しません。
+
+## Logging
+
+主なログは `estimate_install start` です。重要なフィールドは次です。
 
 - `evalMode`
+- `candidateMode`
+- `coarseFilterMode`
+- `candidateDirsBefore`
+- `candidateDirsAfterBroadFilter`
+- `candidateDirsAfterAudioGate`
+- `candidateDirsAfter`
 - `candidateViewBuildMs`
 - `candidateMatchMs`
-- `candidateViewBuildCount`
 - `candidateViewFallbackCount`
-
-これで `pathAwareRefs > 0` の strict relative-path 経路と、`pathAwareRefs = 0` の basename-only fast path を区別して追えます。
-
-## 並び順
-
-候補は概ね次の順で降順比較します。
-
-1. `AudioHealth`
-2. `AudioMatched`
-3. `AudioJaccard`
-4. `AudioPrecision`
-5. 同様に `Visual`
-6. 同様に `Movie`
-7. 同様に `OptionalImage`
-9. raw precision / jaccard
-10. `DirectoryPath`
-
-raw ratio 比較を入れているため、`1281/1282` と `1281/1285` のような差が 100/100 に丸め潰されて path 順になるのを避けています。
-
-## `TITLE` / `ARTIST` metadata
-
-metadata は主スコアには入れず、後段で使います。
-
-- 対象は先頭候補と `HasSameRankingMetrics(...)` な viable candidate 群
-- 対象数は最大 3 件
-- candidate 側 metadata は destination directory 配下の全譜面から作る **最頻値 profile**
-- target 側 metadata も package / loose-file 単位の最頻値 profile
-
-frontier tie-break は、**resource 指標で僅差の上位 frontier** にだけ後段適用します。
-
-- `TITLE`
-  - trim / 全半角 / 空白 / 大小を正規化
-  - `(` `[` `~` ` -` 以降を無視
-  - ただし先頭 delimiter は切らない
-  - 正規化後 exact に加え、bigram Dice coefficient による軽量 fuzzy を使う
-- `ARTIST`
-  - trim / 全半角 / 空白 / 大小を正規化
-  - 文字列中の `obj` `note` `notes` + セパレータ marker 以降を切る
-  - `/` 以降を無視
-
-比較順は次です。
-
-1. `TitleArtistPair` 一致
-2. `Title` 一致
-3. `Artist` 一致
-4. pair support
-5. title support
-6. artist support
-7. それでも同点なら既存の raw ratio / path 順
-
-metadata tie-break の結果が明確なら、resource 指標上は tie でも `Low` を `High` へ上げます。
-このとき `ConfidenceReason = metadata_tiebreak_distinct` になります。
-
-### ancestor-shadow suppression
-
-resource 指標で viable な候補を並べたあと、ancestor / descendant 関係がある場合だけ **ancestor-shadow suppression** をかけます。
-
-抑制条件:
-
-- descendant が ancestor と同等以上の ranking metrics を持つ
-- ancestor の self-only matched total が `0`
-- descendant の self-only matched total が `1` 以上
-
-このとき ancestor は ordered candidate list と suggestion 候補から除外します。  
-`SelfOwnedMatchedTotal` はこの比較に入る候補だけで計算し、memoize します。
-
-### selected-candidate validation
-
-frontier tie-break 後も、最終 1 位候補に対して metadata 妥当性を再判定します。
-
-- viable candidate が 1 件だけ
-- `distinct_primary_metrics`
-- `single_candidate`
-
-でも必ず実行します。
-
-metadata evidence は次です。
-
-- `Strong`
-  - pair exact
-  - title exact
-  - title fuzzy strong + artist exact
-- `Weak`
-  - title fuzzy strong
-  - title weak
-  - artist exact のみ
-- `None`
-  - 上記以外
-
-selected candidate の metadata evidence が `Weak` / `None` の場合は、
-
-- `Confidence = Low`
-- `INSTL DST` は空
-- suggestion に top candidate を残す
-
-として、自動確定しません。
-
-## source の扱い
-
-source は ranking 本体では扱いません。  
-現在の source は次の用途に限定しています。
-
-- background auto-estimate 抑制の source baseline health 判定
-- package snapshot 内の `SourceCandidateResources`
-
-通常推定でも merge 推定でも、候補 list・選択候補・suggestion には **source を含めません**。
-
-## `innerWavHealthThreshold=70` の使い方
-
-`innerWavHealthThreshold=70` は、今は次の必要条件です。
-
-- viable destination
-- `High` 判定
-- `ShouldAutoApplyDestination`
-- background auto-estimate 抑制の source baseline 判定
-
-さらに coarse filter の unified audio gate では、
-
-- 通常推定
-  - `candidate self minimum match`
-  - かつ `candidate + bundled` が `health > 70`
-- merge 推定
-  - `candidate self minimum match`
-  - かつ `candidate only` が `health > 70`
-
-の両方を必要条件として使います。  
-たとえば `audioRefs = 100` なら、`health > 70` を満たす最小 matched は `71` です。通常推定で bundled が `50` 有効なら、effective matched としては残り `21` 件以上が必要ですが、それとは別に candidate 自身の minimum match 条件も必要です。  
-つまり threshold は、**前段 gate と最終安全弁の二段**で使っています。
-
-なお Perf-2a 再修正で変更したのは、この前段 gate の**実装コストだけ**です。
-
-- 仕様:
-  - 不変
-- 実装:
-  - self minimum match は early-exit
-  - viability は full matched count ではなく threshold 到達 boolean
-
-に最適化しています。
-
-## `INSTL DST` 反映条件
-
-`BMSLibrary.ApplyInstallEstimationResultToFiles(...)` では:
-
-- `ShouldAutoApplyDestination == true`
-- `DestinationDirectory` が空でない
-
-ときだけ `instl_dst` を自動適用します。
-
-それ以外では:
-
-- `instl_dst = null`
-- `HasViableDestination == true` の場合だけ代表 metadata を入れる
-- `Confidence = Low` の場合だけ non-source suggestion を保持する
-- ambiguity の場合は 2 件以上 suggestion があるとき warning を保持する
-- metadata mismatch の場合は 1 件 suggestion でも warning を保持する
-
-また、**UI に見える pending / full-scan 状態で `instl_dst` を反映する経路**では、推定結果適用・手動 `INSTL DST` 入力・suggestion 選択・resolved destination 再利用・pending regroup のいずれでも、`INSTL DST TITLE` / `INSTL DST ARTIST` を同時に同期します。
-
-## 手動 `インストール先を推定` と `マージ先を推定` の違い
-
-### 1. 手動 `インストール先を推定`
-
-目的は、**未所持譜面の external install destination を決めること**です。
-
-- background auto-estimate 抑制とは無関係で、手動なら高ヘルスでも実行する
-- source は候補に入れない
-- external candidate を `candidate + bundled` で評価する
-
-mixed package では:
-
-- まず `TryResolveInstalledDestinationFromPackage(...)` で、既所持譜面の実配置先を未所持譜面へ再利用できるか試す
-- 成功したら、その配置先を **未所持譜面だけ** に反映し、代表 metadata も同期して終了
-- 解決できなければ `DeferredEstimateReason=InstalledDestinationResolveFailed` を付け、未所持譜面へ警告を出して終了する
-
-つまり通常推定は、mixed package では **「既所持側の配置先に未所持を寄せる補完」** が第一です。
-既所持譜面から導入先を逆引きできない状態は通常の推定分岐ではなく、ライブラリ状態の不整合または曖昧さとして扱います。
-
-### 2. 手動 `マージ先を推定`
-
-目的は、**source の同梱リソースを使わず、source 以外に既存リソースだけで成立する統合先があるかを見ること**です。
-
-- package 単位では `MergeCandidateOnly` モードを使う
-- source は候補に含めない
-- external candidate を `candidate only` で評価する
-
-その上で:
-
-- まず `TryResolveInstalledDestinationFromPackage(...)` を試す
-- 解決できれば、その配置先を package 全体へ反映し、代表 metadata も同期する
-- 解決できなければ `MergeCandidateOnly` で package 全体を external merge search する
-
-merge の結果は次で固定します。
-
-- viable external candidate が 1 件で明確
-  - `High + destination`
-- viable external candidate が複数で僅差
-  - `Low + non-source suggestions`
-- viable external candidate が 0 件
-  - `High + no destination`
-
-つまりマージ推定は、**「source 以外に、既存リソースだけで成立する外部統合先があるか」** を見る機能です。
-
-### 3. 手動 `再インストール先を推定`
-
-目的は、**ライブラリ内の既存譜面ファイル単体を、現在配置より健康度が高い既存 chart directory へ移せるかを見ること**です。
-
-- `ReinstallCorrection` モードを使う
-- 元フォルダの同梱リソースは候補評価へ足さない
-- external candidate を `candidate only` で評価する
-- 現在配置も `candidate only` で baseline 評価し、candidate list からは除外する
-- 複数 viable candidate がある場合は、曖昧候補自動適用設定が ON でも自動適用しない
-
-再インストール推定の結果は次で固定します。
-
-- viable external candidate が一意で、現在配置より primary health が改善し、metadata evidence が applicable なら strong
-  - `High + destination`
-- 一意候補だが health が改善しない
-  - `Low + ReinstallNotImproved + suggestion`
-- viable external candidate が複数ある
-  - `Low + AmbiguousCandidates + suggestions`
-- metadata mismatch
-  - `Low + MetadataMismatch + suggestion`
-
-`推定先に再インストール` は、`INSTL DST` が入っている譜面ファイルだけを対象に、**BMS/BMSON ファイル単体**を移動します。音源・画像・動画などのリソース一式は移動しません。
-
-`構成ファイルフルスキャン` 画面では pending 画面と同じように `INSTL DST` の手入力と suggestion 選択ができます。配下の `全譜面` は欠損や ignore 状態に関係なく、ライブラリフォルダ選択時と同等の全譜面を表示します。root の `構成ファイルフルスキャン` と `無視リスト` は従来どおり、欠損警告ありの譜面を ignore 状態で分けて表示します。
-
-## 既所持譜面を含む package の扱い
-
-### 通常推定
-
-- 既所持譜面は warning 対象になる
-- 推定対象は **未所持譜面だけ**
-- まず既所持譜面の実配置先を再利用できるか試す
-- 再利用できなければ、未所持譜面だけ警告付きで保留し、`Normal` / `ReinstallCorrection` 推定へは進めない
-
-### マージ推定
-
-- package 単位では **既所持・未所持をまとめて** 扱う
-- 既存配置先再利用が成功すれば、その配置先と代表 metadata を package 全体へ入れる
-- 失敗したら package 全体を `MergeCandidateOnly` で評価する
-
-### file 選択時の注意
-
-- 通常推定
-  - pending package に属する file は package 単位へ束ねて処理する
-- マージ推定
-  - 現在は file ごとに `MergeCandidateOnly` を回す
-
-そのため、同じ pending package でも **package 選択時と file 選択時で merge 結果がずれる余地** は残っています。
-
-## Phase 6 / Perf-3 時点の整理
-
-`2026-04-24` 時点では、relative-path 対応後の cleanup / Perf-3 は **Estimation First** スコープで入っています。
-
-- library scan は fixed 4-query native scan を mainline に使う
-- package source surface は `EBridge_ScanSourceRoots` または fast-only enumeration を mainline に使う
-- `BMSPackage` は chart discovery cache と install-estimation surface cache を分離し、`BMSFiles` 参照で heavy source scan を起動しない
-- mixed package の説明は installed-dir resolve を正経路として書き、legacy search という命名は使わない
-- `BmsScanResult` の obsolete compat 面と未使用の `DirectoryResourceIndex` は cleanup 対象として整理済み
-- package surface には専用 metrics / logging を持たせ、source-side wall-clock を `estimate_install` と相関できる
-- source-side で Everything を使うかどうかは設定
-  - `保留パッケージの推定時に Everything を使用する`
-  - で切り替え、既定値は無効
-
-一方で、このフェーズで **扱わないもの** も明確です。
-
-- `BmsLibraryPackageInstallService` の install/merge 用 package discovery 列挙
-- install/merge 実処理そのものの列挙再設計
-
-つまりこの段は、導入先推定まわりの source surface / scanner 基盤だけを共通化するフェーズです。
-
-## pending batch と demand build
-
-startup restore / auto-install 由来の pending 推定は、現在は queue で非同期に進みます。
-
-- package 群は先に DataGrid に出る
-- 推定は batch worker が package 単位で進める
-- batch 開始前に package aggregate hash をカテゴリ別 reverse lookup (`EnsureAudioRelativeDirectoriesByHashes` など) へ渡す
-- ただし source baseline が高ヘルスなら、その package は deferred として skip する
+- `shadowSuppressed`
+- `confidence`
+- `confidenceReason`
+- `lazyHashBuildMsDelta`
+
+metadata frontier が発生した場合は `estimate_install metadata_frontier` / `estimate_install metadata_tiebreak` も出ます。
 
 ## 関連資料
 
-- [install-estimation-accuracy-improvement-plan.md](install-estimation-accuracy-improvement-plan.md)
-- [install-estimation-target-design.md](install-estimation-target-design.md)
-- [install-estimation-performance-foundation.md](install-estimation-performance-foundation.md)
-- [../spec/data-and-indexes.md](../spec/data-and-indexes.md)
+- `devdocs/spec/data-and-indexes.md`
+- `devdocs/spec/workflows.md`
+- `devdocs/bmson/install-estimation-target-design.md`
+- `devdocs/bmson/install-estimation-relative-path-foundation.md`
+- `devdocs/bmson/install-estimation-performance-foundation.md`
+- `devdocs/bmson/library-scan-fast-path-resource-index-plan.md`

@@ -1083,6 +1083,7 @@ public class BMSFile : LR2SongDB.song
         return Warnings.Contains(ChartWarningKind.InstallEstimationAmbiguous)
             || Warnings.Contains(ChartWarningKind.InstallEstimationMetadataMismatch)
             || Warnings.Contains(ChartWarningKind.InstallEstimationReinstallNotImproved)
+            || Warnings.Contains(ChartWarningKind.InstalledDestinationAmbiguous)
             || Warnings.Contains(ChartWarningKind.InstallEstimationLowConfidence);
     }
 
@@ -1091,6 +1092,7 @@ public class BMSFile : LR2SongDB.song
         ClearWarning(ChartWarningKind.InstallEstimationAmbiguous);
         ClearWarning(ChartWarningKind.InstallEstimationMetadataMismatch);
         ClearWarning(ChartWarningKind.InstallEstimationReinstallNotImproved);
+        ClearWarning(ChartWarningKind.InstalledDestinationAmbiguous);
         ClearWarning(ChartWarningKind.InstallEstimationLowConfidence);
     }
 

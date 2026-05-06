@@ -54,11 +54,10 @@
    - `candidate + package bundled resources` 評価への移行
    - 余剰リソース評価と source folder 扱い見直し
    - metadata tie-break の今後計画
-9. [現状の導入先推定ロジック整理](install-estimation-current-logic.md)
-   - package-aware / loose-file の 2 経路
-   - package snapshot / bundled resources / source candidate surface
-   - `candidate + package bundled resources` の最終比較
-   - `confidence` / `ShouldAutoApplyDestination` / `INSTL DST` 適用条件
+9. [導入先推定 現行仕様](install-estimation-current-logic.md)
+   - 導入先推定処理の正本資料
+   - candidate 生成 / category resource 評価 / tie-break / confidence
+   - extensionless resource union の現行位置づけ
 10. [導入先推定のあるべき設計メモ](install-estimation-target-design.md)
    - `candidate + package bundled resources` を採った背景
    - coarse filter と final evaluation の役割分離
@@ -197,8 +196,8 @@
 
 ### 1. 現在の実装状態を知る資料
 
-- [現状の導入先推定ロジック整理](install-estimation-current-logic.md)
-  - 現在の code path / snapshot / confidence / diagnostics の説明
+- [導入先推定 現行仕様](install-estimation-current-logic.md)
+  - 現在の導入先推定処理の正本。snapshot / category resource 評価 / tie-break / confidence / diagnostics の説明
 - [導入先推定 性能改善の前提整理](install-estimation-performance-foundation.md)
   - 現在の perf 論点と、source-side enumeration regress が解消済みであることの整理
 - [導入先推定 相対パス対応の前提整理](install-estimation-relative-path-foundation.md)

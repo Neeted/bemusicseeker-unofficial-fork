@@ -436,6 +436,7 @@
   "WarningDigest_InstallEstimationAmbiguous": "Destinations multiples",
   "WarningDigest_InstallEstimationMetadataMismatch": "TITLE/ARTIST différent",
   "WarningDigest_InstallEstimationReinstallNotImproved": "Réinstallation sans gain",
+  "WarningDigest_InstalledDestinationAmbiguous": "Destinations multiples",
   "WarningDigest_InstalledDestinationResolveFailed": "Destination inconnue",
   "WarningDigest_InstallEstimationLowConfidence": "Estimation destination",
   "WarningDigest_AlreadyInstalled": "Déjà installé",
@@ -450,6 +451,7 @@
   "Warning_InstallEstimationMetadataMismatch": "La similarité TITLE / ARTIST est trop faible, la destination n'a donc pas été fixée automatiquement.\nCandidat : {0}",
   "Warning_InstallEstimationReinstallNotImprovedPrefix": "La destination n'a pas été fixée automatiquement car elle n'améliore pas la santé par rapport à l'emplacement actuel.",
   "Warning_InstallEstimationReinstallNotImproved": "La destination n'a pas été fixée automatiquement car elle n'améliore pas la santé par rapport à l'emplacement actuel.\nCandidat : {0}",
+  "Warning_InstalledDestinationAmbiguous": "Plusieurs destinations candidates ont été trouvées depuis les charts déjà possédés. La destination n'a pas été fixée automatiquement.\nCandidats :\n{0}",
   "Warning_InstalledDestinationResolveFailed": "Impossible de déterminer la destination à partir des charts déjà possédés. Veuillez vérifier l'état de la bibliothèque.",
   "BmsonMigrationWarningMessage": "Pour prendre en charge bmson, des modifications seront appliquées au premier démarrage aux playlists, aux tables de gestion de hachage et aux tables du catalogue bmson.\n\nLa génération initiale des SHA-256 peut prendre beaucoup de temps selon la taille de la bibliothèque.\nAprès la mise à jour, la base de données peut ne plus être compatible avec la version originale de BeMusicSeeker ni avec ce fork jusqu'à la version v1.2.1.0.\nSi vous avez des inquiétudes sur la compatibilité, il est recommandé de sauvegarder song.db et les fichiers associés à l'avance.",
   "BmsonMigrationWarningTitle": "Avertissement de migration pour la prise en charge bmson",
@@ -533,4 +535,3 @@
   "Warn_ArchiveLastWriteTimeMissingDetail": "The archive entry does not contain a last write time.",
   "Warn_ArchiveBundledSevenZipMissingDetail": "The bundled archive extraction library could not be found."
 }
-

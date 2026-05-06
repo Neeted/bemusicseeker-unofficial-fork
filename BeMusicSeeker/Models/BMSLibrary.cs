@@ -2855,6 +2855,31 @@ public class BMSLibrary : NotificationObject
                 result.ResolvedDirectory = result.InstalledResolution.InstallDirectory;
                 return result;
             }
+            if (result.InstalledResolution.Reason == InstalledDirectoryResolveReason.MultipleCandidateDirectories)
+            {
+                if (!HasUsableDirectoryLookupCache(evaluationContext?.DirectoryLookupCacheSnapshot))
+                {
+                    LogInstallPerformance("mixed_package_resolve failed reason=resource_index_unavailable missing=" + request.MissingFiles.Count + " candidateDirs=" + result.InstalledResolution.CandidateDirectoryCount);
+                    result.OutcomeKind = PendingInstallEstimateEvaluationOutcomeKind.NoOp;
+                    return result;
+                }
+                result.OutcomeKind = PendingInstallEstimateEvaluationOutcomeKind.EstimatedResult;
+                result.EstimationData = EvaluateInstallEstimation(
+                    request.Package,
+                    request.MissingFiles,
+                    asParallel: false,
+                    request.EstimateMode,
+                    evaluationContext.OptionsSnapshot,
+                    useThreadSafeResolvers: true,
+                    useSharedLazyHashMetrics: true,
+                    evaluationContext.FolderAllFileListSnapshot,
+                    evaluationContext.DirectoryLookupCacheSnapshot,
+                    evaluationContext.RelativePathHashIndexSnapshot,
+                    request.BatchState,
+                    result.InstalledResolution.CandidateDirectories,
+                    markInstalledDestinationAmbiguous: true);
+                return result;
+            }
             result.OutcomeKind = PendingInstallEstimateEvaluationOutcomeKind.NoOp;
             return result;
         }
@@ -2873,6 +2898,11 @@ public class BMSLibrary : NotificationObject
             evaluationContext.RelativePathHashIndexSnapshot,
             request.BatchState);
         return result;
+    }
+
+    private static bool HasUsableDirectoryLookupCache(DirectoryResourceLookupCache directoryLookupCache)
+    {
+        return directoryLookupCache != null && directoryLookupCache.Count > 0;
     }
 
     private InstalledDirectoryLookupResult EvaluateInstalledDestinationFromPackage(BMSPackage package, List<BMSFile> missingFiles, PendingInstallEstimateEvaluationContext evaluationContext)
@@ -2963,6 +2993,11 @@ public class BMSLibrary : NotificationObject
             case PendingInstallEstimateEvaluationOutcomeKind.EstimatedResult:
             {
                 LogInstallEstimationEvaluation(evaluationResult.EstimationData);
+                if (request.AttemptInstalledResolve && evaluationResult.EstimationData?.Result?.HasViableDestination != true)
+                {
+                    ApplyInstalledDestinationResolveFailedToPackageUnsafe(package, currentMissingFiles);
+                    return false;
+                }
                 ApplyInstallEstimationResultToFiles(currentMissingFiles, evaluationResult.EstimationData?.Result);
                 return currentMissingFiles.Any((BMSFile file) => file != null && string.IsNullOrWhiteSpace(file.instl_dst) && !string.IsNullOrWhiteSpace(file.InstallDestinationTitle));
             }
@@ -2996,7 +3031,9 @@ public class BMSLibrary : NotificationObject
         }
         string reason = resolution.Reason switch
         {
+            InstalledDirectoryResolveReason.InvalidInput => "invalid_input",
             InstalledDirectoryResolveReason.NoInstalledDirectoryMatch => "no_installed_dir_match",
+            InstalledDirectoryResolveReason.MultipleCandidateDirectories => "multiple_candidate_directories",
             InstalledDirectoryResolveReason.MissingRepresentative => "missing_representative_not_found",
             InstalledDirectoryResolveReason.TieHealthBelowThreshold => "tie_health_below_threshold",
             InstalledDirectoryResolveReason.TieBreakUnresolved => "tie_break_unresolved",
@@ -3374,7 +3411,8 @@ public class BMSLibrary : NotificationObject
     {
         return state?.AttemptInstalledResolve == true
             && state.PreparationInstalledResolution != null
-            && !state.PreparationInstalledResolution.Success;
+            && !state.PreparationInstalledResolution.Success
+            && state.PreparationInstalledResolution.Reason != InstalledDirectoryResolveReason.MultipleCandidateDirectories;
     }
 
     private bool ShouldDeferPendingEstimateBatchPackageUnsafe(PendingEstimateSourceBatchPackageState state, BmsLibraryInstallEstimationService installEstimationService, out int sourcePrimaryHealth)
@@ -7482,11 +7520,15 @@ public class BMSLibrary : NotificationObject
         bool isLowConfidence = result?.Confidence == InstallEstimationConfidence.Low;
         InstallEstimationLowConfidenceKind lowConfidenceKind = result?.LowConfidenceKind ?? InstallEstimationLowConfidenceKind.None;
         bool isLowConfidenceAmbiguous = isLowConfidence && lowConfidenceKind == InstallEstimationLowConfidenceKind.AmbiguousCandidates && suggestionPaths.Length >= 2;
+        bool isLowConfidenceInstalledDestinationAmbiguous = isLowConfidence && lowConfidenceKind == InstallEstimationLowConfidenceKind.InstalledDestinationAmbiguous && suggestionPaths.Length >= 2;
         bool isLowConfidenceMetadataMismatch = isLowConfidence && lowConfidenceKind == InstallEstimationLowConfidenceKind.MetadataMismatch && suggestionPaths.Length >= 1;
         bool isLowConfidenceReinstallNotImproved = isLowConfidence && lowConfidenceKind == InstallEstimationLowConfidenceKind.ReinstallNotImproved && suggestionPaths.Length >= 1;
         string ambiguousWarning = selectedCandidate == null || secondCandidate == null
             ? string.Empty
             : string.Format(Resources.Warning_InstallEstimationAmbiguous, selectedCandidate.DirectoryPath, secondCandidate.DirectoryPath);
+        string installedDestinationAmbiguousWarning = suggestionPaths.Length < 2
+            ? string.Empty
+            : string.Format(Resources.Warning_InstalledDestinationAmbiguous, string.Join(Environment.NewLine, suggestionPaths.Select((string path) => "- " + path)));
         string metadataMismatchWarning = selectedCandidate == null
             ? string.Empty
             : string.Format(Resources.Warning_InstallEstimationMetadataMismatch, selectedCandidate.DirectoryPath);
@@ -7520,6 +7562,10 @@ public class BMSLibrary : NotificationObject
             {
                 bmsFile.SetWarning(ChartWarningKind.InstallEstimationAmbiguous, ambiguousWarning);
             }
+            else if (isLowConfidenceInstalledDestinationAmbiguous && !string.IsNullOrWhiteSpace(installedDestinationAmbiguousWarning))
+            {
+                bmsFile.SetWarning(ChartWarningKind.InstalledDestinationAmbiguous, installedDestinationAmbiguousWarning);
+            }
             else if (isLowConfidenceMetadataMismatch && !string.IsNullOrWhiteSpace(metadataMismatchWarning))
             {
                 bmsFile.SetWarning(ChartWarningKind.InstallEstimationMetadataMismatch, metadataMismatchWarning);
@@ -7531,7 +7577,7 @@ public class BMSLibrary : NotificationObject
         }
     }
 
-    private InstallEstimationEvaluationData EvaluateInstallEstimation(BMSPackage package, List<BMSFile> targetBmsFiles, bool asParallel, BmsInstallationEstimateMode estimateMode, BmsLibraryOptionsSnapshot optionsSnapshot = null, bool useThreadSafeResolvers = false, bool useSharedLazyHashMetrics = false, BMSDirectoryFileNameHash folderAllFileListSnapshot = null, DirectoryResourceLookupCache directoryLookupCacheSnapshot = null, DirectoryRelativePathHashIndex relativePathHashIndexSnapshot = null, PendingEstimateSourceBatchPackageState batchState = null)
+    private InstallEstimationEvaluationData EvaluateInstallEstimation(BMSPackage package, List<BMSFile> targetBmsFiles, bool asParallel, BmsInstallationEstimateMode estimateMode, BmsLibraryOptionsSnapshot optionsSnapshot = null, bool useThreadSafeResolvers = false, bool useSharedLazyHashMetrics = false, BMSDirectoryFileNameHash folderAllFileListSnapshot = null, DirectoryResourceLookupCache directoryLookupCacheSnapshot = null, DirectoryRelativePathHashIndex relativePathHashIndexSnapshot = null, PendingEstimateSourceBatchPackageState batchState = null, IReadOnlyCollection<string> candidateDirectoryOverride = null, bool markInstalledDestinationAmbiguous = false)
     {
         List<BMSFile> targetFileList = (targetBmsFiles ?? new List<BMSFile>()).Where((BMSFile bmsInfo) => bmsInfo != null).ToList();
         if (targetFileList.Count == 0)
@@ -7576,15 +7622,32 @@ public class BMSLibrary : NotificationObject
                 ? package.GetOrBuildInstallEstimationSnapshot(targetFileList)
                 : PackageInstallEstimationSnapshotBuilder.BuildForLooseFiles(targetFileList);
         }
-        InstallEstimationResult result = CreateInstallEstimationService(optionsSnapshot).EstimateInstallationDirectory(
-            estimationSnapshot,
-            effectiveFolderAllFileList,
-            effectiveDirectoryLookupCache,
-            asParallel,
-            estimateMode,
-            representativeResolver,
-            metadataProfileResolver,
-            effectiveRelativePathHashIndex);
+        InstallEstimationResult result = candidateDirectoryOverride == null
+            ? CreateInstallEstimationService(optionsSnapshot).EstimateInstallationDirectory(
+                estimationSnapshot,
+                effectiveFolderAllFileList,
+                effectiveDirectoryLookupCache,
+                asParallel,
+                estimateMode,
+                representativeResolver,
+                metadataProfileResolver,
+                effectiveRelativePathHashIndex)
+            : CreateInstallEstimationService(optionsSnapshot).EstimateInstallationDirectoryForCandidateDirectories(
+                estimationSnapshot,
+                candidateDirectoryOverride,
+                effectiveDirectoryLookupCache,
+                asParallel,
+                estimateMode,
+                representativeResolver,
+                metadataProfileResolver);
+        if (markInstalledDestinationAmbiguous && result?.LowConfidenceKind == InstallEstimationLowConfidenceKind.AmbiguousCandidates)
+        {
+            result.Confidence = InstallEstimationConfidence.Low;
+            result.LowConfidenceKind = InstallEstimationLowConfidenceKind.InstalledDestinationAmbiguous;
+            result.ConfidenceReason = "installed_destination_multiple_viable_candidates";
+            result.DestinationDirectory = null;
+            result.ShouldAutoApplyDestination = false;
+        }
         long lazyHashBuildMsAfter = useSharedLazyHashMetrics ? lazyHashBuildMsBefore : (effectiveDirectoryLookupCache?.LazyHashBuildMs ?? lazyHashBuildMsBefore);
         long lazyHashLookupCountAfter = useSharedLazyHashMetrics ? lazyHashLookupCountBefore : (effectiveDirectoryLookupCache?.LazyHashLookupCount ?? lazyHashLookupCountBefore);
         int lazyHashCacheEntriesAfter = useSharedLazyHashMetrics ? lazyHashCacheEntriesBefore : (effectiveDirectoryLookupCache?.LazyHashCacheEntryCount ?? lazyHashCacheEntriesBefore);
@@ -8153,36 +8216,35 @@ public class BMSLibrary : NotificationObject
     private bool TryResolveInstalledDestinationFromPackage(BMSPackage package, List<BMSFile> missingFiles, out string resolvedDir)
     {
         resolvedDir = null;
-        if (package == null || missingFiles == null || missingFiles.Count == 0)
+        InstalledDirectoryLookupResult resolution = ResolveInstalledDestinationFromPackage(package, missingFiles);
+        LogMixedPackageResolution(resolution, package?.path, missingFiles?.Count ?? 0);
+        if (!resolution.Success)
         {
             return false;
+        }
+        resolvedDir = resolution.InstallDirectory;
+        return true;
+    }
+
+    private InstalledDirectoryLookupResult ResolveInstalledDestinationFromPackage(BMSPackage package, List<BMSFile> missingFiles)
+    {
+        if (package == null || missingFiles == null || missingFiles.Count == 0)
+        {
+            return new InstalledDirectoryLookupResult
+            {
+                Reason = InstalledDirectoryResolveReason.InvalidInput
+            };
         }
         InstalledChartDirectoryIndexSnapshot installedDirectoryIndex = BuildInstalledHashToDirectoryMap();
         if (installedDirectoryIndex.HashCount == 0)
         {
-            LogInstallPerformance("mixed_package_resolve failed reason=installed_index_empty");
-            return false;
+            return new InstalledDirectoryLookupResult
+            {
+                Reason = InstalledDirectoryResolveReason.InstalledIndexEmpty
+            };
         }
         BmsLibraryInstallEstimationService installEstimationService = CreateInstallEstimationService();
-        InstalledDirectoryLookupResult resolution = installEstimationService.TryResolveInstalledDestinationFromPackage(package, missingFiles, installedDirectoryIndex, bmsFolderAllFileList);
-        LogInstallPerformance("mixed_package_resolve start package=" + package.path + " missing=" + missingFiles.Count + " installedMatched=" + resolution.MatchedHashCount + " candidateDirs=" + resolution.CandidateDirectoryCount);
-        if (!resolution.Success)
-        {
-            string reason = resolution.Reason switch
-            {
-                InstalledDirectoryResolveReason.NoInstalledDirectoryMatch => "no_installed_dir_match",
-                InstalledDirectoryResolveReason.MissingRepresentative => "missing_representative_not_found",
-                InstalledDirectoryResolveReason.TieHealthBelowThreshold => "tie_health_below_threshold",
-                InstalledDirectoryResolveReason.TieBreakUnresolved => "tie_break_unresolved",
-                InstalledDirectoryResolveReason.InstalledIndexEmpty => "installed_index_empty",
-                _ => "unknown"
-            };
-            LogInstallPerformance("mixed_package_resolve failed reason=" + reason + " tieCandidates=" + resolution.CandidateDirectoryCount);
-            return false;
-        }
-        resolvedDir = resolution.InstallDirectory;
-        LogInstallPerformance("mixed_package_resolve selected dst=" + resolvedDir + " matched=" + resolution.MatchedHashCount + " tieCandidates=" + resolution.CandidateDirectoryCount);
-        return true;
+        return installEstimationService.TryResolveInstalledDestinationFromPackage(package, missingFiles, installedDirectoryIndex, bmsFolderAllFileList);
     }
 
     /// <summary>
@@ -8224,9 +8286,37 @@ public class BMSLibrary : NotificationObject
                         // 部分既所持パッケージでは、既存譜面の実配置先を優先利用して未所持譜面の導入先を補完する。
                         if (alreadyInstalledFiles.Count > 0)
                         {
-                            if (TryResolveInstalledDestinationFromPackage(package, missingFiles, out var resolvedDir))
+                            InstalledDirectoryLookupResult resolution = ResolveInstalledDestinationFromPackage(package, missingFiles);
+                            LogMixedPackageResolution(resolution, package.path, missingFiles.Count);
+                            if (resolution.Success)
                             {
-                                ApplyResolvedInstallDestinationToFiles(missingFiles, resolvedDir);
+                                ApplyResolvedInstallDestinationToFiles(missingFiles, resolution.InstallDirectory);
+                                return;
+                            }
+                            if (resolution.Reason == InstalledDirectoryResolveReason.MultipleCandidateDirectories)
+                            {
+                                if (!HasUsableDirectoryLookupCache(directoryResourceLookupCache))
+                                {
+                                    LogInstallPerformance("mixed_package_resolve failed reason=resource_index_unavailable missing=" + missingFiles.Count + " candidateDirs=" + resolution.CandidateDirectoryCount);
+                                    ApplyInstalledDestinationResolveFailedToPackageUnsafe(package, missingFiles);
+                                    return;
+                                }
+                                InstallEstimationEvaluationData estimationData = EvaluateInstallEstimation(
+                                    package,
+                                    missingFiles,
+                                    asParallel: true,
+                                    BmsInstallationEstimateMode.Normal,
+                                    candidateDirectoryOverride: resolution.CandidateDirectories,
+                                    markInstalledDestinationAmbiguous: true);
+                                LogInstallEstimationEvaluation(estimationData);
+                                if (estimationData.Result?.HasViableDestination == true)
+                                {
+                                    ApplyInstallEstimationResultToFiles(missingFiles, estimationData.Result);
+                                }
+                                else
+                                {
+                                    ApplyInstalledDestinationResolveFailedToPackageUnsafe(package, missingFiles);
+                                }
                                 return;
                             }
                             LogInstallPerformance("mixed_package_resolve failed reason=installed_destination_unresolved missing=" + missingFiles.Count);

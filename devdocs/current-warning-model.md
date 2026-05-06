@@ -35,8 +35,9 @@
 | `InstallEstimationAmbiguous` | `InstallEstimation` | 40 | `推定先複数` | true | warning が存在する場合 |
 | `InstallEstimationMetadataMismatch` | `InstallEstimation` | 41 | `TITLE/ARTIST不一致` | true | warning が存在する場合 |
 | `InstallEstimationReinstallNotImproved` | `InstallEstimation` | 42 | `再導入改善なし` | true | warning が存在する場合 |
-| `InstalledDestinationResolveFailed` | `InstallEstimation` | 43 | `導入先不明` | false | warning が存在する場合 |
-| `InstallEstimationLowConfidence` | `InstallEstimation` | 44 | `導入先推定` | true | warning が存在する場合 |
+| `InstalledDestinationAmbiguous` | `InstallEstimation` | 43 | `導入先複数` | true | warning が存在する場合 |
+| `InstalledDestinationResolveFailed` | `InstallEstimation` | 44 | `導入先不明` | false | warning が存在する場合 |
+| `InstallEstimationLowConfidence` | `InstallEstimation` | 45 | `導入先推定` | true | warning が存在する場合 |
 | `AlreadyInstalled` | `InstalledState` | 50 | `既に導入済み` | false | warning が存在する場合 |
 | `SingleBmsFile` | `PackageLayout` | 60 | `単体BMS` | false | warning が存在する場合 |
 | `SingleBmsonFile` | `PackageLayout` | 60 | `単体BMSON` | false | warning が存在する場合 |
@@ -52,7 +53,7 @@
 - `ResourceHealth` は保留パッケージなど導入前評価では category 単位で再構築します。導入成功時に category 単位で clear し、導入後の通常ライブラリ一覧と新規画面では `maintenanceInfo` / resource health index から表示時に投影します。これにより、保留時の「単体譜面なので WAV 0%」という warning が、導入後に WAV 100% へ更新された行へ残りません。
 - 導入後に不足 resource を追加した場合の再評価は、行右クリック `ファイルスキャン > 再スキャン` または `ファイルスキャン > 全譜面を再スキャン` で行います。通常起動の `maintenance_hydration` は DB snapshot attach であり、全譜面の resource 再検証は行いません。
 - `全譜面を再スキャン` は 1000 件 section 単位で進捗を出す重い明示操作です。通常起動ログ評価では、未完了の manual rescan と `maintenance_hydration` を分けて扱います。
-- `InstallEstimation` は導入先推定結果の適用、手動導入先確定、導入成功、推定状態クリアで category 単位に扱います。
+- `InstallEstimation` は導入先推定結果の適用、手動導入先確定、導入成功、推定状態クリアで category 単位に扱います。mixed package で既所持譜面から複数の導入先候補が見つかり、final evaluation 後も複数 viable 候補が残る場合は `InstalledDestinationAmbiguous` を付与し、候補一覧を tooltip に出します。
 - `DuplicateChart` は kind 単位で set / clear します。
 - `ZeroNoteMismatch` は `chart_info.notes == 0` の BMS を正規表現で確認したとき、本文に可視ノート風記述がある場合に set し、`chart_info` が未生成または 0 notes ではなくなった場合は stale warning として clear します。
 - `ChartInfoParseFailure` は解析エラー画面用の表示 shim 行に付与します。通常ライブラリの元行へは mutation しません。

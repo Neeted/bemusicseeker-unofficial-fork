@@ -451,6 +451,7 @@
   "WarningDigest_InstallEstimationAmbiguous": "推定先複数",
   "WarningDigest_InstallEstimationMetadataMismatch": "TITLE/ARTIST不一致",
   "WarningDigest_InstallEstimationReinstallNotImproved": "再導入改善なし",
+  "WarningDigest_InstalledDestinationAmbiguous": "導入先複数",
   "WarningDigest_InstalledDestinationResolveFailed": "導入先不明",
   "WarningDigest_InstallEstimationLowConfidence": "導入先推定",
   "WarningDigest_AlreadyInstalled": "既に導入済み",
@@ -465,6 +466,7 @@
   "Warning_InstallEstimationMetadataMismatch": "TITLE / ARTIST の一致度が低いため自動確定していません。\n候補: {0}",
   "Warning_InstallEstimationReinstallNotImprovedPrefix": "現在の配置より健康度が改善しないため自動確定していません。",
   "Warning_InstallEstimationReinstallNotImproved": "現在の配置より健康度が改善しないため自動確定していません。\n候補: {0}",
+  "Warning_InstalledDestinationAmbiguous": "既所持譜面から複数の導入先候補が見つかったため、自動確定していません。\n候補:\n{0}",
   "Warning_InstalledDestinationResolveFailed": "既所持譜面から導入先を特定できません。ライブラリの状態を確認してください。",
   "BmsonMigrationWarningMessage": "bmson 対応のため、初回起動時にプレイリストやハッシュ管理用・bmson カタログ用テーブルへ変更を加えます。\n\n初回の SHA-256 生成はライブラリ規模によってかなり時間がかかります。\n更新後の DB は、従来版 BeMusicSeeker および本フォーク版 v1.2.1.0 以前と互換性がない可能性があります。\n互換性に不安がある場合は、事前に song.db などのバックアップを推奨します。",
   "BmsonMigrationWarningTitle": "bmson 対応に伴う移行警告",
@@ -548,4 +550,3 @@
   "Warn_ArchiveLastWriteTimeMissingDetail": "アーカイブ内ファイルに更新日時が記録されていません。",
   "Warn_ArchiveBundledSevenZipMissingDetail": "同梱のアーカイブ展開ライブラリが見つかりません。"
 }
-
