@@ -603,7 +603,7 @@ Everything service 側で同時 query の内部競合があるため、個別の
 
 mixed package の既所持 chart hash から複数の配置先候補が見つかる場合も、extensionless union の health 補助では判定しない。候補集合を通常推定と同じ category resource final evaluation へ渡し、一意に勝つ candidate は自動設定、複数 viable candidate が残る場合は `InstalledDestinationAmbiguous` warning と suggestions に落とす。`DirectoryResourceLookupCache` がない場合は推定不可として `InstalledDestinationResolveFailed` を付ける。
 
-続く整理では、導入先推定から cacheless 経路を削除した。通常推定、候補限定推定、merge / reinstall correction はすべて `DirectoryResourceLookupCache` を必須とし、`BMSDirectoryFileNameHash` / `DirectoryRelativePathHashIndex` へ fallback しない。候補 directory 集合も `DirectoryResourceLookupCache.Keys` から得る。resource index がない場合は `resource_index_unavailable` として推定不可にする。
+続く整理では、導入先推定から cacheless 経路を削除した。通常推定、候補限定推定、merge / reinstall correction はすべて `DirectoryResourceLookupCache` を必須とし、`BMSDirectoryFileNameHash` / `DirectoryRelativePathHashIndex` へ fallback しない。候補 directory 集合も `DirectoryResourceLookupCache.Keys` から得る。resource index がない場合は `resource_index_unavailable` として推定不可にする。さらに `BmsLibraryInstallEstimationService` の推定 API から `BMSDirectoryFileNameHash` / `DirectoryRelativePathHashIndex` 引数を外し、候補 view 内部の extensionless all-base union も使わない形にした。
 
 次フェーズでは、残っている extensionless resource union の利用箇所を全調査し、カテゴリ別 API へ置き換える。特に導入先 tie-break で union を使う必要は薄く、同率に近い候補は曖昧候補として提示し、順序安定だけが必要なら path 名順で十分とする。
 

@@ -193,16 +193,13 @@ primary health は次の順で選ばれます。
 
 通常経路の `CandidateCount` はカテゴリ別 relative key set から出ます。つまり、audio / image / movie のそれぞれの candidate count が precision / jaccard に効きます。
 
-ただし union は導入先推定以外の補助、または診断寄りの派生値として残っています。
-
-- `DirectoryResourceLookupCache.Entry.AllBaseNameHashes` の lazy union
-- `AudioFileCount` など診断・表示寄りの派生値
+ただし union は導入先推定以外の補助として残っています。`DirectoryResourceLookupCache.Entry.AllBaseNameHashes` はカテゴリ配列から lazy に派生できますが、導入先推定 service の候補 view / matching / tie-break / 診断値では使いません。
 
 このため、現時点でも union が完全に消えたわけではありません。ただし、導入先の candidate 列挙、primary matching、primary tie-break の正本は audio / image / movie のカテゴリ別 key です。
 
 mixed package の既存配置先再利用では、hash tie が複数候補になっても extensionless union の health 判定補助は使いません。候補限定 final evaluation の category resource metrics で評価し、曖昧なら suggestions と warning に落とします。
 
-今後の整理では、extensionless union を候補 directory list 以外の推定材料から外し、順序安定が必要なだけなら path 順などの明示的で安全な tie-break へ置き換えます。
+今後の整理では、導入先推定以外に残る extensionless union の利用箇所を確認し、resource health / maintenance / file operation の文脈ごとにカテゴリ別 API へ置き換えます。順序安定だけが必要なら path 順などの明示的で安全な tie-break へ置き換えます。
 
 ## Metadata Tie-break
 

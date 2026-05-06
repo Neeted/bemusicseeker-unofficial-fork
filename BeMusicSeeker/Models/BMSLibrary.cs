@@ -7619,7 +7619,6 @@ public class BMSLibrary : NotificationObject
         InstallEstimationResult result = candidateDirectoryOverride == null
             ? CreateInstallEstimationService(optionsSnapshot).EstimateInstallationDirectory(
                 estimationSnapshot,
-                folderAllFileList: null,
                 effectiveDirectoryLookupCache,
                 asParallel,
                 estimateMode,

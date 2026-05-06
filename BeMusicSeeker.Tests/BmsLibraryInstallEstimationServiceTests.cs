@@ -46,21 +46,18 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         InstallEstimationResult sequential = service.EstimateInstallationDirectory(
             new[] { file },
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
-            cache,
             directoryLookupCache: null,
             asParallel: false,
             BmsInstallationEstimateMode.Normal);
         InstallEstimationResult defaultParallel = service.EstimateInstallationDirectory(
             new[] { file },
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
-            cache,
             directoryLookupCache: null,
             asParallel: true,
             BmsInstallationEstimateMode.Normal);
         InstallEstimationResult explicitDegree = service.EstimateInstallationDirectory(
             new[] { file },
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
-            cache,
             directoryLookupCache: null,
             candidateEvaluationDegree: 16,
             BmsInstallationEstimateMode.Normal);
@@ -209,7 +206,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
 
             InstallEstimationResult result = service.EstimateInstallationDirectory(
                 snapshot,
-                cache,
                 lookupCache,
                 asParallel: false,
                 BmsInstallationEstimateMode.MergeCandidateOnly);
@@ -245,7 +241,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             InstallEstimationResult result = service.EstimateInstallationDirectory(
                 new[] { file },
                 new HashSet<string>(StringComparer.OrdinalIgnoreCase),
-                cache,
                 lookupCache,
                 asParallel: false,
                 BmsInstallationEstimateMode.Normal);
@@ -282,7 +277,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             InstallEstimationResult result = service.EstimateInstallationDirectory(
                 new[] { file },
                 new HashSet<string>(StringComparer.OrdinalIgnoreCase),
-                cache,
                 lookupCache,
                 asParallel: false,
                 BmsInstallationEstimateMode.Normal);
@@ -331,7 +325,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             InstallEstimationResult result = service.EstimateInstallationDirectory(
                 new[] { file },
                 new HashSet<string>(StringComparer.OrdinalIgnoreCase),
-                cache,
                 lookupCache,
                 asParallel: false,
                 BmsInstallationEstimateMode.Normal);
@@ -372,7 +365,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             InstallEstimationResult result = service.EstimateInstallationDirectory(
                 new[] { file },
                 new HashSet<string>(StringComparer.OrdinalIgnoreCase),
-                cache,
                 lookupCache,
                 asParallel: false,
                 BmsInstallationEstimateMode.Normal);
@@ -411,7 +403,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             InstallEstimationResult result = service.EstimateInstallationDirectory(
                 new[] { file },
                 new HashSet<string>(StringComparer.OrdinalIgnoreCase),
-                cache,
                 lookupCache,
                 asParallel: false,
                 BmsInstallationEstimateMode.Normal);
@@ -450,7 +441,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             InstallEstimationResult result = service.EstimateInstallationDirectory(
                 new[] { file },
                 new HashSet<string>(StringComparer.OrdinalIgnoreCase),
-                cache,
                 lookupCache,
                 asParallel: false,
                 BmsInstallationEstimateMode.Normal);
@@ -496,14 +486,12 @@ public sealed class BmsLibraryInstallEstimationServiceTests
 
             InstallEstimationResult normalResult = service.EstimateInstallationDirectory(
                 snapshot,
-                cache,
                 lookupCache,
                 asParallel: false,
                 BmsInstallationEstimateMode.Normal);
 
             InstallEstimationResult mergeResult = service.EstimateInstallationDirectory(
                 snapshot,
-                cache,
                 lookupCache,
                 asParallel: false,
                 BmsInstallationEstimateMode.MergeCandidateOnly);
@@ -557,7 +545,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
 
             InstallEstimationResult result = service.EstimateInstallationDirectory(
                 snapshot,
-                cache,
                 lookupCache,
                 asParallel: false,
                 BmsInstallationEstimateMode.Normal);
@@ -608,7 +595,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             InstallEstimationResult result = service.EstimateInstallationDirectory(
                 new[] { file },
                 new HashSet<string>(StringComparer.OrdinalIgnoreCase),
-                cache,
                 lookupCache,
                 asParallel: false,
                 BmsInstallationEstimateMode.Normal);
@@ -656,7 +642,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             InstallEstimationResult result = service.EstimateInstallationDirectory(
                 new[] { file },
                 new HashSet<string>(StringComparer.OrdinalIgnoreCase),
-                cache,
                 lookupCache,
                 asParallel: false,
                 BmsInstallationEstimateMode.Normal);
@@ -690,7 +675,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         InstallEstimationResult result = service.EstimateInstallationDirectory(
             new[] { file },
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
-            cache,
             lookupCache,
             asParallel: false,
             BmsInstallationEstimateMode.Normal);
@@ -723,7 +707,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         InstallEstimationResult result = service.EstimateInstallationDirectory(
             new[] { file },
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
-            cache,
             lookupCache,
             asParallel: false,
             BmsInstallationEstimateMode.Normal);
@@ -998,7 +981,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
 
             InstallEstimationResult result = service.EstimateInstallationDirectory(
                 snapshot,
-                cache,
                 lookupCache,
                 asParallel: false,
                 BmsInstallationEstimateMode.Normal);
@@ -1043,7 +1025,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
 
             InstallEstimationResult result = service.EstimateInstallationDirectory(
                 snapshot,
-                cache,
                 lookupCache,
                 asParallel: false,
                 BmsInstallationEstimateMode.Normal);
@@ -1120,7 +1101,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         InstallEstimationResult result = service.EstimateInstallationDirectory(
             new[] { file },
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
-            cache,
             lookupCache,
             asParallel: false,
             BmsInstallationEstimateMode.ReinstallCorrection);
@@ -1153,7 +1133,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         InstallEstimationResult result = service.EstimateInstallationDirectory(
             new[] { file },
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
-            cache,
             lookupCache,
             asParallel: false,
             BmsInstallationEstimateMode.ReinstallCorrection);
@@ -1185,7 +1164,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         InstallEstimationResult result = service.EstimateInstallationDirectory(
             new[] { file },
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
-            cache,
             lookupCache,
             asParallel: false,
             BmsInstallationEstimateMode.ReinstallCorrection);
@@ -1220,7 +1198,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             InstallEstimationResult result = service.EstimateInstallationDirectory(
                 new[] { file },
                 new HashSet<string>(StringComparer.OrdinalIgnoreCase),
-                cache,
                 lookupCache,
                 asParallel: false,
                 BmsInstallationEstimateMode.ReinstallCorrection);
@@ -1261,7 +1238,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             InstallEstimationResult result = service.EstimateInstallationDirectory(
                 new[] { file },
                 new HashSet<string>(StringComparer.OrdinalIgnoreCase),
-                cache,
                 lookupCache,
                 asParallel: false,
                 BmsInstallationEstimateMode.ReinstallCorrection,
@@ -1332,7 +1308,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             InstallEstimationResult result = service.EstimateInstallationDirectory(
                 new[] { pending },
                 new HashSet<string>(StringComparer.OrdinalIgnoreCase),
-                cache,
                 lookupCache,
                 asParallel: false,
                 BmsInstallationEstimateMode.Normal);
@@ -1401,7 +1376,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             InstallEstimationResult result = service.EstimateInstallationDirectory(
                 new[] { pending },
                 new HashSet<string>(StringComparer.OrdinalIgnoreCase),
-                cache,
                 lookupCache,
                 asParallel: false,
                 BmsInstallationEstimateMode.Normal);
@@ -1437,7 +1411,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         InstallEstimationResult result = service.EstimateInstallationDirectory(
             new[] { file },
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
-            cache,
             lookupCache,
             asParallel: false,
             BmsInstallationEstimateMode.Normal);
@@ -1488,7 +1461,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 InstallEstimationResult result = service.EstimateInstallationDirectory(
                     new[] { file },
                     new HashSet<string>(StringComparer.OrdinalIgnoreCase),
-                    cache,
                     lookupCache,
                     asParallel: false,
                     BmsInstallationEstimateMode.Normal,
@@ -1575,7 +1547,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             InstallEstimationResult result = service.EstimateInstallationDirectory(
                 new[] { file },
                 new HashSet<string>(StringComparer.OrdinalIgnoreCase),
-                cache,
                 lookupCache,
                 asParallel: false,
                 BmsInstallationEstimateMode.Normal,
@@ -1629,7 +1600,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
 
             InstallEstimationResult result = service.EstimateInstallationDirectory(
                 snapshot,
-                cache,
                 lookupCache,
                 asParallel: false,
                 BmsInstallationEstimateMode.Normal);
@@ -1675,7 +1645,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 InstallEstimationResult result = service.EstimateInstallationDirectory(
                     new[] { file },
                     new HashSet<string>(StringComparer.OrdinalIgnoreCase),
-                    cache,
                     lookupCache,
                     asParallel: false,
                     BmsInstallationEstimateMode.Normal,
@@ -1732,7 +1701,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
 
             InstallEstimationResult result = service.EstimateInstallationDirectory(
                 snapshot,
-                cache,
                 lookupCache,
                 asParallel: false,
                 BmsInstallationEstimateMode.Normal);
@@ -1796,7 +1764,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             InstallEstimationResult result = service.EstimateInstallationDirectory(
                 new[] { file },
                 new HashSet<string>(StringComparer.OrdinalIgnoreCase),
-                cache,
                 lookupCache,
                 asParallel: false,
                 BmsInstallationEstimateMode.Normal);
@@ -1828,7 +1795,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         InstallEstimationResult result = service.EstimateInstallationDirectory(
             new[] { file },
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
-            cache,
             lookupCache,
             asParallel: false,
             BmsInstallationEstimateMode.Normal,
@@ -1872,7 +1838,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         InstallEstimationResult result = service.EstimateInstallationDirectory(
             new[] { file },
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
-            cache,
             lookupCache,
             asParallel: false,
             BmsInstallationEstimateMode.Normal);
@@ -1907,11 +1872,9 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         InstallEstimationResult result = service.EstimateInstallationDirectory(
             new[] { file },
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
-            cache,
             directoryLookupCache: null,
             asParallel: false,
-            BmsInstallationEstimateMode.Normal,
-            relativePathHashIndex: relativePathIndex);
+            BmsInstallationEstimateMode.Normal);
 
         Assert.AreEqual("resource_index_unavailable", result.ConfidenceReason);
         Assert.AreEqual("resource_index_unavailable", result.CandidateMode);
@@ -1945,7 +1908,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         InstallEstimationResult result = service.EstimateInstallationDirectory(
             new[] { file },
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
-            cache,
             lookupCache,
             asParallel: false,
             BmsInstallationEstimateMode.Normal);
@@ -1979,7 +1941,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         InstallEstimationResult result = service.EstimateInstallationDirectory(
             new[] { file },
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
-            cache,
             lookupCache,
             asParallel: false,
             BmsInstallationEstimateMode.Normal);
@@ -2019,7 +1980,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         InstallEstimationResult result = service.EstimateInstallationDirectory(
             new[] { file },
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
-            cache,
             lookupCache,
             asParallel: false,
             BmsInstallationEstimateMode.Normal);
@@ -2082,7 +2042,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         InstallEstimationResult result = service.EstimateInstallationDirectory(
             new[] { file },
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
-            cache,
             lookupCache,
             asParallel: false,
             BmsInstallationEstimateMode.Normal);
@@ -2146,7 +2105,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         InstallEstimationResult result = service.EstimateInstallationDirectory(
             new[] { file },
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
-            cache,
             lookupCache,
             asParallel: false,
             BmsInstallationEstimateMode.Normal);
@@ -2183,7 +2141,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         InstallEstimationResult result = service.EstimateInstallationDirectory(
             new[] { file },
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
-            cache,
             lookupCache,
             asParallel: false,
             BmsInstallationEstimateMode.Normal);
@@ -2222,7 +2179,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         InstallEstimationResult result = service.EstimateInstallationDirectory(
             new[] { file },
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
-            cache,
             lookupCache,
             asParallel: false,
             BmsInstallationEstimateMode.Normal);
@@ -2258,7 +2214,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         InstallEstimationResult result = service.EstimateInstallationDirectory(
             new[] { file },
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
-            cache,
             lookupCache,
             asParallel: false,
             BmsInstallationEstimateMode.Normal);
@@ -2308,14 +2263,12 @@ public sealed class BmsLibraryInstallEstimationServiceTests
 
             InstallEstimationResult normalResult = service.EstimateInstallationDirectory(
                 snapshot,
-                cache,
                 lookupCache,
                 asParallel: false,
                 BmsInstallationEstimateMode.Normal);
 
             InstallEstimationResult mergeResult = service.EstimateInstallationDirectory(
                 snapshot,
-                cache,
                 lookupCache,
                 asParallel: false,
                 BmsInstallationEstimateMode.MergeCandidateOnly);
@@ -2358,7 +2311,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         InstallEstimationResult lookupResult = service.EstimateInstallationDirectory(
             new[] { file },
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
-            cache,
             lookupCache,
             asParallel: false,
             BmsInstallationEstimateMode.Normal);
@@ -2366,11 +2318,9 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         InstallEstimationResult unavailableResult = service.EstimateInstallationDirectory(
             new[] { file },
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
-            cache,
             directoryLookupCache: null,
             asParallel: false,
-            BmsInstallationEstimateMode.Normal,
-            relativePathHashIndex: relativePathIndex);
+            BmsInstallationEstimateMode.Normal);
 
         Assert.AreEqual(InstallEstimationFinalEvaluationMode.RelativeStrict, lookupResult.FinalEvaluationMode);
         Assert.AreEqual(candidateDir, lookupResult.DestinationDirectory);
@@ -2403,7 +2353,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         InstallEstimationResult lookupResult = service.EstimateInstallationDirectory(
             new[] { file },
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
-            cache,
             lookupCache,
             asParallel: false,
             BmsInstallationEstimateMode.Normal);
@@ -2411,11 +2360,9 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         InstallEstimationResult unavailableResult = service.EstimateInstallationDirectory(
             new[] { file },
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
-            cache,
             directoryLookupCache: null,
             asParallel: false,
-            BmsInstallationEstimateMode.Normal,
-            relativePathHashIndex: relativePathIndex);
+            BmsInstallationEstimateMode.Normal);
 
         Assert.AreEqual(InstallEstimationFinalEvaluationMode.RelativeStrict, lookupResult.FinalEvaluationMode);
         Assert.AreEqual(candidateDir, lookupResult.DestinationDirectory);
@@ -2511,7 +2458,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         InstallEstimationResult lookupResult = service.EstimateInstallationDirectory(
             new[] { file },
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
-            cache,
             lookupCache,
             asParallel: false,
             BmsInstallationEstimateMode.Normal);
@@ -2519,11 +2465,9 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         InstallEstimationResult unavailableResult = service.EstimateInstallationDirectory(
             new[] { file },
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
-            cache,
             directoryLookupCache: null,
             asParallel: false,
-            BmsInstallationEstimateMode.Normal,
-            relativePathHashIndex: relativePathIndex);
+            BmsInstallationEstimateMode.Normal);
 
         Assert.AreEqual(InstallEstimationFinalEvaluationMode.RelativeStrict, lookupResult.FinalEvaluationMode);
         Assert.IsNull(unavailableResult.DestinationDirectory);
