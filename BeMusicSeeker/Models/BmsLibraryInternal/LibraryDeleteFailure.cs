@@ -9,4 +9,6 @@ internal sealed class LibraryDeleteFailure
     public Exception Exception { get; set; }
 
     public bool IsDirectory { get; set; }
+
+    public string Reason { get; set; }
 }

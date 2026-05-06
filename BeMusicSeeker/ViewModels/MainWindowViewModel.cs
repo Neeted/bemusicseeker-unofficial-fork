@@ -16520,7 +16520,20 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
-    internal void RemoveLibraryCharts(IEnumerable<ChartOperationTarget> targets)
+    internal List<string> GetLibraryWholeFolderDeleteConfirmationPaths(IEnumerable<ChartOperationTarget> targets)
+    {
+        List<LibraryChartRef> charts = ToLibraryChartRefs(targets, ChartOperationCapabilities.RemoveFromLibrary).ToList();
+        if (charts.Count == 0)
+        {
+            return new List<string>();
+        }
+        lock (lockCopyFile)
+        {
+            return files.GetLibraryWholeFolderDeleteConfirmationPaths(charts);
+        }
+    }
+
+    internal void RemoveLibraryCharts(IEnumerable<ChartOperationTarget> targets, IEnumerable<string> approvedWholeFolderDeletePaths = null)
     {
         List<LibraryChartRef> charts = ToLibraryChartRefs(targets, ChartOperationCapabilities.RemoveFromLibrary).ToList();
         if (charts.Count == 0)
@@ -16529,8 +16542,8 @@ public class MainWindowViewModel : ViewModel
         }
         lock (lockCopyFile)
         {
-            stopPlayingBMSFile(charts.Where((LibraryChartRef chart) => chart.Kind == LibraryChartKind.Bms).Select((LibraryChartRef chart) => chart.BmsFile));
-            files.RemoveLibraryCharts(charts);
+            stopPlayingBMSFile(charts.Where((LibraryChartRef chart) => chart.Kind == LibraryChartKind.Bms && chart.BmsFile != null).Select((LibraryChartRef chart) => chart.BmsFile));
+            files.RemoveLibraryCharts(charts, approvedWholeFolderDeletePaths: approvedWholeFolderDeletePaths);
         }
     }
 
@@ -16654,7 +16667,7 @@ public class MainWindowViewModel : ViewModel
         }
         lock (lockCopyFile)
         {
-            stopPlayingBMSFile(charts.Where((LibraryChartRef chart) => chart.Kind == LibraryChartKind.Bms).Select((LibraryChartRef chart) => chart.BmsFile));
+            stopPlayingBMSFile(charts.Where((LibraryChartRef chart) => chart.Kind == LibraryChartKind.Bms && chart.BmsFile != null).Select((LibraryChartRef chart) => chart.BmsFile));
             files.MoveLibraryRootFolder(charts, newParentDirectory, false);
         }
     }
@@ -16686,7 +16699,11 @@ public class MainWindowViewModel : ViewModel
         {
             return LibraryChartRef.FromBmsonSong(target.Chart.BmsonSong);
         }
-        return null;
+        return LibraryChartRef.FromPath(
+            target.Chart.Kind == OwnedChartKind.Bmson ? LibraryChartKind.Bmson : LibraryChartKind.Bms,
+            target.Chart.Path,
+            target.Chart.Md5,
+            target.Chart.Sha256);
     }
 
     /// <summary>

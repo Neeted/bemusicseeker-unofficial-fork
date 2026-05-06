@@ -83,6 +83,21 @@ internal sealed class LibraryChartRef
             song);
     }
 
+    internal static LibraryChartRef FromPath(LibraryChartKind kind, string path, string md5, string sha256)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return null;
+        }
+        return new LibraryChartRef(
+            kind,
+            path,
+            md5,
+            sha256,
+            null,
+            null);
+    }
+
     public BMSFile ToCompatibilityBmsFile()
     {
         if (Kind == LibraryChartKind.Bms)

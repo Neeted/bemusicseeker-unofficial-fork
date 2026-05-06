@@ -263,6 +263,60 @@ public sealed class BmsLibraryStateApplierTests
     }
 
     [TestMethod]
+    public void UnregisterBmsFiles_RemovesLibraryRowsByPathWhenReferenceDiffers()
+    {
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            TestableBmsFile canonicalFile = new TestableBmsFile
+            {
+                path = "C:\\Library\\remove.bms"
+            };
+            canonicalFile.SetHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+            TestableBmsFile removedFileReference = new TestableBmsFile
+            {
+                path = canonicalFile.path
+            };
+            removedFileReference.SetHash(canonicalFile.hash);
+            TestableBmsFile keptFile = new TestableBmsFile
+            {
+                path = "C:\\Library\\keep.bms"
+            };
+            keptFile.SetHash("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+            BMSPackage removedPackage = new BMSPackage(new BMSFile[] { canonicalFile })
+            {
+                path = "C:\\Installed\\RemovePkg",
+                delete_parent = false
+            };
+            using (LR2SongDBExtended songDb = new LR2SongDBExtended(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDB.song>();
+                songDb.CreateTable<LR2SongDBExtended.maintenance>();
+                songDb.InsertOrReplace(canonicalFile, typeof(LR2SongDB.song));
+                songDb.InsertOrReplace(keptFile, typeof(LR2SongDB.song));
+                songDb.InsertOrReplace(new BMSFileMaintenanceInfo { path = canonicalFile.path }, typeof(LR2SongDBExtended.maintenance));
+            }
+
+            List<BMSFile> libraryFiles = new List<BMSFile> { canonicalFile, keptFile };
+            List<LR2SongDBExtended.bmson_song> bmsonSongs = new List<LR2SongDBExtended.bmson_song>();
+            DispatcherCollection<BMSPackage> pendingPackages = CreatePackageCollection(Array.Empty<BMSPackage>());
+            DispatcherCollection<BMSPackage> installedPackages = CreatePackageCollection(new[] { removedPackage });
+            TrackingCallbacks callbacks = new TrackingCallbacks();
+            BmsLibraryStateApplier applier = CreateStateApplier(songDbPath, callbacks, () => libraryFiles, files => libraryFiles = files, () => bmsonSongs, songs => bmsonSongs = songs, () => pendingPackages, packages => pendingPackages = packages, () => installedPackages, packages => installedPackages = packages);
+
+            applier.UnregisterBmsFiles(new[] { removedFileReference });
+
+            Assert.AreEqual(1, libraryFiles.Count);
+            Assert.AreSame(keptFile, libraryFiles.Single());
+            Assert.AreEqual(0, installedPackages.Count);
+            using LR2SongDBExtended verifySongDb = new LR2SongDBExtended(songDbPath);
+            verifySongDb.CreateTable<LR2SongDB.song>();
+            verifySongDb.CreateTable<LR2SongDBExtended.maintenance>();
+            Assert.IsFalse(verifySongDb.Table<BMSFile>().Any((BMSFile file) => file.path == canonicalFile.path));
+            Assert.IsFalse(verifySongDb.Table<BMSFileMaintenanceInfo>().Any((BMSFileMaintenanceInfo info) => info.path == canonicalFile.path));
+        });
+    }
+
+    [TestMethod]
     public void UnregisterBmsonSongs_RemovesSongsFromCollectionAndDatabase()
     {
         WithTemporarySongDb(delegate(string songDbPath)

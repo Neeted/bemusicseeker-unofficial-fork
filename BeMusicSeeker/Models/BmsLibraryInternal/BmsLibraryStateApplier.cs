@@ -197,13 +197,14 @@ internal sealed class BmsLibraryStateApplier
             return;
         }
 
-        setBmsFiles(getBmsFiles().Except(removedFilesList).ToList());
-        dbGateway.DeleteSongsAndMaintenance(removedFilesList);
-
         HashSet<string> removedPaths = new HashSet<string>(
             removedFilesList.Where((BMSFile file) => !string.IsNullOrWhiteSpace(file.path)).Select((BMSFile file) => file.path),
             StringComparer.OrdinalIgnoreCase);
         HashSet<BMSFile> removedFileRefs = new HashSet<BMSFile>(removedFilesList);
+        setBmsFiles(getBmsFiles()
+            .Where((BMSFile file) => !IsMatchedRemovedFile(file, removedPaths, removedFileRefs))
+            .ToList());
+        dbGateway.DeleteSongsAndMaintenance(removedFilesList);
         DispatcherCollection<BMSPackage> installedPackages = getInstalledPackages();
         bool installedPackagesChanged = false;
         List<BMSPackage> emptyInstalledPackages = new List<BMSPackage>();

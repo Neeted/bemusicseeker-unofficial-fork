@@ -10417,8 +10417,25 @@ public class BMSLibrary : NotificationObject
         RemoveLibraryCharts(charts, sendToRecycleBin);
     }
 
-    internal void RemoveLibraryCharts(IEnumerable<LibraryChartRef> charts, bool sendToRecycleBin = true)
+    internal List<string> GetLibraryWholeFolderDeleteConfirmationPaths(IEnumerable<LibraryChartRef> charts)
     {
+        using (rwlockBMSFilesInitializedMin.GetReaderGuard())
+        {
+            using (rwlockBMSFiles.GetReaderGuard())
+            {
+                return libraryFileOperationsService.GetWholeFolderDeleteCandidatePaths(
+                    charts,
+                    (BMSFiles ?? Enumerable.Empty<BMSFile>()).Select(LibraryChartRef.FromBmsFile)
+                        .Concat((BmsonSongs ?? Enumerable.Empty<LR2SongDBExtended.bmson_song>()).Select(LibraryChartRef.FromBmsonSong)));
+            }
+        }
+    }
+
+    internal void RemoveLibraryCharts(IEnumerable<LibraryChartRef> charts, bool sendToRecycleBin = true, IEnumerable<string> approvedWholeFolderDeletePaths = null)
+    {
+        HashSet<string> approvedWholeFolderDeletes = approvedWholeFolderDeletePaths == null
+            ? null
+            : new HashSet<string>(approvedWholeFolderDeletePaths.Where((string path) => !string.IsNullOrWhiteSpace(path)), StringComparer.OrdinalIgnoreCase);
         using (rwlockBMSFilesInitializedMin.GetReaderGuard())
         {
             using (rwlockBMSFilesPendingInstall.GetWriterGuard())
@@ -10433,10 +10450,20 @@ public class BMSLibrary : NotificationObject
                         bmsFolderAllFileList,
                         directoryResourceLookupCache,
                         sendToRecycleBin,
-                        (folderPath) => dialogService.Show(string.Format(Resources.Confirm_DeleteFolderWithNoBms, folderPath), Resources.MessageBoxTitle_Confirm, MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.Yes) == MessageBoxResult.Yes,
+                        (folderPath) => approvedWholeFolderDeletes != null
+                            ? approvedWholeFolderDeletes.Contains(folderPath)
+                            : dialogService.Show(string.Format(Resources.Confirm_DeleteFolderWithNoBms, folderPath), Resources.MessageBoxTitle_Confirm, MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.Yes) == MessageBoxResult.Yes,
                         fileMutationService,
                         targetOnlyFileMutationOptions,
                         recursiveDirectoryTreeFileMutationOptions);
+                    LogInstallPerformance("delete_library_result input=" + result.InputChartCount
+                        + " canonical=" + result.CanonicalChartCount
+                        + " unresolved=" + result.UnresolvedChartCount
+                        + " pathOnly=" + result.PathOnlyInputCount
+                        + " removed=" + result.RemovedCharts.Count
+                        + " failures=" + result.Failures.Count
+                        + " folderDeletes=" + result.FolderDeleteCount
+                        + " fileDeletes=" + result.FileDeleteCount);
                     foreach (LibraryDeleteFailure failure in result.Failures)
                     {
                         if (failure.IsDirectory)

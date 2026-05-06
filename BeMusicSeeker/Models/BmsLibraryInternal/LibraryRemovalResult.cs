@@ -9,4 +9,16 @@ internal sealed class LibraryRemovalResult
     public List<LibraryChartRef> RemovedCharts { get; } = new List<LibraryChartRef>();
 
     public List<LibraryDeleteFailure> Failures { get; } = new List<LibraryDeleteFailure>();
+
+    public int InputChartCount { get; set; }
+
+    public int CanonicalChartCount { get; set; }
+
+    public int UnresolvedChartCount { get; set; }
+
+    public int PathOnlyInputCount { get; set; }
+
+    public int FolderDeleteCount { get; set; }
+
+    public int FileDeleteCount { get; set; }
 }

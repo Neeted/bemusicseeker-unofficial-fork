@@ -1320,6 +1320,25 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     {
         return TryGetContextMenuRow(source, out _, out row);
     }
+
+    private bool TryGetContextMenuChartTarget(object primarySource, object fallbackSource, out ChartOperationTarget target)
+    {
+        target = null;
+        if (TryGetContextMenuRow(primarySource, out object row)
+            && GridRowResolver.TryGetOperationChartTarget(row, GetCurrentChartOperationSourceScope(), out target))
+        {
+            return true;
+        }
+        if (!ReferenceEquals(primarySource, fallbackSource)
+            && TryGetContextMenuRow(fallbackSource, out row)
+            && GridRowResolver.TryGetOperationChartTarget(row, GetCurrentChartOperationSourceScope(), out target))
+        {
+            return true;
+        }
+        target = null;
+        return false;
+    }
+
     private bool TryGetTableContextMenuResource(object row, string logPrefix, out ContextMenu contextMenu, out bool usePlaylistMissingContextMenu)
     {
         contextMenu = null;
@@ -6622,16 +6641,27 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     private void tableContextMenuItemRemoveBMSFileClick(object sender, RoutedEventArgs e)
     {
         MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-        bool isPendingSelected = IsPendingMainViewSection(GetCurrentMainViewOperationSection());
-        List<ChartOperationTarget> targets = GetSelectedChartTargets(isPendingSelected)
-            .Where((ChartOperationTarget target) => target.HasCapability(isPendingSelected ? ChartOperationCapabilities.UpdateInstallDestination : ChartOperationCapabilities.RemoveFromLibrary))
-            .ToList();
-        if (viewModel == null || targets.Count == 0)
+        MainWindowViewModel.MainViewOperationSection section = GetCurrentMainViewOperationSection();
+        bool isPendingSelected = IsPendingMainViewSection(section);
+        List<ChartOperationTarget> selectedTargets = GetSelectedChartTargets(isPendingSelected);
+        TryGetContextMenuChartTarget(sender, e.Source, out ChartOperationTarget contextTarget);
+        ChartDeleteTargetResolution resolution = ChartDeleteTargetResolver.Resolve(selectedTargets, contextTarget, section);
+        if (installPerformanceLoggingEnabled)
+        {
+            installPerformanceLogger.Info("delete_chart_request section=" + section
+                + " contextScope=" + (resolution.ContextScope?.ToString() ?? "None")
+                + " selected=" + resolution.SelectedInputCount
+                + " fallback=" + resolution.UsedContextFallback
+                + " route=" + resolution.Route.ToString().ToLowerInvariant()
+                + " targetCount=" + resolution.Targets.Count
+                + " droppedMixedScope=" + resolution.MixedScopeDroppedCount);
+        }
+        if (viewModel == null || resolution.Targets.Count == 0)
         {
             return;
         }
         bool deleteContainingPackageFoldersWhenNoBms = false;
-        if (isPendingSelected)
+        if (resolution.Route == ChartDeleteRoute.Pending)
         {
             if (!ShowPendingDeleteConfirmDialog(out deleteContainingPackageFoldersWhenNoBms))
             {
@@ -6640,17 +6670,48 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         else if (DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_move_to_recycle, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) == MessageBoxResult.Cancel)
         {
+            if (installPerformanceLoggingEnabled)
+            {
+                installPerformanceLogger.Info("delete_chart_confirm route=" + resolution.Route.ToString().ToLowerInvariant() + " accepted=False");
+            }
             return;
+        }
+        if (installPerformanceLoggingEnabled)
+        {
+            installPerformanceLogger.Info("delete_chart_confirm route=" + resolution.Route.ToString().ToLowerInvariant() + " accepted=True");
+        }
+        List<string> approvedWholeFolderDeletePaths = null;
+        if (resolution.Route == ChartDeleteRoute.Library)
+        {
+            approvedWholeFolderDeletePaths = new List<string>();
+            foreach (string folderPath in viewModel.GetLibraryWholeFolderDeleteConfirmationPaths(resolution.Targets))
+            {
+                bool approved = DispatcherMessageBox.Show(
+                    Window.GetWindow(this),
+                    string.Format(BeMusicSeeker.Properties.Resources.Confirm_DeleteFolderWithNoBms, folderPath),
+                    BeMusicSeeker.Properties.Resources.MessageBoxTitle_Confirm,
+                    MessageBoxButton.YesNo,
+                    MessageBoxImage.Question,
+                    MessageBoxResult.Yes) == MessageBoxResult.Yes;
+                if (installPerformanceLoggingEnabled)
+                {
+                    installPerformanceLogger.Info("delete_chart_folder_confirm path=" + folderPath + " accepted=" + approved);
+                }
+                if (approved)
+                {
+                    approvedWholeFolderDeletePaths.Add(folderPath);
+                }
+            }
         }
         Task.Run(delegate
         {
-            if (isPendingSelected)
+            if (resolution.Route == ChartDeleteRoute.Pending)
             {
-                viewModel.RemovePendingCharts(targets, sendToRecycleBin: true, deleteContainingPackageFoldersWhenNoBms: deleteContainingPackageFoldersWhenNoBms);
+                viewModel.RemovePendingCharts(resolution.Targets, sendToRecycleBin: true, deleteContainingPackageFoldersWhenNoBms: deleteContainingPackageFoldersWhenNoBms);
             }
             else
             {
-                viewModel.RemoveLibraryCharts(targets);
+                viewModel.RemoveLibraryCharts(resolution.Targets, approvedWholeFolderDeletePaths);
             }
         }).Logging("tableContextMenuItemRemoveBMSFileClick");
     }

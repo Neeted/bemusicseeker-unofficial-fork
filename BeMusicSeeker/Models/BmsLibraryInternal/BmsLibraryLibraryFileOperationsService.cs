@@ -126,8 +126,26 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         List<LibraryChartRef> currentLibraryCharts = (libraryCharts ?? Enumerable.Empty<LibraryChartRef>())
             .Where((LibraryChartRef chart) => chart != null && !string.IsNullOrWhiteSpace(chart.Path))
             .ToList();
+        List<LibraryChartRef> inputCharts = (charts ?? Enumerable.Empty<LibraryChartRef>())
+            .Where((LibraryChartRef chart) => chart != null && !string.IsNullOrWhiteSpace(chart.Path))
+            .ToList();
+        CanonicalChartResolveResult resolveResult = ResolveCanonicalCharts(inputCharts, currentLibraryCharts);
+        result.InputChartCount = resolveResult.InputCount;
+        result.CanonicalChartCount = resolveResult.CanonicalCharts.Count;
+        result.UnresolvedChartCount = resolveResult.UnresolvedCharts.Count;
+        result.PathOnlyInputCount = resolveResult.PathOnlyInputCount;
+        foreach (LibraryChartRef unresolvedChart in resolveResult.UnresolvedCharts)
+        {
+            result.Failures.Add(new LibraryDeleteFailure
+            {
+                Path = unresolvedChart.Path,
+                Exception = new InvalidOperationException("Library chart could not be resolved from the current catalog."),
+                IsDirectory = false,
+                Reason = "resolve_failed"
+            });
+        }
         RecycleOption recycleOption = sendToRecycleBin ? RecycleOption.SendToRecycleBin : RecycleOption.DeletePermanently;
-        foreach (IGrouping<string, LibraryChartRef> folderGroup in from groupedFiles in (charts ?? Enumerable.Empty<LibraryChartRef>()).Where((LibraryChartRef chart) => chart != null && !string.IsNullOrWhiteSpace(chart.Path)).GroupBy((LibraryChartRef chart) => DirectoryExt.GetDirectoryNameSimple(chart.Path), StringComparer.OrdinalIgnoreCase)
+        foreach (IGrouping<string, LibraryChartRef> folderGroup in from groupedFiles in resolveResult.CanonicalCharts.GroupBy((LibraryChartRef chart) => DirectoryExt.GetDirectoryNameSimple(chart.Path), StringComparer.OrdinalIgnoreCase)
                                                           orderby groupedFiles.Key.Length descending
                                                           select groupedFiles)
         {
@@ -143,18 +161,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
                 try
                 {
                     fileMutationService.DeleteDirectoryShell(folderGroup.Key, UIOption.OnlyErrorDialogs, recycleOption, recursiveDirectoryTreeFileMutationOptions);
-                    foreach (string indexedDirectoryPath in folderAllFileList.Keys.Where((string directoryPath) => (directoryPath + Path.DirectorySeparatorChar).StartsWith(folderGroup.Key + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)))
-                    {
-                        folderAllFileList.RemoveDir(indexedDirectoryPath);
-                        directoryLookupCache?.RemoveDir(indexedDirectoryPath);
-                    }
-                    foreach (BMSFile installLinkedBmsFile in (pendingPackages ?? Enumerable.Empty<BMSPackage>()).SelectMany((BMSPackage pkg) => pkg.BMSFiles).Concat(currentLibraryCharts.Select((LibraryChartRef chart) => chart.BmsFile).Where((BMSFile bmsInfo) => bmsInfo != null && !string.IsNullOrWhiteSpace(bmsInfo.instl_dst))))
-                    {
-                        if (!string.IsNullOrWhiteSpace(installLinkedBmsFile.instl_dst) && (installLinkedBmsFile.instl_dst + Path.DirectorySeparatorChar).StartsWith(folderGroup.Key + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
-                        {
-                            installLinkedBmsFile.instl_dst = null;
-                        }
-                    }
+                    result.FolderDeleteCount++;
                     AddRemovedCharts(result, folderGroup);
                 }
                 catch (Exception ex)
@@ -166,6 +173,11 @@ internal sealed class BmsLibraryLibraryFileOperationsService
                         IsDirectory = true
                     });
                 }
+                if (!result.Failures.Any((LibraryDeleteFailure failure) => failure.IsDirectory && string.Equals(failure.Path, folderGroup.Key, StringComparison.OrdinalIgnoreCase)))
+                {
+                    CleanupDeletedFolderIndexes(folderGroup.Key, folderAllFileList, directoryLookupCache);
+                    ClearInstallDestinationsUnderDeletedFolder(folderGroup.Key, pendingPackages, currentLibraryCharts);
+                }
                 continue;
             }
             foreach (LibraryChartRef selectedChart in folderGroup)
@@ -175,6 +187,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
                     if (File.Exists(selectedChart.Path))
                     {
                         fileMutationService.DeleteFileShell(selectedChart.Path, UIOption.OnlyErrorDialogs, recycleOption, targetOnlyFileMutationOptions);
+                        result.FileDeleteCount++;
                         AddRemovedChart(result, selectedChart);
                     }
                 }
@@ -190,6 +203,174 @@ internal sealed class BmsLibraryLibraryFileOperationsService
             }
         }
         return result;
+    }
+
+    public List<string> GetWholeFolderDeleteCandidatePaths(
+        IEnumerable<LibraryChartRef> charts,
+        IEnumerable<LibraryChartRef> libraryCharts)
+    {
+        List<LibraryChartRef> currentLibraryCharts = (libraryCharts ?? Enumerable.Empty<LibraryChartRef>())
+            .Where((LibraryChartRef chart) => chart != null && !string.IsNullOrWhiteSpace(chart.Path))
+            .ToList();
+        List<LibraryChartRef> inputCharts = (charts ?? Enumerable.Empty<LibraryChartRef>())
+            .Where((LibraryChartRef chart) => chart != null && !string.IsNullOrWhiteSpace(chart.Path))
+            .ToList();
+        CanonicalChartResolveResult resolveResult = ResolveCanonicalCharts(inputCharts, currentLibraryCharts);
+        return GetWholeFolderDeleteCandidatePaths(resolveResult.CanonicalCharts, currentLibraryCharts);
+    }
+
+    private static List<string> GetWholeFolderDeleteCandidatePaths(
+        IEnumerable<LibraryChartRef> canonicalCharts,
+        List<LibraryChartRef> currentLibraryCharts)
+    {
+        List<string> result = new List<string>();
+        HashSet<string> selectedChartPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (IGrouping<string, LibraryChartRef> folderGroup in from groupedFiles in (canonicalCharts ?? Enumerable.Empty<LibraryChartRef>()).GroupBy((LibraryChartRef chart) => DirectoryExt.GetDirectoryNameSimple(chart.Path), StringComparer.OrdinalIgnoreCase)
+                                                          orderby groupedFiles.Key.Length descending
+                                                          select groupedFiles)
+        {
+            bool shouldConfirmWholeFolder = currentLibraryCharts.Where((LibraryChartRef chart) => chart.Path.StartsWith(folderGroup.Key + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) && !selectedChartPaths.Contains(chart.Path)).Count() == folderGroup.Count();
+            if (shouldConfirmWholeFolder)
+            {
+                result.Add(folderGroup.Key);
+            }
+            foreach (LibraryChartRef chart in folderGroup)
+            {
+                selectedChartPaths.Add(chart.Path);
+            }
+        }
+        return result;
+    }
+
+    private static CanonicalChartResolveResult ResolveCanonicalCharts(
+        IEnumerable<LibraryChartRef> inputCharts,
+        IEnumerable<LibraryChartRef> currentLibraryCharts)
+    {
+        CanonicalChartResolveResult result = new CanonicalChartResolveResult();
+        List<LibraryChartRef> currentCharts = (currentLibraryCharts ?? Enumerable.Empty<LibraryChartRef>())
+            .Where((LibraryChartRef chart) => chart != null && !string.IsNullOrWhiteSpace(chart.Path))
+            .ToList();
+        Dictionary<BMSFile, LibraryChartRef> bmsByReference = currentCharts
+            .Where((LibraryChartRef chart) => chart.BmsFile != null)
+            .GroupBy((LibraryChartRef chart) => chart.BmsFile)
+            .ToDictionary((IGrouping<BMSFile, LibraryChartRef> group) => group.Key, (IGrouping<BMSFile, LibraryChartRef> group) => group.First());
+        Dictionary<LR2SongDBExtended.bmson_song, LibraryChartRef> bmsonByReference = currentCharts
+            .Where((LibraryChartRef chart) => chart.BmsonSong != null)
+            .GroupBy((LibraryChartRef chart) => chart.BmsonSong)
+            .ToDictionary((IGrouping<LR2SongDBExtended.bmson_song, LibraryChartRef> group) => group.Key, (IGrouping<LR2SongDBExtended.bmson_song, LibraryChartRef> group) => group.First());
+        Dictionary<string, LibraryChartRef> byPath = currentCharts
+            .GroupBy((LibraryChartRef chart) => CreatePathKey(chart.Path), StringComparer.OrdinalIgnoreCase)
+            .Where((IGrouping<string, LibraryChartRef> group) => !string.IsNullOrWhiteSpace(group.Key))
+            .ToDictionary((IGrouping<string, LibraryChartRef> group) => group.Key, (IGrouping<string, LibraryChartRef> group) => group.First(), StringComparer.OrdinalIgnoreCase);
+        HashSet<string> addedKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (LibraryChartRef inputChart in inputCharts ?? Enumerable.Empty<LibraryChartRef>())
+        {
+            result.InputCount++;
+            if (inputChart.BmsFile == null && inputChart.BmsonSong == null)
+            {
+                result.PathOnlyInputCount++;
+            }
+            LibraryChartRef canonicalChart = ResolveCanonicalChart(inputChart, bmsByReference, bmsonByReference, byPath);
+            if (canonicalChart == null)
+            {
+                result.UnresolvedCharts.Add(inputChart);
+                continue;
+            }
+            string canonicalKey = canonicalChart.Kind + "|" + CreatePathKey(canonicalChart.Path);
+            if (addedKeys.Add(canonicalKey))
+            {
+                result.CanonicalCharts.Add(canonicalChart);
+            }
+        }
+        return result;
+    }
+
+    private static LibraryChartRef ResolveCanonicalChart(
+        LibraryChartRef inputChart,
+        Dictionary<BMSFile, LibraryChartRef> bmsByReference,
+        Dictionary<LR2SongDBExtended.bmson_song, LibraryChartRef> bmsonByReference,
+        Dictionary<string, LibraryChartRef> byPath)
+    {
+        if (inputChart == null)
+        {
+            return null;
+        }
+        if (inputChart.BmsFile != null && bmsByReference.TryGetValue(inputChart.BmsFile, out LibraryChartRef bmsChart))
+        {
+            return bmsChart;
+        }
+        if (inputChart.BmsonSong != null && bmsonByReference.TryGetValue(inputChart.BmsonSong, out LibraryChartRef bmsonChart))
+        {
+            return bmsonChart;
+        }
+        string pathKey = CreatePathKey(inputChart.Path);
+        if (!string.IsNullOrWhiteSpace(pathKey) && byPath.TryGetValue(pathKey, out LibraryChartRef pathChart) && pathChart.Kind == inputChart.Kind)
+        {
+            return pathChart;
+        }
+        return null;
+    }
+
+    private static string CreatePathKey(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return null;
+        }
+        try
+        {
+            return Path.GetFullPath(path.Trim());
+        }
+        catch
+        {
+            return path.Trim();
+        }
+    }
+
+    private static void CleanupDeletedFolderIndexes(string folderPath, BMSDirectoryFileNameHash folderAllFileList, DirectoryResourceLookupCache directoryLookupCache)
+    {
+        if (string.IsNullOrWhiteSpace(folderPath))
+        {
+            return;
+        }
+        try
+        {
+            foreach (string indexedDirectoryPath in (folderAllFileList?.Keys ?? new List<string>()).Where((string directoryPath) => (directoryPath + Path.DirectorySeparatorChar).StartsWith(folderPath + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)).ToList())
+            {
+                folderAllFileList?.RemoveDir(indexedDirectoryPath);
+                directoryLookupCache?.RemoveDir(indexedDirectoryPath);
+            }
+        }
+        catch
+        {
+        }
+    }
+
+    private static void ClearInstallDestinationsUnderDeletedFolder(string folderPath, IEnumerable<BMSPackage> pendingPackages, IEnumerable<LibraryChartRef> currentLibraryCharts)
+    {
+        if (string.IsNullOrWhiteSpace(folderPath))
+        {
+            return;
+        }
+        try
+        {
+            IEnumerable<BMSFile> pendingFiles = (pendingPackages ?? Enumerable.Empty<BMSPackage>())
+                .Where((BMSPackage package) => package != null)
+                .SelectMany((BMSPackage package) => package.BMSFiles ?? new List<BMSFile>());
+            IEnumerable<BMSFile> libraryFiles = (currentLibraryCharts ?? Enumerable.Empty<LibraryChartRef>())
+                .Select((LibraryChartRef chart) => chart.BmsFile)
+                .Where((BMSFile bmsInfo) => bmsInfo != null && !string.IsNullOrWhiteSpace(bmsInfo.instl_dst));
+            foreach (BMSFile installLinkedBmsFile in pendingFiles.Concat(libraryFiles))
+            {
+                if (!string.IsNullOrWhiteSpace(installLinkedBmsFile.instl_dst) && (installLinkedBmsFile.instl_dst + Path.DirectorySeparatorChar).StartsWith(folderPath + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+                {
+                    installLinkedBmsFile.instl_dst = null;
+                }
+            }
+        }
+        catch
+        {
+        }
     }
 
     private static void AddRemovedCharts(LibraryRemovalResult result, IEnumerable<LibraryChartRef> charts)
@@ -831,5 +1012,16 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         string extension = Path.GetExtension(requestedPath);
         string renamedFileName = fileNameWithoutExtension + "(" + suffix + ")" + extension;
         return string.IsNullOrWhiteSpace(directoryName) ? renamedFileName : Path.Combine(directoryName, renamedFileName);
+    }
+
+    private sealed class CanonicalChartResolveResult
+    {
+        public int InputCount { get; set; }
+
+        public int PathOnlyInputCount { get; set; }
+
+        public List<LibraryChartRef> CanonicalCharts { get; } = new List<LibraryChartRef>();
+
+        public List<LibraryChartRef> UnresolvedCharts { get; } = new List<LibraryChartRef>();
     }
 }

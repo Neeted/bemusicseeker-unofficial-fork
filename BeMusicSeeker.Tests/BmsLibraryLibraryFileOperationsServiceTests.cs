@@ -309,6 +309,259 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
     }
 
     [TestMethod]
+    public void DeleteLibraryCharts_PathOnlySelectionUsesCanonicalLibraryRef()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            BmsLibraryLibraryFileOperationsService service = new BmsLibraryLibraryFileOperationsService();
+            TestFileMutationService fileMutationService = new TestFileMutationService();
+            string folderPath = Path.Combine(tempDirectoryPath, "Song");
+            Directory.CreateDirectory(folderPath);
+            string chartPath = Path.Combine(folderPath, "chart.bms");
+            File.WriteAllText(chartPath, "#PLAYER 1");
+            TestableBmsFile canonicalFile = CreateFile(chartPath);
+            BMSDirectoryFileNameHash folderHash = new BMSDirectoryFileNameHash();
+            folderHash.AddDir(folderPath, update: true);
+
+            LibraryRemovalResult result = service.DeleteLibraryCharts(
+                new[] { LibraryChartRef.FromPath(LibraryChartKind.Bms, chartPath, canonicalFile.hash, canonicalFile.sha256) },
+                new[] { LibraryChartRef.FromBmsFile(canonicalFile) },
+                Array.Empty<BMSPackage>(),
+                folderHash,
+                new DirectoryResourceLookupCache(),
+                true,
+                _ => true,
+                fileMutationService,
+                null,
+                null);
+
+            Assert.AreEqual(1, result.RemovedCharts.Count);
+            Assert.AreSame(canonicalFile, result.RemovedCharts[0].BmsFile);
+            Assert.AreEqual(1, result.RemovedFiles.Count);
+            Assert.AreSame(canonicalFile, result.RemovedFiles[0]);
+            Assert.AreEqual(0, result.Failures.Count);
+            Assert.AreEqual(folderPath, fileMutationService.LastDeletedDirectoryPath);
+            Assert.AreEqual(RecycleOption.SendToRecycleBin, fileMutationService.LastDirectoryRecycleOption);
+            Assert.IsFalse(Directory.Exists(folderPath));
+        });
+    }
+
+    [TestMethod]
+    public void DeleteLibraryCharts_NonCatalogPathOnlySelectionReturnsResolveFailure()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            BmsLibraryLibraryFileOperationsService service = new BmsLibraryLibraryFileOperationsService();
+            TestFileMutationService fileMutationService = new TestFileMutationService();
+            string folderPath = Path.Combine(tempDirectoryPath, "Song");
+            Directory.CreateDirectory(folderPath);
+            string catalogChartPath = Path.Combine(folderPath, "catalog.bms");
+            string staleChartPath = Path.Combine(folderPath, "stale.bms");
+            File.WriteAllText(catalogChartPath, "#PLAYER 1");
+            File.WriteAllText(staleChartPath, "#PLAYER 1");
+            TestableBmsFile catalogFile = CreateFile(catalogChartPath);
+
+            LibraryRemovalResult result = service.DeleteLibraryCharts(
+                new[] { LibraryChartRef.FromPath(LibraryChartKind.Bms, staleChartPath, null, null) },
+                new[] { LibraryChartRef.FromBmsFile(catalogFile) },
+                Array.Empty<BMSPackage>(),
+                new BMSDirectoryFileNameHash(),
+                new DirectoryResourceLookupCache(),
+                true,
+                _ => true,
+                fileMutationService,
+                null,
+                null);
+
+            Assert.AreEqual(0, result.RemovedCharts.Count);
+            Assert.AreEqual(0, result.RemovedFiles.Count);
+            Assert.AreEqual(1, result.Failures.Count);
+            Assert.AreEqual("resolve_failed", result.Failures[0].Reason);
+            Assert.IsNull(fileMutationService.LastDeletedFilePath);
+            Assert.IsNull(fileMutationService.LastDeletedDirectoryPath);
+            Assert.IsTrue(File.Exists(staleChartPath));
+        });
+    }
+
+    [TestMethod]
+    public void DeleteLibraryCharts_DifferentBmsInstanceUsesCanonicalLibraryRef()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            BmsLibraryLibraryFileOperationsService service = new BmsLibraryLibraryFileOperationsService();
+            TestFileMutationService fileMutationService = new TestFileMutationService();
+            string folderPath = Path.Combine(tempDirectoryPath, "Song");
+            Directory.CreateDirectory(folderPath);
+            string chartPath = Path.Combine(folderPath, "chart.bms");
+            File.WriteAllText(chartPath, "#PLAYER 1");
+            TestableBmsFile canonicalFile = CreateFile(chartPath);
+            TestableBmsFile nonCanonicalFile = CreateFile(Path.Combine(folderPath, ".", "chart.bms"));
+
+            LibraryRemovalResult result = service.DeleteLibraryCharts(
+                new[] { LibraryChartRef.FromBmsFile(nonCanonicalFile) },
+                new[] { LibraryChartRef.FromBmsFile(canonicalFile) },
+                Array.Empty<BMSPackage>(),
+                new BMSDirectoryFileNameHash(),
+                new DirectoryResourceLookupCache(),
+                false,
+                _ => true,
+                fileMutationService,
+                null,
+                null);
+
+            Assert.AreEqual(1, result.RemovedCharts.Count);
+            Assert.AreSame(canonicalFile, result.RemovedCharts[0].BmsFile);
+            Assert.AreEqual(1, result.RemovedFiles.Count);
+            Assert.AreSame(canonicalFile, result.RemovedFiles[0]);
+            Assert.AreEqual(0, result.Failures.Count);
+        });
+    }
+
+    [TestMethod]
+    public void DeleteLibraryCharts_SameHashDifferentPathDoesNotResolve()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            BmsLibraryLibraryFileOperationsService service = new BmsLibraryLibraryFileOperationsService();
+            TestFileMutationService fileMutationService = new TestFileMutationService();
+            string folderPath = Path.Combine(tempDirectoryPath, "Song");
+            Directory.CreateDirectory(folderPath);
+            string catalogChartPath = Path.Combine(folderPath, "catalog.bms");
+            string selectedChartPath = Path.Combine(folderPath, "selected.bms");
+            File.WriteAllText(catalogChartPath, "#PLAYER 1");
+            File.WriteAllText(selectedChartPath, "#PLAYER 1");
+            TestableBmsFile catalogFile = CreateFile(catalogChartPath);
+
+            LibraryRemovalResult result = service.DeleteLibraryCharts(
+                new[] { LibraryChartRef.FromPath(LibraryChartKind.Bms, selectedChartPath, catalogFile.hash, catalogFile.sha256) },
+                new[] { LibraryChartRef.FromBmsFile(catalogFile) },
+                Array.Empty<BMSPackage>(),
+                new BMSDirectoryFileNameHash(),
+                new DirectoryResourceLookupCache(),
+                false,
+                _ => true,
+                fileMutationService,
+                null,
+                null);
+
+            Assert.AreEqual(0, result.RemovedCharts.Count);
+            Assert.AreEqual(0, result.RemovedFiles.Count);
+            Assert.AreEqual(1, result.Failures.Count);
+            Assert.AreEqual("resolve_failed", result.Failures[0].Reason);
+            Assert.IsTrue(File.Exists(catalogChartPath));
+            Assert.IsTrue(File.Exists(selectedChartPath));
+            Assert.IsNull(fileMutationService.LastDeletedFilePath);
+            Assert.IsNull(fileMutationService.LastDeletedDirectoryPath);
+        });
+    }
+
+    [TestMethod]
+    public void DeleteLibraryCharts_LastChartInFolderInvokesWholeFolderConfirmation()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            BmsLibraryLibraryFileOperationsService service = new BmsLibraryLibraryFileOperationsService();
+            TestFileMutationService fileMutationService = new TestFileMutationService();
+            string folderPath = Path.Combine(tempDirectoryPath, "Song");
+            Directory.CreateDirectory(folderPath);
+            string chartPath = Path.Combine(folderPath, "chart.bms");
+            File.WriteAllText(chartPath, "#PLAYER 1");
+            TestableBmsFile libraryFile = CreateFile(chartPath);
+            int confirmCount = 0;
+            string confirmedPath = string.Empty;
+
+            LibraryRemovalResult result = service.DeleteLibraryCharts(
+                new[] { LibraryChartRef.FromBmsFile(libraryFile) },
+                new[] { LibraryChartRef.FromBmsFile(libraryFile) },
+                Array.Empty<BMSPackage>(),
+                new BMSDirectoryFileNameHash(),
+                new DirectoryResourceLookupCache(),
+                false,
+                path =>
+                {
+                    confirmCount++;
+                    confirmedPath = path;
+                    return true;
+                },
+                fileMutationService,
+                null,
+                null);
+
+            Assert.AreEqual(1, confirmCount);
+            Assert.AreEqual(folderPath, confirmedPath);
+            Assert.AreEqual(1, result.FolderDeleteCount);
+            Assert.AreEqual(1, result.RemovedCharts.Count);
+            Assert.AreSame(libraryFile, result.RemovedCharts[0].BmsFile);
+        });
+    }
+
+    [TestMethod]
+    public void GetWholeFolderDeleteCandidatePaths_PathOnlyExactCatalogPathReturnsFolder()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            BmsLibraryLibraryFileOperationsService service = new BmsLibraryLibraryFileOperationsService();
+            string folderPath = Path.Combine(tempDirectoryPath, "Song");
+            Directory.CreateDirectory(folderPath);
+            string chartPath = Path.Combine(folderPath, "chart.bms");
+            File.WriteAllText(chartPath, "#PLAYER 1");
+            TestableBmsFile libraryFile = CreateFile(chartPath);
+
+            List<string> paths = service.GetWholeFolderDeleteCandidatePaths(
+                new[] { LibraryChartRef.FromPath(LibraryChartKind.Bms, chartPath, libraryFile.hash, libraryFile.sha256) },
+                new[] { LibraryChartRef.FromBmsFile(libraryFile) });
+
+            Assert.AreEqual(1, paths.Count);
+            Assert.AreEqual(folderPath, paths[0]);
+        });
+    }
+
+    [TestMethod]
+    public void GetWholeFolderDeleteCandidatePaths_SameHashDifferentPathReturnsEmpty()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            BmsLibraryLibraryFileOperationsService service = new BmsLibraryLibraryFileOperationsService();
+            string folderPath = Path.Combine(tempDirectoryPath, "Song");
+            Directory.CreateDirectory(folderPath);
+            string catalogChartPath = Path.Combine(folderPath, "catalog.bms");
+            string selectedChartPath = Path.Combine(folderPath, "selected.bms");
+            File.WriteAllText(catalogChartPath, "#PLAYER 1");
+            File.WriteAllText(selectedChartPath, "#PLAYER 1");
+            TestableBmsFile catalogFile = CreateFile(catalogChartPath);
+
+            List<string> paths = service.GetWholeFolderDeleteCandidatePaths(
+                new[] { LibraryChartRef.FromPath(LibraryChartKind.Bms, selectedChartPath, catalogFile.hash, catalogFile.sha256) },
+                new[] { LibraryChartRef.FromBmsFile(catalogFile) });
+
+            Assert.AreEqual(0, paths.Count);
+        });
+    }
+
+    [TestMethod]
+    public void GetWholeFolderDeleteCandidatePaths_PartialFolderSelectionReturnsEmpty()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            BmsLibraryLibraryFileOperationsService service = new BmsLibraryLibraryFileOperationsService();
+            string folderPath = Path.Combine(tempDirectoryPath, "Song");
+            Directory.CreateDirectory(folderPath);
+            string selectedChartPath = Path.Combine(folderPath, "selected.bms");
+            string remainingChartPath = Path.Combine(folderPath, "remaining.bms");
+            File.WriteAllText(selectedChartPath, "#PLAYER 1");
+            File.WriteAllText(remainingChartPath, "#PLAYER 1");
+            TestableBmsFile selectedFile = CreateFile(selectedChartPath);
+            TestableBmsFile remainingFile = CreateFile(remainingChartPath);
+
+            List<string> paths = service.GetWholeFolderDeleteCandidatePaths(
+                new[] { LibraryChartRef.FromBmsFile(selectedFile) },
+                new[] { LibraryChartRef.FromBmsFile(selectedFile), LibraryChartRef.FromBmsFile(remainingFile) });
+
+            Assert.AreEqual(0, paths.Count);
+        });
+    }
+
+    [TestMethod]
     public void BuildFolderMoveDelta_CanSuppressMainViewRefreshForRename()
     {
         BmsLibraryLibraryFileOperationsService service = new BmsLibraryLibraryFileOperationsService();
@@ -649,6 +902,14 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
 
     private sealed class TestFileMutationService : IFileMutationService
     {
+        public string LastDeletedFilePath { get; private set; } = null!;
+
+        public string LastDeletedDirectoryPath { get; private set; } = null!;
+
+        public RecycleOption? LastFileRecycleOption { get; private set; }
+
+        public RecycleOption? LastDirectoryRecycleOption { get; private set; }
+
         public void EnsureDirectory(string directoryPath, FileMutationOptions options = null!)
         {
             if (!string.IsNullOrWhiteSpace(directoryPath))
@@ -696,6 +957,8 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
 
         public void DeleteFileShell(string filePath, UIOption uiOption, RecycleOption recycleOption, FileMutationOptions options = null!)
         {
+            LastDeletedFilePath = filePath;
+            LastFileRecycleOption = recycleOption;
             DeleteFileDirect(filePath, options);
         }
 
@@ -709,6 +972,8 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
 
         public void DeleteDirectoryShell(string directoryPath, UIOption uiOption, RecycleOption recycleOption, FileMutationOptions options = null!)
         {
+            LastDeletedDirectoryPath = directoryPath;
+            LastDirectoryRecycleOption = recycleOption;
             DeleteDirectoryDirect(directoryPath, recursive: true, options);
         }
 

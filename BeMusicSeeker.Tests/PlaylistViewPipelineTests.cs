@@ -785,6 +785,84 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
+    public void DeleteTargetResolver_NewlyInstalledRoutesToLibrary()
+    {
+        ChartOperationTarget target = CreateDeleteTarget(ChartOperationSourceScope.NewlyInstalledPackage, ChartOperationCapabilities.RemoveFromLibrary);
+
+        ChartDeleteTargetResolution resolution = ChartDeleteTargetResolver.Resolve(
+            new[] { target },
+            target,
+            MainWindowViewModel.MainViewOperationSection.InstallInstalled);
+
+        Assert.AreEqual(ChartDeleteRoute.Library, resolution.Route);
+        Assert.AreEqual(1, resolution.Targets.Count);
+        Assert.AreSame(target, resolution.Targets[0]);
+        Assert.IsFalse(resolution.UsedContextFallback);
+    }
+
+    [TestMethod]
+    public void DeleteTargetResolver_PendingRoutesToPending()
+    {
+        ChartOperationTarget target = CreateDeleteTarget(ChartOperationSourceScope.PendingPackage, ChartOperationCapabilities.UpdateInstallDestination);
+
+        ChartDeleteTargetResolution resolution = ChartDeleteTargetResolver.Resolve(
+            new[] { target },
+            target,
+            MainWindowViewModel.MainViewOperationSection.InstallPending);
+
+        Assert.AreEqual(ChartDeleteRoute.Pending, resolution.Route);
+        Assert.AreEqual(1, resolution.Targets.Count);
+        Assert.AreSame(target, resolution.Targets[0]);
+    }
+
+    [TestMethod]
+    public void DeleteTargetResolver_UsesContextFallbackWhenSelectionIsEmpty()
+    {
+        ChartOperationTarget target = CreateDeleteTarget(ChartOperationSourceScope.Library, ChartOperationCapabilities.RemoveFromLibrary);
+
+        ChartDeleteTargetResolution resolution = ChartDeleteTargetResolver.Resolve(
+            Array.Empty<ChartOperationTarget>(),
+            target,
+            MainWindowViewModel.MainViewOperationSection.Library);
+
+        Assert.AreEqual(ChartDeleteRoute.Library, resolution.Route);
+        Assert.AreEqual(1, resolution.Targets.Count);
+        Assert.AreSame(target, resolution.Targets[0]);
+        Assert.IsTrue(resolution.UsedContextFallback);
+    }
+
+    [TestMethod]
+    public void DeleteTargetResolver_PlaylistMissingIsNotFileDeleteTarget()
+    {
+        ChartOperationTarget target = CreateDeleteTarget(ChartOperationSourceScope.PlaylistMissing, ChartOperationCapabilities.None);
+
+        ChartDeleteTargetResolution resolution = ChartDeleteTargetResolver.Resolve(
+            new[] { target },
+            target,
+            MainWindowViewModel.MainViewOperationSection.Playlist);
+
+        Assert.AreEqual(ChartDeleteRoute.None, resolution.Route);
+        Assert.AreEqual(0, resolution.Targets.Count);
+    }
+
+    [TestMethod]
+    public void DeleteTargetResolver_ContextScopeFiltersMixedSelection()
+    {
+        ChartOperationTarget libraryTarget = CreateDeleteTarget(ChartOperationSourceScope.Library, ChartOperationCapabilities.RemoveFromLibrary);
+        ChartOperationTarget pendingTarget = CreateDeleteTarget(ChartOperationSourceScope.PendingPackage, ChartOperationCapabilities.UpdateInstallDestination);
+
+        ChartDeleteTargetResolution resolution = ChartDeleteTargetResolver.Resolve(
+            new[] { libraryTarget, pendingTarget },
+            pendingTarget,
+            MainWindowViewModel.MainViewOperationSection.InstallPending);
+
+        Assert.AreEqual(ChartDeleteRoute.Pending, resolution.Route);
+        Assert.AreEqual(1, resolution.Targets.Count);
+        Assert.AreSame(pendingTarget, resolution.Targets[0]);
+        Assert.AreEqual(1, resolution.MixedScopeDroppedCount);
+    }
+
+    [TestMethod]
     public void ChartOperationTarget_NewlyInstalledBmson_UsesInstalledPathAndLibraryCapabilities()
     {
         LR2SongDBExtended.bmson_song original = new LR2SongDBExtended.bmson_song
@@ -1447,6 +1525,32 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(row, out ChartOperationTarget target));
         Assert.AreEqual(expectedRemoveFromLibrary, target.HasCapability(ChartOperationCapabilities.RemoveFromLibrary));
         Assert.AreEqual(expectedRemoveFromLibrary, target.HasCapability(ChartOperationCapabilities.MoveInLibrary));
+    }
+
+    private static ChartOperationTarget CreateDeleteTarget(ChartOperationSourceScope sourceScope, ChartOperationCapabilities capabilities)
+    {
+        OwnedChartRef chart = new OwnedChartRef(
+            OwnedChartKind.Bms,
+            "C:\\Library\\Song\\chart.bms",
+            "abababababababababababababababab",
+            null,
+            "Title",
+            "Artist",
+            7,
+            7,
+            null,
+            null,
+            null);
+        bool isPending = sourceScope == ChartOperationSourceScope.PendingPackage;
+        bool isPlaylistMissing = sourceScope == ChartOperationSourceScope.PlaylistMissing;
+        return new ChartOperationTarget(
+            chart,
+            null,
+            sourceScope,
+            !isPending && !isPlaylistMissing,
+            isPending,
+            isPlaylistMissing,
+            capabilities);
     }
 
     private static PlaylistDetailSourceRow CreateMissingSourceRow(string title, LR2SongDBExtended.chart_info chartInfo)
