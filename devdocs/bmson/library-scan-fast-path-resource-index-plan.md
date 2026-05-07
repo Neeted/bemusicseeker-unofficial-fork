@@ -708,23 +708,21 @@ payload は直近の約 281MB から約 257MB へ減少した。scan 全体で�
 
 `audioCallbackMs` は約 6.7s から約 3.6s へ縮小し、scan 全体も約 2.8s 短縮した。SDK 側の full path API (`Everything3_GetResultFullPathNameW`) は存在するが、SDK 実装上は `PATH_AND_NAME` property text wrapper であり、現行の path/name 2 call を必ず高速化するとは限らない。次に検証するなら、`audioSdkReadMs` を対象に `PATH_AND_NAME` 1 call + native split が有利か、または現行 path/name 2 call が有利かを A/B で見る。
 
-続く A/B では、fixed scan に `PATH_AND_NAME` 1 call + native split の read mode を追加した。source-root scan / grouped scan は対象外で、fixed scan のみ `BMS_EVERYTHING_BRIDGE_FIXED_SCAN_READ_MODE=path_name|full_path` で切り替える。`full_path` は `Everything3_GetResultFullPathNameW` と native 側の最後の separator split を使う。通常起動では SDK export があれば `full_path` を既定にし、`resultReadMode=1` としてログに出す。
+続く A/B では、fixed scan に `PATH_AND_NAME` 1 call + native split の read mode を追加した。source-root scan / grouped scan は対象外で、fixed scan のみ `path_name` と `full_path` を切り替えて比較した。`full_path` は `Everything3_GetResultFullPathNameW` と native 側の最後の separator split を使う。
 
 2026-05-07 16:08-16:09 の同一ビルド A/B では次の状態だった。
 
-- `path_name`: `everything_scan totalMs=22804 nativeBridgeMs=20277 audioReadMs=7439 audioSdkReadMs=3883 audioCallbackMs=3556 resultReadMode=0`
-- `full_path`: `everything_scan totalMs=20676 nativeBridgeMs=18168 audioReadMs=6350 audioSdkReadMs=2995 audioCallbackMs=3355 resultReadMode=1`
+- `path_name`: `everything_scan totalMs=22804 nativeBridgeMs=20277 audioReadMs=7439 audioSdkReadMs=3883 audioCallbackMs=3556`
+- `full_path`: `everything_scan totalMs=20676 nativeBridgeMs=18168 audioReadMs=6350 audioSdkReadMs=2995 audioCallbackMs=3355`
 
-`full_path` の方が wall clock で約 2.1s、nativeBridge で約 2.1s 速かったため、fixed scan の既定にした。2026-05-07 16:11 の既定モード確認では次の状態になった。
+`full_path` の方が wall clock で約 2.1s、nativeBridge で約 2.1s 速かったため、fixed scan の唯一の read path にした。2026-05-07 16:11 の確認では次の状態になった。
 
 - `everything_scan totalMs=20939`
 - `nativeBridgeMs=18393`
 - `audioReadMs=6478`
 - `audioSdkReadMs=3094`
 - `audioCallbackMs=3384`
-- `resultReadMode=1`
-
-`PATH_AND_NAME` は SDK 側の zero-copy API ではないが、少なくとも現行環境では 2 call より速い。問題が出る場合は環境変数で `path_name` に戻して比較できる。
+`PATH_AND_NAME` は SDK 側の zero-copy API ではないが、少なくとも現行環境では 2 call より速い。fixed scan ではこの経路だけを残し、source-root scan / grouped scan は別 surface として従来の path/name 2 call を維持する。
 
 2026-05-06 実機確認では次の状態になった。
 

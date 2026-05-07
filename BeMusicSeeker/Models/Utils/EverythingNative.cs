@@ -18,7 +18,7 @@ internal static class EverythingNative
 
 	internal const string SourceRootScanBackendName = "everything_bridge_source_surface";
 
-	private const uint FixedScanContractVersion = 2026050707u;
+	private const uint FixedScanContractVersion = 2026050708u;
 
 	private static IntPtr loadedBridgeModule = IntPtr.Zero;
 
@@ -828,7 +828,6 @@ internal static class EverythingNative
 			ImageNameResizeCount = header.image_name_resize_count,
 			MoviePathResizeCount = header.movie_path_resize_count,
 			MovieNameResizeCount = header.movie_name_resize_count,
-			ResultReadMode = header.result_read_mode,
 			ChartDirectoryCount = header.chart_directory_count,
 			AudioAssignedCount = header.audio_assigned_count,
 			ImageAssignedCount = header.image_assigned_count,
@@ -1267,6 +1266,5 @@ internal static class EverythingNative
 		public ulong image_name_resize_count;
 		public ulong movie_path_resize_count;
 		public ulong movie_name_resize_count;
-		public uint result_read_mode;
 	}
 }

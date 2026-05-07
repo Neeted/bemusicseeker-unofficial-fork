@@ -64,11 +64,9 @@ so they are not expected to equal `search + read` exactly.
 `*SdkReadMs` splits out the SDK path/name extraction portion of `*ReadMs`.
 `*CallbackMs` is the remaining native callback/storage work, including result grouping.
 `*PathResizeCount` and `*NameResizeCount` count result buffer growth during extraction.
-Fixed scan defaults to a single `Everything3_GetResultFullPathNameW` call per result
-and native directory/name split when the SDK export is available. Set
-`BMS_EVERYTHING_BRIDGE_FIXED_SCAN_READ_MODE=path_name` to force the older
-`GetResultPathW + GetResultNameW` mode for A/B checks. `resultReadMode=1` means
-full-path mode; `0` means path/name mode.
+Fixed scan uses a single `Everything3_GetResultFullPathNameW` call per result and
+splits directory/name natively. Source-root and grouped scan surfaces keep the older
+`GetResultPathW + GetResultNameW` read path.
 
 `sibling:` based resource collection is no longer used.
 
