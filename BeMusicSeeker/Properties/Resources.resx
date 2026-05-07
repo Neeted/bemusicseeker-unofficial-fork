@@ -1146,6 +1146,12 @@ BMSファイルが重複しないようにマージします。
   <data name="Playlist_sync_progress_single_label" xml:space="preserve">
     <value>プレイリスト同期</value>
   </data>
+  <data name="Playlist_import_progress_label_format" xml:space="preserve">
+    <value>外部表インポート {0}/{1}</value>
+  </data>
+  <data name="Playlist_import_progress_single_label" xml:space="preserve">
+    <value>外部表インポート</value>
+  </data>
   <data name="Statusbar_progress_startup" xml:space="preserve">
     <value>初期化中</value>
   </data>
@@ -1906,6 +1912,15 @@ cleanup-only成功: {3}
   </data>
   <data name="Playlist_import_result_failed_header" xml:space="preserve">
     <value>失敗:</value>
+  </data>
+  <data name="Playlist_uri_input_no_valid_uri" xml:space="preserve">
+    <value>入力された値が正しくありません。
+絶対URIであることを確認してください。</value>
+  </data>
+  <data name="Playlist_uri_input_invalid_lines_format" xml:space="preserve">
+    <value>一部のURIを読み込めませんでした。
+絶対URIであることを確認してください。
+{0}</value>
   </data>
   <data name="Error_OutputDirNameEmpty" xml:space="preserve">
     <value>出力先ディレクトリ名が空になっています。</value>

@@ -269,6 +269,10 @@ public class Resources
 
     public static string Playlist_sync_progress_single_label => ResourceManager.GetString("Playlist_sync_progress_single_label", resourceCulture);
 
+    public static string Playlist_import_progress_label_format => ResourceManager.GetString("Playlist_import_progress_label_format", resourceCulture);
+
+    public static string Playlist_import_progress_single_label => ResourceManager.GetString("Playlist_import_progress_single_label", resourceCulture);
+
     public static string Statusbar_progress_startup => ResourceManager.GetString("Statusbar_progress_startup", resourceCulture);
 
     public static string Statusbar_progress_reload_files => ResourceManager.GetString("Statusbar_progress_reload_files", resourceCulture);
@@ -1247,6 +1251,11 @@ public class Resources
 
 
     public static string Playlist_import_result_failed_header => ResourceManager.GetString("Playlist_import_result_failed_header", resourceCulture);
+
+    public static string Playlist_uri_input_no_valid_uri => ResourceManager.GetString("Playlist_uri_input_no_valid_uri", resourceCulture);
+
+
+    public static string Playlist_uri_input_invalid_lines_format => ResourceManager.GetString("Playlist_uri_input_invalid_lines_format", resourceCulture);
 
 
     public static string Error_OutputDirNameEmpty => ResourceManager.GetString("Error_OutputDirNameEmpty", resourceCulture);

@@ -77,20 +77,39 @@ internal sealed class ExternalPlaylistImportQueue
 
     internal bool Enqueue(Uri uri)
     {
-        if (uri == null)
+        return EnqueueRange(new[] { uri });
+    }
+
+    internal bool EnqueueRange(IEnumerable<Uri> uris)
+    {
+        List<Uri> validUris = (uris ?? Enumerable.Empty<Uri>()).Where((Uri uri) => uri != null).ToList();
+        if (validUris.Count == 0)
         {
             return false;
         }
-
         lock (syncRoot)
         {
-            pendingUris.Enqueue(uri);
+            foreach (Uri uri in validUris)
+            {
+                pendingUris.Enqueue(uri);
+            }
             if (isDraining)
             {
                 return false;
             }
             isDraining = true;
             return true;
+        }
+    }
+
+    internal int PendingCount
+    {
+        get
+        {
+            lock (syncRoot)
+            {
+                return pendingUris.Count;
+            }
         }
     }
 

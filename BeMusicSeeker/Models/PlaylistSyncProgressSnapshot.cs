@@ -13,4 +13,8 @@ internal sealed class PlaylistSyncProgressSnapshot
     public string CurrentTableName { get; set; }
 
     public Uri CurrentUri { get; set; }
+
+    public string LabelFormat { get; set; }
+
+    public string SingleLabel { get; set; }
 }

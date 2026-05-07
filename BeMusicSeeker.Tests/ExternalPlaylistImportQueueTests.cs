@@ -34,6 +34,54 @@ public sealed class ExternalPlaylistImportQueueTests
     }
 
     [TestMethod]
+    public void EnqueueRange_StartsOnlyOneDrainAndDequeuesInFifoOrder()
+    {
+        ExternalPlaylistImportQueue queue = new ExternalPlaylistImportQueue();
+        Uri first = new Uri("https://example.com/range-first");
+        Uri second = new Uri("https://example.com/range-second");
+        Uri third = new Uri("https://example.com/range-third");
+
+        Assert.IsTrue(queue.EnqueueRange(new[] { first, second }));
+        Assert.AreEqual(2, queue.PendingCount);
+        Assert.IsFalse(queue.EnqueueRange(new[] { third }));
+        Assert.AreEqual(3, queue.PendingCount);
+
+        Assert.IsTrue(queue.TryDequeue(out Uri dequeuedFirst));
+        Assert.AreEqual(first, dequeuedFirst);
+        Assert.AreEqual(2, queue.PendingCount);
+        Assert.IsTrue(queue.TryDequeue(out Uri dequeuedSecond));
+        Assert.AreEqual(second, dequeuedSecond);
+        Assert.IsTrue(queue.TryDequeue(out Uri dequeuedThird));
+        Assert.AreEqual(third, dequeuedThird);
+        Assert.AreEqual(0, queue.PendingCount);
+        Assert.IsFalse(queue.TryDequeue(out _));
+    }
+
+    [TestMethod]
+    public void EnqueueRange_IgnoresEmptyAndNullEntries()
+    {
+        ExternalPlaylistImportQueue queue = new ExternalPlaylistImportQueue();
+        Uri valid = new Uri("https://example.com/valid");
+
+        Assert.IsFalse(queue.EnqueueRange(null));
+        Assert.IsFalse(queue.EnqueueRange(Enumerable.Empty<Uri>()));
+        Assert.IsTrue(queue.EnqueueRange(new[] { null, valid, null }));
+        Assert.AreEqual(1, queue.PendingCount);
+        Assert.IsTrue(queue.TryDequeue(out Uri dequeued));
+        Assert.AreEqual(valid, dequeued);
+    }
+
+    [TestMethod]
+    public void ResolveExternalPlaylistImportQueueProgressTotal_UsesCompletedActiveAndPendingCounts()
+    {
+        Assert.AreEqual(2, MainWindowViewModel.ResolveExternalPlaylistImportQueueProgressTotal(0, hasActiveImport: true, pendingCount: 1));
+        Assert.AreEqual(2, MainWindowViewModel.ResolveExternalPlaylistImportQueueProgressTotal(1, hasActiveImport: false, pendingCount: 1));
+        Assert.AreEqual(3, MainWindowViewModel.ResolveExternalPlaylistImportQueueProgressTotal(1, hasActiveImport: true, pendingCount: 1));
+        Assert.AreEqual(3, MainWindowViewModel.ResolveExternalPlaylistImportQueueProgressTotal(3, hasActiveImport: false, pendingCount: 0));
+        Assert.AreEqual(0, MainWindowViewModel.ResolveExternalPlaylistImportQueueProgressTotal(-1, hasActiveImport: false, pendingCount: -1));
+    }
+
+    [TestMethod]
     public void QueueSummary_CountsOutcomesByKind()
     {
         Uri imported = new Uri("https://example.com/imported");

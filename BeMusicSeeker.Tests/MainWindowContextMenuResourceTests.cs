@@ -130,6 +130,8 @@ public sealed class MainWindowContextMenuResourceTests
         string xaml = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "MainWindow.xaml"));
         string code = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "MainWindow.cs"));
         string dialogCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "LoadPlaylistURIDialog.cs"));
+        string dialogXaml = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "LoadPlaylistURIDialog.xaml"));
+        string resources = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Properties", "Resources.resx"));
 
         string menuSnippet = xaml.Substring(xaml.IndexOf("Name=\"treeViewPlaylistRootContextMenuItemLoadPlaylistCollection\"", StringComparison.Ordinal), 1200);
         StringAssert.Contains(menuSnippet, "<Setter Property=\"MenuItem.StaysOpenOnClick\" Value=\"True\" />");
@@ -137,7 +139,25 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(menuSnippet, "<Setter Property=\"MenuItem.StaysOpenOnClick\" Value=\"False\" />");
         StringAssert.Contains(code, "viewModel.EnqueueExternalPlaylistBMSTableImport(dataContext.url);");
         StringAssert.Contains(code, "viewModel.EnqueueExternalPlaylistBMSTableImport(uri);");
-        StringAssert.Contains(dialogCode, "viewModel.EnqueueExternalPlaylistBMSTableImport(targetURI);");
+        StringAssert.Contains(dialogCode, "viewModel.EnqueueExternalPlaylistBMSTableImports(parseResult.ValidUris);");
+        StringAssert.Contains(dialogCode, "ParsePlaylistUriInput(textBoxURIInput.Text)");
+        StringAssert.Contains(dialogCode, "AppendUriInputLine(textBoxURIInput.Text, openFileDialog.FileName)");
+        StringAssert.Contains(dialogXaml, "AcceptsReturn=\"True\"");
+        StringAssert.Contains(dialogXaml, "VerticalContentAlignment=\"Top\"");
+        StringAssert.Contains(dialogXaml, "VerticalScrollBarVisibility=\"Auto\"");
+        StringAssert.Contains(dialogXaml, "HorizontalScrollBarVisibility=\"Auto\"");
+        StringAssert.Contains(resources, "Playlist_import_progress_label_format");
+        StringAssert.Contains(resources, "Playlist_import_progress_single_label");
+        StringAssert.Contains(resources, "Playlist_uri_input_no_valid_uri");
+        StringAssert.Contains(resources, "Playlist_uri_input_invalid_lines_format");
+        foreach (string languageFile in Directory.GetFiles(Path.Combine(root, "lang"), "*.json"))
+        {
+            string languageJson = File.ReadAllText(languageFile);
+            StringAssert.Contains(languageJson, "\"Playlist_import_progress_label_format\"");
+            StringAssert.Contains(languageJson, "\"Playlist_import_progress_single_label\"");
+            StringAssert.Contains(languageJson, "\"Playlist_uri_input_no_valid_uri\"");
+            StringAssert.Contains(languageJson, "\"Playlist_uri_input_invalid_lines_format\"");
+        }
         Assert.IsFalse(code.Contains("await viewModel.RegistrateExternalPlaylistBMSTableAsync(dataContext.url)"));
         Assert.IsFalse(dialogCode.Contains("await viewModel.RegistrateExternalPlaylistBMSTableAsync(targetURI)"));
     }

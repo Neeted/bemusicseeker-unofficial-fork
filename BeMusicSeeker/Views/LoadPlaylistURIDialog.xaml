@@ -5,7 +5,7 @@
       <ResourceDictionary />
     </FrameworkElement.Resources>
     <Rectangle Fill="{DynamicResource App.DialogOverlayBrush}" Opacity="0.5" />
-    <Border Width="500" Height="100" CornerRadius="10" Background="{DynamicResource App.DialogBackgroundBrush}" BorderBrush="{DynamicResource App.DialogBorderBrush}" BorderThickness="1" Padding="10">
+    <Border Width="560" Height="220" CornerRadius="10" Background="{DynamicResource App.DialogBackgroundBrush}" BorderBrush="{DynamicResource App.DialogBorderBrush}" BorderThickness="1" Padding="10">
       <Border BorderBrush="{DynamicResource App.BorderBrush}" BorderThickness="1" Background="{DynamicResource App.DialogBackgroundBrush}">
         <DockPanel HorizontalAlignment="Stretch" VerticalAlignment="Stretch" LastChildFill="True">
           <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" VerticalAlignment="Bottom" HorizontalAlignment="Right" Margin="0,2,0,0">
@@ -15,7 +15,7 @@
           </StackPanel>
           <StackPanel Margin="5,5,5,0">
             <TextBlock Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Load_PlaylistURI, Mode=OneWay}" />
-            <TextBox Name="textBoxURIInput" Height="24" />
+            <TextBox Name="textBoxURIInput" Height="128" AcceptsReturn="True" VerticalContentAlignment="Top" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" TextWrapping="NoWrap" />
           </StackPanel>
         </DockPanel>
       </Border>
