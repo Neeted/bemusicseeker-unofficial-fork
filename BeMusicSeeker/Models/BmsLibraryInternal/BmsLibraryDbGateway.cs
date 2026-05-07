@@ -594,12 +594,22 @@ internal sealed class BmsLibraryDbGateway
     public Dictionary<string, string> LoadChartDigestMap()
     {
         using LR2SongDBExtended songDb = OpenSongDb();
-        if (!TableExists(songDb, SQLiteTable<LR2SongDBExtended.chart_digest_map>.GetTableName()))
+        return LoadChartDigestMap(songDb);
+    }
+
+    internal Dictionary<string, string> LoadChartDigestMap(LR2SongDBExtended songDb)
+    {
+        if (songDb == null)
+        {
+            return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        }
+        string tableName = SQLiteTable<LR2SongDBExtended.chart_digest_map>.GetTableName();
+        if (!TableExists(songDb, tableName))
         {
             return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         }
         Dictionary<string, string> dictionary = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        foreach (LR2SongDBExtended.chart_digest_map item in songDb.Table<LR2SongDBExtended.chart_digest_map>())
+        foreach (ChartDigestQueryRow item in songDb.Query<ChartDigestQueryRow>("SELECT md5, sha256 FROM " + tableName + " WHERE md5 IS NOT NULL AND TRIM(md5) <> '' AND sha256 IS NOT NULL AND TRIM(sha256) <> '';"))
         {
             if (item != null && !string.IsNullOrWhiteSpace(item.md5) && !string.IsNullOrWhiteSpace(item.sha256))
             {

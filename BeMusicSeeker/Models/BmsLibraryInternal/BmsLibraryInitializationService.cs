@@ -12,6 +12,7 @@ using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using Ribbit.Util.Extensions;
+using SQLite;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
@@ -21,6 +22,9 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 /// </summary>
 internal sealed class BmsLibraryInitializationService
 {
+    private const string SongCatalogRawSelectSql =
+        "SELECT hash, title, subtitle, artist, subartist, genre, tag, path, type, folder, stagefile, banner, backbmp, parent, level, difficulty, maxbpm, minbpm, mode, judge, longnote, bga, random, date, favorite, txt, karinotes, adddate, exlevel FROM song;";
+
     private const int DefaultInlineChartInfoBatchSize = 512;
 
     private const int DefaultFileDiffCommitChunkSize = 10000;
@@ -80,15 +84,24 @@ internal sealed class BmsLibraryInitializationService
         stopwatchSongCount.Stop();
         result.SongCountMs = stopwatchSongCount.ElapsedMilliseconds;
 
-        List<BMSFile> loadedSongs = (result.SongTableCount > 0L && result.SongTableCount <= int.MaxValue)
-            ? new List<BMSFile>((int)result.SongTableCount)
-            : new List<BMSFile>();
         Stopwatch stopwatchSongMaterialize = Stopwatch.StartNew();
-        using (BMSFile.SuppressPropertyChangedScope())
+        List<BMSFile> loadedSongs;
+        if (UseRawSongCatalogLoader())
         {
-            foreach (BMSFile item in songDb.Table<BMSFile>())
+            loadedSongs = LoadSongCatalogRaw(songDb, result);
+        }
+        else
+        {
+            result.SongMaterializeMode = "sqlite_net";
+            loadedSongs = (result.SongTableCount > 0L && result.SongTableCount <= int.MaxValue)
+                ? new List<BMSFile>((int)result.SongTableCount)
+                : new List<BMSFile>();
+            using (BMSFile.SuppressPropertyChangedScope())
             {
-                loadedSongs.Add(item);
+                foreach (BMSFile item in songDb.Table<BMSFile>())
+                {
+                    loadedSongs.Add(item);
+                }
             }
         }
         stopwatchSongMaterialize.Stop();
@@ -114,7 +127,7 @@ internal sealed class BmsLibraryInitializationService
         logDebugTrace?.Invoke("relative path check end");
 
         Stopwatch stopwatchChartDigestMapLoad = Stopwatch.StartNew();
-        Dictionary<string, string> chartDigestMap = dbGateway.LoadChartDigestMap();
+        Dictionary<string, string> chartDigestMap = dbGateway.LoadChartDigestMap(songDb);
         stopwatchChartDigestMapLoad.Stop();
         result.ChartDigestMapLoadMs = stopwatchChartDigestMapLoad.ElapsedMilliseconds;
         foreach (KeyValuePair<string, string> item in chartDigestMap)
@@ -163,9 +176,16 @@ internal sealed class BmsLibraryInitializationService
         }
 
         logInstallPerformance?.Invoke(
-            "song_tbl_load_projection projection=catalog readMs=" + result.SongTableLoadMs
+            "song_tbl_load_projection projection=catalog mode=" + result.SongMaterializeMode
+            + " readMs=" + result.SongTableLoadMs
             + " materializeMs=" + result.SongMaterializeMs
+            + " rawReadMs=" + result.SongRawReadMs
+            + " rawObjectMs=" + result.SongRawObjectMs
+            + " rawRows=" + result.SongRawRows
             + " rows=" + result.SongTableCount
+            + " chartDigestReadMs=" + result.ChartDigestMapLoadMs
+            + " chartDigestApplyMs=" + result.ChartDigestApplyMs
+            + " bmsonReadMs=" + result.BmsonTableLoadMs
             + " bmsonRows=" + result.LoadedBmsonSongs.Count
             + " chartDigestRows=" + result.ChartDigestMap.Count);
         logInstallPerformance?.Invoke(
@@ -177,6 +197,36 @@ internal sealed class BmsLibraryInitializationService
             + " db_write_required=" + result.DbWriteRequired.ToString().ToLowerInvariant()
             + " db_write_ms=" + result.DbWriteMs);
         return result;
+    }
+
+    private static bool UseRawSongCatalogLoader()
+    {
+        string mode = Environment.GetEnvironmentVariable("BMS_SONG_TABLE_LOAD_MODE");
+        return !string.Equals(mode, "sqlite_net", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static List<BMSFile> LoadSongCatalogRaw(LR2SongDBExtended songDb, SongTableLoadResult result)
+    {
+        List<BMSFile> loadedSongs = (result.SongTableCount > 0L && result.SongTableCount <= int.MaxValue)
+            ? new List<BMSFile>((int)result.SongTableCount)
+            : new List<BMSFile>();
+        result.SongMaterializeMode = "raw_string";
+        SQLiteCommand command = songDb.CreateCommand(SongCatalogRawSelectSql);
+        long objectTicks = 0L;
+        long stopwatchFrequency = Stopwatch.Frequency;
+        Stopwatch totalStopwatch = Stopwatch.StartNew();
+        int rawRows = ((LR2SongDBExtended.SQLiteCommandExtended)command).ForEachRawValueAsString(delegate (string[] values)
+        {
+            long objectStart = Stopwatch.GetTimestamp();
+            loadedSongs.Add(BMSFile.FromSongTableRawValues(values));
+            objectTicks += Stopwatch.GetTimestamp() - objectStart;
+        });
+        totalStopwatch.Stop();
+        long totalMs = totalStopwatch.ElapsedMilliseconds;
+        result.SongRawRows = rawRows;
+        result.SongRawObjectMs = stopwatchFrequency > 0L ? objectTicks * 1000L / stopwatchFrequency : 0L;
+        result.SongRawReadMs = Math.Max(0L, totalMs - result.SongRawObjectMs);
+        return loadedSongs;
     }
 
     public MaintenanceTableHydrationResult LoadMaintenanceTable(

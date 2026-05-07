@@ -39,6 +39,14 @@ internal sealed class SongTableLoadResult
 
     public long SongMaterializeMs { get; set; }
 
+    public string SongMaterializeMode { get; set; } = string.Empty;
+
+    public long SongRawReadMs { get; set; }
+
+    public long SongRawObjectMs { get; set; }
+
+    public int SongRawRows { get; set; }
+
     public long SongNormalizeLoopMs { get; set; }
 
     public long FolderTableLoadMs { get; set; }

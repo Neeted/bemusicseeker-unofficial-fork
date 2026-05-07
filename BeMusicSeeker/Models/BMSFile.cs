@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Linq.Expressions;
@@ -73,6 +74,78 @@ public class BMSFile : LR2SongDB.song
     {
         suppressPropertyChangedDepth++;
         return new BulkLoadNotificationScope();
+    }
+
+    internal static BMSFile FromSongTableRawValues(string[] values)
+    {
+        if (values == null)
+        {
+            throw new ArgumentNullException(nameof(values));
+        }
+        BMSFile file = new BMSFile();
+        file._hash = NormalizeMd5HashFromDb(GetRawValue(values, 0));
+        file._title = GetRawValue(values, 1);
+        file._subtitle = GetRawValue(values, 2);
+        file._artist = GetRawValue(values, 3);
+        file._subartist = GetRawValue(values, 4);
+        file.genre = GetRawValue(values, 5);
+        file._tag = GetRawValue(values, 6);
+        file._path = GetRawValue(values, 7);
+        file.type = ParseNullableIntFromDb(GetRawValue(values, 8));
+        file.folder = GetRawValue(values, 9);
+        file._stagefile = GetRawValue(values, 10);
+        file._banner = GetRawValue(values, 11);
+        file._backbmp = GetRawValue(values, 12);
+        file.parent = GetRawValue(values, 13);
+        file.level = ParseNullableIntFromDb(GetRawValue(values, 14));
+        file.difficulty = ParseNullableIntFromDb(GetRawValue(values, 15));
+        file.maxbpm = ParseNullableIntFromDb(GetRawValue(values, 16));
+        file.minbpm = ParseNullableIntFromDb(GetRawValue(values, 17));
+        file.mode = ParseNullableIntFromDb(GetRawValue(values, 18));
+        file._judge = ParseNullableIntFromDb(GetRawValue(values, 19));
+        file.longnote = ParseNullableIntFromDb(GetRawValue(values, 20));
+        file.bga = ParseNullableIntFromDb(GetRawValue(values, 21));
+        file.random = ParseNullableIntFromDb(GetRawValue(values, 22));
+        file.date = ParseNullableIntFromDb(GetRawValue(values, 23));
+        file.favorite = ParseNullableIntFromDb(GetRawValue(values, 24));
+        file.txt = ParseNullableIntFromDb(GetRawValue(values, 25));
+        file._karinotes = ParseNullableIntFromDb(GetRawValue(values, 26));
+        file.adddate = ParseNullableIntFromDb(GetRawValue(values, 27));
+        file.exlevel = ParseNullableIntFromDb(GetRawValue(values, 28));
+        return file;
+    }
+
+    private static string GetRawValue(string[] values, int index)
+    {
+        return index >= 0 && index < values.Length ? values[index] : null;
+    }
+
+    private static int? ParseNullableIntFromDb(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+        return int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsed)
+            ? parsed
+            : null;
+    }
+
+    private static string NormalizeMd5HashFromDb(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value) || value.Length != 32)
+        {
+            return null;
+        }
+        for (int i = 0; i < value.Length; i++)
+        {
+            char c = value[i];
+            if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')))
+            {
+                return null;
+            }
+        }
+        return value.ToLowerInvariant();
     }
 
     protected new void RaisePropertyChanged(string propertyName)

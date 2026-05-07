@@ -111,6 +111,112 @@ public sealed class BmsLibraryInitializationServiceTests
     }
 
     [TestMethod]
+    public void LoadSongTable_RawCatalogLoaderPreservesSongColumns()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string previousMode = Environment.GetEnvironmentVariable("BMS_SONG_TABLE_LOAD_MODE");
+        Environment.SetEnvironmentVariable("BMS_SONG_TABLE_LOAD_MODE", null);
+        try
+        {
+            WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
+            {
+                string chartPath = Path.Combine(lr2RootPath, "Songs", "full-columns.bms");
+                Directory.CreateDirectory(Path.GetDirectoryName(chartPath));
+                File.WriteAllText(chartPath, "#PLAYER 1");
+
+                TestableBmsFile expectedCrc = new TestableBmsFile
+                {
+                    path = chartPath
+                };
+                Lr2SongFolderParentNormalizer.ApplyIfMissingOrInvalid(expectedCrc);
+
+                using (LR2SongDBExtended songDb = new LR2SongDBExtended(songDbPath))
+                {
+                    songDb.CreateTable<LR2SongDB.song>();
+                    songDb.CreateTable<LR2SongDB.folder>();
+                    songDb.Execute(
+                        "INSERT INTO song (hash, title, subtitle, artist, subartist, genre, tag, path, type, folder, stagefile, banner, backbmp, parent, level, difficulty, maxbpm, minbpm, mode, judge, longnote, bga, random, date, favorite, txt, karinotes, adddate, exlevel) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);",
+                        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                        "Title",
+                        "Subtitle",
+                        "Artist",
+                        "SubArtist",
+                        "Genre",
+                        "Tag",
+                        chartPath,
+                        1,
+                        expectedCrc.folder,
+                        "stage.png",
+                        "banner.png",
+                        "back.png",
+                        expectedCrc.parent,
+                        12,
+                        4,
+                        180,
+                        90,
+                        7,
+                        2,
+                        1,
+                        1,
+                        0,
+                        12345,
+                        1,
+                        0,
+                        678,
+                        23456,
+                        9);
+                }
+
+                BmsLibraryInitializationService service = new BmsLibraryInitializationService();
+                SongTableLoadResult result = service.LoadSongTable(
+                    new BmsLibraryDbGateway(songDbPath),
+                    new BmsLibraryOptionsSnapshot(),
+                    null,
+                    new TestFileMutationService(),
+                    null,
+                    ex => ex.Message);
+
+                Assert.AreEqual("raw_string", result.SongMaterializeMode);
+                Assert.AreEqual(1, result.SongRawRows);
+                BMSFile loaded = result.LoadedFiles.Single();
+                Assert.AreEqual("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", loaded.hash);
+                Assert.AreEqual("Title", loaded.title);
+                Assert.AreEqual("Subtitle", loaded.subtitle);
+                Assert.AreEqual("Artist", loaded.artist);
+                Assert.AreEqual("SubArtist", loaded.subartist);
+                Assert.AreEqual("Genre", loaded.genre);
+                Assert.AreEqual("Tag", loaded.tag);
+                Assert.AreEqual(chartPath, loaded.path);
+                Assert.AreEqual(1, loaded.type);
+                Assert.AreEqual(expectedCrc.folder, loaded.folder);
+                Assert.AreEqual("stage.png", loaded.stagefile);
+                Assert.AreEqual("banner.png", loaded.banner);
+                Assert.AreEqual("back.png", loaded.backbmp);
+                Assert.AreEqual(expectedCrc.parent, loaded.parent);
+                Assert.AreEqual(12, loaded.level);
+                Assert.AreEqual(4, loaded.difficulty);
+                Assert.AreEqual(180, loaded.maxbpm);
+                Assert.AreEqual(90, loaded.minbpm);
+                Assert.AreEqual(7, loaded.mode);
+                Assert.AreEqual(2, loaded.judge);
+                Assert.AreEqual(1, loaded.longnote);
+                Assert.AreEqual(1, loaded.bga);
+                Assert.AreEqual(0, loaded.random);
+                Assert.AreEqual(12345, loaded.date);
+                Assert.AreEqual(1, loaded.favorite);
+                Assert.AreEqual(0, loaded.txt);
+                Assert.AreEqual(678, loaded.karinotes);
+                Assert.AreEqual(23456, loaded.adddate);
+                Assert.AreEqual(9, loaded.exlevel);
+            });
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("BMS_SONG_TABLE_LOAD_MODE", previousMode);
+        }
+    }
+
+    [TestMethod]
     public void LoadSongTable_DoesNotRegisterMaintenanceEncodingPropertyChangedHandler()
     {
         TestResourceInitializer.EnsureJapaneseResources();
