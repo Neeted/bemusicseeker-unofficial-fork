@@ -100,6 +100,176 @@ public sealed class BmsLibraryMaintenanceServiceTests
     }
 
     [TestMethod]
+    public void SetHealthStatusUsingLookupContext_RootReferenceDoesNotMatchNestedResource()
+    {
+        string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectoryPath);
+        string bmsFilePath = Path.Combine(tempDirectoryPath, "chart.bms");
+        File.WriteAllText(
+            bmsFilePath,
+            "#PLAYER 1\r\n#WAV01 foo.wav\r\n#00111:01\r\n",
+            Encoding.GetEncoding("shift_jis", new EncoderExceptionFallback(), new DecoderExceptionFallback()));
+        try
+        {
+            BMSFile file = BMSFile.CreateBMSFileFromFile(bmsFilePath);
+            DirectoryResourceLookupCache cache = new DirectoryResourceLookupCache();
+            cache.AddDir(
+                tempDirectoryPath,
+                Array.Empty<uint>(),
+                Array.Empty<uint>(),
+                Array.Empty<uint>(),
+                new[] { ChartResourceKeyHash.GetLookupHash(@"sound\foo") },
+                Array.Empty<uint>(),
+                Array.Empty<uint>());
+
+            file.SetHealthStatusUsingLookupContext(new ResourceHealthLookupContext(cache), forceUpdate: true);
+
+            Assert.AreEqual(1, file.maintenanceInfo.wav_files_defined);
+            Assert.AreEqual(0, file.maintenanceInfo.wav_files_existing);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectoryPath))
+            {
+                Directory.Delete(tempDirectoryPath, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void SetHealthStatusUsingLookupContext_NestedReferenceDoesNotMatchRootResource()
+    {
+        string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectoryPath);
+        string bmsFilePath = Path.Combine(tempDirectoryPath, "chart.bms");
+        File.WriteAllText(
+            bmsFilePath,
+            "#PLAYER 1\r\n#WAV01 sound\\foo.wav\r\n#00111:01\r\n",
+            Encoding.GetEncoding("shift_jis", new EncoderExceptionFallback(), new DecoderExceptionFallback()));
+        try
+        {
+            BMSFile file = BMSFile.CreateBMSFileFromFile(bmsFilePath);
+            DirectoryResourceLookupCache cache = new DirectoryResourceLookupCache();
+            cache.AddDir(
+                tempDirectoryPath,
+                Array.Empty<uint>(),
+                Array.Empty<uint>(),
+                Array.Empty<uint>(),
+                new[] { ChartResourceKeyHash.GetLookupHash("foo") },
+                Array.Empty<uint>(),
+                Array.Empty<uint>());
+
+            file.SetHealthStatusUsingLookupContext(new ResourceHealthLookupContext(cache), forceUpdate: true);
+
+            Assert.AreEqual(1, file.maintenanceInfo.wav_files_defined);
+            Assert.AreEqual(0, file.maintenanceInfo.wav_files_existing);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectoryPath))
+            {
+                Directory.Delete(tempDirectoryPath, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void SetHealthStatusUsingLookupContext_RootReferenceMatchesRootRelativeResource()
+    {
+        string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectoryPath);
+        string bmsFilePath = Path.Combine(tempDirectoryPath, "chart.bms");
+        File.WriteAllText(
+            bmsFilePath,
+            "#PLAYER 1\r\n#WAV01 foo.wav\r\n#00111:01\r\n",
+            Encoding.GetEncoding("shift_jis", new EncoderExceptionFallback(), new DecoderExceptionFallback()));
+        try
+        {
+            BMSFile file = BMSFile.CreateBMSFileFromFile(bmsFilePath);
+            DirectoryResourceLookupCache cache = new DirectoryResourceLookupCache();
+            cache.AddDir(
+                tempDirectoryPath,
+                Array.Empty<uint>(),
+                Array.Empty<uint>(),
+                Array.Empty<uint>(),
+                new[] { ChartResourceKeyHash.GetLookupHash("foo") },
+                Array.Empty<uint>(),
+                Array.Empty<uint>());
+
+            file.SetHealthStatusUsingLookupContext(new ResourceHealthLookupContext(cache), forceUpdate: true);
+
+            Assert.AreEqual(1, file.maintenanceInfo.wav_files_defined);
+            Assert.AreEqual(1, file.maintenanceInfo.wav_files_existing);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectoryPath))
+            {
+                Directory.Delete(tempDirectoryPath, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void SetHealthStatusWithoutLookupContext_RootReferenceDoesNotMatchNestedResource()
+    {
+        string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerTests", Guid.NewGuid().ToString("N"));
+        string soundDirectoryPath = Path.Combine(tempDirectoryPath, "sound");
+        Directory.CreateDirectory(soundDirectoryPath);
+        string bmsFilePath = Path.Combine(tempDirectoryPath, "chart.bms");
+        File.WriteAllText(
+            bmsFilePath,
+            "#PLAYER 1\r\n#WAV01 foo.wav\r\n#00111:01\r\n",
+            Encoding.GetEncoding("shift_jis", new EncoderExceptionFallback(), new DecoderExceptionFallback()));
+        File.WriteAllText(Path.Combine(soundDirectoryPath, "foo.wav"), string.Empty);
+        try
+        {
+            BMSFile file = BMSFile.CreateBMSFileFromFile(bmsFilePath);
+
+            file.SetHealthStatus(forceUpdate: true);
+
+            Assert.AreEqual(1, file.maintenanceInfo.wav_files_defined);
+            Assert.AreEqual(0, file.maintenanceInfo.wav_files_existing);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectoryPath))
+            {
+                Directory.Delete(tempDirectoryPath, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void SetHealthStatusWithoutLookupContext_NestedReferenceDoesNotMatchRootResource()
+    {
+        string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectoryPath);
+        string bmsFilePath = Path.Combine(tempDirectoryPath, "chart.bms");
+        File.WriteAllText(
+            bmsFilePath,
+            "#PLAYER 1\r\n#WAV01 sound\\foo.wav\r\n#00111:01\r\n",
+            Encoding.GetEncoding("shift_jis", new EncoderExceptionFallback(), new DecoderExceptionFallback()));
+        File.WriteAllText(Path.Combine(tempDirectoryPath, "foo.wav"), string.Empty);
+        try
+        {
+            BMSFile file = BMSFile.CreateBMSFileFromFile(bmsFilePath);
+
+            file.SetHealthStatus(forceUpdate: true);
+
+            Assert.AreEqual(1, file.maintenanceInfo.wav_files_defined);
+            Assert.AreEqual(0, file.maintenanceInfo.wav_files_existing);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectoryPath))
+            {
+                Directory.Delete(tempDirectoryPath, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
     public void LibraryChartRow_ProjectsResourceHealthWarningsWithoutMutatingSource()
     {
         TestResourceInitializer.EnsureJapaneseResources();

@@ -197,7 +197,7 @@ all-base union 派生 API は `DirectoryResourceLookupCache.Entry` から削除�
 
 mixed package の既存配置先再利用では、hash tie が複数候補になっても extensionless union の health 判定補助は使いません。候補限定 final evaluation の category resource metrics で評価し、曖昧なら suggestions と warning に落とします。
 
-resource health / maintenance もカテゴリ別 `ResourceHealthLookupContext` を正本にし、`FolderAllFileList` には fallback しません。folder move/delete/merge/install/reload 後の memory index 差分更新も `DirectoryResourceLookupCache` 正本へ移したため、extensionless union の live cache は残していません。順序安定だけが必要なら path 順などの明示的で安全な tie-break を使います。
+resource health / maintenance もカテゴリ別 `ResourceHealthLookupContext` を正本にし、`FolderAllFileList` には fallback しません。health 判定も chart-relative key のみを使うため、`foo.wav` は root の `foo`、`sound/foo.wav` は `sound/foo` として別物です。folder move/delete/merge/install/reload 後の memory index 差分更新も `DirectoryResourceLookupCache` 正本へ移したため、extensionless union の live cache は残していません。順序安定だけが必要なら path 順などの明示的で安全な tie-break を使います。
 
 ## Metadata Tie-break
 

@@ -601,7 +601,7 @@ mixed package の既所持 chart hash から複数の配置先候補が見つか
 
 folder operation cache cleanup も `DirectoryResourceLookupCache` 正本へ移した。install / merge 後は `DirectoryResourceLookupCache.AddDir(...)` だけで category resource index を更新し、folder move / rename は `ReplaceDirWithResult(...)`、whole-folder delete / merge cleanup は `Keys` から配下 directory を列挙して `RemoveDirWithResult(...)` で処理する。`ChartResourceKeyHash` は静的 hash helper であり、instance cache API は存在しない。
 
-さらに導入先推定の final evaluation から category 別 basename hash の入力を外し、relative-only evaluation にした。`foo.wav` は chart-relative key `foo`、`sound/foo.wav` は `sound/foo` としてのみ照合し、basename hash は audio gate / candidate match / ancestor shadow suppression では使わない。health / maintenance と native payload の base hash 整理は別 phase とする。
+さらに導入先推定の final evaluation から category 別 basename hash の入力を外し、relative-only evaluation にした。`foo.wav` は chart-relative key `foo`、`sound/foo.wav` は `sound/foo` としてのみ照合し、basename hash は audio gate / candidate match / ancestor shadow suppression では使わない。続く整理で resource health / maintenance も同じ chart-relative key semantics へ寄せ、root 参照と subdirectory resource が同じ stem だけで一致する経路を削除した。native payload の base hash 整理は別 phase とする。
 
 次フェーズでは、残っている extensionless union 派生 API の利用箇所をさらに調査し、必要ならカテゴリ別 API または path 順 tie-break へ置き換える。特に導入先 tie-break で union を使う必要は薄く、同率に近い候補は曖昧候補として提示し、順序安定だけが必要なら path 名順で十分とする。
 

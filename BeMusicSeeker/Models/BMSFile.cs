@@ -1557,12 +1557,12 @@ public class BMSFile : LR2SongDB.song
                     ILookup<bool, string> lookup2 = lookup[false].ToLookup((string f) => !f.Contains('\\'));
                     ILookup<bool, string> lookup3 = lookup[true].ToLookup((string f) => !f.Contains('\\'));
                     nonlocalBGAfiles = lookup2[false].ToList();
-                    localBGAfilesNameHashArray = ChartResourceKeyHash.GetFileNameHashArray(lookup2[true]);
+                    localBGAfilesNameHashArray = GetResourceReferenceHashArray(lookup2[true]);
                     nonlocalBGAfilesMovie = lookup3[false].ToList();
-                    localBGAfilesMovieNameHashArray = ChartResourceKeyHash.GetFileNameHashArray(lookup3[true]);
+                    localBGAfilesMovieNameHashArray = GetResourceReferenceHashArray(lookup3[true]);
                     ILookup<bool, string> lookup4 = WAVfiles.ToLookup((string f) => !f.Contains('\\'));
                     nonlocalWAVfiles = lookup4[false].ToList();
-                    localWAVfilesNameHashArray = ChartResourceKeyHash.GetFileNameHashArray(lookup4[true]);
+                    localWAVfilesNameHashArray = GetResourceReferenceHashArray(lookup4[true]);
                 }
             }
             string dir = (string.IsNullOrWhiteSpace(altSearchDir) ? DirectoryExt.GetDirectoryNameSimple(path) : altSearchDir.TrimEnd('\\'));
@@ -1705,7 +1705,7 @@ public class BMSFile : LR2SongDB.song
         ref uint[] imageResourceHashes,
         ref uint[] movieResourceHashes)
     {
-        uint[] cachedHashes = GetSelfOwnedBaseNameHashArray(resourceEntry, resourceKind);
+        uint[] cachedHashes = GetCategoryRelativePathHashArray(resourceEntry, resourceKind);
         if (cachedHashes != null)
         {
             return cachedHashes;
@@ -1724,15 +1724,15 @@ public class BMSFile : LR2SongDB.song
         }
     }
 
-    private static uint[] GetSelfOwnedBaseNameHashArray(DirectoryResourceLookupCache.Entry resourceEntry, ChartResourceKind resourceKind)
+    private static uint[] GetCategoryRelativePathHashArray(DirectoryResourceLookupCache.Entry resourceEntry, ChartResourceKind resourceKind)
     {
         if (resourceEntry != null)
         {
             return resourceKind switch
             {
-                ChartResourceKind.Audio => resourceEntry.SelfOwnedAudioBaseNameHashArray,
-                ChartResourceKind.Image => resourceEntry.SelfOwnedImageBaseNameHashArray,
-                ChartResourceKind.Movie => resourceEntry.SelfOwnedMovieBaseNameHashArray,
+                ChartResourceKind.Audio => resourceEntry.AudioRelativePathHashArray,
+                ChartResourceKind.Image => resourceEntry.ImageRelativePathHashArray,
+                ChartResourceKind.Movie => resourceEntry.MovieRelativePathHashArray,
                 _ => Array.Empty<uint>()
             };
         }
@@ -1749,8 +1749,23 @@ public class BMSFile : LR2SongDB.song
 
         return FastDirectoryEnumerator.GetFileNames(directory)
             .Where((string fileName) => IsResourceFileNameForKind(fileName, resourceKind))
-            .Select(ChartResourceKeyHash.GetFileNameHash)
+            .Select(GetResourceReferenceHash)
+            .Where((uint hash) => hash != 0u)
             .ToArray();
+    }
+
+    private static uint[] GetResourceReferenceHashArray(IEnumerable<string> references)
+    {
+        return (references ?? Enumerable.Empty<string>())
+            .Select(GetResourceReferenceHash)
+            .Where((uint hash) => hash != 0u)
+            .ToArray();
+    }
+
+    private static uint GetResourceReferenceHash(string referencePath)
+    {
+        string normalized = ChartResourcePathNormalizer.NormalizeResourceKeyForLookup(referencePath);
+        return ChartResourceKeyHash.GetLookupHash(normalized);
     }
 
     private static bool IsResourceFileNameForKind(string fileName, ChartResourceKind resourceKind)
@@ -1871,24 +1886,23 @@ public class BMSFile : LR2SongDB.song
         {
             return false;
         }
-        bool hasDirectorySegments = ChartResourcePathNormalizer.HasDirectorySegments(normalized);
         uint hash = ChartResourceKeyHash.GetLookupHash(normalized);
         if (hash == 0u)
         {
             return false;
         }
 
-        exists = ContainsResourceHash(resourceEntry, resourceKind, hasDirectorySegments, hash);
+        exists = ContainsResourceHash(resourceEntry, resourceKind, hash);
         return true;
     }
 
-    private static bool ContainsResourceHash(DirectoryResourceLookupCache.Entry entry, ChartResourceKind resourceKind, bool hasDirectorySegments, uint hash)
+    private static bool ContainsResourceHash(DirectoryResourceLookupCache.Entry entry, ChartResourceKind resourceKind, uint hash)
     {
         return resourceKind switch
         {
-            ChartResourceKind.Audio => ContainsHash(hasDirectorySegments ? entry.AudioRelativePathHashArray : entry.SelfOwnedAudioBaseNameHashArray, hash),
-            ChartResourceKind.Image => ContainsHash(hasDirectorySegments ? entry.ImageRelativePathHashArray : entry.SelfOwnedImageBaseNameHashArray, hash),
-            ChartResourceKind.Movie => ContainsHash(hasDirectorySegments ? entry.MovieRelativePathHashArray : entry.SelfOwnedMovieBaseNameHashArray, hash),
+            ChartResourceKind.Audio => ContainsHash(entry.AudioRelativePathHashArray, hash),
+            ChartResourceKind.Image => ContainsHash(entry.ImageRelativePathHashArray, hash),
+            ChartResourceKind.Movie => ContainsHash(entry.MovieRelativePathHashArray, hash),
             _ => false
         };
     }

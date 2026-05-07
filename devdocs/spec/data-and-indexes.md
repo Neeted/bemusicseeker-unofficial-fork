@@ -25,7 +25,7 @@
 - `BMSPackagesInstalled`  
   導入済みパッケージ一覧（管理用）
 - `directoryResourceLookupCache : DirectoryResourceLookupCache`
-  chart directory ごとのカテゴリ別 basename / relative-path hash 集合。chart directory key set と resource index の正本
+  chart directory ごとのカテゴリ別 chart-relative resource key 集合。chart directory key set と resource index の正本
   - aggregate ownership と self-only ownership の二重 view
 
 ## 3. `ChartResourceKeyHash` の仕様
@@ -50,7 +50,7 @@
 - `ChartResourceKeyHash` は static helper であり、instance cache API は存在しない。
 - 導入先推定の照合本体と reverse lookup は `DirectoryResourceLookupCache` の audio / image / movie chart-relative key を使う。
 - 導入先推定は relative-only evaluation で、category 別 basename hash は照合に使わない。
-- resource health / maintenance も `DirectoryResourceLookupCache.Entry` のカテゴリ別 key を使い、旧 union view には fallback しない。
+- resource health / maintenance も `DirectoryResourceLookupCache.Entry` のカテゴリ別 chart-relative key を使い、旧 union view や basename-only matching には fallback しない。
 - `foo.wav` は `foo`、`sound/foo.wav` は `sound/foo` として扱われ、旧 basename-only matching は使わない。
 - 導入先推定では candidate directory 集合も照合本体も `DirectoryResourceLookupCache` を使い、旧 union view には fallback しない
 - relative path を含む source of truth は `DirectoryResourceLookupCache.Entry` 側に置く
@@ -76,7 +76,7 @@
   - `SelfOwnedImageRelativePathHashesByChartDirectory`
   - `SelfOwnedMovieRelativePathHashesByChartDirectory`
 
-resource は「存在ディレクトリ」ではなく、chart directory keyed に再集約する。  
+`BaseNameHashes` という旧名の field は残っているが、現行の照合・health の正本ではない。resource は「存在ディレクトリ」ではなく、chart directory keyed に再集約する。
 未分類 all-resource surface は保持しない。必要な場合の union は audio / image / movie のカテゴリ配列からその場で派生し、live cache としては持たない。
 `2026-04-23` 時点では次の二重 semantics を持つ。
 
