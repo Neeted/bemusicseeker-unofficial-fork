@@ -56,7 +56,7 @@ merge / reinstall correction では source/bundled resource を足さず、`cand
 - self-owned audio / image / movie
 - category reverse lookup
 
-`ChartResourceKeyHash` は拡張子なし resource key の静的 hash helper です。導入先推定の candidate 列挙や matching の正本は `DirectoryResourceLookupCache` で、旧 `FolderAllFileList` / all-base union view は使いません。
+`ChartResourceKeyHash` は拡張子なし resource key の静的 hash helper です。導入先推定の candidate 列挙や matching の正本は `DirectoryResourceLookupCache` のカテゴリ別 chart-relative key で、旧 `FolderAllFileList` / all-base union view は使いません。導入先推定の final evaluation は relative-only であり、category 別 basename hash は照合にも audio gate にも使いません。
 
 `DirectoryResourceLookupCache` がない状態では導入先推定を行いません。`SkipInitFileCheck` のように起動時 resource index を作らない設定では、推定不可になる場合があります。
 
@@ -137,12 +137,12 @@ audio reference がある target では、candidate 自身に最低限の audio 
 - reinstall correction: `candidate only`
 - source baseline: source directory のみ
 
-resource match はカテゴリ別です。
+resource match はカテゴリ別かつ chart-relative です。
 
-- audio ref は audio key とだけ照合
-- image ref は image key とだけ照合
-- movie ref は movie key とだけ照合
-- optional image ref は image key と照合
+- audio ref は audio relative key とだけ照合
+- image ref は image relative key とだけ照合
+- movie ref は movie relative key とだけ照合
+- optional image ref は image relative key と照合
 
 chart-relative key が一致した場合に match とします。basename-only reference も現在は extensionless relative key として扱われ、`foo` と `sound/foo` は別 key です。
 
@@ -193,7 +193,7 @@ primary health は次の順で選ばれます。
 
 通常経路の `CandidateCount` はカテゴリ別 relative key set から出ます。つまり、audio / image / movie のそれぞれの candidate count が precision / jaccard に効きます。
 
-all-base union 派生 API は `DirectoryResourceLookupCache.Entry` から削除済みです。導入先の candidate 列挙、primary matching、primary tie-break の正本は audio / image / movie のカテゴリ別 key です。
+all-base union 派生 API は `DirectoryResourceLookupCache.Entry` から削除済みです。導入先の candidate 列挙、primary matching、primary tie-break の正本は audio / image / movie のカテゴリ別 relative key です。
 
 mixed package の既存配置先再利用では、hash tie が複数候補になっても extensionless union の health 判定補助は使いません。候補限定 final evaluation の category resource metrics で評価し、曖昧なら suggestions と warning に落とします。
 

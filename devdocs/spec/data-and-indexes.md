@@ -49,6 +49,7 @@
 
 - `ChartResourceKeyHash` は static helper であり、instance cache API は存在しない。
 - 導入先推定の照合本体と reverse lookup は `DirectoryResourceLookupCache` の audio / image / movie chart-relative key を使う。
+- 導入先推定は relative-only evaluation で、category 別 basename hash は照合に使わない。
 - resource health / maintenance も `DirectoryResourceLookupCache.Entry` のカテゴリ別 key を使い、旧 union view には fallback しない。
 - `foo.wav` は `foo`、`sound/foo.wav` は `sound/foo` として扱われ、旧 basename-only matching は使わない。
 - 導入先推定では candidate directory 集合も照合本体も `DirectoryResourceLookupCache` を使い、旧 union view には fallback しない
