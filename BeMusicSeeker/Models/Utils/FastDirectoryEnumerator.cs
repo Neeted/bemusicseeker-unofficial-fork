@@ -273,7 +273,7 @@ public static class FastDirectoryEnumerator
 	}
 
 	[SuppressUnmanagedCodeSecurity]
-	public static IEnumerable<string> GetFilePathsAsParallel(string dirPath, BMSDirectoryFileNameHash cache, string[] extensions = null, SearchOption searchOption = SearchOption.TopDirectoryOnly)
+	public static IEnumerable<string> GetFilePathsAsParallel(string dirPath, string[] extensions = null, SearchOption searchOption = SearchOption.TopDirectoryOnly)
 	{
 		FINDEX_INFO_LEVELS fInfoLevelId = (Environment.OSVersion.IsLaterOrEqual(OperatingSystemExt.WindowsProductName.WindowsHomeServer2011) ? FINDEX_INFO_LEVELS.FindExInfoBasic : FINDEX_INFO_LEVELS.FindExInfoStandard);
 		int dwAdditionalFlags = (Environment.OSVersion.IsLaterOrEqual(OperatingSystemExt.WindowsProductName.WindowsHomeServer2011) ? 2 : 0);
@@ -292,9 +292,7 @@ public static class FastDirectoryEnumerator
 		{
 			yield break;
 		}
-		List<string> files = new List<string>();
 		List<string> subdirs = new List<string>();
-		bool found = false;
 		do
 		{
 			string text = dirPath + "\\" + m_win_find_data.cFileName;
@@ -306,26 +304,17 @@ public static class FastDirectoryEnumerator
 				}
 				continue;
 			}
-			files.Add(m_win_find_data.cFileName);
 			if (extensions == null || extensions.Any((string e) => m_win_find_data.cFileName.EndsWith(e, StringComparison.OrdinalIgnoreCase)))
 			{
-				if (!found)
-				{
-					found = true;
-				}
 				yield return text;
 			}
 		}
 		while (FindNextFile(m_hndFindFile, m_win_find_data));
-		if (found && files.Count > 0 && cache != null)
-		{
-			cache.AddDir(dirPath, files);
-		}
 		if (subdirs.Count <= 0 || searchOption != SearchOption.AllDirectories)
 		{
 			yield break;
 		}
-		foreach (string item in subdirs.AsParallel().SelectMany((string path) => GetFilePathsAsParallel(path, cache, extensions, searchOption)))
+		foreach (string item in subdirs.AsParallel().SelectMany((string path) => GetFilePathsAsParallel(path, extensions, searchOption)))
 		{
 			yield return item;
 		}

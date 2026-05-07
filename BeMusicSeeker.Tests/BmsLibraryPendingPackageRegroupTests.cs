@@ -218,7 +218,6 @@ public sealed class BmsLibraryPendingPackageRegroupTests
                 BMSFile.CreateBMSFileFromFile(Path.Combine(candidateBDirectoryPath, "candidateB.bms"))
             };
             SeedPendingPackages(library, songDbPath, pendingPackage);
-            SetPrivateField(library, "bmsFolderAllFileList", BuildDirectoryHashCache(sourceDirectoryPath, candidateADirectoryPath, candidateBDirectoryPath));
             SetPrivateField(library, "directoryResourceLookupCache", BuildDirectoryLookupCache(sourceDirectoryPath, candidateADirectoryPath, candidateBDirectoryPath));
 
             library.SearchEstimatedInstallationDirectory(pendingPackage);
@@ -311,7 +310,6 @@ public sealed class BmsLibraryPendingPackageRegroupTests
                 BMSFile.CreateBMSFileFromFile(installedBPath)
             };
             SeedPendingPackages(library, songDbPath, pendingPackage);
-            SetPrivateField(library, "bmsFolderAllFileList", BuildDirectoryHashCache(sourceDirectoryPath, installedADirectoryPath, installedBDirectoryPath));
             SetPrivateField(library, "directoryResourceLookupCache", BuildDirectoryLookupCache(sourceDirectoryPath, installedADirectoryPath, installedBDirectoryPath));
 
             library.SearchEstimatedInstallationDirectory(pendingPackage);
@@ -355,7 +353,6 @@ public sealed class BmsLibraryPendingPackageRegroupTests
                 BMSFile.CreateBMSFileFromFile(installedBPath)
             };
             SeedPendingPackages(library, songDbPath, pendingPackage);
-            SetPrivateField(library, "bmsFolderAllFileList", BuildDirectoryHashCache(sourceDirectoryPath, installedADirectoryPath, installedBDirectoryPath));
             SetPrivateField(library, "directoryResourceLookupCache", BuildDirectoryLookupCache(sourceDirectoryPath, installedADirectoryPath, installedBDirectoryPath));
 
             library.SearchEstimatedInstallationDirectory(pendingPackage);
@@ -404,7 +401,6 @@ public sealed class BmsLibraryPendingPackageRegroupTests
                 BMSFile.CreateBMSFileFromFile(Path.Combine(candidateBDirectoryPath, "candidateB2.bms"))
             };
             SeedPendingPackages(library, songDbPath, pendingPackage);
-            SetPrivateField(library, "bmsFolderAllFileList", BuildDirectoryHashCache(sourceDirectoryPath, candidateADirectoryPath, candidateBDirectoryPath));
             SetPrivateField(library, "directoryResourceLookupCache", BuildDirectoryLookupCache(sourceDirectoryPath, candidateADirectoryPath, candidateBDirectoryPath));
 
             library.SearchEstimatedInstallationDirectory(pendingPackage);
@@ -447,7 +443,6 @@ public sealed class BmsLibraryPendingPackageRegroupTests
                     BMSFile.CreateBMSFileFromFile(Path.Combine(candidateBDirectoryPath, "candidateB.bms"))
                 };
                 SeedPendingPackages(library, songDbPath, pendingPackage);
-                SetPrivateField(library, "bmsFolderAllFileList", BuildDirectoryHashCache(sourceDirectoryPath, candidateADirectoryPath, candidateBDirectoryPath));
                 SetPrivateField(library, "directoryResourceLookupCache", BuildDirectoryLookupCache(sourceDirectoryPath, candidateADirectoryPath, candidateBDirectoryPath));
 
                 library.SearchEstimatedInstallationDirectory(pendingPackage);
@@ -487,7 +482,6 @@ public sealed class BmsLibraryPendingPackageRegroupTests
                 BMSFile.CreateBMSFileFromFile(Path.Combine(candidateDirectoryPath, "candidate.bms"))
             };
             SeedPendingPackages(library, songDbPath, pendingPackage);
-            SetPrivateField(library, "bmsFolderAllFileList", BuildDirectoryHashCache(sourceDirectoryPath, candidateDirectoryPath));
             SetPrivateField(library, "directoryResourceLookupCache", BuildDirectoryLookupCache(sourceDirectoryPath, candidateDirectoryPath));
 
             library.SearchEstimatedInstallationDirectory(pendingPackage);
@@ -522,7 +516,6 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             };
             library.BMSFiles = new List<BMSFile>();
             SeedPendingPackages(library, songDbPath, pendingPackage);
-            SetPrivateField(library, "bmsFolderAllFileList", BuildDirectoryHashCache(sourceDirectoryPath));
             SetPrivateField(library, "directoryResourceLookupCache", BuildDirectoryLookupCache(sourceDirectoryPath));
 
             library.SearchEstimatedInstallationDirectory(pendingPackage);
@@ -600,7 +593,6 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             };
             library.BMSFiles = new List<BMSFile> { BMSFile.CreateBMSFileFromFile(Path.Combine(candidateDirectoryPath, "installed.bms")) };
             SeedPendingPackages(library, songDbPath, pendingPackage);
-            SetPrivateField(library, "bmsFolderAllFileList", BuildDirectoryHashCache(sourceDirectoryPath, candidateDirectoryPath));
             SetPrivateField(library, "directoryResourceLookupCache", BuildDirectoryLookupCache(sourceDirectoryPath, candidateDirectoryPath));
 
             library.SearchMergeDestination(new[] { pendingFile });
@@ -723,7 +715,6 @@ public sealed class BmsLibraryPendingPackageRegroupTests
                 BMSFile.CreateBMSFileFromFile(Path.Combine(candidateBDirectoryPath, "candidateB.bms"))
             };
             SeedPendingPackages(library, songDbPath, pendingPackage);
-            SetPrivateField(library, "bmsFolderAllFileList", BuildDirectoryHashCache(sourceDirectoryPath, candidateADirectoryPath, candidateBDirectoryPath));
             SetPrivateField(library, "directoryResourceLookupCache", BuildDirectoryLookupCache(sourceDirectoryPath, candidateADirectoryPath, candidateBDirectoryPath));
 
             library.SearchEstimatedInstallationDirectory(pendingPackage);
@@ -773,7 +764,6 @@ public sealed class BmsLibraryPendingPackageRegroupTests
                 BMSFile.CreateBMSFileFromFile(manualInstalledFilePath)
             };
             SeedPendingPackages(library, songDbPath, pendingPackage);
-            SetPrivateField(library, "bmsFolderAllFileList", BuildDirectoryHashCache(sourceDirectoryPath, candidateADirectoryPath, candidateBDirectoryPath, manualDirectoryPath));
             SetPrivateField(library, "directoryResourceLookupCache", BuildDirectoryLookupCache(sourceDirectoryPath, candidateADirectoryPath, candidateBDirectoryPath, manualDirectoryPath));
 
             library.SearchEstimatedInstallationDirectory(pendingPackage);
@@ -818,7 +808,6 @@ public sealed class BmsLibraryPendingPackageRegroupTests
                 BMSFile.CreateBMSFileFromFile(Path.Combine(candidateBDirectoryPath, "candidateB.bms"))
             };
             SeedPendingPackages(library, songDbPath, pendingPackage);
-            SetPrivateField(library, "bmsFolderAllFileList", BuildDirectoryHashCache(sourceDirectoryPath, candidateADirectoryPath, candidateBDirectoryPath));
             SetPrivateField(library, "directoryResourceLookupCache", BuildDirectoryLookupCache(sourceDirectoryPath, candidateADirectoryPath, candidateBDirectoryPath));
 
             library.SearchEstimatedInstallationDirectory(pendingPackage);
@@ -859,7 +848,6 @@ public sealed class BmsLibraryPendingPackageRegroupTests
                 BMSFile.CreateBMSFileFromFile(Path.Combine(candidateDirectoryPath, "candidate.bms"))
             };
             SeedPendingPackages(library, songDbPath, pendingPackage);
-            SetPrivateField(library, "bmsFolderAllFileList", BuildDirectoryHashCache(sourceDirectoryPath, candidateDirectoryPath));
             SetPrivateField(library, "directoryResourceLookupCache", BuildDirectoryLookupCache(sourceDirectoryPath, candidateDirectoryPath));
 
             library.SearchEstimatedInstallationDirectory(pendingPackage);
@@ -921,16 +909,6 @@ public sealed class BmsLibraryPendingPackageRegroupTests
         FieldInfo fieldInfo = target.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.IsNotNull(fieldInfo, fieldName);
         fieldInfo.SetValue(target, value);
-    }
-
-    private static BMSDirectoryFileNameHash BuildDirectoryHashCache(params string[] directories)
-    {
-        BMSDirectoryFileNameHash cache = new BMSDirectoryFileNameHash();
-        foreach (string directoryPath in directories.Where((string path) => !string.IsNullOrWhiteSpace(path)))
-        {
-            cache.AddDir(directoryPath);
-        }
-        return cache;
     }
 
     private static DirectoryResourceLookupCache BuildDirectoryLookupCache(params string[] directories)

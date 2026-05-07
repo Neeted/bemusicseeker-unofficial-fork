@@ -54,21 +54,21 @@ internal sealed class FileCollisionResolutionResult
 /// </summary>
 internal sealed class BmsLibraryLibraryFileOperationsService
 {
-    public void MoveFolderAndUpdateReferences(
+    public DirectoryResourceLookupCache.ReverseLookupMutationResult MoveFolderAndUpdateReferences(
         string srcDir,
         string dstDir,
-        BMSDirectoryFileNameHash folderAllFileList,
         DirectoryResourceLookupCache directoryLookupCache,
         IFileMutationService fileMutationService,
         FileMutationOptions recursiveDirectoryTreeFileMutationOptions)
     {
         fileMutationService.MoveDirectory(srcDir, dstDir, overwrite: false, recursiveDirectoryTreeFileMutationOptions);
-        foreach (string item in folderAllFileList.Keys.Where((string f) => (f + Path.DirectorySeparatorChar).StartsWith(srcDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)))
+        DirectoryResourceLookupCache.ReverseLookupMutationResult mutationResult = DirectoryResourceLookupCache.ReverseLookupMutationResult.Empty;
+        foreach (string item in (directoryLookupCache?.Keys ?? Enumerable.Empty<string>()).Where((string f) => (f + Path.DirectorySeparatorChar).StartsWith(srcDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)).ToList())
         {
             string newKey = item.ReplaceFromStart(srcDir, dstDir, isIgnoreCase: true);
-            folderAllFileList.ReplaceDir(item, newKey);
-            directoryLookupCache?.ReplaceDir(item, newKey);
+            mutationResult = mutationResult.Combine(directoryLookupCache.ReplaceDirWithResult(item, newKey));
         }
+        return mutationResult;
     }
 
     public void MoveFileOnDisk(BMSFile bmsFile, string dstPath, IFileMutationService fileMutationService, FileMutationOptions targetOnlyFileMutationOptions)
@@ -89,7 +89,6 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         IEnumerable<BMSFile> bmsFiles,
         IEnumerable<BMSFile> libraryFiles,
         IEnumerable<BMSPackage> pendingPackages,
-        BMSDirectoryFileNameHash folderAllFileList,
         DirectoryResourceLookupCache directoryLookupCache,
         bool sendToRecycleBin,
         Func<string, bool> confirmDeleteWholeFolder,
@@ -101,7 +100,6 @@ internal sealed class BmsLibraryLibraryFileOperationsService
             (bmsFiles ?? Enumerable.Empty<BMSFile>()).Select(LibraryChartRef.FromBmsFile),
             (libraryFiles ?? Enumerable.Empty<BMSFile>()).Select(LibraryChartRef.FromBmsFile),
             pendingPackages,
-            folderAllFileList,
             directoryLookupCache,
             sendToRecycleBin,
             confirmDeleteWholeFolder,
@@ -114,7 +112,6 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         IEnumerable<LibraryChartRef> charts,
         IEnumerable<LibraryChartRef> libraryCharts,
         IEnumerable<BMSPackage> pendingPackages,
-        BMSDirectoryFileNameHash folderAllFileList,
         DirectoryResourceLookupCache directoryLookupCache,
         bool sendToRecycleBin,
         Func<string, bool> confirmDeleteWholeFolder,
@@ -175,7 +172,7 @@ internal sealed class BmsLibraryLibraryFileOperationsService
                 }
                 if (!result.Failures.Any((LibraryDeleteFailure failure) => failure.IsDirectory && string.Equals(failure.Path, folderGroup.Key, StringComparison.OrdinalIgnoreCase)))
                 {
-                    CleanupDeletedFolderIndexes(folderGroup.Key, folderAllFileList, directoryLookupCache);
+                    result.ResourceIndexMutation = result.ResourceIndexMutation.Combine(CleanupDeletedFolderIndexes(folderGroup.Key, directoryLookupCache));
                     ClearInstallDestinationsUnderDeletedFolder(folderGroup.Key, pendingPackages, currentLibraryCharts);
                 }
                 continue;
@@ -327,22 +324,24 @@ internal sealed class BmsLibraryLibraryFileOperationsService
         }
     }
 
-    private static void CleanupDeletedFolderIndexes(string folderPath, BMSDirectoryFileNameHash folderAllFileList, DirectoryResourceLookupCache directoryLookupCache)
+    private static DirectoryResourceLookupCache.ReverseLookupMutationResult CleanupDeletedFolderIndexes(string folderPath, DirectoryResourceLookupCache directoryLookupCache)
     {
         if (string.IsNullOrWhiteSpace(folderPath))
         {
-            return;
+            return DirectoryResourceLookupCache.ReverseLookupMutationResult.Empty;
         }
         try
         {
-            foreach (string indexedDirectoryPath in (folderAllFileList?.Keys ?? new List<string>()).Where((string directoryPath) => (directoryPath + Path.DirectorySeparatorChar).StartsWith(folderPath + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)).ToList())
+            DirectoryResourceLookupCache.ReverseLookupMutationResult mutationResult = DirectoryResourceLookupCache.ReverseLookupMutationResult.Empty;
+            foreach (string indexedDirectoryPath in (directoryLookupCache?.Keys ?? Enumerable.Empty<string>()).Where((string directoryPath) => (directoryPath + Path.DirectorySeparatorChar).StartsWith(folderPath + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)).ToList())
             {
-                folderAllFileList?.RemoveDir(indexedDirectoryPath);
-                directoryLookupCache?.RemoveDir(indexedDirectoryPath);
+                mutationResult = mutationResult.Combine(directoryLookupCache.RemoveDirWithResult(indexedDirectoryPath));
             }
+            return mutationResult;
         }
         catch
         {
+            return DirectoryResourceLookupCache.ReverseLookupMutationResult.Empty;
         }
     }
 

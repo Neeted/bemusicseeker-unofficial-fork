@@ -782,96 +782,6 @@ internal static class EverythingNative
 		return map;
 	}
 
-	private static ulong CountFolderUnionHashes(params uint[][][] hashGroups)
-	{
-		int count = 0;
-		if (hashGroups != null)
-		{
-			for (int i = 0; i < hashGroups.Length; i++)
-			{
-				uint[][] group = hashGroups[i];
-				if (group != null && group.Length > count)
-				{
-					count = group.Length;
-				}
-			}
-		}
-		ulong total = 0UL;
-		for (int i = 0; i < count; i++)
-		{
-			total += (ulong)CountSortedDistinctUnion(
-				GetHashes(hashGroups, 0, i),
-				GetHashes(hashGroups, 1, i),
-				GetHashes(hashGroups, 2, i));
-		}
-		return total;
-	}
-
-	private static int CountSortedDistinctUnion(uint[] first, uint[] second, uint[] third)
-	{
-		first ??= Array.Empty<uint>();
-		second ??= Array.Empty<uint>();
-		third ??= Array.Empty<uint>();
-
-		int i = 0;
-		int j = 0;
-		int k = 0;
-		uint previous = 0u;
-		bool hasPrevious = false;
-		int count = 0;
-		while (i < first.Length || j < second.Length || k < third.Length)
-		{
-			uint value = uint.MaxValue;
-			if (i < first.Length && first[i] < value)
-			{
-				value = first[i];
-			}
-			if (j < second.Length && second[j] < value)
-			{
-				value = second[j];
-			}
-			if (k < third.Length && third[k] < value)
-			{
-				value = third[k];
-			}
-
-			if (value != 0u && (!hasPrevious || previous != value))
-			{
-				count++;
-				previous = value;
-				hasPrevious = true;
-			}
-
-			while (i < first.Length && first[i] == value)
-			{
-				i++;
-			}
-			while (j < second.Length && second[j] == value)
-			{
-				j++;
-			}
-			while (k < third.Length && third[k] == value)
-			{
-				k++;
-			}
-		}
-		return count;
-	}
-
-	private static uint[] GetHashes(uint[][][] hashGroups, int groupIndex, int directoryIndex)
-	{
-		if (hashGroups == null || groupIndex < 0 || groupIndex >= hashGroups.Length)
-		{
-			return Array.Empty<uint>();
-		}
-		uint[][] group = hashGroups[groupIndex];
-		if (group == null || directoryIndex < 0 || directoryIndex >= group.Length)
-		{
-			return Array.Empty<uint>();
-		}
-		return group[directoryIndex] ?? Array.Empty<uint>();
-	}
-
 	private static string NormalizeSourceRootDirectory(string rootDirectory)
 	{
 		if (string.IsNullOrWhiteSpace(rootDirectory))
@@ -909,7 +819,7 @@ internal static class EverythingNative
 		Dictionary<string, uint[]> selfOwnedImageRelative = ReferenceEquals(decodedResult?.SelfOwnedImageRelativeHashes, decodedResult?.SelfOwnedImageBaseHashes) ? selfOwnedImageBase : MaterializeHashMap(decodedResult?.ChartDirectories, decodedResult?.SelfOwnedImageRelativeHashes);
 		Dictionary<string, uint[]> selfOwnedMovieRelative = ReferenceEquals(decodedResult?.SelfOwnedMovieRelativeHashes, decodedResult?.SelfOwnedMovieBaseHashes) ? selfOwnedMovieBase : MaterializeHashMap(decodedResult?.ChartDirectories, decodedResult?.SelfOwnedMovieRelativeHashes);
 		ulong hashDirCount = (ulong)chartDirectories.Count;
-		ulong hashEntryCount = CountFolderUnionHashes(decodedResult?.AudioBaseHashes, decodedResult?.ImageBaseHashes, decodedResult?.MovieBaseHashes);
+		ulong hashEntryCount = header.audio_base_hash_count + header.image_base_hash_count + header.movie_base_hash_count;
 		BmsScanResult scanResult = new BmsScanResult
 		{
 			ChartFilePaths = chartFilePaths,
@@ -953,7 +863,6 @@ internal static class EverythingNative
 			AudioAssignedCount = header.audio_assigned_count,
 			ImageAssignedCount = header.image_assigned_count,
 			MovieAssignedCount = header.movie_assigned_count,
-			FolderUnionHashCount = hashEntryCount,
 			AudioBaseHashCount = header.audio_base_hash_count,
 			ImageBaseHashCount = header.image_base_hash_count,
 			MovieBaseHashCount = header.movie_base_hash_count,

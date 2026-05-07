@@ -21,4 +21,6 @@ internal sealed class LibraryRemovalResult
     public int FolderDeleteCount { get; set; }
 
     public int FileDeleteCount { get; set; }
+
+    public DirectoryResourceLookupCache.ReverseLookupMutationResult ResourceIndexMutation { get; set; } = DirectoryResourceLookupCache.ReverseLookupMutationResult.Empty;
 }

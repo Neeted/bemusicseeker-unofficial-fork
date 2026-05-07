@@ -278,18 +278,15 @@ install-ready projection を導入する場合は、次のどちらかを実装�
 
 実装済みの範囲は「構築境界の統合」である。
 
-- file enumeration result から `LibraryResourceIndex` を 1 回作り、その中に既存互換 view を保持する。
-  - `BMSDirectoryFileNameHash`
-  - `DirectoryResourceLookupCache`
+- file enumeration result から `LibraryResourceIndex` を 1 回作り、その中に `DirectoryResourceLookupCache` を保持する。
 - 旧 index を別々の top-level build step として作る流れはやめ、`resource_index_build source=native_canonical ...` を正本ログにした。
 - `song_tbl_file_check_breakdown` / `bms_scan` の内訳は `resource_index_build_ms` 系へ寄せた。
-- Phase 3A では resource matching semantics は変更しない。
-  - basename / relative path の既存互換 view は `LibraryResourceIndex` 内部で維持する。
+- `bmsFolderAllFileList` / `FolderAllFileList` は live state / initialization result から削除済みで、folder operation 後の memory index 差分更新も `DirectoryResourceLookupCache` 正本へ移した。
 
 未完了として次単位に残すもの:
 
-- file operation に残る `BMSDirectoryFileNameHash` 用途を `LibraryResourceIndex` / `DirectoryResourceLookupCache` API へ移行する。
-- chart-relative semantics cleanup と C# 後段 reverse index build 削除は Phase 4B / 5A で実施済み。
+- 静的 hash helper として残る `BMSDirectoryFileNameHash` を `ChartResourceKeyHash` などへ改名・移動する。
+- `DirectoryResourceLookupCache.Entry` に残る lazy union 派生 API の必要性を再確認し、不要なら削除する。
 
 ### Key Changes
 
@@ -300,7 +297,7 @@ install-ready projection を導入する場合は、次のどちらかを実装�
   - resource-key -> candidate directory reverse lookup。
   - candidate directory membership。
 - `DirectoryResourceLookupCache` をカテゴリ別 resource index の正本にし、別の relative path 補助 index は構築しない。
-- `BMSDirectoryFileNameHash` / basename-only cache は正本から得られる transitional view に留め、最終的には削除する。
+- `BMSDirectoryFileNameHash` は live cache としては使わず、静的 hash helper としてだけ一時残す。
 - install estimation、resource health、file move、package install、folder rename は同じ resource index API を使う。
 - call site / tests を同時に現行 API へ置き換え、使われなくなった index API は削除する。
 
@@ -530,7 +527,7 @@ Phase 4 / Phase 5 を前倒しして、native chart-relative resource index cont
 - `BmsLibraryInstallEstimationService` の broad filter は canonical resource-key reverse lookup だけを使う。
 - `EvaluateCandidateBasenameOnlyFastPath` と relative strict の二重評価を廃止し、single chart-relative evaluation にした。
 - `foo.wav` と `sound/foo.wav` は別 key として扱う。bare filename は `foo.wav` という chart-relative path であり、subdirectory file へは一致しない。
-- `BMSDirectoryFileNameHash` の basename-only matching は導入先推定の正本から外した。残る production use は health / file operation など別 surface の互換ではなく、今後 canonical resource index API へ畳み込む整理対象である。
+- `BMSDirectoryFileNameHash` の basename-only matching は導入先推定の正本から外した。health / maintenance / folder operation の live cache 用途も削除済みで、残る production use は拡張子なし resource key を作る静的 hash helper としての利用である。次の整理では型名を `ChartResourceKeyHash` などへ移す。
 - zip ごとに独立した pending estimate batch という性質は維持する。高速化は batch 統合ではなく、batch が参照する destination index の完成度と materialize cost 削減で行う。
 
 ### Phase 4B / 5A Performance Check
@@ -580,7 +577,7 @@ Everything service 側で同時 query の内部競合があるため、個別の
 - `nativeBridgeMs=25565`
 - `managedDecodeMs=2425`
 - `managedMaterializeMs=225`
-- `resource_index_build buildMs=53 folderMs=8 lookupMs=44`
+- `resource_index_build buildMs=53 lookupMs=44`
 - `bms_scan totalMs=28279`
 - `startup_install_estimation_ready elapsedMs=29553`
 
@@ -591,18 +588,20 @@ Everything service 側で同時 query の内部競合があるため、個別の
 - `EBridge_ScanChartAndResources` は `all_hash_*`, `self_all_hash_*`, `all_base_reverse_*`, `all_base_hash_count` を返さない。
 - `BmsScanResult` は `AllResourceBaseNameHashesByChartDirectory` / `SelfOwnedAllResourceBaseNameHashesByChartDirectory` を持たない。
 - `DirectoryResourceLookupCache.Entry` の `AllBaseNameHashArray` / `SelfOwnedAllBaseNameHashArray` 相当は保存値ではなく、audio / image / movie のカテゴリ配列から lazy に派生する union である。
-- `FolderAllFileList` は self-owned category union から構築する。managed fallback scan でも同じカテゴリ辞書を正本にし、Everything unavailable 時の fallback は維持する。
+- `FolderAllFileList` / `bmsFolderAllFileList` は live state / initialization result から削除した。chart directory key set と folder operation cache cleanup は `DirectoryResourceLookupCache.Keys` を正本にする。
 - generic all-base reverse lookup は削除した。導入先推定と reverse lookup はカテゴリ別 chart-relative key を使う。
 - resource health の WAV / BGA / MOV 存在判定もカテゴリ別 index を正本にする。譜面ファイルや別カテゴリ resource は、同じ stem でも存在扱いしない。
 - 拡張子なし union は transitional view であり、health 判定の fallback には使わない。
 
-この変更は payload 削減の第一段である。実機での効果確認は `everything_scan` の `bridgeRawBufferBytes`, `managedDecodeMs`, `managedMaterializeMs`, `folderUnionHashCount`、および `resource_index_build` の悪化有無で見る。
+この変更は payload 削減と live cache 単純化の第一段である。実機での効果確認は `everything_scan` の `bridgeRawBufferBytes`, `managedDecodeMs`, `managedMaterializeMs`、および `resource_index_build` の悪化有無で見る。folder union 関連 metric は current log から削除済み。
 
 mixed package の既所持 chart hash から複数の配置先候補が見つかる場合も、extensionless union の health 補助では判定しない。候補集合を通常推定と同じ category resource final evaluation へ渡し、一意に勝つ candidate は自動設定、複数 viable candidate が残る場合は `InstalledDestinationAmbiguous` warning と suggestions に落とす。`DirectoryResourceLookupCache` がない場合は推定不可として `InstalledDestinationResolveFailed` を付ける。
 
 続く整理では、導入先推定から cacheless 経路を削除した。通常推定、候補限定推定、merge / reinstall correction はすべて `DirectoryResourceLookupCache` を必須とし、`BMSDirectoryFileNameHash` へ fallback しない。候補 directory 集合も `DirectoryResourceLookupCache.Keys` から得る。resource index がない場合は `resource_index_unavailable` として推定不可にする。さらに `BmsLibraryInstallEstimationService` の推定 API から `BMSDirectoryFileNameHash` 引数を外し、候補 view 内部の extensionless all-base union も使わない形にした。
 
-次フェーズでは、残っている extensionless resource union の利用箇所を全調査し、カテゴリ別 API へ置き換える。特に導入先 tie-break で union を使う必要は薄く、同率に近い候補は曖昧候補として提示し、順序安定だけが必要なら path 名順で十分とする。
+folder operation cache cleanup も `DirectoryResourceLookupCache` 正本へ移した。install / merge 後は `DirectoryResourceLookupCache.AddDir(...)` だけで category resource index を更新し、folder move / rename は `ReplaceDirWithResult(...)`、whole-folder delete / merge cleanup は `Keys` から配下 directory を列挙して `RemoveDirWithResult(...)` で処理する。`BMSDirectoryFileNameHash` は静的 hash helper としてだけ残り、instance cache API は production から削除した。
+
+次フェーズでは、残っている extensionless union 派生 API の利用箇所をさらに調査し、必要ならカテゴリ別 API または path 順 tie-break へ置き換える。特に導入先 tie-break で union を使う必要は薄く、同率に近い候補は曖昧候補として提示し、順序安定だけが必要なら path 名順で十分とする。
 
 2026-05-06 実機確認では次の状態になった。
 
@@ -611,11 +610,10 @@ mixed package の既所持 chart hash から複数の配置先候補が見つか
 - `managedDecodeMs=2255`
 - `managedMaterializeMs=410`
 - `bridgeRawBufferBytes=281218408`
-- `folderUnionHashCount=12231908`
-- `resource_index_build buildMs=171 folderMs=144 lookupMs=26`
+- `resource_index_build buildMs=171 lookupMs=26`
 - `startup_install_estimation_ready elapsedMs=29723`
 
-payload は約 379MB から約 281MB へ減少した。allBase union は managed 側で sorted category arrays から線形 merge して派生するため、`resource_index_build folderMs` は旧 allBase payload 直受けより増えるが、全体の `everything_scan totalMs` と install readiness は悪化していない。未分類 allBase reverse lookup は復活させない。
+payload は約 379MB から約 281MB へ減少した。未分類 allBase reverse lookup は復活させない。folder union は live initialization result から外れたため、current log では folder union hash count / folder build ms は観測対象ではない。
 
 ### Phase 4B / 5A Normal Startup Baseline
 

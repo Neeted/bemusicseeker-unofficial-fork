@@ -24,19 +24,13 @@
   導入待ちパッケージ一覧
 - `BMSPackagesInstalled`  
   導入済みパッケージ一覧（管理用）
-- `bmsFolderAllFileList : BMSDirectoryFileNameHash`  
-  「chart directory」ごとの resource hash union 配列。入力は audio / image / movie のカテゴリ別 index から派生する。現在は folder move/delete や legacy folder-level surface 用であり、導入先推定・resource health・maintenance の正本ではない
 - `directoryResourceLookupCache : DirectoryResourceLookupCache`
-  chart directory ごとのカテゴリ別 basename / relative-path hash 集合
+  chart directory ごとのカテゴリ別 basename / relative-path hash 集合。chart directory key set と resource index の正本
   - aggregate ownership と self-only ownership の二重 view
 
 ## 3. `BMSDirectoryFileNameHash` の仕様
 
-`BMSDirectoryFileNameHash` は以下の形式を持つ:
-
-- キー: chart directory 絶対パス（`OrdinalIgnoreCase`）
-- 値: その chart directory に再集約された resource basename の `uint[]` ハッシュ列
-  - native payload から直接受け取る all-resource surface ではなく、audio / image / movie のカテゴリ hash union
+`BMSDirectoryFileNameHash` は live cache ではなく、拡張子なし resource key 用の静的 hash helper としてだけ残っている。
 
 ハッシュ関数:
 
@@ -48,12 +42,12 @@
 
 目的:
 
-- file operation / legacy surface で folder-level hash view が必要な箇所へ、カテゴリ別 canonical resource index から派生した union を渡す
-- Everything / Fast の両 scanner が同じ意味の chart-directory keyed hash を返せるようにする
+- BMS / BMSON resource reference と file enumeration の key を同じ正規化で hash 化する
+- `DirectoryResourceLookupCache`、`ChartResourceSnapshot`、scan result builder などがカテゴリ別 key を作るための暫定 helper
 
 補足:
 
-- `BMSDirectoryFileNameHash` は導入先推定の正本ではなく、カテゴリ別 canonical resource index から派生する folder-level union view である。
+- `BMSDirectoryFileNameHash` の instance cache API は production から削除済み。
 - 導入先推定の照合本体と reverse lookup は `DirectoryResourceLookupCache` の audio / image / movie chart-relative key を使う。
 - resource health / maintenance も `DirectoryResourceLookupCache.Entry` のカテゴリ別 key を使い、`BMSDirectoryFileNameHash` には fallback しない。
 - `foo.wav` は `foo`、`sound/foo.wav` は `sound/foo` として扱われ、旧 basename-only matching は使わない。
@@ -82,7 +76,7 @@
   - `SelfOwnedMovieRelativePathHashesByChartDirectory`
 
 resource は「存在ディレクトリ」ではなく、chart directory keyed に再集約する。  
-未分類 all-resource surface は保持しない。必要な folder-level hash は audio / image / movie のカテゴリ union から派生する。
+未分類 all-resource surface は保持しない。必要な場合の union は audio / image / movie のカテゴリ配列からその場で派生し、live cache としては持たない。
 `2026-04-23` 時点では次の二重 semantics を持つ。
 
 - aggregate ownership
@@ -102,12 +96,7 @@ resource は「存在ディレクトリ」ではなく、chart directory keyed �
 
 Everything と通常列挙の差は、設計上「速度だけ」に寄せる。
 
-また、initial/reload と install/merge 後の増分更新は、この chart-directory keyed shape を同じ意味で
-
-- `DirectoryResourceLookupCache`
-- `BMSDirectoryFileNameHash`
-
-へ反映することを前提にする。
+また、initial/reload と install/merge/delete/move 後の増分更新は、この chart-directory keyed shape を `DirectoryResourceLookupCache` へ反映する。folder 操作後の cache cleanup も `DirectoryResourceLookupCache.Keys` を正本にし、extensionless union の live cache は持たない。
 
 ## 5. DBテーブル（BMSLibraryコンストラクタで整備）
 
@@ -127,7 +116,6 @@ Everything と通常列挙の差は、設計上「速度だけ」に寄せる。
 - ファイル実体変更後は次を同期:
   1. `BMSFiles`
   2. Song DB (`song`)
-  3. `bmsFolderAllFileList`
-  4. `directoryResourceLookupCache`
-  5. 必要に応じてハッシュ索引再構築
+  3. `directoryResourceLookupCache`
+  4. 必要に応じてハッシュ索引再構築
 - 導入待ち/導入済みは末尾一括反映を優先し、UI通知の過多を避ける。

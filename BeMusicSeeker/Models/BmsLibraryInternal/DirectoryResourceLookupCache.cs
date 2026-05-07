@@ -669,12 +669,6 @@ internal sealed class DirectoryResourceLookupCache
             movieRelativePathHashes));
     }
 
-    public ReverseLookupMutationResult AddDirHashed(string directoryPath, IEnumerable<uint> allBaseNameHashes)
-    {
-        uint[] hashes = allBaseNameHashes?.Where((uint hash) => hash != 0u).Distinct().OrderBy((uint hash) => hash).ToArray() ?? Array.Empty<uint>();
-        return AddDir(directoryPath, hashes, hashes, hashes, hashes, hashes, hashes, hashes, hashes, hashes, hashes, hashes, hashes);
-    }
-
     public ReverseLookupMutationResult AddDir(string directoryPath, BmsScanResult scanResult)
     {
         if (scanResult == null || string.IsNullOrWhiteSpace(directoryPath))

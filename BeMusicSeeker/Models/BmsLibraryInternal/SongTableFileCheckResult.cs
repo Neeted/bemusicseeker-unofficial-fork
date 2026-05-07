@@ -30,8 +30,6 @@ internal sealed class SongTableFileCheckResult
 
     public List<BMSFile> ClearedInstallDestinations { get; } = new List<BMSFile>();
 
-    public BMSDirectoryFileNameHash NextFolderAllFileList { get; set; }
-
     public DirectoryResourceLookupCache NextDirectoryResourceLookupCache { get; set; }
 
     public LibraryResourceIndex NextResourceIndex { get; set; }
@@ -57,8 +55,6 @@ internal sealed class SongTableFileCheckResult
     public ulong BridgeRawBufferBytes { get; set; }
 
     public long DirhashBuildMs { get; set; }
-
-    public long FolderHashIndexMs { get; set; }
 
     public long ResourceLookupCacheMs { get; set; }
 
@@ -137,8 +133,6 @@ internal sealed class SongTableFileCheckResult
     public long DbCommitMaxChunkMs { get; set; }
 
     public long InstlDstCleanupMs { get; set; }
-
-    public ulong FolderUnionHashEntryCount { get; set; }
 
     public ulong AudioBaseHashEntryCount { get; set; }
 

@@ -378,8 +378,8 @@ public sealed class BmsLibraryInitializationServiceTests
             Assert.AreEqual(4096UL, result.BridgeRawBufferBytes);
             Assert.AreSame(keepFile, result.ClearedInstallDestinations.Single());
             Assert.IsNull(keepFile.instl_dst);
-            CollectionAssert.Contains(result.NextFolderAllFileList.Keys.ToList(), keepDirectoryPath);
-            CollectionAssert.Contains(result.NextFolderAllFileList.Keys.ToList(), newDirectoryPath);
+            CollectionAssert.Contains(result.NextDirectoryResourceLookupCache.Keys.ToList(), keepDirectoryPath);
+            CollectionAssert.Contains(result.NextDirectoryResourceLookupCache.Keys.ToList(), newDirectoryPath);
 
             using LR2SongDBExtended songDb = new LR2SongDBExtended(songDbPath);
             songDb.CreateTable<LR2SongDB.song>();
@@ -1230,7 +1230,6 @@ public sealed class BmsLibraryInitializationServiceTests
         result.ClearedInstallDestinations.Add(new BMSFile());
         result.NextFiles.Add(next);
         result.NextBmsonSongs.Add(nextBmson);
-        result.NextFolderAllFileList = new BMSDirectoryFileNameHash();
         result.NextDirectoryResourceLookupCache = new DirectoryResourceLookupCache();
 
         result.ReleasePostApplyTransientBuffers();
@@ -1249,7 +1248,6 @@ public sealed class BmsLibraryInitializationServiceTests
         Assert.AreSame(next, result.NextFiles[0]);
         Assert.AreEqual(1, result.NextBmsonSongs.Count);
         Assert.AreSame(nextBmson, result.NextBmsonSongs[0]);
-        Assert.IsNotNull(result.NextFolderAllFileList);
         Assert.IsNotNull(result.NextDirectoryResourceLookupCache);
     }
 
@@ -1332,7 +1330,6 @@ public sealed class BmsLibraryInitializationServiceTests
             uint audioBaseHash = BMSDirectoryFileNameHash.GetLookupHash("sound\\sound");
             uint imageBaseHash = BMSDirectoryFileNameHash.GetLookupHash("bg");
             uint audioRelativeHash = audioBaseHash;
-            uint[] folderUnionHashes = new[] { audioBaseHash, imageBaseHash };
 
             BmsLibraryInitializationService service = new BmsLibraryInitializationService();
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
@@ -1388,7 +1385,6 @@ public sealed class BmsLibraryInitializationServiceTests
                 () => null,
                 null);
 
-            CollectionAssert.AreEquivalent(folderUnionHashes, result.NextFolderAllFileList.TryGetCachedFileNameHashArray(chartDirectoryPath));
             DirectoryResourceLookupCache.Entry entry = result.NextDirectoryResourceLookupCache.GetEntryOrNull(chartDirectoryPath);
             Assert.IsNotNull(entry);
             Assert.AreEqual(2, entry.FileNameHashCount);
@@ -1398,7 +1394,6 @@ public sealed class BmsLibraryInitializationServiceTests
             Assert.IsTrue(entry.AudioBaseNameHashes.Contains(audioBaseHash));
             Assert.IsTrue(entry.ImageBaseNameHashes.Contains(imageBaseHash));
             Assert.IsTrue(entry.AudioRelativePathHashes.Contains(audioRelativeHash));
-            Assert.AreEqual((ulong)2, result.FolderUnionHashEntryCount);
             Assert.AreEqual((ulong)1, result.AudioBaseHashEntryCount);
             Assert.AreEqual((ulong)1, result.ImageBaseHashEntryCount);
         });
@@ -1949,16 +1944,13 @@ public sealed class BmsLibraryInitializationServiceTests
                         })
                 });
 
-            CollectionAssert.Contains(result.NextFolderAllFileList.Keys.ToList(), bmsDir);
-            CollectionAssert.Contains(result.NextFolderAllFileList.Keys.ToList(), bmsonDir);
             Assert.IsNotNull(result.NextDirectoryResourceLookupCache);
+            CollectionAssert.Contains(result.NextDirectoryResourceLookupCache.Keys.ToList(), bmsDir);
             Assert.IsTrue(result.NextDirectoryResourceLookupCache.Keys.Contains(bmsonDir, StringComparer.OrdinalIgnoreCase));
             DirectoryResourceLookupCache.Entry bmsonEntry = result.NextDirectoryResourceLookupCache.GetEntryOrNull(bmsonDir);
             Assert.IsNotNull(bmsonEntry);
             Assert.AreEqual(1, bmsonEntry.AudioFileNameHashCount);
             Assert.AreEqual(1, bmsonEntry.AudioRelativePathHashArray.Length);
-            Assert.AreEqual(0, result.NextFolderAllFileList.TryGetCachedFileNameHashArray(bmsDir)?.Length ?? -1);
-            Assert.AreEqual(1, result.NextFolderAllFileList.TryGetCachedFileNameHashArray(bmsonDir)?.Length ?? -1);
         });
     }
 

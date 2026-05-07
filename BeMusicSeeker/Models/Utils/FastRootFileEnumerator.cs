@@ -89,7 +89,7 @@ internal sealed class FastRootFileEnumerator : IRootFileEnumerator
         List<string> fastPaths = new List<string>();
         try
         {
-            fastPaths = FastDirectoryEnumerator.GetFilePathsAsParallel(root, null, null, SearchOption.AllDirectories)
+            fastPaths = FastDirectoryEnumerator.GetFilePathsAsParallel(root, null, SearchOption.AllDirectories)
                 .Where((string path) => !string.IsNullOrWhiteSpace(path))
                 .Select(Path.GetFullPath)
                 .Distinct(StringComparer.OrdinalIgnoreCase)

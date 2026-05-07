@@ -56,7 +56,7 @@ merge / reinstall correction では source/bundled resource を足さず、`cand
 - self-owned audio / image / movie
 - category reverse lookup
 
-`BMSDirectoryFileNameHash` / `FolderAllFileList` は導入先推定の正本ではありません。これはカテゴリ別 index から派生した folder-level extensionless union view ですが、導入先推定の candidate 列挙や matching には使いません。
+`BMSDirectoryFileNameHash` / `FolderAllFileList` は導入先推定の正本ではありません。`BMSDirectoryFileNameHash` は現在、拡張子なし resource key の静的 hash helper としてだけ使います。導入先推定の candidate 列挙や matching は `DirectoryResourceLookupCache` だけを使います。
 
 `DirectoryResourceLookupCache` がない状態では導入先推定を行いません。`SkipInitFileCheck` のように起動時 resource index を作らない設定では、推定不可になる場合があります。
 
@@ -193,13 +193,13 @@ primary health は次の順で選ばれます。
 
 通常経路の `CandidateCount` はカテゴリ別 relative key set から出ます。つまり、audio / image / movie のそれぞれの candidate count が precision / jaccard に効きます。
 
-ただし union は導入先推定以外の補助として残っています。`DirectoryResourceLookupCache.Entry.AllBaseNameHashes` はカテゴリ配列から lazy に派生できますが、導入先推定 service の候補 view / matching / tie-break / 診断値では使いません。
+ただし union を返す派生 API は完全には消えていません。`DirectoryResourceLookupCache.Entry.AllBaseNameHashes` はカテゴリ配列から lazy に派生できますが、導入先推定 service の候補 view / matching / tie-break / 診断値では使いません。
 
 このため、現時点でも union が完全に消えたわけではありません。ただし、導入先の candidate 列挙、primary matching、primary tie-break の正本は audio / image / movie のカテゴリ別 key です。
 
 mixed package の既存配置先再利用では、hash tie が複数候補になっても extensionless union の health 判定補助は使いません。候補限定 final evaluation の category resource metrics で評価し、曖昧なら suggestions と warning に落とします。
 
-続く整理で resource health / maintenance もカテゴリ別 `ResourceHealthLookupContext` を正本にし、`BMSDirectoryFileNameHash` / `FolderAllFileList` には fallback しない形にした。残る extensionless union は folder move/delete や legacy folder-level surface の用途に限定して調査する。順序安定だけが必要なら path 順などの明示的で安全な tie-break へ置き換える。
+resource health / maintenance もカテゴリ別 `ResourceHealthLookupContext` を正本にし、`BMSDirectoryFileNameHash` / `FolderAllFileList` には fallback しません。folder move/delete/merge/install/reload 後の memory index 差分更新も `DirectoryResourceLookupCache` 正本へ移したため、extensionless union の live cache は残していません。順序安定だけが必要なら path 順などの明示的で安全な tie-break を使います。
 
 ## Metadata Tie-break
 

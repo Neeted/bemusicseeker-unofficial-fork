@@ -309,25 +309,20 @@ internal sealed class BmsLibraryInitializationService
         result.NextResourceIndex = canUseNativeResourceIndex
             ? scanResult.ResourceIndex
             : LibraryResourceIndex.CreateFromScanResult(mergedScanResult);
-        result.NextFolderAllFileList = result.NextResourceIndex.FolderAllFileList;
         result.NextDirectoryResourceLookupCache = result.NextResourceIndex.DirectoryLookupCache;
         result.ResourceIndexBuildMs = result.NextResourceIndex.BuildMs;
         result.DirhashBuildMs = result.NextResourceIndex.BuildMs;
-        result.FolderHashIndexMs = result.NextResourceIndex.FolderHashIndexMs;
         result.ResourceLookupCacheMs = result.NextResourceIndex.ResourceLookupMs;
         logInstallPerformance?.Invoke("resource_index_build source=" + (result.NextResourceIndex.Source ?? "managed")
             + " directories=" + result.NextResourceIndex.DirectoryCount
-            + " resources=" + CountFolderUnionHashEntries(mergedScanResult)
             + " chartRelativeKeys=" + (CountHashEntries(mergedScanResult.AudioRelativePathHashesByChartDirectory) + CountHashEntries(mergedScanResult.ImageRelativePathHashesByChartDirectory) + CountHashEntries(mergedScanResult.MovieRelativePathHashesByChartDirectory))
             + " reverseLookupKeys=" + (result.NextDirectoryResourceLookupCache?.CategoryReverseLookupEntryCount ?? 0)
             + " reverseLookupSource=" + (string.Equals(result.NextResourceIndex.Source, "native_canonical", StringComparison.OrdinalIgnoreCase) ? "native" : "managed")
             + " buildMs=" + result.ResourceIndexBuildMs
-            + " folderMs=" + result.FolderHashIndexMs
             + " lookupMs=" + result.ResourceLookupCacheMs
             + " nativePackMs=" + scanResult.PackMs
             + " managedMaterializeMs=" + result.ManagedMaterializeMs
             + " payloadBytes=" + result.BridgeRawBufferBytes);
-        result.FolderUnionHashEntryCount = CountFolderUnionHashEntries(mergedScanResult);
         result.AudioBaseHashEntryCount = CountHashEntries(mergedScanResult.AudioBaseNameHashesByChartDirectory);
         result.ImageBaseHashEntryCount = CountHashEntries(mergedScanResult.ImageBaseNameHashesByChartDirectory);
         result.MovieBaseHashEntryCount = CountHashEntries(mergedScanResult.MovieBaseNameHashesByChartDirectory);
@@ -340,7 +335,7 @@ internal sealed class BmsLibraryInitializationService
                 .Where((string path) => !string.Equals(Path.GetExtension(path), ".bmson", StringComparison.OrdinalIgnoreCase)),
             StringComparer.OrdinalIgnoreCase);
         result.BmsPathCount = scannedPaths.Count;
-        result.DirectoryCount = result.NextFolderAllFileList.Keys.Count;
+        result.DirectoryCount = result.NextDirectoryResourceLookupCache?.Count ?? 0;
 
         Stopwatch stopwatchDiff = Stopwatch.StartNew();
         List<BMSFile> currentFileList = (currentFiles ?? Enumerable.Empty<BMSFile>()).Where((BMSFile file) => file != null).ToList();
@@ -435,7 +430,7 @@ internal sealed class BmsLibraryInitializationService
         Stopwatch stopwatchApply = Stopwatch.StartNew();
         result.NextFiles.AddRange(currentFileList.Where((BMSFile file) => !result.DeletedPaths.Contains(file.path)));
         result.NextFiles.AddRange(result.AddedFiles);
-        HashSet<string> directoryKeys = new HashSet<string>(result.NextFolderAllFileList.Keys, StringComparer.OrdinalIgnoreCase);
+        HashSet<string> directoryKeys = new HashSet<string>(result.NextDirectoryResourceLookupCache?.Keys ?? Enumerable.Empty<string>(), StringComparer.OrdinalIgnoreCase);
         Stopwatch stopwatchInstlDstCleanup = Stopwatch.StartNew();
         foreach (BMSFile file in result.NextFiles.Where((BMSFile file) => !string.IsNullOrWhiteSpace(file.instl_dst)))
         {
@@ -460,7 +455,7 @@ internal sealed class BmsLibraryInitializationService
         result.NextBmsonSongs.AddRange(currentBmsonList.Where((LR2SongDBExtended.bmson_song song) => !removedBmsonPaths.Contains(song.path)));
         result.NextBmsonSongs.AddRange(result.AddedBmsonSongs);
         logEverythingScan?.Invoke("bmson_scan totalPaths=" + scannedBmsonPaths.Count + " deleted=" + result.DeletedBmsonPaths.Count + " upserted=" + result.AddedBmsonSongs.Count);
-        result.DirectoryCount = result.NextFolderAllFileList.Keys.Count;
+        result.DirectoryCount = result.NextDirectoryResourceLookupCache?.Count ?? 0;
 
         result.HasDbDiff = result.DeletedPaths.Count > 0 || result.AddedFiles.Count > 0 || result.DeletedBmsonPaths.Count > 0 || result.AddedBmsonSongs.Count > 0;
 
@@ -484,7 +479,6 @@ internal sealed class BmsLibraryInitializationService
             + " managed_materialize_ms=" + result.ManagedMaterializeMs
             + " bridge_raw_buffer_bytes=" + result.BridgeRawBufferBytes
             + " resource_index_build_ms=" + result.ResourceIndexBuildMs
-            + " resource_index_folder_ms=" + result.FolderHashIndexMs
             + " resource_index_lookup_ms=" + result.ResourceLookupCacheMs
             + " lazy_hash_cache_entries=" + (result.NextDirectoryResourceLookupCache?.LazyHashCacheEntryCount ?? 0)
             + " lazy_hash_build_ms=" + (result.NextDirectoryResourceLookupCache?.LazyHashBuildMs ?? 0L)
@@ -530,7 +524,6 @@ internal sealed class BmsLibraryInitializationService
             + " instl_dst_cleanup_ms=" + result.InstlDstCleanupMs);
         logInstallPerformance?.Invoke(
             "song_tbl_file_check_cache_counts chartDirs=" + result.DirectoryCount
-            + " folderUnionHashEntries=" + result.FolderUnionHashEntryCount
             + " audioBaseHashEntries=" + result.AudioBaseHashEntryCount
             + " imageBaseHashEntries=" + result.ImageBaseHashEntryCount
             + " movieBaseHashEntries=" + result.MovieBaseHashEntryCount
@@ -542,7 +535,6 @@ internal sealed class BmsLibraryInitializationService
             + " managedDecodeMs=" + result.ManagedDecodeMs
             + " managedMaterializeMs=" + result.ManagedMaterializeMs
             + " resourceIndexBuildMs=" + result.ResourceIndexBuildMs
-            + " resourceIndexFolderMs=" + result.FolderHashIndexMs
             + " resourceIndexLookupMs=" + result.ResourceLookupCacheMs
             + " bridgeReason=" + (string.IsNullOrWhiteSpace(result.NativeBridgeReason) ? string.Empty : result.NativeBridgeReason)
             + " bmsPaths=" + result.BmsPathCount
@@ -1644,11 +1636,6 @@ internal sealed class BmsLibraryInitializationService
             count += (ulong)(hashes?.Length ?? 0);
         }
         return count;
-    }
-
-    private static ulong CountFolderUnionHashEntries(BmsScanResult scanResult)
-    {
-        return CountHashEntries(scanResult?.CreateResourceUnionHashesByChartDirectory(selfOwned: false));
     }
 
     public ChartDigestBackfillResult BackfillChartDigests(

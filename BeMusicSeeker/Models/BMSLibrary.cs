@@ -699,8 +699,6 @@ public class BMSLibrary : NotificationObject
 
     private Func<LR2Config> lr2config;
 
-    private BMSDirectoryFileNameHash bmsFolderAllFileList = new BMSDirectoryFileNameHash();
-
     private DirectoryResourceLookupCache directoryResourceLookupCache = new DirectoryResourceLookupCache();
 
     private LibraryResourceIndex libraryResourceIndex = LibraryResourceIndex.CreateFromScanResult(new BmsScanResult());
@@ -4215,7 +4213,6 @@ public class BMSLibrary : NotificationObject
             BMSFiles = fileCheckResult.NextFiles;
             BmsonSongs = fileCheckResult.NextBmsonSongs;
             libraryResourceIndex = fileCheckResult.NextResourceIndex ?? LibraryResourceIndex.CreateFromScanResult(new BmsScanResult());
-            bmsFolderAllFileList = libraryResourceIndex.FolderAllFileList ?? new BMSDirectoryFileNameHash();
             directoryResourceLookupCache = libraryResourceIndex.DirectoryLookupCache ?? new DirectoryResourceLookupCache();
         }
         if (committedInlineChartInfoRows.Count > 0)
@@ -6445,7 +6442,7 @@ public class BMSLibrary : NotificationObject
 
     private HashSet<string> CreateKnownChartDirectorySnapshotUnsafe()
     {
-        HashSet<string> knownChartDirectories = new HashSet<string>((bmsFolderAllFileList?.Keys ?? Enumerable.Empty<string>()).Where((string path) => !string.IsNullOrWhiteSpace(path)), StringComparer.OrdinalIgnoreCase);
+        HashSet<string> knownChartDirectories = new HashSet<string>((directoryResourceLookupCache?.Keys ?? Enumerable.Empty<string>()).Where((string path) => !string.IsNullOrWhiteSpace(path)), StringComparer.OrdinalIgnoreCase);
         foreach (BMSFile bmsFile in BMSFiles ?? Enumerable.Empty<BMSFile>())
         {
             string path = null;
@@ -7994,11 +7991,6 @@ public class BMSLibrary : NotificationObject
                 DirectoryResourceLookupCache.ReverseLookupMutationResult reverseLookupMutation = DirectoryResourceLookupCache.ReverseLookupMutationResult.Empty;
                 foreach (string dir in addedDirectoryScan.ChartDirectories)
                 {
-                    uint[] hashes = addedDirectoryScan.GetResourceUnionHashArray(dir, selfOwned: true);
-                    if (hashes != null)
-                    {
-                        bmsFolderAllFileList.AddDirHashed(dir, hashes);
-                    }
                     reverseLookupMutation = reverseLookupMutation.Combine(directoryResourceLookupCache.AddDir(dir, addedDirectoryScan));
                 }
                 LogReverseLookupMutationAndQueueWarmupIfNeeded("install_package", reverseLookupMutation);
@@ -10067,9 +10059,8 @@ public class BMSLibrary : NotificationObject
                     unregisterBMSFiles(sourceBmsFiles);
                     unregisterBmsonSongs(sourceBmsonSongs);
                     DirectoryResourceLookupCache.ReverseLookupMutationResult reverseLookupMutation = DirectoryResourceLookupCache.ReverseLookupMutationResult.Empty;
-                    foreach (string item in bmsFolderAllFileList.Keys.Where((string f) => (f + Path.DirectorySeparatorChar).StartsWith(src + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)))
+                    foreach (string item in (directoryResourceLookupCache?.Keys ?? Enumerable.Empty<string>()).Where((string f) => (f + Path.DirectorySeparatorChar).StartsWith(src + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)).ToList())
                     {
-                        bmsFolderAllFileList.RemoveDir(item);
                         reverseLookupMutation = reverseLookupMutation.Combine(directoryResourceLookupCache.RemoveDirWithResult(item));
                     }
                     if (!moveBMSPackageFiles(mergeResult.Repackage, dst, showMessageBoxOnInstallFail: false, deleteAllContents: true, existingHashes: mergeResult.ExistingHashes))
@@ -10080,11 +10071,6 @@ public class BMSLibrary : NotificationObject
                     BmsScanResult mergedDirectoryScan = ChartDirectoryScanBuilder.BuildFromRoots(new[] { dst });
                     foreach (string chartDirectory in mergedDirectoryScan.ChartDirectories)
                     {
-                        uint[] hashes = mergedDirectoryScan.GetResourceUnionHashArray(chartDirectory, selfOwned: true);
-                        if (hashes != null)
-                        {
-                            bmsFolderAllFileList.AddDirHashed(chartDirectory, hashes);
-                        }
                         reverseLookupMutation = reverseLookupMutation.Combine(directoryResourceLookupCache.AddDir(chartDirectory, mergedDirectoryScan));
                     }
                     LogReverseLookupMutationAndQueueWarmupIfNeeded("merge_folder", reverseLookupMutation);
@@ -10322,7 +10308,8 @@ public class BMSLibrary : NotificationObject
         }
         try
         {
-            libraryFileOperationsService.MoveFolderAndUpdateReferences(srcDir, dstDir, bmsFolderAllFileList, directoryResourceLookupCache, fileMutationService, recursiveDirectoryTreeFileMutationOptions);
+            DirectoryResourceLookupCache.ReverseLookupMutationResult reverseLookupMutation = libraryFileOperationsService.MoveFolderAndUpdateReferences(srcDir, dstDir, directoryResourceLookupCache, fileMutationService, recursiveDirectoryTreeFileMutationOptions);
+            LogReverseLookupMutationAndQueueWarmupIfNeeded("move_folder", reverseLookupMutation);
         }
         catch (Exception moveException)
         {
@@ -10520,7 +10507,6 @@ public class BMSLibrary : NotificationObject
                         (BMSFiles ?? Enumerable.Empty<BMSFile>()).Select(LibraryChartRef.FromBmsFile)
                             .Concat((BmsonSongs ?? Enumerable.Empty<LR2SongDBExtended.bmson_song>()).Select(LibraryChartRef.FromBmsonSong)),
                         BMSPackagesPending,
-                        bmsFolderAllFileList,
                         directoryResourceLookupCache,
                         sendToRecycleBin,
                         (folderPath) => approvedWholeFolderDeletes != null
@@ -10537,6 +10523,7 @@ public class BMSLibrary : NotificationObject
                         + " failures=" + result.Failures.Count
                         + " folderDeletes=" + result.FolderDeleteCount
                         + " fileDeletes=" + result.FileDeleteCount);
+                    LogReverseLookupMutationAndQueueWarmupIfNeeded("delete_library", result.ResourceIndexMutation);
                     foreach (LibraryDeleteFailure failure in result.Failures)
                     {
                         if (failure.IsDirectory)

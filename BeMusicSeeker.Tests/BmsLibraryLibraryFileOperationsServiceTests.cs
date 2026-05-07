@@ -162,9 +162,6 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             Directory.CreateDirectory(nestedDirectoryPath);
             File.WriteAllText(Path.Combine(nestedDirectoryPath, "chart.bms"), "#PLAYER 1");
             string destinationRoot = Path.Combine(tempDirectoryPath, "Dst");
-            BMSDirectoryFileNameHash folderHash = new BMSDirectoryFileNameHash();
-            folderHash.AddDir(sourceRoot, update: true);
-            folderHash.AddDir(nestedDirectoryPath, update: true);
             uint sourceHash = BMSDirectoryFileNameHash.GetLookupHash("root.wav");
             uint nestedHash = BMSDirectoryFileNameHash.GetLookupHash("chart.bms");
             DirectoryResourceLookupCache lookupCache = new DirectoryResourceLookupCache();
@@ -190,7 +187,6 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             service.MoveFolderAndUpdateReferences(
                 sourceRoot,
                 destinationRoot,
-                folderHash,
                 lookupCache,
                 fileMutationService,
                 null);
@@ -206,10 +202,12 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
 
             Assert.IsFalse(Directory.Exists(sourceRoot));
             Assert.IsTrue(Directory.Exists(destinationRoot));
-            CollectionAssert.Contains(folderHash.Keys, destinationRoot);
-            CollectionAssert.Contains(folderHash.Keys, Path.Combine(destinationRoot, "Nested"));
             CollectionAssert.AreEquivalent(new[] { destinationRoot }, lookupCache.GetDirectoriesByAudioRelativeHash(sourceHash).ToArray());
             CollectionAssert.AreEquivalent(new[] { Path.Combine(destinationRoot, "Nested") }, lookupCache.GetDirectoriesByAudioRelativeHash(nestedHash).ToArray());
+            Assert.IsNotNull(lookupCache.GetEntryOrNull(destinationRoot));
+            Assert.IsNotNull(lookupCache.GetEntryOrNull(Path.Combine(destinationRoot, "Nested")));
+            Assert.IsNull(lookupCache.GetEntryOrNull(sourceRoot));
+            Assert.IsNull(lookupCache.GetEntryOrNull(nestedDirectoryPath));
             Assert.AreEqual(2, delta.UpdatedInstallDestinations.Count);
             Assert.AreEqual(1, delta.UpdatedInstalledPackagePaths.Count);
             CollectionAssert.AreEquivalent(
@@ -239,15 +237,13 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
                 path = Path.Combine(tempDirectoryPath, "Pending"),
                 delete_parent = false
             };
-            BMSDirectoryFileNameHash folderHash = new BMSDirectoryFileNameHash();
-            folderHash.AddDir(folderPath, update: true);
             DirectoryResourceLookupCache lookupCache = new DirectoryResourceLookupCache();
+            lookupCache.AddDir(folderPath, Enumerable.Empty<string>());
 
             LibraryRemovalResult result = service.DeleteLibraryFiles(
                 new[] { libraryFile },
                 new[] { libraryFile },
                 new[] { pendingPackage },
-                folderHash,
                 lookupCache,
                 false,
                 _ => true,
@@ -261,7 +257,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             Assert.IsNull(pendingFile.instl_dst);
             Assert.IsNull(libraryFile.instl_dst);
             Assert.IsFalse(Directory.Exists(folderPath));
-            CollectionAssert.DoesNotContain(folderHash.Keys, folderPath);
+            Assert.IsNull(lookupCache.GetEntryOrNull(folderPath));
         });
     }
 
@@ -281,15 +277,13 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
                 path = chartPath,
                 folder = folderPath
             };
-            BMSDirectoryFileNameHash folderHash = new BMSDirectoryFileNameHash();
-            folderHash.AddDir(folderPath, update: true);
             DirectoryResourceLookupCache lookupCache = new DirectoryResourceLookupCache();
+            lookupCache.AddDir(folderPath, Enumerable.Empty<string>());
 
             LibraryRemovalResult result = service.DeleteLibraryCharts(
                 new[] { LibraryChartRef.FromBmsonSong(song) },
                 new[] { LibraryChartRef.FromBmsonSong(song) },
                 Array.Empty<BMSPackage>(),
-                folderHash,
                 lookupCache,
                 false,
                 _ => true,
@@ -304,7 +298,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             Assert.IsTrue(PendingChartEntry.IsBmsonChartFile(result.RemovedFiles[0]));
             Assert.AreEqual(0, result.Failures.Count);
             Assert.IsFalse(Directory.Exists(folderPath));
-            CollectionAssert.DoesNotContain(folderHash.Keys, folderPath);
+            Assert.IsNull(lookupCache.GetEntryOrNull(folderPath));
         });
     }
 
@@ -320,15 +314,14 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             string chartPath = Path.Combine(folderPath, "chart.bms");
             File.WriteAllText(chartPath, "#PLAYER 1");
             TestableBmsFile canonicalFile = CreateFile(chartPath);
-            BMSDirectoryFileNameHash folderHash = new BMSDirectoryFileNameHash();
-            folderHash.AddDir(folderPath, update: true);
+            DirectoryResourceLookupCache lookupCache = new DirectoryResourceLookupCache();
+            lookupCache.AddDir(folderPath, Enumerable.Empty<string>());
 
             LibraryRemovalResult result = service.DeleteLibraryCharts(
                 new[] { LibraryChartRef.FromPath(LibraryChartKind.Bms, chartPath, canonicalFile.hash, canonicalFile.sha256) },
                 new[] { LibraryChartRef.FromBmsFile(canonicalFile) },
                 Array.Empty<BMSPackage>(),
-                folderHash,
-                new DirectoryResourceLookupCache(),
+                lookupCache,
                 true,
                 _ => true,
                 fileMutationService,
@@ -343,6 +336,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             Assert.AreEqual(folderPath, fileMutationService.LastDeletedDirectoryPath);
             Assert.AreEqual(RecycleOption.SendToRecycleBin, fileMutationService.LastDirectoryRecycleOption);
             Assert.IsFalse(Directory.Exists(folderPath));
+            Assert.IsNull(lookupCache.GetEntryOrNull(folderPath));
         });
     }
 
@@ -365,7 +359,6 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
                 new[] { LibraryChartRef.FromPath(LibraryChartKind.Bms, staleChartPath, null, null) },
                 new[] { LibraryChartRef.FromBmsFile(catalogFile) },
                 Array.Empty<BMSPackage>(),
-                new BMSDirectoryFileNameHash(),
                 new DirectoryResourceLookupCache(),
                 true,
                 _ => true,
@@ -401,7 +394,6 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
                 new[] { LibraryChartRef.FromBmsFile(nonCanonicalFile) },
                 new[] { LibraryChartRef.FromBmsFile(canonicalFile) },
                 Array.Empty<BMSPackage>(),
-                new BMSDirectoryFileNameHash(),
                 new DirectoryResourceLookupCache(),
                 false,
                 _ => true,
@@ -436,7 +428,6 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
                 new[] { LibraryChartRef.FromPath(LibraryChartKind.Bms, selectedChartPath, catalogFile.hash, catalogFile.sha256) },
                 new[] { LibraryChartRef.FromBmsFile(catalogFile) },
                 Array.Empty<BMSPackage>(),
-                new BMSDirectoryFileNameHash(),
                 new DirectoryResourceLookupCache(),
                 false,
                 _ => true,
@@ -474,7 +465,6 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
                 new[] { LibraryChartRef.FromBmsFile(libraryFile) },
                 new[] { LibraryChartRef.FromBmsFile(libraryFile) },
                 Array.Empty<BMSPackage>(),
-                new BMSDirectoryFileNameHash(),
                 new DirectoryResourceLookupCache(),
                 false,
                 path =>
