@@ -129,16 +129,6 @@ internal sealed class DirectoryResourceLookupCache
 
         private HashSet<uint> selfOwnedMovieRelativePathHashes;
 
-        private uint[] cachedAllCategoryUnionHashArray;
-
-        private uint[] cachedSelfOwnedCategoryUnionHashArray;
-
-        private HashSet<uint> allBaseNameHashes;
-
-        private HashSet<uint> selfOwnedAllBaseNameHashes;
-
-        public ISet<uint> AllBaseNameHashes => allBaseNameHashes ??= CreateHashSet(AllBaseNameHashArray);
-
         public ISet<uint> AudioBaseNameHashes => audioBaseNameHashes ??= CreateHashSet(audioBaseNameHashArray);
 
         public ISet<uint> ImageBaseNameHashes => imageBaseNameHashes ??= CreateHashSet(imageBaseNameHashArray);
@@ -150,8 +140,6 @@ internal sealed class DirectoryResourceLookupCache
         public ISet<uint> ImageRelativePathHashes => imageRelativePathHashes ??= CreateHashSet(imageRelativePathHashArray);
 
         public ISet<uint> MovieRelativePathHashes => movieRelativePathHashes ??= CreateHashSet(movieRelativePathHashArray);
-
-        public ISet<uint> SelfOwnedAllBaseNameHashes => selfOwnedAllBaseNameHashes ??= CreateHashSet(SelfOwnedAllBaseNameHashArray);
 
         public ISet<uint> SelfOwnedAudioBaseNameHashes => selfOwnedAudioBaseNameHashes ??= CreateHashSet(selfOwnedAudioBaseNameHashArray);
 
@@ -165,8 +153,6 @@ internal sealed class DirectoryResourceLookupCache
 
         public ISet<uint> SelfOwnedMovieRelativePathHashes => selfOwnedMovieRelativePathHashes ??= CreateHashSet(selfOwnedMovieRelativePathHashArray);
 
-        public uint[] AllBaseNameHashArray => cachedAllCategoryUnionHashArray ??= CreateUnionArray(audioBaseNameHashArray, imageBaseNameHashArray, movieBaseNameHashArray);
-
         public uint[] AudioBaseNameHashArray => audioBaseNameHashArray;
 
         public uint[] ImageBaseNameHashArray => imageBaseNameHashArray;
@@ -178,8 +164,6 @@ internal sealed class DirectoryResourceLookupCache
         public uint[] ImageRelativePathHashArray => imageRelativePathHashArray;
 
         public uint[] MovieRelativePathHashArray => movieRelativePathHashArray;
-
-        public uint[] SelfOwnedAllBaseNameHashArray => cachedSelfOwnedCategoryUnionHashArray ??= CreateUnionArray(selfOwnedAudioBaseNameHashArray, selfOwnedImageBaseNameHashArray, selfOwnedMovieBaseNameHashArray);
 
         public uint[] SelfOwnedAudioBaseNameHashArray => selfOwnedAudioBaseNameHashArray;
 
@@ -193,15 +177,11 @@ internal sealed class DirectoryResourceLookupCache
 
         public uint[] SelfOwnedMovieRelativePathHashArray => selfOwnedMovieRelativePathHashArray;
 
-        public int FileNameHashCount => AllBaseNameHashArray.Length;
-
         public int AudioFileNameHashCount => audioBaseNameHashArray.Length;
 
         public int ImageFileNameHashCount => imageBaseNameHashArray.Length;
 
         public int MovieFileNameHashCount => movieBaseNameHashArray.Length;
-
-        public int SelfOwnedFileNameHashCount => SelfOwnedAllBaseNameHashArray.Length;
 
         public Entry()
             : this(Array.Empty<uint>(), Array.Empty<uint>(), Array.Empty<uint>(), Array.Empty<uint>(), Array.Empty<uint>(), Array.Empty<uint>(), Array.Empty<uint>(), Array.Empty<uint>(), Array.Empty<uint>(), Array.Empty<uint>(), Array.Empty<uint>(), Array.Empty<uint>())
@@ -341,42 +321,6 @@ internal sealed class DirectoryResourceLookupCache
                 return fallback ?? Array.Empty<uint>();
             }
             return MaterializeHashes(hashes, trustSortedDistinctArrays);
-        }
-
-        private static uint[] CreateUnionArray(params uint[][] hashArrays)
-        {
-            if (hashArrays == null || hashArrays.Length == 0)
-            {
-                return Array.Empty<uint>();
-            }
-
-            uint[] single = null;
-            int nonEmptyCount = 0;
-            foreach (uint[] hashArray in hashArrays)
-            {
-                if (hashArray == null || hashArray.Length == 0)
-                {
-                    continue;
-                }
-                single = hashArray;
-                nonEmptyCount++;
-            }
-            if (nonEmptyCount == 0)
-            {
-                return Array.Empty<uint>();
-            }
-            if (nonEmptyCount == 1)
-            {
-                return single;
-            }
-
-            uint[] union = hashArrays
-                .Where((uint[] hashArray) => hashArray != null && hashArray.Length > 0)
-                .SelectMany((uint[] hashArray) => hashArray)
-                .Distinct()
-                .ToArray();
-            Array.Sort(union);
-            return union;
         }
 
         private static HashSet<uint> CreateHashSet(IEnumerable<uint> hashes)
@@ -627,7 +571,7 @@ internal sealed class DirectoryResourceLookupCache
             {
                 continue;
             }
-            uint resourceKeyHash = BMSDirectoryFileNameHash.GetLookupHash(
+            uint resourceKeyHash = ChartResourceKeyHash.GetLookupHash(
                 string.IsNullOrWhiteSpace(normalizedPath) ? normalizedFileName : normalizedPath);
             switch (ChartResourcePathNormalizer.ClassifyPath(fileName))
             {

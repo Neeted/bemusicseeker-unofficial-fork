@@ -166,7 +166,7 @@ internal static class ChartDirectoryScanBuilder
                 {
                     continue;
                 }
-                uint relativePathHash = BMSDirectoryFileNameHash.GetLookupHash(relativePath);
+                uint relativePathHash = ChartResourceKeyHash.GetLookupHash(relativePath);
                 categoryBaseNameHashes[ownerDirectory].Add(relativePathHash);
                 categoryRelativePathHashes[ownerDirectory].Add(relativePathHash);
                 if (i == 0)

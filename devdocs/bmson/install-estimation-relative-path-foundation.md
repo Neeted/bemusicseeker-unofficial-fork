@@ -68,17 +68,17 @@ relative path 対応の下地はかなり入っています。
 
 つまり現在は、**relative path を作る・持つ・後段評価で使う** ところまでは入っています。
 
-### 2. まだ incomplete なもの
+### 2. 旧実装時点で incomplete だったもの
 
-一方で、候補探索入口や一貫性保証は未完です。
+この資料は relative path 対応途中の設計メモであり、下記は当時の未完了項目です。現行仕様は `install-estimation-current-logic.md` を正本とします。
 
-- `BMSDirectoryFileNameHash`
-  - all-resource basename hash index のみ
+- `ChartResourceKeyHash`
+  - 当時は all-resource basename hash index のみ
 - `DirectoryResourceLookupCache`
-  - reverse lookup / warmup は all-base hash のみ
+  - 当時は reverse lookup / warmup は all-base hash のみ
 - `BmsLibraryInstallEstimationService`
-  - broad filter は `EnumerateAllBaseNameHashes()` ベース
-  - relative path は candidate 発見には使わず、後段の exactMatched でだけ効く
+  - 当時は broad filter が `EnumerateAllBaseNameHashes()` ベース
+  - 当時は relative path は candidate 発見には使わず、後段の exactMatched でだけ効く
 - Everything と fallback の parity
   - `--everything-verify` で比較はできるが、恒常的な自動テストではない
 - 増分更新
@@ -213,7 +213,7 @@ relative path hash を保持していても、
   - chart-directory keyed な relative hash map を source of truth とする前提を整理した
 - `DirectoryResourceLookupCache.Entry`
   - basename / relative の両方を持つ cache source of truth であることを docs / tests で固定した
-- `BMSDirectoryFileNameHash`
+- `ChartResourceKeyHash`
   - Phase 1+2 では basename-only index であることを docs / tests で固定した
 - `ChartDirectoryScanBuilder`
   - relative path fixture を使った managed scan の基礎テストを追加した
@@ -240,7 +240,7 @@ relative path hash を保持していても、
 relative path を **候補探索入口**に昇格させます。
 
 スコープ:
-- `BMSDirectoryFileNameHash`
+- `ChartResourceKeyHash`
 - `DirectoryResourceLookupCache` reverse lookup
 - broad filter
 

@@ -702,9 +702,9 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             };
 
             PackageInstallEstimationSnapshot snapshot = package.GetOrBuildInstallEstimationSnapshot(new BMSFile[] { primary, secondary });
-            uint expectedAudioRelativePathHash = BMSDirectoryFileNameHash.GetLookupHash(ChartResourcePathNormalizer.NormalizeResourceKeyForLookup(ChartResourcePathNormalizer.NormalizeRelativePathForLookup(sourceDir, Path.Combine(soundDir, "00.wav"))));
-            uint expectedImageRelativePathHash = BMSDirectoryFileNameHash.GetLookupHash(ChartResourcePathNormalizer.NormalizeResourceKeyForLookup(ChartResourcePathNormalizer.NormalizeRelativePathForLookup(sourceDir, Path.Combine(imageDir, "bg.png"))));
-            uint expectedMovieRelativePathHash = BMSDirectoryFileNameHash.GetLookupHash(ChartResourcePathNormalizer.NormalizeResourceKeyForLookup(ChartResourcePathNormalizer.NormalizeRelativePathForLookup(sourceDir, Path.Combine(movieDir, "pv.mp4"))));
+            uint expectedAudioRelativePathHash = ChartResourceKeyHash.GetLookupHash(ChartResourcePathNormalizer.NormalizeResourceKeyForLookup(ChartResourcePathNormalizer.NormalizeRelativePathForLookup(sourceDir, Path.Combine(soundDir, "00.wav"))));
+            uint expectedImageRelativePathHash = ChartResourceKeyHash.GetLookupHash(ChartResourcePathNormalizer.NormalizeResourceKeyForLookup(ChartResourcePathNormalizer.NormalizeRelativePathForLookup(sourceDir, Path.Combine(imageDir, "bg.png"))));
+            uint expectedMovieRelativePathHash = ChartResourceKeyHash.GetLookupHash(ChartResourcePathNormalizer.NormalizeResourceKeyForLookup(ChartResourcePathNormalizer.NormalizeRelativePathForLookup(sourceDir, Path.Combine(movieDir, "pv.mp4"))));
 
             Assert.AreEqual(2, snapshot.ChartCount);
             ChartResourceSnapshot expectedDefinedResources = ChartResourceSnapshot.CreateAggregate(new BMSFile[] { primary, secondary });
@@ -1859,12 +1859,12 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         string sourceDir = Path.Combine("C:\\Pending", "Source");
         string parentDir = Path.Combine("C:\\Installed", "Parent");
         string childDir = Path.Combine(parentDir, "Child");
-        uint zeroBaseHash = BMSDirectoryFileNameHash.GetFileNameHash("00.wav");
-        uint oneBaseHash = BMSDirectoryFileNameHash.GetFileNameHash("01.wav");
-        uint parentZeroRelativeHash = BMSDirectoryFileNameHash.GetLookupHash("Child\\sound\\00");
-        uint parentOneRelativeHash = BMSDirectoryFileNameHash.GetLookupHash("Child\\sound\\01");
-        uint childZeroRelativeHash = BMSDirectoryFileNameHash.GetLookupHash("sound\\00");
-        uint childOneRelativeHash = BMSDirectoryFileNameHash.GetLookupHash("sound\\01");
+        uint zeroBaseHash = ChartResourceKeyHash.GetFileNameHash("00.wav");
+        uint oneBaseHash = ChartResourceKeyHash.GetFileNameHash("01.wav");
+        uint parentZeroRelativeHash = ChartResourceKeyHash.GetLookupHash("Child\\sound\\00");
+        uint parentOneRelativeHash = ChartResourceKeyHash.GetLookupHash("Child\\sound\\01");
+        uint childZeroRelativeHash = ChartResourceKeyHash.GetLookupHash("sound\\00");
+        uint childOneRelativeHash = ChartResourceKeyHash.GetLookupHash("sound\\01");
         TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(sourceDir, "chart.bms"), "Child\\sound\\00.wav", "Child\\sound\\01.wav");
         file.SetMaintenanceInfo(CreateMaintenanceInfo(file, wavDefined: 2, wavExisting: 0), suppressPropertyChanged: true, registerEventHandlers: false);
 
@@ -1918,12 +1918,12 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         string sourceDir = Path.Combine("C:\\Pending", "Source");
         string parentDir = Path.Combine("C:\\Installed", "Parent");
         string childDir = Path.Combine(parentDir, "Child");
-        uint zeroBaseHash = BMSDirectoryFileNameHash.GetFileNameHash("00.wav");
-        uint oneBaseHash = BMSDirectoryFileNameHash.GetFileNameHash("01.wav");
-        uint parentZeroRelativeHash = BMSDirectoryFileNameHash.GetLookupHash("Child\\sound\\00");
-        uint parentOneRelativeHash = BMSDirectoryFileNameHash.GetLookupHash("Child\\sound\\01");
-        uint childZeroRelativeHash = BMSDirectoryFileNameHash.GetLookupHash("sound\\00");
-        uint childOneRelativeHash = BMSDirectoryFileNameHash.GetLookupHash("sound\\01");
+        uint zeroBaseHash = ChartResourceKeyHash.GetFileNameHash("00.wav");
+        uint oneBaseHash = ChartResourceKeyHash.GetFileNameHash("01.wav");
+        uint parentZeroRelativeHash = ChartResourceKeyHash.GetLookupHash("Child\\sound\\00");
+        uint parentOneRelativeHash = ChartResourceKeyHash.GetLookupHash("Child\\sound\\01");
+        uint childZeroRelativeHash = ChartResourceKeyHash.GetLookupHash("sound\\00");
+        uint childOneRelativeHash = ChartResourceKeyHash.GetLookupHash("sound\\01");
         TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(sourceDir, "chart.bms"), "00.wav", "01.wav");
         file.SetMaintenanceInfo(CreateMaintenanceInfo(file, wavDefined: 2, wavExisting: 0), suppressPropertyChanged: true, registerEventHandlers: false);
 
@@ -2197,12 +2197,12 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         string sourceDir = Path.Combine("C:\\Pending", "Source");
         string parentDir = Path.Combine("C:\\Installed", "Parent");
         string childDir = Path.Combine(parentDir, "Child");
-        uint zeroBaseHash = BMSDirectoryFileNameHash.GetFileNameHash("00.wav");
-        uint oneBaseHash = BMSDirectoryFileNameHash.GetFileNameHash("01.wav");
-        uint parentZeroRelativeHash = BMSDirectoryFileNameHash.GetLookupHash("Child\\sound\\00");
-        uint parentOneRelativeHash = BMSDirectoryFileNameHash.GetLookupHash("Child\\sound\\01");
-        uint childZeroRelativeHash = BMSDirectoryFileNameHash.GetLookupHash("sound\\00");
-        uint childOneRelativeHash = BMSDirectoryFileNameHash.GetLookupHash("sound\\01");
+        uint zeroBaseHash = ChartResourceKeyHash.GetFileNameHash("00.wav");
+        uint oneBaseHash = ChartResourceKeyHash.GetFileNameHash("01.wav");
+        uint parentZeroRelativeHash = ChartResourceKeyHash.GetLookupHash("Child\\sound\\00");
+        uint parentOneRelativeHash = ChartResourceKeyHash.GetLookupHash("Child\\sound\\01");
+        uint childZeroRelativeHash = ChartResourceKeyHash.GetLookupHash("sound\\00");
+        uint childOneRelativeHash = ChartResourceKeyHash.GetLookupHash("sound\\01");
         TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(sourceDir, "chart.bms"), "00.wav", "01.wav");
         file.SetMaintenanceInfo(CreateMaintenanceInfo(file, wavDefined: 2, wavExisting: 0), suppressPropertyChanged: true, registerEventHandlers: false);
 

@@ -638,7 +638,7 @@ bounded 並列、cache-aware lookup、resource health index projection は現行
 - `BmsLibraryMaintenanceService` は `maintenanceHealthDegree = max(1, Environment.ProcessorCount - 1)` を既定にする。
 - `UpdateMaintenanceInfo()` は section 1000 件ごとに `Parallel.ForEach(... MaxDegreeOfParallelism = maintenanceHealthDegree)` で health / encoding / bmson refs refresh を処理する。
 - `ResourceHealthLookupContext` は次を束ねる。
-  - `BMSDirectoryFileNameHash`
+  - `ChartResourceKeyHash`
   - `DirectoryResourceLookupCache`
   - `DirectoryRelativePathHashIndex`
 - `BMSFile.SetHealthStatusUsingLookupContext()` は、relative path hash / resource hash で判定できる場合は scan cache を使い、判定できない場合だけ `File.Exists` fallback に落ちる。

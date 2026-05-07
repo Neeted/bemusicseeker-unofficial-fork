@@ -53,7 +53,7 @@ internal static class ResourceSurfaceMaterializer
                 continue;
             }
 
-            uint relativePathHash = BMSDirectoryFileNameHash.GetLookupHash(relativePath);
+            uint relativePathHash = ChartResourceKeyHash.GetLookupHash(relativePath);
             categoryBaseNameHashes.Add(relativePathHash);
             categoryRelativePathHashes.Add(relativePathHash);
         }

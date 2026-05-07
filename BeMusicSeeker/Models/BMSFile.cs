@@ -1557,12 +1557,12 @@ public class BMSFile : LR2SongDB.song
                     ILookup<bool, string> lookup2 = lookup[false].ToLookup((string f) => !f.Contains('\\'));
                     ILookup<bool, string> lookup3 = lookup[true].ToLookup((string f) => !f.Contains('\\'));
                     nonlocalBGAfiles = lookup2[false].ToList();
-                    localBGAfilesNameHashArray = BMSDirectoryFileNameHash.GetFileNameHashArray(lookup2[true]);
+                    localBGAfilesNameHashArray = ChartResourceKeyHash.GetFileNameHashArray(lookup2[true]);
                     nonlocalBGAfilesMovie = lookup3[false].ToList();
-                    localBGAfilesMovieNameHashArray = BMSDirectoryFileNameHash.GetFileNameHashArray(lookup3[true]);
+                    localBGAfilesMovieNameHashArray = ChartResourceKeyHash.GetFileNameHashArray(lookup3[true]);
                     ILookup<bool, string> lookup4 = WAVfiles.ToLookup((string f) => !f.Contains('\\'));
                     nonlocalWAVfiles = lookup4[false].ToList();
-                    localWAVfilesNameHashArray = BMSDirectoryFileNameHash.GetFileNameHashArray(lookup4[true]);
+                    localWAVfilesNameHashArray = ChartResourceKeyHash.GetFileNameHashArray(lookup4[true]);
                 }
             }
             string dir = (string.IsNullOrWhiteSpace(altSearchDir) ? DirectoryExt.GetDirectoryNameSimple(path) : altSearchDir.TrimEnd('\\'));
@@ -1749,7 +1749,7 @@ public class BMSFile : LR2SongDB.song
 
         return FastDirectoryEnumerator.GetFileNames(directory)
             .Where((string fileName) => IsResourceFileNameForKind(fileName, resourceKind))
-            .Select(BMSDirectoryFileNameHash.GetFileNameHash)
+            .Select(ChartResourceKeyHash.GetFileNameHash)
             .ToArray();
     }
 
@@ -1872,7 +1872,7 @@ public class BMSFile : LR2SongDB.song
             return false;
         }
         bool hasDirectorySegments = ChartResourcePathNormalizer.HasDirectorySegments(normalized);
-        uint hash = BMSDirectoryFileNameHash.GetLookupHash(normalized);
+        uint hash = ChartResourceKeyHash.GetLookupHash(normalized);
         if (hash == 0u)
         {
             return false;

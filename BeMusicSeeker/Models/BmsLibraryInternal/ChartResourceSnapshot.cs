@@ -249,10 +249,10 @@ internal sealed class ChartResourceSnapshot
         {
             return;
         }
-        uint relativePathHash = BMSDirectoryFileNameHash.GetLookupHash(normalizedPath);
+        uint relativePathHash = ChartResourceKeyHash.GetLookupHash(normalizedPath);
         relativePathHashes.Add(relativePathHash);
         baseNames.Add(baseName);
-        uint baseNameHash = BMSDirectoryFileNameHash.GetLookupHash(baseName);
+        uint baseNameHash = ChartResourceKeyHash.GetLookupHash(baseName);
         baseNameHashes.Add(baseNameHash);
         bool isPathAware = ChartResourcePathNormalizer.HasDirectorySegments(normalizedPath);
         if (isPathAware)

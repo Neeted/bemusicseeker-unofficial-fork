@@ -1327,8 +1327,8 @@ public sealed class BmsLibraryInitializationServiceTests
             };
             keepFile.SetHash(BMSFile.CreateBMSFileFromFile(chartPath).hash);
 
-            uint audioBaseHash = BMSDirectoryFileNameHash.GetLookupHash("sound\\sound");
-            uint imageBaseHash = BMSDirectoryFileNameHash.GetLookupHash("bg");
+            uint audioBaseHash = ChartResourceKeyHash.GetLookupHash("sound\\sound");
+            uint imageBaseHash = ChartResourceKeyHash.GetLookupHash("bg");
             uint audioRelativeHash = audioBaseHash;
 
             BmsLibraryInitializationService service = new BmsLibraryInitializationService();
@@ -1387,7 +1387,6 @@ public sealed class BmsLibraryInitializationServiceTests
 
             DirectoryResourceLookupCache.Entry entry = result.NextDirectoryResourceLookupCache.GetEntryOrNull(chartDirectoryPath);
             Assert.IsNotNull(entry);
-            Assert.AreEqual(2, entry.FileNameHashCount);
             Assert.AreEqual(1, entry.AudioFileNameHashCount);
             Assert.AreEqual(1, entry.ImageFileNameHashCount);
             Assert.AreEqual(0, entry.MovieFileNameHashCount);

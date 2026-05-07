@@ -22,7 +22,7 @@ internal static class BmsFileScannerResultBuilder
             BuildResultMs = buildMs,
             HashBuildMs = buildMs,
             HashDirCount = (ulong)(scanResult.ChartDirectories?.Count ?? 0),
-            HashEntryCount = CountHashEntries(scanResult.AudioBaseNameHashesByChartDirectory)
+            CategoryBaseHashEntryCount = CountHashEntries(scanResult.AudioBaseNameHashesByChartDirectory)
                 + CountHashEntries(scanResult.ImageBaseNameHashesByChartDirectory)
                 + CountHashEntries(scanResult.MovieBaseNameHashesByChartDirectory),
             ChartQueryHitCount = enumerationResult?.GetQueryHitCount(ChartDirectoryScanBuilder.ChartGroupName) ?? 0UL,

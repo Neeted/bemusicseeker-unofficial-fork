@@ -24,7 +24,7 @@
   - `BeMusicSeeker.ViewModels/MainWindowViewModel.cs`
   - `BeMusicSeeker.Models/BMSLibrary.cs`
   - `BeMusicSeeker.Models.Utils/*Scanner*.cs`
-  - `BeMusicSeeker.Models/BMSDirectoryFileNameHash.cs`
+  - `BeMusicSeeker.Models/ChartResourceKeyHash.cs`
 
 ## 補足
 

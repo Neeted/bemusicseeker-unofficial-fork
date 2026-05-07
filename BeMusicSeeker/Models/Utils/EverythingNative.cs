@@ -819,7 +819,7 @@ internal static class EverythingNative
 		Dictionary<string, uint[]> selfOwnedImageRelative = ReferenceEquals(decodedResult?.SelfOwnedImageRelativeHashes, decodedResult?.SelfOwnedImageBaseHashes) ? selfOwnedImageBase : MaterializeHashMap(decodedResult?.ChartDirectories, decodedResult?.SelfOwnedImageRelativeHashes);
 		Dictionary<string, uint[]> selfOwnedMovieRelative = ReferenceEquals(decodedResult?.SelfOwnedMovieRelativeHashes, decodedResult?.SelfOwnedMovieBaseHashes) ? selfOwnedMovieBase : MaterializeHashMap(decodedResult?.ChartDirectories, decodedResult?.SelfOwnedMovieRelativeHashes);
 		ulong hashDirCount = (ulong)chartDirectories.Count;
-		ulong hashEntryCount = header.audio_base_hash_count + header.image_base_hash_count + header.movie_base_hash_count;
+		ulong categoryBaseHashEntryCount = header.audio_base_hash_count + header.image_base_hash_count + header.movie_base_hash_count;
 		BmsScanResult scanResult = new BmsScanResult
 		{
 			ChartFilePaths = chartFilePaths,
@@ -847,7 +847,7 @@ internal static class EverythingNative
 			BuildResultMs = 0L,
 			HashBuildMs = 0L,
 			HashDirCount = hashDirCount,
-			HashEntryCount = hashEntryCount,
+			CategoryBaseHashEntryCount = categoryBaseHashEntryCount,
 			ChartQueryHitCount = header.chart_query_hits,
 			AudioQueryHitCount = header.audio_query_hits,
 			ImageQueryHitCount = header.image_query_hits,

@@ -6,7 +6,7 @@ using Ribbit.Cryptography;
 
 namespace BeMusicSeeker.Models;
 
-public static class BMSDirectoryFileNameHash
+public static class ChartResourceKeyHash
 {
     public static uint[] GetFileNameHashArray(string path)
     {

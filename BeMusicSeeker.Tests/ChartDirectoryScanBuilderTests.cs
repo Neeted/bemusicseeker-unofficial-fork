@@ -69,9 +69,9 @@ public sealed class ChartDirectoryScanBuilderTests
             Assert.AreEqual(0, rootSelfOwnedHashes.Length);
             Assert.IsTrue(result.AudioRelativePathHashesByChartDirectory.TryGetValue(rootChartDir, out uint[] rootRelativeHashes));
             Assert.IsTrue(result.AudioRelativePathHashesByChartDirectory.TryGetValue(nestedChartDir, out uint[] nestedRelativeHashes));
-            CollectionAssert.Contains(rootRelativeHashes, BMSDirectoryFileNameHash.GetLookupHash(Path.Combine("subchart", "sound", "01")));
-            CollectionAssert.Contains(nestedRelativeHashes, BMSDirectoryFileNameHash.GetLookupHash(Path.Combine("sound", "01")));
-            CollectionAssert.Contains(result.SelfOwnedAudioRelativePathHashesByChartDirectory[nestedChartDir], BMSDirectoryFileNameHash.GetLookupHash(Path.Combine("sound", "01")));
+            CollectionAssert.Contains(rootRelativeHashes, ChartResourceKeyHash.GetLookupHash(Path.Combine("subchart", "sound", "01")));
+            CollectionAssert.Contains(nestedRelativeHashes, ChartResourceKeyHash.GetLookupHash(Path.Combine("sound", "01")));
+            CollectionAssert.Contains(result.SelfOwnedAudioRelativePathHashesByChartDirectory[nestedChartDir], ChartResourceKeyHash.GetLookupHash(Path.Combine("sound", "01")));
         }
         finally
         {
@@ -103,9 +103,9 @@ public sealed class ChartDirectoryScanBuilderTests
             Assert.IsTrue(result.AudioRelativePathHashesByChartDirectory.TryGetValue(chartDir, out uint[] audioRelativeHashes));
             Assert.IsTrue(result.ImageRelativePathHashesByChartDirectory.TryGetValue(chartDir, out uint[] imageRelativeHashes));
 
-            uint flatRelativeHash = BMSDirectoryFileNameHash.GetLookupHash("bgm1");
-            uint nestedRelativeHash = BMSDirectoryFileNameHash.GetLookupHash(Path.Combine("sound", "bgm1"));
-            uint imageRelativeHash = BMSDirectoryFileNameHash.GetLookupHash(Path.Combine("clock", "00_001_00"));
+            uint flatRelativeHash = ChartResourceKeyHash.GetLookupHash("bgm1");
+            uint nestedRelativeHash = ChartResourceKeyHash.GetLookupHash(Path.Combine("sound", "bgm1"));
+            uint imageRelativeHash = ChartResourceKeyHash.GetLookupHash(Path.Combine("clock", "00_001_00"));
 
             CollectionAssert.AreEquivalent(new[] { flatRelativeHash, nestedRelativeHash }, audioBaseHashes);
             CollectionAssert.AreEquivalent(new[] { flatRelativeHash, nestedRelativeHash }, audioRelativeHashes);

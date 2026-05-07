@@ -28,9 +28,9 @@
   chart directory ごとのカテゴリ別 basename / relative-path hash 集合。chart directory key set と resource index の正本
   - aggregate ownership と self-only ownership の二重 view
 
-## 3. `BMSDirectoryFileNameHash` の仕様
+## 3. `ChartResourceKeyHash` の仕様
 
-`BMSDirectoryFileNameHash` は live cache ではなく、拡張子なし resource key 用の静的 hash helper としてだけ残っている。
+`ChartResourceKeyHash` は live cache ではなく、拡張子なし resource key 用の静的 hash helper としてだけ残っている。
 
 ハッシュ関数:
 
@@ -47,11 +47,11 @@
 
 補足:
 
-- `BMSDirectoryFileNameHash` の instance cache API は production から削除済み。
+- `ChartResourceKeyHash` は static helper であり、instance cache API は存在しない。
 - 導入先推定の照合本体と reverse lookup は `DirectoryResourceLookupCache` の audio / image / movie chart-relative key を使う。
-- resource health / maintenance も `DirectoryResourceLookupCache.Entry` のカテゴリ別 key を使い、`BMSDirectoryFileNameHash` には fallback しない。
+- resource health / maintenance も `DirectoryResourceLookupCache.Entry` のカテゴリ別 key を使い、旧 union view には fallback しない。
 - `foo.wav` は `foo`、`sound/foo.wav` は `sound/foo` として扱われ、旧 basename-only matching は使わない。
-- 導入先推定では candidate directory 集合も照合本体も `DirectoryResourceLookupCache` を使い、`BMSDirectoryFileNameHash` には fallback しない
+- 導入先推定では candidate directory 集合も照合本体も `DirectoryResourceLookupCache` を使い、旧 union view には fallback しない
 - relative path を含む source of truth は `DirectoryResourceLookupCache.Entry` 側に置く
 
 ## 4. scan result / resource cache の形

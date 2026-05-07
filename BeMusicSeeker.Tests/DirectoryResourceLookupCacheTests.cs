@@ -95,9 +95,9 @@ public sealed class DirectoryResourceLookupCacheTests
         string dirB = @"C:\Songs\B";
         string dirC = @"C:\Songs\C";
         string dirRenamed = @"C:\Songs\RenamedC";
-        uint audioRelativeHash = BMSDirectoryFileNameHash.GetLookupHash(@"sound\bgm1.wav");
-        uint imageRelativeHash = BMSDirectoryFileNameHash.GetLookupHash(@"image\logo.png");
-        uint movieRelativeHash = BMSDirectoryFileNameHash.GetLookupHash(@"bga\movie.mpg");
+        uint audioRelativeHash = ChartResourceKeyHash.GetLookupHash(@"sound\bgm1.wav");
+        uint imageRelativeHash = ChartResourceKeyHash.GetLookupHash(@"image\logo.png");
+        uint movieRelativeHash = ChartResourceKeyHash.GetLookupHash(@"bga\movie.mpg");
         DirectoryResourceLookupCache cache = new DirectoryResourceLookupCache();
         cache.AddDir(dirA, Array.Empty<uint>(), Array.Empty<uint>(), Array.Empty<uint>(), new[] { audioRelativeHash }, new[] { imageRelativeHash }, Array.Empty<uint>());
         cache.AddDir(dirB, Array.Empty<uint>(), Array.Empty<uint>(), Array.Empty<uint>(), new[] { audioRelativeHash }, Array.Empty<uint>(), new[] { movieRelativeHash });
@@ -116,15 +116,15 @@ public sealed class DirectoryResourceLookupCacheTests
     }
 
     [TestMethod]
-    public void CreateFromScanResult_AndAddDirFromSameScanResult_ProduceEquivalentEntriesIncludingDerivedUnion()
+    public void CreateFromScanResult_AndAddDirFromSameScanResult_ProduceEquivalentCategoryEntries()
     {
         string chartDir = "C:\\Songs\\Relative";
-        uint audioBaseHash = BMSDirectoryFileNameHash.GetFileNameHash("bgm1.wav");
-        uint imageBaseHash = BMSDirectoryFileNameHash.GetFileNameHash("logo.bmp");
-        uint movieBaseHash = BMSDirectoryFileNameHash.GetFileNameHash("movie.mpg");
-        uint audioRelativeHash = BMSDirectoryFileNameHash.GetLookupHash("sound\\bgm1.wav");
-        uint imageRelativeHash = BMSDirectoryFileNameHash.GetLookupHash("image\\logo.png");
-        uint movieRelativeHash = BMSDirectoryFileNameHash.GetLookupHash("bga\\logo.mpg");
+        uint audioBaseHash = ChartResourceKeyHash.GetFileNameHash("bgm1.wav");
+        uint imageBaseHash = ChartResourceKeyHash.GetFileNameHash("logo.bmp");
+        uint movieBaseHash = ChartResourceKeyHash.GetFileNameHash("movie.mpg");
+        uint audioRelativeHash = ChartResourceKeyHash.GetLookupHash("sound\\bgm1.wav");
+        uint imageRelativeHash = ChartResourceKeyHash.GetLookupHash("image\\logo.png");
+        uint movieRelativeHash = ChartResourceKeyHash.GetLookupHash("bga\\logo.mpg");
         BmsScanResult scanResult = new BmsScanResult
         {
             ChartDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { chartDir },
@@ -159,7 +159,6 @@ public sealed class DirectoryResourceLookupCacheTests
         fromAdd.AddDir(chartDir, scanResult);
 
         AssertEntriesEqual(fromCreate.GetEntryOrNull(chartDir), fromAdd.GetEntryOrNull(chartDir));
-        CollectionAssert.AreEquivalent(new[] { audioBaseHash, imageBaseHash, movieBaseHash }, fromCreate.GetEntryOrNull(chartDir).AllBaseNameHashArray);
     }
 
     [TestMethod]
@@ -167,9 +166,9 @@ public sealed class DirectoryResourceLookupCacheTests
     {
         string dirA = @"C:\Songs\A";
         string dirB = @"C:\Songs\B";
-        uint audioRelativeHash = BMSDirectoryFileNameHash.GetLookupHash(@"sound\bgm1.wav");
-        uint imageRelativeHash = BMSDirectoryFileNameHash.GetLookupHash(@"image\logo.png");
-        uint movieRelativeHash = BMSDirectoryFileNameHash.GetLookupHash(@"bga\movie.mpg");
+        uint audioRelativeHash = ChartResourceKeyHash.GetLookupHash(@"sound\bgm1.wav");
+        uint imageRelativeHash = ChartResourceKeyHash.GetLookupHash(@"image\logo.png");
+        uint movieRelativeHash = ChartResourceKeyHash.GetLookupHash(@"bga\movie.mpg");
         DirectoryResourceLookupCache cache = new DirectoryResourceLookupCache();
         cache.AddDir(dirA, Array.Empty<uint>(), Array.Empty<uint>(), Array.Empty<uint>(), new[] { audioRelativeHash }, new[] { imageRelativeHash }, Array.Empty<uint>());
         cache.AddDir(dirB, Array.Empty<uint>(), Array.Empty<uint>(), Array.Empty<uint>(), Array.Empty<uint>(), Array.Empty<uint>(), new[] { movieRelativeHash });
@@ -241,14 +240,12 @@ public sealed class DirectoryResourceLookupCacheTests
     {
         Assert.IsNotNull(expected);
         Assert.IsNotNull(actual);
-        CollectionAssert.AreEquivalent(expected.AllBaseNameHashArray, actual.AllBaseNameHashArray);
         CollectionAssert.AreEquivalent(expected.AudioBaseNameHashArray, actual.AudioBaseNameHashArray);
         CollectionAssert.AreEquivalent(expected.ImageBaseNameHashArray, actual.ImageBaseNameHashArray);
         CollectionAssert.AreEquivalent(expected.MovieBaseNameHashArray, actual.MovieBaseNameHashArray);
         CollectionAssert.AreEquivalent(expected.AudioRelativePathHashArray, actual.AudioRelativePathHashArray);
         CollectionAssert.AreEquivalent(expected.ImageRelativePathHashArray, actual.ImageRelativePathHashArray);
         CollectionAssert.AreEquivalent(expected.MovieRelativePathHashArray, actual.MovieRelativePathHashArray);
-        CollectionAssert.AreEquivalent(expected.SelfOwnedAllBaseNameHashArray, actual.SelfOwnedAllBaseNameHashArray);
         CollectionAssert.AreEquivalent(expected.SelfOwnedAudioBaseNameHashArray, actual.SelfOwnedAudioBaseNameHashArray);
         CollectionAssert.AreEquivalent(expected.SelfOwnedImageBaseNameHashArray, actual.SelfOwnedImageBaseNameHashArray);
         CollectionAssert.AreEquivalent(expected.SelfOwnedMovieBaseNameHashArray, actual.SelfOwnedMovieBaseNameHashArray);

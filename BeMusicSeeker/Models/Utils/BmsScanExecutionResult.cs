@@ -30,7 +30,7 @@ public class BmsScanExecutionResult
 
 	public ulong HashDirCount { get; set; }
 
-	public ulong HashEntryCount { get; set; }
+	public ulong CategoryBaseHashEntryCount { get; set; }
 
 	public bool NativeBridgeUsed { get; set; }
 

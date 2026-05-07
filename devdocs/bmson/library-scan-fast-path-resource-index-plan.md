@@ -285,8 +285,8 @@ install-ready projection を導入する場合は、次のどちらかを実装�
 
 未完了として次単位に残すもの:
 
-- 静的 hash helper として残る `BMSDirectoryFileNameHash` を `ChartResourceKeyHash` などへ改名・移動する。
-- `DirectoryResourceLookupCache.Entry` に残る lazy union 派生 API の必要性を再確認し、不要なら削除する。
+- `ChartResourceKeyHash` は static helper として維持する。live cache と誤読されない名前に整理済み。
+- `DirectoryResourceLookupCache.Entry` に残っていた lazy union 派生 API は削除済み。
 
 ### Key Changes
 
@@ -297,7 +297,7 @@ install-ready projection を導入する場合は、次のどちらかを実装�
   - resource-key -> candidate directory reverse lookup。
   - candidate directory membership。
 - `DirectoryResourceLookupCache` をカテゴリ別 resource index の正本にし、別の relative path 補助 index は構築しない。
-- `BMSDirectoryFileNameHash` は live cache としては使わず、静的 hash helper としてだけ一時残す。
+- `ChartResourceKeyHash` は live cache ではなく、静的 hash helper としてだけ使う。
 - install estimation、resource health、file move、package install、folder rename は同じ resource index API を使う。
 - call site / tests を同時に現行 API へ置き換え、使われなくなった index API は削除する。
 
@@ -357,7 +357,7 @@ install-ready projection を導入する場合は、次のどちらかを実装�
 - BMS / BMSON health 判定を chart-relative resource key に統一する。
 - install estimation の broad filter / final evaluation を chart-relative key で統一する。
 - basename-only の alternate correctness path は削除する。
-- `BMSDirectoryFileNameHash` を推定の正本から外す。
+- `ChartResourceKeyHash` を推定の正本から外す。
 - `DirectoryResourceLookupCache` をカテゴリ別 resource key の単一 API にする。
 - path-aware resource がある package で、無関係な basename match が high confidence にならないようにする。
 - `install-estimation-relative-path-foundation.md` と用語を揃え、古い挙動を前提にした tests を置き換える。
@@ -527,7 +527,7 @@ Phase 4 / Phase 5 を前倒しして、native chart-relative resource index cont
 - `BmsLibraryInstallEstimationService` の broad filter は canonical resource-key reverse lookup だけを使う。
 - `EvaluateCandidateBasenameOnlyFastPath` と relative strict の二重評価を廃止し、single chart-relative evaluation にした。
 - `foo.wav` と `sound/foo.wav` は別 key として扱う。bare filename は `foo.wav` という chart-relative path であり、subdirectory file へは一致しない。
-- `BMSDirectoryFileNameHash` の basename-only matching は導入先推定の正本から外した。health / maintenance / folder operation の live cache 用途も削除済みで、残る production use は拡張子なし resource key を作る静的 hash helper としての利用である。次の整理では型名を `ChartResourceKeyHash` などへ移す。
+- basename-only matching は導入先推定の正本から外した。health / maintenance / folder operation の live cache 用途も削除済みで、`ChartResourceKeyHash` は拡張子なし resource key を作る静的 helper としてだけ使う。
 - zip ごとに独立した pending estimate batch という性質は維持する。高速化は batch 統合ではなく、batch が参照する destination index の完成度と materialize cost 削減で行う。
 
 ### Phase 4B / 5A Performance Check
@@ -587,19 +587,19 @@ Everything service 側で同時 query の内部競合があるため、個別の
 
 - `EBridge_ScanChartAndResources` は `all_hash_*`, `self_all_hash_*`, `all_base_reverse_*`, `all_base_hash_count` を返さない。
 - `BmsScanResult` は `AllResourceBaseNameHashesByChartDirectory` / `SelfOwnedAllResourceBaseNameHashesByChartDirectory` を持たない。
-- `DirectoryResourceLookupCache.Entry` の `AllBaseNameHashArray` / `SelfOwnedAllBaseNameHashArray` 相当は保存値ではなく、audio / image / movie のカテゴリ配列から lazy に派生する union である。
+- `DirectoryResourceLookupCache.Entry` の `AllBaseNameHashArray` / `SelfOwnedAllBaseNameHashArray` 相当の lazy union API は削除済みである。
 - `FolderAllFileList` / `bmsFolderAllFileList` は live state / initialization result から削除した。chart directory key set と folder operation cache cleanup は `DirectoryResourceLookupCache.Keys` を正本にする。
 - generic all-base reverse lookup は削除した。導入先推定と reverse lookup はカテゴリ別 chart-relative key を使う。
 - resource health の WAV / BGA / MOV 存在判定もカテゴリ別 index を正本にする。譜面ファイルや別カテゴリ resource は、同じ stem でも存在扱いしない。
-- 拡張子なし union は transitional view であり、health 判定の fallback には使わない。
+- 拡張子なし union の live / lazy view は持たない。
 
 この変更は payload 削減と live cache 単純化の第一段である。実機での効果確認は `everything_scan` の `bridgeRawBufferBytes`, `managedDecodeMs`, `managedMaterializeMs`、および `resource_index_build` の悪化有無で見る。folder union 関連 metric は current log から削除済み。
 
 mixed package の既所持 chart hash から複数の配置先候補が見つかる場合も、extensionless union の health 補助では判定しない。候補集合を通常推定と同じ category resource final evaluation へ渡し、一意に勝つ candidate は自動設定、複数 viable candidate が残る場合は `InstalledDestinationAmbiguous` warning と suggestions に落とす。`DirectoryResourceLookupCache` がない場合は推定不可として `InstalledDestinationResolveFailed` を付ける。
 
-続く整理では、導入先推定から cacheless 経路を削除した。通常推定、候補限定推定、merge / reinstall correction はすべて `DirectoryResourceLookupCache` を必須とし、`BMSDirectoryFileNameHash` へ fallback しない。候補 directory 集合も `DirectoryResourceLookupCache.Keys` から得る。resource index がない場合は `resource_index_unavailable` として推定不可にする。さらに `BmsLibraryInstallEstimationService` の推定 API から `BMSDirectoryFileNameHash` 引数を外し、候補 view 内部の extensionless all-base union も使わない形にした。
+続く整理では、導入先推定から cacheless 経路を削除した。通常推定、候補限定推定、merge / reinstall correction はすべて `DirectoryResourceLookupCache` を必須とし、旧 union view へ fallback しない。候補 directory 集合も `DirectoryResourceLookupCache.Keys` から得る。resource index がない場合は `resource_index_unavailable` として推定不可にする。さらに `BmsLibraryInstallEstimationService` の推定 API から folder union 引数を外し、候補 view 内部の extensionless all-base union も使わない形にした。
 
-folder operation cache cleanup も `DirectoryResourceLookupCache` 正本へ移した。install / merge 後は `DirectoryResourceLookupCache.AddDir(...)` だけで category resource index を更新し、folder move / rename は `ReplaceDirWithResult(...)`、whole-folder delete / merge cleanup は `Keys` から配下 directory を列挙して `RemoveDirWithResult(...)` で処理する。`BMSDirectoryFileNameHash` は静的 hash helper としてだけ残り、instance cache API は production から削除した。
+folder operation cache cleanup も `DirectoryResourceLookupCache` 正本へ移した。install / merge 後は `DirectoryResourceLookupCache.AddDir(...)` だけで category resource index を更新し、folder move / rename は `ReplaceDirWithResult(...)`、whole-folder delete / merge cleanup は `Keys` から配下 directory を列挙して `RemoveDirWithResult(...)` で処理する。`ChartResourceKeyHash` は静的 hash helper であり、instance cache API は存在しない。
 
 次フェーズでは、残っている extensionless union 派生 API の利用箇所をさらに調査し、必要ならカテゴリ別 API または path 順 tie-break へ置き換える。特に導入先 tie-break で union を使う必要は薄く、同率に近い候補は曖昧候補として提示し、順序安定だけが必要なら path 名順で十分とする。
 
