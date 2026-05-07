@@ -110,9 +110,25 @@ struct EBridgeResult {
 	long long image_read_ms;
 	long long movie_search_ms;
 	long long movie_read_ms;
+	long long chart_sdk_read_ms;
+	long long chart_callback_ms;
+	long long audio_sdk_read_ms;
+	long long audio_callback_ms;
+	long long image_sdk_read_ms;
+	long long image_callback_ms;
+	long long movie_sdk_read_ms;
+	long long movie_callback_ms;
+	unsigned long long chart_path_resize_count;
+	unsigned long long chart_name_resize_count;
+	unsigned long long audio_path_resize_count;
+	unsigned long long audio_name_resize_count;
+	unsigned long long image_path_resize_count;
+	unsigned long long image_name_resize_count;
+	unsigned long long movie_path_resize_count;
+	unsigned long long movie_name_resize_count;
 };
 
-static constexpr unsigned int EBRIDGE_SCAN_CONTRACT_VERSION = 2026050705u;
+static constexpr unsigned int EBRIDGE_SCAN_CONTRACT_VERSION = 2026050706u;
 
 struct EBridgeGroupedQuery {
 	unsigned int group_id;
@@ -270,6 +286,10 @@ struct QueryExecutionStats {
 	long long elapsedMs = 0;
 	long long searchMs = 0;
 	long long readMs = 0;
+	long long sdkReadMs = 0;
+	long long callbackMs = 0;
+	unsigned long long pathResizeCount = 0;
+	unsigned long long nameResizeCount = 0;
 };
 
 struct BridgeExecutionStats {
@@ -332,6 +352,10 @@ struct CategoryRawHits {
 
 struct ChartRawHits {
 	std::vector<std::pair<std::wstring, std::wstring>> files;
+};
+
+struct NoopHitCountCallback {
+	void operator()(size_t) const noexcept {}
 };
 
 struct WorkerCategoryBuffers {
@@ -462,7 +486,7 @@ void* TryConnectClient(unsigned int* lastError) {
 	return nullptr;
 }
 
-bool GetResultPath(void* resultList, size_t index, std::vector<wchar_t>& buffer, std::wstring& out) {
+bool GetResultPath(void* resultList, size_t index, std::vector<wchar_t>& buffer, std::wstring& out, unsigned long long* resizeCount = nullptr) {
 	for (int retry = 0; retry < 4; retry++) {
 		size_t len = g_api.GetResultPathW(resultList, index, buffer.data(), buffer.size());
 		if (len == 0) {
@@ -473,11 +497,14 @@ bool GetResultPath(void* resultList, size_t index, std::vector<wchar_t>& buffer,
 			return true;
 		}
 		buffer.resize(len + 1);
+		if (resizeCount) {
+			*resizeCount += 1;
+		}
 	}
 	return false;
 }
 
-bool GetResultName(void* resultList, size_t index, std::vector<wchar_t>& buffer, std::wstring& out) {
+bool GetResultName(void* resultList, size_t index, std::vector<wchar_t>& buffer, std::wstring& out, unsigned long long* resizeCount = nullptr) {
 	for (int retry = 0; retry < 4; retry++) {
 		size_t len = g_api.GetResultNameW(resultList, index, buffer.data(), buffer.size());
 		if (len == 0) {
@@ -488,6 +515,9 @@ bool GetResultName(void* resultList, size_t index, std::vector<wchar_t>& buffer,
 			return !out.empty();
 		}
 		buffer.resize(len + 1);
+		if (resizeCount) {
+			*resizeCount += 1;
+		}
 	}
 	return false;
 }
@@ -686,6 +716,17 @@ std::wstring TrimTrailingSeparators(const std::wstring& path) {
 	return path.substr(0, end);
 }
 
+void NormalizeDirectoryPathInPlace(std::wstring& path) {
+	for (auto& ch : path) {
+		if (ch == L'/') {
+			ch = L'\\';
+		}
+	}
+	while (!path.empty() && (path.back() == L'\\' || path.back() == L'/')) {
+		path.pop_back();
+	}
+}
+
 std::wstring GetParentDirectory(const std::wstring& path) {
 	std::wstring trimmed = TrimTrailingSeparators(path);
 	size_t pos = trimmed.find_last_of(L"\\/");
@@ -851,8 +892,22 @@ uint32_t GetLookupHashFromPartsFast(const std::wstring& normalizedRelativePrefix
 	return GetLookupHashWithUpperScratch(combinedScratch, upperScratch);
 }
 
-template <typename Callback>
-bool ExecuteQuery(void* client, const wchar_t* query, Callback&& onResult, QueryExecutionStats* stats = nullptr) {
+void ReserveCategoryRawHits(CategoryRawHits& rawHits, size_t hitCount) {
+	if (hitCount == 0) {
+		return;
+	}
+	size_t directoryReserve = hitCount / 128;
+	if (directoryReserve < 1024) {
+		directoryReserve = 1024;
+	}
+	if (directoryReserve > 131072) {
+		directoryReserve = 131072;
+	}
+	rawHits.fileNamesByDirectory.reserve(directoryReserve);
+}
+
+template <typename Callback, typename HitCountCallback>
+bool ExecuteQuery(void* client, const wchar_t* query, Callback&& onResult, QueryExecutionStats* stats, HitCountCallback&& onHitCount) {
 	void* state = g_api.CreateSearchState();
 	if (!state) {
 		return false;
@@ -879,19 +934,29 @@ bool ExecuteQuery(void* client, const wchar_t* query, Callback&& onResult, Query
 			stats->hitCount = static_cast<unsigned long long>(hitCount);
 			stats->searchMs = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - searchStartedAt).count();
 		}
+		onHitCount(hitCount);
 		auto readStartedAt = std::chrono::steady_clock::now();
+		std::chrono::steady_clock::duration sdkReadDuration{};
 		std::vector<wchar_t> pathBuffer(1024);
 		std::vector<wchar_t> nameBuffer(512);
 		std::wstring path;
 		std::wstring name;
 		for (size_t i = 0; i < hitCount; i++) {
-			if (!GetResultPath(result, i, pathBuffer, path) || !GetResultName(result, i, nameBuffer, name)) {
+			auto sdkReadStartedAt = std::chrono::steady_clock::now();
+			bool gotResult = GetResultPath(result, i, pathBuffer, path, stats ? &stats->pathResizeCount : nullptr)
+				&& GetResultName(result, i, nameBuffer, name, stats ? &stats->nameResizeCount : nullptr);
+			sdkReadDuration += std::chrono::steady_clock::now() - sdkReadStartedAt;
+			if (!gotResult) {
 				continue;
 			}
 			onResult(path, name);
 		}
 		if (stats) {
-			stats->readMs = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - readStartedAt).count();
+			long long readMs = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - readStartedAt).count();
+			long long sdkReadMs = std::chrono::duration_cast<std::chrono::milliseconds>(sdkReadDuration).count();
+			stats->readMs = readMs;
+			stats->sdkReadMs = sdkReadMs;
+			stats->callbackMs = readMs > sdkReadMs ? readMs - sdkReadMs : 0;
 		}
 		ok = true;
 	} while (false);
@@ -903,6 +968,23 @@ bool ExecuteQuery(void* client, const wchar_t* query, Callback&& onResult, Query
 	if (stats) {
 		stats->elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - startedAt).count();
 	}
+	return ok;
+}
+
+template <typename Callback>
+bool ExecuteQuery(void* client, const wchar_t* query, Callback&& onResult, QueryExecutionStats* stats = nullptr) {
+	return ExecuteQuery(client, query, std::forward<Callback>(onResult), stats, NoopHitCountCallback{});
+}
+
+template <typename Callback, typename HitCountCallback>
+bool ExecuteQueryWithNewClient(const wchar_t* query, Callback&& onResult, QueryExecutionStats* stats, HitCountCallback&& onHitCount) {
+	unsigned int connectError = EVERYTHING3_OK;
+	void* client = TryConnectClient(&connectError);
+	if (!client) {
+		return false;
+	}
+	bool ok = ExecuteQuery(client, query, std::forward<Callback>(onResult), stats, std::forward<HitCountCallback>(onHitCount));
+	g_api.DestroyClient(client);
 	return ok;
 }
 
@@ -1755,6 +1837,22 @@ int BuildResultBuffer(const ScanAggregate& aggregate, const BridgeExecutionStats
 	result->image_read_ms = stats.imageQuery.readMs;
 	result->movie_search_ms = stats.movieQuery.searchMs;
 	result->movie_read_ms = stats.movieQuery.readMs;
+	result->chart_sdk_read_ms = stats.chartQuery.sdkReadMs;
+	result->chart_callback_ms = stats.chartQuery.callbackMs;
+	result->audio_sdk_read_ms = stats.audioQuery.sdkReadMs;
+	result->audio_callback_ms = stats.audioQuery.callbackMs;
+	result->image_sdk_read_ms = stats.imageQuery.sdkReadMs;
+	result->image_callback_ms = stats.imageQuery.callbackMs;
+	result->movie_sdk_read_ms = stats.movieQuery.sdkReadMs;
+	result->movie_callback_ms = stats.movieQuery.callbackMs;
+	result->chart_path_resize_count = stats.chartQuery.pathResizeCount;
+	result->chart_name_resize_count = stats.chartQuery.nameResizeCount;
+	result->audio_path_resize_count = stats.audioQuery.pathResizeCount;
+	result->audio_name_resize_count = stats.audioQuery.nameResizeCount;
+	result->image_path_resize_count = stats.imageQuery.pathResizeCount;
+	result->image_name_resize_count = stats.imageQuery.nameResizeCount;
+	result->movie_path_resize_count = stats.movieQuery.pathResizeCount;
+	result->movie_name_resize_count = stats.movieQuery.nameResizeCount;
 	result->chart_directory_count = static_cast<unsigned long long>(dirCount);
 	result->audio_assigned_count = stats.audioAssignedCount;
 	result->image_assigned_count = stats.imageAssignedCount;
@@ -1817,36 +1915,48 @@ extern "C" __declspec(dllexport) int __cdecl EBridge_ScanChartAndResources(const
 	bool okImage = false;
 	bool okMovie = false;
 	std::thread chartQueryWorker([&]() {
-		okChart = ExecuteQueryWithNewClient(chartQuery, [&chartRawHits](const std::wstring& path, const std::wstring& name) {
+		okChart = ExecuteQueryWithNewClient(chartQuery, [&chartRawHits](std::wstring& path, std::wstring& name) {
 			if (path.empty() || name.empty()) {
 				return;
 			}
-			chartRawHits.files.emplace_back(path, name);
-		}, &chartQueryStats);
+			NormalizeDirectoryPathInPlace(path);
+			chartRawHits.files.emplace_back(path, std::move(name));
+		}, &chartQueryStats, [&chartRawHits](size_t hitCount) {
+			chartRawHits.files.reserve(hitCount);
+		});
 	});
 	std::thread audioQueryWorker([&]() {
-		okAudio = ExecuteQueryWithNewClient(audioQuery, [&audioRawHits](const std::wstring& path, const std::wstring& name) {
+		okAudio = ExecuteQueryWithNewClient(audioQuery, [&audioRawHits](std::wstring& path, std::wstring& name) {
 			if (path.empty() || name.empty()) {
 				return;
 			}
-			audioRawHits.fileNamesByDirectory[TrimTrailingSeparators(ReplaceAltSeparators(path))].push_back(name);
-		}, &audioQueryStats);
+			NormalizeDirectoryPathInPlace(path);
+			audioRawHits.fileNamesByDirectory[std::move(path)].push_back(std::move(name));
+		}, &audioQueryStats, [&audioRawHits](size_t hitCount) {
+			ReserveCategoryRawHits(audioRawHits, hitCount);
+		});
 	});
 	std::thread imageQueryWorker([&]() {
-		okImage = ExecuteQueryWithNewClient(imageQuery, [&imageRawHits](const std::wstring& path, const std::wstring& name) {
+		okImage = ExecuteQueryWithNewClient(imageQuery, [&imageRawHits](std::wstring& path, std::wstring& name) {
 			if (path.empty() || name.empty()) {
 				return;
 			}
-			imageRawHits.fileNamesByDirectory[TrimTrailingSeparators(ReplaceAltSeparators(path))].push_back(name);
-		}, &imageQueryStats);
+			NormalizeDirectoryPathInPlace(path);
+			imageRawHits.fileNamesByDirectory[std::move(path)].push_back(std::move(name));
+		}, &imageQueryStats, [&imageRawHits](size_t hitCount) {
+			ReserveCategoryRawHits(imageRawHits, hitCount);
+		});
 	});
 	std::thread movieQueryWorker([&]() {
-		okMovie = ExecuteQueryWithNewClient(movieQuery, [&movieRawHits](const std::wstring& path, const std::wstring& name) {
+		okMovie = ExecuteQueryWithNewClient(movieQuery, [&movieRawHits](std::wstring& path, std::wstring& name) {
 			if (path.empty() || name.empty()) {
 				return;
 			}
-			movieRawHits.fileNamesByDirectory[TrimTrailingSeparators(ReplaceAltSeparators(path))].push_back(name);
-		}, &movieQueryStats);
+			NormalizeDirectoryPathInPlace(path);
+			movieRawHits.fileNamesByDirectory[std::move(path)].push_back(std::move(name));
+		}, &movieQueryStats, [&movieRawHits](size_t hitCount) {
+			ReserveCategoryRawHits(movieRawHits, hitCount);
+		});
 	});
 	chartQueryWorker.join();
 	audioQueryWorker.join();
@@ -1869,7 +1979,7 @@ extern "C" __declspec(dllexport) int __cdecl EBridge_ScanChartAndResources(const
 		return BRIDGE_MOVIE_QUERY_FAILED;
 	}
 	for (const auto& hit : chartRawHits.files) {
-		std::wstring chartDirectory = TrimTrailingSeparators(ReplaceAltSeparators(hit.first));
+		const std::wstring& chartDirectory = hit.first;
 		std::wstring chartPath = CombinePathAndName(chartDirectory, hit.second);
 		aggregate.chartPaths.push_back(chartPath);
 		EnsureChartDirectory(aggregate, chartDirectory);

@@ -61,6 +61,9 @@ The fixed scan log also splits each Everything query into `*SearchMs` and `*Read
 measures path/name extraction plus the native callback work that stores each result.
 The existing `*QueryMs` values still cover the whole per-query native execution scope,
 so they are not expected to equal `search + read` exactly.
+`*SdkReadMs` splits out the SDK path/name extraction portion of `*ReadMs`.
+`*CallbackMs` is the remaining native callback/storage work, including result grouping.
+`*PathResizeCount` and `*NameResizeCount` count result buffer growth during extraction.
 
 `sibling:` based resource collection is no longer used.
 

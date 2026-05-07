@@ -102,6 +102,38 @@ public class BmsScanExecutionResult
 
 	public long MovieReadMs { get; set; }
 
+	public long ChartSdkReadMs { get; set; }
+
+	public long ChartCallbackMs { get; set; }
+
+	public long AudioSdkReadMs { get; set; }
+
+	public long AudioCallbackMs { get; set; }
+
+	public long ImageSdkReadMs { get; set; }
+
+	public long ImageCallbackMs { get; set; }
+
+	public long MovieSdkReadMs { get; set; }
+
+	public long MovieCallbackMs { get; set; }
+
+	public ulong ChartPathResizeCount { get; set; }
+
+	public ulong ChartNameResizeCount { get; set; }
+
+	public ulong AudioPathResizeCount { get; set; }
+
+	public ulong AudioNameResizeCount { get; set; }
+
+	public ulong ImagePathResizeCount { get; set; }
+
+	public ulong ImageNameResizeCount { get; set; }
+
+	public ulong MoviePathResizeCount { get; set; }
+
+	public ulong MovieNameResizeCount { get; set; }
+
 	public ulong ChartDirectoryCount { get; set; }
 
 	public ulong AudioAssignedCount { get; set; }

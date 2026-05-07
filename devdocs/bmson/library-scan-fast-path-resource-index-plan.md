@@ -680,6 +680,34 @@ Phase Native-2 では category 別 reverse build 計測を追加した。`packRe
 
 payload は直近の約 281MB から約 257MB へ減少した。scan 全体では audio query の read 側が大きく、次に同じ領域を見る場合は Everything result の path/name 取り出しと native callback 側の格納処理を分けて観測し、audio result collection の allocation / copy を削れるか確認する。
 
+続く result collection 検証では、`ReadMs` を `SdkReadMs` と `CallbackMs` に分けた。`SdkReadMs` は `Everything3_GetResultPathW` / `Everything3_GetResultNameW` の合計、`CallbackMs` は native callback 側の directory normalization / grouping / vector storage を含む。また `PathResizeCount` / `NameResizeCount` を追加し、SDK 文字列取得用 buffer の伸長が起きていないかを見られるようにした。
+
+2026-05-07 15:48 の実機確認では次の状態だった。
+
+- `everything_scan totalMs=25097`
+- `nativeBridgeMs=22628`
+- `audioReadMs=9851`
+- `audioSdkReadMs=3185`
+- `audioCallbackMs=6666`
+- `audioPathResizeCount=0 audioNameResizeCount=0`
+
+この時点では SDK path/name 取得より native callback/storage が支配的だった。そこで fixed scan の raw hit collection で hit count 判明後に container を reserve し、directory path の `ReplaceAltSeparators + TrimTrailingSeparators` 二重コピーを in-place normalization に置き換え、file name は raw hit storage へ move するようにした。
+
+2026-05-07 15:51 の実機確認では次の状態になった。
+
+- `everything_scan totalMs=22285`
+- `nativeBridgeMs=19850`
+- `audioReadMs=7276`
+- `audioSdkReadMs=3709`
+- `audioCallbackMs=3567`
+- `imageReadMs=685`
+- `imageSdkReadMs=339`
+- `imageCallbackMs=346`
+- `audioPathResizeCount=0 audioNameResizeCount=0`
+- `bridgeRawBufferBytes=256800982`
+
+`audioCallbackMs` は約 6.7s から約 3.6s へ縮小し、scan 全体も約 2.8s 短縮した。SDK 側の full path API (`Everything3_GetResultFullPathNameW`) は存在するが、SDK 実装上は `PATH_AND_NAME` property text wrapper であり、現行の path/name 2 call を必ず高速化するとは限らない。次に検証するなら、`audioSdkReadMs` を対象に `PATH_AND_NAME` 1 call + native split が有利か、または現行 path/name 2 call が有利かを A/B で見る。
+
 2026-05-06 実機確認では次の状態になった。
 
 - `everything_scan totalMs=26640`

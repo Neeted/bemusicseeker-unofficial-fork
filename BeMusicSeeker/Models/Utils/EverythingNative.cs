@@ -18,7 +18,7 @@ internal static class EverythingNative
 
 	internal const string SourceRootScanBackendName = "everything_bridge_source_surface";
 
-	private const uint FixedScanContractVersion = 2026050705u;
+	private const uint FixedScanContractVersion = 2026050706u;
 
 	private static IntPtr loadedBridgeModule = IntPtr.Zero;
 
@@ -812,6 +812,22 @@ internal static class EverythingNative
 			ImageReadMs = header.image_read_ms,
 			MovieSearchMs = header.movie_search_ms,
 			MovieReadMs = header.movie_read_ms,
+			ChartSdkReadMs = header.chart_sdk_read_ms,
+			ChartCallbackMs = header.chart_callback_ms,
+			AudioSdkReadMs = header.audio_sdk_read_ms,
+			AudioCallbackMs = header.audio_callback_ms,
+			ImageSdkReadMs = header.image_sdk_read_ms,
+			ImageCallbackMs = header.image_callback_ms,
+			MovieSdkReadMs = header.movie_sdk_read_ms,
+			MovieCallbackMs = header.movie_callback_ms,
+			ChartPathResizeCount = header.chart_path_resize_count,
+			ChartNameResizeCount = header.chart_name_resize_count,
+			AudioPathResizeCount = header.audio_path_resize_count,
+			AudioNameResizeCount = header.audio_name_resize_count,
+			ImagePathResizeCount = header.image_path_resize_count,
+			ImageNameResizeCount = header.image_name_resize_count,
+			MoviePathResizeCount = header.movie_path_resize_count,
+			MovieNameResizeCount = header.movie_name_resize_count,
 			ChartDirectoryCount = header.chart_directory_count,
 			AudioAssignedCount = header.audio_assigned_count,
 			ImageAssignedCount = header.image_assigned_count,
@@ -1234,5 +1250,21 @@ internal static class EverythingNative
 		public long image_read_ms;
 		public long movie_search_ms;
 		public long movie_read_ms;
+		public long chart_sdk_read_ms;
+		public long chart_callback_ms;
+		public long audio_sdk_read_ms;
+		public long audio_callback_ms;
+		public long image_sdk_read_ms;
+		public long image_callback_ms;
+		public long movie_sdk_read_ms;
+		public long movie_callback_ms;
+		public ulong chart_path_resize_count;
+		public ulong chart_name_resize_count;
+		public ulong audio_path_resize_count;
+		public ulong audio_name_resize_count;
+		public ulong image_path_resize_count;
+		public ulong image_name_resize_count;
+		public ulong movie_path_resize_count;
+		public ulong movie_name_resize_count;
 	}
 }
