@@ -72,6 +72,12 @@ public class BmsScanExecutionResult
 
 	public long PackReverseBuildMs { get; set; }
 
+	public long AudioReverseBuildMs { get; set; }
+
+	public long ImageReverseBuildMs { get; set; }
+
+	public long MovieReverseBuildMs { get; set; }
+
 	public long PackLayoutMs { get; set; }
 
 	public long PackAllocMs { get; set; }

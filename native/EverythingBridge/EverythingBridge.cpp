@@ -95,12 +95,15 @@ struct EBridgeResult {
 	unsigned int* movie_relative_reverse_lengths;
 	unsigned char* movie_relative_reverse_indices_blob;
 	long long pack_reverse_build_ms;
+	long long audio_reverse_build_ms;
+	long long image_reverse_build_ms;
+	long long movie_reverse_build_ms;
 	long long pack_layout_ms;
 	long long pack_alloc_ms;
 	long long pack_write_ms;
 };
 
-static constexpr unsigned int EBRIDGE_SCAN_CONTRACT_VERSION = 2026050703u;
+static constexpr unsigned int EBRIDGE_SCAN_CONTRACT_VERSION = 2026050704u;
 
 struct EBridgeGroupedQuery {
 	unsigned int group_id;
@@ -1570,9 +1573,24 @@ int BuildResultBuffer(const ScanAggregate& aggregate, const BridgeExecutionStats
 	ReverseHashGroup audioRelativeReverse;
 	ReverseHashGroup imageRelativeReverse;
 	ReverseHashGroup movieRelativeReverse;
-	std::thread audioReverseWorker([&]() { audioRelativeReverse = BuildReverseHashGroup(aggregate.audioResourceKeyHashes); });
-	std::thread imageReverseWorker([&]() { imageRelativeReverse = BuildReverseHashGroup(aggregate.imageResourceKeyHashes); });
-	std::thread movieReverseWorker([&]() { movieRelativeReverse = BuildReverseHashGroup(aggregate.movieResourceKeyHashes); });
+	long long audioReverseBuildMs = 0;
+	long long imageReverseBuildMs = 0;
+	long long movieReverseBuildMs = 0;
+	std::thread audioReverseWorker([&]() {
+		auto startedAt = std::chrono::steady_clock::now();
+		audioRelativeReverse = BuildReverseHashGroup(aggregate.audioResourceKeyHashes);
+		audioReverseBuildMs = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - startedAt).count();
+	});
+	std::thread imageReverseWorker([&]() {
+		auto startedAt = std::chrono::steady_clock::now();
+		imageRelativeReverse = BuildReverseHashGroup(aggregate.imageResourceKeyHashes);
+		imageReverseBuildMs = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - startedAt).count();
+	});
+	std::thread movieReverseWorker([&]() {
+		auto startedAt = std::chrono::steady_clock::now();
+		movieRelativeReverse = BuildReverseHashGroup(aggregate.movieResourceKeyHashes);
+		movieReverseBuildMs = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - startedAt).count();
+	});
 	audioReverseWorker.join();
 	imageReverseWorker.join();
 	movieReverseWorker.join();
@@ -1668,6 +1686,9 @@ int BuildResultBuffer(const ScanAggregate& aggregate, const BridgeExecutionStats
 	result->dedupe_ms = stats.dedupeMs;
 	result->pack_ms = stats.packMs;
 	result->pack_reverse_build_ms = reverseBuildMs;
+	result->audio_reverse_build_ms = audioReverseBuildMs;
+	result->image_reverse_build_ms = imageReverseBuildMs;
+	result->movie_reverse_build_ms = movieReverseBuildMs;
 	result->pack_layout_ms = layoutMs;
 	result->pack_alloc_ms = allocMs;
 	result->pack_write_ms = writeMs;

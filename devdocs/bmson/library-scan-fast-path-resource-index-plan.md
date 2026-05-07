@@ -628,6 +628,23 @@ folder operation cache cleanup も `DirectoryResourceLookupCache` 正本へ移�
 
 allocation 削減により `audioAssignMs` は直近ログの約 3.0s から約 0.8s へ縮小した。次の native 側候補は `packReverseBuildMs` で、audio reverse map の構築方法または reverse index payload 表現の見直しが本命になる。
 
+Phase Native-2 では category 別 reverse build 計測を追加した。`packReverseBuildMs` は audio / image / movie reverse build を並列に実行した wall-clock time で、`audioReverseBuildMs` / `imageReverseBuildMs` / `movieReverseBuildMs` は各 worker 内の時間である。
+
+2026-05-07 14:42 の実機確認では次の状態になった。
+
+- `everything_scan totalMs=24843`
+- `nativeBridgeMs=22438`
+- `audioAssignMs=916`
+- `assignMs=996`
+- `packMs=2889`
+- `packReverseBuildMs=2264`
+- `audioReverseBuildMs=2263`
+- `imageReverseBuildMs=208`
+- `movieReverseBuildMs=2`
+- `packWriteMs=117`
+
+試験的に `hash -> directory list` の `unordered_map` 方式も試したが、2026-05-07 14:40 の実機ログでは `packReverseBuildMs=8120` まで悪化したため採用しない。現行データ規模では flat pair sort 方式の方が速い。次に触るなら、flat pair sort を維持したまま audio reverse build の parallel sort / partition、または reverse index payload の 16-bit 化などを検討する。
+
 2026-05-06 実機確認では次の状態になった。
 
 - `everything_scan totalMs=26640`

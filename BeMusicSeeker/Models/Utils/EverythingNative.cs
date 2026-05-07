@@ -18,7 +18,7 @@ internal static class EverythingNative
 
 	internal const string SourceRootScanBackendName = "everything_bridge_source_surface";
 
-	private const uint FixedScanContractVersion = 2026050703u;
+	private const uint FixedScanContractVersion = 2026050704u;
 
 	private static IntPtr loadedBridgeModule = IntPtr.Zero;
 
@@ -781,6 +781,9 @@ internal static class EverythingNative
 			DedupeMs = header.dedupe_ms,
 			PackMs = header.pack_ms,
 			PackReverseBuildMs = header.pack_reverse_build_ms,
+			AudioReverseBuildMs = header.audio_reverse_build_ms,
+			ImageReverseBuildMs = header.image_reverse_build_ms,
+			MovieReverseBuildMs = header.movie_reverse_build_ms,
 			PackLayoutMs = header.pack_layout_ms,
 			PackAllocMs = header.pack_alloc_ms,
 			PackWriteMs = header.pack_write_ms,
@@ -1191,6 +1194,9 @@ internal static class EverythingNative
 		public IntPtr movie_relative_reverse_lengths;
 		public IntPtr movie_relative_reverse_indices_blob;
 		public long pack_reverse_build_ms;
+		public long audio_reverse_build_ms;
+		public long image_reverse_build_ms;
+		public long movie_reverse_build_ms;
 		public long pack_layout_ms;
 		public long pack_alloc_ms;
 		public long pack_write_ms;

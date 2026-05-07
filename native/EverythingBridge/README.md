@@ -44,9 +44,12 @@ The native ABI returns only one per-category hash surface for these keys. Manage
 single native `resource_key` surface onto its existing `RelativePathHash` model; there is no
 separate relative-hash payload.
 
-The fixed scan log exposes `packMs` plus `packReverseBuildMs`, `packLayoutMs`,
-`packAllocMs`, and `packWriteMs`. These timings describe native packed result construction
-after query, owner assignment, and dedupe have completed.
+The fixed scan log exposes `packMs` plus `packReverseBuildMs`, `audioReverseBuildMs`,
+`imageReverseBuildMs`, `movieReverseBuildMs`, `packLayoutMs`, `packAllocMs`, and
+`packWriteMs`. These timings describe native packed result construction after query,
+owner assignment, and dedupe have completed. `packReverseBuildMs` is wall-clock time
+for the parallel category reverse builders; the category values are measured inside
+each worker and do not sum to the wall-clock value.
 
 `sibling:` based resource collection is no longer used.
 
