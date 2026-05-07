@@ -84,6 +84,24 @@ public class BmsScanExecutionResult
 
 	public long PackWriteMs { get; set; }
 
+	public uint ReverseIndexBytes { get; set; }
+
+	public long ChartSearchMs { get; set; }
+
+	public long ChartReadMs { get; set; }
+
+	public long AudioSearchMs { get; set; }
+
+	public long AudioReadMs { get; set; }
+
+	public long ImageSearchMs { get; set; }
+
+	public long ImageReadMs { get; set; }
+
+	public long MovieSearchMs { get; set; }
+
+	public long MovieReadMs { get; set; }
+
 	public ulong ChartDirectoryCount { get; set; }
 
 	public ulong AudioAssignedCount { get; set; }

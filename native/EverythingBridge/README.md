@@ -51,6 +51,17 @@ owner assignment, and dedupe have completed. `packReverseBuildMs` is wall-clock 
 for the parallel category reverse builders; the category values are measured inside
 each worker and do not sum to the wall-clock value.
 
+Reverse lookup directory indices are packed as 16-bit values when the chart-directory
+count fits in `uint16`, otherwise as 32-bit values. The result header exposes
+`reverse_index_bytes` so managed decode can read the indices without guessing. Reverse
+offset arrays remain byte offsets.
+
+The fixed scan log also splits each Everything query into `*SearchMs` and `*ReadMs`.
+`*SearchMs` measures `Everything3_Search` through viewport count retrieval. `*ReadMs`
+measures path/name extraction plus the native callback work that stores each result.
+The existing `*QueryMs` values still cover the whole per-query native execution scope,
+so they are not expected to equal `search + read` exactly.
+
 `sibling:` based resource collection is no longer used.
 
 ## Build

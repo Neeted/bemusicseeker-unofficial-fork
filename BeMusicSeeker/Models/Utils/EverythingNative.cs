@@ -18,7 +18,7 @@ internal static class EverythingNative
 
 	internal const string SourceRootScanBackendName = "everything_bridge_source_surface";
 
-	private const uint FixedScanContractVersion = 2026050704u;
+	private const uint FixedScanContractVersion = 2026050705u;
 
 	private static IntPtr loadedBridgeModule = IntPtr.Zero;
 
@@ -460,9 +460,9 @@ internal static class EverythingNative
 			SelfOwnedAudioRelativeHashes = selfOwnedAudioRelativeHashes,
 			SelfOwnedImageRelativeHashes = selfOwnedImageRelativeHashes,
 			SelfOwnedMovieRelativeHashes = selfOwnedMovieRelativeHashes,
-			AudioRelativeReverseDirectories = ReadReverseHashMap(header.audio_relative_reverse_key_count, header.audio_relative_reverse_keys, header.audio_relative_reverse_offsets, header.audio_relative_reverse_lengths, header.audio_relative_reverse_indices_blob, chartDirectories),
-			ImageRelativeReverseDirectories = ReadReverseHashMap(header.image_relative_reverse_key_count, header.image_relative_reverse_keys, header.image_relative_reverse_offsets, header.image_relative_reverse_lengths, header.image_relative_reverse_indices_blob, chartDirectories),
-			MovieRelativeReverseDirectories = ReadReverseHashMap(header.movie_relative_reverse_key_count, header.movie_relative_reverse_keys, header.movie_relative_reverse_offsets, header.movie_relative_reverse_lengths, header.movie_relative_reverse_indices_blob, chartDirectories)
+			AudioRelativeReverseDirectories = ReadReverseHashMap(header.audio_relative_reverse_key_count, header.audio_relative_reverse_keys, header.audio_relative_reverse_offsets, header.audio_relative_reverse_lengths, header.audio_relative_reverse_indices_blob, header.reverse_index_bytes, chartDirectories),
+			ImageRelativeReverseDirectories = ReadReverseHashMap(header.image_relative_reverse_key_count, header.image_relative_reverse_keys, header.image_relative_reverse_offsets, header.image_relative_reverse_lengths, header.image_relative_reverse_indices_blob, header.reverse_index_bytes, chartDirectories),
+			MovieRelativeReverseDirectories = ReadReverseHashMap(header.movie_relative_reverse_key_count, header.movie_relative_reverse_keys, header.movie_relative_reverse_offsets, header.movie_relative_reverse_lengths, header.movie_relative_reverse_indices_blob, header.reverse_index_bytes, chartDirectories)
 		};
 	}
 
@@ -592,17 +592,22 @@ internal static class EverythingNative
 		return hashesByDirectoryIndex;
 	}
 
-	private static unsafe Dictionary<uint, string[]> ReadReverseHashMap(ulong keyCount, IntPtr keys, IntPtr offsets, IntPtr lengths, IntPtr indicesBlob, string[] chartDirectories)
+	private static unsafe Dictionary<uint, string[]> ReadReverseHashMap(ulong keyCount, IntPtr keys, IntPtr offsets, IntPtr lengths, IntPtr indicesBlob, uint indexBytes, string[] chartDirectories)
 	{
 		Dictionary<uint, string[]> map = new Dictionary<uint, string[]>(checked((int)keyCount));
 		if (keyCount == 0 || keys == IntPtr.Zero || offsets == IntPtr.Zero || lengths == IntPtr.Zero || indicesBlob == IntPtr.Zero)
 		{
 			return map;
 		}
+		if (indexBytes != sizeof(ushort) && indexBytes != sizeof(uint))
+		{
+			throw new InvalidOperationException("unsupported_reverse_index_bytes:" + indexBytes);
+		}
 		uint* keyValues = (uint*)keys.ToPointer();
 		uint* offsetValues = (uint*)offsets.ToPointer();
 		uint* lengthValues = (uint*)lengths.ToPointer();
-		uint* indexValues = (uint*)indicesBlob.ToPointer();
+		ushort* indexValues16 = indexBytes == sizeof(ushort) ? (ushort*)indicesBlob.ToPointer() : null;
+		uint* indexValues32 = indexBytes == sizeof(uint) ? (uint*)indicesBlob.ToPointer() : null;
 		int count = checked((int)keyCount);
 		for (int i = 0; i < count; i += 1)
 		{
@@ -614,10 +619,14 @@ internal static class EverythingNative
 				map[key] = Array.Empty<string>();
 				continue;
 			}
-			int indexOffset = checked((int)(byteOffset / sizeof(uint)));
+			if (byteOffset % indexBytes != 0)
+			{
+				throw new InvalidOperationException("unaligned_reverse_index_offset:" + byteOffset + ":bytes=" + indexBytes);
+			}
+			int indexOffset = checked((int)(byteOffset / indexBytes));
 			if (length == 1)
 			{
-				int directoryIndex = checked((int)indexValues[indexOffset]);
+				int directoryIndex = ReadReverseDirectoryIndex(indexValues16, indexValues32, indexOffset);
 				if (directoryIndex >= 0 && directoryIndex < (chartDirectories?.Length ?? 0))
 				{
 					string directory = chartDirectories[directoryIndex];
@@ -635,7 +644,7 @@ internal static class EverythingNative
 			int outputCount = 0;
 			for (int j = 0; j < directories.Length; j++)
 			{
-				int directoryIndex = checked((int)indexValues[indexOffset + j]);
+				int directoryIndex = ReadReverseDirectoryIndex(indexValues16, indexValues32, indexOffset + j);
 				if (directoryIndex < 0 || directoryIndex >= (chartDirectories?.Length ?? 0))
 				{
 					continue;
@@ -661,6 +670,13 @@ internal static class EverythingNative
 			}
 		}
 		return map;
+	}
+
+	private static unsafe int ReadReverseDirectoryIndex(ushort* indexValues16, uint* indexValues32, int offset)
+	{
+		return indexValues16 != null
+			? indexValues16[offset]
+			: checked((int)indexValues32[offset]);
 	}
 
 	private static HashSet<string> MaterializeStringSet(IEnumerable<string> values)
@@ -787,6 +803,15 @@ internal static class EverythingNative
 			PackLayoutMs = header.pack_layout_ms,
 			PackAllocMs = header.pack_alloc_ms,
 			PackWriteMs = header.pack_write_ms,
+			ReverseIndexBytes = header.reverse_index_bytes,
+			ChartSearchMs = header.chart_search_ms,
+			ChartReadMs = header.chart_read_ms,
+			AudioSearchMs = header.audio_search_ms,
+			AudioReadMs = header.audio_read_ms,
+			ImageSearchMs = header.image_search_ms,
+			ImageReadMs = header.image_read_ms,
+			MovieSearchMs = header.movie_search_ms,
+			MovieReadMs = header.movie_read_ms,
 			ChartDirectoryCount = header.chart_directory_count,
 			AudioAssignedCount = header.audio_assigned_count,
 			ImageAssignedCount = header.image_assigned_count,
@@ -1200,5 +1225,14 @@ internal static class EverythingNative
 		public long pack_layout_ms;
 		public long pack_alloc_ms;
 		public long pack_write_ms;
+		public uint reverse_index_bytes;
+		public long chart_search_ms;
+		public long chart_read_ms;
+		public long audio_search_ms;
+		public long audio_read_ms;
+		public long image_search_ms;
+		public long image_read_ms;
+		public long movie_search_ms;
+		public long movie_read_ms;
 	}
 }

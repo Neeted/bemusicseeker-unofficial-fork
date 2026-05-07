@@ -659,6 +659,27 @@ Phase Native-2 では category 別 reverse build 計測を追加した。`packRe
 
 `packReverseBuildMs` は約 2.3s から約 1.6s へ縮小した。次に native payload 側を触るなら、reverse index directory id の 16-bit 化や、audio reverse build のさらに細かい partitioning を検討する。
 
+続く reverse index payload 削減では、chart directory 数が `uint16` に収まる場合に reverse lookup の directory id blob を 16-bit で pack するようにした。offset は従来どおり byte offset とし、managed decode は header の `reverseIndexBytes` を見て 2-byte / 4-byte を切り替える。あわせて Everything query の内訳として `chart/audio/image/movieSearchMs` と `chart/audio/image/movieReadMs` を追加した。`SearchMs` は `Everything3_Search` から viewport count 取得まで、`ReadMs` は path/name 取得と native 側の result callback work を含む。
+
+2026-05-07 15:25 の実機確認では次の状態になった。
+
+- `everything_scan totalMs=24525`
+- `nativeBridgeMs=22086`
+- `managedDecodeMs=2277`
+- `managedMaterializeMs=136`
+- `bridgeRawBufferBytes=256800854`
+- `reverseIndexBytes=2`
+- `chartSearchMs=768 chartReadMs=150`
+- `audioSearchMs=5099 audioReadMs=8993`
+- `imageSearchMs=1126 imageReadMs=985`
+- `movieSearchMs=5106 movieReadMs=9`
+- `packMs=2227`
+- `packReverseBuildMs=1565`
+- `audioReverseBuildMs=1564`
+- `packWriteMs=129`
+
+payload は直近の約 281MB から約 257MB へ減少した。scan 全体では audio query の read 側が大きく、次に同じ領域を見る場合は Everything result の path/name 取り出しと native callback 側の格納処理を分けて観測し、audio result collection の allocation / copy を削れるか確認する。
+
 2026-05-06 実機確認では次の状態になった。
 
 - `everything_scan totalMs=26640`

@@ -101,9 +101,18 @@ struct EBridgeResult {
 	long long pack_layout_ms;
 	long long pack_alloc_ms;
 	long long pack_write_ms;
+	unsigned int reverse_index_bytes;
+	long long chart_search_ms;
+	long long chart_read_ms;
+	long long audio_search_ms;
+	long long audio_read_ms;
+	long long image_search_ms;
+	long long image_read_ms;
+	long long movie_search_ms;
+	long long movie_read_ms;
 };
 
-static constexpr unsigned int EBRIDGE_SCAN_CONTRACT_VERSION = 2026050704u;
+static constexpr unsigned int EBRIDGE_SCAN_CONTRACT_VERSION = 2026050705u;
 
 struct EBridgeGroupedQuery {
 	unsigned int group_id;
@@ -259,6 +268,8 @@ struct ReverseHashGroup {
 struct QueryExecutionStats {
 	unsigned long long hitCount = 0;
 	long long elapsedMs = 0;
+	long long searchMs = 0;
+	long long readMs = 0;
 };
 
 struct BridgeExecutionStats {
@@ -858,6 +869,7 @@ bool ExecuteQuery(void* client, const wchar_t* query, Callback&& onResult, Query
 		g_api.AddSearchPropertyRequest(state, EVERYTHING3_PROPERTY_ID_NAME);
 		g_api.SetSearchViewportOffset(state, 0);
 		g_api.SetSearchViewportCount(state, static_cast<size_t>(-1));
+		auto searchStartedAt = std::chrono::steady_clock::now();
 		result = g_api.Search(client, state);
 		if (!result || g_api.GetLastError() != EVERYTHING3_OK) {
 			break;
@@ -865,7 +877,9 @@ bool ExecuteQuery(void* client, const wchar_t* query, Callback&& onResult, Query
 		size_t hitCount = g_api.GetResultListViewportCount(result);
 		if (stats) {
 			stats->hitCount = static_cast<unsigned long long>(hitCount);
+			stats->searchMs = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - searchStartedAt).count();
 		}
+		auto readStartedAt = std::chrono::steady_clock::now();
 		std::vector<wchar_t> pathBuffer(1024);
 		std::vector<wchar_t> nameBuffer(512);
 		std::wstring path;
@@ -875,6 +889,9 @@ bool ExecuteQuery(void* client, const wchar_t* query, Callback&& onResult, Query
 				continue;
 			}
 			onResult(path, name);
+		}
+		if (stats) {
+			stats->readMs = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - readStartedAt).count();
 		}
 		ok = true;
 	} while (false);
@@ -1515,6 +1532,10 @@ size_t SumReverseIndexCount(const ReverseHashGroup& group) {
 	return total;
 }
 
+uint32_t GetReverseIndexBytes(size_t directoryCount) {
+	return directoryCount <= 0xFFFFu ? 2u : 4u;
+}
+
 void WriteStringBlob(uint8_t* raw, size_t offsetsPos, size_t blobPos, const std::vector<std::wstring>& values, unsigned int*& outOffsets, wchar_t*& outBlob) {
 	outOffsets = reinterpret_cast<unsigned int*>(raw + offsetsPos);
 	outBlob = reinterpret_cast<wchar_t*>(raw + blobPos);
@@ -1551,6 +1572,7 @@ void WriteReverseHashGroup(
 	size_t offsetsPos,
 	size_t lengthsPos,
 	size_t indicesPos,
+	uint32_t indexBytes,
 	const ReverseHashGroup& group,
 	unsigned int*& outKeys,
 	unsigned int*& outOffsets,
@@ -1561,15 +1583,22 @@ void WriteReverseHashGroup(
 	outOffsets = reinterpret_cast<unsigned int*>(raw + offsetsPos);
 	outLengths = reinterpret_cast<unsigned int*>(raw + lengthsPos);
 	outIndicesBlob = reinterpret_cast<unsigned char*>(raw + indicesPos);
-	auto* indicesBlob = reinterpret_cast<unsigned int*>(raw + indicesPos);
 	uint32_t indexCursor = 0;
 	for (size_t i = 0; i < group.keys.size(); i++) {
 		outKeys[i] = group.keys[i];
-		outOffsets[i] = indexCursor * sizeof(uint32_t);
+		outOffsets[i] = indexCursor * indexBytes;
 		const std::vector<uint32_t>& indices = group.directoryIndicesByKey[i];
 		outLengths[i] = static_cast<unsigned int>(indices.size());
-		for (uint32_t index : indices) {
-			indicesBlob[indexCursor++] = index;
+		if (indexBytes == 2u) {
+			auto* indicesBlob16 = reinterpret_cast<uint16_t*>(raw + indicesPos);
+			for (uint32_t index : indices) {
+				indicesBlob16[indexCursor++] = static_cast<uint16_t>(index);
+			}
+		} else {
+			auto* indicesBlob32 = reinterpret_cast<uint32_t*>(raw + indicesPos);
+			for (uint32_t index : indices) {
+				indicesBlob32[indexCursor++] = index;
+			}
 		}
 	}
 }
@@ -1624,6 +1653,7 @@ int BuildResultBuffer(const ScanAggregate& aggregate, const BridgeExecutionStats
 	size_t audioRelativeReverseIndexCount = SumReverseIndexCount(audioRelativeReverse);
 	size_t imageRelativeReverseIndexCount = SumReverseIndexCount(imageRelativeReverse);
 	size_t movieRelativeReverseIndexCount = SumReverseIndexCount(movieRelativeReverse);
+	uint32_t reverseIndexBytes = GetReverseIndexBytes(dirCount);
 
 	size_t cursor = AlignUp(sizeof(EBridgeResult), 8);
 	size_t chartOffsetsPos = cursor; cursor += chartCount * sizeof(uint32_t);
@@ -1662,9 +1692,9 @@ int BuildResultBuffer(const ScanAggregate& aggregate, const BridgeExecutionStats
 	size_t selfAudioResourceKeyHashesPos = cursor; cursor += selfAudioResourceKeyHashCount * sizeof(uint32_t);
 	size_t selfImageResourceKeyHashesPos = cursor; cursor += selfImageResourceKeyHashCount * sizeof(uint32_t);
 	size_t selfMovieResourceKeyHashesPos = cursor; cursor += selfMovieResourceKeyHashCount * sizeof(uint32_t);
-	size_t audioRelativeReverseIndicesPos = cursor; cursor += audioRelativeReverseIndexCount * sizeof(uint32_t);
-	size_t imageRelativeReverseIndicesPos = cursor; cursor += imageRelativeReverseIndexCount * sizeof(uint32_t);
-	size_t movieRelativeReverseIndicesPos = cursor; cursor += movieRelativeReverseIndexCount * sizeof(uint32_t);
+	size_t audioRelativeReverseIndicesPos = cursor; cursor += audioRelativeReverseIndexCount * reverseIndexBytes;
+	size_t imageRelativeReverseIndicesPos = cursor; cursor += imageRelativeReverseIndexCount * reverseIndexBytes;
+	size_t movieRelativeReverseIndicesPos = cursor; cursor += movieRelativeReverseIndexCount * reverseIndexBytes;
 	size_t totalBytes = cursor;
 	layoutMs += std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - layoutStartedAt).count();
 
@@ -1687,9 +1717,9 @@ int BuildResultBuffer(const ScanAggregate& aggregate, const BridgeExecutionStats
 	WriteHashGroup(raw, selfAudioResourceKeyOffsetsPos, selfAudioResourceKeyLengthsPos, selfAudioResourceKeyHashesPos, aggregate.selfAudioResourceKeyHashes, result->self_audio_resource_key_hash_offsets, result->self_audio_resource_key_hash_lengths, result->self_audio_resource_key_hashes_blob);
 	WriteHashGroup(raw, selfImageResourceKeyOffsetsPos, selfImageResourceKeyLengthsPos, selfImageResourceKeyHashesPos, aggregate.selfImageResourceKeyHashes, result->self_image_resource_key_hash_offsets, result->self_image_resource_key_hash_lengths, result->self_image_resource_key_hashes_blob);
 	WriteHashGroup(raw, selfMovieResourceKeyOffsetsPos, selfMovieResourceKeyLengthsPos, selfMovieResourceKeyHashesPos, aggregate.selfMovieResourceKeyHashes, result->self_movie_resource_key_hash_offsets, result->self_movie_resource_key_hash_lengths, result->self_movie_resource_key_hashes_blob);
-	WriteReverseHashGroup(raw, audioRelativeReverseKeysPos, audioRelativeReverseOffsetsPos, audioRelativeReverseLengthsPos, audioRelativeReverseIndicesPos, audioRelativeReverse, result->audio_relative_reverse_keys, result->audio_relative_reverse_offsets, result->audio_relative_reverse_lengths, result->audio_relative_reverse_indices_blob);
-	WriteReverseHashGroup(raw, imageRelativeReverseKeysPos, imageRelativeReverseOffsetsPos, imageRelativeReverseLengthsPos, imageRelativeReverseIndicesPos, imageRelativeReverse, result->image_relative_reverse_keys, result->image_relative_reverse_offsets, result->image_relative_reverse_lengths, result->image_relative_reverse_indices_blob);
-	WriteReverseHashGroup(raw, movieRelativeReverseKeysPos, movieRelativeReverseOffsetsPos, movieRelativeReverseLengthsPos, movieRelativeReverseIndicesPos, movieRelativeReverse, result->movie_relative_reverse_keys, result->movie_relative_reverse_offsets, result->movie_relative_reverse_lengths, result->movie_relative_reverse_indices_blob);
+	WriteReverseHashGroup(raw, audioRelativeReverseKeysPos, audioRelativeReverseOffsetsPos, audioRelativeReverseLengthsPos, audioRelativeReverseIndicesPos, reverseIndexBytes, audioRelativeReverse, result->audio_relative_reverse_keys, result->audio_relative_reverse_offsets, result->audio_relative_reverse_lengths, result->audio_relative_reverse_indices_blob);
+	WriteReverseHashGroup(raw, imageRelativeReverseKeysPos, imageRelativeReverseOffsetsPos, imageRelativeReverseLengthsPos, imageRelativeReverseIndicesPos, reverseIndexBytes, imageRelativeReverse, result->image_relative_reverse_keys, result->image_relative_reverse_offsets, result->image_relative_reverse_lengths, result->image_relative_reverse_indices_blob);
+	WriteReverseHashGroup(raw, movieRelativeReverseKeysPos, movieRelativeReverseOffsetsPos, movieRelativeReverseLengthsPos, movieRelativeReverseIndicesPos, reverseIndexBytes, movieRelativeReverse, result->movie_relative_reverse_keys, result->movie_relative_reverse_offsets, result->movie_relative_reverse_lengths, result->movie_relative_reverse_indices_blob);
 	long long writeMs = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - writeStartedAt).count();
 
 	result->contract_version = EBRIDGE_SCAN_CONTRACT_VERSION;
@@ -1716,6 +1746,15 @@ int BuildResultBuffer(const ScanAggregate& aggregate, const BridgeExecutionStats
 	result->pack_layout_ms = layoutMs;
 	result->pack_alloc_ms = allocMs;
 	result->pack_write_ms = writeMs;
+	result->reverse_index_bytes = reverseIndexBytes;
+	result->chart_search_ms = stats.chartQuery.searchMs;
+	result->chart_read_ms = stats.chartQuery.readMs;
+	result->audio_search_ms = stats.audioQuery.searchMs;
+	result->audio_read_ms = stats.audioQuery.readMs;
+	result->image_search_ms = stats.imageQuery.searchMs;
+	result->image_read_ms = stats.imageQuery.readMs;
+	result->movie_search_ms = stats.movieQuery.searchMs;
+	result->movie_read_ms = stats.movieQuery.readMs;
 	result->chart_directory_count = static_cast<unsigned long long>(dirCount);
 	result->audio_assigned_count = stats.audioAssignedCount;
 	result->image_assigned_count = stats.imageAssignedCount;
