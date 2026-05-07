@@ -214,6 +214,8 @@ constexpr unsigned int EVERYTHING3_ERROR_IPC_PIPE_NOT_FOUND = 0xE0000002u;
 constexpr unsigned int EVERYTHING3_PROPERTY_ID_NAME = 0u;
 constexpr unsigned int EVERYTHING3_PROPERTY_ID_PATH = 1u;
 constexpr unsigned int EVERYTHING3_PROPERTY_ID_PATH_AND_NAME = 240u;
+constexpr size_t SDK_READ_TIMING_EXACT_HIT_LIMIT = 2u * 1024u * 1024u;
+constexpr size_t SDK_READ_TIMING_SAMPLE_INTERVAL = 512;
 
 enum BridgeError {
 	BRIDGE_OK = 0,
@@ -281,7 +283,9 @@ struct ScanAggregate {
 
 struct ReverseHashGroup {
 	std::vector<uint32_t> keys;
-	std::vector<std::vector<uint32_t>> directoryIndicesByKey;
+	std::vector<uint32_t> indexOffsets;
+	std::vector<uint32_t> indexLengths;
+	std::vector<uint32_t> directoryIndices;
 };
 
 struct QueryExecutionStats {
@@ -526,6 +530,17 @@ bool GetResultName(void* resultList, size_t index, std::vector<wchar_t>& buffer,
 	return false;
 }
 
+void AssignNormalizedDirectoryPath(const wchar_t* value, size_t length, std::wstring& output) {
+	while (length > 0 && (value[length - 1] == L'\\' || value[length - 1] == L'/')) {
+		length--;
+	}
+	output.resize(length);
+	for (size_t i = 0; i < length; i++) {
+		wchar_t ch = value[i];
+		output[i] = ch == L'/' ? L'\\' : ch;
+	}
+}
+
 bool SplitFullPathBuffer(const wchar_t* fullPath, size_t length, std::wstring& directoryPath, std::wstring& fileName) {
 	if (!fullPath || length == 0) {
 		return false;
@@ -546,7 +561,7 @@ bool SplitFullPathBuffer(const wchar_t* fullPath, size_t length, std::wstring& d
 	if (pos >= length) {
 		return false;
 	}
-	directoryPath.assign(fullPath, pos - 1);
+	AssignNormalizedDirectoryPath(fullPath, pos - 1, directoryPath);
 	fileName.assign(fullPath + pos, length - pos);
 	return !fileName.empty();
 }
@@ -952,6 +967,14 @@ void ReserveCategoryRawHits(CategoryRawHits& rawHits, size_t hitCount) {
 	rawHits.fileNamesByDirectory.reserve(directoryReserve);
 }
 
+void AppendCategoryRawHit(CategoryRawHits& rawHits, std::wstring&& directoryPath, std::wstring&& fileName, size_t initialFileReserve) {
+	auto inserted = rawHits.fileNamesByDirectory.try_emplace(std::move(directoryPath));
+	if (inserted.second && initialFileReserve > 0) {
+		inserted.first->second.reserve(initialFileReserve);
+	}
+	inserted.first->second.push_back(std::move(fileName));
+}
+
 template <typename Callback, typename HitCountCallback>
 bool ExecuteQuery(void* client, const wchar_t* query, Callback&& onResult, QueryExecutionStats* stats, HitCountCallback&& onHitCount, bool useFullPathRead = false) {
 	void* state = g_api.CreateSearchState();
@@ -987,17 +1010,33 @@ bool ExecuteQuery(void* client, const wchar_t* query, Callback&& onResult, Query
 		onHitCount(hitCount);
 		auto readStartedAt = std::chrono::steady_clock::now();
 		std::chrono::steady_clock::duration sdkReadDuration{};
+		size_t sdkReadSampleCount = 0;
+		const bool sampleSdkReadTiming = hitCount > SDK_READ_TIMING_EXACT_HIT_LIMIT;
 		std::vector<wchar_t> pathBuffer(1024);
 		std::vector<wchar_t> nameBuffer(512);
 		std::wstring path;
 		std::wstring name;
 		for (size_t i = 0; i < hitCount; i++) {
-			auto sdkReadStartedAt = std::chrono::steady_clock::now();
+			const bool timeSdkRead = !sampleSdkReadTiming || (i % SDK_READ_TIMING_SAMPLE_INTERVAL) == 0;
+			std::chrono::steady_clock::time_point sdkReadStartedAt;
+			if (timeSdkRead) {
+				sdkReadStartedAt = std::chrono::steady_clock::now();
+			}
+			unsigned long long pathResizeBefore = stats ? stats->pathResizeCount : 0;
+			unsigned long long nameResizeBefore = stats ? stats->nameResizeCount : 0;
 			bool gotResult = useFullPathRead
 				? GetResultFullPathAndSplit(result, i, pathBuffer, path, name, stats ? &stats->pathResizeCount : nullptr)
 				: (GetResultPath(result, i, pathBuffer, path, stats ? &stats->pathResizeCount : nullptr)
 					&& GetResultName(result, i, nameBuffer, name, stats ? &stats->nameResizeCount : nullptr));
-			sdkReadDuration += std::chrono::steady_clock::now() - sdkReadStartedAt;
+			if (timeSdkRead) {
+				auto sdkReadElapsed = std::chrono::steady_clock::now() - sdkReadStartedAt;
+				bool resizedDuringSample = stats
+					&& (stats->pathResizeCount != pathResizeBefore || stats->nameResizeCount != nameResizeBefore);
+				if (!sampleSdkReadTiming || !resizedDuringSample) {
+					sdkReadDuration += sdkReadElapsed;
+					sdkReadSampleCount++;
+				}
+			}
 			if (!gotResult) {
 				continue;
 			}
@@ -1005,7 +1044,17 @@ bool ExecuteQuery(void* client, const wchar_t* query, Callback&& onResult, Query
 		}
 		if (stats) {
 			long long readMs = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - readStartedAt).count();
-			long long sdkReadMs = std::chrono::duration_cast<std::chrono::milliseconds>(sdkReadDuration).count();
+			long long sdkReadMs = 0;
+			if (sampleSdkReadTiming && sdkReadSampleCount > 0) {
+				long long sampleNs = std::chrono::duration_cast<std::chrono::nanoseconds>(sdkReadDuration).count();
+				long double scale = static_cast<long double>(hitCount) / static_cast<long double>(sdkReadSampleCount);
+				sdkReadMs = static_cast<long long>((static_cast<long double>(sampleNs) * scale) / 1000000.0L);
+				if (sdkReadMs > readMs) {
+					sdkReadMs = readMs;
+				}
+			} else {
+				sdkReadMs = std::chrono::duration_cast<std::chrono::milliseconds>(sdkReadDuration).count();
+			}
 			stats->readMs = readMs;
 			stats->sdkReadMs = sdkReadMs;
 			stats->callbackMs = readMs > sdkReadMs ? readMs - sdkReadMs : 0;
@@ -1641,29 +1690,31 @@ ReverseHashGroup BuildReverseHashGroup(const std::vector<std::vector<uint32_t>>&
 
 	SortEncodedHashDirectoryPairs(hashDirectoryPairs);
 
+	result.directoryIndices.reserve(hashDirectoryPairs.size());
 	size_t index = 0;
 	while (index < hashDirectoryPairs.size()) {
 		uint32_t key = static_cast<uint32_t>(hashDirectoryPairs[index] >> 32);
-		std::vector<uint32_t> directories;
+		uint32_t offset = static_cast<uint32_t>(result.directoryIndices.size());
+		bool hasLastDirectory = false;
+		uint32_t lastDirectoryIndex = 0;
 		while (index < hashDirectoryPairs.size() && static_cast<uint32_t>(hashDirectoryPairs[index] >> 32) == key) {
 			uint32_t directoryIndex = static_cast<uint32_t>(hashDirectoryPairs[index] & 0xFFFFFFFFull);
-			if (directories.empty() || directories.back() != directoryIndex) {
-				directories.push_back(directoryIndex);
+			if (!hasLastDirectory || lastDirectoryIndex != directoryIndex) {
+				result.directoryIndices.push_back(directoryIndex);
+				lastDirectoryIndex = directoryIndex;
+				hasLastDirectory = true;
 			}
 			index++;
 		}
 		result.keys.push_back(key);
-		result.directoryIndicesByKey.push_back(std::move(directories));
+		result.indexOffsets.push_back(offset);
+		result.indexLengths.push_back(static_cast<uint32_t>(result.directoryIndices.size() - offset));
 	}
 	return result;
 }
 
 size_t SumReverseIndexCount(const ReverseHashGroup& group) {
-	size_t total = 0;
-	for (const auto& indices : group.directoryIndicesByKey) {
-		total += indices.size();
-	}
-	return total;
+	return group.directoryIndices.size();
 }
 
 uint32_t GetReverseIndexBytes(size_t directoryCount) {
@@ -1717,23 +1768,23 @@ void WriteReverseHashGroup(
 	outOffsets = reinterpret_cast<unsigned int*>(raw + offsetsPos);
 	outLengths = reinterpret_cast<unsigned int*>(raw + lengthsPos);
 	outIndicesBlob = reinterpret_cast<unsigned char*>(raw + indicesPos);
-	uint32_t indexCursor = 0;
 	for (size_t i = 0; i < group.keys.size(); i++) {
 		outKeys[i] = group.keys[i];
-		outOffsets[i] = indexCursor * indexBytes;
-		const std::vector<uint32_t>& indices = group.directoryIndicesByKey[i];
-		outLengths[i] = static_cast<unsigned int>(indices.size());
-		if (indexBytes == 2u) {
-			auto* indicesBlob16 = reinterpret_cast<uint16_t*>(raw + indicesPos);
-			for (uint32_t index : indices) {
-				indicesBlob16[indexCursor++] = static_cast<uint16_t>(index);
-			}
-		} else {
-			auto* indicesBlob32 = reinterpret_cast<uint32_t*>(raw + indicesPos);
-			for (uint32_t index : indices) {
-				indicesBlob32[indexCursor++] = index;
-			}
+		outOffsets[i] = group.indexOffsets[i] * indexBytes;
+		outLengths[i] = group.indexLengths[i];
+	}
+
+	if (group.directoryIndices.empty()) {
+		return;
+	}
+
+	if (indexBytes == 2u) {
+		auto* indicesBlob16 = reinterpret_cast<uint16_t*>(raw + indicesPos);
+		for (size_t i = 0; i < group.directoryIndices.size(); i++) {
+			indicesBlob16[i] = static_cast<uint16_t>(group.directoryIndices[i]);
 		}
+	} else {
+		std::memcpy(outIndicesBlob, group.directoryIndices.data(), group.directoryIndices.size() * sizeof(uint32_t));
 	}
 }
 
@@ -1971,8 +2022,7 @@ extern "C" __declspec(dllexport) int __cdecl EBridge_ScanChartAndResources(const
 			if (path.empty() || name.empty()) {
 				return;
 			}
-			NormalizeDirectoryPathInPlace(path);
-			chartRawHits.files.emplace_back(path, std::move(name));
+			chartRawHits.files.emplace_back(std::move(path), std::move(name));
 		}, &chartQueryStats, [&chartRawHits](size_t hitCount) {
 			chartRawHits.files.reserve(hitCount);
 		}, true);
@@ -1982,8 +2032,7 @@ extern "C" __declspec(dllexport) int __cdecl EBridge_ScanChartAndResources(const
 			if (path.empty() || name.empty()) {
 				return;
 			}
-			NormalizeDirectoryPathInPlace(path);
-			audioRawHits.fileNamesByDirectory[std::move(path)].push_back(std::move(name));
+			AppendCategoryRawHit(audioRawHits, std::move(path), std::move(name), 256);
 		}, &audioQueryStats, [&audioRawHits](size_t hitCount) {
 			ReserveCategoryRawHits(audioRawHits, hitCount);
 		}, true);
@@ -1993,8 +2042,7 @@ extern "C" __declspec(dllexport) int __cdecl EBridge_ScanChartAndResources(const
 			if (path.empty() || name.empty()) {
 				return;
 			}
-			NormalizeDirectoryPathInPlace(path);
-			imageRawHits.fileNamesByDirectory[std::move(path)].push_back(std::move(name));
+			AppendCategoryRawHit(imageRawHits, std::move(path), std::move(name), 64);
 		}, &imageQueryStats, [&imageRawHits](size_t hitCount) {
 			ReserveCategoryRawHits(imageRawHits, hitCount);
 		}, true);
@@ -2004,8 +2052,7 @@ extern "C" __declspec(dllexport) int __cdecl EBridge_ScanChartAndResources(const
 			if (path.empty() || name.empty()) {
 				return;
 			}
-			NormalizeDirectoryPathInPlace(path);
-			movieRawHits.fileNamesByDirectory[std::move(path)].push_back(std::move(name));
+			AppendCategoryRawHit(movieRawHits, std::move(path), std::move(name), 4);
 		}, &movieQueryStats, [&movieRawHits](size_t hitCount) {
 			ReserveCategoryRawHits(movieRawHits, hitCount);
 		}, true);

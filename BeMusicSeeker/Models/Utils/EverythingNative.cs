@@ -3,7 +3,9 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Runtime.ExceptionServices;
 using System.Runtime.InteropServices;
+using System.Threading.Tasks;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 
 namespace BeMusicSeeker.Models.Utils;
@@ -444,12 +446,42 @@ internal static class EverythingNative
 	{
 		string[] chartPaths = ReadStringArray(header.chart_count, header.chart_offsets, header.chart_blob);
 		string[] chartDirectories = ReadStringArray(header.dir_count, header.dir_offsets, header.dir_blob);
-		uint[][] audioRelativeHashes = ReadHashGroupArray(header.dir_count, header.audio_resource_key_hash_offsets, header.audio_resource_key_hash_lengths, header.audio_resource_key_hashes_blob);
-		uint[][] imageRelativeHashes = ReadHashGroupArray(header.dir_count, header.image_resource_key_hash_offsets, header.image_resource_key_hash_lengths, header.image_resource_key_hashes_blob);
-		uint[][] movieRelativeHashes = ReadHashGroupArray(header.dir_count, header.movie_resource_key_hash_offsets, header.movie_resource_key_hash_lengths, header.movie_resource_key_hashes_blob);
-		uint[][] selfOwnedAudioRelativeHashes = ReadHashGroupArray(header.dir_count, header.self_audio_resource_key_hash_offsets, header.self_audio_resource_key_hash_lengths, header.self_audio_resource_key_hashes_blob);
-		uint[][] selfOwnedImageRelativeHashes = ReadHashGroupArray(header.dir_count, header.self_image_resource_key_hash_offsets, header.self_image_resource_key_hash_lengths, header.self_image_resource_key_hashes_blob);
-		uint[][] selfOwnedMovieRelativeHashes = ReadHashGroupArray(header.dir_count, header.self_movie_resource_key_hash_offsets, header.self_movie_resource_key_hash_lengths, header.self_movie_resource_key_hashes_blob);
+		uint[][] audioRelativeHashes = null;
+		uint[][] imageRelativeHashes = null;
+		uint[][] movieRelativeHashes = null;
+		uint[][] selfOwnedAudioRelativeHashes = null;
+		uint[][] selfOwnedImageRelativeHashes = null;
+		uint[][] selfOwnedMovieRelativeHashes = null;
+		Dictionary<uint, string[]> audioRelativeReverseDirectories = null;
+		Dictionary<uint, string[]> imageRelativeReverseDirectories = null;
+		Dictionary<uint, string[]> movieRelativeReverseDirectories = null;
+		try
+		{
+			Parallel.Invoke(
+				() =>
+				{
+					audioRelativeHashes = ReadHashGroupArray(header.dir_count, header.audio_resource_key_hash_offsets, header.audio_resource_key_hash_lengths, header.audio_resource_key_hashes_blob);
+					selfOwnedAudioRelativeHashes = ReadHashGroupArray(header.dir_count, header.self_audio_resource_key_hash_offsets, header.self_audio_resource_key_hash_lengths, header.self_audio_resource_key_hashes_blob);
+					audioRelativeReverseDirectories = ReadReverseHashMap(header.audio_relative_reverse_key_count, header.audio_relative_reverse_keys, header.audio_relative_reverse_offsets, header.audio_relative_reverse_lengths, header.audio_relative_reverse_indices_blob, header.reverse_index_bytes, chartDirectories);
+				},
+				() =>
+				{
+					imageRelativeHashes = ReadHashGroupArray(header.dir_count, header.image_resource_key_hash_offsets, header.image_resource_key_hash_lengths, header.image_resource_key_hashes_blob);
+					selfOwnedImageRelativeHashes = ReadHashGroupArray(header.dir_count, header.self_image_resource_key_hash_offsets, header.self_image_resource_key_hash_lengths, header.self_image_resource_key_hashes_blob);
+					imageRelativeReverseDirectories = ReadReverseHashMap(header.image_relative_reverse_key_count, header.image_relative_reverse_keys, header.image_relative_reverse_offsets, header.image_relative_reverse_lengths, header.image_relative_reverse_indices_blob, header.reverse_index_bytes, chartDirectories);
+				},
+				() =>
+				{
+					movieRelativeHashes = ReadHashGroupArray(header.dir_count, header.movie_resource_key_hash_offsets, header.movie_resource_key_hash_lengths, header.movie_resource_key_hashes_blob);
+					selfOwnedMovieRelativeHashes = ReadHashGroupArray(header.dir_count, header.self_movie_resource_key_hash_offsets, header.self_movie_resource_key_hash_lengths, header.self_movie_resource_key_hashes_blob);
+					movieRelativeReverseDirectories = ReadReverseHashMap(header.movie_relative_reverse_key_count, header.movie_relative_reverse_keys, header.movie_relative_reverse_offsets, header.movie_relative_reverse_lengths, header.movie_relative_reverse_indices_blob, header.reverse_index_bytes, chartDirectories);
+				});
+		}
+		catch (AggregateException ex) when (ex.InnerExceptions.Count == 1)
+		{
+			ExceptionDispatchInfo.Capture(ex.InnerExceptions[0]).Throw();
+			throw;
+		}
 		return new FixedScanDecodedResult
 		{
 			ChartPaths = chartPaths,
@@ -460,9 +492,9 @@ internal static class EverythingNative
 			SelfOwnedAudioRelativeHashes = selfOwnedAudioRelativeHashes,
 			SelfOwnedImageRelativeHashes = selfOwnedImageRelativeHashes,
 			SelfOwnedMovieRelativeHashes = selfOwnedMovieRelativeHashes,
-			AudioRelativeReverseDirectories = ReadReverseHashMap(header.audio_relative_reverse_key_count, header.audio_relative_reverse_keys, header.audio_relative_reverse_offsets, header.audio_relative_reverse_lengths, header.audio_relative_reverse_indices_blob, header.reverse_index_bytes, chartDirectories),
-			ImageRelativeReverseDirectories = ReadReverseHashMap(header.image_relative_reverse_key_count, header.image_relative_reverse_keys, header.image_relative_reverse_offsets, header.image_relative_reverse_lengths, header.image_relative_reverse_indices_blob, header.reverse_index_bytes, chartDirectories),
-			MovieRelativeReverseDirectories = ReadReverseHashMap(header.movie_relative_reverse_key_count, header.movie_relative_reverse_keys, header.movie_relative_reverse_offsets, header.movie_relative_reverse_lengths, header.movie_relative_reverse_indices_blob, header.reverse_index_bytes, chartDirectories)
+			AudioRelativeReverseDirectories = audioRelativeReverseDirectories,
+			ImageRelativeReverseDirectories = imageRelativeReverseDirectories,
+			MovieRelativeReverseDirectories = movieRelativeReverseDirectories
 		};
 	}
 

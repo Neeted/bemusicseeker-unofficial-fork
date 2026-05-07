@@ -63,6 +63,9 @@ The existing `*QueryMs` values still cover the whole per-query native execution 
 so they are not expected to equal `search + read` exactly.
 `*SdkReadMs` splits out the SDK path/name extraction portion of `*ReadMs`.
 `*CallbackMs` is the remaining native callback/storage work, including result grouping.
+For very large result sets, `*SdkReadMs` is estimated from sampled SDK calls so the
+timing probe itself does not dominate the scan loop. Resize outliers are excluded
+from those samples.
 `*PathResizeCount` and `*NameResizeCount` count result buffer growth during extraction.
 Fixed scan uses a single `Everything3_GetResultFullPathNameW` call per result and
 splits directory/name natively. Source-root and grouped scan surfaces keep the older
