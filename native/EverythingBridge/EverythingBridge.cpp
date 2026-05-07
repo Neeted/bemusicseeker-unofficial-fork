@@ -126,9 +126,10 @@ struct EBridgeResult {
 	unsigned long long image_name_resize_count;
 	unsigned long long movie_path_resize_count;
 	unsigned long long movie_name_resize_count;
+	unsigned int result_read_mode;
 };
 
-static constexpr unsigned int EBRIDGE_SCAN_CONTRACT_VERSION = 2026050706u;
+static constexpr unsigned int EBRIDGE_SCAN_CONTRACT_VERSION = 2026050707u;
 
 struct EBridgeGroupedQuery {
 	unsigned int group_id;
@@ -213,6 +214,7 @@ constexpr unsigned int EVERYTHING3_OK = 0;
 constexpr unsigned int EVERYTHING3_ERROR_IPC_PIPE_NOT_FOUND = 0xE0000002u;
 constexpr unsigned int EVERYTHING3_PROPERTY_ID_NAME = 0u;
 constexpr unsigned int EVERYTHING3_PROPERTY_ID_PATH = 1u;
+constexpr unsigned int EVERYTHING3_PROPERTY_ID_PATH_AND_NAME = 240u;
 
 enum BridgeError {
 	BRIDGE_OK = 0,
@@ -244,6 +246,7 @@ using Everything3_DestroyResultListFn = int(__stdcall*)(void* result_list);
 using Everything3_GetResultListViewportCountFn = size_t(__stdcall*)(const void* result_list);
 using Everything3_GetResultPathWFn = size_t(__stdcall*)(const void* result_list, size_t result_index, wchar_t* out_wbuf, size_t wbuf_size_in_wchars);
 using Everything3_GetResultNameWFn = size_t(__stdcall*)(const void* result_list, size_t result_index, wchar_t* out_wbuf, size_t wbuf_size_in_wchars);
+using Everything3_GetResultFullPathNameWFn = size_t(__stdcall*)(const void* result_list, size_t result_index, wchar_t* out_wbuf, size_t wbuf_size_in_wchars);
 
 struct EverythingApi {
 	HMODULE everythingModule = nullptr;
@@ -262,6 +265,7 @@ struct EverythingApi {
 	Everything3_GetResultListViewportCountFn GetResultListViewportCount = nullptr;
 	Everything3_GetResultPathWFn GetResultPathW = nullptr;
 	Everything3_GetResultNameWFn GetResultNameW = nullptr;
+	Everything3_GetResultFullPathNameWFn GetResultFullPathNameW = nullptr;
 };
 
 struct ScanAggregate {
@@ -290,6 +294,11 @@ struct QueryExecutionStats {
 	long long callbackMs = 0;
 	unsigned long long pathResizeCount = 0;
 	unsigned long long nameResizeCount = 0;
+};
+
+enum class FixedScanReadMode : uint32_t {
+	PathAndName = 0u,
+	FullPath = 1u
 };
 
 struct BridgeExecutionStats {
@@ -323,6 +332,7 @@ struct BridgeExecutionStats {
 	long long movieGroupMs = 0;
 	long long movieAssignMs = 0;
 	long long movieMergeMs = 0;
+	FixedScanReadMode resultReadMode = FixedScanReadMode::PathAndName;
 };
 
 enum class ResourceCategory {
@@ -454,6 +464,7 @@ bool EnsureEverythingApiLoaded() {
 	g_api.GetResultListViewportCount = LoadProc<Everything3_GetResultListViewportCountFn>(module, "Everything3_GetResultListViewportCount");
 	g_api.GetResultPathW = LoadProc<Everything3_GetResultPathWFn>(module, "Everything3_GetResultPathW");
 	g_api.GetResultNameW = LoadProc<Everything3_GetResultNameWFn>(module, "Everything3_GetResultNameW");
+	g_api.GetResultFullPathNameW = LoadProc<Everything3_GetResultFullPathNameWFn>(module, "Everything3_GetResultFullPathNameW");
 
 	return g_api.ConnectW && g_api.DestroyClient && g_api.GetLastError && g_api.CreateSearchState && g_api.DestroySearchState &&
 		g_api.SetSearchTextW && g_api.ClearSearchPropertyRequests && g_api.AddSearchPropertyRequest &&
@@ -513,6 +524,48 @@ bool GetResultName(void* resultList, size_t index, std::vector<wchar_t>& buffer,
 		if (len < buffer.size()) {
 			out.assign(buffer.data());
 			return !out.empty();
+		}
+		buffer.resize(len + 1);
+		if (resizeCount) {
+			*resizeCount += 1;
+		}
+	}
+	return false;
+}
+
+bool SplitFullPathBuffer(const wchar_t* fullPath, size_t length, std::wstring& directoryPath, std::wstring& fileName) {
+	if (!fullPath || length == 0) {
+		return false;
+	}
+	size_t pos = length;
+	while (pos > 0) {
+		wchar_t ch = fullPath[pos - 1];
+		if (ch == L'\\' || ch == L'/') {
+			break;
+		}
+		pos -= 1;
+	}
+	if (pos == 0) {
+		directoryPath.clear();
+		fileName.assign(fullPath, length);
+		return !fileName.empty();
+	}
+	if (pos >= length) {
+		return false;
+	}
+	directoryPath.assign(fullPath, pos - 1);
+	fileName.assign(fullPath + pos, length - pos);
+	return !fileName.empty();
+}
+
+bool GetResultFullPathAndSplit(void* resultList, size_t index, std::vector<wchar_t>& buffer, std::wstring& directoryPath, std::wstring& fileName, unsigned long long* resizeCount = nullptr) {
+	for (int retry = 0; retry < 4; retry++) {
+		size_t len = g_api.GetResultFullPathNameW(resultList, index, buffer.data(), buffer.size());
+		if (len == 0) {
+			return false;
+		}
+		if (len < buffer.size()) {
+			return SplitFullPathBuffer(buffer.data(), len, directoryPath, fileName);
 		}
 		buffer.resize(len + 1);
 		if (resizeCount) {
@@ -727,6 +780,23 @@ void NormalizeDirectoryPathInPlace(std::wstring& path) {
 	}
 }
 
+FixedScanReadMode ResolveFixedScanReadMode() {
+	FixedScanReadMode defaultMode = g_api.GetResultFullPathNameW ? FixedScanReadMode::FullPath : FixedScanReadMode::PathAndName;
+	wchar_t value[64] = {};
+	constexpr DWORD valueCapacity = static_cast<DWORD>(sizeof(value) / sizeof(value[0]));
+	DWORD length = GetEnvironmentVariableW(L"BMS_EVERYTHING_BRIDGE_FIXED_SCAN_READ_MODE", value, valueCapacity);
+	if (length == 0 || length >= valueCapacity) {
+		return defaultMode;
+	}
+	if (_wcsicmp(value, L"path_name") == 0 || _wcsicmp(value, L"pathname") == 0 || _wcsicmp(value, L"0") == 0) {
+		return FixedScanReadMode::PathAndName;
+	}
+	if (_wcsicmp(value, L"full_path") == 0 || _wcsicmp(value, L"fullpath") == 0 || _wcsicmp(value, L"1") == 0) {
+		return g_api.GetResultFullPathNameW ? FixedScanReadMode::FullPath : FixedScanReadMode::PathAndName;
+	}
+	return defaultMode;
+}
+
 std::wstring GetParentDirectory(const std::wstring& path) {
 	std::wstring trimmed = TrimTrailingSeparators(path);
 	size_t pos = trimmed.find_last_of(L"\\/");
@@ -907,7 +977,7 @@ void ReserveCategoryRawHits(CategoryRawHits& rawHits, size_t hitCount) {
 }
 
 template <typename Callback, typename HitCountCallback>
-bool ExecuteQuery(void* client, const wchar_t* query, Callback&& onResult, QueryExecutionStats* stats, HitCountCallback&& onHitCount) {
+bool ExecuteQuery(void* client, const wchar_t* query, Callback&& onResult, QueryExecutionStats* stats, HitCountCallback&& onHitCount, FixedScanReadMode readMode = FixedScanReadMode::PathAndName) {
 	void* state = g_api.CreateSearchState();
 	if (!state) {
 		return false;
@@ -920,8 +990,12 @@ bool ExecuteQuery(void* client, const wchar_t* query, Callback&& onResult, Query
 			break;
 		}
 		g_api.ClearSearchPropertyRequests(state);
-		g_api.AddSearchPropertyRequest(state, EVERYTHING3_PROPERTY_ID_PATH);
-		g_api.AddSearchPropertyRequest(state, EVERYTHING3_PROPERTY_ID_NAME);
+		if (readMode == FixedScanReadMode::FullPath) {
+			g_api.AddSearchPropertyRequest(state, EVERYTHING3_PROPERTY_ID_PATH_AND_NAME);
+		} else {
+			g_api.AddSearchPropertyRequest(state, EVERYTHING3_PROPERTY_ID_PATH);
+			g_api.AddSearchPropertyRequest(state, EVERYTHING3_PROPERTY_ID_NAME);
+		}
 		g_api.SetSearchViewportOffset(state, 0);
 		g_api.SetSearchViewportCount(state, static_cast<size_t>(-1));
 		auto searchStartedAt = std::chrono::steady_clock::now();
@@ -943,8 +1017,10 @@ bool ExecuteQuery(void* client, const wchar_t* query, Callback&& onResult, Query
 		std::wstring name;
 		for (size_t i = 0; i < hitCount; i++) {
 			auto sdkReadStartedAt = std::chrono::steady_clock::now();
-			bool gotResult = GetResultPath(result, i, pathBuffer, path, stats ? &stats->pathResizeCount : nullptr)
-				&& GetResultName(result, i, nameBuffer, name, stats ? &stats->nameResizeCount : nullptr);
+			bool gotResult = readMode == FixedScanReadMode::FullPath
+				? GetResultFullPathAndSplit(result, i, pathBuffer, path, name, stats ? &stats->pathResizeCount : nullptr)
+				: (GetResultPath(result, i, pathBuffer, path, stats ? &stats->pathResizeCount : nullptr)
+					&& GetResultName(result, i, nameBuffer, name, stats ? &stats->nameResizeCount : nullptr));
 			sdkReadDuration += std::chrono::steady_clock::now() - sdkReadStartedAt;
 			if (!gotResult) {
 				continue;
@@ -977,13 +1053,13 @@ bool ExecuteQuery(void* client, const wchar_t* query, Callback&& onResult, Query
 }
 
 template <typename Callback, typename HitCountCallback>
-bool ExecuteQueryWithNewClient(const wchar_t* query, Callback&& onResult, QueryExecutionStats* stats, HitCountCallback&& onHitCount) {
+bool ExecuteQueryWithNewClient(const wchar_t* query, Callback&& onResult, QueryExecutionStats* stats, HitCountCallback&& onHitCount, FixedScanReadMode readMode = FixedScanReadMode::PathAndName) {
 	unsigned int connectError = EVERYTHING3_OK;
 	void* client = TryConnectClient(&connectError);
 	if (!client) {
 		return false;
 	}
-	bool ok = ExecuteQuery(client, query, std::forward<Callback>(onResult), stats, std::forward<HitCountCallback>(onHitCount));
+	bool ok = ExecuteQuery(client, query, std::forward<Callback>(onResult), stats, std::forward<HitCountCallback>(onHitCount), readMode);
 	g_api.DestroyClient(client);
 	return ok;
 }
@@ -1853,6 +1929,7 @@ int BuildResultBuffer(const ScanAggregate& aggregate, const BridgeExecutionStats
 	result->image_name_resize_count = stats.imageQuery.nameResizeCount;
 	result->movie_path_resize_count = stats.movieQuery.pathResizeCount;
 	result->movie_name_resize_count = stats.movieQuery.nameResizeCount;
+	result->result_read_mode = static_cast<unsigned int>(stats.resultReadMode);
 	result->chart_directory_count = static_cast<unsigned long long>(dirCount);
 	result->audio_assigned_count = stats.audioAssignedCount;
 	result->image_assigned_count = stats.imageAssignedCount;
@@ -1901,6 +1978,8 @@ extern "C" __declspec(dllexport) int __cdecl EBridge_ScanChartAndResources(const
 
 	ScanAggregate aggregate;
 	BridgeExecutionStats stats;
+	FixedScanReadMode readMode = ResolveFixedScanReadMode();
+	stats.resultReadMode = readMode;
 	ResourceAssignmentContext assignmentContext;
 	ChartRawHits chartRawHits;
 	CategoryRawHits audioRawHits;
@@ -1923,7 +2002,7 @@ extern "C" __declspec(dllexport) int __cdecl EBridge_ScanChartAndResources(const
 			chartRawHits.files.emplace_back(path, std::move(name));
 		}, &chartQueryStats, [&chartRawHits](size_t hitCount) {
 			chartRawHits.files.reserve(hitCount);
-		});
+		}, readMode);
 	});
 	std::thread audioQueryWorker([&]() {
 		okAudio = ExecuteQueryWithNewClient(audioQuery, [&audioRawHits](std::wstring& path, std::wstring& name) {
@@ -1934,7 +2013,7 @@ extern "C" __declspec(dllexport) int __cdecl EBridge_ScanChartAndResources(const
 			audioRawHits.fileNamesByDirectory[std::move(path)].push_back(std::move(name));
 		}, &audioQueryStats, [&audioRawHits](size_t hitCount) {
 			ReserveCategoryRawHits(audioRawHits, hitCount);
-		});
+		}, readMode);
 	});
 	std::thread imageQueryWorker([&]() {
 		okImage = ExecuteQueryWithNewClient(imageQuery, [&imageRawHits](std::wstring& path, std::wstring& name) {
@@ -1945,7 +2024,7 @@ extern "C" __declspec(dllexport) int __cdecl EBridge_ScanChartAndResources(const
 			imageRawHits.fileNamesByDirectory[std::move(path)].push_back(std::move(name));
 		}, &imageQueryStats, [&imageRawHits](size_t hitCount) {
 			ReserveCategoryRawHits(imageRawHits, hitCount);
-		});
+		}, readMode);
 	});
 	std::thread movieQueryWorker([&]() {
 		okMovie = ExecuteQueryWithNewClient(movieQuery, [&movieRawHits](std::wstring& path, std::wstring& name) {
@@ -1956,7 +2035,7 @@ extern "C" __declspec(dllexport) int __cdecl EBridge_ScanChartAndResources(const
 			movieRawHits.fileNamesByDirectory[std::move(path)].push_back(std::move(name));
 		}, &movieQueryStats, [&movieRawHits](size_t hitCount) {
 			ReserveCategoryRawHits(movieRawHits, hitCount);
-		});
+		}, readMode);
 	});
 	chartQueryWorker.join();
 	audioQueryWorker.join();

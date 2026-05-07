@@ -134,6 +134,8 @@ public class BmsScanExecutionResult
 
 	public ulong MovieNameResizeCount { get; set; }
 
+	public uint ResultReadMode { get; set; }
+
 	public ulong ChartDirectoryCount { get; set; }
 
 	public ulong AudioAssignedCount { get; set; }
