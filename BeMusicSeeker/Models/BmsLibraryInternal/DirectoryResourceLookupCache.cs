@@ -327,40 +327,6 @@ internal sealed class DirectoryResourceLookupCache
         return cache;
     }
 
-    public static DirectoryResourceLookupCache CreateFromNativeCanonical(
-        IEnumerable<string> chartDirectories,
-        IDictionary<string, uint[]> audioRelativePathHashesByDirectory,
-        IDictionary<string, uint[]> imageRelativePathHashesByDirectory,
-        IDictionary<string, uint[]> movieRelativePathHashesByDirectory,
-        IDictionary<string, uint[]> selfOwnedAudioRelativePathHashesByDirectory,
-        IDictionary<string, uint[]> selfOwnedImageRelativePathHashesByDirectory,
-        IDictionary<string, uint[]> selfOwnedMovieRelativePathHashesByDirectory,
-        IDictionary<uint, string[]> audioRelativeReverseDirectories,
-        IDictionary<uint, string[]> imageRelativeReverseDirectories,
-        IDictionary<uint, string[]> movieRelativeReverseDirectories)
-    {
-        DirectoryResourceLookupCache cache = new DirectoryResourceLookupCache();
-        foreach (string chartDirectory in chartDirectories ?? Enumerable.Empty<string>())
-        {
-            if (string.IsNullOrWhiteSpace(chartDirectory))
-            {
-                continue;
-            }
-            cache.entries[chartDirectory] = Entry.FromNativeSorted(
-                TryGetHashes(audioRelativePathHashesByDirectory, chartDirectory),
-                TryGetHashes(imageRelativePathHashesByDirectory, chartDirectory),
-                TryGetHashes(movieRelativePathHashesByDirectory, chartDirectory),
-                TryGetHashes(selfOwnedAudioRelativePathHashesByDirectory, chartDirectory),
-                TryGetHashes(selfOwnedImageRelativePathHashesByDirectory, chartDirectory),
-                TryGetHashes(selfOwnedMovieRelativePathHashesByDirectory, chartDirectory));
-        }
-        cache.LoadNativeReverseMap(cache.audioDirectoriesByRelativeHash, audioRelativeReverseDirectories);
-        cache.LoadNativeReverseMap(cache.imageDirectoriesByRelativeHash, imageRelativeReverseDirectories);
-        cache.LoadNativeReverseMap(cache.movieDirectoriesByRelativeHash, movieRelativeReverseDirectories);
-        cache.isFullReverseLookupBuilt = cache.CategoryReverseLookupEntryCount > 0;
-        return cache;
-    }
-
     public static DirectoryResourceLookupCache CreateFromNativeCanonicalArrays(
         string[] chartDirectories,
         uint[][] audioRelativePathHashesByDirectoryIndex,
@@ -655,28 +621,6 @@ internal sealed class DirectoryResourceLookupCache
             return hashes ?? Array.Empty<uint>();
         }
         return Array.Empty<uint>();
-    }
-
-    private static IEnumerable<uint> TryGetHashes(IDictionary<string, uint[]> hashesByDirectory, string directoryPath)
-    {
-        if (hashesByDirectory != null && hashesByDirectory.TryGetValue(directoryPath, out uint[] hashes))
-        {
-            return hashes ?? Array.Empty<uint>();
-        }
-        return Array.Empty<uint>();
-    }
-
-    private void LoadNativeReverseMap(Dictionary<uint, string[]> target, IDictionary<uint, string[]> source)
-    {
-        target.Clear();
-        foreach (KeyValuePair<uint, string[]> item in source ?? new Dictionary<uint, string[]>())
-        {
-            if (item.Key == 0u)
-            {
-                continue;
-            }
-            target[item.Key] = item.Value ?? Array.Empty<string>();
-        }
     }
 
     private static Dictionary<uint, string[]> PrepareNativeReverseMap(Dictionary<uint, string[]> source)

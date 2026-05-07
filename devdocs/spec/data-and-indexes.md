@@ -57,7 +57,11 @@
 
 ## 4. scan result / resource cache の形
 
-初期化時の scan 結果は raw file name 一覧ではなく、次の hash-only shape を source of truth にする。
+初期化時の resource index の正本は `LibraryResourceIndex` / `DirectoryResourceLookupCache` である。
+
+native bridge を使う通常起動では、`EBridge_ScanChartAndResources` の packed result から `LibraryResourceIndex` を直接 materialize する。`BmsScanResult` は file diff 用の `ChartFilePaths` / `ChartDirectories` を保持するだけで、resource dictionary は materialize しない。
+
+Everything が使えない場合の managed fallback scan と、テスト用の scan merge 経路では、`BmsScanResult` が次の hash-only shape を持つ。
 
 - `ChartFilePaths`
 - `ChartDirectories`
@@ -70,7 +74,7 @@
   - `SelfOwnedImageRelativePathHashesByChartDirectory`
   - `SelfOwnedMovieRelativePathHashesByChartDirectory`
 
-managed scan result は chart-relative key だけを保持する。native bridge payload 内部には互換名由来の `base` blob 名が残ることがあるが、managed model へ公開しない。
+managed scan result は chart-relative key だけを保持する。native bridge payload も chart-relative resource-key surface だけを返し、managed 側で重複する dictionary surface を作らない。
 resource は「存在ディレクトリ」ではなく、chart directory keyed に再集約する。
 未分類 all-resource surface は保持しない。必要な場合の union は audio / image / movie のカテゴリ配列からその場で派生し、live cache としては持たない。
 `2026-04-23` 時点では次の二重 semantics を持つ。

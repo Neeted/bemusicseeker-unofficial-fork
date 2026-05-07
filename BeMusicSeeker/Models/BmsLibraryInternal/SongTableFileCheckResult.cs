@@ -134,11 +134,11 @@ internal sealed class SongTableFileCheckResult
 
     public long InstlDstCleanupMs { get; set; }
 
-    public ulong AudioRelativeHashEntryCount { get; set; }
+    public ulong AudioResourceKeyHashEntryCount { get; set; }
 
-    public ulong ImageRelativeHashEntryCount { get; set; }
+    public ulong ImageResourceKeyHashEntryCount { get; set; }
 
-    public ulong MovieRelativeHashEntryCount { get; set; }
+    public ulong MovieResourceKeyHashEntryCount { get; set; }
 
     public void ReleasePostApplyTransientBuffers()
     {

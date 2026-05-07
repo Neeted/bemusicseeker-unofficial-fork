@@ -30,32 +30,6 @@ internal sealed class LibraryResourceIndex
         return index;
     }
 
-    public static LibraryResourceIndex CreateFromNativeCanonical(
-        BmsScanResult scanResult,
-        IDictionary<uint, string[]> audioRelativeReverseDirectories,
-        IDictionary<uint, string[]> imageRelativeReverseDirectories,
-        IDictionary<uint, string[]> movieRelativeReverseDirectories)
-    {
-        LibraryResourceIndex index = new LibraryResourceIndex();
-        Stopwatch stopwatch = Stopwatch.StartNew();
-        index.Source = "native_canonical";
-        index.DirectoryLookupCache = DirectoryResourceLookupCache.CreateFromNativeCanonical(
-            scanResult?.ChartDirectories,
-            scanResult?.AudioRelativePathHashesByChartDirectory,
-            scanResult?.ImageRelativePathHashesByChartDirectory,
-            scanResult?.MovieRelativePathHashesByChartDirectory,
-            scanResult?.SelfOwnedAudioRelativePathHashesByChartDirectory,
-            scanResult?.SelfOwnedImageRelativePathHashesByChartDirectory,
-            scanResult?.SelfOwnedMovieRelativePathHashesByChartDirectory,
-            audioRelativeReverseDirectories,
-            imageRelativeReverseDirectories,
-            movieRelativeReverseDirectories);
-        stopwatch.Stop();
-        index.ResourceLookupMs = stopwatch.ElapsedMilliseconds;
-        index.BuildMs = stopwatch.ElapsedMilliseconds;
-        return index;
-    }
-
     public static LibraryResourceIndex CreateFromNativeCanonicalArrays(
         string[] chartDirectories,
         uint[][] audioRelativePathHashesByDirectoryIndex,

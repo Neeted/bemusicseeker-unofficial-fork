@@ -313,9 +313,13 @@ internal sealed class BmsLibraryInitializationService
         result.ResourceIndexBuildMs = result.NextResourceIndex.BuildMs;
         result.DirhashBuildMs = result.NextResourceIndex.BuildMs;
         result.ResourceLookupCacheMs = result.NextResourceIndex.ResourceLookupMs;
+        ulong audioResourceKeyEntryCount = canUseNativeResourceIndex ? scanResult.AudioResourceKeyHashCount : CountHashEntries(mergedScanResult.AudioRelativePathHashesByChartDirectory);
+        ulong imageResourceKeyEntryCount = canUseNativeResourceIndex ? scanResult.ImageResourceKeyHashCount : CountHashEntries(mergedScanResult.ImageRelativePathHashesByChartDirectory);
+        ulong movieResourceKeyEntryCount = canUseNativeResourceIndex ? scanResult.MovieResourceKeyHashCount : CountHashEntries(mergedScanResult.MovieRelativePathHashesByChartDirectory);
+        ulong chartRelativeKeyCount = audioResourceKeyEntryCount + imageResourceKeyEntryCount + movieResourceKeyEntryCount;
         logInstallPerformance?.Invoke("resource_index_build source=" + (result.NextResourceIndex.Source ?? "managed")
             + " directories=" + result.NextResourceIndex.DirectoryCount
-            + " chartRelativeKeys=" + (CountHashEntries(mergedScanResult.AudioRelativePathHashesByChartDirectory) + CountHashEntries(mergedScanResult.ImageRelativePathHashesByChartDirectory) + CountHashEntries(mergedScanResult.MovieRelativePathHashesByChartDirectory))
+            + " chartRelativeKeys=" + chartRelativeKeyCount
             + " reverseLookupKeys=" + (result.NextDirectoryResourceLookupCache?.CategoryReverseLookupEntryCount ?? 0)
             + " reverseLookupSource=" + (string.Equals(result.NextResourceIndex.Source, "native_canonical", StringComparison.OrdinalIgnoreCase) ? "native" : "managed")
             + " buildMs=" + result.ResourceIndexBuildMs
@@ -323,9 +327,9 @@ internal sealed class BmsLibraryInitializationService
             + " nativePackMs=" + scanResult.PackMs
             + " managedMaterializeMs=" + result.ManagedMaterializeMs
             + " payloadBytes=" + result.BridgeRawBufferBytes);
-        result.AudioRelativeHashEntryCount = CountHashEntries(mergedScanResult.AudioRelativePathHashesByChartDirectory);
-        result.ImageRelativeHashEntryCount = CountHashEntries(mergedScanResult.ImageRelativePathHashesByChartDirectory);
-        result.MovieRelativeHashEntryCount = CountHashEntries(mergedScanResult.MovieRelativePathHashesByChartDirectory);
+        result.AudioResourceKeyHashEntryCount = audioResourceKeyEntryCount;
+        result.ImageResourceKeyHashEntryCount = imageResourceKeyEntryCount;
+        result.MovieResourceKeyHashEntryCount = movieResourceKeyEntryCount;
 
         HashSet<string> scannedPaths = new HashSet<string>(
             (mergedScanResult.ChartFilePaths ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase))
@@ -521,9 +525,9 @@ internal sealed class BmsLibraryInitializationService
             + " instl_dst_cleanup_ms=" + result.InstlDstCleanupMs);
         logInstallPerformance?.Invoke(
             "song_tbl_file_check_cache_counts chartDirs=" + result.DirectoryCount
-            + " audioRelHashEntries=" + result.AudioRelativeHashEntryCount
-            + " imageRelHashEntries=" + result.ImageRelativeHashEntryCount
-            + " movieRelHashEntries=" + result.MovieRelativeHashEntryCount);
+            + " audioResourceKeyEntries=" + result.AudioResourceKeyHashEntryCount
+            + " imageResourceKeyEntries=" + result.ImageResourceKeyHashEntryCount
+            + " movieResourceKeyEntries=" + result.MovieResourceKeyHashEntryCount);
         logEverythingScan?.Invoke("bms_scan totalMs=" + result.ScanElapsedMs
             + " nativeBridgeMs=" + result.NativeBridgeMs
             + " managedDecodeMs=" + result.ManagedDecodeMs

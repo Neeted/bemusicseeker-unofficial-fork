@@ -181,18 +181,14 @@ public sealed class DirectoryResourceLookupCacheTests
     {
         string dirA = "C:\\Songs\\A";
         string dirB = "C:\\Songs\\B";
-        return DirectoryResourceLookupCache.CreateFromNativeCanonical(
+        return DirectoryResourceLookupCache.CreateFromNativeCanonicalArrays(
             new[] { dirA, dirB },
-            new Dictionary<string, uint[]>(StringComparer.OrdinalIgnoreCase)
-            {
-                { dirA, new uint[2] { 1u, 2u } },
-                { dirB, new uint[2] { 2u, 3u } }
-            },
-            new Dictionary<string, uint[]>(StringComparer.OrdinalIgnoreCase),
-            new Dictionary<string, uint[]>(StringComparer.OrdinalIgnoreCase),
-            new Dictionary<string, uint[]>(StringComparer.OrdinalIgnoreCase),
-            new Dictionary<string, uint[]>(StringComparer.OrdinalIgnoreCase),
-            new Dictionary<string, uint[]>(StringComparer.OrdinalIgnoreCase),
+            new[] { new uint[2] { 1u, 2u }, new uint[2] { 2u, 3u } },
+            new[] { Array.Empty<uint>(), Array.Empty<uint>() },
+            new[] { Array.Empty<uint>(), Array.Empty<uint>() },
+            new[] { Array.Empty<uint>(), Array.Empty<uint>() },
+            new[] { Array.Empty<uint>(), Array.Empty<uint>() },
+            new[] { Array.Empty<uint>(), Array.Empty<uint>() },
             new Dictionary<uint, string[]>
             {
                 { 1u, new[] { dirA } },

@@ -727,26 +727,6 @@ internal static class EverythingNative
 		return result;
 	}
 
-	private static Dictionary<string, uint[]> MaterializeHashMap(string[] chartDirectories, uint[][] hashesByDirectoryIndex)
-	{
-		Dictionary<string, uint[]> map = new Dictionary<string, uint[]>(chartDirectories?.Length ?? 0, StringComparer.OrdinalIgnoreCase);
-		if (chartDirectories == null || hashesByDirectoryIndex == null)
-		{
-			return map;
-		}
-		int count = Math.Min(chartDirectories.Length, hashesByDirectoryIndex.Length);
-		for (int i = 0; i < count; i++)
-		{
-			string chartDirectory = chartDirectories[i];
-			if (string.IsNullOrWhiteSpace(chartDirectory))
-			{
-				continue;
-			}
-			map[chartDirectory] = hashesByDirectoryIndex[i] ?? Array.Empty<uint>();
-		}
-		return map;
-	}
-
 	private static string NormalizeSourceRootDirectory(string rootDirectory)
 	{
 		if (string.IsNullOrWhiteSpace(rootDirectory))
@@ -771,24 +751,12 @@ internal static class EverythingNative
 	{
 		HashSet<string> chartFilePaths = MaterializeStringSet(decodedResult?.ChartPaths);
 		HashSet<string> chartDirectories = MaterializeStringSet(decodedResult?.ChartDirectories);
-		Dictionary<string, uint[]> audioRelative = MaterializeHashMap(decodedResult?.ChartDirectories, decodedResult?.AudioRelativeHashes);
-		Dictionary<string, uint[]> imageRelative = MaterializeHashMap(decodedResult?.ChartDirectories, decodedResult?.ImageRelativeHashes);
-		Dictionary<string, uint[]> movieRelative = MaterializeHashMap(decodedResult?.ChartDirectories, decodedResult?.MovieRelativeHashes);
-		Dictionary<string, uint[]> selfOwnedAudioRelative = MaterializeHashMap(decodedResult?.ChartDirectories, decodedResult?.SelfOwnedAudioRelativeHashes);
-		Dictionary<string, uint[]> selfOwnedImageRelative = MaterializeHashMap(decodedResult?.ChartDirectories, decodedResult?.SelfOwnedImageRelativeHashes);
-		Dictionary<string, uint[]> selfOwnedMovieRelative = MaterializeHashMap(decodedResult?.ChartDirectories, decodedResult?.SelfOwnedMovieRelativeHashes);
 		ulong hashDirCount = (ulong)chartDirectories.Count;
 		ulong categoryResourceKeyHashEntryCount = header.audio_resource_key_hash_count + header.image_resource_key_hash_count + header.movie_resource_key_hash_count;
 		BmsScanResult scanResult = new BmsScanResult
 		{
 			ChartFilePaths = chartFilePaths,
-			ChartDirectories = chartDirectories,
-			AudioRelativePathHashesByChartDirectory = audioRelative,
-			ImageRelativePathHashesByChartDirectory = imageRelative,
-			MovieRelativePathHashesByChartDirectory = movieRelative,
-			SelfOwnedAudioRelativePathHashesByChartDirectory = selfOwnedAudioRelative,
-			SelfOwnedImageRelativePathHashesByChartDirectory = selfOwnedImageRelative,
-			SelfOwnedMovieRelativePathHashesByChartDirectory = selfOwnedMovieRelative
+			ChartDirectories = chartDirectories
 		};
 		return new BmsScanExecutionResult
 		{

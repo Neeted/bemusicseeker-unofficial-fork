@@ -606,6 +606,8 @@ folder operation cache cleanup も `DirectoryResourceLookupCache` 正本へ移�
 
 続く duplicate surface 削除では、native packed result に残っていた resource-key / relative-key の alias surface を削除した。native は chart-relative key surface だけを返し、managed 側だけが互換的な `RelativePathHash` 名で受ける。特に導入先 tie-break で union を使う必要は薄く、同率に近い候補は曖昧候補として提示し、順序安定だけが必要なら path 名順で十分とする。
 
+さらに native scan path の managed materialize から `BmsScanResult` resource dictionaries を外した。通常起動では native decoded arrays から `LibraryResourceIndex` / `DirectoryResourceLookupCache` を直接作るため、`BmsScanResult` は `ChartFilePaths` / `ChartDirectories` だけを持つ。managed fallback scan と旧分離 scan / テスト用 merge path では resource dictionaries を保持し、`LibraryResourceIndex.CreateFromScanResult(...)` の入力として使う。`resource_index_build chartRelativeKeys` と `song_tbl_file_check_cache_counts` は native header の `audio/image/movieResourceKeyHashCount` を使うため、native path で辞書を作らなくてもログ上の key count は維持される。
+
 2026-05-06 実機確認では次の状態になった。
 
 - `everything_scan totalMs=26640`

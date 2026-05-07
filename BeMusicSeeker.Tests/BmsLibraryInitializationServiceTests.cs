@@ -1383,6 +1383,72 @@ public sealed class BmsLibraryInitializationServiceTests
     }
 
     [TestMethod]
+    public void ApplyFileScanDiff_UsesNativeResourceIndexWithoutMaterializingScanHashMaps()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
+        {
+            string chartDirectoryPath = Path.Combine(lr2RootPath, "Keep");
+            string chartPath = Path.Combine(chartDirectoryPath, "keep.bms");
+            Directory.CreateDirectory(chartDirectoryPath);
+            File.WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE Keep\r\n");
+
+            TestableBmsFile keepFile = new TestableBmsFile
+            {
+                path = chartPath
+            };
+            keepFile.SetHash(BMSFile.CreateBMSFileFromFile(chartPath).hash);
+
+            uint audioRelativeHash = ChartResourceKeyHash.GetLookupHash("sound\\sound");
+            uint movieRelativeHash = ChartResourceKeyHash.GetLookupHash("movie");
+            LibraryResourceIndex nativeIndex = LibraryResourceIndex.CreateFromNativeCanonicalArrays(
+                new[] { chartDirectoryPath },
+                new[] { new[] { audioRelativeHash } },
+                new[] { Array.Empty<uint>() },
+                new[] { new[] { movieRelativeHash } },
+                new[] { new[] { audioRelativeHash } },
+                new[] { Array.Empty<uint>() },
+                new[] { new[] { movieRelativeHash } },
+                new Dictionary<uint, string[]> { { audioRelativeHash, new[] { chartDirectoryPath } } },
+                new Dictionary<uint, string[]>(),
+                new Dictionary<uint, string[]> { { movieRelativeHash, new[] { chartDirectoryPath } } });
+
+            BmsLibraryInitializationService service = new BmsLibraryInitializationService();
+            SongTableFileCheckResult result = service.ApplyFileScanDiff(
+                new BmsLibraryDbGateway(songDbPath),
+                new BmsLibraryOptionsSnapshot(),
+                new[] { keepFile },
+                new BmsScanExecutionResult
+                {
+                    Success = true,
+                    NativeBridgeReason = EverythingNative.FixedScanNativeBridgeReason,
+                    AudioResourceKeyHashCount = 1,
+                    MovieResourceKeyHashCount = 1,
+                    ResourceIndex = nativeIndex,
+                    Result = new BmsScanResult
+                    {
+                        ChartFilePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { chartPath },
+                        ChartDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { chartDirectoryPath }
+                    }
+                },
+                0L,
+                () => null,
+                null);
+
+            DirectoryResourceLookupCache.Entry entry = result.NextDirectoryResourceLookupCache.GetEntryOrNull(chartDirectoryPath);
+            Assert.IsNotNull(entry);
+            Assert.AreEqual(1, entry.AudioFileNameHashCount);
+            Assert.AreEqual(0, entry.ImageFileNameHashCount);
+            Assert.AreEqual(1, entry.MovieFileNameHashCount);
+            Assert.IsTrue(entry.AudioRelativePathHashes.Contains(audioRelativeHash));
+            Assert.IsTrue(entry.MovieRelativePathHashes.Contains(movieRelativeHash));
+            Assert.AreEqual(1ul, result.AudioResourceKeyHashEntryCount);
+            Assert.AreEqual(0ul, result.ImageResourceKeyHashEntryCount);
+            Assert.AreEqual(1ul, result.MovieResourceKeyHashEntryCount);
+        });
+    }
+
+    [TestMethod]
     public void ApplyFileScanDiff_RemovesOrphanChartDigestRowsForDeletedSongs()
     {
         TestResourceInitializer.EnsureJapaneseResources();
