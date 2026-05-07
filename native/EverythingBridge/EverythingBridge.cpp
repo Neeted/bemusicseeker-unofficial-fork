@@ -1442,15 +1442,44 @@ size_t SumHashCount(const std::vector<std::vector<uint32_t>>& hashGroups) {
 	return total;
 }
 
+void SortEncodedHashDirectoryPairs(std::vector<uint64_t>& values) {
+	if (values.size() < 65536) {
+		std::sort(values.begin(), values.end());
+		return;
+	}
+
+	constexpr uint64_t mask = 0xFFFFull;
+	constexpr size_t bucketCount = 1u << 16;
+	std::vector<uint64_t> buffer(values.size());
+	std::vector<size_t> counts(bucketCount);
+	for (int shift = 0; shift < 64; shift += 16) {
+		std::fill(counts.begin(), counts.end(), 0);
+		for (uint64_t value : values) {
+			counts[static_cast<size_t>((value >> shift) & mask)]++;
+		}
+		size_t cursor = 0;
+		for (size_t i = 0; i < counts.size(); i++) {
+			size_t count = counts[i];
+			counts[i] = cursor;
+			cursor += count;
+		}
+		for (uint64_t value : values) {
+			size_t bucket = static_cast<size_t>((value >> shift) & mask);
+			buffer[counts[bucket]++] = value;
+		}
+		values.swap(buffer);
+	}
+}
+
 ReverseHashGroup BuildReverseHashGroup(const std::vector<std::vector<uint32_t>>& hashGroups) {
-	std::vector<std::pair<uint32_t, uint32_t>> hashDirectoryPairs;
+	std::vector<uint64_t> hashDirectoryPairs;
 	hashDirectoryPairs.reserve(SumHashCount(hashGroups));
 	for (uint32_t directoryIndex = 0; directoryIndex < hashGroups.size(); directoryIndex++) {
 		for (uint32_t hash : hashGroups[directoryIndex]) {
 			if (hash == 0u) {
 				continue;
 			}
-			hashDirectoryPairs.emplace_back(hash, directoryIndex);
+			hashDirectoryPairs.push_back((static_cast<uint64_t>(hash) << 32) | static_cast<uint64_t>(directoryIndex));
 		}
 	}
 
@@ -1459,19 +1488,14 @@ ReverseHashGroup BuildReverseHashGroup(const std::vector<std::vector<uint32_t>>&
 		return result;
 	}
 
-	std::sort(hashDirectoryPairs.begin(), hashDirectoryPairs.end(), [](const auto& left, const auto& right) {
-		if (left.first != right.first) {
-			return left.first < right.first;
-		}
-		return left.second < right.second;
-	});
+	SortEncodedHashDirectoryPairs(hashDirectoryPairs);
 
 	size_t index = 0;
 	while (index < hashDirectoryPairs.size()) {
-		uint32_t key = hashDirectoryPairs[index].first;
+		uint32_t key = static_cast<uint32_t>(hashDirectoryPairs[index] >> 32);
 		std::vector<uint32_t> directories;
-		while (index < hashDirectoryPairs.size() && hashDirectoryPairs[index].first == key) {
-			uint32_t directoryIndex = hashDirectoryPairs[index].second;
+		while (index < hashDirectoryPairs.size() && static_cast<uint32_t>(hashDirectoryPairs[index] >> 32) == key) {
+			uint32_t directoryIndex = static_cast<uint32_t>(hashDirectoryPairs[index] & 0xFFFFFFFFull);
 			if (directories.empty() || directories.back() != directoryIndex) {
 				directories.push_back(directoryIndex);
 			}

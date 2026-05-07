@@ -645,6 +645,20 @@ Phase Native-2 では category 別 reverse build 計測を追加した。`packRe
 
 試験的に `hash -> directory list` の `unordered_map` 方式も試したが、2026-05-07 14:40 の実機ログでは `packReverseBuildMs=8120` まで悪化したため採用しない。現行データ規模では flat pair sort 方式の方が速い。次に触るなら、flat pair sort を維持したまま audio reverse build の parallel sort / partition、または reverse index payload の 16-bit 化などを検討する。
 
+続く reverse build 改善では、`(hash, directoryIndex)` pair を `uint64` に encode し、64-bit radix sort で hash 昇順 / directory index 昇順を維持するようにした。pair 全量の comparison sort を避けつつ、packed output の key order と directory order は従来と同じにする。
+
+2026-05-07 14:58 の実機確認では次の状態になった。
+
+- `everything_scan totalMs=25000`
+- `nativeBridgeMs=22469`
+- `packMs=2332`
+- `packReverseBuildMs=1635`
+- `audioReverseBuildMs=1635`
+- `imageReverseBuildMs=175`
+- `movieReverseBuildMs=2`
+
+`packReverseBuildMs` は約 2.3s から約 1.6s へ縮小した。次に native payload 側を触るなら、reverse index directory id の 16-bit 化や、audio reverse build のさらに細かい partitioning を検討する。
+
 2026-05-06 実機確認では次の状態になった。
 
 - `everything_scan totalMs=26640`
