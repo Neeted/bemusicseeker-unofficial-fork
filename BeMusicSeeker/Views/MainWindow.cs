@@ -3223,7 +3223,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     /// プレイリストルートのコンテキストメニュー「プレイリストコレクションを読み込む」がクリックされた際の処理。
     /// 指定されたコレクションURLをもとに、ViewModelへプレイリスト群の非同期登録を要求します。
     /// </summary>
-    private async void treeViewPlaylistRootContextMenuItemLoadPlaylistCollectionClick(object sender, RoutedEventArgs e)
+    private void treeViewPlaylistRootContextMenuItemLoadPlaylistCollectionClick(object sender, RoutedEventArgs e)
     {
         MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
         if (!(sender is MenuItem menuItem))
@@ -3233,7 +3233,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         BMSTableSimple dataContext = menuItem.DataContext as BMSTableSimple;
         if (viewModel != null && dataContext != null && !(dataContext.url == null) && !viewModel.IsWriteLockHeldBMSTablesInitializeMin)
         {
-            await viewModel.RegistrateExternalPlaylistBMSTableAsync(dataContext.url).Logging("treeViewPlaylistRootContextMenuItemLoadPlaylistCollectionClick");
+            viewModel.EnqueueExternalPlaylistBMSTableImport(dataContext.url);
         }
     }
 
@@ -3241,13 +3241,13 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     /// プレイリストルートのコンテキストメニュー「Walkure/難易度表を読み込む」に関するメニュー項目（各難易度表単位）のアクション。
     /// MenuItemのTagプロパティに格納されたURLへアクセスし、プレイリスト情報を非同期で追加・登録します。
     /// </summary>
-    private async void treeViewPlaylistRootContextMenuItemLoadWalkureTableClick(object sender, RoutedEventArgs e)
+    private void treeViewPlaylistRootContextMenuItemLoadWalkureTableClick(object sender, RoutedEventArgs e)
     {
         MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
         if (viewModel != null && sender is MenuItem menuItem && !viewModel.IsWriteLockHeldBMSTablesInitializeMin)
         {
             Uri uri = new Uri((string)menuItem.Tag);
-            await viewModel.RegistrateExternalPlaylistBMSTableAsync(uri).Logging("treeViewPlaylistRootContextMenuItemLoadWalkureTableClick");
+            viewModel.EnqueueExternalPlaylistBMSTableImport(uri);
         }
     }
 
@@ -3255,7 +3255,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     /// プレイリストルートのコンテキストメニューから「Walkureのおすすめフォルダ」関連のテーブル読み込みが選択された場合の処理。
     /// LR2IDの設定状況のチェックや、更新モード/閲覧モードに応じたユーザー確認ダイアログを挟んだ後、非同期で登録処理へ進みます。
     /// </summary>
-    private async void treeViewPlaylistRootContextMenuItemLoadWalkureTableRecommendedClick(object sender, RoutedEventArgs e)
+    private void treeViewPlaylistRootContextMenuItemLoadWalkureTableRecommendedClick(object sender, RoutedEventArgs e)
     {
         MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
         if (viewModel == null || !(sender is MenuItem menuItem) || viewModel.IsWriteLockHeldBMSTablesInitializeMin)
@@ -3279,7 +3279,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        await viewModel.RegistrateExternalPlaylistBMSTableAsync(uri).Logging("treeViewPlaylistRootContextMenuItemLoadWalkureTableRecommendedClick");
+        viewModel.EnqueueExternalPlaylistBMSTableImport(uri);
     }
 
     /// <summary>

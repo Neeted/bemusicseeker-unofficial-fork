@@ -1893,6 +1893,20 @@ cleanup-only成功: {3}
   <data name="Error_PlaylistAlreadyExists" xml:space="preserve">
     <value>既に同名のプレイリストが存在します。</value>
   </data>
+  <data name="Playlist_import_result_title" xml:space="preserve">
+    <value>プレイリストインポート結果</value>
+  </data>
+  <data name="Playlist_import_result_summary_format" xml:space="preserve">
+    <value>インポート: {0} 件
+同名スキップ: {1} 件
+失敗: {2} 件</value>
+  </data>
+  <data name="Playlist_import_result_skipped_header" xml:space="preserve">
+    <value>同名のためスキップ:</value>
+  </data>
+  <data name="Playlist_import_result_failed_header" xml:space="preserve">
+    <value>失敗:</value>
+  </data>
   <data name="Error_OutputDirNameEmpty" xml:space="preserve">
     <value>出力先ディレクトリ名が空になっています。</value>
   </data>

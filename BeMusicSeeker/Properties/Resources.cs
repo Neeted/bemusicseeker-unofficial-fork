@@ -1237,6 +1237,18 @@ public class Resources
     public static string Error_PlaylistAlreadyExists => ResourceManager.GetString("Error_PlaylistAlreadyExists", resourceCulture);
 
 
+    public static string Playlist_import_result_title => ResourceManager.GetString("Playlist_import_result_title", resourceCulture);
+
+
+    public static string Playlist_import_result_summary_format => ResourceManager.GetString("Playlist_import_result_summary_format", resourceCulture);
+
+
+    public static string Playlist_import_result_skipped_header => ResourceManager.GetString("Playlist_import_result_skipped_header", resourceCulture);
+
+
+    public static string Playlist_import_result_failed_header => ResourceManager.GetString("Playlist_import_result_failed_header", resourceCulture);
+
+
     public static string Error_OutputDirNameEmpty => ResourceManager.GetString("Error_OutputDirNameEmpty", resourceCulture);
 
 

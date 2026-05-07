@@ -2314,7 +2314,7 @@ public partial class BMSPlaylist : NotificationObject
                 }
                 if (BMSTables.Select((BMSTable t) => t.name).Contains(bMSTable.name))
                 {
-                    throw new InvalidOperationException(Resources.Error_PlaylistAlreadyExists);
+                    throw new PlaylistAlreadyExistsException(Resources.Error_PlaylistAlreadyExists, bMSTable.name);
                 }
                 if (string.IsNullOrWhiteSpace(bMSTable.Output_dir))
                 {

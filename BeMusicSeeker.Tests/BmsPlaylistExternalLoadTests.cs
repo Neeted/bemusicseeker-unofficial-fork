@@ -1,10 +1,13 @@
 using System;
+using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
+using Livet;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using System.Windows.Threading;
 
 namespace BeMusicSeeker.Tests;
 
@@ -229,8 +232,56 @@ public sealed class BmsPlaylistExternalLoadTests
         }
     }
 
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public async Task RegistrateExternalTableAsync_ExistingPlaylistNameThrowsSpecificException()
+    {
+        bool previousEnablePlaylistUrlCompletion = BeMusicSeeker.Properties.Settings.Default.EnablePlaylistUrlCompletion;
+        BeMusicSeeker.Properties.Settings.Default.EnablePlaylistUrlCompletion = false;
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistExternalLoadTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string headerJsonPath = Path.Combine(tempDirectory, "header.json");
+            string scoreJsonPath = Path.Combine(tempDirectory, "score.json");
+            File.WriteAllBytes(headerJsonPath, CreateUtf8BomBytes("{\"name\":\"DuplicateImport\",\"symbol\":\"D\",\"data_url\":\"./score.json\"}"));
+            File.WriteAllBytes(scoreJsonPath, CreateUtf8BomBytes("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Song\",\"artist\":\"Artist\",\"level\":\"1\"}]"));
+
+            string songDbPath = CreateTempSongDbPath(tempDirectory);
+            BMSPlaylist playlist = new BMSPlaylist(songDbPath);
+            playlist.BMSTables = new DispatcherCollection<BMSTable>(
+                new ObservableCollection<BMSTable>(new[] { new BMSTable { name = "DuplicateImport" } }),
+                Dispatcher.CurrentDispatcher);
+
+            PlaylistAlreadyExistsException ex = await Assert.ThrowsExceptionAsync<PlaylistAlreadyExistsException>(async delegate
+            {
+                await playlist.RegistrateExternalTableAsync(new Uri(headerJsonPath));
+            });
+
+            Assert.AreEqual(BeMusicSeeker.Properties.Resources.Error_PlaylistAlreadyExists, ex.Message);
+            Assert.AreEqual("DuplicateImport", ex.PlaylistName);
+            Assert.AreEqual(1, playlist.BMSTables.Count);
+        }
+        finally
+        {
+            BeMusicSeeker.Properties.Settings.Default.EnablePlaylistUrlCompletion = previousEnablePlaylistUrlCompletion;
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
     private static byte[] CreateUtf8BomBytes(string text)
     {
         return Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(text)).ToArray();
+    }
+
+    private static string CreateTempSongDbPath(string tempDirectory)
+    {
+        string sourceSongDbPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "TestData", "song_snapshot", "song.db");
+        string tempSongDbPath = Path.Combine(tempDirectory, "song.db");
+        File.Copy(sourceSongDbPath, tempSongDbPath, overwrite: true);
+        return tempSongDbPath;
     }
 }

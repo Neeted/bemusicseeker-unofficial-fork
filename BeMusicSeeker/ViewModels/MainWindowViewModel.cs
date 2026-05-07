@@ -4512,6 +4512,8 @@ public class MainWindowViewModel : ViewModel
 
     private readonly Dictionary<string, PlaylistSyncRuntimeStatus> playlistSyncStatuses = new Dictionary<string, PlaylistSyncRuntimeStatus>(StringComparer.OrdinalIgnoreCase);
 
+    private readonly ExternalPlaylistImportQueue externalPlaylistImportQueue = new ExternalPlaylistImportQueue();
+
     private bool deferredLibraryFolderTreeRefreshQueued;
 
     private object lockDeferredLibraryFolderTreeRefresh = new object();
@@ -16017,13 +16019,36 @@ public class MainWindowViewModel : ViewModel
 
     internal void RegistrateExternalPlaylistBMSTable(Uri uri)
     {
-        RegistrateExternalPlaylistBMSTableAsync(uri).GetAwaiter().GetResult();
+        ImportExternalPlaylistBMSTableAsync(uri, showFailureDialog: true, skipDuplicateName: false).GetAwaiter().GetResult();
     }
 
     internal async Task RegistrateExternalPlaylistBMSTableAsync(Uri uri)
     {
+        await ImportExternalPlaylistBMSTableAsync(uri, showFailureDialog: true, skipDuplicateName: false);
+    }
+
+    internal void EnqueueExternalPlaylistBMSTableImport(Uri uri)
+    {
+        if (externalPlaylistImportQueue.Enqueue(uri))
+        {
+            _ = DrainExternalPlaylistImportQueueAsync().Logging("DrainExternalPlaylistImportQueueAsync");
+        }
+    }
+
+    private async Task DrainExternalPlaylistImportQueueAsync()
+    {
+        List<ExternalPlaylistImportOutcome> outcomes = new List<ExternalPlaylistImportOutcome>();
+        while (externalPlaylistImportQueue.TryDequeue(out Uri uri))
+        {
+            outcomes.Add(await ImportExternalPlaylistBMSTableAsync(uri, showFailureDialog: false, skipDuplicateName: true).Logging("ImportExternalPlaylistBMSTableAsync"));
+        }
+        ShowExternalPlaylistImportQueueSummary(new ExternalPlaylistImportQueueSummary(outcomes));
+    }
+
+    private async Task<ExternalPlaylistImportOutcome> ImportExternalPlaylistBMSTableAsync(Uri uri, bool showFailureDialog, bool skipDuplicateName)
+    {
         BeginPlaylistSyncProgressOperation();
-        BMSTable table;
+        BMSTable table = null;
         try
         {
             UpdatePlaylistSyncProgressStatus(new PlaylistSyncProgressSnapshot
@@ -16036,17 +16061,28 @@ public class MainWindowViewModel : ViewModel
             });
             table = await tables.RegistrateExternalTableAsync(uri);
         }
+        catch (PlaylistAlreadyExistsException ex) when (skipDuplicateName)
+        {
+            NLogWrapper.FileLogger?.Info("playlist_register_skipped_duplicate_name uri=" + (uri?.ToString() ?? string.Empty) + " table=" + (ex.PlaylistName ?? string.Empty));
+            return ExternalPlaylistImportOutcome.SkippedDuplicateName(uri, ex.PlaylistName, ex);
+        }
         catch (InvalidOperationException ex)
         {
             NLogWrapper.FileLogger?.Warn(ex, "playlist_register_failed uri=" + (uri?.ToString() ?? string.Empty));
-            ShowPlaylistLoadFailure(ex);
-            return;
+            if (showFailureDialog)
+            {
+                ShowPlaylistLoadFailure(ex);
+            }
+            return ExternalPlaylistImportOutcome.Failed(uri, ex);
         }
         catch (Exception ex)
         {
             NLogWrapper.FileLogger?.Warn(ex, "playlist_register_failed uri=" + (uri?.ToString() ?? string.Empty));
-            ShowPlaylistLoadFailure(ex);
-            return;
+            if (showFailureDialog)
+            {
+                ShowPlaylistLoadFailure(ex);
+            }
+            return ExternalPlaylistImportOutcome.Failed(uri, ex);
         }
         finally
         {
@@ -16060,11 +16096,66 @@ public class MainWindowViewModel : ViewModel
             });
             EndPlaylistSyncProgressOperation();
         }
+        if (table == null)
+        {
+            return ExternalPlaylistImportOutcome.Failed(uri, new InvalidOperationException("Playlist registration returned no table."));
+        }
         tables.AcquireReaderLockBMSTables();
         files.AddReferenceBMSTables(table);
         tables.FreeReaderLockBMSTables();
         UpdatePlaylistSyncRuntimeStatus(PlaylistSyncAttemptResult.CreateSuccess(table, table, uri, updated: false));
         RefreshPlaylistSummaryIfVisible("playlist_registered", invalidateTableCountCache: true);
+        return ExternalPlaylistImportOutcome.Imported(uri, table.name);
+    }
+
+    private void ShowExternalPlaylistImportQueueSummary(ExternalPlaylistImportQueueSummary summary)
+    {
+        if (summary == null || !summary.HasNotifiableItems)
+        {
+            return;
+        }
+        StringBuilder message = new StringBuilder();
+        message.AppendFormat(
+            BeMusicSeeker.Properties.Resources.Playlist_import_result_summary_format,
+            summary.ImportedCount,
+            summary.SkippedDuplicateNameCount,
+            summary.FailedCount);
+        AppendImportOutcomeSamples(message, BeMusicSeeker.Properties.Resources.Playlist_import_result_skipped_header, summary.SkippedDuplicateNameOutcomes);
+        AppendImportOutcomeSamples(message, BeMusicSeeker.Properties.Resources.Playlist_import_result_failed_header, summary.FailedOutcomes);
+        base.Messenger.Raise(new ConfirmationMessage(
+            message.ToString(),
+            BeMusicSeeker.Properties.Resources.Playlist_import_result_title,
+            summary.FailedCount > 0 ? MessageBoxImage.Exclamation : MessageBoxImage.Information,
+            MessageBoxButton.OK,
+            "ConfirmationDialog"));
+    }
+
+    private static void AppendImportOutcomeSamples(StringBuilder message, string header, IReadOnlyList<ExternalPlaylistImportOutcome> outcomes)
+    {
+        const int maxSamples = 5;
+        if (message == null || outcomes == null || outcomes.Count == 0)
+        {
+            return;
+        }
+        message.AppendLine();
+        message.AppendLine();
+        message.AppendLine(header);
+        foreach (ExternalPlaylistImportOutcome outcome in outcomes.Take(maxSamples))
+        {
+            string nameOrUri = !string.IsNullOrWhiteSpace(outcome.TableName) ? outcome.TableName : (outcome.Uri?.ToString() ?? string.Empty);
+            if (outcome.Kind == ExternalPlaylistImportOutcomeKind.Failed && outcome.Exception != null && !string.IsNullOrWhiteSpace(outcome.Exception.Message))
+            {
+                message.AppendLine("- " + nameOrUri + " (" + outcome.Exception.Message + ")");
+            }
+            else
+            {
+                message.AppendLine("- " + nameOrUri);
+            }
+        }
+        if (outcomes.Count > maxSamples)
+        {
+            message.AppendLine("- ...");
+        }
     }
 
     private void UpdatePlaylistSyncRuntimeStatus(PlaylistSyncAttemptResult result)

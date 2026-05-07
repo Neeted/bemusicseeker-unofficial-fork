@@ -124,6 +124,25 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
+    public void PlaylistTableListImportMenu_StaysOpenOnlyForLeafItemsAndUsesQueue()
+    {
+        string root = FindRepositoryRoot();
+        string xaml = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "MainWindow.xaml"));
+        string code = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "MainWindow.cs"));
+        string dialogCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "LoadPlaylistURIDialog.cs"));
+
+        string menuSnippet = xaml.Substring(xaml.IndexOf("Name=\"treeViewPlaylistRootContextMenuItemLoadPlaylistCollection\"", StringComparison.Ordinal), 1200);
+        StringAssert.Contains(menuSnippet, "<Setter Property=\"MenuItem.StaysOpenOnClick\" Value=\"True\" />");
+        StringAssert.Contains(menuSnippet, "<DataTrigger Binding=\"{Binding url}\" Value=\"{x:Null}\">");
+        StringAssert.Contains(menuSnippet, "<Setter Property=\"MenuItem.StaysOpenOnClick\" Value=\"False\" />");
+        StringAssert.Contains(code, "viewModel.EnqueueExternalPlaylistBMSTableImport(dataContext.url);");
+        StringAssert.Contains(code, "viewModel.EnqueueExternalPlaylistBMSTableImport(uri);");
+        StringAssert.Contains(dialogCode, "viewModel.EnqueueExternalPlaylistBMSTableImport(targetURI);");
+        Assert.IsFalse(code.Contains("await viewModel.RegistrateExternalPlaylistBMSTableAsync(dataContext.url)"));
+        Assert.IsFalse(dialogCode.Contains("await viewModel.RegistrateExternalPlaylistBMSTableAsync(targetURI)"));
+    }
+
+    [TestMethod]
     public void SidebarTreeViewWidthPolicy_NormalizesInvalidPersistedValues()
     {
         Assert.AreEqual(Settings.DefaultTreeViewWidth, Settings.NormalizeTreeViewWidth(double.NaN));

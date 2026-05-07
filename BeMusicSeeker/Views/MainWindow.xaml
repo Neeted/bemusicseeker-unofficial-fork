@@ -285,7 +285,13 @@
             <ItemsControl.ItemContainerStyle>
               <Style TargetType="{x:Type MenuItem}" BasedOn="{StaticResource {x:Type MenuItem}}">
                 <Setter Property="MenuItem.Icon" Value="{Binding symbol, Converter={StaticResource textToCharBlockConverter}}" />
+                <Setter Property="MenuItem.StaysOpenOnClick" Value="True" />
                 <EventSetter Event="Click" Handler="treeViewPlaylistRootContextMenuItemLoadPlaylistCollectionClick" />
+                <Style.Triggers>
+                  <DataTrigger Binding="{Binding url}" Value="{x:Null}">
+                    <Setter Property="MenuItem.StaysOpenOnClick" Value="False" />
+                  </DataTrigger>
+                </Style.Triggers>
               </Style>
             </ItemsControl.ItemContainerStyle>
           </MenuItem>

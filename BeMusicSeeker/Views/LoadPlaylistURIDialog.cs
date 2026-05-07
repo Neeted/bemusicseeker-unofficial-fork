@@ -1,5 +1,4 @@
 using System;
-using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Markup;
@@ -25,7 +24,7 @@ public partial class LoadPlaylistURIDialog : UserControl, IComponentConnector
 		}
 	}
 
-	private async void SaveAndClose(object sender, RoutedEventArgs e)
+	private void SaveAndClose(object sender, RoutedEventArgs e)
 	{
 		MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
 		if (viewModel != null)
@@ -42,7 +41,7 @@ public partial class LoadPlaylistURIDialog : UserControl, IComponentConnector
 			}
 			textBoxURIInput.Text = string.Empty;
 			settingDialog.Visibility = Visibility.Hidden;
-            await viewModel.RegistrateExternalPlaylistBMSTableAsync(targetURI).Logging("SaveAndClose");
+            viewModel.EnqueueExternalPlaylistBMSTableImport(targetURI);
         }
     }
 
