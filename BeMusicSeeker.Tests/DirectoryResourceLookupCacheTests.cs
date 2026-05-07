@@ -33,9 +33,6 @@ public sealed class DirectoryResourceLookupCacheTests
 
         DirectoryResourceLookupCache.ReverseLookupMutationResult cachedMissMutation = cache.AddDir(
             "C:\\Songs\\C",
-            Array.Empty<uint>(),
-            Array.Empty<uint>(),
-            Array.Empty<uint>(),
             new[] { 99u },
             Array.Empty<uint>(),
             Array.Empty<uint>());
@@ -47,9 +44,6 @@ public sealed class DirectoryResourceLookupCacheTests
 
         DirectoryResourceLookupCache.ReverseLookupMutationResult fullMutation = cache.AddDir(
             "C:\\Songs\\D",
-            Array.Empty<uint>(),
-            Array.Empty<uint>(),
-            Array.Empty<uint>(),
             new[] { 2u, 100u },
             Array.Empty<uint>(),
             Array.Empty<uint>());
@@ -99,14 +93,14 @@ public sealed class DirectoryResourceLookupCacheTests
         uint imageRelativeHash = ChartResourceKeyHash.GetLookupHash(@"image\logo.png");
         uint movieRelativeHash = ChartResourceKeyHash.GetLookupHash(@"bga\movie.mpg");
         DirectoryResourceLookupCache cache = new DirectoryResourceLookupCache();
-        cache.AddDir(dirA, Array.Empty<uint>(), Array.Empty<uint>(), Array.Empty<uint>(), new[] { audioRelativeHash }, new[] { imageRelativeHash }, Array.Empty<uint>());
-        cache.AddDir(dirB, Array.Empty<uint>(), Array.Empty<uint>(), Array.Empty<uint>(), new[] { audioRelativeHash }, Array.Empty<uint>(), new[] { movieRelativeHash });
+        cache.AddDir(dirA, new[] { audioRelativeHash }, new[] { imageRelativeHash }, Array.Empty<uint>());
+        cache.AddDir(dirB, new[] { audioRelativeHash }, Array.Empty<uint>(), new[] { movieRelativeHash });
 
         cache.EnsureAudioRelativeDirectoriesByHashes(new[] { audioRelativeHash });
         cache.EnsureImageRelativeDirectoriesByHashes(new[] { imageRelativeHash });
         cache.EnsureMovieRelativeDirectoriesByHashes(new[] { movieRelativeHash });
 
-        cache.AddDir(dirC, Array.Empty<uint>(), Array.Empty<uint>(), Array.Empty<uint>(), new[] { audioRelativeHash }, new[] { imageRelativeHash }, new[] { movieRelativeHash });
+        cache.AddDir(dirC, new[] { audioRelativeHash }, new[] { imageRelativeHash }, new[] { movieRelativeHash });
         cache.RemoveDirWithResult(dirA);
         cache.ReplaceDirWithResult(dirC, dirRenamed);
 
@@ -119,27 +113,12 @@ public sealed class DirectoryResourceLookupCacheTests
     public void CreateFromScanResult_AndAddDirFromSameScanResult_ProduceEquivalentCategoryEntries()
     {
         string chartDir = "C:\\Songs\\Relative";
-        uint audioBaseHash = ChartResourceKeyHash.GetFileNameHash("bgm1.wav");
-        uint imageBaseHash = ChartResourceKeyHash.GetFileNameHash("logo.bmp");
-        uint movieBaseHash = ChartResourceKeyHash.GetFileNameHash("movie.mpg");
         uint audioRelativeHash = ChartResourceKeyHash.GetLookupHash("sound\\bgm1.wav");
         uint imageRelativeHash = ChartResourceKeyHash.GetLookupHash("image\\logo.png");
         uint movieRelativeHash = ChartResourceKeyHash.GetLookupHash("bga\\logo.mpg");
         BmsScanResult scanResult = new BmsScanResult
         {
             ChartDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { chartDir },
-            AudioBaseNameHashesByChartDirectory = new Dictionary<string, uint[]>(StringComparer.OrdinalIgnoreCase)
-            {
-                { chartDir, new[] { audioBaseHash } }
-            },
-            ImageBaseNameHashesByChartDirectory = new Dictionary<string, uint[]>(StringComparer.OrdinalIgnoreCase)
-            {
-                { chartDir, new[] { imageBaseHash } }
-            },
-            MovieBaseNameHashesByChartDirectory = new Dictionary<string, uint[]>(StringComparer.OrdinalIgnoreCase)
-            {
-                { chartDir, new[] { movieBaseHash } }
-            },
             AudioRelativePathHashesByChartDirectory = new Dictionary<string, uint[]>(StringComparer.OrdinalIgnoreCase)
             {
                 { chartDir, new[] { audioRelativeHash } }
@@ -170,8 +149,8 @@ public sealed class DirectoryResourceLookupCacheTests
         uint imageRelativeHash = ChartResourceKeyHash.GetLookupHash(@"image\logo.png");
         uint movieRelativeHash = ChartResourceKeyHash.GetLookupHash(@"bga\movie.mpg");
         DirectoryResourceLookupCache cache = new DirectoryResourceLookupCache();
-        cache.AddDir(dirA, Array.Empty<uint>(), Array.Empty<uint>(), Array.Empty<uint>(), new[] { audioRelativeHash }, new[] { imageRelativeHash }, Array.Empty<uint>());
-        cache.AddDir(dirB, Array.Empty<uint>(), Array.Empty<uint>(), Array.Empty<uint>(), Array.Empty<uint>(), Array.Empty<uint>(), new[] { movieRelativeHash });
+        cache.AddDir(dirA, new[] { audioRelativeHash }, new[] { imageRelativeHash }, Array.Empty<uint>());
+        cache.AddDir(dirB, Array.Empty<uint>(), Array.Empty<uint>(), new[] { movieRelativeHash });
 
         cache.EnsureAudioRelativeDirectoriesByHashes(new[] { audioRelativeHash });
         cache.EnsureImageRelativeDirectoriesByHashes(new[] { imageRelativeHash });
@@ -187,17 +166,11 @@ public sealed class DirectoryResourceLookupCacheTests
         DirectoryResourceLookupCache cache = new DirectoryResourceLookupCache();
         cache.AddDir(
             "C:\\Songs\\A",
-            Array.Empty<uint>(),
-            Array.Empty<uint>(),
-            Array.Empty<uint>(),
             new uint[2] { 1u, 2u },
             Array.Empty<uint>(),
             Array.Empty<uint>());
         cache.AddDir(
             "C:\\Songs\\B",
-            Array.Empty<uint>(),
-            Array.Empty<uint>(),
-            Array.Empty<uint>(),
             new uint[2] { 2u, 3u },
             Array.Empty<uint>(),
             Array.Empty<uint>());
@@ -210,17 +183,11 @@ public sealed class DirectoryResourceLookupCacheTests
         string dirB = "C:\\Songs\\B";
         return DirectoryResourceLookupCache.CreateFromNativeCanonical(
             new[] { dirA, dirB },
-            new Dictionary<string, uint[]>(StringComparer.OrdinalIgnoreCase),
-            new Dictionary<string, uint[]>(StringComparer.OrdinalIgnoreCase),
-            new Dictionary<string, uint[]>(StringComparer.OrdinalIgnoreCase),
             new Dictionary<string, uint[]>(StringComparer.OrdinalIgnoreCase)
             {
                 { dirA, new uint[2] { 1u, 2u } },
                 { dirB, new uint[2] { 2u, 3u } }
             },
-            new Dictionary<string, uint[]>(StringComparer.OrdinalIgnoreCase),
-            new Dictionary<string, uint[]>(StringComparer.OrdinalIgnoreCase),
-            new Dictionary<string, uint[]>(StringComparer.OrdinalIgnoreCase),
             new Dictionary<string, uint[]>(StringComparer.OrdinalIgnoreCase),
             new Dictionary<string, uint[]>(StringComparer.OrdinalIgnoreCase),
             new Dictionary<string, uint[]>(StringComparer.OrdinalIgnoreCase),
@@ -240,15 +207,9 @@ public sealed class DirectoryResourceLookupCacheTests
     {
         Assert.IsNotNull(expected);
         Assert.IsNotNull(actual);
-        CollectionAssert.AreEquivalent(expected.AudioBaseNameHashArray, actual.AudioBaseNameHashArray);
-        CollectionAssert.AreEquivalent(expected.ImageBaseNameHashArray, actual.ImageBaseNameHashArray);
-        CollectionAssert.AreEquivalent(expected.MovieBaseNameHashArray, actual.MovieBaseNameHashArray);
         CollectionAssert.AreEquivalent(expected.AudioRelativePathHashArray, actual.AudioRelativePathHashArray);
         CollectionAssert.AreEquivalent(expected.ImageRelativePathHashArray, actual.ImageRelativePathHashArray);
         CollectionAssert.AreEquivalent(expected.MovieRelativePathHashArray, actual.MovieRelativePathHashArray);
-        CollectionAssert.AreEquivalent(expected.SelfOwnedAudioBaseNameHashArray, actual.SelfOwnedAudioBaseNameHashArray);
-        CollectionAssert.AreEquivalent(expected.SelfOwnedImageBaseNameHashArray, actual.SelfOwnedImageBaseNameHashArray);
-        CollectionAssert.AreEquivalent(expected.SelfOwnedMovieBaseNameHashArray, actual.SelfOwnedMovieBaseNameHashArray);
         CollectionAssert.AreEquivalent(expected.SelfOwnedAudioRelativePathHashArray, actual.SelfOwnedAudioRelativePathHashArray);
         CollectionAssert.AreEquivalent(expected.SelfOwnedImageRelativePathHashArray, actual.SelfOwnedImageRelativePathHashArray);
         CollectionAssert.AreEquivalent(expected.SelfOwnedMovieRelativePathHashArray, actual.SelfOwnedMovieRelativePathHashArray);

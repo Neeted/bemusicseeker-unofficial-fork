@@ -41,15 +41,9 @@ internal sealed class LibraryResourceIndex
         index.Source = "native_canonical";
         index.DirectoryLookupCache = DirectoryResourceLookupCache.CreateFromNativeCanonical(
             scanResult?.ChartDirectories,
-            scanResult?.AudioBaseNameHashesByChartDirectory,
-            scanResult?.ImageBaseNameHashesByChartDirectory,
-            scanResult?.MovieBaseNameHashesByChartDirectory,
             scanResult?.AudioRelativePathHashesByChartDirectory,
             scanResult?.ImageRelativePathHashesByChartDirectory,
             scanResult?.MovieRelativePathHashesByChartDirectory,
-            scanResult?.SelfOwnedAudioBaseNameHashesByChartDirectory,
-            scanResult?.SelfOwnedImageBaseNameHashesByChartDirectory,
-            scanResult?.SelfOwnedMovieBaseNameHashesByChartDirectory,
             scanResult?.SelfOwnedAudioRelativePathHashesByChartDirectory,
             scanResult?.SelfOwnedImageRelativePathHashesByChartDirectory,
             scanResult?.SelfOwnedMovieRelativePathHashesByChartDirectory,
@@ -64,15 +58,9 @@ internal sealed class LibraryResourceIndex
 
     public static LibraryResourceIndex CreateFromNativeCanonicalArrays(
         string[] chartDirectories,
-        uint[][] audioBaseNameHashesByDirectoryIndex,
-        uint[][] imageBaseNameHashesByDirectoryIndex,
-        uint[][] movieBaseNameHashesByDirectoryIndex,
         uint[][] audioRelativePathHashesByDirectoryIndex,
         uint[][] imageRelativePathHashesByDirectoryIndex,
         uint[][] movieRelativePathHashesByDirectoryIndex,
-        uint[][] selfOwnedAudioBaseNameHashesByDirectoryIndex,
-        uint[][] selfOwnedImageBaseNameHashesByDirectoryIndex,
-        uint[][] selfOwnedMovieBaseNameHashesByDirectoryIndex,
         uint[][] selfOwnedAudioRelativePathHashesByDirectoryIndex,
         uint[][] selfOwnedImageRelativePathHashesByDirectoryIndex,
         uint[][] selfOwnedMovieRelativePathHashesByDirectoryIndex,
@@ -85,15 +73,9 @@ internal sealed class LibraryResourceIndex
         index.Source = "native_canonical";
         index.DirectoryLookupCache = DirectoryResourceLookupCache.CreateFromNativeCanonicalArrays(
             chartDirectories,
-            audioBaseNameHashesByDirectoryIndex,
-            imageBaseNameHashesByDirectoryIndex,
-            movieBaseNameHashesByDirectoryIndex,
             audioRelativePathHashesByDirectoryIndex,
             imageRelativePathHashesByDirectoryIndex,
             movieRelativePathHashesByDirectoryIndex,
-            selfOwnedAudioBaseNameHashesByDirectoryIndex,
-            selfOwnedImageBaseNameHashesByDirectoryIndex,
-            selfOwnedMovieBaseNameHashesByDirectoryIndex,
             selfOwnedAudioRelativePathHashesByDirectoryIndex,
             selfOwnedImageRelativePathHashesByDirectoryIndex,
             selfOwnedMovieRelativePathHashesByDirectoryIndex,

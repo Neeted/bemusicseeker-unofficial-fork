@@ -583,7 +583,7 @@ Everything service 側で同時 query の内部競合があるため、個別の
 
 これにより `managedMaterializeMs` は約 2.3s から約 0.2s、`resource_index_build` は約 2.1s から約 0.05s まで縮小した。`bridgeRawBufferBytes` 自体はまだ約 380MB のままであり、次に同じ領域をさらに削る場合は native contract 側で送る hash group / reverse map payload そのものを小さくする必要がある。
 
-続く allBase 削除では、native bridge / managed scan result から旧 all-resource surface を削除した。保持する正本は audio / image / movie のカテゴリ別 base / chart-relative hash とカテゴリ別 reverse lookup だけである。
+続く allBase 削除では、旧 all-resource surface を削除した。保持する正本は audio / image / movie のカテゴリ別 chart-relative hash とカテゴリ別 reverse lookup だけである。
 
 - `EBridge_ScanChartAndResources` は `all_hash_*`, `self_all_hash_*`, `all_base_reverse_*`, `all_base_hash_count` を返さない。
 - `BmsScanResult` は `AllResourceBaseNameHashesByChartDirectory` / `SelfOwnedAllResourceBaseNameHashesByChartDirectory` を持たない。
@@ -592,6 +592,7 @@ Everything service 側で同時 query の内部競合があるため、個別の
 - generic all-base reverse lookup は削除した。導入先推定と reverse lookup はカテゴリ別 chart-relative key を使う。
 - resource health の WAV / BGA / MOV 存在判定もカテゴリ別 index を正本にする。譜面ファイルや別カテゴリ resource は、同じ stem でも存在扱いしない。
 - 拡張子なし union の live / lazy view は持たない。
+- managed `BmsScanResult` / `DirectoryResourceLookupCache.Entry` / `ChartResourceSnapshot` から category 別 basename surface を削除した。native packed result 内部の `base` blob 名は、bridge contract 側の transitional name として残るが、managed 公開 surface ではない。
 
 この変更は payload 削減と live cache 単純化の第一段である。実機での効果確認は `everything_scan` の `bridgeRawBufferBytes`, `managedDecodeMs`, `managedMaterializeMs`、および `resource_index_build` の悪化有無で見る。folder union 関連 metric は current log から削除済み。
 
@@ -603,7 +604,7 @@ folder operation cache cleanup も `DirectoryResourceLookupCache` 正本へ移�
 
 さらに導入先推定の final evaluation から category 別 basename hash の入力を外し、relative-only evaluation にした。`foo.wav` は chart-relative key `foo`、`sound/foo.wav` は `sound/foo` としてのみ照合し、basename hash は audio gate / candidate match / ancestor shadow suppression では使わない。続く整理で resource health / maintenance も同じ chart-relative key semantics へ寄せ、root 参照と subdirectory resource が同じ stem だけで一致する経路を削除した。native payload の base hash 整理は別 phase とする。
 
-次フェーズでは、残っている extensionless union 派生 API の利用箇所をさらに調査し、必要ならカテゴリ別 API または path 順 tie-break へ置き換える。特に導入先 tie-break で union を使う必要は薄く、同率に近い候補は曖昧候補として提示し、順序安定だけが必要なら path 名順で十分とする。
+次フェーズでは、native packed result 内部の `base` blob 名を contract ごと整理し、payload 上も chart-relative key surface だけにできるか確認する。特に導入先 tie-break で union を使う必要は薄く、同率に近い候補は曖昧候補として提示し、順序安定だけが必要なら path 名順で十分とする。
 
 2026-05-06 実機確認では次の状態になった。
 

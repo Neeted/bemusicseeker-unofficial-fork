@@ -18,43 +18,35 @@ internal static class ResourceSurfaceMaterializer
             return new DirectoryResourceLookupCache.Entry();
         }
 
-        HashSet<uint> audioBaseNameHashes = new HashSet<uint>();
-        HashSet<uint> imageBaseNameHashes = new HashSet<uint>();
-        HashSet<uint> movieBaseNameHashes = new HashSet<uint>();
         HashSet<uint> audioRelativePathHashes = new HashSet<uint>();
         HashSet<uint> imageRelativePathHashes = new HashSet<uint>();
         HashSet<uint> movieRelativePathHashes = new HashSet<uint>();
 
-        AddResourceHashes(rootDirectory, audioFilePaths, audioBaseNameHashes, audioRelativePathHashes);
-        AddResourceHashes(rootDirectory, imageFilePaths, imageBaseNameHashes, imageRelativePathHashes);
-        AddResourceHashes(rootDirectory, movieFilePaths, movieBaseNameHashes, movieRelativePathHashes);
+        AddResourceHashes(rootDirectory, audioFilePaths, audioRelativePathHashes);
+        AddResourceHashes(rootDirectory, imageFilePaths, imageRelativePathHashes);
+        AddResourceHashes(rootDirectory, movieFilePaths, movieRelativePathHashes);
 
         return new DirectoryResourceLookupCache.Entry(
-            audioBaseNameHashes.OrderBy((uint hash) => hash).ToArray(),
-            imageBaseNameHashes.OrderBy((uint hash) => hash).ToArray(),
-            movieBaseNameHashes.OrderBy((uint hash) => hash).ToArray(),
             audioRelativePathHashes.OrderBy((uint hash) => hash).ToArray(),
             imageRelativePathHashes.OrderBy((uint hash) => hash).ToArray(),
             movieRelativePathHashes.OrderBy((uint hash) => hash).ToArray());
     }
 
-    private static void AddResourceHashes(string rootDirectory, IEnumerable<string> absolutePaths, ISet<uint> categoryBaseNameHashes, ISet<uint> categoryRelativePathHashes)
+    private static void AddResourceHashes(string rootDirectory, IEnumerable<string> absolutePaths, ISet<uint> categoryRelativePathHashes)
     {
         foreach (string absolutePath in (absolutePaths ?? Enumerable.Empty<string>())
             .Where((string path) => !string.IsNullOrWhiteSpace(path))
             .Select(Path.GetFullPath)
             .Distinct(StringComparer.OrdinalIgnoreCase))
         {
-            string baseName = ChartResourcePathNormalizer.NormalizeFileNameForLookup(Path.GetFileName(absolutePath));
             string relativePath = ChartResourcePathNormalizer.NormalizeResourceKeyForLookup(
                 ChartResourcePathNormalizer.NormalizeRelativePathForLookup(rootDirectory, absolutePath));
-            if (string.IsNullOrWhiteSpace(baseName) || string.IsNullOrWhiteSpace(relativePath))
+            if (string.IsNullOrWhiteSpace(relativePath))
             {
                 continue;
             }
 
             uint relativePathHash = ChartResourceKeyHash.GetLookupHash(relativePath);
-            categoryBaseNameHashes.Add(relativePathHash);
             categoryRelativePathHashes.Add(relativePathHash);
         }
     }

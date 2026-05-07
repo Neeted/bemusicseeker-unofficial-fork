@@ -232,15 +232,9 @@ public class BmsScanResult
 {
     public HashSet<string> ChartFilePaths { get; set; }
     public HashSet<string> ChartDirectories { get; set; }
-    public Dictionary<string, uint[]> AudioBaseNameHashesByChartDirectory { get; set; }
-    public Dictionary<string, uint[]> ImageBaseNameHashesByChartDirectory { get; set; }
-    public Dictionary<string, uint[]> MovieBaseNameHashesByChartDirectory { get; set; }
     public Dictionary<string, uint[]> AudioRelativePathHashesByChartDirectory { get; set; }
     public Dictionary<string, uint[]> ImageRelativePathHashesByChartDirectory { get; set; }
     public Dictionary<string, uint[]> MovieRelativePathHashesByChartDirectory { get; set; }
-    public Dictionary<string, uint[]> SelfOwnedAudioBaseNameHashesByChartDirectory { get; set; }
-    public Dictionary<string, uint[]> SelfOwnedImageBaseNameHashesByChartDirectory { get; set; }
-    public Dictionary<string, uint[]> SelfOwnedMovieBaseNameHashesByChartDirectory { get; set; }
     public Dictionary<string, uint[]> SelfOwnedAudioRelativePathHashesByChartDirectory { get; set; }
     public Dictionary<string, uint[]> SelfOwnedImageRelativePathHashesByChartDirectory { get; set; }
     public Dictionary<string, uint[]> SelfOwnedMovieRelativePathHashesByChartDirectory { get; set; }
@@ -251,6 +245,7 @@ public class BmsScanResult
 
 - `sibling:` query は廃止した
 - resource は存在ディレクトリではなく「最長一致する chart directory」へ再集約する
+- managed scan result は chart-relative key のみを保持し、旧 basename surface は公開しない
 - `FilesByDirectory` は source of truth ではなくなり、推定用 cache は hash-only shape に統一される
 
 これらの連携機能と拡張により、元のシステムから大幅な楽曲スキャンパフォーマンス向上とポータブルでの運用が可能になっています。

@@ -30,7 +30,7 @@ public class BmsScanExecutionResult
 
 	public ulong HashDirCount { get; set; }
 
-	public ulong CategoryBaseHashEntryCount { get; set; }
+	public ulong CategoryResourceKeyHashEntryCount { get; set; }
 
 	public bool NativeBridgeUsed { get; set; }
 
@@ -78,11 +78,11 @@ public class BmsScanExecutionResult
 
 	public ulong MovieAssignedCount { get; set; }
 
-	public ulong AudioBaseHashCount { get; set; }
+	public ulong AudioResourceKeyHashCount { get; set; }
 
-	public ulong ImageBaseHashCount { get; set; }
+	public ulong ImageResourceKeyHashCount { get; set; }
 
-	public ulong MovieBaseHashCount { get; set; }
+	public ulong MovieResourceKeyHashCount { get; set; }
 
 	public ulong AudioRelativeHashCount { get; set; }
 

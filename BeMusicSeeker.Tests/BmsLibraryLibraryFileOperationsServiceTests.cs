@@ -165,8 +165,8 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             uint sourceHash = ChartResourceKeyHash.GetLookupHash("root.wav");
             uint nestedHash = ChartResourceKeyHash.GetLookupHash("chart.bms");
             DirectoryResourceLookupCache lookupCache = new DirectoryResourceLookupCache();
-            lookupCache.AddDir(sourceRoot, Array.Empty<uint>(), Array.Empty<uint>(), Array.Empty<uint>(), new[] { sourceHash }, Array.Empty<uint>(), Array.Empty<uint>());
-            lookupCache.AddDir(nestedDirectoryPath, Array.Empty<uint>(), Array.Empty<uint>(), Array.Empty<uint>(), new[] { nestedHash }, Array.Empty<uint>(), Array.Empty<uint>());
+            lookupCache.AddDir(sourceRoot, new[] { sourceHash }, Array.Empty<uint>(), Array.Empty<uint>());
+            lookupCache.AddDir(nestedDirectoryPath, new[] { nestedHash }, Array.Empty<uint>(), Array.Empty<uint>());
             lookupCache.EnsureAudioRelativeDirectoriesByHashes(new[] { sourceHash, nestedHash });
 
             TestableBmsFile libraryFile = CreateFile(Path.Combine(sourceRoot, "Nested", "chart.bms"));

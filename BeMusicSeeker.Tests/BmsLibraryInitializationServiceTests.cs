@@ -1327,9 +1327,8 @@ public sealed class BmsLibraryInitializationServiceTests
             };
             keepFile.SetHash(BMSFile.CreateBMSFileFromFile(chartPath).hash);
 
-            uint audioBaseHash = ChartResourceKeyHash.GetLookupHash("sound\\sound");
-            uint imageBaseHash = ChartResourceKeyHash.GetLookupHash("bg");
-            uint audioRelativeHash = audioBaseHash;
+            uint audioRelativeHash = ChartResourceKeyHash.GetLookupHash("sound\\sound");
+            uint imageRelativeHash = ChartResourceKeyHash.GetLookupHash("bg");
 
             BmsLibraryInitializationService service = new BmsLibraryInitializationService();
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
@@ -1343,39 +1342,27 @@ public sealed class BmsLibraryInitializationServiceTests
                     {
                         ChartFilePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { chartPath },
                         ChartDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { chartDirectoryPath },
-                        AudioBaseNameHashesByChartDirectory = new Dictionary<string, uint[]>(StringComparer.OrdinalIgnoreCase)
-                        {
-                            { chartDirectoryPath, new[] { audioBaseHash } }
-                        },
-                        ImageBaseNameHashesByChartDirectory = new Dictionary<string, uint[]>(StringComparer.OrdinalIgnoreCase)
-                        {
-                            { chartDirectoryPath, new[] { imageBaseHash } }
-                        },
-                        MovieBaseNameHashesByChartDirectory = new Dictionary<string, uint[]>(StringComparer.OrdinalIgnoreCase)
-                        {
-                            { chartDirectoryPath, Array.Empty<uint>() }
-                        },
                         AudioRelativePathHashesByChartDirectory = new Dictionary<string, uint[]>(StringComparer.OrdinalIgnoreCase)
                         {
                             { chartDirectoryPath, new[] { audioRelativeHash } }
                         },
                         ImageRelativePathHashesByChartDirectory = new Dictionary<string, uint[]>(StringComparer.OrdinalIgnoreCase)
                         {
-                            { chartDirectoryPath, Array.Empty<uint>() }
+                            { chartDirectoryPath, new[] { imageRelativeHash } }
                         },
                         MovieRelativePathHashesByChartDirectory = new Dictionary<string, uint[]>(StringComparer.OrdinalIgnoreCase)
                         {
                             { chartDirectoryPath, Array.Empty<uint>() }
                         },
-                        SelfOwnedAudioBaseNameHashesByChartDirectory = new Dictionary<string, uint[]>(StringComparer.OrdinalIgnoreCase)
+                        SelfOwnedAudioRelativePathHashesByChartDirectory = new Dictionary<string, uint[]>(StringComparer.OrdinalIgnoreCase)
                         {
-                            { chartDirectoryPath, new[] { audioBaseHash } }
+                            { chartDirectoryPath, new[] { audioRelativeHash } }
                         },
-                        SelfOwnedImageBaseNameHashesByChartDirectory = new Dictionary<string, uint[]>(StringComparer.OrdinalIgnoreCase)
+                        SelfOwnedImageRelativePathHashesByChartDirectory = new Dictionary<string, uint[]>(StringComparer.OrdinalIgnoreCase)
                         {
-                            { chartDirectoryPath, new[] { imageBaseHash } }
+                            { chartDirectoryPath, new[] { imageRelativeHash } }
                         },
-                        SelfOwnedMovieBaseNameHashesByChartDirectory = new Dictionary<string, uint[]>(StringComparer.OrdinalIgnoreCase)
+                        SelfOwnedMovieRelativePathHashesByChartDirectory = new Dictionary<string, uint[]>(StringComparer.OrdinalIgnoreCase)
                         {
                             { chartDirectoryPath, Array.Empty<uint>() }
                         }
@@ -1390,11 +1377,8 @@ public sealed class BmsLibraryInitializationServiceTests
             Assert.AreEqual(1, entry.AudioFileNameHashCount);
             Assert.AreEqual(1, entry.ImageFileNameHashCount);
             Assert.AreEqual(0, entry.MovieFileNameHashCount);
-            Assert.IsTrue(entry.AudioBaseNameHashes.Contains(audioBaseHash));
-            Assert.IsTrue(entry.ImageBaseNameHashes.Contains(imageBaseHash));
             Assert.IsTrue(entry.AudioRelativePathHashes.Contains(audioRelativeHash));
-            Assert.AreEqual((ulong)1, result.AudioBaseHashEntryCount);
-            Assert.AreEqual((ulong)1, result.ImageBaseHashEntryCount);
+            Assert.IsTrue(entry.ImageRelativePathHashes.Contains(imageRelativeHash));
         });
     }
 
@@ -2415,15 +2399,9 @@ public sealed class BmsLibraryInitializationServiceTests
             resourcesByDirectory?.TryGetValue(chartDirectory, out resourceFiles);
             cache.AddDir(chartDirectory, resourceFiles ?? Array.Empty<string>());
             DirectoryResourceLookupCache.Entry entry = cache.GetEntryOrNull(chartDirectory) ?? new DirectoryResourceLookupCache.Entry();
-            result.AudioBaseNameHashesByChartDirectory[chartDirectory] = entry.AudioBaseNameHashArray;
-            result.ImageBaseNameHashesByChartDirectory[chartDirectory] = entry.ImageBaseNameHashArray;
-            result.MovieBaseNameHashesByChartDirectory[chartDirectory] = entry.MovieBaseNameHashArray;
             result.AudioRelativePathHashesByChartDirectory[chartDirectory] = entry.AudioRelativePathHashArray;
             result.ImageRelativePathHashesByChartDirectory[chartDirectory] = entry.ImageRelativePathHashArray;
             result.MovieRelativePathHashesByChartDirectory[chartDirectory] = entry.MovieRelativePathHashArray;
-            result.SelfOwnedAudioBaseNameHashesByChartDirectory[chartDirectory] = entry.SelfOwnedAudioBaseNameHashArray;
-            result.SelfOwnedImageBaseNameHashesByChartDirectory[chartDirectory] = entry.SelfOwnedImageBaseNameHashArray;
-            result.SelfOwnedMovieBaseNameHashesByChartDirectory[chartDirectory] = entry.SelfOwnedMovieBaseNameHashArray;
             result.SelfOwnedAudioRelativePathHashesByChartDirectory[chartDirectory] = entry.SelfOwnedAudioRelativePathHashArray;
             result.SelfOwnedImageRelativePathHashesByChartDirectory[chartDirectory] = entry.SelfOwnedImageRelativePathHashArray;
             result.SelfOwnedMovieRelativePathHashesByChartDirectory[chartDirectory] = entry.SelfOwnedMovieRelativePathHashArray;

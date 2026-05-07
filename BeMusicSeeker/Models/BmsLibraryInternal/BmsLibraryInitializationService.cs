@@ -323,9 +323,6 @@ internal sealed class BmsLibraryInitializationService
             + " nativePackMs=" + scanResult.PackMs
             + " managedMaterializeMs=" + result.ManagedMaterializeMs
             + " payloadBytes=" + result.BridgeRawBufferBytes);
-        result.AudioBaseHashEntryCount = CountHashEntries(mergedScanResult.AudioBaseNameHashesByChartDirectory);
-        result.ImageBaseHashEntryCount = CountHashEntries(mergedScanResult.ImageBaseNameHashesByChartDirectory);
-        result.MovieBaseHashEntryCount = CountHashEntries(mergedScanResult.MovieBaseNameHashesByChartDirectory);
         result.AudioRelativeHashEntryCount = CountHashEntries(mergedScanResult.AudioRelativePathHashesByChartDirectory);
         result.ImageRelativeHashEntryCount = CountHashEntries(mergedScanResult.ImageRelativePathHashesByChartDirectory);
         result.MovieRelativeHashEntryCount = CountHashEntries(mergedScanResult.MovieRelativePathHashesByChartDirectory);
@@ -524,9 +521,6 @@ internal sealed class BmsLibraryInitializationService
             + " instl_dst_cleanup_ms=" + result.InstlDstCleanupMs);
         logInstallPerformance?.Invoke(
             "song_tbl_file_check_cache_counts chartDirs=" + result.DirectoryCount
-            + " audioBaseHashEntries=" + result.AudioBaseHashEntryCount
-            + " imageBaseHashEntries=" + result.ImageBaseHashEntryCount
-            + " movieBaseHashEntries=" + result.MovieBaseHashEntryCount
             + " audioRelHashEntries=" + result.AudioRelativeHashEntryCount
             + " imageRelHashEntries=" + result.ImageRelativeHashEntryCount
             + " movieRelHashEntries=" + result.MovieRelativeHashEntryCount);
@@ -1595,15 +1589,9 @@ internal sealed class BmsLibraryInitializationService
         {
             merged.ChartFilePaths.UnionWith(scanResult.ChartFilePaths ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase));
             merged.ChartDirectories.UnionWith(scanResult.ChartDirectories ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase));
-            MergeHashDictionary(merged.AudioBaseNameHashesByChartDirectory, scanResult.AudioBaseNameHashesByChartDirectory);
-            MergeHashDictionary(merged.ImageBaseNameHashesByChartDirectory, scanResult.ImageBaseNameHashesByChartDirectory);
-            MergeHashDictionary(merged.MovieBaseNameHashesByChartDirectory, scanResult.MovieBaseNameHashesByChartDirectory);
             MergeHashDictionary(merged.AudioRelativePathHashesByChartDirectory, scanResult.AudioRelativePathHashesByChartDirectory);
             MergeHashDictionary(merged.ImageRelativePathHashesByChartDirectory, scanResult.ImageRelativePathHashesByChartDirectory);
             MergeHashDictionary(merged.MovieRelativePathHashesByChartDirectory, scanResult.MovieRelativePathHashesByChartDirectory);
-            MergeHashDictionary(merged.SelfOwnedAudioBaseNameHashesByChartDirectory, scanResult.SelfOwnedAudioBaseNameHashesByChartDirectory);
-            MergeHashDictionary(merged.SelfOwnedImageBaseNameHashesByChartDirectory, scanResult.SelfOwnedImageBaseNameHashesByChartDirectory);
-            MergeHashDictionary(merged.SelfOwnedMovieBaseNameHashesByChartDirectory, scanResult.SelfOwnedMovieBaseNameHashesByChartDirectory);
             MergeHashDictionary(merged.SelfOwnedAudioRelativePathHashesByChartDirectory, scanResult.SelfOwnedAudioRelativePathHashesByChartDirectory);
             MergeHashDictionary(merged.SelfOwnedImageRelativePathHashesByChartDirectory, scanResult.SelfOwnedImageRelativePathHashesByChartDirectory);
             MergeHashDictionary(merged.SelfOwnedMovieRelativePathHashesByChartDirectory, scanResult.SelfOwnedMovieRelativePathHashesByChartDirectory);

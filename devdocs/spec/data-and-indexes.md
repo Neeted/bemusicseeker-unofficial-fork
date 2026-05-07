@@ -62,21 +62,16 @@
 - `ChartFilePaths`
 - `ChartDirectories`
 - aggregate ownership
-  - `AudioBaseNameHashesByChartDirectory`
-  - `ImageBaseNameHashesByChartDirectory`
-  - `MovieBaseNameHashesByChartDirectory`
   - `AudioRelativePathHashesByChartDirectory`
   - `ImageRelativePathHashesByChartDirectory`
   - `MovieRelativePathHashesByChartDirectory`
 - self-only ownership
-  - `SelfOwnedAudioBaseNameHashesByChartDirectory`
-  - `SelfOwnedImageBaseNameHashesByChartDirectory`
-  - `SelfOwnedMovieBaseNameHashesByChartDirectory`
   - `SelfOwnedAudioRelativePathHashesByChartDirectory`
   - `SelfOwnedImageRelativePathHashesByChartDirectory`
   - `SelfOwnedMovieRelativePathHashesByChartDirectory`
 
-`BaseNameHashes` という旧名の field は残っているが、現行の照合・health の正本ではない。resource は「存在ディレクトリ」ではなく、chart directory keyed に再集約する。
+managed scan result は chart-relative key だけを保持する。native bridge payload 内部には互換名由来の `base` blob 名が残ることがあるが、managed model へ公開しない。
+resource は「存在ディレクトリ」ではなく、chart directory keyed に再集約する。
 未分類 all-resource surface は保持しない。必要な場合の union は audio / image / movie のカテゴリ配列からその場で派生し、live cache としては持たない。
 `2026-04-23` 時点では次の二重 semantics を持つ。
 

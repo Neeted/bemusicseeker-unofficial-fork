@@ -748,9 +748,6 @@ internal static class EverythingNative
 				RootPath = rootPath,
 				ChartPaths = decodedEntry.ChartPaths ?? Array.Empty<string>(),
 				ResourceEntry = new DirectoryResourceLookupCache.Entry(
-					decodedEntry.AudioBaseHashes,
-					decodedEntry.ImageBaseHashes,
-					decodedEntry.MovieBaseHashes,
 					decodedEntry.AudioRelativeHashes,
 					decodedEntry.ImageRelativeHashes,
 					decodedEntry.MovieRelativeHashes),
@@ -806,33 +803,21 @@ internal static class EverythingNative
 	{
 		HashSet<string> chartFilePaths = MaterializeStringSet(decodedResult?.ChartPaths);
 		HashSet<string> chartDirectories = MaterializeStringSet(decodedResult?.ChartDirectories);
-		Dictionary<string, uint[]> audioBase = MaterializeHashMap(decodedResult?.ChartDirectories, decodedResult?.AudioBaseHashes);
-		Dictionary<string, uint[]> imageBase = MaterializeHashMap(decodedResult?.ChartDirectories, decodedResult?.ImageBaseHashes);
-		Dictionary<string, uint[]> movieBase = MaterializeHashMap(decodedResult?.ChartDirectories, decodedResult?.MovieBaseHashes);
-		Dictionary<string, uint[]> audioRelative = ReferenceEquals(decodedResult?.AudioRelativeHashes, decodedResult?.AudioBaseHashes) ? audioBase : MaterializeHashMap(decodedResult?.ChartDirectories, decodedResult?.AudioRelativeHashes);
-		Dictionary<string, uint[]> imageRelative = ReferenceEquals(decodedResult?.ImageRelativeHashes, decodedResult?.ImageBaseHashes) ? imageBase : MaterializeHashMap(decodedResult?.ChartDirectories, decodedResult?.ImageRelativeHashes);
-		Dictionary<string, uint[]> movieRelative = ReferenceEquals(decodedResult?.MovieRelativeHashes, decodedResult?.MovieBaseHashes) ? movieBase : MaterializeHashMap(decodedResult?.ChartDirectories, decodedResult?.MovieRelativeHashes);
-		Dictionary<string, uint[]> selfOwnedAudioBase = MaterializeHashMap(decodedResult?.ChartDirectories, decodedResult?.SelfOwnedAudioBaseHashes);
-		Dictionary<string, uint[]> selfOwnedImageBase = MaterializeHashMap(decodedResult?.ChartDirectories, decodedResult?.SelfOwnedImageBaseHashes);
-		Dictionary<string, uint[]> selfOwnedMovieBase = MaterializeHashMap(decodedResult?.ChartDirectories, decodedResult?.SelfOwnedMovieBaseHashes);
-		Dictionary<string, uint[]> selfOwnedAudioRelative = ReferenceEquals(decodedResult?.SelfOwnedAudioRelativeHashes, decodedResult?.SelfOwnedAudioBaseHashes) ? selfOwnedAudioBase : MaterializeHashMap(decodedResult?.ChartDirectories, decodedResult?.SelfOwnedAudioRelativeHashes);
-		Dictionary<string, uint[]> selfOwnedImageRelative = ReferenceEquals(decodedResult?.SelfOwnedImageRelativeHashes, decodedResult?.SelfOwnedImageBaseHashes) ? selfOwnedImageBase : MaterializeHashMap(decodedResult?.ChartDirectories, decodedResult?.SelfOwnedImageRelativeHashes);
-		Dictionary<string, uint[]> selfOwnedMovieRelative = ReferenceEquals(decodedResult?.SelfOwnedMovieRelativeHashes, decodedResult?.SelfOwnedMovieBaseHashes) ? selfOwnedMovieBase : MaterializeHashMap(decodedResult?.ChartDirectories, decodedResult?.SelfOwnedMovieRelativeHashes);
+		Dictionary<string, uint[]> audioRelative = MaterializeHashMap(decodedResult?.ChartDirectories, decodedResult?.AudioRelativeHashes);
+		Dictionary<string, uint[]> imageRelative = MaterializeHashMap(decodedResult?.ChartDirectories, decodedResult?.ImageRelativeHashes);
+		Dictionary<string, uint[]> movieRelative = MaterializeHashMap(decodedResult?.ChartDirectories, decodedResult?.MovieRelativeHashes);
+		Dictionary<string, uint[]> selfOwnedAudioRelative = MaterializeHashMap(decodedResult?.ChartDirectories, decodedResult?.SelfOwnedAudioRelativeHashes);
+		Dictionary<string, uint[]> selfOwnedImageRelative = MaterializeHashMap(decodedResult?.ChartDirectories, decodedResult?.SelfOwnedImageRelativeHashes);
+		Dictionary<string, uint[]> selfOwnedMovieRelative = MaterializeHashMap(decodedResult?.ChartDirectories, decodedResult?.SelfOwnedMovieRelativeHashes);
 		ulong hashDirCount = (ulong)chartDirectories.Count;
-		ulong categoryBaseHashEntryCount = header.audio_base_hash_count + header.image_base_hash_count + header.movie_base_hash_count;
+		ulong categoryResourceKeyHashEntryCount = header.audio_relative_hash_count + header.image_relative_hash_count + header.movie_relative_hash_count;
 		BmsScanResult scanResult = new BmsScanResult
 		{
 			ChartFilePaths = chartFilePaths,
 			ChartDirectories = chartDirectories,
-			AudioBaseNameHashesByChartDirectory = audioBase,
-			ImageBaseNameHashesByChartDirectory = imageBase,
-			MovieBaseNameHashesByChartDirectory = movieBase,
 			AudioRelativePathHashesByChartDirectory = audioRelative,
 			ImageRelativePathHashesByChartDirectory = imageRelative,
 			MovieRelativePathHashesByChartDirectory = movieRelative,
-			SelfOwnedAudioBaseNameHashesByChartDirectory = selfOwnedAudioBase,
-			SelfOwnedImageBaseNameHashesByChartDirectory = selfOwnedImageBase,
-			SelfOwnedMovieBaseNameHashesByChartDirectory = selfOwnedMovieBase,
 			SelfOwnedAudioRelativePathHashesByChartDirectory = selfOwnedAudioRelative,
 			SelfOwnedImageRelativePathHashesByChartDirectory = selfOwnedImageRelative,
 			SelfOwnedMovieRelativePathHashesByChartDirectory = selfOwnedMovieRelative
@@ -847,7 +832,7 @@ internal static class EverythingNative
 			BuildResultMs = 0L,
 			HashBuildMs = 0L,
 			HashDirCount = hashDirCount,
-			CategoryBaseHashEntryCount = categoryBaseHashEntryCount,
+			CategoryResourceKeyHashEntryCount = categoryResourceKeyHashEntryCount,
 			ChartQueryHitCount = header.chart_query_hits,
 			AudioQueryHitCount = header.audio_query_hits,
 			ImageQueryHitCount = header.image_query_hits,
@@ -863,9 +848,9 @@ internal static class EverythingNative
 			AudioAssignedCount = header.audio_assigned_count,
 			ImageAssignedCount = header.image_assigned_count,
 			MovieAssignedCount = header.movie_assigned_count,
-			AudioBaseHashCount = header.audio_base_hash_count,
-			ImageBaseHashCount = header.image_base_hash_count,
-			MovieBaseHashCount = header.movie_base_hash_count,
+			AudioResourceKeyHashCount = header.audio_relative_hash_count,
+			ImageResourceKeyHashCount = header.image_relative_hash_count,
+			MovieResourceKeyHashCount = header.movie_relative_hash_count,
 			AudioRelativeHashCount = header.audio_relative_hash_count,
 			ImageRelativeHashCount = header.image_relative_hash_count,
 			MovieRelativeHashCount = header.movie_relative_hash_count,
@@ -888,15 +873,9 @@ internal static class EverythingNative
 			Result = scanResult,
 			ResourceIndex = LibraryResourceIndex.CreateFromNativeCanonicalArrays(
 				decodedResult?.ChartDirectories,
-				decodedResult?.AudioBaseHashes,
-				decodedResult?.ImageBaseHashes,
-				decodedResult?.MovieBaseHashes,
 				decodedResult?.AudioRelativeHashes,
 				decodedResult?.ImageRelativeHashes,
 				decodedResult?.MovieRelativeHashes,
-				decodedResult?.SelfOwnedAudioBaseHashes,
-				decodedResult?.SelfOwnedImageBaseHashes,
-				decodedResult?.SelfOwnedMovieBaseHashes,
 				decodedResult?.SelfOwnedAudioRelativeHashes,
 				decodedResult?.SelfOwnedImageRelativeHashes,
 				decodedResult?.SelfOwnedMovieRelativeHashes,

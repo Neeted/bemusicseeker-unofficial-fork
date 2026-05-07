@@ -134,12 +134,6 @@ internal sealed class SongTableFileCheckResult
 
     public long InstlDstCleanupMs { get; set; }
 
-    public ulong AudioBaseHashEntryCount { get; set; }
-
-    public ulong ImageBaseHashEntryCount { get; set; }
-
-    public ulong MovieBaseHashEntryCount { get; set; }
-
     public ulong AudioRelativeHashEntryCount { get; set; }
 
     public ulong ImageRelativeHashEntryCount { get; set; }

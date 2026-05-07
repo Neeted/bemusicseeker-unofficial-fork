@@ -115,9 +115,6 @@ public sealed class BmsLibraryMaintenanceServiceTests
             DirectoryResourceLookupCache cache = new DirectoryResourceLookupCache();
             cache.AddDir(
                 tempDirectoryPath,
-                Array.Empty<uint>(),
-                Array.Empty<uint>(),
-                Array.Empty<uint>(),
                 new[] { ChartResourceKeyHash.GetLookupHash(@"sound\foo") },
                 Array.Empty<uint>(),
                 Array.Empty<uint>());
@@ -152,9 +149,6 @@ public sealed class BmsLibraryMaintenanceServiceTests
             DirectoryResourceLookupCache cache = new DirectoryResourceLookupCache();
             cache.AddDir(
                 tempDirectoryPath,
-                Array.Empty<uint>(),
-                Array.Empty<uint>(),
-                Array.Empty<uint>(),
                 new[] { ChartResourceKeyHash.GetLookupHash("foo") },
                 Array.Empty<uint>(),
                 Array.Empty<uint>());
@@ -189,9 +183,6 @@ public sealed class BmsLibraryMaintenanceServiceTests
             DirectoryResourceLookupCache cache = new DirectoryResourceLookupCache();
             cache.AddDir(
                 tempDirectoryPath,
-                Array.Empty<uint>(),
-                Array.Empty<uint>(),
-                Array.Empty<uint>(),
                 new[] { ChartResourceKeyHash.GetLookupHash("foo") },
                 Array.Empty<uint>(),
                 Array.Empty<uint>());

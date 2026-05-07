@@ -22,9 +22,9 @@ internal static class BmsFileScannerResultBuilder
             BuildResultMs = buildMs,
             HashBuildMs = buildMs,
             HashDirCount = (ulong)(scanResult.ChartDirectories?.Count ?? 0),
-            CategoryBaseHashEntryCount = CountHashEntries(scanResult.AudioBaseNameHashesByChartDirectory)
-                + CountHashEntries(scanResult.ImageBaseNameHashesByChartDirectory)
-                + CountHashEntries(scanResult.MovieBaseNameHashesByChartDirectory),
+            CategoryResourceKeyHashEntryCount = CountHashEntries(scanResult.AudioRelativePathHashesByChartDirectory)
+                + CountHashEntries(scanResult.ImageRelativePathHashesByChartDirectory)
+                + CountHashEntries(scanResult.MovieRelativePathHashesByChartDirectory),
             ChartQueryHitCount = enumerationResult?.GetQueryHitCount(ChartDirectoryScanBuilder.ChartGroupName) ?? 0UL,
             AudioQueryHitCount = enumerationResult?.GetQueryHitCount(ChartDirectoryScanBuilder.AudioGroupName) ?? 0UL,
             ImageQueryHitCount = enumerationResult?.GetQueryHitCount(ChartDirectoryScanBuilder.ImageGroupName) ?? 0UL,
@@ -37,15 +37,15 @@ internal static class BmsFileScannerResultBuilder
             AudioAssignedCount = (ulong)(enumerationResult?.GetPaths(ChartDirectoryScanBuilder.AudioGroupName)?.Count ?? 0),
             ImageAssignedCount = (ulong)(enumerationResult?.GetPaths(ChartDirectoryScanBuilder.ImageGroupName)?.Count ?? 0),
             MovieAssignedCount = (ulong)(enumerationResult?.GetPaths(ChartDirectoryScanBuilder.MovieGroupName)?.Count ?? 0),
-            AudioBaseHashCount = CountHashEntries(scanResult.AudioBaseNameHashesByChartDirectory),
-            ImageBaseHashCount = CountHashEntries(scanResult.ImageBaseNameHashesByChartDirectory),
-            MovieBaseHashCount = CountHashEntries(scanResult.MovieBaseNameHashesByChartDirectory),
+            AudioResourceKeyHashCount = CountHashEntries(scanResult.AudioRelativePathHashesByChartDirectory),
+            ImageResourceKeyHashCount = CountHashEntries(scanResult.ImageRelativePathHashesByChartDirectory),
+            MovieResourceKeyHashCount = CountHashEntries(scanResult.MovieRelativePathHashesByChartDirectory),
             AudioRelativeHashCount = CountHashEntries(scanResult.AudioRelativePathHashesByChartDirectory),
             ImageRelativeHashCount = CountHashEntries(scanResult.ImageRelativePathHashesByChartDirectory),
             MovieRelativeHashCount = CountHashEntries(scanResult.MovieRelativePathHashesByChartDirectory),
-            AudioResourceDirCount = (ulong)(scanResult.AudioBaseNameHashesByChartDirectory?.Count ?? 0),
-            ImageResourceDirCount = (ulong)(scanResult.ImageBaseNameHashesByChartDirectory?.Count ?? 0),
-            MovieResourceDirCount = (ulong)(scanResult.MovieBaseNameHashesByChartDirectory?.Count ?? 0),
+            AudioResourceDirCount = (ulong)(scanResult.AudioRelativePathHashesByChartDirectory?.Count ?? 0),
+            ImageResourceDirCount = (ulong)(scanResult.ImageRelativePathHashesByChartDirectory?.Count ?? 0),
+            MovieResourceDirCount = (ulong)(scanResult.MovieRelativePathHashesByChartDirectory?.Count ?? 0),
             Result = scanResult,
             ResourceIndex = LibraryResourceIndex.CreateFromScanResult(scanResult)
         };

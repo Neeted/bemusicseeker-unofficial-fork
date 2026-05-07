@@ -708,9 +708,9 @@ public sealed class BmsLibraryInstallEstimationServiceTests
 
             Assert.AreEqual(2, snapshot.ChartCount);
             ChartResourceSnapshot expectedDefinedResources = ChartResourceSnapshot.CreateAggregate(new BMSFile[] { primary, secondary });
-            CollectionAssert.AreEquivalent(expectedDefinedResources.AudioBaseNameHashes.ToArray(), snapshot.DefinedResources.AudioBaseNameHashes.ToArray());
-            CollectionAssert.AreEquivalent(expectedDefinedResources.VisualBaseNameHashes.ToArray(), snapshot.DefinedResources.VisualBaseNameHashes.ToArray());
-            CollectionAssert.AreEquivalent(expectedDefinedResources.MovieBaseNameHashes.ToArray(), snapshot.DefinedResources.MovieBaseNameHashes.ToArray());
+            CollectionAssert.AreEquivalent(expectedDefinedResources.AudioRelativePathHashes.ToArray(), snapshot.DefinedResources.AudioRelativePathHashes.ToArray());
+            CollectionAssert.AreEquivalent(expectedDefinedResources.VisualRelativePathHashes.ToArray(), snapshot.DefinedResources.VisualRelativePathHashes.ToArray());
+            CollectionAssert.AreEquivalent(expectedDefinedResources.MovieRelativePathHashes.ToArray(), snapshot.DefinedResources.MovieRelativePathHashes.ToArray());
             Assert.AreEqual(1, snapshot.BundledAudioCount);
             Assert.AreEqual(1, snapshot.BundledImageCount);
             Assert.AreEqual(1, snapshot.BundledMovieCount);
@@ -1914,26 +1914,12 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         DirectoryResourceLookupCache lookupCache = new DirectoryResourceLookupCache();
         lookupCache.AddDir(
             parentDir,
-            Array.Empty<uint>(),
-            Array.Empty<uint>(),
-            Array.Empty<uint>(),
             new[] { parentZeroRelativeHash, parentOneRelativeHash },
-            Array.Empty<uint>(),
-            Array.Empty<uint>(),
-            Array.Empty<uint>(),
-            Array.Empty<uint>(),
-            Array.Empty<uint>(),
             Array.Empty<uint>(),
             Array.Empty<uint>());
         lookupCache.AddDir(
             childDir,
-            Array.Empty<uint>(),
-            Array.Empty<uint>(),
-            Array.Empty<uint>(),
             new[] { childZeroRelativeHash, childOneRelativeHash },
-            Array.Empty<uint>(),
-            Array.Empty<uint>(),
-            Array.Empty<uint>(),
             Array.Empty<uint>(),
             Array.Empty<uint>(),
             new[] { childZeroRelativeHash, childOneRelativeHash },
@@ -1971,26 +1957,12 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         DirectoryResourceLookupCache lookupCache = new DirectoryResourceLookupCache();
         lookupCache.AddDir(
             parentDir,
-            Array.Empty<uint>(),
-            Array.Empty<uint>(),
-            Array.Empty<uint>(),
             new[] { parentZeroRelativeHash, parentOneRelativeHash },
-            Array.Empty<uint>(),
-            Array.Empty<uint>(),
-            Array.Empty<uint>(),
-            Array.Empty<uint>(),
-            Array.Empty<uint>(),
             Array.Empty<uint>(),
             Array.Empty<uint>());
         lookupCache.AddDir(
             childDir,
-            Array.Empty<uint>(),
-            Array.Empty<uint>(),
-            Array.Empty<uint>(),
             new[] { childZeroRelativeHash, childOneRelativeHash },
-            Array.Empty<uint>(),
-            Array.Empty<uint>(),
-            Array.Empty<uint>(),
             Array.Empty<uint>(),
             Array.Empty<uint>(),
             new[] { childZeroRelativeHash, childOneRelativeHash },
@@ -2248,26 +2220,12 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         DirectoryResourceLookupCache lookupCache = new DirectoryResourceLookupCache();
         lookupCache.AddDir(
             parentDir,
-            Array.Empty<uint>(),
-            Array.Empty<uint>(),
-            Array.Empty<uint>(),
             new[] { parentZeroRelativeHash, parentOneRelativeHash },
-            Array.Empty<uint>(),
-            Array.Empty<uint>(),
-            Array.Empty<uint>(),
-            Array.Empty<uint>(),
-            Array.Empty<uint>(),
             Array.Empty<uint>(),
             Array.Empty<uint>());
         lookupCache.AddDir(
             childDir,
-            Array.Empty<uint>(),
-            Array.Empty<uint>(),
-            Array.Empty<uint>(),
             new[] { childZeroRelativeHash, childOneRelativeHash },
-            Array.Empty<uint>(),
-            Array.Empty<uint>(),
-            Array.Empty<uint>(),
             Array.Empty<uint>(),
             Array.Empty<uint>(),
             new[] { childZeroRelativeHash, childOneRelativeHash },
