@@ -151,14 +151,19 @@ internal sealed class BmsLibraryInitializationService
 
         HashSet<BMSFile> deletedFileSet = deletedFiles.Count > 0 ? new HashSet<BMSFile>(deletedFiles) : null;
         Stopwatch stopwatchChartDigestApply = Stopwatch.StartNew();
-        foreach (BMSFile item in loadedSongs)
+        using (BMSFile.SuppressPropertyChangedScope())
         {
-            if (deletedFileSet == null || !deletedFileSet.Contains(item))
+            foreach (BMSFile item in loadedSongs)
             {
+                if (deletedFileSet != null && deletedFileSet.Contains(item))
+                {
+                    continue;
+                }
                 if (!string.IsNullOrWhiteSpace(item.hash) && result.ChartDigestMap.TryGetValue(item.hash, out string sha256))
                 {
                     item.ApplySha256(sha256);
                 }
+                result.LoadedFiles.Add(item);
             }
         }
         stopwatchChartDigestApply.Stop();
@@ -166,15 +171,6 @@ internal sealed class BmsLibraryInitializationService
 
         // chart_info is display/search metadata. Loading and applying every row can dominate startup
         // on large libraries, so the application hydrates it after the core install workflow is operable.
-        foreach (BMSFile item in loadedSongs)
-        {
-            if (deletedFileSet != null && deletedFileSet.Contains(item))
-            {
-                continue;
-            }
-            result.LoadedFiles.Add(item);
-        }
-
         logInstallPerformance?.Invoke(
             "song_tbl_load_projection projection=catalog mode=" + result.SongMaterializeMode
             + " readMs=" + result.SongTableLoadMs

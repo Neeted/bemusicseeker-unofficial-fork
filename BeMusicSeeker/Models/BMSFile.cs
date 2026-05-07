@@ -379,8 +379,6 @@ public class BMSFile : LR2SongDB.song
         }
     }
 
-    private static readonly Regex sha256HashRegex = new Regex("^[a-f0-9]{64}$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
-
     public virtual string sha256
     {
         get
@@ -671,12 +669,12 @@ public class BMSFile : LR2SongDB.song
 
     internal void ClearWarningsByCategory(ChartWarningCategory category)
     {
-        Warnings.RemoveCategory(category);
+        _warnings?.RemoveCategory(category);
     }
 
     internal void ClearWarning(ChartWarningKind kind)
     {
-        Warnings.Remove(kind);
+        _warnings?.Remove(kind);
     }
 
     internal void ClearStructuredWarnings()
@@ -2362,10 +2360,44 @@ public class BMSFile : LR2SongDB.song
         {
             return null;
         }
-        string normalized = value.Trim().ToLowerInvariant();
-        if (!sha256HashRegex.IsMatch(normalized))
+        int start = 0;
+        int end = value.Length - 1;
+        while (start <= end && char.IsWhiteSpace(value[start]))
+        {
+            start++;
+        }
+        while (end >= start && char.IsWhiteSpace(value[end]))
+        {
+            end--;
+        }
+        int length = end - start + 1;
+        if (length != 64)
         {
             throw new FormatException("SHA256 HASH ではありません");
+        }
+        bool hasUpper = false;
+        for (int i = start; i <= end; i++)
+        {
+            char c = value[i];
+            if ((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))
+            {
+                continue;
+            }
+            if (c >= 'A' && c <= 'F')
+            {
+                hasUpper = true;
+                continue;
+            }
+            throw new FormatException("SHA256 HASH ではありません");
+        }
+        if (start == 0 && length == value.Length)
+        {
+            return hasUpper ? value.ToLowerInvariant() : value;
+        }
+        string normalized = value.Substring(start, length);
+        if (hasUpper)
+        {
+            normalized = normalized.ToLowerInvariant();
         }
         return normalized;
     }
