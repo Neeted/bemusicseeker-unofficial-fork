@@ -608,6 +608,26 @@ folder operation cache cleanup も `DirectoryResourceLookupCache` 正本へ移�
 
 さらに native scan path の managed materialize から `BmsScanResult` resource dictionaries を外した。通常起動では native decoded arrays から `LibraryResourceIndex` / `DirectoryResourceLookupCache` を直接作るため、`BmsScanResult` は `ChartFilePaths` / `ChartDirectories` だけを持つ。managed fallback scan と旧分離 scan / テスト用 merge path では resource dictionaries を保持し、`LibraryResourceIndex.CreateFromScanResult(...)` の入力として使う。`resource_index_build chartRelativeKeys` と `song_tbl_file_check_cache_counts` は native header の `audio/image/movieResourceKeyHashCount` を使うため、native path で辞書を作らなくてもログ上の key count は維持される。
 
+続く Native-1 では、resource assignment worker 内の `relativePrefix + fileName` と uppercase 文字列の一時 allocation を削減した。worker ごとの scratch buffer で `foo.wav -> foo`、`sound/foo.wav -> sound/foo` の chart-relative key を作り、同じ uppercase + xxHash32 semantics で hash 化する。また native pack の内訳として `packReverseBuildMs`, `packLayoutMs`, `packAllocMs`, `packWriteMs` を追加し、`packMs` の次のボトルネックを分解して見られるようにした。
+
+2026-05-07 14:22 の実機確認では次の状態になった。
+
+- `everything_scan totalMs=24703`
+- `nativeBridgeMs=22294`
+- `managedDecodeMs=2234`
+- `managedMaterializeMs=143`
+- `audioAssignMs=835`
+- `imageAssignMs=72`
+- `movieAssignMs=2`
+- `assignMs=909`
+- `packMs=2938`
+- `packReverseBuildMs=2295`
+- `packLayoutMs=12`
+- `packAllocMs=0`
+- `packWriteMs=118`
+
+allocation 削減により `audioAssignMs` は直近ログの約 3.0s から約 0.8s へ縮小した。次の native 側候補は `packReverseBuildMs` で、audio reverse map の構築方法または reverse index payload 表現の見直しが本命になる。
+
 2026-05-06 実機確認では次の状態になった。
 
 - `everything_scan totalMs=26640`

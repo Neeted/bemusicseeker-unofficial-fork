@@ -70,6 +70,14 @@ public class BmsScanExecutionResult
 
 	public long PackMs { get; set; }
 
+	public long PackReverseBuildMs { get; set; }
+
+	public long PackLayoutMs { get; set; }
+
+	public long PackAllocMs { get; set; }
+
+	public long PackWriteMs { get; set; }
+
 	public ulong ChartDirectoryCount { get; set; }
 
 	public ulong AudioAssignedCount { get; set; }

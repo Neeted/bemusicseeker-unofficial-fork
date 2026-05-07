@@ -94,9 +94,13 @@ struct EBridgeResult {
 	unsigned int* movie_relative_reverse_offsets;
 	unsigned int* movie_relative_reverse_lengths;
 	unsigned char* movie_relative_reverse_indices_blob;
+	long long pack_reverse_build_ms;
+	long long pack_layout_ms;
+	long long pack_alloc_ms;
+	long long pack_write_ms;
 };
 
-static constexpr unsigned int EBRIDGE_SCAN_CONTRACT_VERSION = 2026050702u;
+static constexpr unsigned int EBRIDGE_SCAN_CONTRACT_VERSION = 2026050703u;
 
 struct EBridgeGroupedQuery {
 	unsigned int group_id;
@@ -262,6 +266,10 @@ struct BridgeExecutionStats {
 	long long assignMs = 0;
 	long long dedupeMs = 0;
 	long long packMs = 0;
+	long long packReverseBuildMs = 0;
+	long long packLayoutMs = 0;
+	long long packAllocMs = 0;
+	long long packWriteMs = 0;
 	unsigned long long audioAssignedCount = 0;
 	unsigned long long imageAssignedCount = 0;
 	unsigned long long movieAssignedCount = 0;
@@ -564,6 +572,33 @@ std::wstring NormalizeLookupFileNameFast(const std::wstring& fileName) {
 	return NormalizeFileNameForLookup(fileName);
 }
 
+bool NormalizeLookupFileNameInto(const std::wstring& fileName, std::wstring& output) {
+	output.clear();
+	if (fileName.empty()) {
+		return false;
+	}
+	size_t start = 0;
+	size_t slash = fileName.find_last_of(L"\\/");
+	if (slash != std::wstring::npos) {
+		start = slash + 1;
+	}
+	size_t end = fileName.size();
+	size_t dot = fileName.find_last_of(L'.');
+	if (dot != std::wstring::npos && dot >= start) {
+		end = dot;
+	}
+	if (end <= start) {
+		return false;
+	}
+	output.assign(fileName.data() + start, end - start);
+	for (wchar_t& ch : output) {
+		if (ch == L'/') {
+			ch = L'\\';
+		}
+	}
+	return !output.empty();
+}
+
 bool IsDotOrDotDot(const std::wstring& segment) {
 	return segment == L"." || segment == L"..";
 }
@@ -762,6 +797,44 @@ uint32_t GetLookupHash(const std::wstring& normalizedLookupValue) {
 
 uint32_t GetLookupHashFast(const std::wstring& normalizedLookupValue) {
 	return GetLookupHash(normalizedLookupValue);
+}
+
+uint32_t GetLookupHashWithUpperScratch(const std::wstring& normalizedLookupValue, std::wstring& upperScratch) {
+	if (normalizedLookupValue.empty()) {
+		return 0u;
+	}
+	int required = LCMapStringEx(LOCALE_NAME_INVARIANT, LCMAP_UPPERCASE, normalizedLookupValue.c_str(), static_cast<int>(normalizedLookupValue.size()), nullptr, 0, nullptr, nullptr, 0);
+	if (required <= 0) {
+		upperScratch.assign(normalizedLookupValue);
+		for (auto& ch : upperScratch) {
+			ch = static_cast<wchar_t>(towupper(ch));
+		}
+	} else {
+		upperScratch.resize(required);
+		int converted = LCMapStringEx(LOCALE_NAME_INVARIANT, LCMAP_UPPERCASE, normalizedLookupValue.c_str(), static_cast<int>(normalizedLookupValue.size()), upperScratch.data(), required, nullptr, nullptr, 0);
+		if (converted <= 0) {
+			upperScratch.assign(normalizedLookupValue);
+			for (auto& ch : upperScratch) {
+				ch = static_cast<wchar_t>(towupper(ch));
+			}
+		} else if (static_cast<size_t>(converted) < upperScratch.size()) {
+			upperScratch.resize(converted);
+		}
+	}
+	const uint8_t* bytes = reinterpret_cast<const uint8_t*>(upperScratch.data());
+	size_t byteLen = upperScratch.size() * sizeof(wchar_t);
+	return CalcXxHash32(bytes, byteLen, 0u);
+}
+
+uint32_t GetLookupHashFromPartsFast(const std::wstring& normalizedRelativePrefix, const std::wstring& normalizedFileName, std::wstring& combinedScratch, std::wstring& upperScratch) {
+	if (normalizedFileName.empty()) {
+		return 0u;
+	}
+	combinedScratch.clear();
+	combinedScratch.reserve(normalizedRelativePrefix.size() + normalizedFileName.size());
+	combinedScratch.append(normalizedRelativePrefix);
+	combinedScratch.append(normalizedFileName);
+	return GetLookupHashWithUpperScratch(combinedScratch, upperScratch);
 }
 
 template <typename Callback>
@@ -1267,19 +1340,17 @@ void ProcessResourceCategory(
 		offset = endIndex;
 		workers.emplace_back([&workItems, &workerBuffers, workerIndex, startIndex, endIndex]() {
 			WorkerCategoryBuffers& buffers = workerBuffers[workerIndex];
+			std::wstring normalizedBaseNameScratch;
+			std::wstring combinedLookupScratch;
+			std::wstring upperLookupScratch;
 			for (size_t i = startIndex; i < endIndex; i++) {
 				const ResourceDirectoryInfo& info = workItems[i].first;
 				for (const std::wstring& fileName : workItems[i].second) {
-					std::wstring normalizedBaseName = NormalizeLookupFileNameFast(fileName);
-					if (normalizedBaseName.empty()) {
+					if (!NormalizeLookupFileNameInto(fileName, normalizedBaseNameScratch)) {
 						continue;
 					}
 					for (const ResourceOwnerInfo& ownerInfo : info.owners) {
-						std::wstring normalizedRelativePath = NormalizeRelativeLookupPathFast(ownerInfo.relativePrefix, normalizedBaseName);
-						if (normalizedRelativePath.empty()) {
-							continue;
-						}
-						uint32_t relativeHash = GetLookupHashFast(normalizedRelativePath);
+						uint32_t relativeHash = GetLookupHashFromPartsFast(ownerInfo.relativePrefix, normalizedBaseNameScratch, combinedLookupScratch, upperLookupScratch);
 						AppendHashVector(buffers.categoryResourceKeyHashesByChartIndex, ownerInfo.chartDirIndex, relativeHash);
 						if (ownerInfo.selfOwned) {
 							AppendHashVector(buffers.selfCategoryResourceKeyHashesByChartIndex, ownerInfo.chartDirIndex, relativeHash);
@@ -1481,6 +1552,7 @@ int BuildResultBuffer(const ScanAggregate& aggregate, const BridgeExecutionStats
 		return BRIDGE_INVALID_ARGUMENT;
 	}
 
+	auto layoutStartedAt = std::chrono::steady_clock::now();
 	size_t chartCount = aggregate.chartPaths.size();
 	size_t dirCount = aggregate.chartDirectories.size();
 
@@ -1492,6 +1564,9 @@ int BuildResultBuffer(const ScanAggregate& aggregate, const BridgeExecutionStats
 	size_t selfAudioResourceKeyHashCount = SumHashCount(aggregate.selfAudioResourceKeyHashes);
 	size_t selfImageResourceKeyHashCount = SumHashCount(aggregate.selfImageResourceKeyHashes);
 	size_t selfMovieResourceKeyHashCount = SumHashCount(aggregate.selfMovieResourceKeyHashes);
+	long long layoutMs = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - layoutStartedAt).count();
+
+	auto reverseBuildStartedAt = std::chrono::steady_clock::now();
 	ReverseHashGroup audioRelativeReverse;
 	ReverseHashGroup imageRelativeReverse;
 	ReverseHashGroup movieRelativeReverse;
@@ -1501,6 +1576,9 @@ int BuildResultBuffer(const ScanAggregate& aggregate, const BridgeExecutionStats
 	audioReverseWorker.join();
 	imageReverseWorker.join();
 	movieReverseWorker.join();
+	long long reverseBuildMs = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - reverseBuildStartedAt).count();
+
+	layoutStartedAt = std::chrono::steady_clock::now();
 	size_t audioRelativeReverseIndexCount = SumReverseIndexCount(audioRelativeReverse);
 	size_t imageRelativeReverseIndexCount = SumReverseIndexCount(imageRelativeReverse);
 	size_t movieRelativeReverseIndexCount = SumReverseIndexCount(movieRelativeReverse);
@@ -1546,7 +1624,9 @@ int BuildResultBuffer(const ScanAggregate& aggregate, const BridgeExecutionStats
 	size_t imageRelativeReverseIndicesPos = cursor; cursor += imageRelativeReverseIndexCount * sizeof(uint32_t);
 	size_t movieRelativeReverseIndicesPos = cursor; cursor += movieRelativeReverseIndexCount * sizeof(uint32_t);
 	size_t totalBytes = cursor;
+	layoutMs += std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - layoutStartedAt).count();
 
+	auto allocStartedAt = std::chrono::steady_clock::now();
 	uint8_t* raw = reinterpret_cast<uint8_t*>(std::malloc(totalBytes));
 	if (!raw) {
 		return BRIDGE_OUT_OF_MEMORY;
@@ -1554,6 +1634,9 @@ int BuildResultBuffer(const ScanAggregate& aggregate, const BridgeExecutionStats
 
 	auto* result = reinterpret_cast<EBridgeResult*>(raw);
 	std::memset(result, 0, sizeof(EBridgeResult));
+	long long allocMs = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - allocStartedAt).count();
+
+	auto writeStartedAt = std::chrono::steady_clock::now();
 	WriteStringBlob(raw, chartOffsetsPos, chartBlobPos, aggregate.chartPaths, result->chart_offsets, result->chart_blob);
 	WriteStringBlob(raw, dirOffsetsPos, dirBlobPos, aggregate.chartDirectories, result->dir_offsets, result->dir_blob);
 	WriteHashGroup(raw, audioResourceKeyOffsetsPos, audioResourceKeyLengthsPos, audioResourceKeyHashesPos, aggregate.audioResourceKeyHashes, result->audio_resource_key_hash_offsets, result->audio_resource_key_hash_lengths, result->audio_resource_key_hashes_blob);
@@ -1565,6 +1648,7 @@ int BuildResultBuffer(const ScanAggregate& aggregate, const BridgeExecutionStats
 	WriteReverseHashGroup(raw, audioRelativeReverseKeysPos, audioRelativeReverseOffsetsPos, audioRelativeReverseLengthsPos, audioRelativeReverseIndicesPos, audioRelativeReverse, result->audio_relative_reverse_keys, result->audio_relative_reverse_offsets, result->audio_relative_reverse_lengths, result->audio_relative_reverse_indices_blob);
 	WriteReverseHashGroup(raw, imageRelativeReverseKeysPos, imageRelativeReverseOffsetsPos, imageRelativeReverseLengthsPos, imageRelativeReverseIndicesPos, imageRelativeReverse, result->image_relative_reverse_keys, result->image_relative_reverse_offsets, result->image_relative_reverse_lengths, result->image_relative_reverse_indices_blob);
 	WriteReverseHashGroup(raw, movieRelativeReverseKeysPos, movieRelativeReverseOffsetsPos, movieRelativeReverseLengthsPos, movieRelativeReverseIndicesPos, movieRelativeReverse, result->movie_relative_reverse_keys, result->movie_relative_reverse_offsets, result->movie_relative_reverse_lengths, result->movie_relative_reverse_indices_blob);
+	long long writeMs = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - writeStartedAt).count();
 
 	result->contract_version = EBRIDGE_SCAN_CONTRACT_VERSION;
 	result->header_size = static_cast<unsigned int>(sizeof(EBridgeResult));
@@ -1583,6 +1667,10 @@ int BuildResultBuffer(const ScanAggregate& aggregate, const BridgeExecutionStats
 	result->assign_ms = stats.assignMs;
 	result->dedupe_ms = stats.dedupeMs;
 	result->pack_ms = stats.packMs;
+	result->pack_reverse_build_ms = reverseBuildMs;
+	result->pack_layout_ms = layoutMs;
+	result->pack_alloc_ms = allocMs;
+	result->pack_write_ms = writeMs;
 	result->chart_directory_count = static_cast<unsigned long long>(dirCount);
 	result->audio_assigned_count = stats.audioAssignedCount;
 	result->image_assigned_count = stats.imageAssignedCount;

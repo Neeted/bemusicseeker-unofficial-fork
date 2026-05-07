@@ -44,6 +44,10 @@ The native ABI returns only one per-category hash surface for these keys. Manage
 single native `resource_key` surface onto its existing `RelativePathHash` model; there is no
 separate relative-hash payload.
 
+The fixed scan log exposes `packMs` plus `packReverseBuildMs`, `packLayoutMs`,
+`packAllocMs`, and `packWriteMs`. These timings describe native packed result construction
+after query, owner assignment, and dedupe have completed.
+
 `sibling:` based resource collection is no longer used.
 
 ## Build
