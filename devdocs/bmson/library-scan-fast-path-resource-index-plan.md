@@ -317,7 +317,7 @@ install-ready projection を導入する場合は、次のどちらかを実装�
 
 譜面 resource reference はすべて chart-relative resource key として扱う。resource key は拡張子を落とした path 込みファイル名であり、`foo.wav` は key `foo`、`sound/foo.wav` は key `sound/foo` である。basename-only と subdirectory relative path を別系統の推定材料として扱わない。
 
-2026-05-05 の Phase 4B / 5A 追加修正では、native contract を `2026050503` へ更新し、native 側の `base` 系 hash もこの resource key を返すようにした。これにより C# 側では `DirectoryResourceLookupCache` だけで health / install estimation を処理する。native packed result では `base` と `relative` が同じ category は同じ blob / offset / length を指し、managed decoder も同じ配列 / dictionary を再利用する。
+2026-05-05 の Phase 4B / 5A 追加修正では、native contract を更新し、native 側も chart-relative resource key を返すようにした。これにより C# 側では `DirectoryResourceLookupCache` だけで health / install estimation を処理する。2026-05-07 の duplicate surface 削除後は、native packed result も per-category `resource_key` surface だけを返す。managed 側の `RelativePathHash` は app model 上の意味名として残すが、native ABI には別の relative hash payload を持たない。
 
 ### Key Changes
 
@@ -326,7 +326,7 @@ install-ready projection を導入する場合は、次のどちらかを実装�
 - audio / image / movie の group / assign / merge / pack を native 側で完結させる。
 - resource-key -> candidate directory reverse lookup を native 側で構築、または packed result から C# が単純に詰め替えるだけにする。
 - pending package / zip ごとの推定 batch では destination reverse lookup を構築しない。batch 側は package source surface と完成済み destination index を照合するだけにする。
-- basename hash という名前の旧 field は互換名として残っているが、中身は chart-relative resource key hash である。basename-only fast path の正本にはしない。
+- native / managed の scan log は `resourceKeyHashCount` を正本にする。旧 basename / relative の重複 count は出さない。
 - `__all__` 的な総列挙を main path に入れない。
 - native bridge と managed decoder は 1 つの contract に固定する。bridge DLL が不一致なら fallback せず初期化失敗として扱う。
 
@@ -516,7 +516,7 @@ Phase 4 / Phase 5 を前倒しして、native chart-relative resource index cont
 - C# と native bridge DLL は同一ビルド成果物としてセット配布する。旧 native ABI / V1 decode / verify compare は残さない。旧 bridge DLL や header contract 不一致は fallback せず初期化失敗にする。
 - Everything API / service が使えない場合は managed file scan に fallback する。これは旧 native ABI 互換ではなく、同じ chart-relative semantics の managed scan result から `LibraryResourceIndex` を作る経路である。
 - `resource key` は拡張子を落とした path 込み key とし、`foo.wav -> foo`、`sound/foo.wav -> sound/foo` に統一した。
-- native packed result では base / relative が同一 semantics の category blob を alias し、managed decode / materialize でも配列と dictionary を再利用する。
+- native packed result は chart-relative `resource_key` surface だけを返す。managed decode はそれを既存の `RelativePathHash` model へ直接詰め替え、base / relative の alias payload は持たない。
 - startup では別の relative path 補助 index を構築せず、resource index build log にも補助 index build 時間を出さない。
 - native reverse map は巨大 `unordered_map<uint, vector<uint>>` ではなく、`(hash, directoryIndex)` の flat pair を sort して構築する。これにより 800 万 key 規模の allocation / pack cost を抑える。
 - managed reverse map decode は `int[] + List<string>` の二重詰め替えを避け、native indices から `string[]` を直接作る。
@@ -592,7 +592,7 @@ Everything service 側で同時 query の内部競合があるため、個別の
 - generic all-base reverse lookup は削除した。導入先推定と reverse lookup はカテゴリ別 chart-relative key を使う。
 - resource health の WAV / BGA / MOV 存在判定もカテゴリ別 index を正本にする。譜面ファイルや別カテゴリ resource は、同じ stem でも存在扱いしない。
 - 拡張子なし union の live / lazy view は持たない。
-- managed `BmsScanResult` / `DirectoryResourceLookupCache.Entry` / `ChartResourceSnapshot` から category 別 basename surface を削除した。native packed result 内部の `base` blob 名は、bridge contract 側の transitional name として残るが、managed 公開 surface ではない。
+- managed `BmsScanResult` / `DirectoryResourceLookupCache.Entry` / `ChartResourceSnapshot` から category 別 basename surface を削除した。native packed result も `base` blob 名を使わず、カテゴリ別 chart-relative `resource_key` surface だけを返す。
 
 この変更は payload 削減と live cache 単純化の第一段である。実機での効果確認は `everything_scan` の `bridgeRawBufferBytes`, `managedDecodeMs`, `managedMaterializeMs`、および `resource_index_build` の悪化有無で見る。folder union 関連 metric は current log から削除済み。
 
@@ -602,9 +602,9 @@ mixed package の既所持 chart hash から複数の配置先候補が見つか
 
 folder operation cache cleanup も `DirectoryResourceLookupCache` 正本へ移した。install / merge 後は `DirectoryResourceLookupCache.AddDir(...)` だけで category resource index を更新し、folder move / rename は `ReplaceDirWithResult(...)`、whole-folder delete / merge cleanup は `Keys` から配下 directory を列挙して `RemoveDirWithResult(...)` で処理する。`ChartResourceKeyHash` は静的 hash helper であり、instance cache API は存在しない。
 
-さらに導入先推定の final evaluation から category 別 basename hash の入力を外し、relative-only evaluation にした。`foo.wav` は chart-relative key `foo`、`sound/foo.wav` は `sound/foo` としてのみ照合し、basename hash は audio gate / candidate match / ancestor shadow suppression では使わない。続く整理で resource health / maintenance も同じ chart-relative key semantics へ寄せ、root 参照と subdirectory resource が同じ stem だけで一致する経路を削除した。native payload の base hash 整理は別 phase とする。
+さらに導入先推定の final evaluation から category 別 basename hash の入力を外し、relative-only evaluation にした。`foo.wav` は chart-relative key `foo`、`sound/foo.wav` は `sound/foo` としてのみ照合し、basename hash は audio gate / candidate match / ancestor shadow suppression では使わない。続く整理で resource health / maintenance も同じ chart-relative key semantics へ寄せ、root 参照と subdirectory resource が同じ stem だけで一致する経路を削除した。native bridge contract も `base_hash` 名を使わず、chart-relative resource-key hash contract に寄せた。
 
-次フェーズでは、native packed result 内部の `base` blob 名を contract ごと整理し、payload 上も chart-relative key surface だけにできるか確認する。特に導入先 tie-break で union を使う必要は薄く、同率に近い候補は曖昧候補として提示し、順序安定だけが必要なら path 名順で十分とする。
+続く duplicate surface 削除では、native packed result に残っていた resource-key / relative-key の alias surface を削除した。native は chart-relative key surface だけを返し、managed 側だけが互換的な `RelativePathHash` 名で受ける。特に導入先 tie-break で union を使う必要は薄く、同率に近い候補は曖昧候補として提示し、順序安定だけが必要なら path 名順で十分とする。
 
 2026-05-06 実機確認では次の状態になった。
 

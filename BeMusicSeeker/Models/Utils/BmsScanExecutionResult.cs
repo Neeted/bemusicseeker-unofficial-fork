@@ -84,12 +84,6 @@ public class BmsScanExecutionResult
 
 	public ulong MovieResourceKeyHashCount { get; set; }
 
-	public ulong AudioRelativeHashCount { get; set; }
-
-	public ulong ImageRelativeHashCount { get; set; }
-
-	public ulong MovieRelativeHashCount { get; set; }
-
 	public ulong AudioResourceDirCount { get; set; }
 
 	public ulong ImageResourceDirCount { get; set; }

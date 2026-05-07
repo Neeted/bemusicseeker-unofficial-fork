@@ -32,16 +32,17 @@ The bridge returns a chart-directory keyed hash-only result with two ownership v
 - chart file paths
 - chart directories
 - aggregate ownership
-  - audio/image/movie basename hashes by chart directory
-  - audio/image/movie relative-path hashes by chart directory
+  - audio/image/movie chart-relative resource-key hashes by chart directory
 - self-only ownership
-  - audio/image/movie basename hashes by chart directory
-  - audio/image/movie relative-path hashes by chart directory
+  - audio/image/movie chart-relative resource-key hashes by chart directory
 
 Aggregate ownership means a resource is visible from every ancestor chart directory on its path.  
 Self-only ownership means the resource is visible only from the nearest owning chart directory.
-The bridge does not return an all-resource basename surface. If managed code needs a folder-level union,
-it derives one from the audio/image/movie category arrays.
+The bridge does not return basename or all-resource surfaces. Managed code treats every resource
+reference as a chart-relative resource key, so `foo.wav` is `foo` and `sound/foo.wav` is `sound/foo`.
+The native ABI returns only one per-category hash surface for these keys. Managed code maps that
+single native `resource_key` surface onto its existing `RelativePathHash` model; there is no
+separate relative-hash payload.
 
 `sibling:` based resource collection is no longer used.
 
