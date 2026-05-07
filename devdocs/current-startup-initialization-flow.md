@@ -11,6 +11,8 @@
 
 導入可能を早くするために必要な background work を単に後回しへ隠すのではなく、`startup_install_estimation_ready` と `startup_initialization_complete` の両方を観測する。
 
+2026-05-07 時点の通常起動では、導入可能 readiness は概ね 20 秒前後、UI 操作可能は 21 秒前後まで短縮済みである。一方で `startup_initialization_complete` は 39 秒前後で、操作可能後の background tail がまだ残る。以後の主対象は導入可能 critical path ではなく、`chart_info_hydration` を中心とした startup background tail である。
+
 ## Startup
 
 ```text
@@ -80,6 +82,8 @@ metadata bundle は所持譜面から生成した DB 由来情報ではなく、
 
 native bridge と C# 側は同一ビルド成果物として扱う。Everything が使えない場合の managed scan fallback は残すが、古い native DLL / 旧 ABI / contract mismatch への互換 fallback は行わない。
 
+Everything scan は install readiness に必要な destination resource index と reverse lookup surface を完成させる処理である。現行契約では、通常起動で全 audio / image / movie result を列挙し、resource-key -> candidate directory reverse lookup まで native scan 成果物に含める。これを未完成のまま `startup_install_estimation_ready` にしたり、pending package batch 側の lazy build へ持ち越したりしない。
+
 resource index は chart-relative resource key を正本にする。`foo.wav` は `foo`、`sound/foo.wav` は `sound/foo` として扱い、旧 basename-only matching は使わない。native bridge / managed fallback scan は audio / image / movie のカテゴリ別 index とカテゴリ別 reverse lookup だけを作り、旧 all-resource surface は保持しない。folder-level hash が必要な箇所ではカテゴリ union をその場で派生する。
 
 通常の native scan path では `LibraryResourceIndex` を native decoded arrays から直接構築し、`BmsScanResult` の resource dictionaries は materialize しない。`BmsScanResult` は file diff に必要な chart path / chart directory の carrier として使い、managed fallback scan とテスト用 merge path だけが resource dictionaries を持つ。
@@ -95,6 +99,8 @@ resource index は chart-relative resource key を正本にする。`foo.wav` �
 - pending package state: pending package list と、source package resource surface を復元済みまたは推定開始時に構築可能であること。
 
 `StartupInstallReadinessState` は `CatalogLoaded && DestinationResourceIndexReady && PendingPackagesRestored` を満たしたとき `InstallEstimationReady` に遷移する。`maintenance_hydration`、`chart_info_hydration`、playlist hydration、score/ranking refresh は install readiness の blocker にしない。
+
+導入可能 readiness の最新の支配項は Everything scan / native bridge である。`song_tbl_load` 由来の catalog load は 3 秒台まで短縮済みだが、file enumeration と並走しており、現状の導入可能 wall clock では Everything scan に隠れる。`song_tbl_load` の micro optimization は、導入可能短縮の主対象にはしない。
 
 | Log | 意味 |
 | --- | --- |
@@ -118,6 +124,8 @@ startup background scheduler は `MainWindowViewModel.QueueStartupBackgroundTask
 全体 concurrency は 3。`startup_background_summary` は task ごとに lane と dependency を出す。
 
 `Startup` では scheduler は `startup_ready_operable` 到達まで開始しない。`ReloadTables` / `ReloadFileDiff` / `FullReinitialize` は既に UI operable 後の operation なので、operation 開始時の reset 後も scheduler を runnable に保つ。これは reload 中に `playlist_entries_hydration` や `external_playlist_sync` を queue したまま止めないための仕様である。
+
+直近ログでは、background tail の支配項は `chart_info_hydration` である。`playlist_entries_hydration` と `maintenance_hydration` は lane により並走するが、`chart_info_hydration` は full `chart_info` row load / materialize が重く、`startup_initialization_complete` までの最後の長い task になりやすい。次に短縮する場合は、task を expected phase から外すのではなく、`chart_info_hydration` の no-op skip / persistent hydrated index / projection 設計を見直す。
 
 ## DB Access Policy
 

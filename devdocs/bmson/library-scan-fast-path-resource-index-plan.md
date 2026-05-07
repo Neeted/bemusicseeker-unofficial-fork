@@ -13,9 +13,33 @@
 
 2026-05-05 時点で方針を再整理する。`reverse_lookup_warmup_deferred` は「初期化完了の対象から外してログを短く見せる」対象ではない。relative path 対応以前は、この種の deferred warmup なしでも、導入先推定に必要な resource index まで含めて 30 秒程度で初期化できていた。目標は、reverse lookup 相当の情報も含めて初期化全体を短縮することである。
 
-したがって次の主方針は、C# 側で basename index / relative index / reverse lookup を後段で組み立てる構造をやめ、native scan result の時点で chart-relative resource index を完成形に近づけることである。C# は native packed result を 1 パスで詰め替え、旧互換 view を長期維持しない。
+2026-05-07 時点では、この主方針は実装済みである。C# 側で basename index / relative index / reverse lookup を後段で組み立てる構造はやめ、native scan result の時点で chart-relative resource index と reverse lookup surface を完成させる。C# は native packed result から `LibraryResourceIndex` / `DirectoryResourceLookupCache` を直接構築し、旧互換 view を通常起動の main path に残さない。
 
-特に zip を保留画面へ複数投入するシナリオでは、zip ごとに推定 batch が分かれる。reverse lookup を lazy 評価に寄せると、重い zip の初回推定だけでなく、各 batch の初回候補探索へ構築 cost が漏れやすい。全 zip を単一 batch にまとめると軽い zip まで重い zip に巻き込まれるため採用しない。したがって、推定開始前に必要な reverse lookup surface は完成しているべきであり、その完成処理自体を native 側集約で 30 秒台へ戻すことを目標にする。
+特に zip を保留画面へ複数投入するシナリオでは、zip ごとに推定 batch が分かれる。reverse lookup を lazy 評価に寄せると、重い zip の初回推定だけでなく、各 batch の初回候補探索へ構築 cost が漏れやすい。全 zip を単一 batch にまとめると軽い zip まで重い zip に巻き込まれるため採用しない。したがって、推定開始前に必要な reverse lookup surface は完成しているべきである。この前提を維持したまま native 側集約を進め、導入可能 readiness は通常起動で 20 秒前後まで短縮済みである。
+
+## Current Status: 2026-05-07
+
+導入可能までの critical path は、保留 package なし通常起動で概ね次の水準まで短縮済みである。
+
+- `song_tbl_load_projection projection=catalog mode=raw_string readMs=3393 materializeMs=3384 rows=209030`
+- `everything_scan totalMs=18477 nativeBridgeMs=16026 managedDecodeMs=2282 managedMaterializeMs=127`
+- `packMs=767 packReverseBuildMs=662 reverseIndexBytes=2`
+- `startup_install_estimation_ready elapsedMs=19915`
+- `startup_ready_operable elapsedMs=21130`
+- `startup_initialization_complete elapsedMs=39152`
+
+Everything scan は、現行契約では限界扱いにする。導入先推定に必要な destination resource index と reverse lookup surface を scan 成果物として完成させる限り、約 1138 万件の audio result path/name を Everything SDK から読み切る必要がある。Everything SDK 3.0.0.9 にはこの用途で使える bulk path API / callback streaming API は見当たらず、`PATH_AND_NAME` 1 call + native split、raw hit collection reserve、directory path 正規化前倒し、16-bit reverse index、flat reverse map pack まで実装済みである。残る短縮は Everything service / disk / IPC 側の実処理に強く支配され、導入可能 readiness の 13 秒待ちをコードだけで消す前提にはしない。
+
+`song_tbl_load` はまだ 3 秒台の cost を持つが、導入可能までの wall clock では Everything scan に隠れている。したがって、導入先推定可能までをさらに短くする目的では、当面 `song_tbl_load` micro optimization は主対象にしない。
+
+次の主対象は `startup_initialization_complete` までの background tail である。直近ログでは `startup_ready_operable` から `startup_initialization_complete` まで約 18 秒残り、支配項は `chart_info_hydration` の full row load / materialize である。
+
+- `chart_info_hydration lastMs=16853`
+- `playlist_entries_hydration lastMs=9117`
+- `maintenance_hydration lastMs=7073`
+- `ranking_refresh_deferred lastMs=3387`
+
+今後の優先は、導入可能 readiness を偽って早めることではなく、操作可能後の background が UI 体感・memory peak・完全初期化時間へ与える影響を減らすことである。実装候補は `chart_info_hydration` の persistent hydrated index / no-op skip / projection 再設計、または background tail の計測・回帰検知の整備とする。
 
 ## Phase 0 Log Findings
 
@@ -724,7 +748,30 @@ payload は直近の約 281MB から約 257MB へ減少した。scan 全体で�
 - `audioCallbackMs=3384`
 `PATH_AND_NAME` は SDK 側の zero-copy API ではないが、少なくとも現行環境では 2 call より速い。fixed scan ではこの経路だけを残し、source-root scan / grouped scan は別 surface として従来の path/name 2 call を維持する。
 
-2026-05-06 実機確認では次の状態になった。
+続く最終整理では、固定 scan の巨大 result timing を必要最小限にサンプリングし、directory path 正規化を full path split 時へ前倒しした。category raw hit storage は directory ごとに初期 reserve し、reverse lookup の native 中間表現は `vector<vector<uint32_t>>` ではなく `offset/length + flat directory indices` として保持する。これにより、reverse lookup は lazy 化せず install readiness 前に完成させたまま、pack の小 vector 群と per-key copy を削った。C# 側 decode は audio / image / movie のカテゴリ単位で並列化し、native packed result から `LibraryResourceIndex` / `DirectoryResourceLookupCache` を直接構築する。
+
+2026-05-07 17:52 の実機確認では次の状態になった。
+
+- `everything_scan totalMs=18577`
+- `nativeBridgeMs=16152`
+- `managedDecodeMs=2253`
+- `managedMaterializeMs=127`
+- `audioQueryMs=9987`
+- `audioReadMs=6068`
+- `assignMs=830`
+- `dedupeMs=540`
+- `packMs=766`
+- `packReverseBuildMs=662`
+- `audioReverseBuildMs=662`
+- `packWriteMs=92`
+- `startup_install_estimation_ready elapsedMs=19915`
+- `startup_ready_operable elapsedMs=21101`
+
+直前の通常起動ログでは `everything_scan totalMs=19868`、`packMs=2177`、`packReverseBuildMs=1522`、`startup_ready_operable elapsedMs=22363` だった。flat reverse map pack により scan 全体は約 1.3 秒、操作可能までは約 1.2 秒短縮した。
+
+これで Everything scan 側は、現行 install readiness contract を保ったまま行う最適化として一区切りにする。残る最大要因は Everything SDK / service から全 resource result を読み切る wall clock であり、導入先推定に必要な reverse lookup surface を batch 側へ lazy で持ち越す方針は採らない。
+
+参考として、前段の 2026-05-06 実機確認では次の状態だった。
 
 - `everything_scan totalMs=26640`
 - `nativeBridgeMs=23948`
@@ -828,6 +875,8 @@ Phase 8J の chart_info は `chartInfoRows=209904`, `parseFailureRows=24`, `dbLo
 
 - `chart_info_hydration` は DB count / schema version / hydrated index state から no-op 判定できる範囲を増やす。ただし session index が未 hydrated の通常起動では必要な load と owner apply は維持する。
 - 現行通常起動では `backfillCandidateOwners=0` で backfill skip は効いている。残りは `dbLoadMs=10104` が支配的で、owner apply は `229ms` と軽い。次に触るなら DB projection / persistent hydrated index の設計が必要で、Phase 8D より後に回す。
+
+2026-05-07 の最新通常起動では、導入可能 readiness 側が約 20 秒まで短縮された一方で、`chart_info_hydration` はまだ `dbLoadMs=16117`, `dbMaterializeMs=16117`, `ownerApplyMs=284`, `totalMs=16806`, `lastMs=16853` で startup background tail の支配項である。owner apply / index build ではなく full `chart_info` row load が支配的な点は変わっていない。次に初期化全体を短くするなら、単純な loader micro reduction ではなく、persistent hydrated index、no-op skip の条件、または session index の正本設計を見直す。
 
 ### Phase 8H: Playlist Entries Hydration Projection (implemented)
 
@@ -1166,6 +1215,8 @@ Acceptance criteria:
 
 - 通常起動はファイル列挙から destination resource index を作る。
 - destination resource index には導入先推定の reverse lookup surface を含める。これを lazy に package batch 側へ持ち越さない。
+- Everything scan は現行契約では一区切りにする。全 resource result を Everything SDK から読み切る cost は残るが、reverse lookup を未完成のまま readiness にしたり、package batch 側へ構築 cost を漏らしたりしない。
+- 導入可能 readiness の次の主対象は `song_tbl_load` micro reduction ではなく、操作可能後の background tail とする。`song_tbl_load` は Everything scan と並走しており、導入可能までの wall clock では当面 scan 側に隠れる。
 - 所持譜面差分がある場合も、列挙結果を正本として catalog / resource index を収束させる。
 - `ReloadFileDiff` は起動中の memory 正本を使えるため、通常起動とは別の軽量化を行う。
 - 導入可能までを短くするために無関係 task は blocker から外すが、初期化全体の短縮対象から外さない。
