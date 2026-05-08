@@ -178,6 +178,7 @@ public sealed class MainWindowContextMenuResourceTests
         string viewModelCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
         string[] keys =
         {
+            "Beatoraja_integration",
             "Use_beatoraja_scoreDB",
             "FilePath_scoreDB",
             "Open_scoreDB",
@@ -194,6 +195,7 @@ public sealed class MainWindowContextMenuResourceTests
                 StringAssert.Contains(languageJson, "\"" + key + "\"");
             }
         }
+        StringAssert.Contains(xaml, "Path=Resources.Beatoraja_integration");
         StringAssert.Contains(xaml, "Path=Resources.Use_beatoraja_scoreDB");
         StringAssert.Contains(xaml, "Path=Resources.FilePath_scoreDB");
         StringAssert.Contains(xaml, "Path=Resources.Open_scoreDB");
@@ -205,6 +207,31 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(xaml.Contains("Content=\"beatoraja"));
         Assert.IsFalse(xaml.Contains("Title=\"score.db"));
         Assert.IsFalse(xaml.Contains("Filter=\"score.db|score.db"));
+    }
+
+    [TestMethod]
+    public void SettingDialogGeneralAndPlaylistGroups_AreSeparatedByFeature()
+    {
+        string xaml = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "SettingDialog.xaml"));
+        string generalTab = ExtractBetween(
+            xaml,
+            "Name=\"tabItemGeneral\"",
+            "<TabItem Header=\"{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Appearance");
+        string playlistTab = ExtractBetween(
+            xaml,
+            "Path=Resources.Playlist, Mode=OneWay}\">",
+            "<TabItem Header=\"{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Install");
+
+        StringAssert.Contains(generalTab, "Path=Resources.Operation_Mode");
+        StringAssert.Contains(generalTab, "Path=Resources.Beatoraja_integration");
+        Assert.IsTrue(generalTab.IndexOf("Path=Resources.Operation_Mode", StringComparison.Ordinal) < generalTab.IndexOf("Path=Resources.Beatoraja_integration", StringComparison.Ordinal));
+        Assert.IsFalse(generalTab.Contains("Path=Resources.Appearance"));
+        Assert.IsTrue(xaml.IndexOf("Name=\"tabItemGeneral\"", StringComparison.Ordinal) < xaml.IndexOf("<TabItem Header=\"{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Appearance", StringComparison.Ordinal));
+        Assert.IsTrue(xaml.IndexOf("<TabItem Header=\"{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Appearance", StringComparison.Ordinal) < xaml.IndexOf("<TabItem Header=\"{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playback", StringComparison.Ordinal));
+
+        Assert.AreEqual(1, CountOccurrences(playlistTab, "Header=\"{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_table_uri, Mode=OneWay}\""));
+        Assert.AreEqual(1, CountOccurrences(playlistTab, "Header=\"{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_md5_url_mapping_tsv_uri, Mode=OneWay}\""));
+        Assert.AreEqual(0, CountOccurrences(playlistTab, "<Label Height=\"28\" Padding=\"0,6,0,0\" Content=\"{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_md5_url_mapping_tsv_uri"));
     }
 
     [TestMethod]
@@ -685,6 +712,7 @@ public sealed class MainWindowContextMenuResourceTests
     {
         string xaml = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "SettingDialog.xaml"));
 
+        Assert.AreEqual(1, CountOccurrences(xaml, "<TabItem Header=\"{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Appearance, Mode=OneWay}\">"));
         Assert.AreEqual(1, CountOccurrences(xaml, "ItemsSource=\"{Binding settingDialog.AppearanceThemeOptions}\""));
         Assert.AreEqual(1, CountOccurrences(xaml, "SelectedValue=\"{Binding settingDialog.AppearanceTheme, Mode=TwoWay}\""));
         Assert.AreEqual(1, CountOccurrences(xaml, "Path=Resources.Appearance_theme, Mode=OneWay"));

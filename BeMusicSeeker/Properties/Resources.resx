@@ -697,6 +697,9 @@ LR2をプレイヤーとして使用すると再生できない場合があり�
   <data name="Use_LR2_DB" xml:space="preserve">
     <value>LR2と連携する</value>
   </data>
+  <data name="Beatoraja_integration" xml:space="preserve">
+    <value>beatoraja連携</value>
+  </data>
   <data name="Use_beatoraja_scoreDB" xml:space="preserve">
     <value>beatorajaのスコアを読み込む</value>
   </data>

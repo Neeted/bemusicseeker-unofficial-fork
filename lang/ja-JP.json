@@ -247,6 +247,7 @@
   "Record_setting_encoder_desc": "※対応バイナリ: lame.exe|neroAacEnc.exe|opusenc.exe|flac.exe|oggenc2.exe",
   "Download": "ダウンロード",
   "Use_LR2_DB": "LR2と連携する",
+  "Beatoraja_integration": "beatoraja連携",
   "Use_beatoraja_scoreDB": "beatorajaのスコアを読み込む",
   "Diff_URL": "差分URL",
   "Open_association": "関連付けで開く",

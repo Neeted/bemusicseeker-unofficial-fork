@@ -227,6 +227,7 @@
   "Record_setting_encoder_desc": "* 可执行文件名称：lame.exe|neroAacEnc.exe|opusenc.exe|flac.exe|oggenc2.exe",
   "Download": "下载",
   "Use_LR2_DB": "联动 LR2 DB",
+  "Beatoraja_integration": "beatoraja 联动",
   "Use_beatoraja_scoreDB": "读取 beatoraja 分数",
   "Diff_URL": "差分 URL",
   "Open_association": "在关联程序中打开",

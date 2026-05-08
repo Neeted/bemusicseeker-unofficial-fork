@@ -227,6 +227,7 @@
   "Record_setting_encoder_desc": "* Exe file: lame.exe|neroAacEnc.exe|opusenc.exe|flac.exe|oggenc2.exe",
   "Download": "Telecharger",
   "Use_LR2_DB": "Utiliser LR2 DB",
+  "Beatoraja_integration": "Intégration beatoraja",
   "Use_beatoraja_scoreDB": "Charger les scores beatoraja",
   "Diff_URL": "Diff URL",
   "Open_association": "Ouvrir avec...",

@@ -227,6 +227,7 @@
   "Record_setting_encoder_desc": "* 실행 파일 이름: lame.exe|neroAacEnc.exe|opusenc.exe|flac.exe|oggenc2.exe",
   "Download": "다운로드",
   "Use_LR2_DB": "LR2 DB와 연동",
+  "Beatoraja_integration": "beatoraja 연동",
   "Use_beatoraja_scoreDB": "beatoraja 점수 불러오기",
   "Diff_URL": "차분 URL",
   "Open_association": "연결된 프로그램으로 열기",

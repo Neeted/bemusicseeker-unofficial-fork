@@ -141,8 +141,12 @@
                         </DockPanel>
                       </StackPanel>
                     </Expander>
-                    <CheckBox Margin="10,4,0,0" Height="20" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Use_beatoraja_scoreDB, Mode=OneWay}" IsChecked="{Binding settingDialog.UseBeatorajaScoreDb}" />
-                    <DockPanel LastChildFill="False" Margin="10,0,0,0">
+                  </StackPanel>
+                </GroupBox>
+                <GroupBox Padding="5,5,5,0" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Beatoraja_integration, Mode=OneWay}">
+                  <StackPanel>
+                    <CheckBox Height="20" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Use_beatoraja_scoreDB, Mode=OneWay}" IsChecked="{Binding settingDialog.UseBeatorajaScoreDb}" />
+                    <DockPanel LastChildFill="False">
                       <Button Width="75" DockPanel.Dock="Right" Height="24" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Browse, Mode=OneWay}" IsEnabled="{Binding settingDialog.UseBeatorajaScoreDb}">
                         <i:Interaction.Triggers>
                           <i:EventTrigger EventName="Click">
@@ -161,6 +165,10 @@
                     </DockPanel>
                   </StackPanel>
                 </GroupBox>
+              </StackPanel>
+            </TabItem>
+            <TabItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Appearance, Mode=OneWay}">
+              <StackPanel>
                 <GroupBox Padding="5,5,5,0" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Appearance, Mode=OneWay}">
                   <StackPanel>
                     <DockPanel LastChildFill="False" Margin="0,0,0,4">
@@ -477,7 +485,10 @@
                 <GroupBox Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_table_uri, Mode=OneWay}">
                   <StackPanel>
                     <TextBox Height="24" VerticalContentAlignment="Center" Text="{Binding settingDialog.TableListURL}" />
-                    <Label Height="28" Padding="0,6,0,0" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_md5_url_mapping_tsv_uri, Mode=OneWay}" />
+                  </StackPanel>
+                </GroupBox>
+                <GroupBox Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_md5_url_mapping_tsv_uri, Mode=OneWay}">
+                  <StackPanel>
                     <TextBox Height="24" VerticalContentAlignment="Center" Text="{Binding settingDialog.PlaylistMd5UrlMappingTsvUri}" />
                     <CheckBox Margin="0,6,0,0" IsChecked="{Binding settingDialog.EnablePlaylistUrlCompletion}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_url_completion_enable, Mode=OneWay}" />
                     <CheckBox Margin="0,2,0,0" IsChecked="{Binding settingDialog.OverwritePlaylistUrlsWithCompletion}" IsEnabled="{Binding settingDialog.EnablePlaylistUrlCompletion}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_url_completion_overwrite, Mode=OneWay}" />

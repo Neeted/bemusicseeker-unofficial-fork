@@ -705,7 +705,7 @@ internal sealed class Settings : ApplicationSettingsBase
 
 	[UserScopedSetting]
 	[DebuggerNonUserCode]
-	[DefaultSettingValue("0")]
+	[DefaultSettingValue("TITLE_SMALL")]
 	public MainWindowViewModel.PanelState PlayerPanelState
 	{
 		get

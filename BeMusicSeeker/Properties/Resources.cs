@@ -891,6 +891,8 @@ public class Resources
 
     public static string Use_LR2_DB => ResourceManager.GetString("Use_LR2_DB", resourceCulture);
 
+    public static string Beatoraja_integration => ResourceManager.GetString("Beatoraja_integration", resourceCulture);
+
     public static string Use_beatoraja_scoreDB => ResourceManager.GetString("Use_beatoraja_scoreDB", resourceCulture);
 
     public static string Version_info => ResourceManager.GetString("Version_info", resourceCulture);
