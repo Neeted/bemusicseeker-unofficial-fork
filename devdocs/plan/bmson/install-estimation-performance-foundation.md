@@ -991,9 +991,9 @@ directory package の `pkg.BMSFiles` 参照に伴って source-side scan が早�
 
 ## 関連資料
 
-- [install-estimation-current-logic.md](install-estimation-current-logic.md)
+- [install-estimation-current-logic.md](../../spec/install-estimation-current-logic.md)
 - [install-estimation-target-design.md](install-estimation-target-design.md)
 - [install-estimation-accuracy-improvement-plan.md](install-estimation-accuracy-improvement-plan.md)
 - [library-scan-native-aggregation-plan.md](library-scan-native-aggregation-plan.md)
-- [../spec/data-and-indexes.md](../spec/data-and-indexes.md)
-- [../spec/TECH_SPEC.ja.md](../spec/TECH_SPEC.ja.md)
+- [data-and-indexes.md](../../spec/data-and-indexes.md)
+- [TECH_SPEC.ja.md](../../spec/TECH_SPEC.ja.md)

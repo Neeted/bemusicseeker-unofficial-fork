@@ -1,85 +1,84 @@
-# 主要処理フロー
+# Workflows
 
-## 1. 起動時初期化
+この資料は主要操作の現行フローをまとめる。startup の詳細は [startup-initialization-flow.md](startup-initialization-flow.md) を正本にする。
+
+## Startup
 
 入口: `MainWindowViewModel.Initialize()`
 
-1. 設定検証、`BMSLibrary`/`BMSPlaylist` の生成
-2. リスナー登録（UI更新、ロック状態通知）
-3. `files.Initialize(new List<Action> { taskAdd1, taskAdd2 }, semaphore)` 実行
-4. 付随タスク:
-   - `taskAdd1`: テーブル初期化 (`tables.Initialize`)
-   - `taskAdd2`: 外部テーブル一覧取得
+概略:
 
-`BMSLibrary.Initialize(...)` は内部で `_initialize` を3段実行し、  
-DBロード、ファイルスキャン、メンテ情報更新、導入待ち再構築まで進める。
+1. bmson migration preflight / startup migration / final preflight。
+2. metadata bundle import。
+3. catalog DB load。
+4. score DB load と LR2IR player score XML prefetch。
+5. file enumeration と native canonical resource index build。
+6. file diff apply。
+7. pending package restore。
+8. install readiness publish。
+9. UI refresh / operable。
+10. startup background scheduler。
 
-ファイルスキャンは現在、次の 2 段で統一されている。
+install readiness は playlist、score/ranking、chart_info、maintenance hydration を待たない。これらは background task として扱う。
 
-- chart scan
-  - `.bme/.bms/.bml/.pms/.bmson`
-- shared resource scan
-  - `Audio/Image/Movie`
+## ReloadFileDiff
 
-resource は `sibling:` ではなく roots 配下から列挙し、最長一致する chart directory へ再集約する。
+入口: library reload 操作。
 
-## 2. リロード系
+目的:
 
-### 2.1 ライブラリのリロード（本体）
+- DB を読み直さず、現在の memory catalog と file scan result の差分を反映する。
+- file enumeration / file diff / playlist reference apply を行う。
 
-入口: `MainWindowViewModel.ReloadFiles()`
+通常起動と違い、起動済み memory catalog / resource index を正本にできる。
 
-- `files.Initialize(null, null, false)` を呼ぶ
-- ライブラリ（BMSFiles）を再走査・再同期
-- その後、既存テーブル参照を再付与
+## ReloadTables
 
-### 2.2 プレイリストのリロード
+入口: playlist/table reload 操作。
 
-入口: `MainWindowViewModel.ReloadTables()`
+目的:
 
-- `files.Initialize(..., true)` + `tables.Initialize(reloadExtPlaylist: true)`
-- スコア/テーブル寄りの再読込。ライブラリ全面再走査とは目的が異なる。
+- playlist table header と playlist entries を読み直す。
+- external playlist sync を再スケジュールする。
 
-## 3. 推定先インストール
+library の full file scan とは別操作である。
 
-入口: `BMSLibrary.InstallBMSPackagesToEstimatedDir(...)`
+## FullReinitialize
 
-1. 対象パッケージを導入待ち集合から抽出
-2. 推定先ディレクトリ単位でグルーピング
-3. 各グループを `installBMSPackages(...)` で処理
-   - ファイル移動
-   - Song DBへの追加反映
-   - メンテ対象収集
-   - 0ノート判定
-   - スコア反映
-4. 末尾で導入待ち/導入済みのUI集合を一括適用
-5. メンテ情報更新をバッチ末尾で実行
+入口: library 初期化再実行操作。
 
-## 4. 推定ロジック
+目的:
 
-入口:
-- `SearchEstimatedInstallationDirectory(BMSPackage)`
-- `SearchEstimatedInstallationDirectory(BMSFile, ...)`
+- 外部 DB 編集や状態修復を想定し、startup 相当の catalog load / file enumeration / file diff を再実行する。
+- post-startup operation なので background scheduler は runnable に保つ。
+
+## Install Estimation
+
+導入先推定は [install-estimation-current-logic.md](install-estimation-current-logic.md) を正本にする。
 
 概要:
 
-- 対象譜面の構成ファイル情報（WAV/BGA等）を基に、`DirectoryResourceLookupCache.Keys` の候補ディレクトリを評価。
-- `DirectoryResourceLookupCache` の audio / image / movie chart-relative key を使って一致度を計算する。未分類 all-resource matching は行わない。
-- 最適候補を `instl_dst` に反映。
+- pending package の source surface と destination `DirectoryResourceLookupCache` を使う。
+- candidate directory は destination resource index から得る。
+- final evaluation は audio / image / movie の chart-relative resource key で行う。
+- resource index がない場合は `resource_index_unavailable` として推定不可にする。
 
-## 5. 再インストール補助
+## Install / Merge / Reinstall Correction
 
-- `SearchCorrectInstallationDirectory(...)`  
-  メンテ警告対象から再インストール先を推定する用途。
-- `RemoveInstallDestination(...)`  
-  推定結果のクリア。
+- install / merge 後は catalog、song DB、resource index、maintenance、chart_info の更新境界を明確に保つ。
+- folder operation 後の resource index cleanup は `DirectoryResourceLookupCache.Keys` を正本にする。
+- reinstall correction は candidate-only の health 評価を使い、source/bundled resource を混ぜない。
 
-## 6. UI更新抑制（導入処理）
+## UI Update Suppression
 
-`MainWindowViewModel` では導入中に UI通知を抑制する制御がある。
+大量更新中は UI refresh を抑制し、最後に必要な channel だけ flush する。
 
-- `BeginInstallUiUpdateSuppression()`
-- `EndInstallUiUpdateSuppression()`
-- 抑制中は pending/installed のイベント更新を遅延適用
+代表例:
 
-この仕組みにより、大規模ライブラリ時の導入処理で UIオーバーヘッドを抑える。
+- library main view
+- library folder tree
+- install tree
+- playlist tree
+- duplicate tree
+
+startup / reload / install の progress 表示は [startup-reload-progress.md](startup-reload-progress.md) を参照する。

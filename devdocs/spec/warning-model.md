@@ -1,6 +1,6 @@
 # 現行 WARNING モデル
 
-この資料は、現在の WARNING 表示仕様だけをまとめたものです。移行経緯は `warning-structure-migration-plan.md` を参照してください。
+この資料は、現在の WARNING 表示仕様だけをまとめたものです。移行経緯は `../plan/warning-structure-migration-plan.md` を参照してください。
 
 ## 基本モデル
 

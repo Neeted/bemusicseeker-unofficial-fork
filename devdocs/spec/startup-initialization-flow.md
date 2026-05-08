@@ -217,7 +217,7 @@ ReloadTables
 
 ## 関連資料
 
-- `devdocs/current-startup-reload-progress.md`
-- `devdocs/current-chart-file-read-pipeline.md`
-- `devdocs/empty-db-first-startup-optimization-plan.md`
-- `devdocs/bmson/library-scan-fast-path-resource-index-plan.md`
+- `devdocs/spec/startup-reload-progress.md`
+- `devdocs/spec/chart-file-read-pipeline.md`
+- `devdocs/plan/empty-db-first-startup-optimization-plan.md`
+- `devdocs/plan/bmson/library-scan-fast-path-resource-index-plan.md`

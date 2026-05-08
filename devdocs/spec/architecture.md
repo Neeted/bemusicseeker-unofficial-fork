@@ -1,52 +1,66 @@
-# アーキテクチャ概要
+# Architecture
 
-## 1. レイヤ構成
+この資料は現行実装の大枠を示す。詳細な処理境界は機能別仕様を正本にする。
 
-- `BeMusicSeeker.Views`  
-  WPF画面（`MainWindow.xaml` 等）。ユーザー操作を ViewModel に中継。
-- `BeMusicSeeker.ViewModels`  
-  画面状態とユースケース制御。中核は `MainWindowViewModel`。
-- `BeMusicSeeker.Models`  
-  ドメイン処理。中核は `BMSLibrary`（ライブラリ、推定、インストール、整合性）。
-- `BeMusicSeeker.Models.LR2`  
-  LR2 DBスキーマ拡張・DBアクセスモデル。
-- `BeMusicSeeker.Models.Utils`  
-  ファイル列挙、Everything連携、コマンドライン引数、ユーティリティ。
+## レイヤ
 
-## 2. 主要コンポーネント
+- `BeMusicSeeker.Views`
+  - WPF 画面。
+  - ユーザー操作を ViewModel へ渡す。
+- `BeMusicSeeker.ViewModels`
+  - UI state と use case orchestration。
+  - 中心は `MainWindowViewModel`。
+- `BeMusicSeeker.Models`
+  - library catalog、playlist、install、resource health、keyword search などの domain logic。
+  - 中心は `BMSLibrary` と `BMSPlaylist`。
+- `BeMusicSeeker.Models.BmsLibraryInternal`
+  - `BMSLibrary` の startup、DB access、install estimation、file operation などを分割した service 群。
+- `BeMusicSeeker.Models.Utils`
+  - Everything bridge wrapper、scan helper、hash helper、settings / utility。
+- `native/EverythingBridge`
+  - Everything SDK 3 を使う native bridge。
+  - C# 側は bridge DLL を同一ビルド成果物として扱う。
 
-- `App` (`BeMusicSeeker/App.cs`)  
-  起動初期化、設定アップグレード、ログ設定、例外ハンドリング。
-- `MainWindowViewModel` (`BeMusicSeeker.ViewModels/MainWindowViewModel.cs`)  
-  画面ユースケースの調停。`BMSLibrary` と `BMSPlaylist` を統括。
-- `BMSLibrary` (`BeMusicSeeker.Models/BMSLibrary.cs`)  
-  楽曲ライブラリとインストール管理の中核。DB更新、メンテ情報、推定ロジックを担う。
-- `BMSPlaylist` (`BeMusicSeeker.Models/BMSPlaylist.cs`)  
-  テーブル/プレイリスト管理。`BMSLibrary` と連携して参照情報を付与。
+## 主要 Component
 
-## 3. 永続データ
+- `App`
+  - process startup、settings upgrade、logging、global exception handling。
+- `MainWindowViewModel`
+  - startup / reload / install / playlist operation の入口。
+  - startup background scheduler と progress 表示を管理する。
+- `BMSLibrary`
+  - 所持 catalog、pending package、resource index、score snapshot、install operation の正本。
+- `BMSPlaylist`
+  - table header / playlist entries / external playlist sync。
+- `BmsLibraryDbGateway`
+  - song DB / score DB access の gateway。
+  - startup hydration の read phase は read-only connection、write は明示 transaction path を使う。
+- `EverythingNative`
+  - native bridge result を decode し、native scan path では resource dictionaries を materialize せず `LibraryResourceIndex` / `DirectoryResourceLookupCache` へ渡す。
 
-- LR2 Song DB（必須）  
-  `LR2SongDB.song` に楽曲情報を保持。
-- LR2拡張テーブル（同DB内）  
-  `install`（導入待ち/導入済みパッケージ）, `maintenance`（ヘルス）, `ir_score`, `ir_data`。
-- LR2 Score DB（任意）  
-  スコア統合用途。設定と存在条件で有効化。
+## Startup Boundary
 
-## 4. スレッド/ロック方針
+startup は次を分けて扱う。
 
-- 大枠は `ReaderWriterLockSlimWrapper` による分離ロック。
-- 代表ロック:
-  - `rwlockBMSFilesInitializedAll`（初期化全体）
-  - `rwlockBMSFiles`（所持BMS本体）
-  - `rwlockBMSFilesPendingInstall`（導入待ち）
-  - `rwlockSongDBInstall`（install系DB更新）
-- UIバインドは `DispatcherCollection` と `PropertyChanged` を介して反映。
+- install readiness
+  - catalog、destination resource index、pending package state が揃った状態。
+- UI operable
+  - startup UI refresh が終わり、操作可能になった状態。
+- initialization complete
+  - startup background task まで完了した状態。
 
-## 5. 現行スキャン設計（重要）
+詳細は [startup-initialization-flow.md](startup-initialization-flow.md) を参照する。
 
-- 初期化スキャンは `IBmsFileScanner` 抽象で実行。
-- 現行の優先経路:
-  - `EverythingFileScanner`（Bridge必須）
-  - 失敗時 `FastDirectoryFileScanner` にフォールバック
-- Bridge経路は native DLL (`EverythingBridge_x64.dll`) で結果を集約して返す。
+## Native Bridge Policy
+
+Everything が使える場合、通常起動の file enumeration は `EBridge_ScanChartAndResources` を使う。
+
+- chart / audio / image / movie を列挙する。
+- chart-relative resource key と reverse lookup surface を native packed result に含める。
+- managed 側で旧 basename-only / all-resource surface を main path に戻さない。
+
+Everything が使えない場合は managed fallback scan を使う。ただし、古い native ABI や contract mismatch への互換 fallback は行わない。
+
+## Documentation Priority
+
+古い計画資料より `spec/` 配下の現行仕様を優先する。経緯は `../plan/` を参照する。

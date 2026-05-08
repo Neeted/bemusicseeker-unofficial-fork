@@ -54,41 +54,38 @@
    - `candidate + package bundled resources` 評価への移行
    - 余剰リソース評価と source folder 扱い見直し
    - metadata tie-break の今後計画
-9. [導入先推定 現行仕様](install-estimation-current-logic.md)
-   - 導入先推定処理の正本資料
-   - candidate 生成 / category resource 評価 / tie-break / confidence
-   - extensionless resource union の現行位置づけ
-10. [導入先推定のあるべき設計メモ](install-estimation-target-design.md)
+9. [導入先推定のあるべき設計メモ](install-estimation-target-design.md)
    - `candidate + package bundled resources` を採った背景
    - coarse filter と final evaluation の役割分離
    - source folder と threshold の再整理
    - 実装後に残る tuning 論点整理
-11. [導入先推定 性能改善の前提整理](install-estimation-performance-foundation.md)
+10. [導入先推定 性能改善の前提整理](install-estimation-performance-foundation.md)
    - 100+ package 一括ドロップ時の性能ホットパス整理
    - coarse filter / fallback 見直しの前提
    - source package surface 列挙基盤と追加キャッシュの論点
    - package 間並列化に入る前の排他 / 適用モデル整理
    - Perf-1: 全件 fallback 廃止と audio 主軸 coarse filter
-12. [導入先推定 相対パス対応の前提整理](install-estimation-relative-path-foundation.md)
+11. [導入先推定 相対パス対応の前提整理](install-estimation-relative-path-foundation.md)
    - 相対パス譜面を前提にした `bgm1` と `sound\bgm1` の意味整理
    - Everything / fallback / 増分更新の parity 論点
    - broad filter を path-aware にする前のフェーズ分割
    - Phase 1+2 と Phase 3 を実施済み
    - `CountMatches(...)` / viability / confidence を含む Relative Path Phase 4 も実施済み
    - root chart と nested chart directory が共存する package に対する ownership completion も実施済み
-13. [chart_info parser compatibility notes](chart-info-parser-compatibility-notes.md)
-   - beatoraja / jbms-parser 互換のための BMS / BMSON parser 実装メモ
-   - JSON parse, delimiter, Java 型変換, LN, timeline, density, speedchange の注意点
-   - `chart_info` の production DB compare / backfill 性能 / 今後の DataGrid 表示論点
-14. [chart_info DataGrid display plan](chart-info-datagrid-display-plan.md)
+12. [chart_info DataGrid display plan](chart-info-datagrid-display-plan.md)
    - `chart_info` 由来カラムの表示仕様
    - 通常一覧 / プレイリスト詳細の LEVEL 整理
    - keyword search field / range 検索の v1 仕様
-15. [BMS / bmson 譜面抽象化 移行計画](bms-bmson-chart-abstraction-migration-plan.md)
+13. [BMS / bmson 譜面抽象化 移行計画](bms-bmson-chart-abstraction-migration-plan.md)
    - BMS と bmson を共通の「譜面ファイル」として扱うための設計
    - LR2 / BMS 専用操作と共通操作の capability 分離
    - `PendingChartEntry : BMSFile` から段階的に脱却する移行計画
    - Phase D の maintenance 方針: table は共有し、BMS encoding workflow と resource health workflow を分離
+
+現行仕様へ昇格した資料:
+
+- [導入先推定 現行仕様](../../spec/install-estimation-current-logic.md)
+- [chart_info parser compatibility notes](../../spec/chart-info-parser-compatibility-notes.md)
 
 ## 実装方針の要点
 
@@ -190,13 +187,17 @@
 5. リリース整理
    - README / リリースノート / バージョン反映
 
+## このディレクトリの位置づけ
+
+このディレクトリは bmson 対応メジャーアップデートの計画・履歴です。現行仕様の正本は `../../spec/` に置きます。
+
 ## どの資料を見ればよいか
 
 資料の役割は次の 4 種類に分けて読むと分かりやすい。
 
 ### 1. 現在の実装状態を知る資料
 
-- [導入先推定 現行仕様](install-estimation-current-logic.md)
+- [導入先推定 現行仕様](../../spec/install-estimation-current-logic.md)
   - 現在の導入先推定処理の正本。snapshot / category resource 評価 / tie-break / confidence / diagnostics の説明
 - [導入先推定 性能改善の前提整理](install-estimation-performance-foundation.md)
   - 現在の perf 論点と、source-side enumeration regress が解消済みであることの整理
@@ -246,7 +247,7 @@
 
 ## 関連資料
 
-- [../spec/workflows.md](../spec/workflows.md)
-- [../spec/data-and-indexes.md](../spec/data-and-indexes.md)
-- [../spec/TECH_SPEC.ja.md](../spec/TECH_SPEC.ja.md)
+- [workflows.md](../../spec/workflows.md)
+- [data-and-indexes.md](../../spec/data-and-indexes.md)
+- [TECH_SPEC.ja.md](../../spec/TECH_SPEC.ja.md)
 - [install-estimation-accuracy-improvement-plan.md](install-estimation-accuracy-improvement-plan.md)

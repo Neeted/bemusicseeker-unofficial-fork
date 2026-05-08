@@ -283,7 +283,7 @@ metadata frontier が発生した場合は `estimate_install metadata_frontier` 
 
 - `devdocs/spec/data-and-indexes.md`
 - `devdocs/spec/workflows.md`
-- `devdocs/bmson/install-estimation-target-design.md`
-- `devdocs/bmson/install-estimation-relative-path-foundation.md`
-- `devdocs/bmson/install-estimation-performance-foundation.md`
-- `devdocs/bmson/library-scan-fast-path-resource-index-plan.md`
+- `devdocs/plan/bmson/install-estimation-target-design.md`
+- `devdocs/plan/bmson/install-estimation-relative-path-foundation.md`
+- `devdocs/plan/bmson/install-estimation-performance-foundation.md`
+- `devdocs/plan/bmson/library-scan-fast-path-resource-index-plan.md`

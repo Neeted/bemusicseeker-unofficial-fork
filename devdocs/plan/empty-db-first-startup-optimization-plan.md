@@ -71,7 +71,7 @@ installable_maintenance_deferred done ... maintenanceChecked=0 healthMs=0 ... se
 
 ## 初期化フローの正本
 
-起動・初期化全体の現行仕様は `devdocs/current-startup-initialization-flow.md` を正本とする。この計画資料では、空DB初回起動の軽量化に関係する差分処理と background 補完の境界だけを扱う。
+起動・初期化全体の現行仕様は `devdocs/spec/startup-initialization-flow.md` を正本とする。この計画資料では、空DB初回起動の軽量化に関係する差分処理と background 補完の境界だけを扱う。
 
 移行前/移行後 DB の両対応は、起動直後の bmson migration preflight と startup migration で完結させる。`chart_info` hydration/backfill や maintenance deferred の副作用として `bmson_app_schema` を current 化する経路は持たない。
 

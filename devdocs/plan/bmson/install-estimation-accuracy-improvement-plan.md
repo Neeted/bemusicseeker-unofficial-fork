@@ -264,6 +264,6 @@ Perf-2a 再修正では、この意味自体は変えず、
 
 ## 関連資料
 
-- [install-estimation-current-logic.md](install-estimation-current-logic.md)
+- [install-estimation-current-logic.md](../../spec/install-estimation-current-logic.md)
 - [install-estimation-target-design.md](install-estimation-target-design.md)
 - [install-estimation-performance-foundation.md](install-estimation-performance-foundation.md)

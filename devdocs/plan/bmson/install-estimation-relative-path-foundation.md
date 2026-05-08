@@ -70,7 +70,7 @@ relative path 対応の下地はかなり入っています。
 
 ### 2. 旧実装時点で incomplete だったもの
 
-この資料は relative path 対応途中の設計メモであり、下記は当時の未完了項目です。現行仕様は `install-estimation-current-logic.md` を正本とします。
+この資料は relative path 対応途中の設計メモであり、下記は当時の未完了項目です。現行仕様は `../../spec/install-estimation-current-logic.md` を正本とします。
 
 - `ChartResourceKeyHash`
   - 当時は all-resource basename hash index のみ
@@ -474,8 +474,8 @@ relative-path 文脈で固定できたこと:
 
 ## 関連ファイル
 
-- [install-estimation-current-logic.md](install-estimation-current-logic.md)
+- [install-estimation-current-logic.md](../../spec/install-estimation-current-logic.md)
 - [install-estimation-performance-foundation.md](install-estimation-performance-foundation.md)
 - [install-estimation-accuracy-improvement-plan.md](install-estimation-accuracy-improvement-plan.md)
-- [../spec/TECH_SPEC.ja.md](../spec/TECH_SPEC.ja.md)
-- [../spec/data-and-indexes.md](../spec/data-and-indexes.md)
+- [TECH_SPEC.ja.md](../../spec/TECH_SPEC.ja.md)
+- [data-and-indexes.md](../../spec/data-and-indexes.md)

@@ -238,7 +238,7 @@ inline 経路と backfill 経路の parser 呼び出しを整理し、single-rea
 - `ChartInfoParser.ParseBytesDetailed(...)` を正規 entry point としてコードコメントと資料に明記した。
 - `ChartInfoBuildService` と inline helper は同じ `BuildInlineChartInfo(...)` / commit helper を経由する。
 - `CreateBMSFileFromFile()` / `BmsonSongParser.Parse(path)` は互換 API として残し、新規 single-read 経路では snapshot / bytes API を優先する方針を明記した。
-- `devdocs/current-chart-file-read-pipeline.md` に現行仕様を分離した。
+- `devdocs/spec/chart-file-read-pipeline.md` に現行仕様を分離した。
 
 ### 完了条件
 
@@ -296,4 +296,4 @@ Phase 3 では file diff の追加・更新譜面だけ inline chart_info 化し
 
 Phase 4 で package install 経路も inline chart_info 化し、added backfill queue を削除した。
 
-Phase 5 で API / docs 整理を行い、現行仕様を `current-chart-file-read-pipeline.md` に分離した。
+Phase 5 で API / docs 整理を行い、現行仕様を `../spec/chart-file-read-pipeline.md` に分離した。

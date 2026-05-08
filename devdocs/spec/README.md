@@ -1,32 +1,30 @@
-# BeMusicSeeker Documentation
+# Current Specifications
 
-本ディレクトリは、現行実装（逆コンパイル移植版）を前提にした仕様整理です。  
-改善作業の前提共有と、処理経路の確認を目的にしています。
+このディレクトリは、現行実装を基準にした仕様書の置き場です。
+
+`plan/` 配下の資料は履歴として残しますが、現在の挙動を確認するときはこのディレクトリを優先します。
 
 ## 読み順
 
-1. `devdocs/spec/architecture.md`  
-   アプリ全体の構成、責務分割、主要クラス
-2. `devdocs/spec/workflows.md`  
-   起動/リロード/推定インストール/再インストール系の実行フロー
-3. `devdocs/spec/data-and-indexes.md`  
-   DB、メモリ構造、ハッシュ索引の仕様
-4. `devdocs/spec/performance-and-operations.md`  
-   スキャン経路、ログ引数、既知の性能特性
-5. `devdocs/bmson/README.md`
-   `bmson` 対応のフェーズ分割ロードマップとフェーズ別実行プラン
+1. [architecture.md](architecture.md)
+   - レイヤ構成、主要 component、native bridge の位置づけ。
+2. [startup-initialization-flow.md](startup-initialization-flow.md)
+   - 起動、導入可能 readiness、startup background scheduler。
+3. [data-and-indexes.md](data-and-indexes.md)
+   - catalog、resource index、chart-relative key、DB table。
+4. [install-estimation-current-logic.md](install-estimation-current-logic.md)
+   - 導入先推定の現行仕様。
+5. [workflows.md](workflows.md)
+   - リロード、導入、再インストールなどの主要処理フロー。
 
-## 対象範囲
+## 機能別仕様
 
-- 現在の実装コードを基準にした「動く仕様」
-- 主に以下のモジュール:
-  - `BeMusicSeeker/App.cs`
-  - `BeMusicSeeker.ViewModels/MainWindowViewModel.cs`
-  - `BeMusicSeeker.Models/BMSLibrary.cs`
-  - `BeMusicSeeker.Models.Utils/*Scanner*.cs`
-  - `BeMusicSeeker.Models/ChartResourceKeyHash.cs`
+- [chart-file-read-pipeline.md](chart-file-read-pipeline.md)
+- [chart-info-parser-compatibility-notes.md](chart-info-parser-compatibility-notes.md)
+- [startup-reload-progress.md](startup-reload-progress.md)
+- [warning-model.md](warning-model.md)
+- [appearance-theme.md](appearance-theme.md)
 
-## 補足
+## 旧 TECH_SPEC について
 
-- 文中の「初期化」は `MainWindowViewModel.Initialize()` からの起動時処理を指します。
-- 文中の「リロード」はライブラリ側 `ReloadFiles()` を指します（プレイリスト側 `ReloadTables()` とは別）。
+[TECH_SPEC.ja.md](TECH_SPEC.ja.md) は現在仕様を概観するための短い入口として維持します。詳細な正本は上記の機能別仕様を参照してください。

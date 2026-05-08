@@ -127,4 +127,4 @@ Phase 7 では warning 表示状態の source of truth を structured warning �
 - テスト helper 整理
   - install estimation warning / suggestions / digest / tooltip の繰り返し assertion を helper 化する。
 - 現行仕様資料の分離
-  - 作成済み: `devdocs/current-warning-model.md`
+  - 作成済み: `devdocs/spec/warning-model.md`
