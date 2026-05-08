@@ -90,6 +90,39 @@ source package の resource を使わず、既存 library 側の resource だけ
 
 startup restore / auto-install 由来の pending estimate は package ごとの batch で走ります。zip/package ごとに batch を分け、重い package が他 package を巻き込まないようにします。
 
+## 現在の並列度
+
+導入先推定の並列化は、現在 2 つの層に分かれています。
+
+### Candidate evaluation 並列
+
+1 回の `estimate_install` の中では、coarse filter / audio gate 後に残った candidate directory を `EvaluateDirectoryCandidate()` で評価します。この candidate 評価は `BmsLibraryInstallEstimationService` 側で PLINQ により並列実行されます。
+
+- `asParallel=true` の場合、`candidateDegree = max(1, Environment.ProcessorCount - 1)` です。
+- `asParallel=false` の場合、`candidateDegree = 1` です。
+- `candidateDegree` は `estimate_install start` ログに出ます。
+- candidate が 1 件まで絞られている場合、`candidateDegree` が複数でも実質的な並列効果はありません。
+
+手動の単一 file / package 推定、手動の loose file 群推定内の各 file 推定は、基本的に `asParallel=true` で candidate 評価を並列化します。単一 work item しかない場合は外側で並列化できないため、candidate 側で CPU を使います。
+
+複数 package を扱う batch 推定では、外側の package 並列と二重に並列化しないため、各 package 内の candidate 評価は `asParallel=false` です。したがって background pending estimate と手動の複数 package 推定の `estimate_install start` では通常 `candidateDegree=1` になります。
+
+### Package / work item 並列
+
+Background pending estimate と手動の複数 package 推定は、batch 内の package を `Task.Run` で複数同時に評価します。
+
+- background pending estimate の外側並列度は `Settings.Default.PendingInstallEstimateMaxParallelPackages` から決まり、`0` の場合は `max(1, Environment.ProcessorCount - 1)` を使います。
+- 手動の複数 package 推定の外側並列度は `max(1, Environment.ProcessorCount - 1)` です。
+- 実効値は `pending_estimate_batch start` / `progress` / `done` ログの `packageDegree` に出ます。
+
+`SearchEstimatedInstallationDirectory(IEnumerable<BMSPackage>)` は、2 件以上の package を受け取った場合、background pending estimate と同じ batch pipeline を使います。`SearchEstimatedInstallationDirectory(IEnumerable<BMSFile>)` も、対象 file がすべて pending package に属する場合は package work item にまとめ、2 件以上の package は同じ batch pipeline で評価します。
+
+一方、loose file が混じる手動 file 群推定と `fixMode=true` の再インストール先修正は、現在も外側 work item を逐次処理します。この経路は file 単位の `fixMode` と package 単位の推定を混ぜる必要があり、batch pipeline へ寄せる前に適用順序と警告更新の仕様整理が必要なためです。ただし各 loose file 内の candidate 評価は `candidateDegree` に応じて並列化されます。
+
+### 排他制御
+
+手動推定と background pending estimate はどちらも `RunPendingEstimateExclusive()` を通るため、推定 batch 同士は同時に走りません。これは pending file/package の mutable state、warning、`INSTL DST`、progress 表示を同時更新しないための排他です。
+
 ## 候補母集団
 
 候補は chart directory です。resource-only subdirectory は候補になりません。

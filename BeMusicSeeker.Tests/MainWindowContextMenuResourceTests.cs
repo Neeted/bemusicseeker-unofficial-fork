@@ -936,6 +936,31 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.AreEqual("*.*", fallback[0].Item2);
     }
 
+    [TestMethod]
+    public void InstallEstimationParallelism_UsesUnifiedBatchPolicy()
+    {
+        string root = FindRepositoryRoot();
+        string libraryCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BMSLibrary.cs"));
+        string batchSourceCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "PendingInstallEstimateBatchSource.cs"));
+        string installEstimationDoc = File.ReadAllText(Path.Combine(root, "devdocs", "spec", "install-estimation-current-logic.md"));
+
+        StringAssert.Contains(batchSourceCode, "ManualReestimate");
+        StringAssert.Contains(libraryCode, "private sealed class InstallEstimationExecutionPolicy");
+        StringAssert.Contains(libraryCode, "internal static InstallEstimationExecutionPolicy ForManualBatch()");
+        StringAssert.Contains(libraryCode, "internal static InstallEstimationExecutionPolicy ForPendingBatch(int workItemDegree)");
+        StringAssert.Contains(libraryCode, "ProcessPendingInstallEstimateEvaluationPipeline(request, source, token, evaluationContext, evaluationRequests, executionPolicy");
+        StringAssert.Contains(libraryCode, "ProcessPendingInstallEstimateEvaluationPipeline(request, source, CancellationToken.None, evaluationContext, evaluationRequests, executionPolicy");
+        StringAssert.Contains(libraryCode, "EvaluatePendingInstallEstimateRequest(dispatchRequest, evaluationContext, executionPolicy, token)");
+        StringAssert.Contains(libraryCode, "executionPolicy.CandidateEvaluationDegree");
+        StringAssert.Contains(libraryCode, "BmsLibraryInstallEstimationService.ResolveCandidateEvaluationDegree(asParallel)");
+        StringAssert.Contains(libraryCode, "PendingInstallEstimateBatchSource.ManualReestimate => \"manual_reestimate\"");
+        StringAssert.Contains(libraryCode, "PendingInstallEstimateBatchSource.ManualReestimate => InstallEstimationProgressSource.ManualReestimate");
+        StringAssert.Contains(libraryCode, "ProcessManualPackageEstimateBatch(packageList)");
+        StringAssert.Contains(libraryCode, "if (!fixMode && looseFiles.Count == 0 && packageTargets.Count > 1)");
+        StringAssert.Contains(installEstimationDoc, "手動の複数 package 推定");
+        StringAssert.Contains(installEstimationDoc, "loose file が混じる手動 file 群推定");
+    }
+
     private static string FindRepositoryRoot()
     {
         DirectoryInfo directory = new DirectoryInfo(AppContext.BaseDirectory);

@@ -573,10 +573,15 @@ internal sealed class BmsLibraryInstallEstimationService
 
     internal InstallEstimationResult EstimateInstallationDirectoryForCandidateDirectories(PackageInstallEstimationSnapshot snapshot, IReadOnlyCollection<string> candidateDirectories, DirectoryResourceLookupCache directoryLookupCache, bool asParallel, BmsInstallationEstimateMode estimateMode, Func<string, InstallDestinationRepresentativeMetadata> representativeMetadataResolver = null, Func<string, InstallEstimationMetadataProfile> metadataProfileResolver = null)
     {
+        return EstimateInstallationDirectoryForCandidateDirectories(snapshot, candidateDirectories, directoryLookupCache, ResolveCandidateEvaluationDegree(asParallel), estimateMode, representativeMetadataResolver, metadataProfileResolver);
+    }
+
+    internal InstallEstimationResult EstimateInstallationDirectoryForCandidateDirectories(PackageInstallEstimationSnapshot snapshot, IReadOnlyCollection<string> candidateDirectories, DirectoryResourceLookupCache directoryLookupCache, int candidateEvaluationDegree, BmsInstallationEstimateMode estimateMode, Func<string, InstallDestinationRepresentativeMetadata> representativeMetadataResolver = null, Func<string, InstallEstimationMetadataProfile> metadataProfileResolver = null)
+    {
         return EstimateInstallationDirectory(
             snapshot,
             directoryLookupCache,
-            ResolveCandidateEvaluationDegree(asParallel),
+            candidateEvaluationDegree,
             estimateMode,
             representativeMetadataResolver,
             metadataProfileResolver,

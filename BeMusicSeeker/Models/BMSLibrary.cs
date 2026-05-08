@@ -2692,8 +2692,8 @@ public class BMSLibrary : NotificationObject
         string source = ToPendingEstimateBatchSourceLogValue(request.Source);
         int lowConfidenceCount = 0;
         int completed = 0;
-        int maxParallelPackages = ResolvePendingInstallEstimateParallelPackageDegree();
-        LogInstallPerformance("pending_estimate_batch start source=" + source + " packages=" + request.PackageCount + " totalPackages=" + request.TotalPackageCount + " deferredPackages=" + request.DeferredPackageCount + " packageDegree=" + maxParallelPackages + " display=" + (request.DisplayName ?? string.Empty));
+        InstallEstimationExecutionPolicy executionPolicy = InstallEstimationExecutionPolicy.ForPendingBatch(ResolvePendingInstallEstimateParallelPackageDegree());
+        LogInstallPerformance("pending_estimate_batch start source=" + source + " packages=" + request.PackageCount + " totalPackages=" + request.TotalPackageCount + " deferredPackages=" + request.DeferredPackageCount + " packageDegree=" + executionPolicy.WorkItemDegree + " display=" + (request.DisplayName ?? string.Empty));
         try
         {
             RunPendingEstimateExclusive(delegate
@@ -2701,7 +2701,7 @@ public class BMSLibrary : NotificationObject
                 SetInstallEstimationProgress(ToInstallEstimationProgressSource(request.Source), request.PackageCount, 0, request.DisplayName ?? string.Empty);
                 PendingInstallEstimateEvaluationContext evaluationContext = CreatePendingInstallEstimateEvaluationContext();
                 List<PendingInstallEstimateEvaluationRequest> evaluationRequests = PreparePendingInstallEstimateEvaluationRequests(request);
-                ProcessPendingInstallEstimateEvaluationPipeline(request, source, token, evaluationContext, evaluationRequests, maxParallelPackages, ref completed, ref lowConfidenceCount);
+                ProcessPendingInstallEstimateEvaluationPipeline(request, source, token, evaluationContext, evaluationRequests, executionPolicy, ref completed, ref lowConfidenceCount);
                 if (!token.IsCancellationRequested && request.RegroupEligibleSourceDirectories.Length > 0)
                 {
                     using (rwlockBMSFilesInitializedAll.GetReaderGuard())
@@ -2717,7 +2717,7 @@ public class BMSLibrary : NotificationObject
                 }
             });
             stopwatch.Stop();
-            LogInstallPerformance("pending_estimate_batch done source=" + source + " packages=" + request.PackageCount + " totalPackages=" + request.TotalPackageCount + " deferredPackages=" + request.DeferredPackageCount + " packageDegree=" + maxParallelPackages + " estimated=" + completed + " completed=" + (completed + request.DeferredPackageCount) + " elapsedMs=" + stopwatch.ElapsedMilliseconds + " lowConfidence=" + lowConfidenceCount);
+            LogInstallPerformance("pending_estimate_batch done source=" + source + " packages=" + request.PackageCount + " totalPackages=" + request.TotalPackageCount + " deferredPackages=" + request.DeferredPackageCount + " packageDegree=" + executionPolicy.WorkItemDegree + " estimated=" + completed + " completed=" + (completed + request.DeferredPackageCount) + " elapsedMs=" + stopwatch.ElapsedMilliseconds + " lowConfidence=" + lowConfidenceCount);
         }
         finally
         {
@@ -2813,18 +2813,50 @@ public class BMSLibrary : NotificationObject
         return ResolvePendingInstallEstimateParallelPackageDegree(Settings.Default.PendingInstallEstimateMaxParallelPackages);
     }
 
-    private void ProcessPendingInstallEstimateEvaluationPipeline(PendingInstallEstimateBatchRequest request, string source, CancellationToken token, PendingInstallEstimateEvaluationContext evaluationContext, List<PendingInstallEstimateEvaluationRequest> evaluationRequests, int maxParallelPackages, ref int completed, ref int lowConfidenceCount)
+    private sealed class InstallEstimationExecutionPolicy
     {
+        private InstallEstimationExecutionPolicy(int workItemDegree, int candidateEvaluationDegree)
+        {
+            WorkItemDegree = Math.Max(1, workItemDegree);
+            CandidateEvaluationDegree = BmsLibraryInstallEstimationService.NormalizeCandidateEvaluationDegree(candidateEvaluationDegree);
+        }
+
+        internal int WorkItemDegree { get; }
+
+        internal int CandidateEvaluationDegree { get; }
+
+        internal static InstallEstimationExecutionPolicy ForSingleWorkItem()
+        {
+            return new InstallEstimationExecutionPolicy(1, BmsLibraryInstallEstimationService.ResolveCandidateEvaluationDegree(asParallel: true));
+        }
+
+        internal static InstallEstimationExecutionPolicy ForManualBatch()
+        {
+            return new InstallEstimationExecutionPolicy(ResolveInstallEstimationDefaultDegree(), 1);
+        }
+
+        internal static InstallEstimationExecutionPolicy ForPendingBatch(int workItemDegree)
+        {
+            return new InstallEstimationExecutionPolicy(workItemDegree, 1);
+        }
+    }
+
+    private void ProcessPendingInstallEstimateEvaluationPipeline(PendingInstallEstimateBatchRequest request, string source, CancellationToken token, PendingInstallEstimateEvaluationContext evaluationContext, List<PendingInstallEstimateEvaluationRequest> evaluationRequests, InstallEstimationExecutionPolicy executionPolicy, ref int completed, ref int lowConfidenceCount)
+    {
+        if (executionPolicy == null)
+        {
+            executionPolicy = InstallEstimationExecutionPolicy.ForSingleWorkItem();
+        }
         List<(PendingInstallEstimateEvaluationRequest Request, Task<PendingInstallEstimateEvaluationResult> Task)> inFlight = new List<(PendingInstallEstimateEvaluationRequest Request, Task<PendingInstallEstimateEvaluationResult> Task)>();
         int nextDispatchIndex = 0;
         int nextApplyIndex = 0;
         while (nextApplyIndex < evaluationRequests.Count)
         {
-            while (!token.IsCancellationRequested && nextDispatchIndex < evaluationRequests.Count && inFlight.Count < maxParallelPackages)
+            while (!token.IsCancellationRequested && nextDispatchIndex < evaluationRequests.Count && inFlight.Count < executionPolicy.WorkItemDegree)
             {
                 PendingInstallEstimateEvaluationRequest dispatchRequest = evaluationRequests[nextDispatchIndex];
                 SetPendingInstallEstimateSearchingState(dispatchRequest, isSearching: true);
-                Task<PendingInstallEstimateEvaluationResult> evaluateTask = Task.Run(() => EvaluatePendingInstallEstimateRequest(dispatchRequest, evaluationContext, token), token);
+                Task<PendingInstallEstimateEvaluationResult> evaluateTask = Task.Run(() => EvaluatePendingInstallEstimateRequest(dispatchRequest, evaluationContext, executionPolicy, token), token);
                 inFlight.Add((dispatchRequest, evaluateTask));
                 nextDispatchIndex++;
             }
@@ -2842,18 +2874,18 @@ public class BMSLibrary : NotificationObject
             (PendingInstallEstimateEvaluationRequest Request, Task<PendingInstallEstimateEvaluationResult> Task) applySlot = inFlight[applySlotIndex];
             PendingInstallEstimateEvaluationResult evaluationResult = applySlot.Task.GetAwaiter().GetResult();
             inFlight.RemoveAt(applySlotIndex);
-            ApplyPendingInstallEstimateEvaluationResult(request, source, evaluationResult, maxParallelPackages, ref completed, ref lowConfidenceCount);
+            ApplyPendingInstallEstimateEvaluationResult(request, source, evaluationResult, executionPolicy.WorkItemDegree, ref completed, ref lowConfidenceCount);
             nextApplyIndex++;
         }
 
         foreach ((PendingInstallEstimateEvaluationRequest Request, Task<PendingInstallEstimateEvaluationResult> Task) item in inFlight)
         {
             PendingInstallEstimateEvaluationResult evaluationResult = item.Task.GetAwaiter().GetResult();
-            ApplyPendingInstallEstimateEvaluationResult(request, source, evaluationResult, maxParallelPackages, ref completed, ref lowConfidenceCount);
+            ApplyPendingInstallEstimateEvaluationResult(request, source, evaluationResult, executionPolicy.WorkItemDegree, ref completed, ref lowConfidenceCount);
         }
     }
 
-    private PendingInstallEstimateEvaluationResult EvaluatePendingInstallEstimateRequest(PendingInstallEstimateEvaluationRequest request, PendingInstallEstimateEvaluationContext evaluationContext, CancellationToken token)
+    private PendingInstallEstimateEvaluationResult EvaluatePendingInstallEstimateRequest(PendingInstallEstimateEvaluationRequest request, PendingInstallEstimateEvaluationContext evaluationContext, InstallEstimationExecutionPolicy executionPolicy, CancellationToken token)
     {
         PendingInstallEstimateEvaluationResult result = new PendingInstallEstimateEvaluationResult
         {
@@ -2893,7 +2925,7 @@ public class BMSLibrary : NotificationObject
                 result.EstimationData = EvaluateInstallEstimation(
                     request.Package,
                     request.MissingFiles,
-                    asParallel: false,
+                    executionPolicy.CandidateEvaluationDegree,
                     request.EstimateMode,
                     evaluationContext.OptionsSnapshot,
                     useThreadSafeResolvers: true,
@@ -2912,7 +2944,7 @@ public class BMSLibrary : NotificationObject
         result.EstimationData = EvaluateInstallEstimation(
             request.Package,
             request.MissingFiles,
-            asParallel: false,
+            executionPolicy.CandidateEvaluationDegree,
             request.EstimateMode,
             evaluationContext.OptionsSnapshot,
             useThreadSafeResolvers: true,
@@ -3113,6 +3145,7 @@ public class BMSLibrary : NotificationObject
         {
             PendingInstallEstimateBatchSource.StartupRestore => "startup_restore",
             PendingInstallEstimateBatchSource.AutoInstall => "auto_install",
+            PendingInstallEstimateBatchSource.ManualReestimate => "manual_reestimate",
             _ => "unknown"
         };
     }
@@ -3123,6 +3156,7 @@ public class BMSLibrary : NotificationObject
         {
             PendingInstallEstimateBatchSource.StartupRestore => InstallEstimationProgressSource.StartupRestore,
             PendingInstallEstimateBatchSource.AutoInstall => InstallEstimationProgressSource.AutoInstall,
+            PendingInstallEstimateBatchSource.ManualReestimate => InstallEstimationProgressSource.ManualReestimate,
             _ => InstallEstimationProgressSource.None
         };
     }
@@ -7681,6 +7715,22 @@ public class BMSLibrary : NotificationObject
 
     private InstallEstimationEvaluationData EvaluateInstallEstimation(BMSPackage package, List<BMSFile> targetBmsFiles, bool asParallel, BmsInstallationEstimateMode estimateMode, BmsLibraryOptionsSnapshot optionsSnapshot = null, bool useThreadSafeResolvers = false, bool useSharedLazyHashMetrics = false, DirectoryResourceLookupCache directoryLookupCacheSnapshot = null, PendingEstimateSourceBatchPackageState batchState = null, IReadOnlyCollection<string> candidateDirectoryOverride = null, bool markInstalledDestinationAmbiguous = false)
     {
+        return EvaluateInstallEstimation(
+            package,
+            targetBmsFiles,
+            BmsLibraryInstallEstimationService.ResolveCandidateEvaluationDegree(asParallel),
+            estimateMode,
+            optionsSnapshot,
+            useThreadSafeResolvers,
+            useSharedLazyHashMetrics,
+            directoryLookupCacheSnapshot,
+            batchState,
+            candidateDirectoryOverride,
+            markInstalledDestinationAmbiguous);
+    }
+
+    private InstallEstimationEvaluationData EvaluateInstallEstimation(BMSPackage package, List<BMSFile> targetBmsFiles, int candidateEvaluationDegree, BmsInstallationEstimateMode estimateMode, BmsLibraryOptionsSnapshot optionsSnapshot = null, bool useThreadSafeResolvers = false, bool useSharedLazyHashMetrics = false, DirectoryResourceLookupCache directoryLookupCacheSnapshot = null, PendingEstimateSourceBatchPackageState batchState = null, IReadOnlyCollection<string> candidateDirectoryOverride = null, bool markInstalledDestinationAmbiguous = false)
+    {
         List<BMSFile> targetFileList = (targetBmsFiles ?? new List<BMSFile>()).Where((BMSFile bmsInfo) => bmsInfo != null).ToList();
         if (targetFileList.Count == 0)
         {
@@ -7726,7 +7776,7 @@ public class BMSLibrary : NotificationObject
             ? CreateInstallEstimationService(optionsSnapshot).EstimateInstallationDirectory(
                 estimationSnapshot,
                 effectiveDirectoryLookupCache,
-                asParallel,
+                candidateEvaluationDegree,
                 estimateMode,
                 representativeResolver,
                 metadataProfileResolver)
@@ -7734,7 +7784,7 @@ public class BMSLibrary : NotificationObject
                 estimationSnapshot,
                 candidateDirectoryOverride,
                 effectiveDirectoryLookupCache,
-                asParallel,
+                candidateEvaluationDegree,
                 estimateMode,
                 representativeResolver,
                 metadataProfileResolver);
@@ -8466,16 +8516,19 @@ public class BMSLibrary : NotificationObject
         LogInstallPerformance("manual_estimate_progress start kind=packages total=" + packageList.Count);
         try
         {
-            for (int i = 0; i < packageList.Count; i++)
+            if (packageList.Count == 1)
             {
-                BMSPackage package = packageList[i];
-                string displayName = PendingInstallEstimateBatchRequest.GetDisplayName(package.path);
-                SetInstallEstimationProgress(InstallEstimationProgressSource.ManualReestimate, packageList.Count, i, displayName);
+                string displayName = PendingInstallEstimateBatchRequest.GetDisplayName(packageList[0].path);
+                SetInstallEstimationProgress(InstallEstimationProgressSource.ManualReestimate, 1, 0, displayName);
                 RunPendingEstimateExclusive(delegate
                 {
-                    SearchEstimatedInstallationDirectoryCore(package);
+                    SearchEstimatedInstallationDirectoryCore(packageList[0]);
                 });
-                SetInstallEstimationProgress(InstallEstimationProgressSource.ManualReestimate, packageList.Count, i + 1, displayName);
+                SetInstallEstimationProgress(InstallEstimationProgressSource.ManualReestimate, 1, 1, displayName);
+            }
+            else
+            {
+                ProcessManualPackageEstimateBatch(packageList);
             }
         }
         finally
@@ -8484,6 +8537,33 @@ public class BMSLibrary : NotificationObject
             ClearInstallEstimationProgress();
             LogInstallPerformance("manual_estimate_progress done kind=packages total=" + packageList.Count + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
         }
+    }
+
+    private void ProcessManualPackageEstimateBatch(IReadOnlyList<BMSPackage> packageList)
+    {
+        if (packageList == null || packageList.Count == 0)
+        {
+            return;
+        }
+        PendingInstallEstimateBatchRequest request = new PendingInstallEstimateBatchRequest(
+            PendingInstallEstimateBatchSource.ManualReestimate,
+            packageList,
+            PendingInstallEstimateBatchRequest.GetDisplayName(packageList.FirstOrDefault()?.path));
+        string source = ToPendingEstimateBatchSourceLogValue(request.Source);
+        int lowConfidenceCount = 0;
+        int completed = 0;
+        InstallEstimationExecutionPolicy executionPolicy = InstallEstimationExecutionPolicy.ForManualBatch();
+        Stopwatch stopwatch = Stopwatch.StartNew();
+        LogInstallPerformance("pending_estimate_batch start source=" + source + " packages=" + request.PackageCount + " totalPackages=" + request.TotalPackageCount + " deferredPackages=" + request.DeferredPackageCount + " packageDegree=" + executionPolicy.WorkItemDegree + " display=" + (request.DisplayName ?? string.Empty));
+        RunPendingEstimateExclusive(delegate
+        {
+            SetInstallEstimationProgress(InstallEstimationProgressSource.ManualReestimate, request.PackageCount, 0, request.DisplayName ?? string.Empty);
+            PendingInstallEstimateEvaluationContext evaluationContext = CreatePendingInstallEstimateEvaluationContext();
+            List<PendingInstallEstimateEvaluationRequest> evaluationRequests = PreparePendingInstallEstimateEvaluationRequests(request);
+            ProcessPendingInstallEstimateEvaluationPipeline(request, source, CancellationToken.None, evaluationContext, evaluationRequests, executionPolicy, ref completed, ref lowConfidenceCount);
+        });
+        stopwatch.Stop();
+        LogInstallPerformance("pending_estimate_batch done source=" + source + " packages=" + request.PackageCount + " totalPackages=" + request.TotalPackageCount + " deferredPackages=" + request.DeferredPackageCount + " packageDegree=" + executionPolicy.WorkItemDegree + " estimated=" + completed + " completed=" + completed + " elapsedMs=" + stopwatch.ElapsedMilliseconds + " lowConfidence=" + lowConfidenceCount);
     }
 
     private void SearchEstimatedInstallationDirectoryCore(BMSFile bmsFile, bool asParallel = true, bool fixMode = false)
@@ -8562,39 +8642,47 @@ public class BMSLibrary : NotificationObject
         LogInstallPerformance("manual_estimate_progress start kind=files total=" + targetFiles.Count);
         try
         {
-            RunPendingEstimateExclusive(delegate
+            HashSet<BMSFile> targetFileSet = new HashSet<BMSFile>(targetFiles);
+            List<BMSPackage> packageTargets;
+            using (rwlockBMSFilesPendingInstall.GetReaderGuard())
             {
-                HashSet<BMSFile> targetFileSet = new HashSet<BMSFile>(targetFiles);
-                List<BMSPackage> packageTargets;
-                using (rwlockBMSFilesPendingInstall.GetReaderGuard())
-                {
-                    packageTargets = BMSPackagesPending
-                        .Where((BMSPackage package) => package != null && (package.BMSFiles ?? new List<BMSFile>()).Any((BMSFile file) => file != null && targetFileSet.Contains(file)))
-                        .ToList();
-                }
-                HashSet<BMSFile> packageFiles = new HashSet<BMSFile>(packageTargets.SelectMany((BMSPackage package) => package.BMSFiles ?? new List<BMSFile>()).Where((BMSFile file) => file != null));
+                packageTargets = BMSPackagesPending
+                    .Where((BMSPackage package) => package != null && (package.BMSFiles ?? new List<BMSFile>()).Any((BMSFile file) => file != null && targetFileSet.Contains(file)))
+                    .ToList();
+            }
+            HashSet<BMSFile> packageFiles = new HashSet<BMSFile>(packageTargets.SelectMany((BMSPackage package) => package.BMSFiles ?? new List<BMSFile>()).Where((BMSFile file) => file != null));
+            List<BMSFile> looseFiles = targetFiles.Where((BMSFile file) => !packageFiles.Contains(file)).ToList();
+            if (!fixMode && looseFiles.Count == 0 && packageTargets.Count > 1)
+            {
+                ProcessManualPackageEstimateBatch(packageTargets);
+            }
+            else
+            {
                 List<object> workItems = packageTargets.Cast<object>()
-                    .Concat(targetFiles.Where((BMSFile file) => !packageFiles.Contains(file)).Cast<object>())
+                    .Concat(looseFiles.Cast<object>())
                     .ToList();
                 int totalWorkCount = workItems.Count;
-                for (int i = 0; i < totalWorkCount; i++)
+                RunPendingEstimateExclusive(delegate
                 {
-                    object workItem = workItems[i];
-                    string displayName = workItem is BMSPackage package
-                        ? PendingInstallEstimateBatchRequest.GetDisplayName(package.path)
-                        : PendingInstallEstimateBatchRequest.GetDisplayName(((BMSFile)workItem).path);
-                    SetInstallEstimationProgress(InstallEstimationProgressSource.ManualReestimate, totalWorkCount, i, displayName);
-                    if (workItem is BMSPackage targetPackage)
+                    for (int i = 0; i < totalWorkCount; i++)
                     {
-                        SearchEstimatedInstallationDirectoryCore(targetPackage);
+                        object workItem = workItems[i];
+                        string displayName = workItem is BMSPackage package
+                            ? PendingInstallEstimateBatchRequest.GetDisplayName(package.path)
+                            : PendingInstallEstimateBatchRequest.GetDisplayName(((BMSFile)workItem).path);
+                        SetInstallEstimationProgress(InstallEstimationProgressSource.ManualReestimate, totalWorkCount, i, displayName);
+                        if (workItem is BMSPackage targetPackage)
+                        {
+                            SearchEstimatedInstallationDirectoryCore(targetPackage);
+                        }
+                        else
+                        {
+                            SearchEstimatedInstallationDirectoryCore((BMSFile)workItem, asParallel, fixMode);
+                        }
+                        SetInstallEstimationProgress(InstallEstimationProgressSource.ManualReestimate, totalWorkCount, i + 1, displayName);
                     }
-                    else
-                    {
-                        SearchEstimatedInstallationDirectoryCore((BMSFile)workItem, asParallel, fixMode);
-                    }
-                    SetInstallEstimationProgress(InstallEstimationProgressSource.ManualReestimate, totalWorkCount, i + 1, displayName);
-                }
-            });
+                });
+            }
         }
         finally
         {
