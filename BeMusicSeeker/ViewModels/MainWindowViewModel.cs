@@ -947,7 +947,7 @@ public class MainWindowViewModel : ViewModel
             {
                 if (!IsTableListURLValid())
                 {
-                    Settings.Default.TableListURL = new Uri("http://www.ribbit.xyz/bms/tables/table_info.json");
+                    Settings.Default.TableListURL = new Uri(Settings.DefaultTableListUrl);
                 }
                 return Settings.Default.TableListURL;
             }

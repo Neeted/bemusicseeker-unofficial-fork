@@ -27,6 +27,10 @@ internal sealed class Settings : ApplicationSettingsBase
 
 	internal const string DefaultAppearanceTheme = AppThemeService.Light;
 
+	internal const string DefaultTableListUrl = "https://script.google.com/macros/s/AKfycbzaQbcI9UZDcDlSHHl2NHilhmePrNrwxRdOFkmIXsfnbfksKKmAB3V65WZ8jPWU-7E/exec?table=tablelist";
+
+	internal const string LegacyTableListUrl = "http://www.ribbit.xyz/bms/tables/table_info.json";
+
 	private static Settings defaultInstance = (Settings)SettingsBase.Synchronized(new Settings());
 
 	public static Settings Default => defaultInstance;
@@ -183,7 +187,7 @@ internal sealed class Settings : ApplicationSettingsBase
 
 	[UserScopedSetting]
 	[DebuggerNonUserCode]
-	[DefaultSettingValue("http://www.ribbit.xyz/bms/tables/table_info.json")]
+	[DefaultSettingValue(DefaultTableListUrl)]
 	public Uri TableListURL
 	{
 		get

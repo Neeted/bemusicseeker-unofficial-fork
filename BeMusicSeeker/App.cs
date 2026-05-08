@@ -405,6 +405,10 @@ public partial class App : System.Windows.Application
         {
             NLogWrapper.TraceLogger?.Warn(ex, "LR2RootPath migration failed");
         }
+        if (Settings.Default.TableListURL != null && string.Equals(Settings.Default.TableListURL.ToString(), Settings.LegacyTableListUrl, StringComparison.OrdinalIgnoreCase))
+        {
+            Settings.Default.TableListURL = new Uri(Settings.DefaultTableListUrl);
+        }
         if (Settings.Default.AssemblyVersion == null || Settings.Default.AssemblyVersion <= new SerializableVersion(0, 1, 6654, 30787))
         {
             string name = CultureInfo.CurrentCulture.Name;

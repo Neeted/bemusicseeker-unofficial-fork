@@ -1,8 +1,11 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Text.RegularExpressions;
 using System.Windows;
+using System.Xml.Linq;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
@@ -825,6 +828,42 @@ public sealed class MainWindowContextMenuResourceTests
         }
     }
 
+    [TestMethod]
+    public void UserSettingDefaults_AppConfigAndSettingsCodeStayInSync()
+    {
+        string root = FindRepositoryRoot();
+        string settingsCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Properties", "Settings.cs"));
+        string appConfigPath = Path.Combine(root, "app.config");
+        string viewModelCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
+        string appCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "App.cs"));
+
+        Dictionary<string, string> settingsDefaults = ReadSettingsCodeDefaults(settingsCode);
+        Dictionary<string, string> appConfigDefaults = XDocument.Load(appConfigPath)
+            .Descendants("setting")
+            .Where(setting => setting.Attribute("name") != null)
+            .ToDictionary(
+                setting => setting.Attribute("name").Value,
+                setting => setting.Element("value")?.Value ?? string.Empty);
+
+        foreach (string key in settingsDefaults.Keys.Intersect(appConfigDefaults.Keys).OrderBy(key => key, StringComparer.Ordinal))
+        {
+            Assert.AreEqual(settingsDefaults[key], appConfigDefaults[key], key);
+        }
+
+        Assert.AreEqual(Settings.DefaultTableListUrl, settingsDefaults["TableListURL"]);
+        Assert.AreEqual(Settings.DefaultTableListUrl, appConfigDefaults["TableListURL"]);
+        StringAssert.Contains(settingsCode, "internal const string LegacyTableListUrl = \"http://www.ribbit.xyz/bms/tables/table_info.json\";");
+        StringAssert.Contains(settingsCode, "[DefaultSettingValue(DefaultTableListUrl)]");
+
+        string tableListProperty = ExtractBetween(viewModelCode, "public Uri TableListURL", "public bool EnablePlaylistUrlCompletion");
+        StringAssert.Contains(tableListProperty, "new Uri(Settings.DefaultTableListUrl)");
+        Assert.IsFalse(tableListProperty.Contains(Settings.LegacyTableListUrl));
+
+        StringAssert.Contains(appCode, "Settings.LegacyTableListUrl");
+        StringAssert.Contains(appCode, "Settings.DefaultTableListUrl");
+        StringAssert.Contains(appCode, "Settings.Default.TableListURL.ToString()");
+    }
+
     private static string FindRepositoryRoot()
     {
         DirectoryInfo directory = new DirectoryInfo(AppContext.BaseDirectory);
@@ -837,6 +876,27 @@ public sealed class MainWindowContextMenuResourceTests
             directory = directory.Parent;
         }
         throw new DirectoryNotFoundException("Repository root was not found.");
+    }
+
+    private static Dictionary<string, string> ReadSettingsCodeDefaults(string settingsCode)
+    {
+        Dictionary<string, string> defaults = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (Match match in Regex.Matches(
+            settingsCode,
+            @"\[DefaultSettingValue\((?<value>DefaultAppearanceTheme|DefaultTableListUrl|null|""(?<literal>(?:\\.|[^""])*)"")\)\]\s*public\s+\S+\s+(?<name>\w+)\s*\{",
+            RegexOptions.Singleline))
+        {
+            string valueExpression = match.Groups["value"].Value;
+            string value = valueExpression switch
+            {
+                "DefaultAppearanceTheme" => Settings.DefaultAppearanceTheme,
+                "DefaultTableListUrl" => Settings.DefaultTableListUrl,
+                "null" => "<null>",
+                _ => match.Groups["literal"].Value
+            };
+            defaults[match.Groups["name"].Value] = value;
+        }
+        return defaults;
     }
 
     private static int CountOccurrences(string value, string pattern)
