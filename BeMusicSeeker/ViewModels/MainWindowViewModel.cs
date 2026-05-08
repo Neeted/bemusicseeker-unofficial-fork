@@ -418,6 +418,11 @@ public class MainWindowViewModel : ViewModel
             {
                 if (operationModeLR2DB != value)
                 {
+                    if (!ownerViewModel.HasActiveLibraryProfile)
+                    {
+                        SetOperationModeSelection(value);
+                        return;
+                    }
                     ConfirmAndRestartForOperationModeChange(value);
                 }
             }
@@ -3159,6 +3164,12 @@ public class MainWindowViewModel : ViewModel
             await SaveSettingsCore(runPostSaveActions: true);
         }
 
+        public async Task SaveSettingsForInitialInitialize()
+        {
+            await SaveSettingsCore(runPostSaveActions: false);
+            backupSavedSettings();
+        }
+
         private async Task SaveSettingsCore(bool runPostSaveActions)
         {
             if (CheckValidation())
@@ -3168,12 +3179,12 @@ public class MainWindowViewModel : ViewModel
                 PersistStandaloneBmsRootPathsToSettings();
                 Settings.Default.OperationModeLR2DB = operationModeLR2DB;
                 Settings.Default.Save();
+                if (lr2SearchRootsChanged && lr2config != null)
+                {
+                    lr2config.Save();
+                }
                 if (runPostSaveActions)
                 {
-                    if (lr2SearchRootsChanged && lr2config != null)
-                    {
-                        lr2config.Save();
-                    }
                     if (searchRootsChanged)
                     {
                         ApplyRuntimeSearchRootsForCurrentMode();
@@ -4966,6 +4977,12 @@ public class MainWindowViewModel : ViewModel
     private PlaylistPropertyDialogViewModel _playlistPropertyDialog;
 
     private bool initializationCompleted;
+
+    public bool IsInitializationCompleted => initializationCompleted;
+
+    private bool hasActiveLibraryProfile;
+
+    public bool HasActiveLibraryProfile => hasActiveLibraryProfile;
 
     private bool bmsonMigrationApprovedForSession;
 
@@ -10709,6 +10726,7 @@ public class MainWindowViewModel : ViewModel
         SetStartupUiInteractionBlocked(true);
         LogInitStage("start", "Initialize");
         initializationCompleted = false;
+        RaisePropertyChanged(() => IsInitializationCompleted);
         _ = string.Empty;
         string text = Assembly.GetEntryAssembly().GetName().Version.ToString();
         WindowTitle = "BeMusicSeeker Unofficial Fork - " + text;
@@ -11323,6 +11341,9 @@ public class MainWindowViewModel : ViewModel
             DispatcherMessageBox.Show(BeMusicSeeker.Properties.Resources.Msg_init_completed, BeMusicSeeker.Properties.Resources.Information, MessageBoxButton.OK, MessageBoxImage.Asterisk, MessageBoxResult.OK);
         }
         initializationCompleted = true;
+        hasActiveLibraryProfile = true;
+        RaisePropertyChanged(() => IsInitializationCompleted);
+        RaisePropertyChanged(() => HasActiveLibraryProfile);
         SchedulePlaylistLibraryIndexPrewarm(GetPlaylistLibraryIndexVersion(), "initialize_completed");
         _semaphore.Release();
         LogInitStage("deferred_playlist_ref_waiting_for_playlist_entries_hydration", "Initialize");

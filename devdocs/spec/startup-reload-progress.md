@@ -54,7 +54,9 @@ background 系 phase は request 済みでなければ complete できない。�
 
 `ReloadTables` は file scan / chart_info / chart digest / score / ranking / maintenance を expected に含めない。
 
-LR2 linked / standalone の mode 切替は hot reload でも full initialize でもなく、プロセス再起動境界で反映する。設定ダイアログで mode トグルを切り替えた時点で再起動確認を出す。OK の場合は永続化済み設定を reload し、動作モードだけ保存してアプリを再起動する。他の未保存設定は保存しない。Cancel の場合は保存済み mode に戻す。mode 切替では current process の startup progress operation を開始しないため、`Startup` / `FullReinitialize` / `ReloadFileDiff` / `ReloadTables` / `ScoreOnly` のいずれにも分類しない。
+LR2 linked / standalone の mode 切替は hot reload でも full initialize でもなく、プロセス再起動境界で反映する。起動済み profile がある通常運用時は、設定ダイアログで mode トグルを切り替えた時点で再起動確認を出す。OK の場合は永続化済み設定を reload し、動作モードだけ保存してアプリを再起動する。他の未保存設定は保存しない。Cancel の場合は保存済み mode に戻す。mode 切替では current process の startup progress operation を開始しないため、`Startup` / `FullReinitialize` / `ReloadFileDiff` / `ReloadTables` / `ScoreOnly` のいずれにも分類しない。
+
+初回起動や設定不備で有効な active profile がまだ一度も成立していない場合は、mode トグルで再起動確認を出さない。トグルは設定ダイアログ内の draft mode を変えるだけで、OK 保存後に同じ process の `Startup` を開始する。初期設定保存では runtime post-save action を走らせず、直後の `Startup` だけが search root、player、playlist などを反映する。ただし LR2 linked の `config.xml` など永続化対象の設定ファイルは保存する。この場合に進捗ゲージへ出る operation は、OK 後に開始される通常の `Startup` だけである。
 
 standalone mode は app-owned `data\song.db` と設定画面の複数 BMS root を使うため、LR2 `song.db` / `config.xml` / `score.db` の validation や LR2 backup/custom folder/IR ranking phase は発生しない。standalone mode でも BMS インストール先は必須で、登録済み BMS root のいずれかを選ぶ必要がある。beatoraja score.db 設定だけを切り替えた場合は `ScoreOnly` として扱い、playlist/table reload や external playlist sync は起動しない。
 

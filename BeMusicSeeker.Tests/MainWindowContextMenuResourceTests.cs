@@ -302,7 +302,7 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
-    public void SettingDialogOperationModeChange_ConfirmsAndRestartsImmediately()
+    public void SettingDialogOperationModeChange_ConfirmsAndRestartsAfterInitialization()
     {
         string viewModelCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
         string operationModeProperty = ExtractBetween(
@@ -315,8 +315,13 @@ public sealed class MainWindowContextMenuResourceTests
             "public string LR2bodyPath");
 
         StringAssert.Contains(operationModeProperty, "return operationModeLR2DB;");
+        StringAssert.Contains(operationModeProperty, "if (!ownerViewModel.HasActiveLibraryProfile)");
+        StringAssert.Contains(operationModeProperty, "SetOperationModeSelection(value);");
+        StringAssert.Contains(operationModeProperty, "return;");
         StringAssert.Contains(operationModeProperty, "ConfirmAndRestartForOperationModeChange(value);");
         Assert.IsFalse(operationModeProperty.Contains("Settings.Default.OperationModeLR2DB = value;"));
+        StringAssert.Contains(viewModelCode, "public bool HasActiveLibraryProfile => hasActiveLibraryProfile;");
+        StringAssert.Contains(viewModelCode, "hasActiveLibraryProfile = true;");
         StringAssert.Contains(restartMethod, "Resources.Confirm_RestartForOperationModeChange");
         StringAssert.Contains(restartMethod, "SaveOperationModeForRestart(value);");
         StringAssert.Contains(restartMethod, "RestartApplication()");
@@ -338,8 +343,17 @@ public sealed class MainWindowContextMenuResourceTests
 
         Assert.IsFalse(saveAndClose.Contains("Resources.Confirm_RestartForOperationModeChange"));
         Assert.IsFalse(saveAndClose.Contains("SaveSettingsForRestart"));
+        StringAssert.Contains(saveAndClose, "try");
+        StringAssert.Contains(saveAndClose, "finally");
+        StringAssert.Contains(saveAndClose, "bool shouldInitializeAfterSave = !viewModel.HasActiveLibraryProfile;");
+        StringAssert.Contains(saveAndClose, "MainWindowViewModel.SettingDialogViewModel.RestartMode.None");
+        StringAssert.Contains(saveAndClose, "if (shouldInitializeAfterSave)");
+        StringAssert.Contains(saveAndClose, "SaveSettingsForInitialInitialize()");
+        StringAssert.Contains(saveAndClose, "settingDialog.Visibility = Visibility.Hidden;");
         StringAssert.Contains(saveAndClose, "settingDialogViewModel.CheckValidation(out var errMsg)");
         StringAssert.Contains(saveAndClose, "Msg_invalid_setting");
+        StringAssert.Contains(saveAndClose, "Msg_error_unexpected");
+        Assert.IsFalse(settingDialogCode.Contains("firstStartupInitializationStarted"));
         StringAssert.Contains(appCode, "public void RestartApplication()");
         StringAssert.Contains(appCode, "ReleaseSingleInstanceMutex();");
         StringAssert.Contains(appCode, "Environment.GetCommandLineArgs().Skip(1)");
@@ -349,11 +363,27 @@ public sealed class MainWindowContextMenuResourceTests
     public void SettingDialogOperationModeRestartSave_SavesOnlyOperationMode()
     {
         string viewModelCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
+        string initialSaveMethod = ExtractBetween(
+            viewModelCode,
+            "public async Task SaveSettingsForInitialInitialize()",
+            "private async Task SaveSettingsCore(bool runPostSaveActions)");
+        string saveCore = ExtractBetween(
+            viewModelCode,
+            "private async Task SaveSettingsCore(bool runPostSaveActions)",
+            "public void SaveOperationModeForRestart");
         string restartSaveMethod = ExtractBetween(
             viewModelCode,
             "public void SaveOperationModeForRestart(bool operationMode)",
             "public void ResetSettings()");
 
+        StringAssert.Contains(initialSaveMethod, "SaveSettingsCore(runPostSaveActions: false)");
+        StringAssert.Contains(initialSaveMethod, "backupSavedSettings();");
+        Assert.IsFalse(initialSaveMethod.Contains("necessaryStepsAfterSaved"));
+        StringAssert.Contains(saveCore, "if (lr2SearchRootsChanged && lr2config != null)");
+        Assert.IsTrue(
+            saveCore.IndexOf("if (lr2SearchRootsChanged && lr2config != null)", StringComparison.Ordinal)
+            < saveCore.IndexOf("if (runPostSaveActions)", StringComparison.Ordinal),
+            "LR2 config persistence must not be hidden behind runtime post-save actions.");
         StringAssert.Contains(restartSaveMethod, "Settings.Default.Reload();");
         StringAssert.Contains(restartSaveMethod, "Settings.Default.OperationModeLR2DB = operationMode;");
         StringAssert.Contains(restartSaveMethod, "Settings.Default.Save();");

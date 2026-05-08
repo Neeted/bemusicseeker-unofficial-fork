@@ -18,8 +18,6 @@ namespace BeMusicSeeker.Views;
 
 public partial class SettingDialog : UserControl, IComponentConnector
 {
-	private bool firstStartupInitializationStarted;
-
 	internal Binding bindingLR2CustomFolderOutputDir;
 
 	internal Binding bindingBMSInstallDir;
@@ -82,40 +80,60 @@ public partial class SettingDialog : UserControl, IComponentConnector
 			return;
 		}
 		settingDialogRootGrid.IsEnabled = false;
-		if (settingDialogViewModel.CheckValidation(out var errMsg))
+		try
 		{
-			MainWindowViewModel.SettingDialogViewModel.RestartMode needRestart = settingDialogViewModel.IsNeedRestartForSaved();
-			await settingDialogViewModel.SaveSettings();
-			if (((App)Application.Current).firstStartup && !firstStartupInitializationStarted)
+			if (settingDialogViewModel.CheckValidation(out var errMsg))
 			{
-				firstStartupInitializationStarted = true;
-				DispatcherMessageBox.Show(BeMusicSeeker.Properties.Resources.Msg_initsetting_completed, BeMusicSeeker.Properties.Resources.Information, MessageBoxButton.OK, MessageBoxImage.Asterisk, MessageBoxResult.OK);
-				viewModel.Initialize();
+				bool shouldInitializeAfterSave = !viewModel.HasActiveLibraryProfile;
+				MainWindowViewModel.SettingDialogViewModel.RestartMode needRestart = shouldInitializeAfterSave
+					? MainWindowViewModel.SettingDialogViewModel.RestartMode.None
+					: settingDialogViewModel.IsNeedRestartForSaved();
+				if (shouldInitializeAfterSave)
+				{
+					await settingDialogViewModel.SaveSettingsForInitialInitialize();
+					settingDialog.Visibility = Visibility.Hidden;
+					if (((App)Application.Current).firstStartup)
+					{
+						DispatcherMessageBox.Show(BeMusicSeeker.Properties.Resources.Msg_initsetting_completed, BeMusicSeeker.Properties.Resources.Information, MessageBoxButton.OK, MessageBoxImage.Asterisk, MessageBoxResult.OK);
+					}
+					viewModel.Initialize();
+				}
+				else
+				{
+					await settingDialogViewModel.SaveSettings();
+					if (needRestart.HasFlag(MainWindowViewModel.SettingDialogViewModel.RestartMode.All))
+					{
+						viewModel.Initialize();
+					}
+					else if (needRestart.HasFlag(MainWindowViewModel.SettingDialogViewModel.RestartMode.ScoreOnly)
+						&& needRestart.HasFlag(MainWindowViewModel.SettingDialogViewModel.RestartMode.FolderOnly))
+					{
+						viewModel.Initialize();
+					}
+					else if (needRestart.HasFlag(MainWindowViewModel.SettingDialogViewModel.RestartMode.ScoreOnly))
+					{
+						viewModel.ReloadScoresOnly();
+					}
+					else if (needRestart.HasFlag(MainWindowViewModel.SettingDialogViewModel.RestartMode.FolderOnly))
+					{
+						viewModel.ReloadFileDiff();
+					}
+					settingDialog.Visibility = Visibility.Hidden;
+				}
 			}
-			else if (needRestart.HasFlag(MainWindowViewModel.SettingDialogViewModel.RestartMode.All))
+			else
 			{
-				viewModel.Initialize();
+				DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_invalid_setting + Environment.NewLine + Environment.NewLine + errMsg, BeMusicSeeker.Properties.Resources.Error, MessageBoxButton.OK, MessageBoxImage.Hand);
 			}
-			else if (needRestart.HasFlag(MainWindowViewModel.SettingDialogViewModel.RestartMode.ScoreOnly)
-				&& needRestart.HasFlag(MainWindowViewModel.SettingDialogViewModel.RestartMode.FolderOnly))
-			{
-				viewModel.Initialize();
-			}
-			else if (needRestart.HasFlag(MainWindowViewModel.SettingDialogViewModel.RestartMode.ScoreOnly))
-			{
-				viewModel.ReloadScoresOnly();
-			}
-			else if (needRestart.HasFlag(MainWindowViewModel.SettingDialogViewModel.RestartMode.FolderOnly))
-			{
-				viewModel.ReloadFileDiff();
-			}
-			settingDialog.Visibility = Visibility.Hidden;
 		}
-		else
+		catch (Exception ex)
 		{
-			DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_invalid_setting + Environment.NewLine + Environment.NewLine + errMsg, BeMusicSeeker.Properties.Resources.Error, MessageBoxButton.OK, MessageBoxImage.Hand);
+			DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_error_unexpected + Environment.NewLine + Environment.NewLine + ex.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxButton.OK, MessageBoxImage.Hand);
 		}
-		settingDialogRootGrid.IsEnabled = true;
+		finally
+		{
+			settingDialogRootGrid.IsEnabled = true;
+		}
 	}
 
 	private async void detailTabItemBackupButtonClicked(object sender, RoutedEventArgs e)
