@@ -936,6 +936,30 @@ LR2IRにスコアやクリアが自動送信されるわけではありません
   <data name="DirPath_BMS" xml:space="preserve">
     <value>BMS ディレクトリ: </value>
   </data>
+  <data name="Standalone_BMSDirectories" xml:space="preserve">
+    <value>BMS ディレクトリ: </value>
+  </data>
+  <data name="Add_BMSDirectory" xml:space="preserve">
+    <value>追加</value>
+  </data>
+  <data name="Remove_BMSDirectory" xml:space="preserve">
+    <value>削除</value>
+  </data>
+  <data name="Error_InvalidStandaloneBmsRootPaths" xml:space="preserve">
+    <value>BMSディレクトリを1件以上追加してください</value>
+  </data>
+  <data name="Error_InvalidBmsInstallDir" xml:space="preserve">
+    <value>BMSインストール先を登録済みのBMSディレクトリから選択してください</value>
+  </data>
+  <data name="Confirm_RestartForOperationModeChange" xml:space="preserve">
+    <value>LR2連携モードの切り替えを反映するため、アプリケーションを再起動します。
+動作モードのみ保存し、他の未保存の設定変更は保存されません。
+よろしいですか?</value>
+  </data>
+  <data name="Error_RestartApplicationFailed" xml:space="preserve">
+    <value>設定は保存されましたが、アプリケーションの自動再起動に失敗しました。
+手動でアプリケーションを再起動してください。</value>
+  </data>
   <data name="PlaylistProp_save_name" xml:space="preserve">
     <value>フォルダ名: </value>
   </data>

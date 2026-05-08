@@ -54,12 +54,18 @@ background 系 phase は request 済みでなければ complete できない。�
 
 `ReloadTables` は file scan / chart_info / chart digest / score / ranking / maintenance を expected に含めない。
 
+LR2 linked / standalone の mode 切替は hot reload でも full initialize でもなく、プロセス再起動境界で反映する。設定ダイアログで mode トグルを切り替えた時点で再起動確認を出す。OK の場合は永続化済み設定を reload し、動作モードだけ保存してアプリを再起動する。他の未保存設定は保存しない。Cancel の場合は保存済み mode に戻す。mode 切替では current process の startup progress operation を開始しないため、`Startup` / `FullReinitialize` / `ReloadFileDiff` / `ReloadTables` / `ScoreOnly` のいずれにも分類しない。
+
+standalone mode は app-owned `data\song.db` と設定画面の複数 BMS root を使うため、LR2 `song.db` / `config.xml` / `score.db` の validation や LR2 backup/custom folder/IR ranking phase は発生しない。standalone mode でも BMS インストール先は必須で、登録済み BMS root のいずれかを選ぶ必要がある。beatoraja score.db 設定だけを切り替えた場合は `ScoreOnly` として扱い、playlist/table reload や external playlist sync は起動しない。
+
+BMS search root の追加・削除は `ReloadFileDiff` として扱う。実行前に runtime の `BMSLibrary.SearchTargets` を保存済み root set へ同期するため、standalone の BMS ディレクトリ追加や LR2 linked の search directory 変更は同一プロセス内の file diff に反映される。
+
 ## Phase 一覧
 
 | Phase | 意味 | 主な表示 |
 | --- | --- | --- |
 | `CoreInitializeStarted` | operation 開始 | なし。開始時点で completed |
-| `LibraryDatabaseLoadDone` | song.db / bmson_song / maintenance / digest map 読み込み | `DB読み込み` |
+| `LibraryDatabaseLoadDone` | active profile の song.db / bmson_song / maintenance / digest map 読み込み | `DB読み込み` |
 | `LibraryFileEnumerationDone` | BMS root 配下のファイル列挙 | `ファイル列挙`、scanner 判明時は `(Everything)` / `(Fallback)` 付き |
 | `LibraryFileDiffDone` | DB と列挙結果の差分確認、追加譜面の読み込み | `ファイル差分確認` |
 | `StartupReadyData` | Startup の主要データ読込完了 | Startup 専用 gate |

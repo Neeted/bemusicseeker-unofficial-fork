@@ -1,9 +1,11 @@
 using System;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Windows;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Properties;
+using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -199,6 +201,341 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(xaml.Contains("Content=\"beatoraja"));
         Assert.IsFalse(xaml.Contains("Title=\"score.db"));
         Assert.IsFalse(xaml.Contains("Filter=\"score.db|score.db"));
+    }
+
+    [TestMethod]
+    public void SettingDialogStandaloneBmsRoots_AreLocalizedAndImplemented()
+    {
+        string root = FindRepositoryRoot();
+        string xaml = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingDialog.xaml"));
+        string resources = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Properties", "Resources.resx"));
+        string resourceCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Properties", "Resources.cs"));
+        string viewModelCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
+        string[] keys =
+        {
+            "Standalone_BMSDirectories",
+            "Add_BMSDirectory",
+            "Remove_BMSDirectory",
+            "Error_InvalidStandaloneBmsRootPaths"
+        };
+        foreach (string key in keys)
+        {
+            StringAssert.Contains(resources, "name=\"" + key + "\"");
+            StringAssert.Contains(resourceCode, key);
+            foreach (string languageFile in Directory.GetFiles(Path.Combine(root, "lang"), "*.json"))
+            {
+                string languageJson = File.ReadAllText(languageFile);
+                StringAssert.Contains(languageJson, "\"" + key + "\"");
+            }
+        }
+
+        StringAssert.Contains(xaml, "Path=Resources.Standalone_BMSDirectories");
+        StringAssert.Contains(xaml, "Path=Resources.Add_BMSDirectory");
+        StringAssert.Contains(xaml, "Path=Resources.Remove_BMSDirectory");
+        StringAssert.Contains(xaml, "ItemsSource=\"{Binding settingDialog.StandaloneBmsRootPathList}\"");
+        StringAssert.Contains(xaml, "Command=\"{Binding settingDialog.RemoveDirCommand}\"");
+        Assert.IsFalse(xaml.Contains("ToolTip=\"未実装\""));
+        StringAssert.Contains(viewModelCode, "Settings.Default.StandaloneBmsRootPaths");
+        StringAssert.Contains(viewModelCode, "Resources.Error_InvalidStandaloneBmsRootPaths");
+    }
+
+    [TestMethod]
+    public void StandaloneLibraryMode_UsesPortableSongDbAndBuildsPlaylist()
+    {
+        string root = FindRepositoryRoot();
+        string viewModelCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
+        string portablePathCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Properties", "PortableSettingsPath.cs"));
+        string standaloneDbCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BmsLibraryInternal", "StandaloneLibraryDatabase.cs"));
+
+        StringAssert.Contains(portablePathCode, "DataDirectoryPath => Path.Combine(AppBaseDirectory, \"data\")");
+        StringAssert.Contains(portablePathCode, "StandaloneSongDbPath => Path.Combine(DataDirectoryPath, \"song.db\")");
+        StringAssert.Contains(standaloneDbCode, "FileMode.OpenOrCreate");
+        StringAssert.Contains(standaloneDbCode, "BMSPlaylist.EnsureSchema(songDbPath)");
+        StringAssert.Contains(viewModelCode, "StandaloneLibraryDatabase.EnsurePortableSongDb()");
+        StringAssert.Contains(viewModelCode, "tables = new BMSPlaylist(libraryProfile.SongDbPath");
+        StringAssert.Contains(viewModelCode, "files.SearchTargets.AddRange(libraryProfile.SearchRoots)");
+        StringAssert.Contains(viewModelCode, "return new List<string>();");
+        StringAssert.Contains(viewModelCode, "temp_output_dir_full_path = Settings.Default.OperationModeLR2DB ? BMSPlaylist.GetCustomFolderOutputDirectory(bmsTable) : null;");
+        StringAssert.Contains(File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BMSLibrary.cs")), "public List<string> SearchTargets { get; set; } = new List<string>();");
+        Assert.IsFalse(viewModelCode.Contains("throw new NotImplementedException();"));
+    }
+
+    [TestMethod]
+    public void Lr2PlaybackPlayer_IsIndependentFromLibraryOperationMode()
+    {
+        string root = FindRepositoryRoot();
+        string xaml = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingDialog.xaml"));
+        string viewModelCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
+        string lr2PlaybackXaml = ExtractBetween(
+            xaml,
+            "Name=\"radioButtonPlayLR2body\"",
+            "Path=Resources.Movie_playback");
+        string checkValidation = ExtractBetween(
+            viewModelCode,
+            "public bool CheckValidation(out string errMsg)",
+            "public async Task SaveSettings()");
+        string initialize = ExtractBetween(
+            viewModelCode,
+            "public async void Initialize()",
+            "ColumnsSettingsBMSFilesView");
+        string saveFollowup = ExtractBetween(
+            viewModelCode,
+            "private async Task necessaryStepsAfterSaved()",
+            "public bool CheckValidation()");
+        string lr2RootPathProperty = ExtractBetween(
+            viewModelCode,
+            "public string LR2RootPath",
+            "public Dictionary<string, Point> LR2bodyResolutions");
+
+        Assert.IsFalse(lr2PlaybackXaml.Contains("OperationModeLR2DB"));
+        StringAssert.Contains(checkValidation, "else if (UsePlayerLR2body)");
+        StringAssert.Contains(checkValidation, "if (!IsLR2PlayerRootPathValid())");
+        Assert.IsFalse(checkValidation.Contains("OperationModeLR2DB && UsePlayerLR2body"));
+        StringAssert.Contains(initialize, "else if (Settings.Default.UsePlayerLR2body && File.Exists(settingDialog.LR2bodyPath))");
+        StringAssert.Contains(initialize, "new LR2body(settingDialog.LR2bodyPath, CreateLR2PlayerConfig())");
+        Assert.IsFalse(initialize.Contains("Settings.Default.OperationModeLR2DB && Settings.Default.UsePlayerLR2body"));
+        StringAssert.Contains(saveFollowup, "else if (Settings.Default.UsePlayerLR2body && tempUsePlayerLR2body != Settings.Default.UsePlayerLR2body)");
+        Assert.IsFalse(saveFollowup.Contains("Settings.Default.OperationModeLR2DB && Settings.Default.UsePlayerLR2body"));
+        StringAssert.Contains(viewModelCode, "private LR2Config CreateLR2PlayerConfig()");
+        StringAssert.Contains(viewModelCode, "private bool IsLR2PlayerRootPathValid(string value)");
+        StringAssert.Contains(lr2RootPathProperty, "if (!IsLR2RootPathValid() && !IsLR2PlayerRootPathValid())");
+    }
+
+    [TestMethod]
+    public void SettingDialogOperationModeChange_ConfirmsAndRestartsImmediately()
+    {
+        string viewModelCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
+        string operationModeProperty = ExtractBetween(
+            viewModelCode,
+            "public bool OperationModeLR2DB",
+            "public bool CanUseLr2Features");
+        string restartMethod = ExtractBetween(
+            viewModelCode,
+            "private void ConfirmAndRestartForOperationModeChange(bool value)",
+            "public string LR2bodyPath");
+
+        StringAssert.Contains(operationModeProperty, "return operationModeLR2DB;");
+        StringAssert.Contains(operationModeProperty, "ConfirmAndRestartForOperationModeChange(value);");
+        Assert.IsFalse(operationModeProperty.Contains("Settings.Default.OperationModeLR2DB = value;"));
+        StringAssert.Contains(restartMethod, "Resources.Confirm_RestartForOperationModeChange");
+        StringAssert.Contains(restartMethod, "SaveOperationModeForRestart(value);");
+        StringAssert.Contains(restartMethod, "RestartApplication()");
+        Assert.IsFalse(restartMethod.Contains("CheckValidation("));
+        Assert.IsFalse(restartMethod.Contains("ReloadFileDiff()"));
+        Assert.IsFalse(restartMethod.Contains("ReloadScoresOnly()"));
+    }
+
+    [TestMethod]
+    public void SettingDialogSaveAndClose_DoesNotHandleOperationModeRestart()
+    {
+        string root = FindRepositoryRoot();
+        string settingDialogCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingDialog.cs"));
+        string appCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "App.cs"));
+        string saveAndClose = ExtractBetween(
+            settingDialogCode,
+            "private async void SaveAndClose",
+            "private async void detailTabItemBackupButtonClicked");
+
+        Assert.IsFalse(saveAndClose.Contains("Resources.Confirm_RestartForOperationModeChange"));
+        Assert.IsFalse(saveAndClose.Contains("SaveSettingsForRestart"));
+        StringAssert.Contains(saveAndClose, "settingDialogViewModel.CheckValidation(out var errMsg)");
+        StringAssert.Contains(saveAndClose, "Msg_invalid_setting");
+        StringAssert.Contains(appCode, "public void RestartApplication()");
+        StringAssert.Contains(appCode, "ReleaseSingleInstanceMutex();");
+        StringAssert.Contains(appCode, "Environment.GetCommandLineArgs().Skip(1)");
+    }
+
+    [TestMethod]
+    public void SettingDialogOperationModeRestartSave_SavesOnlyOperationMode()
+    {
+        string viewModelCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
+        string restartSaveMethod = ExtractBetween(
+            viewModelCode,
+            "public void SaveOperationModeForRestart(bool operationMode)",
+            "public void ResetSettings()");
+
+        StringAssert.Contains(restartSaveMethod, "Settings.Default.Reload();");
+        StringAssert.Contains(restartSaveMethod, "Settings.Default.OperationModeLR2DB = operationMode;");
+        StringAssert.Contains(restartSaveMethod, "Settings.Default.Save();");
+        Assert.IsFalse(restartSaveMethod.Contains("ResetSettings();"));
+        Assert.IsFalse(restartSaveMethod.Contains("SetOperationModeSelection"));
+        Assert.IsFalse(restartSaveMethod.Contains("RaisePropertyChanged"));
+        Assert.IsFalse(restartSaveMethod.Contains("CheckValidation("));
+        Assert.IsFalse(restartSaveMethod.Contains("necessaryStepsAfterSaved"));
+    }
+
+    [TestMethod]
+    public void SettingDialogModeSpecificGetters_DoNotClearPersistedSettings()
+    {
+        string viewModelCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
+        string lr2CustomFolderGetter = ExtractBetween(
+            viewModelCode,
+            "public string LR2CustomFolderOutputDir",
+            "public string BMSInstallDir");
+        string bmsInstallDirGetter = ExtractBetween(
+            viewModelCode,
+            "public string BMSInstallDir",
+            "public string LR2CustomFolderAsRootOutputDir");
+        string lr2CustomFolderRootGetter = ExtractBetween(
+            viewModelCode,
+            "public string LR2CustomFolderAsRootOutputDir",
+            "public Uri TableListURL");
+
+        Assert.IsFalse(lr2CustomFolderGetter.Contains("Settings.Default.LR2CustomFolderOutputBaseDir = null"));
+        Assert.IsFalse(bmsInstallDirGetter.Contains("Settings.Default.BMSInstallDir = null"));
+        Assert.IsFalse(lr2CustomFolderRootGetter.Contains("Settings.Default.LR2CustomFolderOutputBaseDirRootType = null"));
+        StringAssert.Contains(lr2CustomFolderGetter, "return Settings.Default.LR2CustomFolderOutputBaseDir;");
+        StringAssert.Contains(bmsInstallDirGetter, "return Settings.Default.BMSInstallDir;");
+        StringAssert.Contains(lr2CustomFolderRootGetter, "return Settings.Default.LR2CustomFolderOutputBaseDirRootType;");
+    }
+
+    [TestMethod]
+    public void SettingDialogValidation_RequiresInstallDestinationInAllOperationModes()
+    {
+        string root = FindRepositoryRoot();
+        string xaml = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingDialog.xaml"));
+        string viewModelCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
+        string resources = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Properties", "Resources.resx"));
+        string resourceCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Properties", "Resources.cs"));
+        string checkValidation = ExtractBetween(
+            viewModelCode,
+            "public bool CheckValidation(out string errMsg)",
+            "public async Task SaveSettings()");
+
+        Assert.IsFalse(xaml.Contains("IsEnabled=\"{Binding settingDialog.CanSaveSettings"));
+        StringAssert.Contains(checkValidation, "if (!IsBMSInstallDirValid())");
+        StringAssert.Contains(checkValidation, "Resources.Error_InvalidBmsInstallDir");
+        Assert.IsFalse(checkValidation.Contains("OperationModeLR2DB && !IsBMSInstallDirValid()"));
+        StringAssert.Contains(resources, "name=\"Error_InvalidBmsInstallDir\"");
+        StringAssert.Contains(resources, "name=\"Confirm_RestartForOperationModeChange\"");
+        StringAssert.Contains(resources, "name=\"Error_RestartApplicationFailed\"");
+        StringAssert.Contains(resourceCode, "Error_InvalidBmsInstallDir");
+        StringAssert.Contains(resourceCode, "Confirm_RestartForOperationModeChange");
+        StringAssert.Contains(resourceCode, "Error_RestartApplicationFailed");
+        foreach (string languageFile in Directory.GetFiles(Path.Combine(root, "lang"), "*.json"))
+        {
+            string languageJson = File.ReadAllText(languageFile);
+            StringAssert.Contains(languageJson, "\"Error_InvalidBmsInstallDir\"");
+            StringAssert.Contains(languageJson, "\"Confirm_RestartForOperationModeChange\"");
+            StringAssert.Contains(languageJson, "\"Error_RestartApplicationFailed\"");
+        }
+    }
+
+    [TestMethod]
+    public void SettingDialogReloadDecision_UsesExplicitSettingDiffs()
+    {
+        string viewModelCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
+        string backupSavedSettings = ExtractBetween(
+            viewModelCode,
+            "private void backupSavedSettings()",
+            "private async Task necessaryStepsAfterSaved()");
+        string restartDecision = ExtractBetween(
+            viewModelCode,
+            "public RestartMode IsNeedRestartForSaved()",
+            "public RestartMode IsNeedRestartForSaveOrCancel()");
+        string saveOrCancelDecision = ExtractBetween(
+            viewModelCode,
+            "public RestartMode IsNeedRestartForSaveOrCancel()",
+            "public class PlaylistPropertyDialogViewModel");
+
+        StringAssert.Contains(backupSavedSettings, "tempStandaloneBmsRootPaths = SerializeStandaloneBmsRootPaths(StandaloneBmsRootPathList);");
+        Assert.IsFalse(viewModelCode.Contains("tempValidation"));
+        Assert.IsFalse(restartDecision.Contains("CheckValidation()"));
+        StringAssert.Contains(restartDecision, "scoreSourceChanged");
+        StringAssert.Contains(restartDecision, "SerializeStandaloneBmsRootPaths(StandaloneBmsRootPathList)");
+        StringAssert.Contains(saveOrCancelDecision, "return RestartMode.None;");
+    }
+
+    [TestMethod]
+    public void SearchRootChanges_UpdateRuntimeSearchTargetsBeforeFileDiffReload()
+    {
+        string viewModelCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
+        string runtimeSync = ExtractBetween(
+            viewModelCode,
+            "private void ApplyRuntimeSearchRootsForCurrentMode()",
+            "private bool IsLR2SongDBPathValid()");
+        string rootAdd = ExtractBetween(
+            viewModelCode,
+            "private void AddBMSDirectoryToRootFolderAndSave",
+            "private void AddBMSDirectoryToSearchRoots");
+        string saveCore = ExtractBetween(
+            viewModelCode,
+            "private async Task SaveSettingsCore(bool runPostSaveActions)",
+            "public void SaveOperationModeForRestart");
+
+        StringAssert.Contains(runtimeSync, "ownerViewModel.files.SearchTargets = lr2config.GetBMSSearchDirectories().ToList();");
+        StringAssert.Contains(runtimeSync, "ownerViewModel.files.SearchTargets = GetStandaloneBmsRootPathsFromSettings().ToList();");
+        StringAssert.Contains(rootAdd, "ApplyRuntimeSearchRootsForCurrentMode();");
+        Assert.IsTrue(rootAdd.IndexOf("ApplyRuntimeSearchRootsForCurrentMode();", StringComparison.Ordinal) < rootAdd.IndexOf("ownerViewModel.ReloadFileDiff();", StringComparison.Ordinal));
+        StringAssert.Contains(saveCore, "ApplyRuntimeSearchRootsForCurrentMode();");
+    }
+
+    [TestMethod]
+    public void StandaloneRootNormalization_PreservesExistingRootsWhenAddingInstallDestination()
+    {
+        string viewModelCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
+        string addStandalone = ExtractBetween(
+            viewModelCode,
+            "private void AddStandaloneBmsRootPath",
+            "private void AddBMSDirectoryToLR2Config");
+        string basePath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerTests", Guid.NewGuid().ToString("N"));
+        string firstRoot = Path.Combine(basePath, "RootA");
+        string secondRoot = Path.Combine(basePath, "RootB");
+        string installRoot = Path.Combine(basePath, "Install");
+        Directory.CreateDirectory(firstRoot);
+        Directory.CreateDirectory(secondRoot);
+        Directory.CreateDirectory(installRoot);
+        try
+        {
+            var normalized = MainWindowViewModel.SettingDialogViewModel.NormalizeStandaloneBmsRootPaths(new[] { firstRoot, secondRoot, installRoot });
+
+            Assert.AreEqual(3, normalized.Count);
+            Assert.IsTrue(normalized.Contains(firstRoot, StringComparer.OrdinalIgnoreCase));
+            Assert.IsTrue(normalized.Contains(secondRoot, StringComparer.OrdinalIgnoreCase));
+            Assert.IsTrue(normalized.Contains(installRoot, StringComparer.OrdinalIgnoreCase));
+        }
+        finally
+        {
+            Directory.Delete(basePath, recursive: true);
+        }
+
+        Assert.IsFalse(addStandalone.Contains("StandaloneBmsRootPathList.Clear();"));
+        StringAssert.Contains(addStandalone, "StandaloneBmsRootPathList.Add(requestedPath);");
+        StringAssert.Contains(addStandalone, "new object[1] { requestedPath }");
+    }
+
+    [TestMethod]
+    public void RootFolderUnregister_RunsOnUiThreadAndStandaloneParentFolderCacheAcceptsEmptyRoots()
+    {
+        string root = FindRepositoryRoot();
+        string mainWindowCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "MainWindow.cs"));
+        string parentFolderCacheCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BmsLibraryInternal", "BmsLibraryParentFolderCacheService.cs"));
+        string unregisterHandler = ExtractBetween(
+            mainWindowCode,
+            "private void treeViewLibraryFolderContextMenuItemUnregisterRootFolder",
+            "private void treeViewLibraryFolderContextMenuItemAutoRenameAllFoldersClick");
+
+        Assert.IsFalse(unregisterHandler.Contains("Task.Run"));
+        StringAssert.Contains(unregisterHandler, "viewModel.RemoveBMSDirectoryFromRootFolderAndSave(path);");
+        Assert.IsFalse(parentFolderCacheCode.Contains("throw new NotImplementedException();"));
+        StringAssert.Contains(parentFolderCacheCode, "return true;");
+    }
+
+    [TestMethod]
+    public void StartupInitialize_ReleasesSemaphoreWhenFileInitializationFails()
+    {
+        string viewModelCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
+        string fileInitializeBlock = ExtractBetween(
+            viewModelCode,
+            "startupReadyDataReached = false;",
+            "if (((App)System.Windows.Application.Current).firstStartup)");
+
+        StringAssert.Contains(fileInitializeBlock, "files.InitializeStartup");
+        StringAssert.Contains(fileInitializeBlock, "FailStartupProgressOperation(ex.Message);");
+        StringAssert.Contains(fileInitializeBlock, "_semaphore.Release();");
+        StringAssert.Contains(fileInitializeBlock, "SetStartupUiInteractionBlocked(false);");
+        StringAssert.Contains(fileInitializeBlock, "new InteractionMessage(\"InitializationException\")");
+        Assert.IsFalse(fileInitializeBlock.Contains("throw;"));
     }
 
     [TestMethod]

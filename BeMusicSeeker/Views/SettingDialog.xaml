@@ -51,24 +51,31 @@
               <StackPanel>
                 <GroupBox Padding="5,5,5,0" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Operation_Mode, Mode=OneWay}">
                   <StackPanel>
-                    <RadioButton Name="radioButtonNotUseLR2" Height="20" GroupName="Operation Mode" IsChecked="False" IsEnabled="False" ToolTip="未実装" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Not_use_LR2DB, Mode=OneWay}" />
-                    <DockPanel LastChildFill="False">
-                      <Button Width="75" DockPanel.Dock="Right" Height="24" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Browse, Mode=OneWay}" IsEnabled="{Binding IsChecked, ElementName=radioButtonNotUseLR2}">
-                        <i:Interaction.Triggers>
-                          <i:EventTrigger EventName="Click">
-                            <l:FolderBrowserDialogInteractionMessageAction>
-                              <l:DirectInteractionMessage CallbackCommand="{Binding settingDialog.OpenRootFolderCommand}">
-                                <l:FolderSelectionMessage MessageKey="{Binding Path.Path, ElementName=bindingBMSRootPath}" SelectedPath="{Binding settingDialog.BMSRootPath}" />
-                              </l:DirectInteractionMessage>
-                            </l:FolderBrowserDialogInteractionMessageAction>
-                          </i:EventTrigger>
-                        </i:Interaction.Triggers>
-                      </Button>
-                      <TextBox Name="textBox" Height="24" IsReadOnly="True" Width="225" DockPanel.Dock="Right" VerticalContentAlignment="Center" IsEnabled="{Binding IsChecked, ElementName=radioButtonNotUseLR2}">
-                        <Binding x:Name="bindingBMSRootPath" Path="settingDialog.BMSRootPath" />
-                      </TextBox>
-                      <Label Height="28" HorizontalContentAlignment="Right" DockPanel.Dock="Right" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.DirPath_BMS, Mode=OneWay}" />
-                    </DockPanel>
+                    <RadioButton Name="radioButtonNotUseLR2" Height="20" GroupName="Operation Mode" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Not_use_LR2DB, Mode=OneWay}" IsChecked="{Binding settingDialog.OperationModeLR2DB, Converter={qc:QuickConverter '!$P', ConvertBack='!$value'}}" />
+                    <Grid Margin="10,0,0,4" IsEnabled="{Binding IsChecked, ElementName=radioButtonNotUseLR2}">
+                      <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                      </Grid.RowDefinitions>
+                      <DockPanel Grid.Row="0" LastChildFill="False">
+                        <Button Width="75" DockPanel.Dock="Right" Height="24" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Add_BMSDirectory, Mode=OneWay}">
+                          <i:Interaction.Triggers>
+                            <i:EventTrigger EventName="Click">
+                              <l:FolderBrowserDialogInteractionMessageAction>
+                                <l:DirectInteractionMessage CallbackCommand="{Binding settingDialog.AddBMSDirCommand}">
+                                  <l:FolderSelectionMessage DialogPreference="FolderBrowser" SelectedPath="{qc:Binding '$P == null ? null : $P.FirstOrDefault()', P={Binding settingDialog.StandaloneBmsRootPathList}}" />
+                                </l:DirectInteractionMessage>
+                              </l:FolderBrowserDialogInteractionMessageAction>
+                            </i:EventTrigger>
+                          </i:Interaction.Triggers>
+                        </Button>
+                        <Label Height="28" HorizontalContentAlignment="Right" DockPanel.Dock="Right" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Standalone_BMSDirectories, Mode=OneWay}" />
+                      </DockPanel>
+                      <DockPanel Grid.Row="1" LastChildFill="True">
+                        <Button Width="75" DockPanel.Dock="Right" Height="24" Margin="4,0,0,0" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Remove_BMSDirectory, Mode=OneWay}" Command="{Binding settingDialog.RemoveDirCommand}" CommandParameter="{Binding settingDialog.SelectedStandaloneBmsRootPath}" />
+                        <ListBox Height="58" ItemsSource="{Binding settingDialog.StandaloneBmsRootPathList}" SelectedItem="{Binding settingDialog.SelectedStandaloneBmsRootPath, Mode=TwoWay}" />
+                      </DockPanel>
+                    </Grid>
                     <RadioButton Name="radioButtonUseLR2" Height="20" GroupName="Operation Mode" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Use_LR2_DB, Mode=OneWay}" IsChecked="{Binding settingDialog.OperationModeLR2DB}" />
                     <DockPanel LastChildFill="False">
                       <Button Width="75" DockPanel.Dock="Right" Height="24" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Browse, Mode=OneWay}">
@@ -88,7 +95,7 @@
                           </MultiBinding>
                         </UIElement.IsEnabled>
                       </Button>
-                      <TextBox Height="24" IsReadOnly="True" DockPanel.Dock="Right" VerticalContentAlignment="Center" Width="{Binding ActualWidth, ElementName=textBox, Mode=OneWay}">
+                      <TextBox Name="textBox" Height="24" IsReadOnly="True" DockPanel.Dock="Right" VerticalContentAlignment="Center" Width="225">
                         <Binding x:Name="bindingLR2RootPath" Path="settingDialog.LR2RootPath" />
                         <UIElement.IsEnabled>
                           <MultiBinding Converter="{StaticResource expanderDetailedLR2PathConverter}">
@@ -498,13 +505,13 @@
                         <i:EventTrigger EventName="Click">
                           <l:FolderBrowserDialogInteractionMessageAction>
                             <l:DirectInteractionMessage CallbackCommand="{Binding settingDialog.AddBMSDirCommand}">
-                              <l:FolderSelectionMessage DialogPreference="FolderBrowser" SelectedPath="{qc:Binding $P.FirstOrDefault(), P={Binding settingDialog.LR2ConfigBMSDirectories}}" MessageKey="{Binding Path.Path, ElementName=bindingBMSInstallDir}" />
+                              <l:FolderSelectionMessage DialogPreference="FolderBrowser" SelectedPath="{qc:Binding '$P == null ? null : $P.FirstOrDefault()', P={Binding settingDialog.AvailableBMSDirectories}}" MessageKey="{Binding Path.Path, ElementName=bindingBMSInstallDir}" />
                             </l:DirectInteractionMessage>
                           </l:FolderBrowserDialogInteractionMessageAction>
                         </i:EventTrigger>
                       </i:Interaction.Triggers>
                     </Button>
-                    <ComboBox Height="24" IsReadOnly="True" HorizontalAlignment="Right" Width="245" VerticalContentAlignment="Center" ItemsSource="{Binding settingDialog.LR2ConfigBMSDirectories, Mode=OneWay}" SelectedItem="{Binding Path=settingDialog.BMSInstallDir}" />
+                    <ComboBox Height="24" IsReadOnly="True" HorizontalAlignment="Right" Width="245" VerticalContentAlignment="Center" ItemsSource="{Binding settingDialog.AvailableBMSDirectories, Mode=OneWay}" SelectedItem="{Binding Path=settingDialog.BMSInstallDir}" />
                   </DockPanel>
                 </GroupBox>
                 <GroupBox Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Install_new_folder, Mode=OneWay}">

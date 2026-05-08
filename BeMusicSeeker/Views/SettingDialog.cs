@@ -81,11 +81,10 @@ public partial class SettingDialog : UserControl, IComponentConnector
 		{
 			return;
 		}
-		buttonOK.IsEnabled = false;
-		buttonCancel.IsEnabled = false;
-		MainWindowViewModel.SettingDialogViewModel.RestartMode needRestart = settingDialogViewModel.IsNeedRestartForSaveOrCancel() | settingDialogViewModel.IsNeedRestartForSaved();
+		settingDialogRootGrid.IsEnabled = false;
 		if (settingDialogViewModel.CheckValidation(out var errMsg))
 		{
+			MainWindowViewModel.SettingDialogViewModel.RestartMode needRestart = settingDialogViewModel.IsNeedRestartForSaved();
 			await settingDialogViewModel.SaveSettings();
 			if (((App)Application.Current).firstStartup && !firstStartupInitializationStarted)
 			{
@@ -116,8 +115,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
 		{
 			DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_invalid_setting + Environment.NewLine + Environment.NewLine + errMsg, BeMusicSeeker.Properties.Resources.Error, MessageBoxButton.OK, MessageBoxImage.Hand);
 		}
-		buttonOK.IsEnabled = true;
-		buttonCancel.IsEnabled = true;
+		settingDialogRootGrid.IsEnabled = true;
 	}
 
 	private async void detailTabItemBackupButtonClicked(object sender, RoutedEventArgs e)

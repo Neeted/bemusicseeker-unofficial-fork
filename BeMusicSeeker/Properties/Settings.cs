@@ -168,6 +168,21 @@ internal sealed class Settings : ApplicationSettingsBase
 
 	[UserScopedSetting]
 	[DebuggerNonUserCode]
+	[DefaultSettingValue("")]
+	public string StandaloneBmsRootPaths
+	{
+		get
+		{
+			return (string)this["StandaloneBmsRootPaths"];
+		}
+		set
+		{
+			this["StandaloneBmsRootPaths"] = value;
+		}
+	}
+
+	[UserScopedSetting]
+	[DebuggerNonUserCode]
 	[DefaultSettingValue("http://www.ribbit.xyz/bms/tables/table_info.json")]
 	public Uri TableListURL
 	{

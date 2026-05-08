@@ -167,10 +167,14 @@ public class LR2Config : XDocument
 			}
 			foreach (string dir in dirs)
 			{
-				(from dirInXml in Element("config").Element("jukebox").Elements("path")
+				List<XElement> targets = (from dirInXml in Element("config").Element("jukebox").Elements("path")
 					where dirInXml.Value.Equals(dir.TrimEnd('\\') + "\\", StringComparison.OrdinalIgnoreCase)
-					select dirInXml).Remove();
-				result = true;
+					select dirInXml).ToList();
+				if (targets.Count > 0)
+				{
+					targets.Remove();
+					result = true;
+				}
 			}
 			return result;
 		}

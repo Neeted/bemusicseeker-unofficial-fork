@@ -9,6 +9,7 @@ using System.Linq;
 using System.Net;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
@@ -32,6 +33,8 @@ public partial class App : System.Windows.Application
     private const string MutexName = "a601b8c6-41c3-4182-950b-b96a0f0c8b0c";
 
     private static Mutex _mutex = null;
+
+    private static bool _mutexOwned;
 
     public bool forceReinitializationCustomFolders { get; set; }
 
@@ -154,7 +157,7 @@ public partial class App : System.Windows.Application
         {
             try
             {
-                _mutex = new Mutex(initiallyOwned: false, "a601b8c6-41c3-4182-950b-b96a0f0c8b0c");
+                _mutex = new Mutex(initiallyOwned: false, MutexName);
             }
             catch
             {
@@ -167,6 +170,7 @@ public partial class App : System.Windows.Application
             System.Windows.MessageBox.Show((CultureInfo.CurrentCulture.Name == "ja-JP") ? "既に起動しています。" : "BeMusicSeeker is already started.", "Error", MessageBoxButton.OK, MessageBoxImage.Hand);
             Shutdown();
         }
+        _mutexOwned = true;
         DispatcherHelper.UIDispatcher = base.Dispatcher;
         AppThemeService.ApplyTheme(Settings.Default.AppearanceTheme);
         AppDomain.CurrentDomain.UnhandledException += CurrentDomain_UnhandledException;
@@ -175,11 +179,97 @@ public partial class App : System.Windows.Application
 
     private void Application_Exit(object sender, ExitEventArgs e)
     {
-        if (_mutex != null)
+        ReleaseSingleInstanceMutex();
+    }
+
+    public void RestartApplication()
+    {
+        string executablePath = Assembly.GetEntryAssembly()?.Location;
+        if (string.IsNullOrWhiteSpace(executablePath))
         {
-            _mutex.ReleaseMutex();
-            _mutex.Dispose();
+            executablePath = Process.GetCurrentProcess().MainModule?.FileName;
         }
+        if (string.IsNullOrWhiteSpace(executablePath))
+        {
+            throw new InvalidOperationException("Application executable path is not available.");
+        }
+
+        string arguments = BuildCommandLineArguments(Environment.GetCommandLineArgs().Skip(1));
+        ReleaseSingleInstanceMutex();
+        Process.Start(new ProcessStartInfo
+        {
+            FileName = executablePath,
+            Arguments = arguments,
+            WorkingDirectory = Path.GetDirectoryName(executablePath) ?? Environment.CurrentDirectory,
+            UseShellExecute = false
+        });
+        Shutdown();
+    }
+
+    private static void ReleaseSingleInstanceMutex()
+    {
+        if (_mutex == null)
+        {
+            return;
+        }
+        try
+        {
+            if (_mutexOwned)
+            {
+                _mutex.ReleaseMutex();
+            }
+        }
+        catch (ApplicationException)
+        {
+        }
+        finally
+        {
+            _mutexOwned = false;
+            _mutex.Dispose();
+            _mutex = null;
+        }
+    }
+
+    private static string BuildCommandLineArguments(IEnumerable<string> args)
+    {
+        return string.Join(" ", args.Select(QuoteCommandLineArgument));
+    }
+
+    private static string QuoteCommandLineArgument(string argument)
+    {
+        if (string.IsNullOrEmpty(argument))
+        {
+            return "\"\"";
+        }
+        if (!argument.Any(char.IsWhiteSpace) && !argument.Contains("\""))
+        {
+            return argument;
+        }
+
+        StringBuilder builder = new StringBuilder();
+        builder.Append('"');
+        int backslashCount = 0;
+        foreach (char c in argument)
+        {
+            if (c == '\\')
+            {
+                backslashCount++;
+                continue;
+            }
+            if (c == '"')
+            {
+                builder.Append('\\', backslashCount * 2 + 1);
+                builder.Append('"');
+                backslashCount = 0;
+                continue;
+            }
+            builder.Append('\\', backslashCount);
+            backslashCount = 0;
+            builder.Append(c);
+        }
+        builder.Append('\\', backslashCount * 2);
+        builder.Append('"');
+        return builder.ToString();
     }
 
     private void Application_DispatcherUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)

@@ -190,8 +190,6 @@ public class MainWindowViewModel : ViewModel
 
         private MainWindowViewModel ownerViewModel;
 
-        private bool tempValidation;
-
         private PropertyChangedEventListener ownerViewModelEventListener;
 
         private PropertyChangedEventListener resourceServiceEventListener;
@@ -388,6 +386,8 @@ public class MainWindowViewModel : ViewModel
 
         private ListenerCommand<FolderSelectionMessage> _OpenDirCommand;
 
+        private bool operationModeLR2DB;
+
         private bool isBMSDirectoryAdded;
 
         private ListenerCommand<FolderSelectionMessage> _AddBMSDirCommandFromMainWindow;
@@ -398,6 +398,12 @@ public class MainWindowViewModel : ViewModel
 
         private ListenerCommand<string> _RemoveDirCommand;
 
+        private bool isSearchRootsChanged;
+
+        private string tempStandaloneBmsRootPaths;
+
+        private string selectedStandaloneBmsRootPath;
+
         private string tempLanguage;
 
         private string tempLanguageDisplayName;
@@ -406,15 +412,66 @@ public class MainWindowViewModel : ViewModel
         {
             get
             {
-                return Settings.Default.OperationModeLR2DB;
+                return operationModeLR2DB;
             }
             set
             {
-                if (Settings.Default.OperationModeLR2DB != value)
+                if (operationModeLR2DB != value)
                 {
-                    Settings.Default.OperationModeLR2DB = value;
-                    RaisePropertyChanged("OperationModeLR2DB");
+                    ConfirmAndRestartForOperationModeChange(value);
                 }
+            }
+        }
+
+        public bool CanUseLr2Features => OperationModeLR2DB;
+
+        public bool IsOperationModeChanged => tempOperationModeLR2DB != OperationModeLR2DB;
+
+        public bool CanSaveSettings => CheckValidation();
+
+        private void RaiseValidationStateChanged()
+        {
+            RaisePropertyChanged(() => CanSaveSettings);
+        }
+
+        private void SetOperationModeSelection(bool value)
+        {
+            operationModeLR2DB = value;
+            RaisePropertyChanged("OperationModeLR2DB");
+            RaisePropertyChanged(() => IsOperationModeChanged);
+            RaisePropertyChanged(() => CanUseLr2Features);
+            RaisePropertyChanged(() => AvailableBMSDirectories);
+            RaisePropertyChanged(() => BMSInstallDir);
+            RaiseValidationStateChanged();
+        }
+
+        private void ConfirmAndRestartForOperationModeChange(bool value)
+        {
+            ConfirmationMessage confirmationMessage = new ConfirmationMessage(
+                BeMusicSeeker.Properties.Resources.Confirm_RestartForOperationModeChange,
+                BeMusicSeeker.Properties.Resources.Confirm,
+                MessageBoxImage.Question,
+                MessageBoxButton.OKCancel,
+                "ConfirmationDialog");
+            ownerViewModel.Messenger.Raise(confirmationMessage);
+            if (confirmationMessage.Response != true)
+            {
+                SetOperationModeSelection(operationModeLR2DB);
+                return;
+            }
+            try
+            {
+                SaveOperationModeForRestart(value);
+                ((App)System.Windows.Application.Current).RestartApplication();
+            }
+            catch (Exception ex)
+            {
+                DispatcherMessageBox.Show(
+                    BeMusicSeeker.Properties.Resources.Error_RestartApplicationFailed + Environment.NewLine + Environment.NewLine + ex.Message,
+                    BeMusicSeeker.Properties.Resources.Error,
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Hand);
+                System.Windows.Application.Current.Shutdown();
             }
         }
 
@@ -426,7 +483,7 @@ public class MainWindowViewModel : ViewModel
                 {
                     string path = Path.Combine(LR2RootPath, "LR2body.exe");
                     string text = Path.Combine(LR2RootPath, "LRHbody.exe");
-                    if (OperationModeLR2DB && !string.IsNullOrWhiteSpace(LR2ConfigXmlPath) && LR2ConfigXmlPath.EndsWith(".xmh", StringComparison.OrdinalIgnoreCase) && File.Exists(text))
+                    if (!string.IsNullOrWhiteSpace(LR2ConfigXmlPath) && LR2ConfigXmlPath.EndsWith(".xmh", StringComparison.OrdinalIgnoreCase) && File.Exists(text))
                     {
                         return Path.Combine(LR2RootPath, text);
                     }
@@ -440,7 +497,7 @@ public class MainWindowViewModel : ViewModel
         {
             get
             {
-                if (!IsLR2RootPathValid())
+                if (!IsLR2RootPathValid() && !IsLR2PlayerRootPathValid())
                 {
                     Settings.Default.LR2RootPath = null;
                 }
@@ -452,7 +509,7 @@ public class MainWindowViewModel : ViewModel
                 {
                     return;
                 }
-                if (IsLR2RootPathValid(value))
+                if (IsLR2PlayerRootPathValid(value))
                 {
                     string lR2SongDBPath = Path.Combine(value, "LR2files\\Database\\song.db");
                     string text = Path.Combine(value, "LR2files\\Config\\config.xml");
@@ -475,7 +532,10 @@ public class MainWindowViewModel : ViewModel
                         empty = text2;
                     }
                     Settings.Default.LR2RootPath = value;
-                    LR2SongDBPath = lR2SongDBPath;
+                    if (IsLR2SongDBPathValid(lR2SongDBPath))
+                    {
+                        LR2SongDBPath = lR2SongDBPath;
+                    }
                     LR2ConfigXmlPath = empty;
                 }
                 else
@@ -484,6 +544,7 @@ public class MainWindowViewModel : ViewModel
                 }
                 RaisePropertyChanged("LR2RootPath");
                 RaisePropertyChanged(() => LR2bodyPath);
+                RaiseValidationStateChanged();
             }
         }
 
@@ -524,6 +585,25 @@ public class MainWindowViewModel : ViewModel
                         Settings.Default.BMSRootPath = null;
                     }
                     RaisePropertyChanged("BMSRootPath");
+                    RaiseValidationStateChanged();
+                }
+            }
+        }
+
+        public ObservableCollection<string> StandaloneBmsRootPathList { get; } = new ObservableCollection<string>();
+
+        public string SelectedStandaloneBmsRootPath
+        {
+            get
+            {
+                return selectedStandaloneBmsRootPath;
+            }
+            set
+            {
+                if (!string.Equals(selectedStandaloneBmsRootPath, value, StringComparison.Ordinal))
+                {
+                    selectedStandaloneBmsRootPath = value;
+                    RaisePropertyChanged(() => SelectedStandaloneBmsRootPath);
                 }
             }
         }
@@ -547,6 +627,7 @@ public class MainWindowViewModel : ViewModel
                         Settings.Default.LR2SongDBPath = value;
                     }
                     RaisePropertyChanged("LR2SongDBPath");
+                    RaiseValidationStateChanged();
                 }
             }
         }
@@ -583,6 +664,9 @@ public class MainWindowViewModel : ViewModel
                 }
                 RaisePropertyChanged("LR2ConfigXmlPath");
                 RaisePropertyChanged(() => LR2bodyPath);
+                RaisePropertyChanged(() => AvailableBMSDirectories);
+                RaisePropertyChanged(() => BMSInstallDir);
+                RaiseValidationStateChanged();
             }
         }
 
@@ -598,6 +682,7 @@ public class MainWindowViewModel : ViewModel
                 {
                     Settings.Default.UseBeatorajaScoreDb = value;
                     RaisePropertyChanged("UseBeatorajaScoreDb");
+                    RaiseValidationStateChanged();
                 }
             }
         }
@@ -616,6 +701,7 @@ public class MainWindowViewModel : ViewModel
                 }
                 Settings.Default.BeatorajaScoreDbPath = IsBeatorajaScoreDbPathValid(value) ? value : string.Empty;
                 RaisePropertyChanged("BeatorajaScoreDbPath");
+                RaiseValidationStateChanged();
             }
         }
 
@@ -657,6 +743,7 @@ public class MainWindowViewModel : ViewModel
                         Settings.Default.uBMplayPath = value;
                     }
                     RaisePropertyChanged("uBMplayPath");
+                    RaiseValidationStateChanged();
                 }
             }
         }
@@ -680,6 +767,7 @@ public class MainWindowViewModel : ViewModel
                         Settings.Default.BMIIDXViewPath = value;
                     }
                     RaisePropertyChanged("BMIIDXViewPath");
+                    RaiseValidationStateChanged();
                 }
             }
         }
@@ -696,6 +784,7 @@ public class MainWindowViewModel : ViewModel
                 {
                     Settings.Default.UsePlayeruBMplay = value;
                     RaisePropertyChanged("UsePlayeruBMplay");
+                    RaiseValidationStateChanged();
                 }
             }
         }
@@ -712,6 +801,7 @@ public class MainWindowViewModel : ViewModel
                 {
                     Settings.Default.UsePlayerLR2body = value;
                     RaisePropertyChanged("UsePlayerLR2body");
+                    RaiseValidationStateChanged();
                 }
             }
         }
@@ -728,6 +818,7 @@ public class MainWindowViewModel : ViewModel
                 {
                     Settings.Default.UsePlayerBMIIDXView = value;
                     RaisePropertyChanged("UsePlayerBMIIDXView");
+                    RaiseValidationStateChanged();
                 }
             }
         }
@@ -760,10 +851,22 @@ public class MainWindowViewModel : ViewModel
                             where string.IsNullOrWhiteSpace(rootDir) || ownerViewModel.BMSTables == null || ownerViewModel.BMSTables.Where((BMSTable t) => t != null && t.is_root_folder && !string.IsNullOrWhiteSpace(t.Output_dir)).All((BMSTable t) => !string.Equals(d, Path.Combine(rootDir, t.Output_dir), StringComparison.OrdinalIgnoreCase) && (string.IsNullOrWhiteSpace(tempRootDir) || !string.Equals(d, Path.Combine(tempRootDir, t.Output_dir), StringComparison.OrdinalIgnoreCase)))
                             select d).ToList();
                 }
-                return null;
+                return new List<string>();
             }
             private set
             {
+            }
+        }
+
+        public List<string> AvailableBMSDirectories
+        {
+            get
+            {
+                if (OperationModeLR2DB)
+                {
+                    return LR2ConfigBMSDirectories;
+                }
+                return StandaloneBmsRootPathList.ToList();
             }
         }
 
@@ -771,10 +874,6 @@ public class MainWindowViewModel : ViewModel
         {
             get
             {
-                if (!IsLR2CustomFolderOutputDirValid())
-                {
-                    Settings.Default.LR2CustomFolderOutputBaseDir = null;
-                }
                 return Settings.Default.LR2CustomFolderOutputBaseDir;
             }
             set
@@ -787,6 +886,7 @@ public class MainWindowViewModel : ViewModel
                     }
                     RaisePropertyChanged("LR2CustomFolderOutputDir");
                     RaisePropertyChanged(() => LR2ConfigBMSDirectories);
+                    RaiseValidationStateChanged();
                 }
             }
         }
@@ -795,10 +895,6 @@ public class MainWindowViewModel : ViewModel
         {
             get
             {
-                if (!IsBMSInstallDirValid())
-                {
-                    Settings.Default.BMSInstallDir = null;
-                }
                 return Settings.Default.BMSInstallDir;
             }
             set
@@ -810,6 +906,7 @@ public class MainWindowViewModel : ViewModel
                         Settings.Default.BMSInstallDir = value;
                     }
                     RaisePropertyChanged("BMSInstallDir");
+                    RaiseValidationStateChanged();
                 }
             }
         }
@@ -818,10 +915,6 @@ public class MainWindowViewModel : ViewModel
         {
             get
             {
-                if (!IsLR2CustomFolderAsRootOutputDirValid())
-                {
-                    Settings.Default.LR2CustomFolderOutputBaseDirRootType = null;
-                }
                 return Settings.Default.LR2CustomFolderOutputBaseDirRootType;
             }
             set
@@ -838,6 +931,7 @@ public class MainWindowViewModel : ViewModel
                     }
                     RaisePropertyChanged("LR2CustomFolderAsRootOutputDir");
                     RaisePropertyChanged(() => LR2ConfigBMSDirectories);
+                    RaiseValidationStateChanged();
                 }
             }
         }
@@ -865,6 +959,7 @@ public class MainWindowViewModel : ViewModel
                         ownerViewModel.Messenger.Raise(new ConfirmationMessage("難易度表リスト取得URIが正しくありません。", "エラー", MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
                     }
                     RaisePropertyChanged("TableListURL");
+                    RaiseValidationStateChanged();
                 }
             }
         }
@@ -881,6 +976,7 @@ public class MainWindowViewModel : ViewModel
                 {
                     Settings.Default.EnablePlaylistUrlCompletion = value;
                     RaisePropertyChanged("EnablePlaylistUrlCompletion");
+                    RaiseValidationStateChanged();
                 }
             }
         }
@@ -927,6 +1023,7 @@ public class MainWindowViewModel : ViewModel
                     ownerViewModel.Messenger.Raise(new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Error_InvalidPlaylistMd5UrlMappingTsvUri, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
                 }
                 RaisePropertyChanged("PlaylistMd5UrlMappingTsvUri");
+                RaiseValidationStateChanged();
             }
         }
 
@@ -942,6 +1039,7 @@ public class MainWindowViewModel : ViewModel
                 {
                     Settings.Default.IsLR2BackupEnabled = value;
                     RaisePropertyChanged("IsLR2BackupEnabled");
+                    RaiseValidationStateChanged();
                 }
             }
         }
@@ -969,6 +1067,7 @@ public class MainWindowViewModel : ViewModel
                         Settings.Default.LR2BackupPath = null;
                     }
                     RaisePropertyChanged("LR2BackupPath");
+                    RaiseValidationStateChanged();
                 }
             }
         }
@@ -1063,6 +1162,7 @@ public class MainWindowViewModel : ViewModel
                 {
                     Settings.Default.UseExternalPanelImage = value;
                     RaisePropertyChanged("UseExternalPanelImage");
+                    RaiseValidationStateChanged();
                 }
             }
         }
@@ -1434,6 +1534,7 @@ public class MainWindowViewModel : ViewModel
                         Settings.Default.StagefilePath = value;
                     }
                     RaisePropertyChanged("StagefilePath");
+                    RaiseValidationStateChanged();
                 }
             }
         }
@@ -1463,6 +1564,7 @@ public class MainWindowViewModel : ViewModel
                         ownerViewModel.Messenger.Raise(new ConfirmationMessage("リネーム書式には「%ARTIST%」または「%TITLE%」を含めて下さい", "警告", MessageBoxImage.Exclamation, MessageBoxButton.OK, "ConfirmationDialog"));
                     }
                     RaisePropertyChanged("FolderNameFormat");
+                    RaiseValidationStateChanged();
                 }
             }
         }
@@ -1929,7 +2031,7 @@ public class MainWindowViewModel : ViewModel
             {
                 if (_AddBMSDirCommand == null)
                 {
-                    _AddBMSDirCommand = new ListenerCommand<FolderSelectionMessage>(AddBMSDirectoryToLR2Config);
+                    _AddBMSDirCommand = new ListenerCommand<FolderSelectionMessage>(AddBMSDirectoryToSearchRoots);
                 }
                 return _AddBMSDirCommand;
             }
@@ -1941,7 +2043,7 @@ public class MainWindowViewModel : ViewModel
             {
                 if (_RemoveDirCommand == null)
                 {
-                    _RemoveDirCommand = new ListenerCommand<string>(RemoveBMSDirectoryFromLR2Config);
+                    _RemoveDirCommand = new ListenerCommand<string>(RemoveBMSDirectoryFromSearchRoots);
                 }
                 return _RemoveDirCommand;
             }
@@ -1988,6 +2090,7 @@ public class MainWindowViewModel : ViewModel
             ownerViewModelEventListener.RegisterHandler(() => owner.BMSTables, delegate
             {
                 settingDialogViewModel.RaisePropertyChanged(() => settingDialogViewModel.LR2ConfigBMSDirectories);
+                settingDialogViewModel.RaisePropertyChanged(() => settingDialogViewModel.AvailableBMSDirectories);
             });
             resourceServiceEventListener = new PropertyChangedEventListener(ResourceService.Current);
             resourceServiceEventListener.RegisterHandler(() => ResourceService.Current.Resources, delegate
@@ -2006,15 +2109,23 @@ public class MainWindowViewModel : ViewModel
                 }
             });
             Settings.Default.Reload();
-            try
+            if (Settings.Default.OperationModeLR2DB)
             {
-                lr2config = new LR2Config(Settings.Default.LR2ConfigXmlPath);
+                try
+                {
+                    lr2config = new LR2Config(Settings.Default.LR2ConfigXmlPath);
+                }
+                catch
+                {
+                    Settings.Default.LR2ConfigXmlPath = null;
+                    lr2config = null;
+                }
             }
-            catch
+            else
             {
-                Settings.Default.LR2ConfigXmlPath = null;
                 lr2config = null;
             }
+            RefreshStandaloneBmsRootPathsFromSettings();
             backupSavedSettings();
         }
 
@@ -2045,6 +2156,26 @@ public class MainWindowViewModel : ViewModel
             return false;
         }
 
+        private bool IsLR2PlayerRootPathValid()
+        {
+            return IsLR2PlayerRootPathValid(Settings.Default.LR2RootPath);
+        }
+
+        private bool IsLR2PlayerRootPathValid(string value)
+        {
+            if (value == null)
+            {
+                return false;
+            }
+            string path = Path.Combine(value, "LR2body.exe");
+            string path2 = Path.Combine(value, "LRHbody.exe");
+            string value2 = Path.Combine(value, "LR2files\\Config\\config.xml");
+            string value3 = Path.Combine(value, "LR2files\\Config\\config.xmh");
+            return Directory.Exists(value)
+                && (File.Exists(path) || File.Exists(path2))
+                && (IsLR2ConfigXmlPathValid(value2) || IsLR2ConfigXmlPathValid(value3));
+        }
+
         private bool IsBMSRootPathValid()
         {
             return IsBMSRootPathValid(Settings.Default.BMSRootPath);
@@ -2053,6 +2184,124 @@ public class MainWindowViewModel : ViewModel
         private bool IsBMSRootPathValid(string value)
         {
             return Directory.Exists(value);
+        }
+
+        public static IReadOnlyList<string> GetStandaloneBmsRootPathsFromSettings()
+        {
+            return DeserializeStandaloneBmsRootPaths(Settings.Default.StandaloneBmsRootPaths, Settings.Default.BMSRootPath);
+        }
+
+        public static IReadOnlyList<string> DeserializeStandaloneBmsRootPaths(string serializedPaths, string legacyBmsRootPath = null)
+        {
+            List<string> paths = new List<string>();
+            if (!string.IsNullOrWhiteSpace(serializedPaths))
+            {
+                paths.AddRange(serializedPaths.Split(new[] { "\r\n", "\n", "\r" }, StringSplitOptions.RemoveEmptyEntries));
+            }
+            if (paths.Count == 0 && !string.IsNullOrWhiteSpace(legacyBmsRootPath) && Directory.Exists(legacyBmsRootPath))
+            {
+                paths.Add(legacyBmsRootPath);
+            }
+            return NormalizeStandaloneBmsRootPaths(paths);
+        }
+
+        public static IReadOnlyList<string> NormalizeStandaloneBmsRootPaths(IEnumerable<string> paths)
+        {
+            if (paths == null)
+            {
+                return Array.Empty<string>();
+            }
+
+            List<string> normalized = new List<string>();
+            foreach (string path in paths)
+            {
+                if (string.IsNullOrWhiteSpace(path))
+                {
+                    continue;
+                }
+                string fullPath;
+                try
+                {
+                    fullPath = Path.GetFullPath(path.Trim());
+                }
+                catch
+                {
+                    continue;
+                }
+                fullPath = TrimDirectorySeparatorUnlessRoot(fullPath);
+                if (!Directory.Exists(fullPath))
+                {
+                    continue;
+                }
+                if (!normalized.Contains(fullPath, StringComparer.OrdinalIgnoreCase))
+                {
+                    normalized.Add(fullPath);
+                }
+            }
+
+            return normalized;
+        }
+
+        public static string SerializeStandaloneBmsRootPaths(IEnumerable<string> paths)
+        {
+            return string.Join(Environment.NewLine, NormalizeStandaloneBmsRootPaths(paths));
+        }
+
+        private static bool IsSameOrChildPath(string candidate, string parent)
+        {
+            if (string.Equals(candidate, parent, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+            string parentWithSeparator = TrimDirectorySeparatorUnlessRoot(parent) + Path.DirectorySeparatorChar;
+            return candidate.StartsWith(parentWithSeparator, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string TrimDirectorySeparatorUnlessRoot(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                return path;
+            }
+            string root = Path.GetPathRoot(path);
+            string trimmed = path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            return string.IsNullOrEmpty(trimmed) || string.Equals(trimmed, root?.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar), StringComparison.OrdinalIgnoreCase)
+                ? root
+                : trimmed;
+        }
+
+        private void RefreshStandaloneBmsRootPathsFromSettings()
+        {
+            StandaloneBmsRootPathList.Clear();
+            foreach (string path in GetStandaloneBmsRootPathsFromSettings())
+            {
+                StandaloneBmsRootPathList.Add(path);
+            }
+            SelectedStandaloneBmsRootPath = StandaloneBmsRootPathList.FirstOrDefault();
+            RaisePropertyChanged(() => StandaloneBmsRootPathList);
+            RaisePropertyChanged(() => AvailableBMSDirectories);
+            RaiseValidationStateChanged();
+        }
+
+        private void PersistStandaloneBmsRootPathsToSettings()
+        {
+            Settings.Default.StandaloneBmsRootPaths = SerializeStandaloneBmsRootPaths(StandaloneBmsRootPathList);
+            string firstRoot = DeserializeStandaloneBmsRootPaths(Settings.Default.StandaloneBmsRootPaths).FirstOrDefault();
+            Settings.Default.BMSRootPath = string.IsNullOrWhiteSpace(firstRoot) ? null : firstRoot;
+        }
+
+        private void ApplyRuntimeSearchRootsForCurrentMode()
+        {
+            if (ownerViewModel.files == null)
+            {
+                return;
+            }
+            if (Settings.Default.OperationModeLR2DB && lr2config != null)
+            {
+                ownerViewModel.files.SearchTargets = lr2config.GetBMSSearchDirectories().ToList();
+                return;
+            }
+            ownerViewModel.files.SearchTargets = GetStandaloneBmsRootPathsFromSettings().ToList();
         }
 
         private bool IsLR2SongDBPathValid()
@@ -2128,11 +2377,15 @@ public class MainWindowViewModel : ViewModel
 
         private bool IsBMSInstallDirValid(string value)
         {
-            if (lr2config != null && value != null)
+            if (value == null)
+            {
+                return false;
+            }
+            if (OperationModeLR2DB && lr2config != null)
             {
                 return lr2config.GetBMSSearchDirectories().Contains(value);
             }
-            return false;
+            return NormalizeStandaloneBmsRootPaths(StandaloneBmsRootPathList).Contains(value, StringComparer.OrdinalIgnoreCase);
         }
 
         private bool IsLR2CustomFolderAsRootOutputDirValid()
@@ -2292,10 +2545,19 @@ public class MainWindowViewModel : ViewModel
             _ = parameter.Response;
             if (Settings.Default.OperationModeLR2DB)
             {
-                AddBMSDirectoryToLR2Config(parameter);
-                if (isBMSDirectoryAdded)
+                AddBMSDirectoryToLR2Config(parameter, saveImmediately: true);
+                if (isSearchRootsChanged)
                 {
-                    ownerViewModel.ReloadFileDiff();
+                    ApplyRuntimeSearchRootsForCurrentMode();
+                    if (isBMSDirectoryAdded)
+                    {
+                        ownerViewModel.ReloadFileDiff();
+                    }
+                    else
+                    {
+                        ownerViewModel.NotifyBmsParentFolderListChanged();
+                    }
+                    isSearchRootsChanged = false;
                     isBMSDirectoryAdded = false;
                 }
                 else
@@ -2304,10 +2566,79 @@ public class MainWindowViewModel : ViewModel
                 }
                 return;
             }
-            throw new NotImplementedException();
+            AddStandaloneBmsRootPath(parameter);
+            if (isSearchRootsChanged)
+            {
+                PersistStandaloneBmsRootPathsToSettings();
+                Settings.Default.Save();
+                ApplyRuntimeSearchRootsForCurrentMode();
+                if (isBMSDirectoryAdded)
+                {
+                    ownerViewModel.ReloadFileDiff();
+                }
+                else
+                {
+                    ownerViewModel.NotifyBmsParentFolderListChanged();
+                }
+                isSearchRootsChanged = false;
+                isBMSDirectoryAdded = false;
+            }
+            else
+            {
+                ownerViewModel.NotifyBmsParentFolderListChanged();
+            }
         }
 
-        private void AddBMSDirectoryToLR2Config(FolderSelectionMessage parameter)
+        private void AddBMSDirectoryToSearchRoots(FolderSelectionMessage parameter)
+        {
+            if (OperationModeLR2DB)
+            {
+                AddBMSDirectoryToLR2Config(parameter, saveImmediately: false);
+                return;
+            }
+            AddStandaloneBmsRootPath(parameter);
+        }
+
+        private void AddStandaloneBmsRootPath(FolderSelectionMessage parameter)
+        {
+            if (parameter?.Response == null)
+            {
+                return;
+            }
+            try
+            {
+                string before = SerializeStandaloneBmsRootPaths(StandaloneBmsRootPathList);
+                string requestedPath = NormalizeStandaloneBmsRootPaths(new[] { parameter.Response }).FirstOrDefault();
+                if (string.IsNullOrWhiteSpace(requestedPath))
+                {
+                    return;
+                }
+                if (!StandaloneBmsRootPathList.Contains(requestedPath, StringComparer.OrdinalIgnoreCase))
+                {
+                    StandaloneBmsRootPathList.Add(requestedPath);
+                }
+                SelectedStandaloneBmsRootPath = StandaloneBmsRootPathList.FirstOrDefault(path => string.Equals(path, requestedPath, StringComparison.OrdinalIgnoreCase))
+                    ?? StandaloneBmsRootPathList.FirstOrDefault(path => IsSameOrChildPath(requestedPath, path))
+                    ?? StandaloneBmsRootPathList.FirstOrDefault();
+                if (!string.IsNullOrWhiteSpace(parameter.MessageKey))
+                {
+                    string name = parameter.MessageKey.Substring(parameter.MessageKey.LastIndexOf('.') + 1);
+                    GetType().GetProperty(name).GetSetMethod().Invoke(this, new object[1] { requestedPath });
+                }
+                string after = SerializeStandaloneBmsRootPaths(StandaloneBmsRootPathList);
+                isSearchRootsChanged = !string.Equals(before, after, StringComparison.OrdinalIgnoreCase);
+                isBMSDirectoryAdded = isSearchRootsChanged;
+                RaisePropertyChanged(() => StandaloneBmsRootPathList);
+                RaisePropertyChanged(() => AvailableBMSDirectories);
+                RaiseValidationStateChanged();
+            }
+            catch (Exception ex)
+            {
+                ownerViewModel.Messenger.Raise(new ConfirmationMessage(ex.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
+            }
+        }
+
+        private void AddBMSDirectoryToLR2Config(FolderSelectionMessage parameter, bool saveImmediately)
         {
             if (lr2config == null || parameter.Response == null)
             {
@@ -2321,14 +2652,20 @@ public class MainWindowViewModel : ViewModel
                     throw new ArgumentException("パスにユニコード文字が含まれているためLR2で認識できません");
                 }
                 lr2config.AddBMSSearchDirectories(new string[1] { response });
+                isSearchRootsChanged = true;
                 isBMSDirectoryAdded = Directory.EnumerateFiles(response, "*", System.IO.SearchOption.AllDirectories).Any((string path) => BeMusicSeeker.Models.BMSFile.bmsExtensions.Any((string ext) => path.EndsWith(ext, StringComparison.OrdinalIgnoreCase)));
                 RaisePropertyChanged(() => LR2ConfigBMSDirectories);
+                RaisePropertyChanged(() => AvailableBMSDirectories);
+                RaiseValidationStateChanged();
                 if (!string.IsNullOrWhiteSpace(parameter.MessageKey))
                 {
                     string name = parameter.MessageKey.Substring(parameter.MessageKey.LastIndexOf('.') + 1);
                     GetType().GetProperty(name).GetSetMethod().Invoke(this, new object[1] { response });
                 }
-                lr2config.Save();
+                if (saveImmediately)
+                {
+                    lr2config.Save();
+                }
             }
             catch (ArgumentException ex)
             {
@@ -2347,10 +2684,19 @@ public class MainWindowViewModel : ViewModel
             }
             if (Settings.Default.OperationModeLR2DB)
             {
-                RemoveBMSDirectoryFromLR2Config(dir);
-                if (isBMSDirectoryRemoved)
+                RemoveBMSDirectoryFromLR2Config(dir, saveImmediately: true);
+                if (isSearchRootsChanged)
                 {
-                    ownerViewModel.ReloadFileDiff();
+                    ApplyRuntimeSearchRootsForCurrentMode();
+                    if (isBMSDirectoryRemoved)
+                    {
+                        ownerViewModel.ReloadFileDiff();
+                    }
+                    else
+                    {
+                        ownerViewModel.NotifyBmsParentFolderListChanged();
+                    }
+                    isSearchRootsChanged = false;
                     isBMSDirectoryRemoved = false;
                 }
                 else
@@ -2359,10 +2705,77 @@ public class MainWindowViewModel : ViewModel
                 }
                 return;
             }
-            throw new NotImplementedException();
+            RemoveStandaloneBmsRootPath(dir);
+            if (isSearchRootsChanged)
+            {
+                PersistStandaloneBmsRootPathsToSettings();
+                Settings.Default.Save();
+                ApplyRuntimeSearchRootsForCurrentMode();
+                if (isBMSDirectoryRemoved)
+                {
+                    ownerViewModel.ReloadFileDiff();
+                }
+                else
+                {
+                    ownerViewModel.NotifyBmsParentFolderListChanged();
+                }
+                isSearchRootsChanged = false;
+                isBMSDirectoryRemoved = false;
+            }
+            else
+            {
+                ownerViewModel.NotifyBmsParentFolderListChanged();
+            }
         }
 
-        private void RemoveBMSDirectoryFromLR2Config(string dir)
+        private void RemoveBMSDirectoryFromSearchRoots(string dir)
+        {
+            if (OperationModeLR2DB)
+            {
+                RemoveBMSDirectoryFromLR2Config(dir, saveImmediately: false);
+                return;
+            }
+            RemoveStandaloneBmsRootPath(dir);
+        }
+
+        private void RemoveStandaloneBmsRootPath(string dir)
+        {
+            if (string.IsNullOrWhiteSpace(dir))
+            {
+                return;
+            }
+            try
+            {
+                string normalizedDir = TrimDirectorySeparatorUnlessRoot(Path.GetFullPath(dir.Trim()));
+                if (!string.IsNullOrWhiteSpace(Settings.Default.BMSInstallDir) && IsSameOrChildPath(Settings.Default.BMSInstallDir, normalizedDir))
+                {
+                    throw new InvalidOperationException("BMSインストール先ディレクトリの登録解除は出来ません");
+                }
+                string before = SerializeStandaloneBmsRootPaths(StandaloneBmsRootPathList);
+                List<string> remaining = StandaloneBmsRootPathList
+                    .Where(path => !string.Equals(path, normalizedDir, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+                StandaloneBmsRootPathList.Clear();
+                foreach (string path in remaining)
+                {
+                    StandaloneBmsRootPathList.Add(path);
+                }
+                SelectedStandaloneBmsRootPath = StandaloneBmsRootPathList.FirstOrDefault();
+                string after = SerializeStandaloneBmsRootPaths(StandaloneBmsRootPathList);
+                isSearchRootsChanged = !string.Equals(before, after, StringComparison.OrdinalIgnoreCase);
+                isBMSDirectoryRemoved = isSearchRootsChanged;
+                RaisePropertyChanged(() => StandaloneBmsRootPathList);
+                RaisePropertyChanged(() => AvailableBMSDirectories);
+                RaisePropertyChanged(() => BMSInstallDir);
+                RaiseValidationStateChanged();
+            }
+            catch (Exception ex)
+            {
+                ownerViewModel.Messenger.Raise(new ConfirmationMessage(ex.Message, "エラー", MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
+            }
+        }
+
+        private void RemoveBMSDirectoryFromLR2Config(string dir, bool saveImmediately)
         {
             if (dir == null)
             {
@@ -2384,8 +2797,15 @@ public class MainWindowViewModel : ViewModel
                 }
                 if (lr2config.RemoveBMSSearchDirectories(new string[1] { dir }))
                 {
-                    lr2config.Save();
+                    isSearchRootsChanged = true;
+                    if (saveImmediately)
+                    {
+                        lr2config.Save();
+                    }
                     RaisePropertyChanged(() => LR2ConfigBMSDirectories);
+                    RaisePropertyChanged(() => AvailableBMSDirectories);
+                    RaisePropertyChanged(() => BMSInstallDir);
+                    RaiseValidationStateChanged();
                     if (ownerViewModel.BMSFiles != null && ownerViewModel.BMSFiles.Any((BeMusicSeeker.Models.BMSFile f) => f.path.StartsWith(dir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)))
                     {
                         isBMSDirectoryRemoved = true;
@@ -2459,7 +2879,8 @@ public class MainWindowViewModel : ViewModel
 
         private void backupSavedSettings()
         {
-            tempValidation = CheckValidation();
+            operationModeLR2DB = Settings.Default.OperationModeLR2DB;
+            RefreshStandaloneBmsRootPathsFromSettings();
             tempOperationModeLR2DB = Settings.Default.OperationModeLR2DB;
             tempLR2RootPath = Settings.Default.LR2RootPath;
             tempLR2SongDBPath = Settings.Default.LR2SongDBPath;
@@ -2467,6 +2888,7 @@ public class MainWindowViewModel : ViewModel
             tempUseBeatorajaScoreDb = Settings.Default.UseBeatorajaScoreDb;
             tempBeatorajaScoreDbPath = Settings.Default.BeatorajaScoreDbPath;
             tempBMSRootPath = Settings.Default.BMSRootPath;
+            tempStandaloneBmsRootPaths = SerializeStandaloneBmsRootPaths(StandaloneBmsRootPathList);
             tempuBMplayPath = Settings.Default.uBMplayPath;
             tempBMIIDXViewPath = Settings.Default.BMIIDXViewPath;
             tempUsePlayeruBMplay = Settings.Default.UsePlayeruBMplay;
@@ -2525,8 +2947,11 @@ public class MainWindowViewModel : ViewModel
             tempPlayerWASAPIParam = Settings.Default.PlayerWASAPIParam;
             tempLanguage = Settings.Default.Lang;
             tempLanguageDisplayName = Settings.Default.LangDisplayName;
+            isSearchRootsChanged = false;
             isBMSDirectoryAdded = false;
             isBMSDirectoryRemoved = false;
+            RaisePropertyChanged(() => IsOperationModeChanged);
+            RaiseValidationStateChanged();
         }
 
         private async Task necessaryStepsAfterSaved()
@@ -2565,7 +2990,7 @@ public class MainWindowViewModel : ViewModel
                     }
                 }).Logging("necessaryStepsAfterSaved");
             }
-            if ((!Settings.Default.UsePlayeruBMplay && tempUsePlayeruBMplay != Settings.Default.UsePlayeruBMplay) || (!Settings.Default.UsePlayerBMIIDXView && tempUsePlayerBMIIDXView != Settings.Default.UsePlayerBMIIDXView) || (!Settings.Default.UsePlayerLR2body && tempUsePlayerLR2body != Settings.Default.UsePlayerLR2body))
+            if ((!Settings.Default.UsePlayeruBMplay && tempUsePlayeruBMplay != Settings.Default.UsePlayeruBMplay) || (!Settings.Default.UsePlayerBMIIDXView && tempUsePlayerBMIIDXView != Settings.Default.UsePlayerBMIIDXView) || (!Settings.Default.UsePlayerLR2body && tempUsePlayerLR2body != Settings.Default.UsePlayerLR2body) || (!Settings.Default.OperationModeLR2DB && tempOperationModeLR2DB != Settings.Default.OperationModeLR2DB))
             {
                 ownerViewModel.PlayEndBMSFile(closeProcess: true);
                 ownerViewModel.bmsPlayer = new InternalBMSAutoPlayerSoundOnly();
@@ -2580,7 +3005,7 @@ public class MainWindowViewModel : ViewModel
             else if (Settings.Default.UsePlayerLR2body && tempUsePlayerLR2body != Settings.Default.UsePlayerLR2body)
             {
                 ownerViewModel.PlayEndBMSFile(closeProcess: true);
-                ownerViewModel.bmsPlayer = new LR2body(LR2bodyPath, lr2config);
+                ownerViewModel.bmsPlayer = new LR2body(LR2bodyPath, new LR2Config(Settings.Default.LR2ConfigXmlPath));
                 ownerViewModel.Messenger.Raise(new InteractionMessage("InitializationSuccess"));
             }
             else if (Settings.Default.UsePlayerBMIIDXView && tempUsePlayerBMIIDXView != Settings.Default.UsePlayerBMIIDXView)
@@ -2642,9 +3067,9 @@ public class MainWindowViewModel : ViewModel
                     result = false;
                 }
             }
-            else if (!IsBMSRootPathValid())
+            else if (NormalizeStandaloneBmsRootPaths(StandaloneBmsRootPathList).Count == 0)
             {
-                errMsg = errMsg + "一般: BMSディレクトリのパスが正しくありません" + Environment.NewLine;
+                errMsg = errMsg + BeMusicSeeker.Properties.Resources.General + ": " + BeMusicSeeker.Properties.Resources.Error_InvalidStandaloneBmsRootPaths + Environment.NewLine;
                 result = false;
             }
             if (UseBeatorajaScoreDb && !IsBeatorajaScoreDbPathValid())
@@ -2664,7 +3089,7 @@ public class MainWindowViewModel : ViewModel
             }
             else if (UsePlayerLR2body)
             {
-                if (!IsLR2RootPathValid())
+                if (!IsLR2PlayerRootPathValid())
                 {
                     errMsg = errMsg + "再生: LR2ディレクトリのパスが正しくありません" + Environment.NewLine;
                     result = false;
@@ -2710,7 +3135,7 @@ public class MainWindowViewModel : ViewModel
             }
             if (!IsBMSInstallDirValid())
             {
-                errMsg = errMsg + "インストール: BMSインストール先が設定されていません" + Environment.NewLine;
+                errMsg = errMsg + BeMusicSeeker.Properties.Resources.Install + ": " + BeMusicSeeker.Properties.Resources.Error_InvalidBmsInstallDir + Environment.NewLine;
                 result = false;
             }
             if (!IsFolderNameFormatValid())
@@ -2731,16 +3156,44 @@ public class MainWindowViewModel : ViewModel
         /// </summary>
         public async Task SaveSettings()
         {
+            await SaveSettingsCore(runPostSaveActions: true);
+        }
+
+        private async Task SaveSettingsCore(bool runPostSaveActions)
+        {
             if (CheckValidation())
             {
+                bool searchRootsChanged = isSearchRootsChanged;
+                bool lr2SearchRootsChanged = OperationModeLR2DB && searchRootsChanged;
+                PersistStandaloneBmsRootPathsToSettings();
+                Settings.Default.OperationModeLR2DB = operationModeLR2DB;
                 Settings.Default.Save();
-                await necessaryStepsAfterSaved();
-                backupSavedSettings();
+                if (runPostSaveActions)
+                {
+                    if (lr2SearchRootsChanged && lr2config != null)
+                    {
+                        lr2config.Save();
+                    }
+                    if (searchRootsChanged)
+                    {
+                        ApplyRuntimeSearchRootsForCurrentMode();
+                    }
+                    await necessaryStepsAfterSaved();
+                    backupSavedSettings();
+                }
             }
+        }
+
+        public void SaveOperationModeForRestart(bool operationMode)
+        {
+            Settings.Default.Reload();
+            Settings.Default.OperationModeLR2DB = operationMode;
+            Settings.Default.Save();
         }
 
         public void ResetSettings()
         {
+            operationModeLR2DB = tempOperationModeLR2DB;
             Settings.Default.LR2ConfigXmlPath = tempLR2ConfigXmlPath;
             Settings.Default.OperationModeLR2DB = tempOperationModeLR2DB;
             Settings.Default.LR2RootPath = tempLR2RootPath;
@@ -2748,6 +3201,7 @@ public class MainWindowViewModel : ViewModel
             Settings.Default.UseBeatorajaScoreDb = tempUseBeatorajaScoreDb;
             Settings.Default.BeatorajaScoreDbPath = tempBeatorajaScoreDbPath;
             Settings.Default.BMSRootPath = tempBMSRootPath;
+            Settings.Default.StandaloneBmsRootPaths = tempStandaloneBmsRootPaths;
             Settings.Default.uBMplayPath = tempuBMplayPath;
             Settings.Default.BMIIDXViewPath = tempBMIIDXViewPath;
             Settings.Default.UsePlayeruBMplay = tempUsePlayeruBMplay;
@@ -2811,18 +3265,30 @@ public class MainWindowViewModel : ViewModel
             Settings.Default.Lang = tempLanguage;
             Settings.Default.LangDisplayName = tempLanguageDisplayName;
             ResourceService.Current.ChangeCulture(tempLanguage);
-            try
+            if (tempOperationModeLR2DB)
             {
-                lr2config = new LR2Config(Settings.Default.LR2ConfigXmlPath);
+                try
+                {
+                    lr2config = new LR2Config(Settings.Default.LR2ConfigXmlPath);
+                }
+                catch
+                {
+                    Settings.Default.LR2ConfigXmlPath = null;
+                    lr2config = null;
+                }
             }
-            catch
+            else
             {
-                Settings.Default.LR2ConfigXmlPath = null;
                 lr2config = null;
             }
+            RefreshStandaloneBmsRootPathsFromSettings();
             RaisePropertyChanged(() => OperationModeLR2DB);
+            RaisePropertyChanged(() => CanUseLr2Features);
             RaisePropertyChanged(() => LR2RootPath);
             RaisePropertyChanged(() => BMSRootPath);
+            RaisePropertyChanged(() => StandaloneBmsRootPathList);
+            RaisePropertyChanged(() => SelectedStandaloneBmsRootPath);
+            RaisePropertyChanged(() => AvailableBMSDirectories);
             RaisePropertyChanged(() => LR2SongDBPath);
             RaisePropertyChanged(() => LR2ConfigXmlPath);
             RaisePropertyChanged(() => UseBeatorajaScoreDb);
@@ -2886,6 +3352,8 @@ public class MainWindowViewModel : ViewModel
             RaisePropertyChanged(() => PlayerBufferSize);
             RaisePropertyChanged(() => PlayerWASAPIParam);
             RaisePropertyChanged(() => Languages);
+            RaisePropertyChanged(() => IsOperationModeChanged);
+            RaiseValidationStateChanged();
             backupSavedSettings();
         }
 
@@ -2894,15 +3362,11 @@ public class MainWindowViewModel : ViewModel
             RestartMode restartMode = RestartMode.None;
             bool scoreSourceChanged = tempUseBeatorajaScoreDb != Settings.Default.UseBeatorajaScoreDb
                 || !string.Equals(tempBeatorajaScoreDbPath, Settings.Default.BeatorajaScoreDbPath, StringComparison.OrdinalIgnoreCase);
-            if (tempValidation != CheckValidation())
+            if (tempOperationModeLR2DB != OperationModeLR2DB)
             {
                 return RestartMode.All;
             }
-            if (tempOperationModeLR2DB != Settings.Default.OperationModeLR2DB)
-            {
-                return RestartMode.All;
-            }
-            if (Settings.Default.OperationModeLR2DB)
+            if (OperationModeLR2DB)
             {
                 if (tempLR2SongDBPath != Settings.Default.LR2SongDBPath)
                 {
@@ -2912,8 +3376,12 @@ public class MainWindowViewModel : ViewModel
                 {
                     restartMode |= RestartMode.FolderOnly;
                 }
+                if (isSearchRootsChanged)
+                {
+                    restartMode |= RestartMode.FolderOnly;
+                }
             }
-            else if (tempBMSRootPath != Settings.Default.BMSRootPath)
+            else if (!string.Equals(tempStandaloneBmsRootPaths, SerializeStandaloneBmsRootPaths(StandaloneBmsRootPathList), StringComparison.OrdinalIgnoreCase))
             {
                 restartMode |= RestartMode.FolderOnly;
             }
@@ -2926,11 +3394,7 @@ public class MainWindowViewModel : ViewModel
 
         public RestartMode IsNeedRestartForSaveOrCancel()
         {
-            if (!isBMSDirectoryAdded && !isBMSDirectoryRemoved)
-            {
-                return RestartMode.None;
-            }
-            return RestartMode.FolderOnly;
+            return RestartMode.None;
         }
     }
 
@@ -3564,7 +4028,7 @@ public class MainWindowViewModel : ViewModel
 
         private void backupTableProperties()
         {
-            temp_output_dir_full_path = BMSPlaylist.GetCustomFolderOutputDirectory(bmsTable);
+            temp_output_dir_full_path = Settings.Default.OperationModeLR2DB ? BMSPlaylist.GetCustomFolderOutputDirectory(bmsTable) : null;
             temp_is_root_folder = bmsTable.is_root_folder;
             temp_is_external_sync = bmsTable.is_external_sync;
             temp_compat_prefix = bmsTable.compat_prefix;
@@ -10190,6 +10654,55 @@ public class MainWindowViewModel : ViewModel
     /// 設定の妥当性チェック、BMSデータベース (LR2SongDB形式など) との接続、BMSプレイヤーインスタンスの生成、
     /// およびコレクション更新をフックする各種イベントリスナーの登録を順次行います。
     /// </summary>
+    private LibraryProfile CreateLibraryProfileForStartup()
+    {
+        if (Settings.Default.OperationModeLR2DB)
+        {
+            if (lr2config == null)
+            {
+                lr2config = new LR2Config(Settings.Default.LR2ConfigXmlPath);
+            }
+            string playerId = lr2config.GetPlayerId();
+            string scoreDbPath = Settings.Default.LR2RootPath + "\\LR2files\\Database\\Score\\" + playerId + ".db";
+            if (playerId == null || !File.Exists(scoreDbPath))
+            {
+                scoreDbPath = null;
+            }
+            return new LibraryProfile(
+                operationModeLR2DB: true,
+                songDbPath: Settings.Default.LR2SongDBPath,
+                searchRoots: Array.Empty<string>(),
+                lr2ConfigProvider: () => lr2config,
+                lr2ScoreDbPath: scoreDbPath,
+                canWriteLr2Config: true,
+                canOutputLr2Folders: true,
+                canUseLr2Backup: true,
+                canUseLr2IrScore: true);
+        }
+
+        lr2config = null;
+        string standaloneSongDbPath = StandaloneLibraryDatabase.EnsurePortableSongDb();
+        return new LibraryProfile(
+            operationModeLR2DB: false,
+            songDbPath: standaloneSongDbPath,
+            searchRoots: SettingDialogViewModel.GetStandaloneBmsRootPathsFromSettings(),
+            lr2ConfigProvider: null,
+            lr2ScoreDbPath: null,
+            canWriteLr2Config: false,
+            canOutputLr2Folders: false,
+            canUseLr2Backup: false,
+            canUseLr2IrScore: false);
+    }
+
+    private LR2Config CreateLR2PlayerConfig()
+    {
+        if (Settings.Default.OperationModeLR2DB && lr2config != null)
+        {
+            return lr2config;
+        }
+        return new LR2Config(Settings.Default.LR2ConfigXmlPath);
+    }
+
     public async void Initialize()
     {
         await _semaphore.WaitAsync();
@@ -10237,30 +10750,15 @@ public class MainWindowViewModel : ViewModel
         StartStartupProgressOperation(StartupProgressOperationKind.Startup);
         try
         {
-            if (Settings.Default.OperationModeLR2DB)
+            LibraryProfile libraryProfile = CreateLibraryProfileForStartup();
+            files = new BMSLibrary(libraryProfile.SongDbPath, libraryProfile.Lr2ConfigProvider, libraryProfile.Lr2ScoreDbPath);
+            tables = new BMSPlaylist(libraryProfile.SongDbPath, libraryProfile.Lr2ConfigProvider, libraryProfile.Lr2ScoreDbPath, () => files.GetBMSScores());
+            files.StartupBackgroundTaskScheduler = QueueStartupBackgroundTask;
+            files.StartupBackgroundTaskReporter = RecordStartupBackgroundTaskCompleted;
+            tables.StartupBackgroundTaskScheduler = QueueStartupBackgroundTask;
+            if (!libraryProfile.OperationModeLR2DB)
             {
-                if (lr2config == null)
-                {
-                    lr2config = new LR2Config(Settings.Default.LR2ConfigXmlPath);
-                }
-                string playerId = lr2config.GetPlayerId();
-                string text2 = Settings.Default.LR2RootPath + "\\LR2files\\Database\\Score\\" + playerId + ".db";
-                if (playerId == null || !File.Exists(text2))
-                {
-                    text2 = null;
-                }
-                files = new BMSLibrary(Settings.Default.LR2SongDBPath, () => lr2config, text2);
-                tables = new BMSPlaylist(Settings.Default.LR2SongDBPath, () => lr2config, text2, () => files.GetBMSScores());
-                files.StartupBackgroundTaskScheduler = QueueStartupBackgroundTask;
-                files.StartupBackgroundTaskReporter = RecordStartupBackgroundTaskCompleted;
-                tables.StartupBackgroundTaskScheduler = QueueStartupBackgroundTask;
-            }
-            else
-            {
-                files = new BMSLibrary(Settings.Default.LR2SongDBPath);
-                files.StartupBackgroundTaskScheduler = QueueStartupBackgroundTask;
-                files.StartupBackgroundTaskReporter = RecordStartupBackgroundTaskCompleted;
-                files.SearchTargets.Add(Settings.Default.BMSRootPath);
+                files.SearchTargets.AddRange(libraryProfile.SearchRoots);
             }
             if (Settings.Default.UsePlayeruBMplay)
             {
@@ -10270,9 +10768,9 @@ public class MainWindowViewModel : ViewModel
             {
                 bmsPlayer = new BMIIDXView2015(Settings.Default.BMIIDXViewPath);
             }
-            else if (Settings.Default.UsePlayerLR2body && File.Exists(settingDialog.LR2bodyPath) && lr2config != null)
+            else if (Settings.Default.UsePlayerLR2body && File.Exists(settingDialog.LR2bodyPath))
             {
-                bmsPlayer = new LR2body(settingDialog.LR2bodyPath, lr2config);
+                bmsPlayer = new LR2body(settingDialog.LR2bodyPath, CreateLR2PlayerConfig());
             }
         }
         catch (Exception ex)
@@ -10805,7 +11303,14 @@ public class MainWindowViewModel : ViewModel
         catch (Exception ex)
         {
             FailStartupProgressOperation(ex.Message);
-            throw;
+            DispatcherMessageBox.Show(BeMusicSeeker.Properties.Resources.Msg_error_unexpected + Environment.NewLine + ex.ToString(), BeMusicSeeker.Properties.Resources.Error, MessageBoxButton.OK, MessageBoxImage.Hand);
+            Logger currentClassLogger = LogManager.GetCurrentClassLogger();
+            string text4 = Assembly.GetEntryAssembly().GetName().Version.ToString();
+            currentClassLogger.Error(ex, text4 + " - " + Environment.NewLine + ex.ToString(), null);
+            _semaphore.Release();
+            SetStartupUiInteractionBlocked(false);
+            base.Messenger.Raise(new InteractionMessage("InitializationException"));
+            return;
         }
         finally
         {

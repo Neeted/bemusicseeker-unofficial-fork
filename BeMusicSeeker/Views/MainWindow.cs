@@ -3783,10 +3783,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         MainWindowViewModel.SettingDialogViewModel viewModel = (base.DataContext as MainWindowViewModel).settingDialog;
         if (Directory.Exists(path) && DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_unregister_root_folder, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) != MessageBoxResult.Cancel)
         {
-            Task.Run(delegate
-            {
-                viewModel.RemoveBMSDirectoryFromRootFolderAndSave(path);
-            }).Logging("treeViewLibraryFolderContextMenuItemUnregisterRootFolder");
+            viewModel.RemoveBMSDirectoryFromRootFolderAndSave(path);
         }
     }
 

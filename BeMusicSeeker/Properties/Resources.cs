@@ -197,11 +197,25 @@ public class Resources
 
     public static string DirPath_BMS => ResourceManager.GetString("DirPath_BMS", resourceCulture);
 
+    public static string Standalone_BMSDirectories => ResourceManager.GetString("Standalone_BMSDirectories", resourceCulture);
+
+    public static string Add_BMSDirectory => ResourceManager.GetString("Add_BMSDirectory", resourceCulture);
+
+    public static string Remove_BMSDirectory => ResourceManager.GetString("Remove_BMSDirectory", resourceCulture);
+
     public static string DirPath_LR2 => ResourceManager.GetString("DirPath_LR2", resourceCulture);
 
     public static string Download => ResourceManager.GetString("Download", resourceCulture);
 
     public static string Error => ResourceManager.GetString("Error", resourceCulture);
+
+    public static string Error_InvalidStandaloneBmsRootPaths => ResourceManager.GetString("Error_InvalidStandaloneBmsRootPaths", resourceCulture);
+
+    public static string Error_InvalidBmsInstallDir => ResourceManager.GetString("Error_InvalidBmsInstallDir", resourceCulture);
+
+    public static string Confirm_RestartForOperationModeChange => ResourceManager.GetString("Confirm_RestartForOperationModeChange", resourceCulture);
+
+    public static string Error_RestartApplicationFailed => ResourceManager.GetString("Error_RestartApplicationFailed", resourceCulture);
 
     public static string Estimate_install_loc => ResourceManager.GetString("Estimate_install_loc", resourceCulture);
 

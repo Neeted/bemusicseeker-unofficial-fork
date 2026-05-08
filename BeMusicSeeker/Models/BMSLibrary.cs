@@ -2206,7 +2206,7 @@ public class BMSLibrary : NotificationObject
 
     private bool UseLR2 => CurrentOptionsSnapshot.OperationModeLR2DB;
 
-    public List<string> SearchTargets { get; set; }
+    public List<string> SearchTargets { get; set; } = new List<string>();
 
     private readonly IFileMutationService fileMutationService;
 
@@ -6172,11 +6172,15 @@ public class BMSLibrary : NotificationObject
 
     private List<string> getBMSDirectories()
     {
-        if (lr2config != null)
+        if (UseLR2 && lr2config != null)
         {
             try
             {
-                SearchTargets = lr2config().GetBMSSearchDirectories();
+                LR2Config config = lr2config();
+                if (config != null)
+                {
+                    SearchTargets = config.GetBMSSearchDirectories();
+                }
             }
             catch
             {
@@ -6184,7 +6188,7 @@ public class BMSLibrary : NotificationObject
             }
         }
         HashSet<string> excludedRootCustomOutputDirs = BuildExcludedRootCustomOutputDirectories();
-        return SearchTargets
+        return (SearchTargets ?? Enumerable.Empty<string>())
             .Where((string d) => Directory.Exists(d))
             .Where((string d) => !excludedRootCustomOutputDirs.Contains(Path.GetFullPath(d).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)))
             .ToList();
@@ -6193,6 +6197,10 @@ public class BMSLibrary : NotificationObject
     private HashSet<string> BuildExcludedRootCustomOutputDirectories()
     {
         HashSet<string> excluded = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (!Settings.Default.OperationModeLR2DB)
+        {
+            return excluded;
+        }
         string rootBaseDir = Settings.Default.LR2CustomFolderOutputBaseDirRootType;
         if (string.IsNullOrWhiteSpace(rootBaseDir))
         {

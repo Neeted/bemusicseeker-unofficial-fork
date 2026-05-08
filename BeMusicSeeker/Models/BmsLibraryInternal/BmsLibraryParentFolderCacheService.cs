@@ -38,7 +38,7 @@ internal sealed class BmsLibraryParentFolderCacheService
                     return false;
                 }
             }
-            throw new NotImplementedException();
+            return true;
         }).ToList();
     }
 
