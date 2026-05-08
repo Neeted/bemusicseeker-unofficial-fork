@@ -937,6 +937,30 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
+    public void EstimatedInstallPostProcessing_IsBatchedAndUsesResourceHealthDelta()
+    {
+        string root = FindRepositoryRoot();
+        string libraryCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BMSLibrary.cs"));
+        string resourceHealthCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BmsLibraryInternal", "ResourceHealthWarningProjection.cs"));
+        string installEstimationDoc = File.ReadAllText(Path.Combine(root, "devdocs", "spec", "install-estimation-current-logic.md"));
+
+        StringAssert.Contains(libraryCode, "private sealed class EstimatedInstallBatchApplyContext");
+        StringAssert.Contains(libraryCode, "ApplyEstimatedInstallBatchLibraryState(batchApplyContext)");
+        StringAssert.Contains(libraryCode, "BuildEstimatedInstallMaintenanceTargets(batchResult.DeferredMaintenanceTargets, batchApplyContext.ResourceAffectedDirectories)");
+        StringAssert.Contains(libraryCode, "canUseResourceHealthIndexDelta ? ResourceHealthIndexUpdateMode.DeltaOnUpdates : ResourceHealthIndexUpdateMode.FullOnUpdates");
+        StringAssert.Contains(libraryCode, "LogReverseLookupMutationAndQueueWarmupIfNeeded(\"install_package\", reverseLookupMutation);");
+        StringAssert.Contains(libraryCode, "resource_health_index_delta reason=");
+        StringAssert.Contains(libraryCode, "if (estimatedInstallMaintenanceTargets.Count > 0)");
+        StringAssert.Contains(resourceHealthCode, "internal ResourceHealthIndexSnapshot ApplyDelta(");
+        StringAssert.Contains(resourceHealthCode, "HashSet<ResourceHealthChartKey> targetKeys");
+
+        StringAssert.Contains(installEstimationDoc, "推定先への移動");
+        StringAssert.Contains(installEstimationDoc, "group は逐次");
+        StringAssert.Contains(installEstimationDoc, "library/cache/index は batch 末尾");
+        StringAssert.Contains(installEstimationDoc, "resource health index は delta");
+    }
+
+    [TestMethod]
     public void InstallEstimationParallelism_UsesUnifiedBatchPolicy()
     {
         string root = FindRepositoryRoot();

@@ -3970,7 +3970,8 @@ public sealed class ChartInfoMetadataTests
                 null,
                 null,
                 false,
-                false
+                false,
+                null
             });
     }
 

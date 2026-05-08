@@ -7039,6 +7039,48 @@ public class BMSLibrary : NotificationObject
         return snapshot;
     }
 
+    private enum ResourceHealthIndexUpdateMode
+    {
+        FullOnUpdates,
+        DeltaOnUpdates
+    }
+
+    private bool TryApplyResourceHealthIndexDeltaLocked(
+        string reason,
+        IEnumerable<BMSFile> updatedTargets,
+        IEnumerable<BMSFile> removedTargets,
+        out ResourceHealthIndexSnapshot snapshot)
+    {
+        snapshot = null;
+        ResourceHealthIndexSnapshot currentSnapshot = Volatile.Read(ref resourceHealthIndexSnapshot);
+        if (currentSnapshot == null || currentSnapshot.TargetCount <= 0)
+        {
+            return false;
+        }
+        List<BMSFile> updatedTargetList = CreateResourceMaintenanceTargets(updatedTargets, includeInstalledBmson: false);
+        List<BMSFile> removedTargetList = CreateResourceMaintenanceTargets(removedTargets, includeInstalledBmson: false);
+        if (updatedTargetList.Count == 0 && removedTargetList.Count == 0)
+        {
+            return false;
+        }
+        int version = Interlocked.Increment(ref resourceHealthIndexVersionSeed);
+        snapshot = currentSnapshot.ApplyDelta(updatedTargetList, removedTargetList, maintenanceService, version);
+        lock (resourceHealthIndexLock)
+        {
+            resourceHealthIndexSnapshot = snapshot;
+            Volatile.Write(ref resourceHealthIndexInvalidated, false);
+        }
+        LogInstallPerformance("resource_health_index_delta reason=" + (reason ?? "unknown")
+            + " version=" + snapshot.Version
+            + " targetCount=" + snapshot.TargetCount
+            + " updated=" + updatedTargetList.Count
+            + " removed=" + removedTargetList.Count
+            + " needFix=" + snapshot.NeedFixCount
+            + " ignored=" + snapshot.IgnoredCount
+            + " buildMs=" + snapshot.BuildMs);
+        return true;
+    }
+
     internal ResourceHealthWarningProjection GetResourceHealthWarningProjection(BMSFile chartFile)
     {
         return GetResourceHealthIndexSnapshot("projection_read").GetProjection(chartFile);
@@ -7059,7 +7101,9 @@ public class BMSLibrary : NotificationObject
         bool forceUpdate = false,
         bool includeInstalledBmson = false,
         Action<MaintenanceWorkflowProgress> progressReporter = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        ResourceHealthIndexUpdateMode resourceHealthIndexUpdateMode = ResourceHealthIndexUpdateMode.FullOnUpdates,
+        IEnumerable<BMSFile> resourceHealthIndexDeltaTargets = null)
     {
         if (bmsFiles == null)
         {
@@ -7078,9 +7122,21 @@ public class BMSLibrary : NotificationObject
                 workflowResult = maintenanceService.UpdateMaintenanceInfo(maintenanceTargets, forceUpdate, dbGateway, dialogService, resourceLookupContext, LogInstallPerformance, progressReporter, cancellationToken);
             }
             bool rebuildResourceHealthIndex = workflowResult.HasUpdates || !IsResourceHealthIndexCurrent();
-            ResourceHealthIndexSnapshot resourceHealthSnapshot = rebuildResourceHealthIndex
-                ? RebuildResourceHealthIndexSnapshotLocked("setMaintenanceInfo")
-                : Volatile.Read(ref resourceHealthIndexSnapshot) ?? ResourceHealthIndexSnapshot.Empty;
+            ResourceHealthIndexSnapshot resourceHealthSnapshot;
+            bool resourceHealthDeltaApplied = false;
+            if (rebuildResourceHealthIndex
+                && resourceHealthIndexUpdateMode == ResourceHealthIndexUpdateMode.DeltaOnUpdates
+                && !includeInstalledBmson
+                && TryApplyResourceHealthIndexDeltaLocked("install_package_estimated", resourceHealthIndexDeltaTargets ?? maintenanceTargets, null, out resourceHealthSnapshot))
+            {
+                resourceHealthDeltaApplied = true;
+            }
+            else
+            {
+                resourceHealthSnapshot = rebuildResourceHealthIndex
+                    ? RebuildResourceHealthIndexSnapshotLocked("setMaintenanceInfo")
+                    : Volatile.Read(ref resourceHealthIndexSnapshot) ?? ResourceHealthIndexSnapshot.Empty;
+            }
             workflowResult.ResourceHealthIndexMs = rebuildResourceHealthIndex ? resourceHealthSnapshot.BuildMs : 0L;
             workflowResult.WarningReapplyTargets = 0;
             workflowResult.WarningChangedCount = 0;
@@ -7110,6 +7166,7 @@ public class BMSLibrary : NotificationObject
                     + " bmsonResourceRefsReused=" + workflowResult.BmsonResourceReferenceReusedCount
                     + " songReloaded=" + workflowResult.ReloadedSongCount
                     + " resourceHealthIndexMs=" + workflowResult.ResourceHealthIndexMs
+                    + " resourceHealthIndexMode=" + (resourceHealthDeltaApplied ? "delta" : (rebuildResourceHealthIndex ? "full" : "current"))
                     + " warningReapplyTargets=" + workflowResult.WarningReapplyTargets
                     + " warningChanged=" + workflowResult.WarningChangedCount
                     + " canceled=" + workflowResult.Canceled.ToString().ToLowerInvariant()
@@ -8112,12 +8169,65 @@ public class BMSLibrary : NotificationObject
             excludedComponentPaths);
     }
 
-    private List<BMSPackage> installBMSPackages(IEnumerable<BMSPackage> bmsPackagesInstall, string installationDirectory = null, List<BMSFile> deferredMaintenanceTargets = null, List<BMSPackage> deferredInstalledPackages = null, Dictionary<BMSPackage, HashSet<string>> excludedComponentPathsByPackage = null, HashSet<string> existingHashes = null, bool skipInstalledPackageWhenNoBms = false, bool deleteSourceContentsAfterSuccessfulInstall = false)
+    private sealed class EstimatedInstallBatchApplyContext
     {
+        public List<BMSFile> AddedFiles { get; } = new List<BMSFile>();
+
+        public List<BMSFile> AddedBmsFiles { get; } = new List<BMSFile>();
+
+        public List<BMSFile> AddedChartFiles { get; } = new List<BMSFile>();
+
+        public List<LR2SongDBExtended.bmson_song> AddedBmsonSongs { get; } = new List<LR2SongDBExtended.bmson_song>();
+
+        public HashSet<string> AffectedDirectories { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        public HashSet<string> ResourceAffectedDirectories { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        public void AddInstalledFiles(IEnumerable<BMSFile> addedFiles, IEnumerable<BMSFile> addedBmsFiles, IEnumerable<LR2SongDBExtended.bmson_song> addedBmsonSongs, string destinationDirectory)
+        {
+            List<BMSFile> addedFileList = (addedFiles ?? Enumerable.Empty<BMSFile>()).Where((BMSFile file) => file != null).ToList();
+            List<BMSFile> addedBmsFileList = (addedBmsFiles ?? Enumerable.Empty<BMSFile>()).Where((BMSFile file) => file != null).ToList();
+            List<LR2SongDBExtended.bmson_song> addedBmsonSongList = (addedBmsonSongs ?? Enumerable.Empty<LR2SongDBExtended.bmson_song>()).Where((LR2SongDBExtended.bmson_song song) => song != null && !string.IsNullOrWhiteSpace(song.path)).ToList();
+            AddedFiles.AddRange(addedFileList);
+            AddedBmsFiles.AddRange(addedBmsFileList);
+            AddedChartFiles.AddRange(addedFileList.Where((BMSFile file) => PendingChartEntry.IsBmsChartFile(file) || PendingChartEntry.IsBmsonChartFile(file)));
+            AddedBmsonSongs.AddRange(addedBmsonSongList);
+            AddAffectedDirectory(destinationDirectory);
+            foreach (BMSFile addedFile in addedFileList)
+            {
+                string directoryPath = DirectoryExt.GetDirectoryNameSimple(addedFile.path);
+                AddAffectedDirectory(directoryPath);
+                if (!PendingChartEntry.IsBmsChartFile(addedFile) && !PendingChartEntry.IsBmsonChartFile(addedFile))
+                {
+                    AddResourceAffectedDirectory(directoryPath);
+                }
+            }
+        }
+
+        private void AddAffectedDirectory(string directoryPath)
+        {
+            if (!string.IsNullOrWhiteSpace(directoryPath))
+            {
+                AffectedDirectories.Add(directoryPath);
+            }
+        }
+
+        private void AddResourceAffectedDirectory(string directoryPath)
+        {
+            if (!string.IsNullOrWhiteSpace(directoryPath))
+            {
+                ResourceAffectedDirectories.Add(directoryPath);
+            }
+        }
+    }
+
+    private List<BMSPackage> installBMSPackages(IEnumerable<BMSPackage> bmsPackagesInstall, string installationDirectory = null, List<BMSFile> deferredMaintenanceTargets = null, List<BMSPackage> deferredInstalledPackages = null, Dictionary<BMSPackage, HashSet<string>> excludedComponentPathsByPackage = null, HashSet<string> existingHashes = null, bool skipInstalledPackageWhenNoBms = false, bool deleteSourceContentsAfterSuccessfulInstall = false, EstimatedInstallBatchApplyContext estimatedInstallBatchApplyContext = null)
+    {
+        List<BMSPackage> installPackageList = (bmsPackagesInstall ?? Enumerable.Empty<BMSPackage>()).Where((BMSPackage package) => package != null).ToList();
         List<BMSFile> addedBmsFilesForChartInfo = new List<BMSFile>();
         List<LR2SongDBExtended.bmson_song> addedBmsonSongsForChartInfo = new List<LR2SongDBExtended.bmson_song>();
         PackageInstallExecutionResult result = packageInstallService.InstallPackages(
-            bmsPackagesInstall,
+            installPackageList,
             installationDirectory,
             (package, destinationDirectory, deleteAllContents, hashSnapshot, excludedComponentPaths) => moveBMSPackageFiles(package, destinationDirectory, true, deleteAllContents, hashSnapshot, excludedComponentPaths),
             (files) => dbGateway.UpsertSongs(files),
@@ -8141,11 +8251,19 @@ public class BMSLibrary : NotificationObject
                 List<LR2SongDBExtended.bmson_song> addedBmsonSongs = BuildBmsonSongsFromChartRows(addedFiles);
                 addedBmsFilesForChartInfo.AddRange(addedBmsFiles);
                 addedBmsonSongsForChartInfo.AddRange(addedBmsonSongs);
+                if (addedBmsonSongs.Count > 0)
+                {
+                    dbGateway.UpsertBmsonSongs(addedBmsonSongs);
+                }
+                if (estimatedInstallBatchApplyContext != null)
+                {
+                    estimatedInstallBatchApplyContext.AddInstalledFiles(addedFiles, addedBmsFiles, addedBmsonSongs, installationDirectory);
+                    return;
+                }
                 HashSet<string> addedBmsPathSet = new HashSet<string>(addedBmsFiles.Select((BMSFile ff) => ff.path), StringComparer.OrdinalIgnoreCase);
                 BMSFiles = BMSFiles.Where((BMSFile f) => !addedBmsPathSet.Contains(f.path)).Concat(addedBmsFiles).ToList();
                 if (addedBmsonSongs.Count > 0)
                 {
-                    dbGateway.UpsertBmsonSongs(addedBmsonSongs);
                     Dictionary<string, LR2SongDBExtended.bmson_song> nextBmsonByPath = (BmsonSongs ?? new List<LR2SongDBExtended.bmson_song>()).Where((LR2SongDBExtended.bmson_song song) => song != null && !string.IsNullOrWhiteSpace(song.path)).ToDictionary((LR2SongDBExtended.bmson_song song) => song.path, StringComparer.OrdinalIgnoreCase);
                     foreach (LR2SongDBExtended.bmson_song addedBmsonSong in addedBmsonSongs)
                     {
@@ -8165,6 +8283,10 @@ public class BMSLibrary : NotificationObject
             existingHashes,
             skipInstalledPackageWhenNoBms,
             deleteSourceContentsAfterSuccessfulInstall);
+        if (estimatedInstallBatchApplyContext != null && result.FailedPackages.Count < installPackageList.Count)
+        {
+            estimatedInstallBatchApplyContext.AddInstalledFiles(Array.Empty<BMSFile>(), Array.Empty<BMSFile>(), Array.Empty<LR2SongDBExtended.bmson_song>(), installationDirectory);
+        }
         if (result.InstalledPackagesToRegister.Count > 0)
         {
             if (deferredInstalledPackages != null)
@@ -8176,12 +8298,96 @@ public class BMSLibrary : NotificationObject
                 BMSPackagesInstalled.AddRange(result.InstalledPackagesToRegister);
             }
         }
-        LogInstallPerformance("installBMSPackages dst=" + (installationDirectory ?? "(auto)") + " packages=" + bmsPackagesInstall.Count() + " addedFiles=" + result.AddedFiles.Count + " failedPackages=" + result.FailedPackages.Count + " deleteSourceContents=" + deleteSourceContentsAfterSuccessfulInstall + " moveMs=" + result.MoveMs + " songDbMs=" + result.SongDbMs + " maintenanceMs=" + result.MaintenanceMs + " zeroNoteMs=" + result.ZeroNoteMs + " scoreMs=" + result.ScoreMs + " applyMs=" + result.ApplyMs + " totalMs=" + result.TotalMs);
+        LogInstallPerformance("installBMSPackages dst=" + (installationDirectory ?? "(auto)") + " packages=" + installPackageList.Count + " addedFiles=" + result.AddedFiles.Count + " failedPackages=" + result.FailedPackages.Count + " deleteSourceContents=" + deleteSourceContentsAfterSuccessfulInstall + " moveMs=" + result.MoveMs + " songDbMs=" + result.SongDbMs + " maintenanceMs=" + result.MaintenanceMs + " zeroNoteMs=" + result.ZeroNoteMs + " scoreMs=" + result.ScoreMs + " applyMs=" + result.ApplyMs + " totalMs=" + result.TotalMs);
         if (deferredMaintenanceTargets == null)
         {
             BuildAndPersistInlineChartInfoForInstalledCharts("install_package_inline", addedBmsFilesForChartInfo, addedBmsonSongsForChartInfo);
         }
         return result.FailedPackages;
+    }
+
+    private DirectoryResourceLookupCache.ReverseLookupMutationResult ApplyEstimatedInstallBatchLibraryState(EstimatedInstallBatchApplyContext context)
+    {
+        if (context == null)
+        {
+            return DirectoryResourceLookupCache.ReverseLookupMutationResult.Empty;
+        }
+        if (context.AddedBmsFiles.Count > 0)
+        {
+            HashSet<string> addedBmsPathSet = new HashSet<string>(context.AddedBmsFiles.Select((BMSFile file) => file.path), StringComparer.OrdinalIgnoreCase);
+            BMSFiles = BMSFiles.Where((BMSFile file) => file != null && !addedBmsPathSet.Contains(file.path)).Concat(context.AddedBmsFiles).ToList();
+        }
+        if (context.AddedBmsonSongs.Count > 0)
+        {
+            Dictionary<string, LR2SongDBExtended.bmson_song> nextBmsonByPath = (BmsonSongs ?? new List<LR2SongDBExtended.bmson_song>())
+                .Where((LR2SongDBExtended.bmson_song song) => song != null && !string.IsNullOrWhiteSpace(song.path))
+                .ToDictionary((LR2SongDBExtended.bmson_song song) => song.path, StringComparer.OrdinalIgnoreCase);
+            foreach (LR2SongDBExtended.bmson_song addedBmsonSong in context.AddedBmsonSongs)
+            {
+                nextBmsonByPath[addedBmsonSong.path] = addedBmsonSong;
+            }
+            BmsonSongs = nextBmsonByPath.Values.OrderBy((LR2SongDBExtended.bmson_song song) => song.path, StringComparer.OrdinalIgnoreCase).ToList();
+        }
+        List<string> affectedDirectories = context.AffectedDirectories.Where((string dir) => !string.IsNullOrWhiteSpace(dir)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        if (affectedDirectories.Count == 0)
+        {
+            return DirectoryResourceLookupCache.ReverseLookupMutationResult.Empty;
+        }
+        BmsScanResult addedDirectoryScan = ChartDirectoryScanBuilder.BuildFromRoots(affectedDirectories);
+        DirectoryResourceLookupCache.ReverseLookupMutationResult reverseLookupMutation = DirectoryResourceLookupCache.ReverseLookupMutationResult.Empty;
+        foreach (string dir in affectedDirectories)
+        {
+            reverseLookupMutation = reverseLookupMutation.Combine(directoryResourceLookupCache.AddDir(dir, addedDirectoryScan));
+        }
+        LogReverseLookupMutationAndQueueWarmupIfNeeded("install_package", reverseLookupMutation);
+        return reverseLookupMutation;
+    }
+
+    private List<BMSFile> BuildEstimatedInstallMaintenanceTargets(IEnumerable<BMSFile> baseTargets, IEnumerable<string> affectedDirectories)
+    {
+        Dictionary<string, BMSFile> targetsByPath = new Dictionary<string, BMSFile>(StringComparer.OrdinalIgnoreCase);
+        foreach (BMSFile target in (baseTargets ?? Enumerable.Empty<BMSFile>()).Where((BMSFile file) => file != null))
+        {
+            if (!string.IsNullOrWhiteSpace(target.path))
+            {
+                targetsByPath[target.path] = target;
+            }
+        }
+        HashSet<string> affectedDirectorySet = new HashSet<string>((affectedDirectories ?? Enumerable.Empty<string>()).Where((string dir) => !string.IsNullOrWhiteSpace(dir)), StringComparer.OrdinalIgnoreCase);
+        if (affectedDirectorySet.Count == 0)
+        {
+            return targetsByPath.Values.ToList();
+        }
+        foreach (BMSFile file in BMSFiles ?? Enumerable.Empty<BMSFile>())
+        {
+            if (file == null || string.IsNullOrWhiteSpace(file.path) || !PendingChartEntry.IsBmsChartFile(file))
+            {
+                continue;
+            }
+            string directoryPath = DirectoryExt.GetDirectoryNameSimple(file.path);
+            if (affectedDirectorySet.Contains(directoryPath))
+            {
+                targetsByPath[file.path] = file;
+            }
+        }
+        foreach (LR2SongDBExtended.bmson_song song in BmsonSongs ?? Enumerable.Empty<LR2SongDBExtended.bmson_song>())
+        {
+            if (song == null || string.IsNullOrWhiteSpace(song.path))
+            {
+                continue;
+            }
+            string directoryPath = DirectoryExt.GetDirectoryNameSimple(song.path);
+            if (!affectedDirectorySet.Contains(directoryPath))
+            {
+                continue;
+            }
+            PendingChartEntry chartEntry = PendingChartEntry.CreateFromBmsonSong(song);
+            if (chartEntry != null && !string.IsNullOrWhiteSpace(chartEntry.path))
+            {
+                targetsByPath[chartEntry.path] = chartEntry;
+            }
+        }
+        return targetsByPath.Values.ToList();
     }
 
     private static List<LR2SongDBExtended.bmson_song> BuildBmsonSongsFromChartRows(IEnumerable<BMSFile> files)
@@ -8971,10 +9177,11 @@ public class BMSLibrary : NotificationObject
                             return;
                         }
                         LogInstallPerformance("InstallBMSPackagesToEstimatedDir start selected=" + installPlan.SelectedPendingCount + " groups=" + installPlan.Groups.Count + " groupedPackages=" + installPlan.GroupedPackageCount + " installTargets=" + installPlan.InstallTargetFileCount + " deferredManualHold=" + installPlan.DeferredManualHoldCount + " deleteSourceContents=" + deletePendingPackageSourceAfterInstall + " filterMs=" + installPlan.FilterMs + " groupBuildMs=" + installPlan.GroupBuildMs + " planBuildMs=" + installPlan.PlanBuildMs);
+                        EstimatedInstallBatchApplyContext batchApplyContext = new EstimatedInstallBatchApplyContext();
                         PendingInstallBatchResult batchResult = packageInstallService.ExecuteEstimatedInstallBatchPlan(
                             installPlan,
                             deletePendingPackageSourceAfterInstall,
-                            (installPackages, destinationDirectory, deferredMaintenanceTargets, deferredInstalledPackages, excludedComponentPathsByPackage, existingHashes, skipInstalledPackageWhenNoBms, deleteSourceContentsAfterSuccessfulInstall) => installBMSPackages(installPackages, destinationDirectory, deferredMaintenanceTargets, deferredInstalledPackages, excludedComponentPathsByPackage, existingHashes, skipInstalledPackageWhenNoBms, deleteSourceContentsAfterSuccessfulInstall),
+                            (installPackages, destinationDirectory, deferredMaintenanceTargets, deferredInstalledPackages, excludedComponentPathsByPackage, existingHashes, skipInstalledPackageWhenNoBms, deleteSourceContentsAfterSuccessfulInstall) => installBMSPackages(installPackages, destinationDirectory, deferredMaintenanceTargets, deferredInstalledPackages, excludedComponentPathsByPackage, existingHashes, skipInstalledPackageWhenNoBms, deleteSourceContentsAfterSuccessfulInstall, batchApplyContext),
                             CreateInstalledDisplayPackageForResourceOnlyMerge,
                             (cleanupOnlyPackage) =>
                             {
@@ -8983,6 +9190,10 @@ public class BMSLibrary : NotificationObject
                             },
                             LogInstallPerformance);
                         dbGateway.DeleteInstallRows(batchResult.InstallRowsToDelete);
+                        bool canUseResourceHealthIndexDelta = IsResourceHealthIndexCurrent();
+                        Stopwatch libraryStateApplyStopwatch = Stopwatch.StartNew();
+                        ApplyEstimatedInstallBatchLibraryState(batchApplyContext);
+                        libraryStateApplyStopwatch.Stop();
                         Stopwatch pendingApplyStopwatch = Stopwatch.StartNew();
                         int pendingCountBeforeApply = BMSPackagesPending.Count;
                         int pendingRemovedTotal = batchResult.PendingPackagesToRemove.Count;
@@ -9012,9 +9223,14 @@ public class BMSLibrary : NotificationObject
                         int installedCountAfterApply = BMSPackagesInstalled.Count;
                         installedApplyStopwatch.Stop();
                         Stopwatch maintenanceStopwatch = Stopwatch.StartNew();
-                        if (batchResult.DeferredMaintenanceTargets.Count > 0)
+                        List<BMSFile> estimatedInstallMaintenanceTargets = BuildEstimatedInstallMaintenanceTargets(batchResult.DeferredMaintenanceTargets, batchApplyContext.ResourceAffectedDirectories);
+                        if (estimatedInstallMaintenanceTargets.Count > 0)
                         {
-                            setMaintenanceInfo(batchResult.DeferredMaintenanceTargets, forceUpdate: true);
+                            setMaintenanceInfo(
+                                estimatedInstallMaintenanceTargets,
+                                forceUpdate: true,
+                                resourceHealthIndexUpdateMode: canUseResourceHealthIndexDelta ? ResourceHealthIndexUpdateMode.DeltaOnUpdates : ResourceHealthIndexUpdateMode.FullOnUpdates,
+                                resourceHealthIndexDeltaTargets: estimatedInstallMaintenanceTargets);
                         }
                         BuildAndPersistInlineChartInfoForInstalledCharts(
                             "install_package_estimated_inline",
@@ -9026,7 +9242,7 @@ public class BMSLibrary : NotificationObject
                             dialogService.Show(string.Format(Resources.Warn_estimated_install_cleanup_only_completed, batchResult.CleanupOnlySucceeded), Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
                         }
                         totalStopwatch.Stop();
-                        LogInstallPerformance("InstallBMSPackagesToEstimatedDir end pendingApplyMs=" + pendingApplyStopwatch.ElapsedMilliseconds + " pendingBeforeApply=" + pendingCountBeforeApply + " pendingRemovedTotal=" + pendingRemovedTotal + " pendingAfterApply=" + pendingCountAfterApply + " installedApplyMs=" + installedApplyStopwatch.ElapsedMilliseconds + " installedBeforeApply=" + installedCountBeforeApply + " installedAddedTotal=" + installedAddedTotal + " installedAfterApply=" + installedCountAfterApply + " maintenanceTargets=" + batchResult.DeferredMaintenanceTargets.Count + " maintenanceMs=" + maintenanceStopwatch.ElapsedMilliseconds + " cleanupOnlyCandidates=" + installPlan.CleanupOnlyCandidates.Count + " cleanupOnlySucceeded=" + batchResult.CleanupOnlySucceeded + " cleanupOnlyFailed=" + batchResult.CleanupOnlyFailed + " cleanupOnlyMissingSource=" + batchResult.CleanupOnlyMissingSource + " deferredManualHold=" + installPlan.DeferredManualHoldCount + " totalMs=" + totalStopwatch.ElapsedMilliseconds);
+                        LogInstallPerformance("InstallBMSPackagesToEstimatedDir end libraryStateApplyMs=" + libraryStateApplyStopwatch.ElapsedMilliseconds + " pendingApplyMs=" + pendingApplyStopwatch.ElapsedMilliseconds + " pendingBeforeApply=" + pendingCountBeforeApply + " pendingRemovedTotal=" + pendingRemovedTotal + " pendingAfterApply=" + pendingCountAfterApply + " installedApplyMs=" + installedApplyStopwatch.ElapsedMilliseconds + " installedBeforeApply=" + installedCountBeforeApply + " installedAddedTotal=" + installedAddedTotal + " installedAfterApply=" + installedCountAfterApply + " maintenanceTargets=" + estimatedInstallMaintenanceTargets.Count + " maintenanceMs=" + maintenanceStopwatch.ElapsedMilliseconds + " cleanupOnlyCandidates=" + installPlan.CleanupOnlyCandidates.Count + " cleanupOnlySucceeded=" + batchResult.CleanupOnlySucceeded + " cleanupOnlyFailed=" + batchResult.CleanupOnlyFailed + " cleanupOnlyMissingSource=" + batchResult.CleanupOnlyMissingSource + " deferredManualHold=" + installPlan.DeferredManualHoldCount + " totalMs=" + totalStopwatch.ElapsedMilliseconds);
                     }
                 }
             }

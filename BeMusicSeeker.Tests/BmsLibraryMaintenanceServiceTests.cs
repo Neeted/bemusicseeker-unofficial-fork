@@ -346,6 +346,68 @@ public sealed class BmsLibraryMaintenanceServiceTests
     }
 
     [TestMethod]
+    public void ResourceHealthIndexSnapshot_ApplyDeltaUpdatesOnlyAffectedTargets()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        BmsLibraryMaintenanceService service = new BmsLibraryMaintenanceService();
+        TestableBmsFile active = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        active.path = @"C:\Library\active.bms";
+        active.SetMaintenanceInfo(new BMSFileMaintenanceInfo(active)
+        {
+            hash = active.hash,
+            wav_files_defined = 2,
+            wav_files_existing = 1,
+            is_files_warning_ignored = false
+        }, suppressPropertyChanged: true, registerEventHandlers: false);
+        TestableBmsFile ignored = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+        ignored.path = @"C:\Library\ignored.bms";
+        ignored.SetMaintenanceInfo(new BMSFileMaintenanceInfo(ignored)
+        {
+            hash = ignored.hash,
+            bga_files_defined = 2,
+            bga_files_existing = 1,
+            is_files_warning_ignored = true
+        }, suppressPropertyChanged: true, registerEventHandlers: false);
+        ResourceHealthIndexSnapshot snapshot = ResourceHealthIndexSnapshot.Build(new BMSFile[] { active, ignored }, service, version: 1);
+
+        active.SetMaintenanceInfo(new BMSFileMaintenanceInfo(active)
+        {
+            hash = active.hash,
+            wav_files_defined = 2,
+            wav_files_existing = 2
+        }, suppressPropertyChanged: true, registerEventHandlers: false);
+        ResourceHealthIndexSnapshot afterFix = snapshot.ApplyDelta(new BMSFile[] { active }, null, service, version: 2);
+
+        Assert.AreEqual(2, afterFix.TargetCount);
+        Assert.IsFalse(afterFix.GetProjection(active).HasIssues);
+        CollectionAssert.AreEqual(Array.Empty<BMSFile>(), afterFix.ActiveFiles.ToArray());
+        CollectionAssert.AreEqual(new[] { ignored }, afterFix.IgnoredFiles.ToArray());
+
+        TestableBmsFile added = CreateFile("cccccccccccccccccccccccccccccccc");
+        added.path = @"C:\Library\added.bms";
+        added.SetMaintenanceInfo(new BMSFileMaintenanceInfo(added)
+        {
+            hash = added.hash,
+            bga_files_defined = 4,
+            bga_files_existing = 3,
+            is_files_warning_ignored = false
+        }, suppressPropertyChanged: true, registerEventHandlers: false);
+        ResourceHealthIndexSnapshot afterAdd = afterFix.ApplyDelta(new BMSFile[] { added }, null, service, version: 3);
+
+        Assert.AreEqual(3, afterAdd.TargetCount);
+        Assert.IsTrue(afterAdd.GetProjection(added).HasIssues);
+        CollectionAssert.AreEqual(new[] { added }, afterAdd.ActiveFiles.ToArray());
+        CollectionAssert.AreEqual(new[] { ignored }, afterAdd.IgnoredFiles.ToArray());
+
+        ResourceHealthIndexSnapshot afterRemove = afterAdd.ApplyDelta(null, new BMSFile[] { ignored }, service, version: 4);
+
+        Assert.AreEqual(2, afterRemove.TargetCount);
+        Assert.IsFalse(afterRemove.GetProjection(ignored).HasIssues);
+        CollectionAssert.AreEqual(new[] { added }, afterRemove.ActiveFiles.ToArray());
+        CollectionAssert.AreEqual(Array.Empty<BMSFile>(), afterRemove.IgnoredFiles.ToArray());
+    }
+
+    [TestMethod]
     public void ApplyNeedToBeFixedWarnings_ReplacesOnlyResourceHealthWarnings()
     {
         TestResourceInitializer.EnsureJapaneseResources();

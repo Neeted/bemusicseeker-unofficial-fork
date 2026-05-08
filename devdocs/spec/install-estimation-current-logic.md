@@ -123,6 +123,26 @@ Background pending estimate と手動の複数 package 推定は、batch 内の 
 
 手動推定と background pending estimate はどちらも `RunPendingEstimateExclusive()` を通るため、推定 batch 同士は同時に走りません。これは pending file/package の mutable state、warning、`INSTL DST`、progress 表示を同時更新しないための排他です。
 
+## 推定先への移動
+
+`InstallBMSPackagesToEstimatedDir` は、推定済み pending package を destination directory ごとの group にまとめて処理します。ファイル移動そのものは group は逐次です。これは移動済みファイルと `song.db` 反映の対応を保ち、失敗時の切り分けを単純にするためです。
+
+group ごとの処理では、ファイル移動、`song.db` の譜面 upsert、install row 削除対象の収集、インストール済み package への登録対象収集を行います。`song.db` の譜面 upsert は group ごとに維持します。ここを batch 末尾へ寄せると、移動済みファイルが DB に未反映のままクラッシュする窓が広がるためです。
+
+一方、library/cache/index は batch 末尾でまとめて反映します。具体的には、group ごとに追加 chart、追加 bmson、変更 directory を `EstimatedInstallBatchApplyContext` に蓄積し、全 group 完了後に `BMSFiles` / `BmsonSongs` の置換、`directoryResourceLookupCache` の追加 directory scan、playlist library index invalidation/prewarm を最大 1 回に寄せます。これにより、複数 group install で `playlist_library_index_prewarm cancelled/debounced` や `reverse_lookup_incremental_update` が group 数分発生しないようにします。
+
+maintenance / chart_info inline 更新も batch 末尾です。maintenance 対象は、追加された BMS / bmson chart に加えて、resource file が移動された destination directory 内の既存 installed chart です。chart も resource も移動しない cleanup-only 成功では maintenance を行いません。
+
+resource health index は delta 更新を優先します。既存 snapshot があり、affected chart が特定できる推定先 install では、`resource_health_index_delta reason=install_package_estimated` として対象 chart の projection だけを更新します。snapshot が無い、対象が特定できない、または通常の全体再スキャン系操作では従来通り `resource_health_index_build` の full rebuild に fallback します。
+
+ログ確認時は次を見ると、処理の粒度を確認できます。
+
+- `InstallBMSPackagesToEstimatedDir group`: destination group ごとの逐次移動と group 単位の DB 反映。
+- `reverse_lookup_incremental_update reason=install_package`: batch 末尾の reverse lookup 差分更新。複数 group でも原則 1 回。
+- `maintenance_update`: batch 末尾の affected chart maintenance。`resourceHealthIndexMode=delta` なら resource health index は差分更新です。
+- `resource_health_index_delta`: full rebuild ではなく affected chart の projection だけを更新したことを示します。
+- `chart_info_inline_install`: batch 末尾の chart_info inline parse / persist。
+
 ## 候補母集団
 
 候補は chart directory です。resource-only subdirectory は候補になりません。
