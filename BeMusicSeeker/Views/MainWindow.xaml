@@ -423,11 +423,11 @@
         <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Add_root_folder, Mode=OneWay}">
           <i:Interaction.Triggers>
             <i:EventTrigger EventName="Click">
-              <l:FolderBrowserDialogInteractionMessageAction>
+              <v:CommonOpenFileDialogInteractionMessageAction>
                 <l:DirectInteractionMessage CallbackCommand="{Binding settingDialog.AddBMSDirCommandFromMainWindow, Source={StaticResource vm}}">
                   <l:FolderSelectionMessage DialogPreference="FolderBrowser" SelectedPath="{qc:Binding '$P == null ? null : $P.FirstOrDefault()', P={Binding BMSParentFolderList, Source={StaticResource vm}}}" />
                 </l:DirectInteractionMessage>
-              </l:FolderBrowserDialogInteractionMessageAction>
+              </v:CommonOpenFileDialogInteractionMessageAction>
             </i:EventTrigger>
           </i:Interaction.Triggers>
         </MenuItem>

@@ -12,6 +12,7 @@ using System.Windows.Threading;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
+using Microsoft.WindowsAPICodePack.Dialogs;
 using Microsoft.Win32;
 
 namespace BeMusicSeeker.Views;
@@ -213,6 +214,26 @@ public partial class SettingDialog : UserControl, IComponentConnector
 		{
 			comboBox.SelectedItem = comboBox.Items[comboBox.SelectedIndex];
 			comboBox.SelectedValue = comboBox.Items[comboBox.SelectedIndex];
+		}
+	}
+
+	private void buttonAddStandaloneBmsRootPathsClicked(object sender, RoutedEventArgs e)
+	{
+		if (!(base.DataContext is MainWindowViewModel { settingDialog: { } settingDialogViewModel }))
+		{
+			return;
+		}
+		using CommonOpenFileDialog dialog = new CommonOpenFileDialog
+		{
+			Title = BeMusicSeeker.Properties.Resources.Add_BMSDirectory,
+			IsFolderPicker = true,
+			EnsurePathExists = true,
+			Multiselect = true
+		};
+		CommonOpenFileDialogInteractionMessageAction.SetInitialDirectory(dialog, settingDialogViewModel.SelectedStandaloneBmsRootPath);
+		if (dialog.ShowDialog(Window.GetWindow(this)) == CommonFileDialogResult.Ok)
+		{
+			settingDialogViewModel.AddStandaloneBmsRootPaths(dialog.FileNames);
 		}
 	}
 

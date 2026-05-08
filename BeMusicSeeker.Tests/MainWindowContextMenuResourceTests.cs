@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Text.RegularExpressions;
 using System.Windows;
 using System.Xml.Linq;
@@ -533,7 +534,7 @@ public sealed class MainWindowContextMenuResourceTests
         }
 
         Assert.IsFalse(addStandalone.Contains("StandaloneBmsRootPathList.Clear();"));
-        StringAssert.Contains(addStandalone, "StandaloneBmsRootPathList.Add(requestedPath);");
+        StringAssert.Contains(addStandalone, "StandaloneBmsRootPathList.Add(path);");
         StringAssert.Contains(addStandalone, "new object[1] { requestedPath }");
     }
 
@@ -862,6 +863,49 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(appCode, "Settings.LegacyTableListUrl");
         StringAssert.Contains(appCode, "Settings.DefaultTableListUrl");
         StringAssert.Contains(appCode, "Settings.Default.TableListURL.ToString()");
+    }
+
+    [TestMethod]
+    public void CommonOpenFileDialogActions_ReplaceLegacyDialogsAndSupportStandaloneMultiSelect()
+    {
+        string root = FindRepositoryRoot();
+        string settingDialogXaml = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingDialog.xaml"));
+        string mainWindowXaml = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "MainWindow.xaml"));
+        string dialogActionCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "CommonOpenFileDialogInteractionMessageAction.cs"));
+        string settingDialogCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingDialog.cs"));
+        string viewModelCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
+        string allPickerXaml = settingDialogXaml + mainWindowXaml;
+
+        Assert.AreEqual(0, CountOccurrences(allPickerXaml, "<l:FolderBrowserDialogInteractionMessageAction"));
+        Assert.AreEqual(0, CountOccurrences(allPickerXaml, "<l:OpenFileDialogInteractionMessageAction"));
+        StringAssert.Contains(allPickerXaml, "v:CommonOpenFileDialogInteractionMessageAction");
+        StringAssert.Contains(dialogActionCode, "CommonOpenFileDialog");
+        StringAssert.Contains(dialogActionCode, "IsFolderPicker = true");
+        StringAssert.Contains(dialogActionCode, "ShowDialog(Window.GetWindow(AssociatedObject))");
+        StringAssert.Contains(dialogActionCode, "FileNames.ToArray()");
+
+        StringAssert.Contains(settingDialogXaml, "Click=\"buttonAddStandaloneBmsRootPathsClicked\"");
+        StringAssert.Contains(settingDialogCode, "Multiselect = true");
+        StringAssert.Contains(settingDialogCode, "IsFolderPicker = true");
+        StringAssert.Contains(settingDialogCode, "dialog.FileNames");
+        StringAssert.Contains(viewModelCode, "public void AddStandaloneBmsRootPaths(IEnumerable<string> paths)");
+        StringAssert.Contains(viewModelCode, "NormalizeStandaloneBmsRootPaths(paths ?? Enumerable.Empty<string>())");
+
+        Type actionType = typeof(MainWindow).Assembly.GetType("BeMusicSeeker.Views.CommonOpenFileDialogInteractionMessageAction");
+        Assert.IsNotNull(actionType);
+        MethodInfo parseMethod = actionType.GetMethod("ParseFilterPairsForTest", BindingFlags.Static | BindingFlags.NonPublic);
+        Assert.IsNotNull(parseMethod);
+        var parsed = ((System.Collections.IEnumerable)parseMethod.Invoke(null, new object[] { "|song.db|すべてのファイル(*.*)|*.*" }))
+            .Cast<Tuple<string, string>>()
+            .ToList();
+        Assert.AreEqual(2, parsed.Count);
+        Assert.AreEqual("song.db", parsed[0].Item1);
+        Assert.AreEqual("song.db", parsed[0].Item2);
+        Assert.AreEqual("*.*", parsed[1].Item2);
+        var fallback = ((System.Collections.IEnumerable)parseMethod.Invoke(null, new object[] { "broken" }))
+            .Cast<Tuple<string, string>>()
+            .ToList();
+        Assert.AreEqual("*.*", fallback[0].Item2);
     }
 
     private static string FindRepositoryRoot()

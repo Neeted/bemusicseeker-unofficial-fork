@@ -58,17 +58,7 @@
                         <RowDefinition Height="Auto" />
                       </Grid.RowDefinitions>
                       <DockPanel Grid.Row="0" LastChildFill="False">
-                        <Button Width="75" DockPanel.Dock="Right" Height="24" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Add_BMSDirectory, Mode=OneWay}">
-                          <i:Interaction.Triggers>
-                            <i:EventTrigger EventName="Click">
-                              <l:FolderBrowserDialogInteractionMessageAction>
-                                <l:DirectInteractionMessage CallbackCommand="{Binding settingDialog.AddBMSDirCommand}">
-                                  <l:FolderSelectionMessage DialogPreference="FolderBrowser" SelectedPath="{qc:Binding '$P == null ? null : $P.FirstOrDefault()', P={Binding settingDialog.StandaloneBmsRootPathList}}" />
-                                </l:DirectInteractionMessage>
-                              </l:FolderBrowserDialogInteractionMessageAction>
-                            </i:EventTrigger>
-                          </i:Interaction.Triggers>
-                        </Button>
+                        <Button Width="75" DockPanel.Dock="Right" Height="24" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Add_BMSDirectory, Mode=OneWay}" Click="buttonAddStandaloneBmsRootPathsClicked" />
                         <Label Height="28" HorizontalContentAlignment="Right" DockPanel.Dock="Right" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Standalone_BMSDirectories, Mode=OneWay}" />
                       </DockPanel>
                       <DockPanel Grid.Row="1" LastChildFill="True">
@@ -81,11 +71,11 @@
                       <Button Width="75" DockPanel.Dock="Right" Height="24" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Browse, Mode=OneWay}">
                         <i:Interaction.Triggers>
                           <i:EventTrigger EventName="Click">
-                            <l:FolderBrowserDialogInteractionMessageAction>
+                            <v:CommonOpenFileDialogInteractionMessageAction>
                               <l:DirectInteractionMessage CallbackCommand="{Binding settingDialog.OpenRootFolderCommand}">
                                 <l:FolderSelectionMessage MessageKey="{Binding Path.Path, ElementName=bindingLR2RootPath}" SelectedPath="{Binding settingDialog.LR2RootPath}" />
                               </l:DirectInteractionMessage>
-                            </l:FolderBrowserDialogInteractionMessageAction>
+                            </v:CommonOpenFileDialogInteractionMessageAction>
                           </i:EventTrigger>
                         </i:Interaction.Triggers>
                         <UIElement.IsEnabled>
@@ -119,11 +109,11 @@
                           <Button Width="75" DockPanel.Dock="Right" Height="24" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Browse, Mode=OneWay}" IsEnabled="{Binding IsChecked, ElementName=radioButtonUseLR2}">
                             <i:Interaction.Triggers>
                               <i:EventTrigger EventName="Click">
-                                <l:OpenFileDialogInteractionMessageAction>
+                                <v:CommonOpenFileDialogInteractionMessageAction>
                                   <l:DirectInteractionMessage CallbackCommand="{Binding settingDialog.OpenFileCommand}">
                                     <l:OpeningFileSelectionMessage FileName="song.db" Filter="|song.db|すべてのファイル(*.*)|*.*" Title="song.db を開く" MessageKey="{Binding Path.Path, ElementName=bindingLR2SongDBPath}" InitialDirectory="{Binding settingDialog.LR2SongDBPath, Converter={StaticResource pathToDirectoryOrSelfConverter}}" />
                                   </l:DirectInteractionMessage>
-                                </l:OpenFileDialogInteractionMessageAction>
+                                </v:CommonOpenFileDialogInteractionMessageAction>
                               </i:EventTrigger>
                             </i:Interaction.Triggers>
                           </Button>
@@ -136,11 +126,11 @@
                           <Button Width="75" DockPanel.Dock="Right" Height="24" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Browse, Mode=OneWay}" IsEnabled="{Binding IsChecked, ElementName=radioButtonUseLR2}">
                             <i:Interaction.Triggers>
                               <i:EventTrigger EventName="Click">
-                                <l:OpenFileDialogInteractionMessageAction>
+                                <v:CommonOpenFileDialogInteractionMessageAction>
                                   <l:DirectInteractionMessage CallbackCommand="{Binding settingDialog.OpenFileCommand}">
                                     <l:OpeningFileSelectionMessage FileName="config.xml" Filter="|config.xm?|すべてのファイル(*.*)|*.*" Title="config.xml を開く" MessageKey="{Binding Path.Path, ElementName=bindingLR2ConfigPath}" InitialDirectory="{Binding settingDialog.LR2ConfigXmlPath, Converter={StaticResource pathToDirectoryOrSelfConverter}}" />
                                   </l:DirectInteractionMessage>
-                                </l:OpenFileDialogInteractionMessageAction>
+                                </v:CommonOpenFileDialogInteractionMessageAction>
                               </i:EventTrigger>
                             </i:Interaction.Triggers>
                           </Button>
@@ -156,11 +146,11 @@
                       <Button Width="75" DockPanel.Dock="Right" Height="24" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Browse, Mode=OneWay}" IsEnabled="{Binding settingDialog.UseBeatorajaScoreDb}">
                         <i:Interaction.Triggers>
                           <i:EventTrigger EventName="Click">
-                            <l:OpenFileDialogInteractionMessageAction>
+                            <v:CommonOpenFileDialogInteractionMessageAction>
                               <l:DirectInteractionMessage CallbackCommand="{Binding settingDialog.OpenFileCommand}">
                                 <l:OpeningFileSelectionMessage FileName="score.db" Filter="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.FileDialogFilter_scoreDB, Mode=OneWay}" Title="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_scoreDB, Mode=OneWay}" MessageKey="{Binding Path.Path, ElementName=bindingBeatorajaScoreDbPath}" InitialDirectory="{Binding settingDialog.BeatorajaScoreDbPath, Converter={StaticResource pathToDirectoryOrSelfConverter}}" />
                               </l:DirectInteractionMessage>
-                            </l:OpenFileDialogInteractionMessageAction>
+                            </v:CommonOpenFileDialogInteractionMessageAction>
                           </i:EventTrigger>
                         </i:Interaction.Triggers>
                       </Button>
@@ -182,11 +172,11 @@
                       <Button Width="75" DockPanel.Dock="Right" Height="24" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Browse, Mode=OneWay}">
                         <i:Interaction.Triggers>
                           <i:EventTrigger EventName="Click">
-                            <l:OpenFileDialogInteractionMessageAction>
+                            <v:CommonOpenFileDialogInteractionMessageAction>
                               <l:DirectInteractionMessage CallbackCommand="{Binding settingDialog.OpenFileCommand}">
                                 <l:OpeningFileSelectionMessage Filter="Image file|*.bmp;*.gif;*.jpg;*.jpeg;*.png;*.tif;*.tiff|BMP file (*.bmp)|*.bmp|GIF file (*.gif)|*.gif|JPEG file (*.jpg;*.jpeg)|*.jpg;*.jpeg|PNG file (*.png)|*.png|TIFF file (*.tif;*.tiff)|*.tif;*.tiff" MessageKey="{Binding Path.Path, ElementName=bindingStagefilePath}" Title="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_image, Mode=OneWay}" InitialDirectory="{Binding settingDialog.StagefilePath, Converter={StaticResource pathToDirectoryOrSelfConverter}}" />
                               </l:DirectInteractionMessage>
-                            </l:OpenFileDialogInteractionMessageAction>
+                            </v:CommonOpenFileDialogInteractionMessageAction>
                           </i:EventTrigger>
                         </i:Interaction.Triggers>
                       </Button>
@@ -221,11 +211,11 @@
                         <Button Width="75" DockPanel.Dock="Right" Height="24" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Browse, Mode=OneWay}" IsEnabled="{Binding IsChecked, ElementName=radioButtonPlayuBMplay}">
                           <i:Interaction.Triggers>
                             <i:EventTrigger EventName="Click">
-                              <l:OpenFileDialogInteractionMessageAction>
+                              <v:CommonOpenFileDialogInteractionMessageAction>
                                 <l:DirectInteractionMessage CallbackCommand="{Binding settingDialog.OpenFileCommand}">
                                   <l:OpeningFileSelectionMessage FileName="uBMplay.exe" Filter="|uBMplay.exe|すべてのファイル(*.*)|*.*" Title="uBMplay.exe を開く" MessageKey="{Binding Path.Path, ElementName=bindinguBMplayPath}" InitialDirectory="{Binding settingDialog.uBMplayPath, Converter={StaticResource pathToDirectoryOrSelfConverter}}" />
                                 </l:DirectInteractionMessage>
-                              </l:OpenFileDialogInteractionMessageAction>
+                              </v:CommonOpenFileDialogInteractionMessageAction>
                             </i:EventTrigger>
                           </i:Interaction.Triggers>
                         </Button>
@@ -243,11 +233,11 @@
                         <Button Width="75" DockPanel.Dock="Right" Height="24" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Browse, Mode=OneWay}" IsEnabled="{Binding IsChecked, ElementName=radioButtonPlayBMIIDXView}">
                           <i:Interaction.Triggers>
                             <i:EventTrigger EventName="Click">
-                              <l:OpenFileDialogInteractionMessageAction>
+                              <v:CommonOpenFileDialogInteractionMessageAction>
                                 <l:DirectInteractionMessage CallbackCommand="{Binding settingDialog.OpenFileCommand}">
                                   <l:OpeningFileSelectionMessage FileName="BMIIDXView2015.exe" Filter="|BMIIDXView2015*.exe|すべてのファイル(*.*)|*.*" Title="BMIIDXView2015.exe を開く" MessageKey="{Binding Path.Path, ElementName=bindingBMIIDXViewPath}" InitialDirectory="{Binding settingDialog.BMIIDXViewPath, Converter={StaticResource pathToDirectoryOrSelfConverter}}" />
                                 </l:DirectInteractionMessage>
-                              </l:OpenFileDialogInteractionMessageAction>
+                              </v:CommonOpenFileDialogInteractionMessageAction>
                             </i:EventTrigger>
                           </i:Interaction.Triggers>
                         </Button>
@@ -267,11 +257,11 @@
                         <Button Width="75" DockPanel.Dock="Right" Height="24" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Browse, Mode=OneWay}" IsEnabled="{Binding IsChecked, ElementName=radioButtonPlayLR2body}">
                           <i:Interaction.Triggers>
                             <i:EventTrigger EventName="Click">
-                              <l:FolderBrowserDialogInteractionMessageAction>
+                              <v:CommonOpenFileDialogInteractionMessageAction>
                                 <l:DirectInteractionMessage CallbackCommand="{Binding settingDialog.OpenRootFolderCommand}">
                                   <l:FolderSelectionMessage MessageKey="{Binding Path.Path, ElementName=bindingLR2RootPath}" SelectedPath="{Binding settingDialog.LR2RootPath}" />
                                 </l:DirectInteractionMessage>
-                              </l:FolderBrowserDialogInteractionMessageAction>
+                              </v:CommonOpenFileDialogInteractionMessageAction>
                             </i:EventTrigger>
                           </i:Interaction.Triggers>
                         </Button>
@@ -414,11 +404,11 @@
                     <Button Width="75" DockPanel.Dock="Right" Height="24" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Browse, Mode=OneWay}">
                       <i:Interaction.Triggers>
                         <i:EventTrigger EventName="Click">
-                          <l:FolderBrowserDialogInteractionMessageAction>
+                          <v:CommonOpenFileDialogInteractionMessageAction>
                             <l:DirectInteractionMessage CallbackCommand="{Binding settingDialog.OpenDirCommand}">
                               <l:FolderSelectionMessage MessageKey="settingDialog.EncoderExeDir" Title="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Record_setting_encoder_dir_dialog, Mode=OneWay}" />
                             </l:DirectInteractionMessage>
-                          </l:FolderBrowserDialogInteractionMessageAction>
+                          </v:CommonOpenFileDialogInteractionMessageAction>
                         </i:EventTrigger>
                       </i:Interaction.Triggers>
                     </Button>
@@ -436,7 +426,7 @@
                       <Button Width="75" DockPanel.Dock="Right" Height="24" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Add, Mode=OneWay}">
                         <i:Interaction.Triggers>
                           <i:EventTrigger EventName="Click">
-                            <l:FolderBrowserDialogInteractionMessageAction>
+                            <v:CommonOpenFileDialogInteractionMessageAction>
                               <l:DirectInteractionMessage CallbackCommand="{Binding settingDialog.AddBMSDirCommand}">
                                 <l:FolderSelectionMessage DialogPreference="FolderBrowser" MessageKey="{Binding Path.Path, ElementName=bindingLR2CustomFolderOutputDir}">
                                   <l:FolderSelectionMessage.SelectedPath>
@@ -447,7 +437,7 @@
                                   </l:FolderSelectionMessage.SelectedPath>
                                 </l:FolderSelectionMessage>
                               </l:DirectInteractionMessage>
-                            </l:FolderBrowserDialogInteractionMessageAction>
+                            </v:CommonOpenFileDialogInteractionMessageAction>
                           </i:EventTrigger>
                         </i:Interaction.Triggers>
                       </Button>
@@ -458,7 +448,7 @@
                       <Button Width="75" DockPanel.Dock="Right" Height="24" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Browse, Mode=OneWay}">
                         <i:Interaction.Triggers>
                           <i:EventTrigger EventName="Click">
-                            <l:FolderBrowserDialogInteractionMessageAction>
+                            <v:CommonOpenFileDialogInteractionMessageAction>
                               <l:DirectInteractionMessage CallbackCommand="{Binding settingDialog.OpenRootFolderCommand}">
                                 <l:FolderSelectionMessage DialogPreference="FolderBrowser" MessageKey="{Binding Path.Path, ElementName=bindingLR2CustomFolderAsRootOutputDir}">
                                   <l:FolderSelectionMessage.SelectedPath>
@@ -469,7 +459,7 @@
                                   </l:FolderSelectionMessage.SelectedPath>
                                 </l:FolderSelectionMessage>
                               </l:DirectInteractionMessage>
-                            </l:FolderBrowserDialogInteractionMessageAction>
+                            </v:CommonOpenFileDialogInteractionMessageAction>
                           </i:EventTrigger>
                         </i:Interaction.Triggers>
                       </Button>
@@ -503,11 +493,11 @@
                     <Button Width="75" DockPanel.Dock="Right" Height="24" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Add, Mode=OneWay}">
                       <i:Interaction.Triggers>
                         <i:EventTrigger EventName="Click">
-                          <l:FolderBrowserDialogInteractionMessageAction>
+                          <v:CommonOpenFileDialogInteractionMessageAction>
                             <l:DirectInteractionMessage CallbackCommand="{Binding settingDialog.AddBMSDirCommand}">
                               <l:FolderSelectionMessage DialogPreference="FolderBrowser" SelectedPath="{qc:Binding '$P == null ? null : $P.FirstOrDefault()', P={Binding settingDialog.AvailableBMSDirectories}}" MessageKey="{Binding Path.Path, ElementName=bindingBMSInstallDir}" />
                             </l:DirectInteractionMessage>
-                          </l:FolderBrowserDialogInteractionMessageAction>
+                          </v:CommonOpenFileDialogInteractionMessageAction>
                         </i:EventTrigger>
                       </i:Interaction.Triggers>
                     </Button>
@@ -556,11 +546,11 @@
                       <Button Width="75" DockPanel.Dock="Right" Height="24" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Browse, Mode=OneWay}">
                         <i:Interaction.Triggers>
                           <i:EventTrigger EventName="Click">
-                            <l:FolderBrowserDialogInteractionMessageAction>
+                            <v:CommonOpenFileDialogInteractionMessageAction>
                               <l:DirectInteractionMessage CallbackCommand="{Binding settingDialog.OpenRootFolderCommand}">
                                 <l:FolderSelectionMessage MessageKey="{Binding Path.Path, ElementName=bindingLR2BackupPath}" SelectedPath="{Binding settingDialog.LR2BackupPath}" />
                               </l:DirectInteractionMessage>
-                            </l:FolderBrowserDialogInteractionMessageAction>
+                            </v:CommonOpenFileDialogInteractionMessageAction>
                           </i:EventTrigger>
                         </i:Interaction.Triggers>
                       </Button>

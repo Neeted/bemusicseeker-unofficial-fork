@@ -2610,24 +2610,38 @@ public class MainWindowViewModel : ViewModel
             {
                 return;
             }
+            AddStandaloneBmsRootPathsCore(new[] { parameter.Response }, parameter.MessageKey);
+        }
+
+        public void AddStandaloneBmsRootPaths(IEnumerable<string> paths)
+        {
+            AddStandaloneBmsRootPathsCore(paths, null);
+        }
+
+        private void AddStandaloneBmsRootPathsCore(IEnumerable<string> paths, string messageKey)
+        {
             try
             {
                 string before = SerializeStandaloneBmsRootPaths(StandaloneBmsRootPathList);
-                string requestedPath = NormalizeStandaloneBmsRootPaths(new[] { parameter.Response }).FirstOrDefault();
+                List<string> requestedPaths = NormalizeStandaloneBmsRootPaths(paths ?? Enumerable.Empty<string>()).ToList();
+                string requestedPath = requestedPaths.FirstOrDefault();
                 if (string.IsNullOrWhiteSpace(requestedPath))
                 {
                     return;
                 }
-                if (!StandaloneBmsRootPathList.Contains(requestedPath, StringComparer.OrdinalIgnoreCase))
+                foreach (string path in requestedPaths)
                 {
-                    StandaloneBmsRootPathList.Add(requestedPath);
+                    if (!StandaloneBmsRootPathList.Contains(path, StringComparer.OrdinalIgnoreCase))
+                    {
+                        StandaloneBmsRootPathList.Add(path);
+                    }
                 }
                 SelectedStandaloneBmsRootPath = StandaloneBmsRootPathList.FirstOrDefault(path => string.Equals(path, requestedPath, StringComparison.OrdinalIgnoreCase))
                     ?? StandaloneBmsRootPathList.FirstOrDefault(path => IsSameOrChildPath(requestedPath, path))
                     ?? StandaloneBmsRootPathList.FirstOrDefault();
-                if (!string.IsNullOrWhiteSpace(parameter.MessageKey))
+                if (!string.IsNullOrWhiteSpace(messageKey))
                 {
-                    string name = parameter.MessageKey.Substring(parameter.MessageKey.LastIndexOf('.') + 1);
+                    string name = messageKey.Substring(messageKey.LastIndexOf('.') + 1);
                     GetType().GetProperty(name).GetSetMethod().Invoke(this, new object[1] { requestedPath });
                 }
                 string after = SerializeStandaloneBmsRootPaths(StandaloneBmsRootPathList);
