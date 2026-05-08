@@ -184,7 +184,8 @@ public class MainWindowViewModel : ViewModel
         {
             None = 0,
             FolderOnly = 1,
-            All = 2
+            All = 2,
+            ScoreOnly = 4
         }
 
         private MainWindowViewModel ownerViewModel;
@@ -258,6 +259,10 @@ public class MainWindowViewModel : ViewModel
         private string tempLR2SongDBPath;
 
         private string tempLR2ConfigXmlPath;
+
+        private bool tempUseBeatorajaScoreDb;
+
+        private string tempBeatorajaScoreDbPath;
 
         private string tempuBMplayPath;
 
@@ -578,6 +583,39 @@ public class MainWindowViewModel : ViewModel
                 }
                 RaisePropertyChanged("LR2ConfigXmlPath");
                 RaisePropertyChanged(() => LR2bodyPath);
+            }
+        }
+
+        public bool UseBeatorajaScoreDb
+        {
+            get
+            {
+                return Settings.Default.UseBeatorajaScoreDb;
+            }
+            set
+            {
+                if (Settings.Default.UseBeatorajaScoreDb != value)
+                {
+                    Settings.Default.UseBeatorajaScoreDb = value;
+                    RaisePropertyChanged("UseBeatorajaScoreDb");
+                }
+            }
+        }
+
+        public string BeatorajaScoreDbPath
+        {
+            get
+            {
+                return Settings.Default.BeatorajaScoreDbPath;
+            }
+            set
+            {
+                if (Settings.Default.BeatorajaScoreDbPath == value)
+                {
+                    return;
+                }
+                Settings.Default.BeatorajaScoreDbPath = IsBeatorajaScoreDbPathValid(value) ? value : string.Empty;
+                RaisePropertyChanged("BeatorajaScoreDbPath");
             }
         }
 
@@ -2037,6 +2075,18 @@ public class MainWindowViewModel : ViewModel
             return File.Exists(value);
         }
 
+        private bool IsBeatorajaScoreDbPathValid()
+        {
+            return IsBeatorajaScoreDbPathValid(Settings.Default.BeatorajaScoreDbPath);
+        }
+
+        private bool IsBeatorajaScoreDbPathValid(string value)
+        {
+            return !string.IsNullOrWhiteSpace(value)
+                && string.Equals(Path.GetFileName(value), "score.db", StringComparison.OrdinalIgnoreCase)
+                && File.Exists(value);
+        }
+
         private bool IsuBMplayPathValid()
         {
             return IsuBMplayPathValid(Settings.Default.uBMplayPath);
@@ -2414,6 +2464,8 @@ public class MainWindowViewModel : ViewModel
             tempLR2RootPath = Settings.Default.LR2RootPath;
             tempLR2SongDBPath = Settings.Default.LR2SongDBPath;
             tempLR2ConfigXmlPath = Settings.Default.LR2ConfigXmlPath;
+            tempUseBeatorajaScoreDb = Settings.Default.UseBeatorajaScoreDb;
+            tempBeatorajaScoreDbPath = Settings.Default.BeatorajaScoreDbPath;
             tempBMSRootPath = Settings.Default.BMSRootPath;
             tempuBMplayPath = Settings.Default.uBMplayPath;
             tempBMIIDXViewPath = Settings.Default.BMIIDXViewPath;
@@ -2595,6 +2647,11 @@ public class MainWindowViewModel : ViewModel
                 errMsg = errMsg + "一般: BMSディレクトリのパスが正しくありません" + Environment.NewLine;
                 result = false;
             }
+            if (UseBeatorajaScoreDb && !IsBeatorajaScoreDbPathValid())
+            {
+                errMsg = errMsg + BeMusicSeeker.Properties.Resources.General + ": " + BeMusicSeeker.Properties.Resources.Error_InvalidBeatorajaScoreDbPath + Environment.NewLine;
+                result = false;
+            }
             if (UseExternalPanelImage && !IsStagefilePathValid())
             {
                 errMsg = errMsg + "一般: ステージファイルのパスが正しくありません" + Environment.NewLine;
@@ -2688,6 +2745,8 @@ public class MainWindowViewModel : ViewModel
             Settings.Default.OperationModeLR2DB = tempOperationModeLR2DB;
             Settings.Default.LR2RootPath = tempLR2RootPath;
             Settings.Default.LR2SongDBPath = tempLR2SongDBPath;
+            Settings.Default.UseBeatorajaScoreDb = tempUseBeatorajaScoreDb;
+            Settings.Default.BeatorajaScoreDbPath = tempBeatorajaScoreDbPath;
             Settings.Default.BMSRootPath = tempBMSRootPath;
             Settings.Default.uBMplayPath = tempuBMplayPath;
             Settings.Default.BMIIDXViewPath = tempBMIIDXViewPath;
@@ -2766,6 +2825,8 @@ public class MainWindowViewModel : ViewModel
             RaisePropertyChanged(() => BMSRootPath);
             RaisePropertyChanged(() => LR2SongDBPath);
             RaisePropertyChanged(() => LR2ConfigXmlPath);
+            RaisePropertyChanged(() => UseBeatorajaScoreDb);
+            RaisePropertyChanged(() => BeatorajaScoreDbPath);
             RaisePropertyChanged(() => uBMplayPath);
             RaisePropertyChanged(() => BMIIDXViewPath);
             RaisePropertyChanged(() => UsePlayeruBMplay);
@@ -2830,6 +2891,9 @@ public class MainWindowViewModel : ViewModel
 
         public RestartMode IsNeedRestartForSaved()
         {
+            RestartMode restartMode = RestartMode.None;
+            bool scoreSourceChanged = tempUseBeatorajaScoreDb != Settings.Default.UseBeatorajaScoreDb
+                || !string.Equals(tempBeatorajaScoreDbPath, Settings.Default.BeatorajaScoreDbPath, StringComparison.OrdinalIgnoreCase);
             if (tempValidation != CheckValidation())
             {
                 return RestartMode.All;
@@ -2846,14 +2910,18 @@ public class MainWindowViewModel : ViewModel
                 }
                 if (tempLR2ConfigXmlPath != Settings.Default.LR2ConfigXmlPath)
                 {
-                    return RestartMode.FolderOnly;
+                    restartMode |= RestartMode.FolderOnly;
                 }
             }
             else if (tempBMSRootPath != Settings.Default.BMSRootPath)
             {
-                return RestartMode.FolderOnly;
+                restartMode |= RestartMode.FolderOnly;
             }
-            return RestartMode.None;
+            if (scoreSourceChanged)
+            {
+                restartMode |= RestartMode.ScoreOnly;
+            }
+            return restartMode;
         }
 
         public RestartMode IsNeedRestartForSaveOrCancel()
@@ -3956,6 +4024,7 @@ public class MainWindowViewModel : ViewModel
         None,
         Startup,
         ReloadFileDiff,
+        ScoreOnly,
         FullReinitialize,
         ReloadTables
     }
@@ -5645,6 +5714,68 @@ public class MainWindowViewModel : ViewModel
             return resolvedByMd5;
         }
         return null;
+    }
+
+    private static BeMusicSeeker.Models.BMSScore ResolvePlaylistEntryScoreSnapshot(
+        BMSTableEntry entry,
+        BeMusicSeeker.Models.BMSFile realFile,
+        LR2SongDBExtended.chart_info entryChartInfo,
+        BeMusicSeeker.Models.BMSLibrary.ScoreSnapshot scoreSnapshot,
+        IReadOnlyDictionary<string, BeMusicSeeker.Models.BMSScore> scoresByHash,
+        IReadOnlyDictionary<string, BeMusicSeeker.Models.BMSScore> scoresBySha256)
+    {
+        if (entry == null || scoreSnapshot == null)
+        {
+            return null;
+        }
+        if (scoreSnapshot.ActiveScoreSource == ActiveScoreSource.Lr2)
+        {
+            string hash = FirstNonEmpty(entry.md5, realFile?.hash);
+            if (scoresByHash != null && scoresByHash.TryGetValue(hash, out BeMusicSeeker.Models.BMSScore lr2Score))
+            {
+                return lr2Score;
+            }
+            return null;
+        }
+        if (scoreSnapshot.ActiveScoreSource == ActiveScoreSource.Beatoraja && scoresBySha256 != null)
+        {
+            string sha256 = FirstNonEmpty(entry.sha256, realFile?.sha256, entryChartInfo?.sha256);
+            if (scoresBySha256.TryGetValue(sha256, out BeMusicSeeker.Models.BMSScore beatorajaScore))
+            {
+                string hash = FirstNonEmpty(entry.md5, realFile?.hash);
+                return string.IsNullOrWhiteSpace(hash)
+                    ? beatorajaScore
+                    : BmsLibraryIrService.CloneScoreForFileHash(beatorajaScore, hash);
+            }
+        }
+        return null;
+    }
+
+    internal static BeMusicSeeker.Models.BMSScore ResolvePlaylistEntryScoreSnapshotForTest(
+        BMSTableEntry entry,
+        BeMusicSeeker.Models.BMSFile realFile,
+        LR2SongDBExtended.chart_info entryChartInfo,
+        BeMusicSeeker.Models.BMSLibrary.ScoreSnapshot scoreSnapshot,
+        IReadOnlyDictionary<string, BeMusicSeeker.Models.BMSScore> scoresByHash,
+        IReadOnlyDictionary<string, BeMusicSeeker.Models.BMSScore> scoresBySha256)
+    {
+        return ResolvePlaylistEntryScoreSnapshot(entry, realFile, entryChartInfo, scoreSnapshot, scoresByHash, scoresBySha256);
+    }
+
+    private static string FirstNonEmpty(params string[] candidates)
+    {
+        if (candidates == null)
+        {
+            return string.Empty;
+        }
+        foreach (string candidate in candidates)
+        {
+            if (!string.IsNullOrWhiteSpace(candidate))
+            {
+                return candidate;
+            }
+        }
+        return string.Empty;
     }
 
     internal static bool ShouldCreatePlaylistScoreProbeForTest(bool hasRealFile, bool hasResolvedBmson)
@@ -9776,6 +9907,54 @@ public class MainWindowViewModel : ViewModel
             StartupProgressPhase.PlaylistReferenceApplied);
     }
 
+    /// <summary>
+    /// score source / score.db 設定変更を、playlist/table reload を伴わずに反映します。
+    /// </summary>
+    public async void ReloadScoresOnly()
+    {
+        if (!initializationCompleted)
+        {
+            return;
+        }
+        StartStartupProgressOperation(StartupProgressOperationKind.ScoreOnly);
+        LogInitStage("start", "ReloadScoresOnly");
+        await _semaphore.WaitAsync();
+        bool refreshViews = false;
+        try
+        {
+            BeginUiUpdateSuppression(UiRefreshChannel.LibraryMainView);
+            LogInitStage("score_reload_task_start", "ReloadScoresOnly");
+            await Task.Run(delegate
+            {
+                LogInitStage("score_reload_call", "ReloadScoresOnly");
+                files.InitializeScoresOnly(null);
+            }).Logging("ReloadScoresOnly");
+            LogInitStage("score_reload_done", "ReloadScoresOnly");
+            refreshViews = true;
+        }
+        catch (Exception ex)
+        {
+            FailStartupProgressOperation(ex.Message);
+            throw;
+        }
+        finally
+        {
+            EndUiUpdateSuppression();
+            MarkStartupProgressPhaseCompleted(StartupProgressPhase.StartupReadyOperable);
+            LogInitStage("ui_suppress_end_called", "ReloadScoresOnly");
+            _semaphore.Release();
+        }
+        if (refreshViews)
+        {
+            RefreshLibraryMainViewForCurrentFilter();
+            RefreshPlaylistSummaryIfVisible("score_only_reload");
+        }
+        SkipUnrequestedStartupProgressPhases(
+            "ReloadScoresOnly:scheduled",
+            StartupProgressPhase.ScoreHydrationDone,
+            StartupProgressPhase.RankingRefreshDone);
+    }
+
     public async void ReloadFileDiff()
     {
         if (!initializationCompleted)
@@ -11269,7 +11448,12 @@ public class MainWindowViewModel : ViewModel
         Dictionary<string, LR2SongDBExtended.bmson_song> bmsonByMd5 = libraryIndexSnapshot?.BmsonByMd5 ?? new Dictionary<string, LR2SongDBExtended.bmson_song>(StringComparer.OrdinalIgnoreCase);
         Dictionary<string, LR2SongDBExtended.bmson_song> bmsonBySha256 = libraryIndexSnapshot?.BmsonBySha256 ?? new Dictionary<string, LR2SongDBExtended.bmson_song>(StringComparer.OrdinalIgnoreCase);
         BeMusicSeeker.Models.BMSLibrary.ScoreSnapshot scoreSnapshot = files?.GetScoreSnapshotForDiagnostics();
-        IReadOnlyDictionary<string, BeMusicSeeker.Models.BMSScore> scoresByHash = scoreSnapshot?.ScoresByHash ?? new Dictionary<string, BeMusicSeeker.Models.BMSScore>(StringComparer.OrdinalIgnoreCase);
+        IReadOnlyDictionary<string, BeMusicSeeker.Models.BMSScore> scoresByHash = scoreSnapshot?.ActiveScoreSource == ActiveScoreSource.Lr2
+            ? scoreSnapshot.ScoresByHash
+            : new Dictionary<string, BeMusicSeeker.Models.BMSScore>(StringComparer.OrdinalIgnoreCase);
+        IReadOnlyDictionary<string, BeMusicSeeker.Models.BMSScore> scoresBySha256 = scoreSnapshot?.ActiveScoreSource == ActiveScoreSource.Beatoraja
+            ? scoreSnapshot.ScoresBySha256
+            : new Dictionary<string, BeMusicSeeker.Models.BMSScore>(StringComparer.OrdinalIgnoreCase);
         cancellationStage = "hash_index";
         cancellationToken.ThrowIfCancellationRequested();
         List<(BMSTableEntry entry, BeMusicSeeker.Models.BMSFile realFile, LR2SongDBExtended.bmson_song resolvedBmson, BeMusicSeeker.Models.BMSScore scoreSnapshot)> resolvedEntries = new List<(BMSTableEntry, BeMusicSeeker.Models.BMSFile, LR2SongDBExtended.bmson_song, BeMusicSeeker.Models.BMSScore)>();
@@ -11291,13 +11475,12 @@ public class MainWindowViewModel : ViewModel
                 filesBySha256.TryGetValue(entry.sha256, out realFile);
             }
             LR2SongDBExtended.bmson_song resolvedBmson = realFile == null ? ResolveBmsonForPlaylistEntry(entry, bmsonByMd5, bmsonBySha256) : null;
-            scoresByHash.TryGetValue(entry.md5 ?? string.Empty, out BeMusicSeeker.Models.BMSScore scoreSnapshotForRow);
             bool isOwned = (realFile != null && !string.IsNullOrWhiteSpace(realFile.path)) || (resolvedBmson != null && !string.IsNullOrWhiteSpace(resolvedBmson.path));
             if (onlyNotOwned && isOwned)
             {
                 continue;
             }
-            resolvedEntries.Add((entry, realFile, resolvedBmson, scoreSnapshotForRow));
+            resolvedEntries.Add((entry, realFile, resolvedBmson, null));
         }
         cancellationToken.ThrowIfCancellationRequested();
         List<(BMSTableEntry entry, BeMusicSeeker.Models.BMSFile realFile, LR2SongDBExtended.bmson_song resolvedBmson, LR2SongDBExtended.chart_info entryChartInfo, PlaylistScoreProbeBmsFile scoreProbe, BeMusicSeeker.Models.BMSScore scoreSnapshot)> preparedEntries = new List<(BMSTableEntry, BeMusicSeeker.Models.BMSFile, LR2SongDBExtended.bmson_song, LR2SongDBExtended.chart_info, PlaylistScoreProbeBmsFile, BeMusicSeeker.Models.BMSScore)>(resolvedEntries.Count);
@@ -11305,7 +11488,7 @@ public class MainWindowViewModel : ViewModel
         int missingChartInfoResolveTargets = 0;
         int chartInfoResolvedCount = 0;
         int chartInfoIndexVersion = files?.ChartInfoIndexVersion ?? 0;
-        foreach ((BMSTableEntry entry, BeMusicSeeker.Models.BMSFile realFile, LR2SongDBExtended.bmson_song resolvedBmson, BeMusicSeeker.Models.BMSScore scoreSnapshotForRow) in resolvedEntries)
+        foreach ((BMSTableEntry entry, BeMusicSeeker.Models.BMSFile realFile, LR2SongDBExtended.bmson_song resolvedBmson, BeMusicSeeker.Models.BMSScore _) in resolvedEntries)
         {
             cancellationToken.ThrowIfCancellationRequested();
             LR2SongDBExtended.chart_info entryChartInfo = null;
@@ -11318,11 +11501,12 @@ public class MainWindowViewModel : ViewModel
                     chartInfoResolvedCount++;
                 }
             }
+            BeMusicSeeker.Models.BMSScore scoreSnapshotForRow = ResolvePlaylistEntryScoreSnapshot(entry, realFile, entryChartInfo, scoreSnapshot, scoresByHash, scoresBySha256);
             PlaylistScoreProbeBmsFile scoreProbe = null;
             if (ShouldCreatePlaylistScoreProbe(realFile, resolvedBmson))
             {
                 scoreProbe = new PlaylistScoreProbeBmsFile();
-                scoreProbe.ApplyEntrySnapshot(entry, BmsonSongParser.ResolvePlaylistMode(resolvedBmson?.mode_hint));
+                scoreProbe.ApplyEntrySnapshot(entry, BmsonSongParser.ResolvePlaylistMode(resolvedBmson?.mode_hint), entryChartInfo?.sha256);
                 scoreUpdateTargetCount++;
             }
             preparedEntries.Add((entry, realFile, resolvedBmson, entryChartInfo, scoreProbe, scoreSnapshotForRow));
@@ -14656,6 +14840,8 @@ public class MainWindowViewModel : ViewModel
         {
             case StartupProgressOperationKind.ReloadFileDiff:
                 return BeMusicSeeker.Properties.Resources.Statusbar_progress_reload_files;
+            case StartupProgressOperationKind.ScoreOnly:
+                return BeMusicSeeker.Properties.Resources.Statusbar_progress_reload_scores;
             case StartupProgressOperationKind.FullReinitialize:
                 return BeMusicSeeker.Properties.Resources.Statusbar_progress_full_reinitialize;
             case StartupProgressOperationKind.ReloadTables:
@@ -14680,6 +14866,10 @@ public class MainWindowViewModel : ViewModel
         {
             return BeMusicSeeker.Properties.Resources.Statusbar_progress_complete_reinitialize;
         }
+        if (operationKind == StartupProgressOperationKind.ScoreOnly)
+        {
+            return BeMusicSeeker.Properties.Resources.Statusbar_progress_complete_scores;
+        }
         return BeMusicSeeker.Properties.Resources.Statusbar_progress_complete_reload;
     }
 
@@ -14697,6 +14887,10 @@ public class MainWindowViewModel : ViewModel
         if (operationKind == StartupProgressOperationKind.FullReinitialize)
         {
             return BeMusicSeeker.Properties.Resources.Statusbar_progress_failed_reinitialize;
+        }
+        if (operationKind == StartupProgressOperationKind.ScoreOnly)
+        {
+            return BeMusicSeeker.Properties.Resources.Statusbar_progress_failed_scores;
         }
         return BeMusicSeeker.Properties.Resources.Statusbar_progress_failed_reload;
     }
@@ -14900,6 +15094,11 @@ public class MainWindowViewModel : ViewModel
                     | StartupProgressPhase.StartupReadyOperable
                     | StartupProgressPhase.PlaylistReferenceApplied
                     | StartupProgressPhase.PlaylistEntriesHydrationDone;
+            case StartupProgressOperationKind.ScoreOnly:
+                return StartupProgressPhase.CoreInitializeStarted
+                    | StartupProgressPhase.StartupReadyOperable
+                    | StartupProgressPhase.ScoreHydrationDone
+                    | StartupProgressPhase.RankingRefreshDone;
             case StartupProgressOperationKind.ReloadTables:
                 return StartupProgressPhase.CoreInitializeStarted
                     | StartupProgressPhase.StartupReadyOperable

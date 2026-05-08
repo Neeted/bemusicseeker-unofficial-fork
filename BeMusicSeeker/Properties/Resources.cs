@@ -221,6 +221,10 @@ public class Resources
 
     public static string FilePath_configXml => ResourceManager.GetString("FilePath_configXml", resourceCulture);
 
+    public static string FileDialogFilter_scoreDB => ResourceManager.GetString("FileDialogFilter_scoreDB", resourceCulture);
+
+    public static string FilePath_scoreDB => ResourceManager.GetString("FilePath_scoreDB", resourceCulture);
+
     public static string FilePath_songDB => ResourceManager.GetString("FilePath_songDB", resourceCulture);
 
     public static string FilePath_StageFile => ResourceManager.GetString("FilePath_StageFile", resourceCulture);
@@ -279,6 +283,8 @@ public class Resources
 
     public static string Statusbar_progress_reload_tables => ResourceManager.GetString("Statusbar_progress_reload_tables", resourceCulture);
 
+    public static string Statusbar_progress_reload_scores => ResourceManager.GetString("Statusbar_progress_reload_scores", resourceCulture);
+
     public static string Statusbar_progress_full_reinitialize => ResourceManager.GetString("Statusbar_progress_full_reinitialize", resourceCulture);
 
     public static string Statusbar_progress_operable => ResourceManager.GetString("Statusbar_progress_operable", resourceCulture);
@@ -289,11 +295,15 @@ public class Resources
 
     public static string Statusbar_progress_complete_reload => ResourceManager.GetString("Statusbar_progress_complete_reload", resourceCulture);
 
+    public static string Statusbar_progress_complete_scores => ResourceManager.GetString("Statusbar_progress_complete_scores", resourceCulture);
+
     public static string Statusbar_progress_complete_reinitialize => ResourceManager.GetString("Statusbar_progress_complete_reinitialize", resourceCulture);
 
     public static string Statusbar_progress_failed => ResourceManager.GetString("Statusbar_progress_failed", resourceCulture);
 
     public static string Statusbar_progress_failed_reload => ResourceManager.GetString("Statusbar_progress_failed_reload", resourceCulture);
+
+    public static string Statusbar_progress_failed_scores => ResourceManager.GetString("Statusbar_progress_failed_scores", resourceCulture);
 
     public static string Statusbar_progress_failed_reinitialize => ResourceManager.GetString("Statusbar_progress_failed_reinitialize", resourceCulture);
 
@@ -555,6 +565,8 @@ public class Resources
     public static string Open_folder_explorer => ResourceManager.GetString("Open_folder_explorer", resourceCulture);
 
     public static string Open_image => ResourceManager.GetString("Open_image", resourceCulture);
+
+    public static string Open_scoreDB => ResourceManager.GetString("Open_scoreDB", resourceCulture);
 
     public static string Open_install_destination => ResourceManager.GetString("Open_install_destination", resourceCulture);
 
@@ -865,6 +877,8 @@ public class Resources
 
     public static string Use_LR2_DB => ResourceManager.GetString("Use_LR2_DB", resourceCulture);
 
+    public static string Use_beatoraja_scoreDB => ResourceManager.GetString("Use_beatoraja_scoreDB", resourceCulture);
+
     public static string Version_info => ResourceManager.GetString("Version_info", resourceCulture);
 
     public static string Warning => ResourceManager.GetString("Warning", resourceCulture);
@@ -1054,6 +1068,8 @@ public class Resources
 
 
     public static string Error_PathTooLong => ResourceManager.GetString("Error_PathTooLong", resourceCulture);
+
+    public static string Error_InvalidBeatorajaScoreDbPath => ResourceManager.GetString("Error_InvalidBeatorajaScoreDbPath", resourceCulture);
 
 
     public static string Warn_LR2LeapYearFolderDetected => ResourceManager.GetString("Warn_LR2LeapYearFolderDetected", resourceCulture);

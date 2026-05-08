@@ -163,6 +163,62 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
+    public void SettingDialogBeatorajaScoreDbStrings_AreLocalized()
+    {
+        string root = FindRepositoryRoot();
+        string xaml = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingDialog.xaml"));
+        string resources = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Properties", "Resources.resx"));
+        string resourceCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Properties", "Resources.cs"));
+        string viewModelCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
+        string[] keys =
+        {
+            "Use_beatoraja_scoreDB",
+            "FilePath_scoreDB",
+            "Open_scoreDB",
+            "FileDialogFilter_scoreDB",
+            "Error_InvalidBeatorajaScoreDbPath"
+        };
+        foreach (string key in keys)
+        {
+            StringAssert.Contains(resources, "name=\"" + key + "\"");
+            StringAssert.Contains(resourceCode, key);
+            foreach (string languageFile in Directory.GetFiles(Path.Combine(root, "lang"), "*.json"))
+            {
+                string languageJson = File.ReadAllText(languageFile);
+                StringAssert.Contains(languageJson, "\"" + key + "\"");
+            }
+        }
+        StringAssert.Contains(xaml, "Path=Resources.Use_beatoraja_scoreDB");
+        StringAssert.Contains(xaml, "Path=Resources.FilePath_scoreDB");
+        StringAssert.Contains(xaml, "Path=Resources.Open_scoreDB");
+        StringAssert.Contains(xaml, "Path=Resources.FileDialogFilter_scoreDB");
+        StringAssert.Contains(viewModelCode, "Resources.Error_InvalidBeatorajaScoreDbPath");
+        string settingDialogCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingDialog.cs"));
+        StringAssert.Contains(settingDialogCode, "ReloadScoresOnly()");
+        Assert.IsFalse(settingDialogCode.Contains("ReloadTables()"));
+        Assert.IsFalse(xaml.Contains("Content=\"beatoraja"));
+        Assert.IsFalse(xaml.Contains("Title=\"score.db"));
+        Assert.IsFalse(xaml.Contains("Filter=\"score.db|score.db"));
+    }
+
+    [TestMethod]
+    public void ReloadScoresOnly_DoesNotSchedulePlaylistReloadWork()
+    {
+        string viewModelCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
+        string method = ExtractBetween(
+            viewModelCode,
+            "public async void ReloadScoresOnly()",
+            "public async void ReloadFileDiff()");
+
+        StringAssert.Contains(method, "files.InitializeScoresOnly(null)");
+        Assert.IsFalse(method.Contains("ReloadTables("));
+        Assert.IsFalse(method.Contains("tables.Initialize("));
+        Assert.IsFalse(method.Contains("StartDeferredExternalPlaylistSync("));
+        Assert.IsFalse(method.Contains("ScheduleDeferredPlaylistReferenceApply("));
+        Assert.IsFalse(method.Contains("playlist_entries_hydration"));
+    }
+
+    [TestMethod]
     public void SidebarTreeViewWidthPolicy_NormalizesInvalidPersistedValues()
     {
         Assert.AreEqual(Settings.DefaultTreeViewWidth, Settings.NormalizeTreeViewWidth(double.NaN));
@@ -426,5 +482,14 @@ public sealed class MainWindowContextMenuResourceTests
             index += pattern.Length;
         }
         return count;
+    }
+
+    private static string ExtractBetween(string text, string start, string end)
+    {
+        int startIndex = text.IndexOf(start, StringComparison.Ordinal);
+        Assert.IsTrue(startIndex >= 0, "Start marker was not found.");
+        int endIndex = text.IndexOf(end, startIndex + start.Length, StringComparison.Ordinal);
+        Assert.IsTrue(endIndex > startIndex, "End marker was not found.");
+        return text.Substring(startIndex, endIndex - startIndex);
     }
 }

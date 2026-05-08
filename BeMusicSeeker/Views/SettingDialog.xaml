@@ -144,6 +144,24 @@
                         </DockPanel>
                       </StackPanel>
                     </Expander>
+                    <CheckBox Margin="10,4,0,0" Height="20" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Use_beatoraja_scoreDB, Mode=OneWay}" IsChecked="{Binding settingDialog.UseBeatorajaScoreDb}" />
+                    <DockPanel LastChildFill="False" Margin="10,0,0,0">
+                      <Button Width="75" DockPanel.Dock="Right" Height="24" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Browse, Mode=OneWay}" IsEnabled="{Binding settingDialog.UseBeatorajaScoreDb}">
+                        <i:Interaction.Triggers>
+                          <i:EventTrigger EventName="Click">
+                            <l:OpenFileDialogInteractionMessageAction>
+                              <l:DirectInteractionMessage CallbackCommand="{Binding settingDialog.OpenFileCommand}">
+                                <l:OpeningFileSelectionMessage FileName="score.db" Filter="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.FileDialogFilter_scoreDB, Mode=OneWay}" Title="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_scoreDB, Mode=OneWay}" MessageKey="{Binding Path.Path, ElementName=bindingBeatorajaScoreDbPath}" InitialDirectory="{Binding settingDialog.BeatorajaScoreDbPath, Converter={StaticResource pathToDirectoryOrSelfConverter}}" />
+                              </l:DirectInteractionMessage>
+                            </l:OpenFileDialogInteractionMessageAction>
+                          </i:EventTrigger>
+                        </i:Interaction.Triggers>
+                      </Button>
+                      <TextBox Height="24" IsReadOnly="True" DockPanel.Dock="Right" IsEnabled="{Binding settingDialog.UseBeatorajaScoreDb}" Width="{Binding ActualWidth, ElementName=textBox, Mode=OneWay}">
+                        <Binding x:Name="bindingBeatorajaScoreDbPath" Path="settingDialog.BeatorajaScoreDbPath" />
+                      </TextBox>
+                      <Label Height="28" DockPanel.Dock="Right" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.FilePath_scoreDB, Mode=OneWay}" />
+                    </DockPanel>
                   </StackPanel>
                 </GroupBox>
                 <GroupBox Padding="5,5,5,0" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Appearance, Mode=OneWay}">

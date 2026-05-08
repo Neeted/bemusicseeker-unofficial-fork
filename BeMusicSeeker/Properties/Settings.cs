@@ -93,6 +93,36 @@ internal sealed class Settings : ApplicationSettingsBase
 
 	[UserScopedSetting]
 	[DebuggerNonUserCode]
+	[DefaultSettingValue("False")]
+	public bool UseBeatorajaScoreDb
+	{
+		get
+		{
+			return (bool)this["UseBeatorajaScoreDb"];
+		}
+		set
+		{
+			this["UseBeatorajaScoreDb"] = value;
+		}
+	}
+
+	[UserScopedSetting]
+	[DebuggerNonUserCode]
+	[DefaultSettingValue("")]
+	public string BeatorajaScoreDbPath
+	{
+		get
+		{
+			return (string)this["BeatorajaScoreDbPath"];
+		}
+		set
+		{
+			this["BeatorajaScoreDbPath"] = value;
+		}
+	}
+
+	[UserScopedSetting]
+	[DebuggerNonUserCode]
 	[DefaultSettingValue("")]
 	public string uBMplayPath
 	{

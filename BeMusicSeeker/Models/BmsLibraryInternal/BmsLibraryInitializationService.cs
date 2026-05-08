@@ -1738,20 +1738,57 @@ internal sealed class BmsLibraryInitializationService
 
     public ScoreTableLoadResult LoadScoreTable(BmsLibraryDbGateway dbGateway, BmsLibraryOptionsSnapshot options = null)
     {
-        if (dbGateway == null || string.IsNullOrWhiteSpace(dbGateway.ScoreDbPath))
+        if (dbGateway == null)
         {
             return new ScoreTableLoadResult();
         }
-        try
+
+        ScoreTableLoadResult result = new ScoreTableLoadResult
         {
-            ScoreTableLoadResult result = dbGateway.LoadScoresAndPlayerId();
-            result.EnableDownloadLr2IrScoreAndDetectUnsent = options?.EnableDownloadLr2IrScoreAndDetectUnsent ?? true;
+            EnableDownloadLr2IrScoreAndDetectUnsent = options?.EnableDownloadLr2IrScoreAndDetectUnsent ?? true
+        };
+        if (IsBeatorajaScoreDbEnabled(options))
+        {
+            result.ActiveScoreSource = ActiveScoreSource.Beatoraja;
+            try
+            {
+                BeatorajaScoreDbLoader loader = new BeatorajaScoreDbLoader();
+                foreach (KeyValuePair<string, BMSScore> score in loader.LoadModeZeroScores(options.BeatorajaScoreDbPath))
+                {
+                    result.BeatorajaScoresBySha256[score.Key] = score.Value;
+                }
+            }
+            catch
+            {
+            }
             return result;
         }
-        catch
+
+        if (!string.IsNullOrWhiteSpace(dbGateway.ScoreDbPath))
         {
-            return new ScoreTableLoadResult();
+            result.ActiveScoreSource = ActiveScoreSource.Lr2;
+            try
+            {
+                ScoreTableLoadResult lr2Result = dbGateway.LoadScoresAndPlayerId();
+                result.Scores.AddRange(lr2Result.Scores);
+                result.LR2Id = lr2Result.LR2Id;
+                result.ReadOnly = lr2Result.ReadOnly;
+                result.DbLockWaitMs = lr2Result.DbLockWaitMs;
+            }
+            catch
+            {
+            }
         }
+
+        return result;
+    }
+
+    private static bool IsBeatorajaScoreDbEnabled(BmsLibraryOptionsSnapshot options)
+    {
+        return options?.UseBeatorajaScoreDb == true
+            && !string.IsNullOrWhiteSpace(options.BeatorajaScoreDbPath)
+            && string.Equals(Path.GetFileName(options.BeatorajaScoreDbPath), "score.db", StringComparison.OrdinalIgnoreCase)
+            && File.Exists(options.BeatorajaScoreDbPath);
     }
 
     public InstallTableLoadResult LoadInstallTable(

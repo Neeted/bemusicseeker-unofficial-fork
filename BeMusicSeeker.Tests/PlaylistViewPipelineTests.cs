@@ -1360,6 +1360,82 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
+    public void ResolvePlaylistEntryScoreSnapshot_BeatorajaUsesRealFileSha256ForMd5OnlyEntry()
+    {
+        TestableBmsFile file = new TestableBmsFile();
+        file.ApplySnapshot("cccccccccccccccccccccccccccccccc", "Owned", 7);
+        file.SetSha256(new string('a', 64));
+        TestablePlaylistEntry entry = new TestablePlaylistEntry();
+        entry.SetMd5(file.hash);
+        BMSScore score = new BMSScore
+        {
+            hash = file.sha256,
+            clear = ClearType.HARD,
+            perfect = 800,
+            great = 100,
+            totalnotes = 1000
+        };
+        BMSLibrary.ScoreSnapshot snapshot = new BMSLibrary.ScoreSnapshot
+        {
+            ActiveScoreSource = ActiveScoreSource.Beatoraja,
+            ScoresBySha256 = new Dictionary<string, BMSScore>(StringComparer.OrdinalIgnoreCase)
+            {
+                [file.sha256] = score
+            }
+        };
+
+        BMSScore resolved = MainWindowViewModel.ResolvePlaylistEntryScoreSnapshotForTest(
+            entry,
+            file,
+            entryChartInfo: null,
+            snapshot,
+            scoresByHash: new Dictionary<string, BMSScore>(StringComparer.OrdinalIgnoreCase),
+            scoresBySha256: snapshot.ScoresBySha256);
+
+        Assert.IsNotNull(resolved);
+        Assert.AreEqual(file.hash, resolved.hash);
+        Assert.AreEqual(ClearType.HARD, resolved.clear);
+        Assert.AreEqual(1700, resolved.score);
+    }
+
+    [TestMethod]
+    public void ResolvePlaylistEntryScoreSnapshot_BeatorajaUsesEntryChartInfoSha256ForMissingEntry()
+    {
+        TestablePlaylistEntry entry = new TestablePlaylistEntry();
+        entry.SetMd5("dddddddddddddddddddddddddddddddd");
+        LR2SongDBExtended.chart_info chartInfo = CreateChartInfo(new string('b', 64), entry.md5);
+        BMSScore score = new BMSScore
+        {
+            hash = chartInfo.sha256,
+            clear = ClearType.EX_HARD,
+            perfect = 600,
+            great = 50,
+            totalnotes = 800
+        };
+        BMSLibrary.ScoreSnapshot snapshot = new BMSLibrary.ScoreSnapshot
+        {
+            ActiveScoreSource = ActiveScoreSource.Beatoraja,
+            ScoresBySha256 = new Dictionary<string, BMSScore>(StringComparer.OrdinalIgnoreCase)
+            {
+                [chartInfo.sha256] = score
+            }
+        };
+
+        BMSScore resolved = MainWindowViewModel.ResolvePlaylistEntryScoreSnapshotForTest(
+            entry,
+            realFile: null,
+            entryChartInfo: chartInfo,
+            snapshot,
+            scoresByHash: new Dictionary<string, BMSScore>(StringComparer.OrdinalIgnoreCase),
+            scoresBySha256: snapshot.ScoresBySha256);
+
+        Assert.IsNotNull(resolved);
+        Assert.AreEqual(entry.md5, resolved.hash);
+        Assert.AreEqual(ClearType.EX_HARD, resolved.clear);
+        Assert.AreEqual(1250, resolved.score);
+    }
+
+    [TestMethod]
     public void ShouldRebuildRegularFolderStage_WhenIncrementalRegularUpdateHasMissingCaches_ReturnsTrue()
     {
         Assert.IsTrue(MainWindowViewModel.ShouldRebuildRegularFolderStageForTest(

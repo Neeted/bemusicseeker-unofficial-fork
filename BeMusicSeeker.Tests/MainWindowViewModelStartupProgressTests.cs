@@ -12,6 +12,7 @@ public sealed class MainWindowViewModelStartupProgressTests
     {
         Assert.AreEqual(17, MainWindowViewModel.GetInitialStartupProgressExpectedCountForTest("Startup"));
         Assert.AreEqual(6, MainWindowViewModel.GetInitialStartupProgressExpectedCountForTest("ReloadFileDiff"));
+        Assert.AreEqual(4, MainWindowViewModel.GetInitialStartupProgressExpectedCountForTest("ScoreOnly"));
         Assert.AreEqual(14, MainWindowViewModel.GetInitialStartupProgressExpectedCountForTest("FullReinitialize"));
         Assert.AreEqual(5, MainWindowViewModel.GetInitialStartupProgressExpectedCountForTest("ReloadTables"));
     }
@@ -33,10 +34,33 @@ public sealed class MainWindowViewModelStartupProgressTests
     }
 
     [TestMethod]
+    public void StartupProgress_ScoreOnly_TracksOnlyScorePhases()
+    {
+        MainWindowViewModel.StartupProgressTestResult result = MainWindowViewModel.ReduceStartupProgressForTest(
+            "ScoreOnly",
+            "complete:StartupReadyOperable",
+            "request:ScoreHydrationDone",
+            "complete:ScoreHydrationDone",
+            "request:RankingRefreshDone",
+            "complete:RankingRefreshDone",
+            "request:PlaylistEntriesHydrationDone",
+            "request:ExternalPlaylistSyncDone",
+            "request:PlaylistReferenceApplied");
+
+        Assert.AreEqual(4, result.ExpectedCount);
+        Assert.AreEqual(4, result.CompletedCount);
+        Assert.AreEqual(2, result.RequestedCount);
+        Assert.AreEqual(3, result.IgnoredRequestCount);
+        Assert.AreEqual(Resources.Statusbar_progress_complete_scores, result.Label);
+        Assert.IsTrue(result.IsCompleted);
+    }
+
+    [TestMethod]
     public void StartupBackgroundScheduler_ResetKeepsPostStartupReloadTasksRunnable()
     {
         Assert.IsFalse(MainWindowViewModel.ShouldStartStartupBackgroundTaskSchedulerAfterResetForTest("Startup", operableReached: false));
         Assert.IsFalse(MainWindowViewModel.ShouldStartStartupBackgroundTaskSchedulerAfterResetForTest("Startup", operableReached: true));
+        Assert.IsTrue(MainWindowViewModel.ShouldStartStartupBackgroundTaskSchedulerAfterResetForTest("ScoreOnly", operableReached: true));
         Assert.IsFalse(MainWindowViewModel.ShouldStartStartupBackgroundTaskSchedulerAfterResetForTest("ReloadTables", operableReached: false));
         Assert.IsTrue(MainWindowViewModel.ShouldStartStartupBackgroundTaskSchedulerAfterResetForTest("ReloadTables", operableReached: true));
         Assert.IsTrue(MainWindowViewModel.ShouldStartStartupBackgroundTaskSchedulerAfterResetForTest("ReloadFileDiff", operableReached: true));

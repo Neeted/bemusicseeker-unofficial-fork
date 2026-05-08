@@ -108,6 +108,10 @@ public class BMSLibrary : NotificationObject
         internal List<BMSScore> Scores { get; set; } = new List<BMSScore>();
 
         internal Dictionary<string, BMSScore> ScoresByHash { get; set; } = new Dictionary<string, BMSScore>(StringComparer.OrdinalIgnoreCase);
+
+        internal Dictionary<string, BMSScore> ScoresBySha256 { get; set; } = new Dictionary<string, BMSScore>(StringComparer.OrdinalIgnoreCase);
+
+        internal ActiveScoreSource ActiveScoreSource { get; set; }
     }
 
     /// <summary>
@@ -696,6 +700,10 @@ public class BMSLibrary : NotificationObject
     private string lr2SongDBPath;
 
     private string lr2ScoreDBPath;
+
+    private Dictionary<string, BMSScore> beatorajaScoresBySha256 = new Dictionary<string, BMSScore>(StringComparer.OrdinalIgnoreCase);
+
+    private ActiveScoreSource activeScoreSource;
 
     private Func<LR2Config> lr2config;
 
@@ -2516,14 +2524,40 @@ public class BMSLibrary : NotificationObject
     }
 
     /// <summary>
-    /// 現在の BMS スコア情報 (LR2 score.db 由来) のコピーを取得します。
+    /// 現在有効な score source 由来の BMS スコア情報のコピーを取得します。
     /// </summary>
     public List<BMSScore> GetBMSScores()
     {
         ScoreSnapshot snapshot = GetScoreSnapshotForLookup(allowOnDemandBuild: true);
         if (snapshot != null)
         {
-            return snapshot.Scores;
+            if (snapshot.ActiveScoreSource == ActiveScoreSource.Beatoraja)
+            {
+                List<BMSScore> beatorajaScores = new List<BMSScore>();
+                if (snapshot.ScoresBySha256 != null && snapshot.ScoresBySha256.Count > 0)
+                {
+                    List<BMSFile> bmsFilesSnapshot;
+                    using (rwlockBMSFiles.GetReaderGuard())
+                    {
+                        bmsFilesSnapshot = (BMSFiles ?? new List<BMSFile>()).Where((BMSFile file) => file != null).ToList();
+                    }
+                    foreach (BMSFile file in bmsFilesSnapshot)
+                    {
+                        if (!string.IsNullOrWhiteSpace(file.hash)
+                            && !string.IsNullOrWhiteSpace(file.sha256)
+                            && snapshot.ScoresBySha256.TryGetValue(file.sha256, out BMSScore beatorajaScore))
+                        {
+                            beatorajaScores.Add(BmsLibraryIrService.CloneScoreForFileHash(beatorajaScore, file.hash));
+                        }
+                    }
+                }
+                return beatorajaScores;
+            }
+            if (snapshot.ActiveScoreSource == ActiveScoreSource.Lr2)
+            {
+                return (snapshot.Scores ?? new List<BMSScore>()).ToList();
+            }
+            return new List<BMSScore>();
         }
         using (rwlockBMSScores.GetReaderGuard())
         {
@@ -3493,9 +3527,15 @@ public class BMSLibrary : NotificationObject
     private void RefreshScoreSnapshotFromCurrentScores(string reason)
     {
         List<BMSScore> scoresSnapshot;
+        Dictionary<string, BMSScore> beatorajaScoresSnapshot;
+        ActiveScoreSource sourceSnapshot;
         using (rwlockBMSScores.GetReaderGuard())
         {
             scoresSnapshot = (BMSScores ?? new List<BMSScore>()).Where((BMSScore score) => score != null).ToList();
+            beatorajaScoresSnapshot = new Dictionary<string, BMSScore>(
+                beatorajaScoresBySha256 ?? new Dictionary<string, BMSScore>(StringComparer.OrdinalIgnoreCase),
+                StringComparer.OrdinalIgnoreCase);
+            sourceSnapshot = activeScoreSource;
         }
         Stopwatch stopwatch = Stopwatch.StartNew();
         Dictionary<string, BMSScore> scoresByHash = new Dictionary<string, BMSScore>(StringComparer.OrdinalIgnoreCase);
@@ -3517,12 +3557,14 @@ public class BMSLibrary : NotificationObject
                 LoadedAtUtc = DateTime.UtcNow,
                 BuildElapsedMs = stopwatch.ElapsedMilliseconds,
                 Scores = scoresSnapshot,
-                ScoresByHash = scoresByHash
+                ScoresByHash = scoresByHash,
+                ScoresBySha256 = beatorajaScoresSnapshot,
+                ActiveScoreSource = sourceSnapshot
             };
         }
-        ScoreSnapshotReady = lr2ScoreDBPath != null;
+        ScoreSnapshotReady = sourceSnapshot != ActiveScoreSource.None;
         ScoreSnapshotVersion = version;
-        LogInstallPerformance("score_snapshot_load completed reason=" + (reason ?? "unknown") + " version=" + version + " count=" + scoresSnapshot.Count + " buildMs=" + stopwatch.ElapsedMilliseconds);
+        LogInstallPerformance("score_snapshot_load completed reason=" + (reason ?? "unknown") + " version=" + version + " source=" + sourceSnapshot + " count=" + scoresSnapshot.Count + " beatorajaCount=" + beatorajaScoresSnapshot.Count + " buildMs=" + stopwatch.ElapsedMilliseconds);
     }
 
     /// <summary>
@@ -3545,6 +3587,34 @@ public class BMSLibrary : NotificationObject
         lock (lockScoreSnapshot)
         {
             return scoreSnapshot;
+        }
+    }
+
+    private int ApplyCurrentScoreSnapshotToFiles(IEnumerable<BMSFile> bmsFiles)
+    {
+        ScoreSnapshot snapshot = GetScoreSnapshotForLookup(allowOnDemandBuild: true);
+        return ApplyScoreSnapshotToFilesReplacingExisting(bmsFiles, snapshot);
+    }
+
+    private int ApplyScoreSnapshotToFilesReplacingExisting(IEnumerable<BMSFile> bmsFiles, ScoreSnapshot snapshot)
+    {
+        List<BMSFile> targetFiles = (bmsFiles ?? Enumerable.Empty<BMSFile>()).Where((BMSFile file) => file != null).ToList();
+        foreach (BMSFile file in targetFiles)
+        {
+            file.bmsScore = null;
+        }
+        if (snapshot == null || targetFiles.Count == 0)
+        {
+            return 0;
+        }
+        switch (snapshot.ActiveScoreSource)
+        {
+            case ActiveScoreSource.Lr2:
+                return irService.ApplyKnownScoresToFilesAndCount(targetFiles, snapshot.ScoresByHash, null);
+            case ActiveScoreSource.Beatoraja:
+                return irService.ApplyKnownScoresToFilesAndCount(targetFiles, null, snapshot.ScoresBySha256);
+            default:
+                return 0;
         }
     }
 
@@ -3937,6 +4007,7 @@ public class BMSLibrary : NotificationObject
         long rebuildHashIndexMs = 0L;
         int lr2IdAfterScoreLoad = 0;
         BmsLibraryOptionsSnapshot options = BmsLibraryOptionsSnapshot.CreateCurrent();
+        bool scoreOnlyLoad = !songTblLoad && scoreTblrLoad && !songTblFileCheck && !setMainteInfo && !installTblCheck;
         List<string> bMSDirectories = getBMSDirectories();
         if (bMSDirectories.Count == 0)
         {
@@ -3979,33 +4050,59 @@ public class BMSLibrary : NotificationObject
             Stopwatch stopwatchScoreTblLoad = Stopwatch.StartNew();
             using (rwlockBMSScores.GetWriterGuard())
             {
-                if (lr2ScoreDBPath != null)
+                if (lr2ScoreDBPath != null || options.UseBeatorajaScoreDb)
                 {
                     ScoreTableLoadResult scoreTableLoadResult = initializationService.LoadScoreTable(dbGateway, options);
                     LogInstallPerformance("score_tbl_load readOnly=" + scoreTableLoadResult.ReadOnly.ToString().ToLowerInvariant()
                         + " dbLockWaitMs=" + scoreTableLoadResult.DbLockWaitMs
+                        + " source=" + scoreTableLoadResult.ActiveScoreSource
                         + " rows=" + scoreTableLoadResult.Scores.Count
+                        + " beatorajaRows=" + scoreTableLoadResult.BeatorajaScoresBySha256.Count
                         + " lr2Id=" + scoreTableLoadResult.LR2Id);
-                    LR2ID = scoreTableLoadResult.LR2Id;
-                    if (scoreTableLoadResult.Scores.Count > 0)
+                    activeScoreSource = scoreTableLoadResult.ActiveScoreSource;
+                    if (scoreTableLoadResult.ActiveScoreSource == ActiveScoreSource.Beatoraja)
                     {
-                        BMSScores = scoreTableLoadResult.Scores;
+                        LR2ID = 0;
+                        BMSScores = new List<BMSScore>();
+                        beatorajaScoresBySha256 = new Dictionary<string, BMSScore>(scoreTableLoadResult.BeatorajaScoresBySha256, StringComparer.OrdinalIgnoreCase);
+                    }
+                    else if (scoreTableLoadResult.ActiveScoreSource == ActiveScoreSource.Lr2)
+                    {
+                        LR2ID = scoreTableLoadResult.LR2Id;
+                        beatorajaScoresBySha256 = new Dictionary<string, BMSScore>(StringComparer.OrdinalIgnoreCase);
+                        if (scoreTableLoadResult.Scores.Count > 0)
+                        {
+                            BMSScores = scoreTableLoadResult.Scores;
+                        }
+                        else
+                        {
+                            LR2ID = 0;
+                            BMSScores = new List<BMSScore>();
+                        }
                     }
                     else
                     {
                         LR2ID = 0;
-                        if (BMSScores == null)
-                        {
-                            BMSScores = new List<BMSScore>();
-                        }
+                        BMSScores = new List<BMSScore>();
+                        beatorajaScoresBySha256 = new Dictionary<string, BMSScore>(StringComparer.OrdinalIgnoreCase);
                     }
                 }
-                else if (BMSScores == null)
+                else
                 {
+                    activeScoreSource = ActiveScoreSource.None;
+                    LR2ID = 0;
+                    beatorajaScoresBySha256 = new Dictionary<string, BMSScore>(StringComparer.OrdinalIgnoreCase);
                     BMSScores = new List<BMSScore>();
                 }
             }
             RefreshScoreSnapshotFromCurrentScores("score_tbl_load");
+            if (scoreOnlyLoad || activeScoreSource == ActiveScoreSource.None)
+            {
+                using (rwlockBMSFiles.GetReaderGuard())
+                {
+                    ApplyCurrentScoreSnapshotToFiles(BMSFiles);
+                }
+            }
             lr2IdAfterScoreLoad = LR2ID;
             stopwatchScoreTblLoad.Stop();
             scoreTblLoadMs = stopwatchScoreTblLoad.ElapsedMilliseconds;
@@ -4053,9 +4150,12 @@ public class BMSLibrary : NotificationObject
                 NLogWrapper.DebuggerLogger?.Trace(GC.GetTotalMemory(forceFullCollection: false));
             }
         }
-        if (updateIrScore && lr2ScoreDBPath != null)
+        if (updateIrScore && activeScoreSource != ActiveScoreSource.None)
         {
             QueueDeferredScoreHydration("initialize_update_ir_score");
+        }
+        if (updateIrScore && activeScoreSource == ActiveScoreSource.Lr2 && lr2ScoreDBPath != null)
+        {
             QueueDeferredRankingRefresh("initialize_update_ir_score");
         }
         if (installTblCheck)
@@ -5909,12 +6009,8 @@ public class BMSLibrary : NotificationObject
     /// <param name="requestVersion">処理対象の要求版数。</param>
     private void RunDeferredScoreHydration(int requestVersion)
     {
-        if (lr2ScoreDBPath == null)
-        {
-            return;
-        }
         ScoreSnapshot snapshot = GetScoreSnapshotForLookup(allowOnDemandBuild: true);
-        if (snapshot == null || snapshot.ScoresByHash == null || snapshot.ScoresByHash.Count == 0)
+        if (snapshot == null)
         {
             return;
         }
@@ -5932,7 +6028,7 @@ public class BMSLibrary : NotificationObject
             int count = Math.Min(deferredScoreHydrationChunkSize, bmsFilesSnapshot.Count - offset);
             List<BMSFile> chunk = bmsFilesSnapshot.GetRange(offset, count);
             Stopwatch chunkStopwatch = Stopwatch.StartNew();
-            int matchedScoreCount = irService.ApplyKnownScoresToFilesAndCount(chunk, snapshot.ScoresByHash);
+            int matchedScoreCount = ApplyScoreSnapshotToFilesReplacingExisting(chunk, snapshot);
             chunkStopwatch.Stop();
             if (chunkStopwatch.ElapsedMilliseconds >= deferredScoreHydrationChunkSlowLogThresholdMs)
             {
@@ -6005,7 +6101,7 @@ public class BMSLibrary : NotificationObject
     private RankingRefreshRunResult RunDeferredRankingRefresh(int requestVersion)
     {
         RankingRefreshRunResult result = new RankingRefreshRunResult();
-        if (lr2ScoreDBPath == null || LR2ID == 0)
+        if (activeScoreSource != ActiveScoreSource.Lr2 || lr2ScoreDBPath == null || LR2ID == 0)
         {
             return result;
         }
@@ -6593,7 +6689,7 @@ public class BMSLibrary : NotificationObject
     private BmsScoreApplyMetrics SetBMSScoreInternal(IEnumerable<BMSFile> bmsFiles, bool collectMetrics)
     {
         BmsScoreApplyMetrics metrics = default(BmsScoreApplyMetrics);
-        if (bmsFiles == null || lr2ScoreDBPath == null)
+        if (bmsFiles == null)
         {
             return metrics;
         }
@@ -6635,7 +6731,7 @@ public class BMSLibrary : NotificationObject
                 metrics.WaitScoreSnapshotReadMs = stageStopwatch.ElapsedMilliseconds;
                 metrics.WaitScoresWriteMs = 0L;
             }
-            if (snapshot == null || snapshot.ScoresByHash == null || snapshot.ScoresByHash.Count == 0)
+            if (snapshot == null)
             {
                 if (collectMetrics)
                 {
@@ -6646,13 +6742,13 @@ public class BMSLibrary : NotificationObject
             if (collectMetrics)
             {
                 stageStopwatch.Restart();
-                metrics.MatchedScoreCount = irService.ApplyKnownScoresToFilesAndCount(effectiveFiles, snapshot.ScoresByHash);
+                metrics.MatchedScoreCount = ApplyScoreSnapshotToFilesReplacingExisting(effectiveFiles, snapshot);
                 metrics.ApplyKnownScoresMs = stageStopwatch.ElapsedMilliseconds;
                 metrics.TotalMs = totalStopwatch.ElapsedMilliseconds;
             }
             else
             {
-                irService.ApplyKnownScoresToFilesAndCount(effectiveFiles, snapshot.ScoresByHash);
+                ApplyScoreSnapshotToFilesReplacingExisting(effectiveFiles, snapshot);
             }
         }
         return metrics;
@@ -6700,7 +6796,7 @@ public class BMSLibrary : NotificationObject
 
     private void updateBMSScores(List<LR2IRScore> scoreTable, bool detectUnsentScores)
     {
-        if (lr2ScoreDBPath == null || LR2ID == 0 || scoreTable == null)
+        if (activeScoreSource != ActiveScoreSource.Lr2 || lr2ScoreDBPath == null || LR2ID == 0 || scoreTable == null)
         {
             return;
         }
@@ -6712,6 +6808,10 @@ public class BMSLibrary : NotificationObject
             }
         }
         RefreshScoreSnapshotFromCurrentScores("update_ir_score_table");
+        using (rwlockBMSFiles.GetReaderGuard())
+        {
+            ApplyCurrentScoreSnapshotToFiles(BMSFiles);
+        }
     }
 
     private void ClearScoreUnsentStatus()
@@ -6732,7 +6832,7 @@ public class BMSLibrary : NotificationObject
     {
         BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
         IrCacheRefreshResult result = new IrCacheRefreshResult();
-        if (lr2ScoreDBPath == null || LR2ID == 0)
+        if (activeScoreSource != ActiveScoreSource.Lr2 || lr2ScoreDBPath == null || LR2ID == 0)
         {
             return result;
         }
@@ -6768,12 +6868,16 @@ public class BMSLibrary : NotificationObject
             + " upsertMs=" + result.UpsertMs
             + " offlineEstimateXmlLoads=" + result.OfflineEstimateXmlLoadCount);
         RefreshScoreSnapshotFromCurrentScores("refresh_ranking_cache");
+        using (rwlockBMSFiles.GetReaderGuard())
+        {
+            ApplyCurrentScoreSnapshotToFiles(BMSFiles);
+        }
         return result;
     }
 
     public List<IRDataCacheInfo> GetIRDataNeedUpdates(IEnumerable<string> md5s)
     {
-        if (lr2ScoreDBPath == null || LR2ID == 0)
+        if (activeScoreSource != ActiveScoreSource.Lr2 || lr2ScoreDBPath == null || LR2ID == 0)
         {
             throw new InvalidOperationException(Resources.Error_LR2ScoreDBNotConnected);
         }
@@ -6786,7 +6890,7 @@ public class BMSLibrary : NotificationObject
     public List<IRDataCacheInfo> DownloadIRData(IEnumerable<IRDataCacheInfo> cacheInfo)
     {
         BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
-        if (lr2ScoreDBPath == null || LR2ID == 0)
+        if (activeScoreSource != ActiveScoreSource.Lr2 || lr2ScoreDBPath == null || LR2ID == 0)
         {
             throw new InvalidOperationException(Resources.Error_LR2ScoreDBNotConnected);
         }
@@ -6811,6 +6915,10 @@ public class BMSLibrary : NotificationObject
             }
         }
         RefreshScoreSnapshotFromCurrentScores("download_ir_data");
+        using (rwlockBMSFiles.GetReaderGuard())
+        {
+            ApplyCurrentScoreSnapshotToFiles(BMSFiles);
+        }
         return failed;
     }
 

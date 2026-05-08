@@ -442,13 +442,14 @@ internal sealed class PlaylistScoreProbeBmsFile : BMSFile
     /// エントリ情報から score lookup 用の最小 snapshot を適用します。
     /// </summary>
     /// <param name="entry">対象エントリ。</param>
-    internal void ApplyEntrySnapshot(BMSTableEntry entry, int? resolvedMode = null)
+    internal void ApplyEntrySnapshot(BMSTableEntry entry, int? resolvedMode = null, string chartInfoSha256 = null)
     {
         if (entry == null)
         {
             throw new ArgumentNullException(nameof(entry));
         }
         hash = entry.md5;
+        sha256 = string.IsNullOrWhiteSpace(entry.sha256) ? chartInfoSha256 : entry.sha256;
         path = string.Empty;
         mode = resolvedMode;
     }

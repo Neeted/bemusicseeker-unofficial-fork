@@ -697,6 +697,9 @@ LR2をプレイヤーとして使用すると再生できない場合があり�
   <data name="Use_LR2_DB" xml:space="preserve">
     <value>LR2と連携する</value>
   </data>
+  <data name="Use_beatoraja_scoreDB" xml:space="preserve">
+    <value>beatorajaのスコアを読み込む</value>
+  </data>
   <data name="Diff_URL" xml:space="preserve">
     <value>差分URL</value>
   </data>
@@ -825,6 +828,9 @@ LR2IRにスコアやクリアが自動送信されるわけではありません
   </data>
   <data name="FilePath_songDB" xml:space="preserve">
     <value>song.db パス: </value>
+  </data>
+  <data name="FilePath_scoreDB" xml:space="preserve">
+    <value>score.db パス: </value>
   </data>
   <data name="Clear_reinstall_estimation" xml:space="preserve">
     <value>再インストール先をクリア</value>
@@ -1086,6 +1092,12 @@ BMSファイルが重複しないようにマージします。
   <data name="FilePath_configXml" xml:space="preserve">
     <value>config.xml パス: </value>
   </data>
+  <data name="Open_scoreDB" xml:space="preserve">
+    <value>score.db を開く</value>
+  </data>
+  <data name="FileDialogFilter_scoreDB" xml:space="preserve">
+    <value>score.db|score.db|すべてのファイル(*.*)|*.*</value>
+  </data>
   <data name="Ignore_list" xml:space="preserve">
     <value>無視リスト</value>
   </data>
@@ -1161,6 +1173,9 @@ BMSファイルが重複しないようにマージします。
   <data name="Statusbar_progress_reload_tables" xml:space="preserve">
     <value>ライブラリ更新中</value>
   </data>
+  <data name="Statusbar_progress_reload_scores" xml:space="preserve">
+    <value>スコア更新中</value>
+  </data>
   <data name="Statusbar_progress_full_reinitialize" xml:space="preserve">
     <value>初期化再実行中</value>
   </data>
@@ -1176,6 +1191,9 @@ BMSファイルが重複しないようにマージします。
   <data name="Statusbar_progress_complete_reload" xml:space="preserve">
     <value>ライブラリ更新完了</value>
   </data>
+  <data name="Statusbar_progress_complete_scores" xml:space="preserve">
+    <value>スコア更新完了</value>
+  </data>
   <data name="Statusbar_progress_complete_reinitialize" xml:space="preserve">
     <value>初期化再実行完了</value>
   </data>
@@ -1184,6 +1202,9 @@ BMSファイルが重複しないようにマージします。
   </data>
   <data name="Statusbar_progress_failed_reload" xml:space="preserve">
     <value>ライブラリ更新失敗</value>
+  </data>
+  <data name="Statusbar_progress_failed_scores" xml:space="preserve">
+    <value>スコア更新失敗</value>
   </data>
   <data name="Statusbar_progress_failed_reinitialize" xml:space="preserve">
     <value>初期化再実行失敗</value>
@@ -1585,6 +1606,9 @@ BMSファイルが重複しないようにマージします。
   </data>
   <data name="Error_PathTooLong" xml:space="preserve">
     <value>パスが長過ぎます: {0}</value>
+  </data>
+  <data name="Error_InvalidBeatorajaScoreDbPath" xml:space="preserve">
+    <value>beatoraja score.db のパスが正しくありません</value>
   </data>
   <data name="Warn_LR2LeapYearFolderDetected" xml:space="preserve">
     <value>LR2で扱えない更新日時のフォルダを検出しました

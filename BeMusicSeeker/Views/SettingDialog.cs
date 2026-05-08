@@ -51,6 +51,10 @@ public partial class SettingDialog : UserControl, IComponentConnector
 			{
 				mainWindowViewModel.ReloadFileDiff();
 			}
+			else if (restartMode.HasFlag(MainWindowViewModel.SettingDialogViewModel.RestartMode.ScoreOnly))
+			{
+				mainWindowViewModel.ReloadScoresOnly();
+			}
 		}
 	}
 
@@ -92,6 +96,15 @@ public partial class SettingDialog : UserControl, IComponentConnector
 			else if (needRestart.HasFlag(MainWindowViewModel.SettingDialogViewModel.RestartMode.All))
 			{
 				viewModel.Initialize();
+			}
+			else if (needRestart.HasFlag(MainWindowViewModel.SettingDialogViewModel.RestartMode.ScoreOnly)
+				&& needRestart.HasFlag(MainWindowViewModel.SettingDialogViewModel.RestartMode.FolderOnly))
+			{
+				viewModel.Initialize();
+			}
+			else if (needRestart.HasFlag(MainWindowViewModel.SettingDialogViewModel.RestartMode.ScoreOnly))
+			{
+				viewModel.ReloadScoresOnly();
 			}
 			else if (needRestart.HasFlag(MainWindowViewModel.SettingDialogViewModel.RestartMode.FolderOnly))
 			{

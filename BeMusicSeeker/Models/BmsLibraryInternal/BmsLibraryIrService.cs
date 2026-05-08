@@ -44,20 +44,85 @@ internal sealed class BmsLibraryIrService
     /// <returns>score を反映できた件数。</returns>
     internal int ApplyKnownScoresToFilesAndCount(IEnumerable<BMSFile> bmsFiles, IReadOnlyDictionary<string, BMSScore> scoresByHash)
     {
-        if (bmsFiles == null || scoresByHash == null || scoresByHash.Count == 0)
+        return ApplyKnownScoresToFilesAndCount(bmsFiles, scoresByHash, null);
+    }
+
+    internal int ApplyKnownScoresToFilesAndCount(
+        IEnumerable<BMSFile> bmsFiles,
+        IReadOnlyDictionary<string, BMSScore> scoresByHash,
+        IReadOnlyDictionary<string, BMSScore> scoresBySha256)
+    {
+        if (bmsFiles == null)
+        {
+            return 0;
+        }
+        bool hasHashScores = scoresByHash != null && scoresByHash.Count > 0;
+        bool hasSha256Scores = scoresBySha256 != null && scoresBySha256.Count > 0;
+        if (!hasHashScores && !hasSha256Scores)
         {
             return 0;
         }
         int matchedScoreCount = 0;
         foreach (BMSFile bmsFile in bmsFiles)
         {
-            if (bmsFile != null && !string.IsNullOrWhiteSpace(bmsFile.hash) && scoresByHash.TryGetValue(bmsFile.hash, out BMSScore value))
+            if (bmsFile == null)
+            {
+                continue;
+            }
+            if (hasSha256Scores && !string.IsNullOrWhiteSpace(bmsFile.sha256) && scoresBySha256.TryGetValue(bmsFile.sha256, out BMSScore beatorajaScore))
+            {
+                bmsFile.bmsScore = CloneScoreForFileHash(beatorajaScore, bmsFile.hash);
+                matchedScoreCount++;
+                continue;
+            }
+            if (hasHashScores && !string.IsNullOrWhiteSpace(bmsFile.hash) && scoresByHash.TryGetValue(bmsFile.hash, out BMSScore value))
             {
                 bmsFile.bmsScore = value;
                 matchedScoreCount++;
             }
         }
         return matchedScoreCount;
+    }
+
+    internal static BMSScore CloneScoreForFileHash(BMSScore source, string fileHash)
+    {
+        if (source == null)
+        {
+            return null;
+        }
+
+        return new BMSScore
+        {
+            hash = fileHash,
+            clear = source.clear,
+            perfect = source.perfect,
+            great = source.great,
+            good = source.good,
+            bad = source.bad,
+            poor = source.poor,
+            totalnotes = source.totalnotes,
+            maxcombo = source.maxcombo,
+            minbp = source.minbp,
+            playcount = source.playcount,
+            clearcount = source.clearcount,
+            failcount = source.failcount,
+            rank = source.rank,
+            rate = source.rate,
+            clear_db = source.clear_db,
+            op_history = source.op_history,
+            scorehash = source.scorehash,
+            ghost = source.ghost,
+            clear_sd = source.clear_sd,
+            clear_ex = source.clear_ex,
+            op_best = source.op_best,
+            rseed = source.rseed,
+            complete = source.complete,
+            ranking = source.ranking,
+            rankingNum = source.rankingNum,
+            rankingLastupdate = source.rankingLastupdate,
+            stddevVal = source.stddevVal,
+            scoreDifficulty = source.scoreDifficulty
+        };
     }
 
     internal int ApplyKnownScoresToFilesAndCount(IEnumerable<BMSFile> bmsFiles, IEnumerable<BMSScore> bmsScores)

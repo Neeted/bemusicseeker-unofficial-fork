@@ -24,7 +24,7 @@ StartupProgressMaximum = ExpectedPhases に含まれる phase 数
 StartupProgressValue   = ExpectedPhases かつ CompletedPhases に含まれる phase 数
 ```
 
-`ExpectedPhases` は `Startup` / `ReloadFileDiff` / `FullReinitialize` / `ReloadTables` の開始時に固定される。request 済みだが不要になった phase、または request されなかった phase は `SkippedPhases` と `CompletedPhases` に入る。
+`ExpectedPhases` は `Startup` / `ReloadFileDiff` / `ScoreOnly` / `FullReinitialize` / `ReloadTables` の開始時に固定される。request 済みだが不要になった phase、または request されなかった phase は `SkippedPhases` と `CompletedPhases` に入る。
 
 background 系 phase は request 済みでなければ complete できない。ただし次の基礎 phase と library load phase は request 不要で complete できる。
 
@@ -44,10 +44,13 @@ background 系 phase は request 済みでなければ complete できない。�
 | --- | ---: | --- |
 | `Startup` | 17 | 全 phase |
 | `ReloadFileDiff` | 6 | `CoreInitializeStarted`, file enumeration, file diff, `StartupReadyOperable`, playlist reference, playlist entries hydration |
+| `ScoreOnly` | 4 | `CoreInitializeStarted`, `StartupReadyOperable`, score hydration, ranking refresh |
 | `FullReinitialize` | 14 | `CoreInitializeStarted`, library load 3 phase, `StartupReadyOperable`, playlist reference, playlist entries hydration, chart info hydration/backfill, chart digest backfill, score hydration, ranking refresh, maintenance deferred, installable maintenance deferred |
 | `ReloadTables` | 5 | `CoreInitializeStarted`, `StartupReadyOperable`, `PlaylistReferenceApplied`, `ExternalPlaylistSyncDone`, `PlaylistEntriesHydrationDone` |
 
 `ReloadFileDiff` は外部ファイル操作による追加・削除・移動検出用の軽量 reload で、DB 読み込み、chart_info hydration/backfill、score/ranking、maintenance deferred、installable maintenance deferred を expected に含めない。`FullReinitialize` は旧 ReloadFiles 相当の初期化再実行として残す。
+
+`ScoreOnly` は score DB 設定変更専用の reload で、playlist reference、external playlist sync、playlist entries hydration、file scan、chart_info、maintenance を expected に含めない。LR2 source で ranking refresh が要求されない場合や beatoraja source の場合は、ranking refresh phase は skip 完了扱いにする。
 
 `ReloadTables` は file scan / chart_info / chart digest / score / ranking / maintenance を expected に含めない。
 
@@ -135,12 +138,12 @@ file name がない場合は末尾を省略する。
 
 main label は operation kind と完了状態で決まる。
 
-| 状態 | Startup | ReloadFileDiff / ReloadTables | FullReinitialize |
-| --- | --- | --- | --- |
-| 実行中 | `初期化中` | `ライブラリ更新中` | `初期化再実行中` |
-| 操作可能だが background phase が残る | `操作可能(バックグラウンド更新中)` | `操作可能(バックグラウンド更新中)` | `操作可能(バックグラウンド更新中)` |
-| 全 expected phase 完了 | `初期化完了` | `ライブラリ更新完了` | `初期化再実行完了` |
-| 失敗 | `初期化失敗` | `ライブラリ更新失敗` | `初期化再実行失敗` |
+| 状態 | Startup | ScoreOnly | ReloadFileDiff / ReloadTables | FullReinitialize |
+| --- | --- | --- | --- | --- |
+| 実行中 | `初期化中` | `スコア更新中` | `ライブラリ更新中` | `初期化再実行中` |
+| 操作可能だが background phase が残る | `操作可能(バックグラウンド更新中)` | `操作可能(バックグラウンド更新中)` | `操作可能(バックグラウンド更新中)` | `操作可能(バックグラウンド更新中)` |
+| 全 expected phase 完了 | `初期化完了` | `スコア更新完了` | `ライブラリ更新完了` | `初期化再実行完了` |
+| 失敗 | `初期化失敗` | `スコア更新失敗` | `ライブラリ更新失敗` | `初期化再実行失敗` |
 
 ## ログとガード
 

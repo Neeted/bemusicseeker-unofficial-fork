@@ -8,6 +8,7 @@ using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using SQLite;
 
 namespace BeMusicSeeker.Tests;
 
@@ -83,6 +84,145 @@ public sealed class BmsLibraryIrServiceTests
         Assert.AreEqual(1, matchedScoreCount);
         Assert.AreSame(score, matched.bmsScore);
         Assert.IsNull(unmatched.bmsScore);
+    }
+
+    [TestMethod]
+    public void ApplyKnownScoresToFilesAndCount_PrefersSha256ScoreWhenBothIndexesAreProvided()
+    {
+        BmsLibraryIrService service = new BmsLibraryIrService();
+        TestableBmsFile file = CreateFile("12121212121212121212121212121212");
+        file.SetSha256("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        BMSScore lr2Score = new BMSScore
+        {
+            hash = file.hash,
+            clear = ClearType.FAILED,
+            perfect = 10,
+            great = 20
+        };
+        BMSScore beatorajaScore = new BMSScore
+        {
+            hash = file.sha256,
+            clear = ClearType.INVALID,
+            perfect = 400,
+            great = 100,
+            totalnotes = 500,
+            maxcombo = 450,
+            minbp = 12,
+            rank = RankType.AAA
+        };
+        Dictionary<string, BMSScore> scoresByHash = new Dictionary<string, BMSScore>(StringComparer.OrdinalIgnoreCase)
+        {
+            [lr2Score.hash] = lr2Score
+        };
+        Dictionary<string, BMSScore> scoresBySha256 = new Dictionary<string, BMSScore>(StringComparer.OrdinalIgnoreCase)
+        {
+            [beatorajaScore.hash] = beatorajaScore
+        };
+
+        int matchedScoreCount = service.ApplyKnownScoresToFilesAndCount(new BMSFile[] { file }, scoresByHash, scoresBySha256);
+
+        Assert.AreEqual(1, matchedScoreCount);
+        Assert.AreNotSame(beatorajaScore, file.bmsScore);
+        Assert.AreEqual(file.hash, file.bmsScore.hash);
+        Assert.AreEqual(ClearType.INVALID, file.bmsScore.clear);
+        Assert.AreEqual("ASSIST", file.ClearDisplayText);
+        Assert.AreEqual(900, file.bmsScore.score);
+        Assert.AreEqual(450, file.maxcombo);
+        Assert.AreEqual(12, file.minbp);
+    }
+
+    [TestMethod]
+    public void BeatorajaScoreDbLoader_ReadsModeZeroScoresOnly()
+    {
+        string rootDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerBeatorajaScoreTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(rootDirectoryPath);
+        string scoreDbPath = Path.Combine(rootDirectoryPath, "score.db");
+        try
+        {
+            using (SQLiteConnection connection = new SQLiteConnection(scoreDbPath))
+            {
+                connection.Execute(
+                    "CREATE TABLE score (sha256 TEXT NOT NULL, mode INTEGER, clear INTEGER, epg INTEGER, lpg INTEGER, egr INTEGER, lgr INTEGER, notes INTEGER, combo INTEGER, minbp INTEGER, playcount INTEGER, clearcount INTEGER, PRIMARY KEY(sha256, mode));");
+                connection.Execute(
+                    "INSERT INTO score (sha256, mode, clear, epg, lpg, egr, lgr, notes, combo, minbp, playcount, clearcount) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);",
+                    "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", 0, 2, 100, 20, 30, 10, 200, 180, 5, 7, 3);
+                connection.Execute(
+                    "INSERT INTO score (sha256, mode, clear, epg, lpg, egr, lgr, notes, combo, minbp, playcount, clearcount) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);",
+                    "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", 10000, 7, 500, 0, 0, 0, 500, 500, 0, 1, 1);
+            }
+
+            BeatorajaScoreDbLoader loader = new BeatorajaScoreDbLoader();
+            Dictionary<string, BMSScore> scores = loader.LoadModeZeroScores(scoreDbPath);
+
+            Assert.AreEqual(1, scores.Count);
+            Assert.IsTrue(scores.TryGetValue("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", out BMSScore score));
+            Assert.AreEqual(ClearType.INVALID, score.clear);
+            Assert.AreEqual(120, score.perfect);
+            Assert.AreEqual(40, score.great);
+            Assert.AreEqual(200, score.totalnotes);
+            Assert.AreEqual(180, score.maxcombo);
+            Assert.AreEqual(5, score.minbp);
+            Assert.AreEqual(280, score.score);
+            Assert.AreEqual(70, score.rate);
+            Assert.AreEqual(RankType.A, score.rank);
+        }
+        finally
+        {
+            try
+            {
+                if (Directory.Exists(rootDirectoryPath))
+                {
+                    Directory.Delete(rootDirectoryPath, recursive: true);
+                }
+            }
+            catch
+            {
+            }
+        }
+    }
+
+    [TestMethod]
+    public void LoadScoreTable_UsesBeatorajaAsExclusiveSourceWhenEnabled()
+    {
+        using TempIrEnvironment env = TempIrEnvironment.Create();
+        CreateLr2ScoreDb(env.ScoreDbPath);
+        string beatorajaScoreDbPath = Path.Combine(env.RootDirectoryPath, "beatoraja", "player1", "score.db");
+        CreateBeatorajaScoreDb(beatorajaScoreDbPath);
+        BmsLibraryInitializationService service = new BmsLibraryInitializationService();
+
+        ScoreTableLoadResult result = service.LoadScoreTable(
+            env.CreateGateway(),
+            new BmsLibraryOptionsSnapshot
+            {
+                UseBeatorajaScoreDb = true,
+                BeatorajaScoreDbPath = beatorajaScoreDbPath
+            });
+
+        Assert.AreEqual(ActiveScoreSource.Beatoraja, result.ActiveScoreSource);
+        Assert.AreEqual(0, result.Scores.Count);
+        Assert.AreEqual(0, result.LR2Id);
+        Assert.AreEqual(1, result.BeatorajaScoresBySha256.Count);
+        Assert.IsTrue(result.BeatorajaScoresBySha256.ContainsKey("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
+    }
+
+    [TestMethod]
+    public void LoadScoreTable_UsesLr2SourceWhenBeatorajaIsDisabled()
+    {
+        using TempIrEnvironment env = TempIrEnvironment.Create();
+        CreateLr2ScoreDb(env.ScoreDbPath);
+        BmsLibraryInitializationService service = new BmsLibraryInitializationService();
+
+        ScoreTableLoadResult result = service.LoadScoreTable(
+            env.CreateGateway(),
+            new BmsLibraryOptionsSnapshot
+            {
+                UseBeatorajaScoreDb = false
+            });
+
+        Assert.AreEqual(ActiveScoreSource.Lr2, result.ActiveScoreSource);
+        Assert.AreEqual(1, result.Scores.Count);
+        Assert.AreEqual(123, result.LR2Id);
+        Assert.AreEqual(0, result.BeatorajaScoresBySha256.Count);
     }
 
     [TestMethod]
@@ -315,7 +455,42 @@ public sealed class BmsLibraryIrServiceTests
     {
         TestableBmsFile file = new TestableBmsFile();
         file.SetHash(hash);
+        file.path = hash + ".bms";
         return file;
+    }
+
+    private static void CreateLr2ScoreDb(string scoreDbPath)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(scoreDbPath));
+        using SQLiteConnection connection = new SQLiteConnection(scoreDbPath);
+        connection.CreateTable<BMSScore>();
+        connection.CreateTable<LR2ScoreDB.player>();
+        connection.Insert(new BMSScore
+        {
+            hash = "12121212121212121212121212121212",
+            clear = ClearType.HARD,
+            perfect = 300,
+            great = 50,
+            totalnotes = 400,
+            maxcombo = 350,
+            minbp = 20
+        });
+        connection.Insert(new LR2ScoreDB.player
+        {
+            id = "player",
+            irid = 123
+        });
+    }
+
+    private static void CreateBeatorajaScoreDb(string scoreDbPath)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(scoreDbPath));
+        using SQLiteConnection connection = new SQLiteConnection(scoreDbPath);
+        connection.Execute(
+            "CREATE TABLE score (sha256 TEXT NOT NULL, mode INTEGER, clear INTEGER, epg INTEGER, lpg INTEGER, egr INTEGER, lgr INTEGER, notes INTEGER, combo INTEGER, minbp INTEGER, playcount INTEGER, clearcount INTEGER, PRIMARY KEY(sha256, mode));");
+        connection.Execute(
+            "INSERT INTO score (sha256, mode, clear, epg, lpg, egr, lgr, notes, combo, minbp, playcount, clearcount) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", 0, 2, 100, 20, 30, 10, 200, 180, 5, 7, 3);
     }
 
     private static readonly Regex PlayerScoreRegex = new Regex("\\t<score>\\r?\\n\\t\\t<hash>([a-f0-9]+)</hash>\\r?\\n\\t\\t<clear>(\\d+)</clear>\\r?\\n\\t\\t<notes>(\\d+)</notes>\\r?\\n\\t\\t<combo>(\\d+)</combo>\\r?\\n\\t\\t<pg>(\\d+)</pg>\\r?\\n\\t\\t<gr>(\\d+)</gr>\\r?\\n\\t\\t<gd>(\\d+)</gd>\\r?\\n\\t\\t<bd>(\\d+)</bd>\\r?\\n\\t\\t<pr>(\\d+)</pr>\\r?\\n\\t\\t<minbp>(\\d+)</minbp>\\r?\\n\\t\\t<option>(\\d+)</option>\\r?\\n\\t\\t<lastupdate>(\\d+)</lastupdate>\\r?\\n\\t</score>\\r?\\n", RegexOptions.Compiled);
@@ -377,6 +552,11 @@ public sealed class BmsLibraryIrServiceTests
         public void SetHash(string value)
         {
             hash = value;
+        }
+
+        public void SetSha256(string value)
+        {
+            sha256 = value;
         }
     }
 
