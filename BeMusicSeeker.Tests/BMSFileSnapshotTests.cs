@@ -124,6 +124,51 @@ public sealed class BMSFileSnapshotTests
     }
 
     [TestMethod]
+    public void CreateBMSFileFromSnapshot_DirectDirectiveScannerMatchesFileApi()
+    {
+        WithTempDirectory(delegate (string tempDirectory)
+        {
+            string filePath = Path.Combine(tempDirectory, "directives.bms");
+            File.WriteAllText(filePath,
+                "\t#GENRE Genre\r\n"
+                + " #TITLE Title\r\n"
+                + "\u3000#SUBTITLE SubTitle\r\n"
+                + "#ARTIST Artist\r\n"
+                + "#SUBARTIST SubArtist\r\n"
+                + "#PLAYLEVEL 12\r\n"
+                + "#DIFFICULTY 4\r\n"
+                + "#RANK 2\r\n"
+                + "#BANNER banner.bmp\r\n"
+                + "#STAGEFILE stage.jpg\r\n"
+                + "#BACKBMP back.jpeg\r\n"
+                + "#WAV01 sound.ogg\r\n"
+                + "#WAV02 audio/hit.mp3\r\n"
+                + "#WAV03\r\n"
+                + "#BMP01 image.jpg\r\n"
+                + "#BMP02 movie.mp4\r\n"
+                + "#BMP03 C:\\absolute.png\r\n"
+                + "#UNKNOWN ignored\r\n"
+                + "#00111 01\r\n"
+                + "#00112:00\r\n"
+                + "#00113:01\r\n",
+                Encoding.GetEncoding("shift_jis"));
+
+            ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(filePath);
+            BMSFile expected = BMSFile.CreateBMSFileFromFile(filePath);
+            BMSFile actual = BMSFile.CreateBMSFileFromSnapshot(snapshot);
+
+            AssertBmsMetadataEqual(expected, actual);
+            CollectionAssert.Contains(actual.WAVfiles.ToArray(), "sound.wav");
+            CollectionAssert.Contains(actual.WAVfiles.ToArray(), Path.Combine("audio", "hit.wav"));
+            CollectionAssert.Contains(actual.BGAfiles.ToArray(), "image.png");
+            CollectionAssert.Contains(actual.BGAfiles.ToArray(), "movie.mp4");
+            Assert.IsFalse(actual.WAVfiles.Any(string.IsNullOrWhiteSpace));
+            Assert.IsFalse(actual.BGAfiles.Any(value => value.Contains(":")));
+            Assert.AreEqual(5, actual.mode);
+        });
+    }
+
+    [TestMethod]
     public void DetectEncodingOfBMSFile_SnapshotMatchesPathApiForRepresentativeEncodings()
     {
         (string EncodingName, string Text)[] cases =

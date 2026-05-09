@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Text;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
@@ -54,13 +55,18 @@ internal static class Lr2SongFolderParentNormalizer
 
     internal static bool ApplyIfMissingOrInvalid(BMSFile song)
     {
+        return ApplyIfMissingOrInvalid(song, null);
+    }
+
+    internal static bool ApplyIfMissingOrInvalid(BMSFile song, Lr2FolderParentHashCache cache)
+    {
         if (song == null || string.IsNullOrWhiteSpace(song.path) || !PathIsRooted(song.path))
         {
             return false;
         }
 
         bool crcMissingOrInvalid = !IsLikelyCrcHex(song.folder) || !IsLikelyCrcHex(song.parent);
-        if (!TryCompute(song.path, out string folder, out string parent))
+        if (!TryCompute(song.path, cache, out string folder, out string parent))
         {
             return MarkUnsupported(song);
         }
@@ -134,6 +140,15 @@ internal static class Lr2SongFolderParentNormalizer
         }
     }
 
+    private static bool TryCompute(string chartPath, Lr2FolderParentHashCache cache, out string folder, out string parent)
+    {
+        if (cache == null)
+        {
+            return TryCompute(chartPath, out folder, out parent);
+        }
+        return cache.TryCompute(chartPath, out folder, out parent);
+    }
+
     private static string ComputeDirectoryHash(string directoryPath)
     {
         return LR2CRC32.Compute(StrictShiftJis.GetBytes((directoryPath ?? string.Empty) + "\\\0")).ToString("x");
@@ -158,5 +173,61 @@ internal static class Lr2SongFolderParentNormalizer
         {
             return false;
         }
+    }
+
+    internal sealed class Lr2FolderParentHashCache
+    {
+        private readonly ConcurrentDictionary<string, DirectoryHashPair> hashesByDirectory = new ConcurrentDictionary<string, DirectoryHashPair>(StringComparer.OrdinalIgnoreCase);
+
+        public bool TryCompute(string chartPath, out string folder, out string parent)
+        {
+            folder = null;
+            parent = null;
+            if (string.IsNullOrWhiteSpace(chartPath))
+            {
+                return false;
+            }
+            try
+            {
+                StrictShiftJis.GetBytes(chartPath);
+                string directoryPath = System.IO.Path.GetDirectoryName(chartPath) ?? string.Empty;
+                DirectoryHashPair pair = hashesByDirectory.GetOrAdd(directoryPath, CreatePair);
+                folder = pair.Folder;
+                parent = pair.Parent;
+                return true;
+            }
+            catch (EncoderFallbackException)
+            {
+                return false;
+            }
+            catch (ArgumentException)
+            {
+                return false;
+            }
+            catch (NotSupportedException)
+            {
+                return false;
+            }
+        }
+
+        private static DirectoryHashPair CreatePair(string directoryPath)
+        {
+            return new DirectoryHashPair(
+                ComputeDirectoryHash(directoryPath),
+                ComputeDirectoryHash(System.IO.Path.GetDirectoryName(directoryPath)));
+        }
+    }
+
+    private readonly struct DirectoryHashPair
+    {
+        public DirectoryHashPair(string folder, string parent)
+        {
+            Folder = folder;
+            Parent = parent;
+        }
+
+        public string Folder { get; }
+
+        public string Parent { get; }
     }
 }

@@ -234,41 +234,11 @@ public class BMSFile : LR2SongDB.song
 
     private List<string> nonlocalBGAfilesMovie;
 
+    private ResourceReferenceHealthCache resourceReferenceHealthCache;
+
     private ReaderWriterLockSlim rwlock = new ReaderWriterLockSlim();
 
     private object filesCacheLock = new object();
-
-    private static Regex chRegex = new Regex("^[\\s\u3000]*#[0-9]", RegexOptions.IgnoreCase | RegexOptions.Compiled);
-
-    private static Regex commentRegex = new Regex("^[\\s\u3000]*[^#]", RegexOptions.IgnoreCase | RegexOptions.Compiled);
-
-    private static Regex whitespaceRegex = new Regex("^[\\s\u3000]*$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
-
-    private static Regex titleRegex = new Regex("^[\\s\u3000]*#TITLE\\s+(.*?)$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
-
-    private static Regex subtitleRegex = new Regex("^[\\s\u3000]*#SUBTITLE\\s+(.*?)$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
-
-    private static Regex genreRegex = new Regex("^[\\s\u3000]*#GENRE\\s+(.*?)$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
-
-    private static Regex artistRegex = new Regex("^[\\s\u3000]*#ARTIST\\s+(.*?)$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
-
-    private static Regex subartistRegex = new Regex("^[\\s\u3000]*#SUBARTIST\\s+(.*?)$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
-
-    private static Regex stagefileRegex = new Regex("^[\\s\u3000]*#STAGEFILE\\s+(.*?)$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
-
-    private static Regex backbmpRegex = new Regex("^[\\s\u3000]*#BACKBMP\\s+(.*?)$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
-
-    private static Regex bannerRegex = new Regex("^[\\s\u3000]*#BANNER\\s+(.*?)$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
-
-    private static Regex playlevelRegex = new Regex("^[\\s\u3000]*#PLAYLEVEL\\s+([0-9]+.*)$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
-
-    private static Regex difficultyRegex = new Regex("^[\\s\u3000]*#DIFFICULTY\\s+([0-9]+.*)$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
-
-    private static Regex rankRegex = new Regex("^[\\s\u3000]*#RANK\\s+([0-9]+.*)$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
-
-    private static Regex wavfileRegex = new Regex("^[\\s\u3000]*#WAV[A-Z0-9]{2}(?>\\s+)(.*)", RegexOptions.IgnoreCase | RegexOptions.Compiled);
-
-    private static Regex bgafileRegex = new Regex("^[\\s\u3000]*#BMP[A-Z0-9]{2}(?>\\s+)(.*)", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     // BMS のチャンネル行は ':' 区切りが一般的だが、LR2/beatoraja では空白だけで
     // コマンドと値を区切る譜面も実質的に受け入れられているため、ゼロノート検出でも
@@ -1599,16 +1569,29 @@ public class BMSFile : LR2SongDB.song
                 }
                 if (localWAVfilesNameHashArray == null || localBGAfilesNameHashArray == null || localBGAfilesMovieNameHashArray == null)
                 {
-                    ILookup<bool, string> lookup = BGAfiles.ToLookup((string f) => bgaMovieExtensions.Any((string e) => f.EndsWith(e, StringComparison.OrdinalIgnoreCase)));
-                    ILookup<bool, string> lookup2 = lookup[false].ToLookup((string f) => !f.Contains('\\'));
-                    ILookup<bool, string> lookup3 = lookup[true].ToLookup((string f) => !f.Contains('\\'));
-                    nonlocalBGAfiles = lookup2[false].ToList();
-                    localBGAfilesNameHashArray = GetResourceReferenceHashArray(lookup2[true]);
-                    nonlocalBGAfilesMovie = lookup3[false].ToList();
-                    localBGAfilesMovieNameHashArray = GetResourceReferenceHashArray(lookup3[true]);
-                    ILookup<bool, string> lookup4 = WAVfiles.ToLookup((string f) => !f.Contains('\\'));
-                    nonlocalWAVfiles = lookup4[false].ToList();
-                    localWAVfilesNameHashArray = GetResourceReferenceHashArray(lookup4[true]);
+                    ResourceReferenceHealthCache cache = resourceReferenceHealthCache;
+                    if (cache != null)
+                    {
+                        localWAVfilesNameHashArray = cache.LocalWavHashes;
+                        nonlocalWAVfiles = cache.NonLocalWavReferences;
+                        localBGAfilesNameHashArray = cache.LocalImageHashes;
+                        nonlocalBGAfiles = cache.NonLocalImageReferences;
+                        localBGAfilesMovieNameHashArray = cache.LocalMovieHashes;
+                        nonlocalBGAfilesMovie = cache.NonLocalMovieReferences;
+                    }
+                    else
+                    {
+                        ILookup<bool, string> lookup = BGAfiles.ToLookup((string f) => bgaMovieExtensions.Any((string e) => f.EndsWith(e, StringComparison.OrdinalIgnoreCase)));
+                        ILookup<bool, string> lookup2 = lookup[false].ToLookup((string f) => !f.Contains('\\'));
+                        ILookup<bool, string> lookup3 = lookup[true].ToLookup((string f) => !f.Contains('\\'));
+                        nonlocalBGAfiles = lookup2[false].ToList();
+                        localBGAfilesNameHashArray = GetResourceReferenceHashArray(lookup2[true]);
+                        nonlocalBGAfilesMovie = lookup3[false].ToList();
+                        localBGAfilesMovieNameHashArray = GetResourceReferenceHashArray(lookup3[true]);
+                        ILookup<bool, string> lookup4 = WAVfiles.ToLookup((string f) => !f.Contains('\\'));
+                        nonlocalWAVfiles = lookup4[false].ToList();
+                        localWAVfilesNameHashArray = GetResourceReferenceHashArray(lookup4[true]);
+                    }
                 }
             }
             string dir = (string.IsNullOrWhiteSpace(altSearchDir) ? DirectoryExt.GetDirectoryNameSimple(path) : altSearchDir.TrimEnd('\\'));
@@ -1623,9 +1606,6 @@ public class BMSFile : LR2SongDB.song
             uint[] localAudioResourceHashes = null;
             uint[] localImageResourceHashes = null;
             uint[] localMovieResourceHashes = null;
-            HashSet<uint> localAudioResourceHashSet = null;
-            HashSet<uint> localImageResourceHashSet = null;
-            HashSet<uint> localMovieResourceHashSet = null;
             Func<uint[], List<string>, IEnumerable<string>, ChartResourceKind, int> func = delegate (uint[] localHashSet, List<string> nonlocalFileList, IEnumerable<string> extensions, ChartResourceKind resourceKind)
             {
                 int num = 0;
@@ -1640,11 +1620,7 @@ public class BMSFile : LR2SongDB.song
                         ref localMovieResourceHashes);
                     num += CountMissingLocalHashes(
                         localHashSet,
-                        categoryResourceHashes,
-                        ref localAudioResourceHashSet,
-                        ref localImageResourceHashSet,
-                        ref localMovieResourceHashSet,
-                        resourceKind);
+                        categoryResourceHashes);
                 }
                 if (nonlocalFileList.Count > 0)
                 {
@@ -1730,6 +1706,7 @@ public class BMSFile : LR2SongDB.song
                 nonlocalWAVfiles = null;
                 nonlocalBGAfiles = null;
                 nonlocalBGAfilesMovie = null;
+                resourceReferenceHealthCache = null;
             }
             lookupContext?.AddCacheHits(cacheHitCount);
             lookupContext?.AddFileExistsFallbacks(ResourceHealthFallbackKind.Audio, audioFileExistsFallbackCount);
@@ -1793,11 +1770,66 @@ public class BMSFile : LR2SongDB.song
             return Array.Empty<uint>();
         }
 
-        return FastDirectoryEnumerator.GetFileNames(directory)
+        uint[] hashes = FastDirectoryEnumerator.GetFileNames(directory)
             .Where((string fileName) => IsResourceFileNameForKind(fileName, resourceKind))
             .Select(GetResourceReferenceHash)
             .Where((uint hash) => hash != 0u)
             .ToArray();
+        Array.Sort(hashes);
+        return hashes;
+    }
+
+    private sealed class ResourceReferenceHealthCache
+    {
+        private ResourceReferenceHealthCache(
+            uint[] localWavHashes,
+            List<string> nonLocalWavReferences,
+            uint[] localImageHashes,
+            List<string> nonLocalImageReferences,
+            uint[] localMovieHashes,
+            List<string> nonLocalMovieReferences)
+        {
+            LocalWavHashes = localWavHashes ?? Array.Empty<uint>();
+            NonLocalWavReferences = nonLocalWavReferences ?? new List<string>();
+            LocalImageHashes = localImageHashes ?? Array.Empty<uint>();
+            NonLocalImageReferences = nonLocalImageReferences ?? new List<string>();
+            LocalMovieHashes = localMovieHashes ?? Array.Empty<uint>();
+            NonLocalMovieReferences = nonLocalMovieReferences ?? new List<string>();
+        }
+
+        public uint[] LocalWavHashes { get; }
+
+        public List<string> NonLocalWavReferences { get; }
+
+        public uint[] LocalImageHashes { get; }
+
+        public List<string> NonLocalImageReferences { get; }
+
+        public uint[] LocalMovieHashes { get; }
+
+        public List<string> NonLocalMovieReferences { get; }
+
+        public static ResourceReferenceHealthCache Create(HashSet<string> wavReferences, HashSet<string> bgaReferences)
+        {
+            uint[] localWavHashes = GetNormalizedResourceReferenceHashArray((wavReferences ?? new HashSet<string>()).Where(IsLocalReference));
+            List<string> nonLocalWavReferences = (wavReferences ?? new HashSet<string>()).Where((string reference) => !IsLocalReference(reference)).ToList();
+            ILookup<bool, string> bgaByMovie = (bgaReferences ?? new HashSet<string>())
+                .ToLookup((string reference) => bgaMovieExtensions.Any((string extension) => reference.EndsWith(extension, StringComparison.OrdinalIgnoreCase)));
+            ILookup<bool, string> imageByLocal = bgaByMovie[false].ToLookup(IsLocalReference);
+            ILookup<bool, string> movieByLocal = bgaByMovie[true].ToLookup(IsLocalReference);
+            return new ResourceReferenceHealthCache(
+                localWavHashes,
+                nonLocalWavReferences,
+                GetNormalizedResourceReferenceHashArray(imageByLocal[true]),
+                imageByLocal[false].ToList(),
+                GetNormalizedResourceReferenceHashArray(movieByLocal[true]),
+                movieByLocal[false].ToList());
+        }
+
+        private static bool IsLocalReference(string reference)
+        {
+            return !string.IsNullOrWhiteSpace(reference) && !reference.Contains('\\');
+        }
     }
 
     private static uint[] GetResourceReferenceHashArray(IEnumerable<string> references)
@@ -1808,10 +1840,29 @@ public class BMSFile : LR2SongDB.song
             .ToArray();
     }
 
+    private static uint[] GetNormalizedResourceReferenceHashArray(IEnumerable<string> references)
+    {
+        return (references ?? Enumerable.Empty<string>())
+            .Select(GetNormalizedResourceReferenceHash)
+            .Where((uint hash) => hash != 0u)
+            .ToArray();
+    }
+
     private static uint GetResourceReferenceHash(string referencePath)
     {
         string normalized = ChartResourcePathNormalizer.NormalizeResourceKeyForLookup(referencePath);
         return ChartResourceKeyHash.GetLookupHash(normalized);
+    }
+
+    private static uint GetNormalizedResourceReferenceHash(string normalizedReferencePath)
+    {
+        if (string.IsNullOrWhiteSpace(normalizedReferencePath))
+        {
+            return 0u;
+        }
+        string extension = Path.GetExtension(normalizedReferencePath);
+        string key = string.IsNullOrWhiteSpace(extension) ? normalizedReferencePath : Path.ChangeExtension(normalizedReferencePath, null);
+        return ChartResourceKeyHash.GetLookupHash(key);
     }
 
     private static bool IsResourceFileNameForKind(string fileName, ChartResourceKind resourceKind)
@@ -1832,47 +1883,22 @@ public class BMSFile : LR2SongDB.song
 
     private static int CountMissingLocalHashes(
         uint[] requiredHashes,
-        uint[] availableHashes,
-        ref HashSet<uint> audioHashSet,
-        ref HashSet<uint> imageHashSet,
-        ref HashSet<uint> movieHashSet,
-        ChartResourceKind resourceKind)
+        uint[] availableHashes)
     {
         if (requiredHashes == null || requiredHashes.Length == 0)
         {
             return 0;
         }
 
-        HashSet<uint> availableHashSet = GetOrCreateLocalResourceHashSet(availableHashes, ref audioHashSet, ref imageHashSet, ref movieHashSet, resourceKind);
         int missing = 0;
         foreach (uint requiredHash in requiredHashes)
         {
-            if (!availableHashSet.Contains(requiredHash))
+            if (Array.BinarySearch(availableHashes ?? Array.Empty<uint>(), requiredHash) < 0)
             {
                 missing++;
             }
         }
         return missing;
-    }
-
-    private static HashSet<uint> GetOrCreateLocalResourceHashSet(
-        uint[] availableHashes,
-        ref HashSet<uint> audioHashSet,
-        ref HashSet<uint> imageHashSet,
-        ref HashSet<uint> movieHashSet,
-        ChartResourceKind resourceKind)
-    {
-        switch (resourceKind)
-        {
-            case ChartResourceKind.Audio:
-                return audioHashSet ??= new HashSet<uint>(availableHashes ?? Array.Empty<uint>());
-            case ChartResourceKind.Image:
-                return imageHashSet ??= new HashSet<uint>(availableHashes ?? Array.Empty<uint>());
-            case ChartResourceKind.Movie:
-                return movieHashSet ??= new HashSet<uint>(availableHashes ?? Array.Empty<uint>());
-            default:
-                return new HashSet<uint>(availableHashes ?? Array.Empty<uint>());
-        }
     }
 
     private static ResourceHealthFallbackKind GetFallbackKind(ChartResourceKind resourceKind)
@@ -1972,6 +1998,7 @@ public class BMSFile : LR2SongDB.song
             nonlocalWAVfiles = null;
             nonlocalBGAfiles = null;
             nonlocalBGAfilesMovie = null;
+            resourceReferenceHealthCache = null;
         }
     }
 
@@ -2051,91 +2078,11 @@ public class BMSFile : LR2SongDB.song
         bool flag18 = false;
         foreach (string item in enumerable)
         {
-            Match match;
-            if (!chRegex.Match(item).Success)
+            if (!TryParseDirectiveLine(item, out BmsDirective directive, out int valueStart))
             {
-                if ((match = wavfileRegex.Match(item)).Success)
-                {
-                    string text = match.Groups[1].ToString();
-                    string normalized = ChartResourcePathNormalizer.NormalizeReferencePathForLookup(text);
-                    if (!string.IsNullOrWhiteSpace(normalized))
-                    {
-                        hashSet.Add(normalized);
-                    }
-                }
-                else if ((match = bgafileRegex.Match(item)).Success)
-                {
-                    string text2 = match.Groups[1].ToString();
-                    string normalized2 = ChartResourcePathNormalizer.NormalizeReferencePathForLookup(text2);
-                    if (!string.IsNullOrWhiteSpace(normalized2))
-                    {
-                        hashSet2.Add(normalized2);
-                    }
-                }
-                else if (string.IsNullOrWhiteSpace(bMSFile.title) && (match = titleRegex.Match(item)).Success)
-                {
-                    bMSFile.title = match.Groups[1].ToString();
-                }
-                else if (string.IsNullOrWhiteSpace(bMSFile.genre) && (match = genreRegex.Match(item)).Success)
-                {
-                    bMSFile.genre = match.Groups[1].ToString();
-                }
-                else if (string.IsNullOrWhiteSpace(bMSFile.artist) && (match = artistRegex.Match(item)).Success)
-                {
-                    bMSFile.artist = match.Groups[1].ToString();
-                }
-                else if (!bMSFile.level.HasValue && (match = playlevelRegex.Match(item)).Success)
-                {
-                    try
-                    {
-                        bMSFile.level = int.Parse(match.Groups[1].ToString());
-                    }
-                    catch
-                    {
-                    }
-                }
-                else if (!bMSFile.difficulty.HasValue && (match = difficultyRegex.Match(item)).Success)
-                {
-                    try
-                    {
-                        bMSFile.difficulty = int.Parse(match.Groups[1].ToString());
-                    }
-                    catch
-                    {
-                    }
-                }
-                else if (!bMSFile.judge.HasValue && (match = rankRegex.Match(item)).Success)
-                {
-                    try
-                    {
-                        bMSFile.judge = int.Parse(match.Groups[1].ToString());
-                    }
-                    catch
-                    {
-                    }
-                }
-                else if (string.IsNullOrWhiteSpace(bMSFile.subtitle) && (match = subtitleRegex.Match(item)).Success)
-                {
-                    bMSFile.subtitle = match.Groups[1].ToString();
-                }
-                else if (string.IsNullOrWhiteSpace(bMSFile.subartist) && (match = subartistRegex.Match(item)).Success)
-                {
-                    bMSFile.subartist = match.Groups[1].ToString();
-                }
-                else if (string.IsNullOrWhiteSpace(bMSFile.banner) && (match = bannerRegex.Match(item)).Success)
-                {
-                    bMSFile.banner = match.Groups[1].ToString();
-                }
-                else if (string.IsNullOrWhiteSpace(bMSFile.stagefile) && (match = stagefileRegex.Match(item)).Success)
-                {
-                    bMSFile.stagefile = match.Groups[1].ToString();
-                }
-                else if (string.IsNullOrWhiteSpace(bMSFile.backbmp) && (match = backbmpRegex.Match(item)).Success)
-                {
-                    bMSFile.backbmp = match.Groups[1].ToString();
-                }
+                continue;
             }
-            else if (TryParseModeChannelLine(item, out char channelGroup, out char lane))
+            if (directive == BmsDirective.ModeChannel && TryParseModeChannelLine(item, out char channelGroup, out char lane))
             {
                 switch (channelGroup)
                 {
@@ -2206,10 +2153,88 @@ public class BMSFile : LR2SongDB.song
                         }
                         break;
                 }
+                continue;
+            }
+            string value = valueStart >= 0 && valueStart <= item.Length ? item.Substring(valueStart) : string.Empty;
+            switch (directive)
+            {
+                case BmsDirective.Wav:
+                    AddNormalizedResourceReference(hashSet, value);
+                    break;
+                case BmsDirective.Bmp:
+                    AddNormalizedResourceReference(hashSet2, value);
+                    break;
+                case BmsDirective.Title:
+                    if (string.IsNullOrWhiteSpace(bMSFile.title))
+                    {
+                        bMSFile.title = value;
+                    }
+                    break;
+                case BmsDirective.Genre:
+                    if (string.IsNullOrWhiteSpace(bMSFile.genre))
+                    {
+                        bMSFile.genre = value;
+                    }
+                    break;
+                case BmsDirective.Artist:
+                    if (string.IsNullOrWhiteSpace(bMSFile.artist))
+                    {
+                        bMSFile.artist = value;
+                    }
+                    break;
+                case BmsDirective.PlayLevel:
+                    if (!bMSFile.level.HasValue)
+                    {
+                        bMSFile.level = TryParseDirectiveInt(value);
+                    }
+                    break;
+                case BmsDirective.Difficulty:
+                    if (!bMSFile.difficulty.HasValue)
+                    {
+                        bMSFile.difficulty = TryParseDirectiveInt(value);
+                    }
+                    break;
+                case BmsDirective.Rank:
+                    if (!bMSFile.judge.HasValue)
+                    {
+                        bMSFile.judge = TryParseDirectiveInt(value);
+                    }
+                    break;
+                case BmsDirective.SubTitle:
+                    if (string.IsNullOrWhiteSpace(bMSFile.subtitle))
+                    {
+                        bMSFile.subtitle = value;
+                    }
+                    break;
+                case BmsDirective.SubArtist:
+                    if (string.IsNullOrWhiteSpace(bMSFile.subartist))
+                    {
+                        bMSFile.subartist = value;
+                    }
+                    break;
+                case BmsDirective.Banner:
+                    if (string.IsNullOrWhiteSpace(bMSFile.banner))
+                    {
+                        bMSFile.banner = value;
+                    }
+                    break;
+                case BmsDirective.StageFile:
+                    if (string.IsNullOrWhiteSpace(bMSFile.stagefile))
+                    {
+                        bMSFile.stagefile = value;
+                    }
+                    break;
+                case BmsDirective.BackBmp:
+                    if (string.IsNullOrWhiteSpace(bMSFile.backbmp))
+                    {
+                        bMSFile.backbmp = value;
+                    }
+                    break;
             }
         }
         bMSFile.WAVfiles = hashSet;
         bMSFile.BGAfiles = hashSet2;
+        bMSFile.resourceReferenceHealthCache = ResourceReferenceHealthCache.Create(hashSet, hashSet2);
         bMSFile.hash = md5Provider();
         bMSFile.ApplySha256(sha256Provider());
         bMSFile.path = filePath;
@@ -2245,6 +2270,236 @@ public class BMSFile : LR2SongDB.song
             bMSFile.mode = 14;
         }
         return bMSFile;
+    }
+
+    private enum BmsDirective
+    {
+        Unknown,
+        ModeChannel,
+        Wav,
+        Bmp,
+        Title,
+        SubTitle,
+        Genre,
+        Artist,
+        SubArtist,
+        StageFile,
+        BackBmp,
+        Banner,
+        PlayLevel,
+        Difficulty,
+        Rank
+    }
+
+    private static bool TryParseDirectiveLine(string line, out BmsDirective directive, out int valueStart)
+    {
+        directive = BmsDirective.Unknown;
+        valueStart = -1;
+        if (string.IsNullOrEmpty(line))
+        {
+            return false;
+        }
+        int index = 0;
+        while (index < line.Length && char.IsWhiteSpace(line[index]))
+        {
+            index++;
+        }
+        if (index >= line.Length || line[index] != '#')
+        {
+            return false;
+        }
+        index++;
+        if (index < line.Length && IsAsciiDigit(line[index]))
+        {
+            directive = BmsDirective.ModeChannel;
+            return true;
+        }
+        int tokenStart = index;
+        while (index < line.Length && IsAsciiAlphaNumeric(line[index]))
+        {
+            index++;
+        }
+        int tokenLength = index - tokenStart;
+        if (tokenLength <= 0)
+        {
+            return false;
+        }
+        if (!TryGetDirectiveFromToken(line, tokenStart, tokenLength, out directive))
+        {
+            return false;
+        }
+        if (directive == BmsDirective.Wav || directive == BmsDirective.Bmp)
+        {
+            if (tokenLength != 5 || index >= line.Length || !char.IsWhiteSpace(line[index]))
+            {
+                directive = BmsDirective.Unknown;
+                return false;
+            }
+        }
+        else if (index >= line.Length || !char.IsWhiteSpace(line[index]))
+        {
+            directive = BmsDirective.Unknown;
+            return false;
+        }
+        while (index < line.Length && char.IsWhiteSpace(line[index]))
+        {
+            index++;
+        }
+        valueStart = index;
+        return true;
+    }
+
+    private static bool TryGetDirectiveFromToken(string line, int start, int length, out BmsDirective directive)
+    {
+        directive = BmsDirective.Unknown;
+        if (length == 5 && StartsWithAsciiIgnoreCase(line, start, "WAV") && IsBase36(line[start + 3]) && IsBase36(line[start + 4]))
+        {
+            directive = BmsDirective.Wav;
+            return true;
+        }
+        if (length == 5 && StartsWithAsciiIgnoreCase(line, start, "BMP") && IsBase36(line[start + 3]) && IsBase36(line[start + 4]))
+        {
+            directive = BmsDirective.Bmp;
+            return true;
+        }
+        switch (length)
+        {
+            case 4:
+                if (EqualsAsciiIgnoreCase(line, start, "RANK"))
+                {
+                    directive = BmsDirective.Rank;
+                    return true;
+                }
+                break;
+            case 5:
+                if (EqualsAsciiIgnoreCase(line, start, "TITLE"))
+                {
+                    directive = BmsDirective.Title;
+                    return true;
+                }
+                if (EqualsAsciiIgnoreCase(line, start, "GENRE"))
+                {
+                    directive = BmsDirective.Genre;
+                    return true;
+                }
+                break;
+            case 6:
+                if (EqualsAsciiIgnoreCase(line, start, "ARTIST"))
+                {
+                    directive = BmsDirective.Artist;
+                    return true;
+                }
+                if (EqualsAsciiIgnoreCase(line, start, "BANNER"))
+                {
+                    directive = BmsDirective.Banner;
+                    return true;
+                }
+                break;
+            case 7:
+                if (EqualsAsciiIgnoreCase(line, start, "BACKBMP"))
+                {
+                    directive = BmsDirective.BackBmp;
+                    return true;
+                }
+                break;
+            case 8:
+                if (EqualsAsciiIgnoreCase(line, start, "SUBTITLE"))
+                {
+                    directive = BmsDirective.SubTitle;
+                    return true;
+                }
+                break;
+            case 9:
+                if (EqualsAsciiIgnoreCase(line, start, "SUBARTIST"))
+                {
+                    directive = BmsDirective.SubArtist;
+                    return true;
+                }
+                if (EqualsAsciiIgnoreCase(line, start, "STAGEFILE"))
+                {
+                    directive = BmsDirective.StageFile;
+                    return true;
+                }
+                if (EqualsAsciiIgnoreCase(line, start, "PLAYLEVEL"))
+                {
+                    directive = BmsDirective.PlayLevel;
+                    return true;
+                }
+                break;
+            case 10:
+                if (EqualsAsciiIgnoreCase(line, start, "DIFFICULTY"))
+                {
+                    directive = BmsDirective.Difficulty;
+                    return true;
+                }
+                break;
+        }
+        return false;
+    }
+
+    private static bool StartsWithAsciiIgnoreCase(string value, int start, string prefix)
+    {
+        if (value == null || prefix == null || start < 0 || start + prefix.Length > value.Length)
+        {
+            return false;
+        }
+        for (int i = 0; i < prefix.Length; i++)
+        {
+            if (ToUpperAscii(value[start + i]) != prefix[i])
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static bool EqualsAsciiIgnoreCase(string value, int start, string expected)
+    {
+        return start >= 0
+            && expected != null
+            && value != null
+            && start + expected.Length <= value.Length
+            && StartsWithAsciiIgnoreCase(value, start, expected);
+    }
+
+    private static char ToUpperAscii(char value)
+    {
+        return value >= 'a' && value <= 'z' ? (char)(value - ('a' - 'A')) : value;
+    }
+
+    private static bool IsAsciiAlphaNumeric(char value)
+    {
+        return IsAsciiDigit(value) || (value >= 'A' && value <= 'Z') || (value >= 'a' && value <= 'z');
+    }
+
+    private static bool IsBase36(char value)
+    {
+        return IsAsciiAlphaNumeric(value);
+    }
+
+    private static void AddNormalizedResourceReference(HashSet<string> references, string value)
+    {
+        string normalized = ChartResourcePathNormalizer.NormalizeReferencePathForLookup(value);
+        if (!string.IsNullOrWhiteSpace(normalized))
+        {
+            references.Add(normalized);
+        }
+    }
+
+    private static int? TryParseDirectiveInt(string value)
+    {
+        if (string.IsNullOrEmpty(value) || !IsAsciiDigit(value[0]))
+        {
+            return null;
+        }
+        try
+        {
+            return int.Parse(value);
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private static bool TryParseModeChannelLine(string line, out char channelGroup, out char lane)
@@ -2309,30 +2564,23 @@ public class BMSFile : LR2SongDB.song
         HashSet<string> hashSet2 = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (string item in enumerable)
         {
-            Match match = wavfileRegex.Match(item);
-            if (match.Success)
+            if (!TryParseDirectiveLine(item, out BmsDirective directive, out int valueStart))
             {
-                string text = match.Groups[1].ToString();
-                string normalized = ChartResourcePathNormalizer.NormalizeReferencePathForLookup(text);
-                if (!string.IsNullOrWhiteSpace(normalized))
-                {
-                    hashSet.Add(normalized);
-                }
                 continue;
             }
-            Match match2 = bgafileRegex.Match(item);
-            if (match2.Success)
+            string value = valueStart >= 0 && valueStart <= item.Length ? item.Substring(valueStart) : string.Empty;
+            if (directive == BmsDirective.Wav)
             {
-                string text2 = match2.Groups[1].ToString();
-                string normalized2 = ChartResourcePathNormalizer.NormalizeReferencePathForLookup(text2);
-                if (!string.IsNullOrWhiteSpace(normalized2))
-                {
-                    hashSet2.Add(normalized2);
-                }
+                AddNormalizedResourceReference(hashSet, value);
+            }
+            else if (directive == BmsDirective.Bmp)
+            {
+                AddNormalizedResourceReference(hashSet2, value);
             }
         }
         bmsFile.WAVfiles = hashSet;
         bmsFile.BGAfiles = hashSet2;
+        bmsFile.resourceReferenceHealthCache = ResourceReferenceHealthCache.Create(hashSet, hashSet2);
         bmsFile.hash = getMD5Hash(bmsFile.path);
         bmsFile.ApplySha256(GetSHA256Hash(bmsFile.path));
     }

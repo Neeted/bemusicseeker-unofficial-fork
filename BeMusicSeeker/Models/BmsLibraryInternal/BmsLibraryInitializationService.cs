@@ -576,6 +576,12 @@ internal sealed class BmsLibraryInitializationService
             + " inline_maintenance_bmson_count=" + result.InlineMaintenanceBmsonCount
             + " inline_maintenance_ms=" + result.InlineMaintenanceMs
             + " inline_maintenance_wall_ms=" + result.InlineMaintenanceWallMs
+            + " inline_health_wall_ms=" + result.InlineHealthWallMs
+            + " inline_encoding_wall_ms=" + result.InlineEncodingWallMs
+            + " inline_encoding_reload_wall_ms=" + result.InlineEncodingReloadWallMs
+            + " inline_encoding_reload_count=" + result.InlineEncodingReloadCount
+            + " inline_bms_maintenance_wall_ms=" + result.InlineBmsMaintenanceWallMs
+            + " inline_bmson_maintenance_wall_ms=" + result.InlineBmsonMaintenanceWallMs
             + " inline_maintenance_cache_hit=" + result.InlineMaintenanceCacheHitCount
             + " inline_maintenance_file_exists_fallback=" + result.InlineMaintenanceFileExistsFallbackCount
             + " parse_read_bytes_estimate=" + result.ParseReadBytesEstimate
@@ -651,9 +657,12 @@ internal sealed class BmsLibraryInitializationService
         long postParseMaxBatchTicks = 0L;
         long inlineChartInfoWallTicks = 0L;
         long inlineMaintenanceWallTicks = 0L;
+        long inlineBmsMaintenanceWallTicks = 0L;
+        long inlineBmsonMaintenanceWallTicks = 0L;
         int postParseBatchCount = 0;
         int snapshotQueueHighWatermark = 0;
         Exception postParseException = null;
+        Lr2SongFolderParentNormalizer.Lr2FolderParentHashCache folderParentHashCache = new Lr2SongFolderParentNormalizer.Lr2FolderParentHashCache();
 
         Task postParseTask = Task.Run(delegate
         {
@@ -683,6 +692,8 @@ internal sealed class BmsLibraryInitializationService
                     UpdateMaxTicks(ref postParseMaxBatchTicks, batchStopwatch.ElapsedTicks);
                     Interlocked.Add(ref inlineChartInfoWallTicks, batchMetrics.ChartInfoTicks);
                     Interlocked.Add(ref inlineMaintenanceWallTicks, batchMetrics.MaintenanceTicks);
+                    Interlocked.Add(ref inlineBmsMaintenanceWallTicks, batchMetrics.BmsMaintenanceTicks);
+                    Interlocked.Add(ref inlineBmsonMaintenanceWallTicks, batchMetrics.BmsonMaintenanceTicks);
                     if (batchStopwatch.ElapsedMilliseconds >= DefaultSlowFileDiffBatchLogThresholdMs)
                     {
                         logInstallPerformance?.Invoke("song_tbl_file_check_batch_slow"
@@ -736,7 +747,7 @@ internal sealed class BmsLibraryInitializationService
             {
                 foreach (FileDiffReadCandidate readCandidate in readQueue.GetConsumingEnumerable())
                 {
-                    FileDiffParsedCandidate parsedCandidate = ParseFileDiffCandidate(readCandidate, ref bmsParseTicks, ref bmsonParseTicks);
+                    FileDiffParsedCandidate parsedCandidate = ParseFileDiffCandidate(readCandidate, folderParentHashCache, ref bmsParseTicks, ref bmsonParseTicks);
                     AddWithWait(parsedQueue, parsedCandidate, ref parserOutputWaitTicks);
                 }
             }))
@@ -800,6 +811,8 @@ internal sealed class BmsLibraryInitializationService
         result.PostParseMaxBatchMs = TicksToMilliseconds(postParseMaxBatchTicks);
         result.InlineChartInfoWallMs = TicksToMilliseconds(inlineChartInfoWallTicks);
         result.InlineMaintenanceWallMs = TicksToMilliseconds(inlineMaintenanceWallTicks);
+        result.InlineBmsMaintenanceWallMs = TicksToMilliseconds(inlineBmsMaintenanceWallTicks);
+        result.InlineBmsonMaintenanceWallMs = TicksToMilliseconds(inlineBmsonMaintenanceWallTicks);
         return pipelineResult;
     }
 
@@ -835,7 +848,11 @@ internal sealed class BmsLibraryInitializationService
         }
     }
 
-    private static FileDiffParsedCandidate ParseFileDiffCandidate(FileDiffReadCandidate candidate, ref long bmsParseTicks, ref long bmsonParseTicks)
+    private static FileDiffParsedCandidate ParseFileDiffCandidate(
+        FileDiffReadCandidate candidate,
+        Lr2SongFolderParentNormalizer.Lr2FolderParentHashCache folderParentHashCache,
+        ref long bmsParseTicks,
+        ref long bmsonParseTicks)
     {
         if (candidate.Kind == FileDiffChartKind.Bms)
         {
@@ -845,7 +862,7 @@ internal sealed class BmsLibraryInitializationService
             }
             Stopwatch stopwatch = Stopwatch.StartNew();
             BMSFile file = BMSFile.CreateBMSFileFromSnapshot(candidate.Snapshot);
-            Lr2SongFolderParentNormalizer.ApplyIfMissingOrInvalid(file);
+            Lr2SongFolderParentNormalizer.ApplyIfMissingOrInvalid(file, folderParentHashCache);
             stopwatch.Stop();
             Interlocked.Add(ref bmsParseTicks, stopwatch.ElapsedTicks);
             return FileDiffParsedCandidate.FromBms(InlineBmsParseCandidate.CreateSuccess(candidate.Path, candidate.Snapshot, file));
@@ -919,18 +936,24 @@ internal sealed class BmsLibraryInitializationService
         FileScanDiffCommitChunk commitChunk = new FileScanDiffCommitChunk();
         DirectoryResourceLookupCache lookupCache = inlineMaintenanceLookupContext?.DirectoryLookupCache;
         Stopwatch maintenanceStopwatch = Stopwatch.StartNew();
+        Stopwatch bmsMaintenanceStopwatch = Stopwatch.StartNew();
         InlineMaintenanceItemResult[] bmsMaintenanceResults = BuildInlineBmsMaintenanceBatch(
             bmsBatch,
             lookupCache,
             Math.Max(1, result.InlineMaintenanceDegree),
             logInstallPerformanceWarn);
+        bmsMaintenanceStopwatch.Stop();
+        Stopwatch bmsonMaintenanceStopwatch = Stopwatch.StartNew();
         InlineMaintenanceItemResult[] bmsonMaintenanceResults = BuildInlineBmsonMaintenanceBatch(
             bmsonBatch,
             lookupCache,
             Math.Max(1, result.InlineMaintenanceDegree),
             logInstallPerformanceWarn);
+        bmsonMaintenanceStopwatch.Stop();
         maintenanceStopwatch.Stop();
         metrics.MaintenanceTicks = maintenanceStopwatch.ElapsedTicks;
+        metrics.BmsMaintenanceTicks = bmsMaintenanceStopwatch.ElapsedTicks;
+        metrics.BmsonMaintenanceTicks = bmsonMaintenanceStopwatch.ElapsedTicks;
         ApplyInlineMaintenanceResults(result, bmsMaintenanceResults);
         ApplyInlineMaintenanceResults(result, bmsonMaintenanceResults);
 
@@ -1051,11 +1074,19 @@ internal sealed class BmsLibraryInitializationService
         }
         ResourceHealthLookupContext lookupContext = new ResourceHealthLookupContext(lookupCache);
         Stopwatch stopwatch = Stopwatch.StartNew();
+        long healthMs = 0L;
+        long encodingMs = 0L;
+        long encodingReloadMs = 0L;
+        int encodingReloadCount = 0;
         bool completed = false;
         string warning = null;
         try
         {
+            Stopwatch stepStopwatch = Stopwatch.StartNew();
             file.SetHealthStatusUsingLookupContext(lookupContext, forceUpdate: false, memClear: true);
+            stepStopwatch.Stop();
+            healthMs = stepStopwatch.ElapsedMilliseconds;
+            stepStopwatch.Restart();
             if (snapshot != null)
             {
                 file.SetEncosingInfo(snapshot);
@@ -1064,8 +1095,12 @@ internal sealed class BmsLibraryInitializationService
             {
                 file.SetEncosingInfo();
             }
+            stepStopwatch.Stop();
+            encodingMs = stepStopwatch.ElapsedMilliseconds;
             if (ShouldReloadBmsForFixedEncoding(file.maintenanceInfo?.encoding))
             {
+                encodingReloadCount = 1;
+                stepStopwatch.Restart();
                 if (snapshot != null)
                 {
                     BMSFile.ReloadBMSFileWithEncoding(file, snapshot, file.maintenanceInfo.encoding);
@@ -1074,6 +1109,8 @@ internal sealed class BmsLibraryInitializationService
                 {
                     BMSFile.ReloadBMSFileWithEncoding(file, file.maintenanceInfo.encoding);
                 }
+                stepStopwatch.Stop();
+                encodingReloadMs = stepStopwatch.ElapsedMilliseconds;
                 file.maintenanceInfo.is_encoding_fixed = true;
             }
             completed = file.maintenanceInfo?.IsInformationChecked() == true;
@@ -1094,6 +1131,10 @@ internal sealed class BmsLibraryInitializationService
             successCount: completed ? 1 : 0,
             failedCount: completed ? 0 : 1,
             elapsedMs: stopwatch.ElapsedMilliseconds,
+            healthMs: healthMs,
+            encodingMs: encodingMs,
+            encodingReloadMs: encodingReloadMs,
+            encodingReloadCount: encodingReloadCount,
             cacheHitCount: lookupContext.CacheHitCount,
             fileExistsFallbackCount: lookupContext.FileExistsFallbackCount,
             warningMessage: warning);
@@ -1136,6 +1177,10 @@ internal sealed class BmsLibraryInitializationService
             successCount: completed ? 1 : 0,
             failedCount: completed ? 0 : 1,
             elapsedMs: stopwatch.ElapsedMilliseconds,
+            healthMs: stopwatch.ElapsedMilliseconds,
+            encodingMs: 0,
+            encodingReloadMs: 0,
+            encodingReloadCount: 0,
             cacheHitCount: lookupContext.CacheHitCount,
             fileExistsFallbackCount: lookupContext.FileExistsFallbackCount,
             warningMessage: warning);
@@ -1165,6 +1210,10 @@ internal sealed class BmsLibraryInitializationService
             result.InlineMaintenanceSuccessCount += itemResult.SuccessCount;
             result.InlineMaintenanceFailedCount += itemResult.FailedCount;
             result.InlineMaintenanceMs += itemResult.ElapsedMs;
+            result.InlineHealthWallMs += itemResult.HealthMs;
+            result.InlineEncodingWallMs += itemResult.EncodingMs;
+            result.InlineEncodingReloadWallMs += itemResult.EncodingReloadMs;
+            result.InlineEncodingReloadCount += itemResult.EncodingReloadCount;
             result.InlineMaintenanceCacheHitCount += itemResult.CacheHitCount;
             result.InlineMaintenanceFileExistsFallbackCount += itemResult.FileExistsFallbackCount;
         }
@@ -1761,6 +1810,10 @@ internal sealed class BmsLibraryInitializationService
 
         public long MaintenanceTicks { get; set; }
 
+        public long BmsMaintenanceTicks { get; set; }
+
+        public long BmsonMaintenanceTicks { get; set; }
+
         public long CommitQueueWaitTicks { get; set; }
     }
 
@@ -1789,6 +1842,10 @@ internal sealed class BmsLibraryInitializationService
             successCount: 0,
             failedCount: 0,
             elapsedMs: 0,
+            healthMs: 0,
+            encodingMs: 0,
+            encodingReloadMs: 0,
+            encodingReloadCount: 0,
             cacheHitCount: 0,
             fileExistsFallbackCount: 0,
             warningMessage: null);
@@ -1799,6 +1856,10 @@ internal sealed class BmsLibraryInitializationService
             int successCount,
             int failedCount,
             long elapsedMs,
+            long healthMs,
+            long encodingMs,
+            long encodingReloadMs,
+            int encodingReloadCount,
             long cacheHitCount,
             long fileExistsFallbackCount,
             string warningMessage)
@@ -1808,6 +1869,10 @@ internal sealed class BmsLibraryInitializationService
             SuccessCount = Math.Max(0, successCount);
             FailedCount = Math.Max(0, failedCount);
             ElapsedMs = Math.Max(0L, elapsedMs);
+            HealthMs = Math.Max(0L, healthMs);
+            EncodingMs = Math.Max(0L, encodingMs);
+            EncodingReloadMs = Math.Max(0L, encodingReloadMs);
+            EncodingReloadCount = Math.Max(0, encodingReloadCount);
             CacheHitCount = Math.Max(0L, cacheHitCount);
             FileExistsFallbackCount = Math.Max(0L, fileExistsFallbackCount);
             WarningMessage = warningMessage;
@@ -1823,6 +1888,14 @@ internal sealed class BmsLibraryInitializationService
         public int FailedCount { get; }
 
         public long ElapsedMs { get; }
+
+        public long HealthMs { get; }
+
+        public long EncodingMs { get; }
+
+        public long EncodingReloadMs { get; }
+
+        public int EncodingReloadCount { get; }
 
         public long CacheHitCount { get; }
 

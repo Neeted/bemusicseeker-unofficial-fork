@@ -136,6 +136,18 @@ internal sealed class SongTableFileCheckResult
 
     public long InlineMaintenanceWallMs { get; set; }
 
+    public long InlineHealthWallMs { get; set; }
+
+    public long InlineEncodingWallMs { get; set; }
+
+    public long InlineEncodingReloadWallMs { get; set; }
+
+    public int InlineEncodingReloadCount { get; set; }
+
+    public long InlineBmsMaintenanceWallMs { get; set; }
+
+    public long InlineBmsonMaintenanceWallMs { get; set; }
+
     public long InlineMaintenanceCacheHitCount { get; set; }
 
     public long InlineMaintenanceFileExistsFallbackCount { get; set; }

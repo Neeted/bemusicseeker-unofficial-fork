@@ -990,12 +990,72 @@ public sealed class BmsLibraryInitializationServiceTests
             Assert.AreEqual(title, added.Title);
             Assert.AreEqual("ks_c_5601-1987", added.maintenanceInfo.encoding);
             Assert.IsTrue(added.maintenanceInfo.is_encoding_fixed);
+            Assert.AreEqual(1, result.InlineEncodingReloadCount);
+            Assert.IsTrue(result.InlineEncodingReloadWallMs >= 0);
 
             using LR2SongDBExtended verify = new LR2SongDBExtended(songDbPath);
             Assert.AreEqual(title, verify.ExecuteScalar<string>("SELECT title FROM song WHERE path = ?;", bmsPath));
             LR2SongDBExtended.maintenance maintenance = verify.Query<LR2SongDBExtended.maintenance>("SELECT * FROM maintenance WHERE path = ?;", bmsPath).Single();
             Assert.AreEqual("ks_c_5601-1987", maintenance.encoding);
             Assert.AreEqual(1, maintenance.wav_files_defined);
+        });
+    }
+
+    [TestMethod]
+    public void ApplyFileScanDiff_CachesFolderParentHashesForChartsInSameDirectory()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
+        {
+            string chartDirectoryPath = Path.Combine(lr2RootPath, "FolderParentCache");
+            Directory.CreateDirectory(chartDirectoryPath);
+            string firstPath = Path.Combine(chartDirectoryPath, "first.bms");
+            string secondPath = Path.Combine(chartDirectoryPath, "second.bms");
+            string wavPath = Path.Combine(chartDirectoryPath, "sound.wav");
+            File.WriteAllText(firstPath, CreateValidBmsText("First"), Encoding.ASCII);
+            File.WriteAllText(secondPath, CreateValidBmsText("Second"), Encoding.ASCII);
+            File.WriteAllBytes(wavPath, new byte[] { 1, 2, 3 });
+
+            BMSFile expected = BMSFile.CreateBMSFileFromFile(firstPath);
+            Lr2SongFolderParentNormalizer.ApplyIfMissingOrInvalid(expected);
+
+            using (LR2SongDBExtended songDbConnection = new LR2SongDBExtended(songDbPath))
+            {
+                songDbConnection.CreateTable<LR2SongDB.song>();
+            }
+
+            BmsLibraryInitializationService service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 2);
+            SongTableFileCheckResult result = service.ApplyFileScanDiff(
+                new BmsLibraryDbGateway(songDbPath),
+                new BmsLibraryOptionsSnapshot(),
+                Array.Empty<BMSFile>(),
+                new BmsScanExecutionResult
+                {
+                    Success = true,
+                    Result = CreateScanResult(
+                        new[] { firstPath, secondPath },
+                        new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
+                        {
+                            { chartDirectoryPath, new[] { "sound.wav" } }
+                        })
+                },
+                0L,
+                () => null,
+                null,
+                currentBmsonSongs: Array.Empty<LR2SongDBExtended.bmson_song>());
+
+            Assert.AreEqual(2, result.AddedFiles.Count);
+            Assert.IsTrue(result.InlineHealthWallMs >= 0);
+            Assert.IsTrue(result.InlineEncodingWallMs >= 0);
+            Assert.IsTrue(result.InlineBmsMaintenanceWallMs >= 0);
+            foreach (BMSFile added in result.AddedFiles)
+            {
+                Assert.AreEqual(expected.folder, added.folder);
+                Assert.AreEqual(expected.parent, added.parent);
+                Assert.IsFalse(added.Warnings.Contains(ChartWarningKind.Lr2PathEncodingUnsupported));
+                Assert.AreEqual(1, added.maintenanceInfo.wav_files_defined);
+                Assert.AreEqual(1, added.maintenanceInfo.wav_files_existing);
+            }
         });
     }
 
