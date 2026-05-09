@@ -11,7 +11,10 @@
 
 導入可能を早くするために必要な background work を単に後回しへ隠すのではなく、`startup_install_estimation_ready` と `startup_initialization_complete` の両方を観測する。
 
-2026-05-07 時点の通常起動では、導入可能 readiness は概ね 20 秒前後、UI 操作可能は 21 秒前後まで短縮済みである。一方で `startup_initialization_complete` は 39 秒前後で、操作可能後の background tail がまだ残る。以後の主対象は導入可能 critical path ではなく、`chart_info_hydration` を中心とした startup background tail である。
+2026-05-09 時点では、通常起動と空 DB 初回構築を分けて読む。
+
+- 通常起動 / 差分なしに近い起動では、導入可能 readiness は概ね 20 秒前後、UI 操作可能は 21 秒前後まで短縮済みである。この場合の background tail は `chart_info_hydration` が中心で、`startup_initialization_complete` は 39 秒前後まで短縮済みである。
+- 空 DB 初回構築では、`song` / `bmson_song` / `maintenance` / `chart_digest_map` / inline `chart_info` を新規構築するため、全 chart file bytes の read が支配的になる。直近ログでは `parse_read_bytes_estimate=14067633086`、`startup_install_estimation_ready elapsedMs=401434`、`startup_ready_operable elapsedMs=463762`、`startup_initialization_complete elapsedMs=667710` である。同じ 14GB 級の単純 read benchmark が `453.572 sec` であるため、この環境では初回 song/maintenance table 構築の高速化は一旦完了扱いとし、以後は通常起動や background tail と分けて評価する。
 
 ## Startup
 
@@ -126,7 +129,9 @@ resource index は chart-relative resource key を正本にする。`foo.wav` �
 
 `StartupInstallReadinessState` は `CatalogLoaded && DestinationResourceIndexReady && PendingPackagesRestored` を満たしたとき `InstallEstimationReady` に遷移する。`maintenance_hydration`、`chart_info_hydration`、playlist hydration、score/ranking refresh は install readiness の blocker にしない。
 
-導入可能 readiness の最新の支配項は Everything scan / native bridge である。`song_tbl_load` 由来の catalog load は 3 秒台まで短縮済みだが、file enumeration と並走しており、現状の導入可能 wall clock では Everything scan に隠れる。`song_tbl_load` の micro optimization は、導入可能短縮の主対象にはしない。
+導入可能 readiness の支配項は起動状態で異なる。通常起動 / 差分なしに近い起動では Everything scan / native bridge が支配項である。`song_tbl_load` 由来の catalog load は 3 秒台まで短縮済みだが、file enumeration と並走しており、現状の導入可能 wall clock では Everything scan に隠れる。`song_tbl_load` の micro optimization は、通常起動の導入可能短縮の主対象にはしない。
+
+空 DB 初回構築では、Everything scan そのものよりも file diff apply 内の全譜面 read、lightweight parse、inline maintenance、encoding detection、DB commit が支配的になる。この経路では追加/更新 chart の `ChartFileSnapshot` を起点に `song` 登録、inline `chart_info`、inline `maintenance`、encoding 補正をまとめて処理する。非 Shift_JIS が確定した BMS の metadata reload は snapshot bytes から raw `title` / `subtitle` / `artist` / `subartist` / `genre` を再適用し、旧 setter 合成に戻さない。
 
 | Log | 意味 |
 | --- | --- |
@@ -224,6 +229,8 @@ ReloadFileDiff
 差分が 0 件の場合は DB commit、chart_info hydration/backfill、installable maintenance を発生させない。
 
 差分がある場合、reader は 1 本、parser は `max(1, Environment.ProcessorCount - 1)` を既定とする。parser output queue は inline `chart_info` batch size 以上を確保し、既定 batch size は 2048 件、DB commit chunk size は 10000 件とする。inline maintenance は post-parse worker 内で bounded parallelism により実行し、`SongTableFileCheckResult` と DB chunk への反映は集約後に行う。
+
+手動 `ReloadFileDiff` は、prefetch の有無、reason/progress/UI 更新、後段 playlist reference scheduling を除き、`Startup` の file diff と同じ `ApplyFileScanDiff()` 経路を使う。軽量 parse、inline `chart_info`、inline `maintenance`、snapshot 由来 encoding reload の意味論は起動時 file diff と揃える。
 
 ## ReloadTables
 

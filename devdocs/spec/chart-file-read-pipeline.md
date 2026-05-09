@@ -1,6 +1,6 @@
 # 現行の譜面ファイル読み込みパイプライン
 
-この資料は、`2026-05-03` 時点の譜面ファイル読み込みと `chart_info` 生成の正本仕様をまとめる。実装中の初期化軽量化では、この資料の責務分離に合わせて差分ファイル由来の処理と DB 由来の background 補完を分ける。
+この資料は、`2026-05-09` 時点の譜面ファイル読み込み、軽量 metadata、maintenance、`chart_info` 生成の正本仕様をまとめる。実装中の初期化軽量化では、この資料の責務分離に合わせて差分ファイル由来の処理と DB 由来の background 補完を分ける。
 
 目的は、追加・更新譜面で同じファイルを軽量 parser と `chart_info` parser が別々に読む状態を避け、どの入口を使うべきかを明確にすること。
 
@@ -22,6 +22,7 @@
 | BMS 軽量 parse | `BMSFile.CreateBMSFileFromSnapshot(snapshot, codepageName)` | `song` 登録、一覧 metadata、resource list 用 |
 | bmson 軽量 parse | `BmsonSongParser.ParseSnapshot(snapshot)` | `bmson_song` 登録、一覧 metadata、resource list 用 |
 | chart_info parse | `ChartInfoParser.ParseBytesDetailed(snapshot.Bytes, snapshot.Path, snapshot.Md5, snapshot.Sha256, ..., timeout)` | 診断、timeout、parse failure 保存に必要な情報を返す |
+| BMS encoding reload | `BMSFile.ReloadBMSMetadataWithEncodingDetection(file, snapshot, detectionResult)` | snapshot 由来の bytes で raw metadata だけを再デコードする |
 
 `BMSFile.CreateBMSFileFromFile(...)`、`BmsonSongParser.Parse(path)`、`ChartInfoParser.Parse(path)` は互換 API として残す。既に path しか持っていない保守処理や pending 生成では使ってよいが、新しい single-read 経路では snapshot / bytes entry point を優先する。
 
@@ -60,6 +61,8 @@ current `chart_info` row が存在する場合、inline parser は詳細 parse �
 
 `song_tbl_file_check_breakdown` の `inline_maintenance_*` は、file diff chunk 内で作った `maintenance` row の対象数、成功/失敗、BMS/bmson 内訳、cache hit / `File.Exists` fallback を表す。chunk commit log の `maintenance=` は、その chunk で `maintenance` table へ保存した row 数を表す。
 
+`song_tbl_file_check_breakdown` の `inline_encoding_*` は、BMS の encoding 判定と非 Shift_JIS 確定時の metadata reload を表す。`inline_encoding_detect_count` は判定対象数、`inline_encoding_fast_ascii_count` は bytes 由来の fast ASCII 判定、`inline_encoding_shift_jis_count` / `inline_encoding_ks_c_5601_count` / `inline_encoding_utf8_count` などは判定結果、`inline_encoding_reload_count` / `inline_encoding_reload_wall_ms` は raw metadata reload の件数と wall clock を表す。
+
 ### Resource Ref Lifetime
 
 `BMSFile.CreateBMSFileFromSnapshot()` は BMS metadata と同時に `WAVfiles` / `BGAfiles` を構築する。これは health 判定に必要だが、BMSFile 正本へ長期保持すると大量追加時に heap を大きく押し上げる。
@@ -74,21 +77,37 @@ current `chart_info` row が存在する場合、inline parser は詳細 parse �
 
 この方針では、追加ファイル由来の resource health は `installable_maintenance_deferred` へ押し出さない。deferred は DB 由来の missing/stale maintenance 補完、force update、file diff で扱えなかった例外的対象に寄せる。
 
+### Encoding / Raw Metadata
+
+BMS の一覧用 metadata は軽量 parser がまず Shift_JIS 系の既定挙動で読む。maintenance 作成時に `SetEncodingInfoFromSnapshotDetailed()` で bytes 由来の encoding 判定を行い、ASCII fast path、Shift_JIS、KS_C_5601、UTF-8、unknown などを分類する。
+
+非 Shift_JIS が確定し、かつ `?` / unknown ではない場合だけ、同じ snapshot bytes を使って `title` / `subtitle` / `artist` / `subartist` / `genre` の raw metadata を再適用する。ここでは `#SUBTITLE` を title へ、`#SUBARTIST` を artist へ合成する setter 挙動に戻さない。manual/public 側の `ReloadBMSFileWithEncoding(...)` も同じ raw metadata 適用方針に揃える。
+
+`maintenance.encoding` は UI metadata 補正と maintenance 表示のための情報であり、`chart_info` parser の decode 方針を変えない。`chart_info` は inline / full backfill とも beatoraja 互換の既定 decode を使い、maintenance の encoding 補正とは別の責務として扱う。
+
 ## Package Install
 
-package install は、保留で読んだ bytes を長期保持しない。インストール後の最終配置 path を対象に snapshot を 1 回 read し、inline `chart_info` を作る。
+package install は、保留で読んだ bytes を長期保持しない。pending discovery では path-based な `BMSFile.CreateBMSFileFromFile(...)` / `BmsonSongParser.Parse(path)` 由来の model を使う。インストール後は最終配置 path を対象に inline `chart_info` を作り、maintenance は batch 末尾の affected chart 更新で再計算する。
 保留中に付いた `ResourceHealth` warning は導入前配置の一時評価なので、導入成功時に source `BMSFile.Warnings` から消す。導入後の `ResourceHealth` warning 表示は、通常ライブラリと同じく `maintenanceInfo` / resource health index の projection に任せる。
 
 ```text
 package install / move
   -> song / bmson_song registration
   -> clear pending ResourceHealth source warnings
-  -> final path snapshot read
-  -> inline chart_info
+  -> final path chart_info read / parse
+  -> affected chart maintenance update
   -> DB apply + session chart_info index apply
 ```
 
 このため、旧来の added chart_info backfill は使わない。install inline の summary は `chart_info_inline_install ...` として `install-performance.log` に出る。
+
+package install は起動時 file diff と完全には同じではない。起動時 file diff は追加/更新 chart のその時点の snapshot を起点に lightweight parse、maintenance、inline `chart_info` を一貫処理する。一方 package install は pending discovery 時の model、移動後の destination file からの `chart_info` read、batch 末尾の maintenance 再計算に分かれる。discovery から install までに source file が変わった場合は、起動時 file diff より鮮度差が生じやすい。
+
+## Manual Rescan / Encoding Fix
+
+行右クリックの `ファイルスキャン > 再スキャン` と `全譜面を再スキャン` は、resource health / encoding / bmson resource reference を再計算する明示的な重い操作である。この経路は `setMaintenanceInfo(forceUpdate: true)` から path-based API を使うため、起動時 file diff のように単一 `ChartFileSnapshot` を `song` / `maintenance` / `chart_info` で共有しない。
+
+manual rescan は `chart_info` を作らない。既存 `chart_info` の不足や parser version 差分は `chart_info_hydration` / `chart_info_backfill` が担当する。manual encoding fix は path-based に metadata を読み直すが、適用対象は file diff と同じ raw `title` / `subtitle` / `artist` / `subartist` / `genre` に限定する。
 
 ## Full Backfill
 
@@ -120,6 +139,7 @@ full backfill は新規ファイル追加の後処理ではない。新規・更
 | Log | 意味 |
 | --- | --- |
 | `song_tbl_file_check_breakdown` | file diff の対象数、single-read 推定量、inline chart_info count / ms |
+| `song_tbl_file_check_breakdown inline_encoding_*` | file diff chunk 内の encoding 判定と raw metadata reload の count / ms |
 | `chart_info_inline_install` | package install 後 inline chart_info の summary |
 | `chart_info_backfill start/done` | full backfill の summary |
 | `chart_info_backfill parse_failed` | shared parser failure log。inline / full の両方で使われることがある |

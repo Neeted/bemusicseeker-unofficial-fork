@@ -133,6 +133,8 @@ group ごとの処理では、ファイル移動、`song.db` の譜面 upsert、
 
 maintenance / chart_info inline 更新も batch 末尾です。maintenance 対象は、追加された BMS / bmson chart に加えて、resource file が移動された destination directory 内の既存 installed chart です。chart も resource も移動しない cleanup-only 成功では maintenance を行いません。
 
+この後処理は起動時 file diff とは別経路です。pending package discovery では source 側の path-based parse で作った `BMSFile` / `BmsonSong` model を使い、install 後は destination の実ファイルを対象に `chart_info_inline_install` と `setMaintenanceInfo(forceUpdate: true)` を実行します。起動時 file diff のように 1 つの `ChartFileSnapshot` を lightweight parse、inline maintenance、inline chart_info で共有する処理ではないため、discovery から install までに source file が変わると、metadata model と install 後の chart_info / maintenance の鮮度が分かれる可能性があります。
+
 resource health index は delta 更新を優先します。既存 snapshot があり、affected chart が特定できる推定先 install では、`resource_health_index_delta reason=install_package_estimated` として対象 chart の projection だけを更新します。snapshot が無い、対象が特定できない、または通常の全体再スキャン系操作では従来通り `resource_health_index_build` の full rebuild に fallback します。
 
 ログ確認時は次を見ると、処理の粒度を確認できます。
