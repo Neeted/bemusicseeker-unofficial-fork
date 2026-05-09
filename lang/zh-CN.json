@@ -73,6 +73,7 @@
   "Recommended_automatic_update": "推荐段位 (自动更新)",
   "PlaylistProp_folder_prefix": "文件夹前缀：",
   "Msg_invalid_setting": "存在无效的设置内容。",
+  "Msg_settings_apply_blocked_during_initialization": "初始化或库更新完成前无法应用设置。\n请在完成后重试。",
   "CustomFolder": "自定义文件夹",
   "Msg_hide_message": "可以在设置界面中将此消息设为隐藏。",
   "Device": "设备",

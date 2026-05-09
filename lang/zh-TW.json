@@ -73,6 +73,7 @@
   "Recommended_automatic_update": "推薦段位 (自動更新)",
   "PlaylistProp_folder_prefix": "資料夾前綴：",
   "Msg_invalid_setting": "存在無效的設定內容。",
+  "Msg_settings_apply_blocked_during_initialization": "初始化或資料庫更新完成前無法套用設定。\n請在完成後重試。",
   "CustomFolder": "自訂資料夾",
   "Msg_hide_message": "可以在設定介面中將此訊息設為隱藏。",
   "Device": "裝置",

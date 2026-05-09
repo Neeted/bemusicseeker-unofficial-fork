@@ -26,6 +26,8 @@ StartupProgressValue   = ExpectedPhases かつ CompletedPhases に含まれる p
 
 `ExpectedPhases` は `Startup` / `ReloadFileDiff` / `ScoreOnly` / `FullReinitialize` / `ReloadTables` の開始時に固定される。request 済みだが不要になった phase、または request されなかった phase は `SkippedPhases` と `CompletedPhases` に入る。
 
+progress operation には `OperationToken` を付与する。UI suppress の遅延 flush、folder tree の遅延 refresh、external playlist sync、playlist reference apply のように operation 本体より遅れて戻る callback は、スケジュール時 token と現在の token が一致する場合だけ progress phase を進める。これにより、前回 operation の遅延 callback が次回 operation の `StartupReadyUi` / `StartupReadyOperable` / background phase を誤って完了させることを防ぐ。
+
 background 系 phase は request 済みでなければ complete できない。ただし次の基礎 phase と library load phase は request 不要で complete できる。
 
 - `CoreInitializeStarted`

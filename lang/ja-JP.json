@@ -78,6 +78,7 @@
   "Recommended_automatic_update": "リコメンド (自動更新)",
   "PlaylistProp_folder_prefix": "フォルダ接頭辞: ",
   "Msg_invalid_setting": "設定が正しいか確認してください。",
+  "Msg_settings_apply_blocked_during_initialization": "初期化またはライブラリ更新が完了するまで設定を適用できません。\n完了後にもう一度実行してください。",
   "CustomFolder": "カスタムフォルダ",
   "Msg_hide_message": "このメッセージは設定画面で非表示に出来ます",
   "Device": "デバイス",

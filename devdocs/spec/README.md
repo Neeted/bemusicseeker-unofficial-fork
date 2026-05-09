@@ -22,6 +22,7 @@
 - [chart-file-read-pipeline.md](chart-file-read-pipeline.md)
 - [chart-info-parser-compatibility-notes.md](chart-info-parser-compatibility-notes.md)
 - [startup-reload-progress.md](startup-reload-progress.md)
+- [settings-change-impact-and-startup-operations.md](settings-change-impact-and-startup-operations.md)
 - [warning-model.md](warning-model.md)
 - [appearance-theme.md](appearance-theme.md)
 

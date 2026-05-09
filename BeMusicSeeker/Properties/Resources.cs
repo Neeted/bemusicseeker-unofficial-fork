@@ -469,6 +469,8 @@ public class Resources
 
     public static string Msg_invalid_setting => ResourceManager.GetString("Msg_invalid_setting", resourceCulture);
 
+    public static string Msg_settings_apply_blocked_during_initialization => ResourceManager.GetString("Msg_settings_apply_blocked_during_initialization", resourceCulture);
+
     public static string Msg_load_recommended_tables_error => ResourceManager.GetString("Msg_load_recommended_tables_error", resourceCulture);
 
     public static string Msg_load_recommended_tables_readonly_mode => ResourceManager.GetString("Msg_load_recommended_tables_readonly_mode", resourceCulture);

@@ -73,6 +73,7 @@
   "Recommended_automatic_update": "Recommended (Automatic update)",
   "PlaylistProp_folder_prefix": "Dossier prefix: ",
   "Msg_invalid_setting": "Parametre invalide.",
+  "Msg_settings_apply_blocked_during_initialization": "Les parametres ne peuvent pas etre appliques tant que l'initialisation ou la mise a jour de la bibliotheque n'est pas terminee.\nVeuillez reessayer apres la fin du traitement.",
   "CustomFolder": "Custom folder",
   "Msg_hide_message": "This message can be hidden on the setting dialog.",
   "Device": "Device",

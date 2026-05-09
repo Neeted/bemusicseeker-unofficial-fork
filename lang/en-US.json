@@ -73,6 +73,7 @@
   "Recommended_automatic_update": "Recommended (Automatic update)",
   "PlaylistProp_folder_prefix": "Folder prefix: ",
   "Msg_invalid_setting": "Invalid setting is found.",
+  "Msg_settings_apply_blocked_during_initialization": "Settings cannot be applied until initialization or library update is complete.\nPlease try again after it finishes.",
   "CustomFolder": "Custom folder",
   "Msg_hide_message": "This message can be hidden on the setting dialog.",
   "Device": "Device",

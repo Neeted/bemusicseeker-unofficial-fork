@@ -83,6 +83,13 @@ public partial class SettingDialog : UserControl, IComponentConnector
 		settingDialogRootGrid.IsEnabled = false;
 		try
 		{
+			if (viewModel.IsLibraryOperationInProgress)
+			{
+				DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_settings_apply_blocked_during_initialization, BeMusicSeeker.Properties.Resources.Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation);
+				settingDialogViewModel.ResetSettings();
+				SyncAppearanceThemeSelection(settingDialogViewModel);
+				return;
+			}
 			if (settingDialogViewModel.CheckValidation(out var errMsg))
 			{
 				bool shouldInitializeAfterSave = !viewModel.HasActiveLibraryProfile;

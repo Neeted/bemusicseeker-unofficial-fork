@@ -173,6 +173,10 @@ LR2ディレクトリ・カスタムフォルダ出力ディレクトリ
   <data name="Msg_invalid_setting" xml:space="preserve">
     <value>設定が正しいか確認してください。</value>
   </data>
+  <data name="Msg_settings_apply_blocked_during_initialization" xml:space="preserve">
+    <value>初期化またはライブラリ更新が完了するまで設定を適用できません。
+完了後にもう一度実行してください。</value>
+  </data>
   <data name="CustomFolder" xml:space="preserve">
     <value>カスタムフォルダ</value>
   </data>

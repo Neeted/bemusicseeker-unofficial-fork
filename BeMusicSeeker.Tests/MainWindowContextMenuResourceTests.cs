@@ -382,12 +382,44 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(saveAndClose, "SaveSettingsForInitialInitialize()");
         StringAssert.Contains(saveAndClose, "settingDialog.Visibility = Visibility.Hidden;");
         StringAssert.Contains(saveAndClose, "settingDialogViewModel.CheckValidation(out var errMsg)");
+        StringAssert.Contains(saveAndClose, "viewModel.IsLibraryOperationInProgress");
+        StringAssert.Contains(saveAndClose, "Resources.Msg_settings_apply_blocked_during_initialization");
+        StringAssert.Contains(saveAndClose, "settingDialogViewModel.ResetSettings();");
+        StringAssert.Contains(saveAndClose, "SyncAppearanceThemeSelection(settingDialogViewModel);");
         StringAssert.Contains(saveAndClose, "Msg_invalid_setting");
         StringAssert.Contains(saveAndClose, "Msg_error_unexpected");
+        Assert.IsTrue(saveAndClose.IndexOf("viewModel.IsLibraryOperationInProgress", StringComparison.Ordinal) < saveAndClose.IndexOf("SaveSettingsForInitialInitialize()", StringComparison.Ordinal));
         Assert.IsFalse(settingDialogCode.Contains("firstStartupInitializationStarted"));
         StringAssert.Contains(appCode, "public void RestartApplication()");
         StringAssert.Contains(appCode, "ReleaseSingleInstanceMutex();");
         StringAssert.Contains(appCode, "Environment.GetCommandLineArgs().Skip(1)");
+    }
+
+    [TestMethod]
+    public void StartupReloadProgress_UsesSerializedOperationTokens()
+    {
+        string viewModelCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
+        string reloadFileDiff = ExtractBetween(
+            viewModelCode,
+            "public async void ReloadFileDiff()",
+            "public async void ReinitializeLibrary()");
+        string initialize = ExtractBetween(
+            viewModelCode,
+            "public async void Initialize()",
+            "public void SetuBMplayPanel()");
+        string endSuppression = ExtractBetween(
+            viewModelCode,
+            "private void EndUiUpdateSuppression()",
+            "private bool QueueStartupBackgroundTask");
+
+        StringAssert.Contains(viewModelCode, "public bool IsLibraryOperationInProgress");
+        StringAssert.Contains(viewModelCode, "private long GetActiveStartupProgressOperationToken()");
+        StringAssert.Contains(viewModelCode, "private bool IsStartupProgressOperationTokenCurrent(long operationToken)");
+        Assert.IsTrue(reloadFileDiff.IndexOf("await _semaphore.WaitAsync();", StringComparison.Ordinal) < reloadFileDiff.IndexOf("StartStartupProgressOperation(StartupProgressOperationKind.ReloadFileDiff)", StringComparison.Ordinal));
+        Assert.IsTrue(initialize.IndexOf("files = new BMSLibrary", StringComparison.Ordinal) < initialize.IndexOf("StartStartupProgressOperation(StartupProgressOperationKind.Startup)", StringComparison.Ordinal));
+        StringAssert.Contains(initialize, "StartDeferredExternalPlaylistSync(\"Initialize\", fromReloadTables: false, CreatePlaylistReferenceReplaceUpdateCallback(), operationToken)");
+        StringAssert.Contains(endSuppression, "FlushPendingUiRefresh(uiRefreshChannel, operationToken)");
+        StringAssert.Contains(viewModelCode, "ScheduleDeferredPlaylistReferenceApply(\"DeferredExternalSync:\" + reason, operationToken)");
     }
 
     [TestMethod]

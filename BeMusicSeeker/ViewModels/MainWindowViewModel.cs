@@ -7140,8 +7140,29 @@ public class MainWindowViewModel : ViewModel
         }
     }
 
+    private long GetActiveStartupProgressOperationToken()
+    {
+        lock (startupProgressLock)
+        {
+            return startupProgressState.IsActive ? startupProgressState.OperationToken : 0L;
+        }
+    }
+
+    private bool IsStartupProgressOperationTokenCurrent(long operationToken)
+    {
+        if (operationToken == 0L)
+        {
+            return true;
+        }
+        lock (startupProgressLock)
+        {
+            return startupProgressState.IsActive && startupProgressState.OperationToken == operationToken;
+        }
+    }
+
     private void EndUiUpdateSuppression()
     {
+        long operationToken = GetActiveStartupProgressOperationToken();
         UiRefreshChannel uiRefreshChannel = UiRefreshChannel.None;
         int suppressDepth = 0;
         lock (lockUiSuppression)
@@ -7176,13 +7197,27 @@ public class MainWindowViewModel : ViewModel
         }
         DispatcherHelper.UIDispatcher.BeginInvoke((Action)delegate
         {
-            FlushPendingUiRefresh(uiRefreshChannel);
+            if (!IsStartupProgressOperationTokenCurrent(operationToken))
+            {
+                LogUiSuppression("ui_suppress flush_skipped_stale token=" + operationToken + " mask=" + uiRefreshChannel);
+                return;
+            }
+            FlushPendingUiRefresh(uiRefreshChannel, operationToken);
         });
     }
 
     private void TryLogStartupReadyData()
     {
+        TryLogStartupReadyData(GetActiveStartupProgressOperationToken());
+    }
+
+    private void TryLogStartupReadyData(long operationToken)
+    {
         if (startupReadyInstallStopwatch == null || startupReadyDataLogged)
+        {
+            return;
+        }
+        if (!IsStartupProgressOperationTokenCurrent(operationToken))
         {
             return;
         }
@@ -7194,12 +7229,21 @@ public class MainWindowViewModel : ViewModel
 
     private void TryLogStartupReadyUi(UiRefreshChannel mask)
     {
+        TryLogStartupReadyUi(mask, GetActiveStartupProgressOperationToken());
+    }
+
+    private void TryLogStartupReadyUi(UiRefreshChannel mask, long operationToken)
+    {
         UiRefreshChannel uiRefreshChannel = UiRefreshChannel.InstallTree | UiRefreshChannel.LibraryMainView;
         if ((mask & uiRefreshChannel) != uiRefreshChannel)
         {
             return;
         }
         if (startupReadyInstallStopwatch == null || startupReadyUiLogged)
+        {
+            return;
+        }
+        if (!IsStartupProgressOperationTokenCurrent(operationToken))
         {
             return;
         }
@@ -7212,11 +7256,20 @@ public class MainWindowViewModel : ViewModel
 
     private void TryLogStartupReadyInstall(UiRefreshChannel mask)
     {
+        TryLogStartupReadyInstall(mask, GetActiveStartupProgressOperationToken());
+    }
+
+    private void TryLogStartupReadyInstall(UiRefreshChannel mask, long operationToken)
+    {
         if ((mask & UiRefreshChannel.InstallTree) == 0 || (mask & UiRefreshChannel.LibraryMainView) == 0)
         {
             return;
         }
         if (startupReadyInstallStopwatch == null)
+        {
+            return;
+        }
+        if (!IsStartupProgressOperationTokenCurrent(operationToken))
         {
             return;
         }
@@ -7228,7 +7281,16 @@ public class MainWindowViewModel : ViewModel
 
     private void TryLogStartupReadyOperable()
     {
+        TryLogStartupReadyOperable(GetActiveStartupProgressOperationToken());
+    }
+
+    private void TryLogStartupReadyOperable(long operationToken)
+    {
         if (startupReadyOperableStopwatch == null)
+        {
+            return;
+        }
+        if (!IsStartupProgressOperationTokenCurrent(operationToken))
         {
             return;
         }
@@ -7614,6 +7676,11 @@ public class MainWindowViewModel : ViewModel
 
     private void ScheduleDeferredLibraryFolderTreeRefresh()
     {
+        ScheduleDeferredLibraryFolderTreeRefresh(GetActiveStartupProgressOperationToken());
+    }
+
+    private void ScheduleDeferredLibraryFolderTreeRefresh(long operationToken)
+    {
         bool shouldSchedule = false;
         lock (lockDeferredLibraryFolderTreeRefresh)
         {
@@ -7668,11 +7735,11 @@ public class MainWindowViewModel : ViewModel
                     }
                     if (shouldReschedule)
                     {
-                        ScheduleDeferredLibraryFolderTreeRefresh();
+                        ScheduleDeferredLibraryFolderTreeRefresh(operationToken);
                     }
                     else
                     {
-                        TryLogStartupReadyOperable();
+                        TryLogStartupReadyOperable(operationToken);
                     }
                 }
             });
@@ -7717,6 +7784,11 @@ public class MainWindowViewModel : ViewModel
     }
 
     private void FlushPendingUiRefresh(UiRefreshChannel mask)
+    {
+        FlushPendingUiRefresh(mask, GetActiveStartupProgressOperationToken());
+    }
+
+    private void FlushPendingUiRefresh(UiRefreshChannel mask, long operationToken)
     {
         LogUiSuppression("ui_suppress flush mask=" + mask);
         Stopwatch stopwatchTotal = Stopwatch.StartNew();
@@ -7783,15 +7855,15 @@ public class MainWindowViewModel : ViewModel
         {
             RefreshPlaylistSummaryPresentationIfVisible();
         }
-        TryLogStartupReadyUi(mask);
-        TryLogStartupReadyInstall(mask);
+        TryLogStartupReadyUi(mask, operationToken);
+        TryLogStartupReadyInstall(mask, operationToken);
         if (flag)
         {
-            ScheduleDeferredLibraryFolderTreeRefresh();
+            ScheduleDeferredLibraryFolderTreeRefresh(operationToken);
         }
         else
         {
-            TryLogStartupReadyOperable();
+            TryLogStartupReadyOperable(operationToken);
         }
     }
 
@@ -7923,6 +7995,11 @@ public class MainWindowViewModel : ViewModel
 
     private void ScheduleDeferredPlaylistReferenceApply(string reason)
     {
+        ScheduleDeferredPlaylistReferenceApply(reason, GetActiveStartupProgressOperationToken());
+    }
+
+    private void ScheduleDeferredPlaylistReferenceApply(string reason, long operationToken)
+    {
         int version = 0;
         bool shouldStartWorker = false;
         lock (lockDeferredPlaylistRef)
@@ -7935,8 +8012,11 @@ public class MainWindowViewModel : ViewModel
                 shouldStartWorker = true;
             }
         }
-        TrackStartupProgressPlaylistReferenceRequest(reason, version);
-        TrackStartupProgressPlaylistEntriesHydrationDirectRequest(version, "playlist_ref_deferred:" + reason);
+        if (IsStartupProgressOperationTokenCurrent(operationToken))
+        {
+            TrackStartupProgressPlaylistReferenceRequest(reason, version);
+            TrackStartupProgressPlaylistEntriesHydrationDirectRequest(version, "playlist_ref_deferred:" + reason);
+        }
         LogDeferredPlaylistReference("playlist_ref_deferred queue reason=" + reason + " version=" + version);
         if (!shouldStartWorker)
         {
@@ -7955,7 +8035,10 @@ public class MainWindowViewModel : ViewModel
                     try
                     {
                         tables.EnsureAllPlaylistEntriesLoadedAsync("playlist_ref_deferred").GetAwaiter().GetResult();
-                        TryCompleteStartupProgressPlaylistEntriesHydration(requestVersion);
+                        if (IsStartupProgressOperationTokenCurrent(operationToken))
+                        {
+                            TryCompleteStartupProgressPlaylistEntriesHydration(requestVersion);
+                        }
                         List<BMSTable> list = new List<BMSTable>();
                     tables.AcquireReaderLockBMSTables();
                     try
@@ -7974,14 +8057,20 @@ public class MainWindowViewModel : ViewModel
                     });
                     LogDeferredPlaylistReference("playlist_ref_deferred done version=" + requestVersion + " elapsedMs=" + (long)(DateTime.UtcNow - startedAt).TotalMilliseconds + " refreshed=true");
                     deferredPlaylistRefLastCompletedVersion = requestVersion;
-                    TryCompleteStartupProgressPlaylistReference(requestVersion);
+                    if (IsStartupProgressOperationTokenCurrent(operationToken))
+                    {
+                        TryCompleteStartupProgressPlaylistReference(requestVersion);
+                    }
                 }
                 catch (Exception ex)
                 {
                     LogDeferredPlaylistReference("playlist_ref_deferred failed version=" + requestVersion + " elapsedMs=" + (long)(DateTime.UtcNow - startedAt).TotalMilliseconds + " message=" + ex.Message);
                     deferredPlaylistRefLastCompletedVersion = requestVersion;
-                    TryCompleteStartupProgressPlaylistEntriesHydration(requestVersion);
-                    TryCompleteStartupProgressPlaylistReference(requestVersion);
+                    if (IsStartupProgressOperationTokenCurrent(operationToken))
+                    {
+                        TryCompleteStartupProgressPlaylistEntriesHydration(requestVersion);
+                        TryCompleteStartupProgressPlaylistReference(requestVersion);
+                    }
                 }
                 lock (lockDeferredPlaylistRef)
                 {
@@ -8024,6 +8113,11 @@ public class MainWindowViewModel : ViewModel
 
     private void StartDeferredExternalPlaylistSync(string reason, bool fromReloadTables, Action<BMSPlaylist.PlaylistTableUpdateContext> updateCallbackAction = null)
     {
+        StartDeferredExternalPlaylistSync(reason, fromReloadTables, updateCallbackAction, GetActiveStartupProgressOperationToken());
+    }
+
+    private void StartDeferredExternalPlaylistSync(string reason, bool fromReloadTables, Action<BMSPlaylist.PlaylistTableUpdateContext> updateCallbackAction, long operationToken)
+    {
         if (tables == null)
         {
             return;
@@ -8041,7 +8135,10 @@ public class MainWindowViewModel : ViewModel
                 shouldStartWorker = true;
             }
         }
-        TrackStartupProgressExternalSyncRequest(reason, version);
+        if (IsStartupProgressOperationTokenCurrent(operationToken))
+        {
+            TrackStartupProgressExternalSyncRequest(reason, version);
+        }
         LogDeferredExternalSync("deferred_external_sync queue reason=" + reason + " fromReloadTables=" + fromReloadTables.ToString().ToLowerInvariant() + " version=" + version);
         if (!shouldStartWorker)
         {
@@ -8074,19 +8171,25 @@ public class MainWindowViewModel : ViewModel
                     int num = list?.Count ?? 0;
                     if (ShouldScheduleDeferredPlaylistReferenceApplyAfterExternalSync(updateCallbackAction))
                     {
-                        ScheduleDeferredPlaylistReferenceApply("DeferredExternalSync:" + reason);
+                        ScheduleDeferredPlaylistReferenceApply("DeferredExternalSync:" + reason, operationToken);
                     }
                     RefreshPlaylistSummaryIfVisible("deferred_external_sync", invalidateTableCountCache: true);
                     bool cleanupQueued = QueuePlaylistReloadCleanup(playlistReloadOperationKind, num);
                     LogPlaylistReload("playlist_reload_operation completed operationKind=" + GetPlaylistReloadOperationKindText(playlistReloadOperationKind) + " reason=" + reason + " tableCount=" + num + " summaryRebuildMs=" + Interlocked.Read(ref lastPlaylistSummaryBuildElapsedMs) + " detailRefreshMs=" + Interlocked.Read(ref lastPlaylistDetailBuildElapsedMs) + " cleanupQueued=" + cleanupQueued.ToString().ToLowerInvariant() + " elapsedMs=" + (long)(DateTime.UtcNow - startedAt).TotalMilliseconds);
                     LogDeferredExternalSync("deferred_external_sync done reason=" + reason + " fromReloadTables=" + fromReloadTables.ToString().ToLowerInvariant() + " version=" + requestVersion + " elapsedMs=" + (long)(DateTime.UtcNow - startedAt).TotalMilliseconds + " updatedCount=" + num);
-                    TryCompleteStartupProgressExternalSync(requestVersion);
+                    if (IsStartupProgressOperationTokenCurrent(operationToken))
+                    {
+                        TryCompleteStartupProgressExternalSync(requestVersion);
+                    }
                 }
                 catch (Exception ex)
                 {
                     LogPlaylistReload("playlist_reload_operation failed operationKind=" + GetPlaylistReloadOperationKindText(playlistReloadOperationKind) + " reason=" + reason + " version=" + requestVersion + " elapsedMs=" + (long)(DateTime.UtcNow - startedAt).TotalMilliseconds + " message=" + ex.Message);
                     LogDeferredExternalSync("deferred_external_sync failed reason=" + reason + " fromReloadTables=" + fromReloadTables.ToString().ToLowerInvariant() + " version=" + requestVersion + " elapsedMs=" + (long)(DateTime.UtcNow - startedAt).TotalMilliseconds + " message=" + ex.Message);
-                    TryCompleteStartupProgressExternalSync(requestVersion);
+                    if (IsStartupProgressOperationTokenCurrent(operationToken))
+                    {
+                        TryCompleteStartupProgressExternalSync(requestVersion);
+                    }
                 }
                 finally
                 {
@@ -8864,6 +8967,18 @@ public class MainWindowViewModel : ViewModel
         }
         _IsStartupUiInteractionBlocked = value;
         RaisePropertyChanged("IsStartupUiInteractionBlocked");
+        RaisePropertyChanged("IsLibraryOperationInProgress");
+    }
+
+    public bool IsLibraryOperationInProgress
+    {
+        get
+        {
+            lock (startupProgressLock)
+            {
+                return _IsStartupUiInteractionBlocked || startupProgressState.IsActive;
+            }
+        }
     }
 
     /// <summary>
@@ -9399,6 +9514,7 @@ public class MainWindowViewModel : ViewModel
             {
                 _IsStartupProgressActive = value;
                 RaisePropertyChanged("IsStartupProgressActive");
+                RaisePropertyChanged("IsLibraryOperationInProgress");
             }
         }
     }
@@ -10362,8 +10478,8 @@ public class MainWindowViewModel : ViewModel
         {
             return;
         }
-        StartStartupProgressOperation(StartupProgressOperationKind.ReloadTables);
         await _semaphore.WaitAsync();
+        long operationToken = StartStartupProgressOperation(StartupProgressOperationKind.ReloadTables);
         Action<BMSPlaylist.PlaylistTableUpdateContext> updateCallbackAction = CreatePlaylistReferenceReplaceUpdateCallback();
         bool scheduleDeferredExternalSync = false;
         try
@@ -10393,10 +10509,11 @@ public class MainWindowViewModel : ViewModel
         }
         if (scheduleDeferredExternalSync)
         {
-            StartDeferredExternalPlaylistSync("ReloadTables", fromReloadTables: true, updateCallbackAction);
+            StartDeferredExternalPlaylistSync("ReloadTables", fromReloadTables: true, updateCallbackAction, operationToken);
         }
         SkipUnrequestedStartupProgressPhases(
             "ReloadTables:scheduled",
+            operationToken,
             StartupProgressPhase.PlaylistEntriesHydrationDone,
             StartupProgressPhase.ExternalPlaylistSyncDone,
             StartupProgressPhase.PlaylistReferenceApplied);
@@ -10411,9 +10528,9 @@ public class MainWindowViewModel : ViewModel
         {
             return;
         }
-        StartStartupProgressOperation(StartupProgressOperationKind.ScoreOnly);
         LogInitStage("start", "ReloadScoresOnly");
         await _semaphore.WaitAsync();
+        long operationToken = StartStartupProgressOperation(StartupProgressOperationKind.ScoreOnly);
         bool refreshViews = false;
         try
         {
@@ -10446,6 +10563,7 @@ public class MainWindowViewModel : ViewModel
         }
         SkipUnrequestedStartupProgressPhases(
             "ReloadScoresOnly:scheduled",
+            operationToken,
             StartupProgressPhase.ScoreHydrationDone,
             StartupProgressPhase.RankingRefreshDone);
     }
@@ -10456,10 +10574,10 @@ public class MainWindowViewModel : ViewModel
         {
             return;
         }
-        StartStartupProgressOperation(StartupProgressOperationKind.ReloadFileDiff);
         LogInitStage("start", "ReloadFileDiff");
         bool scheduleDeferredPlaylistRef = false;
         await _semaphore.WaitAsync();
+        long operationToken = StartStartupProgressOperation(StartupProgressOperationKind.ReloadFileDiff);
         try
         {
             BeginUiUpdateSuppression(UiRefreshChannel.LibraryMainView | UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.InstallTree | UiRefreshChannel.DuplicateTree);
@@ -10491,11 +10609,12 @@ public class MainWindowViewModel : ViewModel
         }
         if (scheduleDeferredPlaylistRef)
         {
-            ScheduleDeferredPlaylistReferenceApply("ReloadFileDiff");
+            ScheduleDeferredPlaylistReferenceApply("ReloadFileDiff", operationToken);
             LogInitStage("deferred_playlist_ref_queued", "ReloadFileDiff");
         }
         SkipUnrequestedStartupProgressPhases(
             "ReloadFileDiff:scheduled",
+            operationToken,
             StartupProgressPhase.PlaylistReferenceApplied,
             StartupProgressPhase.PlaylistEntriesHydrationDone);
     }
@@ -10506,10 +10625,10 @@ public class MainWindowViewModel : ViewModel
         {
             return;
         }
-        StartStartupProgressOperation(StartupProgressOperationKind.FullReinitialize);
         LogInitStage("start", "FullReinitialize");
         bool scheduleDeferredPlaylistRef = false;
         await _semaphore.WaitAsync();
+        long operationToken = StartStartupProgressOperation(StartupProgressOperationKind.FullReinitialize);
         try
         {
             BeginUiUpdateSuppression(UiRefreshChannel.LibraryMainView | UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.InstallTree | UiRefreshChannel.DuplicateTree);
@@ -10541,11 +10660,12 @@ public class MainWindowViewModel : ViewModel
         }
         if (scheduleDeferredPlaylistRef)
         {
-            ScheduleDeferredPlaylistReferenceApply("FullReinitialize");
+            ScheduleDeferredPlaylistReferenceApply("FullReinitialize", operationToken);
             LogInitStage("deferred_playlist_ref_queued", "FullReinitialize");
         }
         SkipUnrequestedStartupProgressPhases(
             "FullReinitialize:scheduled",
+            operationToken,
             StartupProgressPhase.PlaylistReferenceApplied,
             StartupProgressPhase.PlaylistEntriesHydrationDone,
             StartupProgressPhase.ChartInfoHydrationDone,
@@ -10779,7 +10899,7 @@ public class MainWindowViewModel : ViewModel
             base.Messenger.Raise(new InteractionMessage("InitializationException"));
             return;
         }
-        StartStartupProgressOperation(StartupProgressOperationKind.Startup);
+        long operationToken;
         try
         {
             LibraryProfile libraryProfile = CreateLibraryProfileForStartup();
@@ -10804,6 +10924,7 @@ public class MainWindowViewModel : ViewModel
             {
                 bmsPlayer = new LR2body(settingDialog.LR2bodyPath, CreateLR2PlayerConfig());
             }
+            operationToken = StartStartupProgressOperation(StartupProgressOperationKind.Startup);
         }
         catch (Exception ex)
         {
@@ -11363,10 +11484,11 @@ public class MainWindowViewModel : ViewModel
         LogInitStage("deferred_playlist_ref_waiting_for_playlist_entries_hydration", "Initialize");
         if (!Settings.Default.SkipInitPlaylistLoad)
         {
-            StartDeferredExternalPlaylistSync("Initialize", fromReloadTables: false, CreatePlaylistReferenceReplaceUpdateCallback());
+            StartDeferredExternalPlaylistSync("Initialize", fromReloadTables: false, CreatePlaylistReferenceReplaceUpdateCallback(), operationToken);
         }
         SkipUnrequestedStartupProgressPhases(
             "Initialize:scheduled",
+            operationToken,
             StartupProgressPhase.PlaylistEntriesHydrationDone,
             StartupProgressPhase.ChartInfoHydrationDone,
             StartupProgressPhase.ChartInfoBackfillDone,
@@ -14403,7 +14525,7 @@ public class MainWindowViewModel : ViewModel
     /// 起動・リロード進捗の状態を開始し、基準版数を初期化します。
     /// </summary>
     /// <param name="operationKind">進捗対象の operation 種別。</param>
-    private void StartStartupProgressOperation(StartupProgressOperationKind operationKind)
+    private long StartStartupProgressOperation(StartupProgressOperationKind operationKind)
     {
         ResetStartupBackgroundTaskSchedulerState(operationKind);
         if (operationKind == StartupProgressOperationKind.Startup)
@@ -14437,6 +14559,7 @@ public class MainWindowViewModel : ViewModel
             startupProgressState = state;
         }
         RecomputeStartupProgressPresentation();
+        return state.OperationToken;
     }
 
     /// <summary>
@@ -14527,7 +14650,16 @@ public class MainWindowViewModel : ViewModel
 
     private void SkipUnrequestedStartupProgressPhases(string reason, params StartupProgressPhase[] phases)
     {
+        SkipUnrequestedStartupProgressPhases(reason, 0L, phases);
+    }
+
+    private void SkipUnrequestedStartupProgressPhases(string reason, long operationToken, params StartupProgressPhase[] phases)
+    {
         if (phases == null || phases.Length == 0)
+        {
+            return;
+        }
+        if (operationToken != 0L && !IsStartupProgressOperationTokenCurrent(operationToken))
         {
             return;
         }

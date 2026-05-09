@@ -73,6 +73,7 @@
   "Recommended_automatic_update": "추천 단위 인정 (자동 업데이트)",
   "PlaylistProp_folder_prefix": "폴더 접두사: ",
   "Msg_invalid_setting": "잘못된 설정 내용이 있습니다.",
+  "Msg_settings_apply_blocked_during_initialization": "초기화 또는 라이브러리 업데이트가 완료될 때까지 설정을 적용할 수 없습니다.\n완료된 후 다시 실행해 주십시오.",
   "CustomFolder": "사용자 지정 폴더",
   "Msg_hide_message": "이 메시지는 설정 대화 상자에서 숨길 수 있습니다.",
   "Device": "장치",
