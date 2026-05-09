@@ -171,24 +171,46 @@ public sealed class BMSFileSnapshotTests
     [TestMethod]
     public void DetectEncodingOfBMSFile_SnapshotMatchesPathApiForRepresentativeEncodings()
     {
-        (string EncodingName, string Text)[] cases =
+        (string CaseName, byte[] Bytes)[] cases =
         {
-            ("shift_jis", "#TITLE ASCII\r\n"),
-            ("ks_c_5601-1987", "#TITLE \uac00\ub098\ub2e4\r\n"),
-            ("utf-8", "#TITLE \u3012\u2605\r\n")
+            ("ascii", Encoding.ASCII.GetBytes("#TITLE ASCII\r\n")),
+            ("shift_jis_japanese", Encoding.GetEncoding("shift_jis").GetBytes("#TITLE 日本語\r\n")),
+            ("korean_definite", Encoding.GetEncoding("ks_c_5601-1987").GetBytes("#TITLE \uacaf\r\n")),
+            ("korean_ambiguous", Encoding.GetEncoding("ks_c_5601-1987").GetBytes("#TITLE \uac00\ub098\r\n")),
+            ("utf8", Encoding.UTF8.GetBytes("#TITLE \u3012\u2605\r\n")),
+            ("unknown", new byte[] { 0xFF, 0xFF, 0xFF })
         };
-        foreach ((string encodingName, string text) in cases)
+        foreach ((string caseName, byte[] bytes) in cases)
         {
             WithTempDirectory(delegate (string tempDirectory)
             {
-                string filePath = Path.Combine(tempDirectory, "chart_" + encodingName + ".bms");
-                File.WriteAllText(filePath, text, Encoding.GetEncoding(encodingName));
+                string filePath = Path.Combine(tempDirectory, "chart_" + caseName + ".bms");
+                File.WriteAllBytes(filePath, bytes);
 
                 ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(filePath);
 
-                Assert.AreEqual(BMSFile.DetectEncodingOfBMSFile(filePath), BMSFile.DetectEncodingOfBMSFile(snapshot), encodingName);
+                Assert.AreEqual(BMSFile.DetectEncodingOfBMSFile(filePath), BMSFile.DetectEncodingOfBMSFile(snapshot), caseName);
             });
         }
+    }
+
+    [TestMethod]
+    public void DetectEncodingOfBMSFile_AsciiUsesSharedFastPath()
+    {
+        WithTempDirectory(delegate (string tempDirectory)
+        {
+            string filePath = Path.Combine(tempDirectory, "ascii.bms");
+            File.WriteAllText(filePath, "#PLAYER 1\r\n#TITLE ASCII\r\n#00111:01\r\n", Encoding.ASCII);
+
+            ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(filePath);
+            BMSFile.BmsEncodingDetectionResult result = BMSFile.DetectEncodingOfBMSFileDetailed(snapshot);
+
+            Assert.AreEqual("shift_jis", BMSFile.DetectEncodingOfBMSFile(filePath));
+            Assert.AreEqual("shift_jis", BMSFile.DetectEncodingOfBMSFile(snapshot));
+            Assert.AreEqual("shift_jis", result.EncodingName);
+            Assert.AreEqual(BMSFile.EncodingDetectionOutcome.ShiftJis, result.Outcome);
+            Assert.IsTrue(result.FastAscii);
+        });
     }
 
     [TestMethod]
@@ -215,20 +237,106 @@ public sealed class BMSFileSnapshotTests
         {
             string filePath = Path.Combine(tempDirectory, "chart.bms");
             File.WriteAllText(filePath,
-                "#PLAYER 1\r\n#TITLE Before\r\n#ARTIST ArtistBefore\r\n#GENRE GenreBefore\r\n",
+                "#PLAYER 1\r\n#TITLE Before\r\n#SUBTITLE SubBefore\r\n#ARTIST ArtistBefore\r\n#SUBARTIST SubArtistBefore\r\n#GENRE GenreBefore\r\n",
                 Encoding.GetEncoding("shift_jis"));
             ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(filePath);
             BMSFile file = BMSFile.CreateBMSFileFromFile(filePath);
 
             File.WriteAllText(filePath,
-                "#PLAYER 1\r\n#TITLE After\r\n#ARTIST ArtistAfter\r\n#GENRE GenreAfter\r\n",
+                "#PLAYER 1\r\n#TITLE After\r\n#SUBTITLE SubAfter\r\n#ARTIST ArtistAfter\r\n#SUBARTIST SubArtistAfter\r\n#GENRE GenreAfter\r\n",
                 Encoding.GetEncoding("shift_jis"));
 
             BMSFile.ReloadBMSFileWithEncoding(file, snapshot, "shift_jis");
 
-            Assert.AreEqual("Before", file.Title);
-            Assert.AreEqual("ArtistBefore", file.Artist);
+            Assert.AreEqual("Before", file.title);
+            Assert.AreEqual("SubBefore", file.subtitle);
+            Assert.AreEqual("Before SubBefore", file.Title);
+            Assert.AreEqual("ArtistBefore", file.artist);
+            Assert.AreEqual("SubArtistBefore", file.subartist);
+            Assert.AreEqual("ArtistBefore SubArtistBefore", file.Artist);
             Assert.AreEqual("GenreBefore", file.genre);
+        });
+    }
+
+    [TestMethod]
+    public void ReloadBMSFileWithEncoding_PathAppliesRawTitleAndArtistMetadata()
+    {
+        WithTempDirectory(delegate (string tempDirectory)
+        {
+            string filePath = Path.Combine(tempDirectory, "korean.bms");
+            const string title = "\uacaf";
+            const string subtitle = "[Pattern]";
+            const string artist = "\uac00\ub098";
+            const string subartist = "obj:Tester";
+            const string genre = "KoreanGenre";
+            File.WriteAllText(filePath,
+                "#PLAYER 1\r\n#TITLE " + title + "\r\n#SUBTITLE " + subtitle + "\r\n#ARTIST " + artist + "\r\n#SUBARTIST " + subartist + "\r\n#GENRE " + genre + "\r\n",
+                Encoding.GetEncoding("ks_c_5601-1987"));
+            BMSFile file = BMSFile.CreateBMSFileFromFile(filePath);
+            Assert.AreNotEqual(title + " " + subtitle, file.Title);
+
+            BMSFile.ReloadBMSFileWithEncoding(file, "ks_c_5601-1987");
+
+            Assert.AreEqual(title, file.title);
+            Assert.AreEqual(subtitle, file.subtitle);
+            Assert.AreEqual(title + " " + subtitle, file.Title);
+            Assert.AreEqual(artist, file.artist);
+            Assert.AreEqual(subartist, file.subartist);
+            Assert.AreEqual(artist + " " + subartist, file.Artist);
+            Assert.AreEqual(genre, file.genre);
+        });
+    }
+
+    [TestMethod]
+    public void ReloadBMSFileWithEncoding_NormalizesShiftJisQuestionAndClearsDates()
+    {
+        WithTempDirectory(delegate (string tempDirectory)
+        {
+            string filePath = Path.Combine(tempDirectory, "chart.bms");
+            File.WriteAllText(filePath, "#PLAYER 1\r\n#TITLE ASCII\r\n#ARTIST Artist\r\n", Encoding.GetEncoding("shift_jis"));
+            BMSFile file = BMSFile.CreateBMSFileFromFile(filePath);
+            file.date = 123;
+            file.adddate = 456;
+
+            BMSFile.ReloadBMSFileWithEncoding(file, "shift_jis?");
+
+            Assert.AreEqual("ASCII", file.title);
+            Assert.AreEqual("Artist", file.artist);
+            Assert.IsNull(file.date);
+            Assert.IsNull(file.adddate);
+        });
+    }
+
+    [TestMethod]
+    public void ReloadBMSMetadataWithEncodingDetection_UsesDetectedSnapshotText()
+    {
+        WithTempDirectory(delegate (string tempDirectory)
+        {
+            string filePath = Path.Combine(tempDirectory, "korean.bms");
+            const string title = "\uacaf";
+            const string subtitle = "[Pattern]";
+            const string artist = "\uac00\ub098";
+            const string subartist = "obj:Tester";
+            const string genre = "KoreanGenre";
+            File.WriteAllText(filePath,
+                "#PLAYER 1\r\n#TITLE " + title + "\r\n#SUBTITLE " + subtitle + "\r\n#ARTIST " + artist + "\r\n#SUBARTIST " + subartist + "\r\n#GENRE " + genre + "\r\n#WAV01 sound.wav\r\n",
+                Encoding.GetEncoding("ks_c_5601-1987"));
+            ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(filePath);
+            BMSFile file = BMSFile.CreateBMSFileFromSnapshot(snapshot);
+            Assert.AreNotEqual(title, file.Title);
+
+            BMSFile.BmsEncodingDetectionResult detectionResult = BMSFile.DetectEncodingOfBMSFileDetailed(snapshot);
+            BMSFile.ReloadBMSMetadataWithEncodingDetection(file, snapshot, detectionResult);
+
+            Assert.AreEqual("ks_c_5601-1987", detectionResult.EncodingName);
+            Assert.AreEqual(title, file.title);
+            Assert.AreEqual(subtitle, file.subtitle);
+            Assert.AreEqual(title + " " + subtitle, file.Title);
+            Assert.AreEqual(artist, file.artist);
+            Assert.AreEqual(subartist, file.subartist);
+            Assert.AreEqual(artist + " " + subartist, file.Artist);
+            Assert.AreEqual(genre, file.genre);
+            CollectionAssert.Contains(file.WAVfiles.ToArray(), "sound.wav");
         });
     }
 

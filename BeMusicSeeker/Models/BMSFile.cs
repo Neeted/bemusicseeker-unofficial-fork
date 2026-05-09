@@ -247,31 +247,45 @@ public class BMSFile : LR2SongDB.song
     // も可視ノートとして扱う。データ部は 2 桁 object 列として見て、00 だけの行は無視する。
     private static Regex visibleObjectChRegex = new Regex("^[\\s\u3000]*#[0-9]{3}(?:[12][1-9A-Z]|[56][1-9A-Z])(?:[\\s\u3000]*:[\\s\u3000]*|[\\s\u3000]+)(?:[\\s\u3000]*00)*[\\s\u3000]*(?!00)[0-9A-Z]{2}", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
-    private static Regex spaceAndReturnPattern = new Regex("[\\s\\r\\n]", RegexOptions.Compiled);
-
-    private static Regex asciiPattern = new Regex("[\\p{IsBasicLatin}]+", RegexOptions.Compiled);
-
-    private static Regex exceptAsciiPattern = new Regex("[^\\p{IsBasicLatin}]", RegexOptions.Compiled);
-
-    private static Regex japanese2charasPattern = new Regex("[\\p{IsCJKUnifiedIdeographs}々ぁ-んァ-ヶ！-＠、。]{2,}", RegexOptions.Compiled);
-
-    private static Regex hangul2charasPattern = new Regex("[\\p{IsHangulSyllables}]{2,}", RegexOptions.Compiled);
-
-    private static Regex genericKanaSymbolRule = new Regex("([ｦ-ｯﾞﾟ])\\1", RegexOptions.Compiled);
-
-    private static Regex semivoicedSoundSymbolRule = new Regex("[^ﾊ-ﾎ]ﾟ", RegexOptions.Compiled);
-
-    private static Regex voicedSoundSymbolRule = new Regex("[^ｶ-ﾄﾊ-ﾎ]ﾞ", RegexOptions.Compiled);
-
-    private static Regex contractedSoundSymbolRule = new Regex("[^ｷｼﾁﾆﾋﾐﾘﾞﾟ][ｬｭｮ]", RegexOptions.Compiled);
-
-    private static Regex allKanaSymbolRule = new Regex("[ｦ-ｯﾞﾟ][ｦ-ｯﾞﾟ]|[^ﾊ-ﾎ]ﾟ|[^ｶ-ﾄﾊ-ﾎ]ﾞ|[^ｷｼﾁﾆﾋﾐﾘﾞﾟ][ｬｭｮ]", RegexOptions.Compiled);
-
     private static Encoding sjisEnc = Encoding.GetEncoding("shift_jis", new EncoderExceptionFallback(), new DecoderExceptionFallback());
 
     private static Encoding koreanEnc = Encoding.GetEncoding("ks_c_5601-1987", new EncoderExceptionFallback(), new DecoderExceptionFallback());
 
     private static Encoding utf8Enc = Encoding.GetEncoding("utf-8", new EncoderExceptionFallback(), new DecoderExceptionFallback());
+
+    internal enum EncodingDetectionOutcome
+    {
+        Other = 0,
+        ShiftJis,
+        ShiftJisQuestion,
+        Korean,
+        KoreanQuestion,
+        Utf8,
+        Unknown
+    }
+
+    internal sealed class BmsEncodingDetectionResult
+    {
+        internal BmsEncodingDetectionResult(
+            string encodingName,
+            EncodingDetectionOutcome outcome,
+            bool fastAscii,
+            string decodedText)
+        {
+            EncodingName = string.IsNullOrWhiteSpace(encodingName) ? "unknown" : encodingName;
+            Outcome = outcome;
+            FastAscii = fastAscii;
+            DecodedText = decodedText;
+        }
+
+        public string EncodingName { get; }
+
+        public EncodingDetectionOutcome Outcome { get; }
+
+        public bool FastAscii { get; }
+
+        public string DecodedText { get; }
+    }
 
     public static readonly string[] bmsExtensions = new string[4] { ".bme", ".bms", ".bml", ".pms" };
 
@@ -1522,8 +1536,28 @@ public class BMSFile : LR2SongDB.song
         {
             throw new ArgumentNullException(nameof(snapshot));
         }
+        SetEncodingInfoFromDetection(DetectEncodingOfBMSFileDetailed(snapshot), mtInfo);
+    }
+
+    internal BmsEncodingDetectionResult SetEncodingInfoFromSnapshotDetailed(ChartFileSnapshot snapshot, BMSFileMaintenanceInfo mtInfo = null)
+    {
+        if (snapshot == null)
+        {
+            throw new ArgumentNullException(nameof(snapshot));
+        }
+        BmsEncodingDetectionResult detectionResult = DetectEncodingOfBMSFileDetailed(snapshot);
+        SetEncodingInfoFromDetection(detectionResult, mtInfo);
+        return detectionResult;
+    }
+
+    private void SetEncodingInfoFromDetection(BmsEncodingDetectionResult detectionResult, BMSFileMaintenanceInfo mtInfo = null)
+    {
+        if (detectionResult == null)
+        {
+            throw new ArgumentNullException(nameof(detectionResult));
+        }
         mtInfo = mtInfo ?? maintenanceInfo;
-        mtInfo.encoding = DetectEncodingOfBMSFile(snapshot);
+        mtInfo.encoding = detectionResult.EncodingName;
         mtInfo.is_encoding_fixed = false;
     }
 
@@ -2682,6 +2716,10 @@ public class BMSFile : LR2SongDB.song
 
     public static void ReloadBMSFileWithEncoding(BMSFile bmsFile, string codepageName = "")
     {
+        if (bmsFile == null)
+        {
+            throw new ArgumentNullException(nameof(bmsFile));
+        }
         if (string.IsNullOrWhiteSpace(bmsFile.path) || !File.Exists(bmsFile.path))
         {
             throw new FileNotFoundException("BMS ファイルが見つかりません。", bmsFile.path ?? "");
@@ -2689,21 +2727,9 @@ public class BMSFile : LR2SongDB.song
         if (string.IsNullOrWhiteSpace(codepageName))
         {
             codepageName = DetectEncodingOfBMSFile(bmsFile);
-            if (codepageName == "unknown")
-            {
-                codepageName = "shift_jis";
-            }
-            codepageName.TrimEnd('?');
         }
-        BMSFile bMSFile = CreateBMSFileFromFile(bmsFile.path, codepageName);
-        bmsFile.Title = bMSFile.Title;
-        bmsFile.Artist = bMSFile.Artist;
-        bmsFile.genre = bMSFile.genre;
-        if (codepageName == "shift_jis")
-        {
-            bmsFile.adddate = null;
-            bmsFile.date = null;
-        }
+        codepageName = NormalizeReloadEncodingName(codepageName);
+        ApplyDecodedBmsMetadataWithEncoding(bmsFile, File.ReadAllBytes(bmsFile.path), codepageName);
     }
 
     internal static void ReloadBMSFileWithEncoding(BMSFile bmsFile, ChartFileSnapshot snapshot, string codepageName = "")
@@ -2719,21 +2745,135 @@ public class BMSFile : LR2SongDB.song
         if (string.IsNullOrWhiteSpace(codepageName))
         {
             codepageName = DetectEncodingOfBMSFile(snapshot);
-            if (codepageName == "unknown")
-            {
-                codepageName = "shift_jis";
-            }
-            codepageName = codepageName.TrimEnd('?');
         }
-        BMSFile bMSFile = CreateBMSFileFromSnapshot(snapshot, codepageName);
-        bmsFile.Title = bMSFile.Title;
-        bmsFile.Artist = bMSFile.Artist;
-        bmsFile.genre = bMSFile.genre;
-        if (codepageName == "shift_jis")
+        codepageName = NormalizeReloadEncodingName(codepageName);
+        ApplyDecodedBmsMetadataWithEncoding(bmsFile, snapshot.Bytes, codepageName);
+    }
+
+    internal static void ReloadBMSMetadataWithEncodingDetection(
+        BMSFile bmsFile,
+        ChartFileSnapshot snapshot,
+        BmsEncodingDetectionResult detectionResult)
+    {
+        if (bmsFile == null)
+        {
+            throw new ArgumentNullException(nameof(bmsFile));
+        }
+        if (snapshot == null)
+        {
+            throw new ArgumentNullException(nameof(snapshot));
+        }
+        if (detectionResult == null)
+        {
+            throw new ArgumentNullException(nameof(detectionResult));
+        }
+        string codepageName = NormalizeReloadEncodingName(detectionResult.EncodingName);
+        string decodedText = detectionResult.DecodedText;
+        if (decodedText == null)
+        {
+            decodedText = DecodeBytes(snapshot.Bytes, Encoding.GetEncoding(codepageName));
+        }
+        ApplyDecodedBmsMetadata(bmsFile, decodedText, codepageName);
+    }
+
+    private static string NormalizeReloadEncodingName(string codepageName)
+    {
+        if (string.Equals(codepageName, "unknown", StringComparison.OrdinalIgnoreCase))
+        {
+            codepageName = "shift_jis";
+        }
+        return codepageName.TrimEnd('?');
+    }
+
+    private static void ApplyDecodedBmsMetadataWithEncoding(BMSFile bmsFile, byte[] bytes, string codepageName)
+    {
+        string decodedText = DecodeBytes(bytes, Encoding.GetEncoding(codepageName));
+        ApplyDecodedBmsMetadata(bmsFile, decodedText, codepageName);
+    }
+
+    private static void ApplyDecodedBmsMetadata(BMSFile bmsFile, string decodedText, string codepageName)
+    {
+        ApplyBmsMetadataFromDecodedText(bmsFile, decodedText);
+        if (string.Equals(codepageName, "shift_jis", StringComparison.OrdinalIgnoreCase))
         {
             bmsFile.adddate = null;
             bmsFile.date = null;
         }
+    }
+
+    private static void ApplyBmsMetadataFromDecodedText(BMSFile bmsFile, string decodedText)
+    {
+        string title = null;
+        string subtitle = null;
+        string artist = null;
+        string subartist = null;
+        string genre = null;
+        using (StringReader reader = new StringReader(decodedText ?? string.Empty))
+        {
+            string line;
+            while ((line = reader.ReadLine()) != null)
+            {
+                if (!TryParseDirectiveLine(line, out BmsDirective directive, out int valueStart))
+                {
+                    continue;
+                }
+                string value = valueStart >= 0 && valueStart <= line.Length ? line.Substring(valueStart) : string.Empty;
+                switch (directive)
+                {
+                    case BmsDirective.Title:
+                        if (string.IsNullOrWhiteSpace(title))
+                        {
+                            title = value;
+                        }
+                        break;
+                    case BmsDirective.SubTitle:
+                        if (string.IsNullOrWhiteSpace(subtitle))
+                        {
+                            subtitle = value;
+                        }
+                        break;
+                    case BmsDirective.Artist:
+                        if (string.IsNullOrWhiteSpace(artist))
+                        {
+                            artist = value;
+                        }
+                        break;
+                    case BmsDirective.SubArtist:
+                        if (string.IsNullOrWhiteSpace(subartist))
+                        {
+                            subartist = value;
+                        }
+                        break;
+                    case BmsDirective.Genre:
+                        if (string.IsNullOrWhiteSpace(genre))
+                        {
+                            genre = value;
+                        }
+                        break;
+                }
+            }
+        }
+        bool titleChanged = !string.Equals(bmsFile._title, title, StringComparison.Ordinal)
+            || !string.Equals(bmsFile._subtitle, subtitle, StringComparison.Ordinal);
+        bmsFile._title = title;
+        bmsFile._subtitle = subtitle;
+        bmsFile._cachedComposedTitle = null;
+        bmsFile._cachedComposedTitleSource = null;
+        bmsFile._cachedComposedSubtitleSource = null;
+        if (titleChanged)
+        {
+            bmsFile.RaisePropertyChanged("Title");
+        }
+
+        bool artistChanged = !string.Equals(bmsFile._artist, artist, StringComparison.Ordinal)
+            || !string.Equals(bmsFile._subartist, subartist, StringComparison.Ordinal);
+        bmsFile._artist = artist;
+        bmsFile._subartist = subartist;
+        if (artistChanged)
+        {
+            bmsFile.RaisePropertyChanged("Artist");
+        }
+        bmsFile.genre = genre;
     }
 
     public static string DetectEncodingOfBMSFile(BMSFile bmsInfo)
@@ -2747,91 +2887,236 @@ public class BMSFile : LR2SongDB.song
         {
             throw new FileNotFoundException("BMS ファイルが見つかりません。", path ?? "");
         }
-        return DetectEncodingOfBMSFileCore((Encoding encoding) => File.ReadAllText(path, encoding));
+        return DetectEncodingOfBMSFileCore(File.ReadAllBytes(path)).EncodingName;
     }
 
     internal static string DetectEncodingOfBMSFile(ChartFileSnapshot snapshot)
+    {
+        return DetectEncodingOfBMSFileDetailed(snapshot).EncodingName;
+    }
+
+    internal static BmsEncodingDetectionResult DetectEncodingOfBMSFileDetailed(ChartFileSnapshot snapshot)
     {
         if (snapshot == null)
         {
             throw new ArgumentNullException(nameof(snapshot));
         }
-        return DetectEncodingOfBMSFileCore((Encoding encoding) => DecodeSnapshotText(snapshot, encoding));
+        return DetectEncodingOfBMSFileCore(snapshot.Bytes);
     }
 
-    private static string DetectEncodingOfBMSFileCore(Func<Encoding, string> readText)
+    private static BmsEncodingDetectionResult DetectEncodingOfBMSFileCore(byte[] bytes)
+    {
+        if (bytes == null)
+        {
+            throw new ArgumentNullException(nameof(bytes));
+        }
+        if (IsAsciiOnly(bytes))
+        {
+            return CreateEncodingDetectionResult("shift_jis", EncodingDetectionOutcome.ShiftJis, fastAscii: true, decodedText: null);
+        }
+
+        if (!TryDecodeBytes(bytes, sjisEnc, out string sjisText))
+        {
+            if (TryDecodeBytes(bytes, koreanEnc, out string koreanText))
+            {
+                return CreateEncodingDetectionResult("ks_c_5601-1987", EncodingDetectionOutcome.Korean, fastAscii: false, decodedText: koreanText);
+            }
+            if (TryDecodeBytes(bytes, utf8Enc, out string utf8Text))
+            {
+                return CreateEncodingDetectionResult("utf-8", EncodingDetectionOutcome.Utf8, fastAscii: false, decodedText: utf8Text);
+            }
+            return CreateEncodingDetectionResult("unknown", EncodingDetectionOutcome.Unknown, fastAscii: false, decodedText: null);
+        }
+
+        if (!ContainsNonBasicLatinNonWhitespace(sjisText))
+        {
+            return CreateEncodingDetectionResult("shift_jis", EncodingDetectionOutcome.ShiftJis, fastAscii: false, decodedText: null);
+        }
+        if (HasInvalidJapaneseKanaSequence(sjisText))
+        {
+            return CreateEncodingDetectionResult("ks_c_5601-1987?", EncodingDetectionOutcome.KoreanQuestion, fastAscii: false, decodedText: null);
+        }
+        if (HasJapaneseDetectionRun(sjisText))
+        {
+            return CreateEncodingDetectionResult("shift_jis?", EncodingDetectionOutcome.ShiftJisQuestion, fastAscii: false, decodedText: null);
+        }
+        if (TryDecodeBytes(bytes, koreanEnc, out string koreanQuestionText))
+        {
+            if (HasHangulDetectionRunIgnoringWhitespace(koreanQuestionText))
+            {
+                return CreateEncodingDetectionResult("ks_c_5601-1987?", EncodingDetectionOutcome.KoreanQuestion, fastAscii: false, decodedText: null);
+            }
+            return CreateEncodingDetectionResult("shift_jis?", EncodingDetectionOutcome.ShiftJisQuestion, fastAscii: false, decodedText: null);
+        }
+        return CreateEncodingDetectionResult("shift_jis", EncodingDetectionOutcome.ShiftJis, fastAscii: false, decodedText: null);
+    }
+
+    private static BmsEncodingDetectionResult CreateEncodingDetectionResult(
+        string encodingName,
+        EncodingDetectionOutcome outcome,
+        bool fastAscii,
+        string decodedText)
+    {
+        return new BmsEncodingDetectionResult(encodingName, outcome, fastAscii, decodedText);
+    }
+
+    private static bool IsAsciiOnly(byte[] bytes)
+    {
+        for (int i = 0; i < bytes.Length; i++)
+        {
+            if (bytes[i] > 0x7F)
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static bool TryDecodeBytes(byte[] bytes, Encoding encoding, out string text)
     {
         try
         {
-            string input = readText(sjisEnc);
-            input = asciiPattern.Replace(input, " ");
-            if (string.IsNullOrWhiteSpace(input))
-            {
-                return "shift_jis";
-            }
-            if (isInvalidJapaneseKanaString(input))
-            {
-                return "ks_c_5601-1987?";
-            }
-            if (japanese2charasPattern.IsMatch(input))
-            {
-                return "shift_jis?";
-            }
+            text = DecodeBytes(bytes, encoding);
+            return true;
         }
         catch
         {
-            try
-            {
-                readText(koreanEnc);
-                return "ks_c_5601-1987";
-            }
-            catch
-            {
-                try
-                {
-                    readText(utf8Enc);
-                    return "utf-8";
-                }
-                catch
-                {
-                    return "unknown";
-                }
-            }
-        }
-        try
-        {
-            string input2 = readText(koreanEnc);
-            input2 = spaceAndReturnPattern.Replace(input2, "");
-            if (hangul2charasPattern.IsMatch(input2))
-            {
-                return "ks_c_5601-1987?";
-            }
-            return "shift_jis?";
-        }
-        catch
-        {
-            return "shift_jis";
+            text = null;
+            return false;
         }
     }
 
-    private static string DecodeSnapshotText(ChartFileSnapshot snapshot, Encoding encoding)
+    private static string DecodeBytes(byte[] bytes, Encoding encoding)
     {
-        using MemoryStream stream = new MemoryStream(snapshot.Bytes, writable: false);
-        using StreamReader reader = new StreamReader(stream, encoding, detectEncodingFromByteOrderMarks: true);
-        return reader.ReadToEnd();
+        using (MemoryStream stream = new MemoryStream(bytes ?? Array.Empty<byte>(), writable: false))
+        using (StreamReader reader = new StreamReader(stream, encoding, detectEncodingFromByteOrderMarks: true))
+        {
+            return reader.ReadToEnd();
+        }
+    }
+
+    private static bool ContainsNonBasicLatinNonWhitespace(string text)
+    {
+        if (string.IsNullOrEmpty(text))
+        {
+            return false;
+        }
+        for (int i = 0; i < text.Length; i++)
+        {
+            char c = text[i];
+            if (c > '\u007F' && !char.IsWhiteSpace(c))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static bool HasJapaneseDetectionRun(string text)
+    {
+        int runLength = 0;
+        for (int i = 0; i < (text?.Length ?? 0); i++)
+        {
+            if (IsJapaneseDetectionChar(text[i]))
+            {
+                runLength++;
+                if (runLength >= 2)
+                {
+                    return true;
+                }
+            }
+            else
+            {
+                runLength = 0;
+            }
+        }
+        return false;
+    }
+
+    private static bool IsJapaneseDetectionChar(char c)
+    {
+        return (c >= '\u4E00' && c <= '\u9FFF')
+            || c == '々'
+            || (c >= 'ぁ' && c <= 'ん')
+            || (c >= 'ァ' && c <= 'ヶ')
+            || (c >= '！' && c <= '＠')
+            || c == '、'
+            || c == '。';
+    }
+
+    private static bool HasHangulDetectionRunIgnoringWhitespace(string text)
+    {
+        int runLength = 0;
+        for (int i = 0; i < (text?.Length ?? 0); i++)
+        {
+            char c = text[i];
+            if (char.IsWhiteSpace(c))
+            {
+                continue;
+            }
+            if (c >= '\uAC00' && c <= '\uD7AF')
+            {
+                runLength++;
+                if (runLength >= 2)
+                {
+                    return true;
+                }
+            }
+            else
+            {
+                runLength = 0;
+            }
+        }
+        return false;
+    }
+
+    private static bool HasInvalidJapaneseKanaSequence(string text)
+    {
+        for (int i = 0; i + 1 < (text?.Length ?? 0); i++)
+        {
+            char previous = text[i];
+            char current = text[i + 1];
+            if (IsHalfWidthKanaSymbol(previous) && IsHalfWidthKanaSymbol(current))
+            {
+                return true;
+            }
+            if (current == 'ﾟ' && !(previous >= 'ﾊ' && previous <= 'ﾎ'))
+            {
+                return true;
+            }
+            if (current == 'ﾞ' && !((previous >= 'ｶ' && previous <= 'ﾄ') || (previous >= 'ﾊ' && previous <= 'ﾎ')))
+            {
+                return true;
+            }
+            if (IsHalfWidthSmallYaYuYo(current)
+                && previous != 'ｷ'
+                && previous != 'ｼ'
+                && previous != 'ﾁ'
+                && previous != 'ﾆ'
+                && previous != 'ﾋ'
+                && previous != 'ﾐ'
+                && previous != 'ﾘ'
+                && previous != 'ﾞ'
+                && previous != 'ﾟ')
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static bool IsHalfWidthKanaSymbol(char c)
+    {
+        return (c >= 'ｦ' && c <= 'ｯ') || c == 'ﾞ' || c == 'ﾟ';
+    }
+
+    private static bool IsHalfWidthSmallYaYuYo(char c)
+    {
+        return c == 'ｬ' || c == 'ｭ' || c == 'ｮ';
     }
 
     public static bool IsZeroNoteBMSFile(string filePath)
     {
         return !File.ReadLines(filePath, Encoding.GetEncoding("shift_jis")).Any((string line) => visibleObjectChRegex.IsMatch(line));
-    }
-
-    private static bool isInvalidJapaneseKanaString(string str)
-    {
-        if (allKanaSymbolRule.IsMatch(str))
-        {
-            return true;
-        }
-        return false;
     }
 }

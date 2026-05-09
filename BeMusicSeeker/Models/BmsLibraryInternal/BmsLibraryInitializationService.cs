@@ -580,6 +580,16 @@ internal sealed class BmsLibraryInitializationService
             + " inline_encoding_wall_ms=" + result.InlineEncodingWallMs
             + " inline_encoding_reload_wall_ms=" + result.InlineEncodingReloadWallMs
             + " inline_encoding_reload_count=" + result.InlineEncodingReloadCount
+            + " inline_encoding_detect_count=" + result.InlineEncodingDetectCount
+            + " inline_encoding_fast_ascii_count=" + result.InlineEncodingFastAsciiCount
+            + " inline_encoding_shift_jis_count=" + result.InlineEncodingShiftJisCount
+            + " inline_encoding_shift_jis_question_count=" + result.InlineEncodingShiftJisQuestionCount
+            + " inline_encoding_ks_c_5601_count=" + result.InlineEncodingKoreanCount
+            + " inline_encoding_ks_c_5601_question_count=" + result.InlineEncodingKoreanQuestionCount
+            + " inline_encoding_utf8_count=" + result.InlineEncodingUtf8Count
+            + " inline_encoding_unknown_count=" + result.InlineEncodingUnknownCount
+            + " inline_encoding_other_count=" + result.InlineEncodingOtherCount
+            + " inline_encoding_max_item_ms=" + result.InlineEncodingMaxItemMs
             + " inline_bms_maintenance_wall_ms=" + result.InlineBmsMaintenanceWallMs
             + " inline_bmson_maintenance_wall_ms=" + result.InlineBmsonMaintenanceWallMs
             + " inline_maintenance_cache_hit=" + result.InlineMaintenanceCacheHitCount
@@ -701,6 +711,9 @@ internal sealed class BmsLibraryInitializationService
                             + " totalMs=" + batchStopwatch.ElapsedMilliseconds
                             + " chartInfoMs=" + TicksToMilliseconds(batchMetrics.ChartInfoTicks)
                             + " maintenanceMs=" + TicksToMilliseconds(batchMetrics.MaintenanceTicks)
+                            + " encodingMs=" + batchMetrics.EncodingMs
+                            + " encodingReloadMs=" + batchMetrics.EncodingReloadMs
+                            + " encodingMaxMs=" + batchMetrics.EncodingMaxMs
                             + " commitQueueMs=" + TicksToMilliseconds(batchMetrics.CommitQueueWaitTicks)
                             + " bms=" + batchMetrics.BmsCount
                             + " bmson=" + batchMetrics.BmsonCount);
@@ -956,6 +969,9 @@ internal sealed class BmsLibraryInitializationService
         metrics.BmsonMaintenanceTicks = bmsonMaintenanceStopwatch.ElapsedTicks;
         ApplyInlineMaintenanceResults(result, bmsMaintenanceResults);
         ApplyInlineMaintenanceResults(result, bmsonMaintenanceResults);
+        metrics.EncodingMs = SumInlineMaintenanceEncodingMs(bmsMaintenanceResults);
+        metrics.EncodingReloadMs = SumInlineMaintenanceEncodingReloadMs(bmsMaintenanceResults);
+        metrics.EncodingMaxMs = MaxInlineMaintenanceEncodingMs(bmsMaintenanceResults);
 
         if (bmsBatch != null && bmsBatch.Count > 0)
         {
@@ -1080,6 +1096,7 @@ internal sealed class BmsLibraryInitializationService
         int encodingReloadCount = 0;
         bool completed = false;
         string warning = null;
+        BMSFile.BmsEncodingDetectionResult detectionResult = null;
         try
         {
             Stopwatch stepStopwatch = Stopwatch.StartNew();
@@ -1089,7 +1106,7 @@ internal sealed class BmsLibraryInitializationService
             stepStopwatch.Restart();
             if (snapshot != null)
             {
-                file.SetEncosingInfo(snapshot);
+                detectionResult = file.SetEncodingInfoFromSnapshotDetailed(snapshot);
             }
             else
             {
@@ -1103,7 +1120,7 @@ internal sealed class BmsLibraryInitializationService
                 stepStopwatch.Restart();
                 if (snapshot != null)
                 {
-                    BMSFile.ReloadBMSFileWithEncoding(file, snapshot, file.maintenanceInfo.encoding);
+                    BMSFile.ReloadBMSMetadataWithEncodingDetection(file, snapshot, detectionResult);
                 }
                 else
                 {
@@ -1135,6 +1152,7 @@ internal sealed class BmsLibraryInitializationService
             encodingMs: encodingMs,
             encodingReloadMs: encodingReloadMs,
             encodingReloadCount: encodingReloadCount,
+            encodingDetectionResult: detectionResult,
             cacheHitCount: lookupContext.CacheHitCount,
             fileExistsFallbackCount: lookupContext.FileExistsFallbackCount,
             warningMessage: warning);
@@ -1181,6 +1199,7 @@ internal sealed class BmsLibraryInitializationService
             encodingMs: 0,
             encodingReloadMs: 0,
             encodingReloadCount: 0,
+            encodingDetectionResult: null,
             cacheHitCount: lookupContext.CacheHitCount,
             fileExistsFallbackCount: lookupContext.FileExistsFallbackCount,
             warningMessage: warning);
@@ -1214,9 +1233,34 @@ internal sealed class BmsLibraryInitializationService
             result.InlineEncodingWallMs += itemResult.EncodingMs;
             result.InlineEncodingReloadWallMs += itemResult.EncodingReloadMs;
             result.InlineEncodingReloadCount += itemResult.EncodingReloadCount;
+            result.InlineEncodingDetectCount += itemResult.EncodingDetectCount;
+            result.InlineEncodingFastAsciiCount += itemResult.EncodingFastAsciiCount;
+            result.InlineEncodingShiftJisCount += itemResult.EncodingShiftJisCount;
+            result.InlineEncodingShiftJisQuestionCount += itemResult.EncodingShiftJisQuestionCount;
+            result.InlineEncodingKoreanCount += itemResult.EncodingKoreanCount;
+            result.InlineEncodingKoreanQuestionCount += itemResult.EncodingKoreanQuestionCount;
+            result.InlineEncodingUtf8Count += itemResult.EncodingUtf8Count;
+            result.InlineEncodingUnknownCount += itemResult.EncodingUnknownCount;
+            result.InlineEncodingOtherCount += itemResult.EncodingOtherCount;
+            result.InlineEncodingMaxItemMs = Math.Max(result.InlineEncodingMaxItemMs, itemResult.EncodingMs);
             result.InlineMaintenanceCacheHitCount += itemResult.CacheHitCount;
             result.InlineMaintenanceFileExistsFallbackCount += itemResult.FileExistsFallbackCount;
         }
+    }
+
+    private static long SumInlineMaintenanceEncodingMs(IEnumerable<InlineMaintenanceItemResult> itemResults)
+    {
+        return itemResults?.Where(item => item != null).Sum(item => item.EncodingMs) ?? 0L;
+    }
+
+    private static long SumInlineMaintenanceEncodingReloadMs(IEnumerable<InlineMaintenanceItemResult> itemResults)
+    {
+        return itemResults?.Where(item => item != null).Sum(item => item.EncodingReloadMs) ?? 0L;
+    }
+
+    private static long MaxInlineMaintenanceEncodingMs(IEnumerable<InlineMaintenanceItemResult> itemResults)
+    {
+        return itemResults?.Where(item => item != null).Select(item => item.EncodingMs).DefaultIfEmpty(0L).Max() ?? 0L;
     }
 
     private static void LogInlineMaintenanceWarnings(IEnumerable<InlineMaintenanceItemResult> itemResults, Action<string> logInstallPerformanceWarn)
@@ -1814,6 +1858,12 @@ internal sealed class BmsLibraryInitializationService
 
         public long BmsonMaintenanceTicks { get; set; }
 
+        public long EncodingMs { get; set; }
+
+        public long EncodingReloadMs { get; set; }
+
+        public long EncodingMaxMs { get; set; }
+
         public long CommitQueueWaitTicks { get; set; }
     }
 
@@ -1846,6 +1896,7 @@ internal sealed class BmsLibraryInitializationService
             encodingMs: 0,
             encodingReloadMs: 0,
             encodingReloadCount: 0,
+            encodingDetectionResult: null,
             cacheHitCount: 0,
             fileExistsFallbackCount: 0,
             warningMessage: null);
@@ -1860,6 +1911,7 @@ internal sealed class BmsLibraryInitializationService
             long encodingMs,
             long encodingReloadMs,
             int encodingReloadCount,
+            BMSFile.BmsEncodingDetectionResult encodingDetectionResult,
             long cacheHitCount,
             long fileExistsFallbackCount,
             string warningMessage)
@@ -1873,10 +1925,45 @@ internal sealed class BmsLibraryInitializationService
             EncodingMs = Math.Max(0L, encodingMs);
             EncodingReloadMs = Math.Max(0L, encodingReloadMs);
             EncodingReloadCount = Math.Max(0, encodingReloadCount);
+            EncodingDetectCount = encodingDetectionResult == null ? 0 : 1;
+            EncodingFastAsciiCount = encodingDetectionResult?.FastAscii == true ? 1 : 0;
+            SetEncodingOutcomeCounts(encodingDetectionResult?.Outcome ?? BMSFile.EncodingDetectionOutcome.Other, EncodingDetectCount);
             CacheHitCount = Math.Max(0L, cacheHitCount);
             FileExistsFallbackCount = Math.Max(0L, fileExistsFallbackCount);
             WarningMessage = warningMessage;
             Succeeded = SuccessCount > 0;
+        }
+
+        private void SetEncodingOutcomeCounts(BMSFile.EncodingDetectionOutcome outcome, int count)
+        {
+            if (count <= 0)
+            {
+                return;
+            }
+            switch (outcome)
+            {
+                case BMSFile.EncodingDetectionOutcome.ShiftJis:
+                    EncodingShiftJisCount = count;
+                    break;
+                case BMSFile.EncodingDetectionOutcome.ShiftJisQuestion:
+                    EncodingShiftJisQuestionCount = count;
+                    break;
+                case BMSFile.EncodingDetectionOutcome.Korean:
+                    EncodingKoreanCount = count;
+                    break;
+                case BMSFile.EncodingDetectionOutcome.KoreanQuestion:
+                    EncodingKoreanQuestionCount = count;
+                    break;
+                case BMSFile.EncodingDetectionOutcome.Utf8:
+                    EncodingUtf8Count = count;
+                    break;
+                case BMSFile.EncodingDetectionOutcome.Unknown:
+                    EncodingUnknownCount = count;
+                    break;
+                default:
+                    EncodingOtherCount = count;
+                    break;
+            }
         }
 
         public FileDiffChartKind Kind { get; }
@@ -1896,6 +1983,24 @@ internal sealed class BmsLibraryInitializationService
         public long EncodingReloadMs { get; }
 
         public int EncodingReloadCount { get; }
+
+        public int EncodingDetectCount { get; private set; }
+
+        public int EncodingFastAsciiCount { get; private set; }
+
+        public int EncodingShiftJisCount { get; private set; }
+
+        public int EncodingShiftJisQuestionCount { get; private set; }
+
+        public int EncodingKoreanCount { get; private set; }
+
+        public int EncodingKoreanQuestionCount { get; private set; }
+
+        public int EncodingUtf8Count { get; private set; }
+
+        public int EncodingUnknownCount { get; private set; }
+
+        public int EncodingOtherCount { get; private set; }
 
         public long CacheHitCount { get; }
 

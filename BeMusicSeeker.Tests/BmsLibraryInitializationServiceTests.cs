@@ -956,9 +956,12 @@ public sealed class BmsLibraryInitializationServiceTests
             Directory.CreateDirectory(chartDirectoryPath);
             string bmsPath = Path.Combine(chartDirectoryPath, "added.bms");
             string title = "\uacaf";
+            string subtitle = "[Pattern]";
+            string artist = "KoreanArtist";
+            string subartist = "obj:Tester";
             File.WriteAllText(
                 bmsPath,
-                "#PLAYER 1\r\n#TITLE " + title + "\r\n#ARTIST KoreanArtist\r\n#WAV01 sound.wav\r\n#00111:01\r\n",
+                "#PLAYER 1\r\n#TITLE " + title + "\r\n#SUBTITLE " + subtitle + "\r\n#ARTIST " + artist + "\r\n#SUBARTIST " + subartist + "\r\n#WAV01 sound.wav\r\n#00111:01\r\n",
                 Encoding.GetEncoding("ks_c_5601-1987"));
 
             using (LR2SongDBExtended songDbConnection = new LR2SongDBExtended(songDbPath))
@@ -987,7 +990,12 @@ public sealed class BmsLibraryInitializationServiceTests
                 currentBmsonSongs: Array.Empty<LR2SongDBExtended.bmson_song>());
 
             BMSFile added = result.AddedFiles.Single();
-            Assert.AreEqual(title, added.Title);
+            Assert.AreEqual(title, added.title);
+            Assert.AreEqual(subtitle, added.subtitle);
+            Assert.AreEqual(title + " " + subtitle, added.Title);
+            Assert.AreEqual(artist, added.artist);
+            Assert.AreEqual(subartist, added.subartist);
+            Assert.AreEqual(artist + " " + subartist, added.Artist);
             Assert.AreEqual("ks_c_5601-1987", added.maintenanceInfo.encoding);
             Assert.IsTrue(added.maintenanceInfo.is_encoding_fixed);
             Assert.AreEqual(1, result.InlineEncodingReloadCount);
@@ -995,9 +1003,86 @@ public sealed class BmsLibraryInitializationServiceTests
 
             using LR2SongDBExtended verify = new LR2SongDBExtended(songDbPath);
             Assert.AreEqual(title, verify.ExecuteScalar<string>("SELECT title FROM song WHERE path = ?;", bmsPath));
+            Assert.AreEqual(subtitle, verify.ExecuteScalar<string>("SELECT subtitle FROM song WHERE path = ?;", bmsPath));
+            Assert.AreEqual(artist, verify.ExecuteScalar<string>("SELECT artist FROM song WHERE path = ?;", bmsPath));
+            Assert.AreEqual(subartist, verify.ExecuteScalar<string>("SELECT subartist FROM song WHERE path = ?;", bmsPath));
             LR2SongDBExtended.maintenance maintenance = verify.Query<LR2SongDBExtended.maintenance>("SELECT * FROM maintenance WHERE path = ?;", bmsPath).Single();
             Assert.AreEqual("ks_c_5601-1987", maintenance.encoding);
             Assert.AreEqual(1, maintenance.wav_files_defined);
+        });
+    }
+
+    [TestMethod]
+    public void ApplyFileScanDiff_TracksInlineEncodingOutcomesForMixedBmsBatch()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
+        {
+            string chartDirectoryPath = Path.Combine(lr2RootPath, "InlineEncodingMixed");
+            Directory.CreateDirectory(chartDirectoryPath);
+            string asciiPath = Path.Combine(chartDirectoryPath, "ascii.bms");
+            string koreanPath = Path.Combine(chartDirectoryPath, "korean.bms");
+            const string koreanTitle = "\uacaf";
+            File.WriteAllText(asciiPath, CreateValidBmsText("ASCII"), Encoding.ASCII);
+            File.WriteAllText(
+                koreanPath,
+                "#PLAYER 1\r\n#TITLE " + koreanTitle + "\r\n#ARTIST KoreanArtist\r\n#BPM 120\r\n#WAV01 sound.wav\r\n#00111:01\r\n",
+                Encoding.GetEncoding("ks_c_5601-1987"));
+            File.WriteAllBytes(Path.Combine(chartDirectoryPath, "sound.wav"), new byte[] { 1, 2, 3 });
+
+            using (LR2SongDBExtended songDbConnection = new LR2SongDBExtended(songDbPath))
+            {
+                songDbConnection.CreateTable<LR2SongDB.song>();
+            }
+
+            BmsLibraryInitializationService service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
+            SongTableFileCheckResult result = service.ApplyFileScanDiff(
+                new BmsLibraryDbGateway(songDbPath),
+                new BmsLibraryOptionsSnapshot(),
+                Array.Empty<BMSFile>(),
+                new BmsScanExecutionResult
+                {
+                    Success = true,
+                    Result = CreateScanResult(
+                        new[] { asciiPath, koreanPath },
+                        new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
+                        {
+                            { chartDirectoryPath, new[] { "sound.wav" } }
+                        })
+                },
+                0L,
+                () => null,
+                null,
+                currentBmsonSongs: Array.Empty<LR2SongDBExtended.bmson_song>());
+
+            Assert.AreEqual(2, result.AddedFiles.Count);
+            Assert.AreEqual(2, result.InlineEncodingDetectCount);
+            Assert.AreEqual(1, result.InlineEncodingFastAsciiCount);
+            Assert.AreEqual(1, result.InlineEncodingShiftJisCount);
+            Assert.AreEqual(1, result.InlineEncodingKoreanCount);
+            Assert.AreEqual(0, result.InlineEncodingShiftJisQuestionCount);
+            Assert.AreEqual(0, result.InlineEncodingKoreanQuestionCount);
+            Assert.AreEqual(0, result.InlineEncodingUtf8Count);
+            Assert.AreEqual(0, result.InlineEncodingUnknownCount);
+            Assert.AreEqual(0, result.InlineEncodingOtherCount);
+            Assert.AreEqual(1, result.InlineEncodingReloadCount);
+            Assert.IsTrue(result.InlineEncodingMaxItemMs >= 0);
+
+            BMSFile ascii = result.AddedFiles.Single(file => file.path == asciiPath);
+            BMSFile korean = result.AddedFiles.Single(file => file.path == koreanPath);
+            Assert.AreEqual("shift_jis", ascii.maintenanceInfo.encoding);
+            Assert.IsFalse(ascii.maintenanceInfo.is_encoding_fixed);
+            Assert.AreEqual("ks_c_5601-1987", korean.maintenanceInfo.encoding);
+            Assert.IsTrue(korean.maintenanceInfo.is_encoding_fixed);
+            Assert.AreEqual(koreanTitle, korean.Title);
+            Assert.IsNull(ascii.WAVfiles);
+            Assert.IsNull(korean.WAVfiles);
+            Assert.AreEqual(1, ascii.maintenanceInfo.wav_files_existing);
+            Assert.AreEqual(1, korean.maintenanceInfo.wav_files_existing);
+
+            using LR2SongDBExtended verify = new LR2SongDBExtended(songDbPath);
+            Assert.AreEqual(koreanTitle, verify.ExecuteScalar<string>("SELECT title FROM song WHERE path = ?;", koreanPath));
+            Assert.AreEqual("ks_c_5601-1987", verify.ExecuteScalar<string>("SELECT encoding FROM maintenance WHERE path = ?;", koreanPath));
         });
     }
 

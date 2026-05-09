@@ -171,8 +171,10 @@ internal sealed class BmsLibraryMaintenanceService
             return false;
         }
         BMSFile reloadedFile = BMSFile.CreateBMSFileFromFile(currentFile.path, encoding);
-        return !string.Equals(currentFile.Title ?? string.Empty, reloadedFile.Title ?? string.Empty, StringComparison.Ordinal)
-            || !string.Equals(currentFile.Artist ?? string.Empty, reloadedFile.Artist ?? string.Empty, StringComparison.Ordinal)
+        return !string.Equals(currentFile.title ?? string.Empty, reloadedFile.title ?? string.Empty, StringComparison.Ordinal)
+            || !string.Equals(currentFile.subtitle ?? string.Empty, reloadedFile.subtitle ?? string.Empty, StringComparison.Ordinal)
+            || !string.Equals(currentFile.artist ?? string.Empty, reloadedFile.artist ?? string.Empty, StringComparison.Ordinal)
+            || !string.Equals(currentFile.subartist ?? string.Empty, reloadedFile.subartist ?? string.Empty, StringComparison.Ordinal)
             || !string.Equals(currentFile.genre ?? string.Empty, reloadedFile.genre ?? string.Empty, StringComparison.Ordinal);
     }
 

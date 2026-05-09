@@ -608,11 +608,13 @@ public sealed class BmsLibraryMaintenanceServiceTests
         Directory.CreateDirectory(tempDirectoryPath);
         string bmsFilePath = Path.Combine(tempDirectoryPath, "chart.bms");
         const string expectedTitle = "同一Encoding再読込";
+        const string expectedSubtitle = "[Manual]";
         const string expectedArtist = "差分あり";
+        const string expectedSubartist = "obj:Manual";
         const string expectedGenre = "GENRE";
         File.WriteAllText(
             bmsFilePath,
-            "#TITLE " + expectedTitle + "\r\n#ARTIST " + expectedArtist + "\r\n#GENRE " + expectedGenre + "\r\n",
+            "#TITLE " + expectedTitle + "\r\n#SUBTITLE " + expectedSubtitle + "\r\n#ARTIST " + expectedArtist + "\r\n#SUBARTIST " + expectedSubartist + "\r\n#GENRE " + expectedGenre + "\r\n",
             Encoding.GetEncoding("gb2312", new EncoderExceptionFallback(), new DecoderExceptionFallback()));
         try
         {
@@ -631,8 +633,12 @@ public sealed class BmsLibraryMaintenanceServiceTests
 
             MaintenanceEncodingUpdateResult result = service.ApplyEncoding(new BMSFile[] { file }, "gb2312");
 
-            Assert.AreEqual(expectedTitle, file.Title);
-            Assert.AreEqual(expectedArtist, file.Artist);
+            Assert.AreEqual(expectedTitle, file.title);
+            Assert.AreEqual(expectedSubtitle, file.subtitle);
+            Assert.AreEqual(expectedTitle + " " + expectedSubtitle, file.Title);
+            Assert.AreEqual(expectedArtist, file.artist);
+            Assert.AreEqual(expectedSubartist, file.subartist);
+            Assert.AreEqual(expectedArtist + " " + expectedSubartist, file.Artist);
             Assert.AreEqual(expectedGenre, file.genre);
             CollectionAssert.AreEqual(new BMSFile[] { file }, result.SongsToUpsert);
             CollectionAssert.AreEqual(new BMSFileMaintenanceInfo[] { info }, result.MaintenanceInfosToUpsert);
@@ -685,6 +691,60 @@ public sealed class BmsLibraryMaintenanceServiceTests
             Assert.AreEqual("gb2312", file.maintenanceInfo.encoding);
             Assert.IsTrue(file.maintenanceInfo.is_encoding_fixed);
             Assert.AreEqual(0, result.SongsToUpsert.Count);
+            CollectionAssert.AreEqual(new BMSFileMaintenanceInfo[] { info }, result.MaintenanceInfosToUpsert);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectoryPath))
+            {
+                Directory.Delete(tempDirectoryPath, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void ApplyEncoding_ReloadsWhenComposedMetadataMatchesButRawMetadataDiffers()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        BmsLibraryMaintenanceService service = new BmsLibraryMaintenanceService();
+        string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectoryPath);
+        string bmsFilePath = Path.Combine(tempDirectoryPath, "chart.bms");
+        const string expectedTitle = "RawTitle";
+        const string expectedSubtitle = "[SP HYPER]";
+        const string expectedArtist = "RawArtist";
+        const string expectedSubartist = "obj:Raw";
+        const string expectedGenre = "GENRE";
+        File.WriteAllText(
+            bmsFilePath,
+            "#TITLE " + expectedTitle + "\r\n#SUBTITLE " + expectedSubtitle + "\r\n#ARTIST " + expectedArtist + "\r\n#SUBARTIST " + expectedSubartist + "\r\n#GENRE " + expectedGenre + "\r\n",
+            Encoding.GetEncoding("shift_jis"));
+        try
+        {
+            TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+            file.path = bmsFilePath;
+            file.SetTitle(expectedTitle + " " + expectedSubtitle);
+            file.SetArtist(expectedArtist + " " + expectedSubartist);
+            file.SetGenre(expectedGenre);
+            BMSFileMaintenanceInfo info = new BMSFileMaintenanceInfo(file)
+            {
+                hash = file.hash,
+                encoding = "shift_jis",
+                is_encoding_fixed = false
+            };
+            file.SetMaintenanceInfo(info, suppressPropertyChanged: true, registerEventHandlers: false);
+
+            MaintenanceEncodingUpdateResult result = service.ApplyEncoding(new BMSFile[] { file }, "shift_jis");
+
+            Assert.AreEqual(expectedTitle, file.title);
+            Assert.AreEqual(expectedSubtitle, file.subtitle);
+            Assert.AreEqual(expectedTitle + " " + expectedSubtitle, file.Title);
+            Assert.AreEqual(expectedArtist, file.artist);
+            Assert.AreEqual(expectedSubartist, file.subartist);
+            Assert.AreEqual(expectedArtist + " " + expectedSubartist, file.Artist);
+            Assert.AreEqual(expectedGenre, file.genre);
+            Assert.IsTrue(file.maintenanceInfo.is_encoding_fixed);
+            CollectionAssert.AreEqual(new BMSFile[] { file }, result.SongsToUpsert);
             CollectionAssert.AreEqual(new BMSFileMaintenanceInfo[] { info }, result.MaintenanceInfosToUpsert);
         }
         finally

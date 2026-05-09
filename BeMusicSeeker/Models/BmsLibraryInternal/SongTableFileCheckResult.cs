@@ -144,6 +144,26 @@ internal sealed class SongTableFileCheckResult
 
     public int InlineEncodingReloadCount { get; set; }
 
+    public int InlineEncodingDetectCount { get; set; }
+
+    public int InlineEncodingFastAsciiCount { get; set; }
+
+    public int InlineEncodingShiftJisCount { get; set; }
+
+    public int InlineEncodingShiftJisQuestionCount { get; set; }
+
+    public int InlineEncodingKoreanCount { get; set; }
+
+    public int InlineEncodingKoreanQuestionCount { get; set; }
+
+    public int InlineEncodingUtf8Count { get; set; }
+
+    public int InlineEncodingUnknownCount { get; set; }
+
+    public int InlineEncodingOtherCount { get; set; }
+
+    public long InlineEncodingMaxItemMs { get; set; }
+
     public long InlineBmsMaintenanceWallMs { get; set; }
 
     public long InlineBmsonMaintenanceWallMs { get; set; }
