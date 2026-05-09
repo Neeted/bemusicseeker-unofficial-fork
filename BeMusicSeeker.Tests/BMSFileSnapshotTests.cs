@@ -92,6 +92,101 @@ public sealed class BMSFileSnapshotTests
         });
     }
 
+    [TestMethod]
+    public void CreateBMSFileFromSnapshot_DetectsModeChannelsLikeFileApi()
+    {
+        (string FileName, string ChannelLine, int ExpectedMode)[] cases =
+        {
+            ("fivekey.bms", "#00111:01", 5),
+            ("default-seven.bms", "#00111:000000", 7),
+            ("legacy-seven.bms", "#00116:01", 7),
+            ("pms-forced.pms", "#00111:01", 9),
+            ("tenkey.bms", "#00121:01", 10),
+            ("fourteenkey.bms", "#00128:01", 14),
+            ("fullwidth-leading-space.bms", "\u3000#00111:01", 5),
+            ("whitespace-separator-is-ignored.bms", "#00111 01", 7)
+        };
+        foreach ((string fileName, string channelLine, int expectedMode) in cases)
+        {
+            WithTempDirectory(delegate (string tempDirectory)
+            {
+                string filePath = Path.Combine(tempDirectory, fileName);
+                File.WriteAllText(filePath, "#PLAYER 1\r\n#TITLE Mode\r\n" + channelLine + "\r\n", Encoding.GetEncoding("shift_jis"));
+
+                ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(filePath);
+                BMSFile expected = BMSFile.CreateBMSFileFromFile(filePath);
+                BMSFile actual = BMSFile.CreateBMSFileFromSnapshot(snapshot);
+
+                Assert.AreEqual(expectedMode, actual.mode, fileName);
+                AssertBmsMetadataEqual(expected, actual);
+            });
+        }
+    }
+
+    [TestMethod]
+    public void DetectEncodingOfBMSFile_SnapshotMatchesPathApiForRepresentativeEncodings()
+    {
+        (string EncodingName, string Text)[] cases =
+        {
+            ("shift_jis", "#TITLE ASCII\r\n"),
+            ("ks_c_5601-1987", "#TITLE \uac00\ub098\ub2e4\r\n"),
+            ("utf-8", "#TITLE \u3012\u2605\r\n")
+        };
+        foreach ((string encodingName, string text) in cases)
+        {
+            WithTempDirectory(delegate (string tempDirectory)
+            {
+                string filePath = Path.Combine(tempDirectory, "chart_" + encodingName + ".bms");
+                File.WriteAllText(filePath, text, Encoding.GetEncoding(encodingName));
+
+                ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(filePath);
+
+                Assert.AreEqual(BMSFile.DetectEncodingOfBMSFile(filePath), BMSFile.DetectEncodingOfBMSFile(snapshot), encodingName);
+            });
+        }
+    }
+
+    [TestMethod]
+    public void DetectEncodingOfBMSFile_UsesSnapshotBytesAfterFileChanges()
+    {
+        WithTempDirectory(delegate (string tempDirectory)
+        {
+            string filePath = Path.Combine(tempDirectory, "chart.bms");
+            File.WriteAllText(filePath, "#TITLE \uac00\ub098\ub2e4\r\n", Encoding.GetEncoding("ks_c_5601-1987"));
+            ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(filePath);
+            string snapshotEncoding = BMSFile.DetectEncodingOfBMSFile(snapshot);
+
+            File.WriteAllText(filePath, "#TITLE ASCII\r\n", Encoding.GetEncoding("shift_jis"));
+
+            Assert.AreEqual(snapshotEncoding, BMSFile.DetectEncodingOfBMSFile(snapshot));
+            Assert.AreNotEqual(BMSFile.DetectEncodingOfBMSFile(filePath), BMSFile.DetectEncodingOfBMSFile(snapshot));
+        });
+    }
+
+    [TestMethod]
+    public void ReloadBMSFileWithEncoding_SnapshotUsesSnapshotBytesAfterFileChanges()
+    {
+        WithTempDirectory(delegate (string tempDirectory)
+        {
+            string filePath = Path.Combine(tempDirectory, "chart.bms");
+            File.WriteAllText(filePath,
+                "#PLAYER 1\r\n#TITLE Before\r\n#ARTIST ArtistBefore\r\n#GENRE GenreBefore\r\n",
+                Encoding.GetEncoding("shift_jis"));
+            ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(filePath);
+            BMSFile file = BMSFile.CreateBMSFileFromFile(filePath);
+
+            File.WriteAllText(filePath,
+                "#PLAYER 1\r\n#TITLE After\r\n#ARTIST ArtistAfter\r\n#GENRE GenreAfter\r\n",
+                Encoding.GetEncoding("shift_jis"));
+
+            BMSFile.ReloadBMSFileWithEncoding(file, snapshot, "shift_jis");
+
+            Assert.AreEqual("Before", file.Title);
+            Assert.AreEqual("ArtistBefore", file.Artist);
+            Assert.AreEqual("GenreBefore", file.genre);
+        });
+    }
+
     private static void AssertBmsMetadataEqual(BMSFile expected, BMSFile actual)
     {
         Assert.AreEqual(expected.path, actual.path);

@@ -947,6 +947,59 @@ public sealed class BmsLibraryInitializationServiceTests
     }
 
     [TestMethod]
+    public void ApplyFileScanDiff_ReloadsDetectedEncodingDuringInlineMaintenance()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
+        {
+            string chartDirectoryPath = Path.Combine(lr2RootPath, "InlineEncoding");
+            Directory.CreateDirectory(chartDirectoryPath);
+            string bmsPath = Path.Combine(chartDirectoryPath, "added.bms");
+            string title = "\uacaf";
+            File.WriteAllText(
+                bmsPath,
+                "#PLAYER 1\r\n#TITLE " + title + "\r\n#ARTIST KoreanArtist\r\n#WAV01 sound.wav\r\n#00111:01\r\n",
+                Encoding.GetEncoding("ks_c_5601-1987"));
+
+            using (LR2SongDBExtended songDbConnection = new LR2SongDBExtended(songDbPath))
+            {
+                songDbConnection.CreateTable<LR2SongDB.song>();
+            }
+
+            BmsLibraryInitializationService service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
+            SongTableFileCheckResult result = service.ApplyFileScanDiff(
+                new BmsLibraryDbGateway(songDbPath),
+                new BmsLibraryOptionsSnapshot(),
+                Array.Empty<BMSFile>(),
+                new BmsScanExecutionResult
+                {
+                    Success = true,
+                    Result = CreateScanResult(
+                        new[] { bmsPath },
+                        new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
+                        {
+                            { chartDirectoryPath, new[] { "sound.wav" } }
+                        })
+                },
+                0L,
+                () => null,
+                null,
+                currentBmsonSongs: Array.Empty<LR2SongDBExtended.bmson_song>());
+
+            BMSFile added = result.AddedFiles.Single();
+            Assert.AreEqual(title, added.Title);
+            Assert.AreEqual("ks_c_5601-1987", added.maintenanceInfo.encoding);
+            Assert.IsTrue(added.maintenanceInfo.is_encoding_fixed);
+
+            using LR2SongDBExtended verify = new LR2SongDBExtended(songDbPath);
+            Assert.AreEqual(title, verify.ExecuteScalar<string>("SELECT title FROM song WHERE path = ?;", bmsPath));
+            LR2SongDBExtended.maintenance maintenance = verify.Query<LR2SongDBExtended.maintenance>("SELECT * FROM maintenance WHERE path = ?;", bmsPath).Single();
+            Assert.AreEqual("ks_c_5601-1987", maintenance.encoding);
+            Assert.AreEqual(1, maintenance.wav_files_defined);
+        });
+    }
+
+    [TestMethod]
     public void ApplyFileScanDiff_DeletesBmsAndMaintenanceInSameChunk()
     {
         TestResourceInitializer.EnsureJapaneseResources();

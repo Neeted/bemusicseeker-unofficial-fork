@@ -1006,10 +1006,11 @@ internal sealed class BmsLibraryInitializationService
         InlineMaintenanceItemResult[] results = new InlineMaintenanceItemResult[candidates.Count];
         Parallel.For(0, candidates.Count, new ParallelOptions { MaxDegreeOfParallelism = Math.Max(1, degree) }, delegate (int index)
         {
-            BMSFile file = candidates[index]?.File;
+            InlineBmsParseCandidate candidate = candidates[index];
+            BMSFile file = candidate?.File;
             if (file != null)
             {
-                results[index] = BuildInlineBmsMaintenance(file, lookupCache);
+                results[index] = BuildInlineBmsMaintenance(file, candidate.Snapshot, lookupCache);
             }
         });
         LogInlineMaintenanceWarnings(results, logInstallPerformanceWarn);
@@ -1041,6 +1042,7 @@ internal sealed class BmsLibraryInitializationService
 
     private static InlineMaintenanceItemResult BuildInlineBmsMaintenance(
         BMSFile file,
+        ChartFileSnapshot snapshot,
         DirectoryResourceLookupCache lookupCache)
     {
         if (file == null)
@@ -1054,10 +1056,24 @@ internal sealed class BmsLibraryInitializationService
         try
         {
             file.SetHealthStatusUsingLookupContext(lookupContext, forceUpdate: false, memClear: true);
-            file.SetEncosingInfo();
+            if (snapshot != null)
+            {
+                file.SetEncosingInfo(snapshot);
+            }
+            else
+            {
+                file.SetEncosingInfo();
+            }
             if (ShouldReloadBmsForFixedEncoding(file.maintenanceInfo?.encoding))
             {
-                BMSFile.ReloadBMSFileWithEncoding(file, file.maintenanceInfo.encoding);
+                if (snapshot != null)
+                {
+                    BMSFile.ReloadBMSFileWithEncoding(file, snapshot, file.maintenanceInfo.encoding);
+                }
+                else
+                {
+                    BMSFile.ReloadBMSFileWithEncoding(file, file.maintenanceInfo.encoding);
+                }
                 file.maintenanceInfo.is_encoding_fixed = true;
             }
             completed = file.maintenanceInfo?.IsInformationChecked() == true;

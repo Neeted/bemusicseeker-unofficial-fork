@@ -277,42 +277,6 @@ public class BMSFile : LR2SongDB.song
     // も可視ノートとして扱う。データ部は 2 桁 object 列として見て、00 だけの行は無視する。
     private static Regex visibleObjectChRegex = new Regex("^[\\s\u3000]*#[0-9]{3}(?:[12][1-9A-Z]|[56][1-9A-Z])(?:[\\s\u3000]*:[\\s\u3000]*|[\\s\u3000]+)(?:[\\s\u3000]*00)*[\\s\u3000]*(?!00)[0-9A-Z]{2}", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
-    private static Regex objectCh11Regex = new Regex("^[\\s\u3000]*#[0-9]{3}[13]1\\s*:[\\s0]*[^\\s0]", RegexOptions.Compiled);
-
-    private static Regex objectCh12Regex = new Regex("^[\\s\u3000]*#[0-9]{3}[13]2\\s*:[\\s0]*[^\\s0]", RegexOptions.Compiled);
-
-    private static Regex objectCh13Regex = new Regex("^[\\s\u3000]*#[0-9]{3}[13]3\\s*:[\\s0]*[^\\s0]", RegexOptions.Compiled);
-
-    private static Regex objectCh14Regex = new Regex("^[\\s\u3000]*#[0-9]{3}[13]4\\s*:[\\s0]*[^\\s0]", RegexOptions.Compiled);
-
-    private static Regex objectCh15Regex = new Regex("^[\\s\u3000]*#[0-9]{3}[13]5\\s*:[\\s0]*[^\\s0]", RegexOptions.Compiled);
-
-    private static Regex objectCh16Regex = new Regex("^[\\s\u3000]*#[0-9]{3}[13]6\\s*:[\\s0]*[^\\s0]", RegexOptions.Compiled);
-
-    private static Regex objectCh17Regex = new Regex("^[\\s\u3000]*#[0-9]{3}[13]7\\s*:[\\s0]*[^\\s0]", RegexOptions.Compiled);
-
-    private static Regex objectCh18Regex = new Regex("^[\\s\u3000]*#[0-9]{3}[13]8\\s*:[\\s0]*[^\\s0]", RegexOptions.Compiled);
-
-    private static Regex objectCh19Regex = new Regex("^[\\s\u3000]*#[0-9]{3}[13]9\\s*:[\\s0]*[^\\s0]", RegexOptions.Compiled);
-
-    private static Regex objectCh21Regex = new Regex("^[\\s\u3000]*#[0-9]{3}[24]1\\s*:[\\s0]*[^\\s0]", RegexOptions.Compiled);
-
-    private static Regex objectCh22Regex = new Regex("^[\\s\u3000]*#[0-9]{3}[24]2\\s*:[\\s0]*[^\\s0]", RegexOptions.Compiled);
-
-    private static Regex objectCh23Regex = new Regex("^[\\s\u3000]*#[0-9]{3}[24]3\\s*:[\\s0]*[^\\s0]", RegexOptions.Compiled);
-
-    private static Regex objectCh24Regex = new Regex("^[\\s\u3000]*#[0-9]{3}[24]4\\s*:[\\s0]*[^\\s0]", RegexOptions.Compiled);
-
-    private static Regex objectCh25Regex = new Regex("^[\\s\u3000]*#[0-9]{3}[24]5\\s*:[\\s0]*[^\\s0]", RegexOptions.Compiled);
-
-    private static Regex objectCh26Regex = new Regex("^[\\s\u3000]*#[0-9]{3}[24]6\\s*:[\\s0]*[^\\s0]", RegexOptions.Compiled);
-
-    private static Regex objectCh27Regex = new Regex("^[\\s\u3000]*#[0-9]{3}[24]7\\s*:[\\s0]*[^\\s0]", RegexOptions.Compiled);
-
-    private static Regex objectCh28Regex = new Regex("^[\\s\u3000]*#[0-9]{3}[24]8\\s*:[\\s0]*[^\\s0]", RegexOptions.Compiled);
-
-    private static Regex objectCh29Regex = new Regex("^[\\s\u3000]*#[0-9]{3}[24]9\\s*:[\\s0]*[^\\s0]", RegexOptions.Compiled);
-
     private static Regex spaceAndReturnPattern = new Regex("[\\s\\r\\n]", RegexOptions.Compiled);
 
     private static Regex asciiPattern = new Regex("[\\p{IsBasicLatin}]+", RegexOptions.Compiled);
@@ -1582,6 +1546,17 @@ public class BMSFile : LR2SongDB.song
         }
     }
 
+    internal void SetEncosingInfo(ChartFileSnapshot snapshot, BMSFileMaintenanceInfo mtInfo = null)
+    {
+        if (snapshot == null)
+        {
+            throw new ArgumentNullException(nameof(snapshot));
+        }
+        mtInfo = mtInfo ?? maintenanceInfo;
+        mtInfo.encoding = DetectEncodingOfBMSFile(snapshot);
+        mtInfo.is_encoding_fixed = false;
+    }
+
     public void SetHealthStatus(bool forceUpdate = false, bool memClear = true, BMSFileMaintenanceInfo mtInfo = null, string altSearchDir = null)
     {
         SetHealthStatusCore(forceUpdate, memClear, mtInfo, altSearchDir, null);
@@ -2160,77 +2135,77 @@ public class BMSFile : LR2SongDB.song
                     bMSFile.backbmp = match.Groups[1].ToString();
                 }
             }
-            else if (!flag && (match = objectCh11Regex.Match(item)).Success)
+            else if (TryParseModeChannelLine(item, out char channelGroup, out char lane))
             {
-                flag = true;
-            }
-            else if (!flag2 && (match = objectCh12Regex.Match(item)).Success)
-            {
-                flag2 = true;
-            }
-            else if (!flag3 && (match = objectCh13Regex.Match(item)).Success)
-            {
-                flag3 = true;
-            }
-            else if (!flag4 && (match = objectCh14Regex.Match(item)).Success)
-            {
-                flag4 = true;
-            }
-            else if (!flag5 && (match = objectCh15Regex.Match(item)).Success)
-            {
-                flag5 = true;
-            }
-            else if (!flag6 && (match = objectCh16Regex.Match(item)).Success)
-            {
-                flag6 = true;
-            }
-            else if (!flag7 && (match = objectCh17Regex.Match(item)).Success)
-            {
-                flag7 = true;
-            }
-            else if (!flag8 && (match = objectCh18Regex.Match(item)).Success)
-            {
-                flag8 = true;
-            }
-            else if (!flag9 && (match = objectCh19Regex.Match(item)).Success)
-            {
-                flag9 = true;
-            }
-            else if (!flag10 && (match = objectCh21Regex.Match(item)).Success)
-            {
-                flag10 = true;
-            }
-            else if (!flag11 && (match = objectCh22Regex.Match(item)).Success)
-            {
-                flag11 = true;
-            }
-            else if (!flag12 && (match = objectCh23Regex.Match(item)).Success)
-            {
-                flag12 = true;
-            }
-            else if (!flag13 && (match = objectCh24Regex.Match(item)).Success)
-            {
-                flag13 = true;
-            }
-            else if (!flag14 && (match = objectCh25Regex.Match(item)).Success)
-            {
-                flag14 = true;
-            }
-            else if (!flag15 && (match = objectCh26Regex.Match(item)).Success)
-            {
-                flag15 = true;
-            }
-            else if (!flag16 && (match = objectCh27Regex.Match(item)).Success)
-            {
-                flag16 = true;
-            }
-            else if (!flag17 && (match = objectCh28Regex.Match(item)).Success)
-            {
-                flag17 = true;
-            }
-            else if (!flag18 && (match = objectCh29Regex.Match(item)).Success)
-            {
-                flag18 = true;
+                switch (channelGroup)
+                {
+                    case '1':
+                    case '3':
+                        switch (lane)
+                        {
+                            case '1':
+                                flag = true;
+                                break;
+                            case '2':
+                                flag2 = true;
+                                break;
+                            case '3':
+                                flag3 = true;
+                                break;
+                            case '4':
+                                flag4 = true;
+                                break;
+                            case '5':
+                                flag5 = true;
+                                break;
+                            case '6':
+                                flag6 = true;
+                                break;
+                            case '7':
+                                flag7 = true;
+                                break;
+                            case '8':
+                                flag8 = true;
+                                break;
+                            case '9':
+                                flag9 = true;
+                                break;
+                        }
+                        break;
+                    case '2':
+                    case '4':
+                        switch (lane)
+                        {
+                            case '1':
+                                flag10 = true;
+                                break;
+                            case '2':
+                                flag11 = true;
+                                break;
+                            case '3':
+                                flag12 = true;
+                                break;
+                            case '4':
+                                flag13 = true;
+                                break;
+                            case '5':
+                                flag14 = true;
+                                break;
+                            case '6':
+                                flag15 = true;
+                                break;
+                            case '7':
+                                flag16 = true;
+                                break;
+                            case '8':
+                                flag17 = true;
+                                break;
+                            case '9':
+                                flag18 = true;
+                                break;
+                        }
+                        break;
+                }
             }
         }
         bMSFile.WAVfiles = hashSet;
@@ -2270,6 +2245,61 @@ public class BMSFile : LR2SongDB.song
             bMSFile.mode = 14;
         }
         return bMSFile;
+    }
+
+    private static bool TryParseModeChannelLine(string line, out char channelGroup, out char lane)
+    {
+        channelGroup = '\0';
+        lane = '\0';
+        if (string.IsNullOrEmpty(line))
+        {
+            return false;
+        }
+        int index = 0;
+        while (index < line.Length && char.IsWhiteSpace(line[index]))
+        {
+            index++;
+        }
+        if (index >= line.Length || line[index] != '#')
+        {
+            return false;
+        }
+        index++;
+        if (index + 5 > line.Length
+            || !IsAsciiDigit(line[index])
+            || !IsAsciiDigit(line[index + 1])
+            || !IsAsciiDigit(line[index + 2]))
+        {
+            return false;
+        }
+        channelGroup = line[index + 3];
+        lane = line[index + 4];
+        if (!((channelGroup == '1' || channelGroup == '2' || channelGroup == '3' || channelGroup == '4')
+            && lane >= '1'
+            && lane <= '9'))
+        {
+            return false;
+        }
+        index += 5;
+        while (index < line.Length && char.IsWhiteSpace(line[index]))
+        {
+            index++;
+        }
+        if (index >= line.Length || line[index] != ':')
+        {
+            return false;
+        }
+        index++;
+        while (index < line.Length && (char.IsWhiteSpace(line[index]) || line[index] == '0'))
+        {
+            index++;
+        }
+        return index < line.Length && !char.IsWhiteSpace(line[index]);
+    }
+
+    private static bool IsAsciiDigit(char value)
+    {
+        return value >= '0' && value <= '9';
     }
 
     public static void SetBMSComponentFilesFromBMSFile(BMSFile bmsFile, string codepageName = "shift_jis")
@@ -2428,6 +2458,36 @@ public class BMSFile : LR2SongDB.song
         }
     }
 
+    internal static void ReloadBMSFileWithEncoding(BMSFile bmsFile, ChartFileSnapshot snapshot, string codepageName = "")
+    {
+        if (bmsFile == null)
+        {
+            throw new ArgumentNullException(nameof(bmsFile));
+        }
+        if (snapshot == null)
+        {
+            throw new ArgumentNullException(nameof(snapshot));
+        }
+        if (string.IsNullOrWhiteSpace(codepageName))
+        {
+            codepageName = DetectEncodingOfBMSFile(snapshot);
+            if (codepageName == "unknown")
+            {
+                codepageName = "shift_jis";
+            }
+            codepageName = codepageName.TrimEnd('?');
+        }
+        BMSFile bMSFile = CreateBMSFileFromSnapshot(snapshot, codepageName);
+        bmsFile.Title = bMSFile.Title;
+        bmsFile.Artist = bMSFile.Artist;
+        bmsFile.genre = bMSFile.genre;
+        if (codepageName == "shift_jis")
+        {
+            bmsFile.adddate = null;
+            bmsFile.date = null;
+        }
+    }
+
     public static string DetectEncodingOfBMSFile(BMSFile bmsInfo)
     {
         return DetectEncodingOfBMSFile(bmsInfo.path);
@@ -2439,9 +2499,23 @@ public class BMSFile : LR2SongDB.song
         {
             throw new FileNotFoundException("BMS ファイルが見つかりません。", path ?? "");
         }
+        return DetectEncodingOfBMSFileCore((Encoding encoding) => File.ReadAllText(path, encoding));
+    }
+
+    internal static string DetectEncodingOfBMSFile(ChartFileSnapshot snapshot)
+    {
+        if (snapshot == null)
+        {
+            throw new ArgumentNullException(nameof(snapshot));
+        }
+        return DetectEncodingOfBMSFileCore((Encoding encoding) => DecodeSnapshotText(snapshot, encoding));
+    }
+
+    private static string DetectEncodingOfBMSFileCore(Func<Encoding, string> readText)
+    {
         try
         {
-            string input = File.ReadAllText(path, sjisEnc);
+            string input = readText(sjisEnc);
             input = asciiPattern.Replace(input, " ");
             if (string.IsNullOrWhiteSpace(input))
             {
@@ -2460,14 +2534,14 @@ public class BMSFile : LR2SongDB.song
         {
             try
             {
-                File.ReadAllText(path, koreanEnc);
+                readText(koreanEnc);
                 return "ks_c_5601-1987";
             }
             catch
             {
                 try
                 {
-                    File.ReadAllText(path, utf8Enc);
+                    readText(utf8Enc);
                     return "utf-8";
                 }
                 catch
@@ -2478,7 +2552,7 @@ public class BMSFile : LR2SongDB.song
         }
         try
         {
-            string input2 = File.ReadAllText(path, koreanEnc);
+            string input2 = readText(koreanEnc);
             input2 = spaceAndReturnPattern.Replace(input2, "");
             if (hangul2charasPattern.IsMatch(input2))
             {
@@ -2490,6 +2564,13 @@ public class BMSFile : LR2SongDB.song
         {
             return "shift_jis";
         }
+    }
+
+    private static string DecodeSnapshotText(ChartFileSnapshot snapshot, Encoding encoding)
+    {
+        using MemoryStream stream = new MemoryStream(snapshot.Bytes, writable: false);
+        using StreamReader reader = new StreamReader(stream, encoding, detectEncodingFromByteOrderMarks: true);
+        return reader.ReadToEnd();
     }
 
     public static bool IsZeroNoteBMSFile(string filePath)
