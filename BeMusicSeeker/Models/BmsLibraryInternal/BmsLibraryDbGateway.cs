@@ -1338,16 +1338,7 @@ internal sealed class BmsLibraryDbGateway
 
     public void UpsertIrData(IEnumerable<LR2IRData> irData)
     {
-        Dictionary<string, LR2IRData> deduplicated = new Dictionary<string, LR2IRData>(StringComparer.OrdinalIgnoreCase);
-        foreach (LR2IRData entry in irData ?? Enumerable.Empty<LR2IRData>())
-        {
-            if (entry == null || string.IsNullOrWhiteSpace(entry.hash))
-            {
-                continue;
-            }
-            deduplicated[entry.hash + "\u001f" + entry.lr2id] = entry;
-        }
-        List<LR2IRData> entries = deduplicated.Values.ToList();
+        List<LR2IRData> entries = DeduplicateIrData(irData);
         if (entries.Count == 0)
         {
             return;
@@ -1360,6 +1351,45 @@ internal sealed class BmsLibraryDbGateway
                 songDb.InsertOrReplace(entry, typeof(LR2SongDBExtended.ir_data));
             }
         });
+    }
+
+    public bool TryBulkInsertIrDataForEmptyLr2Id(int lr2Id, IEnumerable<LR2IRData> irData)
+    {
+        List<LR2IRData> entries = DeduplicateIrData(irData)
+            .Where((LR2IRData entry) => entry.lr2id == lr2Id)
+            .ToList();
+        if (entries.Count == 0)
+        {
+            return true;
+        }
+        bool inserted = false;
+        ExecuteSongDbTransaction(delegate (LR2SongDBExtended songDb)
+        {
+            string tableName = SQLiteTable<LR2SongDBExtended.ir_data>.GetTableName();
+            string lr2IdColumn = SQLiteTable<LR2SongDBExtended.ir_data>.GetColumnName((LR2SongDBExtended.ir_data row) => row.lr2id);
+            long existingRows = songDb.ExecuteScalar<long>("SELECT COUNT(1) FROM " + tableName + " WHERE " + lr2IdColumn + " = " + lr2Id + ";");
+            if (existingRows != 0)
+            {
+                return;
+            }
+            songDb.InsertAll(entries, typeof(LR2SongDBExtended.ir_data));
+            inserted = true;
+        });
+        return inserted;
+    }
+
+    private static List<LR2IRData> DeduplicateIrData(IEnumerable<LR2IRData> irData)
+    {
+        Dictionary<string, LR2IRData> deduplicated = new Dictionary<string, LR2IRData>(StringComparer.OrdinalIgnoreCase);
+        foreach (LR2IRData entry in irData ?? Enumerable.Empty<LR2IRData>())
+        {
+            if (entry == null || string.IsNullOrWhiteSpace(entry.hash))
+            {
+                continue;
+            }
+            deduplicated[entry.hash + "\u001f" + entry.lr2id] = entry;
+        }
+        return deduplicated.Values.ToList();
     }
 
     public void ReplaceIrScoreTable(IEnumerable<LR2IRScore> scoreTable)
@@ -1417,6 +1447,25 @@ internal sealed class BmsLibraryDbGateway
         EnsureIndex(songDb, "bmson_song_idx_md5", bmsonSongTableName, SQLiteTable<LR2SongDBExtended.bmson_song>.GetColumnName((LR2SongDBExtended.bmson_song row) => row.md5));
         EnsureIndex(songDb, "bmson_song_idx_sha256", bmsonSongTableName, SQLiteTable<LR2SongDBExtended.bmson_song>.GetColumnName((LR2SongDBExtended.bmson_song row) => row.sha256));
         EnsureIndex(songDb, "bmson_song_idx_folder", bmsonSongTableName, SQLiteTable<LR2SongDBExtended.bmson_song>.GetColumnName((LR2SongDBExtended.bmson_song row) => row.folder));
+    }
+
+    internal static void EnsureIrDataSchema(LR2SongDBExtended songDb)
+    {
+        if (songDb == null)
+        {
+            throw new ArgumentNullException(nameof(songDb));
+        }
+        string tableName = SQLiteTable<LR2SongDBExtended.ir_data>.GetTableName();
+        songDb.CreateTable<LR2SongDBExtended.ir_data>();
+        songDb.CreateIndex("ir_data_idx", tableName, new string[1] { SQLiteTable<LR2SongDBExtended.ir_data>.GetColumnName((LR2SongDBExtended.ir_data e) => e.lr2id) });
+        songDb.CreateIndex(
+            "ir_data_idx_lr2id_hash",
+            tableName,
+            new[]
+            {
+                SQLiteTable<LR2SongDBExtended.ir_data>.GetColumnName((LR2SongDBExtended.ir_data e) => e.lr2id),
+                SQLiteTable<LR2SongDBExtended.ir_data>.GetColumnName((LR2SongDBExtended.ir_data e) => e.hash)
+            });
     }
 
     /// <summary>

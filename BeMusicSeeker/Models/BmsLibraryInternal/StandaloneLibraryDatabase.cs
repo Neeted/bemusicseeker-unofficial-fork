@@ -36,8 +36,7 @@ internal static class StandaloneLibraryDatabase
         songDb.CreateTable<LR2SongDBExtended.install>();
         songDb.CreateTable<LR2SongDBExtended.maintenance>();
         songDb.CreateTable<LR2SongDBExtended.ir_score>();
-        songDb.CreateTable<LR2SongDBExtended.ir_data>();
         songDb.CreateIndex("song_idx_folder", SQLiteTable<LR2SongDB.song>.GetTableName(), new[] { SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.folder) });
-        songDb.CreateIndex("ir_data_idx", SQLiteTable<LR2SongDBExtended.ir_data>.GetTableName(), new[] { SQLiteTable<LR2SongDBExtended.ir_data>.GetColumnName(row => row.lr2id) });
+        BmsLibraryDbGateway.EnsureIrDataSchema(songDb);
     }
 }

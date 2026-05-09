@@ -24,7 +24,17 @@ internal sealed class IrCacheRefreshResult
 
     public long XmlReloadMs { get; set; }
 
+    public int XmlReloadDegree { get; set; }
+
+    public int XmlScoresParsed { get; set; }
+
+    public int XmlParseFailedCount { get; set; }
+
+    public int XmlFallbackLoadCount { get; set; }
+
     public int IrDataUpsertCount { get; set; }
+
+    public bool BulkInsertUsed { get; set; }
 
     public long UpsertMs { get; set; }
 

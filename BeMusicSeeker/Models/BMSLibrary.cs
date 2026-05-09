@@ -2483,9 +2483,8 @@ public class BMSLibrary : NotificationObject
             lR2SongDBExtended.CreateTable<LR2SongDBExtended.install>();
             lR2SongDBExtended.CreateTable<LR2SongDBExtended.maintenance>();
             lR2SongDBExtended.CreateTable<LR2SongDBExtended.ir_score>();
-            lR2SongDBExtended.CreateTable<LR2SongDBExtended.ir_data>();
             lR2SongDBExtended.CreateIndex("song_idx_folder", SQLiteTable<LR2SongDB.song>.GetTableName(), new string[1] { SQLiteTable<LR2SongDB.song>.GetColumnName((LR2SongDB.song e) => e.folder) });
-            lR2SongDBExtended.CreateIndex("ir_data_idx", SQLiteTable<LR2SongDBExtended.ir_data>.GetTableName(), new string[1] { SQLiteTable<LR2SongDBExtended.ir_data>.GetColumnName((LR2SongDBExtended.ir_data e) => e.lr2id) });
+            BmsLibraryDbGateway.EnsureIrDataSchema(lR2SongDBExtended);
             BmsLibraryDbGateway.EnsureChartInfoSchema(lR2SongDBExtended);
         }
         listenerForRwlockBMSFilesInitializedAll = new PropertyChangedEventListener(rwlockBMSFilesInitializedAll);
@@ -6904,10 +6903,15 @@ public class BMSLibrary : NotificationObject
             + " xmlCheckMs=" + result.XmlCheckMs
             + " reloadTargets=" + result.CacheFilesReloaded
             + " xmlReloadMs=" + result.XmlReloadMs
+            + " xmlReloadDegree=" + result.XmlReloadDegree
+            + " xmlScoresParsed=" + result.XmlScoresParsed
+            + " xmlParseFailed=" + result.XmlParseFailedCount
+            + " xmlFallbackLoads=" + result.XmlFallbackLoadCount
             + " dbApplyCount=" + result.DbFallbackAppliedCount
             + " xmlApplyCount=" + result.XmlAppliedCount
             + " upsertRows=" + result.IrDataUpsertCount
             + " upsertMs=" + result.UpsertMs
+            + " bulkInsertUsed=" + result.BulkInsertUsed
             + " offlineEstimateXmlLoads=" + result.OfflineEstimateXmlLoadCount);
         RefreshScoreSnapshotFromCurrentScores("refresh_ranking_cache");
         using (rwlockBMSFiles.GetReaderGuard())
