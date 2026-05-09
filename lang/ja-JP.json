@@ -44,7 +44,7 @@
   "Statusbar_progress_phase_score_hydration": "スコア反映",
   "Statusbar_progress_phase_ranking_refresh": "ランキング更新",
   "Statusbar_progress_phase_chart_info": "譜面メタデータ解析",
-  "Statusbar_progress_phase_chart_info_load": "譜面メタデータ読込",
+  "Statusbar_progress_phase_chart_info_load": "譜面メタデータ反映",
   "Statusbar_progress_phase_background": "バックグラウンド更新中",
   "Appearance_theme": "テーマ:",
   "Appearance_theme_light": "ライト",

@@ -15460,7 +15460,7 @@ public class MainWindowViewModel : ViewModel
         }
         if (!IsStartupProgressPhaseCompletedOrNotExpected(state, StartupProgressPhase.ChartInfoHydrationDone))
         {
-            return FormatStartupProgressCountLabel(BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_chart_info_load, state.ChartInfoHydrationAppliedCount, state.ChartInfoHydrationTotalCount, null);
+            return BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_chart_info_load;
         }
         if (!IsStartupProgressPhaseCompletedOrNotExpected(state, StartupProgressPhase.ChartInfoBackfillDone))
         {
@@ -15763,6 +15763,18 @@ public class MainWindowViewModel : ViewModel
                 if (statusParts.Length > 2)
                 {
                     state.ChartInfoBackfillCurrentPath = statusParts[2];
+                }
+            }
+            else if (string.Equals(verb, "hydrate", StringComparison.OrdinalIgnoreCase))
+            {
+                string[] statusParts = parts[1].Split('|');
+                if (statusParts.Length > 0)
+                {
+                    state.ChartInfoHydrationTotalCount = int.Parse(statusParts[0], CultureInfo.InvariantCulture);
+                }
+                if (statusParts.Length > 1)
+                {
+                    state.ChartInfoHydrationAppliedCount = int.Parse(statusParts[1], CultureInfo.InvariantCulture);
                 }
             }
             else

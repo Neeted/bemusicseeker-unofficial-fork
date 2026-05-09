@@ -1270,7 +1270,7 @@ BMSファイルが重複しないようにマージします。
     <value>譜面メタデータ解析</value>
   </data>
   <data name="Statusbar_progress_phase_chart_info_load" xml:space="preserve">
-    <value>譜面メタデータ読込</value>
+    <value>譜面メタデータ反映</value>
   </data>
   <data name="Statusbar_progress_phase_background" xml:space="preserve">
     <value>バックグラウンド更新中</value>

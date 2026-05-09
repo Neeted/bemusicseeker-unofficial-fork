@@ -266,6 +266,27 @@ public sealed class MainWindowViewModelStartupProgressTests
     }
 
     [TestMethod]
+    public void StartupProgress_ChartInfoHydrationSubLabel_HidesFraction()
+    {
+        MainWindowViewModel.StartupProgressTestResult result = MainWindowViewModel.ReduceStartupProgressForTest(
+            "Startup",
+            "complete:LibraryDatabaseLoadDone",
+            "complete:LibraryFileEnumerationDone",
+            "complete:LibraryFileDiffDone",
+            "complete:StartupReadyData",
+            "complete:StartupReadyUi",
+            "complete:StartupReadyOperable",
+            "skip:PlaylistEntriesHydrationDone",
+            "request:ChartInfoHydrationDone",
+            "hydrate:209999|1200");
+
+        Assert.AreEqual(Resources.Statusbar_progress_operable_background, result.Label);
+        Assert.AreEqual(Resources.Statusbar_progress_phase_chart_info_load, result.SubLabel);
+        Assert.IsFalse(result.SubLabel.Contains("["));
+    }
+
+
+    [TestMethod]
     public void StartupProgress_ChartInfoBackfillRequestedBeforeSkip_RemainsVisibleAfterHydration()
     {
         MainWindowViewModel.StartupProgressTestResult result = MainWindowViewModel.ReduceStartupProgressForTest(
@@ -310,5 +331,6 @@ public sealed class MainWindowViewModelStartupProgressTests
     public void StartupProgress_OperableBackgroundResource_IsPresent()
     {
         Assert.AreEqual("操作可能(バックグラウンド更新中)", Resources.Statusbar_progress_operable_background);
+        Assert.AreEqual("譜面メタデータ反映", Resources.Statusbar_progress_phase_chart_info_load);
     }
 }

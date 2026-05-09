@@ -76,7 +76,7 @@ BMS search root の追加・削除は `ReloadFileDiff` として扱う。実行�
 | `PlaylistReferenceApplied` | playlist 参照解決反映 | `プレイリスト参照更新` |
 | `ExternalPlaylistSyncDone` | 外部 playlist 同期 | `プレイリスト参照更新` |
 | `PlaylistEntriesHydrationDone` | playlist entry hydration | `プレイリスト読込` |
-| `ChartInfoHydrationDone` | 既存 chart_info のメモリ適用 | `[applied/total] 譜面メタデータ読込` |
+| `ChartInfoHydrationDone` | 既存 chart_info のメモリ適用 | `譜面メタデータ反映` |
 | `ChartInfoBackfillDone` | chart_info 解析 | `[processed/total] 譜面メタデータ解析 fileName` |
 | `ChartDigestBackfillDone` | chart digest 補完 | `[processed/total] 譜面メタデータ解析 fileName` |
 | `ScoreHydrationDone` | score 反映 | `スコア反映` |
@@ -127,6 +127,7 @@ metadata bundle import はリリース同梱または外部配布 metadata の�
 ## 件数付き SubLabel
 
 件数付き表示は、狭いステータスバーでも分母が残りやすいように count を先頭に置く。
+ただし `ChartInfoHydrationDone` は既存 chart_info の DB load / memory owner 反映であり、`applied/total` が直感的な進捗になりにくいため件数を出さない。
 
 ```text
 [processed/total] phaseLabel fileName
@@ -137,7 +138,6 @@ metadata bundle import はリリース同梱または外部配布 metadata の�
 ```text
 [6695/209999] ファイル差分確認 added.bms
 [6695/209999] 譜面メタデータ解析 chart.bms
-[1200/209999] 譜面メタデータ読込
 ```
 
 file name がない場合は末尾を省略する。

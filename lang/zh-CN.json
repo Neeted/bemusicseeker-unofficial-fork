@@ -33,7 +33,7 @@
   "Statusbar_progress_phase_score_hydration": "反映分数",
   "Statusbar_progress_phase_ranking_refresh": "更新排名",
   "Statusbar_progress_phase_chart_info": "分析谱面元数据",
-  "Statusbar_progress_phase_chart_info_load": "读取谱面元数据",
+  "Statusbar_progress_phase_chart_info_load": "应用谱面元数据",
   "Statusbar_progress_phase_background": "后台更新中",
   "Msg_failed_remove_playlist_entry": "谱面从播放列表移除失败。\n该播放列表已设置为外部同步模式。",
   "Record_setting_encoder_dir": "可执行文件目录：",
