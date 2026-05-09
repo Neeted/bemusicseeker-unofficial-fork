@@ -29,20 +29,20 @@ internal sealed class BmsLibraryIrService
 
         public List<LR2IRData> XmlRows { get; } = new List<LR2IRData>();
 
-        public Dictionary<string, LR2IRCache> XmlCachesByHash { get; } = new Dictionary<string, LR2IRCache>(StringComparer.OrdinalIgnoreCase);
+        public Dictionary<string, Lr2IrRankingLookup> XmlLookupsByHash { get; } = new Dictionary<string, Lr2IrRankingLookup>(StringComparer.OrdinalIgnoreCase);
 
         public IrCacheRefreshResult Result { get; } = new IrCacheRefreshResult();
     }
 
     private sealed class RankingCacheReloadResult
     {
+        public string FilePath { get; set; }
+
         public LR2IRData IrData { get; set; }
 
-        public LR2IRCache FullCache { get; set; }
+        public Lr2IrRankingLookup Lookup { get; set; }
 
         public int ScoresParsed { get; set; }
-
-        public bool UsedFallback { get; set; }
 
         public bool Failed { get; set; }
     }
@@ -181,6 +181,11 @@ internal sealed class BmsLibraryIrService
 
     public void ApplyIrDataToScoresAndFiles(LR2IRData data, LR2IRCache cache, string scoreDbPath, List<BMSScore> bmsScores, IEnumerable<BMSFile> bmsFiles, bool skipEstimateOfflineScoreRanking)
     {
+        ApplyIrDataToScoresAndFiles(data, cache?.Lookup, scoreDbPath, bmsScores, bmsFiles, skipEstimateOfflineScoreRanking);
+    }
+
+    private void ApplyIrDataToScoresAndFiles(LR2IRData data, Lr2IrRankingLookup lookup, string scoreDbPath, List<BMSScore> bmsScores, IEnumerable<BMSFile> bmsFiles, bool skipEstimateOfflineScoreRanking)
+    {
         if (data == null || bmsScores == null)
         {
             return;
@@ -188,7 +193,7 @@ internal sealed class BmsLibraryIrService
         Dictionary<string, BMSScore> scoresByHash = BuildScoreIndex(bmsScores);
         Dictionary<string, List<BMSFile>> filesByHash = BuildFileIndex(bmsFiles);
         int offlineEstimateXmlLoadCount = 0;
-        ApplyIrDataToScoresAndFilesIndexed(data, cache, scoreDbPath, bmsScores, scoresByHash, filesByHash, skipEstimateOfflineScoreRanking, ref offlineEstimateXmlLoadCount);
+        ApplyIrDataToScoresAndFilesIndexed(data, lookup, scoreDbPath, bmsScores, scoresByHash, filesByHash, skipEstimateOfflineScoreRanking, ref offlineEstimateXmlLoadCount);
     }
 
     private static Dictionary<string, BMSScore> BuildScoreIndex(IEnumerable<BMSScore> bmsScores)
@@ -240,7 +245,7 @@ internal sealed class BmsLibraryIrService
 
     private void ApplyIrDataToScoresAndFilesIndexed(
         LR2IRData data,
-        LR2IRCache cache,
+        Lr2IrRankingLookup lookup,
         string scoreDbPath,
         List<BMSScore> bmsScores,
         Dictionary<string, BMSScore> scoresByHash,
@@ -284,10 +289,10 @@ internal sealed class BmsLibraryIrService
                 {
                     if (!skipEstimateOfflineScoreRanking)
                     {
-                        cache = EnsureIrCacheLoaded(cache, cachePath, ref offlineEstimateXmlLoadCount);
-                        if (cache != null)
+                        lookup = EnsureRankingLookupLoaded(lookup, cachePath, ref offlineEstimateXmlLoadCount);
+                        if (lookup != null)
                         {
-                            score.ranking = cache.GetRankFromScore(score.score);
+                            score.ranking = lookup.GetRankFromScore(score.score);
                         }
                     }
                     score.rankingNum = data.players_num;
@@ -307,10 +312,10 @@ internal sealed class BmsLibraryIrService
         {
             if (!skipEstimateOfflineScoreRanking)
             {
-                cache = EnsureIrCacheLoaded(cache, cachePath, ref offlineEstimateXmlLoadCount);
-                if (cache != null)
+                lookup = EnsureRankingLookupLoaded(lookup, cachePath, ref offlineEstimateXmlLoadCount);
+                if (lookup != null)
                 {
-                    score.ranking = cache.GetRankFromScore(score.score);
+                    score.ranking = lookup.GetRankFromScore(score.score);
                 }
             }
             score.rankingNum = data.players_num;
@@ -695,24 +700,23 @@ internal sealed class BmsLibraryIrService
     {
         List<BMSLibrary.IRDataCacheInfo> source = (cacheInfo ?? Enumerable.Empty<BMSLibrary.IRDataCacheInfo>()).ToList();
         List<BMSLibrary.IRDataCacheInfo> failed = new List<BMSLibrary.IRDataCacheInfo>();
+        List<string> downloadedPaths = new List<string>();
         List<LR2IRData> irDataToBeCommitted = new List<LR2IRData>();
         object failedLock = new object();
-        object commitLock = new object();
+        object downloadedLock = new object();
+        Dictionary<string, BMSLibrary.IRDataCacheInfo> sourceByHash = source
+            .Where(info => info != null && !string.IsNullOrWhiteSpace(info.md5))
+            .GroupBy(info => info.md5, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
         source.AsParallel().WithDegreeOfParallelism(3).ForAll(delegate (BMSLibrary.IRDataCacheInfo info)
         {
             try
             {
                 string cacheFilePath = Path.Combine(irCacheDirPath, info.md5 + ".xml");
                 irClient.DownloadRankingData(rankingDataUrl, info.md5, cacheFilePath);
-                LR2IRCache irCache = LoadIrCache(cacheFilePath);
-                LR2IRData irData = irCache.GetLR2IRData(lr2Id);
-                if (irData != null)
+                lock (downloadedLock)
                 {
-                    lock (commitLock)
-                    {
-                        irDataToBeCommitted.Add(irData);
-                    }
-                    ApplyIrDataToScoresAndFiles(irData, irCache, dbGateway.ScoreDbPath, bmsScores, bmsFiles, skipEstimateOfflineScoreRanking);
+                    downloadedPaths.Add(cacheFilePath);
                 }
             }
             catch
@@ -723,6 +727,36 @@ internal sealed class BmsLibraryIrService
                 }
             }
         });
+
+        List<RankingCacheReloadResult> parsedResults = new List<RankingCacheReloadResult>();
+        object parsedLock = new object();
+        ReloadRankingCacheTargets(downloadedPaths, lr2Id, ResolveRankingCacheXmlReloadDegree(), delegate (RankingCacheReloadResult result)
+        {
+            lock (parsedLock)
+            {
+                parsedResults.Add(result);
+            }
+        });
+
+        Dictionary<string, BMSScore> scoresByHash = BuildScoreIndex(bmsScores);
+        Dictionary<string, List<BMSFile>> filesByHash = BuildFileIndex(bmsFiles);
+        int offlineEstimateXmlLoadCount = 0;
+        foreach (RankingCacheReloadResult result in parsedResults)
+        {
+            if (result == null || result.Failed || result.IrData == null)
+            {
+                string failedHash = result?.FilePath == null ? null : Path.GetFileNameWithoutExtension(result.FilePath);
+                if (!string.IsNullOrWhiteSpace(failedHash) && sourceByHash.TryGetValue(failedHash, out BMSLibrary.IRDataCacheInfo failedInfo))
+                {
+                    failed.Add(failedInfo);
+                }
+                continue;
+            }
+
+            irDataToBeCommitted.Add(result.IrData);
+            ApplyIrDataToScoresAndFilesIndexed(result.IrData, result.Lookup, dbGateway.ScoreDbPath, bmsScores, scoresByHash, filesByHash, skipEstimateOfflineScoreRanking, ref offlineEstimateXmlLoadCount);
+        }
+
         dbGateway.UpsertIrData(irDataToBeCommitted);
         return failed;
     }
@@ -850,6 +884,7 @@ internal sealed class BmsLibraryIrService
                 {
                     tail = reader.Tail(33, 19);
                 }
+                tail = tail?.TrimEnd('\0') ?? string.Empty;
                 if (!DateTime.TryParseExact(tail, "yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture, DateTimeStyles.None, out DateTime parsedLastUpdate) || parsedLastUpdate > current.lastupdate)
                 {
                     return true;
@@ -881,10 +916,6 @@ internal sealed class BmsLibraryIrService
                 result.XmlParseFailedCount++;
                 return;
             }
-            if (reloadResult.UsedFallback)
-            {
-                result.XmlFallbackLoadCount++;
-            }
             result.XmlScoresParsed += reloadResult.ScoresParsed;
             LR2IRData irData = reloadResult.IrData;
             if (irData == null)
@@ -894,9 +925,9 @@ internal sealed class BmsLibraryIrService
             }
             irDataToBeCommitted.Add(irData);
             plan.XmlRows.Add(irData);
-            if (reloadResult.FullCache != null)
+            if (reloadResult.Lookup != null)
             {
-                plan.XmlCachesByHash[irData.hash] = reloadResult.FullCache;
+                plan.XmlLookupsByHash[irData.hash] = reloadResult.Lookup;
             }
         });
         xmlReloadStopwatch.Stop();
@@ -953,7 +984,7 @@ internal sealed class BmsLibraryIrService
         {
             foreach (string filePath in workQueue.GetConsumingEnumerable())
             {
-                resultQueue.Add(LoadRankingCacheSummaryWithFallback(filePath, lr2Id));
+                resultQueue.Add(LoadRankingCacheSummary(filePath, lr2Id));
             }
         })).ToArray();
         foreach (string filePath in targets)
@@ -966,17 +997,18 @@ internal sealed class BmsLibraryIrService
         collector.Wait();
     }
 
-    private RankingCacheReloadResult LoadRankingCacheSummaryWithFallback(string filePath, int lr2Id)
+    private RankingCacheReloadResult LoadRankingCacheSummary(string filePath, int lr2Id)
     {
-        RankingCacheReloadResult result = new RankingCacheReloadResult();
+        RankingCacheReloadResult result = new RankingCacheReloadResult { FilePath = filePath };
         try
         {
             string md5 = Path.GetFileNameWithoutExtension(filePath);
             DateTime cacheLastWriteTime = File.GetLastWriteTime(filePath);
             string xml = File.ReadAllText(filePath, Encoding.GetEncoding("shift_jis"));
-            if (TryParseRankingCacheSummary(xml, md5, lr2Id, cacheLastWriteTime, out LR2IRData irData, out int scoresParsed))
+            if (TryParseRankingCacheSummary(xml, md5, lr2Id, cacheLastWriteTime, out LR2IRData irData, out int scoresParsed, out Lr2IrRankingLookup lookup))
             {
                 result.IrData = irData;
+                result.Lookup = lookup;
                 result.ScoresParsed = scoresParsed;
                 return result;
             }
@@ -984,202 +1016,32 @@ internal sealed class BmsLibraryIrService
         catch
         {
         }
-        try
-        {
-            LR2IRCache cache = LoadIrCache(filePath);
-            LR2IRData irData = cache.GetLR2IRData(lr2Id);
-            if (irData == null)
-            {
-                result.Failed = true;
-                return result;
-            }
-            result.IrData = irData;
-            result.FullCache = cache;
-            result.ScoresParsed = cache.GetRankingNum();
-            result.UsedFallback = true;
-            return result;
-        }
-        catch
-        {
-            result.Failed = true;
-            return result;
-        }
+        result.Failed = true;
+        return result;
     }
 
     internal static bool TryParseRankingCacheSummary(string rankingXml, string md5, int lr2Id, DateTime cacheLastWriteTime, out LR2IRData irData, out int scoresParsed)
     {
+        return TryParseRankingCacheSummary(rankingXml, md5, lr2Id, cacheLastWriteTime, out irData, out scoresParsed, out _);
+    }
+
+    private static bool TryParseRankingCacheSummary(string rankingXml, string md5, int lr2Id, DateTime cacheLastWriteTime, out LR2IRData irData, out int scoresParsed, out Lr2IrRankingLookup lookup)
+    {
         irData = null;
         scoresParsed = 0;
+        lookup = null;
         if (string.IsNullOrEmpty(rankingXml) || string.IsNullOrWhiteSpace(md5) || !LR2SongDB.md5HashRegex.IsMatch(md5))
         {
             return false;
         }
-        DateTime lastUpdate = ParseRankingCacheLastUpdate(rankingXml, cacheLastWriteTime);
-        Dictionary<int, int> scoreFrequency = new Dictionary<int, int>();
-        Dictionary<int, List<int>> notesByScore = new Dictionary<int, List<int>>();
-        long sum = 0L;
-        double sumSquares = 0.0;
-        int bestTargetScore = int.MinValue;
-        LR2IRData bestTarget = null;
-        int firstNotes = 0;
-        int position = 0;
-        while ((position = rankingXml.IndexOf("<score>", position, StringComparison.OrdinalIgnoreCase)) >= 0)
-        {
-            int blockStart = position + "<score>".Length;
-            int blockEnd = rankingXml.IndexOf("</score>", blockStart, StringComparison.OrdinalIgnoreCase);
-            if (blockEnd < 0)
-            {
-                break;
-            }
-            if (TryParseRankingScoreBlock(rankingXml, blockStart, blockEnd, md5, lastUpdate, cacheLastWriteTime, out LR2IRData row))
-            {
-                int score = row.score;
-                scoresParsed++;
-                sum += score;
-                sumSquares += (double)score * score;
-                if (!scoreFrequency.ContainsKey(score))
-                {
-                    scoreFrequency.Add(score, 0);
-                    notesByScore.Add(score, new List<int>());
-                }
-                scoreFrequency[score]++;
-                notesByScore[score].Add(row.notes);
-                if (scoresParsed == 1)
-                {
-                    firstNotes = row.notes;
-                }
-                if (row.lr2id == lr2Id && (bestTarget == null || score > bestTargetScore))
-                {
-                    bestTarget = row;
-                    bestTargetScore = score;
-                }
-            }
-            position = blockEnd + "</score>".Length;
-        }
-        if (scoresParsed == 0)
+        if (!Lr2IrRankingCacheParser.TryParseSummary(rankingXml, md5, cacheLastWriteTime, lr2Id, out Lr2IrRankingParseResult result))
         {
             return false;
         }
-        if (bestTarget != null)
-        {
-            irData = bestTarget;
-            irData.rank = CountScoresGreaterThan(scoreFrequency, bestTargetScore) + 1;
-        }
-        else
-        {
-            irData = new LR2IRData(md5)
-            {
-                lr2id = lr2Id,
-                notes = GetMedianScoreNotes(scoreFrequency, notesByScore, scoresParsed, firstNotes),
-                clear = ClearType.NO_PLAY,
-                pg = 0,
-                gr = 0,
-                rank = -1,
-                lastupdate = lastUpdate,
-                lastcacheupdate = cacheLastWriteTime
-            };
-        }
-        double average = (double)sum / scoresParsed;
-        irData.players_num = scoresParsed;
-        irData.average = average;
-        irData.sigma = scoresParsed > 1
-            ? Math.Sqrt(Math.Max(0.0, (sumSquares - (sum * (double)sum / scoresParsed)) / (scoresParsed - 1)))
-            : 0.0;
-        return true;
-    }
-
-    private static DateTime ParseRankingCacheLastUpdate(string rankingXml, DateTime cacheLastWriteTime)
-    {
-        string trimmed = rankingXml.TrimEnd('\0');
-        if (trimmed.Length > 0 && DateTime.TryParseExact(trimmed.Tail(33, 19), "yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture, DateTimeStyles.None, out DateTime lastUpdate))
-        {
-            return lastUpdate;
-        }
-        return cacheLastWriteTime;
-    }
-
-    private static bool TryParseRankingScoreBlock(string xml, int blockStart, int blockEnd, string md5, DateTime lastUpdate, DateTime cacheLastWriteTime, out LR2IRData row)
-    {
-        row = null;
-        if (!TryReadIntTag(xml, "id", blockStart, blockEnd, out int parsedLr2Id)
-            || !TryReadIntTag(xml, "clear", blockStart, blockEnd, out int clear)
-            || !TryReadIntTag(xml, "notes", blockStart, blockEnd, out int notes)
-            || !TryReadIntTag(xml, "combo", blockStart, blockEnd, out int combo)
-            || !TryReadIntTag(xml, "pg", blockStart, blockEnd, out int pg)
-            || !TryReadIntTag(xml, "gr", blockStart, blockEnd, out int gr)
-            || !TryReadIntTag(xml, "minbp", blockStart, blockEnd, out int minbp))
-        {
-            return false;
-        }
-        row = new LR2IRData(md5)
-        {
-            lr2id = parsedLr2Id,
-            clear = ClearTypeStorageConverter.FromLr2Value(clear),
-            notes = notes,
-            combo = combo,
-            pg = pg,
-            gr = gr,
-            minbp = minbp,
-            lastupdate = lastUpdate,
-            lastcacheupdate = cacheLastWriteTime
-        };
-        return true;
-    }
-
-    private static bool TryReadIntTag(string xml, string tagName, int blockStart, int blockEnd, out int value)
-    {
-        value = 0;
-        string openTag = "<" + tagName + ">";
-        string closeTag = "</" + tagName + ">";
-        int openIndex = xml.IndexOf(openTag, blockStart, blockEnd - blockStart, StringComparison.OrdinalIgnoreCase);
-        if (openIndex < 0)
-        {
-            return false;
-        }
-        int valueStart = openIndex + openTag.Length;
-        if (valueStart > blockEnd)
-        {
-            return false;
-        }
-        int closeIndex = xml.IndexOf(closeTag, valueStart, blockEnd - valueStart, StringComparison.OrdinalIgnoreCase);
-        return closeIndex >= 0
-            && int.TryParse(xml.Substring(valueStart, closeIndex - valueStart), NumberStyles.Integer, CultureInfo.InvariantCulture, out value)
-            && value >= 0;
-    }
-
-    private static int CountScoresGreaterThan(Dictionary<int, int> scoreFrequency, int targetScore)
-    {
-        int count = 0;
-        foreach (KeyValuePair<int, int> pair in scoreFrequency)
-        {
-            if (pair.Key > targetScore)
-            {
-                count += pair.Value;
-            }
-        }
-        return count;
-    }
-
-    private static int GetMedianScoreNotes(Dictionary<int, int> scoreFrequency, Dictionary<int, List<int>> notesByScore, int totalScores, int fallbackNotes)
-    {
-        int targetIndex = totalScores / 2;
-        int offset = 0;
-        foreach (int score in scoreFrequency.Keys.OrderByDescending((int key) => key))
-        {
-            int bucketCount = scoreFrequency[score];
-            int nextOffset = offset + bucketCount;
-            if (nextOffset > targetIndex && notesByScore.TryGetValue(score, out List<int> notes))
-            {
-                int notesIndex = targetIndex - offset;
-                if (notesIndex >= 0 && notesIndex < notes.Count)
-                {
-                    return notes[notesIndex];
-                }
-                return notes.Count > 0 ? notes[0] : fallbackNotes;
-            }
-            offset = nextOffset;
-        }
-        return fallbackNotes;
+        irData = result.IrData;
+        scoresParsed = result.ScoresParsed;
+        lookup = result.Lookup;
+        return irData != null && scoresParsed > 0;
     }
 
     private void ApplyRankingScoresRefreshPlan(IrCacheRefreshPlan plan, string scoreDbPath, List<BMSScore> bmsScores, IEnumerable<BMSFile> bmsFiles, bool skipEstimateOfflineScoreRanking)
@@ -1206,28 +1068,32 @@ internal sealed class BmsLibraryIrService
             {
                 continue;
             }
-            plan.XmlCachesByHash.TryGetValue(irData.hash, out LR2IRCache cache);
-            ApplyIrDataToScoresAndFilesIndexed(irData, cache, scoreDbPath, bmsScores, scoresByHash, filesByHash, skipEstimateOfflineScoreRanking, ref offlineEstimateXmlLoadCount);
+            plan.XmlLookupsByHash.TryGetValue(irData.hash, out Lr2IrRankingLookup lookup);
+            ApplyIrDataToScoresAndFilesIndexed(irData, lookup, scoreDbPath, bmsScores, scoresByHash, filesByHash, skipEstimateOfflineScoreRanking, ref offlineEstimateXmlLoadCount);
             plan.Result.XmlAppliedCount++;
         }
         plan.Result.OfflineEstimateXmlLoadCount = offlineEstimateXmlLoadCount;
     }
 
-    private static LR2IRCache EnsureIrCacheLoaded(LR2IRCache cache, string cachePath, ref int loadCount)
+    private static Lr2IrRankingLookup EnsureRankingLookupLoaded(Lr2IrRankingLookup lookup, string cachePath, ref int loadCount)
     {
-        if (cache != null || string.IsNullOrWhiteSpace(cachePath) || !File.Exists(cachePath))
+        if (lookup != null || string.IsNullOrWhiteSpace(cachePath) || !File.Exists(cachePath))
         {
-            return cache;
+            return lookup;
         }
         try
         {
-            LR2IRCache loaded = new LR2IRCache(File.ReadAllText(cachePath, Encoding.GetEncoding("shift_jis")), Path.GetFileNameWithoutExtension(cachePath), File.GetLastWriteTime(cachePath));
-            loadCount++;
-            return loaded;
+            string rankingXml = File.ReadAllText(cachePath, Encoding.GetEncoding("shift_jis"));
+            string md5 = Path.GetFileNameWithoutExtension(cachePath);
+            if (Lr2IrRankingCacheParser.TryParseLookup(rankingXml, md5, File.GetLastWriteTime(cachePath), false, out Lr2IrRankingLookup loaded))
+            {
+                loadCount++;
+                return loaded;
+            }
         }
         catch
         {
-            return null;
         }
+        return null;
     }
 }
