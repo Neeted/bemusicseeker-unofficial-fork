@@ -212,13 +212,18 @@ read-only hydration loader のルール:
 ReloadFileDiff
   -> file enumeration / resource index build
   -> in-memory catalog との差分検出
-  -> added/updated charts の snapshot read / parse / inline chart_info / inline maintenance / commit
+  -> added/updated charts の snapshot read
+  -> parser workers による lightweight parse
+  -> post-parse worker による inline chart_info / inline maintenance
+  -> single DB writer による chunk commit
   -> deleted charts の unregister
   -> memory catalog / resource index swap
   -> playlist reference apply
 ```
 
 差分が 0 件の場合は DB commit、chart_info hydration/backfill、installable maintenance を発生させない。
+
+差分がある場合、reader は 1 本、parser は `max(1, Environment.ProcessorCount - 1)` を既定とする。parser output queue は inline `chart_info` batch size 以上を確保し、既定 batch size は 2048 件、DB commit chunk size は 10000 件とする。inline maintenance は post-parse worker 内で bounded parallelism により実行し、`SongTableFileCheckResult` と DB chunk への反映は集約後に行う。
 
 ## ReloadTables
 

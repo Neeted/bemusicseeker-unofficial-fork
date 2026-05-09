@@ -72,6 +72,28 @@ internal sealed class SongTableFileCheckResult
 
     public int FileDiffParserDegree { get; set; }
 
+    public int ReadQueueCapacity { get; set; }
+
+    public int ParsedQueueCapacity { get; set; }
+
+    public int PostParseQueueCapacity { get; set; }
+
+    public int CommitQueueCapacity { get; set; }
+
+    public long ReaderOutputWaitMs { get; set; }
+
+    public long ParserOutputWaitMs { get; set; }
+
+    public long PostParseQueueWaitMs { get; set; }
+
+    public long CommitQueueWaitMs { get; set; }
+
+    public int PostParseBatchCount { get; set; }
+
+    public long PostParseWallMs { get; set; }
+
+    public long PostParseMaxBatchMs { get; set; }
+
     public long BmsParseMs { get; set; }
 
     public long BmsonParseMs { get; set; }
@@ -94,7 +116,11 @@ internal sealed class SongTableFileCheckResult
 
     public long InlineChartInfoParseMs { get; set; }
 
+    public long InlineChartInfoWallMs { get; set; }
+
     public int InlineChartInfoBatchSize { get; set; }
+
+    public int InlineMaintenanceDegree { get; set; }
 
     public int InlineMaintenanceTargetCount { get; set; }
 
@@ -107,6 +133,8 @@ internal sealed class SongTableFileCheckResult
     public int InlineMaintenanceBmsonCount { get; set; }
 
     public long InlineMaintenanceMs { get; set; }
+
+    public long InlineMaintenanceWallMs { get; set; }
 
     public long InlineMaintenanceCacheHitCount { get; set; }
 

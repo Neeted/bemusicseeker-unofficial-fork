@@ -570,13 +570,28 @@ public sealed class BmsLibraryInitializationServiceTests
             Assert.IsTrue(result.FileDiffReadMs >= 0);
             Assert.IsTrue(result.FileDiffParseMs >= 0);
             Assert.IsTrue(result.SnapshotQueueHighWatermark > 0);
+            Assert.AreEqual(2048, result.InlineChartInfoBatchSize);
+            Assert.AreEqual(2, result.ReadQueueCapacity);
+            Assert.AreEqual(2048, result.ParsedQueueCapacity);
+            Assert.AreEqual(1, result.PostParseQueueCapacity);
+            Assert.AreEqual(0, result.CommitQueueCapacity);
+            Assert.AreEqual(1, result.PostParseBatchCount);
+            Assert.AreEqual(1, result.InlineMaintenanceDegree);
+            Assert.IsTrue(result.PostParseWallMs >= 0);
+            Assert.IsTrue(result.InlineChartInfoWallMs >= 0);
+            Assert.IsTrue(result.InlineMaintenanceWallMs >= 0);
             Assert.IsTrue(progress.Any(item => item.Total == 2 && item.Processed == 0));
             Assert.IsTrue(progress.Any(item => item.Total == 2 && item.Processed == 2));
             Assert.IsTrue(progress.All(item => item.Total == 2));
             Assert.IsTrue(logs.Any((string message) => message.Contains("bms_added_target_count=1")
                 && message.Contains("bmson_upsert_target_count=1")
                 && message.Contains("file_diff_parser_degree=1")
+                && message.Contains("read_queue_capacity=2")
+                && message.Contains("parsed_queue_capacity=2048")
+                && message.Contains("post_parse_batch_count=1")
                 && message.Contains("inline_chart_info_target_count=2")
+                && message.Contains("inline_chart_info_batch_size=2048")
+                && message.Contains("inline_maintenance_degree=1")
                 && message.Contains("parse_read_bytes_estimate=" + expectedReadBytesEstimate)
                 && message.Contains("db_commit_chunks=1")
                 && message.Contains("db_commit_chunk_size=10000")));
@@ -585,7 +600,7 @@ public sealed class BmsLibraryInitializationServiceTests
     }
 
     [TestMethod]
-    public void ApplyFileScanDiff_CommitsChunksWhileParseProgressIsStillRunning()
+    public void ApplyFileScanDiff_CommitsChunksThroughPostParseWriter()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
@@ -593,7 +608,7 @@ public sealed class BmsLibraryInitializationServiceTests
             string chartDirectoryPath = Path.Combine(lr2RootPath, "ManyAdded");
             Directory.CreateDirectory(chartDirectoryPath);
             List<string> paths = new List<string>();
-            for (int i = 0; i < 1100; i++)
+            for (int i = 0; i < 120; i++)
             {
                 string path = Path.Combine(chartDirectoryPath, "added-" + i.ToString("D4") + ".bms");
                 File.WriteAllText(path, "#PLAYER 1\r\n#TITLE Added " + i.ToString("D4") + "\r\n", Encoding.ASCII);
@@ -607,7 +622,7 @@ public sealed class BmsLibraryInitializationServiceTests
 
             List<string> events = new List<string>();
             object eventLock = new object();
-            BmsLibraryInitializationService service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1, fileDiffCommitChunkSizeOverride: 1000);
+            BmsLibraryInitializationService service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1, inlineChartInfoBatchSizeOverride: 32, fileDiffCommitChunkSizeOverride: 50);
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(songDbPath),
                 new BmsLibraryOptionsSnapshot(),
@@ -643,16 +658,18 @@ public sealed class BmsLibraryInitializationServiceTests
                     }
                 });
 
-            Assert.AreEqual(1100, result.AddedFiles.Count);
+            Assert.AreEqual(120, result.AddedFiles.Count);
             Assert.AreEqual(2, result.DbCommitChunks);
-            Assert.AreEqual(1000, result.DbCommitChunkSize);
+            Assert.AreEqual(50, result.DbCommitChunkSize);
+            Assert.AreEqual(32, result.InlineChartInfoBatchSize);
+            Assert.IsTrue(result.PostParseBatchCount >= 3);
+            Assert.IsTrue(result.PostParseWallMs >= 0);
+            Assert.IsTrue(result.CommitQueueWaitMs >= 0);
             int firstCommitIndex = events.FindIndex((string item) => item.Contains("db_commit_chunk_done chunk=1"));
-            int finalProgressIndex = events.FindIndex((string item) => item == "progress 1100/1100");
             Assert.IsTrue(firstCommitIndex >= 0, "first commit chunk log was not recorded.");
-            Assert.IsTrue(finalProgressIndex >= 0, "final parse progress was not recorded.");
-            Assert.IsTrue(firstCommitIndex < finalProgressIndex, "first DB commit should complete before parse progress reaches the final item.");
+            Assert.IsTrue(events.Any((string item) => item == "progress 120/120"), "final parse progress was not recorded.");
             using LR2SongDBExtended verify = new LR2SongDBExtended(songDbPath);
-            Assert.AreEqual(1100L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM song;"));
+            Assert.AreEqual(120L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM song;"));
         });
     }
 
@@ -1283,6 +1300,22 @@ public sealed class BmsLibraryInitializationServiceTests
             Assert.AreEqual(1, RunWithCommitChunkSizeOverride(-10, songDbPath).DbCommitChunkSize);
             Assert.AreEqual(2, RunWithCommitChunkSizeOverride(2, songDbPath).DbCommitChunkSize);
             Assert.AreEqual(1000, RunWithCommitChunkSizeOverride(1000, songDbPath).DbCommitChunkSize);
+        });
+    }
+
+    [TestMethod]
+    public void ApplyFileScanDiff_InlineChartInfoBatchSize_UsesDefaultAndNormalizesOverrides()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
+        {
+            Assert.AreEqual(2048, BmsLibraryInitializationService.ResolveDefaultInlineChartInfoBatchSize());
+
+            Assert.AreEqual(2048, RunWithInlineChartInfoBatchSizeOverride(null, songDbPath).InlineChartInfoBatchSize);
+            Assert.AreEqual(1, RunWithInlineChartInfoBatchSizeOverride(0, songDbPath).InlineChartInfoBatchSize);
+            Assert.AreEqual(1, RunWithInlineChartInfoBatchSizeOverride(-10, songDbPath).InlineChartInfoBatchSize);
+            Assert.AreEqual(2, RunWithInlineChartInfoBatchSizeOverride(2, songDbPath).InlineChartInfoBatchSize);
+            Assert.AreEqual(512, RunWithInlineChartInfoBatchSizeOverride(512, songDbPath).InlineChartInfoBatchSize);
         });
     }
 
@@ -2477,6 +2510,26 @@ public sealed class BmsLibraryInitializationServiceTests
     {
         BmsLibraryInitializationService service = overrideValue.HasValue
             ? new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1, fileDiffCommitChunkSizeOverride: overrideValue.Value)
+            : new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
+        return service.ApplyFileScanDiff(
+            new BmsLibraryDbGateway(songDbPath),
+            new BmsLibraryOptionsSnapshot(),
+            Array.Empty<BMSFile>(),
+            new BmsScanExecutionResult
+            {
+                Success = true,
+                Result = CreateScanResult(Array.Empty<string>(), new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase))
+            },
+            0L,
+            () => null,
+            null,
+            currentBmsonSongs: Array.Empty<LR2SongDBExtended.bmson_song>());
+    }
+
+    private static SongTableFileCheckResult RunWithInlineChartInfoBatchSizeOverride(int? overrideValue, string songDbPath)
+    {
+        BmsLibraryInitializationService service = overrideValue.HasValue
+            ? new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1, inlineChartInfoBatchSizeOverride: overrideValue.Value)
             : new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
         return service.ApplyFileScanDiff(
             new BmsLibraryDbGateway(songDbPath),

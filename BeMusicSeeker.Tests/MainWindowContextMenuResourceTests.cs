@@ -961,6 +961,30 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
+    public void EmptyDbStartupOptimizationDocs_DocumentFileDiffPipeline()
+    {
+        string root = FindRepositoryRoot();
+        string initializationCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BmsLibraryInternal", "BmsLibraryInitializationService.cs"));
+        string planDoc = File.ReadAllText(Path.Combine(root, "devdocs", "plan", "empty-db-first-startup-optimization-plan.md"));
+        string startupFlowDoc = File.ReadAllText(Path.Combine(root, "devdocs", "spec", "startup-initialization-flow.md"));
+
+        StringAssert.Contains(initializationCode, "private const int DefaultInlineChartInfoBatchSize = 2048;");
+        StringAssert.Contains(initializationCode, "BlockingCollection<FileDiffParsedBatch> postParseQueue");
+        StringAssert.Contains(initializationCode, "BlockingCollection<FileScanDiffCommitChunk> commitQueue");
+        StringAssert.Contains(initializationCode, "BuildInlineBmsMaintenanceBatch(");
+        StringAssert.Contains(initializationCode, "Parallel.For(0, candidates.Count");
+        StringAssert.Contains(initializationCode, "inline_maintenance_wall_ms=");
+        StringAssert.Contains(initializationCode, "parser_output_wait_ms=");
+
+        StringAssert.Contains(planDoc, "parser output queue capacity");
+        StringAssert.Contains(planDoc, "2048");
+        StringAssert.Contains(planDoc, "inline_maintenance_wall_ms");
+        StringAssert.Contains(startupFlowDoc, "post-parse worker");
+        StringAssert.Contains(startupFlowDoc, "single DB writer");
+        StringAssert.Contains(startupFlowDoc, "既定 batch size は 2048 件");
+    }
+
+    [TestMethod]
     public void InstallEstimationParallelism_UsesUnifiedBatchPolicy()
     {
         string root = FindRepositoryRoot();

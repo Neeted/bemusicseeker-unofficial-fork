@@ -420,12 +420,15 @@ BeMusicSeeker が `karinotes = 0` を入れる経路は、`setZeroNoteAndCommitT
 
 #### 現行仕様
 
-- file diff の lightweight parse は reader / parser workers / collector の bounded pipeline で行う。
+- file diff の lightweight parse は reader / parser workers / post-parse worker / DB writer の pipeline で行う。
   - reader は 1 本で `ChartFileContentReader.ReadSnapshot()` を実行し、bounded queue に `ChartFileSnapshot` を流す。
-  - queue capacity は `fileDiffParserDegree * 2`。
+  - read queue capacity は `fileDiffParserDegree * 2`。
+  - parser output queue capacity は `max(inlineChartInfoBatchSize, fileDiffParserDegree * 16)`。
   - parser worker degree は `max(1, Environment.ProcessorCount - 1)`。
-  - worker は BMS / bmson lightweight parse を行い、collector が inline `chart_info` 解析 batch へ渡す。
-  - inline `chart_info` 解析は collector 側で順次実行し、pipeline worker と chart_info parser の入れ子並列を避ける。
+  - worker は BMS / bmson lightweight parse を行い、collector は既定 2048 件単位で post-parse worker へ渡す。
+  - post-parse worker は inline `chart_info` current 判定 / 解析と inline maintenance row 作成を担当する。
+  - inline maintenance は batch 内で bounded parallelism にし、`SongTableFileCheckResult` への反映と DB chunk 生成は post-parse worker で集約する。
+  - DB writer は 1 本に固定する。SQLite read/write の競合を避けるため、inline `chart_info` current 判定が終わった chunk だけを順序通り保存する。
   - snapshot bytes は collector の batch flush 後に破棄され、全件分を保持しない。
 - progress callback は parsed candidate の collector 到達ごとに 1 件単位で呼ぶ。
   - UI 側の `ReportLibraryInitializationProgress()` は 150ms throttle を持つため、1 件ごとに通知しても UI 更新は過剰になりにくい。
@@ -449,6 +452,16 @@ BeMusicSeeker が `karinotes = 0` を入れる経路は、`setZeroNoteAndCommitT
   - `DbCommitMaxChunkMs`
   - `FileDiffReadMs`
   - `FileDiffParseMs`
+  - `ReadQueueCapacity`
+  - `ParsedQueueCapacity`
+  - `PostParseBatchCount`
+  - `PostParseWallMs`
+  - `PostParseMaxBatchMs`
+  - `ReaderOutputWaitMs`
+  - `ParserOutputWaitMs`
+  - `InlineChartInfoWallMs`
+  - `InlineMaintenanceWallMs`
+  - `InlineMaintenanceDegree`
   - `SnapshotQueueHighWatermark`
 
 #### byte cap について
@@ -457,6 +470,12 @@ Phase 6 では byte cap は入れていない。件数ベースの bounded paral
 
 - `file_diff_read_ms`
 - `file_diff_parse_ms`
+- `reader_output_wait_ms`
+- `parser_output_wait_ms`
+- `post_parse_wall_ms`
+- `post_parse_max_batch_ms`
+- `inline_chart_info_wall_ms`
+- `inline_maintenance_wall_ms`
 - `snapshot_queue_high_watermark`
 - `db_commit_chunks`
 - `db_commit_chunk_size`
@@ -727,11 +746,17 @@ Phase 9 は Phase 8 後の単なる高速化ではなく、Phase 7.7 の memory 
 #### 方針
 
 - file diff pipeline で lightweight parse が成功した譜面について、同じ commit chunk 内で maintenance row を作る。
+- lightweight parse と inline maintenance の間に post-parse worker を置き、parser worker が 512 件ごとの同期 flush で止まらないようにする。
+  - inline `chart_info` batch size の既定は 2048 件とする。
+  - parser output queue は batch size 以上にし、post-parse worker の処理中も parser が次の譜面を進められる余地を持つ。
 - BMS は `CreateBMSFileFromSnapshot()` で `WAVfiles` / `BGAfiles` を持っているため、health 計算に再読込は不要。
   - この集合は BMSFile 正本の長期 field として残すのではなく、chunk 内で maintenance row へ畳み込む一時入力として扱う。
   - maintenance row 作成後は `WAVfiles` / `BGAfiles` / `localWAVfilesNameHashArray` / `localBGAfilesNameHashArray` / nonlocal list などを破棄する。
 - bmson は Phase 4 の fresh resource refs を使う。
 - health 計算には cache-aware 判定を使い、file diff 由来の refs と scan cache を入力にする。
+- health 計算は batch 内で bounded parallelism にする。
+  - worker は `BMSFile` / `bmson_song` と local `ResourceHealthLookupContext` だけを更新する。
+  - `SongTableFileCheckResult` の counter と `FileScanDiffCommitChunk` への追加は post-parse worker が集約して行う。
 - DB 保存は file diff commit chunk に含める。
   - `song` / `bmson_song` と同じ mutation count に紐づけ、同じ既定 10000 件 chunk で保存する。
   - 追加ファイル由来の maintenance row は `installable_maintenance_deferred` へ送らない。
@@ -744,7 +769,7 @@ Phase 9 は Phase 8 後の単なる高速化ではなく、Phase 7.7 の memory 
   - 新規ファイル由来の処理まで deferred へ押し出すと、初回と再起動後で欠損一覧・警告件数が揺れるため避ける。
 - 進捗上は `LibraryFileDiffDone` に含める。
   - 進捗 sublabel は当面 `ファイル差分確認` のままでよい。
-  - 詳細 counter として `inline_maintenance_*` log を出す。
+  - 詳細 counter として `inline_maintenance_*`, `post_parse_*`, `*_queue_*` log を出す。
 
 #### 期待効果
 
@@ -767,6 +792,9 @@ Phase 9 は Phase 8 後の単なる高速化ではなく、Phase 7.7 の memory 
 - 2回目起動で maintenance 不足がない場合、全件 warning 再適用を避け、resource health index だけで欠損一覧を表示できること。
 - file diff pipeline 化後、進捗 callback が 1 件単位で呼ばれ、UI 表示は throttle されつつ `[processed/total]` が滑らかに進むこと。
 - file diff の DB 永続化が既定 10000 件前後の chunk に分割され、chunk 保存後に inline `chart_info` row / failure row / commit staging が破棄されること。
+- file diff の inline `chart_info` batch size 既定が 2048 件で、override 時は指定値へ正規化されること。
+- file diff の parser output queue capacity が batch size 以上になり、`parser_output_wait_ms`, `post_parse_wall_ms`, `post_parse_max_batch_ms` が summary log に出ること。
+- inline maintenance が bounded parallelism で実行され、`inline_maintenance_degree`, `inline_maintenance_wall_ms`, cache hit / fallback counter が summary log に出ること。
 - file diff chunk commit 中に例外が発生した場合、失敗 chunk の transaction だけ rollback され、既に commit 済みの chunk と in-memory catalog の整合性が保たれること。
 - full `chart_info` backfill の事前候補判定で candidate 0 の場合、backfill request が queue されず `chart_info_backfill skipped reason=no_candidates` が出ること。
 - stale parser version、digest missing、current parse failure、current chart_info の各条件で backfill candidate summary が期待通りになること。
