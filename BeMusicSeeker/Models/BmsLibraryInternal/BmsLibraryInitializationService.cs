@@ -691,8 +691,8 @@ internal sealed class BmsLibraryInitializationService
                             + " chartInfoMs=" + TicksToMilliseconds(batchMetrics.ChartInfoTicks)
                             + " maintenanceMs=" + TicksToMilliseconds(batchMetrics.MaintenanceTicks)
                             + " commitQueueMs=" + TicksToMilliseconds(batchMetrics.CommitQueueWaitTicks)
-                            + " bms=" + batch.BmsCandidates.Count
-                            + " bmson=" + batch.BmsonCandidates.Count);
+                            + " bms=" + batchMetrics.BmsCount
+                            + " bmson=" + batchMetrics.BmsonCount);
                     }
                 }
             }
@@ -886,6 +886,8 @@ internal sealed class BmsLibraryInitializationService
         ref long commitQueueWaitTicks)
     {
         FileDiffPostParseBatchMetrics metrics = new FileDiffPostParseBatchMetrics();
+        metrics.BmsCount = bmsBatch?.Count ?? 0;
+        metrics.BmsonCount = bmsonBatch?.Count ?? 0;
         if ((bmsBatch == null || bmsBatch.Count == 0) && (bmsonBatch == null || bmsonBatch.Count == 0))
         {
             return metrics;
@@ -1735,6 +1737,10 @@ internal sealed class BmsLibraryInitializationService
 
     private sealed class FileDiffPostParseBatchMetrics
     {
+        public int BmsCount { get; set; }
+
+        public int BmsonCount { get; set; }
+
         public long ChartInfoTicks { get; set; }
 
         public long MaintenanceTicks { get; set; }

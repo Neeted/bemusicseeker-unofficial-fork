@@ -975,6 +975,8 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(initializationCode, "Parallel.For(0, candidates.Count");
         StringAssert.Contains(initializationCode, "inline_maintenance_wall_ms=");
         StringAssert.Contains(initializationCode, "parser_output_wait_ms=");
+        StringAssert.Contains(initializationCode, "bms=\" + batchMetrics.BmsCount");
+        StringAssert.Contains(initializationCode, "bmson=\" + batchMetrics.BmsonCount");
 
         StringAssert.Contains(planDoc, "parser output queue capacity");
         StringAssert.Contains(planDoc, "2048");
