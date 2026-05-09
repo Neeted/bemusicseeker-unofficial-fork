@@ -1051,6 +1051,169 @@ public sealed class BmsLibraryPackageInstallServiceTests
     }
 
     [TestMethod]
+    public void MovePackageFiles_SmartOverwriteTreatsTopLevelBmsonAsChart()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string sourceDirectoryPath = Path.Combine(tempDirectoryPath, "PendingPkg");
+            string destinationDirectoryPath = Path.Combine(tempDirectoryPath, "Installed", "Pkg");
+            Directory.CreateDirectory(sourceDirectoryPath);
+            Directory.CreateDirectory(destinationDirectoryPath);
+            string sourceBmsonPath = Path.Combine(sourceDirectoryPath, "chart.bmson");
+            string destinationBmsonPath = Path.Combine(destinationDirectoryPath, "chart.bmson");
+            string renamedBmsonPath = Path.Combine(destinationDirectoryPath, "chart_.bmson");
+            File.WriteAllText(sourceBmsonPath, CreateBmsonJsonWithSound("new.wav"));
+            File.WriteAllText(destinationBmsonPath, CreateBmsonJsonWithSound("old.wav"));
+
+            BmsLibraryPackageInstallService service = new BmsLibraryPackageInstallService();
+            PendingChartEntry bmsonChart = PendingChartEntry.CreateFromFilePath(sourceBmsonPath);
+            BMSPackage package = new BMSPackage(new BMSFile[] { bmsonChart })
+            {
+                path = sourceDirectoryPath,
+                delete_parent = false
+            };
+
+            bool moved = service.MovePackageFiles(
+                package,
+                destinationDirectoryPath,
+                new BmsLibraryOptionsSnapshot
+                {
+                    EnableSmartComponentOverwrite = true,
+                    KeepSmartOverwriteProtectedFilesByRenaming = true
+                },
+                (_, _, _) => throw new AssertFailedException("createFolderPath should not be called when destination is specified."),
+                ex => ex.Message,
+                new RealFileMutationService(),
+                null,
+                null,
+                null,
+                _ => { },
+                showMessageBoxOnInstallFail: false);
+
+            Assert.IsTrue(moved);
+            Assert.IsTrue(File.Exists(destinationBmsonPath));
+            Assert.IsTrue(File.Exists(renamedBmsonPath));
+            Assert.AreEqual(destinationDirectoryPath, package.path);
+            Assert.AreEqual(renamedBmsonPath, package.BMSFiles[0].path);
+            Assert.IsFalse(Directory.Exists(sourceDirectoryPath));
+        });
+    }
+
+    [TestMethod]
+    public void MovePackageFiles_NormalOverwriteTreatsNestedBmsonAsChart()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string sourceDirectoryPath = Path.Combine(tempDirectoryPath, "PendingPkg");
+            string nestedSourceDirectoryPath = Path.Combine(sourceDirectoryPath, "sub");
+            string destinationDirectoryPath = Path.Combine(tempDirectoryPath, "Installed", "Pkg");
+            string nestedDestinationDirectoryPath = Path.Combine(destinationDirectoryPath, "sub");
+            Directory.CreateDirectory(nestedSourceDirectoryPath);
+            Directory.CreateDirectory(nestedDestinationDirectoryPath);
+            string sourceBmsonPath = Path.Combine(nestedSourceDirectoryPath, "chart.bmson");
+            string destinationBmsonPath = Path.Combine(nestedDestinationDirectoryPath, "chart.bmson");
+            string renamedBmsonPath = Path.Combine(nestedDestinationDirectoryPath, "chart_.bmson");
+            File.WriteAllText(sourceBmsonPath, CreateBmsonJsonWithSound("new.wav"));
+            File.WriteAllText(destinationBmsonPath, CreateBmsonJsonWithSound("old.wav"));
+
+            BmsLibraryPackageInstallService service = new BmsLibraryPackageInstallService();
+            PendingChartEntry bmsonChart = PendingChartEntry.CreateFromFilePath(sourceBmsonPath);
+            BMSPackage package = new BMSPackage(new BMSFile[] { bmsonChart })
+            {
+                path = sourceDirectoryPath,
+                delete_parent = false
+            };
+
+            bool moved = service.MovePackageFiles(
+                package,
+                destinationDirectoryPath,
+                new BmsLibraryOptionsSnapshot
+                {
+                    EnableSmartComponentOverwrite = false,
+                    KeepSmartOverwriteProtectedFilesByRenaming = false
+                },
+                (_, _, _) => throw new AssertFailedException("createFolderPath should not be called when destination is specified."),
+                ex => ex.Message,
+                new RealFileMutationService(),
+                null,
+                null,
+                null,
+                _ => { },
+                showMessageBoxOnInstallFail: false);
+
+            Assert.IsTrue(moved);
+            Assert.IsTrue(File.Exists(destinationBmsonPath));
+            Assert.IsTrue(File.Exists(renamedBmsonPath));
+            Assert.AreEqual(destinationDirectoryPath, package.path);
+            Assert.AreEqual(renamedBmsonPath, package.BMSFiles[0].path);
+            Assert.IsFalse(Directory.Exists(sourceDirectoryPath));
+        });
+    }
+
+    [TestMethod]
+    public void MovePackageFiles_SmartOverwriteTreatsNestedBmsonAsChartWithoutProtectedRename()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string sourceDirectoryPath = Path.Combine(tempDirectoryPath, "PendingPkg");
+            string nestedSourceDirectoryPath = Path.Combine(sourceDirectoryPath, "sub");
+            string destinationDirectoryPath = Path.Combine(tempDirectoryPath, "Installed", "Pkg");
+            string nestedDestinationDirectoryPath = Path.Combine(destinationDirectoryPath, "sub");
+            Directory.CreateDirectory(nestedSourceDirectoryPath);
+            Directory.CreateDirectory(nestedDestinationDirectoryPath);
+            string sourceBmsonPath = Path.Combine(nestedSourceDirectoryPath, "chart.bmson");
+            string destinationBmsonPath = Path.Combine(nestedDestinationDirectoryPath, "chart.bmson");
+            string renamedBmsonPath = Path.Combine(nestedDestinationDirectoryPath, "chart_.bmson");
+            File.WriteAllText(sourceBmsonPath, CreateBmsonJsonWithSound("new.wav"));
+            File.WriteAllText(destinationBmsonPath, CreateBmsonJsonWithSound("old.wav"));
+
+            BmsLibraryPackageInstallService service = new BmsLibraryPackageInstallService();
+            PendingChartEntry bmsonChart = PendingChartEntry.CreateFromFilePath(sourceBmsonPath);
+            BMSPackage package = new BMSPackage(new BMSFile[] { bmsonChart })
+            {
+                path = sourceDirectoryPath,
+                delete_parent = false
+            };
+
+            bool moved = service.MovePackageFiles(
+                package,
+                destinationDirectoryPath,
+                new BmsLibraryOptionsSnapshot
+                {
+                    EnableSmartComponentOverwrite = true,
+                    KeepSmartOverwriteProtectedFilesByRenaming = false
+                },
+                (_, _, _) => throw new AssertFailedException("createFolderPath should not be called when destination is specified."),
+                ex => ex.Message,
+                new RealFileMutationService(),
+                null,
+                null,
+                null,
+                _ => { },
+                showMessageBoxOnInstallFail: false);
+
+            Assert.IsTrue(moved);
+            Assert.IsTrue(File.Exists(destinationBmsonPath));
+            Assert.IsTrue(File.Exists(renamedBmsonPath));
+            Assert.AreEqual(destinationDirectoryPath, package.path);
+            Assert.AreEqual(renamedBmsonPath, package.BMSFiles[0].path);
+            Assert.IsFalse(Directory.Exists(sourceDirectoryPath));
+        });
+    }
+
+    [TestMethod]
+    public void IsSmartOverwriteProtectedExtension_DoesNotTreatBmsonAsProtectedResource()
+    {
+        BmsLibraryPackageInstallService service = new BmsLibraryPackageInstallService();
+
+        Assert.IsFalse(service.IsSmartOverwriteProtectedExtension("chart.bmson"));
+        Assert.IsTrue(service.IsSmartOverwriteProtectedExtension("notes.txt"));
+    }
+
+    [TestMethod]
     public void DeletePendingFiles_DeletesWholePackageDirectoryWhenSelectionCoversPackage()
     {
         TestResourceInitializer.EnsureJapaneseResources();

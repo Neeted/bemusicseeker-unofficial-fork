@@ -9081,7 +9081,26 @@ public class BMSLibrary : NotificationObject
             HashSet<string> hashSet = new HashSet<string>(list, StringComparer.OrdinalIgnoreCase);
             HashSet<string> hashSet2 = new HashSet<string>(list2.Where((BMSFile f) => hashSet.Contains(f.path)).Select((BMSFile f) => f.path), StringComparer.OrdinalIgnoreCase);
             List<string> installComponentFiles = list.Where((string p) => !hashSet2.Contains(p)).ToList();
-            return BuildComponentMovePlan(installComponentFiles, destinationDirectory, excludedComponentPaths).PlanItems.Count;
+            HashSet<string> excludedPathSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (excludedComponentPaths != null)
+            {
+                foreach (string excludedPath in excludedComponentPaths)
+                {
+                    if (!string.IsNullOrWhiteSpace(excludedPath))
+                    {
+                        excludedPathSet.Add(excludedPath);
+                    }
+                }
+            }
+            foreach (BMSFile chartFile in list2)
+            {
+                if (!string.IsNullOrWhiteSpace(chartFile.path))
+                {
+                    excludedPathSet.Add(chartFile.path);
+                }
+            }
+            installComponentFiles = installComponentFiles.Where((string p) => !excludedPathSet.Contains(p)).ToList();
+            return BuildComponentMovePlan(installComponentFiles, destinationDirectory, excludedPathSet).PlanItems.Count;
         }
         catch
         {

@@ -428,7 +428,7 @@
   "Details_download_lr2ir_score_and_detect_unsent": "下载 LR2IR 成绩并检测未发送到 IR 的成绩",
   "Details_test_startup_select_install_pending": "[测试] 启动时将初始视图锁定为“安装 > 已保留”项目",
   "Details_test_smart_component_overwrite": "[测试] 差分安装时，通过对比修改日期和文件大小来优化随附文件的覆盖逻辑",
-  "Details_test_keep_smart_overwrite_protected_by_rename": "[测试] 智能覆盖时，*.bmx/*.pmx/*.txt/*.bmson 不覆盖，改为自动编号保留",
+  "Details_test_keep_smart_overwrite_protected_by_rename": "[测试] 智能覆盖时，*.bmx/*.pmx/*.txt 不覆盖，改为自动编号保留",
   "Estimate_merge_loc": "估算合并目标",
   "Msg_estimate_merge_confirm": "重新估算一个在不使用源文件夹自带资源的情况下，仅依靠现有资源也能成立的合并目标。\n现有的估算结果将被覆盖。\n确定要继续吗？",
   "Msg_open_install_destination_missing": "无法推断出安装目标的路径。\n目标估算路径未指定，亦或者无法通过已拥有的谱面逆向推导出来。",

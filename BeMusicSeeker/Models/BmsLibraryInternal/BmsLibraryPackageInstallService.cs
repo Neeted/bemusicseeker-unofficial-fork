@@ -95,8 +95,7 @@ internal sealed class BmsLibraryPackageInstallService
     {
         ".txt",
         ".bmx",
-        ".pmx",
-        ".bmson"
+        ".pmx"
     };
 
     public bool IsSmartOverwriteProtectedExtension(string filePath)
@@ -192,6 +191,47 @@ internal sealed class BmsLibraryPackageInstallService
             }
         }
         return result;
+    }
+
+    private static ISet<string> BuildComponentExclusionSet(IEnumerable<string> excludedComponentPaths, IEnumerable<BMSFile> chartFiles)
+    {
+        HashSet<string> excludedPathSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (excludedComponentPaths != null)
+        {
+            foreach (string path in excludedComponentPaths)
+            {
+                if (!string.IsNullOrWhiteSpace(path))
+                {
+                    excludedPathSet.Add(path);
+                }
+            }
+        }
+        foreach (BMSFile chartFile in chartFiles ?? Enumerable.Empty<BMSFile>())
+        {
+            if (!string.IsNullOrWhiteSpace(chartFile?.path))
+            {
+                excludedPathSet.Add(chartFile.path);
+            }
+        }
+        return excludedPathSet;
+    }
+
+    private static string BuildDestinationChartPath(string sourceRootPath, string destinationDirectory, BMSFile chartFile)
+    {
+        string chartPath = chartFile?.path;
+        if (string.IsNullOrWhiteSpace(chartPath))
+        {
+            return string.Empty;
+        }
+        if (!string.IsNullOrWhiteSpace(sourceRootPath) && Directory.Exists(sourceRootPath))
+        {
+            string normalizedRootDirectory = sourceRootPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
+            string relativePath = chartPath.StartsWith(normalizedRootDirectory, StringComparison.OrdinalIgnoreCase)
+                ? chartPath.Substring(normalizedRootDirectory.Length)
+                : Path.GetFileName(chartPath);
+            return Path.Combine(destinationDirectory, relativePath);
+        }
+        return Path.Combine(destinationDirectory, Path.GetFileName(chartPath));
     }
 
     public List<BMSPackage> DeduplicatePackagesByPathOrReference(IEnumerable<BMSPackage> packages)
@@ -684,12 +724,25 @@ internal sealed class BmsLibraryPackageInstallService
         }
 
         HashSet<string> installComponentPathSet = new HashSet<string>(installComponentFiles, StringComparer.OrdinalIgnoreCase);
-        installBmsFiles = package.BMSFiles.Where((BMSFile file) => installComponentPathSet.Contains(file.path)).ToList();
+        if (isSingleFile)
+        {
+            installBmsFiles = package.BMSFiles.Where((BMSFile file) => installComponentPathSet.Contains(file.path)).ToList();
+        }
+        else
+        {
+            string normalizedSourceRoot = sourcePath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
+            installBmsFiles = package.BMSFiles
+                .Where((BMSFile file) => !string.IsNullOrWhiteSpace(file?.path)
+                    && (installComponentPathSet.Contains(file.path)
+                        || file.path.StartsWith(normalizedSourceRoot, StringComparison.OrdinalIgnoreCase)))
+                .ToList();
+        }
         HashSet<string> installBmsPathSet = new HashSet<string>(installBmsFiles.Select((BMSFile file) => file.path), StringComparer.OrdinalIgnoreCase);
         installComponentFiles = installComponentFiles.Where((string path) => !installBmsPathSet.Contains(path)).ToList();
-        if (excludedComponentPaths != null && excludedComponentPaths.Count > 0)
+        ISet<string> componentExclusionPaths = BuildComponentExclusionSet(excludedComponentPaths, installBmsFiles);
+        if (componentExclusionPaths.Count > 0)
         {
-            installComponentFiles = installComponentFiles.Where((string path) => !excludedComponentPaths.Contains(path)).ToList();
+            installComponentFiles = installComponentFiles.Where((string path) => !componentExclusionPaths.Contains(path)).ToList();
         }
 
         if (!string.IsNullOrWhiteSpace(installationDirectory))
@@ -755,7 +808,7 @@ internal sealed class BmsLibraryPackageInstallService
                         package,
                         installComponentFiles,
                         destinationDirectory,
-                        excludedComponentPaths,
+                        componentExclusionPaths,
                         options.KeepSmartOverwriteProtectedFilesByRenaming,
                         fileMutationService,
                         targetOnlyFileMutationOptions,
@@ -763,31 +816,31 @@ internal sealed class BmsLibraryPackageInstallService
                 }
                 else
                 {
-                    installComponentFiles.AsParallel().ForAll(delegate (string path)
+                    ComponentMovePlanBuildResult movePlanResult = BuildComponentMovePlan(installComponentFiles, destinationDirectory, componentExclusionPaths);
+                    movePlanResult.PlanItems.AsParallel().ForAll(delegate (ComponentMovePlanItem planItem)
                     {
-                        string componentDestinationPath = Path.Combine(destinationDirectory, Path.GetFileName(path));
-                        if (File.Exists(path))
+                        string componentDestinationDirectory = Path.GetDirectoryName(planItem.DestinationPath);
+                        if (!string.IsNullOrWhiteSpace(componentDestinationDirectory))
                         {
-                            fileMutationService.MoveFile(path, componentDestinationPath, overwrite: true, targetOnlyFileMutationOptions);
+                            fileMutationService.EnsureDirectory(componentDestinationDirectory, targetOnlyFileMutationOptions);
                         }
-                        else
-                        {
-                            if (!Directory.Exists(path))
-                            {
-                                throw new FileNotFoundException(Resources.Error_FileNotFound, path);
-                            }
-                            fileMutationService.MoveDirectory(path, componentDestinationPath, overwrite: true, recursiveDirectoryTreeFileMutationOptions);
-                        }
+                        fileMutationService.MoveFile(planItem.SourcePath, planItem.DestinationPath, overwrite: true, targetOnlyFileMutationOptions);
                     });
+                    CleanupEmptyComponentDirectories(installComponentFiles, fileMutationService, targetOnlyFileMutationOptions);
                 }
 
                 foreach (BMSFile bmsFile in installBmsFiles)
                 {
-                    string destinationBmsPath = Path.Combine(destinationDirectory, Path.GetFileName(bmsFile.path));
+                    string destinationBmsPath = BuildDestinationChartPath(sourcePath, destinationDirectory, bmsFile);
+                    string destinationBmsDirectory = Path.GetDirectoryName(destinationBmsPath);
+                    if (!string.IsNullOrWhiteSpace(destinationBmsDirectory))
+                    {
+                        fileMutationService.EnsureDirectory(destinationBmsDirectory, targetOnlyFileMutationOptions);
+                    }
                     while (File.Exists(destinationBmsPath) || Directory.Exists(destinationBmsPath))
                     {
                         string renamedFileName = Path.GetFileNameWithoutExtension(destinationBmsPath) + "_" + Path.GetExtension(destinationBmsPath);
-                        destinationBmsPath = Path.Combine(destinationDirectory, Path.GetFileName(renamedFileName));
+                        destinationBmsPath = Path.Combine(Path.GetDirectoryName(destinationBmsPath) ?? destinationDirectory, Path.GetFileName(renamedFileName));
                     }
                     if (!File.Exists(bmsFile.path))
                     {
@@ -796,6 +849,7 @@ internal sealed class BmsLibraryPackageInstallService
                     fileMutationService.MoveFile(bmsFile.path, destinationBmsPath, overwrite: true, targetOnlyFileMutationOptions);
                     bmsFile.path = bmsFile.path.ReplaceFromEnd(Path.GetFileName(bmsFile.path), Path.GetFileName(destinationBmsPath), isIgnoreCase: true);
                 }
+                CleanupEmptyComponentDirectories(installComponentFiles, fileMutationService, targetOnlyFileMutationOptions);
             }
         }
         catch (Exception ex)

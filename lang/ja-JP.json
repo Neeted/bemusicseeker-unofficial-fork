@@ -14,7 +14,7 @@
   "Details_auto_apply_ambiguous_install_destination": "複数候補でも高一致なら第1候補を導入先に設定する",
   "Details_use_everything_for_pending_package_source_scan": "保留パッケージの推定時に Everything を使用する",
   "Details_test_smart_component_overwrite": "[テスト中] 差分導入時に更新日時とサイズを比較して同梱ファイルの上書きを最適化する",
-  "Details_test_keep_smart_overwrite_protected_by_rename": "[テスト中] スマート上書き時、*.bmx/*.pmx/*.txt/*.bmson は上書きせず自動採番で保持する",
+  "Details_test_keep_smart_overwrite_protected_by_rename": "[テスト中] スマート上書き時、*.bmx/*.pmx/*.txt は上書きせず自動採番で保持する",
   "Playlist_sync_progress_label_format": "プレイリスト同期 {0}/{1}",
   "Playlist_sync_progress_single_label": "プレイリスト同期",
   "Playlist_import_progress_label_format": "外部表インポート {0}/{1}",
