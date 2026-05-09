@@ -51,6 +51,9 @@
 
 キー追加 → 既定値定義 → 各言語翻訳追記 の順で行うこと。
 
+- UI 文言キーを追加・削除した場合は、`BeMusicSeeker.Tests\LocalizationResourceParityTests.cs` の
+  `Resources.resx` / `Resources.cs` / `lang\*.json` キー一致テストが通る状態にすること。
+
 - ログ、診断、性能計測、開発者向け progress/debug 表示、テスト用の期待文字列は、多言語リソース化の対象外としてよい。
 - ただし、エラーダイアログ、設定画面、メニュー、ボタン、通常のステータスバー文言など、ユーザー向け UI として安定表示する文字列はリソース化すること。
 

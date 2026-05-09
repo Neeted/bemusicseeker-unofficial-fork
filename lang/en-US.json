@@ -9,6 +9,7 @@
   "Details_test_notcheck_playlists": "[TEST] Not scan updates of playlists",
   "Details_test_delete_pending_source_after_install": "[TEST] Delete the source package even if already installed charts remain after normal install",
   "Details_auto_apply_ambiguous_install_destination": "Set the first candidate as the destination when multiple candidates have a strong match",
+  "Details_use_everything_for_pending_package_source_scan": "Use Everything when estimating pending packages",
   "Playlist_sync_progress_label_format": "Playlist Sync {0}/{1}",
   "Playlist_sync_progress_single_label": "Playlist Sync",
   "Playlist_import_progress_label_format": "External Table Import {0}/{1}",
