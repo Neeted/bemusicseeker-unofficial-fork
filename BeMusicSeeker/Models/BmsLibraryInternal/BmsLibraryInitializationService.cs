@@ -126,6 +126,10 @@ internal sealed class BmsLibraryInitializationService
                 getDisplayedExceptionMessage,
                 logInstallPerformance);
         }
+        else
+        {
+            NormalizeStandaloneSongPathCompatibility(songDb, loadedSongs, result);
+        }
         logDebugTrace?.Invoke("relative path check end");
 
         Stopwatch stopwatchChartDigestMapLoad = Stopwatch.StartNew();
@@ -2448,6 +2452,46 @@ internal sealed class BmsLibraryInitializationService
         stopwatchTotal.Stop();
         result.TotalMs = stopwatchTotal.ElapsedMilliseconds;
         return result;
+    }
+
+    private static void NormalizeStandaloneSongPathCompatibility(LR2SongDBExtended songDb, IEnumerable<BMSFile> loadedSongs, SongTableLoadResult result)
+    {
+        Stopwatch stopwatchSongNormalizeLoop = Stopwatch.StartNew();
+        foreach (BMSFile song in loadedSongs ?? Enumerable.Empty<BMSFile>())
+        {
+            if (song == null || string.IsNullOrWhiteSpace(song.hash))
+            {
+                continue;
+            }
+            if (Lr2SongFolderParentNormalizer.ApplyIfMissingOrInvalid(song))
+            {
+                result.UpdatedSongs.Add(song);
+                result.CrcRecalculatedCount++;
+            }
+        }
+        stopwatchSongNormalizeLoop.Stop();
+        result.SongNormalizeLoopMs = stopwatchSongNormalizeLoop.ElapsedMilliseconds;
+        result.DbWriteRequired = result.UpdatedSongs.Count > 0;
+        if (!result.DbWriteRequired)
+        {
+            return;
+        }
+
+        Stopwatch stopwatchDbWrite = Stopwatch.StartNew();
+        songDb.BeginTransaction();
+        foreach (BMSFile updatedSong in result.UpdatedSongs)
+        {
+            string previousHash = songDb.ExecuteScalar<string>("SELECT hash FROM song WHERE path = " + BMSPlaylist.SqlQuoteForTest(updatedSong.path) + " LIMIT 1;");
+            songDb.InsertOrReplace(updatedSong, typeof(LR2SongDB.song));
+            BmsLibraryDbGateway.UpsertChartDigest(songDb, updatedSong);
+            BmsLibraryDbGateway.DeleteChartDigestIfOrphaned(songDb, previousHash, updatedSong.hash);
+        }
+        Stopwatch stopwatchCommit = Stopwatch.StartNew();
+        songDb.Commit();
+        stopwatchCommit.Stop();
+        result.CommitMs = stopwatchCommit.ElapsedMilliseconds;
+        stopwatchDbWrite.Stop();
+        result.DbWriteMs = stopwatchDbWrite.ElapsedMilliseconds;
     }
 
     private static void NormalizeSongTable(

@@ -364,6 +364,53 @@ public sealed class BmsLibraryInitializationServiceTests
     }
 
     [TestMethod]
+    public void LoadSongTable_StandalonePreservesShiftJisUnsupportedExistingSongAndWarns()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryStandaloneSongDb(delegate (string rootPath, string songDbPath)
+        {
+            string chartDirectoryPath = Path.Combine(rootPath, "Songs😀");
+            Directory.CreateDirectory(chartDirectoryPath);
+            string chartPath = Path.Combine(chartDirectoryPath, "chart.bms");
+            File.WriteAllText(chartPath, CreateValidBmsText("Standalone Emoji Path"), Encoding.ASCII);
+
+            using (LR2SongDBExtended songDb = new LR2SongDBExtended(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDB.song>();
+                songDb.CreateTable<LR2SongDBExtended.maintenance>();
+                TestableBmsFile song = new TestableBmsFile
+                {
+                    path = chartPath,
+                    folder = "folder",
+                    parent = "parent"
+                };
+                song.SetHash("abababababababababababababababab");
+                songDb.InsertOrReplace(song, typeof(LR2SongDB.song));
+            }
+
+            BmsLibraryInitializationService service = new BmsLibraryInitializationService();
+            SongTableLoadResult result = service.LoadSongTable(
+                new BmsLibraryDbGateway(songDbPath),
+                new BmsLibraryOptionsSnapshot { OperationModeLR2DB = false },
+                null,
+                new TestFileMutationService(),
+                null,
+                ex => ex.Message);
+
+            Assert.AreEqual(1, result.LoadedFiles.Count);
+            Assert.AreEqual(0, result.DeletedSongPaths.Count);
+            Assert.AreEqual(chartPath, result.LoadedFiles[0].path);
+            Assert.IsTrue(string.IsNullOrWhiteSpace(result.LoadedFiles[0].folder));
+            Assert.IsTrue(string.IsNullOrWhiteSpace(result.LoadedFiles[0].parent));
+            Assert.IsTrue(result.LoadedFiles[0].Warnings.Contains(ChartWarningKind.Lr2PathEncodingUnsupported));
+
+            using LR2SongDBExtended verify = new LR2SongDBExtended(songDbPath);
+            Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM song WHERE path = ?;", chartPath));
+            Assert.IsTrue(string.IsNullOrWhiteSpace(verify.ExecuteScalar<string>("SELECT parent FROM song WHERE path = ?;", chartPath)));
+        });
+    }
+
+    [TestMethod]
     public void LoadSongTable_DoesNotPartiallyFixRelativeShiftJisUnsupportedPath()
     {
         TestResourceInitializer.EnsureJapaneseResources();
@@ -2634,6 +2681,26 @@ public sealed class BmsLibraryInitializationServiceTests
         string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_InitTests_" + Guid.NewGuid().ToString("N"));
         string lr2FilesPath = Path.Combine(tempRootPath, "LR2files");
         string databaseDirectoryPath = Path.Combine(lr2FilesPath, "Database");
+        string songDbPath = Path.Combine(databaseDirectoryPath, "song.db");
+        Directory.CreateDirectory(databaseDirectoryPath);
+        File.WriteAllBytes(songDbPath, Array.Empty<byte>());
+        try
+        {
+            testAction(tempRootPath, songDbPath);
+        }
+        finally
+        {
+            if (Directory.Exists(tempRootPath))
+            {
+                Directory.Delete(tempRootPath, recursive: true);
+            }
+        }
+    }
+
+    private static void WithTemporaryStandaloneSongDb(Action<string, string> testAction)
+    {
+        string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_StandaloneInitTests_" + Guid.NewGuid().ToString("N"));
+        string databaseDirectoryPath = Path.Combine(tempRootPath, "data");
         string songDbPath = Path.Combine(databaseDirectoryPath, "song.db");
         Directory.CreateDirectory(databaseDirectoryPath);
         File.WriteAllBytes(songDbPath, Array.Empty<byte>());
