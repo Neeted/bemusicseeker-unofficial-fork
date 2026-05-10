@@ -13,7 +13,8 @@
   - `bmson_song` を app 側 catalog として使う。
   - BMS と同じ LR2 再生 capability を持つとは扱わない。
 - digest / metadata
-  - `chart_digest_map` は chart identity と chart_info hydration の橋渡しに使う。
+  - `chart_digest_map` は chart identity と chart_info hydration の橋渡しに使う partial cache である。
+  - `chart_digest_map` は migration 直後や初回 scan 前に完全である必要はない。missing SHA-256 は file diff / install / inline chart_info / chart info backfill など、譜面 bytes を読む処理で必要範囲を補完する。
   - `chart_info` と current parse failure は startup background hydration で memory owner / session index へ適用する。
 
 ## Startup DB Projection
@@ -117,7 +118,7 @@ bmson startup preflight は、警告が必要な migration と警告不要の初
   - LR2 `song.db` に playlist tables が無く、初回連携用に追加する。
   - `chart_digest_map` / `bmson_song` / `app_schema_version` が無く、初回連携用に追加して current version を記録する。
 
-`EnsureBmsonStartupSchema()` は no-warning preparation 用で、schema/index ensure と `bmson_app_schema` current version stamp だけを行う。既存 app-owned data の digest consistency migration が必要な場合は `CompleteBmsonStartupMigration()` を使う。
+`EnsureBmsonStartupSchema()` は no-warning preparation 用で、schema/index ensure と `bmson_app_schema` current version stamp だけを行う。既存 app-owned data の schema 正規化と current version stamp が必要な場合は `CompleteBmsonStartupMigration()` を使う。どちらも `song` table 全件から実ファイルを読んで `chart_digest_map` を全量補完しない。
 
 ## Consistency Updates
 

@@ -1548,7 +1548,7 @@ internal sealed class BmsLibraryDbGateway
         }
         Dictionary<string, string> reusableDigests = LoadReusableChartDigestMap(songDb);
         EnsureBmsonSchema(songDb);
-        RepairChartDigestMapConsistency(songDb, reusableDigests);
+        RebuildChartDigestMap(songDb, reusableDigests);
         SetBmsonAppSchemaVersion(songDb, CurrentBmsonAppSchemaVersion);
     }
 

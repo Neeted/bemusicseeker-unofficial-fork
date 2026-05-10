@@ -14,7 +14,7 @@
 2026-05-09 時点では、通常起動と空 DB 初回構築を分けて読む。
 
 - 通常起動 / 差分なしに近い起動では、導入可能 readiness は概ね 20 秒前後、UI 操作可能は 21 秒前後まで短縮済みである。この場合の background tail は `chart_info_hydration` が中心で、`startup_initialization_complete` は 39 秒前後まで短縮済みである。
-- 空 DB 初回構築では、`song` / `bmson_song` / `maintenance` / `chart_digest_map` / inline `chart_info` を新規構築するため、全 chart file bytes の read が支配的になる。直近ログでは `parse_read_bytes_estimate=14067633086`、`startup_install_estimation_ready elapsedMs=401434`、`startup_ready_operable elapsedMs=463762`、`startup_initialization_complete elapsedMs=667710` である。同じ 14GB 級の単純 read benchmark が `453.572 sec` であるため、この環境では初回 song/maintenance table 構築の高速化は一旦完了扱いとし、以後は通常起動や background tail と分けて評価する。
+- 空 DB 初回構築では、`song` / `bmson_song` / `maintenance` / inline `chart_info` を新規構築するため、全 chart file bytes の read が支配的になる。`chart_digest_map` はこの file read の副産物として必要範囲が追加・更新される partial cache であり、startup migration が全量補完するものではない。直近ログでは `parse_read_bytes_estimate=14067633086`、`startup_install_estimation_ready elapsedMs=401434`、`startup_ready_operable elapsedMs=463762`、`startup_initialization_complete elapsedMs=667710` である。同じ 14GB 級の単純 read benchmark が `453.572 sec` であるため、この環境では初回 song/maintenance table 構築の高速化は一旦完了扱いとし、以後は通常起動や background tail と分けて評価する。
 
 ## Startup
 
@@ -83,13 +83,15 @@ BMS search root の追加・削除は mode 切替ではないため、保存後�
 | --- | --- | --- |
 | `NeedsPlaylistEntrySha256Migration` | 既存 `playlist_entry` schema が現行ではない | 警告対象。OK 後に `BMSPlaylist.EnsureSchema()` で移行 |
 | `NeedsBmsonAppSchemaMigration` | `app_schema_version(name='bmson_app_schema')` が現行ではない | 必ずしも警告対象ではない。既存 bmson app-owned table や旧 version row がある場合だけ警告対象 |
-| `RepairRequired` | `chart_digest_map` / `bmson_song` / index が欠損または互換外 | 警告なしで startup preparation / repair により収束させる |
+| `RepairRequired` | `chart_digest_map` / `bmson_song` / index の schema が欠損または互換外 | 警告なしで startup preparation / repair により収束させる。`chart_digest_map` の row coverage は判定しない |
 
 startup migration 後は必ず final preflight を行い、上記の未収束が残る場合は起動失敗として扱う。
 
 `playlist` / `playlist_entry` が存在しない LR2 `song.db` へ app 用 playlist schema を追加するだけの場合や、`chart_digest_map` / `bmson_song` / `app_schema_version` を初回連携用に追加するだけの場合は、互換性に影響する migration warning を出さない。既存 `playlist_entry` に `sha256` を足す、既存 `playlist_entry_idx_uniq` を作り直す、既存 `bmson_app_schema` version を更新する、または version row が無い状態で既存 `chart_digest_map` / `bmson_song` を持つ場合は、既存 app-owned schema/data へ手を入れる migration として警告対象にする。
 
-`BmsLibraryDbGateway.EnsureBmsonSchema()` は schema/index presence の修復 helper であり、migration 完了印を書かない。初回連携用に bmson app-owned tables を作って current version を記録するだけの場合は `EnsureBmsonStartupSchema()` を使う。既存 app-owned data の digest consistency migration が必要な場合は `CompleteBmsonStartupMigration()` を使う。
+`BmsLibraryDbGateway.EnsureBmsonSchema()` は schema/index presence の修復 helper であり、migration 完了印を書かない。初回連携用に bmson app-owned tables を作って current version を記録するだけの場合は `EnsureBmsonStartupSchema()` を使う。既存 app-owned data の schema 正規化と current version 記録が必要な場合は `CompleteBmsonStartupMigration()` を使う。
+
+`CompleteBmsonStartupMigration()` は既存 `chart_digest_map` の `md5` / `sha256` row を保持しながら current schema へ正規化するが、`song` table 全件を走査して実ファイルから SHA-256 を生成しない。missing digest は file diff / install / inline `chart_info` / chart info backfill など、譜面 bytes を読む後続 pipeline の責務とする。
 
 初回設定後の `Msg_init_completed` は `files_initialize_done` 直後ではなく、startup scheduler が idle になり `startup_initialization_complete` を記録した後に表示する。これにより、初回完了メッセージは critical path だけでなく通常の起動時 background 初期化まで終えた境界を表す。
 

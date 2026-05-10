@@ -4,7 +4,7 @@
 
 ## 目的
 
-- `bmson` 対応に伴う DB 変更と初回 `sha256` バックフィルの前に、ユーザーへ明示的な警告を出す
+- `bmson` 対応に伴う既存 app-owned DB schema/data 変更の前に、ユーザーへ明示的な警告を出す
 - 過去バージョンとの互換性リスクを事前に案内する
 - 同意が得られない場合は何も変更せず安全に終了する
 
@@ -12,7 +12,6 @@
 
 - アプリ起動時、`bmson` 対応のための移行が必要な場合だけ警告ダイアログが出る
 - ダイアログには以下が明記される
-  - 初回は `sha256` 生成のためかなり時間がかかること
   - `playlist_entry` など app-owned table に変更を加えること
   - 従来版 BeMusicSeeker や本フォーク版 `v1.2.1.0` 以前との互換性に注意が必要なこと
 - ユーザーがキャンセルした場合は、何もせずアプリを終了する
@@ -23,11 +22,12 @@
 - 移行警告ダイアログ表示
 - キャンセル時の即時終了
 - 「どの移行が未実施か」を判定する軽量な preflight
-- 今後の Phase 2 バックフィル開始条件としての同意フラグ管理
+- 同意済み startup migration を同一セッションで重複表示しないための一時状態管理
 
 ## スコープ外
 
 - `sha256` バックフィル本体
+- `song` table 全件から実ファイルを読む `chart_digest_map` 全量補完
 - `bmson_song` 追加
 - バージョン番号変更
 
@@ -36,15 +36,15 @@
 - 起動時に `BmsonMigrationPreflightService` による軽量チェックを実行する
 - 判定対象は少なくとも以下
   - `playlist_entry.sha256` migration が未適用
-  - `chart_digest_map` が未作成、または未バックフィル
+  - 既存 `bmson_app_schema` version row の更新が必要
+  - version row が無い状態で既存 `chart_digest_map` / `bmson_song` があり、schema 正規化が必要
 - いずれかに該当する場合、通常初期化より前に警告ダイアログを表示する
-- ユーザーが同意した場合のみ、以降の migration / backfill を許可する
-- キャンセル時は DB 書き込みやバックフィルを開始せず終了する
+- ユーザーが同意した場合のみ、以降の schema migration を許可する
+- キャンセル時は DB 書き込みを開始せず終了する
 
 ## ダイアログに含めるべき警告
 
 - `bmson` 対応のため、既存のプレイリストやハッシュ管理用テーブルを現行形式へ移行する
-- 初回の `sha256` 生成はライブラリ規模によってかなり時間がかかる
 - 更新後の DB は、従来版 BeMusicSeeker や本フォーク版 `v1.2.1.0` 以前と互換性がない可能性がある
 - 互換性に不安がある場合は、事前バックアップを推奨する
 
@@ -59,7 +59,7 @@
 
 ## 実装タスク
 
-1. `playlist_entry.sha256` と Phase 2 の `chart_digest_map` を対象にした preflight 判定を定義する
+1. `playlist_entry.sha256` と bmson app-owned schema/version を対象にした preflight 判定を定義する
 2. 起動時のどのタイミングで警告を出すか決める
 3. migration 実行前に必ず警告を挟めるよう、暗黙 migration 経路を整理する
 4. 警告ダイアログ文面を実装する
@@ -69,7 +69,7 @@
 ## 設計メモ
 
 - Phase 1 で `playlist_entry.sha256` migration はすでに実装済みなので、このフェーズでは「黙って走る migration」を preflight 配下へ移す整理が必要
-- 将来の `chart_digest_map` 作成と初回バックフィルも同じ警告導線に載せる
+- `chart_digest_map` / `bmson_song` の schema 作成と current version stamp は startup preparation で扱う。未バックフィル単体は警告対象にしない
 - 警告は一度だけ出せばよいが、「未移行のまま再起動した場合」は再表示する
 - バージョンは全フェーズ完了まで変更しない
   - `bmson` 対応完了後は `v2.0.0.0` を想定するが、このフェーズでは計画に含めない
@@ -78,7 +78,7 @@
 
 - preflight 判定単体テスト
   - `playlist_entry.sha256` 未適用を検出できる
-  - `chart_digest_map` 未作成を検出できる
+  - `chart_digest_map` 未作成を警告対象ではなく startup preparation / repair 対象として検出できる
 - 起動導線テスト
   - 警告必要時にダイアログ表示へ進む
   - キャンセル時に migration を走らせず終了する
@@ -86,9 +86,9 @@
 
 ## 完了条件
 
-- 移行が必要な環境では、バックフィルや schema 変更の前に必ず警告ダイアログが出る
+- 移行が必要な環境では、schema 変更の前に必ず警告ダイアログが出る
 - キャンセル時は DB 変更を行わず終了する
-- 同意時のみ migration / backfill 開始が許可される
+- 同意時のみ schema migration 開始が許可される
 - 従来版 BeMusicSeeker と本フォーク版 `v1.2.1.0` 以前との互換性警告が表示される
 
 ## 実装確認メモ
@@ -98,10 +98,10 @@
   - 起動時に preflight が migration 前に実行される
   - キャンセル時は schema 変更をせず `Shutdown()` で終了する
   - 同意後のみ `BMSPlaylist.EnsureSchema()` が呼ばれる
-  - 警告文に `SHA-256`、互換性、`v1.2.1.0`、バックアップ推奨が含まれる
+  - 警告文に互換性、`v1.2.1.0`、バックアップ推奨が含まれる
 - Phase 2 反映後の補足
-  - preflight 対象は `chart_digest_map` 未作成および初回バックフィル未完了にも拡張済み
-  - 警告導線は Phase 2 の初回バックフィルにもそのまま使えている
+  - `chart_digest_map` / `bmson_song` の schema 欠損は startup preparation / repair 対象である
+  - `chart_digest_map` 未バックフィルや missing SHA-256 は警告対象外であり、file diff / install / inline chart_info / chart info backfill 側で必要範囲を補完する
 
 ## リスク
 

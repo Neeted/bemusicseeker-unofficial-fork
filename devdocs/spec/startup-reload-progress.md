@@ -88,6 +88,8 @@ BMS search root の追加・削除は `ReloadFileDiff` として扱う。実行�
 
 `InstallableMaintenanceDeferredDone` には bounded 並列の cache-aware resource health 実チェックと、その結果を通常一覧へ投影するための runtime resource health index build が含まれる。WARNING 表示用の全件 `BMSFile.Warnings` 再構築は行わない。
 
+`ChartDigestBackfillDone` は startup migration の一部ではない。bmson startup migration は `chart_digest_map` の schema と既存 row の保持だけを扱い、`song` table 全件から実ファイルを読んで digest を補完しない。missing digest がある場合は file diff / install / chart_info pipeline 側の補完として扱う。
+
 Startup / FullReinitialize では `chart_info_hydration` と `maintenance_hydration` が完了してから、`InstallableMaintenanceDeferredDone` の task を開始する。これにより、譜面メタデータの大量 hydration/backfill と保守情報更新が同時に走って UI 更新や DB commit が競合する状態を避ける。
 
 新規・更新ファイル由来の `chart_info` / maintenance は background phase へ送らず、`LibraryFileDiffDone` の内側で扱う。`ChartInfoBackfillDone` と `InstallableMaintenanceDeferredDone` は、DB に既に存在する owner の補助情報を補完する phase として扱う。

@@ -434,9 +434,16 @@ public sealed class MainWindowContextMenuResourceTests
             viewModelCode,
             "private async Task<bool> EnsureBmsonMigrationApprovedForStartupAsync()",
             "private void ApplyBmsonStartupMigrationOrThrow");
+        string gatewayCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Models", "BmsLibraryInternal", "BmsLibraryDbGateway.cs"));
+        string completeBmsonMigration = ExtractBetween(
+            gatewayCode,
+            "internal static void CompleteBmsonStartupMigration(LR2SongDBExtended songDb)",
+            "internal static void EnsureBmsonStartupSchema(LR2SongDBExtended songDb)");
         StringAssert.Contains(bmsonStartupPreflight, "base.Messenger.Raise(confirmationMessage);");
         StringAssert.Contains(bmsonStartupPreflight, "await Task.Run(delegate");
         StringAssert.Contains(bmsonStartupPreflight, "ApplyBmsonStartupMigrationOrThrow(bmsonMigrationPreflightService, preflightResult);");
+        Assert.IsFalse(completeBmsonMigration.Contains("RepairChartDigestMapConsistency"));
+        Assert.IsFalse(completeBmsonMigration.Contains("BMSFile.GetSHA256Hash"));
         StringAssert.Contains(viewModelCode, "private void ShowInitialSetupCompletionMessageIfPending()");
         StringAssert.Contains(viewModelCode, "ShowInitialSetupCompletionMessageIfPending();");
         StringAssert.Contains(endSuppression, "FlushPendingUiRefresh(uiRefreshChannel, operationToken)");

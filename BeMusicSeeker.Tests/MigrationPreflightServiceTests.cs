@@ -207,6 +207,37 @@ public sealed class MigrationPreflightServiceTests
 
     [TestMethod]
     [TestCategory("Playlist")]
+    public void CompleteBmsonStartupMigration_DoesNotBackfillMissingDigestFromSongFiles()
+    {
+        string tempDbPath = CreateEmptySongDbPath();
+        string chartPath = string.Empty;
+        try
+        {
+            chartPath = Path.Combine(Path.GetDirectoryName(tempDbPath), "chart.bms");
+            File.WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE Test\r\n");
+            BMSPlaylist.EnsureSchema(tempDbPath);
+            using (LR2SongDBExtended db = new LR2SongDBExtended(tempDbPath))
+            {
+                db.CreateTable<LR2SongDB.song>();
+                BMSFile file = BMSFile.CreateBMSFileFromFile(chartPath);
+                db.InsertOrReplace(file, typeof(LR2SongDB.song));
+                db.CreateTable<LR2SongDBExtended.chart_digest_map>();
+            }
+
+            new BmsLibraryDbGateway(tempDbPath).CompleteBmsonStartupMigration();
+
+            using LR2SongDBExtended verify = new LR2SongDBExtended(tempDbPath);
+            Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_digest_map;"));
+            Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM app_schema_version WHERE name = 'bmson_app_schema' AND version >= 1;"));
+        }
+        finally
+        {
+            DeleteTempSongDbDirectory(tempDbPath);
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
     public void Inspect_OrphanDigestRow_DoesNotRequireWarningWhenVersionCurrent()
     {
         string tempDbPath = CreateEmptySongDbPath();
@@ -291,6 +322,8 @@ public sealed class MigrationPreflightServiceTests
     {
         string tempDbPath = CreateEmptySongDbPath();
         string chartPath = string.Empty;
+        string md5 = string.Empty;
+        string sha256 = string.Empty;
         try
         {
             chartPath = Path.Combine(Path.GetDirectoryName(tempDbPath), "chart.bms");
@@ -300,9 +333,11 @@ public sealed class MigrationPreflightServiceTests
             {
                 db.CreateTable<LR2SongDB.song>();
                 BMSFile file = BMSFile.CreateBMSFileFromFile(chartPath);
+                md5 = file.hash;
+                sha256 = file.sha256;
                 db.InsertOrReplace(file, typeof(LR2SongDB.song));
                 db.Execute("CREATE TABLE chart_digest_map (md5 TEXT PRIMARY KEY, sha256 TEXT NULL, last_seen_path TEXT NULL, updated_at TEXT NULL);");
-                db.Execute("INSERT INTO chart_digest_map(md5, sha256, last_seen_path, updated_at) VALUES ('" + file.hash + "', '" + file.sha256 + "', '" + chartPath.Replace("'", "''") + "', 'legacy');");
+                db.Execute("INSERT INTO chart_digest_map(md5, sha256, last_seen_path, updated_at) VALUES ('" + md5 + "', '" + sha256 + "', '" + chartPath.Replace("'", "''") + "', 'legacy');");
             }
 
             BmsLibraryDbGateway gateway = new BmsLibraryDbGateway(tempDbPath);
@@ -313,6 +348,7 @@ public sealed class MigrationPreflightServiceTests
             Assert.IsFalse(chartDigestMapSql.IndexOf("last_seen_path", StringComparison.OrdinalIgnoreCase) >= 0);
             Assert.IsFalse(chartDigestMapSql.IndexOf("updated_at", StringComparison.OrdinalIgnoreCase) >= 0);
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_digest_map;"));
+            Assert.AreEqual(sha256, verify.ExecuteScalar<string>("SELECT sha256 FROM chart_digest_map WHERE md5 = '" + md5 + "';"));
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM app_schema_version WHERE name = 'bmson_app_schema' AND version >= 1;"));
         }
         finally
