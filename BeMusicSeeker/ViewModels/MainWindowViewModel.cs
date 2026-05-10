@@ -5000,6 +5000,8 @@ public class MainWindowViewModel : ViewModel
 
     private bool bmsonMigrationApprovedForSession;
 
+    private bool initialSetupCompletionMessagePending;
+
     internal const int CurrentBmsonColumnSettingsMigrationVersion = 1;
 
     private BMSLibrary files;
@@ -10747,46 +10749,62 @@ public class MainWindowViewModel : ViewModel
         return true;
     }
 
-    private bool EnsureBmsonMigrationApprovedForStartup()
+    private async Task<bool> EnsureBmsonMigrationApprovedForStartupAsync()
     {
         LogInitStage("bmson_preflight_inspect_start", "Initialize");
         BmsonMigrationPreflightService bmsonMigrationPreflightService = new BmsonMigrationPreflightService();
         BmsonMigrationPreflightResult preflightResult = bmsonMigrationPreflightService.Inspect(Settings.Default.LR2SongDBPath);
         LogInitStage("bmson_preflight_inspect_done", "Initialize");
-        return ApplyBmsonMigrationPreflightForStartup(preflightResult, ref bmsonMigrationApprovedForSession, delegate (string message)
+        if (preflightResult.WarnRequired && !bmsonMigrationApprovedForSession)
         {
             LogInitStage("bmson_preflight_prompt_show", "Initialize");
-            ConfirmationMessage confirmationMessage = new ConfirmationMessage(message, BeMusicSeeker.Properties.Resources.BmsonMigrationWarningTitle, MessageBoxImage.Exclamation, MessageBoxButton.OKCancel, "ConfirmationDialog");
+            ConfirmationMessage confirmationMessage = new ConfirmationMessage(BuildBmsonMigrationWarningMessage(preflightResult), BeMusicSeeker.Properties.Resources.BmsonMigrationWarningTitle, MessageBoxImage.Exclamation, MessageBoxButton.OKCancel, "ConfirmationDialog");
             base.Messenger.Raise(confirmationMessage);
             LogInitStage("bmson_preflight_prompt_close", "Initialize");
-            return confirmationMessage.Response;
-        }, delegate
+            if (confirmationMessage.Response != true)
+            {
+                System.Windows.Application.Current?.Shutdown();
+                return false;
+            }
+            bmsonMigrationApprovedForSession = true;
+        }
+        await Task.Run(delegate
         {
             ApplyBmsonStartupMigrationOrThrow(bmsonMigrationPreflightService, preflightResult);
-        }, delegate
+        }).Logging("BmsonStartupMigration");
+        if (preflightResult.WarnRequired && ResetBmsonColumnSettingsForMigrationIfNeeded(Settings.Default))
         {
-            System.Windows.Application.Current?.Shutdown();
-        }, delegate
-        {
-            if (ResetBmsonColumnSettingsForMigrationIfNeeded(Settings.Default))
-            {
-                LogInitStage("bmson_column_settings_reset", "Initialize");
-            }
-        });
+            LogInitStage("bmson_column_settings_reset", "Initialize");
+        }
+        return true;
     }
 
     private void ApplyBmsonStartupMigrationOrThrow(BmsonMigrationPreflightService bmsonMigrationPreflightService, BmsonMigrationPreflightResult preflightResult)
     {
+        Stopwatch stopwatch = Stopwatch.StartNew();
         LogInitStage("bmson_startup_migration_start", "Initialize");
         BmsLibraryDbGateway gateway = new BmsLibraryDbGateway(Settings.Default.LR2SongDBPath);
+        LogInitStage("bmson_playlist_schema_start", "Initialize");
         BMSPlaylist.EnsureSchema(Settings.Default.LR2SongDBPath);
-        if (preflightResult.NeedsBmsonAppSchemaMigration || preflightResult.RepairRequired)
+        LogInitStage("bmson_playlist_schema_done elapsedMs=" + stopwatch.ElapsedMilliseconds, "Initialize");
+        long schemaStartMs = stopwatch.ElapsedMilliseconds;
+        if (preflightResult.WarnRequired)
         {
+            LogInitStage("bmson_compat_migration_apply_start", "Initialize");
             gateway.CompleteBmsonStartupMigration();
+            LogInitStage("bmson_compat_migration_apply_done elapsedMs=" + (stopwatch.ElapsedMilliseconds - schemaStartMs), "Initialize");
+        }
+        else if (preflightResult.NeedsBmsonAppSchemaMigration || preflightResult.RepairRequired)
+        {
+            LogInitStage("bmson_startup_schema_prepare_start", "Initialize");
+            gateway.EnsureBmsonStartupSchema();
+            LogInitStage("bmson_startup_schema_prepare_done elapsedMs=" + (stopwatch.ElapsedMilliseconds - schemaStartMs), "Initialize");
         }
         else
         {
+            LogInitStage("bmson_schema_ensure_start", "Initialize");
             gateway.EnsureBmsonSchema();
+            LogInitStage("bmson_schema_ensure_done elapsedMs=" + (stopwatch.ElapsedMilliseconds - schemaStartMs), "Initialize");
         }
         LogInitStage("bmson_preflight_final_reinspect_start", "Initialize");
         BmsonMigrationPreflightResult finalResult = bmsonMigrationPreflightService.Inspect(Settings.Default.LR2SongDBPath);
@@ -10797,7 +10815,7 @@ public class MainWindowViewModel : ViewModel
         {
             throw new InvalidOperationException("bmson startup migration did not converge.");
         }
-        LogInitStage("bmson_startup_migration_done", "Initialize");
+        LogInitStage("bmson_startup_migration_done elapsedMs=" + stopwatch.ElapsedMilliseconds, "Initialize");
     }
 
     /// <summary>
@@ -10881,7 +10899,7 @@ public class MainWindowViewModel : ViewModel
         }
         try
         {
-            if (Settings.Default.OperationModeLR2DB && !EnsureBmsonMigrationApprovedForStartup())
+            if (Settings.Default.OperationModeLR2DB && !await EnsureBmsonMigrationApprovedForStartupAsync())
             {
                 _semaphore.Release();
                 SetStartupUiInteractionBlocked(false);
@@ -11473,7 +11491,7 @@ public class MainWindowViewModel : ViewModel
         if (((App)System.Windows.Application.Current).firstStartup)
         {
             ((App)System.Windows.Application.Current).firstStartup = false;
-            DispatcherMessageBox.Show(BeMusicSeeker.Properties.Resources.Msg_init_completed, BeMusicSeeker.Properties.Resources.Information, MessageBoxButton.OK, MessageBoxImage.Asterisk, MessageBoxResult.OK);
+            initialSetupCompletionMessagePending = true;
         }
         initializationCompleted = true;
         hasActiveLibraryProfile = true;
@@ -15379,6 +15397,28 @@ public class MainWindowViewModel : ViewModel
         }
         LogUiSuppression("startup_initialization_complete elapsedMs=" + elapsedMs);
         LogUiSuppression(BuildStartupBackgroundSummaryLog(elapsedMs));
+        ShowInitialSetupCompletionMessageIfPending();
+    }
+
+    private void ShowInitialSetupCompletionMessageIfPending()
+    {
+        if (!initialSetupCompletionMessagePending)
+        {
+            return;
+        }
+        initialSetupCompletionMessagePending = false;
+        Action showMessage = delegate
+        {
+            DispatcherMessageBox.Show(BeMusicSeeker.Properties.Resources.Msg_init_completed, BeMusicSeeker.Properties.Resources.Information, MessageBoxButton.OK, MessageBoxImage.Asterisk, MessageBoxResult.OK);
+        };
+        if (DispatcherHelper.UIDispatcher == null || DispatcherHelper.UIDispatcher.CheckAccess())
+        {
+            showMessage();
+        }
+        else
+        {
+            DispatcherHelper.UIDispatcher.BeginInvoke(showMessage);
+        }
     }
 
     private void QueueStartupInitializationCompleteRetryUnsafe()

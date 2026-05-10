@@ -113,6 +113,42 @@ public sealed class MainWindowViewModelBmsonMigrationTests
 
     [TestMethod]
     [TestCategory("Playlist")]
+    public void ApplyBmsonMigrationPreflightForStartup_NormalPreparation_DoesNotRequestWarning()
+    {
+        bool approvedForSession = false;
+        bool migrationCalled = false;
+        bool resetColumnSettingsCalled = false;
+        bool shutdownCalled = false;
+        BmsonMigrationPreflightResult result = new BmsonMigrationPreflightResult(
+            needsPlaylistEntrySha256Migration: false,
+            needsChartDigestMapSchema: true,
+            needsBmsonSongSchema: true,
+            needsBmsonAppSchemaMigration: true,
+            repairableBmsonSchemaIssues: RepairableBmsonSchemaIssues.ChartDigestMapTableMissing | RepairableBmsonSchemaIssues.BmsonSongTableMissing,
+            needsBmsonAppSchemaWarning: false);
+
+        bool shouldContinue = MainWindowViewModel.ApplyBmsonMigrationPreflightForStartup(result, ref approvedForSession, null, delegate
+        {
+            migrationCalled = true;
+        }, delegate
+        {
+            shutdownCalled = true;
+        }, delegate
+        {
+            resetColumnSettingsCalled = true;
+        });
+
+        Assert.IsTrue(shouldContinue);
+        Assert.IsFalse(approvedForSession);
+        Assert.IsTrue(migrationCalled);
+        Assert.IsFalse(resetColumnSettingsCalled);
+        Assert.IsFalse(shutdownCalled);
+        Assert.IsFalse(result.WarnRequired);
+        Assert.IsTrue(result.NeedsBmsonAppSchemaMigration);
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
     public void ResetBmsonColumnSettingsForMigrationIfNeeded_VersionZero_RegeneratesMainGridSettingsAndMarksVersion()
     {
         Settings settings = new Settings();

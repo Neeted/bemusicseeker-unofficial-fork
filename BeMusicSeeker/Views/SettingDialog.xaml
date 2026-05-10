@@ -49,6 +49,9 @@
             </FrameworkElement.Resources>
             <TabItem Name="tabItemGeneral" FontFamily="Meiryo UI" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.General, Mode=OneWay}">
               <StackPanel>
+                <GroupBox Padding="5,5,5,0" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Language, Mode=OneWay}">
+                  <ComboBox Height="24" IsReadOnly="True" Width="150" MaxDropDownHeight="260" VerticalContentAlignment="Center" HorizontalAlignment="Center" ItemsSource="{Binding settingDialog.Languages, Mode=OneWay}" SelectedItem="{Binding Path=settingDialog.Language}" />
+                </GroupBox>
                 <GroupBox Padding="5,5,5,0" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Operation_Mode, Mode=OneWay}">
                   <StackPanel>
                     <RadioButton Name="radioButtonNotUseLR2" Height="20" GroupName="Operation Mode" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Not_use_LR2DB, Mode=OneWay}" IsChecked="{Binding settingDialog.OperationModeLR2DB, Converter={qc:QuickConverter '!$P', ConvertBack='!$value'}}" />
@@ -620,9 +623,6 @@
                     <CheckBox IsChecked="{Binding settingDialog.ShowDiffBMSInstallConfirmMsg}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_show_diag_diff_install, Mode=OneWay}" />
                     <CheckBox IsChecked="{Binding settingDialog.ShowRecommUpdatedMsg}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_show_diag_recommend, Mode=OneWay}" />
                   </StackPanel>
-                </GroupBox>
-                <GroupBox Padding="5,5,5,0" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Language, Mode=OneWay}">
-                  <ComboBox Height="24" IsReadOnly="True" Width="150" MaxDropDownHeight="260" VerticalContentAlignment="Center" HorizontalAlignment="Center" ItemsSource="{Binding settingDialog.Languages, Mode=OneWay}" SelectedItem="{Binding Path=settingDialog.Language}" />
                 </GroupBox>
                 <GroupBox Padding="5,5,5,0" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Advanced_settings, Mode=OneWay}">
                   <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" MaxHeight="220">

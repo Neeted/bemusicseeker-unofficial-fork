@@ -47,7 +47,7 @@ Startup
 
 Standalone profile の `data\song.db` は portable app data であり、`%LOCALAPPDATA%` には保存しない。初期化順は `data` directory 作成、`song.db` 作成、library schema、playlist schema、bmson/chart_info schema の順に揃える。schema は LR2 `song.db` 互換を維持し、playlist / custom folder 出力用の設定値保存は DB 内に残せる。ただし standalone profile では `.lr2folder` 実出力と `config.xml` 書き換えを行わない。
 
-設定画面の `LR2と連携しない` は standalone profile を選ぶ。BMS ディレクトリは複数登録でき、保存時は存在する path だけを正規化する。重複は大小文字無視で排除するが、親子関係や用途の違う root はユーザーが追加した単位を保持する。旧 `BMSRootPath` は初回移行元として扱い、standalone root list が空で存在する場合だけ取り込む。standalone profile でも BMS インストール先は必須で、登録済み BMS root のいずれかを選ぶ。
+設定画面の `スタンドアローン(LR2と連携しない)` は standalone profile を選ぶ。BMS ディレクトリは複数登録でき、保存時は存在する path だけを正規化する。重複は大小文字無視で排除するが、親子関係や用途の違う root はユーザーが追加した単位を保持する。旧 `BMSRootPath` は初回移行元として扱い、standalone root list が空で存在する場合だけ取り込む。standalone profile でも BMS インストール先は必須で、登録済み BMS root のいずれかを選ぶ。
 
 LR2 linked / standalone の profile 切替は、同一プロセス内の `FullReinitialize` や hot reload では反映しない。起動済み profile が存在する通常運用時は、設定ダイアログで mode のトグルを切り替えた時点で再起動確認を出し、承認された場合だけ永続化済み設定を reload した上で動作モードのみ保存してアプリを再起動する。他の未保存設定は保存しない。キャンセル時は保存済み mode へ表示を戻し、実行中の library profile と startup progress は変更しない。切替後の設定不足は、再起動後の `Startup` validation と既存の設定ダイアログ表示で案内する。
 
@@ -81,13 +81,17 @@ BMS search root の追加・削除は mode 切替ではないため、保存後�
 
 | 判定 | 意味 | 起動時の扱い |
 | --- | --- | --- |
-| `NeedsPlaylistEntrySha256Migration` | playlist entry schema が現行ではない | 警告対象。OK 後に `BMSPlaylist.EnsureSchema()` で移行 |
-| `NeedsBmsonAppSchemaMigration` | `app_schema_version(name='bmson_app_schema')` が現行ではない | 警告対象。OK 後に `CompleteBmsonStartupMigration()` で完了 |
-| `RepairRequired` | `chart_digest_map` / `bmson_song` / index が欠損または互換外 | startup migration / repair で収束させる |
+| `NeedsPlaylistEntrySha256Migration` | 既存 `playlist_entry` schema が現行ではない | 警告対象。OK 後に `BMSPlaylist.EnsureSchema()` で移行 |
+| `NeedsBmsonAppSchemaMigration` | `app_schema_version(name='bmson_app_schema')` が現行ではない | 必ずしも警告対象ではない。既存 bmson app-owned table や旧 version row がある場合だけ警告対象 |
+| `RepairRequired` | `chart_digest_map` / `bmson_song` / index が欠損または互換外 | 警告なしで startup preparation / repair により収束させる |
 
 startup migration 後は必ず final preflight を行い、上記の未収束が残る場合は起動失敗として扱う。
 
-`BmsLibraryDbGateway.EnsureBmsonSchema()` は schema/index presence の修復 helper であり、migration 完了印を書かない。`bmson_app_schema` を current にする正本 API は `CompleteBmsonStartupMigration()` である。
+`playlist` / `playlist_entry` が存在しない LR2 `song.db` へ app 用 playlist schema を追加するだけの場合や、`chart_digest_map` / `bmson_song` / `app_schema_version` を初回連携用に追加するだけの場合は、互換性に影響する migration warning を出さない。既存 `playlist_entry` に `sha256` を足す、既存 `playlist_entry_idx_uniq` を作り直す、既存 `bmson_app_schema` version を更新する、または version row が無い状態で既存 `chart_digest_map` / `bmson_song` を持つ場合は、既存 app-owned schema/data へ手を入れる migration として警告対象にする。
+
+`BmsLibraryDbGateway.EnsureBmsonSchema()` は schema/index presence の修復 helper であり、migration 完了印を書かない。初回連携用に bmson app-owned tables を作って current version を記録するだけの場合は `EnsureBmsonStartupSchema()` を使う。既存 app-owned data の digest consistency migration が必要な場合は `CompleteBmsonStartupMigration()` を使う。
+
+初回設定後の `Msg_init_completed` は `files_initialize_done` 直後ではなく、startup scheduler が idle になり `startup_initialization_complete` を記録した後に表示する。これにより、初回完了メッセージは critical path だけでなく通常の起動時 background 初期化まで終えた境界を表す。
 
 ## Metadata Bundle Import
 

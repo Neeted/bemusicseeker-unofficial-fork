@@ -527,6 +527,22 @@ internal sealed class BmsLibraryDbGateway
         }
     }
 
+    public void EnsureBmsonStartupSchema()
+    {
+        using LR2SongDBExtended songDb = OpenSongDb();
+        string savepoint = songDb.SaveTransactionPoint();
+        try
+        {
+            EnsureBmsonStartupSchema(songDb);
+            songDb.Commit();
+        }
+        catch (Exception)
+        {
+            songDb.RollbackTo(savepoint);
+            throw;
+        }
+    }
+
     /// <summary>
     /// chart_info テーブルと関連 index を作成または修復します。
     /// </summary>
@@ -1533,6 +1549,16 @@ internal sealed class BmsLibraryDbGateway
         Dictionary<string, string> reusableDigests = LoadReusableChartDigestMap(songDb);
         EnsureBmsonSchema(songDb);
         RepairChartDigestMapConsistency(songDb, reusableDigests);
+        SetBmsonAppSchemaVersion(songDb, CurrentBmsonAppSchemaVersion);
+    }
+
+    internal static void EnsureBmsonStartupSchema(LR2SongDBExtended songDb)
+    {
+        if (songDb == null)
+        {
+            throw new ArgumentNullException(nameof(songDb));
+        }
+        EnsureBmsonSchema(songDb);
         SetBmsonAppSchemaVersion(songDb, CurrentBmsonAppSchemaVersion);
     }
 

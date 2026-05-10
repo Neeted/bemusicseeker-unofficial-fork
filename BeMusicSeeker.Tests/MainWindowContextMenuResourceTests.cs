@@ -223,9 +223,16 @@ public sealed class MainWindowContextMenuResourceTests
             "<TabItem Header=\"{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Install");
 
         StringAssert.Contains(generalTab, "Path=Resources.Operation_Mode");
+        StringAssert.Contains(generalTab, "Path=Resources.Language");
         StringAssert.Contains(generalTab, "Path=Resources.Beatoraja_integration");
+        Assert.IsTrue(generalTab.IndexOf("Path=Resources.Language", StringComparison.Ordinal) < generalTab.IndexOf("Path=Resources.Operation_Mode", StringComparison.Ordinal));
         Assert.IsTrue(generalTab.IndexOf("Path=Resources.Operation_Mode", StringComparison.Ordinal) < generalTab.IndexOf("Path=Resources.Beatoraja_integration", StringComparison.Ordinal));
         Assert.IsFalse(generalTab.Contains("Path=Resources.Appearance"));
+        string detailsTab = ExtractBetween(
+            xaml,
+            "Name=\"tabItemProperty\"",
+            "Name=\"tabItemVersionInfo\"");
+        Assert.IsFalse(detailsTab.Contains("Path=Resources.Language"));
         Assert.IsTrue(xaml.IndexOf("Name=\"tabItemGeneral\"", StringComparison.Ordinal) < xaml.IndexOf("<TabItem Header=\"{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Appearance", StringComparison.Ordinal));
         Assert.IsTrue(xaml.IndexOf("<TabItem Header=\"{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Appearance", StringComparison.Ordinal) < xaml.IndexOf("<TabItem Header=\"{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playback", StringComparison.Ordinal));
 
@@ -381,6 +388,8 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(saveAndClose, "if (shouldInitializeAfterSave)");
         StringAssert.Contains(saveAndClose, "SaveSettingsForInitialInitialize()");
         StringAssert.Contains(saveAndClose, "settingDialog.Visibility = Visibility.Hidden;");
+        StringAssert.Contains(saveAndClose, "Msg_initsetting_completed");
+        Assert.IsTrue(saveAndClose.IndexOf("Msg_initsetting_completed", StringComparison.Ordinal) < saveAndClose.IndexOf("viewModel.Initialize();", StringComparison.Ordinal));
         StringAssert.Contains(saveAndClose, "settingDialogViewModel.CheckValidation(out var errMsg)");
         StringAssert.Contains(saveAndClose, "viewModel.IsLibraryOperationInProgress");
         StringAssert.Contains(saveAndClose, "Resources.Msg_settings_apply_blocked_during_initialization");
@@ -418,6 +427,18 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsTrue(reloadFileDiff.IndexOf("await _semaphore.WaitAsync();", StringComparison.Ordinal) < reloadFileDiff.IndexOf("StartStartupProgressOperation(StartupProgressOperationKind.ReloadFileDiff)", StringComparison.Ordinal));
         Assert.IsTrue(initialize.IndexOf("files = new BMSLibrary", StringComparison.Ordinal) < initialize.IndexOf("StartStartupProgressOperation(StartupProgressOperationKind.Startup)", StringComparison.Ordinal));
         StringAssert.Contains(initialize, "StartDeferredExternalPlaylistSync(\"Initialize\", fromReloadTables: false, CreatePlaylistReferenceReplaceUpdateCallback(), operationToken)");
+        StringAssert.Contains(initialize, "initialSetupCompletionMessagePending = true;");
+        Assert.IsFalse(initialize.Contains("Resources.Msg_init_completed"));
+        StringAssert.Contains(initialize, "await EnsureBmsonMigrationApprovedForStartupAsync()");
+        string bmsonStartupPreflight = ExtractBetween(
+            viewModelCode,
+            "private async Task<bool> EnsureBmsonMigrationApprovedForStartupAsync()",
+            "private void ApplyBmsonStartupMigrationOrThrow");
+        StringAssert.Contains(bmsonStartupPreflight, "base.Messenger.Raise(confirmationMessage);");
+        StringAssert.Contains(bmsonStartupPreflight, "await Task.Run(delegate");
+        StringAssert.Contains(bmsonStartupPreflight, "ApplyBmsonStartupMigrationOrThrow(bmsonMigrationPreflightService, preflightResult);");
+        StringAssert.Contains(viewModelCode, "private void ShowInitialSetupCompletionMessageIfPending()");
+        StringAssert.Contains(viewModelCode, "ShowInitialSetupCompletionMessageIfPending();");
         StringAssert.Contains(endSuppression, "FlushPendingUiRefresh(uiRefreshChannel, operationToken)");
         StringAssert.Contains(viewModelCode, "ScheduleDeferredPlaylistReferenceApply(\"DeferredExternalSync:\" + reason, operationToken)");
     }

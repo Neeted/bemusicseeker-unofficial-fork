@@ -106,6 +106,19 @@ startup hydration の read phase は read-only connection を使う。
 - write が必要な cleanup / backfill / metadata update / file diff commit は write-capable transaction path に分ける。
 - `bmson_app_schema` などの migration 状態は startup migration phase で収束させる。
 
+bmson startup preflight は、警告が必要な migration と警告不要の初回準備を分ける。
+
+- warning target:
+  - 既存 `playlist_entry` に `sha256` column / index を追加する。
+  - 既存 `playlist_entry_idx_uniq` を `sha256` 込みへ作り直す。
+  - 既存 `bmson_app_schema` version row を更新する。
+  - version row が無い状態で既存 `chart_digest_map` / `bmson_song` があり、app-owned schema/data を現行化する。
+- no-warning startup preparation:
+  - LR2 `song.db` に playlist tables が無く、初回連携用に追加する。
+  - `chart_digest_map` / `bmson_song` / `app_schema_version` が無く、初回連携用に追加して current version を記録する。
+
+`EnsureBmsonStartupSchema()` は no-warning preparation 用で、schema/index ensure と `bmson_app_schema` current version stamp だけを行う。既存 app-owned data の digest consistency migration が必要な場合は `CompleteBmsonStartupMigration()` を使う。
+
 ## Consistency Updates
 
 file diff / install / merge / delete / move 後は、必要な範囲で次を同期する。

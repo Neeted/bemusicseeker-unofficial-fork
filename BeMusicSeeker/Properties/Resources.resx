@@ -109,10 +109,18 @@
 プレビューが不完全となる場合があります。</value>
   </data>
   <data name="Msg_init_settings" xml:space="preserve">
-    <value>初回起動時にはいくつかの設定を行う必要があります。
-LR2ディレクトリ・カスタムフォルダ出力ディレクトリ
-インストール先ディレクトリ・再生プレイヤー
-等を指定して下さい。</value>
+    <value>初回起動時は、設定画面で言語と動作モードを選び、必要な項目を入力してください。
+
+スタンドアローン(LR2と連携しない):
+一般: BMSディレクトリ
+インストール: 新規インストール先
+
+LR2と連携する:
+一般: LR2ディレクトリ
+プレイリスト: カスタムフォルダ出力先
+インストール: 新規インストール先
+
+必須項目を入力してOKを押すまで、BMSファイルのスキャンは開始できません。</value>
   </data>
   <data name="Export" xml:space="preserve">
     <value>エクスポート</value>
@@ -121,9 +129,9 @@ LR2ディレクトリ・カスタムフォルダ出力ディレクトリ
     <value>レイテンシ</value>
   </data>
   <data name="Msg_initsetting_completed" xml:space="preserve">
-    <value>初期設定が完了しました。
-引き続きBMSファイルのフルスキャンを行います。
-この処理は数分程度かかる場合があります。</value>
+    <value>設定を保存しました。
+これからBMSファイルの初回スキャンを開始します。
+初回は全ファイルを確認するため、ライブラリ規模によって時間がかかる場合があります。</value>
   </data>
   <data name="Tooltip_rewind" xml:space="preserve">
     <value>巻き戻し</value>
@@ -141,7 +149,7 @@ LR2ディレクトリ・カスタムフォルダ出力ディレクトリ
     <value>昇順</value>
   </data>
   <data name="Not_use_LR2DB" xml:space="preserve">
-    <value>LR2と連携しない</value>
+    <value>スタンドアローン(LR2と連携しない)</value>
   </data>
   <data name="Artist" xml:space="preserve">
     <value>アーティスト</value>
@@ -191,7 +199,8 @@ LR2ディレクトリ・カスタムフォルダ出力ディレクトリ
 譜面を登録しますか？</value>
   </data>
   <data name="Msg_init_completed" xml:space="preserve">
-    <value>初期化が完了しました。</value>
+    <value>初回のライブラリ構築が完了しました。
+次回以降は差分更新が中心になるため、通常は初回起動ほど時間はかかりません。</value>
   </data>
   <data name="Open_chart_viewer" xml:space="preserve">
     <value>譜面ビューアで開く</value>
@@ -1587,9 +1596,9 @@ BMSファイルが重複しないようにマージします。
     <value>既所持譜面から導入先を特定できません。ライブラリの状態を確認してください。</value>
   </data>
   <data name="BmsonMigrationWarningMessage" xml:space="preserve">
-    <value>bmson 対応のため、初回起動時にプレイリストやハッシュ管理用・bmson カタログ用テーブルへ変更を加えます。
+    <value>bmson 対応のため、既存のプレイリストやハッシュ管理用・bmson カタログ用テーブルを現行形式へ移行します。
 
-初回の SHA-256 生成はライブラリ規模によってかなり時間がかかります。
+移行中に SHA-256 生成が必要な場合は、ライブラリ規模によってかなり時間がかかります。
 更新後の DB は、従来版 BeMusicSeeker および本フォーク版 v1.2.1.0 以前と互換性がない可能性があります。
 互換性に不安がある場合は、事前に song.db などのバックアップを推奨します。</value>
   </data>
