@@ -57,6 +57,8 @@ current `chart_info` row が存在する場合、inline parser は詳細 parse �
 
 軽量 `ReloadFileDiff` では、現在の in-memory `BMSFiles` / `BmsonSongs` と scan result だけを比較する。DB 再読込、metadata bundle import、full `chart_info` hydration/backfill、installable maintenance deferred は行わない。DB 外部編集や互換修復まで拾う場合は `FullReinitialize` を使う。
 
+削除 commit は row-by-row の `song.hash` lookup / orphan check ではなく、削除対象 path を temp table に入れて集合 SQL で処理する。BMS は削除前に対象 MD5 を temp table へ退避し、`song` と `maintenance` を削除した後、残存 `song.hash` owner が無い MD5 だけ `chart_digest_map` から消す。bmson は `bmson_song` と `maintenance` を同じ chunk transaction で削除する。メモリ側の `NextFiles` 構築では削除 path を `HashSet` 化し、ルート削除やルート近傍 rename のような大量削除でも `currentFiles * deletedPaths` の線形探索に戻さない。
+
 `song_tbl_file_check_breakdown` の `inline_chart_info_index_published_count` は、file diff から runtime index delta へ流した row 数を表す。metadata bundle current skip が大半のケースでは、この値は `inline_chart_info_current_skipped_count` ではなく `inline_chart_info_success_count` 近辺になる。
 
 `song_tbl_file_check_breakdown` の `inline_maintenance_*` は、file diff chunk 内で作った `maintenance` row の対象数、成功/失敗、BMS/bmson 内訳、cache hit / `File.Exists` fallback を表す。chunk commit log の `maintenance=` は、その chunk で `maintenance` table へ保存した row 数を表す。

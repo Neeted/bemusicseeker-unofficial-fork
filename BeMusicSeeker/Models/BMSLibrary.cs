@@ -2479,11 +2479,10 @@ public class BMSLibrary : NotificationObject
         lr2config = ((getLR2Config != null) ? getLR2Config : ((Func<LR2Config>)(() => (LR2Config)null)));
         using (LR2SongDBExtended lR2SongDBExtended = dbGateway.OpenSongDb())
         {
-            lR2SongDBExtended.CreateTable<LR2SongDB.song>();
+            BmsLibraryDbGateway.EnsureSongLookupIndexes(lR2SongDBExtended);
             lR2SongDBExtended.CreateTable<LR2SongDBExtended.install>();
             lR2SongDBExtended.CreateTable<LR2SongDBExtended.maintenance>();
             lR2SongDBExtended.CreateTable<LR2SongDBExtended.ir_score>();
-            lR2SongDBExtended.CreateIndex("song_idx_folder", SQLiteTable<LR2SongDB.song>.GetTableName(), new string[1] { SQLiteTable<LR2SongDB.song>.GetColumnName((LR2SongDB.song e) => e.folder) });
             BmsLibraryDbGateway.EnsureIrDataSchema(lR2SongDBExtended);
             BmsLibraryDbGateway.EnsureChartInfoSchema(lR2SongDBExtended);
         }

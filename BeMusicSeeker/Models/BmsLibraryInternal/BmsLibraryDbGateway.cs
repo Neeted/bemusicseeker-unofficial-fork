@@ -61,6 +61,12 @@ internal sealed class BmsLibraryDbGateway
     private const string ChartInfoParseFailureDeleteSql =
         "DELETE FROM chart_info_parse_failure WHERE md5 = ?;";
 
+    private const string TempDeletedBmsPathTable = "file_scan_deleted_bms_path";
+
+    private const string TempDeletedBmsHashTable = "file_scan_deleted_bms_hash";
+
+    private const string TempDeletedBmsonPathTable = "file_scan_deleted_bmson_path";
+
     private const string ChartInfoColumnList =
         "sha256, md5, charthash, level, difficulty, difficulty_defined, mainbpm, maxbpm, minbpm, length, mode, judge, feature, notes, n, ln, s, ls, total, total_defined, density, peakdensity, enddensity, distribution, speedchange, speedchange_count, lanenotes, parser_version, updated_at";
 
@@ -197,18 +203,9 @@ internal sealed class BmsLibraryDbGateway
 
         EnsureBmsonSchema(songDb);
         EnsureChartInfoSchema(songDb);
+        EnsureSongLookupIndexes(songDb);
         songDb.CreateTable<LR2SongDBExtended.maintenance>();
-        foreach (string deletedPath in chunk.DeletedBmsPaths)
-        {
-            if (string.IsNullOrWhiteSpace(deletedPath))
-            {
-                continue;
-            }
-            string deletedHash = GetSongHashByPath(songDb, deletedPath);
-            songDb.Delete<LR2SongDB.song>(deletedPath);
-            songDb.Delete<LR2SongDBExtended.maintenance>(deletedPath);
-            DeleteChartDigestIfOrphaned(songDb, deletedHash);
-        }
+        BulkDeleteBmsPaths(songDb, chunk.DeletedBmsPaths);
         foreach (BMSFile addedFile in chunk.AddedBmsFiles)
         {
             if (addedFile == null)
@@ -221,14 +218,7 @@ internal sealed class BmsLibraryDbGateway
             UpsertChartDigest(songDb, addedFile);
             DeleteChartDigestIfOrphaned(songDb, previousHash, addedFile.hash);
         }
-        foreach (string deletedBmsonPath in chunk.DeletedBmsonPaths)
-        {
-            if (!string.IsNullOrWhiteSpace(deletedBmsonPath))
-            {
-                songDb.Delete<LR2SongDBExtended.bmson_song>(deletedBmsonPath);
-                songDb.Delete<LR2SongDBExtended.maintenance>(deletedBmsonPath);
-            }
-        }
+        BulkDeleteBmsonPaths(songDb, chunk.DeletedBmsonPaths);
         foreach (LR2SongDBExtended.bmson_song addedBmsonSong in chunk.UpsertBmsonSongs)
         {
             if (addedBmsonSong != null)
@@ -1465,6 +1455,19 @@ internal sealed class BmsLibraryDbGateway
         EnsureIndex(songDb, "bmson_song_idx_folder", bmsonSongTableName, SQLiteTable<LR2SongDBExtended.bmson_song>.GetColumnName((LR2SongDBExtended.bmson_song row) => row.folder));
     }
 
+    internal static void EnsureSongLookupIndexes(LR2SongDBExtended songDb)
+    {
+        if (songDb == null)
+        {
+            throw new ArgumentNullException(nameof(songDb));
+        }
+        string tableName = SQLiteTable<LR2SongDB.song>.GetTableName();
+        songDb.CreateTable<LR2SongDB.song>();
+        EnsureIndex(songDb, "hashidx", tableName, SQLiteTable<LR2SongDB.song>.GetColumnName((LR2SongDB.song row) => row.hash));
+        EnsureIndex(songDb, "parentidx", tableName, SQLiteTable<LR2SongDB.song>.GetColumnName((LR2SongDB.song row) => row.parent));
+        EnsureIndex(songDb, "song_idx_folder", tableName, SQLiteTable<LR2SongDB.song>.GetColumnName((LR2SongDB.song row) => row.folder));
+    }
+
     internal static void EnsureIrDataSchema(LR2SongDBExtended songDb)
     {
         if (songDb == null)
@@ -1635,6 +1638,100 @@ internal sealed class BmsLibraryDbGateway
             + " WHERE " + SQLiteTable<LR2SongDB.song>.GetColumnName((LR2SongDB.song row) => row.path)
             + " = " + BMSPlaylist.SqlQuoteForTest(path)
             + " LIMIT 1;");
+    }
+
+    private static void BulkDeleteBmsPaths(LR2SongDBExtended songDb, IEnumerable<string> paths)
+    {
+        List<string> sourcePaths = BuildExactLookupKeys(paths);
+        if (sourcePaths.Count == 0)
+        {
+            return;
+        }
+        PrepareTempLookupTable(songDb, TempDeletedBmsPathTable, "path");
+        foreach (string path in sourcePaths)
+        {
+            songDb.Execute("INSERT OR IGNORE INTO temp." + TempDeletedBmsPathTable + " (path) VALUES (?);", path);
+        }
+        PrepareTempLookupTable(songDb, TempDeletedBmsHashTable, "md5");
+        songDb.Execute(
+            "INSERT OR IGNORE INTO temp." + TempDeletedBmsHashTable + " (md5) "
+            + "SELECT DISTINCT s." + SQLiteTable<LR2SongDB.song>.GetColumnName((LR2SongDB.song row) => row.hash)
+            + " FROM " + SQLiteTable<LR2SongDB.song>.GetTableName() + " s "
+            + "INNER JOIN temp." + TempDeletedBmsPathTable + " d ON d.path = s." + SQLiteTable<LR2SongDB.song>.GetColumnName((LR2SongDB.song row) => row.path)
+            + " WHERE s." + SQLiteTable<LR2SongDB.song>.GetColumnName((LR2SongDB.song row) => row.hash) + " IS NOT NULL "
+            + "AND TRIM(s." + SQLiteTable<LR2SongDB.song>.GetColumnName((LR2SongDB.song row) => row.hash) + ") <> '';");
+        songDb.Execute(
+            "DELETE FROM " + SQLiteTable<LR2SongDBExtended.maintenance>.GetTableName()
+            + " WHERE " + SQLiteTable<LR2SongDBExtended.maintenance>.GetColumnName((LR2SongDBExtended.maintenance row) => row.path)
+            + " IN (SELECT path FROM temp." + TempDeletedBmsPathTable + ");");
+        songDb.Execute(
+            "DELETE FROM " + SQLiteTable<LR2SongDB.song>.GetTableName()
+            + " WHERE " + SQLiteTable<LR2SongDB.song>.GetColumnName((LR2SongDB.song row) => row.path)
+            + " IN (SELECT path FROM temp." + TempDeletedBmsPathTable + ");");
+        DeleteChartDigestsIfOrphanedFromTemp(songDb, TempDeletedBmsHashTable);
+        ClearTempLookupTable(songDb, TempDeletedBmsHashTable);
+        ClearTempLookupTable(songDb, TempDeletedBmsPathTable);
+    }
+
+    private static void BulkDeleteBmsonPaths(LR2SongDBExtended songDb, IEnumerable<string> paths)
+    {
+        List<string> sourcePaths = BuildExactLookupKeys(paths);
+        if (sourcePaths.Count == 0)
+        {
+            return;
+        }
+        PrepareTempLookupTable(songDb, TempDeletedBmsonPathTable, "path");
+        foreach (string path in sourcePaths)
+        {
+            songDb.Execute("INSERT OR IGNORE INTO temp." + TempDeletedBmsonPathTable + " (path) VALUES (?);", path);
+        }
+        songDb.Execute(
+            "DELETE FROM " + SQLiteTable<LR2SongDBExtended.bmson_song>.GetTableName()
+            + " WHERE " + SQLiteTable<LR2SongDBExtended.bmson_song>.GetColumnName((LR2SongDBExtended.bmson_song row) => row.path)
+            + " IN (SELECT path FROM temp." + TempDeletedBmsonPathTable + ");");
+        songDb.Execute(
+            "DELETE FROM " + SQLiteTable<LR2SongDBExtended.maintenance>.GetTableName()
+            + " WHERE " + SQLiteTable<LR2SongDBExtended.maintenance>.GetColumnName((LR2SongDBExtended.maintenance row) => row.path)
+            + " IN (SELECT path FROM temp." + TempDeletedBmsonPathTable + ");");
+        ClearTempLookupTable(songDb, TempDeletedBmsonPathTable);
+    }
+
+    private static List<string> BuildExactLookupKeys(IEnumerable<string> source)
+    {
+        return (source ?? Enumerable.Empty<string>())
+            .Where((string item) => !string.IsNullOrWhiteSpace(item))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+    }
+
+    private static void PrepareTempLookupTable(LR2SongDBExtended songDb, string tableName, string columnName)
+    {
+        songDb.Execute("CREATE TEMP TABLE IF NOT EXISTS " + tableName + " (" + columnName + " TEXT PRIMARY KEY);");
+        ClearTempLookupTable(songDb, tableName);
+    }
+
+    private static void ClearTempLookupTable(LR2SongDBExtended songDb, string tableName)
+    {
+        songDb.Execute("DELETE FROM temp." + tableName + ";");
+    }
+
+    private static void DeleteChartDigestsIfOrphanedFromTemp(LR2SongDBExtended songDb, string tempHashTableName)
+    {
+        if (!TableExists(songDb, SQLiteTable<LR2SongDBExtended.chart_digest_map>.GetTableName()))
+        {
+            return;
+        }
+        songDb.Execute(
+            "DELETE FROM " + SQLiteTable<LR2SongDBExtended.chart_digest_map>.GetTableName()
+            + " WHERE " + SQLiteTable<LR2SongDBExtended.chart_digest_map>.GetColumnName((LR2SongDBExtended.chart_digest_map row) => row.md5)
+            + " IN ("
+            + "SELECT h.md5 FROM temp." + tempHashTableName + " h "
+            + "WHERE h.md5 IS NOT NULL AND TRIM(h.md5) <> '' "
+            + "AND NOT EXISTS ("
+            + "SELECT 1 FROM " + SQLiteTable<LR2SongDB.song>.GetTableName() + " s "
+            + "WHERE s." + SQLiteTable<LR2SongDB.song>.GetColumnName((LR2SongDB.song row) => row.hash) + " = h.md5"
+            + ")"
+            + ");");
     }
 
     private static bool IsChartInfoSchemaCurrent(LR2SongDBExtended songDb)

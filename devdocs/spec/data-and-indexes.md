@@ -107,6 +107,8 @@ startup hydration の read phase は read-only connection を使う。
 - write が必要な cleanup / backfill / metadata update / file diff commit は write-capable transaction path に分ける。
 - `bmson_app_schema` などの migration 状態は startup migration phase で収束させる。
 
+`song` table は LR2 互換の lookup index を前提にする。LR2 が作成する `song.db` と同様に `hashidx(song.hash)` と `parentidx(song.parent)` を ensure し、アプリ側で使う `song_idx_folder(song.folder)` も維持する。スタンドアローン DB 作成時だけでなく、通常の DB schema ensure でも不足 index を補う。
+
 bmson startup preflight は、警告が必要な migration と警告不要の初回準備を分ける。
 
 - warning target:
@@ -135,3 +137,5 @@ file diff / install / merge / delete / move 後は、必要な範囲で次を同
 - playlist references when affected
 
 増分更新では、旧 union cache ではなく `DirectoryResourceLookupCache` の directory key set を正本にする。
+
+file diff の大量削除は、削除対象 path / hash を一時 table に集め、`song`、`maintenance`、`bmson_song`、`chart_digest_map` を集合 SQL で更新する。`chart_digest_map` は削除対象 MD5 のうち、削除後の `song.hash` に残存 owner が無いものだけを削除する。これにより、ルート削除やルート近傍 rename のような大量 delete でも 1 row ごとの orphan check に戻さない。

@@ -1248,6 +1248,158 @@ public sealed class BmsLibraryInitializationServiceTests
     }
 
     [TestMethod]
+    public void ApplyFileScanDiff_BulkDeleteKeepsExactPathKeys()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
+        {
+            string bmsPath = " " + Path.Combine(lr2RootPath, "Whitespace", "deleted.bms");
+
+            TestableBmsFile existing = new TestableBmsFile
+            {
+                path = bmsPath
+            };
+            existing.SetHash("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+
+            using (LR2SongDBExtended songDbConnection = new LR2SongDBExtended(songDbPath))
+            {
+                songDbConnection.CreateTable<LR2SongDB.song>();
+                songDbConnection.CreateTable<LR2SongDBExtended.maintenance>();
+                songDbConnection.InsertOrReplace(existing, typeof(LR2SongDB.song));
+                songDbConnection.InsertOrReplace(new BMSFileMaintenanceInfo
+                {
+                    path = bmsPath,
+                    hash = existing.hash,
+                    encoding = "shift_jis"
+                }, typeof(LR2SongDBExtended.maintenance));
+            }
+
+            BmsLibraryInitializationService service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
+            SongTableFileCheckResult result = service.ApplyFileScanDiff(
+                new BmsLibraryDbGateway(songDbPath),
+                new BmsLibraryOptionsSnapshot(),
+                new[] { existing },
+                new BmsScanExecutionResult
+                {
+                    Success = true,
+                    Result = CreateScanResult(Array.Empty<string>(), new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase))
+                },
+                0L,
+                () => null,
+                null,
+                currentBmsonSongs: Array.Empty<LR2SongDBExtended.bmson_song>());
+
+            Assert.AreEqual(1, result.DeletedPaths.Count);
+            using LR2SongDBExtended verify = new LR2SongDBExtended(songDbPath);
+            Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM song WHERE path = ?;", bmsPath));
+            Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM maintenance WHERE path = ?;", bmsPath));
+        });
+    }
+
+    [TestMethod]
+    public void ApplyFileScanDiff_BulkDeleteHandlesMultipleCommitChunks()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
+        {
+            TestableBmsFile[] bmsFiles = Enumerable.Range(0, 3)
+                .Select(delegate (int index)
+                {
+                    TestableBmsFile file = new TestableBmsFile
+                    {
+                        path = Path.Combine(lr2RootPath, "BulkDelete", "deleted" + index + ".bms")
+                    };
+                    file.SetHash(new string((char)('a' + index), 32));
+                    return file;
+                })
+                .ToArray();
+            LR2SongDBExtended.bmson_song[] bmsonSongs = Enumerable.Range(0, 2)
+                .Select((int index) => new LR2SongDBExtended.bmson_song
+                {
+                    path = Path.Combine(lr2RootPath, "BulkDelete", "deleted" + index + ".bmson"),
+                    folder = Path.Combine(lr2RootPath, "BulkDelete"),
+                    title = "Deleted " + index,
+                    md5 = new string((char)('d' + index), 32),
+                    sha256 = new string(index == 0 ? '1' : '2', 64),
+                    updated_at = DateTime.UtcNow.AddDays(-1)
+                })
+                .ToArray();
+
+            using (LR2SongDBExtended songDbConnection = new LR2SongDBExtended(songDbPath))
+            {
+                songDbConnection.CreateTable<LR2SongDB.song>();
+                BmsLibraryDbGateway.EnsureBmsonSchema(songDbConnection);
+                songDbConnection.CreateTable<LR2SongDBExtended.maintenance>();
+                foreach (TestableBmsFile file in bmsFiles)
+                {
+                    songDbConnection.InsertOrReplace(file, typeof(LR2SongDB.song));
+                    songDbConnection.InsertOrReplace(new BMSFileMaintenanceInfo
+                    {
+                        path = file.path,
+                        hash = file.hash,
+                        encoding = "shift_jis"
+                    }, typeof(LR2SongDBExtended.maintenance));
+                }
+                foreach (LR2SongDBExtended.bmson_song song in bmsonSongs)
+                {
+                    songDbConnection.InsertOrReplace(song, typeof(LR2SongDBExtended.bmson_song));
+                    songDbConnection.InsertOrReplace(new BMSFileMaintenanceInfo
+                    {
+                        path = song.path,
+                        hash = song.md5,
+                        encoding = "utf-8"
+                    }, typeof(LR2SongDBExtended.maintenance));
+                }
+            }
+
+            BmsLibraryInitializationService service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1, fileDiffCommitChunkSizeOverride: 2);
+            SongTableFileCheckResult result = service.ApplyFileScanDiff(
+                new BmsLibraryDbGateway(songDbPath),
+                new BmsLibraryOptionsSnapshot(),
+                bmsFiles,
+                new BmsScanExecutionResult
+                {
+                    Success = true,
+                    Result = CreateScanResult(Array.Empty<string>(), new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase))
+                },
+                0L,
+                () => null,
+                null,
+                currentBmsonSongs: bmsonSongs,
+                executeBmsonScan: () => new BmsScanExecutionResult
+                {
+                    Success = true,
+                    Result = CreateScanResult(Array.Empty<string>(), new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase))
+                });
+
+            Assert.AreEqual(3, result.DeletedPaths.Count);
+            Assert.AreEqual(2, result.DeletedBmsonPaths.Count);
+            Assert.AreEqual(3, result.DbCommitChunks);
+            using LR2SongDBExtended verify = new LR2SongDBExtended(songDbPath);
+            Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM song;"));
+            Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM bmson_song;"));
+            Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM maintenance;"));
+        });
+    }
+
+    [TestMethod]
+    public void EnsureSongLookupIndexes_CreatesLr2CompatibleHashAndParentIndexes()
+    {
+        WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
+        {
+            using (LR2SongDBExtended songDb = new LR2SongDBExtended(songDbPath))
+            {
+                BmsLibraryDbGateway.EnsureSongLookupIndexes(songDb);
+            }
+
+            using LR2SongDBExtended verify = new LR2SongDBExtended(songDbPath);
+            Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_master WHERE type = 'index' AND name = 'hashidx';"));
+            Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_master WHERE type = 'index' AND name = 'parentidx';"));
+            Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_master WHERE type = 'index' AND name = 'song_idx_folder';"));
+        });
+    }
+
+    [TestMethod]
     public void ApplyFileScanDiff_AddsBmsPublishesGeneratedInlineChartInfoToCallback()
     {
         TestResourceInitializer.EnsureJapaneseResources();

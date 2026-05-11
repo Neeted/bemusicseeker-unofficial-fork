@@ -31,12 +31,11 @@ internal static class StandaloneLibraryDatabase
             throw new ArgumentNullException(nameof(songDb));
         }
 
-        songDb.CreateTable<LR2SongDB.song>();
+        BmsLibraryDbGateway.EnsureSongLookupIndexes(songDb);
         songDb.CreateTable<LR2SongDB.folder>();
         songDb.CreateTable<LR2SongDBExtended.install>();
         songDb.CreateTable<LR2SongDBExtended.maintenance>();
         songDb.CreateTable<LR2SongDBExtended.ir_score>();
-        songDb.CreateIndex("song_idx_folder", SQLiteTable<LR2SongDB.song>.GetTableName(), new[] { SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.folder) });
         BmsLibraryDbGateway.EnsureIrDataSchema(songDb);
     }
 }

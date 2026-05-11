@@ -481,7 +481,8 @@ internal sealed class BmsLibraryInitializationService
         result.AddedBmsonSongs.AddRange(pipelineResult.ParsedBmsonSongs);
 
         Stopwatch stopwatchApply = Stopwatch.StartNew();
-        result.NextFiles.AddRange(currentFileList.Where((BMSFile file) => !result.DeletedPaths.Contains(file.path)));
+        HashSet<string> deletedPathSet = new HashSet<string>(result.DeletedPaths, StringComparer.OrdinalIgnoreCase);
+        result.NextFiles.AddRange(currentFileList.Where((BMSFile file) => !deletedPathSet.Contains(file.path)));
         result.NextFiles.AddRange(result.AddedFiles);
         HashSet<string> directoryKeys = new HashSet<string>(result.NextDirectoryResourceLookupCache?.Keys ?? Enumerable.Empty<string>(), StringComparer.OrdinalIgnoreCase);
         Stopwatch stopwatchInstlDstCleanup = Stopwatch.StartNew();
