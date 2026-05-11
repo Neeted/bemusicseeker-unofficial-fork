@@ -286,6 +286,10 @@ internal sealed class GridKeywordSearchQuery
         {
             return SearchCondition.Invalid(isNegated, field: null, GridKeywordSearchDiagnosticKind.EmptyNegation, "-");
         }
+        if (IsWindowsDriveToken(token))
+        {
+            return CreateCondition(isNegated, field: null, isRegex: false, rawTerms: token);
+        }
         int colonIndex = FindUnquotedChar(token, ':');
         if (colonIndex <= 0)
         {
@@ -304,6 +308,14 @@ internal sealed class GridKeywordSearchQuery
             rawTerms = rawTerms.Substring(3);
         }
         return CreateCondition(isNegated, field, isRegex, rawTerms);
+    }
+
+    private static bool IsWindowsDriveToken(string token)
+    {
+        return token != null
+            && token.Length >= 2
+            && token[1] == ':'
+            && ((token[0] >= 'A' && token[0] <= 'Z') || (token[0] >= 'a' && token[0] <= 'z'));
     }
 
     private static SearchCondition CreateCondition(bool isNegated, string field, bool isRegex, string rawTerms)
@@ -1093,7 +1105,9 @@ internal sealed class GridKeywordSearchQuery
             defined = true;
             return true;
         }
-        if (string.Equals(term, "undefined", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(term, "undefined", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(term, "undef", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(term, "null", StringComparison.OrdinalIgnoreCase))
         {
             defined = false;
             return true;

@@ -52,6 +52,24 @@ public sealed class GridKeywordSearchQueryTests
     }
 
     [TestMethod]
+    public void MatchesBmsFile_WindowsDriveLetterTokenIsGlobalKeyword()
+    {
+        TestableBmsFile file = CreateFile();
+        file.path = @"D:\BMS\Alpha\chart.bms";
+
+        GridKeywordSearchQuery drivePathQuery = GridKeywordSearchQuery.Parse(@"D:\BMS\");
+        GridKeywordSearchQuery driveRelativeQuery = GridKeywordSearchQuery.Parse("D:");
+        GridKeywordSearchQuery lowerDrivePathQuery = GridKeywordSearchQuery.Parse(@"d:\bms\");
+
+        Assert.IsTrue(drivePathQuery.MatchesBmsFile(file));
+        Assert.IsTrue(driveRelativeQuery.MatchesBmsFile(file));
+        Assert.IsTrue(lowerDrivePathQuery.MatchesBmsFile(file));
+        Assert.AreEqual(0, drivePathQuery.GetDiagnostics(GridKeywordSearchContext.BmsFile).Count);
+        Assert.AreEqual(0, driveRelativeQuery.GetDiagnostics(GridKeywordSearchContext.BmsFile).Count);
+        Assert.AreEqual(0, lowerDrivePathQuery.GetDiagnostics(GridKeywordSearchContext.BmsFile).Count);
+    }
+
+    [TestMethod]
     public void MatchesBmsFile_QuoteSearchTreatsPhraseAsSingleToken()
     {
         TestableBmsFile file = CreateFile();
@@ -169,9 +187,11 @@ public sealed class GridKeywordSearchQueryTests
         file.SetChartInfo(CreateChartInfo(level: null, difficultyDefined: false, totalDefined: false));
 
         Assert.IsTrue(GridKeywordSearchQuery.Parse("level:undefined difficulty:undefined total:undefined").MatchesBmsFile(file));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("level:undef difficulty:null total:undef").MatchesBmsFile(file));
         Assert.IsFalse(GridKeywordSearchQuery.Parse("level:defined").MatchesBmsFile(file));
         Assert.IsTrue(GridKeywordSearchQuery.Parse("feature:defined").MatchesBmsFile(file));
         Assert.IsTrue(GridKeywordSearchQuery.Parse("feature:undefined").MatchesBmsFile(CreateFile()));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("feature:null").MatchesBmsFile(CreateFile()));
     }
 
     [TestMethod]
@@ -205,6 +225,7 @@ public sealed class GridKeywordSearchQueryTests
         TestableBmsFile file = CreateFile();
 
         Assert.IsTrue(GridKeywordSearchQuery.Parse("rank:undefined score:undefined rate:undefined combo:undefined bp:undefined").MatchesBmsFile(file));
+        Assert.IsTrue(GridKeywordSearchQuery.Parse("rank:undef score:null rate:undef combo:null bp:undef").MatchesBmsFile(file));
         Assert.IsTrue(GridKeywordSearchQuery.Parse("clear:defined").MatchesBmsFile(file));
         Assert.IsFalse(GridKeywordSearchQuery.Parse("rank:defined").MatchesBmsFile(file));
         Assert.IsFalse(GridKeywordSearchQuery.Parse("score:defined").MatchesBmsFile(file));
@@ -302,6 +323,7 @@ public sealed class GridKeywordSearchQueryTests
         Assert.IsTrue(rateRankResult.Items.Any((KeywordSearchSuggestionItem item) => item.DisplayText == "rank:"));
         Assert.IsTrue(rateRankResult.Items.Any((KeywordSearchSuggestionItem item) => item.DisplayText == "rate:"));
         Assert.AreEqual(0, GridKeywordSearchCompletion.CreateFieldCompletion("mem", 3, GridKeywordSearchContext.BmsFile).Items.Count);
+        Assert.AreEqual(0, GridKeywordSearchCompletion.CreateFieldCompletion("D:", 2, GridKeywordSearchContext.BmsFile).Items.Count);
     }
 
     [TestMethod]

@@ -122,6 +122,14 @@ artist:xi
 sha256:abcdef
 ```
 
+`A:` から `Z:` / `a:` から `z:` で始まる token は Windows のドライブレターを含むパスとして扱い、field 指定にはしません。
+そのため、フルパスや drive-relative path は引用符なしでそのまま検索できます。
+
+```text
+D:\BMS\
+D:
+```
+
 複数指定した場合は AND 検索です。
 
 ```text
@@ -179,10 +187,12 @@ rate:0.95..
 bp:0..10
 ```
 
-`defined` / `undefined` も利用できます。`chart_info` が未構築の場合や、`level` が NULL の場合、`difficulty_defined=false` / `total_defined=false` の場合は `undefined` に一致します。数値のスコア系 field ではスコア未取得などで値がない場合に `undefined` に一致します。`rank` は DJ LEVEL が空の場合に `undefined` に一致します。`clear` は `NO SONG` / `NO PLAY` も CLEAR 種別として扱うため、常に `defined` に一致します。
+`defined` / `undefined` も利用できます。`undefined` は `undef` / `null` とも書けます。`chart_info` が未構築の場合や、`level` が NULL の場合、`difficulty_defined=false` / `total_defined=false` の場合は `undefined` に一致します。数値のスコア系 field ではスコア未取得などで値がない場合に `undefined` に一致します。`rank` は DJ LEVEL が空の場合に `undefined` に一致します。`clear` は `NO SONG` / `NO PLAY` も CLEAR 種別として扱うため、常に `defined` に一致します。
 
 ```text
 total:undefined
+total:undef
+total:null
 difficulty:defined
 -feature:random
 score:defined
