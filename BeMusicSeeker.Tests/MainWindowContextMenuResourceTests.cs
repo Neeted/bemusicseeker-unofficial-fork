@@ -405,6 +405,40 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
+    public void FirstStartupValidationFailure_UsesInitialSetupLanguageDialog()
+    {
+        string root = FindRepositoryRoot();
+        string viewModelCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
+        string mainWindow = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "MainWindow.xaml"));
+        string initialDialog = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "InitialSetupLanguageDialog.xaml"));
+        string initialDialogCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "InitialSetupLanguageDialog.xaml.cs"));
+        string initialize = ExtractBetween(
+            viewModelCode,
+            "public async void Initialize()",
+            "public void SetuBMplayPanel()");
+        string validationFailure = ExtractBetween(
+            initialize,
+            "if (!settingDialog.CheckValidation())",
+            "if (Settings.Default.OperationModeLR2DB && !await EnsureBmsonMigrationApprovedForStartupAsync())");
+
+        Assert.IsFalse(validationFailure.Contains("DispatcherMessageBox.Show(BeMusicSeeker.Properties.Resources.Msg_init_settings,"));
+        StringAssert.Contains(validationFailure, "base.Messenger.Raise(new InteractionMessage(\"InitialSetupLanguageDialog\"));");
+        StringAssert.Contains(validationFailure, "DispatcherMessageBox.Show(BeMusicSeeker.Properties.Resources.Msg_init_settings_check");
+        StringAssert.Contains(validationFailure, "base.Messenger.Raise(new InteractionMessage(\"InitializationException\"));");
+        Assert.IsTrue(validationFailure.IndexOf("InitialSetupLanguageDialog", StringComparison.Ordinal) < validationFailure.IndexOf("Msg_init_settings_check", StringComparison.Ordinal));
+
+        StringAssert.Contains(mainWindow, "MessageKey=\"InitialSetupLanguageDialog\"");
+        StringAssert.Contains(mainWindow, "TargetObject=\"{Binding ElementName=initialSetupLanguageDialog, Mode=OneWay}\"");
+        StringAssert.Contains(mainWindow, "<v:InitialSetupLanguageDialog x:Name=\"initialSetupLanguageDialog\"");
+        StringAssert.Contains(initialDialog, "ItemsSource=\"{Binding settingDialog.Languages, Mode=OneWay}\"");
+        StringAssert.Contains(initialDialog, "SelectedItem=\"{Binding Path=settingDialog.Language}\"");
+        StringAssert.Contains(initialDialog, "Resources.Msg_init_settings");
+        StringAssert.Contains(initialDialog, "Resources.InitialSetupLanguageDialogTitle");
+        StringAssert.Contains(initialDialog, "Resources.InitialSetupLanguageDialogContinue");
+        StringAssert.Contains(initialDialogCode, "settingDialog.Visibility = Visibility.Visible;");
+    }
+
+    [TestMethod]
     public void StartupReloadProgress_UsesSerializedOperationTokens()
     {
         string viewModelCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
@@ -863,6 +897,7 @@ public sealed class MainWindowContextMenuResourceTests
         foreach (string relativePath in new[]
         {
             Path.Combine("BeMusicSeeker", "Views", "SettingDialog.xaml"),
+            Path.Combine("BeMusicSeeker", "Views", "InitialSetupLanguageDialog.xaml"),
             Path.Combine("BeMusicSeeker", "Views", "PlaylistPropertyDialog.xaml"),
             Path.Combine("BeMusicSeeker", "Views", "LoadPlaylistURIDialog.xaml"),
             Path.Combine("BeMusicSeeker", "Views", "PendingDeleteConfirmDialog.xaml"),
@@ -877,6 +912,10 @@ public sealed class MainWindowContextMenuResourceTests
         string settingDialog = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingDialog.xaml"));
         StringAssert.Contains(settingDialog, "App.WarningTextBrush");
         Assert.IsFalse(settingDialog.Contains("Foreground=\"#FFFF0000\""));
+
+        string initialSetupDialog = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "InitialSetupLanguageDialog.xaml"));
+        StringAssert.Contains(initialSetupDialog, "App.DialogOverlayBrush");
+        StringAssert.Contains(initialSetupDialog, "App.DialogBorderBrush");
 
         Assert.AreEqual(MessageBoxResult.Cancel, ThemedMessageBox.NormalizeDefaultResult(MessageBoxButton.OKCancel, MessageBoxResult.None));
         Assert.AreEqual(MessageBoxResult.No, ThemedMessageBox.NormalizeDefaultResult(MessageBoxButton.YesNo, MessageBoxResult.None));

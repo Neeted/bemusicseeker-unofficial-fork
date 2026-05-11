@@ -54,6 +54,8 @@
   "Backup_and_restore": "备份与还原",
   "Msg_warn_preview": "生成预览时发生以下警告。\n请确认文件是否可访问。\n由于警告，预览内容可能存在异常。",
   "Msg_init_settings": "首次启动时，请在设置窗口中选择语言和运行模式，并填写必填项目。\n\n独立模式(不与 LR2 联动):\n常规: BMS 目录\n安装: 新安装目标\n\n与 LR2 联动:\n常规: LR2 目录\n播放列表: 自定义文件夹输出目标\n安装: 新安装目标\n\n在填写必填项目并按下 OK 之前，无法开始扫描 BMS 文件。",
+  "InitialSetupLanguageDialogTitle": "开始首次设置",
+  "InitialSetupLanguageDialogContinue": "前往设置",
   "Export": "导出",
   "Device_setting_latency": "延迟",
   "Msg_initsetting_completed": "设置已保存。\n现在将开始首次 BMS 文件扫描。\n首次扫描会检查所有文件，可能会根据资料库规模花费一些时间。",

@@ -275,6 +275,10 @@ public class Resources
 
     public static string Information => ResourceManager.GetString("Information", resourceCulture);
 
+    public static string InitialSetupLanguageDialogTitle => ResourceManager.GetString("InitialSetupLanguageDialogTitle", resourceCulture);
+
+    public static string InitialSetupLanguageDialogContinue => ResourceManager.GetString("InitialSetupLanguageDialogContinue", resourceCulture);
+
     public static string Init_column_setting => ResourceManager.GetString("Init_column_setting", resourceCulture);
 
     public static string Drop_install_queue_label_format => ResourceManager.GetString("Drop_install_queue_label_format", resourceCulture);

@@ -53,6 +53,32 @@ public sealed class LocalizationResourceParityTests
         }
     }
 
+    [TestMethod]
+    public void InitialSetupLanguageDialogStrings_ArePresentInAllLanguages()
+    {
+        string root = FindRepositoryRoot();
+        string langDirectory = Path.Combine(root, "lang");
+        string[] requiredKeys =
+        {
+            nameof(Resources.InitialSetupLanguageDialogTitle),
+            nameof(Resources.InitialSetupLanguageDialogContinue)
+        };
+
+        foreach (string languagePath in Directory.GetFiles(langDirectory, "*.json").OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
+        {
+            JObject language = ReadLanguageJsonObject(languagePath);
+            foreach (string key in requiredKeys)
+            {
+                JToken value = language[key] ?? throw new AssertFailedException(Path.GetFileName(languagePath) + " must contain " + key + ".");
+                Assert.AreEqual(JTokenType.String, value.Type, Path.GetFileName(languagePath) + " " + key + " must be a string.");
+                Assert.IsFalse(string.IsNullOrWhiteSpace(value.Value<string>()), Path.GetFileName(languagePath) + " " + key + " must not be empty.");
+            }
+        }
+
+        Assert.IsFalse(string.IsNullOrWhiteSpace(Resources.InitialSetupLanguageDialogTitle));
+        Assert.IsFalse(string.IsNullOrWhiteSpace(Resources.InitialSetupLanguageDialogContinue));
+    }
+
     private static HashSet<string> ReadGeneratedResourceStringKeys()
     {
         return typeof(Resources)
@@ -78,6 +104,15 @@ public sealed class LocalizationResourceParityTests
 
     private static HashSet<string> ReadLanguageJsonKeys(string path)
     {
+        JObject obj = ReadLanguageJsonObject(path);
+
+        return obj.Properties()
+            .Select(property => property.Name)
+            .ToHashSet(StringComparer.Ordinal);
+    }
+
+    private static JObject ReadLanguageJsonObject(string path)
+    {
         string json = File.ReadAllText(path);
         JsonLoadSettings settings = new JsonLoadSettings
         {
@@ -85,15 +120,13 @@ public sealed class LocalizationResourceParityTests
         };
 
         JToken token = JToken.Parse(json, settings);
-        JObject obj = token as JObject;
-        if (obj == null)
+        if (!(token is JObject obj))
         {
             Assert.Fail(Path.GetFileName(path) + " must be a JSON object.");
+            throw new AssertFailedException(Path.GetFileName(path) + " must be a JSON object.");
         }
 
-        return obj.Properties()
-            .Select(property => property.Name)
-            .ToHashSet(StringComparer.Ordinal);
+        return obj;
     }
 
     private static void AssertSetEquals(HashSet<string> expected, HashSet<string> actual, string message)

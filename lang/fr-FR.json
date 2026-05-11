@@ -54,6 +54,8 @@
   "Backup_and_restore": "Backup and Restore",
   "Msg_warn_preview": "The following warnings occurred while preparing the preview.\nPlease check whether access to the file is possible.\nThe preview may be corrupted.",
   "Msg_init_settings": "Au premier demarrage, choisissez la langue et le mode de fonctionnement dans les reglages, puis renseignez les champs obligatoires.\n\nMode autonome (sans integration LR2):\nGeneral: dossiers BMS\nInstallation: destination des nouvelles installations\n\nLier avec LR2:\nGeneral: dossier LR2\nPlaylist: destinations de sortie des dossiers personnalises\nInstallation: destination des nouvelles installations\n\nLe scan des fichiers BMS ne peut pas commencer tant que les champs obligatoires ne sont pas renseignes et que OK n'est pas valide.",
+  "InitialSetupLanguageDialogTitle": "Demarrer la configuration initiale",
+  "InitialSetupLanguageDialogContinue": "Continuer vers les reglages",
   "Export": "Exporter",
   "Device_setting_latency": "Latency",
   "Msg_initsetting_completed": "Les reglages ont ete enregistres.\nLe premier scan des fichiers BMS va demarrer.\nLe premier scan verifie tous les fichiers et peut prendre du temps selon la taille de la bibliotheque.",

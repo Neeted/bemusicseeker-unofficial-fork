@@ -10886,7 +10886,10 @@ public class MainWindowViewModel : ViewModel
         {
             if (((App)System.Windows.Application.Current).firstStartup)
             {
-                DispatcherMessageBox.Show(BeMusicSeeker.Properties.Resources.Msg_init_settings, BeMusicSeeker.Properties.Resources.Information, MessageBoxButton.OK, MessageBoxImage.Asterisk, MessageBoxResult.OK);
+                _semaphore.Release();
+                SetStartupUiInteractionBlocked(false);
+                base.Messenger.Raise(new InteractionMessage("InitialSetupLanguageDialog"));
+                return;
             }
             else
             {

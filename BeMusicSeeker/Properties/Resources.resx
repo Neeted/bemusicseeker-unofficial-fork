@@ -122,6 +122,12 @@ LR2と連携する:
 
 必須項目を入力してOKを押すまで、BMSファイルのスキャンは開始できません。</value>
   </data>
+  <data name="InitialSetupLanguageDialogTitle" xml:space="preserve">
+    <value>初回設定を始めます</value>
+  </data>
+  <data name="InitialSetupLanguageDialogContinue" xml:space="preserve">
+    <value>設定へ進む</value>
+  </data>
   <data name="Export" xml:space="preserve">
     <value>エクスポート</value>
   </data>

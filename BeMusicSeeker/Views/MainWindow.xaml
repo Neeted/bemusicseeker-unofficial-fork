@@ -941,6 +941,9 @@
     <l:InteractionMessageTrigger MessageKey="InitializationException" Messenger="{Binding Messenger}">
       <ei:ChangePropertyAction PropertyName="Visibility" Value="Visible" TargetObject="{Binding ElementName=settingDialog, Mode=OneWay}" />
     </l:InteractionMessageTrigger>
+    <l:InteractionMessageTrigger MessageKey="InitialSetupLanguageDialog" Messenger="{Binding Messenger}">
+      <ei:ChangePropertyAction PropertyName="Visibility" Value="Visible" TargetObject="{Binding ElementName=initialSetupLanguageDialog, Mode=OneWay}" />
+    </l:InteractionMessageTrigger>
     <l:InteractionMessageTrigger MessageKey="InitializationSuccess" Messenger="{Binding Messenger}">
       <l:LivetCallMethodAction MethodName="SetuBMplayPanel" MethodTarget="{Binding}" MethodParameter="{Binding ElementName=_panel, Mode=OneWay}" />
       <l:LivetCallMethodAction MethodName="gridBMSPlayerControlsRotatePanelStateButtonClicked" MethodTarget="{Binding ElementName=window, Mode=OneWay}" />
@@ -2298,6 +2301,7 @@
           <GridSplitter Name="gridSplitter" Style="{StaticResource SidebarSplitterStyle}" ResizeDirection="Columns" ResizeBehavior="CurrentAndNext" Margin="0" Grid.RowSpan="2" Width="5" HorizontalAlignment="Right" Grid.Row="1" Grid.Column="0" Panel.ZIndex="1" />
         </Grid>
       </DockPanel>
+      <v:InitialSetupLanguageDialog x:Name="initialSetupLanguageDialog" Visibility="Hidden" Panel.ZIndex="1" />
       <v:SettingDialog x:Name="settingDialog" IsVisibleChanged="dialogIsVisibleChanged" Visibility="Hidden" Panel.ZIndex="1" />
       <v:LoadPlaylistURIDialog x:Name="loadPlaylistURIDialog" IsVisibleChanged="dialogIsVisibleChanged" Visibility="Hidden" Panel.ZIndex="2" />
       <v:PlaylistPropertyDialog x:Name="playlistPropertyDialog" IsVisibleChanged="dialogIsVisibleChanged" Visibility="Hidden" Panel.ZIndex="3" />

@@ -59,6 +59,8 @@
   "Backup_and_restore": "データのバックアップと復元",
   "Msg_warn_preview": "プレビュー機能の準備中に下記の警告が発生しました。\nファイルへのアクセスが可能か確認して下さい。\nプレビューが不完全となる場合があります。",
   "Msg_init_settings": "初回起動時は、設定画面で言語と動作モードを選び、必要な項目を入力してください。\n\nスタンドアローン(LR2と連携しない):\n一般: BMSディレクトリ\nインストール: 新規インストール先\n\nLR2と連携する:\n一般: LR2ディレクトリ\nプレイリスト: カスタムフォルダ出力先\nインストール: 新規インストール先\n\n必須項目を入力してOKを押すまで、BMSファイルのスキャンは開始できません。",
+  "InitialSetupLanguageDialogTitle": "初回設定を始めます",
+  "InitialSetupLanguageDialogContinue": "設定へ進む",
   "Export": "エクスポート",
   "Device_setting_latency": "レイテンシ",
   "Msg_initsetting_completed": "設定を保存しました。\nこれからBMSファイルの初回スキャンを開始します。\n初回は全ファイルを確認するため、ライブラリ規模によって時間がかかる場合があります。",

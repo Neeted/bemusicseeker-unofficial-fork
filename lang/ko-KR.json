@@ -54,6 +54,8 @@
   "Backup_and_restore": "백업 및 복원",
   "Msg_warn_preview": "미리보기를 생성하는 동안 다음 경고가 발생했습니다.\n파일 액세스가 가능한지 확인해 주십시오.\n경고로 인해 미리보기 내용에 이상이 있을 수 있습니다.",
   "Msg_init_settings": "첫 실행 시에는 설정 화면에서 언어와 동작 모드를 선택하고 필수 항목을 입력해 주십시오.\n\n스탠드얼론(LR2와 연동하지 않음):\n일반: BMS 디렉터리\n설치: 신규 설치 대상\n\nLR2와 연동:\n일반: LR2 디렉터리\n플레이리스트: 사용자 지정 폴더 출력 대상\n설치: 신규 설치 대상\n\n필수 항목을 입력하고 OK를 누를 때까지 BMS 파일 스캔을 시작할 수 없습니다.",
+  "InitialSetupLanguageDialogTitle": "첫 설정을 시작합니다",
+  "InitialSetupLanguageDialogContinue": "설정으로 이동",
   "Export": "내보내기",
   "Device_setting_latency": "지연 시간",
   "Msg_initsetting_completed": "설정을 저장했습니다.\n이제 BMS 파일의 첫 스캔을 시작합니다.\n첫 스캔은 모든 파일을 확인하므로 라이브러리 규모에 따라 시간이 걸릴 수 있습니다.",
