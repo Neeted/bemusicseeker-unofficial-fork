@@ -1046,6 +1046,7 @@ public sealed class MainWindowContextMenuResourceTests
         string appConfigPath = Path.Combine(root, "app.config");
         string viewModelCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
         string appCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "App.cs"));
+        string legacyMigratorCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Properties", "LegacyUserConfigMigrator.cs"));
 
         Dictionary<string, string> settingsDefaults = ReadSettingsCodeDefaults(settingsCode);
         Dictionary<string, string> appConfigDefaults = XDocument.Load(appConfigPath)
@@ -1069,9 +1070,10 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(tableListProperty, "new Uri(Settings.DefaultTableListUrl)");
         Assert.IsFalse(tableListProperty.Contains(Settings.LegacyTableListUrl));
 
-        StringAssert.Contains(appCode, "Settings.LegacyTableListUrl");
-        StringAssert.Contains(appCode, "Settings.DefaultTableListUrl");
-        StringAssert.Contains(appCode, "Settings.Default.TableListURL.ToString()");
+        StringAssert.Contains(legacyMigratorCode, "Settings.LegacyTableListUrl");
+        StringAssert.Contains(legacyMigratorCode, "Settings.DefaultTableListUrl");
+        StringAssert.Contains(legacyMigratorCode, "NormalizeMigratedConfig");
+        Assert.IsFalse(appCode.Contains("MigrateApplicationSettings"));
     }
 
     [TestMethod]

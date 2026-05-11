@@ -12,7 +12,26 @@ namespace BeMusicSeeker.Properties;
 
 public sealed class PortableSettingsProvider : SettingsProvider, IApplicationSettingsProvider
 {
-    private const string SettingsSectionName = "BeMusicSeeker.Properties.Settings";
+    internal const string SettingsSectionName = "BeMusicSeeker.Properties.Settings";
+
+    private static readonly HashSet<string> ObsoleteSettingNames = new HashSet<string>(StringComparer.Ordinal)
+    {
+        "StandardColumnsSettings",
+        "ZeroNoteColumnsSettings",
+        "PlaylistColumnsSettings",
+        "FullScanColumnsSettings",
+        "DuplicateColumnsSettings",
+        "EncodingColumnsSettings",
+        "InstallColumnsSettings",
+        "ChartInfoParseErrorColumnsSettings",
+        "BmsonColumnSettingsMigrationVersion",
+        "PublishVersion",
+        "StartupExpandPlaylistTree",
+        "UseFastSortInMainViewExperimental",
+        "UseFastSortInDataGridExperimental",
+        "UseDataGridColumnVirtualizationExperimental",
+        "UseCustomTableView"
+    };
 
     public override void Initialize(string name, NameValueCollection config)
     {
@@ -78,6 +97,7 @@ public sealed class PortableSettingsProvider : SettingsProvider, IApplicationSet
             {
                 return;
             }
+            RemoveObsoleteSettings(xElement);
             foreach (SettingsPropertyValue item in collection)
             {
                 string serialized = GetSerializedValue(item);
@@ -232,6 +252,22 @@ public sealed class PortableSettingsProvider : SettingsProvider, IApplicationSet
         }
         XDocument xDocument = new XDocument(new XElement("configuration", new XElement("userSettings", new XElement(SettingsSectionName))));
         return xDocument;
+    }
+
+    internal static int RemoveObsoleteSettings(XElement settingsSection)
+    {
+        if (settingsSection == null)
+        {
+            return 0;
+        }
+        List<XElement> obsoleteSettings = settingsSection.Elements("setting")
+            .Where((XElement e) => ObsoleteSettingNames.Contains((string)e.Attribute("name") ?? string.Empty))
+            .ToList();
+        foreach (XElement setting in obsoleteSettings)
+        {
+            setting.Remove();
+        }
+        return obsoleteSettings.Count;
     }
 
     private static void WriteFallbackErrorLog(string message, Exception ex)

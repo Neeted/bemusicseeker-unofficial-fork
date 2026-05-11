@@ -36,8 +36,6 @@ public partial class App : System.Windows.Application
 
     private static bool _mutexOwned;
 
-    public bool forceReinitializationCustomFolders { get; set; }
-
     public bool firstStartup { get; set; }
 
     public static ReadOnlyDictionary<string, string> AvailableCultures { get; private set; }
@@ -83,7 +81,8 @@ public partial class App : System.Windows.Application
             NLogWrapper.TraceLogger?.Warn("Invalid --log-level value '" + CommandLineSwitches.InvalidLogLevelValue + "'. Fallback to Warn.");
         }
         ConfigureExtraLogging();
-        LegacyUserConfigMigrator.MigrateIfNeeded();
+        InitializeAvailableCultures();
+        LegacyUserConfigMigrator.MigrateIfNeeded(new HashSet<string>(AvailableCultures.Values), CultureInfo.CurrentCulture.Name);
         EquationTokenizer.AddNamespace(typeof(object));
         EquationTokenizer.AddNamespace(typeof(Visibility));
         EquationTokenizer.AddNamespace(typeof(DataGridLength));
@@ -93,14 +92,13 @@ public partial class App : System.Windows.Application
         EquationTokenizer.AddNamespace(typeof(BMSTable));
         EquationTokenizer.AddNamespace(typeof(Path));
         EquationTokenizer.AddNamespace(typeof(SystemInformation));
-        InitializeAvailableCultures();
         try
         {
             SerializableVersion serializableVersion = new SerializableVersion(Assembly.GetExecutingAssembly().GetName().Version);
+            firstStartup = Settings.Default.AssemblyVersion == null;
             if (Settings.Default.AssemblyVersion == null || Settings.Default.AssemblyVersion != serializableVersion)
             {
                 Settings.Default.Upgrade();
-                MigrateApplicationSettings();
                 Settings.Default.AssemblyVersion = serializableVersion;
                 Settings.Default.Save();
             }
@@ -364,53 +362,4 @@ public partial class App : System.Windows.Application
         }
     }
 
-    private void MigrateApplicationSettings()
-    {
-        if (Settings.Default.AssemblyVersion == null || Settings.Default.AssemblyVersion <= new SerializableVersion(0, 1, 5803, 41786))
-        {
-            forceReinitializationCustomFolders = true;
-        }
-        else
-        {
-            forceReinitializationCustomFolders = false;
-        }
-        try
-        {
-            if (Settings.Default.AssemblyVersion != null && Settings.Default.OperationModeLR2DB && string.IsNullOrWhiteSpace(Settings.Default.LR2RootPath) && !string.IsNullOrWhiteSpace(Settings.Default.LR2ConfigXmlPath) && File.Exists(Settings.Default.LR2ConfigXmlPath) && !string.IsNullOrWhiteSpace(Settings.Default.LR2SongDBPath) && File.Exists(Settings.Default.LR2SongDBPath))
-            {
-                string directoryName = Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(Settings.Default.LR2ConfigXmlPath)));
-                string directoryName2 = Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(Settings.Default.LR2SongDBPath)));
-                if (!string.IsNullOrWhiteSpace(directoryName) && directoryName.Equals(directoryName2, StringComparison.OrdinalIgnoreCase) && Directory.Exists(directoryName))
-                {
-                    string path = Path.Combine(directoryName, "LR2body.exe");
-                    string path2 = Path.Combine(directoryName, "LRHbody.exe");
-                    if (File.Exists(path) || File.Exists(path2))
-                    {
-                        Settings.Default.LR2RootPath = directoryName;
-                    }
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            NLogWrapper.TraceLogger?.Warn(ex, "LR2RootPath migration failed");
-        }
-        if (Settings.Default.TableListURL != null && string.Equals(Settings.Default.TableListURL.ToString(), Settings.LegacyTableListUrl, StringComparison.OrdinalIgnoreCase))
-        {
-            Settings.Default.TableListURL = new Uri(Settings.DefaultTableListUrl);
-        }
-        if (Settings.Default.AssemblyVersion == null || Settings.Default.AssemblyVersion <= new SerializableVersion(0, 1, 6654, 30787))
-        {
-            string name = CultureInfo.CurrentCulture.Name;
-            Settings.Default.Lang = (AvailableCultures.Values.Contains(name) ? name : "en-US");
-        }
-        if (Settings.Default.AssemblyVersion == null)
-        {
-            firstStartup = true;
-        }
-        else
-        {
-            firstStartup = false;
-        }
-    }
 }

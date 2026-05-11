@@ -75,6 +75,21 @@
 
 設定保存直後のメッセージは、初回スキャンをこれから開始することを示す。初回完了メッセージは `startup_initialization_complete` 後に表示し、次回以降は差分更新中心になることを伝える。
 
+## Settings File Migration
+
+設定は実行ファイル横の `config/user.config` を正とする。従来版の AppData 配下 `user.config` が見つかった場合は、`LegacyUserConfigMigrator` が初回起動時にコピーする。
+
+このコピー時に、従来版 user.config だけを対象にした互換補正を行う。
+
+- 旧難易度表 URL `http://www.ribbit.xyz/bms/tables/table_info.json` は現行既定 URL に置き換える。
+- LR2 連携設定で `LR2RootPath` が空の場合、`LR2ConfigXmlPath` と `LR2SongDBPath` が同じ LR2 ルート配下を指し、`LR2body.exe` または `LRHbody.exe` が存在する場合だけ root path を補完する。
+- 旧版で言語設定を OS culture から初期化していた範囲の `AssemblyVersion` では、コピー時に同じ判定で `Lang` を補正する。現在利用できない culture の場合は従来どおり `en-US` にする。
+- 旧 DataGrid 由来の列設定や migration version など、現行実装が読まない既知の廃止 user setting はコピー時および保存時に削除する。
+
+通常起動時の `AssemblyVersion` 更新は、現行バージョンを保存するだけで、バージョン番号を条件にした設定補正を行わない。読み込み後の null 補完やテーマ名正規化など、現行設定値として常に成立させるべき防御的補正は `SettingsLoaded` に残す。
+
+旧版の `AssemblyVersion` 閾値だけを根拠に LR2 カスタムフォルダを強制再生成する処理は廃止する。現在はテーブル更新、出力先欠落、または `.lr2folder` 不在を通常の再生成条件にする。
+
 ## Operation Serialization
 
 `Initialize()`, `ReloadFileDiff()`, `ReloadScoresOnly()`, `ReloadTables()`, `ReinitializeLibrary()` は `_semaphore` で直列化される。

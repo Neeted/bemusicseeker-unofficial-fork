@@ -1,15 +1,19 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Xml.Linq;
+using BeMusicSeeker.Models.Utils;
 using Ribbit.Logging;
 
 namespace BeMusicSeeker.Properties;
 
 internal static class LegacyUserConfigMigrator
 {
-	public static void MigrateIfNeeded()
+	private static readonly SerializableVersion LegacyCultureMigrationVersion = new SerializableVersion(0, 1, 6654, 30787);
+
+	public static void MigrateIfNeeded(ISet<string> availableCultures = null, string currentCultureName = null)
 	{
 		try
 		{
@@ -49,8 +53,10 @@ internal static class LegacyUserConfigMigrator
 				return;
 			}
 			Directory.CreateDirectory(PortableSettingsPath.ConfigDirectoryPath);
-			File.Copy(fileInfo.FullName, PortableSettingsPath.UserConfigPath, overwrite: false);
-			NLogWrapper.TraceLogger?.Info("portable_settings_migration success source=" + fileInfo.FullName + " target=" + PortableSettingsPath.UserConfigPath + " sourceWriteUtc=" + fileInfo.LastWriteTimeUtc.ToString("o"));
+			XDocument migratedConfig = XDocument.Load(fileInfo.FullName, LoadOptions.None);
+			int normalizedSettings = NormalizeMigratedConfig(migratedConfig, availableCultures, currentCultureName);
+			migratedConfig.Save(PortableSettingsPath.UserConfigPath);
+			NLogWrapper.TraceLogger?.Info("portable_settings_migration success source=" + fileInfo.FullName + " target=" + PortableSettingsPath.UserConfigPath + " sourceWriteUtc=" + fileInfo.LastWriteTimeUtc.ToString("o") + " normalizedSettings=" + normalizedSettings);
 		}
 		catch (Exception ex)
 		{
@@ -64,7 +70,7 @@ internal static class LegacyUserConfigMigrator
 		try
 		{
 			XDocument xDocument = XDocument.Load(file.FullName, LoadOptions.None);
-			XElement xElement = xDocument.Root?.Element("userSettings")?.Element("BeMusicSeeker.Properties.Settings");
+			XElement xElement = GetSettingsSection(xDocument);
 			if (xElement == null)
 			{
 				reason = "missing_settings_section";
@@ -135,7 +141,7 @@ internal static class LegacyUserConfigMigrator
 
 	private static string GetSettingValue(XDocument doc, string name)
 	{
-		IEnumerable<XElement> source = doc.Root?.Element("userSettings")?.Element("BeMusicSeeker.Properties.Settings")?.Elements("setting");
+		IEnumerable<XElement> source = GetSettingsSection(doc)?.Elements("setting");
 		if (source == null)
 		{
 			return string.Empty;
@@ -146,6 +152,134 @@ internal static class LegacyUserConfigMigrator
 			return string.Empty;
 		}
 		return xElement.Element("value")?.Value?.Trim() ?? string.Empty;
+	}
+
+	internal static int NormalizeMigratedConfig(XDocument doc, ISet<string> availableCultures = null, string currentCultureName = null)
+	{
+		XElement settingsSection = GetSettingsSection(doc);
+		if (settingsSection == null)
+		{
+			return 0;
+		}
+
+		int normalizedSettings = PortableSettingsProvider.RemoveObsoleteSettings(settingsSection);
+		if (string.Equals(GetSettingValue(doc, "TableListURL"), Settings.LegacyTableListUrl, StringComparison.OrdinalIgnoreCase))
+		{
+			normalizedSettings += SetSettingValue(settingsSection, "TableListURL", Settings.DefaultTableListUrl);
+		}
+		if (TryInferLR2RootPath(doc, out string lr2RootPath))
+		{
+			normalizedSettings += SetSettingValue(settingsSection, "LR2RootPath", lr2RootPath);
+		}
+		if (TryGetLegacyVersion(doc, out SerializableVersion version) && version <= LegacyCultureMigrationVersion)
+		{
+			string cultureName = ChooseLegacyCulture(availableCultures, currentCultureName);
+			normalizedSettings += SetSettingValue(settingsSection, "Lang", cultureName);
+		}
+		return normalizedSettings;
+	}
+
+	private static XElement GetSettingsSection(XDocument doc)
+	{
+		return doc.Root?.Element("userSettings")?.Element(PortableSettingsProvider.SettingsSectionName);
+	}
+
+	private static int SetSettingValue(XElement settingsSection, string name, string value)
+	{
+		XElement setting = settingsSection.Elements("setting")
+			.FirstOrDefault((XElement e) => string.Equals((string)e.Attribute("name"), name, StringComparison.Ordinal));
+		if (setting == null)
+		{
+			setting = new XElement("setting");
+			setting.SetAttributeValue("name", name);
+			settingsSection.Add(setting);
+		}
+		setting.SetAttributeValue("serializeAs", "String");
+		XElement valueElement = setting.Element("value");
+		if (valueElement == null)
+		{
+			valueElement = new XElement("value");
+			setting.Add(valueElement);
+		}
+		if (string.Equals(valueElement.Value, value, StringComparison.Ordinal))
+		{
+			return 0;
+		}
+		valueElement.Value = value;
+		return 1;
+	}
+
+	private static bool TryInferLR2RootPath(XDocument doc, out string lr2RootPath)
+	{
+		lr2RootPath = null;
+		try
+		{
+			if (!string.Equals(GetSettingValue(doc, "OperationModeLR2DB"), "True", StringComparison.OrdinalIgnoreCase) ||
+				!string.IsNullOrWhiteSpace(GetSettingValue(doc, "LR2RootPath")))
+			{
+				return false;
+			}
+			string configXmlPath = GetSettingValue(doc, "LR2ConfigXmlPath");
+			string songDbPath = GetSettingValue(doc, "LR2SongDBPath");
+			if (string.IsNullOrWhiteSpace(configXmlPath) || !File.Exists(configXmlPath) || string.IsNullOrWhiteSpace(songDbPath) || !File.Exists(songDbPath))
+			{
+				return false;
+			}
+			string configRoot = GetGrandparentDirectory(configXmlPath);
+			string songDbRoot = GetGrandparentDirectory(songDbPath);
+			if (string.IsNullOrWhiteSpace(configRoot) || !string.Equals(configRoot, songDbRoot, StringComparison.OrdinalIgnoreCase) || !Directory.Exists(configRoot))
+			{
+				return false;
+			}
+			if (!File.Exists(Path.Combine(configRoot, "LR2body.exe")) && !File.Exists(Path.Combine(configRoot, "LRHbody.exe")))
+			{
+				return false;
+			}
+			lr2RootPath = configRoot;
+			return true;
+		}
+		catch
+		{
+			lr2RootPath = null;
+			return false;
+		}
+	}
+
+	private static bool TryGetLegacyVersion(XDocument doc, out SerializableVersion version)
+	{
+		version = null;
+		try
+		{
+			string value = GetSettingValue(doc, "AssemblyVersion");
+			if (string.IsNullOrWhiteSpace(value))
+			{
+				return false;
+			}
+			version = new SerializableVersion(value);
+			return true;
+		}
+		catch
+		{
+			version = null;
+			return false;
+		}
+	}
+
+	private static string ChooseLegacyCulture(ISet<string> availableCultures, string currentCultureName)
+	{
+		string cultureName = string.IsNullOrWhiteSpace(currentCultureName) ? CultureInfo.CurrentCulture.Name : currentCultureName;
+		if (availableCultures != null && availableCultures.Contains(cultureName))
+		{
+			return cultureName;
+		}
+		return "en-US";
+	}
+
+	private static string GetGrandparentDirectory(string path)
+	{
+		string first = Path.GetDirectoryName(path);
+		string second = string.IsNullOrEmpty(first) ? null : Path.GetDirectoryName(first);
+		return string.IsNullOrEmpty(second) ? null : Path.GetDirectoryName(second);
 	}
 
 	private static bool IsLegacyConfigPath(string path)

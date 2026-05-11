@@ -791,7 +791,7 @@ public partial class BMSPlaylist : NotificationObject
                         if (!string.IsNullOrWhiteSpace(bMSTable.Output_dir))
                         {
                             string customFolderOutputDirectory = GetCustomFolderOutputDirectory(bMSTable);
-                            if (((App)Application.Current).forceReinitializationCustomFolders || updated || !Directory.Exists(customFolderOutputDirectory) || Directory.EnumerateFiles(customFolderOutputDirectory, "*.lr2folder", System.IO.SearchOption.TopDirectoryOnly).Count() == 0)
+                            if (updated || !Directory.Exists(customFolderOutputDirectory) || Directory.EnumerateFiles(customFolderOutputDirectory, "*.lr2folder", System.IO.SearchOption.TopDirectoryOnly).Count() == 0)
                             {
                                 lock (folderoutLock)
                                 {

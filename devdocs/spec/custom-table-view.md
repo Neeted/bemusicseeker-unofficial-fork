@@ -398,6 +398,7 @@
 ## 互換と注意点
 
 - 旧 `dataGridColumnsSettings` 系の user setting は読み替えない。新しい `*CustomTableColumnSettings` が null の場合は、現行の初期カラム設定で新規作成する。
+- 旧 `*ColumnsSettings` と `BmsonColumnSettingsMigrationVersion` は、従来版 `user.config` のコピー時と設定保存時に既知の廃止キーとして削除される。未知の user setting は将来互換のため一括削除しない。
 - 初期カラムは新規設定作成時だけ適用される。既存ユーザーの列幅、表示順、表示/非表示は保存済み設定が優先される。
 - 新しいカラムを追加する場合は、以下を揃える。
   - `CustomTableColumnSettings` または `PlaylistSummaryColumnSettings` の layout property。
