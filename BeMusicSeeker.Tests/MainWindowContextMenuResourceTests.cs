@@ -895,6 +895,9 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(xaml, "<Style TargetType=\"{x:Type ComboBox}\" BasedOn=\"{StaticResource {x:Type ComboBox}}\">");
         StringAssert.Contains(xaml, "x:Key=\"styleWrappingSettingCheckBox\"");
         StringAssert.Contains(xaml, "TextWrapping=\"Wrap\"");
+        StringAssert.Contains(xaml, "Style=\"{StaticResource styleWrappingSettingCheckBox}\" IsChecked=\"{Binding settingDialog.ShowScoreViewerRegisterConfirmMsg}\"");
+        StringAssert.Contains(xaml, "Style=\"{StaticResource styleWrappingSettingCheckBox}\" IsChecked=\"{Binding settingDialog.ShowDiffBMSInstallConfirmMsg}\"");
+        StringAssert.Contains(xaml, "Style=\"{StaticResource styleWrappingSettingCheckBox}\" IsChecked=\"{Binding settingDialog.ShowRecommUpdatedMsg}\"");
         StringAssert.Contains(xaml, "Path=Resources.Details_initialization_settings, Mode=OneWay");
         StringAssert.Contains(xaml, "Path=Resources.Details_lr2_integration_settings, Mode=OneWay");
         StringAssert.Contains(xaml, "<GroupBox Header=\"{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Install, Mode=OneWay}\">");
@@ -902,6 +905,7 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.AreEqual(0, CountOccurrences(xaml, "MaxHeight=\"260\""));
         Assert.AreEqual(0, CountOccurrences(xaml, "Header=\"{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Note, Mode=OneWay}\""));
         Assert.AreEqual(0, CountOccurrences(xaml, "Header=\"{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Advanced_settings, Mode=OneWay}\""));
+        Assert.AreEqual(0, CountOccurrences(xaml, "GroupBox Padding=\"5\""));
         Assert.AreEqual(0, CountOccurrences(xaml, "GroupBox Padding=\"5,5,5,0\""));
     }
 

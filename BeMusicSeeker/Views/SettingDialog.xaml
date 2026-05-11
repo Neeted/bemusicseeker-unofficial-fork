@@ -701,11 +701,11 @@
             </TabItem>
             <TabItem Name="tabItemProperty" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details, Mode=OneWay}">
               <StackPanel>
-                <GroupBox Padding="5" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_message_diag, Mode=OneWay}">
+                <GroupBox Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_message_diag, Mode=OneWay}">
                   <StackPanel>
-                    <CheckBox IsChecked="{Binding settingDialog.ShowScoreViewerRegisterConfirmMsg}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_show_diag_chartview, Mode=OneWay}" />
-                    <CheckBox IsChecked="{Binding settingDialog.ShowDiffBMSInstallConfirmMsg}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_show_diag_diff_install, Mode=OneWay}" />
-                    <CheckBox IsChecked="{Binding settingDialog.ShowRecommUpdatedMsg}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_show_diag_recommend, Mode=OneWay}" />
+                    <CheckBox Style="{StaticResource styleWrappingSettingCheckBox}" IsChecked="{Binding settingDialog.ShowScoreViewerRegisterConfirmMsg}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_show_diag_chartview, Mode=OneWay}" />
+                    <CheckBox Style="{StaticResource styleWrappingSettingCheckBox}" IsChecked="{Binding settingDialog.ShowDiffBMSInstallConfirmMsg}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_show_diag_diff_install, Mode=OneWay}" />
+                    <CheckBox Style="{StaticResource styleWrappingSettingCheckBox}" IsChecked="{Binding settingDialog.ShowRecommUpdatedMsg}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_show_diag_recommend, Mode=OneWay}" />
                   </StackPanel>
                 </GroupBox>
                 <GroupBox Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Details_initialization_settings, Mode=OneWay}">
