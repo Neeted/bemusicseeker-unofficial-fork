@@ -61,10 +61,10 @@
     <value>情報</value>
   </data>
   <data name="Details_test_notcheck_playlists" xml:space="preserve">
-    <value>[テスト中] 起動時にプレイリストの更新チェックを行わない</value>
+    <value>起動時にプレイリストの更新チェックを行わない</value>
   </data>
   <data name="Details_test_startup_select_install_pending" xml:space="preserve">
-    <value>[テスト中] 起動時の初期選択を インストール &gt; 保留 にする</value>
+    <value>起動時の初期選択を インストール &gt; 保留 にする</value>
   </data>
   <data name="Details_test_db_read_optimized_pragmas" xml:space="preserve">
     <value>song.dbアクセス最適化PRAGMAを有効にする</value>
@@ -73,13 +73,32 @@
     <value>LR2IRのスコアをDLしIR未送信を検出する</value>
   </data>
   <data name="Details_test_delete_pending_source_after_install" xml:space="preserve">
-    <value>[テスト中] 通常インストール時、既所持譜面が残っていても元パッケージを削除する</value>
+    <value>通常インストール時、既所持譜面が残っていても元パッケージを削除する</value>
   </data>
   <data name="Details_test_smart_component_overwrite" xml:space="preserve">
-    <value>[テスト中] 差分導入時に更新日時とサイズを比較して同梱ファイルの上書きを最適化する</value>
+    <value>差分導入時に更新日時とサイズを比較して同梱ファイルの上書きを最適化する</value>
   </data>
   <data name="Details_test_keep_smart_overwrite_protected_by_rename" xml:space="preserve">
-    <value>[テスト中] スマート上書き時、*.bmx/*.pmx/*.txt は上書きせず自動採番で保持する</value>
+    <value>スマート上書き時、*.bmx/*.pmx/*.txt は上書きせず自動採番で保持する</value>
+  </data>
+  <data name="Msg_confirm_skip_init_file_check" xml:space="preserve">
+    <value>起動時にBMSファイルと構成ファイルの変更チェックを行いません
+初期化が高速化されますが、手動でフォルダのリロードを行わないと
+新しく追加した曲の認識やインストール先の推定ができません
+
+再起動後に変更が反映されます</value>
+  </data>
+  <data name="Msg_confirm_skip_init_playlist_load" xml:space="preserve">
+    <value>起動時にプレイリストの更新チェックを行いません
+
+再起動後に変更が反映されます</value>
+  </data>
+  <data name="Msg_confirm_skip_offline_score_ranking_estimation" xml:space="preserve">
+    <value>起動後に未送信スコアのランキング推定を行いません
+起動後のCPU/DISK使用率が低下しますが、
+スコア未送信楽曲のランキングが表示されなくなります
+
+再起動後に変更が反映されます</value>
   </data>
   <data name="Msg_failed_remove_playlist_entry" xml:space="preserve">
     <value>プレイリストが外部同期モードになっているため
@@ -650,7 +669,7 @@ LR2をプレイヤーとして使用すると再生できない場合があり�
     <value>差分インストールの確認メッセージを表示する</value>
   </data>
   <data name="Details_test_download_and_install" xml:space="preserve">
-    <value>[テスト中] ダウンロード実行後に自動的にインストールを試みる</value>
+    <value>ダウンロード実行後に自動的にインストールを試みる</value>
   </data>
   <data name="Full_scan_check" xml:space="preserve">
     <value>構成ファイルフルスキャン</value>
@@ -921,7 +940,7 @@ LR2IRにスコアやクリアが自動送信されるわけではありません
     <value>ライト</value>
   </data>
   <data name="Details_test_notscan" xml:space="preserve">
-    <value>[テスト中] 起動時にBMSファイルと構成ファイルのスキャンを行わない</value>
+    <value>起動時にBMSファイルと構成ファイルのスキャンを行わない</value>
   </data>
   <data name="Device_setting_lowlatency" xml:space="preserve">
     <value>WASAPI低レイテンシモード(要対応デバイス)</value>
@@ -1002,7 +1021,7 @@ LR2IRにスコアやクリアが自動送信されるわけではありません
     <value>YouTube・ニコニコ動画の再生に外部ブラウザを使用する</value>
   </data>
   <data name="Details_test_notcalc_offrank" xml:space="preserve">
-    <value>[テスト中] オフラインスコアのランキング推定を行わない</value>
+    <value>オフラインスコアのランキング推定を行わない</value>
   </data>
   <data name="Playback" xml:space="preserve">
     <value>再生</value>
@@ -1169,7 +1188,7 @@ BMSファイルが重複しないようにマージします。
     <value>アーカイブファイルのD&amp;Dに対応 (7z, zip, rar, lzh)</value>
   </data>
   <data name="Update_history_v0350_3" xml:space="preserve">
-    <value>[テスト中] ダウンロード実行後に自動的にインストールを試みる (詳細設定)</value>
+    <value>ダウンロード実行後に自動的にインストールを試みる (詳細設定)</value>
   </data>
   <data name="Update_history_v0350_2" xml:space="preserve">
     <value>ダウンロードURL検索の候補数を向上</value>
@@ -1443,7 +1462,7 @@ BMSファイルが重複しないようにマージします。
 続行しますか？</value>
   </data>
   <data name="Details_test_keep_installable_pending" xml:space="preserve">
-    <value>[テスト中] 新規判定でも自動インストールせず保留に追加する</value>
+    <value>新規判定でも自動インストールせず保留に追加する</value>
   </data>
   <data name="Details_use_everything_for_pending_package_source_scan" xml:space="preserve">
     <value>保留パッケージの推定時に Everything を使用する</value>

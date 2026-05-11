@@ -1290,7 +1290,7 @@ public class MainWindowViewModel : ViewModel
                 }
                 if (value)
                 {
-                    ConfirmationMessage confirmationMessage = new ConfirmationMessage("起動時にBMSファイルと構成ファイルの変更チェックを行いません" + Environment.NewLine + "初期化が高速化されますが、手動でフォルダのリロードを行わないと" + Environment.NewLine + "新しく追加した曲の認識やインストール先の推定が出来ません" + Environment.NewLine + Environment.NewLine + "本機能はテスト実装中です" + Environment.NewLine + "再起動後に変更が反映されます", "警告", MessageBoxImage.Exclamation, MessageBoxButton.OKCancel, "ConfirmationDialog");
+                    ConfirmationMessage confirmationMessage = new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Msg_confirm_skip_init_file_check, BeMusicSeeker.Properties.Resources.Warning, MessageBoxImage.Exclamation, MessageBoxButton.OKCancel, "ConfirmationDialog");
                     ownerViewModel.Messenger.Raise(confirmationMessage);
                     if (confirmationMessage.Response != true)
                     {
@@ -1316,7 +1316,7 @@ public class MainWindowViewModel : ViewModel
                 }
                 if (value)
                 {
-                    ConfirmationMessage confirmationMessage = new ConfirmationMessage("起動時にプレイリストの更新チェックを行いません" + Environment.NewLine + Environment.NewLine + "本機能はテスト実装中です" + Environment.NewLine + "再起動後に変更が反映されます", "警告", MessageBoxImage.Exclamation, MessageBoxButton.OKCancel, "ConfirmationDialog");
+                    ConfirmationMessage confirmationMessage = new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Msg_confirm_skip_init_playlist_load, BeMusicSeeker.Properties.Resources.Warning, MessageBoxImage.Exclamation, MessageBoxButton.OKCancel, "ConfirmationDialog");
                     ownerViewModel.Messenger.Raise(confirmationMessage);
                     if (confirmationMessage.Response != true)
                     {
@@ -1374,7 +1374,7 @@ public class MainWindowViewModel : ViewModel
                 }
                 if (value)
                 {
-                    ConfirmationMessage confirmationMessage = new ConfirmationMessage("起動後に未送信スコアのランキング推定を行いません" + Environment.NewLine + "起動後のCPU/DISK使用率が低下しますが、" + Environment.NewLine + "スコア未送信楽曲のランキングが表示されなくなります" + Environment.NewLine + Environment.NewLine + "本機能はテスト実装中です" + Environment.NewLine + "再起動後に変更が反映されます", "警告", MessageBoxImage.Exclamation, MessageBoxButton.OKCancel, "ConfirmationDialog");
+                    ConfirmationMessage confirmationMessage = new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Msg_confirm_skip_offline_score_ranking_estimation, BeMusicSeeker.Properties.Resources.Warning, MessageBoxImage.Exclamation, MessageBoxButton.OKCancel, "ConfirmationDialog");
                     ownerViewModel.Messenger.Raise(confirmationMessage);
                     if (confirmationMessage.Response != true)
                     {

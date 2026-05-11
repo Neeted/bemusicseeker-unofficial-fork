@@ -1073,6 +1073,35 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
+    public void AdvancedSettings_TestPrefixLabelsArePromotedToRegularSettingLabels()
+    {
+        string root = FindRepositoryRoot();
+        string viewModel = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
+        string[] promotedLabels =
+        {
+            Resources.Details_test_notscan,
+            Resources.Details_test_notcheck_playlists,
+            Resources.Details_test_startup_select_install_pending,
+            Resources.Details_test_notcalc_offrank,
+            Resources.Details_test_download_and_install,
+            Resources.Details_test_keep_installable_pending,
+            Resources.Details_test_delete_pending_source_after_install,
+            Resources.Details_test_smart_component_overwrite,
+            Resources.Details_test_keep_smart_overwrite_protected_by_rename
+        };
+
+        foreach (string label in promotedLabels)
+        {
+            Assert.IsFalse(label.Contains("[テスト中]"), label);
+            Assert.IsFalse(label.Contains("[TEST]"), label);
+        }
+        Assert.AreEqual(0, CountOccurrences(viewModel, "本機能はテスト実装中です"));
+        StringAssert.Contains(viewModel, "Resources.Msg_confirm_skip_init_file_check");
+        StringAssert.Contains(viewModel, "Resources.Msg_confirm_skip_init_playlist_load");
+        StringAssert.Contains(viewModel, "Resources.Msg_confirm_skip_offline_score_ranking_estimation");
+    }
+
+    [TestMethod]
     public void UserSettingDefaults_AppConfigAndSettingsCodeStayInSync()
     {
         string root = FindRepositoryRoot();

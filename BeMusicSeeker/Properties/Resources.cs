@@ -169,6 +169,12 @@ public class Resources
 
     public static string Details_test_notscan => ResourceManager.GetString("Details_test_notscan", resourceCulture);
 
+    public static string Msg_confirm_skip_init_file_check => ResourceManager.GetString("Msg_confirm_skip_init_file_check", resourceCulture);
+
+    public static string Msg_confirm_skip_init_playlist_load => ResourceManager.GetString("Msg_confirm_skip_init_playlist_load", resourceCulture);
+
+    public static string Msg_confirm_skip_offline_score_ranking_estimation => ResourceManager.GetString("Msg_confirm_skip_offline_score_ranking_estimation", resourceCulture);
+
     public static string Device => ResourceManager.GetString("Device", resourceCulture);
 
     public static string Device_setting => ResourceManager.GetString("Device_setting", resourceCulture);
