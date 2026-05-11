@@ -1215,6 +1215,41 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
+    public void SettingDialogUninstall_ShowsResultBeforeExit()
+    {
+        string root = FindRepositoryRoot();
+        string settingDialogCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingDialog.cs"));
+        string viewModelCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
+        string uninstallClickHandler = ExtractMethodBody(settingDialogCode, "private async void detailTabItemUninstallButtonClicked(object sender, RoutedEventArgs e)");
+
+        StringAssert.Contains(uninstallClickHandler, "DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_success_uninstall");
+        StringAssert.Contains(uninstallClickHandler, "DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_failed_uninstall");
+        StringAssert.Contains(uninstallClickHandler, "if (viewModel.IsLibraryOperationInProgress)");
+        StringAssert.Contains(uninstallClickHandler, "BeMusicSeeker.Properties.Resources.Msg_settings_apply_blocked_during_initialization");
+        StringAssert.Contains(uninstallClickHandler, "settingDialogRootGrid.IsEnabled = false;");
+        StringAssert.Contains(uninstallClickHandler, "if (!closeAfterSuccess)");
+        StringAssert.Contains(uninstallClickHandler, "settingDialogRootGrid.IsEnabled = true;");
+        Assert.IsTrue(
+            uninstallClickHandler.IndexOf("Msg_success_uninstall", StringComparison.Ordinal)
+            < uninstallClickHandler.IndexOf("アプリケーションを終了します", StringComparison.Ordinal));
+        Assert.IsTrue(
+            uninstallClickHandler.IndexOf("viewModel.IsLibraryOperationInProgress", StringComparison.Ordinal)
+            < uninstallClickHandler.IndexOf("続行しますか？", StringComparison.Ordinal));
+        Assert.IsTrue(
+            uninstallClickHandler.IndexOf("settingDialogRootGrid.IsEnabled = false;", StringComparison.Ordinal)
+            < uninstallClickHandler.IndexOf("viewModel.UninstallAllData();", StringComparison.Ordinal));
+        Assert.IsTrue(
+            uninstallClickHandler.IndexOf("base.Dispatcher.BeginInvoke", StringComparison.Ordinal)
+            < uninstallClickHandler.IndexOf("closeAfterSuccess = true;", StringComparison.Ordinal));
+
+        string uninstallMethod = ExtractMethodBody(viewModelCode, "internal void UninstallAllData()");
+        Assert.IsFalse(uninstallMethod.Contains("Msg_success_uninstall"));
+        Assert.IsFalse(uninstallMethod.Contains("Msg_failed_uninstall"));
+        Assert.IsFalse(uninstallMethod.Contains("base.Messenger.Raise"));
+        Assert.IsFalse(uninstallMethod.Contains("Dispatcher.Invoke"));
+    }
+
+    [TestMethod]
     public void EstimatedInstallPostProcessing_IsBatchedAndUsesResourceHealthDelta()
     {
         string root = FindRepositoryRoot();
@@ -1343,5 +1378,31 @@ public sealed class MainWindowContextMenuResourceTests
         int endIndex = text.IndexOf(end, startIndex + start.Length, StringComparison.Ordinal);
         Assert.IsTrue(endIndex > startIndex, "End marker was not found.");
         return text.Substring(startIndex, endIndex - startIndex);
+    }
+
+    private static string ExtractMethodBody(string text, string signature)
+    {
+        int signatureIndex = text.IndexOf(signature, StringComparison.Ordinal);
+        Assert.IsTrue(signatureIndex >= 0, "Method signature was not found.");
+        int braceIndex = text.IndexOf('{', signatureIndex);
+        Assert.IsTrue(braceIndex >= 0, "Method body start was not found.");
+        int depth = 0;
+        for (int index = braceIndex; index < text.Length; index++)
+        {
+            if (text[index] == '{')
+            {
+                depth++;
+            }
+            else if (text[index] == '}')
+            {
+                depth--;
+                if (depth == 0)
+                {
+                    return text.Substring(braceIndex, index - braceIndex + 1);
+                }
+            }
+        }
+        Assert.Fail("Method body end was not found.");
+        return string.Empty;
     }
 }

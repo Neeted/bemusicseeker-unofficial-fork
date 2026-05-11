@@ -198,17 +198,45 @@ public partial class SettingDialog : UserControl, IComponentConnector
 	private async void detailTabItemUninstallButtonClicked(object sender, RoutedEventArgs e)
 	{
 		MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel;
-		if (viewModel != null && viewModel.BMSTables != null && DispatcherMessageBox.Show(Window.GetWindow(this), "BeMusicSeekerのデータをLR2データベースから削除します。" + Environment.NewLine + "続行した場合この操作を取り消しすることは出来ません。" + Environment.NewLine + "必要に応じて事前にバックアップを取得してください。" + Environment.NewLine + Environment.NewLine + "続行しますか？", "確認", MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) == MessageBoxResult.OK)
+		if (viewModel == null || viewModel.BMSTables == null)
+		{
+			return;
+		}
+		if (viewModel.IsLibraryOperationInProgress)
+		{
+			DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_settings_apply_blocked_during_initialization, BeMusicSeeker.Properties.Resources.Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation);
+			return;
+		}
+		if (DispatcherMessageBox.Show(Window.GetWindow(this), "BeMusicSeekerのデータをLR2データベースから削除します。" + Environment.NewLine + "続行した場合この操作を取り消しすることは出来ません。" + Environment.NewLine + "必要に応じて事前にバックアップを取得してください。" + Environment.NewLine + Environment.NewLine + "続行しますか？", "確認", MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) != MessageBoxResult.OK)
+		{
+			return;
+		}
+		bool closeAfterSuccess = false;
+		settingDialogRootGrid.IsEnabled = false;
+		try
 		{
 			await Task.Run(delegate
 			{
 				viewModel.UninstallAllData();
 			}).Logging("detailTabItemUninstallButtonClicked");
+			DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_success_uninstall, BeMusicSeeker.Properties.Resources.Success, MessageBoxButton.OK, MessageBoxImage.Asterisk, MessageBoxResult.OK);
 			await base.Dispatcher.BeginInvoke((Action)delegate
 			{
 				DispatcherMessageBox.Show(Application.Current.MainWindow, "アプリケーションを終了します。", "確認", MessageBoxButton.OK, MessageBoxImage.Question, MessageBoxResult.OK);
 				Application.Current.MainWindow.Close();
 			}, DispatcherPriority.Normal);
+			closeAfterSuccess = true;
+		}
+		catch (Exception ex)
+		{
+			DispatcherMessageBox.Show(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_failed_uninstall + Environment.NewLine + Environment.NewLine + ex.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+		}
+		finally
+		{
+			if (!closeAfterSuccess)
+			{
+				settingDialogRootGrid.IsEnabled = true;
+			}
 		}
 	}
 

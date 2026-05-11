@@ -9,6 +9,28 @@ namespace BeMusicSeeker.Models.LR2;
 
 public sealed class LR2SongDBExtended : LR2SongDB
 {
+    internal static IReadOnlyList<string> BeMusicSeekerOwnedTableNames { get; } = new[]
+    {
+        SQLiteTable<install>.GetTableName(),
+        SQLiteTable<maintenance>.GetTableName(),
+        SQLiteTable<playlist>.GetTableName(),
+        SQLiteTable<playlist_entry>.GetTableName(),
+        SQLiteTable<chart_digest_map>.GetTableName(),
+        SQLiteTable<chart_info>.GetTableName(),
+        SQLiteTable<chart_info_parse_failure>.GetTableName(),
+        SQLiteTable<chart_info_import_history>.GetTableName(),
+        SQLiteTable<bmson_song>.GetTableName(),
+        SQLiteTable<app_schema_version>.GetTableName(),
+        SQLiteTable<ir_score>.GetTableName(),
+        SQLiteTable<ir_score_refresh_metadata>.GetTableName(),
+        SQLiteTable<ir_data>.GetTableName()
+    };
+
+    internal static IReadOnlyList<string> BeMusicSeekerOwnedNativeIndexNames { get; } = new[]
+    {
+        "song_idx_folder"
+    };
+
     [Table("install")]
     public class install : SQLiteTable<install>
     {
@@ -1187,6 +1209,11 @@ public sealed class LR2SongDBExtended : LR2SongDB
         }
     }
 
+    internal static bool IsProcessLockEnteredByCurrentThread()
+    {
+        return Monitor.IsEntered(lockObject);
+    }
+
     public LR2SongDBExtended(string dbPath)
         : base(dbPath)
     {
@@ -1228,17 +1255,32 @@ public sealed class LR2SongDBExtended : LR2SongDB
 
     public void Uninstall()
     {
-        DropTable<install>();
-        DropTable<maintenance>();
-        DropTable<playlist>();
-        DropTable<playlist_entry>();
-        DropTable<chart_digest_map>();
-        DropTable<chart_info>();
-        DropTable<chart_info_import_history>();
-        DropTable<bmson_song>();
-        DropTable<ir_score>();
-        DropTable<ir_score_refresh_metadata>();
-        DropTable<ir_data>();
+        foreach (string tableName in BeMusicSeekerOwnedTableNames)
+        {
+            Execute("DROP TABLE IF EXISTS " + QuoteIdentifier(tableName) + ";");
+        }
+        foreach (string indexName in BeMusicSeekerOwnedNativeIndexNames)
+        {
+            Execute("DROP INDEX IF EXISTS " + QuoteIdentifier(indexName) + ";");
+        }
+        DeleteOwnedSqliteSequenceRows();
+    }
+
+    private static string QuoteIdentifier(string value)
+    {
+        return "\"" + (value ?? string.Empty).Replace("\"", "\"\"") + "\"";
+    }
+
+    private void DeleteOwnedSqliteSequenceRows()
+    {
+        if (ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_master WHERE type = 'table' AND name = 'sqlite_sequence';") <= 0)
+        {
+            return;
+        }
+        foreach (string tableName in BeMusicSeekerOwnedTableNames)
+        {
+            Execute("DELETE FROM sqlite_sequence WHERE name = ?;", tableName);
+        }
     }
 
     protected override void Dispose(bool disposing)

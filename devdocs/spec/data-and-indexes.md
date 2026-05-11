@@ -122,6 +122,8 @@ bmson startup preflight は、警告が必要な migration と警告不要の初
 
 `EnsureBmsonStartupSchema()` は no-warning preparation 用で、schema/index ensure と `bmson_app_schema` current version stamp だけを行う。既存 app-owned data の schema 正規化と current version stamp が必要な場合は `CompleteBmsonStartupMigration()` を使う。どちらも `song` table 全件から実ファイルを読んで `chart_digest_map` を全量補完しない。
 
+設定ダイアログの「BeMusicSeeker関連データをLR2データベースから削除」は、LR2 native tables (`song`, `folder`, `score` など) は保持し、`LR2SongDBExtended.BeMusicSeekerOwnedTableNames` に列挙した app-owned tables だけを drop する。app-owned table の AUTOINCREMENT 由来 `sqlite_sequence` row と、LR2 native table 上に作る app-owned index (`song_idx_folder`) も削除する。初期化・reload・background 更新中は実行不可とし、実行中は設定ダイアログ操作を無効化する。成功後はアプリを終了するため、uninstall は通常運用中の差分更新ではなく終了前の破壊的な単独操作として扱う。新しい app-owned table や native table 上の app-owned index を追加する場合は、この一覧と uninstall regression test も更新する。
+
 ## Consistency Updates
 
 file diff / install / merge / delete / move 後は、必要な範囲で次を同期する。

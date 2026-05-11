@@ -17530,42 +17530,34 @@ public class MainWindowViewModel : ViewModel
         {
             return;
         }
-        Action action = delegate
+        bool unlockAfterOperation = !LR2SongDBExtended.IsProcessLockEnteredByCurrentThread();
+        if (!LR2SongDBExtended.Lock(new TimeSpan(0, 1, 0)))
         {
-            try
-            {
-                if (!LR2SongDBExtended.Lock(new TimeSpan(0, 1, 0)))
-                {
-                    throw new TimeoutException(BeMusicSeeker.Properties.Resources.Msg_error_timeout_dblock_uninstall);
-                }
-                using (LR2SongDBExtended lR2SongDBExtended = new LR2SongDBExtended(Settings.Default.LR2SongDBPath))
-                {
-                    string savepoint = lR2SongDBExtended.SaveTransactionPoint();
-                    try
-                    {
-                        lR2SongDBExtended.Uninstall();
-                        lR2SongDBExtended.Commit();
-                    }
-                    catch (Exception)
-                    {
-                        lR2SongDBExtended.RollbackTo(savepoint);
-                        throw;
-                    }
-                }
-                base.Messenger.Raise(new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Msg_success_uninstall, BeMusicSeeker.Properties.Resources.Success, MessageBoxImage.Asterisk, MessageBoxButton.OK, "ConfirmationDialog"));
-            }
-            catch (Exception ex2)
-            {
-                base.Messenger.Raise(new ConfirmationMessage(BeMusicSeeker.Properties.Resources.Msg_failed_uninstall + Environment.NewLine + Environment.NewLine + ex2.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand, MessageBoxButton.OK, "ConfirmationDialog"));
-            }
-        };
-        if (System.Windows.Application.Current.Dispatcher.CheckAccess())
-        {
-            action();
+            throw new TimeoutException(BeMusicSeeker.Properties.Resources.Msg_error_timeout_dblock_uninstall);
         }
-        else
+        try
         {
-            System.Windows.Application.Current.Dispatcher.Invoke(action, DispatcherPriority.Normal);
+            using (LR2SongDBExtended lR2SongDBExtended = new LR2SongDBExtended(Settings.Default.LR2SongDBPath))
+            {
+                string savepoint = lR2SongDBExtended.SaveTransactionPoint();
+                try
+                {
+                    lR2SongDBExtended.Uninstall();
+                    lR2SongDBExtended.Commit();
+                }
+                catch (Exception)
+                {
+                    lR2SongDBExtended.RollbackTo(savepoint);
+                    throw;
+                }
+            }
+        }
+        finally
+        {
+            if (unlockAfterOperation)
+            {
+                LR2SongDBExtended.Unlock();
+            }
         }
     }
 
