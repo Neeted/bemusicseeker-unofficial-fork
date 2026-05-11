@@ -160,6 +160,73 @@ public sealed class BmsPlaylistUpdateTests
 
     [TestMethod]
     [TestCategory("Playlist")]
+    public void ReloadTables_ReloadsHeadersWithoutScoreInitialization()
+    {
+        bool previousEnablePlaylistUrlCompletion = Settings.Default.EnablePlaylistUrlCompletion;
+        bool previousOperationModeLr2Db = Settings.Default.OperationModeLR2DB;
+        Settings.Default.EnablePlaylistUrlCompletion = false;
+        Settings.Default.OperationModeLR2DB = false;
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string songDbPath = Path.Combine(tempDirectory, "song.db");
+            using (LR2SongDBExtended _ = new LR2SongDBExtended(songDbPath))
+            {
+            }
+            BMSPlaylist.EnsureSchema(songDbPath);
+            BMSTable persistedTable = new BMSTable
+            {
+                playlist_id = 7001,
+                name = "ReloadedTable",
+                symbol = "R",
+                Output_dir = "ReloadedTable"
+            };
+            using (LR2SongDBExtended db = new LR2SongDBExtended(songDbPath))
+            {
+                db.InsertOrReplace(persistedTable, typeof(LR2SongDBExtended.playlist));
+            }
+            BMSPlaylist playlist = new BMSPlaylist(songDbPath);
+            playlist.BMSTables = new DispatcherCollection<BMSTable>(
+                new ObservableCollection<BMSTable>(new[]
+                {
+                    new BMSTable
+                    {
+                        playlist_id = 1,
+                        name = "OldTable",
+                        symbol = "O",
+                        Output_dir = "OldTable"
+                    }
+                }),
+                Dispatcher.CurrentDispatcher);
+            bool hydrationQueued = false;
+            playlist.StartupBackgroundTaskScheduler = delegate
+            {
+                hydrationQueued = true;
+                return true;
+            };
+
+            playlist.ReloadTables();
+
+            Assert.IsTrue(hydrationQueued);
+            Assert.AreEqual(1, playlist.PlaylistEntriesHydrationRequestedVersion);
+            Assert.AreEqual(1, playlist.BMSTables.Count);
+            Assert.AreEqual("ReloadedTable", playlist.BMSTables[0].name);
+            Assert.IsFalse(playlist.BMSTables[0].ArePlaylistEntriesLoaded);
+        }
+        finally
+        {
+            Settings.Default.EnablePlaylistUrlCompletion = previousEnablePlaylistUrlCompletion;
+            Settings.Default.OperationModeLR2DB = previousOperationModeLr2Db;
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
     public void LoadStartupPlaylistEntries_UsesPlaylistIdProjectionAndKeepsRemovedRows()
     {
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));

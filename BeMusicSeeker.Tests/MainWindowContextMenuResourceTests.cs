@@ -785,6 +785,22 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
+    public void ReloadTables_DoesNotInitializeScoresOnly()
+    {
+        string viewModelCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
+        string method = ExtractBetween(
+            viewModelCode,
+            "public async void ReloadTables()",
+            "public async void ReloadScoresOnly()");
+
+        StringAssert.Contains(method, "tables.ReloadTables(updateCallbackAction)");
+        StringAssert.Contains(method, "StartDeferredExternalPlaylistSync(\"ReloadTables\", fromReloadTables: true, updateCallbackAction, operationToken)");
+        Assert.IsFalse(method.Contains("files.InitializeScoresOnly"));
+        Assert.IsFalse(method.Contains("QueueDeferredScoreHydration"));
+        Assert.IsFalse(method.Contains("QueueDeferredRankingRefresh"));
+    }
+
+    [TestMethod]
     public void SidebarTreeViewWidthPolicy_NormalizesInvalidPersistedValues()
     {
         Assert.AreEqual(Settings.DefaultTreeViewWidth, Settings.NormalizeTreeViewWidth(double.NaN));

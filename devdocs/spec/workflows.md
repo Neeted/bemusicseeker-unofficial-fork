@@ -40,6 +40,7 @@ install readiness は playlist、score/ranking、chart_info、maintenance hydrat
 
 - playlist table header と playlist entries を読み直す。
 - external playlist sync を再スケジュールする。
+- score DB load、score snapshot rebuild、ranking refresh は行わない。
 
 library の full file scan とは別操作である。
 

@@ -66,7 +66,7 @@ LR2 linked / standalone の profile 切替は、同一プロセス内の `FullRe
 | `Startup` | アプリ起動 | DB と file system から正本 catalog / resource index / UI を構築する | migration、metadata import、catalog load、file diff、background hydration |
 | `FullReinitialize` | ライブラリ右クリック `初期化再実行` | 外部 DB 編集や状態修復を想定して library 初期化を再実行する | catalog load、file enumeration、file diff、必要な background 補完 |
 | `ReloadFileDiff` | ライブラリ右クリック `リロード` | DB は読み直さず、所持ファイルの追加・削除・更新だけを memory / DB に反映する | file enumeration、file diff、playlist reference apply |
-| `ReloadTables` | playlist/table reload | playlist/table/score 系を再読込し、外部 playlist 同期を再スケジュールする | table header reload、playlist entries hydration、external playlist sync |
+| `ReloadTables` | playlist/table reload | playlist/table 系だけを再読込し、外部 playlist 同期を再スケジュールする | table header reload、playlist entries hydration、external playlist sync |
 | `ScoreOnly` | score DB 設定変更 | score source / score.db の切り替えだけを反映する | score DB load、score snapshot rebuild、score hydration、必要なら LR2 ranking refresh |
 
 起動中の `song.db` は原則 BeMusicSeeker が更新するため、`ReloadFileDiff` は in-memory catalog と file scan result の差分を正本にする。LR2 や手動編集で DB が変わった可能性まで拾う場合は `FullReinitialize` を使う。
@@ -162,7 +162,7 @@ startup background scheduler は `MainWindowViewModel.QueueStartupBackgroundTask
 
 全体 concurrency は 3。`startup_background_summary` は task ごとに lane と dependency を出す。
 
-`Startup` では scheduler は `startup_ready_operable` 到達まで開始しない。`ScoreOnly` / `ReloadTables` / `ReloadFileDiff` / `FullReinitialize` は既に UI operable 後の operation なので、operation 開始時の reset 後も scheduler を runnable に保つ。これは reload 中に `score_hydration_deferred`、`ranking_refresh_deferred`、`playlist_entries_hydration`、`external_playlist_sync` などを queue したまま止めないための仕様である。
+`Startup` では scheduler は `startup_ready_operable` 到達まで開始しない。`ScoreOnly` / `ReloadTables` / `ReloadFileDiff` / `FullReinitialize` は既に UI operable 後の operation なので、operation 開始時の reset 後も scheduler を runnable に保つ。これは reload 中に `playlist_entries_hydration`、`external_playlist_sync`、`score_hydration_deferred`、`ranking_refresh_deferred` など operation ごとの background task を queue したまま止めないための仕様である。`ReloadTables` 自体は score/ranking を queue しない。
 
 直近ログでは、background tail の支配項は `chart_info_hydration` である。`playlist_entries_hydration` と `maintenance_hydration` は lane により並走するが、`chart_info_hydration` は full `chart_info` row load / materialize が重く、`startup_initialization_complete` までの最後の長い task になりやすい。次に短縮する場合は、task を expected phase から外すのではなく、`chart_info_hydration` の no-op skip / persistent hydrated index / projection 設計を見直す。
 
@@ -262,12 +262,11 @@ ReloadFileDiff
 ```text
 ReloadTables
   -> table header reload
-  -> score only initialize
   -> playlist_entries_hydration を startup scheduler へ queue
   -> external_playlist_sync を playlist_entries_hydration dependency 付きで queue
 ```
 
-`ReloadTables` は post-startup operation なので、scheduler reset 後も scheduler は runnable である。`playlist_entries_hydration` は `UpdateBMSTables` callback まで終えてから completed version を publish し、その後 `playlist_ref_apply` / `external_playlist_sync` が進む。
+`ReloadTables` は post-startup operation なので、scheduler reset 後も scheduler は runnable である。score DB load、score snapshot rebuild、score hydration、ranking refresh は行わない。`playlist_entries_hydration` は `UpdateBMSTables` callback まで終えてから completed version を publish し、その後 `external_playlist_sync` が進む。playlist reference replacement は reload 中の direct callback で適用され、必要に応じて `PlaylistReferenceApplied` phase として追跡される。
 
 ## ScoreOnly
 

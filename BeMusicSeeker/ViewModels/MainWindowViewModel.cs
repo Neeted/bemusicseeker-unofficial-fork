@@ -8165,6 +8165,10 @@ public class MainWindowViewModel : ViewModel
         if (IsStartupProgressOperationTokenCurrent(operationToken))
         {
             TrackStartupProgressExternalSyncRequest(reason, version);
+            if (updateCallbackAction != null)
+            {
+                TrackStartupProgressPlaylistReferenceRequest("DeferredExternalSync:" + reason, version);
+            }
         }
         LogDeferredExternalSync("deferred_external_sync queue reason=" + reason + " fromReloadTables=" + fromReloadTables.ToString().ToLowerInvariant() + " version=" + version);
         if (!shouldStartWorker)
@@ -8200,12 +8204,20 @@ public class MainWindowViewModel : ViewModel
                     {
                         ScheduleDeferredPlaylistReferenceApply("DeferredExternalSync:" + reason, operationToken);
                     }
+                    else if (IsStartupProgressOperationTokenCurrent(operationToken))
+                    {
+                        TryCompleteStartupProgressPlaylistReference(requestVersion);
+                    }
                     RefreshPlaylistSummaryIfVisible("deferred_external_sync", invalidateTableCountCache: true);
                     bool cleanupQueued = QueuePlaylistReloadCleanup(playlistReloadOperationKind, num);
                     LogPlaylistReload("playlist_reload_operation completed operationKind=" + GetPlaylistReloadOperationKindText(playlistReloadOperationKind) + " reason=" + reason + " tableCount=" + num + " summaryRebuildMs=" + Interlocked.Read(ref lastPlaylistSummaryBuildElapsedMs) + " detailRefreshMs=" + Interlocked.Read(ref lastPlaylistDetailBuildElapsedMs) + " cleanupQueued=" + cleanupQueued.ToString().ToLowerInvariant() + " elapsedMs=" + (long)(DateTime.UtcNow - startedAt).TotalMilliseconds);
                     LogDeferredExternalSync("deferred_external_sync done reason=" + reason + " fromReloadTables=" + fromReloadTables.ToString().ToLowerInvariant() + " version=" + requestVersion + " elapsedMs=" + (long)(DateTime.UtcNow - startedAt).TotalMilliseconds + " updatedCount=" + num);
                     if (IsStartupProgressOperationTokenCurrent(operationToken))
                     {
+                        if (updateCallbackAction != null)
+                        {
+                            TryCompleteStartupProgressPlaylistReference(requestVersion);
+                        }
                         TryCompleteStartupProgressExternalSync(requestVersion);
                     }
                 }
@@ -10548,14 +10560,9 @@ public class MainWindowViewModel : ViewModel
         try
         {
             BeginUiUpdateSuppression(UiRefreshChannel.LibraryMainView | UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.InstallTree | UiRefreshChannel.PlaylistTree | UiRefreshChannel.DuplicateTree);
-            SemaphoreSlim semaphore = new SemaphoreSlim(1, 1);
-            Action taskAdd1 = delegate
-            {
-                tables.Initialize(reloadExtPlaylist: false, updateCallbackAction, semaphore);
-            };
             await Task.Run(delegate
             {
-                files.InitializeScoresOnly(new List<Action> { taskAdd1 }, semaphore);
+                tables.ReloadTables(updateCallbackAction);
             }).Logging("ReloadTables");
             scheduleDeferredExternalSync = true;
         }

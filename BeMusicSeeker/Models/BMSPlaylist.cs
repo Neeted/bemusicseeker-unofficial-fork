@@ -751,21 +751,8 @@ public partial class BMSPlaylist : NotificationObject
                 {
                     if (BMSTables.Count == 0)
                     {
-                        List<BMSTable> list;
-                        Stopwatch stopwatchLoadTables = new Stopwatch();
-                        using (LR2SongDBExtended lR2SongDBExtended = new BmsLibraryDbGateway(lr2SongDBPath).OpenSongDbReadOnly())
-                        {
-                            stopwatchLoadTables.Start();
-                            list = (from t in lR2SongDBExtended.Table<BMSTable>()
-                                    orderby t.name
-                                    select t).ToList();
-                            stopwatchLoadTables.Stop();
-                        }
-                        foreach (BMSTable table in list)
-                        {
-                            table.MarkEntriesNotLoaded();
-                        }
-                        LogPlaylistPerformance("playlist_init_header loadTablesMs=" + stopwatchLoadTables.ElapsedMilliseconds
+                        List<BMSTable> list = LoadPlaylistHeadersFromDatabase(out long loadTablesMs);
+                        LogPlaylistPerformance("playlist_init_header loadTablesMs=" + loadTablesMs
                             + " tableCount=" + list.Count
                             + " readOnly=true"
                             + " dbLockWaitMs=0"
@@ -778,59 +765,126 @@ public partial class BMSPlaylist : NotificationObject
             {
                 initSemaphore.Release();
             }
-            object folderoutLock = new object();
-            Action<PlaylistTableUpdateContext> item = delegate (PlaylistTableUpdateContext updateContext)
-            {
-                BMSTable bMSTable = updateContext?.NewTable;
-                BMSTable oldtable = updateContext?.OldTable;
-                bool updated = updateContext?.Updated ?? false;
-                if (Settings.Default.OperationModeLR2DB)
-                {
-                    using (bMSTable.ReaderWriterLock.GetWriterGuard())
-                    {
-                        if (!string.IsNullOrWhiteSpace(bMSTable.Output_dir))
-                        {
-                            string customFolderOutputDirectory = GetCustomFolderOutputDirectory(bMSTable);
-                            if (updated || !Directory.Exists(customFolderOutputDirectory) || Directory.EnumerateFiles(customFolderOutputDirectory, "*.lr2folder", System.IO.SearchOption.TopDirectoryOnly).Count() == 0)
-                            {
-                                lock (folderoutLock)
-                                {
-                                    string customFolderOutputDirectory2 = GetCustomFolderOutputDirectory(oldtable);
-                                    if (customFolderOutputDirectory != customFolderOutputDirectory2)
-                                    {
-                                        removeCustomFolder(customFolderOutputDirectory2);
-                                    }
-                                    removeCustomFolder(customFolderOutputDirectory);
-                                    createCustomFolder(bMSTable, customFolderOutputDirectory);
-                                    return;
-                                }
-                            }
-                        }
-                    }
-                }
-            };
             updateTablesMs = 0L;
             Stopwatch stopwatchLr2configSync = Stopwatch.StartNew();
-            using (rwlockBMSTables.GetReaderGuard())
-            {
-                if (Settings.Default.OperationModeLR2DB)
-                {
-                    IEnumerable<string> second = from t in BMSTables
-                                                 where t.is_root_folder && !string.IsNullOrWhiteSpace(t.Output_dir)
-                                                 select Path.Combine(Settings.Default.LR2CustomFolderOutputBaseDirRootType, t.Output_dir);
-                    List<string> bMSSearchDirectories = lr2config().GetBMSSearchDirectories();
-                    lr2config().SetBMSSearchDirectories(bMSSearchDirectories.Union(second).Distinct(StringComparer.OrdinalIgnoreCase));
-                    lr2config().Save();
-                }
-            }
+            SyncRootFolderOutputDirectoriesToLr2Config();
             stopwatchLr2configSync.Stop();
             lr2configSyncMs = stopwatchLr2configSync.ElapsedMilliseconds;
-            QueueDeferredPlaylistEntriesHydration("Initialize", reloadExtPlaylist, new List<Action<PlaylistTableUpdateContext>> { item, updateCallbackAction });
+            QueueDeferredPlaylistEntriesHydration("Initialize", reloadExtPlaylist, new List<Action<PlaylistTableUpdateContext>> { CreateCustomFolderOutputUpdateCallback(), updateCallbackAction });
         }
         stopwatchInitialize.Stop();
         LogPlaylistPerformance("playlist_init update_tables_ms=" + updateTablesMs + " lr2config_sync_ms=" + lr2configSyncMs + " total_ms=" + stopwatchInitialize.ElapsedMilliseconds);
         SchedulePlaylistUrlCompletionRefresh("Initialize");
         initSemaphore = null;
+    }
+
+    /// <summary>
+    /// プレイリスト一覧とエントリを DB から再読み込みします。
+    /// score DB は触らず、外部同期は呼び出し側で別途 schedule します。
+    /// </summary>
+    public void ReloadTables(Action<PlaylistTableUpdateContext> updateCallbackAction = null)
+    {
+        Stopwatch stopwatchReloadTables = Stopwatch.StartNew();
+        long lr2configSyncMs = 0L;
+        using (rwlockBMSTablesInitializeAll.GetWriterGuard())
+        {
+            List<BMSTable> list;
+            long loadTablesMs;
+            using (rwlockBMSTables.GetWriterGuard())
+            {
+                using (rwlockBMSTablesInitializeMin.GetWriterGuard())
+                {
+                    list = LoadPlaylistHeadersFromDatabase(out loadTablesMs);
+                    BMSTables.Clear();
+                    BMSTables.AddRange(list);
+                }
+            }
+            LogPlaylistPerformance("playlist_reload_tables_header loadTablesMs=" + loadTablesMs
+                + " tableCount=" + list.Count
+                + " readOnly=true"
+                + " dbLockWaitMs=0"
+                + " entriesDeferred=true");
+            Stopwatch stopwatchLr2configSync = Stopwatch.StartNew();
+            SyncRootFolderOutputDirectoriesToLr2Config();
+            stopwatchLr2configSync.Stop();
+            lr2configSyncMs = stopwatchLr2configSync.ElapsedMilliseconds;
+            QueueDeferredPlaylistEntriesHydration("ReloadTables", runExternalSyncAfterHydration: false, new List<Action<PlaylistTableUpdateContext>> { CreateCustomFolderOutputUpdateCallback(), updateCallbackAction });
+        }
+        stopwatchReloadTables.Stop();
+        LogPlaylistPerformance("playlist_reload_tables lr2config_sync_ms=" + lr2configSyncMs + " total_ms=" + stopwatchReloadTables.ElapsedMilliseconds);
+        SchedulePlaylistUrlCompletionRefresh("ReloadTables");
+    }
+
+    private List<BMSTable> LoadPlaylistHeadersFromDatabase(out long loadTablesMs)
+    {
+        Stopwatch stopwatchLoadTables = Stopwatch.StartNew();
+        List<BMSTable> list;
+        using (LR2SongDBExtended lR2SongDBExtended = new BmsLibraryDbGateway(lr2SongDBPath).OpenSongDbReadOnly())
+        {
+            list = (from t in lR2SongDBExtended.Table<BMSTable>()
+                    orderby t.name
+                    select t).ToList();
+        }
+        stopwatchLoadTables.Stop();
+        foreach (BMSTable table in list)
+        {
+            table.MarkEntriesNotLoaded();
+        }
+        loadTablesMs = stopwatchLoadTables.ElapsedMilliseconds;
+        return list;
+    }
+
+    private Action<PlaylistTableUpdateContext> CreateCustomFolderOutputUpdateCallback()
+    {
+        object folderoutLock = new object();
+        return delegate (PlaylistTableUpdateContext updateContext)
+        {
+            BMSTable bMSTable = updateContext?.NewTable;
+            BMSTable oldtable = updateContext?.OldTable;
+            bool updated = updateContext?.Updated ?? false;
+            if (!Settings.Default.OperationModeLR2DB || bMSTable == null)
+            {
+                return;
+            }
+            using (bMSTable.ReaderWriterLock.GetWriterGuard())
+            {
+                if (string.IsNullOrWhiteSpace(bMSTable.Output_dir))
+                {
+                    return;
+                }
+                string customFolderOutputDirectory = GetCustomFolderOutputDirectory(bMSTable);
+                if (updated || !Directory.Exists(customFolderOutputDirectory) || Directory.EnumerateFiles(customFolderOutputDirectory, "*.lr2folder", System.IO.SearchOption.TopDirectoryOnly).Count() == 0)
+                {
+                    lock (folderoutLock)
+                    {
+                        string customFolderOutputDirectory2 = GetCustomFolderOutputDirectory(oldtable);
+                        if (customFolderOutputDirectory != customFolderOutputDirectory2)
+                        {
+                            removeCustomFolder(customFolderOutputDirectory2);
+                        }
+                        removeCustomFolder(customFolderOutputDirectory);
+                        createCustomFolder(bMSTable, customFolderOutputDirectory);
+                    }
+                }
+            }
+        };
+    }
+
+    private void SyncRootFolderOutputDirectoriesToLr2Config()
+    {
+        using (rwlockBMSTables.GetReaderGuard())
+        {
+            if (!Settings.Default.OperationModeLR2DB)
+            {
+                return;
+            }
+            IEnumerable<string> second = from t in BMSTables
+                                         where t.is_root_folder && !string.IsNullOrWhiteSpace(t.Output_dir)
+                                         select Path.Combine(Settings.Default.LR2CustomFolderOutputBaseDirRootType, t.Output_dir);
+            List<string> bMSSearchDirectories = lr2config().GetBMSSearchDirectories();
+            lr2config().SetBMSSearchDirectories(bMSSearchDirectories.Union(second).Distinct(StringComparer.OrdinalIgnoreCase));
+            lr2config().Save();
+        }
     }
 
     public void QueueDeferredPlaylistEntriesHydration(string reason, bool runExternalSyncAfterHydration = false, List<Action<PlaylistTableUpdateContext>> updateCallbackActions = null)

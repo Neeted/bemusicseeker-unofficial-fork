@@ -311,15 +311,16 @@ public sealed class MainWindowViewModelStartupProgressTests
     }
 
     [TestMethod]
-    public void StartupProgress_ReloadTables_CompletesWithExternalSyncAndSkippedReference()
+    public void StartupProgress_ReloadTables_CompletesWithExternalSyncAndDirectReferenceApply()
     {
         MainWindowViewModel.StartupProgressTestResult result = MainWindowViewModel.ReduceStartupProgressForTest(
             "ReloadTables",
             "complete:StartupReadyOperable",
             "request:ExternalPlaylistSyncDone",
+            "request:PlaylistReferenceApplied",
+            "complete:PlaylistReferenceApplied",
             "complete:ExternalPlaylistSyncDone",
-            "skip:PlaylistEntriesHydrationDone",
-            "skip:PlaylistReferenceApplied");
+            "skip:PlaylistEntriesHydrationDone");
 
         Assert.AreEqual(5, result.ExpectedCount);
         Assert.AreEqual(5, result.CompletedCount);
