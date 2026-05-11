@@ -154,6 +154,8 @@ public partial class SettingDialog : UserControl, IComponentConnector
 		SaveFileDialog fileDialog = new SaveFileDialog();
 		fileDialog.Title = "プレイリストデータを保存";
 		fileDialog.FileName = "BeMusicSeeker_backup.sql";
+		fileDialog.DefaultExt = ".sql";
+		fileDialog.AddExtension = true;
 		fileDialog.Filter = "sqlファイル(*.sql)|*.sql";
 		if (fileDialog.ShowDialog() == true)
 		{
@@ -176,6 +178,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
 		OpenFileDialog fileDialog = new OpenFileDialog();
 		fileDialog.Title = "プレイリストバックアップを開く";
 		fileDialog.FileName = "BeMusicSeeker_backup.sql";
+		fileDialog.DefaultExt = ".sql";
 		fileDialog.Filter = "sqlファイル(*.sql)|*.sql";
 		if (fileDialog.ShowDialog() == true)
 		{

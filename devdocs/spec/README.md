@@ -26,6 +26,7 @@
 - [warning-model.md](warning-model.md)
 - [appearance-theme.md](appearance-theme.md)
 - [custom-table-view.md](custom-table-view.md)
+- [file-selection-dialogs.md](file-selection-dialogs.md)
 
 ## 旧 TECH_SPEC について
 

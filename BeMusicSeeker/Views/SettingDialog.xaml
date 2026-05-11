@@ -200,7 +200,7 @@
                               <i:EventTrigger EventName="Click">
                                 <v:CommonOpenFileDialogInteractionMessageAction>
                                   <l:DirectInteractionMessage CallbackCommand="{Binding settingDialog.OpenFileCommand}">
-                                    <l:OpeningFileSelectionMessage FileName="song.db" Filter="|song.db|すべてのファイル(*.*)|*.*" Title="song.db を開く" MessageKey="{Binding Path.Path, ElementName=bindingLR2SongDBPath}" InitialDirectory="{Binding settingDialog.LR2SongDBPath, Converter={StaticResource pathToDirectoryOrSelfConverter}}" />
+                                    <l:OpeningFileSelectionMessage FileName="song.db" Filter="song.db (*.db)|*.db|すべてのファイル(*.*)|*.*" Title="song.db を開く" MessageKey="{Binding Path.Path, ElementName=bindingLR2SongDBPath}" InitialDirectory="{Binding settingDialog.LR2SongDBPath, Converter={StaticResource pathToDirectoryOrSelfConverter}}" />
                                   </l:DirectInteractionMessage>
                                 </v:CommonOpenFileDialogInteractionMessageAction>
                               </i:EventTrigger>

@@ -52,6 +52,11 @@ internal class CommonOpenFileDialogInteractionMessageAction : InteractionMessage
             Multiselect = message.MultiSelect,
             DefaultFileName = message.FileName
         };
+        string defaultExtension = InferDefaultExtensionForTest(message.FileName, message.Filter);
+        if (!string.IsNullOrWhiteSpace(defaultExtension))
+        {
+            dialog.DefaultExtension = defaultExtension;
+        }
         SetInitialDirectory(dialog, message.InitialDirectory);
         foreach (Tuple<string, string> filter in ParseFilterPairsForTest(message.Filter))
         {
@@ -88,6 +93,53 @@ internal class CommonOpenFileDialogInteractionMessageAction : InteractionMessage
             filters.Add(Tuple.Create("*.*", "*.*"));
         }
         return filters;
+    }
+
+    internal static string InferDefaultExtensionForTest(string fileName, string filter)
+    {
+        string extension = GetExtensionWithoutDot(fileName);
+        if (!string.IsNullOrWhiteSpace(extension))
+        {
+            return extension;
+        }
+        foreach (Tuple<string, string> filterPair in ParseFilterPairsForTest(filter))
+        {
+            foreach (string pattern in (filterPair.Item2 ?? string.Empty).Split(';'))
+            {
+                extension = GetExtensionWithoutDot(pattern);
+                if (!string.IsNullOrWhiteSpace(extension))
+                {
+                    return extension;
+                }
+            }
+        }
+        return null;
+    }
+
+    private static string GetExtensionWithoutDot(string pathOrPattern)
+    {
+        if (string.IsNullOrWhiteSpace(pathOrPattern) || pathOrPattern.Contains("?"))
+        {
+            return null;
+        }
+        string value = pathOrPattern.Trim();
+        if (value == "*.*")
+        {
+            return null;
+        }
+        try
+        {
+            string extension = Path.GetExtension(value);
+            if (string.IsNullOrWhiteSpace(extension) || extension == "." || extension.Contains("*") || extension.Contains("?"))
+            {
+                return null;
+            }
+            return extension.TrimStart('.');
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     internal static string ResolveInitialDirectoryForTest(string path)

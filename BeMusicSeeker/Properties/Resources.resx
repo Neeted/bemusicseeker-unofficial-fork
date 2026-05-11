@@ -1148,7 +1148,7 @@ BMSファイルが重複しないようにマージします。
     <value>score.db を開く</value>
   </data>
   <data name="FileDialogFilter_scoreDB" xml:space="preserve">
-    <value>score.db|score.db|すべてのファイル(*.*)|*.*</value>
+    <value>score.db (*.db)|*.db|すべてのファイル(*.*)|*.*</value>
   </data>
   <data name="Ignore_list" xml:space="preserve">
     <value>無視リスト</value>

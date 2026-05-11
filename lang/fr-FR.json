@@ -375,7 +375,7 @@
   "Device_setting_driver": "Driver:",
   "FilePath_configXml": "Emplacement config.xml: ",
   "Open_scoreDB": "Ouvrir score.db",
-  "FileDialogFilter_scoreDB": "score.db|score.db|Tous les fichiers (*.*)|*.*",
+  "FileDialogFilter_scoreDB": "score.db (*.db)|*.db|Tous les fichiers (*.*)|*.*",
   "Ignore_list": "Liste ignores",
   "Backup_restore_playlist": "Restore playlists",
   "Update_history_v0353_1": "Add French translation (thank to @LeElementaires)",

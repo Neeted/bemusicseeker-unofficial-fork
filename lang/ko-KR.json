@@ -375,7 +375,7 @@
   "Device_setting_driver": "드라이버:",
   "FilePath_configXml": "config.xml 경로: ",
   "Open_scoreDB": "score.db 열기",
-  "FileDialogFilter_scoreDB": "score.db|score.db|모든 파일 (*.*)|*.*",
+  "FileDialogFilter_scoreDB": "score.db (*.db)|*.db|모든 파일 (*.*)|*.*",
   "Ignore_list": "무시 목록",
   "Backup_restore_playlist": "재생 목록 복원",
   "Update_history_v0353_1": "프랑스어 번역 추가 (@LeElementaires 제공)",

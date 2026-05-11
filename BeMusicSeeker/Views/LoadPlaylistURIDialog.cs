@@ -68,6 +68,7 @@ public partial class LoadPlaylistURIDialog : UserControl, IComponentConnector
 	{
 		OpenFileDialog openFileDialog = new OpenFileDialog();
 		openFileDialog.Title = "ヘッダーファイルを開く";
+		openFileDialog.DefaultExt = ".json";
 		string filter = (openFileDialog.Filter = "Jsonファイル(*.json)|*.json");
 		openFileDialog.Filter = filter;
 		if (openFileDialog.ShowDialog() == true)

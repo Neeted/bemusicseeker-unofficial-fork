@@ -3491,6 +3491,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         fileDialogData.Title = BeMusicSeeker.Properties.Resources.Save_data_file;
         fileDialogHeader.FileName = ((!string.IsNullOrWhiteSpace(bmsTable.header_url)) ? Path.GetFileName(bmsTable.Header_url.ToString()) : "header.json");
         fileDialogData.FileName = ((!string.IsNullOrWhiteSpace(bmsTable.data_url)) ? Path.GetFileName(bmsTable.Data_url.ToString()) : "data.json");
+        fileDialogHeader.DefaultExt = ".json";
+        fileDialogData.DefaultExt = ".json";
+        fileDialogHeader.AddExtension = true;
+        fileDialogData.AddExtension = true;
         SaveFileDialog saveFileDialog = fileDialogHeader;
         string filter = (fileDialogData.Filter = BeMusicSeeker.Properties.Resources.Json_file_exts);
         saveFileDialog.Filter = filter;

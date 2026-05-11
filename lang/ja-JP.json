@@ -380,7 +380,7 @@
   "Device_setting_driver": "ドライバ:",
   "FilePath_configXml": "config.xml パス: ",
   "Open_scoreDB": "score.db を開く",
-  "FileDialogFilter_scoreDB": "score.db|score.db|すべてのファイル(*.*)|*.*",
+  "FileDialogFilter_scoreDB": "score.db (*.db)|*.db|すべてのファイル(*.*)|*.*",
   "Ignore_list": "無視リスト",
   "Backup_restore_playlist": "プレイリストの復元",
   "Update_history_v1000_1": "Unofficial Fork, Initial Release.",

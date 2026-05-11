@@ -1106,17 +1106,45 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsNotNull(actionType);
         MethodInfo parseMethod = actionType.GetMethod("ParseFilterPairsForTest", BindingFlags.Static | BindingFlags.NonPublic);
         Assert.IsNotNull(parseMethod);
-        var parsed = ((System.Collections.IEnumerable)parseMethod.Invoke(null, new object[] { "|song.db|すべてのファイル(*.*)|*.*" }))
+        MethodInfo inferDefaultExtensionMethod = actionType.GetMethod("InferDefaultExtensionForTest", BindingFlags.Static | BindingFlags.NonPublic);
+        Assert.IsNotNull(inferDefaultExtensionMethod);
+        var parsed = ((System.Collections.IEnumerable)parseMethod.Invoke(null, new object[] { "song.db (*.db)|*.db|すべてのファイル(*.*)|*.*" }))
             .Cast<Tuple<string, string>>()
             .ToList();
         Assert.AreEqual(2, parsed.Count);
-        Assert.AreEqual("song.db", parsed[0].Item1);
-        Assert.AreEqual("song.db", parsed[0].Item2);
+        Assert.AreEqual("song.db (*.db)", parsed[0].Item1);
+        Assert.AreEqual("*.db", parsed[0].Item2);
         Assert.AreEqual("*.*", parsed[1].Item2);
         var fallback = ((System.Collections.IEnumerable)parseMethod.Invoke(null, new object[] { "broken" }))
             .Cast<Tuple<string, string>>()
             .ToList();
         Assert.AreEqual("*.*", fallback[0].Item2);
+        Assert.AreEqual("db", inferDefaultExtensionMethod.Invoke(null, new object[] { "song.db", "song.db (*.db)|*.db|すべてのファイル(*.*)|*.*" }));
+        Assert.AreEqual("xml", inferDefaultExtensionMethod.Invoke(null, new object[] { "config.xml", "|config.xm?|すべてのファイル(*.*)|*.*" }));
+        Assert.AreEqual("bmp", inferDefaultExtensionMethod.Invoke(null, new object[] { string.Empty, "Image file|*.bmp;*.gif;*.jpg;*.jpeg;*.png|すべてのファイル(*.*)|*.*" }));
+        Assert.IsNull(inferDefaultExtensionMethod.Invoke(null, new object[] { string.Empty, "すべてのファイル(*.*)|*.*" }));
+        StringAssert.Contains(dialogActionCode, "dialog.DefaultExtension = defaultExtension");
+        StringAssert.Contains(dialogActionCode, "InferDefaultExtensionForTest(message.FileName, message.Filter)");
+        StringAssert.Contains(settingDialogXaml, "Filter=\"|config.xm?|");
+        StringAssert.Contains(settingDialogXaml, "Filter=\"song.db (*.db)|*.db|");
+        StringAssert.Contains(Resources.FileDialogFilter_scoreDB, "score.db (*.db)|*.db|");
+    }
+
+    [TestMethod]
+    public void FileDialogs_SetDefaultExtensionsForTypedFileNames()
+    {
+        string root = FindRepositoryRoot();
+        string settingDialogCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingDialog.cs"));
+        string mainWindowCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "MainWindow.cs"));
+        string loadPlaylistCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "LoadPlaylistURIDialog.cs"));
+
+        StringAssert.Contains(settingDialogCode, "fileDialog.DefaultExt = \".sql\";");
+        StringAssert.Contains(settingDialogCode, "fileDialog.AddExtension = true;");
+        StringAssert.Contains(mainWindowCode, "fileDialogHeader.DefaultExt = \".json\";");
+        StringAssert.Contains(mainWindowCode, "fileDialogData.DefaultExt = \".json\";");
+        StringAssert.Contains(mainWindowCode, "fileDialogHeader.AddExtension = true;");
+        StringAssert.Contains(mainWindowCode, "fileDialogData.AddExtension = true;");
+        StringAssert.Contains(loadPlaylistCode, "openFileDialog.DefaultExt = \".json\";");
     }
 
     [TestMethod]

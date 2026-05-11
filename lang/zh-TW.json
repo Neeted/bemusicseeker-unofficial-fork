@@ -375,7 +375,7 @@
   "Device_setting_driver": "驅動程式：",
   "FilePath_configXml": "config.xml 位置：",
   "Open_scoreDB": "開啟 score.db",
-  "FileDialogFilter_scoreDB": "score.db|score.db|所有檔案 (*.*)|*.*",
+  "FileDialogFilter_scoreDB": "score.db (*.db)|*.db|所有檔案 (*.*)|*.*",
   "Ignore_list": "忽略清單",
   "Backup_restore_playlist": "還原播放清單",
   "Update_history_v0353_1": "新增法語翻譯 (感謝 @LeElementaires)",
