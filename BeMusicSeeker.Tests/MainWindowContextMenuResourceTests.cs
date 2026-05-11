@@ -876,7 +876,7 @@ public sealed class MainWindowContextMenuResourceTests
     {
         string xaml = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "PlaylistPropertyDialog.xaml"));
 
-        StringAssert.Contains(xaml, "<Border Width=\"520\" Height=\"340\" CornerRadius=\"8\"");
+        StringAssert.Contains(xaml, "<Border Width=\"520\" Height=\"350\" CornerRadius=\"8\"");
         StringAssert.Contains(xaml, "BorderBrush=\"{DynamicResource App.DialogBorderBrush}\"");
         StringAssert.Contains(xaml, "<Style TargetType=\"{x:Type TabControl}\" BasedOn=\"{StaticResource {x:Type TabControl}}\">");
         StringAssert.Contains(xaml, "<ScrollViewer Margin=\"4\" VerticalScrollBarVisibility=\"Auto\" HorizontalScrollBarVisibility=\"Disabled\">");
@@ -946,6 +946,7 @@ public sealed class MainWindowContextMenuResourceTests
         string simpleTextBox = styles.Substring(styles.IndexOf("x:Key=\"SimpleTextBox\"", StringComparison.Ordinal), 1200);
         StringAssert.Contains(simpleTextBox, "VerticalContentAlignment\" Value=\"Center\"");
         StringAssert.Contains(simpleTextBox, "VerticalAlignment=\"{TemplateBinding Control.VerticalContentAlignment}\"");
+        StringAssert.Contains(simpleTextBox, "CaretBrush\" Value=\"{DynamicResource App.TextBrush}\"");
         string simpleComboBox = styles.Substring(styles.IndexOf("x:Key=\"SimpleComboBox\"", StringComparison.Ordinal), 1200);
         StringAssert.Contains(simpleComboBox, "VerticalContentAlignment\" Value=\"Center\"");
         StringAssert.Contains(simpleComboBox, "VerticalAlignment=\"{TemplateBinding Control.VerticalContentAlignment}\"");
@@ -956,6 +957,8 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(mainWindow, "App.ControlBackgroundActiveBrush");
         StringAssert.Contains(mainWindow, "ElementName=KeywordSearchBox, Mode=OneWay, Converter={qc:QuickConverter '!String.IsNullOrWhiteSpace($P)'}");
         StringAssert.Contains(mainWindow, "ElementName=KeywordSearchBoxPlaylistSummary, Mode=OneWay, Converter={qc:QuickConverter '!String.IsNullOrWhiteSpace($P)'}");
+        StringAssert.Contains(mainWindow, "TextBox Name=\"KeywordSearchBox\" Width=\"390\"");
+        StringAssert.Contains(mainWindow, "TextBox Name=\"KeywordSearchBoxPlaylistSummary\" Width=\"390\"");
         StringAssert.Contains(styles, "Data=\"M2,6 L5,9 L11,2\"");
         StringAssert.Contains(styles, "Name=\"IndeterminateMark\"");
 

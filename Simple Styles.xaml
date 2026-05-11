@@ -571,6 +571,7 @@
     <Setter Property="UIElement.AllowDrop" Value="True" />
     <Setter Property="Background" Value="{DynamicResource WindowBackgroundBrush}" />
     <Setter Property="Foreground" Value="{DynamicResource App.TextBrush}" />
+    <Setter Property="CaretBrush" Value="{DynamicResource App.TextBrush}" />
     <Setter Property="BorderBrush" Value="{DynamicResource SolidBorderBrush}" />
     <Setter Property="VerticalContentAlignment" Value="Center" />
     <Setter Property="Template">

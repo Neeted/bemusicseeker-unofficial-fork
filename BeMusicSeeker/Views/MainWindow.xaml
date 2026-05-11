@@ -1667,7 +1667,7 @@
                       </ContextMenu>
                     </v:DropDownMenuButton.DropDownContextMenu>
                   </v:DropDownMenuButton>
-                  <TextBox Name="KeywordSearchBox" Width="156" BorderThickness="0" HorizontalAlignment="Left" Margin="0,0,0,0" VerticalAlignment="Center" Background="Transparent" Foreground="{DynamicResource App.TextBrush}" VerticalContentAlignment="Center" Text="{Binding KeywordFilter, Delay=500, UpdateSourceTrigger=PropertyChanged}" TextChanged="keywordSearchBoxTextChanged" GotKeyboardFocus="keywordSearchBoxGotKeyboardFocus" LostKeyboardFocus="keywordSearchBoxLostKeyboardFocus" PreviewKeyDown="keywordSearchBoxPreviewKeyDown" />
+                  <TextBox Name="KeywordSearchBox" Width="390" BorderThickness="0" HorizontalAlignment="Left" Margin="0,0,0,0" VerticalAlignment="Center" Background="Transparent" Foreground="{DynamicResource App.TextBrush}" VerticalContentAlignment="Center" Text="{Binding KeywordFilter, Delay=500, UpdateSourceTrigger=PropertyChanged}" TextChanged="keywordSearchBoxTextChanged" GotKeyboardFocus="keywordSearchBoxGotKeyboardFocus" LostKeyboardFocus="keywordSearchBoxLostKeyboardFocus" PreviewKeyDown="keywordSearchBoxPreviewKeyDown" />
                   <Popup Placement="Bottom" PlacementTarget="{Binding ElementName=KeywordSearchBox}" StaysOpen="False" AllowsTransparency="True" IsOpen="{Binding IsKeywordSearchSuggestionPopupOpen, Mode=TwoWay}">
                     <Border BorderBrush="{DynamicResource App.BorderBrush}" BorderThickness="1" CornerRadius="4" Background="{DynamicResource App.PopupBackgroundBrush}" Padding="4" MinWidth="{Binding ActualWidth, ElementName=KeywordSearchBox}">
                       <StackPanel>
@@ -1738,7 +1738,7 @@
                       </ContextMenu>
                     </v:DropDownMenuButton.DropDownContextMenu>
                   </v:DropDownMenuButton>
-                  <TextBox Name="KeywordSearchBoxPlaylistSummary" Width="156" BorderThickness="0" HorizontalAlignment="Left" Margin="0,0,0,0" VerticalAlignment="Center" Background="Transparent" Foreground="{DynamicResource App.TextBrush}" VerticalContentAlignment="Center" Text="{Binding PlaylistSummaryKeywordFilter, Delay=500, UpdateSourceTrigger=PropertyChanged}" TextChanged="keywordSearchBoxTextChanged" GotKeyboardFocus="keywordSearchBoxGotKeyboardFocus" LostKeyboardFocus="keywordSearchBoxLostKeyboardFocus" PreviewKeyDown="keywordSearchBoxPreviewKeyDown" />
+                  <TextBox Name="KeywordSearchBoxPlaylistSummary" Width="390" BorderThickness="0" HorizontalAlignment="Left" Margin="0,0,0,0" VerticalAlignment="Center" Background="Transparent" Foreground="{DynamicResource App.TextBrush}" VerticalContentAlignment="Center" Text="{Binding PlaylistSummaryKeywordFilter, Delay=500, UpdateSourceTrigger=PropertyChanged}" TextChanged="keywordSearchBoxTextChanged" GotKeyboardFocus="keywordSearchBoxGotKeyboardFocus" LostKeyboardFocus="keywordSearchBoxLostKeyboardFocus" PreviewKeyDown="keywordSearchBoxPreviewKeyDown" />
                   <Popup Placement="Bottom" PlacementTarget="{Binding ElementName=KeywordSearchBoxPlaylistSummary}" StaysOpen="False" AllowsTransparency="True" IsOpen="{Binding IsPlaylistSummaryKeywordSearchSuggestionPopupOpen, Mode=TwoWay}">
                     <Border BorderBrush="{DynamicResource App.BorderBrush}" BorderThickness="1" CornerRadius="4" Background="{DynamicResource App.PopupBackgroundBrush}" Padding="4" MinWidth="{Binding ActualWidth, ElementName=KeywordSearchBoxPlaylistSummary}">
                       <StackPanel>
