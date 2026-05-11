@@ -25,6 +25,7 @@
 - [settings-change-impact-and-startup-operations.md](settings-change-impact-and-startup-operations.md)
 - [warning-model.md](warning-model.md)
 - [appearance-theme.md](appearance-theme.md)
+- [custom-table-view.md](custom-table-view.md)
 
 ## 旧 TECH_SPEC について
 
